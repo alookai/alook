@@ -238,6 +238,7 @@ export interface ManagerRuntimeOpts {
     event:
       | { kind: "tool_call"; payload: { name: string; target?: string } }
       | { kind: "thinking"; payload: { text: string; truncated: boolean; chars: number } }
+      | { kind: "turn_interrupt"; payload: { status: "accepted" } }
       | { kind: "session_reset"; payload: { trigger: "idle_timeout" } }
       | {
           kind: "error";
@@ -842,7 +843,22 @@ export class AgentProcessManager {
   async interrupt(agentId: string): Promise<void> {
     const session = this.sessions.get(agentId);
     if (!session) return;
-    await session.interrupt({ requestId: randomUUID(), reason: "owner_request" });
+    const result = await session.interrupt({ requestId: randomUUID(), reason: "owner_request" });
+    if (result.status !== "accepted") return;
+    this.log.info("agent turn interrupt accepted", {
+      agentId,
+      sessionInstanceId: session.sessionInstanceId,
+      turnId: result.turnId,
+    });
+    try {
+      this.opts.onBotAuditEvent?.(
+        agentId,
+        { kind: "turn_interrupt", payload: { status: "accepted" } },
+        this.auditContext(agentId),
+      );
+    } catch (err) {
+      this.log.debug("audit emit failed (turn interrupt)", { agentId, err: String(err) });
+    }
   }
   async stopAll(): Promise<void> {
     if (this.tickTimer) {

@@ -947,6 +947,7 @@ export type BotAuditEventPayload =
     }
   | { kind: "tool_call"; payload: { name: string; target?: string } }
   | { kind: "thinking"; payload: { text: string; truncated: boolean; chars: number } }
+  | { kind: "turn_interrupt"; payload: { status: "accepted" } }
   | {
       kind: "wake_trigger";
       payload: {

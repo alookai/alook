@@ -31,7 +31,7 @@ export type BotActivityEventInput = {
   botId: string;
   sessionId?: string | null;
   launchId?: string | null;
-  kind: "cli_invocation" | "tool_call" | "thinking" | "wake_trigger" | "session_reset" | "nap" | "model_changed" | "provider_changed" | "error";
+  kind: "cli_invocation" | "tool_call" | "thinking" | "turn_interrupt" | "wake_trigger" | "session_reset" | "nap" | "model_changed" | "provider_changed" | "error";
   payload: string;
   createdAt?: string;
 };

@@ -90,6 +90,22 @@ describe("BotActivityRow — concrete command copy", () => {
   })
 })
 
+describe("BotActivityRow — turn_interrupt", () => {
+  it("states daemon acceptance without claiming the turn is already idle", () => {
+    const renderer = render({
+      id: "e-stop",
+      kind: "turn_interrupt",
+      payload: { status: "accepted" },
+      sessionId: "session-1",
+      launchId: "launch-1",
+      createdAt: "2026-09-01T14:00:00.000Z",
+    })
+    const text = rowText(renderer, "bot-activity-event-turn_interrupt")
+    expect(text).toContain("Stop accepted by daemon")
+    expect(text).toContain("waiting for the active turn to become idle")
+  })
+})
+
 describe("BotActivityRow — provider_changed", () => {
   function providerRowText(renderer: TestRenderer.ReactTestRenderer): string {
     return rowText(renderer, "bot-activity-event-provider_changed")

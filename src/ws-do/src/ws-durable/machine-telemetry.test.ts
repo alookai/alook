@@ -871,6 +871,51 @@ describe("WebSocketDurableObject", () => {
         mockStubFetch.mockClear()
       })
 
+      it("persists a daemon-accepted turn interrupt", async () => {
+        const { durable, store } = createDO()
+        store.set("community-machine-identity", {
+          userId: "u_1",
+          machineId: "cm_1",
+          credentialHash: "0".repeat(64),
+        })
+        mockGetBotBindingWithOwner.mockResolvedValue({
+          machineId: "cm_1",
+          ownerUserId: "owner_1",
+          runtime: "codex",
+          name: "Bot",
+          discriminator: "0007",
+        })
+        mockInsertBotActivityEventAndPrune.mockResolvedValue({
+          id: "bae_stop",
+          createdAt: "2026-09-01T15:00:00.000Z",
+        })
+        const ws = createMockWebSocket()
+        ws.serializeAttachment({
+          type: "community-machine",
+          machineId: "cm_1",
+          userId: "u_1",
+          authenticated: true,
+        })
+
+        await durable.webSocketMessage(ws as any, JSON.stringify({
+          type: "bot_audit_event",
+          agentId: "bot_1",
+          sessionId: "s_1",
+          launchId: "l_1",
+          event: { kind: "turn_interrupt", payload: { status: "accepted" } },
+        }))
+
+        expect(mockInsertBotActivityEventAndPrune).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({
+            botId: "bot_1",
+            kind: "turn_interrupt",
+            payload: JSON.stringify({ status: "accepted" }),
+          }),
+          [],
+        )
+      })
+
       it("preserves the durable completion time when a reset is replayed two hours late", async () => {
         const { durable, store } = createDO()
         store.set("community-machine-identity", {

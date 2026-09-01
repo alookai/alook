@@ -304,8 +304,9 @@ function makeManager(opts: { logger?: Logger; tickIntervalMs?: number; idleTimeo
 }
 
 describe("AgentProcessManager — running-turn interrupt", () => {
-  it("interrupts the current session without deleting it", async () => {
-    const { mgr } = makeManager();
+  it("audits a daemon-accepted interrupt without deleting the session", async () => {
+    const onBotAuditEvent = vi.fn();
+    const { mgr } = makeManager({ onBotAuditEvent });
     const session = fakeSession("interrupt-session");
     session.interrupt = vi.fn(async ({ requestId }) => ({ status: "accepted", requestId, turnId: "turn_1" }));
     (mgr as unknown as { sessions: Map<string, TestAgentSession> }).sessions.set("a1", session);
@@ -317,6 +318,23 @@ describe("AgentProcessManager — running-turn interrupt", () => {
       reason: "owner_request",
     });
     expect((mgr as unknown as { sessions: Map<string, TestAgentSession> }).sessions.get("a1")).toBe(session);
+    expect(onBotAuditEvent).toHaveBeenCalledWith(
+      "a1",
+      { kind: "turn_interrupt", payload: { status: "accepted" } },
+      { sessionId: null, launchId: null },
+    );
+  });
+
+  it.each(["not_running", "closed"] as const)("does not audit a %s interrupt as successful", async (status) => {
+    const onBotAuditEvent = vi.fn();
+    const { mgr } = makeManager({ onBotAuditEvent });
+    const session = fakeSession("interrupt-session");
+    session.interrupt = vi.fn(async () => ({ status }));
+    (mgr as unknown as { sessions: Map<string, TestAgentSession> }).sessions.set("a1", session);
+
+    await mgr.interrupt("a1");
+
+    expect(onBotAuditEvent).not.toHaveBeenCalled();
   });
 });
 

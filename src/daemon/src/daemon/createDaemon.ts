@@ -493,6 +493,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
         }
       | { kind: "tool_call"; payload: { name: string; target?: string } }
       | { kind: "thinking"; payload: { text: string; truncated: boolean; chars: number } }
+      | { kind: "turn_interrupt"; payload: { status: "accepted" } }
       | { kind: "session_reset"; payload: { trigger: "idle_timeout" } }
       | {
           kind: "error";
