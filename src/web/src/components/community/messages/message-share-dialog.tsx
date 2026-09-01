@@ -503,6 +503,7 @@ export function MessageShareDialog({ m, open, onClose }: {
         render,
         `alook-message-${firstAuthor?.name ?? "share"}.png`,
       )
+      toast.success("Image downloaded")
     } catch (error) {
       toast.error(shareCardRenderErrorMessage(error) ?? "Couldn't generate image")
     } finally {

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
+import { toBlob } from "html-to-image"
 import { toast } from "sonner"
 import {
   MessageShareDialog,
@@ -56,7 +57,10 @@ function message(overrides: Partial<RenderMsg> = {}): RenderMsg {
   }
 }
 
-function renderMessage(m: RenderMsg) {
+function renderMessage(
+  m: RenderMsg,
+  options: TestRenderer.TestRendererOptions = {},
+) {
   profileState.map = new Map()
   if (m.authorId) {
     profileState.map.set(m.authorId, {
@@ -68,11 +72,14 @@ function renderMessage(m: RenderMsg) {
   }
   let renderer: TestRenderer.ReactTestRenderer
   act(() => {
-    renderer = TestRenderer.create(React.createElement(MessageShareDialog, {
-      m,
-      open: true,
-      onClose: vi.fn(),
-    }))
+    renderer = TestRenderer.create(
+      React.createElement(MessageShareDialog, {
+        m,
+        open: true,
+        onClose: vi.fn(),
+      }),
+      options,
+    )
   })
   return renderer!
 }
@@ -882,9 +889,63 @@ describe("writeShareCardToClipboard", () => {
   })
 })
 
-describe("MessageShareDialog render failures", () => {
+describe("MessageShareDialog action feedback", () => {
   afterEach(() => {
+    vi.mocked(toBlob).mockReset()
+    vi.mocked(toast.success).mockReset()
     vi.mocked(toast.error).mockReset()
+    vi.unstubAllGlobals()
+  })
+
+  it("confirms a completed image download", async () => {
+    const blob = new Blob(["png"], { type: "image/png" })
+    const click = vi.fn()
+    const createObjectURL = vi.fn(() => "blob:share-card")
+    const revokeObjectURL = vi.fn()
+    vi.mocked(toBlob).mockResolvedValue(blob)
+    vi.stubGlobal("document", {
+      documentElement: {},
+      fonts: { ready: Promise.resolve() },
+      createElement: vi.fn(() => ({ click })),
+    })
+    vi.stubGlobal("getComputedStyle", vi.fn(() => ({
+      getPropertyValue: vi.fn(() => ""),
+    })))
+    vi.stubGlobal("URL", { createObjectURL, revokeObjectURL })
+    const renderer = renderMessage(message(), {
+      createNodeMock: () => ({ querySelectorAll: () => [] }),
+    })
+    const downloadButton = renderer.root.findAllByType("button").find(
+      (button) => button.children.includes("Download"),
+    )
+
+    expect(downloadButton).toBeDefined()
+    await act(async () => {
+      await downloadButton!.props.onClick()
+    })
+
+    expect(click).toHaveBeenCalledOnce()
+    expect(createObjectURL).toHaveBeenCalledWith(blob)
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:share-card")
+    expect(toast.success).toHaveBeenCalledWith("Image downloaded")
+    expect(toast.error).not.toHaveBeenCalled()
+  })
+
+  it("does not confirm a failed image download", async () => {
+    const renderer = renderMessage(message())
+    const downloadButton = renderer.root.findAllByType("button").find(
+      (button) => button.children.includes("Download"),
+    )
+
+    expect(downloadButton).toBeDefined()
+    await act(async () => {
+      await downloadButton!.props.onClick()
+    })
+
+    expect(toast.error).toHaveBeenCalledWith(
+      "Couldn't generate image — rendering the image failed",
+    )
+    expect(toast.success).not.toHaveBeenCalled()
   })
 
   it("shows a stage-specific render failure instead of clipboard advice", async () => {
@@ -898,5 +959,6 @@ describe("MessageShareDialog render failures", () => {
     expect(toast.error).toHaveBeenCalledWith(
       "Couldn't generate image — rendering the image failed",
     )
+    expect(toast.success).not.toHaveBeenCalled()
   })
 })
