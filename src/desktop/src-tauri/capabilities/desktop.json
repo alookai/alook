@@ -4,7 +4,7 @@
   "description": "Production custom-command access for the Desktop webview",
   "windows": ["main"],
   "platforms": ["linux", "macOS", "windows"],
-  "local": false,
+  "local": true,
   "remote": {
     "urls": ["https://alook.ai"]
   },

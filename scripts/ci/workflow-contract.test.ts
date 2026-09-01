@@ -58,6 +58,7 @@ const desktopReleaseWorkflow = normalizeWorkflow(readFileSync(resolve(workflowRo
 const desktopConfig = JSON.parse(
   readFileSync(resolve(import.meta.dirname, "../../src/desktop/src-tauri/tauri.conf.json"), "utf8"),
 ) as {
+  build?: { devUrl?: string; frontendDist?: string }
   app?: { windows?: Array<{ label?: string; dragDropEnabled?: boolean }> }
   bundle?: { createUpdaterArtifacts?: boolean | string }
   plugins?: { updater?: { endpoints?: string[] } }
@@ -83,6 +84,10 @@ const desktopRustEntry = readFileSync(
 )
 type DesktopCapability = {
   identifier: string
+  windows?: string[]
+  platforms?: string[]
+  local?: boolean
+  remote?: { urls?: string[] }
   permissions: string[]
 }
 const desktopCapability = JSON.parse(readFileSync(
@@ -709,9 +714,6 @@ describe("Desktop updater release", () => {
 
 describe("Desktop image clipboard", () => {
   const writeImagePermission = "clipboard-manager:allow-write-image"
-  const clipboardPermissions = (permissions: string[]) => (
-    permissions.filter((permission) => permission.startsWith("clipboard-manager:"))
-  )
 
   it("registers the maintained plugin only in the desktop dependency chain", () => {
     expect(desktopCargoManifest).toMatch(
@@ -723,15 +725,20 @@ describe("Desktop image clipboard", () => {
     expect(desktopRustEntry.match(/tauri_plugin_clipboard_manager::init/g)).toHaveLength(1)
   })
 
-  it("grants only image writes to both remote desktop origins", () => {
-    const developmentCapability = desktopDevConfig.app.security.capabilities.find(
-      (capability): capability is DesktopCapability => (
-        typeof capability !== "string" && capability.identifier === "desktop-development"
-      ),
-    )
-    expect(developmentCapability).toBeDefined()
-    expect(clipboardPermissions(desktopCapability.permissions)).toEqual([writeImagePermission])
-    expect(clipboardPermissions(developmentCapability?.permissions ?? [])).toEqual([writeImagePermission])
+  it("authorizes configured app documents through one local image-write capability", () => {
+    expect(desktopConfig.build).toMatchObject({
+      devUrl: "http://localhost:3000/c",
+      frontendDist: "https://alook.ai/c",
+    })
+    expect(desktopCapability).toMatchObject({
+      identifier: "desktop-capability",
+      windows: ["main"],
+      platforms: ["linux", "macOS", "windows"],
+      local: true,
+      remote: { urls: ["https://alook.ai"] },
+      permissions: [writeImagePermission],
+    })
+    expect(desktopDevConfig.app.security.capabilities).toEqual(["desktop-capability"])
   })
 })
 
