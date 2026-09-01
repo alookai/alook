@@ -5,6 +5,7 @@ import Image from "next/image"
 import { toBlob } from "html-to-image"
 import { toast } from "sonner"
 import { Check, Copy, Download, Highlighter, Loader2 } from "lucide-react"
+import { writeImage } from "@tauri-apps/plugin-clipboard-manager"
 import { isDesktop, isTauri, stripInlineMarkup } from "@alook/shared"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
@@ -348,20 +349,9 @@ export async function renderShareCard(
 type ShareCardRenderer = () => Promise<Blob | null>
 type ShareCardBlobWriter = (blob: Blob) => Promise<void> | void
 
-type TauriClipboardWindow = Window & {
-  __TAURI__?: {
-    clipboardManager?: {
-      writeImage?: (image: ArrayBuffer) => Promise<void>
-    }
-  }
-}
-
 export async function writeShareCardToClipboard(blob: Blob): Promise<void> {
-  const clipboardManager = isTauri() && isDesktop()
-    ? (window as TauriClipboardWindow).__TAURI__?.clipboardManager
-    : undefined
-  if (clipboardManager?.writeImage) {
-    await clipboardManager.writeImage(await blob.arrayBuffer())
+  if (isTauri() && isDesktop()) {
+    await writeImage(await blob.arrayBuffer())
     return
   }
 
