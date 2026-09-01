@@ -647,6 +647,17 @@ describe("reduceManager — tick: stall + idle hibernation", () => {
       lastWorkAt: 30,
     });
 
+    const leaseBeforeAnonymousFinish = s.agents.a.execution.lease;
+    s = reduceManager(s, {
+      type: "turn_tool_finished",
+      agentId: "a",
+      sessionInstanceId: SESSION_INSTANCE,
+      turnId: "root-turn",
+      nowMs: 35,
+    }).state;
+    expect(s.agents.a.execution.lease).toEqual(leaseBeforeAnonymousFinish);
+    expect(s.agents.a.execution.lease.lastWorkAt).toBe(30);
+
     s = lifecycle(s, "turn_tool_finished", "call-1", 40);
     s = lifecycle(s, "turn_tool_finished", "call-1", 50);
     expect(s.agents.a.execution.lease).toMatchObject({
