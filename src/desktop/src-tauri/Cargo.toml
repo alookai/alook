@@ -23,6 +23,7 @@ ignored = ["serde_json"]
 tauri-plugin-notification = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-dialog = "2"
+tauri-plugin-clipboard-manager = "2"
 base64 = "0.22"
 tokio = { version = "1", features = ["macros"] }
 command-group = "5.0.1"

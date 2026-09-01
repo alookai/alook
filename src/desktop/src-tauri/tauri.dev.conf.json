@@ -13,7 +13,7 @@
           "remote": {
             "urls": ["http://localhost:3000"]
           },
-          "permissions": []
+          "permissions": ["clipboard-manager:allow-write-image"]
         }
       ]
     }

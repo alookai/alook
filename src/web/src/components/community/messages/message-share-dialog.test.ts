@@ -14,6 +14,7 @@ import {
   shareCardRenderErrorMessage,
   snapshotShareCardImages,
   waitForShareCardImages,
+  writeShareCardToClipboard,
 } from "./message-share-dialog"
 import type { RenderMsg } from "@/lib/community/models/message"
 import { tid } from "@/lib/community/testids"
@@ -814,6 +815,70 @@ describe("renderShareCard", () => {
 
   it("leaves post-render action errors to their action-specific UI", () => {
     expect(shareCardRenderErrorMessage(new Error("clipboard denied"))).toBeNull()
+  })
+})
+
+describe("writeShareCardToClipboard", () => {
+  class ClipboardItemStub {
+    constructor(readonly items: Record<string, Blob>) {}
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it("forwards PNG bytes once through the native desktop clipboard", async () => {
+    const writeImage = vi.fn().mockResolvedValue(undefined)
+    const webWrite = vi.fn()
+    vi.stubGlobal("window", { __TAURI__: { clipboardManager: { writeImage } } })
+    vi.stubGlobal("navigator", { userAgent: "Macintosh", clipboard: { write: webWrite } })
+    const bytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])
+
+    await writeShareCardToClipboard(new Blob([bytes], { type: "image/png" }))
+
+    expect(writeImage).toHaveBeenCalledOnce()
+    expect([...new Uint8Array(writeImage.mock.calls[0][0])]).toEqual([...bytes])
+    expect(webWrite).not.toHaveBeenCalled()
+  })
+
+  it("does not retry WebKit after a native clipboard rejection", async () => {
+    const failure = new Error("native clipboard rejected")
+    const writeImage = vi.fn().mockRejectedValue(failure)
+    const webWrite = vi.fn()
+    vi.stubGlobal("window", { __TAURI__: { clipboardManager: { writeImage } } })
+    vi.stubGlobal("navigator", { userAgent: "Macintosh", clipboard: { write: webWrite } })
+
+    await expect(writeShareCardToClipboard(new Blob(["png"]))).rejects.toBe(failure)
+
+    expect(writeImage).toHaveBeenCalledOnce()
+    expect(webWrite).not.toHaveBeenCalled()
+  })
+
+  it("uses Web Clipboard when an older desktop bundle has no native plugin", async () => {
+    const webWrite = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal("window", { __TAURI__: {} })
+    vi.stubGlobal("navigator", { userAgent: "Macintosh", clipboard: { write: webWrite } })
+    vi.stubGlobal("ClipboardItem", ClipboardItemStub)
+    const blob = new Blob(["png"], { type: "image/png" })
+
+    await writeShareCardToClipboard(blob)
+
+    expect(webWrite).toHaveBeenCalledOnce()
+    expect(webWrite.mock.calls[0][0][0].items).toEqual({ "image/png": blob })
+  })
+
+  it.each([
+    ["ordinary Web", {}, "Macintosh"],
+    ["Tauri mobile", { __TAURI__: { clipboardManager: { writeImage: vi.fn() } } }, "iPhone"],
+  ])("keeps %s on Web Clipboard", async (_surface, testWindow, userAgent) => {
+    const webWrite = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal("window", testWindow)
+    vi.stubGlobal("navigator", { userAgent, clipboard: { write: webWrite } })
+    vi.stubGlobal("ClipboardItem", ClipboardItemStub)
+
+    await writeShareCardToClipboard(new Blob(["png"], { type: "image/png" }))
+
+    expect(webWrite).toHaveBeenCalledOnce()
   })
 })
 

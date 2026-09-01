@@ -8,5 +8,5 @@
   "remote": {
     "urls": ["https://alook.ai"]
   },
-  "permissions": []
+  "permissions": ["clipboard-manager:allow-write-image"]
 }
