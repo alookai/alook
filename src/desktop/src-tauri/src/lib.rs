@@ -3,6 +3,9 @@ mod commands;
 #[cfg(desktop)]
 mod updater;
 
+#[cfg(desktop)]
+mod zoom;
+
 #[cfg(target_os = "macos")]
 mod macos_window;
 
@@ -14,6 +17,8 @@ pub fn run() {
     #[cfg(desktop)]
     {
         let builder = builder
+            .manage(zoom::ZoomState::default())
+            .append_invoke_initialization_script(zoom::shortcut_script(std::env::consts::OS))
             .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
                 commands::show_main_window(app);
             }))
@@ -21,10 +26,20 @@ pub fn run() {
             .plugin(tauri_plugin_updater::Builder::new().build())
             .plugin(tauri_plugin_dialog::init())
             .plugin(tauri_plugin_clipboard_manager::init())
-            .menu(updater::build_app_menu)
-            .on_menu_event(|app, event| {
-                updater::handle_menu_event(app, event.id().as_ref());
-            });
+            .menu(|handle| {
+                let menu = updater::build_app_menu(handle)?;
+                zoom::extend_app_menu(handle, &menu)?;
+                Ok(menu)
+            })
+            .on_menu_event(
+                |app, event| match zoom::handle_menu_event(app, event.id().as_ref()) {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        updater::handle_menu_event(app, event.id().as_ref());
+                    }
+                    Err(error) => eprintln!("desktop zoom failed: {error}"),
+                },
+            );
         run_desktop(builder);
     }
 
@@ -49,10 +64,12 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
         commands::daemon_pair,
         commands::set_window_theme,
         commands::close_splashscreen,
+        zoom::desktop_zoom_shortcut,
     ]);
 
     // System tray + window setup (desktop only)
     builder = builder.setup(|app| {
+        zoom::restore(app)?;
         commands::setup_tray(app)?;
         updater::auto_check_updates(app.handle().clone());
 
