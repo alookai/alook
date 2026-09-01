@@ -78,6 +78,94 @@ async function renderCapture(options?: Parameters<typeof useFileAttachments>[0])
   }
 }
 
+async function dropFiles(
+  hook: Awaited<ReturnType<typeof renderCapture>>,
+  files: File[],
+) {
+  const preventDefault = vi.fn()
+  const stopPropagation = vi.fn()
+  act(() => {
+    hook.current.handleDrop({
+      preventDefault,
+      stopPropagation,
+      dataTransfer: { files },
+    } as unknown as React.DragEvent)
+  })
+  await act(async () => {
+    await hook.current.awaitPendingFiles()
+  })
+  expect(preventDefault).toHaveBeenCalledOnce()
+  expect(stopPropagation).toHaveBeenCalledOnce()
+}
+
+describe("useFileAttachments — DOM drop ownership", () => {
+  it("routes picker selection and DOM drop through the same pending-file lifecycle", async () => {
+    generateThumbnailMock.mockResolvedValue(null)
+    const hook = await renderCapture()
+    const selected = new File(["picker"], "picker.txt", { type: "text/plain" })
+    const dropped = new File(["drop"], "drop.png", { type: "image/png" })
+    const target = { files: [selected], value: "picker.txt" }
+
+    act(() => {
+      hook.current.handleFileSelect({ target } as unknown as React.ChangeEvent<HTMLInputElement>)
+    })
+    await act(async () => {
+      await hook.current.awaitPendingFiles()
+    })
+    await dropFiles(hook, [dropped])
+
+    expect(target.value).toBe("")
+    expect(hook.current.pendingFiles.map(({ file }) => file)).toEqual([selected, dropped])
+    expect(generateThumbnailMock).toHaveBeenCalledTimes(2)
+  })
+
+  it("keeps oversize DOM drops out of pending state and shows the existing error", async () => {
+    generateThumbnailMock.mockResolvedValue(null)
+    const hook = await renderCapture({ maxFileSize: 1024 * 1024 })
+    const dropped = new File(
+      [new Uint8Array(1024 * 1024 + 1)],
+      "too-large.png",
+      { type: "image/png" },
+    )
+
+    await dropFiles(hook, [dropped])
+
+    expect(hook.current.pendingFiles).toEqual([])
+    expect(toastErrorMock).toHaveBeenCalledWith('"too-large.png" exceeds 1 MB limit')
+    expect(generateThumbnailMock).not.toHaveBeenCalled()
+  })
+
+  it("keeps over-count DOM drops out of pending state and shows the existing error", async () => {
+    generateThumbnailMock.mockResolvedValue(null)
+    const hook = await renderCapture({ maxFiles: 1 })
+    const files = [
+      new File(["a"], "a.txt", { type: "text/plain" }),
+      new File(["b"], "b.txt", { type: "text/plain" }),
+    ]
+
+    await dropFiles(hook, files)
+
+    expect(hook.current.pendingFiles).toEqual([])
+    expect(toastErrorMock).toHaveBeenCalledWith("You can attach up to 1 files")
+    expect(generateThumbnailMock).not.toHaveBeenCalled()
+  })
+
+  it("removes a DOM-dropped Community image when preparation fails visibly", async () => {
+    prepareCommunityImageMock.mockRejectedValue(new Error("decode failed"))
+    const hook = await renderCapture({
+      thumbnailPolicy: "community",
+      draftSessionScope: "server/channel",
+    })
+    const dropped = new File(["image"], "broken.png", { type: "image/png" })
+
+    await dropFiles(hook, [dropped])
+
+    expect(hook.current.pendingFiles).toEqual([])
+    expect(readComposerAttachmentSession("server/channel")).toEqual([])
+    expect(toastErrorMock).toHaveBeenCalledWith('Could not prepare "broken.png" for upload')
+  })
+})
+
 describe("useFileAttachments — PendingFile width/height", () => {
   it("carries the image's natural width/height from generateThumbnail onto the PendingFile", async () => {
     generateThumbnailMock.mockResolvedValue({ blob: { size: 1 } as Blob, width: 1920, height: 1080 })
