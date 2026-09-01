@@ -677,6 +677,34 @@ describe("reduceManager — tick: stall + idle hibernation", () => {
     });
   });
 
+  it("reopens a completed root for a late identified tool start", () => {
+    let s = createInitialManagerState(100);
+    s = register(s, "a", PERSISTENT_GATED);
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "root" }, nowMs: 0 }).state;
+    s = spawnRoot(s, 0, "root-turn");
+    s = completeRoot(s, "root-turn", 10).state;
+
+    s = reduceManager(s, {
+      type: "turn_tool_started",
+      agentId: "a",
+      sessionInstanceId: SESSION_INSTANCE,
+      turnId: "root-turn",
+      callId: "late-call",
+      nowMs: 20,
+    }).state;
+
+    expect(s.agents.a.execution.lease).toEqual({
+      state: "suspect_active",
+      identity: { sessionInstanceId: SESSION_INSTANCE, turnId: "root-turn" },
+      lastWorkAt: 20,
+      nativeDeadlineAt: 120,
+      recoveryExtensionsUsed: 0,
+      outstandingToolUses: 1,
+      outstandingToolCallIds: ["late-call"],
+      reason: "work_after_terminal",
+    });
+  });
+
   it("stops a persistent agent that sat idle past the idle timeout (sessionId preserved)", () => {
     let s = createInitialManagerState(100_000, 100); // idleTimeoutMs = 100
     s = register(s, "a", PERSISTENT_GATED);
