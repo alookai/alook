@@ -1,11 +1,11 @@
 /**
  * Claude Code driver — persistent stream-json process with gated steering.
  *
- * Claude's stdin protocol accepts a stable UUID on every user frame and its
- * terminal `result` reports the root `user_message_uuid`. That provider-owned
- * receipt, rather than payload content or a process restart, binds a terminal
- * to the logical turn that initiated it. Safe-boundary steering frames use
- * fresh UUIDs while Claude keeps the root UUID on the eventual result.
+ * Claude's stdin protocol accepts a stable UUID on every user frame. Normal
+ * terminals report the segment's `user_message_uuid`; native interruption is
+ * the exception, ending with an ownerless interrupted terminal after all queued
+ * frames replay. The turn protocol binds either vendor sequence back to the
+ * logical root receipt without restarting the persistent process.
  */
 import type {
   BackendAdapter, EncodeMessageOptions, AdapterLaunchContext, AdapterEvent, LaneInterruptInput, RuntimeLane,
@@ -133,6 +133,7 @@ export class ClaudeDriver implements BackendAdapter {
       request_id: input.requestId ?? randomUUID(),
       request: { subtype: "interrupt" },
     }) + "\n");
+    this.turnProtocol.noteInterruptRequested();
     return true;
   }
 

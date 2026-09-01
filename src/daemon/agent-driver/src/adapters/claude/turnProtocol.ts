@@ -11,13 +11,16 @@ interface DeliveredInput {
  * Claude may emit a result before every stdin steering frame has been replayed
  * to stdout. Those not-yet-acknowledged frames become a follow-on provider
  * segment in the same persistent process. Only the result for the latest
- * acknowledged follow-on UUID is the logical terminal.
+ * acknowledged follow-on UUID is the logical terminal. Native interruption
+ * instead ends with an ownerless interrupted terminal after queued frames
+ * replay, so that exact path is claimed against the root receipt separately.
  */
 export class ClaudeTurnProtocol {
   private rootUuid: string | null = null;
   private segmentOwnerUuid: string | null = null;
   private readonly delivered = new Map<string, DeliveredInput>();
   private awaitingFollowOn = false;
+  private interruptRequested = false;
   private finalized = false;
 
   beginTurn(): string {
@@ -27,6 +30,7 @@ export class ClaudeTurnProtocol {
     this.delivered.clear();
     this.delivered.set(uuid, { acknowledged: false, followOn: false });
     this.awaitingFollowOn = false;
+    this.interruptRequested = false;
     this.finalized = false;
     return this.receipt(uuid);
   }
@@ -58,6 +62,10 @@ export class ClaudeTurnProtocol {
     return this.rootUuid !== null && !this.finalized;
   }
 
+  noteInterruptRequested(): void {
+    if (this.hasActiveTurn()) this.interruptRequested = true;
+  }
+
   /** Returns the logical root receipt only when this is the final provider segment. */
   claimResult(userMessageUuid: string): string | null {
     if (this.finalized || !this.rootUuid || userMessageUuid !== this.segmentOwnerUuid) return null;
@@ -70,6 +78,14 @@ export class ClaudeTurnProtocol {
       for (const [, input] of unacknowledged) input.followOn = true;
       return null;
     }
+    this.finalized = true;
+    return this.receipt(this.rootUuid);
+  }
+
+  /** Claims Claude's ownerless terminal emitted after a native interrupt. */
+  claimInterruptedResult(): string | null {
+    if (this.finalized || !this.rootUuid || !this.interruptRequested) return null;
+    if ([...this.delivered.values()].some((input) => !input.acknowledged)) return null;
     this.finalized = true;
     return this.receipt(this.rootUuid);
   }

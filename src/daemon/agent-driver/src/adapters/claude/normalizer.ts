@@ -25,6 +25,7 @@ const CLAUDE_RESULT_ERROR_CODES = new Map([
   ["error_max_budget_usd", "claude.error_max_budget_usd"],
   ["error_max_structured_output_retries", "claude.error_max_structured_output_retries"],
 ]);
+const CLAUDE_INTERRUPT_TERMINAL_REASONS = new Set(["aborted_streaming", "aborted_tools"]);
 const CLAUDE_USAGE_COMPONENTS = [
   "inputTokens",
   "outputTokens",
@@ -166,13 +167,21 @@ export class ClaudeEventNormalizer {
     const rawOwner = typeof event.user_message_uuid === "string" && event.user_message_uuid.length > 0
       ? event.user_message_uuid
       : null;
+    const interruptedTerminal = Boolean(
+      this.turnProtocol
+      && !rawOwner
+      && event.subtype === "error_during_execution"
+      && CLAUDE_INTERRUPT_TERMINAL_REASONS.has(event.terminal_reason)
+    );
     const turnOwner = rawOwner
       ? this.turnProtocol?.claimResult(rawOwner) ?? (this.turnProtocol ? null : `claude:${rawOwner}`)
-      : null;
+      : interruptedTerminal
+        ? this.turnProtocol!.claimInterruptedResult()
+        : null;
     if (this.turnProtocol && !turnOwner) return;
     const usage = this.buildUsageTelemetry(event, rawOwner);
     if (usage) out.push(usage);
-    if (event.is_error || event.subtype === "error_during_execution") {
+    if (!interruptedTerminal && (event.is_error || event.subtype === "error_during_execution")) {
       out.push({
         kind: "error",
         code: CLAUDE_RESULT_ERROR_CODES.get(event.subtype) ?? "claude.result_error",

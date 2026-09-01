@@ -45,6 +45,30 @@ describe("ClaudeTurnProtocol", () => {
     expect(protocol.claimResult(root)).toBe(receipt);
   });
 
+  it("claims Claude's ownerless native-interrupt terminal after queued input replays", () => {
+    const protocol = new ClaudeTurnProtocol();
+    const receipt = protocol.beginTurn();
+    const root = uuidOf(receipt);
+    const steering = protocol.steeringInputUuid();
+    protocol.acknowledge(root);
+    protocol.noteInterruptRequested();
+
+    expect(protocol.claimResult(root)).toBeNull();
+    expect(protocol.claimInterruptedResult()).toBeNull();
+    protocol.acknowledge(steering);
+    expect(protocol.claimInterruptedResult()).toBe(receipt);
+    expect(protocol.claimInterruptedResult()).toBeNull();
+    expect(protocol.claimResult(steering)).toBeNull();
+  });
+
+  it("rejects ownerless terminals without a native interrupt request", () => {
+    const protocol = new ClaudeTurnProtocol();
+    const root = uuidOf(protocol.beginTurn());
+    protocol.acknowledge(root);
+    expect(protocol.claimInterruptedResult()).toBeNull();
+    expect(protocol.claimResult(root)).toBe(`claude:${root}`);
+  });
+
   it("suppresses a stale prior-turn result after the next logical turn begins", () => {
     const protocol = new ClaudeTurnProtocol();
     const first = uuidOf(protocol.beginTurn());
