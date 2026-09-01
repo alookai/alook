@@ -30,7 +30,6 @@ type ExpectedMessageListProps = {
   onDismiss?: (id: string) => void
   onPreviewImage?: (image: ImagePreview) => void
   onPreviewAttachment?: (attachment: FileAttachment) => void
-  onDownloadFile?: (url: string, name: string) => void
   resolveUserName?: (userId: string) => string
   scrollToMessageId?: string | null
   hero?: ReactNode

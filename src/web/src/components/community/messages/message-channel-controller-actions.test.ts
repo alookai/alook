@@ -85,10 +85,8 @@ describe("createMessageActions", () => {
   })
   afterEach(() => vi.unstubAllGlobals())
 
-  it("routes reply, reactions, marks, previews, retry, dismiss, and download exactly", async () => {
+  it("routes reply, reactions, marks, previews, retry, and dismiss exactly", async () => {
     const harness = setup()
-    const link = { href: "", download: "", click: vi.fn() }
-    vi.stubGlobal("document", { createElement: vi.fn(() => link) })
     harness.actions.onReply("m1")
     expect(harness.setReplyTo).toHaveBeenCalledWith({ id: "m1", authorName: "Viewer", text: "hello" })
     harness.actions.onToggleReaction("m1", "👍")
@@ -127,9 +125,6 @@ describe("createMessageActions", () => {
     harness.actions.onDismiss("m1")
     expect(mocks.dispatch).toHaveBeenCalledTimes(dispatchCount)
     expect(harness.runAcceptedIntent).toHaveBeenCalledOnce()
-    harness.actions.onDownloadFile("/file", "report.txt")
-    expect(link).toEqual(expect.objectContaining({ href: "/file", download: "report.txt" }))
-    expect(link.click).toHaveBeenCalledOnce()
   })
 
   it("preserves pin/unpin, thread, copy, and edit guards and callbacks", async () => {

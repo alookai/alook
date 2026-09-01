@@ -97,10 +97,7 @@ async function expectFooterGeometry(
   const sheet = page.getByRole("dialog", { name: title, exact: true })
   await settleSheet(sheet)
   const footer = sheet.locator("[data-slot='sheet-footer']")
-  const actions = actionNames.map((name) => footer.getByRole(
-    name === "Download" ? "link" : "button",
-    { name, exact: true },
-  ))
+  const actions = actionNames.map((name) => footer.getByRole("button", { name, exact: true }))
   const footerRect = await rect(footer)
   const actionRects = await Promise.all(actions.map(rect))
   const style = await footer.evaluate((element) => {

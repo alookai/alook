@@ -2,10 +2,14 @@
 
 import { useRef, useState, type MouseEvent } from "react"
 import { flushSync } from "react-dom"
-import { Download, FileAudio, FileVideo, LoaderCircle, Pause, Play, RefreshCw, Square } from "lucide-react"
+import { CircleCheck, Download, FileAudio, FileVideo, LoaderCircle, Pause, Play, RefreshCw, Square } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { tid } from "@/lib/community/testids"
 import type { FileAttachment } from "@/lib/community/models/message"
+import {
+  attachmentDownloadStatusText,
+  useAttachmentDownload,
+} from "@/lib/community/attachment-download"
 
 type MediaKind = "audio" | "video"
 type MediaStatus = "idle" | "loading" | "ready" | "blocked" | "error"
@@ -13,11 +17,9 @@ type MediaStatus = "idle" | "loading" | "ready" | "blocked" | "error"
 export function MediaAttachmentBlock({
   attachment,
   mediaKind,
-  onDownload,
 }: {
   attachment: FileAttachment
   mediaKind: MediaKind
-  onDownload?: (url: string, name: string) => void
 }) {
   const [mounted, setMounted] = useState(false)
   const [status, setStatus] = useState<MediaStatus>("idle")
@@ -28,6 +30,15 @@ export function MediaAttachmentBlock({
   const playbackAttemptRef = useRef(0)
   const playbackActiveRef = useRef(false)
   const MediaIcon = mediaKind === "video" ? FileVideo : FileAudio
+  const attachmentDownload = useAttachmentDownload(attachment)
+  const downloadStatusText = attachmentDownloadStatusText(attachmentDownload.state)
+  const DownloadIcon = attachmentDownload.state.status === "downloading"
+    ? LoaderCircle
+    : attachmentDownload.state.status === "success"
+      ? CircleCheck
+      : attachmentDownload.state.status === "error"
+        ? RefreshCw
+        : Download
 
   function playPlayer(player: HTMLMediaElement): void {
     const attempt = playbackAttemptRef.current + 1
@@ -98,9 +109,9 @@ export function MediaAttachmentBlock({
     })
   }
 
-  function download(event: MouseEvent<HTMLButtonElement>): void {
+  function handleDownload(event: MouseEvent<HTMLButtonElement>): void {
     event.stopPropagation()
-    onDownload?.(attachment.url, attachment.name)
+    void attachmentDownload.start()
   }
 
   const playerProps = {
@@ -197,6 +208,14 @@ export function MediaAttachmentBlock({
           <div className="text-xs text-muted-foreground">
             {[mediaKind === "video" ? "Video" : "Audio", attachment.size].filter(Boolean).join(" · ")}
           </div>
+          {downloadStatusText && (
+            <p
+              role={attachmentDownload.state.status === "error" ? "alert" : "status"}
+              className="text-xs text-muted-foreground"
+            >
+              {downloadStatusText}
+            </p>
+          )}
           {status === "error" && (
             <p data-testid={tid.mediaStatus(attachment.name)} role="alert" className="text-xs text-muted-foreground">
               Couldn’t play this file
@@ -269,10 +288,16 @@ export function MediaAttachmentBlock({
           variant="ghost"
           size="icon-sm"
           className="size-11 text-muted-foreground hover:text-foreground focus-visible:text-foreground sm:size-8"
-          onClick={download}
-          aria-label={`Download ${attachment.name}`}
+          onClick={handleDownload}
+          aria-label={`${attachmentDownload.state.status === "downloading"
+            ? "Downloading"
+            : attachmentDownload.state.status === "error"
+              ? "Retry download"
+              : "Download"} ${attachment.name}`}
+          aria-busy={attachmentDownload.state.status === "downloading"}
+          disabled={attachmentDownload.state.status === "downloading"}
         >
-          <Download className="size-4" />
+          <DownloadIcon className={`size-4 ${attachmentDownload.state.status === "downloading" ? "animate-spin motion-reduce:animate-none" : ""}`} />
         </Button>
       </div>
 

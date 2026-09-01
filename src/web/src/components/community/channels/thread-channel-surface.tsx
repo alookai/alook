@@ -188,12 +188,6 @@ export function ThreadChannelSurface({
       onInsertMentionText={mentionInsertion.insertMentionText}
       onPreviewImage={(image) => uiHandlers.previewImage?.(image)}
       onPreviewAttachment={(attachment) => uiHandlers.previewAttachment?.(attachment)}
-      onDownloadFile={(url, name) => {
-        const link = document.createElement("a")
-        link.href = url
-        link.download = name
-        link.click()
-      }}
       onJump={parentChannelId
         ? () => router.push(`/c/channels/${serverParam}/${parentChannelId}?msg=${parentMessageId}`)
         : undefined}

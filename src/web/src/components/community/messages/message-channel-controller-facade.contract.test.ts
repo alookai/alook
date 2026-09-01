@@ -34,7 +34,6 @@ type ExpectedMessageActions = {
   onDismiss: (id: string) => void
   onPreviewImage: (image: ImagePreview) => void
   onPreviewAttachment: (attachment: FileAttachment) => void
-  onDownloadFile: (url: string, name: string) => void
 }
 type ExpectedControllerValue = {
   feed: ReturnType<typeof useChannelMessageFeed>

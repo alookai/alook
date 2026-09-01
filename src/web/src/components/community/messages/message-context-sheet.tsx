@@ -117,8 +117,8 @@ function toggleSheetReaction(
  * of `<MessageRow>` rows (no MessageList, no virtualization), centers the
  * target row on open.
  *
- * **Self-contained by design** — reactions, pin, copy, thread, image preview,
- * file download all live INSIDE the sheet and operate on the sheet's own
+ * **Self-contained by design** — reactions, pin, copy, thread, and image
+ * preview all live INSIDE the sheet and operate on the sheet's own
  * TanStack cache (a separate query key from the main channel). The main
  * channel's cache is deliberately untouched to avoid re-render storms in the
  * underlying `<MessageList>` and to avoid injecting mid-history rows into the
@@ -350,13 +350,6 @@ export function MessageContextSheet({
     uiHandlers.previewAttachment?.(attachment)
   }, [uiHandlers])
 
-  const onDownloadFile = useCallback((url: string, name: string) => {
-    const a = document.createElement("a")
-    a.href = url
-    a.download = name
-    a.click()
-  }, [])
-
   // The sheet's scrollable body — we scroll INSIDE this container, not via
   // `element.scrollIntoView({block:'center'})`. `scrollIntoView` walks up to
   // the nearest scrollable ancestor and, on a first-open where the sheet is
@@ -447,7 +440,6 @@ export function MessageContextSheet({
           onCreateThread={type === "channel" ? onCreateThreadId : undefined}
           onPreviewImage={onPreviewImage}
           onPreviewAttachment={onPreviewAttachment}
-          onDownloadFile={onDownloadFile}
         />
       )}
     </CommunitySheet>
@@ -471,7 +463,6 @@ function ContextRows({
   onCreateThread,
   onPreviewImage,
   onPreviewAttachment,
-  onDownloadFile,
 }: {
   rows: RenderMsg[]
   viewerUserId: string
@@ -489,7 +480,6 @@ function ContextRows({
   onCreateThread?: (id: string) => void
   onPreviewImage: (image: ImagePreview) => void
   onPreviewAttachment: (attachment: FileAttachment) => void
-  onDownloadFile: (url: string, name: string) => void
 }) {
   const hoverCapable = useHoverCapable()
   // Single-message share from the peek sheet. The sheet has no select-mode
@@ -535,7 +525,6 @@ function ContextRows({
                 onCopyId={onCopy}
                 onPreviewImage={onPreviewImage}
                 onPreviewAttachment={onPreviewAttachment}
-                onDownloadFile={onDownloadFile}
                 resolveUserName={resolveUserName}
                 onShareSingleId={onShareSingleId}
               />

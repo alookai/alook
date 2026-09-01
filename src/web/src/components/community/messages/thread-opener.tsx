@@ -38,7 +38,6 @@ export function ThreadOpener({
   onOpenProfile,
   onPreviewImage,
   onPreviewAttachment,
-  onDownloadFile,
   onJump,
   onToggleReaction,
   resolveUserName,
@@ -50,7 +49,6 @@ export function ThreadOpener({
   onOpenProfile?: OpenProfile
   onPreviewImage?: (image: ImagePreview) => void
   onPreviewAttachment?: (attachment: FileAttachment) => void
-  onDownloadFile?: (url: string, name: string) => void
   onToggleReaction?: (emoji: string) => void
   resolveUserName?: (userId: string) => string
   resolveAuthorMentionText?: (authorId: string) => string | null
@@ -180,7 +178,7 @@ export function ThreadOpener({
                     />
                   </button>
                 )
-                return <AttachmentCard key={i} attachment={a} onPreview={onPreviewAttachment} onDownload={onDownloadFile} />
+                return <AttachmentCard key={i} attachment={a} onPreview={onPreviewAttachment} />
               })}
             </div>
           )}

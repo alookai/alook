@@ -44,7 +44,6 @@ export type MessageActions = {
   onDismiss: (id: string) => void
   onPreviewImage: (image: ImagePreview) => void
   onPreviewAttachment: (attachment: FileAttachment) => void
-  onDownloadFile: (url: string, name: string) => void
 }
 
 export type MessageChannelControllerValue = {

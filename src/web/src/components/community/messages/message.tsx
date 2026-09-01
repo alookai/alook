@@ -110,7 +110,7 @@ export function createMessageMenuPointAnchor(clientX: number, clientY: number) {
 function MessageImpl({
   m, compact, pinned, onOpenThread, onOpenProfile, onJumpReply,
   onToggleReaction, onReact, onReply, onMentionAuthor, onPin, onMark, onCreateThread, onCopy, onEdit, onRetry, onDismiss,
-  onPreviewImage, onPreviewAttachment, onDownloadFile, highlighted, resolveUserName, onImageLoad,
+  onPreviewImage, onPreviewAttachment, highlighted, resolveUserName, onImageLoad,
   selectMode, selected, onToggleSelect, onEnterSelect, onShareSingle,
   viewerUserId, hoverCapable = true,
 }: {
@@ -136,7 +136,6 @@ function MessageImpl({
   onDismiss?: () => void
   onPreviewImage?: (image: ImagePreview) => void
   onPreviewAttachment?: (attachment: FileAttachment) => void
-  onDownloadFile?: (url: string, name: string) => void
   highlighted?: boolean
   resolveUserName?: (userId: string) => string
   onImageLoad?: () => void
@@ -530,7 +529,7 @@ function MessageImpl({
                     />
                   </button>
                 )
-                return <AttachmentCard key={i} attachment={a} onPreview={onPreviewAttachment} onDownload={onDownloadFile} />
+                return <AttachmentCard key={i} attachment={a} onPreview={onPreviewAttachment} />
               })}
             </div>
           )}
@@ -778,7 +777,6 @@ function messagePropsEqual(prev: MessageProps, next: MessageProps): boolean {
     prev.onDismiss === next.onDismiss &&
     prev.onPreviewImage === next.onPreviewImage &&
     prev.onPreviewAttachment === next.onPreviewAttachment &&
-    prev.onDownloadFile === next.onDownloadFile &&
     prev.resolveUserName === next.resolveUserName &&
     prev.onImageLoad === next.onImageLoad &&
     // Multi-select: `selected` flips per-row on toggle, `selectMode` flips for

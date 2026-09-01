@@ -407,12 +407,6 @@ function DmView() {
     onPreviewAttachment: (attachment: FileAttachment) => {
       uiHandlers.previewAttachment?.(attachment)
     },
-    onDownloadFile: (url: string, name: string) => {
-      const a = document.createElement("a")
-      a.href = url
-      a.download = name
-      a.click()
-    },
   }), [toggleReaction, toggleMark, dmId, currentUser.id, messages, retryDmMessage, uiHandlers, advanceOnboardingAfterSend])
 
   // DM endpoint ignores mentionType. Replies are supported — the backend
@@ -494,7 +488,6 @@ function DmView() {
           onDismiss={dmBlocked ? undefined : messageActions.onDismiss}
           onPreviewImage={messageActions.onPreviewImage}
           onPreviewAttachment={messageActions.onPreviewAttachment}
-          onDownloadFile={messageActions.onDownloadFile}
           onOpenProfile={openProfile}
           resolveUserName={resolveUserName}
           onScrollRoot={setScrollRootEl}

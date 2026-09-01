@@ -1,9 +1,10 @@
 import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { tid } from "@/lib/community/testids"
 import type { FileAttachment } from "@/lib/community/models/message"
 import { MediaAttachmentBlock } from "./media-attachment-block"
+import { resetAttachmentDownloadsForTest } from "@/lib/community/attachment-download"
 
 vi.mock("@/components/ui/button", () => ({
   Button: ({ children, ...props }: React.ComponentProps<"button">) => React.createElement("button", props, children),
@@ -24,13 +25,11 @@ function attachment(overrides: Partial<FileAttachment> = {}): FileAttachment {
 function renderMedia({
   item = attachment(),
   mediaKind = "video",
-  onDownload,
   play = vi.fn().mockResolvedValue(undefined),
   readyState = 4,
 }: {
   item?: FileAttachment
   mediaKind?: "audio" | "video"
-  onDownload?: (url: string, name: string) => void
   play?: ReturnType<typeof vi.fn>
   readyState?: number
 } = {}) {
@@ -46,7 +45,7 @@ function renderMedia({
   let renderer: TestRenderer.ReactTestRenderer
   act(() => {
     renderer = TestRenderer.create(
-      React.createElement(MediaAttachmentBlock, { attachment: item, mediaKind, onDownload }),
+      React.createElement(MediaAttachmentBlock, { attachment: item, mediaKind }),
       {
         createNodeMock: (element) => {
           if (element.type !== "audio" && element.type !== "video") return null
@@ -59,6 +58,12 @@ function renderMedia({
 }
 
 describe("MediaAttachmentBlock", () => {
+  beforeEach(() => resetAttachmentDownloadsForTest())
+  afterEach(() => {
+    resetAttachmentDownloadsForTest()
+    vi.unstubAllGlobals()
+  })
+
   it("keeps video idle without mounting media and exposes a stable play surface", () => {
     const { renderer, mediaNode } = renderMedia()
 
@@ -317,14 +322,26 @@ describe("MediaAttachmentBlock", () => {
     expect(mediaNode.play).toHaveBeenCalledTimes(2)
   })
 
-  it("downloads the original file without activating playback", () => {
-    const onDownload = vi.fn()
+  it("downloads the original file through the shared owner without activating playback", async () => {
     const stopPropagation = vi.fn()
-    const { renderer, mediaNode } = renderMedia({ onDownload })
+    const anchor = { href: "", download: "", hidden: false, click: vi.fn(), remove: vi.fn() }
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("media bytes")))
+    vi.stubGlobal("document", {
+      createElement: vi.fn(() => anchor),
+    })
+    vi.stubGlobal("URL", { createObjectURL: vi.fn(() => "blob:media"), revokeObjectURL: vi.fn() })
+    const { renderer, mediaNode } = renderMedia()
 
-    act(() => renderer.root.findByProps({ "data-testid": tid.mediaDownload("clip.mp4") }).props.onClick({ stopPropagation }))
+    await act(async () => {
+      renderer.root.findByProps({ "data-testid": tid.mediaDownload("clip.mp4") }).props.onClick({ stopPropagation })
+      await Promise.resolve()
+      await Promise.resolve()
+    })
     expect(stopPropagation).toHaveBeenCalledOnce()
-    expect(onDownload).toHaveBeenCalledWith("/attachments/video-1", "clip.mp4")
+    expect(fetch).toHaveBeenCalledWith("/attachments/video-1", { credentials: "same-origin" })
+    expect(anchor).toEqual(expect.objectContaining({ href: "blob:media", download: "clip.mp4" }))
+    expect(anchor.click).toHaveBeenCalledOnce()
+    expect(renderer.root.findByProps({ role: "status" }).children).toEqual(["Download started"])
     expect(mediaNode.play).not.toHaveBeenCalled()
     expect(renderer.root.findAllByType("video")).toHaveLength(0)
   })
