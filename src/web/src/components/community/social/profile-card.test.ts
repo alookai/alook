@@ -2,7 +2,7 @@ import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { readFileSync } from "node:fs"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { describe, it, expect } from "vitest"
+import { describe, it, expect, vi } from "vitest"
 import {
   displayOwnerHandle,
   resolveAuditPreviewPlacement,
@@ -13,7 +13,25 @@ import { ProfileCard } from "./profile-card"
 import { serializeBeamSeed } from "@/lib/avatar/seed-url"
 import type { Profile } from "@/components/community/social/profile-types"
 
-function renderProfile(overrides: Partial<Profile> = {}) {
+const mocks = vi.hoisted(() => ({
+  profile: undefined as {
+    statusEmoji?: string | null
+    statusText?: string | null
+  } | undefined,
+}))
+
+vi.mock("@/stores/community/ws", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/stores/community/ws")>(),
+  useCommunityProfile: () => mocks.profile,
+}))
+
+function renderProfile(
+  overrides: Partial<Profile> = {},
+  activityStatus?: { emoji: string; text: string },
+) {
+  mocks.profile = activityStatus
+    ? { statusEmoji: activityStatus.emoji, statusText: activityStatus.text }
+    : undefined
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
@@ -34,6 +52,8 @@ function renderProfile(overrides: Partial<Profile> = {}) {
       y: 0,
       bp: "desktop",
       onClose: () => undefined,
+      activityStatusEmoji: activityStatus?.emoji,
+      activityStatusText: activityStatus?.text,
     }),
   ))
 }
@@ -91,6 +111,23 @@ describe("ProfileCard contextual metadata", () => {
     expect(html).not.toContain("h-40")
   })
 
+  it("shows Stop only for the owner while the bot is truly running", () => {
+    const identity: Profile["identity"] = {
+      kind: "bot",
+      ownerProfile: { id: "owner_1", handle: "Owner#0042" },
+      ownedByViewer: true,
+    }
+    const running = renderProfile({ identity }, { emoji: "⚡", text: "Working on it" })
+    const starting = renderProfile({ identity }, { emoji: "🌀", text: "Waking up" })
+    const nonowner = renderProfile({
+      identity: { ...identity, ownedByViewer: false },
+    }, { emoji: "⚡", text: "Working on it" })
+
+    expect(running).toContain(">Stop</button>")
+    expect(starting).not.toContain(">Stop</button>")
+    expect(nonowner).not.toContain(">Stop</button>")
+  })
+
   it("wraps owner metadata and exposes a full accessible label while truncating long handles", () => {
     const handle = `${"VeryLongOwner".repeat(4)}#0042`
     const html = renderProfile({
@@ -128,6 +165,7 @@ describe("ProfileCard contextual metadata", () => {
     expect(source).toContain('addEventListener("animationend", update)')
     expect(source).toContain("cardElement.offsetWidth")
     expect(source).toContain("previewElement.offsetWidth")
+    expect(source).toContain("onClick={() => communityWsInterruptAgent(data.userId!)}")
   })
 })
 

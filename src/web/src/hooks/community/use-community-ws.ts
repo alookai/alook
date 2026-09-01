@@ -37,6 +37,7 @@ import {
   isCommunityBrowserEventBatchCandidate,
   isCommunityEventType,
   TYPING_INDICATOR_THROTTLE_MS,
+  type AgentInterruptRequest,
   type CommunityWsEvent,
 } from "@alook/shared"
 import { trackCommunityWsFrameDropped } from "@/lib/analytics"
@@ -179,6 +180,14 @@ export function communityWsClaimSecondaryChannel(owner: symbol, channelId: strin
 
 export function communityWsReleaseSecondaryChannel(owner: symbol) {
   useCommunityStore.getState().releaseSecondaryChannel(owner)
+}
+
+export function communityWsInterruptAgent(agentId: string) {
+  if (!activeSend || !agentId) return
+  activeSend({
+    type: "agent:interrupt",
+    agentId,
+  } satisfies AgentInterruptRequest)
 }
 
 /**

@@ -1,7 +1,7 @@
 "use client"
 
 import { useLayoutEffect, useRef, useState } from "react"
-import { Bot, MessagesSquare, Shield, UserRound } from "lucide-react"
+import { Bot, CircleStop, MessagesSquare, Shield, UserRound } from "lucide-react"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { Sheet, SheetClose, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { Badge } from "@/components/ui/badge"
@@ -17,7 +17,8 @@ import type { Breakpoint } from "@/hooks/use-mobile"
 import { useCommunityProfile } from "@/stores/community/ws"
 import { avatarInitial } from "@/lib/community/avatar"
 import { tid } from "@/lib/community/testids"
-import { BotAuditPreview, isBotActivityActive } from "./bot-audit-preview"
+import { communityWsInterruptAgent } from "@/hooks/community/use-community-ws"
+import { BotAuditPreview, isBotActivityActive, isBotActivityRunning } from "./bot-audit-preview"
 
 // Live cards resolve status from the global profile map. Seed props are used
 // only by static, id-less showcase cards.
@@ -410,18 +411,30 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
     </>
   )
 
-  const auditPreview = showAuditPreview && data.userId ? (
-    <BotAuditPreview
-      botId={data.userId}
-      active={isBotActivityActive(activityStatus.emoji, activityStatus.text)}
-      onOpen={() => onOpenBotAudit?.(data.userId!)}
-    />
+  const secondaryCards = showAuditPreview && data.userId ? (
+    <div className="flex w-full flex-col gap-2">
+      <BotAuditPreview
+        botId={data.userId}
+        active={isBotActivityActive(activityStatus.emoji, activityStatus.text)}
+        onOpen={() => onOpenBotAudit?.(data.userId!)}
+      />
+      {isBotActivityRunning(activityStatus.emoji, activityStatus.text) && (
+        <button
+          type="button"
+          onClick={() => communityWsInterruptAgent(data.userId!)}
+          className="flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-destructive/40 bg-card px-3 text-sm font-medium text-destructive shadow-(--e1) transition-colors hover:bg-destructive/10 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        >
+          <CircleStop className="size-4" aria-hidden />
+          Stop
+        </button>
+      )}
+    </div>
   ) : null
 
   if (embedded)
     return (
       <div className="flex w-full flex-col gap-2">
-        {auditPreview}
+        {secondaryCards}
         <div data-testid={tid.profileCard} className="w-full overflow-hidden rounded-xl border border-border bg-popover p-2 shadow-(--e2)">{card}</div>
       </div>
     )
@@ -445,7 +458,7 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
           <SheetTitle className="sr-only">{name} profile</SheetTitle>
           <SheetClose className="sr-only">Close profile</SheetClose>
           <div className="flex flex-col gap-2">
-            {auditPreview}
+            {secondaryCards}
             <div data-testid={tid.profileCard} className="overflow-hidden rounded-xl border border-border bg-popover p-2 shadow-(--e2)">{card}</div>
           </div>
         </SheetContent>
@@ -462,7 +475,7 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
         style={{ left: x, top: y }}
       />
       <PopoverContent ref={popoverRef} side="right" align="start" sideOffset={8} className="relative w-75 overflow-visible border-0 bg-transparent p-0 shadow-none">
-        {auditPreview && (
+        {secondaryCards && (
           <div
             ref={previewRef}
             data-testid={tid.botAuditPreviewDock}
@@ -470,7 +483,7 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
             className="absolute w-full"
             style={{ left: previewPosition.left, top: previewPosition.top }}
           >
-            {auditPreview}
+            {secondaryCards}
           </div>
         )}
         <div ref={cardRef} data-testid={tid.profileCard} className="overflow-hidden rounded-xl border border-border bg-popover p-2 shadow-(--e2)">
