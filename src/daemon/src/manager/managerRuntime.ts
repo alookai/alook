@@ -134,6 +134,9 @@ interface FsmTraceRecord extends TraceRecordBase, Partial<TraceSpanMetadata> {
   queueDwellCount?: number;
   queueDwellTotalMs?: number;
   sseReconnectCount?: number;
+  outstandingToolUses?: number;
+  anonymousOutstandingToolUses?: number;
+  toolLifecycleMismatchCount?: number;
   resumeOutcome?: "not_requested" | "pending" | "resumed" | "reset_required" | "failed";
   terminalOwnerKind?: "transport_request" | "vendor_message" | "prompt_invocation" | "lane_generation";
   sinceProgressMs: number;
@@ -1139,6 +1142,9 @@ export class AgentProcessManager {
     | "queueDwellCount"
     | "queueDwellTotalMs"
     | "sseReconnectCount"
+    | "outstandingToolUses"
+    | "anonymousOutstandingToolUses"
+    | "toolLifecycleMismatchCount"
     | "resumeOutcome"
     | "terminalOwnerKind"
   > {
@@ -2024,9 +2030,9 @@ export class AgentProcessManager {
         case "assistant_message_completed":
           return { type: "turn_work" as const, turnId: event.turnId };
         case "tool_started":
-          return { type: "turn_tool_started" as const, turnId: event.turnId };
+          return { type: "turn_tool_started" as const, turnId: event.turnId, callId: event.callId };
         case "tool_finished":
-          return { type: "turn_tool_finished" as const, turnId: event.turnId };
+          return { type: "turn_tool_finished" as const, turnId: event.turnId, callId: event.callId };
         case "compaction_started":
         case "compaction_finished":
         case "review_started":

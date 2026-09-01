@@ -619,6 +619,92 @@ describe("reduceManager — tick: stall + idle hibernation", () => {
     ]);
   });
 
+  it("settles identified tool blockers exactly once across duplicate and late lifecycle events", () => {
+    let s = createInitialManagerState(100);
+    s = register(s, "a", PERSISTENT_GATED);
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "root" }, nowMs: 0 }).state;
+    s = spawnRoot(s, 0, "root-turn");
+    const lifecycle = (
+      state: ManagerState,
+      type: "turn_tool_started" | "turn_tool_finished",
+      callId: string,
+      nowMs: number,
+    ): ManagerState => reduceManager(state, {
+      type,
+      agentId: "a",
+      sessionInstanceId: SESSION_INSTANCE,
+      turnId: "root-turn",
+      callId,
+      nowMs,
+    }).state;
+
+    s = lifecycle(s, "turn_tool_started", "call-1", 10);
+    s = lifecycle(s, "turn_tool_started", "call-1", 20);
+    s = lifecycle(s, "turn_tool_started", "call-2", 30);
+    expect(s.agents.a.execution.lease).toMatchObject({
+      outstandingToolUses: 2,
+      outstandingToolCallIds: ["call-1", "call-2"],
+      lastWorkAt: 30,
+    });
+
+    const leaseBeforeAnonymousFinish = s.agents.a.execution.lease;
+    s = reduceManager(s, {
+      type: "turn_tool_finished",
+      agentId: "a",
+      sessionInstanceId: SESSION_INSTANCE,
+      turnId: "root-turn",
+      nowMs: 35,
+    }).state;
+    expect(s.agents.a.execution.lease).toEqual(leaseBeforeAnonymousFinish);
+    expect(s.agents.a.execution.lease.lastWorkAt).toBe(30);
+
+    s = lifecycle(s, "turn_tool_finished", "call-1", 40);
+    s = lifecycle(s, "turn_tool_finished", "call-1", 50);
+    expect(s.agents.a.execution.lease).toMatchObject({
+      outstandingToolUses: 1,
+      outstandingToolCallIds: ["call-2"],
+      lastWorkAt: 40,
+    });
+    expect(reduceManager(s, { type: "tick", nowMs: 500 }).effects).toEqual([]);
+
+    s = lifecycle(s, "turn_tool_finished", "call-2", 60);
+    expect(s.agents.a.execution.lease).toEqual({
+      state: "active",
+      identity: { sessionInstanceId: SESSION_INSTANCE, turnId: "root-turn" },
+      lastWorkAt: 60,
+      nativeDeadlineAt: 160,
+      recoveryExtensionsUsed: 0,
+    });
+  });
+
+  it("reopens a completed root for a late identified tool start", () => {
+    let s = createInitialManagerState(100);
+    s = register(s, "a", PERSISTENT_GATED);
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "root" }, nowMs: 0 }).state;
+    s = spawnRoot(s, 0, "root-turn");
+    s = completeRoot(s, "root-turn", 10).state;
+
+    s = reduceManager(s, {
+      type: "turn_tool_started",
+      agentId: "a",
+      sessionInstanceId: SESSION_INSTANCE,
+      turnId: "root-turn",
+      callId: "late-call",
+      nowMs: 20,
+    }).state;
+
+    expect(s.agents.a.execution.lease).toEqual({
+      state: "suspect_active",
+      identity: { sessionInstanceId: SESSION_INSTANCE, turnId: "root-turn" },
+      lastWorkAt: 20,
+      nativeDeadlineAt: 120,
+      recoveryExtensionsUsed: 0,
+      outstandingToolUses: 1,
+      outstandingToolCallIds: ["late-call"],
+      reason: "work_after_terminal",
+    });
+  });
+
   it("stops a persistent agent that sat idle past the idle timeout (sessionId preserved)", () => {
     let s = createInitialManagerState(100_000, 100); // idleTimeoutMs = 100
     s = register(s, "a", PERSISTENT_GATED);

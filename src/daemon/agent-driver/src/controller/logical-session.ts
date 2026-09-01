@@ -208,7 +208,9 @@ implements AgentSession<Specs, Id> {
   private interruptedTurnId?: string;
   private processTurnEnded = false;
   private stopRequestId?: string;
-  private outstandingToolUses = 0;
+  private anonymousOutstandingToolUses = 0;
+  private readonly outstandingToolCallIds = new Set<string>();
+  private toolLifecycleMismatchCount = 0;
   private compacting = false;
   private reviewing = false;
   private readonly steeringDeliveries = new Set<SteeringDelivery>();
@@ -419,6 +421,9 @@ implements AgentSession<Specs, Id> {
           queueDwellCount: this.metricValue(this.queueDwellCount),
           queueDwellTotalMs: this.metricValue(this.queueDwellTotalMs),
           sseReconnectCount: this.metricValue(this.sseReconnectCount),
+          outstandingToolUses: this.outstandingToolUseCount(),
+          anonymousOutstandingToolUses: this.metricValue(this.anonymousOutstandingToolUses),
+          toolLifecycleMismatchCount: this.metricValue(this.toolLifecycleMismatchCount),
           resumeOutcome: this.resumeOutcome,
           terminalOwnerKind: this.adapter.execution.terminalOwnership,
         },
@@ -784,13 +789,34 @@ implements AgentSession<Specs, Id> {
         }
         return;
       case "tool_call":
-        this.outstandingToolUses += 1;
-        if (turnId) this.emit({ type: "tool_started", turnId, name: event.name, input: jsonValue(event.input) });
+        if (!turnId) {
+          this.toolLifecycleMismatchCount += 1;
+          return;
+        }
+        if (!this.startToolUse(event.callId)) return;
+        const startedCallId = this.toolCallId(event.callId);
+        this.emit({
+          type: "tool_started",
+          turnId,
+          ...(startedCallId ? { callId: startedCallId } : {}),
+          name: event.name,
+          input: jsonValue(event.input),
+        });
         return;
       case "tool_output":
-        this.outstandingToolUses = Math.max(0, this.outstandingToolUses - 1);
-        if (turnId) this.emit({ type: "tool_finished", turnId, name: event.name });
-        if (this.outstandingToolUses === 0 && !this.toolBoundaryFlushDisabled) void this.flushSafeBoundaryQueue();
+        if (!turnId) {
+          this.toolLifecycleMismatchCount += 1;
+          return;
+        }
+        if (!this.finishToolUse(event.callId)) return;
+        const finishedCallId = this.toolCallId(event.callId);
+        this.emit({
+          type: "tool_finished",
+          turnId,
+          ...(finishedCallId ? { callId: finishedCallId } : {}),
+          name: event.name,
+        });
+        if (this.outstandingToolUseCount() === 0 && !this.toolBoundaryFlushDisabled) void this.flushSafeBoundaryQueue();
         return;
       case "compaction_started":
       case "compaction_finished":
@@ -977,7 +1003,7 @@ implements AgentSession<Specs, Id> {
     this.activeTurn = undefined;
     this.turnError = undefined;
     this.interruptedTurnId = undefined;
-    this.outstandingToolUses = 0;
+    this.clearOutstandingToolUses();
     this.compacting = false;
     this.reviewing = false;
     this.toolBoundaryFlushDisabled = false;
@@ -1005,7 +1031,7 @@ implements AgentSession<Specs, Id> {
   private canFlushSafeBoundaryQueue(): boolean {
     return this.state === "working"
       && this.behavior.midTurnDelivery === "safe_boundary_queue"
-      && this.outstandingToolUses === 0
+      && this.outstandingToolUseCount() === 0
       && !this.compacting
       && !this.reviewing
       && this.activeTurn !== undefined
@@ -1198,7 +1224,7 @@ implements AgentSession<Specs, Id> {
     if (this.behavior.midTurnDelivery === "next_turn_queue" && this.queued.length > 0) return "next_turn_queued";
     if (this.compacting) return "compacting";
     if (this.reviewing) return "reviewing";
-    if (this.outstandingToolUses > 0) return "tool_wait";
+    if (this.outstandingToolUseCount() > 0) return "tool_wait";
     if (this.activeTurn) return "working";
     return "idle";
   }
@@ -1206,6 +1232,51 @@ implements AgentSession<Specs, Id> {
   private metricNow(): number {
     const now = this.host.now();
     return Number.isFinite(now) && now >= 0 ? now : 0;
+  }
+
+  private outstandingToolUseCount(): number {
+    return this.anonymousOutstandingToolUses + this.outstandingToolCallIds.size;
+  }
+
+  private startToolUse(rawCallId?: string): boolean {
+    const callId = this.toolCallId(rawCallId);
+    if (!callId) {
+      this.anonymousOutstandingToolUses += 1;
+      return true;
+    }
+    if (this.outstandingToolCallIds.has(callId)) {
+      this.toolLifecycleMismatchCount += 1;
+      return false;
+    }
+    this.outstandingToolCallIds.add(callId);
+    return true;
+  }
+
+  private finishToolUse(rawCallId?: string): boolean {
+    const callId = this.toolCallId(rawCallId);
+    if (!callId) {
+      if (this.anonymousOutstandingToolUses === 0) {
+        this.toolLifecycleMismatchCount += 1;
+        return false;
+      }
+      this.anonymousOutstandingToolUses -= 1;
+      return true;
+    }
+    if (!this.outstandingToolCallIds.delete(callId)) {
+      this.toolLifecycleMismatchCount += 1;
+      return false;
+    }
+    return true;
+  }
+
+  private clearOutstandingToolUses(): void {
+    this.anonymousOutstandingToolUses = 0;
+    this.outstandingToolCallIds.clear();
+  }
+
+  private toolCallId(rawCallId?: string): string | undefined {
+    const callId = rawCallId?.trim();
+    return callId && callId.length <= 1_024 ? callId : undefined;
   }
 
   private metricValue(value: number): number {

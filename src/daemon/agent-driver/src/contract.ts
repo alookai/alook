@@ -498,6 +498,12 @@ export interface AgentSessionSnapshot {
       readonly queueDwellCount: number;
       readonly queueDwellTotalMs: number;
       readonly sseReconnectCount: number;
+      /** Current blocker count only; call identities and tool names are never exposed. */
+      readonly outstandingToolUses?: number;
+      /** Outstanding calls whose adapter did not provide a stable identity. */
+      readonly anonymousOutstandingToolUses?: number;
+      /** Duplicate starts, unmatched finishes, or unattributable lifecycle events. */
+      readonly toolLifecycleMismatchCount?: number;
       readonly resumeOutcome: "not_requested" | "pending" | "resumed" | "reset_required" | "failed";
       readonly terminalOwnerKind:
         | "transport_request"

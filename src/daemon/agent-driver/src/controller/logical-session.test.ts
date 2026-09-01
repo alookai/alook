@@ -879,6 +879,9 @@ describe("logical delivery diagnostics", () => {
         queueDwellCount: 0,
         queueDwellTotalMs: 0,
         sseReconnectCount: 0,
+        outstandingToolUses: 0,
+        anonymousOutstandingToolUses: 0,
+        toolLifecycleMismatchCount: 0,
         resumeOutcome: "not_requested",
         terminalOwnerKind: "vendor_message",
       },
@@ -1616,6 +1619,63 @@ describe("backend-owned delivery behavior", () => {
     expect(driver.writes).toEqual([]);
     await emit(driver, { kind: "tool_output", name: "two" });
     expect(driver.writes).toEqual(["follow"]);
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+
+  it("deduplicates replayed identified tool starts and ignores unmatched finishes", async () => {
+    const { session, driver } = makeSession("claude");
+    const observed: Array<AgentEvent<BuiltinBackendSpecs, BuiltinBackendId>> = [];
+    const collecting = (async () => { for await (const event of session.events) observed.push(event); })();
+    await session.start({ id: "one", kind: "user", text: "start" });
+    await emit(driver, { kind: "tool_call", callId: "call-1", name: "Read", input: {} });
+    await emit(driver, { kind: "tool_call", callId: "call-1", name: "Read", input: {} });
+    await emit(driver, { kind: "tool_output", callId: "unknown", name: "Read" });
+    await emit(driver, { kind: "tool_output", name: "Read" });
+    await session.send({ id: "two", kind: "user", text: "follow" });
+
+    expect(driver.writes).toEqual([]);
+    expect(session.snapshot().diagnostics).toMatchObject({
+      deliveryPhase: "tool_wait",
+      metrics: {
+        outstandingToolUses: 1,
+        anonymousOutstandingToolUses: 0,
+        toolLifecycleMismatchCount: 3,
+      },
+    });
+
+    await emit(driver, { kind: "tool_output", callId: "call-1", name: "Read" });
+    await vi.waitFor(() => expect(driver.writes).toEqual(["follow"]));
+    expect(session.snapshot().diagnostics.metrics.outstandingToolUses).toBe(0);
+    expect(observed.filter((event) => event.type === "tool_started")).toHaveLength(1);
+    expect(observed.filter((event) => event.type === "tool_finished")).toHaveLength(1);
+    expect(observed.find((event) => event.type === "tool_started")).toMatchObject({ callId: "call-1" });
+    expect(observed.find((event) => event.type === "tool_finished")).toMatchObject({ callId: "call-1" });
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+    await collecting;
+  });
+
+  it("does not let an unattributable lifecycle event create a future tool blocker", async () => {
+    const lane = new ControlledRuntimeLane();
+    lane.startAdmission = { ok: true, acceptedAs: "prompt", receipt: "codex:test:1" };
+    const { session } = makeSession("codex", { lane });
+
+    (session as any).onAdapterEvent(
+      { kind: "tool_call", callId: "orphan", name: "browser", input: {} },
+      lane,
+      0,
+    );
+    (session as any).onAdapterEvent(
+      { kind: "tool_output", callId: "orphan", name: "browser" },
+      lane,
+      0,
+    );
+    expect(session.snapshot().diagnostics).toMatchObject({
+      deliveryPhase: "idle",
+      metrics: { outstandingToolUses: 0, toolLifecycleMismatchCount: 2 },
+    });
+
+    await session.start({ id: "one", kind: "user", text: "start" });
+    expect(session.snapshot().diagnostics.deliveryPhase).toBe("working");
     await session.stop({ reason: "shutdown", forceAfterMs: 10 });
   });
 
