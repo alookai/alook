@@ -11,7 +11,6 @@ vi.mock("@/components/ui/popover", () => {
     }
   return {
     Popover: pass("popover-root"),
-    PopoverBackdrop: pass("popover-backdrop"),
     PopoverContent: pass("popover-content"),
     PopoverPopup: pass("popover-popup"),
     PopoverPortal: pass("popover-portal"),
@@ -40,23 +39,25 @@ async function renderSurface(breakpoint: "mobile" | "desktop", open = true) {
 }
 
 describe("CommunityInboxSurface", () => {
-  it("uses a scoped real nonmodal Popover surface on mobile", async () => {
+  it("uses a backdrop-free nonmodal Popover surface on mobile", async () => {
     const { renderer, anchorRef, suppressFocusReturnRef } = await renderSurface("mobile")
     expect(renderer.root.findByType("popover-root").props.modal).toBe(false)
     const trigger = renderer.root.findByType("popover-trigger").props.render
+    const triggerClasses = trigger.props.className.split(" ")
     expect(trigger.props["data-testid"]).toBe(tid.inboxTrigger)
     expect(trigger.props["aria-label"]).toBe("Close Inbox")
     expect(trigger.props["aria-pressed"]).toBe(true)
     expect(trigger.props.className).toContain("aria-expanded:text-foreground")
+    expect(triggerClasses).not.toContain("hover:bg-accent")
+    expect(triggerClasses).toContain("hover:text-foreground")
+    expect(triggerClasses).toContain("active:text-foreground")
+    expect(triggerClasses).not.toContain("border")
+    expect(triggerClasses).not.toContain("bg-accent")
+    expect(triggerClasses).not.toContain("shadow")
+    expect(triggerClasses).toContain("focus-visible:ring-2")
     expect(renderer.root.findByType("svg").props.className).not.toContain("fill-current")
     expect(renderer.root.findByType("svg").props.fill).toBe("none")
-
-    const backdrop = renderer.root.findByType("popover-backdrop")
-    expect(backdrop.props["data-testid"]).toBe(tid.inboxMobileBackdrop)
-    expect(backdrop.props.style).toEqual({
-      top: "var(--app-safe-area-top)",
-      bottom: "calc(60px + var(--app-safe-area-bottom))",
-    })
+    expect(renderer.root.findAllByType("popover-backdrop")).toHaveLength(0)
 
     const positioner = renderer.root.findByType("popover-positioner")
     expect(positioner.props).toMatchObject({
@@ -89,6 +90,7 @@ describe("CommunityInboxSurface", () => {
     expect(trigger.props["aria-label"]).toBe("Open Inbox")
     expect(trigger.props["aria-pressed"]).toBe(false)
     expect(trigger.props.className).toContain("aria-expanded:text-foreground")
+    expect(trigger.props.className.split(" ")).not.toContain("hover:bg-accent")
     expect(renderer.root.findByType("svg").props.className).not.toContain("fill-current")
     expect(renderer.root.findByType("svg").props.fill).toBe("none")
   })
@@ -104,6 +106,7 @@ describe("CommunityInboxSurface", () => {
     expect(trigger.props["aria-label"]).toBe("Inbox")
     expect(trigger.props["aria-pressed"]).toBeUndefined()
     expect(trigger.props.className).not.toContain("aria-expanded:text-foreground")
+    expect(trigger.props.className.split(" ")).toContain("hover:bg-accent")
     expect(renderer.root.findByType("svg").props.className).not.toContain("fill-current")
     expect(renderer.root.findAllByType("popover-backdrop")).toHaveLength(0)
     expect(renderer.root.findAllByType("popover-popup")).toHaveLength(0)

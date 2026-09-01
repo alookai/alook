@@ -16,7 +16,6 @@ type SurfaceGeometry = {
   viewport: { width: number; height: number }
   userBar: { top: number; bottom: number; left: number; right: number }
   card: { top: number; bottom: number; left: number; right: number; height: number }
-  backdrop: { top: number; bottom: number }
   seam: {
     cardTopLeft: string
     cardTopRight: string
@@ -50,16 +49,12 @@ async function surfaceGeometry(page: Page): Promise<SurfaceGeometry> {
     const userBar = document.querySelector<HTMLElement>(
       `[data-testid='${ids.userBar}']`,
     )
-    const backdrop = document.querySelector<HTMLElement>(
-      `[data-testid='${ids.backdrop}']`,
-    )
     const userBarSurface = userBar?.firstElementChild as HTMLElement | null
-    if (!userBar || !userBarSurface || !backdrop) {
+    if (!userBar || !userBarSurface) {
       throw new Error("missing mobile Inbox geometry")
     }
     const userRect = userBar.getBoundingClientRect()
     const cardRect = card.getBoundingClientRect()
-    const backdropRect = backdrop.getBoundingClientRect()
     const cardStyle = getComputedStyle(card)
     const userBarStyle = getComputedStyle(userBarSurface)
     const hit = document.elementFromPoint(
@@ -81,7 +76,6 @@ async function surfaceGeometry(page: Page): Promise<SurfaceGeometry> {
         right: cardRect.right,
         height: cardRect.height,
       },
-      backdrop: { top: backdropRect.top, bottom: backdropRect.bottom },
       seam: {
         cardTopLeft: cardStyle.borderTopLeftRadius,
         cardTopRight: cardStyle.borderTopRightRadius,
@@ -97,7 +91,6 @@ async function surfaceGeometry(page: Page): Promise<SurfaceGeometry> {
     }
   }, {
     userBar: tid.userBar,
-    backdrop: tid.inboxMobileBackdrop,
   })
 }
 
@@ -115,7 +108,7 @@ function observeWrites(page: Page) {
 test.describe.serial("mobile Inbox interactive user-bar base", () => {
   test.setTimeout(180_000)
 
-  test("scopes the real backdrop above the safe-area user bar and dismisses without writes", async ({ asUser }) => {
+  test("keeps the mobile shell unmasked and dismisses on outside press without writes", async ({ asUser }) => {
     const stamp = Date.now()
     const serverId = await seedServer("alice", `Inbox surface ${stamp}`)
     const channelId = await seedChannel("alice", serverId, `inbox-${stamp}`)
@@ -144,9 +137,15 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
     await expect(inboxTrigger).toHaveAttribute("aria-pressed", "false")
     await expect(inboxIcon).toHaveAttribute("fill", "none")
     await expect(inboxIcon).not.toHaveClass(/fill-current/)
-    const closedInboxIconColor = await inboxIcon.evaluate((element) => (
-      getComputedStyle(element).color
-    ))
+    const closedTriggerStyle = await inboxTrigger.evaluate((element) => {
+      const style = getComputedStyle(element)
+      return {
+        backgroundColor: style.backgroundColor,
+        borderWidth: style.borderWidth,
+        boxShadow: style.boxShadow,
+      }
+    })
+    const closedInboxIconColor = await inboxIcon.evaluate((element) => getComputedStyle(element).color)
     await inboxTrigger.click()
     await bob.page.mouse.move(0, 0)
     const mobileSurface = bob.page.getByTestId(tid.inboxMobileSurface)
@@ -162,12 +161,21 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
     await expect.poll(() => inboxIcon.evaluate((element) => (
       getComputedStyle(element).color
     ))).not.toBe(closedInboxIconColor)
+    await expect.poll(() => inboxTrigger.evaluate((element) => {
+      const style = getComputedStyle(element)
+      return {
+        backgroundColor: style.backgroundColor,
+        borderWidth: style.borderWidth,
+        boxShadow: style.boxShadow,
+      }
+    })).toEqual(closedTriggerStyle)
+    expect(closedTriggerStyle.borderWidth).toBe("0px")
+    expect(closedTriggerStyle.boxShadow).toBe("none")
     await expect(bob.page.getByRole("button", { name: "Close Inbox" })).toHaveCount(1)
     await expect(inboxTrigger).toBeFocused()
+    await expect(bob.page.getByTestId(tid.inboxMobileBackdrop)).toHaveCount(0)
     const geometry = await surfaceGeometry(bob.page)
     expect(Math.abs(geometry.card.bottom - geometry.userBar.top)).toBeLessThanOrEqual(1)
-    expect(Math.abs(geometry.backdrop.bottom - geometry.userBar.top)).toBeLessThanOrEqual(1)
-    expect(geometry.backdrop.top).toBe(20)
     expect(geometry.userBar.bottom).toBe(844)
     expect(geometry.userBarOwnsCenter).toBe(true)
     expect(geometry.card.height).toBeLessThanOrEqual(448)

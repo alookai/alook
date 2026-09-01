@@ -124,7 +124,12 @@ function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnrea
             closeInboxForAction()
             onEditProfile?.()
           }}
-          className="grid size-11 place-items-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:size-7"
+          className={cn(
+            "grid size-11 place-items-center rounded-lg text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:size-7",
+            breakpoint === "mobile"
+              ? "hover:text-foreground active:text-foreground"
+              : "hover:bg-accent hover:text-foreground",
+          )}
           aria-label="User settings"
           data-testid={tid.userSettingsOpen}
         >

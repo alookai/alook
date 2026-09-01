@@ -4,7 +4,6 @@ import { useRef, type MutableRefObject, type ReactNode, type RefObject } from "r
 import { Inbox } from "lucide-react"
 import {
   Popover,
-  PopoverBackdrop,
   PopoverContent,
   PopoverPopup,
   PopoverPortal,
@@ -62,8 +61,10 @@ export function CommunityInboxSurface({
             ref={triggerRef}
             data-testid={tid.inboxTrigger}
             className={cn(
-              "relative grid size-11 place-items-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:size-7",
-              mobile && "aria-expanded:text-foreground",
+              "relative grid size-11 place-items-center rounded-lg text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:size-7",
+              mobile
+                ? "hover:text-foreground active:text-foreground aria-expanded:text-foreground"
+                : "hover:bg-accent hover:text-foreground",
             )}
             aria-label={mobile ? (open ? "Close Inbox" : "Open Inbox") : "Inbox"}
             aria-pressed={mobile ? open : undefined}
@@ -78,14 +79,6 @@ export function CommunityInboxSurface({
 
       {mobile ? (
         <PopoverPortal>
-          <PopoverBackdrop
-            data-testid={tid.inboxMobileBackdrop}
-            className="fixed inset-x-0"
-            style={{
-              top: "var(--app-safe-area-top)",
-              bottom: COMMUNITY_USER_BAR_HEIGHT_CSS,
-            }}
-          />
           <PopoverPositioner
             anchor={anchorRef}
             positionMethod="fixed"
