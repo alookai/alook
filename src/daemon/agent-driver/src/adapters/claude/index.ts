@@ -8,9 +8,10 @@
  * fresh UUIDs while Claude keeps the root UUID on the eventual result.
  */
 import type {
-  BackendAdapter, EncodeMessageOptions, AdapterLaunchContext, AdapterEvent, RuntimeLane,
-  RuntimeLaneOpenOptions, SpawnedProcess, ProbeResult,
+  BackendAdapter, EncodeMessageOptions, AdapterLaunchContext, AdapterEvent, LaneInterruptInput, RuntimeLane,
+  RuntimeLaneOpenOptions, SpawnedProcess, SpawnedProcessHandle, ProbeResult,
 } from "../../internal/adapter.js";
+import { randomUUID } from "node:crypto";
 import { createProcessLane } from "../../controller/process-host.js";
 import { prepareCliTransport } from "../../internal/cliTransport.js";
 import { buildClaudeProviderIsolationEnv } from "./providerIsolation.js";
@@ -116,6 +117,23 @@ export class ClaudeDriver implements BackendAdapter {
 
   get currentSessionId(): string | null {
     return this.eventNormalizer.currentSessionId;
+  }
+
+  async interrupt(input: LaneInterruptInput, process: SpawnedProcessHandle): Promise<boolean> {
+    const stdin = process.stdin;
+    if (
+      !this.turnProtocol.hasActiveTurn()
+      || !stdin
+      || stdin.destroyed
+      || stdin.writableEnded
+      || stdin.writable === false
+    ) return false;
+    stdin.write(JSON.stringify({
+      type: "control_request",
+      request_id: input.requestId ?? randomUUID(),
+      request: { subtype: "interrupt" },
+    }) + "\n");
+    return true;
   }
 
   /** Both idle and busy messages use the same stream-json user-message shape. */

@@ -514,7 +514,6 @@ describe("CodexEventNormalizer — complete owned event family", () => {
     expect(n.normalizeLine(notify("thread/tokenUsage/updated", { threadId: "root", tokenUsage: {} }))).toEqual([]);
     expect(n.normalizeLine(notify("account/rateLimits/updated", { threadId: "root", rateLimits: {} }))).toEqual([]);
     expect(n.normalizeLine(notify("turn/completed", { threadId: "root", turn: { id: "turn", status: "interrupted" } }))).toEqual([
-      { kind: "error", code: "codex.turn_interrupted", message: "Codex turn interrupted" },
       { kind: "turn_end", sessionId: "root", turnOwner: "codex:root:turn" },
     ]);
   });

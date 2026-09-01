@@ -38,6 +38,7 @@ function realSpawnDriver(): ProcessAdapterPrimitives<string, BackendConfig> {
       terminalOwnership: "lane_generation",
     },
     currentSessionId: null,
+    interrupt: async () => false,
     spawn: async () => {
       const proc = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
         stdio: ["pipe", "pipe", "pipe"],
@@ -362,16 +363,31 @@ describe("ProcessLane prompt admission ownership", () => {
 });
 
 describe("ProcessLane interrupt", () => {
-  it("sends SIGINT only while the process is open", async () => {
+  it("delegates to an adapter-native interrupt without signaling the process", async () => {
+    const { driver, kill } = controllableDriver(() => []);
+    const interrupt = vi.fn(async () => true);
+    driver.interrupt = interrupt;
+    const session = new ProcessLane(driver, minimalCtx());
+    await session.start({ text: "go" });
+
+    await expect(session.interrupt({ requestId: "native-1", reason: "owner_request" })).resolves.toBe(true);
+    expect(interrupt).toHaveBeenCalledWith(
+      { requestId: "native-1", reason: "owner_request" },
+      expect.objectContaining({ stdin: expect.anything() }),
+    );
+    expect(kill).not.toHaveBeenCalled();
+  });
+
+  it("does not signal the process when the adapter declines the interrupt", async () => {
     const { driver, process: proc, kill } = controllableDriver(() => []);
     const session = new ProcessLane(driver, minimalCtx());
-    await expect(session.interrupt()).resolves.toBe(false);
+    await expect(session.interrupt({ requestId: "before-start" })).resolves.toBe(false);
     await session.start({ text: "go" });
     expect(session.signalCode).toBeNull();
-    await expect(session.interrupt()).resolves.toBe(true);
-    expect(kill).toHaveBeenCalledWith("SIGINT");
+    await expect(session.interrupt({ requestId: "declined" })).resolves.toBe(false);
+    expect(kill).not.toHaveBeenCalled();
     Object.assign(proc, { exitCode: 0 });
-    await expect(session.interrupt()).resolves.toBe(false);
+    await expect(session.interrupt({ requestId: "after-exit" })).resolves.toBe(false);
   });
 });
 

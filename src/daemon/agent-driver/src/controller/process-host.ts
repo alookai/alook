@@ -15,6 +15,7 @@ import type {
   AdapterLaunchContext,
   BackendExecution,
   LaneAdmission,
+  LaneInterruptInput,
   LaneSendInput,
   LaneStartInput,
   LaneStopInput,
@@ -52,6 +53,7 @@ export interface ProcessAdapterPrimitives<Id extends string, Config> {
     sessionId: string | null,
     opts?: import("../internal/adapter.js").EncodeMessageOptions,
   ): string | null;
+  interrupt(input: LaneInterruptInput, process: SpawnedProcessHandle): Promise<boolean>;
   updateSettings?(input: RuntimeSettingsUpdate): Promise<RuntimeSettingsUpdateResult>;
 }
 
@@ -239,10 +241,10 @@ export class ProcessLane<Id extends string = BuiltinBackendId, Config = BackendC
     }
   }
 
-  async interrupt(): Promise<boolean> {
+  async interrupt(input: LaneInterruptInput): Promise<boolean> {
     const proc = this.process;
     if (!proc || this.closed) return false;
-    return proc.kill("SIGINT");
+    return this.driver.interrupt(input, proc);
   }
 
   updateSettings(input: RuntimeSettingsUpdate): Promise<RuntimeSettingsUpdateResult> {

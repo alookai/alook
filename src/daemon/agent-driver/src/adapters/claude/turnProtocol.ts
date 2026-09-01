@@ -54,6 +54,10 @@ export class ClaudeTurnProtocol {
     return this.delivered.get(this.rootUuid)?.acknowledged === true;
   }
 
+  hasActiveTurn(): boolean {
+    return this.rootUuid !== null && !this.finalized;
+  }
+
   /** Returns the logical root receipt only when this is the final provider segment. */
   claimResult(userMessageUuid: string): string | null {
     if (this.finalized || !this.rootUuid || userMessageUuid !== this.segmentOwnerUuid) return null;

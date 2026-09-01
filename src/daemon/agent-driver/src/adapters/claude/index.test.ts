@@ -113,4 +113,47 @@ describe("ClaudeDriver", () => {
     expect(write).toHaveBeenCalledWith(expect.stringContaining('"text":"hello"'));
     expect(write).toHaveBeenCalledWith(expect.stringContaining(`"uuid":"${receipt.slice("claude:".length)}"`));
   });
+
+  it("interrupts an active turn with a native control request without signaling the process", async () => {
+    const stdin = new PassThrough();
+    const write = vi.spyOn(stdin, "write");
+    const process = Object.assign(new EventEmitter(), {
+      stdin,
+      exitCode: null,
+      signalCode: null,
+      kill: vi.fn(() => true),
+    });
+    const driver = new ClaudeDriver();
+    driver.beginTurn();
+
+    await expect(driver.interrupt(
+      { requestId: "interrupt-1", reason: "owner_request" },
+      process,
+    )).resolves.toBe(true);
+
+    expect(JSON.parse(String(write.mock.calls[0]![0]))).toEqual({
+      type: "control_request",
+      request_id: "interrupt-1",
+      request: { subtype: "interrupt" },
+    });
+    expect(process.kill).not.toHaveBeenCalled();
+  });
+
+  it("does not send a control request when no Claude turn is active", async () => {
+    const stdin = new PassThrough();
+    const write = vi.spyOn(stdin, "write");
+    const process = Object.assign(new EventEmitter(), {
+      stdin,
+      exitCode: null,
+      signalCode: null,
+      kill: vi.fn(() => true),
+    });
+
+    await expect(new ClaudeDriver().interrupt(
+      { requestId: "interrupt-1", reason: "owner_request" },
+      process,
+    )).resolves.toBe(false);
+    expect(write).not.toHaveBeenCalled();
+    expect(process.kill).not.toHaveBeenCalled();
+  });
 });
