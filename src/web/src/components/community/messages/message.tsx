@@ -65,6 +65,17 @@ export function shouldActivateMessageOverlays(target: EventTarget | null): boole
   return !element?.closest?.("button, a, input, textarea, select, [role=button]")
 }
 
+export function messageEventBelongsToRow(
+  target: EventTarget | null,
+  row: { contains?: (target: Node | null) => boolean } | null,
+): boolean {
+  // React portal events follow the component tree, so they can reach the
+  // message row even though their DOM target lives in an overlay elsewhere.
+  // Real row elements always expose `contains`; the fallback keeps lightweight
+  // non-DOM event doubles compatible with these pure render tests.
+  return typeof row?.contains !== "function" || row.contains(target as Node | null)
+}
+
 export function shouldSuppressTouchMenuOpen({
   nestedControl,
   selectionInsideRow,
@@ -302,6 +313,7 @@ function MessageImpl({
     : undefined
   const activate = interactive
     ? (event: React.PointerEvent<HTMLElement>) => {
+        if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
         const pointerType = messageLinkPointerType(event.nativeEvent)
         if (pointerType === "mouse") {
           setDesktopMenuInputSeen(true)
@@ -313,6 +325,7 @@ function MessageImpl({
     : undefined
   const activateFromKeyboard = interactive
     ? (event: React.KeyboardEvent<HTMLElement>) => {
+        if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
         if (
           (event.key === "Enter" || event.key === " ")
           && !shouldActivateMessageOverlays(event.target)
@@ -371,6 +384,7 @@ function MessageImpl({
       onPointerEnter={activate}
       onPointerDownCapture={interactive
         ? (event) => {
+            if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
             keyboardLinkActivationRef.current = false
             const target = messageExternalLinkTargetFromEventTarget(event.target)
             linkPointerRef.current = target && event.button === 0
@@ -379,12 +393,14 @@ function MessageImpl({
           }
         : undefined}
       onPointerCancelCapture={interactive
-        ? () => {
+        ? (event) => {
+            if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
             linkPointerRef.current = null
           }
         : undefined}
       onPointerDown={swipeReplyEnabled
         ? (event) => {
+            if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
             if (event.pointerType !== "touch") return
             const nested = (event.target as Element).closest?.(
               "button, a, input, textarea, select, [role=button]",
@@ -398,6 +414,7 @@ function MessageImpl({
         : undefined}
       onPointerMove={swipeReplyEnabled
         ? (event) => {
+            if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
             const current = swipeGestureRef.current
             if (!current || event.pointerType !== "touch") return
             if (selectionBelongsToRow(window.getSelection(), event.currentTarget)) {
@@ -423,6 +440,7 @@ function MessageImpl({
         : undefined}
       onPointerUp={swipeReplyEnabled
         ? (event) => {
+            if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
             const gesture = swipeGestureRef.current
             if (!gesture || event.pointerType !== "touch") return
             const commit = shouldCommitMobileReply(gesture)
@@ -434,22 +452,29 @@ function MessageImpl({
           }
         : undefined}
       onPointerCancel={swipeReplyEnabled
-        ? () => {
+        ? (event) => {
+            if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
             swipeGestureRef.current = null
             suppressLongPressClick.current = true
             setSwipeVisual({ offset: 0, active: false, crossed: false })
           }
         : undefined}
-      onFocusCapture={hoverCapable ? activateOverlays : undefined}
+      onFocusCapture={hoverCapable
+        ? (event) => {
+            if (messageEventBelongsToRow(event.target, event.currentTarget)) activateOverlays?.(event)
+          }
+        : undefined}
       onKeyDownCapture={activateFromKeyboard}
       onTouchStart={interactive && touchFallbackActive
-          ? () => {
+          ? (event) => {
+            if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
             touchStartedAt.current = performance.now()
             suppressLongPressClick.current = false
           }
         : undefined}
       onTouchEnd={interactive && touchFallbackActive
-        ? () => {
+        ? (event) => {
+            if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
             const startedAt = touchStartedAt.current
             suppressLongPressClick.current = suppressLongPressClick.current || (
               startedAt !== null && performance.now() - startedAt >= 500
@@ -458,15 +483,19 @@ function MessageImpl({
           }
         : undefined}
       onTouchCancel={interactive && touchFallbackActive
-          ? () => {
+          ? (event) => {
+            if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
             touchStartedAt.current = null
             suppressLongPressClick.current = true
           }
         : undefined}
       onClick={selectable
-        ? onToggleSelect
+        ? (event) => {
+            if (messageEventBelongsToRow(event.target, event.currentTarget)) onToggleSelect?.()
+          }
         : interactive && touchFallbackActive
           ? (event) => {
+            if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
             const selection = window.getSelection()
             const selectionInsideRow = selectionBelongsToRow(selection, event.currentTarget)
             const controlSelector = "button, a, input, textarea, select, [role=button]"
@@ -494,6 +523,7 @@ function MessageImpl({
         : undefined}
       onClickCapture={interactive
         ? (event) => {
+            if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
             const target = messageExternalLinkTargetFromEventTarget(event.target)
             if (!target) {
               linkPointerRef.current = null
@@ -522,6 +552,7 @@ function MessageImpl({
         : undefined}
       onContextMenuCapture={interactive
         ? (event) => {
+            if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
             setLinkTarget(messageExternalLinkTargetFromEventTarget(event.target))
           }
         : undefined}
