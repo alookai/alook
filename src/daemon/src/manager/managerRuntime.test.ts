@@ -338,16 +338,18 @@ describe("AgentProcessManager — running-turn interrupt", () => {
   });
 
   it("keeps an accepted interrupt successful when the audit observer throws", async () => {
+    const logger = stubLogger();
     const onBotAuditEvent = vi.fn(() => {
       throw new Error("audit unavailable");
     });
-    const { mgr } = makeManager({ onBotAuditEvent });
+    const { mgr } = makeManager({ logger, onBotAuditEvent });
     const session = fakeSession("interrupt-session");
     session.interrupt = vi.fn(async ({ requestId }) => ({ status: "accepted", requestId, turnId: "turn_1" }));
     (mgr as unknown as { sessions: Map<string, TestAgentSession> }).sessions.set("a1", session);
 
     await expect(mgr.interrupt("a1")).resolves.toBeUndefined();
     expect(onBotAuditEvent).toHaveBeenCalledOnce();
+    expect(logger.calls.debug.map(([message]) => message)).toContain("audit emit failed (turn interrupt)");
   });
 });
 
