@@ -319,6 +319,7 @@ export {
   AuditLogCliInvocationPayloadSchema,
   AuditLogToolCallPayloadSchema,
   AuditLogThinkingPayloadSchema,
+  AuditLogTurnInterruptPayloadSchema,
   AuditLogWakeTriggerPayloadSchema,
   AuditLogModelChangedPayloadSchema,
   AuditLogProviderChangedPayloadSchema,

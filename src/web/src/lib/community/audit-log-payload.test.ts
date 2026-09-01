@@ -38,6 +38,12 @@ describe("parseAuditLogPayload", () => {
     )
     expect(p).toEqual({ text: "hmm", truncated: false, chars: 3 })
   })
+  it("parses only daemon-accepted turn_interrupt payloads", () => {
+    expect(parseAuditLogPayload("turn_interrupt", JSON.stringify({ status: "accepted" }))).toEqual({
+      status: "accepted",
+    })
+    expect(parseAuditLogPayload("turn_interrupt", JSON.stringify({ status: "stopped" }))).toBe(null)
+  })
   it("parses a well-shaped wake_trigger payload", () => {
     const payload = {
       messageId: "m_1",

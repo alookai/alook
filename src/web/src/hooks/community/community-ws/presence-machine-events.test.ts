@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type {
+  CommunityBotAuditEvent,
   CommunityMachineCreated,
   CommunityMachineStatus,
   CommunityPresenceUpdate,
@@ -96,6 +97,35 @@ describe("useCommunityWs — status.update → Zustand store, no cache", () => {
     })
     // No cache touched.
     expect(spy).not.toHaveBeenCalled()
+  })
+})
+
+describe("useCommunityWs — bot audit events", () => {
+  it("accepts and stores a live daemon-accepted turn interrupt", async () => {
+    await mountHook()
+    const event: CommunityBotAuditEvent = {
+      type: "community:bot.audit_event",
+      botId: "bot_stop",
+      id: "audit_stop",
+      kind: "turn_interrupt",
+      payload: { status: "accepted" },
+      sessionId: "session_1",
+      launchId: "launch_1",
+      createdAt: "2026-09-01T15:00:00.000Z",
+    }
+
+    capturedOnMessage!(event)
+
+    const { useCommunityWsStore } = await import("@/stores/community/ws")
+    expect(useCommunityWsStore.getState().botAuditEvents.get("bot_stop")).toEqual([{
+      id: "audit_stop",
+      botId: "bot_stop",
+      kind: "turn_interrupt",
+      payload: { status: "accepted" },
+      sessionId: "session_1",
+      launchId: "launch_1",
+      createdAt: "2026-09-01T15:00:00.000Z",
+    }])
   })
 })
 
