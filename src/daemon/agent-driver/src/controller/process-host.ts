@@ -42,6 +42,13 @@ interface ProcessLaneOptions {
   promptAdmissionTimeoutMs?: number;
 }
 
+interface PendingInterrupt {
+  readonly input: LaneInterruptInput;
+  readonly promise: Promise<boolean>;
+  readonly resolve: (accepted: boolean) => void;
+  readonly reject: (error: unknown) => void;
+}
+
 export interface ProcessAdapterPrimitives<Id extends string, Config> {
   readonly id: Id;
   readonly execution: BackendExecution;
@@ -66,6 +73,7 @@ export class ProcessLane<Id extends string = BuiltinBackendId, Config = BackendC
   private admissionSequence = 0;
   private activeTerminalReceipt?: string;
   private stopPromise?: Promise<void>;
+  private pendingInterrupt?: PendingInterrupt;
   private pendingPromptAdmission?: {
     resolve(admission: LaneAdmission): void;
     timer?: ReturnType<typeof setTimeout>;
@@ -118,12 +126,14 @@ export class ProcessLane<Id extends string = BuiltinBackendId, Config = BackendC
     try {
       spawned = await this.driver.spawn(launchCtx);
     } catch (error) {
+      this.settlePendingInterrupt(false);
       this.settlePendingPrompt({ ok: false, reason: "runtime_error", error: String(error) });
       throw error;
     }
     const { process: proc } = spawned;
     this.process = proc;
     this.attachProcess(proc);
+    this.dispatchPendingInterrupt(proc);
     this.armPendingPromptTimeout();
     if (this.driver.execution.lifetime === "session" && !this.writableStdin(proc)) {
       const rejection = this.stdinUnavailableAdmission();
@@ -223,6 +233,7 @@ export class ProcessLane<Id extends string = BuiltinBackendId, Config = BackendC
   }
 
   stop(opts: LaneStopInput = {}): Promise<void> {
+    this.settlePendingInterrupt(false);
     this.settlePendingPrompt({ ok: false, reason: "closed", error: "runtime lane stopped before command admission" });
     if (!this.process) return Promise.resolve();
     this.stopPromise ??= this.stopProcess(opts);
@@ -243,8 +254,34 @@ export class ProcessLane<Id extends string = BuiltinBackendId, Config = BackendC
 
   async interrupt(input: LaneInterruptInput): Promise<boolean> {
     const proc = this.process;
-    if (!proc || this.closed) return false;
+    if (!proc) {
+      if (!this.started) return false;
+      if (this.pendingInterrupt) return this.pendingInterrupt.promise;
+      let resolve!: (accepted: boolean) => void;
+      let reject!: (error: unknown) => void;
+      const promise = new Promise<boolean>((res, rej) => {
+        resolve = res;
+        reject = rej;
+      });
+      this.pendingInterrupt = { input, promise, resolve, reject };
+      return promise;
+    }
+    if (this.closed) return false;
     return this.driver.interrupt(input, proc);
+  }
+
+  private dispatchPendingInterrupt(proc: SpawnedProcessHandle): void {
+    const pending = this.pendingInterrupt;
+    if (!pending) return;
+    this.pendingInterrupt = undefined;
+    void this.driver.interrupt(pending.input, proc).then(pending.resolve, pending.reject);
+  }
+
+  private settlePendingInterrupt(accepted: boolean): void {
+    const pending = this.pendingInterrupt;
+    if (!pending) return;
+    this.pendingInterrupt = undefined;
+    pending.resolve(accepted);
   }
 
   updateSettings(input: RuntimeSettingsUpdate): Promise<RuntimeSettingsUpdateResult> {

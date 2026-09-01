@@ -378,6 +378,84 @@ describe("ProcessLane interrupt", () => {
     expect(kill).not.toHaveBeenCalled();
   });
 
+  it("delivers an interrupt that arrives while the process spawn is pending", async () => {
+    const { driver, process: proc, kill } = controllableDriver(() => []);
+    let releaseSpawn!: () => void;
+    const spawnGate = new Promise<void>((resolve) => { releaseSpawn = resolve; });
+    driver.spawn = async () => {
+      await spawnGate;
+      return { process: proc };
+    };
+    const interrupt = vi.fn(async () => true);
+    driver.interrupt = interrupt;
+    const session = new ProcessLane(driver, minimalCtx());
+
+    const starting = session.start({ text: "go" });
+    await Promise.resolve();
+    const firstInterrupt = session.interrupt({ requestId: "during-spawn", reason: "owner_request" });
+    const secondInterrupt = session.interrupt({ requestId: "retry-during-spawn", reason: "owner_request" });
+    expect(interrupt).not.toHaveBeenCalled();
+
+    releaseSpawn();
+    await expect(firstInterrupt).resolves.toBe(true);
+    await expect(secondInterrupt).resolves.toBe(true);
+    await expect(starting).resolves.toMatchObject({ ok: true });
+    expect(interrupt).toHaveBeenCalledOnce();
+    expect(interrupt).toHaveBeenCalledWith(
+      { requestId: "during-spawn", reason: "owner_request" },
+      proc,
+    );
+    expect(kill).not.toHaveBeenCalled();
+  });
+
+  it("settles a pending interrupt when process spawn fails", async () => {
+    const { driver } = controllableDriver(() => []);
+    let releaseSpawn!: () => void;
+    const spawnGate = new Promise<void>((resolve) => { releaseSpawn = resolve; });
+    driver.spawn = async () => {
+      await spawnGate;
+      throw new Error("spawn failed");
+    };
+    const interrupt = vi.fn(async () => true);
+    driver.interrupt = interrupt;
+    const session = new ProcessLane(driver, minimalCtx());
+
+    const starting = session.start({ text: "go" });
+    await Promise.resolve();
+    const interrupting = session.interrupt({ requestId: "during-failed-spawn" });
+    releaseSpawn();
+
+    await expect(interrupting).resolves.toBe(false);
+    await expect(starting).rejects.toThrow("spawn failed");
+    expect(interrupt).not.toHaveBeenCalled();
+  });
+
+  it("settles every waiter false when the lane stops before process spawn", async () => {
+    const { driver, process: proc } = controllableDriver(() => []);
+    let releaseSpawn!: () => void;
+    const spawnGate = new Promise<void>((resolve) => { releaseSpawn = resolve; });
+    driver.spawn = async () => {
+      await spawnGate;
+      return { process: proc };
+    };
+    const interrupt = vi.fn(async () => true);
+    driver.interrupt = interrupt;
+    const session = new ProcessLane(driver, minimalCtx());
+
+    const starting = session.start({ text: "go" });
+    await Promise.resolve();
+    const firstInterrupt = session.interrupt({ requestId: "before-stop" });
+    const secondInterrupt = session.interrupt({ requestId: "retry-before-stop" });
+    await session.stop({ reason: "shutdown" });
+
+    await expect(firstInterrupt).resolves.toBe(false);
+    await expect(secondInterrupt).resolves.toBe(false);
+    expect(interrupt).not.toHaveBeenCalled();
+    releaseSpawn();
+    await expect(starting).resolves.toMatchObject({ ok: true });
+    await session.stop({ reason: "shutdown" });
+  });
+
   it("does not signal the process when the adapter declines the interrupt", async () => {
     const { driver, process: proc, kill } = controllableDriver(() => []);
     const session = new ProcessLane(driver, minimalCtx());

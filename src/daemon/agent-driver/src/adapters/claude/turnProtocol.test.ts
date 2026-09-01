@@ -61,6 +61,20 @@ describe("ClaudeTurnProtocol", () => {
     expect(protocol.claimResult(steering)).toBeNull();
   });
 
+  it("promotes unreplayed steering after an ownerless interrupted segment boundary", () => {
+    const protocol = new ClaudeTurnProtocol();
+    const receipt = protocol.beginTurn();
+    const root = uuidOf(receipt);
+    const steering = protocol.steeringInputUuid();
+    protocol.acknowledge(root);
+    protocol.noteInterruptRequested();
+
+    expect(protocol.claimInterruptedResult()).toBeNull();
+    protocol.acknowledge(steering);
+    expect(protocol.claimResult(steering)).toBe(receipt);
+    expect(protocol.claimResult(steering)).toBeNull();
+  });
+
   it("rejects ownerless terminals without a native interrupt request", () => {
     const protocol = new ClaudeTurnProtocol();
     const root = uuidOf(protocol.beginTurn());

@@ -11,9 +11,9 @@ interface DeliveredInput {
  * Claude may emit a result before every stdin steering frame has been replayed
  * to stdout. Those not-yet-acknowledged frames become a follow-on provider
  * segment in the same persistent process. Only the result for the latest
- * acknowledged follow-on UUID is the logical terminal. Native interruption
- * instead ends with an ownerless interrupted terminal after queued frames
- * replay, so that exact path is claimed against the root receipt separately.
+ * acknowledged follow-on UUID is the logical terminal. Native interruption may
+ * instead emit an ownerless interrupted boundary before queued frames replay,
+ * so that exact path advances or claims the root receipt separately.
  */
 export class ClaudeTurnProtocol {
   private rootUuid: string | null = null;
@@ -82,10 +82,15 @@ export class ClaudeTurnProtocol {
     return this.receipt(this.rootUuid);
   }
 
-  /** Claims Claude's ownerless terminal emitted after a native interrupt. */
+  /** Claims or advances Claude's ownerless result emitted after a native interrupt. */
   claimInterruptedResult(): string | null {
     if (this.finalized || !this.rootUuid || !this.interruptRequested) return null;
-    if ([...this.delivered.values()].some((input) => !input.acknowledged)) return null;
+    const unacknowledged = [...this.delivered.values()].filter((input) => !input.acknowledged);
+    if (unacknowledged.length > 0) {
+      this.awaitingFollowOn = true;
+      for (const input of unacknowledged) input.followOn = true;
+      return null;
+    }
     this.finalized = true;
     return this.receipt(this.rootUuid);
   }

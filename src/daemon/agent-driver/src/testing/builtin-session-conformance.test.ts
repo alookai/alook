@@ -439,6 +439,11 @@ async function runPublicSessionLifecycle(backend: BuiltinBackendId): Promise<voi
   const interrupted = await session.interrupt({ requestId: "interrupt-1", reason: "conformance" });
   expect(interrupted.status).toBe("accepted");
   if (backend === "claude") {
+    expect(harness.stdinMessages).not.toContainEqual(expect.objectContaining({
+      type: "control_request",
+    }));
+    harness.replayClaudeInput(0);
+    await settle();
     expect(harness.stdinMessages).toContainEqual({
       type: "control_request",
       request_id: "interrupt-1",

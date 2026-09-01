@@ -124,7 +124,9 @@ describe("ClaudeDriver", () => {
       kill: vi.fn(() => true),
     });
     const driver = new ClaudeDriver();
-    driver.beginTurn();
+    const receipt = driver.beginTurn();
+    const root = receipt.slice("claude:".length);
+    driver.normalizeLine(JSON.stringify({ type: "user", uuid: root, isReplay: true }));
 
     await expect(driver.interrupt(
       { requestId: "interrupt-1", reason: "owner_request" },
@@ -136,6 +138,77 @@ describe("ClaudeDriver", () => {
       request_id: "interrupt-1",
       request: { subtype: "interrupt" },
     });
+    expect(process.kill).not.toHaveBeenCalled();
+  });
+
+  it("defers a pre-root-ack interrupt until root replay and writes one native frame", async () => {
+    const stdin = new PassThrough();
+    const write = vi.spyOn(stdin, "write");
+    const process = Object.assign(new EventEmitter(), {
+      stdin,
+      exitCode: null,
+      signalCode: null,
+      kill: vi.fn(() => true),
+    });
+    const driver = new ClaudeDriver();
+    const receipt = driver.beginTurn();
+    const root = receipt.slice("claude:".length);
+
+    await expect(driver.interrupt(
+      { requestId: "interrupt-before-ack", reason: "owner_request" },
+      process,
+    )).resolves.toBe(true);
+    await expect(driver.interrupt(
+      { requestId: "retry-before-ack", reason: "owner_request" },
+      process,
+    )).resolves.toBe(true);
+    expect(write).not.toHaveBeenCalled();
+
+    driver.normalizeLine(JSON.stringify({ type: "system", subtype: "init", session_id: "s1" }));
+    expect(write).not.toHaveBeenCalled();
+    driver.normalizeLine(JSON.stringify({ type: "user", uuid: root, isReplay: true }));
+    expect(write).toHaveBeenCalledOnce();
+    expect(JSON.parse(String(write.mock.calls[0]![0]))).toEqual({
+      type: "control_request",
+      request_id: "interrupt-before-ack",
+      request: { subtype: "interrupt" },
+    });
+    expect(process.kill).not.toHaveBeenCalled();
+  });
+
+  it("accepts a B-owned terminal after Claude's ownerless interrupted A boundary", async () => {
+    const stdin = new PassThrough();
+    const process = Object.assign(new EventEmitter(), {
+      stdin,
+      exitCode: null,
+      signalCode: null,
+      kill: vi.fn(() => true),
+    });
+    const driver = new ClaudeDriver();
+    const receipt = driver.beginTurn();
+    const root = receipt.slice("claude:".length);
+    const steering = JSON.parse(driver.encodeMessage("queued", null, { mode: "busy" }));
+    driver.normalizeLine(JSON.stringify({ type: "user", uuid: root, isReplay: true }));
+    await driver.interrupt({ requestId: "interrupt-queued", reason: "owner_request" }, process);
+
+    expect(driver.normalizeLine(JSON.stringify({
+      type: "result",
+      subtype: "error_during_execution",
+      terminal_reason: "aborted_tools",
+      is_error: true,
+    }))).toEqual([]);
+    expect(driver.normalizeLine(JSON.stringify({ type: "user", uuid: steering.uuid, isReplay: true }))).toEqual([]);
+    expect(driver.normalizeLine(JSON.stringify({
+      type: "result",
+      subtype: "success",
+      terminal_reason: "completed",
+      is_error: false,
+      user_message_uuid: steering.uuid,
+    }))).toEqual([{
+      kind: "turn_end",
+      sessionId: undefined,
+      turnOwner: receipt,
+    }]);
     expect(process.kill).not.toHaveBeenCalled();
   });
 
