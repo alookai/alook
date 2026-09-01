@@ -11,7 +11,11 @@ export function buildBlogPostingJsonLd(post: BlogPost) {
     ...(post.dateModified ? { dateModified: post.dateModified } : {}),
     author:
       post.author === "Alook Team"
-        ? { ...ALOOK_ORGANIZATION }
+        ? {
+            "@type": "Organization",
+            name: "Alook Team",
+            url: "https://alook.ai/blog",
+          }
         : {
             "@type": "Person",
             name: post.author,
