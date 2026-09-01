@@ -1,18 +1,22 @@
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
+import { toast } from "sonner"
 import {
   MessageShareDialog,
   ShareCardImageTimeoutError,
+  ShareCardRenderError,
   ShareImageSnapshotError,
   copyRenderedShareCard,
   createShareImageSnapshot,
   downloadRenderedShareCard,
   renderShareCard,
+  shareCardRenderErrorMessage,
   snapshotShareCardImages,
   waitForShareCardImages,
 } from "./message-share-dialog"
 import type { RenderMsg } from "@/lib/community/models/message"
+import { tid } from "@/lib/community/testids"
 
 const profileState = vi.hoisted(() => ({ map: new Map<string, Record<string, unknown>>() }))
 vi.mock("@/stores/community/ws", () => ({
@@ -514,20 +518,241 @@ describe("snapshotShareCardImages", () => {
 })
 
 describe("renderShareCard", () => {
-  it("does not rasterize when image snapshot preparation fails", async () => {
-    const node = {} as HTMLElement
-    const snapshotImages = vi.fn().mockRejectedValue(new ShareImageSnapshotError())
+  const node = {} as HTMLElement
+  const style = { getPropertyValue: vi.fn(() => "") }
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
+
+  it("records the complete render lifecycle and restores snapshots once", async () => {
+    vi.stubGlobal("getComputedStyle", vi.fn(() => style))
+    const stages: string[] = []
+    const restore = vi.fn()
+    const blob = new Blob(["png"], { type: "image/png" })
+    const snapshotImages = vi.fn().mockResolvedValue(restore)
+    const loadFonts = vi.fn().mockResolvedValue(undefined)
+    const rasterize = vi.fn().mockResolvedValue(blob)
+
+    await expect(renderShareCard(node, snapshotImages, rasterize, {
+      loadFonts,
+      onStage: (stage) => stages.push(stage),
+    })).resolves.toBe(blob)
+
+    expect(stages).toEqual(["snapshot", "fonts", "rasterize", "cleanup"])
+    expect(loadFonts).toHaveBeenCalledOnce()
+    expect(restore).toHaveBeenCalledOnce()
+  })
+
+  it("types snapshot preparation failures and skips rasterization", async () => {
+    const failure = new ShareImageSnapshotError()
+    const snapshotImages = vi.fn().mockRejectedValue(failure)
     const rasterize = vi.fn()
 
-    await expect(renderShareCard(node, snapshotImages, rasterize)).rejects.toThrow(
-      ShareImageSnapshotError,
-    )
+    await expect(renderShareCard(node, snapshotImages, rasterize, {
+      loadFonts: vi.fn(),
+    })).rejects.toMatchObject({
+      stage: "snapshot",
+      timedOut: false,
+      cause: failure,
+    })
 
     expect(rasterize).not.toHaveBeenCalled()
   })
 
-  it("does not reach clipboard or download writes when snapshot preparation fails", async () => {
-    const failure = new ShareImageSnapshotError()
+  it("keeps font loading best-effort and proceeds to rasterization", async () => {
+    vi.stubGlobal("getComputedStyle", vi.fn(() => style))
+    const restore = vi.fn()
+    const blob = new Blob(["png"], { type: "image/png" })
+    const rasterize = vi.fn().mockResolvedValue(blob)
+
+    await expect(renderShareCard(
+      node,
+      vi.fn().mockResolvedValue(restore),
+      rasterize,
+      { loadFonts: vi.fn().mockRejectedValue(new Error("font unavailable")) },
+    )).resolves.toBe(blob)
+
+    expect(rasterize).toHaveBeenCalledOnce()
+    expect(restore).toHaveBeenCalledOnce()
+  })
+
+  it("uses the real document font contract when no font waiter is injected", async () => {
+    const load = vi.fn().mockResolvedValue(undefined)
+    const ready = Promise.resolve()
+    vi.stubGlobal("document", { documentElement: {}, fonts: { load, ready } })
+    vi.stubGlobal("getComputedStyle", vi.fn((target) => (
+      target === document.documentElement
+        ? { getPropertyValue: vi.fn(() => "Caveat") }
+        : style
+    )))
+
+    await renderShareCard(
+      node,
+      vi.fn().mockResolvedValue(vi.fn()),
+      vi.fn().mockResolvedValue(new Blob(["png"])),
+    )
+
+    expect(load).toHaveBeenCalledWith("16px Caveat")
+  })
+
+  it.each([
+    {
+      name: "a rejected rasterizer",
+      result: () => Promise.reject(new Error("raster failed")),
+    },
+    {
+      name: "a null rasterizer result",
+      result: () => Promise.resolve(null),
+    },
+  ])("types $name and restores snapshots once", async ({ result }) => {
+    vi.stubGlobal("getComputedStyle", vi.fn(() => style))
+    const restore = vi.fn()
+
+    await expect(renderShareCard(
+      node,
+      vi.fn().mockResolvedValue(restore),
+      vi.fn(result),
+      { loadFonts: vi.fn().mockResolvedValue(undefined) },
+    )).rejects.toMatchObject({ stage: "rasterize", timedOut: false })
+
+    expect(restore).toHaveBeenCalledOnce()
+  })
+
+  it.each(["snapshot", "fonts", "rasterize"] as const)(
+    "applies the single total deadline while in %s",
+    async (blockedStage) => {
+      vi.useFakeTimers()
+      vi.stubGlobal("getComputedStyle", vi.fn(() => style))
+      const never = () => new Promise<never>(() => {})
+      const restore = vi.fn()
+      const snapshotImages = blockedStage === "snapshot"
+        ? vi.fn(never)
+        : vi.fn().mockResolvedValue(restore)
+      const loadFonts = blockedStage === "fonts"
+        ? vi.fn(never)
+        : vi.fn().mockResolvedValue(undefined)
+      const rasterize = blockedStage === "rasterize"
+        ? vi.fn(never)
+        : vi.fn().mockResolvedValue(new Blob(["png"]))
+      const rendering = renderShareCard(node, snapshotImages, rasterize, {
+        timeoutMs: 50,
+        loadFonts,
+      })
+      const rejected = expect(rendering).rejects.toMatchObject({
+        stage: blockedStage,
+        timedOut: true,
+      })
+
+      await vi.advanceTimersByTimeAsync(50)
+      await rejected
+
+      expect(restore).toHaveBeenCalledTimes(blockedStage === "snapshot" ? 0 : 1)
+    },
+  )
+
+  it("restores a late snapshot result after the caller deadline has fired", async () => {
+    vi.useFakeTimers()
+    let finishSnapshot: ((restore: () => void) => void) | undefined
+    const restore = vi.fn()
+    const snapshotImages = vi.fn(() => new Promise<() => void>((resolve) => {
+      finishSnapshot = resolve
+    }))
+    const rasterize = vi.fn()
+    const rendering = renderShareCard(node, snapshotImages, rasterize, {
+      timeoutMs: 50,
+      loadFonts: vi.fn(),
+    })
+    const rejected = expect(rendering).rejects.toMatchObject({
+      stage: "snapshot",
+      timedOut: true,
+    })
+
+    await vi.advanceTimersByTimeAsync(50)
+    await rejected
+    finishSnapshot?.(restore)
+    await vi.waitFor(() => expect(restore).toHaveBeenCalledOnce())
+
+    expect(rasterize).not.toHaveBeenCalled()
+  })
+
+  it.each(["fonts", "rasterize"] as const)(
+    "stops after a late %s result and keeps cleanup exact",
+    async (blockedStage) => {
+      vi.useFakeTimers()
+      vi.stubGlobal("getComputedStyle", vi.fn(() => style))
+      let finishStage: (() => void) | undefined
+      const restore = vi.fn()
+      const loadFonts = blockedStage === "fonts"
+        ? vi.fn(() => new Promise<void>((resolve) => { finishStage = resolve }))
+        : vi.fn().mockResolvedValue(undefined)
+      const rasterize = blockedStage === "rasterize"
+        ? vi.fn(() => new Promise<Blob>((resolve) => {
+            finishStage = () => resolve(new Blob(["png"]))
+          }))
+        : vi.fn().mockResolvedValue(new Blob(["png"]))
+      const rendering = renderShareCard(
+        node,
+        vi.fn().mockResolvedValue(restore),
+        rasterize,
+        { timeoutMs: 50, loadFonts },
+      )
+      const outcome = rendering.catch((error) => error)
+
+      await vi.advanceTimersByTimeAsync(50)
+      expect(await outcome).toMatchObject({ stage: blockedStage, timedOut: true })
+      finishStage?.()
+      await vi.waitFor(() => expect(restore).toHaveBeenCalledOnce())
+
+      expect(rasterize).toHaveBeenCalledTimes(blockedStage === "fonts" ? 0 : 1)
+    },
+  )
+
+  it("surfaces cleanup failure when the deadline restores a blocked raster", async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal("getComputedStyle", vi.fn(() => style))
+    const failure = new Error("restore failed")
+    const restore = vi.fn(() => { throw failure })
+    const rendering = renderShareCard(
+      node,
+      vi.fn().mockResolvedValue(restore),
+      vi.fn(() => new Promise<never>(() => {})),
+      { timeoutMs: 50, loadFonts: vi.fn().mockResolvedValue(undefined) },
+    )
+    const outcome = rendering.catch((error) => error)
+
+    await vi.advanceTimersByTimeAsync(50)
+
+    expect(await outcome).toMatchObject({
+      stage: "cleanup",
+      timedOut: false,
+      cause: failure,
+    })
+    expect(restore).toHaveBeenCalledOnce()
+  })
+
+  it("types cleanup failures and never repeats the restore callback", async () => {
+    vi.stubGlobal("getComputedStyle", vi.fn(() => style))
+    const failure = new Error("restore failed")
+    const restore = vi.fn(() => { throw failure })
+
+    await expect(renderShareCard(
+      node,
+      vi.fn().mockResolvedValue(restore),
+      vi.fn().mockResolvedValue(new Blob(["png"])),
+      { loadFonts: vi.fn().mockResolvedValue(undefined) },
+    )).rejects.toMatchObject({
+      stage: "cleanup",
+      timedOut: false,
+      cause: failure,
+    })
+
+    expect(restore).toHaveBeenCalledOnce()
+  })
+
+  it("does not reach clipboard or download writers when rendering fails", async () => {
+    const failure = new ShareCardRenderError("fonts", true)
     const render = vi.fn().mockRejectedValue(failure)
     const clipboardWrite = vi.fn()
     const downloadSave = vi.fn()
@@ -537,5 +762,76 @@ describe("renderShareCard", () => {
 
     expect(clipboardWrite).not.toHaveBeenCalled()
     expect(downloadSave).not.toHaveBeenCalled()
+  })
+
+  it("types a renderer that resolves without a blob before action writers", async () => {
+    const render = vi.fn().mockResolvedValue(null)
+    const clipboardWrite = vi.fn()
+    const downloadSave = vi.fn()
+
+    await expect(copyRenderedShareCard(render, clipboardWrite)).rejects.toMatchObject({
+      stage: "rasterize",
+      timedOut: false,
+    })
+    await expect(downloadRenderedShareCard(render, "share.png", downloadSave)).rejects.toMatchObject({
+      stage: "rasterize",
+      timedOut: false,
+    })
+
+    expect(clipboardWrite).not.toHaveBeenCalled()
+    expect(downloadSave).not.toHaveBeenCalled()
+  })
+
+  it("writes only after a completed render", async () => {
+    const order: string[] = []
+    const blob = new Blob(["png"], { type: "image/png" })
+    const render = vi.fn(async () => {
+      order.push("render")
+      return blob
+    })
+    const clipboardWrite = vi.fn(() => { order.push("copy") })
+    const downloadSave = vi.fn(() => { order.push("download") })
+
+    await copyRenderedShareCard(render, clipboardWrite)
+    await downloadRenderedShareCard(render, "share.png", downloadSave)
+
+    expect(order).toEqual(["render", "copy", "render", "download"])
+  })
+
+  it.each([
+    ["snapshot", "preparing images"],
+    ["fonts", "loading fonts"],
+    ["rasterize", "rendering the image"],
+    ["cleanup", "restoring the preview"],
+  ] as const)("formats visible %s stage failures", (stage, label) => {
+    expect(shareCardRenderErrorMessage(new ShareCardRenderError(stage))).toBe(
+      `Couldn't generate image — ${label} failed`,
+    )
+    expect(shareCardRenderErrorMessage(new ShareCardRenderError(stage, true))).toBe(
+      `Couldn't generate image — ${label} took too long`,
+    )
+  })
+
+  it("leaves post-render action errors to their action-specific UI", () => {
+    expect(shareCardRenderErrorMessage(new Error("clipboard denied"))).toBeNull()
+  })
+})
+
+describe("MessageShareDialog render failures", () => {
+  afterEach(() => {
+    vi.mocked(toast.error).mockReset()
+  })
+
+  it("shows a stage-specific render failure instead of clipboard advice", async () => {
+    const renderer = renderMessage(message())
+    const copyButton = renderer.root.findByProps({ "data-testid": tid.messageShareCopy })
+
+    await act(async () => {
+      await copyButton.props.onClick()
+    })
+
+    expect(toast.error).toHaveBeenCalledWith(
+      "Couldn't generate image — rendering the image failed",
+    )
   })
 })

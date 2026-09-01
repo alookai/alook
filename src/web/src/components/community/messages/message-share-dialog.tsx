@@ -19,7 +19,22 @@ import { useProfilesByUserId } from "@/stores/community/ws"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 
 const SHARE_IMAGE_READY_TIMEOUT_MS = 5_000
+const SHARE_IMAGE_RENDER_TIMEOUT_MS = 15_000
 const SHARE_IMAGE_PIXEL_RATIO = 2
+
+export type ShareCardRenderStage = "snapshot" | "fonts" | "rasterize" | "cleanup"
+
+export class ShareCardRenderError extends Error {
+  constructor(
+    readonly stage: ShareCardRenderStage,
+    readonly timedOut = false,
+    cause?: unknown,
+  ) {
+    super(`Share-card render ${timedOut ? "timed out" : "failed"} during ${stage}`)
+    this.name = "ShareCardRenderError"
+    this.cause = cause
+  }
+}
 
 export class ShareCardImageTimeoutError extends Error {
   constructor() {
@@ -229,33 +244,104 @@ export async function snapshotShareCardImages(
 
 type ShareCardImageSnapshotter = (node: HTMLElement) => Promise<() => void>
 type ShareCardRasterizer = typeof toBlob
+type ShareCardRenderOptions = {
+  timeoutMs?: number
+  loadFonts?: () => Promise<void>
+  onStage?: (stage: ShareCardRenderStage) => void
+}
+
+async function loadShareCardFonts(): Promise<void> {
+  const caveatFont = getComputedStyle(document.documentElement)
+    .getPropertyValue("--font-caveat")
+    .trim()
+  if (document.fonts?.load && caveatFont) await document.fonts.load(`16px ${caveatFont}`)
+  await document.fonts?.ready
+}
 
 export async function renderShareCard(
   node: HTMLElement,
   snapshotImages: ShareCardImageSnapshotter = snapshotShareCardImages,
   rasterize: ShareCardRasterizer = toBlob,
-): Promise<Blob | null> {
-  const restoreImages = await snapshotImages(node)
-  try {
-    try {
-      const caveatFont = getComputedStyle(document.documentElement)
-        .getPropertyValue("--font-caveat")
-        .trim()
-      if (document.fonts?.load && caveatFont) await document.fonts.load(`16px ${caveatFont}`)
-      await document.fonts?.ready
-    } catch {
-      // Font API unavailable / load rejected — proceed; worst case is the
-      // footer's fallback font, not a failed export.
-    }
-    return await rasterize(node, {
-      pixelRatio: SHARE_IMAGE_PIXEL_RATIO,
-      fetchRequestInit: { credentials: "same-origin" },
-      // Solid backdrop so the exported PNG never bleeds transparent corners
-      // (the card's own rounded bg sits on top of this).
-      backgroundColor: getComputedStyle(node).getPropertyValue("--card")?.trim() || undefined,
-    })
-  } finally {
+  options: ShareCardRenderOptions = {},
+): Promise<Blob> {
+  const timeoutMs = options.timeoutMs ?? SHARE_IMAGE_RENDER_TIMEOUT_MS
+  const loadFonts = options.loadFonts ?? loadShareCardFonts
+  let stage: ShareCardRenderStage = "snapshot"
+  let restoreImages: (() => void) | null = null
+  let cleanupRequested = false
+  let cleanupComplete = false
+  let timedOut = false
+  let timeoutError: ShareCardRenderError | null = null
+
+  const enterStage = (nextStage: ShareCardRenderStage) => {
+    stage = nextStage
+    options.onStage?.(nextStage)
+  }
+  const cleanup = () => {
+    cleanupRequested = true
+    if (!restoreImages || cleanupComplete) return
+    enterStage("cleanup")
+    cleanupComplete = true
     restoreImages()
+  }
+
+  enterStage("snapshot")
+  let rejectDeadline!: (reason: ShareCardRenderError) => void
+  const deadline = new Promise<never>((_resolve, reject) => {
+    rejectDeadline = reject
+  })
+  const timer = setTimeout(() => {
+    timedOut = true
+    timeoutError = new ShareCardRenderError(stage, true)
+    try {
+      cleanup()
+      rejectDeadline(timeoutError)
+    } catch (error) {
+      rejectDeadline(new ShareCardRenderError("cleanup", false, error))
+    }
+  }, timeoutMs)
+
+  const lifecycle = async (): Promise<Blob> => {
+    try {
+      restoreImages = await snapshotImages(node)
+      if (cleanupRequested) cleanup()
+      if (timedOut) throw timeoutError
+
+      enterStage("fonts")
+      try {
+        await loadFonts()
+      } catch {
+        // Font loading is best-effort; the fallback font is still renderable.
+      }
+      if (timedOut) throw timeoutError
+
+      enterStage("rasterize")
+      const blob = await rasterize(node, {
+        pixelRatio: SHARE_IMAGE_PIXEL_RATIO,
+        fetchRequestInit: { credentials: "same-origin" },
+        // Solid backdrop so the exported PNG never bleeds transparent corners
+        // (the card's own rounded bg sits on top of this).
+        backgroundColor: getComputedStyle(node).getPropertyValue("--card")?.trim() || undefined,
+      })
+      if (timedOut) throw timeoutError
+      if (!blob) throw new Error("Rasterizer returned no image")
+      return blob
+    } catch (error) {
+      if (error instanceof ShareCardRenderError) throw error
+      throw new ShareCardRenderError(stage, false, error)
+    } finally {
+      try {
+        cleanup()
+      } catch (error) {
+        throw new ShareCardRenderError("cleanup", false, error)
+      }
+    }
+  }
+
+  try {
+    return await Promise.race([lifecycle(), deadline])
+  } finally {
+    clearTimeout(timer)
   }
 }
 
@@ -269,7 +355,7 @@ export async function copyRenderedShareCard(
   ]),
 ): Promise<void> {
   const blob = await render()
-  if (!blob) throw new Error("render failed")
+  if (!blob) throw new ShareCardRenderError("rasterize")
   await write(blob)
 }
 
@@ -289,8 +375,21 @@ export async function downloadRenderedShareCard(
   },
 ): Promise<void> {
   const blob = await render()
-  if (!blob) throw new Error("render failed")
+  if (!blob) throw new ShareCardRenderError("rasterize")
   await save(blob)
+}
+
+export function shareCardRenderErrorMessage(error: unknown): string | null {
+  if (!(error instanceof ShareCardRenderError)) return null
+  const stage = {
+    snapshot: "preparing images",
+    fonts: "loading fonts",
+    rasterize: "rendering the image",
+    cleanup: "restoring the preview",
+  }[error.stage]
+  return error.timedOut
+    ? `Couldn't generate image — ${stage} took too long`
+    : `Couldn't generate image — ${stage} failed`
 }
 
 // Share one OR several messages as an image. Renders a self-contained "share
@@ -366,8 +465,8 @@ export function MessageShareDialog({ m, open, onClose }: {
       setCopied(true)
       toast.success("Image copied to clipboard")
       window.setTimeout(() => setCopied(false), 1600)
-    } catch {
-      toast.error("Couldn't copy image — try Download instead")
+    } catch (error) {
+      toast.error(shareCardRenderErrorMessage(error) ?? "Couldn't copy image — try Download instead")
     } finally {
       setBusy(null)
     }
@@ -384,8 +483,8 @@ export function MessageShareDialog({ m, open, onClose }: {
         render,
         `alook-message-${firstAuthor?.name ?? "share"}.png`,
       )
-    } catch {
-      toast.error("Couldn't generate image")
+    } catch (error) {
+      toast.error(shareCardRenderErrorMessage(error) ?? "Couldn't generate image")
     } finally {
       setBusy(null)
     }
