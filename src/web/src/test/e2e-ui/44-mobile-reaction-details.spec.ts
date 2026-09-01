@@ -182,6 +182,9 @@ test.describe.serial("mobile reaction details", () => {
     expect(mutationRequests).toHaveLength(0)
     await alice.page.getByRole("button", { name: "Close" }).click()
     await expect(fire).toBeFocused()
+    await expect.poll(() => alice.page.evaluate(() => (
+      document.activeElement?.getAttribute("data-testid") ?? null
+    ))).toBe(tid.reactionChip(messageId, "🔥"))
 
     const thumb = alice.page.getByTestId(tid.reactionChip(messageId, "👍"))
     const toggleResponse = alice.page.waitForResponse((response) => (
@@ -403,5 +406,8 @@ test.describe.serial("mobile reaction details", () => {
       body: await alice.page.screenshot(),
       contentType: "image/png",
     })
+    const reactionGroup = alice.page.getByTestId(tid.reactionGroup(emptyMessageId))
+    await alice.page.getByRole("button", { name: "Close" }).click()
+    await expect(reactionGroup).toBeFocused()
   })
 })

@@ -187,6 +187,7 @@ function ReactionDetailsDialog({
   reactions,
   selectedEmoji,
   onSelectedEmojiChange,
+  finalFocus,
 }: {
   messageId: string
   authorName: string
@@ -194,6 +195,7 @@ function ReactionDetailsDialog({
   reactions: readonly Reaction[]
   selectedEmoji: string | null
   onSelectedEmojiChange: (emoji: string) => void
+  finalFocus: () => HTMLElement | null
 }) {
   const userIds = useMemo(
     () => reactions.flatMap((reaction) => reaction.userIds ?? []),
@@ -218,6 +220,7 @@ function ReactionDetailsDialog({
   return (
     <DialogContent
       data-testid={tid.reactionDialog(messageId)}
+      finalFocus={finalFocus}
       className="flex max-h-[calc(100dvh-2rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] flex-col gap-3 overflow-hidden transition-none sm:max-w-sm **:data-[slot=dialog-close]:size-11 **:data-[slot=dialog-close]:transition-none sm:**:data-[slot=dialog-close]:size-7"
     >
       <DialogHeader className="min-w-0 shrink-0">
@@ -294,6 +297,13 @@ function ReactionDetailsDialog({
   )
 }
 
+export function resolveReactionFinalFocus(
+  initiatingChip: HTMLButtonElement | null,
+  reactionGroup: HTMLDivElement | null,
+): HTMLElement | null {
+  return initiatingChip?.isConnected ? initiatingChip : reactionGroup
+}
+
 export function MessageReactions({
   messageId,
   authorName,
@@ -321,11 +331,6 @@ export function MessageReactions({
   const reactionGroupRef = useRef<HTMLDivElement | null>(null)
   const [open, setOpen] = useState(false)
   const [selectedEmoji, setSelectedEmoji] = useState<string | null>(null)
-  const restoreInitiatingFocus = () => {
-    const initiatingChip = initiatingChipRef.current
-    if (initiatingChip?.isConnected !== false) initiatingChip?.focus()
-    else reactionGroupRef.current?.focus()
-  }
 
   useEffect(() => {
     const previous = previousEmojisRef.current
@@ -368,10 +373,7 @@ export function MessageReactions({
 
       <Dialog
         open={open}
-        onOpenChange={(nextOpen) => {
-          setOpen(nextOpen)
-          if (!nextOpen) setTimeout(restoreInitiatingFocus, 0)
-        }}
+        onOpenChange={setOpen}
       >
         {open && (
           <ReactionDetailsDialog
@@ -381,6 +383,10 @@ export function MessageReactions({
             reactions={reactions}
             selectedEmoji={selectedEmoji}
             onSelectedEmojiChange={setSelectedEmoji}
+            finalFocus={() => resolveReactionFinalFocus(
+              initiatingChipRef.current,
+              reactionGroupRef.current,
+            )}
           />
         )}
       </Dialog>
