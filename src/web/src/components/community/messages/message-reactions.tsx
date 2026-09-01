@@ -181,27 +181,27 @@ function ReactionChip({
 }
 
 function ReactionDetailsDialog({
+  open,
   messageId,
   authorName,
   messagePreview,
   reactions,
   selectedEmoji,
   onSelectedEmojiChange,
-  finalFocus,
 }: {
+  open: boolean
   messageId: string
   authorName: string
   messagePreview: string
   reactions: readonly Reaction[]
   selectedEmoji: string | null
   onSelectedEmojiChange: (emoji: string) => void
-  finalFocus: () => HTMLElement | null
 }) {
   const userIds = useMemo(
     () => reactions.flatMap((reaction) => reaction.userIds ?? []),
     [reactions],
   )
-  const details = useReactionDetails({ messageId, open: true, userIds })
+  const details = useReactionDetails({ messageId, open, userIds })
   const selectedReaction = reactions.find((reaction) => reaction.emoji === selectedEmoji)
   const actors = new Map(details.data?.actors.map((actor) => [actor.userId, actor]))
   const reactionRailKey = reactions.map((reaction) => `${reaction.emoji}\0${reaction.count}`).join("\0")
@@ -220,7 +220,7 @@ function ReactionDetailsDialog({
   return (
     <DialogContent
       data-testid={tid.reactionDialog(messageId)}
-      finalFocus={finalFocus}
+      finalFocus={false}
       className="flex max-h-[calc(100dvh-2rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] flex-col gap-3 overflow-hidden transition-none sm:max-w-sm **:data-[slot=dialog-close]:size-11 **:data-[slot=dialog-close]:transition-none sm:**:data-[slot=dialog-close]:size-7"
     >
       <DialogHeader className="min-w-0 shrink-0">
@@ -304,6 +304,15 @@ export function resolveReactionFinalFocus(
   return initiatingChip?.isConnected ? initiatingChip : reactionGroup
 }
 
+export function restoreReactionFocus(
+  initiatingChip: HTMLButtonElement | null,
+  reactionGroup: HTMLDivElement | null,
+): HTMLElement | null {
+  const target = resolveReactionFinalFocus(initiatingChip, reactionGroup)
+  target?.focus({ preventScroll: true })
+  return target
+}
+
 export function MessageReactions({
   messageId,
   authorName,
@@ -374,21 +383,21 @@ export function MessageReactions({
       <Dialog
         open={open}
         onOpenChange={setOpen}
+        onOpenChangeComplete={(nextOpen) => {
+          if (!nextOpen) {
+            restoreReactionFocus(initiatingChipRef.current, reactionGroupRef.current)
+          }
+        }}
       >
-        {open && (
-          <ReactionDetailsDialog
-            messageId={messageId}
-            authorName={authorName}
-            messagePreview={messagePreview || "Message"}
-            reactions={reactions}
-            selectedEmoji={selectedEmoji}
-            onSelectedEmojiChange={setSelectedEmoji}
-            finalFocus={() => resolveReactionFinalFocus(
-              initiatingChipRef.current,
-              reactionGroupRef.current,
-            )}
-          />
-        )}
+        <ReactionDetailsDialog
+          open={open}
+          messageId={messageId}
+          authorName={authorName}
+          messagePreview={messagePreview || "Message"}
+          reactions={reactions}
+          selectedEmoji={selectedEmoji}
+          onSelectedEmojiChange={setSelectedEmoji}
+        />
       </Dialog>
     </>
   )

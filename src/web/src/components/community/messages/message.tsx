@@ -76,6 +76,15 @@ export function messageEventBelongsToRow(
   return typeof row?.contains !== "function" || row.contains(target as Node | null)
 }
 
+export function shouldAdoptDesktopMenuInput(
+  pointerType: string | null,
+  row: { contains?: (target: Node | null) => boolean } | null,
+  activeElement: Element | null,
+): boolean {
+  if (pointerType !== "mouse") return false
+  return typeof row?.contains !== "function" || !row.contains(activeElement)
+}
+
 export function shouldSuppressTouchMenuOpen({
   nestedControl,
   selectionInsideRow,
@@ -295,8 +304,11 @@ function MessageImpl({
   }
   const showMenu = hasMessageMenu(menuHandlers)
   const interactive = !compact && !m.failed && showMenu
-  const touchFallbackActive = !desktopMenuInputSeen && !hoverCapable
-  const swipeReplyEnabled = interactive && touchFallbackActive && !selectMode && !!onReply
+  const touchInputCapable = !hoverCapable
+  const touchFallbackActive = !desktopMenuInputSeen && touchInputCapable
+  // A hybrid device can alternate between mouse and touch. Switching the menu
+  // shell after a mouse gesture must not remove the row's touch swipe handler.
+  const swipeReplyEnabled = interactive && touchInputCapable && !selectMode && !!onReply
   const activateOverlays = interactive && !activated
     ? (event: React.SyntheticEvent<HTMLElement>) => {
         if (shouldActivateMessageOverlays(event.target)) setActivated(true)
@@ -316,7 +328,13 @@ function MessageImpl({
         if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
         const pointerType = messageLinkPointerType(event.nativeEvent)
         if (pointerType === "mouse") {
-          setDesktopMenuInputSeen(true)
+          // Closing a portal can reveal the stationary mouse over this row and
+          // synthesize pointerenter. Do not swap menu shells underneath a focus
+          // target that was just restored into the row.
+          const activeElement = typeof document === "undefined" ? null : document.activeElement
+          if (shouldAdoptDesktopMenuInput(pointerType, event.currentTarget, activeElement)) {
+            setDesktopMenuInputSeen(true)
+          }
           activateLinkOrOverlays?.(event)
         } else if (hoverCapable) {
           activateOverlays?.(event)

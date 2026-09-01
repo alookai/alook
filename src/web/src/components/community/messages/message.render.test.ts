@@ -11,6 +11,7 @@ import {
   messageLinkClickUsesMenu,
   messageLinkPointerType,
   selectionBelongsToRow,
+  shouldAdoptDesktopMenuInput,
   shouldActivateMessageOverlays,
   shouldSuppressTouchMenuOpen,
 } from "./message"
@@ -1345,6 +1346,48 @@ describe("Message file attachment", () => {
 })
 
 describe("Message lazy overlays", () => {
+  it("does not swap menu shells when portal close reveals the pointer over restored focus", () => {
+    const focused = {} as Element
+    const row = { contains: vi.fn((target: Node | null) => target === focused) }
+
+    expect(shouldAdoptDesktopMenuInput("mouse", row, focused)).toBe(false)
+    expect(shouldAdoptDesktopMenuInput("mouse", row, null)).toBe(true)
+    expect(shouldAdoptDesktopMenuInput("touch", row, null)).toBe(false)
+  })
+
+  it("keeps coarse swipe reply available after the row sees mouse input", () => {
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(
+        makeTree({
+          m: baseMsg(),
+          hoverCapable: false,
+          onOpenThread: vi.fn(),
+          onReply: vi.fn(),
+        }),
+        { createNodeMock: () => genericMock },
+      )
+    })
+
+    let row = renderer!.root.find(
+      (node) => typeof node.props.className === "string"
+        && node.props.className.includes("group relative -mx-2"),
+    )
+    act(() => row.props.onPointerEnter({
+      target: { closest: vi.fn(() => null) },
+      currentTarget: genericMock,
+      nativeEvent: { type: "pointerenter", pointerType: "mouse" },
+    }))
+    row = renderer!.root.find(
+      (node) => typeof node.props.className === "string"
+        && node.props.className.includes("group relative -mx-2"),
+    )
+
+    expect(row.props.onPointerDown).toBeTypeOf("function")
+    expect(row.props.onPointerMove).toBeTypeOf("function")
+    expect(row.props.onPointerUp).toBeTypeOf("function")
+  })
+
   it("does not remount the row when the pointer enters an author button", () => {
     const interactiveTarget = { closest: vi.fn(() => ({})) }
     const rowTarget = { closest: vi.fn(() => null) }
