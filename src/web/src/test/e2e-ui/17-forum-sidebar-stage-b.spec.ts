@@ -111,7 +111,7 @@ async function setForumPostArchived(
   await card.hover()
   await page.getByTestId(tid.forumThreadTagBtn(threadId)).click()
   await expect(page.getByTestId(tid.forumTagDialog)).toBeVisible({ timeout: 10_000 })
-  await page.getByTestId(tid.forumTagDialogChip("archived")).click()
+  await page.getByTestId(tid.forumTagDialogArchived).click()
   const put = page.waitForResponse((response) =>
     response.request().method() === "PUT"
     && new URL(response.url()).pathname.endsWith("/tags"),

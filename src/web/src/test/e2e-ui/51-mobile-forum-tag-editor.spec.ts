@@ -41,7 +41,75 @@ async function addDraft(page: Page, tag: string) {
   )
 }
 
-test.describe.serial("mobile forum tag editor", () => {
+test.describe.serial("forum tag editor", () => {
+  test("treats Archived as status and preserves ordinary tags through archive and restore", async ({ asUser }, testInfo) => {
+    const { route, threadId } = await seedForum("Archived status")
+    const { page } = await asUser("alice")
+    await page.setViewportSize({ width: 1280, height: 900 })
+    await page.emulateMedia({ colorScheme: "light" })
+    await gotoAfterUserWsAuth(page, route)
+    const writes = observeTagPuts(page)
+
+    await openEditor(page, threadId)
+    await addDraft(page, "kept")
+    const archived = page.getByTestId(tid.forumTagDialogArchived)
+    await expect(archived).toHaveAttribute("aria-pressed", "false")
+    await expect(archived).toHaveAttribute("aria-label", "Add Archived status")
+    await expect(page.getByTestId(tid.forumTagDialogChip("archived"))).toHaveCount(0)
+    await archived.click()
+    await expect(archived).toHaveAttribute("aria-pressed", "true")
+    await expect(page.getByTestId(tid.forumTagDialogChip("kept"))).toHaveAttribute(
+      "aria-label",
+      "Remove tag kept",
+    )
+    await testInfo.attach("forum-archived-status-light.png", {
+      body: await page.screenshot(),
+      contentType: "image/png",
+    })
+    await page.emulateMedia({ colorScheme: "dark" })
+    await expect(page.locator("html")).toHaveClass(/dark/)
+    await testInfo.attach("forum-archived-status-dark.png", {
+      body: await page.screenshot(),
+      contentType: "image/png",
+    })
+    await page.emulateMedia({ colorScheme: "light" })
+
+    const archivedSave = page.waitForResponse((response) => (
+      response.request().method() === "PUT"
+      && new URL(response.url()).pathname.endsWith("/tags")
+    ))
+    await page.keyboard.press("Escape")
+    const archivedResponse = await archivedSave
+    expect(archivedResponse.status()).toBe(200)
+    expect((archivedResponse.request().postDataJSON() as { tags: string[] }).tags)
+      .toEqual(["kept", "archived"])
+    await expect(page.getByTestId(tid.forumTagChip("archived"))).toBeVisible()
+    await page.getByTestId(tid.forumTagChip("archived")).click()
+    await expect(page.getByTestId(tid.forumThreadCard(threadId))).toBeVisible()
+
+    await openEditor(page, threadId)
+    await expect(page.getByTestId(tid.forumTagDialogArchived)).toHaveAttribute("aria-pressed", "true")
+    await expect(page.getByTestId(tid.forumTagDialogChip("kept"))).toHaveAttribute(
+      "aria-label",
+      "Remove tag kept",
+    )
+    await page.getByTestId(tid.forumTagDialogArchived).click()
+    const restoredSave = page.waitForResponse((response) => (
+      response.request().method() === "PUT"
+      && new URL(response.url()).pathname.endsWith("/tags")
+    ))
+    await page.keyboard.press("Escape")
+    const restoredResponse = await restoredSave
+    expect(restoredResponse.status()).toBe(200)
+    expect((restoredResponse.request().postDataJSON() as { tags: string[] }).tags).toEqual(["kept"])
+
+    await page.goto(route)
+    await expect(page.getByTestId(tid.forumThreadCard(threadId))).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByTestId(tid.forumThreadCard(threadId)).getByText("#kept", { exact: true }))
+      .toBeVisible()
+    expect(writes).toHaveLength(2)
+  })
+
   test("discards implicit close and commits only explicit Save", async ({ asUser }) => {
     const { route, threadId } = await seedForum("Mobile explicit save")
     const { page } = await asUser("alice")
@@ -51,6 +119,8 @@ test.describe.serial("mobile forum tag editor", () => {
     const initialUrl = page.url()
 
     const trigger = await openEditor(page, threadId)
+    await page.getByTestId(tid.forumTagDialogArchived).click()
+    await expect(page.getByTestId(tid.forumTagDialogArchived)).toHaveAttribute("aria-pressed", "true")
     await addDraft(page, "discarded")
     await page.keyboard.press("Escape")
     await expect(page.getByTestId(tid.forumTagDialog)).toHaveCount(0)
@@ -59,6 +129,7 @@ test.describe.serial("mobile forum tag editor", () => {
     expect(writes).toEqual([])
 
     await openEditor(page, threadId)
+    await expect(page.getByTestId(tid.forumTagDialogArchived)).toHaveAttribute("aria-pressed", "false")
     await expect(page.getByTestId(tid.forumTagDialogChip("discarded"))).toHaveCount(0)
     await addDraft(page, "kept")
     const saved = page.waitForResponse((response) => (

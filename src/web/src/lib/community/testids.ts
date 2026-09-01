@@ -100,6 +100,7 @@ export const tid = {
   forumTagDialogInput: "community-forum-tag-dialog-input",
   forumTagDialogCancel: "community-forum-tag-dialog-cancel",
   forumTagDialogSave: "community-forum-tag-dialog-save",
+  forumTagDialogArchived: "community-forum-tag-dialog-archived",
   forumTagDialogChip: (tag: string) => `community-forum-tag-dialog-chip-${tag}`,
   imageLightbox: "community-image-lightbox",
   imageLightboxThumbnail: "community-image-lightbox-thumbnail",
