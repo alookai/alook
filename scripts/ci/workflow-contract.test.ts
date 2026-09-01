@@ -59,10 +59,30 @@ const desktopConfig = JSON.parse(
   readFileSync(resolve(import.meta.dirname, "../../src/desktop/src-tauri/tauri.conf.json"), "utf8"),
 ) as {
   build?: { devUrl?: string; frontendDist?: string }
-  app?: { windows?: Array<{ label?: string; dragDropEnabled?: boolean }> }
+  app?: {
+    windows?: Array<{ label?: string; dragDropEnabled?: boolean }>
+    security?: { capabilities?: Array<string | Record<string, unknown>> }
+  }
   bundle?: { createUpdaterArtifacts?: boolean | string }
   plugins?: { updater?: { endpoints?: string[] } }
 }
+type ExternalLinksCapability = {
+  identifier: string
+  windows: string[]
+  platforms: string[]
+  local: boolean
+  remote: { urls: string[] }
+  permissions: Array<{
+    identifier: string
+    allow?: Array<{ url: string }>
+  }>
+}
+const externalLinksCapability = JSON.parse(
+  readFileSync(
+    resolve(import.meta.dirname, "../../src/desktop/src-tauri/capabilities/external-links.json"),
+    "utf8",
+  ),
+) as ExternalLinksCapability
 const desktopMacConfig = JSON.parse(
   readFileSync(resolve(import.meta.dirname, "../../src/desktop/src-tauri/tauri.macos.conf.json"), "utf8"),
 ) as { bundle?: { macOS?: { entitlements?: string; signingIdentity?: string } } }
@@ -98,7 +118,7 @@ const desktopDevConfig = JSON.parse(readFileSync(
   resolve(import.meta.dirname, "../../src/desktop/src-tauri/tauri.dev.conf.json"),
   "utf8",
 )) as {
-  app: { security: { capabilities: Array<string | DesktopCapability> } }
+  app: { security: { capabilities: Array<string | DesktopCapability | ExternalLinksCapability> } }
 }
 const bumpScript = readFileSync(resolve(import.meta.dirname, "../bump-version.mjs"), "utf8")
 const mobileReleaseWorkflow = resolve(workflowRoot, "mobile-release.yml")
@@ -437,6 +457,89 @@ describe("CI dependency setup", () => {
   })
 })
 
+describe("Native message external-link opener", () => {
+  const expectedPlatforms = ["linux", "macOS", "windows", "android", "iOS"]
+  const expectedPermission = [{
+    identifier: "opener:allow-open-url",
+    allow: [{ url: "http://*" }, { url: "https://*" }],
+  }]
+  const scopedUrlAllowed = (href: string, capability: ExternalLinksCapability) => {
+    const patterns = capability.permissions.flatMap((permission) => (
+      permission.allow?.map((entry) => entry.url) ?? []
+    ))
+    return patterns.includes(`${new URL(href).protocol}//*`)
+  }
+
+  it("registers the official opener plugin in the common desktop/mobile builder", () => {
+    const desktopOnlyDependencies = desktopCargoManifest.indexOf(
+      "[target.\"cfg(not(any(target_os = \\\"android\\\", target_os = \\\"ios\\\")))\".dependencies]",
+    )
+    const dependency = desktopCargoManifest.indexOf('tauri-plugin-opener = "2"')
+    const registration = desktopRustEntry.indexOf("plugin(tauri_plugin_opener::init())")
+    const desktopOnlyPlugins = desktopRustEntry.indexOf("// Desktop-only plugins")
+
+    expect(dependency).toBeGreaterThan(-1)
+    expect(dependency).toBeLessThan(desktopOnlyDependencies)
+    expect(registration).toBeGreaterThan(-1)
+    expect(registration).toBeLessThan(desktopOnlyPlugins)
+  })
+
+  it("grants only scoped HTTP(S) URL opening to the production five-platform app webview", () => {
+    expect(externalLinksCapability).toMatchObject({
+      identifier: "external-links",
+      windows: ["main"],
+      platforms: expectedPlatforms,
+      local: true,
+      remote: { urls: ["https://alook.ai"] },
+      permissions: expectedPermission,
+    })
+    expect(desktopConfig.app?.security?.capabilities).toContain("external-links")
+    expect([
+      "http://example.com:8080/path/to/story?source=chat#section",
+      "https://example.com:9443/a/b?query=yes#fragment",
+      "https://alook.ai/c/invite/abcdef?from=dm",
+    ].every((href) => scopedUrlAllowed(href, externalLinksCapability))).toBe(true)
+    expect([
+      "mailto:friend@example.com",
+      "tel:+15551234567",
+      "file:///tmp/private",
+    ].some((href) => scopedUrlAllowed(href, externalLinksCapability))).toBe(false)
+  })
+
+  it("reuses the same minimal HTTP(S) scope for the local development app webview", () => {
+    const capabilities = desktopDevConfig.app?.security?.capabilities ?? []
+    const inlineOpener = capabilities.find((capability): capability is ExternalLinksCapability => (
+      typeof capability !== "string"
+      && capability.permissions.some((permission) => (
+        typeof permission !== "string" && permission.identifier.startsWith("opener:")
+      ))
+    ))
+
+    expect(capabilities).toContain("external-links")
+    expect(capabilities.filter((capability) => capability === "external-links")).toHaveLength(1)
+    expect(inlineOpener).toBeUndefined()
+  })
+
+  it("does not grant default schemes, paths, reveal, shell, or CSP expansion", () => {
+    const capabilityText = JSON.stringify({
+      production: externalLinksCapability,
+      development: desktopDevConfig.app?.security?.capabilities,
+    })
+    for (const rejected of [
+      "opener:default",
+      "opener:allow-default-urls",
+      "opener:allow-open-path",
+      "opener:allow-reveal-item-in-dir",
+      "shell:",
+      "mailto:",
+      "tel:",
+    ]) {
+      expect(capabilityText).not.toContain(rejected)
+    }
+    expect(desktopConfig.app).not.toHaveProperty("security.csp")
+  })
+})
+
 describe("Turbo CI execution", () => {
   const cachedJobs = ["blog-build", "static-checks", "test-linux", "test-windows"]
   const affectedJobs = ["static-checks", "test-windows"]
@@ -738,7 +841,10 @@ describe("Desktop image clipboard", () => {
       remote: { urls: ["https://alook.ai"] },
       permissions: [writeImagePermission],
     })
-    expect(desktopDevConfig.app.security.capabilities).toEqual(["desktop-capability"])
+    expect(desktopDevConfig.app.security.capabilities).toEqual([
+      "desktop-capability",
+      "external-links",
+    ])
   })
 })
 

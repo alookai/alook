@@ -18,6 +18,7 @@ describe("PlatformLinkBadge", () => {
 
     const link = renderer!.root.findByType("a")
     expect(link.props["data-platform-link"]).toBe("alook")
+    expect(link.props["data-message-external-link"]).toBe(true)
     expect(link.props["aria-label"]).toBe(
       "Alook: https://alook.ai/c/invite/abcdef",
     )
@@ -40,6 +41,7 @@ describe("PlatformLinkBadge", () => {
 
     const link = renderer!.root.findByType("a")
     expect(link.props["data-platform-link"]).toBe("github")
+    expect(link.props["data-message-external-link"]).toBe(true)
     expect(link.props["aria-label"]).toBe("GitHub: https://github.com/alookai/alook/pull/598")
     expect(link.props.target).toBe("_blank")
     expect(renderer!.root.findAllByType("svg")).toHaveLength(1)
@@ -64,6 +66,7 @@ describe("PlatformLinkBadge", () => {
     expect(link.props.className).toContain("platform-link-badge")
     expect(link.props.className).toContain("existing-link")
     expect(link.props["data-platform-link"]).toBe("generic")
+    expect(link.props["data-message-external-link"]).toBe(true)
     expect(link.props["aria-label"]).toBe("Link: https://example.com/story")
     expect(renderer!.root.findAllByType("svg")).toHaveLength(1)
     expect(renderer!.root.findByType("span").children.join("")).toBe("Example story")

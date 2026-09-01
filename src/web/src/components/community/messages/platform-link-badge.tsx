@@ -13,6 +13,7 @@ import {
 import type { PlatformLinkKind } from "@/lib/community/platform-link"
 import { matchPlatformLink } from "@/lib/community/platform-link"
 import { cn } from "@/lib/utils"
+import { MessageExternalLink } from "./message-external-link"
 
 const ICONS = {
   github: SiGithub,
@@ -39,7 +40,7 @@ export function PlatformLinkBadge({
   const platform = matchPlatformLink(href)
   if (!platform) {
     return (
-      <a
+      <MessageExternalLink
         {...props}
         href={href}
         className={cn("platform-link-badge", className)}
@@ -48,7 +49,7 @@ export function PlatformLinkBadge({
       >
         <Link2 className="platform-link-badge-icon" aria-hidden="true" />
         <span className="platform-link-badge-label">{children}</span>
-      </a>
+      </MessageExternalLink>
     )
   }
 
@@ -69,7 +70,7 @@ export function PlatformLinkBadge({
         return <Icon className="platform-link-badge-icon" aria-hidden="true" />
       })()
   return (
-    <a
+    <MessageExternalLink
       {...props}
       href={href}
       className={cn("platform-link-badge", className)}
@@ -78,6 +79,6 @@ export function PlatformLinkBadge({
     >
       {icon}
       <span className="platform-link-badge-label">{children}</span>
-    </a>
+    </MessageExternalLink>
   )
 }

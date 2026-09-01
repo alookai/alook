@@ -15,6 +15,7 @@ describe("MessageBody — plain URL rendering", () => {
     const link = renderer!.root.findByType("a")
     expect(link.props.href).toBe("https://example.com/story")
     expect(link.props["data-platform-link"]).toBe("generic")
+    expect(link.props["data-message-external-link"]).toBe(true)
     expect(renderer!.root.findAllByType("svg")).toHaveLength(1)
   })
 
@@ -32,8 +33,10 @@ describe("MessageBody — plain URL rendering", () => {
     expect(links).toHaveLength(2)
     expect(links[0].props.href).toBe("https://github.com/alookai/alook/pull/598")
     expect(links[0].props["data-platform-link"]).toBe("github")
+    expect(links[0].props["data-message-external-link"]).toBe(true)
     expect(links[1].props.href).toBe("https://example.com/story")
     expect(links[1].props["data-platform-link"]).toBe("generic")
+    expect(links[1].props["data-message-external-link"]).toBe(true)
   })
 })
 
