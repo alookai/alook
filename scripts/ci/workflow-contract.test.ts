@@ -58,6 +58,7 @@ const desktopReleaseWorkflow = normalizeWorkflow(readFileSync(resolve(workflowRo
 const desktopConfig = JSON.parse(
   readFileSync(resolve(import.meta.dirname, "../../src/desktop/src-tauri/tauri.conf.json"), "utf8"),
 ) as {
+  build?: { devUrl?: string; frontendDist?: string }
   app?: { windows?: Array<{ label?: string; dragDropEnabled?: boolean }> }
   bundle?: { createUpdaterArtifacts?: boolean | string }
   plugins?: { updater?: { endpoints?: string[] } }
@@ -73,6 +74,32 @@ const desktopBuildScript = readFileSync(
   resolve(import.meta.dirname, "../../src/desktop/scripts/build.sh"),
   "utf8",
 )
+const desktopCargoManifest = readFileSync(
+  resolve(import.meta.dirname, "../../src/desktop/src-tauri/Cargo.toml"),
+  "utf8",
+)
+const desktopRustEntry = readFileSync(
+  resolve(import.meta.dirname, "../../src/desktop/src-tauri/src/lib.rs"),
+  "utf8",
+)
+type DesktopCapability = {
+  identifier: string
+  windows?: string[]
+  platforms?: string[]
+  local?: boolean
+  remote?: { urls?: string[] }
+  permissions: string[]
+}
+const desktopCapability = JSON.parse(readFileSync(
+  resolve(import.meta.dirname, "../../src/desktop/src-tauri/capabilities/desktop.json"),
+  "utf8",
+)) as DesktopCapability
+const desktopDevConfig = JSON.parse(readFileSync(
+  resolve(import.meta.dirname, "../../src/desktop/src-tauri/tauri.dev.conf.json"),
+  "utf8",
+)) as {
+  app: { security: { capabilities: Array<string | DesktopCapability> } }
+}
 const bumpScript = readFileSync(resolve(import.meta.dirname, "../bump-version.mjs"), "utf8")
 const mobileReleaseWorkflow = resolve(workflowRoot, "mobile-release.yml")
 const desktopUpdateRoute = readFileSync(
@@ -682,6 +709,36 @@ describe("Desktop updater release", () => {
     expect(desktopReleaseWorkflow).toContain("More info")
     expect(desktopReleaseWorkflow).toContain("Run anyway")
     expect(desktopReleaseWorkflow).not.toContain("APPLE_CERTIFICATE:")
+  })
+})
+
+describe("Desktop image clipboard", () => {
+  const writeImagePermission = "clipboard-manager:allow-write-image"
+
+  it("registers the maintained plugin only in the desktop dependency chain", () => {
+    expect(desktopCargoManifest).toMatch(
+      /\[target\."cfg\(not\(any\(target_os = \\"android\\", target_os = \\"ios\\"\)\)\)"\.dependencies\][\s\S]*tauri-plugin-clipboard-manager = "2"/,
+    )
+    expect(desktopRustEntry).toMatch(
+      /#\[cfg\(desktop\)\]\s*\{[\s\S]*\.plugin\(tauri_plugin_clipboard_manager::init\(\)\)[\s\S]*run_desktop\(builder\);/,
+    )
+    expect(desktopRustEntry.match(/tauri_plugin_clipboard_manager::init/g)).toHaveLength(1)
+  })
+
+  it("authorizes configured app documents through one local image-write capability", () => {
+    expect(desktopConfig.build).toMatchObject({
+      devUrl: "http://localhost:3000/c",
+      frontendDist: "https://alook.ai/c",
+    })
+    expect(desktopCapability).toMatchObject({
+      identifier: "desktop-capability",
+      windows: ["main"],
+      platforms: ["linux", "macOS", "windows"],
+      local: true,
+      remote: { urls: ["https://alook.ai"] },
+      permissions: [writeImagePermission],
+    })
+    expect(desktopDevConfig.app.security.capabilities).toEqual(["desktop-capability"])
   })
 })
 

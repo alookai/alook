@@ -20,6 +20,7 @@ pub fn run() {
             .plugin(tauri_plugin_notification::init())
             .plugin(tauri_plugin_updater::Builder::new().build())
             .plugin(tauri_plugin_dialog::init())
+            .plugin(tauri_plugin_clipboard_manager::init())
             .menu(updater::build_app_menu)
             .on_menu_event(|app, event| {
                 updater::handle_menu_event(app, event.id().as_ref());

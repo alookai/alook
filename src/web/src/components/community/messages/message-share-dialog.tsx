@@ -5,7 +5,8 @@ import Image from "next/image"
 import { toBlob } from "html-to-image"
 import { toast } from "sonner"
 import { Check, Copy, Download, Highlighter, Loader2 } from "lucide-react"
-import { stripInlineMarkup } from "@alook/shared"
+import { writeImage } from "@tauri-apps/plugin-clipboard-manager"
+import { isDesktop, isTauri, stripInlineMarkup } from "@alook/shared"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Avatar } from "../avatar"
@@ -348,11 +349,20 @@ export async function renderShareCard(
 type ShareCardRenderer = () => Promise<Blob | null>
 type ShareCardBlobWriter = (blob: Blob) => Promise<void> | void
 
+export async function writeShareCardToClipboard(blob: Blob): Promise<void> {
+  if (isTauri() && isDesktop()) {
+    await writeImage(await blob.arrayBuffer())
+    return
+  }
+
+  await navigator.clipboard.write([
+    new ClipboardItem({ "image/png": blob }),
+  ])
+}
+
 export async function copyRenderedShareCard(
   render: ShareCardRenderer,
-  write: ShareCardBlobWriter = (blob) => navigator.clipboard.write([
-    new ClipboardItem({ "image/png": blob }),
-  ]),
+  write: ShareCardBlobWriter = writeShareCardToClipboard,
 ): Promise<void> {
   const blob = await render()
   if (!blob) throw new ShareCardRenderError("rasterize")
@@ -483,6 +493,7 @@ export function MessageShareDialog({ m, open, onClose }: {
         render,
         `alook-message-${firstAuthor?.name ?? "share"}.png`,
       )
+      toast.success("Image downloaded")
     } catch (error) {
       toast.error(shareCardRenderErrorMessage(error) ?? "Couldn't generate image")
     } finally {
