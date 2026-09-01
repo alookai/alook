@@ -5,6 +5,7 @@ import {
   createDO,
   mockGetActiveDoNamesForMachine,
   mockGetBotBindingWithOwner,
+  mockLogWarn,
   mockStubFetch,
   resetHarness,
 } from "./test-harness"
@@ -37,6 +38,21 @@ describe("agent running-turn interrupt WS routing", () => {
 
     expect(mockGetActiveDoNamesForMachine).not.toHaveBeenCalled()
     expect(mockStubFetch).not.toHaveBeenCalled()
+  })
+
+  it("logs a binding lookup failure without forwarding", async () => {
+    const { durable } = createDO()
+    const ws = userSocket()
+    mockGetBotBindingWithOwner.mockRejectedValue(new Error("D1 unavailable"))
+
+    await durable.webSocketMessage(ws as unknown as WebSocket, JSON.stringify(request))
+
+    expect(mockGetActiveDoNamesForMachine).not.toHaveBeenCalled()
+    expect(mockStubFetch).not.toHaveBeenCalled()
+    expect(mockLogWarn).toHaveBeenCalledWith("agent interrupt routing failed", {
+      agentId: "bot_1",
+      err: "Error: D1 unavailable",
+    })
   })
 
   it("forwards an owner request unchanged through the existing internal push", async () => {
