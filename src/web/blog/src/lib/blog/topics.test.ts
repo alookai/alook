@@ -47,17 +47,18 @@ describe("blogTopics", () => {
     expect(registrySlugs).toEqual(publishedSlugs);
   });
 
-  it("covers all 23 locked slugs exactly once", () => {
+  it("covers all 24 locked slugs exactly once", () => {
     const orderedSlugs = blogTopics.map((topic) =>
       topic.entries.map((entry) => entry.slug)
     );
     const slugs = orderedSlugs.flat();
 
-    expect(slugs).toHaveLength(23);
-    expect(new Set(slugs).size).toBe(23);
+    expect(slugs).toHaveLength(24);
+    expect(new Set(slugs).size).toBe(24);
     expect(orderedSlugs).toEqual([
       [
         "ai-agent-vs-chatbot",
+        "local-ai-agents",
         "how-to-delegate-tasks-to-ai-agents",
         "ai-agent-team",
         "ai-agent-orchestration",
@@ -107,6 +108,8 @@ describe("blogTopics", () => {
       )
     ).toEqual({
       "ai-agent-vs-chatbot": "Decide whether I need an agent or a chatbot",
+      "local-ai-agents":
+        "Choose which parts of an AI agent should run locally",
       "how-to-delegate-tasks-to-ai-agents":
         "Package a task so an agent can run it reliably",
       "ai-agent-team": "Design a multi-agent team with roles and handoffs",
@@ -179,8 +182,8 @@ describe("topic discovery", () => {
       )
     ).toEqual([
       "ai-agent-vs-chatbot",
+      "local-ai-agents",
       "how-to-delegate-tasks-to-ai-agents",
-      "ai-agent-orchestration",
     ]);
   });
 
