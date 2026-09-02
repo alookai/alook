@@ -121,10 +121,12 @@ describe("daemon self-update lifecycle", () => {
 
   it("recovers a stale inherited npm path from an absolute executable on PATH", () => {
     const owner = writePid();
-    const binDir = path.join(baseDir, "bin");
-    const fallbackNpm = path.join(binDir, "npm");
-    fs.mkdirSync(binDir);
-    fs.writeFileSync(fallbackNpm, "#!/bin/sh\n", { mode: 0o700 });
+    const binDir = "/safe-bin";
+    const fallbackNpm = `${binDir}/npm`;
+    const probe: NpmLaunchFileProbe = {
+      isFile: (filePath) => filePath === fallbackNpm,
+      isExecutable: (filePath) => filePath === fallbackNpm,
+    };
     const spawnProcess = vi.fn(() => fakeChild());
     const handle = createDaemonSelfUpdateHandler({
       machineId,
@@ -134,9 +136,10 @@ describe("daemon self-update lifecycle", () => {
       ownerToken: owner.ownerToken,
     }, {
       spawnProcess: spawnProcess as typeof import("node:child_process").spawn,
-      npmExecPath: path.join(baseDir, "deleted", "npm-cli.js"),
+      npmExecPath: "/deleted/npm-cli.js",
       npmLaunchEnv: { PATH: binDir },
       npmLaunchPlatform: "linux",
+      npmLaunchFileProbe: probe,
     });
 
     handle();
@@ -162,15 +165,18 @@ describe("daemon self-update lifecycle", () => {
   });
 
   it("resolves missing inherited context from PATH and ignores relative or empty entries", () => {
-    const safeDir = path.join(baseDir, "safe-bin");
-    const fallbackNpm = path.join(safeDir, "npm");
-    fs.mkdirSync(safeDir);
-    fs.writeFileSync(fallbackNpm, "#!/bin/sh\n", { mode: 0o700 });
+    const safeDir = "/safe-bin";
+    const fallbackNpm = `${safeDir}/npm`;
+    const probe: NpmLaunchFileProbe = {
+      isFile: (filePath) => filePath === fallbackNpm,
+      isExecutable: (filePath) => filePath === fallbackNpm,
+    };
 
     expect(resolveNpmLaunchCommand({
-      env: { PATH: ["", "relative-bin", safeDir].join(path.delimiter) },
+      env: { PATH: ["", "relative-bin", safeDir].join(":") },
       platform: "linux",
       nodePath: "/absolute/node",
+      probe,
     })).toEqual({ file: fallbackNpm, prefixArgs: [] });
   });
 
