@@ -1,11 +1,15 @@
 import { createElement } from "react"
+import { renderToStaticMarkup } from "react-dom/server"
 import TestRenderer, { act } from "react-test-renderer"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type {
   InboxProjectionTerminalReceipt,
   InboxRowTarget,
 } from "./inbox-read-reservation"
-import { useInboxAutoCollapse } from "./use-inbox-auto-collapse"
+import {
+  useInboxAutoCollapse,
+  useInboxProjectionTarget,
+} from "./use-inbox-auto-collapse"
 
 const mocks = vi.hoisted(() => ({
   callbacks: new Map<symbol, (receipt: InboxProjectionTerminalReceipt) => void>(),
@@ -46,6 +50,17 @@ type Api = ReturnType<typeof useInboxAutoCollapse>
 
 function Capture({ options, onResult }: { options: Options; onResult: (api: Api) => void }) {
   onResult(useInboxAutoCollapse(options))
+  return null
+}
+
+function ProjectionCapture({
+  queryClient,
+  onResult,
+}: {
+  queryClient: Options["queryClient"]
+  onResult: (target: InboxRowTarget | null) => void
+}) {
+  onResult(useInboxProjectionTarget(queryClient))
   return null
 }
 
@@ -102,6 +117,36 @@ describe("useInboxAutoCollapse", () => {
     expect(hook.current.isProjected(target())).toBe(true)
     expect(hook.current.isProjected(target("g2"))).toBe(false)
     expect(hook.current.isProjected(target("g1", "c2"))).toBe(false)
+  })
+
+  it("publishes the current target to external subscribers and unsubscribes cleanly", async () => {
+    const queryClient = {} as Options["queryClient"]
+    let projected: InboxRowTarget | null = null
+    let subscriber!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      subscriber = TestRenderer.create(createElement(ProjectionCapture, {
+        queryClient,
+        onResult: (value) => { projected = value },
+      }))
+    })
+    const hook = await renderHook({ queryClient })
+
+    await hook.call(() => hook.current.beginProjection(target(), "/c/channels/s1/c1"))
+    expect(projected).toEqual(target())
+
+    await act(async () => subscriber.unmount())
+    await hook.call(() => hook.current.beginProjection(target("g2"), "/c/channels/s1/c1"))
+    expect(projected).toEqual(target())
+    await hook.unmount()
+  })
+
+  it("provides a stable server snapshot before any projection exists", () => {
+    let projected: InboxRowTarget | null | undefined
+    expect(renderToStaticMarkup(createElement(ProjectionCapture, {
+      queryClient: {} as Options["queryClient"],
+      onResult: (value) => { projected = value },
+    }))).toBe("")
+    expect(projected).toBeNull()
   })
 
   it("preserves a tombstone across manual close and reopen", async () => {

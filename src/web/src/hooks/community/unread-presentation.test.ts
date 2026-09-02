@@ -99,6 +99,12 @@ describe("unread presentation", () => {
       channelId: "thread-1",
     })
     expect(reservedUnreadExclusion(dm, "dms")).toEqual({ channelId: "dm-1" })
+    expect(reservedUnreadExclusion({ ...channel, reservedThroughSeq: 4 }, "channels"))
+      .toEqual({ channelId: "channel-1", throughSeq: 4 })
+    expect(reservedUnreadExclusion({ ...thread, reservedThroughSeq: 7 }, "channels"))
+      .toEqual({ channelId: "thread-1", throughSeq: 7 })
+    expect(reservedUnreadExclusion({ ...dm, reservedThroughSeq: 9 }, "dms"))
+      .toEqual({ channelId: "dm-1", throughSeq: 9 })
     expect(reservedUnreadExclusion(channel, "dms")).toBeNull()
     expect(reservedUnreadExclusion(dm, "channels")).toBeNull()
     expect(reservedUnreadExclusion(mention, "channels")).toBeNull()

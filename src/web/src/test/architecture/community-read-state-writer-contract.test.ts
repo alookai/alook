@@ -45,7 +45,6 @@ describe("human account read-state writer contract", () => {
     expect(directWriters).toEqual([
       "src/shared/src/db/queries/community/forum-post-delete.ts",
       "src/shared/src/db/queries/community/message.ts",
-      "src/shared/src/db/queries/community/notification-setting.ts",
       "src/shared/src/db/queries/community/read-state.ts",
     ])
   })
@@ -62,6 +61,7 @@ describe("human account read-state writer contract", () => {
     const notification = source("src/shared/src/db/queries/community/notification-setting.ts")
     expect(notification).toContain('actorKind: "human" | "bot"')
     expect(notification).toContain("advanceReadStateRevisionWhenBuilder")
+    expect(notification).not.toContain("communityReadState")
     expect(notification).not.toContain("accountReadStateRowsBuilder")
 
     const forumDelete = source("src/shared/src/db/queries/community/forum-post-delete.ts")

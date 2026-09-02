@@ -5,21 +5,16 @@ import {
   isNull,
   isNotNull,
   inArray,
-  gt,
   exists,
-  notExists,
   sql,
 } from "drizzle-orm";
 import type { SQLWrapper } from "drizzle-orm";
-import { alias } from "drizzle-orm/sqlite-core";
 import { nanoid } from "nanoid";
 import {
   communityNotificationSetting,
   communityChannel,
   communityCategory,
   communityChannelMember,
-  communityMessage,
-  communityReadState,
   communityServerMember,
 } from "../../community-schema";
 import type { Database } from "../../index";
@@ -334,79 +329,6 @@ function nextEffectiveLevelSql(userId: string, change: SettingChange) {
   )`;
 }
 
-/**
- * Build the cursor half of a notification-setting mutation.
- *
- * The product contract treats a setting change as handling every old unread
- * in the affected scope. The statement selects each channel's latest real
- * message and advances all three aligned read-state fields together. Empty
- * channels produce no row, while the conflict guard prevents a concurrent or
- * already-newer cursor from regressing.
- */
-function buildClearAffectedUnreadStatement(
-  db: Database,
-  userId: string,
-  change: SettingChange,
-) {
-  const scope: MutationScope = change.kind === "set-server"
-    ? { kind: "server", id: change.id }
-    : { kind: "channel", id: change.id };
-  const latestMessage = alias(communityMessage, "notification_latest_message");
-  const newerMessage = alias(communityMessage, "notification_newer_message");
-  const channelSql = {
-    id: communityChannel.id,
-    serverId: communityChannel.serverId,
-    parentChannelId: communityChannel.parentChannelId,
-  };
-  const currentLevel = currentEffectiveLevelSql(userId, channelSql);
-  const nextLevel = nextEffectiveLevelSql(userId, change);
-  const selected = db
-    .select({
-      id: sql<string>`lower(hex(randomblob(16)))`.as("id"),
-      userId: sql<string>`${userId}`.as("user_id"),
-      channelId: communityChannel.id,
-      lastReadAt: latestMessage.createdAt,
-      lastReadMessageId: latestMessage.id,
-      lastReadSeq: latestMessage.seq,
-    })
-    .from(communityChannel)
-    .innerJoin(
-      latestMessage,
-      eq(latestMessage.channelId, communityChannel.id),
-    )
-    .where(
-      and(
-        affectedChannelWhere(scope),
-        userCanAccessChannelSql(userId),
-        sql`${currentLevel} <> ${nextLevel}`,
-        notExists(
-          db
-            .select({ one: sql<number>`1` })
-            .from(newerMessage)
-            .where(
-              and(
-                eq(newerMessage.channelId, latestMessage.channelId),
-                gt(newerMessage.seq, latestMessage.seq),
-              ),
-            ),
-        ),
-      ),
-    );
-
-  return db
-    .insert(communityReadState)
-    .select(selected)
-    .onConflictDoUpdate({
-      target: [communityReadState.userId, communityReadState.channelId],
-      set: {
-        lastReadAt: sql`excluded.last_read_at`,
-        lastReadMessageId: sql`excluded.last_read_message_id`,
-        lastReadSeq: sql`excluded.last_read_seq`,
-      },
-      setWhere: sql`${communityReadState.lastReadSeq} < excluded.last_read_seq`,
-    });
-}
-
 function effectivePolicyChangesCondition(
   db: Database,
   userId: string,
@@ -439,24 +361,18 @@ async function applySettingMutation(
   mutation: unknown,
   actorKind: "human" | "bot",
 ): Promise<number | null> {
-  // Clear first while the current projection still represents the "before"
-  // level used by the changed-effective predicate. D1 batch is atomic, so no
-  // observer can see the cursor advance without the setting write (or vice
-  // versa), and any failure rolls both statements back.
-  const clearUnread = buildClearAffectedUnreadStatement(db, userId, change);
   if (actorKind === "bot") {
-    await db.batch([clearUnread, mutation] as any);
+    await mutation;
     return null;
   }
   const effectChanges = effectivePolicyChangesCondition(db, userId, change);
   const results = await db.batch([
     advanceReadStateRevisionWhenBuilder(db, userId, effectChanges),
-    clearUnread,
     mutation,
     accountReadStateRevisionBuilder(db, userId),
   ] as any) as unknown[];
   const changed = (results[0] as Array<{ revision: number }>).length > 0;
-  const revision = (results[3] as Array<{ revision: number }>)[0]?.revision ?? 0;
+  const revision = (results[2] as Array<{ revision: number }>)[0]?.revision ?? 0;
   return changed ? revision : null;
 }
 
