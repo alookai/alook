@@ -71,9 +71,20 @@ export function CommunityInboxSurface({
           />
         }
       >
-        <Inbox className="size-4" />
-        {hasUnread && (
-          <span className="absolute right-1 top-1 size-2 rounded-full bg-primary" />
+        {mobile ? (
+          <span className="relative grid size-4 place-items-center">
+            <Inbox className="size-4" />
+            {hasUnread && (
+              <span className="absolute -right-1 -top-1 size-2 rounded-full bg-primary" />
+            )}
+          </span>
+        ) : (
+          <>
+            <Inbox className="size-4" />
+            {hasUnread && (
+              <span className="absolute right-1 top-1 size-2 rounded-full bg-primary" />
+            )}
+          </>
         )}
       </PopoverTrigger>
 

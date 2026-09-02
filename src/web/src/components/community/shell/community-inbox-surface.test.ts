@@ -57,6 +57,17 @@ describe("CommunityInboxSurface", () => {
     expect(triggerClasses).toContain("focus-visible:ring-2")
     expect(renderer.root.findByType("svg").props.className).not.toContain("fill-current")
     expect(renderer.root.findByType("svg").props.fill).toBe("none")
+    const unreadDot = renderer.root.find((node) => (
+      node.type === "span" && node.props.className?.includes("bg-primary")
+    ))
+    expect(unreadDot.props.className.split(" ")).toEqual(expect.arrayContaining([
+      "-right-1",
+      "-top-1",
+    ]))
+    expect(unreadDot.parent?.props.className.split(" ")).toEqual(expect.arrayContaining([
+      "relative",
+      "size-4",
+    ]))
     expect(renderer.root.findAllByType("popover-backdrop")).toHaveLength(0)
 
     const positioner = renderer.root.findByType("popover-positioner")
@@ -108,6 +119,16 @@ describe("CommunityInboxSurface", () => {
     expect(trigger.props.className).not.toContain("aria-expanded:text-foreground")
     expect(trigger.props.className.split(" ")).toContain("hover:bg-accent")
     expect(renderer.root.findByType("svg").props.className).not.toContain("fill-current")
+    const unreadDot = renderer.root.find((node) => (
+      node.type === "span" && node.props.className?.includes("bg-primary")
+    ))
+    const unreadDotClasses = unreadDot.props.className.split(" ")
+    expect(unreadDotClasses).toEqual(expect.arrayContaining([
+      "right-1",
+      "top-1",
+    ]))
+    expect(unreadDotClasses).not.toContain("-right-1")
+    expect(unreadDotClasses).not.toContain("-top-1")
     expect(renderer.root.findAllByType("popover-backdrop")).toHaveLength(0)
     expect(renderer.root.findAllByType("popover-popup")).toHaveLength(0)
   })
