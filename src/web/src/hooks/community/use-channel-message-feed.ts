@@ -27,7 +27,12 @@ export function useChannelMessageFeed({
       ? undefined
       : (readSnapshot?.lastReadMessageId ?? null),
     anchorMessageId,
-    waitForAnchor: false,
+    // Ordinary direct/sidebar mounts keep the established anchor-first
+    // contract. Inbox clicks get their independent newest/read/detail
+    // concurrency from startConversationNavigationWarmup before this route
+    // mounts; widening the route hook itself to newest-first changes every
+    // navigation source and can replace the read-centered window.
+    waitForAnchor: true,
     reconcileLateAnchor: true,
     revalidateOnMount: true,
     viewerUserId,

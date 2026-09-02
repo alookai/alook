@@ -8,6 +8,7 @@ describe("DM page loading ownership", () => {
     expect(source).toContain("notFound: !hasDm && !dmsLoading")
     expect(source).toContain("messageBodyLoading: hasDm && (")
     expect(source).not.toContain("readSnapshotFetching ||\n      messagesLoading")
+    expect(source).toContain("waitForAnchor: true")
     expect(source).toContain("if (navigationBlocked)")
     expect(source).toContain("if (loadingOwnership.fullFramePending)")
     expect(source).toContain("<DmHeader\n")

@@ -143,6 +143,25 @@ describe("conversation navigation proof", () => {
     )).toBe(false)
   })
 
+  it("cancels the prior DM query when a new proof supersedes it", async () => {
+    const queryClient = new QueryClient()
+    const cancel = vi.spyOn(queryClient, "cancelQueries")
+    const dmTarget = {
+      ...target,
+      href: "/c/me/d1",
+      channelId: "d1",
+      serverId: undefined,
+      scopeKind: "dm" as const,
+      expectedSurfaceKind: "dm" as const,
+    }
+    beginConversationNavigationProof(queryClient, dmTarget, 1)
+    beginConversationNavigationProof(queryClient, target, 1)
+
+    await vi.waitFor(() => expect(cancel).toHaveBeenCalledWith({
+      queryKey: communityKeys.dmMessages("d1"),
+    }))
+  })
+
   it("cannot reuse an Inbox proof after ordinary navigation supersedes it", () => {
     const queryClient = new QueryClient()
     const inboxA = beginConversationNavigationProof(queryClient, target, 4)

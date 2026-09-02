@@ -158,7 +158,11 @@ function DmView() {
     lastReadMessageId: readSnapshotFetching
       ? undefined
       : (readSnapshot?.lastReadMessageId ?? null),
-    waitForAnchor: false,
+    // Inbox clicks already start the canonical messages/read requests in
+    // parallel before routing. Keep the mounted DM route anchor-first so
+    // direct, sidebar, Back, and Forward navigation retain their frozen read
+    // pointer instead of briefly owning a newest request.
+    waitForAnchor: true,
     reconcileLateAnchor: true,
     revalidateOnMount: true,
     viewerUserId: currentUser.id,

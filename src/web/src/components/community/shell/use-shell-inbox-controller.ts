@@ -198,9 +198,10 @@ export function useShellInboxController({
     const previousOpen = inbox.closeWithoutProjection()
     cancelPendingNavigation()
     clearThreadOpenerReadHandoff(queryClient)
+    const seqQuery = marked.m.seq != null ? `?seq=${marked.m.seq}` : ""
     const href = marked.serverId
-      ? `${channelHref(marked.serverId, marked.channelId)}?msg=${marked.m.id}`
-      : `/c/me/${marked.channelId}${marked.m.seq != null ? `?seq=${marked.m.seq}` : ""}`
+      ? `${channelHref(marked.serverId, marked.channelId)}${seqQuery}`
+      : `/c/me/${marked.channelId}${seqQuery}`
     const proofEpoch = startConversationNavigationWarmup(queryClient, {
       href,
       viewerId,

@@ -77,7 +77,7 @@ describe("useChannelMessageFeed", () => {
     })
     expect(mocks.useMessages).toHaveBeenLastCalledWith("channel", expect.objectContaining({
       lastReadMessageId: "authoritative-anchor",
-      waitForAnchor: false,
+      waitForAnchor: true,
       reconcileLateAnchor: true,
       revalidateOnMount: true,
     }))
@@ -97,7 +97,7 @@ describe("useChannelMessageFeed", () => {
     })
     expect(mocks.useMessages).toHaveBeenLastCalledWith("channel", expect.objectContaining({
       lastReadMessageId: undefined,
-      waitForAnchor: false,
+      waitForAnchor: true,
       reconcileLateAnchor: true,
       revalidateOnMount: true,
     }))
@@ -110,7 +110,7 @@ describe("useChannelMessageFeed", () => {
     act(() => renderer!.update(createElement(Capture)))
     expect(mocks.useMessages).toHaveBeenLastCalledWith("channel", expect.objectContaining({
       lastReadMessageId: "resolved-anchor",
-      waitForAnchor: false,
+      waitForAnchor: true,
     }))
     act(() => renderer!.unmount())
   })
