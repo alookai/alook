@@ -38,7 +38,7 @@ function renderedTitles(renderer: ReactTestRenderer): string[] {
 }
 
 describe("RecentPosts", () => {
-  it("filters only the supplied Recent cards and returns to All", () => {
+  it("filters Recent cards, renders the empty state, and returns to All", () => {
     const posts = [
       recentPost("newest", "foundations", "Foundations"),
       recentPost("middle", "coding", "Coding"),
@@ -47,6 +47,7 @@ describe("RecentPosts", () => {
     const topics = [
       { id: "foundations", label: "Foundations" },
       { id: "coding", label: "Coding" },
+      { id: "empty", label: "Empty" },
     ];
     let renderer: ReactTestRenderer;
 
@@ -65,6 +66,17 @@ describe("RecentPosts", () => {
 
     expect(codingButton?.props["aria-pressed"]).toBe(true);
     expect(renderedTitles(renderer!)).toEqual(["middle"]);
+
+    const emptyButton = renderer!.root
+      .findAllByType("button")
+      .find((button) => button.children.join("") === "Empty");
+    act(() => emptyButton?.props.onClick());
+
+    expect(emptyButton?.props["aria-pressed"]).toBe(true);
+    expect(renderedTitles(renderer!)).toEqual([]);
+    expect(renderer!.root.findByType("p").children.join("")).toBe(
+      "No recent stories in this topic yet.",
+    );
 
     const allButton = renderer!.root
       .findAllByType("button")
