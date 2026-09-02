@@ -1,22 +1,34 @@
 import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { AttachmentPreviewSheet, readAttachmentText } from "./attachment-preview-sheet"
+import {
+  AttachmentPreviewSheet,
+  readAttachmentBytes,
+  readAttachmentText,
+} from "./attachment-preview-sheet"
 import type { FileAttachment } from "@/lib/community/models/message"
 import { resetAttachmentDownloadsForTest } from "@/lib/community/attachment-download"
+import { MAX_PDF_ATTACHMENT_PREVIEW_BYTES } from "@/lib/community/attachment-presentation"
 
 const dynamicMock = vi.hoisted(() => ({
-  options: null as null | Record<string, unknown>,
+  loaders: [] as Array<() => Promise<unknown>>,
+  options: [] as Array<Record<string, unknown>>,
 }))
 
 vi.mock("next/dynamic", () => ({
-  default: (_loader: unknown, options: Record<string, unknown>) => {
-    dynamicMock.options = options
-    return ({ content, language }: { content: string; language: string | null }) => React.createElement(
-      "pre",
-      { "data-code-language": language ?? "plain" },
-      content,
-    )
+  default: (loader: () => Promise<unknown>, options: Record<string, unknown>) => {
+    dynamicMock.loaders.push(loader)
+    const index = dynamicMock.options.push(options) - 1
+    return index === 0
+      ? ({ content, language }: { content: string; language: string | null }) => React.createElement(
+          "pre",
+          { "data-code-language": language ?? "plain" },
+          content,
+        )
+      : ({ data }: { data: Uint8Array }) => React.createElement(
+          "pdf-preview",
+          { "data-testid": "community-pdf-preview", "data-byte-length": data.byteLength },
+        )
   },
 }))
 
@@ -67,6 +79,13 @@ vi.mock("./code-preview", () => ({
   ),
 }))
 
+vi.mock("./pdf-preview", () => ({
+  PdfPreview: ({ data }: { data: Uint8Array }) => React.createElement(
+    "pdf-preview",
+    { "data-testid": "community-pdf-preview", "data-byte-length": data.byteLength },
+  ),
+}))
+
 function file(overrides: Partial<FileAttachment> = {}): FileAttachment {
   return {
     kind: "file",
@@ -105,10 +124,32 @@ describe("readAttachmentText", () => {
   })
 })
 
+describe("readAttachmentBytes", () => {
+  it("accepts the exact limit and rejects declared or streamed overflow", async () => {
+    await expect(readAttachmentBytes(new Response(new Uint8Array([1, 2, 3])), 3))
+      .resolves.toEqual(new Uint8Array([1, 2, 3]))
+    await expect(readAttachmentBytes(new Response(new Uint8Array([1]), {
+      headers: { "content-length": "4" },
+    }), 3)).rejects.toThrow("too large")
+    await expect(readAttachmentBytes(new Response(new Uint8Array([1, 2, 3, 4])), 3))
+      .rejects.toThrow("too large")
+  })
+
+  it("reads a bodyless response through the bounded array-buffer fallback", async () => {
+    const response = {
+      ok: true,
+      headers: new Headers(),
+      body: null,
+      arrayBuffer: vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3]).buffer),
+    } as unknown as Response
+    await expect(readAttachmentBytes(response, 3)).resolves.toEqual(new Uint8Array([1, 2, 3]))
+  })
+})
+
 describe("AttachmentPreviewSheet", () => {
   it("keeps the syntax-preview subtree client-only with a stable loading state", async () => {
-    expect(dynamicMock.options?.ssr).toBe(false)
-    const loading = dynamicMock.options?.loading as (() => React.ReactElement) | undefined
+    expect(dynamicMock.options[0]?.ssr).toBe(false)
+    const loading = dynamicMock.options[0]?.loading as (() => React.ReactElement) | undefined
     expect(loading).toBeTypeOf("function")
     let renderer: TestRenderer.ReactTestRenderer
     await act(async () => {
@@ -119,6 +160,21 @@ describe("AttachmentPreviewSheet", () => {
     })
     expect(state.props.role).toBe("status")
     expect(state.children.join("")).toContain("Loading syntax highlighter")
+  })
+
+  it("keeps the PDF renderer client-only with a stable loading state", async () => {
+    expect(dynamicMock.options[1]?.ssr).toBe(false)
+    await expect(dynamicMock.loaders[1]!()).resolves.toBeTypeOf("function")
+    const loading = dynamicMock.options[1]?.loading as (() => React.ReactElement) | undefined
+    let renderer: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(loading!())
+    })
+    const state = renderer!.root.findByProps({
+      "data-testid": "community-pdf-preview-status",
+    })
+    expect(state.props.role).toBe("status")
+    expect(state.children.join("")).toContain("Loading PDF renderer")
   })
 
   it("fetches private Markdown, renders it safely, and exposes metadata/download", async () => {
@@ -201,6 +257,108 @@ describe("AttachmentPreviewSheet", () => {
     expect(renderer!.root.findAllByType("pre")[0]?.children).toEqual(["second"])
   })
 
+  it("keeps the exact PDF cap eligible and hands authenticated bytes to the lazy renderer", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(new Uint8Array([37, 80, 68, 70]), {
+      status: 200,
+    }))
+    vi.stubGlobal("fetch", fetchMock)
+    let renderer: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(AttachmentPreviewSheet, {
+        attachment: file({
+          name: "report.pdf",
+          contentType: "application/pdf",
+          sizeBytes: MAX_PDF_ATTACHMENT_PREVIEW_BYTES,
+        }),
+        open: true,
+        onOpenChange: vi.fn(),
+      }))
+    })
+    await flush()
+
+    expect(fetchMock).toHaveBeenCalledWith("/attachments/a1", expect.objectContaining({
+      credentials: "same-origin",
+    }))
+    expect(renderer!.root.findByProps({ "data-testid": "community-pdf-preview" }).props["data-byte-length"])
+      .toBe(4)
+    expect(renderer!.root.findByProps({ "data-testid": "community-attachment-preview-content" }).props.className)
+      .toContain("p-0")
+    expect(renderer!.root.findByProps({ "data-testid": "community-attachment-preview-content" }).props.className)
+      .toContain("overflow-hidden")
+    expect(renderer!.root.findByProps({ "data-testid": "community-attachment-preview-download" }))
+      .toBeTruthy()
+  })
+
+  it("rejects a known oversized PDF before fetch while preserving Download", async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+    let renderer: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(AttachmentPreviewSheet, {
+        attachment: file({
+          name: "large.pdf",
+          contentType: "application/pdf",
+          sizeBytes: MAX_PDF_ATTACHMENT_PREVIEW_BYTES + 1,
+        }),
+        open: true,
+        onOpenChange: vi.fn(),
+      }))
+    })
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(renderer!.root.findAllByType("p").some((node) => node.children.join("").includes("too large")))
+      .toBe(true)
+    expect(renderer!.root.findByProps({ "data-testid": "community-attachment-preview-download" }))
+      .toBeTruthy()
+  })
+
+  it("aborts PDF acquisition when the sheet closes", async () => {
+    let requestSignal: AbortSignal | undefined
+    vi.stubGlobal("fetch", vi.fn((_url: string, init: RequestInit) => {
+      requestSignal = init.signal as AbortSignal
+      return new Promise<Response>(() => {})
+    }))
+    let renderer: TestRenderer.ReactTestRenderer
+    const attachment = file({ name: "report.pdf", contentType: "application/pdf" })
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(AttachmentPreviewSheet, {
+        attachment,
+        open: true,
+        onOpenChange: vi.fn(),
+      }))
+    })
+
+    expect(requestSignal?.aborted).toBe(false)
+    await act(async () => {
+      renderer!.update(React.createElement(AttachmentPreviewSheet, {
+        attachment,
+        open: false,
+        onOpenChange: vi.fn(),
+      }))
+    })
+    expect(requestSignal?.aborted).toBe(true)
+    expect(renderer!.root.findAllByProps({ "data-testid": "community-pdf-preview" }))
+      .toHaveLength(0)
+  })
+
+  it("keeps Download available when the authenticated PDF request is denied", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("denied", { status: 403 })))
+    let renderer: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(AttachmentPreviewSheet, {
+        attachment: file({ name: "private.pdf", contentType: "application/pdf" }),
+        open: true,
+        onOpenChange: vi.fn(),
+      }))
+    })
+    await flush()
+
+    expect(renderer!.root.findAllByType("p").some((node) => node.children.join("").includes("403")))
+      .toBe(true)
+    expect(renderer!.root.findByProps({ "data-testid": "community-attachment-preview-download" }))
+      .toBeTruthy()
+  })
+
   it("passes the resolved source language to CodePreview", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("const answer = 42", { status: 200 })))
     let renderer: TestRenderer.ReactTestRenderer
@@ -236,6 +394,8 @@ describe("AttachmentPreviewSheet", () => {
       .not.toContain("p-0")
     expect(renderer!.root.findByProps({ "data-testid": "community-attachment-preview-content" }).props.className)
       .not.toContain("sm:p-0")
+    expect(renderer!.root.findByProps({ "data-testid": "community-attachment-preview-content" }).props.className)
+      .not.toContain("overflow-hidden")
   })
 
   it("keeps the existing one MiB ceiling for code", async () => {

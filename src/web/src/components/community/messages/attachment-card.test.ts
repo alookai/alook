@@ -48,6 +48,31 @@ describe("AttachmentCard", () => {
       createElement: vi.fn(() => anchor),
     })
     vi.stubGlobal("URL", { createObjectURL: vi.fn(() => "blob:file"), revokeObjectURL: vi.fn() })
+    const archive = attachment({ name: "报告.zip", contentType: "application/zip" })
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(React.createElement(AttachmentCard, {
+        attachment: archive,
+        onPreview,
+      }))
+    })
+    const button = renderer!.root.findByType("button")
+    expect(button.props["data-attachment-category"]).toBe("archive")
+    expect(button.props["aria-label"]).toBe("Download 报告.zip")
+    await act(async () => {
+      button.props.onClick()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(fetch).toHaveBeenCalledWith("/attachments/a1", { credentials: "same-origin" })
+    expect(anchor).toEqual(expect.objectContaining({ href: "blob:file", download: "报告.zip" }))
+    expect(anchor.click).toHaveBeenCalledOnce()
+    expect(onPreview).not.toHaveBeenCalled()
+    expect(renderer!.root.findByProps({ role: "status" }).children).toEqual(["Download started"])
+  })
+
+  it("opens a PDF through the shared preview handler", () => {
+    const onPreview = vi.fn()
     const pdf = attachment({ name: "报告.pdf", contentType: "application/pdf" })
     let renderer: TestRenderer.ReactTestRenderer
     act(() => {
@@ -56,19 +81,12 @@ describe("AttachmentCard", () => {
         onPreview,
       }))
     })
+
     const button = renderer!.root.findByType("button")
     expect(button.props["data-attachment-category"]).toBe("pdf")
-    expect(button.props["aria-label"]).toBe("Download 报告.pdf")
-    await act(async () => {
-      button.props.onClick()
-      await Promise.resolve()
-      await Promise.resolve()
-    })
-    expect(fetch).toHaveBeenCalledWith("/attachments/a1", { credentials: "same-origin" })
-    expect(anchor).toEqual(expect.objectContaining({ href: "blob:file", download: "报告.pdf" }))
-    expect(anchor.click).toHaveBeenCalledOnce()
-    expect(onPreview).not.toHaveBeenCalled()
-    expect(renderer!.root.findByProps({ role: "status" }).children).toEqual(["Download started"])
+    expect(button.props["aria-label"]).toBe("Preview 报告.pdf")
+    act(() => button.props.onClick())
+    expect(onPreview).toHaveBeenCalledWith(pdf)
   })
 
   it.each([

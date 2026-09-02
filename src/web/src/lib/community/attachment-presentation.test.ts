@@ -14,7 +14,7 @@ const presentation = (
 
 describe("resolveAttachmentPresentation", () => {
   it.each([
-    ["report.pdf", "application/pdf", presentation("pdf", null)],
+    ["report.pdf", "application/pdf", presentation("pdf", "pdf")],
     ["sheet.bin", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", presentation("spreadsheet", null)],
     ["slides.bin", "application/vnd.ms-powerpoint", presentation("presentation", null)],
     ["voice.bin", "audio/mpeg", presentation("audio", null)],
@@ -35,6 +35,7 @@ describe("resolveAttachmentPresentation", () => {
     [".env.local", "", presentation("code", "code", "dotenv")],
     ["Dockerfile", "binary/octet-stream", presentation("code", "code", "dockerfile")],
     ["GNUmakefile", undefined, presentation("code", "code", "makefile")],
+    ["report.pdf", "application/octet-stream", presentation("pdf", "pdf")],
     ["deck.pptx", undefined, presentation("presentation", null)],
     ["bundle.zip", "binary/octet-stream", presentation("archive", null)],
   ])("falls back to the filename for generic MIME: %s", (filename, contentType, expected) => {
@@ -115,9 +116,9 @@ describe("resolveAttachmentPresentation", () => {
 
   it("does not let a misleading filename override a specific MIME", () => {
     expect(resolveAttachmentPresentation("payload.html", "application/pdf"))
-      .toEqual(presentation("pdf", null))
+      .toEqual(presentation("pdf", "pdf"))
     expect(resolveAttachmentPresentation("payload.md", "application/pdf"))
-      .toEqual(presentation("pdf", null))
+      .toEqual(presentation("pdf", "pdf"))
     expect(resolveAttachmentPresentation("payload.ts", "application/x-custom"))
       .toEqual(presentation("unknown", null))
   })
@@ -150,7 +151,7 @@ describe("resolveAttachmentPresentation", () => {
 
   it("keeps a specific non-media MIME authoritative over media extensions", () => {
     expect(resolveAttachmentPresentation("report.mp4", "application/pdf"))
-      .toEqual(presentation("pdf", null))
+      .toEqual(presentation("pdf", "pdf"))
     expect(resolveAttachmentPresentation("archive.mp3", "application/zip"))
       .toEqual(presentation("archive", null))
   })

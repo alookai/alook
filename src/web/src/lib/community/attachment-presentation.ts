@@ -1,4 +1,5 @@
 export const MAX_TEXT_ATTACHMENT_PREVIEW_BYTES = 1024 * 1024
+export const MAX_PDF_ATTACHMENT_PREVIEW_BYTES = 10 * 1024 * 1024
 
 export type AttachmentCategory =
   | "image"
@@ -13,7 +14,7 @@ export type AttachmentCategory =
   | "archive"
   | "unknown"
 
-type AttachmentPreviewKind = "markdown" | "text" | "code"
+type AttachmentPreviewKind = "markdown" | "text" | "code" | "pdf"
 
 export type ShikiLanguage =
   | "bash"
@@ -106,7 +107,7 @@ const MIME_PRESENTATIONS: ReadonlyArray<{
   { matches: (type) => ["application/x-terraform", "text/x-hcl"].includes(type), presentation: { category: "code", previewKind: "code", shikiLanguage: "hcl" } },
   { matches: (type) => ["text/x-diff", "text/x-patch"].includes(type), presentation: { category: "code", previewKind: "code", shikiLanguage: "diff" } },
   { matches: (type) => type === "text/x-log", presentation: { category: "code", previewKind: "code", shikiLanguage: "log" } },
-  { matches: (type) => type === "application/pdf", presentation: { category: "pdf", previewKind: null, shikiLanguage: null } },
+  { matches: (type) => type === "application/pdf", presentation: { category: "pdf", previewKind: "pdf", shikiLanguage: null } },
   { matches: (type) => type.includes("spreadsheet") || type.includes("excel") || type === "text/csv" || type === "text/tab-separated-values", presentation: { category: "spreadsheet", previewKind: null, shikiLanguage: null } },
   { matches: (type) => type.includes("presentation") || type.includes("powerpoint"), presentation: { category: "presentation", previewKind: null, shikiLanguage: null } },
   { matches: (type) => type.includes("wordprocessing") || type === "application/msword" || type === "application/rtf", presentation: { category: "document", previewKind: null, shikiLanguage: null } },
@@ -185,7 +186,7 @@ const EXTENSION_PRESENTATIONS: Readonly<Record<string, AttachmentPresentation>> 
   htm: code("html"),
   svg: code("xml"),
   mdx: code("mdx"),
-  pdf: { category: "pdf", previewKind: null, shikiLanguage: null },
+  pdf: { category: "pdf", previewKind: "pdf", shikiLanguage: null },
   doc: { category: "document", previewKind: null, shikiLanguage: null },
   docx: { category: "document", previewKind: null, shikiLanguage: null },
   rtf: { category: "document", previewKind: null, shikiLanguage: null },
