@@ -180,6 +180,27 @@ describe("daemon self-update lifecycle", () => {
     })).toEqual({ file: fallbackNpm, prefixArgs: [] });
   });
 
+  it.runIf(process.platform !== "win32")(
+    "requires the executable bit through the default POSIX filesystem probe",
+    () => {
+      const binDir = path.join(baseDir, "posix-bin");
+      const fallbackNpm = path.join(binDir, "npm");
+      fs.mkdirSync(binDir);
+      fs.writeFileSync(fallbackNpm, "#!/bin/sh\n", { mode: 0o600 });
+
+      expect(() => resolveNpmLaunchCommand({
+        env: { PATH: binDir },
+        platform: "linux",
+      })).toThrow("no safe npm executable was found on PATH");
+
+      fs.chmodSync(fallbackNpm, 0o700);
+      expect(resolveNpmLaunchCommand({
+        env: { PATH: binDir },
+        platform: "linux",
+      })).toEqual({ file: fallbackNpm, prefixArgs: [] });
+    },
+  );
+
   it("resolves a Windows npm command shim to its adjacent JavaScript CLI without a shell", () => {
     const npmShim = "C:\\tools\\npm.cmd";
     const npmCli = "C:\\tools\\node_modules\\npm\\bin\\npm-cli.js";
