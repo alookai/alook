@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BlogPost } from "@blog/lib/blog/posts";
-import { buildBlogIndexModel } from "./model";
+import { buildBlogIndexModel, formatBlogPostDate } from "./model";
 
 function post(
   slug: string,
@@ -48,4 +48,22 @@ describe("buildBlogIndexModel", () => {
     );
     expect(model.featured?.topicId).toBe("foundations-team-design");
   });
+
+  it.each(["America/Los_Angeles", "Pacific/Honolulu"])(
+    "keeps date-only metadata on the authored calendar day in %s",
+    (timeZone) => {
+      const previousTimeZone = process.env.TZ;
+      process.env.TZ = timeZone;
+
+      try {
+        expect(formatBlogPostDate("2026-09-01")).toBe("Sep 1, 2026");
+      } finally {
+        if (previousTimeZone === undefined) {
+          delete process.env.TZ;
+        } else {
+          process.env.TZ = previousTimeZone;
+        }
+      }
+    },
+  );
 });

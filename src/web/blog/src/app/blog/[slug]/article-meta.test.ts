@@ -39,21 +39,34 @@ describe("article metadata", () => {
     });
   });
 
-  it("renders published and updated dates as semantic time elements", () => {
-    let renderer: ReactTestRenderer;
+  it.each(["America/Los_Angeles", "Pacific/Honolulu"])(
+    "renders semantic dates on the authored calendar day in %s",
+    (timeZone) => {
+      const previousTimeZone = process.env.TZ;
+      process.env.TZ = timeZone;
+      let renderer: ReactTestRenderer;
 
-    act(() => {
-      renderer = TestRenderer.create(createElement(BlogPostByline, { post }));
-    });
+      try {
+        act(() => {
+          renderer = TestRenderer.create(createElement(BlogPostByline, { post }));
+        });
 
-    const times = renderer!.root.findAllByType("time");
-    expect(times.map((time) => time.props.dateTime)).toEqual([
-      "2026-08-20",
-      "2026-09-01",
-    ]);
-    expect(times.map((time) => time.children.join(""))).toEqual([
-      "August 20, 2026",
-      "Updated September 1, 2026",
-    ]);
-  });
+        const times = renderer!.root.findAllByType("time");
+        expect(times.map((time) => time.props.dateTime)).toEqual([
+          "2026-08-20",
+          "2026-09-01",
+        ]);
+        expect(times.map((time) => time.children.join(""))).toEqual([
+          "August 20, 2026",
+          "Updated September 1, 2026",
+        ]);
+      } finally {
+        if (previousTimeZone === undefined) {
+          delete process.env.TZ;
+        } else {
+          process.env.TZ = previousTimeZone;
+        }
+      }
+    },
+  );
 });
