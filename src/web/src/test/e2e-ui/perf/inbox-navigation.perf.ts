@@ -21,8 +21,20 @@ type Sample = {
   clickToTargetMs: number
   nextFramePending: boolean
   forbiddenCachedTextVisibleBeforeProof: boolean
-  requestStartsMs: Record<string, number>
+  requestStartsMs: Record<string, number[]>
+  clickOwnedStartsMs: {
+    messages: number
+    readState: number
+    rsc: number
+    detail: Record<string, number>
+  }
+  observerRefetchStartsMs: {
+    messages: number[]
+    readState: number[]
+  }
 }
+
+const CLICK_OWNED_START_BUDGET_MS = 150
 
 async function authenticate(context: BrowserContext, email: string, name?: string) {
   let response = await context.request.post(`${BASE_URL}/api/auth/sign-in/email`, {
@@ -50,6 +62,7 @@ async function measureInboxClick({
   surface,
   cache,
   targetId,
+  detailPaths = [],
 }: {
   page: Page
   rowTestId: string
@@ -58,6 +71,7 @@ async function measureInboxClick({
   surface: Sample["surface"]
   cache: Sample["cache"]
   targetId: string
+  detailPaths?: string[]
 }): Promise<Sample> {
   await page.getByTestId(tid.inboxTrigger).click()
   const row = page.getByTestId(rowTestId)
@@ -84,18 +98,42 @@ async function measureInboxClick({
   }
   await expect(page.getByText(targetText, { exact: true })).toBeVisible({ timeout: 20_000 })
   const result = await page.evaluate(({ clickTs }) => {
-    const requestStartsMs: Record<string, number> = {}
+    const requestStartsMs: Record<string, number[]> = {}
     for (const entry of performance.getEntriesByType("resource") as PerformanceResourceTiming[]) {
       const url = new URL(entry.name)
       if (!url.pathname.includes("/api/community/") && !url.searchParams.has("_rsc")) continue
-      requestStartsMs[`${url.pathname}${url.searchParams.has("_rsc") ? "?_rsc" : ""}`] =
-        Math.round((entry.startTime - clickTs) * 10) / 10
+      const path = `${url.pathname}${url.searchParams.has("_rsc") ? "?_rsc" : ""}`
+      const starts = requestStartsMs[path] ?? []
+      starts.push(Math.round((entry.startTime - clickTs) * 10) / 10)
+      requestStartsMs[path] = starts
     }
     return {
       clickToTargetMs: Math.round((performance.now() - clickTs) * 10) / 10,
       requestStartsMs,
     }
   }, { clickTs })
+  const startsFor = (match: (path: string) => boolean) => Object.entries(result.requestStartsMs)
+    .filter(([path]) => match(path))
+    .flatMap(([, starts]) => starts)
+    .filter((start) => start >= 0)
+    .sort((a, b) => a - b)
+  const messageStarts = startsFor((path) => (
+    path === `/api/community/channels/${targetId}/messages`
+  ))
+  const readStarts = startsFor((path) => (
+    path === `/api/community/channels/${targetId}/read-state`
+  ))
+  const rscStarts = startsFor((path) => path.includes(targetId) && path.endsWith("?_rsc"))
+  const detailStarts = Object.fromEntries(detailPaths.map((path) => [
+    path,
+    startsFor((candidate) => candidate === path)[0] ?? Number.POSITIVE_INFINITY,
+  ]))
+  const clickOwnedStartsMs = {
+    messages: messageStarts[0] ?? Number.POSITIVE_INFINITY,
+    readState: readStarts[0] ?? Number.POSITIVE_INFINITY,
+    rsc: rscStarts[0] ?? Number.POSITIVE_INFINITY,
+    detail: detailStarts,
+  }
   return {
     surface,
     targetId,
@@ -103,6 +141,11 @@ async function measureInboxClick({
     nextFramePending,
     forbiddenCachedTextVisibleBeforeProof,
     ...result,
+    clickOwnedStartsMs,
+    observerRefetchStartsMs: {
+      messages: messageStarts.slice(1),
+      readState: readStarts.slice(1),
+    },
   }
 }
 
@@ -168,6 +211,11 @@ test("Inbox Channel/DM navigation fixed trace", async ({ browser }) => {
     surface: "channel",
     cache: "cold",
     targetId: targetChannel.id,
+    detailPaths: [
+      `/api/community/servers/${targetServer.id}/categories`,
+      `/api/community/servers/${targetServer.id}/channels`,
+      `/api/community/servers/${targetServer.id}/unreads`,
+    ],
   }))
   await page.goBack()
   await expect(page).toHaveURL(new RegExp(origin.id))
@@ -183,6 +231,11 @@ test("Inbox Channel/DM navigation fixed trace", async ({ browser }) => {
     surface: "channel",
     cache: "warm",
     targetId: targetChannel.id,
+    detailPaths: [
+      `/api/community/servers/${targetServer.id}/categories`,
+      `/api/community/servers/${targetServer.id}/channels`,
+      `/api/community/servers/${targetServer.id}/unreads`,
+    ],
   }))
 
   await page.goBack()
@@ -222,13 +275,17 @@ test("Inbox Channel/DM navigation fixed trace", async ({ browser }) => {
     expect(sample.nextFramePending, JSON.stringify(sample)).toBe(true)
     expect(sample.forbiddenCachedTextVisibleBeforeProof).toBe(false)
     if (sample.cache === "warm") expect(sample.clickToTargetMs).toBeLessThanOrEqual(1_500)
-    const starts = Object.entries(sample.requestStartsMs)
-      .filter(([path]) => path.includes(sample.targetId) && (
-        path.includes("/messages") || path.includes("/read-state")
-      ))
-      .map(([, start]) => start)
-    expect(starts.length).toBeGreaterThanOrEqual(2)
-    expect(Math.max(...starts) - Math.min(...starts)).toBeLessThanOrEqual(150)
+    const clickOwnedStarts = [
+      sample.clickOwnedStartsMs.messages,
+      sample.clickOwnedStartsMs.readState,
+      sample.clickOwnedStartsMs.rsc,
+      ...Object.values(sample.clickOwnedStartsMs.detail),
+    ]
+    expect(clickOwnedStarts.every(Number.isFinite), JSON.stringify(sample)).toBe(true)
+    expect(Math.max(...clickOwnedStarts), JSON.stringify(sample))
+      .toBeLessThanOrEqual(CLICK_OWNED_START_BUDGET_MS)
+    expect(Math.max(...clickOwnedStarts) - Math.min(...clickOwnedStarts), JSON.stringify(sample))
+      .toBeLessThanOrEqual(CLICK_OWNED_START_BUDGET_MS)
   }
 
   await Promise.all([owner.close(), peer.close()])

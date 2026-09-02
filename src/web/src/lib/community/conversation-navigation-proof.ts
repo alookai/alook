@@ -24,9 +24,15 @@ type ProofStatus = "warming" | "verified" | "proven" | "forum" | "denied" | "fai
 export type ConversationNavigationProof = {
   epoch: number
   accessEpoch: number
+  recoveryAttempt: number
   target: ConversationNavigationTarget
   status: ProofStatus
 }
+
+type ConversationNavigationRecovery = (
+  accessEpoch: number,
+  recoveryAttempt: number,
+) => void
 
 type ProofStore = {
   nextEpoch: number
@@ -35,6 +41,7 @@ type ProofStore = {
   activeTarget: ConversationNavigationTarget | null
   proof: ConversationNavigationProof | null
   controller: AbortController | null
+  recovery: { epoch: number; restart: ConversationNavigationRecovery } | null
   listeners: Set<() => void>
 }
 
@@ -50,6 +57,7 @@ function getStore(queryClient: QueryClient): ProofStore {
       activeTarget: null,
       proof: null,
       controller: null,
+      recovery: null,
       listeners: new Set(),
     }
     stores.set(queryClient, store)
@@ -66,6 +74,7 @@ export function beginConversationNavigationProof(
   queryClient: QueryClient,
   target: ConversationNavigationTarget,
   accessEpoch: number,
+  recoveryAttempt = 0,
 ): { epoch: number; signal: AbortSignal } {
   const store = getStore(queryClient)
   if (store.activeTarget) {
@@ -81,8 +90,43 @@ export function beginConversationNavigationProof(
   store.activeAccessEpoch = accessEpoch
   store.activeTarget = target
   store.controller = controller
-  publish(store, { epoch, accessEpoch, target, status: "warming" })
+  store.recovery = null
+  publish(store, { epoch, accessEpoch, recoveryAttempt, target, status: "warming" })
   return { epoch, signal: controller.signal }
+}
+
+export function registerConversationNavigationRecovery(
+  queryClient: QueryClient,
+  epoch: number,
+  restart: ConversationNavigationRecovery,
+) {
+  const store = getStore(queryClient)
+  if (store.activeEpoch !== epoch || store.proof?.epoch !== epoch) return false
+  store.recovery = { epoch, restart }
+  return true
+}
+
+export function recoverConversationNavigationProof(
+  queryClient: QueryClient,
+  epoch: number,
+  accessEpoch: number,
+) {
+  const store = getStore(queryClient)
+  const proof = store.proof
+  const recovery = store.recovery
+  if (
+    !proof ||
+    proof.epoch !== epoch ||
+    proof.status === "denied" ||
+    (proof.status !== "failed" && proof.accessEpoch === accessEpoch) ||
+    !recovery ||
+    recovery.epoch !== epoch
+  ) return false
+  const recoveryAttempt = proof.accessEpoch === accessEpoch
+    ? proof.recoveryAttempt + 1
+    : 0
+  recovery.restart(accessEpoch, recoveryAttempt)
+  return true
 }
 
 export function isCurrentConversationNavigation(
@@ -152,6 +196,7 @@ export function failConversationNavigationProof(
   if (definitive) {
     store.controller?.abort()
     store.activeEpoch = ++store.nextEpoch
+    store.recovery = null
   }
   publish(store, { ...proof, status: definitive ? "denied" : "failed" })
 }
@@ -162,6 +207,7 @@ function consumeConversationNavigationProof(
 ) {
   const store = getStore(queryClient)
   if (store.proof?.epoch !== epoch) return
+  store.recovery = null
   publish(store, null)
 }
 
@@ -179,9 +225,17 @@ export function cancelConversationNavigationProof(
   }
   store.controller?.abort()
   store.controller = null
+  store.recovery = null
   store.activeEpoch = ++store.nextEpoch
   store.activeTarget = null
   publish(store, null)
+}
+
+export function cancelActiveConversationNavigationProof(queryClient: QueryClient) {
+  const store = getStore(queryClient)
+  if (!store.proof) return false
+  cancelConversationNavigationProof(queryClient, store.activeEpoch)
+  return true
 }
 
 export function getConversationNavigationProof(
@@ -214,13 +268,18 @@ export function useConversationNavigationGate(
   )
 
   useEffect(() => {
-    if (!proof || !matching || proof.accessEpoch === accessEpoch) return
-    beginConversationNavigationProof(queryClient, proof.target, accessEpoch)
-    const queryKey = proof.target.scopeKind === "dm"
-      ? communityKeys.dmMessages(channelId)
-      : communityKeys.channelMessages(channelId)
-    void queryClient.invalidateQueries({ queryKey })
-  }, [accessEpoch, channelId, matching, proof, queryClient])
+    if (!proof || !matching || proof.status === "denied") return
+    if (proof.accessEpoch !== accessEpoch) {
+      recoverConversationNavigationProof(queryClient, proof.epoch, accessEpoch)
+      return
+    }
+    if (proof.status !== "failed") return
+    const delay = Math.min(250 * (2 ** proof.recoveryAttempt), 5_000)
+    const timeout = setTimeout(() => {
+      recoverConversationNavigationProof(queryClient, proof.epoch, accessEpoch)
+    }, delay)
+    return () => clearTimeout(timeout)
+  }, [accessEpoch, matching, proof, queryClient])
 
   useEffect(() => {
     if (

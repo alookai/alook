@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { flushSync } from "react-dom"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
+import { useQueryClient } from "@tanstack/react-query"
 import {
   commitLatestNavigationIntent,
   createNavigationIntentGate,
@@ -15,6 +16,7 @@ import {
   type CommunityCommittedFrame,
 } from "@/lib/community/community-route"
 import type { ShellRouter } from "./shell-frame-types"
+import { cancelActiveConversationNavigationProof } from "@/lib/community/conversation-navigation-proof"
 
 export type CommunityNavigationController = {
   publishedHref: string
@@ -36,6 +38,7 @@ export function useCommunityNavigationController(
   const searchParams = useSearchParams()
   const search = searchParams.toString()
   const publishedHref = search ? `${pathname}?${search}` : pathname
+  const queryClient = useQueryClient()
   const gateRef = useRef(createNavigationIntentGate())
   const pendingBaselineRevisionRef = useRef(committedFrame.revision)
   const pendingBaselineLeafRef = useRef(committedFrame.leafKey)
@@ -44,9 +47,10 @@ export function useCommunityNavigationController(
 
   const cancelPendingNavigation = useCallback(() => {
     supersedeNavigationIntent(gateRef.current)
+    cancelActiveConversationNavigationProof(queryClient)
     setNavigationPending(false)
     setPendingHref(null)
-  }, [])
+  }, [queryClient])
 
   useEffect(() => {
     if (pendingHref === null) return
@@ -76,12 +80,13 @@ export function useCommunityNavigationController(
   const push = useCallback((href: string) => {
     if (href === publishedHref) return
     supersedeNavigationIntent(gateRef.current)
+    cancelActiveConversationNavigationProof(queryClient)
     pendingBaselineRevisionRef.current = committedFrame.revision
     pendingBaselineLeafRef.current = committedFrame.leafKey
     setNavigationPending(true)
     setPendingHref(href)
     router.push(href)
-  }, [committedFrame.leafKey, committedFrame.revision, publishedHref, router])
+  }, [committedFrame.leafKey, committedFrame.revision, publishedHref, queryClient, router])
 
   const pushImmediate = useCallback((href: string) => {
     if (href === publishedHref) return
@@ -100,14 +105,16 @@ export function useCommunityNavigationController(
   const replace = useCallback((href: string) => {
     if (href === publishedHref) return
     supersedeNavigationIntent(gateRef.current)
+    cancelActiveConversationNavigationProof(queryClient)
     pendingBaselineRevisionRef.current = committedFrame.revision
     pendingBaselineLeafRef.current = committedFrame.leafKey
     setNavigationPending(true)
     setPendingHref(href)
     router.replace(href)
-  }, [committedFrame.leafKey, committedFrame.revision, publishedHref, router])
+  }, [committedFrame.leafKey, committedFrame.revision, publishedHref, queryClient, router])
 
   const resolveAndPush = useCallback(async (resolve: () => Promise<string>) => {
+    cancelActiveConversationNavigationProof(queryClient)
     pendingBaselineRevisionRef.current = committedFrame.revision
     pendingBaselineLeafRef.current = committedFrame.leafKey
     setNavigationPending(true)
@@ -127,7 +134,7 @@ export function useCommunityNavigationController(
       setPendingHref(null)
       throw error
     }
-  }, [committedFrame.leafKey, committedFrame.revision, publishedHref, router])
+  }, [committedFrame.leafKey, committedFrame.revision, publishedHref, queryClient, router])
 
   return {
     publishedHref,

@@ -14,6 +14,7 @@ import {
   failConversationNavigationProof,
   isCurrentConversationNavigation,
   recordConversationNavigationReceipt,
+  registerConversationNavigationRecovery,
   type ConversationNavigationTarget,
 } from "./conversation-navigation-proof"
 
@@ -52,8 +53,17 @@ export function startConversationNavigationWarmup(
   queryClient: QueryClient,
   target: ConversationNavigationTarget,
   accessEpoch: number,
+  recoveryAttempt = 0,
 ) {
-  const { epoch, signal } = beginConversationNavigationProof(queryClient, target, accessEpoch)
+  const { epoch, signal } = beginConversationNavigationProof(
+    queryClient,
+    target,
+    accessEpoch,
+    recoveryAttempt,
+  )
+  registerConversationNavigationRecovery(queryClient, epoch, (nextAccessEpoch, nextAttempt) => {
+    startConversationNavigationWarmup(queryClient, target, nextAccessEpoch, nextAttempt)
+  })
   const pageParam: MessagesPageParam = target.anchorMessageId
     ? { mode: "anchor", anchor: target.anchorMessageId }
     : { mode: "newest" }
