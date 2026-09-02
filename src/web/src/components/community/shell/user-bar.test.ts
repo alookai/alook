@@ -24,6 +24,26 @@ describe("UserBar", () => {
     expect(html).toContain('data-testid="community-user-bar-name"')
     expect(html).toContain('class="truncate text-sm font-medium leading-tight"')
     expect(html).toContain('class="flex shrink-0 items-center gap-1"')
+    const desktopSettingsClass = html.match(
+      /class="([^"]*)" aria-label="User settings"/,
+    )?.[1]?.split(" ")
+    expect(desktopSettingsClass).toContain("hover:bg-accent")
+  })
+
+  it("keeps the mobile Settings action as a color-only icon button", () => {
+    const html = renderToStaticMarkup(createElement(UserBar, {
+      breakpoint: "mobile",
+      user: { id: "u1", name: "User", avatar: "U" },
+    }))
+    const settingsClass = html.match(
+      /class="([^"]*)" aria-label="User settings"/,
+    )?.[1]?.split(" ")
+    expect(settingsClass).toContain("hover:text-foreground")
+    expect(settingsClass).toContain("active:text-foreground")
+    expect(settingsClass).not.toContain("hover:bg-accent")
+    expect(settingsClass).not.toContain("border")
+    expect(settingsClass).not.toContain("shadow")
+    expect(settingsClass).toContain("focus-visible:ring-2")
   })
 
   it("provides an inert account-neutral placeholder with the same outer geometry", () => {
