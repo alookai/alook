@@ -109,9 +109,8 @@ async function setForumPostArchived(
   const card = page.getByTestId(tid.forumThreadCard(threadId))
   await expect(card).toBeVisible({ timeout: 20_000 })
   await card.hover()
-  await page.getByTestId(tid.forumThreadTagBtn(threadId)).click()
-  await expect(page.getByTestId(tid.forumTagDialog)).toBeVisible({ timeout: 10_000 })
-  await page.getByTestId(tid.forumTagDialogChip("archived")).click()
+  const archiveButton = page.getByTestId(tid.forumThreadArchiveBtn(threadId))
+  await expect(archiveButton).toHaveAttribute("aria-pressed", String(currentlyArchived))
   const put = page.waitForResponse((response) =>
     response.request().method() === "PUT"
     && new URL(response.url()).pathname.endsWith("/tags"),
@@ -119,7 +118,7 @@ async function setForumPostArchived(
   const sidebar = page.waitForResponse((response) =>
     response.ok() && isSidebarRequest(response.url(), serverId),
   )
-  await page.keyboard.press("Escape")
+  await archiveButton.click()
   expect((await put).status()).toBe(200)
   await sidebar
 }

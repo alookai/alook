@@ -3,7 +3,7 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { COMMUNITY_VIRTUALIZER_REACT_OPTIONS } from "@/hooks/community/virtualizer-react-options"
-import { MessagesSquare, ListChevronsUpDown, Plus, Tag, Trash2 } from "lucide-react"
+import { Archive, ArchiveRestore, MessagesSquare, ListChevronsUpDown, Plus, Tag, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { formatRelativeTime } from "@/lib/community/format-time"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -45,8 +45,9 @@ export function shouldActivateForumRow(event: {
 export const forumTagScrollFades = horizontalOverflowFades
 
 function ForumTagSummary({ tags }: { tags: string[] }) {
-  const shown = tags.slice(0, MAX_VISIBLE_TAGS)
-  const hidden = tags.slice(MAX_VISIBLE_TAGS)
+  const ordinaryTags = tags.filter((tag) => tag !== FORUM_ARCHIVE_TAG)
+  const shown = ordinaryTags.slice(0, MAX_VISIBLE_TAGS)
+  const hidden = ordinaryTags.slice(MAX_VISIBLE_TAGS)
   if (shown.length === 0) return null
 
   return (
@@ -76,7 +77,7 @@ function ForumTagSummary({ tags }: { tags: string[] }) {
             className="flex w-52 flex-wrap gap-1.5 p-2"
             onClick={(event) => event.stopPropagation()}
           >
-            {tags.map((tag) => (
+            {ordinaryTags.map((tag) => (
               <span key={tag} className="rounded-md bg-muted px-1.5 py-1 text-xs text-muted-foreground">#{tag}</span>
             ))}
           </PopoverContent>
@@ -84,6 +85,13 @@ function ForumTagSummary({ tags }: { tags: string[] }) {
       )}
     </div>
   )
+}
+
+export function toggleForumArchivedStatus(tags: string[]): string[] {
+  const ordinaryTags = tags.filter((tag) => tag !== FORUM_ARCHIVE_TAG)
+  return tags.includes(FORUM_ARCHIVE_TAG)
+    ? ordinaryTags
+    : [...ordinaryTags, FORUM_ARCHIVE_TAG]
 }
 
 function ForumPostTitle({ name, postId, seq }: { name: string; postId: string; seq?: number }) {
@@ -370,6 +378,10 @@ export function ForumView({
               renderItem={(p, index) => {
               const canEdit = !!onEditPostTags && (canEditPostTags?.(p) ?? false)
               const canDelete = !!onDeletePost && (canDeletePost?.(p) ?? false)
+              const archived = p.tags.includes(FORUM_ARCHIVE_TAG)
+              const hasOrdinaryTags = p.tags.some((postTag) => postTag !== FORUM_ARCHIVE_TAG)
+              const savingTags = savingTagsFor === p.id
+              const actionCount = (canEdit ? 2 : 0) + (canDelete ? 1 : 0)
               const author = readCommunityProfile(
                 profilesByUserId.get(p.authorId),
                 p.authorId,
@@ -422,6 +434,26 @@ export function ForumView({
                           onSave={(tags) => onEditPostTags?.(p.id, tags)}
                         />
                       )}
+                      {canEdit && (
+                        <button
+                          type="button"
+                          data-testid={tid.forumThreadArchiveBtn(p.id)}
+                          disabled={savingTags}
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            void Promise.resolve(
+                              onEditPostTags?.(p.id, toggleForumArchivedStatus(p.tags)),
+                            ).catch(() => undefined)
+                          }}
+                          className="grid size-8 shrink-0 place-items-center rounded-md text-muted-foreground opacity-100 transition-opacity hover:bg-accent hover:text-foreground sm:size-6 sm:opacity-0 sm:focus-visible:opacity-100 sm:group-hover/card:opacity-100 disabled:cursor-not-allowed disabled:opacity-50"
+                          aria-label={archived ? "Unarchive post" : "Archive post"}
+                          aria-pressed={archived}
+                        >
+                          {archived
+                            ? <ArchiveRestore aria-hidden="true" className="size-4" />
+                            : <Archive aria-hidden="true" className="size-4" />}
+                        </button>
+                      )}
                       {canDelete && (
                       <button
                         type="button"
@@ -438,8 +470,10 @@ export function ForumView({
                   )}
 
                   <div className={cn(
-                    "sm:pr-14",
-                    canEdit || canDelete ? "min-h-8 pr-16 sm:min-h-0" : "pr-0",
+                    actionCount === 3 && "min-h-8 pr-28 sm:min-h-0 sm:pr-22",
+                    actionCount === 2 && "min-h-8 pr-20 sm:min-h-0 sm:pr-16",
+                    actionCount === 1 && "min-h-8 pr-12 sm:min-h-0 sm:pr-8",
+                    actionCount === 0 && "pr-0",
                   )}>
                     <ForumPostTitle name={p.name} postId={p.id} seq={p.parentSeq} />
                   </div>
@@ -449,7 +483,7 @@ export function ForumView({
                     <span className="shrink-0 font-medium text-foreground" suppressHydrationWarning>{author.name}</span>
                     <span className="shrink-0" aria-hidden>·</span>
                     <span className="shrink-0" suppressHydrationWarning>{formatRelativeTime(p.lastMessageAt)}</span>
-                    {p.tags.length > 0 && <span className="shrink-0 max-sm:hidden" aria-hidden>·</span>}
+                    {hasOrdinaryTags && <span className="shrink-0 max-sm:hidden" aria-hidden>·</span>}
                     <ForumTagSummary tags={p.tags} />
                     <span className="ml-auto flex shrink-0 items-center gap-2">
                       {others.length > 0 && (

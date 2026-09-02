@@ -151,21 +151,50 @@ describe("PostTagDialog responsive session", () => {
     expect(byTestId(renderer.root, "trigger")).toBeTruthy()
   })
 
-  it("keeps Archived outside the ordinary quota and preserves desktop close-save", () => {
-    const current = Array.from({ length: MAX_FORUM_TAGS_PER_POST }, (_, index) => `tag-${index + 1}`)
+  it("hides Archived while preserving it through an ordinary tag save", () => {
+    const ordinary = Array.from({ length: MAX_FORUM_TAGS_PER_POST }, (_, index) => `tag-${index + 1}`)
+    const current = [...ordinary, FORUM_ARCHIVE_TAG]
     const onSave = vi.fn()
-    const { renderer } = renderDialog({ current, allTags: [...current, "replacement"], onSave })
+    const { renderer } = renderDialog({
+      current,
+      allTags: [...ordinary, "replacement", FORUM_ARCHIVE_TAG],
+      onSave,
+    })
     setOpen(renderer.root, true)
 
-    expect(tagButton(renderer.root, FORUM_ARCHIVE_TAG).props.disabled).toBe(false)
+    expect(renderer.root.findAllByProps({
+      "data-testid": tid.forumTagDialogChip(FORUM_ARCHIVE_TAG),
+    })).toHaveLength(0)
+    expect(JSON.stringify(renderer.toJSON())).not.toContain("Archived")
+    expect(JSON.stringify(renderer.toJSON())).not.toContain("STATUS")
     expect(tagButton(renderer.root, "replacement").props.disabled).toBe(true)
     expect(input(renderer.root).props.disabled).toBe(true)
-    act(() => tagButton(renderer.root, FORUM_ARCHIVE_TAG).props.onClick())
+    act(() => tagButton(renderer.root, ordinary[0]!).props.onClick())
+    for (const tag of ordinary.slice(1)) {
+      expect(tagButton(renderer.root, tag).props["aria-label"]).toBe(`Remove tag ${tag}`)
+    }
     setOpen(renderer.root, false)
 
     expect(onSave).toHaveBeenCalledOnce()
-    expect(onSave).toHaveBeenCalledWith([...current, FORUM_ARCHIVE_TAG])
+    expect(onSave).toHaveBeenCalledWith([...ordinary.slice(1), FORUM_ARCHIVE_TAG])
     expect(shell(renderer.root).props.open).toBe(false)
+  })
+
+  it("never exposes an Archived control while editing ordinary tags", () => {
+    const onSave = vi.fn()
+    const { renderer } = renderDialog({
+      current: ["bug", FORUM_ARCHIVE_TAG, "design"],
+      allTags: ["bug", "design"],
+      onSave,
+    })
+    setOpen(renderer.root, true)
+
+    expect(JSON.stringify(renderer.toJSON())).not.toContain("Archived")
+    act(() => tagButton(renderer.root, "bug").props.onClick())
+    expect(tagButton(renderer.root, "design").props["aria-label"]).toBe("Remove tag design")
+    setOpen(renderer.root, false)
+
+    expect(onSave).toHaveBeenCalledWith([FORUM_ARCHIVE_TAG, "design"])
   })
 
   it("normalizes Enter additions, rejects duplicates, and ignores IME or Shift+Enter", () => {
@@ -191,12 +220,27 @@ describe("PostTagDialog responsive session", () => {
     expect(onSave).not.toHaveBeenCalled()
   })
 
+  it("keeps the reserved Archived value out of the ordinary tag input", () => {
+    mocks.breakpoint = "mobile"
+    const { renderer } = renderDialog({ allTags: [FORUM_ARCHIVE_TAG] })
+    setOpen(renderer.root, true)
+
+    setDraft(renderer.root, FORUM_ARCHIVE_TAG)
+    pressEnter(renderer.root)
+
+    expect(input(renderer.root).props.value).toBe("")
+    expect(renderer.root.findAllByProps({
+      "data-testid": tid.forumTagDialogChip(FORUM_ARCHIVE_TAG),
+    })).toHaveLength(0)
+    expect(JSON.stringify(renderer.toJSON())).not.toContain("Archived")
+  })
+
   it.each(["implicit", "close"])("discards a changed mobile session via %s dismissal", (dismissal) => {
     mocks.breakpoint = "mobile"
     const onSave = vi.fn()
-    const { renderer } = renderDialog({ current: ["existing"], onSave })
+    const { renderer } = renderDialog({ current: ["existing"], allTags: ["existing", "draft"], onSave })
     setOpen(renderer.root, true)
-    act(() => tagButton(renderer.root, FORUM_ARCHIVE_TAG).props.onClick())
+    act(() => tagButton(renderer.root, "draft").props.onClick())
 
     if (dismissal === "implicit") setOpen(renderer.root, false)
     else {
@@ -206,7 +250,7 @@ describe("PostTagDialog responsive session", () => {
     expect(onSave).not.toHaveBeenCalled()
     expect(shell(renderer.root).props.open).toBe(false)
     setOpen(renderer.root, true)
-    expect(tagButton(renderer.root, FORUM_ARCHIVE_TAG).props["aria-label"]).toBe("Add tag archived")
+    expect(tagButton(renderer.root, "draft").props["aria-label"]).toBe("Add tag draft")
   })
 
   it("closes a clean mobile session without saving", () => {
@@ -223,9 +267,9 @@ describe("PostTagDialog responsive session", () => {
     mocks.breakpoint = "mobile"
     const pending = deferred()
     const onSave = vi.fn(() => pending.promise)
-    const { renderer } = renderDialog({ onSave })
+    const { renderer } = renderDialog({ current: [FORUM_ARCHIVE_TAG], allTags: ["kept"], onSave })
     setOpen(renderer.root, true)
-    act(() => tagButton(renderer.root, FORUM_ARCHIVE_TAG).props.onClick())
+    act(() => tagButton(renderer.root, "kept").props.onClick())
 
     await act(async () => {
       byTestId(renderer.root, tid.forumTagDialogSave).props.onClick()
@@ -250,9 +294,9 @@ describe("PostTagDialog responsive session", () => {
     const onSave = vi.fn()
       .mockRejectedValueOnce(new Error("nope"))
       .mockResolvedValueOnce(undefined)
-    const { renderer } = renderDialog({ onSave })
+    const { renderer } = renderDialog({ current: [FORUM_ARCHIVE_TAG], allTags: ["kept"], onSave })
     setOpen(renderer.root, true)
-    act(() => tagButton(renderer.root, FORUM_ARCHIVE_TAG).props.onClick())
+    act(() => tagButton(renderer.root, "kept").props.onClick())
     setDraft(renderer.root, "raw-draft")
 
     await act(async () => {
@@ -262,7 +306,7 @@ describe("PostTagDialog responsive session", () => {
     })
     expect(shell(renderer.root).props.open).toBe(true)
     expect(input(renderer.root).props.value).toBe("raw-draft")
-    expect(tagButton(renderer.root, FORUM_ARCHIVE_TAG).props["aria-label"]).toBe("Remove tag archived")
+    expect(tagButton(renderer.root, "kept").props["aria-label"]).toBe("Remove tag kept")
     expect(byTestId(renderer.root, tid.forumTagDialogSave).props.disabled).toBe(false)
 
     await act(async () => {
@@ -277,33 +321,33 @@ describe("PostTagDialog responsive session", () => {
   it("preserves a mobile session through desktop handoff and saves only on the later desktop close", () => {
     mocks.breakpoint = "mobile"
     const onSave = vi.fn()
-    const rendered = renderDialog({ onSave })
+    const rendered = renderDialog({ current: [FORUM_ARCHIVE_TAG], allTags: ["kept"], onSave })
     setOpen(rendered.renderer.root, true)
-    act(() => tagButton(rendered.renderer.root, FORUM_ARCHIVE_TAG).props.onClick())
+    act(() => tagButton(rendered.renderer.root, "kept").props.onClick())
     setDraft(rendered.renderer.root, "unfinished")
 
     switchBreakpoint(rendered, "desktop")
     expect(rendered.renderer.root.findByType("mock-popover").props.open).toBe(true)
     expect(input(rendered.renderer.root).props.value).toBe("unfinished")
-    expect(tagButton(rendered.renderer.root, FORUM_ARCHIVE_TAG).props["aria-label"]).toBe("Remove tag archived")
+    expect(tagButton(rendered.renderer.root, "kept").props["aria-label"]).toBe("Remove tag kept")
     expect(onSave).not.toHaveBeenCalled()
 
     setOpen(rendered.renderer.root, false)
     expect(onSave).toHaveBeenCalledOnce()
-    expect(onSave).toHaveBeenCalledWith([FORUM_ARCHIVE_TAG])
+    expect(onSave).toHaveBeenCalledWith([FORUM_ARCHIVE_TAG, "kept"])
   })
 
   it("preserves a desktop session through mobile handoff and applies later mobile discard semantics", () => {
     const onSave = vi.fn()
-    const rendered = renderDialog({ onSave })
+    const rendered = renderDialog({ current: [FORUM_ARCHIVE_TAG], allTags: ["kept"], onSave })
     setOpen(rendered.renderer.root, true)
-    act(() => tagButton(rendered.renderer.root, FORUM_ARCHIVE_TAG).props.onClick())
+    act(() => tagButton(rendered.renderer.root, "kept").props.onClick())
     setDraft(rendered.renderer.root, "unfinished")
 
     switchBreakpoint(rendered, "mobile")
     expect(rendered.renderer.root.findByType("mock-dialog").props.open).toBe(true)
     expect(input(rendered.renderer.root).props.value).toBe("unfinished")
-    expect(tagButton(rendered.renderer.root, FORUM_ARCHIVE_TAG).props["aria-label"]).toBe("Remove tag archived")
+    expect(tagButton(rendered.renderer.root, "kept").props["aria-label"]).toBe("Remove tag kept")
     expect(onSave).not.toHaveBeenCalled()
 
     setOpen(rendered.renderer.root, false)
@@ -315,9 +359,9 @@ describe("PostTagDialog responsive session", () => {
     mocks.breakpoint = "mobile"
     const pending = deferred()
     const onSave = vi.fn(() => pending.promise)
-    const rendered = renderDialog({ onSave })
+    const rendered = renderDialog({ current: [FORUM_ARCHIVE_TAG], allTags: ["kept"], onSave })
     setOpen(rendered.renderer.root, true)
-    act(() => tagButton(rendered.renderer.root, FORUM_ARCHIVE_TAG).props.onClick())
+    act(() => tagButton(rendered.renderer.root, "kept").props.onClick())
     const staleMobileClose = rendered.renderer.root.findByType("mock-dialog").props.onOpenChange
 
     await act(async () => {
@@ -374,6 +418,8 @@ describe("PostTagDialog responsive session", () => {
     expect(mobileChipClass).not.toContain("min-w-11")
     expect(mobileChipClass).toContain("focus-visible:ring-2")
     expect(mobileChipClass).toContain("active:translate-y-px")
+    expect(JSON.stringify(rendered.renderer.toJSON())).not.toContain("Archived")
+    expect(JSON.stringify(rendered.renderer.toJSON())).not.toContain("STATUS")
     const close = rendered.renderer.root.findByProps({ "aria-label": "Close" })
     expect(close.props.size).toBe("icon")
     expect(close.props["data-testid"]).toBe(tid.forumTagDialogCancel)
@@ -396,5 +442,6 @@ describe("PostTagDialog responsive session", () => {
     expect(input(rendered.renderer.root).props["aria-label"]).toBe("Add a tag")
     expect(String(tagButton(rendered.renderer.root, "compact").props.className))
       .not.toContain("min-h-11")
+    expect(JSON.stringify(rendered.renderer.toJSON())).not.toContain("Archived")
   })
 })

@@ -36,7 +36,7 @@ type ResolvedShell = Exclude<Breakpoint, "unknown">
 type TagEditorBodyProps = {
   selected: string[]
   draft: string
-  chips: string[]
+  ordinaryChips: string[]
   ordinaryTagCount: number
   busy: boolean
   mobile: boolean
@@ -49,7 +49,7 @@ type TagEditorBodyProps = {
 function PostTagEditorBody({
   selected,
   draft,
-  chips,
+  ordinaryChips,
   ordinaryTagCount,
   busy,
   mobile,
@@ -59,7 +59,6 @@ function PostTagEditorBody({
   onAddDraft,
 }: TagEditorBodyProps) {
   const atTagLimit = ordinaryTagCount >= MAX_FORUM_TAGS_PER_POST
-
   return (
     <div
       data-testid={tid.forumTagDialogBody}
@@ -68,63 +67,63 @@ function PostTagEditorBody({
         mobile && "min-h-0 flex-1 overflow-y-auto thin-scrollbar px-3 pt-1 pb-3",
       )}
     >
-      {!mobile && (
+      <div className="space-y-1">
         <p className="text-[11px] font-medium tracking-[0.12em] text-muted-foreground">TAGS</p>
-      )}
 
-      <div
-        className="flex flex-wrap items-center gap-1.5"
-      >
-        {chips.length === 0 ? (
-          <p className="text-xs text-muted-foreground">No tags yet</p>
-        ) : chips.map((tag) => {
-          const active = selected.includes(tag)
-          const additionBlocked = !active && (
-            (tag !== FORUM_ARCHIVE_TAG && ordinaryTagCount >= MAX_FORUM_TAGS_PER_POST)
-            || tag.length > MAX_FORUM_TAG_LENGTH
-          )
-          return (
-            <button
-              key={tag}
-              type="button"
-              data-testid={tid.forumTagDialogChip(tag)}
-              disabled={busy || additionBlocked}
-              aria-label={`${active ? "Remove" : "Add"} tag ${tag}`}
-              title={`#${tag}`}
-              style={tagColorStyle(tag)}
-              className={cn(
-                "inline-flex max-w-full min-w-0 items-center rounded-lg px-2 py-1 text-xs outline-none transition-opacity active:translate-y-px focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-40",
-                tagColorClassName,
-                active ? "opacity-100 ring-1 ring-current/20" : "opacity-55 hover:opacity-80",
-              )}
-              onClick={() => onToggle(tag)}
-            >
-              <span className="min-w-0 truncate">#{tag}</span>
-              {active && <X aria-hidden="true" className="ml-1 size-3 shrink-0" />}
-            </button>
-          )
-        })}
+        <div
+          className="flex flex-wrap items-center gap-1.5"
+        >
+          {ordinaryChips.length === 0 ? (
+            <p className="text-xs text-muted-foreground">No tags yet</p>
+          ) : ordinaryChips.map((tag) => {
+            const active = selected.includes(tag)
+            const additionBlocked = !active && (
+              ordinaryTagCount >= MAX_FORUM_TAGS_PER_POST
+              || tag.length > MAX_FORUM_TAG_LENGTH
+            )
+            return (
+              <button
+                key={tag}
+                type="button"
+                data-testid={tid.forumTagDialogChip(tag)}
+                disabled={busy || additionBlocked}
+                aria-label={`${active ? "Remove" : "Add"} tag ${tag}`}
+                title={`#${tag}`}
+                style={tagColorStyle(tag)}
+                className={cn(
+                  "inline-flex max-w-full min-w-0 items-center rounded-lg px-2 py-1 text-xs outline-none transition-opacity active:translate-y-px focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-40",
+                  tagColorClassName,
+                  active ? "opacity-100 ring-1 ring-current/20" : "opacity-55 hover:opacity-80",
+                )}
+                onClick={() => onToggle(tag)}
+              >
+                <span className="min-w-0 truncate">#{tag}</span>
+                {active && <X aria-hidden="true" className="ml-1 size-3 shrink-0" />}
+              </button>
+            )
+          })}
 
-        {mobile && (
-          <div className="relative min-w-0 basis-full">
-            <Input
-              ref={inputRef}
-              autoFocus
-              aria-label="Add a tag"
-              data-testid={tid.forumTagDialogInput}
-              value={draft}
-              onChange={(event) => onDraftChange(event.target.value.slice(0, MAX_FORUM_TAG_LENGTH))}
-              onKeyDown={onEnterSubmit(onAddDraft)}
-              maxLength={MAX_FORUM_TAG_LENGTH}
-              placeholder="Add a tag…"
-              className="h-11 border-0 bg-transparent px-1 pr-16 text-sm shadow-none focus-visible:border-transparent focus-visible:ring-0 disabled:bg-transparent dark:bg-transparent dark:disabled:bg-transparent"
-              disabled={busy || atTagLimit}
-            />
-            <span className="pointer-events-none absolute inset-y-0 right-1 flex items-center text-[11px] text-muted-foreground">
-              {busy ? "Saving…" : atTagLimit ? `${MAX_FORUM_TAGS_PER_POST} tags max` : "Add"}
-            </span>
-          </div>
-        )}
+          {mobile && (
+            <div className="relative min-w-0 basis-full">
+              <Input
+                ref={inputRef}
+                autoFocus
+                aria-label="Add a tag"
+                data-testid={tid.forumTagDialogInput}
+                value={draft}
+                onChange={(event) => onDraftChange(event.target.value.slice(0, MAX_FORUM_TAG_LENGTH))}
+                onKeyDown={onEnterSubmit(onAddDraft)}
+                maxLength={MAX_FORUM_TAG_LENGTH}
+                placeholder="Add a tag…"
+                className="h-11 border-0 bg-transparent px-1 pr-16 text-sm shadow-none focus-visible:border-transparent focus-visible:ring-0 disabled:bg-transparent dark:bg-transparent dark:disabled:bg-transparent"
+                disabled={busy || atTagLimit}
+              />
+              <span className="pointer-events-none absolute inset-y-0 right-1 flex items-center text-[11px] text-muted-foreground">
+                {busy ? "Saving…" : atTagLimit ? `${MAX_FORUM_TAGS_PER_POST} tags max` : "Add"}
+              </span>
+            </div>
+          )}
+        </div>
       </div>
 
       {!mobile && (
@@ -147,6 +146,7 @@ function PostTagEditorBody({
           </p>
         </>
       )}
+
     </div>
   )
 }
@@ -249,11 +249,15 @@ export function PostTagDialog({
   const addDraft = () => {
     const tag = draft.trim().toLowerCase()
     if (!tag || tag.length > MAX_FORUM_TAG_LENGTH) return
+    if (tag === FORUM_ARCHIVE_TAG) {
+      setDraft("")
+      return
+    }
     setSelected((previous) => {
       const ordinaryCount = previous.filter((candidate) => candidate !== FORUM_ARCHIVE_TAG).length
       if (
         previous.includes(tag)
-        || (tag !== FORUM_ARCHIVE_TAG && ordinaryCount >= MAX_FORUM_TAGS_PER_POST)
+        || ordinaryCount >= MAX_FORUM_TAGS_PER_POST
       ) return previous
       return [...previous, tag]
     })
@@ -298,18 +302,15 @@ export function PostTagDialog({
     else closeDesktop()
   }
 
-  const chips = [
-    FORUM_ARCHIVE_TAG,
-    ...[...new Set([...allTags, ...selected])]
-      .filter((tag) => tag !== FORUM_ARCHIVE_TAG)
-      .sort(),
-  ]
+  const ordinaryChips = [...new Set([...allTags, ...selected])]
+    .filter((tag) => tag !== FORUM_ARCHIVE_TAG)
+    .sort()
 
   const body = (mobile: boolean) => (
     <PostTagEditorBody
       selected={selected}
       draft={draft}
-      chips={chips}
+      ordinaryChips={ordinaryChips}
       ordinaryTagCount={ordinaryTagCount}
       busy={busy}
       mobile={mobile}

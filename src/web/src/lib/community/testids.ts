@@ -172,7 +172,8 @@ export const tid = {
   // Forum post feed (ForumView). `forumThreadCard` is the whole clickable card;
   // `forumThreadTitle` / `forumThreadTitleText` expose the clamped title cluster
   // and its visible text; `forumThreadTagBtn` is the responsive tag-edit icon;
-  // `forumThreadDeleteBtn` is the responsive delete icon; `forumThreadAvatars`
+  // `forumThreadArchiveBtn` / `forumThreadDeleteBtn` are the reserved-status
+  // and delete icons; `forumThreadAvatars`
   // wraps the participant AvatarGroup; `forumTagChip` is a filter-bar tag chip.
   forumThreadCard: (id: string) => `community-forum-post-${id}`,
   forumSidebarThread: (id: string) => `community-forum-sidebar-thread-${id}`,
@@ -180,6 +181,7 @@ export const tid = {
   forumThreadTitleText: (id: string) => `community-forum-post-title-text-${id}`,
   forumThreadSeq: (id: string) => `community-forum-post-seq-${id}`,
   forumThreadTagBtn: (id: string) => `community-forum-post-tag-btn-${id}`,
+  forumThreadArchiveBtn: (id: string) => `community-forum-post-archive-btn-${id}`,
   forumThreadDeleteBtn: (id: string) => `community-forum-post-delete-btn-${id}`,
   forumThreadAvatars: (id: string) => `community-forum-post-avatars-${id}`,
   forumFilterBar: "community-forum-filter-bar",
