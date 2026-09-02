@@ -13,8 +13,8 @@ async function navigateChannel(page: Page, serverId: string, channelId: string) 
   const route = `/c/channels/${serverId}/${channelId}`
   const row = page.getByTestId(tid.channelRow(channelId))
   if (!await row.isVisible()) {
-    const serverCrumb = page.getByTestId(tid.channelHeaderServer(serverId))
-    if (await serverCrumb.isVisible()) await serverCrumb.evaluate((element) => (element as HTMLElement).click())
+    const back = page.getByRole("banner").getByRole("button", { name: "Back" })
+    if (await back.isVisible()) await back.evaluate((element) => (element as HTMLElement).click())
     else await page.getByTestId(tid.serverIcon(serverId)).evaluate((element) => (element as HTMLElement).click())
   }
   await expect(row).toBeVisible()

@@ -172,16 +172,9 @@ function surfaceProps(overrides: Record<string, unknown> = {}) {
     anchorMessageId: "m_target",
     parentChannelId: "parent_1",
     parentMessageId: "opener_1",
-    parentChannelName: "general",
     parentIsForum: false,
     childCreatorId: "viewer_1",
     canRenameThread: true,
-    headerServer: {
-      id: "server_1",
-      name: "Server",
-      icon: null,
-      onNavigate: vi.fn(),
-    },
     onNavigateParent: vi.fn(),
     notificationLevel: "default" as const,
     onSetNotificationLevel: vi.fn(),
@@ -327,15 +320,14 @@ describe("ThreadChannelSurface ownership", () => {
     mockedUseChannelMessageFeed.mockReturnValue(feed({ isLoading: false, isError: true }))
     act(() => renderer.update(React.createElement(ThreadChannelSurface, props)))
     const headerProps = mockedChannelHeader.mock.calls.at(-1)![0]
-    expect(headerProps.onBack).toBe(props.onNavigateParent)
-    expect(headerProps.mobileServer).toBe(props.headerServer)
-    expect(headerProps.breadcrumb).toEqual(expect.objectContaining({
-      id: "parent_1",
-      onNavigate: props.onNavigateParent,
+    expect(headerProps.mobileBack).toBe(props.onNavigateParent)
+    expect(headerProps).toEqual(expect.objectContaining({
+      channel: "Thread name",
+      kind: "thread",
     }))
   })
 
-  it("preserves regular-thread breadcrumb, rename, panel, and dialog wiring", async () => {
+  it("preserves regular-thread identity, rename, panel, and dialog wiring", async () => {
     const props = surfaceProps()
     let renderer: TestRenderer.ReactTestRenderer
 
@@ -343,31 +335,27 @@ describe("ThreadChannelSurface ownership", () => {
       renderer = TestRenderer.create(React.createElement(ThreadChannelSurface, props))
     })
     let headerProps = mockedChannelHeader.mock.calls.at(-1)![0]
-    expect(headerProps).toEqual(expect.objectContaining({ channel: "general", forum: false }))
+    expect(headerProps).toEqual(expect.objectContaining({ channel: "Thread name", kind: "thread" }))
     expect(headerProps).toEqual(expect.objectContaining({
       notifLevel: "default",
       onSetNotifLevel: props.onSetNotificationLevel,
-      mobileServer: props.headerServer,
-      onBack: props.onNavigateParent,
+      mobileBack: props.onNavigateParent,
     }))
-    expect(headerProps.breadcrumb).toEqual(expect.objectContaining({
-      id: "parent_1",
-      label: "Thread name",
+    expect(headerProps).toEqual(expect.objectContaining({
       titleRename: false,
-      onNavigate: props.onNavigateParent,
       onRename: expect.any(Function),
     }))
 
     await act(async () => {
-      await headerProps.breadcrumb?.onRename?.("Renamed thread")
+      await headerProps.onRename?.("Renamed thread")
     })
     expect(mocks.apiFetch).toHaveBeenCalledWith("/api/community/channels/thread_1", {
       method: "PATCH",
       body: JSON.stringify({ name: "Renamed thread" }),
     })
     headerProps = mockedChannelHeader.mock.calls.at(-1)![0]
-    expect(headerProps.breadcrumb?.label).toBe("Renamed thread")
-    act(() => headerProps.breadcrumb?.onNavigate?.())
+    expect(headerProps.channel).toBe("Renamed thread")
+    act(() => headerProps.mobileBack?.())
     expect(props.onNavigateParent).toHaveBeenCalledOnce()
 
     act(() => headerProps.onToggle("pinned"))
@@ -398,16 +386,16 @@ describe("ThreadChannelSurface ownership", () => {
       TestRenderer.create(renderSurface({ parentIsForum: true, channelName: "Post title" }))
     })
     let headerProps = mockedChannelHeader.mock.calls.at(-1)![0]
-    expect(headerProps).toEqual(expect.objectContaining({ channel: "general", forum: true }))
-    expect(headerProps.breadcrumb).toEqual(expect.objectContaining({
-      label: "Post title",
+    expect(headerProps).toEqual(expect.objectContaining({
+      channel: "Post title",
+      kind: "thread",
       titleRename: true,
       onRename: expect.any(Function),
     }))
     expect(mockedMessageList.mock.calls.at(-1)![0].hero).toBeUndefined()
 
     await act(async () => {
-      await headerProps.breadcrumb?.onRename?.("Renamed post")
+      await headerProps.onRename?.("Renamed post")
     })
     expect(mocks.editMessage).toHaveBeenCalledWith({
       serverId: "server_1",
@@ -422,7 +410,7 @@ describe("ThreadChannelSurface ownership", () => {
       TestRenderer.create(renderSurface({ parentIsForum: true, childCreatorId: "other_user" }))
     })
     headerProps = mockedChannelHeader.mock.calls.at(-1)![0]
-    expect(headerProps.breadcrumb?.onRename).toBeUndefined()
+    expect(headerProps.onRename).toBeUndefined()
   })
 
   it("preserves rename errors for regular threads and forum posts", async () => {
@@ -431,7 +419,7 @@ describe("ThreadChannelSurface ownership", () => {
     act(() => {
       TestRenderer.create(renderSurface())
     })
-    const threadRename = mockedChannelHeader.mock.calls.at(-1)![0].breadcrumb?.onRename
+    const threadRename = mockedChannelHeader.mock.calls.at(-1)![0].onRename
     await expect(threadRename?.("Broken thread")).rejects.toBe(threadError)
     expect(mocks.toastApiError).toHaveBeenCalledWith(threadError, "Failed to rename")
 
@@ -440,7 +428,7 @@ describe("ThreadChannelSurface ownership", () => {
     act(() => {
       TestRenderer.create(renderSurface({ parentIsForum: true }))
     })
-    const postRename = mockedChannelHeader.mock.calls.at(-1)![0].breadcrumb?.onRename
+    const postRename = mockedChannelHeader.mock.calls.at(-1)![0].onRename
     await expect(postRename?.("Broken post")).rejects.toBe(postError)
     expect(mocks.toastApiError).toHaveBeenCalledWith(postError, "Failed to edit post")
   })

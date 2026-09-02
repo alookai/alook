@@ -20,7 +20,7 @@ export function ThreadSplitParentSurface({
   server,
   channel,
   viewer,
-  headerServer,
+  onNavigateParent,
   channelRefCandidates,
   uiHandlers,
   onOpenChild,
@@ -31,7 +31,7 @@ export function ThreadSplitParentSurface({
   server: ServerDetail
   channel: Channel
   viewer: { id: string; name: string; discriminator?: string; avatar: string }
-  headerServer?: { id: string; name: string; icon: string | null; onNavigate: () => void }
+  onNavigateParent?: () => void
   channelRefCandidates: ComposerProps["channelRefCandidates"]
   uiHandlers: ComponentProps<typeof TextChannelSurface>["uiHandlers"]
   onOpenChild: (childId: string) => void
@@ -65,7 +65,7 @@ export function ThreadSplitParentSurface({
         channelName={channel.name}
         viewer={viewer}
         viewerRole={members.myRole}
-        headerServer={headerServer}
+        onNavigateParent={onNavigateParent}
         notificationLevel={notificationLevel}
         onSetNotificationLevel={setNotificationLevel}
         composerMembers={members.composerMembers}
@@ -87,7 +87,7 @@ export function ThreadSplitParentSurface({
       channelName={channel.name}
       viewer={viewer}
       anchorMessageId={null}
-      headerServer={headerServer}
+      onNavigateParent={onNavigateParent}
       notificationLevel={notificationLevel}
       onSetNotificationLevel={setNotificationLevel}
       composerMembers={members.composerMembers}

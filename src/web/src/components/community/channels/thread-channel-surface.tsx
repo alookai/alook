@@ -38,12 +38,10 @@ export function ThreadChannelSurface({
   anchorMessageId,
   parentChannelId,
   parentMessageId,
-  parentChannelName,
   parentIsForum,
   threadOpenerHandoff,
   childCreatorId,
   canRenameThread,
-  headerServer,
   onNavigateParent,
   notificationLevel,
   onSetNotificationLevel,
@@ -67,12 +65,10 @@ export function ThreadChannelSurface({
   anchorMessageId: string | null
   parentChannelId: string | null
   parentMessageId: string | null
-  parentChannelName: string
   parentIsForum: boolean
   threadOpenerHandoff?: ThreadOpenerReadHandoff | null
   childCreatorId?: string | null
   canRenameThread: boolean
-  headerServer?: { id: string; name: string; icon: string | null; onNavigate: () => void }
   onNavigateParent: () => void
   notificationLevel: ChannelNotifLevel
   onSetNotificationLevel: (level: ChannelNotifLevel) => void
@@ -218,22 +214,16 @@ export function ThreadChannelSurface({
           <ChannelShell
             header={(
             <ChannelHeader
-              channel={parentChannelName}
-              forum={parentIsForum}
+              channel={displayName}
+              kind="thread"
               rightPanel={rightPanel}
               onToggle={togglePanel}
               notifLevel={notificationLevel}
               onSetNotifLevel={onSetNotificationLevel}
-              mobileServer={headerServer}
-              onBack={onNavigateParent}
+              mobileBack={onNavigateParent}
               tools={{ threads: false }}
-              breadcrumb={parentChannelId ? {
-                id: parentChannelId,
-                label: displayName,
-                titleRename: parentIsForum,
-                onNavigate: onNavigateParent,
-                onRename: splitActions ? undefined : rename,
-              } : undefined}
+              titleRename={parentIsForum}
+              onRename={parentChannelId && !splitActions ? rename : undefined}
               compactActions={!!splitActions}
               endActions={splitActions ? (
                 <ThreadPanelActions

@@ -113,28 +113,21 @@ test.describe.serial("mobile layout", () => {
     }
   })
 
-  test("a direct channel opens detail and its server crumb replaces to the server root", async ({ asUser }) => {
+  test("a direct channel opens detail and Back replaces to the server root", async ({ asUser }) => {
     const { page } = await asUser("alice")
     await page.goto(`/c/channels/${serverId}/${channelId}`)
     await page.waitForURL(new RegExp(channelId), { timeout: 20_000 , waitUntil: "commit" })
 
     await expect(page.getByTestId(tid.composerInput)).toBeVisible()
-    const serverCrumb = page.getByTestId(tid.channelHeaderServer(serverId))
-    await expect(serverCrumb).toBeVisible()
-    await expect(page.getByRole("button", { name: "Back" })).toHaveCount(0)
-    const [controlBox, visualBox] = await Promise.all([
-      serverCrumb.boundingBox(),
-      serverCrumb.locator(":scope > span").boundingBox(),
-    ])
+    const back = page.getByRole("banner").getByRole("button", { name: "Back" })
+    await expect(back).toBeVisible()
+    const controlBox = await back.boundingBox()
     expect(controlBox).not.toBeNull()
-    expect(visualBox).not.toBeNull()
     expect(controlBox!.width).toBe(44)
     expect(controlBox!.height).toBe(44)
-    expect(visualBox!.width).toBe(24)
-    expect(visualBox!.height).toBe(24)
 
     const historyLength = await page.evaluate(() => history.length)
-    await serverCrumb.click()
+    await back.click()
     await expect.poll(() => new URL(page.url()).pathname).toBe(`/c/channels/${serverId}`)
     expect(new URL(page.url()).searchParams.has("pane")).toBe(false)
     await expect(page.getByTestId(tid.serverIcon(serverId))).toBeVisible()
@@ -208,7 +201,7 @@ test.describe.serial("mobile layout", () => {
     await expect(page.getByRole("dialog").getByText("mobile child seq target")).toBeVisible()
   })
 
-  test("a flat child exposes direct parent breadcrumb and Back controls", async ({ asUser }) => {
+  test("a flat child exposes its current identity and direct parent Back control", async ({ asUser }) => {
     const { page } = await asUser("alice")
     await page.goto(`/c/channels/${serverId}/${childChannelId}`)
     const current = page.getByRole("banner").getByText("mobile-child", { exact: true })
@@ -216,24 +209,12 @@ test.describe.serial("mobile layout", () => {
     expect(await current.evaluate((element) => element.tagName)).toBe("SPAN")
     const back = page.getByRole("button", { name: "Back" })
     await expect(back).toBeVisible()
-    await expect(page.getByTestId(tid.channelHeaderServer(serverId))).toHaveCount(0)
-
     const historyLength = await page.evaluate(() => history.length)
     await back.click()
     await expect.poll(() => new URL(page.url()).pathname).toBe(
       `/c/channels/${serverId}/${channelId}`,
     )
     expect(await page.evaluate(() => history.length)).toBe(historyLength)
-
-    await page.goto(`/c/channels/${serverId}/${childChannelId}`)
-    await expect(current).toBeVisible()
-    const parentHistoryLength = await page.evaluate(() => history.length)
-    await page.getByTestId(tid.channelHeaderParent(channelId)).click()
-    await expect.poll(() => new URL(page.url()).pathname).toBe(
-      `/c/channels/${serverId}/${channelId}`,
-    )
-    expect(await page.evaluate(() => history.length)).toBe(parentHistoryLength)
-
   })
 
   test("Marked opens a child message on its canonical route without losing context", async ({ asUser }) => {
@@ -355,7 +336,7 @@ test.describe.serial("mobile layout", () => {
     const { page } = await asUser("alice")
     await page.goto(`/c/channels/${serverId}/${channelId}`)
     await expect(page.getByTestId(tid.composerInput)).toBeVisible()
-    await page.getByTestId(tid.channelHeaderServer(serverId)).click()
+    await page.getByRole("banner").getByRole("button", { name: "Back" }).click()
     await expect.poll(() => new URL(page.url()).pathname).toBe(`/c/channels/${serverId}`)
     await expect(page.getByTestId(tid.channelRow(channelId))).toBeVisible()
 

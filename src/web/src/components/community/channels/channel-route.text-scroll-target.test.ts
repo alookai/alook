@@ -77,16 +77,16 @@ vi.mock("@/hooks/community/thread-opener-read-handoff", () => ({
 }))
 vi.mock("@/components/community/channels/channel-header", () => ({
   ChannelHeader: ({
-    mobileServer,
-    breadcrumb,
+    mobileBack,
+    kind,
     endActions,
   }: {
-    mobileServer?: { onNavigate: () => void }
-    breadcrumb?: { onNavigate?: () => void }
+    mobileBack?: () => void
+    kind?: string
     endActions?: React.ReactNode
   }) => {
-    mockHeaderServerNavigate.current = mobileServer?.onNavigate
-    mockHeaderParentNavigate.current = breadcrumb?.onNavigate
+    mockHeaderServerNavigate.current = kind === "thread" ? undefined : mobileBack
+    mockHeaderParentNavigate.current = kind === "thread" ? mobileBack : undefined
     return React.createElement(React.Fragment, null, endActions)
   },
   ChannelHeaderSkeleton: () => null,
@@ -490,7 +490,7 @@ describe("ChannelRoute message surface ownership", () => {
     )
   })
 
-  it("replaces directly to the verified parent from the child crumb", () => {
+  it("replaces directly to the verified parent from the child Back control", () => {
     configureThreadRoute()
     mockBreakpoint.value = "mobile"
     mockedUseChannelMessageFeed.mockImplementation(() => feed({ anchorInCache: true }))

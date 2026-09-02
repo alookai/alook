@@ -42,7 +42,7 @@ const THREAD_VIEW_PARAM = "threadView"
  *
  * - Forum channel: ForumView
  * - Text channel: MessageList + Composer + right panels
- * - Child thread opened via URL: child-channel view (breadcrumb + list)
+ * - Child thread opened via URL: child-channel view (current identity + list)
  */
 export function ChannelRoute({ serverParam, channelId }: {
   serverParam: string
@@ -229,12 +229,7 @@ export function ChannelRoute({ serverParam, channelId }: {
             server={currentServer}
             channel={parentChannelInServer}
             viewer={currentUser}
-            headerServer={{
-              id: currentServer.id,
-              name: currentServer.name,
-              icon: currentServer.icon,
-              onNavigate: navigateServerRoot,
-            }}
+            onNavigateParent={navigateServerRoot}
             channelRefCandidates={channelRefCandidates}
             uiHandlers={uiHandlers}
             onOpenChild={enterThread}
@@ -251,14 +246,10 @@ export function ChannelRoute({ serverParam, channelId }: {
             anchorMessageId={jumpTargetId}
             parentChannelId={currentChannelMeta?.parentChannelId ?? null}
             parentMessageId={currentChannelMeta?.parentMessageId ?? null}
-            parentChannelName={parentChannelInServer?.name ?? "channel"}
             parentIsForum={isForumPostChild}
             threadOpenerHandoff={threadOpenerHandoff}
             childCreatorId={currentChannelMeta?.creatorId}
             canRenameThread={canManageServer(myRole)}
-            headerServer={currentServer
-              ? { id: currentServer.id, name: currentServer.name, icon: currentServer.icon, onNavigate: navigateServerRoot }
-              : undefined}
             onNavigateParent={navigateParent}
             notificationLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? USE_SERVER_DEFAULT}
             onSetNotificationLevel={setNotificationLevel}
@@ -291,9 +282,7 @@ export function ChannelRoute({ serverParam, channelId }: {
         channelName={channelName}
         viewer={currentUser}
         viewerRole={myRole}
-        headerServer={currentServer
-          ? { id: currentServer.id, name: currentServer.name, icon: currentServer.icon, onNavigate: navigateServerRoot }
-          : undefined}
+        onNavigateParent={navigateServerRoot}
         notificationLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? USE_SERVER_DEFAULT}
         onSetNotificationLevel={setNotificationLevel}
         composerMembers={composerMembers}
@@ -315,9 +304,7 @@ export function ChannelRoute({ serverParam, channelId }: {
       channelName={channelName}
       viewer={currentUser}
       anchorMessageId={jumpTargetId}
-      headerServer={currentServer
-        ? { id: currentServer.id, name: currentServer.name, icon: currentServer.icon, onNavigate: navigateServerRoot }
-        : undefined}
+      onNavigateParent={navigateServerRoot}
       notificationLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? USE_SERVER_DEFAULT}
       onSetNotificationLevel={setNotificationLevel}
       composerMembers={composerMembers}

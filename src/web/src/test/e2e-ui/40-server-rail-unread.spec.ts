@@ -121,8 +121,7 @@ test("server unread owns exact rail geometry, folder aggregation, read clear, an
   await expectIndicatorHeight(folderIndicator, 0)
 
   await page.setViewportSize({ width: 390, height: 844 })
-  await expect(page.getByRole("button", { name: "Back" })).toHaveCount(0)
-  await page.getByTestId(tid.channelHeaderServer(foregroundServer)).click()
+  await page.getByRole("banner").getByRole("button", { name: "Back" }).click()
   await expect.poll(() => new URL(page.url()).pathname).toBe(`/c/channels/${foregroundServer}`)
   if (await backgroundIcon.count() === 0) {
     await folder.click()

@@ -177,7 +177,7 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
   await expectActiveServer(page, serverA, serverC)
 
   await page.setViewportSize({ width: 390, height: 844 })
-  await page.getByTestId(tid.channelHeaderServer(serverA)).click()
+  await page.getByRole("banner").getByRole("button", { name: "Back" }).click()
   await expect.poll(() => new URL(page.url()).pathname === `/c/channels/${serverA}`)
     .toBe(true)
   await expect(page.getByTestId(tid.serverIcon(serverD))).toBeVisible()
