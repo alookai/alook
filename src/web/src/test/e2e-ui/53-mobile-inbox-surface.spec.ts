@@ -191,8 +191,8 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
     expect(geometry.rootScrollTop).toBe(0)
 
     const outsidePoint = {
-      x: Math.floor((geometry.card.left + geometry.card.right) / 2),
-      y: Math.max(1, Math.floor(geometry.card.top / 2)),
+      x: Math.floor(geometry.viewport.width / 2),
+      y: 1,
     }
     const outsideHit = await bob.page.evaluate(({ point, ids }) => {
       const hit = document.elementFromPoint(point.x, point.y)
