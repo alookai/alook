@@ -74,4 +74,81 @@ describe("RecentPosts", () => {
     expect(allButton?.props["aria-pressed"]).toBe(true);
     expect(renderedTitles(renderer!)).toEqual(["newest", "middle", "oldest"]);
   });
+
+  it("syncs the selected topic with the URL hash and browser history", () => {
+    const posts = [
+      recentPost("newest", "foundations", "Foundations"),
+      recentPost("middle", "coding", "Coding"),
+      recentPost("oldest", "foundations", "Foundations"),
+    ];
+    const topics = [
+      { id: "foundations", label: "Foundations" },
+      { id: "coding", label: "Coding" },
+    ];
+    let hashChangeListener: (() => void) | undefined;
+    const replaceState = vi.fn();
+    const removeEventListener = vi.fn();
+
+    vi.stubGlobal("window", {
+      location: {
+        hash: "#%63oding",
+        pathname: "/blog",
+        search: "?source=qa",
+      },
+      history: { replaceState },
+      addEventListener: vi.fn(
+        (eventName: string, listener: () => void) => {
+          if (eventName === "hashchange") hashChangeListener = listener;
+        },
+      ),
+      removeEventListener,
+    });
+
+    let renderer: ReactTestRenderer;
+    try {
+      act(() => {
+        renderer = TestRenderer.create(
+          createElement(RecentPosts, { posts, topics }),
+        );
+      });
+
+      const codingButton = renderer!.root
+        .findAllByType("button")
+        .find((button) => button.children.join("") === "Coding");
+      expect(codingButton?.props["aria-pressed"]).toBe(true);
+      expect(renderedTitles(renderer!)).toEqual(["middle"]);
+
+      const foundationsButton = renderer!.root
+        .findAllByType("button")
+        .find((button) => button.children.join("") === "Foundations");
+      act(() => foundationsButton?.props.onClick());
+      expect(replaceState).toHaveBeenLastCalledWith(
+        null,
+        "",
+        "/blog?source=qa#foundations",
+      );
+
+      const allButton = renderer!.root
+        .findAllByType("button")
+        .find((button) => button.children.join("") === "All");
+      act(() => allButton?.props.onClick());
+      expect(replaceState).toHaveBeenLastCalledWith(
+        null,
+        "",
+        "/blog?source=qa",
+      );
+
+      window.location.hash = "#not-a-topic";
+      act(() => hashChangeListener?.());
+      expect(renderedTitles(renderer!)).toEqual(["newest", "middle", "oldest"]);
+
+      act(() => renderer!.unmount());
+      expect(removeEventListener).toHaveBeenCalledWith(
+        "hashchange",
+        hashChangeListener,
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });

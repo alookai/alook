@@ -39,6 +39,26 @@ describe("article metadata", () => {
     });
   });
 
+  it("omits revision metadata and copy when the post has not been revised", () => {
+    const unmodifiedPost = { ...post };
+    delete unmodifiedPost.dateModified;
+
+    const metadata = buildBlogPostMetadata(unmodifiedPost);
+    expect(metadata.openGraph).not.toHaveProperty("modifiedTime");
+
+    let renderer: ReactTestRenderer;
+    act(() => {
+      renderer = TestRenderer.create(
+        createElement(BlogPostByline, { post: unmodifiedPost }),
+      );
+    });
+
+    const times = renderer!.root.findAllByType("time");
+    expect(times).toHaveLength(1);
+    expect(times[0]?.props.dateTime).toBe("2026-08-20");
+    expect(times[0]?.children.join("")).toBe("August 20, 2026");
+  });
+
   it.each(["America/Los_Angeles", "Pacific/Honolulu"])(
     "renders semantic dates on the authored calendar day in %s",
     (timeZone) => {
