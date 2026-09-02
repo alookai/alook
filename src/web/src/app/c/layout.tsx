@@ -9,6 +9,10 @@ import { SignupTracker } from "@/components/signup-tracker"
 import { CommunitySessionPendingFrame } from "@/components/community/shell/community-session-pending-frame"
 import { resolveCommunityModulePlan } from "@/lib/community/community-route"
 import { AuthenticatedContextMenuBoundary } from "@/components/authenticated-context-menu-boundary"
+import {
+  clearCommunityColdEntryAttempts,
+  retireCommunityColdEntryAttempt,
+} from "@/lib/community/last-community-route"
 
 // The invite landing page is preview-first: a logged-out visitor must be able
 // to see it (and only hit the login wall on Join). It's a standalone
@@ -29,12 +33,22 @@ export default function CommunityLayout({
   const pathname = usePathname()
   const isPublic = isPublicCommunityPath(pathname)
   const { data: session, isPending } = useSession()
+  const sessionUserId = session?.user.id
 
   useEffect(() => {
     if (!isPublic && !isPending && !session) {
       router.replace("/sign-in")
     }
   }, [isPublic, isPending, session, router])
+
+  useEffect(() => {
+    if (isPending) return
+    if (!sessionUserId) {
+      clearCommunityColdEntryAttempts()
+      return
+    }
+    retireCommunityColdEntryAttempt(sessionUserId, pathname)
+  }, [isPending, pathname, sessionUserId])
 
   // Public community pages (invite landing) render standalone — no session
   // gate, no CommunityShell (a logged-out visitor has no currentUser).

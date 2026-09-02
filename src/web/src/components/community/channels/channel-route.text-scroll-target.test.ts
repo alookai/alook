@@ -19,6 +19,7 @@ const {
   mockSearchParams,
   mockSplitMode,
   mockSplitParentSurface,
+  mockCommitLastCommunityRoute,
 } = vi.hoisted(() => ({
   mockRouter: { push: vi.fn(), replace: vi.fn(), back: vi.fn() },
   mockUiHandlers: { replacePath: vi.fn(), goBackMobile: vi.fn() },
@@ -29,6 +30,7 @@ const {
   mockSearchParams: { value: "msg=m_target&keep=1" },
   mockSplitMode: { value: "full" as "split" | "full" },
   mockSplitParentSurface: vi.fn(() => null),
+  mockCommitLastCommunityRoute: vi.fn(),
   mockRouteModel: {
     server: {
       id: "server_1",
@@ -119,6 +121,9 @@ vi.mock("@alook/shared", () => ({
   USE_SERVER_DEFAULT: "default",
 }))
 vi.mock("@/lib/community/last-channel", () => ({ setLastChannel: vi.fn() }))
+vi.mock("@/lib/community/last-community-route", () => ({
+  commitLastCommunityRoute: (...args: unknown[]) => mockCommitLastCommunityRoute(...args),
+}))
 vi.mock("@/stores/community", () => {
   const state = {
     pendingReply: null,
@@ -273,6 +278,7 @@ describe("ChannelRoute message surface ownership", () => {
     mockBreakpoint.value = "desktop"
     mockHeaderServerNavigate.current = undefined
     mockHeaderParentNavigate.current = undefined
+    mockCommitLastCommunityRoute.mockClear()
     Object.assign(mockRouteModel, {
       server: {
         id: "server_1",
@@ -310,6 +316,21 @@ describe("ChannelRoute message surface ownership", () => {
       openerMessageId: "opener_1",
       lifecycle: "pending",
     })
+    expect(mockCommitLastCommunityRoute).not.toHaveBeenCalled()
+  })
+
+  it("commits only a ready channel route for the active account", () => {
+    mockedUseChannelMessageFeed.mockReturnValue(feed())
+    act(() => {
+      TestRenderer.create(React.createElement(ChannelRoute, {
+        serverParam: "server_1",
+        channelId: "channel_1",
+      }))
+    })
+    expect(mockCommitLastCommunityRoute).toHaveBeenCalledWith(
+      "viewer_1",
+      "/c/channels/server_1/channel_1",
+    )
   })
 
   it("defers child msg cleanup until the handoff nonce has its own cleanup", () => {

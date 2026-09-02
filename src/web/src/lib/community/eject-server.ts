@@ -1,5 +1,9 @@
 import type { Server } from "./models/navigation"
 import { ApiError } from "@/lib/errors"
+import {
+  COMMUNITY_COLD_ENTRY_FALLBACK,
+  consumeCommunityColdEntryFailure,
+} from "./last-community-route"
 
 // Module-scoped marker set. The "Leave" button in the server rail marks
 // the server id here BEFORE firing the mutation; the layout's eject effect
@@ -46,6 +50,8 @@ export function runAuthoritativeServerEject(args: {
   clearLastChannel: (serverId: string) => void
   toast: (message: string) => void
   replace: (destination: string) => void
+  accountId?: string
+  routeHref?: string
 }): boolean {
   // Absence is authoritative only on a settled successful snapshot. A first
   // failure has isFetched=true in TanStack, and a failed background refetch can
@@ -56,6 +62,11 @@ export function runAuthoritativeServerEject(args: {
   args.clearLastChannel(args.serverId)
   const voluntary = args.consumeVoluntaryLeave(args.serverId)
   if (!voluntary) args.toast("You're no longer in this server")
-  args.replace(pickPostEjectDestination(args.servers, args.serverId))
+  const coldEntryFailure = args.accountId && args.routeHref
+    ? consumeCommunityColdEntryFailure(args.accountId, args.routeHref)
+    : false
+  args.replace(coldEntryFailure
+    ? COMMUNITY_COLD_ENTRY_FALLBACK
+    : pickPostEjectDestination(args.servers, args.serverId))
   return true
 }

@@ -8,6 +8,11 @@ import {
 } from "./eject-server"
 import type { Server } from "./models/navigation"
 import { ApiError } from "@/lib/errors"
+import {
+  commitLastCommunityRoute,
+  clearCommunityColdEntryAttempts,
+  resolveCommunityColdEntryDestination,
+} from "./last-community-route"
 
 function makeServer(id: string): Server {
   return {
@@ -85,6 +90,37 @@ describe("runAuthoritativeServerEject", () => {
     expect(sideEffects.clearLastChannel).toHaveBeenCalledWith(target.id)
     expect(sideEffects.toast).toHaveBeenCalledWith("You're no longer in this server")
     expect(sideEffects.replace).toHaveBeenCalledWith("/c/channels/srv_remaining")
+  })
+
+  it("clears a matching cold-entry route and falls back once to Machines", () => {
+    const storage: Record<string, string> = {}
+    vi.stubGlobal("window", {})
+    vi.stubGlobal("localStorage", {
+      getItem: vi.fn((key: string) => storage[key] ?? null),
+      setItem: vi.fn((key: string, value: string) => { storage[key] = value }),
+      removeItem: vi.fn((key: string) => { delete storage[key] }),
+    })
+    clearCommunityColdEntryAttempts()
+    commitLastCommunityRoute("viewer-1", "/c/channels/srv_target/channel-1")
+    resolveCommunityColdEntryDestination({
+      accountId: "viewer-1",
+      pathname: "/c",
+      search: "",
+      hash: "",
+    })
+    const sideEffects = callbacks()
+
+    expect(runAuthoritativeServerEject({
+      serverId: target.id,
+      servers: [],
+      isSuccess: true,
+      isFetching: false,
+      accountId: "viewer-1",
+      routeHref: "/c/channels/srv_target/channel-1",
+      ...sideEffects,
+    })).toBe(true)
+    expect(sideEffects.replace).toHaveBeenCalledWith("/c/me/machines")
+    vi.unstubAllGlobals()
   })
 })
 

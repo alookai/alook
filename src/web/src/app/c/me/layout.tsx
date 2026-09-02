@@ -17,6 +17,7 @@ import { useDmRouteVerification } from "@/hooks/community/use-dm-route-verificat
 import { useFriends, useFriendsPresence } from "@/hooks/community/use-friends"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { readCommunityProfile } from "@/lib/community/profile-read"
+import { useCurrentUser } from "@/contexts/community/current-user"
 import {
   clearLastMeLocation,
   getLastMeLeaf,
@@ -25,12 +26,18 @@ import {
   resolveMeLocationStatus,
   setLastMeLocation,
 } from "@/lib/community/last-me-location"
+import {
+  COMMUNITY_COLD_ENTRY_FALLBACK,
+  commitLastCommunityRoute,
+  consumeCommunityColdEntryFailure,
+} from "@/lib/community/last-community-route"
 
 // DM-side layout. The DM subtree has no server settings, no channel sidebar,
 // and no `[serverId]` param — everything is scoped to the current user.
 export default function MeLayout({ children }: { children: ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
+  const currentUser = useCurrentUser()
   const params = useParams<{ dmId?: string }>()
   const selectedSegments = useSelectedLayoutSegments()
   const structuralFrameHref = selectedSegments.length === 0
@@ -90,13 +97,17 @@ export default function MeLayout({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (meLocationStatus === "remember") {
       setLastMeLocation(pathname)
+      commitLastCommunityRoute(currentUser.id, pathname)
       return
     }
     if (meLocationStatus !== "stale") return
     if (getLastMeLeaf() === meLeafFromPathname(pathname)) clearLastMeLocation()
     cancelPendingNavigation()
-    router.replace(ME_ROOT)
-  }, [cancelPendingNavigation, meLocationStatus, pathname, router])
+    const destination = consumeCommunityColdEntryFailure(currentUser.id, pathname)
+      ? COMMUNITY_COLD_ENTRY_FALLBACK
+      : ME_ROOT
+    router.replace(destination)
+  }, [cancelPendingNavigation, currentUser.id, meLocationStatus, pathname, router])
 
   // Navigation is intentionally read-neutral. The visible-row observer owns
   // both optimistic clearing and the durable cursor write.

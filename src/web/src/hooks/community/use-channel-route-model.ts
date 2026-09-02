@@ -9,6 +9,10 @@ import { useCommunityStore, useCurrentChannelMeta } from "@/stores/community"
 import { toastApiError } from "@/lib/api/client"
 import { isDefinitiveChildMetaFailure } from "@/lib/community/eject-server"
 import { clearLastChannel, getLastChannel } from "@/lib/community/last-channel"
+import {
+  COMMUNITY_COLD_ENTRY_FALLBACK,
+  consumeCommunityColdEntryFailure,
+} from "@/lib/community/last-community-route"
 import { communityWsSubscribe, communityWsUnsubscribe } from "./use-community-ws"
 import { useChildChannelMeta } from "./use-child-channel-meta"
 import {
@@ -52,7 +56,12 @@ export function buildChannelRouteModel(
   }
 }
 
-export function useChannelRouteModel(serverId: string, serverParam: string, channelId: string) {
+export function useChannelRouteModel(
+  serverId: string,
+  serverParam: string,
+  channelId: string,
+  accountId: string,
+) {
   const router = useRouter()
   const queryClient = useQueryClient()
   const { server } = useServer(serverId)
@@ -104,13 +113,19 @@ export function useChannelRouteModel(serverId: string, serverParam: string, chan
       if (lastChannel === channelId) {
         clearLastChannel(serverId)
       }
-      router.replace(`/c/channels/${serverParam}`)
+      const destination = consumeCommunityColdEntryFailure(
+        accountId,
+        `/c/channels/${serverParam}/${channelId}`,
+      )
+        ? COMMUNITY_COLD_ENTRY_FALLBACK
+        : `/c/channels/${serverParam}`
+      router.replace(destination)
     } else if (metaQuery.data && metaQuery.isVerified) {
       useCommunityStore.getState().setCurrentChannelMeta(metaQuery.data)
     } else if (metaQuery.error) {
       useCommunityStore.getState().setCurrentChannelMeta(null)
       toastApiError(metaQuery.error, "Failed to load thread")
     }
-  }, [channelId, isChild, metaQuery.data, metaQuery.error, metaQuery.isVerified, queryClient, router, serverId, serverParam])
+  }, [accountId, channelId, isChild, metaQuery.data, metaQuery.error, metaQuery.isVerified, queryClient, router, serverId, serverParam])
   return { ...model, routeLifecycle }
 }
