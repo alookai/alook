@@ -283,6 +283,8 @@ describe("AttachmentPreviewSheet", () => {
       .toBe(4)
     expect(renderer!.root.findByProps({ "data-testid": "community-attachment-preview-content" }).props.className)
       .toContain("p-0")
+    expect(renderer!.root.findByProps({ "data-testid": "community-attachment-preview-content" }).props.className)
+      .toContain("overflow-hidden")
     expect(renderer!.root.findByProps({ "data-testid": "community-attachment-preview-download" }))
       .toBeTruthy()
   })
@@ -392,6 +394,8 @@ describe("AttachmentPreviewSheet", () => {
       .not.toContain("p-0")
     expect(renderer!.root.findByProps({ "data-testid": "community-attachment-preview-content" }).props.className)
       .not.toContain("sm:p-0")
+    expect(renderer!.root.findByProps({ "data-testid": "community-attachment-preview-content" }).props.className)
+      .not.toContain("overflow-hidden")
   })
 
   it("keeps the existing one MiB ceiling for code", async () => {

@@ -232,6 +232,7 @@ export function AttachmentPreviewSheet({
       bodyTestId={tid.attachmentPreviewContent}
       bodyClassName={cn(
         "flex min-h-0 flex-col",
+        presentation?.previewKind === "pdf" && "overflow-hidden",
         (
           presentation?.previewKind === "code"
           || presentation?.previewKind === "text"

@@ -10,13 +10,13 @@ import {
   type PDFDocumentProxy,
   type PDFPageProxy,
   type RenderTask,
-} from "pdfjs-dist"
+} from "pdfjs-dist/legacy/build/pdf.mjs"
 import { tid } from "@/lib/community/testids"
 
 export const MAX_PDF_CANVAS_PIXELS = 4_000_000
 
 GlobalWorkerOptions.workerSrc = new URL(
-  "pdfjs-dist/build/pdf.worker.min.mjs",
+  "pdfjs-dist/legacy/build/pdf.worker.min.mjs",
   import.meta.url,
 ).toString()
 

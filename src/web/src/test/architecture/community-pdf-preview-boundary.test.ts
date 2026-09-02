@@ -23,7 +23,7 @@ describe("community PDF preview boundary", () => {
   it("keeps PDF.js owned by one client-only lazy module", () => {
     const productionOwners = walkTypeScript(webSourceRoot)
       .filter((path) => !path.includes("/test/") && !path.endsWith(".test.ts") && !path.endsWith(".test.tsx"))
-      .filter((path) => /from "pdfjs-dist"/.test(readFileSync(path, "utf8")))
+      .filter((path) => /from "pdfjs-dist(?:\/[^"\n]+)?"/.test(readFileSync(path, "utf8")))
       .map((path) => relative(repositoryRoot, path).replaceAll("\\", "/"))
 
     expect(productionOwners).toEqual([
@@ -33,11 +33,13 @@ describe("community PDF preview boundary", () => {
     expect(sheet).toContain('import("./pdf-preview")')
     expect(sheet).toContain("ssr: false")
     expect(sheet).not.toContain('from "pdfjs-dist"')
+    const preview = source("src/web/src/components/community/messages/pdf-preview.tsx")
+    expect(preview).toContain('from "pdfjs-dist/legacy/build/pdf.mjs"')
   })
 
   it("keeps the PDF worker lazy and cleanup generation-owned", () => {
     const preview = source("src/web/src/components/community/messages/pdf-preview.tsx")
-    expect(preview).toContain('"pdfjs-dist/build/pdf.worker.min.mjs"')
+    expect(preview).toContain('"pdfjs-dist/legacy/build/pdf.worker.min.mjs"')
     expect(preview).toContain("data: data.slice()")
     expect(preview).toContain("renderTask?.cancel()")
     expect(preview).toContain("page?.cleanup()")

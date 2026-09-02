@@ -8,7 +8,7 @@ const pdfMock = vi.hoisted(() => ({
   workerOptions: { workerSrc: "" },
 }))
 
-vi.mock("pdfjs-dist", () => ({
+vi.mock("pdfjs-dist/legacy/build/pdf.mjs", () => ({
   GlobalWorkerOptions: pdfMock.workerOptions,
   PDFWorker: class {
     destroyed = false
@@ -118,7 +118,7 @@ describe("PdfPreview", () => {
     })
     await flush()
 
-    expect(pdfMock.workerOptions.workerSrc).toContain("pdf.worker.min.mjs")
+    expect(pdfMock.workerOptions.workerSrc).toContain("legacy/build/pdf.worker.min.mjs")
     expect(pdfMock.workers).toHaveLength(1)
     expect(pdfMock.getDocument).toHaveBeenCalledOnce()
     const options = pdfMock.getDocument.mock.calls[0]![0]
