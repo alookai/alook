@@ -14,7 +14,7 @@ import {
   type ReactElement,
   type RefObject,
 } from "react"
-import { Archive, X } from "lucide-react"
+import { X } from "lucide-react"
 import { FORUM_ARCHIVE_TAG, MAX_FORUM_TAG_LENGTH, MAX_FORUM_TAGS_PER_POST } from "@alook/shared"
 import {
   Dialog,
@@ -59,8 +59,6 @@ function PostTagEditorBody({
   onAddDraft,
 }: TagEditorBodyProps) {
   const atTagLimit = ordinaryTagCount >= MAX_FORUM_TAGS_PER_POST
-  const archived = selected.includes(FORUM_ARCHIVE_TAG)
-
   return (
     <div
       data-testid={tid.forumTagDialogBody}
@@ -149,26 +147,6 @@ function PostTagEditorBody({
         </>
       )}
 
-      <div className="space-y-1">
-        <p className="text-[11px] font-medium tracking-[0.12em] text-muted-foreground">STATUS</p>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          data-testid={tid.forumTagDialogArchived}
-          disabled={busy}
-          aria-label={archived ? "Remove Archived status" : "Add Archived status"}
-          aria-pressed={archived}
-          className={cn(
-            "text-muted-foreground aria-pressed:bg-muted aria-pressed:text-foreground",
-            mobile && "h-11",
-          )}
-          onClick={() => onToggle(FORUM_ARCHIVE_TAG)}
-        >
-          <Archive aria-hidden="true" />
-          Archived
-        </Button>
-      </div>
     </div>
   )
 }

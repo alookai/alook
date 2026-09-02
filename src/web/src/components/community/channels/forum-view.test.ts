@@ -7,6 +7,7 @@ import {
   ForumViewSkeleton,
   forumTagScrollFades,
   shouldActivateForumRow,
+  toggleForumArchivedStatus,
 } from "./forum-view"
 import { tid } from "@/lib/community/testids"
 import type { ForumThread } from "@/lib/community/models/message"
@@ -102,7 +103,7 @@ function renderWithDelete(
 
 function renderWithActions(
   post: ForumThread,
-  opts: { canEdit?: boolean; canDelete?: boolean } = {},
+  opts: { canEdit?: boolean; canDelete?: boolean; savingTagsFor?: string | null } = {},
 ): string {
   return renderToStaticMarkup(
     createElement(ForumView, {
@@ -114,6 +115,7 @@ function renderWithActions(
       onOpenPost: () => {},
       onEditPostTags: () => {},
       canEditPostTags: () => opts.canEdit ?? true,
+      savingTagsFor: opts.savingTagsFor ?? null,
       onDeletePost: () => {},
       canDeletePost: () => opts.canDelete ?? true,
     }),
@@ -207,6 +209,16 @@ describe("ForumView post card header", () => {
     expect(html).toContain("Show 2 more tags")
     expect(html).toContain(">+2<")
   })
+
+  it("keeps the reserved archived state out of the ordinary row tag summary", () => {
+    const html = render([makePost({ tags: ["alpha", "archived", "beta"] })])
+    expect(html).toContain("#alpha")
+    expect(html).toContain("#beta")
+    expect(html).not.toContain("#archived")
+
+    const archivedOnly = render([makePost({ tags: ["archived"] })])
+    expect(archivedOnly.match(/aria-hidden="true">·<\/span>/g)).toHaveLength(1)
+  })
 })
 
 describe("ForumView post delete button", () => {
@@ -246,14 +258,18 @@ describe("ForumView post delete button", () => {
 })
 
 describe("ForumView responsive post actions", () => {
-  it("keeps authorized actions visible and touch-safe on mobile, then progressive on desktop", () => {
+  it("orders tag, archive, and delete actions with responsive geometry", () => {
     const html = renderWithActions(makePost({ parentSeq: 3 }))
     const tagIndex = html.indexOf(tid.forumThreadTagBtn("p1"))
+    const archiveIndex = html.indexOf(tid.forumThreadArchiveBtn("p1"))
     const deleteIndex = html.indexOf(tid.forumThreadDeleteBtn("p1"))
     const tagButton = html.slice(Math.max(0, tagIndex - 500), tagIndex + 500)
+    const archiveButton = html.slice(Math.max(0, archiveIndex - 500), archiveIndex + 500)
     const deleteButton = html.slice(Math.max(0, deleteIndex - 500), deleteIndex + 500)
 
-    for (const button of [tagButton, deleteButton]) {
+    expect(tagIndex).toBeLessThan(archiveIndex)
+    expect(archiveIndex).toBeLessThan(deleteIndex)
+    for (const button of [tagButton, archiveButton, deleteButton]) {
       expect(button).toContain("size-8")
       expect(button).toContain("opacity-100")
       expect(button).toContain("sm:size-6")
@@ -262,21 +278,53 @@ describe("ForumView responsive post actions", () => {
       expect(button).toContain("sm:group-hover/card:opacity-100")
     }
     expect(tagButton).toContain("sm:data-popup-open:opacity-100")
+    expect(archiveButton).toContain('aria-label="Archive post"')
+    expect(archiveButton).toContain('aria-pressed="false"')
+    expect(archiveButton).toContain("disabled:opacity-50")
     expect(deleteButton).toContain("disabled:opacity-50")
-    expect(html).toContain("min-h-8 pr-16 sm:min-h-0")
+    expect(html).toContain("min-h-8 pr-28 sm:min-h-0 sm:pr-22")
     expect(html).toContain("relative line-clamp-2 w-full min-w-0 max-w-full wrap-break-word")
     expect(html).toContain(tid.forumThreadTitle("p1"))
     expect(html).toContain(tid.forumThreadTitleText("p1"))
     expect(html).toContain(tid.forumThreadSeq("p1"))
   })
 
+  it("expresses unarchive state and disables the row action while its tag update is pending", () => {
+    const html = renderWithActions(makePost({ tags: ["bug", "archived"] }), {
+      savingTagsFor: "p1",
+    })
+    const archiveIndex = html.indexOf(tid.forumThreadArchiveBtn("p1"))
+    const archiveButton = html.slice(Math.max(0, archiveIndex - 300), archiveIndex + 450)
+
+    expect(archiveButton).toContain('aria-label="Unarchive post"')
+    expect(archiveButton).toContain('aria-pressed="true"')
+    expect(archiveButton).toContain("disabled")
+  })
+
+  it("preserves ordinary tags when toggling the reserved archived status", () => {
+    expect(toggleForumArchivedStatus(["bug", "design"]))
+      .toEqual(["bug", "design", "archived"])
+    expect(toggleForumArchivedStatus(["bug", "archived", "design"]))
+      .toEqual(["bug", "design"])
+  })
+
   it("does not render actions or reserve mobile header space without permission", () => {
     const html = renderWithActions(makePost(), { canEdit: false, canDelete: false })
 
     expect(html).not.toContain(tid.forumThreadTagBtn("p1"))
+    expect(html).not.toContain(tid.forumThreadArchiveBtn("p1"))
     expect(html).not.toContain(tid.forumThreadDeleteBtn("p1"))
-    expect(html).not.toContain("min-h-8 pr-16 sm:min-h-0")
-    expect(html).toContain("sm:pr-14 pr-0")
+    expect(html).not.toContain("min-h-8")
+    expect(html).toContain("pr-0")
+  })
+
+  it("does not expose the archive action when the user may only delete", () => {
+    const html = renderWithActions(makePost(), { canEdit: false, canDelete: true })
+
+    expect(html).not.toContain(tid.forumThreadTagBtn("p1"))
+    expect(html).not.toContain(tid.forumThreadArchiveBtn("p1"))
+    expect(html).toContain(tid.forumThreadDeleteBtn("p1"))
+    expect(html).toContain("min-h-8 pr-12 sm:min-h-0 sm:pr-8")
   })
 })
 

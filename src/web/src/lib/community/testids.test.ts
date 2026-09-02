@@ -78,8 +78,8 @@ describe("community QA selectors", () => {
     expect(tid.dmSidebarPending).toBe("community-dm-sidebar-pending")
   })
 
-  it("keeps the forum Archived status separate from ordinary tag chips", () => {
-    expect(tid.forumTagDialogArchived).toBe("community-forum-tag-dialog-archived")
+  it("keeps the forum Archived row action separate from ordinary tag chips", () => {
+    expect(tid.forumThreadArchiveBtn("post_1")).toBe("community-forum-post-archive-btn-post_1")
     expect(tid.forumTagDialogChip("bug")).toBe("community-forum-tag-dialog-chip-bug")
   })
 

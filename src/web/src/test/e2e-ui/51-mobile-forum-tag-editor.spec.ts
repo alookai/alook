@@ -42,8 +42,8 @@ async function addDraft(page: Page, tag: string) {
 }
 
 test.describe.serial("forum tag editor", () => {
-  test("treats Archived as status and preserves ordinary tags through archive and restore", async ({ asUser }, testInfo) => {
-    const { route, threadId } = await seedForum("Archived status")
+  test("keeps Archived out of the tag editor and toggles it from the row action", async ({ asUser }, testInfo) => {
+    const { route, threadId } = await seedForum("Archived row action")
     const { page } = await asUser("alice")
     await page.setViewportSize({ width: 1280, height: 900 })
     await page.emulateMedia({ colorScheme: "light" })
@@ -51,34 +51,32 @@ test.describe.serial("forum tag editor", () => {
     const writes = observeTagPuts(page)
 
     await openEditor(page, threadId)
-    await addDraft(page, "kept")
-    const archived = page.getByTestId(tid.forumTagDialogArchived)
-    await expect(archived).toHaveAttribute("aria-pressed", "false")
-    await expect(archived).toHaveAttribute("aria-label", "Add Archived status")
+    const editor = page.getByTestId(tid.forumTagDialog)
+    await expect(editor.getByText("Archived", { exact: true })).toHaveCount(0)
     await expect(page.getByTestId(tid.forumTagDialogChip("archived"))).toHaveCount(0)
-    await archived.click()
-    await expect(archived).toHaveAttribute("aria-pressed", "true")
-    await expect(page.getByTestId(tid.forumTagDialogChip("kept"))).toHaveAttribute(
-      "aria-label",
-      "Remove tag kept",
-    )
-    await testInfo.attach("forum-archived-status-light.png", {
-      body: await page.screenshot(),
-      contentType: "image/png",
-    })
-    await page.emulateMedia({ colorScheme: "dark" })
-    await expect(page.locator("html")).toHaveClass(/dark/)
-    await testInfo.attach("forum-archived-status-dark.png", {
-      body: await page.screenshot(),
-      contentType: "image/png",
-    })
-    await page.emulateMedia({ colorScheme: "light" })
-
-    const archivedSave = page.waitForResponse((response) => (
+    await addDraft(page, "kept")
+    const ordinarySave = page.waitForResponse((response) => (
       response.request().method() === "PUT"
       && new URL(response.url()).pathname.endsWith("/tags")
     ))
     await page.keyboard.press("Escape")
+    expect((await ordinarySave).request().postDataJSON()).toEqual({ tags: ["kept"] })
+
+    const card = page.getByTestId(tid.forumThreadCard(threadId))
+    await expect(card.getByText("#kept", { exact: true })).toBeVisible()
+    await card.hover()
+    const archiveButton = page.getByTestId(tid.forumThreadArchiveBtn(threadId))
+    await expect(archiveButton).toHaveAttribute("aria-label", "Archive post")
+    await expect(archiveButton).toHaveAttribute("aria-pressed", "false")
+    await testInfo.attach("forum-archived-status-light.png", {
+      body: await page.screenshot(),
+      contentType: "image/png",
+    })
+    const archivedSave = page.waitForResponse((response) => (
+      response.request().method() === "PUT"
+      && new URL(response.url()).pathname.endsWith("/tags")
+    ))
+    await archiveButton.click()
     const archivedResponse = await archivedSave
     expect(archivedResponse.status()).toBe(200)
     expect((archivedResponse.request().postDataJSON() as { tags: string[] }).tags)
@@ -88,26 +86,50 @@ test.describe.serial("forum tag editor", () => {
     await expect(page.getByTestId(tid.forumThreadCard(threadId))).toBeVisible()
 
     await openEditor(page, threadId)
-    await expect(page.getByTestId(tid.forumTagDialogArchived)).toHaveAttribute("aria-pressed", "true")
+    await expect(page.getByTestId(tid.forumTagDialog).getByText("Archived", { exact: true }))
+      .toHaveCount(0)
     await expect(page.getByTestId(tid.forumTagDialogChip("kept"))).toHaveAttribute(
       "aria-label",
       "Remove tag kept",
     )
-    await page.getByTestId(tid.forumTagDialogArchived).click()
-    const restoredSave = page.waitForResponse((response) => (
+    await addDraft(page, "retained")
+    const preservedSave = page.waitForResponse((response) => (
       response.request().method() === "PUT"
       && new URL(response.url()).pathname.endsWith("/tags")
     ))
     await page.keyboard.press("Escape")
+    const preservedResponse = await preservedSave
+    expect(preservedResponse.status()).toBe(200)
+    expect([...(preservedResponse.request().postDataJSON() as { tags: string[] }).tags].sort())
+      .toEqual(["archived", "kept", "retained"])
+
+    await expect(card.getByText("#retained", { exact: true })).toBeVisible()
+    await card.hover()
+    const unarchiveButton = page.getByTestId(tid.forumThreadArchiveBtn(threadId))
+    await expect(unarchiveButton).toHaveAttribute("aria-label", "Unarchive post")
+    await expect(unarchiveButton).toHaveAttribute("aria-pressed", "true")
+    await page.emulateMedia({ colorScheme: "dark" })
+    await expect(page.locator("html")).toHaveClass(/dark/)
+    await testInfo.attach("forum-archived-status-dark.png", {
+      body: await page.screenshot(),
+      contentType: "image/png",
+    })
+    await page.emulateMedia({ colorScheme: "light" })
+    const restoredSave = page.waitForResponse((response) => (
+      response.request().method() === "PUT"
+      && new URL(response.url()).pathname.endsWith("/tags")
+    ))
+    await unarchiveButton.click()
     const restoredResponse = await restoredSave
     expect(restoredResponse.status()).toBe(200)
-    expect((restoredResponse.request().postDataJSON() as { tags: string[] }).tags).toEqual(["kept"])
+    expect([...(restoredResponse.request().postDataJSON() as { tags: string[] }).tags].sort())
+      .toEqual(["kept", "retained"])
 
     await page.goto(route)
     await expect(page.getByTestId(tid.forumThreadCard(threadId))).toBeVisible({ timeout: 20_000 })
     await expect(page.getByTestId(tid.forumThreadCard(threadId)).getByText("#kept", { exact: true }))
       .toBeVisible()
-    expect(writes).toHaveLength(2)
+    expect(writes).toHaveLength(4)
   })
 
   test("discards implicit close and commits only explicit Save", async ({ asUser }) => {
@@ -115,12 +137,21 @@ test.describe.serial("forum tag editor", () => {
     const { page } = await asUser("alice")
     await page.setViewportSize({ width: 390, height: 844 })
     await gotoAfterUserWsAuth(page, route)
+    const archiveSetup = page.waitForResponse((response) => (
+      response.request().method() === "PUT"
+      && new URL(response.url()).pathname.endsWith("/tags")
+    ))
+    await page.getByTestId(tid.forumThreadArchiveBtn(threadId)).click()
+    expect((await archiveSetup).status()).toBe(200)
+    await expect(page.getByTestId(tid.forumTagChip("archived"))).toBeVisible()
+    await page.getByTestId(tid.forumTagChip("archived")).click()
+    await expect(page.getByTestId(tid.forumThreadCard(threadId))).toBeVisible()
     const writes = observeTagPuts(page)
     const initialUrl = page.url()
 
     const trigger = await openEditor(page, threadId)
-    await page.getByTestId(tid.forumTagDialogArchived).click()
-    await expect(page.getByTestId(tid.forumTagDialogArchived)).toHaveAttribute("aria-pressed", "true")
+    await expect(page.getByTestId(tid.forumTagDialog).getByText("Archived", { exact: true }))
+      .toHaveCount(0)
     await addDraft(page, "discarded")
     await page.keyboard.press("Escape")
     await expect(page.getByTestId(tid.forumTagDialog)).toHaveCount(0)
@@ -129,7 +160,8 @@ test.describe.serial("forum tag editor", () => {
     expect(writes).toEqual([])
 
     await openEditor(page, threadId)
-    await expect(page.getByTestId(tid.forumTagDialogArchived)).toHaveAttribute("aria-pressed", "false")
+    await expect(page.getByTestId(tid.forumTagDialog).getByText("Archived", { exact: true }))
+      .toHaveCount(0)
     await expect(page.getByTestId(tid.forumTagDialogChip("discarded"))).toHaveCount(0)
     await addDraft(page, "kept")
     const saved = page.waitForResponse((response) => (
@@ -137,11 +169,70 @@ test.describe.serial("forum tag editor", () => {
       && new URL(response.url()).pathname.endsWith("/tags")
     ))
     await page.getByTestId(tid.forumTagDialogSave).click()
-    expect((await saved).status()).toBe(200)
+    const savedResponse = await saved
+    expect(savedResponse.status()).toBe(200)
+    expect([...(savedResponse.request().postDataJSON() as { tags: string[] }).tags].sort())
+      .toEqual(["archived", "kept"])
     await expect(page.getByTestId(tid.forumTagDialog)).toHaveCount(0)
     await expect(trigger).toBeFocused()
     await expect(page.getByTestId(tid.forumTagChip("kept"))).toBeVisible()
     expect(writes).toHaveLength(1)
+  })
+
+  test("keeps the row archive state after failure and retries once", async ({ asUser }) => {
+    const { route, threadId } = await seedForum("Archive action retry")
+    const { page } = await asUser("alice")
+    await page.setViewportSize({ width: 390, height: 844 })
+    await gotoAfterUserWsAuth(page, route)
+    const writes = observeTagPuts(page)
+    let rejectNext = true
+    let releaseFailure!: () => void
+    const failureGate = new Promise<void>((resolve) => {
+      releaseFailure = resolve
+    })
+    await page.route("**/api/community/messages/*/tags", async (routeRequest) => {
+      if (rejectNext) {
+        rejectNext = false
+        await failureGate
+        await routeRequest.fulfill({
+          status: 500,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "archive retry" }),
+        })
+        return
+      }
+      await routeRequest.continue()
+    })
+
+    const archiveButton = page.getByTestId(tid.forumThreadArchiveBtn(threadId))
+    await expect(archiveButton).toHaveAttribute("aria-label", "Archive post")
+    await expect(archiveButton).toHaveAttribute("aria-pressed", "false")
+    const failed = page.waitForResponse((response) => (
+      response.request().method() === "PUT"
+      && new URL(response.url()).pathname.endsWith("/tags")
+    ))
+    await archiveButton.click()
+    await expect(archiveButton).toBeDisabled()
+    expect(writes).toHaveLength(1)
+    await archiveButton.evaluate((button: HTMLButtonElement) => button.click())
+    expect(writes).toHaveLength(1)
+    releaseFailure()
+    expect((await failed).status()).toBe(500)
+    await expect(page.getByText("archive retry", { exact: true })).toBeVisible()
+    await expect(archiveButton).toBeEnabled()
+    await expect(archiveButton).toHaveAttribute("aria-pressed", "false")
+
+    const retried = page.waitForResponse((response) => (
+      response.request().method() === "PUT"
+      && new URL(response.url()).pathname.endsWith("/tags")
+      && response.status() === 200
+    ))
+    await archiveButton.click()
+    const retriedResponse = await retried
+    expect((retriedResponse.request().postDataJSON() as { tags: string[] }).tags)
+      .toEqual(["archived"])
+    await expect(page.getByTestId(tid.forumTagChip("archived"))).toBeVisible()
+    expect(writes).toHaveLength(2)
   })
 
   test("preserves one session across both breakpoint directions without transition writes", async ({ asUser }) => {
