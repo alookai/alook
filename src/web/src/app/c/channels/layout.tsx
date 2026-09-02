@@ -191,12 +191,14 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
       consumeVoluntaryLeave,
       clearLastChannel,
       toast,
+      accountId: currentUser.id,
+      routeHref: pathname,
       replace: (destination) => {
         cancelPendingNavigation()
         router.replace(destination)
       },
     })
-  }, [cancelPendingNavigation, serverId, serversList.isSuccess, serversList.isFetching, serversList.servers, router, searchParams])
+  }, [cancelPendingNavigation, currentUser.id, pathname, serverId, serversList.isSuccess, serversList.isFetching, serversList.servers, router, searchParams])
   // Reset the guard when the URL changes to a NEW server id — otherwise
   // navigating server → dangling-server → server would leave the ref
   // latched and skip the eject.

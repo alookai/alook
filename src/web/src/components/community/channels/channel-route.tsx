@@ -16,6 +16,7 @@ import { useChannelMemberViewModel } from "@/components/community/members/channe
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import { canManageServer, USE_SERVER_DEFAULT } from "@alook/shared"
 import { setLastChannel } from "@/lib/community/last-channel"
+import { commitLastCommunityRoute } from "@/lib/community/last-community-route"
 import { resolveChannelDisplayName } from "@/lib/community/channel-display-name"
 import { toChannelRefCandidate } from "@/lib/community/channel-ref-extension"
 import {
@@ -51,6 +52,7 @@ export function ChannelRoute({ serverParam, channelId }: {
   const router = useRouter()
   const searchParams = useSearchParams()
   const serverId = decodeURIComponent(serverParam)
+  const currentUser = useCurrentUser()
   // Remember this as the server's last-opened channel (per-browser navigation
   // memory) so re-entering the server restores here instead of the default.
   // Pure localStorage write; failures are swallowed in the helper.
@@ -63,10 +65,9 @@ export function ChannelRoute({ serverParam, channelId }: {
   // refresh/back doesn't re-trigger the jump; this frozen copy still drives the
   // anchor + scroll for this mount.
   const [jumpTargetId] = useState<string | null>(() => searchParams.get("msg"))
-  const currentUser = useCurrentUser()
   const uiHandlers = useUiHandlers()
   const currentChannelId = useCurrentChannelId()
-  const routeModel = useChannelRouteModel(serverId, serverParam, channelId)
+  const routeModel = useChannelRouteModel(serverId, serverParam, channelId, currentUser.id)
   const {
     server: currentServer,
     channel: channelInServer,
@@ -77,6 +78,10 @@ export function ChannelRoute({ serverParam, channelId }: {
     isForumPostChild,
     isNotifyUnit,
   } = routeModel
+  useEffect(() => {
+    if (routeModel.routeLifecycle !== "ready") return
+    commitLastCommunityRoute(currentUser.id, channelHref(serverId, channelId))
+  }, [channelId, currentUser.id, routeModel.routeLifecycle, serverId])
   const forumPostOpener = useForumOpenerHint(
     serverId,
     currentChannelMeta?.parentMessageId,

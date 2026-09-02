@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   unsubscribe: vi.fn(),
   replace: vi.fn(),
   clearLastChannel: vi.fn(),
+  consumeColdEntryFailure: vi.fn(() => false),
   lastChannel: null as string | null,
   server: undefined as undefined | Record<string, unknown>,
   metaQuery: {
@@ -43,11 +44,15 @@ vi.mock("@/lib/community/last-channel", () => ({
   getLastChannel: () => mocks.lastChannel,
   clearLastChannel: (...args: unknown[]) => mocks.clearLastChannel(...args),
 }))
+vi.mock("@/lib/community/last-community-route", () => ({
+  COMMUNITY_COLD_ENTRY_FALLBACK: "/c/me/machines",
+  consumeCommunityColdEntryFailure: (...args: unknown[]) => mocks.consumeColdEntryFailure(...args),
+}))
 
 import { buildChannelRouteModel, useChannelRouteModel } from "./use-channel-route-model"
 
 function Harness({ channelId = "post-1" }: { channelId?: string }) {
-  const result = useChannelRouteModel("server-1", "server-1", channelId)
+  const result = useChannelRouteModel("server-1", "server-1", channelId, "viewer-1")
   return React.createElement("span", { "data-lifecycle": result.routeLifecycle })
 }
 
@@ -61,6 +66,8 @@ beforeEach(() => {
   mocks.unsubscribe.mockClear()
   mocks.replace.mockClear()
   mocks.clearLastChannel.mockClear()
+  mocks.consumeColdEntryFailure.mockReset()
+  mocks.consumeColdEntryFailure.mockReturnValue(false)
   mocks.lastChannel = null
   mocks.server = {
     id: "server-1",
@@ -212,5 +219,38 @@ describe("useChannelRouteModel subscription ownership", () => {
 
     act(() => renderer!.unmount())
     expect(mocks.unsubscribe).toHaveBeenCalledTimes(1)
+  })
+
+  it("falls back once to Machines when the archived child was a cold-entry restore", () => {
+    mocks.consumeColdEntryFailure.mockReturnValue(true)
+    mocks.metaQuery = {
+      data: {
+        id: "post-1",
+        serverId: "server-1",
+        name: "Post",
+        type: "thread",
+        parentChannelId: "forum-1",
+        parentMessageId: "opener-1",
+        creatorId: "user-1",
+        archived: true,
+        activityAt: "2026-08-09T00:00:00.000Z",
+        verifiedEpoch: 0,
+      },
+      error: null,
+      isVerified: true,
+      isError: false,
+    }
+
+    let renderer!: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(React.createElement(Harness))
+    })
+
+    expect(mocks.consumeColdEntryFailure).toHaveBeenCalledWith(
+      "viewer-1",
+      "/c/channels/server-1/post-1",
+    )
+    expect(mocks.replace).toHaveBeenCalledWith("/c/me/machines")
+    act(() => renderer.unmount())
   })
 })

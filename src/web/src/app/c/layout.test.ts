@@ -7,6 +7,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const mocks = vi.hoisted(() => ({
   pathname: "/c/me",
   replace: vi.fn(),
+  retireAttempt: vi.fn(),
+  clearAttempts: vi.fn(),
   session: { data: null as null | { user: { id: string; name: string; email: string; image: string | null } }, isPending: true },
 }))
 
@@ -15,6 +17,10 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: mocks.replace }),
 }))
 vi.mock("@/lib/auth-client", () => ({ useSession: () => mocks.session }))
+vi.mock("@/lib/community/last-community-route", () => ({
+  retireCommunityColdEntryAttempt: mocks.retireAttempt,
+  clearCommunityColdEntryAttempts: mocks.clearAttempts,
+}))
 vi.mock("./community-shell", () => ({
   CommunityShell: (props: Record<string, unknown>) => createElement("community-shell", props),
 }))
@@ -39,18 +45,23 @@ describe("CommunityLayout session boundary", () => {
     mocks.pathname = "/c/me"
     mocks.session = { data: null, isPending: true }
     mocks.replace.mockClear()
+    mocks.retireAttempt.mockClear()
+    mocks.clearAttempts.mockClear()
   })
 
   it("keeps a stable frame while identity is pending", () => {
     const renderer = render()
     expect(renderer.root.findByType("session-pending").props.pathname).toBe("/c/me")
     expect(renderer.root.findAllByType("community-shell")).toHaveLength(0)
+    expect(mocks.retireAttempt).not.toHaveBeenCalled()
+    expect(mocks.clearAttempts).not.toHaveBeenCalled()
   })
 
   it("keeps the frame mounted while a signed-out redirect commits", () => {
     mocks.session = { data: null, isPending: false }
     const renderer = render()
     expect(mocks.replace).toHaveBeenCalledWith("/sign-in")
+    expect(mocks.clearAttempts).toHaveBeenCalledTimes(1)
     expect(renderer.root.findByType("session-pending").props.pathname).toBe("/c/me")
   })
 
@@ -64,6 +75,8 @@ describe("CommunityLayout session boundary", () => {
     expect(shell.props.currentUser).toMatchObject({ id: "u1", name: "Ada", email: "ada@example.com" })
     expect(renderer.root.findAllByType("session-pending")).toHaveLength(0)
     expect(shell.props.currentUser.id).toBe("u1")
+    expect(mocks.retireAttempt).toHaveBeenCalledWith("u1", "/c/me")
+    expect(mocks.clearAttempts).not.toHaveBeenCalled()
   })
 
   it("preserves the public invite bypass", () => {
