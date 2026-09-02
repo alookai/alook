@@ -85,6 +85,16 @@ async function alphaBounds(path: string) {
   return { width: info.width, height: info.height, bounds: [left, top, right, bottom], opaque }
 }
 
+async function visibleColors(path: string) {
+  const { data, info } = await sharp(path).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
+  const colors = new Set<string>()
+  for (let offset = 0; offset < data.length; offset += info.channels) {
+    if (data[offset + 3] === 0) continue
+    colors.add(`${data[offset]},${data[offset + 1]},${data[offset + 2]}`)
+  }
+  return colors
+}
+
 describe("logo asset generator", () => {
   it("locks the canonical structured transparent SVG", async () => {
     const canonical = await readFile(resolve(repoRoot, "assets/alook.svg"), "utf8")
@@ -106,9 +116,8 @@ describe("logo asset generator", () => {
       "assets/readme/banner.png",
     ])
     expect(trayRasterAssets).toEqual([
-      ["assets/alook-tray.svg", "src/desktop/src-tauri/icons/tray-default.png"],
-      ["assets/alook-tray.svg", "src/desktop/src-tauri/icons/tray-online.png"],
-      ["assets/alook-tray-offline.svg", "src/desktop/src-tauri/icons/tray-offline.png"],
+      ["assets/alook-tray-macos-template.svg", "src/desktop/src-tauri/icons/tray-macos-template.png"],
+      ["assets/alook.svg", "src/desktop/src-tauri/icons/tray-windows-linux-color.png"],
     ])
   })
 
@@ -131,18 +140,39 @@ describe("logo asset generator", () => {
     expect(canonicalizeIcns(canonical)).toEqual(canonical)
   })
 
-  it("keeps Retina Tray templates generated from their SVG sources", async () => {
+  it("keeps platform tray assets generated from their SVG sources", async () => {
     for (const [source, destination] of trayRasterAssets) {
       const svg = await readFile(resolve(repoRoot, source))
       const expected = await sharp(svg).resize(36, 36).png().toBuffer()
       expect(await readFile(resolve(repoRoot, destination))).toEqual(expected)
-      expect(await alphaBounds(resolve(repoRoot, destination))).toEqual({
-        width: 36,
-        height: 36,
-        bounds: [2, 2, 35, 33],
-        opaque: false,
-      })
     }
+
+    const template = resolve(repoRoot, "src/desktop/src-tauri/icons/tray-macos-template.png")
+    expect(await alphaBounds(template)).toEqual({
+      width: 36,
+      height: 36,
+      bounds: [2, 2, 35, 33],
+      opaque: false,
+    })
+    expect([...await visibleColors(template)]).toEqual(["0,0,0"])
+
+    const color = resolve(repoRoot, "src/desktop/src-tauri/icons/tray-windows-linux-color.png")
+    expect(await alphaBounds(color)).toMatchObject({
+      width: 36,
+      height: 36,
+      opaque: false,
+    })
+    expect((await visibleColors(color)).size).toBeGreaterThan(5)
+  })
+
+  it("locks compile-time tray selection for macOS and Windows/Linux", async () => {
+    const source = await readFile(resolve(repoRoot, "src/desktop/src-tauri/src/commands.rs"), "utf8")
+
+    expect(source).toMatch(/#\[cfg\(target_os = "macos"\)\]\nconst TRAY_ICON_BYTES: &\[u8\] = include_bytes!\("\.\.\/icons\/tray-macos-template\.png"\);/)
+    expect(source).toMatch(/#\[cfg\(target_os = "macos"\)\]\nconst TRAY_ICON_IS_TEMPLATE: bool = true;/)
+    expect(source).toMatch(/#\[cfg\(any\(target_os = "windows", target_os = "linux"\)\)\]\nconst TRAY_ICON_BYTES: &\[u8\] = include_bytes!\("\.\.\/icons\/tray-windows-linux-color\.png"\);/)
+    expect(source).toMatch(/#\[cfg\(any\(target_os = "windows", target_os = "linux"\)\)\]\nconst TRAY_ICON_IS_TEMPLATE: bool = false;/)
+    expect(source).not.toMatch(/tray-(?:default|online|offline)/)
   })
 
   it("preserves web, platform, and splash canvas contracts", async () => {
