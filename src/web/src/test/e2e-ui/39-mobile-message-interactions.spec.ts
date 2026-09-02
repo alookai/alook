@@ -328,7 +328,7 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   const bobInfo = await memberInfo("alice", serverId, userId("bob"))
   const aliceInfo = await memberInfo("alice", serverId, userId("alice"))
 
-  const alice = await asUser("alice")
+  const alice = await asUser("alice", { hasTouch: true })
   const bob = await asUser("bob")
   await installInputCapability(alice.page, false)
   await alice.page.setViewportSize({ width: 390, height: 844 })
@@ -609,7 +609,7 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   await bobEditable.pressSequentially(" selection")
   await expect(alice.page.getByTestId(tid.typingIndicator)).toBeVisible({ timeout: 4_000 })
   const finalChannelMessage = alice.page.getByTestId(tid.message(typingWsReadyId))
-  await finalChannelMessage.getByText(`typing ws ready ${stamp}`, { exact: true }).click()
+  await finalChannelMessage.getByText(`typing ws ready ${stamp}`, { exact: true }).tap()
   await alice.page.getByRole("menuitem", { name: "Share as Image" }).click()
   await expect(alice.page.getByTestId(tid.messageSelectionToolbar)).toBeVisible()
   await expect(alice.page.locator("[data-selection-typing-fit]"))

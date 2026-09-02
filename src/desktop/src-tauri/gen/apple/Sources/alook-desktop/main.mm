@@ -4,7 +4,7 @@
 #import <objc/runtime.h>
 
 static UIColor *alookLightColor(void) {
-    return [UIColor colorWithRed:0.929 green:0.910 blue:0.871 alpha:1.0];
+    return [UIColor colorWithRed:1.0 green:1.0 blue:1.0 alpha:1.0];
 }
 
 static UIColor *alookDarkColor(void) {

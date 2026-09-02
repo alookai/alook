@@ -19,7 +19,7 @@ class MainActivity : TauriActivity() {
     private var isReady = false
 
     companion object {
-        const val COLOR_LIGHT = "#ECE8DE"
+        const val COLOR_LIGHT = "#FFFFFF"
         const val COLOR_DARK = "#100D0A"
 
         const val THEME_OBSERVER_SCRIPT = """
