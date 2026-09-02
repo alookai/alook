@@ -840,7 +840,7 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   expect(readingPosition).toBe(2200)
   const channelReadState = await settledReadState(alice.page, channelId)
   const channelReturnGets = trackSurfaceGets(alice.page, channelId)
-  await alice.page.getByRole("button", { name: `Go to server ${serverName}` }).click()
+  await alice.page.getByRole("banner").getByRole("button", { name: "Back" }).click()
   await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/channels/${serverId}`)
   await alice.page.getByTestId(tid.channelRow(channelId)).evaluate((element) => (
     (element as HTMLElement).click()
