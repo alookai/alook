@@ -5,7 +5,12 @@ import * as path from "node:path";
 import type { ChildProcess } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readDaemonVersion } from "../version";
-import { createDaemonSelfUpdateHandler, daemonReplace } from "./daemonUpdate";
+import {
+  createDaemonSelfUpdateHandler,
+  daemonReplace,
+  resolveNpmLaunchCommand,
+  type NpmLaunchFileProbe,
+} from "./daemonUpdate";
 
 const machineId = "cm_update_unit_123456";
 
@@ -114,6 +119,96 @@ describe("daemon self-update lifecycle", () => {
     expect(spawnProcess).toHaveBeenCalledTimes(2);
   });
 
+  it("recovers a stale inherited npm path from an absolute executable on PATH", () => {
+    const owner = writePid();
+    const binDir = path.join(baseDir, "bin");
+    const fallbackNpm = path.join(binDir, "npm");
+    fs.mkdirSync(binDir);
+    fs.writeFileSync(fallbackNpm, "#!/bin/sh\n", { mode: 0o700 });
+    const spawnProcess = vi.fn(() => fakeChild());
+    const handle = createDaemonSelfUpdateHandler({
+      machineId,
+      baseDir,
+      pid: owner.pid,
+      startedAt: owner.startedAt,
+      ownerToken: owner.ownerToken,
+    }, {
+      spawnProcess: spawnProcess as typeof import("node:child_process").spawn,
+      npmExecPath: path.join(baseDir, "deleted", "npm-cli.js"),
+      npmLaunchEnv: { PATH: binDir },
+      npmLaunchPlatform: "linux",
+    });
+
+    handle();
+
+    expect(spawnProcess).toHaveBeenCalledOnce();
+    expect(spawnProcess.mock.calls[0]![0]).toBe(fallbackNpm);
+    expect(spawnProcess.mock.calls[0]![1]).toEqual([
+      "exec",
+      "--yes",
+      "--package=@alook/daemon@latest",
+      "--",
+      "alook-daemon",
+      "daemon",
+      "replace",
+      "--id",
+      machineId,
+      "--base-dir",
+      baseDir,
+      "--request-id",
+      expect.stringMatching(/^[A-Za-z0-9_-]{16,128}$/),
+    ]);
+    expect(spawnProcess.mock.calls[0]![2]).toMatchObject({ shell: false });
+  });
+
+  it("resolves missing inherited context from PATH and ignores relative or empty entries", () => {
+    const safeDir = path.join(baseDir, "safe-bin");
+    const fallbackNpm = path.join(safeDir, "npm");
+    fs.mkdirSync(safeDir);
+    fs.writeFileSync(fallbackNpm, "#!/bin/sh\n", { mode: 0o700 });
+
+    expect(resolveNpmLaunchCommand({
+      env: { PATH: ["", "relative-bin", safeDir].join(path.delimiter) },
+      platform: "linux",
+      nodePath: "/absolute/node",
+    })).toEqual({ file: fallbackNpm, prefixArgs: [] });
+  });
+
+  it("resolves a Windows npm command shim to its adjacent JavaScript CLI without a shell", () => {
+    const npmShim = "C:\\tools\\npm.cmd";
+    const npmCli = "C:\\tools\\node_modules\\npm\\bin\\npm-cli.js";
+    const files = new Set([npmShim, npmCli]);
+    const probe: NpmLaunchFileProbe = {
+      isFile: (filePath) => files.has(filePath),
+      isExecutable: () => false,
+    };
+
+    expect(resolveNpmLaunchCommand({
+      env: { Path: "relative;C:\\tools" },
+      platform: "win32",
+      nodePath: "C:\\node\\node.exe",
+      probe,
+    })).toEqual({
+      file: "C:\\node\\node.exe",
+      prefixArgs: [npmCli],
+    });
+  });
+
+  it("rejects a Windows command shim when its adjacent JavaScript CLI is absent", () => {
+    const npmShim = "C:\\tools\\npm.cmd";
+    const probe: NpmLaunchFileProbe = {
+      isFile: (filePath) => filePath === npmShim,
+      isExecutable: () => false,
+    };
+
+    expect(() => resolveNpmLaunchCommand({
+      env: { PATH: "C:\\tools" },
+      platform: "win32",
+      nodePath: "C:\\node\\node.exe",
+      probe,
+    })).toThrow("no safe npm executable was found on PATH");
+  });
+
   it("does not spawn when only the pidfile ownerToken differs from the running owner", () => {
     const diskOwner = writePid("replacement-owner");
     const spawnProcess = vi.fn(() => fakeChild());
@@ -145,6 +240,8 @@ describe("daemon self-update lifecycle", () => {
     }, {
       spawnProcess: spawnProcess as typeof import("node:child_process").spawn,
       npmExecPath: path.join(baseDir, "missing-npm-cli.js"),
+      npmLaunchEnv: { PATH: "relative-only" },
+      npmLaunchPlatform: "linux",
     });
 
     handle();
@@ -152,6 +249,8 @@ describe("daemon self-update lifecycle", () => {
     expect(spawnProcess).not.toHaveBeenCalled();
     expect(JSON.parse(fs.readFileSync(path.join(daemonDir, "daemon.pid"), "utf8"))).toEqual(owner);
     expect(fs.existsSync(path.join(daemonDir, "update-intent.json"))).toBe(false);
+    expect(fs.readFileSync(path.join(daemonDir, "update.log"), "utf8"))
+      .toContain("no safe npm executable was found on PATH");
   });
 
   it.each([

@@ -42,7 +42,21 @@ export interface DaemonSelfUpdateContext {
 export interface SelfUpdateDeps {
   spawnProcess?: typeof spawn;
   npmExecPath?: string;
+  npmLaunchEnv?: NodeJS.ProcessEnv;
+  npmLaunchPlatform?: NodeJS.Platform;
+  npmLaunchNodePath?: string;
+  npmLaunchFileProbe?: NpmLaunchFileProbe;
   logger?: Pick<Logger, "info" | "warn">;
+}
+
+export interface NpmLaunchCommand {
+  file: string;
+  prefixArgs: string[];
+}
+
+export interface NpmLaunchFileProbe {
+  isFile(filePath: string): boolean;
+  isExecutable(filePath: string): boolean;
 }
 
 function intentPath(baseDir: string, machineId: string): string {
@@ -156,12 +170,93 @@ function removeIntentIfMatches(baseDir: string, machineId: string, requestId: st
   } catch { /* best effort */ }
 }
 
-function npmExecPath(explicit?: string): string {
-  const value = explicit ?? process.env.npm_execpath;
-  if (!value || !path.isAbsolute(value) || !fs.existsSync(value)) {
-    throw new Error("npm launch context unavailable; daemon remains online");
+const defaultNpmLaunchFileProbe: NpmLaunchFileProbe = {
+  isFile(filePath) {
+    try {
+      return fs.statSync(filePath).isFile();
+    } catch {
+      return false;
+    }
+  },
+  isExecutable(filePath) {
+    try {
+      fs.accessSync(filePath, fs.constants.X_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  },
+};
+
+function pathEnvironment(env: NodeJS.ProcessEnv, platform: NodeJS.Platform): string | undefined {
+  if (platform !== "win32") return env.PATH;
+  const entry = Object.entries(env).find(([key]) => key.toLowerCase() === "path");
+  return entry?.[1];
+}
+
+function launchFromNpmPath(args: {
+  npmPath: string;
+  platform: NodeJS.Platform;
+  nodePath: string;
+  probe: NpmLaunchFileProbe;
+  requireExecutable: boolean;
+}): NpmLaunchCommand | null {
+  const pathApi = args.platform === "win32" ? path.win32 : path.posix;
+  if (!pathApi.isAbsolute(args.npmPath) || !args.probe.isFile(args.npmPath)) return null;
+  const extension = pathApi.extname(args.npmPath).toLowerCase();
+  if ([".js", ".cjs", ".mjs"].includes(extension)) {
+    return { file: args.nodePath, prefixArgs: [args.npmPath] };
   }
-  return value;
+  if (args.platform === "win32" && [".cmd", ".bat"].includes(extension)) {
+    const cliPath = pathApi.join(pathApi.dirname(args.npmPath), "node_modules", "npm", "bin", "npm-cli.js");
+    return args.probe.isFile(cliPath)
+      ? { file: args.nodePath, prefixArgs: [cliPath] }
+      : null;
+  }
+  if (args.requireExecutable && !args.probe.isExecutable(args.npmPath)) return null;
+  return { file: args.npmPath, prefixArgs: [] };
+}
+
+export function resolveNpmLaunchCommand(options: {
+  npmExecPath?: string;
+  env?: NodeJS.ProcessEnv;
+  platform?: NodeJS.Platform;
+  nodePath?: string;
+  probe?: NpmLaunchFileProbe;
+} = {}): NpmLaunchCommand {
+  const env = options.env ?? process.env;
+  const platform = options.platform ?? process.platform;
+  const nodePath = options.nodePath ?? process.execPath;
+  const probe = options.probe ?? defaultNpmLaunchFileProbe;
+  const inherited = options.npmExecPath ?? env.npm_execpath;
+  if (inherited) {
+    const launch = launchFromNpmPath({
+      npmPath: inherited,
+      platform,
+      nodePath,
+      probe,
+      requireExecutable: platform !== "win32",
+    });
+    if (launch) return launch;
+  }
+
+  const pathApi = platform === "win32" ? path.win32 : path.posix;
+  const names = platform === "win32" ? ["npm.exe", "npm.cmd", "npm.bat", "npm"] : ["npm"];
+  const pathValue = pathEnvironment(env, platform);
+  for (const directory of pathValue?.split(pathApi.delimiter) ?? []) {
+    if (!directory || !pathApi.isAbsolute(directory)) continue;
+    for (const name of names) {
+      const launch = launchFromNpmPath({
+        npmPath: pathApi.join(directory, name),
+        platform,
+        nodePath,
+        probe,
+        requireExecutable: platform !== "win32",
+      });
+      if (launch) return launch;
+    }
+  }
+  throw new Error("npm launch context unavailable and no safe npm executable was found on PATH; daemon remains online");
 }
 
 function readTestPackageMap(baseDir: string, machineId: string): Record<string, string> | null {
@@ -191,7 +286,6 @@ function packageSpec(baseDir: string, machineId: string, version: "latest" | str
 }
 
 function fixedNpmArgs(args: {
-  npmPath: string;
   packageSpec: string;
   command: "replace" | "resume";
   machineId: string;
@@ -199,7 +293,6 @@ function fixedNpmArgs(args: {
   requestId: string;
 }): string[] {
   return [
-    args.npmPath,
     "exec",
     "--yes",
     `--package=${args.packageSpec}`,
@@ -241,7 +334,13 @@ export function createDaemonSelfUpdateHandler(
         || current.startedAt !== context.startedAt
         || current.ownerToken !== context.ownerToken
       ) throw new Error("daemon ownership changed before update launch");
-      const npmPath = npmExecPath(deps.npmExecPath);
+      const npmLaunch = resolveNpmLaunchCommand({
+        npmExecPath: deps.npmExecPath,
+        env: deps.npmLaunchEnv,
+        platform: deps.npmLaunchPlatform,
+        nodePath: deps.npmLaunchNodePath,
+        probe: deps.npmLaunchFileProbe,
+      });
       requestId = crypto.randomUUID();
       const intent: DaemonUpdateIntent = {
         schemaVersion: UPDATE_INTENT_SCHEMA_VERSION,
@@ -251,14 +350,16 @@ export function createDaemonSelfUpdateHandler(
       writePrivateJsonAtomic(intentPath(context.baseDir, context.machineId), intent);
       const logFd = openUpdateLog(context.baseDir, context.machineId);
       try {
-        const child = (deps.spawnProcess ?? spawn)(process.execPath, fixedNpmArgs({
-          npmPath,
-          packageSpec: packageSpec(context.baseDir, context.machineId, "latest"),
-          command: "replace",
-          machineId: context.machineId,
-          baseDir: context.baseDir,
-          requestId,
-        }), {
+        const child = (deps.spawnProcess ?? spawn)(npmLaunch.file, [
+          ...npmLaunch.prefixArgs,
+          ...fixedNpmArgs({
+            packageSpec: packageSpec(context.baseDir, context.machineId, "latest"),
+            command: "replace",
+            machineId: context.machineId,
+            baseDir: context.baseDir,
+            requestId,
+          }),
+        ], {
           detached: true,
           shell: false,
           stdio: ["ignore", logFd, logFd],
@@ -295,7 +396,7 @@ function removeOldPidfileIfMatches(baseDir: string, intent: DaemonUpdateIntent):
 }
 
 async function runPinnedResume(args: {
-  npmPath: string;
+  npmLaunch: NpmLaunchCommand;
   version: string;
   machineId: string;
   baseDir: string;
@@ -303,14 +404,16 @@ async function runPinnedResume(args: {
 }): Promise<void> {
   const fd = openUpdateLog(args.baseDir, args.machineId);
   try {
-    const child = spawn(process.execPath, fixedNpmArgs({
-      npmPath: args.npmPath,
-      packageSpec: packageSpec(args.baseDir, args.machineId, args.version),
-      command: "resume",
-      machineId: args.machineId,
-      baseDir: args.baseDir,
-      requestId: args.requestId,
-    }), {
+    const child = spawn(args.npmLaunch.file, [
+      ...args.npmLaunch.prefixArgs,
+      ...fixedNpmArgs({
+        packageSpec: packageSpec(args.baseDir, args.machineId, args.version),
+        command: "resume",
+        machineId: args.machineId,
+        baseDir: args.baseDir,
+        requestId: args.requestId,
+      }),
+    ], {
       shell: false,
       stdio: ["ignore", fd, fd],
     });
@@ -356,7 +459,7 @@ export async function daemonReplace(opts: {
     throw new Error("daemon ownership changed before replacement");
   }
 
-  const npmPath = npmExecPath();
+  const npmLaunch = resolveNpmLaunchCommand();
   const acquired = acquireDaemonReplacementLock({ baseDir, machineId: opts.id, requestId: opts.requestId });
   let oldStopped = false;
   try {
@@ -376,7 +479,7 @@ export async function daemonReplace(opts: {
     } catch (error) {
       appendUpdateLog(baseDir, opts.id, "replacement_start_failed", { error });
       await runPinnedResume({
-        npmPath,
+        npmLaunch,
         version: launch.daemonVersion,
         machineId: opts.id,
         baseDir,
