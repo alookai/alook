@@ -1,0 +1,92 @@
+import { createElement } from "react";
+import TestRenderer, { act, type ReactTestRenderer } from "react-test-renderer";
+import { describe, expect, it, vi } from "vitest";
+import type { BlogPost } from "@blog/lib/blog/posts";
+import { BlogPostByline, buildBlogPostMetadata } from "./article-meta";
+
+vi.mock("./og-image", () => ({
+  getBlogOgImage: () => "/blog/example/hero.webp",
+}));
+
+const post: BlogPost = {
+  slug: "example",
+  title: "Visible article title",
+  seoTitle: "Search article title",
+  date: "2026-08-20",
+  dateModified: "2026-09-01",
+  author: "Alook",
+  excerpt: "Article excerpt",
+  readingTime: "5 min read",
+};
+
+describe("article metadata", () => {
+  it("preserves templated article titles and adds descriptive OG image alt", () => {
+    const metadata = buildBlogPostMetadata(post);
+
+    expect(metadata.title).toBe("Search article title");
+    expect(metadata.openGraph).toMatchObject({
+      type: "article",
+      publishedTime: "2026-08-20",
+      modifiedTime: "2026-09-01",
+      images: [
+        {
+          url: "/blog/example/hero.webp",
+          width: 1200,
+          height: 630,
+          alt: "Search article title",
+        },
+      ],
+    });
+  });
+
+  it("omits revision metadata and copy when the post has not been revised", () => {
+    const unmodifiedPost = { ...post };
+    delete unmodifiedPost.dateModified;
+
+    const metadata = buildBlogPostMetadata(unmodifiedPost);
+    expect(metadata.openGraph).not.toHaveProperty("modifiedTime");
+
+    let renderer: ReactTestRenderer;
+    act(() => {
+      renderer = TestRenderer.create(
+        createElement(BlogPostByline, { post: unmodifiedPost }),
+      );
+    });
+
+    const times = renderer!.root.findAllByType("time");
+    expect(times).toHaveLength(1);
+    expect(times[0]?.props.dateTime).toBe("2026-08-20");
+    expect(times[0]?.children.join("")).toBe("August 20, 2026");
+  });
+
+  it.each(["America/Los_Angeles", "Pacific/Honolulu"])(
+    "renders semantic dates on the authored calendar day in %s",
+    (timeZone) => {
+      const previousTimeZone = process.env.TZ;
+      process.env.TZ = timeZone;
+      let renderer: ReactTestRenderer;
+
+      try {
+        act(() => {
+          renderer = TestRenderer.create(createElement(BlogPostByline, { post }));
+        });
+
+        const times = renderer!.root.findAllByType("time");
+        expect(times.map((time) => time.props.dateTime)).toEqual([
+          "2026-08-20",
+          "2026-09-01",
+        ]);
+        expect(times.map((time) => time.children.join(""))).toEqual([
+          "August 20, 2026",
+          "Updated September 1, 2026",
+        ]);
+      } finally {
+        if (previousTimeZone === undefined) {
+          delete process.env.TZ;
+        } else {
+          process.env.TZ = previousTimeZone;
+        }
+      }
+    },
+  );
+});
