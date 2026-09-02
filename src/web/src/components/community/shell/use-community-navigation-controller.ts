@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
+import { flushSync } from "react-dom"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import {
   commitLatestNavigationIntent,
@@ -20,6 +21,7 @@ export type CommunityNavigationController = {
   navigationPending: boolean
   pendingHref: string | null
   push: (href: string) => void
+  pushImmediate: (href: string) => void
   replace: (href: string) => void
   prefetch: (href: string) => void
   resolveAndPush: (resolve: () => Promise<string>) => Promise<boolean>
@@ -81,6 +83,20 @@ export function useCommunityNavigationController(
     router.push(href)
   }, [committedFrame.leafKey, committedFrame.revision, publishedHref, router])
 
+  const pushImmediate = useCallback((href: string) => {
+    if (href === publishedHref) return
+    supersedeNavigationIntent(gateRef.current)
+    pendingBaselineRevisionRef.current = committedFrame.revision
+    pendingBaselineLeafRef.current = committedFrame.leafKey
+    // Inbox promises a target checkpoint on the next paint. Publish it before
+    // Next starts the RSC transition instead of leaving it in the event batch.
+    flushSync(() => {
+      setNavigationPending(true)
+      setPendingHref(href)
+    })
+    router.push(href)
+  }, [committedFrame.leafKey, committedFrame.revision, publishedHref, router])
+
   const replace = useCallback((href: string) => {
     if (href === publishedHref) return
     supersedeNavigationIntent(gateRef.current)
@@ -118,6 +134,7 @@ export function useCommunityNavigationController(
     navigationPending,
     pendingHref,
     push,
+    pushImmediate,
     replace,
     prefetch: router.prefetch,
     resolveAndPush,

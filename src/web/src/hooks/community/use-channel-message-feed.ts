@@ -27,9 +27,10 @@ export function useChannelMessageFeed({
       ? undefined
       : (readSnapshot?.lastReadMessageId ?? null),
     anchorMessageId,
-    waitForAnchor: true,
+    waitForAnchor: false,
     reconcileLateAnchor: true,
     revalidateOnMount: true,
+    viewerUserId,
   })
   const { newDividerBefore, anchorFound } = useMemo(() => {
     if (!readSnapshot) return { newDividerBefore: undefined, anchorFound: false }

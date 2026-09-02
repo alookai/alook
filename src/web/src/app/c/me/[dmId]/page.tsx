@@ -69,13 +69,11 @@ function resolveDmLoadingOwnership({
   hasDm,
   dmsLoading,
   currentChannelMatches,
-  readSnapshotFetching,
   messagesLoading,
 }: {
   hasDm: boolean
   dmsLoading: boolean
   currentChannelMatches: boolean
-  readSnapshotFetching: boolean
   messagesLoading: boolean
 }) {
   return {
@@ -83,7 +81,6 @@ function resolveDmLoadingOwnership({
     notFound: !hasDm && !dmsLoading,
     messageBodyLoading: hasDm && (
       !currentChannelMatches ||
-      readSnapshotFetching ||
       messagesLoading
     ),
   }
@@ -142,7 +139,7 @@ function DmView() {
   // gate treats `undefined` as "not-yet-decided" and stays disabled, so we
   // don't fire a newest-mode fetch that would immediately be superseded.
   const {
-    messages,
+    messages: fetchedMessages,
     isLoading: messagesLoading,
     hasMoreOlder: hasMoreMessages,
     hasMoreNewer: hasMoreNewerMessages,
@@ -156,11 +153,17 @@ function DmView() {
     isPending: messagesPending,
     isError: messagesError,
     refetch: refetchMessages,
+    navigationBlocked,
   } = useDmMessages(dmId, {
     lastReadMessageId: readSnapshotFetching
       ? undefined
       : (readSnapshot?.lastReadMessageId ?? null),
+    waitForAnchor: false,
+    reconcileLateAnchor: true,
+    revalidateOnMount: true,
+    viewerUserId: currentUser.id,
   })
+  const messages = fetchedMessages
 
   // Cross-navigation deep-link: a Marked-tab row for a DM message navigates
   // here with `?seq=<n>` and we open the context sheet on that message. Read
@@ -441,9 +444,12 @@ function DmView() {
     hasDm: !!dm,
     dmsLoading,
     currentChannelMatches: currentChannelId === dmId,
-    readSnapshotFetching,
     messagesLoading,
   })
+
+  if (navigationBlocked) {
+    return <DmLoadingFrame reserveBackSlot={bp === "mobile"} />
+  }
 
   if (loadingOwnership.fullFramePending) {
     return <DmLoadingFrame reserveBackSlot={bp === "mobile"} />

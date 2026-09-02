@@ -82,6 +82,13 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
   // old dm/[id]/messages route (which passed isDm:true explicitly).
   const isDm = resolved.value.isDm
   const isForum = resolved.value.target.kind === "forum"
+  // Transport-only proof for inbox navigation. The client validates this
+  // receipt against the requested target before any page reaches TanStack's
+  // cache; it must never be persisted as part of MessagesPage.
+  const surfaceReceipt = {
+    channelId,
+    surfaceKind: resolved.value.target.kind,
+  }
 
   // TODO(route-disc): unify the two response projections.
   // Auth/pagination-scope already single-source (one mask, one channel-scoped set);
@@ -138,7 +145,7 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
     )
 
     const { messages, latestSeq } = await enrichMessages(db, userId, { channelId, isDm, isForum }, items)
-    return writeJSON({ messages, hasMoreOlder, hasMoreNewer, olderCursor, newerCursor, latestSeq })
+    return writeJSON({ messages, hasMoreOlder, hasMoreNewer, olderCursor, newerCursor, latestSeq, surfaceReceipt })
   }
 
   if (since) {
@@ -150,7 +157,7 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
     })
     const { items, hasMoreNewer, newerCursor, hasMoreOlder, olderCursor } = buildSinceResponse(rows, pageSize)
     const { messages, latestSeq } = await enrichMessages(db, userId, { channelId, isDm, isForum }, items)
-    return writeJSON({ messages, hasMoreNewer, newerCursor, hasMoreOlder, olderCursor, latestSeq })
+    return writeJSON({ messages, hasMoreNewer, newerCursor, hasMoreOlder, olderCursor, latestSeq, surfaceReceipt })
   }
 
   const rows = await queries.communityMessage.listMessages(db, {
@@ -162,7 +169,7 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
 
   const { items, hasMore, cursor: nextCursor } = buildPaginatedResponse(rows, pageSize)
   const { messages, latestSeq } = await enrichMessages(db, userId, { channelId, isDm, isForum }, items.slice().reverse())
-  return writeJSON({ messages, hasMore, cursor: nextCursor, latestSeq })
+  return writeJSON({ messages, hasMore, cursor: nextCursor, latestSeq, surfaceReceipt })
 })
 
 /**

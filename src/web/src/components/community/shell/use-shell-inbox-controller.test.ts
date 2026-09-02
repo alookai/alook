@@ -91,6 +91,12 @@ vi.mock("@/hooks/community/mutations", () => ({
 vi.mock("@/hooks/community/use-dm-route-verification", () => ({
   startDmRouteVerification: (...args: unknown[]) => mocks.verifyDm(...args),
 }))
+vi.mock("@/lib/community/conversation-navigation-warmup", () => ({
+  startConversationNavigationWarmup: vi.fn(() => 99),
+}))
+vi.mock("@/lib/community/conversation-navigation-proof", () => ({
+  cancelConversationNavigationProof: vi.fn(),
+}))
 vi.mock("@/hooks/community/thread-opener-read-handoff", () => ({
   armThreadOpenerReadHandoff: (...args: unknown[]) => mocks.armOpener(...args),
   clearThreadOpenerReadHandoff: (...args: unknown[]) => mocks.clearOpener(...args),
@@ -302,7 +308,7 @@ describe("useShellInboxController", () => {
     order.length = 0
     await act(async () => hook.current.popoverProps.onOpenMention?.(mention))
     expect(order).toEqual(["project", "cancel", "clear", "push", "submitted"])
-    expect(hook.pushed).toEqual(["/c/channels/s1/c1"])
+    expect(hook.pushed).toEqual(["/c/channels/s1/c1?msg=msg1"])
   })
 
   it("closes Marked without creating a projection", async () => {

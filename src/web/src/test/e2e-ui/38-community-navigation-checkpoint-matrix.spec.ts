@@ -28,7 +28,7 @@ function channelHeader(page: Page, name: string) {
   return page.getByRole("banner").getByText(name, { exact: true })
 }
 
-test("community checkpoint keeps the committed frame live until navigation commits", async ({ asUser }) => {
+test("community checkpoint shows target pending for detail and keeps list surfaces stable", async ({ asUser }) => {
   test.setTimeout(120_000)
   const stamp = Date.now()
   const serverId = await seedServer("alice", `Frame Gate ${stamp}`)
@@ -59,11 +59,11 @@ test("community checkpoint keeps the committed frame live until navigation commi
   const leafGate = await holdRoute(page, `/c/channels/${serverId}/${channelB}`)
   await page.getByTestId(tid.channelRow(channelB)).click({ noWaitAfter: true })
   await expect.poll(leafGate.held).toBeGreaterThan(0)
-  await expect(page.getByLabel("Loading conversation")).toHaveCount(0)
-  await expect(channelHeader(page, channelAName)).toBeVisible()
+  await expect(page.getByLabel("Loading conversation")).toBeVisible()
+  await expect(channelHeader(page, channelAName)).toHaveCount(0)
   await page.waitForTimeout(150)
-  await expect(page.getByLabel("Loading conversation")).toHaveCount(0)
-  await expect(channelHeader(page, channelAName)).toBeVisible()
+  await expect(page.getByLabel("Loading conversation")).toBeVisible()
+  await expect(channelHeader(page, channelAName)).toHaveCount(0)
   await leafGate.release()
   await expect(channelHeader(page, channelBName)).toBeVisible({ timeout: 30_000 })
 

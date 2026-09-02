@@ -21,6 +21,13 @@ import {
   type MessageScope,
 } from "@/lib/community/message-stream"
 import { useMessageOverlay, useMessageStreamStore } from "@/stores/community/message-stream"
+import { useCommunityWsStore } from "@/stores/community/ws"
+import {
+  commitConversationNavigationProof,
+  recordConversationNavigationReceipt,
+  useConversationNavigationGate,
+} from "@/lib/community/conversation-navigation-proof"
+import type { MessageSurfaceReceipt } from "@/lib/community/conversation-navigation-proof"
 
 /**
  * Fetches paginated messages for a community channel.
@@ -41,6 +48,27 @@ import { useMessageOverlay, useMessageStreamStore } from "@/stores/community/mes
  * refreshes every page in one call.
  */
 export type { MessagesPage, MessagesPageParam } from "@/lib/community/models/message"
+
+export type { MessageSurfaceReceipt } from "@/lib/community/conversation-navigation-proof"
+
+type MessagesTransportPage = MessagesPage & {
+  surfaceReceipt?: MessageSurfaceReceipt
+}
+
+type MessagesTransportOptions = {
+  onSurfaceReceipt?: (receipt: MessageSurfaceReceipt) => void
+}
+
+function isMessageSurfaceReceipt(value: unknown): value is MessageSurfaceReceipt {
+  if (!value || typeof value !== "object") return false
+  const receipt = value as Partial<MessageSurfaceReceipt>
+  return typeof receipt.channelId === "string" && (
+    receipt.surfaceKind === "channel" ||
+    receipt.surfaceKind === "thread" ||
+    receipt.surfaceKind === "forum" ||
+    receipt.surfaceKind === "dm"
+  )
+}
 
 function buildMessagesUrl(base: string, pageParam: MessagesPageParam, tag?: string | null): string {
   const params = new URLSearchParams()
@@ -65,8 +93,25 @@ function buildMessagesUrl(base: string, pageParam: MessagesPageParam, tag?: stri
   return qs ? `${base}?${qs}` : base
 }
 
+async function fetchMessagesTransport(
+  url: string,
+  signal: AbortSignal | undefined,
+  options: MessagesTransportOptions | undefined,
+): Promise<MessagesPage> {
+  const transport = await apiFetchProfiles<MessagesTransportPage>(
+    url,
+    (page) => messageProfilePatches(page.messages),
+    signal ? { signal } : undefined,
+  )
+  const { surfaceReceipt, ...page } = transport
+  if (isMessageSurfaceReceipt(surfaceReceipt)) {
+    options?.onSurfaceReceipt?.(surfaceReceipt)
+  }
+  return page
+}
+
 export const channelMessagesQueryFn =
-  (channelId: string, tag?: string | null) =>
+  (channelId: string, tag?: string | null, options?: MessagesTransportOptions) =>
   async ({
     pageParam,
     signal,
@@ -79,15 +124,11 @@ export const channelMessagesQueryFn =
       pageParam,
       tag,
     )
-    return apiFetchProfiles<MessagesPage>(
-      url,
-      (page) => messageProfilePatches(page.messages),
-      signal ? { signal } : undefined,
-    )
+    return fetchMessagesTransport(url, signal, options)
   }
 
 export const dmMessagesQueryFn =
-  (dmId: string) =>
+  (dmId: string, options?: MessagesTransportOptions) =>
   async ({
     pageParam,
     signal,
@@ -99,11 +140,7 @@ export const dmMessagesQueryFn =
       `/api/community/channels/${dmId}/messages`,
       pageParam,
     )
-    return apiFetchProfiles<MessagesPage>(
-      url,
-      (page) => messageProfilePatches(page.messages),
-      signal ? { signal } : undefined,
-    )
+    return fetchMessagesTransport(url, signal, options)
   }
 
 export function messageMatchesTag(message: Msg, tag?: string | null): boolean {
@@ -237,9 +274,12 @@ type MessagesReturn = Omit<UseInfiniteQueryResult<PageCache, Error>, "isLoading"
   // below, which also folds in `!anchorResolved` so a disabled query (still
   // waiting on the anchor snapshot) reports loading too.
   isLoading: boolean
+  navigationBlocked: boolean
 }
 
 type MessagesOpts = {
+  /** Viewer identity used only by the ephemeral inbox-navigation paint gate. */
+  viewerUserId?: string
   /** Server-side message-tag filter. Null/undefined means the complete set. */
   tag?: string | null
   /**
@@ -622,6 +662,7 @@ function useMessagesInner(
     // painting can't strand the viewport at the top. A cold channel (empty
     // cache) still shows the skeleton.
     isLoading: query.isLoading || (!anchorResolved && messages.length === 0),
+    navigationBlocked: false,
     messages,
     latestSeq,
     hasMoreOlder,
@@ -651,13 +692,23 @@ export function useMessages(
   channelId: string | null,
   opts: ChannelMessagesOpts,
 ): MessagesReturn {
+  const queryClient = useQueryClient()
+  const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
   const queryKey = useMemo(() => {
     const baseKey = communityKeys.channelMessages(channelId ?? "__none__")
     return opts.tag ? [...baseKey, "tag", opts.tag] as const : baseKey
   }, [channelId, opts.tag])
   const queryFn = useMemo(
-    () => channelMessagesQueryFn(channelId ?? "__none__", opts.tag),
-    [channelId, opts.tag],
+    () => channelMessagesQueryFn(channelId ?? "__none__", opts.tag, {
+      onSurfaceReceipt: (receipt) => {
+        recordConversationNavigationReceipt(
+          queryClient,
+          receipt,
+          accessEpoch,
+        )
+      },
+    }),
+    [accessEpoch, channelId, opts.tag, queryClient],
   )
   const base = useMessagesInner(
     channelId,
@@ -689,7 +740,23 @@ export function useMessages(
       messageMatchesTag(message, opts.tag)),
     [canonicalBase, opts.tag, overlay],
   )
-  return { ...base, messages }
+  useEffect(() => {
+    if (!channelId || base.data === undefined) return
+    commitConversationNavigationProof(queryClient, channelId, accessEpoch)
+  }, [accessEpoch, base.data, base.dataUpdatedAt, channelId, queryClient])
+  const navigationGate = useConversationNavigationGate(
+    queryClient,
+    opts.viewerUserId ?? "__none__",
+    channelId ?? "__none__",
+    accessEpoch,
+  )
+  const gated = navigationGate.required && !navigationGate.allowed
+  return {
+    ...base,
+    messages: gated ? [] : messages,
+    isLoading: base.isLoading || gated,
+    navigationBlocked: gated,
+  }
 }
 
 /**
@@ -699,13 +766,23 @@ export function useDmMessages(
   dmId: string | null,
   opts?: MessagesOpts,
 ): MessagesReturn {
+  const queryClient = useQueryClient()
+  const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
   const queryKey = useMemo(
     () => communityKeys.dmMessages(dmId ?? "__none__"),
     [dmId],
   )
   const queryFn = useMemo(
-    () => dmMessagesQueryFn(dmId ?? "__none__"),
-    [dmId],
+    () => dmMessagesQueryFn(dmId ?? "__none__", {
+      onSurfaceReceipt: (receipt) => {
+        recordConversationNavigationReceipt(
+          queryClient,
+          receipt,
+          accessEpoch,
+        )
+      },
+    }),
+    [accessEpoch, dmId, queryClient],
   )
   const base = useMessagesInner(
     dmId,
@@ -735,5 +812,21 @@ export function useDmMessages(
     () => materializeMessageStream(canonicalBase, overlay),
     [canonicalBase, overlay],
   )
-  return { ...base, messages }
+  useEffect(() => {
+    if (!dmId || base.data === undefined) return
+    commitConversationNavigationProof(queryClient, dmId, accessEpoch)
+  }, [accessEpoch, base.data, base.dataUpdatedAt, dmId, queryClient])
+  const navigationGate = useConversationNavigationGate(
+    queryClient,
+    opts?.viewerUserId ?? "__none__",
+    dmId ?? "__none__",
+    accessEpoch,
+  )
+  const gated = navigationGate.required && !navigationGate.allowed
+  return {
+    ...base,
+    messages: gated ? [] : messages,
+    isLoading: base.isLoading || gated,
+    navigationBlocked: gated,
+  }
 }

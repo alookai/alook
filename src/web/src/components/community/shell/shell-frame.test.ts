@@ -66,6 +66,12 @@ vi.mock("@/stores/community", () => ({
     getState: () => ({ registerUiHandlers: mocks.registerUiHandlers }),
   }),
 }))
+vi.mock("@/stores/community/ws", () => ({
+  useCommunityWsStore: (selector: (state: { accessEpoch: number }) => unknown) => selector({ accessEpoch: 0 }),
+}))
+vi.mock("@/contexts/community/current-user", () => ({
+  useCurrentUser: () => ({ id: "viewer" }),
+}))
 vi.mock("./use-shell-rail-controller", () => ({
   useShellRailController: (options: unknown) => {
     mocks.railOptions(options)
@@ -156,7 +162,7 @@ describe("ShellFrame orchestration", () => {
       renderer = TestRenderer.create(createElement(ShellFrame, sourceProps))
     })
     expect(renderer.root.findByType("shell-frame-view").props.checkpoint).toMatchObject({
-      surface: "detail",
+      surface: "list",
       targetHref: "/c/channels/s1",
       main: { kind: "keep" },
     })
@@ -218,7 +224,7 @@ describe("ShellFrame orchestration", () => {
     const view = renderer.root.findByType("shell-frame-view")
     expect(view.props.checkpoint).toMatchObject({
       mode: "warm-scope",
-      surface: "detail",
+      surface: "list",
       targetHref: "/c/channels/s2",
       main: { kind: "keep" },
     })

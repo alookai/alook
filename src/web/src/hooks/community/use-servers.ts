@@ -211,25 +211,30 @@ type UnreadResponse = {
 async function resolveServerIdentity(
   queryClient: QueryClient,
   serverId: string,
+  signal?: AbortSignal,
 ): Promise<Server | undefined> {
   const cached = queryClient
     .getQueryData<ServersResponse>(communityKeys.servers())
     ?.servers.find((server) => server.id === serverId)
   if (cached) return cached
 
-  const fetched = await serversQueryFn()
+  const fetched = await serversQueryFn({ signal } as QueryFunctionContext)
   return fetched.servers.find((server) => server.id === serverId)
 }
 
 export const serverQueryFn = (
   queryClient: QueryClient,
   serverId: string,
+  signal?: AbortSignal,
 ) => async (): Promise<ServerDetail> => {
+  const fetchResource = <T,>(path: string) => signal
+    ? apiFetch<T>(path, { signal })
+    : apiFetch<T>(path)
   const [server, categoryData, channelData, unreadData] = await Promise.all([
-    resolveServerIdentity(queryClient, serverId),
-    apiFetch<{ categories: Array<Omit<Category, "channels"> & { serverId?: string }> }>(`/api/community/servers/${serverId}/categories`),
-    apiFetch<{ channels: RawChannel[] }>(`/api/community/servers/${serverId}/channels`),
-    apiFetch<UnreadResponse>(`/api/community/servers/${serverId}/unreads`),
+    resolveServerIdentity(queryClient, serverId, signal),
+    fetchResource<{ categories: Array<Omit<Category, "channels"> & { serverId?: string }> }>(`/api/community/servers/${serverId}/categories`),
+    fetchResource<{ channels: RawChannel[] }>(`/api/community/servers/${serverId}/channels`),
+    fetchResource<UnreadResponse>(`/api/community/servers/${serverId}/unreads`),
   ])
   if (unreadData.stale) throw new Error("stale D1 read")
   if (!server) throw new Error("server not found")

@@ -13,6 +13,8 @@ import {
 } from "@/lib/community/community-route"
 import { communityKeys } from "@/lib/query-keys"
 import { useCommunityStore } from "@/stores/community"
+import { useCommunityWsStore } from "@/stores/community/ws"
+import { useCurrentUser } from "@/contexts/community/current-user"
 import { ShellFrameView } from "./shell-frame-view"
 import { useShellRailController } from "./use-shell-rail-controller"
 import { useShellProfileController } from "./use-shell-profile-controller"
@@ -33,6 +35,8 @@ export function ShellFrame(props: ShellFrameProps) {
     onOpenActiveServerInvite,
   } = props
   const queryClient = useQueryClient()
+  const currentUser = useCurrentUser()
+  const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
   const breakpoint = useBreakpoint()
   const onboardingState = useCommunityOnboarding()
   const initialCommittedFrame: CommunityCommittedFrame = {
@@ -98,6 +102,8 @@ export function ShellFrame(props: ShellFrameProps) {
     publishedHref: navigation.publishedHref,
     navigationPending: navigation.navigationPending,
     pendingHref: navigation.pendingHref,
+    viewerId: currentUser.id,
+    accessEpoch,
   })
   const goBackMobile = useCallback(() => {
     if (route.parentPath) navigation.replace(route.parentPath)

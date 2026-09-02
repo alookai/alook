@@ -75,6 +75,26 @@ describe("channelMessagesQueryFn — url per mode", () => {
 })
 
 describe("channelMessagesQueryFn — queryClient integration", () => {
+  it("validates the transport receipt before returning a cache-safe page", async () => {
+    const { channelMessagesQueryFn } = await loadHook()
+    const onSurfaceReceipt = vi.fn()
+    apiFetchMock.mockResolvedValueOnce({
+      messages: [],
+      hasMore: false,
+      surfaceReceipt: { channelId: "ch_1", surfaceKind: "channel" },
+    })
+
+    const page = await channelMessagesQueryFn("ch_1", null, { onSurfaceReceipt })({
+      pageParam: { mode: "newest" },
+    })
+
+    expect(onSurfaceReceipt).toHaveBeenCalledWith({
+      channelId: "ch_1",
+      surfaceKind: "channel",
+    })
+    expect(page).not.toHaveProperty("surfaceReceipt")
+  })
+
   it("passes TanStack's AbortSignal to apiFetch", async () => {
     const { channelMessagesQueryFn } = await loadHook()
     const controller = new AbortController()
@@ -120,6 +140,26 @@ describe("channelMessagesQueryFn — queryClient integration", () => {
 })
 
 describe("dmMessagesQueryFn", () => {
+  it("strips the authoritative receipt before QueryClient storage", async () => {
+    const { dmMessagesQueryFn } = await loadHook()
+    apiFetchMock.mockResolvedValueOnce({
+      messages: [],
+      hasMore: false,
+      surfaceReceipt: { channelId: "dm_1", surfaceKind: "dm" },
+    })
+    const qc = new QueryClient()
+    const key = communityKeys.dmMessages("dm_1")
+
+    await qc.fetchInfiniteQuery({
+      queryKey: key,
+      queryFn: dmMessagesQueryFn("dm_1"),
+      initialPageParam: { mode: "newest" } as const,
+    })
+
+    const data = qc.getQueryData<InfiniteData<Record<string, unknown>>>(key)
+    expect(data?.pages[0]).not.toHaveProperty("surfaceReceipt")
+  })
+
   it("passes TanStack's AbortSignal to apiFetch", async () => {
     const { dmMessagesQueryFn } = await loadHook()
     const controller = new AbortController()
