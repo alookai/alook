@@ -22,9 +22,8 @@ export const preservedAssets = [
 ]
 
 export const trayRasterAssets = [
-  ["assets/alook-tray.svg", "src/desktop/src-tauri/icons/tray-default.png"],
-  ["assets/alook-tray.svg", "src/desktop/src-tauri/icons/tray-online.png"],
-  ["assets/alook-tray-offline.svg", "src/desktop/src-tauri/icons/tray-offline.png"],
+  ["assets/alook-tray-macos-template.svg", "src/desktop/src-tauri/icons/tray-macos-template.png"],
+  ["assets/alook.svg", "src/desktop/src-tauri/icons/tray-windows-linux-color.png"],
 ]
 
 export const desktopRasterAssets = [

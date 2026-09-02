@@ -580,6 +580,16 @@ fn tray_menu_action(id: &str) -> Option<TrayMenuAction> {
     }
 }
 
+#[cfg(target_os = "macos")]
+const TRAY_ICON_BYTES: &[u8] = include_bytes!("../icons/tray-macos-template.png");
+#[cfg(target_os = "macos")]
+const TRAY_ICON_IS_TEMPLATE: bool = true;
+
+#[cfg(any(target_os = "windows", target_os = "linux"))]
+const TRAY_ICON_BYTES: &[u8] = include_bytes!("../icons/tray-windows-linux-color.png");
+#[cfg(any(target_os = "windows", target_os = "linux"))]
+const TRAY_ICON_IS_TEMPLATE: bool = false;
+
 // --- System tray ---
 #[cfg(desktop)]
 pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
@@ -612,8 +622,8 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     let _tray = TrayIconBuilder::new()
-        .icon(Image::from_bytes(include_bytes!("../icons/tray-default.png")).expect("tray icon"))
-        .icon_as_template(true)
+        .icon(Image::from_bytes(TRAY_ICON_BYTES).expect("tray icon"))
+        .icon_as_template(TRAY_ICON_IS_TEMPLATE)
         .menu(&menu)
         .show_menu_on_left_click(false)
         .tooltip("Alook")
@@ -710,6 +720,12 @@ mod tests {
             None
         );
         assert_eq!(tray_menu_action("unknown"), None);
+    }
+
+    #[test]
+    fn tray_icon_template_mode_matches_the_current_platform() {
+        assert!(!TRAY_ICON_BYTES.is_empty());
+        assert_eq!(TRAY_ICON_IS_TEMPLATE, cfg!(target_os = "macos"));
     }
 
     #[test]
