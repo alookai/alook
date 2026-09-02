@@ -4,6 +4,23 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { ChildProcess } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const lifecycleMocks = vi.hoisted(() => ({
+  daemonResume: vi.fn(),
+  spawn: vi.fn(),
+  stopExactDaemonPid: vi.fn(),
+}));
+
+vi.mock("node:child_process", async (importOriginal) => ({
+  ...await importOriginal<typeof import("node:child_process")>(),
+  spawn: lifecycleMocks.spawn,
+}));
+vi.mock("./daemonStart", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./daemonStart")>(),
+  daemonResume: lifecycleMocks.daemonResume,
+  stopExactDaemonPid: lifecycleMocks.stopExactDaemonPid,
+}));
+
 import { readDaemonVersion } from "../version";
 import {
   createDaemonSelfUpdateHandler,
@@ -30,6 +47,9 @@ describe("daemon self-update lifecycle", () => {
   let npmPath: string;
 
   beforeEach(() => {
+    lifecycleMocks.daemonResume.mockReset();
+    lifecycleMocks.spawn.mockReset();
+    lifecycleMocks.stopExactDaemonPid.mockReset();
     baseDir = fs.mkdtempSync(path.join(os.tmpdir(), "daemon-update-unit-"));
     daemonDir = path.join(baseDir, "daemons", machineId);
     fs.mkdirSync(daemonDir, { recursive: true, mode: 0o700 });
@@ -327,5 +347,49 @@ describe("daemon self-update lifecycle", () => {
     expect(kill).not.toHaveBeenCalled();
     expect(fs.existsSync(path.join(daemonDir, "daemon.pid"))).toBe(true);
     expect(fs.existsSync(path.join(daemonDir, "update-intent.json"))).toBe(false);
+  });
+
+  it("hands rollback off through the resolved npm JavaScript launcher", async () => {
+    const owner = writePid();
+    writeLaunch("0.0.1");
+    const requestId = "request_1234567890";
+    fs.writeFileSync(path.join(daemonDir, "update-intent.json"), JSON.stringify({
+      schemaVersion: 1,
+      requestId,
+      ...owner,
+    }), { mode: 0o600 });
+    vi.stubEnv("npm_execpath", npmPath);
+    lifecycleMocks.stopExactDaemonPid.mockResolvedValue(undefined);
+    lifecycleMocks.daemonResume.mockRejectedValue(new Error("new daemon failed readiness"));
+    lifecycleMocks.spawn.mockImplementation(() => {
+      const child = fakeChild();
+      queueMicrotask(() => child.emit("exit", 0, null));
+      return child;
+    });
+
+    await daemonReplace({ id: machineId, baseDir, requestId });
+
+    expect(lifecycleMocks.stopExactDaemonPid).toHaveBeenCalledWith(owner.pid);
+    expect(lifecycleMocks.spawn).toHaveBeenCalledOnce();
+    const [command, args, options] = lifecycleMocks.spawn.mock.calls[0]!;
+    expect(command).toBe(process.execPath);
+    expect(args).toEqual([
+      npmPath,
+      "exec",
+      "--yes",
+      "--package=@alook/daemon@0.0.1",
+      "--",
+      "alook-daemon",
+      "daemon",
+      "resume",
+      "--id",
+      machineId,
+      "--base-dir",
+      baseDir,
+      "--request-id",
+      requestId,
+    ]);
+    expect(options).toMatchObject({ shell: false });
+    expect(JSON.stringify([command, args, options])).not.toContain(owner.ownerToken);
   });
 });
