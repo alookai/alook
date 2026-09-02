@@ -190,7 +190,46 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
     expect(geometry.seam.userBarBottomRight).not.toBe("0px")
     expect(geometry.rootScrollTop).toBe(0)
 
-    await bob.page.mouse.click(8, 100)
+    const outsidePoint = {
+      x: Math.floor((geometry.card.left + geometry.card.right) / 2),
+      y: Math.max(1, Math.floor(geometry.card.top / 2)),
+    }
+    const outsideHit = await bob.page.evaluate(({ point, ids }) => {
+      const hit = document.elementFromPoint(point.x, point.y)
+      const interactive = hit?.closest([
+        "button",
+        "a[href]",
+        "input",
+        "select",
+        "textarea",
+        "[contenteditable='true']",
+        "[role='button']",
+        "[role='link']",
+        "[role='checkbox']",
+        "[role='radio']",
+        "[role='switch']",
+        "[role='tab']",
+        "[role='menuitem']",
+        "[role='option']",
+        "[role='combobox']",
+        "[role='listbox']",
+        "[role='slider']",
+        "[role='spinbutton']",
+        "[role='textbox']",
+        "[role='searchbox']",
+      ].join(","))
+      return {
+        exists: !!hit,
+        insideInbox: !!hit?.closest(`[data-testid='${ids.inboxMobileSurface}']`),
+        interactive: !!interactive,
+      }
+    }, { point: outsidePoint, ids: { inboxMobileSurface: tid.inboxMobileSurface } })
+    expect(outsideHit).toEqual({
+      exists: true,
+      insideInbox: false,
+      interactive: false,
+    })
+    await bob.page.mouse.click(outsidePoint.x, outsidePoint.y)
     await expect(bob.page.getByTestId(tid.inboxMobileSurface)).toHaveCount(0)
     await expect(inboxTrigger).toBeFocused()
     await expect(inboxTrigger).toHaveAttribute("aria-label", "Open Inbox")
