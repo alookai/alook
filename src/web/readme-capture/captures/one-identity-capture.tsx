@@ -83,8 +83,8 @@ function IdentityFrame({ frame }: { frame: IdentityFrameData }) {
   return (
     <div className="flex size-full flex-col bg-background">
       <ChannelHeader
-        channel={frame.serverName}
-        breadcrumb={{ label: frame.activeChannel }}
+        channel={frame.activeChannel}
+        kind="text"
         rightPanel={null}
         onToggle={() => undefined}
         tools={{ members: false, threads: false, pinned: false }}

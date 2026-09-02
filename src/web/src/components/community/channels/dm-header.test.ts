@@ -24,6 +24,15 @@ describe("DmHeader", () => {
     expect(markup).toContain("Bob")
     expect(markup).toContain("#0042")
   })
+
+  it("uses one mobile-only parent control without changing DM identity", () => {
+    const onBack = vi.fn()
+    const markup = renderToStaticMarkup(createElement(DmHeader, { dm, onBack }))
+
+    expect(markup).toContain('aria-label="Back"')
+    expect(markup).toMatch(/class="[^"]*size-11[^"]*sm:hidden[^"]*"/)
+    expect(markup).toContain(`data-testid="${tid.dmHeaderTitle}"`)
+  })
 })
 
 describe("DmHeaderSkeleton", () => {
@@ -31,13 +40,17 @@ describe("DmHeaderSkeleton", () => {
     const desktop = renderToStaticMarkup(createElement(DmHeaderSkeleton))
     expect(desktop).toContain("size-6 rounded-full")
     expect(desktop).toContain("h-4 w-32 rounded")
-    expect(desktop).toContain("ml-auto size-7 rounded-md")
+    expect(desktop).toContain('data-slot="message-header-actions"')
+    expect(desktop).toContain("size-7 rounded-md")
     expect(desktop).not.toContain('aria-label="Back"')
 
     const mobile = renderToStaticMarkup(
       createElement(DmHeaderSkeleton, { onBack: vi.fn() }),
     )
-    expect(mobile).toContain('data-slot="loading-back-placeholder"')
+    expect(mobile).toContain('data-slot="loading-mobile-leading"')
+    expect(mobile).toMatch(/class="[^"]*size-11[^"]*sm:hidden[^"]*"/)
+    expect(mobile).toContain('data-slot="message-header-identity"')
+    expect(mobile).toContain('data-slot="message-header-actions"')
     expect(mobile).not.toContain("<button")
     expect(mobile).not.toContain('aria-label="Back"')
   })

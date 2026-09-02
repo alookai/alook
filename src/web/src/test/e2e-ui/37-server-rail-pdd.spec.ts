@@ -366,7 +366,7 @@ test("server rail keeps scroll separate from native, touch, and keyboard drag", 
   await expect.poll(() => railRequests[0]?.status).toBe(200)
 
   await page.setViewportSize({ width: 390, height: 844 })
-  await page.getByTestId(tid.channelHeaderServer(first)).click()
+  await page.getByRole("banner").getByRole("button", { name: "Back" }).click()
   await expect.poll(() => new URL(page.url()).pathname).toBe(`/c/channels/${first}`)
   const rail = page.getByTestId(tid.serverRailScroll)
   await rail.evaluate((element) => { element.scrollTop = element.scrollHeight })
@@ -412,7 +412,7 @@ test("server rail keeps scroll separate from native, touch, and keyboard drag", 
   await expect.poll(() => new URL(page.url()).pathname).toBe(`/c/channels/${tail}`)
   expect(railRequests).toHaveLength(1)
   await page.goto(`/c/channels/${first}/${channel}`)
-  await page.getByTestId(tid.channelHeaderServer(first)).click()
+  await page.getByRole("banner").getByRole("button", { name: "Back" }).click()
   await expect.poll(() => new URL(page.url()).pathname).toBe(`/c/channels/${first}`)
   await expect(page.getByTestId(tid.serverIcon(first))).toBeVisible({ timeout: 30_000 })
   await rail.evaluate((element) => { element.scrollTop = element.scrollHeight })

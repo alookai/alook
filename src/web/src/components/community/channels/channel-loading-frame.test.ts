@@ -16,7 +16,7 @@ vi.mock("@/components/community/messages/composer", () => ({
 import { ChannelLoadingFrame } from "./channel-loading-frame"
 
 describe("ChannelLoadingFrame", () => {
-  it("composes canonical detail zones with server-leading loading geometry", () => {
+  it("composes canonical detail zones with mobile Back loading geometry", () => {
     let renderer!: TestRenderer.ReactTestRenderer
     act(() => {
       renderer = TestRenderer.create(createElement(ChannelLoadingFrame))

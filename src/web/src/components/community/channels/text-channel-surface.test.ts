@@ -329,13 +329,8 @@ describe("TextChannelSurface header hierarchy", () => {
     vi.clearAllMocks()
   })
 
-  it("forwards the direct mobile server segment without a Back fallback", () => {
-    const headerServer = {
-      id: "server_1",
-      name: "Server",
-      icon: null,
-      onNavigate: vi.fn(),
-    }
+  it("forwards the explicit mobile parent Back callback", () => {
+    const onNavigateParent = vi.fn()
     mockedUseChannelMessageFeed.mockReturnValue(feed())
 
     act(() => {
@@ -346,7 +341,7 @@ describe("TextChannelSurface header hierarchy", () => {
         channelName: "general",
         viewer: { id: "viewer_1", name: "Viewer", avatar: "V" },
         anchorMessageId: null,
-        headerServer,
+        onNavigateParent,
         notificationLevel: "default",
         onSetNotificationLevel: vi.fn(),
         composerMembers: [],
@@ -362,7 +357,8 @@ describe("TextChannelSurface header hierarchy", () => {
     })
 
     const headerProps = mockedChannelHeader.mock.calls.at(-1)![0]
-    expect(headerProps.mobileServer).toBe(headerServer)
+    expect(headerProps.mobileBack).toBe(onNavigateParent)
+    expect(headerProps.kind).toBe("text")
     expect(headerProps).not.toHaveProperty("onBack")
   })
 })

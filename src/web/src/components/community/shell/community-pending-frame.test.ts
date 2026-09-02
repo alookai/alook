@@ -54,7 +54,7 @@ describe("CommunityPendingFrame", () => {
     expect(friends.root.findByType("friends-skeleton").props.onBack).toBeUndefined()
   })
 
-  it("separates neutral Me, DM Back geometry, and server-leading channel geometry", () => {
+  it("separates neutral Me from DM and channel mobile Back geometry", () => {
     const root = render("/c/me")
     expect(root.root.findByProps({ "aria-label": "Loading your space" }).props["aria-busy"]).toBe("true")
 

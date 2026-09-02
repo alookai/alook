@@ -1,4 +1,4 @@
-import { Bell, BellOff, Check, ChevronLeft } from "lucide-react"
+import { Bell, BellOff, Check } from "lucide-react"
 import { NOTIF_LEVELS, type NotifLevel } from "@alook/shared"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -6,6 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Avatar } from "../avatar"
 import type { DM } from "@/lib/community/models/people"
 import { tid } from "@/lib/community/testids"
+import { MessageHeader, MessageHeaderMobileBack } from "./message-header"
 
 export function DmHeader({ dm, onBack, titleAs: Title = "h1", notifLevel, onSetNotifLevel }: {
   dm: DM
@@ -15,21 +16,25 @@ export function DmHeader({ dm, onBack, titleAs: Title = "h1", notifLevel, onSetN
   onSetNotifLevel?: (level: NotifLevel) => void
 }) {
   return (
-    <header data-testid={tid.dmHeader} className="flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-3">
-      {onBack && (
-        <Button variant="ghost" size="icon-sm" onClick={onBack} className="text-muted-foreground hover:text-foreground" aria-label="Back"><ChevronLeft className="size-5" /></Button>
+    <MessageHeader
+      testId={tid.dmHeader}
+      leading={onBack ? <MessageHeaderMobileBack onNavigate={onBack} /> : undefined}
+      identityClassName="gap-2"
+      identity={(
+        <>
+          <Avatar label={dm.avatar} seed={dm.userId} size={24} presence={dm.status} />
+          <Title data-testid={tid.dmHeaderTitle} className="min-w-0 truncate font-heading text-base font-medium leading-[1.15] tracking-[-0.015em]">
+            {dm.name}
+            {dm.discriminator && (
+              <span className="ml-1 text-xs font-normal tracking-wide text-muted-foreground">
+                #{dm.discriminator}
+              </span>
+            )}
+          </Title>
+        </>
       )}
-      <Avatar label={dm.avatar} seed={dm.userId} size={24} presence={dm.status} />
-      <Title data-testid={tid.dmHeaderTitle} className="min-w-0 truncate font-heading text-base font-medium leading-[1.15] tracking-[-0.015em]">
-        {dm.name}
-        {dm.discriminator && (
-          <span className="ml-1 text-xs font-normal tracking-wide text-muted-foreground">
-            #{dm.discriminator}
-          </span>
-        )}
-      </Title>
-      {notifLevel && <DmNotifDropdown level={notifLevel} onSetLevel={onSetNotifLevel} />}
-    </header>
+      actions={notifLevel && <DmNotifDropdown level={notifLevel} onSetLevel={onSetNotifLevel} />}
+    />
   )
 }
 
@@ -38,7 +43,7 @@ function DmNotifDropdown({ level, onSetLevel }: { level: NotifLevel; onSetLevel?
   return (
     <DropdownMenu>
       <DropdownMenuTrigger render={
-        <Button variant="ghost" size="icon-sm" className={`ml-auto ${muted ? "text-destructive" : "text-muted-foreground"}`} aria-label="Direct message notifications" />
+        <Button variant="ghost" size="icon-sm" className={muted ? "text-destructive" : "text-muted-foreground"} aria-label="Direct message notifications" />
       }>
         {muted ? <BellOff className="size-4" /> : <Bell className="size-4" />}
       </DropdownMenuTrigger>
@@ -59,13 +64,20 @@ function DmNotifDropdown({ level, onSetLevel }: { level: NotifLevel; onSetLevel?
 // stays anchored across the route change.
 export function DmHeaderSkeleton({ onBack }: { onBack?: () => void }) {
   return (
-    <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-3">
-      {onBack && (
-        <Skeleton data-slot="loading-back-placeholder" aria-hidden className="size-8 shrink-0 rounded-md" />
+    <MessageHeader
+      leading={onBack ? (
+        <div data-slot="loading-mobile-leading" aria-hidden className="grid size-11 shrink-0 place-items-center sm:hidden">
+          <Skeleton className="size-6 rounded-md" />
+        </div>
+      ) : undefined}
+      identityClassName="gap-2"
+      identity={(
+        <>
+          <Skeleton className="size-6 rounded-full" />
+          <Skeleton className="h-4 w-32 rounded" />
+        </>
       )}
-      <Skeleton className="size-6 rounded-full" />
-      <Skeleton className="h-4 w-32 rounded" />
-      <Skeleton className="ml-auto size-7 rounded-md" />
-    </header>
+      actions={<Skeleton className="size-7 rounded-md" />}
+    />
   )
 }

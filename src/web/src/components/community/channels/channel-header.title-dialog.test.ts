@@ -20,12 +20,13 @@ import { ChannelHeader } from "./channel-header"
 function renderHeader(onRename?: (name: string) => void | Promise<void>, titleRename = true) {
   return TestRenderer.create(
     React.createElement(ChannelHeader, {
-      channel: "forum",
-      forum: true,
+      channel: "Original title",
+      kind: "thread",
       rightPanel: null,
       onToggle: () => {},
       tools: { threads: false, pinned: false, members: false },
-      breadcrumb: { label: "Original title", onRename, titleRename },
+      onRename,
+      titleRename,
     }),
   )
 }

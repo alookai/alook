@@ -25,7 +25,7 @@ export function ForumChannelSurface({
   channelName,
   viewer,
   viewerRole,
-  headerServer,
+  onNavigateParent,
   notificationLevel,
   onSetNotificationLevel,
   composerMembers,
@@ -41,7 +41,7 @@ export function ForumChannelSurface({
   channelName: string
   viewer: { id: string }
   viewerRole: Role | undefined
-  headerServer?: { id: string; name: string; icon: string | null; onNavigate: () => void }
+  onNavigateParent?: () => void
   notificationLevel: ChannelNotifLevel
   onSetNotificationLevel: (level: ChannelNotifLevel) => void
   composerMembers: Member[]
@@ -94,12 +94,12 @@ export function ForumChannelSurface({
       header={(
         <ChannelHeader
           channel={channelName}
-          forum
+          kind="forum"
           rightPanel={rightPanel}
           onToggle={togglePanel}
           notifLevel={notificationLevel}
           onSetNotifLevel={onSetNotificationLevel}
-          mobileServer={headerServer}
+          mobileBack={onNavigateParent}
           tools={{ threads: false, pinned: false }}
         />
       )}

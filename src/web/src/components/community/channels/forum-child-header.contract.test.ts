@@ -14,7 +14,7 @@ describe("forum child header wiring", () => {
     expect(route).toContain("<ThreadChannelSurface")
     expect(surface).toContain("parentMessageId && !parentIsForum")
     expect(surface).toContain("childCreatorId === viewer.id")
-    expect(surface).toContain("titleRename: parentIsForum")
+    expect(surface).toContain("titleRename={parentIsForum}")
     expect(surface).toContain("messageId: parentMessageId")
     expect(forumView).not.toContain("Edit post")
     expect(forumView).not.toMatch(/\bonEditPost(?:\?|\s|=)/)
