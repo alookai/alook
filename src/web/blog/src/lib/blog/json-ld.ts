@@ -1,7 +1,11 @@
 import type { BlogPost } from "./types";
 import { ALOOK_ORGANIZATION } from "@/lib/seo/entities";
 
-export function buildBlogPostingJsonLd(post: BlogPost) {
+const siteUrl = "https://alook.ai";
+
+export function buildBlogPostingJsonLd(post: BlogPost, resolvedOgImage: string) {
+  const canonicalUrl = `${siteUrl}/blog/${post.slug}`;
+
   return {
     "@context": "https://schema.org",
     "@type": "BlogPosting",
@@ -21,7 +25,11 @@ export function buildBlogPostingJsonLd(post: BlogPost) {
             name: post.author,
           },
     publisher: { ...ALOOK_ORGANIZATION },
-    url: `https://alook.ai/blog/${post.slug}`,
-    ...(post.image ? { image: `https://alook.ai${post.image}` } : {}),
+    mainEntityOfPage: {
+      "@type": "WebPage",
+      "@id": canonicalUrl,
+    },
+    url: canonicalUrl,
+    image: new URL(resolvedOgImage, siteUrl).toString(),
   };
 }
