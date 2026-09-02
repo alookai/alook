@@ -44,6 +44,18 @@ function projectionStoreFor(queryClient: QueryClient) {
   return store
 }
 
+export function useInboxProjectionTarget(queryClient: QueryClient) {
+  const store = projectionStoreFor(queryClient)
+  return useSyncExternalStore(
+    (listener) => {
+      store.listeners.add(listener)
+      return () => store.listeners.delete(listener)
+    },
+    () => store.current?.target ?? null,
+    () => store.current?.target ?? null,
+  )
+}
+
 function publishProjection(store: ProjectionStore, lease: ProjectionLease | null) {
   store.current = lease
   for (const listener of store.listeners) listener()
@@ -83,6 +95,7 @@ export function useInboxAutoCollapse({
     () => store.current,
     () => store.current,
   )
+  const projectionTarget = projection?.target ?? null
   const openRef = useRef(open)
   const previousPublishedHrefRef = useRef(publishedHref)
 
@@ -165,10 +178,10 @@ export function useInboxAutoCollapse({
   }, [])
 
   const isProjected = useCallback((target: InboxRowTarget | null) => {
-    if (!target || !projection) return false
-    return projection.target.identity === target.identity
-      && projection.target.fingerprint === target.fingerprint
-  }, [projection])
+    if (!target || !projectionTarget) return false
+    return projectionTarget.identity === target.identity
+      && projectionTarget.fingerprint === target.fingerprint
+  }, [projectionTarget])
 
   const isLatestProjection = useCallback((epoch: number) => (
     store.current?.epoch === epoch
@@ -195,6 +208,7 @@ export function useInboxAutoCollapse({
 
   return {
     open,
+    projectionTarget,
     onOpenChange,
     beginProjection,
     markProjectionSubmitted,

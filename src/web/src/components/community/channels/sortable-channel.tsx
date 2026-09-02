@@ -10,6 +10,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { DropLine } from "../drop-line"
 import { tid } from "@/lib/community/testids"
 import type { Channel } from "@/lib/community/models/navigation"
+import { selectUnreadPresentation } from "@/hooks/community/unread-presentation"
 
 // True when the row has at least one right-click action. With none, we skip the
 // ContextMenu wrapper entirely so a non-manager doesn't get an empty popover strip.
@@ -52,6 +53,11 @@ export function SortableChannel({ ch, active, onClick, onPrefetch, onEdit, onDel
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1, zIndex: isDragging ? 10 : undefined }
   const showLine = isOver && !isDragging
   const lineSide: "top" | "bottom" = activeIndex !== -1 && activeIndex < index ? "bottom" : "top"
+  const unread = selectUnreadPresentation({
+    accountUnread: ch.unread,
+    active,
+    muted: ch.muted === true,
+  })
   const row = (
     <div
       ref={setNodeRef}
@@ -69,7 +75,7 @@ export function SortableChannel({ ch, active, onClick, onPrefetch, onEdit, onDel
           ? "bg-sidebar-accent text-foreground"
           : ch.muted
             ? "text-muted-foreground/50 hover:bg-sidebar-accent/60 hover:text-muted-foreground"
-            : ch.unread
+            : unread.emphasize
               ? "text-foreground hover:bg-sidebar-accent/60"
               : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
       ].join(" ")}
@@ -81,7 +87,7 @@ export function SortableChannel({ ch, active, onClick, onPrefetch, onEdit, onDel
       <span className="truncate font-semibold">{ch.name}</span>
       {ch.muted ? (
         <BellOff className="ml-auto size-4 shrink-0 opacity-70" />
-      ) : ch.unread && !active ? (
+      ) : unread.showDot ? (
         <span className="ml-auto size-2 rounded-full bg-primary" />
       ) : null}
     </div>

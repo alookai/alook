@@ -16,6 +16,7 @@ import {
   inboxThreadRowTarget,
   type InboxRowTarget,
 } from "@/hooks/community/inbox-read-reservation"
+import { selectUnreadPresentation } from "@/hooks/community/unread-presentation"
 import { tid } from "@/lib/community/testids"
 import type { CommunityProfile } from "@/lib/community/models/people"
 import { useProfilesByUserId } from "@/stores/community/ws"
@@ -386,6 +387,12 @@ export function InboxPopover({
   const profilesByUserId = useProfilesByUserId()
   const hasUnreads = hasProjectedUnreads ?? (unreads.length > 0 || unreadDms.length > 0)
   const hasMentions = hasProjectedMentions ?? mentions.length > 0
+  const showUnreadDot = selectUnreadPresentation({
+    accountUnread: hasUnreads,
+  }).showDot
+  const showMentionDot = selectUnreadPresentation({
+    accountUnread: hasMentions,
+  }).showDot
   const hasAnything = hasUnreads || hasMentions
   return (
     <Tabs
@@ -415,13 +422,13 @@ export function InboxPopover({
         <TabsTrigger value="unreads">
           <span className="inline-flex items-center gap-2">
             Unreads
-            {hasUnreads && <span className="size-1.5 rounded-full bg-primary" />}
+            {showUnreadDot && <span className="size-1.5 rounded-full bg-primary" />}
           </span>
         </TabsTrigger>
         <TabsTrigger value="mentions">
           <span className="inline-flex items-center gap-2">
             Mentions
-            {hasMentions && <span className="size-1.5 rounded-full bg-primary" />}
+            {showMentionDot && <span className="size-1.5 rounded-full bg-primary" />}
           </span>
         </TabsTrigger>
         <TabsTrigger value="marked">Marked</TabsTrigger>

@@ -720,7 +720,7 @@ test("forum cards use the ordinary parent cursor while child cursors stay indepe
   deviceA.page.off("response", trackForumResponse)
 })
 
-test("human author-send and notification writers replace both active profiles", async ({ asUser }) => {
+test("human author-send replaces both profiles while notification policy preserves unread", async ({ asUser }) => {
   test.setTimeout(150_000)
   const stamp = Date.now()
   const serverId = await seedServer("alice", `Writer sync ${stamp}`)
@@ -736,6 +736,10 @@ test("human author-send and notification writers replace both active profiles", 
   const proxyB = await proxyCommunityWebSockets(deviceB.context)
   await gotoAfterUserWsAuth(deviceA.page, "/c/me")
   await gotoAfterUserWsAuth(deviceB.page, "/c/me")
+  await Promise.all([
+    expect(deviceA.page.getByTestId(tid.serverIcon(serverId))).toBeVisible({ timeout: 30_000 }),
+    expect(deviceB.page.getByTestId(tid.serverIcon(serverId))).toBeVisible({ timeout: 30_000 }),
+  ])
   await deviceB.page.getByRole("button", { name: "Inbox" }).click()
   await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(authorChannelId))).toBeVisible()
   await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(notificationChannelId))).toBeVisible()
@@ -797,8 +801,31 @@ test("human author-send and notification writers replace both active profiles", 
   )).json() as { readStates: Array<{ channelId: string; lastReadSeq: number }> }
   expect(writerSnapshot.readStates.find((state) => state.channelId === authorChannelId)?.lastReadSeq)
     .toBeGreaterThan(0)
-  expect(writerSnapshot.readStates.find((state) => state.channelId === notificationChannelId)?.lastReadSeq)
-    .toBeGreaterThan(0)
+  expect(writerSnapshot.readStates.find((state) => state.channelId === notificationChannelId)?.lastReadSeq ?? 0)
+    .toBe(0)
+
+  const restoreStarts = [proxyA.frames.length, proxyB.frames.length]
+  const restoreStatus = await deviceA.page.evaluate(async (channelId) => {
+    const response = await fetch(`/api/community/users/me/notifications/channel/${channelId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ level: "all" }),
+    })
+    return response.status
+  }, notificationChannelId)
+  expect(restoreStatus).toBe(200)
+
+  for (const [proxy, start] of [[proxyA, restoreStarts[0]], [proxyB, restoreStarts[1]]] as const) {
+    await expect.poll(() => readStateEventsSince(proxy.frames, start!).length, {
+      timeout: 20_000,
+    }).toBe(1)
+  }
+  await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(notificationChannelId))).toBeVisible()
+  const restoredSnapshot = await (await deviceB.page.request.get(
+    "/api/community/users/me/read-state",
+  )).json() as { readStates: Array<{ channelId: string; lastReadSeq: number }> }
+  expect(restoredSnapshot.readStates.find((state) => state.channelId === notificationChannelId)?.lastReadSeq ?? 0)
+    .toBe(0)
 })
 
 test("forum delete broadcasts replacement and removal to both active profiles", async ({ asUser }) => {

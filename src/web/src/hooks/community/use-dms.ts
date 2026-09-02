@@ -11,6 +11,11 @@ import { useEffect, useMemo, useSyncExternalStore } from "react"
 import { useProfilesByUserId } from "@/stores/community/ws"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 import { getActiveAccountUnreadProjection } from "./account-unread-projection"
+import { useInboxProjectionTarget } from "./use-inbox-auto-collapse"
+import {
+  reservedUnreadExclusion,
+  selectUnreadPresentation,
+} from "./unread-presentation"
 
 /**
  * Fetches the DM conversation sidebar list.
@@ -41,6 +46,11 @@ export function useDms(): UseQueryResult<DmsResponse> & { dms: DM[] } {
     unreadProjection.subscribe,
     unreadProjection.getSnapshot,
     unreadProjection.getSnapshot,
+  )
+  const reservationTarget = useInboxProjectionTarget(queryClient)
+  const unreadExclusion = useMemo(
+    () => reservedUnreadExclusion(reservationTarget, "dms"),
+    [reservationTarget],
   )
   const query = useQuery({
     queryKey: communityKeys.dms(),
@@ -74,12 +84,16 @@ export function useDms(): UseQueryResult<DmsResponse> & { dms: DM[] } {
     void unreadVersion
     return (query.data?.conversations ?? EMPTY_DMS).map((dm) => {
       const profile = readCommunityProfile(profilesByUserId.get(dm.userId), dm.userId)
-      const unread = unreadProjection.projectUnread(
-        "dms",
-        dm.id,
-        dm.unread === true,
-        dm.lastUnreadSeq,
-      )
+      const unread = selectUnreadPresentation({
+        accountUnread: unreadProjection.projectUnread(
+          "dms",
+          dm.id,
+          dm.unread === true,
+          dm.lastUnreadSeq,
+          "dms",
+          unreadExclusion,
+        ),
+      }).effectiveUnread
       return {
         ...dm,
         name: profile.name,
@@ -90,7 +104,7 @@ export function useDms(): UseQueryResult<DmsResponse> & { dms: DM[] } {
         unread,
       }
     })
-  }, [profilesByUserId, query.data?.conversations, unreadProjection, unreadVersion])
+  }, [profilesByUserId, query.data?.conversations, unreadExclusion, unreadProjection, unreadVersion])
   return {
     ...query,
     dms,

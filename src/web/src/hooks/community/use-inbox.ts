@@ -6,8 +6,17 @@ import { apiFetch } from "@/lib/api/client"
 import { apiFetchProfiles, messageProfilePatches } from "@/lib/community/profile-seed"
 import { communityKeys } from "@/lib/query-keys"
 import type { UnreadServer, UnreadDm, Mention, Marked } from "@/lib/community/models/inbox"
-import { reserveInboxUnreadsResponse } from "./inbox-read-reservation"
+import {
+  inboxMentionRowTarget,
+  reserveInboxUnreadsResponse,
+} from "./inbox-read-reservation"
 import { getActiveAccountUnreadProjection } from "./account-unread-projection"
+import { useInboxProjectionTarget } from "./use-inbox-auto-collapse"
+import {
+  isInboxTargetReserved,
+  reservedUnreadExclusion,
+  selectUnreadPresentation,
+} from "./unread-presentation"
 
 class StaleReadError extends Error {
   constructor() { super("stale D1 read"); this.name = "StaleReadError" }
@@ -84,6 +93,15 @@ export function useInboxUnreads(): UseQueryResult<UnreadsResponse> & {
     unreadProjection.getSnapshot,
     unreadProjection.getSnapshot,
   )
+  const reservationTarget = useInboxProjectionTarget(queryClient)
+  const channelExclusion = useMemo(
+    () => reservedUnreadExclusion(reservationTarget, "channels"),
+    [reservationTarget],
+  )
+  const dmExclusion = useMemo(
+    () => reservedUnreadExclusion(reservationTarget, "dms"),
+    [reservationTarget],
+  )
   const queryFn = useMemo(() => inboxUnreadsReservedQueryFn(queryClient), [queryClient])
   const query = useQuery({
     queryKey: communityKeys.inboxUnreads(),
@@ -146,18 +164,26 @@ export function useInboxUnreads(): UseQueryResult<UnreadsResponse> & {
     const servers = rawServers.flatMap((server) => {
       let channelsChanged = false
       const channels = server.channels.flatMap((channel) => {
-        const children = channel.children.filter((child) => unreadProjection.projectUnread(
-          "inbox-unreads",
-          child.channelId,
-          true,
-          child.lastUnreadSeq,
-        ))
-        const direct = channel.hasDirectUnread !== false && unreadProjection.projectUnread(
-          "inbox-unreads",
-          channel.channelId,
-          true,
-          channel.lastUnreadSeq,
-        )
+        const children = channel.children.filter((child) => selectUnreadPresentation({
+          accountUnread: unreadProjection.projectUnread(
+            "inbox-unreads",
+            child.channelId,
+            true,
+            child.lastUnreadSeq,
+            "channels",
+            channelExclusion,
+          ),
+        }).effectiveUnread)
+        const direct = channel.hasDirectUnread !== false && selectUnreadPresentation({
+          accountUnread: unreadProjection.projectUnread(
+            "inbox-unreads",
+            channel.channelId,
+            true,
+            channel.lastUnreadSeq,
+            "channels",
+            channelExclusion,
+          ),
+        }).effectiveUnread
         if (!direct && children.length === 0) {
           channelsChanged = true
           return []
@@ -177,18 +203,21 @@ export function useInboxUnreads(): UseQueryResult<UnreadsResponse> & {
       return [{ ...server, channels }]
     })
     const rawDms = query.data?.dms ?? (EMPTY_DMS as UnreadDm[])
-    const dms = rawDms.filter((dm) => unreadProjection.projectUnread(
-      "inbox-unreads",
-      dm.channelId,
-      true,
-      dm.lastUnreadSeq,
-      "dms",
-    ))
+    const dms = rawDms.filter((dm) => selectUnreadPresentation({
+      accountUnread: unreadProjection.projectUnread(
+        "inbox-unreads",
+        dm.channelId,
+        true,
+        dm.lastUnreadSeq,
+        "dms",
+        dmExclusion,
+      ),
+    }).effectiveUnread)
     return {
       servers: serversChanged ? servers : rawServers,
       dms: dms.length === rawDms.length ? rawDms : dms,
     }
-  }, [query.data, unreadProjection, unreadVersion])
+  }, [channelExclusion, dmExclusion, query.data, unreadProjection, unreadVersion])
   return {
     ...query,
     servers: projected.servers ?? (EMPTY_UNREADS as UnreadServer[]),
@@ -196,8 +225,8 @@ export function useInboxUnreads(): UseQueryResult<UnreadsResponse> & {
     hasProjectedUnread:
       projected.servers.length > 0
       || projected.dms.length > 0
-      || unreadProjection.hasPending("inbox-unreads", "channels")
-      || unreadProjection.hasPending("inbox-unreads", "dms"),
+      || unreadProjection.hasPending("inbox-unreads", "channels", channelExclusion)
+      || unreadProjection.hasPending("inbox-unreads", "dms", dmExclusion),
   }
 }
 
@@ -230,6 +259,7 @@ export function useInboxMentions(): UseQueryResult<MentionsResponse> & {
     unreadProjection.getSnapshot,
     unreadProjection.getSnapshot,
   )
+  const reservationTarget = useInboxProjectionTarget(queryClient)
   const query = useQuery({
     queryKey: communityKeys.inboxMentions(),
     queryFn: inboxMentionsQueryFn,
@@ -271,15 +301,21 @@ export function useInboxMentions(): UseQueryResult<MentionsResponse> & {
     const raw = query.data?.mentions ?? (EMPTY_MENTIONS as Mention[])
     const projected = raw.filter((mention) => (
       !mention.channelId
-      || unreadProjection.projectUnread(
-        "inbox-mentions",
-        mention.channelId,
-        true,
-        mention.m.seq,
-      )
+      || selectUnreadPresentation({
+        accountUnread: unreadProjection.projectUnread(
+          "inbox-mentions",
+          mention.channelId,
+          true,
+          mention.m.seq,
+        ),
+        reserved: isInboxTargetReserved(
+          reservationTarget,
+          inboxMentionRowTarget(mention),
+        ),
+      }).effectiveUnread
     ))
     return projected.length === raw.length ? raw : projected
-  }, [query.data, unreadProjection, unreadVersion])
+  }, [query.data, reservationTarget, unreadProjection, unreadVersion])
   return {
     ...query,
     mentions,

@@ -23,6 +23,7 @@ import type { SettingsSection } from "@/components/community/settings/settings-t
 import { UNCATEGORIZED_CATEGORY_ID, type ChannelType } from "@alook/shared"
 import { tid } from "@/lib/community/testids"
 import type { ForumSidebarThread } from "@/hooks/community/use-forum-sidebar-threads"
+import { selectUnreadPresentation } from "@/hooks/community/unread-presentation"
 
 
 type Dialog =
@@ -447,6 +448,11 @@ function ForumSidebarThreadRow({
   onClick: () => void
   onPrefetch?: () => void
 }) {
+  const unread = selectUnreadPresentation({
+    accountUnread: thread.unread,
+    active,
+    muted,
+  })
   return (
     <div className="relative h-7">
       <button
@@ -466,13 +472,13 @@ function ForumSidebarThreadRow({
             ? "bg-sidebar-accent text-foreground"
             : muted
               ? "text-muted-foreground/50 hover:bg-sidebar-accent/60 hover:text-muted-foreground"
-              : thread.unread
+              : unread.emphasize
                 ? "text-foreground hover:bg-sidebar-accent/60"
             : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
         ].join(" ")}
       >
         <span className="truncate">{thread.title}</span>
-        {!muted && thread.unread && !active ? (
+        {unread.showDot ? (
           <span className="ml-auto size-2 shrink-0 rounded-full bg-primary" />
         ) : null}
       </button>

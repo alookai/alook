@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import type { DM } from "@/lib/community/models/people"
+import { inboxDmRowTarget } from "./inbox-read-reservation"
 
 const apiFetchMock = vi.fn()
 vi.mock("@/lib/api/client", () => ({
@@ -161,6 +162,67 @@ describe("useDms / dmsQueryFn", () => {
     expect(latest?.dms[1]?.unread).toBe(true)
     expect(latest?.dms[2]?.unread).toBe(true)
     expect(qc.getQueryData(communityKeys.dms())).toEqual({ conversations })
+    await act(async () => renderer.unmount())
+  })
+
+  it("projects and rolls back the exact Inbox DM reservation without hiding a sibling", async () => {
+    const conversations = [
+      {
+        id: "dm_1", userId: "u_1", name: "Alice", discriminator: "0001",
+        avatar: "a", avatarVersion: 1, status: "offline", preview: "one",
+        unread: true, lastUnreadSeq: 2,
+      },
+      {
+        id: "dm_2", userId: "u_2", name: "Bob", discriminator: "0002",
+        avatar: "b", avatarVersion: 1, status: "offline", preview: "two",
+        unread: true, lastUnreadSeq: 3,
+      },
+    ] as DM[]
+    const inboxDm = {
+      channelId: "dm_1",
+      otherUserId: "u_1",
+      otherUserName: "Alice",
+      otherUserDiscriminator: "0001",
+      otherUserAvatar: "a",
+      otherUserAvatarVersion: 1,
+      lastMessageAt: "2026-09-02T00:00:00.000Z",
+      lastUnreadSeq: 2,
+    }
+    const { useDms } = await import("./use-dms")
+    const { useInboxAutoCollapse } = await import("./use-inbox-auto-collapse")
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    qc.setQueryData(communityKeys.dms(), { conversations })
+    let latest: ReturnType<typeof useDms> | undefined
+    let collapse: ReturnType<typeof useInboxAutoCollapse> | undefined
+    function Harness() {
+      latest = useDms()
+      collapse = useInboxAutoCollapse({
+        queryClient: qc,
+        publishedHref: "/c/me",
+        navigationPending: false,
+        pendingHref: null,
+      })
+      return null
+    }
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(
+        QueryClientProvider,
+        { client: qc },
+        React.createElement(Harness),
+      ))
+    })
+
+    let epoch = 0
+    await act(async () => {
+      epoch = collapse!.beginProjection(inboxDmRowTarget(inboxDm), "/c/me/dm_1")
+    })
+    expect(latest?.dms.map((dm) => dm.unread)).toEqual([false, true])
+
+    await act(async () => {
+      collapse!.rollbackProjection(epoch)
+    })
+    expect(latest?.dms.map((dm) => dm.unread)).toEqual([true, true])
     await act(async () => renderer.unmount())
   })
 

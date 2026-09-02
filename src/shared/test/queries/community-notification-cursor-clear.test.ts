@@ -36,7 +36,7 @@ describe("policyAllows", () => {
   });
 });
 
-describe("notification setting cursor-clear contract", () => {
+describe("notification setting read-state isolation contract", () => {
   let sqlite: Sqlite.Database;
   let db: Database;
 
@@ -174,13 +174,23 @@ describe("notification setting cursor-clear contract", () => {
     ORDER BY channel_id
   `).all();
 
-  it("atomically sets a server level and clears every non-empty channel in that server", async () => {
-    await setServerLevel(db, { userId: "u", serverId: "server", level: "nothing", actorKind: "human" });
+  it("sets a server policy without manufacturing or advancing channel cursors", async () => {
+    sqlite.exec(`
+      INSERT INTO community_read_state
+        (id, user_id, channel_id, last_read_at, last_read_message_id, last_read_seq)
+      VALUES ('rs', 'u', 'parent', '2026-01-01T00:00:01Z', 'parent-1', 1);
+    `);
 
+    const result = await setServerLevel(db, {
+      userId: "u",
+      serverId: "server",
+      level: "nothing",
+      actorKind: "human",
+    });
+
+    expect(result.readStateRevision).toBe(1);
     expect(cursors()).toEqual([
-      { channel_id: "child", last_read_message_id: "child-3", last_read_at: "2026-01-01T00:00:03Z", last_read_seq: 3 },
-      { channel_id: "parent", last_read_message_id: "parent-2", last_read_at: "2026-01-01T00:00:02Z", last_read_seq: 2 },
-      { channel_id: "sibling", last_read_message_id: "sibling-4", last_read_at: "2026-01-01T00:00:04Z", last_read_seq: 4 },
+      { channel_id: "parent", last_read_message_id: "parent-1", last_read_at: "2026-01-01T00:00:01Z", last_read_seq: 1 },
     ]);
     expect(sqlite.prepare("SELECT level FROM community_notification_setting WHERE user_id='u' AND server_id='server'").get())
       .toEqual({ level: "nothing" });
@@ -199,7 +209,7 @@ describe("notification setting cursor-clear contract", () => {
       .toEqual({ count: 0 });
   });
 
-  it("advances a forum's ordinary cursor and versions only an effective policy change", async () => {
+  it("versions an effective human policy change without writing a forum cursor", async () => {
     sqlite.exec(`
       UPDATE community_channel SET type = 'forum' WHERE id = 'parent';
     `);
@@ -211,12 +221,7 @@ describe("notification setting cursor-clear contract", () => {
       actorKind: "human",
     });
     expect(first.readStateRevision).toBe(1);
-    expect(cursors()).toContainEqual({
-      channel_id: "parent",
-      last_read_message_id: "parent-2",
-      last_read_at: "2026-01-01T00:00:02Z",
-      last_read_seq: 2,
-    });
+    expect(cursors()).toEqual([]);
 
     const duplicate = await setChannelLevel(db, {
       userId: "u",
@@ -230,40 +235,35 @@ describe("notification setting cursor-clear contract", () => {
     `).get()).toEqual({ revision: 1 });
   });
 
-  it("does not clear a private channel the target identity cannot access", async () => {
-    sqlite.exec(`
-      INSERT INTO community_category (id, server_id, private) VALUES ('private', 'server', 1);
-      UPDATE community_channel SET category_id = 'private', creator_id = 'author' WHERE id = 'sibling';
-    `);
-
-    await setServerLevel(db, { userId: "u", serverId: "server", level: "nothing", actorKind: "human" });
-    expect(cursors().map((row: any) => row.channel_id)).toEqual(["child", "parent"]);
-  });
-
-  it("a parent override clears the parent and its children, but not a sibling", async () => {
+  it("a parent override leaves parent, child, and sibling unread state untouched", async () => {
     await setChannelLevel(db, { userId: "u", channelId: "parent", level: "mentions", actorKind: "human" });
-    expect(cursors().map((row: any) => row.channel_id)).toEqual(["child", "parent"]);
+    expect(cursors()).toEqual([]);
   });
 
-  it("server changes do not clear descendants protected by a more specific override", async () => {
+  it("server changes leave descendants with a more specific override unread", async () => {
     sqlite.prepare(`
       INSERT INTO community_notification_setting (id, user_id, channel_id, level)
       VALUES ('child-own', 'u', 'child', 'all')
     `).run();
 
     await setServerLevel(db, { userId: "u", serverId: "server", level: "nothing", actorKind: "human" });
-    expect(cursors().map((row: any) => row.channel_id)).toEqual(["parent", "sibling"]);
-  });
-
-  it("does not clear when an explicit override leaves the effective level unchanged", async () => {
-    await setServerLevel(db, { userId: "u", serverId: "server", level: "mentions", actorKind: "human" });
-    sqlite.prepare("DELETE FROM community_read_state").run();
-
-    await setChannelLevel(db, { userId: "u", channelId: "parent", level: "mentions", actorKind: "human" });
     expect(cursors()).toEqual([]);
   });
 
-  it("an idempotent retry preserves messages that arrived after the successful change", async () => {
+  it("does not mint a revision or cursor when an explicit override leaves policy unchanged", async () => {
+    await setServerLevel(db, { userId: "u", serverId: "server", level: "mentions", actorKind: "human" });
+
+    const result = await setChannelLevel(db, {
+      userId: "u",
+      channelId: "parent",
+      level: "mentions",
+      actorKind: "human",
+    });
+    expect(result.readStateRevision).toBeNull();
+    expect(cursors()).toEqual([]);
+  });
+
+  it("an idempotent retry preserves every old and newly arrived unread message", async () => {
     await setChannelLevel(db, { userId: "u", channelId: "parent", level: "nothing", actorKind: "human" });
     sqlite.exec(`
       INSERT INTO community_message (id, channel_id, created_at, seq) VALUES
@@ -272,59 +272,51 @@ describe("notification setting cursor-clear contract", () => {
     `);
 
     await setChannelLevel(db, { userId: "u", channelId: "parent", level: "nothing", actorKind: "human" });
-    expect(cursors()).toEqual([
-      { channel_id: "child", last_read_message_id: "child-3", last_read_at: "2026-01-01T00:00:03Z", last_read_seq: 3 },
-      { channel_id: "parent", last_read_message_id: "parent-2", last_read_at: "2026-01-01T00:00:02Z", last_read_seq: 2 },
-    ]);
-  });
-
-  it("a DM uses the same channel-scope setting and only clears that DM", async () => {
-    await setChannelLevel(db, { userId: "u", channelId: "dm", level: "nothing", actorKind: "human" });
-    expect(cursors()).toEqual([
-      { channel_id: "dm", last_read_message_id: "dm-5", last_read_at: "2026-01-01T00:00:05Z", last_read_seq: 5 },
-    ]);
-  });
-
-  it("empty channels never manufacture a read-state row", async () => {
-    await setChannelLevel(db, { userId: "u", channelId: "empty", level: "nothing", actorKind: "human" });
     expect(cursors()).toEqual([]);
   });
 
-  it("never regresses an already-newer aligned cursor", async () => {
+  it("a DM setting and override removal preserve its unread cursor", async () => {
     sqlite.exec(`
-      INSERT INTO community_message (id, channel_id, created_at, seq)
-      VALUES ('parent-9', 'parent', '2026-01-01T00:00:09Z', 9);
       INSERT INTO community_read_state
         (id, user_id, channel_id, last_read_at, last_read_message_id, last_read_seq)
-      VALUES ('rs', 'u', 'parent', '2026-01-01T00:00:09Z', 'parent-9', 9);
-      DELETE FROM community_message WHERE id = 'parent-9';
+      VALUES ('dm-rs', 'u', 'dm', '2026-01-01T00:00:05Z', 'dm-5', 5);
     `);
+    const before = cursors();
 
-    await setChannelLevel(db, { userId: "u", channelId: "parent", level: "all", actorKind: "human" });
-    expect(sqlite.prepare("SELECT last_read_message_id, last_read_seq FROM community_read_state WHERE id='rs'").get())
-      .toEqual({ last_read_message_id: "parent-9", last_read_seq: 9 });
+    const set = await setChannelLevel(db, {
+      userId: "u",
+      channelId: "dm",
+      level: "nothing",
+      actorKind: "human",
+    });
+    expect(set.readStateRevision).toBe(1);
+    expect(cursors()).toEqual(before);
+    const removed = await removeChannelOverride(db, {
+      userId: "u",
+      channelId: "dm",
+      actorKind: "human",
+    });
+
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM community_notification_setting WHERE channel_id='dm'").get())
+      .toEqual({ count: 0 });
+    expect(removed.readStateRevision).toBe(2);
+    expect(cursors()).toEqual(before);
   });
 
-  it("rolls the setting back when cursor advancement fails", async () => {
+  it("succeeds even when the database rejects every read-state insert", async () => {
     sqlite.exec(`
       CREATE TRIGGER reject_read_state BEFORE INSERT ON community_read_state
       BEGIN SELECT RAISE(ABORT, 'cursor rejected'); END;
     `);
 
-    await expect(setServerLevel(db, { userId: "u", serverId: "server", level: "nothing", actorKind: "human" }))
-      .rejects.toThrow("cursor rejected");
+    await expect(setServerLevel(db, {
+      userId: "u",
+      serverId: "server",
+      level: "nothing",
+      actorKind: "human",
+    })).resolves.toMatchObject({ setting: { level: "nothing" } });
     expect(sqlite.prepare("SELECT COUNT(*) AS count FROM community_notification_setting").get())
-      .toEqual({ count: 0 });
-  });
-
-  it("override removal also clears old unread before inheriting again", async () => {
-    await setChannelLevel(db, { userId: "u", channelId: "dm", level: "nothing", actorKind: "human" });
-    sqlite.prepare("DELETE FROM community_read_state").run();
-    await removeChannelOverride(db, { userId: "u", channelId: "dm", actorKind: "human" });
-
-    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM community_notification_setting WHERE channel_id='dm'").get())
-      .toEqual({ count: 0 });
-    expect(cursors().map((row: any) => row.channel_id)).toEqual(["dm"]);
+      .toEqual({ count: 1 });
   });
 
   it("a no-op override removal preserves unread and creates no cursor", async () => {
@@ -356,7 +348,7 @@ describe("notification setting cursor-clear contract", () => {
     expect(row).toEqual({ mentioned: 1, plain: 0 });
   });
 
-  it("rail mention badge follows policy changes and the aligned read cursor", async () => {
+  it("rail mention badge hides and restores old unread without moving the cursor", async () => {
     sqlite.exec(`
       INSERT INTO community_mention (id, message_id, user_id, kind, read)
       VALUES ('rail-old', 'child-3', 'u', 'mention', 0);
@@ -376,14 +368,15 @@ describe("notification setting cursor-clear contract", () => {
     await expect(railCount()).resolves.toBe(0);
 
     await setChannelLevel(db, { userId: "u", channelId: "child", level: "mentions", actorKind: "human" });
-    await expect(railCount()).resolves.toBe(0);
+    await expect(railCount()).resolves.toBe(2);
+    expect(cursors()).toEqual([]);
     sqlite.exec(`
       INSERT INTO community_message (id, channel_id, created_at, seq)
       VALUES ('child-7', 'child', '2026-01-01T00:00:07Z', 7);
       INSERT INTO community_mention (id, message_id, user_id, kind, read)
       VALUES ('rail-new', 'child-7', 'u', 'mention', 0);
     `);
-    await expect(railCount()).resolves.toBe(1);
+    await expect(railCount()).resolves.toBe(3);
   });
 
   it("rail mention badge disappears immediately when private-channel access is revoked", async () => {

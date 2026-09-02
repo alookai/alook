@@ -117,4 +117,43 @@ describe("DmSidebar navigation intent", () => {
 
     act(() => renderer.unmount())
   })
+
+  it("uses the active row shape without a duplicate unread dot", async () => {
+    const dm = {
+      id: "dm_1",
+      userId: "user_1",
+      name: "Melly",
+      discriminator: "0001",
+      avatar: "M",
+      avatarVersion: 0,
+      status: "online" as const,
+      preview: "hello",
+      unread: true,
+    }
+    let renderer!: ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(createElement(DmSidebar, {
+        dms: [dm],
+        activeDm: "dm_1",
+        onPickDm: vi.fn(),
+        onShowFriends: vi.fn(),
+      }))
+    })
+    const unreadDots = () => renderer.root.findAll((node) => (
+      node.type === "span"
+      && node.props.className === "size-2 shrink-0 rounded-full bg-primary"
+    ))
+    expect(unreadDots()).toHaveLength(0)
+
+    await act(async () => {
+      renderer.update(createElement(DmSidebar, {
+        dms: [dm],
+        activeDm: null,
+        onPickDm: vi.fn(),
+        onShowFriends: vi.fn(),
+      }))
+    })
+    expect(unreadDots()).toHaveLength(1)
+    act(() => renderer.unmount())
+  })
 })
