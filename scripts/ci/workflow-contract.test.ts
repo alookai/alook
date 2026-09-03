@@ -873,7 +873,7 @@ describe("Desktop image clipboard", () => {
 })
 
 describe("Mobile release availability", () => {
-  it("builds a manually triggered signed IPA and keeps TestFlight upload opt-in", () => {
+  it("publishes --mobile bumps to TestFlight and keeps manual uploads opt-in", () => {
     expect(existsSync(mobileReleaseWorkflowPath)).toBe(true)
     expect(desktopIosConfig.identifier).toBe("ai.alook.ios")
     expect(iosProject).toContain("PRODUCT_BUNDLE_IDENTIFIER: ai.alook.ios")
@@ -887,10 +887,14 @@ describe("Mobile release availability", () => {
     expect(iosExportOptions).toContain("<key>ai.alook.ios</key>")
     expect(iosExportOptions).toContain("<string>Alook iOS App Store Connect</string>")
     expect(mobileReleaseWorkflow).toMatch(/^  workflow_dispatch:/m)
-    expect(mobileReleaseWorkflow).not.toMatch(/^  push:/m)
+    expect(mobileReleaseWorkflow).toMatch(/^  push:/m)
+    expect(mobileReleaseWorkflow).toContain('branches: [main]')
+    expect(mobileReleaseWorkflow).toContain('src/desktop/.deploy-version-mobile')
     expect(mobileReleaseWorkflow).not.toMatch(/^  pull_request:/m)
     expect(mobileReleaseWorkflow).toContain("default: false")
-    expect(mobileReleaseWorkflow).toContain("inputs.upload == true")
+    expect(mobileReleaseWorkflow).toContain("github.event_name == 'push' || inputs.upload == true")
+    expect(mobileReleaseWorkflow).toContain("Verify automatic TestFlight release version")
+    expect(mobileReleaseWorkflow).toContain('requested_version=$(tr -d')
     expect(mobileReleaseWorkflow).toContain("APPLE_DEVELOPMENT_TEAM:")
     expect(mobileReleaseWorkflow).toContain("IOS_CERTIFICATE:")
     expect(mobileReleaseWorkflow).toContain("IOS_CERTIFICATE_PASSWORD:")
@@ -906,8 +910,9 @@ describe("Mobile release availability", () => {
     expect(mobileReleaseWorkflow).toContain("CFBundleVersion")
     expect(mobileReleaseWorkflow).toContain("xcrun altool --upload-app")
     expect(mobileReleaseWorkflow).toContain("actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a")
-    expect(bumpScript).not.toContain("deploy-version-mobile")
+    expect(bumpScript).toContain('args.includes("--mobile")')
+    expect(bumpScript).toContain("src/desktop/.deploy-version-mobile")
+    expect(bumpScript).toContain("automatic TestFlight upload")
     expect(bumpScript).toContain("iOS CFBundleShortVersionString")
-    expect(bumpScript).toContain("Mobile releases use the manual Mobile TestFlight workflow")
   })
 })

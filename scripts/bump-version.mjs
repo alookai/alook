@@ -27,12 +27,14 @@ function bumpSemver(current, type) {
 const args = process.argv.slice(2);
 const updateMinCli = args.includes("--min-cli");
 const includeDesktop = args.includes("--desktop");
+const includeMobile = args.includes("--mobile");
 const unsupportedFlag = args.find(
-  (arg) => arg.startsWith("--") && !["--min-cli", "--desktop"].includes(arg),
+  (arg) =>
+    arg.startsWith("--") &&
+    !["--min-cli", "--desktop", "--mobile"].includes(arg),
 );
 if (unsupportedFlag) {
   console.error(`Unsupported flag: ${unsupportedFlag}`);
-  console.error("Mobile releases use the manual Mobile TestFlight workflow; no bump flag is supported.");
   process.exit(1);
 }
 const filtered = args.filter((a) => !a.startsWith("--"));
@@ -42,6 +44,7 @@ if (!arg) {
   console.error("Usage: pnpm bump <version|patch|minor|major> [flags]");
   console.error("  pnpm bump patch");
   console.error("  pnpm bump patch --desktop        # trigger desktop build");
+  console.error("  pnpm bump patch --mobile         # publish this version to TestFlight");
   console.error("  pnpm bump patch --min-cli        # also update MIN_CLI_VERSION");
   process.exit(1);
 }
@@ -134,6 +137,14 @@ if (includeDesktop) {
   console.log(`  Desktop deploy trigger written`);
 }
 
+// TestFlight deploy trigger (only with --mobile)
+if (includeMobile) {
+  const triggerPath = join(ROOT, "src/desktop/.deploy-version-mobile");
+  writeFileSync(triggerPath, version + "\n");
+  files.push(triggerPath);
+  console.log(`  TestFlight deploy trigger written`);
+}
+
 if (updateMinCli) {
   const tomlPath = join(ROOT, "src/web/wrangler.toml");
   let toml = readFileSync(tomlPath, "utf8");
@@ -156,4 +167,6 @@ console.log(`   # CI will auto-tag and trigger:`);
 console.log(`   #   - CF Workers deploy (always)`);
 if (includeDesktop) console.log(`   #   - Desktop build (macOS/Linux/Windows)`);
 if (!includeDesktop) console.log(`   #   - No desktop build (add --desktop to include)`);
+if (includeMobile) console.log(`   #   - Signed iOS build and automatic TestFlight upload`);
+if (!includeMobile) console.log(`   #   - No TestFlight upload (add --mobile to include)`);
 console.log();

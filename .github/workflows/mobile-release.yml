@@ -1,6 +1,10 @@
 name: Mobile TestFlight
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "src/desktop/.deploy-version-mobile"
   workflow_dispatch:
     inputs:
       upload:
@@ -47,6 +51,18 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
         working-directory: src/desktop
+
+      - name: Verify automatic TestFlight release version
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          set -euo pipefail
+          requested_version=$(tr -d '\n' < src/desktop/.deploy-version-mobile)
+          tauri_version=$(node -p "require('./src/desktop/src-tauri/tauri.conf.json').version")
+          package_version=$(node -p "require('./src/desktop/package.json').version")
+          test -n "$requested_version"
+          test "$requested_version" = "$tauri_version"
+          test "$requested_version" = "$package_version"
 
       - name: Generate Xcode project
         working-directory: src/desktop
@@ -143,7 +159,7 @@ jobs:
           retention-days: 14
 
       - name: Prepare App Store Connect API key
-        if: inputs.upload == true
+        if: github.event_name == 'push' || inputs.upload == true
         shell: bash
         env:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
@@ -159,7 +175,7 @@ jobs:
           echo "API_PRIVATE_KEYS_DIR=$key_dir" >> "$GITHUB_ENV"
 
       - name: Upload to App Store Connect
-        if: inputs.upload == true
+        if: github.event_name == 'push' || inputs.upload == true
         env:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
