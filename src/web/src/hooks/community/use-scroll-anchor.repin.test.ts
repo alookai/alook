@@ -67,21 +67,37 @@ async function mountHook({
   distanceToEnd = 0,
   initialClientHeight = 800,
   initialScrollHeight = 1_600,
+  items = [] as FlatItem[],
+  initialScrollReady = false,
+  heroMeasured = false,
+  hasMoreNewer,
+  presentVersion,
+  viewerUserId,
 }: {
   distanceToEnd?: number
   initialClientHeight?: number
   initialScrollHeight?: number
+  items?: FlatItem[]
+  initialScrollReady?: boolean
+  heroMeasured?: boolean
+  hasMoreNewer?: boolean
+  presentVersion?: number
+  viewerUserId?: string
 } = {}) {
   const { useScrollAnchor } = await import("./use-scroll-anchor")
+  const hookInput = {
+    items,
+    initialScrollReady,
+    heroHeight: 0,
+    heroMeasured,
+    hasMoreNewer,
+    presentVersion,
+    viewerUserId,
+  }
   // The React module is intentionally mocked above; this calls a deterministic
   // hook shim rather than mounting a real component tree.
   // eslint-disable-next-line react-hooks/rules-of-hooks
-  const result = useScrollAnchor({
-    items: [] as FlatItem[],
-    initialScrollReady: false,
-    heroHeight: 0,
-    heroMeasured: false,
-  })
+  const result = useScrollAnchor(hookInput)
 
   const listeners = new Map<string, EventListener>()
   const scrollWrites: number[] = []
@@ -110,10 +126,21 @@ async function mountHook({
     scrollTop = Math.max(0, scrollHeight - clientHeight)
   })
 
-  // The first layout effect installs the real scroll/wheel intent listeners.
-  layoutEffects[0]?.()
-  // The final layout effect owns viewport ResizeObserver policy.
-  layoutEffects.at(-1)?.()
+  const runLayoutEffects = () => {
+    for (const effect of layoutEffects) effect()
+  }
+  runLayoutEffects()
+
+  const rerender = (overrides: Partial<typeof hookInput>) => {
+    refIndex = 0
+    layoutEffects = []
+    Object.assign(hookInput, overrides)
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    const nextResult = useScrollAnchor(hookInput)
+    nextResult.scrollRef.current = scroller
+    runLayoutEffects()
+    return nextResult
+  }
 
   const setBrowserScrollTop = (value: number) => {
     scrollTop = Math.max(0, Math.min(value, scrollHeight - clientHeight))
@@ -154,6 +181,15 @@ async function mountHook({
     setBrowserScrollTop,
     setScrollHeight,
     geometry,
+    rerender,
+  }
+}
+
+function messageItem(id: string, authorId?: string): FlatItem {
+  return {
+    kind: "message",
+    m: { id, type: "chat", grouped: false, authorId },
+    key: `msg:${id}`,
   }
 }
 
@@ -351,6 +387,60 @@ describe("useScrollAnchor viewport resize exact-pinned latch", () => {
     resizeViewport(799)
 
     expect(virtualizer.scrollToEnd).toHaveBeenCalledTimes(1)
+  })
+
+  it("restores the latch for warm-mount and peer-follow end actions", async () => {
+    const first = messageItem("m1", "peer")
+    const { rerender, resizeViewport } = await mountHook({
+      distanceToEnd: 2,
+      items: [first],
+      heroMeasured: true,
+    })
+
+    expect(virtualizer.scrollToEnd).toHaveBeenCalledTimes(1)
+    expect(virtualizer.options.anchorTo).toBe("end")
+
+    virtualizer.scrollToEnd.mockClear()
+    rerender({
+      items: [first, messageItem("m2", "peer")],
+      viewerUserId: "viewer",
+    })
+    expect(virtualizer.scrollToEnd).toHaveBeenCalledTimes(1)
+    expect(virtualizer.options.anchorTo).toBe("end")
+
+    virtualizer.scrollToEnd.mockClear()
+    resizeViewport(799)
+    expect(virtualizer.scrollToEnd).toHaveBeenCalledTimes(1)
+  })
+
+  it("restores the latch for an explicit present action", async () => {
+    const { resizeViewport } = await mountHook({
+      distanceToEnd: 300,
+      items: [messageItem("m1")],
+      presentVersion: 1,
+    })
+
+    expect(virtualizer.scrollToEnd).toHaveBeenCalledTimes(1)
+    expect(virtualizer.options.anchorTo).toBe("end")
+
+    virtualizer.scrollToEnd.mockClear()
+    resizeViewport(799)
+    expect(virtualizer.scrollToEnd).toHaveBeenCalledTimes(1)
+  })
+
+  it("re-pins an exactly pinned image load but ignores one after upward intent", async () => {
+    const { listeners, result } = await mountHook({ distanceToEnd: 0 })
+
+    virtualizer.options.anchorTo = "start"
+    result.onImageLoad()
+    expect(virtualizer.options.anchorTo).toBe("end")
+    expect(virtualizer.scrollToEnd).toHaveBeenCalledTimes(1)
+
+    virtualizer.scrollToEnd.mockClear()
+    listeners.get("wheel")?.({ deltaY: -1 } as WheelEvent)
+    result.onImageLoad()
+    expect(virtualizer.options.anchorTo).toBe("start")
+    expect(virtualizer.scrollToEnd).not.toHaveBeenCalled()
   })
 
   it("uses exact-pinned rather than 100px near-bottom for delayed row growth", async () => {
