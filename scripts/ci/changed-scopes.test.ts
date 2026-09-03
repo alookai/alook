@@ -336,6 +336,25 @@ describe("coverage name-status contract", () => {
     expect(() => parseNameStatus(Buffer.from("M\0"))).toThrow("missing path")
     expect(() => parseNameStatus(Buffer.from("R100\0old.ts\0"))).toThrow("missing destination")
   })
+
+  it("sorts equal destination paths by old path and then status", () => {
+    const input = Buffer.from([
+      "R100", "src/cli/src/z.ts", "src/cli/src/same.ts",
+      "R090", "src/cli/src/a.ts", "src/cli/src/same.ts",
+      "C100", "src/cli/src/a.ts", "src/cli/src/same.ts",
+      "M", "src/cli/src/same.ts",
+      "A", "src/cli/src/same.ts",
+      "",
+    ].join("\0"))
+
+    expect(parseNameStatus(input)).toEqual([
+      { status: "A", path: "src/cli/src/same.ts" },
+      { status: "M", path: "src/cli/src/same.ts" },
+      { status: "C100", old_path: "src/cli/src/a.ts", path: "src/cli/src/same.ts" },
+      { status: "R090", old_path: "src/cli/src/a.ts", path: "src/cli/src/same.ts" },
+      { status: "R100", old_path: "src/cli/src/z.ts", path: "src/cli/src/same.ts" },
+    ])
+  })
 })
 
 describe("scope manifest", () => {

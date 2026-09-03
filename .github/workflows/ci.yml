@@ -259,7 +259,12 @@ jobs:
           CI_PROJECTION_VALUE: ${{ needs.scope.outputs.unit_test_roots }}
         run: node scripts/ci/validate-execution-plan.mjs
       - name: Build selected agent-driver fixture
-        if: contains(fromJSON(needs.scope.outputs.unit_test_roots), 'src/daemon/agent-driver')
+        if: >-
+          contains(fromJSON(needs.scope.outputs.unit_test_roots), 'src/daemon/agent-driver') ||
+          contains(fromJSON(needs.scope.outputs.unit_test_roots), 'src/daemon') ||
+          contains(fromJSON(needs.scope.outputs.linux_suites), 'agent-driver-packed') ||
+          contains(fromJSON(needs.scope.outputs.linux_suites), 'daemon-packed') ||
+          contains(fromJSON(needs.scope.outputs.linux_suites), 'daemon-real')
         run: pnpm --filter @alook/agent-driver build
       - name: Run selected unit tests
         env:

@@ -45,14 +45,14 @@ function validInput() {
   }
 }
 
-function cliRuntime(sourcePath: string) {
+function cliRuntime(sourcePath: string | null) {
   const manifest = loadScopeManifest()
   return {
     manifest,
     execFileSync: vi.fn((_file: string, args: string[], options: unknown) => {
       if (args[0] === "ls-remote") return `${fixtureSha}\trefs/heads/test\n`
       if (args[0] === "show") return `${candidateSha}\n`
-      if (args[0] === "diff") return Buffer.from(`M\0${sourcePath}\0`)
+      if (args[0] === "diff") return sourcePath === null ? Buffer.alloc(0) : Buffer.from(`M\0${sourcePath}\0`)
       if (args[0] === "ls-tree") return `100644 blob\t${sourcePath}\n`
       throw new Error(`unexpected git call: ${args.join(" ")} / ${String(options)}`)
     }),
@@ -212,6 +212,23 @@ describe("characterization guard CLI", () => {
 
   it("requires the full locked argument set", () => {
     expect(() => runCli([])).toThrow("--repository is required")
+  })
+
+  it("rejects an empty Git diff through its absent file mode", () => {
+    const directory = mkdtempSync(join(tmpdir(), "alook-characterization-empty-"))
+    const candidatePrJson = join(directory, "candidate.json")
+    try {
+      writeFileSync(candidatePrJson, JSON.stringify({
+        state: "open",
+        head: { sha: candidateSha, repo: { full_name: "alookai/alook" } },
+      }))
+      expect(() => runCli(
+        cliArgs(candidatePrJson, "package"),
+        cliRuntime(null),
+      )).toThrow("regular source file")
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
   })
 
   it("maps present, absent, and invalid integrity blobs", () => {

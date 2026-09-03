@@ -686,6 +686,29 @@ describe("Turbo CI execution", () => {
     expect(daemonVitestConfig).toContain("sequence: { groupOrder: 2 }")
   })
 
+  it("builds agent-driver before every selected Linux consumer of its dist exports", () => {
+    const linux = ciJob("test-linux")
+    const buildStart = linux.indexOf("- name: Build selected agent-driver fixture")
+    const unitStart = linux.indexOf("- name: Run selected unit tests")
+    const realStart = linux.indexOf("- name: Run selected daemon real-process tests")
+    const packedStart = linux.indexOf("- name: Run selected package artifact tests")
+    const buildStep = linux.slice(buildStart, unitStart)
+
+    expect(buildStart).toBeGreaterThan(-1)
+    expect(buildStep).toContain("run: pnpm --filter @alook/agent-driver build")
+    for (const selector of [
+      "contains(fromJSON(needs.scope.outputs.unit_test_roots), 'src/daemon/agent-driver')",
+      "contains(fromJSON(needs.scope.outputs.unit_test_roots), 'src/daemon')",
+      "contains(fromJSON(needs.scope.outputs.linux_suites), 'agent-driver-packed')",
+      "contains(fromJSON(needs.scope.outputs.linux_suites), 'daemon-packed')",
+      "contains(fromJSON(needs.scope.outputs.linux_suites), 'daemon-real')",
+    ]) expect(buildStep).toContain(selector)
+    expect(buildStep).not.toContain("src/web")
+    expect(unitStart).toBeGreaterThan(buildStart)
+    expect(realStart).toBeGreaterThan(buildStart)
+    expect(packedStart).toBeGreaterThan(buildStart)
+  })
+
   it("runs each direct Worker Node and runtime project once through its standard test task", () => {
     const projectNames: string[] = []
     for (const module of directWorkerModules) {
