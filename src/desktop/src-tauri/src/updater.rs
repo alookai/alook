@@ -6,13 +6,16 @@ use std::sync::{
 use std::time::Duration;
 use tauri::{
     menu::{Menu, MenuItem, MenuItemBuilder, PredefinedMenuItem, HELP_SUBMENU_ID},
-    AppHandle, Emitter,
+    AppHandle, Emitter, Manager,
 };
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 use tauri_plugin_notification::NotificationExt;
+use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_updater::UpdaterExt;
 
 pub const CHECK_FOR_UPDATES_MENU_ID: &str = "check-for-updates";
+const GITHUB_REPOSITORY_MENU_ID: &str = "github-repository";
+const GITHUB_REPOSITORY_URL: &str = "https://github.com/alookai/alook";
 const UPDATE_CHECK_TIMEOUT: Duration = Duration::from_secs(15);
 const UPDATE_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const AUTO_CHECK_INITIAL_DELAY: Duration = Duration::from_secs(30);
@@ -28,7 +31,7 @@ const SIMULATE_COMPLETE_MENU_ID: &str = "simulate-update-complete";
 #[cfg(debug_assertions)]
 const SIMULATE_FAILURE_MENU_ID: &str = "simulate-update-failure";
 
-static UPDATE_AVAILABLE_VERSION: Mutex<Option<String>> = Mutex::new(None);
+static LAST_AUTOMATIC_PROMPT_VERSION: Mutex<Option<String>> = Mutex::new(None);
 static UPDATE_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 static UPDATE_MENU_ITEMS: Mutex<Vec<MenuItem<tauri::Wry>>> = Mutex::new(Vec::new());
 
@@ -43,7 +46,6 @@ enum CheckPresentation {
     Silent,
     UpToDate,
     PromptAvailable,
-    NotifyAvailable,
     ShowError,
 }
 
@@ -54,9 +56,33 @@ enum CheckOutcome {
     Failed,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum AutomaticOfferDisposition {
+    RefreshMenu,
+    Blocked,
+    Published(UpdatePrompt),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum UpdatePromptResponse {
+    Update,
+    Later,
+}
+
+impl From<bool> for UpdatePromptResponse {
+    fn from(update: bool) -> Self {
+        if update {
+            Self::Update
+        } else {
+            Self::Later
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum UpdateMenuAction {
     Check,
+    OpenRepository,
     #[cfg(debug_assertions)]
     SimulateAvailable,
     #[cfg(debug_assertions)]
@@ -76,6 +102,7 @@ enum UpdateMenuLocation {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct UpdateMenuLayout {
     location: UpdateMenuLocation,
+    repository_position: usize,
     check_position: usize,
     separator_position: usize,
     simulator_position: usize,
@@ -86,6 +113,110 @@ struct UpdateProgress {
     percent: f64,
     downloaded: u64,
     total: Option<u64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct UpdatePrompt {
+    current_version: String,
+    available_version: String,
+}
+
+struct PendingUpdate {
+    prompt: UpdatePrompt,
+    update: Option<tauri_plugin_updater::Update>,
+    update_guard: Option<UpdateInProgressGuard<'static>>,
+}
+
+#[derive(Default)]
+pub struct UpdatePromptState {
+    pending: Mutex<Option<PendingUpdate>>,
+}
+
+impl UpdatePromptState {
+    fn replace(&self, pending: PendingUpdate) -> UpdatePrompt {
+        let prompt = pending.prompt.clone();
+        *self
+            .pending
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = Some(pending);
+        prompt
+    }
+
+    #[cfg(test)]
+    fn prompt(&self) -> Option<UpdatePrompt> {
+        self.pending
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .as_ref()
+            .map(|pending| pending.prompt.clone())
+    }
+
+    fn prepare_automatic(
+        &self,
+        mut pending_update: PendingUpdate,
+        update_in_progress: &'static AtomicBool,
+        already_prompted: bool,
+    ) -> AutomaticOfferDisposition {
+        if presentation_for(
+            CheckSource::Automatic,
+            CheckOutcome::Available,
+            already_prompted,
+        ) != CheckPresentation::PromptAvailable
+        {
+            return AutomaticOfferDisposition::RefreshMenu;
+        }
+
+        let Some(update_guard) = UpdateInProgressGuard::acquire(update_in_progress) else {
+            return AutomaticOfferDisposition::Blocked;
+        };
+        let mut pending = self
+            .pending
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if pending.is_some() {
+            return AutomaticOfferDisposition::Blocked;
+        }
+
+        let prompt = pending_update.prompt.clone();
+        pending_update.update_guard = Some(update_guard);
+        *pending = Some(pending_update);
+        AutomaticOfferDisposition::Published(prompt)
+    }
+
+    fn take_matching(&self, version: &str) -> Result<PendingUpdate, String> {
+        let mut pending = self
+            .pending
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        match pending.as_ref() {
+            Some(value) if value.prompt.available_version == version => Ok(pending.take().unwrap()),
+            Some(_) => Err("update prompt version is stale".to_string()),
+            None => Err("update prompt is no longer available".to_string()),
+        }
+    }
+
+    fn restore_if_empty(&self, pending_update: PendingUpdate) {
+        let mut pending = self
+            .pending
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if pending.is_none() {
+            *pending = Some(pending_update);
+        }
+    }
+
+    fn consume_response(
+        &self,
+        version: &str,
+        response: UpdatePromptResponse,
+    ) -> Result<Option<PendingUpdate>, String> {
+        let pending_update = self.take_matching(version)?;
+        if response == UpdatePromptResponse::Later || pending_update.update.is_none() {
+            Ok(None)
+        } else {
+            Ok(Some(pending_update))
+        }
+    }
 }
 
 struct UpdateInProgressGuard<'a> {
@@ -116,15 +247,38 @@ fn presentation_for(
         (CheckSource::Manual, CheckOutcome::Available, _) => CheckPresentation::PromptAvailable,
         (CheckSource::Manual, CheckOutcome::Failed, _) => CheckPresentation::ShowError,
         (CheckSource::Automatic, CheckOutcome::Available, false) => {
-            CheckPresentation::NotifyAvailable
+            CheckPresentation::PromptAvailable
         }
         _ => CheckPresentation::Silent,
     }
 }
 
+fn update_prompt(current_version: &str, available_version: &str) -> UpdatePrompt {
+    UpdatePrompt {
+        current_version: current_version.to_string(),
+        available_version: available_version.to_string(),
+    }
+}
+
+fn update_prompt_message(prompt: &UpdatePrompt) -> String {
+    format!(
+        "Current version: {}\nNew version: {}",
+        prompt.current_version, prompt.available_version
+    )
+}
+
+fn was_automatic_version_prompted(last_prompted: &mut Option<String>, version: &str) -> bool {
+    let already_prompted = last_prompted.as_deref() == Some(version);
+    if !already_prompted {
+        *last_prompted = Some(version.to_string());
+    }
+    already_prompted
+}
+
 fn menu_action(id: &str) -> Option<UpdateMenuAction> {
     match id {
         CHECK_FOR_UPDATES_MENU_ID => Some(UpdateMenuAction::Check),
+        GITHUB_REPOSITORY_MENU_ID => Some(UpdateMenuAction::OpenRepository),
         #[cfg(debug_assertions)]
         SIMULATE_AVAILABLE_MENU_ID => Some(UpdateMenuAction::SimulateAvailable),
         #[cfg(debug_assertions)]
@@ -153,13 +307,15 @@ fn update_menu_layout(target_os: &str) -> UpdateMenuLayout {
     if target_os == "macos" {
         UpdateMenuLayout {
             location: UpdateMenuLocation::Application,
-            check_position: 2,
-            separator_position: 3,
-            simulator_position: 4,
+            repository_position: 1,
+            check_position: 3,
+            separator_position: 4,
+            simulator_position: 5,
         }
     } else {
         UpdateMenuLayout {
             location: UpdateMenuLocation::Help,
+            repository_position: 1,
             check_position: 0,
             separator_position: 1,
             simulator_position: 1,
@@ -188,15 +344,19 @@ fn set_update_available(version: &str) {
     set_update_menu(&update_label(version), true);
 }
 
-fn mark_notified(version: &str) -> bool {
-    let mut notified = UPDATE_AVAILABLE_VERSION
+fn mark_automatic_prompted(version: &str) -> bool {
+    let mut last_prompted = LAST_AUTOMATIC_PROMPT_VERSION
         .lock()
         .unwrap_or_else(|error| error.into_inner());
-    let already_notified = notified.as_deref() == Some(version);
-    if !already_notified {
-        *notified = Some(version.to_string());
-    }
-    already_notified
+    was_automatic_version_prompted(&mut last_prompted, version)
+}
+
+fn automatic_version_prompted(version: &str) -> bool {
+    LAST_AUTOMATIC_PROMPT_VERSION
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .as_deref()
+        == Some(version)
 }
 
 pub fn build_app_menu(handle: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
@@ -214,6 +374,10 @@ pub fn build_app_menu(handle: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     };
 
     if let Some(target_menu) = target_menu {
+        let repository_item =
+            MenuItemBuilder::with_id(GITHUB_REPOSITORY_MENU_ID, "GitHub Repository…")
+                .build(handle)?;
+        target_menu.insert(&repository_item, layout.repository_position)?;
         let check_item = MenuItemBuilder::with_id(CHECK_FOR_UPDATES_MENU_ID, DEFAULT_UPDATE_LABEL)
             .build(handle)?;
         let separator = PredefinedMenuItem::separator(handle)?;
@@ -253,6 +417,14 @@ pub fn handle_menu_event(handle: &AppHandle, id: &str) -> bool {
                 install_update(&app).await;
             });
         }
+        UpdateMenuAction::OpenRepository => {
+            if let Err(error) = handle
+                .opener()
+                .open_url(GITHUB_REPOSITORY_URL, None::<&str>)
+            {
+                eprintln!("failed to open GitHub repository: {error}");
+            }
+        }
         #[cfg(debug_assertions)]
         UpdateMenuAction::SimulateAvailable => simulate_available(handle),
         #[cfg(debug_assertions)]
@@ -267,12 +439,7 @@ pub fn handle_menu_event(handle: &AppHandle, id: &str) -> bool {
 
 pub async fn install_update(handle: &AppHandle) {
     let Some(update_guard) = UpdateInProgressGuard::acquire(&UPDATE_IN_PROGRESS) else {
-        handle
-            .dialog()
-            .message("An update is already in progress.")
-            .title("Alook")
-            .buttons(MessageDialogButtons::OkCustom("OK".into()))
-            .show(|_| {});
+        show_update_in_progress(handle);
         return;
     };
 
@@ -293,30 +460,7 @@ pub async fn install_update(handle: &AppHandle) {
     match updater.check().await {
         Ok(Some(mut update)) => {
             update.timeout = Some(UPDATE_DOWNLOAD_TIMEOUT);
-            let version = update.version.clone();
-            let notes = update.body.clone().unwrap_or_default();
-            set_update_available(&version);
-            let message = if notes.is_empty() {
-                format!("Alook {version} is available. Download and install it now?")
-            } else {
-                format!("Alook {version} is available.\n\n{notes}\n\nDownload and install it now?")
-            };
-            let app = handle.clone();
-            handle
-                .dialog()
-                .message(&message)
-                .title("Update Available")
-                .buttons(MessageDialogButtons::OkCancelCustom(
-                    "Update Alook".into(),
-                    "Later".into(),
-                ))
-                .show(move |confirmed| {
-                    if confirmed {
-                        tauri::async_runtime::spawn(async move {
-                            download_and_install(app, update, update_guard).await;
-                        });
-                    }
-                });
+            prompt_available_update(handle, update, Some(update_guard));
         }
         Ok(None) => {
             set_update_menu(DEFAULT_UPDATE_LABEL, true);
@@ -343,6 +487,86 @@ pub async fn install_update(handle: &AppHandle) {
             }
         }
     }
+}
+
+fn show_update_in_progress(handle: &AppHandle) {
+    handle
+        .dialog()
+        .message("An update is already in progress.")
+        .title("Alook")
+        .buttons(MessageDialogButtons::OkCustom("OK".into()))
+        .show(|_| {});
+}
+
+fn publish_update_prompt(handle: &AppHandle, pending_update: PendingUpdate) {
+    let prompt = handle.state::<UpdatePromptState>().replace(pending_update);
+    present_update_prompt(handle, prompt);
+}
+
+fn present_update_prompt(handle: &AppHandle, prompt: UpdatePrompt) {
+    set_update_available(&prompt.available_version);
+    crate::commands::show_main_window(handle);
+    let version = prompt.available_version.clone();
+    let app = handle.clone();
+    handle
+        .dialog()
+        .message(update_prompt_message(&prompt))
+        .title("Update Available")
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            "Update Alook".into(),
+            "Later".into(),
+        ))
+        .show(move |update| {
+            if let Err(error) =
+                respond_to_update_prompt(&app, &version, UpdatePromptResponse::from(update))
+            {
+                eprintln!("update prompt response failed: {error}");
+            }
+        });
+}
+
+fn prompt_available_update(
+    handle: &AppHandle,
+    update: tauri_plugin_updater::Update,
+    update_guard: Option<UpdateInProgressGuard<'static>>,
+) {
+    let prompt = update_prompt(&update.current_version, &update.version);
+    publish_update_prompt(
+        handle,
+        PendingUpdate {
+            prompt,
+            update: Some(update),
+            update_guard,
+        },
+    );
+}
+
+fn respond_to_update_prompt(
+    handle: &AppHandle,
+    version: &str,
+    response: UpdatePromptResponse,
+) -> Result<(), String> {
+    let state = handle.state::<UpdatePromptState>();
+    let Some(mut pending_update) = state.consume_response(version, response)? else {
+        return Ok(());
+    };
+
+    if pending_update.update_guard.is_none() {
+        let Some(update_guard) = UpdateInProgressGuard::acquire(&UPDATE_IN_PROGRESS) else {
+            state.restore_if_empty(pending_update);
+            show_update_in_progress(handle);
+            return Err("an update is already in progress".to_string());
+        };
+        pending_update.update_guard = Some(update_guard);
+    }
+
+    let update = pending_update.update.take().unwrap();
+    let update_guard = pending_update.update_guard.take().unwrap();
+    let app = handle.clone();
+    tauri::async_runtime::spawn(async move {
+        download_and_install(app, update, update_guard).await;
+    });
+    Ok(())
 }
 
 fn show_check_error(handle: &AppHandle, error: &str) {
@@ -442,27 +666,37 @@ pub fn auto_check_updates(handle: AppHandle) {
                     .timeout(UPDATE_CHECK_TIMEOUT)
                     .build()
                     .ok()?;
-                let update = updater.check().await.ok()??;
-                Some(update.version.clone())
+                updater.check().await.ok()?
             });
 
-            if let Some(version) = found {
-                set_update_available(&version);
-                let already_notified = mark_notified(&version);
-                if presentation_for(
-                    CheckSource::Automatic,
-                    CheckOutcome::Available,
-                    already_notified,
-                ) == CheckPresentation::NotifyAvailable
-                {
-                    let _ = handle
-                        .notification()
-                        .builder()
-                        .title("Alook Update Available")
-                        .body(format!(
-                            "Alook {version} is ready. Open the Alook menu to update."
-                        ))
-                        .show();
+            if let Some(mut update) = found {
+                update.timeout = Some(UPDATE_DOWNLOAD_TIMEOUT);
+                let version = update.version.clone();
+                let already_prompted = automatic_version_prompted(&version);
+                let prompt = update_prompt(&update.current_version, &version);
+                match handle.state::<UpdatePromptState>().prepare_automatic(
+                    PendingUpdate {
+                        prompt,
+                        update: Some(update),
+                        update_guard: None,
+                    },
+                    &UPDATE_IN_PROGRESS,
+                    already_prompted,
+                ) {
+                    AutomaticOfferDisposition::RefreshMenu => set_update_available(&version),
+                    AutomaticOfferDisposition::Blocked => {}
+                    AutomaticOfferDisposition::Published(prompt) => {
+                        present_update_prompt(&handle, prompt);
+                        mark_automatic_prompted(&version);
+                        let _ = handle
+                            .notification()
+                            .builder()
+                            .title("Alook Update Available")
+                            .body(format!(
+                                "Alook {version} is ready. Open the Alook menu to update."
+                            ))
+                            .show();
+                    }
                 }
             }
 
@@ -473,16 +707,16 @@ pub fn auto_check_updates(handle: AppHandle) {
 
 #[cfg(debug_assertions)]
 fn simulate_available(handle: &AppHandle) {
-    set_update_available("9.9.9-test");
-    handle
-        .dialog()
-        .message("Alook 9.9.9-test is available.\n\nThis is a local UI simulation. No update will be downloaded.\n\nDownload and install it now?")
-        .title("Update Available")
-        .buttons(MessageDialogButtons::OkCancelCustom(
-            "Update Alook".into(),
-            "Later".into(),
-        ))
-        .show(|_| {});
+    let current_version = handle.package_info().version.to_string();
+    let available_version = "9.9.9";
+    publish_update_prompt(
+        handle,
+        PendingUpdate {
+            prompt: update_prompt(&current_version, available_version),
+            update: None,
+            update_guard: None,
+        },
+    );
 }
 
 #[cfg(debug_assertions)]
@@ -527,6 +761,14 @@ fn simulate_failure(handle: &AppHandle) {
 mod tests {
     use super::*;
 
+    fn simulated_pending(current_version: &str, available_version: &str) -> PendingUpdate {
+        PendingUpdate {
+            prompt: update_prompt(current_version, available_version),
+            update: None,
+            update_guard: None,
+        }
+    }
+
     #[test]
     fn manual_checks_present_every_outcome() {
         assert_eq!(
@@ -555,12 +797,182 @@ mod tests {
         );
         assert_eq!(
             presentation_for(CheckSource::Automatic, CheckOutcome::Available, false),
-            CheckPresentation::NotifyAvailable
+            CheckPresentation::PromptAvailable
         );
         assert_eq!(
             presentation_for(CheckSource::Automatic, CheckOutcome::Available, true),
             CheckPresentation::Silent
         );
+    }
+
+    #[test]
+    fn automatic_versions_prompt_once_while_manual_checks_can_reopen() {
+        let mut last_prompted = None;
+        assert!(!was_automatic_version_prompted(&mut last_prompted, "1.2.3"));
+        assert!(was_automatic_version_prompted(&mut last_prompted, "1.2.3"));
+        assert!(!was_automatic_version_prompted(&mut last_prompted, "1.2.4"));
+        assert_eq!(
+            presentation_for(CheckSource::Manual, CheckOutcome::Available, true),
+            CheckPresentation::PromptAvailable
+        );
+    }
+
+    #[test]
+    fn update_prompt_has_only_native_display_metadata() {
+        let prompt = update_prompt("1.2.3", "2.0.0");
+        assert_eq!(
+            prompt,
+            UpdatePrompt {
+                current_version: "1.2.3".to_string(),
+                available_version: "2.0.0".to_string(),
+            }
+        );
+        assert_eq!(
+            update_prompt_message(&prompt),
+            "Current version: 1.2.3\nNew version: 2.0.0"
+        );
+    }
+
+    #[test]
+    fn native_prompt_result_maps_only_to_update_or_later() {
+        assert_eq!(
+            UpdatePromptResponse::from(true),
+            UpdatePromptResponse::Update
+        );
+        assert_eq!(
+            UpdatePromptResponse::from(false),
+            UpdatePromptResponse::Later
+        );
+    }
+
+    #[test]
+    fn pending_prompt_rejects_stale_and_double_responses() {
+        let state = UpdatePromptState::default();
+        let prompt = state.replace(simulated_pending("1.2.3", "2.0.0"));
+        assert_eq!(state.prompt(), Some(prompt.clone()));
+
+        assert!(state.take_matching("1.9.9").is_err());
+        assert_eq!(state.prompt(), Some(prompt.clone()));
+        assert_eq!(state.take_matching("2.0.0").unwrap().prompt, prompt);
+        assert!(state.take_matching("2.0.0").is_err());
+    }
+
+    #[test]
+    fn later_releases_the_guard_and_manual_reopen_can_replace_the_prompt() {
+        static UPDATE_FLAG: AtomicBool = AtomicBool::new(false);
+        let state = UpdatePromptState::default();
+        let mut pending = simulated_pending("1.2.3", "2.0.0");
+        pending.update_guard = UpdateInProgressGuard::acquire(&UPDATE_FLAG);
+        state.replace(pending);
+        assert!(UPDATE_FLAG.load(Ordering::SeqCst));
+
+        assert!(state
+            .consume_response("2.0.0", UpdatePromptResponse::Later)
+            .unwrap()
+            .is_none());
+        assert_eq!(state.prompt(), None);
+        assert!(!UPDATE_FLAG.load(Ordering::SeqCst));
+
+        let reopened = state.replace(simulated_pending("1.2.3", "2.0.0"));
+        assert_eq!(state.prompt(), Some(reopened));
+    }
+
+    #[test]
+    fn automatic_offer_stays_silent_during_a_manual_download() {
+        static UPDATE_FLAG: AtomicBool = AtomicBool::new(false);
+        let state = UpdatePromptState::default();
+        let manual_guard = UpdateInProgressGuard::acquire(&UPDATE_FLAG).unwrap();
+
+        assert_eq!(
+            state.prepare_automatic(simulated_pending("1.2.3", "2.0.0"), &UPDATE_FLAG, false),
+            AutomaticOfferDisposition::Blocked
+        );
+        assert_eq!(state.prompt(), None);
+        assert!(UPDATE_FLAG.load(Ordering::SeqCst));
+
+        drop(manual_guard);
+        assert!(!UPDATE_FLAG.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn automatic_offer_does_not_overwrite_pending_state() {
+        static UPDATE_FLAG: AtomicBool = AtomicBool::new(false);
+        let state = UpdatePromptState::default();
+        let existing = state.replace(simulated_pending("1.2.3", "2.0.0"));
+
+        assert_eq!(
+            state.prepare_automatic(simulated_pending("1.2.3", "2.1.0"), &UPDATE_FLAG, false),
+            AutomaticOfferDisposition::Blocked
+        );
+        assert_eq!(state.prompt(), Some(existing));
+        assert!(!UPDATE_FLAG.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn accepted_automatic_offer_carries_the_existing_guard() {
+        static UPDATE_FLAG: AtomicBool = AtomicBool::new(false);
+        let state = UpdatePromptState::default();
+
+        let AutomaticOfferDisposition::Published(prompt) =
+            state.prepare_automatic(simulated_pending("1.2.3", "2.0.0"), &UPDATE_FLAG, false)
+        else {
+            panic!("automatic offer should publish");
+        };
+        assert_eq!(state.prompt(), Some(prompt.clone()));
+        assert!(UPDATE_FLAG.load(Ordering::SeqCst));
+
+        let pending = state.take_matching(&prompt.available_version).unwrap();
+        assert!(pending.update_guard.is_some());
+        drop(pending);
+        assert!(!UPDATE_FLAG.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn deduplicated_automatic_offer_refreshes_the_available_menu() {
+        static UPDATE_FLAG: AtomicBool = AtomicBool::new(false);
+        let state = UpdatePromptState::default();
+
+        assert_eq!(
+            state.prepare_automatic(simulated_pending("1.2.3", "2.0.0"), &UPDATE_FLAG, true),
+            AutomaticOfferDisposition::RefreshMenu
+        );
+        assert_eq!(state.prompt(), None);
+        assert!(!UPDATE_FLAG.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn real_update_metadata_triggers_one_automatic_prompt_without_rendering_notes() {
+        let metadata: serde_json::Value = serde_json::from_str(
+            r#"{
+                "version": "2.0.0",
+                "notes": "A long release changelog that must stay out of the prompt.",
+                "pub_date": "2026-06-01T00:00:00Z",
+                "platforms": {
+                    "darwin-aarch64-app": {
+                        "url": "https://example.com/Alook_2.0.0_aarch64.app.tar.gz",
+                        "signature": "sig-content-here"
+                    }
+                }
+            }"#,
+        )
+        .unwrap();
+        let version = metadata["version"].as_str().unwrap();
+        let notes = metadata["notes"].as_str().unwrap();
+        let mut last_prompted = None;
+        let already_prompted = was_automatic_version_prompted(&mut last_prompted, version);
+
+        assert_eq!(
+            presentation_for(
+                CheckSource::Automatic,
+                CheckOutcome::Available,
+                already_prompted
+            ),
+            CheckPresentation::PromptAvailable
+        );
+        let prompt = update_prompt("1.9.0", version);
+        assert!(!format!("{prompt:?}").contains(notes));
+        assert_eq!(prompt.available_version, "2.0.0");
+        assert!(was_automatic_version_prompted(&mut last_prompted, version));
     }
 
     #[test]
@@ -583,10 +995,14 @@ mod tests {
     }
 
     #[test]
-    fn menu_routes_share_the_check_action() {
+    fn menu_routes_checks_and_repository_through_the_app_handler() {
         assert_eq!(
             menu_action(CHECK_FOR_UPDATES_MENU_ID),
             Some(UpdateMenuAction::Check)
+        );
+        assert_eq!(
+            menu_action(GITHUB_REPOSITORY_MENU_ID),
+            Some(UpdateMenuAction::OpenRepository)
         );
         assert_eq!(menu_action("update"), None);
         assert_eq!(menu_action("unknown"), None);
@@ -623,9 +1039,10 @@ mod tests {
             update_menu_layout("macos"),
             UpdateMenuLayout {
                 location: UpdateMenuLocation::Application,
-                check_position: 2,
-                separator_position: 3,
-                simulator_position: 4,
+                repository_position: 1,
+                check_position: 3,
+                separator_position: 4,
+                simulator_position: 5,
             }
         );
         for target_os in ["windows", "linux"] {
@@ -633,6 +1050,7 @@ mod tests {
                 update_menu_layout(target_os),
                 UpdateMenuLayout {
                     location: UpdateMenuLocation::Help,
+                    repository_position: 1,
                     check_position: 0,
                     separator_position: 1,
                     simulator_position: 1,
@@ -644,9 +1062,46 @@ mod tests {
     #[test]
     fn native_menu_and_debug_simulator_are_declared_separately() {
         let source = include_str!("updater.rs");
+        let tray_source = include_str!("commands.rs");
+        let app_source = include_str!("lib.rs");
+        assert!(source.contains("GitHub Repository…"));
+        assert!(source.contains(GITHUB_REPOSITORY_URL));
+        assert!(source.contains("target_menu.insert(&repository_item, layout.repository_position)"));
         assert!(source.contains("target_menu.insert(&check_item, layout.check_position)"));
         assert!(source.contains("HELP_SUBMENU_ID"));
+        assert!(!tray_source.contains("github-repository"));
+        assert_eq!(app_source.matches("updater::handle_menu_event").count(), 1);
         assert!(source.contains("#[cfg(debug_assertions)]\n        {"));
         assert!(source.contains("Update Simulator"));
+        assert!(source.contains("publish_update_prompt("));
+        assert!(!source.contains(&["MessageDialogButtons::Yes", "NoCancelCustom"].concat()));
+    }
+
+    #[test]
+    fn every_available_path_converges_on_the_one_native_prompt() {
+        let source = include_str!("updater.rs");
+        assert!(source.contains("prompt_available_update(handle, update, Some(update_guard))"));
+        assert!(source.contains("AutomaticOfferDisposition::Published(prompt) =>"));
+        assert!(source.contains("present_update_prompt(&handle, prompt)"));
+        assert!(source.contains("publish_update_prompt(\n        handle,"));
+        assert!(source.contains("respond_to_update_prompt("));
+        assert!(source.contains("download_and_install(app, update, update_guard)"));
+        assert!(source.contains(".title(\"Update Available\")"));
+        assert!(source.contains("Current version: {}\\nNew version: {}"));
+        assert!(!source.contains(&["Alook {}", " is available."].concat()));
+        assert!(source.contains("MessageDialogButtons::OkCancelCustom("));
+        assert!(source.contains("\"Update Alook\".into()"));
+        assert!(source.contains("\"Later\".into()"));
+        assert!(!source.contains(&["desktop://update", "-available"].concat()));
+        assert!(!source.contains(&["desktop_pending", "_update"].concat()));
+        assert!(!source.contains(&["desktop_respond", "_update_prompt"].concat()));
+        assert!(!source.contains(&["changelog", "_url"].concat()));
+    }
+
+    #[test]
+    fn automatic_available_notification_remains_unchanged() {
+        let source = include_str!("updater.rs");
+        assert!(source.contains("Alook Update Available"));
+        assert!(source.contains("Open the Alook menu to update"));
     }
 }
