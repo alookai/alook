@@ -66,6 +66,7 @@ export const SPEC_SECONDS = {
   "53-mobile-inbox-surface.spec.ts": 45,
   "54-authenticated-context-menu-policy.spec.ts": 55,
   "54-blog-multizone.spec.ts": 60,
+  "55-message-scroll-characterization.spec.ts": 180,
 }
 
 function walk(directory) {
