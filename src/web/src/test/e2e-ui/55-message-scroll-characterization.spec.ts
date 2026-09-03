@@ -882,7 +882,7 @@ test.describe.serial("message scroll characterization", () => {
     await establishExactPinnedPrecondition(scroller, "reply-resize-pinned", 0)
     const replyBase = await waitForCommittedGeometry(scroller)
     await beginScrollTraceAnalysis(alice.page, "reply-banner-pinned")
-    const replyTarget = alice.page.getByTestId(tid.message(composerProfile.ids.at(-1)!))
+    const replyTarget = scroller.locator("[data-msg-id]").last()
     const replyTargetBox = await replyTarget.boundingBox()
     expect(replyTargetBox).not.toBeNull()
     await alice.page.mouse.move(
@@ -891,6 +891,8 @@ test.describe.serial("message scroll characterization", () => {
     )
     const replyButton = replyTarget.getByRole("button", { name: "Reply" })
     await expect(replyButton).toBeVisible()
+    await expect(replyButton).toBeInViewport()
+    expect((await waitForCommittedGeometry(scroller)).distanceToEnd).toBeLessThanOrEqual(1)
     await replyButton.click()
     await expect(alice.page.locator('[data-slot="composer-reply-preview"]')).toBeVisible()
     const replyOpen = await waitForCommittedGeometry(scroller)
