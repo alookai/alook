@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -56,6 +57,46 @@ function workspaceFixture({
     )
   }
   return { manifest, root }
+}
+
+function localGitEnvironmentNames() {
+  return execFileSync("git", ["rev-parse", "--local-env-vars"], { encoding: "utf8" })
+    .split(/\r?\n/)
+    .filter(Boolean)
+}
+
+function cleanGitEnvironment() {
+  const environment = { ...process.env }
+  for (const name of localGitEnvironmentNames()) delete environment[name]
+  return environment
+}
+
+function gitDiffFixture() {
+  const root = mkdtempSync(join(tmpdir(), "alook-ci-git-"))
+  const runGit = (...args: string[]) => execFileSync("git", args, {
+    cwd: root,
+    env: cleanGitEnvironment(),
+    stdio: "ignore",
+  })
+  const commit = (message: string) => runGit(
+    "-c", "user.name=Alook CI",
+    "-c", "user.email=ci@alook.local",
+    "-c", "commit.gpgsign=false",
+    "commit", "--quiet", "-m", message,
+  )
+
+  runGit("init", "--quiet")
+  writeFileSync(join(root, "README.md"), "baseline\n")
+  runGit("add", "README.md")
+  commit("baseline")
+
+  const changedPath = "src/cli/src/commands/inbox.ts"
+  mkdirSync(join(root, "src/cli/src/commands"), { recursive: true })
+  writeFileSync(join(root, changedPath), "export const fixture = true\n")
+  runGit("add", changedPath)
+  commit("change cli")
+
+  return { changedPath, root }
 }
 
 describe("canonical execution plan", () => {
@@ -472,21 +513,32 @@ describe("compatibility and CLI fail-closed behavior", () => {
   })
 
   it("reads a real Git diff and prints its canonical plan when no output file is requested", () => {
-    const directory = mkdtempSync(join(tmpdir(), "alook-ci-scope-"))
-    const summary = join(directory, "summary.md")
+    const fixture = gitDiffFixture()
+    const summary = join(fixture.root, "summary.md")
     const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true)
+    const localEnvironment = localGitEnvironmentNames()
+    const previousEnvironment = new Map(
+      localEnvironment.map((name) => [name, process.env[name]]),
+    )
     try {
+      for (const name of localEnvironment) delete process.env[name]
+      process.env.GIT_DIR = join(fixture.root, ".git")
+      process.env.GIT_WORK_TREE = fixture.root
       runCli(["--base", "HEAD^", "--head", "HEAD", "--summary", summary])
 
       const written = stdout.mock.calls.map(([value]) => String(value)).join("")
       const writtenPlan = JSON.parse(written)
       expect(writtenPlan.base_sha).toBe("HEAD^")
       expect(writtenPlan.head_sha).toBe("HEAD")
-      expect(writtenPlan.changes.length).toBeGreaterThan(0)
-      expect(readFileSync(summary, "utf8")).toContain("Changed paths")
+      expect(writtenPlan.changes).toEqual([{ status: "A", path: fixture.changedPath }])
+      expect(readFileSync(summary, "utf8")).toContain(fixture.changedPath)
     } finally {
+      for (const name of localEnvironment) delete process.env[name]
+      for (const [name, value] of previousEnvironment) {
+        if (value !== undefined) process.env[name] = value
+      }
       stdout.mockRestore()
-      rmSync(directory, { recursive: true, force: true })
+      rmSync(fixture.root, { recursive: true, force: true })
     }
   })
 
