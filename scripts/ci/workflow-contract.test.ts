@@ -764,7 +764,7 @@ describe("Turbo CI execution", () => {
     expect(linux).toContain('project_args+=("--project=$project")')
     expect(linux).toContain('pnpm vitest run "${vitest_args[@]}"')
     expect(linux).toContain(
-      '--outputFile="$report_dir/root-${root_index}-${report_stem}.blob"',
+      '--outputFile.blob="$report_dir/root-${root_index}-${report_stem}.blob"',
     )
     expect(linux).not.toContain("--project='!daemon-node'")
     expect(linux).not.toContain('"${non_daemon[@]}" "${coverage[@]}"')
@@ -783,8 +783,9 @@ describe("Turbo CI execution", () => {
       '"--coverage.reportsDirectory=$coverage_dir/root-${root_index}-${report_stem}"',
     )
     expect(linux).toContain('coverage=(--coverage)')
-    expect(linux).toContain('--reporter=blob --outputFile="$report_dir/root-${root_index}-${report_stem}.blob"')
-    expect(linux).toContain('--reporter=blob --outputFile="$report_dir/daemon.blob"')
+    expect(linux).toContain('--reporter=default --reporter=blob')
+    expect(linux).toContain('--outputFile.blob="$report_dir/root-${root_index}-${report_stem}.blob"')
+    expect(linux).toContain('--outputFile.blob="$report_dir/daemon.blob"')
     expect(linux).toContain("--merge-reports=.vitest-reports")
     expect(linux.match(/codecov\/codecov-action/g)).toHaveLength(1)
     expect(linux).toContain("if: env.RUN_COVERAGE == 'true'")
