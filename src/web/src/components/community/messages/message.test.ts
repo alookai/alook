@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { attachmentAspectRatio } from "./attachment-layout"
+import { attachmentAspectRatio, attachmentImageFrameStyle } from "./attachment-layout"
 
 // Reserves the correct CSS aspect-ratio box for an image attachment before
 // it decodes, mirroring the pattern the embed-image `<img>` already uses.
@@ -20,5 +20,33 @@ describe("attachmentAspectRatio", () => {
 
   it("falls back to 'auto' when both dimensions are missing", () => {
     expect(attachmentAspectRatio(undefined, undefined)).toBe("auto")
+  })
+})
+
+describe("attachmentImageFrameStyle", () => {
+  it("reserves a 300px square for a larger square image", () => {
+    expect(attachmentImageFrameStyle(512, 512)).toEqual({
+      width: "min(100%, 300px)",
+      aspectRatio: "512/512",
+    })
+  })
+
+  it("caps a portrait by height and preserves its ratio", () => {
+    expect(attachmentImageFrameStyle(396, 702)).toEqual({
+      width: "min(100%, 169.231px)",
+      aspectRatio: "396/702",
+    })
+  })
+
+  it("keeps a small known-size image at intrinsic width", () => {
+    expect(attachmentImageFrameStyle(120, 80)).toEqual({
+      width: "min(100%, 120px)",
+      aspectRatio: "120/80",
+    })
+  })
+
+  it("keeps legacy incomplete dimensions on intrinsic fallback", () => {
+    expect(attachmentImageFrameStyle(undefined, 80)).toBeUndefined()
+    expect(attachmentImageFrameStyle(120, undefined)).toBeUndefined()
   })
 })

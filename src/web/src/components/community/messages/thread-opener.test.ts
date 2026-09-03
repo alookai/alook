@@ -136,12 +136,14 @@ describe("ThreadOpener image attachment layout", () => {
     const image = renderer!.root.findByType("img")
     expect(image.props.src).toBe("/portrait.png")
     expect(image.props).toMatchObject({ width: 396, height: 702 })
-    expect(image.props.className).toContain("h-auto")
-    expect(image.props.className).toContain("w-auto")
-    expect(image.props.className).toContain("max-h-75")
-    expect(image.props.className).toContain("max-w-full")
-    expect(image.parent?.props.className).toContain("w-fit")
+    expect(image.props.className).toContain("size-full")
+    expect(image.props.className).toContain("absolute")
+    expect(image.parent?.props.className).toContain("relative")
     expect(image.parent?.props.className).toContain("max-w-full")
+    expect(image.parent?.props.style).toEqual({
+      width: "min(100%, 169.231px)",
+      aspectRatio: "396/702",
+    })
   })
 
   it("uses thumbnailUrl for the list image and passes the original on click", () => {

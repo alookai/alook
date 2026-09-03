@@ -3,7 +3,7 @@
 import { MessagesSquare, ArrowUpRight } from "lucide-react"
 import { Avatar } from "../avatar"
 import { MessageBody } from "./message-body"
-import { attachmentAspectRatio } from "./attachment-layout"
+import { attachmentAspectRatio, attachmentImageFrameStyle } from "./attachment-layout"
 import { formatMessageTime } from "@/lib/community/format-time"
 import { Skeleton } from "@/components/ui/skeleton"
 import { avatarInitial } from "@/lib/community/avatar"
@@ -154,30 +154,36 @@ export function ThreadOpener({
           {msg.attachments && msg.attachments.length > 0 && (
             <div className="mt-2 flex flex-col gap-2 pb-2">
               {msg.attachments.map((a, i) => {
-                if (a.kind === "image") return (
-                  <button
-                    key={i}
-                    onClick={() => onPreviewImage?.({
-                      originalUrl: a.url,
-                      thumbnailUrl: a.thumbnailUrl,
-                      name: a.name,
-                      width: a.width,
-                      height: a.height,
-                    })}
-                    className="block w-fit max-w-full overflow-hidden rounded-lg border border-border transition-colors hover:border-primary/40"
-                  >
-                    <img
-                      data-testid={tid.threadOpenerImage(i)}
-                      src={a.thumbnailUrl ?? a.url}
-                      alt={a.name}
-                      width={a.width}
-                      height={a.height}
-                      className="block h-auto w-auto max-h-75 max-w-full rounded-lg object-contain"
-                      style={{ aspectRatio: attachmentAspectRatio(a.width, a.height) }}
-                      loading="lazy"
-                    />
-                  </button>
-                )
+                if (a.kind === "image") {
+                  const frameStyle = attachmentImageFrameStyle(a.width, a.height)
+                  return (
+                    <button
+                      key={i}
+                      onClick={() => onPreviewImage?.({
+                        originalUrl: a.url,
+                        thumbnailUrl: a.thumbnailUrl,
+                        name: a.name,
+                        width: a.width,
+                        height: a.height,
+                      })}
+                      className={`${frameStyle ? "relative" : "w-fit"} block max-w-full overflow-hidden rounded-lg border border-border transition-colors hover:border-primary/40`}
+                      style={frameStyle}
+                    >
+                      <img
+                        data-testid={tid.threadOpenerImage(i)}
+                        src={a.thumbnailUrl ?? a.url}
+                        alt={a.name}
+                        width={a.width}
+                        height={a.height}
+                        className={frameStyle
+                          ? "absolute inset-0 block size-full rounded-lg object-contain"
+                          : "block h-auto w-auto max-h-75 max-w-full rounded-lg object-contain"}
+                        style={frameStyle ? undefined : { aspectRatio: attachmentAspectRatio(a.width, a.height) }}
+                        loading="lazy"
+                      />
+                    </button>
+                  )
+                }
                 return <AttachmentCard key={i} attachment={a} onPreview={onPreviewAttachment} />
               })}
             </div>
