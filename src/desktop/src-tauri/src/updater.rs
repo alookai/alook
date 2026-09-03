@@ -6,7 +6,7 @@ use std::sync::{
 use std::time::Duration;
 use tauri::{
     menu::{Menu, MenuItem, MenuItemBuilder, PredefinedMenuItem, HELP_SUBMENU_ID},
-    AppHandle, Emitter,
+    AppHandle, Emitter, Manager, State,
 };
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 use tauri_plugin_notification::NotificationExt;
@@ -18,6 +18,8 @@ const UPDATE_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const AUTO_CHECK_INITIAL_DELAY: Duration = Duration::from_secs(30);
 const AUTO_CHECK_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
 const DEFAULT_UPDATE_LABEL: &str = "Check for Updates…";
+const UPDATE_AVAILABLE_EVENT: &str = "desktop://update-available";
+const CHANGELOG_RELEASE_BASE_URL: &str = "https://github.com/alookai/alook/releases/tag/v";
 
 #[cfg(debug_assertions)]
 const SIMULATE_AVAILABLE_MENU_ID: &str = "simulate-update-available";
@@ -28,7 +30,7 @@ const SIMULATE_COMPLETE_MENU_ID: &str = "simulate-update-complete";
 #[cfg(debug_assertions)]
 const SIMULATE_FAILURE_MENU_ID: &str = "simulate-update-failure";
 
-static UPDATE_AVAILABLE_VERSION: Mutex<Option<String>> = Mutex::new(None);
+static LAST_AUTOMATIC_PROMPT_VERSION: Mutex<Option<String>> = Mutex::new(None);
 static UPDATE_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 static UPDATE_MENU_ITEMS: Mutex<Vec<MenuItem<tauri::Wry>>> = Mutex::new(Vec::new());
 
@@ -43,7 +45,6 @@ enum CheckPresentation {
     Silent,
     UpToDate,
     PromptAvailable,
-    NotifyAvailable,
     ShowError,
 }
 
@@ -52,6 +53,24 @@ enum CheckOutcome {
     Current,
     Available,
     Failed,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum UpdatePromptResponse {
+    Update,
+    Later,
+}
+
+impl TryFrom<&str> for UpdatePromptResponse {
+    type Error = String;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "update" => Ok(Self::Update),
+            "later" => Ok(Self::Later),
+            _ => Err("invalid update prompt action".to_string()),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -88,6 +107,66 @@ struct UpdateProgress {
     total: Option<u64>,
 }
 
+#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateOffer {
+    current_version: String,
+    available_version: String,
+    changelog_url: String,
+}
+
+struct PendingUpdate {
+    offer: UpdateOffer,
+    update: Option<tauri_plugin_updater::Update>,
+    update_guard: Option<UpdateInProgressGuard<'static>>,
+}
+
+#[derive(Default)]
+pub struct UpdatePromptState {
+    pending: Mutex<Option<PendingUpdate>>,
+}
+
+impl UpdatePromptState {
+    fn replace(&self, pending: PendingUpdate) -> UpdateOffer {
+        let offer = pending.offer.clone();
+        *self
+            .pending
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = Some(pending);
+        offer
+    }
+
+    fn offer(&self) -> Option<UpdateOffer> {
+        self.pending
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .as_ref()
+            .map(|pending| pending.offer.clone())
+    }
+
+    fn take_matching(&self, version: &str) -> Result<PendingUpdate, String> {
+        let mut pending = self
+            .pending
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        match pending.as_ref() {
+            Some(value) if value.offer.available_version == version => Ok(pending.take().unwrap()),
+            Some(_) => Err("update prompt version is stale".to_string()),
+            None => Err("update prompt is no longer available".to_string()),
+        }
+    }
+
+    fn restore_if_empty(&self, pending_update: PendingUpdate) {
+        let mut pending = self
+            .pending
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if pending.is_none() {
+            *pending = Some(pending_update);
+        }
+    }
+}
+
 struct UpdateInProgressGuard<'a> {
     flag: &'a AtomicBool,
 }
@@ -116,10 +195,30 @@ fn presentation_for(
         (CheckSource::Manual, CheckOutcome::Available, _) => CheckPresentation::PromptAvailable,
         (CheckSource::Manual, CheckOutcome::Failed, _) => CheckPresentation::ShowError,
         (CheckSource::Automatic, CheckOutcome::Available, false) => {
-            CheckPresentation::NotifyAvailable
+            CheckPresentation::PromptAvailable
         }
         _ => CheckPresentation::Silent,
     }
+}
+
+fn changelog_url(version: &str) -> String {
+    format!("{CHANGELOG_RELEASE_BASE_URL}{version}")
+}
+
+fn update_offer(current_version: &str, available_version: &str) -> UpdateOffer {
+    UpdateOffer {
+        current_version: current_version.to_string(),
+        available_version: available_version.to_string(),
+        changelog_url: changelog_url(available_version),
+    }
+}
+
+fn was_automatic_version_prompted(last_prompted: &mut Option<String>, version: &str) -> bool {
+    let already_prompted = last_prompted.as_deref() == Some(version);
+    if !already_prompted {
+        *last_prompted = Some(version.to_string());
+    }
+    already_prompted
 }
 
 fn menu_action(id: &str) -> Option<UpdateMenuAction> {
@@ -188,15 +287,11 @@ fn set_update_available(version: &str) {
     set_update_menu(&update_label(version), true);
 }
 
-fn mark_notified(version: &str) -> bool {
-    let mut notified = UPDATE_AVAILABLE_VERSION
+fn mark_automatic_prompted(version: &str) -> bool {
+    let mut last_prompted = LAST_AUTOMATIC_PROMPT_VERSION
         .lock()
         .unwrap_or_else(|error| error.into_inner());
-    let already_notified = notified.as_deref() == Some(version);
-    if !already_notified {
-        *notified = Some(version.to_string());
-    }
-    already_notified
+    was_automatic_version_prompted(&mut last_prompted, version)
 }
 
 pub fn build_app_menu(handle: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
@@ -267,12 +362,7 @@ pub fn handle_menu_event(handle: &AppHandle, id: &str) -> bool {
 
 pub async fn install_update(handle: &AppHandle) {
     let Some(update_guard) = UpdateInProgressGuard::acquire(&UPDATE_IN_PROGRESS) else {
-        handle
-            .dialog()
-            .message("An update is already in progress.")
-            .title("Alook")
-            .buttons(MessageDialogButtons::OkCustom("OK".into()))
-            .show(|_| {});
+        show_update_in_progress(handle);
         return;
     };
 
@@ -293,30 +383,7 @@ pub async fn install_update(handle: &AppHandle) {
     match updater.check().await {
         Ok(Some(mut update)) => {
             update.timeout = Some(UPDATE_DOWNLOAD_TIMEOUT);
-            let version = update.version.clone();
-            let notes = update.body.clone().unwrap_or_default();
-            set_update_available(&version);
-            let message = if notes.is_empty() {
-                format!("Alook {version} is available. Download and install it now?")
-            } else {
-                format!("Alook {version} is available.\n\n{notes}\n\nDownload and install it now?")
-            };
-            let app = handle.clone();
-            handle
-                .dialog()
-                .message(&message)
-                .title("Update Available")
-                .buttons(MessageDialogButtons::OkCancelCustom(
-                    "Update Alook".into(),
-                    "Later".into(),
-                ))
-                .show(move |confirmed| {
-                    if confirmed {
-                        tauri::async_runtime::spawn(async move {
-                            download_and_install(app, update, update_guard).await;
-                        });
-                    }
-                });
+            offer_available_update(handle, update, Some(update_guard));
         }
         Ok(None) => {
             set_update_menu(DEFAULT_UPDATE_LABEL, true);
@@ -343,6 +410,73 @@ pub async fn install_update(handle: &AppHandle) {
             }
         }
     }
+}
+
+fn show_update_in_progress(handle: &AppHandle) {
+    handle
+        .dialog()
+        .message("An update is already in progress.")
+        .title("Alook")
+        .buttons(MessageDialogButtons::OkCustom("OK".into()))
+        .show(|_| {});
+}
+
+fn publish_update_offer(handle: &AppHandle, pending_update: PendingUpdate) {
+    let offer = handle.state::<UpdatePromptState>().replace(pending_update);
+    set_update_available(&offer.available_version);
+    crate::commands::show_main_window(handle);
+    let _ = handle.emit(UPDATE_AVAILABLE_EVENT, offer);
+}
+
+fn offer_available_update(
+    handle: &AppHandle,
+    update: tauri_plugin_updater::Update,
+    update_guard: Option<UpdateInProgressGuard<'static>>,
+) {
+    let offer = update_offer(&update.current_version, &update.version);
+    publish_update_offer(
+        handle,
+        PendingUpdate {
+            offer,
+            update: Some(update),
+            update_guard,
+        },
+    );
+}
+
+#[tauri::command]
+pub fn desktop_pending_update(state: State<'_, UpdatePromptState>) -> Option<UpdateOffer> {
+    state.offer()
+}
+
+#[tauri::command]
+pub fn desktop_respond_update_prompt(
+    handle: AppHandle,
+    state: State<'_, UpdatePromptState>,
+    version: String,
+    action: String,
+) -> Result<(), String> {
+    let action = UpdatePromptResponse::try_from(action.as_str())?;
+    let mut pending_update = state.take_matching(&version)?;
+    if action == UpdatePromptResponse::Later || pending_update.update.is_none() {
+        return Ok(());
+    }
+
+    if pending_update.update_guard.is_none() {
+        let Some(update_guard) = UpdateInProgressGuard::acquire(&UPDATE_IN_PROGRESS) else {
+            state.restore_if_empty(pending_update);
+            show_update_in_progress(&handle);
+            return Err("an update is already in progress".to_string());
+        };
+        pending_update.update_guard = Some(update_guard);
+    }
+
+    let update = pending_update.update.take().unwrap();
+    let update_guard = pending_update.update_guard.take().unwrap();
+    tauri::async_runtime::spawn(async move {
+        download_and_install(handle, update, update_guard).await;
+    });
+    Ok(())
 }
 
 fn show_check_error(handle: &AppHandle, error: &str) {
@@ -442,19 +576,20 @@ pub fn auto_check_updates(handle: AppHandle) {
                     .timeout(UPDATE_CHECK_TIMEOUT)
                     .build()
                     .ok()?;
-                let update = updater.check().await.ok()??;
-                Some(update.version.clone())
+                updater.check().await.ok()?
             });
 
-            if let Some(version) = found {
-                set_update_available(&version);
-                let already_notified = mark_notified(&version);
+            if let Some(mut update) = found {
+                update.timeout = Some(UPDATE_DOWNLOAD_TIMEOUT);
+                let version = update.version.clone();
+                let already_prompted = mark_automatic_prompted(&version);
                 if presentation_for(
                     CheckSource::Automatic,
                     CheckOutcome::Available,
-                    already_notified,
-                ) == CheckPresentation::NotifyAvailable
+                    already_prompted,
+                ) == CheckPresentation::PromptAvailable
                 {
+                    offer_available_update(&handle, update, None);
                     let _ = handle
                         .notification()
                         .builder()
@@ -463,6 +598,8 @@ pub fn auto_check_updates(handle: AppHandle) {
                             "Alook {version} is ready. Open the Alook menu to update."
                         ))
                         .show();
+                } else {
+                    set_update_available(&version);
                 }
             }
 
@@ -473,16 +610,16 @@ pub fn auto_check_updates(handle: AppHandle) {
 
 #[cfg(debug_assertions)]
 fn simulate_available(handle: &AppHandle) {
-    set_update_available("9.9.9-test");
-    handle
-        .dialog()
-        .message("Alook 9.9.9-test is available.\n\nThis is a local UI simulation. No update will be downloaded.\n\nDownload and install it now?")
-        .title("Update Available")
-        .buttons(MessageDialogButtons::OkCancelCustom(
-            "Update Alook".into(),
-            "Later".into(),
-        ))
-        .show(|_| {});
+    let current_version = handle.package_info().version.to_string();
+    let available_version = "9.9.9";
+    publish_update_offer(
+        handle,
+        PendingUpdate {
+            offer: update_offer(&current_version, available_version),
+            update: None,
+            update_guard: None,
+        },
+    );
 }
 
 #[cfg(debug_assertions)]
@@ -527,6 +664,14 @@ fn simulate_failure(handle: &AppHandle) {
 mod tests {
     use super::*;
 
+    fn simulated_pending(current_version: &str, available_version: &str) -> PendingUpdate {
+        PendingUpdate {
+            offer: update_offer(current_version, available_version),
+            update: None,
+            update_guard: None,
+        }
+    }
+
     #[test]
     fn manual_checks_present_every_outcome() {
         assert_eq!(
@@ -555,12 +700,100 @@ mod tests {
         );
         assert_eq!(
             presentation_for(CheckSource::Automatic, CheckOutcome::Available, false),
-            CheckPresentation::NotifyAvailable
+            CheckPresentation::PromptAvailable
         );
         assert_eq!(
             presentation_for(CheckSource::Automatic, CheckOutcome::Available, true),
             CheckPresentation::Silent
         );
+    }
+
+    #[test]
+    fn automatic_versions_prompt_once_while_manual_checks_can_reopen() {
+        let mut last_prompted = None;
+        assert!(!was_automatic_version_prompted(&mut last_prompted, "1.2.3"));
+        assert!(was_automatic_version_prompted(&mut last_prompted, "1.2.3"));
+        assert!(!was_automatic_version_prompted(&mut last_prompted, "1.2.4"));
+        assert_eq!(
+            presentation_for(CheckSource::Manual, CheckOutcome::Available, true),
+            CheckPresentation::PromptAvailable
+        );
+    }
+
+    #[test]
+    fn update_offer_has_only_display_metadata() {
+        assert_eq!(
+            update_offer("1.2.3", "2.0.0"),
+            UpdateOffer {
+                current_version: "1.2.3".to_string(),
+                available_version: "2.0.0".to_string(),
+                changelog_url: "https://github.com/alookai/alook/releases/tag/v2.0.0".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn prompt_responses_accept_only_update_and_later() {
+        assert_eq!(
+            UpdatePromptResponse::try_from("update"),
+            Ok(UpdatePromptResponse::Update)
+        );
+        assert_eq!(
+            UpdatePromptResponse::try_from("later"),
+            Ok(UpdatePromptResponse::Later)
+        );
+        assert!(UpdatePromptResponse::try_from("changelog").is_err());
+    }
+
+    #[test]
+    fn pending_offer_rejects_stale_and_double_responses() {
+        let state = UpdatePromptState::default();
+        let offer = state.replace(simulated_pending("1.2.3", "2.0.0"));
+        assert_eq!(state.offer(), Some(offer.clone()));
+
+        assert!(state.take_matching("1.9.9").is_err());
+        assert_eq!(state.offer(), Some(offer.clone()));
+        assert_eq!(state.take_matching("2.0.0").unwrap().offer, offer);
+        assert!(state.take_matching("2.0.0").is_err());
+    }
+
+    #[test]
+    fn real_update_metadata_triggers_one_automatic_prompt_without_rendering_notes() {
+        let metadata: serde_json::Value = serde_json::from_str(
+            r#"{
+                "version": "2.0.0",
+                "notes": "A long release changelog that must stay out of the prompt.",
+                "pub_date": "2026-06-01T00:00:00Z",
+                "platforms": {
+                    "darwin-aarch64-app": {
+                        "url": "https://example.com/Alook_2.0.0_aarch64.app.tar.gz",
+                        "signature": "sig-content-here"
+                    }
+                }
+            }"#,
+        )
+        .unwrap();
+        let version = metadata["version"].as_str().unwrap();
+        let notes = metadata["notes"].as_str().unwrap();
+        let mut last_prompted = None;
+        let already_prompted = was_automatic_version_prompted(&mut last_prompted, version);
+
+        assert_eq!(
+            presentation_for(
+                CheckSource::Automatic,
+                CheckOutcome::Available,
+                already_prompted
+            ),
+            CheckPresentation::PromptAvailable
+        );
+        let offer = update_offer("1.9.0", version);
+        let serialized = serde_json::to_string(&offer).unwrap();
+        assert!(!serialized.contains(notes));
+        assert_eq!(
+            offer.changelog_url,
+            "https://github.com/alookai/alook/releases/tag/v2.0.0"
+        );
+        assert!(was_automatic_version_prompted(&mut last_prompted, version));
     }
 
     #[test]
@@ -648,5 +881,14 @@ mod tests {
         assert!(source.contains("HELP_SUBMENU_ID"));
         assert!(source.contains("#[cfg(debug_assertions)]\n        {"));
         assert!(source.contains("Update Simulator"));
+        assert!(source.contains("publish_update_offer("));
+        assert!(!source.contains(&["MessageDialogButtons::Yes", "NoCancelCustom"].concat()));
+    }
+
+    #[test]
+    fn automatic_available_notification_remains_unchanged() {
+        let source = include_str!("updater.rs");
+        assert!(source.contains("Alook Update Available"));
+        assert!(source.contains("Open the Alook menu to update"));
     }
 }

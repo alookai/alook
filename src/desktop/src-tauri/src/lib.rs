@@ -18,6 +18,7 @@ pub fn run() {
     {
         let builder = builder
             .manage(zoom::ZoomState::default())
+            .manage(updater::UpdatePromptState::default())
             .append_invoke_initialization_script(zoom::shortcut_script(std::env::consts::OS))
             .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
                 commands::show_main_window(app);
@@ -64,6 +65,8 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
         commands::daemon_pair,
         commands::set_window_theme,
         commands::close_splashscreen,
+        updater::desktop_pending_update,
+        updater::desktop_respond_update_prompt,
         zoom::desktop_zoom_shortcut,
     ]);
 
