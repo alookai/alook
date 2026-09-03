@@ -82,17 +82,77 @@ jobs:
           echo "::error::Release ${TAG} was not created within 60 seconds"
           exit 1
 
+      - name: Prepare App Store Connect API key
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+        run: |
+          test -n "$APPLE_API_KEY"
+          test -n "$APPLE_API_PRIVATE_KEY"
+          key_path="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY}.p8"
+          umask 077
+          printf '%s' "$APPLE_API_PRIVATE_KEY" > "$key_path"
+          echo "APPLE_API_KEY_PATH=$key_path" >> "$GITHUB_ENV"
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ runner.os == 'macOS' && secrets.APPLE_CERTIFICATE || '' }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ runner.os == 'macOS' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+          APPLE_SIGNING_IDENTITY: ${{ runner.os == 'macOS' && secrets.APPLE_SIGNING_IDENTITY || '' }}
+          APPLE_API_ISSUER: ${{ runner.os == 'macOS' && secrets.APPLE_API_ISSUER || '' }}
+          APPLE_API_KEY: ${{ runner.os == 'macOS' && secrets.APPLE_API_KEY || '' }}
+          APPLE_API_KEY_PATH: ${{ env.APPLE_API_KEY_PATH }}
+          APPLE_TEAM_ID: ${{ runner.os == 'macOS' && secrets.APPLE_TEAM_ID || '' }}
         with:
           projectPath: src/desktop
           releaseId: ${{ steps.release.outputs.id }}
           uploadUpdaterJson: true
           args: --target ${{ matrix.target }}
+
+      - name: Verify signed and notarized macOS artifact
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          EXPECTED_TARGET: ${{ matrix.target }}
+          EXPECTED_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          bundle_root="src/desktop/src-tauri/target/${EXPECTED_TARGET}/release/bundle"
+          dmg_path=$(find "$bundle_root/dmg" -maxdepth 1 -type f -name '*.dmg' -print -quit)
+          test -n "$dmg_path"
+
+          mount_dir=$(mktemp -d "$RUNNER_TEMP/alook-dmg.XXXXXX")
+          cleanup() {
+            hdiutil detach "$mount_dir" -quiet || true
+            rmdir "$mount_dir" || true
+          }
+          trap cleanup EXIT
+          hdiutil attach "$dmg_path" -nobrowse -readonly -mountpoint "$mount_dir" -quiet
+
+          app_path=$(find "$mount_dir" -maxdepth 1 -type d -name '*.app' -print -quit)
+          test -n "$app_path"
+          executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app_path/Contents/Info.plist")
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app_path/Contents/Info.plist")" = "$EXPECTED_VERSION"
+
+          codesign --verify --deep --strict --verbose=2 "$app_path"
+          signature=$(codesign -dvvv "$app_path" 2>&1)
+          grep -q 'Authority=Developer ID Application:' <<<"$signature"
+          grep -q 'flags=.*runtime' <<<"$signature"
+          xcrun stapler validate "$app_path"
+          spctl --assess --type execute --verbose=4 "$app_path"
+
+          archs=$(lipo -archs "$app_path/Contents/MacOS/$executable")
+          case "$EXPECTED_TARGET" in
+            aarch64-apple-darwin) grep -qw arm64 <<<"$archs" ;;
+            x86_64-apple-darwin) grep -qw x86_64 <<<"$archs" ;;
+            *) exit 1 ;;
+          esac
 
   update-release-notes:
     needs: build
@@ -125,7 +185,7 @@ jobs:
           ### macOS
           [Apple Silicon](${BASE}/Alook_${VERSION}_aarch64.dmg) | [Intel](${BASE}/Alook_${VERSION}_x64.dmg)
 
-          These macOS builds are ad-hoc signed and are not notarized. On first launch, macOS may block the app; open System Settings → Privacy & Security and choose **Open Anyway**.
+          These macOS builds are Developer ID signed, hardened-runtime enabled, notarized by Apple, and validated for their advertised architecture.
 
           ### Windows
           [.exe Installer](${BASE}/Alook_${VERSION}_x64-setup.exe) | [.msi](${BASE}/Alook_${VERSION}_x64_en-US.msi)

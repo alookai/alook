@@ -55,6 +55,8 @@ const autoTagReleaseWorkflow = normalizeWorkflow(
   readFileSync(resolve(workflowRoot, "auto-tag-release.yml"), "utf8"),
 )
 const desktopReleaseWorkflow = normalizeWorkflow(readFileSync(resolve(workflowRoot, "desktop-release.yml"), "utf8"))
+const mobileReleaseWorkflowPath = resolve(workflowRoot, "mobile-release.yml")
+const mobileReleaseWorkflow = normalizeWorkflow(readFileSync(mobileReleaseWorkflowPath, "utf8"))
 const desktopConfig = JSON.parse(
   readFileSync(resolve(import.meta.dirname, "../../src/desktop/src-tauri/tauri.conf.json"), "utf8"),
 ) as {
@@ -85,7 +87,32 @@ const externalLinksCapability = JSON.parse(
 ) as ExternalLinksCapability
 const desktopMacConfig = JSON.parse(
   readFileSync(resolve(import.meta.dirname, "../../src/desktop/src-tauri/tauri.macos.conf.json"), "utf8"),
-) as { bundle?: { macOS?: { entitlements?: string; signingIdentity?: string } } }
+) as { bundle?: { macOS?: { entitlements?: string; hardenedRuntime?: boolean; signingIdentity?: string } } }
+const desktopIosConfig = JSON.parse(
+  readFileSync(resolve(import.meta.dirname, "../../src/desktop/src-tauri/tauri.ios.conf.json"), "utf8"),
+) as { identifier?: string }
+const desktopAndroidConfig = JSON.parse(
+  readFileSync(resolve(import.meta.dirname, "../../src/desktop/src-tauri/tauri.android.conf.json"), "utf8"),
+) as { identifier?: string }
+const androidGradle = readFileSync(
+  resolve(import.meta.dirname, "../../src/desktop/src-tauri/gen/android/app/build.gradle.kts"),
+  "utf8",
+)
+const androidMainActivity = readFileSync(
+  resolve(
+    import.meta.dirname,
+    "../../src/desktop/src-tauri/gen/android/app/src/main/java/ai/alook/android/MainActivity.kt",
+  ),
+  "utf8",
+)
+const iosExportOptions = readFileSync(
+  resolve(import.meta.dirname, "../../src/desktop/src-tauri/gen/apple/ExportOptions.plist"),
+  "utf8",
+)
+const iosProject = readFileSync(
+  resolve(import.meta.dirname, "../../src/desktop/src-tauri/gen/apple/project.yml"),
+  "utf8",
+)
 const desktopEntitlementsPath = resolve(
   import.meta.dirname,
   "../../src/desktop/src-tauri/entitlements.plist",
@@ -121,7 +148,6 @@ const desktopDevConfig = JSON.parse(readFileSync(
   app: { security: { capabilities: Array<string | DesktopCapability | ExternalLinksCapability> } }
 }
 const bumpScript = readFileSync(resolve(import.meta.dirname, "../bump-version.mjs"), "utf8")
-const mobileReleaseWorkflow = resolve(workflowRoot, "mobile-release.yml")
 const desktopUpdateRoute = readFileSync(
   resolve(import.meta.dirname, "../../src/web/src/app/api/desktop/update/[target]/[arch]/[current_version]/route.ts"),
   "utf8",
@@ -802,16 +828,28 @@ describe("Desktop updater release", () => {
     expect(desktopBuildScript).not.toContain(".bak")
   })
 
-  it("ad-hoc signs unnotarized macOS builds and discloses manual approval", () => {
+  it("keeps local ad-hoc signing while release builds use Developer ID notarization", () => {
     expect(desktopMacConfig.bundle?.macOS?.signingIdentity).toBe("-")
+    expect(desktopMacConfig.bundle?.macOS?.hardenedRuntime).toBe(true)
     expect(desktopMacConfig.bundle?.macOS?.entitlements).toBeUndefined()
     expect(existsSync(desktopEntitlementsPath)).toBe(false)
-    expect(desktopReleaseWorkflow).toContain("ad-hoc signed and are not notarized")
-    expect(desktopReleaseWorkflow).toContain("Privacy & Security")
+    expect(desktopReleaseWorkflow).toContain("APPLE_CERTIFICATE:")
+    expect(desktopReleaseWorkflow).toContain("APPLE_CERTIFICATE_PASSWORD:")
+    expect(desktopReleaseWorkflow).toContain("APPLE_SIGNING_IDENTITY:")
+    expect(desktopReleaseWorkflow).toContain("APPLE_API_ISSUER:")
+    expect(desktopReleaseWorkflow).toContain("APPLE_API_KEY_PATH:")
+    expect(desktopReleaseWorkflow).toContain("codesign --verify --deep --strict")
+    expect(desktopReleaseWorkflow).toContain("flags=.*runtime")
+    expect(desktopReleaseWorkflow).toContain("xcrun stapler validate")
+    expect(desktopReleaseWorkflow).toContain("spctl --assess --type execute")
+    expect(desktopReleaseWorkflow).toContain("CFBundleShortVersionString")
+    expect(desktopReleaseWorkflow).toContain("EXPECTED_VERSION:")
+    expect(desktopReleaseWorkflow).toContain("Developer ID signed")
+    expect(desktopReleaseWorkflow).not.toContain("ad-hoc signed and are not notarized")
+    expect(desktopReleaseWorkflow).not.toContain("Privacy & Security")
     expect(desktopReleaseWorkflow).toContain("not Authenticode code-signed")
     expect(desktopReleaseWorkflow).toContain("More info")
     expect(desktopReleaseWorkflow).toContain("Run anyway")
-    expect(desktopReleaseWorkflow).not.toContain("APPLE_CERTIFICATE:")
   })
 })
 
@@ -849,9 +887,78 @@ describe("Desktop image clipboard", () => {
 })
 
 describe("Mobile release availability", () => {
-  it("fails closed until store signing accounts and a current workflow exist", () => {
-    expect(existsSync(mobileReleaseWorkflow)).toBe(false)
-    expect(bumpScript).not.toContain("deploy-version-mobile")
-    expect(bumpScript).toContain("Mobile releases are not configured")
+  it("publishes --mobile bumps to TestFlight and keeps manual uploads opt-in", () => {
+    expect(existsSync(mobileReleaseWorkflowPath)).toBe(true)
+    expect(desktopIosConfig.identifier).toBe("ai.alook.ios")
+    expect(iosProject).toContain("PRODUCT_BUNDLE_IDENTIFIER: ai.alook.ios")
+    expect(iosProject).not.toContain("PRODUCT_BUNDLE_IDENTIFIER: ai.alook.desktop")
+    expect(iosProject).toContain("CODE_SIGN_STYLE: Manual")
+    expect(iosProject).toContain("CODE_SIGN_IDENTITY: Apple Distribution")
+    expect(iosProject).toContain("PROVISIONING_PROFILE_SPECIFIER: Alook iOS App Store Connect")
+    expect(iosProject).not.toContain("${FORCE_COLOR}")
+    expect(iosExportOptions).toContain("<string>app-store-connect</string>")
+    expect(iosExportOptions).toContain("<string>manual</string>")
+    expect(iosExportOptions).toContain("<key>ai.alook.ios</key>")
+    expect(iosExportOptions).toContain("<string>Alook iOS App Store Connect</string>")
+    expect(mobileReleaseWorkflow).toMatch(/^  workflow_dispatch:/m)
+    expect(mobileReleaseWorkflow).toMatch(/^  push:/m)
+    expect(mobileReleaseWorkflow).toContain('branches: [main]')
+    expect(mobileReleaseWorkflow).toContain('src/desktop/.deploy-version-mobile')
+    expect(mobileReleaseWorkflow).not.toMatch(/^  pull_request:/m)
+    expect(mobileReleaseWorkflow).toContain("default: false")
+    expect(mobileReleaseWorkflow).toContain("github.event_name == 'push' || inputs.upload == true")
+    expect(mobileReleaseWorkflow).toContain("Verify automatic TestFlight release version")
+    expect(mobileReleaseWorkflow).toContain('requested_version=$(tr -d')
+    expect(mobileReleaseWorkflow).toContain("APPLE_DEVELOPMENT_TEAM:")
+    expect(mobileReleaseWorkflow).toContain("IOS_CERTIFICATE:")
+    expect(mobileReleaseWorkflow).toContain("IOS_CERTIFICATE_PASSWORD:")
+    expect(mobileReleaseWorkflow).toContain("IOS_MOBILE_PROVISION:")
+    expect(mobileReleaseWorkflow).toContain("pnpm tauri ios init --ci --skip-targets-install")
+    expect(mobileReleaseWorkflow).toContain('security import "$certificate_path"')
+    expect(mobileReleaseWorkflow).toContain('install -m 600 "$profile_source"')
+    expect(mobileReleaseWorkflow).toContain("unset IOS_CERTIFICATE IOS_CERTIFICATE_PASSWORD")
+    expect(mobileReleaseWorkflow).toContain("pnpm tauri ios build")
+    expect(mobileReleaseWorkflow).toContain("--export-method app-store-connect")
+    expect(mobileReleaseWorkflow).toContain('bundleVersion\\\":\\\"${GITHUB_RUN_NUMBER}')
+    expect(mobileReleaseWorkflow).toContain("CFBundleShortVersionString")
+    expect(mobileReleaseWorkflow).toContain("CFBundleVersion")
+    expect(mobileReleaseWorkflow).toContain("xcrun altool --upload-app")
+    expect(mobileReleaseWorkflow).toContain("actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a")
+    expect(bumpScript).toContain('args.includes("--mobile")')
+    expect(bumpScript).toContain("src/desktop/.deploy-version-mobile")
+    expect(bumpScript).toContain("automatic TestFlight upload")
+    expect(bumpScript).toContain("iOS CFBundleShortVersionString")
+  })
+
+  it("attaches a signed Android APK to --mobile GitHub releases without Google Play", () => {
+    expect(desktopAndroidConfig.identifier).toBe("ai.alook.android")
+    expect(androidGradle).toContain('namespace = "ai.alook.android"')
+    expect(androidGradle).toContain('applicationId = "ai.alook.android"')
+    expect(androidGradle).toContain('signingConfig = signingConfigs.getByName("release")')
+    expect(androidMainActivity).toContain("package ai.alook.android")
+    expect(mobileReleaseWorkflow).toContain("build-android:")
+    expect(mobileReleaseWorkflow).toContain("if: github.event_name == 'push'")
+    expect(mobileReleaseWorkflow).toContain("ANDROID_KEYSTORE:")
+    expect(mobileReleaseWorkflow).toContain("ANDROID_KEYSTORE_PASSWORD:")
+    expect(mobileReleaseWorkflow).toContain("ANDROID_KEY_ALIAS:")
+    expect(mobileReleaseWorkflow).toContain("ANDROID_KEY_PASSWORD:")
+    expect(mobileReleaseWorkflow).toContain("aarch64-linux-android,armv7-linux-androideabi")
+    expect(mobileReleaseWorkflow).toContain('"platforms;android-36"')
+    expect(mobileReleaseWorkflow).toContain('"build-tools;36.0.0"')
+    expect(mobileReleaseWorkflow).toContain('"ndk;29.0.13846066"')
+    expect(mobileReleaseWorkflow).toContain("pnpm tauri android init --ci --skip-targets-install")
+    expect(mobileReleaseWorkflow).toContain("pnpm tauri android build")
+    expect(mobileReleaseWorkflow).toContain("--target aarch64 armv7")
+    expect(mobileReleaseWorkflow).toContain("package: name='ai.alook.android'")
+    expect(mobileReleaseWorkflow).toContain("apksigner verify --verbose --print-certs")
+    expect(mobileReleaseWorkflow).toContain("gh release upload")
+    expect(mobileReleaseWorkflow).toContain("Alook_${EXPECTED_VERSION}_android.apk")
+    expect(mobileReleaseWorkflow).toContain('gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body')
+    expect(mobileReleaseWorkflow).toContain('cat >> "$notes_file" <<EOF')
+    expect(mobileReleaseWorkflow).toContain('<!-- alook-android-download -->')
+    expect(mobileReleaseWorkflow).toContain("## Android")
+    expect(mobileReleaseWorkflow).toContain("[Download signed APK](${base}/${APK_NAME})")
+    expect(mobileReleaseWorkflow).toContain('gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file "$notes_file"')
+    expect(mobileReleaseWorkflow).not.toContain("Google Play")
   })
 })

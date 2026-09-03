@@ -19,7 +19,7 @@ const iosSplash = JSON.parse(
   }>
 }
 const androidRuntime = readFileSync(
-  resolve(desktopRoot, "gen/android/app/src/main/java/ai/alook/desktop/MainActivity.kt"),
+  resolve(desktopRoot, "gen/android/app/src/main/java/ai/alook/android/MainActivity.kt"),
   "utf8",
 )
 const androidLightSplash = readFileSync(

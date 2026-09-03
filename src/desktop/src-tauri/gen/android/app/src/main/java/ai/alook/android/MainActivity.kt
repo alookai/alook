@@ -1,4 +1,4 @@
-package ai.alook.desktop
+package ai.alook.android
 
 import android.content.res.Configuration
 import android.graphics.Color
