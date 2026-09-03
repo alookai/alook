@@ -352,3 +352,34 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: v${{ steps.version.outputs.value }}
         run: gh release upload "$TAG" "${{ steps.apk.outputs.path }}#${{ steps.apk.outputs.name }}" --repo "$GITHUB_REPOSITORY" --clobber
+
+      - name: Append Android download to release body
+        env:
+          APK_NAME: ${{ steps.apk.outputs.name }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: v${{ steps.version.outputs.value }}
+        run: |
+          notes_file="$RUNNER_TEMP/release-notes.md"
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq '.body' > "$notes_file"
+
+          marker='<!-- alook-android-download -->'
+          if grep -Fq "$marker" "$notes_file"; then
+            echo "Android download section is already present on ${TAG}."
+            exit 0
+          fi
+
+          base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}"
+          cat >> "$notes_file" <<EOF
+
+          ${marker}
+
+          ---
+
+          ## Android
+
+          [Download signed APK](${base}/${APK_NAME})
+
+          This universal APK supports 64-bit and 32-bit ARM Android devices. Install it manually after allowing installs from this source.
+          EOF
+
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file "$notes_file"
