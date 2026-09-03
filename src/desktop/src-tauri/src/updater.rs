@@ -262,8 +262,8 @@ fn update_prompt(current_version: &str, available_version: &str) -> UpdatePrompt
 
 fn update_prompt_message(prompt: &UpdatePrompt) -> String {
     format!(
-        "Alook {} is available.\n\nCurrent version: {}\nNew version: {}",
-        prompt.available_version, prompt.current_version, prompt.available_version
+        "Current version: {}\nNew version: {}",
+        prompt.current_version, prompt.available_version
     )
 }
 
@@ -829,7 +829,7 @@ mod tests {
         );
         assert_eq!(
             update_prompt_message(&prompt),
-            "Alook 2.0.0 is available.\n\nCurrent version: 1.2.3\nNew version: 2.0.0"
+            "Current version: 1.2.3\nNew version: 2.0.0"
         );
     }
 
@@ -1087,8 +1087,8 @@ mod tests {
         assert!(source.contains("respond_to_update_prompt("));
         assert!(source.contains("download_and_install(app, update, update_guard)"));
         assert!(source.contains(".title(\"Update Available\")"));
-        assert!(source.contains("Alook {} is available."));
         assert!(source.contains("Current version: {}\\nNew version: {}"));
+        assert!(!source.contains(&["Alook {}", " is available."].concat()));
         assert!(source.contains("MessageDialogButtons::OkCancelCustom("));
         assert!(source.contains("\"Update Alook\".into()"));
         assert!(source.contains("\"Later\".into()"));
