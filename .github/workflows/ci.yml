@@ -487,19 +487,15 @@ jobs:
           CI_PROJECTION_VALUE: ${{ needs.scope.outputs.integration_suites }}
         run: node scripts/ci/validate-execution-plan.mjs
       - name: Create local bindings
-        if: contains(fromJSON(needs.scope.outputs.integration_suites), 'web')
         run: printf 'BETTER_AUTH_SECRET=ci-e2e-secret\nBETTER_AUTH_URL=http://localhost:3000\nDEVICE_CLIENT_IDS=e2e-test-client\nENCRYPTION_KEY=ci-e2e-encryption-key-32chars!!\n' > src/web/.dev.vars
-      - if: contains(fromJSON(needs.scope.outputs.integration_suites), 'web')
-        run: pnpm run db:migrate
+      - run: pnpm run db:migrate
       - name: Start dev servers
-        if: contains(fromJSON(needs.scope.outputs.integration_suites), 'web')
         run: |
           pnpm --filter @alook/email-worker dev &
           pnpm --filter @alook/ws-do dev &
           pnpm --filter @alook/web dev &
           pnpm --filter @alook/wake-worker dev &
       - name: Wait for services
-        if: contains(fromJSON(needs.scope.outputs.integration_suites), 'web')
         run: |
           wait_for() {
             local url=$1 timeout=60 elapsed=0

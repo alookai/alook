@@ -339,6 +339,28 @@ describe("CI workflow graph", () => {
     expect(readFileSync(resolve(repositoryRoot, "codecov.yml"), "utf8")).toContain("target: 100%")
   })
 
+  it("prepares shared services for every selected integration suite", () => {
+    const e2e = ciJob("e2e")
+    const webCondition = "if: contains(fromJSON(needs.scope.outputs.integration_suites), 'web')"
+    const cliCondition = "if: contains(fromJSON(needs.scope.outputs.integration_suites), 'cli')"
+    const daemonCondition = "if: contains(fromJSON(needs.scope.outputs.integration_suites), 'daemon')"
+
+    expect(e2e).toContain("if: needs.scope.outputs.run_e2e == 'true'")
+    expect(e2e).toContain("- name: Create local bindings\n        run:")
+    expect(e2e).toContain("- run: pnpm run db:migrate")
+    expect(e2e).toContain("- name: Start dev servers\n        run: |")
+    expect(e2e).toContain("- name: Wait for services\n        run: |")
+    expect(e2e.match(new RegExp(webCondition.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")))
+      .toHaveLength(1)
+    expect(e2e.match(new RegExp(cliCondition.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")))
+      .toHaveLength(1)
+    expect(e2e.match(new RegExp(daemonCondition.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")))
+      .toHaveLength(1)
+    expect(e2e).toContain(`${webCondition}\n        run: pnpm test:e2e`)
+    expect(e2e).toContain(`${cliCondition}\n        run: pnpm --filter @alook/cli run test:integration`)
+    expect(e2e).toContain(`${daemonCondition}\n        run: pnpm --filter @alook/daemon run test:integration`)
+  })
+
   it("consolidates static work and preserves non-blocking Knip steps", () => {
     const staticChecks = ciJob("static-checks")
     expect(ciWorkflow).not.toMatch(/^  quality:/m)
