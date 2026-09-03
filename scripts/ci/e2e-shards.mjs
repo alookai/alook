@@ -152,13 +152,13 @@ export function planE2eShards(
 
 export function createE2eMatrix(specs = discoverE2eSpecs(), image = resolvePlaywrightImage()) {
   const inventory = discoverE2eSpecs()
+  if (specs.includes("all") && !(specs.length === 1 && specs[0] === "all")) {
+    throw new Error("the all sentinel cannot be combined with explicit specs")
+  }
   const selected = specs.length === 1 && specs[0] === "all" ? inventory : specs
   const unknown = selected.filter((spec) => !inventory.includes(spec))
   if (unknown.length > 0) {
     throw new Error(`specs are outside the UI inventory: ${unknown.join(", ")}`)
-  }
-  if (specs.includes("all") && !(specs.length === 1 && specs[0] === "all")) {
-    throw new Error("the all sentinel cannot be combined with explicit specs")
   }
   const shards = planE2eShards(selected)
   return {

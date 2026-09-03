@@ -1,7 +1,7 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import {
   createE2eMatrix,
   discoverE2eSpecs,
@@ -9,6 +9,7 @@ import {
   planE2eShards,
   resolvePlaywrightImage,
   resolvePlaywrightVersion,
+  runCli,
 } from "./e2e-shards.mjs"
 
 describe("resolvePlaywrightVersion", () => {
@@ -136,5 +137,52 @@ describe("createE2eMatrix", () => {
 
     expect(assigned).toHaveLength(discoverE2eSpecs().length)
     expect(new Set(assigned).size).toBe(assigned.length)
+  })
+
+  it("rejects the all sentinel when combined with explicit specs", () => {
+    expect(() => createE2eMatrix(["all", "54-blog-multizone.spec.ts"]))
+      .toThrow("all sentinel")
+  })
+})
+
+describe("E2E shard CLI", () => {
+  it("writes an explicit matrix and human-readable summary", () => {
+    const directory = mkdtempSync(join(tmpdir(), "alook-e2e-cli-"))
+    const output = join(directory, "output")
+    const summary = join(directory, "summary.md")
+    try {
+      runCli([
+        "--specs-json", JSON.stringify(["54-blog-multizone.spec.ts"]),
+        "--output", output,
+        "--summary", summary,
+      ])
+
+      expect(readFileSync(output, "utf8")).toContain(
+        "src/test/e2e-ui/54-blog-multizone.spec.ts",
+      )
+      expect(readFileSync(summary, "utf8")).toContain("| 1/1 | 60s |")
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it("prints the default live inventory without an output file", () => {
+    const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true)
+    try {
+      runCli([])
+
+      const matrix = JSON.parse(stdout.mock.calls.map(([value]) => String(value)).join(""))
+      expect(matrix.include.flatMap((entry: { specs: string[] }) => entry.specs))
+        .toHaveLength(discoverE2eSpecs().length)
+    } finally {
+      stdout.mockRestore()
+    }
+  })
+
+  it("rejects malformed specs JSON values", () => {
+    expect(() => runCli(["--specs-json", JSON.stringify({ spec: "54-blog-multizone.spec.ts" })]))
+      .toThrow("JSON array")
+    expect(() => runCli(["--specs-json", JSON.stringify([42])]))
+      .toThrow("JSON array")
   })
 })

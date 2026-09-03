@@ -98,17 +98,19 @@ export function validateCharacterization(input) {
   }
 }
 
-function git(args, options = {}) {
-  return execFileSync("git", args, {
-    cwd: ROOT,
+function git(args, options = {}, runtime = {}) {
+  const execute = runtime.execFileSync || execFileSync
+  return execute("git", args, {
+    cwd: runtime.root || ROOT,
     ...(options.buffer ? {} : { encoding: "utf8" }),
     stdio: ["ignore", "pipe", "pipe"],
   })
 }
 
-function blobAt(sha, path) {
-  const result = spawnSync("git", ["rev-parse", `${sha}:${path}`], {
-    cwd: ROOT,
+export function blobAt(sha, path, runtime = {}) {
+  const spawn = runtime.spawnSync || spawnSync
+  const result = spawn("git", ["rev-parse", `${sha}:${path}`], {
+    cwd: runtime.root || ROOT,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
   })
@@ -127,7 +129,7 @@ function parseArgs(argv) {
   return args
 }
 
-export function runCli(argv) {
+export function runCli(argv, runtime = {}) {
   const args = parseArgs(argv)
   for (const required of [
     "repository", "refName", "eventSha", "candidateSha", "fixtureSha",
@@ -135,22 +137,24 @@ export function runCli(argv) {
   ]) {
     if (!args[required]) throw new Error(`--${required} is required`)
   }
-  const manifest = loadScopeManifest()
+  const manifest = runtime.manifest || loadScopeManifest()
   const candidatePr = JSON.parse(readFileSync(resolve(args.candidatePrJson), "utf8"))
-  const remoteRef = git(["ls-remote", "--heads", "origin", `refs/heads/${args.refName}`])
+  const remoteRef = git(["ls-remote", "--heads", "origin", `refs/heads/${args.refName}`], {}, runtime)
     .trim()
     .split(/\s+/)[0]
-  const parentShas = git(["show", "-s", "--format=%P", args.fixtureSha]).trim().split(/\s+/).filter(Boolean)
-  const ancestor = spawnSync("git", ["merge-base", "--is-ancestor", args.candidateSha, args.fixtureSha], {
-    cwd: ROOT,
+  const parentShas = git(["show", "-s", "--format=%P", args.fixtureSha], {}, runtime).trim().split(/\s+/).filter(Boolean)
+  const spawn = runtime.spawnSync || spawnSync
+  const ancestor = spawn("git", ["merge-base", "--is-ancestor", args.candidateSha, args.fixtureSha], {
+    cwd: runtime.root || ROOT,
     stdio: "ignore",
   }).status === 0
   const changes = parseNameStatus(git(
     ["diff", "--name-status", "-z", "--find-renames", "--find-copies", args.candidateSha, args.fixtureSha],
     { buffer: true },
+    runtime,
   ))
   const fileMode = changes.length === 1
-    ? git(["ls-tree", args.fixtureSha, "--", changes[0].path]).trim().split(/\s+/)[0]
+    ? git(["ls-tree", args.fixtureSha, "--", changes[0].path], {}, runtime).trim().split(/\s+/)[0]
     : ""
   const plan = buildExecutionPlan(changes, {
     baseSha: args.candidateSha,
@@ -158,8 +162,8 @@ export function runCli(argv) {
     diagnosticOnly: true,
   })
   const integrityBlobs = Object.fromEntries(manifest.integrity_paths.map((path) => [path, {
-    candidate: blobAt(args.candidateSha, path),
-    fixture: blobAt(args.fixtureSha, path),
+    candidate: blobAt(args.candidateSha, path, runtime),
+    fixture: blobAt(args.fixtureSha, path, runtime),
   }]))
   const result = validateCharacterization({
     repository: args.repository,
@@ -190,6 +194,15 @@ export function runCli(argv) {
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  runCli(process.argv.slice(2))
+export function runIfMain(
+  metaUrl,
+  argvPath = process.argv[1],
+  argv = process.argv.slice(2),
+  runtime = {},
+) {
+  if (argvPath === fileURLToPath(metaUrl)) {
+    runCli(argv, runtime)
+  }
 }
+
+runIfMain(import.meta.url)

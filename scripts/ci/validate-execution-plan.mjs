@@ -30,4 +30,8 @@ export function runCli(env = process.env) {
   )
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) runCli()
+export function runIfMain(metaUrl, argvPath = process.argv[1], env = process.env) {
+  if (argvPath === fileURLToPath(metaUrl)) runCli(env)
+}
+
+runIfMain(import.meta.url)

@@ -1,9 +1,10 @@
+import { createHash } from "node:crypto"
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { describe, expect, it } from "vitest"
-import { buildExecutionPlan } from "./changed-scopes.mjs"
-import { verifyCoveragePlan } from "./verify-coverage-plan.mjs"
+import { buildExecutionPlan, stablePlanJson } from "./changed-scopes.mjs"
+import { runCli, runIfMain, verifyCoveragePlan } from "./verify-coverage-plan.mjs"
 
 const baseSha = "a".repeat(40)
 const headSha = "b".repeat(40)
@@ -17,6 +18,14 @@ function coveredFile(path: string, covered = true) {
     f: {},
     branchMap: {},
     b: {},
+  }
+}
+
+function resignPlan(value) {
+  const { plan_hash: _ignored, ...unsigned } = value
+  return {
+    ...value,
+    plan_hash: createHash("sha256").update(stablePlanJson(unsigned)).digest("hex"),
   }
 }
 
@@ -44,6 +53,19 @@ describe("verifyCoveragePlan", () => {
     })).toThrow("required changed coverage file")
   })
 
+  it("rejects a required changed file that is absent from the checked-out head", () => {
+    const changed = "src/cli/commands/update.ts"
+    const plan = buildExecutionPlan([{ status: "M", path: changed }], { baseSha, headSha })
+    const root = mkdtempSync(join(tmpdir(), "alook-coverage-head-"))
+    try {
+      expect(() => verifyCoveragePlan(plan, {
+        [changed]: coveredFile(changed),
+      }, { root })).toThrow("does not exist at head")
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it("rejects empty and below-target Codecov project reports", () => {
     const changed = "src/shared/src/semver.ts"
     const plan = buildExecutionPlan([{ status: "M", path: changed }], { baseSha, headSha })
@@ -62,7 +84,18 @@ describe("verifyCoveragePlan", () => {
     })).toThrow("project target shared")
   })
 
-  it("writes an auditable target manifest from the CLI", async () => {
+  it("rejects targets absent from the Codecov contract", () => {
+    const changed = "src/cli/commands/update.ts"
+    const plan = buildExecutionPlan([{ status: "M", path: changed }], { baseSha, headSha })
+    const invalid = structuredClone(plan)
+    invalid.coverage.targets = ["future"]
+
+    expect(() => verifyCoveragePlan(resignPlan(invalid), {
+      [resolve(changed)]: coveredFile(resolve(changed)),
+    })).toThrow("unknown Codecov project target")
+  })
+
+  it("writes an auditable target manifest from the CLI", () => {
     const changed = "src/cli/commands/update.ts"
     const plan = buildExecutionPlan([{ status: "M", path: changed }], { baseSha, headSha })
     const directory = mkdtempSync(join(tmpdir(), "alook-coverage-plan-"))
@@ -74,8 +107,17 @@ describe("verifyCoveragePlan", () => {
       writeFileSync(reportPath, JSON.stringify({
         [resolve(changed)]: coveredFile(resolve(changed)),
       }))
-      const { runCli } = await import("./verify-coverage-plan.mjs")
-      runCli(["--plan", planPath, "--report", reportPath, "--output", outputPath])
+      const args = [
+        "--plan", planPath,
+        "--report", reportPath,
+        "--output", outputPath,
+        "--unused-value", "ignored",
+      ]
+      runIfMain(
+        "file:///tmp/verify-coverage-plan.mjs",
+        "/tmp/verify-coverage-plan.mjs",
+        args,
+      )
       expect(JSON.parse(readFileSync(outputPath, "utf8"))).toMatchObject({
         plan_hash: plan.plan_hash,
         required_changed_files: [changed],
@@ -83,5 +125,9 @@ describe("verifyCoveragePlan", () => {
     } finally {
       rmSync(directory, { recursive: true, force: true })
     }
+  })
+
+  it("requires every CLI input path", () => {
+    expect(() => runCli([])).toThrow("--plan, --report, and --output")
   })
 })

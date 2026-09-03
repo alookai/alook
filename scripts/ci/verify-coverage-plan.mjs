@@ -109,6 +109,10 @@ export function runCli(argv) {
   )
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  runCli(process.argv.slice(2))
+export function runIfMain(metaUrl, argvPath = process.argv[1], argv = process.argv.slice(2)) {
+  if (argvPath === fileURLToPath(metaUrl)) {
+    runCli(argv)
+  }
 }
+
+runIfMain(import.meta.url)

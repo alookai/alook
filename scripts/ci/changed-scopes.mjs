@@ -25,8 +25,7 @@ const GLOBAL_PATHS = new Set([
   "tsconfig.json",
   "vitest.config.ts",
 ])
-const KNOWN_PREFIXES = [".claude/", ".openai/", "docs/", "tests/integration/"]
-const COVERABLE_EXTENSION = /\.(?:[cm]?[jt]sx?)$/
+const KNOWN_PREFIXES = [".claude/", ".openai/", "docs/"]
 const COVERAGE_EXCLUDES = [
   /(?:^|\/)\w[^/]*\.(?:test|spec)\.[cm]?[jt]sx?$/,
   /(?:^|\/)node_modules\//,
@@ -86,9 +85,18 @@ function coverageRootPrefix(glob) {
   return glob.split("/**")[0]
 }
 
+function coverageRootMatches(path, glob) {
+  if (!pathWithin(path, coverageRootPrefix(glob))) return false
+  const extensionSet = glob.match(/\.\{([^}]+)\}$/)?.[1]
+  if (extensionSet) {
+    return extensionSet.split(",").some((extension) => path.endsWith(`.${extension}`))
+  }
+  const extension = glob.match(/\.([0-9A-Za-z]+)$/)?.[1]
+  return extension ? path.endsWith(`.${extension}`) : false
+}
+
 function isCoverable(path, coverageRoots) {
-  return COVERABLE_EXTENSION.test(path)
-    && coverageRoots.some((root) => pathWithin(path, coverageRootPrefix(root)))
+  return coverageRoots.some((root) => coverageRootMatches(path, root))
     && COVERAGE_EXCLUDES.every((pattern) => !pattern.test(path))
 }
 
@@ -140,7 +148,7 @@ function workspaceGraph(manifest, root = ROOT) {
 }
 
 function validateCodecovTargets(manifest, root) {
-  const source = readFileSync(resolve(root, "codecov.yml"), "utf8")
+  const source = readFileSync(resolve(root, "codecov.yml"), "utf8").replaceAll("\r\n", "\n")
   const projectSection = source.match(/^[ ]{4}project:\n([\s\S]*?)^[ ]{4}patch:/m)?.[1]
   if (!projectSection) throw new Error("codecov.yml project status section is missing")
   const configuredNames = [...projectSection.matchAll(/^[ ]{6}([^\s:\n][^:\n]*):$/gm)]
@@ -186,6 +194,11 @@ export function validateScopeManifest(manifest, options = {}) {
 
   for (const [kind, registry] of Object.entries(manifest.suites)) {
     if (new Set(registry).size !== registry.length) throw new Error(`${kind} suite IDs must be unique`)
+    for (const entry of manifest.packages) {
+      for (const suite of entry[`${kind}_suites`]) {
+        if (!registry.includes(suite)) throw new Error(`unknown ${kind} suite: ${suite}`)
+      }
+    }
     const declared = sorted(manifest.packages.flatMap((entry) => entry[`${kind}_suites`]))
     if (JSON.stringify([...registry].sort()) !== JSON.stringify(declared)) {
       throw new Error(`${kind} suite registry must exactly match package declarations`)
@@ -207,15 +220,6 @@ export function validateScopeManifest(manifest, options = {}) {
     const workspacePackage = packageManifest(entry, root)
     if (workspacePackage.name !== entry.name) {
       throw new Error(`package manifest mismatch for ${entry.root}`)
-    }
-    for (const suite of entry.windows_suites) {
-      if (!manifest.suites.windows.includes(suite)) throw new Error(`unknown windows suite: ${suite}`)
-    }
-    for (const suite of entry.integration_suites) {
-      if (!manifest.suites.integration.includes(suite)) throw new Error(`unknown integration suite: ${suite}`)
-    }
-    for (const suite of entry.linux_suites) {
-      if (!manifest.suites.linux.includes(suite)) throw new Error(`unknown linux suite: ${suite}`)
     }
     if (entry.codecov_target && !manifest.codecov_targets[entry.codecov_target]) {
       throw new Error(`unknown Codecov target: ${entry.codecov_target}`)
@@ -277,6 +281,7 @@ function isKnownPath(path, manifest) {
   return isMarkdown(path)
     || GLOBAL_PATHS.has(path)
     || manifest.packages.some((entry) => pathWithin(path, entry.root))
+    || manifest.path_suites.some((entry) => pathWithin(path, normalizePath(entry.root)))
     || KNOWN_PREFIXES.some((prefix) => path.startsWith(prefix))
 }
 
@@ -372,7 +377,7 @@ export function buildExecutionPlan(inputChanges, options = {}) {
   suites.integration = sorted([
     ...suites.integration,
     ...manifest.path_suites
-      .filter((entry) => paths.some((path) => pathWithin(path, entry.root)))
+      .filter((entry) => paths.some((path) => pathWithin(path, normalizePath(entry.root))))
       .flatMap((entry) => entry.integration_suites),
   ])
   if (full) {

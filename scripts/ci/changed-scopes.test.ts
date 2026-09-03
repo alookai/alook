@@ -1,7 +1,8 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { createHash } from "node:crypto"
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import {
   buildExecutionPlan,
   classifyPaths,
@@ -23,6 +24,38 @@ function plan(paths: string[], options = {}) {
     headSha: sha("b"),
     ...options,
   })
+}
+
+function resignPlan(value) {
+  const { plan_hash: _ignored, ...unsigned } = value
+  return {
+    ...value,
+    plan_hash: createHash("sha256").update(stablePlanJson(unsigned)).digest("hex"),
+  }
+}
+
+function workspaceFixture({
+  codecov = (source: string) => source,
+} = {}) {
+  const manifest = loadScopeManifest()
+  const root = mkdtempSync(join(tmpdir(), "alook-ci-workspace-"))
+  writeFileSync(
+    join(root, "pnpm-workspace.yaml"),
+    readFileSync("pnpm-workspace.yaml", "utf8"),
+  )
+  writeFileSync(
+    join(root, "codecov.yml"),
+    codecov(readFileSync("codecov.yml", "utf8")),
+  )
+  for (const scopePackage of manifest.packages) {
+    const packageRoot = join(root, scopePackage.root)
+    mkdirSync(packageRoot, { recursive: true })
+    writeFileSync(
+      join(packageRoot, "package.json"),
+      readFileSync(join(scopePackage.root, "package.json"), "utf8"),
+    )
+  }
+  return { manifest, root }
 }
 
 describe("canonical execution plan", () => {
@@ -81,6 +114,28 @@ describe("canonical execution plan", () => {
 
     const daemon = plan(["tests/integration/daemon/lifecycle.test.ts"])
     expect(daemon.suites.integration).toEqual(["daemon"])
+
+    const undeclared = plan(["tests/integration/future/case.test.ts"])
+    expect(undeclared.full).toBe(true)
+    expect(undeclared.full_reason).toBe("unknown_path")
+    expect(undeclared.suites.integration).toEqual(["cli", "daemon", "web"])
+
+    const trailingSlashManifest = structuredClone(loadScopeManifest())
+    const cliPathSuite = trailingSlashManifest.path_suites.find((entry) => (
+      entry.root === "tests/integration/cli"
+    ))
+    expect(cliPathSuite).toBeDefined()
+    cliPathSuite!.root += "/"
+    const canonicalized = buildExecutionPlan(
+      modified("tests/integration/cli/session-resume.test.ts"),
+      {
+        baseSha: sha("a"),
+        headSha: sha("b"),
+        manifest: trailingSlashManifest,
+      },
+    )
+    expect(canonicalized.full).toBe(false)
+    expect(canonicalized.suites.integration).toEqual(["cli"])
   })
 
   it("expands shared changes through the complete workspace dependent closure", () => {
@@ -169,6 +224,27 @@ describe("canonical execution plan", () => {
 
     expect(() => validateExecutionPlan({ ...first, head_sha: sha("c") })).toThrow("hash")
   })
+
+  it("rejects every stale identifier in an otherwise authentic signed plan", () => {
+    const current = plan(["src/shared/src/schema.ts"])
+    expect(() => validateExecutionPlan({ ...current, schema_version: 2 }))
+      .toThrow("schema/policy")
+
+    for (const [section, key, expected] of [
+      ["packages", "direct", "package"],
+      ["suites", "windows", "windows suite"],
+      ["suites", "integration", "integration suite"],
+      ["suites", "linux", "linux suite"],
+    ]) {
+      const altered = structuredClone(current)
+      altered[section][key] = ["future"]
+      expect(() => validateExecutionPlan(resignPlan(altered))).toThrow(expected)
+    }
+
+    const staleUi = structuredClone(current)
+    staleUi.ui.specs = ["future.spec.ts"]
+    expect(() => validateExecutionPlan(resignPlan(staleUi))).toThrow("UI spec")
+  })
 })
 
 describe("coverage name-status contract", () => {
@@ -189,6 +265,19 @@ describe("coverage name-status contract", () => {
     ])
   })
 
+  it("requires only files selected by the actual coverage globs", () => {
+    for (const path of [
+      "src/app/scripts/app-packed-artifact.mjs",
+      "src/cli/scripts/prepare-dist.mjs",
+      "src/web/vitest.runtime.config.mts",
+    ]) {
+      expect(plan([path]).coverage.required_changed_files).toEqual([])
+    }
+
+    expect(plan(["scripts/ci/changed-scopes.mjs"]).coverage.required_changed_files)
+      .toEqual(["scripts/ci/changed-scopes.mjs"])
+  })
+
   it("parses NUL-delimited statuses without losing rename/copy identity", () => {
     const input = Buffer.from(
       "M\0src/cli/src/a.ts\0D\0src/cli/src/deleted.ts\0R100\0src/cli/src/old.ts\0src/cli/src/new.ts\0C090\0src/shared/src/a.ts\0src/shared/src/b.ts\0",
@@ -201,6 +290,11 @@ describe("coverage name-status contract", () => {
       { status: "C090", old_path: "src/shared/src/a.ts", path: "src/shared/src/b.ts" },
     ])
   })
+
+  it("rejects truncated NUL-delimited status records", () => {
+    expect(() => parseNameStatus(Buffer.from("M\0"))).toThrow("missing path")
+    expect(() => parseNameStatus(Buffer.from("R100\0old.ts\0"))).toThrow("missing destination")
+  })
 })
 
 describe("scope manifest", () => {
@@ -211,23 +305,108 @@ describe("scope manifest", () => {
     expect(manifest.ui.contracts.blog).toEqual(["54-blog-multizone.spec.ts"])
   })
 
-  it("rejects unknown suites and duplicate package roots", () => {
+  it("rejects invalid versions, registries, packages, paths, targets, and specs", () => {
     const manifest = loadScopeManifest()
+
+    expect(() => validateScopeManifest({ ...manifest, schema_version: 2 }))
+      .toThrow("schema/policy")
+    expect(() => validateScopeManifest({ ...manifest, packages: [] }))
+      .toThrow("packages are required")
+
+    const duplicateName = structuredClone(manifest)
+    duplicateName.packages[1].name = duplicateName.packages[0].name
+    expect(() => validateScopeManifest(duplicateName)).toThrow("names must be unique")
+
     const brokenSuite = structuredClone(manifest)
     brokenSuite.packages[0].windows_suites = ["future"]
     expect(() => validateScopeManifest(brokenSuite)).toThrow("windows suite")
+
+    const duplicateSuite = structuredClone(manifest)
+    duplicateSuite.suites.windows.push(duplicateSuite.suites.windows[0])
+    expect(() => validateScopeManifest(duplicateSuite)).toThrow("IDs must be unique")
+
+    const registryDrift = structuredClone(manifest)
+    registryDrift.suites.windows.push("future")
+    expect(() => validateScopeManifest(registryDrift)).toThrow("registry")
 
     const duplicateRoot = structuredClone(manifest)
     duplicateRoot.packages[1].root = duplicateRoot.packages[0].root
     expect(() => validateScopeManifest(duplicateRoot)).toThrow("root")
 
+    const duplicatePathRoot = structuredClone(manifest)
+    duplicatePathRoot.path_suites.push(structuredClone(duplicatePathRoot.path_suites[0]))
+    expect(() => validateScopeManifest(duplicatePathRoot)).toThrow("path suite roots")
+
+    const unknownPathSuite = structuredClone(manifest)
+    unknownPathSuite.path_suites[0].integration_suites = ["future"]
+    expect(() => validateScopeManifest(unknownPathSuite)).toThrow("path integration suite")
+
     const missingPackage = structuredClone(manifest)
     missingPackage.packages.pop()
     expect(() => validateScopeManifest(missingPackage)).toThrow("pnpm-workspace")
 
+    const packageMismatch = structuredClone(manifest)
+    packageMismatch.packages[0].name = "@alook/future"
+    expect(() => validateScopeManifest(packageMismatch)).toThrow("package manifest mismatch")
+
+    const unknownCodecov = structuredClone(manifest)
+    const targetPackage = unknownCodecov.packages.find((entry) => entry.codecov_target)
+    expect(targetPackage).toBeDefined()
+    targetPackage!.codecov_target = "future"
+    expect(() => validateScopeManifest(unknownCodecov)).toThrow("unknown Codecov target")
+
     const codecovDrift = structuredClone(manifest)
     codecovDrift.codecov_targets.shared.target = 51
     expect(() => validateScopeManifest(codecovDrift)).toThrow("Codecov target")
+
+    expect(() => validateScopeManifest(manifest, { specs: [] })).toThrow("unknown UI spec")
+  })
+
+  it("validates the same Codecov contracts from a CRLF checkout", () => {
+    const { manifest, root } = workspaceFixture({
+      codecov: (source) => source.replaceAll(/\r?\n/g, "\r\n"),
+    })
+    try {
+      expect(() => validateScopeManifest(manifest, {
+        root,
+        specs: manifest.ui.contracts.blog,
+      })).not.toThrow()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it("rejects malformed Codecov sections and package test contracts", () => {
+    for (const codecov of [
+      (source: string) => source.replace("    project:", "    projects:"),
+      (source: string) => source.replace(/^      ([^:\n]+):$/m, "      future:"),
+    ]) {
+      const { manifest, root } = workspaceFixture({ codecov })
+      try {
+        expect(() => validateScopeManifest(manifest, {
+          root,
+          specs: manifest.ui.contracts.blog,
+        })).toThrow("codecov.yml")
+      } finally {
+        rmSync(root, { recursive: true, force: true })
+      }
+    }
+
+    const { manifest, root } = workspaceFixture()
+    try {
+      const unitPackage = manifest.packages.find((entry) => entry.unit_root)
+      expect(unitPackage).toBeDefined()
+      const packagePath = join(root, unitPackage!.root, "package.json")
+      const packageManifest = JSON.parse(readFileSync(packagePath, "utf8"))
+      delete packageManifest.scripts.test
+      writeFileSync(packagePath, JSON.stringify(packageManifest))
+      expect(() => validateScopeManifest(manifest, {
+        root,
+        specs: manifest.ui.contracts.blog,
+      })).toThrow("declares test scope")
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })
 
@@ -242,12 +421,14 @@ describe("compatibility and CLI fail-closed behavior", () => {
     const directory = mkdtempSync(join(tmpdir(), "alook-ci-scope-"))
     const output = join(directory, "output")
     const planFile = join(directory, "plan.json")
+    const summary = join(directory, "summary.md")
     try {
       runCli([
         "--base", "missing-base",
         "--head", "missing-head",
         "--output", output,
         "--plan-file", planFile,
+        "--summary", summary,
       ])
       const values = readFileSync(output, "utf8")
       const writtenPlan = JSON.parse(readFileSync(planFile, "utf8"))
@@ -255,6 +436,70 @@ describe("compatibility and CLI fail-closed behavior", () => {
       expect(values).toContain("run_ui_e2e=true")
       expect(writtenPlan.full).toBe(true)
       expect(writtenPlan.full_reason).toBe("classifier_error")
+      expect(readFileSync(summary, "utf8")).toContain("Fail-closed reason:")
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it("writes every canonical artifact for an explicit diagnostic full run", () => {
+    const directory = mkdtempSync(join(tmpdir(), "alook-ci-scope-"))
+    const output = join(directory, "output")
+    const planFile = join(directory, "plan.json")
+    const summary = join(directory, "summary.md")
+    try {
+      runCli([
+        "--force-full",
+        "--diagnostic-only",
+        "--output", output,
+        "--plan-file", planFile,
+        "--summary", summary,
+      ])
+
+      const writtenPlan = JSON.parse(readFileSync(planFile, "utf8"))
+      expect(writtenPlan).toMatchObject({
+        full: true,
+        full_reason: "forced",
+        diagnostic_only: true,
+        changes: [],
+      })
+      expect(readFileSync(output, "utf8")).toContain(`plan_hash=${writtenPlan.plan_hash}`)
+      expect(readFileSync(summary, "utf8")).toContain("- none")
+      expect(readFileSync(summary, "utf8")).not.toContain("Fail-closed reason:")
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it("reads a real Git diff and prints its canonical plan when no output file is requested", () => {
+    const directory = mkdtempSync(join(tmpdir(), "alook-ci-scope-"))
+    const summary = join(directory, "summary.md")
+    const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true)
+    try {
+      runCli(["--base", "HEAD^", "--head", "HEAD", "--summary", summary])
+
+      const written = stdout.mock.calls.map(([value]) => String(value)).join("")
+      const writtenPlan = JSON.parse(written)
+      expect(writtenPlan.base_sha).toBe("HEAD^")
+      expect(writtenPlan.head_sha).toBe("HEAD")
+      expect(writtenPlan.changes.length).toBeGreaterThan(0)
+      expect(readFileSync(summary, "utf8")).toContain("Changed paths")
+    } finally {
+      stdout.mockRestore()
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it("fails closed when the CLI SHA boundary is omitted", () => {
+    const directory = mkdtempSync(join(tmpdir(), "alook-ci-scope-"))
+    const output = join(directory, "output")
+    const planFile = join(directory, "plan.json")
+    try {
+      runCli(["--output", output, "--plan-file", planFile])
+      expect(JSON.parse(readFileSync(planFile, "utf8"))).toMatchObject({
+        full: true,
+        full_reason: "classifier_error",
+      })
     } finally {
       rmSync(directory, { recursive: true, force: true })
     }
