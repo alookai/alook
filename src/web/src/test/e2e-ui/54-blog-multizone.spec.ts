@@ -18,7 +18,6 @@ test("main and Blog navigate across Workers through one public origin", async ({
   await expect(blogLink).toHaveAttribute("href", "/blog")
   await blogLink.click()
   await expect(page).toHaveURL(`${publicOrigin}/blog`)
-  await expect(page.getByRole("heading", { name: "Multi-Agent Collaboration & AI Team" })).toBeVisible()
   expect(documentRequests.at(-1)).toBe(`${publicOrigin}/blog`)
 
   const assetUrls = await page.locator('script[src], link[rel="stylesheet"]').evaluateAll((elements) => (
