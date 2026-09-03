@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "profileVersion": "message-scroll-v1",
   "sourceIdentity": {
-    "sourceSha": "6396fe02a061f960b67516a5a0446bfb82514cdf",
-    "lockHash": "691443b5cbe8fffe73b061fc23209b82d1cfd5884c125b5c3aafb03fb86bbe93",
-    "servedBuildId": "6396fe02a061f960b67516a5a0446bfb82514cdf:691443b5cbe8fffe",
+    "sourceSha": "26acaa716584fd2ba84251c43c4699478b9c390c",
+    "lockHash": "28616d32a9c5de70229b572f4ec5ab6a1463987461ce504c5cf251882565e3d0",
+    "servedBuildId": "26acaa716584fd2ba84251c43c4699478b9c390c:28616d32a9c5de70",
     "probeHash": "12fe64c1db42a698207a426b540e8cea62a2e67c80f9dc245616da3095019289",
     "runtime": "chromium",
     "viewport": {
@@ -55,148 +55,290 @@
   "observations": {
     "cold-load-and-async-row": {
       "status": "stable",
-      "frameCount": 688,
-      "analysisFrameCount": 684,
+      "frameCount": 683,
+      "analysisFrameCount": 679,
       "settlementFrames": 5,
       "finalProgress": 1623,
       "reversalCount": 0,
       "maxReversalPx": 0,
-      "zeroProgressFrames": 671,
-      "frameDelta": { "p50": 0, "p95": 0, "max": 495 },
+      "zeroProgressFrames": 666,
+      "frameDelta": {
+        "p50": 0,
+        "p95": 0,
+        "max": 495
+      },
       "anchorDriftPx": null,
       "tailGapDriftPx": null,
-      "writerCount": 31,
-      "contentionEpochCount": 14,
-      "unknownWriterCount": 31,
+      "writerCount": 30,
+      "contentionEpochCount": 13,
+      "unknownWriterCount": 30,
       "measurementCount": 33,
-      "repeatedMeasurementRowCount": 4,
-      "maxMeasurementsPerRow": 14,
+      "repeatedMeasurementRowCount": 5,
+      "maxMeasurementsPerRow": 13,
       "estimateErrorPx": null,
       "segments": [
-        { "name": "cold-load-and-async-row", "commandDirection": null, "frameCount": 684, "finalProgress": 1623, "reversalCount": 0, "maxReversalPx": 0 }
+        {
+          "name": "cold-load-and-async-row",
+          "commandDirection": null,
+          "frameCount": 679,
+          "finalProgress": 1623,
+          "reversalCount": 0,
+          "maxReversalPx": 0
+        }
       ]
     },
     "warm-cache-revalidation": {
       "status": "stable",
-      "frameCount": 7,
-      "analysisFrameCount": 3,
+      "frameCount": 8,
+      "analysisFrameCount": 4,
       "settlementFrames": 5,
       "finalProgress": 0,
       "reversalCount": 0,
       "maxReversalPx": 0,
-      "zeroProgressFrames": 2,
-      "frameDelta": { "p50": 0, "p95": 0, "max": 0 },
+      "zeroProgressFrames": 3,
+      "frameDelta": {
+        "p50": 0,
+        "p95": 0,
+        "max": 0
+      },
       "anchorDriftPx": 0,
       "tailGapDriftPx": 0,
       "writerCount": 0,
       "contentionEpochCount": 0,
       "unknownWriterCount": 0,
-      "measurementCount": 12,
+      "measurementCount": 16,
       "repeatedMeasurementRowCount": 1,
       "maxMeasurementsPerRow": 3,
-      "estimateErrorPx": { "p50": 57.5, "p95": 494, "max": 494 },
+      "estimateErrorPx": {
+        "p50": 57.5,
+        "p95": 494,
+        "max": 494
+      },
       "segments": [
-        { "name": "warm-cache-revalidation", "commandDirection": null, "frameCount": 3, "finalProgress": 0, "reversalCount": 0, "maxReversalPx": 0 }
+        {
+          "name": "warm-cache-revalidation",
+          "commandDirection": null,
+          "frameCount": 4,
+          "finalProgress": 0,
+          "reversalCount": 0,
+          "maxReversalPx": 0
+        }
       ]
     },
     "older-loading-prepend": {
       "status": "stable",
-      "frameCount": 48,
-      "analysisFrameCount": 42,
+      "frameCount": 102,
+      "analysisFrameCount": 98,
       "settlementFrames": 5,
       "finalProgress": -4145,
       "reversalCount": 1,
       "maxReversalPx": 77,
-      "zeroProgressFrames": 39,
-      "frameDelta": { "p50": 0, "p95": 0, "max": 4222 },
+      "zeroProgressFrames": 95,
+      "frameDelta": {
+        "p50": 0,
+        "p95": 0,
+        "max": 4222
+      },
       "anchorDriftPx": null,
       "tailGapDriftPx": 55,
       "writerCount": 2,
       "contentionEpochCount": 0,
       "unknownWriterCount": 2,
-      "measurementCount": 61,
-      "repeatedMeasurementRowCount": 13,
-      "maxMeasurementsPerRow": 3,
-      "estimateErrorPx": { "p50": 34.422, "p95": 158.422, "max": 158.422 },
+      "measurementCount": 86,
+      "repeatedMeasurementRowCount": 34,
+      "maxMeasurementsPerRow": 4,
+      "estimateErrorPx": {
+        "p50": 34.422,
+        "p95": 158.422,
+        "max": 158.422
+      },
       "segments": [
-        { "name": "older-loading-prepend", "commandDirection": "backward", "frameCount": 42, "finalProgress": -4145, "reversalCount": 1, "maxReversalPx": 77 }
+        {
+          "name": "older-loading-prepend",
+          "commandDirection": "backward",
+          "frameCount": 98,
+          "finalProgress": -4145,
+          "reversalCount": 1,
+          "maxReversalPx": 77
+        }
       ]
     },
     "newer-loading-present": {
       "status": "stable",
-      "frameCount": 99,
-      "analysisFrameCount": 95,
+      "frameCount": 32,
+      "analysisFrameCount": 28,
       "settlementFrames": 5,
       "finalProgress": 6547,
-      "reversalCount": 3,
+      "reversalCount": 2,
       "maxReversalPx": 147,
-      "zeroProgressFrames": 89,
-      "frameDelta": { "p50": 0, "p95": 60, "max": 5834 },
+      "zeroProgressFrames": 22,
+      "frameDelta": {
+        "p50": 0,
+        "p95": 590,
+        "max": 5834
+      },
       "anchorDriftPx": null,
       "tailGapDriftPx": 1537,
-      "writerCount": 27,
-      "contentionEpochCount": 4,
-      "unknownWriterCount": 27,
-      "measurementCount": 73,
-      "repeatedMeasurementRowCount": 26,
+      "writerCount": 18,
+      "contentionEpochCount": 3,
+      "unknownWriterCount": 18,
+      "measurementCount": 77,
+      "repeatedMeasurementRowCount": 28,
       "maxMeasurementsPerRow": 4,
-      "estimateErrorPx": { "p50": 33.922, "p95": 158.422, "max": 158.422 },
+      "estimateErrorPx": {
+        "p50": 33.922,
+        "p95": 158.422,
+        "max": 158.422
+      },
       "segments": [
-        { "name": "newer-loading-present", "commandDirection": "forward", "frameCount": 95, "finalProgress": 6547, "reversalCount": 3, "maxReversalPx": 147 }
+        {
+          "name": "newer-loading-present",
+          "commandDirection": "forward",
+          "frameCount": 28,
+          "finalProgress": 6547,
+          "reversalCount": 2,
+          "maxReversalPx": 147
+        }
       ]
     },
     "remote-receive-and-upward-input": {
       "status": "stable",
-      "frameCount": 597,
-      "analysisFrameCount": 557,
+      "frameCount": 590,
+      "analysisFrameCount": 547,
       "settlementFrames": 5,
-      "finalProgress": 7187,
-      "reversalCount": 0,
-      "maxReversalPx": 0,
-      "zeroProgressFrames": 460,
-      "frameDelta": { "p50": 0, "p95": 24, "max": 3385 },
+      "finalProgress": 3208,
+      "reversalCount": 1,
+      "maxReversalPx": 15,
+      "zeroProgressFrames": 465,
+      "frameDelta": {
+        "p50": 0,
+        "p95": 24,
+        "max": 3385
+      },
       "anchorDriftPx": 0,
-      "tailGapDriftPx": -1274.422,
-      "writerCount": 19,
+      "tailGapDriftPx": -1095.422,
+      "writerCount": 23,
       "contentionEpochCount": 1,
-      "unknownWriterCount": 19,
-      "measurementCount": 134,
-      "repeatedMeasurementRowCount": 42,
-      "maxMeasurementsPerRow": 7,
-      "estimateErrorPx": { "p50": 33.922, "p95": 158.422, "max": 172.422 },
+      "unknownWriterCount": 23,
+      "measurementCount": 86,
+      "repeatedMeasurementRowCount": 22,
+      "maxMeasurementsPerRow": 6,
+      "estimateErrorPx": {
+        "p50": 33.922,
+        "p95": 158.422,
+        "max": 172.422
+      },
       "segments": [
-        { "name": "remote-pinned", "commandDirection": null, "frameCount": 79, "finalProgress": 4051, "reversalCount": 0, "maxReversalPx": 0 },
-        { "name": "remote-away-101", "commandDirection": null, "frameCount": 67, "finalProgress": 0, "reversalCount": 0, "maxReversalPx": 0 },
-        { "name": "remote-mid-history-burst", "commandDirection": null, "frameCount": 144, "finalProgress": 0, "reversalCount": 0, "maxReversalPx": 0 },
-        { "name": "remote-during-smooth", "commandDirection": "forward", "frameCount": 68, "finalProgress": 4608, "reversalCount": 0, "maxReversalPx": 0 },
-        { "name": "upward-60x24", "commandDirection": "backward", "frameCount": 199, "finalProgress": -1472, "reversalCount": 0, "maxReversalPx": 0 }
+        {
+          "name": "remote-pinned",
+          "commandDirection": null,
+          "frameCount": 72,
+          "finalProgress": 4051,
+          "reversalCount": 0,
+          "maxReversalPx": 0
+        },
+        {
+          "name": "remote-away-101",
+          "commandDirection": null,
+          "frameCount": 74,
+          "finalProgress": 0,
+          "reversalCount": 0,
+          "maxReversalPx": 0
+        },
+        {
+          "name": "remote-mid-history-burst",
+          "commandDirection": null,
+          "frameCount": 135,
+          "finalProgress": -15,
+          "reversalCount": 0,
+          "maxReversalPx": 0
+        },
+        {
+          "name": "remote-during-smooth",
+          "commandDirection": "forward",
+          "frameCount": 68,
+          "finalProgress": 612,
+          "reversalCount": 1,
+          "maxReversalPx": 15
+        },
+        {
+          "name": "upward-60x24",
+          "commandDirection": "backward",
+          "frameCount": 198,
+          "finalProgress": -1440,
+          "reversalCount": 0,
+          "maxReversalPx": 0
+        }
       ]
     },
     "composer-clear-send-and-viewport": {
       "status": "stable",
-      "frameCount": 366,
-      "analysisFrameCount": 180,
+      "frameCount": 373,
+      "analysisFrameCount": 178,
       "settlementFrames": 5,
-      "finalProgress": 235,
+      "finalProgress": 355,
       "reversalCount": 0,
       "maxReversalPx": 0,
-      "zeroProgressFrames": 170,
-      "frameDelta": { "p50": 0, "p95": 0, "max": 339 },
+      "zeroProgressFrames": 169,
+      "frameDelta": {
+        "p50": 0,
+        "p95": 0,
+        "max": 339
+      },
       "anchorDriftPx": -39,
       "tailGapDriftPx": 300,
-      "writerCount": 11,
+      "writerCount": 9,
       "contentionEpochCount": 1,
-      "unknownWriterCount": 11,
+      "unknownWriterCount": 9,
       "measurementCount": 12,
       "repeatedMeasurementRowCount": 1,
       "maxMeasurementsPerRow": 6,
-      "estimateErrorPx": { "p50": 57.5, "p95": 494, "max": 494 },
+      "estimateErrorPx": {
+        "p50": 57.5,
+        "p95": 494,
+        "max": 494
+      },
       "segments": [
-        { "name": "manual-delete-pinned", "commandDirection": null, "frameCount": 7, "finalProgress": -23, "reversalCount": 0, "maxReversalPx": 0 },
-        { "name": "manual-delete-away", "commandDirection": null, "frameCount": 5, "finalProgress": -120, "reversalCount": 0, "maxReversalPx": 0 },
-        { "name": "optimistic-send-pinned", "commandDirection": null, "frameCount": 55, "finalProgress": 39, "reversalCount": 0, "maxReversalPx": 0 },
-        { "name": "optimistic-send-away", "commandDirection": null, "frameCount": 109, "finalProgress": 339, "reversalCount": 0, "maxReversalPx": 0 },
-        { "name": "viewport-keyboard-profile", "commandDirection": null, "frameCount": 4, "finalProgress": 0, "reversalCount": 0, "maxReversalPx": 0 }
+        {
+          "name": "manual-delete-pinned",
+          "commandDirection": null,
+          "frameCount": 5,
+          "finalProgress": -23,
+          "reversalCount": 0,
+          "maxReversalPx": 0
+        },
+        {
+          "name": "manual-delete-away",
+          "commandDirection": null,
+          "frameCount": 6,
+          "finalProgress": 0,
+          "reversalCount": 0,
+          "maxReversalPx": 0
+        },
+        {
+          "name": "optimistic-send-pinned",
+          "commandDirection": null,
+          "frameCount": 54,
+          "finalProgress": 39,
+          "reversalCount": 0,
+          "maxReversalPx": 0
+        },
+        {
+          "name": "optimistic-send-away",
+          "commandDirection": null,
+          "frameCount": 109,
+          "finalProgress": 339,
+          "reversalCount": 0,
+          "maxReversalPx": 0
+        },
+        {
+          "name": "viewport-keyboard-profile",
+          "commandDirection": null,
+          "frameCount": 4,
+          "finalProgress": 0,
+          "reversalCount": 0,
+          "maxReversalPx": 0
+        }
       ]
     }
   }

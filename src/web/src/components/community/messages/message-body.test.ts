@@ -1,7 +1,12 @@
 import { describe, it, expect, vi } from "vitest"
 import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
+import { readFileSync } from "node:fs"
+import { dirname, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 import { MessageBody } from "./message-body"
+
+const componentDirectory = dirname(fileURLToPath(import.meta.url))
 
 describe("MessageBody — plain URL rendering", () => {
   it("renders an unsupported HTTPS URL as a generic clickable link badge", () => {
@@ -54,6 +59,28 @@ describe("MessageBody — theme contrast", () => {
         && node.props.className.includes("markdown-chat"),
     )
     expect(body.props.className).toContain("text-foreground")
+  })
+})
+
+describe("MessageBody — remote image geometry", () => {
+  it("keeps Streamdown's native image wrapper and download control", () => {
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(
+        React.createElement(MessageBody, { text: "![portrait](https://example.com/photo.png)" }),
+      )
+    })
+
+    expect(renderer!.root.findAllByProps({ "data-streamdown": "image-wrapper" })).toHaveLength(1)
+    const image = renderer!.root.findByProps({ "data-streamdown": "image" })
+    act(() => image.props.onLoad({}))
+    expect(renderer!.root.findByProps({ title: "Download image" }).type).toBe("button")
+  })
+
+  it("caps community Markdown images at 300px without distorting their ratio", () => {
+    const css = readFileSync(resolve(componentDirectory, "../../../app/globals.css"), "utf8")
+    expect(css).toContain('[data-community-message-body] [data-streamdown="image-wrapper"]')
+    expect(css).toMatch(/\[data-community-message-body\] \[data-streamdown="image"\][^{]*\{[^}]*width: auto;[^}]*height: auto;[^}]*max-width: 100%;[^}]*max-height: 18\.75rem;[^}]*object-fit: contain;/s)
   })
 })
 

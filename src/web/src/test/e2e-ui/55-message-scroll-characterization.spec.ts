@@ -18,6 +18,7 @@ import {
   markScrollTrace,
   scrollTraceSelfTest,
   startScrollTrace,
+  summarizeScrollTrace,
   type ScrollTraceResult,
 } from "./_fixtures/scroll-trace"
 import { tid } from "./_fixtures/testids"
@@ -190,6 +191,18 @@ async function establishScrollDistancePrecondition(
   return geometry
 }
 
+async function establishExactPinnedPrecondition(
+  scroller: Locator,
+  label: string,
+  targetDistanceToEnd: 0 | 1,
+): Promise<{ scrollTop: number; scrollHeight: number; clientHeight: number; distanceToEnd: number }> {
+  // The resize latch is intentionally monotonic: same-position/clamp events
+  // at the end cannot recover false. Exercise its one valid recovery path by
+  // first establishing away geometry, then scrolling forward into <=1px.
+  await establishScrollDistancePrecondition(scroller, `${label}-away-first`, 8)
+  return establishScrollDistancePrecondition(scroller, label, targetDistanceToEnd)
+}
+
 async function establishMidHistoryPrecondition(
   scroller: Locator,
 ): Promise<{ scrollTop: number; scrollHeight: number; clientHeight: number; distanceToEnd: number }> {
@@ -233,6 +246,99 @@ async function establishMidHistoryPrecondition(
     message: "remote-mid-history: actual geometry must remain stable across committed RAFs",
   }).toMatchObject({ stable: true })
   return readGeometry()
+}
+
+type MessageViewportGeometry = {
+  scrollTop: number
+  scrollHeight: number
+  clientHeight: number
+  distanceToEnd: number
+  firstVisibleId: string | null
+  firstVisibleOffset: number | null
+  contentPaddingBottom: number
+  railPosition: string | null
+  railRect: { top: number; bottom: number } | null
+  scrollerRect: { top: number; bottom: number }
+}
+
+async function readMessageViewportGeometry(scroller: Locator): Promise<MessageViewportGeometry> {
+  return scroller.evaluate((element, accessoryRailTestId) => {
+    const root = element as HTMLElement
+    const rootRect = root.getBoundingClientRect()
+    const firstVisible = Array.from(root.querySelectorAll<HTMLElement>("[data-msg-id]"))
+      .find((row) => {
+        const rect = row.getBoundingClientRect()
+        return rect.bottom > rootRect.top + 1 && rect.top < rootRect.bottom - 1
+      }) ?? null
+    const firstRect = firstVisible?.getBoundingClientRect() ?? null
+    const content = root.querySelector<HTMLElement>("[data-message-list-content]")
+    const rail = root.querySelector<HTMLElement>(`[data-testid="${accessoryRailTestId}"]`)
+    const railRect = rail?.getBoundingClientRect() ?? null
+    return {
+      scrollTop: root.scrollTop,
+      scrollHeight: root.scrollHeight,
+      clientHeight: root.clientHeight,
+      distanceToEnd: Math.max(0, root.scrollHeight - root.clientHeight - root.scrollTop),
+      firstVisibleId: firstVisible?.dataset.msgId ?? null,
+      firstVisibleOffset: firstRect ? firstRect.top - rootRect.top : null,
+      contentPaddingBottom: content ? Number.parseFloat(getComputedStyle(content).paddingBottom) : 0,
+      railPosition: rail ? getComputedStyle(rail).position : null,
+      railRect: railRect ? { top: railRect.top, bottom: railRect.bottom } : null,
+      scrollerRect: { top: rootRect.top, bottom: rootRect.bottom },
+    }
+  }, tid.composerAccessoryRail)
+}
+
+async function waitForCommittedGeometry(scroller: Locator): Promise<MessageViewportGeometry> {
+  await scroller.evaluate(() => new Promise<void>((resolveValue) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolveValue()))
+  }))
+  let previous = ""
+  let settled: MessageViewportGeometry | null = null
+  await expect.poll(async () => {
+    const geometry = await readMessageViewportGeometry(scroller)
+    const signature = JSON.stringify(geometry)
+    const stable = signature === previous
+    previous = signature
+    if (stable) settled = geometry
+    return stable
+  }, { timeout: 20_000 }).toBe(true)
+  return settled!
+}
+
+async function advanceScrollTraceFrame(scroller: Locator): Promise<void> {
+  await scroller.evaluate(() => new Promise<void>((resolveValue) => {
+    requestAnimationFrame(() => resolveValue())
+  }))
+}
+
+function expectAwayAnchorPreserved(
+  before: MessageViewportGeometry,
+  after: MessageViewportGeometry,
+  label: string,
+): void {
+  expect(Math.abs(after.scrollTop - before.scrollTop), `${label}: scrollTop`).toBeLessThanOrEqual(1)
+  expect(after.firstVisibleId, `${label}: first visible row`).toBe(before.firstVisibleId)
+  expect(
+    Math.abs((after.firstVisibleOffset ?? 0) - (before.firstVisibleOffset ?? 0)),
+    `${label}: first visible offset`,
+  ).toBeLessThanOrEqual(1)
+}
+
+function expectAwayLatchPreserved(
+  after: MessageViewportGeometry,
+  label: string,
+): void {
+  expect(after.distanceToEnd, `${label}: remains away`).toBeGreaterThan(1)
+}
+
+function expectFixedMessageGeometry(geometry: MessageViewportGeometry, label: string): void {
+  expect(geometry.contentPaddingBottom, `${label}: desktop tail safe area`).toBe(72)
+  if (geometry.railRect) {
+    expect(geometry.railPosition, `${label}: rail position`).toBe("absolute")
+    expect(geometry.railRect.top, `${label}: rail top`).toBeGreaterThanOrEqual(geometry.scrollerRect.top - 1)
+    expect(geometry.railRect.bottom, `${label}: rail bottom`).toBeLessThanOrEqual(geometry.scrollerRect.bottom + 1)
+  }
 }
 
 function messageCreateCount(
@@ -661,6 +767,203 @@ test.describe.serial("message scroll characterization", () => {
     expect(trace.marks.filter((mark) => mark.dataTransitionSource === "ws-dedupe")).toHaveLength(2)
     expect(messageCreateCount(proxy.frames, composerChannelId, pinnedSend)).toBe(1)
     expect(messageCreateCount(proxy.frames, composerChannelId, awaySend)).toBe(1)
+  })
+
+  test("exact-pinned composer and accessory resizes preserve geometry boundaries", async ({ asUser }, testInfo) => {
+    test.setTimeout(180_000)
+    const alice = await asUser("alice")
+    const bob = await asUser("bob")
+    await alice.page.setViewportSize(VIEWPORT)
+    await bob.page.setViewportSize(VIEWPORT)
+    await installScrollTrace(alice.page)
+    const proxy = await proxyCommunityWebSockets(alice.context)
+    let mutationPosts = 0
+    alice.page.on("request", (request) => {
+      const pathname = new URL(request.url()).pathname
+      if (
+        request.method() === "POST"
+        && (pathname.endsWith("/messages") || pathname.includes("/attachments"))
+      ) mutationPosts += 1
+    })
+    await gotoAfterUserWsAuth(alice.page, `/c/channels/${serverId}/${composerChannelId}`)
+    await gotoAfterUserWsAuth(bob.page, `/c/channels/${serverId}/${composerChannelId}`)
+    const scroller = alice.page.getByTestId(tid.messageScroller)
+    const editable = composerEditable(alice.page)
+    const bobEditable = composerEditable(bob.page)
+    await expect(editable).toBeVisible()
+    await expect(bobEditable).toBeVisible()
+    await startScrollTrace(alice.page, {
+      scenario: "composer-exact-pinned-resize-policy",
+      identity: identity(composerChannelId),
+      estimatedSizes: composerProfile.estimates,
+    })
+
+    const composerLines = (prefix: string, count: number) => Array.from(
+      { length: count },
+      (_, line) => `${prefix} line ${line} ${"content ".repeat(8)}`,
+    ).join("\n")
+
+    for (const distance of [0, 1, 2, 99, 100, 101, 300]) {
+      await editable.fill("")
+      const precondition = distance <= 1
+        ? await establishExactPinnedPrecondition(
+          scroller,
+          `composer-resize-${distance}`,
+          distance as 0 | 1,
+        )
+        : await establishScrollDistancePrecondition(
+          scroller,
+          `composer-resize-${distance}`,
+          distance,
+        )
+      await markScrollTrace(alice.page, `composer-resize-${distance}-precondition`, {
+        detail: precondition,
+      })
+      const before = await waitForCommittedGeometry(scroller)
+      expectFixedMessageGeometry(before, `resize-${distance}-before`)
+
+      await beginScrollTraceAnalysis(alice.page, `composer-grow-${distance}`)
+      await editable.fill(composerLines(`boundary-${distance}`, 6))
+      await expect.poll(() => scroller.evaluate((element) => element.clientHeight))
+        .toBeLessThan(before.clientHeight)
+      const grown = await waitForCommittedGeometry(scroller)
+      expectFixedMessageGeometry(grown, `resize-${distance}-grown`)
+      if (distance <= 1) {
+        expect(grown.distanceToEnd, `resize-${distance}-grown pinned`).toBeLessThanOrEqual(1)
+      } else {
+        expectAwayAnchorPreserved(before, grown, `resize-${distance}-grown away`)
+      }
+      await endScrollTraceAnalysis(alice.page, `composer-grow-${distance}`)
+      await advanceScrollTraceFrame(scroller)
+
+      await beginScrollTraceAnalysis(alice.page, `composer-shrink-${distance}`)
+      await editable.fill("")
+      await expect.poll(() => scroller.evaluate((element) => element.clientHeight))
+        .toBeGreaterThan(grown.clientHeight)
+      const shrunk = await waitForCommittedGeometry(scroller)
+      expectFixedMessageGeometry(shrunk, `resize-${distance}-shrunk`)
+      if (distance <= 1) {
+        expect(shrunk.distanceToEnd, `resize-${distance}-shrunk pinned`).toBeLessThanOrEqual(1)
+      } else {
+        expectAwayAnchorPreserved(before, shrunk, `resize-${distance}-shrunk away`)
+      }
+      await endScrollTraceAnalysis(alice.page, `composer-shrink-${distance}`)
+      await advanceScrollTraceFrame(scroller)
+    }
+
+    const rapidPrecondition = await establishScrollDistancePrecondition(scroller, "rapid-resize-away", 2)
+    await markScrollTrace(alice.page, "rapid-resize-away-precondition", { detail: rapidPrecondition })
+    await beginScrollTraceAnalysis(alice.page, "rapid-composer-resizes")
+    const rapidBase = await waitForCommittedGeometry(scroller)
+    await editable.fill(composerLines("rapid-small", 2))
+    const rapidGrowOne = await waitForCommittedGeometry(scroller)
+    await editable.fill(composerLines("rapid-large", 6))
+    const rapidGrowTwo = await waitForCommittedGeometry(scroller)
+    await editable.fill(composerLines("rapid-small", 2))
+    const rapidShrinkOne = await waitForCommittedGeometry(scroller)
+    await editable.fill("")
+    const rapidShrinkTwo = await waitForCommittedGeometry(scroller)
+    expect(rapidGrowOne.clientHeight).toBeLessThan(rapidBase.clientHeight)
+    expect(rapidGrowTwo.clientHeight).toBeLessThan(rapidGrowOne.clientHeight)
+    expect(rapidShrinkOne.clientHeight).toBeGreaterThan(rapidGrowTwo.clientHeight)
+    expect(rapidShrinkTwo.clientHeight).toBeGreaterThan(rapidShrinkOne.clientHeight)
+    for (const [label, geometry] of [
+      ["grow-one", rapidGrowOne],
+      ["grow-two", rapidGrowTwo],
+      ["shrink-one", rapidShrinkOne],
+      ["shrink-two", rapidShrinkTwo],
+    ] as const) {
+      expectAwayLatchPreserved(geometry, `rapid-${label}`)
+      expectFixedMessageGeometry(geometry, `rapid-${label}`)
+    }
+    await endScrollTraceAnalysis(alice.page, "rapid-composer-resizes")
+    await advanceScrollTraceFrame(scroller)
+
+    await establishExactPinnedPrecondition(scroller, "reply-resize-pinned", 0)
+    const replyBase = await waitForCommittedGeometry(scroller)
+    await beginScrollTraceAnalysis(alice.page, "reply-banner-pinned")
+    const replyTarget = scroller.locator("[data-msg-id]").last()
+    const replyTargetBox = await replyTarget.boundingBox()
+    expect(replyTargetBox).not.toBeNull()
+    await alice.page.mouse.move(
+      replyTargetBox!.x + replyTargetBox!.width / 2,
+      replyTargetBox!.y + replyTargetBox!.height / 2,
+    )
+    const replyButton = replyTarget.getByRole("button", { name: "Reply" })
+    await expect(replyButton).toBeVisible()
+    await expect(replyButton).toBeInViewport()
+    expect((await waitForCommittedGeometry(scroller)).distanceToEnd).toBeLessThanOrEqual(1)
+    await replyButton.click()
+    await expect(alice.page.locator('[data-slot="composer-reply-preview"]')).toBeVisible()
+    const replyOpen = await waitForCommittedGeometry(scroller)
+    expect(replyOpen.clientHeight).toBeLessThan(replyBase.clientHeight)
+    expect(replyOpen.distanceToEnd).toBeLessThanOrEqual(1)
+    expectFixedMessageGeometry(replyOpen, "reply-open")
+    await alice.page.getByRole("button", { name: "Cancel reply" }).click()
+    await expect(alice.page.locator('[data-slot="composer-reply-preview"]')).toHaveCount(0)
+    const replyClosed = await waitForCommittedGeometry(scroller)
+    expect(replyClosed.clientHeight).toBe(replyBase.clientHeight)
+    expect(replyClosed.distanceToEnd).toBeLessThanOrEqual(1)
+    await endScrollTraceAnalysis(alice.page, "reply-banner-pinned")
+    await advanceScrollTraceFrame(scroller)
+
+    await establishScrollDistancePrecondition(scroller, "attachment-resize-away", 300)
+    const attachmentBase = await waitForCommittedGeometry(scroller)
+    await beginScrollTraceAnalysis(alice.page, "attachment-chip-away")
+    await alice.page.getByTestId(tid.composerFileInput).setInputFiles({
+      name: "geometry-only.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("geometry only"),
+    })
+    await expect(alice.page.getByText("geometry-only.txt", { exact: true })).toBeVisible()
+    const attachmentOpen = await waitForCommittedGeometry(scroller)
+    expect(attachmentOpen.clientHeight).toBeLessThan(attachmentBase.clientHeight)
+    expectAwayAnchorPreserved(attachmentBase, attachmentOpen, "attachment-open-away")
+    expectFixedMessageGeometry(attachmentOpen, "attachment-open-away")
+    await alice.page.getByRole("button", { name: "Remove file" }).click()
+    await expect(alice.page.getByText("geometry-only.txt", { exact: true })).toHaveCount(0)
+    const attachmentClosed = await waitForCommittedGeometry(scroller)
+    expect(attachmentClosed.clientHeight).toBe(attachmentBase.clientHeight)
+    expectAwayAnchorPreserved(attachmentBase, attachmentClosed, "attachment-closed-away")
+    await endScrollTraceAnalysis(alice.page, "attachment-chip-away")
+    await advanceScrollTraceFrame(scroller)
+
+    await establishScrollDistancePrecondition(scroller, "typing-rail-away", 101)
+    const typingBase = await waitForCommittedGeometry(scroller)
+    await beginScrollTraceAnalysis(alice.page, "typing-rail-away")
+    await bobEditable.fill("typing rail geometry")
+    await expect(alice.page.getByTestId(tid.typingIndicator)).toBeVisible({ timeout: 20_000 })
+    const typingOpen = await waitForCommittedGeometry(scroller)
+    expect(typingOpen.clientHeight).toBe(typingBase.clientHeight)
+    expectAwayAnchorPreserved(typingBase, typingOpen, "typing-rail-away")
+    expectFixedMessageGeometry(typingOpen, "typing-rail-away")
+    await bobEditable.fill("")
+    await endScrollTraceAnalysis(alice.page, "typing-rail-away")
+    await advanceScrollTraceFrame(scroller)
+
+    const trace = await finishAndAttach(alice.page, testInfo)
+    const resizeSegments = new Map(
+      summarizeScrollTrace(trace).analysisSegments.map((segment) => [segment.name, segment]),
+    )
+    for (const distance of [0, 1, 2, 99, 100, 101, 300]) {
+      const grow = resizeSegments.get(`composer-grow-${distance}`)
+      const shrink = resizeSegments.get(`composer-shrink-${distance}`)
+      expect(grow, `missing composer-grow-${distance}`).toBeDefined()
+      expect(shrink, `missing composer-shrink-${distance}`).toBeDefined()
+      if (distance <= 1) {
+        expect(grow!.writerCount, `composer-grow-${distance} writer`).toBeGreaterThanOrEqual(1)
+        expect(shrink!.writerCount, `composer-shrink-${distance} writer`).toBeGreaterThanOrEqual(1)
+      } else {
+        expect(grow!.writerCount, `composer-grow-${distance} writer`).toBe(0)
+        expect(shrink!.writerCount, `composer-shrink-${distance} writer`).toBe(0)
+      }
+    }
+    expect(resizeSegments.get("rapid-composer-resizes")?.writerCount).toBe(0)
+    expect(resizeSegments.get("attachment-chip-away")?.writerCount).toBe(0)
+    expect(resizeSegments.get("typing-rail-away")?.writerCount).toBe(0)
+    expect(mutationPosts).toBe(0)
+    expect(proxy.frames.flatMap(communityFrameEvents).filter((event) =>
+      event.type === "community:message.create" && event.channelId === composerChannelId)).toHaveLength(0)
   })
 
   test.afterEach(async ({ page }) => {
