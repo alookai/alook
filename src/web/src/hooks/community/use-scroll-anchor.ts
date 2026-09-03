@@ -79,8 +79,10 @@ type SizeAdjustmentVirtualizer = {
  * input — visible as the NEW-divider view shuddering and refusing to move.
  *
  * Re-measurements retain the library's narrower "entirely above the fold"
- * rule, and forward/idle first measurements retain the original rule, so
- * image growth, prepend anchoring, and normal downward navigation keep their
+ * rule even after the viewer leaves the bottom. That is not a bottom re-pin:
+ * it offsets growth above the viewport so the visible reading anchor stays
+ * put. Forward/idle first measurements retain the original rule, so image
+ * growth, prepend anchoring, and normal downward navigation keep their
  * existing compensation behavior.
  */
 export function shouldAdjustMessageScrollPosition(
@@ -89,11 +91,9 @@ export function shouldAdjustMessageScrollPosition(
   instance: SizeAdjustmentVirtualizer,
   userScrolledAway = false,
 ): boolean {
-  if (userScrolledAway) return false
-  if (instance.scrollDirection === "backward") return false
-
   const offset = (instance.scrollOffset ?? 0) + instance.scrollAdjustments
   const isFirstMeasure = !instance.itemSizeCache.has(item.key)
+  if (isFirstMeasure && (userScrolledAway || instance.scrollDirection === "backward")) return false
   return isFirstMeasure ? item.start < offset : item.end <= offset
 }
 

@@ -308,14 +308,28 @@ describe("shouldAdjustMessageScrollPosition", () => {
     expect(shouldAdjustMessageScrollPosition(item, 96, instance({ scrollDirection: "backward" }))).toBe(false)
   })
 
-  it("does not compensate later row growth after the viewer deliberately leaves the bottom", () => {
+  it("compensates a measured row wholly above an away viewport", () => {
     const measured = new Map([[item.key, item.size]])
     expect(shouldAdjustMessageScrollPosition(
       item,
       240,
       instance({ itemSizeCache: measured }),
       true,
+    )).toBe(true)
+  })
+
+  it("does not compensate a measured row intersecting an away viewport", () => {
+    const measured = new Map([[item.key, item.size]])
+    expect(shouldAdjustMessageScrollPosition(
+      { ...item, end: 1_040 },
+      240,
+      instance({ itemSizeCache: measured }),
+      true,
     )).toBe(false)
+  })
+
+  it("does not compensate an estimate-to-measure pass after the viewer leaves the bottom", () => {
+    expect(shouldAdjustMessageScrollPosition(item, 96, instance(), true)).toBe(false)
   })
 
   it("keeps first-measurement compensation above the fold while idle or scrolling forward", () => {

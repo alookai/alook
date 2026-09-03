@@ -265,7 +265,16 @@ describe("useScrollAnchor delayed row-growth re-pin", () => {
 
     const adjust = virtualizer.shouldAdjustScrollPositionOnItemSizeChange
     expect(adjust).toBeTypeOf("function")
-    expect(adjust!({} as never, 20, {} as never)).toBe(false)
+    expect(adjust!(
+      { key: "unmeasured", start: 0, end: 20 } as never,
+      20,
+      {
+        itemSizeCache: new Map(),
+        scrollAdjustments: 0,
+        scrollDirection: null,
+        scrollOffset: 40,
+      } as never,
+    )).toBe(false)
 
     virtualizer.isAtEnd.mockReturnValue(true)
     listeners.get("scroll")?.(new Event("scroll"))
