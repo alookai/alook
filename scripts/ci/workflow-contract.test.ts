@@ -91,6 +91,20 @@ const desktopMacConfig = JSON.parse(
 const desktopIosConfig = JSON.parse(
   readFileSync(resolve(import.meta.dirname, "../../src/desktop/src-tauri/tauri.ios.conf.json"), "utf8"),
 ) as { identifier?: string }
+const desktopAndroidConfig = JSON.parse(
+  readFileSync(resolve(import.meta.dirname, "../../src/desktop/src-tauri/tauri.android.conf.json"), "utf8"),
+) as { identifier?: string }
+const androidGradle = readFileSync(
+  resolve(import.meta.dirname, "../../src/desktop/src-tauri/gen/android/app/build.gradle.kts"),
+  "utf8",
+)
+const androidMainActivity = readFileSync(
+  resolve(
+    import.meta.dirname,
+    "../../src/desktop/src-tauri/gen/android/app/src/main/java/ai/alook/android/MainActivity.kt",
+  ),
+  "utf8",
+)
 const iosExportOptions = readFileSync(
   resolve(import.meta.dirname, "../../src/desktop/src-tauri/gen/apple/ExportOptions.plist"),
   "utf8",
@@ -914,5 +928,31 @@ describe("Mobile release availability", () => {
     expect(bumpScript).toContain("src/desktop/.deploy-version-mobile")
     expect(bumpScript).toContain("automatic TestFlight upload")
     expect(bumpScript).toContain("iOS CFBundleShortVersionString")
+  })
+
+  it("attaches a signed Android APK to --mobile GitHub releases without Google Play", () => {
+    expect(desktopAndroidConfig.identifier).toBe("ai.alook.android")
+    expect(androidGradle).toContain('namespace = "ai.alook.android"')
+    expect(androidGradle).toContain('applicationId = "ai.alook.android"')
+    expect(androidGradle).toContain('signingConfig = signingConfigs.getByName("release")')
+    expect(androidMainActivity).toContain("package ai.alook.android")
+    expect(mobileReleaseWorkflow).toContain("build-android:")
+    expect(mobileReleaseWorkflow).toContain("if: github.event_name == 'push'")
+    expect(mobileReleaseWorkflow).toContain("ANDROID_KEYSTORE:")
+    expect(mobileReleaseWorkflow).toContain("ANDROID_KEYSTORE_PASSWORD:")
+    expect(mobileReleaseWorkflow).toContain("ANDROID_KEY_ALIAS:")
+    expect(mobileReleaseWorkflow).toContain("ANDROID_KEY_PASSWORD:")
+    expect(mobileReleaseWorkflow).toContain("aarch64-linux-android,armv7-linux-androideabi")
+    expect(mobileReleaseWorkflow).toContain('"platforms;android-36"')
+    expect(mobileReleaseWorkflow).toContain('"build-tools;36.0.0"')
+    expect(mobileReleaseWorkflow).toContain('"ndk;29.0.13846066"')
+    expect(mobileReleaseWorkflow).toContain("pnpm tauri android init --ci --skip-targets-install")
+    expect(mobileReleaseWorkflow).toContain("pnpm tauri android build")
+    expect(mobileReleaseWorkflow).toContain("--target aarch64 armv7")
+    expect(mobileReleaseWorkflow).toContain("package: name='ai.alook.android'")
+    expect(mobileReleaseWorkflow).toContain("apksigner verify --verbose --print-certs")
+    expect(mobileReleaseWorkflow).toContain("gh release upload")
+    expect(mobileReleaseWorkflow).toContain("Alook_${EXPECTED_VERSION}_android.apk")
+    expect(mobileReleaseWorkflow).not.toContain("Google Play")
   })
 })
