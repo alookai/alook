@@ -55,6 +55,13 @@ enum CheckOutcome {
     Failed,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum AutomaticOfferDisposition {
+    RefreshMenu,
+    Blocked,
+    Published(UpdateOffer),
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum UpdatePromptResponse {
     Update,
@@ -142,6 +149,38 @@ impl UpdatePromptState {
             .unwrap_or_else(|error| error.into_inner())
             .as_ref()
             .map(|pending| pending.offer.clone())
+    }
+
+    fn prepare_automatic(
+        &self,
+        mut pending_update: PendingUpdate,
+        update_in_progress: &'static AtomicBool,
+        already_prompted: bool,
+    ) -> AutomaticOfferDisposition {
+        if presentation_for(
+            CheckSource::Automatic,
+            CheckOutcome::Available,
+            already_prompted,
+        ) != CheckPresentation::PromptAvailable
+        {
+            return AutomaticOfferDisposition::RefreshMenu;
+        }
+
+        let Some(update_guard) = UpdateInProgressGuard::acquire(update_in_progress) else {
+            return AutomaticOfferDisposition::Blocked;
+        };
+        let mut pending = self
+            .pending
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if pending.is_some() {
+            return AutomaticOfferDisposition::Blocked;
+        }
+
+        let offer = pending_update.offer.clone();
+        pending_update.update_guard = Some(update_guard);
+        *pending = Some(pending_update);
+        AutomaticOfferDisposition::Published(offer)
     }
 
     fn take_matching(&self, version: &str) -> Result<PendingUpdate, String> {
@@ -294,6 +333,14 @@ fn mark_automatic_prompted(version: &str) -> bool {
     was_automatic_version_prompted(&mut last_prompted, version)
 }
 
+fn automatic_version_prompted(version: &str) -> bool {
+    LAST_AUTOMATIC_PROMPT_VERSION
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .as_deref()
+        == Some(version)
+}
+
 pub fn build_app_menu(handle: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let menu = Menu::default(handle)?;
     let layout = update_menu_layout(std::env::consts::OS);
@@ -423,6 +470,10 @@ fn show_update_in_progress(handle: &AppHandle) {
 
 fn publish_update_offer(handle: &AppHandle, pending_update: PendingUpdate) {
     let offer = handle.state::<UpdatePromptState>().replace(pending_update);
+    present_update_offer(handle, offer);
+}
+
+fn present_update_offer(handle: &AppHandle, offer: UpdateOffer) {
     set_update_available(&offer.available_version);
     crate::commands::show_main_window(handle);
     let _ = handle.emit(UPDATE_AVAILABLE_EVENT, offer);
@@ -582,24 +633,31 @@ pub fn auto_check_updates(handle: AppHandle) {
             if let Some(mut update) = found {
                 update.timeout = Some(UPDATE_DOWNLOAD_TIMEOUT);
                 let version = update.version.clone();
-                let already_prompted = mark_automatic_prompted(&version);
-                if presentation_for(
-                    CheckSource::Automatic,
-                    CheckOutcome::Available,
+                let already_prompted = automatic_version_prompted(&version);
+                let offer = update_offer(&update.current_version, &version);
+                match handle.state::<UpdatePromptState>().prepare_automatic(
+                    PendingUpdate {
+                        offer,
+                        update: Some(update),
+                        update_guard: None,
+                    },
+                    &UPDATE_IN_PROGRESS,
                     already_prompted,
-                ) == CheckPresentation::PromptAvailable
-                {
-                    offer_available_update(&handle, update, None);
-                    let _ = handle
-                        .notification()
-                        .builder()
-                        .title("Alook Update Available")
-                        .body(format!(
-                            "Alook {version} is ready. Open the Alook menu to update."
-                        ))
-                        .show();
-                } else {
-                    set_update_available(&version);
+                ) {
+                    AutomaticOfferDisposition::RefreshMenu => set_update_available(&version),
+                    AutomaticOfferDisposition::Blocked => {}
+                    AutomaticOfferDisposition::Published(offer) => {
+                        present_update_offer(&handle, offer);
+                        mark_automatic_prompted(&version);
+                        let _ = handle
+                            .notification()
+                            .builder()
+                            .title("Alook Update Available")
+                            .body(format!(
+                                "Alook {version} is ready. Open the Alook menu to update."
+                            ))
+                            .show();
+                    }
                 }
             }
 
@@ -755,6 +813,69 @@ mod tests {
         assert_eq!(state.offer(), Some(offer.clone()));
         assert_eq!(state.take_matching("2.0.0").unwrap().offer, offer);
         assert!(state.take_matching("2.0.0").is_err());
+    }
+
+    #[test]
+    fn automatic_offer_stays_silent_during_a_manual_download() {
+        static UPDATE_FLAG: AtomicBool = AtomicBool::new(false);
+        let state = UpdatePromptState::default();
+        let manual_guard = UpdateInProgressGuard::acquire(&UPDATE_FLAG).unwrap();
+
+        assert_eq!(
+            state.prepare_automatic(simulated_pending("1.2.3", "2.0.0"), &UPDATE_FLAG, false),
+            AutomaticOfferDisposition::Blocked
+        );
+        assert_eq!(state.offer(), None);
+        assert!(UPDATE_FLAG.load(Ordering::SeqCst));
+
+        drop(manual_guard);
+        assert!(!UPDATE_FLAG.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn automatic_offer_does_not_overwrite_pending_state() {
+        static UPDATE_FLAG: AtomicBool = AtomicBool::new(false);
+        let state = UpdatePromptState::default();
+        let existing = state.replace(simulated_pending("1.2.3", "2.0.0"));
+
+        assert_eq!(
+            state.prepare_automatic(simulated_pending("1.2.3", "2.1.0"), &UPDATE_FLAG, false),
+            AutomaticOfferDisposition::Blocked
+        );
+        assert_eq!(state.offer(), Some(existing));
+        assert!(!UPDATE_FLAG.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn accepted_automatic_offer_carries_the_existing_guard() {
+        static UPDATE_FLAG: AtomicBool = AtomicBool::new(false);
+        let state = UpdatePromptState::default();
+
+        let AutomaticOfferDisposition::Published(offer) =
+            state.prepare_automatic(simulated_pending("1.2.3", "2.0.0"), &UPDATE_FLAG, false)
+        else {
+            panic!("automatic offer should publish");
+        };
+        assert_eq!(state.offer(), Some(offer.clone()));
+        assert!(UPDATE_FLAG.load(Ordering::SeqCst));
+
+        let pending = state.take_matching(&offer.available_version).unwrap();
+        assert!(pending.update_guard.is_some());
+        drop(pending);
+        assert!(!UPDATE_FLAG.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn deduplicated_automatic_offer_refreshes_the_available_menu() {
+        static UPDATE_FLAG: AtomicBool = AtomicBool::new(false);
+        let state = UpdatePromptState::default();
+
+        assert_eq!(
+            state.prepare_automatic(simulated_pending("1.2.3", "2.0.0"), &UPDATE_FLAG, true),
+            AutomaticOfferDisposition::RefreshMenu
+        );
+        assert_eq!(state.offer(), None);
+        assert!(!UPDATE_FLAG.load(Ordering::SeqCst));
     }
 
     #[test]
