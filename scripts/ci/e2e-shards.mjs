@@ -151,7 +151,16 @@ export function planE2eShards(
 }
 
 export function createE2eMatrix(specs = discoverE2eSpecs(), image = resolvePlaywrightImage()) {
-  const shards = planE2eShards(specs)
+  const inventory = discoverE2eSpecs()
+  const selected = specs.length === 1 && specs[0] === "all" ? inventory : specs
+  const unknown = selected.filter((spec) => !inventory.includes(spec))
+  if (unknown.length > 0) {
+    throw new Error(`specs are outside the UI inventory: ${unknown.join(", ")}`)
+  }
+  if (specs.includes("all") && !(specs.length === 1 && specs[0] === "all")) {
+    throw new Error("the all sentinel cannot be combined with explicit specs")
+  }
+  const shards = planE2eShards(selected)
   return {
     include: shards.map((shard) => ({
       shard: shard.shard,
@@ -184,7 +193,11 @@ function writeSummary(path, matrix) {
 
 export function runCli(argv) {
   const args = parseArgs(argv)
-  const matrix = createE2eMatrix()
+  const specs = args.specsJson ? JSON.parse(args.specsJson) : discoverE2eSpecs()
+  if (!Array.isArray(specs) || specs.some((spec) => typeof spec !== "string")) {
+    throw new Error("--specs-json must be a JSON array of spec paths")
+  }
+  const matrix = createE2eMatrix(specs)
   const json = JSON.stringify(matrix)
   if (args.output) appendFileSync(args.output, `e2e_matrix=${json}\n`)
   if (args.summary) writeSummary(args.summary, matrix)

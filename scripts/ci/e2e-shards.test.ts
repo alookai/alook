@@ -96,24 +96,45 @@ describe("planE2eShards", () => {
 describe("createE2eMatrix", () => {
   it("emits shell-safe repo-local spec arguments", () => {
     const matrix = createE2eMatrix([
-      "a.spec.ts",
-      "nested/b.spec.ts",
-      "c.spec.ts",
-      "d.spec.ts",
-      "e.spec.ts",
+      "01-auth.spec.ts",
+      "02-server-channel-message.spec.ts",
+      "03-realtime-multiuser.spec.ts",
+      "04-dm.spec.ts",
+      "05-mention-bot.spec.ts",
     ])
     const argumentsList = matrix.include.flatMap((entry) => entry.specs)
 
     expect(argumentsList.sort()).toEqual([
-      "src/test/e2e-ui/a.spec.ts",
-      "src/test/e2e-ui/c.spec.ts",
-      "src/test/e2e-ui/d.spec.ts",
-      "src/test/e2e-ui/e.spec.ts",
-      "src/test/e2e-ui/nested/b.spec.ts",
+      "src/test/e2e-ui/01-auth.spec.ts",
+      "src/test/e2e-ui/02-server-channel-message.spec.ts",
+      "src/test/e2e-ui/03-realtime-multiuser.spec.ts",
+      "src/test/e2e-ui/04-dm.spec.ts",
+      "src/test/e2e-ui/05-mention-bot.spec.ts",
     ])
     expect(matrix.include.every((entry) => entry.total === E2E_SHARD_COUNT)).toBe(true)
     expect(matrix.include.every(
       (entry) => entry.image === "mcr.microsoft.com/playwright:v1.62.1-noble",
     )).toBe(true)
+  })
+
+  it("creates one shard for the Blog contract and rejects specs outside inventory", () => {
+    const matrix = createE2eMatrix(["54-blog-multizone.spec.ts"])
+
+    expect(matrix.include).toHaveLength(1)
+    expect(matrix.include[0]).toMatchObject({
+      shard: 1,
+      total: 1,
+      predicted_seconds: 60,
+      specs: ["src/test/e2e-ui/54-blog-multizone.spec.ts"],
+    })
+    expect(() => createE2eMatrix(["future.spec.ts"])).toThrow("inventory")
+  })
+
+  it("expands the all sentinel to the exact live inventory", () => {
+    const matrix = createE2eMatrix(["all"])
+    const assigned = matrix.include.flatMap((entry) => entry.specs)
+
+    expect(assigned).toHaveLength(discoverE2eSpecs().length)
+    expect(new Set(assigned).size).toBe(assigned.length)
   })
 })
