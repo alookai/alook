@@ -121,10 +121,15 @@ const INPAGE_SETUP = `
     let unchangedFrames = 0;
     let observedFrames = 0;
     const sample = () => {
+      observedFrames += 1;
       const root = document.querySelector('[data-testid="${tid.messageScroller}"]');
       const content = root?.firstElementChild;
       if (!root || !content) {
-        reject(new Error('message scroller geometry target disappeared'));
+        if (observedFrames >= 120) {
+          reject(new Error('target message scroller did not mount'));
+          return;
+        }
+        requestAnimationFrame(sample);
         return;
       }
       const rootRect = root.getBoundingClientRect();
@@ -132,7 +137,6 @@ const INPAGE_SETUP = `
       const current = [rootRect.width, rootRect.height, contentRect.width, contentRect.height, root.scrollHeight].join(':');
       unchangedFrames = current === previous ? unchangedFrames + 1 : 0;
       previous = current;
-      observedFrames += 1;
       if (window.__PERF_RESIZES__.length > 0 && unchangedFrames >= 1) {
         resolve();
         return;

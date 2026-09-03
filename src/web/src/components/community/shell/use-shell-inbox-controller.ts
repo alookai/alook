@@ -29,6 +29,9 @@ import {
   armThreadOpenerReadHandoff,
   clearThreadOpenerReadHandoff,
 } from "@/hooks/community/thread-opener-read-handoff"
+import { startConversationNavigationWarmup } from "@/lib/community/conversation-navigation-warmup"
+import type { ConversationNavigationTarget } from "@/lib/community/conversation-navigation-proof"
+import { cancelConversationNavigationProof } from "@/lib/community/conversation-navigation-proof"
 
 type UnreadChannel = UnreadServer["channels"][number]
 type UnreadChild = UnreadChannel["children"][number]
@@ -40,6 +43,8 @@ type Options = {
   publishedHref: string
   navigationPending: boolean
   pendingHref: string | null
+  viewerId: string
+  accessEpoch: number
 }
 
 export function useShellInboxController({
@@ -49,7 +54,13 @@ export function useShellInboxController({
   publishedHref,
   navigationPending,
   pendingHref,
+  viewerId,
+  accessEpoch,
 }: Options) {
+  const pushInboxHref = useCallback((href: string) => {
+    if (router.pushImmediate) router.pushImmediate(href)
+    else router.push(href)
+  }, [router])
   const inboxUnreads = useInboxUnreads()
   const inboxMentions = useInboxMentions()
   const unreadFeed = inboxUnreads.servers
@@ -87,18 +98,25 @@ export function useShellInboxController({
   const pushProjected = useCallback((
     target: InboxRowTarget,
     destinationHref: string,
+    warmup: Omit<ConversationNavigationTarget, "href" | "viewerId">,
     prepare?: () => string | void,
     afterPush?: () => void,
   ) => {
     const epoch = inbox.beginProjection(target, destinationHref)
     cancelPendingNavigation()
     clearThreadOpenerReadHandoff(queryClient)
+    const proofEpoch = startConversationNavigationWarmup(queryClient, {
+      ...warmup,
+      href: destinationHref,
+      viewerId,
+    }, accessEpoch)
     let pushedHref = destinationHref
     try {
       pushedHref = prepare?.() ?? destinationHref
-      router.push(pushedHref)
+      pushInboxHref(pushedHref)
       if (inbox.markProjectionSubmitted(epoch)) afterPush?.()
     } catch (error) {
+      cancelConversationNavigationProof(queryClient, proofEpoch)
       const nonce = new URLSearchParams(pushedHref.split("?")[1] ?? "")
         .get("inboxThreadOpener")
       if (nonce) terminateThreadOpenerReservationHandoff(queryClient, nonce)
@@ -108,7 +126,7 @@ export function useShellInboxController({
       }
       throw error
     }
-  }, [cancelPendingNavigation, inbox, queryClient, router])
+  }, [accessEpoch, cancelPendingNavigation, inbox, pushInboxHref, queryClient, viewerId])
 
   const openServerChannel = useCallback((
     server: UnreadServer,
@@ -123,17 +141,31 @@ export function useShellInboxController({
       const previousOpen = inbox.closeWithoutProjection()
       cancelPendingNavigation()
       clearThreadOpenerReadHandoff(queryClient)
+      const proofEpoch = startConversationNavigationWarmup(queryClient, {
+        href,
+        viewerId,
+        channelId: channel.channelId,
+        serverId: server.serverId,
+        scopeKind: "channel",
+        expectedSurfaceKind: channel.type === "forum" ? "forum" : "channel",
+      }, accessEpoch)
       try {
-        router.push(href)
+        pushInboxHref(href)
       } catch (error) {
+        cancelConversationNavigationProof(queryClient, proofEpoch)
         cancelPendingNavigation()
         inbox.onOpenChange(previousOpen)
         throw error
       }
       return
     }
-    pushProjected(target, href)
-  }, [cancelPendingNavigation, inbox, pushProjected, queryClient, router])
+    pushProjected(target, href, {
+      channelId: channel.channelId,
+      serverId: server.serverId,
+      scopeKind: "channel",
+      expectedSurfaceKind: channel.type === "forum" ? "forum" : "channel",
+    })
+  }, [accessEpoch, cancelPendingNavigation, inbox, pushInboxHref, pushProjected, queryClient, viewerId])
 
   const openThread = useCallback((
     server: UnreadServer,
@@ -142,7 +174,12 @@ export function useShellInboxController({
   ) => {
     const target = inboxThreadRowTarget(server, parent, child)
     const href = channelHref(server.serverId, child.channelId)
-    pushProjected(target, href, () => (
+    pushProjected(target, href, {
+      channelId: child.channelId,
+      serverId: server.serverId,
+      scopeKind: "channel",
+      expectedSurfaceKind: "thread",
+    }, () => (
       child.openerMessageId
       && child.openerUnread === true
       && child.openerSeq !== undefined
@@ -165,20 +202,35 @@ export function useShellInboxController({
     const href = marked.serverId
       ? `${channelHref(marked.serverId, marked.channelId)}${seqQuery}`
       : `/c/me/${marked.channelId}${seqQuery}`
+    const proofEpoch = startConversationNavigationWarmup(queryClient, {
+      href,
+      viewerId,
+      channelId: marked.channelId,
+      ...(marked.serverId ? { serverId: marked.serverId } : {}),
+      scopeKind: marked.serverId ? "channel" : "dm",
+      ...(marked.serverId ? { anchorMessageId: marked.m.id } : {}),
+      ...(!marked.serverId ? { expectedSurfaceKind: "dm" as const } : {}),
+    }, accessEpoch)
     try {
-      router.push(href)
+      pushInboxHref(href)
     } catch (error) {
+      cancelConversationNavigationProof(queryClient, proofEpoch)
       cancelPendingNavigation()
       inbox.onOpenChange(previousOpen)
       throw error
     }
-  }, [cancelPendingNavigation, inbox, queryClient, router])
+  }, [accessEpoch, cancelPendingNavigation, inbox, pushInboxHref, queryClient, viewerId])
 
   const openDm = useCallback((dm: UnreadDm) => {
     const dmId = dm.channelId
     pushProjected(
       inboxDmRowTarget(dm),
       `/c/me/${dmId}`,
+      {
+        channelId: dmId,
+        scopeKind: "dm",
+        expectedSurfaceKind: "dm",
+      },
       () => {
         queryClient.setQueryData(
           communityKeys.dms(),
@@ -196,7 +248,13 @@ export function useShellInboxController({
   const openMention = useCallback((mention: Mention) => {
     const target = inboxMentionRowTarget(mention)
     if (!target || !mention.serverId || !mention.channelId) return
-    pushProjected(target, channelHref(mention.serverId, mention.channelId))
+    const href = `${channelHref(mention.serverId, mention.channelId)}?msg=${mention.m.id}`
+    pushProjected(target, href, {
+      channelId: mention.channelId,
+      serverId: mention.serverId,
+      scopeKind: "channel",
+      anchorMessageId: mention.m.id,
+    })
   }, [pushProjected])
 
   const popoverProps: ComponentProps<typeof InboxPopover> = {

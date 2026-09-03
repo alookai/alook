@@ -166,11 +166,11 @@ describe("community route", () => {
       targetReady: true,
     })).toEqual({
       mode: "same-scope-leaf",
-      surface: "list",
+      surface: "detail",
       targetHref: "/c/channels/s1/c1",
       rail: { kind: "keep" },
       sidebar: { kind: "keep" },
-      main: { kind: "keep" },
+      main: { kind: "target-skeleton", href: "/c/channels/s1/c1" },
     })
   })
 

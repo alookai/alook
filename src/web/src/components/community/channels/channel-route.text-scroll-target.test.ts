@@ -69,6 +69,10 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/c/channels/server_1/channel_1",
   useSearchParams: () => new URLSearchParams(mockSearchParams.value),
 }))
+vi.mock("@tanstack/react-query", () => ({ useQueryClient: () => ({}) }))
+vi.mock("@/lib/community/conversation-navigation-proof", () => ({
+  useConversationNavigationGate: () => ({ required: false, allowed: true }),
+}))
 vi.mock("sonner", () => ({ toast: vi.fn() }))
 vi.mock("@/lib/api/client", () => ({ apiFetch: vi.fn(), toastApiError: vi.fn() }))
 vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => mockBreakpoint.value }))

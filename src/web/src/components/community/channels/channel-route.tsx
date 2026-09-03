@@ -35,6 +35,9 @@ import {
   useThreadOpenerRouteGate,
 } from "@/hooks/community/thread-opener-read-handoff"
 import { useThreadSplitMode } from "@/hooks/community/use-thread-split-mode"
+import { useQueryClient } from "@tanstack/react-query"
+import { useCommunityWsStore } from "@/stores/community/ws"
+import { useConversationNavigationGate } from "@/lib/community/conversation-navigation-proof"
 
 const THREAD_VIEW_PARAM = "threadView"
 
@@ -65,6 +68,14 @@ export function ChannelRoute({ serverParam, channelId }: {
   // refresh/back doesn't re-trigger the jump; this frozen copy still drives the
   // anchor + scroll for this mount.
   const [jumpTargetId] = useState<string | null>(() => searchParams.get("msg"))
+  const queryClient = useQueryClient()
+  const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
+  const navigationGate = useConversationNavigationGate(
+    queryClient,
+    currentUser.id,
+    channelId,
+    accessEpoch,
+  )
   const uiHandlers = useUiHandlers()
   const currentChannelId = useCurrentChannelId()
   const routeModel = useChannelRouteModel(serverId, serverParam, channelId, currentUser.id)
@@ -185,7 +196,8 @@ export function ChannelRoute({ serverParam, channelId }: {
   const channelHydrated =
     currentChannelId === channelId &&
     routeModel.routeHydrated &&
-    (!isForumPostChild || !forumPostOpener.isLoading)
+    (!isForumPostChild || !forumPostOpener.isLoading) &&
+    navigationGate.allowed
   if (!channelHydrated) {
     if (isForum) {
       return (

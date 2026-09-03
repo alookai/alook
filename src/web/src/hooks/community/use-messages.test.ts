@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { QueryClient, type InfiniteData } from "@tanstack/react-query"
+import { createElement } from "react"
+import TestRenderer, { act } from "react-test-renderer"
+import { QueryClient, QueryClientProvider, type InfiniteData } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
 import type { Msg } from "@/lib/community/models/message"
 
@@ -75,6 +77,26 @@ describe("channelMessagesQueryFn — url per mode", () => {
 })
 
 describe("channelMessagesQueryFn — queryClient integration", () => {
+  it("validates the transport receipt before returning a cache-safe page", async () => {
+    const { channelMessagesQueryFn } = await loadHook()
+    const onSurfaceReceipt = vi.fn()
+    apiFetchMock.mockResolvedValueOnce({
+      messages: [],
+      hasMore: false,
+      surfaceReceipt: { channelId: "ch_1", surfaceKind: "channel" },
+    })
+
+    const page = await channelMessagesQueryFn("ch_1", null, { onSurfaceReceipt })({
+      pageParam: { mode: "newest" },
+    })
+
+    expect(onSurfaceReceipt).toHaveBeenCalledWith({
+      channelId: "ch_1",
+      surfaceKind: "channel",
+    })
+    expect(page).not.toHaveProperty("surfaceReceipt")
+  })
+
   it("passes TanStack's AbortSignal to apiFetch", async () => {
     const { channelMessagesQueryFn } = await loadHook()
     const controller = new AbortController()
@@ -120,6 +142,26 @@ describe("channelMessagesQueryFn — queryClient integration", () => {
 })
 
 describe("dmMessagesQueryFn", () => {
+  it("strips the authoritative receipt before QueryClient storage", async () => {
+    const { dmMessagesQueryFn } = await loadHook()
+    apiFetchMock.mockResolvedValueOnce({
+      messages: [],
+      hasMore: false,
+      surfaceReceipt: { channelId: "dm_1", surfaceKind: "dm" },
+    })
+    const qc = new QueryClient()
+    const key = communityKeys.dmMessages("dm_1")
+
+    await qc.fetchInfiniteQuery({
+      queryKey: key,
+      queryFn: dmMessagesQueryFn("dm_1"),
+      initialPageParam: { mode: "newest" } as const,
+    })
+
+    const data = qc.getQueryData<InfiniteData<Record<string, unknown>>>(key)
+    expect(data?.pages[0]).not.toHaveProperty("surfaceReceipt")
+  })
+
   it("passes TanStack's AbortSignal to apiFetch", async () => {
     const { dmMessagesQueryFn } = await loadHook()
     const controller = new AbortController()
@@ -171,6 +213,51 @@ describe("dmMessagesQueryFn", () => {
     })
     const data = qc.getQueryData<InfiniteData<{ messages: unknown[] }>>(key)
     expect(data?.pages).toHaveLength(2)
+  })
+})
+
+describe("message hooks — canonical receipt forwarding", () => {
+  it("records transport receipts for mounted Channel and DM queries", async () => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true
+    const { useDmMessages, useMessages } = await loadHook()
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    apiFetchMock.mockImplementation(async (url: string) => ({
+      messages: [],
+      hasMore: false,
+      latestSeq: 0,
+      surfaceReceipt: url.includes("ch_receipt")
+        ? { channelId: "ch_receipt", surfaceKind: "channel" }
+        : { channelId: "dm_receipt", surfaceKind: "dm" },
+    }))
+
+    function CaptureReceipts() {
+      useMessages("ch_receipt", {
+        serverId: "server",
+        lastReadMessageId: null,
+      })
+      useDmMessages("dm_receipt", { lastReadMessageId: null })
+      return null
+    }
+
+    let renderer: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        createElement(CaptureReceipts),
+      ))
+    })
+    await act(async () => {
+      await vi.waitFor(() => {
+        expect(queryClient.getQueryState(communityKeys.channelMessages("ch_receipt"))?.status)
+          .toBe("success")
+        expect(queryClient.getQueryState(communityKeys.dmMessages("dm_receipt"))?.status)
+          .toBe("success")
+      })
+    })
+    act(() => renderer!.unmount())
   })
 })
 

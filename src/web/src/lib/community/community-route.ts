@@ -295,6 +295,8 @@ export function resolveCommunityCheckpointPlan({
   }
 
   const target = normalizeCommunityHref(targetHref)
+  const targetMainKind = resolveCommunityModulePlan(target.href).main.kind
+  const isConversationTarget = targetMainKind === "server-conversation" || targetMainKind === "dm"
   if (target.scope.kind === "unknown" || target.leafKey === committedFrame.leafKey) {
     return committedPlan(committedFrame, target.href)
   }
@@ -302,11 +304,13 @@ export function resolveCommunityCheckpointPlan({
   if (communityScopeEqual(committedFrame.scope, target.scope)) {
     return {
       mode: "same-scope-leaf",
-      surface: committedFrame.surface,
+      surface: target.surface,
       targetHref: target.href,
       rail: { kind: "keep" },
       sidebar: { kind: "keep" },
-      main: { kind: "keep" },
+      main: isConversationTarget
+        ? { kind: "target-skeleton", href: target.href }
+        : { kind: "keep" },
     }
   }
 
@@ -314,6 +318,10 @@ export function resolveCommunityCheckpointPlan({
     return {
       ...committedPlan(committedFrame, target.href),
       mode: "warm-scope",
+      surface: target.surface,
+      main: isConversationTarget
+        ? { kind: "target-skeleton", href: target.href }
+        : { kind: "keep" },
     }
   }
 

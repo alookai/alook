@@ -296,6 +296,34 @@ describe("useServer / serverQueryFn", () => {
     ], forumUnreadState: {} })
   })
 
+  it("passes the navigation AbortSignal to every server-detail resource", async () => {
+    const identity = {
+      id: "srv_signal",
+      name: "Signal",
+      discriminator: "0001",
+      description: "",
+      icon: null,
+      ownerId: "u_1",
+    }
+    apiFetchMock.mockImplementation(async (url: string) => {
+      if (url === "/api/community/servers") return { servers: [identity] }
+      if (url.endsWith("/categories")) return { categories: [] }
+      if (url.endsWith("/channels")) return { channels: [] }
+      if (url.endsWith("/unreads")) return { channelIds: [] }
+      throw new Error(`unexpected ${url}`)
+    })
+    const controller = new AbortController()
+    const { serverQueryFn } = await import("./use-servers")
+    await serverQueryFn(new QueryClient(), "srv_signal", controller.signal)()
+
+    for (const path of ["categories", "channels", "unreads"]) {
+      expect(apiFetchMock).toHaveBeenCalledWith(
+        `/api/community/servers/srv_signal/${path}`,
+        { signal: controller.signal },
+      )
+    }
+  })
+
   it("resolves cold server detail without joining an in-flight rail replacement", async () => {
     let releaseRail!: (value: {
       servers: Array<{

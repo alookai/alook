@@ -15,6 +15,8 @@ const mocks = vi.hoisted(() => ({
   armOpener: vi.fn(),
   clearOpener: vi.fn(),
   terminateOpener: vi.fn(),
+  cancelProof: vi.fn(),
+  warmup: vi.fn(),
   begin: vi.fn(),
   submitted: vi.fn(),
   rollback: vi.fn(),
@@ -90,6 +92,12 @@ vi.mock("@/hooks/community/mutations", () => ({
 }))
 vi.mock("@/hooks/community/use-dm-route-verification", () => ({
   startDmRouteVerification: (...args: unknown[]) => mocks.verifyDm(...args),
+}))
+vi.mock("@/lib/community/conversation-navigation-warmup", () => ({
+  startConversationNavigationWarmup: (...args: unknown[]) => mocks.warmup(...args),
+}))
+vi.mock("@/lib/community/conversation-navigation-proof", () => ({
+  cancelConversationNavigationProof: (...args: unknown[]) => mocks.cancelProof(...args),
 }))
 vi.mock("@/hooks/community/thread-opener-read-handoff", () => ({
   armThreadOpenerReadHandoff: (...args: unknown[]) => mocks.armOpener(...args),
@@ -169,6 +177,8 @@ describe("useShellInboxController", () => {
       mocks.armOpener,
       mocks.clearOpener,
       mocks.terminateOpener,
+      mocks.cancelProof,
+      mocks.warmup,
       mocks.begin,
       mocks.submitted,
       mocks.rollback,
@@ -197,6 +207,7 @@ describe("useShellInboxController", () => {
       order.push("verify")
       return Promise.resolve("present")
     })
+    mocks.warmup.mockReturnValue(99)
   })
 
   it("keeps Marked lazy and latches it after first selection", async () => {
@@ -302,7 +313,7 @@ describe("useShellInboxController", () => {
     order.length = 0
     await act(async () => hook.current.popoverProps.onOpenMention?.(mention))
     expect(order).toEqual(["project", "cancel", "clear", "push", "submitted"])
-    expect(hook.pushed).toEqual(["/c/channels/s1/c1"])
+    expect(hook.pushed).toEqual(["/c/channels/s1/c1?msg=msg1"])
   })
 
   it("closes Marked without creating a projection", async () => {
@@ -312,10 +323,39 @@ describe("useShellInboxController", () => {
       id: "mk1",
       serverId: "s1",
       channelId: "c1",
-      m: { seq: 7 },
+      m: { id: "message-7", seq: 7 },
     } as never))
     expect(order).toEqual(["close", "cancel", "clear", "push"])
+    expect(hook.pushed).toEqual(["/c/channels/s1/c1?seq=7"])
+    expect(mocks.warmup).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      href: "/c/channels/s1/c1?seq=7",
+      anchorMessageId: "message-7",
+    }), undefined)
     expect(mocks.begin).not.toHaveBeenCalled()
+  })
+
+  it("keeps the exact seq target for a DM Marked row", async () => {
+    const hook = await renderController()
+    await act(async () => hook.current.popoverProps.onOpenMarked?.({
+      id: "mk-dm",
+      serverId: null,
+      channelId: "dm1",
+      m: { id: "dm-message", seq: 9 },
+    } as never))
+    expect(hook.pushed).toEqual(["/c/me/dm1?seq=9"])
+  })
+
+  it("cancels the Marked proof and reopens Inbox when navigation throws", async () => {
+    const error = new Error("push failed")
+    const hook = await renderController(undefined, () => { throw error })
+    await expect(act(async () => hook.current.popoverProps.onOpenMarked?.({
+      id: "mk1",
+      serverId: "s1",
+      channelId: "c1",
+      m: { id: "message-7", seq: 7 },
+    } as never))).rejects.toThrow("push failed")
+    expect(mocks.cancelProof).toHaveBeenCalledWith(expect.anything(), 99)
+    expect(mocks.onOpenChange).toHaveBeenCalledWith(true)
   })
 
   it("rolls back and reopens the latest projection when push throws", async () => {
