@@ -6,7 +6,6 @@ import { MessageNotificationToaster } from "@/components/ui/toast";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { MockNetworkBanner } from "@/components/mock-network-banner";
 import { TauriThemeSync } from "@/components/tauri-theme-sync";
-import { DesktopUpdateDialog } from "@/components/desktop-update-dialog";
 import { ThemeColorSync } from "@/components/theme-color-sync";
 import { siteMetadata, siteStructuredData, siteViewport } from "@/lib/seo/site-metadata";
 import { caveat, dmMono, dmSans, instrumentSerif, literata, vt323 } from "./fonts";
@@ -48,7 +47,6 @@ export default function RootLayout({
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
           <ThemeColorSync />
           <TauriThemeSync />
-          <DesktopUpdateDialog />
           <MessageNotificationToaster />
           <TooltipProvider>
             {children}

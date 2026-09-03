@@ -65,8 +65,6 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
         commands::daemon_pair,
         commands::set_window_theme,
         commands::close_splashscreen,
-        updater::desktop_pending_update,
-        updater::desktop_respond_update_prompt,
         zoom::desktop_zoom_shortcut,
     ]);
 
