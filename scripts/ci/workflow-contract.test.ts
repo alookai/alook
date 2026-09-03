@@ -672,7 +672,9 @@ describe("Turbo CI execution", () => {
     expect(linux).toContain("--project=daemon-node src/daemon")
     const windows = ciJob("test-windows")
     expect(windows).toContain("run: pnpm --filter @alook/daemon test")
-    expect(linux).toContain("--project='!daemon-node'")
+    expect(linux).toContain('vitest_args=("${project_args[@]}")')
+    expect(linux).toContain('if (( ${#root_coverage[@]} )); then vitest_args+=("${root_coverage[@]}"); fi')
+    expect(linux).toContain('pnpm vitest run "${vitest_args[@]}"')
     expect(windows).toContain("pnpm turbo run test \"${filters[@]}\"")
     expect(linux.match(/VITEST_MAX_WORKERS=1/g)).toHaveLength(1)
     expect(windows.match(/VITEST_MAX_WORKERS: 1/g)).toHaveLength(1)
@@ -703,7 +705,7 @@ describe("Turbo CI execution", () => {
       projectNames.push(nodeProject, runtimeProject)
     }
     expect(new Set(projectNames).size).toBe(projectNames.length)
-    expect(ciJob("test-linux")).toContain("pnpm vitest run --project='!daemon-node'")
+    expect(ciJob("test-linux")).toContain("projects=(web-node web-runtime)")
   })
 
   it("collects Node and workerd projects in one Istanbul report", () => {
@@ -743,17 +745,46 @@ describe("Turbo CI execution", () => {
     )
   })
 
+  it("runs selected non-daemon roots in isolated reports with exact coverage includes", () => {
+    const linux = ciJob("test-linux")
+    expect(linux).toContain('for root in "${non_daemon[@]}"; do')
+    expect(linux).toContain('if [[ "$include" == "$root/"* ]]; then')
+    expect(linux).toContain('root_coverage+=("--coverage.include=$include")')
+    expect(linux).toContain("--coverage.reporter=json")
+    expect(linux).toContain(
+      '"--coverage.reportsDirectory=$coverage_dir/root-${root_index}-${report_stem}"',
+    )
+    for (const projects of [
+      "projects=(ci-scripts)",
+      "projects=(email-worker-node email-worker-runtime)",
+      "projects=(wake-worker-node wake-worker-runtime)",
+      "projects=(web-node web-runtime)",
+      "projects=(ws-do-node ws-do-runtime)",
+    ]) expect(linux).toContain(projects)
+    expect(linux).toContain('project_args+=("--project=$project")')
+    expect(linux).toContain('pnpm vitest run "${vitest_args[@]}"')
+    expect(linux).toContain(
+      '--outputFile="$report_dir/root-${root_index}-${report_stem}.blob"',
+    )
+    expect(linux).not.toContain("--project='!daemon-node'")
+    expect(linux).not.toContain('"${non_daemon[@]}" "${coverage[@]}"')
+    expect(linux).not.toContain(".vitest-reports/non-daemon.blob")
+  })
+
   it("keeps package builds away from dist consumers and uploads one merged Istanbul report", () => {
     const linux = ciJob("test-linux")
     expect(linux).toContain("timeout-minutes: 25")
     expect(linux).toContain(
       "RUN_COVERAGE: ${{ github.event_name != 'push' || startsWith(github.event.head_commit.message, 'release:') }}",
     )
-    expect(linux).toContain("pnpm vitest run --project='!daemon-node'")
+    expect(linux).toContain('pnpm vitest run "${vitest_args[@]}"')
     expect(linux).toContain("pnpm vitest run --project=daemon-node src/daemon")
+    expect(linux).toContain(
+      '"--coverage.reportsDirectory=$coverage_dir/root-${root_index}-${report_stem}"',
+    )
     expect(linux).toContain('coverage=(--coverage)')
-    expect(linux).toContain("--reporter=blob --outputFile=.vitest-reports/non-daemon.blob")
-    expect(linux).toContain("--reporter=blob --outputFile=.vitest-reports/daemon.blob")
+    expect(linux).toContain('--reporter=blob --outputFile="$report_dir/root-${root_index}-${report_stem}.blob"')
+    expect(linux).toContain('--reporter=blob --outputFile="$report_dir/daemon.blob"')
     expect(linux).toContain("--merge-reports=.vitest-reports")
     expect(linux.match(/codecov\/codecov-action/g)).toHaveLength(1)
     expect(linux).toContain("if: env.RUN_COVERAGE == 'true'")

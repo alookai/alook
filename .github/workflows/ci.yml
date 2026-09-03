@@ -269,27 +269,59 @@ jobs:
           set -euo pipefail
           mapfile -t roots < <(node -e 'for (const value of JSON.parse(process.env.UNIT_ROOTS)) console.log(value)')
           mapfile -t coverage_roots < <(node -e 'for (const value of JSON.parse(process.env.COVERAGE_ROOTS)) console.log(value)')
-          daemon=false; non_daemon=(); daemon_coverage=(); non_daemon_coverage=()
+          daemon=false; non_daemon=(); daemon_coverage=()
           for root in "${roots[@]}"; do
             if [[ "$root" == "src/daemon" ]]; then daemon=true; else non_daemon+=("$root"); fi
           done
           for root in "${coverage_roots[@]}"; do
             if [[ "$root" == src/daemon/src/* || "$root" == src/daemon/scripts/* ]]; then
               daemon_coverage+=("--coverage.include=$root")
-            else
-              non_daemon_coverage+=("--coverage.include=$root")
             fi
           done
-          mkdir -p .vitest-reports
-          coverage=(); if [[ "$RUN_COVERAGE" == "true" ]]; then coverage=(--coverage); fi
-          if (( ${#non_daemon[@]} )); then
-            pnpm vitest run --project='!daemon-node' "${non_daemon[@]}" "${coverage[@]}" \
-              "${non_daemon_coverage[@]}" --reporter=blob --outputFile=.vitest-reports/non-daemon.blob \
+          report_dir="$PWD/.vitest-reports"
+          coverage_dir="$RUNNER_TEMP/vitest-coverage"
+          mkdir -p "$report_dir"
+          mkdir -p "$coverage_dir"
+          root_index=0
+          for root in "${non_daemon[@]}"; do
+            ((root_index += 1))
+            root_coverage=()
+            report_stem=${root//\//-}
+            if [[ "$RUN_COVERAGE" == "true" ]]; then
+              for include in "${coverage_roots[@]}"; do
+                if [[ "$include" == "$root/"* ]]; then
+                  root_coverage+=("--coverage.include=$include")
+                fi
+              done
+              if (( ${#root_coverage[@]} )); then
+                root_coverage=(
+                  --coverage
+                  --coverage.reporter=json
+                  "--coverage.reportsDirectory=$coverage_dir/root-${root_index}-${report_stem}"
+                  "${root_coverage[@]}"
+                )
+              fi
+            fi
+            case "$root" in
+              scripts/ci) projects=(ci-scripts) ;;
+              src/email-worker) projects=(email-worker-node email-worker-runtime) ;;
+              src/wake-worker) projects=(wake-worker-node wake-worker-runtime) ;;
+              src/web) projects=(web-node web-runtime) ;;
+              src/ws-do) projects=(ws-do-node ws-do-runtime) ;;
+              *) projects=("$(node -e 'console.log(require("./" + process.argv[1] + "/package.json").name)' "$root")") ;;
+            esac
+            project_args=()
+            for project in "${projects[@]}"; do project_args+=("--project=$project"); done
+            vitest_args=("${project_args[@]}")
+            if (( ${#root_coverage[@]} )); then vitest_args+=("${root_coverage[@]}"); fi
+            pnpm vitest run "${vitest_args[@]}" \
+              --reporter=blob --outputFile="$report_dir/root-${root_index}-${report_stem}.blob" \
               --exclude src/pack.test.ts
-          fi
+          done
           if [[ "$daemon" == "true" ]]; then
+            coverage=(); if [[ "$RUN_COVERAGE" == "true" ]]; then coverage=(--coverage); fi
             VITEST_MAX_WORKERS=1 pnpm vitest run --project=daemon-node src/daemon "${coverage[@]}" \
-              "${daemon_coverage[@]}" --reporter=blob --outputFile=.vitest-reports/daemon.blob \
+              "${daemon_coverage[@]}" --reporter=blob --outputFile="$report_dir/daemon.blob" \
               --exclude src/cli/daemonLifecycle.real.test.ts \
               --exclude src/cli/diagnosticsLifecycle.real.test.ts \
               --exclude src/cli/daemonStop.test.ts \
