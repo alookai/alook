@@ -427,9 +427,15 @@ export function useScrollAnchor({
   const messages = extractScrollAnchorMessages(items)
   const tailId = messages[messages.length - 1]?.id ?? null
   const wasAtEndRef = useRef(true)
+  const wasExactlyPinnedRef = useRef(true)
   const userScrolledAwayRef = useRef(false)
+  const acceptedClientHeightRef = useRef(0)
+  const acceptedScrollTopRef = useRef(0)
   const measuredRowHeightsRef = useRef(new WeakMap<Element, number>())
   const bottomRepinQueuedRef = useRef(false)
+  const liveResizeAnchor = wasExactlyPinnedRef.current && !userScrolledAwayRef.current
+    ? "end"
+    : "start"
 
   // eslint-disable-next-line react-hooks/incompatible-library -- library limitation, same as member-list.tsx
   const virtualizer = useVirtualizer({
@@ -454,7 +460,7 @@ export function useScrollAnchor({
         // By the time ResizeObserver calls us, an overflowing child can have
         // already increased the browser scrollHeight without emitting a
         // scroll event, making a formerly pinned viewport appear far away.
-        && wasAtEndRef.current
+        && wasExactlyPinnedRef.current
         && !userScrolledAwayRef.current
         && !bottomRepinQueuedRef.current
       ) {
@@ -519,10 +525,10 @@ export function useScrollAnchor({
   // distance excludes `scrollMargin` (the hero) while its scroll offset
   // includes it, so a viewer who moved upward by less than the hero height can
   // be mistaken for still-at-end and yanked down by the resize delta. Switch
-  // only that between-render mode to `start` once the user has moved away;
-  // the next render's `setOptions({ anchorTo: "end" })` still performs prepend
-  // anchoring before this assignment restores the live resize mode.
-  virtualizer.options.anchorTo = userScrolledAwayRef.current ? "start" : "end"
+  // only that between-render mode to `start` once the exact-pinned latch is
+  // false; the next render's `setOptions({ anchorTo: "end" })` still performs
+  // prepend anchoring before this assignment restores the live resize mode.
+  virtualizer.options.anchorTo = liveResizeAnchor
 
   // Whether the viewer was within NEAR_BOTTOM_PX of the end BEFORE this
   // commit's append — the semantics `decideScrollAction` documents for its
@@ -538,7 +544,12 @@ export function useScrollAnchor({
   useLayoutEffect(() => {
     const el = scrollRef.current
     if (!el) return
-    let lastScrollTop = el.scrollTop
+    acceptedClientHeightRef.current = el.clientHeight
+    acceptedScrollTopRef.current = el.scrollTop
+    wasExactlyPinnedRef.current = Math.max(
+      0,
+      el.scrollHeight - el.clientHeight - el.scrollTop,
+    ) <= 1
     const onScroll = () => {
       const nextScrollTop = el.scrollTop
       const isAtEnd = virtualizer.isAtEnd(NEAR_BOTTOM_PX)
@@ -547,20 +558,40 @@ export function useScrollAnchor({
       if (isAtEnd) {
         userScrolledAwayRef.current = false
         virtualizer.options.anchorTo = "end"
-      } else if (leftEnd || nextScrollTop < lastScrollTop - 1) {
+      } else if (leftEnd || nextScrollTop < acceptedScrollTopRef.current - 1) {
         userScrolledAwayRef.current = true
         virtualizer.options.anchorTo = "start"
       }
-      lastScrollTop = nextScrollTop
+
+      // A scroll dispatched while the viewport height differs from the last
+      // ResizeObserver sample belongs to that pending resize. It cannot tell
+      // us whether the viewer was exactly pinned before layout changed.
+      if (el.clientHeight === acceptedClientHeightRef.current) {
+        const distanceToEnd = Math.max(0, el.scrollHeight - el.clientHeight - nextScrollTop)
+        if (distanceToEnd > 1 || nextScrollTop < acceptedScrollTopRef.current - 1) {
+          wasExactlyPinnedRef.current = false
+        } else if (nextScrollTop > acceptedScrollTopRef.current) {
+          // False may only recover from a real, stable scroll toward the end.
+          // Same-position or decreasing browser-clamp events at the end must
+          // preserve false for the next resize.
+          wasExactlyPinnedRef.current = true
+        }
+        acceptedScrollTopRef.current = nextScrollTop
+      }
+      virtualizer.options.anchorTo = wasExactlyPinnedRef.current && !userScrolledAwayRef.current
+        ? "end"
+        : "start"
     }
     const onWheel = (event: WheelEvent) => {
       if (event.deltaY < 0) {
+        wasExactlyPinnedRef.current = false
         userScrolledAwayRef.current = true
         virtualizer.options.anchorTo = "start"
       }
     }
     const onKeyDown = (event: KeyboardEvent) => {
       if (["ArrowUp", "PageUp", "Home"].includes(event.key)) {
+        wasExactlyPinnedRef.current = false
         userScrolledAwayRef.current = true
         virtualizer.options.anchorTo = "start"
       }
@@ -595,11 +626,15 @@ export function useScrollAnchor({
         if (idx !== null) {
           virtualizer.scrollToIndex(idx, { align: "center" })
         } else {
+          wasExactlyPinnedRef.current = true
+          virtualizer.options.anchorTo = "end"
           virtualizer.scrollToEnd()
         }
         return
       }
       case "scrollToEnd":
+        wasExactlyPinnedRef.current = true
+        virtualizer.options.anchorTo = "end"
         virtualizer.scrollToEnd()
         return
       case "none":
@@ -622,7 +657,9 @@ export function useScrollAnchor({
       lastTailId: tailId,
     }
     wasAtEndRef.current = true
+    wasExactlyPinnedRef.current = true
     userScrolledAwayRef.current = false
+    virtualizer.options.anchorTo = "end"
     virtualizer.scrollToEnd()
   }, [hasMoreNewer, presentVersion, tailId, virtualizer])
 
@@ -650,30 +687,32 @@ export function useScrollAnchor({
   // changes and the bottom-pinned content (`min-h-full … justify-end`) would
   // otherwise appear to jump. A `ResizeObserver` on the viewport itself
   // catches every such resize regardless of cause without coupling to the
-  // composer component: if the list was at the bottom, re-pin instantly (NOT
-  // the smooth `scrollToBottom` — a smooth animation firing on every
-  // keystroke resize is janky and fights rapid successive resizes); otherwise
-  // compensate `scrollTop` by the height delta so the visible top-of-content
-  // stays put. Keyed on `clientHeight`, orthogonal to the hero compensation
-  // below (keyed on `heroHeight`) — separate effects, no double-apply.
-  const prevClientHeightRef = useRef(0)
+  // composer component. Only a viewport that was literally pinned within
+  // 1px re-pins instantly (NOT the smooth `scrollToBottom` — a smooth
+  // animation firing on every keystroke resize is janky and fights rapid
+  // successive resizes). Every away position is left to the browser; in
+  // particular, the resize policy never writes a compensating height delta.
+  // Keyed on `clientHeight`, orthogonal to the hero compensation above (keyed
+  // on `heroHeight`) — separate effects, no double-apply.
   useLayoutEffect(() => {
     const el = scrollRef.current
     if (!el) return
     // First-fire guard: ResizeObserver fires immediately on observe() with
     // the current size. Seed the previous height first so that initial
     // callback computes a zero delta instead of a spurious jump at mount.
-    prevClientHeightRef.current = el.clientHeight
+    acceptedClientHeightRef.current = el.clientHeight
+    acceptedScrollTopRef.current = el.scrollTop
     const ro = new ResizeObserver(() => {
-      const prev = prevClientHeightRef.current
+      const prev = acceptedClientHeightRef.current
       const next = el.clientHeight
       if (next === prev) return
-      const wasAtEnd = virtualizer.isAtEnd(NEAR_BOTTOM_PX)
-      prevClientHeightRef.current = next
-      if (wasAtEnd) {
+      const wasExactlyPinned = wasExactlyPinnedRef.current
+      acceptedClientHeightRef.current = next
+      acceptedScrollTopRef.current = el.scrollTop
+      if (wasExactlyPinned && !userScrolledAwayRef.current) {
+        wasExactlyPinnedRef.current = true
+        virtualizer.options.anchorTo = "end"
         virtualizer.scrollToEnd()
-      } else {
-        el.scrollTop += prev - next
       }
     })
     ro.observe(el)
@@ -696,18 +735,24 @@ export function useScrollAnchor({
   const scrollToBottom = useCallback(() => {
     userScrolledAwayRef.current = false
     wasAtEndRef.current = true
+    wasExactlyPinnedRef.current = true
+    virtualizer.options.anchorTo = "end"
     virtualizer.scrollToEnd({ behavior: "smooth" })
   }, [virtualizer])
 
   // Re-pin after an attachment image finishes loading, but only if the
-  // viewer is still at/near the bottom — restores the deleted
+  // viewer was exactly pinned before that growth — restores the deleted
   // `watchAsyncGrowth` image-decode re-scroll narrowly, per-image and gated,
   // so a dimensionless image that grows after `scrollToEnd` already fired
   // still lands the message's bottom at the viewport bottom, while never
-  // yanking a reader who has scrolled away. Instant (no smooth) so it doesn't
-  // animate on every image load.
+  // yanking a reader even 2px away. Instant (no smooth) so it doesn't animate
+  // on every image load.
   const onImageLoad = useCallback(() => {
-    if (virtualizer.isAtEnd(NEAR_BOTTOM_PX)) virtualizer.scrollToEnd()
+    if (wasExactlyPinnedRef.current && !userScrolledAwayRef.current) {
+      wasExactlyPinnedRef.current = true
+      virtualizer.options.anchorTo = "end"
+      virtualizer.scrollToEnd()
+    }
   }, [virtualizer])
 
   const jumpTo = useCallback((messageId: string, behavior: ScrollBehavior = "smooth") => {
