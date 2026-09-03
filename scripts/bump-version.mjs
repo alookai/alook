@@ -32,7 +32,7 @@ const unsupportedFlag = args.find(
 );
 if (unsupportedFlag) {
   console.error(`Unsupported flag: ${unsupportedFlag}`);
-  console.error("Mobile releases are not configured; store signing accounts are required first.");
+  console.error("Mobile releases use the manual Mobile TestFlight workflow; no bump flag is supported.");
   process.exit(1);
 }
 const filtered = args.filter((a) => !a.startsWith("--"));
@@ -89,6 +89,21 @@ tauriConf.version = version;
 writeFileSync(tauriConfPath, JSON.stringify(tauriConf, null, 2) + "\n");
 files.push(tauriConfPath);
 console.log(`  tauri.conf.json: ${oldTauriVersion} → ${version}`);
+
+// Sync the generated iOS project's public version (always)
+const iosProjectPath = join(ROOT, "src/desktop/src-tauri/gen/apple/project.yml");
+let iosProject = readFileSync(iosProjectPath, "utf8");
+const oldIosVersionMatch = iosProject.match(/^\s*CFBundleShortVersionString:\s*(\S+)\s*$/m);
+if (!oldIosVersionMatch) {
+  throw new Error("CFBundleShortVersionString is missing from the generated iOS project");
+}
+iosProject = iosProject.replace(
+  /^(\s*CFBundleShortVersionString:\s*)\S+\s*$/m,
+  `$1${version}`,
+);
+writeFileSync(iosProjectPath, iosProject);
+files.push(iosProjectPath);
+console.log(`  iOS CFBundleShortVersionString: ${oldIosVersionMatch[1]} → ${version}`);
 
 // Sync Cargo.toml version (always)
 const cargoTomlPath = join(ROOT, "src/desktop/src-tauri/Cargo.toml");

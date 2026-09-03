@@ -1,0 +1,4 @@
+{
+  "$schema": "./gen/schemas/ios-schema.json",
+  "identifier": "ai.alook.ios"
+}

@@ -1,0 +1,171 @@
+name: Mobile TestFlight
+
+on:
+  workflow_dispatch:
+    inputs:
+      upload:
+        description: Upload the signed IPA to App Store Connect for TestFlight processing
+        required: true
+        default: false
+        type: boolean
+
+concurrency:
+  group: mobile-testflight-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-ios:
+    name: Build signed iOS IPA
+    runs-on: macos-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim
+
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          workspaces: src/desktop/src-tauri
+          key: ios-arm64
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: src/desktop
+
+      - name: Generate Xcode project
+        working-directory: src/desktop
+        env:
+          APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_TEAM_ID }}
+        run: pnpm tauri ios init --ci --skip-targets-install
+
+      - name: Build signed App Store Connect IPA
+        working-directory: src/desktop
+        env:
+          APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_TEAM_ID }}
+          IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_MOBILE_PROVISION: ${{ secrets.IOS_MOBILE_PROVISION }}
+        run: |
+          set -euo pipefail
+          umask 077
+          certificate_path=$(mktemp "$RUNNER_TEMP/alook-ios-certificate.XXXXXX")
+          profile_source=$(mktemp "$RUNNER_TEMP/alook-ios-profile.XXXXXX")
+          profile_plist=$(mktemp "$RUNNER_TEMP/alook-ios-profile-plist.XXXXXX")
+          keychain_path="$RUNNER_TEMP/alook-ios-signing.keychain-db"
+          keychain_password=$(openssl rand -hex 24)
+
+          printf '%s' "$IOS_CERTIFICATE" | base64 --decode > "$certificate_path"
+          printf '%s' "$IOS_MOBILE_PROVISION" | base64 --decode > "$profile_source"
+          security cms -D -i "$profile_source" > "$profile_plist"
+          profile_uuid=$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$profile_plist")
+
+          runner_user=$(id -un)
+          runner_home=$(dscl . -read "/Users/$runner_user" NFSHomeDirectory | awk '{print $2}')
+          case "$runner_home" in
+            /Users/*) ;;
+            *) echo "Unexpected runner home: $runner_home" >&2; exit 1 ;;
+          esac
+          profile_dir="$runner_home/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$profile_dir"
+          install -m 600 "$profile_source" "$profile_dir/$profile_uuid.mobileprovision"
+
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security import "$certificate_path" \
+            -k "$keychain_path" \
+            -f pkcs12 \
+            -P "$IOS_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s \
+            -k "$keychain_password" \
+            "$keychain_path"
+          security list-keychains -d user -s "$keychain_path"
+          security default-keychain -d user -s "$keychain_path"
+          security find-identity -v -p codesigning "$keychain_path" | grep -F 'Apple Distribution'
+
+          # Tauri 2.11.x can lose an imported distribution identity from its
+          # short-lived keychain on Xcode 26. Keep our verified keychain in the
+          # search list and let Tauri consume only the provisioning profile.
+          unset IOS_CERTIFICATE IOS_CERTIFICATE_PASSWORD
+          pnpm tauri ios build \
+            --export-method app-store-connect \
+            --config "{\"bundle\":{\"iOS\":{\"bundleVersion\":\"${GITHUB_RUN_NUMBER}\"}}}"
+
+      - name: Locate and verify IPA
+        id: ipa
+        shell: bash
+        run: |
+          set -euo pipefail
+          ipa_path=$(find src/desktop/src-tauri/gen/apple/build/arm64 -type f -name '*.ipa' -print -quit)
+          test -n "$ipa_path"
+          echo "path=$ipa_path" >> "$GITHUB_OUTPUT"
+
+          extract_dir=$(mktemp -d "$RUNNER_TEMP/alook-ipa.XXXXXX")
+          trap 'rm -rf "$extract_dir"' EXIT
+          unzip -q "$ipa_path" -d "$extract_dir"
+          app_path=$(find "$extract_dir/Payload" -maxdepth 1 -type d -name '*.app' -print -quit)
+          test -n "$app_path"
+
+          codesign --verify --deep --strict --verbose=2 "$app_path"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app_path/Info.plist")" = "ai.alook.ios"
+          tauri_version=$(node -p "require('./src/desktop/src-tauri/tauri.conf.json').version")
+          package_version=$(node -p "require('./src/desktop/package.json').version")
+          test "$tauri_version" = "$package_version"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app_path/Info.plist")" = "$tauri_version"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app_path/Info.plist")" = "$GITHUB_RUN_NUMBER"
+
+      - name: Upload signed IPA artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: alook-ios-${{ github.run_id }}
+          path: ${{ steps.ipa.outputs.path }}
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Prepare App Store Connect API key
+        if: inputs.upload == true
+        shell: bash
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+        run: |
+          test -n "$APPLE_API_KEY"
+          test -n "$APPLE_API_PRIVATE_KEY"
+          key_dir="$RUNNER_TEMP/private_keys"
+          key_path="$key_dir/AuthKey_${APPLE_API_KEY}.p8"
+          umask 077
+          mkdir -p "$key_dir"
+          printf '%s' "$APPLE_API_PRIVATE_KEY" > "$key_path"
+          echo "API_PRIVATE_KEYS_DIR=$key_dir" >> "$GITHUB_ENV"
+
+      - name: Upload to App Store Connect
+        if: inputs.upload == true
+        env:
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+        run: |
+          xcrun altool --upload-app \
+            --file "${{ steps.ipa.outputs.path }}" \
+            --type ios \
+            --apiKey "$APPLE_API_KEY" \
+            --apiIssuer "$APPLE_API_ISSUER"
