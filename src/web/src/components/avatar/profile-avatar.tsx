@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, type ReactNode } from "react"
+import { useCallback, useState, type ReactNode } from "react"
 import {
   Avatar as UiAvatar,
   AvatarFallback,
@@ -29,6 +29,10 @@ function ProfilePhoto({ src, alt, fallback, fontSize }: {
   fontSize: number
 }) {
   const [status, setStatus] = useState<"pending" | "ready" | "failed">("pending")
+  const reconcileCompletedPhoto = useCallback((image: HTMLImageElement | null) => {
+    if (!image?.complete) return
+    setStatus(image.naturalWidth > 0 && image.naturalHeight > 0 ? "ready" : "failed")
+  }, [])
 
   if (status === "failed") {
     return (
@@ -44,6 +48,7 @@ function ProfilePhoto({ src, alt, fallback, fontSize }: {
         {fallback}
       </AvatarFallback>
       <img
+        ref={reconcileCompletedPhoto}
         data-slot="avatar-image"
         data-avatar-photo-state={status}
         src={src}

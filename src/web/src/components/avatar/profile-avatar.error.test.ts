@@ -6,6 +6,45 @@ import { ProfileAvatar } from "./profile-avatar"
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
 describe("ProfileAvatar photo errors", () => {
+  it("reveals a cached photo whose load event completed before hydration", async () => {
+    let renderer: TestRenderer.ReactTestRenderer
+
+    await act(async () => {
+      renderer = TestRenderer.create(createElement(ProfileAvatar, {
+        label: "Ada",
+        src: "https://cdn.example.com/cached.png",
+        seed: "user_1",
+      }), {
+        createNodeMock: (element) => element.type === "img"
+          ? { complete: true, naturalWidth: 40, naturalHeight: 40 }
+          : null,
+      })
+    })
+
+    expect(renderer!.root.findByProps({ "data-slot": "avatar-image" }).props).toMatchObject({
+      "data-avatar-photo-state": "ready",
+    })
+  })
+
+  it("keeps the fallback when a cached photo failed before hydration", async () => {
+    let renderer: TestRenderer.ReactTestRenderer
+
+    await act(async () => {
+      renderer = TestRenderer.create(createElement(ProfileAvatar, {
+        label: "Ada",
+        src: "https://cdn.example.com/failed-before-hydration.png",
+        seed: "user_1",
+      }), {
+        createNodeMock: (element) => element.type === "img"
+          ? { complete: true, naturalWidth: 0, naturalHeight: 0 }
+          : null,
+      })
+    })
+
+    expect(renderer!.root.findAllByProps({ "data-slot": "avatar-image" })).toHaveLength(0)
+    expect(JSON.stringify(renderer!.toJSON())).toContain('"children":["A"]')
+  })
+
   it("keeps the first-frame fallback after the photo reports an error", async () => {
     let renderer: TestRenderer.ReactTestRenderer
 
