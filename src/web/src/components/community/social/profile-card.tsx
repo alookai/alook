@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react"
-import { Bot, CircleStop, LoaderCircle, MessagesSquare, Shield, UserRound } from "lucide-react"
+import { Bot, MessagesSquare, Shield, UserRound } from "lucide-react"
 import { BOT_ACTIVITY_PRESETS } from "@alook/shared"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { Sheet, SheetClose, SheetContent, SheetTitle } from "@/components/ui/sheet"
@@ -19,7 +19,8 @@ import { useCommunityProfile } from "@/stores/community/ws"
 import { avatarInitial } from "@/lib/community/avatar"
 import { tid } from "@/lib/community/testids"
 import { communityWsInterruptAgent } from "@/hooks/community/use-community-ws"
-import { BotAuditPreview, isBotActivityActive, isBotActivityRunning } from "./bot-audit-preview"
+import { isBotActivityActive, isBotActivityRunning } from "./bot-audit-preview"
+import { BotMarkSticker } from "./bot-mark-sticker"
 
 // Live cards resolve status from the global profile map. Seed props are used
 // only by static, id-less showcase cards.
@@ -93,6 +94,7 @@ type AuditPreviewPosition = {
   placement: AuditPreviewPlacement
   left: number | string
   top: number
+  height?: number
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -152,16 +154,17 @@ function useAuditPreviewPosition(enabled: boolean, x: number, y: number) {
         window.innerWidth - margin - preview.width - card.left,
       )
       const next: AuditPreviewPosition = placement === "right"
-        ? { placement, left: card.width + gap, top: verticalOffset }
+        ? { placement, left: card.width + gap, top: verticalOffset, height: card.height }
         : placement === "left"
-          ? { placement, left: -preview.width - gap, top: verticalOffset }
+          ? { placement, left: -preview.width - gap, top: verticalOffset, height: card.height }
           : placement === "top"
-            ? { placement, left: horizontalOffset, top: -preview.height - gap }
-            : { placement, left: horizontalOffset, top: card.height + gap }
+            ? { placement, left: horizontalOffset, top: -preview.height - gap, height: card.height }
+            : { placement, left: horizontalOffset, top: card.height + gap, height: card.height }
 
       setPosition((current) => current.placement === next.placement
         && current.left === next.left
         && current.top === next.top
+        && current.height === next.height
         ? current
         : next)
     }
@@ -246,9 +249,9 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
   const presence = data.userId ? (globalProfile?.presence ?? "offline") : data.presence
   const mutual = data.mutual ?? 0
   const botIdentity = data.identity?.kind === "bot" ? data.identity : null
-  const showAuditPreview = Boolean(botIdentity?.ownedByViewer && data.userId)
+  const showOwnedBotCard = Boolean(botIdentity?.ownedByViewer && data.userId)
   const { popoverRef, cardRef, previewRef, position: previewPosition } = useAuditPreviewPosition(
-    showAuditPreview && !mobile && !embedded,
+    showOwnedBotCard && !mobile && !embedded,
     x,
     y,
   )
@@ -429,29 +432,16 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
     </>
   )
 
-  const secondaryCards = showAuditPreview && data.userId ? (
-    <div className="flex w-full flex-col gap-2">
-      <BotAuditPreview
-        botId={data.userId}
-        active={isBotActivityActive(activityStatus.emoji, activityStatus.text)}
-        onOpen={() => onOpenBotAudit?.(data.userId!)}
-      />
-      {(isBotActivityRunning(activityStatus.emoji, activityStatus.text)
-        || (interruptPending && !activityIdle)) && (
-        <button
-          type="button"
-          onClick={interruptAgent}
-          disabled={interruptPending}
-          aria-label={interruptPending ? "Stopping current agent turn" : "Stop current agent turn"}
-          className="flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-destructive/40 bg-card px-3 text-sm font-medium text-destructive shadow-(--e1) transition-colors hover:bg-destructive/10 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-wait disabled:bg-destructive/5 disabled:text-destructive/70"
-        >
-          {interruptPending
-            ? <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden />
-            : <CircleStop className="size-4" aria-hidden />}
-          {interruptPending ? "Stopping…" : "Stop"}
-        </button>
-      )}
-    </div>
+  const secondaryCards = showOwnedBotCard && data.userId ? (
+    <BotMarkSticker
+      botId={data.userId}
+      active={isBotActivityActive(activityStatus.emoji, activityStatus.text)}
+      showStop={isBotActivityRunning(activityStatus.emoji, activityStatus.text)
+        || (interruptPending && !activityIdle)}
+      stopPending={interruptPending}
+      onStop={interruptAgent}
+      onOpenActivity={() => onOpenBotAudit?.(data.userId!)}
+    />
   ) : null
 
   if (embedded)
@@ -504,7 +494,11 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
             data-testid={tid.botAuditPreviewDock}
             data-placement={previewPosition.placement}
             className="absolute w-full"
-            style={{ left: previewPosition.left, top: previewPosition.top }}
+            style={{
+              left: previewPosition.left,
+              top: previewPosition.top,
+              height: previewPosition.height,
+            }}
           >
             {secondaryCards}
           </div>

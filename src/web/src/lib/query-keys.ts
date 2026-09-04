@@ -147,6 +147,8 @@ export const communityKeys = {
     [...communityKeys.all, "bot", botId, "audit-log"] as const,
   botAuditPreview: (botId: string) =>
     [...communityKeys.all, "bot", botId, "audit-preview"] as const,
+  botMarks: (botId: string) =>
+    [...communityKeys.all, "bot", botId, "marks"] as const,
 
   // ── Notification settings ───────────────────────────────────────────────
   notificationSettings: () =>

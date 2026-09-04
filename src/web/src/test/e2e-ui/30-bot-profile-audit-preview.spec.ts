@@ -197,7 +197,12 @@ async function enrollBot(credential: string, botId: string): Promise<string> {
   return data.runnerKey
 }
 
-async function sendBotMessage(runnerKey: string, channel: string, text: string): Promise<void> {
+async function sendBotMessage(
+  runnerKey: string,
+  channel: string,
+  text: string,
+  seenUpToSeq = 0,
+): Promise<{ seq: number }> {
   const response = await fetch(`${WEB_URL}/api/community/channels/resolve/messages`, {
     method: "POST",
     headers: {
@@ -209,12 +214,38 @@ async function sendBotMessage(runnerKey: string, channel: string, text: string):
       channel,
       content: { text },
       attachments: [],
-      seenUpToSeq: 0,
+      seenUpToSeq,
       nonce: `profile-preview:${crypto.randomUUID()}`,
     }),
   })
   expect(response.status).toBe(200)
-  expect((await response.json() as { state: string }).state).toBe("sent")
+  const data = await response.json() as { state: string; message: { seq: string } }
+  expect(data.state).toBe("sent")
+  const seq = Number(data.message.seq.replace(/^#/, ""))
+  expect(Number.isInteger(seq) && seq > 0).toBe(true)
+  return { seq }
+}
+
+async function setBotMark(
+  runnerKey: string,
+  channel: string,
+  seq: number,
+): Promise<void> {
+  const response = await fetch(`${WEB_URL}/api/community/messages/resolve/properties`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${runnerKey}`,
+      "Content-Type": "application/json",
+      Origin: WEB_URL,
+    },
+    body: JSON.stringify({
+      channel,
+      seq,
+      property: { type: "mark", value: true },
+    }),
+  })
+  expect(response.status).toBe(200)
+  await expect(response.json()).resolves.toMatchObject({ type: "mark", value: true })
 }
 
 type MachineSocket = {
@@ -222,6 +253,7 @@ type MachineSocket = {
   close: () => void
   once(event: "open", listener: () => void): void
   once(event: "error", listener: (error: Error) => void): void
+  once(event: "message", listener: (data: unknown) => void): void
 }
 
 function connectMachine(credential: string) {
@@ -246,18 +278,25 @@ async function openBotProfile(page: Page, botName: string): Promise<void> {
   await expect(page.getByTestId(tid.profileCard)).toBeVisible()
 }
 
-test("owner-only bot profile preview, owner swap, and URL-owned audit modal", async ({ asUser }, testInfo) => {
+test("owner-only bot mark sticker, Stop lifecycle, owner swap, and URL-owned audit modal", async ({ asUser }, testInfo) => {
   test.setTimeout(180_000)
   const suffix = Date.now().toString(36)
-  const serverId = await seedServer("alice", `profile-preview-${suffix}`)
-  const channelName = `bots-${suffix}`
+  const serverId = await seedServer("alice", `profile-preview-server-with-a-long-name-${suffix}`)
+  const channelName = `bots-with-a-long-channel-name-${suffix}`
   const channelId = await seedChannel("alice", serverId, channelName)
+  const staleServerId = await seedServer("alice", `stale-mark-server-${suffix}`)
+  const staleChannelName = `former-private-work-${suffix}`
+  const staleChannelId = await seedChannel("alice", staleServerId, staleChannelName)
   await seedJoinServer("alice", "bob", serverId)
 
   const { credential, machineId } = await pairMachine()
-  const botName = `Preview bot ${suffix}`
+  const botName = `Preview bot ${suffix} long-name`
   const botId = await createBot(machineId, botName)
   await jsonRequest("alice", `/api/community/servers/${serverId}/bots`, {
+    method: "POST",
+    body: JSON.stringify({ botId }),
+  })
+  await jsonRequest("alice", `/api/community/servers/${staleServerId}/bots`, {
     method: "POST",
     body: JSON.stringify({ botId }),
   })
@@ -266,79 +305,204 @@ test("owner-only bot profile preview, owner swap, and URL-owned audit modal", as
     servers: Array<{ id: string; name: string; discriminator: string }>
   }>("alice", "/api/community/servers")
   const server = servers.find((candidate) => candidate.id === serverId)
+  const staleServer = servers.find((candidate) => candidate.id === staleServerId)
   expect(server).toBeTruthy()
+  expect(staleServer).toBeTruthy()
   const runnerKey = await enrollBot(credential, botId)
-  await sendBotMessage(
+  const channelRef = `/${server!.name}#${server!.discriminator}/${channelName}`
+  let latestSeq = 0
+  for (const index of [1, 2, 3]) {
+    const created = await jsonRequest<{ message: { seq: number } }>(
+      "alice",
+      `/api/community/channels/${channelId}/messages`,
+      {
+        method: "POST",
+        body: JSON.stringify({ content: `Marked task ${index} ${suffix}` }),
+      },
+    )
+    latestSeq = created.message.seq
+    await setBotMark(runnerKey, channelRef, latestSeq)
+  }
+  const longBotMessage = await sendBotMessage(
     runnerKey,
-    `/${server!.name}#${server!.discriminator}/${channelName}`,
-    `Open my profile ${suffix}`,
+    channelRef,
+    `**Long marked task ${suffix}** ${"with enough detail to require a second line ".repeat(5)}`,
+    latestSeq,
   )
+  await setBotMark(runnerKey, channelRef, longBotMessage.seq)
+
+  const staleMessage = await jsonRequest<{ message: { seq: number } }>(
+    "alice",
+    `/api/community/channels/${staleChannelId}/messages`,
+    {
+      method: "POST",
+      body: JSON.stringify({ content: `Persisted stale mark ${suffix}` }),
+    },
+  )
+  const staleChannelRef = `/${staleServer!.name}#${staleServer!.discriminator}/${staleChannelName}`
+  await setBotMark(runnerKey, staleChannelRef, staleMessage.message.seq)
+  const staleMembers = await jsonRequest<{
+    members: Array<{ id: string; userId: string }>
+  }>("alice", `/api/community/servers/${staleServerId}/members`)
+  const staleBotMember = staleMembers.members.find((member) => member.userId === botId)
+  expect(staleBotMember).toBeTruthy()
+  const removeStaleBot = await fetch(
+    `${WEB_URL}/api/community/servers/${staleServerId}/members/${staleBotMember!.id}`,
+    { method: "DELETE", headers: headersFor("alice") },
+  )
+  expect(removeStaleBot.status).toBe(204)
 
   const machine = connectMachine(credential)
   await machine.opened
   try {
     machine.socket.send(JSON.stringify({ type: "agent_activity", agentId: botId, state: "idle" }))
-    for (const index of [1, 2, 3, 4, 5, 6]) {
+    for (let index = 0; index < 11; index += 1) {
       machine.socket.send(JSON.stringify({
         type: "bot_audit_event",
         agentId: botId,
         sessionId: `session-${suffix}`,
         launchId: `launch-${suffix}`,
-        event: { kind: "tool_call", payload: { name: `Tool ${index}` } },
+        event: { kind: "tool_call", payload: { name: `Open activity log ${index}` } },
       }))
     }
 
     await expect.poll(async () => {
       const response = await fetch(
-        `${WEB_URL}/api/community/bots/${botId}/audit-log?limit=5`,
+        `${WEB_URL}/api/community/bots/${botId}/audit-log?limit=10`,
         { headers: headersFor("alice") },
       )
       if (!response.ok) return 0
       return ((await response.json()) as { events: unknown[] }).events.length
-    }).toBe(5)
+    }).toBe(10)
+
+    const authoritativeMarks = await jsonRequest<{
+      marked: Array<{
+        id: string
+        server: string
+        channel: string
+        m: { authorName: string; content: string; createdAt: string }
+      }>
+    }>("alice", `/api/community/bots/${botId}/marks`)
+    expect(authoritativeMarks.marked).toHaveLength(4)
+    expect(authoritativeMarks.marked.some((mark) => mark.m.authorName === botName)).toBe(true)
+    expect(authoritativeMarks.marked).toContainEqual(expect.objectContaining({
+      server: staleServer!.name,
+      channel: staleChannelName,
+      m: expect.objectContaining({ content: `Persisted stale mark ${suffix}` }),
+    }))
 
     const route = `/c/channels/${serverId}/${channelId}`
     const alice = await asUser("alice")
-    const ownerAuditRequests: string[] = []
+    const ownerMarkRequests: string[] = []
     alice.page.on("request", (request) => {
-      if (new URL(request.url()).pathname === `/api/community/bots/${botId}/audit-log`) {
-        ownerAuditRequests.push(request.url())
+      if (new URL(request.url()).pathname === `/api/community/bots/${botId}/marks`) {
+        ownerMarkRequests.push(request.url())
       }
     })
     await gotoAfterUserWsAuth(alice.page, route)
     await openBotProfile(alice.page, botName)
 
-    const preview = alice.page.getByTestId(tid.botAuditPreview)
-    await expect(preview).toBeVisible()
-    await expect(preview).toContainText("Only you can see this")
-    await expect(preview).toHaveAttribute(
-      "aria-label",
-      "Bot at rest. Open full bot activity log",
+    const sticker = alice.page.getByTestId(tid.botMarkSticker)
+    await expect(sticker).toBeVisible()
+    await expect(sticker).toHaveAttribute("aria-label", "Bot log")
+    const activityTab = sticker.getByRole("tab", { name: "Recent activity" })
+    const marksTab = sticker.getByRole("tab", { name: /Marked messages/ })
+    const auditRows = alice.page.locator(
+      `[data-testid^="${tid.botAuditPreviewRow("")}"]`,
     )
-    await expect(alice.page.locator(`[data-testid^="${tid.botAuditPreviewRow("")}"]`))
-      .toHaveCount(5)
-    expect(ownerAuditRequests.some((url) => new URL(url).searchParams.get("limit") === "5"))
+    const activityScroller = sticker
+      .getByRole("tabpanel", { name: "Recent activity log" })
+      .locator(".bot-note-scrollbar")
+    await expect(activityTab).toHaveAttribute("aria-selected", "true")
+    await expect(auditRows).toHaveCount(10)
+    await expect(alice.page.getByTestId(tid.botAuditPreviewEarlier)).toHaveText("…")
+    await expect(activityScroller).toHaveCSS("overflow-y", "auto")
+    await expect.poll(async () => activityScroller.evaluate((element) =>
+      element.scrollTop + element.clientHeight >= element.scrollHeight - 1))
       .toBe(true)
-
+    expect((await auditRows.allTextContents()).some((text) =>
+      /open activity log 0$/i.test(text))).toBe(false)
+    machine.socket.send(JSON.stringify({
+      type: "bot_audit_event",
+      agentId: botId,
+      sessionId: `session-${suffix}`,
+      launchId: `launch-${suffix}`,
+      event: { kind: "tool_call", payload: { name: "Open activity log 11" } },
+    }))
+    await expect.poll(async () =>
+      (await auditRows.allTextContents()).join(" ").toLowerCase())
+      .toContain("open activity log 11")
+    await expect(auditRows).toHaveCount(10)
+    expect((await auditRows.allTextContents()).some((text) =>
+      /open activity log 1$/i.test(text))).toBe(false)
+    await expect.poll(async () => activityScroller.evaluate((element) =>
+      element.scrollTop + element.clientHeight >= element.scrollHeight - 1))
+      .toBe(true)
+    await expect(sticker.getByRole("button", { name: /Load more activity/ }))
+      .toBeVisible()
+    await marksTab.click()
+    await expect(marksTab).toHaveAttribute("aria-selected", "true")
+    await expect(alice.page.locator(`[data-testid^="${tid.botMarkStickerRow("")}"]`))
+      .toHaveCount(3)
+    await expect(alice.page.getByTestId(tid.botMarkStickerOverflow)).toBeVisible()
+    await expect(sticker.getByTitle(`${server!.name} · #${channelName}`).first()).toBeVisible()
+    await expect(sticker).toContainText(botName)
+    await expect(sticker).toContainText(`Long marked task ${suffix}`)
+    await expect(sticker).not.toContainText("**Long marked task")
+    await expect(sticker.locator("time")).toHaveCount(3)
+    await expect(sticker.locator("p").filter({ hasText: `Long marked task ${suffix}` }))
+      .toHaveCSS("-webkit-line-clamp", "2")
+    expect(ownerMarkRequests.length).toBeGreaterThan(0)
     machine.socket.send(JSON.stringify({ type: "agent_activity", agentId: botId, state: "running" }))
-    await expect(preview).toHaveAttribute(
-      "aria-label",
-      "Bot activity in progress. Open full bot activity log",
-    )
-    const activeRow = alice.page.getByTestId(tid.botAuditPreviewActive)
-    await expect(activeRow).toBeVisible()
-    await expect(activeRow.locator("time")).toHaveAttribute("datetime", /^\d{4}-\d{2}-\d{2}T/)
-    await expect(activeRow.getByText("running", { exact: true })).toBeVisible()
-    await expect(activeRow.locator('[aria-hidden="true"]')).toHaveCount(3)
-    await expect(activeRow.locator(".bg-linear-to-r")).toHaveCount(0)
-    await expect(preview).toHaveClass(/bot-audit-active-heartbeat/)
-    await expect.poll(() => preview.evaluate((element) =>
-      getComputedStyle(element, "::before").animationName))
-      .toBe("bot-audit-heartbeat")
-    await expect(alice.page.locator(`[data-testid^="${tid.botAuditPreviewRow("")}"]`))
-      .toHaveCount(4)
+    const stop = alice.page.getByTestId(tid.botMarkStickerStop)
+    await expect(stop).toBeVisible()
+    await attachPageScreenshot(testInfo, "bot-work-sticker-marked-running-desktop", alice.page)
+    await activityTab.click()
+    await expect(activityTab).toHaveAttribute("aria-selected", "true")
+    await expect(sticker.getByRole("button", { name: /Load more activity/ }))
+      .toBeVisible()
+    await expect(stop).toBeVisible()
+    await attachPageScreenshot(testInfo, "bot-work-sticker-activity-running-desktop", alice.page)
+    await marksTab.click()
+    const interruptFrame = new Promise<unknown>((resolveFrame) => {
+      machine.socket.once("message", (data) => resolveFrame(JSON.parse(String(data))))
+    })
+    await stop.click()
+    await expect(stop).toContainText("Stopping…")
+    await expect(stop).toBeDisabled()
+    await expect(interruptFrame).resolves.toEqual({ type: "agent:interrupt", agentId: botId })
+    machine.socket.send(JSON.stringify({ type: "agent_activity", agentId: botId, state: "idle" }))
+    await expect.poll(async () => {
+      const profile = await jsonRequest<{ statusText: string | null }>(
+        "alice",
+        `/api/community/users/${botId}/profile`,
+      )
+      return profile.statusText
+    }).toBe("Idle")
+    await gotoAfterUserWsAuth(alice.page, route)
+    await openBotProfile(alice.page, botName)
+    await expect(alice.page.getByTestId(tid.botMarkStickerStop))
+      .toHaveCount(0)
+    await expect(sticker).toBeVisible()
 
     await alice.page.setViewportSize({ width: 375, height: 812 })
+    await alice.page.emulateMedia({ colorScheme: "dark" })
+    await expect(alice.page.locator("html")).toHaveClass(/dark/)
+    await expect(sticker).toBeVisible()
+    const mobileStickerGeometry = await sticker.evaluate((element) => ({
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+      right: element.getBoundingClientRect().right,
+    }))
+    expect(mobileStickerGeometry.scrollWidth).toBeLessThanOrEqual(mobileStickerGeometry.clientWidth)
+    expect(mobileStickerGeometry.right).toBeLessThanOrEqual(375)
+    await expect(sticker.getByLabel("Loading recent activity")).toHaveCount(0)
+    await expect(sticker.getByText("open activity log 11", { exact: true })).toBeVisible()
+    await attachPageScreenshot(testInfo, "bot-mark-sticker-activity-mobile-dark", alice.page)
+    await sticker.getByRole("tab", { name: "Marked messages" }).click()
+    await expect(alice.page.locator(`[data-testid^="${tid.botMarkStickerRow("")}"]`))
+      .toHaveCount(3)
+    await attachPageScreenshot(testInfo, "bot-mark-sticker-marks-mobile-dark", alice.page)
     const ownerLink = alice.page.getByTestId(tid.profileOwnerLink)
     await expect(alice.page.getByTestId(tid.profileBotBadge)).toContainText("Bot")
     await expect(ownerLink).toBeVisible()
@@ -354,12 +518,18 @@ test("owner-only bot profile preview, owner swap, and URL-owned audit modal", as
     await alice.page.mouse.click(4, 4)
     await expect(alice.page.getByTestId(tid.profileCard)).toHaveCount(0)
     await alice.page.setViewportSize({ width: 1280, height: 900 })
+    await alice.page.emulateMedia({ colorScheme: "light" })
     await openBotProfile(alice.page, botName)
     await expect(alice.page.getByTestId(tid.botAuditPreviewDock)).toHaveAttribute(
       "data-placement",
       /^(right|left|top|bottom)$/,
     )
-    await alice.page.getByTestId(tid.botAuditPreview).click()
+    const openActivity = alice.page.getByRole("button", {
+      name: "Load more activity in the full audit log",
+    })
+    await openActivity.focus()
+    await expect(openActivity).toBeFocused()
+    await openActivity.press("Enter")
     await expect(alice.page).toHaveURL(new RegExp(`/c/me/bots\\?audit=${botId}$`))
     await expect(alice.page.getByTestId(tid.botActivityModal)).toBeVisible()
     await expectActivityHeader(alice.page, testInfo, 1280)
@@ -378,17 +548,21 @@ test("owner-only bot profile preview, owner swap, and URL-owned audit modal", as
     await expect(alice.page).toHaveURL(`/c/me/bots?machineId=${machineId}`)
 
     const bob = await asUser("bob")
-    const bobAuditRequests: string[] = []
+    const bobDirectMarks = await fetch(`${WEB_URL}/api/community/bots/${botId}/marks`, {
+      headers: headersFor("bob"),
+    })
+    expect(bobDirectMarks.status).toBe(404)
+    const bobMarkRequests: string[] = []
     bob.page.on("request", (request) => {
-      if (new URL(request.url()).pathname === `/api/community/bots/${botId}/audit-log`) {
-        bobAuditRequests.push(request.url())
+      if (new URL(request.url()).pathname === `/api/community/bots/${botId}/marks`) {
+        bobMarkRequests.push(request.url())
       }
     })
     await gotoAfterUserWsAuth(bob.page, route)
     await openBotProfile(bob.page, botName)
     await expect(bob.page.getByTestId(tid.profileOwnerLink)).toBeVisible()
-    await expect(bob.page.getByTestId(tid.botAuditPreview)).toHaveCount(0)
-    expect(bobAuditRequests).toEqual([])
+    await expect(bob.page.getByTestId(tid.botMarkSticker)).toHaveCount(0)
+    expect(bobMarkRequests).toEqual([])
     await bob.page.getByTestId(tid.profileOwnerLink).click()
     await expect(bob.page.getByTestId(tid.profileCard)).toHaveCount(1)
     await expect(bob.page.getByTestId(tid.profileOwnerLink)).toHaveCount(0)
@@ -396,7 +570,7 @@ test("owner-only bot profile preview, owner swap, and URL-owned audit modal", as
     await bob.page.goto(`/c/me/bots?audit=${botId}`)
     await expect(bob.page.getByTestId(tid.botActivityModal)).toHaveCount(0)
     await expect.poll(() => new URL(bob.page.url()).searchParams.has("audit")).toBe(false)
-    expect(bobAuditRequests).toEqual([])
+    expect(bobMarkRequests).toEqual([])
   } finally {
     machine.socket.close()
   }

@@ -76,15 +76,16 @@ describe("useBotAuditPreview", () => {
     renderers.clear()
   })
 
-  it("uses a separate finite limit=5 cache from the full modal", async () => {
+  it("uses a separate finite limit=10 cache from the full modal", async () => {
     apiFetch.mockResolvedValueOnce({ events: [event("e1", 1)], nextCursor: null })
     const { result, queryClient } = renderHook("b1")
     await waitFor(() => result.current.events.length === 1)
 
     expect(apiFetch).toHaveBeenCalledWith(
-      "/api/community/bots/b1/audit-log?limit=5",
+      "/api/community/bots/b1/audit-log?limit=10",
     )
     expect(result.current.events.map((item) => item.id)).toEqual(["e1"])
+    expect(result.current.hasEarlierEvents).toBe(false)
     expect(queryClient.getQueryData(communityKeys.botAuditPreview("b1"))).toBeDefined()
     expect(queryClient.getQueryData(communityKeys.botAuditLog("b1"))).toBeUndefined()
   })
@@ -95,13 +96,13 @@ describe("useBotAuditPreview", () => {
     expect(apiFetch).not.toHaveBeenCalled()
   })
 
-  it("merges live events, deduplicates by id, orders newest first, and caps five", async () => {
+  it("merges live events, deduplicates by id, orders newest first, and caps ten", async () => {
     apiFetch.mockResolvedValueOnce({
-      events: [event("e1", 1), event("e2", 2), event("e3", 3), event("e4", 4)],
+      events: Array.from({ length: 9 }, (_, index) => event(`e${index + 1}`, index + 1)),
       nextCursor: null,
     })
     const { result } = renderHook("b1")
-    await waitFor(() => result.current.events.length === 4)
+    await waitFor(() => result.current.events.length === 9)
 
     act(() => {
       useCommunityWsStore.getState().pushBotAuditEvent({
@@ -109,11 +110,11 @@ describe("useBotAuditPreview", () => {
         botId: "b1",
       })
       useCommunityWsStore.getState().pushBotAuditEvent({
-        ...event("e5", 5),
+        ...event("e10", 10),
         botId: "b1",
       })
       useCommunityWsStore.getState().pushBotAuditEvent({
-        ...event("e6", 6),
+        ...event("e11", 11),
         botId: "b1",
       })
     })
@@ -121,11 +122,27 @@ describe("useBotAuditPreview", () => {
 
     expect(result.current.events.map((item) => item.id)).toEqual([
       "e2",
+      "e11",
+      "e10",
+      "e9",
+      "e8",
+      "e7",
       "e6",
       "e5",
       "e4",
       "e3",
     ])
+    expect(result.current.hasEarlierEvents).toBe(true)
+  })
+
+  it("reports a server cursor as earlier omitted activity", async () => {
+    apiFetch.mockResolvedValueOnce({
+      events: [event("e1", 1)],
+      nextCursor: { beforeCreatedAt: "2026-01-01T00:00:01.000Z", beforeId: "e1" },
+    })
+    const { result } = renderHook("b1")
+    await waitFor(() => result.current.events.length === 1)
+    expect(result.current.hasEarlierEvents).toBe(true)
   })
 
   it("orders equal timestamps by descending event id", async () => {
