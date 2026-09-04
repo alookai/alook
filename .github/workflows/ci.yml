@@ -8,9 +8,33 @@ on:
   merge_group:
     types: [checks_requested]
   workflow_dispatch:
+    inputs:
+      mode:
+        description: Run the full contract or a guarded diagnostic characterization fixture
+        type: choice
+        options: [full, characterization]
+        default: full
+      candidate_pr:
+        description: Candidate PR number (characterization only)
+        type: string
+        required: false
+      candidate_sha:
+        description: Exact candidate PR head SHA (characterization only)
+        type: string
+        required: false
+      fixture_sha:
+        description: Exact single-change fixture SHA (characterization only)
+        type: string
+        required: false
+      expected_class:
+        description: Expected non-full classifier class (blog, package, or shared)
+        type: string
+        required: false
 
 permissions:
+  actions: read
   contents: read
+  pull-requests: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.merge_group.head_sha || github.ref }}
@@ -22,32 +46,87 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
+      execution_plan: ${{ steps.scope.outputs.execution_plan }}
+      plan_hash: ${{ steps.scope.outputs.plan_hash }}
+      plan_schema_version: ${{ steps.scope.outputs.plan_schema_version }}
       full: ${{ steps.scope.outputs.full }}
       base_sha: ${{ steps.scope.outputs.base_sha }}
       head_sha: ${{ steps.scope.outputs.head_sha }}
       blog_only: ${{ steps.scope.outputs.blog_only }}
       run_blog_build: ${{ steps.scope.outputs.run_blog_build }}
       run_code_checks: ${{ steps.scope.outputs.run_code_checks }}
+      run_static_checks: ${{ steps.scope.outputs.run_static_checks }}
+      run_linux: ${{ steps.scope.outputs.run_linux }}
       run_windows: ${{ steps.scope.outputs.run_windows }}
       run_e2e: ${{ steps.scope.outputs.run_e2e }}
+      run_ui_e2e: ${{ steps.scope.outputs.run_ui_e2e }}
       run_rust: ${{ steps.scope.outputs.run_rust }}
       run_lighthouse: ${{ steps.scope.outputs.run_lighthouse }}
       run_knip: ${{ steps.scope.outputs.run_knip }}
       run_app_packed_artifact: ${{ steps.scope.outputs.run_app_packed_artifact }}
+      static_packages: ${{ steps.scope.outputs.static_packages }}
+      build_packages: ${{ steps.scope.outputs.build_packages }}
+      knip_packages: ${{ steps.scope.outputs.knip_packages }}
+      unit_test_roots: ${{ steps.scope.outputs.unit_test_roots }}
+      windows_suites: ${{ steps.scope.outputs.windows_suites }}
+      integration_suites: ${{ steps.scope.outputs.integration_suites }}
+      linux_suites: ${{ steps.scope.outputs.linux_suites }}
+      coverage_targets: ${{ steps.scope.outputs.coverage_targets }}
+      coverage_include_roots: ${{ steps.scope.outputs.coverage_include_roots }}
+      coverage_required_changed_files: ${{ steps.scope.outputs.coverage_required_changed_files }}
+      ui_specs: ${{ steps.scope.outputs.ui_specs }}
+      e2e_matrix: ${{ steps.scope.outputs.e2e_matrix }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
       - id: scope
         env:
-          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event_name == 'merge_group' && github.event.merge_group.base_sha || github.event.before }}
-          HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-          FORCE_FULL: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_SHA: ${{ github.sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          MERGE_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          PUSH_BASE_SHA: ${{ github.event.before }}
+          DISPATCH_MODE: ${{ inputs.mode }}
+          CANDIDATE_PR: ${{ inputs.candidate_pr }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          FIXTURE_SHA: ${{ inputs.fixture_sha }}
+          EXPECTED_CLASS: ${{ inputs.expected_class }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          printf 'base_sha=%s\nhead_sha=%s\n' "$BASE_SHA" "$HEAD_SHA" >> "$GITHUB_OUTPUT"
-          args=(--base "$BASE_SHA" --head "$HEAD_SHA" --output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY")
-          if [[ "$FORCE_FULL" == "true" ]]; then args+=(--force-full); fi
+          set -euo pipefail
+          args=(--output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY" --plan-file .ci/execution-plan.json)
+          mkdir -p .ci
+          if [[ "$EVENT_NAME" == "workflow_dispatch" && "$DISPATCH_MODE" == "characterization" ]]; then
+            [[ "$CANDIDATE_PR" =~ ^[1-9][0-9]*$ ]]
+            gh api "repos/$GITHUB_REPOSITORY/pulls/$CANDIDATE_PR" > "$RUNNER_TEMP/candidate-pr.json"
+            node scripts/ci/characterization-guard.mjs \
+              --repository "$GITHUB_REPOSITORY" \
+              --ref-name "$GITHUB_REF_NAME" \
+              --event-sha "$EVENT_SHA" \
+              --candidate-sha "$CANDIDATE_SHA" \
+              --fixture-sha "$FIXTURE_SHA" \
+              --expected-class "$EXPECTED_CLASS" \
+              --candidate-pr-json "$RUNNER_TEMP/candidate-pr.json" \
+              --summary "$GITHUB_STEP_SUMMARY"
+            args+=(--base "$CANDIDATE_SHA" --head "$FIXTURE_SHA" --diagnostic-only)
+          elif [[ "$EVENT_NAME" == "pull_request" ]]; then
+            args+=(--base "$PR_BASE_SHA" --head "$PR_HEAD_SHA")
+          elif [[ "$EVENT_NAME" == "merge_group" ]]; then
+            args+=(--base "$MERGE_BASE_SHA" --head "$EVENT_SHA")
+          elif [[ "$EVENT_NAME" == "push" ]]; then
+            args+=(--base "$PUSH_BASE_SHA" --head "$EVENT_SHA" --force-full)
+          else
+            args+=(--base "$EVENT_SHA" --head "$EVENT_SHA" --force-full)
+          fi
           node scripts/ci/changed-scopes.mjs "${args[@]}"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: execution-plan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .ci/execution-plan.json
+          if-no-files-found: error
+          retention-days: 14
 
   blog-build:
     name: Blog build
@@ -57,6 +136,13 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Validate execution plan
+        env:
+          CI_EXECUTION_PLAN: ${{ needs.scope.outputs.execution_plan }}
+          CI_PLAN_HASH: ${{ needs.scope.outputs.plan_hash }}
+          CI_PROJECTION_NAME: run_blog_build
+          CI_PROJECTION_VALUE: ${{ needs.scope.outputs.run_blog_build }}
+        run: node scripts/ci/validate-execution-plan.mjs
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
@@ -79,13 +165,11 @@ jobs:
   static-checks:
     name: Static checks
     needs: scope
-    if: needs.scope.outputs.run_code_checks == 'true'
+    if: needs.scope.outputs.run_static_checks == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          fetch-depth: 0
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
@@ -101,55 +185,57 @@ jobs:
           restore-keys: |
             turbo-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-
       - run: pnpm install --frozen-lockfile
-      - if: needs.scope.outputs.full == 'true'
-        run: pnpm typecheck
-      - if: needs.scope.outputs.full != 'true'
+      - name: Validate execution plan
         env:
-          TURBO_SCM_BASE: ${{ needs.scope.outputs.base_sha }}
-          TURBO_SCM_HEAD: ${{ needs.scope.outputs.head_sha }}
-        run: pnpm turbo run typecheck --affected
-      - if: needs.scope.outputs.full == 'true'
-        run: pnpm lint
-      - if: needs.scope.outputs.full != 'true'
+          CI_EXECUTION_PLAN: ${{ needs.scope.outputs.execution_plan }}
+          CI_PLAN_HASH: ${{ needs.scope.outputs.plan_hash }}
+          CI_PROJECTION_NAME: static_packages
+          CI_PROJECTION_VALUE: ${{ needs.scope.outputs.static_packages }}
+        run: node scripts/ci/validate-execution-plan.mjs
+      - name: Typecheck selected packages
         env:
-          TURBO_SCM_BASE: ${{ needs.scope.outputs.base_sha }}
-          TURBO_SCM_HEAD: ${{ needs.scope.outputs.head_sha }}
-        run: pnpm turbo run lint --affected
+          SELECTED_PACKAGES: ${{ needs.scope.outputs.static_packages }}
+        run: |
+          mapfile -t packages < <(node -e 'for (const value of JSON.parse(process.env.SELECTED_PACKAGES)) console.log(value)')
+          filters=(); for package in "${packages[@]}"; do filters+=("--filter=$package"); done
+          pnpm turbo run typecheck "${filters[@]}"
+      - name: Lint selected packages
+        env:
+          SELECTED_PACKAGES: ${{ needs.scope.outputs.static_packages }}
+        run: |
+          mapfile -t packages < <(node -e 'for (const value of JSON.parse(process.env.SELECTED_PACKAGES)) console.log(value)')
+          filters=(); for package in "${packages[@]}"; do filters+=("--filter=$package"); done
+          pnpm turbo run lint "${filters[@]}"
       - run: pnpm typegrep:ws
       - run: pnpm typegrep:agent-driver
-      - name: Build
-        if: needs.scope.outputs.full == 'true'
-        run: pnpm build --filter=@alook/shared --filter=@alook/web --filter=@alook/cli --filter=@alook/email-worker --filter=@alook/ws-do --filter=@alook/wake-worker
-      - name: Build affected packages
-        if: needs.scope.outputs.full != 'true'
+      - name: Build selected packages
+        if: needs.scope.outputs.build_packages != '[]'
         env:
-          TURBO_SCM_BASE: ${{ needs.scope.outputs.base_sha }}
-          TURBO_SCM_HEAD: ${{ needs.scope.outputs.head_sha }}
-        run: pnpm turbo run build --affected --filter=@alook/shared --filter=@alook/web --filter=@alook/cli --filter=@alook/email-worker --filter=@alook/ws-do --filter=@alook/wake-worker
-      - name: Dead code detection
-        if: needs.scope.outputs.run_knip == 'true' && needs.scope.outputs.full == 'true'
-        continue-on-error: true
-        run: pnpm knip
-      - name: Dead code detection for affected packages
-        if: needs.scope.outputs.run_knip == 'true' && needs.scope.outputs.full != 'true'
+          SELECTED_PACKAGES: ${{ needs.scope.outputs.build_packages }}
+        run: |
+          mapfile -t packages < <(node -e 'for (const value of JSON.parse(process.env.SELECTED_PACKAGES)) console.log(value)')
+          filters=(); for package in "${packages[@]}"; do filters+=("--filter=$package"); done
+          pnpm turbo run build "${filters[@]}"
+      - name: Dead code detection for selected packages
+        if: needs.scope.outputs.knip_packages != '[]'
         continue-on-error: true
         env:
-          TURBO_SCM_BASE: ${{ needs.scope.outputs.base_sha }}
-          TURBO_SCM_HEAD: ${{ needs.scope.outputs.head_sha }}
-        run: pnpm turbo run knip --affected
+          SELECTED_PACKAGES: ${{ needs.scope.outputs.knip_packages }}
+        run: |
+          mapfile -t packages < <(node -e 'for (const value of JSON.parse(process.env.SELECTED_PACKAGES)) console.log(value)')
+          filters=(); for package in "${packages[@]}"; do filters+=("--filter=$package"); done
+          pnpm turbo run knip "${filters[@]}"
 
   test-linux:
     name: Tests & Coverage (ubuntu-latest)
     needs: scope
-    if: needs.scope.outputs.run_code_checks == 'true'
+    if: needs.scope.outputs.run_linux == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
       RUN_COVERAGE: ${{ github.event_name != 'push' || startsWith(github.event.head_commit.message, 'release:') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          fetch-depth: 0
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
@@ -165,53 +251,120 @@ jobs:
           restore-keys: |
             turbo-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-
       - run: pnpm install --frozen-lockfile
-      - name: Build agent-driver for coverage
-        if: env.RUN_COVERAGE == 'true'
+      - name: Validate execution plan
+        env:
+          CI_EXECUTION_PLAN: ${{ needs.scope.outputs.execution_plan }}
+          CI_PLAN_HASH: ${{ needs.scope.outputs.plan_hash }}
+          CI_PROJECTION_NAME: unit_test_roots
+          CI_PROJECTION_VALUE: ${{ needs.scope.outputs.unit_test_roots }}
+        run: node scripts/ci/validate-execution-plan.mjs
+      - name: Build selected agent-driver fixture
+        if: >-
+          contains(fromJSON(needs.scope.outputs.unit_test_roots), 'src/daemon/agent-driver') ||
+          contains(fromJSON(needs.scope.outputs.unit_test_roots), 'src/daemon') ||
+          contains(fromJSON(needs.scope.outputs.linux_suites), 'agent-driver-packed') ||
+          contains(fromJSON(needs.scope.outputs.linux_suites), 'daemon-packed') ||
+          contains(fromJSON(needs.scope.outputs.linux_suites), 'daemon-real')
         run: pnpm --filter @alook/agent-driver build
-      - name: Run non-daemon tests with coverage
-        if: env.RUN_COVERAGE == 'true'
+      - name: Run selected unit tests
+        env:
+          UNIT_ROOTS: ${{ needs.scope.outputs.unit_test_roots }}
+          COVERAGE_ROOTS: ${{ needs.scope.outputs.coverage_include_roots }}
         run: |
-          pnpm vitest run --project='!daemon-node' --coverage \
-            --reporter=blob --outputFile=.vitest-reports/non-daemon.blob \
-            --exclude src/pack.test.ts
-      - name: Run daemon tests with coverage
+          set -euo pipefail
+          mapfile -t roots < <(node -e 'for (const value of JSON.parse(process.env.UNIT_ROOTS)) console.log(value)')
+          mapfile -t coverage_roots < <(node -e 'for (const value of JSON.parse(process.env.COVERAGE_ROOTS)) console.log(value)')
+          daemon=false; non_daemon=(); daemon_coverage=()
+          for root in "${roots[@]}"; do
+            if [[ "$root" == "src/daemon" ]]; then daemon=true; else non_daemon+=("$root"); fi
+          done
+          for root in "${coverage_roots[@]}"; do
+            if [[ "$root" == src/daemon/src/* || "$root" == src/daemon/scripts/* ]]; then
+              daemon_coverage+=("--coverage.include=$root")
+            fi
+          done
+          report_dir="$PWD/.vitest-reports"
+          coverage_dir="$RUNNER_TEMP/vitest-coverage"
+          mkdir -p "$report_dir"
+          mkdir -p "$coverage_dir"
+          root_index=0
+          for root in "${non_daemon[@]}"; do
+            ((root_index += 1))
+            root_coverage=()
+            report_stem=${root//\//-}
+            if [[ "$RUN_COVERAGE" == "true" ]]; then
+              for include in "${coverage_roots[@]}"; do
+                if [[ "$include" == "$root/"* ]]; then
+                  root_coverage+=("--coverage.include=$include")
+                fi
+              done
+              if (( ${#root_coverage[@]} )); then
+                root_coverage=(
+                  --coverage
+                  --coverage.reporter=json
+                  "--coverage.reportsDirectory=$coverage_dir/root-${root_index}-${report_stem}"
+                  "${root_coverage[@]}"
+                )
+              fi
+            fi
+            case "$root" in
+              scripts/ci) projects=(ci-scripts) ;;
+              src/email-worker) projects=(email-worker-node email-worker-runtime) ;;
+              src/wake-worker) projects=(wake-worker-node wake-worker-runtime) ;;
+              src/web) projects=(web-node web-runtime) ;;
+              src/ws-do) projects=(ws-do-node ws-do-runtime) ;;
+              *) projects=("$(node -e 'console.log(require("./" + process.argv[1] + "/package.json").name)' "$root")") ;;
+            esac
+            project_args=()
+            for project in "${projects[@]}"; do project_args+=("--project=$project"); done
+            vitest_args=("${project_args[@]}")
+            if (( ${#root_coverage[@]} )); then vitest_args+=("${root_coverage[@]}"); fi
+            pnpm vitest run "${vitest_args[@]}" \
+              --reporter=default --reporter=blob \
+              --outputFile.blob="$report_dir/root-${root_index}-${report_stem}.blob" \
+              --exclude src/pack.test.ts
+          done
+          if [[ "$daemon" == "true" ]]; then
+            coverage=(); if [[ "$RUN_COVERAGE" == "true" ]]; then coverage=(--coverage); fi
+            VITEST_MAX_WORKERS=1 pnpm vitest run --project=daemon-node src/daemon "${coverage[@]}" \
+              "${daemon_coverage[@]}" --reporter=default --reporter=blob \
+              --outputFile.blob="$report_dir/daemon.blob" \
+              --exclude src/cli/daemonLifecycle.real.test.ts \
+              --exclude src/cli/diagnosticsLifecycle.real.test.ts \
+              --exclude src/cli/daemonStop.test.ts \
+              --exclude src/version.packed.test.ts \
+              --exclude src/agent-driver-bundle.packed.test.ts \
+              --exclude src/cli/daemonSelfUpdate.real.test.ts
+          fi
+      - name: Merge and verify selected coverage
         if: env.RUN_COVERAGE == 'true'
+        env:
+          CI_EXECUTION_PLAN: ${{ needs.scope.outputs.execution_plan }}
         run: |
-          pnpm vitest run --project=daemon-node --coverage \
-            --reporter=blob --outputFile=.vitest-reports/daemon.blob \
-            --exclude src/cli/daemonLifecycle.real.test.ts \
-            --exclude src/cli/diagnosticsLifecycle.real.test.ts \
-            --exclude src/cli/daemonStop.test.ts \
-            --exclude src/version.packed.test.ts \
-            --exclude src/agent-driver-bundle.packed.test.ts \
-            --exclude src/cli/daemonSelfUpdate.real.test.ts
-      - name: Merge coverage reports
-        if: env.RUN_COVERAGE == 'true'
-        run: |
+          printf '%s\n' "$CI_EXECUTION_PLAN" > "$RUNNER_TEMP/execution-plan.json"
           pnpm vitest run --coverage --coverage.reporter=json --coverage.reporter=text \
             --merge-reports=.vitest-reports
-      - name: Run daemon real-process tests after coverage
-        if: env.RUN_COVERAGE == 'true'
+          node scripts/ci/verify-coverage-plan.mjs \
+            --plan "$RUNNER_TEMP/execution-plan.json" \
+            --report coverage/coverage-final.json \
+            --output "$RUNNER_TEMP/coverage-target-manifest.json"
+      - name: Run selected daemon real-process tests
+        if: contains(fromJSON(needs.scope.outputs.linux_suites), 'daemon-real')
         run: |
           pnpm --filter @alook/daemon exec vitest run --no-file-parallelism \
             src/cli/daemonLifecycle.real.test.ts src/cli/diagnosticsLifecycle.real.test.ts \
             src/cli/daemonStop.test.ts
-      - name: Run package artifact tests after coverage
-        if: env.RUN_COVERAGE == 'true'
-        run: |
-          pnpm --filter @alook/agent-driver exec vitest run --no-file-parallelism src/pack.test.ts
-          pnpm --filter @alook/daemon exec vitest run --no-file-parallelism src/version.packed.test.ts src/agent-driver-bundle.packed.test.ts src/cli/daemonSelfUpdate.real.test.ts
-      - name: Run daemon tests in isolation
-        if: env.RUN_COVERAGE != 'true'
+      - name: Run selected package artifact tests
+        if: contains(fromJSON(needs.scope.outputs.linux_suites), 'agent-driver-packed') || contains(fromJSON(needs.scope.outputs.linux_suites), 'daemon-packed')
         env:
-          VITEST_MAX_WORKERS: 1
-        run: pnpm turbo run test --filter=@alook/daemon
-      - name: Run remaining workspace tests
-        if: env.RUN_COVERAGE != 'true'
-        run: pnpm turbo run test --filter='!@alook/daemon'
-      - name: Run CI script tests
-        if: env.RUN_COVERAGE != 'true'
-        run: pnpm vitest run --project ci-scripts
+          LINUX_SUITES: ${{ needs.scope.outputs.linux_suites }}
+        run: |
+          if node -e 'process.exit(JSON.parse(process.env.LINUX_SUITES).includes("agent-driver-packed") ? 0 : 1)'; then
+            pnpm --filter @alook/agent-driver exec vitest run --no-file-parallelism src/pack.test.ts
+          fi
+          if node -e 'process.exit(JSON.parse(process.env.LINUX_SUITES).includes("daemon-packed") ? 0 : 1)'; then
+            pnpm --filter @alook/daemon exec vitest run --no-file-parallelism src/version.packed.test.ts src/agent-driver-bundle.packed.test.ts src/cli/daemonSelfUpdate.real.test.ts
+          fi
       - name: Upload coverage
         if: env.RUN_COVERAGE == 'true'
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
@@ -219,6 +372,17 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage/coverage-final.json
           fail_ci_if_error: true
+      - name: Upload coverage plan evidence
+        if: env.RUN_COVERAGE == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: coverage-plan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/execution-plan.json
+            ${{ runner.temp }}/coverage-target-manifest.json
+            coverage/coverage-final.json
+          if-no-files-found: error
+          retention-days: 14
 
   test-windows:
     name: Tests (windows-latest)
@@ -228,8 +392,6 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          fetch-depth: 0
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
@@ -245,11 +407,21 @@ jobs:
           restore-keys: |
             turbo-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-
       - run: pnpm install --frozen-lockfile
+      - name: Validate execution plan
+        env:
+          CI_EXECUTION_PLAN: ${{ needs.scope.outputs.execution_plan }}
+          CI_PLAN_HASH: ${{ needs.scope.outputs.plan_hash }}
+          CI_PROJECTION_NAME: windows_suites
+          CI_PROJECTION_VALUE: ${{ needs.scope.outputs.windows_suites }}
+        run: node scripts/ci/validate-execution-plan.mjs
       - name: Run Windows process authority fixtures
+        if: contains(fromJSON(needs.scope.outputs.windows_suites), 'agent-driver')
         run: pnpm --filter @alook/agent-driver exec vitest run src/internal/killTree.test.ts
       - name: Run agent-driver tests in isolation
+        if: contains(fromJSON(needs.scope.outputs.windows_suites), 'agent-driver')
         run: pnpm --filter @alook/agent-driver exec vitest run --no-file-parallelism --coverage --coverage.reporter=json --coverage.reporter=text
       - name: Upload Windows agent-driver coverage
+        if: contains(fromJSON(needs.scope.outputs.windows_suites), 'agent-driver')
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -258,22 +430,28 @@ jobs:
           fail_ci_if_error: true
           name: windows-agent-driver
       - name: Run Windows daemon admission fixture
+        if: contains(fromJSON(needs.scope.outputs.windows_suites), 'daemon')
         run: |
           pnpm --filter @alook/agent-driver build
           pnpm --filter @alook/daemon exec vitest run src/daemon/createDaemon.test.ts -t "starts the builtin Codex lane from a fresh nested daemon workspace"
       - name: Run daemon tests in isolation
+        if: contains(fromJSON(needs.scope.outputs.windows_suites), 'daemon')
         env:
           VITEST_MAX_WORKERS: 1
         run: pnpm --filter @alook/daemon test
-      - name: Run Windows-relevant workspace tests
-        if: needs.scope.outputs.full == 'true'
-        run: pnpm turbo run test --filter=@alook/cli --filter=@alook/app --filter=@alook/shared
-      - name: Run affected Windows-relevant workspace tests
-        if: needs.scope.outputs.full != 'true'
+      - name: Run selected Windows workspace tests
+        if: contains(fromJSON(needs.scope.outputs.windows_suites), 'app') || contains(fromJSON(needs.scope.outputs.windows_suites), 'cli') || contains(fromJSON(needs.scope.outputs.windows_suites), 'shared')
+        shell: bash
         env:
-          TURBO_SCM_BASE: ${{ needs.scope.outputs.base_sha }}
-          TURBO_SCM_HEAD: ${{ needs.scope.outputs.head_sha }}
-        run: pnpm turbo run test --affected --filter=@alook/cli --filter=@alook/app --filter=@alook/shared
+          WINDOWS_SUITES: ${{ needs.scope.outputs.windows_suites }}
+        run: |
+          filters=()
+          for suite in app cli shared; do
+            if node -e 'process.exit(JSON.parse(process.env.WINDOWS_SUITES).includes(process.argv[1]) ? 0 : 1)' "$suite"; then
+              filters+=("--filter=@alook/$suite")
+            fi
+          done
+          pnpm turbo run test "${filters[@]}"
 
   app-packed-artifact:
     name: App Packed Artifact
@@ -283,6 +461,13 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Validate execution plan
+        env:
+          CI_EXECUTION_PLAN: ${{ needs.scope.outputs.execution_plan }}
+          CI_PLAN_HASH: ${{ needs.scope.outputs.plan_hash }}
+          CI_PROJECTION_NAME: run_app_packed_artifact
+          CI_PROJECTION_VALUE: ${{ needs.scope.outputs.run_app_packed_artifact }}
+        run: node scripts/ci/validate-execution-plan.mjs
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
@@ -307,7 +492,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: app-packed-artifact-${{ github.sha }}
+          name: app-packed-artifact-${{ needs.scope.outputs.head_sha }}
           path: |
             ${{ runner.temp }}/alook-app-packed-artifact/*.tgz
             ${{ runner.temp }}/alook-app-packed-artifact/manifest.json
@@ -333,6 +518,13 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Validate execution plan
+        env:
+          CI_EXECUTION_PLAN: ${{ needs.scope.outputs.execution_plan }}
+          CI_PLAN_HASH: ${{ needs.scope.outputs.plan_hash }}
+          CI_PROJECTION_NAME: integration_suites
+          CI_PROJECTION_VALUE: ${{ needs.scope.outputs.integration_suites }}
+        run: node scripts/ci/validate-execution-plan.mjs
       - name: Create local bindings
         run: printf 'BETTER_AUTH_SECRET=ci-e2e-secret\nBETTER_AUTH_URL=http://localhost:3000\nDEVICE_CLIENT_IDS=e2e-test-client\nENCRYPTION_KEY=ci-e2e-encryption-key-32chars!!\n' > src/web/.dev.vars
       - run: pnpm run db:migrate
@@ -347,30 +539,30 @@ jobs:
           wait_for() {
             local url=$1 timeout=60 elapsed=0
             until curl -sf "$url" > /dev/null 2>&1; do
-              sleep 2
-              elapsed=$((elapsed + 2))
+              sleep 2; elapsed=$((elapsed + 2))
               if [ $elapsed -ge $timeout ]; then return 1; fi
             done
           }
-          if ! wait_for http://localhost:8787/health email-worker || \
-             ! wait_for http://localhost:8789/health ws-do || \
-             ! wait_for http://localhost:3000/api/health web || \
-             ! wait_for http://localhost:8790/health wake-worker; then
-            pkill -f "wrangler" || true
-            pkill -f "next" || true
-            sleep 3
+          if ! wait_for http://localhost:8787/health || \
+             ! wait_for http://localhost:8789/health || \
+             ! wait_for http://localhost:3000/api/health || \
+             ! wait_for http://localhost:8790/health; then
+            pkill -f "wrangler" || true; pkill -f "next" || true; sleep 3
             pnpm --filter @alook/email-worker dev &
             pnpm --filter @alook/ws-do dev &
             pnpm --filter @alook/web dev &
             pnpm --filter @alook/wake-worker dev &
-            wait_for http://localhost:8787/health email-worker
-            wait_for http://localhost:8789/health ws-do
-            wait_for http://localhost:3000/api/health web
-            wait_for http://localhost:8790/health wake-worker
+            wait_for http://localhost:8787/health
+            wait_for http://localhost:8789/health
+            wait_for http://localhost:3000/api/health
+            wait_for http://localhost:8790/health
           fi
-      - run: pnpm test:e2e
-      - run: pnpm --filter @alook/cli run test:integration
-      - run: pnpm --filter @alook/daemon run test:integration
+      - if: contains(fromJSON(needs.scope.outputs.integration_suites), 'web')
+        run: pnpm test:e2e
+      - if: contains(fromJSON(needs.scope.outputs.integration_suites), 'cli')
+        run: pnpm --filter @alook/cli run test:integration
+      - if: contains(fromJSON(needs.scope.outputs.integration_suites), 'daemon')
+        run: pnpm --filter @alook/daemon run test:integration
 
   desktop-rust:
     name: Desktop Rust (test + machete)
@@ -385,6 +577,14 @@ jobs:
       RUSTFLAGS: -D warnings
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Validate execution plan
+        working-directory: ${{ github.workspace }}
+        env:
+          CI_EXECUTION_PLAN: ${{ needs.scope.outputs.execution_plan }}
+          CI_PLAN_HASH: ${{ needs.scope.outputs.plan_hash }}
+          CI_PROJECTION_NAME: run_rust
+          CI_PROJECTION_VALUE: ${{ needs.scope.outputs.run_rust }}
+        run: node scripts/ci/validate-execution-plan.mjs
       - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
@@ -407,6 +607,13 @@ jobs:
       BETTER_AUTH_URL: http://localhost:3000
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Validate execution plan
+        env:
+          CI_EXECUTION_PLAN: ${{ needs.scope.outputs.execution_plan }}
+          CI_PLAN_HASH: ${{ needs.scope.outputs.plan_hash }}
+          CI_PROJECTION_NAME: run_lighthouse
+          CI_PROJECTION_VALUE: ${{ needs.scope.outputs.run_lighthouse }}
+        run: node scripts/ci/validate-execution-plan.mjs
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
@@ -416,6 +623,128 @@ jobs:
       - run: printf 'BETTER_AUTH_SECRET=ci-lighthouse-secret\nBETTER_AUTH_URL=http://localhost:3000\nDEVICE_CLIENT_IDS=e2e-test-client\n' > src/web/.dev.vars
       - working-directory: src/web
         run: npx @lhci/cli autorun --config=lighthouserc.json && node scripts/print-lighthouse-scores.mjs
+
+  e2e-ui:
+    name: UI Playwright E2E (${{ matrix.shard }}/${{ matrix.total }})
+    needs: scope
+    if: needs.scope.outputs.run_ui_e2e == 'true' && github.event_name != 'push'
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ matrix.image }}
+      options: --init --ipc=host --user 1001
+    defaults:
+      run:
+        shell: bash
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.scope.outputs.e2e_matrix) }}
+    env:
+      BETTER_AUTH_SECRET: ci-e2e-ui-secret
+      BETTER_AUTH_URL: http://localhost:3000
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Validate execution plan
+        env:
+          CI_EXECUTION_PLAN: ${{ needs.scope.outputs.execution_plan }}
+          CI_PLAN_HASH: ${{ needs.scope.outputs.plan_hash }}
+          CI_PROJECTION_NAME: e2e_matrix
+          CI_PROJECTION_VALUE: ${{ needs.scope.outputs.e2e_matrix }}
+        run: node scripts/ci/validate-execution-plan.mjs
+      - env:
+          E2E_SPECS: ${{ toJSON(matrix.specs) }}
+        run: |
+          node scripts/ci/e2e-shard-artifacts.mjs write-manifest \
+            --output src/web/e2e-shard-manifest/shard-manifest.json \
+            --run-id "${{ github.run_id }}" \
+            --attempt "${{ github.run_attempt }}" \
+            --sha "${{ github.sha }}" \
+            --shard "${{ matrix.shard }}" \
+            --total "${{ matrix.total }}"
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: printf 'BETTER_AUTH_SECRET=ci-e2e-ui-secret\nBETTER_AUTH_URL=http://localhost:3000\nDEVICE_CLIENT_IDS=e2e-test-client\nENCRYPTION_KEY=ci-e2e-encryption-key-32chars!!\nDEV_WS_DO_URL=http://localhost:3000\nNODE_ENV=development\n' > src/web/.dev.vars
+      - env:
+          E2E_SPECS: ${{ toJSON(matrix.specs) }}
+        run: |
+          mapfile -t specs < <(node -e 'for (const spec of JSON.parse(process.env.E2E_SPECS)) console.log(spec)')
+          pnpm --filter @alook/web exec playwright test "${specs[@]}"
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: blob-report-${{ github.run_id }}-${{ matrix.shard }}
+          path: |
+            src/web/blob-report/
+            src/web/e2e-shard-manifest/
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+      - if: failure()
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: playwright-artifacts-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
+          path: |
+            src/web/test-results/
+            src/web/e2e-service-logs/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  merge-reports:
+    name: Merge Playwright Reports
+    needs: [scope, e2e-ui]
+    if: ${{ !cancelled() && needs.scope.outputs.run_ui_e2e == 'true' && github.event_name != 'push' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Validate execution plan
+        env:
+          CI_EXECUTION_PLAN: ${{ needs.scope.outputs.execution_plan }}
+          CI_PLAN_HASH: ${{ needs.scope.outputs.plan_hash }}
+          CI_PROJECTION_NAME: e2e_matrix
+          CI_PROJECTION_VALUE: ${{ needs.scope.outputs.e2e_matrix }}
+        run: node scripts/ci/validate-execution-plan.mjs
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: blob-report-${{ github.run_id }}-*
+          path: downloaded-blob-reports
+          merge-multiple: false
+      - env:
+          E2E_MATRIX: ${{ needs.scope.outputs.e2e_matrix }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          node scripts/ci/e2e-shard-artifacts.mjs verify-artifacts \
+            --root downloaded-blob-reports \
+            --output verified-blob-reports \
+            --run-id "${{ github.run_id }}" \
+            --attempt "${{ github.run_attempt }}" \
+            --sha "${{ github.sha }}"
+      - env:
+          PLAYWRIGHT_HTML_OUTPUT_DIR: ${{ github.workspace }}/playwright-report
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ github.workspace }}/merged-report.json
+        run: pnpm --filter @alook/web exec playwright merge-reports --reporter html,json "${{ github.workspace }}/verified-blob-reports"
+      - env:
+          E2E_MATRIX: ${{ needs.scope.outputs.e2e_matrix }}
+        run: node scripts/ci/e2e-shard-artifacts.mjs verify-merged --report merged-report.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: playwright-report-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            playwright-report/
+            merged-report.json
+          if-no-files-found: error
+          retention-days: 14
 
   ci-gate:
     name: CI Gate
@@ -437,8 +766,8 @@ jobs:
         [
           {"name":"scope","expected":true,"result":"${{ needs.scope.result }}"},
           {"name":"blog-build","expected":${{ needs.scope.outputs.run_blog_build == 'true' }},"result":"${{ needs.blog-build.result }}"},
-          {"name":"static-checks","expected":${{ needs.scope.outputs.run_code_checks == 'true' }},"result":"${{ needs.static-checks.result }}"},
-          {"name":"test-linux","expected":${{ needs.scope.outputs.run_code_checks == 'true' }},"result":"${{ needs.test-linux.result }}"},
+          {"name":"static-checks","expected":${{ needs.scope.outputs.run_static_checks == 'true' }},"result":"${{ needs.static-checks.result }}"},
+          {"name":"test-linux","expected":${{ needs.scope.outputs.run_linux == 'true' }},"result":"${{ needs.test-linux.result }}"},
           {"name":"test-windows","expected":${{ needs.scope.outputs.run_windows == 'true' }},"result":"${{ needs.test-windows.result }}"},
           {"name":"app-packed-artifact","expected":${{ needs.scope.outputs.run_app_packed_artifact == 'true' }},"result":"${{ needs.app-packed-artifact.result }}"},
           {"name":"e2e","expected":${{ needs.scope.outputs.run_e2e == 'true' && github.event_name != 'push' }},"result":"${{ needs.e2e.result }}"},
@@ -447,4 +776,31 @@ jobs:
         ]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Validate execution plan
+        env:
+          CI_EXECUTION_PLAN: ${{ needs.scope.outputs.execution_plan }}
+          CI_PLAN_HASH: ${{ needs.scope.outputs.plan_hash }}
+        run: node scripts/ci/validate-execution-plan.mjs
+      - run: node scripts/ci/assert-gate.mjs
+
+  ui-e2e-gate:
+    name: UI E2E Gate
+    if: always()
+    needs: [scope, e2e-ui, merge-reports]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CI_GATE_RESULTS: >-
+        [
+          {"name":"scope","expected":true,"result":"${{ needs.scope.result }}"},
+          {"name":"e2e-ui","expected":${{ needs.scope.outputs.run_ui_e2e == 'true' && github.event_name != 'push' }},"result":"${{ needs.e2e-ui.result }}"},
+          {"name":"merge-reports","expected":${{ needs.scope.outputs.run_ui_e2e == 'true' && github.event_name != 'push' }},"result":"${{ needs.merge-reports.result }}"}
+        ]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Validate execution plan
+        env:
+          CI_EXECUTION_PLAN: ${{ needs.scope.outputs.execution_plan }}
+          CI_PLAN_HASH: ${{ needs.scope.outputs.plan_hash }}
+        run: node scripts/ci/validate-execution-plan.mjs
       - run: node scripts/ci/assert-gate.mjs

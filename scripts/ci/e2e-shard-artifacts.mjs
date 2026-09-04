@@ -173,17 +173,22 @@ export function verifyArtifactClosure({
     { length: matrix.total },
     (_, index) => `${SHARD_ARTIFACT_PREFIX}-${runId}-${index + 1}`,
   ).sort()
-  const actualNames = readdirSync(root, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => entry.name)
-    .sort()
-  assertEqualArray(actualNames, expectedNames, "artifact directories must exactly match matrix shards")
+  const actualNames = readdirSync(root, { withFileTypes: true }).map((entry) => entry.name).sort()
+  const flatNames = ["blob-report", "e2e-shard-manifest"]
+  const flatSingleShard = matrix.total === 1
+    && actualNames.length === flatNames.length
+    && actualNames.every((name, index) => name === flatNames[index])
+  if (!flatSingleShard) {
+    assertEqualArray(actualNames, expectedNames, "artifact layout must exactly match matrix shards")
+  }
 
   rmSync(output, { recursive: true, force: true })
   mkdirSync(output, { recursive: true })
   const manifests = []
   for (let shard = 1; shard <= matrix.total; shard += 1) {
-    const artifactDirectory = join(root, `${SHARD_ARTIFACT_PREFIX}-${runId}-${shard}`)
+    const artifactDirectory = flatSingleShard
+      ? root
+      : join(root, `${SHARD_ARTIFACT_PREFIX}-${runId}-${shard}`)
     const files = walkFiles(artifactDirectory)
     const manifestsFound = files.filter((path) => basename(path) === "shard-manifest.json")
     const zips = files.filter((path) => path.endsWith(".zip"))

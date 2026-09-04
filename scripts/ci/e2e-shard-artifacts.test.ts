@@ -20,6 +20,12 @@ const matrix = {
   ],
 }
 
+const singleShardMatrix = {
+  include: [
+    { shard: 1, total: 1, specs: ["src/test/e2e-ui/a.spec.ts"] },
+  ],
+}
+
 const roots: string[] = []
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -45,6 +51,25 @@ function artifactRoot(attempts = [1, 2]) {
       }),
     ))
   }
+  return root
+}
+
+function flatArtifactRoot() {
+  const root = mkdtempSync(join(tmpdir(), "alook-flat-shard-artifact-"))
+  roots.push(root)
+  mkdirSync(join(root, "blob-report"), { recursive: true })
+  mkdirSync(join(root, "e2e-shard-manifest"), { recursive: true })
+  writeFileSync(join(root, "blob-report", "report-1.zip"), "zip-1")
+  writeFileSync(join(root, "e2e-shard-manifest", "shard-manifest.json"), JSON.stringify(
+    createShardManifest({
+      runId: "run-1",
+      attempt: 1,
+      sha: "abc123",
+      shard: 1,
+      total: 1,
+      specs: singleShardMatrix.include[0]!.specs,
+    }),
+  ))
   return root
 }
 
@@ -153,6 +178,62 @@ describe("resolveExecutedShards", () => {
 })
 
 describe("verifyArtifactClosure", () => {
+  it("accepts the flat download layout for exactly one expected shard", () => {
+    const root = flatArtifactRoot()
+    const output = join(root, "..", `${root.split("/").at(-1)}-merged`)
+    roots.push(output)
+
+    const result = verifyArtifactClosure({
+      root,
+      output,
+      matrix: singleShardMatrix,
+      runId: "run-1",
+      attempt: 1,
+      sha: "abc123",
+      executedShards: new Set([1]),
+    })
+
+    expect(result.expectedSpecs).toEqual(["a.spec.ts"])
+    expect(readFileSync(join(output, "shard-1-report-1.zip"), "utf8")).toBe("zip-1")
+  })
+
+  it("rejects flat multi-shard, mixed, and incomplete layouts", () => {
+    const multiShard = flatArtifactRoot()
+    expect(() => verifyArtifactClosure({
+      root: multiShard,
+      output: join(multiShard, "merged"),
+      matrix,
+      runId: "run-1",
+      attempt: 1,
+      sha: "abc123",
+      executedShards: new Set([1, 2]),
+    })).toThrow("exactly match matrix shards")
+
+    const mixed = flatArtifactRoot()
+    mkdirSync(join(mixed, "blob-report-run-1-1"))
+    expect(() => verifyArtifactClosure({
+      root: mixed,
+      output: join(mixed, "merged"),
+      matrix: singleShardMatrix,
+      runId: "run-1",
+      attempt: 1,
+      sha: "abc123",
+      executedShards: new Set([1]),
+    })).toThrow("exactly match matrix shards")
+
+    const incomplete = flatArtifactRoot()
+    rmSync(join(incomplete, "e2e-shard-manifest"), { recursive: true })
+    expect(() => verifyArtifactClosure({
+      root: incomplete,
+      output: join(incomplete, "merged"),
+      matrix: singleShardMatrix,
+      runId: "run-1",
+      attempt: 1,
+      sha: "abc123",
+      executedShards: new Set([1]),
+    })).toThrow("exactly match matrix shards")
+  })
+
   it("accepts all previous-attempt artifacts for a merge-only rerun", () => {
     const root = artifactRoot([1, 1])
     const output = join(root, "..", `${root.split("/").at(-1)}-merged`)
