@@ -123,6 +123,27 @@ describe("forum feed tag transition owner", () => {
     expect(ids(queryClient, "bug")).toEqual([])
   })
 
+  it("patches authoritative tags on an already warm destination row", () => {
+    const queryClient = new QueryClient()
+    queryClient.setQueryData(communityKeys.forumFeed("forum_1", null), feed([
+      { id: "target", tags: ["bug"] },
+    ]))
+    queryClient.setQueryData(communityKeys.forumFeed("forum_1", "archived"), feed([
+      { id: "target", tags: ["archived"] },
+    ]))
+
+    const token = start(queryClient, ["bug"], ["bug", "archived"])
+    commitForumFeedTagTransition(queryClient, token, [" BUG ", "archived", "bug"])
+
+    const archived = queryClient.getQueryData<FeedData>(
+      communityKeys.forumFeed("forum_1", "archived"),
+    )!
+    expect(archived.pages[0]!.included.tags).toEqual([
+      { messageId: "opener_target", tag: "bug" },
+      { messageId: "opener_target", tag: "archived" },
+    ])
+  })
+
   it("merges only the removed exact slice and preserves concurrent siblings", () => {
     const queryClient = new QueryClient()
     const key = communityKeys.forumFeed("forum_1", null)
