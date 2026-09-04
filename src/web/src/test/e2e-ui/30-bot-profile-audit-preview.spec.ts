@@ -356,22 +356,24 @@ test("owner-only bot mark sticker, Stop lifecycle, owner swap, and URL-owned aud
   await machine.opened
   try {
     machine.socket.send(JSON.stringify({ type: "agent_activity", agentId: botId, state: "idle" }))
-    machine.socket.send(JSON.stringify({
-      type: "bot_audit_event",
-      agentId: botId,
-      sessionId: `session-${suffix}`,
-      launchId: `launch-${suffix}`,
-      event: { kind: "tool_call", payload: { name: "Open activity log" } },
-    }))
+    for (let index = 0; index < 11; index += 1) {
+      machine.socket.send(JSON.stringify({
+        type: "bot_audit_event",
+        agentId: botId,
+        sessionId: `session-${suffix}`,
+        launchId: `launch-${suffix}`,
+        event: { kind: "tool_call", payload: { name: `Open activity log ${index}` } },
+      }))
+    }
 
     await expect.poll(async () => {
       const response = await fetch(
-        `${WEB_URL}/api/community/bots/${botId}/audit-log?limit=5`,
+        `${WEB_URL}/api/community/bots/${botId}/audit-log?limit=10`,
         { headers: headersFor("alice") },
       )
       if (!response.ok) return 0
       return ((await response.json()) as { events: unknown[] }).events.length
-    }).toBe(1)
+    }).toBe(10)
 
     const authoritativeMarks = await jsonRequest<{
       marked: Array<{
@@ -402,10 +404,42 @@ test("owner-only bot mark sticker, Stop lifecycle, owner swap, and URL-owned aud
 
     const sticker = alice.page.getByTestId(tid.botMarkSticker)
     await expect(sticker).toBeVisible()
-    await expect(sticker).toHaveAttribute("aria-label", "Bot work note")
+    await expect(sticker).toHaveAttribute("aria-label", "Bot log")
     const activityTab = sticker.getByRole("tab", { name: "Recent activity" })
     const marksTab = sticker.getByRole("tab", { name: /Marked messages/ })
+    const auditRows = alice.page.locator(
+      `[data-testid^="${tid.botAuditPreviewRow("")}"]`,
+    )
+    const activityScroller = sticker
+      .getByRole("tabpanel", { name: "Recent activity log" })
+      .locator(".bot-note-scrollbar")
     await expect(activityTab).toHaveAttribute("aria-selected", "true")
+    await expect(auditRows).toHaveCount(10)
+    await expect(alice.page.getByTestId(tid.botAuditPreviewEarlier)).toHaveText("…")
+    await expect(activityScroller).toHaveCSS("overflow-y", "auto")
+    await expect.poll(async () => activityScroller.evaluate((element) =>
+      element.scrollTop + element.clientHeight >= element.scrollHeight - 1))
+      .toBe(true)
+    expect((await auditRows.allTextContents()).some((text) =>
+      /open activity log 0$/i.test(text))).toBe(false)
+    machine.socket.send(JSON.stringify({
+      type: "bot_audit_event",
+      agentId: botId,
+      sessionId: `session-${suffix}`,
+      launchId: `launch-${suffix}`,
+      event: { kind: "tool_call", payload: { name: "Open activity log 11" } },
+    }))
+    await expect.poll(async () =>
+      (await auditRows.allTextContents()).join(" ").toLowerCase())
+      .toContain("open activity log 11")
+    await expect(auditRows).toHaveCount(10)
+    expect((await auditRows.allTextContents()).some((text) =>
+      /open activity log 1$/i.test(text))).toBe(false)
+    await expect.poll(async () => activityScroller.evaluate((element) =>
+      element.scrollTop + element.clientHeight >= element.scrollHeight - 1))
+      .toBe(true)
+    await expect(sticker.getByRole("button", { name: /Load more activity/ }))
+      .toBeVisible()
     await marksTab.click()
     await expect(marksTab).toHaveAttribute("aria-selected", "true")
     await expect(alice.page.locator(`[data-testid^="${tid.botMarkStickerRow("")}"]`))
@@ -425,7 +459,7 @@ test("owner-only bot mark sticker, Stop lifecycle, owner swap, and URL-owned aud
     await attachPageScreenshot(testInfo, "bot-work-sticker-marked-running-desktop", alice.page)
     await activityTab.click()
     await expect(activityTab).toHaveAttribute("aria-selected", "true")
-    await expect(sticker.getByRole("button", { name: /Open full bot activity log/ }))
+    await expect(sticker.getByRole("button", { name: /Load more activity/ }))
       .toBeVisible()
     await expect(stop).toBeVisible()
     await attachPageScreenshot(testInfo, "bot-work-sticker-activity-running-desktop", alice.page)
@@ -490,7 +524,9 @@ test("owner-only bot mark sticker, Stop lifecycle, owner swap, and URL-owned aud
       "data-placement",
       /^(right|left|top|bottom)$/,
     )
-    const openActivity = alice.page.getByRole("button", { name: "Open full bot activity log" })
+    const openActivity = alice.page.getByRole("button", {
+      name: "Load more activity in the full audit log",
+    })
     await openActivity.focus()
     await expect(openActivity).toBeFocused()
     await openActivity.press("Enter")

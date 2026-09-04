@@ -1726,6 +1726,24 @@ body.community-onboarding-active.driver-active :is(
   background: var(--muted-foreground);
 }
 
+/* The yellow bot note owns its ink palette; app theme borders read muddy here. */
+.bot-note-scrollbar {
+  scrollbar-color: #8a6116 transparent;
+}
+
+.bot-note-scrollbar:hover {
+  scrollbar-color: #5f410c transparent;
+}
+
+.bot-note-scrollbar::-webkit-scrollbar-thumb {
+  background: #8a6116;
+}
+
+.bot-note-scrollbar:hover::-webkit-scrollbar-thumb,
+.bot-note-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #5f410c;
+}
+
 .scrollbar-none::-webkit-scrollbar {
   display: none;
 }

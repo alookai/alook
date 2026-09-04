@@ -21,7 +21,8 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
   const channels = channelIds.length > 0
     ? await queries.communityChannel.getChannelsByIds(db, channelIds)
     : []
-  const serverIds = [...new Set(channels.map((channel) => channel.serverId))]
+  const serverIds = [...new Set(channels.flatMap((channel) =>
+    channel.serverId ? [channel.serverId] : []))]
   const servers = serverIds.length > 0
     ? await queries.communityServer.getServersByIds(db, serverIds)
     : []
@@ -36,7 +37,7 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
         id: mark.id,
         server: server?.name ?? "",
         serverId: channel?.serverId ?? null,
-        channel: channel?.name ?? "Unknown",
+        channel: channel?.name ?? "",
         channelId: mark.channelId,
         parentChannelId: channel?.parentChannelId ?? null,
         m: {

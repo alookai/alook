@@ -141,6 +141,44 @@ describe("GET /api/community/bots/[id]/marks", () => {
     })
   })
 
+  it("returns an empty location suffix for a DM without a channel name", async () => {
+    listMarksForUser.mockResolvedValue([{
+      mark: { id: "dm_mark", channelId: "dm_channel" },
+      message: {
+        id: "dm_message",
+        content: "Follow up in DM",
+        seq: 3,
+        createdAt: "2026-09-04T00:00:00.000Z",
+      },
+      author: {
+        id: "author_1",
+        name: "Gus",
+        image: null,
+        avatarVersion: 0,
+      },
+    }])
+    getChannelsByIds.mockResolvedValue([{
+      id: "dm_channel",
+      name: null,
+      serverId: null,
+      parentChannelId: null,
+    }])
+
+    const response = await GET(request(), context())
+
+    expect(response.status).toBe(200)
+    expect(getServersByIds).not.toHaveBeenCalled()
+    await expect(response.json()).resolves.toMatchObject({
+      marked: [{
+        id: "dm_mark",
+        server: "",
+        serverId: null,
+        channel: "",
+        channelId: "dm_channel",
+      }],
+    })
+  })
+
   it("keeps a persisted mark after the bot loses channel access", async () => {
     listMarksForUser.mockResolvedValue([{
       mark: { id: "stale_mark", channelId: "former_channel" },

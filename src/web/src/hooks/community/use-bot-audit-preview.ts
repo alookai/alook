@@ -8,7 +8,7 @@ import { communityKeys } from "@/lib/query-keys"
 import { useBotAuditEventsForBot } from "@/stores/community/ws"
 import type { AuditEvent, AuditLogPage } from "./use-bot-audit-log"
 
-const PREVIEW_LIMIT = 5
+const PREVIEW_LIMIT = 10
 
 export function useBotAuditPreview(botId: string | null | undefined) {
   const enabled = Boolean(botId)
@@ -26,7 +26,7 @@ export function useBotAuditPreview(botId: string | null | undefined) {
   })
   const liveEvents = useBotAuditEventsForBot(botId)
 
-  const events = useMemo(() => {
+  const preview = useMemo(() => {
     const byId = new Map<string, AuditEvent>()
     for (const event of query.data?.events ?? []) byId.set(event.id, event)
     for (const event of liveEvents) {
@@ -39,16 +39,19 @@ export function useBotAuditPreview(botId: string | null | undefined) {
         createdAt: event.createdAt,
       })
     }
-    return [...byId.values()]
+    const merged = [...byId.values()]
       .sort((a, b) => {
         if (a.createdAt !== b.createdAt) return a.createdAt > b.createdAt ? -1 : 1
         return a.id > b.id ? -1 : a.id < b.id ? 1 : 0
       })
-      .slice(0, PREVIEW_LIMIT)
+    return {
+      events: merged.slice(0, PREVIEW_LIMIT),
+      hasEarlierEvents: Boolean(query.data?.nextCursor) || merged.length > PREVIEW_LIMIT,
+    }
   }, [liveEvents, query.data])
 
   return {
-    events,
+    ...preview,
     isLoading: query.isLoading,
     isError: query.isError,
     isNotFound: query.error instanceof ApiError && query.error.status === 404,

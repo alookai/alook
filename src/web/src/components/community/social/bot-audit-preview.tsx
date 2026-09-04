@@ -17,6 +17,10 @@ import {
 import { tid } from "@/lib/community/testids"
 
 type StatusPair = { emoji: string; text: string }
+type BotAuditTone = "default" | "note"
+
+const BOT_NOTE_ROW_CLASS = "grid min-h-5 shrink-0 grid-cols-[3.25rem_minmax(0,1fr)] items-center gap-2 px-[2px] text-xs leading-5"
+const BOT_NOTE_TIME_CLASS = "whitespace-nowrap font-mono text-[10px] tabular-nums text-black"
 
 function matchesStatus(
   emoji: string | null | undefined,
@@ -105,45 +109,73 @@ export function BotAuditTimeline({
   isLoading,
   isError,
   active,
+  tone = "default",
+  showEarlier = false,
 }: {
   events: Array<Pick<AuditEvent, "id" | "kind" | "payload" | "createdAt">>
   isLoading: boolean
   isError: boolean
   active: boolean
+  tone?: BotAuditTone
+  showEarlier?: boolean
 }) {
   return (
-    <div className="flex flex-col py-1">
+    <div className={tone === "note" ? "flex flex-col pt-1" : "flex flex-col py-1"}>
+      {showEarlier && (
+        <div
+          data-testid={tid.botAuditPreviewEarlier}
+          aria-label="Earlier activity omitted"
+          className={tone === "note"
+            ? "flex min-h-5 shrink-0 items-center px-[2px] text-left text-sm font-semibold leading-5 text-black"
+            : "flex min-h-5 shrink-0 items-center px-3 text-left text-sm font-semibold leading-5 text-black"}
+        >
+          …
+        </div>
+      )}
       {isLoading ? (
         <PreviewSkeleton />
       ) : isError ? (
-        <PreviewStateRow label="Activity unavailable" />
+        <PreviewStateRow label="Activity unavailable" tone={tone} />
       ) : events.length > 0 ? (
         events.map((event) => (
           <div
             key={event.id}
             data-testid={tid.botAuditPreviewRow(event.id)}
-            className="grid h-6 grid-cols-[3.25rem_minmax(0,1fr)] items-center gap-2 px-3 text-xs"
+            className={tone === "note"
+              ? BOT_NOTE_ROW_CLASS
+              : "grid h-6 grid-cols-[3.25rem_minmax(0,1fr)] items-center gap-2 px-3 text-xs"}
           >
             <time
               dateTime={event.createdAt}
-              className="font-mono text-[10px] tabular-nums text-muted-foreground/70"
+              className={tone === "note"
+                ? BOT_NOTE_TIME_CLASS
+                : "font-mono text-[10px] tabular-nums text-muted-foreground/70"}
             >
               {formatAuditPreviewTime(event.createdAt)}
             </time>
-            <span className="truncate text-muted-foreground">
+            <span className={tone === "note"
+              ? "truncate font-mono text-xs leading-5 text-black"
+              : "truncate text-muted-foreground"}
+            >
               {summarizeAuditEvent(event)}
             </span>
           </div>
         ))
       ) : (
-        <PreviewStateRow label="No recent activity" />
+        <PreviewStateRow label="No recent activity" tone={tone} />
       )}
-      {active && <BotAuditActiveRow latestEventAt={events.at(-1)?.createdAt} />}
+      {active && <BotAuditActiveRow latestEventAt={events.at(-1)?.createdAt} tone={tone} />}
     </div>
   )
 }
 
-export function BotAuditActiveRow({ latestEventAt }: { latestEventAt?: string }) {
+export function BotAuditActiveRow({
+  latestEventAt,
+  tone = "default",
+}: {
+  latestEventAt?: string
+  tone?: BotAuditTone
+}) {
   const [nowMs, setNowMs] = useState(Date.now)
 
   useEffect(() => {
@@ -167,22 +199,28 @@ export function BotAuditActiveRow({ latestEventAt }: { latestEventAt?: string })
   return (
     <div
       data-testid={tid.botAuditPreviewActive}
-      className="grid h-6 shrink-0 grid-cols-[3.25rem_minmax(0,1fr)] items-center gap-2 px-3 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-1 motion-safe:duration-200 motion-reduce:animate-none"
+      className={tone === "note"
+        ? `${BOT_NOTE_ROW_CLASS} motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-1 motion-safe:duration-200 motion-reduce:animate-none`
+        : "grid h-6 shrink-0 grid-cols-[3.25rem_minmax(0,1fr)] items-center gap-2 px-3 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-1 motion-safe:duration-200 motion-reduce:animate-none"}
     >
       <time
         dateTime={displayedAt}
         suppressHydrationWarning
-        className="font-mono text-[10px] tabular-nums text-muted-foreground/70"
+        className={tone === "note"
+          ? BOT_NOTE_TIME_CLASS
+          : "font-mono text-[10px] tabular-nums text-muted-foreground/70"}
       >
         {formatAuditPreviewTime(displayedAt)}
       </time>
       <span className="flex items-center gap-1" aria-label="Bot activity in progress">
-        <span className="mr-1 text-xs text-primary/70">running</span>
+        <span className={tone === "note" ? "mr-1 text-xs text-black" : "mr-1 text-xs text-primary/70"}>running</span>
         {[0, 1, 2].map((index) => (
           <span
             key={index}
             aria-hidden
-            className="size-1.5 rounded-full bg-primary motion-safe:animate-pulse motion-reduce:animate-none"
+            className={tone === "note"
+              ? "size-1.5 rounded-full bg-black motion-safe:animate-pulse motion-reduce:animate-none"
+              : "size-1.5 rounded-full bg-primary motion-safe:animate-pulse motion-reduce:animate-none"}
             style={{ animationDelay: `${index * 160}ms` }}
           />
         ))}
@@ -204,9 +242,12 @@ function PreviewSkeleton() {
   )
 }
 
-function PreviewStateRow({ label }: { label: string }) {
+function PreviewStateRow({ label, tone }: { label: string; tone: BotAuditTone }) {
   return (
-    <div className="flex min-h-0 flex-1 items-center justify-center px-4 text-xs text-muted-foreground">
+    <div className={tone === "note"
+      ? "flex min-h-0 flex-1 items-center justify-center px-4 text-xs text-black"
+      : "flex min-h-0 flex-1 items-center justify-center px-4 text-xs text-muted-foreground"}
+    >
       {label}
     </div>
   )
