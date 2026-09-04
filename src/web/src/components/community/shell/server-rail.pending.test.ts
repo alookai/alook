@@ -149,7 +149,7 @@ describe("ServerRail one-in-flight structural guard", () => {
     expect(renderer.root.findAllByType("skeleton")).toHaveLength(6)
     expect(renderer.root.findAllByType("button")).toHaveLength(0)
     expect(renderer.root.findByProps({ "data-testid": tid.serverRailScroll }).props.className)
-      .toContain("flex-1 overflow-y-auto")
+      .toContain("shrink overflow-y-auto")
     expect(renderer.root.find((node) => node.props.style?.["--community-rail-bottom-inset"] === "60px"))
       .toBeDefined()
   })

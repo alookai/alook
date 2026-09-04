@@ -18,11 +18,11 @@ describe("ServerRail Home brand mark", () => {
     expect(source).not.toContain("alook-dark.svg")
   })
 
-  it("pins Add while the server list owns the remaining scroll space", () => {
+  it("pins Add while the server list shrinks only when its content exceeds the remaining space", () => {
     const source = readFileSync(new URL("./server-rail.tsx", import.meta.url), "utf8")
 
     const scrollViewport =
-      'className="min-h-0 w-full flex-1 overflow-y-auto overflow-x-clip py-2 thin-scrollbar scrollbar-none"'
+      'className="min-h-0 w-full shrink overflow-y-auto overflow-x-clip py-2 thin-scrollbar scrollbar-none"'
     const addRegion =
       'className="flex w-full shrink-0 justify-center pb-[calc(var(--community-rail-bottom-inset)+var(--app-safe-area-bottom))] sm:pb-(--community-rail-bottom-inset)"'
 
@@ -31,7 +31,8 @@ describe("ServerRail Home brand mark", () => {
     expect(source).toContain(addRegion)
     expect(source).toContain('"--community-rail-bottom-inset": `${bottomInset ?? 8}px`')
     expect(source.indexOf(scrollViewport)).toBeLessThan(source.indexOf(addRegion))
-    expect(scrollViewport).toContain("flex-1")
+    expect(scrollViewport).toContain("shrink")
+    expect(scrollViewport).not.toContain("flex-1")
     expect(source).not.toContain("pb-2 overflow-y-auto overflow-x-clip thin-scrollbar")
   })
 
