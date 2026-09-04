@@ -33,7 +33,7 @@ export function OnboardingSelectDialogPreview({
         harness={harness}
         harnessLabel={
           ONBOARDING_HARNESSES.find((option) => option.value === harness)?.label
-            ?? "your agent harness"
+            ?? "your harness"
         }
         {...(simulateOnlineMachine
           ? {
@@ -58,12 +58,12 @@ export function OnboardingSelectDialogPreview({
       open
       onOpenChange={() => undefined}
       step={{ current: isIdentity ? 3 : 1, total: 3 }}
-      stepLabel={isIdentity ? "About you" : "Your agent"}
-      title={isIdentity ? "Which best describes you?" : "Which agent do you already use?"}
+      stepLabel={isIdentity ? "About you" : "Your harness"}
+      title={isIdentity ? "Which best describes you?" : "Which harness do you already use?"}
       description={
         isIdentity
           ? "We’ll tailor your first room to how you work."
-          : "Start with the setup you know. We’ll bring its agents into a shared room."
+          : "Start with the setup you know. We’ll bring its bots into a shared room."
       }
       options={isIdentity ? [...ONBOARDING_IDENTITIES] : [...ONBOARDING_HARNESSES]}
       value={value}

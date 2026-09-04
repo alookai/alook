@@ -36,7 +36,7 @@ export function OnboardingStatusDialog({
         <DialogHeader className="gap-2 px-4 pt-4 pb-3 sm:px-6 sm:pt-6 sm:pb-4">
           <p className="text-xs font-medium text-muted-foreground">Setup</p>
           <DialogTitle className="text-lg leading-snug font-semibold">
-            {status === "success" ? "Your agent room is ready" : "Bringing your agent team together"}
+            {status === "success" ? "Your bot room is ready" : "Bringing your bot team together"}
           </DialogTitle>
           <DialogDescription className="leading-relaxed">{detail}</DialogDescription>
         </DialogHeader>
@@ -60,7 +60,7 @@ export function OnboardingStatusDialog({
               {status === "loading"
                 ? "Please keep this window open while setup finishes."
                 : status === "success"
-                  ? "Guide and Builder are waiting for you inside."
+                  ? "Your bots are waiting for you inside."
                   : "Nothing was deleted. You can retry the unfinished setup."}
             </span>
           </div>

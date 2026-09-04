@@ -1,8 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
+const { apiFetch, randomBotName, randomBeamAvatar } = vi.hoisted(() => ({
+  apiFetch: vi.fn(),
+  randomBotName: vi.fn(),
+  randomBeamAvatar: vi.fn(),
+}))
 
 vi.mock("@/lib/api/client", () => ({ apiFetch }))
+vi.mock("@/lib/avatar/seed-url", () => ({ randomBeamAvatar }))
+vi.mock("@/lib/community/bot-random-name", () => ({ randomBotName }))
 
 import {
   initializeCommunityOnboarding,
@@ -14,6 +20,11 @@ import {
 describe("initializeCommunityOnboarding", () => {
   beforeEach(() => {
     apiFetch.mockReset()
+    randomBotName.mockReset().mockReturnValueOnce("Ada").mockReturnValueOnce("Linus")
+    randomBeamAvatar
+      .mockReset()
+      .mockReturnValueOnce("avatar:beam:avatar-a")
+      .mockReturnValueOnce("avatar:beam:avatar-b")
   })
 
   it("creates two bots and one room, then onboards both with one direct prompt", async () => {
@@ -46,6 +57,26 @@ describe("initializeCommunityOnboarding", () => {
       botBId: "bot-b",
     })
     expect(apiFetch).toHaveBeenCalledTimes(6)
+    expect(apiFetch).toHaveBeenNthCalledWith(1, "/api/community/bots", {
+      method: "POST",
+      body: JSON.stringify({
+        name: "Ada",
+        description: "Organizes the work and keeps collaborators aligned.",
+        machineId: "machine-1",
+        runtime: "codex",
+        image: "avatar:beam:avatar-a",
+      }),
+    })
+    expect(apiFetch).toHaveBeenNthCalledWith(2, "/api/community/bots", {
+      method: "POST",
+      body: JSON.stringify({
+        name: "Linus",
+        description: "Executes the work and reports concrete results.",
+        machineId: "machine-1",
+        runtime: "codex",
+        image: "avatar:beam:avatar-b",
+      }),
+    })
     expect(apiFetch).toHaveBeenNthCalledWith(3, "/api/community/servers", {
       method: "POST",
       body: JSON.stringify({ name: "dev-room" }),

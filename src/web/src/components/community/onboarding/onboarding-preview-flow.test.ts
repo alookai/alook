@@ -8,6 +8,10 @@ const previewSource = readFileSync(
   resolve(directory, "onboarding-select-dialog.preview.tsx"),
   "utf8",
 )
+const onboardingFormSource = readFileSync(
+  resolve(directory, "community-onboarding-form.tsx"),
+  "utf8",
+)
 const machineDialogSource = readFileSync(
   resolve(directory, "onboarding-machine-dialog.tsx"),
   "utf8",
@@ -59,5 +63,29 @@ describe("onboarding preview flow", () => {
     expect(previewSource).toContain("tid.onboardingHarnessOption")
     expect(previewSource).toContain("tid.onboardingIdentityDialog")
     expect(previewSource).toContain("tid.onboardingIdentityOption")
+  })
+
+  it("uses bot terminology without fixed onboarding bot names", () => {
+    for (const filename of [
+      "community-onboarding-form.tsx",
+      "initialize-community-onboarding.ts",
+      "onboarding-select-dialog.preview.tsx",
+      "onboarding-status-dialog.tsx",
+    ]) {
+      const source = readFileSync(resolve(directory, filename), "utf8")
+
+      expect(source).not.toMatch(/\b(?:Guide|Builder|agents?)\b/)
+    }
+
+    expect(previewSource).toMatch(/\bbots?\b/)
+  })
+
+  it("keeps onboarding mounted until shell navigation commits the new room", () => {
+    expect(onboardingFormSource).toMatch(
+      /onContinue=\{\(\) => \{[\s\S]*?pendingCompletionDestinationRef\.current = destination[\s\S]*?navigate\(initializationResult\.serverId, initializationResult\.publicChannelId\)/,
+    )
+    expect(onboardingFormSource).toMatch(
+      /const pendingDestination = pendingCompletionDestinationRef\.current[\s\S]*?pathname !== pendingDestination[\s\S]*?pendingCompletionDestinationRef\.current = null[\s\S]*?completeCommunityOnboarding\(\)/,
+    )
   })
 })

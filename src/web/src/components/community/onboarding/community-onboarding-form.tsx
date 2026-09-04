@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { useRouter } from "next/navigation"
+import { usePathname } from "next/navigation"
 
 import {
   advanceCommunityOnboarding,
@@ -10,6 +10,7 @@ import {
   startCommunityOnboarding,
   useCommunityOnboarding,
 } from "@/lib/community-onboarding"
+import { useCommunityStore } from "@/stores/community"
 import { OnboardingMachineDialog } from "./onboarding-machine-dialog"
 import {
   ONBOARDING_HARNESSES,
@@ -26,11 +27,11 @@ import { OnboardingSelectDialog } from "./onboarding-select-dialog"
 import { OnboardingStatusDialog } from "./onboarding-status-dialog"
 
 function harnessLabel(value?: string) {
-  return ONBOARDING_HARNESSES.find((option) => option.value === value)?.label ?? "your agent harness"
+  return ONBOARDING_HARNESSES.find((option) => option.value === value)?.label ?? "your harness"
 }
 
 export function CommunityOnboardingForm() {
-  const router = useRouter()
+  const pathname = usePathname()
   const state = useCommunityOnboarding()
   const [harness, setHarness] = useState("")
   const [identity, setIdentity] = useState("")
@@ -39,16 +40,24 @@ export function CommunityOnboardingForm() {
     "idle" | "loading" | "error" | "success"
   >("idle")
   const [initializationStep, setInitializationStep] = useState<OnboardingInitializationStep>(
-    "creating-agents",
+    "creating-bots",
   )
   const [initializationError, setInitializationError] = useState("")
   const [initializationResult, setInitializationResult] =
     useState<OnboardingInitializationResult | null>(null)
   const checkpointRef = useRef<OnboardingInitializationCheckpoint>({})
   const runningRef = useRef(false)
+  const pendingCompletionDestinationRef = useRef<string | null>(null)
   useEffect(() => {
     if (!state && consumeQueuedCommunityOnboarding()) startCommunityOnboarding()
   }, [state])
+
+  useEffect(() => {
+    const pendingDestination = pendingCompletionDestinationRef.current
+    if (!pendingDestination || pathname !== pendingDestination) return
+    pendingCompletionDestinationRef.current = null
+    completeCommunityOnboarding()
+  }, [pathname])
 
   const runInitialization = useCallback(async () => {
     if (
@@ -101,9 +110,9 @@ export function CommunityOnboardingForm() {
         open
         onOpenChange={() => undefined}
         step={{ current: 1, total: 3 }}
-        stepLabel="Your agent"
-        title="Which agent do you already use?"
-        description="Start with the setup you know. We’ll bring its agents into a shared room."
+        stepLabel="Your harness"
+        title="Which harness do you already use?"
+        description="Start with the setup you know. We’ll bring its bots into a shared room."
         options={[...ONBOARDING_HARNESSES]}
         value={harness}
         onValueChange={setHarness}
@@ -163,9 +172,9 @@ export function CommunityOnboardingForm() {
 
   if (state.stage === "initializing") {
     const progressDetail: Record<OnboardingInitializationStep, string> = {
-      "creating-agents": "Creating Guide and Builder on your connected machine…",
+      "creating-bots": "Creating two bots on your connected machine…",
       "creating-room": "Creating a room for your first goal…",
-      "inviting-agents": "Inviting both agents and opening Guide’s private room…",
+      "inviting-bots": "Inviting both bots and preparing your private room…",
       "preparing-welcome": "Sending the first collaboration prompts…",
     }
     return (
@@ -175,15 +184,17 @@ export function CommunityOnboardingForm() {
           initializationStatus === "error"
             ? initializationError
             : initializationStatus === "success"
-              ? "Both agents have joined and received your first collaboration brief."
+              ? "Both bots have joined and received your first collaboration brief."
               : progressDetail[initializationStep]
         }
         onRetry={() => void runInitialization()}
         onContinue={() => {
           if (!initializationResult) return
           const destination = `/c/channels/${initializationResult.serverId}/${initializationResult.publicChannelId}`
-          completeCommunityOnboarding()
-          router.push(destination)
+          const navigate = useCommunityStore.getState().uiHandlers.navigate
+          if (!navigate) return
+          pendingCompletionDestinationRef.current = destination
+          navigate(initializationResult.serverId, initializationResult.publicChannelId)
         }}
       />
     )

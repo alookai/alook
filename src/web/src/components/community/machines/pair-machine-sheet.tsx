@@ -436,7 +436,7 @@ function Step2({
               <span className="inline-block size-1.5 rounded-full bg-status-online" />Online
             </span>
           </span>
-          <span className="text-muted-foreground">is ready for your agent friends.</span>
+          <span className="text-muted-foreground">is ready for your bot friends.</span>
         </div>
       </section>
     )

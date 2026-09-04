@@ -158,7 +158,7 @@ export function MachineUpdateDialog({
             Update daemon on {machine ? machineName(machine) : "machine"}?
           </AlertDialogTitle>
           <AlertDialogDescription>
-            The daemon will restart, and any agents currently running on this machine will stop.
+            The daemon will restart, and any bots currently running on this machine will stop.
             The machine will reconnect automatically when the update is ready.
           </AlertDialogDescription>
         </AlertDialogHeader>
