@@ -144,6 +144,48 @@ describe("community WS projection transaction", () => {
     }
   })
 
+  it("absorbs a rejected active replacement while preserving its query error state", async () => {
+    const queryClient = new QueryClient()
+    const prefix = ["community", "channel", "forum_1", "threads"] as const
+    const failure = new Error("probe-refetch-failed")
+    const queryFn = vi.fn().mockRejectedValue(failure)
+    const observer = new QueryObserver(queryClient, {
+      queryKey: [...prefix, "feed", null],
+      queryFn,
+      initialData: { page: "all" },
+      staleTime: Infinity,
+      retry: false,
+    })
+    const unsubscribe = observer.subscribe(() => {})
+    const cancel = vi.spyOn(queryClient, "cancelQueries")
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries")
+    const unhandled = vi.fn()
+    process.on("unhandledRejection", unhandled)
+
+    try {
+      runCommunityWsProjectionTransaction(queryClient, (transaction) => {
+        transaction.fence("threads", { queryKey: prefix })
+      })
+
+      await vi.waitFor(() => {
+        expect(queryFn).toHaveBeenCalledOnce()
+        expect(observer.getCurrentResult()).toMatchObject({
+          status: "error",
+          error: failure,
+        })
+      })
+      await new Promise<void>((resolve) => setImmediate(resolve))
+
+      expect(cancel).toHaveBeenCalledOnce()
+      expect(invalidate).toHaveBeenCalledOnce()
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: prefix, refetchType: "none" })
+      expect(unhandled).not.toHaveBeenCalled()
+    } finally {
+      process.off("unhandledRejection", unhandled)
+      unsubscribe()
+    }
+  })
+
   it("flushes queued invalidations when projection fails", () => {
     const queryClient = new QueryClient()
     const invalidate = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue()

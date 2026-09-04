@@ -75,7 +75,7 @@ function createProjectionTransaction(
                 type: "active",
               })
             }
-          })
+          }).catch(() => {})
         } else {
           void queryClient.invalidateQueries(filters)
         }
