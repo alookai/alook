@@ -112,13 +112,17 @@ Author and reviewer can use different models or tools. That only helps when each
 
 **Git records file state and reports some collisions. Teams still need rules for active ownership, edit order, and review.** Those decisions happen before the merge.
 
-## Engineering rules that keep agents from colliding
+## How to review and merge changes from multiple AI coding agents
 
-1. **One task, one branch. Tasks that run at the same time each get a worktree.** Do not let two agents share uncommitted state.
-2. **List the paths each task may change.** Everything else stays out of scope for this cycle.
-3. **Keep review separate from authoring.** Review leaves comments or suggested changes instead of silent edits on the author’s branch.
-4. **Give frequently edited paths an owner or an edit order.** Hot files need an explicit rule.
-5. **Merge agent changes through a pull request.** Every change should be reviewable before it reaches the main branch.
+Suppose the schema, API, and UI branches all finish on the same afternoon. Each passes CI alone. Merge them in the wrong order and those green checks will not help much: the API may target the old schema, and the UI may target the old API.
+
+1. Before coding starts, record the behavior and files each branch owns. Put unrelated cleanup in another task. Concurrent work gets its own branch and, when it shares a local clone, its own worktree.
+2. Run CI on each pull request. A green result means those checks passed for that branch at that commit. It says nothing yet about the final combination.
+3. The reviewer leaves findings; the author makes the fixes. If ownership changes, record the handoff and keep the new commits separate.
+4. Merge the dependency first. In this example, that means schema, then API, then UI. Give busy files one owner or a clear edit order.
+5. After each merge, rebase the branches still open and rerun the tests that cover the combined behavior. A person reviews and approves every merge.
+
+Line conflicts are the easy part. Stale assumptions are harder. Rebasing and retesting after every merge is what catches them.
 
 Day-to-day operating rules for briefs and approval gates live in [How to Run an AI Agent Team That Stays on Track](/blog/run-ai-agent-team-that-stays-on-track). This article stays on the repository: paths, branches, and reviewable diffs.
 
@@ -133,14 +137,6 @@ You can self-host Alook from [GitHub](https://github.com/alookai/alook), or regi
 ## Keep the repo readable
 
 Parallel edits work best when every change has an owner, an isolated working copy, and a reviewable path into the main branch.
-
-Before you parallelize work on the same tree, you should be able to answer:
-
-1. Which paths does this task own?
-2. Is out-of-scope cleanup forbidden for this cycle?
-3. Does each task have its own branch and, for concurrent work, its own worktree?
-4. Does review change code on the author branch, or only leave feedback?
-5. Will a human see a reviewable PR before the change hits main?
 
 Related:
 

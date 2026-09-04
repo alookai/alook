@@ -76,6 +76,14 @@ Every useful workflow should define:
 
 For the coordination layer behind these patterns, read the guide to [AI orchestration](/blog/ai-agent-orchestration). For team design, start with [AI agent team roles and handoffs](/blog/ai-agent-team).
 
+## When should AI coding agents run in parallel instead of in sequence?
+
+Say one agent is changing a schema while another builds the UI that consumes it. Starting both does not save time. The UI agent either guesses, waits, or rewrites the work later. Run the schema change first. Use parallel agents when they can finish without waiting on each other or touching the same files.
+
+Give every task its own branch. When several branches run from the same local clone, use a separate worktree for each one. Write down path ownership before the agents start, then track the branch or pull request, completed checks, and any blocker. The work can happen in parallel. Review and merge still follow dependency order. See [how multiple AI agents edit the same repository](/blog/multiple-ai-agents-edit-same-repository) for the full merge loop.
+
+Alook keeps the assignment, status, and handoff in one room. It does not create Git worktrees, run CI, or decide which pull request merges next.
+
 ## Pattern 1: Bug report to PR
 
 This is the most natural workflow for AI coding agents because the work already has stages.
