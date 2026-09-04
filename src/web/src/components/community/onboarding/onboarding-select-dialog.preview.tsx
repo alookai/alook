@@ -7,16 +7,38 @@ import { tid } from "@/lib/community/testids"
 import { ONBOARDING_HARNESSES, ONBOARDING_IDENTITIES } from "./onboarding-form-options"
 import { OnboardingMachineDialog } from "./onboarding-machine-dialog"
 import { OnboardingSelectDialog } from "./onboarding-select-dialog"
+import { OnboardingStatusDialog } from "./onboarding-status-dialog"
+import {
+  ONBOARDING_INITIALIZATION_STEPS,
+  type OnboardingInitializationCheckpoint,
+  type OnboardingInitializationStep,
+} from "./initialize-community-onboarding"
+
+const PREVIEW_CHECKPOINT: OnboardingInitializationCheckpoint = {
+  botAId: "preview-bot-a",
+  botAName: "Ada",
+  botAImage: "avatar:beam:preview-bot-a",
+  botBId: "preview-bot-b",
+  botBName: "Linus",
+  botBImage: "avatar:beam:preview-bot-b",
+  serverId: "preview-server",
+  serverName: "Gustavo-work-room",
+}
 
 export function OnboardingSelectDialogPreview({
   simulateOnlineMachine = false,
+  showSettingUp = false,
 }: {
   simulateOnlineMachine?: boolean
+  showSettingUp?: boolean
 }) {
   const [value, setValue] = useState("")
   const [customIdentity, setCustomIdentity] = useState("")
   const [harness, setHarness] = useState("")
-  const [mode, setMode] = useState<"harness" | "machine" | "identity">("harness")
+  const [mode, setMode] = useState<"harness" | "machine" | "identity" | "status">("harness")
+  const [initializationStep, setInitializationStep] = useState<OnboardingInitializationStep>(
+    "creating-bots",
+  )
   const isIdentity = mode === "identity"
 
   useEffect(() => {
@@ -25,6 +47,31 @@ export function OnboardingSelectDialogPreview({
       skipCommunityOnboarding()
     }
   }, [])
+
+  useEffect(() => {
+    if (!showSettingUp && mode !== "status") return
+
+    const currentIndex = ONBOARDING_INITIALIZATION_STEPS.indexOf(initializationStep)
+    if (currentIndex === ONBOARDING_INITIALIZATION_STEPS.length - 1) return
+
+    const timer = window.setTimeout(() => {
+      setInitializationStep(ONBOARDING_INITIALIZATION_STEPS[currentIndex + 1])
+    }, 1600)
+    return () => window.clearTimeout(timer)
+  }, [initializationStep, mode, showSettingUp])
+
+  if (showSettingUp || mode === "status") {
+    return (
+      <OnboardingStatusDialog
+        status="loading"
+        currentStep={initializationStep}
+        checkpoint={PREVIEW_CHECKPOINT}
+        detail="Follow along as your room comes together."
+        onRetry={() => undefined}
+        onContinue={() => undefined}
+      />
+    )
+  }
 
   if (mode === "machine") {
     return (
@@ -83,7 +130,10 @@ export function OnboardingSelectDialogPreview({
       testId={isIdentity ? tid.onboardingIdentityDialog : tid.onboardingHarnessDialog}
       optionTestId={isIdentity ? tid.onboardingIdentityOption : tid.onboardingHarnessOption}
       onSubmit={(submittedValue) => {
-        if (isIdentity) return
+        if (isIdentity) {
+          setMode("status")
+          return
+        }
         setHarness(submittedValue)
         setMode("machine")
         setValue("")

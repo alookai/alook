@@ -47,6 +47,8 @@ export function CommunityOnboardingForm() {
   const [initializationError, setInitializationError] = useState("")
   const [initializationResult, setInitializationResult] =
     useState<OnboardingInitializationResult | null>(null)
+  const [initializationCheckpoint, setInitializationCheckpoint] =
+    useState<OnboardingInitializationCheckpoint>({})
   const checkpointRef = useRef<OnboardingInitializationCheckpoint>({})
   const runningRef = useRef(false)
   const pendingCompletionDestinationRef = useRef<string | null>(null)
@@ -83,6 +85,7 @@ export function CommunityOnboardingForm() {
         checkpoint: checkpointRef.current,
         onCheckpoint: (checkpoint) => {
           checkpointRef.current = checkpoint
+          setInitializationCheckpoint(checkpoint)
         },
         onProgress: setInitializationStep,
       })
@@ -175,21 +178,17 @@ export function CommunityOnboardingForm() {
   }
 
   if (state.stage === "initializing") {
-    const progressDetail: Record<OnboardingInitializationStep, string> = {
-      "creating-bots": "Creating your two bots…",
-      "creating-room": "Creating your room…",
-      "inviting-bots": "Inviting your bots…",
-      "preparing-welcome": "Starting the conversation…",
-    }
     return (
       <OnboardingStatusDialog
         status={initializationStatus === "idle" ? "loading" : initializationStatus}
+        currentStep={initializationStep}
+        checkpoint={initializationCheckpoint}
         detail={
           initializationStatus === "error"
             ? initializationError
             : initializationStatus === "success"
               ? "Two bots are in your room and ready to work."
-              : progressDetail[initializationStep]
+              : "Follow along as your room comes together."
         }
         onRetry={() => void runInitialization()}
         onContinue={() => {

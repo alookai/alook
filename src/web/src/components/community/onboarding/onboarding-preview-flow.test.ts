@@ -30,6 +30,11 @@ describe("onboarding preview flow", () => {
     )
   })
 
+  it("continues from identity into the setting-up preview", () => {
+    expect(previewSource).toContain('<OnboardingStatusDialog')
+    expect(previewSource).toContain('setMode("status")')
+  })
+
   it("keeps a blurred backdrop across every onboarding dialog", () => {
     for (const filename of [
       "onboarding-select-dialog.tsx",
@@ -54,6 +59,7 @@ describe("onboarding preview flow", () => {
     expect(machinesPageSource).toContain('process.env.NODE_ENV !== "production"')
     expect(machinesPageSource).toContain('onboardingPreview === "online"')
     expect(previewSource).toContain("simulateOnlineMachine")
+    expect(previewSource).toContain("showSettingUp")
     expect(previewSource).toContain('id: "preview-machine"')
     expect(previewSource).toContain("previewCommand:")
   })

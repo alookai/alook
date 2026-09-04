@@ -9,8 +9,22 @@ export type OnboardingInitializationStep =
   | "inviting-bots"
   | "preparing-welcome"
 
-type BotCreateResponse = { bot: { id: string } }
-type ServerCreateResponse = { server: { id: string } }
+export const ONBOARDING_INITIALIZATION_STEPS = [
+  "creating-bots",
+  "creating-room",
+  "inviting-bots",
+  "preparing-welcome",
+] as const satisfies readonly OnboardingInitializationStep[]
+
+export const ONBOARDING_INITIALIZATION_LABEL: Record<OnboardingInitializationStep, string> = {
+  "creating-bots": "Creating your bots",
+  "creating-room": "Creating your server",
+  "inviting-bots": "Inviting your bots",
+  "preparing-welcome": "Preparing your first conversation",
+}
+
+type BotCreateResponse = { bot: { id: string; name?: string; image?: string | null } }
+type ServerCreateResponse = { server: { id: string; name?: string } }
 type ChannelRow = { id: string; name: string }
 
 export type OnboardingInitializationResult = {
@@ -22,6 +36,11 @@ export type OnboardingInitializationResult = {
 }
 
 export type OnboardingInitializationCheckpoint = Partial<OnboardingInitializationResult> & {
+  botAName?: string
+  botAImage?: string | null
+  botBName?: string
+  botBImage?: string | null
+  serverName?: string
   botsOnboarded?: boolean
   botAAddedToPrivate?: boolean
 }
@@ -81,39 +100,55 @@ export async function initializeCommunityOnboarding({
 
   onProgress?.("creating-bots")
   if (!progress.botAId) {
+    const botAName = randomBotName()
+    const botAImage = randomBeamAvatar()
     const botA = await apiFetch<BotCreateResponse>("/api/community/bots", {
       method: "POST",
       body: JSON.stringify({
-        name: randomBotName(),
+        name: botAName,
         description: "Organizes the work and keeps collaborators aligned.",
         machineId,
         runtime,
-        image: randomBeamAvatar(),
+        image: botAImage,
       }),
     })
-    save({ botAId: botA.bot.id })
+    save({
+      botAId: botA.bot.id,
+      botAName: botA.bot.name ?? botAName,
+      botAImage: botA.bot.image ?? botAImage,
+    })
   }
   if (!progress.botBId) {
+    const botBName = randomBotName()
+    const botBImage = randomBeamAvatar()
     const botB = await apiFetch<BotCreateResponse>("/api/community/bots", {
       method: "POST",
       body: JSON.stringify({
-        name: randomBotName(),
+        name: botBName,
         description: "Executes the work and reports concrete results.",
         machineId,
         runtime,
-        image: randomBeamAvatar(),
+        image: botBImage,
       }),
     })
-    save({ botBId: botB.bot.id })
+    save({
+      botBId: botB.bot.id,
+      botBName: botB.bot.name ?? botBName,
+      botBImage: botB.bot.image ?? botBImage,
+    })
   }
 
   onProgress?.("creating-room")
   if (!progress.serverId) {
+    const serverName = onboardingRoomName(userName, identity)
     const createdServer = await apiFetch<ServerCreateResponse>("/api/community/servers", {
       method: "POST",
-      body: JSON.stringify({ name: onboardingRoomName(userName, identity) }),
+      body: JSON.stringify({ name: serverName }),
     })
-    save({ serverId: createdServer.server.id })
+    save({
+      serverId: createdServer.server.id,
+      serverName: createdServer.server.name ?? serverName,
+    })
   }
 
   const { botAId, botBId, serverId } = progress

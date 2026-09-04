@@ -13,7 +13,11 @@ export default function MeMachinesPage() {
   const onboardingPreview = searchParams.get("onboarding-preview")
   const showOnboardingPreview =
     process.env.NODE_ENV !== "production"
-    && (onboardingPreview === "1" || onboardingPreview === "online")
+    && (
+      onboardingPreview === "1"
+      || onboardingPreview === "online"
+      || onboardingPreview === "setting-up"
+    )
   return (
     <>
       <MachineList
@@ -22,6 +26,7 @@ export default function MeMachinesPage() {
       {showOnboardingPreview ? (
         <OnboardingSelectDialogPreview
           simulateOnlineMachine={onboardingPreview === "online"}
+          showSettingUp={onboardingPreview === "setting-up"}
         />
       ) : null}
     </>
