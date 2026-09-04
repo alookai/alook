@@ -1,7 +1,7 @@
 import { createElement, type ReactNode } from "react"
 import TestRenderer, { act } from "react-test-renderer"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { ServerRail, ServerRailSkeleton } from "./server-rail"
+import { ServerRail, ServerRailPending, ServerRailSkeleton } from "./server-rail"
 import { tid } from "@/lib/community/testids"
 import type { RailInstruction } from "@/lib/community/server-rail-model"
 
@@ -132,8 +132,94 @@ describe("ServerRail one-in-flight structural guard", () => {
     })
     expect(renderer.root.findByProps({ "data-testid": tid.initialRailPending }))
       .toBeDefined()
-    expect(renderer.root.findAllByType("skeleton")).toHaveLength(4)
+    expect(renderer.root.findAllByType("skeleton")).toHaveLength(1)
     expect(renderer.root.findAllByType("button")).toHaveLength(0)
+  })
+
+  it("uses the canonical rail frame for pending home, list, and add geometry", async () => {
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(createElement(ServerRailPending, { bottomInset: 60 }))
+    })
+    const nav = renderer.root.findByType("nav")
+    expect(nav.props.className).toBe(
+      "flex min-h-0 w-14 shrink-0 flex-col items-center overflow-hidden pt-2",
+    )
+    expect(nav.props["aria-hidden"]).toBe(true)
+    expect(renderer.root.findAllByType("skeleton")).toHaveLength(2)
+    expect(renderer.root.findAllByType("button")).toHaveLength(0)
+    const home = renderer.root.findByProps({ "data-slot": "community-home-logo-pending" })
+    expect(home.props.className).toContain("size-10")
+    expect(home.props.className).toContain("rounded-[9px]")
+    expect(home.props.className).not.toContain("rounded-[20px]")
+    expect(renderer.root.findByProps({ "data-slot": "community-server-rail-viewport" }).props.className)
+      .toContain("min-h-0 w-full flex-1")
+    expect(renderer.root.findByProps({ "data-testid": tid.serverRailScroll }).props.className)
+      .toContain("shrink overflow-y-auto")
+    expect(renderer.root.findAllByProps({ "data-slot": "community-server-rail-add" }))
+      .toHaveLength(0)
+  })
+
+  it.each([
+    ["empty", 0],
+    ["one", 1],
+    ["multiple", 6],
+    ["overflow", 48],
+  ] as const)("keeps one count-independent viewport around a %s server list", async (_label, count) => {
+    const cardinalityServers = Array.from({ length: count }, (_, index) => ({
+      id: `server-${index}`,
+      name: `Server ${index}`,
+      initial: "S",
+      active: index === 0,
+      unread: false,
+      mentions: 0,
+    }))
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(createElement(ServerRail, {
+        servers: cardinalityServers,
+        folders: [],
+        view: "server",
+        onHome: vi.fn(),
+      }))
+    })
+
+    expect(renderer.root.findAllByProps({ "data-slot": "community-server-rail-viewport" }))
+      .toHaveLength(1)
+    expect(renderer.root.findByProps({ "data-slot": "community-server-rail-viewport" }).props.className)
+      .toBe("flex min-h-0 w-full flex-1 flex-col items-center")
+    expect(renderer.root.findAllByType("sortable-server")).toHaveLength(count)
+    expect(renderer.root.findByProps({ "data-testid": tid.serverRailScroll }).props.className)
+      .toContain("min-h-0 w-full shrink overflow-y-auto")
+    expect(renderer.root.findAllByProps({ "data-slot": "community-server-rail-add" }))
+      .toHaveLength(1)
+  })
+
+  it("omits Add for unresolved empty data and keeps it for nonempty revalidation", async () => {
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(createElement(ServerRail, {
+        servers: [],
+        folders: [],
+        serversLoading: true,
+        view: "dm",
+        onHome: vi.fn(),
+      }))
+    })
+    expect(renderer.root.findAllByProps({ "data-slot": "community-server-rail-add" }))
+      .toHaveLength(0)
+
+    await act(async () => {
+      renderer.update(createElement(ServerRail, {
+        servers: [servers[0]],
+        folders: [],
+        serversLoading: true,
+        view: "dm",
+        onHome: vi.fn(),
+      }))
+    })
+    expect(renderer.root.findAllByProps({ "data-slot": "community-server-rail-add" }))
+      .toHaveLength(1)
   })
 
   it("aggregates unread only while collapsed and preserves it on the expanded child", async () => {

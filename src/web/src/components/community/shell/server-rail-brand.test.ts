@@ -18,7 +18,7 @@ describe("ServerRail Home brand mark", () => {
     expect(source).not.toContain("alook-dark.svg")
   })
 
-  it("lets Add follow short lists while only the server list shrinks on overflow", () => {
+  it("pins Add while the server list shrinks only when its content exceeds the remaining space", () => {
     const source = readFileSync(new URL("./server-rail.tsx", import.meta.url), "utf8")
 
     const scrollViewport =
@@ -31,6 +31,7 @@ describe("ServerRail Home brand mark", () => {
     expect(source).toContain(addRegion)
     expect(source).toContain('"--community-rail-bottom-inset": `${bottomInset ?? 8}px`')
     expect(source.indexOf(scrollViewport)).toBeLessThan(source.indexOf(addRegion))
+    expect(scrollViewport).toContain("shrink")
     expect(scrollViewport).not.toContain("flex-1")
     expect(source).not.toContain("pb-2 overflow-y-auto overflow-x-clip thin-scrollbar")
   })

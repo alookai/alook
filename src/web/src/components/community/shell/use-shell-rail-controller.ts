@@ -171,7 +171,7 @@ export function useShellRailController({
       servers: railServers,
       folders,
       activeServerId: projectedActiveServerId,
-      serversLoading: serversQuery.isLoading,
+      serversLoading: serversQuery.isPending,
       view: projectedView,
       onHome,
       onHomePrefetch,

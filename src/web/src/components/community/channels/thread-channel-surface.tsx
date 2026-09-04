@@ -6,10 +6,10 @@ import { toastApiError, apiFetch } from "@/lib/api/client"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
 import { useEditMessage, useToggleReactionApi } from "@/hooks/community/mutations"
-import { ChannelHeader, ChannelHeaderSkeleton, type ChannelNotifLevel } from "@/components/community/channels/channel-header"
+import { ChannelHeader, type ChannelNotifLevel } from "@/components/community/channels/channel-header"
 import { ChannelShell } from "@/components/community/channels/channel-shell"
 import { CommunityPanel } from "@/components/community/shell/community-panel"
-import { Composer, ComposerSkeleton } from "@/components/community/messages/composer"
+import { Composer } from "@/components/community/messages/composer"
 import { MessageChannelController } from "@/components/community/messages/message-channel-controller"
 import { MessagePaneNavigationProvider } from "@/components/community/messages/message-pane-navigation"
 import { MessageContextSheet } from "@/components/community/messages/message-context-sheet"
@@ -160,18 +160,6 @@ export function ThreadChannelSurface({
           }
         }
       : undefined
-
-  if (feed.isLoading) {
-    return (
-      <>
-        <ChannelHeaderSkeleton />
-        <Body className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <MessageList key={channelId} channel="" messages={[]} loading onOpenThread={ignoreNestedThread} />
-          <ComposerSkeleton />
-        </Body>
-      </>
-    )
-  }
 
   const opener = parentMessageId && !parentIsForum ? (
     <ThreadOpener

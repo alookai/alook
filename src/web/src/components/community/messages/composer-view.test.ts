@@ -477,7 +477,7 @@ describe("ComposerView", () => {
     const skeletons = renderer.root.findAllByType("skeleton")
     expect(skeletons).toHaveLength(4)
     expect(skeletons.map((node) => node.props.className)).toEqual([
-      "h-5 w-2/5 rounded",
+      "h-6 w-2/5 rounded",
       "absolute left-2 bottom-2 size-8 rounded-full",
       "absolute right-12 bottom-2 size-8 rounded-full sm:right-2",
       "absolute right-2 bottom-2 size-8 rounded-full sm:hidden",

@@ -18,4 +18,14 @@ describe("ChannelHeaderSkeleton", () => {
     expect(html).not.toContain("<button")
     expect(html).not.toContain('aria-label="Back"')
   })
+
+  it.each([
+    [{}, 6],
+    [{ kind: "forum" as const }, 5],
+    [{ kind: "thread" as const, compactActions: true }, 5],
+  ])("reserves the authoritative action footprint for %o", (props, skeletonCount) => {
+    const html = renderToStaticMarkup(createElement(ChannelHeaderSkeleton, props))
+    expect(html.match(/data-slot="skeleton"/g)).toHaveLength(skeletonCount)
+    if (props.compactActions) expect(html).not.toContain("h-5 w-px")
+  })
 })

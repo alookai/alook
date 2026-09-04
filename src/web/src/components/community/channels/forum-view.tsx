@@ -558,16 +558,19 @@ function ForumListSkeleton() {
 export function ForumViewSkeleton() {
   return (
     <>
-      <div className="flex min-w-0 shrink-0 items-center gap-2 overflow-hidden border-b border-border px-4 py-2">
+      <div
+        data-testid={tid.forumFilterBar}
+        className="flex min-w-0 shrink-0 items-center gap-2 overflow-hidden border-b border-border px-4 py-2"
+      >
         <div className="relative min-w-0 flex-1">
           <div
             aria-hidden
-            className="pointer-events-none flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain thin-scrollbar scrollbar-none sm:flex-wrap sm:overflow-x-visible"
+            className="pointer-events-none flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain thin-scrollbar scrollbar-none"
           >
-            <Skeleton className="h-7 w-10 shrink-0 rounded-full" />
-            <Skeleton className="h-7 w-16 shrink-0 rounded-full" />
-            <Skeleton className="h-7 w-14 shrink-0 rounded-full" />
-            <Skeleton className="h-7 w-20 shrink-0 rounded-full" />
+            <Skeleton className="h-7 w-10 shrink-0 rounded-lg" />
+            <Skeleton className="h-7 w-16 shrink-0 rounded-lg" />
+            <Skeleton className="h-7 w-14 shrink-0 rounded-lg" />
+            <Skeleton className="h-7 w-20 shrink-0 rounded-lg" />
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">

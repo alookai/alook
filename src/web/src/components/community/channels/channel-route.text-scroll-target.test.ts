@@ -20,6 +20,8 @@ const {
   mockSplitMode,
   mockSplitParentSurface,
   mockCommitLastCommunityRoute,
+  mockNavigationGate,
+  mockCurrentChannelId,
 } = vi.hoisted(() => ({
   mockRouter: { push: vi.fn(), replace: vi.fn(), back: vi.fn() },
   mockUiHandlers: { replacePath: vi.fn(), goBackMobile: vi.fn() },
@@ -31,6 +33,8 @@ const {
   mockSplitMode: { value: "full" as "split" | "full" },
   mockSplitParentSurface: vi.fn(() => null),
   mockCommitLastCommunityRoute: vi.fn(),
+  mockNavigationGate: { allowed: true },
+  mockCurrentChannelId: { value: "channel_1" as string | null },
   mockRouteModel: {
     server: {
       id: "server_1",
@@ -71,7 +75,7 @@ vi.mock("next/navigation", () => ({
 }))
 vi.mock("@tanstack/react-query", () => ({ useQueryClient: () => ({}) }))
 vi.mock("@/lib/community/conversation-navigation-proof", () => ({
-  useConversationNavigationGate: () => ({ required: false, allowed: true }),
+  useConversationNavigationGate: () => ({ required: false, allowed: mockNavigationGate.allowed }),
 }))
 vi.mock("sonner", () => ({ toast: vi.fn() }))
 vi.mock("@/lib/api/client", () => ({ apiFetch: vi.fn(), toastApiError: vi.fn() }))
@@ -140,7 +144,7 @@ vi.mock("@/stores/community", () => {
   )
   return {
     useCommunityStore,
-    useCurrentChannelId: () => "channel_1",
+    useCurrentChannelId: () => mockCurrentChannelId.value,
     useUiHandlers: () => mockUiHandlers,
     useTypingUsersForScope: () => [],
     useTypingNamesForScope: () => ({}),
@@ -283,6 +287,8 @@ describe("ChannelRoute message surface ownership", () => {
     mockHeaderServerNavigate.current = undefined
     mockHeaderParentNavigate.current = undefined
     mockCommitLastCommunityRoute.mockClear()
+    mockNavigationGate.allowed = true
+    mockCurrentChannelId.value = "channel_1"
     Object.assign(mockRouteModel, {
       server: {
         id: "server_1",
@@ -321,6 +327,56 @@ describe("ChannelRoute message surface ownership", () => {
       lifecycle: "pending",
     })
     expect(mockCommitLastCommunityRoute).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["pending", true],
+    ["ready", false],
+  ] as const)("keeps %s metadata neutral while access=%s", (routeLifecycle, accessAllowed) => {
+    Object.assign(mockRouteModel, {
+      channel: { id: "channel_1", name: "cached-forum", type: "forum" },
+      isForum: true,
+      routeLifecycle,
+    })
+    mockNavigationGate.allowed = accessAllowed
+    mockedUseChannelMessageFeed.mockReturnValue(feed())
+
+    let renderer!: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(React.createElement(ChannelRoute, {
+        serverParam: "server_1",
+        channelId: "channel_1",
+      }))
+    })
+
+    expect(renderer.root.findByProps({
+      "data-community-conversation-subtype": "unknown",
+    })).toBeDefined()
+    expect(mockedForumChannelSurface).not.toHaveBeenCalled()
+    expect(mockedMessageList).not.toHaveBeenCalled()
+  })
+
+  it("mounts authoritative split geometry before a thread body is active", () => {
+    configureThreadRoute()
+    mockSplitMode.value = "split"
+    mockCurrentChannelId.value = null
+    mockedUseChannelMessageFeed.mockReturnValue(feed())
+
+    let renderer!: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(React.createElement(ChannelRoute, {
+        serverParam: "server_1",
+        channelId: "channel_1",
+      }))
+    })
+
+    expect(renderer.root.findByProps({ "data-testid": "community-thread-split" }).props["data-layout"])
+      .toBe("split")
+    expect(renderer.root.findByProps({ "data-testid": "community-thread-split-parent" }))
+      .toBeDefined()
+    expect(renderer.root.findByProps({ "data-testid": "community-thread-split-panel" }))
+      .toBeDefined()
+    expect(mockedUseChannelMessageFeed).not.toHaveBeenCalled()
   })
 
   it("commits only a ready channel route for the active account", () => {

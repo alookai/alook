@@ -24,7 +24,14 @@ import { MessageHeader, MessageHeaderMobileBack } from "./message-header"
 // Skeleton header for the loading frame between route change and channel
 // metadata arriving. Same h-12 footprint as <ChannelHeader> so the body below
 // doesn't shift when the real header lands.
-export function ChannelHeaderSkeleton() {
+export function ChannelHeaderSkeleton({
+  kind = "text",
+  compactActions = false,
+}: {
+  kind?: EntityKind
+  compactActions?: boolean
+} = {}) {
+  const actionCount = compactActions || kind === "forum" ? 2 : 3
   return (
     <MessageHeader
       leading={(
@@ -45,10 +52,14 @@ export function ChannelHeaderSkeleton() {
       )}
       actions={(
         <>
-          <Skeleton className="size-7 rounded-md" />
-          <span className="mx-1 h-5 w-px bg-border/60" aria-hidden />
-          <Skeleton className="size-7 rounded-md" />
-          <Skeleton className="ml-1 size-7 rounded-md" />
+          {Array.from({ length: actionCount }).map((_, index) => (
+            <span key={index} className="contents">
+              {!compactActions && index === 1 && (
+                <span className="mx-1 h-5 w-px bg-border/60" aria-hidden />
+              )}
+              <Skeleton className={index > 1 ? "ml-1 size-7 rounded-md" : "size-7 rounded-md"} />
+            </span>
+          ))}
         </>
       )}
     />

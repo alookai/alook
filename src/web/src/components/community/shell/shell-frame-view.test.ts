@@ -16,7 +16,10 @@ vi.mock("react-resizable-panels", () => ({
 }))
 vi.mock("@/components/ui/resizable", () => ({
   ResizablePanelGroup: (props: Record<string, unknown>) => createElement("panel-group", props),
-  ResizablePanel: (props: Record<string, unknown>) => createElement("panel", props),
+  ResizablePanel: (props: Record<string, unknown>) => createElement(
+    "panel",
+    { "data-slot": "resizable-panel", "data-testid": props.id, ...props },
+  ),
   ResizableHandle: (props: Record<string, unknown>) => createElement("panel-handle", props),
 }))
 vi.mock("@/components/ui/app-surface", () => ({
@@ -249,6 +252,12 @@ describe("ShellFrameView", () => {
     expect(renderer.root.findAllByType("server-rail")).toHaveLength(1)
     expect(renderer.root.findAllByType("user-bar")).toHaveLength(1)
     const mobileSidebarPanel = renderer.root.findAllByType("panel")[0]!
+    expect(mobileSidebarPanel.props["data-slot"]).toBe("resizable-panel")
+    expect(mobileSidebarPanel.props["data-testid"]).toBe("sidebar")
+    expect(renderer.root.findAllByType("panel")[1]!.props).toMatchObject({
+      "data-slot": "resizable-panel",
+      "data-testid": "main",
+    })
     expect(mobileSidebarPanel.props.className).toContain("pb-15")
     const mobileUserBarOverlay = renderer.root.findByProps({
       "data-slot": "community-user-bar-overlay",

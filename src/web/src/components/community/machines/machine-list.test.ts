@@ -62,7 +62,11 @@ vi.mock("./guide-me-avatar-motion", () => ({
   GuideMeAvatarMotion: (props: Record<string, unknown>) =>
     React.createElement("guide-avatar-motion", props),
 }))
-vi.mock("./machine-card", () => ({ MachineCard: () => null }))
+vi.mock("./machine-card", () => ({
+  MachineCard: () => null,
+  MachineCardFrame: ({ children }: React.PropsWithChildren) =>
+    React.createElement("machine-card-frame", {}, children),
+}))
 vi.mock("./pair-machine-sheet", () => ({ PairMachineSheet: () => null }))
 vi.mock("@/components/community/onboarding-tiles/connect-tile", () => ({ ConnectTile: () => null }))
 vi.mock("@/hooks/community/use-machines", () => ({

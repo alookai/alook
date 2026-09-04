@@ -243,7 +243,7 @@ export function ComposerSkeleton() {
   return (
     <div className="relative px-3 pb-3 pt-0">
       <div className="relative rounded-xl bg-muted py-3 pl-12 pr-24 shadow-(--e1) ring-1 ring-border/40 sm:px-12">
-        <Skeleton className="h-5 w-2/5 rounded" />
+        <Skeleton className="h-6 w-2/5 rounded" />
         <Skeleton className="absolute left-2 bottom-2 size-8 rounded-full" />
         <Skeleton className="absolute right-12 bottom-2 size-8 rounded-full sm:right-2" />
         <Skeleton className="absolute right-2 bottom-2 size-8 rounded-full sm:hidden" />

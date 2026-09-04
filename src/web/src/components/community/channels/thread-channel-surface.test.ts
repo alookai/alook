@@ -307,15 +307,24 @@ describe("ThreadChannelSurface ownership", () => {
     expect(mocks.setReplyTo).toHaveBeenCalledWith(null)
   })
 
-  it("keeps loading inert and restores direct hierarchy controls on body error", () => {
+  it("keeps authoritative thread chrome mounted across body loading and error", () => {
     const props = surfaceProps()
     mockedUseChannelMessageFeed.mockReturnValue(feed({ isLoading: true }))
     let renderer!: TestRenderer.ReactTestRenderer
     act(() => {
       renderer = TestRenderer.create(React.createElement(ThreadChannelSurface, props))
     })
-    expect(mockedChannelHeaderSkeleton.mock.calls.at(-1)![0]).not.toHaveProperty("onBack")
-    expect(mockedChannelHeader).not.toHaveBeenCalled()
+    expect(mockedChannelHeaderSkeleton).not.toHaveBeenCalled()
+    expect(mockedChannelHeader).toHaveBeenCalledWith(expect.objectContaining({
+      channel: "Thread name",
+      kind: "thread",
+      mobileBack: props.onNavigateParent,
+    }), undefined)
+    expect(mockedMessageList).toHaveBeenCalledWith(expect.objectContaining({
+      channel: "Thread name",
+      loading: true,
+    }), undefined)
+    expect(mockedComposer).toHaveBeenCalled()
 
     mockedUseChannelMessageFeed.mockReturnValue(feed({ isLoading: false, isError: true }))
     act(() => renderer.update(React.createElement(ThreadChannelSurface, props)))
