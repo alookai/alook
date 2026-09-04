@@ -7,8 +7,18 @@ vi.mock("@/components/ui/skeleton", () => ({
   Skeleton: (props: Record<string, unknown>) => createElement("skeleton", props),
 }))
 vi.mock("@/components/ui/app-surface", () => ({
-  AppBackground: (props: Record<string, unknown>) => createElement("app-background", props),
   AppSurface: (props: Record<string, unknown>) => createElement("app-surface", props),
+}))
+vi.mock("react-resizable-panels", () => ({
+  useDefaultLayout: () => ({ defaultLayout: { sidebar: 24, main: 76 }, onLayoutChanged: vi.fn() }),
+}))
+vi.mock("@/components/ui/resizable", () => ({
+  ResizablePanelGroup: (props: Record<string, unknown>) => createElement("panel-group", props),
+  ResizablePanel: (props: Record<string, unknown>) => createElement("panel", props),
+  ResizableHandle: (props: Record<string, unknown>) => createElement("panel-handle", props),
+}))
+vi.mock("@/hooks/use-mobile", () => ({
+  useBreakpoint: () => "unknown",
 }))
 vi.mock("@/components/community/channels/channel-sidebar", () => ({
   ChannelSidebarSkeleton: (props: Record<string, unknown>) => createElement("server-sidebar", props),
@@ -17,7 +27,15 @@ vi.mock("@/components/community/channels/dm-sidebar", () => ({
   DmSidebarSkeleton: (props: Record<string, unknown>) => createElement("me-sidebar", props),
 }))
 vi.mock("./server-rail", () => ({
-  ServerRailSkeleton: (props: Record<string, unknown>) => createElement("rail-skeleton", props),
+  ServerRailPending: (props: Record<string, unknown>) => createElement(
+    "rail-skeleton",
+    props,
+    createElement("skeleton"),
+    createElement("skeleton"),
+  ),
+}))
+vi.mock("./shell", () => ({
+  Shell: (props: Record<string, unknown>) => createElement("shell-root", props),
 }))
 vi.mock("./user-bar", () => ({
   UserBarSkeleton: (props: Record<string, unknown>) => createElement("user-bar-skeleton", props),

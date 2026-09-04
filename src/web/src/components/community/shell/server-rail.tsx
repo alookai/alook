@@ -8,6 +8,8 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type ReactNode,
+  type Ref,
 } from "react"
 import { Plus } from "lucide-react"
 import { announce, cleanup as cleanupLiveRegion } from "@atlaskit/pragmatic-drag-and-drop-live-region"
@@ -40,6 +42,57 @@ import {
 } from "@/lib/community-onboarding"
 
 const DRAG_INSTRUCTIONS_ID = "server-rail-drag-instructions"
+
+function ServerRailFrame({
+  home,
+  items,
+  add,
+  bottomInset,
+  scrollRef,
+  ariaLabel,
+  ariaHidden,
+  children,
+}: {
+  home: ReactNode
+  items: ReactNode
+  add: ReactNode
+  bottomInset?: number
+  scrollRef?: Ref<HTMLDivElement>
+  ariaLabel?: string
+  ariaHidden?: boolean
+  children?: ReactNode
+}) {
+  return (
+    <nav
+      aria-label={ariaLabel}
+      aria-hidden={ariaHidden || undefined}
+      className="flex min-h-0 w-14 shrink-0 flex-col items-center overflow-hidden pt-2"
+    >
+      <div className="flex w-full shrink-0 flex-col items-center gap-2">
+        {home}
+        <div className="my-1 w-6 border-t border-border/50" />
+      </div>
+
+      <div
+        ref={scrollRef}
+        data-testid={tid.serverRailScroll}
+        className="min-h-0 w-full flex-1 overflow-y-auto overflow-x-clip py-2 thin-scrollbar scrollbar-none"
+      >
+        {items}
+      </div>
+
+      <div
+        className="flex w-full shrink-0 justify-center pb-[calc(var(--community-rail-bottom-inset)+var(--app-safe-area-bottom))] sm:pb-(--community-rail-bottom-inset)"
+        style={{
+          "--community-rail-bottom-inset": `${bottomInset ?? 8}px`,
+        } as CSSProperties}
+      >
+        {add}
+      </div>
+      {children}
+    </nav>
+  )
+}
 
 function reconcileCreatedFolders(
   state: RailState,
@@ -313,130 +366,118 @@ export const ServerRail = memo(function ServerRail({
     .map((serverId) => serverById.get(serverId))
     .filter((server): server is Server => !!server)
 
-  return (
-    <nav aria-label="Server navigation" className="flex min-h-0 w-14 shrink-0 flex-col items-center overflow-hidden pt-2">
-      <span id={DRAG_INSTRUCTIONS_ID} className="sr-only">
-        Press Space to pick up a server or group. Use the arrow keys to choose a position,
-        Space or Enter to drop, and Escape to cancel.
-      </span>
-      <div className="flex w-full shrink-0 flex-col items-center gap-2">
-        <Tooltip>
-          <TooltipTrigger render={<div className="group relative flex w-full justify-center" />}>
-            <span className={[
-              "absolute left-0 top-1/2 w-1 -translate-y-1/2 rounded-r-full bg-foreground transition-all duration-150",
-              view === "dm" ? "h-8" : "h-0 group-hover:h-5",
-            ].join(" ")} />
-            <button
-              onClick={onHome}
-              onPointerEnter={onHomePrefetch}
-              onFocus={onHomePrefetch}
-              aria-label="Home"
-              data-testid={tid.homeButton}
-              className="group/alook grid size-10 shrink-0 place-items-center rounded-[20px] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-            >
-              <AnimatedAlookLogo className="size-10" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="right" sideOffset={8}>Home</TooltipContent>
-        </Tooltip>
-        <div className="my-1 w-6 border-t border-border/50" />
-      </div>
-
-      <div
-        ref={scrollRef}
-        data-testid={tid.serverRailScroll}
-        className="min-h-0 w-full shrink overflow-y-auto overflow-x-clip py-2 thin-scrollbar scrollbar-none"
-      >
-        {serversLoading && servers.length === 0 && folders.length === 0 ? (
-          <ServerRailSkeleton />
-        ) : (
-          <div className="flex w-full flex-col items-center gap-2">
-            {visibleTopLevelServers(state).map((serverId) => {
-              const server = serverById.get(serverId)
-              if (!server) return null
-              return (
-                <SortableServer
-                  key={serverId}
-                  server={server}
-                  active={view !== "dm" && activeId === serverId}
-                  onClick={() => pickServer(serverId)}
-                  onPrefetch={() => onServerPrefetch?.(serverId)}
-                  onLeave={() => onLeaveServer?.(serverId)}
-                  onOpenSettings={() => onOpenSettings?.(serverId)}
-                  onOpenInvitePopover={onOpenInvitePopover ? () => onOpenInvitePopover(serverId) : undefined}
-                  dragging={dragging({ kind: "server", id: serverId })}
-                  preview={previewFor({ kind: "server", id: serverId })}
-                  registerItem={registerItem}
-                  dragDescriptionId={DRAG_INSTRUCTIONS_ID}
-                />
-              )
-            })}
-            {state.folderOrder.map((folderId) => {
-              const serversInFolder = folderServers(folderId)
-              const open = state.expanded.includes(folderId)
-                && !(dragSource?.kind === "folder" && dragSource.id === folderId)
-              return (
-                <div key={folderId} className="flex w-full flex-col items-center gap-2">
-                  <RailFolder
-                    folderId={folderId}
-                    name={folderNames.get(folderId) ?? "Group"}
-                    open={open}
-                    active={!open && serversInFolder.some((server) => server.id === activeId)}
-                    unread={!open && serversInFolder.some((server) => server.unread)}
-                    onToggle={() => setState((current) => {
-                      const collapsing = current.expanded.includes(folderId)
-                      if (mutationPendingRef.current) {
-                        if (collapsing) collapsedPendingFolderIdsRef.current.add(folderId)
-                        else collapsedPendingFolderIdsRef.current.delete(folderId)
-                      }
-                      return {
-                        ...current,
-                        expanded: collapsing
-                          ? current.expanded.filter((id) => id !== folderId)
-                          : [...current.expanded, folderId],
-                      }
-                    })}
-                    folderServers={serversInFolder}
-                    onUngroup={() => ungroupFolder(folderId)}
-                    dragging={dragging({ kind: "folder", id: folderId })}
-                    preview={previewFor({ kind: "folder", id: folderId })}
+  const home = (
+    <Tooltip>
+      <TooltipTrigger render={<div className="group relative flex w-full justify-center" />}>
+        <span className={[
+          "absolute left-0 top-1/2 w-1 -translate-y-1/2 rounded-r-full bg-foreground transition-all duration-150",
+          view === "dm" ? "h-8" : "h-0 group-hover:h-5",
+        ].join(" ")} />
+        <button
+          onClick={onHome}
+          onPointerEnter={onHomePrefetch}
+          onFocus={onHomePrefetch}
+          aria-label="Home"
+          data-testid={tid.homeButton}
+          className="group/alook grid size-10 shrink-0 place-items-center rounded-[20px] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        >
+          <AnimatedAlookLogo className="size-10" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right" sideOffset={8}>Home</TooltipContent>
+    </Tooltip>
+  )
+  const items = serversLoading && servers.length === 0 && folders.length === 0 ? (
+    <ServerRailSkeleton />
+  ) : (
+    <div className="flex w-full flex-col items-center gap-2">
+      {visibleTopLevelServers(state).map((serverId) => {
+        const server = serverById.get(serverId)
+        if (!server) return null
+        return (
+          <SortableServer
+            key={serverId}
+            server={server}
+            active={view !== "dm" && activeId === serverId}
+            onClick={() => pickServer(serverId)}
+            onPrefetch={() => onServerPrefetch?.(serverId)}
+            onLeave={() => onLeaveServer?.(serverId)}
+            onOpenSettings={() => onOpenSettings?.(serverId)}
+            onOpenInvitePopover={onOpenInvitePopover ? () => onOpenInvitePopover(serverId) : undefined}
+            dragging={dragging({ kind: "server", id: serverId })}
+            preview={previewFor({ kind: "server", id: serverId })}
+            registerItem={registerItem}
+            dragDescriptionId={DRAG_INSTRUCTIONS_ID}
+          />
+        )
+      })}
+      {state.folderOrder.map((folderId) => {
+        const serversInFolder = folderServers(folderId)
+        const open = state.expanded.includes(folderId)
+          && !(dragSource?.kind === "folder" && dragSource.id === folderId)
+        return (
+          <div key={folderId} className="flex w-full flex-col items-center gap-2">
+            <RailFolder
+              folderId={folderId}
+              name={folderNames.get(folderId) ?? "Group"}
+              open={open}
+              active={!open && serversInFolder.some((server) => server.id === activeId)}
+              unread={!open && serversInFolder.some((server) => server.unread)}
+              onToggle={() => setState((current) => {
+                const collapsing = current.expanded.includes(folderId)
+                if (mutationPendingRef.current) {
+                  if (collapsing) collapsedPendingFolderIdsRef.current.add(folderId)
+                  else collapsedPendingFolderIdsRef.current.delete(folderId)
+                }
+                return {
+                  ...current,
+                  expanded: collapsing
+                    ? current.expanded.filter((id) => id !== folderId)
+                    : [...current.expanded, folderId],
+                }
+              })}
+              folderServers={serversInFolder}
+              onUngroup={() => ungroupFolder(folderId)}
+              dragging={dragging({ kind: "folder", id: folderId })}
+              preview={previewFor({ kind: "folder", id: folderId })}
+              registerItem={registerItem}
+              dragDescriptionId={DRAG_INSTRUCTIONS_ID}
+            />
+            {open && serversInFolder.length > 0 && (
+              <div className="relative flex w-full flex-col items-center gap-2 py-1">
+                <span className="pointer-events-none absolute inset-y-0 left-1/2 w-12 -translate-x-1/2 rounded-[20px] bg-primary/10" />
+                {serversInFolder.map((server) => (
+                  <SortableServer
+                    key={server.id}
+                    server={server}
+                    active={view !== "dm" && activeId === server.id}
+                    onClick={() => pickServer(server.id)}
+                    onPrefetch={() => onServerPrefetch?.(server.id)}
+                    onOpenSettings={() => onOpenSettings?.(server.id)}
+                    onOpenInvitePopover={onOpenInvitePopover ? () => onOpenInvitePopover(server.id) : undefined}
+                    inFolder
+                    dragging={dragging({ kind: "server", id: server.id })}
+                    preview={previewFor({ kind: "server", id: server.id })}
                     registerItem={registerItem}
                     dragDescriptionId={DRAG_INSTRUCTIONS_ID}
                   />
-                  {open && serversInFolder.length > 0 && (
-                    <div className="relative flex w-full flex-col items-center gap-2 py-1">
-                      <span className="pointer-events-none absolute inset-y-0 left-1/2 w-12 -translate-x-1/2 rounded-[20px] bg-primary/10" />
-                      {serversInFolder.map((server) => (
-                        <SortableServer
-                          key={server.id}
-                          server={server}
-                          active={view !== "dm" && activeId === server.id}
-                          onClick={() => pickServer(server.id)}
-                          onPrefetch={() => onServerPrefetch?.(server.id)}
-                          onOpenSettings={() => onOpenSettings?.(server.id)}
-                          onOpenInvitePopover={onOpenInvitePopover ? () => onOpenInvitePopover(server.id) : undefined}
-                          inFolder
-                          dragging={dragging({ kind: "server", id: server.id })}
-                          preview={previewFor({ kind: "server", id: server.id })}
-                          registerItem={registerItem}
-                          dragDescriptionId={DRAG_INSTRUCTIONS_ID}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
+                ))}
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        )
+      })}
+    </div>
+  )
 
-      <div
-        className="flex w-full shrink-0 justify-center pb-[calc(var(--community-rail-bottom-inset)+var(--app-safe-area-bottom))] sm:pb-(--community-rail-bottom-inset)"
-        style={{
-          "--community-rail-bottom-inset": `${bottomInset ?? 8}px`,
-        } as CSSProperties}
-      >
+  return (
+    <ServerRailFrame
+      ariaLabel="Server navigation"
+      home={home}
+      items={items}
+      bottomInset={bottomInset}
+      scrollRef={scrollRef}
+      add={(
         <RailIcon
           label={<Plus className="size-6" />}
           round
@@ -450,17 +491,33 @@ export const ServerRail = memo(function ServerRail({
             if (guided) completeCommunityOnboarding()
           }}
         />
-      </div>
-
+      )}
+    >
+      <span id={DRAG_INSTRUCTIONS_ID} className="sr-only">
+        Press Space to pick up a server or group. Use the arrow keys to choose a position,
+        Space or Enter to drop, and Escape to cancel.
+      </span>
       {createOpen && (
         <CreateServerDialog
           onClose={() => setCreateOpen(false)}
           onCreateServer={(name, icon) => { onCreateServer?.(name, icon) }}
         />
       )}
-    </nav>
+    </ServerRailFrame>
   )
 })
+
+export function ServerRailPending({ bottomInset }: { bottomInset?: number }) {
+  return (
+    <ServerRailFrame
+      ariaHidden
+      bottomInset={bottomInset}
+      home={<Skeleton className="size-10 shrink-0 rounded-[20px]" />}
+      items={<ServerRailSkeleton />}
+      add={<Skeleton className="size-10 shrink-0 rounded-[20px]" />}
+    />
+  )
+}
 
 export function ServerRailSkeleton() {
   return (

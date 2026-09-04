@@ -103,14 +103,14 @@ function MessageListSkeletonContent({ variant }: { variant: "channel" | "dm" }) 
         {variant === "dm" ? (
           <>
             <Skeleton className="mb-3 size-16 rounded-full" />
-            <Skeleton className="h-7 w-48 rounded" />
-            <Skeleton className="mt-2 h-3.5 w-72 rounded" />
+            <Skeleton className="h-8 w-48 rounded" />
+            <Skeleton className="mt-2 h-5 w-72 rounded" />
           </>
         ) : (
           <>
             <Skeleton className="mb-2 size-12 rounded-full" />
-            <Skeleton className="h-5 w-40 rounded" />
-            <Skeleton className="mt-2 h-3.5 w-80 max-w-full rounded" />
+            <Skeleton className="h-7 w-40 rounded" />
+            <Skeleton className="mt-2 h-5 w-80 max-w-full rounded" />
           </>
         )}
       </div>

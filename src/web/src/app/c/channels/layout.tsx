@@ -373,7 +373,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     activeChannel: currentChannelMeta?.parentChannelId ?? currentChannelId ?? "",
     isAdmin,
     currentUserId: currentUser.id,
-    loading: !currentServer,
+    loading: !currentServer || forumSidebar.isLoading,
     setActiveChannel,
     prefetchChannel,
     forumThreadsByParent,
@@ -398,7 +398,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   }), [
     channelTree, currentServer, currentChannelMeta?.parentChannelId,
     currentChannelId, isAdmin, currentUser.id, setActiveChannel, prefetchChannel,
-    forumThreadsByParent, activeForumThreadId, setActiveForumThread,
+    forumThreadsByParent, forumSidebar.isLoading, activeForumThreadId, setActiveForumThread,
     onSidebarOpenSettings, onBlockedCreate, mutedChannels,
     onCreateChannelInSidebar, onCreateCategoryInSidebar, onRenameChannel,
     onDeleteChannelInSidebar, onDeleteCategoryInSidebar, onUpdateCategoryInSidebar,

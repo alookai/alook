@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo } from "react"
+import { useMemo, type ReactNode } from "react"
 import { Monitor, MoreVertical } from "lucide-react"
 import type { CommunityMachineSummary } from "@alook/shared"
 import { isPresenceOnline } from "@alook/shared"
@@ -17,6 +17,10 @@ import { timeAgo } from "@/lib/time"
 import { machineName } from "@/lib/community/machine-name"
 import { tid } from "@/lib/community/testids"
 import { MachineRuntimes } from "./machine-runtimes"
+
+export function MachineCardFrame({ children }: { children: ReactNode }) {
+  return <Card className="flex flex-col gap-3 p-4">{children}</Card>
+}
 
 export function MachineCard({
   machine,
@@ -35,7 +39,7 @@ export function MachineCard({
     [machine.lastSeenAt]
   )
   return (
-    <Card className="flex flex-col gap-3 p-4">
+    <MachineCardFrame>
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-3">
           <div className="grid size-10 place-items-center rounded-xl bg-secondary text-muted-foreground">
@@ -136,6 +140,6 @@ export function MachineCard({
           </Button>
         </div>
       )}
-    </Card>
+    </MachineCardFrame>
   )
 }

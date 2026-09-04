@@ -178,7 +178,9 @@ test.describe.serial("community initial-load module skeletons", () => {
       expect(traffic.requests).toEqual([])
       expect(traffic.sockets()).toBe(0)
       if (expected.main === "server-conversation") {
-        await expect(page.getByTestId(tid.messageHeaderLeadingLoading)).toBeVisible()
+        await expect(page.getByLabel("Resolving conversation")).toBeVisible()
+        await expect(page.getByTestId(tid.messageHeaderLeadingLoading)).toHaveCount(0)
+        await expect(page.getByTestId(tid.channelComposerShell)).toHaveCount(0)
         await expect(page.getByRole("button", { name: "Back" })).toHaveCount(0)
       }
       await closeHeldContext(context, gate)

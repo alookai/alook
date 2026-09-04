@@ -1,7 +1,7 @@
 import { createElement, type ReactNode } from "react"
 import TestRenderer, { act } from "react-test-renderer"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { ServerRail, ServerRailSkeleton } from "./server-rail"
+import { ServerRail, ServerRailPending, ServerRailSkeleton } from "./server-rail"
 import { tid } from "@/lib/community/testids"
 import type { RailInstruction } from "@/lib/community/server-rail-model"
 
@@ -134,6 +134,24 @@ describe("ServerRail one-in-flight structural guard", () => {
       .toBeDefined()
     expect(renderer.root.findAllByType("skeleton")).toHaveLength(4)
     expect(renderer.root.findAllByType("button")).toHaveLength(0)
+  })
+
+  it("uses the canonical rail frame for pending home, list, and add geometry", async () => {
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(createElement(ServerRailPending, { bottomInset: 60 }))
+    })
+    const nav = renderer.root.findByType("nav")
+    expect(nav.props.className).toBe(
+      "flex min-h-0 w-14 shrink-0 flex-col items-center overflow-hidden pt-2",
+    )
+    expect(nav.props["aria-hidden"]).toBe(true)
+    expect(renderer.root.findAllByType("skeleton")).toHaveLength(6)
+    expect(renderer.root.findAllByType("button")).toHaveLength(0)
+    expect(renderer.root.findByProps({ "data-testid": tid.serverRailScroll }).props.className)
+      .toContain("flex-1 overflow-y-auto")
+    expect(renderer.root.find((node) => node.props.style?.["--community-rail-bottom-inset"] === "60px"))
+      .toBeDefined()
   })
 
   it("aggregates unread only while collapsed and preserves it on the expanded child", async () => {

@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react"
 import { BotListSkeleton } from "@/components/community/bots/bot-list-view"
-import { ChannelLoadingFrame } from "@/components/community/channels/channel-loading-frame"
+import { ConversationResolutionPendingFrame } from "@/components/community/channels/conversation-resolution-pending-frame"
 import { DmLoadingFrame } from "@/components/community/channels/dm-loading-frame"
 import { MachineListSkeleton } from "@/components/community/machines/machine-list"
 import { FriendsPage } from "@/components/community/social/friends-page"
@@ -94,7 +94,7 @@ export function CommunityPendingFrame({
       content = <ServerLandingPendingFrame />
       break
     case "server-conversation":
-      content = <ChannelLoadingFrame />
+      content = <ConversationResolutionPendingFrame />
       break
     case "route-resolution":
       content = <RouteResolutionPendingFrame />

@@ -12,6 +12,7 @@ import { ThreadChannelSurface } from "@/components/community/channels/thread-cha
 import { ThreadSplitView } from "@/components/community/channels/thread-split-view"
 import { ThreadSplitParentSurface } from "@/components/community/channels/thread-split-parent-surface"
 import { ForumChannelSurface } from "@/components/community/channels/forum-channel-surface"
+import { ConversationResolutionPendingFrame } from "@/components/community/channels/conversation-resolution-pending-frame"
 import { useChannelMemberViewModel } from "@/components/community/members/channel-member-view-model"
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import { canManageServer, USE_SERVER_DEFAULT } from "@alook/shared"
@@ -38,6 +39,7 @@ import { useThreadSplitMode } from "@/hooks/community/use-thread-split-mode"
 import { useQueryClient } from "@tanstack/react-query"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { useConversationNavigationGate } from "@/lib/community/conversation-navigation-proof"
+import { resolveConversationSubtype } from "@/lib/community/conversation-subtype"
 
 const THREAD_VIEW_PARAM = "threadView"
 
@@ -198,11 +200,46 @@ export function ChannelRoute({ serverParam, channelId }: {
     routeModel.routeHydrated &&
     (!isForumPostChild || !forumPostOpener.isLoading) &&
     navigationGate.allowed
+  const subtype = resolveConversationSubtype({
+    routeLifecycle: routeModel.routeLifecycle,
+    accessAllowed: navigationGate.allowed,
+    isChild: isChildChannel,
+    isForum,
+  })
+  if (subtype === "unknown") return <ConversationResolutionPendingFrame />
   if (!channelHydrated) {
-    if (isForum) {
+    if (subtype === "thread") {
+      const split = threadSplit.mode === "split" && !!currentServer && !!parentChannelInServer
+      return (
+        <ThreadSplitView
+          containerRef={threadSplit.containerRef}
+          split={split}
+          parent={split ? (
+            <>
+              <ChannelHeaderSkeleton kind={isForumPostChild ? "forum" : "text"} />
+              <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+                {isForumPostChild
+                  ? <ForumViewSkeleton />
+                  : <MessageList channel="" messages={[]} loading onOpenThread={() => {}} />}
+              </main>
+            </>
+          ) : null}
+          thread={(
+            <>
+              <ChannelHeaderSkeleton kind="thread" compactActions={split} />
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+                <MessageList key={channelId} channel="" messages={[]} loading onOpenThread={() => {}} />
+                <ComposerSkeleton />
+              </div>
+            </>
+          )}
+        />
+      )
+    }
+    if (subtype === "forum") {
       return (
         <>
-          <ChannelHeaderSkeleton />
+          <ChannelHeaderSkeleton kind="forum" />
           <main className="flex min-h-0 min-w-0 flex-1 flex-col">
             <ForumViewSkeleton />
           </main>

@@ -11,8 +11,9 @@ vi.mock("@/components/community/bots/bot-list-view", () => ({
 vi.mock("@/components/community/social/friends-page", () => ({
   FriendsPage: (props: Record<string, unknown>) => createElement("friends-skeleton", props),
 }))
-vi.mock("@/components/community/channels/channel-loading-frame", () => ({
-  ChannelLoadingFrame: (props: Record<string, unknown>) => createElement("channel-skeleton", props),
+vi.mock("@/components/community/channels/conversation-resolution-pending-frame", () => ({
+  ConversationResolutionPendingFrame: (props: Record<string, unknown>) =>
+    createElement("conversation-resolution", props),
 }))
 vi.mock("@/components/community/channels/dm-loading-frame", () => ({
   DmLoadingFrame: (props: Record<string, unknown>) => createElement("dm-skeleton", props),
@@ -62,7 +63,7 @@ describe("CommunityPendingFrame", () => {
     expect(dm.root.findByType("dm-skeleton").props.reserveBackSlot).toBe(true)
 
     const channel = render("/c/channels/s1/c1")
-    expect(channel.root.findByType("channel-skeleton").props).toEqual({})
+    expect(channel.root.findByType("conversation-resolution").props).toEqual({})
 
     const serverRoot = render("/c/channels/s1")
     expect(serverRoot.root.findByProps({ "aria-label": "Loading server" }).props["aria-busy"])
@@ -73,7 +74,7 @@ describe("CommunityPendingFrame", () => {
     const renderer = render(["/c/channels/s1/c1", "extra"].join("/"))
     expect(renderer.root.findByProps({ "aria-label": "Resolving community route" }))
       .toBeDefined()
-    expect(renderer.root.findAllByType("channel-skeleton")).toHaveLength(0)
+    expect(renderer.root.findAllByType("conversation-resolution")).toHaveLength(0)
     expect(renderer.root.findAllByType("dm-skeleton")).toHaveLength(0)
   })
 })

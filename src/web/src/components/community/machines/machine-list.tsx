@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { toast } from "sonner"
 import { ChevronLeft } from "lucide-react"
@@ -12,7 +12,6 @@ import {
   SELF_UPDATE_MIN_DAEMON_VERSION,
 } from "@alook/shared"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   AlertDialog,
@@ -28,7 +27,7 @@ import { apiFetch, getErrorMessage } from "@/lib/api/client"
 import { fetchLatestDaemonVersion } from "@/lib/api/config"
 import { getAppMode } from "@/lib/utils"
 import { machineName } from "@/lib/community/machine-name"
-import { MachineCard } from "./machine-card"
+import { MachineCard, MachineCardFrame } from "./machine-card"
 import { PairMachineSheet, type PairMachineSheetMode } from "./pair-machine-sheet"
 import { ConnectTile } from "@/components/community/onboarding-tiles/connect-tile"
 import { useMachines, type MachinesResponse } from "@/hooks/community/use-machines"
@@ -51,19 +50,28 @@ import { GuideMeAvatarMotion } from "./guide-me-avatar-motion"
 // data lands — replaces the old structureless muted box.
 function MachineCardSkeleton() {
   return (
-    <Card className="flex flex-col gap-3 p-4">
+    <MachineCardFrame>
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-3">
           <Skeleton className="size-10 shrink-0 rounded-xl" />
-          <div className="flex flex-col gap-2 py-0.5">
-            <Skeleton className="h-3.5 w-32 rounded" />
-            <Skeleton className="h-3 w-44 rounded" />
-            <Skeleton className="h-3 w-24 rounded" />
+          <div className="flex flex-col gap-1">
+            <Skeleton className="h-6 w-32 rounded" />
+            <Skeleton className="h-4 w-44 rounded" />
+            <Skeleton className="h-4 w-24 rounded" />
           </div>
         </div>
         <Skeleton className="size-8 shrink-0 rounded-md" />
       </div>
-    </Card>
+    </MachineCardFrame>
+  )
+}
+
+function MachineListContent({ heading, cards }: { heading: ReactNode; cards: ReactNode }) {
+  return (
+    <div className="flex flex-1 flex-col gap-6 overflow-y-auto p-6 thin-scrollbar">
+      {heading}
+      <div className="flex flex-col gap-3">{cards}</div>
+    </div>
   )
 }
 
@@ -97,20 +105,24 @@ export function MachineListSkeleton({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {machineBackBar(undefined, reserveBackSlot || Boolean(onBack))}
-      <div className="flex flex-1 flex-col gap-6 overflow-y-auto p-6 thin-scrollbar">
-        <header className="flex items-center justify-between">
-          <div className="flex min-w-0 flex-1 flex-col gap-1">
-            <Skeleton className="h-6 w-24 rounded" />
-            <Skeleton className="h-4 w-full max-w-56 rounded" />
-          </div>
-          <Skeleton className="h-9 w-36 rounded-md" />
-        </header>
-        <div className="flex flex-col gap-3">
+      <MachineListContent
+        heading={(
+          <header className="flex items-center justify-between">
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
+              <Skeleton className="h-7 w-24 rounded" />
+              <Skeleton className="h-5 w-full max-w-56 rounded" />
+            </div>
+            <Skeleton className="h-9 w-36 rounded-md" />
+          </header>
+        )}
+        cards={(
+          <>
           <MachineCardSkeleton />
           <MachineCardSkeleton />
           <MachineCardSkeleton />
-        </div>
-      </div>
+          </>
+        )}
+      />
     </div>
   )
 }
@@ -408,36 +420,36 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {backBar}
-      <div className="flex flex-1 flex-col gap-6 overflow-y-auto p-6 thin-scrollbar">
-        <header className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-medium text-foreground">Machines</h1>
-            <p className="text-sm text-muted-foreground">
-              Your computers running the alook daemon.
-            </p>
-          </div>
-          <div data-onboarding-target="connect-machine" className="w-fit">
-            <Button data-testid={tid.machinePairOpen} onClick={openPair}>
-              Connect a machine
-            </Button>
-          </div>
-        </header>
-        <div className="flex flex-col gap-3">
-          {machines.map((m) => (
-            <MachineCard
-              key={m.id}
-              machine={m}
-              onDelete={() => setConfirmDelete(m)}
-              onReconnect={() => openReconnect(m)}
-              onUpdate={
-                canUpdateMachine(m, latestVersion, controllerMode)
-                  ? () => setConfirmUpdate(m)
-                  : undefined
-              }
-            />
-          ))}
-        </div>
-      </div>
+      <MachineListContent
+        heading={(
+          <header className="flex items-center justify-between">
+            <div>
+              <h1 className="text-xl font-medium text-foreground">Machines</h1>
+              <p className="text-sm text-muted-foreground">
+                Your computers running the alook daemon.
+              </p>
+            </div>
+            <div data-onboarding-target="connect-machine" className="w-fit">
+              <Button data-testid={tid.machinePairOpen} onClick={openPair}>
+                Connect a machine
+              </Button>
+            </div>
+          </header>
+        )}
+        cards={machines.map((m) => (
+          <MachineCard
+            key={m.id}
+            machine={m}
+            onDelete={() => setConfirmDelete(m)}
+            onReconnect={() => openReconnect(m)}
+            onUpdate={
+              canUpdateMachine(m, latestVersion, controllerMode)
+                ? () => setConfirmUpdate(m)
+                : undefined
+            }
+          />
+        ))}
+      />
       <PairMachineSheet
         open={pairOpen}
         onOpenChange={closePair}
