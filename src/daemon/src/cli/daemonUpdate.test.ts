@@ -111,6 +111,7 @@ describe("daemon self-update lifecycle", () => {
       npmPath,
       "exec",
       "--yes",
+      "--no-audit",
       "--package=@alook/daemon@latest",
       "--",
       "alook-daemon",
@@ -169,6 +170,7 @@ describe("daemon self-update lifecycle", () => {
     expect(spawnProcess.mock.calls[0]![1]).toEqual([
       "exec",
       "--yes",
+      "--no-audit",
       "--package=@alook/daemon@latest",
       "--",
       "alook-daemon",
@@ -377,6 +379,7 @@ describe("daemon self-update lifecycle", () => {
       npmPath,
       "exec",
       "--yes",
+      "--no-audit",
       "--package=@alook/daemon@0.0.1",
       "--",
       "alook-daemon",
