@@ -17,6 +17,7 @@ import {
   type PiSdkLoader,
   type PiSessionDependencies,
 } from "./sessionDeps.js";
+import { discoverPiRecentContext } from "./recent-context.js";
 
 const PI_SDK_PACKAGE_NAME = "@earendil-works/pi-coding-agent";
 const PI_MODEL_PROBE_TIMEOUT_MS = 5_000;
@@ -259,6 +260,10 @@ export class PiDriver implements BackendAdapter {
 
   private sessionId: string | null = null;
   private terminalSequence = 0;
+
+  discoverRecentContext(request: Parameters<typeof discoverPiRecentContext>[0]) {
+    return discoverPiRecentContext(request);
+  }
 
   constructor(
     private readonly dependenciesFor: (ctx: AdapterLaunchContext) => PiSessionDependencies = createPiSessionDependencies,

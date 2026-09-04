@@ -117,6 +117,9 @@ describe("adapter registration runtime boundary", () => {
         } as const;
         currentSessionId = null;
         probe() { return { status: "healthy" as const }; }
+        async discoverRecentContext() {
+          return { sessionFiles: { capability: "unavailable" as const, items: [] }, recentProjects: [] };
+        }
         normalizeLine() { return []; }
         encodeMessage() { return ""; }
         async openLane() { throw new Error("not opened by registration tests"); }
@@ -153,6 +156,7 @@ describe("adapter registration runtime boundary", () => {
         terminalOwnership: "lane_generation",
       },
       probe() {},
+      discoverRecentContext() {},
       openLane() {},
     };
     expect(() => assertAdapterCompatibility(
@@ -160,6 +164,27 @@ describe("adapter registration runtime boundary", () => {
       { ...EXPECTED.claude, sessionLifetime: "per_turn" },
       adapter,
     )).toThrow("delivery conflicts with its execution lifetime");
+  });
+
+  it("accepts a missing recent-context hook but rejects a malformed optional hook", () => {
+    const adapter = {
+      id: "sixth",
+      instructionDelivery: { kind: "native" },
+      execution: {
+        lifetime: "session",
+        transport: { kind: "stdio_stream", protocol: "sixth.test.v1" },
+        wakeStart: "immediate",
+        terminalOwnership: "vendor_message",
+      },
+      probe() {},
+      openLane() {},
+    };
+    expect(() => assertAdapterCompatibility("sixth", EXPECTED.claude, adapter)).not.toThrow();
+    expect(() => assertAdapterCompatibility(
+      "sixth",
+      EXPECTED.claude,
+      { ...adapter, discoverRecentContext: "not-a-function" },
+    )).toThrow("invalid discoverRecentContext");
   });
 
   it("rejects malformed turn-silence policies instead of disabling stall detection", () => {
@@ -179,6 +204,7 @@ describe("adapter registration runtime boundary", () => {
         },
       },
       probe() {},
+      discoverRecentContext() {},
       openLane() {},
     };
     const invalidPolicies = [

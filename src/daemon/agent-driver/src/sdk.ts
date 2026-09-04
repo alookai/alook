@@ -8,6 +8,8 @@ import type {
   OpenSessionInput,
   OpenSessionResult,
   ProbeInput,
+  RecentContextDiscoveryInput,
+  RecentContextDiscoveryResult,
 } from "./contract.js";
 import { createDefaultAgentDriverHost } from "./host/default-host.js";
 import {
@@ -18,6 +20,7 @@ import {
 } from "./registry.js";
 import { LogicalAgentSession } from "./controller/logical-session.js";
 import { scrubDriverError, stableErrorCode } from "./internal/errors.js";
+import { isValidRecentContextTopK, sanitizeRecentContextData } from "./internal/recent-context.js";
 
 export function createAgentDriverSdk(
   options: CreateAgentDriverSdkOptions = {},
@@ -33,6 +36,68 @@ export function createAgentDriverSdkWithRegistry<Specs>(
   const registry = options.registry;
   return {
     backendIds: registry.backendIds,
+    async discoverRecentContext<Id extends BackendId<Specs>>(
+      input: RecentContextDiscoveryInput<Specs, Id>,
+    ): Promise<RecentContextDiscoveryResult> {
+      if (
+        !isValidRecentContextTopK(input.recentSessionFilesTopK)
+        || !isValidRecentContextTopK(input.recentProjectsTopK)
+      ) {
+        return {
+          ok: false,
+          error: {
+            category: "configuration",
+            code: "invalid_recent_context_top_k",
+            message: "Recent-context Top-K values must be non-negative safe integers",
+            retryable: false,
+          },
+        };
+      }
+      const registration = registry.get(input.backend);
+      try {
+        assertRegistrationShape(registration);
+        const adapter = registration.createAdapter();
+        assertAdapterCompatibility(String(registration.id), registration.capabilities, adapter);
+        if (!adapter.discoverRecentContext) {
+          return {
+            ok: false,
+            error: {
+              category: "configuration",
+              code: "recent_context_discovery_unsupported",
+              message: `Backend ${input.backend} does not support recent-context discovery`,
+              retryable: false,
+            },
+          };
+        }
+        const command = (registration.capabilities as { readonly commandOverride: boolean }).commandOverride
+          ? input.command
+          : undefined;
+        const discovered = await adapter.discoverRecentContext({
+          recentSessionFilesTopK: input.recentSessionFilesTopK,
+          recentProjectsTopK: input.recentProjectsTopK,
+          ...(command ? { command } : {}),
+        });
+        const sanitized = sanitizeRecentContextData(discovered, input);
+        if (!sanitized) throw new Error(`Adapter ${input.backend} returned invalid recent-context data`);
+        return { ok: true, ...sanitized };
+      } catch (error) {
+        const contractInvalid = error instanceof Error && (
+          error.message.startsWith("Adapter ")
+          || error.message.startsWith("Agent backend registration ")
+        );
+        return {
+          ok: false,
+          error: {
+            category: contractInvalid ? "internal" : "runtime_unavailable",
+            code: contractInvalid ? "adapter_contract_invalid" : "recent_context_discovery_failed",
+            message: contractInvalid
+              ? `Backend ${input.backend} adapter contract is invalid`
+              : `Backend ${input.backend} recent-context discovery failed`,
+            retryable: !contractInvalid,
+          },
+        };
+      }
+    },
     async probe<Id extends BackendId<Specs>>(
       input: ProbeInput<Specs, Id>,
     ): Promise<BackendProbe<CapabilitiesOf<Specs, Id>>> {

@@ -555,6 +555,44 @@ export interface ProbeInput<Specs, Id extends BackendId<Specs>> {
   readonly command?: string;
 }
 
+export interface DiscoveredSessionFile {
+  readonly sessionFilePath: string;
+  readonly projectPath: string;
+  readonly modifiedAt: string;
+}
+
+export interface DiscoveredProject {
+  readonly projectPath: string;
+  readonly modifiedAt: string;
+}
+
+export const SESSION_FILE_DISCOVERY_CAPABILITIES = ["supported", "unavailable"] as const;
+
+export type SessionFileDiscoveryCapability = (typeof SESSION_FILE_DISCOVERY_CAPABILITIES)[number];
+
+export interface RecentContextDiscoveryRequest {
+  readonly recentSessionFilesTopK: number;
+  readonly recentProjectsTopK: number;
+  readonly command?: string;
+}
+
+export interface RecentContextDiscoveryInput<Specs, Id extends BackendId<Specs>>
+  extends RecentContextDiscoveryRequest {
+  readonly backend: Id;
+}
+
+export interface RecentContextDiscoveryData {
+  readonly sessionFiles: {
+    readonly capability: SessionFileDiscoveryCapability;
+    readonly items: readonly DiscoveredSessionFile[];
+  };
+  readonly recentProjects: readonly DiscoveredProject[];
+}
+
+export type RecentContextDiscoveryResult =
+  | ({ readonly ok: true } & RecentContextDiscoveryData)
+  | { readonly ok: false; readonly error: AgentDriverError };
+
 export type BackendProbe<Capabilities> =
   | {
       readonly status: "healthy";
@@ -580,6 +618,9 @@ export interface AgentDriverSdk<Specs = BuiltinBackendSpecs> {
   probe<Id extends BackendId<Specs>>(
     input: ProbeInput<Specs, Id>,
   ): Promise<BackendProbe<CapabilitiesOf<Specs, Id>>>;
+  discoverRecentContext<Id extends BackendId<Specs>>(
+    input: RecentContextDiscoveryInput<Specs, Id>,
+  ): Promise<RecentContextDiscoveryResult>;
   open<Id extends BackendId<Specs>>(
     input: OpenSessionInput<Specs, Id>,
   ): Promise<OpenSessionResult<Specs, Id>>;

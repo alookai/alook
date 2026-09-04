@@ -55,6 +55,49 @@ await eventsDone;
 void { result, observedText };
 ```
 
+## Recent context discovery
+
+The SDK can discover bounded global history for Onboard without opening or
+resuming an agent session. The two Top-K values are independent, non-negative
+safe integers. A zero value skips that collection.
+
+```ts
+const recent = await sdk.discoverRecentContext({
+  backend: "codex",
+  recentSessionFilesTopK: 5,
+  recentProjectsTopK: 3,
+});
+
+if (!recent.ok) throw new Error(recent.error.message);
+// {
+//   ok: true,
+//   sessionFiles: {
+//     capability: "supported",
+//     items: [{ sessionFilePath, projectPath, modifiedAt }],
+//   },
+//   recentProjects: [{ projectPath, modifiedAt }],
+// }
+```
+
+Discovery covers root sessions across the machine, not only the current
+working directory or sessions created by Alook. Results are newest-first;
+projects are deduplicated by normalized absolute path and retain the newest
+root-session timestamp. No titles, previews, messages, session ids, or vendor
+payloads cross the public boundary.
+
+| Backend | Session files | Recent projects | Source |
+|---|---|---|---|
+| Claude | supported | supported | direct root JSONL scan |
+| Codex | supported | supported | read-only rollout-header scan, child threads excluded |
+| Cursor | unavailable | supported | ACP `session/list` |
+| OpenCode | unavailable | supported | async, adaptively bounded `session list --format json` prefixes |
+| Pi | supported | supported | JSONL metadata and first-line header only |
+
+Cursor and OpenCode return `sessionFiles.capability: "unavailable"` with an
+empty item list. This is distinct from a supported backend with no saved
+sessions. Discovery is read-only: it does not export, materialize, migrate,
+repair, resume, or create provider artifacts.
+
 ## Built-in execution matrix
 
 All built-ins keep one physical lane for the lifetime of a logical session.
@@ -96,6 +139,10 @@ For contract v1:
   derive completion from output text or a generic idle/exit signal;
 - report an unavailable required protocol/capability as incompatible or
   unhealthy. Do not silently fall back to a one-shot runtime.
+- optionally implement `discoverRecentContext()` for bounded, global,
+  read-only history discovery. All built-in adapters implement it; extension
+  adapters that omit it receive `recent_context_discovery_unsupported` from the
+  SDK without changing adapter-author contract version 1.
 
 Package semver and the numeric adapter-author contract version are independent.
 Only an incompatible `/adapter-author` change increments the latter.

@@ -24,6 +24,7 @@ import {
 import { CursorAcpLane, type CursorAcpProcessFactory } from "./acp-lane.js";
 import { probeCursorAcpCatalog } from "./catalog-probe.js";
 import type { RuntimeReasoningCatalog } from "../../contract.js";
+import { discoverCursorRecentContext } from "./recent-context.js";
 
 export class CursorDriver implements BackendAdapter, CursorAcpProcessFactory {
   readonly id = "cursor";
@@ -34,6 +35,10 @@ export class CursorDriver implements BackendAdapter, CursorAcpProcessFactory {
     wakeStart: "immediate",
     terminalOwnership: "transport_request",
   } as const;
+
+  discoverRecentContext(request: Parameters<typeof discoverCursorRecentContext>[0]) {
+    return discoverCursorRecentContext(request);
+  }
 
   constructor(
     private readonly catalogProbe: (command?: string) => Promise<RuntimeReasoningCatalog | undefined> = probeCursorAcpCatalog,

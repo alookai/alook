@@ -14,6 +14,7 @@ import { createFakeAgentDriverHost } from "./testing/fake-host.js";
 import { createAgentDriverSdk, createAgentDriverSdkWithRegistry } from "./sdk.js";
 import { createAgentDriverRegistry, type AgentDriverRegistry } from "./registry.js";
 import { createAgentDriverSdk as createPublicAgentDriverSdk } from "./public-sdk.js";
+import { SESSION_FILE_DISCOVERY_CAPABILITIES } from "./index.js";
 
 const claudeInput = {
   backend: "claude" as const,
@@ -58,6 +59,7 @@ function sdkTestLane(receipt = "fresh-receipt") {
 describe("createAgentDriverSdk", () => {
   it("exposes the built-ins with default options", () => {
     expect(createAgentDriverSdk().backendIds).toEqual(["claude", "codex", "cursor", "opencode", "pi"]);
+    expect(SESSION_FILE_DISCOVERY_CAPABILITIES).toEqual(["supported", "unavailable"]);
   });
 
   it("maps healthy, unhealthy, and thrown adapter probes", async () => {
@@ -93,6 +95,74 @@ describe("createAgentDriverSdk", () => {
 
   it("public SDK factory delegates to the built-in logical SDK", () => {
     expect(createPublicAgentDriverSdk().backendIds).toEqual(["claude", "codex", "cursor", "opencode", "pi"]);
+  });
+
+  it.each(["claude", "codex", "cursor", "opencode", "pi"] as const)(
+    "dispatches zero-bound discovery through the built-in %s adapter",
+    async (backend) => {
+      await expect(createAgentDriverSdk().discoverRecentContext({
+        backend,
+        recentSessionFilesTopK: 0,
+        recentProjectsTopK: 0,
+      })).resolves.toEqual({
+        ok: true,
+        sessionFiles: {
+          capability: backend === "cursor" || backend === "opencode" ? "unavailable" : "supported",
+          items: [],
+        },
+        recentProjects: [],
+      });
+    },
+  );
+
+  it("validates independent Top-K values and dispatches discovery without leaking thrown details", async () => {
+    const sdk = createAgentDriverSdk();
+    const discover = vi.spyOn(ClaudeDriver.prototype, "discoverRecentContext");
+    const projectPath = join(process.cwd(), "projects", "a");
+    await expect(sdk.discoverRecentContext({
+      backend: "claude",
+      recentSessionFilesTopK: -1,
+      recentProjectsTopK: 2,
+    })).resolves.toMatchObject({
+      ok: false,
+      error: { code: "invalid_recent_context_top_k", retryable: false },
+    });
+    expect(discover).not.toHaveBeenCalled();
+
+    discover.mockResolvedValueOnce({
+      sessionFiles: { capability: "supported", items: [] },
+      recentProjects: [{ projectPath, modifiedAt: "2026-01-01T00:00:00.000Z" }],
+    });
+    await expect(sdk.discoverRecentContext({
+      backend: "claude",
+      recentSessionFilesTopK: 0,
+      recentProjectsTopK: 1,
+      command: "claude-test",
+    })).resolves.toEqual({
+      ok: true,
+      sessionFiles: { capability: "supported", items: [] },
+      recentProjects: [{ projectPath, modifiedAt: "2026-01-01T00:00:00.000Z" }],
+    });
+    expect(discover).toHaveBeenCalledWith({
+      recentSessionFilesTopK: 0,
+      recentProjectsTopK: 1,
+      command: "claude-test",
+    });
+
+    discover.mockRejectedValueOnce(new Error("private /Users/person/session.jsonl"));
+    await expect(sdk.discoverRecentContext({
+      backend: "claude",
+      recentSessionFilesTopK: 1,
+      recentProjectsTopK: 1,
+    })).resolves.toEqual({
+      ok: false,
+      error: {
+        category: "runtime_unavailable",
+        code: "recent_context_discovery_failed",
+        message: "Backend claude recent-context discovery failed",
+        retryable: true,
+      },
+    });
   });
 
   it("returns host preparation failures without constructing a session", async () => {
@@ -325,6 +395,14 @@ describe("createAgentDriverSdk", () => {
       version: "6.0.0",
       capabilities,
     });
+    await expect(sdk.discoverRecentContext({
+      backend: "sixth",
+      recentSessionFilesTopK: 1,
+      recentProjectsTopK: 1,
+    })).resolves.toMatchObject({
+      ok: false,
+      error: { code: "recent_context_discovery_unsupported", retryable: false },
+    });
     const opened = await sdk.open({
       backend: "sixth",
       launch: {
@@ -364,6 +442,35 @@ describe("createAgentDriverSdk", () => {
       error: { code: "adapter_contract_invalid", retryable: false },
     });
     expect(prepare).not.toHaveBeenCalled();
+  });
+
+  it("reports a malformed optional recent-context hook as an adapter contract error", async () => {
+    const adapter = new ClaudeDriver();
+    Object.defineProperty(adapter, "discoverRecentContext", {
+      configurable: true,
+      value: "not-a-function",
+    });
+    const registry = createAgentDriverRegistry<BuiltinBackendSpecs>([{
+      id: "claude",
+      contractVersion: 1,
+      capabilities: claudeCapabilities,
+      createAdapter: () => adapter,
+    }]);
+    const sdk = createAgentDriverSdkWithRegistry({ registry, host: createFakeAgentDriverHost() });
+
+    await expect(sdk.discoverRecentContext({
+      backend: "claude",
+      recentSessionFilesTopK: 1,
+      recentProjectsTopK: 1,
+    })).resolves.toEqual({
+      ok: false,
+      error: {
+        category: "internal",
+        code: "adapter_contract_invalid",
+        message: "Backend claude adapter contract is invalid",
+        retryable: false,
+      },
+    });
   });
 
   it.each([

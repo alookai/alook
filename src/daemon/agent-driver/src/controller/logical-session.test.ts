@@ -69,6 +69,9 @@ class FakeDriver implements BackendAdapter {
 
   constructor(readonly id: BuiltinBackendId, readonly execution: BackendExecution) {}
   probe() { return { status: "healthy" as const }; }
+  async discoverRecentContext() {
+    return { sessionFiles: { capability: "unavailable" as const, items: [] }, recentProjects: [] };
+  }
   async openLane(ctx: AdapterLaunchContext, options?: RuntimeLaneOpenOptions): Promise<RuntimeLane> {
     if (this.laneOverride) return this.laneOverride;
     if (this.execution.transport.kind === "in_process_sdk") return this.createSdkLane(ctx);

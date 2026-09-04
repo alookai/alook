@@ -26,3 +26,13 @@ export function tryParseJsonLine(line: string): unknown | null {
     return null;
   }
 }
+
+export function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+export function tryParseJsonRecord(line: string): Record<string, unknown> | null {
+  return asRecord(tryParseJsonLine(line));
+}

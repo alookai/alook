@@ -1,5 +1,27 @@
 # Release notes
 
+## Bounded recent-context discovery
+
+- Added `AgentDriverSdk.discoverRecentContext()` with independent
+  `recentSessionFilesTopK` and `recentProjectsTopK` bounds.
+- Claude, Codex, and Pi return root session files plus deduplicated projects.
+  Cursor and OpenCode explicitly mark per-session files unavailable while still
+  returning recent projects.
+- Discovery is global across projects and read-only. Public results contain only
+  absolute paths and ISO-8601 modification times; provider titles, previews,
+  messages, ids, and payloads stay inside adapters.
+- Codex reads only rollout headers and filters subagent sources; Claude ignores nested
+  subagent JSONL; Pi reads only each candidate's first-line header and excludes
+  `parentSession` children instead of calling the body-reading `listAll()` API.
+
+### Compatibility
+
+The consumer SDK gains an additive method and result vocabulary. The optional
+adapter-author discovery method does not change numeric contract version 1.
+Extension adapters that omit it fail that call with
+`recent_context_discovery_unsupported`; their existing probe/open behavior is
+unchanged.
+
 ## Complete semantic output and payload-free liveness
 
 - Replaced public text/reasoning delta events with
