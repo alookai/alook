@@ -1328,6 +1328,26 @@ describe("backend-owned delivery behavior", () => {
     await session.stop({ reason: "shutdown", forceAfterMs: 10 });
   });
 
+  it.each(["cursor", "opencode", "pi"] as const)(
+    "%s keeps immediate steering while a tool is active",
+    async (backend) => {
+      const { session, driver } = makeSession(backend);
+      await session.start({ id: "one", kind: "user", text: "start" });
+      await emit(driver, { kind: "tool_call", callId: "tool-one", name: "one", input: {} });
+
+      await expect(session.send({ id: "two", kind: "user", text: "follow" })).resolves.toMatchObject({
+        status: "accepted",
+        delivery: "steer",
+      });
+      if (backend === "pi") {
+        expect(driver.sdkHandle!.steer).toHaveBeenCalledWith("follow");
+      } else {
+        expect(driver.writes).toEqual(["follow"]);
+      }
+      await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+    },
+  );
+
   it("derives deferred first-message behavior from the adapter execution declaration", async () => {
     const { session, driver } = makeSession("cursor", {
       execution: {
@@ -1612,16 +1632,36 @@ describe("backend-owned delivery behavior", () => {
     await session.stop({ reason: "shutdown", forceAfterMs: 10 });
   });
 
-  it("waits for the final nested tool output before flushing a gated command", async () => {
-    const { session, driver } = makeSession("claude");
+  it.each(["claude", "codex"] as const)(
+    "%s flushes at the first valid tool output while another tool remains active",
+    async (backend) => {
+      const { session, driver } = makeSession(backend);
+      await session.start({ id: "one", kind: "user", text: "start" });
+      await emit(driver, { kind: "tool_call", callId: "tool-one", name: "one", input: {} });
+      await emit(driver, { kind: "tool_call", callId: "tool-two", name: "two", input: {} });
+      await session.send({ id: "two", kind: "user", text: "follow" });
+      await emit(driver, { kind: "tool_output", callId: "tool-one", name: "one" });
+      expect(driver.writes).toEqual(["follow"]);
+      expect(session.snapshot().diagnostics.metrics.outstandingToolUses).toBe(1);
+      await emit(driver, { kind: "tool_output", callId: "tool-two", name: "two" });
+      expect(driver.writes).toEqual(["follow"]);
+      await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+    },
+  );
+
+  it("closes the boundary latch again when a later tool starts", async () => {
+    const { session, driver } = makeSession("codex");
     await session.start({ id: "one", kind: "user", text: "start" });
-    await emit(driver, { kind: "tool_call", name: "one", input: {} });
-    await emit(driver, { kind: "tool_call", name: "two", input: {} });
-    await session.send({ id: "two", kind: "user", text: "follow" });
-    await emit(driver, { kind: "tool_output", name: "one" });
-    expect(driver.writes).toEqual([]);
-    await emit(driver, { kind: "tool_output", name: "two" });
-    expect(driver.writes).toEqual(["follow"]);
+    await emit(driver, { kind: "tool_call", callId: "tool-one", name: "one", input: {} });
+    await session.send({ id: "two", kind: "user", text: "first follow" });
+    await emit(driver, { kind: "tool_output", callId: "tool-one", name: "one" });
+    await vi.waitFor(() => expect(driver.writes).toEqual(["first follow"]));
+
+    await emit(driver, { kind: "tool_call", callId: "tool-two", name: "two", input: {} });
+    await session.send({ id: "three", kind: "user", text: "second follow" });
+    expect(driver.writes).toEqual(["first follow"]);
+    await emit(driver, { kind: "tool_output", callId: "tool-two", name: "two" });
+    await vi.waitFor(() => expect(driver.writes).toEqual(["first follow", "second follow"]));
     await session.stop({ reason: "shutdown", forceAfterMs: 10 });
   });
 

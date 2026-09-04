@@ -1267,6 +1267,10 @@ export class AgentProcessManager {
           try {
             sent = session.send(input);
             if (exactOwner) this.markPendingDeliveryObserved(exactOwner, input.id);
+            this.log.info("steering message submitted to logical session", {
+              agentId: effect.agentId,
+              mode: effect.mode,
+            });
           } catch (error) {
             if (exactOwner) {
               this.settlePendingDelivery(exactOwner, input.id);
@@ -1323,7 +1327,6 @@ export class AgentProcessManager {
             mode: effect.mode,
           });
         }
-        this.log.info("steering message sent to running agent", { agentId: effect.agentId, mode: effect.mode });
         break;
       }
       case "stop":
