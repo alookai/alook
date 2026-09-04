@@ -8,7 +8,54 @@ import {
 } from "@tanstack/react-query"
 import type { ForumThread } from "@/lib/community/models/message"
 import { communityKeys } from "@/lib/query-keys"
-import type { ForumFeedPage } from "./forum-feed-model"
+
+type ForumFeedThread = {
+  id: string
+  name: string | null
+  creatorId: string | null
+  messageCount: number | null
+  parentMessageId: string | null
+  lastMessageAt: string | null
+  createdAt: string
+  activityAt: string
+}
+
+type ForumIncludedMessage = {
+  id: string
+  channelId: string
+  seq: number
+  createdAt?: string
+  content: string
+  authorId: string
+  authorName: string
+  authorImage: string | null
+  authorAvatarVersion: number
+}
+
+type ForumIncludedFirstMessage = { channelId: string; content: string }
+type ForumIncludedTag = { messageId: string; tag: string }
+type ForumIncludedParticipant = {
+  channelId: string
+  userId: string
+  userName: string | null
+  userImage: string | null
+  userAvatarVersion: number
+  participantCount?: number
+}
+
+export type ForumFeedPage = {
+  serverId: string
+  parentType: string
+  threads: ForumFeedThread[]
+  included: {
+    parentMessages: ForumIncludedMessage[]
+    firstMessages: ForumIncludedFirstMessage[]
+    tags: ForumIncludedTag[]
+    participants: ForumIncludedParticipant[]
+  }
+  hasMore: boolean
+  nextCursor?: string
+}
 
 type FeedData = InfiniteData<ForumFeedPage>
 type FeedThread = ForumFeedPage["threads"][number]

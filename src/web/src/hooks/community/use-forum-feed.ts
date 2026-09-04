@@ -10,11 +10,13 @@ import { canonicalUserImage } from "@/lib/community/storage"
 import { readForumTagSelection, validateForumTagSelection, writeForumTagSelection } from "@/lib/community/forum-tag-selection"
 import type { ForumThread } from "@/lib/community/models/message"
 import { useForumTags } from "./use-channel-panels"
-import type { ForumFeedPage } from "./forum-feed-model"
-import { projectForumThreadsThroughActiveTagTransitions } from "./forum-feed-tag-transition"
+import {
+  projectForumThreadsThroughActiveTagTransitions,
+  type ForumFeedPage,
+} from "./forum-feed-tag-transition"
 
 export { removeForumPostFromFeed } from "./forum-feed-tag-transition"
-export type { ForumFeedPage } from "./forum-feed-model"
+export type { ForumFeedPage } from "./forum-feed-tag-transition"
 
 export function forumFeedPageQueryFn(channelId: string, tag: string | null) {
   return ({ pageParam, signal }: { pageParam: string | null; signal?: AbortSignal }) => {
