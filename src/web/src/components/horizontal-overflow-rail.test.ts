@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest"
 import {
   HorizontalOverflowFadeOverlays,
   horizontalOverflowFades,
+  shouldTranslateVerticalWheel,
   useHorizontalOverflowRail,
 } from "./horizontal-overflow-rail"
 
@@ -17,6 +18,35 @@ describe("horizontalOverflowFades", () => {
       .toEqual({ left: true, right: true })
     expect(horizontalOverflowFades({ scrollLeft: 140, scrollWidth: 240, clientWidth: 100 }))
       .toEqual({ left: true, right: false })
+  })
+})
+
+describe("shouldTranslateVerticalWheel", () => {
+  const overflowing = {
+    enabled: true,
+    deltaX: 0,
+    deltaY: 40,
+    ctrlKey: false,
+    shiftKey: false,
+    scrollLeft: 0,
+    scrollWidth: 240,
+    clientWidth: 100,
+  }
+
+  it("only consumes a vertical wheel when content remains in that direction", () => {
+    expect(shouldTranslateVerticalWheel(overflowing)).toBe(true)
+    expect(shouldTranslateVerticalWheel({ ...overflowing, deltaY: -40 })).toBe(false)
+    expect(shouldTranslateVerticalWheel({ ...overflowing, scrollLeft: 60, deltaY: -40 })).toBe(true)
+    expect(shouldTranslateVerticalWheel({ ...overflowing, scrollLeft: 140 })).toBe(false)
+    expect(shouldTranslateVerticalWheel({ ...overflowing, scrollWidth: 100 })).toBe(false)
+  })
+
+  it("preserves disabled, horizontal, shifted, and zoom gestures", () => {
+    expect(shouldTranslateVerticalWheel({ ...overflowing, enabled: false })).toBe(false)
+    expect(shouldTranslateVerticalWheel({ ...overflowing, deltaX: 1 })).toBe(false)
+    expect(shouldTranslateVerticalWheel({ ...overflowing, shiftKey: true })).toBe(false)
+    expect(shouldTranslateVerticalWheel({ ...overflowing, ctrlKey: true })).toBe(false)
+    expect(shouldTranslateVerticalWheel({ ...overflowing, deltaY: 0 })).toBe(false)
   })
 })
 
@@ -40,20 +70,26 @@ describe("HorizontalOverflowFadeOverlays", () => {
 })
 
 describe("useHorizontalOverflowRail", () => {
+  let wheelListener: ((event: WheelEvent) => void) | undefined
   const scroller = {
     scrollLeft: 0,
     scrollWidth: 240,
     clientWidth: 100,
     getBoundingClientRect: () => ({ left: 0, right: 100 }),
+    addEventListener: vi.fn((eventName: string, listener: EventListener) => {
+      if (eventName === "wheel") wheelListener = listener as (event: WheelEvent) => void
+    }),
+    removeEventListener: vi.fn(),
   }
   const selected = {
     getBoundingClientRect: () => ({ left: 120, right: 164 }),
   }
 
-  function Fixture() {
+  function Fixture({ mapVerticalWheelToHorizontal = false }: { mapVerticalWheelToHorizontal?: boolean }) {
     const rail = useHorizontalOverflowRail<HTMLDivElement, HTMLButtonElement>({
       contentKey: "one\0two\0three",
       selectedKey: "three",
+      mapVerticalWheelToHorizontal,
     })
     return createElement("div", {
       ref: rail.scrollerRef,
@@ -86,5 +122,58 @@ describe("useHorizontalOverflowRail", () => {
     act(() => rail.props.onKeyDown({ key: "End", currentTarget: scroller, preventDefault }))
     expect(scroller.scrollLeft).toBe(140)
     expect(preventDefault).toHaveBeenCalledTimes(3)
+  })
+
+  it("maps an enabled vertical wheel and returns it to the page at the boundary", () => {
+    scroller.scrollLeft = 0
+    wheelListener = undefined
+    scroller.addEventListener.mockClear()
+    scroller.removeEventListener.mockClear()
+    let renderer: ReactTestRenderer
+    act(() => {
+      renderer = create(createElement(Fixture, { mapVerticalWheelToHorizontal: true }), {
+        createNodeMock: (element) => element.props["data-testid"] === "rail" ? scroller : selected,
+      })
+    })
+    const preventDefault = vi.fn()
+    expect(scroller.addEventListener).toHaveBeenCalledWith(
+      "wheel",
+      expect.any(Function),
+      { passive: false },
+    )
+
+    act(() => wheelListener?.({
+      deltaX: 0,
+      deltaY: 40,
+      ctrlKey: false,
+      shiftKey: false,
+      preventDefault,
+    } as unknown as WheelEvent))
+    expect(scroller.scrollLeft).toBe(104)
+    expect(preventDefault).toHaveBeenCalledOnce()
+
+    scroller.scrollLeft = 140
+    act(() => wheelListener?.({
+      deltaX: 0,
+      deltaY: 40,
+      ctrlKey: false,
+      shiftKey: false,
+      preventDefault,
+    } as unknown as WheelEvent))
+    expect(scroller.scrollLeft).toBe(140)
+    expect(preventDefault).toHaveBeenCalledOnce()
+
+    act(() => wheelListener?.({
+      deltaX: 8,
+      deltaY: -40,
+      ctrlKey: false,
+      shiftKey: false,
+      preventDefault,
+    } as unknown as WheelEvent))
+    expect(scroller.scrollLeft).toBe(140)
+    expect(preventDefault).toHaveBeenCalledOnce()
+
+    act(() => renderer!.unmount())
+    expect(scroller.removeEventListener).toHaveBeenCalledWith("wheel", wheelListener)
   })
 })

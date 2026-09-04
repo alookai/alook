@@ -1,8 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type Ref } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import {
+  HorizontalOverflowFadeOverlays,
+  useHorizontalOverflowRail,
+} from "@/components/horizontal-overflow-rail";
+import { useHoverCapable } from "@/hooks/use-hover-capable";
+import { useBreakpoint } from "@/hooks/use-mobile";
 import type { BlogIndexPost } from "./model";
 import { formatBlogPostDate } from "./model";
 
@@ -20,7 +26,24 @@ const allTopicsId = "all";
 
 export function RecentPosts({ posts, topics }: RecentPostsProps) {
   const [selectedTopicId, setSelectedTopicId] = useState(allTopicsId);
+  const breakpoint = useBreakpoint();
+  const hoverCapable = useHoverCapable();
   const topicIds = useMemo(() => new Set(topics.map((topic) => topic.id)), [topics]);
+  const topicKey = useMemo(
+    () => topics.map((topic) => `${topic.id}\0${topic.label}`).join("\0"),
+    [topics],
+  );
+  const {
+    fades,
+    onScroll,
+    scrollerRef,
+    selectedRef,
+  } = useHorizontalOverflowRail<HTMLDivElement, HTMLButtonElement>({
+    contentKey: topicKey,
+    selectedKey: selectedTopicId,
+    mapVerticalWheelToHorizontal:
+      breakpoint === "desktop" && hoverCapable,
+  });
   const visiblePosts =
     selectedTopicId === allTopicsId
       ? posts
@@ -58,27 +81,41 @@ export function RecentPosts({ posts, topics }: RecentPostsProps) {
       >
         Recent posts
       </h2>
-      <div className="thin-scrollbar scrollbar-none -mx-4 mt-3 overflow-x-auto px-4 sm:-mx-6 sm:mt-6 sm:px-6">
-        <nav
-          aria-label="Filter recent posts"
-          className="flex w-max min-w-full flex-nowrap gap-6"
+      <div className="relative -mx-4 mt-3 sm:-mx-6 sm:mt-6">
+        <div
+          ref={scrollerRef}
+          data-testid="blog-topic-scroller"
+          onScroll={onScroll}
+          className="thin-scrollbar scrollbar-none overflow-x-auto px-4 sm:px-6"
         >
-          <TopicButton
-            id={allTopicsId}
-            label="All"
-            selected={selectedTopicId === allTopicsId}
-            onSelect={selectTopic}
-          />
-          {topics.map((topic) => (
+          <nav
+            aria-label="Filter recent posts"
+            className="flex w-max min-w-full flex-nowrap gap-6"
+          >
             <TopicButton
-              key={topic.id}
-              id={topic.id}
-              label={topic.label}
-              selected={selectedTopicId === topic.id}
+              id={allTopicsId}
+              label="All"
+              selected={selectedTopicId === allTopicsId}
+              buttonRef={selectedTopicId === allTopicsId ? selectedRef : undefined}
               onSelect={selectTopic}
             />
-          ))}
-        </nav>
+            {topics.map((topic) => (
+              <TopicButton
+                key={topic.id}
+                id={topic.id}
+                label={topic.label}
+                selected={selectedTopicId === topic.id}
+                buttonRef={selectedTopicId === topic.id ? selectedRef : undefined}
+                onSelect={selectTopic}
+              />
+            ))}
+          </nav>
+        </div>
+        <HorizontalOverflowFadeOverlays
+          fades={fades}
+          leftTestId="blog-topic-fade-left"
+          rightTestId="blog-topic-fade-right"
+        />
       </div>
 
       {visiblePosts.length > 0 ? (
@@ -123,15 +160,18 @@ function TopicButton({
   id,
   label,
   selected,
+  buttonRef,
   onSelect,
 }: {
   id: string;
   label: string;
   selected: boolean;
+  buttonRef?: Ref<HTMLButtonElement>;
   onSelect: (id: string) => void;
 }) {
   return (
     <button
+      ref={buttonRef}
       id={id === allTopicsId ? undefined : id}
       type="button"
       aria-pressed={selected}
