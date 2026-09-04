@@ -103,6 +103,9 @@ export function assertAdapterCompatibility(
   for (const method of ["probe", "openLane"] as const) {
     if (typeof candidate[method] !== "function") throw new Error(`Adapter ${registrationId} is missing ${method}()`);
   }
+  if (candidate.discoverRecentContext !== undefined && typeof candidate.discoverRecentContext !== "function") {
+    throw new Error(`Adapter ${registrationId} has an invalid discoverRecentContext()`);
+  }
   const instruction = candidate.instructionDelivery as Record<string, unknown> | undefined;
   if (!instruction || (instruction.kind !== "native" && instruction.kind !== "workspace_file")) {
     throw new Error(`Adapter ${registrationId} has an invalid instructionDelivery declaration`);

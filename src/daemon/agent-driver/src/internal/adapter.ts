@@ -10,6 +10,8 @@ import type {
   RuntimeReasoningCatalog,
   RuntimeSettingsUpdate,
   RuntimeSettingsUpdateResult,
+  RecentContextDiscoveryData,
+  RecentContextDiscoveryRequest,
 } from "../contract.js";
 import type { ProviderQuotaObservation, TokenUsageDelta } from "../contract.js";
 
@@ -205,6 +207,7 @@ export interface BackendAdapter<Id extends string = BuiltinBackendId, Config = B
     | { readonly kind: "workspace_file"; readonly canonical: string; readonly aliases: readonly string[] };
   readonly execution: BackendExecution;
   probe(command?: string): ProbeResult | Promise<ProbeResult>;
+  discoverRecentContext?(input: RecentContextDiscoveryRequest): Promise<RecentContextDiscoveryData>;
   openLane(
     ctx: AdapterLaunchContext<Id, Config>,
     options?: RuntimeLaneOpenOptions,

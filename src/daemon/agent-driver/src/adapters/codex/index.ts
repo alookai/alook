@@ -36,6 +36,7 @@ import {
   normalizeRuntimeModelId,
   RUNTIME_MODEL_CATALOG_MAX,
 } from "../../internal/modelCatalog.js";
+import { discoverCodexRecentContext } from "./recent-context.js";
 
 const SETTINGS_UPDATE_TIMEOUT_MS = 5_000;
 const MODEL_LIST_TIMEOUT_MS = 5_000;
@@ -72,6 +73,9 @@ export class CodexDriver implements BackendAdapter {
   private readonly eventNormalizer = new CodexEventNormalizer();
   private readonly pendingAccountReadRequestIds = new Set<number>();
   private requestId = 0;
+  discoverRecentContext(request: Parameters<typeof discoverCodexRecentContext>[0]) {
+    return discoverCodexRecentContext(request);
+  }
   /** Resolved Codex home root (CODEX_HOME or ~/.codex); set on spawn. */
   private codexHomeRoot: string | null = null;
   /**

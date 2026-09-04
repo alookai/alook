@@ -1,4 +1,8 @@
 /** Consumer contract: logical SDK/session/event/result vocabulary only. */
+import { SESSION_FILE_DISCOVERY_CAPABILITIES as sessionFileDiscoveryCapabilities } from "./contract.js";
+
+export const SESSION_FILE_DISCOVERY_CAPABILITIES = sessionFileDiscoveryCapabilities;
+
 export type {
   JsonPrimitive, JsonValue, JsonObject, BuiltinBackendId, ReasoningEffort, RuntimeReasoningCatalog,
   RuntimeSettingsUpdate, RuntimeSettingsUpdateResult, ModelSelection, DefaultProvider,
@@ -11,6 +15,8 @@ export type {
   QuotaProductIdentity, QuotaModelIdentity, QuotaWindowIdentity, QuotaLimit,
   ProviderQuotaObservation, CoreAgentEventPayload, AgentEventEnvelope, AgentEvent,
   AgentSessionSnapshot, AgentEventStream, ExtensionNames, ExtensionInput, ExtensionOutput, ExtensionResult,
-  AgentSession, ProbeInput, BackendProbe, OpenSessionInput,
+  AgentSession, ProbeInput, BackendProbe, OpenSessionInput, DiscoveredSessionFile,
+  DiscoveredProject, SessionFileDiscoveryCapability, RecentContextDiscoveryRequest,
+  RecentContextDiscoveryInput, RecentContextDiscoveryData, RecentContextDiscoveryResult,
   AgentDriverSdk,
 } from "./contract.js";

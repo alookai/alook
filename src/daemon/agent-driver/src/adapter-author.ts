@@ -15,6 +15,8 @@ export type {
   TerminalOwnership, WellKnownTransportKind,
   SpawnedProcess, SpawnedProcessHandle, VendorSessionHandle,
 } from "./internal/adapter.js";
+export { RecentContextCollector, isValidRecentContextTopK } from "./internal/recent-context.js";
+export type { RecentContextCandidate } from "./internal/recent-context.js";
 export type {
   AgentDriverHost, CreateAgentDriverSdkOptions, DefaultAgentDriverHostOptions,
   PrepareExecutionInput, PrepareExecutionResult, PreparedExecutionResource, RawOutputEvent,

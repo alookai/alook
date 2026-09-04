@@ -27,6 +27,7 @@ import {
   OpenCodeServiceLane,
   type OpenCodeServiceProcessFactory,
 } from "./service-lane.js";
+import { discoverOpenCodeRecentContext } from "./recent-context.js";
 
 function createOpenCodeMessageId(): string {
   return `msg_${randomBytes(16).toString("hex")}`;
@@ -45,6 +46,10 @@ export class OpenCodeDriver implements BackendAdapter, OpenCodeServiceProcessFac
   constructor(
     private readonly outputProbe: (command: string, args: string[]) => CommandOutputProbeResult = probeCommandOutput,
   ) {}
+
+  discoverRecentContext(request: Parameters<typeof discoverOpenCodeRecentContext>[0]) {
+    return discoverOpenCodeRecentContext(request);
+  }
 
   probe(command?: string) {
     const result = probeCliRuntime("opencode", {}, command);

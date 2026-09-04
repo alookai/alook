@@ -21,6 +21,7 @@ import { probeClaude, probeCommandVersion, resolveSpawnSpec, resolveClaudeComman
 import { resolveLaunchFieldsOrDefault } from "../../internal/config.js";
 import { spawnAgentProcess } from "../../internal/killTree.js";
 import { ClaudeTurnProtocol } from "./turnProtocol.js";
+import { discoverClaudeRecentContext } from "./recent-context.js";
 
 const CLAUDE_MODEL_CATALOG = {
   updateMode: "unsupported" as const,
@@ -43,6 +44,10 @@ export class ClaudeDriver implements BackendAdapter {
   private readonly turnProtocol = new ClaudeTurnProtocol();
   private readonly eventNormalizer = new ClaudeEventNormalizer(this.turnProtocol);
   private pendingInterrupt?: { input: LaneInterruptInput; process: SpawnedProcessHandle };
+
+  discoverRecentContext(request: Parameters<typeof discoverClaudeRecentContext>[0]) {
+    return discoverClaudeRecentContext(request);
+  }
 
   beginTurn(): string {
     this.pendingInterrupt = undefined;
