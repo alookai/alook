@@ -29,7 +29,7 @@ import {
   HorizontalOverflowFadeOverlays,
   horizontalOverflowFades,
   useHorizontalOverflowRail,
-} from "../horizontal-overflow-rail"
+} from "@/components/horizontal-overflow-rail"
 
 const MAX_AVATARS = 5
 const MAX_VISIBLE_TAGS = 2

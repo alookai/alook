@@ -23,7 +23,7 @@ import { useCommunityProfile } from "@/stores/community/ws"
 import {
   HorizontalOverflowFadeOverlays,
   useHorizontalOverflowRail,
-} from "../horizontal-overflow-rail"
+} from "@/components/horizontal-overflow-rail"
 import { MemberIdentityRow } from "../members/member-identity-row"
 
 const HOLD_MS = 450

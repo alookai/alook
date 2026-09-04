@@ -5,6 +5,30 @@ import type React from "react"
 
 export type HorizontalOverflowFades = { left: boolean; right: boolean }
 
+export function shouldTranslateVerticalWheel({
+  enabled,
+  deltaX,
+  deltaY,
+  ctrlKey,
+  shiftKey,
+  scrollLeft,
+  scrollWidth,
+  clientWidth,
+}: {
+  enabled: boolean
+  deltaX: number
+  deltaY: number
+  ctrlKey: boolean
+  shiftKey: boolean
+  scrollLeft: number
+  scrollWidth: number
+  clientWidth: number
+}): boolean {
+  if (!enabled || ctrlKey || shiftKey || deltaX !== 0 || deltaY === 0) return false
+  const fades = horizontalOverflowFades({ scrollLeft, scrollWidth, clientWidth })
+  return deltaY < 0 ? fades.left : fades.right
+}
+
 export function horizontalOverflowFades({
   scrollLeft,
   scrollWidth,
@@ -30,11 +54,13 @@ export function useHorizontalOverflowRail<
   selectedKey,
   scrollStep = 48,
   preserveChildKeyboard = false,
+  mapVerticalWheelToHorizontal = false,
 }: {
   contentKey: string
   selectedKey: string | null
   scrollStep?: number
   preserveChildKeyboard?: boolean
+  mapVerticalWheelToHorizontal?: boolean
 }) {
   const scrollerRef = useRef<TScroller>(null)
   const selectedRef = useRef<TSelected>(null)
@@ -85,6 +111,28 @@ export function useHorizontalOverflowRail<
       syncFades()
     }
   }, [preserveChildKeyboard, scrollStep, syncFades])
+
+  useLayoutEffect(() => {
+    const scroller = scrollerRef.current
+    if (!scroller || !mapVerticalWheelToHorizontal) return
+    const onWheel = (event: WheelEvent) => {
+      if (!shouldTranslateVerticalWheel({
+        enabled: true,
+        deltaX: event.deltaX,
+        deltaY: event.deltaY,
+        ctrlKey: event.ctrlKey,
+        shiftKey: event.shiftKey,
+        scrollLeft: scroller.scrollLeft,
+        scrollWidth: scroller.scrollWidth,
+        clientWidth: scroller.clientWidth,
+      })) return
+      event.preventDefault()
+      scroller.scrollLeft += event.deltaY
+      syncFades()
+    }
+    scroller.addEventListener("wheel", onWheel, { passive: false })
+    return () => scroller.removeEventListener("wheel", onWheel)
+  }, [mapVerticalWheelToHorizontal, syncFades])
 
   return { fades, onKeyDown, onScroll: syncFades, scrollerRef, selectedRef }
 }
