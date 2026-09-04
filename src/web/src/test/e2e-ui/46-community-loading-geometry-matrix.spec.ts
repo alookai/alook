@@ -11,11 +11,13 @@ import {
 import { tid } from "./_fixtures/testids"
 
 type Theme = "light" | "dark"
+const RAIL_OVERFLOW_SERVER_COUNT = 20
 type Geometry = Record<string, { x: number; y: number; width: number; height: number }>
 type MatrixCase = {
   name: string
   pathname: string
   width: 390 | 1280
+  mobileRail?: boolean
   ready: (page: Page) => Locator
   intermediate?: {
     requestPattern: string
@@ -135,8 +137,12 @@ test.describe.serial("community pending-to-loaded geometry matrix", () => {
   let routes!: Omit<MatrixCase, "width">[]
 
   test.beforeAll(async () => {
+    test.setTimeout(120_000)
     const stamp = Date.now()
     const serverId = await seedServer("alice", `Geometry ${stamp}`)
+    for (let index = 1; index < RAIL_OVERFLOW_SERVER_COUNT; index += 1) {
+      await seedServer("alice", `Geometry rail ${stamp}-${index}`)
+    }
     const textId = await seedChannel("alice", serverId, `geometry-text-${stamp}`)
     const forumId = await seedChannel("alice", serverId, `geometry-forum-${stamp}`, "forum")
     const textMessage = `geometry opener ${stamp}`
@@ -164,7 +170,7 @@ test.describe.serial("community pending-to-loaded geometry matrix", () => {
       .getByTestId(tid.composerInput)
     routes = [
       { name: "root-machines", pathname: "/c", ready: (page) => page.getByTestId(tid.machinePairOpen) },
-      { name: "me-list", pathname: "/c/me", ready: (page) => page.getByRole("button", { name: "Friends", exact: true }) },
+      { name: "me-list", pathname: "/c/me", mobileRail: true, ready: (page) => page.getByRole("button", { name: "Friends", exact: true }) },
       { name: "friends", pathname: "/c/me/friends", ready: (page) => page.getByPlaceholder("Search friends") },
       { name: "machines", pathname: "/c/me/machines", ready: (page) => page.getByTestId(tid.machinePairOpen) },
       { name: "bots", pathname: "/c/me/bots", ready: (page) => page.getByRole("button", { name: /Create a bot|Connect a machine/ }) },
@@ -223,6 +229,8 @@ test.describe.serial("community pending-to-loaded geometry matrix", () => {
         await expect(page.getByTestId(tid.initialFrame)).toBeVisible()
         await expect(page.locator('[data-slot="community-shell-root"]')).toHaveCount(1)
         await expect(page.locator('[data-slot="community-shell-root"] button')).toHaveCount(0)
+        const pendingAdd = page.locator('[data-slot="community-server-rail-add"]')
+        await expect(pendingAdd).toHaveCount(0)
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth))
           .toBe(true)
         const pendingGeometry = await visibleGeometry(page)
@@ -251,6 +259,16 @@ test.describe.serial("community pending-to-loaded geometry matrix", () => {
         }
         await expect(entry.ready(page)).toBeVisible({ timeout: 30_000 })
         await expect(page.locator('[data-slot="community-shell-root"]')).toHaveCount(1)
+        const loadedAdd = page.getByTestId(tid.serverAdd)
+        if (entry.width === 1280 || entry.mobileRail) {
+          await expect(loadedAdd).toBeVisible()
+          const railScroll = page.getByTestId(tid.serverRailScroll)
+          await expect(railScroll).toBeVisible()
+          expect(await railScroll.evaluate((element) => element.scrollHeight > element.clientHeight))
+            .toBe(true)
+        } else {
+          await expect(loadedAdd).toHaveCount(0)
+        }
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth))
           .toBe(true)
         const loadedGeometry = await visibleGeometry(page)

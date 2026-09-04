@@ -56,7 +56,7 @@ function ServerRailFrame({
 }: {
   home: ReactNode
   items: ReactNode
-  add: ReactNode
+  add?: ReactNode
   bottomInset?: number
   scrollRef?: Ref<HTMLDivElement>
   ariaLabel?: string
@@ -86,15 +86,17 @@ function ServerRailFrame({
           {items}
         </div>
 
-        <div
-          data-slot="community-server-rail-add"
-          className="flex w-full shrink-0 justify-center pb-[calc(var(--community-rail-bottom-inset)+var(--app-safe-area-bottom))] sm:pb-(--community-rail-bottom-inset)"
-          style={{
-            "--community-rail-bottom-inset": `${bottomInset ?? 8}px`,
-          } as CSSProperties}
-        >
-          {add}
-        </div>
+        {add && (
+          <div
+            data-slot="community-server-rail-add"
+            className="flex w-full shrink-0 justify-center pb-[calc(var(--community-rail-bottom-inset)+var(--app-safe-area-bottom))] sm:pb-(--community-rail-bottom-inset)"
+            style={{
+              "--community-rail-bottom-inset": `${bottomInset ?? 8}px`,
+            } as CSSProperties}
+          >
+            {add}
+          </div>
+        )}
       </div>
       {children}
     </nav>
@@ -406,7 +408,8 @@ export const ServerRail = memo(function ServerRail({
       <TooltipContent side="right" sideOffset={8}>Home</TooltipContent>
     </Tooltip>
   )
-  const items = serversLoading && servers.length === 0 && folders.length === 0 ? (
+  const serverListPending = serversLoading && servers.length === 0 && folders.length === 0
+  const items = serverListPending ? (
     <ServerRailSkeleton />
   ) : (
     <div className="flex w-full flex-col items-center gap-2">
@@ -496,7 +499,7 @@ export const ServerRail = memo(function ServerRail({
       items={items}
       bottomInset={bottomInset}
       scrollRef={scrollRef}
-      add={(
+      add={serverListPending ? undefined : (
         <RailIcon
           label={<Plus className="size-6" />}
           round
@@ -533,7 +536,6 @@ export function ServerRailPending({ bottomInset }: { bottomInset?: number }) {
       bottomInset={bottomInset}
       home={<Skeleton className="size-10 shrink-0 rounded-[20px]" />}
       items={<ServerRailSkeleton />}
-      add={<Skeleton className="size-10 shrink-0 rounded-[20px]" />}
     />
   )
 }
