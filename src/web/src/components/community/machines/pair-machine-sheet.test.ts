@@ -244,6 +244,22 @@ describe("PairMachineSheet desktop daemon integration", () => {
     expect(renderer.root.findAllByProps({ "data-testid": tid.machinePairDesktopConnect })).toHaveLength(0)
   })
 
+  it("exposes a canonical retry control when command generation fails", () => {
+    let renderer!: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(React.createElement(PairMachineSteps, {
+        command: "",
+        generating: false,
+        generationError: "Couldn’t prepare the command. Try again.",
+        onRetry: vi.fn(),
+        onCopy: vi.fn(),
+        connectedHostname: null,
+      }))
+    })
+
+    expect(renderer.root.findByProps({ "data-testid": tid.machinePairRetry })).toBeTruthy()
+  })
+
   it("keeps explicit endpoints only for local development", async () => {
     mocks.isLocalServiceEnvironment.mockReturnValue(true)
     vi.stubGlobal("location", { origin: "http://localhost:3000" })

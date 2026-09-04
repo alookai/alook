@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
-import { Copy, Loader2 } from "lucide-react"
+import { Copy, Loader2, RefreshCw, TerminalIcon } from "lucide-react"
 import { isDesktop, isTauri, tauriInvoke } from "@alook/shared"
 import { CommunitySheet } from "@/components/community/shell/community-sheet"
 import { Button } from "@/components/ui/button"
@@ -15,7 +15,7 @@ import { websocketUrl } from "@/lib/websocket-url"
 // the browser origin and local ws-do address so the command stays on the dev stack.
 // Only ever called once `pendingTokenId` is set, which happens from a
 // client-only effect — safe to touch `location` in the local branch.
-function buildPairCommand(machineKey: string, machineId?: string): string {
+export function buildPairCommand(machineKey: string, machineId?: string): string {
   const isLocal = isLocalServiceEnvironment()
   const bin = isLocal
     ? "pnpm daemon"
@@ -67,6 +67,7 @@ export function PairMachineSheet({
 }) {
   const isReconnect = mode.kind === "reconnect"
   const [generating, setGenerating] = useState(false)
+  const [generationError, setGenerationError] = useState<string | null>(null)
   const [connecting, setConnecting] = useState(false)
   const [started, setStarted] = useState(false)
   const [checkingRuntime, setCheckingRuntime] = useState(false)
@@ -78,6 +79,7 @@ export function PairMachineSheet({
 
   const generate = useCallback(async () => {
     setGenerating(true)
+    setGenerationError(null)
     try {
       const endpoint =
         mode.kind === "reconnect"
@@ -89,7 +91,9 @@ export function PairMachineSheet({
       )
       setPendingTokenId(res.tokenId)
     } catch (err) {
-      toastApiError(err, "Couldn't generate a key — try again.")
+      const message = "Couldn't generate a key — try again."
+      setGenerationError(message)
+      toastApiError(err, message)
       console.error(err)
     } finally {
       setGenerating(false)
@@ -209,6 +213,8 @@ export function PairMachineSheet({
           <PairMachineSteps
             command={command}
             generating={generating || !command}
+            generationError={generationError}
+            onRetry={() => void generate()}
             onCopy={copyCommand}
             desktopNative={desktopNative}
             checkingRuntime={checkingRuntime}
@@ -226,6 +232,8 @@ export function PairMachineSheet({
 export function PairMachineSteps({
   command,
   generating,
+  generationError = null,
+  onRetry,
   onCopy,
   connectedHostname,
   step1MotionTarget,
@@ -240,9 +248,12 @@ export function PairMachineSteps({
   connecting = false,
   started = false,
   onConnectDesktop,
+  concise = false,
 }: {
   command: string
   generating: boolean
+  generationError?: string | null
+  onRetry?: () => void
   onCopy: () => void
   connectedHostname: string | null
   step1MotionTarget?: string
@@ -257,6 +268,7 @@ export function PairMachineSteps({
   connecting?: boolean
   started?: boolean
   onConnectDesktop?: () => void
+  concise?: boolean
 }) {
   return (
     <>
@@ -264,6 +276,8 @@ export function PairMachineSteps({
         <Step1
           command={command}
           generating={generating}
+          generationError={generationError}
+          onRetry={onRetry}
           onCopy={onCopy}
           headingAs={headingAs}
           desktopNative={desktopNative}
@@ -273,6 +287,7 @@ export function PairMachineSteps({
           connecting={connecting}
           started={started}
           onConnectDesktop={onConnectDesktop}
+          concise={concise}
         />
       </div>
       <div data-motion-target={step2MotionTarget} className={step2ClassName}>
@@ -289,6 +304,8 @@ export function PairMachineSteps({
 function Step1({
   command,
   generating,
+  generationError,
+  onRetry,
   onCopy,
   headingAs: Heading,
   desktopNative,
@@ -298,9 +315,12 @@ function Step1({
   connecting,
   started,
   onConnectDesktop,
+  concise,
 }: {
   command: string
   generating: boolean
+  generationError: string | null
+  onRetry?: () => void
   onCopy: () => void
   headingAs: "h3" | "div"
   desktopNative: boolean
@@ -310,20 +330,49 @@ function Step1({
   connecting: boolean
   started: boolean
   onConnectDesktop?: () => void
+  concise: boolean
 }) {
   return (
     <section className="flex flex-col gap-3">
       <header className="flex items-center gap-2">
         <Marker n={1} done={!generating} />
         <Heading className="font-heading text-sm font-medium leading-tight tracking-[-0.015em] text-foreground">
-          Run this on your machine
+          {concise ? "Run one command" : "Run this on your machine"}
         </Heading>
       </header>
       <p className="text-sm text-muted-foreground">
-        Open a terminal on the computer you want to connect, paste the command,
-        and hit enter. Node.js with npm is required.
+        {concise
+          ? (
+              <>
+                Paste it into{" "}
+                <span className="inline-flex items-center gap-1 align-middle text-foreground">
+                  <TerminalIcon aria-hidden className="size-3.5" />
+                  Terminal.
+                </span>{" "}
+                Node.js and npm are required.
+              </>
+            )
+          : "Open a terminal on the computer you want to connect, paste the command, and hit enter. Node.js with npm is required."}
       </p>
-      {generating ? (
+      {generationError ? (
+        <div className="flex flex-col items-start gap-2 rounded-lg border border-destructive/25 bg-destructive/5 p-3">
+          <p role="alert" className="text-sm text-destructive">
+            {generationError}
+          </p>
+          {onRetry ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              data-testid={tid.machinePairRetry}
+              onClick={onRetry}
+            >
+              <RefreshCw className="size-4" />
+              Try again
+            </Button>
+          ) : null}
+        </div>
+      ) : generating ? (
         <div className="flex items-center gap-2 rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
           <Loader2 className="size-4 animate-spin" />
           Preparing your command…
@@ -402,7 +451,7 @@ function Step2({
               <span className="inline-block size-1.5 rounded-full bg-status-online" />Online
             </span>
           </span>
-          <span className="text-muted-foreground">is ready for your agent friends.</span>
+          <span className="text-muted-foreground">is ready for your bot friends.</span>
         </div>
       </section>
     )

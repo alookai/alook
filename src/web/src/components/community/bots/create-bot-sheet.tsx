@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { type AvatarDraft } from "@/components/avatar"
 import { serializeBeamSeed } from "@/lib/avatar/seed-url"
+import { randomBotName } from "@/lib/community/bot-random-name"
 import { ProviderLogo } from "@/components/provider-logo"
 import { useMachines } from "@/hooks/community/use-machines"
 import { useCreateBot, useUploadBotAvatar } from "@/hooks/community/use-bots"
@@ -24,16 +25,11 @@ import {
   hasBotCreateFieldErrors,
   validateBotCreateFields,
 } from "./bot-form-validation"
-import { uniqueNamesGenerator, names } from "unique-names-generator"
 import { cn } from "@/lib/utils"
 import type { BotSummary } from "@/hooks/community/use-bots"
 
 // Stable initial seed avoids hydration mismatch (real seed is rerolled on mount).
 const INITIAL_AVATAR = serializeBeamSeed("initial")
-
-function randomBotName(): string {
-  return uniqueNamesGenerator({ dictionaries: [names], length: 1, style: "capital" })
-}
 
 type NormalizedRuntime = BotRuntimeOption
 

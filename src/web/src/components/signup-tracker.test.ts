@@ -1,8 +1,18 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 
 const mockSendGTMEvent = vi.fn()
+const replaceRoute = vi.fn()
+const queueCommunityOnboarding = vi.fn()
+const startCommunityOnboarding = vi.fn()
 vi.mock("@next/third-parties/google", () => ({
   sendGTMEvent: (...args: unknown[]) => mockSendGTMEvent(...args),
+}))
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace: replaceRoute }),
+}))
+vi.mock("@/lib/community-onboarding", () => ({
+  queueCommunityOnboarding,
+  startCommunityOnboarding,
 }))
 
 vi.mock("react", () => ({
@@ -19,6 +29,9 @@ describe("SignupTracker", () => {
     cookieValue = ""
     cookieSetValue = ""
     replace.mockReset()
+    replaceRoute.mockReset()
+    queueCommunityOnboarding.mockReset()
+    startCommunityOnboarding.mockReset()
     // @ts-expect-error stub global document
     globalThis.document = {
       get cookie() { return cookieValue },
@@ -69,7 +82,10 @@ describe("SignupTracker", () => {
     const { SignupTracker } = await import("./signup-tracker")
     SignupTracker({ redirectTo: "/c/me/machines" })
 
-    expect(replace).toHaveBeenCalledWith("/c/me/machines")
+    expect(queueCommunityOnboarding).toHaveBeenCalledOnce()
+    expect(startCommunityOnboarding).toHaveBeenCalledOnce()
+    expect(replaceRoute).toHaveBeenCalledWith("/c/me/machines")
+    expect(replace).not.toHaveBeenCalled()
     expect(cookieSetValue).toBe("is_new_signup=; max-age=0; path=/")
   })
 })

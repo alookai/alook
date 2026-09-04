@@ -36,10 +36,7 @@ import { useCommunityStore, usePendingMachineTokenId } from "@/stores/community"
 import { communityKeys } from "@/lib/query-keys"
 import { tid } from "@/lib/community/testids"
 import {
-  advanceCommunityOnboarding,
-  readCommunityOnboardingState,
   startCommunityOnboarding,
-  updateCommunityOnboardingResources,
   useCommunityOnboarding,
 } from "@/lib/community-onboarding"
 import { removeCommunityParam } from "@/lib/community/community-route"
@@ -173,7 +170,7 @@ export function MachineUpdateDialog({
             Update daemon on {machine ? machineName(machine) : "machine"}?
           </AlertDialogTitle>
           <AlertDialogDescription>
-            The daemon will restart, and any agents currently running on this machine will stop.
+            The daemon will restart, and any bots currently running on this machine will stop.
             The machine will reconnect automatically when the update is ready.
           </AlertDialogDescription>
         </AlertDialogHeader>
@@ -241,22 +238,6 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
     )
     if (justConnected && !connectedHostname) {
       setConnectedHostname(justConnected.hostname || "machine")
-      const onboarding = readCommunityOnboardingState()
-      let continueOnboarding = false
-      if (onboarding?.status === "active" && onboarding.stage === "machine") {
-        advanceCommunityOnboarding("machine", "bot")
-        continueOnboarding = true
-      } else if (
-        onboarding?.status === "active" &&
-        onboarding.stage === "bot" &&
-        onboarding.machineRecovery
-      ) {
-        updateCommunityOnboardingResources({ machineRecovery: false })
-        continueOnboarding = true
-      }
-      if (continueOnboarding) {
-        useCommunityStore.getState().uiHandlers.navigatePath?.("/c/me/bots")
-      }
     }
   }, [machines, pendingMachineTokenId, pendingTokenId, connectedHostname])
 
@@ -397,6 +378,7 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
                 />
               ) : null}
               <Button
+                data-testid={tid.onboardingStart}
                 variant="ghost"
                 onClick={() => startCommunityOnboarding({ guideAvatarSeed })}
               >

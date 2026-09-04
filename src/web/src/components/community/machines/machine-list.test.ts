@@ -52,7 +52,10 @@ vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => ({ setQueryData: vi.fn() }),
 }))
 
-vi.mock("@/components/ui/button", () => ({ Button: () => null }))
+vi.mock("@/components/ui/button", () => ({
+  Button: ({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) =>
+    React.createElement("button", props, children),
+}))
 vi.mock("@/components/ui/card", () => ({ Card: () => null }))
 vi.mock("@/components/ui/skeleton", () => ({
   Skeleton: (props: Record<string, unknown>) => React.createElement("skeleton-row", props),
@@ -90,6 +93,7 @@ vi.mock("@/lib/api/config", () => ({
 vi.mock("@/lib/utils", () => ({ getAppMode: () => "production" }))
 
 import type { CommunityMachineSummary } from "@alook/shared"
+import { tid } from "@/lib/community/testids"
 import {
   canUpdateMachine,
   MachineList,
@@ -143,6 +147,15 @@ describe("machine daemon update UI", () => {
       renderer = TestRenderer.create(React.createElement(MachineList))
     })
     expect(renderer.root.findByType("guide-avatar-motion").props.intro).toBe(true)
+  })
+
+  it("exposes a canonical start control for the first onboarding flow", async () => {
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(MachineList))
+    })
+
+    expect(renderer.root.findByProps({ "data-testid": tid.onboardingStart })).toBeTruthy()
   })
 
   it("loads Community update eligibility from the daemon package endpoint", async () => {

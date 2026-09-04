@@ -77,7 +77,7 @@ describe("ws-do router", () => {
     it("decodes the machine id and best-effort fans the verbatim body to every active DO", async () => {
       mockGetActiveDoNamesForMachine.mockResolvedValue(["do-a", "do-b", "do-c"])
       doMock.stubFetch
-        .mockResolvedValueOnce(new Response("ok", { status: 200 }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({ sent: 1 }), { status: 200 }))
         .mockResolvedValueOnce(new Response("offline", { status: 503 }))
         .mockRejectedValueOnce(new Error("gone"))
       const body = JSON.stringify({ type: "bot:added", botId: "bot-1" })
@@ -100,6 +100,20 @@ describe("ws-do router", () => {
       expect(await internal.text()).toBe(body)
       expect(res.status).toBe(200)
       expect(await res.json()).toEqual({ sent: 1 })
+    })
+
+    it("counts the inner socket receipt instead of the inner HTTP status", async () => {
+      mockGetActiveDoNamesForMachine.mockResolvedValue(["do-a"])
+      doMock.stubFetch.mockResolvedValue(
+        new Response(JSON.stringify({ sent: 0 }), { status: 200 }),
+      )
+
+      const res = await handler.fetch(new Request(
+        "http://localhost/community-machine/by-id/machine-1/push",
+        { method: "POST", body: JSON.stringify({ type: "agent:event" }) },
+      ), env as any)
+
+      expect(await res.json()).toEqual({ sent: 0 })
     })
   })
 
@@ -332,4 +346,5 @@ describe("ws-do router", () => {
       expect(doMock.stubFetch).not.toHaveBeenCalled()
     })
   })
+
 })

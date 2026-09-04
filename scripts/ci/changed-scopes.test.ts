@@ -310,6 +310,7 @@ describe("coverage name-status contract", () => {
     for (const path of [
       "src/app/scripts/app-packed-artifact.mjs",
       "src/cli/scripts/prepare-dist.mjs",
+      "src/shared/src/index.ts",
       "src/web/vitest.runtime.config.mts",
     ]) {
       expect(plan([path]).coverage.required_changed_files).toEqual([])

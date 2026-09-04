@@ -1,0 +1,207 @@
+"use client"
+
+import { useCallback, useEffect, useRef, useState } from "react"
+import { usePathname } from "next/navigation"
+
+import {
+  advanceCommunityOnboarding,
+  completeCommunityOnboarding,
+  consumeQueuedCommunityOnboarding,
+  startCommunityOnboarding,
+  useCommunityOnboarding,
+} from "@/lib/community-onboarding"
+import { useCommunityStore } from "@/stores/community"
+import { OnboardingMachineDialog } from "./onboarding-machine-dialog"
+import {
+  ONBOARDING_HARNESSES,
+  ONBOARDING_IDENTITIES,
+} from "./onboarding-form-options"
+import {
+  initializeCommunityOnboarding,
+  type OnboardingInitializationCheckpoint,
+  type OnboardingInitializationResult,
+  type OnboardingInitializationStep,
+} from "./initialize-community-onboarding"
+import { tid } from "@/lib/community/testids"
+import { useCurrentUser } from "@/contexts/community/current-user"
+import { OnboardingSelectDialog } from "./onboarding-select-dialog"
+import { OnboardingStatusDialog } from "./onboarding-status-dialog"
+
+function harnessLabel(value?: string) {
+  return ONBOARDING_HARNESSES.find((option) => option.value === value)?.label ?? "your harness"
+}
+
+export function CommunityOnboardingForm() {
+  const pathname = usePathname()
+  const currentUser = useCurrentUser()
+  const state = useCommunityOnboarding()
+  const [harness, setHarness] = useState("")
+  const [identity, setIdentity] = useState("")
+  const [customIdentity, setCustomIdentity] = useState("")
+  const [initializationStatus, setInitializationStatus] = useState<
+    "idle" | "loading" | "error" | "success"
+  >("idle")
+  const [initializationStep, setInitializationStep] = useState<OnboardingInitializationStep>(
+    "creating-bots",
+  )
+  const [initializationError, setInitializationError] = useState("")
+  const [initializationResult, setInitializationResult] =
+    useState<OnboardingInitializationResult | null>(null)
+  const [initializationCheckpoint, setInitializationCheckpoint] =
+    useState<OnboardingInitializationCheckpoint>({})
+  const checkpointRef = useRef<OnboardingInitializationCheckpoint>({})
+  const runningRef = useRef(false)
+  const pendingCompletionDestinationRef = useRef<string | null>(null)
+  useEffect(() => {
+    const queued = consumeQueuedCommunityOnboarding()
+    if (!state && queued) startCommunityOnboarding()
+  }, [state])
+
+  useEffect(() => {
+    const pendingDestination = pendingCompletionDestinationRef.current
+    if (!pendingDestination || pathname !== pendingDestination) return
+    pendingCompletionDestinationRef.current = null
+    completeCommunityOnboarding()
+  }, [pathname])
+
+  const runInitialization = useCallback(async () => {
+    if (
+      runningRef.current ||
+      state?.stage !== "initializing" ||
+      !state.machineId ||
+      !state.harness ||
+      !state.identity
+    ) return
+
+    runningRef.current = true
+    setInitializationStatus("loading")
+    setInitializationError("")
+    try {
+      const result = await initializeCommunityOnboarding({
+        machineId: state.machineId,
+        runtime: state.harness,
+        identity: state.identity,
+        userName: currentUser.name,
+        checkpoint: checkpointRef.current,
+        onCheckpoint: (checkpoint) => {
+          checkpointRef.current = checkpoint
+          setInitializationCheckpoint(checkpoint)
+        },
+        onProgress: setInitializationStep,
+      })
+      setInitializationResult(result)
+      setInitializationStatus("success")
+    } catch (error) {
+      setInitializationError(
+        error instanceof Error && error.message
+          ? error.message
+          : "We couldn’t finish setting up your room.",
+      )
+      setInitializationStatus("error")
+    } finally {
+      runningRef.current = false
+    }
+  }, [currentUser.name, state])
+
+  useEffect(() => {
+    if (state?.stage === "initializing" && initializationStatus === "idle") {
+      void runInitialization()
+    }
+  }, [initializationStatus, runInitialization, state?.stage])
+
+  if (!state) return null
+
+  if (state.stage === "harness") {
+    return (
+      <OnboardingSelectDialog
+        open
+        onOpenChange={() => undefined}
+        step={{ current: 1, total: 3 }}
+        stepLabel="Your harness"
+        title="Which harness do you already use?"
+        description="Pick the setup that already runs your bots."
+        options={[...ONBOARDING_HARNESSES]}
+        value={harness}
+        onValueChange={setHarness}
+        submitLabel="Continue"
+        onSubmit={(value) => {
+          advanceCommunityOnboarding("harness", "machine", { harness: value })
+        }}
+        testId={tid.onboardingHarnessDialog}
+        optionTestId={tid.onboardingHarnessOption}
+      />
+    )
+  }
+
+  if (state.stage === "machine") {
+    return (
+      <OnboardingMachineDialog
+        open
+        harness={state.harness ?? ""}
+        harnessLabel={harnessLabel(state.harness)}
+        onConnected={(machineId) => {
+          advanceCommunityOnboarding("machine", "identity", { machineId })
+        }}
+      />
+    )
+  }
+
+  if (state.stage === "identity") {
+    return (
+      <OnboardingSelectDialog
+        open
+        onOpenChange={() => undefined}
+        step={{ current: 3, total: 3 }}
+        stepLabel="About you"
+        title="Which best describes you?"
+        description="We’ll shape the room around your work."
+        options={[...ONBOARDING_IDENTITIES]}
+        value={identity}
+        onValueChange={setIdentity}
+        customOption={{
+          value: "custom",
+          label: "Something else",
+          placeholder: "Your role",
+        }}
+        customValue={customIdentity}
+        onCustomValueChange={setCustomIdentity}
+        submitLabel="Finish setup"
+        onSubmit={(value) => {
+          advanceCommunityOnboarding("identity", "initializing", {
+            identity: value,
+          })
+        }}
+        testId={tid.onboardingIdentityDialog}
+        optionTestId={tid.onboardingIdentityOption}
+      />
+    )
+  }
+
+  if (state.stage === "initializing") {
+    return (
+      <OnboardingStatusDialog
+        status={initializationStatus === "idle" ? "loading" : initializationStatus}
+        currentStep={initializationStep}
+        checkpoint={initializationCheckpoint}
+        detail={
+          initializationStatus === "error"
+            ? initializationError
+            : initializationStatus === "success"
+              ? "Two bots are in your room and ready to work."
+              : "Follow along as your room comes together."
+        }
+        onRetry={() => void runInitialization()}
+        onContinue={() => {
+          if (!initializationResult) return
+          const destination = `/c/channels/${initializationResult.serverId}/${initializationResult.publicChannelId}`
+          const navigate = useCommunityStore.getState().uiHandlers.navigate
+          if (!navigate) return
+          pendingCompletionDestinationRef.current = destination
+          navigate(initializationResult.serverId, initializationResult.publicChannelId)
+        }}
+      />
+    )
+  }
+
+  return null
+}

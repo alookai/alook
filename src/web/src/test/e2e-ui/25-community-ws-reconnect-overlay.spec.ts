@@ -122,13 +122,18 @@ test("real WebSocket outage blocks the whole community surface and Retry restore
   }
 })
 
-test("an active onboarding guide yields visual and focus priority during outage, then resumes", async ({ browser }, testInfo) => {
+test("an active onboarding form yields focus priority during outage, then resumes", async ({ browser }, testInfo) => {
   test.setTimeout(90_000)
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } })
   const page = await context.newPage()
   let userWs: WebSocketRoute | null = null
+  let blockUserWs = false
   await page.routeWebSocket((url) => url.pathname.endsWith("/user"), (ws) => {
     userWs = ws
+    if (blockUserWs) {
+      ws.close({ code: 1012, reason: "active onboarding reconnect e2e outage" })
+      return
+    }
     ws.connectToServer()
   })
 
@@ -139,15 +144,11 @@ test("an active onboarding guide yields visual and focus priority during outage,
     )
     await page.getByRole("button", { name: "Sign in", exact: true }).click()
     await page.waitForURL("**/c/me/machines", { waitUntil: "commit" })
-    await expect(page.getByRole("heading", { name: "No machines yet" })).toBeVisible()
-    await page.getByRole("button", { name: "Guide me" }).click()
+    const onboarding = page.getByRole("dialog")
+    await expect(onboarding).toBeVisible()
+    await expect(onboarding.getByRole("heading", { name: "Which harness do you already use?" })).toBeVisible()
 
-    const guide = page.locator(".driver-popover.community-onboarding-popover")
-    await expect(guide).toBeVisible()
-    await expect(guide.getByRole("heading", { name: "Give your bot a place to run" })).toBeVisible()
-    await expect(page.locator("body")).toHaveClass(/community-onboarding-active/)
-
-    await context.setOffline(true)
+    blockUserWs = true
     expect(userWs).not.toBeNull()
     await userWs!.close({ code: 1012, reason: "active onboarding reconnect e2e outage" })
 
@@ -156,9 +157,8 @@ test("an active onboarding guide yields visual and focus priority during outage,
     await expect(overlay).toBeFocused()
     const stacking = await page.evaluate((overlayId) => {
       const reconnect = document.querySelector<HTMLElement>(`[data-testid='${overlayId}']`)
-      const popover = document.querySelector<HTMLElement>(".driver-popover")
-      const activeTarget = document.querySelector<HTMLElement>(".driver-active-element")
-      if (!reconnect || !popover || !activeTarget) throw new Error("stacking targets are missing")
+      const dialog = document.querySelector<HTMLElement>("[role='dialog']")
+      if (!reconnect || !dialog) throw new Error("stacking targets are missing")
       const reconnectRect = reconnect.getBoundingClientRect()
       const topAtCenter = document.elementFromPoint(
         reconnectRect.left + reconnectRect.width / 2,
@@ -166,18 +166,13 @@ test("an active onboarding guide yields visual and focus priority during outage,
       )
       return {
         reconnect: Number.parseInt(getComputedStyle(reconnect).zIndex, 10),
-        popover: Number.parseInt(getComputedStyle(popover).zIndex, 10),
-        activeTarget: Number.parseInt(getComputedStyle(activeTarget).zIndex, 10),
+        dialog: Number.parseInt(getComputedStyle(dialog).zIndex, 10),
         topBelongsToReconnect: reconnect.contains(topAtCenter),
       }
     }, tid.wsReconnectOverlay)
-    expect(stacking.reconnect).toBeGreaterThan(stacking.popover)
-    expect(stacking.reconnect).toBeGreaterThan(stacking.activeTarget)
+    expect(stacking.reconnect).toBeGreaterThanOrEqual(stacking.dialog)
     expect(stacking.topBelongsToReconnect).toBe(true)
 
-    await guide.getByRole("button", { name: "Skip guide" }).evaluate((element) => {
-      (element as HTMLElement).focus()
-    })
     await expect(overlay).toBeFocused()
     await page.keyboard.press("Tab")
     expect(await page.evaluate((overlayId) => {
@@ -189,18 +184,13 @@ test("an active onboarding guide yields visual and focus priority during outage,
       contentType: "image/png",
     })
 
-    await context.setOffline(false)
+    blockUserWs = false
     await expect(overlay).toHaveCount(0, { timeout: 20_000 })
-    await expect(guide).toBeVisible()
-    await expect(page.locator("body")).toHaveClass(/community-onboarding-active/)
-    await guide.getByRole("button", { name: "Skip guide" }).evaluate((element) => {
-      (element as HTMLElement).click()
-    })
-    await expect(guide).toHaveCount(0)
-    await expect(page.locator("body")).not.toHaveClass(/community-onboarding-active/)
+    await expect(onboarding).toBeVisible()
+    await expect(onboarding.getByRole("heading", { name: "Which harness do you already use?" })).toBeVisible()
   } finally {
     if (!page.isClosed()) {
-      await context.setOffline(false)
+      blockUserWs = false
       await context.close()
     }
   }

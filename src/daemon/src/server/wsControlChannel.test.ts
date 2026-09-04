@@ -631,6 +631,13 @@ describe("WsControlChannel — downlink HostCommand validation (convergence #6)"
     config: { runtime: "claude" } as never,
     launchId: "launch_r",
   };
+  const realEvent: HostCommand = {
+    type: "agent:event",
+    agentId: "bot_1",
+    config: { runtime: "claude" } as never,
+    launchId: "launch_e",
+    prompt: "Welcome the user.",
+  };
   const realNap: HostCommand = {
     type: "agent:nap",
     agentId: "bot_1",
@@ -710,7 +717,7 @@ describe("WsControlChannel — downlink HostCommand validation (convergence #6)"
   });
 
   it("dispatches each valid arm unchanged (happy path — the transparent gate)", () => {
-    for (const frame of [realWake, realReset, realNap, realModelSwitch, realStop]) {
+    for (const frame of [realWake, realEvent, realReset, realNap, realModelSwitch, realStop]) {
       const { sockets, received } = driven();
       sockets[0].emit("message", JSON.stringify(frame));
       expect(received).toHaveLength(1);
@@ -724,7 +731,7 @@ describe("WsControlChannel — downlink HostCommand validation (convergence #6)"
     // top-level keys AND values survive — including optional load-bearing ones
     // (`wake.sessionId`) and the opaque blobs' interiors (`config`,
     // `unreadNotice.channelId`).
-    for (const frame of [realWake, realReset, realNap, realModelSwitch, realStop]) {
+    for (const frame of [realWake, realEvent, realReset, realNap, realModelSwitch, realStop]) {
       const { sockets, received } = driven();
       sockets[0].emit("message", JSON.stringify(frame));
       expect(received).toHaveLength(1);
@@ -742,6 +749,8 @@ describe("WsControlChannel — downlink HostCommand validation (convergence #6)"
     const malformed: unknown[] = [
       { type: "agent:wake", config: {}, launchId: "l", unreadNotice: {} }, // missing agentId
       { type: "agent:wake", agentId: "b", config: {}, unreadNotice: {} }, // missing launchId
+      { type: "agent:event", agentId: "b", config: {}, launchId: "l" }, // missing prompt
+      { type: "agent:event", agentId: "b", config: {}, launchId: "l", prompt: "" }, // empty prompt
       { type: "agent:nap", agentId: "b", config: {}, launchId: "l" }, // missing handoff
       { type: "agent:nap", agentId: "b", config: {}, launchId: "l", handoff: "" }, // empty handoff
       { type: "agent:reset", agentId: "", config: {}, launchId: "l" }, // empty agentId
