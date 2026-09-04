@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
-import { Copy, Loader2 } from "lucide-react"
+import { Copy, Loader2, RefreshCw } from "lucide-react"
 import { isDesktop, isTauri, tauriInvoke } from "@alook/shared"
 import { CommunitySheet } from "@/components/community/shell/community-sheet"
 import { Button } from "@/components/ui/button"
@@ -15,7 +15,7 @@ import { websocketUrl } from "@/lib/websocket-url"
 // the browser origin and local ws-do address so the command stays on the dev stack.
 // Only ever called once `pendingTokenId` is set, which happens from a
 // client-only effect — safe to touch `location` in the local branch.
-function buildPairCommand(machineKey: string, machineId?: string): string {
+export function buildPairCommand(machineKey: string, machineId?: string): string {
   const isLocal = isLocalServiceEnvironment()
   const bin = isLocal
     ? "pnpm daemon"
@@ -67,6 +67,7 @@ export function PairMachineSheet({
 }) {
   const isReconnect = mode.kind === "reconnect"
   const [generating, setGenerating] = useState(false)
+  const [generationError, setGenerationError] = useState<string | null>(null)
   const [connecting, setConnecting] = useState(false)
   const [started, setStarted] = useState(false)
   const [checkingRuntime, setCheckingRuntime] = useState(false)
@@ -78,6 +79,7 @@ export function PairMachineSheet({
 
   const generate = useCallback(async () => {
     setGenerating(true)
+    setGenerationError(null)
     try {
       const endpoint =
         mode.kind === "reconnect"
@@ -89,7 +91,9 @@ export function PairMachineSheet({
       )
       setPendingTokenId(res.tokenId)
     } catch (err) {
-      toastApiError(err, "Couldn't generate a key — try again.")
+      const message = "Couldn't generate a key — try again."
+      setGenerationError(message)
+      toastApiError(err, message)
       console.error(err)
     } finally {
       setGenerating(false)
@@ -209,6 +213,8 @@ export function PairMachineSheet({
           <PairMachineSteps
             command={command}
             generating={generating || !command}
+            generationError={generationError}
+            onRetry={() => void generate()}
             onCopy={copyCommand}
             desktopNative={desktopNative}
             checkingRuntime={checkingRuntime}
@@ -226,6 +232,8 @@ export function PairMachineSheet({
 export function PairMachineSteps({
   command,
   generating,
+  generationError = null,
+  onRetry,
   onCopy,
   connectedHostname,
   step1MotionTarget,
@@ -243,6 +251,8 @@ export function PairMachineSteps({
 }: {
   command: string
   generating: boolean
+  generationError?: string | null
+  onRetry?: () => void
   onCopy: () => void
   connectedHostname: string | null
   step1MotionTarget?: string
@@ -264,6 +274,8 @@ export function PairMachineSteps({
         <Step1
           command={command}
           generating={generating}
+          generationError={generationError}
+          onRetry={onRetry}
           onCopy={onCopy}
           headingAs={headingAs}
           desktopNative={desktopNative}
@@ -289,6 +301,8 @@ export function PairMachineSteps({
 function Step1({
   command,
   generating,
+  generationError,
+  onRetry,
   onCopy,
   headingAs: Heading,
   desktopNative,
@@ -301,6 +315,8 @@ function Step1({
 }: {
   command: string
   generating: boolean
+  generationError: string | null
+  onRetry?: () => void
   onCopy: () => void
   headingAs: "h3" | "div"
   desktopNative: boolean
@@ -323,7 +339,19 @@ function Step1({
         Open a terminal on the computer you want to connect, paste the command,
         and hit enter. Node.js with npm is required.
       </p>
-      {generating ? (
+      {generationError ? (
+        <div className="flex flex-col items-start gap-2 rounded-lg border border-destructive/25 bg-destructive/5 p-3">
+          <p role="alert" className="text-sm text-destructive">
+            {generationError}
+          </p>
+          {onRetry ? (
+            <Button type="button" variant="outline" size="sm" onClick={onRetry}>
+              <RefreshCw className="size-4" />
+              Try again
+            </Button>
+          ) : null}
+        </div>
+      ) : generating ? (
         <div className="flex items-center gap-2 rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
           <Loader2 className="size-4 animate-spin" />
           Preparing your command…

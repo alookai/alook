@@ -34,8 +34,8 @@ vi.mock("@/components/perf/perf-trace-bootstrap", () => ({ PerfTraceBootstrap: (
 vi.mock("@/components/daemon-update-notice", () => ({
   CommunityDaemonUpdateNotice: () => null,
 }))
-vi.mock("@/components/community/onboarding/community-onboarding-guide", () => ({
-  CommunityOnboardingGuide: () => null,
+vi.mock("@/components/community/onboarding/community-onboarding-form", () => ({
+  CommunityOnboardingForm: () => null,
 }))
 vi.mock("@/components/community/shell/community-ws-reconnect-overlay", () => ({
   CommunityWsReconnectBoundary: ({ children }: { children: React.ReactNode }) => children,

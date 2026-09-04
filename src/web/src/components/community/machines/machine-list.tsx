@@ -37,10 +37,7 @@ import { useCommunityStore, usePendingMachineTokenId } from "@/stores/community"
 import { communityKeys } from "@/lib/query-keys"
 import { tid } from "@/lib/community/testids"
 import {
-  advanceCommunityOnboarding,
-  readCommunityOnboardingState,
   startCommunityOnboarding,
-  updateCommunityOnboardingResources,
   useCommunityOnboarding,
 } from "@/lib/community-onboarding"
 import { removeCommunityParam } from "@/lib/community/community-route"
@@ -229,22 +226,6 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
     )
     if (justConnected && !connectedHostname) {
       setConnectedHostname(justConnected.hostname || "machine")
-      const onboarding = readCommunityOnboardingState()
-      let continueOnboarding = false
-      if (onboarding?.status === "active" && onboarding.stage === "machine") {
-        advanceCommunityOnboarding("machine", "bot")
-        continueOnboarding = true
-      } else if (
-        onboarding?.status === "active" &&
-        onboarding.stage === "bot" &&
-        onboarding.machineRecovery
-      ) {
-        updateCommunityOnboardingResources({ machineRecovery: false })
-        continueOnboarding = true
-      }
-      if (continueOnboarding) {
-        useCommunityStore.getState().uiHandlers.navigatePath?.("/c/me/bots")
-      }
     }
   }, [machines, pendingMachineTokenId, pendingTokenId, connectedHostname])
 

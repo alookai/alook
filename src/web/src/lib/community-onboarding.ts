@@ -10,7 +10,12 @@ import {
   type CommunityOnboardingStage,
 } from "@/lib/analytics";
 
+const PENDING_ONBOARDING_KEY = "alook:community-onboarding:pending";
+
 type JourneyResources = {
+  harness?: string;
+  machineId?: string;
+  identity?: string;
   botId?: string;
   dmId?: string;
   serverId?: string;
@@ -37,9 +42,27 @@ export function readCommunityOnboardingState() {
   return currentState;
 }
 
+export function queueCommunityOnboarding() {
+  try {
+    window.sessionStorage?.setItem(PENDING_ONBOARDING_KEY, "1");
+  } catch {
+    // A blocked storage API should never interrupt the signup redirect.
+  }
+}
+
+export function consumeQueuedCommunityOnboarding() {
+  try {
+    if (window.sessionStorage?.getItem(PENDING_ONBOARDING_KEY) !== "1") return false;
+    window.sessionStorage.removeItem(PENDING_ONBOARDING_KEY);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function startCommunityOnboarding(resources: Pick<JourneyResources, "guideAvatarSeed"> = {}) {
   if (currentState) return currentState;
-  const next: CommunityOnboardingState = { ...resources, status: "active", stage: "machine" };
+  const next: CommunityOnboardingState = { ...resources, status: "active", stage: "harness" };
   publish(next);
   trackCommunityOnboardingStarted();
   return next;
@@ -77,11 +100,11 @@ export function recoverCommunityOnboardingMachine() {
 }
 
 export function completeCommunityOnboarding() {
-  if (currentState?.status !== "active" || currentState.stage !== "server") {
+  if (currentState?.status !== "active" || currentState.stage !== "initializing") {
     return currentState;
   }
   publish(null);
-  trackCommunityOnboardingStageCompleted("server");
+  trackCommunityOnboardingStageCompleted("initializing");
   trackCommunityOnboardingCompleted();
   return null;
 }

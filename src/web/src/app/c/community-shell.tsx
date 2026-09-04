@@ -10,7 +10,7 @@ import {
 } from "@/contexts/community/current-user"
 import { useCommunityWs } from "@/hooks/community/use-community-ws"
 import { PerfTraceBootstrap } from "@/components/perf/perf-trace-bootstrap"
-import { CommunityOnboardingGuide } from "@/components/community/onboarding/community-onboarding-guide"
+import { CommunityOnboardingForm } from "@/components/community/onboarding/community-onboarding-form"
 import { CommunityWsReconnectBoundary } from "@/components/community/shell/community-ws-reconnect-overlay"
 import { CommunityDaemonUpdateNotice } from "@/components/daemon-update-notice"
 import { useCommunityWsStore } from "@/stores/community/ws"
@@ -112,7 +112,7 @@ function CommunityBootstrap({ children }: { children: ReactNode }) {
       <PerfTraceBootstrap />
       <CommunityDaemonUpdateNotice userId={currentUser.id} />
       <CommunityWsReconnectBoundary>
-        <CommunityOnboardingGuide />
+        <CommunityOnboardingForm />
         {children}
       </CommunityWsReconnectBoundary>
     </>
