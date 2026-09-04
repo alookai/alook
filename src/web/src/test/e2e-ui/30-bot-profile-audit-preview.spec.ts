@@ -445,7 +445,7 @@ test("owner-only bot mark sticker, Stop lifecycle, owner swap, and URL-owned aud
     await expect(alice.page.locator(`[data-testid^="${tid.botMarkStickerRow("")}"]`))
       .toHaveCount(3)
     await expect(alice.page.getByTestId(tid.botMarkStickerOverflow)).toBeVisible()
-    await expect(sticker).toContainText(`${server!.name} · #${channelName}`)
+    await expect(sticker.getByTitle(`${server!.name} · #${channelName}`).first()).toBeVisible()
     await expect(sticker).toContainText(botName)
     await expect(sticker).toContainText(`Long marked task ${suffix}`)
     await expect(sticker).not.toContainText("**Long marked task")
