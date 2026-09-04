@@ -20,7 +20,7 @@ type StickerView = "activity" | "marks"
 
 function stickerTabClass(selected: boolean): string {
   return [
-    "flex h-8 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-[10px] px-2 text-xs font-medium text-[#4b3712] hover:text-black active:bg-[#dfb95d] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring focus-visible:outline-none dark:active:bg-[#b18432]",
+    "flex h-11 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-[10px] px-2 text-xs font-medium text-[#4b3712] hover:text-black active:bg-[#dfb95d] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring focus-visible:outline-none sm:h-8 dark:active:bg-[#b18432]",
     selected
       ? "bg-[#dfb75b] text-[#342a18] shadow-[inset_0_2px_4px_rgba(91,60,10,0.2),inset_0_-1px_0_#f3d989] dark:bg-[#b2822a]"
       : "",
@@ -114,7 +114,7 @@ export function BotMarkSticker({
         </span>
       </header>
 
-      <div role="tablist" aria-label="Bot log view" className="mx-3 mb-1 flex h-9 shrink-0 items-center gap-1 rounded-xl bg-[#e8c56f] p-0.5 shadow-[inset_0_1px_3px_rgba(98,67,11,0.14)] dark:bg-[#bd913b]">
+      <div role="tablist" aria-label="Bot log view" className="mx-3 mb-1 flex h-12 shrink-0 items-center gap-1 rounded-xl bg-[#e8c56f] p-0.5 shadow-[inset_0_1px_3px_rgba(98,67,11,0.14)] sm:h-9 dark:bg-[#bd913b]">
         <button
           type="button"
           role="tab"
@@ -159,7 +159,7 @@ export function BotMarkSticker({
             type="button"
             onClick={onOpenActivity}
             aria-label="Load more activity in the full audit log"
-            className="absolute right-2 top-2 z-10 flex h-6 items-center gap-0.5 rounded-lg px-2 text-[10px] font-semibold text-[#342a18] transition-colors hover:bg-black/10 active:bg-black/15 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            className="absolute right-2 top-0 z-10 flex min-h-11 items-center gap-0.5 rounded-lg px-2 text-[10px] font-semibold text-[#342a18] transition-colors hover:bg-black/10 active:bg-black/15 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:top-2 sm:min-h-6"
           >
             Load more
             <ChevronRight className="size-3" aria-hidden />
@@ -167,7 +167,7 @@ export function BotMarkSticker({
           <div
             ref={activityScrollRef}
             data-testid={tid.botAuditPreviewScroll}
-            className="thin-scrollbar bot-note-scrollbar mt-8 min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain"
+            className="thin-scrollbar bot-note-scrollbar mt-12 min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain sm:mt-8"
           >
             <div
               ref={activityBottomAnchorRef}
@@ -223,9 +223,9 @@ export function BotMarkSticker({
                           seed={mark.m.authorId}
                           size={28}
                         />
-                        <div className="min-w-0 flex-1">
-                          <div className="flex min-w-0 items-center gap-2 text-xs leading-4">
-                            <span className="min-w-0 flex-1 truncate font-semibold">
+                        <div className="w-fit min-w-0 max-w-full">
+                          <div className="flex w-fit min-w-0 max-w-full items-center gap-2 text-xs leading-4">
+                            <span className="min-w-0 truncate font-semibold">
                               {mark.m.authorName || "Unknown"}
                             </span>
                             {mark.m.createdAt && (
@@ -234,14 +234,14 @@ export function BotMarkSticker({
                               </time>
                             )}
                           </div>
-                          <div title={location} className="flex min-w-0 items-center gap-1 text-[10px] leading-4 text-[#4b3712]">
-                            <span className={mark.serverId ? "min-w-0 flex-1 truncate" : "shrink-0"}>
+                          <div title={location} className="flex w-fit min-w-0 max-w-full items-center gap-1 text-[10px] leading-4 text-[#4b3712]">
+                            <span className={mark.serverId ? "min-w-0 truncate" : "shrink-0"}>
                               {locationPrefix}
                             </span>
                             {locationChannel && (
                               <>
                                 <span className="shrink-0" aria-hidden>·</span>
-                                <span className="min-w-0 flex-1 truncate">{locationChannel}</span>
+                                <span className="min-w-0 truncate">{locationChannel}</span>
                               </>
                             )}
                           </div>
@@ -259,7 +259,7 @@ export function BotMarkSticker({
         </div>
       )}
 
-      <footer className="flex h-9 shrink-0 items-center gap-1 px-3 py-1">
+      <footer className="flex h-12 shrink-0 items-center gap-1 px-3 py-0.5 sm:h-9 sm:py-1">
         {active ? (
           <div className="min-w-0 flex-1 overflow-hidden">
             <BotAuditActiveRow latestEventAt={visibleEvents.at(-1)?.createdAt} tone="note" />
@@ -274,7 +274,7 @@ export function BotMarkSticker({
             onClick={onStop}
             disabled={stopPending}
             aria-label={stopPending ? "Stopping current agent turn" : "Stop current agent turn"}
-            className="flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-[#dc2626] px-2.5 text-xs font-semibold text-white shadow-[0_2px_5px_rgba(127,29,29,0.28)] transition-colors hover:bg-[#b91c1c] active:bg-[#991b1b] focus-visible:ring-2 focus-visible:ring-[#7f1d1d] focus-visible:ring-offset-1 focus-visible:outline-none disabled:cursor-wait disabled:bg-[#b91c1c] disabled:text-white/85"
+            className="flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-[#dc2626] px-2.5 text-xs font-semibold text-white shadow-[0_2px_5px_rgba(127,29,29,0.28)] transition-colors hover:bg-[#b91c1c] active:bg-[#991b1b] focus-visible:ring-2 focus-visible:ring-[#7f1d1d] focus-visible:ring-offset-1 focus-visible:outline-none disabled:cursor-wait disabled:bg-[#b91c1c] disabled:text-white/85 sm:min-h-7"
           >
             {stopPending
               ? <LoaderCircle className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden />

@@ -53,11 +53,11 @@ export function SettingsShell<Value extends string>({
       orientation={breakpoint === "mobile" ? "horizontal" : "vertical"}
       value={value}
       onValueChange={(nextValue) => onValueChange(nextValue as Value)}
-      className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[3rem_auto_minmax(0,1fr)] gap-0 sm:grid-cols-[11rem_minmax(0,1fr)] sm:grid-rows-[3rem_minmax(0,1fr)]"
+      className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[4rem_auto_minmax(0,1fr)] gap-0 sm:grid-cols-[11rem_minmax(0,1fr)] sm:grid-rows-[4rem_minmax(0,1fr)]"
       data-testid={tid.settingsShell}
     >
-      <header className="col-start-1 row-start-1 flex h-12 min-w-0 items-center border-b border-border px-4 sm:col-start-2">
-        <h1 className="min-w-0 flex-1 truncate text-lg font-semibold">{title}</h1>
+      <header className="col-start-1 row-start-1 flex h-16 min-w-0 items-center px-4 sm:col-start-2 sm:px-8">
+        <h1 className="min-w-0 flex-1 truncate text-lg font-medium tracking-tight">{title}</h1>
         <Button
           variant="ghost"
           size="icon-sm"
@@ -84,7 +84,8 @@ export function SettingsShell<Value extends string>({
               className={SETTINGS_TAB_CLASS}
               data-testid={tid.settingsTab(tabValue)}
             >
-              <Icon className="size-4" /> {tabLabel}
+              <Icon className="size-4" />
+              <span className="sr-only sm:not-sr-only">{tabLabel}</span>
             </TabsTrigger>
           ))}
         </TabsList>
@@ -94,7 +95,7 @@ export function SettingsShell<Value extends string>({
       </nav>
 
       <div
-        className="col-start-1 row-start-3 min-h-0 min-w-0 overflow-y-auto bg-background p-4 thin-scrollbar sm:col-start-2 sm:row-start-2"
+        className="col-start-1 row-start-3 min-h-0 min-w-0 overflow-y-auto bg-background px-4 pt-2 pb-4 thin-scrollbar sm:col-start-2 sm:row-start-2 sm:p-8 sm:pt-4"
         data-testid={tid.settingsContent}
       >
         {children}

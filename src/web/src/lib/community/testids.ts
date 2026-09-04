@@ -36,6 +36,7 @@ export const tid = {
   settingsContent: "community-settings-content",
   settingsClose: "community-settings-close",
   settingsLabel: "community-settings-label",
+  settingsWebVersion: "community-settings-web-version",
   settingsTab: (value: string) => `community-settings-tab-${value}`,
   userSettingsOpen: "community-user-settings-open",
   serverSettingsOpen: "community-server-settings-open",
