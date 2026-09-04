@@ -25,6 +25,7 @@ import { Shell } from "./shell"
 
 const SHELL_SURFACE_CLASS = "rounded-tl-xl rounded-tr-none rounded-br-none rounded-bl-none ring-0 border-l border-t border-border/40 shadow-none"
 const MOBILE_SURFACE_TRANSITION_MS = 180
+const MOBILE_TRANSITION_SUPPRESSION_SELECTOR = '[data-community-mobile-transition="suppress"]'
 const communityLayoutStorage: Pick<Storage, "getItem" | "setItem"> = {
   getItem: (key) => typeof localStorage === "undefined" ? null : localStorage.getItem(key),
   setItem: (key, value) => {
@@ -112,6 +113,11 @@ export function CommunityShellLayout({
 
     const element = surface === "list" ? sidebarPanelRef.current : mainPanelRef.current
     if (!element?.animate) return
+    if (element.querySelector?.(MOBILE_TRANSITION_SUPPRESSION_SELECTOR)) {
+      mobileSurfaceAnimationRef.current?.cancel()
+      mobileSurfaceAnimationRef.current = null
+      return
+    }
     mobileSurfaceAnimationRef.current?.cancel()
     mobileSurfaceAnimationRef.current = element.animate([
       {

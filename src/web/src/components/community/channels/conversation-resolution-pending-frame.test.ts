@@ -19,6 +19,7 @@ describe("ConversationResolutionPendingFrame", () => {
     expect(markup).toContain('aria-busy="true"')
     expect(markup).toContain('aria-label="Resolving conversation"')
     expect(markup).toContain('data-community-conversation-subtype="unknown"')
+    expect(markup).toContain('data-community-mobile-transition="suppress"')
     expect(markup).toContain('<span class="sr-only">Resolving conversation</span>')
     expect(markup).not.toMatch(/<(?:header|button|a|form|textarea)\b/)
     expect(markup).not.toMatch(/Message|Forum|Thread|composer|previous channel/i)
