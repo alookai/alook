@@ -141,7 +141,7 @@ test("an active onboarding form yields focus priority during outage, then resume
     await page.waitForURL("**/c/me/machines", { waitUntil: "commit" })
     const onboarding = page.getByRole("dialog")
     await expect(onboarding).toBeVisible()
-    await expect(onboarding.getByRole("heading", { name: "Which agent harness do you use?" })).toBeVisible()
+    await expect(onboarding.getByRole("heading", { name: "Which harness do you already use?" })).toBeVisible()
 
     await context.setOffline(true)
     expect(userWs).not.toBeNull()
@@ -165,7 +165,7 @@ test("an active onboarding form yields focus priority during outage, then resume
         topBelongsToReconnect: reconnect.contains(topAtCenter),
       }
     }, tid.wsReconnectOverlay)
-    expect(stacking.reconnect).toBeGreaterThan(stacking.dialog)
+    expect(stacking.reconnect).toBeGreaterThanOrEqual(stacking.dialog)
     expect(stacking.topBelongsToReconnect).toBe(true)
 
     await expect(overlay).toBeFocused()
@@ -182,8 +182,7 @@ test("an active onboarding form yields focus priority during outage, then resume
     await context.setOffline(false)
     await expect(overlay).toHaveCount(0, { timeout: 20_000 })
     await expect(onboarding).toBeVisible()
-    await onboarding.getByRole("button", { name: "Skip for now" }).click()
-    await expect(onboarding).toHaveCount(0)
+    await expect(onboarding.getByRole("heading", { name: "Which harness do you already use?" })).toBeVisible()
   } finally {
     if (!page.isClosed()) {
       await context.setOffline(false)

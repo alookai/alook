@@ -34,6 +34,7 @@ const COVERAGE_EXCLUDES = [
   /(?:^|\/)test-harness\.ts$/,
   /\.d\.ts$/,
   /^src\/cli\/src\/index\.ts$/,
+  /^src\/shared\/src\/index\.ts$/,
   /^src\/web\/scripts\//,
   /^src\/web\/readme-capture\//,
   /^src\/web\/src\/.*\.tsx$/,
