@@ -49,6 +49,150 @@ describe("useInboxUnreads / inboxUnreadsQueryFn", () => {
     await pending
   })
 
+  it("starts canonical Inbox snapshot fences before transport", async () => {
+    let resolve!: (value: { servers: []; dms: []; truncated: false }) => void
+    apiFetchMock.mockReturnValueOnce(new Promise((next) => { resolve = next }))
+    const {
+      inboxUnreadsProjectedQueryFn,
+    } = await import("./use-inbox")
+    const { AccountUnreadProjection } = await import("./account-unread-projection")
+    const projection = new AccountUnreadProjection("u1")
+    projection.setNotificationPolicy({})
+    const qc = new QueryClient()
+
+    const pending = inboxUnreadsProjectedQueryFn(qc, projection)()
+    projection.recordArrival({ channelId: "later", serverId: "s1", seq: 2 })
+    resolve({ servers: [], dms: [], truncated: false })
+    await pending
+
+    expect(projection.projectUnread("inbox-unreads", "later", false)).toBe(true)
+  })
+
+  it("releases both canonical snapshot fences when transport fails", async () => {
+    apiFetchMock.mockRejectedValueOnce(new Error("offline"))
+    const { inboxUnreadsProjectedQueryFn } = await import("./use-inbox")
+    const { AccountUnreadProjection } = await import("./account-unread-projection")
+    const projection = new AccountUnreadProjection("u1")
+
+    await expect(inboxUnreadsProjectedQueryFn(new QueryClient(), projection)())
+      .rejects.toThrow("offline")
+    expect(projection.inspectForTests().pendingSnapshots).toBe(0)
+  })
+
+  it("lets a complete empty Inbox response retire pre-request channel and DM sources", async () => {
+    apiFetchMock.mockResolvedValueOnce({ servers: [], dms: [], truncated: false })
+    const { inboxUnreadsProjectedQueryFn } = await import("./use-inbox")
+    const { AccountUnreadProjection } = await import("./account-unread-projection")
+    const projection = new AccountUnreadProjection("u1")
+    projection.setNotificationPolicy({})
+    projection.recordArrival({ channelId: "channel", serverId: "s1", seq: 1 })
+    projection.recordArrival({ channelId: "dm", seq: 1 })
+
+    await inboxUnreadsProjectedQueryFn(new QueryClient(), projection)()
+
+    expect(projection.projectUnread("inbox-unreads", "channel", false, 1, "channels")).toBe(false)
+    expect(projection.projectUnread("inbox-unreads", "dm", false, 1, "dms")).toBe(false)
+  })
+
+  it("preserves cold attention facets under mentions-only policy", async () => {
+    apiFetchMock.mockResolvedValueOnce({
+      servers: [{
+        serverId: "s1",
+        serverName: "One",
+        channels: [
+          {
+            channelId: "attention",
+            channelName: "Attention",
+            lastMessageAt: "2026-09-04T00:00:00.000Z",
+            lastUnreadSeq: 2,
+            lastAttentionSeq: 2,
+            mentionCount: 1,
+            children: [],
+          },
+          {
+            channelId: "ordinary",
+            channelName: "Ordinary",
+            lastMessageAt: "2026-09-04T00:00:00.000Z",
+            lastUnreadSeq: 3,
+            mentionCount: 0,
+            children: [],
+          },
+        ],
+      }],
+      dms: [],
+      truncated: false,
+    })
+    const { inboxUnreadsProjectedQueryFn } = await import("./use-inbox")
+    const { AccountUnreadProjection } = await import("./account-unread-projection")
+    const projection = new AccountUnreadProjection("u1")
+    projection.setNotificationPolicy({ server: { s1: "mentions" } })
+
+    await inboxUnreadsProjectedQueryFn(new QueryClient(), projection)()
+
+    expect(projection.projectUnread("inbox-unreads", "attention", false)).toBe(true)
+    expect(projection.projectUnread("inbox-unreads", "ordinary", false)).toBe(false)
+  })
+
+  it("does not treat a later ordinary unread as the older mention facet", async () => {
+    apiFetchMock.mockResolvedValueOnce({
+      servers: [{
+        serverId: "s1",
+        serverName: "One",
+        channels: [{
+          channelId: "mixed",
+          channelName: "Mixed",
+          lastMessageAt: "2026-09-04T00:00:00.000Z",
+          lastUnreadSeq: 10,
+          lastAttentionSeq: 5,
+          mentionCount: 1,
+          children: [],
+        }],
+      }],
+      dms: [],
+      truncated: false,
+    })
+    const { inboxUnreadsProjectedQueryFn } = await import("./use-inbox")
+    const { AccountUnreadProjection } = await import("./account-unread-projection")
+    const projection = new AccountUnreadProjection("u1")
+    projection.setNotificationPolicy({ server: { s1: "mentions" } })
+
+    await inboxUnreadsProjectedQueryFn(new QueryClient(), projection)()
+    expect(projection.projectUnread("inbox-unreads", "mixed", false)).toBe(true)
+
+    projection.recordRead("mixed", 5)
+    expect(projection.projectUnread("inbox-unreads", "mixed", false)).toBe(false)
+  })
+
+  it("merges positive rows from a stale response without using its absence", async () => {
+    apiFetchMock.mockResolvedValueOnce({
+      servers: [{
+        serverId: "s1",
+        serverName: "One",
+        channels: [{
+          channelId: "positive",
+          channelName: "Positive",
+          lastMessageAt: "2026-09-04T00:00:00.000Z",
+          lastUnreadSeq: 2,
+          hasDirectUnread: true,
+          children: [],
+        }],
+      }],
+      dms: [],
+      truncated: false,
+      stale: true,
+    })
+    const { inboxUnreadsProjectedQueryFn } = await import("./use-inbox")
+    const { AccountUnreadProjection } = await import("./account-unread-projection")
+    const projection = new AccountUnreadProjection("u1")
+    projection.recordArrival({ channelId: "absent", serverId: "s1", seq: 1 })
+
+    await expect(inboxUnreadsProjectedQueryFn(new QueryClient(), projection)())
+      .rejects.toThrow("stale D1 read")
+
+    expect(projection.projectUnread("inbox-unreads", "positive", false)).toBe(true)
+    expect(projection.projectUnread("inbox-unreads", "absent", false)).toBe(true)
+  })
+
   it("fences the production query result until a focused candidate is classified", async () => {
     const data = {
       servers: [{ channels: [{
@@ -357,6 +501,19 @@ describe("useInboxMentions / inboxMentionsQueryFn", () => {
     expect(qc.getQueryData(key)).toEqual({ mentions: [] })
   })
 
+  it("retires an orphan attention source after a complete empty Mentions response", async () => {
+    apiFetchMock.mockResolvedValueOnce({ mentions: [], truncated: false })
+    const { inboxMentionsProjectedQueryFn } = await import("./use-inbox")
+    const { AccountUnreadProjection } = await import("./account-unread-projection")
+    const projection = new AccountUnreadProjection("u1")
+    projection.setNotificationPolicy({})
+    projection.recordMentionArrival({ channelId: "c1", seq: 4, isMention: true })
+
+    await inboxMentionsProjectedQueryFn(projection)()
+
+    expect(projection.projectUnread("inbox-mentions", "c1", false)).toBe(false)
+  })
+
   it("filters read mentions, preserves unscoped rows, and reports pending arrivals", async () => {
     const scoped = { id: "m1", channelId: "c1", m: { seq: 2 } }
     const unscoped = { id: "m2", m: { seq: 1 } }
@@ -385,6 +542,91 @@ describe("useInboxMentions / inboxMentionsQueryFn", () => {
     expect(latest?.mentions).toEqual([unscoped])
     expect(latest?.mentions[0]).toBe(unscoped)
     expect(latest?.hasProjectedMention).toBe(true)
+    await act(async () => renderer.unmount())
+  })
+
+  it("suppresses same-sequence attention with an Unread reservation and keeps newer attention", async () => {
+    const channel = {
+      channelId: "shared",
+      channelName: "Shared",
+      lastMessageAt: "2026-09-04T02:00:00.000Z",
+      lastUnreadSeq: 4,
+      mentionCount: 1,
+      hasDirectUnread: true,
+      children: [],
+    }
+    const server = { serverId: "s1", serverName: "One", channels: [channel] }
+    const same = {
+      id: "mention-same",
+      serverId: "s1",
+      channelId: "shared",
+      m: { id: "message-same", seq: 4 },
+    }
+    const newer = {
+      id: "mention-newer",
+      serverId: "s1",
+      channelId: "shared",
+      m: { id: "message-newer", seq: 5 },
+    }
+    apiFetchMock.mockImplementation((url: string) => Promise.resolve(
+      url.endsWith("/unreads")
+        ? { servers: [server], dms: [], truncated: false }
+        : { mentions: [same, newer], truncated: false },
+    ))
+    const { useInboxMentions, useInboxUnreads } = await import("./use-inbox")
+    const { useInboxAutoCollapse } = await import("./use-inbox-auto-collapse")
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    qc.setQueryData(communityKeys.inboxUnreads(), {
+      servers: [server],
+      dms: [],
+      truncated: false,
+    })
+    qc.setQueryData(communityKeys.inboxMentions(), {
+      mentions: [same, newer],
+      truncated: false,
+    })
+    let unreads: ReturnType<typeof useInboxUnreads> | undefined
+    let mentions: ReturnType<typeof useInboxMentions> | undefined
+    let collapse: ReturnType<typeof useInboxAutoCollapse> | undefined
+    function Harness() {
+      unreads = useInboxUnreads()
+      mentions = useInboxMentions()
+      collapse = useInboxAutoCollapse({
+        queryClient: qc,
+        publishedHref: "/c/channels/s0",
+        navigationPending: false,
+        pendingHref: null,
+      })
+      return null
+    }
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(
+        QueryClientProvider,
+        { client: qc },
+        React.createElement(Harness),
+      ))
+    })
+    expect(mentions?.mentions).toEqual([same, newer])
+
+    let epoch = 0
+    await act(async () => {
+      epoch = collapse!.beginProjection(
+        inboxChannelRowTarget(server, channel)!,
+        "/c/channels/s1/shared",
+      )
+    })
+
+    expect(unreads?.servers).toEqual([server])
+    expect(unreads?.hasProjectedUnread).toBe(true)
+    expect(mentions?.mentions).toEqual([newer])
+    expect(mentions?.hasProjectedMention).toBe(true)
+
+    await act(async () => {
+      collapse!.rollbackProjection(epoch)
+    })
+    expect(unreads?.servers).toEqual([server])
+    expect(mentions?.mentions).toEqual([same, newer])
     await act(async () => renderer.unmount())
   })
 

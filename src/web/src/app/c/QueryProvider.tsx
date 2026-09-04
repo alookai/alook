@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState, type ReactNode } from "react"
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools"
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client"
 import { createQueryClient } from "@/lib/query-client"
@@ -18,6 +18,7 @@ import {
   disposeAccountUnreadProjection,
   getAccountUnreadProjection,
 } from "@/hooks/community/account-unread-projection"
+import { communityKeys } from "@/lib/query-keys"
 
 /**
  * Owns the TanStack QueryClient for the community subtree.
@@ -44,7 +45,34 @@ export function QueryProvider({
     () => useCommunityWsStore.getState().beginProfileSnapshot(),
   )
   const [queryClient] = useState(() => createQueryClient())
-  if (userId) getAccountUnreadProjection(queryClient, userId)
+  const unreadProjection = useMemo(
+    () => userId ? getAccountUnreadProjection(queryClient, userId) : null,
+    [queryClient, userId],
+  )
+  useEffect(() => {
+    if (!unreadProjection) return
+    unreadProjection.setReconcileScheduler(() => {
+      void queryClient.invalidateQueries({
+        queryKey: communityKeys.inboxUnreads(),
+        exact: true,
+      })
+      void queryClient.invalidateQueries({
+        queryKey: communityKeys.inboxMentions(),
+        exact: true,
+      })
+      void queryClient.invalidateQueries({ queryKey: communityKeys.dms(), exact: true })
+      void queryClient.invalidateQueries({ queryKey: communityKeys.servers(), exact: true })
+      void queryClient.invalidateQueries({
+        predicate: ({ queryKey }) => (
+          queryKey.length === 3
+          && queryKey[0] === communityKeys.all[0]
+          && queryKey[1] === communityKeys.servers()[1]
+          && queryKey[2] !== communityKeys.channelRefDirectory()[2]
+        ),
+      })
+    })
+    return () => unreadProjection.setReconcileScheduler(null)
+  }, [queryClient, unreadProjection])
   // Persister is bound to the userId at construction; on account switch the
   // whole community subtree unmounts and the shell re-renders with the new
   // id, so we don't need to reactively rebuild the persister mid-session.

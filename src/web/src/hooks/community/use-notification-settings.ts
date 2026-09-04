@@ -4,6 +4,11 @@ import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tan
 import { notifLevelDisplay } from "@alook/shared"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
+import { useEffect, useMemo } from "react"
+import {
+  getActiveAccountUnreadProjection,
+  type AccountUnreadProjection,
+} from "./account-unread-projection"
 
 /**
  * Fetches the user's notification-setting rows and materialises them into
@@ -54,14 +59,32 @@ export const notificationSettingsQueryFn = async (): Promise<NotificationSetting
   return { raw: rows, server, channel }
 }
 
+function projectNotificationSettings(
+  projection: AccountUnreadProjection,
+  settings: Pick<NotificationSettings, "server" | "channel"> | undefined,
+) {
+  projection.setNotificationPolicy({
+    server: settings?.server ?? {},
+    channel: settings?.channel ?? {},
+  })
+}
+
 export function useNotificationSettings(): UseQueryResult<NotificationSettings> & {
   server: Record<string, string>
   channel: Record<string, string>
 } {
+  const queryClient = useQueryClient()
+  const projection = useMemo(
+    () => getActiveAccountUnreadProjection(queryClient),
+    [queryClient],
+  )
   const query = useQuery({
     queryKey: communityKeys.notificationSettings(),
     queryFn: notificationSettingsQueryFn,
   })
+  useEffect(() => {
+    if (query.data) projectNotificationSettings(projection, query.data)
+  }, [projection, query.data])
   return {
     ...query,
     server: query.data?.server ?? (EMPTY_NOTIF_SERVER as Record<string, string>),

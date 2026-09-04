@@ -39,6 +39,19 @@ describe("useDms / dmsQueryFn", () => {
     expect(qc.getQueryData(key)).toEqual({ conversations: [] })
   })
 
+  it("uses a complete DM list as authoritative negative evidence", async () => {
+    apiFetchMock.mockResolvedValueOnce({ conversations: [] })
+    const { dmsProjectedQueryFn } = await import("./use-dms")
+    const { AccountUnreadProjection } = await import("./account-unread-projection")
+    const projection = new AccountUnreadProjection("u1")
+    projection.setNotificationPolicy({})
+    projection.recordArrival({ channelId: "dm_1", seq: 3 })
+
+    await dmsProjectedQueryFn(projection)()
+
+    expect(projection.projectUnread("dms", "dm_1", false)).toBe(false)
+  })
+
   it("reuses a projected DM across layout mounts without refetching the canonical list", async () => {
     const conversations = [{
       id: "dm_projected",

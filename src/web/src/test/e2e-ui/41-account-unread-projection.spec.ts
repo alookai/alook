@@ -217,6 +217,94 @@ async function expectRailReplacementDoesNotBlockMessages({
 test.describe.serial("account unread projection", () => {
   test.setTimeout(180_000)
 
+  test("one mention source disappears from Unreads, Mentions, and every dot in the same frame", async ({ asUser }) => {
+    const stamp = Date.now()
+    const serverId = await seedServer("alice", `Projection mention ${stamp}`)
+    const channelName = `mention-${stamp}`
+    const channelId = await seedChannel("alice", serverId, channelName)
+    await seedJoinServer("alice", "bob", serverId)
+    const bobInfo = await memberInfo("alice", serverId, userId("bob"))
+
+    const bob = await asUser("bob")
+    for (const path of [
+      "/api/community/users/me/inbox/mentions/read-all",
+      "/api/community/users/me/inbox/unreads/read-all",
+      "/api/community/users/me/inbox/dms/read-all",
+    ]) {
+      expect((await bob.page.request.post(path)).ok()).toBe(true)
+    }
+    const observerGate = await installReadObserverGate(bob.page)
+    const proxy = await proxyCommunityWebSockets(bob.context)
+    await gotoAfterUserWsAuth(bob.page, "/c/me/friends")
+    await expect(bob.page.getByTestId(tid.serverIcon(serverId))).toBeVisible({ timeout: 30_000 })
+
+    const alice = await asUser("alice")
+    await gotoAfterUserWsAuth(alice.page, `/c/channels/${serverId}/${channelId}`)
+    const mentionText = `Canonical mention ${stamp}`
+    const frameStart = proxy.frames.length
+    const response = alice.page.waitForResponse((candidate) => (
+      candidate.request().method() === "POST"
+      && new URL(candidate.url()).pathname === `/api/community/channels/${channelId}/messages`
+    ))
+    const editable = composerEditable(alice.page)
+    await editable.click()
+    await editable.pressSequentially(`@${bobInfo.name.slice(0, 3)}`)
+    await alice.page.getByTestId(tid.mentionOption(bobInfo.id)).click()
+    await editable.pressSequentially(` ${mentionText}`)
+    await alice.page.keyboard.press("Enter")
+    const messageResponse = await response
+    expect(messageResponse.status()).toBe(201)
+    const messageId = (await messageResponse.json() as { message: { id: string } }).message.id
+    await expect.poll(() => {
+      const events = proxy.frames.slice(frameStart).flatMap(communityFrameEvents)
+      return events.some((event) => (
+        event.type === "community:message.create"
+        && event.message?.id === messageId
+      )) && events.some((event) => (
+        event.type === "community:unread.bump"
+        && event.channelId === channelId
+      )) && events.some((event) => (
+        event.type === "community:mention.create"
+        && event.messageId === messageId
+      ))
+    }, { timeout: 20_000 }).toBe(true)
+
+    const inboxTrigger = bob.page.getByTestId(tid.inboxTrigger)
+    await expect(inboxTrigger.locator("span.bg-primary")).toHaveCount(1)
+    await inboxTrigger.click()
+    await expect(bob.page.getByTestId(tid.inboxUnreadChannel(channelId))).toBeVisible()
+    await bob.page.getByRole("tab", { name: "Mentions" }).click()
+    await expect(bob.page.getByText(mentionText, { exact: false })).toBeVisible()
+    await bob.page.getByRole("tab", { name: "Unreads" }).click()
+
+    await observerGate.block()
+    await bob.page.getByTestId(tid.inboxUnreadChannel(channelId)).click()
+    await expect(bob.page).toHaveURL(`/c/channels/${serverId}/${channelId}`)
+    await expect(bob.page.getByText(mentionText, { exact: false })).toBeVisible({ timeout: 20_000 })
+    await expect.poll(observerGate.pending).toBeGreaterThan(0)
+    await expect(inboxTrigger.locator("span.bg-primary")).toHaveCount(0)
+    await expectNoUnreadDot(bob.page.getByTestId(tid.channelRow(channelId)))
+    await expect.poll(async () => bob.page
+      .getByTestId(tid.serverRailIndicator(serverId))
+      .evaluate((element) => element.getBoundingClientRect().height)).toBe(40)
+    await expect(bob.page.getByTestId(tid.railUnreadBadge(serverId))).toHaveCount(0)
+
+    await inboxTrigger.click()
+    await expect(bob.page.getByTestId(tid.inboxUnreadChannel(channelId))).toHaveCount(0)
+    await expect(bob.page.getByRole("tab", { name: "Unreads" }).locator("span.bg-primary")).toHaveCount(0)
+    await bob.page.getByRole("tab", { name: "Mentions" }).click()
+    const inboxPanel = bob.page.getByTestId(tid.inboxTabList).locator("xpath=..")
+    await expect(inboxPanel.getByText(mentionText, { exact: false })).toHaveCount(0)
+    await expect(bob.page.getByRole("tab", { name: "Mentions" }).locator("span.bg-primary")).toHaveCount(0)
+
+    const readResponse = bob.page.waitForResponse((candidate) => (
+      candidate.request().method() === "PUT"
+      && new URL(candidate.url()).pathname === `/api/community/channels/${channelId}/read`
+    ))
+    await observerGate.release()
+    expect((await readResponse).status()).toBe(200)
+  })
+
   test("one committed bundle projects every surface and only a visible row clears it", async ({ asUser }, testInfo) => {
     const stamp = Date.now()
     const foregroundServer = await seedServer("alice", `Projection foreground ${stamp}`)

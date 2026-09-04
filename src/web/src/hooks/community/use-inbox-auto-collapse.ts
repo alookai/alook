@@ -14,9 +14,11 @@ type ProjectionLease = {
   epoch: number
   target: InboxRowTarget
   destinationHref: string
+  originHref: string
   previousOpen: boolean
   phase: "submitting" | "committed"
   submitted: boolean
+  navigationObserved: boolean
   ticket: InboxProjectionTicket
 }
 
@@ -140,16 +142,18 @@ export function useInboxAutoCollapse({
       epoch,
       target,
       destinationHref,
+      originHref: publishedHref,
       previousOpen,
       phase: "submitting",
       submitted: false,
+      navigationObserved: false,
       ticket,
     }
     publishProjection(store, lease)
     openRef.current = false
     setOpen(false)
     return epoch
-  }, [queryClient, store])
+  }, [publishedHref, queryClient, store])
 
   const markProjectionSubmitted = useCallback((epoch: number) => {
     const lease = store.current
@@ -194,8 +198,21 @@ export function useInboxAutoCollapse({
       commitLease(lease)
       return
     }
-    if (navigationPending && destinationMatches(pendingHref, lease.destinationHref)) return
-    rollbackProjection(lease.epoch)
+    if (navigationPending && destinationMatches(pendingHref, lease.destinationHref)) {
+      if (!lease.navigationObserved) {
+        publishProjection(store, { ...lease, navigationObserved: true })
+      }
+      return
+    }
+    // router.pushImmediate() can publish the intent one render before the
+    // navigation store exposes pendingHref. Keep the exact tombstone through
+    // that gap; a synchronous throw is handled by the caller. Once this lease
+    // has observed its pending destination, an idle mismatch is a real cancel.
+    if (
+      lease.navigationObserved
+      || publishedHref !== lease.originHref
+      || (navigationPending && pendingHref !== null)
+    ) rollbackProjection(lease.epoch)
   }, [commitLease, navigationPending, pendingHref, projection, publishedHref, rollbackProjection, store])
 
   useEffect(() => {

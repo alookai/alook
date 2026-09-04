@@ -112,7 +112,20 @@ describe("useCommunityWs — account unread projection", () => {
       isMention: true,
     }))
     expect(getActiveAccountUnreadProjection(capturedQueryClient)
-      .projectServerMentionCount("srv_x", [], 7)).toBe(7)
+      .projectServerMentionCount("srv_x", [], 7)).toBe(0)
+  })
+
+  it("merges a valid WS bump before applying the current policy overlay", async () => {
+    await mountHook({ viewerUserId: "u_me" })
+    const projection = getActiveAccountUnreadProjection(capturedQueryClient)
+    projection.setNotificationPolicy({ server: { srv_x: "nothing" } })
+
+    capturedOnMessage!(unreadBump("ch_a", "u_me", { serverId: "srv_x" }))
+
+    expect(projection.inspectForTests().sourceCount).toBe(1)
+    expect(projection.projectUnread("servers", "ch_a", false)).toBe(false)
+    projection.setNotificationPolicy({ server: { srv_x: "all" } })
+    expect(projection.projectUnread("servers", "ch_a", false)).toBe(true)
   })
 
   it("ignores bumps addressed to a different account", async () => {
@@ -250,5 +263,35 @@ describe("useCommunityWs — friend + mention → invalidate", () => {
       const key = call[0]?.queryKey as unknown[] | undefined
       return key?.length === 2 && key[0] === "community" && key[1] === "servers"
     })).toHaveLength(1)
+  })
+
+  it("projects a mention-only delivery into its server and parent scope immediately", async () => {
+    await mountHook({ viewerUserId: "u_1" })
+    const projection = getActiveAccountUnreadProjection(capturedQueryClient)
+    projection.setNotificationPolicy({
+      server: { srv_1: "mentions" },
+      channel: { forum_1: "mentions" },
+    })
+
+    capturedOnMessage!({
+      type: "community:mention.create",
+      userId: "u_1",
+      messageId: "m_1",
+      channelId: "post_1",
+      serverId: "srv_1",
+      railChannelId: "forum_1",
+      authorName: "A",
+    } satisfies CommunityMentionCreate)
+
+    expect(projection.projectServerUnread("srv_1", [])).toBe(true)
+    expect(projection.projectForumParentUnread(
+      "srv_1",
+      "forum_1",
+      false,
+      undefined,
+      new Set(),
+    )).toBe(true)
+    projection.retireAccessScope({ kind: "server", serverId: "srv_1" })
+    expect(projection.projectServerUnread("srv_1", [])).toBe(false)
   })
 })

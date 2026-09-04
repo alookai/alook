@@ -65,6 +65,26 @@ beforeEach(() => {
 })
 
 describe("useLeaveServer — optimistic + rollback", () => {
+  it("fences every unread source in the departing scope and rolls back atomically", async () => {
+    const mod = await load()
+    const { getActiveAccountUnreadProjection } = await import(
+      "@/hooks/community/account-unread-projection"
+    )
+    const projection = getActiveAccountUnreadProjection(capturedQc)
+    projection.recordArrival({ channelId: "c1", serverId: "srv_1", seq: 1 })
+    projection.recordArrival({ channelId: "c2", serverId: "srv_2", seq: 1 })
+    mod.useLeaveServer()
+    const cfg = capturedConfig as MutConfig<
+      { serverId: string },
+      { token: unknown; snapshot: unknown }
+    >
+    const context = await cfg.onMutate?.({ serverId: "srv_1" })
+    expect(projection.projectUnread("servers", "c1", false)).toBe(false)
+    expect(projection.projectUnread("servers", "c2", false)).toBe(true)
+    cfg.onError?.(new Error("failed"), { serverId: "srv_1" }, context)
+    expect(projection.projectUnread("servers", "c1", false)).toBe(true)
+  })
+
   it("removes the server row and restores on failure", async () => {
     capturedQc.setQueryData(communityKeys.servers(), {
       servers: [

@@ -118,6 +118,8 @@ export function handleMentionCreate(
     const evidence = candidate?.messageId === event.messageId ? candidate : undefined
     getAccountUnreadProjection(queryClient, viewerId).recordMentionArrival({
       channelId: event.channelId,
+      serverId: event.serverId,
+      railChannelId: event.railChannelId,
       messageId: event.messageId,
       seq: evidence?.seq,
       isMention: true,

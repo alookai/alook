@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useParams, useSearchParams } from "next/navigation"
-import { useQuery } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { DmHeader } from "@/components/community/channels/dm-header"
@@ -24,7 +23,7 @@ import { useCommunityWsStore } from "@/stores/community/ws"
 import { tid } from "@/lib/community/testids"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 import { makeUserNameResolver } from "@/lib/community/display-name"
-import { dmsQueryFn, type DmsResponse } from "@/hooks/community/use-dms"
+import { useDms } from "@/hooks/community/use-dms"
 import { useFriends } from "@/hooks/community/use-friends"
 import { useDmMessages } from "@/hooks/community/use-messages"
 import { useDmReadStateSnapshot } from "@/hooks/community/use-dm-read-state"
@@ -52,10 +51,7 @@ import { notifLevelDisplay, type NotifLevel } from "@alook/shared"
 import { useNotificationSettings } from "@/hooks/community/use-notification-settings"
 import { useSetChannelNotif } from "@/hooks/community/mutations"
 import { toastApiError } from "@/lib/api/client"
-import { communityKeys } from "@/lib/query-keys"
 import { displayReplyContent } from "@/lib/community/reply-content"
-
-const EMPTY_DMS: DmsResponse["conversations"] = []
 
 // Thin re-mount wrapper — same reason as the server-side channel view: the
 // dynamic segment reuses the same component instance across DM switches, so
@@ -99,12 +95,8 @@ function DmView() {
   // MeLayout owns the canonical cold DMs fetch. This second observer consumes
   // that result without treating it as stale on mount; explicit WS/query
   // invalidation still refetches the active canonical key.
-  const dmsQuery = useQuery<DmsResponse>({
-    queryKey: communityKeys.dms(),
-    queryFn: dmsQueryFn,
-    staleTime: Infinity,
-  })
-  const dms = dmsQuery.data?.conversations ?? EMPTY_DMS
+  const dmsQuery = useDms()
+  const dms = dmsQuery.dms
   const dmsLoading = dmsQuery.isLoading
   const { friends: rawFriends, blocked } = useFriends()
   const profilesByUserId = useCommunityWsStore((s) => s.profilesByUserId)

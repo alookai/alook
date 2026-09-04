@@ -21,7 +21,7 @@ type Props = {
   breakpoint: Breakpoint
   open?: boolean
   onOpenChange?: (open: boolean) => void
-  hasUnread?: boolean
+  hasUnread: boolean
   anchorRef: RefObject<HTMLDivElement | null>
   suppressFocusReturnRef: MutableRefObject<boolean>
   children: ReactNode
@@ -38,7 +38,7 @@ export function CommunityInboxSurface({
 }: Props) {
   const triggerRef = useRef<HTMLButtonElement>(null)
   const mobile = breakpoint === "mobile"
-  const unread = selectUnreadPresentation({ accountUnread: hasUnread === true })
+  const unread = selectUnreadPresentation({ accountUnread: hasUnread })
 
   return (
     <Popover

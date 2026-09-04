@@ -22,7 +22,7 @@ export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox,
   onOpenProfile?: OpenProfile
   onEditProfile?: () => void
   inbox?: ReactNode
-  hasUnread?: boolean
+  hasUnread: boolean
   inboxOpen?: boolean
   onInboxOpenChange?: (open: boolean) => void
 }) {
@@ -85,7 +85,7 @@ function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnrea
   onOpenProfile?: OpenProfile
   onEditProfile?: () => void
   inbox?: ReactNode
-  hasUnread?: boolean
+  hasUnread: boolean
   inboxOpen?: boolean
   onInboxOpenChange?: (open: boolean) => void
   inboxAnchorRef: RefObject<HTMLDivElement | null>

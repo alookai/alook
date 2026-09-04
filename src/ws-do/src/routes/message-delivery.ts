@@ -131,6 +131,10 @@ export async function handleMessageDelivery(
       userId,
       messageId: batch.messageId,
       channelId: batch.messageEvent.channelId,
+      ...(batch.messageEvent.serverId ? { serverId: batch.messageEvent.serverId } : {}),
+      ...(batch.messageEvent.serverId
+        ? { railChannelId: batch.messageEvent.parentChannelId ?? batch.messageEvent.channelId }
+        : {}),
       authorName: batch.messageEvent.message.authorName,
     })
   }

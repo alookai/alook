@@ -13,7 +13,11 @@ import { communityKeys } from "@/lib/query-keys"
 import { avatarInitial } from "@/lib/community/avatar"
 import { isServerOwner, UNCATEGORIZED_CATEGORY_ID } from "@alook/shared"
 import type { Server, Category, Channel } from "@/lib/community/models/navigation"
-import { getActiveAccountUnreadProjection } from "./account-unread-projection"
+import {
+  getActiveAccountUnreadProjection,
+  type AccountUnreadProjection,
+  type AccountUnreadSource,
+} from "./account-unread-projection"
 import { useInboxProjectionTarget } from "./use-inbox-auto-collapse"
 import { reservedUnreadExclusion } from "./unread-presentation"
 
@@ -74,6 +78,38 @@ export const serversQueryFn = async (
   return { servers }
 }
 
+function serverListUnreadSources(data: ServersResponse): AccountUnreadSource[] {
+  return data.servers.flatMap((server) => (
+    [
+      ...(server.unreadSources ?? []).map((source) => ({
+        ...source,
+        serverId: server.id,
+      })),
+      ...(server.mentionSources ?? []).flatMap((source) => source.count > 0 ? [{
+        channelId: source.channelId,
+        serverId: server.id,
+        lastUnreadSeq: source.lastSeq,
+        lastMentionSeq: source.lastSeq,
+        isMention: true,
+      }] : []),
+    ]
+  ))
+}
+
+export const serversProjectedQueryFn = (
+  projection: AccountUnreadProjection,
+) => async (context?: QueryFunctionContext) => {
+  const token = projection.beginSnapshot("servers", "channels")
+  try {
+    const data = await serversQueryFn(context)
+    projection.absorbSnapshot(token, serverListUnreadSources(data))
+    return data
+  } catch (error) {
+    projection.cancelSnapshot(token)
+    throw error
+  }
+}
+
 function serversQueryOptions() {
   return {
     queryKey: communityKeys.servers(),
@@ -85,8 +121,18 @@ function serversQueryOptions() {
 export function useServers(): UseQueryResult<ServersResponse> & {
   servers: Server[]
 } {
+  const queryClient = useQueryClient()
+  const unreadProjection = useMemo(
+    () => getActiveAccountUnreadProjection(queryClient),
+    [queryClient],
+  )
+  const queryFn = useMemo(
+    () => serversProjectedQueryFn(unreadProjection),
+    [unreadProjection],
+  )
   const query = useQuery({
     ...serversQueryOptions(),
+    queryFn,
     // WS-maintained like the other server-scoped queries: server.update
     // live-patches this list (name/icon) and mention/member events invalidate
     // it to refresh counts. So a remount doesn't need to refetch — this is a
@@ -99,11 +145,6 @@ export function useServers(): UseQueryResult<ServersResponse> & {
     staleTime: Infinity,
     refetchOnReconnect: true,
   })
-  const queryClient = useQueryClient()
-  const unreadProjection = useMemo(
-    () => getActiveAccountUnreadProjection(queryClient),
-    [queryClient],
-  )
   const unreadVersion = useSyncExternalStore(
     unreadProjection.subscribe,
     unreadProjection.getSnapshot,
@@ -115,8 +156,13 @@ export function useServers(): UseQueryResult<ServersResponse> & {
     [reservationTarget],
   )
   useEffect(() => {
-    const sources = query.data?.servers.flatMap((server) => server.unreadSources ?? [])
-    if (sources) unreadProjection.absorbFamily("servers", sources)
+    if (query.data) {
+      unreadProjection.mergeSources(
+        "servers",
+        serverListUnreadSources(query.data),
+        "channels",
+      )
+    }
     if (!query.data) return
     for (const server of query.data.servers) {
       if (server.unreadSources) {
@@ -152,6 +198,7 @@ export function useServers(): UseQueryResult<ServersResponse> & {
         server.id,
         server.mentionSources ?? [],
         server.mentions,
+        unreadExclusion,
       )
       if (unread === server.unread && mentions === server.mentions) return server
       changed = true
@@ -218,14 +265,42 @@ async function resolveServerIdentity(
     ?.servers.find((server) => server.id === serverId)
   if (cached) return cached
 
-  const fetched = await serversQueryFn({ signal } as QueryFunctionContext)
+  const fetched = await serversProjectedQueryFn(
+    getActiveAccountUnreadProjection(queryClient),
+  )({ signal } as QueryFunctionContext)
   return fetched.servers.find((server) => server.id === serverId)
+}
+
+function serverDetailUnreadSources(
+  serverId: string,
+  unreadData: UnreadResponse,
+): AccountUnreadSource[] {
+  const parentByChild = new Map(
+    (unreadData.childChannels ?? []).map((child) => [child.id, child.parentChannelId]),
+  )
+  return (unreadData.sources ?? []).flatMap((source) => [
+    {
+      channelId: source.channelId,
+      lastUnreadSeq: source.lastUnreadSeq,
+      serverId,
+      railChannelId: parentByChild.get(source.channelId),
+    },
+    ...(source.lastAttentionSeq == null ? [] : [{
+      channelId: source.channelId,
+      lastUnreadSeq: source.lastAttentionSeq,
+      lastMentionSeq: source.lastAttentionSeq,
+      serverId,
+      railChannelId: parentByChild.get(source.channelId),
+      isMention: true,
+    }]),
+  ])
 }
 
 export const serverQueryFn = (
   queryClient: QueryClient,
   serverId: string,
   signal?: AbortSignal,
+  options: { onUnreadResponse?: (data: UnreadResponse) => void } = {},
 ) => async (): Promise<ServerDetail> => {
   const fetchResource = <T,>(path: string) => signal
     ? apiFetch<T>(path, { signal })
@@ -236,6 +311,7 @@ export const serverQueryFn = (
     fetchResource<{ channels: RawChannel[] }>(`/api/community/servers/${serverId}/channels`),
     fetchResource<UnreadResponse>(`/api/community/servers/${serverId}/unreads`),
   ])
+  options.onUnreadResponse?.(unreadData)
   if (unreadData.stale) throw new Error("stale D1 read")
   if (!server) throw new Error("server not found")
   const unreadIds = new Set(unreadData.channelIds)
@@ -284,6 +360,30 @@ export const serverQueryFn = (
   }
 }
 
+export const serverProjectedQueryFn = (
+  queryClient: QueryClient,
+  serverId: string,
+  signal?: AbortSignal,
+) => async () => {
+  const projection = getActiveAccountUnreadProjection(queryClient)
+  const family = `server-detail:${serverId}` as const
+  const token = projection.beginSnapshot(family, "channels")
+  try {
+    return await serverQueryFn(queryClient, serverId, signal, {
+      onUnreadResponse: (unreadData) => {
+        projection.absorbSnapshot(
+          token,
+          serverDetailUnreadSources(serverId, unreadData),
+          { stale: unreadData.stale },
+        )
+      },
+    })()
+  } catch (error) {
+    projection.cancelSnapshot(token)
+    throw error
+  }
+}
+
 /**
  * Fetches the detail (categories + channels) for one server. Pass `null` for
  * "no active server" (including the DM home) — the query stays disabled and
@@ -308,11 +408,15 @@ export function useServer(
     [reservationTarget],
   )
   const enabled = !!serverId
+  const queryFn = useMemo(() => {
+    if (!serverId) return () => Promise.reject(new Error("disabled"))
+    return ({ signal }: QueryFunctionContext = {} as QueryFunctionContext) => (
+      serverProjectedQueryFn(queryClient, serverId, signal)()
+    )
+  }, [queryClient, serverId])
   const query = useQuery({
     queryKey: enabled ? communityKeys.server(serverId!) : communityKeys.server("__none__"),
-    queryFn: enabled
-      ? serverQueryFn(queryClient, serverId!)
-      : (() => Promise.reject(new Error("disabled"))),
+    queryFn,
     enabled,
     // WS events (member.*, channel/category changes) live-patch this
     // ServerDetail cache, so a remount doesn't need to refetch — this is a
@@ -326,7 +430,11 @@ export function useServer(
     if (!serverId || !query.data) return
     const family = `server-detail:${serverId}` as const
     if (query.data.unreadSources) {
-      unreadProjection.absorbFamily(family, query.data.unreadSources)
+      unreadProjection.mergeSources(
+        family,
+        query.data.unreadSources.map((source) => ({ ...source, serverId })),
+        "channels",
+      )
       return
     }
     unreadProjection.recordLegacySnapshot(

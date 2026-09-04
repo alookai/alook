@@ -6,7 +6,9 @@ const apiFetch = vi.fn()
 vi.mock("@/lib/api/client", () => ({ apiFetch: (...args: unknown[]) => apiFetch(...args) }))
 
 type MutationConfig = {
-  onSuccess?: (data: unknown, args: any) => void
+  onSuccess?: (data: unknown, args: any, context?: any) => void
+  onMutate?: (args: any) => Promise<any>
+  onError?: (error: unknown, args: any, context: any) => void
 }
 let config: MutationConfig | null = null
 let queryClient: QueryClient
@@ -30,6 +32,54 @@ beforeEach(() => {
 })
 
 describe("notification mutation cache refresh", () => {
+  it("changes only reversible eligibility and restores it on failure", async () => {
+    const settings = {
+      raw: [],
+      server: { server_1: "All Messages" },
+      channel: {},
+    }
+    queryClient.setQueryData(communityKeys.notificationSettings(), settings)
+    const { getActiveAccountUnreadProjection } = await import("../account-unread-projection")
+    const projection = getActiveAccountUnreadProjection(queryClient)
+    projection.recordArrival({ channelId: "channel_1", serverId: "server_1", seq: 2 })
+    const before = projection.inspectForTests()
+    const { useSetServerNotifLevel } = await import("./notifications")
+    useSetServerNotifLevel()
+
+    const context = await config!.onMutate?.({ serverId: "server_1", level: "Nothing" })
+    expect(projection.projectUnread("servers", "channel_1", false)).toBe(false)
+    expect(projection.inspectForTests().sourceCount).toBe(before.sourceCount)
+    expect(projection.inspectForTests().readState).toEqual(before.readState)
+
+    projection.setNotificationPolicy({ server: { server_1: "Nothing" } })
+
+    config!.onError?.(new Error("failed"), { serverId: "server_1", level: "Nothing" }, context)
+    expect(projection.projectUnread("servers", "channel_1", false)).toBe(true)
+  })
+
+  it("rolls back one server field without clobbering a concurrent success", async () => {
+    queryClient.setQueryData(communityKeys.notificationSettings(), {
+      raw: [],
+      server: { server_1: "All Messages", server_2: "All Messages" },
+      channel: {},
+    })
+    const { useSetServerNotifLevel } = await import("./notifications")
+    useSetServerNotifLevel()
+
+    const first = await config!.onMutate?.({ serverId: "server_1", level: "Nothing" })
+    const second = await config!.onMutate?.({ serverId: "server_2", level: "Nothing" })
+    config!.onSuccess?.(undefined, { serverId: "server_2", level: "Nothing" }, second)
+    config!.onError?.(
+      new Error("first failed"),
+      { serverId: "server_1", level: "Nothing" },
+      first,
+    )
+
+    expect(queryClient.getQueryData(communityKeys.notificationSettings())).toMatchObject({
+      server: { server_1: "All Messages", server_2: "Nothing" },
+    })
+  })
+
   it("refreshes settings, inbox, and all read-state snapshots after a server change", async () => {
     const invalidate = vi.spyOn(queryClient, "invalidateQueries")
     const { useSetServerNotifLevel } = await import("./notifications")

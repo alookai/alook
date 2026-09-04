@@ -27,7 +27,11 @@ import {
 } from "@/lib/community/message-stream"
 import type { Attachment, MessagesPage, Msg } from "@/lib/community/models/message"
 import type { PinsResponse } from "@/hooks/community/use-channel-panels"
-import type { MarkedResponse, MessageMarkedResponse } from "@/hooks/community/use-inbox"
+import type {
+  MarkedResponse,
+  MentionsResponse,
+  MessageMarkedResponse,
+} from "@/hooks/community/use-inbox"
 import {
   getForumSidebarBase,
   hasForumSidebarThread,
@@ -39,6 +43,7 @@ import { reconcileForumOpenerTitle } from "@/hooks/community/forum-opener-title-
 import { isBlocked, type MentionType } from "@alook/shared"
 import {
   getActiveAccountUnreadProjection,
+  type AccountUnreadDismissToken,
   type AccountUnreadDomain,
   type MarkAllToken,
 } from "@/hooks/community/account-unread-projection"
@@ -913,24 +918,43 @@ export type DeleteMentionArgs = { mentionId: string }
 
 export function useDeleteMention() {
   const queryClient = useQueryClient()
-  return useMutation<void, Error, DeleteMentionArgs, { snapshot: unknown }>({
+  const unreadProjection = getActiveAccountUnreadProjection(queryClient)
+  return useMutation<
+    { revision: number },
+    Error,
+    DeleteMentionArgs,
+    { snapshot: MentionsResponse | undefined; token?: AccountUnreadDismissToken }
+  >({
     mutationFn: async ({ mentionId }) => {
-      await apiFetch(`/api/community/users/me/inbox/mentions/${mentionId}`, { method: "DELETE" })
+      return apiFetch<{ revision: number }>(
+        `/api/community/users/me/inbox/mentions/${mentionId}`,
+        { method: "DELETE" },
+      )
     },
     onMutate: async (args) => {
       const key = communityKeys.inboxMentions()
-      const snapshot = queryClient.getQueryData(key)
+      const snapshot = queryClient.getQueryData<MentionsResponse>(key)
+      const row = snapshot?.mentions.find((mention) => mention.id === args.mentionId)
+      const token = row?.channelId
+        ? unreadProjection.beginDismissMention({
+            mentionId: args.mentionId,
+            channelId: row.channelId,
+            seq: row.m.seq,
+          })
+        : undefined
       queryClient.setQueryData(key, (prev: { mentions: { id: string }[] } | undefined) =>
         prev ? { ...prev, mentions: prev.mentions.filter((m) => m.id !== args.mentionId) } : prev,
       )
-      return { snapshot }
+      return { snapshot, token }
     },
-    onSuccess: () => {
+    onSuccess: (result, _args, context) => {
+      if (context.token) unreadProjection.commitDismissMention(context.token, result?.revision)
       // Deleting a mention row removes it from the unread-mention aggregate
       // that feeds the server rail badge — refresh so the count drops.
       void queryClient.invalidateQueries({ queryKey: communityKeys.servers() })
     },
     onError: (err, _args, ctx) => {
+      if (ctx?.token) unreadProjection.rollbackDismissMention(ctx.token)
       if (ctx?.snapshot) queryClient.setQueryData(communityKeys.inboxMentions(), ctx.snapshot)
       toastApiError(err, "Failed to remove mention")
     },

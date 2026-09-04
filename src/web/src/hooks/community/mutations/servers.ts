@@ -7,6 +7,10 @@ import { avatarInitial } from "@/lib/community/avatar"
 import type { ServersResponse, ServerDetail } from "@/hooks/community/use-servers"
 import { useCommunityStore } from "@/stores/community"
 import { useMessageStreamStore } from "@/stores/community/message-stream"
+import {
+  getActiveAccountUnreadProjection,
+  type AccountUnreadScopeToken,
+} from "@/hooks/community/account-unread-projection"
 
 /**
  * Server-scoped mutations. `create`/`join` invalidate the rail; `leave`/`delete`
@@ -82,7 +86,11 @@ function clearDepartedServer(serverId: string) {
 
 export function useLeaveServer() {
   const queryClient = useQueryClient()
-  return useMutation<void, Error, LeaveServerArgs, { snapshot: ServersResponse | undefined }>({
+  const unreadProjection = getActiveAccountUnreadProjection(queryClient)
+  return useMutation<void, Error, LeaveServerArgs, {
+    snapshot: ServersResponse | undefined
+    token: AccountUnreadScopeToken
+  }>({
     mutationFn: async ({ serverId }) => {
       await apiFetch(`/api/community/servers/${serverId}/leave`, { method: "POST" })
     },
@@ -93,12 +101,17 @@ export function useLeaveServer() {
       queryClient.setQueryData<ServersResponse | undefined>(key, (prev) =>
         prev ? { ...prev, servers: prev.servers.filter((s) => s.id !== args.serverId) } : prev,
       )
-      return { snapshot }
+      return {
+        snapshot,
+        token: unreadProjection.beginScopeRetirement({ kind: "server", serverId: args.serverId }),
+      }
     },
     onError: (_err, _args, ctx) => {
+      if (ctx) unreadProjection.rollbackScopeRetirement(ctx.token)
       if (ctx?.snapshot) queryClient.setQueryData(communityKeys.servers(), ctx.snapshot)
     },
-    onSuccess: (_data, args) => {
+    onSuccess: (_data, args, context) => {
+      unreadProjection.commitScopeRetirement(context.token)
       queryClient.removeQueries({ queryKey: communityKeys.server(args.serverId) })
       void queryClient.invalidateQueries({
         queryKey: communityKeys.channelRefDirectory(),
@@ -111,7 +124,11 @@ export function useLeaveServer() {
 
 export function useDeleteServer() {
   const queryClient = useQueryClient()
-  return useMutation<void, Error, LeaveServerArgs, { snapshot: ServersResponse | undefined }>({
+  const unreadProjection = getActiveAccountUnreadProjection(queryClient)
+  return useMutation<void, Error, LeaveServerArgs, {
+    snapshot: ServersResponse | undefined
+    token: AccountUnreadScopeToken
+  }>({
     mutationFn: async ({ serverId }) => {
       await apiFetch(`/api/community/servers/${serverId}`, { method: "DELETE" })
     },
@@ -122,12 +139,17 @@ export function useDeleteServer() {
       queryClient.setQueryData<ServersResponse | undefined>(key, (prev) =>
         prev ? { ...prev, servers: prev.servers.filter((s) => s.id !== args.serverId) } : prev,
       )
-      return { snapshot }
+      return {
+        snapshot,
+        token: unreadProjection.beginScopeRetirement({ kind: "server", serverId: args.serverId }),
+      }
     },
     onError: (_err, _args, ctx) => {
+      if (ctx) unreadProjection.rollbackScopeRetirement(ctx.token)
       if (ctx?.snapshot) queryClient.setQueryData(communityKeys.servers(), ctx.snapshot)
     },
-    onSuccess: (_data, args) => {
+    onSuccess: (_data, args, context) => {
+      unreadProjection.commitScopeRetirement(context.token)
       queryClient.removeQueries({ queryKey: communityKeys.server(args.serverId) })
       void queryClient.invalidateQueries({
         queryKey: communityKeys.channelRefDirectory(),

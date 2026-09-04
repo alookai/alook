@@ -1051,6 +1051,35 @@ describe("useMarkAllInboxRead", () => {
 // ── useDeleteMention — rollback ──────────────────────────────────────────
 
 describe("useDeleteMention — rollback", () => {
+  it("hides only the exact attention facet and restores it on failure", async () => {
+    capturedQc.setQueryData(communityKeys.inboxMentions(), {
+      mentions: [{ id: "men_1", channelId: "ch_1", m: { id: "msg_1", seq: 4 } }],
+    })
+    const mod = await loadMod()
+    const { getActiveAccountUnreadProjection } = await import(
+      "@/hooks/community/account-unread-projection"
+    )
+    const projection = getActiveAccountUnreadProjection(capturedQc)
+    projection.recordArrival({
+      channelId: "ch_1",
+      serverId: "srv_1",
+      messageId: "msg_1",
+      seq: 4,
+      isMention: true,
+    })
+    mod.useDeleteMention()
+    const cfg = capturedConfig as MutConfig<
+      { mentionId: string },
+      { token?: unknown; snapshot?: unknown }
+    >
+    const context = await cfg.onMutate?.({ mentionId: "men_1" })
+    expect(projection.projectUnread("inbox-unreads", "ch_1", false)).toBe(true)
+    expect(projection.projectUnread("inbox-mentions", "ch_1", false)).toBe(false)
+
+    cfg.onError?.(new Error("boom"), { mentionId: "men_1" }, context)
+    expect(projection.projectUnread("inbox-mentions", "ch_1", false)).toBe(true)
+  })
+
   it("restores mention on failure", async () => {
     capturedQc.setQueryData(communityKeys.inboxMentions(), {
       mentions: [{ id: "men_1" }],

@@ -354,8 +354,8 @@ export function InboxPopover({
   marked: Marked[]
   markedLoading?: boolean
   loading?: boolean
-  hasProjectedUnreads?: boolean
-  hasProjectedMentions?: boolean
+  hasProjectedUnreads: boolean
+  hasProjectedMentions: boolean
   onOpenChannel?: (
     server: UnreadServer,
     channel: UnreadChannel,
@@ -385,8 +385,8 @@ export function InboxPopover({
   surface?: "desktop" | "mobile"
 }) {
   const profilesByUserId = useProfilesByUserId()
-  const hasUnreads = hasProjectedUnreads ?? (unreads.length > 0 || unreadDms.length > 0)
-  const hasMentions = hasProjectedMentions ?? mentions.length > 0
+  const hasUnreads = hasProjectedUnreads
+  const hasMentions = hasProjectedMentions
   const showUnreadDot = selectUnreadPresentation({
     accountUnread: hasUnreads,
   }).showDot

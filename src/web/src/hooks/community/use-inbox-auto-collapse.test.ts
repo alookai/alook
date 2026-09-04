@@ -206,6 +206,21 @@ describe("useInboxAutoCollapse", () => {
     expect(mocks.activate).toHaveBeenCalledTimes(1)
   })
 
+  it("keeps the projection through the submitted-to-pending router gap", async () => {
+    const href = "/c/channels/s1/c1"
+    const hook = await renderHook()
+    let epoch = 0
+    await hook.call(() => { epoch = hook.current.beginProjection(target(), href) })
+    await hook.call(() => hook.current.markProjectionSubmitted(epoch))
+
+    expect(hook.current.isProjected(target())).toBe(true)
+    expect(mocks.cancel).not.toHaveBeenCalled()
+
+    await hook.rerender({ navigationPending: true, pendingHref: href })
+    await hook.rerender({ publishedHref: href, navigationPending: false, pendingHref: null })
+    expect(mocks.activate).toHaveBeenCalledTimes(1)
+  })
+
   it("rolls back a canceled pre-commit intent without reopening", async () => {
     const href = "/c/channels/s1/c1"
     const hook = await renderHook({ navigationPending: true, pendingHref: href })

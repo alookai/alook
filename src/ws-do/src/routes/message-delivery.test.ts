@@ -49,7 +49,7 @@ const batch = {
 type InternalBundleBody = {
   operationId: string
   operationDigest: string
-  events: Array<{ type: string }>
+  events: Array<{ type: string; [key: string]: unknown }>
 }
 
 async function successfulReceipt(request: Request): Promise<Response> {
@@ -123,6 +123,11 @@ describe("message delivery route", () => {
       "community:channel.child_update",
     ])
     expect(byUser.get("mention-only")?.events.map((event) => event.type)).toEqual(["community:mention.create"])
+    expect(byUser.get("mention-only")?.events[0]).toMatchObject({
+      channelId: "thread-1",
+      serverId: "server-1",
+      railChannelId: "forum-1",
+    })
     expect(byUser.get("parent-only")?.events.map((event) => event.type)).toEqual(["community:channel.child_update"])
     expect(new Set(calls.map((call) => call.body.operationId))).toEqual(new Set([
       await deriveCommunityDeliveryOperationId("message-1"),

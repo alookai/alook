@@ -111,6 +111,45 @@ describe("useServers / serversQueryFn", () => {
     expect(qc.getQueryData(key)).toEqual({ servers: [] })
   })
 
+  it("uses a complete server list as authoritative unread negative evidence", async () => {
+    apiFetchMock.mockResolvedValueOnce({ servers: [] })
+    const { serversProjectedQueryFn } = await import("./use-servers")
+    const { AccountUnreadProjection } = await import("./account-unread-projection")
+    const projection = new AccountUnreadProjection("u1")
+    projection.setNotificationPolicy({})
+    projection.recordArrival({ channelId: "c1", serverId: "s1", seq: 2 })
+
+    await serversProjectedQueryFn(projection)()
+
+    expect(projection.projectUnread("servers", "c1", false)).toBe(false)
+  })
+
+  it("correlates cold rail unread sources with their attention facets", async () => {
+    apiFetchMock.mockResolvedValueOnce({ servers: [{
+      id: "s1",
+      name: "One",
+      discriminator: "0001",
+      icon: null,
+      ownerId: "u1",
+      unreadSources: [
+        { channelId: "attention", lastUnreadSeq: 10 },
+        { channelId: "ordinary", lastUnreadSeq: 3 },
+      ],
+      mentionSources: [{ channelId: "attention", count: 1, lastSeq: 5 }],
+    }] })
+    const { serversProjectedQueryFn } = await import("./use-servers")
+    const { AccountUnreadProjection } = await import("./account-unread-projection")
+    const projection = new AccountUnreadProjection("u1")
+    projection.setNotificationPolicy({ server: { s1: "mentions" } })
+
+    await serversProjectedQueryFn(projection)()
+
+    expect(projection.projectUnread("servers", "attention", false)).toBe(true)
+    expect(projection.projectUnread("servers", "ordinary", false)).toBe(false)
+    projection.recordRead("attention", 5)
+    expect(projection.projectUnread("servers", "attention", false)).toBe(false)
+  })
+
   it("projects a live unread arrival and preserves unchanged server identity", async () => {
     const changed = {
       id: "s1",
@@ -206,7 +245,75 @@ describe("useServer / serverQueryFn", () => {
     expect(apiFetchMock).not.toHaveBeenCalled()
   })
 
-  it("projects server-detail channels while preserving unchanged category paths", async () => {
+  it("starts server-detail coverage before transport and preserves a later arrival", async () => {
+    let resolveUnreads!: (value: { channelIds: string[]; sources: never[] }) => void
+    const unreadResponse = new Promise<{ channelIds: string[]; sources: never[] }>(
+      (resolve) => { resolveUnreads = resolve },
+    )
+    apiFetchMock.mockImplementation(async (url: string) => {
+      if (url.endsWith("/categories")) return { categories: [] }
+      if (url.endsWith("/channels")) return { channels: [] }
+      if (url.endsWith("/unreads")) return unreadResponse
+      throw new Error(`unexpected ${url}`)
+    })
+    const qc = new QueryClient()
+    qc.setQueryData(communityKeys.servers(), { servers: [{
+      id: "srv_1",
+      name: "Alook",
+      discriminator: "0001",
+      description: "",
+      icon: null,
+      ownerId: "u_1",
+    }] })
+    const {
+      getAccountUnreadProjection,
+    } = await import("./account-unread-projection")
+    const projection = getAccountUnreadProjection(qc, "u1")
+    projection.setNotificationPolicy({})
+    projection.recordArrival({ channelId: "before", serverId: "srv_1", seq: 1 })
+    const { serverProjectedQueryFn } = await import("./use-servers")
+
+    const request = serverProjectedQueryFn(qc, "srv_1")()
+    projection.recordArrival({ channelId: "after", serverId: "srv_1", seq: 2 })
+    resolveUnreads({ channelIds: [], sources: [] })
+    await request
+
+    expect(projection.projectUnread("server-detail:srv_1", "before", false))
+      .toBe(false)
+    expect(projection.projectUnread("server-detail:srv_1", "after", false))
+      .toBe(true)
+  })
+
+  it("merges stale server-detail positives before rejecting the cache write", async () => {
+    apiFetchMock.mockImplementation(async (url: string) => {
+      if (url.endsWith("/categories")) return { categories: [] }
+      if (url.endsWith("/channels")) return { channels: [] }
+      if (url.endsWith("/unreads")) return {
+        channelIds: ["c1"],
+        sources: [{ channelId: "c1", lastUnreadSeq: 3, lastAttentionSeq: null }],
+        stale: true,
+      }
+      throw new Error(`unexpected ${url}`)
+    })
+    const qc = new QueryClient()
+    qc.setQueryData(communityKeys.servers(), { servers: [{
+      id: "srv_1",
+      name: "Alook",
+      discriminator: "0001",
+      description: "",
+      icon: null,
+      ownerId: "u_1",
+    }] })
+    const { getAccountUnreadProjection } = await import("./account-unread-projection")
+    const projection = getAccountUnreadProjection(qc, "u1")
+    const { serverProjectedQueryFn } = await import("./use-servers")
+
+    await expect(serverProjectedQueryFn(qc, "srv_1")()).rejects.toThrow("stale D1 read")
+
+    expect(projection.projectUnread("server-detail:srv_1", "c1", false)).toBe(true)
+  })
+
+  it("projects server-detail channels from canonical sources only", async () => {
     const changedChannel = { id: "c1", unread: false }
     const unchangedChannel = { id: "c2", unread: true }
     const changedCategory = { id: "cat1", channels: [changedChannel] }
@@ -231,8 +338,9 @@ describe("useServer / serverQueryFn", () => {
     expect(result.server).not.toBe(detail)
     expect(result.server?.categories[0]).not.toBe(changedCategory)
     expect(result.server?.categories[0]?.channels[0]?.unread).toBe(true)
-    expect(result.server?.categories[1]).toBe(unchangedCategory)
-    expect(result.server?.categories[1]?.channels[0]).toBe(unchangedChannel)
+    expect(result.server?.categories[1]).not.toBe(unchangedCategory)
+    expect(result.server?.categories[1]?.channels[0]).not.toBe(unchangedChannel)
+    expect(result.server?.categories[1]?.channels[0]?.unread).toBe(false)
   })
 
   it("retains rolling-deploy server-detail unread rows without source vectors", async () => {

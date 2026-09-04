@@ -14,6 +14,7 @@ let activeUser: TestUser = { id: "user-a", name: "A", email: "a@example.com", av
 let providerInstance = 0
 const renderedProviders: Array<{ userId: string | null; instance: number }> = []
 const apiFetchProfiles = vi.hoisted(() => vi.fn(() => Promise.resolve({})))
+const useNotificationSettings = vi.hoisted(() => vi.fn(() => ({ data: undefined })))
 
 vi.mock("./QueryProvider", () => ({
   QueryProvider: ({ children, userId }: { children: React.ReactNode; userId: string | null }) => {
@@ -27,6 +28,7 @@ vi.mock("@/contexts/community/current-user", () => ({
   useCurrentUser: () => activeUser,
 }))
 vi.mock("@/hooks/community/use-community-ws", () => ({ useCommunityWs: vi.fn() }))
+vi.mock("@/hooks/community/use-notification-settings", () => ({ useNotificationSettings }))
 vi.mock("@/lib/community/profile-seed", () => ({
   apiFetchProfiles: (...args: unknown[]) => apiFetchProfiles(...args),
 }))
@@ -50,6 +52,7 @@ beforeEach(() => {
   renderedProviders.length = 0
   apiFetchProfiles.mockReset()
   apiFetchProfiles.mockResolvedValue({})
+  useNotificationSettings.mockClear()
 })
 
 describe("CommunityShell identity boundary", () => {
@@ -190,5 +193,19 @@ describe("CommunityShell identity boundary", () => {
       status: { statusEmoji: null, statusText: "" },
     }])
     renderer.unmount()
+  })
+
+  it("hydrates account notification policy at the community root", () => {
+    let renderer!: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(React.createElement(
+        CommunityShell,
+        { currentUser: activeUser },
+        React.createElement("span", null, "content"),
+      ))
+    })
+
+    expect(useNotificationSettings).toHaveBeenCalledOnce()
+    act(() => renderer.unmount())
   })
 })

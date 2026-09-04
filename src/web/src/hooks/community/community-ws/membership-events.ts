@@ -34,6 +34,7 @@ import {
   refreshServerReactionDetails,
   removeServerReactionDetails,
 } from "./reaction-details-invalidation"
+import { getAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 
 type ChannelMemberEvent = Extract<
   CommunityWsEvent,
@@ -52,6 +53,13 @@ export function handleChannelMemberEvent(
     event.type === "community:channel.member_remove" &&
     event.userId === viewerUserIdRef.current
   ) {
+    const viewerId = viewerUserIdRef.current
+    if (viewerId) {
+      getAccountUnreadProjection(queryClient, viewerId).retireAccessScope({
+        kind: "channel",
+        channelId: event.channelId,
+      })
+    }
     projectChannelScopeEviction(
       projection,
       queryClient,
@@ -62,6 +70,13 @@ export function handleChannelMemberEvent(
     event.type === "community:channel.member_add" &&
     event.userId === viewerUserIdRef.current
   ) {
+    const viewerId = viewerUserIdRef.current
+    if (viewerId) {
+      getAccountUnreadProjection(queryClient, viewerId).grantAccessScope({
+        kind: "channel",
+        channelId: event.channelId,
+      })
+    }
     if (!isKnownNonForumSidebarChannel(queryClient, event.serverId, event.channelId)) {
       void grantForumSidebarChild(queryClient, event.serverId, event.channelId)
     }
@@ -119,6 +134,13 @@ export function handleMemberJoin(
   invalidatePresence(projection, event.serverId)
   refreshServerReactionDetails(queryClient, event.serverId)
   if (event.member.userId === viewerUserIdRef.current) {
+    const viewerId = viewerUserIdRef.current
+    if (viewerId) {
+      getAccountUnreadProjection(queryClient, viewerId).grantAccessScope({
+        kind: "server",
+        serverId: event.serverId,
+      })
+    }
     invalidateChannelRefDirectory(projection)
     invalidateServersList(projection)
     invalidateServerDetail(projection, event.serverId)
@@ -146,6 +168,13 @@ export function handleMemberLeave(
   // so the layout's eject effect can detect the drop and route
   // the user away from the now-forbidden URL.
   if (event.userId === viewerUserIdRef.current) {
+    const viewerId = viewerUserIdRef.current
+    if (viewerId) {
+      getAccountUnreadProjection(queryClient, viewerId).retireAccessScope({
+        kind: "server",
+        serverId: event.serverId,
+      })
+    }
     removeServerReactionDetails(queryClient, event.serverId)
     invalidateChannelRefDirectory(projection)
     useMessageStreamStore.getState().removeServer(event.serverId)

@@ -10,7 +10,11 @@ import {
   inboxMentionRowTarget,
   reserveInboxUnreadsResponse,
 } from "./inbox-read-reservation"
-import { getActiveAccountUnreadProjection } from "./account-unread-projection"
+import {
+  getActiveAccountUnreadProjection,
+  type AccountUnreadProjection,
+  type AccountUnreadSource,
+} from "./account-unread-projection"
 import { useInboxProjectionTarget } from "./use-inbox-auto-collapse"
 import {
   isInboxTargetReserved,
@@ -52,11 +56,10 @@ export type UnreadsResponse = {
   truncated?: boolean
 }
 
-export const inboxUnreadsQueryFn = ({ signal }: { signal?: AbortSignal } = {}) =>
+const inboxUnreadsTransportFn = ({ signal }: { signal?: AbortSignal } = {}) =>
   apiFetchProfiles<UnreadsResponse & { stale?: boolean }>(
     "/api/community/users/me/inbox/unreads",
     (data) => {
-      throwIfStale(data)
       return data.dms.map((dm) => ({
         id: dm.otherUserId,
         identityAbout: {
@@ -72,11 +75,78 @@ export const inboxUnreadsQueryFn = ({ signal }: { signal?: AbortSignal } = {}) =
     { signal },
   )
 
+export const inboxUnreadsQueryFn = async (
+  context: { signal?: AbortSignal } = {},
+) => throwIfStale(await inboxUnreadsTransportFn(context))
+
 export const inboxUnreadsReservedQueryFn = (queryClient: ReturnType<typeof useQueryClient>) => (
   { signal }: { signal?: AbortSignal } = {},
 ) => inboxUnreadsQueryFn({ signal }).then(
   (data) => reserveInboxUnreadsResponse(queryClient, data, signal),
 )
+
+function inboxUnreadSources(data: UnreadsResponse) {
+  const channels: AccountUnreadSource[] = data.servers.flatMap((server) => (
+    server.channels.flatMap((channel) => [
+      ...(channel.lastUnreadSeq === undefined ? [] : [{
+        channelId: channel.channelId,
+        serverId: server.serverId,
+        lastUnreadSeq: channel.lastUnreadSeq,
+      }]),
+      ...(channel.lastAttentionSeq === undefined || channel.lastAttentionSeq === null ? [] : [{
+        channelId: channel.channelId,
+        serverId: server.serverId,
+        lastUnreadSeq: channel.lastAttentionSeq,
+        lastMentionSeq: channel.lastAttentionSeq,
+        isMention: true,
+      }]),
+      ...channel.children.flatMap((child) => [
+        ...(child.lastUnreadSeq === undefined ? [] : [{
+          channelId: child.channelId,
+          serverId: server.serverId,
+          railChannelId: channel.channelId,
+          lastUnreadSeq: child.lastUnreadSeq,
+        }]),
+        ...(child.lastAttentionSeq === undefined || child.lastAttentionSeq === null ? [] : [{
+          channelId: child.channelId,
+          serverId: server.serverId,
+          railChannelId: channel.channelId,
+          lastUnreadSeq: child.lastAttentionSeq,
+          lastMentionSeq: child.lastAttentionSeq,
+          isMention: true,
+        }]),
+      ]),
+    ])
+  ))
+  const dms: AccountUnreadSource[] = data.dms.flatMap((dm) => (
+    dm.lastUnreadSeq === undefined ? [] : [{
+      channelId: dm.channelId,
+      lastUnreadSeq: dm.lastUnreadSeq,
+    }]
+  ))
+  return { channels, dms }
+}
+
+export const inboxUnreadsProjectedQueryFn = (
+  queryClient: ReturnType<typeof useQueryClient>,
+  projection: AccountUnreadProjection,
+) => async ({ signal }: { signal?: AbortSignal } = {}) => {
+  const channelsToken = projection.beginSnapshot("inbox-unreads", "channels")
+  const dmsToken = projection.beginSnapshot("inbox-unreads", "dms")
+  try {
+    const data = await inboxUnreadsTransportFn({ signal })
+    const sources = inboxUnreadSources(data)
+    const options = { truncated: data.truncated ?? true, stale: data.stale }
+    projection.absorbSnapshot(channelsToken, sources.channels, options)
+    projection.absorbSnapshot(dmsToken, sources.dms, options)
+    throwIfStale(data)
+    return reserveInboxUnreadsResponse(queryClient, data, signal)
+  } catch (error) {
+    projection.cancelSnapshot(channelsToken)
+    projection.cancelSnapshot(dmsToken)
+    throw error
+  }
+}
 
 export function useInboxUnreads(): UseQueryResult<UnreadsResponse> & {
   servers: UnreadServer[]
@@ -102,7 +172,10 @@ export function useInboxUnreads(): UseQueryResult<UnreadsResponse> & {
     () => reservedUnreadExclusion(reservationTarget, "dms"),
     [reservationTarget],
   )
-  const queryFn = useMemo(() => inboxUnreadsReservedQueryFn(queryClient), [queryClient])
+  const queryFn = useMemo(
+    () => inboxUnreadsProjectedQueryFn(queryClient, unreadProjection),
+    [queryClient, unreadProjection],
+  )
   const query = useQuery({
     queryKey: communityKeys.inboxUnreads(),
     queryFn,
@@ -112,28 +185,9 @@ export function useInboxUnreads(): UseQueryResult<UnreadsResponse> & {
   })
   useEffect(() => {
     if (!query.data) return
-    const channelSources = query.data.servers.flatMap((server) => server.channels.flatMap((channel) => [
-      ...(channel.lastUnreadSeq === undefined ? [] : [{
-        channelId: channel.channelId,
-        lastUnreadSeq: channel.lastUnreadSeq,
-      }]),
-      ...channel.children.flatMap((child) => child.lastUnreadSeq === undefined ? [] : [{
-        channelId: child.channelId,
-        lastUnreadSeq: child.lastUnreadSeq,
-      }]),
-    ]))
-    const dmSources = query.data.dms.flatMap((dm) => dm.lastUnreadSeq === undefined ? [] : [{
-      channelId: dm.channelId,
-      lastUnreadSeq: dm.lastUnreadSeq,
-    }])
-    unreadProjection.absorbFamily("inbox-unreads", channelSources, {
-      truncated: query.data.truncated ?? true,
-      domain: "channels",
-    })
-    unreadProjection.absorbFamily("inbox-unreads", dmSources, {
-      truncated: false,
-      domain: "dms",
-    })
+    const sources = inboxUnreadSources(query.data)
+    unreadProjection.mergeSources("inbox-unreads", sources.channels, "channels")
+    unreadProjection.mergeSources("inbox-unreads", sources.dms, "dms")
     unreadProjection.recordLegacySnapshot(query.data, [
       ...query.data.servers.flatMap((server) => server.channels.flatMap((channel) => [
         ...(channel.lastUnreadSeq === undefined && channel.hasDirectUnread !== false
@@ -236,14 +290,47 @@ export type MentionsResponse = {
   truncated?: boolean
 }
 
-export const inboxMentionsQueryFn = () =>
+const inboxMentionsTransportFn = () =>
   apiFetchProfiles<MentionsResponse & { stale?: boolean }>(
     "/api/community/users/me/inbox/mentions",
-    (data) => {
-      throwIfStale(data)
-      return messageProfilePatches(data.mentions.map((mention) => mention.m))
-    },
+    (data) => messageProfilePatches(data.mentions.map((mention) => mention.m)),
   )
+
+export const inboxMentionsQueryFn = async () => (
+  throwIfStale(await inboxMentionsTransportFn())
+)
+
+function inboxMentionSources(data: MentionsResponse): AccountUnreadSource[] {
+  return data.mentions.flatMap((mention) => (
+    mention.channelId && mention.m.seq
+      ? [{
+          channelId: mention.channelId,
+          serverId: mention.serverId,
+          messageId: mention.m.id,
+          attentionId: mention.id,
+          lastUnreadSeq: mention.m.seq,
+          lastMentionSeq: mention.m.seq,
+        }]
+      : []
+  ))
+}
+
+export const inboxMentionsProjectedQueryFn = (
+  projection: AccountUnreadProjection,
+) => async () => {
+  const token = projection.beginSnapshot("inbox-mentions", "mentions")
+  try {
+    const data = await inboxMentionsTransportFn()
+    projection.absorbSnapshot(token, inboxMentionSources(data), {
+      truncated: data.truncated ?? true,
+      stale: data.stale,
+    })
+    return throwIfStale(data)
+  } catch (error) {
+    projection.cancelSnapshot(token)
+    throw error
+  }
+}
 
 export function useInboxMentions(): UseQueryResult<MentionsResponse> & {
   mentions: Mention[]
@@ -260,27 +347,27 @@ export function useInboxMentions(): UseQueryResult<MentionsResponse> & {
     unreadProjection.getSnapshot,
   )
   const reservationTarget = useInboxProjectionTarget(queryClient)
+  const mentionExclusion = useMemo(
+    () => reservedUnreadExclusion(reservationTarget, "channels"),
+    [reservationTarget],
+  )
+  const queryFn = useMemo(
+    () => inboxMentionsProjectedQueryFn(unreadProjection),
+    [unreadProjection],
+  )
   const query = useQuery({
     queryKey: communityKeys.inboxMentions(),
-    queryFn: inboxMentionsQueryFn,
+    queryFn,
     placeholderData: keepPreviousData,
     staleTime: Infinity,
     refetchOnReconnect: true,
   })
   useEffect(() => {
     if (!query.data) return
-    unreadProjection.absorbFamily(
+    unreadProjection.mergeSources(
       "inbox-mentions",
-      query.data.mentions.flatMap((mention) => (
-        mention.channelId && mention.m.seq
-          ? [{
-              channelId: mention.channelId,
-              lastUnreadSeq: mention.m.seq,
-              lastMentionSeq: mention.m.seq,
-            }]
-          : []
-      )),
-      { truncated: query.data.truncated ?? true },
+      inboxMentionSources(query.data),
+      "mentions",
     )
     unreadProjection.recordLegacySnapshot(
       query.data,
@@ -307,6 +394,10 @@ export function useInboxMentions(): UseQueryResult<MentionsResponse> & {
           mention.channelId,
           true,
           mention.m.seq,
+          "mentions",
+          mentionExclusion,
+          true,
+          mention.id,
         ),
         reserved: isInboxTargetReserved(
           reservationTarget,
@@ -315,12 +406,17 @@ export function useInboxMentions(): UseQueryResult<MentionsResponse> & {
       }).effectiveUnread
     ))
     return projected.length === raw.length ? raw : projected
-  }, [query.data, reservationTarget, unreadProjection, unreadVersion])
+  }, [mentionExclusion, query.data, reservationTarget, unreadProjection, unreadVersion])
   return {
     ...query,
     mentions,
     hasProjectedMention:
-      mentions.length > 0 || unreadProjection.hasPending("inbox-mentions", "mentions"),
+      mentions.length > 0
+      || unreadProjection.hasPending(
+        "inbox-mentions",
+        "mentions",
+        mentionExclusion,
+      ),
   }
 }
 

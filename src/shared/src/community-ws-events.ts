@@ -348,6 +348,8 @@ const communityMentionCreateSchema = z.strictObject({
   userId: string,
   messageId: string,
   channelId: string.optional(),
+  serverId: string.optional(),
+  railChannelId: string.optional(),
   authorName: string,
 })
 

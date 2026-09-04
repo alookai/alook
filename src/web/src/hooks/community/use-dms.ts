@@ -10,7 +10,11 @@ import type { DM } from "@/lib/community/models/people"
 import { useEffect, useMemo, useSyncExternalStore } from "react"
 import { useProfilesByUserId } from "@/stores/community/ws"
 import { readCommunityProfile } from "@/lib/community/profile-read"
-import { getActiveAccountUnreadProjection } from "./account-unread-projection"
+import {
+  getActiveAccountUnreadProjection,
+  type AccountUnreadProjection,
+  type AccountUnreadSource,
+} from "./account-unread-projection"
 import { useInboxProjectionTarget } from "./use-inbox-auto-collapse"
 import {
   reservedUnreadExclusion,
@@ -36,6 +40,25 @@ export const dmsQueryFn = () =>
     (data) => data.conversations.map((dm) => communityUserProfilePatch(dm.userId, dm)),
   )
 
+function dmUnreadSources(data: DmsResponse): AccountUnreadSource[] {
+  return data.conversations.flatMap((dm) => dm.lastUnreadSeq === undefined ? [] : [{
+    channelId: dm.id,
+    lastUnreadSeq: dm.lastUnreadSeq,
+  }])
+}
+
+export const dmsProjectedQueryFn = (projection: AccountUnreadProjection) => async () => {
+  const token = projection.beginSnapshot("dms", "dms")
+  try {
+    const data = await dmsQueryFn()
+    projection.absorbSnapshot(token, dmUnreadSources(data))
+    return data
+  } catch (error) {
+    projection.cancelSnapshot(token)
+    throw error
+  }
+}
+
 export function useDms(): UseQueryResult<DmsResponse> & { dms: DM[] } {
   const queryClient = useQueryClient()
   const unreadProjection = useMemo(
@@ -52,9 +75,10 @@ export function useDms(): UseQueryResult<DmsResponse> & { dms: DM[] } {
     () => reservedUnreadExclusion(reservationTarget, "dms"),
     [reservationTarget],
   )
+  const queryFn = useMemo(() => dmsProjectedQueryFn(unreadProjection), [unreadProjection])
   const query = useQuery({
     queryKey: communityKeys.dms(),
-    queryFn: dmsQueryFn,
+    queryFn,
     // Inbox navigation projects the destination into this canonical cache
     // before routing. Reusing that projection across /c/me layout mounts keeps
     // the transition request-neutral; WS and reconnect invalidations still
@@ -64,12 +88,10 @@ export function useDms(): UseQueryResult<DmsResponse> & { dms: DM[] } {
   const profilesByUserId = useProfilesByUserId()
   useEffect(() => {
     if (!query.data) return
-    unreadProjection.absorbFamily(
+    unreadProjection.mergeSources(
       "dms",
-      query.data.conversations.flatMap((dm) => dm.lastUnreadSeq === undefined ? [] : [{
-        channelId: dm.id,
-        lastUnreadSeq: dm.lastUnreadSeq,
-      }]),
+      dmUnreadSources(query.data),
+      "dms",
     )
     unreadProjection.recordLegacySnapshot(
       query.data,

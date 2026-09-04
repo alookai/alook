@@ -23,6 +23,11 @@ afterEach(cleanupCommunityWsHarness)
 describe("useCommunityWs — member events", () => {
   it("clears the active private route immediately when the viewer leaves the server", async () => {
     await mountHook({ viewerUserId: "u_me" })
+    const { getAccountUnreadProjection } = await import(
+      "@/hooks/community/account-unread-projection"
+    )
+    const unreadProjection = getAccountUnreadProjection(capturedQueryClient, "u_me")
+    unreadProjection.recordArrival({ channelId: "private_child", serverId: "srv_1", seq: 1 })
     const { useCommunityStore } = await import("@/stores/community")
     useCommunityStore.getState().setCurrentServerId("srv_1")
     useCommunityStore.getState().setCurrentChannelId("private_child")
@@ -59,6 +64,7 @@ describe("useCommunityWs — member events", () => {
     expect(capturedQueryClient.getQueryState(communityKeys.server("srv_1"))).toBeUndefined()
     expect(capturedQueryClient.getQueryState(communityKeys.reactionDetails("message_1"))).toBeUndefined()
     expect(capturedQueryClient.getQueryState(communityKeys.reactionDetails("message_2"))).toBeDefined()
+    expect(unreadProjection.projectUnread("servers", "private_child", false)).toBe(false)
   })
 
   it("evicts an unresolved reaction-details request when the viewer leaves", async () => {

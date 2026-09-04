@@ -926,6 +926,8 @@ function PrototypeUserBar({
             unreadDms={[]}
             mentions={[]}
             marked={[]}
+            hasProjectedUnreads={unreads.length > 0}
+            hasProjectedMentions={false}
             onOpenForumThread={() => {}}
           />
         </div>
