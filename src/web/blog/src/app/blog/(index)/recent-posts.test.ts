@@ -182,6 +182,36 @@ describe("RecentPosts", () => {
     }
   });
 
+  it("keeps the topic rail viewport and fades inside the Blog content column", () => {
+    let renderer: ReactTestRenderer;
+
+    act(() => {
+      renderer = TestRenderer.create(
+        createElement(RecentPosts, {
+          posts: [recentPost("newest", "foundations", "Foundations")],
+          topics: [
+            { id: "foundations", label: "Foundations" },
+            { id: "coding", label: "Coding" },
+          ],
+        }),
+      );
+    });
+
+    const scroller = renderer!.root.findByProps({
+      "data-testid": "blog-topic-scroller",
+    });
+    expect(scroller.parent?.props.className).toBe("relative mt-3 sm:mt-6");
+    expect(scroller.props.className).toBe(
+      "thin-scrollbar scrollbar-none overflow-x-auto",
+    );
+
+    const topicNav = scroller.findByType("nav");
+    expect(topicNav.props.className).toContain("w-max min-w-full");
+    for (const button of topicNav.findAllByType("button")) {
+      expect(button.props.className).toContain("shrink-0");
+    }
+  });
+
   it("uses the shared rail owner for directional fades and desktop wheel ownership", () => {
     const posts = [recentPost("newest", "foundations", "Foundations")];
     const topics = [

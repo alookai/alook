@@ -81,12 +81,12 @@ export function RecentPosts({ posts, topics }: RecentPostsProps) {
       >
         Recent posts
       </h2>
-      <div className="relative -mx-4 mt-3 sm:-mx-6 sm:mt-6">
+      <div className="relative mt-3 sm:mt-6">
         <div
           ref={scrollerRef}
           data-testid="blog-topic-scroller"
           onScroll={onScroll}
-          className="thin-scrollbar scrollbar-none overflow-x-auto px-4 sm:px-6"
+          className="thin-scrollbar scrollbar-none overflow-x-auto"
         >
           <nav
             aria-label="Filter recent posts"
