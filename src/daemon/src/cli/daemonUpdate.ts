@@ -295,6 +295,7 @@ function fixedNpmArgs(args: {
   return [
     "exec",
     "--yes",
+    "--no-audit",
     `--package=${args.packageSpec}`,
     "--",
     "alook-daemon",

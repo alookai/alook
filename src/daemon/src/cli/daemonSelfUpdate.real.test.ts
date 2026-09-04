@@ -68,7 +68,7 @@ function runNpmPackage(
     const packageCommand = withoutNpmExecPath
       ? [process.execPath, strippedNpmContextLauncher]
       : ["alook-daemon"];
-    execFile("npm", ["exec", "--yes", `--package=${tgz}`, "--", ...packageCommand, ...args], {
+    execFile("npm", ["exec", "--yes", "--no-audit", `--package=${tgz}`, "--", ...packageCommand, ...args], {
       env: { ...process.env, ...env },
       maxBuffer: 10 * 1024 * 1024,
       shell: commandShimShell(),
