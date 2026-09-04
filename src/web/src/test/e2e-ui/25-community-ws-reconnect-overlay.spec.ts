@@ -127,8 +127,13 @@ test("an active onboarding form yields focus priority during outage, then resume
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } })
   const page = await context.newPage()
   let userWs: WebSocketRoute | null = null
+  let blockUserWs = false
   await page.routeWebSocket((url) => url.pathname.endsWith("/user"), (ws) => {
     userWs = ws
+    if (blockUserWs) {
+      ws.close({ code: 1012, reason: "active onboarding reconnect e2e outage" })
+      return
+    }
     ws.connectToServer()
   })
 
@@ -143,7 +148,7 @@ test("an active onboarding form yields focus priority during outage, then resume
     await expect(onboarding).toBeVisible()
     await expect(onboarding.getByRole("heading", { name: "Which harness do you already use?" })).toBeVisible()
 
-    await context.setOffline(true)
+    blockUserWs = true
     expect(userWs).not.toBeNull()
     await userWs!.close({ code: 1012, reason: "active onboarding reconnect e2e outage" })
 
@@ -179,13 +184,13 @@ test("an active onboarding form yields focus priority during outage, then resume
       contentType: "image/png",
     })
 
-    await context.setOffline(false)
+    blockUserWs = false
     await expect(overlay).toHaveCount(0, { timeout: 20_000 })
     await expect(onboarding).toBeVisible()
     await expect(onboarding.getByRole("heading", { name: "Which harness do you already use?" })).toBeVisible()
   } finally {
     if (!page.isClosed()) {
-      await context.setOffline(false)
+      blockUserWs = false
       await context.close()
     }
   }
