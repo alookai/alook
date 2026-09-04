@@ -53,6 +53,7 @@ async function visibleGeometry(page: Page): Promise<Geometry> {
     shell: page.locator('[data-slot="community-shell-root"]'),
     surface: page.locator('[data-slot="community-app-surface"]'),
     rail: page.getByTestId(tid.serverRailScroll),
+    railAdd: page.locator('[data-slot="community-server-rail-add"]'),
     sidebar: page.locator('[data-slot="community-sidebar-panel"]'),
     main: page.locator('[data-slot="community-main-panel"]'),
     userBar: page.locator('[data-slot="community-user-bar-overlay"]'),

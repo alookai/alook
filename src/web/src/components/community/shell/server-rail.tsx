@@ -4,6 +4,7 @@ import {
   memo,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -82,6 +83,7 @@ function ServerRailFrame({
       </div>
 
       <div
+        data-slot="community-server-rail-add"
         className="flex w-full shrink-0 justify-center pb-[calc(var(--community-rail-bottom-inset)+var(--app-safe-area-bottom))] sm:pb-(--community-rail-bottom-inset)"
         style={{
           "--community-rail-bottom-inset": `${bottomInset ?? 8}px`,
@@ -167,6 +169,21 @@ export const ServerRail = memo(function ServerRail({
     () => serverIdentityOrder ? serverIdentityOrder.split("\0") : [],
     [serverIdentityOrder],
   )
+  const railDataIdentity = useMemo(
+    () => JSON.stringify([
+      serverIds,
+      folders.map((folder) => [
+        folder.id,
+        folder.position,
+        folder.servers.map((server) => server.id),
+      ]),
+    ]),
+    [folders, serverIds],
+  )
+  const [stateDataIdentity, setStateDataIdentity] = useState(railDataIdentity)
+  const renderState = stateDataIdentity === railDataIdentity
+    ? state
+    : railStateFromData(serverIds, folders, state.expanded)
 
   const claimMutation = useCallback(() => {
     if (mutationPendingRef.current) {
@@ -197,13 +214,10 @@ export const ServerRail = memo(function ServerRail({
     } catch {}
   }, [])
 
-  useEffect(() => {
-    setState((current) => railStateFromData(
-      serverIds,
-      folders,
-      current.expanded,
-    ))
-  }, [folders, serverIds])
+  useLayoutEffect(() => {
+    setState((current) => railStateFromData(serverIds, folders, current.expanded))
+    setStateDataIdentity(railDataIdentity)
+  }, [folders, railDataIdentity, serverIds])
 
   useEffect(() => {
     sessionStorage.setItem("rail-open-folders", JSON.stringify(state.expanded))
@@ -362,7 +376,7 @@ export const ServerRail = memo(function ServerRail({
     : null
   const dragging = (entity: RailEntity) => dragSource?.kind === entity.kind
     && dragSource.id === entity.id
-  const folderServers = (folderId: string): Server[] => (state.folders[folderId] ?? [])
+  const folderServers = (folderId: string): Server[] => (renderState.folders[folderId] ?? [])
     .map((serverId) => serverById.get(serverId))
     .filter((server): server is Server => !!server)
 
@@ -391,7 +405,7 @@ export const ServerRail = memo(function ServerRail({
     <ServerRailSkeleton />
   ) : (
     <div className="flex w-full flex-col items-center gap-2">
-      {visibleTopLevelServers(state).map((serverId) => {
+      {visibleTopLevelServers(renderState).map((serverId) => {
         const server = serverById.get(serverId)
         if (!server) return null
         return (
@@ -411,9 +425,9 @@ export const ServerRail = memo(function ServerRail({
           />
         )
       })}
-      {state.folderOrder.map((folderId) => {
+      {renderState.folderOrder.map((folderId) => {
         const serversInFolder = folderServers(folderId)
-        const open = state.expanded.includes(folderId)
+        const open = renderState.expanded.includes(folderId)
           && !(dragSource?.kind === "folder" && dragSource.id === folderId)
         return (
           <div key={folderId} className="flex w-full flex-col items-center gap-2">
@@ -526,7 +540,7 @@ export function ServerRailSkeleton() {
       aria-hidden
       className="flex w-full flex-col items-center gap-2"
     >
-      {Array.from({ length: 4 }).map((_, index) => (
+      {Array.from({ length: 1 }).map((_, index) => (
         <Skeleton key={index} className="size-10 rounded-[20px]" />
       ))}
     </div>

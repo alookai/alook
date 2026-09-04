@@ -132,7 +132,7 @@ describe("ServerRail one-in-flight structural guard", () => {
     })
     expect(renderer.root.findByProps({ "data-testid": tid.initialRailPending }))
       .toBeDefined()
-    expect(renderer.root.findAllByType("skeleton")).toHaveLength(4)
+    expect(renderer.root.findAllByType("skeleton")).toHaveLength(1)
     expect(renderer.root.findAllByType("button")).toHaveLength(0)
   })
 
@@ -146,10 +146,12 @@ describe("ServerRail one-in-flight structural guard", () => {
       "flex min-h-0 w-14 shrink-0 flex-col items-center overflow-hidden pt-2",
     )
     expect(nav.props["aria-hidden"]).toBe(true)
-    expect(renderer.root.findAllByType("skeleton")).toHaveLength(6)
+    expect(renderer.root.findAllByType("skeleton")).toHaveLength(3)
     expect(renderer.root.findAllByType("button")).toHaveLength(0)
     expect(renderer.root.findByProps({ "data-testid": tid.serverRailScroll }).props.className)
       .toContain("shrink overflow-y-auto")
+    expect(renderer.root.findByProps({ "data-slot": "community-server-rail-add" }))
+      .toBeDefined()
     expect(renderer.root.find((node) => node.props.style?.["--community-rail-bottom-inset"] === "60px"))
       .toBeDefined()
   })
