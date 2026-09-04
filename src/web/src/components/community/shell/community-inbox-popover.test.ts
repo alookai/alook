@@ -57,6 +57,8 @@ function popover(onOpenChannel: ReturnType<typeof vi.fn>, onOpenThread: ReturnTy
     unreadDms: [],
     mentions: [],
     marked: [],
+    hasProjectedUnreads: true,
+    hasProjectedMentions: false,
     onOpenChannel,
     onOpenThread,
   })
@@ -128,6 +130,8 @@ describe("InboxPopover thread opener rows", () => {
         unreadDms: [],
         mentions: [],
         marked: [],
+        hasProjectedUnreads: true,
+        hasProjectedMentions: false,
         onOpenChannel,
         onOpenThread: vi.fn(),
       }))
@@ -158,6 +162,8 @@ describe("InboxPopover thread opener rows", () => {
         unreadDms: [],
         mentions: [],
         marked: [],
+        hasProjectedUnreads: true,
+        hasProjectedMentions: false,
         onOpenChannel,
         onOpenThread: vi.fn(),
       }))
@@ -189,6 +195,8 @@ describe("InboxPopover thread opener rows", () => {
         unreadDms: [],
         mentions: [],
         marked: [],
+        hasProjectedUnreads: true,
+        hasProjectedMentions: false,
         onOpenThread: vi.fn(),
         isProjected: (target) => target?.kind === "thread",
       }))
@@ -215,6 +223,8 @@ describe("InboxPopover thread opener rows", () => {
         unreadDms: [],
         mentions: [],
         marked: [],
+        hasProjectedUnreads: true,
+        hasProjectedMentions: false,
         onOpenChannel,
         onOpenThread: vi.fn(),
         isProjected: (target) => target?.kind === "channel-direct",
@@ -258,6 +268,8 @@ describe("InboxPopover DM rows", () => {
         unreadDms: [dm],
         mentions: [],
         marked: [],
+        hasProjectedUnreads: true,
+        hasProjectedMentions: false,
         onOpenThread: vi.fn(),
         onOpenDm,
       }))
@@ -285,6 +297,8 @@ describe("InboxPopover responsive continuity", () => {
         unreadDms: [],
         mentions: [],
         marked: [],
+        hasProjectedUnreads: false,
+        hasProjectedMentions: false,
         activeTab: "mentions",
         onActiveTabChange,
         onMarkedTabSelected,

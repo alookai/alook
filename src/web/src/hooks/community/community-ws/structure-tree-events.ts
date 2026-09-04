@@ -46,6 +46,7 @@ import {
   invalidateServersList,
   invalidateThreads,
 } from "./invalidation-projections"
+import { getActiveAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 
 export function handleChildChannelCreate(
   event: CommunityChildChannelCreate,
@@ -162,6 +163,7 @@ export function handleChildChannelUpdate(
       removeForumSidebarThreadExact(queryClient, sidebarServerId, event.channelId)
     } else if (changes.archived === false) {
       void grantForumSidebarChild(queryClient, sidebarServerId, event.channelId)
+        .catch(() => undefined)
     } else if (changes.tags !== undefined) {
       void reconcileForumSidebarArchiveTag(
         queryClient,
@@ -297,6 +299,10 @@ export function handleServerDelete(
   event: CommunityServerDelete,
   { queryClient, projection }: StructureTreeEventContext,
 ) {
+  getActiveAccountUnreadProjection(queryClient).retireAccessScope({
+    kind: "server",
+    serverId: event.serverId,
+  })
   invalidateChannelRefDirectory(projection)
   // Refresh the rail LIST only (drop the deleted server). `exact`
   // so this doesn't cascade-refetch every other server's nested
@@ -347,6 +353,10 @@ export function handleChannelEvent(
         exact: true,
       })
     } else {
+      getActiveAccountUnreadProjection(queryClient).retireAccessScope({
+        kind: "channel",
+        channelId: event.channelId,
+      })
       projectChannelScopeEviction(
         projection,
         queryClient,

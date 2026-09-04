@@ -319,6 +319,11 @@ describe("useDeleteForumThread", () => {
     const { useCommunityStore } = await import("@/stores/community")
     const { getMessageOverlay, useMessageStreamStore } = await import("@/stores/community/message-stream")
     const { applyForumPostUnitClientEffects } = await import("@/hooks/community/community-ws/channel-scope-projection")
+    const { getActiveAccountUnreadProjection } = await import(
+      "@/hooks/community/account-unread-projection"
+    )
+    const unreadProjection = getActiveAccountUnreadProjection(capturedQc)
+    unreadProjection.recordArrival({ channelId: "p2", serverId: "server_1", seq: 1 })
     useCommunityStore.getState().reset()
     useMessageStreamStore.getState().resetAll()
     const replacePath = vi.fn()
@@ -366,6 +371,8 @@ describe("useDeleteForumThread", () => {
     expect(clearLastChannelMock).toHaveBeenCalledOnce()
     expect(replacePath).toHaveBeenCalledOnce()
     expect(replacePath).toHaveBeenCalledWith("/c/channels/server_1/forum_1")
+    expect(unreadProjection.projectUnread("servers", "p2", false)).toBe(false)
+    expect(unreadProjection.projectUnread("inbox-unreads", "p2", true, 1)).toBe(false)
 
     applyForumPostUnitClientEffects(capturedQc, {
       serverId: "server_1",
@@ -438,6 +445,11 @@ describe("useDeleteForumThread", () => {
 
   it("restores exact feed/sidebar/meta snapshots when the DELETE fails", async () => {
     const { useDeleteForumThread } = await load()
+    const { getActiveAccountUnreadProjection } = await import(
+      "@/hooks/community/account-unread-projection"
+    )
+    const unreadProjection = getActiveAccountUnreadProjection(capturedQc)
+    unreadProjection.recordArrival({ channelId: "p2", serverId: "server_1", seq: 1 })
     useDeleteForumThread()
 
     const before = { pages: [{ messages: [{ id: "m_p2" }] }], pageParams: [null] }
@@ -475,6 +487,9 @@ describe("useDeleteForumThread", () => {
       threadId: "p2",
       openerMessageId: "m_p2",
     })
+
+    expect(unreadProjection.projectUnread("servers", "p2", false)).toBe(true)
+    expect(unreadProjection.projectUnread("inbox-unreads", "p2", true, 1)).toBe(true)
 
     expect(capturedQc.getQueryData(communityKeys.channelMessages("forum_1"))).toEqual(before)
     expect(capturedQc.getQueryData(communityKeys.forumFeed("forum_1", null))).toEqual(feedBefore)

@@ -71,6 +71,7 @@ export const GET = withAuth(async (req, ctx) => {
       serverId: ch?.serverId,
       channel: ch ? ch.name : "Unknown",
       channelId: row.message.channelId,
+      parentChannelId: ch?.parentChannelId ?? null,
       m: {
         id: row.message.id,
         seq: row.message.seq,

@@ -69,7 +69,7 @@ vi.mock("@/hooks/community/use-messages", () => ({
   }),
 }))
 vi.mock("@/hooks/community/use-servers", () => ({
-  serverQueryFn: (_queryClient: unknown, serverId: string, signal?: AbortSignal) => () => (
+  serverProjectedQueryFn: (_queryClient: unknown, serverId: string, signal?: AbortSignal) => () => (
     new Promise((resolve, reject) => {
       mocks.servers.push({
         serverId,

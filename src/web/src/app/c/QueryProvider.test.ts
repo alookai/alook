@@ -2,10 +2,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
 import { useCommunityWsStore } from "@/stores/community/ws"
+import { communityKeys } from "@/lib/query-keys"
 
-const queryClient = vi.hoisted(() => ({ id: "query-client" }))
+const queryClient = vi.hoisted(() => ({
+  id: "query-client",
+  invalidateQueries: vi.fn(() => Promise.resolve()),
+}))
 const createQueryClient = vi.hoisted(() => vi.fn(() => queryClient))
 const seedPersistedMessageProfiles = vi.hoisted(() => vi.fn())
+const setReconcileScheduler = vi.hoisted(() => vi.fn())
+const getAccountUnreadProjection = vi.hoisted(() => vi.fn(() => ({
+  setReconcileScheduler,
+})))
+const disposeAccountUnreadProjection = vi.hoisted(() => vi.fn())
 
 vi.mock("@tanstack/react-query-devtools", () => ({ ReactQueryDevtools: () => null }))
 vi.mock("@tanstack/react-query-persist-client", async () => {
@@ -36,8 +45,8 @@ vi.mock("@/hooks/community/community-ws/read-state-reconciliation", () => ({
 }))
 vi.mock("@/hooks/community/read-coordinator", () => ({ disposeReadCoordinator: vi.fn() }))
 vi.mock("@/hooks/community/account-unread-projection", () => ({
-  disposeAccountUnreadProjection: vi.fn(),
-  getAccountUnreadProjection: vi.fn(),
+  disposeAccountUnreadProjection,
+  getAccountUnreadProjection,
 }))
 
 import { QueryProvider } from "./QueryProvider"
@@ -49,6 +58,10 @@ beforeEach(() => {
   useCommunityWsStore.getState().reset()
   createQueryClient.mockClear()
   seedPersistedMessageProfiles.mockClear()
+  setReconcileScheduler.mockClear()
+  getAccountUnreadProjection.mockClear()
+  disposeAccountUnreadProjection.mockClear()
+  queryClient.invalidateQueries.mockClear()
 })
 
 describe("QueryProvider profile account lifecycle", () => {
@@ -91,6 +104,46 @@ describe("QueryProvider profile account lifecycle", () => {
     })
 
     expect(seedPersistedMessageProfiles).toHaveBeenCalledWith(queryClient, expectedSnapshot)
+    act(() => renderer.unmount())
+  })
+
+  it("routes projection reconciliation through the canonical source prefixes", async () => {
+    let renderer!: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(React.createElement(
+        QueryProvider,
+        { userId: "viewer-c" },
+        React.createElement("span", null, "content"),
+      ))
+    })
+
+    expect(getAccountUnreadProjection).toHaveBeenCalledWith(queryClient, "viewer-c")
+    const reconcile = setReconcileScheduler.mock.calls.at(-1)?.[0]
+    expect(reconcile).toBeTypeOf("function")
+    await act(async () => reconcile())
+    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: communityKeys.inboxUnreads(),
+      exact: true,
+    })
+    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: communityKeys.inboxMentions(),
+      exact: true,
+    })
+    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: communityKeys.dms(),
+      exact: true,
+    })
+    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: communityKeys.servers(),
+      exact: true,
+    })
+    const detailPredicate = queryClient.invalidateQueries.mock.calls
+      .map(([filters]) => filters.predicate)
+      .find((predicate) => typeof predicate === "function")
+    expect(detailPredicate).toBeTypeOf("function")
+    expect(detailPredicate({ queryKey: communityKeys.server("server-1") })).toBe(true)
+    expect(detailPredicate({ queryKey: communityKeys.members("server-1") })).toBe(false)
+    expect(detailPredicate({ queryKey: communityKeys.channelRefDirectory() })).toBe(false)
     act(() => renderer.unmount())
   })
 })

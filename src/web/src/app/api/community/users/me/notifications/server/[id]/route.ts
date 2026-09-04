@@ -33,9 +33,10 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
   })
   if (result.readStateRevision !== null) {
     await broadcastToUserSafe(ctx.userId, {
-      type: WS_EVENTS.READ_STATE_ADVANCED,
+      type: WS_EVENTS.INBOX_CHANGED,
       revision: result.readStateRevision,
       inboxChanged: true,
+      reason: "notification_policy",
     })
   }
 

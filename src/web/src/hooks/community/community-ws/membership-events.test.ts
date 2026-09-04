@@ -4,6 +4,7 @@ import type { CommunityMemberJoin, CommunityMemberLeave, CommunityMemberUpdate }
 import { getMessageOverlay, useMessageStreamStore } from "@/stores/community/message-stream"
 import type { PresenceResponse } from "@/hooks/community/use-server-panels"
 import { communityKeys } from "@/lib/query-keys"
+import { getAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 import {
   subscribeMemberOverlayEvents,
   type MemberOverlayEvent,
@@ -13,6 +14,7 @@ import {
   capturedQueryClient,
   cleanupCommunityWsHarness,
   forumSidebarFixture,
+  getCommunityApiFetchMock,
   mountHook,
   resetCommunityWsHarness,
 } from "./test-harness"
@@ -23,6 +25,8 @@ afterEach(cleanupCommunityWsHarness)
 describe("useCommunityWs — member events", () => {
   it("clears the active private route immediately when the viewer leaves the server", async () => {
     await mountHook({ viewerUserId: "u_me" })
+    const unreadProjection = getAccountUnreadProjection(capturedQueryClient, "u_me")
+    unreadProjection.recordArrival({ channelId: "private_child", serverId: "srv_1", seq: 1 })
     const { useCommunityStore } = await import("@/stores/community")
     useCommunityStore.getState().setCurrentServerId("srv_1")
     useCommunityStore.getState().setCurrentChannelId("private_child")
@@ -59,6 +63,8 @@ describe("useCommunityWs — member events", () => {
     expect(capturedQueryClient.getQueryState(communityKeys.server("srv_1"))).toBeUndefined()
     expect(capturedQueryClient.getQueryState(communityKeys.reactionDetails("message_1"))).toBeUndefined()
     expect(capturedQueryClient.getQueryState(communityKeys.reactionDetails("message_2"))).toBeDefined()
+    expect(unreadProjection.projectUnread("servers", "private_child", false)).toBe(false)
+    expect(unreadProjection.projectUnread("inbox-unreads", "private_child", true, 1)).toBe(false)
   })
 
   it("evicts an unresolved reaction-details request when the viewer leaves", async () => {
@@ -390,6 +396,65 @@ describe("useCommunityWs — member events", () => {
   })
 })
 describe("useCommunityWs — channel.member_add/remove → invalidate rosters", () => {
+  it("keeps a viewer's cached raw row fenced across remove then add until fresh access confirms", async () => {
+    await mountHook({ viewerUserId: "u_me" })
+    const sidebarKey = communityKeys.forumSidebarThreads("srv_1")
+    capturedQueryClient.setQueryData(sidebarKey, forumSidebarFixture(["private"]))
+    const unreadProjection = getAccountUnreadProjection(capturedQueryClient, "u_me")
+    unreadProjection.recordArrival({ channelId: "private", serverId: "srv_1", seq: 1 })
+
+    capturedOnMessage!({
+      type: "community:channel.member_remove",
+      serverId: "srv_1",
+      channelId: "private",
+      userId: "u_me",
+    })
+    expect(unreadProjection.projectUnread("inbox-unreads", "private", true, 1)).toBe(false)
+
+    const apiFetch = getCommunityApiFetchMock()
+    apiFetch.mockImplementation(async (url: string) => {
+      if (url === "/api/community/users/me/read-state") {
+        return { revision: 0, readStates: [] }
+      }
+      if (url.startsWith("/api/community/servers/srv_1/channels?")) {
+        return {
+          channels: [],
+          canonicalChannels: [],
+          retainedChannel: {
+            id: "private",
+            name: "Private",
+            parentChannelId: "forum_1",
+            parentMessageId: "opener-private",
+            activityAt: "2026-08-01T00:00:00.000Z",
+            expiresAt: "2099-08-04T00:00:00.000Z",
+            unread: false,
+            serverId: "srv_1",
+            type: "thread",
+          },
+          retainedDisposition: "eligible",
+          included: {
+            parentMessages: [{ id: "opener-private", content: "Private" }],
+          },
+          serverNow: "2026-08-01T00:00:00.000Z",
+        }
+      }
+      throw new Error(`unexpected API fetch: ${url}`)
+    })
+    capturedOnMessage!({
+      type: "community:channel.member_add",
+      serverId: "srv_1",
+      channelId: "private",
+      userId: "u_me",
+    })
+    await vi.waitFor(() => expect(
+      capturedQueryClient.getQueryData(communityKeys.forumSidebarRetained("srv_1", "private")),
+    ).toMatchObject({ id: "private" }))
+    expect(unreadProjection.projectUnread("inbox-unreads", "private", true, 1)).toBe(false)
+
+    unreadProjection.recordArrival({ channelId: "private", serverId: "srv_1", seq: 2 })
+    expect(unreadProjection.projectUnread("inbox-unreads", "private", true, 2)).toBe(true)
+  })
+
   it("member_add invalidates channelMembers AND threadParticipants for a child thread", async () => {
     await mountHook()
     const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")

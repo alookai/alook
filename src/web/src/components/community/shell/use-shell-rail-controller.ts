@@ -6,7 +6,7 @@ import { toastApiError } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import { markSwitch } from "@/lib/perf/switch-mark"
 import { markVoluntaryLeave, pickPostEjectDestination } from "@/lib/community/eject-server"
-import { serverQueryFn, useServers, type ServerDetail } from "@/hooks/community/use-servers"
+import { serverProjectedQueryFn, useServers, type ServerDetail } from "@/hooks/community/use-servers"
 import { useFolders } from "@/hooks/community/use-folders"
 import {
   useCreateServer,
@@ -75,7 +75,7 @@ export function useShellRailController({
     try {
       await queryClient.fetchQuery({
         queryKey: communityKeys.server(id),
-        queryFn: serverQueryFn(queryClient, id),
+        queryFn: serverProjectedQueryFn(queryClient, id),
         staleTime: Infinity,
       })
     } catch {

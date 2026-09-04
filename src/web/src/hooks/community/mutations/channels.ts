@@ -7,6 +7,7 @@ import { communityKeys } from "@/lib/query-keys"
 import type { ChannelRefDirectory } from "@/lib/community/channel-ref"
 import type { ServerDetail } from "@/hooks/community/use-servers"
 import { UNCATEGORIZED_CATEGORY_ID, type ChannelType } from "@alook/shared"
+import { getActiveAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 
 // Prefix marks an optimistic row so every consumer can tell it from a real
 // `ch_…` id without a separate flag, and guarantees it never collides with one.
@@ -287,6 +288,10 @@ export function useDeleteChannel() {
       await apiFetch(`/api/community/channels/${channelId}`, { method: "DELETE" })
     },
     onSuccess: (_data, args) => {
+      getActiveAccountUnreadProjection(queryClient).retireAccessScope({
+        kind: "channel",
+        channelId: args.channelId,
+      })
       if (args.serverId) {
         void queryClient.invalidateQueries({ queryKey: communityKeys.server(args.serverId), exact: true })
       }

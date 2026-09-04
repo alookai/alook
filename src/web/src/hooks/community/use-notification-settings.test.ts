@@ -1,5 +1,7 @@
+import React from "react"
+import TestRenderer, { act } from "react-test-renderer"
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { QueryClient } from "@tanstack/react-query"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
 
 const apiFetchMock = vi.fn()
@@ -39,5 +41,40 @@ describe("useNotificationSettings / notificationSettingsQueryFn", () => {
     const key = communityKeys.notificationSettings()
     await qc.fetchQuery({ queryKey: key, queryFn: notificationSettingsQueryFn })
     expect(qc.getQueryData(key)).toBeDefined()
+  })
+
+  it("projects fetched settings into the active account unread owner", async () => {
+    apiFetchMock.mockResolvedValueOnce([
+      { serverId: "srv_1", channelId: null, level: "nothing" },
+    ])
+    const { useNotificationSettings } = await import("./use-notification-settings")
+    const {
+      disposeAccountUnreadProjection,
+      getAccountUnreadProjection,
+    } = await import("./account-unread-projection")
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const projection = getAccountUnreadProjection(qc, "viewer_1")
+    projection.recordArrival({ channelId: "channel_1", serverId: "srv_1", seq: 1 })
+    let latest: ReturnType<typeof useNotificationSettings> | undefined
+    function Harness() {
+      latest = useNotificationSettings()
+      return null
+    }
+
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(
+        QueryClientProvider,
+        { client: qc },
+        React.createElement(Harness),
+      ))
+    })
+    await vi.waitFor(() => expect(latest?.isSuccess).toBe(true))
+
+    expect(latest?.server).toEqual({ srv_1: "Nothing" })
+    expect(projection.projectUnread("servers", "channel_1", false)).toBe(false)
+
+    await act(async () => renderer.unmount())
+    disposeAccountUnreadProjection(qc)
   })
 })

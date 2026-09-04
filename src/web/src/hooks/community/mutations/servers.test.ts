@@ -65,7 +65,27 @@ beforeEach(() => {
 })
 
 describe("useLeaveServer — optimistic + rollback", () => {
-  it("removes the server row and restores on failure", async () => {
+  it("fences every unread source in the departing scope and rolls back atomically", async () => {
+    const mod = await load()
+    const { getActiveAccountUnreadProjection } = await import(
+      "@/hooks/community/account-unread-projection"
+    )
+    const projection = getActiveAccountUnreadProjection(capturedQc)
+    projection.recordArrival({ channelId: "c1", serverId: "srv_1", seq: 1 })
+    projection.recordArrival({ channelId: "c2", serverId: "srv_2", seq: 1 })
+    mod.useLeaveServer()
+    const cfg = capturedConfig as MutConfig<
+      { serverId: string },
+      { token: unknown; snapshot: unknown }
+    >
+    const context = await cfg.onMutate?.({ serverId: "srv_1" })
+    expect(projection.projectUnread("servers", "c1", false)).toBe(false)
+    expect(projection.projectUnread("servers", "c2", false)).toBe(true)
+    cfg.onError?.(new Error("failed"), { serverId: "srv_1" }, context)
+    expect(projection.projectUnread("servers", "c1", false)).toBe(true)
+  })
+
+  it.each(["leave", "delete"] as const)("%s removes the server row and restores on failure", async (operation) => {
     capturedQc.setQueryData(communityKeys.servers(), {
       servers: [
         { id: "srv_1", name: "n", initial: "N", active: false, unread: false, mentions: 0 },
@@ -73,7 +93,8 @@ describe("useLeaveServer — optimistic + rollback", () => {
     })
     apiFetchMock.mockRejectedValueOnce(new Error("boom"))
     const mod = await load()
-    mod.useLeaveServer()
+    if (operation === "leave") mod.useLeaveServer()
+    else mod.useDeleteServer()
     await runMutation({ serverId: "srv_1" }).catch(() => {})
     const cache = capturedQc.getQueryData<{ servers: { id: string }[] }>(communityKeys.servers())
     expect(cache?.servers).toHaveLength(1)

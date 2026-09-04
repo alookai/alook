@@ -1,6 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
+import {
+  disposeAccountUnreadProjection,
+  getAccountUnreadProjection,
+} from "./account-unread-projection"
 
 const apiFetchMock = vi.fn()
 vi.mock("@/lib/api/client", () => ({
@@ -50,12 +54,23 @@ beforeEach(() => {
   queryClient = new QueryClient()
 })
 
+afterEach(() => {
+  disposeAccountUnreadProjection(queryClient)
+  queryClient.clear()
+})
+
 describe("useRemoveThreadParticipant", () => {
   it("removes the child from every sidebar view when the viewer leaves", async () => {
     const key = communityKeys.forumSidebarThreads("server_1")
     const metaKey = communityKeys.channelMeta("server_1", "post_1")
     queryClient.setQueryData(key, sidebarData())
     queryClient.setQueryData(metaKey, { id: "post_1", parentChannelId: "forum_1" })
+    const unreadProjection = getAccountUnreadProjection(queryClient, "viewer_1")
+    unreadProjection.recordArrival({
+      channelId: "post_1",
+      serverId: "server_1",
+      seq: 7,
+    })
     const { useRemoveThreadParticipant } = await import("./use-thread-participants")
     useRemoveThreadParticipant("post_1", "server_1", "viewer_1")
 
@@ -68,11 +83,34 @@ describe("useRemoveThreadParticipant", () => {
     )
     expect(queryClient.getQueryData<ReturnType<typeof sidebarData>>(key)?.threads).toEqual([])
     expect(queryClient.getQueryData(metaKey)).toEqual({ id: "post_1", parentChannelId: "forum_1" })
+    expect(unreadProjection.projectUnread("inbox-unreads", "post_1", false, 7)).toBe(false)
+  })
+
+  it("does not retire viewer unread scope when participant removal fails", async () => {
+    const unreadProjection = getAccountUnreadProjection(queryClient, "viewer_1")
+    unreadProjection.recordArrival({
+      channelId: "post_1",
+      serverId: "server_1",
+      seq: 7,
+    })
+    apiFetchMock.mockRejectedValueOnce(new Error("failed"))
+    const { useRemoveThreadParticipant } = await import("./use-thread-participants")
+    useRemoveThreadParticipant("post_1", "server_1", "viewer_1")
+
+    await expect(config.mutationFn("viewer_1")).rejects.toThrow("failed")
+
+    expect(unreadProjection.projectUnread("inbox-unreads", "post_1", false, 7)).toBe(true)
   })
 
   it("keeps the viewer's sidebar row when the creator removes someone else", async () => {
     const key = communityKeys.forumSidebarThreads("server_1")
     queryClient.setQueryData(key, sidebarData())
+    const unreadProjection = getAccountUnreadProjection(queryClient, "viewer_1")
+    unreadProjection.recordArrival({
+      channelId: "post_1",
+      serverId: "server_1",
+      seq: 7,
+    })
     const { useRemoveThreadParticipant } = await import("./use-thread-participants")
     useRemoveThreadParticipant("post_1", "server_1", "viewer_1")
 
@@ -80,6 +118,7 @@ describe("useRemoveThreadParticipant", () => {
     config.onSuccess?.(result, "other_1")
 
     expect(queryClient.getQueryData<ReturnType<typeof sidebarData>>(key)?.threads).toHaveLength(1)
+    expect(unreadProjection.projectUnread("inbox-unreads", "post_1", false, 7)).toBe(true)
   })
 
   it("does not revalidate the viewer's forum access when adding someone else", async () => {
@@ -93,6 +132,19 @@ describe("useRemoveThreadParticipant", () => {
 
     expect(queryClient.getQueryState(key)?.isInvalidated).toBe(false)
     expect(queryClient.getQueryData<ReturnType<typeof sidebarData>>(key)?.threads).toHaveLength(1)
+  })
+
+  it("contains a failed retained-authority fetch after the viewer is re-added", async () => {
+    apiFetchMock.mockRejectedValueOnce(new Error("offline"))
+    const { useAddThreadParticipant } = await import("./use-thread-participants")
+    useAddThreadParticipant("post_1", "server_1", "viewer_1")
+
+    config.onSuccess?.(undefined, "viewer_1")
+
+    await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/community/servers/server_1/channels?"),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    ))
   })
 
   it("does not touch forum sidebar resources for an ordinary text thread", async () => {

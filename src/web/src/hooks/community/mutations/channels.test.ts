@@ -450,6 +450,40 @@ describe("useCreateCategory — optimistic pending category", () => {
   })
 })
 
+describe("useDeleteChannel", () => {
+  it("retires projected unread after a successful DELETE without waiting for self-WS", async () => {
+    const mod = await load()
+    const { getActiveAccountUnreadProjection } = await import(
+      "@/hooks/community/account-unread-projection"
+    )
+    const projection = getActiveAccountUnreadProjection(capturedQc)
+    projection.recordArrival({ channelId: "c1", serverId: "s1", seq: 1 })
+    mod.useDeleteChannel()
+    apiFetchMock.mockResolvedValueOnce(undefined)
+
+    await runMutation({ serverId: "s1", channelId: "c1" })
+
+    expect(projection.projectUnread("servers", "c1", false)).toBe(false)
+    expect(projection.projectUnread("inbox-unreads", "c1", true, 1)).toBe(false)
+  })
+
+  it("keeps projected unread when the DELETE fails", async () => {
+    const mod = await load()
+    const { getActiveAccountUnreadProjection } = await import(
+      "@/hooks/community/account-unread-projection"
+    )
+    const projection = getActiveAccountUnreadProjection(capturedQc)
+    projection.recordArrival({ channelId: "c1", serverId: "s1", seq: 1 })
+    mod.useDeleteChannel()
+    apiFetchMock.mockRejectedValueOnce(new Error("500"))
+
+    await expect(runMutation({ serverId: "s1", channelId: "c1" })).rejects.toThrow("500")
+
+    expect(projection.projectUnread("servers", "c1", false)).toBe(true)
+    expect(projection.projectUnread("inbox-unreads", "c1", true, 1)).toBe(true)
+  })
+})
+
 describe("useDeleteCategory — optimistic removal with rollback", () => {
   type Cat = { id: string; name: string; channels: unknown[] }
   const seed = (categories: Cat[]) =>

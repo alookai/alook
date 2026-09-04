@@ -73,7 +73,12 @@ describe("GET /api/community/users/me/inbox/mentions", () => {
         author: { id: "u-alice", name: "Alice", email: "alice@t.com", image: null },
       },
     ])
-    mockGetChannelsByIds.mockResolvedValue([{ id: "c1", name: "general", serverId: "s1" }])
+    mockGetChannelsByIds.mockResolvedValue([{
+      id: "c1",
+      name: "general",
+      serverId: "s1",
+      parentChannelId: "forum-1",
+    }])
     mockGetServersByIds.mockResolvedValue([{ id: "s1", name: "Server 1" }])
 
     const res = await GET(new NextRequest("http://localhost/api/community/users/me/inbox/mentions"))
@@ -86,6 +91,7 @@ describe("GET /api/community/users/me/inbox/mentions", () => {
       serverId: "s1",
       channel: "general",
       channelId: "c1",
+      parentChannelId: "forum-1",
       // authorId is the beam-avatar seed the inbox popover renders from
       // (<Avatar seed={mn.m.authorId}>) — omitting it blanked image-less
       // authors' avatars, same bug the pins route had.

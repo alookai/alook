@@ -9,6 +9,7 @@ import {
   type CurrentUser,
 } from "@/contexts/community/current-user"
 import { useCommunityWs } from "@/hooks/community/use-community-ws"
+import { useNotificationSettings } from "@/hooks/community/use-notification-settings"
 import { PerfTraceBootstrap } from "@/components/perf/perf-trace-bootstrap"
 import { CommunityOnboardingForm } from "@/components/community/onboarding/community-onboarding-form"
 import { CommunityWsReconnectBoundary } from "@/components/community/shell/community-ws-reconnect-overlay"
@@ -24,8 +25,9 @@ import { useCommunityWsStore } from "@/stores/community/ws"
  * mounts the single WS handler and hydrates the viewer's aboutMe field once
  * on mount — the old God-context's on-mount side-effects that survived Step 3.
  *
- * Notification-setting hydration is done via `useNotificationSettings()` in
- * consumers, so we don't fire it here.
+ * Notification-setting hydration lives at this root so every unread source
+ * request is reconciled against one account policy, including `/c` routes
+ * that do not mount a settings consumer.
  */
 export function CommunityShell({
   currentUser,
@@ -75,6 +77,7 @@ function ProfileAccountBoundary({
 function CommunityBootstrap({ children }: { children: ReactNode }) {
   const currentUser = useCurrentUser()
 
+  useNotificationSettings()
   // Wire the WS handler once for the whole community subtree. `viewerUserId`
   // powers the `me` flag on incoming reactions — passing null would leave that
   // flag stuck at false for the viewer's own reactions.

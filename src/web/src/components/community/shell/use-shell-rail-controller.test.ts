@@ -28,7 +28,7 @@ vi.mock("@/hooks/community/use-servers", () => ({
     servers: mocks.servers,
     isLoading: false,
   }),
-  serverQueryFn: (id: string) => () => Promise.resolve({ id }),
+  serverProjectedQueryFn: (_queryClient: unknown, id: string) => () => Promise.resolve({ id }),
 }))
 vi.mock("@/hooks/community/use-folders", () => ({ useFolders: () => ({ folders: mocks.folders }) }))
 vi.mock("@/hooks/community/mutations", () => ({

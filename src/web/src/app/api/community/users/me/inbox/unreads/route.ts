@@ -108,6 +108,7 @@ export const GET = withAuth(async (req, ctx) => {
     lastMessageAt: string
     mentionCount: number
     lastUnreadSeq: number
+    lastAttentionSeq: number | null
     openerMessageId?: string
     parentChannelId?: string
     openerSeq?: number
@@ -125,6 +126,7 @@ export const GET = withAuth(async (req, ctx) => {
     lastMessageAt: string
     mentionCount: number
     lastUnreadSeq: number
+    lastAttentionSeq: number | null
     hasDirectUnread: boolean
     children: UnreadChild[]
   }
@@ -144,6 +146,7 @@ export const GET = withAuth(async (req, ctx) => {
         lastMessageAt: row.lastMessageAt,
         mentionCount: row.mentionCount,
         lastUnreadSeq: row.lastUnreadSeq,
+        lastAttentionSeq: row.lastAttentionSeq,
         sortSeq: 0,
         sortId: row.channelId,
       })
@@ -158,6 +161,7 @@ export const GET = withAuth(async (req, ctx) => {
         lastMessageAt: row.lastMessageAt,
         mentionCount: row.mentionCount,
         lastUnreadSeq: row.lastUnreadSeq,
+        lastAttentionSeq: row.lastAttentionSeq,
         hasDirectUnread: true,
         children: [],
       })
@@ -198,6 +202,7 @@ export const GET = withAuth(async (req, ctx) => {
         lastMessageAt: opener.createdAt,
         mentionCount: unreadChild?.mentionCount ?? 0,
         lastUnreadSeq: Math.max(unreadChild?.lastUnreadSeq ?? 0, opener.openerSeq),
+        lastAttentionSeq: unreadChild?.lastAttentionSeq ?? null,
         parentChannelId: opener.parentChannelId,
         openerMessageId: opener.openerMessageId,
         openerSeq: opener.openerSeq,
@@ -235,6 +240,7 @@ export const GET = withAuth(async (req, ctx) => {
         lastMessageAt: "",
         mentionCount: 0,
         lastUnreadSeq: 0,
+        lastAttentionSeq: null,
         hasDirectUnread: false,
         children: [],
       })
@@ -298,6 +304,7 @@ export const GET = withAuth(async (req, ctx) => {
         lastMessageAt: c.lastMessageAt,
         mentionCount: c.mentionCount,
         lastUnreadSeq: c.lastUnreadSeq,
+        lastAttentionSeq: c.lastAttentionSeq,
         hasDirectUnread: c.hasDirectUnread,
         children: c.children.map((k) => ({
           channelId: k.channelId,
@@ -306,6 +313,7 @@ export const GET = withAuth(async (req, ctx) => {
           lastMessageAt: k.lastMessageAt,
           mentionCount: k.mentionCount,
           lastUnreadSeq: k.lastUnreadSeq,
+          lastAttentionSeq: k.lastAttentionSeq,
           ...(k.parentChannelId ? { parentChannelId: k.parentChannelId } : {}),
           ...(k.openerMessageId ? { openerMessageId: k.openerMessageId } : {}),
           ...(k.openerSeq !== undefined ? { openerSeq: k.openerSeq } : {}),

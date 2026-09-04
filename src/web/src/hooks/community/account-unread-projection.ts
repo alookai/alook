@@ -15,7 +15,8 @@ export type AccountUnreadArrival = {
   channelId: string
   railChannelId?: string
   serverId?: string
-  messageId?: string
+  messageId?: string | null
+  attentionId?: string
   seq?: number
   isMention?: boolean
 }
@@ -25,6 +26,11 @@ export type AccountUnreadSource = {
   lastUnreadSeq: number
   mentionCount?: number
   lastMentionSeq?: number | null
+  serverId?: string
+  railChannelId?: string
+  messageId?: string
+  attentionId?: string
+  isMention?: boolean
 }
 
 export type AccountUnreadPresentationExclusion = {
@@ -48,22 +54,94 @@ type PendingArrival = {
   seq: number
   ordinal: number
   isMention: boolean
-  families: Set<AccountUnreadFamily>
+  attentionIds: Set<string>
+  families: Map<AccountUnreadFamily, number>
 }
 
 type StickyUnknown = {
   channelId: string
   serverId?: string
   railChannelId?: string
+  messageId?: string | null
   isMention: boolean
+  attentionIds: Set<string>
   families: Map<AccountUnreadFamily, { boundary: number; ordinal: number }>
 }
 
-type OverflowSentinel = {
+export type AccountUnreadFacet = "ordinary" | "attention"
+
+type AccountUnreadPolicyLevel = "all" | "mentions" | "nothing"
+
+export type AccountUnreadPolicySnapshot = {
+  all?: AccountUnreadPolicyLevel | string
+  server?: Readonly<Record<string, AccountUnreadPolicyLevel | string>>
+  channel?: Readonly<Record<string, AccountUnreadPolicyLevel | string>>
+  parentByChannel?: Readonly<Record<string, string>>
+}
+
+export type AccountUnreadPolicyPatch =
+  | { kind: "server"; id: string; level: AccountUnreadPolicyLevel | string }
+  | { kind: "channel"; id: string; level: AccountUnreadPolicyLevel | string | null }
+
+export type AccountUnreadPolicyToken = {
+  nonce: symbol
+  ownerEpoch: number
+}
+
+type FrozenPolicy = {
+  all: AccountUnreadPolicyLevel
+  server: ReadonlyMap<string, AccountUnreadPolicyLevel>
+  channel: ReadonlyMap<string, AccountUnreadPolicyLevel>
+  parentByChannel: ReadonlyMap<string, string>
+}
+
+type MutablePolicy = {
+  all: AccountUnreadPolicyLevel
+  server: Map<string, AccountUnreadPolicyLevel>
+  channel: Map<string, AccountUnreadPolicyLevel>
+  parentByChannel: Map<string, string>
+}
+
+export type AccountUnreadSnapshotToken = {
+  family: AccountUnreadFamily
+  domain: AccountUnreadDomain
+  startOrdinal: number
+  policyGeneration: number
+  eligibleCoverage: ReadonlySet<AccountUnreadFacet>
+  nonce: symbol
+  ownerEpoch: number
+  policy: FrozenPolicy
+}
+
+export type AccountUnreadScope =
+  | { kind: "server"; serverId: string }
+  | { kind: "channel"; channelId: string }
+
+export type AccountUnreadScopeToken = {
+  scope: AccountUnreadScope
   ordinal: number
-  witnessChannelId: string | null
-  witnessFamily: AccountUnreadFamily | null
-  boundary: number
+  nonce: symbol
+  ownerEpoch: number
+}
+
+export type AccountUnreadAccessConfirmationToken = {
+  ordinal: number
+  ownerEpoch: number
+}
+
+type AccountUnreadScopeHint = Pick<
+  PendingArrival,
+  "channelId" | "serverId" | "railChannelId"
+>
+
+export type AccountUnreadDismissToken = {
+  mentionId: string
+  channelId: string
+  seq?: number
+  countsServerMention: boolean
+  ordinal: number
+  nonce: symbol
+  ownerEpoch: number
 }
 
 export type MarkAllToken = {
@@ -83,10 +161,6 @@ export const MAX_STICKY_SCOPES = 256
 
 const owners = new WeakMap<QueryClient, Map<string, AccountUnreadProjection>>()
 const activeOwners = new WeakMap<QueryClient, string>()
-
-function sentinelFamily(family: AccountUnreadFamily) {
-  return family.startsWith("server-detail:") ? "server-detail" : family
-}
 
 function familiesFor(arrival: AccountUnreadArrival): AccountUnreadFamily[] {
   const families: AccountUnreadFamily[] = ["inbox-unreads"]
@@ -113,10 +187,6 @@ function arrivalDomain(
   return serverId ? "channels" : "dms"
 }
 
-function sentinelKey(family: AccountUnreadFamily, domain: AccountUnreadDomain) {
-  return `${sentinelFamily(family)}\u0000${domain}`
-}
-
 function excludesUnread(
   exclusion: AccountUnreadPresentationExclusion | null | undefined,
   channelId: string,
@@ -127,19 +197,83 @@ function excludesUnread(
   return seq !== undefined && seq !== null && seq <= exclusion.throughSeq
 }
 
+function normalizePolicyLevel(value?: string): AccountUnreadPolicyLevel {
+  const normalized = value?.trim().toLowerCase()
+  if (normalized === "nothing") return "nothing"
+  if (normalized === "mentions" || normalized?.includes("mention")) return "mentions"
+  return "all"
+}
+
+function freezePolicy(snapshot: AccountUnreadPolicySnapshot): MutablePolicy {
+  return {
+    all: normalizePolicyLevel(snapshot.all),
+    server: new Map(Object.entries(snapshot.server ?? {}).map(([id, level]) => (
+      [id, normalizePolicyLevel(level)]
+    ))),
+    channel: new Map(Object.entries(snapshot.channel ?? {}).map(([id, level]) => (
+      [id, normalizePolicyLevel(level)]
+    ))),
+    parentByChannel: new Map(Object.entries(snapshot.parentByChannel ?? {})),
+  }
+}
+
+function policySignature(policy: FrozenPolicy) {
+  const sortEntries = <T,>(values: ReadonlyMap<string, T>) => (
+    [...values.entries()].sort(([left], [right]) => left.localeCompare(right))
+  )
+  return JSON.stringify([
+    policy.all,
+    sortEntries(policy.server),
+    sortEntries(policy.channel),
+    sortEntries(policy.parentByChannel),
+  ])
+}
+
+function scopeKey(scope: AccountUnreadScope) {
+  return scope.kind === "server"
+    ? `server:${scope.serverId}`
+    : `channel:${scope.channelId}`
+}
+
 /**
- * Account-wide optimistic unread ledger. It deliberately owns no fetches,
- * timers, cache writes, or route transitions: raw TanStack resources remain
- * authoritative and feed evidence into this synchronous projection.
+ * Account-wide optimistic unread ledger. Raw TanStack resources remain
+ * authoritative and feed evidence into this synchronous projection; the
+ * owner may request their coalesced reconciliation but owns no transport,
+ * timer, cache write, or route transition itself.
  */
 export class AccountUnreadProjection {
   private ordinal = 0
   private version = 0
+  private ownerEpoch = 0
+  private disposed = false
+  private highestRevision = -1
+  private policyGeneration = 0
+  private policyReady = false
+  private policy: FrozenPolicy = {
+    all: "all",
+    server: new Map(),
+    channel: new Map(),
+    parentByChannel: new Map(),
+  }
+  private policyBase: MutablePolicy = {
+    all: "all",
+    server: new Map(),
+    channel: new Map(),
+    parentByChannel: new Map(),
+  }
+  private readonly policyOverlays = new Map<symbol, {
+    patch: AccountUnreadPolicyPatch
+    state: "pending" | "committed"
+  }>()
+  private reconcileScheduled = false
+  private reconcilePendingDelivery = false
+  private lastPolicyReconcileGeneration = -1
+  private prePolicySnapshotNeedsReconcile = false
+  private reconcile: (() => void) | null = null
   private readonly listeners = new Set<() => void>()
   private readonly exact = new Map<string, PendingArrival>()
   private readonly exactByChannel = new Map<string, Set<string>>()
   private readonly sticky = new Map<string, StickyUnknown>()
-  private readonly sentinels = new Map<string, OverflowSentinel>()
   private readonly evidence = new Map<string, number>()
   private readonly readSeq = new Map<string, number>()
   private readonly optimisticReads = new Map<
@@ -147,32 +281,78 @@ export class AccountUnreadProjection {
     { channelId: string; seq: number; committed: boolean }
   >()
   private readonly markAll = new Map<AccountUnreadDomain, MarkAllFence>()
+  // Scope identity outlives the unread source itself. Access retirement prunes
+  // canonical evidence, but cached raw rows still need their server identity
+  // so a committed fence cannot be bypassed by the sourceScope fallback.
+  private readonly scopeHints = new Map<string, AccountUnreadScopeHint>()
+  // A re-grant restores access, not unread truth. Keep raw values from every
+  // family below this ordinal suppressed until that family contributes new
+  // positive evidence after the retirement.
+  private readonly rawRetirementFloors = new Map<string, number>()
+  private readonly accessFences = new Map<
+    string,
+    AccountUnreadScopeToken & { state: "pending" | "committed" | "grant-pending" }
+  >()
+  private readonly dismissals = new Map<
+    symbol,
+    AccountUnreadDismissToken & { state: "pending" | "committed" }
+  >()
+  private readonly snapshots = new Set<symbol>()
   private readonly legacySnapshots = new WeakSet<object>()
 
   constructor(readonly ownerUserId: string) {}
 
   subscribe = (listener: () => void) => {
+    if (this.disposed) return () => undefined
     this.listeners.add(listener)
     return () => this.listeners.delete(listener)
   }
 
   getSnapshot = () => this.version
 
+  setReconcileScheduler(reconcile: (() => void) | null) {
+    if (this.disposed) return
+    this.reconcile = reconcile
+    if (reconcile && this.reconcilePendingDelivery) {
+      this.reconcilePendingDelivery = false
+      reconcile()
+    }
+  }
+
   recordArrival(arrival: AccountUnreadArrival) {
     this.recordArrivalForFamilies(arrival, familiesFor(arrival))
   }
 
   recordMentionArrival(arrival: AccountUnreadArrival) {
-    this.recordArrivalForFamilies(arrival, ["inbox-mentions"])
+    const knownSource = this.findSourceScope(arrival.channelId)
+    const knownScope = knownSource ?? this.scopeHints.get(arrival.channelId)
+    const enriched = {
+      ...arrival,
+      serverId: arrival.serverId ?? knownScope?.serverId,
+      railChannelId: arrival.railChannelId ?? knownScope?.railChannelId,
+      isMention: true,
+    }
+    const families: AccountUnreadFamily[] = enriched.serverId
+      ? familiesFor(enriched)
+      : knownSource?.families.has("dms")
+        ? ["inbox-unreads", "inbox-mentions", "dms"]
+        : ["inbox-unreads", "inbox-mentions"]
+    this.recordArrivalForFamilies(enriched, families)
   }
 
   recordLegacySnapshot(
     snapshot: object,
     sources: readonly AccountUnreadLegacySource[],
   ) {
-    if (this.legacySnapshots.has(snapshot)) return
+    if (this.disposed || this.legacySnapshots.has(snapshot)) return
     this.legacySnapshots.add(snapshot)
     for (const source of sources) {
+      // Legacy rows carry no request-start token. While a committed/granting
+      // access fence exists they cannot prove that their unread bit was read
+      // after the retirement, so let fresh structural authority clear the
+      // fence before admitting them.
+      this.rememberScope(source)
+      if (!this.scopeAllowsLegacySnapshot(source)) continue
       this.recordSticky(
         source.channelId,
         [source.family],
@@ -187,7 +367,7 @@ export class AccountUnreadProjection {
     serverId: string,
     sources: readonly AccountUnreadSource[],
   ) {
-    if (sources.length === 0) return
+    if (this.disposed || sources.length === 0) return
     const channelId = `\u0000legacy-server:${serverId}`
     const unknown = this.sticky.get(channelId)
     if (!unknown?.families.delete("servers")) return
@@ -198,8 +378,11 @@ export class AccountUnreadProjection {
   private recordArrivalForFamilies(
     arrival: AccountUnreadArrival,
     families: AccountUnreadFamily[],
+    observedOrdinal?: number,
   ) {
-    if (!arrival.channelId) return
+    if (this.disposed || !arrival.channelId) return
+    this.rememberScope(arrival)
+    if (!this.scopeAllowsArrival(arrival, observedOrdinal)) return
     const seq = arrival.seq
     if (!Number.isSafeInteger(seq) || (seq ?? 0) <= 0) {
       this.recordSticky(
@@ -208,6 +391,9 @@ export class AccountUnreadProjection {
         arrival.isMention === true,
         arrival.serverId,
         arrival.railChannelId,
+        observedOrdinal,
+        arrival.messageId,
+        arrival.attentionId,
       )
       return
     }
@@ -215,16 +401,43 @@ export class AccountUnreadProjection {
     const key = arrival.messageId
       ? `${arrival.channelId}:${arrival.messageId}`
       : `${arrival.channelId}:seq:${seq}`
-    const existing = this.exact.get(key)
+    const channelKeys = this.exactByChannel.get(arrival.channelId) ?? new Set<string>()
+    const existing = this.exact.get(key) ?? [...channelKeys]
+      .map((candidate) => this.exact.get(candidate))
+      .find((candidate) => candidate?.seq === seq)
     if (existing) {
-      for (const family of families) existing.families.add(family)
-      existing.isMention ||= arrival.isMention === true
-      existing.serverId ??= arrival.serverId
-      existing.railChannelId ??= arrival.railChannelId
-      this.publish()
+      let changed = false
+      let membershipOrdinal = this.ordinal
+      for (const family of families) {
+        const previous = existing.families.get(family)
+        // Snapshot evidence with an observed ordinal is merged by
+        // recordSnapshotSource before this fallback. An existing row here is
+        // therefore always a live-arrival merge and gets a fresh ordinal.
+        if (previous === undefined) {
+          if (!changed) membershipOrdinal = ++this.ordinal
+          existing.families.set(family, membershipOrdinal)
+          changed = true
+        }
+      }
+      if (!existing.isMention && arrival.isMention === true) {
+        existing.isMention = true
+        changed = true
+      }
+      if (arrival.attentionId && !existing.attentionIds.has(arrival.attentionId)) {
+        existing.attentionIds.add(arrival.attentionId)
+        changed = true
+      }
+      if (!existing.serverId && arrival.serverId) {
+        existing.serverId = arrival.serverId
+        changed = true
+      }
+      if (!existing.railChannelId && arrival.railChannelId) {
+        existing.railChannelId = arrival.railChannelId
+        changed = true
+      }
+      if (changed) this.publish()
       return
     }
-    const channelKeys = this.exactByChannel.get(arrival.channelId) ?? new Set<string>()
     if (
       this.exact.size >= MAX_EXACT_ARRIVALS
       || channelKeys.size >= MAX_EXACT_ARRIVALS_PER_CHANNEL
@@ -233,12 +446,14 @@ export class AccountUnreadProjection {
       let isMention = arrival.isMention === true
       let serverId = arrival.serverId
       let railChannelId = arrival.railChannelId
+      const attentionIds = new Set(arrival.attentionId ? [arrival.attentionId] : [])
       for (const exactKey of [...channelKeys]) {
         const folded = this.exact.get(exactKey)!
-        for (const family of folded.families) foldedFamilies.add(family)
+        for (const family of folded.families.keys()) foldedFamilies.add(family)
         isMention ||= folded.isMention
         serverId ??= folded.serverId
         railChannelId ??= folded.railChannelId
+        for (const attentionId of folded.attentionIds) attentionIds.add(attentionId)
         this.removeExact(exactKey)
       }
       this.recordSticky(
@@ -247,19 +462,48 @@ export class AccountUnreadProjection {
         isMention,
         serverId,
         railChannelId,
+        observedOrdinal,
+        undefined,
+        undefined,
+        attentionIds,
       )
       return
     }
+    const matchingSticky = this.sticky.get(arrival.channelId)
+    const correlatedSticky = arrival.messageId
+      && matchingSticky?.messageId === arrival.messageId
+      ? matchingSticky
+      : undefined
+    const pendingOrdinal = observedOrdinal ?? ++this.ordinal
     const pending: PendingArrival = {
       key,
       channelId: arrival.channelId,
-      serverId: arrival.serverId,
-      railChannelId: arrival.railChannelId,
+      serverId: arrival.serverId ?? correlatedSticky?.serverId,
+      railChannelId: arrival.railChannelId ?? correlatedSticky?.railChannelId,
       seq: seq!,
-      ordinal: ++this.ordinal,
-      isMention: arrival.isMention === true,
-      families: new Set(families),
+      ordinal: Math.max(
+        pendingOrdinal,
+        ...[...(correlatedSticky?.families.values() ?? [])].map((membership) => (
+          membership.ordinal
+        )),
+      ),
+      isMention: arrival.isMention === true || correlatedSticky?.isMention === true,
+      attentionIds: new Set([
+        ...(correlatedSticky?.attentionIds ?? []),
+        ...(arrival.attentionId ? [arrival.attentionId] : []),
+      ]),
+      families: new Map(),
     }
+    for (const [family, membership] of correlatedSticky?.families ?? []) {
+      pending.families.set(family, membership.ordinal)
+    }
+    for (const family of families) {
+      pending.families.set(
+        family,
+        Math.max(pending.families.get(family) ?? -1, pendingOrdinal),
+      )
+    }
+    if (correlatedSticky) this.sticky.delete(arrival.channelId)
     this.exact.set(key, pending)
     channelKeys.add(key)
     this.exactByChannel.set(arrival.channelId, channelKeys)
@@ -267,7 +511,7 @@ export class AccountUnreadProjection {
   }
 
   recordRead(channelId: string, seq: number) {
-    if (!Number.isSafeInteger(seq) || seq <= 0) return
+    if (this.disposed || !Number.isSafeInteger(seq) || seq <= 0) return
     const previous = this.readSeq.get(channelId) ?? 0
     if (seq <= previous) return
     this.readSeq.set(channelId, seq)
@@ -279,7 +523,7 @@ export class AccountUnreadProjection {
   }
 
   recordOptimisticRead(channelId: string, seq: number, generation: number) {
-    if (!Number.isSafeInteger(seq) || seq <= 0) return
+    if (this.disposed || !Number.isSafeInteger(seq) || seq <= 0) return
     this.optimisticReads.set(generation, { channelId, seq, committed: false })
     this.publish()
   }
@@ -289,6 +533,7 @@ export class AccountUnreadProjection {
     committed: boolean,
     confirmedSeq?: number,
   ) {
+    if (this.disposed) return
     const optimistic = this.optimisticReads.get(generation)
     if (!optimistic) return
     if (committed) {
@@ -305,6 +550,8 @@ export class AccountUnreadProjection {
     revision: number
     readStates: Array<{ channelId: string; lastReadSeq: number }>
   }) {
+    if (this.disposed || snapshot.revision < this.highestRevision) return
+    this.highestRevision = snapshot.revision
     for (const row of snapshot.readStates) {
       this.recordRead(row.channelId, row.lastReadSeq)
       for (const [generation, optimistic] of this.optimisticReads) {
@@ -321,36 +568,161 @@ export class AccountUnreadProjection {
         && fence.revision !== null
         && snapshot.revision >= fence.revision
       ) {
-        for (const [key, arrival] of this.exact) {
-          if (arrival.ordinal > fence.ordinal) continue
-          for (const family of [...arrival.families]) {
-            if (arrivalDomain(family, arrival.serverId) === domain) {
-              arrival.families.delete(family)
-            }
-          }
-          if (arrival.families.size === 0) this.removeExact(key)
+        if (!this.hasCapturedDomainSource(domain, fence.ordinal)) {
+          this.markAll.delete(domain)
+          changed = true
         }
-        for (const [channelId, unknown] of this.sticky) {
-          for (const [family, pending] of [...unknown.families]) {
-            if (
-              pending.ordinal <= fence.ordinal
-              && arrivalDomain(family, unknown.serverId) === domain
-            ) {
-              unknown.families.delete(family)
-            }
-          }
-          if (unknown.families.size === 0) this.sticky.delete(channelId)
-        }
-        this.markAll.delete(domain)
-        for (const [key, sentinel] of this.sentinels) {
-          if (sentinel.ordinal <= fence.ordinal && key.endsWith(`\u0000${domain}`)) {
-            this.sentinels.delete(key)
-          }
-        }
-        changed = true
       }
     }
     if (changed) this.publish()
+  }
+
+  beginSnapshot(
+    family: AccountUnreadFamily,
+    domain: AccountUnreadDomain = familyDomain(family),
+    eligibleCoverage: Iterable<AccountUnreadFacet> = [
+      family === "inbox-mentions" ? "attention" : "ordinary",
+    ],
+  ): AccountUnreadSnapshotToken {
+    this.reconcileScheduled = false
+    const token = {
+      family,
+      domain,
+      startOrdinal: this.disposed ? this.ordinal : ++this.ordinal,
+      policyGeneration: this.policyGeneration,
+      eligibleCoverage: new Set(this.policyReady ? eligibleCoverage : []),
+      nonce: Symbol(family),
+      ownerEpoch: this.ownerEpoch,
+      policy: this.clonePolicy(),
+    }
+    if (!this.disposed) this.snapshots.add(token.nonce)
+    return token
+  }
+
+  absorbSnapshot(
+    token: AccountUnreadSnapshotToken,
+    sources: readonly AccountUnreadSource[],
+    options: {
+      truncated?: boolean
+      stale?: boolean
+      confirmedAccessScopes?: readonly AccountUnreadScope[]
+    } = {},
+  ) {
+    if (
+      this.disposed
+      || token.ownerEpoch !== this.ownerEpoch
+      || !this.snapshots.delete(token.nonce)
+    ) return
+    const family = token.family
+    const facet = family === "inbox-mentions" ? "attention" : "ordinary"
+    if (!options.stale && !options.truncated && options.confirmedAccessScopes) {
+      this.confirmAccessScopes(options.confirmedAccessScopes, {
+        ordinal: token.startOrdinal,
+        ownerEpoch: token.ownerEpoch,
+      })
+    }
+    const positiveChannels = new Map<string, number>()
+    const positiveAttentionChannels = new Map<string, number>()
+    const positiveAttentionIds = new Set(
+      sources.flatMap((source) => source.attentionId ? [source.attentionId] : []),
+    )
+    for (const source of sources) {
+      const evidenceSeq = family === "inbox-mentions"
+        ? source.lastMentionSeq ?? source.lastUnreadSeq
+        : source.lastUnreadSeq
+      if (!source.channelId || !Number.isSafeInteger(evidenceSeq) || evidenceSeq <= 0) continue
+      positiveChannels.set(
+        source.channelId,
+        Math.max(positiveChannels.get(source.channelId) ?? 0, evidenceSeq),
+      )
+      if (family === "inbox-mentions" || source.isMention) {
+        positiveAttentionChannels.set(
+          source.channelId,
+          Math.max(positiveAttentionChannels.get(source.channelId) ?? 0, evidenceSeq),
+        )
+      }
+      this.recordSnapshotSource(family, source, evidenceSeq, token.startOrdinal)
+    }
+
+    if (token.policyGeneration !== this.policyGeneration) {
+      this.requestPolicyReconcile()
+      return
+    }
+    if (options.stale || options.truncated) return
+    if (!token.eligibleCoverage.has(facet)) {
+      if (
+        !this.policyReady
+        && this.snapshotWouldRetire(
+          token,
+          family,
+          facet,
+          positiveChannels,
+          positiveAttentionChannels,
+        )
+      ) this.prePolicySnapshotNeedsReconcile = true
+      return
+    }
+
+    let changed = false
+    if (family === "inbox-mentions") {
+      for (const [nonce, dismissal] of this.dismissals) {
+        if (
+          dismissal.state === "committed"
+          && dismissal.ordinal < token.startOrdinal
+          && !positiveAttentionIds.has(dismissal.mentionId)
+        ) {
+          this.dismissals.delete(nonce)
+          changed = true
+        }
+      }
+    }
+    for (const [key, arrival] of [...this.exact]) {
+      const membershipOrdinal = arrival.families.get(family)
+      if (
+        membershipOrdinal === undefined
+        || membershipOrdinal > token.startOrdinal
+        || arrivalDomain(family, arrival.serverId) !== token.domain
+        || !this.policyAllows(arrival, facet, token.policy)
+      ) continue
+      const positiveSeq = (
+        family === "inbox-mentions" || arrival.isMention
+          ? positiveAttentionChannels
+          : positiveChannels
+      ).get(arrival.channelId)
+      if (positiveSeq !== undefined && positiveSeq >= arrival.seq) continue
+      arrival.families.delete(family)
+      if (arrival.families.size === 0) this.removeExact(key)
+      changed = true
+    }
+    for (const [channelId, unknown] of [...this.sticky]) {
+      const membership = unknown.families.get(family)
+      const positiveSeq = (
+        family === "inbox-mentions" || unknown.isMention
+          ? positiveAttentionChannels
+          : positiveChannels
+      ).get(channelId)
+      if (
+        !membership
+        || membership.ordinal > token.startOrdinal
+        || arrivalDomain(family, unknown.serverId) !== token.domain
+        || !this.policyAllows(unknown, facet, token.policy)
+        || (positiveSeq !== undefined && positiveSeq <= membership.boundary)
+      ) continue
+      // A complete response whose channel evidence advanced past the
+      // sticky's previous boundary has materialized that unsequenced source
+      // into the exact record added above. Retire only this family membership;
+      // other families still need their own complete coverage.
+      unknown.families.delete(family)
+      if (unknown.families.size === 0) this.sticky.delete(channelId)
+      changed = true
+    }
+    changed = this.settleConfirmedMarkAllFences() || changed
+    if (changed) this.publish()
+  }
+
+  cancelSnapshot(token: AccountUnreadSnapshotToken) {
+    if (!this.validOwnerToken(token)) return
+    this.snapshots.delete(token.nonce)
   }
 
   absorbFamily(
@@ -362,60 +734,21 @@ export class AccountUnreadProjection {
       domain?: AccountUnreadDomain
     } = {},
   ) {
-    if (options.stale) return
-    const byChannel = new Map(sources.map((source) => [source.channelId, source]))
-    let changed = false
-    for (const source of sources) {
-      if (source.lastUnreadSeq > 0) {
-        const evidenceKey = this.evidenceKey(family, source.channelId)
-        this.evidence.set(
-          evidenceKey,
-          Math.max(this.evidence.get(evidenceKey) ?? 0, source.lastUnreadSeq),
-        )
-      }
-    }
-    for (const [key, arrival] of this.exact) {
-      if (!arrival.families.has(family)) continue
-      const source = byChannel.get(arrival.channelId)
-      const evidenceSeq = family === "inbox-mentions"
-        ? source?.lastMentionSeq ?? source?.lastUnreadSeq
-        : source?.lastUnreadSeq
-      if (evidenceSeq !== undefined && evidenceSeq !== null && evidenceSeq >= arrival.seq) {
-        arrival.families.delete(family)
-        changed = true
-        if (arrival.families.size === 0) this.removeExact(key)
-      }
-    }
-    for (const [channelId, unknown] of this.sticky) {
-      const pending = unknown.families.get(family)
-      if (!pending) continue
-      const source = byChannel.get(channelId)
-      const evidenceSeq = family === "inbox-mentions"
-        ? source?.lastMentionSeq ?? source?.lastUnreadSeq
-        : source?.lastUnreadSeq
-      if (evidenceSeq !== undefined && evidenceSeq !== null && evidenceSeq > pending.boundary) {
-        unknown.families.delete(family)
-        changed = true
-        if (unknown.families.size === 0) this.sticky.delete(channelId)
-      }
-    }
-    if (!options.truncated) {
-      const key = sentinelKey(family, options.domain ?? familyDomain(family))
-      const sentinel = this.sentinels.get(key)
-      if (
-        sentinel?.witnessChannelId
-        && sentinel.witnessFamily === family
-      ) {
-        const source = byChannel.get(sentinel.witnessChannelId)
-        const evidenceSeq = family === "inbox-mentions"
-          ? source?.lastMentionSeq ?? source?.lastUnreadSeq
-          : source?.lastUnreadSeq
-        if (evidenceSeq !== undefined && evidenceSeq !== null && evidenceSeq > sentinel.boundary) {
-          changed = this.sentinels.delete(key) || changed
-        }
-      }
-    }
-    if (changed) this.publish()
+    if (this.disposed) return
+    const token = this.beginSnapshot(
+      family,
+      options.domain ?? familyDomain(family),
+    )
+    this.absorbSnapshot(token, sources, options)
+  }
+
+  mergeSources(
+    family: AccountUnreadFamily,
+    sources: readonly AccountUnreadSource[],
+    domain: AccountUnreadDomain = familyDomain(family),
+  ) {
+    const token = this.beginSnapshot(family, domain)
+    this.absorbSnapshot(token, sources, { truncated: true })
   }
 
   projectUnread(
@@ -425,27 +758,52 @@ export class AccountUnreadProjection {
     sourceSeq?: number | null,
     domain: AccountUnreadDomain = familyDomain(family),
     exclusion?: AccountUnreadPresentationExclusion | null,
+    exactSourceOnly = false,
+    attentionId?: string,
   ) {
+    if (this.disposed) return false
     const fence = this.markAll.get(domain)
     const read = this.effectiveReadSeq(channelId)
+    const facet = family === "inbox-mentions" ? "attention" : "ordinary"
+    const policySource = this.sourceScope(channelId, sourceSeq)
+    if (!this.scopeAllowed(policySource)) return false
     const rawVisible = rawUnread
       && !(sourceSeq && read >= sourceSeq)
       && !fence
+      && this.rawAccessAllowed(family, channelId)
       && !excludesUnread(exclusion, channelId, sourceSeq)
+      && this.policyAllows(policySource, facet, this.policy)
+      && (facet !== "attention" || !this.attentionIdentityDismissed(
+        channelId,
+        sourceSeq,
+        attentionId,
+      ))
     if (rawVisible) return true
-    const sentinel = this.sentinels.get(sentinelKey(family, domain))
-    if (sentinel && (!fence || sentinel.ordinal > fence.ordinal)) return true
     for (const key of this.exactByChannel.get(channelId) ?? []) {
       const arrival = this.exact.get(key)
       if (!arrival || !arrival.families.has(family) || arrival.seq <= read) continue
+      if (exactSourceOnly && sourceSeq !== arrival.seq) continue
       if (excludesUnread(exclusion, channelId, arrival.seq)) continue
-      if (!fence || arrival.ordinal > fence.ordinal) return true
+      const membershipOrdinal = arrival.families.get(family)!
+      if (
+        (!fence || membershipOrdinal > fence.ordinal)
+        && this.policyAllows(arrival, facet, this.policy)
+        && (facet !== "attention" || (
+          attentionId
+            ? !this.attentionIdentityDismissed(channelId, arrival.seq, attentionId)
+            : !this.attentionDismissed(arrival)
+        ))
+      ) return true
     }
+    if (exactSourceOnly) return false
     const sticky = this.sticky.get(channelId)
     const pending = sticky?.families.get(family)
     if (pending) {
       if (excludesUnread(exclusion, channelId)) return false
-      if (!fence || pending.ordinal > fence.ordinal) return true
+      if (
+        (!fence || pending.ordinal > fence.ordinal)
+        && this.policyAllows(sticky!, facet, this.policy)
+      ) return true
     }
     return false
   }
@@ -455,10 +813,21 @@ export class AccountUnreadProjection {
     channelId: string,
     rawCount: number,
     sourceSeq?: number | null,
+    exclusion?: AccountUnreadPresentationExclusion | null,
   ) {
+    if (this.disposed) return 0
     const fence = this.markAll.get("mentions")
     const read = this.effectiveReadSeq(channelId)
-    let count = !fence && !(sourceSeq && read >= sourceSeq) ? rawCount : 0
+    const policySource = this.sourceScope(channelId)
+    if (!this.scopeAllowed(policySource)) return 0
+    let count = !fence
+      && !(sourceSeq && read >= sourceSeq)
+      && this.rawAccessAllowed(family, channelId)
+      && !excludesUnread(exclusion, channelId, sourceSeq)
+      && this.policyAllows(policySource, "attention", this.policy)
+      ? rawCount
+      : 0
+    count = Math.max(0, count - this.dismissedAttentionCount(channelId, sourceSeq))
     for (const key of this.exactByChannel.get(channelId) ?? []) {
       const arrival = this.exact.get(key)
       if (
@@ -467,7 +836,10 @@ export class AccountUnreadProjection {
         && arrival.families.has(family)
         && arrival.seq > read
         && !(sourceSeq && sourceSeq >= arrival.seq)
-        && (!fence || arrival.ordinal > fence.ordinal)
+        && !excludesUnread(exclusion, channelId, arrival.seq)
+        && (!fence || arrival.families.get(family)! > fence.ordinal)
+        && this.policyAllows(arrival, "attention", this.policy)
+        && !this.attentionDismissed(arrival)
       ) count += 1
     }
     return count
@@ -489,10 +861,7 @@ export class AccountUnreadProjection {
         exclusion,
       )
     ))) return true
-    if (rawUnread && sources.length === 0 && !this.markAll.get("channels")) return true
-    const sentinel = this.sentinels.get(sentinelKey("servers", "channels"))
-    const fence = this.markAll.get("channels")
-    if (sentinel && (!fence || sentinel.ordinal > fence.ordinal)) return true
+    void rawUnread
     for (const arrival of this.exact.values()) {
       if (
         arrival.serverId === serverId
@@ -540,10 +909,7 @@ export class AccountUnreadProjection {
         exclusion,
       )
     ))) return true
-    if (rawUnread && sources.length === 0 && !this.markAll.get("channels")) return true
-    const sentinel = this.sentinels.get(sentinelKey(family, "channels"))
-    const fence = this.markAll.get("channels")
-    if (sentinel && (!fence || sentinel.ordinal > fence.ordinal)) return true
+    void rawUnread
     for (const arrival of this.exact.values()) {
       if (
         arrival.serverId === serverId
@@ -631,14 +997,15 @@ export class AccountUnreadProjection {
     _serverId: string,
     sources: ReadonlyArray<{ channelId: string; count: number; lastSeq: number }>,
     rawFallback = 0,
+    exclusion?: AccountUnreadPresentationExclusion | null,
   ) {
-    return sources.length === 0 && !this.markAll.get("mentions")
-      ? rawFallback
-      : sources.reduce((sum, source) => sum + this.projectMentionCount(
+    void rawFallback
+    return sources.reduce((sum, source) => sum + this.projectMentionCount(
       "servers",
       source.channelId,
       source.count,
       source.lastSeq,
+      exclusion,
     ), 0)
   }
 
@@ -647,44 +1014,257 @@ export class AccountUnreadProjection {
     domain?: AccountUnreadDomain,
     exclusion?: AccountUnreadPresentationExclusion | null,
   ) {
-    if (family && domain) {
-      const sentinel = this.sentinels.get(sentinelKey(family, domain))
-      const fence = this.markAll.get(domain)
-      if (sentinel && (!fence || sentinel.ordinal > fence.ordinal)) return true
-    }
-    if (family && !domain) {
-      const prefix = `${sentinelFamily(family)}\u0000`
-      for (const [key, sentinel] of this.sentinels) {
-        if (!key.startsWith(prefix)) continue
-        const sentinelDomain = key.slice(prefix.length) as AccountUnreadDomain
-        const fence = this.markAll.get(sentinelDomain)
-        if (!fence || sentinel.ordinal > fence.ordinal) return true
-      }
-    }
+    if (this.disposed) return false
     for (const arrival of this.exact.values()) {
       if (family && !arrival.families.has(family)) continue
+      if (!this.scopeAllowed(arrival)) continue
       if (excludesUnread(exclusion, arrival.channelId, arrival.seq)) continue
-      const arrivalDomain = family === "inbox-mentions" || arrival.isMention && domain === "mentions"
+      const sourceDomain = family === "inbox-mentions" || arrival.isMention && domain === "mentions"
         ? "mentions"
         : arrival.serverId ? "channels" : "dms"
-      if (domain && arrivalDomain !== domain) continue
-      const fence = this.markAll.get(domain ?? arrivalDomain)
-      if (!fence || arrival.ordinal > fence.ordinal) return true
+      if (domain && sourceDomain !== domain) continue
+      const fence = this.markAll.get(domain ?? sourceDomain)
+      const relevantFamily = family ?? [...arrival.families.keys()].find((candidate) => (
+        arrivalDomain(candidate, arrival.serverId) === (domain ?? sourceDomain)
+      ))
+      if (!relevantFamily) continue
+      const facet = relevantFamily === "inbox-mentions" ? "attention" : "ordinary"
+      const membershipOrdinal = arrival.families.get(relevantFamily)!
+      if (
+        (!fence || membershipOrdinal > fence.ordinal)
+        && this.policyAllows(arrival, facet, this.policy)
+        && (facet !== "attention" || !this.attentionDismissed(arrival))
+      ) return true
     }
     for (const unknown of this.sticky.values()) {
+      if (!this.scopeAllowed(unknown)) continue
       if (excludesUnread(exclusion, unknown.channelId)) continue
       for (const [pendingFamily, pending] of unknown.families) {
         if (family && pendingFamily !== family) continue
         const pendingDomain = arrivalDomain(pendingFamily, unknown.serverId)
         if (domain && pendingDomain !== domain) continue
         const fence = this.markAll.get(domain ?? pendingDomain)
-        if (!fence || pending.ordinal > fence.ordinal) return true
+        const facet = pendingFamily === "inbox-mentions" ? "attention" : "ordinary"
+        if (
+          (!fence || pending.ordinal > fence.ordinal)
+          && this.policyAllows(unknown, facet, this.policy)
+        ) return true
       }
     }
     return false
   }
 
+  setNotificationPolicy(snapshot: AccountUnreadPolicySnapshot) {
+    if (this.disposed) return
+    const wasReady = this.policyReady
+    const nextBase = freezePolicy(snapshot)
+    // Query cache writes mirror optimistic controls for the settings UI. They
+    // are not authoritative policy while the matching overlay is unresolved,
+    // otherwise a failed request could hydrate its own optimistic value into
+    // the base and make rollback ineffective.
+    for (const overlay of this.policyOverlays.values()) {
+      if (overlay.patch.kind === "server") {
+        const prior = this.policyBase.server.get(overlay.patch.id)
+        if (prior === undefined) nextBase.server.delete(overlay.patch.id)
+        else nextBase.server.set(overlay.patch.id, prior)
+      } else {
+        const prior = this.policyBase.channel.get(overlay.patch.id)
+        if (prior === undefined) nextBase.channel.delete(overlay.patch.id)
+        else nextBase.channel.set(overlay.patch.id, prior)
+      }
+    }
+    this.policyBase = nextBase
+    const changed = this.refreshPolicy(true)
+    if (
+      changed
+      && (wasReady || this.prePolicySnapshotNeedsReconcile)
+    ) this.requestPolicyReconcile()
+    this.prePolicySnapshotNeedsReconcile = false
+  }
+
+  beginNotificationPolicyOverlay(
+    patch: AccountUnreadPolicyPatch,
+  ): AccountUnreadPolicyToken {
+    const token = { nonce: Symbol(patch.id), ownerEpoch: this.ownerEpoch }
+    if (this.disposed) return token
+    this.policyOverlays.set(token.nonce, { patch, state: "pending" })
+    this.refreshPolicy(false)
+    return token
+  }
+
+  commitNotificationPolicyOverlay(token: AccountUnreadPolicyToken) {
+    if (!this.validOwnerToken(token)) return
+    const overlay = this.policyOverlays.get(token.nonce)
+    if (!overlay) return
+    overlay.state = "committed"
+    this.flushCommittedPolicyOverlays()
+    this.refreshPolicy(false)
+    this.requestPolicyReconcile()
+  }
+
+  rollbackNotificationPolicyOverlay(token: AccountUnreadPolicyToken) {
+    if (!this.validOwnerToken(token) || !this.policyOverlays.delete(token.nonce)) return
+    this.flushCommittedPolicyOverlays()
+    this.refreshPolicy(false)
+  }
+
+  getPolicyGeneration() {
+    return this.policyGeneration
+  }
+
+  beginDismissMention(input: {
+    mentionId: string
+    channelId: string
+    seq?: number
+    countsServerMention?: boolean
+  }): AccountUnreadDismissToken {
+    const token: AccountUnreadDismissToken = {
+      ...input,
+      countsServerMention: input.countsServerMention ?? true,
+      ordinal: this.disposed ? this.ordinal : ++this.ordinal,
+      nonce: Symbol(input.mentionId),
+      ownerEpoch: this.ownerEpoch,
+    }
+    if (!this.disposed) {
+      this.dismissals.set(token.nonce, { ...token, state: "pending" })
+      this.publish()
+    }
+    return token
+  }
+
+  commitDismissMention(token: AccountUnreadDismissToken, _revision?: number) {
+    if (!this.validOwnerToken(token)) return
+    // The optimistic facet fence remains until the next complete Mentions
+    // snapshot supplies matching negative evidence. A revision hint alone is
+    // deliberately insufficient to settle a destructive transaction.
+    const dismissal = this.dismissals.get(token.nonce)
+    if (!dismissal) return
+    dismissal.state = "committed"
+    this.publish()
+  }
+
+  rollbackDismissMention(token: AccountUnreadDismissToken) {
+    if (!this.validOwnerToken(token) || !this.dismissals.delete(token.nonce)) return
+    this.publish()
+  }
+
+  beginScopeRetirement(scope: AccountUnreadScope): AccountUnreadScopeToken {
+    const token: AccountUnreadScopeToken = {
+      scope,
+      ordinal: this.ordinal,
+      nonce: Symbol(scope.kind),
+      ownerEpoch: this.ownerEpoch,
+    }
+    if (!this.disposed) {
+      this.accessFences.set(scopeKey(scope), { ...token, state: "pending" })
+      this.publish()
+    }
+    return token
+  }
+
+  commitScopeRetirement(token: AccountUnreadScopeToken, _revision?: number) {
+    if (!this.validOwnerToken(token)) return
+    const current = this.accessFences.get(scopeKey(token.scope))
+    if (current?.nonce !== token.nonce) return
+    current.state = "committed"
+    this.recordRawRetirementFloor(token.scope, this.ordinal)
+    this.pruneScope(token.scope, this.ordinal)
+    this.publish()
+  }
+
+  rollbackScopeRetirement(token: AccountUnreadScopeToken) {
+    if (!this.validOwnerToken(token)) return
+    const key = scopeKey(token.scope)
+    if (this.accessFences.get(key)?.nonce !== token.nonce) return
+    this.accessFences.delete(key)
+    this.publish()
+  }
+
+  retireAccessScope(scope: AccountUnreadScope) {
+    if (this.disposed) return
+    const token = this.beginScopeRetirement(scope)
+    this.commitScopeRetirement(token)
+  }
+
+  grantAccessScope(scope: AccountUnreadScope) {
+    if (this.disposed) return
+    const fence = this.accessFences.get(scopeKey(scope))
+    if (!fence) return
+    fence.state = "grant-pending"
+    // A grant only permits fresh authoritative evidence to seed the scope; it
+    // does not expose raw cache retained from before the retirement.
+    this.requestReconcile()
+  }
+
+  beginAccessConfirmation(): AccountUnreadAccessConfirmationToken {
+    return {
+      ordinal: this.disposed ? this.ordinal : ++this.ordinal,
+      ownerEpoch: this.ownerEpoch,
+    }
+  }
+
+  confirmAccessScopes(
+    scopes: readonly AccountUnreadScope[],
+    token: AccountUnreadAccessConfirmationToken,
+  ) {
+    if (!this.validOwnerToken(token)) return
+    let changed = false
+    for (const scope of scopes) {
+      const key = scopeKey(scope)
+      const fence = this.accessFences.get(key)
+      if (
+        !fence
+        || fence.state === "pending"
+        || fence.ordinal >= token.ordinal
+      ) continue
+      this.accessFences.delete(key)
+      changed = true
+    }
+    if (changed) this.publish()
+  }
+
+  dispose() {
+    if (this.disposed) return
+    this.disposed = true
+    this.ownerEpoch += 1
+    this.exact.clear()
+    this.exactByChannel.clear()
+    this.sticky.clear()
+    this.evidence.clear()
+    this.readSeq.clear()
+    this.optimisticReads.clear()
+    this.markAll.clear()
+    this.scopeHints.clear()
+    this.rawRetirementFloors.clear()
+    this.accessFences.clear()
+    this.dismissals.clear()
+    this.snapshots.clear()
+    this.policyOverlays.clear()
+    this.reconcile = null
+    this.reconcileScheduled = false
+    this.reconcilePendingDelivery = false
+    this.listeners.clear()
+    this.version += 1
+  }
+
+  inspectForTests() {
+    return {
+      sourceCount: this.exact.size + this.sticky.size,
+      exactCount: this.exact.size,
+      stickyCount: this.sticky.size,
+      readState: [...this.readSeq.entries()].sort(),
+      policyGeneration: this.policyGeneration,
+      policyReady: this.policyReady,
+      highestRevision: this.highestRevision,
+      pendingSnapshots: this.snapshots.size,
+      disposed: this.disposed,
+    }
+  }
+
   beginMarkAll(domain: AccountUnreadDomain): MarkAllToken {
+    if (this.disposed) {
+      return { domain, ordinal: this.ordinal, nonce: Symbol(domain) }
+    }
     const token: MarkAllToken = { domain, ordinal: this.ordinal, nonce: Symbol(domain) }
     this.markAll.set(domain, { ...token, state: "pending", revision: null })
     this.publish()
@@ -692,6 +1272,7 @@ export class AccountUnreadProjection {
   }
 
   commitMarkAll(token: MarkAllToken, revision: number) {
+    if (this.disposed) return
     const fence = this.markAll.get(token.domain)
     if (!fence || fence.nonce !== token.nonce) return
     fence.state = "committed"
@@ -700,10 +1281,400 @@ export class AccountUnreadProjection {
   }
 
   rollbackMarkAll(token: MarkAllToken) {
+    if (this.disposed) return
     const fence = this.markAll.get(token.domain)
     if (!fence || fence.nonce !== token.nonce) return
     this.markAll.delete(token.domain)
     this.publish()
+  }
+
+  private recordSnapshotSource(
+    family: AccountUnreadFamily,
+    source: AccountUnreadSource,
+    evidenceSeq: number,
+    observedOrdinal: number,
+  ) {
+    const evidenceKey = this.evidenceKey(family, source.channelId)
+    this.evidence.set(
+      evidenceKey,
+      Math.max(this.evidence.get(evidenceKey) ?? 0, evidenceSeq),
+    )
+    const knownSource = this.findSourceScope(source.channelId)
+    const knownScope = knownSource ?? this.scopeHints.get(source.channelId)
+    const sourceArrival = {
+      channelId: source.channelId,
+      serverId: source.serverId ?? knownScope?.serverId,
+      railChannelId: source.railChannelId ?? knownScope?.railChannelId,
+      messageId: source.messageId,
+      attentionId: source.attentionId,
+      seq: evidenceSeq,
+      isMention: source.isMention === true || family === "inbox-mentions",
+    }
+    const observedFamilies: AccountUnreadFamily[] = family === "inbox-mentions"
+      ? sourceArrival.serverId
+        ? familiesFor(sourceArrival)
+        : knownSource?.families.has("dms")
+          ? ["inbox-unreads", "inbox-mentions", "dms"]
+          : ["inbox-unreads", "inbox-mentions"]
+      : [family]
+    for (const key of this.exactByChannel.get(source.channelId) ?? []) {
+      const existing = this.exact.get(key)
+      if (!existing || existing.seq !== evidenceSeq) continue
+      for (const observedFamily of observedFamilies) {
+        existing.families.set(
+          observedFamily,
+          Math.max(existing.families.get(observedFamily) ?? -1, observedOrdinal),
+        )
+      }
+      if (sourceArrival.isMention && !existing.isMention) {
+        existing.isMention = true
+      }
+      if (source.attentionId) existing.attentionIds.add(source.attentionId)
+      if (!existing.serverId && source.serverId) {
+        existing.serverId = source.serverId
+      }
+      if (!existing.railChannelId && source.railChannelId) {
+        existing.railChannelId = source.railChannelId
+      }
+      this.publish()
+      return
+    }
+    this.recordArrivalForFamilies(sourceArrival, observedFamilies, observedOrdinal)
+  }
+
+  private clonePolicy(): FrozenPolicy {
+    return {
+      all: this.policy.all,
+      server: new Map(this.policy.server),
+      channel: new Map(this.policy.channel),
+      parentByChannel: new Map(this.policy.parentByChannel),
+    }
+  }
+
+  private applyPolicyPatch(policy: MutablePolicy, patch: AccountUnreadPolicyPatch) {
+    if (patch.kind === "server") {
+      policy.server.set(patch.id, normalizePolicyLevel(patch.level))
+      return
+    }
+    if (patch.level === null) policy.channel.delete(patch.id)
+    else policy.channel.set(patch.id, normalizePolicyLevel(patch.level))
+  }
+
+  private flushCommittedPolicyOverlays() {
+    for (const [nonce, overlay] of this.policyOverlays) {
+      if (overlay.state !== "committed") break
+      this.applyPolicyPatch(this.policyBase, overlay.patch)
+      this.policyOverlays.delete(nonce)
+    }
+  }
+
+  private refreshPolicy(markReady: boolean) {
+    const next: MutablePolicy = {
+      all: this.policyBase.all,
+      server: new Map(this.policyBase.server),
+      channel: new Map(this.policyBase.channel),
+      parentByChannel: new Map(this.policyBase.parentByChannel),
+    }
+    for (const overlay of this.policyOverlays.values()) {
+      this.applyPolicyPatch(next, overlay.patch)
+    }
+    const becameReady = markReady && !this.policyReady
+    if (!becameReady && policySignature(next) === policySignature(this.policy)) return false
+    this.policy = next
+    if (markReady) this.policyReady = true
+    this.policyGeneration += 1
+    this.publish()
+    return true
+  }
+
+  private policyLevelFor(
+    source: Pick<PendingArrival, "channelId" | "serverId" | "railChannelId">,
+    policy: FrozenPolicy,
+  ) {
+    const exact = policy.channel.get(source.channelId)
+    if (exact) return exact
+    const parentId = source.railChannelId ?? policy.parentByChannel.get(source.channelId)
+    if (parentId) {
+      const parent = policy.channel.get(parentId)
+      if (parent) return parent
+    }
+    if (source.serverId) return policy.server.get(source.serverId) ?? policy.all
+    return policy.all
+  }
+
+  private policyAllows(
+    source: Pick<PendingArrival, "channelId" | "serverId" | "railChannelId" | "isMention">,
+    facet: AccountUnreadFacet,
+    policy: FrozenPolicy,
+  ) {
+    const level = this.policyLevelFor(source, policy)
+    if (level === "nothing") return false
+    if (facet === "attention") return true
+    return level === "all" || source.isMention
+  }
+
+  private sourceScope(channelId: string, sourceSeq?: number | null): Pick<
+    PendingArrival,
+    "channelId" | "serverId" | "railChannelId" | "isMention"
+  > {
+    if (sourceSeq !== undefined && sourceSeq !== null) {
+      for (const key of this.exactByChannel.get(channelId) ?? []) {
+        const source = this.exact.get(key)
+        if (source?.seq === sourceSeq) return source
+      }
+    }
+    return this.findSourceScope(channelId) ?? {
+      ...this.scopeHints.get(channelId),
+      channelId,
+      isMention: false,
+    }
+  }
+
+  private findSourceScope(channelId: string): PendingArrival | StickyUnknown | undefined {
+    for (const key of this.exactByChannel.get(channelId) ?? []) {
+      const source = this.exact.get(key)
+      if (source) return source
+    }
+    return this.sticky.get(channelId)
+  }
+
+  private attentionDismissed(
+    source: Pick<
+      PendingArrival,
+      "channelId" | "seq" | "ordinal" | "isMention" | "attentionIds"
+    >,
+  ) {
+    if (!source.isMention) return false
+    if (source.attentionIds.size > 0) {
+      return [...source.attentionIds].every((attentionId) => (
+        this.attentionIdentityDismissed(source.channelId, source.seq, attentionId)
+      ))
+    }
+    for (const dismissal of this.dismissals.values()) {
+      if (dismissal.channelId !== source.channelId) continue
+      if (dismissal.seq !== undefined && dismissal.seq !== source.seq) continue
+      if (source.ordinal <= dismissal.ordinal) return true
+    }
+    return false
+  }
+
+  private attentionIdentityDismissed(
+    channelId: string,
+    seq?: number | null,
+    attentionId?: string,
+  ) {
+    for (const dismissal of this.dismissals.values()) {
+      if (dismissal.channelId !== channelId) continue
+      if (attentionId) {
+        if (dismissal.mentionId === attentionId) return true
+        continue
+      }
+      if (
+        seq !== undefined
+        && seq !== null
+        && dismissal.seq !== undefined
+        && dismissal.seq === seq
+      ) return true
+    }
+    return false
+  }
+
+  private dismissedAttentionCount(channelId: string, sourceSeq?: number | null) {
+    const identities = new Set<string>()
+    for (const dismissal of this.dismissals.values()) {
+      if (dismissal.channelId !== channelId) continue
+      if (!dismissal.countsServerMention) continue
+      if (
+        sourceSeq !== undefined
+        && sourceSeq !== null
+        && dismissal.seq !== undefined
+        && dismissal.seq > sourceSeq
+      ) continue
+      identities.add(dismissal.mentionId)
+    }
+    return identities.size
+  }
+
+  private validOwnerToken(token: { ownerEpoch: number }) {
+    return !this.disposed && token.ownerEpoch === this.ownerEpoch
+  }
+
+  private scopeAllowed(source: { channelId: string; serverId?: string }) {
+    if (this.accessFences.has(`channel:${source.channelId}`)) return false
+    return !source.serverId || !this.accessFences.has(`server:${source.serverId}`)
+  }
+
+  private scopeAllowsArrival(
+    source: { channelId: string; serverId?: string },
+    observedOrdinal?: number,
+  ) {
+    const allowsFence = (
+      fence: (AccountUnreadScopeToken & {
+        state: "pending" | "committed" | "grant-pending"
+      }) | undefined,
+    ) => {
+      if (!fence || fence.state === "pending") return true
+      if (fence.state === "committed") return false
+      return observedOrdinal === undefined || observedOrdinal > fence.ordinal
+    }
+    return allowsFence(this.accessFences.get(`channel:${source.channelId}`))
+      && (!source.serverId || allowsFence(this.accessFences.get(`server:${source.serverId}`)))
+  }
+
+  private scopeAllowsLegacySnapshot(source: { channelId: string; serverId?: string }) {
+    const allowsFence = (
+      fence: (AccountUnreadScopeToken & {
+        state: "pending" | "committed" | "grant-pending"
+      }) | undefined,
+    ) => !fence || fence.state === "pending"
+    return allowsFence(this.accessFences.get(`channel:${source.channelId}`))
+      && (!source.serverId || allowsFence(this.accessFences.get(`server:${source.serverId}`)))
+  }
+
+  private rememberScope(source: AccountUnreadScopeHint) {
+    const previous = this.scopeHints.get(source.channelId)
+    const next = {
+      channelId: source.channelId,
+      serverId: source.serverId ?? previous?.serverId,
+      railChannelId: source.railChannelId ?? previous?.railChannelId,
+    }
+    this.scopeHints.set(source.channelId, next)
+    if (!next.serverId) return
+    const serverFence = this.accessFences.get(`server:${next.serverId}`)
+    if (!serverFence || serverFence.state === "pending") return
+    this.rawRetirementFloors.set(
+      source.channelId,
+      Math.max(this.rawRetirementFloors.get(source.channelId) ?? -1, serverFence.ordinal),
+    )
+  }
+
+  private recordRawRetirementFloor(scope: AccountUnreadScope, ordinal: number) {
+    if (scope.kind === "channel") {
+      this.rawRetirementFloors.set(scope.channelId, ordinal)
+      return
+    }
+    for (const [channelId, hint] of this.scopeHints) {
+      if (hint.serverId === scope.serverId) {
+        this.rawRetirementFloors.set(channelId, ordinal)
+      }
+    }
+  }
+
+  private rawAccessAllowed(family: AccountUnreadFamily, channelId: string) {
+    const floor = this.rawRetirementFloors.get(channelId)
+    if (floor === undefined) return true
+    for (const key of this.exactByChannel.get(channelId) ?? []) {
+      const membership = this.exact.get(key)?.families.get(family)
+      if (membership !== undefined && membership > floor) return true
+    }
+    return (this.sticky.get(channelId)?.families.get(family)?.ordinal ?? -1) > floor
+  }
+
+  private pruneScope(scope: AccountUnreadScope, throughOrdinal: number) {
+    const matches = (source: { channelId: string; serverId?: string }) => (
+      scope.kind === "server"
+        ? source.serverId === scope.serverId
+        : source.channelId === scope.channelId
+    )
+    for (const [key, source] of [...this.exact]) {
+      if (!matches(source)) continue
+      for (const [family, membershipOrdinal] of [...source.families]) {
+        if (membershipOrdinal <= throughOrdinal) source.families.delete(family)
+      }
+      if (source.families.size === 0) this.removeExact(key)
+    }
+    for (const [channelId, source] of [...this.sticky]) {
+      if (!matches(source)) continue
+      for (const [family, membership] of [...source.families]) {
+        if (membership.ordinal <= throughOrdinal) source.families.delete(family)
+      }
+      if (source.families.size === 0) this.sticky.delete(channelId)
+    }
+  }
+
+  private hasCapturedDomainSource(domain: AccountUnreadDomain, throughOrdinal: number) {
+    for (const source of this.exact.values()) {
+      for (const [family, membershipOrdinal] of source.families) {
+        if (
+          membershipOrdinal <= throughOrdinal
+          && arrivalDomain(family, source.serverId) === domain
+        ) return true
+      }
+    }
+    for (const source of this.sticky.values()) {
+      for (const [family, membership] of source.families) {
+        if (
+          membership.ordinal <= throughOrdinal
+          && arrivalDomain(family, source.serverId) === domain
+        ) return true
+      }
+    }
+    return false
+  }
+
+  private settleConfirmedMarkAllFences() {
+    let changed = false
+    for (const [domain, fence] of [...this.markAll]) {
+      if (
+        fence.state === "committed"
+        && fence.revision !== null
+        && fence.revision <= this.highestRevision
+        && !this.hasCapturedDomainSource(domain, fence.ordinal)
+      ) {
+        this.markAll.delete(domain)
+        changed = true
+      }
+    }
+    return changed
+  }
+
+  private snapshotWouldRetire(
+    token: AccountUnreadSnapshotToken,
+    family: AccountUnreadFamily,
+    facet: AccountUnreadFacet,
+    positiveChannels: ReadonlyMap<string, number>,
+    positiveAttentionChannels: ReadonlyMap<string, number>,
+  ) {
+    for (const arrival of this.exact.values()) {
+      const membershipOrdinal = arrival.families.get(family)
+      if (
+        membershipOrdinal !== undefined
+        && membershipOrdinal <= token.startOrdinal
+        && arrivalDomain(family, arrival.serverId) === token.domain
+        && this.policyAllows(arrival, facet, token.policy)
+        && ((family === "inbox-mentions" || arrival.isMention
+          ? positiveAttentionChannels
+          : positiveChannels
+        ).get(arrival.channelId) ?? -1) < arrival.seq
+      ) return true
+    }
+    for (const [channelId, source] of this.sticky) {
+      const membership = source.families.get(family)
+      if (
+        membership
+        && membership.ordinal <= token.startOrdinal
+        && arrivalDomain(family, source.serverId) === token.domain
+        && this.policyAllows(source, facet, token.policy)
+        && !(family === "inbox-mentions" || source.isMention
+          ? positiveAttentionChannels
+          : positiveChannels
+        ).has(channelId)
+      ) return true
+    }
+    return false
+  }
+
+  private requestPolicyReconcile() {
+    if (this.lastPolicyReconcileGeneration === this.policyGeneration) return
+    this.lastPolicyReconcileGeneration = this.policyGeneration
+    this.requestReconcile()
+  }
+
+  private requestReconcile() {
+    if (this.disposed || this.reconcileScheduled) return
+    this.reconcileScheduled = true
+    if (this.reconcile) this.reconcile()
+    else this.reconcilePendingDelivery = true
   }
 
   private recordSticky(
@@ -712,45 +1683,57 @@ export class AccountUnreadProjection {
     isMention: boolean,
     serverId?: string,
     railChannelId?: string,
+    observedOrdinal?: number,
+    messageId?: string | null,
+    attentionId?: string,
+    attentionIds: ReadonlySet<string> = new Set(),
   ) {
-    const arrivalOrdinal = ++this.ordinal
+    if (this.disposed || !channelId) return
+    this.rememberScope({ channelId, serverId, railChannelId })
+    if (!this.scopeAllowsArrival({ channelId, serverId })) return
+    const arrivalOrdinal = observedOrdinal ?? ++this.ordinal
     let unknown = this.sticky.get(channelId)
     if (!unknown) {
       if (this.sticky.size >= MAX_STICKY_SCOPES) {
-        for (const family of families) {
-          const key = sentinelKey(family, arrivalDomain(family, serverId))
-          const existing = this.sentinels.get(key)
-          if (existing) {
-            existing.ordinal = arrivalOrdinal
-            if (
-              existing.witnessChannelId !== channelId
-              || existing.witnessFamily !== family
-            ) {
-              existing.witnessChannelId = null
-              existing.witnessFamily = null
-            }
-          } else {
-            this.sentinels.set(key, {
-              ordinal: arrivalOrdinal,
-              witnessChannelId: channelId,
-              witnessFamily: family,
-              boundary: this.evidence.get(this.evidenceKey(family, channelId)) ?? 0,
-            })
-          }
-        }
-        this.publish()
-        return
+        const oldest = [...this.sticky.entries()].reduce<
+          [string, StickyUnknown] | null
+        >((candidate, entry) => {
+          if (!candidate) return entry
+          const oldestOrdinal = Math.min(...[...candidate[1].families.values()].map((v) => v.ordinal))
+          const entryOrdinal = Math.min(...[...entry[1].families.values()].map((v) => v.ordinal))
+          return entryOrdinal < oldestOrdinal ? entry : candidate
+        }, null)
+        if (oldest) this.sticky.delete(oldest[0])
+        this.requestReconcile()
       }
       unknown = {
         channelId,
         serverId,
         railChannelId,
+        messageId,
         isMention,
+        attentionIds: new Set([
+          ...attentionIds,
+          ...(attentionId ? [attentionId] : []),
+        ]),
         families: new Map(),
       }
       this.sticky.set(channelId, unknown)
+    } else if (unknown.messageId === undefined && messageId !== undefined) {
+      unknown.messageId = messageId
+    } else if (
+      unknown.messageId !== null
+      && messageId !== undefined
+      && unknown.messageId !== messageId
+    ) {
+      // A channel-scoped sticky may summarize more than one unsequenced
+      // arrival. Once identities disagree it is no longer safe to correlate
+      // the aggregate with a later exact message.
+      unknown.messageId = null
     }
     unknown.isMention ||= isMention
+    if (attentionId) unknown.attentionIds.add(attentionId)
+    for (const id of attentionIds) unknown.attentionIds.add(id)
     unknown.serverId ??= serverId
     unknown.railChannelId ??= railChannelId
     for (const family of families) {
@@ -827,8 +1810,13 @@ export function disposeAccountUnreadProjection(
 ) {
   const byUser = owners.get(queryClient)
   if (!byUser) return
-  if (ownerUserId) byUser.delete(ownerUserId)
-  else byUser.clear()
+  if (ownerUserId) {
+    byUser.get(ownerUserId)?.dispose()
+    byUser.delete(ownerUserId)
+  } else {
+    for (const projection of byUser.values()) projection.dispose()
+    byUser.clear()
+  }
   if (!ownerUserId || activeOwners.get(queryClient) === ownerUserId) {
     activeOwners.delete(queryClient)
   }

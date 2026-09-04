@@ -1051,6 +1051,98 @@ describe("useMarkAllInboxRead", () => {
 // ── useDeleteMention — rollback ──────────────────────────────────────────
 
 describe("useDeleteMention — rollback", () => {
+  it("keeps a same-seq sibling and only decrements badges for direct mentions", async () => {
+    const reply = {
+      id: "reply-1",
+      kind: "reply",
+      channelId: "ch_1",
+      m: { id: "msg_1", seq: 4 },
+    }
+    const mention = {
+      id: "mention-1",
+      kind: "mention",
+      channelId: "ch_1",
+      m: { id: "msg_1", seq: 4 },
+    }
+    capturedQc.setQueryData(communityKeys.inboxMentions(), {
+      mentions: [reply, mention],
+    })
+    const mod = await loadMod()
+    const { getActiveAccountUnreadProjection } = await import(
+      "@/hooks/community/account-unread-projection"
+    )
+    const projection = getActiveAccountUnreadProjection(capturedQc)
+    projection.setNotificationPolicy({})
+    for (const attentionId of [reply.id, mention.id]) {
+      projection.recordArrival({
+        channelId: "ch_1",
+        serverId: "srv_1",
+        messageId: "msg_1",
+        attentionId,
+        seq: 4,
+        isMention: true,
+      })
+    }
+    mod.useDeleteMention()
+    const cfg = capturedConfig as MutConfig<
+      { mentionId: string },
+      { token?: unknown; snapshot?: unknown }
+    >
+
+    const replyContext = await cfg.onMutate?.({ mentionId: reply.id })
+    expect(capturedQc.getQueryData<{ mentions: Array<{ id: string }> }>(
+      communityKeys.inboxMentions(),
+    )?.mentions.map((row) => row.id)).toEqual([mention.id])
+    expect(projection.projectUnread(
+      "inbox-mentions", "ch_1", true, 4, "mentions", null, true, mention.id,
+    )).toBe(true)
+    expect(projection.projectServerMentionCount("srv_1", [{
+      channelId: "ch_1", count: 1, lastSeq: 4,
+    }])).toBe(1)
+
+    cfg.onError?.(new Error("retry direct"), { mentionId: reply.id }, replyContext)
+    const mentionContext = await cfg.onMutate?.({ mentionId: mention.id })
+    expect(capturedQc.getQueryData<{ mentions: Array<{ id: string }> }>(
+      communityKeys.inboxMentions(),
+    )?.mentions.map((row) => row.id)).toEqual([reply.id])
+    expect(projection.projectUnread(
+      "inbox-mentions", "ch_1", true, 4, "mentions", null, true, reply.id,
+    )).toBe(true)
+    expect(projection.projectServerMentionCount("srv_1", [{
+      channelId: "ch_1", count: 1, lastSeq: 4,
+    }])).toBe(0)
+    cfg.onError?.(new Error("cleanup"), { mentionId: mention.id }, mentionContext)
+  })
+
+  it("hides only the exact attention facet and restores it on failure", async () => {
+    capturedQc.setQueryData(communityKeys.inboxMentions(), {
+      mentions: [{ id: "men_1", channelId: "ch_1", m: { id: "msg_1", seq: 4 } }],
+    })
+    const mod = await loadMod()
+    const { getActiveAccountUnreadProjection } = await import(
+      "@/hooks/community/account-unread-projection"
+    )
+    const projection = getActiveAccountUnreadProjection(capturedQc)
+    projection.recordArrival({
+      channelId: "ch_1",
+      serverId: "srv_1",
+      messageId: "msg_1",
+      seq: 4,
+      isMention: true,
+    })
+    mod.useDeleteMention()
+    const cfg = capturedConfig as MutConfig<
+      { mentionId: string },
+      { token?: unknown; snapshot?: unknown }
+    >
+    const context = await cfg.onMutate?.({ mentionId: "men_1" })
+    expect(projection.projectUnread("inbox-unreads", "ch_1", false)).toBe(true)
+    expect(projection.projectUnread("inbox-mentions", "ch_1", false)).toBe(false)
+
+    cfg.onError?.(new Error("boom"), { mentionId: "men_1" }, context)
+    expect(projection.projectUnread("inbox-mentions", "ch_1", false)).toBe(true)
+  })
+
   it("restores mention on failure", async () => {
     capturedQc.setQueryData(communityKeys.inboxMentions(), {
       mentions: [{ id: "men_1" }],

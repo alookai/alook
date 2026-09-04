@@ -6,7 +6,7 @@ import { ApiError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
 import type { MessagesPageParam } from "@/lib/community/models/message"
 import { channelMessagesQueryFn, dmMessagesQueryFn } from "@/hooks/community/use-messages"
-import { serverQueryFn, type ServerDetail } from "@/hooks/community/use-servers"
+import { serverProjectedQueryFn, type ServerDetail } from "@/hooks/community/use-servers"
 import { useMessageStreamStore } from "@/stores/community/message-stream"
 import {
   beginConversationNavigationProof,
@@ -112,7 +112,7 @@ export function startConversationNavigationWarmup(
     .catch(() => undefined)
 
   if (target.serverId) {
-    void serverQueryFn(queryClient, target.serverId, signal)()
+    void serverProjectedQueryFn(queryClient, target.serverId, signal)()
       .then((detail) => {
         if (!isCurrentConversationNavigation(queryClient, epoch, accessEpoch)) return
         queryClient.setQueryData<ServerDetail>(communityKeys.server(target.serverId!), detail)
