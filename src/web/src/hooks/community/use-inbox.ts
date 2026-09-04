@@ -36,6 +36,23 @@ const EMPTY_DMS: readonly UnreadDm[] = Object.freeze([])
 const EMPTY_MENTIONS: readonly Mention[] = Object.freeze([])
 const EMPTY_MARKED: readonly Marked[] = Object.freeze([])
 
+type ProjectedUnreadChild = UnreadServer["channels"][number]["children"][number] & {
+  lastAttentionSeq?: number | null
+}
+
+type ProjectedUnreadChannel = Omit<UnreadServer["channels"][number], "children"> & {
+  lastAttentionSeq?: number | null
+  children: ProjectedUnreadChild[]
+}
+
+type ProjectedUnreadServer = Omit<UnreadServer, "channels"> & {
+  channels: ProjectedUnreadChannel[]
+}
+
+type ProjectedMention = Mention & {
+  parentChannelId?: string | null
+}
+
 /**
  * The inbox popover shows two sibling feeds. Each has its own endpoint and
  * its own query key nested under `communityKeys.inbox()` so a single
@@ -50,7 +67,7 @@ const EMPTY_MARKED: readonly Marked[] = Object.freeze([])
  */
 
 export type UnreadsResponse = {
-  servers: UnreadServer[]
+  servers: ProjectedUnreadServer[]
   dms: UnreadDm[]
   limit?: number
   truncated?: boolean
@@ -136,9 +153,16 @@ export const inboxUnreadsProjectedQueryFn = (
   try {
     const data = await inboxUnreadsTransportFn({ signal })
     const sources = inboxUnreadSources(data)
-    const options = { truncated: data.truncated ?? true, stale: data.stale }
-    projection.absorbSnapshot(channelsToken, sources.channels, options)
-    projection.absorbSnapshot(dmsToken, sources.dms, options)
+    projection.absorbSnapshot(channelsToken, sources.channels, {
+      truncated: data.truncated ?? true,
+      stale: data.stale,
+    })
+    // The route's cap and `truncated` bit cover server nodes only. DMs are
+    // always returned as a complete, independently authoritative domain.
+    projection.absorbSnapshot(dmsToken, sources.dms, {
+      truncated: false,
+      stale: data.stale,
+    })
     throwIfStale(data)
     return reserveInboxUnreadsResponse(queryClient, data, signal)
   } catch (error) {
@@ -285,7 +309,7 @@ export function useInboxUnreads(): UseQueryResult<UnreadsResponse> & {
 }
 
 export type MentionsResponse = {
-  mentions: Mention[]
+  mentions: ProjectedMention[]
   limit?: number
   truncated?: boolean
 }
@@ -306,6 +330,7 @@ function inboxMentionSources(data: MentionsResponse): AccountUnreadSource[] {
       ? [{
           channelId: mention.channelId,
           serverId: mention.serverId,
+          railChannelId: mention.parentChannelId ?? undefined,
           messageId: mention.m.id,
           attentionId: mention.id,
           lastUnreadSeq: mention.m.seq,

@@ -8,9 +8,10 @@ import { broadcastToUserSafe } from "@/lib/community/fanout"
 
 async function broadcastRevision(userId: string, revision: number) {
   await broadcastToUserSafe(userId, {
-    type: WS_EVENTS.READ_STATE_ADVANCED,
+    type: WS_EVENTS.INBOX_CHANGED,
     revision,
     inboxChanged: true,
+    reason: "notification_policy",
   })
 }
 

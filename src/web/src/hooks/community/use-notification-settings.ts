@@ -1,6 +1,13 @@
 "use client"
 
-import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query"
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+  type QueryFunctionContext,
+  type UseQueryResult,
+} from "@tanstack/react-query"
 import { notifLevelDisplay } from "@alook/shared"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
@@ -45,10 +52,17 @@ export function resolveServerNotificationDisplayLevel(level?: string): string {
   return level ?? DEFAULT_SERVER_NOTIFICATION_LEVEL
 }
 
-export const notificationSettingsQueryFn = async (): Promise<NotificationSettings> => {
-  const rows = await apiFetch<NotificationSettingRow[]>(
-    "/api/community/users/me/notifications",
-  )
+export const notificationSettingsQueryFn = async (
+  context: QueryFunctionContext = {} as QueryFunctionContext,
+): Promise<NotificationSettings> => {
+  const rows = context.signal
+    ? await apiFetch<NotificationSettingRow[]>(
+        "/api/community/users/me/notifications",
+        { signal: context.signal },
+      )
+    : await apiFetch<NotificationSettingRow[]>(
+        "/api/community/users/me/notifications",
+      )
   const server: Record<string, string> = {}
   const channel: Record<string, string> = {}
   for (const s of rows) {
@@ -67,6 +81,21 @@ function projectNotificationSettings(
     server: settings?.server ?? {},
     channel: settings?.channel ?? {},
   })
+}
+
+export async function reconcileNotificationSettings(queryClient: QueryClient) {
+  const queryKey = communityKeys.notificationSettings()
+  // A policy WS event is newer than any transport already in flight. Cancel
+  // that generation first so TanStack cannot dedupe this repair onto the old
+  // request and install its stale response after the event.
+  await queryClient.cancelQueries({ queryKey, exact: true })
+  const settings = await queryClient.fetchQuery({
+    queryKey,
+    queryFn: notificationSettingsQueryFn,
+    staleTime: 0,
+  })
+  projectNotificationSettings(getActiveAccountUnreadProjection(queryClient), settings)
+  return settings
 }
 
 export function useNotificationSettings(): UseQueryResult<NotificationSettings> & {

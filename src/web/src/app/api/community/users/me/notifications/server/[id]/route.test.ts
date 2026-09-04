@@ -58,9 +58,10 @@ describe("human server notification settings", () => {
       actorKind: "human",
     })
     expect(broadcastToUserSafe).toHaveBeenCalledWith("user_1", {
-      type: "community:read_state.advanced",
+      type: "community:inbox.changed",
       revision: 7,
       inboxChanged: true,
+      reason: "notification_policy",
     })
   })
 })

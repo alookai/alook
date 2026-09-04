@@ -79,6 +79,7 @@ export function handleChannelMemberEvent(
     }
     if (!isKnownNonForumSidebarChannel(queryClient, event.serverId, event.channelId)) {
       void grantForumSidebarChild(queryClient, event.serverId, event.channelId)
+        .catch(() => undefined)
     }
   }
   invalidateServerDetail(projection, event.serverId)

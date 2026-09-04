@@ -58,9 +58,10 @@ describe("human DM notification settings", () => {
       userId: "user_1", channelId: "dm_1", level: "mentions", actorKind: "human",
     })
     expect(broadcastToUserSafe).toHaveBeenCalledWith("user_1", {
-      type: "community:read_state.advanced",
+      type: "community:inbox.changed",
       revision: 2,
       inboxChanged: true,
+      reason: "notification_policy",
     })
   })
 
@@ -77,9 +78,10 @@ describe("human DM notification settings", () => {
       actorKind: "human",
     })
     expect(broadcastToUserSafe).toHaveBeenCalledWith("user_1", {
-      type: "community:read_state.advanced",
+      type: "community:inbox.changed",
       revision: 3,
       inboxChanged: true,
+      reason: "notification_policy",
     })
   })
 })

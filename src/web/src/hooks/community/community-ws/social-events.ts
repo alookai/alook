@@ -20,6 +20,7 @@ import {
 } from "./read-state-reconciliation"
 import { getAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 import { removeDmReactionDetails } from "./reaction-details-invalidation"
+import { reconcileNotificationSettings } from "@/hooks/community/use-notification-settings"
 
 export function handleReadStateAdvanced(
   event: CommunityReadStateAdvanced,
@@ -46,6 +47,9 @@ export function handleInboxChanged(
   event: CommunityInboxChanged,
   context: SocialEventContext,
 ) {
+  if (event.reason === "notification_policy") {
+    void reconcileNotificationSettings(context.queryClient).catch(() => undefined)
+  }
   applyReadStateEnvelope(event, context)
 }
 
@@ -118,8 +122,6 @@ export function handleMentionCreate(
     const evidence = candidate?.messageId === event.messageId ? candidate : undefined
     getAccountUnreadProjection(queryClient, viewerId).recordMentionArrival({
       channelId: event.channelId,
-      serverId: event.serverId,
-      railChannelId: event.railChannelId,
       messageId: event.messageId,
       seq: evidence?.seq,
       isMention: true,

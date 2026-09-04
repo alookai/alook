@@ -940,6 +940,7 @@ export function useDeleteMention() {
             mentionId: args.mentionId,
             channelId: row.channelId,
             seq: row.m.seq,
+            countsServerMention: row.kind !== "reply",
           })
         : undefined
       queryClient.setQueryData(key, (prev: { mentions: { id: string }[] } | undefined) =>

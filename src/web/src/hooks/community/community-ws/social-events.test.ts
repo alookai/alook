@@ -3,6 +3,12 @@ import type {
   CommunityFriendBlock,
   CommunityFriendRequest,
   CommunityMentionCreate,
+  CommunityWsEvent,
+} from "@alook/shared"
+import {
+  deriveCommunityDeliveryOperationId,
+  encodeCommunityBrowserEventBatch,
+  prepareCommunityDeliveryEvents,
 } from "@alook/shared"
 import { getMessageOverlay } from "@/stores/community/message-stream"
 import { communityKeys } from "@/lib/query-keys"
@@ -20,6 +26,19 @@ import {
 
 beforeEach(resetCommunityWsHarness)
 afterEach(cleanupCommunityWsHarness)
+
+async function batchFor(messageId: string, events: readonly CommunityWsEvent[]) {
+  const operationId = await deriveCommunityDeliveryOperationId(messageId)
+  const prepared = await prepareCommunityDeliveryEvents(events)
+  if (!prepared.ok) throw new Error("bundle fixture must prepare")
+  const encoded = await encodeCommunityBrowserEventBatch({
+    operationId,
+    operationDigest: prepared.prepared.digest,
+    events,
+  })
+  if (!encoded.ok) throw new Error("bundle fixture must encode")
+  return encoded.batch
+}
 
 describe("useCommunityWs — account unread projection", () => {
   function serverDetailFixture(channelId: string) {
@@ -273,15 +292,20 @@ describe("useCommunityWs — friend + mention → invalidate", () => {
       channel: { forum_1: "mentions" },
     })
 
-    capturedOnMessage!({
-      type: "community:mention.create",
-      userId: "u_1",
-      messageId: "m_1",
-      channelId: "post_1",
-      serverId: "srv_1",
-      railChannelId: "forum_1",
-      authorName: "A",
-    } satisfies CommunityMentionCreate)
+    capturedOnMessage!(await batchFor("m_1", [
+      unreadBump("post_1", "u_1", {
+        serverId: "srv_1",
+        railChannelId: "forum_1",
+        isMention: true,
+      }),
+      {
+        type: "community:mention.create",
+        userId: "u_1",
+        messageId: "m_1",
+        channelId: "post_1",
+        authorName: "A",
+      },
+    ]))
 
     expect(projection.projectServerUnread("srv_1", [])).toBe(true)
     expect(projection.projectForumParentUnread(

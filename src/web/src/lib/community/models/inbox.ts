@@ -49,7 +49,6 @@ type UnreadChild = {
   type?: EntityKind
   lastMessageAt: string
   lastUnreadSeq?: number
-  lastAttentionSeq?: number | null
   mentionCount: number
   // Required together when canonical parent-opener metadata is available.
   // The child id remains the navigation target; opener seq belongs to the
@@ -74,7 +73,6 @@ export type UnreadServer = {
     type?: EntityKind
     lastMessageAt: string
     lastUnreadSeq?: number
-    lastAttentionSeq?: number | null
     mentionCount: number
     hasDirectUnread?: boolean
     children: UnreadChild[]

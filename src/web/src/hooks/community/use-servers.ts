@@ -16,6 +16,7 @@ import type { Server, Category, Channel } from "@/lib/community/models/navigatio
 import {
   getActiveAccountUnreadProjection,
   type AccountUnreadProjection,
+  type AccountUnreadScope,
   type AccountUnreadSource,
 } from "./account-unread-projection"
 import { useInboxProjectionTarget } from "./use-inbox-auto-collapse"
@@ -102,7 +103,12 @@ export const serversProjectedQueryFn = (
   const token = projection.beginSnapshot("servers", "channels")
   try {
     const data = await serversQueryFn(context)
-    projection.absorbSnapshot(token, serverListUnreadSources(data))
+    projection.absorbSnapshot(token, serverListUnreadSources(data), {
+      confirmedAccessScopes: data.servers.map((server) => ({
+        kind: "server" as const,
+        serverId: server.id,
+      })),
+    })
     return data
   } catch (error) {
     projection.cancelSnapshot(token)
@@ -368,18 +374,37 @@ export const serverProjectedQueryFn = (
   const projection = getActiveAccountUnreadProjection(queryClient)
   const family = `server-detail:${serverId}` as const
   const token = projection.beginSnapshot(family, "channels")
+  let unreadData: UnreadResponse | undefined
   try {
-    return await serverQueryFn(queryClient, serverId, signal, {
-      onUnreadResponse: (unreadData) => {
-        projection.absorbSnapshot(
-          token,
-          serverDetailUnreadSources(serverId, unreadData),
-          { stale: unreadData.stale },
-        )
+    const data = await serverQueryFn(queryClient, serverId, signal, {
+      onUnreadResponse: (response) => {
+        unreadData = response
       },
     })()
+    if (!unreadData) throw new Error("server unread response missing")
+    const confirmedAccessScopes: AccountUnreadScope[] = [
+      { kind: "server", serverId },
+      ...data.categories.flatMap((category) => category.channels.map((channel) => ({
+        kind: "channel" as const,
+        channelId: channel.id,
+      }))),
+    ]
+    projection.absorbSnapshot(
+      token,
+      serverDetailUnreadSources(serverId, unreadData),
+      { stale: unreadData.stale, confirmedAccessScopes },
+    )
+    return data
   } catch (error) {
-    projection.cancelSnapshot(token)
+    if (unreadData) {
+      projection.absorbSnapshot(
+        token,
+        serverDetailUnreadSources(serverId, unreadData),
+        { stale: true },
+      )
+    } else {
+      projection.cancelSnapshot(token)
+    }
     throw error
   }
 }

@@ -94,6 +94,23 @@ describe("useInboxUnreads / inboxUnreadsQueryFn", () => {
     expect(projection.projectUnread("inbox-unreads", "dm", false, 1, "dms")).toBe(false)
   })
 
+  it("retires a complete empty DM domain when the server domain is truncated", async () => {
+    apiFetchMock.mockResolvedValueOnce({ servers: [], dms: [], truncated: true })
+    const { inboxUnreadsProjectedQueryFn } = await import("./use-inbox")
+    const { AccountUnreadProjection } = await import("./account-unread-projection")
+    const projection = new AccountUnreadProjection("u1")
+    projection.setNotificationPolicy({})
+    projection.recordArrival({ channelId: "channel", serverId: "s1" })
+    projection.recordArrival({ channelId: "dm" })
+
+    await inboxUnreadsProjectedQueryFn(new QueryClient(), projection)()
+
+    expect(projection.projectUnread("inbox-unreads", "channel", false, null, "channels"))
+      .toBe(true)
+    expect(projection.projectUnread("inbox-unreads", "dm", false, null, "dms"))
+      .toBe(false)
+  })
+
   it("preserves cold attention facets under mentions-only policy", async () => {
     apiFetchMock.mockResolvedValueOnce({
       servers: [{
@@ -161,6 +178,49 @@ describe("useInboxUnreads / inboxUnreadsQueryFn", () => {
 
     projection.recordRead("mixed", 5)
     expect(projection.projectUnread("inbox-unreads", "mixed", false)).toBe(false)
+  })
+
+  it.each([
+    ["nothing", false],
+    ["mentions", true],
+    ["all", true],
+  ] as const)("applies cold parent %s policy through the Mentions adapter", async (
+    parentLevel,
+    expected,
+  ) => {
+    apiFetchMock.mockResolvedValueOnce({
+      mentions: [{
+        id: "attention-1",
+        kind: "mention",
+        server: "One",
+        serverId: "s1",
+        channel: "Post",
+        channelId: "post-1",
+        parentChannelId: "forum-1",
+        m: { id: "message-1", seq: 4 },
+      }],
+      truncated: false,
+    })
+    const { inboxMentionsProjectedQueryFn } = await import("./use-inbox")
+    const { AccountUnreadProjection } = await import("./account-unread-projection")
+    const projection = new AccountUnreadProjection("u1")
+    projection.setNotificationPolicy({
+      server: { s1: "all" },
+      channel: { "forum-1": parentLevel },
+    })
+
+    await inboxMentionsProjectedQueryFn(projection)()
+
+    expect(projection.projectUnread(
+      "inbox-mentions",
+      "post-1",
+      false,
+      4,
+      "mentions",
+      null,
+      true,
+      "attention-1",
+    )).toBe(expected)
   })
 
   it("merges positive rows from a stale response without using its absence", async () => {

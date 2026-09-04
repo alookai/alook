@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   COMMUNITY_DELIVERY_OPERATION_ID_HEADER,
+  MESSAGE_DELIVERY_MAX_EVENTS_PER_USER,
   deriveCommunityDeliveryOperationId,
+  type MessageDeliveryBatch,
 } from "@alook/shared"
 import { createCommunityDeliveryReceipt } from "../community-delivery-receipt"
 import { INTERNAL_USER_TARGET_HEADER } from "../internal-user-broadcast"
@@ -63,7 +65,7 @@ async function successfulReceipt(request: Request): Promise<Response> {
   }))
 }
 
-async function deliveryRequest(value: typeof batch = batch): Promise<Request> {
+async function deliveryRequest(value: MessageDeliveryBatch = batch): Promise<Request> {
   return new Request("http://localhost/broadcast/community/message-delivery", {
     method: "POST",
     headers: {
@@ -122,16 +124,35 @@ describe("message delivery route", () => {
       "community:mention.create",
       "community:channel.child_update",
     ])
-    expect(byUser.get("mention-only")?.events.map((event) => event.type)).toEqual(["community:mention.create"])
+    expect(byUser.get("mention-only")?.events.map((event) => event.type)).toEqual([
+      "community:unread.bump",
+      "community:mention.create",
+    ])
     expect(byUser.get("mention-only")?.events[0]).toMatchObject({
       channelId: "thread-1",
       serverId: "server-1",
       railChannelId: "forum-1",
+      isMention: true,
     })
+    // Exact legacy strict shape: scope travels on the pre-existing bump so an
+    // already-open client running the previous decoder accepts the whole batch.
+    expect(byUser.get("mention-only")?.events[1]).toEqual({
+      type: "community:mention.create",
+      userId: "mention-only",
+      messageId: "message-1",
+      channelId: "thread-1",
+      authorName: "Alice",
+    })
+    expect(byUser.get("overlap")?.events.filter((event) => (
+      event.type === "community:unread.bump"
+    ))).toHaveLength(1)
     expect(byUser.get("parent-only")?.events.map((event) => event.type)).toEqual(["community:channel.child_update"])
     expect(new Set(calls.map((call) => call.body.operationId))).toEqual(new Set([
       await deriveCommunityDeliveryOperationId("message-1"),
     ]))
+    expect(calls.every((call) => (
+      call.body.events.length <= MESSAGE_DELIVERY_MAX_EVENTS_PER_USER
+    ))).toBe(true)
     expect(byUser.get("author")?.operationDigest).not.toBe(byUser.get("overlap")?.operationDigest)
   })
 
@@ -150,34 +171,74 @@ describe("message delivery route", () => {
   })
 
   it("keeps the operation ID and per-user digest stable after an accepted enqueue response is lost", async () => {
-    const overlapBodies: InternalBundleBody[] = []
-    let overlapAttempts = 0
+    const mentionOnlyBodies: InternalBundleBody[] = []
+    let mentionOnlyAttempts = 0
     doMock.stubFetch.mockImplementation(async (request: Request) => {
       const userId = decodeURIComponent(request.headers.get(INTERNAL_USER_TARGET_HEADER)!)
-      if (userId !== "overlap") return successfulReceipt(request)
+      if (userId !== "mention-only") return successfulReceipt(request)
       const body = await request.clone().json() as InternalBundleBody
-      overlapBodies.push(body)
-      overlapAttempts += 1
-      if (overlapAttempts === 1) return new Response("")
+      mentionOnlyBodies.push(body)
+      mentionOnlyAttempts += 1
+      if (mentionOnlyAttempts === 1) return new Response("")
       return successfulReceipt(request)
     })
 
-    const first = await handler.fetch(await deliveryRequest(), env as never)
-    expect(first.status).toBe(207)
-    await expect(first.json()).resolves.toEqual({ failedUserIds: ["overlap"] })
-
     const retryBatch = {
       ...batch,
-      contentUserIds: ["overlap"],
-      unreadMentionUserIds: ["overlap"],
-      mentionUserIds: ["overlap"],
+      contentUserIds: [],
+      unreadMentionUserIds: [],
+      mentionUserIds: ["mention-only"],
       memberAdded: undefined,
-      parentProjectionUserIds: ["overlap"],
+      parentProjectionUserIds: ["mention-only"],
     }
+    const first = await handler.fetch(await deliveryRequest(retryBatch), env as never)
+    expect(first.status).toBe(207)
+    await expect(first.json()).resolves.toEqual({ failedUserIds: ["mention-only"] })
+
     const retry = await handler.fetch(await deliveryRequest(retryBatch), env as never)
     expect(retry.status).toBe(200)
-    expect(overlapBodies).toHaveLength(2)
-    expect(overlapBodies[1]).toEqual(overlapBodies[0])
+    expect(mentionOnlyBodies).toHaveLength(2)
+    expect(mentionOnlyBodies[1]).toEqual(mentionOnlyBodies[0])
+    expect(mentionOnlyBodies[0]?.events).toHaveLength(3)
+  })
+
+  it("keeps a mention-only DM scoped as a DM in the legacy-compatible batch", async () => {
+    doMock.stubFetch.mockImplementation(successfulReceipt)
+    const dmBatch = {
+      ...batch,
+      messageEvent: {
+        ...batch.messageEvent,
+        channelId: "dm-1",
+        serverId: undefined,
+        parentChannelId: undefined,
+      },
+      contentUserIds: [],
+      unreadMentionUserIds: [],
+      mentionUserIds: ["mention-only"],
+      memberAdded: undefined,
+      parentProjection: undefined,
+      parentProjectionUserIds: undefined,
+    }
+
+    const response = await handler.fetch(await deliveryRequest(dmBatch), env as never)
+    expect(response.status).toBe(200)
+    const request = doMock.stubFetch.mock.calls[0]?.[0] as Request
+    const body = await request.clone().json() as InternalBundleBody
+    expect(body.events).toEqual([
+      {
+        type: "community:unread.bump",
+        userId: "mention-only",
+        channelId: "dm-1",
+        isMention: true,
+      },
+      {
+        type: "community:mention.create",
+        userId: "mention-only",
+        messageId: "message-1",
+        channelId: "dm-1",
+        authorName: "Alice",
+      },
+    ])
   })
 
   it("accepts only the operation ID derived from the committed message", async () => {

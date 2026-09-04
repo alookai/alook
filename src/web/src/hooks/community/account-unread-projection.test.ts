@@ -62,6 +62,32 @@ describe("AccountUnreadProjection", () => {
     expect(projection.projectServerUnread("s1", [], false)).toBe(true)
   })
 
+  it("rejects unordered legacy rows until fresh access authority clears the fence", () => {
+    const projection = new AccountUnreadProjection("u1")
+    projection.retireAccessScope({ kind: "server", serverId: "s1" })
+    projection.grantAccessScope({ kind: "server", serverId: "s1" })
+
+    projection.recordLegacySnapshot({}, [{
+      family: "inbox-unreads",
+      channelId: "legacy",
+      serverId: "s1",
+    }])
+    const authority = projection.beginSnapshot("servers", "channels")
+    projection.absorbSnapshot(authority, [], {
+      confirmedAccessScopes: [{ kind: "server", serverId: "s1" }],
+    })
+
+    expect(projection.projectUnread("inbox-unreads", "legacy", false)).toBe(false)
+    expect(projection.inspectForTests().stickyCount).toBe(0)
+
+    projection.recordLegacySnapshot({}, [{
+      family: "inbox-unreads",
+      channelId: "legacy",
+      serverId: "s1",
+    }])
+    expect(projection.projectUnread("inbox-unreads", "legacy", false)).toBe(true)
+  })
+
   it("merges duplicate exact evidence and ignores older read cursors", () => {
     const projection = new AccountUnreadProjection("u1")
     projection.recordArrival({ channelId: "c1", serverId: "s1", messageId: "m1", seq: 2 })
@@ -730,6 +756,47 @@ describe("AccountUnreadProjection", () => {
     )).toBe(false)
   })
 
+  it("enriches a bump-first sticky before a truncated exact mention snapshot", () => {
+    const projection = new AccountUnreadProjection("u1")
+    projection.recordArrival({
+      channelId: "post-1",
+      serverId: "s1",
+      railChannelId: "forum-1",
+      isMention: true,
+    })
+    projection.recordMentionArrival({ channelId: "post-1", messageId: "m1" })
+    const token = projection.beginSnapshot("inbox-mentions", "mentions")
+    projection.absorbSnapshot(token, [{
+      channelId: "post-1",
+      serverId: "s1",
+      railChannelId: "forum-1",
+      messageId: "m1",
+      attentionId: "attention-1",
+      lastUnreadSeq: 7,
+      lastMentionSeq: 7,
+    }], { truncated: true })
+
+    expect(projection.inspectForTests()).toMatchObject({
+      sourceCount: 1,
+      exactCount: 1,
+      stickyCount: 0,
+    })
+  })
+
+  it("keeps m1 to m2 to m1 sticky identities aggregated", () => {
+    const projection = new AccountUnreadProjection("u1")
+    projection.recordMentionArrival({ channelId: "c1", messageId: "m1" })
+    projection.recordMentionArrival({ channelId: "c1", messageId: "m2" })
+    projection.recordMentionArrival({ channelId: "c1", messageId: "m1" })
+    projection.recordArrival({ channelId: "c1", messageId: "m1", seq: 7 })
+
+    expect(projection.inspectForTests()).toMatchObject({
+      sourceCount: 2,
+      exactCount: 1,
+      stickyCount: 1,
+    })
+  })
+
   it("does not classify an unscoped mention frame as a DM", () => {
     const projection = new AccountUnreadProjection("u1")
     projection.recordMentionArrival({ channelId: "unknown", seq: 7 })
@@ -943,6 +1010,29 @@ describe("AccountUnreadProjection", () => {
     expect(projection.projectUnread("inbox-mentions", "attention", false)).toBe(true)
   })
 
+  it("does not let a retired mention identity qualify a later plain raw row", () => {
+    const projection = new AccountUnreadProjection("u1")
+    projection.setNotificationPolicy({ server: { s1: "mentions" } })
+    projection.recordArrival({
+      channelId: "c1",
+      serverId: "s1",
+      seq: 1,
+      isMention: true,
+    })
+    projection.recordRead("c1", 1)
+
+    expect(projection.inspectForTests().sourceCount).toBe(0)
+    expect(projection.projectUnread("inbox-unreads", "c1", true, 2)).toBe(false)
+
+    projection.recordArrival({
+      channelId: "c1",
+      serverId: "s1",
+      seq: 2,
+      isMention: true,
+    })
+    expect(projection.projectUnread("inbox-unreads", "c1", true, 2)).toBe(true)
+  })
+
   it("rolls back one policy overlay without overwriting a newer committed overlay", () => {
     const projection = new AccountUnreadProjection("u1")
     projection.setNotificationPolicy({ server: { s1: "all" } })
@@ -1052,6 +1142,54 @@ describe("AccountUnreadProjection", () => {
     }])).toBe(2)
   })
 
+  it("keeps same-seq sibling attention identities and counts only direct mentions", () => {
+    const projection = new AccountUnreadProjection("u1")
+    projection.setNotificationPolicy({})
+    for (const attentionId of ["reply-1", "mention-1"]) {
+      projection.recordArrival({
+        channelId: "c1",
+        serverId: "s1",
+        messageId: "m1",
+        attentionId,
+        seq: 4,
+        isMention: true,
+      })
+    }
+
+    const reply = projection.beginDismissMention({
+      mentionId: "reply-1",
+      channelId: "c1",
+      seq: 4,
+      countsServerMention: false,
+    })
+    expect(projection.projectUnread(
+      "inbox-mentions", "c1", true, 4, "mentions", null, true, "reply-1",
+    )).toBe(false)
+    expect(projection.projectUnread(
+      "inbox-mentions", "c1", true, 4, "mentions", null, true, "mention-1",
+    )).toBe(true)
+    expect(projection.projectServerMentionCount("s1", [{
+      channelId: "c1", count: 1, lastSeq: 4,
+    }])).toBe(1)
+
+    projection.rollbackDismissMention(reply)
+    projection.beginDismissMention({
+      mentionId: "mention-1",
+      channelId: "c1",
+      seq: 4,
+      countsServerMention: true,
+    })
+    expect(projection.projectUnread(
+      "inbox-mentions", "c1", true, 4, "mentions", null, true, "mention-1",
+    )).toBe(false)
+    expect(projection.projectUnread(
+      "inbox-mentions", "c1", true, 4, "mentions", null, true, "reply-1",
+    )).toBe(true)
+    expect(projection.projectServerMentionCount("s1", [{
+      channelId: "c1", count: 1, lastSeq: 4,
+    }])).toBe(0)
+  })
+
   it("does not let a revision hint alone retire a committed mark-all fence", () => {
     const projection = new AccountUnreadProjection("u1")
     projection.recordArrival({ channelId: "sticky", serverId: "s1" })
@@ -1072,8 +1210,108 @@ describe("AccountUnreadProjection", () => {
     expect(projection.projectUnread("servers", "c1", false)).toBe(true)
     projection.retireAccessScope({ kind: "server", serverId: "s1" })
     expect(projection.projectUnread("servers", "c1", false)).toBe(false)
+    expect(projection.projectUnread("servers", "c1", true, 1)).toBe(false)
     projection.grantAccessScope({ kind: "server", serverId: "s1" })
+    expect(projection.projectUnread("servers", "c1", true, 1)).toBe(false)
+    projection.recordArrival({ channelId: "c1", serverId: "s1", seq: 2 })
     expect(projection.projectUnread("servers", "c1", false)).toBe(false)
+    const confirmation = projection.beginAccessConfirmation()
+    projection.confirmAccessScopes(
+      [{ kind: "server", serverId: "s1" }],
+      confirmation,
+    )
+    expect(projection.projectUnread("servers", "c1", false)).toBe(true)
+  })
+
+  it("lets a post-retirement authority recover a committed access tombstone", () => {
+    const projection = new AccountUnreadProjection("u1")
+    projection.recordArrival({ channelId: "c1", serverId: "s1", seq: 1 })
+    projection.retireAccessScope({ kind: "server", serverId: "s1" })
+
+    const serverSnapshot = projection.beginSnapshot("servers", "channels")
+    projection.absorbSnapshot(serverSnapshot, [{
+      channelId: "c1",
+      serverId: "s1",
+      lastUnreadSeq: 2,
+    }], {
+      confirmedAccessScopes: [{ kind: "server", serverId: "s1" }],
+    })
+
+    expect(projection.projectUnread("servers", "c1", false)).toBe(true)
+    expect(projection.inspectForTests().sourceCount).toBe(1)
+
+    projection.retireAccessScope({ kind: "channel", channelId: "c1" })
+    const channelSnapshot = projection.beginSnapshot("server-detail:s1", "channels")
+    projection.absorbSnapshot(channelSnapshot, [{
+      channelId: "c1",
+      serverId: "s1",
+      lastUnreadSeq: 3,
+    }], {
+      confirmedAccessScopes: [{ kind: "channel", channelId: "c1" }],
+    })
+
+    expect(projection.projectUnread("server-detail:s1", "c1", false)).toBe(true)
+  })
+
+  it("rejects a pre-retirement snapshot after a later access grant", () => {
+    const projection = new AccountUnreadProjection("u1")
+    projection.recordArrival({ channelId: "c1", serverId: "s1", seq: 1 })
+    const staleSnapshot = projection.beginSnapshot("servers", "channels")
+
+    projection.retireAccessScope({ kind: "server", serverId: "s1" })
+    projection.grantAccessScope({ kind: "server", serverId: "s1" })
+    projection.absorbSnapshot(staleSnapshot, [{
+      channelId: "c1",
+      serverId: "s1",
+      lastUnreadSeq: 2,
+    }], {
+      confirmedAccessScopes: [{ kind: "server", serverId: "s1" }],
+    })
+
+    expect(projection.projectUnread("servers", "c1", false)).toBe(false)
+    expect(projection.projectUnread("servers", "c1", true, 2)).toBe(false)
+    expect(projection.inspectForTests().sourceCount).toBe(0)
+  })
+
+  it("inherits a server retirement floor for channels learned behind its tombstone", () => {
+    const projection = new AccountUnreadProjection("u1")
+    projection.recordArrival({ channelId: "known", serverId: "s1", seq: 1 })
+    projection.retireAccessScope({ kind: "server", serverId: "s1" })
+
+    projection.recordArrival({ channelId: "late", serverId: "s1", seq: 2 })
+    projection.grantAccessScope({ kind: "server", serverId: "s1" })
+    const empty = projection.beginSnapshot("servers", "channels")
+    projection.absorbSnapshot(empty, [], {
+      confirmedAccessScopes: [{ kind: "server", serverId: "s1" }],
+    })
+
+    expect(projection.projectUnread("inbox-unreads", "late", true, 2)).toBe(false)
+    expect(projection.inspectForTests().sourceCount).toBe(0)
+  })
+
+  it("keeps a retired channel raw row fenced until a fresh snapshot confirms access", () => {
+    const projection = new AccountUnreadProjection("u1")
+    projection.recordArrival({ channelId: "private", serverId: "s1", seq: 1 })
+    projection.retireAccessScope({ kind: "channel", channelId: "private" })
+
+    expect(projection.projectUnread("inbox-unreads", "private", true, 1)).toBe(false)
+    projection.grantAccessScope({ kind: "channel", channelId: "private" })
+    expect(projection.projectUnread("inbox-unreads", "private", true, 1)).toBe(false)
+
+    const empty = projection.beginSnapshot("server-detail:s1", "channels")
+    projection.absorbSnapshot(empty, [], {
+      confirmedAccessScopes: [{ kind: "channel", channelId: "private" }],
+    })
+    expect(projection.projectUnread("inbox-unreads", "private", true, 1)).toBe(false)
+    expect(projection.projectUnread("server-detail:s1", "private", true, 1)).toBe(false)
+
+    const positive = projection.beginSnapshot("server-detail:s1", "channels")
+    projection.absorbSnapshot(positive, [{
+      channelId: "private",
+      serverId: "s1",
+      lastUnreadSeq: 2,
+    }])
+    expect(projection.projectUnread("server-detail:s1", "private", true, 2)).toBe(true)
   })
 
   it("releases abandoned snapshot tokens without accepting late evidence", () => {

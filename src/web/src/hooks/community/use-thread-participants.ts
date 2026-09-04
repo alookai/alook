@@ -32,6 +32,7 @@ export function useAddThreadParticipant(
       void qc.invalidateQueries({ queryKey: communityKeys.channelMembers(channelId) })
       if (serverId && userId === viewerUserId) {
         void grantForumSidebarChild(qc, serverId, channelId)
+          .catch(() => undefined)
       }
     },
   })

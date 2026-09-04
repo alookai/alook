@@ -723,11 +723,13 @@ export async function invalidateForumSidebarBaseExact(queryClient: QueryClient, 
   })
 }
 
-export function grantForumSidebarChild(
+export async function grantForumSidebarChild(
   queryClient: QueryClient,
   serverId: string,
   childId: string,
 ) {
+  const unreadProjection = getActiveAccountUnreadProjection(queryClient)
+  const accessConfirmation = unreadProjection.beginAccessConfirmation()
   recordInflightDelta(serverId, (delta) => {
     delta.removed.delete(childId)
   })
@@ -743,7 +745,38 @@ export function grantForumSidebarChild(
     queryKey: communityKeys.channelMeta(serverId, childId),
     exact: true,
   })
-  return invalidateForumSidebarBaseExact(queryClient, serverId)
+  await invalidateForumSidebarBaseExact(queryClient, serverId)
+  if (hasForumSidebarThread(getForumSidebarBase(queryClient, serverId), childId)) {
+    unreadProjection.confirmAccessScopes(
+      [{ kind: "channel", channelId: childId }],
+      accessConfirmation,
+    )
+    return
+  }
+
+  // The base query may be inactive, and its activity window may omit the
+  // newly re-granted child. A retained fetch is the authoritative access
+  // check for that exact child; only a positive result releases its fence.
+  const requestEpoch = useCommunityWsStore.getState().accessEpoch
+  const normalized = await fetchForumSidebar(serverId, childId)
+  seedForumSidebarResources(queryClient, serverId, normalized, requestEpoch, childId)
+  queryClient.setQueryData(
+    communityKeys.forumSidebarThreads(serverId),
+    { ...normalized.base, verifiedEpoch: requestEpoch },
+  )
+  queryClient.setQueryData(
+    communityKeys.forumSidebarRetained(serverId, childId),
+    normalized.retained,
+  )
+  if (
+    hasForumSidebarThread(normalized.base, childId)
+    || normalized.retainedDisposition === "eligible" && normalized.retained?.id === childId
+  ) {
+    unreadProjection.confirmAccessScopes(
+      [{ kind: "channel", channelId: childId }],
+      accessConfirmation,
+    )
+  }
 }
 
 export function reconcileForumSidebarArchiveTag(
@@ -1006,10 +1039,24 @@ export function useForumSidebarThreads(
     enabled: !!serverId && enabled,
     staleTime: Infinity,
     queryFn: async ({ signal }) => {
+      const unreadProjection = getActiveAccountUnreadProjection(queryClient)
+      const accessConfirmation = unreadProjection.beginAccessConfirmation()
       const requestEpoch = useCommunityWsStore.getState().accessEpoch
       const normalized = await fetchForumSidebar(serverId, retainId, signal)
       throwIfConsumerAborted(signal)
       seedForumSidebarResources(queryClient, serverId, normalized, requestEpoch, retainId)
+      unreadProjection.confirmAccessScopes(
+        [
+          ...normalized.base.threads,
+          ...(normalized.retainedDisposition === "eligible" && normalized.retained
+            ? [normalized.retained]
+            : []),
+        ].map((thread) => ({
+          kind: "channel" as const,
+          channelId: thread.id,
+        })),
+        accessConfirmation,
+      )
       if (retainId) {
         queryClient.setQueryData(
           communityKeys.forumSidebarRetained(serverId, retainId),
@@ -1047,10 +1094,18 @@ export function useForumSidebarThreads(
     staleTime: Infinity,
     gcTime: 5 * 60 * 1000,
     queryFn: async ({ signal }) => {
+      const unreadProjection = getActiveAccountUnreadProjection(queryClient)
+      const accessConfirmation = unreadProjection.beginAccessConfirmation()
       const requestEpoch = useCommunityWsStore.getState().accessEpoch
       const normalized = await fetchForumSidebar(serverId, retainId, signal)
       throwIfConsumerAborted(signal)
       seedForumSidebarResources(queryClient, serverId, normalized, requestEpoch, retainId)
+      if (normalized.retainedDisposition === "eligible" && normalized.retained) {
+        unreadProjection.confirmAccessScopes(
+          [{ kind: "channel", channelId: normalized.retained.id }],
+          accessConfirmation,
+        )
+      }
       queryClient.setQueryData(
         communityKeys.forumSidebarThreads(serverId),
         { ...normalized.base, verifiedEpoch: requestEpoch },

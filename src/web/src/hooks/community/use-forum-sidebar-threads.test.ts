@@ -1169,6 +1169,13 @@ describe("forum sidebar Stage B resources", () => {
 
   it("clears an exact negative retained result on a grant without touching siblings", async () => {
     const queryClient = new QueryClient()
+    const negative = envelope([])
+    apiFetchMock.mockResolvedValueOnce({
+      ...negative,
+      canonicalChannels: [],
+      retainedChannel: null,
+      retainedDisposition: "genuine-negative",
+    })
     queryClient.setQueryData(communityKeys.forumSidebarRetained("server-1", "post-1"), null)
     queryClient.setQueryData(
       communityKeys.forumSidebarRetained("server-1", "post-2"),
@@ -1177,9 +1184,9 @@ describe("forum sidebar Stage B resources", () => {
 
     await grantForumSidebarChild(queryClient, "server-1", "post-1")
 
-    expect(queryClient.getQueryState(
+    expect(queryClient.getQueryData(
       communityKeys.forumSidebarRetained("server-1", "post-1"),
-    )).toBeUndefined()
+    )).toBeNull()
     expect(queryClient.getQueryData(
       communityKeys.forumSidebarRetained("server-1", "post-2"),
     )).toEqual({ id: "post-2" })

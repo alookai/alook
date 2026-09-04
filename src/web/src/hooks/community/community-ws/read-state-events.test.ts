@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
 
@@ -9,6 +9,9 @@ vi.mock("@/lib/api/client", () => ({
 
 import { dispatchCommunityWsEvent } from "./registry"
 import type { CommunityWsDispatchContext } from "./handler-context"
+import { getAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
+import { notificationSettingsQueryFn } from "@/hooks/community/use-notification-settings"
+import { disposeAccountReadStateReconciliation } from "./read-state-reconciliation"
 
 function context(
   queryClient: QueryClient,
@@ -32,6 +35,11 @@ describe("same-account read-state WS events", () => {
   beforeEach(() => {
     queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     apiFetch.mockReset()
+  })
+
+  afterEach(() => {
+    disposeAccountReadStateReconciliation(queryClient)
+    queryClient.clear()
   })
 
   it("pulls and projects the authoritative replacement for an exact-next hint", async () => {
@@ -145,7 +153,9 @@ describe("same-account read-state WS events", () => {
     }, context(queryClient))
 
     await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledOnce())
-    await Promise.resolve()
+    await vi.waitFor(() => expect(queryClient.getQueryState(
+      communityKeys.accountReadStateSnapshot(),
+    )?.fetchStatus).toBe("idle"))
     expect(queryClient.getQueryData(communityKeys.accountReadStateSnapshot()))
       .toMatchObject({ revision: 2 })
   })
@@ -189,5 +199,94 @@ describe("same-account read-state WS events", () => {
     expect(invalidate).not.toHaveBeenCalledWith(expect.objectContaining({
       queryKey: communityKeys.dms(),
     }), expect.anything())
+  })
+
+  it.each([
+    ["nothing", "all", [], true],
+    ["all", "nothing", [{ serverId: "s1", channelId: null, level: "nothing" }], false],
+  ] as const)("reconciles a peer tab from %s to %s policy", async (
+    initial,
+    _next,
+    settings,
+    expected,
+  ) => {
+    const sourceClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const peerClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const source = getAccountUnreadProjection(sourceClient, "u1")
+    const peer = getAccountUnreadProjection(peerClient, "u1")
+    source.setNotificationPolicy({ server: { s1: expected ? "all" : "nothing" } })
+    peer.setNotificationPolicy({ server: { s1: initial } })
+    source.recordArrival({ channelId: "c1", serverId: "s1", seq: 1 })
+    peer.recordArrival({ channelId: "c1", serverId: "s1", seq: 1 })
+    peerClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
+      revision: 1,
+      readStates: [],
+    })
+    apiFetch.mockImplementation(async (path: string) => (
+      path === "/api/community/users/me/notifications"
+        ? settings
+        : { revision: 2, readStates: [] }
+    ))
+
+    dispatchCommunityWsEvent({
+      type: "community:inbox.changed",
+      revision: 2,
+      inboxChanged: true,
+      reason: "notification_policy",
+    }, context(peerClient))
+
+    await vi.waitFor(() => expect(
+      peer.projectUnread("servers", "c1", false),
+    ).toBe(expected))
+    expect(peer.projectUnread("servers", "c1", false)).toBe(
+      source.projectUnread("servers", "c1", false),
+    )
+  })
+
+  it("cancels an older in-flight policy fetch and keeps an old unread snapshot positive-only", async () => {
+    const projection = getAccountUnreadProjection(queryClient, "u1")
+    projection.setNotificationPolicy({ server: { s1: "nothing" } })
+    projection.recordArrival({ channelId: "c1", serverId: "s1", seq: 1 })
+    const stalePolicySnapshot = projection.beginSnapshot("servers", "channels")
+    queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
+      revision: 1,
+      readStates: [],
+    })
+    let resolveOldPolicy!: (value: unknown) => void
+    let policyCalls = 0
+    apiFetch.mockImplementation((path: string) => {
+      if (path !== "/api/community/users/me/notifications") {
+        return Promise.resolve({ revision: 2, readStates: [] })
+      }
+      policyCalls += 1
+      if (policyCalls === 1) {
+        return new Promise((resolve) => { resolveOldPolicy = resolve })
+      }
+      return Promise.resolve([])
+    })
+    const oldRequest = queryClient.fetchQuery({
+      queryKey: communityKeys.notificationSettings(),
+      queryFn: notificationSettingsQueryFn,
+    }).catch(() => undefined)
+    await vi.waitFor(() => expect(policyCalls).toBe(1))
+
+    dispatchCommunityWsEvent({
+      type: "community:inbox.changed",
+      revision: 2,
+      inboxChanged: true,
+      reason: "notification_policy",
+    }, context(queryClient))
+    await vi.waitFor(() => expect(policyCalls).toBe(2))
+    resolveOldPolicy([{ serverId: "s1", channelId: null, level: "nothing" }])
+    await oldRequest
+    await vi.waitFor(() => expect(projection.getPolicyGeneration()).toBeGreaterThan(1))
+    expect(queryClient.getQueryData(communityKeys.notificationSettings())).toMatchObject({
+      raw: [],
+      server: {},
+      channel: {},
+    })
+
+    projection.absorbSnapshot(stalePolicySnapshot, [], { truncated: false })
+    expect(projection.projectUnread("servers", "c1", false)).toBe(true)
   })
 })

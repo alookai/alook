@@ -15,7 +15,7 @@ export type AccountUnreadArrival = {
   channelId: string
   railChannelId?: string
   serverId?: string
-  messageId?: string
+  messageId?: string | null
   attentionId?: string
   seq?: number
   isMention?: boolean
@@ -62,7 +62,7 @@ type StickyUnknown = {
   channelId: string
   serverId?: string
   railChannelId?: string
-  messageId?: string
+  messageId?: string | null
   isMention: boolean
   attentionIds: Set<string>
   families: Map<AccountUnreadFamily, { boundary: number; ordinal: number }>
@@ -124,10 +124,21 @@ export type AccountUnreadScopeToken = {
   ownerEpoch: number
 }
 
+export type AccountUnreadAccessConfirmationToken = {
+  ordinal: number
+  ownerEpoch: number
+}
+
+type AccountUnreadScopeHint = Pick<
+  PendingArrival,
+  "channelId" | "serverId" | "railChannelId"
+>
+
 export type AccountUnreadDismissToken = {
   mentionId: string
   channelId: string
   seq?: number
+  countsServerMention: boolean
   ordinal: number
   nonce: symbol
   ownerEpoch: number
@@ -270,9 +281,17 @@ export class AccountUnreadProjection {
     { channelId: string; seq: number; committed: boolean }
   >()
   private readonly markAll = new Map<AccountUnreadDomain, MarkAllFence>()
+  // Scope identity outlives the unread source itself. Access retirement prunes
+  // canonical evidence, but cached raw rows still need their server identity
+  // so a committed fence cannot be bypassed by the sourceScope fallback.
+  private readonly scopeHints = new Map<string, AccountUnreadScopeHint>()
+  // A re-grant restores access, not unread truth. Keep raw values from every
+  // family below this ordinal suppressed until that family contributes new
+  // positive evidence after the retirement.
+  private readonly rawRetirementFloors = new Map<string, number>()
   private readonly accessFences = new Map<
     string,
-    AccountUnreadScopeToken & { state: "pending" | "committed" }
+    AccountUnreadScopeToken & { state: "pending" | "committed" | "grant-pending" }
   >()
   private readonly dismissals = new Map<
     symbol,
@@ -305,7 +324,8 @@ export class AccountUnreadProjection {
   }
 
   recordMentionArrival(arrival: AccountUnreadArrival) {
-    const knownScope = this.findSourceScope(arrival.channelId)
+    const knownSource = this.findSourceScope(arrival.channelId)
+    const knownScope = knownSource ?? this.scopeHints.get(arrival.channelId)
     const enriched = {
       ...arrival,
       serverId: arrival.serverId ?? knownScope?.serverId,
@@ -314,7 +334,7 @@ export class AccountUnreadProjection {
     }
     const families: AccountUnreadFamily[] = enriched.serverId
       ? familiesFor(enriched)
-      : knownScope?.families.has("dms")
+      : knownSource?.families.has("dms")
         ? ["inbox-unreads", "inbox-mentions", "dms"]
         : ["inbox-unreads", "inbox-mentions"]
     this.recordArrivalForFamilies(enriched, families)
@@ -327,6 +347,12 @@ export class AccountUnreadProjection {
     if (this.disposed || this.legacySnapshots.has(snapshot)) return
     this.legacySnapshots.add(snapshot)
     for (const source of sources) {
+      // Legacy rows carry no request-start token. While a committed/granting
+      // access fence exists they cannot prove that their unread bit was read
+      // after the retirement, so let fresh structural authority clear the
+      // fence before admitting them.
+      this.rememberScope(source)
+      if (!this.scopeAllowsLegacySnapshot(source)) continue
       this.recordSticky(
         source.channelId,
         [source.family],
@@ -354,7 +380,9 @@ export class AccountUnreadProjection {
     families: AccountUnreadFamily[],
     observedOrdinal?: number,
   ) {
-    if (this.disposed || !arrival.channelId || !this.scopeAllowsArrival(arrival)) return
+    if (this.disposed || !arrival.channelId) return
+    this.rememberScope(arrival)
+    if (!this.scopeAllowsArrival(arrival, observedOrdinal)) return
     const seq = arrival.seq
     if (!Number.isSafeInteger(seq) || (seq ?? 0) <= 0) {
       this.recordSticky(
@@ -575,7 +603,11 @@ export class AccountUnreadProjection {
   absorbSnapshot(
     token: AccountUnreadSnapshotToken,
     sources: readonly AccountUnreadSource[],
-    options: { truncated?: boolean; stale?: boolean } = {},
+    options: {
+      truncated?: boolean
+      stale?: boolean
+      confirmedAccessScopes?: readonly AccountUnreadScope[]
+    } = {},
   ) {
     if (
       this.disposed
@@ -584,6 +616,12 @@ export class AccountUnreadProjection {
     ) return
     const family = token.family
     const facet = family === "inbox-mentions" ? "attention" : "ordinary"
+    if (!options.stale && !options.truncated && options.confirmedAccessScopes) {
+      this.confirmAccessScopes(options.confirmedAccessScopes, {
+        ordinal: token.startOrdinal,
+        ownerEpoch: token.ownerEpoch,
+      })
+    }
     const positiveChannels = new Map<string, number>()
     const positiveAttentionChannels = new Map<string, number>()
     const positiveAttentionIds = new Set(
@@ -733,6 +771,7 @@ export class AccountUnreadProjection {
     const rawVisible = rawUnread
       && !(sourceSeq && read >= sourceSeq)
       && !fence
+      && this.rawAccessAllowed(family, channelId)
       && !excludesUnread(exclusion, channelId, sourceSeq)
       && this.policyAllows(policySource, facet, this.policy)
       && (facet !== "attention" || !this.attentionIdentityDismissed(
@@ -750,7 +789,11 @@ export class AccountUnreadProjection {
       if (
         (!fence || membershipOrdinal > fence.ordinal)
         && this.policyAllows(arrival, facet, this.policy)
-        && (facet !== "attention" || !this.attentionDismissed(arrival))
+        && (facet !== "attention" || (
+          attentionId
+            ? !this.attentionIdentityDismissed(channelId, arrival.seq, attentionId)
+            : !this.attentionDismissed(arrival)
+        ))
       ) return true
     }
     if (exactSourceOnly) return false
@@ -780,6 +823,7 @@ export class AccountUnreadProjection {
     if (!this.scopeAllowed(policySource)) return 0
     let count = !fence
       && !(sourceSeq && read >= sourceSeq)
+      && this.rawAccessAllowed(family, channelId)
       && !excludesUnread(exclusion, channelId, sourceSeq)
       && this.policyAllows(policySource, "attention", this.policy)
       ? rawCount
@@ -1073,9 +1117,11 @@ export class AccountUnreadProjection {
     mentionId: string
     channelId: string
     seq?: number
+    countsServerMention?: boolean
   }): AccountUnreadDismissToken {
     const token: AccountUnreadDismissToken = {
       ...input,
+      countsServerMention: input.countsServerMention ?? true,
       ordinal: this.disposed ? this.ordinal : ++this.ordinal,
       nonce: Symbol(input.mentionId),
       ownerEpoch: this.ownerEpoch,
@@ -1122,6 +1168,7 @@ export class AccountUnreadProjection {
     const current = this.accessFences.get(scopeKey(token.scope))
     if (current?.nonce !== token.nonce) return
     current.state = "committed"
+    this.recordRawRetirementFloor(token.scope, this.ordinal)
     this.pruneScope(token.scope, this.ordinal)
     this.publish()
   }
@@ -1141,8 +1188,40 @@ export class AccountUnreadProjection {
   }
 
   grantAccessScope(scope: AccountUnreadScope) {
-    if (this.disposed || !this.accessFences.delete(scopeKey(scope))) return
-    this.publish()
+    if (this.disposed) return
+    const fence = this.accessFences.get(scopeKey(scope))
+    if (!fence) return
+    fence.state = "grant-pending"
+    // A grant only permits fresh authoritative evidence to seed the scope; it
+    // does not expose raw cache retained from before the retirement.
+    this.requestReconcile()
+  }
+
+  beginAccessConfirmation(): AccountUnreadAccessConfirmationToken {
+    return {
+      ordinal: this.disposed ? this.ordinal : ++this.ordinal,
+      ownerEpoch: this.ownerEpoch,
+    }
+  }
+
+  confirmAccessScopes(
+    scopes: readonly AccountUnreadScope[],
+    token: AccountUnreadAccessConfirmationToken,
+  ) {
+    if (!this.validOwnerToken(token)) return
+    let changed = false
+    for (const scope of scopes) {
+      const key = scopeKey(scope)
+      const fence = this.accessFences.get(key)
+      if (
+        !fence
+        || fence.state === "pending"
+        || fence.ordinal >= token.ordinal
+      ) continue
+      this.accessFences.delete(key)
+      changed = true
+    }
+    if (changed) this.publish()
   }
 
   dispose() {
@@ -1156,6 +1235,8 @@ export class AccountUnreadProjection {
     this.readSeq.clear()
     this.optimisticReads.clear()
     this.markAll.clear()
+    this.scopeHints.clear()
+    this.rawRetirementFloors.clear()
     this.accessFences.clear()
     this.dismissals.clear()
     this.snapshots.clear()
@@ -1219,7 +1300,8 @@ export class AccountUnreadProjection {
       evidenceKey,
       Math.max(this.evidence.get(evidenceKey) ?? 0, evidenceSeq),
     )
-    const knownScope = this.findSourceScope(source.channelId)
+    const knownSource = this.findSourceScope(source.channelId)
+    const knownScope = knownSource ?? this.scopeHints.get(source.channelId)
     const sourceArrival = {
       channelId: source.channelId,
       serverId: source.serverId ?? knownScope?.serverId,
@@ -1232,7 +1314,7 @@ export class AccountUnreadProjection {
     const observedFamilies: AccountUnreadFamily[] = family === "inbox-mentions"
       ? sourceArrival.serverId
         ? familiesFor(sourceArrival)
-        : knownScope?.families.has("dms")
+        : knownSource?.families.has("dms")
           ? ["inbox-unreads", "inbox-mentions", "dms"]
           : ["inbox-unreads", "inbox-mentions"]
       : [family]
@@ -1343,6 +1425,7 @@ export class AccountUnreadProjection {
       }
     }
     return this.findSourceScope(channelId) ?? {
+      ...this.scopeHints.get(channelId),
       channelId,
       isMention: false,
     }
@@ -1383,7 +1466,10 @@ export class AccountUnreadProjection {
   ) {
     for (const dismissal of this.dismissals.values()) {
       if (dismissal.channelId !== channelId) continue
-      if (attentionId && dismissal.mentionId === attentionId) return true
+      if (attentionId) {
+        if (dismissal.mentionId === attentionId) return true
+        continue
+      }
       if (
         seq !== undefined
         && seq !== null
@@ -1398,6 +1484,7 @@ export class AccountUnreadProjection {
     const identities = new Set<string>()
     for (const dismissal of this.dismissals.values()) {
       if (dismissal.channelId !== channelId) continue
+      if (!dismissal.countsServerMention) continue
       if (
         sourceSeq !== undefined
         && sourceSeq !== null
@@ -1418,12 +1505,70 @@ export class AccountUnreadProjection {
     return !source.serverId || !this.accessFences.has(`server:${source.serverId}`)
   }
 
-  private scopeAllowsArrival(source: { channelId: string; serverId?: string }) {
-    if (this.accessFences.get(`channel:${source.channelId}`)?.state === "committed") {
-      return false
+  private scopeAllowsArrival(
+    source: { channelId: string; serverId?: string },
+    observedOrdinal?: number,
+  ) {
+    const allowsFence = (
+      fence: (AccountUnreadScopeToken & {
+        state: "pending" | "committed" | "grant-pending"
+      }) | undefined,
+    ) => {
+      if (!fence || fence.state === "pending") return true
+      if (fence.state === "committed") return false
+      return observedOrdinal === undefined || observedOrdinal > fence.ordinal
     }
-    return !source.serverId
-      || this.accessFences.get(`server:${source.serverId}`)?.state !== "committed"
+    return allowsFence(this.accessFences.get(`channel:${source.channelId}`))
+      && (!source.serverId || allowsFence(this.accessFences.get(`server:${source.serverId}`)))
+  }
+
+  private scopeAllowsLegacySnapshot(source: { channelId: string; serverId?: string }) {
+    const allowsFence = (
+      fence: (AccountUnreadScopeToken & {
+        state: "pending" | "committed" | "grant-pending"
+      }) | undefined,
+    ) => !fence || fence.state === "pending"
+    return allowsFence(this.accessFences.get(`channel:${source.channelId}`))
+      && (!source.serverId || allowsFence(this.accessFences.get(`server:${source.serverId}`)))
+  }
+
+  private rememberScope(source: AccountUnreadScopeHint) {
+    const previous = this.scopeHints.get(source.channelId)
+    const next = {
+      channelId: source.channelId,
+      serverId: source.serverId ?? previous?.serverId,
+      railChannelId: source.railChannelId ?? previous?.railChannelId,
+    }
+    this.scopeHints.set(source.channelId, next)
+    if (!next.serverId) return
+    const serverFence = this.accessFences.get(`server:${next.serverId}`)
+    if (!serverFence || serverFence.state === "pending") return
+    this.rawRetirementFloors.set(
+      source.channelId,
+      Math.max(this.rawRetirementFloors.get(source.channelId) ?? -1, serverFence.ordinal),
+    )
+  }
+
+  private recordRawRetirementFloor(scope: AccountUnreadScope, ordinal: number) {
+    if (scope.kind === "channel") {
+      this.rawRetirementFloors.set(scope.channelId, ordinal)
+      return
+    }
+    for (const [channelId, hint] of this.scopeHints) {
+      if (hint.serverId === scope.serverId) {
+        this.rawRetirementFloors.set(channelId, ordinal)
+      }
+    }
+  }
+
+  private rawAccessAllowed(family: AccountUnreadFamily, channelId: string) {
+    const floor = this.rawRetirementFloors.get(channelId)
+    if (floor === undefined) return true
+    for (const key of this.exactByChannel.get(channelId) ?? []) {
+      const membership = this.exact.get(key)?.families.get(family)
+      if (membership !== undefined && membership > floor) return true
+    }
+    return (this.sticky.get(channelId)?.families.get(family)?.ordinal ?? -1) > floor
   }
 
   private pruneScope(scope: AccountUnreadScope, throughOrdinal: number) {
@@ -1540,11 +1685,13 @@ export class AccountUnreadProjection {
     serverId?: string,
     railChannelId?: string,
     observedOrdinal?: number,
-    messageId?: string,
+    messageId?: string | null,
     attentionId?: string,
     attentionIds: ReadonlySet<string> = new Set(),
   ) {
-    if (this.disposed || !channelId || !this.scopeAllowsArrival({ channelId, serverId })) return
+    if (this.disposed || !channelId) return
+    this.rememberScope({ channelId, serverId, railChannelId })
+    if (!this.scopeAllowsArrival({ channelId, serverId })) return
     const arrivalOrdinal = observedOrdinal ?? ++this.ordinal
     let unknown = this.sticky.get(channelId)
     if (!unknown) {
@@ -1573,11 +1720,17 @@ export class AccountUnreadProjection {
         families: new Map(),
       }
       this.sticky.set(channelId, unknown)
-    } else if (unknown.messageId !== messageId) {
+    } else if (unknown.messageId === undefined && messageId !== undefined) {
+      unknown.messageId = messageId
+    } else if (
+      unknown.messageId !== null
+      && messageId !== undefined
+      && unknown.messageId !== messageId
+    ) {
       // A channel-scoped sticky may summarize more than one unsequenced
       // arrival. Once identities disagree it is no longer safe to correlate
       // the aggregate with a later exact message.
-      unknown.messageId = undefined
+      unknown.messageId = null
     }
     unknown.isMention ||= isMention
     if (attentionId) unknown.attentionIds.add(attentionId)

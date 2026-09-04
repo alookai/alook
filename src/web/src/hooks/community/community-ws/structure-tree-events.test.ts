@@ -11,6 +11,7 @@ import type {
 } from "@alook/shared"
 import { getMessageOverlay, useMessageStreamStore } from "@/stores/community/message-stream"
 import { communityKeys } from "@/lib/query-keys"
+import { getAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 import {
   capturedOnMessage,
   capturedQueryClient,
@@ -168,6 +169,20 @@ describe("useCommunityWs — invite.create", () => {
 })
 
 describe("useCommunityWs — channel.delete evicts channel-scoped caches", () => {
+  it("fences a deleted channel's cached raw Inbox row", async () => {
+    await mountHook({ viewerUserId: "u_me" })
+    const unreadProjection = getAccountUnreadProjection(capturedQueryClient, "u_me")
+    unreadProjection.recordArrival({ channelId: "ch_dead", serverId: "srv_1", seq: 1 })
+
+    capturedOnMessage!({
+      type: "community:channel.delete",
+      serverId: "srv_1",
+      channelId: "ch_dead",
+    } satisfies CommunityChannelDelete)
+
+    expect(unreadProjection.projectUnread("inbox-unreads", "ch_dead", true, 1)).toBe(false)
+  })
+
   it("removes channelMessages, pins, and threads for the deleted channel", async () => {
     await mountHook()
     // Seed every canonical cache for the target channel so we can observe eviction.
@@ -856,6 +871,19 @@ describe("useCommunityWs — server.update icon removal", () => {
 })
 
 describe("useCommunityWs — server.delete resets store when focused server dies", () => {
+  it("fences cached raw Inbox rows from the deleted server", async () => {
+    await mountHook({ viewerUserId: "u_me" })
+    const unreadProjection = getAccountUnreadProjection(capturedQueryClient, "u_me")
+    unreadProjection.recordArrival({ channelId: "ch_dead", serverId: "srv_doomed", seq: 1 })
+
+    capturedOnMessage!({
+      type: "community:server.delete",
+      serverId: "srv_doomed",
+    } satisfies CommunityServerDelete)
+
+    expect(unreadProjection.projectUnread("inbox-unreads", "ch_dead", true, 1)).toBe(false)
+  })
+
   it("clears currentServerId + currentChannelId if the deleted server is currently focused", async () => {
     await mountHook()
     const { useCommunityStore } = await import("@/stores/community")

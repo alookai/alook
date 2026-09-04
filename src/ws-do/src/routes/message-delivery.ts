@@ -125,16 +125,29 @@ export async function handleMessageDelivery(
       isMention: true,
     })
   }
+  const unreadMentionUsers = new Set(batch.unreadMentionUserIds)
   for (const userId of batch.mentionUserIds) {
+    // Keep mention.create's production strict shape rollout-safe. A user who
+    // only receives attention (for example through a visible forum parent)
+    // first gets the existing scoped bump so both old and new clients decode
+    // the batch and the new projection knows its server/rail scope.
+    if (!unreadMentionUsers.has(userId)) {
+      addEvent(bundles, userId, {
+        type: WS_EVENTS.UNREAD_BUMP,
+        userId,
+        channelId: batch.messageEvent.channelId,
+        ...(batch.messageEvent.serverId ? { serverId: batch.messageEvent.serverId } : {}),
+        ...(batch.messageEvent.serverId
+          ? { railChannelId: batch.messageEvent.parentChannelId ?? batch.messageEvent.channelId }
+          : {}),
+        isMention: true,
+      })
+    }
     addEvent(bundles, userId, {
       type: WS_EVENTS.MENTION_CREATE,
       userId,
       messageId: batch.messageId,
       channelId: batch.messageEvent.channelId,
-      ...(batch.messageEvent.serverId ? { serverId: batch.messageEvent.serverId } : {}),
-      ...(batch.messageEvent.serverId
-        ? { railChannelId: batch.messageEvent.parentChannelId ?? batch.messageEvent.channelId }
-        : {}),
       authorName: batch.messageEvent.message.authorName,
     })
   }

@@ -19,6 +19,7 @@ import {
   removeForumSidebarUnreadChild,
 } from "@/hooks/community/use-forum-sidebar-threads"
 import type { CommunityWsProjectionTransaction } from "./projection-transaction"
+import { getActiveAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 
 export function projectChannelScopeEviction(
   projection: CommunityWsProjectionTransaction,
@@ -132,6 +133,10 @@ export function applyForumPostUnitClientEffects(
   queryClient: QueryClient,
   unit: ForumPostUnitIdentity,
 ) {
+  getActiveAccountUnreadProjection(queryClient).retireAccessScope({
+    kind: "channel",
+    channelId: unit.childChannelId,
+  })
   evictForumPostUnitQueryCaches(queryClient, unit)
   useMessageStreamStore.getState().removeScope({
     kind: "channel",
