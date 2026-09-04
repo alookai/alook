@@ -51,7 +51,7 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        CFBundleShortVersionString: 0.1.31
+        CFBundleShortVersionString: 0.1.32
         CFBundleVersion: "1"
     entitlements:
       path: alook-desktop_iOS/alook-desktop_iOS.entitlements
