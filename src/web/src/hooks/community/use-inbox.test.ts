@@ -20,6 +20,17 @@ beforeEach(() => {
 })
 
 describe("useInboxUnreads / inboxUnreadsQueryFn", () => {
+  it("supports direct reads without a query context", async () => {
+    apiFetchMock.mockResolvedValueOnce({ servers: [], dms: [] })
+    const { inboxUnreadsQueryFn } = await import("./use-inbox")
+
+    await expect(inboxUnreadsQueryFn()).resolves.toEqual({ servers: [], dms: [] })
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/community/users/me/inbox/unreads",
+      { signal: undefined },
+    )
+  })
+
   it("fetches /inbox/unreads and populates queryClient at communityKeys.inboxUnreads()", async () => {
     apiFetchMock.mockResolvedValueOnce({ servers: [], dms: [] })
     const { inboxUnreadsQueryFn } = await import("./use-inbox")

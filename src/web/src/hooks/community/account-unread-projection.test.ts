@@ -806,6 +806,28 @@ describe("AccountUnreadProjection", () => {
     expect(projection.projectUnread("dms", "unknown", false)).toBe(false)
   })
 
+  it("keeps live and snapshot mentions in a previously known DM family", () => {
+    const projection = new AccountUnreadProjection("u1")
+    projection.setNotificationPolicy({})
+    projection.recordArrival({ channelId: "dm", seq: 1 })
+    projection.recordMentionArrival({ channelId: "dm", seq: 2 })
+    projection.recordRead("dm", 1)
+
+    expect(projection.projectUnread("dms", "dm", false)).toBe(true)
+    expect(projection.projectUnread("inbox-mentions", "dm", false)).toBe(true)
+
+    const token = projection.beginSnapshot("inbox-mentions", "mentions")
+    projection.absorbSnapshot(token, [{
+      channelId: "dm",
+      lastUnreadSeq: 3,
+      lastMentionSeq: 3,
+    }], { truncated: true })
+    projection.recordRead("dm", 2)
+
+    expect(projection.projectUnread("dms", "dm", false)).toBe(true)
+    expect(projection.projectUnread("inbox-mentions", "dm", false)).toBe(true)
+  })
+
   it("projects an exact attention row without borrowing a newer channel source", () => {
     const projection = new AccountUnreadProjection("u1")
     projection.recordMentionArrival({ channelId: "c1", seq: 4, isMention: true })
@@ -896,6 +918,17 @@ describe("AccountUnreadProjection", () => {
     expect(projection.projectUnread("servers", "c2", false)).toBe(true)
   })
 
+  it("merges a positive family snapshot with its default domain", () => {
+    const projection = new AccountUnreadProjection("u1")
+    projection.setNotificationPolicy({})
+    const beginSnapshot = vi.spyOn(projection, "beginSnapshot")
+
+    projection.mergeSources("dms", [{ channelId: "dm", lastUnreadSeq: 2 }])
+
+    expect(beginSnapshot).toHaveBeenCalledWith("dms", "dms")
+    expect(projection.projectUnread("dms", "dm", false)).toBe(true)
+  })
+
   it("treats snapshots started before policy hydration as positive-only", () => {
     const projection = new AccountUnreadProjection("u1")
     const reconcile = vi.fn()
@@ -906,6 +939,34 @@ describe("AccountUnreadProjection", () => {
     projection.setNotificationPolicy({ server: { s1: "all" } })
     expect(projection.projectUnread("servers", "c1", false)).toBe(true)
     expect(reconcile).toHaveBeenCalledOnce()
+  })
+
+  it("reconciles pre-policy snapshots that would retire exact or sticky attention", () => {
+    const exact = new AccountUnreadProjection("u1")
+    const exactReconcile = vi.fn()
+    exact.setReconcileScheduler(exactReconcile)
+    exact.recordArrival({ channelId: "channel", serverId: "s1", seq: 1, isMention: true })
+    const exactToken = exact.beginSnapshot("servers", "channels")
+    exact.absorbSnapshot(exactToken, [{
+      channelId: "channel",
+      serverId: "s1",
+      lastUnreadSeq: 1,
+    }])
+    exact.setNotificationPolicy({})
+
+    expect(exact.projectUnread("servers", "channel", false)).toBe(true)
+    expect(exactReconcile).toHaveBeenCalledOnce()
+
+    const sticky = new AccountUnreadProjection("u1")
+    const stickyReconcile = vi.fn()
+    sticky.setReconcileScheduler(stickyReconcile)
+    sticky.recordArrival({ channelId: "dm", isMention: true })
+    const stickyToken = sticky.beginSnapshot("dms", "dms")
+    sticky.absorbSnapshot(stickyToken, [{ channelId: "dm", lastUnreadSeq: 1 }])
+    sticky.setNotificationPolicy({})
+
+    expect(sticky.projectUnread("dms", "dm", false)).toBe(true)
+    expect(stickyReconcile).toHaveBeenCalledOnce()
   })
 
   it("does not refetch a pre-policy snapshot that had no negative work", () => {

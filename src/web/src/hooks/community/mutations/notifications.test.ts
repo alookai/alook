@@ -59,6 +59,23 @@ describe("notification mutation cache refresh", () => {
     expect(projection.projectUnread("servers", "channel_1", false)).toBe(true)
   })
 
+  it("keeps an absent settings cache absent while applying a reversible server overlay", async () => {
+    const { getActiveAccountUnreadProjection } = await import("../account-unread-projection")
+    const projection = getActiveAccountUnreadProjection(queryClient)
+    projection.setNotificationPolicy({})
+    projection.recordArrival({ channelId: "channel_1", serverId: "server_1", seq: 2 })
+    const { useSetServerNotifLevel } = await import("./notifications")
+    useSetServerNotifLevel()
+
+    const args = { serverId: "server_1", level: "Nothing" }
+    const context = await config!.onMutate?.(args)
+
+    expect(queryClient.getQueryData(communityKeys.notificationSettings())).toBeUndefined()
+    expect(projection.projectUnread("servers", "channel_1", false)).toBe(false)
+    config!.onError?.(new Error("failed"), args, context)
+    expect(projection.projectUnread("servers", "channel_1", false)).toBe(true)
+  })
+
   it("rolls back one server field without clobbering a concurrent success", async () => {
     queryClient.setQueryData(communityKeys.notificationSettings(), {
       raw: [],

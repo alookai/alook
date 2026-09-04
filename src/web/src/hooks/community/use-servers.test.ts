@@ -146,7 +146,10 @@ describe("useServers / serversQueryFn", () => {
         { channelId: "attention", lastUnreadSeq: 10 },
         { channelId: "ordinary", lastUnreadSeq: 3 },
       ],
-      mentionSources: [{ channelId: "attention", count: 1, lastSeq: 5 }],
+      mentionSources: [
+        { channelId: "attention", count: 1, lastSeq: 5 },
+        { channelId: "ignored", count: 0, lastSeq: 99 },
+      ],
     }] })
     const { serversProjectedQueryFn } = await import("./use-servers")
     const { AccountUnreadProjection } = await import("./account-unread-projection")
@@ -157,6 +160,7 @@ describe("useServers / serversQueryFn", () => {
 
     expect(projection.projectUnread("servers", "attention", false)).toBe(true)
     expect(projection.projectUnread("servers", "ordinary", false)).toBe(false)
+    expect(projection.projectUnread("servers", "ignored", false)).toBe(false)
     projection.recordRead("attention", 5)
     expect(projection.projectUnread("servers", "attention", false)).toBe(false)
   })
