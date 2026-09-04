@@ -85,7 +85,7 @@ async function replaceAuthorizedTags(
     messageId: target.message.id,
     tags,
   })
-  await fanOutToChannel(target.message.channelId, {
+  void fanOutToChannel(target.message.channelId, {
     type: WS_EVENTS.CHILD_CHANNEL_UPDATE,
     parentChannelId: target.message.channelId,
     channelId: target.threadId,
@@ -149,7 +149,7 @@ export async function mutateForumTagsForActor(
   }
 
   const tags = (await queries.communityMessageTag.listTagsForMessage(db, input.messageId)).sort()
-  await fanOutToChannel(target.value.message.channelId, {
+  void fanOutToChannel(target.value.message.channelId, {
     type: WS_EVENTS.CHILD_CHANNEL_UPDATE,
     parentChannelId: target.value.message.channelId,
     channelId: target.value.threadId,

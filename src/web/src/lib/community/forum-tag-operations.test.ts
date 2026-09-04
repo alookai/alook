@@ -205,6 +205,40 @@ describe("forum tag operations", () => {
     }))
   })
 
+  it("returns after the D1 write without waiting for background fanout", async () => {
+    mockListTags.mockResolvedValue(["keep"])
+    let releaseFanout!: () => void
+    mockFanOut.mockReturnValueOnce(new Promise<void>((resolve) => {
+      releaseFanout = resolve
+    }))
+
+    const result = await Promise.race([
+      replaceForumTagsForActor({} as any, {
+        messageId: "m1",
+        userId: "bot1",
+        tags: ["keep", "new"],
+      }),
+      new Promise<"timed-out">((resolve) => setTimeout(() => resolve("timed-out"), 50)),
+    ])
+    releaseFanout()
+
+    expect(result).toEqual({ ok: true, value: { tags: ["keep", "new"], changed: true } })
+    expect(mockReplaceTags).toHaveBeenCalledOnce()
+    expect(mockFanOut).toHaveBeenCalledOnce()
+  })
+
+  it("does not schedule fanout when the authoritative D1 write fails", async () => {
+    mockListTags.mockResolvedValue(["keep"])
+    mockReplaceTags.mockRejectedValueOnce(new Error("D1 unavailable"))
+
+    await expect(replaceForumTagsForActor({} as any, {
+      messageId: "m1",
+      userId: "bot1",
+      tags: ["keep", "new"],
+    })).rejects.toThrow("D1 unavailable")
+    expect(mockFanOut).not.toHaveBeenCalled()
+  })
+
   it("publishes a real removal and lists the caller-visible tags in stable order", async () => {
     mockListTags
       .mockResolvedValueOnce(["keep", "old"])

@@ -23,6 +23,60 @@ import {
   resetHookMemoization,
 } from "./test-harness"
 
+function forumFeedFixture(rows: Array<{ id: string; opener: string; tags: string[] }>) {
+  return {
+    pages: [{
+      serverId: "s1",
+      parentType: "forum",
+      threads: rows.map((row) => ({
+        id: row.id,
+        name: row.id,
+        creatorId: `author_${row.id}`,
+        messageCount: 1,
+        parentMessageId: row.opener,
+        lastMessageAt: "2026-09-05T00:00:00.000Z",
+        createdAt: "2026-09-05T00:00:00.000Z",
+        activityAt: "2026-09-05T00:00:00.000Z",
+      })),
+      included: {
+        parentMessages: rows.map((row, index) => ({
+          id: row.opener,
+          channelId: "forum_1",
+          seq: index + 1,
+          content: row.id,
+          authorId: `author_${row.id}`,
+          authorName: row.id,
+          authorImage: null,
+          authorAvatarVersion: 0,
+        })),
+        firstMessages: rows.map((row) => ({
+          channelId: row.id,
+          content: `body ${row.id}`,
+        })),
+        tags: rows.flatMap((row) => row.tags.map((tag) => ({
+          messageId: row.opener,
+          tag,
+        }))),
+        participants: rows.map((row) => ({
+          channelId: row.id,
+          userId: `author_${row.id}`,
+          userName: row.id,
+          userImage: null,
+          userAvatarVersion: 0,
+        })),
+      },
+      hasMore: false,
+    }],
+    pageParams: [null],
+  }
+}
+
+function forumFeedIds(filter: string | null) {
+  return capturedQueryClient.getQueryData<ReturnType<typeof forumFeedFixture>>(
+    communityKeys.forumFeed("forum_1", filter),
+  )?.pages.flatMap((page) => page.threads.map((thread) => thread.id)) ?? []
+}
+
 beforeEach(resetCommunityWsHarness)
 afterEach(cleanupCommunityWsHarness)
 
@@ -493,9 +547,86 @@ describe("useCommunityWs — child_create patches parent thread badge with count
       changes: { tags: ["archived"] },
     } satisfies CommunityChildChannelUpdate)
 
-    for (const key of [allFeed, archivedFeed, tags, messages]) {
-      expect(capturedQueryClient.getQueryState(key)?.isInvalidated).toBe(true)
-    }
+    await vi.waitFor(() => {
+      for (const key of [allFeed, archivedFeed, tags, messages]) {
+        expect(capturedQueryClient.getQueryState(key)?.isInvalidated).toBe(true)
+      }
+    })
+  })
+
+  it("projects remote Archive out of warm All and ordinary feeds synchronously", async () => {
+    await mountHook()
+    capturedQueryClient.setQueryData(
+      communityKeys.forumFeed("forum_1", null),
+      forumFeedFixture([{ id: "post_1", opener: "opener_1", tags: ["bug"] }]),
+    )
+    capturedQueryClient.setQueryData(
+      communityKeys.forumFeed("forum_1", "bug"),
+      forumFeedFixture([{ id: "post_1", opener: "opener_1", tags: ["bug"] }]),
+    )
+    capturedQueryClient.setQueryData(
+      communityKeys.forumFeed("forum_1", "archived"),
+      forumFeedFixture([]),
+    )
+
+    capturedOnMessage!({
+      type: "community:channel.child_update",
+      parentChannelId: "forum_1",
+      channelId: "post_1",
+      changes: { tags: ["bug", "archived"] },
+    } satisfies CommunityChildChannelUpdate)
+
+    expect(forumFeedIds(null)).toEqual([])
+    expect(forumFeedIds("bug")).toEqual([])
+    expect(forumFeedIds("archived")).toEqual([])
+  })
+
+  it("projects remote Unarchive out of Archived without inventing an All rank", async () => {
+    await mountHook()
+    capturedQueryClient.setQueryData(
+      communityKeys.forumFeed("forum_1", "archived"),
+      forumFeedFixture([{
+        id: "post_1",
+        opener: "opener_1",
+        tags: ["bug", "archived"],
+      }]),
+    )
+    capturedQueryClient.setQueryData(
+      communityKeys.forumFeed("forum_1", null),
+      forumFeedFixture([]),
+    )
+
+    capturedOnMessage!({
+      type: "community:channel.child_update",
+      parentChannelId: "forum_1",
+      channelId: "post_1",
+      changes: { tags: ["bug"] },
+    } satisfies CommunityChildChannelUpdate)
+
+    expect(forumFeedIds("archived")).toEqual([])
+    expect(forumFeedIds(null)).toEqual([])
+  })
+
+  it("leaves warm feeds untouched when parent and child resolve conflicting openers", async () => {
+    await mountHook()
+    capturedQueryClient.setQueryData(
+      communityKeys.forumFeed("forum_1", null),
+      forumFeedFixture([{ id: "post_1", opener: "opener_one", tags: ["bug"] }]),
+    )
+    capturedQueryClient.setQueryData(
+      communityKeys.forumFeed("forum_1", "bug"),
+      forumFeedFixture([{ id: "post_1", opener: "opener_two", tags: ["bug"] }]),
+    )
+
+    capturedOnMessage!({
+      type: "community:channel.child_update",
+      parentChannelId: "forum_1",
+      channelId: "post_1",
+      changes: { tags: ["bug", "archived"] },
+    } satisfies CommunityChildChannelUpdate)
+
+    expect(forumFeedIds(null)).toEqual(["post_1"])
+    expect(forumFeedIds("bug")).toEqual(["post_1"])
   })
 
   it("archive-tag updates evict only the sidebar projection and keep the active route", async () => {

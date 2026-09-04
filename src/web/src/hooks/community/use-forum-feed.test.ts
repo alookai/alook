@@ -48,6 +48,21 @@ describe("forumFeedPageQueryFn", () => {
     expect(new URL(url, "http://localhost").searchParams.get("tag")).toBe("archived")
   })
 
+  it("passes the query abort signal through to the request", async () => {
+    apiFetchMock.mockResolvedValue({ threads: [], included: emptyIncluded, hasMore: false })
+    const controller = new AbortController()
+
+    await forumFeedPageQueryFn("forum_one", null)({
+      pageParam: null,
+      signal: controller.signal,
+    })
+
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/community/channels/forum_one/threads?"),
+      { signal: controller.signal },
+    )
+  })
+
   it("seeds opener and participant profiles while returning the raw page", async () => {
     const page = {
       threads: [],
