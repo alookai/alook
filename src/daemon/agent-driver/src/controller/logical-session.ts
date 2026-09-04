@@ -216,6 +216,14 @@ implements AgentSession<Specs, Id> {
   private readonly steeringDeliveries = new Set<SteeringDelivery>();
   private laneAdmissionTail: Promise<void> = Promise.resolve();
   private laneAdmissionPending = 0;
+  /**
+   * Whether a safe-boundary backend may accept queued steering now.
+   *
+   * A valid tool start closes the latch. The next valid tool output reopens it,
+   * even when other concurrent tool calls remain outstanding. This models the
+   * serialized provider boundary instead of waiting for global tool quiescence.
+   */
+  private toolBoundaryOpen = true;
   private toolBoundaryFlushDisabled = false;
   private safeBoundaryFlush?: Promise<void>;
   private safeBoundaryDelivery?: SafeBoundaryDelivery;
@@ -539,6 +547,8 @@ implements AgentSession<Specs, Id> {
     this.turnError = undefined;
     this.interruptedTurnId = undefined;
     this.processTurnEnded = false;
+    this.toolBoundaryOpen = true;
+    this.toolBoundaryFlushDisabled = false;
     this.state = "starting";
     const generation = this.lifecycleGeneration;
     const text = messages.map((message) => message.text).join("\n\n");
@@ -794,6 +804,7 @@ implements AgentSession<Specs, Id> {
           return;
         }
         if (!this.startToolUse(event.callId)) return;
+        this.toolBoundaryOpen = false;
         const startedCallId = this.toolCallId(event.callId);
         this.emit({
           type: "tool_started",
@@ -809,6 +820,7 @@ implements AgentSession<Specs, Id> {
           return;
         }
         if (!this.finishToolUse(event.callId)) return;
+        this.toolBoundaryOpen = true;
         const finishedCallId = this.toolCallId(event.callId);
         this.emit({
           type: "tool_finished",
@@ -816,7 +828,7 @@ implements AgentSession<Specs, Id> {
           ...(finishedCallId ? { callId: finishedCallId } : {}),
           name: event.name,
         });
-        if (this.outstandingToolUseCount() === 0 && !this.toolBoundaryFlushDisabled) void this.flushSafeBoundaryQueue();
+        if (!this.toolBoundaryFlushDisabled) void this.flushSafeBoundaryQueue();
         return;
       case "compaction_started":
       case "compaction_finished":
@@ -1006,6 +1018,7 @@ implements AgentSession<Specs, Id> {
     this.clearOutstandingToolUses();
     this.compacting = false;
     this.reviewing = false;
+    this.toolBoundaryOpen = true;
     this.toolBoundaryFlushDisabled = false;
     this.state = "idle";
     if (this.adapter.execution.lifetime === "turn") {
@@ -1031,7 +1044,8 @@ implements AgentSession<Specs, Id> {
   private canFlushSafeBoundaryQueue(): boolean {
     return this.state === "working"
       && this.behavior.midTurnDelivery === "safe_boundary_queue"
-      && this.outstandingToolUseCount() === 0
+      && this.toolBoundaryOpen
+      && !this.toolBoundaryFlushDisabled
       && !this.compacting
       && !this.reviewing
       && this.activeTurn !== undefined

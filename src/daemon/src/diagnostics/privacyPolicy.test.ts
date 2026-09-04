@@ -330,7 +330,7 @@ const EXPECTED_POLICY: ReadonlyArray<{
   },
   {
     header: "@alook/daemon:manager",
-    message: "steering message sent to running agent",
+    message: "steering message submitted to logical session",
     scope: "target",
     fields: {
       agentId: { type: "string", maxChars: 128 },

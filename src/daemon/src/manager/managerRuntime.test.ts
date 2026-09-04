@@ -1668,6 +1668,40 @@ describe("AgentProcessManager — logging", () => {
     ).toBe(true);
   });
 
+  it("describes a busy wake as submitted until the logical session accepts it", async () => {
+    const logger = stubLogger();
+    const persistentDriver = {
+      ...fakeDriver("codex"),
+      lifecycle: { kind: "persistent", start: "immediate", exit: "natural", inFlightWake: "queue" } as never,
+      supportsStdinNotification: true,
+      busyDeliveryMode: "direct",
+    } as Driver;
+    const session = fakeSession();
+    const mgr = new AgentProcessManager({
+      driverFor: () => persistentDriver,
+      baseContextFor: () => ({
+        workingDirectory: "/tmp",
+        agentId: "a1",
+        standingPrompt: "",
+        config: {} as LaunchContext["config"],
+        credentialProxy: {} as LaunchContext["credentialProxy"],
+      }),
+      sessionFactory: (hooks) => bindFactorySession(hooks, session),
+      logger,
+    });
+    mgr.register("a1");
+    mgr.deliver("a1", { seq: 1, text: "start" });
+    session.startResolver?.();
+    await vi.waitFor(() => expect(mgr.agentActivity("a1")).toBe("running"));
+
+    mgr.deliver("a1", { seq: 2, text: "follow" });
+
+    expect(logger.calls.info).toEqual(expect.arrayContaining([
+      ["steering message submitted to logical session", [{ agentId: "a1", mode: "busy" }]],
+    ]));
+    expect(logger.calls.info.some(([message]) => message === "steering message sent to running agent")).toBe(false);
+  });
+
   it("logs warn on a pre-handshake spawn failure (ENOENT)", async () => {
     const logger = stubLogger();
     const { mgr, session } = makeManager({ logger });

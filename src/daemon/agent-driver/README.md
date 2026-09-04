@@ -111,6 +111,14 @@ There is no per-turn built-in fallback.
 | OpenCode | session | `http_sse` / `opencode.v2.service.1.17.20` | `steer` | `transport_request` |
 | Pi | session | `in_process_sdk` / `pi_sdk` | `steer` | `prompt_invocation` |
 
+For Claude and Codex, `safe_boundary_queue` waits for at most the next valid
+tool-output event. A tool start closes the boundary for messages that arrive
+after it; the next matching tool output reopens the boundary and flushes queued
+messages even if other concurrent tools remain active. A later tool start
+closes the boundary again. Compaction and review remain closed until their
+matching finished events. Cursor, OpenCode, and Pi steer immediately and do not
+participate in this boundary latch.
+
 Pi's runtime behavior did not change in this migration. It already kept one
 SDK session and used prompt/steer/abort/dispose on that session; contract v1
 formalizes that existing persistent behavior as an `in_process_sdk`

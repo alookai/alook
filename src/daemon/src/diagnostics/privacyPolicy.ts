@@ -63,7 +63,7 @@ export const DAEMON_LOG_DIAGNOSTIC_POLICY: readonly DaemonLogPolicyEntry[] = [
     reason: string(32, { values: ["turn_end", "stopped", "terminate_stalled", "exit"] }),
     sessionId: string(256, { scrub: true }),
   } },
-  { header: "@alook/daemon:manager", message: "steering message sent to running agent", scope: "target", fields: {
+  { header: "@alook/daemon:manager", message: "steering message submitted to logical session", scope: "target", fields: {
     agentId: AGENT, mode: string(8, { values: ["busy", "idle"] }),
   } },
   { header: "@alook/daemon:manager", message: "gated busy message held", scope: "target", fields: {
