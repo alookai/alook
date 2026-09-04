@@ -28,9 +28,9 @@ function ProfilePhoto({ src, alt, fallback, fontSize }: {
   fallback: string
   fontSize: number
 }) {
-  const [failed, setFailed] = useState(false)
+  const [status, setStatus] = useState<"pending" | "ready" | "failed">("pending")
 
-  if (failed) {
+  if (status === "failed") {
     return (
       <AvatarFallback className="font-medium" style={{ fontSize }}>
         {fallback}
@@ -39,13 +39,23 @@ function ProfilePhoto({ src, alt, fallback, fontSize }: {
   }
 
   return (
-    <img
-      data-slot="avatar-image"
-      src={src}
-      alt={alt}
-      className="aspect-square size-full rounded-full object-cover"
-      onError={() => setFailed(true)}
-    />
+    <>
+      <AvatarFallback className="font-medium" style={{ fontSize }} aria-hidden>
+        {fallback}
+      </AvatarFallback>
+      <img
+        data-slot="avatar-image"
+        data-avatar-photo-state={status}
+        src={src}
+        alt={alt}
+        className={cn(
+          "absolute inset-0 aspect-square size-full rounded-full object-cover",
+          status === "ready" ? "opacity-100" : "opacity-0",
+        )}
+        onLoad={() => setStatus("ready")}
+        onError={() => setStatus("failed")}
+      />
+    </>
   )
 }
 

@@ -8,6 +8,7 @@ import {
   ShareCardImageTimeoutError,
   ShareCardRenderError,
   ShareImageSnapshotError,
+  type ShareCardImageDisposition,
   copyRenderedShareCard,
   createShareImageSnapshot,
   downloadRenderedShareCard,
@@ -229,7 +230,10 @@ describe("MessageShareDialog message context", () => {
 })
 
 describe("waitForShareCardImages", () => {
-  function image(overrides: Partial<HTMLImageElement> = {}) {
+  function image(
+    overrides: Partial<HTMLImageElement> = {},
+    { profilePhoto = false }: { profilePhoto?: boolean } = {},
+  ) {
     const listeners = new Map<string, () => void>()
     const value = {
       complete: false,
@@ -238,6 +242,7 @@ describe("waitForShareCardImages", () => {
       decode: vi.fn().mockResolvedValue(undefined),
       addEventListener: vi.fn((type: string, listener: () => void) => listeners.set(type, listener)),
       removeEventListener: vi.fn((type: string) => listeners.delete(type)),
+      hasAttribute: vi.fn((name: string) => profilePhoto && name === "data-avatar-photo-state"),
       ...overrides,
     } as unknown as HTMLImageElement
     return { value, listeners }
@@ -273,6 +278,19 @@ describe("waitForShareCardImages", () => {
     expect(paint).not.toHaveBeenCalled()
   })
 
+  it("degrades a profile-photo error to its fallback disposition", async () => {
+    const avatar = image({}, { profilePhoto: true })
+    const paint = vi.fn().mockResolvedValue(undefined)
+    const waiting = waitForShareCardImages(card([avatar.value]), paint)
+    avatar.listeners.get("error")?.()
+
+    await expect(waiting).resolves.toEqual([
+      { image: avatar.value, mode: "fallback" },
+    ])
+    expect(avatar.value.decode).not.toHaveBeenCalled()
+    expect(paint).toHaveBeenCalledOnce()
+  })
+
   it("decodes an already-loaded cached avatar without waiting for another event", async () => {
     const avatar = image({ complete: true, naturalWidth: 40, naturalHeight: 40 })
     const paint = vi.fn().mockResolvedValue(undefined)
@@ -302,6 +320,29 @@ describe("waitForShareCardImages", () => {
     }
   })
 
+  it("degrades a pending-forever profile photo within the shared bound", async () => {
+    vi.useFakeTimers()
+    try {
+      const avatar = image({}, { profilePhoto: true })
+      const attachment = image({ complete: true, naturalWidth: 96, naturalHeight: 64 })
+      const paint = vi.fn().mockResolvedValue(undefined)
+      const waiting = waitForShareCardImages(card([avatar.value, attachment.value]), paint, 50)
+
+      await vi.advanceTimersByTimeAsync(50)
+      await expect(waiting).resolves.toEqual([
+        { image: avatar.value, mode: "fallback" },
+        { image: attachment.value, mode: "snapshot" },
+      ])
+
+      expect(attachment.value.decode).toHaveBeenCalledOnce()
+      expect(avatar.value.removeEventListener).toHaveBeenCalledWith("load", expect.any(Function))
+      expect(avatar.value.removeEventListener).toHaveBeenCalledWith("error", expect.any(Function))
+      expect(paint).toHaveBeenCalledOnce()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("bounds a pending-forever decode and degrades to the loaded bitmap", async () => {
     vi.useFakeTimers()
     try {
@@ -323,11 +364,50 @@ describe("waitForShareCardImages", () => {
       vi.useRealTimers()
     }
   })
+
+  it.each([
+    ["rejects", vi.fn().mockRejectedValue(new Error("decode failed"))],
+    ["times out", vi.fn(() => new Promise<void>(() => {}))],
+  ])("degrades a profile photo when decode %s", async (_name, decode) => {
+    vi.useFakeTimers()
+    try {
+      const avatar = image({
+        complete: true,
+        naturalWidth: 40,
+        naturalHeight: 40,
+        decode,
+      }, { profilePhoto: true })
+      const paint = vi.fn().mockResolvedValue(undefined)
+      const waiting = waitForShareCardImages(card([avatar.value]), paint, 50)
+
+      await vi.advanceTimersByTimeAsync(50)
+      await expect(waiting).resolves.toEqual([
+        { image: avatar.value, mode: "fallback" },
+      ])
+      expect(paint).toHaveBeenCalledOnce()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("aborts a pending image wait and removes every listener", async () => {
+    const avatar = image({}, { profilePhoto: true })
+    const paint = vi.fn().mockResolvedValue(undefined)
+    const controller = new AbortController()
+    const waiting = waitForShareCardImages(card([avatar.value]), paint, 50, controller.signal)
+
+    controller.abort()
+
+    await expect(waiting).rejects.toMatchObject({ name: "AbortError" })
+    expect(avatar.value.removeEventListener).toHaveBeenCalledWith("load", expect.any(Function))
+    expect(avatar.value.removeEventListener).toHaveBeenCalledWith("error", expect.any(Function))
+    expect(paint).not.toHaveBeenCalled()
+  })
 })
 
 describe("snapshotShareCardImages", () => {
   function image() {
-    return { replaceWith: vi.fn() } as unknown as HTMLImageElement
+    return { parentNode: {}, replaceWith: vi.fn() } as unknown as HTMLImageElement
   }
 
   function canvas() {
@@ -341,6 +421,13 @@ describe("snapshotShareCardImages", () => {
     return { querySelectorAll: () => images } as unknown as HTMLElement
   }
 
+  function prepared(
+    images: HTMLImageElement[],
+    mode: ShareCardImageDisposition["mode"] = "snapshot",
+  ): ShareCardImageDisposition[] {
+    return images.map((image) => ({ image, mode }))
+  }
+
   it("replaces every live image with its local canvas snapshot and restores it", async () => {
     const avatar = image()
     const attachment = image()
@@ -349,7 +436,7 @@ describe("snapshotShareCardImages", () => {
     const createSnapshot = vi.fn()
       .mockReturnValueOnce(avatarCanvas)
       .mockReturnValueOnce(attachmentCanvas)
-    const waitForImages = vi.fn().mockResolvedValue(undefined)
+    const waitForImages = vi.fn().mockResolvedValue(prepared([avatar, attachment]))
     const waitForPaint = vi.fn().mockResolvedValue(undefined)
 
     const restore = await snapshotShareCardImages(
@@ -381,7 +468,7 @@ describe("snapshotShareCardImages", () => {
     const createSnapshot = vi.fn()
       .mockReturnValueOnce(firstCanvas)
       .mockReturnValueOnce(secondCanvas)
-    const waitForImages = vi.fn().mockResolvedValue(undefined)
+    const waitForImages = vi.fn().mockResolvedValue(prepared([avatar]))
     const waitForPaint = vi.fn().mockResolvedValue(undefined)
 
     const restoreFirst = await snapshotShareCardImages(
@@ -419,7 +506,7 @@ describe("snapshotShareCardImages", () => {
       snapshotShareCardImages(
         card([avatar, attachment]),
         createSnapshot,
-        vi.fn().mockResolvedValue(undefined),
+        vi.fn().mockResolvedValue(prepared([avatar, attachment])),
         vi.fn().mockRejectedValue(new Error("paint failed")),
       ),
     ).rejects.toThrow("paint failed")
@@ -440,7 +527,7 @@ describe("snapshotShareCardImages", () => {
       snapshotShareCardImages(
         card([avatar, attachment]),
         createSnapshot,
-        vi.fn().mockResolvedValue(undefined),
+        vi.fn().mockResolvedValue(prepared([avatar, attachment])),
         vi.fn().mockResolvedValue(undefined),
       ),
     ).rejects.toBeInstanceOf(ShareImageSnapshotError)
@@ -514,7 +601,7 @@ describe("snapshotShareCardImages", () => {
     const restore = await snapshotShareCardImages(
       card([hiddenImage, attachment]),
       createSnapshot,
-      vi.fn().mockResolvedValue(undefined),
+      vi.fn().mockResolvedValue(prepared([hiddenImage, attachment])),
       vi.fn().mockResolvedValue(undefined),
     )
 
@@ -522,6 +609,37 @@ describe("snapshotShareCardImages", () => {
     expect(attachment.replaceWith).toHaveBeenCalledWith(attachmentCanvas)
     restore()
     expect(attachmentCanvas.replaceWith).toHaveBeenCalledWith(attachment)
+  })
+
+  it("suppresses a pending profile photo so the fallback DOM is rasterized", async () => {
+    const avatar = image()
+    const placeholder = {
+      hidden: false,
+      parentNode: {},
+      replaceWith: vi.fn(),
+    }
+    const createSnapshot = vi.fn()
+    vi.stubGlobal("document", { createElement: vi.fn(() => placeholder) })
+
+    try {
+      const restore = await snapshotShareCardImages(
+        card([avatar]),
+        createSnapshot,
+        vi.fn().mockResolvedValue(prepared([avatar], "fallback")),
+        vi.fn().mockResolvedValue(undefined),
+      )
+
+      expect(createSnapshot).not.toHaveBeenCalled()
+      expect(placeholder.hidden).toBe(true)
+      expect(avatar.replaceWith).toHaveBeenCalledWith(placeholder)
+
+      restore()
+      restore()
+      expect(placeholder.replaceWith).toHaveBeenCalledOnce()
+      expect(placeholder.replaceWith).toHaveBeenCalledWith(avatar)
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })
 
@@ -683,6 +801,60 @@ describe("renderShareCard", () => {
     await vi.waitFor(() => expect(restore).toHaveBeenCalledOnce())
 
     expect(rasterize).not.toHaveBeenCalled()
+  })
+
+  it("aborts a pending snapshot and restores its late result once", async () => {
+    let finishSnapshot: ((restore: () => void) => void) | undefined
+    const restore = vi.fn()
+    const snapshotImages = vi.fn((_node: HTMLElement, signal?: AbortSignal) => (
+      new Promise<() => void>((resolve) => {
+        expect(signal?.aborted).toBe(false)
+        finishSnapshot = resolve
+      })
+    ))
+    const rasterize = vi.fn()
+    const controller = new AbortController()
+    const rendering = renderShareCard(node, snapshotImages, rasterize, {
+      signal: controller.signal,
+      loadFonts: vi.fn(),
+    })
+    const rejected = expect(rendering).rejects.toMatchObject({ name: "AbortError" })
+
+    controller.abort()
+    await rejected
+    finishSnapshot?.(restore)
+    await vi.waitFor(() => expect(restore).toHaveBeenCalledOnce())
+
+    expect(rasterize).not.toHaveBeenCalled()
+  })
+
+  it("aborts an active rasterizer and restores snapshots exactly once", async () => {
+    vi.stubGlobal("getComputedStyle", vi.fn(() => style))
+    let finishRaster!: (blob: Blob) => void
+    const restore = vi.fn()
+    const rasterize = vi.fn(() => new Promise<Blob>((resolve) => {
+      finishRaster = resolve
+    }))
+    const controller = new AbortController()
+    const rendering = renderShareCard(
+      node,
+      vi.fn().mockResolvedValue(restore),
+      rasterize,
+      {
+        signal: controller.signal,
+        loadFonts: vi.fn().mockResolvedValue(undefined),
+      },
+    )
+    const rejected = expect(rendering).rejects.toMatchObject({ name: "AbortError" })
+    await vi.waitFor(() => expect(rasterize).toHaveBeenCalledOnce())
+
+    controller.abort()
+    await rejected
+    expect(restore).toHaveBeenCalledOnce()
+
+    finishRaster(new Blob(["png"]))
+    await Promise.resolve()
+    expect(restore).toHaveBeenCalledOnce()
   })
 
   it.each(["fonts", "rasterize"] as const)(
@@ -895,6 +1067,58 @@ describe("writeShareCardToClipboard", () => {
 })
 
 describe("MessageShareDialog action feedback", () => {
+  class ClipboardItemStub {
+    constructor(readonly items: Record<string, Blob>) {}
+  }
+
+  function deferred<T>() {
+    let resolve!: (value: T) => void
+    let reject!: (reason?: unknown) => void
+    const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+      resolve = resolvePromise
+      reject = rejectPromise
+    })
+    return { promise, resolve, reject }
+  }
+
+  function setupActionEnvironment(write = vi.fn().mockResolvedValue(undefined)) {
+    const click = vi.fn()
+    const createObjectURL = vi.fn(() => "blob:share-card")
+    const revokeObjectURL = vi.fn()
+    vi.stubGlobal("window", { setTimeout, clearTimeout })
+    vi.stubGlobal("navigator", { userAgent: "Macintosh", clipboard: { write } })
+    vi.stubGlobal("ClipboardItem", ClipboardItemStub)
+    vi.stubGlobal("document", {
+      documentElement: {},
+      fonts: { ready: Promise.resolve() },
+      createElement: vi.fn(() => ({ click })),
+    })
+    vi.stubGlobal("getComputedStyle", vi.fn(() => ({
+      getPropertyValue: vi.fn(() => ""),
+    })))
+    vi.stubGlobal("URL", { createObjectURL, revokeObjectURL })
+    const renderer = renderMessage(message(), {
+      createNodeMock: () => ({ querySelectorAll: () => [] }),
+    })
+    const copyButton = renderer.root.findByProps({ "data-testid": tid.messageShareCopy })
+    const downloadButton = renderer.root.findAllByType("button").find(
+      (button) => button.children.includes("Download"),
+    )!
+    const dialog = renderer.root.find(
+      (node) => typeof node.props.onOpenChange === "function",
+    )
+    return {
+      click,
+      copyButton,
+      createObjectURL,
+      dialog,
+      downloadButton,
+      renderer,
+      revokeObjectURL,
+      write,
+    }
+  }
+
   afterEach(() => {
     vi.mocked(toBlob).mockReset()
     vi.mocked(toast.success).mockReset()
@@ -965,5 +1189,152 @@ describe("MessageShareDialog action feedback", () => {
       "Couldn't generate image — rendering the image failed",
     )
     expect(toast.success).not.toHaveBeenCalled()
+  })
+
+  it("keeps Copy as the first winner when Download is clicked during its render", async () => {
+    const rendering = deferred<Blob | null>()
+    const blob = new Blob(["png"], { type: "image/png" })
+    vi.mocked(toBlob).mockReturnValue(rendering.promise)
+    const harness = setupActionEnvironment()
+    let copy!: Promise<void>
+    let download!: Promise<void>
+
+    act(() => {
+      copy = harness.copyButton.props.onClick()
+      download = harness.downloadButton.props.onClick()
+    })
+
+    expect(download).toBe(copy)
+    await vi.waitFor(() => expect(toBlob).toHaveBeenCalledOnce())
+    await act(async () => {
+      rendering.resolve(blob)
+      await copy
+    })
+
+    expect(harness.write).toHaveBeenCalledOnce()
+    expect(harness.click).not.toHaveBeenCalled()
+    expect(toast.success).toHaveBeenCalledOnce()
+    expect(toast.success).toHaveBeenCalledWith("Image copied to clipboard")
+    act(() => harness.renderer.unmount())
+  })
+
+  it("keeps Download as the first winner when Copy is clicked during its render", async () => {
+    const rendering = deferred<Blob | null>()
+    const blob = new Blob(["png"], { type: "image/png" })
+    vi.mocked(toBlob).mockReturnValue(rendering.promise)
+    const harness = setupActionEnvironment()
+    let download!: Promise<void>
+    let copy!: Promise<void>
+
+    act(() => {
+      download = harness.downloadButton.props.onClick()
+      copy = harness.copyButton.props.onClick()
+    })
+
+    expect(copy).toBe(download)
+    await vi.waitFor(() => expect(toBlob).toHaveBeenCalledOnce())
+    await act(async () => {
+      rendering.resolve(blob)
+      await download
+    })
+
+    expect(harness.click).toHaveBeenCalledOnce()
+    expect(harness.write).not.toHaveBeenCalled()
+    expect(toast.success).toHaveBeenCalledOnce()
+    expect(toast.success).toHaveBeenCalledWith("Image downloaded")
+  })
+
+  it("releases a failed flight so the action can be retried", async () => {
+    const blob = new Blob(["png"], { type: "image/png" })
+    const write = vi.fn()
+      .mockRejectedValueOnce(new Error("clipboard denied"))
+      .mockResolvedValueOnce(undefined)
+    vi.mocked(toBlob).mockResolvedValue(blob)
+    const harness = setupActionEnvironment(write)
+
+    await act(async () => {
+      await harness.copyButton.props.onClick()
+    })
+    await act(async () => {
+      await harness.copyButton.props.onClick()
+    })
+
+    expect(toBlob).toHaveBeenCalledTimes(2)
+    expect(write).toHaveBeenCalledTimes(2)
+    expect(toast.error).toHaveBeenCalledOnce()
+    expect(toast.error).toHaveBeenCalledWith("Couldn't copy image — try Download instead")
+    expect(toast.success).toHaveBeenCalledOnce()
+    expect(toast.success).toHaveBeenCalledWith("Image copied to clipboard")
+    act(() => harness.renderer.unmount())
+  })
+
+  it("never invokes a pending writer after the dialog closes", async () => {
+    const rendering = deferred<Blob | null>()
+    vi.mocked(toBlob).mockReturnValue(rendering.promise)
+    const harness = setupActionEnvironment()
+    let copy!: Promise<void>
+
+    act(() => {
+      copy = harness.copyButton.props.onClick()
+    })
+    await vi.waitFor(() => expect(toBlob).toHaveBeenCalledOnce())
+    act(() => harness.dialog.props.onOpenChange(false))
+    await act(async () => {
+      await copy
+      rendering.resolve(new Blob(["png"], { type: "image/png" }))
+      await Promise.resolve()
+    })
+
+    expect(harness.write).not.toHaveBeenCalled()
+    expect(harness.click).not.toHaveBeenCalled()
+    expect(toast.success).not.toHaveBeenCalled()
+    expect(toast.error).not.toHaveBeenCalled()
+    expect(harness.copyButton.props.disabled).toBe(false)
+  })
+
+  it("never invokes a pending writer after the dialog unmounts", async () => {
+    const rendering = deferred<Blob | null>()
+    vi.mocked(toBlob).mockReturnValue(rendering.promise)
+    const harness = setupActionEnvironment()
+    let copy!: Promise<void>
+
+    act(() => {
+      copy = harness.copyButton.props.onClick()
+    })
+    await vi.waitFor(() => expect(toBlob).toHaveBeenCalledOnce())
+    act(() => harness.renderer.unmount())
+    await act(async () => {
+      await copy
+      rendering.resolve(new Blob(["png"], { type: "image/png" }))
+      await Promise.resolve()
+    })
+
+    expect(harness.write).not.toHaveBeenCalled()
+    expect(toast.success).not.toHaveBeenCalled()
+    expect(toast.error).not.toHaveBeenCalled()
+  })
+
+  it("suppresses late feedback when the dialog closes after Clipboard API invocation", async () => {
+    const writing = deferred<void>()
+    const write = vi.fn(() => writing.promise)
+    vi.mocked(toBlob).mockResolvedValue(new Blob(["png"], { type: "image/png" }))
+    const harness = setupActionEnvironment(write)
+    let copy!: Promise<void>
+
+    act(() => {
+      copy = harness.copyButton.props.onClick()
+    })
+    await vi.waitFor(() => expect(write).toHaveBeenCalledOnce())
+    act(() => harness.dialog.props.onOpenChange(false))
+    await act(async () => {
+      writing.resolve()
+      await copy
+    })
+
+    expect(write).toHaveBeenCalledOnce()
+    expect(toast.success).not.toHaveBeenCalled()
+    expect(toast.error).not.toHaveBeenCalled()
+    expect(harness.copyButton.props.disabled).toBe(false)
+    expect(harness.copyButton.children).toContain("Copy image")
   })
 })
