@@ -497,7 +497,7 @@ test("owner-only bot mark sticker, Stop lifecycle, owner swap, and URL-owned aud
     expect(mobileStickerGeometry.scrollWidth).toBeLessThanOrEqual(mobileStickerGeometry.clientWidth)
     expect(mobileStickerGeometry.right).toBeLessThanOrEqual(375)
     await expect(sticker.getByLabel("Loading recent activity")).toHaveCount(0)
-    await expect(sticker.getByText("open activity log", { exact: true })).toBeVisible()
+    await expect(sticker.getByText("open activity log 11", { exact: true })).toBeVisible()
     await attachPageScreenshot(testInfo, "bot-mark-sticker-activity-mobile-dark", alice.page)
     await sticker.getByRole("tab", { name: "Marked messages" }).click()
     await expect(alice.page.locator(`[data-testid^="${tid.botMarkStickerRow("")}"]`))
