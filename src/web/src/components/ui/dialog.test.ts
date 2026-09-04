@@ -57,4 +57,18 @@ describe("DialogContent", () => {
       expect(event.stopPropagation).toHaveBeenCalledOnce()
     }
   })
+
+  it("keeps the close affordance touch-safe on mobile", () => {
+    let renderer: TestRenderer.ReactTestRenderer
+
+    act(() => {
+      renderer = TestRenderer.create(
+        React.createElement(DialogContent, null, "Dialog body"),
+      )
+    })
+
+    const close = renderer!.root.findByType("mock-dialog-close")
+    expect(close.props.render.props.className).toContain("size-11")
+    expect(close.props.render.props.className).toContain("sm:size-7")
+  })
 })

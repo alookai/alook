@@ -403,9 +403,15 @@ test("My Bots restores the 30-day token heatmap across PC and mobile", async ({ 
   const selectedDay = page.getByTestId(tid.botUsageDialogDay("bot_codex", "2026-08-26"))
   const dialogSummary = page.getByTestId(tid.botUsageDialogSummary("bot_codex"))
   await expect(usageDialog).toBeVisible()
+  await expect(dateRail.locator("button").first()).toHaveAttribute(
+    "data-testid",
+    tid.botUsageDialogDay("bot_codex", "2026-08-30"),
+  )
+  expect(await dateRail.evaluate((element) => element.scrollLeft)).toBe(0)
   await expect(newestDay).toHaveAttribute("aria-pressed", "true")
   await expect(dialogSummary).toContainText("TotalUnavailable")
   expect(await dateRail.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true)
+  await attachScreenshot(page, testInfo, "my-bots-token-heatmap-mobile-dialog")
   await selectedDay.click()
   await expect(selectedDay).toHaveAttribute("aria-pressed", "true")
   await expect(newestDay).toHaveAttribute("aria-pressed", "false")
@@ -414,7 +420,8 @@ test("My Bots restores the 30-day token heatmap across PC and mobile", async ({ 
   await expect(dialogSummary).toContainText("Input6,000,000")
   await expect(dialogSummary).toContainText("Output3,000,000")
   await expect(dialogSummary).toContainText("CacheUnavailable")
-  await attachScreenshot(page, testInfo, "my-bots-token-heatmap-mobile-dialog")
+  await newestDay.click()
+  await expect(newestDay).toHaveAttribute("aria-pressed", "true")
   const lightDialogBackground = await usageDialog.evaluate(
     (element) => getComputedStyle(element).backgroundColor,
   )

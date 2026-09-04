@@ -119,6 +119,9 @@ describe("BotMarkSticker", () => {
     expect(title.props.className).toContain("font-bold")
     expect(title.props.className).toContain("font-brand")
     const activityTab = renderer.root.findByProps({ role: "tab", "aria-selected": true })
+    const tablist = renderer.root.findByProps({ role: "tablist" })
+    expect(tablist.props.className).toContain("h-12")
+    expect(activityTab.props.className).toContain("h-11")
     expect(activityTab.children).toContainEqual(expect.objectContaining({ type: "activity-icon" }))
     expect(JSON.stringify(renderer.toJSON())).toContain("Recent activity")
     expect(JSON.stringify(renderer.toJSON())).toContain("Ready when you are")
@@ -145,6 +148,7 @@ describe("BotMarkSticker", () => {
     })
     expect(loadMore.type).toBe("button")
     expect(loadMore.children).toContain("Load more")
+    expect(loadMore.props.className).toContain("min-h-11")
     expect(loadMore.props.className).not.toContain("border")
     expect(loadMore.props.className).not.toContain("shadow")
     expect(loadMore.props.className).toContain("hover:bg-black/10")
@@ -288,11 +292,13 @@ describe("BotMarkSticker", () => {
     expect(overflow.findByProps({ className: "sr-only" }).children).toEqual(["More marked work"])
     expect(renderer.root.findAllByType("square-icon")).toHaveLength(3)
     const location = renderer.root.findAllByProps({ title: "Alook · #planning" })[0]!
+    expect(location.props.className).toContain("w-fit")
+    expect(location.props.className).toContain("max-w-full")
     const locationParts = location.findAllByType("span")
-    expect(locationParts[0]?.props.className).toContain("flex-1")
+    expect(locationParts[0]?.props.className).not.toContain("flex-1")
     expect(locationParts[0]?.props.className).toContain("truncate")
     expect(locationParts[1]?.props.className).toBe("shrink-0")
-    expect(locationParts[2]?.props.className).toContain("flex-1")
+    expect(locationParts[2]?.props.className).not.toContain("flex-1")
     expect(locationParts[2]?.props.className).toContain("truncate")
   })
 
@@ -310,7 +316,7 @@ describe("BotMarkSticker", () => {
     })
     const parts = location.findAllByType("span")
     expect(parts[0]?.props.className).toBe("shrink-0")
-    expect(parts[2]?.props.className).toContain("flex-1")
+    expect(parts[2]?.props.className).not.toContain("flex-1")
     expect(parts[2]?.props.className).toContain("truncate")
   })
 
@@ -341,6 +347,7 @@ describe("BotMarkSticker", () => {
     expect(stop.props.disabled).toBe(false)
     expect(stop.props.className).toContain("bg-[#dc2626]")
     expect(stop.props.className).toContain("text-white")
+    expect(stop.props.className).toContain("min-h-11")
     const activeRow = renderer.root.findByProps({
       "data-testid": "community-bot-audit-preview-active",
     })

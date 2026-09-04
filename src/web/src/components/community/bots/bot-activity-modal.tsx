@@ -193,7 +193,7 @@ export function BotActivityModal({
                 type="button"
                 onClick={onLoadOlder}
                 disabled={isFetchingNextPage}
-                className="rounded-md px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground/70 hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                className="min-h-11 rounded-md px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-8"
               >
                 {isFetchingNextPage ? "Loading older" : "Load older"}
               </button>

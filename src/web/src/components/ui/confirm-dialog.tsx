@@ -44,6 +44,7 @@ export function ConfirmDialog({
           <Button
             variant="outline"
             size="sm"
+            className="h-11 sm:h-7"
             onClick={() => onOpenChange(false)}
             disabled={loading}
           >
@@ -52,6 +53,7 @@ export function ConfirmDialog({
           <Button
             variant={confirmVariant}
             size="sm"
+            className="h-11 sm:h-7"
             onClick={onConfirm}
             disabled={loading}
           >

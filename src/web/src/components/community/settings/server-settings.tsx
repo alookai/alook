@@ -140,18 +140,18 @@ function SettingsOverview({ serverId, serverName, serverDescription, serverIcon,
     setDesc(baseline.desc)
   }
   return (
-    <div className="mx-auto max-w-md space-y-10">
-      <section className="space-y-6">
+    <div className="mx-auto w-full max-w-md space-y-8">
+      <section className="space-y-8">
         {/* Server icon — centered in a soft rounded frame + hand-rolled pill
             (matches My Profile; a stock secondary Button reads as the old box). */}
-        <div className="flex flex-col items-center gap-3">
+        <div className="flex flex-col items-center gap-2">
           <span className="block overflow-hidden rounded-2xl ring-1 ring-border/50">
             <ServerIcon id={serverId} name={name} initial={avatarInitial(name)} icon={serverIcon} size={96} className="rounded-2xl" />
           </span>
           <button
             type="button"
             onClick={onUploadIcon}
-            className="flex items-center gap-1.5 rounded-full border border-border/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            className="flex min-h-11 items-center gap-2 rounded-full border border-border/50 px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:min-h-8"
           >
             <Camera className="size-3.5" /> Change icon
           </button>
@@ -164,34 +164,34 @@ function SettingsOverview({ serverId, serverName, serverDescription, serverIcon,
             placeholder="Server name"
             aria-label="Server name"
             data-testid={tid.serverSettingsName}
-            className="w-full border-0 bg-transparent px-0 py-1 text-2xl font-medium leading-[1.2] tracking-tight shadow-none outline-none placeholder:font-normal placeholder:text-muted-foreground/40 focus-visible:ring-0"
+            className="min-h-11 w-full rounded-sm border-0 bg-transparent px-0 py-1 text-xl font-medium leading-[1.2] tracking-tight shadow-none outline-none placeholder:font-normal placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-4 focus-visible:ring-offset-background sm:text-2xl"
           />
           <SlugHint {...namePreview} />
         </div>
         {/* Description — borderless auto-resizing textarea. */}
-        <div>
-          <div className="mb-1 text-xs text-muted-foreground">Description</div>
+        <div className="space-y-2">
+          <div className="text-xs text-muted-foreground">Description</div>
           <AutoResizeTextarea
             value={desc}
             onChange={(e) => setDesc(e.target.value)}
             placeholder="What's this server about?"
-            className="w-full border-0 bg-transparent px-0 py-1 text-sm text-foreground shadow-none outline-none placeholder:text-muted-foreground/40 focus-visible:ring-0"
+            className="min-h-11 w-full rounded-sm border-0 bg-transparent px-0 py-1 text-sm leading-6 text-foreground shadow-none outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-4 focus-visible:ring-offset-background"
           />
         </div>
-        <div className="flex items-center justify-end gap-2">
-          <Button variant="ghost" size="sm" onClick={cancel} disabled={!dirty}>Cancel</Button>
-          <Button size="sm" onClick={save} disabled={!dirty || namePreview.invalid}>Save changes</Button>
+        <div className="flex items-center justify-start gap-2">
+          <Button variant="ghost" size="sm" className="h-11 sm:h-8" onClick={cancel} disabled={!dirty}>Cancel</Button>
+          <Button size="sm" className="h-11 sm:h-8" onClick={save} disabled={!dirty || namePreview.invalid}>Save changes</Button>
         </div>
       </section>
 
-      <section className="space-y-3">
-        <h2 className="text-sm font-medium text-destructive">Danger Zone</h2>
+      <section className="space-y-4">
+        <h2 className="text-base font-medium tracking-tight text-destructive">Danger Zone</h2>
         {/* Unframed — the red heading + destructive button carry the signal;
             the extra border/box just added weight. */}
-        <p className="text-sm text-muted-foreground">
+        <p className="text-sm leading-6 text-muted-foreground">
           Deleting this server is permanent and cannot be undone. All channels, messages, and members will be permanently removed.
         </p>
-        <Button variant="destructive" size="sm" onClick={onRequestDelete}><Trash2 className="size-4" /> Delete Server</Button>
+        <Button variant="destructive" size="sm" className="h-11 sm:h-8" onClick={onRequestDelete}><Trash2 className="size-4" /> Delete Server</Button>
       </section>
     </div>
   )
@@ -201,7 +201,7 @@ function SettingsOverview({ serverId, serverName, serverDescription, serverIcon,
 // row (px-2 py-2 + 32px avatar + 8px paddingBottom) is shorter than the old
 // bordered card. Slight over/under-estimation is fine; react-virtual
 // re-measures each row after mount via `measureElement`.
-const SETTINGS_ROW_HEIGHT = 56
+const SETTINGS_ROW_HEIGHT = 68
 
 function SettingsMembers({ members, loading, loadingMore, hasMore, total, onLoadMore, onSearch, onOpenProfile, onKickMember, onSetRole }: {
   members: Member[]
@@ -264,17 +264,17 @@ function SettingsMembers({ members, loading, loadingMore, hasMore, total, onLoad
   return (
     <div className="mx-auto flex h-full min-h-0 max-w-xl flex-col">
       {onSearch && (
-        <div className="relative mb-3 shrink-0">
+        <div className="relative mb-4 shrink-0">
           <Search className="absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            className="h-9 pl-8"
+            className="h-11 pl-8 sm:h-9"
             placeholder="Search members"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
       )}
-      <div className="mb-3 shrink-0 text-sm text-muted-foreground">
+      <div className="mb-4 shrink-0 text-sm text-muted-foreground">
         {query ? `${members.length} matches` : `${shownCount} members`}
       </div>
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto thin-scrollbar">
@@ -296,7 +296,7 @@ function SettingsMembers({ members, loading, loadingMore, hasMore, total, onLoad
                 }}
               >
                 <div className="flex items-center gap-3 rounded-md px-2 py-2 transition-colors hover:bg-accent/40">
-                  <button onClick={(e) => onOpenProfile?.(m.name, e, undefined, m.userId)} className="shrink-0">
+                  <button onClick={(e) => onOpenProfile?.(m.name, e, undefined, m.userId)} className="grid size-11 shrink-0 place-items-center rounded-full focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:size-8">
                     <Avatar label={m.avatar} seed={m.userId} size={32} presence={m.status} ringColor="var(--background)" />
                   </button>
                   <div className="min-w-0 flex-1">
@@ -308,7 +308,7 @@ function SettingsMembers({ members, loading, loadingMore, hasMore, total, onLoad
                   ) : (
                     <DropdownMenu>
                       <DropdownMenuTrigger
-                        render={<button className={badgeVariants({ variant: "secondary" }) + " cursor-pointer gap-1"} />}
+                        render={<button className={badgeVariants({ variant: "secondary" }) + " min-h-11 cursor-pointer gap-1 sm:min-h-6"} />}
                       >
                         <Shield className="size-3.5" /> {capitalize(m.role)}
                       </DropdownMenuTrigger>
@@ -320,7 +320,7 @@ function SettingsMembers({ members, loading, loadingMore, hasMore, total, onLoad
                     </DropdownMenu>
                   )}
                   {m.role !== "owner" && (
-                    <Button variant="ghost" size="icon-sm" className="text-muted-foreground hover:text-destructive" aria-label="Kick member" onClick={() => onKickMember?.(m.id)}><Trash2 className="size-4" /></Button>
+                    <Button variant="ghost" size="icon-sm" className="size-11 text-muted-foreground hover:text-destructive sm:size-7" aria-label="Kick member" onClick={() => onKickMember?.(m.id)}><Trash2 className="size-4" /></Button>
                   )}
                 </div>
               </div>
@@ -357,8 +357,8 @@ function SettingsInvites({ invites, loading, onRevokeInvite, onCopyInvite }: {
             <div data-testid={tid.inviteToken} className="truncate font-mono text-sm">{iv.code}</div>
             <div className="text-xs text-muted-foreground" suppressHydrationWarning>by {iv.by} · {iv.uses}{iv.maxUses ? ` / ${iv.maxUses}` : ""} uses · {iv.expiresAt ? `expires ${formatRelativeTime(iv.expiresAt)}` : "never expires"}</div>
           </div>
-          <Button variant="secondary" size="sm" data-testid={tid.inviteCopy} onClick={() => onCopyInvite?.(iv.code)}>Copy</Button>
-          <Button variant="ghost" size="icon-sm" className="text-muted-foreground hover:text-destructive" aria-label="Revoke invite" onClick={() => setRevokingCode(iv.code)}><X className="size-4" /></Button>
+          <Button variant="secondary" size="sm" className="h-11 sm:h-8" data-testid={tid.inviteCopy} onClick={() => onCopyInvite?.(iv.code)}>Copy</Button>
+          <Button variant="ghost" size="icon-sm" className="size-11 text-muted-foreground hover:text-destructive sm:size-8" aria-label="Revoke invite" onClick={() => setRevokingCode(iv.code)}><X className="size-4" /></Button>
         </div>
       ))}
       <ConfirmDialog
@@ -400,9 +400,9 @@ export function SettingsNotifications({ serverId, level, onSetLevel }: { serverI
       <div className="mb-3 text-sm text-muted-foreground">Default notifications for this server</div>
       {bots.length > 0 && (
         <div className="mb-4 flex flex-wrap gap-1" aria-label="Notification actor">
-          <Button size="sm" variant={botId === null ? "secondary" : "ghost"} onClick={() => setBotId(null)}>You</Button>
+          <Button size="sm" className="h-11 sm:h-8" variant={botId === null ? "secondary" : "ghost"} onClick={() => setBotId(null)}>You</Button>
           {bots.map((bot) => (
-            <Button key={bot.id} size="sm" variant={botId === bot.id ? "secondary" : "ghost"} onClick={() => setBotId(bot.id)}>{bot.name}</Button>
+            <Button key={bot.id} size="sm" className="h-11 sm:h-8" variant={botId === bot.id ? "secondary" : "ghost"} onClick={() => setBotId(bot.id)}>{bot.name}</Button>
           ))}
         </div>
       )}
@@ -414,7 +414,7 @@ export function SettingsNotifications({ serverId, level, onSetLevel }: { serverI
           key={l.value}
           onClick={() => update(l.value, l.raw)}
           disabled={Boolean(botId && (botSetting.isLoading || botSetting.isError || setBotSetting.isPending))}
-          className={`flex w-full items-center gap-3 rounded-md px-2 py-2 text-left transition-colors disabled:opacity-50 ${selectedLevel === l.value ? "bg-accent" : "hover:bg-accent/40"}`}
+          className={`flex min-h-11 w-full items-center gap-3 rounded-md px-2 py-2 text-left transition-colors disabled:opacity-50 ${selectedLevel === l.value ? "bg-accent" : "hover:bg-accent/40"}`}
         >
           <span className={`grid size-4 shrink-0 place-items-center rounded-full border ${selectedLevel === l.value ? "border-primary" : "border-muted-foreground"}`}>
             {selectedLevel === l.value && <span className="size-2 rounded-full bg-primary" />}
@@ -435,19 +435,19 @@ export function SettingsNotifications({ serverId, level, onSetLevel }: { serverI
 function SettingsMembersSkeleton({ showSearch }: { showSearch: boolean }) {
   return (
     <div className="mx-auto flex h-full min-h-0 max-w-xl flex-col">
-      {showSearch && <Skeleton className="mb-3 h-9 shrink-0 rounded-md" />}
-      <Skeleton className="mb-3 h-4 w-24 shrink-0 rounded" />
+      {showSearch && <Skeleton className="mb-4 h-11 shrink-0 rounded-md sm:h-9" />}
+      <Skeleton className="mb-4 h-4 w-24 shrink-0 rounded" />
       <div className="min-h-0 flex-1 overflow-y-auto thin-scrollbar">
         <div className="space-y-2">
           {Array.from({ length: 5 }).map((_, i) => (
             <div key={i} className="flex items-center gap-3 rounded-md px-2 py-2">
-              <Skeleton className="size-8 shrink-0 rounded-full" />
+              <Skeleton className="size-11 shrink-0 rounded-full sm:size-8" />
               <div className="flex min-w-0 flex-1 flex-col gap-2">
                 <Skeleton className="h-4 w-2/5 rounded" />
                 <Skeleton className="h-3 w-16 rounded" />
               </div>
-              <Skeleton className="h-6 w-16 rounded-full" />
-              <Skeleton className="size-7 shrink-0 rounded-md" />
+              <Skeleton className="h-11 w-16 rounded-full sm:h-6" />
+              <Skeleton className="size-11 shrink-0 rounded-md sm:size-7" />
             </div>
           ))}
         </div>

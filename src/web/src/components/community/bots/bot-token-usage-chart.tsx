@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useState } from "react"
 import {
   Tooltip,
   TooltipContent,
@@ -175,7 +175,6 @@ export function BotTokenUsageHeatmap({
   const newestDay = usage?.capability === "supported" ? usage.days.at(-1) : undefined
   const [open, setOpen] = useState(false)
   const [selectedDayKey, setSelectedDayKey] = useState(newestDay?.day ?? "")
-  const dateRailRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!newestDay || usage?.days.some((day) => day.day === selectedDayKey)) return
@@ -185,11 +184,6 @@ export function BotTokenUsageHeatmap({
   useEffect(() => {
     if (breakpoint !== "mobile") setOpen(false)
   }, [breakpoint])
-
-  useEffect(() => {
-    if (!open || !dateRailRef.current) return
-    dateRailRef.current.scrollLeft = dateRailRef.current.scrollWidth
-  }, [open])
 
   if (!usage || usage.capability !== "supported") return null
 
@@ -201,6 +195,7 @@ export function BotTokenUsageHeatmap({
 
   if (breakpoint === "mobile") {
     const selectedDay = usage.days.find((day) => day.day === selectedDayKey) ?? newestDay
+    const mobileDays = [...usage.days].reverse()
     return (
       <Dialog
         open={open}
@@ -231,11 +226,10 @@ export function BotTokenUsageHeatmap({
             <DialogDescription>Choose a date to view exact token totals.</DialogDescription>
           </DialogHeader>
           <div
-            ref={dateRailRef}
             data-testid={tid.botUsageDateRail(botId)}
             className="-mx-1 flex min-w-0 gap-2 overflow-x-auto px-1 pb-1 overscroll-x-contain thin-scrollbar scrollbar-none"
           >
-            {usage.days.map((day) => {
+            {mobileDays.map((day) => {
               const selected = day.day === selectedDay?.day
               return (
                 <button

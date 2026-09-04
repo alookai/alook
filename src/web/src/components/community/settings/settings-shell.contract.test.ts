@@ -12,13 +12,16 @@ describe("shared settings shell", () => {
 
     expect(source).toContain("useBreakpoint()")
     expect(source).toContain('breakpoint === "mobile" ? "horizontal" : "vertical"')
-    expect(source).toContain("grid-rows-[3rem_auto_minmax(0,1fr)]")
+    expect(source).toContain("grid-rows-[4rem_auto_minmax(0,1fr)]")
     expect(source).toContain("sm:grid-cols-[11rem_minmax(0,1fr)]")
+    expect(source).toContain("sm:grid-rows-[4rem_minmax(0,1fr)]")
     expect(source).toContain("data-testid={tid.settingsNav}")
     expect(source).toContain("data-testid={tid.settingsContent}")
     expect(source).toContain("data-testid={tid.settingsClose}")
     expect(source).toContain("data-testid={tid.settingsLabel}")
     expect(source).toContain('className="size-11 sm:size-8"')
+    expect(source).toContain("sm:p-8 sm:pt-4")
+    expect(source).not.toContain("items-center border-b border-border")
     expect(source).toContain("<TabsContent {...props} keepMounted />")
   })
 

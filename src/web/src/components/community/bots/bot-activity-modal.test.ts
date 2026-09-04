@@ -138,6 +138,7 @@ describe("BotActivityModal CommunitySheet contract", () => {
     expect(source).not.toMatch(/>\s*Close\s*</)
     expect(source).not.toContain("truncate text-sm font-medium")
     expect(source).not.toContain("gap-1.5 text-[11px]")
+    expect(source).toContain("min-h-11 rounded-md")
   })
 
   it("keeps loading, empty, chronological day groups, and rows in the shared body", () => {

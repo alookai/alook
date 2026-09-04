@@ -189,6 +189,16 @@ describe("BotTokenUsageHeatmap", () => {
       }),
     }
     const renderer = render(usage)
+    const dateButtons = renderer.root.findAll((node) => (
+      typeof node.props["data-testid"] === "string"
+      && node.props["data-testid"].startsWith("community-bot-usage-dialog-day-bot_1-")
+    ))
+    expect(dateButtons[0]!.props["data-testid"]).toBe(
+      "community-bot-usage-dialog-day-bot_1-2026-08-30",
+    )
+    expect(dateButtons[29]!.props["data-testid"]).toBe(
+      "community-bot-usage-dialog-day-bot_1-2026-08-01",
+    )
     const newest = renderer.root.findByProps({
       "data-testid": "community-bot-usage-dialog-day-bot_1-2026-08-30",
     })

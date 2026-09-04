@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest"
 import { tid } from "./testids"
 
 describe("community QA selectors", () => {
+  it("exposes the current Web version in settings", () => {
+    expect(tid.settingsWebVersion).toBe("community-settings-web-version")
+  })
+
   it("exposes the global reconnect overlay independently from its Retry action", () => {
     expect(tid.wsReconnectOverlay).toBe("community-ws-reconnect-overlay")
     expect(tid.wsRetry).toBe("community-ws-retry")
