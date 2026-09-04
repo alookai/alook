@@ -179,6 +179,51 @@ describe("forum feed tag transition owner", () => {
     expect(ids(queryClient, null)).toEqual(["target"])
   })
 
+  it("restores an authoritative non-archive response into its moved cursor page", () => {
+    const queryClient = new QueryClient()
+    const key = communityKeys.forumFeed("forum_1", null)
+    const other = feed([{ id: "other", tags: ["keep"] }], "other_cursor")
+    const target = feed([{ id: "target", tags: ["bug"] }], "target_cursor")
+    queryClient.setQueryData<FeedData>(key, {
+      pages: [other.pages[0]!, target.pages[0]!],
+      pageParams: ["other_cursor", "target_cursor"],
+    })
+
+    const token = start(queryClient, ["bug"], ["bug", "archived"])
+    const movedTargetPage = feed([], "target_cursor")
+    queryClient.setQueryData<FeedData>(key, {
+      pages: [movedTargetPage.pages[0]!, other.pages[0]!],
+      pageParams: ["target_cursor", "other_cursor"],
+    })
+
+    commitForumFeedTagTransition(queryClient, token, [" BUG ", "bug"])
+
+    const restored = queryClient.getQueryData<FeedData>(key)!
+    expect(restored.pages[0]!.threads.map((row) => row.id)).toEqual(["target"])
+    expect(restored.pages[0]!.included.tags).toEqual([
+      { messageId: "opener_target", tag: "bug" },
+    ])
+    expect(ids(queryClient, null)).toEqual(["target", "other"])
+    expect(hasForumFeedTagTransition(queryClient, token)).toBe(false)
+  })
+
+  it("ignores non-partition cache keys and skips restore after cursor replacement", () => {
+    const queryClient = new QueryClient()
+    const key = communityKeys.forumFeed("forum_1", null)
+    queryClient.setQueryData(communityKeys.forumFeeds("forum_1"), feed([
+      { id: "unscoped", tags: ["bug"] },
+    ]))
+    queryClient.setQueryData(key, feed([
+      { id: "target", tags: ["bug"] },
+    ], "target_cursor"))
+
+    const token = start(queryClient, ["bug"], ["bug", "archived"])
+    queryClient.setQueryData(key, feed([], "replacement_cursor"))
+
+    expect(rollbackForumFeedTagTransition(queryClient, token)).toBe(true)
+    expect(ids(queryClient, null)).toEqual([])
+  })
+
   it("ignores an older success while a newer exact generation is active", () => {
     const queryClient = new QueryClient()
     const archivedKey = communityKeys.forumFeed("forum_1", "archived")
