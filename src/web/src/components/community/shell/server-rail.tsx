@@ -75,21 +75,26 @@ function ServerRailFrame({
       </div>
 
       <div
-        ref={scrollRef}
-        data-testid={tid.serverRailScroll}
-        className="min-h-0 w-full shrink overflow-y-auto overflow-x-clip py-2 thin-scrollbar scrollbar-none"
+        data-slot="community-server-rail-viewport"
+        className="flex min-h-0 w-full flex-1 flex-col items-center"
       >
-        {items}
-      </div>
+        <div
+          ref={scrollRef}
+          data-testid={tid.serverRailScroll}
+          className="min-h-0 w-full shrink overflow-y-auto overflow-x-clip py-2 thin-scrollbar scrollbar-none"
+        >
+          {items}
+        </div>
 
-      <div
-        data-slot="community-server-rail-add"
-        className="flex w-full shrink-0 justify-center pb-[calc(var(--community-rail-bottom-inset)+var(--app-safe-area-bottom))] sm:pb-(--community-rail-bottom-inset)"
-        style={{
-          "--community-rail-bottom-inset": `${bottomInset ?? 8}px`,
-        } as CSSProperties}
-      >
-        {add}
+        <div
+          data-slot="community-server-rail-add"
+          className="flex w-full shrink-0 justify-center pb-[calc(var(--community-rail-bottom-inset)+var(--app-safe-area-bottom))] sm:pb-(--community-rail-bottom-inset)"
+          style={{
+            "--community-rail-bottom-inset": `${bottomInset ?? 8}px`,
+          } as CSSProperties}
+        >
+          {add}
+        </div>
       </div>
       {children}
     </nav>
