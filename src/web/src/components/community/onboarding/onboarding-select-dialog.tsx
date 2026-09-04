@@ -51,7 +51,7 @@ export type OnboardingSelectOption = {
   accentKey?: string
 }
 
-export type OnboardingSelectDialogStatus =
+type OnboardingSelectDialogStatus =
   | "idle"
   | "loading"
   | "error"
@@ -86,6 +86,8 @@ export type OnboardingSelectDialogProps = {
   feedback?: string
   disabled?: boolean
   dismissible?: boolean
+  testId?: string
+  optionTestId?: (value: string) => string
 }
 
 function optionId(baseId: string, value: string) {
@@ -119,6 +121,8 @@ export function OnboardingSelectDialog({
   feedback,
   disabled = false,
   dismissible = false,
+  testId,
+  optionTestId,
 }: OnboardingSelectDialogProps) {
   const id = useId()
   const busy = status === "loading" || refreshing
@@ -154,6 +158,7 @@ export function OnboardingSelectDialog({
       }}
     >
       <DialogContent
+        data-testid={testId}
         showCloseButton={dismissible}
         overlayClassName="bg-black/20 supports-backdrop-filter:backdrop-blur-sm"
         className="max-h-[calc(100dvh-2rem)] gap-0 overflow-y-auto border-0 p-0 shadow-(--e2) ring-1 ring-foreground/10 thin-scrollbar sm:max-w-xl"
@@ -230,6 +235,7 @@ export function OnboardingSelectDialog({
                   return (
                     <FieldLabel
                       key={option.value}
+                      data-testid={optionTestId?.(option.value)}
                       htmlFor={itemId}
                       data-disabled={option.disabled || locked || undefined}
                       data-selected={selected || undefined}
@@ -287,6 +293,7 @@ export function OnboardingSelectDialog({
                     {customOption.label}
                   </FieldLabel>
                   <Input
+                    data-testid={optionTestId?.(customOption.value)}
                     id={optionId(id, `${customOption.value}-input`)}
                     value={customValue}
                     onChange={(event) => {

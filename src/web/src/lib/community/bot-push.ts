@@ -3,13 +3,18 @@ import type {
   BotAddedFrame,
   BotUpdatedFrame,
   BotRemovedFrame,
+  HostCommand,
   RuntimeConfig,
 } from "@alook/shared"
 import { wsDoFetch } from "@/lib/broadcast"
 
 const log = createLogger({ service: "community-bot-push" })
 
-type BotEventFrame = BotAddedFrame | BotUpdatedFrame | BotRemovedFrame
+type BotEventFrame =
+  | BotAddedFrame
+  | BotUpdatedFrame
+  | BotRemovedFrame
+  | Extract<HostCommand, { type: "agent:event" }>
 
 export type MachineUpdatePushResult =
   | { sent: number; deliveryError: false }
@@ -63,7 +68,7 @@ export async function pushBotEventToMachine(
   env: Env,
   machineId: string,
   event: BotEventFrame,
-): Promise<void> {
+): Promise<{ sent: number }> {
   const path = `/community-machine/by-id/${encodeURIComponent(machineId)}/push`
   try {
     const res = await wsDoFetch(
@@ -82,13 +87,19 @@ export async function pushBotEventToMachine(
         type: event.type,
         status: res.status,
       })
+      return { sent: 0 }
     }
+    const data = await res.json() as { sent?: unknown }
+    return typeof data.sent === "number" && Number.isSafeInteger(data.sent) && data.sent >= 0
+      ? { sent: data.sent }
+      : { sent: 0 }
   } catch (err) {
     log.warn("bot event push threw", {
       machineId,
       type: event.type,
       err: String(err),
     })
+    return { sent: 0 }
   }
 }
 

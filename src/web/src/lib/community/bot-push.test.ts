@@ -6,6 +6,7 @@ vi.mock("@/lib/broadcast", () => ({
 }))
 
 import {
+  pushBotEventToMachine,
   pushAgentResetToMachine,
   pushAgentModelSwitchToMachine,
   pushAgentProviderSwitchToMachine,
@@ -14,6 +15,49 @@ import {
 } from "./bot-push"
 
 const FAKE_ENV = { WS_DO_WORKER: {}, DEV_WS_DO_URL: undefined } as unknown as Env
+
+describe("pushBotEventToMachine agent:event", () => {
+  beforeEach(() => {
+    wsDoFetch.mockReset()
+  })
+
+  const event = {
+    type: "agent:event" as const,
+    agentId: "bot-1",
+    config: {
+      version: 1 as const,
+      runtime: "codex",
+      model: { kind: "default" as const },
+      mode: { kind: "default" as const },
+    },
+    launchId: "launch-1",
+    prompt: "Welcome the user.",
+  }
+
+  it("posts the narrow event body and returns the sent count", async () => {
+    wsDoFetch.mockResolvedValue(new Response(JSON.stringify({ sent: 1 }), { status: 200 }))
+
+    await expect(pushBotEventToMachine(FAKE_ENV, "machine/1", event)).resolves.toEqual({ sent: 1 })
+    const [, path, init, meta] = wsDoFetch.mock.calls[0]!
+    expect(path).toBe("/community-machine/by-id/machine%2F1/push")
+    expect(JSON.parse(init.body)).toEqual(event)
+    expect(meta).toEqual({ label: "machine/1", type: "agent:event" })
+  })
+
+  it("reports zero for offline, malformed, and transport failures", async () => {
+    wsDoFetch.mockResolvedValueOnce(new Response(JSON.stringify({ sent: 0 }), { status: 200 }))
+    await expect(pushBotEventToMachine(FAKE_ENV, "m", event)).resolves.toEqual({ sent: 0 })
+
+    wsDoFetch.mockResolvedValueOnce(new Response("down", { status: 503 }))
+    await expect(pushBotEventToMachine(FAKE_ENV, "m", event)).resolves.toEqual({ sent: 0 })
+
+    wsDoFetch.mockResolvedValueOnce(new Response(JSON.stringify({ sent: "one" }), { status: 200 }))
+    await expect(pushBotEventToMachine(FAKE_ENV, "m", event)).resolves.toEqual({ sent: 0 })
+
+    wsDoFetch.mockRejectedValueOnce(new Error("network"))
+    await expect(pushBotEventToMachine(FAKE_ENV, "m", event)).resolves.toEqual({ sent: 0 })
+  })
+})
 
 describe("pushMachineUpdate", () => {
   beforeEach(() => {

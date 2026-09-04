@@ -255,6 +255,57 @@ describe("AgentRouter — agent:wake", () => {
   });
 });
 
+describe("AgentRouter — agent:event", () => {
+  it("registers the agent and delivers the server text directly", async () => {
+    const { mgr, delivers, registers } = fakeManager();
+    const { ch, fire } = fakeChannel();
+    const router = new AgentRouter({ manager: mgr, channel: ch, runtimeReport: [{ id: "mock" }] });
+    await router.start();
+
+    await fire({
+      type: "agent:event",
+      agentId: "a1",
+      config: { version: 1, runtime: "mock", model: { kind: "default" }, mode: { kind: "default" } },
+      launchId: "onboard-1",
+      prompt: "Welcome the user and suggest one collaboration.",
+    });
+
+    expect(registers).toEqual([{ agentId: "a1", sessionId: undefined, launchId: "onboard-1" }]);
+    expect(delivers).toEqual([{
+      agentId: "a1",
+      id: "a1:event:onboard-1",
+      text: "Welcome the user and suggest one collaboration.",
+    }]);
+  });
+
+  it("contains delivery failures and logs them without exposing the prompt", async () => {
+    const manager = {
+      register: vi.fn(),
+      deliver: vi.fn(() => { throw new Error("delivery failed"); }),
+      liveSessionReports: () => [],
+      snapshot: () => ({ agents: {} }),
+    } as unknown as AgentProcessManager;
+    const { ch, fire } = fakeChannel();
+    const logger = stubLogger();
+    const router = new AgentRouter({ manager, channel: ch, runtimeReport: [{ id: "mock" }], logger });
+    await router.start();
+
+    await expect(fire({
+      type: "agent:event",
+      agentId: "a1",
+      config: { version: 1, runtime: "mock", model: { kind: "default" }, mode: { kind: "default" } },
+      launchId: "onboard-2",
+      prompt: "SECRET PROMPT",
+    })).resolves.toBeUndefined();
+
+    expect(logger.calls.warn).toEqual([["agent:event failed", [{
+      agentId: "a1",
+      err: "delivery failed",
+    }]]]);
+    expect(JSON.stringify(logger.calls.warn)).not.toContain("SECRET PROMPT");
+  });
+});
+
 describe("AgentRouter — agent:reset", () => {
   const CFG = { version: 1 as const, runtime: "mock", model: { kind: "default" as const }, mode: { kind: "default" as const } };
 

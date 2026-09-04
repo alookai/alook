@@ -2,12 +2,9 @@ import { parseAttemptedCountReceipt, queries, withD1Retry } from "@alook/shared"
 import type { RouterContext } from "../router-context"
 
 export async function handleMachinePush({ request, env, url, traceId, log }: RouterContext): Promise<Response | null> {
-  // POST /community-machine/by-id/<machineId>/push — push a bot event
-  // (bot:added / bot:updated / bot:removed) to the daemon connection for
-  // this machine. Looks up the live credential do_name via D1 and dispatches
-  // to the corresponding DO. Best-effort — if the daemon is offline the DO
-  // drops the event; cold-start warmup on reconnect re-syncs authoritative
-  // state.
+  // POST /community-machine/by-id/<machineId>/push — push a HostCommand to
+  // the daemon connection for this machine. Bot state frames are best-effort;
+  // callers of direct agent events inspect the returned real socket count.
   const pushToMachine = url.pathname.match(/^\/community-machine\/by-id\/([^/]+)\/push$/)
   if (!pushToMachine || request.method !== "POST") return null
 
@@ -43,7 +40,13 @@ export async function handleMachinePush({ request, env, url, traceId, log }: Rou
           body: bodyText,
         }),
       )
-      if (res.ok) delivered++
+      if (!res.ok) continue
+      const receipt = await res.json() as { sent?: unknown }
+      if (
+        typeof receipt.sent === "number"
+        && Number.isSafeInteger(receipt.sent)
+        && receipt.sent >= 0
+      ) delivered += receipt.sent
     } catch {
       // best-effort
     }

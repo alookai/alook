@@ -366,6 +366,7 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
                 />
               ) : null}
               <Button
+                data-testid={tid.onboardingStart}
                 variant="ghost"
                 onClick={() => startCommunityOnboarding({ guideAvatarSeed })}
               >

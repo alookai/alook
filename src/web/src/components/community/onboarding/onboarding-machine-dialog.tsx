@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { isPresenceOnline } from "@alook/shared"
 import { toast } from "sonner"
 
@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/dialog"
 import { useMachines } from "@/hooks/community/use-machines"
 import { apiFetch } from "@/lib/api/client"
+import { tid } from "@/lib/community/testids"
 
 export function OnboardingMachineDialog({
   open,
@@ -26,12 +27,14 @@ export function OnboardingMachineDialog({
   harnessLabel,
   onConnected,
   previewConnectedMachine,
+  previewCommand,
 }: {
   open: boolean
   harness: string
   harnessLabel: string
   onConnected: (machineId: string) => void
   previewConnectedMachine?: { id: string; hostname: string }
+  previewCommand?: string
 }) {
   const { machines, isSuccess, refetch } = useMachines()
   const connectedMachine = useMemo(
@@ -48,8 +51,11 @@ export function OnboardingMachineDialog({
   const [tokenId, setTokenId] = useState<string | null>(null)
   const [generating, setGenerating] = useState(false)
   const [generateError, setGenerateError] = useState<string | null>(null)
+  const generationInFlight = useRef(false)
 
   const generateCommand = useCallback(async () => {
+    if (generationInFlight.current) return
+    generationInFlight.current = true
     setGenerating(true)
     setGenerateError(null)
     try {
@@ -61,6 +67,7 @@ export function OnboardingMachineDialog({
     } catch {
       setGenerateError("Couldn’t prepare the command. Try again.")
     } finally {
+      generationInFlight.current = false
       setGenerating(false)
     }
   }, [])
@@ -71,6 +78,7 @@ export function OnboardingMachineDialog({
       !isSuccess ||
       onlineMachine ||
       previewConnectedMachine ||
+      previewCommand ||
       tokenId ||
       generating ||
       generateError
@@ -84,6 +92,7 @@ export function OnboardingMachineDialog({
     onlineMachine,
     open,
     previewConnectedMachine,
+    previewCommand,
     tokenId,
   ])
 
@@ -98,11 +107,11 @@ export function OnboardingMachineDialog({
   const command = tokenId ? buildPairCommand(tokenId) : ""
   const displayedCommand = previewConnectedMachine
     ? "npx --yes @alook/daemon@latest daemon start --machine-key preview-machine-key"
-    : command
+    : previewCommand ?? command
   const copyCommand = async () => {
-    if (!command) return
+    if (!displayedCommand) return
     try {
-      await navigator.clipboard.writeText(command)
+      await navigator.clipboard.writeText(displayedCommand)
       toast.success("Command copied")
     } catch {
       toast.error("Copy failed")
@@ -112,6 +121,7 @@ export function OnboardingMachineDialog({
   return (
     <Dialog open={open}>
       <DialogContent
+        data-testid={tid.onboardingMachineDialog}
         showCloseButton={false}
         overlayClassName="bg-black/20 supports-backdrop-filter:backdrop-blur-sm"
         className="max-h-[calc(100dvh-2rem)] gap-0 overflow-y-auto p-0 thin-scrollbar sm:max-w-lg"
@@ -141,6 +151,7 @@ export function OnboardingMachineDialog({
             command={displayedCommand}
             generating={
               !previewConnectedMachine
+              && !previewCommand
               && (!isSuccess || generating || (!command && !generateError))
             }
             generationError={generateError}

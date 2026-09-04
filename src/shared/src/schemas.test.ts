@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest"
 import {
   CommunityBotCreateRequestSchema,
   CommunityBotPatchRequestSchema,
+  CommunityServerOnboardRequestSchema,
   AgentActivityMessageSchema,
   AgentTypingMessageSchema,
   AgentTypingStopMessageSchema,
@@ -26,6 +27,35 @@ function validCreatePayload(image?: string) {
     ...(image !== undefined ? { image } : {}),
   }
 }
+
+describe("CommunityServerOnboardRequestSchema", () => {
+  it("accepts unique bots and one direct prompt", () => {
+    expect(CommunityServerOnboardRequestSchema.safeParse({
+      botIds: ["bot-a", "bot-b"],
+      wakePrompt: "Welcome the user.",
+    }).success).toBe(true)
+  })
+
+  it("rejects duplicates, blank prompts, and extra fields", () => {
+    expect(CommunityServerOnboardRequestSchema.safeParse({
+      botIds: ["bot-a", "bot-a"],
+      wakePrompt: "Welcome",
+    }).success).toBe(false)
+    expect(CommunityServerOnboardRequestSchema.safeParse({
+      botIds: [],
+      wakePrompt: "Welcome",
+    }).success).toBe(false)
+    expect(CommunityServerOnboardRequestSchema.safeParse({
+      botIds: ["bot-a"],
+      wakePrompt: "   ",
+    }).success).toBe(false)
+    expect(CommunityServerOnboardRequestSchema.safeParse({
+      botIds: ["bot-a"],
+      wakePrompt: "Welcome",
+      channelId: "not-supported",
+    }).success).toBe(false)
+  })
+})
 
 describe("CommunityAgentNapRequestSchema", () => {
   it("rejects whitespace-only handoffs without trimming valid literal content", () => {

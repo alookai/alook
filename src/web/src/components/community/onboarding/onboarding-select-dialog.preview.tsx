@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 
 import { skipCommunityOnboarding } from "@/lib/community-onboarding"
+import { tid } from "@/lib/community/testids"
 import { ONBOARDING_HARNESSES, ONBOARDING_IDENTITIES } from "./onboarding-form-options"
 import { OnboardingMachineDialog } from "./onboarding-machine-dialog"
 import { OnboardingSelectDialog } from "./onboarding-select-dialog"
@@ -41,7 +42,9 @@ export function OnboardingSelectDialogPreview({
                 hostname: "QA preview machine",
               },
             }
-          : {})}
+          : {
+              previewCommand: "pnpm daemon start --machine-key preview-machine-key",
+            })}
         onConnected={() => {
           setMode("identity")
           setValue("")
@@ -77,6 +80,8 @@ export function OnboardingSelectDialogPreview({
           }
         : {})}
       submitLabel={isIdentity ? "Finish setup" : "Continue"}
+      testId={isIdentity ? tid.onboardingIdentityDialog : tid.onboardingHarnessDialog}
+      optionTestId={isIdentity ? tid.onboardingIdentityOption : tid.onboardingHarnessOption}
       onSubmit={(submittedValue) => {
         if (isIdentity) return
         setHarness(submittedValue)

@@ -791,6 +791,14 @@ export type HostCommand =
     /** The bodiless unread signal — the daemon prompts "pull your inbox". */
     unreadNotice: UnreadNotice;
   }
+  | {
+    /** Server-originated text delivered directly to one agent. */
+    type: "agent:event";
+    agentId: AgentId;
+    config: RuntimeConfig;
+    launchId: string;
+    prompt: string;
+  }
   | { type: "agent:stop"; agentId: AgentId }
   /**
    * Owner-triggered reset. Carries `config` because the daemon may not have
@@ -1478,6 +1486,13 @@ export const HostCommandSchema = z.discriminatedUnion("type", [
     sessionId: z.string().optional(),
     launchId: z.string().min(1),
     unreadNotice: z.unknown(),
+  }),
+  z.object({
+    type: z.literal("agent:event"),
+    agentId: z.string().min(1),
+    config: z.unknown(),
+    launchId: z.string().min(1),
+    prompt: z.string().min(1).max(32_768),
   }),
   z.object({
     type: z.literal("agent:stop"),

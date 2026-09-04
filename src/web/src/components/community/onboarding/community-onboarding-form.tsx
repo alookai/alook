@@ -21,6 +21,7 @@ import {
   type OnboardingInitializationResult,
   type OnboardingInitializationStep,
 } from "./initialize-community-onboarding"
+import { tid } from "@/lib/community/testids"
 import { OnboardingSelectDialog } from "./onboarding-select-dialog"
 import { OnboardingStatusDialog } from "./onboarding-status-dialog"
 
@@ -110,6 +111,8 @@ export function CommunityOnboardingForm() {
         onSubmit={(value) => {
           advanceCommunityOnboarding("harness", "machine", { harness: value })
         }}
+        testId={tid.onboardingHarnessDialog}
+        optionTestId={tid.onboardingHarnessOption}
       />
     )
   }
@@ -152,6 +155,8 @@ export function CommunityOnboardingForm() {
             identity: value,
           })
         }}
+        testId={tid.onboardingIdentityDialog}
+        optionTestId={tid.onboardingIdentityOption}
       />
     )
   }

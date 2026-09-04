@@ -1158,6 +1158,7 @@ export type CommunityDaemonEnrollAgentResponse = z.infer<typeof CommunityDaemonE
 // ---------------------------------------------------------------------------
 
 import {
+  COMMUNITY_BOT_LIMIT_PER_OWNER,
   COMMUNITY_BOT_NAME_MIN,
   COMMUNITY_BOT_NAME_MAX,
   COMMUNITY_BOT_DESCRIPTION_MAX,
@@ -1248,6 +1249,19 @@ export const CommunityBotAddToServerRequestSchema = z.object({
 });
 export type CommunityBotAddToServerRequest = z.infer<
   typeof CommunityBotAddToServerRequestSchema
+>;
+
+export const CommunityServerOnboardRequestSchema = z.strictObject({
+  botIds: z.array(z.string().min(1).max(128))
+    .min(1)
+    .max(COMMUNITY_BOT_LIMIT_PER_OWNER)
+    .refine((ids) => new Set(ids).size === ids.length, "botIds must be unique"),
+  wakePrompt: z.string()
+    .max(32_768)
+    .refine((value) => value.trim().length > 0, "wakePrompt is required"),
+});
+export type CommunityServerOnboardRequest = z.infer<
+  typeof CommunityServerOnboardRequestSchema
 >;
 
 // ---------------------------------------------------------------------------

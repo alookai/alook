@@ -345,7 +345,13 @@ function Step1({
             {generationError}
           </p>
           {onRetry ? (
-            <Button type="button" variant="outline" size="sm" onClick={onRetry}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              data-testid={tid.machinePairRetry}
+              onClick={onRetry}
+            >
               <RefreshCw className="size-4" />
               Try again
             </Button>

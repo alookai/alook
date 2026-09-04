@@ -11,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { tid } from "@/lib/community/testids"
 
 export function OnboardingStatusDialog({
   status,
@@ -26,6 +27,7 @@ export function OnboardingStatusDialog({
   return (
     <Dialog open>
       <DialogContent
+        data-testid={tid.onboardingInitializeStatus}
         showCloseButton={false}
         overlayClassName="bg-black/20 supports-backdrop-filter:backdrop-blur-sm"
         className="gap-0 overflow-hidden p-0 sm:max-w-md"
@@ -67,7 +69,12 @@ export function OnboardingStatusDialog({
         {status !== "loading" ? (
           <DialogFooter className="m-0 rounded-b-xl px-4 py-3 sm:px-6 sm:py-4">
             {status === "error" ? (
-              <Button type="button" className="h-11 sm:h-9" onClick={onRetry}>
+              <Button
+                type="button"
+                className="h-11 sm:h-9"
+                onClick={onRetry}
+                data-testid={tid.onboardingInitializeRetry}
+              >
                 <RefreshCwIcon />
                 Try again
               </Button>

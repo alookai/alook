@@ -529,6 +529,26 @@ export class AgentRouter {
           return;
         }
         break;
+      case "agent:event":
+        this.log.info("agent:event received", { agentId: cmd.agentId });
+        try {
+          await this.opts.onBeforeAgent?.(cmd.agentId);
+          this.opts.manager.register(cmd.agentId, {
+            runtimeConfig: cmd.config,
+            launchId: cmd.launchId,
+          });
+          this.running.add(cmd.agentId);
+          this.opts.manager.deliver(cmd.agentId, {
+            id: `${cmd.agentId}:event:${cmd.launchId}`,
+            text: cmd.prompt,
+          });
+        } catch (err) {
+          this.log.warn("agent:event failed", {
+            agentId: cmd.agentId,
+            err: err instanceof Error ? err.message : String(err),
+          });
+        }
+        break;
       case "agent:reset":
         await this.runRestartCommand(cmd.agentId, cmd.launchId, "agent:reset", () =>
           this.opts.manager.resetSession(cmd.agentId, {

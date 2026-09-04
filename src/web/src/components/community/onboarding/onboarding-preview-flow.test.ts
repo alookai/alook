@@ -51,5 +51,13 @@ describe("onboarding preview flow", () => {
     expect(machinesPageSource).toContain('onboardingPreview === "online"')
     expect(previewSource).toContain("simulateOnlineMachine")
     expect(previewSource).toContain('id: "preview-machine"')
+    expect(previewSource).toContain("previewCommand:")
+  })
+
+  it("exposes the canonical harness and identity testids in preview mode", () => {
+    expect(previewSource).toContain("tid.onboardingHarnessDialog")
+    expect(previewSource).toContain("tid.onboardingHarnessOption")
+    expect(previewSource).toContain("tid.onboardingIdentityDialog")
+    expect(previewSource).toContain("tid.onboardingIdentityOption")
   })
 })

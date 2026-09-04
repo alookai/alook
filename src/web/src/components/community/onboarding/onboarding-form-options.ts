@@ -35,12 +35,6 @@ export const ONBOARDING_HARNESSES = [
   },
 ] as const satisfies readonly OnboardingSelectOption[]
 
-export type OnboardingIdentity =
-  | "office"
-  | "developer"
-  | "founder"
-  | "home"
-
 export const ONBOARDING_IDENTITIES = [
   {
     value: "office",
