@@ -30,6 +30,9 @@ vi.mock("@/stores/community", () => ({
     getState: () => ({ uiHandlers: { navigate: mocks.navigate } }),
   },
 }))
+vi.mock("@/contexts/community/current-user", () => ({
+  useCurrentUser: () => ({ id: "user-1", name: "Ada" }),
+}))
 vi.mock("./initialize-community-onboarding", () => ({
   initializeCommunityOnboarding: (...args: unknown[]) => mocks.initialize(...args),
 }))
@@ -64,6 +67,9 @@ describe("CommunityOnboardingForm room navigation", () => {
 
     const status = renderer.root.findByType("onboarding-status-dialog")
     expect(status.props.status).toBe("success")
+    expect(mocks.initialize).toHaveBeenCalledWith(expect.objectContaining({
+      userName: "Ada",
+    }))
 
     act(() => {
       status.props.onContinue()

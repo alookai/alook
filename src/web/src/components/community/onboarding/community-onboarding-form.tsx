@@ -23,6 +23,7 @@ import {
   type OnboardingInitializationStep,
 } from "./initialize-community-onboarding"
 import { tid } from "@/lib/community/testids"
+import { useCurrentUser } from "@/contexts/community/current-user"
 import { OnboardingSelectDialog } from "./onboarding-select-dialog"
 import { OnboardingStatusDialog } from "./onboarding-status-dialog"
 
@@ -32,6 +33,7 @@ function harnessLabel(value?: string) {
 
 export function CommunityOnboardingForm() {
   const pathname = usePathname()
+  const currentUser = useCurrentUser()
   const state = useCommunityOnboarding()
   const [harness, setHarness] = useState("")
   const [identity, setIdentity] = useState("")
@@ -49,7 +51,8 @@ export function CommunityOnboardingForm() {
   const runningRef = useRef(false)
   const pendingCompletionDestinationRef = useRef<string | null>(null)
   useEffect(() => {
-    if (!state && consumeQueuedCommunityOnboarding()) startCommunityOnboarding()
+    const queued = consumeQueuedCommunityOnboarding()
+    if (!state && queued) startCommunityOnboarding()
   }, [state])
 
   useEffect(() => {
@@ -76,6 +79,7 @@ export function CommunityOnboardingForm() {
         machineId: state.machineId,
         runtime: state.harness,
         identity: state.identity,
+        userName: currentUser.name,
         checkpoint: checkpointRef.current,
         onCheckpoint: (checkpoint) => {
           checkpointRef.current = checkpoint
@@ -94,7 +98,7 @@ export function CommunityOnboardingForm() {
     } finally {
       runningRef.current = false
     }
-  }, [state])
+  }, [currentUser.name, state])
 
   useEffect(() => {
     if (state?.stage === "initializing" && initializationStatus === "idle") {
