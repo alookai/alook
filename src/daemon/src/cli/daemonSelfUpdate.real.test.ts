@@ -15,6 +15,7 @@ const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "daemon-self-update-fi
 const baseDirs = new Set<string>();
 let oldTgz = "";
 let newTgz = "";
+const strippedNpmContextLauncher = path.join(fixtureRoot, "launch-without-npm-context.mjs");
 
 interface ReadyObservation {
   socket: WebSocket;
@@ -61,9 +62,13 @@ function runNpmPackage(
   tgz: string,
   args: string[],
   env: NodeJS.ProcessEnv = {},
+  withoutNpmExecPath = false,
 ): Promise<{ code: number | null; output: string }> {
   return new Promise((resolve, reject) => {
-    execFile("npm", ["exec", "--yes", `--package=${tgz}`, "--", "alook-daemon", ...args], {
+    const packageCommand = withoutNpmExecPath
+      ? [process.execPath, strippedNpmContextLauncher]
+      : ["alook-daemon"];
+    execFile("npm", ["exec", "--yes", `--package=${tgz}`, "--", ...packageCommand, ...args], {
       env: { ...process.env, ...env },
       maxBuffer: 10 * 1024 * 1024,
       shell: commandShimShell(),
@@ -174,14 +179,18 @@ async function waitFor<T>(read: () => T | undefined | false, timeoutMs = 90_000)
   throw new Error("self-update condition timed out");
 }
 
-async function startOld(baseDir: string, control: ControlServer): Promise<ReadyObservation> {
+async function startOld(
+  baseDir: string,
+  control: ControlServer,
+  withoutNpmExecPath = false,
+): Promise<ReadyObservation> {
   const result = await runNpmPackage(oldTgz, [
     "daemon", "start",
     "--machine-key", credential,
     "--server-url", control.serverUrl,
     "--ws-url", control.wsUrl,
     "--base-dir", baseDir,
-  ], { NODE_ENV: "test" });
+  ], { NODE_ENV: "test" }, withoutNpmExecPath);
   expect(result.code).toBe(0);
   expect(result.output).toContain("started in background");
   return await waitFor(() => control.ready.find((entry) => entry.frame.daemonVersion === "9.9.0"));
@@ -229,6 +238,16 @@ async function waitForUpdateSettled(baseDir: string, timeoutMs = 45_000): Promis
 }
 
 beforeAll(() => {
+  fs.writeFileSync(strippedNpmContextLauncher, [
+    'import { spawnSync } from "node:child_process";',
+    "const env = { ...process.env };",
+    "delete env.npm_execpath;",
+    'const executable = process.platform === "win32" ? "alook-daemon.cmd" : "alook-daemon";',
+    'const result = spawnSync(executable, process.argv.slice(2), { env, stdio: "inherit", shell: process.platform === "win32" });',
+    "if (result.error) throw result.error;",
+    "process.exit(result.status ?? 1);",
+    "",
+  ].join("\n"), { mode: 0o600 });
   execPackageManagerSync(["run", "build"], { cwd: packageRoot, stdio: "pipe" });
   oldTgz = packFixture("9.9.0");
   newTgz = packFixture("9.9.1");
@@ -276,6 +295,31 @@ describe("daemon self-update real package/process handoff", () => {
       });
       expect(updateEvents(baseDir)).toContain("replacement_ready");
       expect(fs.readFileSync(path.join(daemonDir(baseDir), "update.log"), "utf8")).not.toContain(credential);
+    } finally {
+      await control.close();
+    }
+  }, 120_000);
+
+  it("upgrades through PATH when the running daemon has no npm_execpath", async () => {
+    const control = await createControlServer();
+    try {
+      const baseDir = makeBaseDir(control, newTgz);
+      const firstReady = await startOld(baseDir, control, true);
+      const oldOwner = readOwner(baseDir);
+
+      firstReady.socket.send(JSON.stringify({ type: "machine:update" }));
+
+      const nextReady = await waitFor(() => control.ready.find((entry) => entry.frame.daemonVersion === "9.9.1"));
+      const newOwner = await waitFor(() => {
+        if (!fs.existsSync(pidfile(baseDir))) return false;
+        const owner = readOwner(baseDir);
+        return owner.pid !== oldOwner.pid ? owner : false;
+      });
+      expect(nextReady.frame.daemonVersion).toBe("9.9.1");
+      expect(alive(oldOwner.pid)).toBe(false);
+      expect(alive(newOwner.pid)).toBe(true);
+      expect(newOwner.machineId).toBe(oldOwner.machineId);
+      expect(updateEvents(baseDir)).toContain("replacement_ready");
     } finally {
       await control.close();
     }
