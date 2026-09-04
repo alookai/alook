@@ -775,7 +775,7 @@ export function LandingMobileChatMotion({ beat }: { beat: number }) {
     <div
       ref={stageRef}
       className={styles.mobileStage}
-      data-testid="landing-mobile-motion-stage"
+      data-testid={tid.landingMobileMotionStage}
       data-beat={snapshot.beat}
       aria-hidden
     >
@@ -796,6 +796,7 @@ export function LandingMobileChatMotion({ beat }: { beat: number }) {
                 rightPanel={null}
                 onToggle={() => {}}
                 mobileBack={() => {}}
+                mobileBackDisplay="always"
                 tools={{ threads: false, pinned: false, members: false }}
               />
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden">

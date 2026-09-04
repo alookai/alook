@@ -12,6 +12,10 @@ describe("community QA selectors", () => {
     expect(tid.onboardingIdentityOption("founder")).toBe("community-onboarding-identity-founder")
   })
 
+  it("exposes the landing mobile motion stage from the canonical registry", () => {
+    expect(tid.landingMobileMotionStage).toBe("landing-mobile-motion-stage")
+  })
+
   it("exposes the adaptive Inbox surface from the canonical registry", () => {
     expect(tid.userBar).toBe("community-user-bar")
     expect(tid.inboxTrigger).toBe("community-inbox-trigger")

@@ -54,7 +54,20 @@ describe("landing community preview rendering", () => {
     expect(markup).not.toContain("Unknown")
     expect(header).toBeDefined()
     expect(header).toContain('aria-label="Back"')
-    expect(header).toMatch(/class="[^"]*size-11[^"]*sm:hidden[^"]*"/)
+    expect(header).toMatch(/class="[^"]*size-11[^"]*"/)
     expect(header).not.toContain('aria-label="Gus"')
+  })
+
+  it("keeps true mobile header geometry when embedded in a desktop preview", () => {
+    const markup = renderToStaticMarkup(createElement(LandingMobileChatMotion, {
+      beat: SCENE_MAX_BEAT.server,
+    }))
+    const header = channelHeader(markup)
+    const back = header?.match(/<button[^>]*aria-label="Back"[^>]*>/)?.[0]
+
+    expect(back).toBeDefined()
+    expect(back).toContain("size-11")
+    expect(back).not.toContain("sm:hidden")
+    expect(header).not.toContain("sm:ml-1")
   })
 })

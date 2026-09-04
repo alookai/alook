@@ -39,16 +39,24 @@ export function MessageHeader({
   )
 }
 
-export function MessageHeaderMobileBack({ onNavigate, label = "Back" }: {
+export function MessageHeaderMobileBack({
+  onNavigate,
+  label = "Back",
+  display = "viewport",
+}: {
   onNavigate: () => void
   label?: string
+  display?: "viewport" | "always"
 }) {
   return (
     <Button
       variant="ghost"
       size="icon"
       onClick={onNavigate}
-      className="size-11 shrink-0 text-muted-foreground hover:text-foreground sm:hidden"
+      className={cn(
+        "size-11 shrink-0 text-muted-foreground hover:text-foreground",
+        display === "viewport" && "sm:hidden",
+      )}
       aria-label={label}
     >
       <ChevronLeft className="size-5" />

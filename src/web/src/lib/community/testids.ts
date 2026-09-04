@@ -89,6 +89,7 @@ export const tid = {
   machineUpdateConfirm: "machine-update-confirm",
   daemonUpdateNotice: "daemon-update-notice",
   daemonUpdateAction: "daemon-update-action",
+  landingMobileMotionStage: "landing-mobile-motion-stage",
   homeButton: "community-home-button",
   alookLogo: "community-alook-logo",
   botReportProblemItem: "bot-report-problem-item",
