@@ -7,6 +7,11 @@ describe("community QA selectors", () => {
     expect(tid.wsRetry).toBe("community-ws-retry")
   })
 
+  it("keys onboarding choices by their stored values", () => {
+    expect(tid.onboardingHarnessOption("codex")).toBe("community-onboarding-harness-codex")
+    expect(tid.onboardingIdentityOption("founder")).toBe("community-onboarding-identity-founder")
+  })
+
   it("exposes the adaptive Inbox surface from the canonical registry", () => {
     expect(tid.userBar).toBe("community-user-bar")
     expect(tid.inboxTrigger).toBe("community-inbox-trigger")

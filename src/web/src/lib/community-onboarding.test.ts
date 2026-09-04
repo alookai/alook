@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const analytics = vi.hoisted(() => ({
   started: vi.fn(),
@@ -17,6 +17,8 @@ vi.mock("@/lib/analytics", () => ({
 import {
   advanceCommunityOnboarding,
   completeCommunityOnboarding,
+  consumeQueuedCommunityOnboarding,
+  queueCommunityOnboarding,
   readCommunityOnboardingState,
   recoverCommunityOnboardingMachine,
   skipCommunityOnboarding,
@@ -29,6 +31,36 @@ describe("community onboarding journey", () => {
   beforeEach(() => {
     skipCommunityOnboarding();
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("persists a pending signup journey until it is consumed once", () => {
+    const pending = new Map<string, string>();
+    vi.stubGlobal("window", {
+      sessionStorage: {
+        getItem: (key: string) => pending.get(key) ?? null,
+        removeItem: (key: string) => pending.delete(key),
+        setItem: (key: string, value: string) => pending.set(key, value),
+      },
+    });
+
+    queueCommunityOnboarding();
+    expect(consumeQueuedCommunityOnboarding()).toBe(true);
+    expect(consumeQueuedCommunityOnboarding()).toBe(false);
+  });
+
+  it("keeps signup navigation usable when session storage is blocked", () => {
+    vi.stubGlobal("window", {
+      get sessionStorage(): Storage {
+        throw new Error("storage blocked");
+      },
+    });
+
+    expect(() => queueCommunityOnboarding()).not.toThrow();
+    expect(consumeQueuedCommunityOnboarding()).toBe(false);
   });
 
   it("starts only from an explicit trigger", () => {
@@ -98,6 +130,12 @@ describe("community onboarding journey", () => {
     expect(readCommunityOnboardingState()).toBeNull();
     expect(analytics.stageCompleted).toHaveBeenLastCalledWith("initializing");
     expect(analytics.completed).toHaveBeenCalledOnce();
+  });
+
+  it("does not complete before initialization finishes", () => {
+    startCommunityOnboarding();
+    expect(completeCommunityOnboarding()).toEqual({ status: "active", stage: "harness" });
+    expect(analytics.completed).not.toHaveBeenCalled();
   });
 
   it("publishes in-memory state changes to mounted consumers", () => {

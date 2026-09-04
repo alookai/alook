@@ -118,6 +118,57 @@ describe("initializeCommunityOnboarding", () => {
     expect(apiFetch.mock.calls[0]![0]).toBe("/api/community/channels/private-1/members")
   })
 
+  it("rejects a checkpoint that cannot restore created resources", async () => {
+    apiFetch
+      .mockResolvedValueOnce({ bot: { id: "" } })
+      .mockResolvedValueOnce({ bot: { id: "bot-b" } })
+      .mockResolvedValueOnce({ server: { id: "server-1" } })
+
+    await expect(initializeCommunityOnboarding({
+      machineId: "machine-1",
+      runtime: "codex",
+      identity: "developer",
+      userName: "Ada",
+    })).rejects.toThrow("Setup progress could not be restored")
+  })
+
+  it("rejects a room whose default channels are missing", async () => {
+    apiFetch.mockResolvedValueOnce({ channels: [] })
+
+    await expect(initializeCommunityOnboarding({
+      machineId: "machine-1",
+      runtime: "codex",
+      identity: "developer",
+      userName: "Ada",
+      checkpoint: {
+        botAId: "bot-a",
+        botBId: "bot-b",
+        serverId: "server-1",
+      },
+    })).rejects.toThrow("The new room is missing its default channels")
+  })
+
+  it("rejects default channels whose ids cannot be restored", async () => {
+    apiFetch.mockResolvedValueOnce({
+      channels: [
+        { id: "", name: "all" },
+        { id: "", name: "room" },
+      ],
+    })
+
+    await expect(initializeCommunityOnboarding({
+      machineId: "machine-1",
+      runtime: "codex",
+      identity: "developer",
+      userName: "Ada",
+      checkpoint: {
+        botAId: "bot-a",
+        botBId: "bot-b",
+        serverId: "server-1",
+      },
+    })).rejects.toThrow("Default channels could not be restored")
+  })
+
   it("maps each identity to a stable room name", () => {
     expect(onboardingRoomName("Ada", "developer")).toBe("Ada-dev-room")
     expect(onboardingRoomName("Gus Ye", "founder")).toBe("Gus-Ye-founder-room")
