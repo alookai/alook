@@ -50,13 +50,17 @@ async function holdRequest(page: Page, pattern: string) {
   return { hits: () => hits, release }
 }
 
+const shellPanel = (page: Page, id: "sidebar" | "main") => (
+  page.locator(`[data-slot="resizable-panel"][data-testid="${id}"]`)
+)
+
 async function visibleGeometry(page: Page): Promise<Geometry> {
   const landmarks = {
     shell: page.locator('[data-slot="community-shell-root"]'),
     surface: page.locator('[data-slot="community-app-surface"]'),
     rail: page.locator('[data-slot="community-server-rail-viewport"]'),
-    sidebar: page.locator('[data-slot="community-sidebar-panel"]'),
-    main: page.locator('[data-slot="community-main-panel"]'),
+    sidebar: shellPanel(page, "sidebar"),
+    main: shellPanel(page, "main"),
     userBar: page.locator('[data-slot="community-user-bar-overlay"]'),
   }
   const result: Geometry = {}
@@ -162,7 +166,7 @@ test.describe.serial("community pending-to-loaded geometry matrix", () => {
     const dmId = await seedDm("alice", userId("bob"))
     await seedMessage("alice", dmId, dmMessage)
 
-    const main = (page: Page) => page.locator('[data-slot="community-main-panel"]')
+    const main = (page: Page) => shellPanel(page, "main")
     const messageReady = (content: string) => (page: Page) =>
       main(page).getByText(content, { exact: true }).first()
     const threadComposerReady = (page: Page) => page

@@ -176,7 +176,6 @@ export function CommunityShellLayout({
             onLayoutChanged={onLayoutChanged}
           >
             <ResizablePanel
-              data-slot="community-sidebar-panel"
               id="sidebar"
               defaultSize="24%"
               minSize={160}
@@ -200,7 +199,6 @@ export function CommunityShellLayout({
             </ResizablePanel>
             <ResizableHandle className={cn("bg-transparent", !isDesktop && "hidden")} />
             <ResizablePanel
-              data-slot="community-main-panel"
               id="main"
               defaultSize="76%"
               hidden={isMobileList}
