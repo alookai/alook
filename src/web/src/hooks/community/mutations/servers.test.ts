@@ -85,7 +85,7 @@ describe("useLeaveServer — optimistic + rollback", () => {
     expect(projection.projectUnread("servers", "c1", false)).toBe(true)
   })
 
-  it("removes the server row and restores on failure", async () => {
+  it.each(["leave", "delete"] as const)("%s removes the server row and restores on failure", async (operation) => {
     capturedQc.setQueryData(communityKeys.servers(), {
       servers: [
         { id: "srv_1", name: "n", initial: "N", active: false, unread: false, mentions: 0 },
@@ -93,7 +93,8 @@ describe("useLeaveServer — optimistic + rollback", () => {
     })
     apiFetchMock.mockRejectedValueOnce(new Error("boom"))
     const mod = await load()
-    mod.useLeaveServer()
+    if (operation === "leave") mod.useLeaveServer()
+    else mod.useDeleteServer()
     await runMutation({ serverId: "srv_1" }).catch(() => {})
     const cache = capturedQc.getQueryData<{ servers: { id: string }[] }>(communityKeys.servers())
     expect(cache?.servers).toHaveLength(1)

@@ -134,6 +134,19 @@ describe("useRemoveThreadParticipant", () => {
     expect(queryClient.getQueryData<ReturnType<typeof sidebarData>>(key)?.threads).toHaveLength(1)
   })
 
+  it("contains a failed retained-authority fetch after the viewer is re-added", async () => {
+    apiFetchMock.mockRejectedValueOnce(new Error("offline"))
+    const { useAddThreadParticipant } = await import("./use-thread-participants")
+    useAddThreadParticipant("post_1", "server_1", "viewer_1")
+
+    config.onSuccess?.(undefined, "viewer_1")
+
+    await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/community/servers/server_1/channels?"),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    ))
+  })
+
   it("does not touch forum sidebar resources for an ordinary text thread", async () => {
     const baseKey = communityKeys.forumSidebarThreads("server_1")
     const retainedKey = communityKeys.forumSidebarRetained("server_1", "forum_post")

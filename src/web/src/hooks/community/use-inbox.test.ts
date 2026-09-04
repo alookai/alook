@@ -574,6 +574,17 @@ describe("useInboxMentions / inboxMentionsQueryFn", () => {
     expect(projection.projectUnread("inbox-mentions", "c1", false)).toBe(false)
   })
 
+  it("cancels Mentions snapshot coverage when the transport fails", async () => {
+    apiFetchMock.mockRejectedValueOnce(new Error("offline"))
+    const { inboxMentionsProjectedQueryFn } = await import("./use-inbox")
+    const { AccountUnreadProjection } = await import("./account-unread-projection")
+    const projection = new AccountUnreadProjection("u1")
+
+    await expect(inboxMentionsProjectedQueryFn(projection)()).rejects.toThrow("offline")
+
+    expect(projection.inspectForTests().pendingSnapshots).toBe(0)
+  })
+
   it("filters read mentions, preserves unscoped rows, and reports pending arrivals", async () => {
     const scoped = { id: "m1", channelId: "c1", m: { seq: 2 } }
     const unscoped = { id: "m2", m: { seq: 1 } }

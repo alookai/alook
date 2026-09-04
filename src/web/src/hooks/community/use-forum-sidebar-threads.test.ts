@@ -158,6 +158,51 @@ describe("useForumSidebarThreads", () => {
     await act(async () => renderer.unmount())
   })
 
+  it("confirms a freshly retained child as authoritative access", async () => {
+    const base = envelope([])
+    const retained = envelope(["post-1"])
+    apiFetchMock
+      .mockResolvedValueOnce(base)
+      .mockResolvedValueOnce({
+        ...base,
+        canonicalChannels: [],
+        retainedChannel: retained.channels[0],
+        retainedDisposition: "eligible",
+        included: retained.included,
+      })
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const projection = getActiveAccountUnreadProjection(queryClient)
+    projection.retireAccessScope({ kind: "channel", channelId: "post-1" })
+    projection.grantAccessScope({ kind: "channel", channelId: "post-1" })
+    projection.recordArrival({ channelId: "post-1", serverId: "server-1", seq: 2 })
+    expect(projection.projectUnread("inbox-unreads", "post-1", false, 2)).toBe(false)
+
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        React.createElement(Capture, { retainId: null, onRender: () => undefined }),
+      ))
+    })
+    await waitFor(() => queryClient.getQueryState(
+      communityKeys.forumSidebarThreads("server-1"),
+    )?.status === "success")
+    await act(async () => {
+      renderer.update(React.createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        React.createElement(Capture, { retainId: "post-1", onRender: () => undefined }),
+      ))
+    })
+    await waitFor(() => queryClient.getQueryState(
+      communityKeys.forumSidebarRetained("server-1", "post-1"),
+    )?.status === "success")
+
+    expect(projection.projectUnread("inbox-unreads", "post-1", false, 2)).toBe(true)
+    await act(async () => renderer.unmount())
+  })
+
   it("preserves a genuine parent unread when a child fallback becomes locatable", () => {
     const queryClient = new QueryClient()
     queryClient.setQueryData(communityKeys.server("server-1"), serverDetail(true))

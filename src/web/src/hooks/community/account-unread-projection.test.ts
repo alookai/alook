@@ -1326,6 +1326,153 @@ describe("AccountUnreadProjection", () => {
     })
   })
 
+  it("enriches duplicate exact rows from arrivals and canonical snapshot evidence", () => {
+    const projection = new AccountUnreadProjection("u1")
+    projection.setNotificationPolicy({})
+    projection.recordArrival({ channelId: "arrival", seq: 2 })
+    projection.recordArrival({
+      channelId: "arrival",
+      serverId: "s1",
+      railChannelId: "forum-1",
+      seq: 2,
+    })
+    expect(projection.hasPending(undefined, "channels")).toBe(true)
+    expect(projection.projectServerChannelUnread("s1", "forum-1", [], false)).toBe(true)
+
+    projection.recordArrival({ channelId: "snapshot", seq: 3 })
+    const token = projection.beginSnapshot("inbox-mentions", "mentions")
+    projection.absorbSnapshot(token, [{
+      channelId: "snapshot",
+      serverId: "s1",
+      railChannelId: "forum-1",
+      lastUnreadSeq: 3,
+      lastMentionSeq: 3,
+      isMention: true,
+      attentionId: "attention-1",
+    }], { truncated: true })
+
+    expect(projection.projectUnread(
+      "inbox-mentions", "snapshot", false, 3, "mentions", null, true, "attention-1",
+    )).toBe(true)
+    expect(projection.projectServerChannelUnread("s1", "forum-1", [], false)).toBe(true)
+  })
+
+  it("preserves authoritative server and channel bases beneath pending policy overlays", () => {
+    const serverProjection = new AccountUnreadProjection("u1")
+    serverProjection.setNotificationPolicy({ server: { s1: "mentions" } })
+    const serverToken = serverProjection.beginNotificationPolicyOverlay({
+      kind: "server",
+      id: "s1",
+      level: "nothing",
+    })
+    serverProjection.setNotificationPolicy({ server: { s1: "all" } })
+    serverProjection.rollbackNotificationPolicyOverlay(serverToken)
+    serverProjection.recordArrival({
+      channelId: "c1", serverId: "s1", seq: 1, isMention: true,
+    })
+    expect(serverProjection.projectUnread("servers", "c1", false)).toBe(true)
+
+    const channelProjection = new AccountUnreadProjection("u1")
+    channelProjection.setNotificationPolicy({ channel: { c1: "mentions" } })
+    const channelToken = channelProjection.beginNotificationPolicyOverlay({
+      kind: "channel",
+      id: "c1",
+      level: "nothing",
+    })
+    channelProjection.setNotificationPolicy({ channel: { c1: "all" } })
+    channelProjection.rollbackNotificationPolicyOverlay(channelToken)
+    channelProjection.recordArrival({
+      channelId: "c1", serverId: "s1", seq: 1, isMention: true,
+    })
+    expect(channelProjection.projectUnread("servers", "c1", false)).toBe(true)
+
+    const absentChannelProjection = new AccountUnreadProjection("u1")
+    absentChannelProjection.recordArrival({ channelId: "c1", serverId: "s1", seq: 1 })
+    const absentToken = absentChannelProjection.beginNotificationPolicyOverlay({
+      kind: "channel",
+      id: "c1",
+      level: "nothing",
+    })
+    expect(absentChannelProjection.projectUnread("servers", "c1", false)).toBe(false)
+    absentChannelProjection.setNotificationPolicy({})
+    expect(absentChannelProjection.projectUnread("servers", "c1", false)).toBe(false)
+    absentChannelProjection.rollbackNotificationPolicyOverlay(absentToken)
+    expect(absentChannelProjection.projectUnread("servers", "c1", false)).toBe(true)
+  })
+
+  it("matches identity-free attention dismissals by seq and ignores newer dismissals in counts", () => {
+    const projection = new AccountUnreadProjection("u1")
+    projection.setNotificationPolicy({})
+    projection.beginDismissMention({
+      mentionId: "same-seq", channelId: "c1", seq: 4, countsServerMention: false,
+    })
+    expect(projection.projectUnread(
+      "inbox-mentions", "c1", true, 4, "mentions", null, true,
+    )).toBe(false)
+
+    projection.beginDismissMention({
+      mentionId: "future",
+      channelId: "c1",
+      seq: 5,
+      countsServerMention: true,
+    })
+    expect(projection.projectMentionCount("servers", "c1", 1, 4)).toBe(1)
+  })
+
+  it("settles a confirmed mark-all fence after its captured source is read", () => {
+    const projection = new AccountUnreadProjection("u1")
+    projection.setNotificationPolicy({})
+    projection.recordArrival({ channelId: "c1", serverId: "s1", seq: 1 })
+    const markAll = projection.beginMarkAll("channels")
+    projection.commitMarkAll(markAll, 1)
+    projection.acceptPrimarySnapshot({ revision: 1, readStates: [] })
+    projection.recordRead("c1", 1)
+
+    const snapshot = projection.beginSnapshot("servers", "channels")
+    projection.absorbSnapshot(snapshot, [])
+
+    expect(projection.projectUnread("servers", "fresh", true, 2)).toBe(true)
+  })
+
+  it("keeps every public operation inert after disposal", () => {
+    const projection = new AccountUnreadProjection("u1")
+    projection.dispose()
+    const listener = vi.fn()
+    projection.subscribe(listener)()
+    projection.setReconcileScheduler(listener)
+    projection.settleOptimisticRead(1, true, 1)
+    projection.acceptPrimarySnapshot({ revision: 1, readStates: [] })
+    projection.absorbFamily("servers", [{ channelId: "c1", lastUnreadSeq: 1 }])
+    expect(projection.projectUnread("servers", "c1", true, 1)).toBe(false)
+    expect(projection.projectMentionCount("servers", "c1", 1, 1)).toBe(0)
+
+    const policy = projection.beginNotificationPolicyOverlay({
+      kind: "server",
+      id: "s1",
+      level: "nothing",
+    })
+    projection.commitNotificationPolicyOverlay(policy)
+    projection.rollbackNotificationPolicyOverlay(policy)
+    const dismissal = projection.beginDismissMention({ mentionId: "m1", channelId: "c1" })
+    projection.commitDismissMention(dismissal)
+    projection.rollbackDismissMention(dismissal)
+    const retirement = projection.beginScopeRetirement({ kind: "server", serverId: "s1" })
+    projection.commitScopeRetirement(retirement)
+    projection.rollbackScopeRetirement(retirement)
+    projection.retireAccessScope({ kind: "server", serverId: "s1" })
+    projection.grantAccessScope({ kind: "server", serverId: "s1" })
+    projection.confirmAccessScopes(
+      [{ kind: "server", serverId: "s1" }],
+      projection.beginAccessConfirmation(),
+    )
+    const markAll = projection.beginMarkAll("channels")
+    projection.commitMarkAll(markAll, 1)
+    projection.rollbackMarkAll(markAll)
+    projection.dispose()
+
+    expect(listener).not.toHaveBeenCalled()
+  })
+
   it("fences late snapshots and mutations after disposal", () => {
     const projection = new AccountUnreadProjection("u1")
     projection.recordArrival({ channelId: "c1", serverId: "s1", seq: 1 })

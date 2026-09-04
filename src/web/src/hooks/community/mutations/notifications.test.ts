@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { QueryClient } from "@tanstack/react-query"
+import { USE_SERVER_DEFAULT } from "@alook/shared"
 import { communityKeys } from "@/lib/query-keys"
 
 const apiFetch = vi.fn()
 vi.mock("@/lib/api/client", () => ({ apiFetch: (...args: unknown[]) => apiFetch(...args) }))
 
 type MutationConfig = {
+  mutationFn?: (args: any) => Promise<unknown>
   onSuccess?: (data: unknown, args: any, context?: any) => void
   onMutate?: (args: any) => Promise<any>
   onError?: (error: unknown, args: any, context: any) => void
@@ -109,5 +111,80 @@ describe("notification mutation cache refresh", () => {
     expect(predicate!({ queryKey: communityKeys.channelReadStateSnapshot("child_1") } as any)).toBe(true)
     expect(predicate!({ queryKey: communityKeys.dmReadStateSnapshot("dm_1") } as any)).toBe(true)
     expect(predicate!({ queryKey: communityKeys.inbox() } as any)).toBe(false)
+  })
+
+  it("PUTs and rolls back a new channel override", async () => {
+    queryClient.setQueryData(communityKeys.notificationSettings(), {
+      raw: [],
+      server: {},
+      channel: {},
+    })
+    const { useSetChannelNotif } = await import("./notifications")
+    useSetChannelNotif()
+
+    const args = { channelId: "channel_1", level: "Nothing" }
+    const context = await config!.onMutate?.(args)
+    expect(queryClient.getQueryData(communityKeys.notificationSettings())).toMatchObject({
+      channel: { channel_1: "Nothing" },
+    })
+    await config!.mutationFn?.(args)
+    expect(apiFetch).toHaveBeenCalledWith(
+      "/api/community/users/me/notifications/channel/channel_1",
+      { method: "PUT", body: JSON.stringify({ level: "nothing" }) },
+    )
+
+    config!.onError?.(new Error("failed"), args, context)
+    expect(queryClient.getQueryData(communityKeys.notificationSettings())).toMatchObject({
+      channel: {},
+    })
+  })
+
+  it("DELETEs and restores an inherited channel override", async () => {
+    queryClient.setQueryData(communityKeys.notificationSettings(), {
+      raw: [],
+      server: {},
+      channel: { channel_1: "Nothing" },
+    })
+    const { useSetChannelNotif } = await import("./notifications")
+    useSetChannelNotif()
+
+    const args = { channelId: "channel_1", level: USE_SERVER_DEFAULT }
+    const context = await config!.onMutate?.(args)
+    expect(queryClient.getQueryData(communityKeys.notificationSettings())).toMatchObject({
+      channel: {},
+    })
+    await config!.mutationFn?.(args)
+    expect(apiFetch).toHaveBeenCalledWith(
+      "/api/community/users/me/notifications/channel/channel_1",
+      { method: "DELETE" },
+    )
+
+    config!.onError?.(new Error("failed"), args, context)
+    expect(queryClient.getQueryData(communityKeys.notificationSettings())).toMatchObject({
+      channel: { channel_1: "Nothing" },
+    })
+  })
+
+  it("does not let a failed channel override clobber a concurrent value", async () => {
+    queryClient.setQueryData(communityKeys.notificationSettings(), {
+      raw: [],
+      server: {},
+      channel: {},
+    })
+    const { useSetChannelNotif } = await import("./notifications")
+    useSetChannelNotif()
+    const args = { channelId: "channel_1", level: "Nothing" }
+    const context = await config!.onMutate?.(args)
+    queryClient.setQueryData(communityKeys.notificationSettings(), {
+      raw: [],
+      server: {},
+      channel: { channel_1: "All Messages" },
+    })
+
+    config!.onError?.(new Error("failed"), args, context)
+
+    expect(queryClient.getQueryData(communityKeys.notificationSettings())).toMatchObject({
+      channel: { channel_1: "All Messages" },
+    })
   })
 })

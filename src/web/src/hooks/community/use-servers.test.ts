@@ -19,7 +19,7 @@ vi.mock("@/lib/api/client", () => ({
 
 type CapturedQueryConfig = {
   enabled?: boolean
-  queryFn?: () => unknown
+  queryFn?: (context?: { signal?: AbortSignal }) => unknown
 }
 let capturedQueryConfig: CapturedQueryConfig | null = null
 let capturedHookQueryClient: QueryClient
@@ -122,6 +122,17 @@ describe("useServers / serversQueryFn", () => {
     await serversProjectedQueryFn(projection)()
 
     expect(projection.projectUnread("servers", "c1", false)).toBe(false)
+  })
+
+  it("cancels server-list snapshot coverage when the transport fails", async () => {
+    apiFetchMock.mockRejectedValueOnce(new Error("offline"))
+    const { serversProjectedQueryFn } = await import("./use-servers")
+    const { AccountUnreadProjection } = await import("./account-unread-projection")
+    const projection = new AccountUnreadProjection("u1")
+
+    await expect(serversProjectedQueryFn(projection)()).rejects.toThrow("offline")
+
+    expect(projection.inspectForTests().pendingSnapshots).toBe(0)
   })
 
   it("correlates cold rail unread sources with their attention facets", async () => {
@@ -245,6 +256,27 @@ describe("useServer / serverQueryFn", () => {
     expect(apiFetchMock).not.toHaveBeenCalled()
   })
 
+  it("executes the enabled hook query through the projected detail adapter", async () => {
+    capturedHookQueryClient.setQueryData(communityKeys.servers(), { servers: [{
+      id: "srv_1",
+      name: "Alook",
+      discriminator: "0001",
+      description: "",
+      icon: null,
+      ownerId: "u_1",
+    }] })
+    apiFetchMock.mockImplementation(async (url: string) => {
+      if (url.endsWith("/categories")) return { categories: [] }
+      if (url.endsWith("/channels")) return { channels: [] }
+      if (url.endsWith("/unreads")) return { channelIds: [], sources: [] }
+      throw new Error(`unexpected ${url}`)
+    })
+    const { useServer } = await import("./use-servers")
+    useServer("srv_1")
+
+    await expect(capturedQueryConfig?.queryFn?.()).resolves.toMatchObject({ id: "srv_1" })
+  })
+
   it("starts server-detail coverage before transport and preserves a later arrival", async () => {
     let resolveUnreads!: (value: { channelIds: string[]; sources: never[] }) => void
     const unreadResponse = new Promise<{ channelIds: string[]; sources: never[] }>(
@@ -284,6 +316,26 @@ describe("useServer / serverQueryFn", () => {
       .toBe(true)
   })
 
+  it("cancels server-detail snapshot coverage when transport fails before unread data", async () => {
+    apiFetchMock.mockRejectedValue(new Error("offline"))
+    const qc = new QueryClient()
+    qc.setQueryData(communityKeys.servers(), { servers: [{
+      id: "srv_1",
+      name: "Alook",
+      discriminator: "0001",
+      description: "",
+      icon: null,
+      ownerId: "u_1",
+    }] })
+    const { getAccountUnreadProjection } = await import("./account-unread-projection")
+    const projection = getAccountUnreadProjection(qc, "u1")
+    const { serverProjectedQueryFn } = await import("./use-servers")
+
+    await expect(serverProjectedQueryFn(qc, "srv_1")()).rejects.toThrow("offline")
+
+    expect(projection.inspectForTests().pendingSnapshots).toBe(0)
+  })
+
   it("merges stale server-detail positives before rejecting the cache write", async () => {
     apiFetchMock.mockImplementation(async (url: string) => {
       if (url.endsWith("/categories")) return { categories: [] }
@@ -311,6 +363,52 @@ describe("useServer / serverQueryFn", () => {
     await expect(serverProjectedQueryFn(qc, "srv_1")()).rejects.toThrow("stale D1 read")
 
     expect(projection.projectUnread("server-detail:srv_1", "c1", false)).toBe(true)
+  })
+
+  it("projects child scope metadata and confirms every loaded channel", async () => {
+    apiFetchMock.mockImplementation(async (url: string) => {
+      if (url.endsWith("/categories")) {
+        return { categories: [{ id: "cat_1", name: "Main", private: 0 }] }
+      }
+      if (url.endsWith("/channels")) {
+        return { channels: [{
+          id: "forum_1",
+          name: "Forum",
+          type: "forum",
+          categoryId: "cat_1",
+        }] }
+      }
+      if (url.endsWith("/unreads")) return {
+        channelIds: ["post_1"],
+        sources: [{ channelId: "post_1", lastUnreadSeq: 4, lastAttentionSeq: null }],
+        childChannels: [{ id: "post_1", parentChannelId: "forum_1" }],
+      }
+      throw new Error(`unexpected ${url}`)
+    })
+    const qc = new QueryClient()
+    qc.setQueryData(communityKeys.servers(), { servers: [{
+      id: "srv_1",
+      name: "Alook",
+      discriminator: "0001",
+      description: "",
+      icon: null,
+      ownerId: "u_1",
+    }] })
+    const { getAccountUnreadProjection } = await import("./account-unread-projection")
+    const projection = getAccountUnreadProjection(qc, "u1")
+    projection.setNotificationPolicy({
+      server: { srv_1: "all" },
+      channel: { forum_1: "nothing" },
+    })
+    projection.retireAccessScope({ kind: "channel", channelId: "forum_1" })
+    projection.grantAccessScope({ kind: "channel", channelId: "forum_1" })
+    const { serverProjectedQueryFn } = await import("./use-servers")
+
+    await serverProjectedQueryFn(qc, "srv_1")()
+
+    expect(projection.projectUnread("server-detail:srv_1", "post_1", false, 4)).toBe(false)
+    projection.recordArrival({ channelId: "forum_1", serverId: "srv_1", seq: 5 })
+    expect(projection.projectUnread("server-detail:srv_1", "forum_1", false, 5)).toBe(false)
   })
 
   it("projects server-detail channels from canonical sources only", async () => {

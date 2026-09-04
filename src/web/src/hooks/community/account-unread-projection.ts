@@ -410,11 +410,10 @@ export class AccountUnreadProjection {
       let membershipOrdinal = this.ordinal
       for (const family of families) {
         const previous = existing.families.get(family)
-        if (observedOrdinal !== undefined) {
-          if ((previous ?? -1) >= observedOrdinal) continue
-          existing.families.set(family, observedOrdinal)
-          changed = true
-        } else if (previous === undefined) {
+        // Snapshot evidence with an observed ordinal is merged by
+        // recordSnapshotSource before this fallback. An existing row here is
+        // therefore always a live-arrival merge and gets a fresh ordinal.
+        if (previous === undefined) {
           if (!changed) membershipOrdinal = ++this.ordinal
           existing.families.set(family, membershipOrdinal)
           changed = true

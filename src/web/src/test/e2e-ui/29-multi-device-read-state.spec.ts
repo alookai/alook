@@ -17,31 +17,63 @@ import {
   proxyCommunityWebSockets,
 } from "./_fixtures/community-ws-proxy"
 
-type CapturedReadStateEvent = CapturedCommunityFrame & {
-  type: "community:read_state.advanced" | "community:inbox.changed"
+type CapturedReadStateAdvancedEvent = CapturedCommunityFrame & {
+  type: "community:read_state.advanced"
   revision: number
   inboxChanged: boolean
 }
 
-function isCapturedReadStateEvent(event: CapturedCommunityFrame): event is CapturedReadStateEvent {
+type CapturedInboxChangedEvent = CapturedCommunityFrame & {
+  type: "community:inbox.changed"
+  revision: number
+  inboxChanged: boolean
+  reason: "read_all" | "mention_read_all" | "mention_dismiss" | "notification_policy"
+}
+
+function isCapturedReadStateAdvancedEvent(
+  event: CapturedCommunityFrame,
+): event is CapturedReadStateAdvancedEvent {
   return (
-    (event.type === "community:read_state.advanced" || event.type === "community:inbox.changed")
+    event.type === "community:read_state.advanced"
     && typeof event.revision === "number"
     && typeof event.inboxChanged === "boolean"
+  )
+}
+
+function isCapturedInboxChangedEvent(
+  event: CapturedCommunityFrame,
+): event is CapturedInboxChangedEvent {
+  return (
+    event.type === "community:inbox.changed"
+    && typeof event.revision === "number"
+    && typeof event.inboxChanged === "boolean"
+    && (
+      event.reason === "read_all"
+      || event.reason === "mention_read_all"
+      || event.reason === "mention_dismiss"
+      || event.reason === "notification_policy"
+    )
   )
 }
 
 function readStateEventsSince(
   frames: CapturedCommunityFrame[],
   start: number,
-): CapturedReadStateEvent[] {
+): CapturedReadStateAdvancedEvent[] {
   return frames
     .slice(start)
     .flatMap((frame) => communityFrameEvents(frame))
-    .filter((event): event is CapturedReadStateEvent => (
-      isCapturedReadStateEvent(event)
-      && event.type === "community:read_state.advanced"
-    ))
+    .filter(isCapturedReadStateAdvancedEvent)
+}
+
+function inboxChangedEventsSince(
+  frames: CapturedCommunityFrame[],
+  start: number,
+): CapturedInboxChangedEvent[] {
+  return frames
+    .slice(start)
+    .flatMap((frame) => communityFrameEvents(frame))
+    .filter(isCapturedInboxChangedEvent)
 }
 
 function unreadBumpsSince(
@@ -272,14 +304,8 @@ test("one human account converges read state across two browser profiles", async
   await expect(deviceA.page.getByText("Caught up", { exact: true })).toBeVisible({ timeout: 20_000 })
   await expect(deviceB.page.getByText("Caught up", { exact: true })).toBeVisible({ timeout: 20_000 })
 
-  const readAllEvents = (frames: typeof proxyA.frames, start: number) => frames
-    .slice(start)
-    .flatMap((frame) => communityFrameEvents(frame))
-    .filter((event): event is CapturedReadStateEvent => (
-      isCapturedReadStateEvent(event)
-      && event.type === "community:inbox.changed"
-      && event.reason === "read_all"
-    ))
+  const readAllEvents = (frames: typeof proxyA.frames, start: number) =>
+    inboxChangedEventsSince(frames, start).filter((event) => event.reason === "read_all")
   await expect.poll(() => readAllEvents(proxyA.frames, readAllFrameStarts[0]!).length, {
     timeout: 20_000,
   }).toBe(changedReadAllResults.length)
@@ -782,16 +808,26 @@ test("human author-send replaces both profiles while notification policy preserv
   expect(notificationStatus).toBe(200)
 
   for (const [proxy, start] of [[proxyA, notificationStarts[0]], [proxyB, notificationStarts[1]]] as const) {
-    await expect.poll(() => readStateEventsSince(proxy.frames, start!).length, {
+    await expect.poll(() => inboxChangedEventsSince(proxy.frames, start!).filter(
+      (event) => event.reason === "notification_policy",
+    ).length, {
       timeout: 20_000,
     }).toBe(1)
-    const event = readStateEventsSince(proxy.frames, start!)[0]!
+    const event = inboxChangedEventsSince(proxy.frames, start!)
+      .find((candidate) => candidate.reason === "notification_policy")!
+    expect(event).toMatchObject({
+      type: "community:inbox.changed",
+      reason: "notification_policy",
+      inboxChanged: true,
+    })
     expect(event.revision).toBeGreaterThan(authorEvents[0].revision)
     expect("readStates" in event).toBe(false)
   }
   const notificationEvents = [
-    readStateEventsSince(proxyA.frames, notificationStarts[0]!)[0]!,
-    readStateEventsSince(proxyB.frames, notificationStarts[1]!)[0]!,
+    inboxChangedEventsSince(proxyA.frames, notificationStarts[0]!)
+      .find((event) => event.reason === "notification_policy")!,
+    inboxChangedEventsSince(proxyB.frames, notificationStarts[1]!)
+      .find((event) => event.reason === "notification_policy")!,
   ]
   expect(notificationEvents[0].revision).toBe(notificationEvents[1].revision)
   await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(notificationChannelId))).toHaveCount(0)
@@ -816,10 +852,28 @@ test("human author-send replaces both profiles while notification policy preserv
   expect(restoreStatus).toBe(200)
 
   for (const [proxy, start] of [[proxyA, restoreStarts[0]], [proxyB, restoreStarts[1]]] as const) {
-    await expect.poll(() => readStateEventsSince(proxy.frames, start!).length, {
+    await expect.poll(() => inboxChangedEventsSince(proxy.frames, start!).filter(
+      (event) => event.reason === "notification_policy",
+    ).length, {
       timeout: 20_000,
     }).toBe(1)
+    const event = inboxChangedEventsSince(proxy.frames, start!)
+      .find((candidate) => candidate.reason === "notification_policy")!
+    expect(event).toMatchObject({
+      type: "community:inbox.changed",
+      reason: "notification_policy",
+      inboxChanged: true,
+    })
+    expect(event.revision).toBeGreaterThan(notificationEvents[0].revision)
+    expect("readStates" in event).toBe(false)
   }
+  const restoreEvents = [
+    inboxChangedEventsSince(proxyA.frames, restoreStarts[0]!)
+      .find((event) => event.reason === "notification_policy")!,
+    inboxChangedEventsSince(proxyB.frames, restoreStarts[1]!)
+      .find((event) => event.reason === "notification_policy")!,
+  ]
+  expect(restoreEvents[0].revision).toBe(restoreEvents[1].revision)
   await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(notificationChannelId))).toBeVisible()
   const restoredSnapshot = await (await deviceB.page.request.get(
     "/api/community/users/me/read-state",
