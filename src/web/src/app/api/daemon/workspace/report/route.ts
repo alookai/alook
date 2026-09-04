@@ -15,7 +15,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const [body, err] = await parseBody(req, WorkspaceFileReportSchema);
   if (err) return err;
 
-  const row = await withD1Retry(() => queries.workspaceFileRequest.getRequest(db, body.request_id));
+  const row = await withD1Retry(() => queries.workspaceFileRequest.getRequest(db, body.request_id, ctx.workspaceId));
   if (!row) return writeError("request not found", 404);
 
   const result = {
