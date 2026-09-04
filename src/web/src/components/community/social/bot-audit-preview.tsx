@@ -9,6 +9,7 @@ import {
 import { Activity, ChevronRight, Lock } from "lucide-react"
 import { useEffect, useState } from "react"
 import { useBotAuditPreview } from "@/hooks/community/use-bot-audit-preview"
+import type { AuditEvent } from "@/hooks/community/use-bot-audit-log"
 import {
   formatAuditPreviewTime,
   summarizeAuditEvent,
@@ -89,39 +90,60 @@ export function BotAuditPreview({
         </span>
         <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
       </div>
-      <div className="flex flex-col py-1">
-        {isLoading ? (
-          <PreviewSkeleton />
-        ) : isError ? (
-          <PreviewStateRow label="Activity unavailable" />
-        ) : visibleEvents.length > 0 ? (
-          visibleEvents.map((event) => (
-            <div
-              key={event.id}
-              data-testid={tid.botAuditPreviewRow(event.id)}
-              className="grid h-6 grid-cols-[3.25rem_minmax(0,1fr)] items-center gap-2 px-3 text-xs"
-            >
-              <time
-                dateTime={event.createdAt}
-                className="font-mono text-[10px] tabular-nums text-muted-foreground/70"
-              >
-                {formatAuditPreviewTime(event.createdAt)}
-              </time>
-              <span className="truncate text-muted-foreground">
-                {summarizeAuditEvent(event)}
-              </span>
-            </div>
-          ))
-        ) : (
-          <PreviewStateRow label="No recent activity" />
-        )}
-        {active && <ActiveRow latestEventAt={visibleEvents.at(-1)?.createdAt} />}
-      </div>
+      <BotAuditTimeline
+        events={visibleEvents}
+        isLoading={isLoading}
+        isError={isError}
+        active={active}
+      />
     </button>
   )
 }
 
-function ActiveRow({ latestEventAt }: { latestEventAt?: string }) {
+export function BotAuditTimeline({
+  events,
+  isLoading,
+  isError,
+  active,
+}: {
+  events: Array<Pick<AuditEvent, "id" | "kind" | "payload" | "createdAt">>
+  isLoading: boolean
+  isError: boolean
+  active: boolean
+}) {
+  return (
+    <div className="flex flex-col py-1">
+      {isLoading ? (
+        <PreviewSkeleton />
+      ) : isError ? (
+        <PreviewStateRow label="Activity unavailable" />
+      ) : events.length > 0 ? (
+        events.map((event) => (
+          <div
+            key={event.id}
+            data-testid={tid.botAuditPreviewRow(event.id)}
+            className="grid h-6 grid-cols-[3.25rem_minmax(0,1fr)] items-center gap-2 px-3 text-xs"
+          >
+            <time
+              dateTime={event.createdAt}
+              className="font-mono text-[10px] tabular-nums text-muted-foreground/70"
+            >
+              {formatAuditPreviewTime(event.createdAt)}
+            </time>
+            <span className="truncate text-muted-foreground">
+              {summarizeAuditEvent(event)}
+            </span>
+          </div>
+        ))
+      ) : (
+        <PreviewStateRow label="No recent activity" />
+      )}
+      {active && <BotAuditActiveRow latestEventAt={events.at(-1)?.createdAt} />}
+    </div>
+  )
+}
+
+export function BotAuditActiveRow({ latestEventAt }: { latestEventAt?: string }) {
   const [nowMs, setNowMs] = useState(Date.now)
 
   useEffect(() => {

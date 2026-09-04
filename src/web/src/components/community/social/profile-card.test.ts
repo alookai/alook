@@ -31,6 +31,31 @@ vi.mock("@/hooks/community/use-community-ws", () => ({
   communityWsInterruptAgent: mocks.interruptAgent,
 }))
 
+vi.mock("./bot-mark-sticker", () => ({
+  BotMarkSticker: ({
+    showStop,
+    stopPending,
+    onStop,
+  }: {
+    showStop: boolean
+    stopPending: boolean
+    onStop: () => void
+  }) => createElement(
+    "section",
+    { "data-testid": "community-bot-mark-sticker" },
+    showStop
+      ? createElement("button", {
+          type: "button",
+          onClick: onStop,
+          disabled: stopPending,
+          "aria-label": stopPending
+            ? "Stopping current agent turn"
+            : "Stop current agent turn",
+        }, stopPending ? "Stopping…" : "Stop")
+      : null,
+  ),
+}))
+
 afterEach(() => {
   vi.useRealTimers()
   mocks.interruptAgent.mockReset()
@@ -146,10 +171,10 @@ describe("ProfileCard contextual metadata", () => {
     expect(html).toContain(">@Owner</span>")
     expect(html).not.toContain(">@Owner#0042</span>")
     expect(html).toContain('aria-label="Open owner profile @Owner#0042"')
-    expect(html).not.toContain("community-bot-audit-preview")
+    expect(html).not.toContain("community-bot-mark-sticker")
   })
 
-  it("mounts the content-sized secondary preview only for the owning viewer", () => {
+  it("mounts the mark sticker only for the owning viewer", () => {
     const html = renderProfile({
       identity: {
         kind: "bot",
@@ -158,8 +183,7 @@ describe("ProfileCard contextual metadata", () => {
       },
     })
 
-    expect(html).toContain('data-testid="community-bot-audit-preview"')
-    expect(html).not.toContain("h-40")
+    expect(html).toContain('data-testid="community-bot-mark-sticker"')
   })
 
   it("shows Stop only for the owner while the bot is truly running", () => {
@@ -286,7 +310,9 @@ describe("ProfileCard contextual metadata", () => {
     expect(source).toContain('addEventListener("animationend", update)')
     expect(source).toContain("cardElement.offsetWidth")
     expect(source).toContain("previewElement.offsetWidth")
-    expect(source).toContain("onClick={interruptAgent}")
+    expect(source).toContain("<BotMarkSticker")
+    expect(source).toContain("onOpenActivity={() => onOpenBotAudit?.(data.userId!)}")
+    expect(source).toContain("onStop={interruptAgent}")
     expect(source).toContain("communityWsInterruptAgent(data.userId)")
   })
 })

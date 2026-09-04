@@ -45,6 +45,10 @@ describe("community QA selectors", () => {
     expect(tid.botAuditPreviewRow("event_1")).toBe(
       "community-bot-audit-preview-row-event_1",
     )
+    expect(tid.botMarkSticker).toBe("community-bot-mark-sticker")
+    expect(tid.botMarkStickerRow("mark_1")).toBe("community-bot-mark-sticker-row-mark_1")
+    expect(tid.botMarkStickerOverflow).toBe("community-bot-mark-sticker-overflow")
+    expect(tid.botMarkStickerStop).toBe("community-bot-mark-sticker-stop")
   })
 
   it("exposes stable composer and message-list surfaces", () => {

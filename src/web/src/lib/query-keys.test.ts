@@ -135,6 +135,12 @@ describe("communityKeys", () => {
     expect(communityKeys.botAuditPreview("b1")).not.toEqual(
       communityKeys.botAuditLog("b1"),
     )
+    expect(communityKeys.botMarks("b1")).toEqual([
+      "community",
+      "bot",
+      "b1",
+      "marks",
+    ])
     expect(communityKeys.message("m1")).toEqual([
       "community",
       "message",
