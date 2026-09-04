@@ -8,6 +8,7 @@ import {
   removeForumSidebarProjectionExact,
   removeForumSidebarUnreadChild,
 } from "@/hooks/community/use-forum-sidebar-threads"
+import { getActiveAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 
 // The participant READ hook was retired: the post/thread member panel now reads
 // the unified `/members` endpoint (via `useChannelMembers`), which returns the
@@ -55,6 +56,10 @@ export function useRemoveThreadParticipant(
     onSuccess: (_data, userId) => {
       void qc.invalidateQueries({ queryKey: communityKeys.channelMembers(channelId) })
       if (serverId && userId === viewerUserId) {
+        getActiveAccountUnreadProjection(qc).retireAccessScope({
+          kind: "channel",
+          channelId,
+        })
         if (forumSidebar) {
           removeForumSidebarUnreadChild(qc, serverId, channelId)
           removeForumSidebarProjectionExact(qc, serverId, channelId)
