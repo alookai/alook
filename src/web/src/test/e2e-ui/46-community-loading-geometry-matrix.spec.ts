@@ -173,7 +173,6 @@ test.describe.serial("community pending-to-loaded geometry matrix", () => {
       .getByTestId(tid.threadSplitPanel)
       .getByTestId(tid.composerInput)
     routes = [
-      { name: "root-machines", pathname: "/c", ready: (page) => page.getByTestId(tid.machinePairOpen) },
       { name: "me-list", pathname: "/c/me", mobileRail: true, ready: (page) => page.getByRole("button", { name: "Friends", exact: true }) },
       { name: "friends", pathname: "/c/me/friends", ready: (page) => page.getByPlaceholder("Search friends") },
       { name: "machines", pathname: "/c/me/machines", ready: (page) => page.getByTestId(tid.machinePairOpen) },
@@ -211,13 +210,66 @@ test.describe.serial("community pending-to-loaded geometry matrix", () => {
   })
 
   for (const theme of ["light", "dark"] as const satisfies readonly Theme[]) {
-    test(`${theme}: 20 route × viewport pending→loaded pairs keep shell CLS at zero`, async ({ asUser }, testInfo) => {
+    test(`${theme}: neutral root owns two viewport cold restores`, async ({ asUser }, testInfo) => {
+      for (const width of [390, 1280] as const) {
+        const { context, page } = await asUser("alice")
+        await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
+        await page.emulateMedia({ colorScheme: theme })
+        await page.addInitScript((storageKey) => {
+          localStorage.removeItem(storageKey)
+        }, `community:lastRoute:${encodeURIComponent(userId("alice"))}`)
+        const session = await holdSession(page)
+        await page.goto("/c", { waitUntil: "commit" })
+        await expect.poll(session.hits).toBeGreaterThan(0)
+
+        const frame = page.getByTestId(tid.initialFrame)
+        await expect(frame).toBeVisible()
+        await expect(frame).toHaveAttribute(
+          "data-community-route-kind",
+          "community-root-redirect",
+        )
+        await expect(page.getByTestId(tid.pendingMain("route-resolution"))).toBeVisible()
+        await expect(page.getByTestId(tid.pendingMain("machines"))).toHaveCount(0)
+        await expect(page.locator('[data-slot="community-shell-root"]')).toHaveCount(0)
+        await expect(page.getByTestId(tid.initialRailPending)).toHaveCount(0)
+        await expect(page.getByTestId(tid.dmSidebarPending)).toHaveCount(0)
+        await expect(page.locator(
+          `[data-testid^="${tid.channelSidebarPending("")}"]`,
+        ))
+          .toHaveCount(0)
+        await expect(page.getByTestId(tid.initialUserBarPending)).toHaveCount(0)
+        await expect(frame.getByRole("button")).toHaveCount(0)
+        await expect(frame.locator("a")).toHaveCount(0)
+        await expect(frame).not.toContainText("Machines")
+        expect(await page.evaluate(() => (
+          document.documentElement.scrollWidth <= document.documentElement.clientWidth
+        ))).toBe(true)
+
+        const pendingPath = testInfo.outputPath(`${theme}-${width}-root-neutral-pending.png`)
+        await page.screenshot({ path: pendingPath })
+        await testInfo.attach(`${theme}-${width}-root-neutral-pending`, {
+          path: pendingPath,
+          contentType: "image/png",
+        })
+
+        session.release()
+        await expect(page.getByTestId(tid.initialFrame)).toHaveCount(0, { timeout: 30_000 })
+        await expect.poll(() => new URL(page.url()).pathname).toBe("/c/me/machines")
+        await expect(page.getByTestId(tid.machinePairOpen)).toBeVisible({ timeout: 30_000 })
+        expect(await page.evaluate(() => (
+          document.documentElement.scrollWidth <= document.documentElement.clientWidth
+        ))).toBe(true)
+        await context.close()
+      }
+    })
+
+    test(`${theme}: 18 route × viewport pending→loaded pairs keep shell CLS at zero`, async ({ asUser }, testInfo) => {
       test.setTimeout(600_000)
       const cases: MatrixCase[] = routes.flatMap((route) => ([
         { ...route, width: 390 },
         { ...route, width: 1280 },
       ]))
-      expect(cases).toHaveLength(20)
+      expect(cases).toHaveLength(18)
 
       for (const entry of cases) {
         const { context, page } = await asUser("alice")
