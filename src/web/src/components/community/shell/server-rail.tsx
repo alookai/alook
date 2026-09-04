@@ -534,7 +534,12 @@ export function ServerRailPending({ bottomInset }: { bottomInset?: number }) {
     <ServerRailFrame
       ariaHidden
       bottomInset={bottomInset}
-      home={<Skeleton className="size-10 shrink-0 rounded-[20px]" />}
+      home={(
+        <Skeleton
+          data-slot="community-home-logo-pending"
+          className="size-10 shrink-0 rounded-[9px]"
+        />
+      )}
       items={<ServerRailSkeleton />}
     />
   )
