@@ -448,7 +448,7 @@ describe("landing content contract", () => {
     expect(reachSource).toContain('<LandingShellMotion scene="server" beat={beat} />')
     expect(reachSource).toContain("<LandingMobileChatMotion beat={beat} />")
     expect(shellSource).toContain('data-testid="landing-mobile-motion-stage"')
-    expect(shellSource).toContain("onBack={() => {}}")
+    expect(shellSource).toContain("mobileBack={() => {}}")
     expect(shellSource).toContain("stage.getBoundingClientRect().width / 390")
     expect(motionStyles).toContain("transform: scale(var(--mobile-stage-scale))")
     expect(motionStyles).toMatch(/\.mobileMessages\s*\{[\s\S]*?justify-content: flex-start;/)

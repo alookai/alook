@@ -7,6 +7,7 @@ import type {
   CommunityProfilePatch,
   CommunityProfileSnapshot,
 } from "@/lib/community/models/people"
+import { useCommunityPreviewProfiles } from "@/stores/community/profile-preview"
 
 /**
  * Zustand store for community WS-live-patched state.
@@ -338,13 +339,23 @@ export const useCommunityWsStore = create<CommunityWsStoreState>((set, get) => {
 // ── Selectors ────────────────────────────────────────────────────────────────
 
 export function useCommunityProfile(userId: string | null | undefined) {
-  return useCommunityWsStore((state) =>
-    userId ? state.profilesByUserId.get(userId) : undefined,
+  const previewProfiles = useCommunityPreviewProfiles()
+  const liveProfile = useCommunityWsStore((state) =>
+    previewProfiles || !userId
+      ? undefined
+      : state.profilesByUserId.get(userId),
   )
+  return previewProfiles && userId
+    ? previewProfiles.get(userId)
+    : liveProfile
 }
 
 export function useProfilesByUserId(): ReadonlyMap<string, CommunityProfile> {
-  return useCommunityWsStore((state) => state.profilesByUserId)
+  const previewProfiles = useCommunityPreviewProfiles()
+  const liveProfiles = useCommunityWsStore((state) =>
+    previewProfiles ? null : state.profilesByUserId,
+  )
+  return previewProfiles ?? liveProfiles!
 }
 
 const EMPTY_AUDIT_EVENTS: BotAuditEventEntry[] = []
