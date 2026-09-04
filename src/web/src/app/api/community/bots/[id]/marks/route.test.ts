@@ -82,6 +82,15 @@ describe("GET /api/community/bots/[id]/marks", () => {
     expect(listMarksForUser).not.toHaveBeenCalled()
   })
 
+  it("returns an empty queue without resolving channel or server metadata", async () => {
+    const response = await GET(request(), context())
+
+    expect(response.status).toBe(200)
+    expect(getChannelsByIds).not.toHaveBeenCalled()
+    expect(getServersByIds).not.toHaveBeenCalled()
+    await expect(response.json()).resolves.toEqual({ marked: [] })
+  })
+
   it("returns the bot's direct mark queue with a four-row preview limit", async () => {
     listMarksForUser.mockResolvedValue([
       {
