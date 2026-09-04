@@ -14,6 +14,52 @@ type ExpectedFrame = {
   serverId?: string
 }
 
+type ColdRootProbe = {
+  machinesSeen: boolean
+}
+
+const coldRootStorageKey = `community:lastRoute:${encodeURIComponent(userId("alice"))}`
+
+async function installColdRootProbe(page: Page, destination: string | null) {
+  await page.addInitScript(({ storageKey, storedDestination, machinesPendingTestId }) => {
+    const target = window as typeof window & { __communityColdRootProbe?: ColdRootProbe }
+    target.__communityColdRootProbe = { machinesSeen: false }
+    try {
+      if (storedDestination) localStorage.setItem(storageKey, storedDestination)
+      else localStorage.removeItem(storageKey)
+    } catch { }
+
+    const inspect = () => {
+      const machines = document.querySelector(
+        `[data-community-main-kind="machines"], [data-testid="${machinesPendingTestId}"]`,
+      )
+      if (machines) target.__communityColdRootProbe!.machinesSeen = true
+    }
+    const observe = () => {
+      if (!document.documentElement) {
+        globalThis.setTimeout(observe, 0)
+        return
+      }
+      new MutationObserver(inspect).observe(document.documentElement, {
+        childList: true,
+        subtree: true,
+      })
+      inspect()
+    }
+    observe()
+  }, {
+    storageKey: coldRootStorageKey,
+    storedDestination: destination,
+    machinesPendingTestId: tid.pendingMain("machines"),
+  })
+}
+
+async function expectNoMachinesDuringColdRootRestore(page: Page) {
+  expect(await page.evaluate(() => (
+    window as typeof window & { __communityColdRootProbe?: ColdRootProbe }
+  ).__communityColdRootProbe)).toEqual({ machinesSeen: false })
+}
+
 async function holdSession(page: Page) {
   let releaseGate!: () => void
   let disposition: "continue" | "abort" = "continue"
@@ -152,10 +198,10 @@ test.describe.serial("community initial-load module skeletons", () => {
     await seedDmMessage("alice", dmId, privateMessage)
   })
 
-  test("cold mobile paths expose only their URL-owned inert modules", async ({ asUser }) => {
+  test("cold mobile paths expose only their URL-owned inert modules", async ({ asUser }, testInfo) => {
     test.setTimeout(240_000)
     const cases: Array<[string, ExpectedFrame]> = [
-      ["/c", { route: "community-root-redirect", surface: "detail", sidebar: "me", main: "machines" }],
+      ["/c", { route: "community-root-redirect", surface: "neutral", sidebar: "none", main: "route-resolution" }],
       ["/c/me", { route: "me-root", surface: "list", sidebar: "me", main: "me-root" }],
       ["/c/me/friends", { route: "me-friends", surface: "detail", sidebar: "me", main: "friends" }],
       ["/c/me/machines", { route: "me-machines", surface: "detail", sidebar: "me", main: "machines" }],
@@ -175,6 +221,12 @@ test.describe.serial("community initial-load module skeletons", () => {
       await page.goto(pathname, { waitUntil: "commit" })
       await expect.poll(gate.hits).toBeGreaterThan(0)
       await expectOwnedFrame(page, expected, [serverName, channelName, privateMessage])
+      if (pathname === "/c") {
+        await testInfo.attach("community-root-neutral-390x844", {
+          body: await page.screenshot(),
+          contentType: "image/png",
+        })
+      }
       expect(traffic.requests).toEqual([])
       expect(traffic.sockets()).toBe(0)
       if (expected.main === "server-conversation") {
@@ -187,9 +239,10 @@ test.describe.serial("community initial-load module skeletons", () => {
     }
   })
 
-  test("desktop cold frames retain all route-owned shell columns", async ({ asUser }) => {
+  test("desktop cold frames retain all route-owned shell columns", async ({ asUser }, testInfo) => {
     test.setTimeout(120_000)
     for (const [pathname, expected] of [
+      ["/c", { route: "community-root-redirect", surface: "neutral", sidebar: "none", main: "route-resolution" }],
       [`/c/me/${dmId}`, { route: "dm-detail", surface: "detail", sidebar: "me", main: "dm" }],
       [`/c/channels/${serverId}`, { route: "server-root", surface: "list", sidebar: "server", main: "server-landing", serverId }],
       [`/c/channels/${serverId}/${channelId}`, { route: "server-detail", surface: "detail", sidebar: "server", main: "server-conversation", serverId }],
@@ -201,10 +254,94 @@ test.describe.serial("community initial-load module skeletons", () => {
       await page.goto(pathname, { waitUntil: "commit" })
       await expect.poll(gate.hits).toBeGreaterThan(0)
       await expectOwnedFrame(page, expected, [serverName, channelName, privateMessage])
+      if (pathname === "/c") {
+        await testInfo.attach("community-root-neutral-1280x900", {
+          body: await page.screenshot(),
+          contentType: "image/png",
+        })
+      }
       expect(traffic.requests).toEqual([])
       expect(traffic.sockets()).toBe(0)
       await closeHeldContext(context, gate)
     }
+  })
+
+  test("Android cold root restores channel, DM, and Bots without any Machines DOM", async ({ asUser }) => {
+    test.setTimeout(180_000)
+    const cases = [
+      {
+        destination: `/c/channels/${serverId}/${channelId}`,
+        ready: (page: Page) => page.getByText(privateMessage, { exact: true }).first(),
+      },
+      {
+        destination: `/c/me/${dmId}`,
+        ready: (page: Page) => page.getByText(privateMessage, { exact: true }).first(),
+      },
+      {
+        destination: "/c/me/bots",
+        ready: (page: Page) => page.getByRole("button", { name: /Create a bot|Connect a machine/ }),
+      },
+    ]
+
+    for (const { destination, ready } of cases) {
+      const { context, page } = await asUser("alice")
+      await page.setViewportSize({ width: 390, height: 844 })
+      await installColdRootProbe(page, destination)
+      const gate = await holdSession(page)
+      await page.goto("/c", { waitUntil: "commit" })
+      await expect.poll(gate.hits).toBeGreaterThan(0)
+      await expectOwnedFrame(page, {
+        route: "community-root-redirect",
+        surface: "neutral",
+        sidebar: "none",
+        main: "route-resolution",
+      }, [serverName, channelName, privateMessage])
+      const historyLength = await page.evaluate(() => history.length)
+
+      gate.release()
+      await expect.poll(() => new URL(page.url()).pathname).toBe(destination)
+      await expect(ready(page)).toBeVisible({ timeout: 30_000 })
+      expect(await page.evaluate(() => history.length)).toBe(historyLength)
+      await expectNoMachinesDuringColdRootRestore(page)
+      await context.close()
+    }
+  })
+
+  test("Android cold root falls back to Machines only without valid account memory", async ({ asUser }) => {
+    const { page } = await asUser("alice")
+    await page.setViewportSize({ width: 390, height: 844 })
+    await installColdRootProbe(page, null)
+    const gate = await holdSession(page)
+    await page.goto("/c", { waitUntil: "commit" })
+    await expect.poll(gate.hits).toBeGreaterThan(0)
+    await expect(page.getByTestId(tid.pendingMain("route-resolution"))).toBeVisible()
+    await expect(page.getByTestId(tid.pendingMain("machines"))).toHaveCount(0)
+    const historyLength = await page.evaluate(() => history.length)
+
+    gate.release()
+    await expect.poll(() => new URL(page.url()).pathname).toBe("/c/me/machines")
+    await expect(page.getByTestId(tid.machinePairOpen)).toBeVisible({ timeout: 30_000 })
+    expect(await page.evaluate(() => history.length)).toBe(historyLength)
+  })
+
+  test("a stale cold-root DM is replaced by the verified Machines fallback", async ({ asUser }) => {
+    const { page } = await asUser("alice")
+    const missingDm = `/c/me/dm_missing_${Date.now()}`
+    await page.setViewportSize({ width: 390, height: 844 })
+    await installColdRootProbe(page, missingDm)
+    const gate = await holdSession(page)
+    await page.goto("/c", { waitUntil: "commit" })
+    await expect.poll(gate.hits).toBeGreaterThan(0)
+    await expect(page.getByTestId(tid.pendingMain("route-resolution"))).toBeVisible()
+    const historyLength = await page.evaluate(() => history.length)
+
+    gate.release()
+    await expect.poll(() => new URL(page.url()).pathname, { timeout: 30_000 })
+      .toBe("/c/me/machines")
+    await expect(page.getByTestId(tid.machinePairOpen)).toBeVisible({ timeout: 30_000 })
+    expect(await page.evaluate(() => history.length)).toBe(historyLength)
+    expect(await page.evaluate((storageKey) => localStorage.getItem(storageKey), coldRootStorageKey))
+      .toBe("/c/me/machines")
   })
 
   test("639↔640 preserves one pending main node with zero request or socket delta", async ({ asUser }) => {

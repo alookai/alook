@@ -113,11 +113,10 @@ export function resolveCommunityModulePlan(href: string): CommunityModulePlan {
   if (segments.length === 1) {
     return {
       route: "community-root-redirect",
-      canonicalHref: "/c/me/machines",
-      surface: "detail",
-      rail: "community",
-      sidebar: { kind: "me" },
-      main: { kind: "machines" },
+      surface: "neutral",
+      rail: "none",
+      sidebar: { kind: "none" },
+      main: { kind: "route-resolution" },
     }
   }
 
