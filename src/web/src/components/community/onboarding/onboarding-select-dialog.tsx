@@ -9,6 +9,7 @@ import { useId, type FormEvent } from "react"
 import {
   CheckIcon,
   LoaderCircleIcon,
+  PencilIcon,
   RefreshCwIcon,
   type LucideIcon,
 } from "lucide-react"
@@ -34,7 +35,6 @@ import {
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
-import { tagColorClassName, tagColorStyle } from "@/lib/community/tag-color"
 import { cn } from "@/lib/utils"
 import {
   changeOnboardingCustomValue,
@@ -100,7 +100,6 @@ export function OnboardingSelectDialog({
   open,
   onOpenChange,
   step,
-  stepLabel,
   title,
   description,
   options,
@@ -161,11 +160,12 @@ export function OnboardingSelectDialog({
         data-testid={testId}
         showCloseButton={dismissible}
         overlayClassName="bg-black/20 supports-backdrop-filter:backdrop-blur-sm"
-        className="max-h-[calc(100dvh-2rem)] gap-0 overflow-y-auto border-0 p-0 shadow-(--e2) ring-1 ring-foreground/10 thin-scrollbar sm:max-w-xl"
+        className="max-h-[calc(100dvh-2rem)] gap-0 overflow-y-auto border-0 p-0 shadow-(--e2) ring-0 thin-scrollbar sm:max-w-xl"
+        initialFocus={false}
         aria-busy={busy}
       >
         <form onSubmit={handleSubmit}>
-          <DialogHeader className="gap-4 px-4 pt-4 pb-5 sm:px-6 sm:pt-6">
+          <DialogHeader className="gap-4 px-4 pt-4 pb-4 sm:px-6 sm:pt-6 sm:pb-6">
             {step ? (
               <div className="flex gap-1.5" aria-label={`Step ${step.current} of ${step.total}`}>
                 {Array.from({ length: step.total }, (_, index) => (
@@ -181,15 +181,8 @@ export function OnboardingSelectDialog({
                 ))}
               </div>
             ) : null}
-            <div className="flex min-w-0 items-center justify-between gap-4">
-              {stepLabel ? (
-                <p className="font-mono text-[10px] font-medium tracking-[0.12em] text-muted-foreground uppercase">
-                  {stepLabel}
-                </p>
-              ) : (
-                <span />
-              )}
-              {onRefresh ? (
+            {onRefresh ? (
+              <div className="flex justify-end">
                 <Button
                   type="button"
                   variant="ghost"
@@ -203,10 +196,10 @@ export function OnboardingSelectDialog({
                   />
                   {refreshLabel}
                 </Button>
-              ) : null}
-            </div>
+              </div>
+            ) : null}
             <div className="flex flex-col gap-2">
-              <DialogTitle className="text-[1.375rem] leading-tight font-semibold tracking-tight">
+              <DialogTitle className="text-2xl leading-tight font-semibold tracking-tight">
                 {title}
               </DialogTitle>
               {description ? (
@@ -240,23 +233,22 @@ export function OnboardingSelectDialog({
                       data-disabled={option.disabled || locked || undefined}
                       data-selected={selected || undefined}
                       className={cn(
-                        "min-h-16 cursor-pointer rounded-xl border border-border bg-card p-3 text-left shadow-none transition-[border-color,background-color,box-shadow,transform] has-[>[data-slot=field]]:rounded-xl has-[>[data-slot=field]]:border-border *:data-[slot=field]:p-0 hover:-translate-y-px hover:border-foreground/25 hover:bg-accent/50 active:translate-y-0 active:bg-accent has-focus-visible:ring-3 has-focus-visible:ring-ring/40 data-[disabled=true]:cursor-not-allowed data-[disabled=true]:bg-muted/40 data-[disabled=true]:text-muted-foreground data-[selected=true]:bg-accent/30",
-                        selected && "border-foreground/60 shadow-(--e1) ring-1 ring-foreground/10 has-[>[data-slot=field]]:border-foreground/60",
+                        "min-h-14 cursor-pointer rounded-lg border-0 bg-transparent px-2 py-3 text-left shadow-none transition-colors duration-150 has-[>[data-slot=field]]:rounded-lg has-[>[data-slot=field]]:border-0 *:data-[slot=field]:p-0 hover:bg-accent/50 active:bg-accent has-focus-visible:ring-3 has-focus-visible:ring-ring/40 data-[disabled=true]:cursor-not-allowed data-[disabled=true]:bg-muted/40 data-[disabled=true]:text-muted-foreground",
+                        selected && "bg-accent",
                       )}
                     >
-                      <Field orientation="horizontal" className="items-center gap-3">
+                      <Field
+                        orientation="horizontal"
+                        className="items-center gap-3 has-[>[data-slot=field-content]]:items-center"
+                      >
                         <span
                           aria-hidden
-                          className={cn(
-                            tagColorClassName,
-                            "grid size-9 shrink-0 place-items-center rounded-lg ring-1 ring-current/10",
-                          )}
-                          style={tagColorStyle(option.accentKey ?? option.value)}
+                          className="grid size-5 shrink-0 place-items-center text-foreground"
                         >
                           {option.provider ? (
                             <ProviderLogo provider={option.provider} className="size-5" />
                           ) : OptionIcon ? (
-                            <OptionIcon className="size-4" />
+                            <OptionIcon className="size-5" />
                           ) : (
                             <span className="text-xs font-semibold uppercase">
                               {option.label.slice(0, 1)}
@@ -285,34 +277,35 @@ export function OnboardingSelectDialog({
               </RadioGroup>
 
               {customOption ? (
-                <Field className="gap-2 pt-1">
+                <Field className="pt-1">
                   <FieldLabel
                     htmlFor={optionId(id, `${customOption.value}-input`)}
-                    className="text-sm font-medium"
+                    className="flex min-h-14 w-full items-center gap-3 px-2 text-sm font-medium"
                   >
-                    {customOption.label}
+                    <PencilIcon aria-hidden className="size-5 shrink-0" />
+                    <span className="shrink-0">{customOption.label}</span>
+                    <Input
+                      data-testid={optionTestId?.(customOption.value)}
+                      id={optionId(id, `${customOption.value}-input`)}
+                      value={customValue}
+                      onChange={(event) => {
+                        const nextState = changeOnboardingCustomValue(
+                          event.target.value,
+                          customOption.value,
+                        )
+                        onValueChange(nextState.value)
+                        onCustomValueChange?.(nextState.customValue)
+                      }}
+                      placeholder={customOption.placeholder}
+                      autoComplete="organization-title"
+                      disabled={locked}
+                      aria-invalid={(customSelected && invalid) || undefined}
+                      className={cn(
+                        "h-9 min-w-0 max-w-xs flex-1 rounded-none border-0 border-b bg-transparent px-0 shadow-none focus-visible:border-foreground focus-visible:ring-0 disabled:bg-transparent dark:bg-transparent dark:disabled:bg-transparent",
+                        customSelected ? "border-foreground" : "border-input",
+                      )}
+                    />
                   </FieldLabel>
-                  <Input
-                    data-testid={optionTestId?.(customOption.value)}
-                    id={optionId(id, `${customOption.value}-input`)}
-                    value={customValue}
-                    onChange={(event) => {
-                      const nextState = changeOnboardingCustomValue(
-                        event.target.value,
-                        customOption.value,
-                      )
-                      onValueChange(nextState.value)
-                      onCustomValueChange?.(nextState.customValue)
-                    }}
-                    placeholder={customOption.placeholder}
-                    autoComplete="organization-title"
-                    disabled={locked}
-                    aria-invalid={(customSelected && invalid) || undefined}
-                    className={cn(
-                      "h-11 bg-card px-3",
-                      customSelected && "border-foreground/50 ring-1 ring-foreground/10",
-                    )}
-                  />
                 </Field>
               ) : null}
             </FieldSet>
@@ -330,7 +323,7 @@ export function OnboardingSelectDialog({
             ) : null}
           </div>
 
-          <DialogFooter className="m-0 rounded-none border-t border-border/60 bg-transparent px-4 py-4 sm:px-6">
+          <DialogFooter className="m-0 rounded-none border-0 bg-transparent px-4 py-4 sm:px-6">
             {secondaryLabel && onSecondaryAction ? (
               <Button
                 type="button"

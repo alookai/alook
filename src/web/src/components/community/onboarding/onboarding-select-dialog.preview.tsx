@@ -62,8 +62,8 @@ export function OnboardingSelectDialogPreview({
       title={isIdentity ? "Which best describes you?" : "Which harness do you already use?"}
       description={
         isIdentity
-          ? "We’ll tailor your first room to how you work."
-          : "Start with the setup you know. We’ll bring its bots into a shared room."
+          ? "We’ll shape the room around your work."
+          : "Pick the setup that already runs your bots."
       }
       options={isIdentity ? [...ONBOARDING_IDENTITIES] : [...ONBOARDING_HARNESSES]}
       value={value}

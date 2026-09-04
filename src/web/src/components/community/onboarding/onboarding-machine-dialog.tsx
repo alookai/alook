@@ -8,6 +8,7 @@ import {
   buildPairCommand,
   PairMachineSteps,
 } from "@/components/community/machines/pair-machine-sheet"
+import { ProviderLogo } from "@/components/provider-logo"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -124,9 +125,9 @@ export function OnboardingMachineDialog({
         data-testid={tid.onboardingMachineDialog}
         showCloseButton={false}
         overlayClassName="bg-black/20 supports-backdrop-filter:backdrop-blur-sm"
-        className="max-h-[calc(100dvh-2rem)] gap-0 overflow-y-auto p-0 thin-scrollbar sm:max-w-lg"
+        className="max-h-[calc(100dvh-2rem)] gap-0 overflow-y-auto border-0 p-0 shadow-(--e2) ring-0 thin-scrollbar sm:max-w-lg"
       >
-        <DialogHeader className="gap-2 px-4 pt-4 pb-3 sm:px-6 sm:pt-6 sm:pb-4">
+        <DialogHeader className="gap-4 px-4 pt-4 pb-4 sm:px-6 sm:pt-6 sm:pb-6">
           <div className="grid grid-cols-3 gap-1" aria-label="Step 2 of 3">
             {[1, 2, 3].map((step) => (
               <span
@@ -135,15 +136,19 @@ export function OnboardingMachineDialog({
               />
             ))}
           </div>
-          <p className="font-mono text-[10px] font-medium tracking-[0.12em] text-muted-foreground uppercase">
-            Your machine · 2 of 3
-          </p>
-          <DialogTitle className="text-lg leading-snug font-semibold">
-            Connect the computer that runs {harnessLabel}
-          </DialogTitle>
-          <DialogDescription className="max-w-[52ch] leading-relaxed">
-            Run this once in Terminal. This page will unlock as soon as Alook sees it.
-          </DialogDescription>
+          <div className="flex flex-col gap-2">
+            <DialogTitle className="flex flex-wrap items-center gap-x-2 text-2xl leading-tight font-semibold tracking-tight">
+              <span>Connect your</span>
+              <span className="inline-flex items-center gap-2 whitespace-nowrap">
+                <ProviderLogo provider={harness} className="size-5" />
+                {harnessLabel}
+              </span>
+              <span>machine</span>
+            </DialogTitle>
+            <DialogDescription className="max-w-[52ch] leading-relaxed">
+              Run one command. We’ll continue when it’s online.
+            </DialogDescription>
+          </div>
         </DialogHeader>
 
         <div className="flex flex-col gap-4 px-4 pb-4 sm:px-6 sm:pb-6">
@@ -162,6 +167,7 @@ export function OnboardingMachineDialog({
                 ?? (onlineMachine ? onlineMachine.hostname || "Your machine" : null)
             }
             headingAs="div"
+            concise
           />
 
           {!previewConnectedMachine && !onlineMachine && connectedMachine ? (
@@ -171,7 +177,7 @@ export function OnboardingMachineDialog({
           ) : null}
         </div>
 
-        <DialogFooter className="m-0 rounded-b-xl bg-popover px-4 py-3 sm:px-6 sm:py-4">
+        <DialogFooter className="m-0 rounded-b-xl border-0 bg-transparent px-4 py-4 sm:px-6">
           <Button
             type="button"
             className="h-11 w-full sm:h-9 sm:w-auto"

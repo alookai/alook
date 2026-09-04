@@ -24,6 +24,7 @@ describe("OnboardingSelectDialog contract", () => {
   it("keeps selection controlled", () => {
     expect(source).toContain("value: string")
     expect(source).toContain("onValueChange: (value: string) => void")
+    expect(source).toContain("initialFocus={false}")
   })
 
   it("renders an optional custom identity as a separate always-visible field", () => {

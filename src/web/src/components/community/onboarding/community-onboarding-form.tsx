@@ -116,7 +116,7 @@ export function CommunityOnboardingForm() {
         step={{ current: 1, total: 3 }}
         stepLabel="Your harness"
         title="Which harness do you already use?"
-        description="Start with the setup you know. We’ll bring its bots into a shared room."
+        description="Pick the setup that already runs your bots."
         options={[...ONBOARDING_HARNESSES]}
         value={harness}
         onValueChange={setHarness}
@@ -151,7 +151,7 @@ export function CommunityOnboardingForm() {
         step={{ current: 3, total: 3 }}
         stepLabel="About you"
         title="Which best describes you?"
-        description="We’ll tailor your first room to how you work."
+        description="We’ll shape the room around your work."
         options={[...ONBOARDING_IDENTITIES]}
         value={identity}
         onValueChange={setIdentity}
@@ -176,10 +176,10 @@ export function CommunityOnboardingForm() {
 
   if (state.stage === "initializing") {
     const progressDetail: Record<OnboardingInitializationStep, string> = {
-      "creating-bots": "Creating two bots on your connected machine…",
-      "creating-room": "Creating a room for your first goal…",
-      "inviting-bots": "Inviting both bots and preparing your private room…",
-      "preparing-welcome": "Sending the first collaboration prompts…",
+      "creating-bots": "Creating your two bots…",
+      "creating-room": "Creating your room…",
+      "inviting-bots": "Inviting your bots…",
+      "preparing-welcome": "Starting the conversation…",
     }
     return (
       <OnboardingStatusDialog
@@ -188,7 +188,7 @@ export function CommunityOnboardingForm() {
           initializationStatus === "error"
             ? initializationError
             : initializationStatus === "success"
-              ? "Both bots have joined and received your first collaboration brief."
+              ? "Two bots are in your room and ready to work."
               : progressDetail[initializationStep]
         }
         onRetry={() => void runInitialization()}

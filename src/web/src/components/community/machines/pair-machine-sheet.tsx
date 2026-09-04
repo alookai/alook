@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
-import { Copy, Loader2, RefreshCw } from "lucide-react"
+import { Copy, Loader2, RefreshCw, TerminalIcon } from "lucide-react"
 import { isDesktop, isTauri, tauriInvoke } from "@alook/shared"
 import { CommunitySheet } from "@/components/community/shell/community-sheet"
 import { Button } from "@/components/ui/button"
@@ -248,6 +248,7 @@ export function PairMachineSteps({
   connecting = false,
   started = false,
   onConnectDesktop,
+  concise = false,
 }: {
   command: string
   generating: boolean
@@ -267,6 +268,7 @@ export function PairMachineSteps({
   connecting?: boolean
   started?: boolean
   onConnectDesktop?: () => void
+  concise?: boolean
 }) {
   return (
     <>
@@ -285,6 +287,7 @@ export function PairMachineSteps({
           connecting={connecting}
           started={started}
           onConnectDesktop={onConnectDesktop}
+          concise={concise}
         />
       </div>
       <div data-motion-target={step2MotionTarget} className={step2ClassName}>
@@ -312,6 +315,7 @@ function Step1({
   connecting,
   started,
   onConnectDesktop,
+  concise,
 }: {
   command: string
   generating: boolean
@@ -326,18 +330,29 @@ function Step1({
   connecting: boolean
   started: boolean
   onConnectDesktop?: () => void
+  concise: boolean
 }) {
   return (
     <section className="flex flex-col gap-3">
       <header className="flex items-center gap-2">
         <Marker n={1} done={!generating} />
         <Heading className="font-heading text-sm font-medium leading-tight tracking-[-0.015em] text-foreground">
-          Run this on your machine
+          {concise ? "Run one command" : "Run this on your machine"}
         </Heading>
       </header>
       <p className="text-sm text-muted-foreground">
-        Open a terminal on the computer you want to connect, paste the command,
-        and hit enter. Node.js with npm is required.
+        {concise
+          ? (
+              <>
+                Paste it into{" "}
+                <span className="inline-flex items-center gap-1 align-middle text-foreground">
+                  <TerminalIcon aria-hidden className="size-3.5" />
+                  Terminal.
+                </span>{" "}
+                Node.js and npm are required.
+              </>
+            )
+          : "Open a terminal on the computer you want to connect, paste the command, and hit enter. Node.js with npm is required."}
       </p>
       {generationError ? (
         <div className="flex flex-col items-start gap-2 rounded-lg border border-destructive/25 bg-destructive/5 p-3">
