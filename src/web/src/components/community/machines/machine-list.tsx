@@ -42,6 +42,12 @@ import {
 import { removeCommunityParam } from "@/lib/community/community-route"
 import { GuideMeAvatarMotion } from "./guide-me-avatar-motion"
 
+const MACHINE_LIST_HEADING_CLASS =
+  "flex flex-col items-stretch gap-4 sm:flex-row sm:items-center sm:justify-between"
+const MACHINE_LIST_HEADING_COPY_CLASS = "flex min-w-0 flex-col gap-1"
+const MACHINE_LIST_HEADING_ACTION_CLASS = "w-full sm:w-fit sm:shrink-0"
+const MACHINE_LIST_DESCRIPTION = "Your computers running the alook daemon."
+
 // Loading placeholder shaped like a real MachineCard (size-10 rounded-xl icon +
 // name row + meta lines + trailing kebab slot) so the list doesn't reflow when
 // data lands — replaces the old structureless muted box.
@@ -49,12 +55,12 @@ function MachineCardSkeleton() {
   return (
     <MachineCardFrame>
       <div className="flex items-start justify-between gap-3">
-        <div className="flex items-start gap-3">
+        <div className="flex min-w-0 flex-1 items-start gap-3">
           <Skeleton className="size-10 shrink-0 rounded-xl" />
-          <div className="flex flex-col gap-1">
-            <Skeleton className="h-6 w-32 rounded" />
-            <Skeleton className="h-4 w-44 rounded" />
-            <Skeleton className="h-4 w-24 rounded" />
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            <Skeleton className="h-6 w-32 max-w-full rounded" />
+            <Skeleton className="h-4 w-44 max-w-full rounded" />
+            <Skeleton className="h-4 w-24 max-w-full rounded" />
           </div>
         </div>
         <Skeleton className="size-8 shrink-0 rounded-md" />
@@ -104,12 +110,17 @@ export function MachineListSkeleton({
       {machineBackBar(undefined, reserveBackSlot || Boolean(onBack))}
       <MachineListContent
         heading={(
-          <header className="flex items-center justify-between">
-            <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <header data-slot="community-machines-heading" className={MACHINE_LIST_HEADING_CLASS}>
+            <div data-slot="community-machines-heading-copy" className={MACHINE_LIST_HEADING_COPY_CLASS}>
               <Skeleton className="h-7 w-24 rounded" />
-              <Skeleton className="h-5 w-full max-w-56 rounded" />
+              <div aria-hidden className="relative w-fit max-w-full">
+                <p className="invisible text-sm">{MACHINE_LIST_DESCRIPTION}</p>
+                <Skeleton className="absolute inset-0 rounded" />
+              </div>
             </div>
-            <Skeleton className="h-9 w-36 rounded-md" />
+            <div data-slot="community-machines-heading-action" className={MACHINE_LIST_HEADING_ACTION_CLASS}>
+              <Skeleton className="h-11 w-full rounded-md sm:h-9 sm:w-36" />
+            </div>
           </header>
         )}
         cards={(
@@ -404,15 +415,23 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
       {backBar}
       <MachineListContent
         heading={(
-          <header className="flex items-center justify-between">
-            <div>
+          <header data-slot="community-machines-heading" className={MACHINE_LIST_HEADING_CLASS}>
+            <div data-slot="community-machines-heading-copy" className={MACHINE_LIST_HEADING_COPY_CLASS}>
               <h1 className="text-xl font-medium text-foreground">Machines</h1>
               <p className="text-sm text-muted-foreground">
-                Your computers running the alook daemon.
+                {MACHINE_LIST_DESCRIPTION}
               </p>
             </div>
-            <div data-onboarding-target="connect-machine" className="w-fit">
-              <Button data-testid={tid.machinePairOpen} onClick={openPair}>
+            <div
+              data-slot="community-machines-heading-action"
+              data-onboarding-target="connect-machine"
+              className={MACHINE_LIST_HEADING_ACTION_CLASS}
+            >
+              <Button
+                data-testid={tid.machinePairOpen}
+                className="min-h-11 w-full sm:min-h-9 sm:w-auto"
+                onClick={openPair}
+              >
                 Connect a machine
               </Button>
             </div>

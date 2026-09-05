@@ -41,18 +41,18 @@ export function MachineCard({
   return (
     <MachineCardFrame>
       <div className="flex items-start justify-between gap-3">
-        <div className="flex items-start gap-3">
-          <div className="grid size-10 place-items-center rounded-xl bg-secondary text-muted-foreground">
+        <div className="flex min-w-0 flex-1 items-start gap-3">
+          <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-secondary text-muted-foreground">
             <Monitor className="size-5" />
           </div>
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-2">
-              <span className="text-[15px] font-medium text-foreground">
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="truncate text-[15px] font-medium text-foreground">
                 {machineName(machine)}
               </span>
               <span
                 className={[
-                  "inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium",
+                  "inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium",
                   isOnline
                     ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
                     : "bg-muted text-muted-foreground",
@@ -67,7 +67,7 @@ export function MachineCard({
                 {isOnline ? "Online" : "Offline"}
               </span>
             </div>
-            <span className="text-xs text-muted-foreground">
+            <span className="truncate text-xs text-muted-foreground">
               {[machine.platform, machine.arch].filter(Boolean).join(" · ")}
               {machine.daemonVersion ? ` · v${machine.daemonVersion}` : ""}
             </span>

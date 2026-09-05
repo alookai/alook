@@ -140,6 +140,16 @@ describe("ShellFrameView", () => {
       .toContain("max-sm:hidden")
     expect(renderer.root.findAllByType("main-content")).toHaveLength(0)
     expect(renderer.root.findAllByType("shell-overlays")).toHaveLength(0)
+    const [initialSidebar, initialMain] = renderer.root.findAllByType("panel")
+    expect(initialSidebar.props["data-mobile-hidden"]).toBe(true)
+    expect(initialMain.props["data-mobile-active"]).toBe(true)
+    const initialGroup = renderer.root.findByType("panel-group")
+    expect(initialGroup.props.className).toContain(
+      "max-sm:*:data-[mobile-active=true]:flex-1!",
+    )
+    expect(initialGroup.props.className).toContain(
+      "max-sm:*:data-[mobile-hidden=true]:hidden!",
+    )
   })
 
   it("keeps rail, sidebar, and UserBar in the unknown list shell", async () => {
@@ -160,6 +170,9 @@ describe("ShellFrameView", () => {
     expect(renderer.root.findAllByType("user-bar")).toHaveLength(1)
     expect(renderer.root.findAllByType("channel-loading-frame")).toHaveLength(1)
     expect(renderer.root.findAllByType("main-content")).toHaveLength(0)
+    const [initialSidebar, initialMain] = renderer.root.findAllByType("panel")
+    expect(initialSidebar.props["data-mobile-active"]).toBe(true)
+    expect(initialMain.props["data-mobile-hidden"]).toBe(true)
   })
 
   it("keeps the desktop panel geometry, order, and seeded overlay call", async () => {
@@ -274,9 +287,13 @@ describe("ShellFrameView", () => {
     expect(renderer.root.findAllByType("panel")[0]?.props.hidden).toBe(false)
     expect(renderer.root.findAllByType("panel")[1]?.props.hidden).toBe(true)
     expect(renderer.root.findAllByType("panel")[0]?.props["data-mobile-active"]).toBe(true)
+    expect(renderer.root.findAllByType("panel")[0]?.props["data-mobile-hidden"]).toBeUndefined()
     expect(renderer.root.findAllByType("panel")[1]?.props["data-mobile-active"]).toBeUndefined()
+    expect(renderer.root.findAllByType("panel")[1]?.props["data-mobile-hidden"]).toBe(true)
     expect(renderer.root.findByType("panel-group").props.disabled).toBe(true)
-    expect(renderer.root.findByType("panel-group").props.className).toContain("*:data-[mobile-active=true]:flex-1!")
+    expect(renderer.root.findByType("panel-group").props.className).toContain(
+      "max-sm:*:data-[mobile-active=true]:flex-1!",
+    )
     expect(renderer.root.findAllByType("shell-overlays")).toHaveLength(1)
     const listMotion = renderer.root.findByProps({ "data-community-mobile-surface": "list" })
     expect(listMotion.props.className).toContain("flex")
@@ -303,7 +320,9 @@ describe("ShellFrameView", () => {
     expect(renderer.root.findAllByType("panel")[0]?.props.hidden).toBe(true)
     expect(renderer.root.findAllByType("panel")[1]?.props.hidden).toBe(false)
     expect(renderer.root.findAllByType("panel")[0]?.props["data-mobile-active"]).toBeUndefined()
+    expect(renderer.root.findAllByType("panel")[0]?.props["data-mobile-hidden"]).toBe(true)
     expect(renderer.root.findAllByType("panel")[1]?.props["data-mobile-active"]).toBe(true)
+    expect(renderer.root.findAllByType("panel")[1]?.props["data-mobile-hidden"]).toBeUndefined()
     expect(renderer.root.findAllByType("shell-overlays")).toHaveLength(1)
     const detailMotion = renderer.root.findByProps({ "data-community-mobile-surface": "detail" })
     expect(detailMotion.props.className).toContain("flex")

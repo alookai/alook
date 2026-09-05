@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   toastError: vi.fn(),
   fetchLatestDaemonVersion: vi.fn(),
   machinesLoading: { current: false },
+  machines: { current: [] as unknown[] },
   onboardingState: { current: "done" as unknown },
 }))
 
@@ -73,7 +74,7 @@ vi.mock("./machine-card", () => ({
 vi.mock("./pair-machine-sheet", () => ({ PairMachineSheet: () => null }))
 vi.mock("@/components/community/onboarding-tiles/connect-tile", () => ({ ConnectTile: () => null }))
 vi.mock("@/hooks/community/use-machines", () => ({
-  useMachines: () => ({ machines: [], isLoading: mocks.machinesLoading.current }),
+  useMachines: () => ({ machines: mocks.machines.current, isLoading: mocks.machinesLoading.current }),
 }))
 vi.mock("@/hooks/community/use-bots", () => ({ useBots: () => ({ bots: [] }) }))
 vi.mock("@/stores/community", () => ({
@@ -124,6 +125,7 @@ describe("machine daemon update UI", () => {
       package: "@alook/daemon",
     })
     mocks.machinesLoading.current = false
+    mocks.machines.current = []
     mocks.onboardingState.current = "done"
   })
 
@@ -179,15 +181,37 @@ describe("machine daemon update UI", () => {
       className: "flex flex-1 flex-col gap-6 overflow-y-auto p-6 thin-scrollbar",
     })).toHaveLength(1)
     expect(renderer.root.findAllByProps({
-      className: "flex items-center justify-between",
+      className: "flex flex-col items-stretch gap-4 sm:flex-row sm:items-center sm:justify-between",
     })).toHaveLength(1)
     expect(renderer.root.findAllByProps({
-      className: "flex min-w-0 flex-1 flex-col gap-1",
+      className: "flex min-w-0 flex-col gap-1",
+    })).toHaveLength(1)
+    expect(renderer.root.findAllByProps({
+      className: "w-full sm:w-fit sm:shrink-0",
     })).toHaveLength(1)
     expect(renderer.root.findAllByProps({ className: "flex flex-col gap-3" }))
       .toHaveLength(1)
-    expect(renderer.root.findAllByProps({ className: "h-9 w-36 rounded-md" }))
+    expect(renderer.root.findAllByProps({ className: "h-11 w-full rounded-md sm:h-9 sm:w-36" }))
       .toHaveLength(2)
+  })
+
+  it("uses the same responsive header footprint after Machines load", async () => {
+    mocks.machines.current = [machine()]
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(MachineList))
+    })
+
+    const heading = renderer.root.findByProps({ "data-slot": "community-machines-heading" })
+    expect(heading.props.className).toBe(
+      "flex flex-col items-stretch gap-4 sm:flex-row sm:items-center sm:justify-between",
+    )
+    expect(renderer.root.findByProps({ "data-slot": "community-machines-heading-copy" }).props.className)
+      .toBe("flex min-w-0 flex-col gap-1")
+    expect(renderer.root.findByProps({ "data-slot": "community-machines-heading-action" }).props.className)
+      .toBe("w-full sm:w-fit sm:shrink-0")
+    expect(renderer.root.findByProps({ "data-testid": tid.machinePairOpen }).props.className)
+      .toBe("min-h-11 w-full sm:min-h-9 sm:w-auto")
   })
 
   it("turns a loading Back request into an inert skeleton slot", () => {

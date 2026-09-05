@@ -96,6 +96,10 @@ export function CommunityShellLayout({
   const isMobileDetail = breakpoint === "mobile" && surface === "detail"
   const isInitial = breakpoint === "unknown"
   const isInitialDetail = isInitial && surface === "detail"
+  const sidebarMobileActive = isMobileList || (isInitial && surface === "list")
+  const sidebarMobileHidden = isMobileDetail || isInitialDetail
+  const mainMobileActive = isMobileDetail || isInitialDetail
+  const mainMobileHidden = isMobileList || (isInitial && surface === "list")
   const showUserBar = isDesktop || isMobileList || isInitial || preserveHiddenMobileModules
   const transitionMode = transition?.mode
   const transitionTargetHref = transition?.targetHref
@@ -176,7 +180,10 @@ export function CommunityShellLayout({
             disabled={!isDesktop}
             className={cn(
               "min-h-0 flex-1",
-              !isDesktop && "*:data-[mobile-active=true]:flex-1!",
+              !isDesktop && [
+                "max-sm:*:data-[mobile-active=true]:flex-1!",
+                "max-sm:*:data-[mobile-hidden=true]:hidden!",
+              ],
             )}
             defaultLayout={defaultLayout}
             onLayoutChanged={onLayoutChanged}
@@ -187,12 +194,11 @@ export function CommunityShellLayout({
               minSize={160}
               maxSize={360}
               hidden={isMobileDetail}
-              data-mobile-active={isMobileList || undefined}
+              data-mobile-active={sidebarMobileActive || undefined}
+              data-mobile-hidden={sidebarMobileHidden || undefined}
               className={cn(
                 "flex flex-col bg-sidebar",
                 (isDesktop || isMobileList || isInitial) && "pb-[calc(3.75rem+var(--app-safe-area-bottom))] sm:pb-15",
-                isInitial && surface === "list" && "max-sm:flex-1!",
-                isInitialDetail && "max-sm:hidden",
               )}
             >
               <div
@@ -208,12 +214,9 @@ export function CommunityShellLayout({
               id="main"
               defaultSize="76%"
               hidden={isMobileList}
-              data-mobile-active={isMobileDetail || undefined}
-              className={cn(
-                "flex min-w-0 flex-col bg-background",
-                isInitial && surface === "list" && "max-sm:hidden",
-                isInitialDetail && "max-sm:flex-1!",
-              )}
+              data-mobile-active={mainMobileActive || undefined}
+              data-mobile-hidden={mainMobileHidden || undefined}
+              className="flex min-w-0 flex-col bg-background"
             >
               <div
                 ref={mainPanelRef}
