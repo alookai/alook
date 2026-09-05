@@ -10,6 +10,7 @@ import { channelHref } from "@/lib/community/community-route"
 import type { PageCache } from "./cache"
 import { removeThreadFromCache } from "./cache"
 import type { ForumFeedPage } from "@/hooks/community/use-forum-feed"
+import type { ThreadsResponse } from "@/hooks/community/use-channel-panels"
 import { removeForumPostFromFeed } from "@/hooks/community/forum-feed-tag-transition"
 import type { InfiniteData } from "@tanstack/react-query"
 import {
@@ -68,7 +69,18 @@ function collectChannelScopeIds(queryClient: QueryClient, serverId: string, chan
     for (const child of Object.values(row)) if (child && typeof child === "object") visit(child)
   }
   for (const [, data] of queryClient.getQueriesData({ queryKey: communityKeys.server(serverId) })) visit(data)
-  if (channelId) for (const [, data] of queryClient.getQueriesData({ queryKey: communityKeys.threads(channelId) })) visit(data)
+  for (const [key, data] of queryClient.getQueriesData<ThreadsResponse | InfiniteData<ForumFeedPage>>({
+    queryKey: ["community", "channel"],
+    predicate: (query) => query.queryKey[3] === "threads" && (!channelId || query.queryKey[2] === channelId),
+  })) {
+    if (!data) continue
+    const pages = "pages" in data ? data.pages : [data]
+    for (const page of pages) {
+      if (page.serverId !== serverId) continue
+      ids.add(key[2] as string)
+      for (const thread of page.threads) ids.add(thread.id)
+    }
+  }
   return ids
 }
 
