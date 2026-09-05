@@ -86,57 +86,6 @@ describe("Web workerd runtime", () => {
     expect(response.headers.get("x-open-next")).toBe("test-entry")
   })
 
-  it.each([
-    "/.well-known/apple-app-site-association",
-    "/.well-known/assetlinks.json",
-    "/auth/native/return?attempt=opaque",
-  ])("allows native OAuth host path %s with defensive headers", async (path) => {
-    const response = await worker.fetch(new Request(`https://auth.alook.ai${path}`))
-
-    expect(response.status).toBe(200)
-    expect(response.headers.get("x-open-next")).toBe("test-entry")
-    expect(response.headers.get("Cache-Control")).toBe("no-store, max-age=0")
-    expect(response.headers.get("Referrer-Policy")).toBe("no-referrer")
-    expect(response.headers.get("CDN-Cache-Control")).toBeNull()
-  })
-
-  it("allows HEAD only for an allowlisted native OAuth host path", async () => {
-    const response = await worker.fetch(new Request(
-      "https://auth.alook.ai/.well-known/apple-app-site-association",
-      { method: "HEAD" },
-    ))
-
-    expect(response.status).toBe(200)
-    expect(response.headers.get("x-open-next")).toBe("test-entry")
-    expect(response.headers.get("Cache-Control")).toBe("no-store, max-age=0")
-  })
-
-  it.each([
-    ["GET", "/"],
-    ["GET", "/sign-in"],
-    ["POST", "/auth/native/return"],
-    ["OPTIONS", "/.well-known/assetlinks.json"],
-    ["GET", "http://auth.alook.ai/auth/native/return"],
-  ])("rejects native OAuth host request %s %s before OpenNext", async (method, path) => {
-    const requestUrl = path.startsWith("http") ? path : `https://auth.alook.ai${path}`
-    const response = await worker.fetch(new Request(requestUrl, { method }))
-
-    expect(response.status).toBe(404)
-    expect(response.headers.get("x-open-next")).toBeNull()
-    expect(response.headers.get("Location")).toBeNull()
-    expect(response.headers.get("Cache-Control")).toBe("no-store, max-age=0")
-  })
-
-  it("keeps native OAuth host resources off the ordinary application host", async () => {
-    const response = await worker.fetch(
-      new Request("https://worker.test/.well-known/assetlinks.json"),
-    )
-
-    expect(response.status).toBe(404)
-    expect(response.headers.get("x-open-next")).toBeNull()
-    expect(response.headers.get("Cache-Control")).toBe("no-store, max-age=0")
-  })
-
   it("exposes the production asset and Durable Object bindings locally", async () => {
     const asset = await runtimeEnv.ASSETS.fetch(new Request("https://assets.test/fixture.txt"))
     expect(asset.status).toBe(200)

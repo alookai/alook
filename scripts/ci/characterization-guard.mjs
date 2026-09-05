@@ -11,7 +11,7 @@ import {
 
 const ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)))
 const FULL_SHA = /^[0-9a-f]{40}$/
-const CLASSES = new Set(["blog", "package", "shared"])
+const CLASSES = new Set(["auth", "blog", "package", "shared"])
 
 export function validateCharacterization(input) {
   const {

@@ -7,12 +7,6 @@ compatibility_flags = ["nodejs_compat"]
 # "__name is not defined" at runtime in the browser.
 keep_names = false
 
-# Source declaration only. Slice 1 does not authorize DNS, TLS, custom-domain
-# creation, deployment, or any other Cloudflare control-plane mutation.
-[[routes]]
-pattern = "auth.alook.ai"
-custom_domain = true
-
 [observability]
 enabled = true
 head_sampling_rate = 0.1

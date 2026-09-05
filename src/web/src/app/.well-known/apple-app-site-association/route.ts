@@ -1,28 +1,22 @@
-import {
-  isNativeOauthReturnHost,
-  nativeOauthJson,
-} from "@/lib/native-oauth";
+import { NextResponse } from "next/server";
 
-const association = {
+// Replace TEAM_ID with your Apple Developer Team ID after enrollment
+const APPLE_APP_SITE_ASSOCIATION = {
   applinks: {
     apps: [],
     details: [
       {
-        appID: "5RF24VHDQB.ai.alook.ios",
-        components: [
-          {
-            "/": "/auth/native/return",
-            comment: "Native OAuth handoff return",
-          },
-        ],
+        appIDs: ["TEAM_ID.ai.alook.app"],
+        paths: ["*"],
       },
     ],
   },
 };
 
-export async function GET(request: Request): Promise<Response> {
-  if (!isNativeOauthReturnHost(new URL(request.url))) {
-    return nativeOauthJson({ error: "not_found" }, { status: 404 });
-  }
-  return nativeOauthJson(association);
+export async function GET() {
+  return NextResponse.json(APPLE_APP_SITE_ASSOCIATION, {
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
 }

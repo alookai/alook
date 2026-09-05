@@ -12,6 +12,7 @@ import { createE2eMatrix, discoverE2eSpecs } from "./e2e-shards.mjs"
 const ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)))
 const MANIFEST_URL = new URL("./change-scope-manifest.json", import.meta.url)
 const BLOG_ROOT = /^src\/web\/blog(?:\/|$)/
+const AUTH_ROOT = /^src\/web\/auth(?:\/|$)/
 const BLOG_CONTENT = /^src\/web\/blog\/src\/content\/[^/]+\.mdx$/
 const BLOG_ASSET = /^src\/web\/blog\/public\/blog(?:\/|$)/
 const MARKDOWN = /(?:^|\/)\w[^/]*\.md$/i
@@ -306,6 +307,7 @@ function fullReason(paths, { forceFull, fallbackReason }) {
 function emptyJobs() {
   return {
     app_packed_artifact: false,
+    auth_build: false,
     blog_build: false,
     e2e: false,
     lighthouse: false,
@@ -345,10 +347,11 @@ function requiredCoverageFiles(changes, coverageRoots) {
   }))
 }
 
-function planClass({ full, docsOnly, blogPathsOnly, direct }) {
+function planClass({ full, docsOnly, blogPathsOnly, authPathsOnly, direct }) {
   if (full) return "full"
   if (docsOnly) return "docs"
   if (blogPathsOnly) return "blog"
+  if (authPathsOnly) return "auth"
   if (direct.length === 1 && direct[0] === "@alook/shared") return "shared"
   if (direct.length === 1) return "package"
   return "mixed"
@@ -361,6 +364,7 @@ export function buildExecutionPlan(inputChanges, options = {}) {
   const docsOnly = paths.length > 0 && paths.every(isMarkdown)
   const blogContentOnly = paths.length > 0 && paths.every(isBlogContent)
   const blogPathsOnly = paths.length > 0 && paths.every((path) => BLOG_ROOT.test(path))
+  const authPathsOnly = paths.length > 0 && paths.every((path) => AUTH_ROOT.test(path))
   const unknown = paths.some((path) => !isKnownPath(path, manifest))
   const reason = fullReason(paths, options) || (unknown ? "unknown_path" : null)
   const full = reason !== null
@@ -394,6 +398,8 @@ export function buildExecutionPlan(inputChanges, options = {}) {
   } else if (blogContentOnly || blogPathsOnly) {
     uiSpecs = [...manifest.ui.contracts.blog]
     suites.integration = blogPathsOnly && !blogContentOnly ? [] : suites.integration
+  } else if (authPathsOnly) {
+    suites.integration = []
   } else if (affectedPackages.some((entry) => entry.ui)) {
     uiSpecs = [manifest.ui.all]
   }
@@ -404,15 +410,19 @@ export function buildExecutionPlan(inputChanges, options = {}) {
     suites.linux = []
   }
 
+  const authBuild = full || paths.some((path) => AUTH_ROOT.test(path))
   const blogBuild = full || paths.some((path) => isBlogBuildInput(path, sharedInputs))
-  const directWebRuntime = paths.some((path) => pathWithin(path, "src/web") && !BLOG_ROOT.test(path))
+  const directWebRuntime = paths.some((path) => (
+    pathWithin(path, "src/web") && !BLOG_ROOT.test(path) && !AUTH_ROOT.test(path)
+  ))
   const lighthouse = full || (blogPathsOnly && !blogContentOnly) || directWebRuntime
   const rust = full || affectedPackages.some((entry) => entry.rust)
   const directPackages = direct.map((name) => byName.get(name))
-  const appArtifact = full || (!blogPathsOnly && [...affectedPackages, ...directPackages]
+  const appArtifact = full || (!blogPathsOnly && !authPathsOnly && [...affectedPackages, ...directPackages]
     .some((entry) => entry.app_artifact))
   const requiredChangedFiles = requiredCoverageFiles(changes, coverage.include_roots)
 
+  jobs.auth_build = authBuild
   jobs.blog_build = blogBuild
   jobs.static_checks = suites.static.length > 0
   jobs.test_linux = suites.unit.length > 0 || suites.linux.length > 0
@@ -432,10 +442,11 @@ export function buildExecutionPlan(inputChanges, options = {}) {
     diagnostic_only: options.diagnosticOnly === true,
     changes,
     paths,
-    change_class: planClass({ full, docsOnly, blogPathsOnly, direct }),
+    change_class: planClass({ full, docsOnly, blogPathsOnly, authPathsOnly, direct }),
     full,
     full_reason: reason,
     docs_only: docsOnly && !full,
+    auth_only: authPathsOnly && !full,
     blog_only: blogContentOnly && !full,
     workflow_changed: paths.some((path) => WORKFLOW.test(path)),
     packages: {
@@ -498,7 +509,9 @@ export function projectPlan(plan) {
     full: String(plan.full),
     base_sha: plan.base_sha,
     head_sha: plan.head_sha,
+    auth_only: String(plan.auth_only),
     blog_only: String(plan.blog_only),
+    run_auth_build: String(plan.jobs.auth_build),
     run_blog_build: String(plan.jobs.blog_build),
     run_code_checks: String(plan.jobs.static_checks || plan.jobs.test_linux),
     run_static_checks: String(plan.jobs.static_checks),

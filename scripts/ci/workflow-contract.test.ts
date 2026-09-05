@@ -114,12 +114,20 @@ const iosProject = readFileSync(
   resolve(import.meta.dirname, "../../src/desktop/src-tauri/gen/apple/project.yml"),
   "utf8",
 )
-const nativeOauthAasaRoute = readFileSync(
+const nativeOauthMainAasaRoute = readFileSync(
   resolve(import.meta.dirname, "../../src/web/src/app/.well-known/apple-app-site-association/route.ts"),
   "utf8",
 )
-const nativeOauthAssetLinksRoute = readFileSync(
+const nativeOauthMainAssetLinksRoute = readFileSync(
   resolve(import.meta.dirname, "../../src/web/src/app/.well-known/assetlinks.json/route.ts"),
+  "utf8",
+)
+const nativeOauthAuthWorker = readFileSync(
+  resolve(import.meta.dirname, "../../src/web/auth/index.ts"),
+  "utf8",
+)
+const nativeOauthAuthConfig = readFileSync(
+  resolve(import.meta.dirname, "../../src/web/auth/wrangler.toml"),
   "utf8",
 )
 const nativeOauthWebConfig = readFileSync(
@@ -127,7 +135,11 @@ const nativeOauthWebConfig = readFileSync(
   "utf8",
 )
 const nativeOauthContract = readFileSync(
-  resolve(import.meta.dirname, "../../src/web/src/lib/native-oauth-host.ts"),
+  resolve(import.meta.dirname, "../../src/web/src/lib/native-oauth.ts"),
+  "utf8",
+)
+const nativeOauthWebRuntime = readFileSync(
+  resolve(import.meta.dirname, "../../src/web/src/lib/worker-runtime.ts"),
   "utf8",
 )
 const desktopEntitlementsPath = resolve(
@@ -336,7 +348,7 @@ describe("CI workflow graph", () => {
     expect(scope).toContain("--plan-file .ci/execution-plan.json")
     expect(scope).toContain("name: execution-plan-${{ github.run_id }}-${{ github.run_attempt }}")
     for (const job of [
-      "blog-build", "static-checks", "test-linux", "test-windows", "app-packed-artifact",
+      "auth-build", "blog-build", "static-checks", "test-linux", "test-windows", "app-packed-artifact",
       "e2e", "desktop-rust", "lighthouse", "e2e-ui", "merge-reports", "ci-gate", "ui-e2e-gate",
     ]) {
       const definition = ciJob(job)
@@ -392,7 +404,7 @@ describe("CI workflow graph", () => {
 
   it("gates the consolidated jobs under the stable CI Gate", () => {
     const gate = ciJob("ci-gate")
-    for (const job of ["static-checks", "test-linux", "test-windows", "app-packed-artifact"]) {
+    for (const job of ["auth-build", "static-checks", "test-linux", "test-windows", "app-packed-artifact"]) {
       expect(gate).toContain(`- ${job}`)
       expect(gate).toContain(`"name":"${job}"`)
     }
@@ -648,7 +660,7 @@ describe("Native message external-link opener", () => {
 })
 
 describe("Turbo CI execution", () => {
-  const cachedJobs = ["blog-build", "static-checks", "test-linux", "test-windows"]
+  const cachedJobs = ["auth-build", "blog-build", "static-checks", "test-linux", "test-windows"]
 
   it("persists a task cache isolated by operating system, architecture, and job", () => {
     expect(ciWorkflow.match(/actions\/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9/g))
@@ -731,8 +743,9 @@ describe("Turbo CI execution", () => {
       expect(module.packageJson.scripts.test).toBe("vitest run --config vitest.workspace.config.ts")
       expect(module.packageJson.scripts).not.toHaveProperty("test:workers")
       expect(module.packageJson.devDependencies["@cloudflare/vitest-plugin"]).toBe("1.0.0")
-      expect(module.workspaceConfig.match(/vitest\.config\.ts/g)).toHaveLength(1)
-      expect(module.workspaceConfig.match(/vitest\.runtime\.config\.mts/g)).toHaveLength(1)
+      const expectedProjects = module.name === "web" ? 2 : 1
+      expect(module.workspaceConfig.match(/vitest\.config\.ts/g)).toHaveLength(expectedProjects)
+      expect(module.workspaceConfig.match(/vitest\.runtime\.config\.mts/g)).toHaveLength(expectedProjects)
 
       const nodeProject = `${module.name}-node`
       const runtimeProject = `${module.name}-runtime`
@@ -744,7 +757,7 @@ describe("Turbo CI execution", () => {
       projectNames.push(nodeProject, runtimeProject)
     }
     expect(new Set(projectNames).size).toBe(projectNames.length)
-    expect(ciJob("test-linux")).toContain("projects=(web-node web-runtime)")
+    expect(ciJob("test-linux")).toContain("projects=(web-node web-runtime auth-node auth-runtime)")
   })
 
   it("collects Node and workerd projects in one Istanbul report", () => {
@@ -757,6 +770,8 @@ describe("Turbo CI execution", () => {
     for (const project of [
       "src/shared",
       "src/web",
+      "src/web/auth/vitest.config.ts",
+      "src/web/auth/vitest.runtime.config.mts",
       "src/cli",
       "src/daemon",
       "src/daemon/agent-driver",
@@ -797,7 +812,7 @@ describe("Turbo CI execution", () => {
       "projects=(ci-scripts)",
       "projects=(email-worker-node email-worker-runtime)",
       "projects=(wake-worker-node wake-worker-runtime)",
-      "projects=(web-node web-runtime)",
+      "projects=(web-node web-runtime auth-node auth-runtime)",
       "projects=(ws-do-node ws-do-runtime)",
     ]) expect(linux).toContain(projects)
     expect(linux).toContain('project_args+=("--project=$project")')
@@ -1089,26 +1104,58 @@ describe("Mobile release availability", () => {
 })
 
 describe("Native OAuth association contract", () => {
-  it("keeps the return domain, mobile identities, and source-only Worker route aligned", () => {
+  it("keeps the return domain, mobile identities, and standalone Worker route aligned", () => {
     expect(nativeOauthContract).toContain(
-      'NATIVE_OAUTH_RETURN_HOST = "auth.alook.ai"',
+      'NATIVE_OAUTH_RETURN_ORIGIN = "https://auth.alook.ai"',
     )
     expect(nativeOauthContract).toContain(
       'NATIVE_OAUTH_RETURN_PATH = "/auth/native/return"',
     )
-    expect(nativeOauthWebConfig).toMatch(
+    expect(nativeOauthAuthWorker).toContain('AUTH_WORKER_HOST = "auth.alook.ai"')
+    expect(nativeOauthAuthWorker).toContain('AUTH_WORKER_RETURN_PATH = "/auth/native/return"')
+    expect(nativeOauthAuthConfig).toContain('name = "alook-auth"')
+    expect(nativeOauthAuthConfig).toMatch(
       /\[\[routes\]\][\s\S]*pattern = "auth\.alook\.ai"[\s\S]*custom_domain = true/,
     )
+    expect(nativeOauthWebConfig).not.toContain("auth.alook.ai")
+    expect(nativeOauthWebRuntime).not.toContain("auth.alook.ai")
 
     expect(desktopIosConfig.identifier).toBe("ai.alook.ios")
     expect(iosProject).toContain("DEVELOPMENT_TEAM: 5RF24VHDQB")
-    expect(nativeOauthAasaRoute).toContain("5RF24VHDQB.ai.alook.ios")
-    expect(nativeOauthAasaRoute).toContain('"/": "/auth/native/return"')
+    expect(nativeOauthAuthWorker).toContain("5RF24VHDQB.ai.alook.ios")
+    expect(nativeOauthAuthWorker).toContain('"/": AUTH_WORKER_RETURN_PATH')
 
     expect(desktopAndroidConfig.identifier).toBe("ai.alook.android")
-    expect(nativeOauthAssetLinksRoute).toContain('package_name: "ai.alook.android"')
-    expect(nativeOauthAssetLinksRoute).toContain(
+    expect(nativeOauthAuthWorker).toContain('package_name: "ai.alook.android"')
+    expect(nativeOauthAuthWorker).toContain(
       "9D:C6:ED:E9:4B:A6:63:EE:C9:EC:98:FF:7B:AF:D5:5E:24:8B:6C:4B:C2:15:7F:CF:04:2D:F5:9B:0E:41:08:06",
     )
+  })
+
+  it("restores the main Web association behavior and excludes the auth host from OpenNext", () => {
+    expect(nativeOauthMainAasaRoute).toContain('appIDs: ["TEAM_ID.ai.alook.app"]')
+    expect(nativeOauthMainAasaRoute).toContain('paths: ["*"]')
+    expect(nativeOauthMainAssetLinksRoute).toContain('package_name: "ai.alook.app"')
+    expect(nativeOauthMainAssetLinksRoute).toContain('sha256_cert_fingerprints: ["__PLACEHOLDER__"]')
+    expect(nativeOauthWebConfig).not.toContain('pattern = "auth.alook.ai"')
+    expect(nativeOauthWebRuntime).not.toContain("NATIVE_OAUTH")
+  })
+
+  it("keeps the auth Worker telemetry-free, binding-free, and in its own CI dry-run", () => {
+    expect(nativeOauthAuthConfig).toMatch(/\[observability\]\nenabled = false\nhead_sampling_rate = 0/)
+    expect(nativeOauthAuthConfig).toMatch(/\[observability\.logs\]\nenabled = false\ninvocation_logs = false/)
+    expect(nativeOauthAuthConfig).toMatch(/\[observability\.traces\]\nenabled = false\nhead_sampling_rate = 0/)
+    expect(nativeOauthAuthConfig).not.toMatch(/\[(?:assets|vars|d1_databases|r2_buckets|kv_namespaces|services|queues|durable_objects)/)
+    expect(nativeOauthAuthWorker).not.toMatch(/(?:console\.|@opennextjs|next\/server|cloudflare:workers)/)
+
+    const authBuild = ciJob("auth-build")
+    expect(authBuild).toContain("if: needs.scope.outputs.run_auth_build == 'true'")
+    expect(authBuild).toContain("CI_PROJECTION_NAME: run_auth_build")
+    expect(authBuild).toContain("pnpm --filter @alook/web build:auth")
+    expect(authBuild).not.toContain("deploy:auth")
+    expect(directWorkerModules[3].packageJson.scripts["build:auth"])
+      .toContain("wrangler deploy --dry-run --config auth/wrangler.toml")
+    expect(directWorkerModules[3].workspaceConfig).toContain("./auth/vitest.config.ts")
+    expect(directWorkerModules[3].workspaceConfig).toContain("./auth/vitest.runtime.config.mts")
   })
 })

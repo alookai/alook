@@ -1,31 +1,28 @@
 import {
   nativeOauthAttemptIdSchema,
   nativeOauthExchangeSchema,
-  nativeOauthFailureCodeSchema,
-  nativeOauthHandoffCodeSchema,
   nativeOauthProofSchema,
   nativeOauthRegistrationSchema,
   type NativeOauthFailureCode,
   type NativeOauthPlatform,
   type NativeOauthProvider,
 } from "@alook/shared";
-import {
-  NATIVE_OAUTH_RETURN_HOST,
-  NATIVE_OAUTH_RETURN_PATH,
-  nativeOauthSecurityHeaders,
-} from "./native-oauth-host";
-
 export {
-  nativeOauthAttemptIdSchema,
   nativeOauthExchangeSchema,
-  nativeOauthFailureCodeSchema,
-  nativeOauthHandoffCodeSchema,
   nativeOauthProofSchema,
   nativeOauthRegistrationSchema,
 };
 export type { NativeOauthPlatform, NativeOauthProvider };
 
 const MAX_JSON_BODY_BYTES = 4096;
+const NATIVE_OAUTH_RETURN_ORIGIN = "https://auth.alook.ai";
+const NATIVE_OAUTH_RETURN_PATH = "/auth/native/return";
+export const nativeOauthSecurityHeaders = {
+  "Cache-Control": "no-store, max-age=0",
+  Pragma: "no-cache",
+  "Referrer-Policy": "no-referrer",
+  "X-Content-Type-Options": "nosniff",
+} as const;
 
 function mergeSecurityHeaders(headers?: HeadersInit): Headers {
   const merged = new Headers(headers);
@@ -202,7 +199,7 @@ export function nativeOauthReturnUrl(
   result: { code: string } | { status: NativeOauthFailureCode },
 ): string {
   const url = isMobilePlatform(platform)
-    ? new URL(`https://${NATIVE_OAUTH_RETURN_HOST}${NATIVE_OAUTH_RETURN_PATH}`)
+    ? new URL(NATIVE_OAUTH_RETURN_PATH, NATIVE_OAUTH_RETURN_ORIGIN)
     : new URL("ai.alook.desktop://auth/native/return");
   url.searchParams.set("attempt", attemptId);
   if ("code" in result) url.searchParams.set("code", result.code);
@@ -239,8 +236,4 @@ export function setWebViewAnalyticsCookie(
 
 export function isNativeOauthAttemptId(value: string | null): value is string {
   return value !== null && nativeOauthAttemptIdSchema.safeParse(value).success;
-}
-
-export function isNativeOauthReturnHost(url: URL): boolean {
-  return url.protocol === "https:" && url.host === NATIVE_OAUTH_RETURN_HOST;
 }

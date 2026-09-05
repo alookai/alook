@@ -133,6 +133,23 @@ describe("canonical execution plan", () => {
     expect(result.jobs.blog_build).toBe(true)
   })
 
+  it("routes the standalone auth Worker through Web checks and its own dry-run only", () => {
+    const result = plan(["src/web/auth/index.ts"])
+
+    expect(result.change_class).toBe("auth")
+    expect(result.auth_only).toBe(true)
+    expect(result.packages.direct).toEqual(["@alook/web"])
+    expect(result.packages.affected).toEqual(["@alook/web"])
+    expect(result.suites.static).toEqual(["@alook/web"])
+    expect(result.suites.unit).toEqual(["src/web"])
+    expect(result.suites.integration).toEqual([])
+    expect(result.ui.specs).toEqual([])
+    expect(result.jobs.auth_build).toBe(true)
+    expect(result.jobs.blog_build).toBe(false)
+    expect(result.jobs.lighthouse).toBe(false)
+    expect(result.jobs.app_packed_artifact).toBe(false)
+  })
+
   it("selects only the CLI package and its explicit platform suites", () => {
     const result = plan(["src/cli/src/commands/inbox.ts"])
 
@@ -262,6 +279,10 @@ describe("canonical execution plan", () => {
     expect(projection.plan_hash).toBe(first.plan_hash)
     expect(JSON.parse(projection.static_packages)).toEqual(first.suites.static)
     expect(JSON.parse(projection.integration_suites)).toEqual(first.suites.integration)
+
+    const auth = projectPlan(plan(["src/web/auth/wrangler.toml"]))
+    expect(auth.auth_only).toBe("true")
+    expect(auth.run_auth_build).toBe("true")
 
     expect(() => validateExecutionPlan({ ...first, head_sha: sha("c") })).toThrow("hash")
   })

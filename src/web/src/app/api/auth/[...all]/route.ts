@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { toNextJsHandler } from "better-auth/next-js"
 import { createAuth } from "@/lib/auth"
 import { withEnv } from "@/lib/middleware/env"
-import { nativeOauthSecurityHeaders } from "@/lib/native-oauth-host"
+import { nativeOauthSecurityHeaders } from "@/lib/native-oauth"
 
 const SERVER_ONLY_AUTH_PREFIX = "/api/auth/one-time-token"
 

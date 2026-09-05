@@ -5,6 +5,8 @@ export default defineConfig({
     projects: [
       "src/shared",
       "src/web",
+      "src/web/auth/vitest.config.ts",
+      "src/web/auth/vitest.runtime.config.mts",
       "src/cli",
       "src/daemon",
       "src/daemon/agent-driver",
