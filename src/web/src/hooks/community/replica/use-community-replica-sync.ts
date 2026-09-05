@@ -9,6 +9,7 @@ import {
   type CommunityReplicaBootstrapRequest,
   type CommunityReplicaBootstrapResponse,
   type CommunityReplicaDeltaResponse,
+  type CommunityReplicaFrontier,
   type CommunityReplicaIntentResponse,
 } from "@alook/shared"
 import type { ServerDetail } from "@/hooks/community/use-servers"
@@ -74,10 +75,11 @@ async function seedReplicaScopes(
   queryClient: QueryClient,
   accountId: string,
   scopes: CommunityReplicaBootstrapResponse["coverage"][number]["scope"][],
+  resetCoverage = false,
 ) {
   const projection = await readCoveredCommunityReplica(accountId, scopes)
   if (!projection) return false
-  seedCommunityReplicaQueries(queryClient, projection)
+  seedCommunityReplicaQueries(queryClient, projection, { resetCoverage })
   return true
 }
 
@@ -112,6 +114,12 @@ export async function flushCommunityReplicaIntents(
   }
 }
 
+export function selectCommunityReplicaDeltaFrontier(
+  frontier: CommunityReplicaFrontier,
+): CommunityReplicaFrontier {
+  return frontier.filter((entry) => entry.scope.kind === "channel")
+}
+
 async function drainCommunityReplicaDeltas(
   queryClient: QueryClient,
   user: ReplicaSessionUser,
@@ -119,7 +127,8 @@ async function drainCommunityReplicaDeltas(
   snapshot: CommunityReplicaBootstrapResponse,
   signal: AbortSignal,
 ) {
-  let frontier = snapshot.frontier
+  let frontier = selectCommunityReplicaDeltaFrontier(snapshot.frontier)
+  if (frontier.length === 0) return true
   for (;;) {
     const response = await apiFetch<CommunityReplicaDeltaResponse>(
       "/api/community/replica/delta",
@@ -166,6 +175,7 @@ async function synchronizeCommunityReplica(
     queryClient,
     user.id,
     snapshot.coverage.map((item) => item.scope),
+    true,
   )
   await seedCurrentRoute(queryClient, user, pathname)
   await drainCommunityReplicaDeltas(queryClient, user, pathname, snapshot, signal)

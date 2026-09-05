@@ -199,9 +199,14 @@ export async function replaceCommunityReplicaBootstrap(
   const intents = tx.objectStore("intents")
   const settledIntentIds: string[] = []
 
+  await Promise.all([
+    tx.objectStore("frontiers").clear(),
+    tx.objectStore("coverage").clear(),
+    entities.clear(),
+  ])
+
   for (const item of snapshot.coverage) {
     const key = communityReplicaScopeKey(item.scope)
-    await deleteScopeEntities(entities, key)
     await tx.objectStore("coverage").put(item, key)
   }
   for (const entry of snapshot.frontier) {

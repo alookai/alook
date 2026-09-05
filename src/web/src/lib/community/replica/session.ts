@@ -97,14 +97,19 @@ export async function publishCommunityReplicaSession(
   const connection = openControl()
   if (!connection) throw new Error("IndexedDB is unavailable")
   const path = routePath(pathname)
-  await (await connection).put("session", {
+  const db = await connection
+  const previous = await db.get("session", "active")
+  const shellRoutes = previous?.accountId === user.id
+    ? [...new Set([...previous.shellRoutes, path])]
+    : [path]
+  await db.put("session", {
     key: "active",
     accountId: user.id,
     user,
     replicaProtocolVersion: COMMUNITY_REPLICA_PROTOCOL_VERSION,
     snapshotId: projection.meta.snapshotId,
     shellProtocolVersion: COMMUNITY_SHELL_PROTOCOL_VERSION,
-    shellRoutes: [path],
+    shellRoutes,
   })
 }
 

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useLayoutEffect, type ReactNode } from "react"
+import { useEffect, useLayoutEffect, useMemo, type ReactNode } from "react"
 import { apiFetchProfiles } from "@/lib/community/profile-seed"
 import { QueryProvider } from "./QueryProvider"
 import {
@@ -45,11 +45,16 @@ export function CommunityShell({
   replicaServerId?: string
   children: ReactNode
 }) {
+  const replicaCoveredChannelIds = useMemo(() => new Set(replicaProjection?.coverage
+    .filter((item) => item.scope.kind === "channel")
+    .map((item) => item.scope.id)), [replicaProjection])
+
   return (
     <ProfileAccountBoundary
       viewer={currentUser}
       replicaIntents={replicaIntents}
       replicaServerId={replicaServerId}
+      replicaCoveredChannelIds={replicaCoveredChannelIds}
     >
       <QueryProvider
         key={currentUser.id}
@@ -69,11 +74,13 @@ function ProfileAccountBoundary({
   viewer,
   replicaIntents,
   replicaServerId,
+  replicaCoveredChannelIds,
 }: {
   children: ReactNode
   viewer: CurrentUser
   replicaIntents?: ReplicaIntentRow[]
   replicaServerId?: string
+  replicaCoveredChannelIds: ReadonlySet<string>
 }) {
   const activeViewerId = useCommunityWsStore((state) => state.profileViewerId)
   const viewerId = viewer.id
@@ -89,9 +96,9 @@ function ProfileAccountBoundary({
         email: viewer.email,
         avatar: viewer.avatar,
         avatarVersion: viewer.avatarVersion ?? 0,
-      }, replicaIntents, replicaServerId)
+      }, replicaIntents, replicaServerId, replicaCoveredChannelIds)
     }
-  }, [activeViewerId, replicaIntents, replicaServerId, viewer, viewerId])
+  }, [activeViewerId, replicaCoveredChannelIds, replicaIntents, replicaServerId, viewer, viewerId])
 
   if (activeViewerId !== viewerId) return null
   return children

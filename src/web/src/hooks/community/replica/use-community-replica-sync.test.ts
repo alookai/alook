@@ -17,6 +17,7 @@ vi.mock("@/lib/community/replica/store", async (importOriginal) => ({
 import {
   buildCommunityReplicaBootstrapRequest,
   flushCommunityReplicaIntents,
+  selectCommunityReplicaDeltaFrontier,
 } from "./use-community-replica-sync"
 
 const server: ServerDetail = {
@@ -50,6 +51,18 @@ describe("community Replica bootstrap request", () => {
     expect(request.tails).toHaveLength(32)
     expect(request.tails[0]).toEqual({ channelId: "c20", limit: 100 })
     expect(new Set(request.tails.map((tail) => tail.channelId)).size).toBe(32)
+  })
+
+  it("drains channel journals without turning account and server snapshots into false gaps", () => {
+    expect(selectCommunityReplicaDeltaFrontier([
+      { scope: { kind: "account", id: "account-1" }, revision: 10 },
+      { scope: { kind: "server", id: "s1" }, revision: 20 },
+      { scope: { kind: "channel", id: "c1" }, revision: 30 },
+      { scope: { kind: "channel", id: "c2" }, revision: 40 },
+    ])).toEqual([
+      { scope: { kind: "channel", id: "c1" }, revision: 30 },
+      { scope: { kind: "channel", id: "c2" }, revision: 40 },
+    ])
   })
 })
 

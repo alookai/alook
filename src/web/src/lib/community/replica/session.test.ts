@@ -85,6 +85,7 @@ describe("community Replica session", () => {
     await replaceCommunityReplicaBootstrap(user.id, bootstrap())
     await publishCommunityReplicaSession(user, route, Date.parse(checkedAt) + 1)
     await markCommunityReplicaShellRoute(user.id, "/c/channels/server-1")
+    await publishCommunityReplicaSession(user, route, Date.parse(checkedAt) + 1)
 
     await expect(readActiveCommunityReplicaSession("/c/channels/server-1", Date.parse(checkedAt) + 1)).resolves.not.toBeNull()
     await expect(readActiveCommunityReplicaSession("/c/channels/server-1/other", Date.parse(checkedAt) + 1)).resolves.toBeNull()

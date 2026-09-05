@@ -136,6 +136,7 @@ function projectMessagePage(
 export function seedCommunityReplicaQueries(
   queryClient: QueryClient,
   projection: CoveredReplicaProjection,
+  options: { resetCoverage?: boolean } = {},
 ) {
   const accountCoverage = projection.coverage.find((item) => item.scope.kind === "account")
   const serverCoverage = projection.coverage.find((item) => item.scope.kind === "server")
@@ -159,7 +160,9 @@ export function seedCommunityReplicaQueries(
     }
   }
 
-  const channelTails = new Set<string>()
+  const channelTails = options.resetCoverage
+    ? new Set<string>()
+    : new Set(coverageByClient.get(queryClient)?.channelTails)
   const channelCoverageItems = projection.coverage.filter((item) => item.scope.kind === "channel")
   for (const channelCoverage of channelCoverageItems) {
     const isCoveredTail = channelCoverage.messageRange

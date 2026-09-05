@@ -90,6 +90,22 @@ describe("community Replica store", () => {
     await expect(readCoveredCommunityReplica(accountId, [channel], Date.parse(later))).resolves.toBeNull()
   })
 
+  it("replaces the entire published world instead of mixing scopes from different snapshots", async () => {
+    await replaceCommunityReplicaBootstrap(accountId, bootstrap())
+    const next = bootstrap()
+    next.snapshotId = "snapshot-2"
+    next.frontier = next.frontier.filter((entry) => entry.scope.kind === "account")
+    next.coverage = next.coverage.filter((item) => item.scope.kind === "account")
+    next.facts = next.facts.filter((fact) => fact.scope.kind === "account")
+
+    await replaceCommunityReplicaBootstrap(accountId, next)
+
+    await expect(readCoveredCommunityReplica(accountId, [channel], Date.parse(now) + 1)).resolves.toBeNull()
+    await expect(readCoveredCommunityReplica(accountId, [account], Date.parse(now) + 1)).resolves.toMatchObject({
+      meta: { snapshotId: "snapshot-2" },
+    })
+  })
+
   it("applies a multi-scope causal batch without publishing a mixed frontier", async () => {
     await replaceCommunityReplicaBootstrap(accountId, bootstrap())
     await applyCommunityReplicaDelta(accountId, {

@@ -8,10 +8,12 @@ export function hydrateCommunityReplicaIntents(
   user: ReplicaSessionUser,
   intents: ReplicaIntentRow[],
   serverId: string,
+  coveredChannelIds: ReadonlySet<string>,
 ) {
   const stream = useMessageStreamStore.getState()
   for (const row of intents) {
     const intent = row.intent
+    if (!coveredChannelIds.has(intent.scope.id)) continue
     const scope = { kind: "channel" as const, id: intent.scope.id, serverId }
     const accepted = stream.accept(scope, {
       nonce: intent.intentId,

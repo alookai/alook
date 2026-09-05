@@ -88,4 +88,29 @@ describe("community Replica query seed", () => {
     })
     expect(hasCoveredCommunityReplicaTarget(queryClient, "empty")).toBe(true)
   })
+
+  it("merges delta coverage but resets stale channels on a new bootstrap", () => {
+    const queryClient = new QueryClient()
+    seedCommunityReplicaQueries(queryClient, projection)
+    const nextChannel = {
+      ...projection,
+      frontier: [{ scope: { kind: "channel", id: "c2" }, revision: 0 }],
+      coverage: [{
+        scope: { kind: "channel", id: "c2" },
+        revision: 0,
+        completeness: "complete",
+        permission: lease,
+        messageRange: null,
+      }],
+      entities: [],
+    } as CoveredReplicaProjection
+
+    seedCommunityReplicaQueries(queryClient, nextChannel)
+    expect(hasCoveredCommunityReplicaTarget(queryClient, "c1")).toBe(true)
+    expect(hasCoveredCommunityReplicaTarget(queryClient, "c2")).toBe(true)
+
+    seedCommunityReplicaQueries(queryClient, nextChannel, { resetCoverage: true })
+    expect(hasCoveredCommunityReplicaTarget(queryClient, "c1")).toBe(false)
+    expect(hasCoveredCommunityReplicaTarget(queryClient, "c2")).toBe(true)
+  })
 })
