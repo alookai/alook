@@ -682,3 +682,57 @@ export const communityMessageTag = sqliteTable(
     index("idx_message_tag_tag").on(t.tag, t.messageId),
   ]
 );
+
+export const communityReplicaScopeRevision = sqliteTable(
+  "community_replica_scope_revision",
+  {
+    scopeKind: text("scope_kind").notNull(),
+    scopeId: text("scope_id").notNull(),
+    revision: integer("revision").notNull().default(0),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.scopeKind, t.scopeId] }),
+  ]
+);
+
+export const communityReplicaDelta = sqliteTable(
+  "community_replica_delta",
+  {
+    scopeKind: text("scope_kind").notNull(),
+    scopeId: text("scope_id").notNull(),
+    revision: integer("revision").notNull(),
+    causalId: text("causal_id").notNull(),
+    committedAt: text("committed_at").notNull(),
+    descriptor: text("descriptor").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.scopeKind, t.scopeId, t.revision] }),
+    index("idx_replica_delta_causal").on(t.causalId, t.scopeKind, t.scopeId),
+  ]
+);
+
+export const communityReplicaIntent = sqliteTable(
+  "community_replica_intent",
+  {
+    actorId: text("actor_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    intentId: text("intent_id").notNull(),
+    requestHash: text("request_hash").notNull(),
+    status: text("status").notNull(),
+    causalId: text("causal_id"),
+    channelId: text("channel_id").notNull(),
+    messageId: text("message_id"),
+    revision: integer("revision"),
+    seq: integer("seq"),
+    reason: text("reason"),
+    rejectionCode: text("rejection_code"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.actorId, t.intentId] }),
+    index("idx_replica_intent_message").on(t.actorId, t.messageId),
+  ]
+);

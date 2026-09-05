@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { MAX_MESSAGE_CONTENT_LENGTH } from "../constants/community";
+import { FriendApprovalPayloadSchema } from "../community-ws-events";
 
 export const COMMUNITY_REPLICA_PROTOCOL_VERSION = 1 as const;
 export const COMMUNITY_REPLICA_MAX_SCOPES = 128;
@@ -10,15 +11,6 @@ export const COMMUNITY_REPLICA_MAX_INTENTS = 16;
 const idSchema = z.string().trim().min(1).max(128);
 const timestampSchema = z.string().datetime({ offset: true });
 const revisionSchema = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
-
-const jsonValueSchema: z.ZodType<unknown> = z.lazy(() => z.union([
-  z.string(),
-  z.number().finite(),
-  z.boolean(),
-  z.null(),
-  z.array(jsonValueSchema),
-  z.record(z.string(), jsonValueSchema),
-]));
 
 export const communityReplicaScopeSchema = z.strictObject({
   kind: z.enum(["account", "server", "channel"]),
@@ -92,22 +84,264 @@ export const communityReplicaCoverageSchema = z.strictObject({
 
 export type CommunityReplicaCoverage = z.infer<typeof communityReplicaCoverageSchema>;
 
+const communityReplicaEntityKindSchema = z.enum([
+  "server",
+  "category",
+  "channel",
+  "unread-source",
+  "message",
+  "read-state",
+]);
+
 const communityReplicaEntitySchema = z.strictObject({
-  kind: z.enum(["server", "channel", "message", "read-state"]),
+  kind: communityReplicaEntityKindSchema,
   id: idSchema,
 });
 
-export const communityReplicaOperationSchema = z.discriminatedUnion("operation", [
-  z.strictObject({
-    operation: z.literal("upsert"),
-    entity: communityReplicaEntitySchema,
-    value: z.record(z.string(), jsonValueSchema),
+const unreadSourceSchema = z.strictObject({
+  channelId: idSchema,
+  lastUnreadSeq: z.number().int().positive(),
+});
+
+const mentionSourceSchema = z.strictObject({
+  channelId: idSchema,
+  count: z.number().int().positive(),
+  lastSeq: z.number().int().positive(),
+});
+
+export const communityReplicaServerValueSchema = z.strictObject({
+  id: idSchema,
+  name: z.string().min(1),
+  discriminator: z.string().regex(/^\d{4}$/),
+  description: z.string(),
+  ownerId: idSchema,
+  icon: z.string().nullable(),
+  initial: z.string().min(1),
+  isOwner: z.boolean(),
+  railOrder: z.number().int().nonnegative(),
+  unread: z.boolean(),
+  mentions: z.number().int().nonnegative(),
+  unreadSources: z.array(unreadSourceSchema),
+  mentionSources: z.array(mentionSourceSchema),
+});
+
+export const communityReplicaCategoryValueSchema = z.strictObject({
+  id: idSchema,
+  serverId: idSchema,
+  name: z.string().min(1),
+  position: z.number().int().nonnegative(),
+  private: z.boolean(),
+  creatorId: idSchema.nullable(),
+});
+
+export const communityReplicaChannelValueSchema = z.strictObject({
+  id: idSchema,
+  serverId: idSchema,
+  categoryId: idSchema.nullable(),
+  name: z.string().min(1),
+  position: z.number().int().nonnegative(),
+  type: z.enum(["text", "forum"]),
+  creatorId: idSchema.nullable(),
+});
+
+export const communityReplicaUnreadSourceValueSchema = z
+  .strictObject({
+    channelId: idSchema,
+    serverId: idSchema,
+    parentChannelId: idSchema.nullable(),
+    lastUnreadSeq: z.number().int().positive(),
+    lastAttentionSeq: z.number().int().positive().nullable(),
+  })
+  .superRefine((source, ctx) => {
+    if (source.lastAttentionSeq !== null && source.lastAttentionSeq > source.lastUnreadSeq) {
+      ctx.addIssue({ code: "custom", message: "attention seq cannot exceed unread seq" });
+    }
+  });
+
+const embedImageSchema = z.strictObject({
+  url: z.string(),
+  width: z.number().finite().optional(),
+  height: z.number().finite().optional(),
+});
+
+const communityReplicaEmbedSchema = z.strictObject({
+  provider: z.string().optional(),
+  url: z.string().optional(),
+  title: z.string(),
+  desc: z.string().optional(),
+  color: z.string().optional(),
+  image: embedImageSchema.optional(),
+  thumbnail: z.strictObject({ url: z.string() }).optional(),
+  fields: z.array(z.strictObject({
+    name: z.string(),
+    value: z.string(),
+    inline: z.boolean().optional(),
+  })).optional(),
+  footer: z.strictObject({
+    text: z.string(),
+    iconUrl: z.string().optional(),
+  }).optional(),
+  author: z.strictObject({
+    name: z.string(),
+    url: z.string().optional(),
+    iconUrl: z.string().optional(),
+  }).optional(),
+});
+
+const attachmentMetadataSchema = z.strictObject({
+  name: z.string(),
+  url: z.string(),
+  contentType: z.string().optional(),
+  sizeBytes: z.number().int().nonnegative().optional(),
+});
+
+const communityReplicaAttachmentSchema = z.union([
+  attachmentMetadataSchema.extend({
+    kind: z.literal("image"),
+    thumbnailUrl: z.string().optional(),
+    width: z.number().int().nonnegative().optional(),
+    height: z.number().int().nonnegative().optional(),
   }),
+  attachmentMetadataSchema.extend({
+    kind: z.literal("file"),
+    size: z.string().optional(),
+  }),
+]);
+
+const communityReplicaReactionSchema = z.strictObject({
+  emoji: z.string().min(1),
+  count: z.number().int().positive(),
+  me: z.boolean(),
+  userIds: z.array(idSchema),
+});
+
+export const communityReplicaMessageValueSchema = z.strictObject({
+  id: idSchema,
+  channelId: idSchema,
+  type: z.enum(["chat", "system"]),
+  systemKind: z.literal("thread").optional(),
+  authorId: idSchema,
+  authorName: z.string(),
+  authorAvatar: z.string(),
+  authorAvatarVersion: z.number().int().nonnegative(),
+  color: z.string().optional(),
+  seq: z.number().int().positive(),
+  createdAt: timestampSchema,
+  clientNonce: idSchema.optional(),
+  content: z.string(),
+  embeds: z.array(communityReplicaEmbedSchema).optional(),
+  attachments: z.array(communityReplicaAttachmentSchema).optional(),
+  reactions: z.array(communityReplicaReactionSchema).optional(),
+  replyTo: z.strictObject({
+    id: idSchema,
+    authorId: idSchema.optional(),
+    authorName: z.string(),
+    text: z.string(),
+    deleted: z.boolean().optional(),
+  }).optional(),
+  thread: z.strictObject({
+    id: idSchema,
+    name: z.string(),
+    messageCount: z.number().int().nonnegative(),
+    lastReplyAt: timestampSchema.optional(),
+    tags: z.array(z.string()).optional(),
+    preview: z.string().optional(),
+    participants: z.array(z.strictObject({
+      id: idSchema,
+      name: z.string(),
+      avatar: z.string(),
+      avatarVersion: z.number().int().nonnegative(),
+    })).optional(),
+    participantCount: z.number().int().nonnegative().optional(),
+  }).optional(),
+  approval: FriendApprovalPayloadSchema.optional(),
+});
+
+export const communityReplicaReadStateValueSchema = z.strictObject({
+  channelId: idSchema,
+  lastReadMessageId: idSchema,
+  lastReadAt: timestampSchema,
+  lastReadSeq: z.number().int().positive(),
+});
+
+const serverUpsertSchema = z.strictObject({ operation: z.literal("upsert"), entity: z.strictObject({ kind: z.literal("server"), id: idSchema }), value: communityReplicaServerValueSchema });
+const categoryUpsertSchema = z.strictObject({ operation: z.literal("upsert"), entity: z.strictObject({ kind: z.literal("category"), id: idSchema }), value: communityReplicaCategoryValueSchema });
+const channelUpsertSchema = z.strictObject({ operation: z.literal("upsert"), entity: z.strictObject({ kind: z.literal("channel"), id: idSchema }), value: communityReplicaChannelValueSchema });
+const unreadSourceUpsertSchema = z.strictObject({ operation: z.literal("upsert"), entity: z.strictObject({ kind: z.literal("unread-source"), id: idSchema }), value: communityReplicaUnreadSourceValueSchema });
+const messageUpsertSchema = z.strictObject({ operation: z.literal("upsert"), entity: z.strictObject({ kind: z.literal("message"), id: idSchema }), value: communityReplicaMessageValueSchema });
+const readStateUpsertSchema = z.strictObject({ operation: z.literal("upsert"), entity: z.strictObject({ kind: z.literal("read-state"), id: idSchema }), value: communityReplicaReadStateValueSchema });
+
+const upsertOperationSchemas = [
+  serverUpsertSchema,
+  categoryUpsertSchema,
+  channelUpsertSchema,
+  unreadSourceUpsertSchema,
+  messageUpsertSchema,
+  readStateUpsertSchema,
+] as const;
+
+export const communityReplicaOperationSchema = z.union([
+  ...upsertOperationSchemas,
   z.strictObject({
     operation: z.literal("remove"),
     entity: communityReplicaEntitySchema,
   }),
 ]);
+
+type ValidationOperation = {
+  operation: "upsert" | "remove";
+  entity: { kind: z.infer<typeof communityReplicaEntityKindSchema>; id: string };
+  value?: { id?: string; channelId?: string; serverId?: string };
+};
+
+function validateOperationIdentity(
+  operation: ValidationOperation,
+  ctx: z.RefinementCtx,
+) {
+  if (operation.operation !== "upsert" || !operation.value) return;
+  const valueId = "channelId" in operation.value
+    && (operation.entity.kind === "unread-source" || operation.entity.kind === "read-state")
+    ? operation.value.channelId
+    : "id" in operation.value
+      ? operation.value.id
+      : undefined;
+  if (operation.entity.id !== valueId) {
+    ctx.addIssue({ code: "custom", message: "entity id does not match value identity" });
+  }
+}
+
+function validateOperationScope(
+  scope: CommunityReplicaScope,
+  operation: ValidationOperation,
+  ctx: z.RefinementCtx,
+) {
+  const expectedScope = operation.entity.kind === "server" || operation.entity.kind === "read-state"
+    ? "account"
+    : operation.entity.kind === "message"
+      ? "channel"
+      : "server";
+  if (scope.kind !== expectedScope) {
+    ctx.addIssue({ code: "custom", message: `${operation.entity.kind} is invalid in ${scope.kind} scope` });
+    return;
+  }
+  if (operation.operation === "upsert" && operation.value) {
+    if (
+      (operation.entity.kind === "category"
+        || operation.entity.kind === "channel"
+        || operation.entity.kind === "unread-source")
+      && "serverId" in operation.value
+      && operation.value.serverId !== scope.id
+    ) {
+      ctx.addIssue({ code: "custom", message: "server-scoped value does not match scope" });
+    }
+    if (
+      operation.entity.kind === "message"
+      && operation.value.channelId !== scope.id
+    ) {
+      ctx.addIssue({ code: "custom", message: "message channel does not match scope" });
+    }
+  }
+}
 
 export type CommunityReplicaOperation = z.infer<typeof communityReplicaOperationSchema>;
 
@@ -121,6 +355,10 @@ export const communityReplicaDeltaSchema = z
   .superRefine((delta, ctx) => {
     if (delta.toRevision !== delta.fromRevision + 1) {
       ctx.addIssue({ code: "custom", message: "delta must advance exactly one revision" });
+    }
+    for (const operation of delta.operations) {
+      validateOperationIdentity(operation, ctx);
+      validateOperationScope(delta.scope, operation, ctx);
     }
   });
 
@@ -169,6 +407,15 @@ export const communityReplicaBootstrapRequestSchema = z.strictObject({
     }),
 });
 
+export const communityReplicaFactSchema = z.union([
+  serverUpsertSchema.omit({ operation: true }).extend({ scope: communityReplicaScopeSchema }),
+  categoryUpsertSchema.omit({ operation: true }).extend({ scope: communityReplicaScopeSchema }),
+  channelUpsertSchema.omit({ operation: true }).extend({ scope: communityReplicaScopeSchema }),
+  unreadSourceUpsertSchema.omit({ operation: true }).extend({ scope: communityReplicaScopeSchema }),
+  messageUpsertSchema.omit({ operation: true }).extend({ scope: communityReplicaScopeSchema }),
+  readStateUpsertSchema.omit({ operation: true }).extend({ scope: communityReplicaScopeSchema }),
+]);
+
 export const communityReplicaBootstrapResponseSchema = z
   .strictObject({
     protocolVersion: z.literal(COMMUNITY_REPLICA_PROTOCOL_VERSION),
@@ -176,11 +423,7 @@ export const communityReplicaBootstrapResponseSchema = z
     takenAt: timestampSchema,
     frontier: uniqueFrontierSchema,
     coverage: z.array(communityReplicaCoverageSchema).max(COMMUNITY_REPLICA_MAX_SCOPES),
-    facts: z.array(z.strictObject({
-      scope: communityReplicaScopeSchema,
-      entity: communityReplicaEntitySchema,
-      value: z.record(z.string(), jsonValueSchema),
-    })),
+    facts: z.array(communityReplicaFactSchema),
   })
   .superRefine((snapshot, ctx) => {
     const frontier = new Map(snapshot.frontier.map((entry) => [
@@ -203,6 +446,8 @@ export const communityReplicaBootstrapResponseSchema = z
       if (!coverage.has(key)) {
         ctx.addIssue({ code: "custom", message: `fact outside coverage ${key}`, path: ["facts", index] });
       }
+      validateOperationIdentity({ operation: "upsert", entity: fact.entity, value: fact.value }, ctx);
+      validateOperationScope(fact.scope, { operation: "upsert", entity: fact.entity, value: fact.value }, ctx);
     }
   });
 
@@ -284,7 +529,7 @@ export const communityReplicaTextSendIntentSchema = z.strictObject({
   payload: z.strictObject({
     content: z.string().min(1).max(MAX_MESSAGE_CONTENT_LENGTH),
     replyToId: idSchema.optional(),
-    mentionType: z.string().trim().min(1).max(64).optional(),
+    mentionType: z.literal("everyone").optional(),
   }),
 });
 

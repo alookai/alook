@@ -12,6 +12,18 @@ const committedAt = "2026-09-06T03:20:00.000+08:00";
 const leaseExpiresAt = "2026-09-06T04:20:00.000+08:00";
 const account = { kind: "account" as const, id: "user-1" };
 const channel = { kind: "channel" as const, id: "channel-1" };
+const canonicalMessage = {
+  id: "message-7",
+  channelId: "channel-1",
+  type: "chat" as const,
+  authorId: "user-2",
+  authorName: "Sam",
+  authorAvatar: "S",
+  authorAvatarVersion: 0,
+  seq: 7,
+  createdAt: committedAt,
+  content: "hello",
+};
 
 describe("community Replica v1 contract", () => {
   it("rejects unknown versions, duplicate scopes, and reversed coverage", () => {
@@ -65,7 +77,7 @@ describe("community Replica v1 contract", () => {
       facts: [{
         scope: channel,
         entity: { kind: "message", id: "message-7" },
-        value: { id: "message-7", seq: 7, content: "hello" },
+        value: canonicalMessage,
       }],
     };
     expect(communityReplicaBootstrapResponseSchema.parse(valid)).toEqual(valid);
@@ -113,7 +125,12 @@ describe("community Replica v1 contract", () => {
             operations: [{
               operation: "upsert",
               entity: { kind: "read-state", id: "channel-1" },
-              value: { channelId: "channel-1", lastReadSeq: 8 },
+              value: {
+                channelId: "channel-1",
+                lastReadMessageId: "message-8",
+                lastReadAt: committedAt,
+                lastReadSeq: 8,
+              },
             }],
           },
           {
@@ -123,7 +140,11 @@ describe("community Replica v1 contract", () => {
             operations: [{
               operation: "upsert",
               entity: { kind: "message", id: "message-8" },
-              value: { id: "message-8", seq: 8 },
+              value: {
+                ...canonicalMessage,
+                id: "message-8",
+                seq: 8,
+              },
             }],
           },
         ],
@@ -161,6 +182,106 @@ describe("community Replica v1 contract", () => {
       reason: "compacted",
       scopes: [channel],
     });
+  });
+
+  it("validates concrete entity projections and their scope identities", () => {
+    const base = {
+      protocolVersion: COMMUNITY_REPLICA_PROTOCOL_VERSION,
+      snapshotId: "snapshot-2",
+      takenAt: committedAt,
+      frontier: [{ scope: channel, revision: 7 }],
+      coverage: [{
+        scope: channel,
+        revision: 7,
+        completeness: "partial",
+        permission: { epoch: "channel-3", checkedAt: committedAt, validUntil: leaseExpiresAt },
+        messageRange: { firstSeq: 7, lastSeq: 7, hasOlder: true, hasNewer: false },
+      }],
+      facts: [{
+        scope: channel,
+        entity: { kind: "message", id: "message-7" },
+        value: canonicalMessage,
+      }],
+    };
+
+    expect(communityReplicaBootstrapResponseSchema.parse(base)).toEqual(base);
+    expect(communityReplicaBootstrapResponseSchema.safeParse({
+      ...base,
+      facts: [{ ...base.facts[0], value: { ...canonicalMessage, seq: undefined } }],
+    }).success).toBe(false);
+    expect(communityReplicaBootstrapResponseSchema.safeParse({
+      ...base,
+      facts: [{ ...base.facts[0], value: { ...canonicalMessage, createdAt: undefined } }],
+    }).success).toBe(false);
+    expect(communityReplicaBootstrapResponseSchema.safeParse({
+      ...base,
+      facts: [{ ...base.facts[0], value: { ...canonicalMessage, channelId: "channel-2" } }],
+    }).success).toBe(false);
+    expect(communityReplicaBootstrapResponseSchema.safeParse({
+      ...base,
+      facts: [{ ...base.facts[0], entity: { kind: "message", id: "message-other" } }],
+    }).success).toBe(false);
+    expect(communityReplicaBootstrapResponseSchema.safeParse({
+      ...base,
+      facts: [{ ...base.facts[0], value: { ...canonicalMessage, rawDbOnly: true } }],
+    }).success).toBe(false);
+  });
+
+  it("keeps server-detail tree facts top-level and server-scoped", () => {
+    const serverScope = { kind: "server" as const, id: "server-1" };
+    const delta = {
+      scope: serverScope,
+      fromRevision: 1,
+      toRevision: 2,
+      operations: [{
+        operation: "upsert",
+        entity: { kind: "channel", id: "channel-1" },
+        value: {
+          id: "channel-1",
+          serverId: "server-1",
+          categoryId: null,
+          name: "all",
+          position: 0,
+          type: "text",
+          creatorId: null,
+        },
+      }],
+    };
+    const response = {
+      protocolVersion: COMMUNITY_REPLICA_PROTOCOL_VERSION,
+      status: "ok",
+      from: [{ scope: serverScope, revision: 1 }],
+      batches: [{ causalId: "tree-2", committedAt, deltas: [delta] }],
+      frontier: [{ scope: serverScope, revision: 2 }],
+      hasMore: false,
+    };
+    expect(communityReplicaDeltaResponseSchema.parse(response)).toEqual(response);
+    expect(communityReplicaDeltaResponseSchema.safeParse({
+      ...response,
+      batches: [{
+        ...response.batches[0],
+        deltas: [{
+          ...delta,
+          operations: [{
+            ...delta.operations[0],
+            value: { ...delta.operations[0].value, type: "thread" },
+          }],
+        }],
+      }],
+    }).success).toBe(false);
+    expect(communityReplicaDeltaResponseSchema.safeParse({
+      ...response,
+      batches: [{
+        ...response.batches[0],
+        deltas: [{
+          ...delta,
+          operations: [{
+            ...delta.operations[0],
+            value: { ...delta.operations[0].value, serverId: "server-2" },
+          }],
+        }],
+      }],
+    }).success).toBe(false);
   });
 
   it("keeps stable intent identity and canonical outcomes distinct", () => {

@@ -704,7 +704,14 @@ export {
   communityReplicaFrontierEntrySchema,
   communityReplicaFrontierSchema,
   communityReplicaCoverageSchema,
+  communityReplicaServerValueSchema,
+  communityReplicaCategoryValueSchema,
+  communityReplicaChannelValueSchema,
+  communityReplicaUnreadSourceValueSchema,
+  communityReplicaMessageValueSchema,
+  communityReplicaReadStateValueSchema,
   communityReplicaOperationSchema,
+  communityReplicaFactSchema,
   communityReplicaDeltaSchema,
   communityReplicaCausalBatchSchema,
   communityReplicaBootstrapRequestSchema,
@@ -734,7 +741,7 @@ export type {
 } from "./community/replica";
 export * as schema from "./db/schema";
 export * as queries from "./db/queries-index";
-export { communityServer, communityServerInvite, communityFriendship, communityServerMember, communityServerFolder, communityServerFolderItem, communityBotActivityEvent, communityBotDailyActivity } from "./db/community-schema";
+export { communityServer, communityServerInvite, communityFriendship, communityServerMember, communityServerFolder, communityServerFolderItem, communityBotActivityEvent, communityBotDailyActivity, communityReplicaScopeRevision, communityReplicaDelta, communityReplicaIntent } from "./db/community-schema";
 
 // Logger
 export { Logger, createLogger } from "./logger"

@@ -64,4 +64,7 @@ export * as communityAgentInbox from "./queries/community/agent-inbox";
 export * as communityBotAuditLog from "./queries/community/bot-audit-log";
 export * as communityMessageTag from "./queries/community/message-tag";
 export * as communityDiagnosticReport from "./queries/community/diagnostic-report";
+export * as communityReplicaStore from "./queries/community/replica-store";
+export * as communityReplicaBootstrap from "./queries/community/replica-bootstrap";
+export * as communityReplicaDelta from "./queries/community/replica-delta";
 export const nativeOauth = nativeOauthQueries;
