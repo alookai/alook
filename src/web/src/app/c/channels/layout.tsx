@@ -28,6 +28,7 @@ import {
   useCurrentChannelMeta,
 } from "@/stores/community"
 import { useCurrentUser } from "@/contexts/community/current-user"
+import { useCommunityReplicaSync } from "@/hooks/community/replica/use-community-replica-sync"
 import { useServer, useServers } from "@/hooks/community/use-servers"
 import { useServerMembers } from "@/hooks/community/use-server-members"
 import {
@@ -80,6 +81,13 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   }, [])
   const currentUser = useCurrentUser()
   const { server: currentServer } = useServer(serverId)
+  useCommunityReplicaSync({
+    user: currentUser,
+    pathname,
+    serverId,
+    currentChannelId: routeChannelId,
+    server: currentServer,
+  })
   const membersHook = useServerMembers(serverId)
   const profilesByUserId = useCommunityWsStore((s) => s.profilesByUserId)
   const enrichedMembers = useMemo(

@@ -14,19 +14,19 @@
 // `useLocalStorage` hook: the composer's content lives in the tiptap editor,
 // not React state, so it hydrates/persists imperatively at mount/update/send.
 
-const PREFIX = "c-composer-draft:"
+const PREFIX = "c-replica-v1:"
 
-export function draftStorageKey(scope: string): string {
-  return `${PREFIX}${scope}`
+export function draftStorageKey(accountId: string, scope: string): string {
+  return `${PREFIX}${accountId}:draft:${scope}`
 }
 
 // The stored shape is the editor's ProseMirror JSON document. Typed as unknown
 // here so this module stays editor-agnostic; the composer casts it to tiptap's
 // JSONContent at the call site.
-export function readComposerDraft(scope: string): unknown | null {
+export function readComposerDraft(accountId: string, scope: string): unknown | null {
   if (typeof window === "undefined") return null
   try {
-    const raw = localStorage.getItem(draftStorageKey(scope))
+    const raw = localStorage.getItem(draftStorageKey(accountId, scope))
     if (!raw) return null
     return JSON.parse(raw) as unknown
   } catch {
@@ -34,9 +34,9 @@ export function readComposerDraft(scope: string): unknown | null {
   }
 }
 
-export function writeComposerDraft(scope: string, doc: unknown | null): void {
+export function writeComposerDraft(accountId: string, scope: string, doc: unknown | null): void {
   if (typeof window === "undefined") return
-  const key = draftStorageKey(scope)
+  const key = draftStorageKey(accountId, scope)
   try {
     // An empty draft (null — the composer passes null when the editor is empty)
     // is the absence of a draft: remove the key so a stale entry never
@@ -48,10 +48,10 @@ export function writeComposerDraft(scope: string, doc: unknown | null): void {
   }
 }
 
-export function clearComposerDraft(scope: string): void {
+export function clearComposerDraft(accountId: string, scope: string): void {
   if (typeof window === "undefined") return
   try {
-    localStorage.removeItem(draftStorageKey(scope))
+    localStorage.removeItem(draftStorageKey(accountId, scope))
   } catch {
     /* ignore */
   }

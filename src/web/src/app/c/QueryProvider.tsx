@@ -19,6 +19,8 @@ import {
   getAccountUnreadProjection,
 } from "@/hooks/community/account-unread-projection"
 import { communityKeys } from "@/lib/query-keys"
+import type { CoveredReplicaProjection } from "@/lib/community/replica/store"
+import { seedCommunityReplicaQueries } from "@/lib/community/replica/query-seed"
 
 /**
  * Owns the TanStack QueryClient for the community subtree.
@@ -37,14 +39,20 @@ import { communityKeys } from "@/lib/query-keys"
 export function QueryProvider({
   children,
   userId,
+  replicaProjection,
 }: {
   children: ReactNode
   userId: string | null
+  replicaProjection?: CoveredReplicaProjection | null
 }) {
   const [restoreProfileSnapshot] = useState(
     () => useCommunityWsStore.getState().beginProfileSnapshot(),
   )
-  const [queryClient] = useState(() => createQueryClient())
+  const [queryClient] = useState(() => {
+    const client = createQueryClient()
+    if (replicaProjection) seedCommunityReplicaQueries(client, replicaProjection)
+    return client
+  })
   const unreadProjection = useMemo(
     () => userId ? getAccountUnreadProjection(queryClient, userId) : null,
     [queryClient, userId],

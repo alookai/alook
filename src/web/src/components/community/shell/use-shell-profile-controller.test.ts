@@ -26,6 +26,7 @@ const mocks = vi.hoisted(() => ({
   streamReset: vi.fn(),
   clearCache: vi.fn(),
   clearShellRoutes: vi.fn(),
+  clearReplicaSession: vi.fn(),
   signOut: vi.fn(),
   toast: vi.fn(),
   toastApiError: vi.fn(),
@@ -98,6 +99,9 @@ vi.mock("@/components/community/social/profile-lookup", () => ({
 vi.mock("@/lib/query-persister", () => ({ clearPersistedCache: mocks.clearCache }))
 vi.mock("@/lib/community/replica/shell", () => ({
   clearCommunityShellRoutes: mocks.clearShellRoutes,
+}))
+vi.mock("@/lib/community/replica/session", () => ({
+  clearActiveCommunityReplicaSession: mocks.clearReplicaSession,
 }))
 vi.mock("@/hooks/community/community-ws/read-state-reconciliation", () => ({
   disposeAccountReadStateReconciliation: mocks.disposeReconciliation,
@@ -441,11 +445,12 @@ describe("useShellProfileController", () => {
     mocks.disposeReconciliation.mockImplementation(() => { order.push("reconcile") })
     hook.queryClient.clear.mockImplementation(() => { order.push("query") })
     mocks.clearCache.mockImplementation(async () => { order.push("cache"); throw new Error("cache") })
+    mocks.clearReplicaSession.mockImplementation(async () => { order.push("replica") })
     mocks.clearShellRoutes.mockImplementation(async () => { order.push("shell") })
     mocks.signOut.mockImplementation(async () => { order.push("signOut") })
     hook.router.push = (href: string) => { order.push(`push:${href}`) }
     await act(async () => hook.current.userSettingsProps.onLogout())
-    expect(order).toEqual(["cancel", "community", "ws", "stream", "reconcile", "query", "cache", "shell", "signOut", "push:/sign-in"])
+    expect(order).toEqual(["cancel", "community", "ws", "stream", "reconcile", "query", "replica", "cache", "shell", "signOut", "push:/sign-in"])
 
     order.length = 0
     mocks.clearCache.mockResolvedValue(undefined)

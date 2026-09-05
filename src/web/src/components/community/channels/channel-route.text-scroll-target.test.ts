@@ -121,7 +121,8 @@ vi.mock("@/components/community/shell/community-panel", () => ({ CommunityPanel:
 vi.mock("@/components/community/messages/message-context-sheet", () => ({ MessageContextSheet: () => null }))
 vi.mock("@/components/community/messages/thread-opener", () => ({ ThreadOpener: () => null }))
 vi.mock("@/components/community/members/add-members-dialog", () => ({ AddMembersDialog: () => null }))
-vi.mock("@alook/shared", () => ({
+vi.mock("@alook/shared", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@alook/shared")>()),
   canManageServer: () => false,
   devWsDoPort: () => 8789,
   isForum: () => false,

@@ -50,7 +50,8 @@ vi.mock("@/components/community/shell/community-panel", () => ({
 vi.mock("@/components/community/messages/message-context-sheet", () => ({
   MessageContextSheet: vi.fn(() => null),
 }))
-vi.mock("@alook/shared", () => ({
+vi.mock("@alook/shared", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@alook/shared")>()),
   deriveThreadName: () => "thread",
   MAX_ATTACHMENT_THUMBNAIL_SIZE_BYTES: 512 * 1024,
 }))

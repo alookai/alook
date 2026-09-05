@@ -20,6 +20,7 @@ import {
 } from "@/components/community/social/profile-lookup"
 import { signOut } from "@/lib/auth-client"
 import { clearCommunityShellRoutes } from "@/lib/community/replica/shell"
+import { clearActiveCommunityReplicaSession } from "@/lib/community/replica/session"
 import { clearPersistedCache } from "@/lib/query-persister"
 import { disposeAccountReadStateReconciliation } from "@/hooks/community/community-ws/read-state-reconciliation"
 import { disposeReadCoordinator } from "@/hooks/community/read-coordinator"
@@ -287,6 +288,7 @@ export function useShellProfileController({
     disposeReadCoordinator(queryClient)
     disposeAccountReadStateReconciliation(queryClient)
     queryClient.clear()
+    await clearActiveCommunityReplicaSession(currentUser.id).catch(() => {})
     await clearPersistedCache(currentUser.id).catch(() => {})
     await clearCommunityShellRoutes().catch(() => {})
     await signOut()

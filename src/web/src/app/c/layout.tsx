@@ -14,6 +14,11 @@ import {
   retireCommunityColdEntryAttempt,
 } from "@/lib/community/last-community-route"
 import { cacheCommunityShellRoute } from "@/lib/community/replica/shell"
+import {
+  clearActiveCommunityReplicaSession,
+  markCommunityReplicaShellRoute,
+} from "@/lib/community/replica/session"
+import { useCommunityReplicaLaunch } from "@/hooks/community/replica/use-community-replica-launch"
 
 // The invite landing page is preview-first: a logged-out visitor must be able
 // to see it (and only hit the login wall on Join). It's a standalone
@@ -33,47 +38,70 @@ export default function CommunityLayout({
   const router = useRouter()
   const pathname = usePathname()
   const isPublic = isPublicCommunityPath(pathname)
-  const { data: session, isPending } = useSession()
+  const { data: session, isPending, error: sessionError } = useSession()
   const sessionUserId = session?.user.id
+  const replica = useCommunityReplicaLaunch(pathname)
+  const replicaRoutePlan = resolveCommunityModulePlan(pathname)
+  const replicaServerId = replicaRoutePlan.main.kind === "server-conversation"
+    || replicaRoutePlan.main.kind === "server-landing"
+    ? replicaRoutePlan.main.serverId
+    : undefined
+  const localLaunch = replica.launch && (!sessionUserId || replica.launch.user.id === sessionUserId)
+    ? replica.launch
+    : null
+  const canUseLocalIdentity = (isPending || sessionError) && localLaunch
 
   useEffect(() => {
-    if (!isPublic && !isPending && !session) {
+    if (!isPublic && !isPending && !session && !sessionError) {
+      void clearActiveCommunityReplicaSession()
       router.replace("/sign-in")
     }
-  }, [isPublic, isPending, session, router])
+  }, [isPublic, isPending, session, sessionError, router])
 
   useEffect(() => {
-    if (isPending) return
+    if (isPending || sessionError) return
     if (!sessionUserId) {
       clearCommunityColdEntryAttempts()
       return
     }
     retireCommunityColdEntryAttempt(sessionUserId, pathname)
-  }, [isPending, pathname, sessionUserId])
+  }, [isPending, pathname, sessionError, sessionUserId])
 
   useEffect(() => {
-    if (isPublic || !sessionUserId || typeof window === "undefined") return
-    void cacheCommunityShellRoute(window.location.href)
-  }, [isPublic, pathname, sessionUserId])
+    const accountId = sessionUserId ?? canUseLocalIdentity?.user.id
+    if (isPublic || !accountId || typeof window === "undefined") return
+    void cacheCommunityShellRoute(window.location.href).then((result) => {
+      if (result.ok) return markCommunityReplicaShellRoute(accountId, pathname)
+    })
+  }, [canUseLocalIdentity?.user.id, isPublic, pathname, sessionUserId])
 
   // Public community pages (invite landing) render standalone — no session
   // gate, no CommunityShell (a logged-out visitor has no currentUser).
   if (isPublic) return <><SignupTracker />{children}</>
 
-  if (isPending || !session) return <CommunitySessionPendingFrame pathname={pathname} />
+  if ((!session && !canUseLocalIdentity) || (replica.loading && isPending)) {
+    return <CommunitySessionPendingFrame pathname={pathname} />
+  }
 
-  const currentUser = {
+  const currentUser = session ? {
     id: session.user.id,
     name: session.user.name,
     email: session.user.email,
     avatar: session.user.image || avatarInitial(session.user.name),
     avatarVersion: 0,
-  }
+  } : canUseLocalIdentity!.user
 
   return (
     <AuthenticatedContextMenuBoundary>
       <SignupTracker redirectTo="/c/me/machines" />
-      <CommunityShell currentUser={currentUser}>{children}</CommunityShell>
+      <CommunityShell
+        currentUser={currentUser}
+        replicaProjection={localLaunch?.projection ?? null}
+        replicaIntents={localLaunch?.intents}
+        replicaServerId={replicaServerId}
+      >
+        {children}
+      </CommunityShell>
     </AuthenticatedContextMenuBoundary>
   )
 }

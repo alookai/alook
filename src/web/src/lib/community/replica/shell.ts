@@ -1,7 +1,7 @@
 const COMMUNITY_SHELL_SCRIPT = "/sw.js"
 const COMMUNITY_SHELL_SCOPE = "/"
 const COMMUNITY_SHELL_TIMEOUT_MS = 15_000
-const COMMUNITY_SHELL_PROTOCOL_VERSION = 1 as const
+export const COMMUNITY_SHELL_PROTOCOL_VERSION = 1 as const
 
 type ShellReply = {
   ok: boolean

@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   toast: vi.fn(),
   toastApiError: vi.fn(),
   deriveThreadName: vi.fn(() => "derived thread"),
+  discardReplicaIntent: vi.fn(async () => {}),
 }))
 
 vi.mock("@/stores/community/message-stream", () => ({
@@ -14,6 +15,9 @@ vi.mock("@/stores/community/message-stream", () => ({
 vi.mock("sonner", () => ({ toast: mocks.toast }))
 vi.mock("@/lib/api/client", () => ({ toastApiError: mocks.toastApiError }))
 vi.mock("@alook/shared", () => ({ deriveThreadName: mocks.deriveThreadName }))
+vi.mock("@/lib/community/replica/store", () => ({
+  discardCommunityReplicaIntent: mocks.discardReplicaIntent,
+}))
 
 function setup() {
   const setReplyTo = vi.fn()
@@ -114,6 +118,9 @@ describe("createMessageActions", () => {
       { kind: "channel", id: "channel_1", serverId: "server_1" },
       { type: "dismissFailed", nonce: "nonce_1" },
     )
+    await vi.waitFor(() => {
+      expect(mocks.discardReplicaIntent).toHaveBeenCalledWith("viewer_1", "nonce_1")
+    })
     const dispatchCount = mocks.dispatch.mock.calls.length
     harness.actions.onRetry("missing")
     harness.actions.onDismiss("missing")

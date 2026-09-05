@@ -35,6 +35,7 @@ const mocks = vi.hoisted(() => ({
   }>,
   removeScope: vi.fn(),
   apiFetch: vi.fn(),
+  covered: new Set<string>(),
 }))
 
 vi.mock("@/hooks/community/use-messages", () => ({
@@ -100,6 +101,11 @@ vi.mock("@/lib/api/client", () => ({
 vi.mock("@/stores/community/message-stream", () => ({
   useMessageStreamStore: { getState: () => ({ removeScope: mocks.removeScope }) },
 }))
+vi.mock("@/lib/community/replica/query-seed", () => ({
+  hasCoveredCommunityReplicaTarget: (_queryClient: unknown, channelId: string) => (
+    mocks.covered.has(channelId)
+  ),
+}))
 
 const target = (channelId: string) => ({
   href: `/c/channels/s1/${channelId}`,
@@ -116,6 +122,7 @@ describe("conversation navigation warmup", () => {
     mocks.servers.length = 0
     mocks.removeScope.mockReset()
     mocks.apiFetch.mockReset()
+    mocks.covered.clear()
   })
 
   it("starts canonical work in parallel and prevents superseded A from seeding", async () => {
@@ -142,6 +149,24 @@ describe("conversation navigation warmup", () => {
       status: "proven",
       target: { channelId: "b" },
     })
+  })
+
+  it("proves a covered Replica target immediately while canonical refresh stays in background", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    mocks.covered.add("local")
+    startConversationNavigationWarmup(queryClient, target("local"), 4)
+
+    expect(getConversationNavigationProof(queryClient)).toMatchObject({
+      status: "proven",
+      target: { channelId: "local" },
+    })
+    expect(mocks.requests).toHaveLength(1)
+    expect(mocks.reads).toHaveLength(1)
+    expect(mocks.servers).toHaveLength(1)
+
+    mocks.requests[0]!.reject(new Error("offline"))
+    await Promise.resolve()
+    expect(getConversationNavigationProof(queryClient)?.status).toBe("proven")
   })
 
   it("clears target caches and overlays on definitive denial", async () => {

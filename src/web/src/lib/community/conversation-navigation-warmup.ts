@@ -17,6 +17,7 @@ import {
   registerConversationNavigationRecovery,
   type ConversationNavigationTarget,
 } from "./conversation-navigation-proof"
+import { hasCoveredCommunityReplicaTarget } from "./replica/query-seed"
 
 type ReadSnapshot = {
   lastReadMessageId: string | null
@@ -64,6 +65,15 @@ export function startConversationNavigationWarmup(
   registerConversationNavigationRecovery(queryClient, epoch, (nextAccessEpoch, nextAttempt) => {
     startConversationNavigationWarmup(queryClient, target, nextAccessEpoch, nextAttempt)
   })
+  const locallyCovered = target.scopeKind === "channel"
+    && hasCoveredCommunityReplicaTarget(queryClient, target.channelId, target.anchorMessageId)
+  if (locallyCovered) {
+    recordConversationNavigationReceipt(queryClient, {
+      channelId: target.channelId,
+      surfaceKind: target.expectedSurfaceKind ?? "channel",
+    }, accessEpoch, epoch)
+    commitConversationNavigationProof(queryClient, target.channelId, accessEpoch)
+  }
   const pageParam: MessagesPageParam = target.anchorMessageId
     ? { mode: "anchor", anchor: target.anchorMessageId }
     : { mode: "newest" }
@@ -98,7 +108,9 @@ export function startConversationNavigationWarmup(
       if (signal.aborted) return
       const definitive = isDefinitiveAccessFailure(error)
       if (definitive) clearDeniedTarget(queryClient, target)
-      failConversationNavigationProof(queryClient, epoch, accessEpoch, definitive)
+      if (definitive || !locallyCovered) {
+        failConversationNavigationProof(queryClient, epoch, accessEpoch, definitive)
+      }
     })
 
   const readKey = target.scopeKind === "dm"

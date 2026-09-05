@@ -78,56 +78,57 @@ describe("composer-draft", () => {
   })
 
   it("namespaces the key under the composer-draft prefix", () => {
-    expect(draftStorageKey("srv/chan")).toBe("c-composer-draft:srv/chan")
+    expect(draftStorageKey("account-1", "srv/chan")).toBe("c-replica-v1:account-1:draft:srv/chan")
   })
 
   it("returns null when no draft is stored", () => {
-    expect(readComposerDraft("srv/chan")).toBeNull()
+    expect(readComposerDraft("account-1", "srv/chan")).toBeNull()
   })
 
   it("round-trips a ProseMirror doc losslessly (pills preserved)", () => {
-    writeComposerDraft("srv/chan", DOC_WITH_PILL)
-    expect(readComposerDraft("srv/chan")).toEqual(DOC_WITH_PILL)
+    writeComposerDraft("account-1", "srv/chan", DOC_WITH_PILL)
+    expect(readComposerDraft("account-1", "srv/chan")).toEqual(DOC_WITH_PILL)
   })
 
   it("round-trips ordered-list start, items, and pills losslessly", () => {
-    writeComposerDraft("srv/chan", DOC_WITH_ORDERED_LIST_AND_PILLS)
-    expect(readComposerDraft("srv/chan"))
+    writeComposerDraft("account-1", "srv/chan", DOC_WITH_ORDERED_LIST_AND_PILLS)
+    expect(readComposerDraft("account-1", "srv/chan"))
       .toEqual(DOC_WITH_ORDERED_LIST_AND_PILLS)
   })
 
   it("persists as JSON under the key", () => {
-    writeComposerDraft("srv/chan", DOC_WITH_PILL)
-    expect(storage["c-composer-draft:srv/chan"]).toBe(JSON.stringify(DOC_WITH_PILL))
+    writeComposerDraft("account-1", "srv/chan", DOC_WITH_PILL)
+    expect(storage["c-replica-v1:account-1:draft:srv/chan"]).toBe(JSON.stringify(DOC_WITH_PILL))
   })
 
   it("scopes drafts independently per conversation", () => {
-    writeComposerDraft("srv/a", { type: "doc", content: [{ type: "paragraph" }] })
-    writeComposerDraft("srv/b", DOC_WITH_PILL)
-    expect(readComposerDraft("srv/b")).toEqual(DOC_WITH_PILL)
-    expect(readComposerDraft("srv/a")).not.toEqual(DOC_WITH_PILL)
+    writeComposerDraft("account-1", "srv/a", { type: "doc", content: [{ type: "paragraph" }] })
+    writeComposerDraft("account-1", "srv/b", DOC_WITH_PILL)
+    expect(readComposerDraft("account-1", "srv/b")).toEqual(DOC_WITH_PILL)
+    expect(readComposerDraft("account-1", "srv/a")).not.toEqual(DOC_WITH_PILL)
+    expect(readComposerDraft("account-2", "srv/b")).toBeNull()
   })
 
   it("removes the key when the draft is null (empty editor)", () => {
-    writeComposerDraft("srv/chan", DOC_WITH_PILL)
-    writeComposerDraft("srv/chan", null)
-    expect(storage["c-composer-draft:srv/chan"]).toBeUndefined()
-    expect(readComposerDraft("srv/chan")).toBeNull()
+    writeComposerDraft("account-1", "srv/chan", DOC_WITH_PILL)
+    writeComposerDraft("account-1", "srv/chan", null)
+    expect(storage["c-replica-v1:account-1:draft:srv/chan"]).toBeUndefined()
+    expect(readComposerDraft("account-1", "srv/chan")).toBeNull()
   })
 
   it("clear removes a stored draft", () => {
-    writeComposerDraft("srv/chan", DOC_WITH_PILL)
-    clearComposerDraft("srv/chan")
-    expect(readComposerDraft("srv/chan")).toBeNull()
+    writeComposerDraft("account-1", "srv/chan", DOC_WITH_PILL)
+    clearComposerDraft("account-1", "srv/chan")
+    expect(readComposerDraft("account-1", "srv/chan")).toBeNull()
   })
 
   it("returns null on corrupt stored JSON instead of throwing", () => {
-    storage["c-composer-draft:srv/chan"] = "not-json{{{"
-    expect(readComposerDraft("srv/chan")).toBeNull()
+    storage["c-replica-v1:account-1:draft:srv/chan"] = "not-json{{{"
+    expect(readComposerDraft("account-1", "srv/chan")).toBeNull()
   })
 
   it("returns null when window is undefined (SSR)", () => {
     vi.stubGlobal("window", undefined)
-    expect(readComposerDraft("srv/chan")).toBeNull()
+    expect(readComposerDraft("account-1", "srv/chan")).toBeNull()
   })
 })

@@ -11,6 +11,24 @@ const mocks = vi.hoisted(() => ({
   toVm: vi.fn((channelId: string, attachment: { id: string }) => ({
     kind: "file", url: `/api/${channelId}/${attachment.id}`, name: attachment.id, size: 1,
   })),
+  commitWal: vi.fn(),
+  persistIntent: vi.fn(async () => ({})),
+  discardWal: vi.fn(),
+  applyOutcomes: vi.fn(async () => ({})),
+  apiFetch: vi.fn(async () => ({
+    protocolVersion: 1,
+    outcomes: [{
+      intentId: "nonce_1",
+      status: "accepted",
+      causalId: "causal_1",
+      canonical: {
+        scope: { kind: "channel", id: "channel_1" },
+        revision: 1,
+        messageId: "message_1",
+        seq: 1,
+      },
+    }],
+  })),
 }))
 
 vi.mock("@/stores/community/message-stream", () => ({
@@ -29,7 +47,16 @@ vi.mock("@/hooks/community/mutations", () => ({
 vi.mock("@/hooks/community/use-community-ws", () => ({
   communityWsResetTypingThrottle: mocks.resetTyping,
 }))
-vi.mock("@/lib/api/client", () => ({ toastApiError: mocks.toastApiError }))
+vi.mock("@/lib/api/client", () => ({
+  apiFetch: mocks.apiFetch,
+  toastApiError: mocks.toastApiError,
+}))
+vi.mock("@/lib/community/replica/store", () => ({
+  commitCommunityReplicaIntentWal: mocks.commitWal,
+  discardCommunityReplicaIntentWal: mocks.discardWal,
+  persistCommunityReplicaIntent: mocks.persistIntent,
+  applyCommunityReplicaIntentOutcomes: mocks.applyOutcomes,
+}))
 
 const scope = { kind: "channel" as const, id: "channel_1", serverId: "server_1" }
 const viewer = { id: "viewer_1", name: "Viewer", avatar: "V" }
@@ -130,6 +157,71 @@ describe("message channel send helpers", () => {
     expect(mocks.resetTyping).toHaveBeenCalledWith({ channelId: "channel_1" })
     expect(order).toEqual(["accept", "run", "typing", "clear"])
     expect(URL.revokeObjectURL).not.toHaveBeenCalled()
+    expect(mocks.commitWal).not.toHaveBeenCalled()
+  })
+
+  it("durably commits a text intent before optimistic acceptance and preserves the composer on failure", () => {
+    const order: string[] = []
+    mocks.commitWal.mockImplementation(() => { order.push("wal") })
+    mocks.accept.mockImplementation(() => { order.push("accept"); return true })
+    mocks.persistIntent.mockImplementation(async () => { order.push("idb"); return {} })
+    const runner = vi.fn(async () => { order.push("run") })
+    const clearReply = vi.fn(() => { order.push("clear") })
+
+    expect(acceptChannelMessage({
+      markdown: "hello",
+      mentionType: "user",
+      messageScope: scope,
+      viewer,
+      replyTo: { id: "reply_1", authorName: "Alice", text: "prior" },
+      runAcceptedIntent: runner,
+      channelId: "channel_1",
+      clearReply,
+    })).toBe(true)
+
+    const intent = {
+      intentId: "nonce_1",
+      kind: "message.send",
+      scope: { kind: "channel", id: "channel_1" },
+      createdAt: "2026-01-02T03:04:05.000Z",
+      payload: { content: "@Alice\nhello", replyToId: "reply_1", mentionType: "user" },
+    }
+    expect(mocks.commitWal).toHaveBeenCalledWith("viewer_1", intent)
+    expect(mocks.persistIntent).toHaveBeenCalledWith("viewer_1", intent)
+    expect(order.slice(0, 2)).toEqual(["wal", "accept"])
+    expect(mocks.discardWal).not.toHaveBeenCalled()
+
+    vi.clearAllMocks()
+    mocks.commitWal.mockImplementationOnce(() => { throw new Error("quota") })
+    expect(acceptChannelMessage({
+      markdown: "keep this",
+      messageScope: scope,
+      viewer,
+      replyTo: null,
+      runAcceptedIntent: runner,
+      channelId: "channel_1",
+      clearReply,
+    })).toBe(false)
+    expect(mocks.toastApiError).toHaveBeenCalledWith(expect.any(Error), "Couldn't save message locally")
+    expect(mocks.accept).not.toHaveBeenCalled()
+    expect(runner).not.toHaveBeenCalled()
+    expect(clearReply).not.toHaveBeenCalled()
+  })
+
+  it("rolls back the durable text WAL when the stream rejects the optimistic message", () => {
+    mocks.accept.mockReturnValue(false)
+    expect(acceptChannelMessage({
+      markdown: "hello",
+      messageScope: scope,
+      viewer,
+      replyTo: null,
+      runAcceptedIntent: vi.fn(async () => {}),
+      channelId: "channel_1",
+      clearReply: vi.fn(),
+    })).toBe(false)
+    expect(mocks.commitWal).toHaveBeenCalledOnce()
+    expect(mocks.discardWal).toHaveBeenCalledWith("viewer_1", "nonce_1")
+    expect(mocks.persistIntent).not.toHaveBeenCalled()
   })
 
   it("accepts an attachment-only intent with an exact empty-content optimistic payload", () => {
@@ -359,9 +451,15 @@ describe("message channel send helpers", () => {
 
     const failure = new Error("send failed")
     mocks.getRetryPayload.mockReturnValueOnce({
-      localUploads: [],
+      localUploads: [{
+        file: new File(["a"], "a.txt", { type: "text/plain" }),
+        previewObjectUrl: "blob:a",
+      }],
       uploadStatus: "settled",
-      message: { content: "keep optimistic" },
+      message: {
+        content: "keep optimistic",
+        attachments: [{ kind: "file", name: "a.txt", url: "/att/a", size: "1 B" }],
+      },
     })
     sendMessageAsync.mockRejectedValueOnce(failure)
     await expect(runAcceptedMessageIntent({
@@ -400,14 +498,48 @@ describe("message channel send helpers", () => {
     await runAcceptedMessageIntent(args)
     await runAcceptedMessageIntent(args)
 
-    expect(sendMessageAsync).toHaveBeenCalledTimes(2)
-    expect(sendMessageAsync).toHaveBeenNthCalledWith(1, expect.objectContaining({
+    expect(sendMessageAsync).not.toHaveBeenCalled()
+    expect(mocks.apiFetch).toHaveBeenCalledTimes(2)
+    const firstBody = JSON.parse(mocks.apiFetch.mock.calls[0]![1]!.body as string)
+    const secondBody = JSON.parse(mocks.apiFetch.mock.calls[1]![1]!.body as string)
+    expect(firstBody.intents[0].payload).toEqual({
       content: canonicalContent,
       replyToId: "reply_1",
-    }))
-    expect(sendMessageAsync).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      content: canonicalContent,
-      replyToId: "reply_1",
-    }))
+    })
+    expect(secondBody).toEqual(firstBody)
+  })
+
+  it("keeps the exact optimistic body visible as failed on a canonical domain rejection", async () => {
+    mocks.getRetryPayload.mockReturnValue({
+      localUploads: [],
+      uploadStatus: "none",
+      message: { content: "exact body", createdAt: "2026-01-02T03:04:05.000Z" },
+    })
+    mocks.apiFetch.mockResolvedValueOnce({
+      protocolVersion: 1,
+      outcomes: [{
+        intentId: "nonce_rejected",
+        status: "rejected",
+        code: "permission-denied",
+        reason: "Channel access was revoked",
+      }],
+    })
+    await runAcceptedMessageIntent({
+      messageScope: scope,
+      nonce: "nonce_rejected",
+      uploadFileAsync: vi.fn(),
+      sendMessageAsync: vi.fn(),
+      channelId: "channel_1",
+      serverId: "server_1",
+      viewer,
+    })
+    expect(mocks.dispatch).toHaveBeenCalledWith(scope, {
+      type: "postFail",
+      nonce: "nonce_rejected",
+    })
+    expect(mocks.toastApiError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Channel access was revoked" }),
+      "Channel access was revoked",
+    )
   })
 })

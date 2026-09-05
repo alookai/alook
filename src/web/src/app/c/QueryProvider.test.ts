@@ -15,6 +15,7 @@ const getAccountUnreadProjection = vi.hoisted(() => vi.fn(() => ({
   setReconcileScheduler,
 })))
 const disposeAccountUnreadProjection = vi.hoisted(() => vi.fn())
+const seedCommunityReplicaQueries = vi.hoisted(() => vi.fn())
 
 vi.mock("@tanstack/react-query-devtools", () => ({ ReactQueryDevtools: () => null }))
 vi.mock("@tanstack/react-query-persist-client", async () => {
@@ -48,6 +49,7 @@ vi.mock("@/hooks/community/account-unread-projection", () => ({
   disposeAccountUnreadProjection,
   getAccountUnreadProjection,
 }))
+vi.mock("@/lib/community/replica/query-seed", () => ({ seedCommunityReplicaQueries }))
 
 import { QueryProvider } from "./QueryProvider"
 
@@ -61,10 +63,25 @@ beforeEach(() => {
   setReconcileScheduler.mockClear()
   getAccountUnreadProjection.mockClear()
   disposeAccountUnreadProjection.mockClear()
+  seedCommunityReplicaQueries.mockClear()
   queryClient.invalidateQueries.mockClear()
 })
 
 describe("QueryProvider profile account lifecycle", () => {
+  it("seeds the QueryClient synchronously from a covered Replica projection", () => {
+    const replicaProjection = { meta: { snapshotId: "snap-1" } }
+    let renderer!: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(React.createElement(
+        QueryProvider,
+        { userId: "viewer-local", replicaProjection: replicaProjection as never },
+        React.createElement("span", null, "content"),
+      ))
+    })
+    expect(seedCommunityReplicaQueries).toHaveBeenCalledWith(queryClient, replicaProjection)
+    act(() => renderer.unmount())
+  })
+
   it("does not activate the profile account while rendering", () => {
     const store = useCommunityWsStore.getState()
     store.activateProfileAccount("viewer-a")

@@ -1,4 +1,8 @@
-import type { MentionType } from "@alook/shared"
+import {
+  COMMUNITY_REPLICA_PROTOCOL_VERSION,
+  type CommunityReplicaIntentResponse,
+  type MentionType,
+} from "@alook/shared"
 import type { SendAttachment } from "./composer"
 import type { ReplyTarget, Viewer } from "./message-channel-controller-types"
 import { toOptimisticReplyPreview } from "@/lib/community/reply-preview"
@@ -9,10 +13,16 @@ import {
   zipUploadResultsWithDimensions,
   type UploadedAttachment,
 } from "@/hooks/community/mutations"
-import { toastApiError } from "@/lib/api/client"
+import { apiFetch, toastApiError } from "@/lib/api/client"
 import { useMessageStreamStore } from "@/stores/community/message-stream"
 import { communityWsResetTypingThrottle } from "@/hooks/community/use-community-ws"
 import { canonicalizeReplyContent } from "@/lib/community/reply-content"
+import {
+  commitCommunityReplicaIntentWal,
+  discardCommunityReplicaIntentWal,
+  persistCommunityReplicaIntent,
+  applyCommunityReplicaIntentOutcomes,
+} from "@/lib/community/replica/store"
 
 type ChannelMessageScope = {
   kind: "channel"
@@ -62,6 +72,39 @@ export async function runAcceptedMessageIntent({
   const streamStore = useMessageStreamStore.getState()
   const payload = streamStore.getRetryPayload(messageScope, nonce)
   if (!payload) return
+  if (payload.localUploads.length === 0) {
+    const intent = {
+      intentId: nonce,
+      kind: "message.send" as const,
+      scope: { kind: "channel" as const, id: channelId },
+      createdAt: payload.message.createdAt ?? new Date().toISOString(),
+      payload: {
+        content: payload.message.content ?? "",
+        ...(payload.message.replyTo ? { replyToId: payload.message.replyTo.id } : {}),
+        ...(payload.mentionType ? { mentionType: payload.mentionType } : {}),
+      },
+    }
+    await persistCommunityReplicaIntent(viewer.id, intent)
+    let response: CommunityReplicaIntentResponse
+    try {
+      response = await apiFetch("/api/community/replica/intents", {
+        method: "POST",
+        body: JSON.stringify({
+          protocolVersion: COMMUNITY_REPLICA_PROTOCOL_VERSION,
+          intents: [intent],
+        }),
+      })
+    } catch {
+      return
+    }
+    await applyCommunityReplicaIntentOutcomes(viewer.id, response)
+    const outcome = response.outcomes.find((item) => item.intentId === nonce)
+    if (outcome?.status === "rejected") {
+      streamStore.dispatch(messageScope, { type: "postFail", nonce })
+      toastApiError(new Error(outcome.reason), outcome.reason)
+    }
+    return
+  }
   let uploadedAttachments: UploadedAttachment[] | undefined
   if (payload.localUploads.length > 0 && payload.uploadStatus === "settled") {
     const projected = payload.message.attachments
@@ -152,6 +195,26 @@ export function acceptChannelMessage({
   if (!markdown && !attachments?.length) return false
   const content = canonicalizeReplyContent(markdown, replyTo)
   const nonce = sendNonce()
+  const createdAt = new Date().toISOString()
+  const replicaIntent = attachments?.length ? null : {
+    intentId: nonce,
+    kind: "message.send" as const,
+    scope: { kind: "channel" as const, id: channelId },
+    createdAt,
+    payload: {
+      content,
+      ...(replyTo ? { replyToId: replyTo.id } : {}),
+      ...(mentionType ? { mentionType } : {}),
+    },
+  }
+  if (replicaIntent) {
+    try {
+      commitCommunityReplicaIntentWal(viewer.id, replicaIntent)
+    } catch (error) {
+      toastApiError(error, "Couldn't save message locally")
+      return false
+    }
+  }
   const createdPreviewUrls: string[] = []
   const accepted = useMessageStreamStore.getState().accept(messageScope, {
     nonce,
@@ -162,7 +225,7 @@ export function acceptChannelMessage({
       authorName: viewer.name,
       authorAvatar: viewer.avatar,
       content,
-      createdAt: new Date().toISOString(),
+      createdAt,
       ...(replyTo ? { replyTo: toOptimisticReplyPreview(replyTo) } : {}),
     },
     localUploads: attachments?.map((attachment) => {
@@ -179,8 +242,14 @@ export function acceptChannelMessage({
     mentionType,
   })
   if (!accepted) {
+    if (replicaIntent) discardCommunityReplicaIntentWal(viewer.id, nonce)
     for (const url of createdPreviewUrls) URL.revokeObjectURL(url)
     return false
+  }
+  if (replicaIntent) {
+    void persistCommunityReplicaIntent(viewer.id, replicaIntent).catch((error) => {
+      toastApiError(error, "Message is saved locally but couldn't be queued yet")
+    })
   }
   void runAcceptedIntent(nonce)
   communityWsResetTypingThrottle({ channelId })

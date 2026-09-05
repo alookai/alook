@@ -10,7 +10,10 @@ const mocks = vi.hoisted(() => ({
   retireAttempt: vi.fn(),
   clearAttempts: vi.fn(),
   cacheShellRoute: vi.fn(),
-  session: { data: null as null | { user: { id: string; name: string; email: string; image: string | null } }, isPending: true },
+  markShellRoute: vi.fn(),
+  clearReplicaSession: vi.fn(),
+  replica: { loading: false, launch: null as null | { user: { id: string; name: string; email: string; avatar: string; avatarVersion: number }; projection: Record<string, unknown> } },
+  session: { data: null as null | { user: { id: string; name: string; email: string; image: string | null } }, isPending: true, error: null as Error | null },
 }))
 
 vi.mock("next/navigation", () => ({
@@ -24,6 +27,13 @@ vi.mock("@/lib/community/last-community-route", () => ({
 }))
 vi.mock("@/lib/community/replica/shell", () => ({
   cacheCommunityShellRoute: mocks.cacheShellRoute,
+}))
+vi.mock("@/lib/community/replica/session", () => ({
+  markCommunityReplicaShellRoute: mocks.markShellRoute,
+  clearActiveCommunityReplicaSession: mocks.clearReplicaSession,
+}))
+vi.mock("@/hooks/community/replica/use-community-replica-launch", () => ({
+  useCommunityReplicaLaunch: () => mocks.replica,
 }))
 vi.mock("./community-shell", () => ({
   CommunityShell: (props: Record<string, unknown>) => createElement("community-shell", props),
@@ -51,11 +61,14 @@ describe("CommunityLayout session boundary", () => {
 
   beforeEach(() => {
     mocks.pathname = "/c/me"
-    mocks.session = { data: null, isPending: true }
+    mocks.session = { data: null, isPending: true, error: null }
+    mocks.replica = { loading: false, launch: null }
     mocks.replace.mockClear()
     mocks.retireAttempt.mockClear()
     mocks.clearAttempts.mockClear()
-    mocks.cacheShellRoute.mockClear()
+    mocks.cacheShellRoute.mockReset().mockResolvedValue({ ok: false })
+    mocks.markShellRoute.mockReset()
+    mocks.clearReplicaSession.mockReset().mockResolvedValue(undefined)
   })
 
   it("keeps a stable frame while identity is pending", () => {
@@ -68,7 +81,7 @@ describe("CommunityLayout session boundary", () => {
   })
 
   it("keeps the frame mounted while a signed-out redirect commits", () => {
-    mocks.session = { data: null, isPending: false }
+    mocks.session = { data: null, isPending: false, error: null }
     const renderer = render()
     expect(mocks.replace).toHaveBeenCalledWith("/sign-in")
     expect(mocks.clearAttempts).toHaveBeenCalledTimes(1)
@@ -80,6 +93,7 @@ describe("CommunityLayout session boundary", () => {
     mocks.session = {
       data: { user: { id: "u1", name: "Ada", email: "ada@example.com", image: null } },
       isPending: false,
+      error: null,
     }
     const renderer = render()
     const shell = renderer.root.findByType("community-shell")
@@ -89,6 +103,24 @@ describe("CommunityLayout session boundary", () => {
     expect(mocks.retireAttempt).toHaveBeenCalledWith("u1", "/c/me")
     expect(mocks.clearAttempts).not.toHaveBeenCalled()
     expect(mocks.cacheShellRoute).toHaveBeenCalledWith("https://alook.test/c/me")
+  })
+
+  it("renders a compatible local identity while the canonical session is offline", () => {
+    mocks.pathname = "/c/channels/server-1/channel-1"
+    mocks.session = { data: null, isPending: false, error: new Error("offline") }
+    mocks.replica = {
+      loading: false,
+      launch: {
+        user: { id: "u1", name: "Ada", email: "ada@example.com", avatar: "A", avatarVersion: 2 },
+        projection: { meta: { snapshotId: "snapshot-1" } },
+      },
+    }
+
+    const renderer = render()
+    const shell = renderer.root.findByType("community-shell")
+    expect(shell.props.currentUser).toMatchObject({ id: "u1", avatarVersion: 2 })
+    expect(shell.props.replicaProjection).toEqual({ meta: { snapshotId: "snapshot-1" } })
+    expect(mocks.replace).not.toHaveBeenCalled()
   })
 
   it("preserves the public invite bypass", () => {

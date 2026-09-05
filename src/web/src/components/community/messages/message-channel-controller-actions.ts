@@ -159,6 +159,10 @@ export function createMessageActions({
         type: "dismissFailed",
         nonce: message.clientNonce,
       })
+      void import("@/lib/community/replica/store")
+        .then(({ discardCommunityReplicaIntent }) => (
+          discardCommunityReplicaIntent(viewerUserId, message.clientNonce!)
+        ))
     },
     onPreviewImage: (image: ImagePreview) => actionContext.current.uiHandlers.previewImage?.(image),
     onPreviewAttachment: (attachment: FileAttachment) =>

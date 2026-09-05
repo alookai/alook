@@ -15,6 +15,9 @@ import { CommunityOnboardingForm } from "@/components/community/onboarding/commu
 import { CommunityWsReconnectBoundary } from "@/components/community/shell/community-ws-reconnect-overlay"
 import { CommunityDaemonUpdateNotice } from "@/components/daemon-update-notice"
 import { useCommunityWsStore } from "@/stores/community/ws"
+import type { CoveredReplicaProjection } from "@/lib/community/replica/store"
+import type { ReplicaIntentRow } from "@/lib/community/replica/store"
+import { hydrateCommunityReplicaIntents } from "@/lib/community/replica/intent-hydration"
 
 /**
  * Client wrapper that provides the QueryClient, CurrentUser, and the
@@ -31,14 +34,28 @@ import { useCommunityWsStore } from "@/stores/community/ws"
  */
 export function CommunityShell({
   currentUser,
+  replicaProjection,
+  replicaIntents,
+  replicaServerId,
   children,
 }: {
   currentUser: CurrentUser
+  replicaProjection?: CoveredReplicaProjection | null
+  replicaIntents?: ReplicaIntentRow[]
+  replicaServerId?: string
   children: ReactNode
 }) {
   return (
-    <ProfileAccountBoundary viewerId={currentUser.id}>
-      <QueryProvider key={currentUser.id} userId={currentUser.id}>
+    <ProfileAccountBoundary
+      viewer={currentUser}
+      replicaIntents={replicaIntents}
+      replicaServerId={replicaServerId}
+    >
+      <QueryProvider
+        key={currentUser.id}
+        userId={currentUser.id}
+        replicaProjection={replicaProjection}
+      >
         <CurrentUserProvider initialUser={currentUser}>
           <CommunityBootstrap>{children}</CommunityBootstrap>
         </CurrentUserProvider>
@@ -49,18 +66,32 @@ export function CommunityShell({
 
 function ProfileAccountBoundary({
   children,
-  viewerId,
+  viewer,
+  replicaIntents,
+  replicaServerId,
 }: {
   children: ReactNode
-  viewerId: string
+  viewer: CurrentUser
+  replicaIntents?: ReplicaIntentRow[]
+  replicaServerId?: string
 }) {
   const activeViewerId = useCommunityWsStore((state) => state.profileViewerId)
+  const viewerId = viewer.id
 
   useLayoutEffect(() => {
     if (activeViewerId !== viewerId) {
       useCommunityWsStore.getState().activateProfileAccount(viewerId)
     }
-  }, [activeViewerId, viewerId])
+    if (replicaIntents?.length && replicaServerId) {
+      hydrateCommunityReplicaIntents({
+        id: viewer.id,
+        name: viewer.name,
+        email: viewer.email,
+        avatar: viewer.avatar,
+        avatarVersion: viewer.avatarVersion ?? 0,
+      }, replicaIntents, replicaServerId)
+    }
+  }, [activeViewerId, replicaIntents, replicaServerId, viewer, viewerId])
 
   if (activeViewerId !== viewerId) return null
   return children

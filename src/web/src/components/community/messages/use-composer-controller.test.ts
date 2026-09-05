@@ -30,6 +30,7 @@ const mocks = vi.hoisted(() => ({
   preservePlainTextPaste: vi.fn(),
   serializeDocument: vi.fn(),
   hoverCapable: true,
+  currentUser: { id: "self", name: "Self", avatar: "S", avatarVersion: 0 },
 }))
 
 vi.mock("@tiptap/react", () => ({
@@ -56,6 +57,11 @@ vi.mock("@/hooks/use-file-attachments", () => ({
 }))
 vi.mock("@/hooks/use-hover-capable", () => ({
   useHoverCapable: () => mocks.hoverCapable,
+}))
+vi.mock("@/stores/community/ws", () => ({
+  useCommunityWsStore: (selector: (state: { profileViewerId: string }) => unknown) => (
+    selector({ profileViewerId: mocks.currentUser.id })
+  ),
 }))
 vi.mock("@/lib/community/composer-draft", () => ({
   clearComposerDraft: (...args: unknown[]) => mocks.clearDraft(...args),
@@ -372,7 +378,7 @@ describe("useComposerController", () => {
     await enter()
     expect(accept).toHaveBeenCalledOnce()
     expect(clearContent).toHaveBeenCalledOnce()
-    expect(mocks.clearDraft).toHaveBeenCalledWith("server/channel")
+    expect(mocks.clearDraft).toHaveBeenCalledWith("self", "server/channel")
     expect(transferPendingFiles).toHaveBeenCalledOnce()
     expect(resetPopups).toHaveBeenCalledOnce()
     expect(clearContent.mock.invocationCallOrder[0]).toBeLessThan(
@@ -843,7 +849,7 @@ describe("useComposerController", () => {
         }),
       )
     })
-    expect(mocks.readDraft).toHaveBeenCalledWith("server/channel")
+    expect(mocks.readDraft).toHaveBeenCalledWith("self", "server/channel")
     expect(setContent).toHaveBeenCalledWith(doc, {
       emitUpdate: false,
       errorOnInvalidContent: true,
@@ -868,13 +874,13 @@ describe("useComposerController", () => {
       )
     })
     expect(mocks.clearDraft).toHaveBeenCalledTimes(1)
-    expect(mocks.clearDraft).toHaveBeenCalledWith("server/channel")
+    expect(mocks.clearDraft).toHaveBeenCalledWith("self", "server/channel")
 
     await act(async () => {
       editorOptions.onUpdate({ editor })
     })
     expect(onTyping).toHaveBeenCalledOnce()
-    expect(mocks.writeDraft).toHaveBeenCalledWith("server/channel", {
+    expect(mocks.writeDraft).toHaveBeenCalledWith("self", "server/channel", {
       type: "doc",
     })
   })
@@ -905,7 +911,7 @@ describe("useComposerController", () => {
     expect(onTyping).toHaveBeenCalledOnce()
     expect(onDirty).toHaveBeenCalledTimes(1)
     expect(onDirty).toHaveBeenLastCalledWith(true)
-    expect(mocks.writeDraft).toHaveBeenLastCalledWith("server/channel", {
+    expect(mocks.writeDraft).toHaveBeenLastCalledWith("self", "server/channel", {
       type: "doc",
     })
 
@@ -915,7 +921,7 @@ describe("useComposerController", () => {
     })
     expect(onTyping).toHaveBeenCalledOnce()
     expect(onDirty).toHaveBeenLastCalledWith(false)
-    expect(mocks.writeDraft).toHaveBeenLastCalledWith("server/channel", null)
+    expect(mocks.writeDraft).toHaveBeenLastCalledWith("self", "server/channel", null)
 
     await act(async () => {
       vi.advanceTimersByTime(3_000)

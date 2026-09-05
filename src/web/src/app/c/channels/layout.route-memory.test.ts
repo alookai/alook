@@ -62,6 +62,9 @@ vi.mock("@/hooks/community/use-servers", () => ({
   useServer: () => ({ server: undefined }),
   useServers: () => ({ servers: [], isSuccess: true, isFetching: false }),
 }))
+vi.mock("@/hooks/community/replica/use-community-replica-sync", () => ({
+  useCommunityReplicaSync: vi.fn(),
+}))
 vi.mock("@/hooks/community/use-server-members", () => ({
   useServerMembers: () => ({
     members: [], loading: false, loadingMore: false, hasMore: false, total: 0,

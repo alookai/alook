@@ -32,7 +32,7 @@ import type { ComposerHandle, ComposerProps } from "./composer-types"
 import { mentionNodesForCaretInsertion, textNodeForCaretInsertion } from "./caret-text-insertion"
 import type { ComposerViewProps } from "./composer-view"
 import { useComposerSuggestions } from "./use-composer-suggestions"
-
+import { useCommunityWsStore } from "@/stores/community/ws"
 export function useComposerController(
   {
     channel,
@@ -59,6 +59,7 @@ export function useComposerController(
   ref: ForwardedRef<ComposerHandle>,
 ): ComposerViewProps {
   const isForumThreadBody = mode === "forumThreadBody"
+  const draftAccountId = useCommunityWsStore((state) => state.profileViewerId) ?? "anonymous"
   const hoverCapable = useHoverCapable()
   const hoverCapableRef = useRef(hoverCapable)
   const [editorHasContent, setEditorHasContent] = useState(false)
@@ -172,7 +173,6 @@ export function useComposerController(
           void addPendingFiles(files)
           return true
         }
-
         const clipboardText = event.clipboardData?.getData("text/plain")
         const attachment = createLongPasteAttachment(
           clipboardText,
@@ -209,6 +209,7 @@ export function useComposerController(
       const key = draftKeyRef.current
       if (key && !isForumThreadBody) {
         writeComposerDraft(
+          draftAccountId,
           key,
           updatedEditor.isEmpty ? null : updatedEditor.getJSON(),
         )
@@ -231,7 +232,7 @@ export function useComposerController(
   }, [editor, resolvedPlaceholder])
   useEffect(() => {
     if (!editor || isForumThreadBody || !draftKey) return
-    const doc = readComposerDraft(draftKey)
+    const doc = readComposerDraft(draftAccountId, draftKey)
     if (!doc) return
     restoringDraftRef.current = true
     try {
@@ -241,12 +242,11 @@ export function useComposerController(
       })
       setEditorHasContent(!editor.isEmpty)
     } catch {
-      clearComposerDraft(draftKey)
+      clearComposerDraft(draftAccountId, draftKey)
     } finally {
       restoringDraftRef.current = false
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editor, draftKey])
+  }, [draftAccountId, editor, draftKey, isForumThreadBody])
   const previousHasContentRef = useRef(false)
   const onDirtyRef = useRef(onDirty)
   useEffect(() => {
@@ -290,7 +290,7 @@ export function useComposerController(
       if (isForumThreadBody) return
       editor.commands.clearContent()
       setEditorHasContent(false)
-      if (draftKeyRef.current) clearComposerDraft(draftKeyRef.current)
+      if (draftKeyRef.current) clearComposerDraft(draftAccountId, draftKeyRef.current)
       transferPendingFiles()
       nextLongPasteIndexRef.current = 1
       suggestions.resetPopups()
