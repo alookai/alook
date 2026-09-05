@@ -285,7 +285,7 @@ const PAGE_STYLE = `
 function returnPage(valid: boolean): string {
   const detail = valid
     ? "Continue in the Alook app to finish this sign-in."
-    : "This sign-in link is invalid or has expired.";
+    : "This sign-in link is invalid.";
   const control = valid
     ? `<button type="button" data-open-alook>Open Alook</button><script>${RETURN_SCRIPT}</script>`
     : "";

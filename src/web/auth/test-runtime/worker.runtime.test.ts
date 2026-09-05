@@ -53,7 +53,8 @@ describe("alook-auth workerd runtime", () => {
     expect(response.status).toBe(200);
     expect(body).toContain('data-state="default"');
     expect(body).toContain('class="avatar-field" aria-hidden="true"');
-    expect(body).toContain("invalid or has expired");
+    expect(body).toContain("This sign-in link is invalid.");
+    expect(body).not.toContain("expired");
     expect(body).not.toContain("data-open-alook");
     expect(body).not.toContain("<script>");
   });
