@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import Image from "next/image"
 import { toBlob } from "html-to-image"
 import { toast } from "sonner"
@@ -51,55 +51,89 @@ export class ShareImageSnapshotError extends Error {
   }
 }
 
+export type ShareCardImageDisposition = {
+  image: HTMLImageElement
+  mode: "snapshot" | "fallback"
+}
+
+function createShareCardAbortError(): DOMException {
+  return new DOMException("Share-card render aborted", "AbortError")
+}
+
+function isProfilePhoto(image: HTMLImageElement): boolean {
+  return image.hasAttribute("data-avatar-photo-state")
+}
+
+function isFailedProfilePhoto(image: HTMLImageElement): boolean {
+  return image.getAttribute("data-avatar-photo-state") === "failed"
+}
+
 async function waitForImageLoad(
   image: HTMLImageElement,
-  timeoutMs: number,
-): Promise<void> {
+  deadline: number,
+  signal?: AbortSignal,
+): Promise<ShareCardImageDisposition["mode"]> {
+  const fallbackOrThrow = (error: Error): ShareCardImageDisposition["mode"] => {
+    if (isProfilePhoto(image)) return "fallback"
+    throw error
+  }
+  if (signal?.aborted) throw createShareCardAbortError()
+  if (isFailedProfilePhoto(image)) return "fallback"
+
   if (!image.complete) {
-    const result = await new Promise<"loaded" | "error" | "timeout">((resolve) => {
+    const result = await new Promise<"loaded" | "error" | "timeout" | "aborted">((resolve) => {
       let finished = false
-      const finish = (result: "loaded" | "error" | "timeout") => {
+      const finish = (result: "loaded" | "error" | "timeout" | "aborted") => {
         if (finished) return
         finished = true
         image.removeEventListener("load", loaded)
         image.removeEventListener("error", failed)
+        signal?.removeEventListener("abort", aborted)
         clearTimeout(timer)
         resolve(result)
       }
       const loaded = () => finish("loaded")
       const failed = () => finish("error")
-      const timer = setTimeout(() => finish("timeout"), timeoutMs)
+      const aborted = () => finish("aborted")
+      const timer = setTimeout(() => finish("timeout"), Math.max(0, deadline - Date.now()))
       image.addEventListener("load", loaded, { once: true })
       image.addEventListener("error", failed, { once: true })
-      // Close the tiny race where the resource settles between the initial
-      // `complete` read and listener registration.
+      signal?.addEventListener("abort", aborted, { once: true })
       if (image.complete) finish(image.naturalWidth > 0 ? "loaded" : "error")
+      else if (signal?.aborted) finish("aborted")
     })
-    // A request that never emits load/error must fail this capture attempt so
-    // Download/Copy leave their busy state and the user can retry; capturing
-    // the avatar's transient empty branch would silently recreate the bug.
-    if (result === "timeout") throw new ShareCardImageTimeoutError()
-    if (result === "error") throw new ShareImageSnapshotError()
+    if (result === "aborted") throw createShareCardAbortError()
+    if (result === "timeout") return fallbackOrThrow(new ShareCardImageTimeoutError())
+    if (result === "error") return fallbackOrThrow(new ShareImageSnapshotError())
   }
+  if (isFailedProfilePhoto(image)) return "fallback"
   if (image.naturalWidth <= 0 || image.naturalHeight <= 0) {
-    throw new ShareImageSnapshotError()
+    return fallbackOrThrow(new ShareImageSnapshotError())
   }
   if (image.decode) {
-    // Once load has supplied a real bitmap, decode() is only an optimization.
-    // Mobile WebKit may reject or never resolve it for cached images, so bound
-    // this wait and degrade to the already-loaded bitmap instead of deadlocking.
-    await new Promise<void>((resolve) => {
+    const result = await new Promise<"decoded" | "failed" | "timeout" | "aborted">((resolve) => {
       let finished = false
-      const finish = () => {
+      const finish = (result: "decoded" | "failed" | "timeout" | "aborted") => {
         if (finished) return
         finished = true
+        signal?.removeEventListener("abort", aborted)
         clearTimeout(timer)
-        resolve()
+        resolve(result)
       }
-      const timer = setTimeout(finish, timeoutMs)
-      Promise.resolve().then(() => image.decode()).then(finish, finish)
+      const aborted = () => finish("aborted")
+      const timer = setTimeout(() => finish("timeout"), Math.max(0, deadline - Date.now()))
+      signal?.addEventListener("abort", aborted, { once: true })
+      Promise.resolve().then(() => image.decode()).then(
+        () => finish("decoded"),
+        () => finish("failed"),
+      )
+      if (signal?.aborted) finish("aborted")
     })
+    if (result === "aborted") throw createShareCardAbortError()
+    if (isFailedProfilePhoto(image)) return "fallback"
+    if (result !== "decoded" && isProfilePhoto(image)) return "fallback"
   }
+  return "snapshot"
 }
 
 function nextPaint(): Promise<void> {
@@ -107,25 +141,31 @@ function nextPaint(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => resolve()))
 }
 
-/**
- * Base UI's photo avatar has a transient loading state where its root contains
- * neither the photo nor the fallback. Desktop usually hits a warm cache;
- * mobile share can rasterise during that gap and permanently export a blank
- * circle. Settle every card image, then yield a paint so the avatar's loaded or
- * fallback branch commits before html-to-image clones computed styles.
- */
 export async function waitForShareCardImages(
   node: HTMLElement,
   waitForPaint: () => Promise<void> = nextPaint,
   timeoutMs = SHARE_IMAGE_READY_TIMEOUT_MS,
-): Promise<void> {
-  await Promise.all(
-    [...node.querySelectorAll("img")].map((image) => waitForImageLoad(image, timeoutMs)),
+  signal?: AbortSignal,
+): Promise<ShareCardImageDisposition[]> {
+  const deadline = Date.now() + timeoutMs
+  const dispositions = await Promise.all(
+    [...node.querySelectorAll("img")].map(async (image) => ({
+      image,
+      mode: await waitForImageLoad(image, deadline, signal),
+    })),
   )
+  if (signal?.aborted) throw createShareCardAbortError()
   await waitForPaint()
+  if (signal?.aborted) throw createShareCardAbortError()
+  return dispositions
 }
 
-type ShareImageWaiter = (node: HTMLElement) => Promise<void>
+type ShareImageWaiter = (
+  node: HTMLElement,
+  waitForPaint?: () => Promise<void>,
+  timeoutMs?: number,
+  signal?: AbortSignal,
+) => Promise<ShareCardImageDisposition[]>
 type ShareImageSnapshotter = (image: HTMLImageElement) => HTMLCanvasElement | null
 
 function copySnapshotPresentation(
@@ -215,27 +255,37 @@ export async function snapshotShareCardImages(
   createSnapshot: ShareImageSnapshotter = createShareImageSnapshot,
   waitForImages: ShareImageWaiter = waitForShareCardImages,
   waitForPaint: () => Promise<void> = nextPaint,
+  signal?: AbortSignal,
 ): Promise<() => void> {
-  await waitForImages(node)
-  const images = [...node.querySelectorAll("img")]
-  const snapshots: Array<{ image: HTMLImageElement; canvas: HTMLCanvasElement }> = []
+  const dispositions = await waitForImages(node, undefined, undefined, signal)
+  const replacements: Array<{ image: HTMLImageElement; replacement: Element }> = []
   let restored = false
   const restore = () => {
     if (restored) return
     restored = true
-    for (const { image, canvas } of snapshots) {
-      if (canvas.parentNode) canvas.replaceWith(image)
+    for (const { image, replacement } of replacements.reverse()) {
+      if (replacement.parentNode) replacement.replaceWith(image)
     }
   }
 
   try {
-    for (const image of images) {
+    for (const { image, mode } of dispositions) {
+      if (!image.parentNode) continue
+      if (mode === "fallback") {
+        const placeholder = document.createElement("span")
+        placeholder.hidden = true
+        image.replaceWith(placeholder)
+        replacements.push({ image, replacement: placeholder })
+        continue
+      }
       const canvas = createSnapshot(image)
       if (!canvas) continue
       image.replaceWith(canvas)
-      snapshots.push({ image, canvas })
+      replacements.push({ image, replacement: canvas })
     }
+    if (signal?.aborted) throw createShareCardAbortError()
     await waitForPaint()
+    if (signal?.aborted) throw createShareCardAbortError()
     return restore
   } catch (error) {
     restore()
@@ -243,12 +293,29 @@ export async function snapshotShareCardImages(
   }
 }
 
-type ShareCardImageSnapshotter = (node: HTMLElement) => Promise<() => void>
+type ShareCardImageSnapshotter = (
+  node: HTMLElement,
+  signal?: AbortSignal,
+) => Promise<() => void>
 type ShareCardRasterizer = typeof toBlob
 type ShareCardRenderOptions = {
   timeoutMs?: number
   loadFonts?: () => Promise<void>
   onStage?: (stage: ShareCardRenderStage) => void
+  signal?: AbortSignal
+}
+
+function snapshotShareCardImagesForRender(
+  node: HTMLElement,
+  signal?: AbortSignal,
+): Promise<() => void> {
+  return snapshotShareCardImages(
+    node,
+    createShareImageSnapshot,
+    waitForShareCardImages,
+    nextPaint,
+    signal,
+  )
 }
 
 async function loadShareCardFonts(): Promise<void> {
@@ -261,7 +328,7 @@ async function loadShareCardFonts(): Promise<void> {
 
 export async function renderShareCard(
   node: HTMLElement,
-  snapshotImages: ShareCardImageSnapshotter = snapshotShareCardImages,
+  snapshotImages: ShareCardImageSnapshotter = snapshotShareCardImagesForRender,
   rasterize: ShareCardRasterizer = toBlob,
   options: ShareCardRenderOptions = {},
 ): Promise<Blob> {
@@ -271,8 +338,8 @@ export async function renderShareCard(
   let restoreImages: (() => void) | null = null
   let cleanupRequested = false
   let cleanupComplete = false
-  let timedOut = false
-  let timeoutError: ShareCardRenderError | null = null
+  let stopped = false
+  let terminalError: Error | null = null
 
   const enterStage = (nextStage: ShareCardRenderStage) => {
     stage = nextStage
@@ -287,26 +354,35 @@ export async function renderShareCard(
   }
 
   enterStage("snapshot")
-  let rejectDeadline!: (reason: ShareCardRenderError) => void
+  let rejectDeadline!: (reason: Error) => void
   const deadline = new Promise<never>((_resolve, reject) => {
     rejectDeadline = reject
   })
-  const timer = setTimeout(() => {
-    timedOut = true
-    timeoutError = new ShareCardRenderError(stage, true)
+  const stop = (error: Error) => {
+    if (stopped) return
+    stopped = true
+    terminalError = error
     try {
       cleanup()
-      rejectDeadline(timeoutError)
-    } catch (error) {
-      rejectDeadline(new ShareCardRenderError("cleanup", false, error))
+      rejectDeadline(error)
+    } catch (cleanupError) {
+      terminalError = new ShareCardRenderError("cleanup", false, cleanupError)
+      rejectDeadline(terminalError)
     }
-  }, timeoutMs)
+  }
+  const timer = setTimeout(
+    () => stop(new ShareCardRenderError(stage, true)),
+    timeoutMs,
+  )
+  const abort = () => stop(createShareCardAbortError())
+  if (options.signal?.aborted) abort()
+  else options.signal?.addEventListener("abort", abort, { once: true })
 
   const lifecycle = async (): Promise<Blob> => {
     try {
-      restoreImages = await snapshotImages(node)
+      restoreImages = await snapshotImages(node, options.signal)
       if (cleanupRequested) cleanup()
-      if (timedOut) throw timeoutError
+      if (terminalError) throw terminalError
 
       enterStage("fonts")
       try {
@@ -314,7 +390,7 @@ export async function renderShareCard(
       } catch {
         // Font loading is best-effort; the fallback font is still renderable.
       }
-      if (timedOut) throw timeoutError
+      if (terminalError) throw terminalError
 
       enterStage("rasterize")
       const blob = await rasterize(node, {
@@ -324,7 +400,7 @@ export async function renderShareCard(
         // (the card's own rounded bg sits on top of this).
         backgroundColor: getComputedStyle(node).getPropertyValue("--card")?.trim() || undefined,
       })
-      if (timedOut) throw timeoutError
+      if (terminalError) throw terminalError
       if (!blob) throw new Error("Rasterizer returned no image")
       return blob
     } catch (error) {
@@ -343,6 +419,7 @@ export async function renderShareCard(
     return await Promise.race([lifecycle(), deadline])
   } finally {
     clearTimeout(timer)
+    options.signal?.removeEventListener("abort", abort)
   }
 }
 
@@ -369,11 +446,11 @@ export async function copyRenderedShareCard(
   await write(blob)
 }
 
-export async function downloadRenderedShareCard(
-  render: ShareCardRenderer,
+async function saveShareCardDownload(
+  blob: Blob,
   filename: string,
-  save: ShareCardBlobWriter = (blob) => {
-    const url = URL.createObjectURL(blob)
+  save: ShareCardBlobWriter = (value) => {
+    const url = URL.createObjectURL(value)
     try {
       const anchor = document.createElement("a")
       anchor.href = url
@@ -384,9 +461,17 @@ export async function downloadRenderedShareCard(
     }
   },
 ): Promise<void> {
+  await save(blob)
+}
+
+export async function downloadRenderedShareCard(
+  render: ShareCardRenderer,
+  filename: string,
+  save?: ShareCardBlobWriter,
+): Promise<void> {
   const blob = await render()
   if (!blob) throw new ShareCardRenderError("rasterize")
-  await save(blob)
+  await saveShareCardDownload(blob, filename, save)
 }
 
 export function shareCardRenderErrorMessage(error: unknown): string | null {
@@ -400,6 +485,12 @@ export function shareCardRenderErrorMessage(error: unknown): string | null {
   return error.timedOut
     ? `Couldn't generate image — ${stage} took too long`
     : `Couldn't generate image — ${stage} failed`
+}
+
+type ShareCardExportFlight = {
+  id: number
+  controller: AbortController
+  promise: Promise<void>
 }
 
 // Share one OR several messages as an image. Renders a self-contained "share
@@ -426,6 +517,11 @@ export function MessageShareDialog({ m, open, onClose }: {
   // the drag happened in, so a drag never wraps the avatar/name/footer OR bleeds
   // across messages (Alli #133: highlight is per-message). Keyed by message id.
   const bodyRefs = useRef(new Map<string, HTMLDivElement | null>())
+  const exportOwnerRef = useRef<{
+    generation: number
+    active: ShareCardExportFlight | null
+  }>({ generation: 0, active: null })
+  const copiedTimerRef = useRef<number | null>(null)
   const [busy, setBusy] = useState<"copy" | "download" | null>(null)
   const [copied, setCopied] = useState(false)
   // Drives the Reset button's presence. Gus (uiux #95): the button is HIDDEN
@@ -460,49 +556,104 @@ export function MessageShareDialog({ m, open, onClose }: {
     setHighlighted(false)
   }, [])
 
-  // Rasterise the card node to a PNG blob. pixelRatio 2 keeps the live image
-  // snapshots and the rest of the card crisp when pasted into other apps.
-  const render = async (): Promise<Blob | null> => {
-    const node = cardRef.current
-    if (!node) return null
-    return renderShareCard(node)
-  }
-
-  const copy = async () => {
-    setBusy("copy")
-    try {
-      await copyRenderedShareCard(render)
-      setCopied(true)
-      toast.success("Image copied to clipboard")
-      window.setTimeout(() => setCopied(false), 1600)
-    } catch (error) {
-      toast.error(shareCardRenderErrorMessage(error) ?? "Couldn't copy image — try Download instead")
-    } finally {
-      setBusy(null)
+  const invalidateExport = useCallback(() => {
+    const owner = exportOwnerRef.current
+    owner.generation += 1
+    owner.active?.controller.abort()
+    owner.active = null
+    if (copiedTimerRef.current !== null) {
+      window.clearTimeout(copiedTimerRef.current)
+      copiedTimerRef.current = null
     }
-  }
+  }, [])
 
-  const download = async () => {
-    setBusy("download")
-    try {
-      const firstAuthorId = messages[0]?.authorId
-      const firstAuthor = firstAuthorId
-        ? readCommunityProfile(profilesByUserId.get(firstAuthorId), firstAuthorId)
-        : null
-      await downloadRenderedShareCard(
-        render,
-        `alook-message-${firstAuthor?.name ?? "share"}.png`,
-      )
-      toast.success("Image downloaded")
-    } catch (error) {
-      toast.error(shareCardRenderErrorMessage(error) ?? "Couldn't generate image")
-    } finally {
-      setBusy(null)
+  useEffect(() => {
+    if (!open) invalidateExport()
+  }, [invalidateExport, open])
+
+  useEffect(() => () => invalidateExport(), [invalidateExport])
+
+  const startExport = useCallback((action: "copy" | "download"): Promise<void> => {
+    const owner = exportOwnerRef.current
+    if (owner.active) return owner.active.promise
+
+    const id = owner.generation + 1
+    const controller = new AbortController()
+    const flight: ShareCardExportFlight = {
+      id,
+      controller,
+      promise: Promise.resolve(),
     }
-  }
+    owner.generation = id
+    owner.active = flight
+    if (copiedTimerRef.current !== null) {
+      window.clearTimeout(copiedTimerRef.current)
+      copiedTimerRef.current = null
+    }
+    setCopied(false)
+    setBusy(action)
+
+    const firstAuthorId = messages[0]?.authorId
+    const firstAuthor = firstAuthorId
+      ? readCommunityProfile(profilesByUserId.get(firstAuthorId), firstAuthorId)
+      : null
+    const filename = `alook-message-${firstAuthor?.name ?? "share"}.png`
+    const isCurrent = () => (
+      exportOwnerRef.current.generation === id && !controller.signal.aborted
+    )
+
+    flight.promise = (async () => {
+      try {
+        const node = cardRef.current
+        if (!node) throw new ShareCardRenderError("rasterize")
+        const blob = await renderShareCard(node, undefined, undefined, {
+          signal: controller.signal,
+        })
+        if (!isCurrent()) return
+
+        if (action === "copy") await writeShareCardToClipboard(blob)
+        else await saveShareCardDownload(blob, filename)
+        if (!isCurrent()) return
+
+        if (action === "copy") {
+          setCopied(true)
+          toast.success("Image copied to clipboard")
+          copiedTimerRef.current = window.setTimeout(() => {
+            if (!isCurrent()) return
+            copiedTimerRef.current = null
+            setCopied(false)
+          }, 1600)
+        } else {
+          toast.success("Image downloaded")
+        }
+      } catch (error) {
+        if (!isCurrent()) return
+        toast.error(
+          shareCardRenderErrorMessage(error)
+          ?? (action === "copy" ? "Couldn't copy image — try Download instead" : "Couldn't generate image"),
+        )
+      } finally {
+        if (exportOwnerRef.current.active?.id !== id) return
+        exportOwnerRef.current.active = null
+        if (!controller.signal.aborted) setBusy(null)
+      }
+    })()
+
+    return flight.promise
+  }, [messages, profilesByUserId])
+
+  const close = useCallback(() => {
+    invalidateExport()
+    setBusy(null)
+    setCopied(false)
+    onClose()
+  }, [invalidateExport, onClose])
+
+  const copy = useCallback(() => startExport("copy"), [startExport])
+  const download = useCallback(() => startExport("download"), [startExport])
 
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+    <Dialog open={open} onOpenChange={(o) => !o && close()}>
       {/* NOTE: DialogContent's base class carries `sm:max-w-sm` (384px). That's
           a responsive variant, so it sorts AFTER a plain `max-w-[…]` in the
           generated CSS and would silently cap the dialog at 384px — the reason a

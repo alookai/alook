@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, type ReactNode } from "react"
+import { useCallback, useEffect, useState, type ReactNode } from "react"
 import {
   Avatar as UiAvatar,
   AvatarFallback,
@@ -9,6 +9,8 @@ import { resolveAvatar } from "@/lib/avatar/resolve"
 import { avatarInitial } from "@/lib/community/avatar"
 import { cn } from "@/lib/utils"
 import { GeneratedAvatar } from "./generated-avatar"
+
+const PROFILE_PHOTO_READY_TIMEOUT_MS = 5_000
 
 export type ProfileAvatarProps = {
   label: string
@@ -22,30 +24,50 @@ export type ProfileAvatarProps = {
   "data-testid"?: string
 }
 
-function ProfilePhoto({ src, alt, fallback, fontSize }: {
+function ProfilePhoto({ src, alt }: {
   src: string
   alt: string
-  fallback: string
-  fontSize: number
 }) {
-  const [failed, setFailed] = useState(false)
+  const [status, setStatus] = useState<"pending" | "ready" | "failed">("pending")
+  const settleStatus = useCallback((next: "ready" | "failed") => {
+    setStatus((current) => current === "pending" ? next : current)
+  }, [])
+  const reconcileCompletedPhoto = useCallback((image: HTMLImageElement | null) => {
+    if (!image?.complete) return
+    settleStatus(image.naturalWidth > 0 && image.naturalHeight > 0 ? "ready" : "failed")
+  }, [settleStatus])
 
-  if (failed) {
-    return (
-      <AvatarFallback className="font-medium" style={{ fontSize }}>
-        {fallback}
-      </AvatarFallback>
-    )
-  }
+  useEffect(() => {
+    if (status !== "pending") return
+    const timeout = setTimeout(() => settleStatus("failed"), PROFILE_PHOTO_READY_TIMEOUT_MS)
+    return () => clearTimeout(timeout)
+  }, [settleStatus, status])
 
   return (
-    <img
-      data-slot="avatar-image"
-      src={src}
-      alt={alt}
-      className="aspect-square size-full rounded-full object-cover"
-      onError={() => setFailed(true)}
-    />
+    <>
+      <span
+        data-slot="avatar-photo-placeholder"
+        data-avatar-photo-placeholder={status === "ready" ? undefined : status}
+        aria-hidden
+        className={cn(
+          "size-full rounded-full bg-muted",
+          status === "pending" && "animate-pulse motion-reduce:animate-none",
+        )}
+      />
+      <img
+        ref={reconcileCompletedPhoto}
+        data-slot="avatar-image"
+        data-avatar-photo-state={status}
+        src={src}
+        alt={alt}
+        className={cn(
+          "absolute inset-0 aspect-square size-full rounded-full object-cover transition-opacity duration-150 ease-out motion-reduce:transition-none",
+          status === "ready" ? "opacity-100" : "opacity-0",
+        )}
+        onLoad={() => settleStatus("ready")}
+        onError={() => settleStatus("failed")}
+      />
+    </>
   )
 }
 
@@ -80,8 +102,6 @@ export function ProfileAvatar({
           key={resolved.url}
           src={resolved.url}
           alt={accessibleLabel}
-          fallback={avatarInitial(safeLabel)}
-          fontSize={size * 0.4}
         />
       ) : resolved.kind === "beam" ? (
         <span className="size-full overflow-hidden rounded-full">
