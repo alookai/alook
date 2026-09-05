@@ -1,8 +1,11 @@
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
+import { renderFaceSvg } from "../src/lib/avatar/face";
 import handler, {
   ANDROID_ASSET_LINKS,
   APPLE_APP_SITE_ASSOCIATION,
+  AUTH_RETURN_AVATAR_SEEDS,
   AUTH_WORKER_AASA_PATH,
   AUTH_WORKER_ASSET_LINKS_PATH,
   AUTH_WORKER_RETURN_PATH,
@@ -10,6 +13,16 @@ import handler, {
 
 const ATTEMPT = "attempt_1234567890123456";
 const CODE = "c".repeat(32);
+const CANONICAL_LOGO = readFileSync(
+  new URL("../public/alook.svg", import.meta.url),
+  "utf8",
+).trim();
+const DM_SANS_WOFF2 = readFileSync(
+  new URL("../src/app/fonts/dm-sans-latin.woff2", import.meta.url),
+).toString("base64");
+const CAVEAT_WOFF2 = readFileSync(
+  new URL("../src/app/fonts/caveat-latin.woff2", import.meta.url),
+).toString("base64");
 
 function request(path: string, init?: RequestInit): Request {
   return new Request(`https://auth.alook.ai${path}`, init);
@@ -67,6 +80,41 @@ describe("alook-auth Worker", () => {
     const digest = createHash("sha256").update(script!).digest("base64");
     expect(response.headers.get("Content-Security-Policy"))
       .toContain(`script-src 'sha256-${digest}'`);
+    expect(response.headers.get("Content-Security-Policy"))
+      .toContain("script-src 'sha256-5yRFm/Mu9yL952eR8mqLHHTJZnHDNb5SC5aES535aMk='");
+  });
+
+  it("reuses canonical Alook branding and disables ambient motion on request", async () => {
+    const response = await fetch(`${AUTH_WORKER_RETURN_PATH}?attempt=${ATTEMPT}&code=${CODE}`);
+    const body = await response.text();
+    const csp = response.headers.get("Content-Security-Policy")!;
+
+    expect(body).toContain(CANONICAL_LOGO);
+    expect(body).toContain(`src: url("data:font/woff2;base64,${DM_SANS_WOFF2}")`);
+    expect(body).toContain(`src: url("data:font/woff2;base64,${CAVEAT_WOFF2}")`);
+    expect(body.match(/data:font\/woff2;base64,/g)).toHaveLength(2);
+    expect(body).toContain('font-family: "DM Sans", ui-sans-serif');
+    expect(body).toContain('font-family: "Caveat", cursive; font-size: 30px; font-weight: 700;');
+    expect(body).toContain("button {\n    width: 100%;");
+    expect(body).toContain("font: inherit;");
+    expect(csp.split("; ")).toContain("font-src data:");
+    expect(body).toContain('<meta name="color-scheme" content="light dark">');
+    expect(body).toContain('class="avatar-field" aria-hidden="true"');
+    expect(body.match(/class="avatar avatar-\d"/g)).toHaveLength(
+      AUTH_RETURN_AVATAR_SEEDS.length,
+    );
+    for (const seed of AUTH_RETURN_AVATAR_SEEDS) {
+      expect(body).toContain(renderFaceSvg(seed));
+      expect(body).not.toContain(seed);
+    }
+    expect(body).toContain("@media (prefers-color-scheme: dark)");
+    expect(body).toContain("@media (prefers-reduced-motion: reduce)");
+    expect(body).toMatch(/\.avatar-field \{[\s\S]*?pointer-events: none;[\s\S]*?\}/);
+    expect(body).toMatch(/\.avatar \{ animation: none; transform: none; will-change: auto; \}/);
+    expect(body).toContain("min-height: 48px");
+    expect(body).toContain("button:focus-visible");
+    expect(body.match(/<script>/g)).toHaveLength(1);
+    expect(body).not.toMatch(/<(?:img|link)\b/i);
   });
 
   it.each([
@@ -82,6 +130,8 @@ describe("alook-auth Worker", () => {
     const body = await response.text();
     expect(response.status).toBe(200);
     expectPrivate(response);
+    expect(body).toContain(CANONICAL_LOGO);
+    expect(body).toContain('class="avatar-field" aria-hidden="true"');
     expect(body).toContain("invalid or has expired");
     expect(body).not.toContain("data-open-alook");
     expect(body).not.toContain("<script>");
