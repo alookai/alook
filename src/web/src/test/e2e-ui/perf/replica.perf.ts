@@ -31,9 +31,11 @@ import {
 } from "./replica-benchmark-fixture"
 import {
   REPLICA_BENCHMARK_SCHEMA_VERSION,
+  REPLICA_BENCHMARK_SERVER_MODE,
   type ReplicaBenchmarkArtifact,
   type ReplicaBenchmarkMode,
   type ReplicaBenchmarkSample,
+  type ReplicaBenchmarkServerMode,
   type ReplicaProof,
   type ReplicaScenarioId,
 } from "./replica-benchmark-types"
@@ -52,7 +54,7 @@ const CONTRACT_VERSION = [
   "oracle:4d1533d443adbeb583f29bd6c5bd997079b81a08277b687165b0b61f54ee7b6b",
   "wire:ea168934b360d45159446cefd13e09c0bd4d1d6dce6d3a567012b8c6ca43e29e",
   "server-contract:d8659d58465bf57a0f5d7cb9d0819092c3ac0cce",
-  "harness-protocol:v2",
+  "harness-protocol:v3",
 ].join("+")
 
 interface SeedManifest {
@@ -212,6 +214,62 @@ async function durableStorageContains(page: Page, marker: string): Promise<boole
   }, marker)
 }
 
+async function waitForReplicaTailCoverage(page: Page, channelId: string, timeoutMs = 20_000) {
+  await expect.poll(async () => page.evaluate(async (targetChannelId) => {
+    let routePublished = false
+    try {
+      const control = JSON.parse(localStorage.getItem("alook-community-replica-control-v1:active") ?? "null") as {
+        shellRoutes?: unknown
+      } | null
+      routePublished = Array.isArray(control?.shellRoutes) && control.shellRoutes.includes(location.pathname)
+    } catch {
+      routePublished = false
+    }
+    if (!routePublished) return false
+    const shellCache = await caches.open("alook-community-shell-v1")
+    if (!await shellCache.match(`${location.origin}${location.pathname}`)) return false
+    const databases = typeof indexedDB.databases === "function" ? await indexedDB.databases() : []
+    for (const database of databases) {
+      if (!database.name?.startsWith("alook-community-replica-v")) continue
+      const covered = await new Promise<boolean>((resolveCovered) => {
+        const open = indexedDB.open(database.name!)
+        open.onerror = () => resolveCovered(false)
+        open.onsuccess = () => {
+          const db = open.result
+          if (!db.objectStoreNames.contains("coverage")) {
+            db.close()
+            resolveCovered(false)
+            return
+          }
+          const request = db.transaction("coverage", "readonly")
+            .objectStore("coverage")
+            .get(`channel:${targetChannelId}`)
+          request.onerror = () => {
+            db.close()
+            resolveCovered(false)
+          }
+          request.onsuccess = () => {
+            const value = request.result as {
+              permission?: { validUntil?: string }
+              completeness?: string
+              messageRange?: { hasNewer?: boolean } | null
+            } | undefined
+            db.close()
+            resolveCovered(Boolean(
+              value
+              && typeof value.permission?.validUntil === "string"
+              && Date.parse(value.permission.validUntil) > Date.now()
+              && (value.messageRange ? value.messageRange.hasNewer === false : value.completeness === "complete"),
+            ))
+          }
+        }
+      })
+      if (covered) return true
+    }
+    return false
+  }, channelId), { timeout: timeoutMs }).toBe(true)
+}
+
 async function waitForDurableMarker(page: Page, marker: string, timeoutMs = 2_000): Promise<number | null> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
@@ -308,6 +366,11 @@ async function primeCoveredProfile(
     for (const route of routes) {
       await page.goto(route, { waitUntil: "commit" })
       await waitForSurface(page)
+      if (MODE === "gate") {
+        const channelId = new URL(route, BASE_URL).pathname.split("/").at(-1)
+        if (!channelId) throw new Error(`Cannot identify Replica tail for ${route}`)
+        await waitForReplicaTailCoverage(page, channelId)
+      }
       const tailId = await page.locator("[data-msg-id]").last().getAttribute("data-msg-id")
       if (!tailId) throw new Error(`No message tail while priming ${route}`)
       tails.set(route, tailId)
@@ -377,6 +440,11 @@ test("Alook Replica vertical benchmark", async ({ browser }) => {
     }, null, 2))
     return
   }
+  const serverMode = process.env.REPLICA_BENCH_SERVER_MODE
+  expect(
+    serverMode,
+    "REPLICA_BENCH_SERVER_MODE must pin the production-like OpenNext runtime",
+  ).toBe(REPLICA_BENCHMARK_SERVER_MODE)
   const gitSha = process.env.REPLICA_BENCH_GIT_SHA ?? "working-tree"
   const outputPath = process.env.REPLICA_BENCH_OUTPUT
     ?? resolve(ARTIFACTS_DIR, `replica-${MODE}.json`)
@@ -389,6 +457,7 @@ test("Alook Replica vertical benchmark", async ({ browser }) => {
     createdAt: new Date().toISOString(),
     gitSha,
     mode: MODE,
+    serverMode: serverMode as ReplicaBenchmarkServerMode,
     networkDelayMs: 1_000,
   }, outputPath)
 
@@ -450,6 +519,7 @@ test("Alook Replica vertical benchmark", async ({ browser }) => {
     }
     await page.goto(routeA, { waitUntil: "commit" })
     await waitForSurface(page)
+    if (MODE === "gate") await waitForReplicaTailCoverage(page, channelA.id)
     const probe = new ReplicaNetworkProbe(page, context, BASE_URL)
     await probe.start(false)
     try {

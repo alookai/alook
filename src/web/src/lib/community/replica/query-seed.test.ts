@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest"
 import { QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
 import type { CoveredReplicaProjection } from "./store"
-import { hasCoveredCommunityReplicaTarget, seedCommunityReplicaQueries } from "./query-seed"
+import {
+  hasCoveredCommunityReplicaTarget,
+  seedCommunityReplicaBootstrapQueries,
+  seedCommunityReplicaQueries,
+} from "./query-seed"
 
 const lease = {
   epoch: "lease-1",
@@ -29,11 +33,34 @@ const projection = {
     { key: "unread", scopeKey: "server:s1", entity: { kind: "unread-source", id: "c1" }, value: { channelId: "c1", serverId: "s1", parentChannelId: null, lastUnreadSeq: 9, lastAttentionSeq: null } },
     { key: "read", scopeKey: "account:viewer", entity: { kind: "read-state", id: "c1" }, value: { channelId: "c1", lastReadMessageId: "m8", lastReadAt: "2026-01-01T00:00:08.000Z", lastReadSeq: 8 } },
     { key: "m8", scopeKey: "channel:c1", entity: { kind: "message", id: "m8" }, value: { id: "m8", type: "chat", seq: 8, createdAt: "2026-01-01T00:00:08.000Z", content: "eight" } },
-    { key: "m9", scopeKey: "channel:c1", entity: { kind: "message", id: "m9" }, value: { id: "m9", type: "chat", seq: 9, createdAt: "2026-01-01T00:00:09.000Z", content: "nine" } },
+    { key: "m9", scopeKey: "channel:c1", entity: { kind: "message", id: "m9" }, value: { id: "m9", channelId: "c1", authorId: "author", type: "chat", seq: 9, createdAt: "2026-01-01T00:00:09.000Z", content: "nine", thread: { id: "thread-1", name: "Replies", messageCount: 1, lastReplyAt: "2026-01-01T00:00:10.000Z" } } },
   ],
 } as unknown as CoveredReplicaProjection
 
 describe("community Replica query seed", () => {
+  it("publishes an atomic bootstrap into the query cache without an IDB reread", () => {
+    const queryClient = new QueryClient()
+    seedCommunityReplicaBootstrapQueries(queryClient, {
+      protocolVersion: 1,
+      snapshotId: projection.meta.snapshotId,
+      takenAt: projection.meta.takenAt,
+      frontier: projection.frontier,
+      coverage: projection.coverage,
+      facts: projection.entities.map(({ scopeKey: _scopeKey, key: _key, ...fact }) => ({
+        scope: fact.entity.kind === "server"
+          ? { kind: "account" as const, id: "viewer" }
+          : fact.entity.kind === "message"
+            ? { kind: "channel" as const, id: "c1" }
+            : { kind: "server" as const, id: "s1" },
+        entity: fact.entity,
+        value: fact.value,
+      })),
+    } as never)
+
+    expect(hasCoveredCommunityReplicaTarget(queryClient, "c1")).toBe(true)
+    expect(queryClient.getQueryData(communityKeys.channelMessages("c1"))).toBeTruthy()
+  })
+
   it("projects covered canonical facts into render-ready query shapes", () => {
     const queryClient = new QueryClient()
     seedCommunityReplicaQueries(queryClient, projection)
@@ -87,6 +114,35 @@ describe("community Replica query seed", () => {
       pageParams: [{ mode: "newest" }],
     })
     expect(hasCoveredCommunityReplicaTarget(queryClient, "empty")).toBe(true)
+  })
+
+  it("projects covered thread route metadata from its canonical parent message", () => {
+    const queryClient = new QueryClient()
+    seedCommunityReplicaQueries(queryClient, {
+      ...projection,
+      frontier: [
+        ...projection.frontier,
+        { scope: { kind: "channel", id: "thread-1" }, revision: 1 },
+      ],
+      coverage: [
+        ...projection.coverage,
+        {
+          scope: { kind: "channel", id: "thread-1" },
+          revision: 1,
+          completeness: "complete",
+          permission: lease,
+          messageRange: { firstSeq: 1, lastSeq: 1, hasOlder: false, hasNewer: false },
+        },
+      ],
+    })
+
+    expect(queryClient.getQueryData(communityKeys.channelMeta("s1", "thread-1"))).toMatchObject({
+      id: "thread-1",
+      parentChannelId: "c1",
+      parentMessageId: "m9",
+      activityAt: "2026-01-01T00:00:10.000Z",
+      verifiedEpoch: 0,
+    })
   })
 
   it("merges delta coverage but resets stale channels on a new bootstrap", () => {

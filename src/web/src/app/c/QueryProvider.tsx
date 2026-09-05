@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools"
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client"
 import { createQueryClient } from "@/lib/query-client"
@@ -53,6 +53,13 @@ export function QueryProvider({
     if (replicaProjection) seedCommunityReplicaQueries(client, replicaProjection)
     return client
   })
+  const seededReplicaSnapshotRef = useRef(replicaProjection?.meta.snapshotId ?? null)
+  useLayoutEffect(() => {
+    const snapshotId = replicaProjection?.meta.snapshotId ?? null
+    if (!replicaProjection || seededReplicaSnapshotRef.current === snapshotId) return
+    seedCommunityReplicaQueries(queryClient, replicaProjection)
+    seededReplicaSnapshotRef.current = snapshotId
+  }, [queryClient, replicaProjection])
   const unreadProjection = useMemo(
     () => userId ? getAccountUnreadProjection(queryClient, userId) : null,
     [queryClient, userId],

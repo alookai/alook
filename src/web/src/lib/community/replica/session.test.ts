@@ -91,6 +91,18 @@ describe("community Replica session", () => {
     await expect(readActiveCommunityReplicaSession("/c/channels/server-1/other", Date.parse(checkedAt) + 1)).resolves.toBeNull()
   })
 
+  it("launches from a newer coherent snapshot without requiring a route republish", async () => {
+    await replaceCommunityReplicaBootstrap(user.id, bootstrap())
+    await publishCommunityReplicaSession(user, route, Date.parse(checkedAt) + 1)
+    await replaceCommunityReplicaBootstrap(user.id, {
+      ...bootstrap(),
+      snapshotId: "snapshot-session-next",
+    })
+
+    const launch = await readActiveCommunityReplicaSession(route, Date.parse(checkedAt) + 1)
+    expect(launch?.projection.meta.snapshotId).toBe("snapshot-session-next")
+  })
+
   it("makes the old account inaccessible before an account switch", async () => {
     await replaceCommunityReplicaBootstrap(user.id, bootstrap())
     await publishCommunityReplicaSession(user, route, Date.parse(checkedAt) + 1)

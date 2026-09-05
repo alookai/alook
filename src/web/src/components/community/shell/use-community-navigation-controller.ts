@@ -13,10 +13,12 @@ import {
   isPublishedNonStructuralCommit,
   isStructuralFrameCommit,
   normalizeCommunityHref,
+  resolveCommunityModulePlan,
   type CommunityCommittedFrame,
 } from "@/lib/community/community-route"
 import type { ShellRouter } from "./shell-frame-types"
 import { cancelActiveConversationNavigationProof } from "@/lib/community/conversation-navigation-proof"
+import { hasCoveredCommunityReplicaTarget } from "@/lib/community/replica/query-seed"
 
 export type CommunityNavigationController = {
   publishedHref: string
@@ -83,6 +85,22 @@ export function useCommunityNavigationController(
     cancelActiveConversationNavigationProof(queryClient)
     pendingBaselineRevisionRef.current = committedFrame.revision
     pendingBaselineLeafRef.current = committedFrame.leafKey
+    const target = resolveCommunityModulePlan(href).main
+    if (
+      target.kind === "server-conversation"
+      && hasCoveredCommunityReplicaTarget(queryClient, target.leafId)
+      && typeof window !== "undefined"
+    ) {
+      // Next integrates the native History API with usePathname/useParams.
+      // For a fully covered conversation this publishes the route from the
+      // already-seeded client tree and avoids an RSC GET on the critical path.
+      flushSync(() => {
+        setNavigationPending(true)
+        setPendingHref(href)
+        window.history.pushState(null, "", href)
+      })
+      return
+    }
     setNavigationPending(true)
     setPendingHref(href)
     router.push(href)

@@ -23,12 +23,14 @@ import {
 import {
   applyCommunityReplicaDelta,
   applyCommunityReplicaIntentOutcomes,
+  listCommunityReplicaCoveredChannelIds,
   listCommunityReplicaIntents,
   readCoveredCommunityReplica,
   replaceCommunityReplicaBootstrap,
 } from "@/lib/community/replica/store"
 import {
   clearCommunityReplicaQueryCoverage,
+  seedCommunityReplicaBootstrapQueries,
   seedCommunityReplicaQueries,
 } from "@/lib/community/replica/query-seed"
 
@@ -55,6 +57,25 @@ export function buildCommunityReplicaBootstrapRequest(
   }
 }
 
+export function retainCommunityReplicaBootstrapTails(
+  request: CommunityReplicaBootstrapRequest,
+  coveredChannelIds: string[],
+): CommunityReplicaBootstrapRequest {
+  const current = request.tails[0]
+  const ordered = [
+    ...(current ? [current.channelId] : []),
+    ...coveredChannelIds,
+    ...request.tails.map((tail) => tail.channelId),
+  ]
+  return {
+    ...request,
+    tails: [...new Set(ordered)].slice(0, MAX_TAILS).map((channelId) => ({
+      channelId,
+      limit: TAIL_LIMIT,
+    })),
+  }
+}
+
 async function seedCurrentRoute(
   queryClient: QueryClient,
   user: ReplicaSessionUser,
@@ -65,10 +86,14 @@ async function seedCurrentRoute(
   const projection = await readCoveredCommunityReplica(user.id, scopes)
   if (!projection) return false
   seedCommunityReplicaQueries(queryClient, projection)
-  const shell = await cacheCommunityShellRoute(pathname)
-  if (!shell.ok) return false
+  // Publish the coherent local generation before shell staging. Staging can
+  // include dozens of hashed assets and may be interrupted by a tab close;
+  // making the identity/projection record wait behind it left an otherwise
+  // complete Replica unusable after a killed-browser reopen. A missing shell
+  // document still fails closed at the service-worker boundary.
   await publishCommunityReplicaSession(user, pathname)
-  return true
+  const shell = await cacheCommunityShellRoute(pathname)
+  return shell.ok
 }
 
 async function seedReplicaScopes(
@@ -165,18 +190,37 @@ async function synchronizeCommunityReplica(
   request: CommunityReplicaBootstrapRequest,
   signal: AbortSignal,
 ) {
-  const snapshot = await apiFetch<CommunityReplicaBootstrapResponse>(
-    "/api/community/replica/bootstrap",
-    { method: "POST", body: JSON.stringify(request), signal },
-  )
+  const coveredChannelIds = await listCommunityReplicaCoveredChannelIds(user.id)
+  const retainedRequest = retainCommunityReplicaBootstrapTails(request, coveredChannelIds)
+  let snapshot: CommunityReplicaBootstrapResponse
+  try {
+    snapshot = await apiFetch<CommunityReplicaBootstrapResponse>(
+      "/api/community/replica/bootstrap",
+      { method: "POST", body: JSON.stringify(retainedRequest), signal },
+    )
+  } catch (error) {
+    const retainedIds = retainedRequest.tails.map((tail) => tail.channelId)
+    const requestedIds = request.tails.map((tail) => tail.channelId)
+    if (JSON.stringify(retainedIds) === JSON.stringify(requestedIds) || signal.aborted) throw error
+    // A remembered optional tail may have been revoked since its last lease.
+    // Retry the current server projection without it so stale coverage cannot
+    // wedge all future bootstraps or require manual local-data recovery.
+    snapshot = await apiFetch<CommunityReplicaBootstrapResponse>(
+      "/api/community/replica/bootstrap",
+      { method: "POST", body: JSON.stringify(request), signal },
+    )
+  }
   await replaceCommunityReplicaBootstrap(user.id, snapshot)
+  // The response has already passed the shared schema and the atomic IDB
+  // commit. Publish its render projection synchronously so "covered" becomes
+  // true in the same turn as durability, before any background intent flush
+  // or shell-cache work can delay a local navigation.
+  seedCommunityReplicaBootstrapQueries(queryClient, snapshot)
+  // Establish the synchronous control commit immediately after the atomic
+  // snapshot lands; later projection seeding and shell refreshes are allowed
+  // to be interrupted by a browser kill without losing launchability.
+  await publishCommunityReplicaSession(user, pathname)
   await flushCommunityReplicaIntents(user.id, signal)
-  await seedReplicaScopes(
-    queryClient,
-    user.id,
-    snapshot.coverage.map((item) => item.scope),
-    true,
-  )
   await seedCurrentRoute(queryClient, user, pathname)
   await drainCommunityReplicaDeltas(queryClient, user, pathname, snapshot, signal)
 }

@@ -1,9 +1,15 @@
 import type { InfiniteData, QueryClient } from "@tanstack/react-query"
-import { UNCATEGORIZED_CATEGORY_ID } from "@alook/shared"
+import {
+  UNCATEGORIZED_CATEGORY_ID,
+  communityReplicaScopeKey,
+  type CommunityReplicaBootstrapResponse,
+} from "@alook/shared"
 import type { ServersResponse, ServerDetail } from "@/hooks/community/use-servers"
 import type { MessagesPage, MessagesPageParam, Msg } from "@/lib/community/models/message"
 import type { Category, Channel, Server } from "@/lib/community/models/navigation"
 import { communityKeys } from "@/lib/query-keys"
+import type { ChildChannelMeta } from "@/hooks/community/use-forum-sidebar-threads"
+import { useCommunityWsStore } from "@/stores/community/ws"
 import type { CoveredReplicaProjection, ReplicaEntityRow } from "./store"
 
 type SeedCoverage = {
@@ -11,6 +17,28 @@ type SeedCoverage = {
 }
 
 const coverageByClient = new WeakMap<QueryClient, SeedCoverage>()
+
+export function seedCommunityReplicaBootstrapQueries(
+  queryClient: QueryClient,
+  snapshot: CommunityReplicaBootstrapResponse,
+) {
+  seedCommunityReplicaQueries(queryClient, {
+    meta: {
+      key: "snapshot",
+      protocolVersion: snapshot.protocolVersion,
+      snapshotId: snapshot.snapshotId,
+      takenAt: snapshot.takenAt,
+    },
+    frontier: snapshot.frontier,
+    coverage: snapshot.coverage,
+    entities: snapshot.facts.map((fact, index) => ({
+      key: `${index}`,
+      scopeKey: communityReplicaScopeKey(fact.scope),
+      entity: fact.entity,
+      value: fact.value as Record<string, unknown>,
+    })),
+  }, { resetCoverage: true })
+}
 
 function rowsOfKind(projection: CoveredReplicaProjection, kind: string) {
   return projection.entities.filter((row) => (row.entity.kind as string) === kind)
@@ -178,6 +206,51 @@ export function seedCommunityReplicaQueries(
       ),
     )
     channelTails.add(channelId)
+  }
+
+  // A covered child tail is navigable only when route resolution can identify
+  // its parent without a GET. The enriched parent message already carries the
+  // canonical thread identity, so project that relationship into the existing
+  // child-meta query instead of widening the wire protocol with duplicate
+  // channel facts.
+  if (serverCoverage?.completeness === "complete") {
+    const verifiedEpoch = useCommunityWsStore.getState().accessEpoch
+    for (const row of rowsOfKind(projection, "message")) {
+      const value = row.value as {
+        id?: unknown
+        channelId?: unknown
+        authorId?: unknown
+        createdAt?: unknown
+        thread?: { id?: unknown; name?: unknown; lastReplyAt?: unknown }
+      }
+      const threadId = typeof value.thread?.id === "string" ? value.thread.id : null
+      if (
+        !threadId
+        || !channelTails.has(threadId)
+        || typeof value.id !== "string"
+        || typeof value.channelId !== "string"
+      ) continue
+      const meta: ChildChannelMeta = {
+        id: threadId,
+        serverId: serverCoverage.scope.id,
+        name: typeof value.thread?.name === "string" ? value.thread.name : "Thread",
+        type: "thread",
+        parentChannelId: value.channelId,
+        parentMessageId: value.id,
+        creatorId: null,
+        archived: false,
+        activityAt: typeof value.thread?.lastReplyAt === "string"
+          ? value.thread.lastReplyAt
+          : typeof value.createdAt === "string"
+            ? value.createdAt
+            : projection.meta.takenAt,
+        verifiedEpoch,
+      }
+      queryClient.setQueryData(
+        communityKeys.channelMeta(serverCoverage.scope.id, threadId),
+        meta,
+      )
+    }
   }
 
   if (accountCoverage?.completeness === "complete") {

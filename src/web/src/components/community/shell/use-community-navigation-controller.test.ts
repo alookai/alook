@@ -12,6 +12,8 @@ const mocks = vi.hoisted(() => ({
   prefetch: vi.fn(),
   cancelProof: vi.fn(),
   queryClient: {},
+  covered: false,
+  historyPush: vi.fn(),
   frame: {
     current: null as CommunityCommittedFrame | null,
   },
@@ -22,6 +24,9 @@ vi.mock("@tanstack/react-query", () => ({
 }))
 vi.mock("@/lib/community/conversation-navigation-proof", () => ({
   cancelActiveConversationNavigationProof: (...args: unknown[]) => mocks.cancelProof(...args),
+}))
+vi.mock("@/lib/community/replica/query-seed", () => ({
+  hasCoveredCommunityReplicaTarget: () => mocks.covered,
 }))
 
 vi.mock("next/navigation", () => ({
@@ -66,9 +71,12 @@ describe("useCommunityNavigationController", () => {
     mocks.replace.mockReset()
     mocks.prefetch.mockReset()
     mocks.cancelProof.mockReset()
+    mocks.covered = false
+    mocks.historyPush.mockReset()
     mocks.frame.current = { ...normalizeCommunityHref("/c/me"), revision: 0 }
     const windowTarget = new EventTarget() as EventTarget & { navigation: EventTarget }
     windowTarget.navigation = new EventTarget()
+    Object.assign(windowTarget, { history: { pushState: mocks.historyPush } })
     vi.stubGlobal("window", windowTarget)
   })
 
@@ -119,6 +127,17 @@ describe("useCommunityNavigationController", () => {
     await hook.rerender()
     expect(hook.current.navigationPending).toBe(false)
     expect(hook.current.pendingHref).toBeNull()
+  })
+
+  it("publishes a covered conversation through native history without an RSC navigation", async () => {
+    mocks.covered = true
+    const hook = await renderController()
+
+    await act(async () => hook.current.push("/c/channels/s1/c1"))
+
+    expect(mocks.historyPush).toHaveBeenCalledWith(null, "", "/c/channels/s1/c1")
+    expect(mocks.push).not.toHaveBeenCalled()
+    expect(hook.current.pendingHref).toBe("/c/channels/s1/c1")
   })
 
   it("uses replace for semantic parent navigation", async () => {

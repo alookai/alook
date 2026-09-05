@@ -8,6 +8,8 @@ import {
   commitCommunityReplicaIntent,
   deleteCommunityReplicaAccount,
   listCommunityReplicaIntents,
+  listCommunityReplicaCoveredChannelIds,
+  readCommunityReplicaSnapshot,
   readCoveredCommunityReplica,
   replaceCommunityReplicaBootstrap,
 } from "./store"
@@ -88,6 +90,18 @@ describe("community Replica store", () => {
       "message-2",
     ])
     await expect(readCoveredCommunityReplica(accountId, [channel], Date.parse(later))).resolves.toBeNull()
+    await expect(listCommunityReplicaCoveredChannelIds(accountId, Date.parse(now) + 1)).resolves.toEqual([channel.id])
+    await expect(listCommunityReplicaCoveredChannelIds(accountId, Date.parse(later))).resolves.toEqual([])
+  })
+
+  it("reads every still-valid scope from one atomic snapshot for cold launch", async () => {
+    await replaceCommunityReplicaBootstrap(accountId, bootstrap())
+
+    const projection = await readCommunityReplicaSnapshot(accountId, Date.parse(now) + 1)
+    expect(projection?.coverage.map((item) => `${item.scope.kind}:${item.scope.id}`).sort()).toEqual([
+      `account:${accountId}`,
+      `channel:${channel.id}`,
+    ])
   })
 
   it("replaces the entire published world instead of mixing scopes from different snapshots", async () => {

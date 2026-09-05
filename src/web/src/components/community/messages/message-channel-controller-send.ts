@@ -3,6 +3,7 @@ import {
   type CommunityReplicaIntentResponse,
   type MentionType,
 } from "@alook/shared"
+import { flushSync } from "react-dom"
 import type { SendAttachment } from "./composer"
 import type { ReplyTarget, Viewer } from "./message-channel-controller-types"
 import { toOptimisticReplyPreview } from "@/lib/community/reply-preview"
@@ -216,30 +217,33 @@ export function acceptChannelMessage({
     }
   }
   const createdPreviewUrls: string[] = []
-  const accepted = useMessageStreamStore.getState().accept(messageScope, {
-    nonce,
-    tempId: tempMessageId(),
-    message: {
-      type: "chat",
-      authorId: viewer.id,
-      authorName: viewer.name,
-      authorAvatar: viewer.avatar,
-      content,
-      createdAt,
-      ...(replyTo ? { replyTo: toOptimisticReplyPreview(replyTo) } : {}),
-    },
-    localUploads: attachments?.map((attachment) => {
-      const previewObjectUrl = attachment.previewObjectUrl ?? URL.createObjectURL(attachment.file)
-      if (!attachment.previewObjectUrl) createdPreviewUrls.push(previewObjectUrl)
-      return {
-        file: attachment.file,
-        thumbnailBlob: attachment.thumbnailBlob,
-        previewObjectUrl,
-        width: attachment.width,
-        height: attachment.height,
-      }
-    }) ?? [],
-    mentionType,
+  let accepted = false
+  flushSync(() => {
+    accepted = useMessageStreamStore.getState().accept(messageScope, {
+      nonce,
+      tempId: tempMessageId(),
+      message: {
+        type: "chat",
+        authorId: viewer.id,
+        authorName: viewer.name,
+        authorAvatar: viewer.avatar,
+        content,
+        createdAt,
+        ...(replyTo ? { replyTo: toOptimisticReplyPreview(replyTo) } : {}),
+      },
+      localUploads: attachments?.map((attachment) => {
+        const previewObjectUrl = attachment.previewObjectUrl ?? URL.createObjectURL(attachment.file)
+        if (!attachment.previewObjectUrl) createdPreviewUrls.push(previewObjectUrl)
+        return {
+          file: attachment.file,
+          thumbnailBlob: attachment.thumbnailBlob,
+          previewObjectUrl,
+          width: attachment.width,
+          height: attachment.height,
+        }
+      }) ?? [],
+      mentionType,
+    })
   })
   if (!accepted) {
     if (replicaIntent) discardCommunityReplicaIntentWal(viewer.id, nonce)

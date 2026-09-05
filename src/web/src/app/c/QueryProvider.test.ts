@@ -82,6 +82,29 @@ describe("QueryProvider profile account lifecycle", () => {
     act(() => renderer.unmount())
   })
 
+  it("seeds a Replica projection that finishes loading after the QueryClient exists", () => {
+    const replicaProjection = { meta: { snapshotId: "snap-late" } }
+    let renderer!: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(React.createElement(
+        QueryProvider,
+        { userId: "viewer-local" },
+        React.createElement("span", null, "content"),
+      ))
+    })
+
+    expect(seedCommunityReplicaQueries).not.toHaveBeenCalled()
+    act(() => {
+      renderer.update(React.createElement(
+        QueryProvider,
+        { userId: "viewer-local", replicaProjection: replicaProjection as never },
+        React.createElement("span", null, "content"),
+      ))
+    })
+    expect(seedCommunityReplicaQueries).toHaveBeenCalledWith(queryClient, replicaProjection)
+    act(() => renderer.unmount())
+  })
+
   it("does not activate the profile account while rendering", () => {
     const store = useCommunityWsStore.getState()
     store.activateProfileAccount("viewer-a")

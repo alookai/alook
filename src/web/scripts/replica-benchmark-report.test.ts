@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import {
   analyzeReplicaBenchmark,
   artifactCompatibilityFailures,
@@ -9,10 +9,21 @@ import {
 } from "./replica-benchmark-report"
 import {
   REPLICA_BENCHMARK_SCHEMA_VERSION,
+  REPLICA_BENCHMARK_SERVER_MODE,
   type ReplicaBenchmarkArtifact,
   type ReplicaBenchmarkSample,
   type ReplicaScenarioContract,
 } from "../src/test/e2e-ui/perf/replica-benchmark-types"
+import {
+  emptySample,
+  isFirstPartyUrl,
+} from "../src/test/e2e-ui/perf/replica-benchmark-fixture"
+
+vi.mock("@playwright/test", () => ({
+  chromium: {},
+  expect: vi.fn(),
+  test: vi.fn(),
+}))
 
 const contract: ReplicaScenarioContract = {
   id: "j6-text-send",
@@ -65,11 +76,32 @@ function artifact(
     createdAt: "2026-09-06T00:00:00.000Z",
     gitSha: "abc123",
     mode,
+    serverMode: REPLICA_BENCHMARK_SERVER_MODE,
     networkDelayMs: 1_000,
     samples,
     ...overrides,
   }
 }
+
+describe("benchmark coverage registration", () => {
+  it("covers the shared fixture primitives used by the Playwright runner", () => {
+    expect(isFirstPartyUrl("http://localhost:3000/api/community", "http://localhost:3000")).toBe(true)
+    expect(isFirstPartyUrl("https://example.com/api/community", "http://localhost:3000")).toBe(false)
+    expect(isFirstPartyUrl("not a URL", "http://localhost:3000")).toBe(false)
+    expect(emptySample("j5-draft", 2, 123)).toMatchObject({
+      scenario: "j5-draft",
+      iteration: 2,
+      actionAtMs: 123,
+      observationEndedAtMs: 123,
+    })
+  })
+
+  it("loads the Playwright-only spec so changed-file coverage can account for it", async () => {
+    const playwright = await import("@playwright/test")
+    await import("../src/test/e2e-ui/perf/replica.perf")
+    expect(playwright.test).toHaveBeenCalledTimes(1)
+  })
+})
 
 describe("percentile", () => {
   it("uses a deterministic nearest-rank percentile", () => {
@@ -245,6 +277,17 @@ describe("blocking network and comparison integrity", () => {
           endedAtMs: 2_030,
           status: 200,
         },
+        {
+          requestId: "aborted",
+          method: "GET",
+          url: "http://localhost/api/community/channels/c/threads",
+          resourceType: "fetch",
+          firstParty: true,
+          networkAccess: true,
+          startedAtMs: 1_040,
+          endedAtMs: 1_050,
+          status: null,
+        },
       ],
     })
     expect(userBlockingGets(measured, contract.anchor).map((request) => request.requestId))
@@ -271,14 +314,16 @@ describe("blocking network and comparison integrity", () => {
     expect(userBlockingGets(measured, contract.anchor, "gate")).toHaveLength(0)
   })
 
-  it("rejects comparison across a different fixture or delay", () => {
+  it("rejects comparison across a different fixture, server mode, or delay", () => {
     const candidate = artifact("gate")
     const baseline = artifact("baseline", [sample()], {
       fixtureVersion: "other-fixture",
+      serverMode: "next-dev" as ReplicaBenchmarkArtifact["serverMode"],
       networkDelayMs: 999,
     })
     expect(artifactCompatibilityFailures(candidate, baseline)).toEqual([
       "fixtureVersion differs",
+      "serverMode differs",
       "networkDelayMs differs",
     ])
     const result = analyzeReplicaBenchmark(candidate, baseline, [contract])

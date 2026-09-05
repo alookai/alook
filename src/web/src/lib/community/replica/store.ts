@@ -385,9 +385,9 @@ export async function applyCommunityReplicaDelta(
   }
 }
 
-export async function readCoveredCommunityReplica(
+async function readCommunityReplicaProjection(
   accountId: string,
-  scopes: CommunityReplicaScope[],
+  scopes: CommunityReplicaScope[] | null,
   now = Date.now(),
 ): Promise<CoveredReplicaProjection | null> {
   const connection = openReplica(accountId)
@@ -397,10 +397,14 @@ export async function readCoveredCommunityReplica(
   const meta = await tx.objectStore("meta").get("snapshot")
   if (!meta || meta.protocolVersion !== COMMUNITY_REPLICA_PROTOCOL_VERSION) return null
 
+  const requestedScopes = scopes ?? (await tx.objectStore("coverage").getAll())
+    .filter((item) => Date.parse(item.permission.validUntil) > now)
+    .map((item) => item.scope)
+
   const frontier: CommunityReplicaFrontier = []
   const coverage: CommunityReplicaCoverage[] = []
   const entities: ReplicaEntityRow[] = []
-  for (const scope of scopes) {
+  for (const scope of requestedScopes) {
     const key = communityReplicaScopeKey(scope)
     const [entry, item, rows] = await Promise.all([
       tx.objectStore("frontiers").get(key),
@@ -419,6 +423,38 @@ export async function readCoveredCommunityReplica(
   }
   await tx.done
   return { meta, frontier, coverage, entities }
+}
+
+export async function readCoveredCommunityReplica(
+  accountId: string,
+  scopes: CommunityReplicaScope[],
+  now = Date.now(),
+) {
+  return readCommunityReplicaProjection(accountId, scopes, now)
+}
+
+export async function readCommunityReplicaSnapshot(
+  accountId: string,
+  now = Date.now(),
+) {
+  return readCommunityReplicaProjection(accountId, null, now)
+}
+
+export async function listCommunityReplicaCoveredChannelIds(
+  accountId: string,
+  now = Date.now(),
+) {
+  const connection = openReplica(accountId)
+  if (!connection) return []
+  const db = await connection
+  const coverage = await db.getAll("coverage")
+  return coverage
+    .filter((item) => (
+      item.scope.kind === "channel"
+      && Date.parse(item.permission.validUntil) > now
+      && (item.messageRange ? !item.messageRange.hasNewer : item.completeness === "complete")
+    ))
+    .map((item) => item.scope.id)
 }
 
 export async function persistCommunityReplicaIntent(

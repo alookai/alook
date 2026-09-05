@@ -10,6 +10,7 @@ import { useChannelTree } from "@/components/community/channels/use-channel-tree
 import { ShellFrame } from "@/components/community/shell/shell-frame"
 import {
   channelHref,
+  resolveCommunityModulePlan,
   serverModalMarkerCleanupHref,
   serverRootHref,
 } from "@/lib/community/community-route"
@@ -70,8 +71,13 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   const params = useParams<{ serverId: string; channelId?: string }>()
   const searchParams = useSearchParams()
   const pathname = usePathname()
-  const serverId = decodeURIComponent(params.serverId)
-  const routeChannelId = params.channelId ? decodeURIComponent(params.channelId) : null
+  const routePlan = resolveCommunityModulePlan(pathname)
+  const plannedMain = routePlan.main
+  const serverId = plannedMain.kind === "server-conversation" || plannedMain.kind === "server-landing"
+    ? plannedMain.serverId
+    : decodeURIComponent(params.serverId)
+  const serverParam = encodeURIComponent(serverId)
+  const routeChannelId = plannedMain.kind === "server-conversation" ? plannedMain.leafId : null
   const hasChannel = !!routeChannelId
   const breakpoint = useBreakpoint()
 
@@ -532,7 +538,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     ? (
         <ChannelRoute
           key={`${serverId}/${routeChannelId}`}
-          serverParam={params.serverId}
+          serverParam={serverParam}
           channelId={routeChannelId}
         />
       )

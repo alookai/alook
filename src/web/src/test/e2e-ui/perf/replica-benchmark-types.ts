@@ -1,6 +1,8 @@
-export const REPLICA_BENCHMARK_SCHEMA_VERSION = 1
+export const REPLICA_BENCHMARK_SCHEMA_VERSION = 2
+export const REPLICA_BENCHMARK_SERVER_MODE = "opennext-preview:production-build:wrangler-local:auth-dev"
 
 export type ReplicaBenchmarkMode = "baseline" | "gate"
+export type ReplicaBenchmarkServerMode = typeof REPLICA_BENCHMARK_SERVER_MODE
 
 export type ReplicaScenarioId =
   | "j0-first-bootstrap"
@@ -62,6 +64,7 @@ export interface ReplicaBenchmarkArtifact {
   createdAt: string
   gitSha: string
   mode: ReplicaBenchmarkMode
+  serverMode: ReplicaBenchmarkServerMode
   networkDelayMs: number
   samples: ReplicaBenchmarkSample[]
 }

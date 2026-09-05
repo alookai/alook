@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import { useSession } from "@/lib/auth-client"
 import { CommunityShell } from "./community-shell"
@@ -37,6 +37,7 @@ export default function CommunityLayout({
 }) {
   const router = useRouter()
   const pathname = usePathname()
+  const [initialPathname] = useState(pathname)
   const isPublic = isPublicCommunityPath(pathname)
   const { data: session, isPending, error: sessionError } = useSession()
   const sessionUserId = session?.user.id
@@ -79,7 +80,10 @@ export default function CommunityLayout({
   // gate, no CommunityShell (a logged-out visitor has no currentUser).
   if (isPublic) return <><SignupTracker />{children}</>
 
-  if ((!session && !canUseLocalIdentity) || (replica.loading && isPending)) {
+  if (
+    (!session && !canUseLocalIdentity)
+    || (replica.loading && (isPending || pathname === initialPathname))
+  ) {
     return <CommunitySessionPendingFrame pathname={pathname} />
   }
 

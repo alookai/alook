@@ -1,10 +1,15 @@
-import { COMMUNITY_REPLICA_PROTOCOL_VERSION, type CommunityReplicaScope } from "@alook/shared"
+import {
+  COMMUNITY_REPLICA_PROTOCOL_VERSION,
+  communityReplicaScopeKey,
+  type CommunityReplicaScope,
+} from "@alook/shared"
 import { openDB, type DBSchema } from "idb"
 import { resolveCommunityModulePlan } from "@/lib/community/community-route"
 import { COMMUNITY_SHELL_PROTOCOL_VERSION } from "./shell"
 import {
   deleteCommunityReplicaAccount,
   readCoveredCommunityReplica,
+  readCommunityReplicaSnapshot,
   type CoveredReplicaProjection,
   listCommunityReplicaIntents,
   type ReplicaIntentRow,
@@ -12,6 +17,7 @@ import {
 
 const CONTROL_DB_NAME = "alook-community-replica-control-v1"
 const CONTROL_DB_VERSION = 1
+const CONTROL_WAL_KEY = "alook-community-replica-control-v1:active"
 
 export type ReplicaSessionUser = {
   id: string
@@ -42,6 +48,36 @@ export type CommunityReplicaLaunch = {
 }
 
 let controlConnection: ReturnType<typeof openDB<ReplicaControlDB>> | null = null
+
+function readControlWal(): ActiveReplicaSession | null {
+  if (typeof localStorage === "undefined") return null
+  try {
+    const value = JSON.parse(localStorage.getItem(CONTROL_WAL_KEY) ?? "null") as ActiveReplicaSession | null
+    if (
+      value?.key !== "active"
+      || typeof value.accountId !== "string"
+      || typeof value.user?.id !== "string"
+      || !Array.isArray(value.shellRoutes)
+    ) return null
+    return value
+  } catch {
+    localStorage.removeItem(CONTROL_WAL_KEY)
+    return null
+  }
+}
+
+function writeControlWal(value: ActiveReplicaSession) {
+  if (typeof localStorage !== "undefined") {
+    localStorage.setItem(CONTROL_WAL_KEY, JSON.stringify(value))
+  }
+}
+
+function removeControlWal(accountId?: string) {
+  const active = readControlWal()
+  if (active && (!accountId || active.accountId === accountId)) {
+    localStorage.removeItem(CONTROL_WAL_KEY)
+  }
+}
 
 function openControl() {
   if (typeof indexedDB === "undefined") return null
@@ -98,11 +134,11 @@ export async function publishCommunityReplicaSession(
   if (!connection) throw new Error("IndexedDB is unavailable")
   const path = routePath(pathname)
   const db = await connection
-  const previous = await db.get("session", "active")
+  const previous = readControlWal() ?? await db.get("session", "active")
   const shellRoutes = previous?.accountId === user.id
     ? [...new Set([...previous.shellRoutes, path])]
     : [path]
-  await db.put("session", {
+  const active: ActiveReplicaSession = {
     key: "active",
     accountId: user.id,
     user,
@@ -110,18 +146,25 @@ export async function publishCommunityReplicaSession(
     snapshotId: projection.meta.snapshotId,
     shellProtocolVersion: COMMUNITY_SHELL_PROTOCOL_VERSION,
     shellRoutes,
-  })
+  }
+  // The small control record is a synchronous commit point. IndexedDB remains
+  // the mirrored control store, while localStorage closes the browser-kill
+  // window between a completed Replica transaction and an async IDB put.
+  writeControlWal(active)
+  await db.put("session", active)
 }
 
 export async function markCommunityReplicaShellRoute(accountId: string, pathname: string) {
   const connection = openControl()
   if (!connection) return
   const db = await connection
-  const active = await db.get("session", "active")
+  const active = readControlWal() ?? await db.get("session", "active")
   if (!active || active.accountId !== accountId) return
   const path = routePath(pathname)
   if (active.shellRoutes.includes(path)) return
-  await db.put("session", { ...active, shellRoutes: [...active.shellRoutes, path] })
+  const updated = { ...active, shellRoutes: [...active.shellRoutes, path] }
+  writeControlWal(updated)
+  await db.put("session", updated)
 }
 
 export async function readActiveCommunityReplicaSession(
@@ -130,7 +173,7 @@ export async function readActiveCommunityReplicaSession(
 ): Promise<CommunityReplicaLaunch | null> {
   const connection = openControl()
   if (!connection) return null
-  const active = await (await connection).get("session", "active")
+  const active = readControlWal() ?? await (await connection).get("session", "active")
   const path = routePath(pathname)
   if (
     !active
@@ -140,8 +183,16 @@ export async function readActiveCommunityReplicaSession(
   ) return null
   const scopes = communityReplicaRouteScopes(active.accountId, path)
   if (!scopes) return null
-  const projection = await readCoveredCommunityReplica(active.accountId, scopes, now)
-  if (!projection || projection.meta.snapshotId !== active.snapshotId) return null
+  const projection = await readCommunityReplicaSnapshot(active.accountId, now)
+  // A newer atomic snapshot may land after the route was published (for
+  // example when a visibility/route sync supersedes the bootstrap that made
+  // the shell ready). The active record is an account + shell-route grant,
+  // not a pin to one snapshot generation. `readCoveredCommunityReplica`
+  // already proves that the currently committed generation is coherent,
+  // unexpired, and covers every requested scope, so rejecting it solely
+  // because its snapshot id advanced creates a false offline miss.
+  const coveredScopes = new Set(projection?.coverage.map((item) => communityReplicaScopeKey(item.scope)))
+  if (!projection || scopes.some((scope) => !coveredScopes.has(communityReplicaScopeKey(scope)))) return null
   const intents = await listCommunityReplicaIntents(active.accountId)
   return { user: active.user, projection, intents }
 }
@@ -150,8 +201,9 @@ export async function clearActiveCommunityReplicaSession(accountId?: string) {
   const connection = openControl()
   if (!connection) return
   const db = await connection
-  const active = await db.get("session", "active")
+  const active = readControlWal() ?? await db.get("session", "active")
   if (!active || (accountId && active.accountId !== accountId)) return
+  removeControlWal(accountId)
   await db.delete("session", "active")
   await deleteCommunityReplicaAccount(active.accountId)
 }

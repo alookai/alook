@@ -17,6 +17,7 @@ vi.mock("@/lib/community/replica/store", async (importOriginal) => ({
 import {
   buildCommunityReplicaBootstrapRequest,
   flushCommunityReplicaIntents,
+  retainCommunityReplicaBootstrapTails,
   selectCommunityReplicaDeltaFrontier,
 } from "./use-community-replica-sync"
 
@@ -51,6 +52,19 @@ describe("community Replica bootstrap request", () => {
     expect(request.tails).toHaveLength(32)
     expect(request.tails[0]).toEqual({ channelId: "c20", limit: 100 })
     expect(new Set(request.tails.map((tail) => tail.channelId)).size).toBe(32)
+  })
+
+  it("retains verified prior tails ahead of unvisited server channels", () => {
+    const request = buildCommunityReplicaBootstrapRequest("s1", "c20", server)
+    const retained = retainCommunityReplicaBootstrapTails(request, ["thread-1", "c20", "thread-2"])
+
+    expect(retained.tails.slice(0, 3)).toEqual([
+      { channelId: "c20", limit: 100 },
+      { channelId: "thread-1", limit: 100 },
+      { channelId: "thread-2", limit: 100 },
+    ])
+    expect(retained.tails).toHaveLength(32)
+    expect(new Set(retained.tails.map((tail) => tail.channelId)).size).toBe(32)
   })
 
   it("drains channel journals without turning account and server snapshots into false gaps", () => {

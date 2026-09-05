@@ -105,6 +105,19 @@ describe("CommunityLayout session boundary", () => {
     expect(mocks.cacheShellRoute).toHaveBeenCalledWith("https://alook.test/c/me")
   })
 
+  it("waits for the initial local Replica lookup before constructing the query cache", () => {
+    mocks.session = {
+      data: { user: { id: "u1", name: "Ada", email: "ada@example.com", image: null } },
+      isPending: false,
+      error: null,
+    }
+    mocks.replica = { loading: true, launch: null }
+
+    const renderer = render()
+    expect(renderer.root.findByType("session-pending").props.pathname).toBe("/c/me")
+    expect(renderer.root.findAllByType("community-shell")).toHaveLength(0)
+  })
+
   it("renders a compatible local identity while the canonical session is offline", () => {
     mocks.pathname = "/c/channels/server-1/channel-1"
     mocks.session = { data: null, isPending: false, error: new Error("offline") }

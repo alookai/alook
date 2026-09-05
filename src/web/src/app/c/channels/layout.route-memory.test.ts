@@ -31,6 +31,17 @@ vi.mock("@/lib/community/community-route", () => ({
   channelHref: (serverId: string, channelId: string) => `/c/channels/${serverId}/${channelId}`,
   serverRootHref: (serverId: string) => `/c/channels/${serverId}`,
   serverModalMarkerCleanupHref: () => null,
+  resolveCommunityModulePlan: () => ({
+    route: "server-detail",
+    surface: "detail",
+    rail: "community",
+    sidebar: { kind: "server", serverId: "missing-server" },
+    main: {
+      kind: "server-conversation",
+      serverId: "missing-server",
+      leafId: "missing-channel",
+    },
+  }),
 }))
 vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => "desktop" }))
 vi.mock("@/components/community/channels/channel-sidebar", () => ({ ChannelSidebar: () => null }))
