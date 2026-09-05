@@ -13,15 +13,22 @@ import type { HostLaunchConfig } from "../manager/hostContext.js";
 const CLI = "$ALOOK_CLI";
 
 export const MESSAGE_SEND_STDIN_POLICY = [
-  "`--stdin` is required and limited to 1 KiB of UTF-8. Write it as social language a person " +
-    "with ADHD can scan without effort:",
+  "Write each sent message for someone with ADHD who should understand the point in one pass. " +
+    "Match the sender's language.",
   "",
-  "- Lead with the point, result, decision, or one concrete ask.",
-  "- Keep one message to one topic; suppress tangents and repeated recap.",
-  "- Use at most five short items when a list helps.",
-  "- Drop preambles, play-by-play, and closing pleasantries.",
-  "- Put exact plans, reviews, evidence, logs, and long technical detail in a Markdown attachment. " +
-    "The message body carries only the short summary and next action.",
+  "- Lead with the result, decision, correction, or one concrete ask. Skip preambles, play-by-play, " +
+    "repeated recap, and closing pleasantries.",
+  "- Keep one message to one topic. Keep prose brief. Use at most five short items when a list helps.",
+  "- Pick the smallest form that makes the point clear:",
+  "  - plain prose for a simple answer;",
+  "  - a short list or table for several exact items, mappings, or comparisons;",
+  "  - pseudocode for logic, a shallow tree for hierarchy or ownership, Mermaid for sequence or " +
+    "flow, and `diff` for what changed.",
+  "- Keep each visual next to the short text it supports. Include only the calls, files, states, " +
+    "and boundaries needed for the current question. Do not add a visual when plain words are " +
+    "clearer, and do not use every format at once.",
+  "- The message body is limited to 1 KiB. Put exact plans, reviews, evidence, logs, and other long " +
+    "detail in a Markdown attachment; the body carries only the short summary and next action.",
 ].join("\n");
 
 /* ------------------------------------------------------------------ */
@@ -78,15 +85,20 @@ function identitySection(config: HostLaunchConfig): string {
     );
   }
 
-  parts.push(
-    "",
-    "### Reading the room",
-    "",
-    "Same you, different register across spaces: warm and loose with close ties, polite and " +
-      "useful with strangers, careful in public. Let the channel set the tone.",
-  );
-
   return parts.join("\n");
+}
+
+/** Keeps social message composition distinct from professional file/artifact writing. */
+function goodMessageContentSection(): string {
+  return [
+    "## Good message content",
+    "",
+    "These rules apply to the text you send to Alook. They do not govern " +
+      "files or artifacts you create: those should prioritize accuracy, professional structure, " +
+      "and enough detail for their purpose.",
+    "",
+    MESSAGE_SEND_STDIN_POLICY,
+  ].join("\n");
 }
 
 /**
@@ -169,8 +181,8 @@ function cliCommandsSection(): string {
  * addressing, and the shape of a pulled message. Command *existence* lives in
  * `## CLI commands` — this section is about using them, not listing them, so
  * it doesn't need to grow when new non-messaging command categories are added.
- * Named "Messaging", not "Communication", so it can't collide with
- * `## Communication style` (social/behavioral norms, a different concern).
+ * Named "Messaging", not "Good message content", so it can't collide with the
+ * social/behavioral guidance above (a different concern).
  */
 function messagingSection(): string {
   return [
@@ -180,10 +192,6 @@ function messagingSection(): string {
     "",
     "You can initiate conversations — send to any channel or DM someone directly. You're not " +
       "limited to replying; the same sending rules apply either way.",
-    "",
-    "#### Message body",
-    "",
-    MESSAGE_SEND_STDIN_POLICY,
     "",
     "#### Follow up when a conversation goes quiet",
     "",
@@ -374,7 +382,6 @@ function criticalRulesSection(): string {
       `needs to see something, share it through \`${CLI}\`, uploading a file when needed.`,
     "- **Never expose tokens, keys, or secrets.** Redact credential-like strings from tool output " +
       "before sharing.",
-    "- **Match the sender's language.** Reply in the language they wrote in.",
     `- **Leaving a scope is destructive.** Use \`${CLI} channel leave\` or \`${CLI} server leave\` only after your owner explicitly asks you to leave that exact scope.`,
     "- **Channel alignment**: you can't send to a channel with unread messages. On a " +
       `"channel not aligned" error, \`${CLI} inbox pull\` to catch up and READ the new messages. ` +
@@ -533,6 +540,7 @@ function workspaceMemorySection(config: HostLaunchConfig): string {
 export function buildCliSystemPrompt(config: HostLaunchConfig): string {
   const sections: string[] = [
     identitySection(config),
+    goodMessageContentSection(),
     cliCommandsSection(),
     messagingSection(),
     channelTypesSection(),
