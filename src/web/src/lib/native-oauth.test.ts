@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   nativeOauthCallbackUrls,
   nativeOauthExchangeSchema,
+  nativeOauthHtml,
   nativeOauthJson,
   nativeOauthRegistrationSchema,
   nativeOauthReturnUrl,
@@ -211,6 +212,17 @@ describe("native OAuth protocol helpers", () => {
 
   it("sets no-store/no-referrer on protocol JSON", () => {
     const response = nativeOauthJson({ ok: true });
+    expect(response.headers.get("Cache-Control")).toBe("no-store, max-age=0");
+    expect(response.headers.get("Referrer-Policy")).toBe("no-referrer");
+  });
+
+  it("applies secure HTML defaults when response init is omitted", async () => {
+    const response = nativeOauthHtml("<main>Continue</main>");
+
+    await expect(response.text()).resolves.toBe("<main>Continue</main>");
+    expect(response.headers.get("Content-Type")).toBe(
+      "text/html; charset=utf-8",
+    );
     expect(response.headers.get("Cache-Control")).toBe("no-store, max-age=0");
     expect(response.headers.get("Referrer-Policy")).toBe("no-referrer");
   });

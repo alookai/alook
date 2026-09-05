@@ -261,4 +261,72 @@ describe("native oauth attempt queries", () => {
       pkceChallenge: CHALLENGE,
     })).resolves.toMatchObject({ status: "pending" });
   });
+
+  it("uses the current time when timestamp arguments are omitted", async () => {
+    const dateNow = vi.spyOn(Date, "now").mockReturnValue(NOW);
+
+    try {
+      const consumedId = "default_consumed_123456789";
+      await registerAttempt(db, registration(consumedId, "1".repeat(64)));
+      await expect(claimStart(db, consumedId)).resolves.toMatchObject({
+        status: "opened",
+      });
+      await expect(getOpenedAttempt(db, consumedId)).resolves.toMatchObject({
+        status: "opened",
+      });
+      await expect(attachHandoff(db, {
+        attemptId: consumedId,
+        handoffCodeHash: CODE_HASH,
+        authKind: "signin",
+      })).resolves.toMatchObject({ status: "ready" });
+      const consumedProof = {
+        attemptId: consumedId,
+        stateHash: STATE_HASH,
+        pkceChallenge: CHALLENGE,
+        handoffCodeHash: CODE_HASH,
+      };
+      await expect(claimExchange(db, consumedProof)).resolves.toMatchObject({
+        status: "exchanging",
+      });
+      await expect(finishExchange(db, consumedProof)).resolves.toMatchObject({
+        status: "consumed",
+      });
+
+      const openedId = "default_opened_12345678901";
+      await registerAttempt(db, registration(openedId, "2".repeat(64)));
+      await claimStart(db, openedId);
+      await expect(
+        failOpenedAttempt(db, openedId, "provider_error"),
+      ).resolves.toMatchObject({ status: "failed" });
+
+      const exchangeId = "default_exchange_123456789";
+      const exchangeCodeHash = "e".repeat(64);
+      await registerAttempt(db, registration(exchangeId, "3".repeat(64)));
+      await claimStart(db, exchangeId);
+      await attachHandoff(db, {
+        attemptId: exchangeId,
+        handoffCodeHash: exchangeCodeHash,
+        authKind: "signin",
+      });
+      await claimExchange(db, {
+        attemptId: exchangeId,
+        stateHash: STATE_HASH,
+        pkceChallenge: CHALLENGE,
+        handoffCodeHash: exchangeCodeHash,
+      });
+      await expect(failExchange(db, exchangeId)).resolves.toMatchObject({
+        status: "failed",
+      });
+
+      const cancelledId = "default_cancelled_123456789";
+      await registerAttempt(db, registration(cancelledId, "4".repeat(64)));
+      await expect(cancelAttempt(db, {
+        attemptId: cancelledId,
+        stateHash: STATE_HASH,
+        pkceChallenge: CHALLENGE,
+      })).resolves.toMatchObject({ status: "cancelled" });
+    } finally {
+      dateNow.mockRestore();
+    }
+  });
 });
