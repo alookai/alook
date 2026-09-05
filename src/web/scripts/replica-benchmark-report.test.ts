@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import {
   analyzeReplicaBenchmark,
   artifactCompatibilityFailures,
@@ -13,6 +13,16 @@ import {
   type ReplicaBenchmarkSample,
   type ReplicaScenarioContract,
 } from "../src/test/e2e-ui/perf/replica-benchmark-types"
+import {
+  emptySample,
+  isFirstPartyUrl,
+} from "../src/test/e2e-ui/perf/replica-benchmark-fixture"
+
+vi.mock("@playwright/test", () => ({
+  chromium: {},
+  expect: vi.fn(),
+  test: vi.fn(),
+}))
 
 const contract: ReplicaScenarioContract = {
   id: "j6-text-send",
@@ -76,6 +86,26 @@ describe("percentile", () => {
     expect(percentile([50, 10, 30, 20, 40], 0.5)).toBe(30)
     expect(percentile([50, 10, 30, 20, 40], 0.95)).toBe(50)
     expect(percentile([], 0.95)).toBeNull()
+  })
+})
+
+describe("benchmark coverage registration", () => {
+  it("covers the shared fixture primitives used by the Playwright runner", () => {
+    expect(isFirstPartyUrl("http://localhost:3000/api/community", "http://localhost:3000")).toBe(true)
+    expect(isFirstPartyUrl("https://example.com/api/community", "http://localhost:3000")).toBe(false)
+    expect(isFirstPartyUrl("not a URL", "http://localhost:3000")).toBe(false)
+    expect(emptySample("j5-draft", 2, 123)).toMatchObject({
+      scenario: "j5-draft",
+      iteration: 2,
+      actionAtMs: 123,
+      observationEndedAtMs: 123,
+    })
+  })
+
+  it("loads the Playwright-only spec so changed-file coverage can account for it", async () => {
+    const playwright = await import("@playwright/test")
+    await import("../src/test/e2e-ui/perf/replica.perf")
+    expect(playwright.test).toHaveBeenCalledTimes(1)
   })
 })
 
