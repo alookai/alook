@@ -245,6 +245,22 @@ afterEach(() => {
 })
 
 describe("Message memo comparator", () => {
+  it("keeps the strict Unknown fallback for unresolved live authors", () => {
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(makeTree({
+        m: baseMsg({
+          authorId: "unresolved",
+          authorName: "Static fixture name",
+        }),
+        onOpenThread: vi.fn(),
+      }), { createNodeMock: () => genericMock })
+    })
+
+    expect(textContent(renderer!.root)).toContain("Unknown")
+    expect(textContent(renderer!.root)).not.toContain("Static fixture name")
+  })
+
   it("bails out when compared fields are unchanged despite a fresh `m` clone", () => {
     const onOpenThread = vi.fn()
     const stableProps = { onOpenThread }

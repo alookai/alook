@@ -47,11 +47,12 @@ import { BotRuntimeFields } from "@/components/community/bots/bot-runtime-fields
 import { UserBar } from "@/components/community/shell/user-bar"
 import { useChannelTree } from "@/components/community/channels/use-channel-tree"
 import type { Category, Server } from "@/lib/community/models/navigation"
-import type { DM } from "@/lib/community/models/people"
+import type { CommunityProfile, DM } from "@/lib/community/models/people"
 import type { RenderMsg } from "@/lib/community/models/message"
 import type { UnreadServer } from "@/lib/community/models/inbox"
 import { serializeBeamSeed } from "@/lib/avatar/seed-url"
 import { tid } from "@/lib/community/testids"
+import { CommunityPreviewProfileOwner } from "@/stores/community/profile-preview"
 import {
   LANDING_MACHINE_RUNTIMES,
   LANDING_IDENTITY_MAYA,
@@ -447,6 +448,25 @@ const CONTINUITY_LIFE_MESSAGES: RenderMsg[] = [
   },
 ]
 
+const LANDING_PREVIEW_PROFILES = new Map<string, CommunityProfile>(
+  [
+    ...MESSAGES,
+    ...Object.values(SPACE_MESSAGES).flat(),
+    ...Object.values(IDENTITY_MESSAGES).flat(),
+    ...DM_MESSAGES,
+    ...CONTINUITY_DM_MESSAGES,
+    ...CONTINUITY_WORK_MESSAGES,
+    ...CONTINUITY_LIFE_MESSAGES,
+  ].flatMap((message): [string, CommunityProfile][] => {
+    if (!message.authorId || !message.authorName) return []
+    return [[message.authorId, {
+      id: message.authorId,
+      name: message.authorName,
+      avatar: message.authorAvatar,
+    }]]
+  }),
+)
+
 const CONTINUITY_WORK_UNREAD: UnreadServer[] = [
   {
     serverId: "work",
@@ -707,14 +727,16 @@ export function LandingShellMotion({
               } as CSSProperties
             }
           >
-            <QueryClientProvider client={queryClient}>
-              <PrototypeShell
-                scene={scene}
-                snapshot={visualSnapshot}
-                machineIntroDescription={machineIntroDescription}
-                overviewDetails={overviewDetails}
-              />
-            </QueryClientProvider>
+            <CommunityPreviewProfileOwner profiles={LANDING_PREVIEW_PROFILES}>
+              <QueryClientProvider client={queryClient}>
+                <PrototypeShell
+                  scene={scene}
+                  snapshot={visualSnapshot}
+                  machineIntroDescription={machineIntroDescription}
+                  overviewDetails={overviewDetails}
+                />
+              </QueryClientProvider>
+            </CommunityPreviewProfileOwner>
             <MousePointer2
               aria-hidden
               data-testid="landing-motion-cursor"
@@ -753,7 +775,7 @@ export function LandingMobileChatMotion({ beat }: { beat: number }) {
     <div
       ref={stageRef}
       className={styles.mobileStage}
-      data-testid="landing-mobile-motion-stage"
+      data-testid={tid.landingMobileMotionStage}
       data-beat={snapshot.beat}
       aria-hidden
     >
@@ -765,40 +787,43 @@ export function LandingMobileChatMotion({ beat }: { beat: number }) {
           <span>9:41</span>
           <span>Phone</span>
         </div>
-        <QueryClientProvider client={queryClient}>
-          <div className={styles.mobileSurface}>
-            <ChannelHeader
-              channel="general"
-              rightPanel={null}
-              onToggle={() => {}}
-              onBack={() => {}}
-              server={{ id: "gus", name: "Gus", icon: null }}
-              tools={{ threads: false, pinned: false, members: false }}
-            />
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-              <div className={`${styles.mobileMessages} flex-1 overflow-hidden px-2 py-2`}>
-                {MESSAGES.map((message, index) => (
-                  <div
-                    key={message.id}
-                    data-visible={index < snapshot.visibleMessages}
-                    className={styles.messageSlot}
-                  >
-                    <div
-                      className={targetClass(snapshot, `message-${message.authorId}`)}
-                    >
-                      <Message m={message} onOpenThread={() => {}} />
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <PrototypeComposer
-                snapshot={snapshot}
-                target="composer"
-                placeholder="Message /general"
+        <CommunityPreviewProfileOwner profiles={LANDING_PREVIEW_PROFILES}>
+          <QueryClientProvider client={queryClient}>
+            <div className={styles.mobileSurface}>
+              <ChannelHeader
+                channel="general"
+                kind="text"
+                rightPanel={null}
+                onToggle={() => {}}
+                mobileBack={() => {}}
+                mobileBackDisplay="always"
+                tools={{ threads: false, pinned: false, members: false }}
               />
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                <div className={`${styles.mobileMessages} flex-1 overflow-hidden px-2 py-2`}>
+                  {MESSAGES.map((message, index) => (
+                    <div
+                      key={message.id}
+                      data-visible={index < snapshot.visibleMessages}
+                      className={styles.messageSlot}
+                    >
+                      <div
+                        className={targetClass(snapshot, `message-${message.authorId}`)}
+                      >
+                        <Message m={message} onOpenThread={() => {}} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <PrototypeComposer
+                  snapshot={snapshot}
+                  target="composer"
+                  placeholder="Message /general"
+                />
+              </div>
             </div>
-          </div>
-        </QueryClientProvider>
+          </QueryClientProvider>
+        </CommunityPreviewProfileOwner>
       </div>
     </div>
   )
@@ -1130,9 +1155,9 @@ function ServerScene({
     <>
       <ChannelHeader
         channel="general"
+        kind="text"
         rightPanel={null}
         onToggle={() => {}}
-        server={{ id: "gus", name: "Gus", icon: null }}
       />
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <div className="relative flex-1 overflow-hidden px-4 py-3">
@@ -1164,7 +1189,6 @@ function ServerScene({
 
 function SpacesScene({ snapshot }: { snapshot: SceneSnapshot }) {
   const room = snapshot.room
-  const server = SPACE_SERVERS.find((item) => item.id === room) ?? SPACE_SERVERS[0]
   const channel = SPACE_CHANNELS[room][0]?.channels[0]
   const messages = SPACE_MESSAGES[room]
 
@@ -1172,9 +1196,9 @@ function SpacesScene({ snapshot }: { snapshot: SceneSnapshot }) {
     <>
       <ChannelHeader
         channel={channel?.name ?? "general"}
+        kind={channel?.type ?? "text"}
         rightPanel={null}
         onToggle={() => {}}
-        server={{ id: server.id, name: server.name, icon: server.icon ?? null }}
       />
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <div className="flex-1 overflow-hidden px-4 py-3">
@@ -1209,16 +1233,15 @@ function SpacesScene({ snapshot }: { snapshot: SceneSnapshot }) {
 
 function IdentityScene({ snapshot }: { snapshot: SceneSnapshot }) {
   const room = snapshot.room
-  const server = SPACE_SERVERS.find((item) => item.id === room) ?? SPACE_SERVERS[0]
   const channel = SPACE_CHANNELS[room][0]?.channels[0]
 
   return (
     <>
       <ChannelHeader
         channel={channel?.name ?? "general"}
+        kind={channel?.type ?? "text"}
         rightPanel={null}
         onToggle={() => {}}
-        server={{ id: server.id, name: server.name, icon: server.icon ?? null }}
       />
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <div className="flex-1 overflow-hidden px-4 py-3">
@@ -1280,7 +1303,6 @@ function ContinuityScene({ snapshot }: { snapshot: SceneSnapshot }) {
   }
 
   const room = snapshot.room
-  const server = SPACE_SERVERS.find((item) => item.id === room) ?? SPACE_SERVERS[0]
   const channel = CONTINUITY_CHANNELS[room][0]?.channels[0]
   const messages = room === "life"
     ? CONTINUITY_LIFE_MESSAGES
@@ -1290,9 +1312,9 @@ function ContinuityScene({ snapshot }: { snapshot: SceneSnapshot }) {
     <>
       <ChannelHeader
         channel={channel?.name ?? "general"}
+        kind={channel?.type ?? "text"}
         rightPanel={null}
         onToggle={() => {}}
-        server={{ id: server.id, name: server.name, icon: server.icon ?? null }}
       />
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <div className="flex-1 overflow-hidden px-4 py-3">

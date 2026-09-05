@@ -6,6 +6,8 @@ import { useEffect, useRef, type PointerEvent as ReactPointerEvent } from "react
 import { GeneratedAvatar } from "@/components/avatar"
 import { ProfileCard } from "@/components/community/social/profile-card"
 import { ProviderLogo } from "@/components/provider-logo"
+import type { CommunityProfile } from "@/lib/community/models/people"
+import { CommunityPreviewProfileOwner } from "@/stores/community/profile-preview"
 import { HeroSection } from "./hero-section"
 import { HeroAvatarSwarm } from "./hero-avatar-swarm"
 import { HomepageFaq } from "./homepage-faq"
@@ -115,6 +117,20 @@ const LANDING_PROFILE = {
   presence: "online" as const,
 }
 
+const LANDING_IDENTITY_PREVIEW_PROFILES = new Map<string, CommunityProfile>([
+  [
+    "maya",
+    {
+      id: "maya",
+      name: LANDING_PROFILE.name,
+      avatar: LANDING_PROFILE.avatar,
+      aboutMe: LANDING_PROFILE.about,
+      presence: LANDING_PROFILE.presence,
+      statusText: "Free for dinner",
+    },
+  ],
+])
+
 const CLOSING_COMPANIONS = [
   { seed: "Maya", className: styles.closingCompanionLeft },
   { seed: "Alli", className: styles.closingCompanionTop },
@@ -167,15 +183,17 @@ function InteractiveIdentityProfileCard() {
     >
       <span className={styles.identityProfileCardSensor} aria-hidden="true" />
       <div className={styles.identityProfileCardSurface}>
-        <ProfileCard
-          embedded
-          data={LANDING_PROFILE}
-          x={0}
-          y={0}
-          bp="desktop"
-          onClose={() => undefined}
-          initialStatusText="Free for dinner"
-        />
+        <CommunityPreviewProfileOwner profiles={LANDING_IDENTITY_PREVIEW_PROFILES}>
+          <ProfileCard
+            embedded
+            data={LANDING_PROFILE}
+            x={0}
+            y={0}
+            bp="desktop"
+            onClose={() => undefined}
+            initialStatusText="Free for dinner"
+          />
+        </CommunityPreviewProfileOwner>
       </div>
     </div>
   )

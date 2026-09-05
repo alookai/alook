@@ -73,7 +73,7 @@ export type ChannelNotifLevel = typeof USE_SERVER_DEFAULT | NotifLevel
 
 export function ChannelHeader({
   channel, rightPanel, onToggle, notifLevel, onSetNotifLevel,
-  kind = "text", server, mobileBack, onBack, tools,
+  kind = "text", server, mobileBack, mobileBackDisplay = "viewport", onBack, tools,
   onRename, titleRename, endActions, compactActions,
 }: {
   channel: string
@@ -86,6 +86,7 @@ export function ChannelHeader({
   titleRename?: boolean
   server?: { id: string; name: string; icon: string | null }
   mobileBack?: () => void
+  mobileBackDisplay?: "viewport" | "always"
   onBack?: () => void
   tools?: { threads?: boolean; pinned?: boolean; members?: boolean }
   endActions?: ReactNode
@@ -108,13 +109,13 @@ export function ChannelHeader({
       {onBack && (
         <Button variant="ghost" size="icon-sm" onClick={onBack} className="text-muted-foreground hover:text-foreground" aria-label="Back"><ChevronLeft className="size-5" /></Button>
       )}
-      {mobileBack && <MessageHeaderMobileBack onNavigate={mobileBack} />}
+      {mobileBack && <MessageHeaderMobileBack onNavigate={mobileBack} display={mobileBackDisplay} />}
     </>
   )
   const identity = (
     <>
       {server && <ServerCrumb id={server.id} name={server.name} icon={server.icon} size={6} className="ml-1" />}
-      <div className={`grid size-6 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground ${mobileBack ? "sm:ml-1" : server ? "" : "ml-1"}`}>
+      <div className={`grid size-6 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground ${mobileBack ? (mobileBackDisplay === "viewport" ? "sm:ml-1" : "") : server ? "" : "ml-1"}`}>
         <EntityIcon kind={kind} className="size-4" />
       </div>
       <span className="min-w-0 truncate text-base font-semibold" title={channel}>{channel}</span>

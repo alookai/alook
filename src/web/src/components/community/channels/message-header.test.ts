@@ -31,4 +31,16 @@ describe("MessageHeader", () => {
     act(() => back.props.onClick())
     expect(onNavigate).toHaveBeenCalledOnce()
   })
+
+  it("can keep the same 44px control visible inside an embedded mobile preview", () => {
+    const html = renderToStaticMarkup(createElement(MessageHeaderMobileBack, {
+      onNavigate: () => undefined,
+      display: "always",
+    }))
+
+    const button = html.match(/<button[^>]*aria-label="Back"[^>]*>/)?.[0]
+    expect(button).toBeDefined()
+    expect(button).toContain("size-11")
+    expect(button).not.toContain("sm:hidden")
+  })
 })
