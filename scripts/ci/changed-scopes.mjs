@@ -29,6 +29,9 @@ const GLOBAL_PATHS = new Set([
 const KNOWN_PREFIXES = [".claude/", ".openai/", "docs/"]
 const COVERAGE_EXCLUDES = [
   /(?:^|\/)\w[^/]*\.(?:test|spec)\.[cm]?[jt]sx?$/,
+  // Project/workspace configs execute before coverage instrumentation and are
+  // excluded by Vitest itself; their behavior is enforced by contract tests.
+  /(?:^|\/)vitest(?:\.[^/]+)?\.config\.[cm]?[jt]sx?$/,
   /(?:^|\/)node_modules\//,
   /(?:^|\/)(?:\.next|\.open-next|\.wrangler|dist|bundled|__mocks__)\//,
   /(?:^|\/)test-runtime\//,
