@@ -124,6 +124,7 @@ async function reconcileCachedServer(queryClient: QueryClient, serverId: string)
 function policyExecutors(
   queryClient: QueryClient,
   viewerUserId?: string | null,
+  replicaServerIds: ReadonlySet<string> = new Set(),
 ): Record<CommunityWsReconcilePolicy, () => void | Promise<void>> {
   const sub = useCommunityStore.getState().subscription
   const queryKeys = queryClient.getQueryCache().getAll().map((query) => query.queryKey)
@@ -211,12 +212,13 @@ function policyExecutors(
     },
     "all-cached-servers": async () => {
       const serverIds = cachedServerIds(queryKeys)
+        .filter((serverId) => !replicaServerIds.has(serverId))
       const settled = await Promise.allSettled([
-        queryClient.invalidateQueries({
-          queryKey: communityKeys.servers(),
-          exact: true,
-          refetchType: "active",
-        }),
+        ...(replicaServerIds.size === 0 ? [queryClient.invalidateQueries({
+            queryKey: communityKeys.servers(),
+            exact: true,
+            refetchType: "active",
+          })] : []),
         ...serverIds.map((serverId) => reconcileCachedServer(queryClient, serverId)),
       ])
       if (settled.some((result) => result.status === "rejected")) throw new Error("cached server reconciliation failed")
@@ -335,6 +337,7 @@ export type CommunityWsReconcileSummary = {
 type CommunityWsReconnectOptions = {
   excludePolicies?: readonly CommunityWsReconcilePolicy[]
   viewerUserId?: string | null
+  replicaServerIds?: readonly string[]
 }
 
 export async function reconcileCommunityWsReconnect(
@@ -343,7 +346,11 @@ export async function reconcileCommunityWsReconnect(
   options: CommunityWsReconnectOptions = {},
 ): Promise<CommunityWsReconcileSummary> {
   const startedAt = Date.now()
-  const executors = policyExecutors(queryClient, options.viewerUserId)
+  const executors = policyExecutors(
+    queryClient,
+    options.viewerUserId,
+    new Set(options.replicaServerIds ?? []),
+  )
   const excludedPolicies = new Set(options.excludePolicies ?? [])
   const policies = communityWsReconnectPolicies.filter((policy) => !excludedPolicies.has(policy))
   const resetPolicies = policies.filter((policy) => RESET_POLICIES.has(policy))

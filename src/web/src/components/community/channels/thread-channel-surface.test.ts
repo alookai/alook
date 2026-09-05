@@ -89,6 +89,7 @@ vi.mock("@/components/community/messages/message-channel-controller", () => ({
     setReplyTo: mocks.setReplyTo,
     searchQuery: "query",
     searchResults: [{ id: "search_1", type: "chat" }],
+    searchStatus: { state: "complete", coverage: "complete", firstSeq: null, lastSeq: null },
     search: mocks.search,
     scrollTargetId: "m_target",
     setScrollTargetId: vi.fn(),

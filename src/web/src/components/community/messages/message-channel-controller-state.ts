@@ -2,7 +2,12 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
-import type { MentionType } from "@alook/shared"
+import { useQueryClient } from "@tanstack/react-query"
+import {
+  MAX_SEARCH_LENGTH,
+  MIN_SEARCH_LENGTH,
+  type MentionType,
+} from "@alook/shared"
 import { toastApiError } from "@/lib/api/client"
 import { apiFetchProfiles } from "@/lib/community/profile-seed"
 import { avatarInitial } from "@/lib/community/avatar"
@@ -33,12 +38,16 @@ import {
   runAcceptedMessageIntent,
 } from "./message-channel-controller-send"
 import { removeCommunityParam } from "@/lib/community/community-route"
+import { communityReplicaMessageSearchCoverage } from "@/lib/community/replica/query-seed"
 import type {
   MessageChannelControllerProps,
   MessageChannelControllerValue,
   MessageContextTarget,
+  MessageSearchStatus,
   ReplyTarget,
 } from "./message-channel-controller-types"
+
+const MESSAGE_SEARCH_RESULT_LIMIT = 50
 
 export function useMessageChannelController({
   channelId,
@@ -56,9 +65,17 @@ export function useMessageChannelController({
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
+  const queryClient = useQueryClient()
   const [replyTo, setReplyTo] = useState<ReplyTarget | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [searchResults, setSearchResults] = useState<Msg[]>([])
+  const [searchStatus, setSearchStatus] = useState<MessageSearchStatus>({
+    state: "idle",
+    coverage: "none",
+    firstSeq: null,
+    lastSeq: null,
+  })
+  const searchGeneration = useRef(0)
   const [scrollTargetId, setScrollTargetId] = useState<string | null>(anchorMessageId)
   const [contextTarget, setContextTarget] = useState<MessageContextTarget | null>(null)
   const { mutateAsync: sendMessageAsync } = useSendMessage()
@@ -91,15 +108,45 @@ export function useMessageChannelController({
     setReplyTo(null)
     setSearchQuery("")
     setSearchResults([])
+    setSearchStatus({ state: "idle", coverage: "none", firstSeq: null, lastSeq: null })
+    searchGeneration.current += 1
     setContextTarget(null)
   }, [channelId])
 
   const search = useCallback(async (query: string) => {
+    const generation = ++searchGeneration.current
     setSearchQuery(query)
     if (!query.trim()) {
       setSearchResults([])
+      setSearchStatus({ state: "idle", coverage: "none", firstSeq: null, lastSeq: null })
       return
     }
+    const coverage = communityReplicaMessageSearchCoverage(queryClient, channelId)
+    const trimmedQuery = query.trim()
+    const needle = trimmedQuery.toLocaleLowerCase()
+    const validQueryLength = trimmedQuery.length >= MIN_SEARCH_LENGTH
+      && trimmedQuery.length <= MAX_SEARCH_LENGTH
+    const localResults = coverage && validQueryLength
+      ? feed.messages
+          .filter((message) => (message.content ?? "").toLocaleLowerCase().includes(needle))
+          .slice(0, MESSAGE_SEARCH_RESULT_LIMIT)
+      : []
+    setSearchResults(localResults)
+    if (coverage?.completeness === "complete" && validQueryLength) {
+      setSearchStatus({
+        state: "complete",
+        coverage: "complete",
+        firstSeq: coverage.firstSeq,
+        lastSeq: coverage.lastSeq,
+      })
+      return
+    }
+    setSearchStatus({
+      state: "searching",
+      coverage: coverage?.completeness ?? "none",
+      firstSeq: coverage?.firstSeq ?? null,
+      lastSeq: coverage?.lastSeq ?? null,
+    })
     try {
       const params = new URLSearchParams({ q: query, channelId })
       const data = await apiFetchProfiles<{
@@ -118,6 +165,7 @@ export function useMessageChannelController({
           },
         })),
       )
+      if (generation !== searchGeneration.current) return
       setSearchResults(data.results.map((result) => ({
         id: result.message.id,
         type: "chat" as const,
@@ -128,11 +176,18 @@ export function useMessageChannelController({
         content: result.message.content,
         createdAt: result.message.createdAt,
       })))
+      setSearchStatus({ state: "complete", coverage: "complete", firstSeq: null, lastSeq: null })
     } catch (error) {
-      setSearchResults([])
+      if (generation !== searchGeneration.current) return
+      setSearchStatus({
+        state: "coverage-miss",
+        coverage: coverage?.completeness ?? "none",
+        firstSeq: coverage?.firstSeq ?? null,
+        lastSeq: coverage?.lastSeq ?? null,
+      })
       toastApiError(error, "Search failed")
     }
-  }, [channelId])
+  }, [channelId, feed.messages, queryClient])
 
   const openContextSeq = useCallback((seq: number) => {
     setContextTarget((current) => (
@@ -274,6 +329,7 @@ export function useMessageChannelController({
     setReplyTo,
     searchQuery,
     searchResults,
+    searchStatus,
     search,
     scrollTargetId,
     setScrollTargetId,
@@ -294,6 +350,7 @@ export function useMessageChannelController({
     replyTo,
     searchQuery,
     searchResults,
+    searchStatus,
     search,
     scrollTargetId,
     consumeScrollTarget,

@@ -186,6 +186,7 @@ export function TextChannelSurface({
               pinnedLoading={feed.pinnedLoading}
               searchResults={controller.searchResults}
               searchQuery={controller.searchQuery}
+              searchStatus={controller.searchStatus}
               threads={feed.threads}
               threadsLoading={feed.threadsLoading}
               onOpenThread={onOpenThread}

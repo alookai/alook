@@ -31,6 +31,13 @@ export type MessageContextTarget = {
   seq: number
 }
 
+export type MessageSearchStatus = {
+  state: "idle" | "searching" | "complete" | "coverage-miss"
+  coverage: "none" | "partial" | "complete"
+  firstSeq: number | null
+  lastSeq: number | null
+}
+
 export type MessageActions = {
   onToggleReaction: (id: string, emoji: string) => void
   onReact: (id: string, emoji: string) => void
@@ -53,6 +60,7 @@ export type MessageChannelControllerValue = {
   setReplyTo: (reply: ReplyTarget | null) => void
   searchQuery: string
   searchResults: Msg[]
+  searchStatus: MessageSearchStatus
   search: (query: string) => void
   scrollTargetId: string | null
   setScrollTargetId: (targetId: string | null) => void

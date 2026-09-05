@@ -20,6 +20,7 @@ import type { Member } from "@/lib/community/models/people"
 import type { CommunityProfile } from "@/lib/community/models/people"
 import { useProfilesByUserId } from "@/stores/community/ws"
 import { readCommunityProfile } from "@/lib/community/profile-read"
+import type { MessageSearchStatus } from "@/components/community/messages/message-channel-controller-types"
 
 export type CommunityPanelProps = {
   open: boolean
@@ -37,6 +38,7 @@ export type CommunityPanelProps = {
   pinnedLoading?: boolean
   searchResults: Msg[]
   searchQuery?: string
+  searchStatus?: MessageSearchStatus
   threads: Thread[]
   threadsLoading?: boolean
   onOpenThread: (id: string) => void
@@ -87,6 +89,7 @@ function renderCommunityPanelBody({
   pinnedLoading,
   searchResults,
   searchQuery,
+  searchStatus,
   threads,
   threadsLoading,
   onOpenThread,
@@ -159,6 +162,7 @@ function renderCommunityPanelBody({
       <SearchPanel
         searchResults={searchResults}
         initialQuery={searchQuery}
+        status={searchStatus}
         onOpenProfile={onOpenProfile}
         onSearch={onSearch}
         viewerUserId={viewerUserId}
@@ -221,12 +225,14 @@ function panelHeading(kind: Exclude<RightPanel, null>) {
 function SearchPanel({
   searchResults,
   initialQuery,
+  status,
   onOpenProfile,
   onSearch,
   viewerUserId,
 }: {
   searchResults: Msg[]
   initialQuery?: string
+  status?: MessageSearchStatus
   onOpenProfile?: OpenProfile
   onSearch?: (query: string) => void
   viewerUserId?: string
@@ -249,7 +255,7 @@ function SearchPanel({
           onKeyDown={onEnterSubmit(submit)}
         />
       </div>
-      <div className="mb-2 text-xs text-muted-foreground">{searchResults.length} results</div>
+      <SearchCoverageLabel results={searchResults.length} status={status} />
       {searchResults.map((message) => {
         const renderMessage: RenderMsg = { ...message, grouped: false }
         return (
@@ -264,6 +270,45 @@ function SearchPanel({
         )
       })}
     </>
+  )
+}
+
+function SearchCoverageLabel({
+  results,
+  status,
+}: {
+  results: number
+  status?: MessageSearchStatus
+}) {
+  if (!status || status.state === "idle") return null
+  const range = status.firstSeq !== null && status.lastSeq !== null
+    ? `messages ${status.firstSeq}–${status.lastSeq}`
+    : "cached messages"
+  const resultLabel = `${results} ${results === 1 ? "result" : "results"}`
+  if (status.state === "searching") {
+    return (
+      <div className="mb-2 text-xs text-muted-foreground" role="status">
+        {status.coverage === "partial"
+          ? `${resultLabel} in ${range}. Searching older messages…`
+          : "Searching messages…"}
+      </div>
+    )
+  }
+  if (status.state === "coverage-miss") {
+    return (
+      <div className="mb-2 text-xs text-muted-foreground" role="status">
+        {status.coverage === "partial"
+          ? `${resultLabel} in ${range}. Couldn’t search older messages; check your connection and try again.`
+          : "Couldn’t search messages; check your connection and try again."}
+      </div>
+    )
+  }
+  return (
+    <div className="mb-2 text-xs text-muted-foreground" role="status">
+      {results === 0
+        ? "No matches in the available messages."
+        : `${resultLabel} in the available messages.`}
+    </div>
   )
 }
 

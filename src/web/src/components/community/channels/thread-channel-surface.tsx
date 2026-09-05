@@ -287,6 +287,7 @@ export function ThreadChannelSurface({
               pinnedLoading={controller.feed.pinnedLoading}
               searchResults={controller.searchResults}
               searchQuery={controller.searchQuery}
+              searchStatus={controller.searchStatus}
               threads={controller.feed.threads}
               threadsLoading={controller.feed.threadsLoading}
               onOpenThread={onOpenChild}

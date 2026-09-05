@@ -18,6 +18,7 @@ import {
 const CONTROL_DB_NAME = "alook-community-replica-control-v1"
 const CONTROL_DB_VERSION = 1
 const CONTROL_WAL_KEY = "alook-community-replica-control-v1:active"
+export const COMMUNITY_REPLICA_SYNC_EVENT = "alook:community-replica-sync"
 
 export type ReplicaSessionUser = {
   id: string
@@ -98,6 +99,14 @@ function routePath(input: string) {
   } catch {
     return input.split(/[?#]/, 1)[0] || "/"
   }
+}
+
+export function hasActiveCommunityReplicaRoute(accountId: string, pathname: string) {
+  const active = readControlWal()
+  return active?.accountId === accountId
+    && active.replicaProtocolVersion === COMMUNITY_REPLICA_PROTOCOL_VERSION
+    && active.shellProtocolVersion === COMMUNITY_SHELL_PROTOCOL_VERSION
+    && active.shellRoutes.includes(routePath(pathname))
 }
 
 export function communityReplicaRouteScopes(
@@ -206,4 +215,29 @@ export async function clearActiveCommunityReplicaSession(accountId?: string) {
   removeControlWal(accountId)
   await db.delete("session", "active")
   await deleteCommunityReplicaAccount(active.accountId)
+}
+
+export async function retireActiveCommunityReplicaScopes(
+  accountId: string,
+  scopes: CommunityReplicaScope[],
+) {
+  const connection = openControl()
+  if (!connection) return
+  const db = await connection
+  const active = readControlWal() ?? await db.get("session", "active")
+  if (!active || active.accountId !== accountId) return
+  const revoked = new Set(scopes.map((scope) => communityReplicaScopeKey(scope)))
+  const shellRoutes = active.shellRoutes.filter((path) => {
+    const routeScopes = communityReplicaRouteScopes(accountId, path)
+    return !routeScopes?.some((scope) => revoked.has(communityReplicaScopeKey(scope)))
+  })
+  if (shellRoutes.length === active.shellRoutes.length) return
+  if (shellRoutes.length === 0) {
+    removeControlWal(accountId)
+    await db.delete("session", "active")
+    return
+  }
+  const updated = { ...active, shellRoutes }
+  writeControlWal(updated)
+  await db.put("session", updated)
 }

@@ -9,6 +9,7 @@ import type { MessagesPage, MessagesPageParam, Msg } from "@/lib/community/model
 import type { Category, Channel, Server } from "@/lib/community/models/navigation"
 import { communityKeys } from "@/lib/query-keys"
 import type { ChildChannelMeta } from "@/hooks/community/use-forum-sidebar-threads"
+import type { ChannelRefDirectory } from "@/lib/community/channel-ref"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import type { CoveredReplicaProjection, ReplicaEntityRow } from "./store"
 import {
@@ -17,7 +18,13 @@ import {
 } from "./read-wal"
 
 type SeedCoverage = {
-  channelTails: Set<string>
+  channelTails: Map<string, CommunityReplicaMessageSearchCoverage>
+}
+
+export type CommunityReplicaMessageSearchCoverage = {
+  completeness: "complete" | "partial"
+  firstSeq: number | null
+  lastSeq: number | null
 }
 
 const coverageByClient = new WeakMap<QueryClient, SeedCoverage>()
@@ -193,8 +200,8 @@ export function seedCommunityReplicaQueries(
   }
 
   const channelTails = options.resetCoverage
-    ? new Set<string>()
-    : new Set(coverageByClient.get(queryClient)?.channelTails)
+    ? new Map<string, CommunityReplicaMessageSearchCoverage>()
+    : new Map(coverageByClient.get(queryClient)?.channelTails)
   const channelCoverageItems = projection.coverage.filter((item) => item.scope.kind === "channel")
   for (const channelCoverage of channelCoverageItems) {
     const isCoveredTail = channelCoverage.messageRange
@@ -209,7 +216,11 @@ export function seedCommunityReplicaQueries(
         channelCoverage.messageRange,
       ),
     )
-    channelTails.add(channelId)
+    channelTails.set(channelId, {
+      completeness: channelCoverage.messageRange?.hasOlder === true ? "partial" : "complete",
+      firstSeq: channelCoverage.messageRange?.firstSeq ?? null,
+      lastSeq: channelCoverage.messageRange?.lastSeq ?? null,
+    })
   }
 
   // A covered child tail is navigable only when route resolution can identify
@@ -308,6 +319,13 @@ export function hasCoveredCommunityReplicaTarget(
   return cached?.pages.some((page) => page.messages.some((message) => message.id === anchorMessageId)) === true
 }
 
+export function communityReplicaMessageSearchCoverage(
+  queryClient: QueryClient,
+  channelId: string,
+): CommunityReplicaMessageSearchCoverage | null {
+  return coverageByClient.get(queryClient)?.channelTails.get(channelId) ?? null
+}
+
 export function clearCommunityReplicaQueryCoverage(
   queryClient: QueryClient,
   scopes: Array<{ kind: "account" | "server" | "channel"; id: string }>,
@@ -339,8 +357,69 @@ export function retireCommunityReplicaQueryScopes(
       ))
       continue
     }
-    queryClient.removeQueries({ queryKey: communityKeys.channelMessages(scope.id) })
-    queryClient.removeQueries({ queryKey: communityKeys.channelReadStateSnapshot(scope.id) })
+    // The canonical server tree is itself a render projection. Retire the
+    // channel there in the same publish turn as its message/read queries so a
+    // revoked private route cannot remain clickable until a later bootstrap.
+    queryClient.setQueryData<ChannelRefDirectory | undefined>(
+      communityKeys.channelRefDirectory(),
+      (current) => current?.map((server) => ({
+        ...server,
+        channels: server.channels.filter((channel) => channel.id !== scope.id),
+      })),
+    )
+    queryClient.setQueryData<ServersResponse | undefined>(communityKeys.servers(), (current) => (
+      current ? {
+        ...current,
+        servers: current.servers.map((server) => {
+          const unreadSources = server.unreadSources
+            ?.filter((source) => source.channelId !== scope.id)
+          const mentionSources = server.mentionSources
+            ?.filter((source) => source.channelId !== scope.id)
+          return {
+            ...server,
+            unreadSources,
+            mentionSources,
+            unread: unreadSources ? unreadSources.length > 0 : server.unread,
+            mentions: mentionSources
+              ? mentionSources.reduce((count, source) => count + source.count, 0)
+              : server.mentions,
+          }
+        }),
+      } : current
+    ))
+    queryClient.setQueriesData<ServerDetail | undefined>({
+      predicate: ({ queryKey }) => (
+        queryKey.length === 3
+        && queryKey[0] === communityKeys.all[0]
+        && queryKey[1] === "servers"
+        && typeof queryKey[2] === "string"
+      ),
+    }, (current) => {
+      if (!current || !Array.isArray(current.categories)) return current
+      return {
+        ...current,
+        categories: current.categories.map((category) => ({
+          ...category,
+          channels: category.channels.filter((channel) => channel.id !== scope.id),
+        })),
+        forumUnreadState: Object.fromEntries(
+          Object.entries(current.forumUnreadState ?? {})
+            .filter(([channelId]) => channelId !== scope.id)
+            .map(([channelId, state]) => [channelId, {
+              ...state,
+              childIds: state.childIds.filter((childId) => childId !== scope.id),
+            }]),
+        ),
+        unreadSources: current.unreadSources?.filter((source) => source.channelId !== scope.id) ?? [],
+      }
+    })
+    queryClient.removeQueries({
+      predicate: ({ queryKey }) => (
+        queryKey[0] === communityKeys.all[0]
+        && queryKey[1] === "channel"
+        && queryKey[2] === scope.id
+      ),
+    })
     queryClient.removeQueries({
       predicate: ({ queryKey }) => (
         queryKey[0] === communityKeys.all[0]

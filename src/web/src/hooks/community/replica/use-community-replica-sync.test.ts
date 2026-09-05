@@ -1,4 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import "fake-indexeddb/auto"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { QueryClient } from "@tanstack/react-query"
 import type { ServerDetail } from "@/hooks/community/use-servers"
 import { ApiError } from "@/lib/errors"
 
@@ -12,12 +14,17 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock("@/lib/api/client", () => ({ apiFetch: mocks.apiFetch }))
+vi.mock("@/lib/community/replica/shell", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/community/replica/shell")>(),
+  cacheCommunityShellRoute: vi.fn(async () => ({ ok: true })),
+}))
 vi.mock("@/lib/community/replica/store", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/community/replica/store")>(),
   listCommunityReplicaIntents: mocks.listIntents,
   applyCommunityReplicaIntentOutcomes: mocks.applyOutcomes,
 }))
-vi.mock("@/lib/community/replica/read-wal", () => ({
+vi.mock("@/lib/community/replica/read-wal", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/community/replica/read-wal")>(),
   listCommunityReplicaReadWal: mocks.listReadWal,
   settleCommunityReplicaReadWal: mocks.settleReadWal,
   discardCommunityReplicaReadWal: mocks.discardReadWal,
@@ -29,7 +36,12 @@ import {
   flushCommunityReplicaReadIntents,
   retainCommunityReplicaBootstrapTails,
   selectCommunityReplicaDeltaFrontier,
+  synchronizeCommunityReplica,
 } from "./use-community-replica-sync"
+import {
+  deleteCommunityReplicaAccount,
+  replaceCommunityReplicaBootstrap,
+} from "@/lib/community/replica/store"
 
 const server: ServerDetail = {
   id: "s1",
@@ -53,6 +65,13 @@ const server: ServerDetail = {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mocks.listIntents.mockResolvedValue([])
+  mocks.listReadWal.mockReturnValue([])
+})
+
+afterEach(async () => {
+  await deleteCommunityReplicaAccount("account-delta-only")
+  vi.unstubAllGlobals()
 })
 
 describe("community Replica bootstrap request", () => {
@@ -154,5 +173,71 @@ describe("community Replica intent recovery", () => {
     expect(JSON.parse(mocks.apiFetch.mock.calls[0]![1].body).intents).toHaveLength(16)
     expect(JSON.parse(mocks.apiFetch.mock.calls[1]![1].body).intents).toHaveLength(1)
     expect(mocks.applyOutcomes).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe("community Replica steady-state synchronization", () => {
+  it("uses only bounded deltas for a compatible covered route", async () => {
+    const accountId = "account-delta-only"
+    const pathname = "/c/channels/s1/c1"
+    const checkedAt = "2026-09-06T03:00:00.000+08:00"
+    const validUntil = "2027-09-06T03:00:00.000+08:00"
+    const scopes = [
+      { kind: "account" as const, id: accountId },
+      { kind: "server" as const, id: "s1" },
+      { kind: "channel" as const, id: "c1" },
+    ]
+    const snapshot = {
+      protocolVersion: 1 as const,
+      snapshotId: "delta-only-snapshot",
+      takenAt: checkedAt,
+      frontier: scopes.map((scope, index) => ({ scope, revision: index + 1 })),
+      coverage: scopes.map((scope, index) => ({
+        scope,
+        revision: index + 1,
+        completeness: scope.kind === "channel" ? "partial" as const : "complete" as const,
+        permission: { epoch: `${scope.kind}-lease`, checkedAt, validUntil },
+        messageRange: scope.kind === "channel"
+          ? { firstSeq: 1, lastSeq: 1, hasOlder: false, hasNewer: false }
+          : null,
+      })),
+      facts: [],
+    }
+    const values = new Map<string, string>()
+    vi.stubGlobal("window", {})
+    vi.stubGlobal("localStorage", {
+      get length() { return values.size },
+      key: (index: number) => [...values.keys()][index] ?? null,
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    })
+    await replaceCommunityReplicaBootstrap(accountId, snapshot)
+    mocks.apiFetch.mockImplementation(async (path) => {
+      if (path !== "/api/community/replica/delta") {
+        throw new Error(`unexpected steady-state request ${path}`)
+      }
+      return {
+        protocolVersion: 1,
+        status: "ok",
+        from: snapshot.frontier,
+        batches: [],
+        frontier: snapshot.frontier,
+        hasMore: false,
+      }
+    })
+
+    await synchronizeCommunityReplica(
+      new QueryClient(),
+      { id: accountId, name: "Viewer", email: "v@example.com", avatar: "V", avatarVersion: 0 },
+      pathname,
+      { protocolVersion: 1, serverId: "s1", tails: [{ channelId: "c1", limit: 100 }] },
+      new AbortController().signal,
+      vi.fn(),
+    )
+
+    expect(mocks.apiFetch.mock.calls.map(([path]) => path)).toEqual([
+      "/api/community/replica/delta",
+    ])
   })
 })

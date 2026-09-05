@@ -23,7 +23,10 @@ import {
   type IDBPObjectStore,
   type StoreNames,
 } from "idb"
-import { clearCommunityReplicaReadWal } from "./read-wal"
+import {
+  clearCommunityReplicaReadWal,
+  discardCommunityReplicaReadWal,
+} from "./read-wal"
 
 const REPLICA_DB_VERSION = 1
 const REPLICA_DB_PREFIX = `alook-community-replica-v${COMMUNITY_REPLICA_PROTOCOL_VERSION}:`
@@ -241,18 +244,50 @@ export async function replaceCommunityReplicaBootstrap(
 }
 
 async function invalidateScopes(
+  accountId: string,
   db: IDBPDatabase<CommunityReplicaDB>,
   scopes: CommunityReplicaScope[],
+  terminalPermissionChange: boolean,
 ) {
-  const tx = db.transaction(["frontiers", "coverage", "entities"], "readwrite")
+  const tx = db.transaction(["frontiers", "coverage", "entities", "intents"], "readwrite")
   const entities = tx.objectStore("entities")
+  const intents = tx.objectStore("intents")
+  const revokedChannelIds = new Set(
+    scopes.filter((scope) => scope.kind === "channel").map((scope) => scope.id),
+  )
+  const retiredIntentIds: string[] = []
   for (const scope of scopes) {
     const key = communityReplicaScopeKey(scope)
     await deleteScopeEntities(entities, key)
     await tx.objectStore("frontiers").delete(key)
     await tx.objectStore("coverage").delete(key)
   }
+  if (terminalPermissionChange) {
+    for (const row of await intents.getAll()) {
+      if (!revokedChannelIds.has(row.intent.scope.id)) continue
+      if (row.state === "local-committed") {
+        const outcome: CommunityReplicaIntentOutcome = {
+          intentId: row.intentId,
+          status: "rejected",
+          code: "permission-denied",
+          reason: "You no longer have access to this channel. Your message was not sent.",
+        }
+        await intents.put({
+          ...row,
+          state: "canonical-rejected",
+          outcome,
+        })
+      }
+      retiredIntentIds.push(row.intentId)
+    }
+  }
   await tx.done
+  if (terminalPermissionChange) {
+    for (const intentId of retiredIntentIds) removeIntentWal(accountId, intentId)
+    for (const channelId of revokedChannelIds) {
+      discardCommunityReplicaReadWal(accountId, channelId)
+    }
+  }
 }
 
 function outcomeState(outcome: CommunityReplicaIntentOutcome): ReplicaIntentState {
@@ -330,7 +365,12 @@ export async function applyCommunityReplicaDelta(
   if (!connection) throw new Error("IndexedDB is unavailable")
   const db = await connection
   if (response.status === "rebootstrap") {
-    await invalidateScopes(db, response.scopes)
+    await invalidateScopes(
+      accountId,
+      db,
+      response.scopes,
+      response.reason === "permission-changed",
+    )
     return response
   }
 
@@ -498,6 +538,7 @@ export async function listCommunityReplicaIntents(accountId: string) {
   const recovered = readIntentWal(accountId)
   if (recovered.length > 0) {
     const tx = db.transaction("intents", "readwrite")
+    const settledWalIds: string[] = []
     for (const intent of recovered) {
       const existing = await tx.store.get(intent.intentId)
       if (!existing) {
@@ -507,9 +548,12 @@ export async function listCommunityReplicaIntents(accountId: string) {
           state: "local-committed",
           outcome: null,
         })
+      } else if (existing.state !== "local-committed") {
+        settledWalIds.push(intent.intentId)
       }
     }
     await tx.done
+    for (const intentId of settledWalIds) removeIntentWal(accountId, intentId)
   }
   return db.getAll("intents")
 }

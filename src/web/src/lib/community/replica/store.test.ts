@@ -13,6 +13,10 @@ import {
   readCoveredCommunityReplica,
   replaceCommunityReplicaBootstrap,
 } from "./store"
+import {
+  commitCommunityReplicaReadWal,
+  listCommunityReplicaReadWal,
+} from "./read-wal"
 
 const accountId = "account-1"
 const now = "2026-09-06T03:00:00.000+08:00"
@@ -206,6 +210,53 @@ describe("community Replica store", () => {
 
     await expect(readCoveredCommunityReplica(accountId, [channel], Date.parse(now) + 1)).resolves.toBeNull()
     await expect(readCoveredCommunityReplica(accountId, [account], Date.parse(now) + 1)).resolves.not.toBeNull()
+  })
+
+  it("atomically makes revoked-scope intents terminal and retires both synchronous WALs", async () => {
+    const values = new Map<string, string>()
+    vi.stubGlobal("window", {})
+    vi.stubGlobal("localStorage", {
+      get length() { return values.size },
+      key: (index: number) => [...values.keys()][index] ?? null,
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    })
+    await replaceCommunityReplicaBootstrap(accountId, bootstrap())
+    await commitCommunityReplicaIntent(accountId, {
+      intentId: "revoked-intent",
+      kind: "message.send",
+      scope: channel,
+      createdAt: now,
+      payload: { content: "recover this body" },
+    })
+    commitCommunityReplicaReadWal(accountId, {
+      channelId: channel.id,
+      messageId: "message-2",
+      seq: 2,
+      observedAt: now,
+    })
+
+    await applyCommunityReplicaDelta(accountId, {
+      protocolVersion: COMMUNITY_REPLICA_PROTOCOL_VERSION,
+      status: "rebootstrap",
+      reason: "permission-changed",
+      scopes: [channel],
+    })
+
+    expect(await listCommunityReplicaIntents(accountId)).toEqual([expect.objectContaining({
+      intentId: "revoked-intent",
+      state: "canonical-rejected",
+      outcome: expect.objectContaining({
+        status: "rejected",
+        code: "permission-denied",
+        reason: expect.stringContaining("no longer have access"),
+      }),
+    })])
+    expect((await listCommunityReplicaIntents(accountId))[0]?.intent.payload.content)
+      .toBe("recover this body")
+    expect(listCommunityReplicaReadWal(accountId)).toEqual([])
+    expect(values.size).toBe(0)
   })
 
   it("durably deduplicates an intent and settles it from the canonical message delta", async () => {

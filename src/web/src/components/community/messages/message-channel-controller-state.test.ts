@@ -46,8 +46,17 @@ const mocks = vi.hoisted(() => {
     typingScopes: { users: [] as string[], names: [] as string[] },
     typingIds: ["u1"],
     typingNames: { u1: "Alice" },
+    queryClient: {},
+    searchCoverage: vi.fn(),
   }
 })
+
+vi.mock("@tanstack/react-query", () => ({
+  useQueryClient: () => mocks.queryClient,
+}))
+vi.mock("@/lib/community/replica/query-seed", () => ({
+  communityReplicaMessageSearchCoverage: mocks.searchCoverage,
+}))
 
 vi.mock("next/navigation", () => ({
   useRouter: () => mocks.router,
@@ -157,6 +166,7 @@ describe("useMessageChannelController", () => {
     mocks.typingScopes.names.length = 0
     mocks.typingIds = ["u1"]
     mocks.typingNames = { u1: "Alice" }
+    mocks.searchCoverage.mockReturnValue(null)
   })
   afterEach(() => vi.clearAllMocks())
 
@@ -216,7 +226,7 @@ describe("useMessageChannelController", () => {
     expect(latest.messageActions).toBe(firstActions)
   })
 
-  it("keeps scroll target and lets a captured channel-one search complete after channel reset", async () => {
+  it("keeps scroll target and ignores a captured channel-one search after channel reset", async () => {
     let resolveOld: (value: unknown) => void = () => {}
     mocks.apiFetch.mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve }))
     let renderer: TestRenderer.ReactTestRenderer
@@ -251,14 +261,7 @@ describe("useMessageChannelController", () => {
       await oldPromise!
     })
     expect(latest.searchQuery).toBe("")
-    expect(latest.searchResults).toEqual([{
-      id: "old_1",
-      type: "chat",
-      authorName: "Alice",
-      authorAvatar: avatarInitial("Alice"),
-      content: "old",
-      createdAt: "2026-01-01",
-    }])
+    expect(latest.searchResults).toEqual([])
     await act(async () => { await (latest.search as (query: string) => Promise<void>)("") })
     expect(latest.searchResults).toEqual([])
   })
@@ -378,7 +381,7 @@ describe("useMessageChannelController", () => {
     expect(latest.scrollTargetId).toBeNull()
   })
 
-  it("maps search avatars, reports failures, and retains the current unguarded completion race", async () => {
+  it("maps remote search avatars and reports an honest coverage miss without clearing results", async () => {
     const failure = new Error("search down")
     mocks.apiFetch
       .mockResolvedValueOnce({
@@ -423,6 +426,54 @@ describe("useMessageChannelController", () => {
     ])
     await act(async () => { await (latest.search as (query: string) => Promise<void>)("broken") })
     expect(latest.searchResults).toEqual([])
+    expect(latest.searchStatus).toEqual({
+      state: "coverage-miss",
+      coverage: "none",
+      firstSeq: null,
+      lastSeq: null,
+    })
+    expect(mocks.toastApiError).toHaveBeenCalledWith(failure, "Search failed")
+  })
+
+  it("answers complete covered search locally without a request", async () => {
+    mocks.searchCoverage.mockReturnValue({
+      completeness: "complete",
+      firstSeq: 1,
+      lastSeq: 1,
+    })
+    act(() => { TestRenderer.create(React.createElement(Probe, { value: props() })) })
+
+    await act(async () => { await (latest.search as (query: string) => Promise<void>)("HI") })
+
+    expect(mocks.apiFetch).not.toHaveBeenCalled()
+    expect(latest.searchResults).toEqual(feed.messages)
+    expect(latest.searchStatus).toEqual({
+      state: "complete",
+      coverage: "complete",
+      firstSeq: 1,
+      lastSeq: 1,
+    })
+  })
+
+  it("preserves partial covered results when older search needs a connection", async () => {
+    const failure = new Error("offline")
+    mocks.searchCoverage.mockReturnValue({
+      completeness: "partial",
+      firstSeq: 1,
+      lastSeq: 1,
+    })
+    mocks.apiFetch.mockRejectedValueOnce(failure)
+    act(() => { TestRenderer.create(React.createElement(Probe, { value: props() })) })
+
+    await act(async () => { await (latest.search as (query: string) => Promise<void>)("hi") })
+
+    expect(latest.searchResults).toEqual(feed.messages)
+    expect(latest.searchStatus).toEqual({
+      state: "coverage-miss",
+      coverage: "partial",
+      firstSeq: 1,
+      lastSeq: 1,
+    })
     expect(mocks.toastApiError).toHaveBeenCalledWith(failure, "Search failed")
   })
 
@@ -511,7 +562,7 @@ describe("useMessageChannelController", () => {
     expect(resolveUserName).toHaveBeenCalledWith("u2")
     expect(Object.keys(latest)).toEqual([
       "feed", "pinnedIds", "replyTo", "setReplyTo", "searchQuery", "searchResults",
-      "search", "scrollTargetId", "setScrollTargetId", "consumeScrollTarget",
+      "searchStatus", "search", "scrollTargetId", "setScrollTargetId", "consumeScrollTarget",
       "contextTarget", "setContextTarget", "openContextSeq", "onSheetReply", "jumpToSeq",
       "messageActions", "threadActions", "acceptMessage", "handleTyping", "typingUsers",
     ])

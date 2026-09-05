@@ -18,6 +18,12 @@ const mutationMocks = vi.hoisted(() => ({
   editMessage: vi.fn(),
   createThread: vi.fn(async () => ({ id: "thread_1" })),
   uploadFile: vi.fn(),
+  queryClient: {},
+}))
+
+vi.mock("@tanstack/react-query", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@tanstack/react-query")>(),
+  useQueryClient: () => mutationMocks.queryClient,
 }))
 
 vi.mock("next/navigation", () => ({

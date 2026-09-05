@@ -45,6 +45,11 @@ import {
   createCommunityWsConnectionStatusController,
   type CommunityWsConnectionStatusController,
 } from "@/hooks/community/community-ws/connection-status"
+import {
+  COMMUNITY_REPLICA_SYNC_EVENT,
+  communityReplicaRouteScopes,
+  hasActiveCommunityReplicaRoute,
+} from "@/lib/community/replica/session"
 
 export type {
   Subscription,
@@ -220,6 +225,13 @@ export function communityWsResetTypingThrottle(target: { channelId: string }) {
   const key = target.channelId
   if (!key) return
   useCommunityStore.getState().lastTypingSent.delete(key)
+}
+
+function hasReplicaOwnedCurrentRoute(viewerUserId: string | null) {
+  if (typeof window === "undefined" || !viewerUserId) return false
+  const pathname = window.location?.pathname
+  return typeof pathname === "string"
+    && hasActiveCommunityReplicaRoute(viewerUserId, pathname)
 }
 
 export function useCommunityWs(options?: UseCommunityWsOptions): void {
@@ -509,9 +521,23 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
   )
 
   const handleReconnect = useCallback(async ({ reconnectDurationMs }: { reconnectDurationMs: number }) => {
+    const replicaOwned = hasReplicaOwnedCurrentRoute(viewerUserIdRef.current)
+    const replicaServerId = replicaOwned && viewerUserIdRef.current
+      ? communityReplicaRouteScopes(viewerUserIdRef.current, window.location.pathname)
+          ?.find((scope) => scope.kind === "server")?.id
+      : undefined
+    if (replicaOwned) window.dispatchEvent(new Event(COMMUNITY_REPLICA_SYNC_EVENT))
     try {
       await reconcileCommunityWsReconnect(queryClient, reconnectDurationMs, {
-        excludePolicies: ["inbox-dms"],
+        excludePolicies: replicaOwned
+          ? [
+              "inbox-dms",
+              "focused-messages",
+              "focused-opener",
+              "cached-read-state",
+            ]
+          : ["inbox-dms"],
+        replicaServerIds: replicaServerId ? [replicaServerId] : undefined,
         viewerUserId: viewerUserIdRef.current,
       })
     } finally {
@@ -533,7 +559,9 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
     if (firstAuthentication) {
       scheduleInboxInvalidate({ inbox: true, dms: true })
     }
-    await reconcileAccountReadState(queryClient, { surfaceMode: "non-inbox" })
+    if (!hasReplicaOwnedCurrentRoute(viewerId)) {
+      await reconcileAccountReadState(queryClient, { surfaceMode: "non-inbox" })
+    }
   }, [queryClient, scheduleInboxInvalidate])
   const { send, reconnectNow } = useUserWs(handleMessage, {
     onReconnect: handleReconnect,
@@ -553,9 +581,11 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
       if (useCommunityWsStore.getState().accessConnected) {
         scheduleInboxInvalidate({ inbox: true, dms: true })
       }
-      void reconcileAccountReadState(queryClient, {
-        surfaceMode: "non-inbox",
-      }).catch(() => undefined)
+      if (!hasReplicaOwnedCurrentRoute(viewerUserIdRef.current)) {
+        void reconcileAccountReadState(queryClient, {
+          surfaceMode: "non-inbox",
+        }).catch(() => undefined)
+      }
     }
     document.addEventListener("visibilitychange", reconcileVisible)
     window.addEventListener("pageshow", reconcileVisible)

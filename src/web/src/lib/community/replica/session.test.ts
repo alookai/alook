@@ -1,13 +1,19 @@
 import "fake-indexeddb/auto"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { COMMUNITY_REPLICA_PROTOCOL_VERSION } from "@alook/shared"
-import { replaceCommunityReplicaBootstrap } from "./store"
+import {
+  deleteCommunityReplicaAccount,
+  readCoveredCommunityReplica,
+  replaceCommunityReplicaBootstrap,
+} from "./store"
 import {
   clearActiveCommunityReplicaSession,
   communityReplicaRouteScopes,
+  hasActiveCommunityReplicaRoute,
   markCommunityReplicaShellRoute,
   publishCommunityReplicaSession,
   readActiveCommunityReplicaSession,
+  retireActiveCommunityReplicaScopes,
 } from "./session"
 
 const user = {
@@ -58,6 +64,8 @@ function bootstrap() {
 
 afterEach(async () => {
   await clearActiveCommunityReplicaSession()
+  await deleteCommunityReplicaAccount(user.id)
+  vi.unstubAllGlobals()
 })
 
 describe("community Replica session", () => {
@@ -109,5 +117,29 @@ describe("community Replica session", () => {
     await clearActiveCommunityReplicaSession(user.id)
 
     await expect(readActiveCommunityReplicaSession(route, Date.parse(checkedAt) + 1)).resolves.toBeNull()
+  })
+
+  it("retires a revoked shell route without deleting the recoverable Replica", async () => {
+    const values = new Map<string, string>()
+    vi.stubGlobal("localStorage", {
+      get length() { return values.size },
+      key: (index: number) => [...values.keys()][index] ?? null,
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    })
+    await replaceCommunityReplicaBootstrap(user.id, bootstrap())
+    await publishCommunityReplicaSession(user, route, Date.parse(checkedAt) + 1)
+    expect(hasActiveCommunityReplicaRoute(user.id, route)).toBe(true)
+
+    await retireActiveCommunityReplicaScopes(user.id, [{ kind: "channel", id: "channel-1" }])
+
+    expect(hasActiveCommunityReplicaRoute(user.id, route)).toBe(false)
+    await expect(readActiveCommunityReplicaSession(route, Date.parse(checkedAt) + 1)).resolves.toBeNull()
+    await expect(readCoveredCommunityReplica(
+      user.id,
+      [{ kind: "account", id: user.id }],
+      Date.parse(checkedAt) + 1,
+    )).resolves.not.toBeNull()
   })
 })

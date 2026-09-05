@@ -42,6 +42,12 @@ type ExpectedControllerValue = {
   setReplyTo: (reply: ExpectedReplyTarget | null) => void
   searchQuery: string
   searchResults: Msg[]
+  searchStatus: {
+    state: "idle" | "searching" | "complete" | "coverage-miss"
+    coverage: "none" | "partial" | "complete"
+    firstSeq: number | null
+    lastSeq: number | null
+  }
   search: (query: string) => void
   scrollTargetId: string | null
   setScrollTargetId: (targetId: string | null) => void
@@ -123,9 +129,11 @@ describe("MessageChannelController facade contract", () => {
     const orderedHooks = [
       "const router = useRouter()",
       "const searchParams = useSearchParams()",
+      "const queryClient = useQueryClient()",
       "const [replyTo, setReplyTo] = useState<ReplyTarget | null>(null)",
       "const [searchQuery, setSearchQuery] = useState(\"\")",
       "const [searchResults, setSearchResults] = useState<Msg[]>([])",
+      "const [searchStatus, setSearchStatus] = useState<MessageSearchStatus>",
       "const [scrollTargetId, setScrollTargetId] = useState<string | null>(anchorMessageId)",
       "const [contextTarget, setContextTarget] = useState<MessageContextTarget | null>(null)",
       "useSendMessage()",
@@ -145,7 +153,7 @@ describe("MessageChannelController facade contract", () => {
       expect(position, token).toBeGreaterThan(cursor)
       cursor = position
     }
-    expect(body.match(/\buseState(?:<[^>]+>)?\(/g)).toHaveLength(5)
+    expect(body.match(/\buseState(?:<[^>]+>)?\(/g)).toHaveLength(6)
     expect(actions).not.toMatch(/\buse[A-Z][A-Za-z]+\(/)
     expect(send).not.toMatch(/\buse[A-Z][A-Za-z]+\(/)
   })

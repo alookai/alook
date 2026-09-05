@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
+import type { ServerDetail, ServersResponse } from "@/hooks/community/use-servers"
 import type { CoveredReplicaProjection } from "./store"
 import {
   hasCoveredCommunityReplicaTarget,
+  communityReplicaMessageSearchCoverage,
   seedCommunityReplicaBootstrapQueries,
   seedCommunityReplicaQueries,
   retireCommunityReplicaQueryScopes,
@@ -95,6 +97,11 @@ describe("community Replica query seed", () => {
     expect(hasCoveredCommunityReplicaTarget(queryClient, "c1")).toBe(true)
     expect(hasCoveredCommunityReplicaTarget(queryClient, "c1", "m8")).toBe(true)
     expect(hasCoveredCommunityReplicaTarget(queryClient, "c1", "missing")).toBe(false)
+    expect(communityReplicaMessageSearchCoverage(queryClient, "c1")).toEqual({
+      completeness: "partial",
+      firstSeq: 8,
+      lastSeq: 9,
+    })
   })
 
   it("projects a newer durable read watermark across a killed-browser reopen", () => {
@@ -163,6 +170,11 @@ describe("community Replica query seed", () => {
       pageParams: [{ mode: "newest" }],
     })
     expect(hasCoveredCommunityReplicaTarget(queryClient, "empty")).toBe(true)
+    expect(communityReplicaMessageSearchCoverage(queryClient, "empty")).toEqual({
+      completeness: "complete",
+      firstSeq: null,
+      lastSeq: null,
+    })
   })
 
   it("projects covered thread route metadata from its canonical parent message", () => {
@@ -222,9 +234,29 @@ describe("community Replica query seed", () => {
   it("retires revoked channel and server projections immediately", () => {
     const queryClient = new QueryClient()
     seedCommunityReplicaQueries(queryClient, projection)
+    queryClient.setQueryData(communityKeys.channelRefDirectory(), [{
+      id: "s1",
+      name: "Alook",
+      discriminator: "0001",
+      channels: [{ id: "c1", name: "chat" }],
+    }])
     retireCommunityReplicaQueryScopes(queryClient, [{ kind: "channel", id: "c1" }])
     expect(queryClient.getQueryData(communityKeys.channelMessages("c1"))).toBeUndefined()
     expect(hasCoveredCommunityReplicaTarget(queryClient, "c1")).toBe(false)
+    expect(queryClient.getQueryData<ServerDetail>(communityKeys.server("s1"))).toMatchObject({
+      categories: [{ id: "cat", channels: [] }],
+      forumUnreadState: {},
+      unreadSources: [],
+    })
+    expect(queryClient.getQueryData(communityKeys.channelRefDirectory())).toEqual([{
+      id: "s1",
+      name: "Alook",
+      discriminator: "0001",
+      channels: [],
+    }])
+    expect(queryClient.getQueryData<ServersResponse>(communityKeys.servers())).toMatchObject({
+      servers: [{ id: "s1", unread: false, mentions: 0, unreadSources: [] }],
+    })
 
     retireCommunityReplicaQueryScopes(queryClient, [{ kind: "server", id: "s1" }])
     expect(queryClient.getQueryData(communityKeys.server("s1"))).toBeUndefined()

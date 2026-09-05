@@ -19,9 +19,11 @@ import { apiFetch } from "@/lib/api/client"
 import { ApiError } from "@/lib/errors"
 import { cacheCommunityShellRoute } from "@/lib/community/replica/shell"
 import {
+  COMMUNITY_REPLICA_SYNC_EVENT,
   communityReplicaRouteScopes,
-  clearActiveCommunityReplicaSession,
+  hasActiveCommunityReplicaRoute,
   publishCommunityReplicaSession,
+  retireActiveCommunityReplicaScopes,
 } from "@/lib/community/replica/session"
 import {
   applyCommunityReplicaDelta,
@@ -41,7 +43,9 @@ import {
 import {
   flushCommunityReplicaReadIntents,
 } from "@/hooks/community/read-coordinator"
+import { listCommunityReplicaReadWal } from "@/lib/community/replica/read-wal"
 import { commitLastCommunityRoute } from "@/lib/community/last-community-route"
+import { useMessageStreamStore } from "@/stores/community/message-stream"
 
 export { flushCommunityReplicaReadIntents } from "@/hooks/community/read-coordinator"
 
@@ -97,8 +101,10 @@ async function seedCurrentRoute(
   const projection = await readCoveredCommunityReplica(user.id, scopes)
   if (!projection) return false
   seedCommunityReplicaQueries(queryClient, projection)
-  const shell = await cacheCommunityShellRoute(pathname)
-  if (!shell.ok) return false
+  if (!hasActiveCommunityReplicaRoute(user.id, pathname)) {
+    const shell = await cacheCommunityShellRoute(pathname)
+    if (!shell.ok) return false
+  }
   // The route becomes launchable only after its exact document and immutable
   // assets are durable. The synchronous control WAL is the final commit point,
   // so a browser kill can expose either the previous complete world or this
@@ -181,6 +187,23 @@ async function drainCommunityReplicaDeltas(
     await applyCommunityReplicaDelta(user.id, response)
     if (response.status === "rebootstrap") {
       if (response.reason === "permission-changed") {
+        const revokedChannelIds = new Set(
+          response.scopes.filter((scope) => scope.kind === "channel").map((scope) => scope.id),
+        )
+        const serverId = communityReplicaRouteScopes(user.id, pathname)
+          ?.find((scope) => scope.kind === "server")?.id ?? "revoked"
+        const rejected = (await listCommunityReplicaIntents(user.id)).filter((row) => (
+          revokedChannelIds.has(row.intent.scope.id)
+          && row.state === "canonical-rejected"
+        ))
+        for (const row of rejected) {
+          if (row.outcome?.status !== "rejected") continue
+          useMessageStreamStore.getState().dispatch(
+            { kind: "channel", id: row.intent.scope.id, serverId },
+            { type: "canonicalReject", nonce: row.intentId, reason: row.outcome.reason },
+          )
+        }
+        await retireActiveCommunityReplicaScopes(user.id, response.scopes)
         retireCommunityReplicaQueryScopes(queryClient, response.scopes)
         const currentScopeKeys = new Set(
           (communityReplicaRouteScopes(user.id, pathname) ?? [])
@@ -204,7 +227,7 @@ async function drainCommunityReplicaDeltas(
   }
 }
 
-async function synchronizeCommunityReplica(
+export async function synchronizeCommunityReplica(
   queryClient: QueryClient,
   user: ReplicaSessionUser,
   pathname: string,
@@ -229,9 +252,49 @@ async function synchronizeCommunityReplica(
       signal,
     )
     if (preflight === "current-revoked") {
-      await clearActiveCommunityReplicaSession(user.id)
       onCurrentAccessRevoked()
       return
+    }
+    const routeScopes = communityReplicaRouteScopes(user.id, pathname)
+    const routeProjection = routeScopes
+      ? await readCoveredCommunityReplica(user.id, routeScopes)
+      : null
+    if (preflight === "complete" && routeProjection) {
+      const hasPendingReads = listCommunityReplicaReadWal(user.id).length > 0
+      const hasPendingIntents = (await listCommunityReplicaIntents(user.id))
+        .some((row) => row.state === "local-committed")
+      await flushCommunityReplicaReadIntents(user.id, signal)
+      await flushCommunityReplicaIntents(user.id, signal)
+      if (!hasPendingReads && !hasPendingIntents) {
+        await seedCurrentRoute(queryClient, user, pathname)
+        return
+      }
+      const advancedSnapshot = await readCommunityReplicaSnapshot(user.id)
+      if (!advancedSnapshot) return
+      const finalDelta = await drainCommunityReplicaDeltas(
+        queryClient,
+        user,
+        pathname,
+        {
+          protocolVersion: COMMUNITY_REPLICA_PROTOCOL_VERSION,
+          snapshotId: advancedSnapshot.meta.snapshotId,
+          takenAt: advancedSnapshot.meta.takenAt,
+          frontier: advancedSnapshot.frontier,
+          coverage: advancedSnapshot.coverage,
+          facts: [],
+        },
+        signal,
+      )
+      if (finalDelta === "current-revoked") {
+        onCurrentAccessRevoked()
+        return
+      }
+      if (finalDelta === "complete") {
+        await seedCurrentRoute(queryClient, user, pathname)
+        return
+      }
+      // An explicit gap/compaction/schema/permission response is the only
+      // compatible-snapshot path that falls through to a new bootstrap.
     }
   }
   await flushCommunityReplicaReadIntents(user.id, signal)
@@ -281,10 +344,24 @@ async function synchronizeCommunityReplica(
         snapshot = await bootstrap(minimalRequest)
       } catch (minimalError) {
         if (minimalError instanceof ApiError && minimalError.status === 403) {
-          retireCommunityReplicaQueryScopes(queryClient, [
-            { kind: "server", id: request.serverId },
-          ])
-          await clearActiveCommunityReplicaSession(user.id)
+          const durable = await readCommunityReplicaSnapshot(user.id)
+          const revokedScopes = [
+            { kind: "server" as const, id: request.serverId },
+            ...(durable?.entities
+              .filter((row) => (
+                row.scopeKey === `server:${request.serverId}`
+                && row.entity.kind === "channel"
+              ))
+              .map((row) => ({ kind: "channel" as const, id: row.entity.id })) ?? []),
+          ]
+          await applyCommunityReplicaDelta(user.id, {
+            protocolVersion: COMMUNITY_REPLICA_PROTOCOL_VERSION,
+            status: "rebootstrap",
+            reason: "permission-changed",
+            scopes: revokedScopes,
+          })
+          retireCommunityReplicaQueryScopes(queryClient, revokedScopes)
+          await retireActiveCommunityReplicaScopes(user.id, revokedScopes)
           onCurrentAccessRevoked()
           return
         }
@@ -302,7 +379,6 @@ async function synchronizeCommunityReplica(
   await seedCurrentRoute(queryClient, user, pathname)
   const finalDelta = await drainCommunityReplicaDeltas(queryClient, user, pathname, snapshot, signal)
   if (finalDelta === "current-revoked") {
-    await clearActiveCommunityReplicaSession(user.id)
     onCurrentAccessRevoked()
   }
 }
@@ -362,11 +438,13 @@ export function useCommunityReplicaSync({
       if (document.visibilityState === "visible") synchronize()
     }
     window.addEventListener("online", synchronize)
+    window.addEventListener(COMMUNITY_REPLICA_SYNC_EVENT, synchronize)
     document.addEventListener("visibilitychange", onVisible)
     return () => {
       active?.abort()
       clearInterval(interval)
       window.removeEventListener("online", synchronize)
+      window.removeEventListener(COMMUNITY_REPLICA_SYNC_EVENT, synchronize)
       document.removeEventListener("visibilitychange", onVisible)
     }
   }, [onCurrentAccessRevoked, pathname, queryClient, replicaUser, request])

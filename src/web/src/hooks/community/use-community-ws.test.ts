@@ -117,6 +117,51 @@ describe("useCommunityWs — public helper contracts", () => {
   })
 })
 
+describe("useCommunityWs — covered Replica reconnect", () => {
+  it("signals one delta catch-up and excludes covered legacy reconciliation", async () => {
+    const pathname = "/c/channels/s1/c1"
+    const dispatchEvent = vi.fn()
+    const values = new Map([[
+      "alook-community-replica-control-v1:active",
+      JSON.stringify({
+        key: "active",
+        accountId: "viewer",
+        user: { id: "viewer" },
+        replicaProtocolVersion: 1,
+        snapshotId: "snapshot",
+        shellProtocolVersion: 1,
+        shellRoutes: [pathname],
+      }),
+    ]])
+    vi.stubGlobal("window", { location: { pathname }, dispatchEvent })
+    vi.stubGlobal("localStorage", {
+      get length() { return values.size },
+      key: (index: number) => [...values.keys()][index] ?? null,
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    })
+    capturedQueryClient.setQueryData(["community", "servers", "s1"], { id: "s1" })
+    capturedQueryClient.setQueryData(["community", "servers", "s2"], { id: "s2" })
+    const invalidate = vi.spyOn(capturedQueryClient, "invalidateQueries")
+    try {
+      await mountHook({ viewerUserId: "viewer" })
+      await capturedOnReconnect!({ reconnectDurationMs: 250 })
+
+      expect(dispatchEvent).toHaveBeenCalledOnce()
+      expect((dispatchEvent.mock.calls[0]?.[0] as Event).type)
+        .toBe("alook:community-replica-sync")
+      const invalidatedKeys = invalidate.mock.calls
+        .map(([filters]) => JSON.stringify(filters.queryKey))
+      expect(invalidatedKeys).not.toContain(JSON.stringify(["community", "servers"]))
+      expect(invalidatedKeys).not.toContain(JSON.stringify(["community", "servers", "s1"]))
+      expect(invalidatedKeys).toContain(JSON.stringify(["community", "servers", "s2"]))
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+})
+
 describe("useCommunityWs — connection status publication", () => {
   it("publishes the grace, failed, authenticated, and manual retry states from the root", async () => {
     vi.useFakeTimers()
