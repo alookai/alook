@@ -2,7 +2,7 @@ import Sqlite from "better-sqlite3";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { drizzle } from "drizzle-orm/better-sqlite3";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "../schema";
 import type { Database } from "../index";
 import {
@@ -10,8 +10,11 @@ import {
   cancelAttempt,
   claimExchange,
   claimStart,
+  failExchange,
+  failOpenedAttempt,
   finishExchange,
   getAttemptStatus,
+  getOpenedAttempt,
   registerAttempt,
 } from "./native-oauth";
 
@@ -79,6 +82,47 @@ describe("native oauth attempt queries", () => {
     ]);
   });
 
+  it("fails closed when registration does not return the inserted row", async () => {
+    const statement = {
+      where: vi.fn(() => statement),
+      set: vi.fn(() => statement),
+      values: vi.fn(() => statement),
+      returning: vi.fn(() => statement),
+    };
+    const emptyDb = {
+      delete: vi.fn(() => statement),
+      update: vi.fn(() => statement),
+      insert: vi.fn(() => statement),
+      batch: vi.fn(async () => [[], [], []]),
+    } as unknown as Database;
+
+    await expect(
+      registerAttempt(
+        emptyDb,
+        registration("missing_attempt_123456789"),
+        NOW,
+      ),
+    ).rejects.toThrow("native oauth registration did not return a row");
+  });
+
+  it("reads and fails only a live opened attempt", async () => {
+    const id = "opened_attempt_1234567890";
+    await registerAttempt(db, registration(id), NOW);
+    await claimStart(db, id, NOW + 1);
+
+    await expect(getOpenedAttempt(db, id, NOW + 2)).resolves.toMatchObject({
+      id,
+      status: "opened",
+    });
+    await expect(
+      failOpenedAttempt(db, id, "provider_error", NOW + 3),
+    ).resolves.toMatchObject({ status: "failed", failureCode: "provider_error" });
+    await expect(getOpenedAttempt(db, id, NOW + 4)).resolves.toBeNull();
+    await expect(
+      failOpenedAttempt(db, id, "provider_error", NOW + 4),
+    ).resolves.toBeNull();
+  });
+
   it("does not mutate ready state for a wrong handoff hash", async () => {
     const id = "exchange_attempt_12345678";
     await registerAttempt(db, registration(id), NOW);
@@ -124,6 +168,29 @@ describe("native oauth attempt queries", () => {
       status: "consumed",
     });
     await expect(finishExchange(db, proof, NOW + 4)).resolves.toBeNull();
+  });
+
+  it("fails only a claimed exchange", async () => {
+    const id = "failed_exchange_123456789";
+    await registerAttempt(db, registration(id), NOW);
+    await claimStart(db, id, NOW + 1);
+    await attachHandoff(db, {
+      attemptId: id,
+      handoffCodeHash: CODE_HASH,
+      authKind: "signin",
+    }, NOW + 2);
+    await claimExchange(db, {
+      attemptId: id,
+      stateHash: STATE_HASH,
+      pkceChallenge: CHALLENGE,
+      handoffCodeHash: CODE_HASH,
+    }, NOW + 3);
+
+    await expect(failExchange(db, id, NOW + 4)).resolves.toMatchObject({
+      status: "failed",
+      failureCode: "invalid_handoff",
+    });
+    await expect(failExchange(db, id, NOW + 5)).resolves.toBeNull();
   });
 
   it("rejects expired starts and handoffs that cannot retain a full two minutes", async () => {
