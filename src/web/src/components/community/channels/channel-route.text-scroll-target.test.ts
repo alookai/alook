@@ -2,6 +2,7 @@ import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { ChannelRoute } from "./channel-route"
+import { ConversationResolutionErrorFrame } from "./conversation-resolution-error-frame"
 import { ForumChannelSurface } from "./forum-channel-surface"
 import { MessageList } from "../messages/message-list"
 import { useChannelMemberViewModel } from "../members/channel-member-view-model"
@@ -55,6 +56,9 @@ const {
     isChild: false,
     isForumPostChild: false,
     isNotifyUnit: false,
+    metadataError: false,
+    retryingMetadata: false,
+    retryMetadata: vi.fn(),
     routeHydrated: true,
     routeLifecycle: "ready" as "pending" | "ready" | "terminal-error",
   },
@@ -303,6 +307,8 @@ describe("ChannelRoute message surface ownership", () => {
       isChild: false,
       isForumPostChild: false,
       isNotifyUnit: false,
+      metadataError: false,
+      retryingMetadata: false,
       routeHydrated: true,
       routeLifecycle: "ready",
     })
@@ -354,6 +360,34 @@ describe("ChannelRoute message surface ownership", () => {
     })).toBeDefined()
     expect(mockedForumChannelSurface).not.toHaveBeenCalled()
     expect(mockedMessageList).not.toHaveBeenCalled()
+  })
+
+  it("renders the terminal metadata error without opening a feed and forwards Retry", async () => {
+    Object.assign(mockRouteModel, {
+      isChild: true, routeLifecycle: "terminal-error", routeHydrated: false,
+      metadataError: true, retryingMetadata: false,
+    })
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(ChannelRoute, {
+        serverParam: "server_1", channelId: "channel_1",
+      }))
+    })
+    const errorFrame = renderer.root.findByType(ConversationResolutionErrorFrame)
+    expect(errorFrame.props.retrying).toBe(false)
+    expect(renderer.root.findAllByProps({ "data-community-conversation-subtype": "unknown" })).toHaveLength(0)
+    expect(mockedUseChannelMessageFeed).not.toHaveBeenCalled()
+    expect(mockCommitLastCommunityRoute).not.toHaveBeenCalled()
+    act(() => errorFrame.props.onRetry())
+    expect(mockRouteModel.retryMetadata).toHaveBeenCalledTimes(1)
+    Object.assign(mockRouteModel, { routeLifecycle: "pending", retryingMetadata: true })
+    await act(async () => {
+      renderer.update(React.createElement(ChannelRoute, {
+        serverParam: "server_1", channelId: "channel_1",
+      }))
+    })
+    expect(renderer.root.findByType(ConversationResolutionErrorFrame).props.retrying).toBe(true)
+    await act(async () => renderer.unmount())
   })
 
   it("mounts authoritative split geometry before a thread body is active", () => {
