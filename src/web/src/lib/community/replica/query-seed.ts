@@ -115,7 +115,7 @@ function projectServerDetail(
 
 function projectMessagePage(
   rows: ReplicaEntityRow[],
-  range: NonNullable<CoveredReplicaProjection["coverage"][number]["messageRange"]>,
+  range: NonNullable<CoveredReplicaProjection["coverage"][number]["messageRange"]> | null,
 ): InfiniteData<MessagesPage, MessagesPageParam> {
   const messages = rows
     .map((row) => row.value as Msg)
@@ -125,9 +125,9 @@ function projectMessagePage(
   return {
     pages: [{
       messages,
-      latestSeq: range.lastSeq,
-      hasMore: range.hasOlder,
-      ...(cursor && range.hasOlder ? { cursor } : {}),
+      latestSeq: range?.lastSeq ?? 0,
+      hasMore: range?.hasOlder ?? false,
+      ...(cursor && range?.hasOlder ? { cursor } : {}),
     }],
     pageParams: [{ mode: "newest" }],
   }
@@ -139,7 +139,6 @@ export function seedCommunityReplicaQueries(
 ) {
   const accountCoverage = projection.coverage.find((item) => item.scope.kind === "account")
   const serverCoverage = projection.coverage.find((item) => item.scope.kind === "server")
-  const channelCoverage = projection.coverage.find((item) => item.scope.kind === "channel")
   const serverRows = rowsOfKind(projection, "server")
   if (accountCoverage?.completeness === "complete") {
     queryClient.setQueryData<ServersResponse>(communityKeys.servers(), projectServers(serverRows))
@@ -161,25 +160,35 @@ export function seedCommunityReplicaQueries(
   }
 
   const channelTails = new Set<string>()
-  if (channelCoverage?.messageRange && !channelCoverage.messageRange.hasNewer) {
+  const channelCoverageItems = projection.coverage.filter((item) => item.scope.kind === "channel")
+  for (const channelCoverage of channelCoverageItems) {
+    const isCoveredTail = channelCoverage.messageRange
+      ? !channelCoverage.messageRange.hasNewer
+      : channelCoverage.completeness === "complete"
+    if (!isCoveredTail) continue
     const channelId = channelCoverage.scope.id
     queryClient.setQueryData(
       communityKeys.channelMessages(channelId),
-      projectMessagePage(rowsOfKind(projection, "message"), channelCoverage.messageRange),
+      projectMessagePage(
+        rowsOfKind(projection, "message").filter((row) => row.scopeKey === `channel:${channelId}`),
+        channelCoverage.messageRange,
+      ),
     )
     channelTails.add(channelId)
   }
 
-  if (accountCoverage?.completeness === "complete" && channelCoverage) {
-    const readState = rowsOfKind(projection, "read-state")
-      .find((row) => row.entity.id === channelCoverage.scope.id)?.value
-    queryClient.setQueryData(communityKeys.channelReadStateSnapshot(channelCoverage.scope.id), readState
-      ? {
-          lastReadMessageId: readState.lastReadMessageId,
-          lastReadAt: readState.lastReadAt,
-          lastReadSeq: readState.lastReadSeq,
-        }
-      : { lastReadMessageId: null, lastReadAt: null, lastReadSeq: 0 })
+  if (accountCoverage?.completeness === "complete") {
+    const readStates = rowsOfKind(projection, "read-state")
+    for (const channelCoverage of channelCoverageItems) {
+      const readState = readStates.find((row) => row.entity.id === channelCoverage.scope.id)?.value
+      queryClient.setQueryData(communityKeys.channelReadStateSnapshot(channelCoverage.scope.id), readState
+        ? {
+            lastReadMessageId: readState.lastReadMessageId,
+            lastReadAt: readState.lastReadAt,
+            lastReadSeq: readState.lastReadSeq,
+          }
+        : { lastReadMessageId: null, lastReadAt: null, lastReadSeq: 0 })
+    }
   }
   coverageByClient.set(queryClient, { channelTails })
 }

@@ -18,6 +18,22 @@ const later = "2026-09-07T03:00:00.000+08:00"
 const account = { kind: "account" as const, id: accountId }
 const channel = { kind: "channel" as const, id: "channel-1" }
 
+function messageValue(seq: number, clientNonce?: string) {
+  return {
+    id: `message-${seq}`,
+    channelId: channel.id,
+    type: "chat" as const,
+    authorId: "author-1",
+    authorName: "Author",
+    authorAvatar: "A",
+    authorAvatarVersion: 0,
+    seq,
+    createdAt: now,
+    content: `message ${seq}`,
+    ...(clientNonce ? { clientNonce } : {}),
+  }
+}
+
 function coverage(scope: typeof account | typeof channel, revision: number) {
   return {
     scope,
@@ -49,7 +65,7 @@ function bootstrap() {
       ...[1, 2].map((seq) => ({
         scope: channel,
         entity: { kind: "message" as const, id: `message-${seq}` },
-        value: { id: `message-${seq}`, type: "chat", seq, createdAt: now, content: `message ${seq}` },
+        value: messageValue(seq),
       })),
     ],
   }
@@ -104,7 +120,7 @@ describe("community Replica store", () => {
             operations: [{
               operation: "upsert",
               entity: { kind: "message", id: "message-3" },
-              value: { id: "message-3", type: "chat", seq: 3, createdAt: now, content: "message 3" },
+              value: messageValue(3),
             }],
           },
         ],
@@ -207,7 +223,7 @@ describe("community Replica store", () => {
           operations: [{
             operation: "upsert",
             entity: { kind: "message", id: "message-3" },
-            value: { id: "message-3", type: "chat", seq: 3, createdAt: now, content: "message 3", clientNonce: intent.intentId },
+            value: messageValue(3, intent.intentId),
           }],
         }],
       }],
@@ -218,8 +234,45 @@ describe("community Replica store", () => {
     expect(values.size).toBe(0)
   })
 
+  it("settles a recovered intent when bootstrap already contains its canonical message", async () => {
+    const values = new Map<string, string>()
+    vi.stubGlobal("window", {})
+    vi.stubGlobal("localStorage", {
+      get length() { return values.size },
+      key: (index: number) => [...values.keys()][index] ?? null,
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    })
+    const intent = {
+      intentId: "intent-2",
+      kind: "message.send" as const,
+      scope: channel,
+      createdAt: now,
+      payload: { content: "message 2" },
+    }
+    await commitCommunityReplicaIntent(accountId, intent)
+    const snapshot = bootstrap()
+    snapshot.facts[2] = {
+      scope: channel,
+      entity: { kind: "message", id: "message-2" },
+      value: messageValue(2, intent.intentId),
+    }
+
+    await replaceCommunityReplicaBootstrap(accountId, snapshot)
+
+    expect(await listCommunityReplicaIntents(accountId)).toEqual([])
+    expect(values.size).toBe(0)
+  })
+
   it("refuses a read watermark regression", async () => {
-    await replaceCommunityReplicaBootstrap(accountId, bootstrap())
+    const snapshot = bootstrap()
+    snapshot.facts[0] = {
+      scope: account,
+      entity: { kind: "read-state", id: channel.id },
+      value: { channelId: channel.id, lastReadMessageId: "message-2", lastReadAt: now, lastReadSeq: 2 },
+    }
+    await replaceCommunityReplicaBootstrap(accountId, snapshot)
     await expect(applyCommunityReplicaDelta(accountId, {
       protocolVersion: COMMUNITY_REPLICA_PROTOCOL_VERSION,
       status: "ok",
@@ -234,7 +287,7 @@ describe("community Replica store", () => {
           operations: [{
             operation: "upsert",
             entity: { kind: "read-state", id: channel.id },
-            value: { channelId: channel.id, lastReadMessageId: "message-0", lastReadAt: now, lastReadSeq: 0 },
+            value: { channelId: channel.id, lastReadMessageId: "message-1", lastReadAt: now, lastReadSeq: 1 },
           }],
         }],
       }],

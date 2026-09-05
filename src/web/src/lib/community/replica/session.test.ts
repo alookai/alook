@@ -40,7 +40,18 @@ function bootstrap() {
     facts: [{
       scope: scopes[2]!,
       entity: { kind: "message" as const, id: "message-1" },
-      value: { id: "message-1", type: "chat", seq: 1, createdAt: checkedAt, content: "hello" },
+      value: {
+        id: "message-1",
+        channelId: "channel-1",
+        type: "chat" as const,
+        authorId: "author-1",
+        authorName: "Author",
+        authorAvatar: "A",
+        authorAvatarVersion: 0,
+        seq: 1,
+        createdAt: checkedAt,
+        content: "hello",
+      },
     }],
   }
 }

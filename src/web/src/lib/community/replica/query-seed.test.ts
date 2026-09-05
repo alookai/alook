@@ -62,4 +62,30 @@ describe("community Replica query seed", () => {
     expect(hasCoveredCommunityReplicaTarget(queryClient, "c1", "m8")).toBe(true)
     expect(hasCoveredCommunityReplicaTarget(queryClient, "c1", "missing")).toBe(false)
   })
+
+  it("treats a complete empty channel as covered without fabricating a message range", () => {
+    const queryClient = new QueryClient()
+    seedCommunityReplicaQueries(queryClient, {
+      ...projection,
+      frontier: [
+        ...projection.frontier,
+        { scope: { kind: "channel", id: "empty" }, revision: 0 },
+      ],
+      coverage: [
+        ...projection.coverage,
+        {
+          scope: { kind: "channel", id: "empty" },
+          revision: 0,
+          completeness: "complete",
+          permission: lease,
+          messageRange: null,
+        },
+      ],
+    })
+    expect(queryClient.getQueryData(communityKeys.channelMessages("empty"))).toEqual({
+      pages: [{ messages: [], latestSeq: 0, hasMore: false }],
+      pageParams: [{ mode: "newest" }],
+    })
+    expect(hasCoveredCommunityReplicaTarget(queryClient, "empty")).toBe(true)
+  })
 })

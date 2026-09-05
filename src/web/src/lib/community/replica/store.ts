@@ -29,6 +29,10 @@ const REPLICA_DB_PREFIX = `alook-community-replica-v${COMMUNITY_REPLICA_PROTOCOL
 const REPLICA_INTENT_WAL_PREFIX = `c-replica-v${COMMUNITY_REPLICA_PROTOCOL_VERSION}:intent:`
 
 type ReplicaEntity = Extract<CommunityReplicaOperation, { operation: "remove" }>["entity"]
+type ReplicaUpsert<K extends ReplicaEntity["kind"]> = Extract<
+  CommunityReplicaOperation,
+  { operation: "upsert"; entity: { kind: K } }
+>
 
 type ReplicaMeta = {
   key: "snapshot"
@@ -190,8 +194,10 @@ export async function replaceCommunityReplicaBootstrap(
   const connection = openReplica(accountId)
   if (!connection) throw new Error("IndexedDB is unavailable")
   const db = await connection
-  const tx = db.transaction(["meta", "frontiers", "coverage", "entities"], "readwrite")
+  const tx = db.transaction(["meta", "frontiers", "coverage", "entities", "intents"], "readwrite")
   const entities = tx.objectStore("entities")
+  const intents = tx.objectStore("intents")
+  const settledIntentIds: string[] = []
 
   for (const item of snapshot.coverage) {
     const key = communityReplicaScopeKey(item.scope)
@@ -209,6 +215,13 @@ export async function replaceCommunityReplicaBootstrap(
       entity: fact.entity,
       value: fact.value,
     })
+    const nonce = fact.entity.kind === "message"
+      ? (fact.value as { clientNonce?: string }).clientNonce
+      : null
+    if (typeof nonce === "string") {
+      await intents.delete(nonce)
+      settledIntentIds.push(nonce)
+    }
   }
   await tx.objectStore("meta").put({
     key: "snapshot",
@@ -217,6 +230,7 @@ export async function replaceCommunityReplicaBootstrap(
     takenAt: snapshot.takenAt,
   })
   await tx.done
+  for (const intentId of settledIntentIds) removeIntentWal(accountId, intentId)
   return snapshot
 }
 
@@ -263,7 +277,8 @@ async function applyOperation<
   }
 
   if (operation.entity.kind === "message") {
-    const seq = operation.value.seq
+    const messageOperation = operation as ReplicaUpsert<"message">
+    const seq = messageOperation.value.seq
     const range = coverage.messageRange
     if (!positiveInteger(seq) || !range) throw new CommunityReplicaGapError("canonical message is outside covered history")
     if (seq < range.firstSeq || seq > range.lastSeq + 1 || (seq === range.lastSeq + 1 && range.hasNewer)) {
@@ -275,9 +290,10 @@ async function applyOperation<
   }
 
   if (operation.entity.kind === "read-state") {
+    const readOperation = operation as ReplicaUpsert<"read-state">
     const current = await entities.get(key)
     const currentSeq = current?.value.lastReadSeq
-    const nextSeq = operation.value.lastReadSeq
+    const nextSeq = readOperation.value.lastReadSeq
     if (
       typeof nextSeq !== "number"
       || !Number.isInteger(nextSeq)
@@ -289,7 +305,9 @@ async function applyOperation<
   }
 
   await entities.put({ key, scopeKey, entity: operation.entity, value: operation.value })
-  const nonce = operation.entity.kind === "message" ? operation.value.clientNonce : null
+  const nonce = operation.entity.kind === "message"
+    ? (operation as ReplicaUpsert<"message">).value.clientNonce
+    : null
   if (typeof nonce === "string") {
     await intents.delete(nonce)
     settledIntentIds.push(nonce)

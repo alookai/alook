@@ -4,10 +4,12 @@ import { useEffect, useMemo } from "react"
 import { useQueryClient, type QueryClient } from "@tanstack/react-query"
 import {
   COMMUNITY_REPLICA_MAX_BATCHES,
+  COMMUNITY_REPLICA_MAX_INTENTS,
   COMMUNITY_REPLICA_PROTOCOL_VERSION,
   type CommunityReplicaBootstrapRequest,
   type CommunityReplicaBootstrapResponse,
   type CommunityReplicaDeltaResponse,
+  type CommunityReplicaIntentResponse,
 } from "@alook/shared"
 import type { ServerDetail } from "@/hooks/community/use-servers"
 import type { ReplicaSessionUser } from "@/lib/community/replica/session"
@@ -19,6 +21,8 @@ import {
 } from "@/lib/community/replica/session"
 import {
   applyCommunityReplicaDelta,
+  applyCommunityReplicaIntentOutcomes,
+  listCommunityReplicaIntents,
   readCoveredCommunityReplica,
   replaceCommunityReplicaBootstrap,
 } from "@/lib/community/replica/store"
@@ -66,6 +70,48 @@ async function seedCurrentRoute(
   return true
 }
 
+async function seedReplicaScopes(
+  queryClient: QueryClient,
+  accountId: string,
+  scopes: CommunityReplicaBootstrapResponse["coverage"][number]["scope"][],
+) {
+  const projection = await readCoveredCommunityReplica(accountId, scopes)
+  if (!projection) return false
+  seedCommunityReplicaQueries(queryClient, projection)
+  return true
+}
+
+export async function flushCommunityReplicaIntents(
+  accountId: string,
+  signal: AbortSignal,
+) {
+  for (;;) {
+    const rows = await listCommunityReplicaIntents(accountId)
+    const pending = rows
+      .filter((row) => row.state === "local-committed")
+      .slice(0, COMMUNITY_REPLICA_MAX_INTENTS)
+    if (pending.length === 0) return
+
+    const response = await apiFetch<CommunityReplicaIntentResponse>(
+      "/api/community/replica/intents",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          protocolVersion: COMMUNITY_REPLICA_PROTOCOL_VERSION,
+          intents: pending.map((row) => row.intent),
+        }),
+        signal,
+      },
+    )
+    const requested = new Set(pending.map((row) => row.intentId))
+    if (
+      response.outcomes.length !== requested.size
+      || response.outcomes.some((outcome) => !requested.has(outcome.intentId))
+    ) throw new Error("Replica intent response does not cover the submitted batch")
+    await applyCommunityReplicaIntentOutcomes(accountId, response)
+  }
+}
+
 async function drainCommunityReplicaDeltas(
   queryClient: QueryClient,
   user: ReplicaSessionUser,
@@ -93,6 +139,11 @@ async function drainCommunityReplicaDeltas(
       return false
     }
     frontier = response.frontier
+    await seedReplicaScopes(
+      queryClient,
+      user.id,
+      response.frontier.map((entry) => entry.scope),
+    )
     await seedCurrentRoute(queryClient, user, pathname)
     if (!response.hasMore) return true
   }
@@ -110,6 +161,12 @@ async function synchronizeCommunityReplica(
     { method: "POST", body: JSON.stringify(request), signal },
   )
   await replaceCommunityReplicaBootstrap(user.id, snapshot)
+  await flushCommunityReplicaIntents(user.id, signal)
+  await seedReplicaScopes(
+    queryClient,
+    user.id,
+    snapshot.coverage.map((item) => item.scope),
+  )
   await seedCurrentRoute(queryClient, user, pathname)
   await drainCommunityReplicaDeltas(queryClient, user, pathname, snapshot, signal)
 }
