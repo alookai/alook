@@ -1,23 +1,34 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { GET } from "./route";
 
-describe("GET /.well-known/apple-app-site-association", () => {
-  it("returns 200 with application/json content type", async () => {
-    const response = await GET();
-    expect(response.status).toBe(200);
-    expect(response.headers.get("Content-Type")).toBe("application/json");
-  });
+describe("apple-app-site-association", () => {
+  it("serves the exact iOS return association only on auth.alook.ai", async () => {
+    const response = await GET(
+      new Request("https://auth.alook.ai/.well-known/apple-app-site-association"),
+    );
 
-  it("returns valid applinks structure", async () => {
-    const response = await GET();
-    const body = await response.json();
-    expect(body).toHaveProperty("applinks");
-    expect(body.applinks).toHaveProperty("apps", []);
-    expect(body.applinks).toHaveProperty("details");
-    expect(body.applinks.details).toHaveLength(1);
-    expect(body.applinks.details[0]).toEqual({
-      appIDs: ["TEAM_ID.ai.alook.app"],
-      paths: ["*"],
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      applinks: {
+        apps: [],
+        details: [
+          {
+            appID: "5RF24VHDQB.ai.alook.ios",
+            components: [
+              {
+                "/": "/auth/native/return",
+                comment: "Native OAuth handoff return",
+              },
+            ],
+          },
+        ],
+      },
     });
+    expect(response.headers.get("Cache-Control")).toContain("no-store");
+
+    const wrongHost = await GET(
+      new Request("https://alook.ai/.well-known/apple-app-site-association"),
+    );
+    expect(wrongHost.status).toBe(404);
   });
 });

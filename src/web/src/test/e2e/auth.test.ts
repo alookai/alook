@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from "vitest"
+import { afterAll, describe, expect, it } from "vitest"
 import { randomUUID } from "crypto"
 import { signUp, signIn, sessionRequest, sqlRun } from "@alook/test-utils"
 
@@ -32,6 +32,27 @@ describe("auth", () => {
   it("GET /api/me without auth returns 401", async () => {
     const res = await fetch(`${APP_URL}/api/me`)
     expect(res.status).toBe(401)
+  })
+
+  it("blocks public one-time-token generation and verification", async () => {
+    const cookie = await signIn(testEmail, testPassword)
+    const generate = await fetch(`${APP_URL}/api/auth/one-time-token/generate`, {
+      headers: {
+        Cookie: cookie,
+        Origin: new URL(APP_URL).origin,
+      },
+    })
+    expect(generate.status).toBe(404)
+
+    const verify = await fetch(`${APP_URL}/api/auth/one-time-token/verify`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: new URL(APP_URL).origin,
+      },
+      body: JSON.stringify({ token: "not-a-public-token" }),
+    })
+    expect(verify.status).toBe(404)
   })
 
   // Cleanup: remove test user created by sign-up

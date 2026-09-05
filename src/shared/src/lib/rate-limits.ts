@@ -29,6 +29,7 @@ export const RATE_LIMITS = {
    * overridable via `AUTH_OTP_RATE_LIMIT_MAX` / `_WINDOW_SEC`.
    */
   "auth:otpSend": { windowMs: 60_000, max: 5 },
+  "auth:nativeAttempt": { windowMs: 60_000, max: 10 },
 } as const
 
 export type RateLimitName = keyof typeof RATE_LIMITS

@@ -8,6 +8,7 @@ vi.mock("better-auth/plugins", () => ({
   emailOTP: vi.fn((cfg: unknown) => ({ __plugin: "emailOTP", cfg })),
   deviceAuthorization: vi.fn((cfg: unknown) => ({ __plugin: "deviceAuthorization", cfg })),
   bearer: vi.fn(() => ({ __plugin: "bearer" })),
+  oneTimeToken: vi.fn((cfg: unknown) => ({ __plugin: "oneTimeToken", cfg })),
 }))
 
 // `probeAvailableDiscriminator` (called from the `user.create.before` hook)
@@ -89,7 +90,7 @@ type AuthOptions = {
   }
   plugins?: Array<{
     __plugin?: string
-    cfg?: {
+    cfg?: Record<string, unknown> & {
       sendVerificationOTP?: (args: { email: string; otp: string; type: string }) => Promise<void>
     }
   }>
@@ -201,6 +202,25 @@ describe("createAuth rate limiting", () => {
     ).rejects.toThrow(/retry in 42s/)
     expect(env.EMAIL_WORKER.fetch).not.toHaveBeenCalled()
   })
+})
+
+describe("createAuth native OAuth handoff", () => {
+  it.each(["production", "development"])(
+    "configures a server-only hashed two-minute OTT in %s",
+    async (nodeEnv) => {
+      const createAuth = await loadCreateAuth()
+      const opts = (createAuth(makeEnv({ NODE_ENV: nodeEnv }) as never) as {
+        __options: AuthOptions
+      }).__options
+      const plugin = opts.plugins?.find((candidate) => candidate.__plugin === "oneTimeToken")
+
+      expect(plugin?.cfg).toMatchObject({
+        expiresIn: 2,
+        disableClientRequest: true,
+        storeToken: "hashed",
+      })
+    },
+  )
 })
 
 describe("createAuth session cookie cache", () => {

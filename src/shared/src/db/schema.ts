@@ -3,9 +3,11 @@ import {
   text,
   integer,
   index,
+  uniqueIndex,
   unique,
   primaryKey,
   foreignKey,
+  check,
   type AnySQLiteColumn,
 } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
@@ -93,6 +95,165 @@ export const verification = sqliteTable("verification", {
   createdAt: text("createdAt").notNull().$defaultFn(() => new Date().toISOString()),
   updatedAt: text("updatedAt").notNull().$defaultFn(() => new Date().toISOString()),
 });
+
+export const NATIVE_OAUTH_PROVIDERS = ["github", "google"] as const;
+export type NativeOauthProvider = (typeof NATIVE_OAUTH_PROVIDERS)[number];
+
+export const NATIVE_OAUTH_PLATFORMS = [
+  "macos",
+  "windows",
+  "linux",
+  "ios",
+  "android",
+] as const;
+export type NativeOauthPlatform = (typeof NATIVE_OAUTH_PLATFORMS)[number];
+
+export const NATIVE_OAUTH_STATUSES = [
+  "pending",
+  "opened",
+  "ready",
+  "exchanging",
+  "consumed",
+  "failed",
+  "cancelled",
+  "replaced",
+] as const;
+export type NativeOauthStatus = (typeof NATIVE_OAUTH_STATUSES)[number];
+
+export const NATIVE_OAUTH_FAILURE_CODES = [
+  "access_denied",
+  "provider_error",
+  "oauth_callback_failed",
+  "start_failed",
+  "invalid_handoff",
+] as const;
+export type NativeOauthFailureCode =
+  (typeof NATIVE_OAUTH_FAILURE_CODES)[number];
+
+export const nativeOauthAttempt = sqliteTable(
+  "native_oauth_attempt",
+  {
+    id: text("id").primaryKey(),
+    instanceKeyHash: text("instance_key_hash").notNull(),
+    stateHash: text("state_hash").notNull(),
+    pkceChallenge: text("pkce_challenge").notNull(),
+    provider: text("provider").$type<NativeOauthProvider>().notNull(),
+    platform: text("platform").$type<NativeOauthPlatform>().notNull(),
+    redirectPath: text("redirect_path").notNull(),
+    status: text("status").$type<NativeOauthStatus>().notNull().default("pending"),
+    handoffCodeHash: text("handoff_code_hash"),
+    handoffExpiresAt: integer("handoff_expires_at"),
+    authKind: text("auth_kind").$type<"signin" | "signup">(),
+    failureCode: text("failure_code").$type<NativeOauthFailureCode>(),
+    attemptExpiresAt: integer("attempt_expires_at").notNull(),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+    openedAt: integer("opened_at"),
+    readyAt: integer("ready_at"),
+    consumedAt: integer("consumed_at"),
+    failedAt: integer("failed_at"),
+    cancelledAt: integer("cancelled_at"),
+    replacedAt: integer("replaced_at"),
+  },
+  (t) => [
+    index("idx_native_oauth_attempt_instance_status").on(
+      t.instanceKeyHash,
+      t.status,
+    ),
+    index("idx_native_oauth_attempt_id_status_expiry").on(
+      t.id,
+      t.status,
+      t.attemptExpiresAt,
+    ),
+    index("idx_native_oauth_attempt_terminal_cleanup").on(
+      t.status,
+      t.updatedAt,
+    ),
+    uniqueIndex("uq_native_oauth_attempt_instance_live")
+      .on(t.instanceKeyHash)
+      .where(sql`status IN ('pending', 'opened', 'ready', 'exchanging')`),
+    uniqueIndex("uq_native_oauth_attempt_handoff_hash")
+      .on(t.handoffCodeHash)
+      .where(sql`handoff_code_hash IS NOT NULL`),
+    check(
+      "ck_native_oauth_attempt_id",
+      sql`length(${t.id}) BETWEEN 22 AND 64 AND ${t.id} NOT GLOB '*[^A-Za-z0-9_-]*'`,
+    ),
+    check(
+      "ck_native_oauth_attempt_hashes",
+      sql`length(${t.instanceKeyHash}) = 64 AND ${t.instanceKeyHash} NOT GLOB '*[^0-9a-f]*'
+        AND length(${t.stateHash}) = 64 AND ${t.stateHash} NOT GLOB '*[^0-9a-f]*'
+        AND length(${t.pkceChallenge}) = 43 AND ${t.pkceChallenge} NOT GLOB '*[^A-Za-z0-9_-]*'
+        AND (${t.handoffCodeHash} IS NULL OR (length(${t.handoffCodeHash}) = 64 AND ${t.handoffCodeHash} NOT GLOB '*[^0-9a-f]*'))`,
+    ),
+    check(
+      "ck_native_oauth_attempt_enums",
+      sql`${t.provider} IN ('github', 'google')
+        AND ${t.platform} IN ('macos', 'windows', 'linux', 'ios', 'android')
+        AND ${t.status} IN ('pending', 'opened', 'ready', 'exchanging', 'consumed', 'failed', 'cancelled', 'replaced')
+        AND (${t.authKind} IS NULL OR ${t.authKind} IN ('signin', 'signup'))
+        AND (${t.failureCode} IS NULL OR ${t.failureCode} IN ('access_denied', 'provider_error', 'oauth_callback_failed', 'start_failed', 'invalid_handoff'))`,
+    ),
+    check(
+      "ck_native_oauth_attempt_redirect",
+      sql`length(${t.redirectPath}) BETWEEN 1 AND 2048
+        AND substr(${t.redirectPath}, 1, 1) = '/'
+        AND substr(${t.redirectPath}, 1, 2) <> '//'
+        AND instr(${t.redirectPath}, char(92)) = 0`,
+    ),
+    check(
+      "ck_native_oauth_attempt_epochs",
+      sql`typeof(${t.createdAt}) = 'integer' AND ${t.createdAt} BETWEEN 0 AND 9007199254740991
+        AND typeof(${t.updatedAt}) = 'integer' AND ${t.updatedAt} BETWEEN ${t.createdAt} AND 9007199254740991
+        AND typeof(${t.attemptExpiresAt}) = 'integer' AND ${t.attemptExpiresAt} = ${t.createdAt} + 600000
+        AND (${t.handoffExpiresAt} IS NULL OR (typeof(${t.handoffExpiresAt}) = 'integer' AND ${t.handoffExpiresAt} <= ${t.attemptExpiresAt}))`,
+    ),
+    check(
+      "ck_native_oauth_attempt_state",
+      sql`(
+          ${t.status} = 'pending'
+          AND ${t.openedAt} IS NULL AND ${t.readyAt} IS NULL AND ${t.consumedAt} IS NULL
+          AND ${t.failedAt} IS NULL AND ${t.cancelledAt} IS NULL AND ${t.replacedAt} IS NULL
+          AND ${t.handoffCodeHash} IS NULL AND ${t.handoffExpiresAt} IS NULL
+          AND ${t.authKind} IS NULL AND ${t.failureCode} IS NULL
+        ) OR (
+          ${t.status} = 'opened'
+          AND ${t.openedAt} IS NOT NULL AND ${t.readyAt} IS NULL AND ${t.consumedAt} IS NULL
+          AND ${t.failedAt} IS NULL AND ${t.cancelledAt} IS NULL AND ${t.replacedAt} IS NULL
+          AND ${t.handoffCodeHash} IS NULL AND ${t.handoffExpiresAt} IS NULL
+          AND ${t.authKind} IS NULL AND ${t.failureCode} IS NULL
+        ) OR (
+          ${t.status} IN ('ready', 'exchanging')
+          AND ${t.openedAt} IS NOT NULL AND ${t.readyAt} IS NOT NULL AND ${t.consumedAt} IS NULL
+          AND ${t.failedAt} IS NULL AND ${t.cancelledAt} IS NULL AND ${t.replacedAt} IS NULL
+          AND ${t.handoffCodeHash} IS NOT NULL AND ${t.handoffExpiresAt} IS NOT NULL
+          AND ${t.handoffExpiresAt} = ${t.readyAt} + 120000
+          AND ${t.authKind} IS NOT NULL AND ${t.failureCode} IS NULL
+        ) OR (
+          ${t.status} = 'consumed'
+          AND ${t.openedAt} IS NOT NULL AND ${t.readyAt} IS NOT NULL AND ${t.consumedAt} IS NOT NULL
+          AND ${t.failedAt} IS NULL AND ${t.cancelledAt} IS NULL AND ${t.replacedAt} IS NULL
+          AND ${t.handoffCodeHash} IS NOT NULL AND ${t.handoffExpiresAt} IS NOT NULL
+          AND ${t.authKind} IS NOT NULL AND ${t.failureCode} IS NULL
+        ) OR (
+          ${t.status} = 'failed'
+          AND ${t.consumedAt} IS NULL AND ${t.failedAt} IS NOT NULL
+          AND ${t.cancelledAt} IS NULL AND ${t.replacedAt} IS NULL
+          AND ${t.failureCode} IS NOT NULL
+        ) OR (
+          ${t.status} = 'cancelled'
+          AND ${t.consumedAt} IS NULL AND ${t.cancelledAt} IS NOT NULL
+          AND ${t.failedAt} IS NULL AND ${t.replacedAt} IS NULL
+          AND ${t.failureCode} IS NULL
+        ) OR (
+          ${t.status} = 'replaced'
+          AND ${t.consumedAt} IS NULL AND ${t.replacedAt} IS NOT NULL
+          AND ${t.failedAt} IS NULL AND ${t.cancelledAt} IS NULL
+          AND ${t.failureCode} IS NULL
+        )`,
+    ),
+  ],
+);
 
 // ---------------------------------------------------------------------------
 // Application tables

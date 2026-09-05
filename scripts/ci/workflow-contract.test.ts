@@ -114,6 +114,22 @@ const iosProject = readFileSync(
   resolve(import.meta.dirname, "../../src/desktop/src-tauri/gen/apple/project.yml"),
   "utf8",
 )
+const nativeOauthAasaRoute = readFileSync(
+  resolve(import.meta.dirname, "../../src/web/src/app/.well-known/apple-app-site-association/route.ts"),
+  "utf8",
+)
+const nativeOauthAssetLinksRoute = readFileSync(
+  resolve(import.meta.dirname, "../../src/web/src/app/.well-known/assetlinks.json/route.ts"),
+  "utf8",
+)
+const nativeOauthWebConfig = readFileSync(
+  resolve(import.meta.dirname, "../../src/web/wrangler.toml"),
+  "utf8",
+)
+const nativeOauthContract = readFileSync(
+  resolve(import.meta.dirname, "../../src/web/src/lib/native-oauth-host.ts"),
+  "utf8",
+)
 const desktopEntitlementsPath = resolve(
   import.meta.dirname,
   "../../src/desktop/src-tauri/entitlements.plist",
@@ -1069,5 +1085,30 @@ describe("Mobile release availability", () => {
     expect(mobileReleaseWorkflow).toContain("[Download signed APK](${base}/${APK_NAME})")
     expect(mobileReleaseWorkflow).toContain('gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file "$notes_file"')
     expect(mobileReleaseWorkflow).not.toContain("Google Play")
+  })
+})
+
+describe("Native OAuth association contract", () => {
+  it("keeps the return domain, mobile identities, and source-only Worker route aligned", () => {
+    expect(nativeOauthContract).toContain(
+      'NATIVE_OAUTH_RETURN_HOST = "auth.alook.ai"',
+    )
+    expect(nativeOauthContract).toContain(
+      'NATIVE_OAUTH_RETURN_PATH = "/auth/native/return"',
+    )
+    expect(nativeOauthWebConfig).toMatch(
+      /\[\[routes\]\][\s\S]*pattern = "auth\.alook\.ai"[\s\S]*custom_domain = true/,
+    )
+
+    expect(desktopIosConfig.identifier).toBe("ai.alook.ios")
+    expect(iosProject).toContain("DEVELOPMENT_TEAM: 5RF24VHDQB")
+    expect(nativeOauthAasaRoute).toContain("5RF24VHDQB.ai.alook.ios")
+    expect(nativeOauthAasaRoute).toContain('"/": "/auth/native/return"')
+
+    expect(desktopAndroidConfig.identifier).toBe("ai.alook.android")
+    expect(nativeOauthAssetLinksRoute).toContain('package_name: "ai.alook.android"')
+    expect(nativeOauthAssetLinksRoute).toContain(
+      "9D:C6:ED:E9:4B:A6:63:EE:C9:EC:98:FF:7B:AF:D5:5E:24:8B:6C:4B:C2:15:7F:CF:04:2D:F5:9B:0E:41:08:06",
+    )
   })
 })

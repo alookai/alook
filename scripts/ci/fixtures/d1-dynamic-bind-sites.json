@@ -528,6 +528,18 @@
     "strategy": "json-set"
   },
   {
+    "key": "src/shared/src/db/queries/native-oauth.ts:cancelAttempt:inArray:1",
+    "strategy": "fixed-literal"
+  },
+  {
+    "key": "src/shared/src/db/queries/native-oauth.ts:registerAttempt:inArray:1",
+    "strategy": "fixed-literal"
+  },
+  {
+    "key": "src/shared/src/db/queries/native-oauth.ts:registerAttempt:inArray:2",
+    "strategy": "fixed-literal"
+  },
+  {
     "key": "src/shared/src/db/queries/overview.ts:getConversationCountsByAgent:inArray:1",
     "strategy": "json-set"
   },
