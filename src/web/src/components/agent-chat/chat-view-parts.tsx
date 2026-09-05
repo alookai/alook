@@ -11,7 +11,8 @@ import {
 } from "@/components/ui/popover";
 import { FileCard } from "@/components/agent-chat/event-cards/file-card";
 import { getArtifactThumbnailUrl } from "@/components/artifact-content-renderer";
-import { RemoteContentImage, RemoteMarkdownImage } from "@/components/remote-image";
+import { RemoteContentImage } from "@/components/remote-image/remote-image";
+import { RemoteMarkdownImage } from "@/components/remote-image/remote-markdown-image";
 
 function MentionHighlight(
   props: Record<string, unknown> & { children?: React.ReactNode },

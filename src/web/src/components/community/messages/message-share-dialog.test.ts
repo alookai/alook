@@ -235,7 +235,14 @@ describe("waitForShareCardImages", () => {
     {
       profilePhoto = false,
       photoState = "pending",
-    }: { profilePhoto?: boolean; photoState?: "pending" | "ready" | "failed" } = {},
+      remoteKind,
+      remoteState = "pending",
+    }: {
+      profilePhoto?: boolean
+      photoState?: "pending" | "ready" | "failed"
+      remoteKind?: "identity" | "content"
+      remoteState?: "pending" | "ready" | "error"
+    } = {},
   ) {
     const listeners = new Map<string, () => void>()
     const value = {
@@ -246,9 +253,12 @@ describe("waitForShareCardImages", () => {
       addEventListener: vi.fn((type: string, listener: () => void) => listeners.set(type, listener)),
       removeEventListener: vi.fn((type: string) => listeners.delete(type)),
       hasAttribute: vi.fn((name: string) => profilePhoto && name === "data-avatar-photo-state"),
-      getAttribute: vi.fn((name: string) => (
-        profilePhoto && name === "data-avatar-photo-state" ? photoState : null
-      )),
+      getAttribute: vi.fn((name: string) => {
+        if (profilePhoto && name === "data-avatar-photo-state") return photoState
+        if (name === "data-remote-image-kind") return remoteKind ?? null
+        if (name === "data-remote-image-state") return remoteKind ? remoteState : null
+        return null
+      }),
       ...overrides,
     } as unknown as HTMLImageElement
     return { value, listeners }
@@ -307,6 +317,41 @@ describe("waitForShareCardImages", () => {
 
     expect(avatar.value.addEventListener).not.toHaveBeenCalled()
     expect(avatar.value.decode).not.toHaveBeenCalled()
+    expect(paint).toHaveBeenCalledOnce()
+  })
+
+  it("degrades a failed shared identity image without exposing substitute pixels", async () => {
+    const avatar = image({}, { remoteKind: "identity", remoteState: "error" })
+    const paint = vi.fn().mockResolvedValue(undefined)
+
+    await expect(waitForShareCardImages(card([avatar.value]), paint)).resolves.toEqual([
+      { image: avatar.value, mode: "fallback" },
+    ])
+    expect(avatar.value.addEventListener).not.toHaveBeenCalled()
+    expect(paint).toHaveBeenCalledOnce()
+  })
+
+  it("rejects a failed shared content image before rasterization", async () => {
+    const attachment = image({}, { remoteKind: "content", remoteState: "error" })
+    const paint = vi.fn().mockResolvedValue(undefined)
+
+    await expect(waitForShareCardImages(card([attachment.value]), paint))
+      .rejects.toBeInstanceOf(ShareImageSnapshotError)
+    expect(attachment.value.addEventListener).not.toHaveBeenCalled()
+    expect(paint).not.toHaveBeenCalled()
+  })
+
+  it("rejects native pixels that remain pending in the shared content lifecycle", async () => {
+    const attachment = image({
+      complete: true,
+      naturalWidth: 96,
+      naturalHeight: 64,
+    }, { remoteKind: "content", remoteState: "pending" })
+    const paint = vi.fn().mockResolvedValue(undefined)
+
+    await expect(waitForShareCardImages(card([attachment.value]), paint))
+      .rejects.toBeInstanceOf(ShareImageSnapshotError)
+    expect(attachment.value.decode).toHaveBeenCalledOnce()
     expect(paint).toHaveBeenCalledOnce()
   })
 

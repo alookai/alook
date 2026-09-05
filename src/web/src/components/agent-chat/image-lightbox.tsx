@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import type { Artifact } from "@alook/shared";
 import { X, Download } from "lucide-react";
 import { getArtifactUrl } from "@/components/artifact-content-renderer";
-import { RemoteContentImage } from "@/components/remote-image";
+import { RemoteContentImage } from "@/components/remote-image/remote-image";
 
 type LightboxProps = {
   open: boolean;

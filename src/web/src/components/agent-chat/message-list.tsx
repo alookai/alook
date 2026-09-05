@@ -24,7 +24,7 @@ import { toast } from "sonner";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { useHoverCapable } from "@/hooks/use-hover-capable";
 import { useLongPress } from "@/hooks/use-long-press";
-import { RemoteContentImage } from "@/components/remote-image";
+import { RemoteContentImage } from "@/components/remote-image/remote-image";
 
 const MENTION_ALLOWED_TAGS = { mention: ["data-agent-id"] };
 const MENTION_LITERAL_TAGS = ["mention"];

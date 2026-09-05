@@ -87,8 +87,16 @@ test("real bot avatars become unreadable after single delete and authenticated m
 
   let releaseAvatar!: () => void
   const avatarGate = new Promise<void>((resolve) => { releaseAvatar = resolve })
+  let failAvatar = true
+  let avatarRequests = 0
   await alice.page.route(`**${avatarPath}*`, async (route) => {
-    if (route.request().method() === "GET") await avatarGate
+    if (route.request().method() === "GET") {
+      avatarRequests++
+      if (failAvatar) {
+        await avatarGate
+        return route.fulfill({ status: 503, body: "avatar unavailable" })
+      }
+    }
     await route.continue()
   })
   await alice.page.reload({ waitUntil: "commit" })
@@ -101,6 +109,15 @@ test("real bot avatars become unreadable after single delete and authenticated m
   await expect(avatarFrame.locator('[data-remote-image-placeholder="identity"][data-remote-image-state="pending"]'))
     .toBeVisible()
   releaseAvatar()
+  await expect(avatar).toHaveAttribute("data-remote-image-state", "error")
+  await expect(avatarFrame.locator('[data-remote-image-placeholder="identity"][data-remote-image-state="error"]'))
+    .toBeVisible()
+  await expect(avatarFrame.locator("svg")).toHaveCount(0)
+  expect(await avatarFrame.boundingBox()).toEqual(pendingFrame)
+
+  failAvatar = false
+  await alice.page.reload({ waitUntil: "commit" })
+  await expect.poll(() => avatarRequests).toBeGreaterThan(1)
   await expect(avatar).toHaveAttribute("data-remote-image-state", "ready")
   const readyFrame = await avatarFrame.boundingBox()
   expect(readyFrame).toEqual(pendingFrame)

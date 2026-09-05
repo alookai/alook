@@ -4,7 +4,7 @@ import TestRenderer, { act } from "react-test-renderer"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { Agent, Artifact } from "@alook/shared"
 import { FileCard } from "@/components/agent-chat/event-cards/file-card"
-import { RemoteMarkdownImage } from "@/components/remote-image"
+import { RemoteMarkdownImage } from "@/components/remote-image/remote-markdown-image"
 import { ArtifactCard, MENTION_COMPONENTS } from "./chat-view-parts"
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true

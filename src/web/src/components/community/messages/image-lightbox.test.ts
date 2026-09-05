@@ -53,10 +53,13 @@ describe("ImageLightbox", () => {
     expect(thumbnail.props.className).toContain("absolute inset-0 size-full")
     expect(original.props.className).toContain("absolute inset-0 size-full")
     expect(original.props.className).toContain("opacity-0")
-    expect(frame.parent?.props.className).toContain("invisible")
+    expect(frame.parent?.props.className).not.toContain("invisible")
+    expect(renderer.root.findByProps({ "data-testid": tid.imageLightboxLoading }).children)
+      .toEqual(["Loading original image"])
 
     await loadThumbnail(renderer, 800, 450)
-    expect(renderer.root.findByProps({ "data-testid": tid.imageLightbox }).parent?.props.className).toContain("visible")
+    expect(renderer.root.findByProps({ "data-testid": tid.imageLightbox }).parent?.props.className)
+      .not.toContain("invisible")
 
     act(() => original.props.onLoad(imageEvent(800, 450, () => decodePromise)))
     expect(renderer.root.findByProps({ "data-testid": tid.imageLightboxOriginal }).props.className).toContain("opacity-0")
@@ -102,7 +105,7 @@ describe("ImageLightbox", () => {
     expect(renderer.root.findByProps({ "data-testid": tid.imageLightboxOriginal }).props.className).toContain("opacity-100")
   })
 
-  it("commits legacy natural dimensions with the decoded reveal", async () => {
+  it("keeps the safe legacy frame until the decoded original commits once", async () => {
     let resolveDecode!: () => void
     const decodePromise = new Promise<void>((resolve) => { resolveDecode = resolve })
     const { renderer } = renderLightbox({
@@ -114,12 +117,12 @@ describe("ImageLightbox", () => {
 
     expect(frame().props.style).toEqual({ width: "min(200px, 90vw, 85vh)", aspectRatio: "1 / 1" })
     await loadThumbnail(renderer, 200, 100)
-    expect(frame().props.style).toEqual({ width: "min(200px, 90vw, 170vh)", aspectRatio: "200 / 100" })
+    expect(frame().props.style).toEqual({ width: "min(200px, 90vw, 85vh)", aspectRatio: "1 / 1" })
 
     act(() => renderer.root.findByProps({ "data-testid": tid.imageLightboxOriginal }).props.onLoad(
       imageEvent(1000, 500, () => decodePromise),
     ))
-    expect(frame().props.style).toEqual({ width: "min(200px, 90vw, 170vh)", aspectRatio: "200 / 100" })
+    expect(frame().props.style).toEqual({ width: "min(200px, 90vw, 85vh)", aspectRatio: "1 / 1" })
     expect(renderer.root.findByProps({ "data-testid": tid.imageLightboxOriginal }).props.className).toContain("opacity-0")
 
     await act(async () => {
@@ -208,7 +211,7 @@ describe("ImageLightbox", () => {
     vi.useRealTimers()
   })
 
-  it("keeps a cold preview hidden until the thumbnail decodes, then paints it before an already-decoded original", async () => {
+  it("shows a cold pending frame, then paints the thumbnail before an already-decoded original", async () => {
     let runAnimationFrame: FrameRequestCallback | undefined
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
       runAnimationFrame = callback
@@ -227,7 +230,8 @@ describe("ImageLightbox", () => {
       const frame = () => renderer.root.findByProps({ "data-testid": tid.imageLightbox })
       const original = renderer.root.findByProps({ "data-testid": tid.imageLightboxOriginal })
 
-      expect(frame().parent?.props.className).toContain("invisible")
+      expect(frame().parent?.props.className).not.toContain("invisible")
+      expect(renderer.root.findByProps({ "data-testid": tid.imageLightboxLoading })).toBeDefined()
       await act(async () => {
         original.props.onLoad(imageEvent(1200, 630, () => Promise.resolve()))
         await Promise.resolve()
@@ -235,7 +239,7 @@ describe("ImageLightbox", () => {
       expect(renderer.root.findByProps({ "data-testid": tid.imageLightboxOriginal }).props.className).toContain("opacity-0")
 
       await loadThumbnail(renderer, 512, 269)
-      expect(frame().parent?.props.className).toContain("visible")
+      expect(frame().parent?.props.className).not.toContain("invisible")
       expect(renderer.root.findByProps({ "data-testid": tid.imageLightboxThumbnail }).props.className).toContain("opacity-100")
       expect(renderer.root.findByProps({ "data-testid": tid.imageLightboxOriginal }).props.className).toContain("opacity-0")
       expect(runAnimationFrame).toBeTypeOf("function")

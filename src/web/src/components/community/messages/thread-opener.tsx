@@ -17,7 +17,7 @@ import { useMobileAvatarMention } from "./use-mobile-avatar-mention"
 import { useCommunityProfile } from "@/stores/community/ws"
 import { useHoverCapable } from "@/hooks/use-hover-capable"
 import { MessageReactions } from "./message-reactions"
-import { RemoteContentImage } from "@/components/remote-image"
+import { RemoteContentImage } from "@/components/remote-image/remote-image"
 
 // Thread opener — the parent message the thread was created from, pinned at
 // the top of the thread's message list. Deliberately styled like a REGULAR

@@ -28,6 +28,17 @@ describe("ServerIcon seeded fallback", () => {
     expect(svg(render("Alook"))).toBe(svg(render("Renamed")))
   })
 
+  it("allows compact canonical callers to preserve their prior initial size", () => {
+    const html = renderToStaticMarkup(createElement(ServerIcon, {
+      id: "server-id",
+      name: "Alook",
+      initial: "A",
+      size: 10,
+      fontSize: 7,
+    }))
+    expect(html).toContain("width:10px;height:10px;font-size:7px")
+  })
+
   it("leaves uploaded icons untouched", () => {
     const html = renderToStaticMarkup(createElement(ServerIcon, {
       id: "server-id",

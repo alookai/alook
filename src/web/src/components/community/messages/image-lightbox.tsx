@@ -21,7 +21,7 @@ function PreviewFrame({ image }: { image: ImagePreview }) {
   const [
     thumbnailStatus,
     thumbnailAttempt,
-    thumbnailImage,
+    ,
     thumbnailRef,
     onThumbnailLoad,
     onThumbnailError,
@@ -38,34 +38,27 @@ function PreviewFrame({ image }: { image: ImagePreview }) {
 
   const frameStyle = previewFrameStyle(dimensions)
   const thumbnailReady = !!image.thumbnailUrl && thumbnailStatus === "ready"
-  const previewVisible = !image.thumbnailUrl || thumbnailStatus !== "pending"
+  const thumbnailSettled = !image.thumbnailUrl || thumbnailStatus !== "pending"
   const originalReady = originalStatus === "ready" && revealedAttempt === originalAttempt
 
   useEffect(() => {
-    if (thumbnailStatus !== "ready" || !thumbnailImage) return
-    const naturalDimensions = validImageDimensions(thumbnailImage.naturalWidth, thumbnailImage.naturalHeight)
-    if (naturalDimensions) setDimensions((current) => knownDimensions ?? current ?? naturalDimensions)
-  }, [knownDimensions, thumbnailImage, thumbnailStatus])
-
-  useEffect(() => {
-    if (originalStatus !== "ready" || !originalImage) return
-    const naturalDimensions = validImageDimensions(originalImage.naturalWidth, originalImage.naturalHeight)
-    if (naturalDimensions) setDimensions(knownDimensions ?? naturalDimensions)
-  }, [knownDimensions, originalImage, originalStatus])
-
-  useEffect(() => {
-    if (originalStatus !== "ready" || !previewVisible) return
+    if (originalStatus !== "ready" || !originalImage || !thumbnailSettled) return
     const requestKey = originalAttempt
-    if (typeof requestAnimationFrame !== "function") {
+    const naturalDimensions = validImageDimensions(originalImage.naturalWidth, originalImage.naturalHeight)
+    const reveal = () => {
+      setDimensions(knownDimensions ?? naturalDimensions)
       setRevealedAttempt(requestKey)
+    }
+    if (typeof requestAnimationFrame !== "function") {
+      reveal()
       return
     }
-    const frameId = requestAnimationFrame(() => setRevealedAttempt(requestKey))
+    const frameId = requestAnimationFrame(reveal)
     return () => cancelAnimationFrame(frameId)
-  }, [originalAttempt, originalStatus, previewVisible])
+  }, [knownDimensions, originalAttempt, originalImage, originalStatus, thumbnailSettled])
 
   return (
-    <div className={`relative w-fit ${previewVisible ? "visible" : "invisible"}`}>
+    <div className="relative w-fit">
       <div
         data-testid={tid.imageLightbox}
         className="relative overflow-hidden rounded-lg bg-background"
@@ -85,7 +78,7 @@ function PreviewFrame({ image }: { image: ImagePreview }) {
             className={`absolute inset-0 size-full rounded-lg object-contain transition-opacity duration-150 ease-out motion-reduce:transition-none ${thumbnailReady && !originalReady ? "opacity-100" : "opacity-0"}`}
           />
         )}
-        {!thumbnailReady && previewVisible && !originalReady && originalStatus === "pending" && (
+        {!thumbnailReady && !originalReady && originalStatus === "pending" && (
           <div
             data-testid={tid.imageLightboxLoading}
             role="status"

@@ -3,6 +3,7 @@ import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { RemoteContentImage, RemoteIdentityImage } from "./remote-image"
+import { RemoteMarkdownImage } from "./remote-markdown-image"
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
@@ -159,5 +160,57 @@ describe("remote image state adapters", () => {
     await act(async () => renderer!.update(render("/second.png")))
     expect(renderer!.root.findByProps({ "data-remote-image-kind": "content" }).props)
       .toMatchObject({ src: "/second.png", "data-remote-image-state": "pending" })
+  })
+
+  it("keeps Markdown image geometry and retries the exact source", async () => {
+    await act(async () => {
+      renderer = TestRenderer.create(
+        React.createElement(RemoteMarkdownImage, {
+          src: "https://cdn.example.com/diagram.png?version=2",
+          alt: "Architecture diagram",
+          width: "800",
+          height: "400",
+        }),
+        { createNodeMock },
+      )
+    })
+
+    const wrapper = renderer!.root.findByProps({ "data-streamdown": "image-wrapper" })
+    expect(wrapper.props.style).toEqual({ width: "min(100%, 600px)", aspectRatio: "800/400" })
+    const image = renderer!.root.findByProps({ "data-streamdown": "image" })
+    expect(image.props).toMatchObject({
+      src: "https://cdn.example.com/diagram.png?version=2",
+      alt: "Architecture diagram",
+      loading: "lazy",
+      "data-remote-image-state": "pending",
+    })
+
+    await act(async () => image.props.onError())
+    const retry = renderer!.root.findByType("button")
+    expect(retry.children).toEqual(["Retry"])
+    expect(retry.props.className).toContain("min-h-11")
+    await act(async () => retry.props.onClick())
+
+    expect(renderer!.root.findByProps({ "data-streamdown": "image" }).props).toMatchObject({
+      src: "https://cdn.example.com/diagram.png?version=2",
+      "data-remote-image-state": "pending",
+    })
+    expect(renderer!.root.findByProps({ "data-streamdown": "image-wrapper" }).props.style)
+      .toEqual({ width: "min(100%, 600px)", aspectRatio: "800/400" })
+  })
+
+  it("reserves a safe frame for Markdown images without dimensions", async () => {
+    await act(async () => {
+      renderer = TestRenderer.create(
+        React.createElement(RemoteMarkdownImage, {
+          src: "/legacy.png",
+          alt: "Legacy image",
+        }),
+        { createNodeMock },
+      )
+    })
+
+    expect(renderer!.root.findByProps({ "data-streamdown": "image-wrapper" }).props.style)
+      .toEqual({ width: "min(100%, 300px)", aspectRatio: "4/3" })
   })
 })

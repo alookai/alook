@@ -5,7 +5,7 @@ import {
   buildMdComponents,
   MD_COMPONENTS,
 } from "./message-markdown"
-import { RemoteMarkdownImage } from "@/components/remote-image"
+import { RemoteMarkdownImage } from "@/components/remote-image/remote-markdown-image"
 
 // `components.mention(...)` returns a plain React element (JSX under the
 // hood) — inspecting `.props` here reaches into the MentionPill it wraps

@@ -88,6 +88,7 @@ function RailFolderImpl({
                       initial={s.initial}
                       icon={s.icon}
                       size={10}
+                      fontSize={7}
                       className={[
                         "relative grid aspect-square place-items-center overflow-hidden rounded-sm text-[7px] font-semibold",
                         s.icon ? "bg-card text-muted-foreground" : "text-white [text-shadow:0_1px_1px_rgb(0_0_0/0.35)]",

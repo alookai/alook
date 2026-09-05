@@ -6,7 +6,7 @@ import type { Artifact } from "@alook/shared";
 import { Loader2, Download } from "lucide-react";
 import { Streamdown } from "streamdown";
 import { mermaid, cjk } from "@/lib/streamdown-plugins";
-import { RemoteContentImage } from "@/components/remote-image";
+import { RemoteContentImage } from "@/components/remote-image/remote-image";
 
 const TEXT_TYPES = new Set([
   "application/json",

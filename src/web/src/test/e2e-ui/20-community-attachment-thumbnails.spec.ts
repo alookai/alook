@@ -44,7 +44,7 @@ async function waitForDialogEntrance(page: Page) {
   await lightbox.evaluate((element, ids) => {
     const dialog = element.closest<HTMLElement>("[data-slot='dialog-content']")
     if (!dialog) throw new Error("lightbox dialog content disappeared")
-    return Promise.all(dialog.getAnimations({ subtree: true }).map((animation) => animation.finished))
+    return Promise.all(dialog.getAnimations().map((animation) => animation.finished))
       .then(() => new Promise<void>((resolveStable, rejectStable) => {
         let previous = ""
         let unchangedFrames = 0
@@ -207,7 +207,10 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   await expect(page.getByTestId(tid.imageLightboxOriginal)).toHaveClass(/opacity-0/)
   await expect.poll(() => observedGetPaths.filter((path) => path === landscape.originalPath).length).toBe(1)
   await expect.poll(() => coldThumbnailRequests).toBeGreaterThan(0)
-  await expect(page.getByTestId(tid.imageLightbox)).toBeHidden()
+  await expect(page.getByTestId(tid.imageLightbox)).toBeVisible()
+  await expect(page.getByTestId(tid.imageLightboxLoading)).toBeVisible()
+  await waitForDialogEntrance(page)
+  const coldPendingRect = await previewRects(page)
   expect(await page.getByTestId(tid.imageLightboxThumbnail).evaluate((element: HTMLImageElement) => ({
     complete: element.complete,
     naturalWidth: element.naturalWidth,
@@ -218,6 +221,7 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   await expect(landscapeListFrame).toHaveAttribute("data-remote-image-state", "ready")
   expectSameRect(await boundingRect(landscapeListFrame), pendingListRect)
   await expect(page.getByTestId(tid.imageLightbox)).toBeVisible()
+  expectSameRect(await previewRects(page).then((rects) => rects.container), coldPendingRect.container)
   const coldThumbnailReady = await page.getByTestId(tid.imageLightboxThumbnail).evaluate((element: HTMLImageElement) => ({
     complete: element.complete,
     naturalWidth: element.naturalWidth,
@@ -228,7 +232,6 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   await attachScreenshot(testInfo, "desktop-landscape-first-visible", page)
   await page.unroute(thumbnailPattern)
 
-  await waitForDialogEntrance(page)
   const desktopLandscapeLoading = await previewRects(page)
   expectWithinPreviewViewport(desktopLandscapeLoading.container, { width: 1280, height: 900 })
   await attachScreenshot(testInfo, "desktop-landscape-loading", page)

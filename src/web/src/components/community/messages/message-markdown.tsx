@@ -3,7 +3,7 @@ import { Spoiler, MentionPill } from "./inline-marks"
 import { ChannelRefPill } from "./channel-ref-pill"
 import { ServerRefPill } from "./server-ref-pill"
 import { PlatformLinkBadge } from "./platform-link-badge"
-import { RemoteMarkdownImage } from "@/components/remote-image"
+import { RemoteMarkdownImage } from "@/components/remote-image/remote-markdown-image"
 
 // Match `/c/invite/<token>` — with or without an origin.
 // - token allows [A-Za-z0-9_-] (nanoid alphabet) and length 6..64 (short + old

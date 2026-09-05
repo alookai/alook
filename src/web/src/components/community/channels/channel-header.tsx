@@ -215,6 +215,7 @@ function ServerCrumb({ id, name, icon, size = 5, className = "" }: { id: string;
       initial={avatarInitial(name)}
       icon={icon}
       size={size * 4}
+      fontSize={size === 7 ? 16 : size === 6 ? 14 : 12}
       className={`relative grid shrink-0 place-items-center overflow-hidden rounded-md ${icon ? `font-semibold ${iconTextCls} bg-secondary text-foreground` : `font-brand font-bold ${initialTextCls} text-white [text-shadow:0_1px_2px_rgb(0_0_0/0.35)]`} ${sizeCls} ${className}`}
       title={name}
     />

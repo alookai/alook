@@ -78,6 +78,18 @@ function isFailedContentImage(image: HTMLImageElement): boolean {
     && image.getAttribute("data-remote-image-state") === "error"
 }
 
+function isReadyProfilePhoto(image: HTMLImageElement): boolean {
+  if (image.getAttribute("data-remote-image-kind") === "identity") {
+    return image.getAttribute("data-remote-image-state") === "ready"
+  }
+  return image.getAttribute("data-avatar-photo-state") === "ready"
+}
+
+function isUnreadyContentImage(image: HTMLImageElement): boolean {
+  return image.getAttribute("data-remote-image-kind") === "content"
+    && image.getAttribute("data-remote-image-state") !== "ready"
+}
+
 async function waitForImageLoad(
   image: HTMLImageElement,
   deadline: number,
@@ -170,7 +182,13 @@ export async function waitForShareCardImages(
   if (signal?.aborted) throw createShareCardAbortError()
   await waitForPaint()
   if (signal?.aborted) throw createShareCardAbortError()
-  return dispositions
+  return dispositions.map((disposition) => {
+    if (isProfilePhoto(disposition.image) && !isReadyProfilePhoto(disposition.image)) {
+      return { ...disposition, mode: "fallback" }
+    }
+    if (isUnreadyContentImage(disposition.image)) throw new ShareImageSnapshotError()
+    return disposition
+  })
 }
 
 type ShareImageWaiter = (

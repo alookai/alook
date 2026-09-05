@@ -3,7 +3,7 @@
 import { GeneratedAvatar } from "./generated-avatar";
 import { resolveAvatar } from "@/lib/avatar/resolve";
 import { cn } from "@/lib/utils";
-import { RemoteIdentityImage } from "@/components/remote-image";
+import { RemoteIdentityImage } from "@/components/remote-image/remote-image";
 
 interface AgentAvatarProps {
   name?: string | null;

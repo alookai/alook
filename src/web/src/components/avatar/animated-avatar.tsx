@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { GeneratedAvatar } from "./generated-avatar";
 import { resolveAvatar } from "@/lib/avatar/resolve";
-import { RemoteIdentityImage } from "@/components/remote-image";
+import { RemoteIdentityImage } from "@/components/remote-image/remote-image";
 import { cn } from "@/lib/utils";
 
 // beam is a static SVG with no animatable internal parts, so only the

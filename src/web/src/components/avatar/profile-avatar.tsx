@@ -8,7 +8,7 @@ import {
 import { resolveAvatar } from "@/lib/avatar/resolve"
 import { avatarInitial } from "@/lib/community/avatar"
 import { cn } from "@/lib/utils"
-import { RemoteIdentityImage } from "@/components/remote-image"
+import { RemoteIdentityImage } from "@/components/remote-image/remote-image"
 import { GeneratedAvatar } from "./generated-avatar"
 
 export type ProfileAvatarProps = {

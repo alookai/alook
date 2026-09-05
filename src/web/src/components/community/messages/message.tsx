@@ -41,7 +41,7 @@ import {
 import { useMobileAvatarMention } from "./use-mobile-avatar-mention"
 import { useCommunityProfile } from "@/stores/community/ws"
 import { MessageReactions } from "./message-reactions"
-import { RemoteContentImage, RemoteIdentityImage } from "@/components/remote-image"
+import { RemoteContentImage, RemoteIdentityImage } from "@/components/remote-image/remote-image"
 
 // Whether the "Share as Image" action is offered for a message. Share is
 // computed inside `Message` from the message alone (no handler is threaded in),

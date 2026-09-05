@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest"
 import { AgentAvatar } from "./agent-avatar"
 import { GeneratedAvatar } from "./generated-avatar"
 import { serializeBeamSeed } from "@/lib/avatar/seed-url"
-import { RemoteIdentityImage } from "@/components/remote-image"
+import { RemoteIdentityImage } from "@/components/remote-image/remote-image"
 
 // A legacy procedural config value (the format the removed engine used to
 // store) — the renderer must ignore it and fall back to an id-seeded beam.
