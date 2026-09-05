@@ -738,6 +738,82 @@ describe("startCredentialProxy (zero-trust end to end)", () => {
     expect(onInboxPullObservationError).not.toHaveBeenCalled();
   });
 
+  it("observes only server-applied cursors from a successful inbox ack", async () => {
+    const applied = [
+      { channel: "/s#0001/c", seq: 3 },
+      { channel: "/s#0001/private", seq: 8 },
+    ];
+    const body = JSON.stringify({
+      ok: false,
+      applied,
+      failed: [{ channel: "/s#0001/blocked", seq: 5, code: "forbidden", error: "forbidden" }],
+    });
+    const upstream = await startUpstream({ body });
+    upstreamClose = upstream.close;
+    const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url });
+    const onInboxAckStart = vi.fn(() => ({ generation: 4 }));
+    const onInboxAckResponse = vi.fn();
+    const onInboxAckObservationError = vi.fn();
+    proxy = await startCredentialProxy(broker, {
+      onInboxAckStart,
+      onInboxAckResponse,
+      onInboxAckObservationError,
+    });
+    const reg = broker.mint("agent-1", "l", ["read"], REAL_KEY);
+
+    const response = await post(
+      proxy.url,
+      reg.voucher,
+      "/api/community/users/me/inbox/ack",
+      { "accept-encoding": "gzip, deflate" },
+    );
+
+    expect(response).toEqual({ status: 200, body });
+    expect(upstream.seen[0]?.acceptEncoding).toBe("identity");
+    expect(onInboxAckStart).toHaveBeenCalledWith("agent-1");
+    expect(onInboxAckResponse).toHaveBeenCalledOnce();
+    expect(onInboxAckResponse).toHaveBeenCalledWith("agent-1", applied, { generation: 4 });
+    expect(onInboxAckObservationError).not.toHaveBeenCalled();
+  });
+
+  it("does not observe a failed inbox ack response", async () => {
+    const body = JSON.stringify({ ok: true, applied: [{ channel: "/s#0001/c", seq: 3 }], failed: [] });
+    const upstream = await startUpstream({ status: 500, body });
+    upstreamClose = upstream.close;
+    const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url });
+    const onInboxAckResponse = vi.fn();
+    const onInboxAckObservationError = vi.fn();
+    proxy = await startCredentialProxy(broker, { onInboxAckResponse, onInboxAckObservationError });
+    const reg = broker.mint("agent-1", "l", ["read"], REAL_KEY);
+
+    const response = await post(proxy.url, reg.voucher, "/api/community/users/me/inbox/ack");
+
+    expect(response).toEqual({ status: 500, body });
+    expect(onInboxAckResponse).not.toHaveBeenCalled();
+    expect(onInboxAckObservationError).not.toHaveBeenCalled();
+  });
+
+  it("forwards a malformed successful ack body without advancing model-seen", async () => {
+    const body = JSON.stringify({ ok: true, applied: [{ channel: "/s#0001/c", seq: "3" }] });
+    const upstream = await startUpstream({ body });
+    upstreamClose = upstream.close;
+    const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url });
+    const onInboxAckResponse = vi.fn();
+    const onInboxAckObservationError = vi.fn();
+    proxy = await startCredentialProxy(broker, { onInboxAckResponse, onInboxAckObservationError });
+    const reg = broker.mint("agent-1", "l", ["read"], REAL_KEY);
+
+    const response = await post(proxy.url, reg.voucher, "/api/community/users/me/inbox/ack");
+
+    expect(response).toEqual({ status: 200, body });
+    expect(onInboxAckResponse).not.toHaveBeenCalled();
+    expect(onInboxAckObservationError).toHaveBeenCalledWith({
+      agentId: "agent-1",
+      reason: "invalid_ack_shape",
+      contentEncoding: "identity",
+    });
+  });
+
   it("preserves compression negotiation for non-pull and wrong-method lookalike routes", async () => {
     const upstream = await startUpstream({ body: JSON.stringify({ messages: [{ seq: "#1" }] }) });
     upstreamClose = upstream.close;

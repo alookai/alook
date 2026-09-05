@@ -263,7 +263,7 @@ describe("WakeCoordinator", () => {
     expect(dispatch).toHaveBeenCalledTimes(2);
   });
 
-  it("suppresses an old wake when inbox pull arrived first", async () => {
+  it("suppresses an old wake after model-seen confirmation", async () => {
     const coordinator = new WakeCoordinator();
     const dispatch = vi.fn(async () => {});
     coordinator.recordModelSeen("a1", [{ channel: "/s/c", seq: "#9" }], 0);
@@ -274,7 +274,7 @@ describe("WakeCoordinator", () => {
     expect(dispatch).not.toHaveBeenCalled();
   });
 
-  it("admits a higher seq after pull coverage and idle", async () => {
+  it("admits a higher seq after model-seen coverage and idle", async () => {
     const coordinator = new WakeCoordinator();
     const dispatch = vi.fn(async () => {});
     coordinator.recordModelSeen("a1", [{ channel: "/s/c", seq: "#5" }], 0);

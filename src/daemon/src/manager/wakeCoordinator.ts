@@ -76,7 +76,7 @@ export class WakeCoordinator {
     // One unread notification may be outstanding at a time. An active runtime
     // still needs the first higher watermark delivered into its current
     // logical session; later watermarks coalesce behind that admission until
-    // the resulting inbox pull proves what the model actually saw.
+    // the resulting successful inbox acknowledgement proves what the model saw.
     if (state.admitting || state.activeAdmission) {
       this.rememberReplacement(state, command);
       return { state: "suppressed", coveredSeq: seq };

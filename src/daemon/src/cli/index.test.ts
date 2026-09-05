@@ -528,6 +528,92 @@ describe("inbox pull", () => {
     expect(env.success.pulledAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}[+-]\d{2}:\d{2}$/);
   });
 
+  it("leaves a pull near the outer 10s wait unread so a fast retry can replay and acknowledge it", async () => {
+    const message = {
+      seq: "#7",
+      channel: "/s#0042/general",
+      sender: "@x",
+      content: { text: "replay me" },
+      time: "",
+    };
+    let readSeq = 0;
+    const ackSpy = vi.fn(async (req: { cursors: Array<{ channel: string; seq: number }> }) => {
+      readSeq = Math.max(readSeq, ...req.cursors.map((cursor) => cursor.seq));
+      return { ok: true, applied: req.cursors, failed: [] };
+    });
+    const nowSpy = vi.spyOn(performance, "now")
+      .mockReturnValueOnce(100)
+      .mockReturnValueOnce(9_900)
+      .mockReturnValueOnce(20_000)
+      .mockReturnValueOnce(20_001);
+    setApiForTesting(
+      stubApi({
+        inboxPull: async () => ({
+          messages: readSeq >= 7 ? [] : [message],
+          hasMore: false,
+          markedCount: 0,
+        }),
+        ack: ackSpy,
+      }),
+    );
+
+    try {
+      await main(["inbox", "pull"]);
+      expect(ackSpy).not.toHaveBeenCalled();
+      const slow = parseEnvelope(cap.lines()) as {
+        success: {
+          acked: number;
+          messages: unknown[];
+          ackDeferred?: { reason: string; thresholdMs: number; elapsedMs: number };
+        };
+      };
+      expect(slow.success.messages).toEqual([message]);
+      expect(slow.success.acked).toBe(0);
+      expect(slow.success.ackDeferred).toEqual({
+        reason: "slow_pull",
+        thresholdMs: 9_000,
+        elapsedMs: 9_800,
+      });
+
+      cap.lines().length = 0;
+      await main(["inbox", "pull"]);
+    } finally {
+      nowSpy.mockRestore();
+    }
+
+    const retry = parseEnvelope(cap.lines()) as {
+      success: { acked: number; messages: unknown[]; ackDeferred?: unknown };
+    };
+    expect(ackSpy).toHaveBeenCalledOnce();
+    expect(retry.success.messages).toEqual([message]);
+    expect(retry.success.acked).toBe(1);
+    expect(retry.success.ackDeferred).toBeUndefined();
+  });
+
+  it("does not report deferred acknowledgement for an empty slow pull", async () => {
+    const ackSpy = vi.fn();
+    const nowSpy = vi.spyOn(performance, "now")
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(20_000);
+    setApiForTesting(stubApi({
+      inboxPull: async () => ({ messages: [], hasMore: false, markedCount: 0 }),
+      ack: ackSpy,
+    }));
+
+    try {
+      await main(["inbox", "pull"]);
+    } finally {
+      nowSpy.mockRestore();
+    }
+
+    const env = parseEnvelope(cap.lines()) as {
+      success: { acked: number; ackDeferred?: unknown };
+    };
+    expect(ackSpy).not.toHaveBeenCalled();
+    expect(env.success.acked).toBe(0);
+    expect(env.success.ackDeferred).toBeUndefined();
+  });
+
   it("removes --no-ack from inbox pull help", async () => {
     await main(["inbox", "pull", "-h"]);
     expect(cap.lines().join("")).not.toContain("--no-ack");

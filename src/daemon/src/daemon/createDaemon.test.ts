@@ -58,6 +58,11 @@ const credentialProxyHarness = vi.hoisted(() => ({
     ((agentId: string, messages: unknown[], observationToken?: unknown) => void) | undefined
   ),
   onInboxPullObservationError: undefined as ((failure: Record<string, unknown>) => void) | undefined,
+  onInboxAckStart: undefined as ((agentId: string) => unknown) | undefined,
+  onInboxAckResponse: undefined as (
+    ((agentId: string, applied: Array<{ channel: string; seq: number }>, observationToken?: unknown) => void) | undefined
+  ),
+  onInboxAckObservationError: undefined as ((failure: Record<string, unknown>) => void) | undefined,
   onProxyRequest: undefined as ((
     agentId: string,
     method: string,
@@ -102,6 +107,13 @@ vi.mock("../credentials/index.js", async (importOriginal) => {
       credentialProxyHarness.onInboxPullObservationError = args[1]?.onInboxPullObservationError as
         | ((failure: Record<string, unknown>) => void)
         | undefined;
+      credentialProxyHarness.onInboxAckStart = args[1]?.onInboxAckStart;
+      credentialProxyHarness.onInboxAckResponse = args[1]?.onInboxAckResponse as
+        | ((agentId: string, applied: Array<{ channel: string; seq: number }>, observationToken?: unknown) => void)
+        | undefined;
+      credentialProxyHarness.onInboxAckObservationError = args[1]?.onInboxAckObservationError as
+        | ((failure: Record<string, unknown>) => void)
+        | undefined;
       credentialProxyHarness.onProxyRequest = args[1]?.onProxyRequest;
       return actual.startCredentialProxy(...args);
     },
@@ -116,6 +128,9 @@ afterEach(() => {
   credentialProxyHarness.onInboxPullStart = undefined;
   credentialProxyHarness.onInboxPullResponse = undefined;
   credentialProxyHarness.onInboxPullObservationError = undefined;
+  credentialProxyHarness.onInboxAckStart = undefined;
+  credentialProxyHarness.onInboxAckResponse = undefined;
+  credentialProxyHarness.onInboxAckObservationError = undefined;
   credentialProxyHarness.onProxyRequest = undefined;
   timelineRecorderHarness.pulls.splice(0);
   for (const dir of startupSweepDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
@@ -1440,10 +1455,25 @@ for await (const line of createInterface({ input: process.stdin })) {
     ]]);
     expect(JSON.stringify(warnings)).not.toContain("private");
     expect(JSON.stringify(warnings)).not.toContain("Bearer");
+
+    expect(credentialProxyHarness.onInboxAckObservationError).toBeTypeOf("function");
+    credentialProxyHarness.onInboxAckObservationError?.({
+      agentId: "agent-1",
+      reason: "invalid_ack_shape",
+      contentEncoding: "identity",
+      body: "private ack body",
+    });
+    const ackWarnings = logger.calls.warn.filter(([, message]) => message === "inbox ack observation failed");
+    expect(ackWarnings).toEqual([[
+      "root",
+      "inbox ack observation failed",
+      [{ agentId: "agent-1", reason: "invalid_ack_shape", contentEncoding: "identity" }],
+    ]]);
+    expect(JSON.stringify(ackWarnings)).not.toContain("private");
     await daemon.stop();
   });
 
-  it("treats non-object or absent pull observation tokens as ownerless without model-seen updates", async () => {
+  it("records pulled messages without model-seen and advances model-seen only after ack", async () => {
     const sockets: FakeSocket[] = [];
     const workingDirectoryBase = mkdtempSync(join(tmpdir(), "timeline-invalid-token-"));
     startupSweepDirs.push(workingDirectoryBase);
@@ -1471,6 +1501,20 @@ for await (const line of createInterface({ input: process.stdin })) {
 
     expect(timelineRecorderHarness.pulls.map((pull) => pull.owner)).toEqual([null, null]);
     expect(recordModelSeen).not.toHaveBeenCalled();
+    const ackToken = credentialProxyHarness.onInboxAckStart?.("bot_1");
+    credentialProxyHarness.onInboxAckResponse?.(
+      "bot_1",
+      [{ channel: "/demo#1234/general", seq: 1 }],
+      ackToken,
+    );
+    expect(recordModelSeen).toHaveBeenCalledOnce();
+    expect(recordModelSeen).toHaveBeenCalledWith(
+      "bot_1",
+      [{ channel: "/demo#1234/general", seq: "#1" }],
+      ackToken,
+    );
+    credentialProxyHarness.onInboxAckResponse?.("bot_1", [{ channel: "/demo#1234/general", seq: 2 }]);
+    expect(recordModelSeen).toHaveBeenCalledOnce();
     await daemon.stop();
   });
 
@@ -1742,13 +1786,15 @@ describe("createDaemon — logging", () => {
     const wakeAcked = (seq: number) => sockets[0].sent.map((frame) => JSON.parse(frame)).some(
       (frame) => frame.type === "agent_wake_ack" && frame.launchId === `launch_${seq}` && frame.status === "ok",
     );
-    const observePull = (seq: number) => {
+    const observeDelivery = (seq: number) => {
       const observationToken = credentialProxyHarness.onInboxPullStart?.("bot_working");
       credentialProxyHarness.onInboxPullResponse?.(
         "bot_working",
         [{ channel, seq: `#${seq}` }],
         observationToken,
       );
+      const ackToken = credentialProxyHarness.onInboxAckStart?.("bot_working");
+      credentialProxyHarness.onInboxAckResponse?.("bot_working", [{ channel, seq }], ackToken);
     };
 
     try {
@@ -1767,14 +1813,14 @@ describe("createDaemon — logging", () => {
       wake(1);
       await vi.waitFor(() => expect(starts).toHaveLength(1));
       await vi.waitFor(() => expect(wakeAcked(1)).toBe(true));
-      observePull(1);
+      observeDelivery(1);
 
       for (let seq = 2; seq <= 6; seq++) wake(seq);
       await vi.waitFor(() => expect(wakeAcked(6)).toBe(true));
       expect(sends).toHaveLength(1);
       expect(sends[0]).toMatchObject({ sequence: 2 });
 
-      observePull(6);
+      observeDelivery(6);
       await new Promise<void>((resolve) => setImmediate(resolve));
       expect(sends).toHaveLength(1);
 
@@ -1784,7 +1830,7 @@ describe("createDaemon — logging", () => {
       expect(sends).toHaveLength(2);
       expect(sends[1]).toMatchObject({ sequence: 7 });
 
-      observePull(7);
+      observeDelivery(7);
       await vi.waitFor(() => expect(sends).toHaveLength(3));
       expect(sends[2]).toMatchObject({ sequence: 8 });
     } finally {
@@ -1840,13 +1886,15 @@ describe("createDaemon — logging", () => {
         && frame.launchId === launchId
         && frame.status === "ok",
     );
-    const observePull = (channel: string, seq: number) => {
+    const observeDelivery = (channel: string, seq: number) => {
       const observationToken = credentialProxyHarness.onInboxPullStart?.("bot_replay");
       credentialProxyHarness.onInboxPullResponse?.(
         "bot_replay",
         [{ channel, seq: `#${seq}` }],
         observationToken,
       );
+      const ackToken = credentialProxyHarness.onInboxAckStart?.("bot_replay");
+      credentialProxyHarness.onInboxAckResponse?.("bot_replay", [{ channel, seq }], ackToken);
     };
 
     try {
@@ -1869,17 +1917,18 @@ describe("createDaemon — logging", () => {
       wake("/demo#1234/c2", 7, "c2");
       await vi.waitFor(() => expect(wakeAcked("c1")).toBe(true));
       await vi.waitFor(() => expect(wakeAcked("c2")).toBe(true));
-      observePull("/demo#1234/root", 1);
+      observeDelivery("/demo#1234/root", 1);
       releaseEnroll();
 
       await vi.waitFor(() => expect(starts).toHaveLength(1));
       await vi.waitFor(() => expect(wakeAcked("root")).toBe(true));
       await vi.waitFor(() => expect(sends).toHaveLength(1));
 
-      // The pull proves only c1 reached the model. c2 must be re-admitted into
-      // the still-running session, using a fresh driver command identity.
+      // The successful acknowledgement proves only c1 reached the model. c2
+      // must be re-admitted into the still-running session, using a fresh
+      // driver command identity.
       await new Promise((resolve) => setTimeout(resolve, 2));
-      observePull("/demo#1234/c1", 2);
+      observeDelivery("/demo#1234/c1", 2);
       await vi.waitFor(() => expect(sends).toHaveLength(2));
 
       expect(starts[0]!.id).toContain(":admission:1");
