@@ -1,5 +1,32 @@
 import { test, expect } from "./_fixtures/community-fixture"
-import { test as browserTest, expect as browserExpect } from "@playwright/test"
+import {
+  test as browserTest,
+  expect as browserExpect,
+  type Locator,
+} from "@playwright/test"
+
+async function expectSameHorizontalCenter(first: Locator, second: Locator) {
+  const [firstBox, secondBox] = await Promise.all([
+    first.boundingBox(),
+    second.boundingBox(),
+  ])
+  browserExpect(firstBox).not.toBeNull()
+  browserExpect(secondBox).not.toBeNull()
+  browserExpect(Math.abs(
+    firstBox!.x + firstBox!.width / 2 -
+    (secondBox!.x + secondBox!.width / 2),
+  )).toBeLessThanOrEqual(1)
+}
+
+async function expectSameWidth(first: Locator, second: Locator) {
+  const [firstBox, secondBox] = await Promise.all([
+    first.boundingBox(),
+    second.boundingBox(),
+  ])
+  browserExpect(firstBox).not.toBeNull()
+  browserExpect(secondBox).not.toBeNull()
+  browserExpect(Math.abs(firstBox!.width - secondBox!.width)).toBeLessThanOrEqual(1)
+}
 
 // Journey 1 — login & first screen. storageState is established in
 // global-setup, so this journey re-verifies the redirect/auth contract with a
@@ -24,7 +51,7 @@ test.describe.serial("auth & first screen", () => {
 })
 
 browserTest.describe("production OTP error placement", () => {
-  browserTest("keeps an invalid OTP below the mobile control and clears it before retry", async ({ page }) => {
+  browserTest("centers an invalid OTP on mobile and desktop and clears it before retry", async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 390, height: 844 })
 
     const attempts: string[] = []
@@ -71,11 +98,38 @@ browserTest.describe("production OTP error placement", () => {
     await browserExpect(otp).toHaveAttribute("aria-describedby", "sign-in-otp-error")
 
     const slots = page.locator('[data-slot="input-otp-slot"]')
+    const otpField = page.locator('[data-slot="sign-in-otp-field"]')
+    const otpGroup = page.locator('[data-slot="input-otp-group"]')
+    const authPane = page.locator('[data-slot="card-content"] > div').first()
     const lastSlot = await slots.last().boundingBox()
     const alertBox = await alert.boundingBox()
     browserExpect(lastSlot).not.toBeNull()
     browserExpect(alertBox).not.toBeNull()
     browserExpect(alertBox!.y).toBeGreaterThanOrEqual(lastSlot!.y + lastSlot!.height)
+    await expectSameHorizontalCenter(otpField, authPane)
+    await expectSameHorizontalCenter(otpGroup, authPane)
+    await expectSameHorizontalCenter(alert, otpGroup)
+    await expectSameWidth(otpField, otpGroup)
+
+    const mobileScreenshot = testInfo.outputPath("mobile-otp-centered.png")
+    await page.screenshot({ path: mobileScreenshot })
+    await testInfo.attach("mobile OTP centered", {
+      path: mobileScreenshot,
+      contentType: "image/png",
+    })
+
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await expectSameHorizontalCenter(otpField, authPane)
+    await expectSameHorizontalCenter(otpGroup, authPane)
+    await expectSameHorizontalCenter(alert, otpGroup)
+    await expectSameWidth(otpField, otpGroup)
+
+    const desktopScreenshot = testInfo.outputPath("desktop-otp-centered.png")
+    await page.screenshot({ path: desktopScreenshot })
+    await testInfo.attach("desktop OTP centered", {
+      path: desktopScreenshot,
+      contentType: "image/png",
+    })
 
     await otp.fill("7")
     await browserExpect(alert).toHaveCount(0)

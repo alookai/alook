@@ -46,31 +46,36 @@ export function SignInOtpField({
   onChange: (value: string) => void
 }) {
   return (
-    <Field className="items-center" data-invalid={!!error}>
-      <InputOTP
-        maxLength={6}
-        value={code}
-        onChange={onChange}
-        disabled={loading}
-        aria-label="Verification code"
-        aria-invalid={!!error}
-        aria-describedby={error ? "sign-in-otp-error" : undefined}
-        autoFocus
+    <Field data-invalid={!!error}>
+      <div
+        data-slot="sign-in-otp-field"
+        className="mx-auto flex w-fit! flex-col items-center gap-2"
       >
-        <InputOTPGroup>
-          <InputOTPSlot index={0} />
-          <InputOTPSlot index={1} />
-          <InputOTPSlot index={2} />
-          <InputOTPSlot index={3} />
-          <InputOTPSlot index={4} />
-          <InputOTPSlot index={5} />
-        </InputOTPGroup>
-      </InputOTP>
-      {error && (
-        <FieldError id="sign-in-otp-error" className="text-center">
-          {error}
-        </FieldError>
-      )}
+        <InputOTP
+          maxLength={6}
+          value={code}
+          onChange={onChange}
+          disabled={loading}
+          aria-label="Verification code"
+          aria-invalid={!!error}
+          aria-describedby={error ? "sign-in-otp-error" : undefined}
+          autoFocus
+        >
+          <InputOTPGroup>
+            <InputOTPSlot index={0} />
+            <InputOTPSlot index={1} />
+            <InputOTPSlot index={2} />
+            <InputOTPSlot index={3} />
+            <InputOTPSlot index={4} />
+            <InputOTPSlot index={5} />
+          </InputOTPGroup>
+        </InputOTP>
+        {error && (
+          <FieldError id="sign-in-otp-error" className="w-full text-center">
+            {error}
+          </FieldError>
+        )}
+      </div>
     </Field>
   )
 }

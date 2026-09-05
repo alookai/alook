@@ -34,6 +34,9 @@ describe("sign-in field errors", () => {
     expect(html).toContain('aria-label="Verification code"')
     expect(html).toContain('aria-invalid="true"')
     expect(html).toContain('aria-describedby="sign-in-otp-error"')
+    expect(html).toContain('data-slot="sign-in-otp-field"')
+    expect(html).toMatch(/class="[^"]*mx-auto[^"]*w-fit![^"]*items-center[^"]*"/)
+    expect(html).toContain("w-full text-center")
     expect(html).toContain("text-center")
   })
 
