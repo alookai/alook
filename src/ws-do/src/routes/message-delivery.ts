@@ -10,7 +10,7 @@ import {
   type CommunityWsEvent,
 } from "@alook/shared"
 import { readBoundedJsonRequest } from "../community-browser-event-ingress"
-import { isExactCommunityDeliveryReceipt } from "../community-delivery-receipt"
+import { isExactCommunityDeliveryReceipt, isExactCommunityDeliveryCancellation } from "../community-delivery-receipt"
 import { createInternalCommunityUserBundleRequest } from "../internal-user-broadcast"
 import type { RouterContext } from "../router-context"
 import { settleInBatches } from "../settle-in-batches"
@@ -18,7 +18,7 @@ import { settleInBatches } from "../settle-in-batches"
 const targetBatchSize = 40
 
 type TargetResult =
-  | { ok: true }
+  | { ok: true; outcome: "delivered" | "cancelled" }
   | { ok: false; kind: "throw" | "non-ok" | "invalid-json" | "invalid-receipt" }
 
 function addEvent(
@@ -56,6 +56,9 @@ async function deliverTarget(
     } catch {
       return { ok: false, kind: "invalid-json" }
     }
+    if (response.status === 200 && isExactCommunityDeliveryCancellation(receipt, {
+      targetUserId: userId, operationId, operationDigest: prepared.prepared.digest, eventCount: events.length,
+    })) return { ok: true, outcome: "cancelled" }
     if (!isExactCommunityDeliveryReceipt(receipt, {
       operationId,
       operationDigest: prepared.prepared.digest,
@@ -63,7 +66,7 @@ async function deliverTarget(
     })) {
       return { ok: false, kind: "invalid-receipt" }
     }
-    return { ok: true }
+    return { ok: true, outcome: "delivered" }
   } catch {
     return { ok: false, kind: "throw" }
   }
@@ -171,6 +174,8 @@ export async function handleMessageDelivery(
     targetBatchSize,
   )
   const failedUserIds: string[] = []
+  let deliveredCount = 0
+  let cancelledCount = 0
   const failureCounts = { throw: 0, "non-ok": 0, "invalid-json": 0, "invalid-receipt": 0 }
   for (const [index, result] of results.entries()) {
     const target = entries[index]!
@@ -180,6 +185,10 @@ export async function handleMessageDelivery(
     } else if (!result.value.ok) {
       failedUserIds.push(target[0])
       failureCounts[result.value.kind] += 1
+    } else if (result.value.outcome === "cancelled") {
+      cancelledCount += 1
+    } else {
+      deliveredCount += 1
     }
   }
   log.info("message_delivery_complete", {
@@ -187,6 +196,8 @@ export async function handleMessageDelivery(
     messageId: batch.messageId,
     operationId,
     targetCount: entries.length,
+    deliveredCount,
+    cancelledCount,
     failedCount: failedUserIds.length,
     failureCounts,
     durationMs: Date.now() - startedAt,

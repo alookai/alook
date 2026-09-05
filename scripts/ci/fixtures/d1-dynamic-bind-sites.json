@@ -192,6 +192,11 @@
     "strategy": "subquery"
   },
   {
+    "key": "src/shared/src/db/queries/community/channel.ts:filterChannelReadableUserIds:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
     "key": "src/shared/src/db/queries/community/channel.ts:getChannelsByIds:inArray:1",
     "strategy": "exact-chunk",
     "fixedParams": 10
@@ -203,6 +208,11 @@
   },
   {
     "key": "src/shared/src/db/queries/community/channel.ts:listChildChannelsByParentMessageIds:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/channel.ts:listReadableChannelsForUser:inArray:1",
     "strategy": "exact-chunk",
     "fixedParams": 10
   },

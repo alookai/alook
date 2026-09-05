@@ -217,6 +217,7 @@ describe("useCommunityWs — operation bundles", () => {
         ...message,
         message: { ...message.message, id: "message-next", seq: 2 },
       })
+      capturedOnMessage!({ type: "community:unread.bump", userId: "viewer-1", channelId: "dm-1" })
       releaseRead()
       await vi.advanceTimersByTimeAsync(500)
 
@@ -263,6 +264,7 @@ describe("useCommunityWs — operation bundles", () => {
       )
 
       capturedOnMessage!(message)
+      capturedOnMessage!({ type: "community:unread.bump", userId: "viewer-1", channelId: "dm-1" })
       expect(submitReadIntent(lease, {
         kind: "timeline",
         channelId: "ch-1",
@@ -330,6 +332,7 @@ describe("useCommunityWs — operation bundles", () => {
       )
 
       capturedOnMessage!(message)
+      capturedOnMessage!({ type: "community:unread.bump", userId: "viewer-1", channelId: "dm-1" })
       expect(submitReadIntent(lease, {
         kind: "timeline",
         channelId: "ch-1",
@@ -388,7 +391,7 @@ describe("useCommunityWs — operation bundles", () => {
       expect(invalidationCount(communityKeys.servers())).toBe(1)
       await vi.advanceTimersByTimeAsync(500)
       expect(invalidationCount(communityKeys.inbox())).toBe(1)
-      expect(invalidationCount(communityKeys.dms())).toBe(1)
+      expect(invalidationCount(communityKeys.dms())).toBe(0)
 
       const callsAfterFirst = vi.mocked(capturedQueryClient.invalidateQueries).mock.calls.length
       capturedOnMessage!(frame)
@@ -497,7 +500,7 @@ describe("useCommunityWs — operation bundles", () => {
       expect(invalidationCount(communityKeys.servers())).toBe(1)
       await vi.advanceTimersByTimeAsync(500)
       expect(invalidationCount(communityKeys.inbox())).toBe(1)
-      expect(invalidationCount(communityKeys.dms())).toBe(1)
+      expect(invalidationCount(communityKeys.dms())).toBe(0)
     } finally {
       vi.useRealTimers()
     }
@@ -891,7 +894,7 @@ describe("useCommunityWs — operation bundles", () => {
       const original = await batchFor("bounded-operation", [{
         ...message,
         message: { ...message.message, id: "bounded-operation" },
-      }])
+      }, mentionEvents[1]!])
       capturedOnMessage!(original)
       const conflicts: Awaited<ReturnType<typeof batchFor>>[] = []
       for (let index = 0; index < SEEN_DELIVERY_OPERATION_MAX; index += 1) {
@@ -902,7 +905,7 @@ describe("useCommunityWs — operation bundles", () => {
             id: "bounded-operation",
             content: `conflict-${index}`,
           },
-        }])
+        }, mentionEvents[1]!])
         conflicts.push(conflict)
         capturedOnMessage!(conflict)
       }

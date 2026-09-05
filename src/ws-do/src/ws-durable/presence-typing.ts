@@ -144,7 +144,7 @@ export async function fanOutTyping(
     return
   }
   recipientUserIds = await withD1Retry(
-    () => queries.communityMembersResolver.resolveChannelRecipientUserIds(db, channelId),
+    () => queries.communityMembersResolver.resolveChannelContentRecipientUserIds(db, channelId),
     { route: "ws-do:agent-typing-recipients" },
   )
   recipientUserIds = recipientUserIds.filter((id) => id !== senderUserId)
@@ -179,7 +179,7 @@ export async function fanOutTypingStop(
     return
   }
   let recipientUserIds = await withD1Retry(
-    () => queries.communityMembersResolver.resolveChannelRecipientUserIds(db, channelId),
+    () => queries.communityMembersResolver.resolveChannelContentRecipientUserIds(db, channelId),
     { route: "ws-do:agent-typing-stop-recipients" },
   )
   recipientUserIds = recipientUserIds.filter((id) => id !== senderUserId)

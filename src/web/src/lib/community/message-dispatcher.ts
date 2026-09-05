@@ -35,10 +35,11 @@ const recipientRetryRoute = {
   "thread-participants": "message-dispatcher:thread-participants",
   "dm-members": "message-dispatcher:dm-members",
   "scope-members": "message-dispatcher:scope-members",
+  "readable-members": "message-dispatcher:readable-members",
 } as const
 
 async function resolveRecipients(db: Database, channelId: string): Promise<string[]> {
-  return queries.communityMembersResolver.resolveChannelRecipientUserIds(
+  return queries.communityMembersResolver.resolveChannelContentRecipientUserIds(
     db,
     channelId,
     (phase, query) => withD1Retry(query, { route: recipientRetryRoute[phase] }),
@@ -81,9 +82,17 @@ export async function planCommittedMessage(
     throw new Error("committed message scope not found")
   }
 
-  const candidateContentUserIds = unique(await resolveRecipients(db, channel.id))
+  const [contentCandidates, notificationCandidates] = await Promise.all([
+    resolveRecipients(db, channel.id),
+    queries.communityMembersResolver.resolveChannelNotificationRecipientUserIds(
+      db, channel.id,
+      (phase, query) => withD1Retry(query, { route: recipientRetryRoute[phase] }),
+    ),
+  ])
+  const candidateContentUserIds = unique(contentCandidates)
+  const candidateNotificationUserIds = unique(notificationCandidates)
   const attentionIds = unique(attentionUserIds).filter((id) => id !== message.authorId)
-  const eligibilityUserIds = unique([...candidateContentUserIds, ...attentionIds])
+  const eligibilityUserIds = unique([...candidateContentUserIds, ...candidateNotificationUserIds, ...attentionIds])
 
   const [eligibility, replyTarget] = await Promise.all([
     withD1Retry(
@@ -109,10 +118,13 @@ export async function planCommittedMessage(
   const contentUserIds = candidateContentUserIds.filter(
     (id) => eligibility.get(id)?.isReadable,
   )
-  const notifyContentUserIds = contentUserIds.filter((id) => id !== message.authorId)
+  const contentSet = new Set(contentUserIds)
+  const notificationUserIds = candidateNotificationUserIds.filter(
+    (id) => id !== message.authorId && contentSet.has(id),
+  )
   const wakeCandidates = await withD1Retry(
     () => queries.communityBot.findWakeCandidates(db, {
-      recipients: notifyContentUserIds,
+      recipients: notificationUserIds,
       channelId: message.channelId,
       newSeq: message.seq,
     }),
@@ -130,23 +142,23 @@ export async function planCommittedMessage(
       )
     )
   }
-  const unreadMentionUserIds = notifyContentUserIds.filter((id) => {
+  const unreadMentionUserIds = notificationUserIds.filter((id) => {
     const state = eligibility.get(id)
     return allowed(id) && Boolean(state?.hasAttention)
   })
   const unreadMentionSet = new Set(unreadMentionUserIds)
-  const unreadPlainUserIds = notifyContentUserIds.filter(
+  const unreadPlainUserIds = notificationUserIds.filter(
     (id) => allowed(id) && !unreadMentionSet.has(id),
   )
   const mentionUserIds = attentionIds.filter((id) => {
     const state = eligibility.get(id)
     return allowed(id) && Boolean(state?.hasAttention)
   })
-  const notifyContentSet = new Set(notifyContentUserIds)
+  const notificationSet = new Set(notificationUserIds)
   const wakeBotUserIds = unique(
     wakeCandidates
       .map((candidate) => candidate.botUserId)
-      .filter((id) => notifyContentSet.has(id) && allowed(id)),
+      .filter((id) => notificationSet.has(id) && allowed(id)),
   )
 
   const replyMap = new Map<string, {

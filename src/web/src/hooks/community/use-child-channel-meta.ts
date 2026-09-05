@@ -2,25 +2,12 @@
 
 import { useQuery } from "@tanstack/react-query"
 import { useEffect, useState } from "react"
-import { apiFetch } from "@/lib/api/client"
+import { fetchChannelMetadata, type ChannelMetadata } from "@/hooks/community/channel-metadata"
 import { communityKeys } from "@/lib/query-keys"
 import type { ChildChannelMeta } from "@/hooks/community/use-forum-sidebar-threads"
 import { useCommunityWsStore } from "@/stores/community/ws"
 
-type ChannelMetaPayload = {
-  id: string
-  serverId: string
-  name: string
-  type: string
-  parentChannelId: string | null
-  parentMessageId: string | null
-  creatorId: string | null
-  archived: boolean | number
-  lastMessageAt: string | null
-  createdAt: string
-}
-
-function projectChildMeta(payload: ChannelMetaPayload, verifiedEpoch: number): ChildChannelMeta {
+function projectChildMeta(payload: ChannelMetadata, verifiedEpoch: number): ChildChannelMeta {
   if (!payload.parentChannelId || !payload.parentMessageId) {
     throw new Error("invalid child channel metadata")
   }
@@ -56,12 +43,9 @@ export function useChildChannelMeta(
   const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
   const query = useQuery<ChildChannelMeta>({
     queryKey: communityKeys.channelMeta(serverId, channelId),
-    queryFn: async () => {
-      const requestEpoch = useCommunityWsStore.getState().accessEpoch
-      return projectChildMeta(
-        await apiFetch<ChannelMetaPayload>(`/api/community/channels/${channelId}`),
-        requestEpoch,
-      )
+    queryFn: async ({ signal }) => {
+      const meta = await fetchChannelMetadata(serverId, channelId, signal)
+      return projectChildMeta(meta, meta.verifiedEpoch)
     },
     enabled,
     staleTime: Infinity,

@@ -1180,6 +1180,15 @@ export class AccountUnreadProjection {
     this.publish()
   }
 
+  retireNotificationScope(scope: AccountUnreadScope) {
+    if (this.disposed) return
+    const ordinal = ++this.ordinal
+    this.recordRawRetirementFloor(scope, ordinal)
+    this.pruneScope(scope, ordinal)
+    this.publish()
+    this.requestReconcile()
+  }
+
   retireAccessScope(scope: AccountUnreadScope) {
     if (this.disposed) return
     const token = this.beginScopeRetirement(scope)

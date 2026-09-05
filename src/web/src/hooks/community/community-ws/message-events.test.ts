@@ -114,7 +114,7 @@ describe("useCommunityWs — message.create", () => {
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: communityKeys.forumSidebarThreads("srv_1") })
   })
 
-  it("invalidates the forum-sidebar collection when the active child is not loaded", async () => {
+  it("does not infer sidebar participation from content for an unloaded child", async () => {
     await mountHook()
     seedParent("srv_1", "forum_1", "forum")
     const key = communityKeys.forumSidebarThreads("srv_1")
@@ -127,12 +127,12 @@ describe("useCommunityWs — message.create", () => {
     } satisfies CommunityMessageCreate)
 
     await vi.waitFor(() => {
-      expect(capturedQueryClient.getQueryState(key)?.isInvalidated).toBe(true)
+      expect(capturedQueryClient.getQueryState(key)?.isInvalidated).toBe(false)
     })
   })
 
   it.each([false, true])(
-    "invalidates canonical base for a retained-only child (active=%s) so it survives route exit",
+    "patches retained content without promoting participation (active=%s)",
     async (active) => {
       if (active) {
         const { useCommunityStore } = await import("@/stores/community")
@@ -161,7 +161,7 @@ describe("useCommunityWs — message.create", () => {
         expiresAt: "2026-07-06T00:00:00.000Z",
       })
       await vi.waitFor(() => {
-        expect(capturedQueryClient.getQueryState(key)?.isInvalidated).toBe(true)
+        expect(capturedQueryClient.getQueryState(key)?.isInvalidated).toBe(false)
       })
 
       capturedQueryClient.setQueryData(key, forumSidebarFixture(["post_retained"]))
@@ -544,12 +544,15 @@ describe("useCommunityWs — message.create", () => {
     }
   })
 
-  it("debounces inbox invalidation — 10 messages ⇒ 1 invalidate call", async () => {
+  it("debounces inbox invalidation — 10 real unread signals produce 1 invalidate call", async () => {
     vi.useFakeTimers()
     try {
       await mountHook({ viewerUserId: "u_me" })
       const invalidateSpy = vi.spyOn(capturedQueryClient, "invalidateQueries")
-      for (let i = 0; i < 10; i++) capturedOnMessage!(messageCreate("ch_x", `m_${i}`))
+      for (let i = 0; i < 10; i++) {
+        capturedOnMessage!(messageCreate("ch_x", `m_${i}`))
+        capturedOnMessage!({ type: "community:unread.bump", userId: "u_me", channelId: "ch_x", serverId: "s1" })
+      }
       // Before debounce window, no invalidate.
       expect(invalidateSpy).not.toHaveBeenCalled()
       // Advance past the debounce window — exactly one invalidate.
@@ -588,6 +591,7 @@ describe("useCommunityWs — message.create", () => {
       const event = messageCreate("ch_focused", "m_focused")
 
       capturedOnMessage!(event)
+      capturedOnMessage!({ type: "community:unread.bump", userId: "u_me", channelId: event.channelId })
       capturedOnMessage!(event)
       expect(order).toEqual(["candidate"])
 
@@ -704,6 +708,7 @@ describe("useCommunityWs — message.create", () => {
       const event = messageCreate("ch_focused", "m_visible")
 
       capturedOnMessage!(event)
+      capturedOnMessage!({ type: "community:unread.bump", userId: "u_me", channelId: event.channelId })
       expect(submitReadIntent(lease, {
         kind: "timeline",
         channelId: "ch_focused",
@@ -1044,11 +1049,11 @@ describe("useCommunityWs — DM message.create", () => {
   it("writes the focused DM overlay, leaves Query base-only, and invalidates dms()", async () => {
     vi.useFakeTimers()
     try {
-      await mountHook()
+      await mountHook({ viewerUserId: "u_me" })
       const { useCommunityStore } = await import("@/stores/community")
       useCommunityStore.getState().subscribe({ dmConversationId: "dm_1" })
       resetHookMemoization()
-      await mountHook()
+      await mountHook({ viewerUserId: "u_me" })
 
       capturedQueryClient.setQueryData(communityKeys.dmMessages("dm_1"), {
         pages: [{ messages: [], hasMore: false }],
@@ -1073,6 +1078,7 @@ describe("useCommunityWs — DM message.create", () => {
         },
       }
       capturedOnMessage!(event)
+      capturedOnMessage!({ type: "community:unread.bump", userId: "u_me", channelId: event.channelId })
       const cache = capturedQueryClient.getQueryData<{ pages: { messages: { id: string; seq?: number }[] }[] }>(
         communityKeys.dmMessages("dm_1"),
       )
