@@ -5,6 +5,7 @@ import { withEnv } from "@/lib/middleware/env";
 import {
   expireBrowserAnalyticsCookies,
   isNativeOauthAttemptId,
+  isNativeOauthRequestTarget,
   nativeOauthHtml,
   nativeOauthRedirect,
   nativeOauthReturnUrl,
@@ -32,7 +33,7 @@ export const GET = withEnv(async (request, ctx) => {
   const attemptId = requestUrl.searchParams.get("attempt");
   const kind = requestUrl.searchParams.get("kind");
   if (
-    requestUrl.origin !== baseUrl.origin ||
+    !isNativeOauthRequestTarget(request, ctx.env.BETTER_AUTH_URL) ||
     !isNativeOauthAttemptId(attemptId) ||
     !isCallbackKind(kind)
   ) {

@@ -96,14 +96,33 @@ type StrictSchema<T> = {
     | { success: false };
 };
 
+function isLoopbackHostname(hostname: string): boolean {
+  return hostname === "localhost"
+    || hostname === "127.0.0.1"
+    || hostname === "[::1]";
+}
+
+export function isNativeOauthRequestTarget(
+  request: Request,
+  expectedBaseUrl: string,
+): boolean {
+  const expectedUrl = new URL(expectedBaseUrl);
+  const requestUrl = new URL(request.url);
+  if (requestUrl.origin === expectedUrl.origin) return true;
+  return isLoopbackHostname(requestUrl.hostname)
+    && isLoopbackHostname(expectedUrl.hostname)
+    && request.headers.get("Host") === expectedUrl.host;
+}
+
 export async function parseNativeOauthJson<T>(
   request: Request,
   expectedBaseUrl: string,
   schema: StrictSchema<T>,
 ): Promise<ParsedJson<T>> {
-  const expectedOrigin = new URL(expectedBaseUrl).origin;
+  const expectedUrl = new URL(expectedBaseUrl);
+  const expectedOrigin = expectedUrl.origin;
   if (
-    new URL(request.url).origin !== expectedOrigin ||
+    !isNativeOauthRequestTarget(request, expectedBaseUrl) ||
     request.headers.get("Origin") !== expectedOrigin
   ) {
     return {

@@ -4,6 +4,7 @@ import { getPrimaryDb } from "@/lib/db";
 import { withEnv } from "@/lib/middleware/env";
 import {
   isNativeOauthAttemptId,
+  isNativeOauthRequestTarget,
   nativeOauthCallbackUrls,
   nativeOauthHtml,
   nativeOauthRedirect,
@@ -20,10 +21,9 @@ function errorPage(status: number): Response {
 
 export const GET = withEnv(async (request, ctx) => {
   const requestUrl = new URL(request.url);
-  const baseUrl = new URL(ctx.env.BETTER_AUTH_URL);
   const attemptId = requestUrl.searchParams.get("attempt");
   if (
-    requestUrl.origin !== baseUrl.origin ||
+    !isNativeOauthRequestTarget(request, ctx.env.BETTER_AUTH_URL) ||
     !isNativeOauthAttemptId(attemptId)
   ) {
     return errorPage(400);

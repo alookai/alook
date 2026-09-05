@@ -11,7 +11,7 @@
     "build": "next build",
     "build:blog:next": "tsx blog/scripts/stage-shared-assets.ts && next build blog && tsx blog/scripts/prepare-open-next-standalone.ts",
     "build:blog": "tsx blog/scripts/stage-shared-assets.ts && opennextjs-cloudflare build --config blog/wrangler.toml --openNextConfigPath blog/open-next.config.ts",
-    "build:auth": "wrangler deploy --dry-run --config auth/wrangler.toml --outdir auth/dist",
+    "build:auth": "wrangler deploy --dry-run --config auth/wrangler.toml --outdir dist",
     "validate:blog": "tsx blog/scripts/validate-blog-assets.ts",
     "verify:blog-dry-run": "tsx scripts/verify-blog-dry-run.ts",
     "verify:zone-output": "tsx scripts/verify-zone-output.ts",

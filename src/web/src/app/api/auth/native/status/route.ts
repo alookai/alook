@@ -38,11 +38,13 @@ export const POST = withEnv(async (request, ctx) => {
   }
   if (!row) return nativeOauthJson({ status: "unknown" });
 
-  const status =
-    row.attemptExpiresAt <= Date.now() &&
-    ["pending", "opened", "ready", "exchanging"].includes(row.status)
-      ? "expired"
-      : row.status;
+  const now = Date.now();
+  const isLive = ["pending", "opened", "ready", "exchanging"].includes(row.status);
+  const isHandoffLive = row.status === "ready" || row.status === "exchanging";
+  const status = isLive && (
+    row.attemptExpiresAt <= now
+    || (isHandoffLive && (row.handoffExpiresAt ?? 0) <= now)
+  ) ? "expired" : row.status;
   return nativeOauthJson({
     status,
     ...(status === "failed" && row.failureCode

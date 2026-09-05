@@ -36,6 +36,7 @@ const attemptRow = {
   authKind: "signin",
   status: "opened",
   attemptExpiresAt: Date.now() + 60_000,
+  handoffExpiresAt: null,
   failureCode: null,
 };
 
@@ -329,6 +330,50 @@ describe("native OAuth routes", () => {
     });
   });
 
+  it("lets only one overlapping exchange response release cookies", async () => {
+    const claimed = { ...attemptRow, status: "exchanging" };
+    let releaseClaims!: () => void;
+    const bothClaimsStarted = new Promise<void>((resolve) => {
+      releaseClaims = resolve;
+    });
+    let claimCalls = 0;
+    queryMocks.claimExchange.mockImplementation(async () => {
+      const callIndex = claimCalls;
+      claimCalls += 1;
+      if (claimCalls === 2) releaseClaims();
+      await bothClaimsStarted;
+      return callIndex === 0 ? claimed : null;
+    });
+    queryMocks.finishExchange.mockResolvedValue({
+      ...claimed,
+      status: "consumed",
+    });
+    const headers = new Headers();
+    headers.append("Set-Cookie", "better-auth.session_token=webview; HttpOnly; Path=/");
+    authMocks.verifyOneTimeToken.mockResolvedValue({ headers, response: {} });
+    const route = await loadExchangeRoute();
+
+    const settled = await Promise.allSettled([
+      route(post("/api/auth/native/exchange", { ...proof(), code: CODE })),
+      route(post("/api/auth/native/exchange", { ...proof(), code: CODE })),
+    ]);
+    expect(settled.every((result) => result.status === "fulfilled")).toBe(true);
+    const responses = settled.map((result) => {
+      if (result.status === "rejected") throw result.reason;
+      return result.value;
+    });
+
+    expect(responses.map((response) => response.status).sort()).toEqual([200, 400]);
+    expect(queryMocks.claimExchange).toHaveBeenCalledTimes(2);
+    expect(authMocks.verifyOneTimeToken).toHaveBeenCalledOnce();
+    expect(queryMocks.finishExchange).toHaveBeenCalledOnce();
+    expect(responses.filter((response) =>
+      response.headers.getSetCookie().some((cookie) =>
+        cookie.includes("better-auth.session_token=webview"),
+      ),
+    )).toHaveLength(1);
+  });
+
   it("drops already-created cookies when cancellation wins the final CAS", async () => {
     queryMocks.claimExchange.mockResolvedValue({
       ...attemptRow,
@@ -381,6 +426,43 @@ describe("native OAuth routes", () => {
     expect(await response.json()).toEqual({ status: "expired" });
     expect(queryMocks.cancelAttempt).not.toHaveBeenCalled();
   });
+
+  it.each(["ready", "exchanging"])(
+    "reports an expired %s handoff at its shorter deadline",
+    async (status) => {
+      queryMocks.getAttemptStatus.mockResolvedValue({
+        ...attemptRow,
+        status,
+        attemptExpiresAt: Date.now() + 60_000,
+        handoffExpiresAt: Date.now() - 1,
+      });
+      const route = await loadStatusRoute();
+      const response = await route(post("/api/auth/native/status", proof()));
+
+      expect(await response.json()).toEqual({ status: "expired" });
+      expect(queryMocks.cancelAttempt).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["consumed", "failed", "cancelled", "replaced"])(
+    "keeps terminal %s authoritative after its deadlines",
+    async (status) => {
+      queryMocks.getAttemptStatus.mockResolvedValue({
+        ...attemptRow,
+        status,
+        attemptExpiresAt: Date.now() - 1,
+        handoffExpiresAt: Date.now() - 1,
+        failureCode: status === "failed" ? "invalid_handoff" : null,
+      });
+      const route = await loadStatusRoute();
+      const response = await route(post("/api/auth/native/status", proof()));
+
+      expect(await response.json()).toEqual({
+        status,
+        ...(status === "failed" ? { failure: "invalid_handoff" } : {}),
+      });
+    },
+  );
 
   it("keeps a status D1 outage generic and non-cacheable", async () => {
     queryMocks.getAttemptStatus.mockRejectedValue(new Error("D1 unavailable"));

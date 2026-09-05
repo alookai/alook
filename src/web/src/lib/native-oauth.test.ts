@@ -72,6 +72,65 @@ describe("native OAuth protocol helpers", () => {
     if (!parsed.ok) expect(parsed.response.status).toBe(413);
   });
 
+  it("accepts only the exact preserved Host through a loopback reverse proxy", async () => {
+    const body = {
+      attemptId: ATTEMPT,
+      stateHash: "a".repeat(64),
+      codeChallenge: "C".repeat(43),
+      instanceKeyHash: "b".repeat(64),
+      platform: "ios",
+      provider: "github",
+      redirectPath: "/c/me",
+    };
+    const request = (host: string, internalUrl = "http://127.0.0.1:3001") =>
+      new Request(`${internalUrl}/api/auth/native/attempt`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Host: host,
+          Origin: "http://localhost:3000",
+          "X-Forwarded-Host": "localhost:3000",
+        },
+        body: JSON.stringify(body),
+      });
+
+    const accepted = await parseNativeOauthJson(
+      request("localhost:3000"),
+      "http://localhost:3000",
+      nativeOauthRegistrationSchema,
+    );
+    expect(accepted).toEqual({ ok: true, data: body });
+
+    for (const rejectedRequest of [
+      request("evil.example"),
+      request("localhost:3000", "http://internal.example"),
+    ]) {
+      const rejected = await parseNativeOauthJson(
+        rejectedRequest,
+        "http://localhost:3000",
+        nativeOauthRegistrationSchema,
+      );
+      expect(rejected.ok).toBe(false);
+      if (!rejected.ok) expect(rejected.response.status).toBe(403);
+    }
+
+    const publicTarget = await parseNativeOauthJson(
+      new Request("http://127.0.0.1:3001/api/auth/native/attempt", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Host: "alook.ai",
+          Origin: "https://alook.ai",
+        },
+        body: JSON.stringify(body),
+      }),
+      "https://alook.ai",
+      nativeOauthRegistrationSchema,
+    );
+    expect(publicTarget.ok).toBe(false);
+    if (!publicTarget.ok) expect(publicTarget.response.status).toBe(403);
+  });
+
   it("derives SHA-256 and RFC 7636 S256 values", async () => {
     await expect(sha256Hex("abc")).resolves.toBe(
       "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
