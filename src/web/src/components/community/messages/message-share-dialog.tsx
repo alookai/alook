@@ -62,10 +62,20 @@ function createShareCardAbortError(): DOMException {
 
 function isProfilePhoto(image: HTMLImageElement): boolean {
   return image.hasAttribute("data-avatar-photo-state")
+    || image.getAttribute("data-remote-image-kind") === "identity"
 }
 
 function isFailedProfilePhoto(image: HTMLImageElement): boolean {
   return image.getAttribute("data-avatar-photo-state") === "failed"
+    || (
+      image.getAttribute("data-remote-image-kind") === "identity"
+      && image.getAttribute("data-remote-image-state") === "error"
+    )
+}
+
+function isFailedContentImage(image: HTMLImageElement): boolean {
+  return image.getAttribute("data-remote-image-kind") === "content"
+    && image.getAttribute("data-remote-image-state") === "error"
 }
 
 async function waitForImageLoad(
@@ -79,6 +89,7 @@ async function waitForImageLoad(
   }
   if (signal?.aborted) throw createShareCardAbortError()
   if (isFailedProfilePhoto(image)) return "fallback"
+  if (isFailedContentImage(image)) throw new ShareImageSnapshotError()
 
   if (!image.complete) {
     const result = await new Promise<"loaded" | "error" | "timeout" | "aborted">((resolve) => {
@@ -107,6 +118,7 @@ async function waitForImageLoad(
     if (result === "error") return fallbackOrThrow(new ShareImageSnapshotError())
   }
   if (isFailedProfilePhoto(image)) return "fallback"
+  if (isFailedContentImage(image)) throw new ShareImageSnapshotError()
   if (image.naturalWidth <= 0 || image.naturalHeight <= 0) {
     return fallbackOrThrow(new ShareImageSnapshotError())
   }
@@ -131,6 +143,7 @@ async function waitForImageLoad(
     })
     if (result === "aborted") throw createShareCardAbortError()
     if (isFailedProfilePhoto(image)) return "fallback"
+    if (isFailedContentImage(image)) throw new ShareImageSnapshotError()
     if (result !== "decoded" && isProfilePhoto(image)) return "fallback"
   }
   return "snapshot"

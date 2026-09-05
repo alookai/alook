@@ -28,7 +28,7 @@ import { avatarInitial } from "@/lib/community/avatar"
 import { stripInlineMarkup } from "@alook/shared"
 import type { FileAttachment, ImagePreview, RenderMsg } from "@/lib/community/models/message"
 import type { OpenProfile } from "@/components/community/social/profile-types"
-import { attachmentAspectRatio, attachmentImageFrameStyle } from "./attachment-layout"
+import { attachmentImageFrameStyle } from "./attachment-layout"
 import { AttachmentCard } from "./attachment-card"
 import { displayReplyContent } from "@/lib/community/reply-content"
 import {
@@ -41,6 +41,7 @@ import {
 import { useMobileAvatarMention } from "./use-mobile-avatar-mention"
 import { useCommunityProfile } from "@/stores/community/ws"
 import { MessageReactions } from "./message-reactions"
+import { RemoteContentImage, RemoteIdentityImage } from "@/components/remote-image"
 
 // Whether the "Share as Image" action is offered for a message. Share is
 // computed inside `Message` from the message alone (no handler is threaded in),
@@ -693,32 +694,27 @@ function MessageImpl({
                 if (a.kind === "image") {
                   const frameStyle = attachmentImageFrameStyle(a.width, a.height)
                   return (
-                    <button
+                    <RemoteContentImage
                       key={i}
-                      onClick={() => onPreviewImage?.({
+                      data-testid={tid.messageImage(m.id, i)}
+                      src={a.thumbnailUrl ?? a.url}
+                      alt={a.name}
+                      width={a.width}
+                      height={a.height}
+                      loading="lazy"
+                      onActivate={() => onPreviewImage?.({
                         originalUrl: a.url,
                         thumbnailUrl: a.thumbnailUrl,
                         name: a.name,
                         width: a.width,
                         height: a.height,
                       })}
-                      className={`${frameStyle ? "relative" : "w-fit"} block max-w-full overflow-hidden rounded-lg border border-border transition-colors hover:border-primary/40`}
-                      style={frameStyle}
-                    >
-                      <img
-                        data-testid={tid.messageImage(m.id, i)}
-                        src={a.thumbnailUrl ?? a.url}
-                        alt={a.name}
-                        width={a.width}
-                        height={a.height}
-                        className={frameStyle
-                          ? "absolute inset-0 block size-full rounded-lg object-contain"
-                          : "block h-auto w-auto max-h-75 max-w-full rounded-lg object-contain"}
-                        style={frameStyle ? undefined : { aspectRatio: attachmentAspectRatio(a.width, a.height) }}
-                        onLoad={onImageLoad}
-                        loading="lazy"
-                      />
-                    </button>
+                      frameClassName="block max-w-full rounded-lg border border-border transition-colors hover:border-primary/40"
+                      frameStyle={frameStyle}
+                      imageClassName="block rounded-lg object-contain"
+                      errorLabel="Attachment failed to load"
+                      onReady={onImageLoad ? () => onImageLoad() : undefined}
+                    />
                   )
                 }
                 return <AttachmentCard key={i} attachment={a} onPreview={onPreviewAttachment} />
@@ -743,7 +739,14 @@ function MessageImpl({
                     {embed.author && (
                       <div className="mb-2 flex items-center gap-2">
                         {embed.author.iconUrl ? (
-                          <img src={embed.author.iconUrl} alt="" className="size-5 rounded-full" />
+                          <span className="relative block size-5 overflow-hidden rounded-full" aria-hidden>
+                            <RemoteIdentityImage
+                              src={embed.author.iconUrl}
+                              alt=""
+                              className="rounded-full"
+                              placeholderClassName="rounded-full"
+                            />
+                          </span>
                         ) : (
                           <span className="grid size-5 place-items-center rounded-full bg-muted text-[9px] font-semibold text-muted-foreground">{avatarInitial(embed.author.name)}</span>
                         )}
@@ -774,19 +777,46 @@ function MessageImpl({
                     )}
 
                     {embed.image && (
-                      <img src={embed.image.url} alt="" width={embed.image.width} height={embed.image.height} className="mt-2 w-full max-w-100 rounded-sm object-cover" style={{ aspectRatio: embed.image.width && embed.image.height ? `${embed.image.width}/${embed.image.height}` : "40/21" }} onLoad={onImageLoad} />
+                      <RemoteContentImage
+                        src={embed.image.url}
+                        alt="Embed image"
+                        width={embed.image.width}
+                        height={embed.image.height}
+                        loading="lazy"
+                        frameClassName="mt-2 w-full max-w-100 rounded-sm"
+                        frameStyle={{ aspectRatio: embed.image.width && embed.image.height ? `${embed.image.width}/${embed.image.height}` : "40/21" }}
+                        imageClassName="rounded-sm object-cover"
+                        errorLabel="Embed image failed to load"
+                        onReady={onImageLoad ? () => onImageLoad() : undefined}
+                      />
                     )}
 
                     {embed.footer && (
                       <div className="mt-2 flex items-center gap-2 text-[11px] text-muted-foreground">
-                        {embed.footer.iconUrl && <img src={embed.footer.iconUrl} alt="" className="size-4 rounded-full" />}
+                        {embed.footer.iconUrl && (
+                          <span className="relative block size-4 overflow-hidden rounded-full" aria-hidden>
+                            <RemoteIdentityImage
+                              src={embed.footer.iconUrl}
+                              alt=""
+                              className="rounded-full"
+                              placeholderClassName="rounded-full"
+                            />
+                          </span>
+                        )}
                         <span>{embed.footer.text}</span>
                       </div>
                     )}
                   </div>
 
                   {embed.thumbnail && (
-                    <img src={embed.thumbnail.url} alt="" className="ml-3 size-16 shrink-0 rounded-md object-cover" />
+                    <RemoteContentImage
+                      src={embed.thumbnail.url}
+                      alt="Embed thumbnail"
+                      loading="lazy"
+                      frameClassName="ml-3 size-16 shrink-0 rounded-md"
+                      imageClassName="rounded-md object-cover"
+                      errorLabel="Thumbnail failed to load"
+                    />
                   )}
                 </article>
               ))}

@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { GeneratedAvatar } from "./generated-avatar";
 import { resolveAvatar } from "@/lib/avatar/resolve";
+import { RemoteIdentityImage } from "@/components/remote-image";
+import { cn } from "@/lib/utils";
 
 // beam is a static SVG with no animatable internal parts, so only the
 // container-level animations survive the migration off the procedural
@@ -53,7 +55,18 @@ export function AnimatedAvatar({ seed, avatarUrl, size, className, isHovered, is
   return (
     <div className={animClass ?? undefined}>
       {resolved.kind === "photo" ? (
-        <img src={resolved.url} alt="" className={`object-cover align-middle ${className ?? ""}`} style={{ width: size, height: size }} />
+        <span
+          aria-hidden
+          className={cn("relative block overflow-hidden align-middle", className)}
+          style={{ width: size, height: size }}
+        >
+          <RemoteIdentityImage
+            src={resolved.url}
+            alt=""
+            className="rounded-[inherit]"
+            placeholderClassName="rounded-[inherit]"
+          />
+        </span>
       ) : (
         <GeneratedAvatar seed={resolved.seed} size={size} className={className} />
       )}

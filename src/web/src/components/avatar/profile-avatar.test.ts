@@ -26,7 +26,7 @@ describe("ProfileAvatar", () => {
     expect(html).toContain('data-testid="profile-avatar"')
     expect(html).toContain('data-avatar-kind="photo"')
     expect(html).toContain('data-slot="avatar-photo-placeholder" data-avatar-photo-placeholder="pending"')
-    expect(html).toContain("size-full rounded-full bg-muted animate-pulse motion-reduce:animate-none")
+    expect(html).toContain("absolute inset-0 bg-muted animate-pulse motion-reduce:animate-none rounded-full")
     expect(html).not.toContain('data-slot="avatar-fallback"')
     expect(html).not.toContain(">A</span>")
     expect(html).toContain('data-slot="avatar-image" data-avatar-photo-state="pending"')

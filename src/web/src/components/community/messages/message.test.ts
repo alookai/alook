@@ -45,8 +45,14 @@ describe("attachmentImageFrameStyle", () => {
     })
   })
 
-  it("keeps legacy incomplete dimensions on intrinsic fallback", () => {
-    expect(attachmentImageFrameStyle(undefined, 80)).toBeUndefined()
-    expect(attachmentImageFrameStyle(120, undefined)).toBeUndefined()
+  it("reserves a safe fixed frame for legacy incomplete dimensions", () => {
+    expect(attachmentImageFrameStyle(undefined, 80)).toEqual({
+      width: "min(100%, 300px)",
+      aspectRatio: "4/3",
+    })
+    expect(attachmentImageFrameStyle(120, undefined)).toEqual({
+      width: "min(100%, 300px)",
+      aspectRatio: "4/3",
+    })
   })
 })

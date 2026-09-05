@@ -14,7 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { EntityIcon } from "../entity-icon"
 import { SlugHint } from "../settings/slug-hint"
 import { previewSlug } from "@/lib/community/slug-preview"
-import { SeededBackdrop } from "@/components/avatar"
+import { ServerIcon } from "@/components/community/server-icon"
 import type { RightPanel } from "@/components/community/shell/panel-types"
 import type { EntityKind } from "@/lib/community/models/navigation"
 import { CreateDialogShell } from "../settings/create-dialog-shell"
@@ -209,13 +209,15 @@ function ServerCrumb({ id, name, icon, size = 5, className = "" }: { id: string;
   const iconTextCls = size === 7 ? "text-xs" : size === 6 ? "text-[0.6875rem]" : "text-[0.625rem]"
   const initialTextCls = size === 7 ? "text-base" : size === 6 ? "text-sm" : "text-xs"
   return (
-    <span
+    <ServerIcon
+      id={id}
+      name={name}
+      initial={avatarInitial(name)}
+      icon={icon}
+      size={size * 4}
       className={`relative grid shrink-0 place-items-center overflow-hidden rounded-md ${icon ? `font-semibold ${iconTextCls} bg-secondary text-foreground` : `font-brand font-bold ${initialTextCls} text-white [text-shadow:0_1px_2px_rgb(0_0_0/0.35)]`} ${sizeCls} ${className}`}
-      aria-label={name}
       title={name}
-    >
-      {icon ? <img src={icon} alt="" className="size-full object-cover" /> : <><SeededBackdrop seed={id} /><span className="relative -translate-x-px [-webkit-text-stroke:0.5px_currentColor]">{avatarInitial(name)}</span></>}
-    </span>
+    />
   )
 }
 

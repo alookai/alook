@@ -35,7 +35,9 @@ describe("ServerIcon seeded fallback", () => {
       initial: "A",
       icon: "/icon.png",
     }))
-    expect(html).toContain('<img src="/icon.png" alt="Alook"')
+    expect(html).toContain('role="img" aria-label="Alook"')
+    expect(html).toContain('data-remote-image-kind="identity"')
+    expect(html).toContain('src="/icon.png" alt=""')
     expect(html).not.toContain("<svg")
   })
 })

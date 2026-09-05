@@ -193,6 +193,21 @@ describe("ImageLightbox", () => {
     })
   })
 
+  it("turns a stalled eager original into a static retryable error", async () => {
+    vi.useFakeTimers()
+    const { renderer } = renderLightbox({ originalUrl: "/stalled", name: "stalled" })
+    const loading = renderer.root.findByProps({ "data-testid": tid.imageLightboxLoading })
+    expect(loading.props.className).toContain("motion-reduce:animate-none")
+
+    await act(async () => vi.advanceTimersByTime(5_000))
+
+    expect(renderer.root.findAllByProps({ "data-testid": tid.imageLightboxLoading })).toHaveLength(0)
+    const error = renderer.root.findByProps({ "data-testid": tid.imageLightboxError })
+    expect(error.findByType("span").children).toEqual(["Failed to load original image"])
+    expect(renderer.root.findByProps({ "data-testid": tid.imageLightboxRetry }).props.className).toContain("min-w-12")
+    vi.useRealTimers()
+  })
+
   it("keeps a cold preview hidden until the thumbnail decodes, then paints it before an already-decoded original", async () => {
     let runAnimationFrame: FrameRequestCallback | undefined
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {

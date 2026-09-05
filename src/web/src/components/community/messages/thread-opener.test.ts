@@ -138,9 +138,10 @@ describe("ThreadOpener image attachment layout", () => {
     expect(image.props).toMatchObject({ width: 396, height: 702 })
     expect(image.props.className).toContain("size-full")
     expect(image.props.className).toContain("absolute")
-    expect(image.parent?.props.className).toContain("relative")
-    expect(image.parent?.props.className).toContain("max-w-full")
-    expect(image.parent?.props.style).toEqual({
+    const frame = renderer!.root.findByProps({ "data-remote-image-frame": true })
+    expect(frame.props.className).toContain("relative")
+    expect(frame.props.className).toContain("max-w-full")
+    expect(frame.props.style).toEqual({
       width: "min(100%, 169.231px)",
       aspectRatio: "396/702",
     })

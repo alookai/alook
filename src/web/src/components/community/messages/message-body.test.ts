@@ -63,7 +63,7 @@ describe("MessageBody — theme contrast", () => {
 })
 
 describe("MessageBody — remote image geometry", () => {
-  it("keeps Streamdown's native image wrapper and download control", () => {
+  it("keeps Streamdown's native image wrapper and download control", async () => {
     let renderer: TestRenderer.ReactTestRenderer
     act(() => {
       renderer = TestRenderer.create(
@@ -73,14 +73,21 @@ describe("MessageBody — remote image geometry", () => {
 
     expect(renderer!.root.findAllByProps({ "data-streamdown": "image-wrapper" })).toHaveLength(1)
     const image = renderer!.root.findByProps({ "data-streamdown": "image" })
-    act(() => image.props.onLoad({}))
+    await act(async () => image.props.onLoad({
+      currentTarget: {
+        decode: () => Promise.resolve(),
+        naturalWidth: 800,
+        naturalHeight: 450,
+      },
+    }))
     expect(renderer!.root.findByProps({ title: "Download image" }).type).toBe("button")
   })
 
   it("caps community Markdown images at 300px without distorting their ratio", () => {
     const css = readFileSync(resolve(componentDirectory, "../../../app/globals.css"), "utf8")
     expect(css).toContain('[data-community-message-body] [data-streamdown="image-wrapper"]')
-    expect(css).toMatch(/\[data-community-message-body\] \[data-streamdown="image"\][^{]*\{[^}]*width: auto;[^}]*height: auto;[^}]*max-width: 100%;[^}]*max-height: 18\.75rem;[^}]*object-fit: contain;/s)
+    expect(css).toMatch(/\[data-community-message-body\] \[data-streamdown="image-wrapper"\][^{]*\{[^}]*max-width: 100%;/s)
+    expect(css).toMatch(/\[data-community-message-body\] \[data-streamdown="image"\][^{]*\{[^}]*width: 100%;[^}]*height: 100%;[^}]*max-width: 100%;[^}]*max-height: 100%;[^}]*object-fit: contain;/s)
   })
 })
 

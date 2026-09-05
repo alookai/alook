@@ -24,6 +24,7 @@ import { toast } from "sonner";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { useHoverCapable } from "@/hooks/use-hover-capable";
 import { useLongPress } from "@/hooks/use-long-press";
+import { RemoteContentImage } from "@/components/remote-image";
 
 const MENTION_ALLOWED_TAGS = { mention: ["data-agent-id"] };
 const MENTION_LITERAL_TAGS = ["mention"];
@@ -233,14 +234,17 @@ function ImageAttachmentCards({
           ? getArtifactThumbnailUrl(a.id, workspaceId)
           : undefined;
         return thumbUrl ? (
-          <button
+          <RemoteContentImage
             key={a.id}
-            type="button"
-            onClick={(e) => { e.stopPropagation(); onArtifactClick(a); }}
-            className="max-w-48 overflow-hidden rounded-(--radius) border border-(--border) cursor-pointer [transition:translate_.2s_cubic-bezier(.2,.8,.2,1),box-shadow_.2s_ease] hover:-translate-y-0.5 [box-shadow:var(--e1)] hover:[box-shadow:var(--e2)]"
-          >
-            <img src={thumbUrl} alt={a.filename} loading="lazy" className="block w-full h-auto" />
-          </button>
+            src={thumbUrl}
+            alt={a.filename}
+            loading="lazy"
+            onActivate={(event) => { event.stopPropagation(); onArtifactClick(a); }}
+            frameClassName="w-48 max-w-full rounded-(--radius) border border-(--border) [transition:translate_.2s_cubic-bezier(.2,.8,.2,1),box-shadow_.2s_ease] hover:-translate-y-0.5 hover:[box-shadow:var(--e2)] [box-shadow:var(--e1)]"
+            frameStyle={{ aspectRatio: "8/5" }}
+            imageClassName="object-contain"
+            errorLabel="Preview failed to load"
+          />
         ) : (
           <button
             key={a.id}
