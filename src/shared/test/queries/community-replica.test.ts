@@ -21,6 +21,7 @@ import { readStableReplicaSnapshot } from "../../src/db/queries/community/replic
 import { readReplicaDeltaWindow } from "../../src/db/queries/community/replica-delta";
 
 const channel = { kind: "channel" as const, id: "c1" };
+const channel2 = { kind: "channel" as const, id: "c2" };
 const account = { kind: "account" as const, id: "u1" };
 
 describe("Replica storage descriptors", () => {
@@ -92,6 +93,39 @@ describe("readReplicaDeltaWindow", () => {
       rows: [expect.objectContaining({ revision: 3 })],
       frontier: [{ scope: channel, revision: 3 }],
       hasMore: true,
+    });
+  });
+
+  it("never splits one causal commit across channel scopes at the batch limit", async () => {
+    mocks.revisions.mockResolvedValue([
+      { scope: channel, revision: 1 },
+      { scope: channel2, revision: 1 },
+    ]);
+    mocks.rows
+      .mockResolvedValueOnce([
+        { scopeKind: "channel", scopeId: "c1", revision: 1, causalId: "shared", committedAt: "2026-09-06T00:00:00.000Z", descriptor: { kind: "message-upsert", messageId: "m1" } },
+      ])
+      .mockResolvedValueOnce([
+        { scopeKind: "channel", scopeId: "c2", revision: 1, causalId: "shared", committedAt: "2026-09-06T00:00:00.000Z", descriptor: { kind: "message-upsert", messageId: "m2" } },
+      ]);
+    await expect(readReplicaDeltaWindow(
+      {} as any,
+      [
+        { scope: channel, revision: 0 },
+        { scope: channel2, revision: 0 },
+      ],
+      1,
+    )).resolves.toEqual({
+      status: "ok",
+      rows: [
+        expect.objectContaining({ scopeId: "c1", causalId: "shared" }),
+        expect.objectContaining({ scopeId: "c2", causalId: "shared" }),
+      ],
+      frontier: [
+        { scope: channel, revision: 1 },
+        { scope: channel2, revision: 1 },
+      ],
+      hasMore: false,
     });
   });
 

@@ -91,16 +91,48 @@ CREATE TRIGGER `replica_category_delete` BEFORE DELETE ON `community_category` B
 END;
 
 CREATE TRIGGER `replica_channel_insert` AFTER INSERT ON `community_channel` WHEN NEW.`server_id` IS NOT NULL BEGIN
-  INSERT INTO `community_replica_scope_revision` VALUES ('server', NEW.`server_id`, 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  INSERT INTO `community_replica_scope_revision`
+  SELECT 'server', NEW.`server_id`, 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+  WHERE NEW.`parent_channel_id` IS NULL
   ON CONFLICT (`scope_kind`, `scope_id`) DO UPDATE SET `revision` = `community_replica_scope_revision`.`revision` + 1, `updated_at` = excluded.`updated_at`;
+  INSERT INTO `community_replica_scope_revision`
+  SELECT 'channel', NEW.`parent_channel_id`, 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+  WHERE NEW.`parent_channel_id` IS NOT NULL AND NEW.`parent_message_id` IS NOT NULL
+  ON CONFLICT (`scope_kind`, `scope_id`) DO UPDATE SET `revision` = `community_replica_scope_revision`.`revision` + 1, `updated_at` = excluded.`updated_at`;
+  INSERT INTO `community_replica_delta` (`scope_kind`, `scope_id`, `revision`, `causal_id`, `committed_at`, `descriptor`)
+  SELECT 'channel', NEW.`parent_channel_id`, `revision`, 'thread:' || NEW.`id`, `updated_at`, json_object('kind', 'message-upsert', 'messageId', NEW.`parent_message_id`)
+  FROM `community_replica_scope_revision`
+  WHERE `scope_kind` = 'channel' AND `scope_id` = NEW.`parent_channel_id` AND NEW.`parent_message_id` IS NOT NULL;
 END;
-CREATE TRIGGER `replica_channel_update` AFTER UPDATE ON `community_channel` WHEN NEW.`server_id` IS NOT NULL BEGIN
-  INSERT INTO `community_replica_scope_revision` VALUES ('server', NEW.`server_id`, 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+CREATE TRIGGER `replica_channel_update`
+AFTER UPDATE OF `server_id`, `category_id`, `name`, `type`, `topic`, `position`, `parent_channel_id`, `creator_id`, `archived`, `parent_message_id`
+ON `community_channel` WHEN NEW.`server_id` IS NOT NULL BEGIN
+  INSERT INTO `community_replica_scope_revision`
+  SELECT 'server', NEW.`server_id`, 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+  WHERE NEW.`parent_channel_id` IS NULL
   ON CONFLICT (`scope_kind`, `scope_id`) DO UPDATE SET `revision` = `community_replica_scope_revision`.`revision` + 1, `updated_at` = excluded.`updated_at`;
+  INSERT INTO `community_replica_scope_revision`
+  SELECT 'channel', NEW.`parent_channel_id`, 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+  WHERE NEW.`parent_channel_id` IS NOT NULL AND NEW.`parent_message_id` IS NOT NULL
+  ON CONFLICT (`scope_kind`, `scope_id`) DO UPDATE SET `revision` = `community_replica_scope_revision`.`revision` + 1, `updated_at` = excluded.`updated_at`;
+  INSERT INTO `community_replica_delta` (`scope_kind`, `scope_id`, `revision`, `causal_id`, `committed_at`, `descriptor`)
+  SELECT 'channel', NEW.`parent_channel_id`, `revision`, 'thread-update:' || NEW.`id` || ':' || `revision`, `updated_at`, json_object('kind', 'message-upsert', 'messageId', NEW.`parent_message_id`)
+  FROM `community_replica_scope_revision`
+  WHERE `scope_kind` = 'channel' AND `scope_id` = NEW.`parent_channel_id` AND NEW.`parent_message_id` IS NOT NULL;
 END;
 CREATE TRIGGER `replica_channel_delete` BEFORE DELETE ON `community_channel` WHEN OLD.`server_id` IS NOT NULL BEGIN
-  INSERT INTO `community_replica_scope_revision` VALUES ('server', OLD.`server_id`, 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  INSERT INTO `community_replica_scope_revision`
+  SELECT 'server', OLD.`server_id`, 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+  WHERE OLD.`parent_channel_id` IS NULL
   ON CONFLICT (`scope_kind`, `scope_id`) DO UPDATE SET `revision` = `community_replica_scope_revision`.`revision` + 1, `updated_at` = excluded.`updated_at`;
+  INSERT INTO `community_replica_scope_revision`
+  SELECT 'channel', OLD.`parent_channel_id`, 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+  WHERE OLD.`parent_channel_id` IS NOT NULL AND OLD.`parent_message_id` IS NOT NULL
+  ON CONFLICT (`scope_kind`, `scope_id`) DO UPDATE SET `revision` = `community_replica_scope_revision`.`revision` + 1, `updated_at` = excluded.`updated_at`;
+  INSERT INTO `community_replica_delta` (`scope_kind`, `scope_id`, `revision`, `causal_id`, `committed_at`, `descriptor`)
+  SELECT 'channel', OLD.`parent_channel_id`, `revision`, 'thread-delete:' || OLD.`id`, `updated_at`, json_object('kind', 'message-upsert', 'messageId', OLD.`parent_message_id`)
+  FROM `community_replica_scope_revision`
+  WHERE `scope_kind` = 'channel' AND `scope_id` = OLD.`parent_channel_id` AND OLD.`parent_message_id` IS NOT NULL;
 END;
 
 CREATE TRIGGER `replica_server_member_insert` AFTER INSERT ON `community_server_member` BEGIN
@@ -125,14 +157,32 @@ END;
 CREATE TRIGGER `replica_channel_member_insert` AFTER INSERT ON `community_channel_member` BEGIN
   INSERT INTO `community_replica_scope_revision`
   SELECT 'server', `server_id`, 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now') FROM `community_channel`
-  WHERE `id` = NEW.`channel_id` AND `server_id` IS NOT NULL
+  WHERE `id` = NEW.`channel_id` AND `server_id` IS NOT NULL AND `parent_channel_id` IS NULL
   ON CONFLICT (`scope_kind`, `scope_id`) DO UPDATE SET `revision` = `community_replica_scope_revision`.`revision` + 1, `updated_at` = excluded.`updated_at`;
+  INSERT INTO `community_replica_scope_revision`
+  SELECT 'channel', `parent_channel_id`, 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now') FROM `community_channel`
+  WHERE `id` = NEW.`channel_id` AND `parent_channel_id` IS NOT NULL AND `parent_message_id` IS NOT NULL
+  ON CONFLICT (`scope_kind`, `scope_id`) DO UPDATE SET `revision` = `community_replica_scope_revision`.`revision` + 1, `updated_at` = excluded.`updated_at`;
+  INSERT INTO `community_replica_delta` (`scope_kind`, `scope_id`, `revision`, `causal_id`, `committed_at`, `descriptor`)
+  SELECT 'channel', child.`parent_channel_id`, scope.`revision`, 'thread-member:' || NEW.`id`, scope.`updated_at`, json_object('kind', 'message-upsert', 'messageId', child.`parent_message_id`)
+  FROM `community_channel` AS child
+  JOIN `community_replica_scope_revision` AS scope ON scope.`scope_kind` = 'channel' AND scope.`scope_id` = child.`parent_channel_id`
+  WHERE child.`id` = NEW.`channel_id` AND child.`parent_message_id` IS NOT NULL;
 END;
 CREATE TRIGGER `replica_channel_member_delete` BEFORE DELETE ON `community_channel_member` BEGIN
   INSERT INTO `community_replica_scope_revision`
   SELECT 'server', `server_id`, 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now') FROM `community_channel`
-  WHERE `id` = OLD.`channel_id` AND `server_id` IS NOT NULL
+  WHERE `id` = OLD.`channel_id` AND `server_id` IS NOT NULL AND `parent_channel_id` IS NULL
   ON CONFLICT (`scope_kind`, `scope_id`) DO UPDATE SET `revision` = `community_replica_scope_revision`.`revision` + 1, `updated_at` = excluded.`updated_at`;
+  INSERT INTO `community_replica_scope_revision`
+  SELECT 'channel', `parent_channel_id`, 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now') FROM `community_channel`
+  WHERE `id` = OLD.`channel_id` AND `parent_channel_id` IS NOT NULL AND `parent_message_id` IS NOT NULL
+  ON CONFLICT (`scope_kind`, `scope_id`) DO UPDATE SET `revision` = `community_replica_scope_revision`.`revision` + 1, `updated_at` = excluded.`updated_at`;
+  INSERT INTO `community_replica_delta` (`scope_kind`, `scope_id`, `revision`, `causal_id`, `committed_at`, `descriptor`)
+  SELECT 'channel', child.`parent_channel_id`, scope.`revision`, 'thread-member-delete:' || OLD.`id`, scope.`updated_at`, json_object('kind', 'message-upsert', 'messageId', child.`parent_message_id`)
+  FROM `community_channel` AS child
+  JOIN `community_replica_scope_revision` AS scope ON scope.`scope_kind` = 'channel' AND scope.`scope_id` = child.`parent_channel_id`
+  WHERE child.`id` = OLD.`channel_id` AND child.`parent_message_id` IS NOT NULL;
 END;
 
 CREATE TRIGGER `replica_message_insert` AFTER INSERT ON `community_message` BEGIN
@@ -141,6 +191,15 @@ CREATE TRIGGER `replica_message_insert` AFTER INSERT ON `community_message` BEGI
   INSERT INTO `community_replica_delta` (`scope_kind`, `scope_id`, `revision`, `causal_id`, `committed_at`, `descriptor`)
   SELECT 'channel', NEW.`channel_id`, `revision`, 'message:' || NEW.`id`, `updated_at`, json_object('kind', 'message-upsert', 'messageId', NEW.`id`)
   FROM `community_replica_scope_revision` WHERE `scope_kind` = 'channel' AND `scope_id` = NEW.`channel_id`;
+  INSERT INTO `community_replica_scope_revision`
+  SELECT 'channel', `parent_channel_id`, 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now') FROM `community_channel`
+  WHERE `id` = NEW.`channel_id` AND `parent_channel_id` IS NOT NULL AND `parent_message_id` IS NOT NULL
+  ON CONFLICT (`scope_kind`, `scope_id`) DO UPDATE SET `revision` = `community_replica_scope_revision`.`revision` + 1, `updated_at` = excluded.`updated_at`;
+  INSERT INTO `community_replica_delta` (`scope_kind`, `scope_id`, `revision`, `causal_id`, `committed_at`, `descriptor`)
+  SELECT 'channel', child.`parent_channel_id`, scope.`revision`, 'message:' || NEW.`id`, scope.`updated_at`, json_object('kind', 'message-upsert', 'messageId', child.`parent_message_id`)
+  FROM `community_channel` AS child
+  JOIN `community_replica_scope_revision` AS scope ON scope.`scope_kind` = 'channel' AND scope.`scope_id` = child.`parent_channel_id`
+  WHERE child.`id` = NEW.`channel_id` AND child.`parent_message_id` IS NOT NULL;
   INSERT INTO `community_replica_scope_revision` (`scope_kind`, `scope_id`, `revision`, `updated_at`)
   SELECT 'account', `user_id`, 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now') FROM `community_server_member`
   WHERE `server_id` = (SELECT `server_id` FROM `community_channel` WHERE `id` = NEW.`channel_id`)
@@ -153,6 +212,16 @@ CREATE TRIGGER `replica_message_update` AFTER UPDATE ON `community_message` BEGI
   INSERT INTO `community_replica_delta` (`scope_kind`, `scope_id`, `revision`, `causal_id`, `committed_at`, `descriptor`)
   SELECT 'channel', NEW.`channel_id`, `revision`, 'message-update:' || NEW.`id` || ':' || `revision`, `updated_at`, json_object('kind', 'message-upsert', 'messageId', NEW.`id`)
   FROM `community_replica_scope_revision` WHERE `scope_kind` = 'channel' AND `scope_id` = NEW.`channel_id`;
+  INSERT INTO `community_replica_scope_revision`
+  SELECT 'channel', `parent_channel_id`, 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now') FROM `community_channel`
+  WHERE `id` = NEW.`channel_id` AND `parent_channel_id` IS NOT NULL AND `parent_message_id` IS NOT NULL
+  ON CONFLICT (`scope_kind`, `scope_id`) DO UPDATE SET `revision` = `community_replica_scope_revision`.`revision` + 1, `updated_at` = excluded.`updated_at`;
+  INSERT INTO `community_replica_delta` (`scope_kind`, `scope_id`, `revision`, `causal_id`, `committed_at`, `descriptor`)
+  SELECT 'channel', child.`parent_channel_id`, parent_scope.`revision`, 'message-update:' || NEW.`id` || ':' || child_scope.`revision`, parent_scope.`updated_at`, json_object('kind', 'message-upsert', 'messageId', child.`parent_message_id`)
+  FROM `community_channel` AS child
+  JOIN `community_replica_scope_revision` AS child_scope ON child_scope.`scope_kind` = 'channel' AND child_scope.`scope_id` = NEW.`channel_id`
+  JOIN `community_replica_scope_revision` AS parent_scope ON parent_scope.`scope_kind` = 'channel' AND parent_scope.`scope_id` = child.`parent_channel_id`
+  WHERE child.`id` = NEW.`channel_id` AND child.`parent_message_id` IS NOT NULL;
 END;
 
 CREATE TRIGGER `replica_message_delete` BEFORE DELETE ON `community_message` BEGIN
@@ -161,6 +230,16 @@ CREATE TRIGGER `replica_message_delete` BEFORE DELETE ON `community_message` BEG
   INSERT INTO `community_replica_delta` (`scope_kind`, `scope_id`, `revision`, `causal_id`, `committed_at`, `descriptor`)
   SELECT 'channel', OLD.`channel_id`, `revision`, 'message-delete:' || OLD.`id` || ':' || `revision`, `updated_at`, json_object('kind', 'message-remove', 'messageId', OLD.`id`)
   FROM `community_replica_scope_revision` WHERE `scope_kind` = 'channel' AND `scope_id` = OLD.`channel_id`;
+  INSERT INTO `community_replica_scope_revision`
+  SELECT 'channel', `parent_channel_id`, 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now') FROM `community_channel`
+  WHERE `id` = OLD.`channel_id` AND `parent_channel_id` IS NOT NULL AND `parent_message_id` IS NOT NULL
+  ON CONFLICT (`scope_kind`, `scope_id`) DO UPDATE SET `revision` = `community_replica_scope_revision`.`revision` + 1, `updated_at` = excluded.`updated_at`;
+  INSERT INTO `community_replica_delta` (`scope_kind`, `scope_id`, `revision`, `causal_id`, `committed_at`, `descriptor`)
+  SELECT 'channel', child.`parent_channel_id`, parent_scope.`revision`, 'message-delete:' || OLD.`id` || ':' || child_scope.`revision`, parent_scope.`updated_at`, json_object('kind', 'message-upsert', 'messageId', child.`parent_message_id`)
+  FROM `community_channel` AS child
+  JOIN `community_replica_scope_revision` AS child_scope ON child_scope.`scope_kind` = 'channel' AND child_scope.`scope_id` = OLD.`channel_id`
+  JOIN `community_replica_scope_revision` AS parent_scope ON parent_scope.`scope_kind` = 'channel' AND parent_scope.`scope_id` = child.`parent_channel_id`
+  WHERE child.`id` = OLD.`channel_id` AND child.`parent_message_id` IS NOT NULL;
 END;
 
 CREATE TRIGGER `replica_read_state_insert` AFTER INSERT ON `community_read_state` BEGIN

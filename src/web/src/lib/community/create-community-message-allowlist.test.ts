@@ -19,6 +19,9 @@ const ALLOWLIST = [
   // The canonical id-in-path message door (human + bot, folds flat `send` and
   // the former dm/[id]/messages route — DM now flows through this one tree).
   "src/app/api/community/channels/[id]/messages/route.ts",
+  // Replica text intents enter the same canonical write funnel and attach the
+  // durable intent outcome to its D1 batch.
+  "src/app/api/community/replica/intents/route.ts",
   // Bot enrollment welcome message (server owner adds a bot → greeting).
   "src/app/api/community/servers/[id]/bots/route.ts",
   // phase2 forum≡thread step 1: the atomic-by-compensation "message+thread"
