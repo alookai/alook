@@ -143,6 +143,29 @@ describe("remote image state adapters", () => {
       .toBe("error")
   })
 
+  it("rejects a decoded image without natural pixels", async () => {
+    await act(async () => {
+      renderer = TestRenderer.create(
+        React.createElement(RemoteContentImage, {
+          src: "/empty.png",
+          alt: "Empty image",
+          loading: "eager",
+          frameStyle: { width: 300, aspectRatio: "4/3" },
+        }),
+        { createNodeMock },
+      )
+    })
+
+    const image = renderer!.root.findByProps({ "data-remote-image-kind": "content" })
+    await act(async () => {
+      image.props.onLoad(imageEvent(() => Promise.resolve(), 0, 0))
+      await Promise.resolve()
+    })
+
+    expect(renderer!.root.findByProps({ "data-remote-image-kind": "content" }).props)
+      .toMatchObject({ src: "/empty.png", "data-remote-image-state": "error" })
+  })
+
   it("resets to pending when the source changes", async () => {
     const render = (src: string) => React.createElement(RemoteContentImage, {
       src,
