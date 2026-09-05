@@ -25,7 +25,19 @@ async function settleSheet(sheet: Locator): Promise<void> {
     const sample = () => {
       const bounds = element.getBoundingClientRect()
       const style = getComputedStyle(element)
-      const current = [bounds.x, bounds.y, bounds.width, bounds.height, style.opacity, style.transform].join(":")
+      const current = [
+        bounds.x,
+        bounds.y,
+        bounds.width,
+        bounds.height,
+        style.opacity,
+        style.transform,
+        style.backgroundColor,
+        style.borderTopColor,
+        style.borderRightColor,
+        style.borderBottomColor,
+        style.borderLeftColor,
+      ].join(":")
       stableFrames = current === previous ? stableFrames + 1 : 0
       previous = current
       if (stableFrames >= 3 || performance.now() >= deadline) resolveStable()
@@ -33,6 +45,44 @@ async function settleSheet(sheet: Locator): Promise<void> {
     }
     requestAnimationFrame(sample)
   }))
+}
+
+async function expectSheetThemeTokens(sheet: Locator): Promise<void> {
+  const colors = await sheet.evaluate((element) => {
+    const probe = document.createElement("div")
+    probe.style.cssText = [
+      "position:fixed",
+      "visibility:hidden",
+      "background-color:var(--background)",
+      "border:1px solid var(--border)",
+    ].join(";")
+    document.body.appendChild(probe)
+
+    const sheetStyle = getComputedStyle(element)
+    const probeStyle = getComputedStyle(probe)
+    const header = element.querySelector<HTMLElement>("[data-slot='sheet-header']")
+    const body = element.querySelector<HTMLElement>("[data-slot='sheet-body']")
+    if (!header || !body) throw new Error("missing sheet surface")
+    const result = {
+      expectedBackground: probeStyle.backgroundColor,
+      expectedBorder: probeStyle.borderLeftColor,
+      sheetBackground: sheetStyle.backgroundColor,
+      sheetBorder: sheetStyle.borderLeftColor,
+      headerBackground: getComputedStyle(header).backgroundColor,
+      headerBorder: getComputedStyle(header).borderBottomColor,
+      bodyBackground: getComputedStyle(body).backgroundColor,
+    }
+    probe.remove()
+    return result
+  })
+
+  expect(colors).toMatchObject({
+    sheetBackground: colors.expectedBackground,
+    sheetBorder: colors.expectedBorder,
+    headerBackground: "rgba(0, 0, 0, 0)",
+    headerBorder: colors.expectedBorder,
+    bodyBackground: colors.expectedBackground,
+  })
 }
 
 async function attachPageScreenshot(testInfo: TestInfo, name: string, page: Page): Promise<void> {
@@ -277,6 +327,84 @@ async function openBotProfile(page: Page, botName: string): Promise<void> {
   await page.getByRole("button", { name: botName, exact: true }).click()
   await expect(page.getByTestId(tid.profileCard)).toBeVisible()
 }
+
+test("full audit log reveals a truncated row by hover and touch", async ({ asUser }, testInfo) => {
+  test.setTimeout(120_000)
+  const suffix = Date.now().toString(36)
+  const longAuditTarget = `/Users/alice/workspace/${"deeply-nested-audit-target/".repeat(5)}result-${suffix}.md`
+  const fullAuditText = `read · ${longAuditTarget}`
+  const { credential, machineId } = await pairMachine()
+  const botId = await createBot(machineId, `Tooltip bot ${suffix}`)
+  const machine = connectMachine(credential)
+  await machine.opened
+
+  try {
+    machine.socket.send(JSON.stringify({
+      type: "bot_audit_event",
+      agentId: botId,
+      sessionId: `session-${suffix}`,
+      launchId: `launch-${suffix}`,
+      event: { kind: "tool_call", payload: { name: "Read", target: longAuditTarget } },
+    }))
+
+    await expect.poll(async () => {
+      const response = await fetch(
+        `${WEB_URL}/api/community/bots/${botId}/audit-log?limit=10`,
+        { headers: headersFor("alice") },
+      )
+      if (!response.ok) return false
+      const { events } = (await response.json()) as {
+        events: Array<{ payload?: { target?: string } | null }>
+      }
+      return events.some((event) => event.payload?.target === longAuditTarget)
+    }).toBe(true)
+
+    const { page } = await asUser("alice")
+    await page.setViewportSize({ width: 1280, height: 900 })
+    await gotoAfterUserWsAuth(page, `/c/me/bots?audit=${botId}`)
+    const sheet = page.getByTestId(tid.botActivityModal)
+    await settleSheet(sheet)
+    const trigger = sheet.locator("[data-activity-tooltip-trigger]").filter({ hasText: "read" })
+    await expect(trigger).toHaveCount(1)
+    await expect.poll(() => trigger.locator("span").first().evaluate((element) => (
+      element.scrollWidth > element.clientWidth
+    ))).toBe(true)
+
+    await trigger.hover()
+    const tooltip = page.getByRole("tooltip")
+    await expect(tooltip).toHaveText(fullAuditText)
+    await expect(tooltip).toHaveCSS("opacity", "1")
+    await attachPageScreenshot(testInfo, "bot-activity-log-tooltip-desktop", page)
+    await page.emulateMedia({ colorScheme: "dark" })
+    await expect(page.locator("html")).toHaveClass(/dark/)
+    await settleSheet(sheet)
+    await expectSheetThemeTokens(sheet)
+    await expect(tooltip).toHaveCSS("opacity", "1")
+    await attachPageScreenshot(testInfo, "bot-activity-log-tooltip-desktop-dark", page)
+    await page.mouse.move(0, 0)
+    await expect(tooltip).toBeHidden()
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.emulateMedia({ colorScheme: "light" })
+    await expect(page.locator("html")).not.toHaveClass(/dark/)
+    await settleSheet(sheet)
+    await trigger.dispatchEvent("pointerdown", { pointerType: "touch" })
+    await trigger.dispatchEvent("click")
+    await expect(tooltip).toHaveText(fullAuditText)
+    await expect(tooltip).toHaveCSS("opacity", "1")
+    await attachPageScreenshot(testInfo, "bot-activity-log-tooltip-mobile", page)
+    await page.emulateMedia({ colorScheme: "dark" })
+    await expect(page.locator("html")).toHaveClass(/dark/)
+    await settleSheet(sheet)
+    await expectSheetThemeTokens(sheet)
+    await expect(tooltip).toHaveCSS("opacity", "1")
+    await attachPageScreenshot(testInfo, "bot-activity-log-tooltip-mobile-dark", page)
+    await page.mouse.click(4, 4)
+    await expect(tooltip).toBeHidden()
+  } finally {
+    machine.socket.close()
+  }
+})
 
 test("owner-only bot mark sticker, Stop lifecycle, owner swap, and URL-owned audit modal", async ({ asUser }, testInfo) => {
   test.setTimeout(180_000)
