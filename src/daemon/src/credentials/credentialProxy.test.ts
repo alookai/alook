@@ -814,6 +814,99 @@ describe("startCredentialProxy (zero-trust end to end)", () => {
     });
   });
 
+  it("forwards inbox ack when the observation start hook throws", async () => {
+    const body = JSON.stringify({ ok: true, applied: [], failed: [] });
+    const upstream = await startUpstream({ body });
+    upstreamClose = upstream.close;
+    const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url });
+    const onInboxAckObservationError = vi.fn();
+    proxy = await startCredentialProxy(broker, {
+      onInboxAckStart: () => {
+        throw new Error("start observer failed");
+      },
+      onInboxAckResponse: vi.fn(),
+      onInboxAckObservationError,
+    });
+    const reg = broker.mint("agent-1", "l", ["read"], REAL_KEY);
+
+    const response = await post(proxy.url, reg.voucher, "/api/community/users/me/inbox/ack");
+
+    expect(response).toEqual({ status: 200, body });
+    expect(onInboxAckObservationError).toHaveBeenCalledWith({
+      agentId: "agent-1",
+      reason: "observer_failed",
+      contentEncoding: "identity",
+    });
+  });
+
+  it("forwards an encoded inbox ack without attempting to parse it", async () => {
+    const json = JSON.stringify({ ok: true, applied: [{ channel: "/s#0001/c", seq: 3 }], failed: [] });
+    const upstream = await startUpstream({
+      headers: { "content-encoding": "gzip" },
+      body: gzipSync(json),
+    });
+    upstreamClose = upstream.close;
+    const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url });
+    const onInboxAckResponse = vi.fn();
+    const onInboxAckObservationError = vi.fn();
+    proxy = await startCredentialProxy(broker, { onInboxAckResponse, onInboxAckObservationError });
+    const reg = broker.mint("agent-1", "l", ["read"], REAL_KEY);
+
+    const response = await post(proxy.url, reg.voucher, "/api/community/users/me/inbox/ack");
+
+    expect(response).toEqual({ status: 200, body: json });
+    expect(onInboxAckResponse).not.toHaveBeenCalled();
+    expect(onInboxAckObservationError).toHaveBeenCalledWith({
+      agentId: "agent-1",
+      reason: "unexpected_content_encoding",
+      contentEncoding: "gzip",
+    });
+  });
+
+  it("keeps forwarding invalid ack JSON when the error observer also throws", async () => {
+    const body = "not-json";
+    const upstream = await startUpstream({ body });
+    upstreamClose = upstream.close;
+    const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url });
+    const onInboxAckResponse = vi.fn();
+    proxy = await startCredentialProxy(broker, {
+      onInboxAckResponse,
+      onInboxAckObservationError: () => {
+        throw new Error("error observer failed");
+      },
+    });
+    const reg = broker.mint("agent-1", "l", ["read"], REAL_KEY);
+
+    const response = await post(proxy.url, reg.voucher, "/api/community/users/me/inbox/ack");
+
+    expect(response).toEqual({ status: 200, body });
+    expect(onInboxAckResponse).not.toHaveBeenCalled();
+  });
+
+  it("keeps forwarding a valid ack when the response observer throws", async () => {
+    const body = JSON.stringify({ ok: true, applied: [{ channel: "/s#0001/c", seq: 3 }], failed: [] });
+    const upstream = await startUpstream({ body });
+    upstreamClose = upstream.close;
+    const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url });
+    const onInboxAckObservationError = vi.fn();
+    proxy = await startCredentialProxy(broker, {
+      onInboxAckResponse: () => {
+        throw new Error("ack observer failed");
+      },
+      onInboxAckObservationError,
+    });
+    const reg = broker.mint("agent-1", "l", ["read"], REAL_KEY);
+
+    const response = await post(proxy.url, reg.voucher, "/api/community/users/me/inbox/ack");
+
+    expect(response).toEqual({ status: 200, body });
+    expect(onInboxAckObservationError).toHaveBeenCalledWith({
+      agentId: "agent-1",
+      reason: "observer_failed",
+      contentEncoding: "identity",
+    });
+  });
+
   it("preserves compression negotiation for non-pull and wrong-method lookalike routes", async () => {
     const upstream = await startUpstream({ body: JSON.stringify({ messages: [{ seq: "#1" }] }) });
     upstreamClose = upstream.close;
