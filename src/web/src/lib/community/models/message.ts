@@ -62,6 +62,10 @@ export type Msg = {
   authorAvatar?: string
   authorAvatarVersion?: number
   failed?: boolean
+  // A terminal canonical rejection is intentionally distinct from a
+  // transport failure: keep the exact attempted body visible, explain why it
+  // was not sent, and never offer a retry that the server already rejected.
+  sendError?: string
   // Idempotency nonce (mutation-idempotency plan). Stamped on optimistic rows
   // this client created and echoed back on the WS message-create, so a
   // 500-after-commit send that the user never retried self-heals: the WS row

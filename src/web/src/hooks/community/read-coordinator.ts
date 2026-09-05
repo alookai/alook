@@ -17,6 +17,11 @@ import {
   settleInboxReadReservationGeneration,
 } from "./inbox-read-reservation"
 import { getAccountUnreadProjection } from "./account-unread-projection"
+import {
+  commitCommunityReplicaReadWal,
+  discardCommunityReplicaReadWal,
+  listCommunityReplicaReadWal,
+} from "@/lib/community/replica/read-wal"
 
 export const READ_COORDINATOR_DEBOUNCE_MS = 500
 
@@ -40,6 +45,34 @@ export type PendingReadFlushOutcome = {
   consumed: boolean
   cutoff: number | null
   deferred?: true
+}
+
+export async function flushCommunityReplicaReadIntents(
+  accountId: string,
+  signal: AbortSignal,
+) {
+  const intents = listCommunityReplicaReadWal(accountId)
+  for (const intent of intents) {
+    try {
+      await apiFetch<{ targetSeq: number }>(
+        `/api/community/channels/${intent.channelId}/read`,
+        {
+          method: "PUT",
+          body: JSON.stringify({ lastReadMessageId: intent.messageId }),
+          signal,
+        },
+      )
+    } catch (error) {
+      // A durable read for a scope that was revoked must not wedge every later
+      // bootstrap. Delta/bootstrap revocation handling retires the projection;
+      // this terminal write can only be discarded.
+      if (error instanceof ApiError && error.status === 403) {
+        discardCommunityReplicaReadWal(accountId, intent.channelId)
+        continue
+      }
+      throw error
+    }
+  }
 }
 
 type ReadAttemptOutcome = {
@@ -230,6 +263,12 @@ class ReadCoordinator {
       state.inFlight?.target.intent.seq ?? 0,
     )
     if (pendingSeq >= intent.seq) return null
+    commitCommunityReplicaReadWal(this.ownerUserId, {
+      channelId: intent.channelId,
+      messageId: intent.messageId,
+      seq: intent.seq,
+      observedAt: new Date().toISOString(),
+    })
     const supersededGenerations = new Set<number>()
     for (const pending of [state.accepted, state.dirty]) {
       if (
@@ -450,6 +489,7 @@ class ReadCoordinator {
         .settleOptimisticRead(target.generation, false)
       if (!retryable(error)) {
         if (state.dirty && sameIntent(state.dirty, target)) state.dirty = null
+        discardCommunityReplicaReadWal(this.ownerUserId, target.intent.channelId)
         state.retryCount = 0
       } else if (state.retryCount < 3) {
         state.retryCount += 1

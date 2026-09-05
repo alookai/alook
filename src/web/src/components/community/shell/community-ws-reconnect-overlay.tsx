@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, type ReactNode } from "react"
+import type { ReactNode } from "react"
 import { WifiOff } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { tid } from "@/lib/community/testids"
@@ -9,110 +9,37 @@ import { useCommunityWsStore } from "@/stores/community/ws"
 export function CommunityWsReconnectBoundary({ children }: { children: ReactNode }) {
   const connectionStatus = useCommunityWsStore((state) => state.connectionStatus)
   const reconnectNow = useCommunityWsStore((state) => state.reconnectNow)
-  const blocked = connectionStatus !== "connected"
-  const dialogRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!blocked) return
-    const dialog = dialogRef.current
-    dialog?.focus()
-    if (typeof document === "undefined") return
-    const keepFocusInDialog = (event: FocusEvent) => {
-      if (!dialog || dialog.contains(event.target as Node)) return
-      dialog.focus()
-    }
-    document.addEventListener("focusin", keepFocusInDialog)
-    return () => document.removeEventListener("focusin", keepFocusInDialog)
-  }, [blocked, connectionStatus])
+  const disconnected = connectionStatus !== "connected"
 
   return (
     <>
-      <div
-        className="contents"
-        inert={blocked ? true : undefined}
-        aria-hidden={blocked ? true : undefined}
-      >
+      <div className="contents">
         {children}
       </div>
-      {blocked && (
+      {disconnected && (
         <div
-          ref={dialogRef}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="community-ws-reconnect-title"
-          tabIndex={-1}
           data-testid={tid.wsReconnectOverlay}
           data-ws-status={connectionStatus}
-          className="community-ws-reconnect-overlay fixed inset-0 z-2147483647 grid place-items-center bg-background/60 px-4 outline-none backdrop-blur-sm supports-backdrop-filter:bg-background/45 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-150"
+          className="community-ws-reconnect-overlay pointer-events-none fixed inset-x-0 top-3 z-2147483647 flex justify-center px-4"
         >
-          <div className="flex w-full max-w-xs flex-col items-center text-center text-foreground">
+          <div className="pointer-events-auto flex min-h-10 items-center gap-2 rounded-full border bg-background/95 px-3 text-sm text-foreground shadow-md backdrop-blur-sm">
+            <WifiOff aria-hidden="true" className="size-4 text-muted-foreground" />
             {connectionStatus === "failed" ? (
               <>
-                <div
-                  role="alert"
-                  aria-live="assertive"
-                  aria-atomic="true"
-                >
-                  <div
-                    aria-hidden="true"
-                    className="mx-auto mb-4 grid size-10 place-items-center rounded-md bg-destructive/10 text-destructive"
-                  >
-                    <WifiOff className="size-5" />
-                  </div>
-                  <h2 id="community-ws-reconnect-title" className="font-heading text-base font-medium">
-                    Connection lost
-                  </h2>
-                </div>
+                <span role="alert" aria-live="assertive">Realtime unavailable</span>
                 <Button
                   type="button"
                   data-testid={tid.wsRetry}
                   onClick={reconnectNow}
-                  className="mt-4 h-11 w-full sm:h-10 sm:w-auto sm:min-w-24"
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 rounded-full px-3"
                 >
                   Retry
                 </Button>
               </>
             ) : (
-              <div role="status" aria-live="polite" aria-atomic="true" className="flex flex-col items-center">
-                <svg
-                  aria-hidden="true"
-                  data-connecting-motion=""
-                  className="community-ws-connecting-loader mb-4"
-                  viewBox="0 0 100 100"
-                >
-                  <defs>
-                    <filter
-                      id="community-ws-connecting-goo"
-                      x="-20%"
-                      y="-20%"
-                      width="140%"
-                      height="140%"
-                      colorInterpolationFilters="sRGB"
-                    >
-                      <feGaussianBlur in="SourceGraphic" stdDeviation="5" result="blur" />
-                      <feColorMatrix
-                        in="blur"
-                        values="1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 20 -10"
-                        result="goo"
-                      />
-                      <feBlend in="SourceGraphic" in2="goo" />
-                    </filter>
-                  </defs>
-                  <g fill="currentColor" filter="url(#community-ws-connecting-goo)">
-                    <rect x="10" y="30" width="20" height="40" rx="10" />
-                    <circle
-                      className="community-ws-connecting-dot"
-                      cx="20"
-                      cy="50"
-                      r="10"
-                    />
-                    <rect x="70" y="30" width="20" height="40" rx="10" />
-                  </g>
-                </svg>
-                <h2 id="community-ws-reconnect-title" className="font-heading text-base font-medium">
-                  Connecting…
-                </h2>
-              </div>
+              <span role="status" aria-live="polite">Reconnecting…</span>
             )}
           </div>
         </div>

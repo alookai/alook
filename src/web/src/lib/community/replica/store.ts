@@ -23,6 +23,7 @@ import {
   type IDBPObjectStore,
   type StoreNames,
 } from "idb"
+import { clearCommunityReplicaReadWal } from "./read-wal"
 
 const REPLICA_DB_VERSION = 1
 const REPLICA_DB_PREFIX = `alook-community-replica-v${COMMUNITY_REPLICA_PROTOCOL_VERSION}:`
@@ -546,5 +547,6 @@ export async function deleteCommunityReplicaAccount(accountId: string) {
   if (connection) (await connection).close()
   connections.delete(accountId)
   clearIntentWal(accountId)
+  clearCommunityReplicaReadWal(accountId)
   if (typeof indexedDB !== "undefined") await deleteDB(databaseName(accountId))
 }

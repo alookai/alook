@@ -101,7 +101,11 @@ export async function runAcceptedMessageIntent({
     await applyCommunityReplicaIntentOutcomes(viewer.id, response)
     const outcome = response.outcomes.find((item) => item.intentId === nonce)
     if (outcome?.status === "rejected") {
-      streamStore.dispatch(messageScope, { type: "postFail", nonce })
+      streamStore.dispatch(messageScope, {
+        type: "canonicalReject",
+        nonce,
+        reason: outcome.reason,
+      })
       toastApiError(new Error(outcome.reason), outcome.reason)
     }
     return

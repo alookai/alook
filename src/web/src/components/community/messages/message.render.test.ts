@@ -1512,4 +1512,34 @@ describe("Message lazy overlays", () => {
     const otherCallback = label === "Dismiss" ? onRetry : onDismiss
     expect(otherCallback).not.toHaveBeenCalled()
   })
+
+  it("renders a canonical rejection as non-retryable while keeping dismissal available", () => {
+    const onRetry = vi.fn()
+    const onDismiss = vi.fn()
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(
+        makeTree({
+          m: baseMsg({ sendError: "Channel access was revoked" }),
+          onOpenThread: vi.fn(),
+          onCopy: vi.fn(),
+          onRetry,
+          onDismiss,
+        }),
+        { createNodeMock: () => genericMock },
+      )
+    })
+
+    expect(JSON.stringify(renderer!.toJSON())).toContain("Not sent — ")
+    expect(JSON.stringify(renderer!.toJSON())).toContain("Channel access was revoked")
+    expect(renderer!.root.findAllByType("button").some((button) => (
+      button.children.some((child) => typeof child === "string" && child.includes("Click to retry"))
+    ))).toBe(false)
+    const dismiss = renderer!.root.findAllByType("button")
+      .find((button) => button.children.includes("Dismiss"))
+    expect(dismiss).toBeDefined()
+    act(() => dismiss!.props.onClick())
+    expect(onDismiss).toHaveBeenCalledOnce()
+    expect(onRetry).not.toHaveBeenCalled()
+  })
 })

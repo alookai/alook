@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useMemo } from "react"
+import { useCallback, useEffect, useMemo } from "react"
+import { useRouter } from "next/navigation"
 import { useQueryClient, type QueryClient } from "@tanstack/react-query"
 import {
   COMMUNITY_REPLICA_MAX_BATCHES,
@@ -15,9 +16,11 @@ import {
 import type { ServerDetail } from "@/hooks/community/use-servers"
 import type { ReplicaSessionUser } from "@/lib/community/replica/session"
 import { apiFetch } from "@/lib/api/client"
+import { ApiError } from "@/lib/errors"
 import { cacheCommunityShellRoute } from "@/lib/community/replica/shell"
 import {
   communityReplicaRouteScopes,
+  clearActiveCommunityReplicaSession,
   publishCommunityReplicaSession,
 } from "@/lib/community/replica/session"
 import {
@@ -26,13 +29,21 @@ import {
   listCommunityReplicaCoveredChannelIds,
   listCommunityReplicaIntents,
   readCoveredCommunityReplica,
+  readCommunityReplicaSnapshot,
   replaceCommunityReplicaBootstrap,
 } from "@/lib/community/replica/store"
 import {
   clearCommunityReplicaQueryCoverage,
+  retireCommunityReplicaQueryScopes,
   seedCommunityReplicaBootstrapQueries,
   seedCommunityReplicaQueries,
 } from "@/lib/community/replica/query-seed"
+import {
+  flushCommunityReplicaReadIntents,
+} from "@/hooks/community/read-coordinator"
+import { commitLastCommunityRoute } from "@/lib/community/last-community-route"
+
+export { flushCommunityReplicaReadIntents } from "@/hooks/community/read-coordinator"
 
 const TAIL_LIMIT = 100
 const MAX_TAILS = 32
@@ -86,14 +97,14 @@ async function seedCurrentRoute(
   const projection = await readCoveredCommunityReplica(user.id, scopes)
   if (!projection) return false
   seedCommunityReplicaQueries(queryClient, projection)
-  // Publish the coherent local generation before shell staging. Staging can
-  // include dozens of hashed assets and may be interrupted by a tab close;
-  // making the identity/projection record wait behind it left an otherwise
-  // complete Replica unusable after a killed-browser reopen. A missing shell
-  // document still fails closed at the service-worker boundary.
-  await publishCommunityReplicaSession(user, pathname)
   const shell = await cacheCommunityShellRoute(pathname)
-  return shell.ok
+  if (!shell.ok) return false
+  // The route becomes launchable only after its exact document and immutable
+  // assets are durable. The synchronous control WAL is the final commit point,
+  // so a browser kill can expose either the previous complete world or this
+  // complete world, never projection-without-shell readiness.
+  await publishCommunityReplicaSession(user, pathname)
+  return true
 }
 
 async function seedReplicaScopes(
@@ -142,7 +153,7 @@ export async function flushCommunityReplicaIntents(
 export function selectCommunityReplicaDeltaFrontier(
   frontier: CommunityReplicaFrontier,
 ): CommunityReplicaFrontier {
-  return frontier.filter((entry) => entry.scope.kind === "channel")
+  return frontier
 }
 
 async function drainCommunityReplicaDeltas(
@@ -153,7 +164,7 @@ async function drainCommunityReplicaDeltas(
   signal: AbortSignal,
 ) {
   let frontier = selectCommunityReplicaDeltaFrontier(snapshot.frontier)
-  if (frontier.length === 0) return true
+  if (frontier.length === 0) return "complete" as const
   for (;;) {
     const response = await apiFetch<CommunityReplicaDeltaResponse>(
       "/api/community/replica/delta",
@@ -169,8 +180,18 @@ async function drainCommunityReplicaDeltas(
     )
     await applyCommunityReplicaDelta(user.id, response)
     if (response.status === "rebootstrap") {
+      if (response.reason === "permission-changed") {
+        retireCommunityReplicaQueryScopes(queryClient, response.scopes)
+        const currentScopeKeys = new Set(
+          (communityReplicaRouteScopes(user.id, pathname) ?? [])
+            .map((scope) => `${scope.kind}:${scope.id}`),
+        )
+        return response.scopes.some((scope) => currentScopeKeys.has(`${scope.kind}:${scope.id}`))
+          ? "current-revoked" as const
+          : "rebootstrap" as const
+      }
       clearCommunityReplicaQueryCoverage(queryClient, response.scopes)
-      return false
+      return "rebootstrap" as const
     }
     frontier = response.frontier
     await seedReplicaScopes(
@@ -179,7 +200,7 @@ async function drainCommunityReplicaDeltas(
       response.frontier.map((entry) => entry.scope),
     )
     await seedCurrentRoute(queryClient, user, pathname)
-    if (!response.hasMore) return true
+    if (!response.hasMore) return "complete" as const
   }
 }
 
@@ -189,26 +210,87 @@ async function synchronizeCommunityReplica(
   pathname: string,
   request: CommunityReplicaBootstrapRequest,
   signal: AbortSignal,
+  onCurrentAccessRevoked: () => void,
 ) {
+  const localSnapshot = await readCommunityReplicaSnapshot(user.id)
+  if (localSnapshot) {
+    const preflight = await drainCommunityReplicaDeltas(
+      queryClient,
+      user,
+      pathname,
+      {
+        protocolVersion: COMMUNITY_REPLICA_PROTOCOL_VERSION,
+        snapshotId: localSnapshot.meta.snapshotId,
+        takenAt: localSnapshot.meta.takenAt,
+        frontier: localSnapshot.frontier,
+        coverage: localSnapshot.coverage,
+        facts: [],
+      },
+      signal,
+    )
+    if (preflight === "current-revoked") {
+      await clearActiveCommunityReplicaSession(user.id)
+      onCurrentAccessRevoked()
+      return
+    }
+  }
+  await flushCommunityReplicaReadIntents(user.id, signal)
   const coveredChannelIds = await listCommunityReplicaCoveredChannelIds(user.id)
   const retainedRequest = retainCommunityReplicaBootstrapTails(request, coveredChannelIds)
+  const currentChannelId = communityReplicaRouteScopes(user.id, pathname)
+    ?.find((scope) => scope.kind === "channel")?.id
+  const minimalRequest: CommunityReplicaBootstrapRequest = {
+    ...request,
+    tails: currentChannelId
+      ? [request.tails.find((tail) => tail.channelId === currentChannelId) ?? {
+          channelId: currentChannelId,
+          limit: TAIL_LIMIT,
+        }]
+      : [],
+  }
+  const sameTails = (
+    left: CommunityReplicaBootstrapRequest,
+    right: CommunityReplicaBootstrapRequest,
+  ) => left.tails.length === right.tails.length
+    && left.tails.every((tail, index) => tail.channelId === right.tails[index]?.channelId)
+  const bootstrap = (input: CommunityReplicaBootstrapRequest) => (
+    apiFetch<CommunityReplicaBootstrapResponse>(
+      "/api/community/replica/bootstrap",
+      { method: "POST", body: JSON.stringify(input), signal },
+    )
+  )
   let snapshot: CommunityReplicaBootstrapResponse
   try {
-    snapshot = await apiFetch<CommunityReplicaBootstrapResponse>(
-      "/api/community/replica/bootstrap",
-      { method: "POST", body: JSON.stringify(retainedRequest), signal },
-    )
+    snapshot = await bootstrap(retainedRequest)
   } catch (error) {
-    const retainedIds = retainedRequest.tails.map((tail) => tail.channelId)
-    const requestedIds = request.tails.map((tail) => tail.channelId)
-    if (JSON.stringify(retainedIds) === JSON.stringify(requestedIds) || signal.aborted) throw error
-    // A remembered optional tail may have been revoked since its last lease.
-    // Retry the current server projection without it so stale coverage cannot
-    // wedge all future bootstraps or require manual local-data recovery.
-    snapshot = await apiFetch<CommunityReplicaBootstrapResponse>(
-      "/api/community/replica/bootstrap",
-      { method: "POST", body: JSON.stringify(request), signal },
-    )
+    if (signal.aborted) throw error
+    try {
+      // First remove remembered optional tails. If the visible server model is
+      // itself stale, fall through to the current route's minimal projection.
+      if (!sameTails(retainedRequest, request)) {
+        snapshot = await bootstrap(request)
+      } else {
+        throw error
+      }
+    } catch (originalError) {
+      if (!(originalError instanceof ApiError && originalError.status === 403)) {
+        throw originalError
+      }
+      try {
+        if (sameTails(request, minimalRequest)) throw originalError
+        snapshot = await bootstrap(minimalRequest)
+      } catch (minimalError) {
+        if (minimalError instanceof ApiError && minimalError.status === 403) {
+          retireCommunityReplicaQueryScopes(queryClient, [
+            { kind: "server", id: request.serverId },
+          ])
+          await clearActiveCommunityReplicaSession(user.id)
+          onCurrentAccessRevoked()
+          return
+        }
+        throw minimalError
+      }
+    }
   }
   await replaceCommunityReplicaBootstrap(user.id, snapshot)
   // The response has already passed the shared schema and the atomic IDB
@@ -216,13 +298,13 @@ async function synchronizeCommunityReplica(
   // true in the same turn as durability, before any background intent flush
   // or shell-cache work can delay a local navigation.
   seedCommunityReplicaBootstrapQueries(queryClient, snapshot)
-  // Establish the synchronous control commit immediately after the atomic
-  // snapshot lands; later projection seeding and shell refreshes are allowed
-  // to be interrupted by a browser kill without losing launchability.
-  await publishCommunityReplicaSession(user, pathname)
   await flushCommunityReplicaIntents(user.id, signal)
   await seedCurrentRoute(queryClient, user, pathname)
-  await drainCommunityReplicaDeltas(queryClient, user, pathname, snapshot, signal)
+  const finalDelta = await drainCommunityReplicaDeltas(queryClient, user, pathname, snapshot, signal)
+  if (finalDelta === "current-revoked") {
+    await clearActiveCommunityReplicaSession(user.id)
+    onCurrentAccessRevoked()
+  }
 }
 
 export function useCommunityReplicaSync({
@@ -238,6 +320,7 @@ export function useCommunityReplicaSync({
   currentChannelId: string | null
   server: ServerDetail | null
 }) {
+  const router = useRouter()
   const queryClient = useQueryClient()
   const replicaUser = useMemo<ReplicaSessionUser>(() => ({
     id: user.id,
@@ -252,6 +335,10 @@ export function useCommunityReplicaSync({
       : null,
     [currentChannelId, server, serverId],
   )
+  const onCurrentAccessRevoked = useCallback(() => {
+    commitLastCommunityRoute(user.id, "/c/me/machines")
+    router.replace("/c/me/machines")
+  }, [router, user.id])
 
   useEffect(() => {
     if (!request) return
@@ -259,7 +346,14 @@ export function useCommunityReplicaSync({
     const synchronize = () => {
       active?.abort()
       active = new AbortController()
-      void synchronizeCommunityReplica(queryClient, replicaUser, pathname, request, active.signal)
+      void synchronizeCommunityReplica(
+        queryClient,
+        replicaUser,
+        pathname,
+        request,
+        active.signal,
+        onCurrentAccessRevoked,
+      )
         .catch(() => undefined)
     }
     synchronize()
@@ -275,5 +369,5 @@ export function useCommunityReplicaSync({
       window.removeEventListener("online", synchronize)
       document.removeEventListener("visibilitychange", onVisible)
     }
-  }, [pathname, queryClient, replicaUser, request])
+  }, [onCurrentAccessRevoked, pathname, queryClient, replicaUser, request])
 }

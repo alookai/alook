@@ -304,7 +304,7 @@ function MessageImpl({
     },
   }
   const showMenu = hasMessageMenu(menuHandlers)
-  const interactive = !compact && !m.failed && showMenu
+  const interactive = !compact && !m.failed && !m.sendError && showMenu
   const touchInputCapable = !hoverCapable
   const touchFallbackActive = !desktopMenuInputSeen && touchInputCapable
   // A hybrid device can alternate between mouse and touch. Switching the menu
@@ -870,6 +870,18 @@ function MessageImpl({
               )}
             </div>
           )}
+          {m.sendError && (
+            <div className="mt-1 flex items-center gap-3 text-xs text-destructive">
+              <span className="flex items-center gap-2">
+                <X className="size-3.5" /> Not sent — {m.sendError}
+              </span>
+              {onDismiss && (
+                <button onClick={onDismiss} className="text-muted-foreground hover:text-foreground hover:underline">
+                  Dismiss
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
       </div>
@@ -975,6 +987,7 @@ function messagePropsEqual(prev: MessageProps, next: MessageProps): boolean {
       a.content !== b.content ||
       a.grouped !== b.grouped ||
       a.failed !== b.failed ||
+      a.sendError !== b.sendError ||
       a.authorId !== b.authorId ||
       a.color !== b.color ||
       a.createdAt !== b.createdAt ||

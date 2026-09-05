@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
 import type { CoveredReplicaProjection } from "./store"
@@ -6,7 +6,12 @@ import {
   hasCoveredCommunityReplicaTarget,
   seedCommunityReplicaBootstrapQueries,
   seedCommunityReplicaQueries,
+  retireCommunityReplicaQueryScopes,
 } from "./query-seed"
+import {
+  commitCommunityReplicaReadWal,
+  listCommunityReplicaReadWal,
+} from "./read-wal"
 
 const lease = {
   epoch: "lease-1",
@@ -38,6 +43,8 @@ const projection = {
 } as unknown as CoveredReplicaProjection
 
 describe("community Replica query seed", () => {
+  afterEach(() => vi.unstubAllGlobals())
+
   it("publishes an atomic bootstrap into the query cache without an IDB reread", () => {
     const queryClient = new QueryClient()
     seedCommunityReplicaBootstrapQueries(queryClient, {
@@ -88,6 +95,48 @@ describe("community Replica query seed", () => {
     expect(hasCoveredCommunityReplicaTarget(queryClient, "c1")).toBe(true)
     expect(hasCoveredCommunityReplicaTarget(queryClient, "c1", "m8")).toBe(true)
     expect(hasCoveredCommunityReplicaTarget(queryClient, "c1", "missing")).toBe(false)
+  })
+
+  it("projects a newer durable read watermark across a killed-browser reopen", () => {
+    const values = new Map<string, string>()
+    vi.stubGlobal("localStorage", {
+      get length() { return values.size },
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+      key: (index: number) => [...values.keys()][index] ?? null,
+    })
+    commitCommunityReplicaReadWal("viewer", {
+      channelId: "c1",
+      messageId: "m9",
+      seq: 9,
+      observedAt: "2026-01-01T00:00:09.000Z",
+    })
+    const queryClient = new QueryClient()
+    seedCommunityReplicaQueries(queryClient, projection)
+
+    expect(queryClient.getQueryData(communityKeys.channelReadStateSnapshot("c1"))).toEqual({
+      lastReadMessageId: "m9",
+      lastReadAt: "2026-01-01T00:00:09.000Z",
+      lastReadSeq: 9,
+    })
+    expect(listCommunityReplicaReadWal("viewer")).toHaveLength(1)
+
+    seedCommunityReplicaQueries(queryClient, {
+      ...projection,
+      entities: projection.entities.map((row) => row.entity.kind === "read-state"
+        ? {
+            ...row,
+            value: {
+              channelId: "c1",
+              lastReadMessageId: "m9",
+              lastReadAt: "2026-01-01T00:00:09.000Z",
+              lastReadSeq: 9,
+            },
+          }
+        : row),
+    })
+    expect(listCommunityReplicaReadWal("viewer")).toEqual([])
   })
 
   it("treats a complete empty channel as covered without fabricating a message range", () => {
@@ -168,5 +217,18 @@ describe("community Replica query seed", () => {
     seedCommunityReplicaQueries(queryClient, nextChannel, { resetCoverage: true })
     expect(hasCoveredCommunityReplicaTarget(queryClient, "c1")).toBe(false)
     expect(hasCoveredCommunityReplicaTarget(queryClient, "c2")).toBe(true)
+  })
+
+  it("retires revoked channel and server projections immediately", () => {
+    const queryClient = new QueryClient()
+    seedCommunityReplicaQueries(queryClient, projection)
+    retireCommunityReplicaQueryScopes(queryClient, [{ kind: "channel", id: "c1" }])
+    expect(queryClient.getQueryData(communityKeys.channelMessages("c1"))).toBeUndefined()
+    expect(hasCoveredCommunityReplicaTarget(queryClient, "c1")).toBe(false)
+
+    retireCommunityReplicaQueryScopes(queryClient, [{ kind: "server", id: "s1" }])
+    expect(queryClient.getQueryData(communityKeys.server("s1"))).toBeUndefined()
+    expect(queryClient.getQueryData<{ servers: Array<{ id: string }> }>(communityKeys.servers()))
+      .toEqual({ servers: [] })
   })
 })

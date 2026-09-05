@@ -40,7 +40,7 @@ export type OutboxRetryPayload = Readonly<{
 
 type OutboxIntent = Omit<NewOutboxIntent, "message"> & {
   message: Msg
-  status: "pending" | "failed" | "acked"
+  status: "pending" | "failed" | "rejected" | "acked"
   uploadStatus: "none" | "pending" | "settled" | "failed"
   serverMessageId?: string
   serverSeq?: number
@@ -67,6 +67,7 @@ export type MessageOverlayEvent =
   | { type: "uploadFailed"; nonce: string }
   | { type: "postAck"; nonce: string; message: CanonicalMessage }
   | { type: "postFail"; nonce: string }
+  | { type: "canonicalReject"; nonce: string; reason: string }
   | { type: "terminalReject"; nonce: string }
   | { type: "retry"; nonce: string }
   | { type: "wsMessage"; message: CanonicalMessage }
@@ -144,7 +145,7 @@ function upsertLiveCanonical(
       if (id !== message.id && compoundIdentity(current) === identity) liveById.delete(id)
     }
   }
-  liveById.set(message.id, { ...message, failed: false })
+  liveById.set(message.id, { ...message, failed: false, sendError: undefined })
 }
 
 function mergeCanonicalAttachments(
@@ -164,6 +165,7 @@ function materializeIntent(intent: OutboxIntent): Msg {
     ...(intent.serverSeq !== undefined ? { seq: intent.serverSeq } : {}),
     clientNonce: intent.nonce,
     failed: intent.status === "failed" || intent.uploadStatus === "failed",
+    sendError: intent.status === "rejected" ? intent.message.sendError : undefined,
   }
 }
 
@@ -277,7 +279,7 @@ export function getOutboxRetryPayload(
   nonce: string,
 ): OutboxRetryPayload | undefined {
   const intent = state.outboxByNonce.get(nonce)
-  if (!intent) return undefined
+  if (!intent || intent.status === "rejected") return undefined
   return {
     nonce,
     message: intent.message,
@@ -301,6 +303,7 @@ export function reduceMessageOverlay(
         id: event.intent.tempId,
         clientNonce: event.intent.nonce,
         failed: false,
+        sendError: undefined,
         ...(optimisticAttachments !== undefined
           ? { attachments: optimisticAttachments }
           : {}),
@@ -352,6 +355,7 @@ export function reduceMessageOverlay(
           replyTo: canonical.replyTo ?? intent.message.replyTo,
           attachments: canonical.attachments ?? intent.message.attachments,
           failed: false,
+          sendError: undefined,
         },
       })
       return {
@@ -364,7 +368,14 @@ export function reduceMessageOverlay(
       return updateIntent(state, event.nonce, (intent) => ({
         ...intent,
         status: "failed",
-        message: { ...intent.message, failed: true },
+        message: { ...intent.message, failed: true, sendError: undefined },
+      }))
+
+    case "canonicalReject":
+      return updateIntent(state, event.nonce, (intent) => ({
+        ...intent,
+        status: "rejected",
+        message: { ...intent.message, failed: false, sendError: event.reason },
       }))
 
     case "terminalReject": {
@@ -383,7 +394,7 @@ export function reduceMessageOverlay(
         ...intent,
         status: "pending",
         uploadStatus: intent.uploadStatus === "failed" ? "pending" : intent.uploadStatus,
-        message: { ...intent.message, failed: false },
+        message: { ...intent.message, failed: false, sendError: undefined },
       }))
 
     case "wsMessage": {
@@ -523,7 +534,14 @@ export function reduceMessageOverlay(
 
     case "dismissFailed": {
       const intent = state.outboxByNonce.get(event.nonce)
-      if (!intent || (intent.status !== "failed" && intent.uploadStatus !== "failed")) {
+      if (
+        !intent
+        || (
+          intent.status !== "failed"
+          && intent.status !== "rejected"
+          && intent.uploadStatus !== "failed"
+        )
+      ) {
         return unchanged(state)
       }
       const outboxByNonce = new Map(state.outboxByNonce)

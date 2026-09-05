@@ -32,7 +32,13 @@ export function hydrateCommunityReplicaIntents(
         : undefined,
     })
     if (accepted && row.state === "canonical-rejected") {
-      stream.dispatch(scope, { type: "postFail", nonce: intent.intentId })
+      stream.dispatch(scope, {
+        type: "canonicalReject",
+        nonce: intent.intentId,
+        reason: row.outcome?.status === "rejected"
+          ? row.outcome.reason
+          : "Message was rejected",
+      })
     }
   }
 }

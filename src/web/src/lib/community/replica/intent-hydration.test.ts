@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest"
-import { useMessageStreamStore } from "@/stores/community/message-stream"
+import {
+  getMessageOverlay,
+  useMessageStreamStore,
+} from "@/stores/community/message-stream"
+import { materializeMessageStream } from "@/lib/community/message-stream"
 import { hydrateCommunityReplicaIntents } from "./intent-hydration"
 import type { ReplicaIntentRow } from "./store"
 
@@ -46,5 +50,27 @@ describe("community Replica intent hydration", () => {
       id: "covered",
       serverId: "server-1",
     })
+  })
+
+  it("hydrates a canonical rejection as terminal and preserves the server reason", () => {
+    const rejected = row("covered")
+    rejected.state = "canonical-rejected"
+    rejected.outcome = {
+      intentId: rejected.intentId,
+      status: "rejected",
+      code: "permission-denied",
+      reason: "Channel access was revoked",
+    }
+
+    hydrateCommunityReplicaIntents(user, [rejected], "server-1", new Set(["covered"]))
+
+    const scope = { kind: "channel" as const, id: "covered", serverId: "server-1" }
+    const stream = useMessageStreamStore.getState()
+    expect(stream.getRetryPayload(scope, rejected.intentId)).toBeUndefined()
+    expect(materializeMessageStream([], getMessageOverlay(scope))[0]).toEqual(expect.objectContaining({
+      content: "message covered",
+      failed: false,
+      sendError: "Channel access was revoked",
+    }))
   })
 })

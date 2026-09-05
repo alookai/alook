@@ -15,7 +15,6 @@ describe("CommunityWsReconnectBoundary", () => {
   })
 
   function render() {
-    const focus = vi.fn()
     let renderer!: TestRenderer.ReactTestRenderer
     act(() => {
       renderer = TestRenderer.create(
@@ -24,10 +23,9 @@ describe("CommunityWsReconnectBoundary", () => {
           null,
           React.createElement("button", { type: "button" }, "Underlying action"),
         ),
-        { createNodeMock: () => ({ focus }) },
       )
     })
-    return { renderer, focus }
+    return { renderer }
   }
 
   it("leaves connected content interactive without rendering an overlay", () => {
@@ -39,53 +37,38 @@ describe("CommunityWsReconnectBoundary", () => {
       .toHaveLength(0)
   })
 
-  it("blocks the content and announces a reconnecting state", () => {
-    const { renderer, focus } = render()
+  it("keeps covered content interactive and announces a reconnecting state", () => {
+    const { renderer } = render()
     act(() => useCommunityWsStore.getState().setConnectionStatus("reconnecting"))
 
     const content = renderer.root.findByProps({ className: "contents" })
-    expect(content.props).toMatchObject({ inert: true, "aria-hidden": true })
+    expect(content.props.inert).toBeUndefined()
+    expect(content.props["aria-hidden"]).toBeUndefined()
     const overlay = renderer.root.findByProps({ "data-testid": tid.wsReconnectOverlay })
     expect(overlay.props).toMatchObject({
       "data-ws-status": "reconnecting",
-      "aria-modal": "true",
-      role: "dialog",
-      tabIndex: -1,
     })
-    expect(overlay.props.className).toContain("fixed inset-0")
+    expect(overlay.props.role).toBeUndefined()
+    expect(overlay.props["aria-modal"]).toBeUndefined()
+    expect(overlay.props.className).toContain("pointer-events-none")
     expect(overlay.props.className).toContain("community-ws-reconnect-overlay")
     expect(overlay.props.className).toContain("z-2147483647")
-    expect(overlay.props.className).toContain("backdrop-blur-sm")
-    expect(renderer.root.findByProps({ role: "status" }).props).toMatchObject({
-      "aria-atomic": "true",
-      "aria-live": "polite",
-    })
-    expect(renderer.root.findByType("h2").children).toEqual(["Connecting…"])
-    const motion = renderer.root.findByProps({ "data-connecting-motion": "" })
-    expect(motion.type).toBe("svg")
-    expect(motion.props.className).toContain("community-ws-connecting-loader")
-    expect(motion.findAllByType("rect")).toHaveLength(2)
-    expect(motion.findByType("circle").props.className).toBe("community-ws-connecting-dot")
-    expect(motion.findAllByType("filter")).toHaveLength(1)
-    expect(motion.findAllByType("feBlend")).toHaveLength(1)
+    expect(renderer.root.findByProps({ role: "status" }).children).toEqual(["Reconnecting…"])
     expect(renderer.root.findAllByProps({ "data-testid": tid.wsRetry })).toHaveLength(0)
-    expect(focus).toHaveBeenCalledOnce()
   })
 
-  it("shows an accessible mobile-sized Retry action and restores immediately", () => {
+  it("shows a non-modal Retry action without hiding covered content", () => {
     const reconnectNow = vi.fn()
     useCommunityWsStore.getState().bindReconnectNow(reconnectNow)
     const { renderer } = render()
     act(() => useCommunityWsStore.getState().setConnectionStatus("failed"))
 
     expect(renderer.root.findByProps({ role: "alert" }).props).toMatchObject({
-      "aria-atomic": "true",
       "aria-live": "assertive",
     })
-    expect(renderer.root.findByType("h2").children).toEqual(["Connection lost"])
+    expect(renderer.root.findByProps({ role: "alert" }).children).toEqual(["Realtime unavailable"])
     const retry = renderer.root.findByProps({ "data-testid": tid.wsRetry })
-    expect(retry.props.className).toContain("h-11")
-    expect(retry.props.className).toContain("sm:h-10")
+    expect(renderer.root.findByProps({ className: "contents" }).props.inert).toBeUndefined()
     act(() => retry.props.onClick())
     expect(reconnectNow).toHaveBeenCalledOnce()
 

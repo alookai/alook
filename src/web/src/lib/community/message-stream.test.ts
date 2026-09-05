@@ -310,6 +310,26 @@ describe("message stream monotonic visibility", () => {
     expect(state.outboxByNonce.size).toBe(0)
   })
 
+  it("keeps a canonical rejection visible with its reason but makes it non-retryable", () => {
+    let state = submit(emptyMessageOverlay())
+    state = apply(state, {
+      type: "canonicalReject",
+      nonce: "n1",
+      reason: "Channel access was revoked",
+    }).state
+
+    expect(state.outboxByNonce.get("n1")?.status).toBe("rejected")
+    expect(getOutboxRetryPayload(state, "n1")).toBeUndefined()
+    expect(materializeMessageStream([], state)[0]).toEqual(expect.objectContaining({
+      content: "n1",
+      failed: false,
+      sendError: "Channel access was revoked",
+    }))
+
+    const dismissed = apply(state, { type: "dismissFailed", nonce: "n1" })
+    expect(dismissed.state.outboxByNonce.size).toBe(0)
+  })
+
   it("merges the full POST canonical row into the intent while retaining optimistic reply and attachments", () => {
     const replyTo = { id: "reply_1", authorName: "Reply Author", text: "preview" }
     const attachments: Msg["attachments"] = [{ kind: "image", name: "image.png", url: "/local/image" }]

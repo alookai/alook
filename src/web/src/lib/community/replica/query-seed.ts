@@ -11,6 +11,10 @@ import { communityKeys } from "@/lib/query-keys"
 import type { ChildChannelMeta } from "@/hooks/community/use-forum-sidebar-threads"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import type { CoveredReplicaProjection, ReplicaEntityRow } from "./store"
+import {
+  listCommunityReplicaReadWal,
+  settleCommunityReplicaReadWal,
+} from "./read-wal"
 
 type SeedCoverage = {
   channelTails: Set<string>
@@ -255,15 +259,37 @@ export function seedCommunityReplicaQueries(
 
   if (accountCoverage?.completeness === "complete") {
     const readStates = rowsOfKind(projection, "read-state")
+    const durableReads = new Map(
+      listCommunityReplicaReadWal(accountCoverage.scope.id)
+        .map((intent) => [intent.channelId, intent]),
+    )
     for (const channelCoverage of channelCoverageItems) {
       const readState = readStates.find((row) => row.entity.id === channelCoverage.scope.id)?.value
-      queryClient.setQueryData(communityKeys.channelReadStateSnapshot(channelCoverage.scope.id), readState
-        ? {
-            lastReadMessageId: readState.lastReadMessageId,
-            lastReadAt: readState.lastReadAt,
-            lastReadSeq: readState.lastReadSeq,
-          }
-        : { lastReadMessageId: null, lastReadAt: null, lastReadSeq: 0 })
+      const durable = durableReads.get(channelCoverage.scope.id)
+      const canonicalSeq = Number(readState?.lastReadSeq ?? 0)
+      if (durable && canonicalSeq >= durable.seq) {
+        settleCommunityReplicaReadWal(
+          accountCoverage.scope.id,
+          channelCoverage.scope.id,
+          canonicalSeq,
+        )
+      }
+      queryClient.setQueryData(
+        communityKeys.channelReadStateSnapshot(channelCoverage.scope.id),
+        durable && durable.seq > canonicalSeq
+          ? {
+              lastReadMessageId: durable.messageId,
+              lastReadAt: durable.observedAt,
+              lastReadSeq: durable.seq,
+            }
+          : readState
+            ? {
+                lastReadMessageId: readState.lastReadMessageId,
+                lastReadAt: readState.lastReadAt,
+                lastReadSeq: readState.lastReadSeq,
+              }
+            : { lastReadMessageId: null, lastReadAt: null, lastReadSeq: 0 },
+      )
     }
   }
   coverageByClient.set(queryClient, { channelTails })
@@ -294,4 +320,33 @@ export function clearCommunityReplicaQueryCoverage(
   }
   for (const scope of scopes) coverage.channelTails.delete(scope.id)
   if (coverage.channelTails.size === 0) coverageByClient.delete(queryClient)
+}
+
+export function retireCommunityReplicaQueryScopes(
+  queryClient: QueryClient,
+  scopes: Array<{ kind: "account" | "server" | "channel"; id: string }>,
+) {
+  clearCommunityReplicaQueryCoverage(queryClient, scopes)
+  for (const scope of scopes) {
+    if (scope.kind === "account") {
+      queryClient.removeQueries({ queryKey: communityKeys.all })
+      continue
+    }
+    if (scope.kind === "server") {
+      queryClient.removeQueries({ queryKey: communityKeys.server(scope.id) })
+      queryClient.setQueryData<ServersResponse | undefined>(communityKeys.servers(), (current) => (
+        current ? { ...current, servers: current.servers.filter((server) => server.id !== scope.id) } : current
+      ))
+      continue
+    }
+    queryClient.removeQueries({ queryKey: communityKeys.channelMessages(scope.id) })
+    queryClient.removeQueries({ queryKey: communityKeys.channelReadStateSnapshot(scope.id) })
+    queryClient.removeQueries({
+      predicate: ({ queryKey }) => (
+        queryKey[0] === communityKeys.all[0]
+        && queryKey.includes("channel-meta")
+        && queryKey.at(-1) === scope.id
+      ),
+    })
+  }
 }

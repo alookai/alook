@@ -509,7 +509,7 @@ describe("message channel send helpers", () => {
     expect(secondBody).toEqual(firstBody)
   })
 
-  it("keeps the exact optimistic body visible as failed on a canonical domain rejection", async () => {
+  it("keeps the exact optimistic body visible but terminal on a canonical domain rejection", async () => {
     mocks.getRetryPayload.mockReturnValue({
       localUploads: [],
       uploadStatus: "none",
@@ -534,8 +534,9 @@ describe("message channel send helpers", () => {
       viewer,
     })
     expect(mocks.dispatch).toHaveBeenCalledWith(scope, {
-      type: "postFail",
+      type: "canonicalReject",
       nonce: "nonce_rejected",
+      reason: "Channel access was revoked",
     })
     expect(mocks.toastApiError).toHaveBeenCalledWith(
       expect.objectContaining({ message: "Channel access was revoked" }),
