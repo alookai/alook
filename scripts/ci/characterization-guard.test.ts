@@ -175,6 +175,7 @@ describe("validateCharacterization", () => {
 describe("characterization guard CLI", () => {
   it.each([
     ["package", "src/cli/src/commands/inbox.ts"],
+    ["auth", "src/web/auth/index.ts"],
     ["blog", "src/web/blog/src/lib/posts.ts"],
     ["shared", "src/shared/src/semver.ts"],
   ])("emits locked %s evidence from the full command path", (expectedClass, sourcePath) => {

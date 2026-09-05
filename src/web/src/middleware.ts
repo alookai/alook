@@ -1,13 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { createAuth } from "@/lib/auth"
-
-function isSafeRedirect(path: string): boolean {
-  // Must be a relative path. Reject scheme-relative ("//evil.com") and
-  // backslash tricks ("/\evil.com") — the WHATWG URL parser treats "\" as "/",
-  // so both resolve to an external origin and would be an open redirect.
-  return path.startsWith("/") && path[1] !== "/" && path[1] !== "\\"
-}
+import { isSafeRedirectPath } from "@/lib/safe-redirect"
 
 const AUTH_REQUIRED_PREFIXES = ["/invite/", "/w/", "/workspaces", "/dashboard", "/c/"]
 
@@ -69,7 +63,7 @@ export async function middleware(request: NextRequest) {
 
     if (result?.response) {
       const redirect = request.nextUrl.searchParams.get("redirect")
-      const target = redirect && isSafeRedirect(redirect)
+      const target = redirect && isSafeRedirectPath(redirect)
         ? new URL(redirect, request.url)
         // Default landing for an already-signed-in visitor hitting /sign-in:
         // community home. `/workspaces` was the retired legacy (v0) surface.

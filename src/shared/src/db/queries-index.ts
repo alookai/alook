@@ -1,3 +1,5 @@
+import * as nativeOauthQueries from "./queries/native-oauth";
+
 export * as user from "./queries/user";
 export * as workspace from "./queries/workspace";
 export * as member from "./queries/member";
@@ -62,3 +64,4 @@ export * as communityAgentInbox from "./queries/community/agent-inbox";
 export * as communityBotAuditLog from "./queries/community/bot-audit-log";
 export * as communityMessageTag from "./queries/community/message-tag";
 export * as communityDiagnosticReport from "./queries/community/diagnostic-report";
+export const nativeOauth = nativeOauthQueries;

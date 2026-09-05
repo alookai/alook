@@ -1,0 +1,22 @@
+name = "alook-auth"
+main = "index.ts"
+compatibility_date = "2026-08-27"
+workers_dev = false
+preview_urls = false
+
+[observability]
+enabled = false
+head_sampling_rate = 0
+
+[observability.logs]
+enabled = false
+invocation_logs = false
+head_sampling_rate = 0
+
+[observability.traces]
+enabled = false
+head_sampling_rate = 0
+
+[[routes]]
+pattern = "auth.alook.ai"
+custom_domain = true

@@ -1,5 +1,5 @@
 import { betterAuth } from "better-auth"
-import { emailOTP, deviceAuthorization, bearer } from "better-auth/plugins"
+import { emailOTP, deviceAuthorization, bearer, oneTimeToken } from "better-auth/plugins"
 import { nanoid } from "nanoid"
 import {
   createLogger,
@@ -222,6 +222,11 @@ export function createAuth(env: Env) {
       ? [
           deviceAuthorization({ verificationUri: "/device", validateClient, expiresIn: "5m", schema: {} }),
           bearer(),
+          oneTimeToken({
+            expiresIn: 2,
+            disableClientRequest: true,
+            storeToken: "hashed",
+          }),
           emailOTP({
             async sendVerificationOTP({ email, otp, type }) {
               // Rate-limit BEFORE minting/sending the OTP so abuse can't
@@ -272,6 +277,11 @@ export function createAuth(env: Env) {
       : [
           deviceAuthorization({ verificationUri: "/device", validateClient, expiresIn: "5m", schema: {} }),
           bearer(),
+          oneTimeToken({
+            expiresIn: 2,
+            disableClientRequest: true,
+            storeToken: "hashed",
+          }),
         ],
   })
 }

@@ -21,9 +21,10 @@
     "blog/next.config.ts",
     "blog/open-next.config.ts",
     "blog/scripts/**/*.ts",
+    "auth/index.ts",
     "scripts/**/*.{ts,mjs}"
   ],
-  "project": ["src/**/*.{ts,tsx}", "blog/**/*.{ts,tsx}", "scripts/**/*.{ts,mjs}", "test-runtime/**/*.ts"],
+  "project": ["src/**/*.{ts,tsx}", "blog/**/*.{ts,tsx}", "auth/**/*.{ts,tsx,mts}", "scripts/**/*.{ts,mjs}", "test-runtime/**/*.ts"],
   "ignoreDependencies": [
     "@tailwindcss/node",
     "cloudflare",
@@ -41,7 +42,7 @@
     "src/app/(app)/workspaces/client.tsx"
   ],
   "vitest": {
-    "entry": ["src/**/*.test.{ts,tsx}", "blog/**/*.test.{ts,tsx}", "scripts/**/*.test.ts", "src/test/**/*.{ts,tsx}", "test-runtime/**/*.test.ts"]
+    "entry": ["src/**/*.test.{ts,tsx}", "blog/**/*.test.{ts,tsx}", "auth/**/*.test.ts", "scripts/**/*.test.ts", "src/test/**/*.{ts,tsx}", "test-runtime/**/*.test.ts"]
   },
   "eslint": {
     "entry": ["eslint.config.mjs"]
