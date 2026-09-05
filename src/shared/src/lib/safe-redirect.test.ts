@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { isSafeRedirectPath, safeRedirectPath } from "./safe-redirect";
 
 describe("safe redirect paths", () => {
@@ -32,5 +32,18 @@ describe("safe redirect paths", () => {
 
   it("uses a caller-provided fallback for a missing value", () => {
     expect(safeRedirectPath(undefined, "/sign-in")).toBe("/sign-in");
+  });
+
+  it("fails closed when the platform URL parser is unavailable", () => {
+    vi.stubGlobal("URL", class {
+      constructor() {
+        throw new Error("URL parser unavailable");
+      }
+    });
+    try {
+      expect(isSafeRedirectPath("/c/me")).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

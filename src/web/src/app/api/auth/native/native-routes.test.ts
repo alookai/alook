@@ -202,6 +202,45 @@ describe("native OAuth routes", () => {
     expect(await response.json()).toEqual({ error: "temporarily_unavailable" });
   });
 
+  it("reports a duplicate attempt as a conflict", async () => {
+    const conflict = Object.assign(new Error("duplicate attempt"), {
+      code: "SQLITE_CONSTRAINT_UNIQUE",
+    });
+    queryMocks.registerAttempt.mockRejectedValue(conflict);
+    const route = await loadAttemptRoute();
+    const response = await route(post("/api/auth/native/attempt", {
+      attemptId: ATTEMPT,
+      stateHash: "a".repeat(64),
+      codeChallenge: "p".repeat(43),
+      instanceKeyHash: "b".repeat(64),
+      platform: "ios",
+      provider: "github",
+      redirectPath: "/c/me",
+    }));
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "attempt_conflict" });
+  });
+
+  it("rejects malformed browser start and callback requests before D1", async () => {
+    const start = await loadStartRoute();
+    const invalidStart = await start(
+      new Request(`${BASE_URL}/auth/native/start?attempt=invalid`),
+    );
+    expect(invalidStart.status).toBe(400);
+    expect(queryMocks.claimStart).not.toHaveBeenCalled();
+
+    vi.resetModules();
+    const callback = await loadCallbackRoute();
+    const invalidCallback = await callback(
+      new Request(
+        `${BASE_URL}/auth/native/callback?attempt=${ATTEMPT}&kind=invalid`,
+      ),
+    );
+    expect(invalidCallback.status).toBe(400);
+    expect(queryMocks.getOpenedAttempt).not.toHaveBeenCalled();
+  });
+
   it("starts OAuth once and forwards every Better Auth cookie", async () => {
     queryMocks.claimStart
       .mockResolvedValueOnce(attemptRow)
@@ -234,6 +273,40 @@ describe("native OAuth routes", () => {
     );
     expect(second.status).toBe(410);
     expect(authMocks.signInSocial).toHaveBeenCalledOnce();
+  });
+
+  it("fails the opened attempt when the provider start cannot be created", async () => {
+    queryMocks.claimStart.mockResolvedValue(attemptRow);
+    queryMocks.failOpenedAttempt.mockResolvedValue({
+      ...attemptRow,
+      status: "failed",
+    });
+    authMocks.signInSocial.mockResolvedValue({
+      response: { url: null },
+      headers: new Headers(),
+    });
+    const route = await loadStartRoute();
+    const response = await route(
+      new Request(`${BASE_URL}/auth/native/start?attempt=${ATTEMPT}`),
+    );
+
+    expect(response.status).toBe(502);
+    expect(queryMocks.failOpenedAttempt).toHaveBeenCalledWith(
+      db,
+      ATTEMPT,
+      "start_failed",
+    );
+  });
+
+  it("keeps a start D1 outage generic and non-cacheable", async () => {
+    queryMocks.claimStart.mockRejectedValue(new Error("D1 unavailable"));
+    const route = await loadStartRoute();
+    const response = await route(
+      new Request(`${BASE_URL}/auth/native/start?attempt=${ATTEMPT}`),
+    );
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("Cache-Control")).toContain("no-store");
   });
 
   it("hashes the callback handoff and never exposes it in stored form", async () => {
@@ -285,6 +358,122 @@ describe("native OAuth routes", () => {
     );
     expect(response.headers.get("Location")).not.toContain("raw_provider_secret");
   });
+
+  it("returns gone when an opened callback attempt no longer exists", async () => {
+    queryMocks.getOpenedAttempt.mockResolvedValue(null);
+    const route = await loadCallbackRoute();
+    const response = await route(
+      new Request(
+        `${BASE_URL}/auth/native/callback?attempt=${ATTEMPT}&kind=signin`,
+      ),
+    );
+
+    expect(response.status).toBe(410);
+    expect(authMocks.generateOneTimeToken).not.toHaveBeenCalled();
+  });
+
+  it("returns gone when the handoff cannot be attached", async () => {
+    queryMocks.getOpenedAttempt.mockResolvedValue(attemptRow);
+    queryMocks.attachHandoff.mockResolvedValue(null);
+    authMocks.generateOneTimeToken.mockResolvedValue({
+      response: { token: CODE },
+      headers: new Headers(),
+    });
+    const route = await loadCallbackRoute();
+    const response = await route(
+      new Request(
+        `${BASE_URL}/auth/native/callback?attempt=${ATTEMPT}&kind=signin`,
+      ),
+    );
+
+    expect(response.status).toBe(410);
+  });
+
+  it("fails the attempt when callback handoff generation fails", async () => {
+    queryMocks.getOpenedAttempt.mockResolvedValue(attemptRow);
+    queryMocks.failOpenedAttempt.mockResolvedValue({
+      ...attemptRow,
+      status: "failed",
+    });
+    authMocks.generateOneTimeToken.mockRejectedValue(new Error("OTT unavailable"));
+    const route = await loadCallbackRoute();
+    const response = await route(
+      new Request(
+        `${BASE_URL}/auth/native/callback?attempt=${ATTEMPT}&kind=signin`,
+      ),
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toContain(
+      "status=oauth_callback_failed",
+    );
+    expect(queryMocks.failOpenedAttempt).toHaveBeenCalledWith(
+      db,
+      ATTEMPT,
+      "oauth_callback_failed",
+    );
+  });
+
+  it("keeps a callback D1 outage generic and non-cacheable", async () => {
+    queryMocks.getOpenedAttempt.mockRejectedValue(new Error("D1 unavailable"));
+    const route = await loadCallbackRoute();
+    const response = await route(
+      new Request(
+        `${BASE_URL}/auth/native/callback?attempt=${ATTEMPT}&kind=signin`,
+      ),
+    );
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("Cache-Control")).toContain("no-store");
+  });
+
+  it("rejects a malformed exchange before D1 or OTT verification", async () => {
+    const route = await loadExchangeRoute();
+    const response = await route(post("/api/auth/native/exchange", {}));
+
+    expect(response.status).toBe(400);
+    expect(queryMocks.claimExchange).not.toHaveBeenCalled();
+    expect(authMocks.verifyOneTimeToken).not.toHaveBeenCalled();
+  });
+
+  it("keeps an exchange claim outage generic and non-cacheable", async () => {
+    queryMocks.claimExchange.mockRejectedValue(new Error("D1 unavailable"));
+    const route = await loadExchangeRoute();
+    const response = await route(
+      post("/api/auth/native/exchange", { ...proof(), code: CODE }),
+    );
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("Cache-Control")).toContain("no-store");
+    expect(authMocks.verifyOneTimeToken).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])(
+    "fails a claimed exchange when OTT verification fails (failure update rejects: %s)",
+    async (failureUpdateRejects) => {
+      queryMocks.claimExchange.mockResolvedValue({
+        ...attemptRow,
+        status: "exchanging",
+      });
+      authMocks.verifyOneTimeToken.mockRejectedValue(new Error("invalid OTT"));
+      if (failureUpdateRejects) {
+        queryMocks.failExchange.mockRejectedValue(new Error("D1 unavailable"));
+      } else {
+        queryMocks.failExchange.mockResolvedValue({
+          ...attemptRow,
+          status: "failed",
+        });
+      }
+      const route = await loadExchangeRoute();
+      const response = await route(
+        post("/api/auth/native/exchange", { ...proof(), code: CODE }),
+      );
+
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: "invalid_handoff" });
+      expect(queryMocks.failExchange).toHaveBeenCalledWith(db, ATTEMPT);
+    },
+  );
 
   it("does not invoke OTT verification or mutate after a wrong exchange proof", async () => {
     queryMocks.claimExchange.mockResolvedValue(null);
@@ -487,5 +676,25 @@ describe("native OAuth routes", () => {
       stateHash: await sha256Hex(STATE),
       pkceChallenge: await pkceChallenge(VERIFIER),
     });
+  });
+
+  it("rejects malformed cancellation before D1", async () => {
+    const route = await loadCancelRoute();
+    const response = await route(post("/api/auth/native/cancel", {}));
+
+    expect(response.status).toBe(400);
+    expect(queryMocks.cancelAttempt).not.toHaveBeenCalled();
+  });
+
+  it("keeps a cancellation D1 outage generic and non-cacheable", async () => {
+    queryMocks.cancelAttempt.mockRejectedValue(new Error("D1 unavailable"));
+    const route = await loadCancelRoute();
+    const response = await route(
+      post("/api/auth/native/cancel", proof()),
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "temporarily_unavailable" });
+    expect(response.headers.get("Cache-Control")).toContain("no-store");
   });
 });

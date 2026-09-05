@@ -72,6 +72,41 @@ describe("native OAuth protocol helpers", () => {
     if (!parsed.ok) expect(parsed.response.status).toBe(413);
   });
 
+  it("rejects every malformed JSON transport before schema data is used", async () => {
+    const request = (headers: HeadersInit, body?: string) =>
+      new Request("https://alook.ai/api/auth/native/attempt", {
+        method: "POST",
+        headers: { Origin: "https://alook.ai", ...headers },
+        body,
+      });
+    const cases = [
+      request({ "Content-Type": "text/plain" }, "{}"),
+      request({
+        "Content-Type": "application/json",
+        "Content-Length": "4097",
+      }, "{}"),
+      request({ "Content-Type": "application/json" }),
+      request({ "Content-Type": "application/json" }, "{}"),
+    ];
+
+    const responses = await Promise.all(cases.map(async (candidate) => {
+      const parsed = await parseNativeOauthJson(
+        candidate,
+        "https://alook.ai",
+        nativeOauthRegistrationSchema,
+      );
+      if (parsed.ok) throw new Error("malformed transport was accepted");
+      return parsed.response;
+    }));
+
+    expect(responses.map((response) => response.status)).toEqual([
+      415,
+      413,
+      400,
+      400,
+    ]);
+  });
+
   it("accepts only the exact preserved Host through a loopback reverse proxy", async () => {
     const body = {
       attemptId: ATTEMPT,
