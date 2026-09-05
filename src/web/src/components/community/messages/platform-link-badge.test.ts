@@ -50,6 +50,41 @@ describe("PlatformLinkBadge", () => {
     )
   })
 
+  it("uses a local-machine icon for localhost links", () => {
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(
+        React.createElement(
+          PlatformLinkBadge,
+          { href: "http://localhost:3000/c/me" },
+          "http://localhost:3000/c/me",
+        ),
+      )
+    })
+
+    const link = renderer!.root.findByType("a")
+    expect(link.props["data-platform-link"]).toBe("local")
+    expect(link.props["aria-label"]).toBe("Local: http://localhost:3000/c/me")
+    expect(renderer!.root.findAllByType("svg")).toHaveLength(1)
+  })
+
+  it("reuses the product's official OpenAI mark", () => {
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(
+        React.createElement(
+          PlatformLinkBadge,
+          { href: "https://platform.openai.com/docs" },
+          "https://platform.openai.com/docs",
+        ),
+      )
+    })
+
+    const link = renderer!.root.findByType("a")
+    expect(link.props["data-platform-link"]).toBe("openai")
+    expect(renderer!.root.findByProps({ "data-provider-logo": "openai" })).toBeTruthy()
+  })
+
   it("gives an unsupported URL the generic link icon and the same badge treatment", () => {
     let renderer: TestRenderer.ReactTestRenderer
     act(() => {
