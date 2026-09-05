@@ -54,7 +54,7 @@ const CONTRACT_VERSION = [
   "oracle:4d1533d443adbeb583f29bd6c5bd997079b81a08277b687165b0b61f54ee7b6b",
   "wire:ea168934b360d45159446cefd13e09c0bd4d1d6dce6d3a567012b8c6ca43e29e",
   "server-contract:d8659d58465bf57a0f5d7cb9d0819092c3ac0cce",
-  "harness-protocol:v3",
+  "harness-protocol:v4",
 ].join("+")
 
 interface SeedManifest {
@@ -214,60 +214,105 @@ async function durableStorageContains(page: Page, marker: string): Promise<boole
   }, marker)
 }
 
-async function waitForReplicaTailCoverage(page: Page, channelId: string, timeoutMs = 20_000) {
-  await expect.poll(async () => page.evaluate(async (targetChannelId) => {
+interface ReplicaRouteReadiness {
+  accountId: string
+  serverId: string
+  channelId: string
+  messageId: string
+  route: string
+}
+
+async function waitForReplicaRouteReadiness(
+  page: Page,
+  target: ReplicaRouteReadiness,
+  timeoutMs = 20_000,
+) {
+  await expect.poll(async () => page.evaluate(async (expected) => {
     let routePublished = false
     try {
       const control = JSON.parse(localStorage.getItem("alook-community-replica-control-v1:active") ?? "null") as {
+        accountId?: unknown
         shellRoutes?: unknown
       } | null
-      routePublished = Array.isArray(control?.shellRoutes) && control.shellRoutes.includes(location.pathname)
+      routePublished = control?.accountId === expected.accountId
+        && Array.isArray(control?.shellRoutes)
+        && control.shellRoutes.includes(expected.route)
     } catch {
       routePublished = false
     }
     if (!routePublished) return false
     const shellCache = await caches.open("alook-community-shell-v1")
-    if (!await shellCache.match(`${location.origin}${location.pathname}`)) return false
+    if (!await shellCache.match(`${location.origin}${expected.route}`)) return false
     const databases = typeof indexedDB.databases === "function" ? await indexedDB.databases() : []
     for (const database of databases) {
       if (!database.name?.startsWith("alook-community-replica-v")) continue
-      const covered = await new Promise<boolean>((resolveCovered) => {
+      const ready = await new Promise<boolean>((resolveReady) => {
         const open = indexedDB.open(database.name!)
-        open.onerror = () => resolveCovered(false)
+        open.onerror = () => resolveReady(false)
         open.onsuccess = () => {
           const db = open.result
-          if (!db.objectStoreNames.contains("coverage")) {
+          if (
+            !db.objectStoreNames.contains("coverage")
+            || !db.objectStoreNames.contains("frontiers")
+            || !db.objectStoreNames.contains("entities")
+          ) {
             db.close()
-            resolveCovered(false)
+            resolveReady(false)
             return
           }
-          const request = db.transaction("coverage", "readonly")
-            .objectStore("coverage")
-            .get(`channel:${targetChannelId}`)
-          request.onerror = () => {
-            db.close()
-            resolveCovered(false)
-          }
-          request.onsuccess = () => {
-            const value = request.result as {
-              permission?: { validUntil?: string }
+          const tx = db.transaction(["coverage", "frontiers", "entities"], "readonly")
+          const scopeKeys = [
+            `account:${expected.accountId}`,
+            `server:${expected.serverId}`,
+            `channel:${expected.channelId}`,
+          ]
+          const coverageRequests = scopeKeys.map((key) => tx.objectStore("coverage").get(key))
+          const frontierRequests = scopeKeys.map((key) => tx.objectStore("frontiers").get(key))
+          const messageRequest = tx.objectStore("entities")
+            .get(`channel:${expected.channelId}\u0000message\u0000${expected.messageId}`)
+          tx.oncomplete = () => {
+            const coverage = coverageRequests.map((request) => request.result as {
+              revision?: number
               completeness?: string
+              permission?: { validUntil?: string }
               messageRange?: { hasNewer?: boolean } | null
-            } | undefined
-            db.close()
-            resolveCovered(Boolean(
-              value
-              && typeof value.permission?.validUntil === "string"
+            } | undefined)
+            const frontiers = frontierRequests.map((request) => request.result as {
+              revision?: number
+            } | undefined)
+            const leasesValid = coverage.every((value) => (
+              typeof value?.permission?.validUntil === "string"
               && Date.parse(value.permission.validUntil) > Date.now()
-              && (value.messageRange ? value.messageRange.hasNewer === false : value.completeness === "complete"),
             ))
+            const revisionsMatch = coverage.every((value, index) => (
+              typeof value?.revision === "number"
+              && value.revision === frontiers[index]?.revision
+            ))
+            const accountAndServerComplete = coverage.slice(0, 2)
+              .every((value) => value?.completeness === "complete")
+            const channel = coverage[2]
+            const channelTailComplete = channel?.messageRange
+              ? channel.messageRange.hasNewer === false
+              : channel?.completeness === "complete"
+            db.close()
+            resolveReady(Boolean(
+              leasesValid
+              && revisionsMatch
+              && accountAndServerComplete
+              && channelTailComplete
+              && messageRequest.result,
+            ))
+          }
+          tx.onerror = () => {
+            db.close()
+            resolveReady(false)
           }
         }
       })
-      if (covered) return true
+      if (ready) return true
     }
     return false
-  }, channelId), { timeout: timeoutMs }).toBe(true)
+  }, target), { timeout: timeoutMs }).toBe(true)
 }
 
 async function waitForDurableMarker(page: Page, marker: string, timeoutMs = 2_000): Promise<number | null> {
@@ -355,6 +400,7 @@ async function launchProfile(profileDir: string) {
 async function primeCoveredProfile(
   profileDir: string,
   email: string,
+  accountId: string,
   routes: string[],
 ): Promise<Map<string, string>> {
   const context = await launchProfile(profileDir)
@@ -366,14 +412,23 @@ async function primeCoveredProfile(
     for (const route of routes) {
       await page.goto(route, { waitUntil: "commit" })
       await waitForSurface(page)
-      if (MODE === "gate") {
-        const channelId = new URL(route, BASE_URL).pathname.split("/").at(-1)
-        if (!channelId) throw new Error(`Cannot identify Replica tail for ${route}`)
-        await waitForReplicaTailCoverage(page, channelId)
-      }
       const tailId = await page.locator("[data-msg-id]").last().getAttribute("data-msg-id")
       if (!tailId) throw new Error(`No message tail while priming ${route}`)
       tails.set(route, tailId)
+      if (MODE === "gate") {
+        const pathname = new URL(route, BASE_URL).pathname
+        const segments = pathname.split("/").filter(Boolean)
+        const serverId = segments.at(-2)
+        const channelId = segments.at(-1)
+        if (!serverId || !channelId) throw new Error(`Cannot identify Replica scopes for ${route}`)
+        await waitForReplicaRouteReadiness(page, {
+          accountId,
+          serverId,
+          channelId,
+          messageId: tailId,
+          route: pathname,
+        })
+      }
     }
     if (MODE === "gate") {
       await page.evaluate(async () => {
@@ -467,7 +522,12 @@ test("Alook Replica vertical benchmark", async ({ browser }) => {
       let context: BrowserContext | null = null
       let probe: ReplicaNetworkProbe | null = null
       try {
-        const tails = await primeCoveredProfile(profileDir, manifest.owner.email, [routeA])
+        const tails = await primeCoveredProfile(
+          profileDir,
+          manifest.owner.email,
+          manifest.owner.userId,
+          [routeA],
+        )
         const tailId = tails.get(routeA)
         if (!tailId) throw new Error("primed route has no tail identity")
         context = await launchProfile(profileDir)
@@ -515,11 +575,33 @@ test("Alook Replica vertical benchmark", async ({ browser }) => {
     ] as const) {
       await page.goto(route, { waitUntil: "commit" })
       await waitForSurface(page)
-      apiProjection.set(channel.id, await apiMessages(context.request, channel.id))
+      const messages = await apiMessages(context.request, channel.id)
+      apiProjection.set(channel.id, messages)
+      const tail = messages.at(-1)
+      if (MODE === "gate") {
+        if (!tail) throw new Error(`fixture channel ${channel.id} has no tail`)
+        await waitForReplicaRouteReadiness(page, {
+          accountId: manifest.owner.userId,
+          serverId: server!.id,
+          channelId: channel.id,
+          messageId: tail.id,
+          route: new URL(route).pathname,
+        })
+      }
     }
     await page.goto(routeA, { waitUntil: "commit" })
     await waitForSurface(page)
-    if (MODE === "gate") await waitForReplicaTailCoverage(page, channelA.id)
+    if (MODE === "gate") {
+      const tail = apiProjection.get(channelA.id)?.at(-1)
+      if (!tail) throw new Error(`fixture channel ${channelA.id} has no tail`)
+      await waitForReplicaRouteReadiness(page, {
+        accountId: manifest.owner.userId,
+        serverId: server!.id,
+        channelId: channelA.id,
+        messageId: tail.id,
+        route: new URL(routeA).pathname,
+      })
+    }
     const probe = new ReplicaNetworkProbe(page, context, BASE_URL)
     await probe.start(false)
     try {
@@ -533,6 +615,15 @@ test("Alook Replica vertical benchmark", async ({ browser }) => {
         const tail = expected.at(-1)
         await recordSample(writer, "j2-covered-navigation", iteration, async (sample) => {
           if (!tail) throw new Error(`fixture channel ${target.id} has no tail`)
+          if (MODE === "gate") {
+            await waitForReplicaRouteReadiness(page, {
+              accountId: manifest.owner.userId,
+              serverId: server!.id,
+              channelId: target.id,
+              messageId: tail.id,
+              route: new URL(target.route).pathname,
+            })
+          }
           sample.actionAtMs = Date.now()
           if (target.surface === "thread") {
             await page.getByTestId(tid.threadIndicator(threadFixture.parentMessageId)).click({ noWaitAfter: true })
@@ -588,7 +679,12 @@ test("Alook Replica vertical benchmark", async ({ browser }) => {
       let context: BrowserContext | null = null
       let probe: ReplicaNetworkProbe | null = null
       try {
-        await primeCoveredProfile(profileDir, manifest.owner.email, [routeB, routeA])
+        await primeCoveredProfile(
+          profileDir,
+          manifest.owner.email,
+          manifest.owner.userId,
+          [routeB, routeA],
+        )
         context = await launchProfile(profileDir)
         let page = context.pages()[0] ?? await context.newPage()
         await page.goto(routeA, { waitUntil: "commit" })
@@ -642,7 +738,12 @@ test("Alook Replica vertical benchmark", async ({ browser }) => {
       let probe: ReplicaNetworkProbe | null = null
       let initialRequests = sample.requests
       try {
-        await primeCoveredProfile(profileDir, manifest.owner.email, [routeA])
+        await primeCoveredProfile(
+          profileDir,
+          manifest.owner.email,
+          manifest.owner.userId,
+          [routeA],
+        )
         context = await launchProfile(profileDir)
         let page = context.pages()[0] ?? await context.newPage()
         await page.goto(routeA, { waitUntil: "commit" })

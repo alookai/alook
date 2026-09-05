@@ -222,7 +222,6 @@ async function drainCommunityReplicaDeltas(
       user.id,
       response.frontier.map((entry) => entry.scope),
     )
-    await seedCurrentRoute(queryClient, user, pathname)
     if (!response.hasMore) return "complete" as const
   }
 }
@@ -376,10 +375,16 @@ export async function synchronizeCommunityReplica(
   // or shell-cache work can delay a local navigation.
   seedCommunityReplicaBootstrapQueries(queryClient, snapshot)
   await flushCommunityReplicaIntents(user.id, signal)
-  await seedCurrentRoute(queryClient, user, pathname)
   const finalDelta = await drainCommunityReplicaDeltas(queryClient, user, pathname, snapshot, signal)
   if (finalDelta === "current-revoked") {
     onCurrentAccessRevoked()
+    return
+  }
+  if (finalDelta === "complete") {
+    // Publish only after the complete required scope set has reached a settled
+    // frontier. A browser kill must never observe a shell route backed by the
+    // bootstrap generation while a final delta can still invalidate it.
+    await seedCurrentRoute(queryClient, user, pathname)
   }
 }
 

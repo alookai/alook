@@ -71,6 +71,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   await deleteCommunityReplicaAccount("account-delta-only")
+  await deleteCommunityReplicaAccount("account-bootstrap-publication")
   vi.unstubAllGlobals()
 })
 
@@ -177,6 +178,79 @@ describe("community Replica intent recovery", () => {
 })
 
 describe("community Replica steady-state synchronization", () => {
+  it("publishes a newly bootstrapped route only after its final delta settles", async () => {
+    const accountId = "account-bootstrap-publication"
+    const pathname = "/c/channels/s1/c1"
+    const checkedAt = "2026-09-06T03:00:00.000+08:00"
+    const validUntil = "2027-09-06T03:00:00.000+08:00"
+    const scopes = [
+      { kind: "account" as const, id: accountId },
+      { kind: "server" as const, id: "s1" },
+      { kind: "channel" as const, id: "c1" },
+    ]
+    const snapshot = {
+      protocolVersion: 1 as const,
+      snapshotId: "bootstrap-publication-snapshot",
+      takenAt: checkedAt,
+      frontier: scopes.map((scope, index) => ({ scope, revision: index + 1 })),
+      coverage: scopes.map((scope, index) => ({
+        scope,
+        revision: index + 1,
+        completeness: scope.kind === "channel" ? "partial" as const : "complete" as const,
+        permission: { epoch: `${scope.kind}-lease`, checkedAt, validUntil },
+        messageRange: scope.kind === "channel"
+          ? { firstSeq: 1, lastSeq: 1, hasOlder: false, hasNewer: false }
+          : null,
+      })),
+      facts: [],
+    }
+    const values = new Map<string, string>()
+    vi.stubGlobal("window", {})
+    vi.stubGlobal("localStorage", {
+      get length() { return values.size },
+      key: (index: number) => [...values.keys()][index] ?? null,
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    })
+    let settleDelta!: (value: unknown) => void
+    const pendingDelta = new Promise((resolve) => { settleDelta = resolve })
+    mocks.apiFetch.mockImplementation(async (path) => {
+      if (path === "/api/community/replica/bootstrap") return snapshot
+      if (path === "/api/community/replica/delta") return pendingDelta
+      throw new Error(`unexpected bootstrap request ${path}`)
+    })
+
+    const synchronizing = synchronizeCommunityReplica(
+      new QueryClient(),
+      { id: accountId, name: "Viewer", email: "v@example.com", avatar: "V", avatarVersion: 0 },
+      pathname,
+      { protocolVersion: 1, serverId: "s1", tails: [{ channelId: "c1", limit: 100 }] },
+      new AbortController().signal,
+      vi.fn(),
+    )
+    await vi.waitFor(() => {
+      expect(mocks.apiFetch.mock.calls.map(([path]) => path)).toEqual([
+        "/api/community/replica/bootstrap",
+        "/api/community/replica/delta",
+      ])
+    })
+    expect(values.get("alook-community-replica-control-v1:active")).toBeUndefined()
+
+    settleDelta({
+      protocolVersion: 1,
+      status: "ok",
+      from: snapshot.frontier,
+      batches: [],
+      frontier: snapshot.frontier,
+      hasMore: false,
+    })
+    await synchronizing
+
+    expect(JSON.parse(values.get("alook-community-replica-control-v1:active") ?? "null"))
+      .toMatchObject({ accountId, shellRoutes: [pathname] })
+  })
+
   it("uses only bounded deltas for a compatible covered route", async () => {
     const accountId = "account-delta-only"
     const pathname = "/c/channels/s1/c1"

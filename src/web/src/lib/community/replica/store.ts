@@ -31,6 +31,7 @@ import {
 const REPLICA_DB_VERSION = 1
 const REPLICA_DB_PREFIX = `alook-community-replica-v${COMMUNITY_REPLICA_PROTOCOL_VERSION}:`
 const REPLICA_INTENT_WAL_PREFIX = `c-replica-v${COMMUNITY_REPLICA_PROTOCOL_VERSION}:intent:`
+export const COMMUNITY_REPLICA_INTENTS_CHANGED_EVENT = "alook:community-replica-intents-changed"
 
 type ReplicaEntity = Extract<CommunityReplicaOperation, { operation: "remove" }>["entity"]
 type ReplicaUpsert<K extends ReplicaEntity["kind"]> = Extract<
@@ -117,6 +118,17 @@ function writeIntentWal(accountId: string, intent: CommunityReplicaTextSendInten
 function removeIntentWal(accountId: string, intentId: string) {
   if (typeof window === "undefined") return
   localStorage.removeItem(intentWalKey(accountId, intentId))
+}
+
+function notifyIntentRowsChanged(accountId: string) {
+  if (
+    typeof window === "undefined"
+    || typeof window.dispatchEvent !== "function"
+    || typeof CustomEvent === "undefined"
+  ) return
+  window.dispatchEvent(new CustomEvent(COMMUNITY_REPLICA_INTENTS_CHANGED_EVENT, {
+    detail: { accountId },
+  }))
 }
 
 export function commitCommunityReplicaIntentWal(
@@ -287,6 +299,7 @@ async function invalidateScopes(
     for (const channelId of revokedChannelIds) {
       discardCommunityReplicaReadWal(accountId, channelId)
     }
+    if (retiredIntentIds.length > 0) notifyIntentRowsChanged(accountId)
   }
 }
 
@@ -558,6 +571,15 @@ export async function listCommunityReplicaIntents(accountId: string) {
   return db.getAll("intents")
 }
 
+export async function dismissCommunityReplicaIntent(accountId: string, intentId: string) {
+  const connection = openReplica(accountId)
+  if (!connection) return
+  const db = await connection
+  await db.delete("intents", intentId)
+  removeIntentWal(accountId, intentId)
+  notifyIntentRowsChanged(accountId)
+}
+
 export async function discardCommunityReplicaIntent(accountId: string, intentId: string) {
   removeIntentWal(accountId, intentId)
   const connection = openReplica(accountId)
@@ -583,6 +605,7 @@ export async function applyCommunityReplicaIntentOutcomes(
     })
   }
   await tx.done
+  if (response.outcomes.length > 0) notifyIntentRowsChanged(accountId)
   return response
 }
 

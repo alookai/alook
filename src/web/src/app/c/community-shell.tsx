@@ -14,6 +14,7 @@ import { PerfTraceBootstrap } from "@/components/perf/perf-trace-bootstrap"
 import { CommunityOnboardingForm } from "@/components/community/onboarding/community-onboarding-form"
 import { CommunityWsReconnectBoundary } from "@/components/community/shell/community-ws-reconnect-overlay"
 import { CommunityDaemonUpdateNotice } from "@/components/daemon-update-notice"
+import { FailedSendRecoveryTray } from "@/components/community/messages/failed-send-recovery-tray"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import type { CoveredReplicaProjection } from "@/lib/community/replica/store"
 import type { ReplicaIntentRow } from "@/lib/community/replica/store"
@@ -152,6 +153,7 @@ function CommunityBootstrap({ children }: { children: ReactNode }) {
     <>
       <PerfTraceBootstrap />
       <CommunityDaemonUpdateNotice userId={currentUser.id} />
+      <FailedSendRecoveryTray accountId={currentUser.id} />
       <CommunityWsReconnectBoundary>
         <CommunityOnboardingForm />
         {children}

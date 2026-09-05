@@ -7,6 +7,7 @@ import {
   applyCommunityReplicaIntentOutcomes,
   commitCommunityReplicaIntent,
   deleteCommunityReplicaAccount,
+  dismissCommunityReplicaIntent,
   listCommunityReplicaIntents,
   listCommunityReplicaCoveredChannelIds,
   readCommunityReplicaSnapshot,
@@ -257,6 +258,9 @@ describe("community Replica store", () => {
       .toBe("recover this body")
     expect(listCommunityReplicaReadWal(accountId)).toEqual([])
     expect(values.size).toBe(0)
+
+    await dismissCommunityReplicaIntent(accountId, "revoked-intent")
+    expect(await listCommunityReplicaIntents(accountId)).toEqual([])
   })
 
   it("durably deduplicates an intent and settles it from the canonical message delta", async () => {
