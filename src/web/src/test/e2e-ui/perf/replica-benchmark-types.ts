@@ -1,5 +1,5 @@
 export const REPLICA_BENCHMARK_SCHEMA_VERSION = 2
-export const REPLICA_BENCHMARK_SERVER_MODE = "opennext-preview:production-build:wrangler-local:auth-dev"
+export const REPLICA_BENCHMARK_SERVER_MODE = "opennext-production-build:ws-port-3010:wrangler-multiconfig-local:auth-dev"
 
 export type ReplicaBenchmarkMode = "baseline" | "gate"
 export type ReplicaBenchmarkServerMode = typeof REPLICA_BENCHMARK_SERVER_MODE
