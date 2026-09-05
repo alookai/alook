@@ -64,6 +64,10 @@ function isProfilePhoto(image: HTMLImageElement): boolean {
   return image.hasAttribute("data-avatar-photo-state")
 }
 
+function isFailedProfilePhoto(image: HTMLImageElement): boolean {
+  return image.getAttribute("data-avatar-photo-state") === "failed"
+}
+
 async function waitForImageLoad(
   image: HTMLImageElement,
   deadline: number,
@@ -74,6 +78,7 @@ async function waitForImageLoad(
     throw error
   }
   if (signal?.aborted) throw createShareCardAbortError()
+  if (isFailedProfilePhoto(image)) return "fallback"
 
   if (!image.complete) {
     const result = await new Promise<"loaded" | "error" | "timeout" | "aborted">((resolve) => {
@@ -101,6 +106,7 @@ async function waitForImageLoad(
     if (result === "timeout") return fallbackOrThrow(new ShareCardImageTimeoutError())
     if (result === "error") return fallbackOrThrow(new ShareImageSnapshotError())
   }
+  if (isFailedProfilePhoto(image)) return "fallback"
   if (image.naturalWidth <= 0 || image.naturalHeight <= 0) {
     return fallbackOrThrow(new ShareImageSnapshotError())
   }
@@ -124,6 +130,7 @@ async function waitForImageLoad(
       if (signal?.aborted) finish("aborted")
     })
     if (result === "aborted") throw createShareCardAbortError()
+    if (isFailedProfilePhoto(image)) return "fallback"
     if (result !== "decoded" && isProfilePhoto(image)) return "fallback"
   }
   return "snapshot"

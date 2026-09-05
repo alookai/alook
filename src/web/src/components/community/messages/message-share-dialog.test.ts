@@ -232,7 +232,10 @@ describe("MessageShareDialog message context", () => {
 describe("waitForShareCardImages", () => {
   function image(
     overrides: Partial<HTMLImageElement> = {},
-    { profilePhoto = false }: { profilePhoto?: boolean } = {},
+    {
+      profilePhoto = false,
+      photoState = "pending",
+    }: { profilePhoto?: boolean; photoState?: "pending" | "ready" | "failed" } = {},
   ) {
     const listeners = new Map<string, () => void>()
     const value = {
@@ -243,6 +246,9 @@ describe("waitForShareCardImages", () => {
       addEventListener: vi.fn((type: string, listener: () => void) => listeners.set(type, listener)),
       removeEventListener: vi.fn((type: string) => listeners.delete(type)),
       hasAttribute: vi.fn((name: string) => profilePhoto && name === "data-avatar-photo-state"),
+      getAttribute: vi.fn((name: string) => (
+        profilePhoto && name === "data-avatar-photo-state" ? photoState : null
+      )),
       ...overrides,
     } as unknown as HTMLImageElement
     return { value, listeners }
@@ -287,6 +293,19 @@ describe("waitForShareCardImages", () => {
     await expect(waiting).resolves.toEqual([
       { image: avatar.value, mode: "fallback" },
     ])
+    expect(avatar.value.decode).not.toHaveBeenCalled()
+    expect(paint).toHaveBeenCalledOnce()
+  })
+
+  it("immediately degrades an already-failed profile photo without waiting again", async () => {
+    const avatar = image({}, { profilePhoto: true, photoState: "failed" })
+    const paint = vi.fn().mockResolvedValue(undefined)
+
+    await expect(waitForShareCardImages(card([avatar.value]), paint)).resolves.toEqual([
+      { image: avatar.value, mode: "fallback" },
+    ])
+
+    expect(avatar.value.addEventListener).not.toHaveBeenCalled()
     expect(avatar.value.decode).not.toHaveBeenCalled()
     expect(paint).toHaveBeenCalledOnce()
   })
@@ -611,7 +630,7 @@ describe("snapshotShareCardImages", () => {
     expect(attachmentCanvas.replaceWith).toHaveBeenCalledWith(attachment)
   })
 
-  it("suppresses a pending profile photo so the fallback DOM is rasterized", async () => {
+  it("suppresses a pending profile photo so the neutral placeholder DOM is rasterized", async () => {
     const avatar = image()
     const placeholder = {
       hidden: false,

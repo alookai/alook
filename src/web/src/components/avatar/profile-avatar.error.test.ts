@@ -1,14 +1,22 @@
 import { createElement } from "react"
 import TestRenderer, { act } from "react-test-renderer"
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { ProfileAvatar } from "./profile-avatar"
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
 describe("ProfileAvatar photo errors", () => {
-  it("reveals a cached photo whose load event completed before hydration", async () => {
-    let renderer: TestRenderer.ReactTestRenderer
+  let renderer: TestRenderer.ReactTestRenderer | undefined
 
+  afterEach(async () => {
+    if (renderer) {
+      await act(async () => renderer?.unmount())
+      renderer = undefined
+    }
+    vi.useRealTimers()
+  })
+
+  it("reveals a cached photo whose load event completed before hydration", async () => {
     await act(async () => {
       renderer = TestRenderer.create(createElement(ProfileAvatar, {
         label: "Ada",
@@ -24,11 +32,12 @@ describe("ProfileAvatar photo errors", () => {
     expect(renderer!.root.findByProps({ "data-slot": "avatar-image" }).props).toMatchObject({
       "data-avatar-photo-state": "ready",
     })
+    const placeholder = renderer!.root.findByProps({ "data-slot": "avatar-photo-placeholder" })
+    expect(placeholder.props["data-avatar-photo-placeholder"]).toBeUndefined()
+    expect(placeholder.props.className).not.toContain("animate-pulse")
   })
 
-  it("keeps the fallback when a cached photo failed before hydration", async () => {
-    let renderer: TestRenderer.ReactTestRenderer
-
+  it("shows a static neutral placeholder when a cached photo failed before hydration", async () => {
     await act(async () => {
       renderer = TestRenderer.create(createElement(ProfileAvatar, {
         label: "Ada",
@@ -41,13 +50,18 @@ describe("ProfileAvatar photo errors", () => {
       })
     })
 
-    expect(renderer!.root.findAllByProps({ "data-slot": "avatar-image" })).toHaveLength(0)
-    expect(JSON.stringify(renderer!.toJSON())).toContain('"children":["A"]')
+    expect(renderer!.root.findByProps({ "data-slot": "avatar-image" }).props).toMatchObject({
+      "data-avatar-photo-state": "failed",
+    })
+    const placeholder = renderer!.root.findByProps({ "data-slot": "avatar-photo-placeholder" })
+    expect(placeholder.props["data-avatar-photo-placeholder"]).toBe("failed")
+    expect(placeholder.props.className).not.toContain("animate-pulse")
+    expect(renderer!.root.findAllByProps({ "data-slot": "avatar-fallback" })).toHaveLength(0)
+    expect(renderer!.root.findAll((node) => node.type === "svg")).toHaveLength(0)
+    expect(JSON.stringify(renderer!.toJSON())).not.toContain('"children":["A"]')
   })
 
-  it("keeps the first-frame fallback after the photo reports an error", async () => {
-    let renderer: TestRenderer.ReactTestRenderer
-
+  it("stops the neutral skeleton after the photo reports an error", async () => {
     await act(async () => {
       renderer = TestRenderer.create(createElement(ProfileAvatar, {
         label: "Ada",
@@ -58,19 +72,25 @@ describe("ProfileAvatar photo errors", () => {
 
     const image = renderer!.root.findByProps({ "data-slot": "avatar-image" })
     expect(image.props["data-avatar-photo-state"]).toBe("pending")
-    expect(JSON.stringify(renderer!.toJSON())).toContain('"children":["A"]')
+    expect(renderer!.root.findByProps({ "data-slot": "avatar-photo-placeholder" }).props).toMatchObject({
+      "data-avatar-photo-placeholder": "pending",
+    })
 
     await act(async () => {
       image.props.onError()
     })
 
-    expect(renderer!.root.findAllByProps({ "data-slot": "avatar-image" })).toHaveLength(0)
-    expect(JSON.stringify(renderer!.toJSON())).toContain('"children":["A"]')
+    expect(renderer!.root.findByProps({ "data-slot": "avatar-image" }).props).toMatchObject({
+      "data-avatar-photo-state": "failed",
+    })
+    const placeholder = renderer!.root.findByProps({ "data-slot": "avatar-photo-placeholder" })
+    expect(placeholder.props["data-avatar-photo-placeholder"]).toBe("failed")
+    expect(placeholder.props.className).not.toContain("animate-pulse")
+    expect(renderer!.root.findAllByProps({ "data-slot": "avatar-fallback" })).toHaveLength(0)
   })
 
-  it("reveals a loaded photo over its retained fallback", async () => {
-    let renderer: TestRenderer.ReactTestRenderer
-
+  it("reveals a loaded photo over its retained neutral placeholder", async () => {
+    vi.useFakeTimers()
     await act(async () => {
       renderer = TestRenderer.create(createElement(ProfileAvatar, {
         label: "Ada",
@@ -87,13 +107,41 @@ describe("ProfileAvatar photo errors", () => {
     expect(renderer!.root.findByProps({ "data-slot": "avatar-image" }).props).toMatchObject({
       "data-avatar-photo-state": "ready",
     })
-    expect(renderer!.root.findAll((node) => (
-      node.type === "span" && node.props["data-slot"] === "avatar-fallback"
-    ))).toHaveLength(1)
+    const placeholder = renderer!.root.findByProps({ "data-slot": "avatar-photo-placeholder" })
+    expect(placeholder.props["data-avatar-photo-placeholder"]).toBeUndefined()
+    expect(placeholder.props.className).not.toContain("animate-pulse")
+
+    await act(async () => vi.advanceTimersByTime(5_000))
+    expect(renderer!.root.findByProps({ "data-slot": "avatar-image" }).props).toMatchObject({
+      "data-avatar-photo-state": "ready",
+    })
   })
 
-  it("retries from the fallback when the photo source changes", async () => {
-    let renderer: TestRenderer.ReactTestRenderer
+  it("settles a pending photo to a static placeholder after the readiness timeout", async () => {
+    vi.useFakeTimers()
+    await act(async () => {
+      renderer = TestRenderer.create(createElement(ProfileAvatar, {
+        label: "Ada",
+        src: "https://cdn.example.com/never.png",
+        seed: "user_1",
+      }))
+    })
+
+    await act(async () => vi.advanceTimersByTime(5_000))
+
+    const image = renderer!.root.findByProps({ "data-slot": "avatar-image" })
+    expect(image.props["data-avatar-photo-state"]).toBe("failed")
+    const placeholder = renderer!.root.findByProps({ "data-slot": "avatar-photo-placeholder" })
+    expect(placeholder.props["data-avatar-photo-placeholder"]).toBe("failed")
+    expect(placeholder.props.className).not.toContain("animate-pulse")
+
+    await act(async () => image.props.onLoad())
+    expect(renderer!.root.findByProps({ "data-slot": "avatar-image" }).props).toMatchObject({
+      "data-avatar-photo-state": "failed",
+    })
+  })
+
+  it("retries from a neutral skeleton when the photo source changes", async () => {
     const props = {
       label: "Ada",
       seed: "user_1",
@@ -121,6 +169,9 @@ describe("ProfileAvatar photo errors", () => {
       src: "https://cdn.example.com/second.png",
       "data-avatar-photo-state": "pending",
     })
-    expect(JSON.stringify(renderer!.toJSON())).toContain('"children":["A"]')
+    const placeholder = renderer!.root.findByProps({ "data-slot": "avatar-photo-placeholder" })
+    expect(placeholder.props["data-avatar-photo-placeholder"]).toBe("pending")
+    expect(placeholder.props.className).toContain("animate-pulse")
+    expect(renderer!.root.findAllByProps({ "data-slot": "avatar-fallback" })).toHaveLength(0)
   })
 })

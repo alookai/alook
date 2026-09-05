@@ -487,7 +487,11 @@ test("an immediate cold Copy waits for the real photo and owns the whole generat
   const dialog = await openShareDialog(page, messageId)
   const card = dialog.locator("[data-share-card]")
   await expect(card.locator('[data-avatar-photo-state="pending"]')).toBeVisible()
-  await expect(card.locator('[data-slot="avatar-fallback"]')).toBeVisible()
+  const pendingPlaceholder = card.locator('[data-avatar-photo-placeholder="pending"]')
+  await expect(pendingPlaceholder).toBeVisible()
+  await expect(pendingPlaceholder).toHaveClass(/animate-pulse/)
+  await expect(card.locator('[data-avatar-kind="photo"] [data-slot="avatar-fallback"]')).toHaveCount(0)
+  await expect(card.locator('[data-avatar-kind="photo"] svg')).toHaveCount(0)
   const point = await avatarSamplePoint(card)
   await page.evaluate((copyTestId) => {
     const copy = document.querySelector<HTMLButtonElement>(`[data-testid="${copyTestId}"]`)!
@@ -517,7 +521,7 @@ for (const scenario of [
   { name: "an avatar error", action: "copy", outcome: "abort" },
   { name: "an avatar timeout", action: "download", outcome: "timeout" },
 ] as const) {
-  test(`${scenario.name} exports fallback pixels and a remount retries the photo`, async ({ asUser }) => {
+  test(`${scenario.name} exports neutral placeholder pixels and a remount retries the photo`, async ({ asUser }) => {
     test.setTimeout(120_000)
     const serverId = await seedServer("alice", `Fallback share avatar ${Date.now()}`)
     const channelId = await seedChannel("alice", serverId, `fallback-${scenario.outcome}`)
@@ -537,7 +541,11 @@ for (const scenario of [
     let dialog = await openShareDialog(page, messageId)
     const card = dialog.locator("[data-share-card]")
     await expect(card.locator('[data-avatar-photo-state="pending"]')).toBeVisible()
-    await expect(card.locator('[data-slot="avatar-fallback"]')).toBeVisible()
+    const pendingPlaceholder = card.locator('[data-avatar-photo-placeholder="pending"]')
+    await expect(pendingPlaceholder).toBeVisible()
+    await expect(pendingPlaceholder).toHaveClass(/animate-pulse/)
+    await expect(card.locator('[data-avatar-kind="photo"] [data-slot="avatar-fallback"]')).toHaveCount(0)
+    await expect(card.locator('[data-avatar-kind="photo"] svg')).toHaveCount(0)
     const fallbackPoint = await avatarSamplePoint(card)
     const firstDownload = scenario.action === "download" ? page.waitForEvent("download") : null
     await dialog.getByRole("button", {
@@ -552,6 +560,9 @@ for (const scenario of [
       avatarRequests.disarm()
       await held.abort("failed").catch(() => {})
     }
+    const failedPlaceholder = card.locator('[data-avatar-photo-placeholder="failed"]')
+    await expect(failedPlaceholder).toBeVisible()
+    await expect(failedPlaceholder).not.toHaveClass(/animate-pulse/)
 
     const firstKind: CaptureKind = scenario.action === "copy" ? "clipboard" : "download"
     const fallback = await capturedPixel(page, firstKind, 0, fallbackPoint)

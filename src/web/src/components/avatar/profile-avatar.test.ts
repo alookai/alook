@@ -13,7 +13,7 @@ function render(props: ProfileAvatarProps): string {
 }
 
 describe("ProfileAvatar", () => {
-  it("mounts a photo over a deterministic first-frame fallback", () => {
+  it("mounts a photo over a same-size neutral pending skeleton", () => {
     const html = render({
       label: "Ada",
       src: "https://cdn.example.com/ada.png",
@@ -25,11 +25,14 @@ describe("ProfileAvatar", () => {
 
     expect(html).toContain('data-testid="profile-avatar"')
     expect(html).toContain('data-avatar-kind="photo"')
-    expect(html).toContain('data-slot="avatar-fallback"')
-    expect(html).toContain(">A</span>")
+    expect(html).toContain('data-slot="avatar-photo-placeholder" data-avatar-photo-placeholder="pending"')
+    expect(html).toContain("size-full rounded-full bg-muted animate-pulse motion-reduce:animate-none")
+    expect(html).not.toContain('data-slot="avatar-fallback"')
+    expect(html).not.toContain(">A</span>")
     expect(html).toContain('data-slot="avatar-image" data-avatar-photo-state="pending"')
     expect(html).toContain('src="https://cdn.example.com/ada.png" alt="Ada"')
     expect(html).toContain("opacity-0")
+    expect(html).toContain("transition-opacity duration-150 ease-out motion-reduce:transition-none")
     expect(html).toContain("width:40px;height:40px")
     expect(html).toContain("ring-2")
   })
@@ -74,7 +77,8 @@ describe("ProfileAvatar", () => {
     })
 
     expect(html).toContain('data-avatar-kind="photo"')
-    expect(html).toContain('data-slot="avatar-fallback"')
+    expect(html).toContain('data-avatar-photo-placeholder="pending"')
+    expect(html).not.toContain('data-slot="avatar-fallback"')
     expect(html).toContain('data-slot="avatar-image" data-avatar-photo-state="pending"')
     expect(html).toContain('src="/api/avatar" alt=""')
     expect(html).toContain('aria-hidden="true"')
