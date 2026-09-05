@@ -159,7 +159,7 @@ describe("planCommittedMessage", () => {
     })
     expect(mockResolveEligibility).toHaveBeenCalledWith(
       {},
-      ["author_1", "u_all", "u_mentions", "bot_1", "u_mention_only"],
+      ["u_all", "u_mentions", "bot_1", "u_mention_only"],
       "msg_1",
     )
     expect(mockFindWakeCandidates).toHaveBeenCalledWith({}, {
@@ -174,9 +174,7 @@ describe("planCommittedMessage", () => {
     mockResolveRecipients.mockResolvedValue(["author_1", "reader", "passive_bot", "u_all"])
     mockResolveNotificationRecipients.mockResolvedValue(["author_1", "u_all"])
     mockListAttention.mockResolvedValue([])
-    mockResolveEligibility.mockResolvedValue(new Map(
-      ["author_1", "reader", "passive_bot", "u_all"].map((id) => [id, state()]),
-    ))
+    mockResolveEligibility.mockResolvedValue(new Map([["u_all", state()]]))
     mockFindWakeCandidates.mockResolvedValue([{ botUserId: "passive_bot" }])
     const plan = await planCommittedMessage({} as never, "msg_1")
     expect(plan.contentUserIds).toContain("reader")
@@ -185,6 +183,7 @@ describe("planCommittedMessage", () => {
     expect(plan.unreadMentionUserIds).toEqual([])
     expect(plan.mentionUserIds).toEqual([])
     expect(plan.wakeBotUserIds).toEqual([])
+    expect(mockResolveEligibility).toHaveBeenCalledWith({}, ["u_all"], "msg_1")
     expect(mockFindWakeCandidates).toHaveBeenCalledWith({}, expect.objectContaining({ recipients: ["u_all"] }))
   })
 
@@ -354,6 +353,8 @@ describe("planCommittedMessage", () => {
   })
 
   it("removes a stale participant that no longer has readable access", async () => {
+    mockResolveRecipients.mockResolvedValue(["author_1", "u_mentions"])
+    mockResolveNotificationRecipients.mockResolvedValue(["author_1", "u_all", "u_mentions", "bot_1"])
     mockResolveEligibility.mockResolvedValue(new Map([
       ["author_1", state()],
       ["u_all", state({ isReadable: false })],
@@ -363,6 +364,19 @@ describe("planCommittedMessage", () => {
     ]))
     const plan = await planCommittedMessage({} as never, "msg_1")
     expect(plan.contentUserIds).toEqual(["author_1", "u_mentions"])
+    expect(plan.wakeBotUserIds).toEqual([])
+  })
+
+  it("deduplicates notification and attention candidates without consulting passive readers", async () => {
+    mockResolveRecipients.mockResolvedValue(["author_1", "reader", "u_all", "u_mentions"])
+    mockResolveNotificationRecipients.mockResolvedValue(["author_1", "u_all", "u_all", "u_mentions", "outside"])
+    mockListAttention.mockResolvedValue(["author_1", "u_mentions", "u_mentions", "u_mention_only"])
+    const plan = await planCommittedMessage({} as never, "msg_1")
+    expect(mockResolveEligibility).toHaveBeenCalledWith({}, ["u_all", "u_mentions", "outside", "u_mention_only"], "msg_1")
+    expect(plan.contentUserIds).toEqual(["author_1", "reader", "u_all", "u_mentions"])
+    expect(plan.unreadPlainUserIds).toEqual(["u_all"])
+    expect(plan.unreadMentionUserIds).toEqual(["u_mentions"])
+    expect(plan.mentionUserIds).toEqual(["u_mentions", "u_mention_only"])
     expect(plan.wakeBotUserIds).toEqual([])
   })
 

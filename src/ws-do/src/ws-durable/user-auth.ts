@@ -59,6 +59,9 @@ export async function handleUserFetch(
       logCommunityBrowserEventRejected(context.log, "target-do-bundle", bundle)
       return deliveryErrorResponse(400, { operationId: null, code: "invalid_request" })
     }
+    if (!hasAuthenticatedTargetSocket(context, targetUserId)) {
+      return deliverCommunityBundle(context, bundle, targetUserId)
+    }
     try {
       if (!await canDeliverCommunityContent(createDb(context.env.DB), targetUserId, bundle.prepared.events)) {
         return jsonResponse({
@@ -88,6 +91,9 @@ export async function handleUserFetch(
     if (!event.ok) {
       logCommunityBrowserEventRejected(context.log, "target-do", event)
       return invalidCommunityBrowserEventResponse(event)
+    }
+    if (!hasAuthenticatedTargetSocket(context, targetUserId)) {
+      return jsonResponse({ sent: broadcast(context, event.body, targetUserId) })
     }
     try {
       if (!await canDeliverCommunityContent(createDb(context.env.DB), targetUserId, [event.event])) {
@@ -360,6 +366,13 @@ export async function handleWebSocketError(
 ): Promise<void> {
   context.log.error("websocket error", { err: error instanceof Error ? error : String(error) })
   try { ws.close(1011, "Internal error") } catch { }
+}
+
+function hasAuthenticatedTargetSocket(context: WsDurableContext, targetUserId: string): boolean {
+  return context.ctx.getWebSockets().some((ws) => {
+    const state = ws.deserializeAttachment() as ConnectionState
+    return state?.type === "user" && state.authenticated && state.userId === targetUserId
+  })
 }
 
 function broadcast(

@@ -137,6 +137,25 @@ describe("WebSocketDurableObject", () => {
     expect(socket.send).toHaveBeenCalledOnce()
   })
 
+  it.each(["none", "unauthenticated", "other-user", "daemon"])("skips single-content D1 checks for %s sockets after strict validation", async (kind) => {
+    const { durable, ctx } = createDO()
+    const ws = createMockWebSocket()
+    ws.serializeAttachment({ type: kind === "daemon" ? "daemon" : "user", userId: kind === "other-user" ? "other" : "user-42", authenticated: kind !== "unauthenticated" })
+    ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue(kind === "none" ? [] : [ws])
+    const send = (event: unknown) => durable.fetch(new Request("http://internal/community-broadcast", {
+      method: "POST",
+      headers: { [INTERNAL_USER_TARGET_HEADER]: "user-42" },
+      body: JSON.stringify(event),
+    }))
+    const event = { type: "community:typing.start", channelId: "private", userId: "author" }
+    mockListReadableChannelsForUser.mockRejectedValue(new Error("offline D1 must not run"))
+    expect((await send({ ...event, extra: true })).status).toBe(400)
+    await expect((await send(event)).json()).resolves.toEqual({ sent: 0 })
+    expect(mockCreateDb).not.toHaveBeenCalled()
+    expect(mockListReadableChannelsForUser).not.toHaveBeenCalled()
+    expect(ws.send).not.toHaveBeenCalled()
+  })
+
   describe("fetch — strict community ordered bundle", () => {
     const events = [
       {
@@ -501,15 +520,25 @@ describe("WebSocketDurableObject", () => {
       expect(second.send).not.toHaveBeenCalled()
     })
 
-    it("returns an exact complete zero-socket receipt", async () => {
+    it.each(["none", "unauthenticated", "other-user", "daemon"])("returns an exact zero-matched receipt without D1 for %s sockets", async (kind) => {
       const { durable, ctx } = createDO()
-      ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([])
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: kind === "daemon" ? "daemon" : "user", userId: kind === "other-user" ? "other" : "user-42", authenticated: kind !== "unauthenticated" })
+      ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue(kind === "none" ? [] : [ws])
+      mockListReadableChannelsForUser.mockRejectedValue(new Error("offline D1 must not run"))
 
-      const response = await durable.fetch(await requestFor())
+      const request = await requestFor()
+      const body = await request.clone().json() as { operationId: string; operationDigest: string; events: unknown[] }
+      const invalid = await requestFor(events, { operationDigest: "0".repeat(64) })
+      expect((await durable.fetch(invalid)).status).toBe(400)
+      const response = await durable.fetch(request)
       expect(response.status).toBe(200)
       await expect(response.json()).resolves.toMatchObject({
         status: "complete",
         validated: true,
+        operationId: body.operationId,
+        operationDigest: body.operationDigest,
+        eventCount: body.events.length,
         matched: 0,
         attempted: 0,
         enqueued: 0,
@@ -521,6 +550,44 @@ describe("WebSocketDurableObject", () => {
         ambiguousClosed: 0,
         results: [],
       })
+      expect(mockCreateDb).not.toHaveBeenCalled()
+      expect(mockListReadableChannelsForUser).not.toHaveBeenCalled()
+      expect(ws.send).not.toHaveBeenCalled()
+    })
+
+    it("checks current access when a target connects after zero-match completion", async () => {
+      const { durable, ctx } = createDO()
+      const sockets = ctx.getWebSockets as ReturnType<typeof vi.fn>
+      sockets.mockReturnValue([])
+      const request = await requestFor()
+      await expect((await durable.fetch(request.clone())).json()).resolves.toMatchObject({ matched: 0, enqueued: 0 })
+      expect(mockCreateDb).not.toHaveBeenCalled()
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "user", userId: "user-42", authenticated: true })
+      sockets.mockReturnValue([ws])
+      mockListReadableChannelsForUser.mockResolvedValueOnce([])
+      await expect((await durable.fetch(request.clone())).json()).resolves.toMatchObject({ status: "cancelled", targetUserId: "user-42" })
+      expect(ws.send).not.toHaveBeenCalled()
+      await expect((await durable.fetch(request.clone())).json()).resolves.toMatchObject({ matched: 1, enqueued: 1 })
+      expect(mockListReadableChannelsForUser).toHaveBeenCalledTimes(2)
+      expect(ws.send).toHaveBeenCalledOnce()
+    })
+
+    it("returns zero matches when the last target closes during its access query", async () => {
+      const { durable, ctx } = createDO()
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "user", userId: "user-42", authenticated: true })
+      const sockets = ctx.getWebSockets as ReturnType<typeof vi.fn>
+      sockets.mockReturnValue([ws])
+      let release!: (rows: Array<{ id: string }>) => void
+      mockListReadableChannelsForUser.mockImplementation(() => new Promise((resolve) => { release = resolve }))
+      const pending = durable.fetch(await requestFor())
+      await vi.waitFor(() => expect(mockListReadableChannelsForUser).toHaveBeenCalledOnce())
+      sockets.mockReturnValue([])
+      release([{ id: "ch-1" }])
+      await expect((await pending).json()).resolves.toMatchObject({ matched: 0, enqueued: 0 })
+      expect(ws.send).not.toHaveBeenCalled()
+      expect(ws.deserializeAttachment()).toEqual({ type: "user", userId: "user-42", authenticated: true })
     })
 
     it("closes a socket and reports ambiguity when attachment persistence fails after send", async () => {

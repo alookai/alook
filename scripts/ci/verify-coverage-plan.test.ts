@@ -30,6 +30,22 @@ function resignPlan(value) {
 }
 
 describe("verifyCoveragePlan", () => {
+  it("permits an excluded E2E fixture without hiding missing product coverage", () => {
+    const fixture = "src/web/src/test/e2e-ui/_fixtures/community-notification-requests.ts"
+    const product = "src/web/src/lib/community/message-dispatcher.ts"
+    const plan = buildExecutionPlan([
+      { status: "A", path: fixture },
+      { status: "M", path: product },
+    ], { baseSha, headSha })
+    const report = { [resolve(product)]: coveredFile(resolve(product)) }
+    expect(verifyCoveragePlan(plan, report).required_changed_files).toEqual([product])
+    expect(() => verifyCoveragePlan(plan, {
+      [resolve("src/web/src/lib/config.ts")]: coveredFile(resolve("src/web/src/lib/config.ts")),
+    })).toThrow(`required changed coverage file is missing from merged report: ${product}`)
+    const fixtureOnly = buildExecutionPlan([{ status: "A", path: fixture }], { baseSha, headSha })
+    expect(() => verifyCoveragePlan(fixtureOnly, {})).toThrow("nonempty denominator")
+  })
+
   it("proves required changed files and a nonempty passing Codecov project denominator", () => {
     const changed = "src/cli/commands/update.ts"
     const plan = buildExecutionPlan([{ status: "M", path: changed }], { baseSha, headSha })

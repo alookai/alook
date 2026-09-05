@@ -89,10 +89,10 @@ export async function planCommittedMessage(
       (phase, query) => withD1Retry(query, { route: recipientRetryRoute[phase] }),
     ),
   ])
-  const candidateContentUserIds = unique(contentCandidates)
-  const candidateNotificationUserIds = unique(notificationCandidates)
+  const contentUserIds = unique(contentCandidates)
+  const candidateNotificationUserIds = unique(notificationCandidates).filter((id) => id !== message.authorId)
   const attentionIds = unique(attentionUserIds).filter((id) => id !== message.authorId)
-  const eligibilityUserIds = unique([...candidateContentUserIds, ...candidateNotificationUserIds, ...attentionIds])
+  const eligibilityUserIds = unique([...candidateNotificationUserIds, ...attentionIds])
 
   const [eligibility, replyTarget] = await Promise.all([
     withD1Retry(
@@ -115,12 +115,9 @@ export async function planCommittedMessage(
       : Promise.resolve(null),
   ])
 
-  const contentUserIds = candidateContentUserIds.filter(
-    (id) => eligibility.get(id)?.isReadable,
-  )
   const contentSet = new Set(contentUserIds)
   const notificationUserIds = candidateNotificationUserIds.filter(
-    (id) => id !== message.authorId && contentSet.has(id),
+    (id) => contentSet.has(id),
   )
   const wakeCandidates = await withD1Retry(
     () => queries.communityBot.findWakeCandidates(db, {
