@@ -209,6 +209,10 @@ function stripMalformedAlookHeredocTail(input: string): string {
 
 const CLIENT_MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 const CLIENT_MAX_MESSAGE_BODY_BYTES = 1024;
+// The agent tool stops waiting after 10 seconds. Do not start an acknowledgement
+// once the pull has consumed the first nine, leaving the normal ack/output path
+// one second of headroom at that outer boundary.
+const INBOX_PULL_OUTPUT_DEADLINE_MS = 9_000;
 
 /**
  * Guess a content-type from a filename extension. Kept trivial — the server
@@ -597,12 +601,15 @@ async function cmdInboxPull(opts: Record<string, unknown>): Promise<unknown> {
   const api = getApi();
   const agent = agentId(opts);
   const max = opts.max ? Number(opts.max) : undefined;
+  const pullStartedAt = performance.now();
   const { messages, hasMore, markedCount } = await api.inboxPull({ agentId: agent, max });
+  const pullElapsedMs = performance.now() - pullStartedAt;
   const pulledAt = nowLocalISO();
 
   let acked = 0;
   let ackError: string | undefined;
   let failed: AckFailure[] | undefined;
+  let ackDeferred: { reason: "slow_pull"; thresholdMs: number; elapsedMs: number } | undefined;
   if (messages.length > 0) {
     const latest = new Map<string, Cursor>();
     for (const m of messages) {
@@ -610,18 +617,22 @@ async function cmdInboxPull(opts: Record<string, unknown>): Promise<unknown> {
       const cur = latest.get(m.channel);
       if (!cur || seqN > cur.seq) latest.set(m.channel, { channel: m.channel, seq: seqN });
     }
-    try {
-      const result = await api.ack({ agentId: agent, cursors: [...latest.values()] });
-      acked = result.applied.length;
-      failed = result.failed;
-    } catch (err) {
-      // Do NOT rethrow: the pull already succeeded, and if ack fails on a
-      // single scope (e.g. a stale visibility mismatch) the whole envelope
-      // would otherwise collapse to a bare error, wiping the messages the
-      // agent needs. Surface the ack failure separately so the agent (or a
-      // human debugging) sees BOTH the delivered messages AND that the
-      // waterline didn't move.
-      ackError = err instanceof Error ? err.message : String(err);
+    if (pullElapsedMs >= INBOX_PULL_OUTPUT_DEADLINE_MS) {
+      ackDeferred = {
+        reason: "slow_pull",
+        thresholdMs: INBOX_PULL_OUTPUT_DEADLINE_MS,
+        elapsedMs: Math.round(pullElapsedMs),
+      };
+    } else {
+      try {
+        const result = await api.ack({ agentId: agent, cursors: [...latest.values()] });
+        acked = result.applied.length;
+        failed = result.failed;
+      } catch (err) {
+        // Keep the successfully pulled messages visible even when the
+        // automatic acknowledgement fails.
+        ackError = err instanceof Error ? err.message : String(err);
+      }
     }
   }
 
@@ -632,6 +643,7 @@ async function cmdInboxPull(opts: Record<string, unknown>): Promise<unknown> {
     pulledAt,
     ...(failed ? { failed } : {}),
     ...(ackError ? { ackError } : {}),
+    ...(ackDeferred ? { ackDeferred } : {}),
     ...(markedCount > 0
       ? {
           markedReminder: `You have ${markedCount} marked ${markedCount === 1 ? "message" : "messages"}. Resolve ${markedCount === 1 ? "it" : "them"} before going dark unless blocked.`,

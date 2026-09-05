@@ -44,7 +44,7 @@ import * as https from "https";
 import * as os from "os";
 import * as path from "path";
 import { URL } from "url";
-import { formatRef, parseRef, type Message } from "../server/contract.js";
+import { formatRef, parseRef, type Cursor, type Message } from "../server/contract.js";
 import { parseNameAndTag } from "@alook/shared/lib/discriminator";
 
 export const LOCAL_MESSAGE_REMINDER_PATH = "/__alook/local/message-reminder";
@@ -318,6 +318,9 @@ export interface CredentialProxyOptions {
   onInboxPullStart?: (agentId: string) => unknown;
   onInboxPullResponse?: (agentId: string, messages: Message[], observationToken?: unknown) => void;
   onInboxPullObservationError?: (failure: InboxPullObservationFailure) => void;
+  onInboxAckStart?: (agentId: string) => unknown;
+  onInboxAckResponse?: (agentId: string, applied: Cursor[], observationToken?: unknown) => void;
+  onInboxAckObservationError?: (failure: InboxAckObservationFailure) => void;
   /**
    * Called once per successfully-authorized upstream proxy request, BEFORE the
    * upstream is dispatched. Fires only on `verdict.ok === true` — never on
@@ -361,6 +364,18 @@ export type InboxPullContentEncoding = "identity" | "gzip" | "deflate" | "br" | 
 export interface InboxPullObservationFailure {
   agentId: string;
   reason: InboxPullObservationFailureReason;
+  contentEncoding: InboxPullContentEncoding;
+}
+
+export type InboxAckObservationFailureReason =
+  | "unexpected_content_encoding"
+  | "invalid_json"
+  | "invalid_ack_shape"
+  | "observer_failed";
+
+export interface InboxAckObservationFailure {
+  agentId: string;
+  reason: InboxAckObservationFailureReason;
   contentEncoding: InboxPullContentEncoding;
 }
 
@@ -510,12 +525,20 @@ export async function startCredentialProxy(
   const upstreamClient = upstream.protocol === "https:" ? https : http;
 
   const onPull = options.onInboxPullResponse;
+  const onAck = options.onInboxAckResponse;
   const onProxyRequest = options.onProxyRequest;
   const reportInboxPullObservationError = (failure: InboxPullObservationFailure): void => {
     try {
       options.onInboxPullObservationError?.(failure);
     } catch {
       // Observational callback — never disrupt the proxy response.
+    }
+  };
+  const reportInboxAckObservationError = (failure: InboxAckObservationFailure): void => {
+    try {
+      options.onInboxAckObservationError?.(failure);
+    } catch {
+      return;
     }
   };
 
@@ -581,13 +604,27 @@ export async function startCredentialProxy(
     // `/api/inboxPull` verb is deleted (flat-delete step). inboxSnapshot is
     // deliberately EXCLUDED (peek, no `{ messages }` to record).
     const isInboxPull = req.method === "POST" && pathname === "/api/community/users/me/inbox/pull";
+    const isInboxAck = req.method === "POST" && pathname === "/api/community/users/me/inbox/ack";
     const shouldObserveInboxPull = Boolean(isInboxPull && onPull);
+    const shouldObserveInboxAck = Boolean(isInboxAck && onAck);
     let inboxPullObservationToken: unknown;
+    let inboxAckObservationToken: unknown;
     if (shouldObserveInboxPull) {
       try {
         inboxPullObservationToken = options.onInboxPullStart?.(reg.agentId);
       } catch {
         reportInboxPullObservationError({
+          agentId: reg.agentId,
+          reason: "observer_failed",
+          contentEncoding: "identity",
+        });
+      }
+    }
+    if (shouldObserveInboxAck) {
+      try {
+        inboxAckObservationToken = options.onInboxAckStart?.(reg.agentId);
+      } catch {
+        reportInboxAckObservationError({
           agentId: reg.agentId,
           reason: "observer_failed",
           contentEncoding: "identity",
@@ -616,7 +653,7 @@ export async function startCredentialProxy(
     outHeaders[broker.headerNames.agentId.toLowerCase()] = reg.agentId;
     outHeaders[broker.headerNames.client.toLowerCase()] = broker.clientLabel;
     outHeaders[broker.headerNames.capabilities.toLowerCase()] = [...reg.capabilities].join(",");
-    if (isInboxPull) outHeaders["accept-encoding"] = "identity";
+    if (isInboxPull || isInboxAck) outHeaders["accept-encoding"] = "identity";
 
     // `responded` guards only against writing a second response to the
     // DOWNSTREAM client (writeHead/end can't fire twice) — it does NOT gate
@@ -654,53 +691,97 @@ export async function startCredentialProxy(
         res_.on("error", destroyResIfIncomplete);
         res_.on("close", destroyResIfIncomplete);
         if (
-          shouldObserveInboxPull
+          (shouldObserveInboxPull || shouldObserveInboxAck)
           && res_.statusCode !== undefined
           && res_.statusCode >= 200
           && res_.statusCode < 300
         ) {
-          // Buffer the inboxPull response to surface pulled messages to the daemon.
+          // Buffer observed inbox responses so the daemon can track pull and ack boundaries.
           const chunks: Buffer[] = [];
           res_.on("data", (chunk: Buffer) => chunks.push(chunk));
           res_.on("end", () => {
             const body = Buffer.concat(chunks);
             const contentEncoding = normalizeContentEncoding(res_.headers["content-encoding"]);
             if (contentEncoding !== "identity") {
-              reportInboxPullObservationError({
-                agentId: reg.agentId,
-                reason: "unexpected_content_encoding",
-                contentEncoding,
-              });
+              if (shouldObserveInboxPull) {
+                reportInboxPullObservationError({
+                  agentId: reg.agentId,
+                  reason: "unexpected_content_encoding",
+                  contentEncoding,
+                });
+              } else {
+                reportInboxAckObservationError({
+                  agentId: reg.agentId,
+                  reason: "unexpected_content_encoding",
+                  contentEncoding,
+                });
+              }
             } else {
               let parsed: unknown;
               try {
                 parsed = JSON.parse(body.toString("utf8"));
               } catch {
-                reportInboxPullObservationError({
-                  agentId: reg.agentId,
-                  reason: "invalid_json",
-                  contentEncoding,
-                });
+                if (shouldObserveInboxPull) {
+                  reportInboxPullObservationError({ agentId: reg.agentId, reason: "invalid_json", contentEncoding });
+                } else {
+                  reportInboxAckObservationError({ agentId: reg.agentId, reason: "invalid_json", contentEncoding });
+                }
               }
               if (parsed !== undefined) {
-                if (
+                if (shouldObserveInboxPull) {
+                  if (
+                    !parsed
+                    || typeof parsed !== "object"
+                    || Array.isArray(parsed)
+                    || !Array.isArray((parsed as { messages?: unknown }).messages)
+                  ) {
+                    reportInboxPullObservationError({
+                      agentId: reg.agentId,
+                      reason: "invalid_inbox_shape",
+                      contentEncoding,
+                    });
+                  } else {
+                    const messages = (parsed as { messages: Message[] }).messages;
+                    if (messages.length > 0) {
+                      try {
+                        onPull!(reg.agentId, messages, inboxPullObservationToken);
+                      } catch {
+                        reportInboxPullObservationError({
+                          agentId: reg.agentId,
+                          reason: "observer_failed",
+                          contentEncoding,
+                        });
+                      }
+                    }
+                  }
+                } else if (
                   !parsed
                   || typeof parsed !== "object"
                   || Array.isArray(parsed)
-                  || !Array.isArray((parsed as { messages?: unknown }).messages)
+                  || !Array.isArray((parsed as { applied?: unknown }).applied)
+                  || !(parsed as { applied: unknown[] }).applied.every((cursor) => (
+                    Boolean(cursor)
+                    && typeof cursor === "object"
+                    && !Array.isArray(cursor)
+                    && typeof (cursor as { channel?: unknown }).channel === "string"
+                    && (cursor as { channel: string }).channel.length > 0
+                    && typeof (cursor as { seq?: unknown }).seq === "number"
+                    && Number.isSafeInteger((cursor as { seq: number }).seq)
+                    && (cursor as { seq: number }).seq > 0
+                  ))
                 ) {
-                  reportInboxPullObservationError({
+                  reportInboxAckObservationError({
                     agentId: reg.agentId,
-                    reason: "invalid_inbox_shape",
+                    reason: "invalid_ack_shape",
                     contentEncoding,
                   });
                 } else {
-                  const messages = (parsed as { messages: Message[] }).messages;
-                  if (messages.length > 0) {
+                  const applied = (parsed as { applied: Cursor[] }).applied;
+                  if (applied.length > 0) {
                     try {
-                      onPull!(reg.agentId, messages, inboxPullObservationToken);
+                      onAck!(reg.agentId, applied, inboxAckObservationToken);
                     } catch {
-                      reportInboxPullObservationError({
+                      reportInboxAckObservationError({
                         agentId: reg.agentId,
                         reason: "observer_failed",
                         contentEncoding,

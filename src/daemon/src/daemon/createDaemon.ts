@@ -529,23 +529,30 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   const broker = new CredentialBroker({ upstreamBaseUrl: opts.serverUrl });
   const proxy = await startCredentialProxy(broker, {
     onInboxPullStart: (agentId) => ({
-      modelSeenGeneration: channelRef?.modelSeenGeneration(agentId),
       owner: managerRef?.timelineTurnOwner(agentId) ?? null,
     }),
     onInboxPullResponse: (agentId, messages, observationToken) => {
       const token = observationToken && typeof observationToken === "object"
         ? observationToken as {
-            modelSeenGeneration?: unknown;
             owner?: ReturnType<AgentProcessManager["timelineTurnOwner"]>;
           }
         : null;
       timeline.recordInboxPull(agentId, token?.owner ?? null, messages);
-      if (typeof token?.modelSeenGeneration === "number") {
-        channelRef?.recordModelSeen(agentId, messages, token.modelSeenGeneration);
-      }
     },
     onInboxPullObservationError: ({ agentId, reason, contentEncoding }) => {
       log.warn("inbox pull timeline observation failed", { agentId, reason, contentEncoding });
+    },
+    onInboxAckStart: (agentId) => channelRef?.modelSeenGeneration(agentId),
+    onInboxAckResponse: (agentId, applied, observationToken) => {
+      if (typeof observationToken !== "number") return;
+      channelRef?.recordModelSeen(
+        agentId,
+        applied.map((cursor) => ({ channel: cursor.channel, seq: `#${cursor.seq}` })),
+        observationToken,
+      );
+    },
+    onInboxAckObservationError: ({ agentId, reason, contentEncoding }) => {
+      log.warn("inbox ack observation failed", { agentId, reason, contentEncoding });
     },
     onMessageReminderArm: (input) =>
       reminderSchedulerRef?.arm(input) ?? { armed: false, reason: "reminder_scheduler_unavailable" },
