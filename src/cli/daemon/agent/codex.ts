@@ -783,6 +783,7 @@ export class CodexBackend implements AgentBackend {
 
       proc.on("close", (code: number | null) => {
         if (timeoutTimer) clearTimeout(timeoutTimer);
+        rl.close();
 
         closeAllPending("process closed");
 

@@ -28,7 +28,7 @@ export class DaemonClient {
     };
     const MAX_RETRIES = 3;
     const BASE_DELAY_MS = 500;
-    let lastError: unknown;
+    let lastError: unknown = new Error(`request failed: ${method} ${path}`);
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       try {
         const res = await fetch(this.baseURL + path, {
@@ -160,7 +160,7 @@ export class DaemonClient {
   ): Promise<ArrayBuffer> {
     const MAX_RETRIES = 3;
     const BASE_DELAY_MS = 500;
-    let lastError: unknown;
+    let lastError: unknown = new Error(`artifact download failed: ${artifactId}`);
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       try {
         const res = await fetch(
