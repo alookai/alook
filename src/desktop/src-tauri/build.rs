@@ -1,3 +1,21 @@
 fn main() {
-    tauri_build::build()
+    tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
+        tauri_build::AppManifest::new().commands(&[
+            "daemon_runtime_capability",
+            "daemon_pair",
+            "set_window_theme",
+            "close_splashscreen",
+            "desktop_zoom_shortcut",
+            "native_oauth_snapshot",
+            "native_oauth_listen",
+            "native_oauth_unlisten",
+            "native_oauth_prepare",
+            "native_oauth_open_start",
+            "native_oauth_pending_exchange",
+            "native_oauth_reject_candidate",
+            "native_oauth_finish",
+            "native_oauth_cancel",
+        ]),
+    ))
+    .expect("failed to build application permissions");
 }

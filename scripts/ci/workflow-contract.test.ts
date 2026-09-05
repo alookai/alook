@@ -1017,11 +1017,12 @@ describe("Desktop image clipboard", () => {
       platforms: ["linux", "macOS", "windows"],
       local: true,
       remote: { urls: ["https://alook.ai"] },
-      permissions: [writeImagePermission],
+      permissions: [writeImagePermission, "desktop-commands"],
     })
     expect(desktopDevConfig.app.security.capabilities).toEqual([
       "desktop-capability",
       "external-links",
+      expect.objectContaining({ identifier: "native-oauth-dev", local: true, remote: { urls: ["http://localhost:3000"] }, permissions: ["native-oauth"] }),
     ])
   })
 })
