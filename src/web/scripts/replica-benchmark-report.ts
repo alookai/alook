@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs"
 import {
   REPLICA_BENCHMARK_SCHEMA_VERSION,
+  REPLICA_BENCHMARK_SERVER_MODE,
   REPLICA_SCENARIO_CONTRACTS,
   type ReplicaBenchmarkArtifact,
   type ReplicaBenchmarkSample,
@@ -108,6 +109,7 @@ export function artifactCompatibilityFailures(
   if (candidate.schemaVersion !== baseline.schemaVersion) failures.push("schemaVersion differs")
   if (candidate.contractVersion !== baseline.contractVersion) failures.push("contractVersion differs")
   if (candidate.fixtureVersion !== baseline.fixtureVersion) failures.push("fixtureVersion differs")
+  if (candidate.serverMode !== baseline.serverMode) failures.push("serverMode differs")
   if (candidate.networkDelayMs !== baseline.networkDelayMs) failures.push("networkDelayMs differs")
   if (candidate.selectedScenarios.join(",") !== baseline.selectedScenarios.join(",")) {
     failures.push("selectedScenarios differ")
@@ -132,6 +134,13 @@ function artifactShapeFailures(artifact: ReplicaBenchmarkArtifact): ReplicaBench
   }
   if (!artifact.gitSha) {
     failures.push({ kind: "harness", sampleIteration: null, message: "missing gitSha" })
+  }
+  if (artifact.serverMode !== REPLICA_BENCHMARK_SERVER_MODE) {
+    failures.push({
+      kind: "harness",
+      sampleIteration: null,
+      message: `serverMode must be ${REPLICA_BENCHMARK_SERVER_MODE}, got ${String(artifact.serverMode)}`,
+    })
   }
   if (!Array.isArray(artifact.selectedScenarios) || artifact.selectedScenarios.length === 0) {
     failures.push({ kind: "harness", sampleIteration: null, message: "no selectedScenarios" })
@@ -360,6 +369,7 @@ export function renderReplicaBenchmarkReport(
     `Verdict: **${verdict}**`,
     `Candidate: \`${artifact.gitSha}\``,
     `Mode: \`${artifact.mode}\``,
+    `Server mode: \`${artifact.serverMode}\``,
     `Network injection: \`${artifact.networkDelayMs}ms\``,
     `Contract / fixture: \`${artifact.contractVersion}\` / \`${artifact.fixtureVersion}\``,
     `Selected scenarios: \`${artifact.selectedScenarios.join(", ")}\``,

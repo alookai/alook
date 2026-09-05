@@ -9,6 +9,7 @@ import {
 } from "./replica-benchmark-report"
 import {
   REPLICA_BENCHMARK_SCHEMA_VERSION,
+  REPLICA_BENCHMARK_SERVER_MODE,
   type ReplicaBenchmarkArtifact,
   type ReplicaBenchmarkSample,
   type ReplicaScenarioContract,
@@ -75,6 +76,7 @@ function artifact(
     createdAt: "2026-09-06T00:00:00.000Z",
     gitSha: "abc123",
     mode,
+    serverMode: REPLICA_BENCHMARK_SERVER_MODE,
     networkDelayMs: 1_000,
     samples,
     ...overrides,
@@ -301,14 +303,16 @@ describe("blocking network and comparison integrity", () => {
     expect(userBlockingGets(measured, contract.anchor, "gate")).toHaveLength(0)
   })
 
-  it("rejects comparison across a different fixture or delay", () => {
+  it("rejects comparison across a different fixture, server mode, or delay", () => {
     const candidate = artifact("gate")
     const baseline = artifact("baseline", [sample()], {
       fixtureVersion: "other-fixture",
+      serverMode: "next-dev" as ReplicaBenchmarkArtifact["serverMode"],
       networkDelayMs: 999,
     })
     expect(artifactCompatibilityFailures(candidate, baseline)).toEqual([
       "fixtureVersion differs",
+      "serverMode differs",
       "networkDelayMs differs",
     ])
     const result = analyzeReplicaBenchmark(candidate, baseline, [contract])

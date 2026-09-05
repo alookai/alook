@@ -31,9 +31,11 @@ import {
 } from "./replica-benchmark-fixture"
 import {
   REPLICA_BENCHMARK_SCHEMA_VERSION,
+  REPLICA_BENCHMARK_SERVER_MODE,
   type ReplicaBenchmarkArtifact,
   type ReplicaBenchmarkMode,
   type ReplicaBenchmarkSample,
+  type ReplicaBenchmarkServerMode,
   type ReplicaProof,
   type ReplicaScenarioId,
 } from "./replica-benchmark-types"
@@ -52,7 +54,7 @@ const CONTRACT_VERSION = [
   "oracle:4d1533d443adbeb583f29bd6c5bd997079b81a08277b687165b0b61f54ee7b6b",
   "wire:ea168934b360d45159446cefd13e09c0bd4d1d6dce6d3a567012b8c6ca43e29e",
   "server-contract:d8659d58465bf57a0f5d7cb9d0819092c3ac0cce",
-  "harness-protocol:v2",
+  "harness-protocol:v3",
 ].join("+")
 
 interface SeedManifest {
@@ -377,6 +379,11 @@ test("Alook Replica vertical benchmark", async ({ browser }) => {
     }, null, 2))
     return
   }
+  const serverMode = process.env.REPLICA_BENCH_SERVER_MODE
+  expect(
+    serverMode,
+    "REPLICA_BENCH_SERVER_MODE must pin the production-like OpenNext runtime",
+  ).toBe(REPLICA_BENCHMARK_SERVER_MODE)
   const gitSha = process.env.REPLICA_BENCH_GIT_SHA ?? "working-tree"
   const outputPath = process.env.REPLICA_BENCH_OUTPUT
     ?? resolve(ARTIFACTS_DIR, `replica-${MODE}.json`)
@@ -389,6 +396,7 @@ test("Alook Replica vertical benchmark", async ({ browser }) => {
     createdAt: new Date().toISOString(),
     gitSha,
     mode: MODE,
+    serverMode: serverMode as ReplicaBenchmarkServerMode,
     networkDelayMs: 1_000,
   }, outputPath)
 
