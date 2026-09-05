@@ -305,6 +305,9 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
     })
     const inboxGets: string[] = []
     const completedInboxGets: string[] = []
+    const postAuthInboxGets = new WeakSet<Request>()
+    const completedPostAuthInboxPaths = new Set<string>()
+    let authOkReleased = false
     const eagerInboxPaths = [
       "/api/community/users/me/inbox/unreads",
       "/api/community/users/me/inbox/mentions",
@@ -313,12 +316,14 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
       const path = new URL(request.url()).pathname
       if (request.method() === "GET" && path.includes("/users/me/inbox/")) {
         inboxGets.push(path)
+        if (authOkReleased) postAuthInboxGets.add(request)
       }
     })
     bob.page.on("requestfinished", (request) => {
       const path = new URL(request.url()).pathname
       if (request.method() === "GET" && path.includes("/users/me/inbox/")) {
         completedInboxGets.push(path)
+        if (postAuthInboxGets.has(request)) completedPostAuthInboxPaths.add(path)
       }
     })
     await bob.page.setViewportSize({ width: 639, height: 844 })
@@ -328,8 +333,9 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
     )), { timeout: 30_000 }).toBe(true)
     await expect.poll(ws.heldConnectionCount).toBe(1)
     expect(ws.releaseHeldConnections((frame) => frame.type === "auth.ok")).toBe(1)
+    authOkReleased = true
     await expect.poll(() => eagerInboxPaths.every((path) => (
-      completedInboxGets.filter((completed) => completed === path).length >= 2
+      completedPostAuthInboxPaths.has(path)
     ))).toBe(true)
     const writes = observeWrites(bob.page)
     const wsBefore = ws.frames.length

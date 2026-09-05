@@ -1,5 +1,5 @@
 import type { Locator, Page, Route } from "@playwright/test"
-import { expect, test, userId } from "./_fixtures/community-fixture"
+import { expect, sessionCookie, test, userId } from "./_fixtures/community-fixture"
 import {
   seedChannel,
   seedDm,
@@ -9,9 +9,15 @@ import {
   seedThread,
 } from "./_fixtures/seed"
 import { tid } from "./_fixtures/testids"
+import { WEB_URL } from "./_setup/paths"
 
 type Theme = "light" | "dark"
+type MobileWidth = 320 | 390 | 639
 const RAIL_OVERFLOW_SERVER_COUNT = 20
+const ANDROID_USER_AGENTS = {
+  chrome: "Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36",
+  webview: "Mozilla/5.0 (Linux; Android 15; Pixel 9 Build/AP3A.240905.015; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/140.0.0.0 Mobile Safari/537.36",
+} as const
 type Geometry = Record<string, { x: number; y: number; width: number; height: number }>
 type MatrixCase = {
   name: string
@@ -48,6 +54,30 @@ async function holdRequest(page: Page, pattern: string) {
     await route.continue()
   })
   return { hits: () => hits, release }
+}
+
+async function pairMachine() {
+  const pair = await fetch(`${WEB_URL}/api/community/machines/pair`, {
+    method: "POST",
+    headers: { Cookie: sessionCookie("alice"), Origin: WEB_URL },
+  })
+  expect(pair.status).toBe(200)
+  const { tokenId } = await pair.json() as { tokenId: string }
+  const activate = await fetch(`${WEB_URL}/api/community/daemon/activate`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${tokenId}`,
+      "Content-Type": "application/json",
+      Origin: WEB_URL,
+    },
+    body: JSON.stringify({
+      hostname: `geometry-mobile-${Date.now()}`,
+      platform: "android",
+      arch: "arm64",
+      runtimeReport: [{ id: "codex", status: "healthy" }],
+    }),
+  })
+  expect(activate.status).toBe(200)
 }
 
 const shellPanel = (page: Page, id: "sidebar" | "main") => (
@@ -137,6 +167,143 @@ async function readCls(page: Page) {
   }))
 }
 
+type FirstFrameSample = {
+  overflow: number
+  geometry: Geometry
+}
+
+async function installFirstFrameProbe(page: Page, surface: "list" | "detail") {
+  await page.addInitScript((expectedSurface) => {
+    const samples: FirstFrameSample[] = []
+    Reflect.set(window, "__communityFirstFrameSamples", samples)
+
+    const rect = (selector: string) => {
+      const element = document.querySelector<HTMLElement>(selector)
+      if (!element || getComputedStyle(element).display === "none") return null
+      const box = element.getBoundingClientRect()
+      if (box.width === 0 || box.height === 0) return null
+      return { x: box.x, y: box.y, width: box.width, height: box.height }
+    }
+    const sample = () => {
+      if (document.querySelector('[data-slot="community-shell-root"]')) {
+        const activePanel = '[data-slot="resizable-panel"][data-mobile-active="true"]'
+        const hiddenPanel = '[data-slot="resizable-panel"][data-mobile-hidden="true"]'
+        const geometry = Object.fromEntries(Object.entries({
+          shell: rect('[data-slot="community-shell-root"]'),
+          surface: rect('[data-slot="community-app-surface"]'),
+          rail: rect('[data-slot="community-server-rail-viewport"]'),
+          sidebar: rect(expectedSurface === "list" ? activePanel : hiddenPanel),
+          main: rect(expectedSurface === "detail" ? activePanel : hiddenPanel),
+          userBar: rect('[data-slot="community-user-bar-overlay"]'),
+        }).filter((entry): entry is [string, NonNullable<typeof entry[1]>] => entry[1] !== null))
+        samples.push({
+          overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          geometry,
+        })
+      }
+      if (performance.now() < 5_000) requestAnimationFrame(sample)
+    }
+    requestAnimationFrame(sample)
+  }, surface)
+}
+
+async function firstFrameSamples(page: Page): Promise<FirstFrameSample[]> {
+  return page.evaluate(() => (
+    Reflect.get(window, "__communityFirstFrameSamples") as FirstFrameSample[]
+  ))
+}
+
+function expectMobileGeometry(
+  samples: FirstFrameSample[],
+  width: MobileWidth,
+  surface: "list" | "detail",
+) {
+  expect(samples.length).toBeGreaterThan(0)
+  const first = samples[0]!
+  const geometryDrift: string[] = []
+  for (const [index, sample] of samples.entries()) {
+    expect(sample.overflow, `frame ${index} horizontal overflow`).toBe(0)
+    expect(
+      Object.keys(sample.geometry).sort(),
+      `frame ${index} visible modules: ${JSON.stringify(sample)}`,
+    ).toEqual(
+      surface === "list"
+        ? ["rail", "shell", "sidebar", "surface", "userBar"]
+        : ["main", "shell", "surface"],
+    )
+    expect(sample.geometry.shell?.width, `frame ${index} shell width`).toBeCloseTo(width, 0)
+    expect(sample.geometry.surface?.width, `frame ${index} surface width`).toBeCloseTo(
+      surface === "list" ? width - 56 : width,
+      0,
+    )
+    if (surface === "list") {
+      expect(sample.geometry.sidebar?.width, `frame ${index} sidebar width`).toBeCloseTo(width - 57, 0)
+      expect(sample.geometry.userBar?.width, `frame ${index} UserBar width`).toBeCloseTo(width, 0)
+    } else {
+      expect(sample.geometry.main?.width, `frame ${index} main width`).toBeCloseTo(width, 0)
+    }
+    for (const name of Object.keys(first.geometry)) {
+      for (const coordinate of ["x", "y", "width", "height"] as const) {
+        if (Math.abs(first.geometry[name]![coordinate] - sample.geometry[name]![coordinate]) > 1) {
+          geometryDrift.push(`frame ${index} ${name}.${coordinate}`)
+        }
+      }
+    }
+  }
+  expect(geometryDrift, "mobile landmark geometry drift").toEqual([])
+}
+
+async function expectMachinesHeadingSpacing(page: Page) {
+  const heading = page.locator('[data-slot="community-machines-heading"]')
+  await expect(heading).toBeVisible()
+  const geometry = await heading.evaluate((element) => {
+    const copy = element.querySelector<HTMLElement>('[data-slot="community-machines-heading-copy"]')!
+    const action = element.querySelector<HTMLElement>('[data-slot="community-machines-heading-action"]')!
+    const copyBox = copy.getBoundingClientRect()
+    const actionBox = action.getBoundingClientRect()
+    const headingBox = element.getBoundingClientRect()
+    return {
+      fits: element.scrollWidth <= element.clientWidth,
+      gap: actionBox.top - copyBox.bottom,
+      heading: {
+        x: headingBox.x,
+        y: headingBox.y,
+        width: headingBox.width,
+        height: headingBox.height,
+      },
+      headingWidth: headingBox.width,
+      actionWidth: actionBox.width,
+      actionHeight: actionBox.height,
+    }
+  })
+  expect(geometry.fits).toBe(true)
+  expect(geometry.gap).toBeGreaterThanOrEqual(15)
+  expect(geometry.actionWidth).toBeCloseTo(geometry.headingWidth, 0)
+  expect(geometry.actionHeight).toBeGreaterThanOrEqual(44)
+  return geometry.heading
+}
+
+async function visibleSkeletonAnimationProperties(page: Page) {
+  return page.locator('[data-slot="skeleton"]').evaluateAll((elements) => Array.from(new Set(
+    elements
+      .filter((element) => {
+        const box = element.getBoundingClientRect()
+        return getComputedStyle(element).display !== "none" && box.width > 0 && box.height > 0
+      })
+      .flatMap((element) => element.getAnimations())
+      .flatMap((animation) => animation.effect instanceof KeyframeEffect
+        ? animation.effect.getKeyframes()
+        : [])
+      .flatMap((frame) => Object.keys(frame))
+      .filter((property) => ![
+        "composite",
+        "computedOffset",
+        "easing",
+        "offset",
+      ].includes(property)),
+  )).sort())
+}
+
 test.describe.serial("community pending-to-loaded geometry matrix", () => {
   let routes!: Omit<MatrixCase, "width">[]
 
@@ -207,6 +374,68 @@ test.describe.serial("community pending-to-loaded geometry matrix", () => {
         },
       },
     ]
+  })
+
+  test("Android Chrome/WebView keep 320/390/639 cold frames mobile before breakpoint hydration", async ({ asUser }) => {
+    test.setTimeout(240_000)
+    await pairMachine()
+    for (const userAgent of Object.values(ANDROID_USER_AGENTS)) {
+      for (const width of [320, 390, 639] as const) {
+        for (const [pathname, surface] of [
+          ["/c/me", "list"],
+          ["/c/me/machines", "detail"],
+        ] as const) {
+          const { context, page } = await asUser("alice", { userAgent })
+          await page.setViewportSize({ width, height: width === 320 ? 720 : 900 })
+          await installFirstFrameProbe(page, surface)
+          const session = await holdSession(page)
+          await page.goto(pathname, { waitUntil: "commit" })
+          await expect.poll(session.hits).toBeGreaterThan(0)
+          await expect(page.getByTestId(tid.initialFrame)).toBeVisible()
+          await page.waitForTimeout(250)
+
+          expectMobileGeometry(await firstFrameSamples(page), width, surface)
+          const pendingHeading = pathname === "/c/me/machines"
+            ? await expectMachinesHeadingSpacing(page)
+            : null
+
+          session.release()
+          await expect(page.getByTestId(tid.initialFrame)).toHaveCount(0, { timeout: 30_000 })
+          await expect(
+            pathname === "/c/me"
+              ? page.getByRole("button", { name: "Friends", exact: true })
+              : page.getByTestId(tid.machinePairOpen),
+          ).toBeVisible({ timeout: 30_000 })
+          if (pendingHeading) {
+            const loadedHeading = await expectMachinesHeadingSpacing(page)
+            expectSameGeometry({ heading: pendingHeading }, { heading: loadedHeading })
+          }
+          await page.waitForTimeout(250)
+          expectMobileGeometry(await firstFrameSamples(page), width, surface)
+          await context.close()
+        }
+      }
+    }
+  })
+
+  test("community skeleton pulse changes only opacity and stops for reduced motion", async ({ asUser }) => {
+    for (const reducedMotion of ["no-preference", "reduce"] as const) {
+      const { context, page } = await asUser("alice", {
+        userAgent: ANDROID_USER_AGENTS.webview,
+      })
+      await page.setViewportSize({ width: 320, height: 720 })
+      await page.emulateMedia({ reducedMotion })
+      const session = await holdSession(page)
+      await page.goto("/c/me/machines", { waitUntil: "commit" })
+      await expect.poll(session.hits).toBeGreaterThan(0)
+      await expect(page.getByTestId(tid.initialFrame)).toBeVisible()
+
+      const animationProperties = await visibleSkeletonAnimationProperties(page)
+      expect(animationProperties).toEqual(reducedMotion === "reduce" ? [] : ["opacity"])
+
+      session.release()
+      await context.close()
+    }
   })
 
   for (const theme of ["light", "dark"] as const satisfies readonly Theme[]) {
