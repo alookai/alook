@@ -9,104 +9,56 @@ import {
   type ImageDimensions,
   validImageDimensions,
 } from "./image-lightbox-layout"
-
-type OriginalStatus = "loading" | "decoded" | "ready" | "failed"
-type ThumbnailStatus = "loading" | "ready" | "failed" | "absent"
-
-type PreviewState = {
-  dimensions?: ImageDimensions
-  originalStatus: OriginalStatus
-  thumbnailStatus: ThumbnailStatus
-  requestKey: number
-}
+import { useRemoteImageAttempt } from "@/components/remote-image/remote-image-attempt"
 
 function PreviewFrame({ image }: { image: ImagePreview }) {
   const knownDimensions = useMemo(
     () => validImageDimensions(image.width, image.height),
     [image.height, image.width],
   )
-  const [state, setState] = useState<PreviewState>({
-    dimensions: knownDimensions,
-    originalStatus: "loading",
-    thumbnailStatus: image.thumbnailUrl ? "loading" : "absent",
-    requestKey: 0,
-  })
+  const [dimensions, setDimensions] = useState<ImageDimensions | undefined>(knownDimensions)
+  const [revealedAttempt, setRevealedAttempt] = useState<number | null>(null)
+  const [
+    thumbnailStatus,
+    thumbnailAttempt,
+    ,
+    thumbnailRef,
+    onThumbnailLoad,
+    onThumbnailError,
+  ] = useRemoteImageAttempt({ eligible: !!image.thumbnailUrl })
+  const [
+    originalStatus,
+    originalAttempt,
+    originalImage,
+    originalRef,
+    onOriginalLoad,
+    onOriginalError,
+    retryOriginal,
+  ] = useRemoteImageAttempt()
 
-  const frameStyle = previewFrameStyle(state.dimensions)
-  const originalReady = state.originalStatus === "ready"
-  const thumbnailReady = state.thumbnailStatus === "ready"
-  const previewVisible = state.thumbnailStatus !== "loading"
+  const frameStyle = previewFrameStyle(dimensions)
+  const thumbnailReady = !!image.thumbnailUrl && thumbnailStatus === "ready"
+  const thumbnailSettled = !image.thumbnailUrl || thumbnailStatus !== "pending"
+  const originalReady = originalStatus === "ready" && revealedAttempt === originalAttempt
 
   useEffect(() => {
-    if (state.originalStatus !== "decoded" || !previewVisible) return
-    const requestKey = state.requestKey
-    const frameId = requestAnimationFrame(() => {
-      setState((current) => (
-        current.requestKey === requestKey && current.originalStatus === "decoded"
-          ? { ...current, originalStatus: "ready" }
-          : current
-      ))
-    })
+    if (originalStatus !== "ready" || !originalImage || !thumbnailSettled) return
+    const requestKey = originalAttempt
+    const naturalDimensions = validImageDimensions(originalImage.naturalWidth, originalImage.naturalHeight)
+    const reveal = () => {
+      setDimensions(knownDimensions ?? naturalDimensions)
+      setRevealedAttempt(requestKey)
+    }
+    if (typeof requestAnimationFrame !== "function") {
+      reveal()
+      return
+    }
+    const frameId = requestAnimationFrame(reveal)
     return () => cancelAnimationFrame(frameId)
-  }, [previewVisible, state.originalStatus, state.requestKey])
-
-  const settleThumbnail = async (element: HTMLImageElement) => {
-    try {
-      await element.decode()
-    } catch {
-      setState((current) => ({ ...current, thumbnailStatus: "failed" }))
-      return
-    }
-
-    const dimensions = validImageDimensions(element.naturalWidth, element.naturalHeight)
-    setState((current) => ({
-      ...current,
-      dimensions: knownDimensions ?? dimensions ?? current.dimensions,
-      thumbnailStatus: dimensions ? "ready" : "failed",
-    }))
-  }
-
-  const failThumbnail = () => {
-    setState((current) => ({ ...current, thumbnailStatus: "failed" }))
-  }
-
-  const revealDecodedOriginal = async (element: HTMLImageElement, requestKey: number) => {
-    try {
-      await element.decode()
-    } catch {
-      setState((current) => current.requestKey === requestKey
-        ? { ...current, originalStatus: "failed" }
-        : current)
-      return
-    }
-
-    const naturalDimensions = validImageDimensions(element.naturalWidth, element.naturalHeight)
-    setState((current) => {
-      if (current.requestKey !== requestKey) return current
-      return {
-        ...current,
-        dimensions: knownDimensions ?? naturalDimensions ?? current.dimensions,
-        originalStatus: current.thumbnailStatus === "loading" ? "decoded" : "ready",
-      }
-    })
-  }
-
-  const failOriginal = (requestKey: number) => {
-    setState((current) => current.requestKey === requestKey
-      ? { ...current, originalStatus: "failed" }
-      : current)
-  }
-
-  const retryOriginal = () => {
-    setState((current) => ({
-      ...current,
-      originalStatus: "loading",
-      requestKey: current.requestKey + 1,
-    }))
-  }
+  }, [knownDimensions, originalAttempt, originalImage, originalStatus, thumbnailSettled])
 
   return (
-    <div className={`relative w-fit ${previewVisible ? "visible" : "invisible"}`}>
+    <div className="relative w-fit">
       <div
         data-testid={tid.imageLightbox}
         className="relative overflow-hidden rounded-lg bg-background"
@@ -114,36 +66,43 @@ function PreviewFrame({ image }: { image: ImagePreview }) {
       >
         {image.thumbnailUrl && (
           <img
+            key={`thumbnail-${thumbnailAttempt}`}
+            ref={thumbnailRef}
             data-testid={tid.imageLightboxThumbnail}
+            data-remote-image-kind="content"
+            data-remote-image-state={thumbnailStatus}
             src={image.thumbnailUrl}
             alt={image.name}
-            onLoad={(event) => { void settleThumbnail(event.currentTarget) }}
-            onError={failThumbnail}
+            onLoad={onThumbnailLoad}
+            onError={onThumbnailError}
             className={`absolute inset-0 size-full rounded-lg object-contain transition-opacity duration-150 ease-out motion-reduce:transition-none ${thumbnailReady && !originalReady ? "opacity-100" : "opacity-0"}`}
           />
         )}
-        {!thumbnailReady && previewVisible && !originalReady && (
+        {!thumbnailReady && !originalReady && originalStatus === "pending" && (
           <div
             data-testid={tid.imageLightboxLoading}
             role="status"
-            className="absolute inset-0 flex items-center justify-center px-4 text-sm text-muted-foreground"
+            className="absolute inset-0 flex animate-pulse items-center justify-center bg-muted/70 px-4 text-sm text-muted-foreground motion-reduce:animate-none"
           >
             Loading original image
           </div>
         )}
-        {state.originalStatus !== "failed" && (
+        {originalStatus !== "error" && (
           <img
-            key={state.requestKey}
+            key={`original-${originalAttempt}`}
+            ref={originalRef}
             data-testid={tid.imageLightboxOriginal}
+            data-remote-image-kind="content"
+            data-remote-image-state={originalStatus}
             src={image.originalUrl}
             alt={image.name}
-            onLoad={(event) => { void revealDecodedOriginal(event.currentTarget, state.requestKey) }}
-            onError={() => failOriginal(state.requestKey)}
+            onLoad={onOriginalLoad}
+            onError={onOriginalError}
             className={`pointer-events-none absolute inset-0 size-full rounded-lg object-contain transition-opacity duration-150 ease-out motion-reduce:transition-none ${originalReady ? "opacity-100" : "opacity-0"}`}
           />
         )}
       </div>
-      {state.originalStatus === "failed" && (
+      {originalStatus === "error" && (
         <div
           data-testid={tid.imageLightboxError}
           role="status"

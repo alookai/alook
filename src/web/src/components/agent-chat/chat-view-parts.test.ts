@@ -1,7 +1,13 @@
-import { describe, it, expect, vi } from "vitest"
-import { createElement } from "react"
+import React, { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
-import type { Agent } from "@alook/shared"
+import TestRenderer, { act } from "react-test-renderer"
+import { afterEach, describe, expect, it, vi } from "vitest"
+import type { Agent, Artifact } from "@alook/shared"
+import { FileCard } from "@/components/agent-chat/event-cards/file-card"
+import { RemoteMarkdownImage } from "@/components/remote-image/remote-markdown-image"
+import { ArtifactCard, MENTION_COMPONENTS } from "./chat-view-parts"
+
+globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
 const agents: Agent[] = []
 
@@ -13,8 +19,6 @@ vi.mock("@/components/agent-preview-card", () => ({
   AgentPreviewCard: ({ agent }: { agent: { id: string } }) =>
     createElement("div", { "data-preview-agent-id": agent.id }),
 }))
-
-import { MENTION_COMPONENTS } from "./chat-view-parts"
 
 const agent = (id: string, name: string): Agent => ({
   id,
@@ -67,5 +71,60 @@ describe("MentionHighlight", () => {
     const html = render({ "data-agent-id": "ag_gone", children: "@Ada" })
     expect(isClickable(html)).toBe(false)
     expect(html).toContain("@Ada")
+  })
+})
+
+const IMAGE_ARTIFACT: Artifact = {
+  id: "artifact-1",
+  conversation_id: "conversation-1",
+  agent_id: "agent-1",
+  filename: "diagram.png",
+  content_type: "image/png",
+  size: 128,
+  source: "agent",
+  has_thumbnail: true,
+  created_at: "2026-01-01T00:00:00Z",
+}
+
+describe("Agent Chat remote images", () => {
+  let renderer: TestRenderer.ReactTestRenderer | undefined
+
+  afterEach(async () => {
+    if (renderer) await act(async () => renderer?.unmount())
+    renderer = undefined
+  })
+
+  it("uses the shared Markdown image adapter", () => {
+    expect(MENTION_COMPONENTS.img).toBe(RemoteMarkdownImage)
+  })
+
+  it("keeps a failed artifact thumbnail as an explicit retryable image card", async () => {
+    const onClick = vi.fn()
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(ArtifactCard, {
+        artifact: IMAGE_ARTIFACT,
+        version: 1,
+        hasDuplicates: false,
+        onClick,
+        workspaceId: "workspace-1",
+      }), {
+        createNodeMock: (element) => {
+          if (element.type === "img") return { complete: false, naturalWidth: 0, naturalHeight: 0 }
+          if (element.props["data-remote-image-frame"] !== undefined) return {}
+          return null
+        },
+      })
+    })
+
+    const image = renderer!.root.findByProps({ "data-remote-image-kind": "content" })
+    const originalSrc = image.props.src
+    await act(async () => image.props.onError())
+
+    expect(renderer!.root.findAllByType(FileCard)).toHaveLength(0)
+    const retry = renderer!.root.findByType("button")
+    expect(retry.children).toEqual(["Retry"])
+    await act(async () => retry.props.onClick())
+    expect(renderer!.root.findByProps({ "data-remote-image-kind": "content" }).props.src).toBe(originalSrc)
+    expect(onClick).not.toHaveBeenCalled()
   })
 })

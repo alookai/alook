@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import type { Artifact } from "@alook/shared";
 import { X, Download } from "lucide-react";
 import { getArtifactUrl } from "@/components/artifact-content-renderer";
+import { RemoteContentImage } from "@/components/remote-image/remote-image";
 
 type LightboxProps = {
   open: boolean;
@@ -55,6 +56,7 @@ export function ImageLightbox(props: LightboxProps) {
           <a
             href={downloadUrl}
             download={alt}
+            aria-label={`Download ${alt}`}
             onClick={(e) => e.stopPropagation()}
             className="rounded-full p-2 text-white/70 hover:text-white hover:bg-white/10 transition-colors"
           >
@@ -63,18 +65,33 @@ export function ImageLightbox(props: LightboxProps) {
         )}
         <button
           type="button"
+          aria-label="Close image"
           onClick={onClose}
           className="rounded-full p-2 text-white/70 hover:text-white hover:bg-white/10 transition-colors"
         >
           <X className="size-5" />
         </button>
       </div>
-      <img
-        src={src}
-        alt={alt}
-        onClick={(e) => e.stopPropagation()}
-        className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg"
-      />
+      {props.imageUrl ? (
+        <img
+          src={src}
+          alt={alt}
+          onClick={(e) => e.stopPropagation()}
+          className="max-h-[90vh] max-w-[90vw] rounded-lg object-contain"
+        />
+      ) : (
+        <div onClick={(event) => event.stopPropagation()}>
+          <RemoteContentImage
+            src={src}
+            alt={alt}
+            loading="eager"
+            loadingLabel="Loading image"
+            frameClassName="h-[min(75vh,48rem)] w-[min(90vw,64rem)] rounded-lg bg-background/10"
+            imageClassName="rounded-lg object-contain"
+            errorLabel="Image failed to load"
+          />
+        </div>
+      )}
     </div>,
     document.body,
   );

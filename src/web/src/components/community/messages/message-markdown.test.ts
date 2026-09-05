@@ -5,6 +5,7 @@ import {
   buildMdComponents,
   MD_COMPONENTS,
 } from "./message-markdown"
+import { RemoteMarkdownImage } from "@/components/remote-image/remote-markdown-image"
 
 // `components.mention(...)` returns a plain React element (JSX under the
 // hood) — inspecting `.props` here reaches into the MentionPill it wraps
@@ -33,6 +34,11 @@ describe("mentionNameFromText", () => {
 })
 
 describe("buildMdComponents — mention pill onClick wiring", () => {
+  it("keeps the shared remote image adapter in static and callback component maps", () => {
+    expect(MD_COMPONENTS.img).toBe(RemoteMarkdownImage)
+    expect(buildMdComponents(vi.fn()).img).toBe(RemoteMarkdownImage)
+  })
+
   it("wires onClick to call onOpenProfile with the name (no @, no #dddd) and no discriminator when the tag wasn't stashed", () => {
     const onOpenProfile = vi.fn()
     const components = buildMdComponents(onOpenProfile)

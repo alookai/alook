@@ -3,6 +3,7 @@
 import { GeneratedAvatar } from "./generated-avatar";
 import { resolveAvatar } from "@/lib/avatar/resolve";
 import { cn } from "@/lib/utils";
+import { RemoteIdentityImage } from "@/components/remote-image/remote-image";
 
 interface AgentAvatarProps {
   name?: string | null;
@@ -20,12 +21,20 @@ export function AgentAvatar({ name, avatarUrl, seed, size = 32, className, alt }
   const avatarClassName = cn("shrink-0 rounded-full", className);
   if (resolved.kind === "photo") {
     return (
-      <img
-        src={resolved.url}
-        alt={alt ?? name ?? ""}
-        className={cn("object-cover", avatarClassName)}
+      <span
+        role={alt === "" ? undefined : "img"}
+        aria-label={alt === "" ? undefined : alt ?? name ?? undefined}
+        aria-hidden={alt === "" ? true : undefined}
+        className={cn("relative block overflow-hidden", avatarClassName)}
         style={{ width: size, height: size }}
-      />
+      >
+        <RemoteIdentityImage
+          src={resolved.url}
+          alt=""
+          className="rounded-[inherit]"
+          placeholderClassName="rounded-[inherit]"
+        />
+      </span>
     );
   }
   return <GeneratedAvatar seed={resolved.seed} size={size} className={avatarClassName} />;

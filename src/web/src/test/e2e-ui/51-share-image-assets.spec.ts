@@ -284,7 +284,22 @@ test("consecutive share-image exports reuse rendered avatar, attachment, and inv
     attachmentStatus: 200,
     messageStatus: 201,
   })
+  let releaseServerIcon!: () => void
+  const serverIconGate = new Promise<void>((resolve) => { releaseServerIcon = resolve })
+  const serverIconPattern = `**/api/community/servers/${serverId}/icon*`
+  await page.route(serverIconPattern, async (route) => {
+    if (route.request().method() === "GET") await serverIconGate
+    await route.continue()
+  })
   await gotoAfterUserWsAuth(page, route)
+  const railServerImage = page.getByTestId(tid.serverIcon(serverId)).locator('[data-remote-image-kind="identity"]')
+  await expect(railServerImage).toHaveAttribute("data-remote-image-state", "pending")
+  const pendingServerFrame = await railServerImage.locator("xpath=..").boundingBox()
+  expect(pendingServerFrame).not.toBeNull()
+  releaseServerIcon()
+  await expect(railServerImage).toHaveAttribute("data-remote-image-state", "ready")
+  expect(await railServerImage.locator("xpath=..").boundingBox()).toEqual(pendingServerFrame)
+  await page.unroute(serverIconPattern)
   const row = page.getByTestId(tid.message(seeded.messageId))
   await expect(row).toBeVisible()
   await row.hover()

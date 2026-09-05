@@ -1,4 +1,5 @@
 import { SeededBackdrop } from "@/components/avatar"
+import { RemoteIdentityImage } from "@/components/remote-image/remote-image"
 import { cn } from "@/lib/utils"
 
 // The one server icon/avatar. A custom uploaded `icon` shows as a cropped
@@ -16,14 +17,20 @@ export function ServerIcon({
   initial,
   icon,
   size = 40,
+  fontSize,
   className,
+  title,
+  "data-rail-drag-preview": railDragPreview,
 }: {
   id: string
   name: string
   initial: string
   icon?: string | null
   size?: number
+  fontSize?: number
   className?: string
+  title?: string
+  "data-rail-drag-preview"?: boolean | ""
 }) {
   return (
     <div
@@ -32,10 +39,19 @@ export function ServerIcon({
         icon ? "bg-secondary text-foreground" : "text-white [text-shadow:0_1px_2px_rgb(0_0_0/0.35)]",
         className,
       )}
-      style={{ width: size, height: size, fontSize: Math.round(size * 0.5) }}
+      style={{ width: size, height: size, fontSize: fontSize ?? Math.round(size * 0.5) }}
+      role="img"
+      aria-label={name}
+      title={title}
+      data-rail-drag-preview={railDragPreview}
     >
       {icon ? (
-        <img src={icon} alt={name} className="size-full object-cover" />
+        <RemoteIdentityImage
+          src={icon}
+          alt=""
+          className="rounded-[inherit]"
+          placeholderClassName="rounded-[inherit]"
+        />
       ) : (
         <>
           <SeededBackdrop seed={id} />

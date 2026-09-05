@@ -3,7 +3,7 @@
 import { MessagesSquare, ArrowUpRight } from "lucide-react"
 import { Avatar } from "../avatar"
 import { MessageBody } from "./message-body"
-import { attachmentAspectRatio, attachmentImageFrameStyle } from "./attachment-layout"
+import { attachmentImageFrameStyle } from "./attachment-layout"
 import { formatMessageTime } from "@/lib/community/format-time"
 import { Skeleton } from "@/components/ui/skeleton"
 import { avatarInitial } from "@/lib/community/avatar"
@@ -17,6 +17,7 @@ import { useMobileAvatarMention } from "./use-mobile-avatar-mention"
 import { useCommunityProfile } from "@/stores/community/ws"
 import { useHoverCapable } from "@/hooks/use-hover-capable"
 import { MessageReactions } from "./message-reactions"
+import { RemoteContentImage } from "@/components/remote-image/remote-image"
 
 // Thread opener — the parent message the thread was created from, pinned at
 // the top of the thread's message list. Deliberately styled like a REGULAR
@@ -157,31 +158,26 @@ export function ThreadOpener({
                 if (a.kind === "image") {
                   const frameStyle = attachmentImageFrameStyle(a.width, a.height)
                   return (
-                    <button
+                    <RemoteContentImage
                       key={i}
-                      onClick={() => onPreviewImage?.({
+                      data-testid={tid.threadOpenerImage(i)}
+                      src={a.thumbnailUrl ?? a.url}
+                      alt={a.name}
+                      width={a.width}
+                      height={a.height}
+                      loading="lazy"
+                      onActivate={() => onPreviewImage?.({
                         originalUrl: a.url,
                         thumbnailUrl: a.thumbnailUrl,
                         name: a.name,
                         width: a.width,
                         height: a.height,
                       })}
-                      className={`${frameStyle ? "relative" : "w-fit"} block max-w-full overflow-hidden rounded-lg border border-border transition-colors hover:border-primary/40`}
-                      style={frameStyle}
-                    >
-                      <img
-                        data-testid={tid.threadOpenerImage(i)}
-                        src={a.thumbnailUrl ?? a.url}
-                        alt={a.name}
-                        width={a.width}
-                        height={a.height}
-                        className={frameStyle
-                          ? "absolute inset-0 block size-full rounded-lg object-contain"
-                          : "block h-auto w-auto max-h-75 max-w-full rounded-lg object-contain"}
-                        style={frameStyle ? undefined : { aspectRatio: attachmentAspectRatio(a.width, a.height) }}
-                        loading="lazy"
-                      />
-                    </button>
+                      frameClassName="block max-w-full rounded-lg border border-border transition-colors hover:border-primary/40"
+                      frameStyle={frameStyle}
+                      imageClassName="block rounded-lg object-contain"
+                      errorLabel="Attachment failed to load"
+                    />
                   )
                 }
                 return <AttachmentCard key={i} attachment={a} onPreview={onPreviewAttachment} />

@@ -6,6 +6,7 @@ import type { Artifact } from "@alook/shared";
 import { Loader2, Download } from "lucide-react";
 import { Streamdown } from "streamdown";
 import { mermaid, cjk } from "@/lib/streamdown-plugins";
+import { RemoteContentImage } from "@/components/remote-image/remote-image";
 
 const TEXT_TYPES = new Set([
   "application/json",
@@ -100,10 +101,15 @@ export function ArtifactContentRenderer({ artifact, workspaceId }: ArtifactConte
   if (isImageType(artifact.content_type)) {
     return (
       <div className="flex justify-center">
-        <img
+        <RemoteContentImage
           src={url}
           alt={artifact.filename}
-          className="max-w-full rounded-md"
+          loading="eager"
+          loadingLabel="Loading image"
+          frameClassName="w-full max-w-3xl rounded-md"
+          frameStyle={{ aspectRatio: "4/3" }}
+          imageClassName="rounded-md object-contain"
+          errorLabel="Image preview failed to load"
         />
       </div>
     );

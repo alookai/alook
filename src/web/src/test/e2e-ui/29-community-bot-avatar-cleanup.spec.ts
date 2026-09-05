@@ -85,10 +85,43 @@ test("real bot avatars become unreadable after single delete and authenticated m
   const upload = await uploadAvatar(alice.page, botId)
   expect(upload.status).toBe(200)
 
-  await alice.page.reload()
+  let releaseAvatar!: () => void
+  const avatarGate = new Promise<void>((resolve) => { releaseAvatar = resolve })
+  let failAvatar = true
+  let avatarRequests = 0
+  await alice.page.route(`**${avatarPath}*`, async (route) => {
+    if (route.request().method() === "GET") {
+      avatarRequests++
+      if (failAvatar) {
+        await avatarGate
+        return route.fulfill({ status: 503, body: "avatar unavailable" })
+      }
+    }
+    await route.continue()
+  })
+  await alice.page.reload({ waitUntil: "commit" })
   await expect(alice.page.getByText(botName, { exact: true })).toBeVisible()
   const avatar = alice.page.locator(`img[src="${upload.url}"]`)
-  await expect(avatar).toBeVisible()
+  await expect(avatar).toHaveAttribute("data-remote-image-state", "pending")
+  const avatarFrame = avatar.locator("xpath=..")
+  const pendingFrame = await avatarFrame.boundingBox()
+  expect(pendingFrame).not.toBeNull()
+  await expect(avatarFrame.locator('[data-remote-image-placeholder="identity"][data-remote-image-state="pending"]'))
+    .toBeVisible()
+  releaseAvatar()
+  await expect(avatar).toHaveAttribute("data-remote-image-state", "error")
+  await expect(avatarFrame.locator('[data-remote-image-placeholder="identity"][data-remote-image-state="error"]'))
+    .toBeVisible()
+  await expect(avatarFrame.locator("svg")).toHaveCount(0)
+  expect(await avatarFrame.boundingBox()).toEqual(pendingFrame)
+
+  failAvatar = false
+  await alice.page.reload({ waitUntil: "commit" })
+  await expect.poll(() => avatarRequests).toBeGreaterThan(1)
+  await expect(avatar).toHaveAttribute("data-remote-image-state", "ready")
+  const readyFrame = await avatarFrame.boundingBox()
+  expect(readyFrame).toEqual(pendingFrame)
+  await alice.page.unroute(`**${avatarPath}*`)
   await expect.poll(() => avatar.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth)).toBe(1)
   expect(await alice.page.evaluate(async (path) => (
     await fetch(`${path}?before=${crypto.randomUUID()}`, { cache: "no-store" })

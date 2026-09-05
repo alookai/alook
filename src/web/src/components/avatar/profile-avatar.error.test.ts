@@ -5,6 +5,16 @@ import { ProfileAvatar } from "./profile-avatar"
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
+function imageEvent() {
+  return {
+    currentTarget: {
+      naturalWidth: 40,
+      naturalHeight: 40,
+      decode: () => Promise.resolve(),
+    },
+  }
+}
+
 describe("ProfileAvatar photo errors", () => {
   let renderer: TestRenderer.ReactTestRenderer | undefined
 
@@ -101,7 +111,8 @@ describe("ProfileAvatar photo errors", () => {
 
     const image = renderer!.root.findByProps({ "data-slot": "avatar-image" })
     await act(async () => {
-      image.props.onLoad()
+      image.props.onLoad(imageEvent())
+      await Promise.resolve()
     })
 
     expect(renderer!.root.findByProps({ "data-slot": "avatar-image" }).props).toMatchObject({
@@ -135,7 +146,10 @@ describe("ProfileAvatar photo errors", () => {
     expect(placeholder.props["data-avatar-photo-placeholder"]).toBe("failed")
     expect(placeholder.props.className).not.toContain("animate-pulse")
 
-    await act(async () => image.props.onLoad())
+    await act(async () => {
+      image.props.onLoad(imageEvent())
+      await Promise.resolve()
+    })
     expect(renderer!.root.findByProps({ "data-slot": "avatar-image" }).props).toMatchObject({
       "data-avatar-photo-state": "failed",
     })

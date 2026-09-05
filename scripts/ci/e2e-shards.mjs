@@ -68,6 +68,7 @@ export const SPEC_SECONDS = {
   "54-authenticated-context-menu-policy.spec.ts": 55,
   "54-blog-multizone.spec.ts": 60,
   "55-message-scroll-characterization.spec.ts": 180,
+  "56-remote-image-state-contract.spec.ts": 15,
 }
 
 function walk(directory) {
