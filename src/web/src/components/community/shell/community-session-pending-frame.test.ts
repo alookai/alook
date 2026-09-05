@@ -84,6 +84,18 @@ describe("CommunitySessionPendingFrame", () => {
     expect(renderer.root.findByType("pending-main").props.plan.main.kind).toBe("route-resolution")
   })
 
+  it("keeps the account-scoped community root neutral while its destination resolves", () => {
+    const renderer = render("/c")
+    const frame = renderer.root.findByProps({ "aria-label": "Loading community" })
+    expect(frame.props["data-community-route-kind"]).toBe("community-root-redirect")
+    expect(renderer.root.findAllByType("rail-skeleton")).toHaveLength(0)
+    expect(renderer.root.findAllByType("me-sidebar")).toHaveLength(0)
+    expect(renderer.root.findAllByType("server-sidebar")).toHaveLength(0)
+    expect(renderer.root.findAllByType("user-bar-skeleton")).toHaveLength(0)
+    expect(renderer.root.findAllByType("pending-main")).toHaveLength(1)
+    expect(renderer.root.findByType("pending-main").props.plan.main.kind).toBe("route-resolution")
+  })
+
   it("renders no authenticated shell modules for the public invite bypass", () => {
     const renderer = render("/c/invite/token")
     expect(renderer.root.findAllByType("rail-skeleton")).toHaveLength(0)

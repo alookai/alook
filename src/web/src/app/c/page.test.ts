@@ -14,6 +14,11 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/contexts/community/current-user", () => ({
   useCurrentUser: () => ({ id: mocks.userId }),
 }))
+vi.mock("@/components/community/shell/community-session-pending-frame", () => ({
+  CommunitySessionPendingFrame: (props: Record<string, unknown>) => (
+    createElement("community-session-pending-frame", props)
+  ),
+}))
 vi.mock("@/lib/community/last-community-route", () => ({
   resolveCommunityColdEntryDestination: (args: unknown) => mocks.resolve(args),
 }))
@@ -31,10 +36,16 @@ describe("CommunityIndex", () => {
     })
   })
 
-  it("resolves the exact browser location for the authenticated account", () => {
-    mocks.resolve.mockReturnValue("/c/channels/server-1/channel-1")
+  it.each([
+    "/c/channels/server-1/channel-1",
+    "/c/me/dm-1",
+    "/c/me/bots",
+    "/c/me/machines",
+  ])("replaces the root exactly once with %s", (destination) => {
+    mocks.resolve.mockReturnValue(destination)
+    let renderer!: TestRenderer.ReactTestRenderer
     act(() => {
-      TestRenderer.create(createElement(CommunityIndex))
+      renderer = TestRenderer.create(createElement(CommunityIndex))
     })
     expect(mocks.resolve).toHaveBeenCalledWith({
       accountId: "user-a",
@@ -42,7 +53,11 @@ describe("CommunityIndex", () => {
       search: "",
       hash: "",
     })
-    expect(mocks.replace).toHaveBeenCalledWith("/c/channels/server-1/channel-1")
+    expect(mocks.resolve).toHaveBeenCalledTimes(1)
+    expect(mocks.replace).toHaveBeenCalledTimes(1)
+    expect(mocks.replace).toHaveBeenCalledWith(destination)
+    expect(renderer.root.findByType("community-session-pending-frame").props.pathname)
+      .toBe("/c")
   })
 
   it("passes query and hash state to the exact-root gate", () => {

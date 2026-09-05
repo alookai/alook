@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation"
 import { useEffect } from "react"
+import { CommunitySessionPendingFrame } from "@/components/community/shell/community-session-pending-frame"
 import { useCurrentUser } from "@/contexts/community/current-user"
 import { resolveCommunityColdEntryDestination } from "@/lib/community/last-community-route"
 
@@ -17,5 +18,5 @@ export default function CommunityIndex() {
     })
     router.replace(destination)
   }, [currentUser.id, router])
-  return null
+  return <CommunitySessionPendingFrame pathname="/c" />
 }
