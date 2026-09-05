@@ -544,6 +544,10 @@ async function listAgentAllowedChannelIds(
  */
 const channelJoinBaselineGuard = sql`${communityMessage.createdAt} > COALESCE(${communityChannelMember.addedAt}, ${communityServerMember.joinedAt}, '')`;
 
+// Both agent-unread statements emit 13 fixed bindings in addition to channel
+// ids. 87 ids hit D1's 100-bind limit exactly; 88 must start a new chunk.
+const AGENT_UNREAD_CHANNEL_CHUNK_SIZE = maxInParams(13);
+
 /**
  * Cross-channel unread fill for `inboxPull`, grouped by channel/DM (not
  * global seq order — `seq` is a per-scope counter, comparing raw values
@@ -571,13 +575,6 @@ export async function listUnreadMessagesForAgent(
     opts.visibleChannelIds
   );
   if (allowedChannelIds.length === 0) return [];
-
-  // Besides the dynamic channel ids, the unread statement emits 13 fixed
-  // bindings (viewer predicates, notification-policy literals, and LIMIT).
-  // The generic 90-id cap therefore produces 103 bindings exactly when an
-  // agent reaches 90 allowed scopes. Give this query its own exact budget so
-  // every chunk stays within D1's hard 100-parameter ceiling.
-  const unreadChannelChunkSize = maxInParams(13);
 
   // D1 caps a statement at 100 bound params, and `allowedChannelIds` is
   // unbounded (a bot allowed into >100 channels). Chunk the `inArray` and merge:
@@ -638,7 +635,7 @@ export async function listUnreadMessagesForAgent(
       .limit(opts.max);
 
   const merged = (
-    await Promise.all(chunk(allowedChannelIds, unreadChannelChunkSize).map(runChunk))
+    await Promise.all(chunk(allowedChannelIds, AGENT_UNREAD_CHANNEL_CHUNK_SIZE).map(runChunk))
   ).flat();
   merged.sort((a, b) =>
     a.channelId === b.channelId
@@ -1033,7 +1030,7 @@ export async function getLatestUnreadMessageForAgent(
       .limit(1);
 
   const winners = (
-    await Promise.all(chunk(allowedChannelIds, D1_MAX_IN_PARAMS).map(runChunk))
+    await Promise.all(chunk(allowedChannelIds, AGENT_UNREAD_CHANNEL_CHUNK_SIZE).map(runChunk))
   ).flat();
   if (winners.length === 0) return null;
   let best = winners[0]!;

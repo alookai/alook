@@ -239,6 +239,49 @@ describe("listUnreadMessagesForAgent bound parameters", () => {
   });
 });
 
+describe("getLatestUnreadMessageForAgent bound parameters", () => {
+  it("87 allowed channels fit exactly at the query's 13-fixed-bind budget", async () => {
+    const channelIds = Array.from({ length: 87 }, (_, index) => `channel_${index}`);
+    const typeRows = channelIds.map((id) => [id, "text"]);
+    const { db, statements } = makeD1Capture([typeRows, []]);
+
+    await expect(
+      agentInboxQueries.getLatestUnreadMessageForAgent(db as never, "user_1", {
+        accessVisibleChannelIds: channelIds,
+      }),
+    ).resolves.toBeNull();
+
+    expect(statements.map(({ params }) => params.filter(
+      (value) => typeof value === "string" && value.startsWith("channel_"),
+    ).length)).toEqual([87, 87]);
+    expect(statements.map(({ params }) => params.length)).toEqual([87, 100]);
+  });
+
+  it("88 allowed channels split into 87 + 1 instead of emitting 101 binds", async () => {
+    const channelIds = Array.from({ length: 88 }, (_, index) => `channel_${index}`);
+    const typeRows = channelIds.map((id) => [id, "text"]);
+    const { db, statements } = makeD1Capture([
+      typeRows,
+      [["message_older", "2026-09-06T01:00:00.000Z"]],
+      [["message_newer", "2026-09-06T02:00:00.000Z"]],
+    ]);
+
+    await expect(
+      agentInboxQueries.getLatestUnreadMessageForAgent(db as never, "user_1", {
+        accessVisibleChannelIds: channelIds,
+      }),
+    ).resolves.toEqual({ messageId: "message_newer" });
+
+    expect(statements.map(({ params }) => params.filter(
+      (value) => typeof value === "string" && value.startsWith("channel_"),
+    ).length)).toEqual([88, 87, 1]);
+    expect(statements.map(({ params }) => params.length)).toEqual([88, 100, 14]);
+    for (const { params } of statements) {
+      expect(params.length).toBeLessThanOrEqual(D1_MAX_BIND_PARAMS);
+    }
+  });
+});
+
 describe("mark-all-read revision guard bound parameters", () => {
   function buildGuard(targetCount: number) {
     const targets = Array.from({ length: targetCount }, (_, index) => ({
