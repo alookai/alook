@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import { notifyManager, QueryClient } from "@tanstack/react-query"
+import { notifyManager, QueryClient, QueryObserver } from "@tanstack/react-query"
 import {
   getCommunityWsProjectionFlushError,
   runCommunityWsProjectionTransaction,
@@ -70,7 +70,7 @@ describe("community WS projection transaction", () => {
 
       expect(cancel).toHaveBeenCalledTimes(1)
       expect(invalidate).toHaveBeenCalledWith({ ...filters, refetchType: "none" })
-      expect(refetch).toHaveBeenCalledWith({ ...filters, type: "all" })
+      expect(refetch).toHaveBeenCalledWith({ ...filters, type: "active" })
     }
   })
 
@@ -101,6 +101,89 @@ describe("community WS projection transaction", () => {
     await vi.waitFor(() => expect(order).toContain("refetch"))
     expect(invalidate).toHaveBeenCalledTimes(1)
     expect(order).toEqual(["cancel", "project", "invalidate", "refetch"])
+  })
+
+  it("upgrades one owner/filter entry and replaces each active query exactly once", async () => {
+    const queryClient = new QueryClient()
+    const prefix = ["community", "channel", "forum_1", "threads"] as const
+    const allQuery = vi.fn(async () => ({ page: "all" }))
+    const archivedQuery = vi.fn(async () => ({ page: "archived" }))
+    const allObserver = new QueryObserver(queryClient, {
+      queryKey: [...prefix, "feed", null],
+      queryFn: allQuery,
+      initialData: { page: "all" },
+      staleTime: Infinity,
+    })
+    const archivedObserver = new QueryObserver(queryClient, {
+      queryKey: [...prefix, "feed", "archived"],
+      queryFn: archivedQuery,
+      initialData: { page: "archived" },
+      staleTime: Infinity,
+    })
+    const unsubscribeAll = allObserver.subscribe(() => {})
+    const unsubscribeArchived = archivedObserver.subscribe(() => {})
+    const cancel = vi.spyOn(queryClient, "cancelQueries")
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries")
+
+    try {
+      runCommunityWsProjectionTransaction(queryClient, (transaction) => {
+        transaction.invalidate("threads", { queryKey: prefix })
+        transaction.fence("threads", { queryKey: prefix })
+      })
+
+      await vi.waitFor(() => {
+        expect(allQuery).toHaveBeenCalledTimes(1)
+        expect(archivedQuery).toHaveBeenCalledTimes(1)
+      })
+      expect(cancel).toHaveBeenCalledTimes(1)
+      expect(invalidate).toHaveBeenCalledTimes(1)
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: prefix, refetchType: "none" })
+    } finally {
+      unsubscribeAll()
+      unsubscribeArchived()
+    }
+  })
+
+  it("absorbs a rejected active replacement while preserving its query error state", async () => {
+    const queryClient = new QueryClient()
+    const prefix = ["community", "channel", "forum_1", "threads"] as const
+    const failure = new Error("probe-refetch-failed")
+    const queryFn = vi.fn().mockRejectedValue(failure)
+    const observer = new QueryObserver(queryClient, {
+      queryKey: [...prefix, "feed", null],
+      queryFn,
+      initialData: { page: "all" },
+      staleTime: Infinity,
+      retry: false,
+    })
+    const unsubscribe = observer.subscribe(() => {})
+    const cancel = vi.spyOn(queryClient, "cancelQueries")
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries")
+    const unhandled = vi.fn()
+    process.on("unhandledRejection", unhandled)
+
+    try {
+      runCommunityWsProjectionTransaction(queryClient, (transaction) => {
+        transaction.fence("threads", { queryKey: prefix })
+      })
+
+      await vi.waitFor(() => {
+        expect(queryFn).toHaveBeenCalledOnce()
+        expect(observer.getCurrentResult()).toMatchObject({
+          status: "error",
+          error: failure,
+        })
+      })
+      await new Promise<void>((resolve) => setImmediate(resolve))
+
+      expect(cancel).toHaveBeenCalledOnce()
+      expect(invalidate).toHaveBeenCalledOnce()
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: prefix, refetchType: "none" })
+      expect(unhandled).not.toHaveBeenCalled()
+    } finally {
+      process.off("unhandledRejection", unhandled)
+      unsubscribe()
+    }
   })
 
   it("flushes queued invalidations when projection fails", () => {

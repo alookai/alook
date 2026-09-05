@@ -25,7 +25,7 @@ export type CommunityWsProjectionTransaction = {
 type PendingInvalidation = {
   filters: InvalidateQueryFilters
   cancellation?: Promise<void>
-  replacementOptions?: FetchQueryOptions
+  replacementOptions?: FetchQueryOptions[]
 }
 
 function createProjectionTransaction(
@@ -46,10 +46,9 @@ function createProjectionTransaction(
       const identity = hashKey([owner, filters])
       const current = pending.get(identity)
       if (current?.cancellation) return
-      const query = queryClient.getQueryCache().findAll(filters)[0]
-      const replacementOptions = query
-        ? { ...query.options, staleTime: 0 } as FetchQueryOptions
-        : undefined
+      const replacementOptions = queryClient.getQueryCache().findAll(filters)
+        .filter((query) => query.isActive() && query.options.queryFn)
+        .map((query) => ({ ...query.options, staleTime: 0 } as FetchQueryOptions))
       const cancellation = queryClient.cancelQueries(filters)
       if (current) {
         current.cancellation = cancellation
@@ -68,15 +67,15 @@ function createProjectionTransaction(
               ...filters,
               refetchType: "none",
             })
-            if (replacementOptions) {
-              await queryClient.fetchQuery(replacementOptions)
+            if (replacementOptions?.length) {
+              await Promise.all(replacementOptions.map((options) => queryClient.fetchQuery(options)))
             } else {
               await queryClient.refetchQueries({
                 ...filters,
-                type: "all",
+                type: "active",
               })
             }
-          })
+          }).catch(() => {})
         } else {
           void queryClient.invalidateQueries(filters)
         }

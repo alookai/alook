@@ -1,15 +1,27 @@
+import React from "react"
+import TestRenderer, { act } from "react-test-renderer"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { useCommunityWsStore } from "@/stores/community/ws"
+import { communityKeys } from "@/lib/query-keys"
 
 const apiFetchMock = vi.fn()
+const useForumTagsMock = vi.fn(() => ({
+  data: { tags: ["bug"] },
+  isSuccess: true,
+}))
 vi.mock("@/lib/api/client", () => ({
   apiFetch: (...args: unknown[]) => apiFetchMock(...args),
+}))
+vi.mock("./use-channel-panels", () => ({
+  useForumTags: (...args: unknown[]) => useForumTagsMock(...args),
 }))
 
 import {
   forumFeedPageQueryFn,
   mapForumFeedPages,
   removeForumPostFromFeed,
+  useForumFeed,
   type ForumFeedPage,
 } from "./use-forum-feed"
 
@@ -46,6 +58,21 @@ describe("forumFeedPageQueryFn", () => {
 
     const url = apiFetchMock.mock.calls[0]![0] as string
     expect(new URL(url, "http://localhost").searchParams.get("tag")).toBe("archived")
+  })
+
+  it("passes the query abort signal through to the request", async () => {
+    apiFetchMock.mockResolvedValue({ threads: [], included: emptyIncluded, hasMore: false })
+    const controller = new AbortController()
+
+    await forumFeedPageQueryFn("forum_one", null)({
+      pageParam: null,
+      signal: controller.signal,
+    })
+
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/community/channels/forum_one/threads?"),
+      { signal: controller.signal },
+    )
   })
 
   it("seeds opener and participant profiles while returning the raw page", async () => {
@@ -259,5 +286,44 @@ describe("mapForumFeedPages", () => {
     ]
 
     expect(mapForumFeedPages(pages).map((thread) => thread.id)).toEqual(expectedIds)
+  })
+})
+
+describe("useForumFeed", () => {
+  it("projects the cached page through the owning query client", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+    })
+    queryClient.setQueryData(communityKeys.forumFeed("forum_one", null), {
+      pages: [{
+        serverId: "server_one",
+        parentType: "forum",
+        threads: [],
+        included: emptyIncluded,
+        hasMore: false,
+      }],
+      pageParams: [null],
+    })
+    let result: ReturnType<typeof useForumFeed> | undefined
+    function Probe() {
+      result = useForumFeed("server_one", "forum_one")
+      return null
+    }
+
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(
+        React.createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          React.createElement(Probe),
+        ),
+      )
+    })
+
+    expect(useForumTagsMock).toHaveBeenCalledWith("forum_one", true)
+    expect(result?.tag).toBe("All")
+    expect(result?.posts).toEqual([])
+    act(() => renderer.unmount())
   })
 })

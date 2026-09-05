@@ -21,6 +21,12 @@ import {
   evictForumPostUnitQueryCaches,
   type ForumPostUnitIdentity,
 } from "@/hooks/community/community-ws/channel-scope-projection"
+import {
+  beginForumFeedTagTransition,
+  commitForumFeedTagTransition,
+  rollbackForumFeedTagTransition,
+  type ForumFeedTagTransitionToken,
+} from "@/hooks/community/forum-feed-tag-transition"
 
 export type CreateForumThreadArgs = {
   nonce: string
@@ -78,6 +84,14 @@ export type UpdatePostTagsArgs = {
   tags: string[]
 }
 
+type UpdatePostTagsContext = {
+  transition: ForumFeedTagTransitionToken | null
+}
+
+function hasArchiveTag(tags: readonly string[]) {
+  return tags.some((tag) => tag.trim().toLowerCase() === FORUM_ARCHIVE_TAG)
+}
+
 /**
  * Edit a single forum post's tags. PUTs the opener-message tag resource (author or manager
  * gated server-side), then patches the post's row in the forum's cached list so
@@ -85,7 +99,7 @@ export type UpdatePostTagsArgs = {
  */
 export function useUpdatePostTags() {
   const queryClient = useQueryClient()
-  return useMutation<{ tags: string[] }, Error, UpdatePostTagsArgs>({
+  return useMutation<{ tags: string[] }, Error, UpdatePostTagsArgs, UpdatePostTagsContext>({
     mutationFn: async ({ openerMessageId, tags }) => {
       const normalized = [...new Set(tags.map((t) => t.trim().toLowerCase()).filter(Boolean))]
       const result = await apiFetch<{ tags: string[] }>(`/api/community/messages/${openerMessageId}/tags`, {
@@ -96,9 +110,37 @@ export function useUpdatePostTags() {
         tags: [...new Set(result.tags.map((tag) => tag.trim().toLowerCase()).filter(Boolean))],
       }
     },
-    onSuccess: (data, args) => {
-      const wasArchived = args.previousTags.includes(FORUM_ARCHIVE_TAG)
-      const isArchived = data.tags.includes(FORUM_ARCHIVE_TAG)
+    onMutate: async (args) => {
+      if (hasArchiveTag(args.previousTags) === hasArchiveTag(args.tags)) {
+        return { transition: null }
+      }
+      const cancellation = queryClient.cancelQueries({
+        queryKey: communityKeys.forumFeeds(args.forumChannelId),
+      })
+      const transition = beginForumFeedTagTransition(queryClient, args)
+      await cancellation
+      return { transition }
+    },
+    onError: async (_error, args, context) => {
+      if (!context?.transition) return
+      await queryClient.cancelQueries({
+        queryKey: communityKeys.forumFeeds(args.forumChannelId),
+      })
+      if (rollbackForumFeedTagTransition(queryClient, context.transition)) {
+        void queryClient.invalidateQueries({
+          queryKey: communityKeys.forumFeeds(args.forumChannelId),
+        })
+      }
+    },
+    onSuccess: async (data, args, context) => {
+      if (context?.transition) {
+        await queryClient.cancelQueries({
+          queryKey: communityKeys.forumFeeds(args.forumChannelId),
+        })
+        commitForumFeedTagTransition(queryClient, context.transition, data.tags)
+      }
+      const wasArchived = hasArchiveTag(args.previousTags)
+      const isArchived = hasArchiveTag(data.tags)
       if (wasArchived !== isArchived) {
         void reconcileForumSidebarArchiveTag(
           queryClient,

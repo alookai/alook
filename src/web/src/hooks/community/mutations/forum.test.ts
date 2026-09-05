@@ -51,8 +51,8 @@ async function runMutation<Args>(args: Args) {
   const cfg = capturedConfig as MutConfig<Args>
   const context = cfg.onMutate ? await cfg.onMutate(args) : undefined
   const data = cfg.mutationFn ? await cfg.mutationFn(args) : undefined
-  cfg.onSuccess?.(data, args, context)
-  cfg.onSettled?.(data, null, args, context)
+  await cfg.onSuccess?.(data, args, context)
+  await cfg.onSettled?.(data, null, args, context)
   return data
 }
 
@@ -61,12 +61,12 @@ async function runMutationExpectError<Args>(args: Args) {
   const context = cfg.onMutate ? await cfg.onMutate(args) : undefined
   try {
     const data = cfg.mutationFn ? await cfg.mutationFn(args) : undefined
-    cfg.onSuccess?.(data, args, context)
-    cfg.onSettled?.(data, null, args, context)
+    await cfg.onSuccess?.(data, args, context)
+    await cfg.onSettled?.(data, null, args, context)
     throw new Error("expected mutationFn to reject")
   } catch (err) {
-    cfg.onError?.(err, args, context)
-    cfg.onSettled?.(undefined, err, args, context)
+    await cfg.onError?.(err, args, context)
+    await cfg.onSettled?.(undefined, err, args, context)
     return err
   }
 }
@@ -155,6 +155,59 @@ describe("useCreateForumThread", () => {
 })
 
 describe("useUpdatePostTags", () => {
+  const forumFeed = (
+    rows: Array<{ id: string; opener?: string; tags?: string[] }>,
+  ) => ({
+    pages: [{
+      serverId: "server_1",
+      parentType: "forum",
+      threads: rows.map((row) => ({
+        id: row.id,
+        name: row.id,
+        creatorId: `author_${row.id}`,
+        messageCount: 1,
+        parentMessageId: row.opener ?? `opener_${row.id}`,
+        lastMessageAt: "2026-09-05T00:00:00.000Z",
+        createdAt: "2026-09-05T00:00:00.000Z",
+        activityAt: "2026-09-05T00:00:00.000Z",
+      })),
+      included: {
+        parentMessages: rows.map((row, index) => ({
+          id: row.opener ?? `opener_${row.id}`,
+          channelId: "forum_1",
+          seq: index + 1,
+          content: row.id,
+          authorId: `author_${row.id}`,
+          authorName: row.id,
+          authorImage: null,
+          authorAvatarVersion: 0,
+        })),
+        firstMessages: rows.map((row) => ({
+          channelId: row.id,
+          content: `body ${row.id}`,
+        })),
+        tags: rows.flatMap((row) => (row.tags ?? []).map((tag) => ({
+          messageId: row.opener ?? `opener_${row.id}`,
+          tag,
+        }))),
+        participants: rows.map((row) => ({
+          channelId: row.id,
+          userId: `author_${row.id}`,
+          userName: row.id,
+          userImage: null,
+          userAvatarVersion: 0,
+        })),
+      },
+      hasMore: false,
+    }],
+    pageParams: [null],
+  })
+
+  const forumFeedIds = (key: ReturnType<typeof communityKeys.forumFeed>) => (
+    capturedQc.getQueryData<ReturnType<typeof forumFeed>>(key)
+      ?.pages.flatMap((page) => page.threads.map((thread) => thread.id)) ?? []
+  )
+
   const sidebar = (ids: string[]) => ({
     threads: ids.map((id) => ({
       id,
@@ -201,6 +254,113 @@ describe("useUpdatePostTags", () => {
     expect(capturedQc.getQueryState(feedAllKey)?.isInvalidated).toBe(true)
     expect(capturedQc.getQueryState(feedBugKey)?.isInvalidated).toBe(true)
     expect(capturedQc.getQueryState(communityKeys.forumTags("forum_1"))?.isInvalidated).toBe(true)
+  })
+
+  it("removes the exact row before the archive PUT settles", async () => {
+    const { useUpdatePostTags } = await load()
+    useUpdatePostTags()
+    const key = communityKeys.forumFeed("forum_1", null)
+    capturedQc.setQueryData(key, forumFeed([
+      { id: "before", tags: ["bug"] },
+      { id: "p2", tags: ["bug"] },
+      { id: "after", tags: ["bug"] },
+    ]))
+    let release!: (value: { tags: string[] }) => void
+    apiFetchMock.mockReturnValueOnce(new Promise((resolve) => {
+      release = resolve
+    }))
+    const args = {
+      serverId: "server_1",
+      forumChannelId: "forum_1",
+      threadId: "p2",
+      openerMessageId: "opener_p2",
+      previousTags: ["bug"],
+      tags: ["bug", "archived"],
+    }
+    const cfg = capturedConfig as MutConfig<typeof args>
+    const context = await cfg.onMutate!(args)
+    const request = cfg.mutationFn!(args)
+
+    expect(forumFeedIds(key)).toEqual(["before", "after"])
+    release({ tags: ["bug", "archived"] })
+    const data = await request
+    await cfg.onSuccess!(data, args, context)
+    expect(forumFeedIds(key)).toEqual(["before", "after"])
+  })
+
+  it("restores only the failed generation slice while preserving concurrent siblings", async () => {
+    const { useUpdatePostTags } = await load()
+    useUpdatePostTags()
+    const key = communityKeys.forumFeed("forum_1", null)
+    capturedQc.setQueryData(key, forumFeed([
+      { id: "before", tags: ["bug"] },
+      { id: "p2", tags: ["bug"] },
+      { id: "after", tags: ["bug"] },
+    ]))
+    const args = {
+      serverId: "server_1",
+      forumChannelId: "forum_1",
+      threadId: "p2",
+      openerMessageId: "opener_p2",
+      previousTags: ["bug"],
+      tags: ["bug", "archived"],
+    }
+    const cfg = capturedConfig as MutConfig<typeof args>
+    const context = await cfg.onMutate!(args)
+    capturedQc.setQueryData(key, forumFeed([
+      { id: "before", tags: ["updated"] },
+      { id: "after", tags: ["bug"] },
+      { id: "concurrent", tags: ["new"] },
+    ]))
+
+    await cfg.onError!(new Error("403"), args, context)
+
+    expect(forumFeedIds(key)).toEqual(["before", "p2", "after", "concurrent"])
+    const tags = capturedQc.getQueryData<ReturnType<typeof forumFeed>>(key)!
+      .pages[0].included.tags
+    expect(tags).toContainEqual({ messageId: "opener_before", tag: "updated" })
+    expect(tags).toContainEqual({ messageId: "opener_p2", tag: "bug" })
+  })
+
+  it("does not let an older failure undo a newer archive intent", async () => {
+    const { useUpdatePostTags } = await load()
+    useUpdatePostTags()
+    const allKey = communityKeys.forumFeed("forum_1", null)
+    const archivedKey = communityKeys.forumFeed("forum_1", "archived")
+    capturedQc.setQueryData(allKey, forumFeed([{ id: "p2", tags: ["bug"] }]))
+    const cfg = capturedConfig as MutConfig<{
+      serverId: string
+      forumChannelId: string
+      threadId: string
+      openerMessageId: string
+      previousTags: string[]
+      tags: string[]
+    }>
+    const olderArgs = {
+      serverId: "server_1",
+      forumChannelId: "forum_1",
+      threadId: "p2",
+      openerMessageId: "opener_p2",
+      previousTags: ["bug"],
+      tags: ["bug", "archived"],
+    }
+    const older = await cfg.onMutate!(olderArgs)
+    capturedQc.setQueryData(archivedKey, forumFeed([
+      { id: "p2", tags: ["bug", "archived"] },
+    ]))
+    const newerArgs = {
+      ...olderArgs,
+      previousTags: ["bug", "archived"],
+      tags: ["bug"],
+    }
+    const newer = await cfg.onMutate!(newerArgs)
+
+    await cfg.onError!(new Error("older failed"), olderArgs, older)
+    expect(forumFeedIds(allKey)).toEqual([])
+    expect(forumFeedIds(archivedKey)).toEqual([])
+
+    await cfg.onError!(new Error("newer failed"), newerArgs, newer)
+    expect(forumFeedIds(archivedKey)).toEqual(["p2"])
   })
 
   it("evicts only the archived sidebar projection after the successful PUT", async () => {

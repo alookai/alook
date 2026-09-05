@@ -7,10 +7,8 @@ import { clearLastChannel } from "@/lib/community/last-channel"
 import { channelHref } from "@/lib/community/community-route"
 import type { PageCache } from "./cache"
 import { removeThreadFromCache } from "./cache"
-import {
-  removeForumPostFromFeed,
-  type ForumFeedPage,
-} from "@/hooks/community/use-forum-feed"
+import type { ForumFeedPage } from "@/hooks/community/use-forum-feed"
+import { removeForumPostFromFeed } from "@/hooks/community/forum-feed-tag-transition"
 import type { InfiniteData } from "@tanstack/react-query"
 import {
   isKnownNonForumSidebarChannel,

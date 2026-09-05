@@ -13,6 +13,47 @@ function observeTagPuts(page: Page): string[] {
   return writes
 }
 
+async function gateNextTagPut(page: Page) {
+  let release!: () => void
+  let sawRequest!: () => void
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const requested = new Promise<void>((resolve) => {
+    sawRequest = resolve
+  })
+  await page.route("**/api/community/messages/*/tags", async (routeRequest) => {
+    const response = await routeRequest.fetch()
+    sawRequest()
+    await gate
+    await routeRequest.fulfill({ response })
+  }, { times: 1 })
+  return { release, requested }
+}
+
+async function gateNextForumFeedResponse(page: Page) {
+  let release!: () => void
+  let sawResponse!: () => void
+  let finished!: () => void
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const captured = new Promise<void>((resolve) => {
+    sawResponse = resolve
+  })
+  const delivered = new Promise<void>((resolve) => {
+    finished = resolve
+  })
+  await page.route(/\/api\/community\/channels\/[^/]+\/threads\?/, async (routeRequest) => {
+    const response = await routeRequest.fetch()
+    sawResponse()
+    await gate
+    await routeRequest.fulfill({ response }).catch(() => undefined)
+    finished()
+  }, { times: 1 })
+  return { release, captured, delivered }
+}
+
 async function seedForum(label: string) {
   const serverId = await seedServer("alice", `${label} ${Date.now()}`)
   const forumId = await seedChannel("alice", serverId, "tag-editor", "forum")
@@ -64,6 +105,8 @@ test.describe.serial("forum tag editor", () => {
 
     const card = page.getByTestId(tid.forumThreadCard(threadId))
     await expect(card.getByText("#kept", { exact: true })).toBeVisible()
+    await page.getByTestId(tid.forumTagChip("kept")).click()
+    await expect(card).toBeVisible()
     await card.hover()
     const archiveButton = page.getByTestId(tid.forumThreadArchiveBtn(threadId))
     await expect(archiveButton).toHaveAttribute("aria-label", "Archive post")
@@ -72,11 +115,15 @@ test.describe.serial("forum tag editor", () => {
       body: await page.screenshot(),
       contentType: "image/png",
     })
+    const archiveGate = await gateNextTagPut(page)
     const archivedSave = page.waitForResponse((response) => (
       response.request().method() === "PUT"
       && new URL(response.url()).pathname.endsWith("/tags")
     ))
     await archiveButton.click()
+    await archiveGate.requested
+    await expect(card).toHaveCount(0)
+    archiveGate.release()
     const archivedResponse = await archivedSave
     expect(archivedResponse.status()).toBe(200)
     expect((archivedResponse.request().postDataJSON() as { tags: string[] }).tags)
@@ -115,11 +162,15 @@ test.describe.serial("forum tag editor", () => {
       contentType: "image/png",
     })
     await page.emulateMedia({ colorScheme: "light" })
+    const unarchiveGate = await gateNextTagPut(page)
     const restoredSave = page.waitForResponse((response) => (
       response.request().method() === "PUT"
       && new URL(response.url()).pathname.endsWith("/tags")
     ))
     await unarchiveButton.click()
+    await unarchiveGate.requested
+    await expect(card).toHaveCount(0)
+    unarchiveGate.release()
     const restoredResponse = await restoredSave
     expect(restoredResponse.status()).toBe(200)
     expect([...(restoredResponse.request().postDataJSON() as { tags: string[] }).tags].sort())
@@ -130,6 +181,84 @@ test.describe.serial("forum tag editor", () => {
     await expect(page.getByTestId(tid.forumThreadCard(threadId)).getByText("#kept", { exact: true }))
       .toBeVisible()
     expect(writes).toHaveLength(4)
+  })
+
+  test("keeps a cancelled stale feed response behind the active archive generation", async ({ asUser }) => {
+    const { route, threadId } = await seedForum("Archive stale feed fence")
+    const { page } = await asUser("alice")
+    await page.setViewportSize({ width: 1280, height: 900 })
+    await gotoAfterUserWsAuth(page, route)
+    const card = page.getByTestId(tid.forumThreadCard(threadId))
+    await expect(card).toBeVisible()
+
+    const staleFeed = await gateNextForumFeedResponse(page)
+    await openEditor(page, threadId)
+    await addDraft(page, "stale-source")
+    const ordinarySave = page.waitForResponse((response) => (
+      response.request().method() === "PUT"
+      && new URL(response.url()).pathname.endsWith("/tags")
+    ))
+    await page.keyboard.press("Escape")
+    expect((await ordinarySave).status()).toBe(200)
+    await staleFeed.captured
+
+    await card.hover()
+    const archiveResponse = page.waitForResponse((response) => (
+      response.request().method() === "PUT"
+      && new URL(response.url()).pathname.endsWith("/tags")
+    ))
+    await page.getByTestId(tid.forumThreadArchiveBtn(threadId)).click()
+    await expect(card).toHaveCount(0)
+
+    staleFeed.release()
+    await staleFeed.delivered
+    await expect(card).toHaveCount(0)
+
+    expect((await archiveResponse).status()).toBe(200)
+    await expect(card).toHaveCount(0)
+  })
+
+  test("converges Archive and Unarchive across two tabs", async ({ asUser }) => {
+    const { route, threadId } = await seedForum("Archive cross tab")
+    const tabA = await asUser("alice")
+    const tabB = await asUser("alice")
+    await Promise.all([
+      gotoAfterUserWsAuth(tabA.page, route),
+      gotoAfterUserWsAuth(tabB.page, route),
+    ])
+    const cardA = tabA.page.getByTestId(tid.forumThreadCard(threadId))
+    const cardB = tabB.page.getByTestId(tid.forumThreadCard(threadId))
+    await expect(cardA).toBeVisible()
+    await expect(cardB).toBeVisible()
+
+    await cardA.hover()
+    const archived = tabA.page.waitForResponse((response) => (
+      response.request().method() === "PUT"
+      && new URL(response.url()).pathname.endsWith("/tags")
+    ))
+    await tabA.page.getByTestId(tid.forumThreadArchiveBtn(threadId)).click()
+    expect((await archived).status()).toBe(200)
+    await expect(cardB).toHaveCount(0)
+
+    await expect(tabA.page.getByTestId(tid.forumTagChip("archived"))).toBeVisible()
+    await expect(tabB.page.getByTestId(tid.forumTagChip("archived"))).toBeVisible()
+    await tabA.page.getByTestId(tid.forumTagChip("archived")).click()
+    await tabB.page.getByTestId(tid.forumTagChip("archived")).click()
+    await expect(cardA).toBeVisible()
+    await expect(cardB).toBeVisible()
+
+    await cardB.hover()
+    const unarchived = tabB.page.waitForResponse((response) => (
+      response.request().method() === "PUT"
+      && new URL(response.url()).pathname.endsWith("/tags")
+    ))
+    await tabB.page.getByTestId(tid.forumThreadArchiveBtn(threadId)).click()
+    expect((await unarchived).status()).toBe(200)
+    await expect(cardA).toHaveCount(0)
+
+    await tabA.page.getByTestId(tid.forumTagAll).click()
+    await expect(cardA).toBeVisible()
+    await expect(tabA.page.getByTestId(tid.forumThreadCard(threadId))).toHaveCount(1)
   })
 
   test("discards implicit close and commits only explicit Save", async ({ asUser }) => {
@@ -187,12 +316,17 @@ test.describe.serial("forum tag editor", () => {
     const writes = observeTagPuts(page)
     let rejectNext = true
     let releaseFailure!: () => void
+    let sawFailureRequest!: () => void
     const failureGate = new Promise<void>((resolve) => {
       releaseFailure = resolve
+    })
+    const failureRequested = new Promise<void>((resolve) => {
+      sawFailureRequest = resolve
     })
     await page.route("**/api/community/messages/*/tags", async (routeRequest) => {
       if (rejectNext) {
         rejectNext = false
+        sawFailureRequest()
         await failureGate
         await routeRequest.fulfill({
           status: 500,
@@ -212,22 +346,25 @@ test.describe.serial("forum tag editor", () => {
       && new URL(response.url()).pathname.endsWith("/tags")
     ))
     await archiveButton.click()
-    await expect(archiveButton).toBeDisabled()
-    expect(writes).toHaveLength(1)
-    await archiveButton.evaluate((button: HTMLButtonElement) => button.click())
+    await failureRequested
+    await expect(page.getByTestId(tid.forumThreadCard(threadId))).toHaveCount(0)
     expect(writes).toHaveLength(1)
     releaseFailure()
     expect((await failed).status()).toBe(500)
     await expect(page.getByText("archive retry", { exact: true })).toBeVisible()
-    await expect(archiveButton).toBeEnabled()
-    await expect(archiveButton).toHaveAttribute("aria-pressed", "false")
+    const restoredCard = page.getByTestId(tid.forumThreadCard(threadId))
+    await expect(restoredCard).toBeVisible()
+    await restoredCard.hover()
+    const restoredArchiveButton = page.getByTestId(tid.forumThreadArchiveBtn(threadId))
+    await expect(restoredArchiveButton).toBeEnabled()
+    await expect(restoredArchiveButton).toHaveAttribute("aria-pressed", "false")
 
     const retried = page.waitForResponse((response) => (
       response.request().method() === "PUT"
       && new URL(response.url()).pathname.endsWith("/tags")
       && response.status() === 200
     ))
-    await archiveButton.click()
+    await restoredArchiveButton.click()
     const retriedResponse = await retried
     expect((retriedResponse.request().postDataJSON() as { tags: string[] }).tags)
       .toEqual(["archived"])

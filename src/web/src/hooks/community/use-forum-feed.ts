@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { useInfiniteQuery, type InfiniteData } from "@tanstack/react-query"
+import { useInfiniteQuery, useQueryClient, type InfiniteData } from "@tanstack/react-query"
 import { compareAsciiSqliteBinary, DEFAULT_MESSAGE_PAGE_SIZE } from "@alook/shared"
 import { apiFetchProfiles } from "@/lib/community/profile-seed"
 import { communityKeys } from "@/lib/query-keys"
@@ -10,94 +10,16 @@ import { canonicalUserImage } from "@/lib/community/storage"
 import { readForumTagSelection, validateForumTagSelection, writeForumTagSelection } from "@/lib/community/forum-tag-selection"
 import type { ForumThread } from "@/lib/community/models/message"
 import { useForumTags } from "./use-channel-panels"
+import {
+  projectForumThreadsThroughActiveTagTransitions,
+  type ForumFeedPage,
+} from "./forum-feed-tag-transition"
 
-type FeedThread = {
-  id: string
-  name: string | null
-  creatorId: string | null
-  messageCount: number | null
-  parentMessageId: string | null
-  lastMessageAt: string | null
-  createdAt: string
-  activityAt: string
-}
-
-type IncludedMessage = {
-  id: string
-  channelId: string
-  seq: number
-  createdAt?: string
-  content: string
-  authorId: string
-  authorName: string
-  authorImage: string | null
-  authorAvatarVersion: number
-}
-
-type IncludedFirstMessage = { channelId: string; content: string }
-type IncludedTag = { messageId: string; tag: string }
-type IncludedParticipant = {
-  channelId: string
-  userId: string
-  userName: string | null
-  userImage: string | null
-  userAvatarVersion: number
-  participantCount?: number
-}
-
-export type ForumFeedPage = {
-  serverId: string
-  parentType: string
-  threads: FeedThread[]
-  included: {
-    parentMessages: IncludedMessage[]
-    firstMessages: IncludedFirstMessage[]
-    tags: IncludedTag[]
-    participants: IncludedParticipant[]
-  }
-  hasMore: boolean
-  nextCursor?: string
-}
-
-/** Remove one canonical forum post and every included row owned by its unit. */
-export function removeForumPostFromFeed(
-  data: InfiniteData<ForumFeedPage> | undefined,
-  childChannelId: string,
-  openerMessageId: string,
-): InfiniteData<ForumFeedPage> | undefined {
-  if (!data) return data
-  let touched = false
-  const pages = data.pages.map((page) => {
-    if (!page.threads.some((thread) => (
-      thread.id === childChannelId || thread.parentMessageId === openerMessageId
-    ))) return page
-    touched = true
-    return {
-      ...page,
-      threads: page.threads.filter((thread) => (
-        thread.id !== childChannelId && thread.parentMessageId !== openerMessageId
-      )),
-      included: {
-        parentMessages: page.included.parentMessages.filter(
-          (message) => message.id !== openerMessageId,
-        ),
-        firstMessages: page.included.firstMessages.filter(
-          (message) => message.channelId !== childChannelId,
-        ),
-        tags: page.included.tags.filter(
-          (tag) => tag.messageId !== openerMessageId,
-        ),
-        participants: page.included.participants.filter(
-          (participant) => participant.channelId !== childChannelId,
-        ),
-      },
-    }
-  })
-  return touched ? { ...data, pages } : data
-}
+export { removeForumPostFromFeed } from "./forum-feed-tag-transition"
+export type { ForumFeedPage } from "./forum-feed-tag-transition"
 
 export function forumFeedPageQueryFn(channelId: string, tag: string | null) {
-  return ({ pageParam }: { pageParam: string | null }) => {
+  return ({ pageParam, signal }: { pageParam: string | null; signal?: AbortSignal }) => {
     const params = new URLSearchParams({
       order: "createdAt",
       limit: String(DEFAULT_MESSAGE_PAGE_SIZE),
@@ -135,6 +57,7 @@ export function forumFeedPageQueryFn(channelId: string, tag: string | null) {
           },
         })),
       ],
+      signal ? { signal } : undefined,
     )
   }
 }
@@ -203,6 +126,7 @@ export function mapForumFeedPages(pages: ForumFeedPage[]): ForumThread[] {
 }
 
 export function useForumFeed(_serverId: string, channelId: string) {
+  const queryClient = useQueryClient()
   const [tag, setTag] = useState(() => {
     if (typeof window === "undefined") return "All"
     try { return readForumTagSelection(window.localStorage, channelId) }
@@ -234,8 +158,13 @@ export function useForumFeed(_serverId: string, channelId: string) {
     getNextPageParam: (lastPage) => lastPage.hasMore ? lastPage.nextCursor : undefined,
   })
   const posts = useMemo(
-    () => mapForumFeedPages(query.data?.pages ?? []),
-    [query.data?.pages],
+    () => projectForumThreadsThroughActiveTagTransitions(
+      queryClient,
+      channelId,
+      selectedTag,
+      mapForumFeedPages(query.data?.pages ?? []),
+    ),
+    [channelId, query.data?.pages, queryClient, selectedTag],
   )
 
   return {

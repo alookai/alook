@@ -47,6 +47,7 @@ import {
   invalidateThreads,
 } from "./invalidation-projections"
 import { getActiveAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
+import { projectForumFeedWsTags } from "@/hooks/community/forum-feed-tag-transition"
 
 export function handleChildChannelCreate(
   event: CommunityChildChannelCreate,
@@ -134,6 +135,14 @@ export function handleChildChannelUpdate(
   // indicator if the update carries them.
   const changes = event.changes
   if (changes.tags !== undefined) {
+    projection.fence("threads", {
+      queryKey: communityKeys.threads(event.parentChannelId),
+    })
+    projection.project(() => projectForumFeedWsTags(queryClient, {
+      forumChannelId: event.parentChannelId,
+      threadId: event.channelId,
+      tags: changes.tags ?? [],
+    }))
     invalidateChannelMessages(projection, event.parentChannelId)
     projection.invalidate("forum-post-tags", {
       queryKey: communityKeys.forumTags(event.parentChannelId),
