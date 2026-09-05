@@ -1,10 +1,267 @@
 import type { CommunityReplicaFrontier } from "../../../community/replica";
+import { MENTION_KIND } from "../../../constants/community";
+import { and, asc, count, eq, inArray, isNull, sql } from "drizzle-orm";
+import {
+  communityCategory,
+  communityChannel,
+  communityMention,
+  communityMessage,
+  communityReadState,
+  communityServer,
+  communityServerMember,
+} from "../../community-schema";
 import type { Database } from "../../index";
+import { chunk, D1_MAX_IN_PARAMS, maxInParams } from "../_chunk";
+import { channelReadableSql } from "./channel";
 import { getReplicaScopeRevisions, listReplicaDeltaRows, type ReplicaDeltaRow } from "./replica-store";
+import * as channelQueries from "./channel";
+import * as inboxQueries from "./inbox";
+import { notificationEligibleSql } from "./notification-eligibility";
 
 export type ReplicaDeltaWindow =
   | { status: "ok"; rows: ReplicaDeltaRow[]; frontier: CommunityReplicaFrontier; hasMore: boolean }
   | { status: "rebootstrap"; scopes: CommunityReplicaFrontier[number]["scope"][] };
+
+export async function loadReplicaAccountServers(
+  db: Database,
+  userId: string,
+  serverIds: string[],
+) {
+  const ids = [...new Set(serverIds)];
+  if (ids.length === 0) return [];
+  const servers = (await Promise.all(chunk(ids, maxInParams(1)).map((part) => db
+    .select({
+      id: communityServer.id,
+      name: communityServer.name,
+      discriminator: communityServer.discriminator,
+      description: communityServer.description,
+      icon: communityServer.icon,
+      ownerId: communityServer.ownerId,
+      role: communityServerMember.role,
+      railOrder: communityServerMember.railOrder,
+    })
+    .from(communityServer)
+    .innerJoin(communityServerMember, and(
+      eq(communityServerMember.serverId, communityServer.id),
+      eq(communityServerMember.userId, userId),
+    ))
+    .where(inArray(communityServer.id, part))
+    .orderBy(asc(communityServerMember.railOrder), asc(communityServer.id)))))
+    .flat();
+  if (servers.length === 0) return [];
+
+  const visibleIds = (await Promise.all(servers.map((server) => (
+    channelQueries.listVisibleChannelIds(db, server.id, userId)
+  )))).flat();
+  const unreadRows = await inboxQueries.listEligibleUnreadChannels(db, userId, visibleIds);
+  const mentionRows = (await Promise.all(chunk(servers.map((server) => server.id), D1_MAX_IN_PARAMS).map((part) => db
+    .select({
+      serverId: communityChannel.serverId,
+      channelId: communityChannel.id,
+      count: count().as("count"),
+      lastSeq: sql<number>`MAX(${communityMessage.seq})`.mapWith(Number),
+    })
+    .from(communityMention)
+    .innerJoin(communityMessage, eq(communityMessage.id, communityMention.messageId))
+    .innerJoin(communityChannel, eq(communityChannel.id, communityMessage.channelId))
+    .leftJoin(communityReadState, and(
+      eq(communityReadState.userId, userId),
+      eq(communityReadState.channelId, communityChannel.id),
+    ))
+    .where(and(
+      eq(communityMention.userId, userId),
+      eq(communityMention.read, 0),
+      eq(communityMention.kind, MENTION_KIND.MENTION),
+      inArray(communityChannel.serverId, part),
+      sql`${communityMessage.seq} > COALESCE(${communityReadState.lastReadSeq}, 0)`,
+      channelReadableSql(userId, {
+        id: communityChannel.id,
+        type: communityChannel.type,
+        serverId: communityChannel.serverId,
+        parentChannelId: communityChannel.parentChannelId,
+      }),
+      notificationEligibleSql(
+        userId,
+        {
+          id: communityChannel.id,
+          serverId: communityChannel.serverId,
+          parentChannelId: communityChannel.parentChannelId,
+        },
+        { id: communityMessage.id },
+      ),
+    ))
+    .groupBy(communityChannel.serverId, communityChannel.id))))
+    .flat();
+
+  return servers.map((server) => {
+    const unreadSources = unreadRows
+      .filter((row) => row.serverId === server.id)
+      .map((row) => ({ channelId: row.channelId, lastUnreadSeq: row.lastUnreadSeq }));
+    const mentionSources = mentionRows
+      .filter((row) => row.serverId === server.id)
+      .map((row) => ({ channelId: row.channelId, count: row.count, lastSeq: row.lastSeq }));
+    return {
+      ...server,
+      unreadSources,
+      mentionSources,
+      mentions: mentionSources.reduce((total, source) => total + source.count, 0),
+    };
+  });
+}
+
+export async function loadReplicaReadStates(
+  db: Database,
+  userId: string,
+  channelIds: string[],
+) {
+  const ids = [...new Set(channelIds)];
+  if (ids.length === 0) return [];
+  return (await Promise.all(chunk(ids, D1_MAX_IN_PARAMS).map((part) => db
+    .select({
+      channelId: communityReadState.channelId,
+      lastReadMessageId: communityReadState.lastReadMessageId,
+      lastReadAt: communityReadState.lastReadAt,
+      lastReadSeq: communityReadState.lastReadSeq,
+    })
+    .from(communityReadState)
+    .innerJoin(communityChannel, eq(communityChannel.id, communityReadState.channelId))
+    .where(and(
+      eq(communityReadState.userId, userId),
+      inArray(communityReadState.channelId, part),
+      channelReadableSql(userId, {
+        id: communityChannel.id,
+        type: communityChannel.type,
+        serverId: communityChannel.serverId,
+        parentChannelId: communityChannel.parentChannelId,
+      }),
+    )))))
+    .flat();
+}
+
+export async function loadReplicaCategories(
+  db: Database,
+  serverId: string,
+  categoryIds: string[],
+) {
+  const ids = [...new Set(categoryIds)];
+  if (ids.length === 0) return [];
+  return (await Promise.all(chunk(ids, maxInParams(1)).map((part) => db
+    .select({
+      id: communityCategory.id,
+      serverId: communityCategory.serverId,
+      name: communityCategory.name,
+      position: communityCategory.position,
+      private: communityCategory.private,
+      creatorId: communityCategory.creatorId,
+    })
+    .from(communityCategory)
+    .where(and(
+      eq(communityCategory.serverId, serverId),
+      inArray(communityCategory.id, part),
+    ))
+    .orderBy(asc(communityCategory.position), asc(communityCategory.id)))))
+    .flat();
+}
+
+export async function listReplicaCategoryChannelIds(
+  db: Database,
+  serverId: string,
+  categoryIds: string[],
+) {
+  const ids = [...new Set(categoryIds)];
+  if (ids.length === 0) return [];
+  return (await Promise.all(chunk(ids, maxInParams(1)).map((part) => db
+    .select({
+      categoryId: communityChannel.categoryId,
+      channelId: communityChannel.id,
+    })
+    .from(communityChannel)
+    .where(and(
+      eq(communityChannel.serverId, serverId),
+      isNull(communityChannel.parentChannelId),
+      inArray(communityChannel.categoryId, part),
+    )))))
+    .flat()
+    .filter((row): row is { categoryId: string; channelId: string } => row.categoryId !== null);
+}
+
+export async function loadReplicaChannels(
+  db: Database,
+  userId: string,
+  serverId: string,
+  channelIds: string[],
+) {
+  const ids = [...new Set(channelIds)];
+  if (ids.length === 0) return [];
+  return (await Promise.all(chunk(ids, D1_MAX_IN_PARAMS).map((part) => db
+    .select({
+      id: communityChannel.id,
+      serverId: communityChannel.serverId,
+      categoryId: communityChannel.categoryId,
+      name: communityChannel.name,
+      position: communityChannel.position,
+      type: communityChannel.type,
+      creatorId: communityChannel.creatorId,
+    })
+    .from(communityChannel)
+    .where(and(
+      eq(communityChannel.serverId, serverId),
+      isNull(communityChannel.parentChannelId),
+      inArray(communityChannel.id, part),
+      channelReadableSql(userId, {
+        id: communityChannel.id,
+        type: communityChannel.type,
+        serverId: communityChannel.serverId,
+        parentChannelId: communityChannel.parentChannelId,
+      }),
+    ))
+    .orderBy(asc(communityChannel.position), asc(communityChannel.id)))))
+    .flat();
+}
+
+export async function loadReplicaUnreadSources(
+  db: Database,
+  userId: string,
+  serverId: string,
+  channelIds: string[],
+) {
+  const ids = [...new Set(channelIds)];
+  if (ids.length === 0) return [];
+  const visibleIds = (await Promise.all(chunk(ids, D1_MAX_IN_PARAMS).map((part) => db
+    .select({ id: communityChannel.id })
+    .from(communityChannel)
+    .where(and(
+      eq(communityChannel.serverId, serverId),
+      inArray(communityChannel.id, part),
+      channelReadableSql(userId, {
+        id: communityChannel.id,
+        type: communityChannel.type,
+        serverId: communityChannel.serverId,
+        parentChannelId: communityChannel.parentChannelId,
+      }),
+    )))))
+    .flat()
+    .map((row) => row.id);
+  const unread = await inboxQueries.listEligibleUnreadChannels(db, userId, visibleIds);
+  const forumParentIds = unread
+    .filter((row) => !row.parentChannelId && row.type === "forum")
+    .map((row) => row.channelId);
+  const unreadOpeners = await inboxQueries.listUnreadForumOpeners(db, userId, forumParentIds);
+  const forumParentsWithUnread = new Set([
+    ...unreadOpeners.map((row) => row.forumChannelId),
+    ...unread.flatMap((row) => row.parentChannelId ? [row.parentChannelId] : []),
+  ]);
+  const projected = unread.filter((row) => (
+    row.parentChannelId
+    || row.type !== "forum"
+    || forumParentsWithUnread.has(row.channelId)
+  ));
+  const byChannel = new Map(projected.map((row) => [row.channelId, row]));
+  return visibleIds.map((channelId) => ({
+    channelId,
+    value: byChannel.get(channelId) ?? null,
+  }));
+}
 
 export async function readReplicaDeltaWindow(
   db: Database,
@@ -18,7 +275,7 @@ export async function readReplicaDeltaWindow(
   ]));
   const invalid = from.filter((entry) => {
     const revision = currentByScope.get(`${entry.scope.kind}:${entry.scope.id}`) ?? 0;
-    return entry.revision > revision || (entry.scope.kind !== "channel" && entry.revision !== revision);
+    return entry.revision > revision;
   }).map((entry) => entry.scope);
   if (invalid.length > 0) return { status: "rebootstrap", scopes: invalid };
 
@@ -27,8 +284,8 @@ export async function readReplicaDeltaWindow(
     const currentRevision = currentByScope.get(`${entry.scope.kind}:${entry.scope.id}`) ?? 0;
     if (entry.revision === currentRevision) continue;
     // `limit` counts causal batches, not individual scope deltas. Read the
-    // same bounded prefix from every covered channel so a commit spanning a
-    // thread and its parent can never be split at the response boundary.
+    // same bounded prefix from every covered scope so one causal commit can
+    // never be split at the response boundary.
     const scopeRows = await listReplicaDeltaRows(db, entry.scope, entry.revision, limit + 1);
     if (scopeRows[0]?.revision !== entry.revision + 1) {
       return { status: "rebootstrap", scopes: [entry.scope] };

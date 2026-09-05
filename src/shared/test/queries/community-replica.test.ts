@@ -25,14 +25,34 @@ const channel2 = { kind: "channel" as const, id: "c2" };
 const account = { kind: "account" as const, id: "u1" };
 
 describe("Replica storage descriptors", () => {
-  it("accepts only the two closed message descriptor shapes", () => {
-    expect(parseReplicaDeltaDescriptor('{"kind":"message-upsert","messageId":"m1"}')).toEqual({
+  it("accepts the closed entity descriptor vocabulary in its owning scope", () => {
+    expect(parseReplicaDeltaDescriptor('{"kind":"message-upsert","messageId":"m1"}', "channel")).toEqual({
       kind: "message-upsert",
       messageId: "m1",
     });
+    expect(parseReplicaDeltaDescriptor('{"kind":"server-refresh","serverId":"s1"}', "account"))
+      .toEqual({ kind: "server-refresh", serverId: "s1" });
+    expect(parseReplicaDeltaDescriptor(
+      '{"kind":"read-state-refresh","channelId":"c1","serverId":"s1"}',
+      "account",
+    )).toEqual({ kind: "read-state-refresh", channelId: "c1", serverId: "s1" });
+    expect(parseReplicaDeltaDescriptor('{"kind":"category-refresh","categoryId":"g1"}', "server"))
+      .toEqual({ kind: "category-refresh", categoryId: "g1", reconcileChannels: false });
+    expect(parseReplicaDeltaDescriptor(
+      '{"kind":"category-refresh","categoryId":"g1","reconcileChannels":1}',
+      "server",
+    )).toEqual({ kind: "category-refresh", categoryId: "g1", reconcileChannels: true });
+    expect(parseReplicaDeltaDescriptor('{"kind":"channel-refresh","channelId":"c1"}', "server"))
+      .toEqual({ kind: "channel-refresh", channelId: "c1" });
+    expect(parseReplicaDeltaDescriptor('{"kind":"unread-source-refresh","channelId":"c1"}', "server"))
+      .toEqual({ kind: "unread-source-refresh", channelId: "c1" });
     expect(() => parseReplicaDeltaDescriptor('{"kind":"raw-row","messageId":"m1"}')).toThrow(
       "invalid Replica delta descriptor",
     );
+    expect(() => parseReplicaDeltaDescriptor(
+      '{"kind":"server-refresh","serverId":"s1"}',
+      "server",
+    )).toThrow("invalid Replica delta descriptor scope");
     expect(() => parseReplicaDeltaDescriptor("null")).toThrow("invalid Replica delta descriptor");
   });
 });
@@ -68,14 +88,26 @@ describe("readStableReplicaSnapshot", () => {
 describe("readReplicaDeltaWindow", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("requires rebootstrap for changed non-channel scopes", async () => {
+  it("returns a contiguous retained account delta without rebootstrap", async () => {
     mocks.revisions.mockResolvedValue([{ scope: account, revision: 4 }]);
+    mocks.rows.mockResolvedValue([{
+      scopeKind: "account",
+      scopeId: "u1",
+      revision: 4,
+      causalId: "read:u1:c1:4",
+      committedAt: "t4",
+      descriptor: { kind: "read-state-refresh", channelId: "c1", serverId: "s1" },
+    }]);
     await expect(readReplicaDeltaWindow(
       {} as any,
       [{ scope: account, revision: 3 }],
       10,
-    )).resolves.toEqual({ status: "rebootstrap", scopes: [account] });
-    expect(mocks.rows).not.toHaveBeenCalled();
+    )).resolves.toEqual({
+      status: "ok",
+      rows: [expect.objectContaining({ revision: 4 })],
+      frontier: [{ scope: account, revision: 4 }],
+      hasMore: false,
+    });
   });
 
   it("returns a contiguous channel prefix and an exact resulting frontier", async () => {

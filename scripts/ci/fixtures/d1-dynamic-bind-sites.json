@@ -440,6 +440,41 @@
     "fixedParams": 10
   },
   {
+    "key": "src/shared/src/db/queries/community/replica-delta.ts:listReplicaCategoryChannelIds:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/replica-delta.ts:loadReplicaAccountServers:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/replica-delta.ts:loadReplicaAccountServers:inArray:2",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/replica-delta.ts:loadReplicaCategories:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/replica-delta.ts:loadReplicaChannels:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/replica-delta.ts:loadReplicaReadStates:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/replica-delta.ts:loadReplicaUnreadSources:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
     "key": "src/shared/src/db/queries/community/replica-store.ts:getReplicaScopeRevisions:or-map:1",
     "strategy": "exact-chunk",
     "fixedParams": 10

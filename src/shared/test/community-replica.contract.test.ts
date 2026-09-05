@@ -284,6 +284,28 @@ describe("community Replica v1 contract", () => {
     }).success).toBe(false);
   });
 
+  it("allows a contiguous empty projection for a mutation outside the viewer's permission mask", () => {
+    const serverScope = { kind: "server" as const, id: "server-1" };
+    const response = {
+      protocolVersion: COMMUNITY_REPLICA_PROTOCOL_VERSION,
+      status: "ok",
+      from: [{ scope: serverScope, revision: 4 }],
+      batches: [{
+        causalId: "private-channel-change",
+        committedAt,
+        deltas: [{
+          scope: serverScope,
+          fromRevision: 4,
+          toRevision: 5,
+          operations: [],
+        }],
+      }],
+      frontier: [{ scope: serverScope, revision: 5 }],
+      hasMore: false,
+    };
+    expect(communityReplicaDeltaResponseSchema.parse(response)).toEqual(response);
+  });
+
   it("keeps stable intent identity and canonical outcomes distinct", () => {
     const intent = {
       intentId: "intent-1",

@@ -125,10 +125,12 @@ describe("Replica real D1 commit boundary", () => {
       reason: "occupied",
       now: f.now,
     });
-    const before = await queries.communityReplicaStore.getReplicaScopeRevisions(
-      f.db,
-      [{ kind: "channel", id: f.channelId }],
-    );
+    const coveredScopes = [
+      { kind: "account" as const, id: f.userId },
+      { kind: "server" as const, id: f.serverId },
+      { kind: "channel" as const, id: f.channelId },
+    ];
+    const before = await queries.communityReplicaStore.getReplicaScopeRevisions(f.db, coveredScopes);
     const outcomeStatement = queries.communityReplicaStore.acceptReplicaTextIntentBuilder(f.db, {
       actorId: f.userId,
       intentId,
@@ -150,10 +152,8 @@ describe("Replica real D1 commit boundary", () => {
 
     expect(await first("SELECT id FROM community_message WHERE id = ?", messageId)).toBeNull();
     expect(await first("SELECT next_seq FROM community_message_seq WHERE channel_id = ?", f.channelId)).toBeNull();
-    await expect(queries.communityReplicaStore.getReplicaScopeRevisions(
-      f.db,
-      [{ kind: "channel", id: f.channelId }],
-    )).resolves.toEqual(before);
+    await expect(queries.communityReplicaStore.getReplicaScopeRevisions(f.db, coveredScopes))
+      .resolves.toEqual(before);
     expect(await queries.communityReplicaStore.listReplicaDeltaRows(
       f.db,
       { kind: "channel", id: f.channelId },
@@ -162,7 +162,7 @@ describe("Replica real D1 commit boundary", () => {
     )).toEqual([]);
   });
 
-  it("keeps message activity out of the server frontier and advances the thread parent causally", async () => {
+  it("advances account, server, thread, and parent frontiers with shared message causality", async () => {
     const f = await fixture();
     const openerId = `${f.prefix}_opener`;
     const threadId = `${f.prefix}_thread`;
@@ -188,6 +188,7 @@ describe("Replica real D1 commit boundary", () => {
     );
 
     const before = await queries.communityReplicaStore.getReplicaScopeRevisions(f.db, [
+      { kind: "account", id: f.userId },
       { kind: "server", id: f.serverId },
       { kind: "channel", id: f.channelId },
       { kind: "channel", id: threadId },
@@ -200,6 +201,7 @@ describe("Replica real D1 commit boundary", () => {
       channelId: threadId,
     });
     const after = await queries.communityReplicaStore.getReplicaScopeRevisions(f.db, [
+      { kind: "account", id: f.userId },
       { kind: "server", id: f.serverId },
       { kind: "channel", id: f.channelId },
       { kind: "channel", id: threadId },
@@ -211,7 +213,12 @@ describe("Replica real D1 commit boundary", () => {
     const beforeRevision = revisions(before);
     const afterRevision = revisions(after);
 
-    expect(afterRevision.get(`server:${f.serverId}`)).toBe(beforeRevision.get(`server:${f.serverId}`));
+    expect(afterRevision.get(`account:${f.userId}`)).toBe(
+      (beforeRevision.get(`account:${f.userId}`) ?? 0) + 2,
+    );
+    expect(afterRevision.get(`server:${f.serverId}`)).toBe(
+      (beforeRevision.get(`server:${f.serverId}`) ?? 0) + 2,
+    );
     expect(afterRevision.get(`channel:${f.channelId}`)).toBe(
       (beforeRevision.get(`channel:${f.channelId}`) ?? 0) + 1,
     );
@@ -229,6 +236,18 @@ describe("Replica real D1 commit boundary", () => {
       0,
       10,
     );
+    const accountDeltas = await queries.communityReplicaStore.listReplicaDeltaRows(
+      f.db,
+      { kind: "account", id: f.userId },
+      beforeRevision.get(`account:${f.userId}`) ?? 0,
+      10,
+    );
+    const serverDeltas = await queries.communityReplicaStore.listReplicaDeltaRows(
+      f.db,
+      { kind: "server", id: f.serverId },
+      beforeRevision.get(`server:${f.serverId}`) ?? 0,
+      10,
+    );
     expect(parentDeltas).toEqual([
       expect.objectContaining({
         causalId: `message:${replyId}`,
@@ -241,5 +260,252 @@ describe("Replica real D1 commit boundary", () => {
         descriptor: { kind: "message-upsert", messageId: replyId },
       }),
     ]);
+    expect(accountDeltas).toContainEqual(expect.objectContaining({
+      causalId: `message:${replyId}`,
+      descriptor: { kind: "server-refresh", serverId: f.serverId },
+    }));
+    expect(serverDeltas).toContainEqual(expect.objectContaining({
+      causalId: `message:${replyId}`,
+      descriptor: { kind: "unread-source-refresh", channelId: threadId },
+    }));
+  });
+
+  it("journals private-channel membership into the server and affected account with one causal id", async () => {
+    const f = await fixture();
+    const guestId = `${f.prefix}_guest`;
+    const categoryId = `${f.prefix}_private`;
+    const memberId = `${f.prefix}_guest_member`;
+    const channelMemberId = `${f.prefix}_channel_member`;
+    await run(
+      "INSERT INTO user (id, email, name, discriminator) VALUES (?, ?, 'Replica Guest', '1001')",
+      guestId,
+      `${guestId}@example.com`,
+    );
+    await run(
+      "INSERT INTO community_server_member (id, server_id, user_id, role, rail_order, joined_at) VALUES (?, ?, ?, 'member', 1, ?)",
+      memberId,
+      f.serverId,
+      guestId,
+      f.now,
+    );
+    await run(
+      "INSERT INTO community_category (id, server_id, name, position, private, creator_id) VALUES (?, ?, 'Private', 0, 1, ?)",
+      categoryId,
+      f.serverId,
+      f.userId,
+    );
+    await run("UPDATE community_channel SET category_id = ? WHERE id = ?", categoryId, f.channelId);
+    const scopes = [
+      { kind: "account" as const, id: guestId },
+      { kind: "server" as const, id: f.serverId },
+    ];
+    const before = await queries.communityReplicaStore.getReplicaScopeRevisions(f.db, scopes);
+    const beforeByScope = new Map(before.map((row) => [`${row.scope.kind}:${row.scope.id}`, row.revision]));
+    await expect(queries.communityReplicaDelta.loadReplicaChannels(
+      f.db,
+      guestId,
+      f.serverId,
+      [f.channelId],
+    )).resolves.toEqual([]);
+
+    await run(
+      "INSERT INTO community_channel_member (id, channel_id, user_id, relation, source, added_by, added_at) VALUES (?, ?, ?, 'access', 'added', ?, ?)",
+      channelMemberId,
+      f.channelId,
+      guestId,
+      f.userId,
+      f.now,
+    );
+
+    const accountDeltas = await queries.communityReplicaStore.listReplicaDeltaRows(
+      f.db,
+      { kind: "account", id: guestId },
+      beforeByScope.get(`account:${guestId}`) ?? 0,
+      10,
+    );
+    const serverDeltas = await queries.communityReplicaStore.listReplicaDeltaRows(
+      f.db,
+      { kind: "server", id: f.serverId },
+      beforeByScope.get(`server:${f.serverId}`) ?? 0,
+      10,
+    );
+    expect(accountDeltas).toEqual([
+      expect.objectContaining({
+        causalId: `channel-member:${channelMemberId}`,
+        descriptor: { kind: "server-refresh", serverId: f.serverId },
+      }),
+    ]);
+    expect(serverDeltas).toEqual([
+      expect.objectContaining({
+        causalId: `channel-member:${channelMemberId}`,
+        descriptor: { kind: "channel-refresh", channelId: f.channelId },
+      }),
+    ]);
+    await expect(queries.communityReplicaDelta.readReplicaDeltaWindow(f.db, before, 10))
+      .resolves.toMatchObject({ status: "ok", hasMore: false });
+    await expect(queries.communityReplicaDelta.loadReplicaChannels(
+      f.db,
+      guestId,
+      f.serverId,
+      [f.channelId],
+    )).resolves.toEqual([expect.objectContaining({ id: f.channelId })]);
+
+    const afterInsert = await queries.communityReplicaStore.getReplicaScopeRevisions(f.db, scopes);
+    const afterInsertByScope = new Map(afterInsert.map((row) => [
+      `${row.scope.kind}:${row.scope.id}`,
+      row.revision,
+    ]));
+    await run("DELETE FROM community_channel_member WHERE id = ?", channelMemberId);
+    await expect(queries.communityReplicaStore.listReplicaDeltaRows(
+      f.db,
+      { kind: "account", id: guestId },
+      afterInsertByScope.get(`account:${guestId}`) ?? 0,
+      10,
+    )).resolves.toEqual([
+      expect.objectContaining({
+        causalId: `channel-member-delete:${channelMemberId}`,
+        descriptor: { kind: "server-refresh", serverId: f.serverId },
+      }),
+    ]);
+    await expect(queries.communityReplicaStore.listReplicaDeltaRows(
+      f.db,
+      { kind: "server", id: f.serverId },
+      afterInsertByScope.get(`server:${f.serverId}`) ?? 0,
+      10,
+    )).resolves.toEqual([
+      expect.objectContaining({
+        causalId: `channel-member-delete:${channelMemberId}`,
+        descriptor: { kind: "channel-refresh", channelId: f.channelId },
+      }),
+    ]);
+    await expect(queries.communityReplicaDelta.loadReplicaChannels(
+      f.db,
+      guestId,
+      f.serverId,
+      [f.channelId],
+    )).resolves.toEqual([]);
+  });
+
+  it("keeps every scope revision contiguous with an entity-specific delta", async () => {
+    const f = await fixture();
+    const messageId = `${f.prefix}_coverage_message`;
+    const categoryId = `${f.prefix}_coverage_category`;
+    await run(
+      "INSERT INTO community_category (id, server_id, name, position, private, creator_id) VALUES (?, ?, 'Coverage', 1, 0, ?)",
+      categoryId,
+      f.serverId,
+      f.userId,
+    );
+    const beforePrivacy = await queries.communityReplicaStore.getReplicaScopeRevisions(f.db, [
+      { kind: "account", id: f.userId },
+      { kind: "server", id: f.serverId },
+    ]);
+    await run("UPDATE community_category SET private = 1 WHERE id = ?", categoryId);
+    const accountBeforePrivacy = beforePrivacy.find((row) => row.scope.kind === "account")!.revision;
+    const serverBeforePrivacy = beforePrivacy.find((row) => row.scope.kind === "server")!.revision;
+    const accountPrivacy = await queries.communityReplicaStore.listReplicaDeltaRows(
+      f.db,
+      { kind: "account", id: f.userId },
+      accountBeforePrivacy,
+      10,
+    );
+    const serverPrivacy = await queries.communityReplicaStore.listReplicaDeltaRows(
+      f.db,
+      { kind: "server", id: f.serverId },
+      serverBeforePrivacy,
+      10,
+    );
+    expect(accountPrivacy).toEqual([
+      expect.objectContaining({
+        causalId: `category-update:${categoryId}:${serverBeforePrivacy + 1}`,
+        descriptor: { kind: "server-refresh", serverId: f.serverId },
+      }),
+    ]);
+    expect(serverPrivacy).toEqual([
+      expect.objectContaining({
+        causalId: `category-update:${categoryId}:${serverBeforePrivacy + 1}`,
+        descriptor: { kind: "category-refresh", categoryId, reconcileChannels: true },
+      }),
+    ]);
+    await queries.communityMessage.createMessage(f.db, {
+      id: messageId,
+      authorId: f.userId,
+      authorKind: "human",
+      content: "coverage",
+      channelId: f.channelId,
+    });
+    await run(
+      "INSERT INTO community_mention (id, message_id, user_id, kind, read) VALUES (?, ?, ?, 'mention', 0)",
+      `${f.prefix}_mention`,
+      messageId,
+      f.userId,
+    );
+
+    const coverage = await runtimeEnv.DB.prepare(
+      `SELECT scope.scope_kind AS scopeKind, scope.scope_id AS scopeId,
+              scope.revision AS revision, COUNT(delta.revision) AS deltaCount,
+              MIN(delta.revision) AS firstRevision, MAX(delta.revision) AS lastRevision
+       FROM community_replica_scope_revision AS scope
+       LEFT JOIN community_replica_delta AS delta
+         ON delta.scope_kind = scope.scope_kind AND delta.scope_id = scope.scope_id
+       WHERE scope.scope_id IN (?, ?, ?)
+       GROUP BY scope.scope_kind, scope.scope_id, scope.revision`,
+    ).bind(f.userId, f.serverId, f.channelId).all<{
+      scopeKind: string;
+      scopeId: string;
+      revision: number;
+      deltaCount: number;
+      firstRevision: number;
+      lastRevision: number;
+    }>();
+    expect(coverage.results.length).toBe(3);
+    for (const row of coverage.results) {
+      expect(row.deltaCount, `${row.scopeKind}:${row.scopeId}`).toBe(row.revision);
+      expect(row.firstRevision).toBe(1);
+      expect(row.lastRevision).toBe(row.revision);
+    }
+  });
+
+  it("hydrates bounded descriptor id sets without crossing D1's bind limit", async () => {
+    const f = await fixture();
+    const messageId = `${f.prefix}_bounded_message`;
+    await queries.communityMessage.createMessage(f.db, {
+      id: messageId,
+      authorId: f.userId,
+      authorKind: "human",
+      content: "bounded",
+      channelId: f.channelId,
+    });
+    const channelIds = [
+      f.channelId,
+      ...Array.from({ length: 149 }, (_, index) => `${f.prefix}_missing_channel_${index}`),
+    ];
+    const serverIds = [
+      f.serverId,
+      ...Array.from({ length: 149 }, (_, index) => `${f.prefix}_missing_server_${index}`),
+    ];
+
+    await expect(queries.communityReplicaDelta.loadReplicaReadStates(
+      f.db,
+      f.userId,
+      channelIds,
+    )).resolves.toEqual([expect.objectContaining({ channelId: f.channelId })]);
+    await expect(queries.communityReplicaDelta.loadReplicaChannels(
+      f.db,
+      f.userId,
+      f.serverId,
+      channelIds,
+    )).resolves.toEqual([expect.objectContaining({ id: f.channelId })]);
+    await expect(queries.communityReplicaDelta.loadReplicaUnreadSources(
+      f.db,
+      f.userId,
+      f.serverId,
+      channelIds,
+    )).resolves.toEqual([expect.objectContaining({ channelId: f.channelId })]);
+    await expect(queries.communityReplicaDelta.loadReplicaAccountServers(
+      f.db,
+      f.userId,
+      serverIds,
+    )).resolves.toEqual([expect.objectContaining({ id: f.serverId })]);
   });
 });

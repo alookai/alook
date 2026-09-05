@@ -12,7 +12,16 @@ const SCOPE_QUERY_CHUNK_SIZE = 40;
 
 export type ReplicaDeltaDescriptor =
   | { kind: "message-upsert"; messageId: string }
-  | { kind: "message-remove"; messageId: string };
+  | { kind: "message-remove"; messageId: string }
+  | { kind: "server-refresh"; serverId: string }
+  | { kind: "read-state-refresh"; channelId: string; serverId?: string }
+  | { kind: "server-metadata-refresh"; serverId: string }
+  | { kind: "server-membership-refresh"; userId: string }
+  | { kind: "category-refresh"; categoryId: string; reconcileChannels: boolean }
+  | { kind: "category-remove"; categoryId: string }
+  | { kind: "channel-refresh"; channelId: string }
+  | { kind: "channel-remove"; channelId: string }
+  | { kind: "unread-source-refresh"; channelId: string };
 
 export type ReplicaDeltaRow = {
   scopeKind: string;
@@ -75,22 +84,84 @@ export async function listReplicaDeltaRows(
     .limit(limit);
   return rows.map((row) => ({
     ...row,
-    descriptor: parseReplicaDeltaDescriptor(row.descriptor),
+    descriptor: parseReplicaDeltaDescriptor(row.descriptor, row.scopeKind),
   }));
 }
 
-export function parseReplicaDeltaDescriptor(value: string): ReplicaDeltaDescriptor {
+export function parseReplicaDeltaDescriptor(
+  value: string,
+  scopeKind?: string,
+): ReplicaDeltaDescriptor {
   const parsed: unknown = JSON.parse(value);
   if (!parsed || typeof parsed !== "object") throw new Error("invalid Replica delta descriptor");
-  const descriptor = parsed as { kind?: unknown; messageId?: unknown };
-  if (
-    (descriptor.kind !== "message-upsert" && descriptor.kind !== "message-remove")
-    || typeof descriptor.messageId !== "string"
-    || descriptor.messageId.length === 0
-  ) {
-    throw new Error("invalid Replica delta descriptor");
+  const descriptor = parsed as Record<string, unknown>;
+  const id = (field: string) => typeof descriptor[field] === "string"
+    && descriptor[field].length > 0
+    ? descriptor[field] as string
+    : null;
+  let result: ReplicaDeltaDescriptor | null = null;
+  switch (descriptor.kind) {
+    case "message-upsert":
+    case "message-remove": {
+      const messageId = id("messageId");
+      if (messageId) result = { kind: descriptor.kind, messageId };
+      break;
+    }
+    case "server-refresh": {
+      const serverId = id("serverId");
+      if (serverId) result = { kind: descriptor.kind, serverId };
+      break;
+    }
+    case "read-state-refresh": {
+      const channelId = id("channelId");
+      const serverId = id("serverId");
+      if (channelId) result = {
+        kind: descriptor.kind,
+        channelId,
+        ...(serverId ? { serverId } : {}),
+      };
+      break;
+    }
+    case "server-metadata-refresh": {
+      const serverId = id("serverId");
+      if (serverId) result = { kind: descriptor.kind, serverId };
+      break;
+    }
+    case "server-membership-refresh": {
+      const userId = id("userId");
+      if (userId) result = { kind: descriptor.kind, userId };
+      break;
+    }
+    case "category-refresh":
+    case "category-remove": {
+      const categoryId = id("categoryId");
+      if (categoryId) result = descriptor.kind === "category-refresh"
+        ? {
+            kind: descriptor.kind,
+            categoryId,
+            reconcileChannels: descriptor.reconcileChannels === true || descriptor.reconcileChannels === 1,
+          }
+        : { kind: descriptor.kind, categoryId };
+      break;
+    }
+    case "channel-refresh":
+    case "channel-remove":
+    case "unread-source-refresh": {
+      const channelId = id("channelId");
+      if (channelId) result = { kind: descriptor.kind, channelId };
+      break;
+    }
   }
-  return { kind: descriptor.kind, messageId: descriptor.messageId };
+  if (!result) throw new Error("invalid Replica delta descriptor");
+  const expectedScope = result.kind.startsWith("message-")
+    ? "channel"
+    : result.kind === "server-refresh" || result.kind === "read-state-refresh"
+      ? "account"
+      : "server";
+  if (scopeKind && scopeKind !== expectedScope) {
+    throw new Error("invalid Replica delta descriptor scope");
+  }
+  return result;
 }
 
 export async function getReplicaIntent(

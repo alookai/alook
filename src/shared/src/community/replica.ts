@@ -350,7 +350,7 @@ export const communityReplicaDeltaSchema = z
     scope: communityReplicaScopeSchema,
     fromRevision: revisionSchema,
     toRevision: revisionSchema,
-    operations: z.array(communityReplicaOperationSchema).min(1).max(COMMUNITY_REPLICA_MAX_OPERATIONS),
+    operations: z.array(communityReplicaOperationSchema).max(COMMUNITY_REPLICA_MAX_OPERATIONS),
   })
   .superRefine((delta, ctx) => {
     if (delta.toRevision !== delta.fromRevision + 1) {
