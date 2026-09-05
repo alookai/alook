@@ -22,6 +22,11 @@
   Pragma: no-cache
   Expires: 0
 
+# The browser must revalidate the service worker itself on every update check.
+/sw.js
+  Cache-Control: no-cache, no-store, must-revalidate
+  Service-Worker-Allowed: /
+
 # Default for HTML pages - cache for 5 minutes
 /*
   Cache-Control: public, max-age=300, s-maxage=300, stale-while-revalidate=3600

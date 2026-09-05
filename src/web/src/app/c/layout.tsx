@@ -13,6 +13,7 @@ import {
   clearCommunityColdEntryAttempts,
   retireCommunityColdEntryAttempt,
 } from "@/lib/community/last-community-route"
+import { cacheCommunityShellRoute } from "@/lib/community/replica/shell"
 
 // The invite landing page is preview-first: a logged-out visitor must be able
 // to see it (and only hit the login wall on Join). It's a standalone
@@ -49,6 +50,11 @@ export default function CommunityLayout({
     }
     retireCommunityColdEntryAttempt(sessionUserId, pathname)
   }, [isPending, pathname, sessionUserId])
+
+  useEffect(() => {
+    if (isPublic || !sessionUserId || typeof window === "undefined") return
+    void cacheCommunityShellRoute(window.location.href)
+  }, [isPublic, pathname, sessionUserId])
 
   // Public community pages (invite landing) render standalone — no session
   // gate, no CommunityShell (a logged-out visitor has no currentUser).

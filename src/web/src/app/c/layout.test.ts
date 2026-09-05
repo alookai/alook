@@ -2,13 +2,14 @@ import { createElement } from "react"
 import { readFileSync } from "node:fs"
 // @ts-expect-error react-test-renderer intentionally has no local declaration package.
 import TestRenderer, { act } from "react-test-renderer"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
   pathname: "/c/me",
   replace: vi.fn(),
   retireAttempt: vi.fn(),
   clearAttempts: vi.fn(),
+  cacheShellRoute: vi.fn(),
   session: { data: null as null | { user: { id: string; name: string; email: string; image: string | null } }, isPending: true },
 }))
 
@@ -20,6 +21,9 @@ vi.mock("@/lib/auth-client", () => ({ useSession: () => mocks.session }))
 vi.mock("@/lib/community/last-community-route", () => ({
   retireCommunityColdEntryAttempt: mocks.retireAttempt,
   clearCommunityColdEntryAttempts: mocks.clearAttempts,
+}))
+vi.mock("@/lib/community/replica/shell", () => ({
+  cacheCommunityShellRoute: mocks.cacheShellRoute,
 }))
 vi.mock("./community-shell", () => ({
   CommunityShell: (props: Record<string, unknown>) => createElement("community-shell", props),
@@ -41,12 +45,17 @@ function render() {
 }
 
 describe("CommunityLayout session boundary", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
   beforeEach(() => {
     mocks.pathname = "/c/me"
     mocks.session = { data: null, isPending: true }
     mocks.replace.mockClear()
     mocks.retireAttempt.mockClear()
     mocks.clearAttempts.mockClear()
+    mocks.cacheShellRoute.mockClear()
   })
 
   it("keeps a stable frame while identity is pending", () => {
@@ -55,6 +64,7 @@ describe("CommunityLayout session boundary", () => {
     expect(renderer.root.findAllByType("community-shell")).toHaveLength(0)
     expect(mocks.retireAttempt).not.toHaveBeenCalled()
     expect(mocks.clearAttempts).not.toHaveBeenCalled()
+    expect(mocks.cacheShellRoute).not.toHaveBeenCalled()
   })
 
   it("keeps the frame mounted while a signed-out redirect commits", () => {
@@ -66,6 +76,7 @@ describe("CommunityLayout session boundary", () => {
   })
 
   it("constructs the shell only after identity is available", () => {
+    vi.stubGlobal("window", { location: { href: "https://alook.test/c/me" } })
     mocks.session = {
       data: { user: { id: "u1", name: "Ada", email: "ada@example.com", image: null } },
       isPending: false,
@@ -77,6 +88,7 @@ describe("CommunityLayout session boundary", () => {
     expect(shell.props.currentUser.id).toBe("u1")
     expect(mocks.retireAttempt).toHaveBeenCalledWith("u1", "/c/me")
     expect(mocks.clearAttempts).not.toHaveBeenCalled()
+    expect(mocks.cacheShellRoute).toHaveBeenCalledWith("https://alook.test/c/me")
   })
 
   it("preserves the public invite bypass", () => {
