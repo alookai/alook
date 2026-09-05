@@ -693,6 +693,45 @@ export type {
   ServerRailProjection,
   ServerRailProjectionResult,
 } from "./community-server-rail";
+export {
+  COMMUNITY_REPLICA_PROTOCOL_VERSION,
+  COMMUNITY_REPLICA_MAX_SCOPES,
+  COMMUNITY_REPLICA_MAX_BATCHES,
+  COMMUNITY_REPLICA_MAX_OPERATIONS,
+  COMMUNITY_REPLICA_MAX_INTENTS,
+  communityReplicaScopeSchema,
+  communityReplicaScopeKey,
+  communityReplicaFrontierEntrySchema,
+  communityReplicaFrontierSchema,
+  communityReplicaCoverageSchema,
+  communityReplicaOperationSchema,
+  communityReplicaDeltaSchema,
+  communityReplicaCausalBatchSchema,
+  communityReplicaBootstrapRequestSchema,
+  communityReplicaBootstrapResponseSchema,
+  communityReplicaDeltaRequestSchema,
+  communityReplicaDeltaResponseSchema,
+  communityReplicaTextSendIntentSchema,
+  communityReplicaIntentOutcomeSchema,
+  communityReplicaIntentRequestSchema,
+  communityReplicaIntentResponseSchema,
+} from "./community/replica";
+export type {
+  CommunityReplicaScope,
+  CommunityReplicaFrontier,
+  CommunityReplicaCoverage,
+  CommunityReplicaOperation,
+  CommunityReplicaDelta,
+  CommunityReplicaCausalBatch,
+  CommunityReplicaBootstrapRequest,
+  CommunityReplicaBootstrapResponse,
+  CommunityReplicaDeltaRequest,
+  CommunityReplicaDeltaResponse,
+  CommunityReplicaTextSendIntent,
+  CommunityReplicaIntentOutcome,
+  CommunityReplicaIntentRequest,
+  CommunityReplicaIntentResponse,
+} from "./community/replica";
 export * as schema from "./db/schema";
 export * as queries from "./db/queries-index";
 export { communityServer, communityServerInvite, communityFriendship, communityServerMember, communityServerFolder, communityServerFolderItem, communityBotActivityEvent, communityBotDailyActivity } from "./db/community-schema";
