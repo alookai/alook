@@ -6,19 +6,12 @@ import { signIn, signUp, authClient } from "@/lib/auth-client"
 import { parseRetryAfterSeconds } from "@/lib/retry-after"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import {
-  InputOTP,
-  InputOTPGroup,
-  InputOTPSlot,
-} from "@/components/ui/input-otp"
 import {
   Field,
-  FieldError,
   FieldGroup,
-  FieldLabel,
   FieldSeparator,
 } from "@/components/ui/field"
+import { SignInEmailField, SignInOtpField } from "./sign-in-fields"
 import { SiGithub, SiGoogle } from "@icons-pack/react-simple-icons"
 import { GradientBackground } from "@/components/gradient-background"
 import { Logo } from "@/components/logo"
@@ -44,7 +37,8 @@ function safeRedirectUrl(redirect: string | null): string {
 
 function SignInForm({ postLoginUrl, isProd }: { postLoginUrl: string; isProd: boolean }) {
   const [email, setEmail] = useState("")
-  const [error, setError] = useState("")
+  const [emailError, setEmailError] = useState("")
+  const [otpError, setOtpError] = useState("")
   const [loading, setLoading] = useState(false)
 
   const [code, setCode] = useState("")
@@ -62,6 +56,7 @@ function SignInForm({ postLoginUrl, isProd }: { postLoginUrl: string; isProd: bo
   const rateLimitHandler = {
     onError: (ctx: { response: Response }) => {
       if (ctx.response.status === 429) {
+        setEmailError("")
         const seconds = parseRetryAfterSeconds(ctx.response.headers)
         if (seconds != null) setRetryAfter(seconds)
       }
@@ -71,7 +66,7 @@ function SignInForm({ postLoginUrl, isProd }: { postLoginUrl: string; isProd: bo
   async function handleSendCode(e: React.FormEvent) {
     e.preventDefault()
     if (retryAfter != null) return
-    setError("")
+    setEmailError("")
     setRetryAfter(null)
     setLoading(true)
     try {
@@ -81,21 +76,23 @@ function SignInForm({ postLoginUrl, isProd }: { postLoginUrl: string; isProd: bo
         fetchOptions: rateLimitHandler,
       })
       if (error) {
-        if (error.status !== 429) setError(error.message ?? "Failed to send code")
+        if (error.status !== 429) setEmailError(error.message ?? "Failed to send code")
       } else {
+        setEmailError("")
+        setOtpError("")
         setStep("code")
       }
     } catch {
-      setError("Failed to send code")
+      setEmailError("Failed to send code")
     }
     setLoading(false)
   }
 
   async function handleVerifyCode(value: string) {
     setCode(value)
+    setOtpError("")
     if (value.length !== 6) return
 
-    setError("")
     setLoading(true)
     try {
       const { error } = await authClient.signIn.emailOtp({
@@ -103,14 +100,15 @@ function SignInForm({ postLoginUrl, isProd }: { postLoginUrl: string; isProd: bo
         otp: value,
       })
       if (error) {
-        setError(error.message ?? "Invalid code")
+        setOtpError(error.message ?? "Invalid code")
         setCode("")
       } else {
+        setOtpError("")
         window.location.href = postLoginUrl
         return
       }
     } catch {
-      setError("Invalid code")
+      setOtpError("Invalid code")
       setCode("")
     }
     setLoading(false)
@@ -118,7 +116,7 @@ function SignInForm({ postLoginUrl, isProd }: { postLoginUrl: string; isProd: bo
 
   async function handleDevSignIn(e: React.FormEvent) {
     e.preventDefault()
-    setError("")
+    setEmailError("")
     setLoading(true)
     const { error: signInErr } = await signIn.email(
       { email, password: DEV_PASSWORD },
@@ -130,7 +128,7 @@ function SignInForm({ postLoginUrl, isProd }: { postLoginUrl: string; isProd: bo
         { onError: () => {} },
       )
       if (signUpErr) {
-        setError(signUpErr.message ?? "Failed to sign in")
+        setEmailError(signUpErr.message ?? "Failed to sign in")
         setLoading(false)
         return
       }
@@ -139,6 +137,9 @@ function SignInForm({ postLoginUrl, isProd }: { postLoginUrl: string; isProd: bo
   }
 
   const isCoolingDown = retryAfter != null
+  const emailFeedback = isCoolingDown
+    ? `Too many requests. Try again in ${retryAfter}s.`
+    : emailError
   const sendLabel = loading
     ? "Sending..."
     : isCoolingDown
@@ -161,29 +162,18 @@ function SignInForm({ postLoginUrl, isProd }: { postLoginUrl: string; isProd: bo
         )}
       </div>
 
-      {isCoolingDown && (
-        <FieldError>
-          Too many requests. Try again in {retryAfter}s.
-        </FieldError>
-      )}
-      {error && !isCoolingDown && <FieldError>{error}</FieldError>}
-
       {isProd ? (
         step === "email" ? (
           <form onSubmit={handleSendCode}>
             <FieldGroup>
-              <Field>
-                <FieldLabel htmlFor="email">Email</FieldLabel>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="you@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  autoFocus
-                />
-              </Field>
+              <SignInEmailField
+                email={email}
+                error={emailFeedback}
+                onChange={(event) => {
+                  setEmail(event.target.value)
+                  setEmailError("")
+                }}
+              />
               <Field>
                 <Button
                   type="submit"
@@ -200,31 +190,20 @@ function SignInForm({ postLoginUrl, isProd }: { postLoginUrl: string; isProd: bo
             <p className="text-sm text-muted-foreground text-center">
               We sent a code to <strong>{email}</strong>
             </p>
-            <div className="flex justify-center">
-              <InputOTP
-                maxLength={6}
-                value={code}
-                onChange={handleVerifyCode}
-                disabled={loading}
-                autoFocus
-              >
-                <InputOTPGroup>
-                  <InputOTPSlot index={0} />
-                  <InputOTPSlot index={1} />
-                  <InputOTPSlot index={2} />
-                  <InputOTPSlot index={3} />
-                  <InputOTPSlot index={4} />
-                  <InputOTPSlot index={5} />
-                </InputOTPGroup>
-              </InputOTP>
-            </div>
+            <SignInOtpField
+              code={code}
+              error={otpError}
+              loading={loading}
+              onChange={handleVerifyCode}
+            />
             <Button
               variant="ghost"
               className="w-full"
               onClick={() => {
                 setStep("email")
                 setCode("")
-                setError("")
+                setOtpError("")
+                setEmailError("")
               }}
             >
               Use a different email
@@ -234,18 +213,14 @@ function SignInForm({ postLoginUrl, isProd }: { postLoginUrl: string; isProd: bo
       ) : (
         <form onSubmit={handleDevSignIn}>
           <FieldGroup>
-            <Field>
-              <FieldLabel htmlFor="email">Email</FieldLabel>
-              <Input
-                id="email"
-                type="email"
-                placeholder="you@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                autoFocus
-              />
-            </Field>
+            <SignInEmailField
+              email={email}
+              error={emailError}
+              onChange={(event) => {
+                setEmail(event.target.value)
+                setEmailError("")
+              }}
+            />
             <Field>
               <Button type="submit" disabled={loading} className="w-full">
                 {loading ? "Signing in..." : "Sign in"}
