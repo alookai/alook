@@ -33,6 +33,14 @@ function render(href: string, reserveBackSlot = true) {
 }
 
 describe("CommunityPendingFrame", () => {
+  it("suppresses the outer mobile transition for every route-pending frame", () => {
+    for (const href of ["/c/me", "/c/me/dm_1", "/c/me/machines", "/c/channels/s1", "/c/channels/s1/c1"]) {
+      expect(render(href).root.findByProps({
+        "data-community-mobile-transition": "suppress",
+      })).toBeDefined()
+    }
+  })
+
   it("selects destination-specific @me skeletons and reserves a non-interactive Back slot", () => {
     const machines = render("/c/me/machines?from=shortcut")
     expect(machines.root.findByType("machine-skeleton").props).toMatchObject({

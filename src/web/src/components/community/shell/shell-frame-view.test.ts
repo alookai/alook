@@ -358,6 +358,76 @@ describe("ShellFrameView", () => {
     expect(animate).toHaveBeenCalledOnce()
   })
 
+  it("keeps pending mobile surfaces still and does not replay their expired transition", async () => {
+    const cancel = vi.fn()
+    const animate = vi.fn(() => ({ cancel }))
+    let pending = false
+    const nodeMock = {
+      offsetWidth: 240,
+      animate,
+      querySelector: vi.fn(() => pending ? {} : null),
+    }
+    const common = {
+      breakpoint: "mobile" as const,
+      sidebar: () => createElement("sidebar-content"),
+      cancelPendingNavigation: vi.fn(),
+      rail,
+      profile,
+      inbox,
+    }
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(createElement(
+        ShellFrameView,
+        { ...common, checkpoint: committedCheckpoint("/c/channels/s1/c1", "detail") },
+        createElement("main-content"),
+      ), { createNodeMock: () => nodeMock })
+    })
+
+    pending = true
+    await act(async () => {
+      renderer.update(createElement(
+        ShellFrameView,
+        { ...common, checkpoint: committedCheckpoint("/c/channels/s1/c2", "detail") },
+        createElement("main-content", { "data-community-mobile-transition": "suppress" }),
+      ))
+    })
+    expect(animate).not.toHaveBeenCalled()
+    expect(nodeMock.querySelector).toHaveBeenLastCalledWith(
+      '[data-community-mobile-transition="suppress"]',
+    )
+
+    pending = false
+    await act(async () => {
+      renderer.update(createElement(
+        ShellFrameView,
+        { ...common, checkpoint: committedCheckpoint("/c/channels/s1/c2", "detail") },
+        createElement("main-content"),
+      ))
+    })
+    expect(animate).not.toHaveBeenCalled()
+
+    await act(async () => {
+      renderer.update(createElement(
+        ShellFrameView,
+        { ...common, checkpoint: committedCheckpoint("/c/channels/s1/c3", "detail") },
+        createElement("main-content"),
+      ))
+    })
+    expect(animate).toHaveBeenCalledOnce()
+
+    pending = true
+    await act(async () => {
+      renderer.update(createElement(
+        ShellFrameView,
+        { ...common, checkpoint: committedCheckpoint("/c/channels/s1/c4", "detail") },
+        createElement("main-content", { "data-community-mobile-transition": "suppress" }),
+      ))
+    })
+    expect(animate).toHaveBeenCalledOnce()
+    expect(cancel).toHaveBeenCalledOnce()
+  })
+
   it("preserves child component identity across the 639 to 640 breakpoint", async () => {
     let mounts = 0
     function StatefulMain() {

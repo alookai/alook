@@ -106,6 +106,7 @@ export function CommunityPendingFrame({
     <div
       data-testid={tid.pendingMain(plan.main.kind)}
       data-community-main-kind={plan.main.kind}
+      data-community-mobile-transition="suppress"
       className="flex min-h-0 min-w-0 flex-1 flex-col"
     >
       {content}
