@@ -97,6 +97,11 @@ export function createNativeOauthController(deps: NativeOauthDeps, changed: (vie
             }
             const failure = z.object({ error: z.literal("invalid_handoff") }).strict().safeParse(response.data)
             if (!failure.success) throw new Error("exchange_unconfirmed")
+            await deps.invoke("native_oauth_reject_candidate", { attemptId, candidateId })
+            if (!current(version)) return
+            publish({ phase: "waiting", message: "invalid_callback", attempt: snapshot })
+            wakeAgain = true
+            continue
           }
           const statusResponse = await deps.post("status", proof)
           if (!current(version)) return

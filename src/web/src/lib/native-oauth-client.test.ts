@@ -74,15 +74,70 @@ afterEach(() => { for (const c of controllers.splice(0)) c.dispose(); vi.unstubA
     expect(text).not.toContain("s".repeat(43)); expect(text).not.toContain("v".repeat(43)); expect(text).not.toContain("k".repeat(32))
     expect(f.invoke).toHaveBeenCalledWith("native_oauth_finish", expect.anything())
   })
-  it("rejects only a forged candidate and processes a later real code after authoritative status", async () => {
+  it("rejects only a forged candidate and processes a later real code after durable retirement", async () => {
     const f = fixture(); await f.controller.connect(); await f.controller.start("google", "/c/me")
     const normal = f.post.getMockImplementation()!
     let exchanges = 0
     f.post.mockImplementation(async endpoint => endpoint === "exchange" && ++exchanges === 1 ? { ok: false, data: { error: "invalid_handoff" } } : normal(endpoint))
     f.queue("x".repeat(32)); f.queue(); f.wake()
     await vi.waitFor(() => expect(f.navigate).toHaveBeenCalledOnce())
-    expect(f.events.indexOf("status")).toBeLessThan(f.events.lastIndexOf("exchange"))
+    expect(f.events.indexOf("native_oauth_reject_candidate")).toBeLessThan(f.events.lastIndexOf("exchange"))
     expect(f.invoke.mock.calls.filter(([name]) => name === "native_oauth_reject_candidate")).toHaveLength(1)
+  })
+  it("retires a known-invalid code even with status offline, then exchanges a genuine callback after reload", async () => {
+    const f = fixture(); await f.controller.connect(); await f.controller.start("google", "/c/me")
+    const normal = f.post.getMockImplementation()!
+    let exchanges = 0
+    f.post.mockImplementation(async endpoint => {
+      if (endpoint === "status") throw new Error("offline")
+      if (endpoint === "exchange" && ++exchanges === 1) return { ok: false, data: { error: "invalid_handoff" } }
+      return normal(endpoint)
+    })
+    const attempt = f.snapshot()?.attemptId
+    f.queue("x".repeat(32)); f.wake()
+    await vi.waitFor(() => expect(f.view().message).toBe("invalid_callback"))
+    expect(f.snapshot()?.attemptId).toBe(attempt)
+    expect(f.hasSession).not.toHaveBeenCalled()
+    expect(f.post.mock.calls.some(([endpoint]) => endpoint === "status")).toBe(false)
+    f.controller.dispose()
+    const restored = f.make(); controllers.push(restored); await restored.connect()
+    f.queue(); f.wake()
+    await vi.waitFor(() => expect(f.navigate).toHaveBeenCalledOnce())
+    expect(exchanges).toBe(2)
+    expect(f.invoke.mock.calls.filter(([command]) => command === "native_oauth_reject_candidate")).toHaveLength(1)
+  })
+  it("does not claim durable retirement or exchange later codes when native rejection fails", async () => {
+    const f = fixture(); await f.controller.connect(); await f.controller.start("github", "/c/me")
+    const original = f.invoke.getMockImplementation()!
+    f.invoke.mockImplementation((command, args) => command === "native_oauth_reject_candidate" ? Promise.reject("store_unavailable") : original(command, args))
+    f.post.mockResolvedValue({ ok: false, data: { error: "invalid_handoff" } })
+    f.queue("x".repeat(32)); f.queue(); f.wake()
+    await vi.waitFor(() => expect(f.view().message).toBe("retry_required"))
+    expect(f.snapshot()).not.toBeNull()
+    expect(f.navigate).not.toHaveBeenCalled()
+    f.wake(); await new Promise(resolve => setTimeout(resolve, 0))
+    expect(f.post.mock.calls.filter(([endpoint]) => endpoint === "exchange")).toHaveLength(1)
+  })
+  it.each([false, true])("ignores an old rejection completion after cancel (replace=%s)", async replace => {
+    const f = fixture(); await f.controller.connect(); await f.controller.start("github", "/c/me")
+    const original = f.invoke.getMockImplementation()!
+    const retired = deferred<void>()
+    f.invoke.mockImplementation(async (command, args) => {
+      const result = await original(command, args)
+      if (command === "native_oauth_reject_candidate") await retired.promise
+      return result
+    })
+    const normal = f.post.getMockImplementation()!
+    f.post.mockImplementation(endpoint => endpoint === "exchange" ? Promise.resolve({ ok: false, data: { error: "invalid_handoff" } }) : normal(endpoint))
+    f.queue(); f.wake()
+    await vi.waitFor(() => expect(f.invoke).toHaveBeenCalledWith("native_oauth_reject_candidate", expect.anything()))
+    await f.controller.cancel()
+    if (replace) await f.controller.start("google", "/c/me")
+    retired.resolve(); await new Promise(resolve => setTimeout(resolve, 0))
+    expect(f.navigate).not.toHaveBeenCalled()
+    expect(f.view().phase).toBe(replace ? "waiting" : "idle")
+    expect(f.view().message).toBeUndefined()
+    expect(f.snapshot()?.provider ?? null).toBe(replace ? "google" : null)
   })
   it("does not trust a status URL that disagrees with the proof-protected server", async () => {
     const f = fixture(); await f.controller.connect(); await f.controller.start("github", "/c/me")

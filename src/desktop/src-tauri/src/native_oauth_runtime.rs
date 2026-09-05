@@ -121,12 +121,12 @@ pub fn retire_listener(app: &AppHandle) {
     }
 }
 
-fn intake(app: &AppHandle, raw: &str) {
+fn intake(app: &AppHandle, url: &url::Url) {
     let Some(state) = app.try_state::<NativeOauthState>() else {
         return;
     };
     if state
-        .transact(|record| record.intake(raw, now()))
+        .transact(|record| record.intake(url, now()))
         .unwrap_or(false)
     {
         crate::commands::show_main_window(app);
@@ -168,12 +168,12 @@ pub fn setup(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let handle = app.clone();
     app.deep_link().on_open_url(move |event| {
         for url in event.urls() {
-            intake(&handle, url.as_str());
+            intake(&handle, &url);
         }
     });
     if let Some(urls) = app.deep_link().get_current()? {
         for url in urls {
-            intake(app, url.as_str());
+            intake(app, &url);
         }
     }
     Ok(())
@@ -357,7 +357,7 @@ mod tests {
         let accepted = commit_record(
             &mut record,
             time,
-            |r| r.intake(&raw, time),
+            |r| r.intake(&url::Url::parse(&raw).unwrap(), time),
             |next, _| {
                 disk = serde_json::to_value(next).unwrap();
                 Ok(())
@@ -371,7 +371,9 @@ mod tests {
         slots.notify(|_| false);
         let mut restored = Record::restore(disk, time).unwrap();
         assert!(restored.pending().is_some());
-        assert!(!restored.intake(&raw, time).unwrap());
+        assert!(!restored
+            .intake(&url::Url::parse(&raw).unwrap(), time)
+            .unwrap());
     }
 
     #[test]

@@ -164,11 +164,11 @@ fn allowed_status(value: &str) -> bool {
     )
 }
 
-pub fn parse_callback(raw: &str) -> Option<(String, Option<String>, Option<String>)> {
-    if raw.len() > 512 {
+fn parse_callback(serialized: &str) -> Option<(String, Option<String>, Option<String>)> {
+    if serialized.len() > 512 {
         return None;
     }
-    let query = raw.strip_prefix("ai.alook.desktop://auth/native/return?")?;
+    let query = serialized.strip_prefix("ai.alook.desktop://auth/native/return?")?;
     let mut attempt = None;
     let mut code = None;
     let mut status = None;
@@ -309,8 +309,8 @@ impl Record {
         Ok(())
     }
 
-    pub fn intake(&mut self, raw: &str, now: u64) -> Result<bool, &'static str> {
-        let Some((id, code, status)) = parse_callback(raw) else {
+    pub fn intake(&mut self, url: &url::Url, now: u64) -> Result<bool, &'static str> {
+        let Some((id, code, status)) = parse_callback(url.as_str()) else {
             return Ok(false);
         };
         let Some(a) = self.attempt.as_mut() else {
@@ -456,7 +456,7 @@ mod tests {
         assert!(!safe_redirect(&format!("/{}", "a".repeat(2048))));
     }
     #[test]
-    fn callback_parser_rejects_extra_duplicate_or_normalized_authority() {
+    fn serialized_callback_parser_rejects_noncanonical_direct_input() {
         let r = waiting();
         let good = callback(&r, &"c".repeat(32));
         assert!(parse_callback(&good).is_some());
@@ -475,14 +475,107 @@ mod tests {
         }
     }
     #[test]
+    fn parsed_callback_intake_accepts_canonical_paths_and_deduplicates_aliases() {
+        let original = waiting();
+        let good = callback(&original, &"c".repeat(32));
+        let aliases = [
+            good.clone(),
+            good.replace("/native/", "/x/../native/"),
+            good.replace("/native/", "/%2e/native/"),
+        ];
+        for raw in &aliases {
+            let url = url::Url::parse(raw).unwrap();
+            assert_eq!(url.as_str(), good);
+            let mut record = original.clone();
+            assert!(record.intake(&url, NOW).unwrap());
+            assert_eq!(
+                record.pending().unwrap().code.as_deref(),
+                Some("c".repeat(32).as_str())
+            );
+        }
+        let mut record = original;
+        for (index, raw) in aliases.iter().enumerate() {
+            assert_eq!(
+                record.intake(&url::Url::parse(raw).unwrap(), NOW).unwrap(),
+                index == 0
+            );
+        }
+        assert_eq!(record.attempt.as_ref().unwrap().candidates.len(), 1);
+        let status = good.replace(&format!("code={}", "c".repeat(32)), "status=access_denied");
+        assert!(record
+            .intake(&url::Url::parse(&status).unwrap(), NOW)
+            .unwrap());
+        assert_eq!(record.attempt.as_ref().unwrap().candidates.len(), 2);
+    }
+
+    #[test]
+    fn parsed_callback_intake_rejects_invalid_identity_query_and_attempt_without_mutation() {
+        let mut record = waiting();
+        let good = callback(&record, &"c".repeat(32));
+        assert!(record
+            .intake(&url::Url::parse(&good).unwrap(), NOW)
+            .unwrap());
+        let before = serde_json::to_value(&record).unwrap();
+        let id = &record.attempt.as_ref().unwrap().id;
+        for raw in [
+            good.replace("ai.alook.desktop:", "ai.alook:"),
+            good.replace("//auth/", "//evil/"),
+            good.replace("//auth/", "//auth.evil/"),
+            good.replace("//auth/", "//user@auth/"),
+            good.replace("//auth/", "//auth:443/"),
+            good.replace("/native/return", "/native/other"),
+            good.replace("/native/return", "/%6eative/return"),
+            format!("{good}#fragment"),
+            format!("{good}#"),
+            format!("{good}&extra=1"),
+            format!("{good}&attempt={id}"),
+            format!("{good}&code={}", "d".repeat(32)),
+            format!("{good}&status=access_denied"),
+            good.replace("attempt=", "att%65mpt="),
+            good.replace("code=", "c%6fde="),
+            good.replace(&"c".repeat(32), "%63"),
+            good.replace(&"c".repeat(32), &"c".repeat(129)),
+            good.replace(&format!("&code={}", "c".repeat(32)), ""),
+            good.replace(&format!("code={}", "c".repeat(32)), "status=unknown"),
+            good.replace(id, &"x".repeat(43)),
+        ] {
+            let url = url::Url::parse(&raw).unwrap();
+            assert!(!record.intake(&url, NOW).unwrap());
+            assert_eq!(serde_json::to_value(&record).unwrap(), before);
+        }
+        let next = url::Url::parse(&good.replace(&"c".repeat(32), &"d".repeat(32))).unwrap();
+        assert!(!record.intake(&next, NOW + ATTEMPT_TTL).unwrap());
+        assert_eq!(serde_json::to_value(&record).unwrap(), before);
+    }
+
+    #[test]
+    fn callback_length_bound_applies_to_serialized_url() {
+        let mut record = waiting();
+        let good = callback(&record, &"c".repeat(32));
+        let raw = good.replace("/native/", &format!("/{}../native/", "x".repeat(600) + "/"));
+        assert!(raw.len() > 512);
+        let url = url::Url::parse(&raw).unwrap();
+        assert_eq!(url.as_str(), good);
+        assert!(record.intake(&url, NOW).unwrap());
+        let before = serde_json::to_value(&record).unwrap();
+        let oversized = url::Url::parse(&format!("{good}&extra={}", "x".repeat(512))).unwrap();
+        assert!(oversized.as_str().len() > 512);
+        assert!(!record.intake(&oversized, NOW).unwrap());
+        assert_eq!(serde_json::to_value(&record).unwrap(), before);
+    }
+
+    #[test]
     fn queue_is_bounded_deduplicated_and_wrong_candidate_cannot_delete_attempt() {
         let mut r = waiting();
         for i in 0..10 {
             let raw = callback(&r, &format!("{i:032}"));
-            assert_eq!(r.intake(&raw, NOW).unwrap(), i < 8);
+            assert_eq!(
+                r.intake(&url::Url::parse(&raw).unwrap(), NOW).unwrap(),
+                i < 8
+            );
         }
         let raw = callback(&r, &format!("{:032}", 0));
-        assert!(!r.intake(&raw, NOW).unwrap());
+        assert!(!r.intake(&url::Url::parse(&raw).unwrap(), NOW).unwrap());
         let first = r.pending().unwrap();
         assert!(!first.was_dispatched);
         assert!(r.pending().unwrap().was_dispatched);
@@ -500,7 +593,7 @@ mod tests {
     fn cold_reload_expiry_and_corruption_fail_closed() {
         let mut r = waiting();
         let raw = callback(&r, &"c".repeat(32));
-        r.intake(&raw, NOW).unwrap();
+        r.intake(&url::Url::parse(&raw).unwrap(), NOW).unwrap();
         let first = r.pending().unwrap();
         let stored = serde_json::to_value(&r).unwrap();
         let mut restored = Record::restore(stored.clone(), NOW + 1).unwrap();
@@ -521,10 +614,10 @@ mod tests {
     fn replacement_cancel_and_old_completion_are_isolated() {
         let mut r = waiting();
         let raw = callback(&r, &"c".repeat(32));
-        r.intake(&raw, NOW).unwrap();
+        r.intake(&url::Url::parse(&raw).unwrap(), NOW).unwrap();
         let old = r.pending().unwrap();
         let new = r.prepare("google", "/c/me", "linux", NOW).unwrap();
-        assert!(!r.intake(&raw, NOW).unwrap());
+        assert!(!r.intake(&url::Url::parse(&raw).unwrap(), NOW).unwrap());
         r.finish(&old.proof.attempt_id, &old.candidate_id);
         assert!(r.cancel(&old.proof.attempt_id).unwrap().is_none());
         let proof = r.cancel(&new.attempt_id).unwrap().unwrap();
