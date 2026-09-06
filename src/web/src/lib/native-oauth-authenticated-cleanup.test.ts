@@ -2,6 +2,17 @@ import { readFileSync } from "node:fs"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanupAuthenticatedNativeOauthResidue } from "./native-oauth-authenticated-cleanup"
 
+const sharedMocks = vi.hoisted(() => ({
+  isDesktop: vi.fn(),
+  isTauri: vi.fn(),
+  tauriInvoke: vi.fn(),
+}))
+
+vi.mock("@alook/shared", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@alook/shared")>()
+  return { ...actual, ...sharedMocks }
+})
+
 const snapshot = {
   attemptId: "a".repeat(43),
   provider: "google",
@@ -31,6 +42,41 @@ function makeDeps() {
 describe("cleanupAuthenticatedNativeOauthResidue", () => {
   beforeEach(() => {
     vi.restoreAllMocks()
+    vi.clearAllMocks()
+    sharedMocks.isDesktop.mockReturnValue(false)
+    sharedMocks.isTauri.mockReturnValue(false)
+    sharedMocks.tauriInvoke.mockReset()
+  })
+
+  it("uses the browser adapter for desktop Tauri cleanup", async () => {
+    sharedMocks.isDesktop.mockReturnValue(true)
+    sharedMocks.isTauri.mockReturnValue(true)
+    sharedMocks.tauriInvoke.mockImplementation(async (command: string) => {
+      if (command === "native_oauth_snapshot") return snapshot
+      if (command === "native_oauth_cancel") return proof
+      throw new Error(`unexpected command: ${command}`)
+    })
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(null, { status: 204 }),
+    )
+
+    await cleanupAuthenticatedNativeOauthResidue()
+
+    expect(sharedMocks.tauriInvoke.mock.calls).toEqual([
+      ["native_oauth_snapshot"],
+      ["native_oauth_cancel", { attemptId: snapshot.attemptId }],
+    ])
+    expect(fetchMock).toHaveBeenCalledExactlyOnceWith(
+      "/api/auth/native/cancel",
+      expect.objectContaining({
+        method: "POST",
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(proof),
+        signal: expect.any(AbortSignal),
+      }),
+    )
   })
 
   it("is a no-op outside desktop Tauri", async () => {
@@ -50,6 +96,21 @@ describe("cleanupAuthenticatedNativeOauthResidue", () => {
     await cleanupAuthenticatedNativeOauthResidue(deps)
 
     expect(deps.invoke).toHaveBeenCalledExactlyOnceWith("native_oauth_snapshot")
+    expect(deps.postCancel).not.toHaveBeenCalled()
+  })
+
+  it("does not contact the server when native cancel finds no current attempt", async () => {
+    const deps = makeDeps()
+    deps.invoke
+      .mockResolvedValueOnce(snapshot)
+      .mockResolvedValueOnce(null)
+
+    await cleanupAuthenticatedNativeOauthResidue(deps)
+
+    expect(deps.invoke.mock.calls).toEqual([
+      ["native_oauth_snapshot"],
+      ["native_oauth_cancel", { attemptId: snapshot.attemptId }],
+    ])
     expect(deps.postCancel).not.toHaveBeenCalled()
   })
 
@@ -106,6 +167,17 @@ describe("cleanupAuthenticatedNativeOauthResidue", () => {
   it("keeps completed local cleanup final when server cancellation returns 503", async () => {
     const deps = makeDeps()
     deps.postCancel.mockResolvedValue(new Response(null, { status: 503 }))
+
+    await expect(cleanupAuthenticatedNativeOauthResidue(deps)).resolves.toBeUndefined()
+    expect(deps.invoke.mock.calls).toEqual([
+      ["native_oauth_snapshot"],
+      ["native_oauth_cancel", { attemptId: snapshot.attemptId }],
+    ])
+  })
+
+  it("keeps completed local cleanup final when server cancellation rejects", async () => {
+    const deps = makeDeps()
+    deps.postCancel.mockRejectedValue(new Error("server unavailable"))
 
     await expect(cleanupAuthenticatedNativeOauthResidue(deps)).resolves.toBeUndefined()
     expect(deps.invoke.mock.calls).toEqual([
