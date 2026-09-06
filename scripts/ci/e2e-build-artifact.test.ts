@@ -16,6 +16,7 @@ import {
   BUILD_OUTPUT_ROOTS,
   createBuildArtifact,
   runCli,
+  verifyArchiveMembers,
   verifyBuildArtifact,
 } from "./e2e-build-artifact.mjs"
 
@@ -77,6 +78,45 @@ describe("UI E2E build artifact", () => {
     }
   })
 
+  it("verifies a real archive listing larger than spawnSync's default buffer", () => {
+    const artifact = fixture()
+    const listingRoot = join(
+      artifact.root,
+      BUILD_OUTPUT_ROOTS[0],
+      "assets",
+      "large-listing",
+    )
+    mkdirSync(listingRoot, { recursive: true })
+    for (let index = 0; index < 5_200; index += 1) {
+      writeFileSync(
+        join(listingRoot, `${String(index).padStart(5, "0")}-${"x".repeat(180)}.txt`),
+        "",
+      )
+    }
+    const large = createBuildArtifact({
+      root: artifact.root,
+      directory: ".ci/large-build",
+      runId: "123",
+      attempt: 2,
+      headSha: HEAD_SHA,
+    })
+    const listing = spawnSync("tar", ["-tzf", large.archive], {
+      encoding: "utf8",
+      maxBuffer: 4 * 1024 * 1024,
+    })
+    expect(listing.status).toBe(0)
+    expect(Buffer.byteLength(listing.stdout)).toBeGreaterThan(1024 * 1024)
+
+    removeBuildOutputs(artifact.root)
+    expect(() => verifyBuildArtifact({
+      root: artifact.root,
+      directory: ".ci/large-build",
+      runId: "123",
+      attempt: 2,
+      headSha: HEAD_SHA,
+    })).not.toThrow()
+  })
+
   it.each([
     ["run ID", { runId: "124", attempt: 2, headSha: HEAD_SHA }],
     ["attempt", { runId: "123", attempt: 3, headSha: HEAD_SHA }],
@@ -115,6 +155,22 @@ describe("UI E2E build artifact", () => {
       attempt: 2,
       headSha: HEAD_SHA,
     })).toThrow("archive SHA-256 mismatch")
+  })
+
+  it("reports tar child launch and exit failures explicitly", () => {
+    const artifact = fixture()
+    const corruptArchive = join(artifact.root, "corrupt.tgz")
+    writeFileSync(corruptArchive, "not a tar archive")
+    expect(() => verifyArchiveMembers(corruptArchive)).toThrow(/tar failed with exit [1-9]\d*/)
+
+    const originalPath = process.env.PATH
+    process.env.PATH = join(artifact.root, "missing-bin")
+    try {
+      expect(() => verifyArchiveMembers(artifact.archive)).toThrow("tar failed to start:")
+    } finally {
+      if (originalPath === undefined) delete process.env.PATH
+      else process.env.PATH = originalPath
+    }
   })
 
   it("fails closed when either artifact file is missing", () => {

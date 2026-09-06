@@ -1,13 +1,17 @@
 import { createHash } from "node:crypto"
 import {
+  closeSync,
   existsSync,
   mkdirSync,
+  mkdtempSync,
+  openSync,
   readFileSync,
   rmSync,
   statSync,
   writeFileSync,
 } from "node:fs"
-import { resolve, sep } from "node:path"
+import { tmpdir } from "node:os"
+import { join, resolve, sep } from "node:path"
 import { spawnSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
 
@@ -60,12 +64,37 @@ export function assertBuildOutputs(root) {
 }
 
 function runTar(args) {
-  const result = spawnSync("tar", args, { encoding: "utf8" })
-  if (result.status !== 0) {
-    const detail = result.stderr.trim() || result.stdout.trim() || `exit ${result.status}`
-    throw new Error(`tar failed: ${detail}`)
+  const scratch = mkdtempSync(join(tmpdir(), "alook-ui-e2e-tar-"))
+  const stdoutPath = join(scratch, "stdout")
+  const stderrPath = join(scratch, "stderr")
+  let stdoutFd
+  let stderrFd
+  try {
+    stdoutFd = openSync(stdoutPath, "w")
+    stderrFd = openSync(stderrPath, "w")
+    const result = spawnSync("tar", args, {
+      stdio: ["ignore", stdoutFd, stderrFd],
+    })
+    closeSync(stdoutFd)
+    stdoutFd = undefined
+    closeSync(stderrFd)
+    stderrFd = undefined
+
+    if (result.error) throw new Error(`tar failed to start: ${result.error.message}`)
+    const detail = readFileSync(stderrPath, "utf8").trim().slice(0, 4_096)
+    if (result.signal) {
+      throw new Error(`tar terminated by signal ${result.signal}${detail ? `: ${detail}` : ""}`)
+    }
+    if (result.status === null) throw new Error("tar failed without an exit status")
+    if (result.status !== 0) {
+      throw new Error(`tar failed with exit ${String(result.status)}${detail ? `: ${detail}` : ""}`)
+    }
+    return readFileSync(stdoutPath, "utf8")
+  } finally {
+    if (stdoutFd !== undefined) closeSync(stdoutFd)
+    if (stderrFd !== undefined) closeSync(stderrFd)
+    rmSync(scratch, { recursive: true, force: true })
   }
-  return result.stdout
 }
 
 function normalizedArchiveMember(value) {
