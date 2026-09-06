@@ -164,11 +164,22 @@ fn allowed_status(value: &str) -> bool {
     )
 }
 
-fn parse_callback(serialized: &str) -> Option<(String, Option<String>, Option<String>)> {
+fn parse_callback(
+    serialized: &str,
+    platform: &str,
+) -> Option<(String, Option<String>, Option<String>)> {
     if serialized.len() > 512 {
         return None;
     }
-    let query = serialized.strip_prefix("ai.alook.desktop://auth/native/return?")?;
+    let query = match platform {
+        "macos" | "windows" | "linux" => {
+            serialized.strip_prefix("ai.alook.desktop://auth/native/return?")
+        }
+        "ios" | "android" => serialized
+            .strip_prefix("https://auth.alook.ai/auth/native/return?")
+            .or_else(|| serialized.strip_prefix("ai.alook://auth/native/return?")),
+        _ => None,
+    }?;
     let mut attempt = None;
     let mut code = None;
     let mut status = None;
@@ -258,7 +269,7 @@ impl Record {
     ) -> Result<Registration, &'static str> {
         if !matches!(provider, "github" | "google")
             || !safe_redirect(redirect_path)
-            || !matches!(platform, "macos" | "windows" | "linux")
+            || !matches!(platform, "macos" | "windows" | "linux" | "ios" | "android")
         {
             return Err("invalid_request");
         }
@@ -310,7 +321,16 @@ impl Record {
     }
 
     pub fn intake(&mut self, url: &url::Url, now: u64) -> Result<bool, &'static str> {
-        let Some((id, code, status)) = parse_callback(url.as_str()) else {
+        self.intake_for_platform(url, now, std::env::consts::OS)
+    }
+
+    fn intake_for_platform(
+        &mut self,
+        url: &url::Url,
+        now: u64,
+        platform: &str,
+    ) -> Result<bool, &'static str> {
+        let Some((id, code, status)) = parse_callback(url.as_str(), platform) else {
             return Ok(false);
         };
         let Some(a) = self.attempt.as_mut() else {
@@ -459,7 +479,7 @@ mod tests {
     fn serialized_callback_parser_rejects_noncanonical_direct_input() {
         let r = waiting();
         let good = callback(&r, &"c".repeat(32));
-        assert!(parse_callback(&good).is_some());
+        assert!(parse_callback(&good, "macos").is_some());
         for bad in [
             format!("{good}&x=1"),
             format!("{good}&status=access_denied"),
@@ -471,7 +491,7 @@ mod tests {
             good.replace("ai.alook.desktop", "ai.alook"),
             good.replace("code=", "c%6fde="),
         ] {
-            assert!(parse_callback(&bad).is_none());
+            assert!(parse_callback(&bad, "macos").is_none());
         }
     }
     #[test]
@@ -670,6 +690,88 @@ mod tests {
         r.open(&p.attempt_id, &good, false).unwrap();
         assert!(r.open(&p.attempt_id, &good, false).is_err());
         assert!(r.prepare("apple", "/c/me", "macos", NOW).is_err());
-        assert!(r.prepare("google", "/c/me", "ios", NOW).is_err());
+        assert!(r.prepare("google", "/c/me", "ios", NOW).is_ok());
+        assert!(r.prepare("google", "/c/me", "android", NOW).is_ok());
+        assert!(r.prepare("google", "/c/me", "web", NOW).is_err());
+    }
+
+    #[test]
+    fn mobile_callbacks_accept_only_exact_primary_and_fallback_identities() {
+        for platform in ["ios", "android"] {
+            let mut record = Record::new().unwrap();
+            let attempt = record.prepare("github", "/c/me", platform, NOW).unwrap();
+            record
+                .open(
+                    &attempt.attempt_id,
+                    &format!(
+                        "https://alook.ai/auth/native/start?attempt={}",
+                        attempt.attempt_id
+                    ),
+                    false,
+                )
+                .unwrap();
+            for prefix in [
+                "https://auth.alook.ai/auth/native/return",
+                "ai.alook://auth/native/return",
+            ] {
+                let raw = format!(
+                    "{prefix}?attempt={}&code={}",
+                    attempt.attempt_id,
+                    "c".repeat(32)
+                );
+                let mut candidate = record.clone();
+                assert!(candidate
+                    .intake_for_platform(&url::Url::parse(&raw).unwrap(), NOW, platform)
+                    .unwrap());
+            }
+            let before = serde_json::to_value(&record).unwrap();
+            for raw in [
+                format!(
+                    "http://auth.alook.ai/auth/native/return?attempt={}&code={}",
+                    attempt.attempt_id,
+                    "c".repeat(32)
+                ),
+                format!(
+                    "https://auth.alook.ai:8443/auth/native/return?attempt={}&code={}",
+                    attempt.attempt_id,
+                    "c".repeat(32)
+                ),
+                format!(
+                    "https://user@auth.alook.ai/auth/native/return?attempt={}&code={}",
+                    attempt.attempt_id,
+                    "c".repeat(32)
+                ),
+                format!(
+                    "ai.alook.desktop://auth/native/return?attempt={}&code={}",
+                    attempt.attempt_id,
+                    "c".repeat(32)
+                ),
+                format!(
+                    "ai.alook://auth/auth/native/return?attempt={}&code={}",
+                    attempt.attempt_id,
+                    "c".repeat(32)
+                ),
+            ] {
+                assert!(!record
+                    .intake_for_platform(&url::Url::parse(&raw).unwrap(), NOW, platform)
+                    .unwrap());
+                assert_eq!(serde_json::to_value(&record).unwrap(), before);
+            }
+        }
+    }
+
+    #[test]
+    fn desktop_rejects_mobile_callback_identities() {
+        let mut record = waiting();
+        let id = record.attempt.as_ref().unwrap().id.clone();
+        for prefix in [
+            "https://auth.alook.ai/auth/native/return",
+            "ai.alook://auth/native/return",
+        ] {
+            let raw = format!("{prefix}?attempt={id}&code={}", "c".repeat(32));
+            assert!(!record
+                .intake_for_platform(&url::Url::parse(&raw).unwrap(), NOW, "macos")
+                .unwrap());
+        }
     }
 }

@@ -6,8 +6,8 @@
     "dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
     "build": "sh scripts/build.sh",
     "tauri": "tauri",
-    "ios": "tauri ios dev",
-    "android": "tauri android dev"
+    "ios": "tauri ios dev --config src-tauri/tauri.dev.conf.json",
+    "android": "tauri android dev --config src-tauri/tauri.dev.conf.json"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.4"

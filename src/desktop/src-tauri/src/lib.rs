@@ -1,11 +1,8 @@
 mod commands;
 
-#[cfg(desktop)]
 use tauri::Manager;
 
-#[cfg(desktop)]
 mod native_oauth;
-#[cfg(desktop)]
 mod native_oauth_runtime;
 
 #[cfg(desktop)]
@@ -21,13 +18,13 @@ mod macos_window;
 pub fn run() {
     let builder = tauri::Builder::default();
     #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        commands::show_main_window(app);
+    }));
     let builder = builder
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            commands::show_main_window(app);
-        }))
         .plugin(tauri_plugin_deep_link::init())
-        .plugin(tauri_plugin_store::Builder::default().build());
-    let builder = builder.plugin(tauri_plugin_opener::init());
+        .plugin(tauri_plugin_store::Builder::default().build())
+        .plugin(tauri_plugin_opener::init());
 
     // Desktop-only plugins
     #[cfg(desktop)]
@@ -58,6 +55,38 @@ pub fn run() {
     }
 
     #[cfg(not(desktop))]
+    run_mobile(builder);
+}
+
+#[cfg(not(desktop))]
+fn run_mobile(mut builder: tauri::Builder<tauri::Wry>) {
+    builder = builder.invoke_handler(tauri::generate_handler![
+        native_oauth_runtime::native_oauth_snapshot,
+        native_oauth_runtime::native_oauth_listen,
+        native_oauth_runtime::native_oauth_unlisten,
+        native_oauth_runtime::native_oauth_prepare,
+        native_oauth_runtime::native_oauth_open_start,
+        native_oauth_runtime::native_oauth_pending_exchange,
+        native_oauth_runtime::native_oauth_reject_candidate,
+        native_oauth_runtime::native_oauth_finish,
+        native_oauth_runtime::native_oauth_cancel,
+    ]);
+
+    builder = builder.setup(|app| {
+        if native_oauth_runtime::setup(app.handle()).is_err() {
+            eprintln!("native OAuth storage unavailable");
+        }
+        Ok(())
+    });
+
+    builder = builder.on_page_load(|webview, payload| {
+        if webview.label() == "main"
+            && matches!(payload.event(), tauri::webview::PageLoadEvent::Started)
+        {
+            native_oauth_runtime::retire_listener(webview.app_handle());
+        }
+    });
+
     run_app(builder);
 }
 

@@ -1063,6 +1063,17 @@ describe("Mobile release availability", () => {
     expect(mobileReleaseWorkflow).toContain('bundleVersion\\\":\\\"${GITHUB_RUN_NUMBER}')
     expect(mobileReleaseWorkflow).toContain("CFBundleShortVersionString")
     expect(mobileReleaseWorkflow).toContain("CFBundleVersion")
+    expect(mobileReleaseWorkflow).toContain('info["CFBundleURLTypes"] ==')
+    expect(mobileReleaseWorkflow).toContain("codesign -d --entitlements :-")
+    expect(mobileReleaseWorkflow).toContain('entitlements["application-identifier"]')
+    expect(mobileReleaseWorkflow).toContain("5RF24VHDQB.ai.alook.ios")
+    expect(mobileReleaseWorkflow).toContain(
+      'entitlements["com.apple.developer.team-identifier"]',
+    )
+    expect(mobileReleaseWorkflow).toContain(
+      'entitlements["com.apple.developer.associated-domains"]',
+    )
+    expect(mobileReleaseWorkflow).toContain("applinks:auth.alook.ai")
     expect(mobileReleaseWorkflow).toContain("xcrun altool --upload-app")
     expect(mobileReleaseWorkflow).toContain("actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a")
     expect(bumpScript).toContain('args.includes("--mobile")')
@@ -1092,6 +1103,12 @@ describe("Mobile release availability", () => {
     expect(mobileReleaseWorkflow).toContain("--target aarch64 armv7")
     expect(mobileReleaseWorkflow).toContain("package: name='ai.alook.android'")
     expect(mobileReleaseWorkflow).toContain("apksigner verify --verbose --print-certs")
+    expect(mobileReleaseWorkflow).toContain('aapt dump xmltree "$apk_source" AndroidManifest.xml')
+    expect(mobileReleaseWorkflow).toContain("android:autoVerify")
+    expect(mobileReleaseWorkflow).toContain('(\"host\", \"auth.alook.ai\")')
+    expect(mobileReleaseWorkflow).toContain('(\"path\", \"/auth/native/return\")')
+    expect(mobileReleaseWorkflow).toContain('(\"scheme\", \"ai.alook\")')
+    expect(mobileReleaseWorkflow).toContain('(\"path\", \"/native/return\")')
     expect(mobileReleaseWorkflow).toContain("gh release upload")
     expect(mobileReleaseWorkflow).toContain("Alook_${EXPECTED_VERSION}_android.apk")
     expect(mobileReleaseWorkflow).toContain('gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body')

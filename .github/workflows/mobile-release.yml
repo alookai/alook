@@ -143,7 +143,31 @@ jobs:
           test -n "$app_path"
 
           codesign --verify --deep --strict --verbose=2 "$app_path"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app_path/Info.plist")" = "ai.alook.ios"
+          entitlements_path="$extract_dir/signed-entitlements.plist"
+          codesign -d --entitlements :- "$app_path" > "$entitlements_path"
+          python3 - "$app_path/Info.plist" "$entitlements_path" <<'PY'
+          import plistlib
+          import sys
+
+          with open(sys.argv[1], "rb") as info_file:
+              info = plistlib.load(info_file)
+          with open(sys.argv[2], "rb") as entitlements_file:
+              entitlements = plistlib.load(entitlements_file)
+
+          assert info["CFBundleIdentifier"] == "ai.alook.ios"
+          assert info["CFBundleURLTypes"] == [
+              {"CFBundleURLName": "ai.alook", "CFBundleURLSchemes": ["ai.alook"]}
+          ]
+          assert entitlements["application-identifier"] == "5RF24VHDQB.ai.alook.ios"
+          assert entitlements["com.apple.developer.team-identifier"] == "5RF24VHDQB"
+          assert entitlements["com.apple.developer.associated-domains"] == [
+              "applinks:auth.alook.ai"
+          ]
+          PY
+
+          grep -F 'AUTH_WORKER_HOST = "auth.alook.ai"' src/web/auth/index.ts
+          grep -F 'AUTH_WORKER_RETURN_PATH = "/auth/native/return"' src/web/auth/index.ts
+          grep -F 'appID: "5RF24VHDQB.ai.alook.ios"' src/web/auth/index.ts
           tauri_version=$(node -p "require('./src/desktop/src-tauri/tauri.conf.json').version")
           package_version=$(node -p "require('./src/desktop/package.json').version")
           test "$tauri_version" = "$package_version"
@@ -315,6 +339,67 @@ jobs:
           grep -F 'Verifies' <<<"$signature"
           normalized_signature=$(tr '[:lower:]' '[:upper:]' <<<"$signature" | tr -d ':')
           grep -F '9DC6EDE94BA663EEC9EC98FF7BAFD55E248B6C4BC2157FCF042DF59B0E410806' <<<"$normalized_signature"
+
+          manifest_path="$RUNNER_TEMP/android-manifest-tree.txt"
+          $aapt dump xmltree "$apk_source" AndroidManifest.xml > "$manifest_path"
+          python3 - "$manifest_path" <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+
+          manifest = Path(sys.argv[1]).read_text()
+          activity_match = re.search(
+              r'^      E: activity .*?(?=^      E: (?:activity|activity-alias|service|receiver|provider)\b|\Z)',
+              manifest,
+              re.MULTILINE | re.DOTALL,
+          )
+          assert activity_match, "MainActivity missing from packaged manifest"
+          activity = activity_match.group(0)
+          assert '="ai.alook.android.MainActivity"' in activity
+          assert re.search(r'android:launchMode.*?\(type 0x10\)0x2$', activity, re.MULTILINE)
+
+          filters = re.findall(
+              r'^        E: intent-filter .*?(?=^        E: intent-filter|^      E: |\Z)',
+              activity,
+              re.MULTILINE | re.DOTALL,
+          )
+
+          def link_data(intent_filter):
+              return re.findall(
+                  r'android:(scheme|host|path).*?="([^"]+)"', intent_filter
+              )
+
+          link_filters = [intent_filter for intent_filter in filters if link_data(intent_filter)]
+          assert len(link_filters) == 2, "expected exactly two packaged deep-link filters"
+          verified = [
+              intent_filter
+              for intent_filter in link_filters
+              if "android:autoVerify" in intent_filter
+              and link_data(intent_filter)
+              == [
+                  ("scheme", "https"),
+                  ("host", "auth.alook.ai"),
+                  ("path", "/auth/native/return"),
+              ]
+          ]
+          fallback = [
+              intent_filter
+              for intent_filter in link_filters
+              if "android:autoVerify" not in intent_filter
+              and link_data(intent_filter)
+              == [
+                  ("scheme", "ai.alook"),
+                  ("host", "auth"),
+                  ("path", "/native/return"),
+              ]
+          ]
+          assert len(verified) == 1, "exact verified HTTPS App Link missing"
+          assert len(fallback) == 1, "exact non-verified fallback link missing"
+          PY
+
+          grep -F 'AUTH_WORKER_HOST = "auth.alook.ai"' src/web/auth/index.ts
+          grep -F 'package_name: "ai.alook.android"' src/web/auth/index.ts
+          grep -F '9D:C6:ED:E9:4B:A6:63:EE:C9:EC:98:FF:7B:AF:D5:5E:24:8B:6C:4B:C2:15:7F:CF:04:2D:F5:9B:0E:41:08:06' src/web/auth/index.ts
 
           apk_name="Alook_${EXPECTED_VERSION}_android.apk"
           apk_path="$RUNNER_TEMP/$apk_name"
