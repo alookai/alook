@@ -229,6 +229,14 @@ describe("E2E UI workflow", () => {
     expect(ciJob("e2e-ui")).toContain("needs.scope.outputs.e2e_matrix")
   })
 
+  it("keeps UI E2E on read-only PR and merge-queue runs without main history access", () => {
+    expect(ciJob("e2e-ui")).toContain("github.event_name != 'push'")
+    expect(ciJob("merge-reports")).toContain("github.event_name != 'push'")
+    expect(workflow).toContain("actions: read")
+    expect(workflow).not.toMatch(/^  pull_request_target:/m)
+    expect(workflow).not.toContain("e2e-timing-history")
+  })
+
   it("keeps failure diagnostics best-effort and merge inputs strict", () => {
     expect(workflow).toContain("src/web/e2e-service-logs/")
     expect(workflow).toContain("continue-on-error: true")

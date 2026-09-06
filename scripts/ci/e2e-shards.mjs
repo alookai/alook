@@ -3,8 +3,8 @@ import { relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 export const E2E_SPEC_ROOT = "src/web/src/test/e2e-ui"
-export const E2E_SHARD_COUNT = 5
-export const DEFAULT_SPEC_SECONDS = 60
+export const E2E_SHARD_BUDGET_SECONDS = 240
+export const DEFAULT_SPEC_SECONDS = E2E_SHARD_BUDGET_SECONDS
 export const PLAYWRIGHT_IMAGE_REPOSITORY = "mcr.microsoft.com/playwright"
 
 export const SPEC_SECONDS = {
@@ -109,16 +109,7 @@ export function resolvePlaywrightImage(lockfile) {
   return `${PLAYWRIGHT_IMAGE_REPOSITORY}:v${resolvePlaywrightVersion(lockfile)}-noble`
 }
 
-export function planE2eShards(
-  specs,
-  shardCount = E2E_SHARD_COUNT,
-  weights = SPEC_SECONDS,
-  defaultSeconds = DEFAULT_SPEC_SECONDS,
-) {
-  if (!Number.isInteger(shardCount) || shardCount < 1) {
-    throw new Error("shardCount must be a positive integer")
-  }
-
+function weightedSpecs(specs, weights, defaultSeconds, budgetSeconds) {
   const uniqueSpecs = [...new Set(specs)]
   if (uniqueSpecs.length !== specs.length) {
     throw new Error("spec paths must be unique")
@@ -126,17 +117,41 @@ export function planE2eShards(
   if (uniqueSpecs.length === 0) {
     throw new Error("at least one spec is required")
   }
+  if (uniqueSpecs.some((path) => typeof path !== "string" || path.length === 0)) {
+    throw new Error("spec paths must be non-empty strings")
+  }
+  if (!Number.isInteger(budgetSeconds) || budgetSeconds < 1) {
+    throw new Error("budgetSeconds must be a positive integer")
+  }
+  if (!Number.isFinite(defaultSeconds) || defaultSeconds <= 0) {
+    throw new Error("defaultSeconds must be a positive finite number")
+  }
 
-  const effectiveShardCount = Math.min(shardCount, uniqueSpecs.length)
-  const shards = Array.from({ length: effectiveShardCount }, (_, index) => ({
+  return uniqueSpecs
+    .map((path) => ({
+      path,
+      seconds: Object.hasOwn(weights, path) ? weights[path] : defaultSeconds,
+    }))
+    .map((spec) => {
+      if (!Number.isFinite(spec.seconds) || spec.seconds <= 0) {
+        throw new Error(`spec estimate must be a positive finite number: ${spec.path}`)
+      }
+      if (spec.seconds > budgetSeconds) {
+        throw new Error(
+          `spec estimate exceeds the ${budgetSeconds}s Playwright budget: ${spec.path} (${spec.seconds}s); split the spec or add a stable case manifest`,
+        )
+      }
+      return spec
+    })
+    .sort((left, right) => right.seconds - left.seconds || left.path.localeCompare(right.path))
+}
+
+function packE2eShards(weighted, shardCount) {
+  const shards = Array.from({ length: shardCount }, (_, index) => ({
     shard: index + 1,
     predicted_seconds: 0,
     files: [],
   }))
-
-  const weighted = uniqueSpecs
-    .map((path) => ({ path, seconds: weights[path] ?? defaultSeconds }))
-    .sort((left, right) => right.seconds - left.seconds || left.path.localeCompare(right.path))
 
   for (const spec of weighted) {
     const target = [...shards].sort(
@@ -150,6 +165,24 @@ export function planE2eShards(
     ...shard,
     files: shard.files.sort(),
   }))
+}
+
+export function planE2eShards(specs, options = {}) {
+  const {
+    weights = SPEC_SECONDS,
+    defaultSeconds = DEFAULT_SPEC_SECONDS,
+    budgetSeconds = E2E_SHARD_BUDGET_SECONDS,
+  } = options
+  const weighted = weightedSpecs(specs, weights, defaultSeconds, budgetSeconds)
+  const totalSeconds = weighted.reduce((total, spec) => total + spec.seconds, 0)
+  let shardCount = Math.ceil(totalSeconds / budgetSeconds)
+  let shards = packE2eShards(weighted, shardCount)
+
+  while (shards.some((shard) => shard.predicted_seconds > budgetSeconds)) {
+    shardCount += 1
+    shards = packE2eShards(weighted, shardCount)
+  }
+  return shards
 }
 
 export function createE2eMatrix(specs = discoverE2eSpecs(), image = resolvePlaywrightImage()) {
@@ -189,7 +222,7 @@ function writeSummary(path, matrix) {
     .join("\n")
   appendFileSync(
     path,
-    `## UI E2E shards\n\n| Shard | Predicted | Specs |\n| --- | ---: | --- |\n${rows}\n`,
+    `## UI E2E shards\n\nPredicted Playwright execution only; ${E2E_SHARD_BUDGET_SECONDS}s budget per shard. Runner setup and dependency installation are not included.\n\n| Shard | Predicted Playwright | Specs |\n| --- | ---: | --- |\n${rows}\n`,
   )
 }
 

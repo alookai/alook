@@ -4,8 +4,9 @@ import { join } from "node:path"
 import { describe, expect, it, vi } from "vitest"
 import {
   createE2eMatrix,
+  DEFAULT_SPEC_SECONDS,
   discoverE2eSpecs,
-  E2E_SHARD_COUNT,
+  E2E_SHARD_BUDGET_SECONDS,
   planE2eShards,
   resolvePlaywrightImage,
   resolvePlaywrightVersion,
@@ -68,29 +69,64 @@ describe("planE2eShards", () => {
     const totals = first.map((shard) => shard.predicted_seconds)
 
     expect(first).toEqual(second)
-    expect(first).toHaveLength(E2E_SHARD_COUNT)
+    expect(first).toHaveLength(15)
     expect([...assigned].sort()).toEqual(specs)
     expect(new Set(assigned).size).toBe(specs.length)
-    expect(totals.sort((left, right) => left - right)).toEqual([597, 597, 597, 597, 597])
-    expect(Math.max(...totals) / Math.min(...totals)).toBeLessThanOrEqual(1.15)
+    expect(totals).toEqual([
+      240, 240, 220, 221, 220, 219, 218, 222, 220, 220, 224, 220, 221, 220, 220,
+    ])
+    expect(Math.max(...totals)).toBeLessThanOrEqual(E2E_SHARD_BUDGET_SECONDS)
+    expect(first).toHaveLength(
+      Math.ceil(totals.reduce((total, seconds) => total + seconds, 0)
+        / E2E_SHARD_BUDGET_SECONDS) + 1,
+    )
   })
 
   it("includes an unknown spec with a conservative default weight", () => {
-    const shards = planE2eShards(["known.spec.ts", "new.spec.ts"], 2, {
-      "known.spec.ts": 5,
-    }, 60)
+    const shards = planE2eShards(["known.spec.ts", "new.spec.ts"], {
+      weights: { "known.spec.ts": 5 },
+    })
 
     expect(shards.flatMap((shard) => shard.files).sort()).toEqual([
       "known.spec.ts",
       "new.spec.ts",
     ])
-    expect(shards.map((shard) => shard.predicted_seconds).sort((a, b) => a - b)).toEqual([5, 60])
+    expect(DEFAULT_SPEC_SECONDS).toBe(E2E_SHARD_BUDGET_SECONDS)
+    expect(shards.map((shard) => shard.predicted_seconds).sort((a, b) => a - b))
+      .toEqual([5, E2E_SHARD_BUDGET_SECONDS])
   })
 
-  it("rejects duplicate paths and invalid shard counts", () => {
+  it("increments the total-time lower bound when LPT does not fit", () => {
+    const weights = {
+      "a.spec.ts": 3,
+      "b.spec.ts": 3,
+      "c.spec.ts": 2,
+      "d.spec.ts": 2,
+      "e.spec.ts": 2,
+    }
+    const shards = planE2eShards(Object.keys(weights), { weights, budgetSeconds: 6 })
+
+    expect(Math.ceil(12 / 6)).toBe(2)
+    expect(shards).toHaveLength(3)
+    expect(shards.every((shard) => shard.predicted_seconds <= 6)).toBe(true)
+  })
+
+  it("rejects duplicate or empty paths and invalid planning values", () => {
     expect(() => planE2eShards(["a.spec.ts", "a.spec.ts"])).toThrow("unique")
     expect(() => planE2eShards([])).toThrow("at least one")
-    expect(() => planE2eShards(["a.spec.ts"], 0)).toThrow("positive integer")
+    expect(() => planE2eShards([""])).toThrow("non-empty strings")
+    expect(() => planE2eShards(["a.spec.ts"], { budgetSeconds: 0 }))
+      .toThrow("positive integer")
+    expect(() => planE2eShards(["a.spec.ts"], { defaultSeconds: Number.NaN }))
+      .toThrow("positive finite")
+    expect(() => planE2eShards(["a.spec.ts"], { weights: { "a.spec.ts": 0 } }))
+      .toThrow("positive finite")
+  })
+
+  it("requires an oversized spec to be split or given a stable case manifest", () => {
+    expect(() => planE2eShards(["slow.spec.ts"], {
+      weights: { "slow.spec.ts": E2E_SHARD_BUDGET_SECONDS + 1 },
+    })).toThrow("split the spec or add a stable case manifest")
   })
 })
 
@@ -112,7 +148,8 @@ describe("createE2eMatrix", () => {
       "src/test/e2e-ui/04-dm.spec.ts",
       "src/test/e2e-ui/05-mention-bot.spec.ts",
     ])
-    expect(matrix.include.every((entry) => entry.total === E2E_SHARD_COUNT)).toBe(true)
+    expect(matrix.include).toHaveLength(1)
+    expect(matrix.include.every((entry) => entry.total === 1)).toBe(true)
     expect(matrix.include.every(
       (entry) => entry.image === "mcr.microsoft.com/playwright:v1.62.1-noble",
     )).toBe(true)
@@ -161,6 +198,9 @@ describe("E2E shard CLI", () => {
         "src/test/e2e-ui/54-blog-multizone.spec.ts",
       )
       expect(readFileSync(summary, "utf8")).toContain("| 1/1 | 60s |")
+      expect(readFileSync(summary, "utf8")).toContain(
+        "Predicted Playwright execution only; 240s budget per shard",
+      )
     } finally {
       rmSync(directory, { recursive: true, force: true })
     }
