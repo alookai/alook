@@ -1,14 +1,11 @@
 import { isSafeRedirectPath, nativeOauthRegistrationSchema, nativeOauthProofSchema, nativeOauthExchangeSchema, tauriInvoke } from "@alook/shared"
 import { z } from "zod"
+import { nativeOauthSnapshotSchema, type NativeOauthSnapshot } from "@/lib/native-oauth-schema"
 
-const snapshotSchema = z.object({
-  attemptId: z.string(), provider: z.enum(["github", "google"]), redirectPath: z.string().refine(isSafeRedirectPath),
-  expiresAt: z.number(), waiting: z.boolean(),
-}).strict()
 const exchangeSchema = nativeOauthProofSchema.extend({
   candidateId: z.string(), code: z.string().nullable(), status: z.string().nullable(), wasDispatched: z.boolean(),
 }).strict()
-export type NativeOauthSnapshot = z.infer<typeof snapshotSchema>
+export type { NativeOauthSnapshot } from "@/lib/native-oauth-schema"
 export type NativeOauthView = {
   phase: "initializing" | "idle" | "preparing" | "waiting" | "exchanging" | "checking_status" | "error" | "unsupported"
   message?: "start_failed" | "expired" | "denied" | "invalid_callback" | "retry_required" | "unavailable"
@@ -48,7 +45,7 @@ export function createNativeOauthController(deps: NativeOauthDeps, changed: (vie
     }, Math.max(0, attempt.expiresAt - Date.now()))
   }
   const readSnapshot = async () => {
-    const result = snapshotSchema.nullable().parse(await deps.invoke("native_oauth_snapshot"))
+    const result = nativeOauthSnapshotSchema.nullable().parse(await deps.invoke("native_oauth_snapshot"))
     return result
   }
   const finish = async (attemptId: string, candidateId: string) => {

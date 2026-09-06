@@ -626,6 +626,31 @@ mod tests {
         assert!(r.cancel(&new.attempt_id).unwrap().is_none());
     }
     #[test]
+    fn authenticated_cleanup_requires_current_attempt_and_survives_candidate_expiry() {
+        let mut r = waiting();
+        let raw = callback(&r, &"c".repeat(32));
+        r.intake(&url::Url::parse(&raw).unwrap(), NOW).unwrap();
+        let attempt_id = r.attempt.as_ref().unwrap().id.clone();
+        let original_owner = r.owner_key.clone();
+        let unchanged = serde_json::to_value(&r).unwrap();
+
+        assert!(r.cancel("stale-attempt").unwrap().is_none());
+        assert_eq!(serde_json::to_value(&r).unwrap(), unchanged);
+
+        r.cleanup(NOW + CANDIDATE_TTL);
+        assert!(r.attempt.as_ref().unwrap().candidates.is_empty());
+        assert!(r.snapshot().is_some());
+
+        let proof = r.cancel(&attempt_id).unwrap().unwrap();
+        assert_eq!(proof.attempt_id, attempt_id);
+        assert!(r.snapshot().is_none());
+        assert_ne!(r.owner_key, original_owner);
+        let rotated_owner = r.owner_key.clone();
+
+        assert!(r.cancel(&attempt_id).unwrap().is_none());
+        assert_eq!(r.owner_key, rotated_owner);
+    }
+    #[test]
     fn open_requires_current_unopened_attempt_and_fixed_build_origin() {
         let mut r = Record::new().unwrap();
         let p = r.prepare("github", "/c/me", "macos", NOW).unwrap();
