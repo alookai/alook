@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => {
     pendingHref: { current: null as string | null },
     navigationPending: { current: false },
     serverCache: new Set<string>(),
+    coveredChannels: new Set<string>(),
     breakpoint: { current: "desktop" },
     onboardingState: { current: null as Record<string, unknown> | null },
     replace: vi.fn(),
@@ -48,6 +49,11 @@ vi.mock("@tanstack/react-query", () => ({
 vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => mocks.breakpoint.current }))
 vi.mock("@/lib/community-onboarding", () => ({
   useCommunityOnboarding: () => mocks.onboardingState.current,
+}))
+vi.mock("@/lib/community/replica/query-seed", () => ({
+  hasCoveredCommunityReplicaTarget: (_queryClient: unknown, channelId: string) => (
+    mocks.coveredChannels.has(channelId)
+  ),
 }))
 vi.mock("./use-community-navigation-controller", () => ({
   useCommunityNavigationController: () => ({
@@ -104,6 +110,7 @@ describe("ShellFrame orchestration", () => {
     mocks.pendingHref.current = null
     mocks.navigationPending.current = false
     mocks.serverCache.clear()
+    mocks.coveredChannels.clear()
     mocks.breakpoint.current = "desktop"
     mocks.onboardingState.current = null
     mocks.registerUiHandlers.mockClear()
@@ -233,6 +240,33 @@ describe("ShellFrame orchestration", () => {
       projectedView: "server",
       projectedActiveServerId: "s1",
     }))
+  })
+
+  it("projects a covered same-server conversation before the Next frame commits", async () => {
+    mocks.currentHref.current = "/c/channels/s1/c1"
+    mocks.pendingHref.current = "/c/channels/s1/c2"
+    mocks.navigationPending.current = true
+    mocks.coveredChannels.add("c2")
+    const renderReplicaConversation = vi.fn(({ channelId }: { channelId: string }) => (
+      createElement("replica-conversation", { channelId })
+    ))
+
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(createElement(ShellFrame, {
+        ...baseProps,
+        frameHref: "/c/channels/s1/c1",
+        renderReplicaConversation,
+      }))
+    })
+
+    const view = renderer.root.findByType("shell-frame-view")
+    expect(view.props.checkpoint).toMatchObject({
+      mode: "same-scope-leaf",
+      main: { kind: "keep" },
+    })
+    expect(view.findByType("replica-conversation").props.channelId).toBe("c2")
+    expect(renderReplicaConversation).toHaveBeenCalledWith({ serverId: "s1", channelId: "c2" })
   })
 
   it("replaces a mobile detail with its semantic parent", async () => {

@@ -16,6 +16,8 @@ const getAccountUnreadProjection = vi.hoisted(() => vi.fn(() => ({
 })))
 const disposeAccountUnreadProjection = vi.hoisted(() => vi.fn())
 const seedCommunityReplicaQueries = vi.hoisted(() => vi.fn())
+const persistedQueryHydration = vi.hoisted(() => vi.fn())
+const hydratedSnapshotId = vi.hoisted(() => ({ current: null as string | null }))
 
 vi.mock("@tanstack/react-query-devtools", () => ({ ReactQueryDevtools: () => null }))
 vi.mock("@tanstack/react-query-persist-client", async () => {
@@ -28,7 +30,10 @@ vi.mock("@tanstack/react-query-persist-client", async () => {
       children: React.ReactNode
       onSuccess: () => void
     }) => {
-      useEffect(() => onSuccess(), [onSuccess])
+      useEffect(() => {
+        persistedQueryHydration()
+        onSuccess()
+      }, [onSuccess])
       return children
     },
   }
@@ -64,6 +69,11 @@ beforeEach(() => {
   getAccountUnreadProjection.mockClear()
   disposeAccountUnreadProjection.mockClear()
   seedCommunityReplicaQueries.mockClear()
+  seedCommunityReplicaQueries.mockImplementation((_client, projection) => {
+    hydratedSnapshotId.current = (projection as { meta: { snapshotId: string } }).meta.snapshotId
+  })
+  persistedQueryHydration.mockReset()
+  hydratedSnapshotId.current = null
   queryClient.invalidateQueries.mockClear()
 })
 
@@ -79,6 +89,29 @@ describe("QueryProvider profile account lifecycle", () => {
       ))
     })
     expect(seedCommunityReplicaQueries).toHaveBeenCalledWith(queryClient, replicaProjection)
+    expect(seedCommunityReplicaQueries).toHaveBeenCalledTimes(2)
+    act(() => renderer.unmount())
+  })
+
+  it("re-applies the covered Replica after persisted-query hydration", async () => {
+    const replicaProjection = { meta: { snapshotId: "snap-authoritative" } }
+    persistedQueryHydration.mockImplementationOnce(() => {
+      hydratedSnapshotId.current = "snap-stale-persisted-query"
+    })
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(
+        QueryProvider,
+        { userId: "viewer-local", replicaProjection: replicaProjection as never },
+        React.createElement("span", null, "content"),
+      ))
+      await Promise.resolve()
+    })
+
+    expect(seedCommunityReplicaQueries).toHaveBeenNthCalledWith(1, queryClient, replicaProjection)
+    expect(seedCommunityReplicaQueries).toHaveBeenLastCalledWith(queryClient, replicaProjection)
+    expect(hydratedSnapshotId.current).toBe("snap-authoritative")
+    expect(seedPersistedMessageProfiles).toHaveBeenCalledAfter(seedCommunityReplicaQueries)
     act(() => renderer.unmount())
   })
 

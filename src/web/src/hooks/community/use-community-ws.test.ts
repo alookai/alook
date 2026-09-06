@@ -131,6 +131,7 @@ describe("useCommunityWs — covered Replica reconnect", () => {
         snapshotId: "snapshot",
         shellProtocolVersion: 1,
         shellRoutes: [pathname],
+        validUntil: "2999-01-01T00:00:00.000Z",
       }),
     ]])
     vi.stubGlobal("window", { location: { pathname }, dispatchEvent })

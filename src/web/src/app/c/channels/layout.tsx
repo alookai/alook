@@ -30,6 +30,7 @@ import {
 } from "@/stores/community"
 import { useCurrentUser } from "@/contexts/community/current-user"
 import { useCommunityReplicaSync } from "@/hooks/community/replica/use-community-replica-sync"
+import { hasActiveCommunityReplicaRoute } from "@/lib/community/replica/session"
 import { useServer, useServers } from "@/hooks/community/use-servers"
 import { useServerMembers } from "@/hooks/community/use-server-members"
 import {
@@ -313,8 +314,12 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   }, [cancelPendingNavigation, serverId])
 
   const prefetchChannel = useCallback(
-    (id: string, _parentId?: string) => router.prefetch(channelHref(serverId, id)),
-    [router, serverId],
+    (id: string, _parentId?: string) => {
+      const href = channelHref(serverId, id)
+      if (hasActiveCommunityReplicaRoute(currentUser.id, href)) return
+      router.prefetch(href)
+    },
+    [currentUser.id, router, serverId],
   )
 
   const onSidebarOpenSettings = useCallback((section?: SettingsSection) => {
@@ -550,6 +555,13 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
       activeServerId={serverId}
       frameHref={structuralFrameHref}
       sidebar={sidebar}
+      renderReplicaConversation={(target) => (
+        <ChannelRoute
+          key={`${target.serverId}/${target.channelId}`}
+          serverParam={encodeURIComponent(target.serverId)}
+          channelId={target.channelId}
+        />
+      )}
       extraDialogs={<>{serverSettingsDialog}{iconCropDialog}</>}
       onOpenActiveServerSettings={onSidebarOpenSettings}
       onOpenActiveServerInvite={onRailOpenActiveInvite}

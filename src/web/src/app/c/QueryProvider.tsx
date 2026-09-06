@@ -113,7 +113,17 @@ export function QueryProvider({
   return (
     <PersistQueryClientProvider
       client={queryClient}
-      onSuccess={() => seedPersistedMessageProfiles(queryClient, restoreProfileSnapshot)}
+      onSuccess={() => {
+        // Persistence hydration is asynchronous and can restore an older
+        // message page after the constructor has already seeded the exact
+        // Replica generation used for this launch. Re-apply that durable
+        // generation at the hydration boundary so an old Query cache can
+        // never replace a newer covered tail (or its coverage metadata).
+        if (replicaProjection) {
+          seedCommunityReplicaQueries(queryClient, replicaProjection)
+        }
+        seedPersistedMessageProfiles(queryClient, restoreProfileSnapshot)
+      }}
       persistOptions={{
         persister,
         maxAge: PERSIST_MAX_AGE_MS,

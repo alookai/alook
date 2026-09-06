@@ -76,6 +76,9 @@ vi.mock("@/hooks/community/use-servers", () => ({
 vi.mock("@/hooks/community/replica/use-community-replica-sync", () => ({
   useCommunityReplicaSync: vi.fn(),
 }))
+vi.mock("@/lib/community/replica/session", () => ({
+  hasActiveCommunityReplicaRoute: () => false,
+}))
 vi.mock("@/hooks/community/use-server-members", () => ({
   useServerMembers: () => ({
     members: [], loading: false, loadingMore: false, hasMore: false, total: 0,

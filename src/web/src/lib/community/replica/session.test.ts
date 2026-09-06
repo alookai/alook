@@ -130,6 +130,10 @@ describe("community Replica session", () => {
     })
     await replaceCommunityReplicaBootstrap(user.id, bootstrap())
     await publishCommunityReplicaSession(user, route, Date.parse(checkedAt) + 1)
+    expect(JSON.parse(values.get("alook-community-replica-control-v1:active")!)).toMatchObject({
+      accountId: user.id,
+      validUntil,
+    })
     expect(hasActiveCommunityReplicaRoute(user.id, route)).toBe(true)
 
     await retireActiveCommunityReplicaScopes(user.id, [{ kind: "channel", id: "channel-1" }])

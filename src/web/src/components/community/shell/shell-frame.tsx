@@ -8,6 +8,7 @@ import {
   advanceCommunityCommittedFrame,
   normalizeCommunityHref,
   resolveCommunityCheckpointPlan,
+  resolveCommunityModulePlan,
   resolveCommunityRoute,
   type CommunityCommittedFrame,
 } from "@/lib/community/community-route"
@@ -21,6 +22,7 @@ import { useShellProfileController } from "./use-shell-profile-controller"
 import { useShellInboxController } from "./use-shell-inbox-controller"
 import { useCommunityNavigationController } from "./use-community-navigation-controller"
 import type { ShellFrameProps } from "./shell-frame-types"
+import { hasCoveredCommunityReplicaTarget } from "@/lib/community/replica/query-seed"
 
 /** Shared community shell orchestration for the server and DM layouts. */
 export function ShellFrame(props: ShellFrameProps) {
@@ -30,6 +32,7 @@ export function ShellFrame(props: ShellFrameProps) {
     frameHref,
     sidebar,
     children,
+    renderReplicaConversation,
     extraDialogs,
     onOpenActiveServerSettings,
     onOpenActiveServerInvite,
@@ -70,6 +73,27 @@ export function ShellFrame(props: ShellFrameProps) {
     pending: navigation.navigationPending,
     targetReady,
   })
+  const targetMain = target ? resolveCommunityModulePlan(target.href).main : null
+  const targetAnchorMessageId = target
+    ? new URLSearchParams(target.search).get("msg") ?? undefined
+    : undefined
+  const replicaConversation =
+    renderReplicaConversation &&
+    checkpoint.mode === "same-scope-leaf" &&
+    targetMain?.kind === "server-conversation" &&
+    targetMain.serverId === activeServerId &&
+    hasCoveredCommunityReplicaTarget(queryClient, targetMain.leafId, targetAnchorMessageId)
+      ? targetMain
+      : null
+  const visibleCheckpoint = replicaConversation
+    ? { ...checkpoint, main: { kind: "keep" as const } }
+    : checkpoint
+  const visibleChildren = replicaConversation
+    ? renderReplicaConversation!({
+        serverId: replicaConversation.serverId,
+        channelId: replicaConversation.leafId,
+      })
+    : children
   const projectedView = checkpoint.rail.kind === "target"
     ? checkpoint.rail.view
     : view
@@ -145,7 +169,7 @@ export function ShellFrame(props: ShellFrameProps) {
   return (
     <ShellFrameView
       breakpoint={breakpoint}
-      checkpoint={checkpoint}
+      checkpoint={visibleCheckpoint}
       sidebar={sidebar}
       extraDialogs={extraDialogs}
       cancelPendingNavigation={navigation.cancelPendingNavigation}
@@ -153,7 +177,7 @@ export function ShellFrame(props: ShellFrameProps) {
       profile={profile}
       inbox={inbox}
     >
-      {children}
+      {visibleChildren}
     </ShellFrameView>
   )
 }

@@ -7,6 +7,7 @@ export type ShellFrameProps = {
   frameHref: string
   sidebar: (opts?: { noHeader?: boolean }) => ReactNode
   children: ReactNode
+  renderReplicaConversation?: (target: { serverId: string; channelId: string }) => ReactNode
   extraDialogs?: ReactNode
   onOpenActiveServerSettings?: () => void
   onOpenActiveServerInvite?: () => void

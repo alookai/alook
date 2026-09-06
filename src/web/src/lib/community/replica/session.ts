@@ -36,6 +36,7 @@ type ActiveReplicaSession = {
   snapshotId: string
   shellProtocolVersion: number
   shellRoutes: string[]
+  validUntil: string
 }
 
 interface ReplicaControlDB extends DBSchema {
@@ -59,6 +60,7 @@ function readControlWal(): ActiveReplicaSession | null {
       || typeof value.accountId !== "string"
       || typeof value.user?.id !== "string"
       || !Array.isArray(value.shellRoutes)
+      || typeof value.validUntil !== "string"
     ) return null
     return value
   } catch {
@@ -106,6 +108,7 @@ export function hasActiveCommunityReplicaRoute(accountId: string, pathname: stri
   return active?.accountId === accountId
     && active.replicaProtocolVersion === COMMUNITY_REPLICA_PROTOCOL_VERSION
     && active.shellProtocolVersion === COMMUNITY_SHELL_PROTOCOL_VERSION
+    && Date.parse(active.validUntil) > Date.now()
     && active.shellRoutes.includes(routePath(pathname))
 }
 
@@ -147,6 +150,14 @@ export async function publishCommunityReplicaSession(
   const shellRoutes = previous?.accountId === user.id
     ? [...new Set([...previous.shellRoutes, path])]
     : [path]
+  const requestedCoverage = new Set(scopes.map(communityReplicaScopeKey))
+  const validUntil = projection.coverage
+    .filter((item) => requestedCoverage.has(communityReplicaScopeKey(item.scope)))
+    .map((item) => item.permission.validUntil)
+    .reduce((earliest, candidate) => (
+      !earliest || Date.parse(candidate) < Date.parse(earliest) ? candidate : earliest
+    ), "")
+  if (!validUntil) throw new Error("Replica permission lease is missing")
   const active: ActiveReplicaSession = {
     key: "active",
     accountId: user.id,
@@ -155,6 +166,7 @@ export async function publishCommunityReplicaSession(
     snapshotId: projection.meta.snapshotId,
     shellProtocolVersion: COMMUNITY_SHELL_PROTOCOL_VERSION,
     shellRoutes,
+    validUntil,
   }
   // The small control record is a synchronous commit point. IndexedDB remains
   // the mirrored control store, while localStorage closes the browser-kill
@@ -169,6 +181,7 @@ export async function markCommunityReplicaShellRoute(accountId: string, pathname
   const db = await connection
   const active = readControlWal() ?? await db.get("session", "active")
   if (!active || active.accountId !== accountId) return
+  if (!(Date.parse(active.validUntil) > Date.now())) return
   const path = routePath(pathname)
   if (active.shellRoutes.includes(path)) return
   const updated = { ...active, shellRoutes: [...active.shellRoutes, path] }
@@ -189,6 +202,7 @@ export async function readActiveCommunityReplicaSession(
     || active.replicaProtocolVersion !== COMMUNITY_REPLICA_PROTOCOL_VERSION
     || active.shellProtocolVersion !== COMMUNITY_SHELL_PROTOCOL_VERSION
     || !active.shellRoutes.includes(path)
+    || !(Date.parse(active.validUntil) > now)
   ) return null
   const scopes = communityReplicaRouteScopes(active.accountId, path)
   if (!scopes) return null
