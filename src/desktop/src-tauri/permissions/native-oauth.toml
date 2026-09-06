@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "native-oauth"
+description = "Native OAuth orchestration for the trusted main WebView"
+commands.allow = ["native_oauth_snapshot", "native_oauth_listen", "native_oauth_unlisten", "native_oauth_prepare", "native_oauth_open_start", "native_oauth_pending_exchange", "native_oauth_reject_candidate", "native_oauth_finish", "native_oauth_cancel"]

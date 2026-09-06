@@ -1,0 +1,22 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "native-oauth",
+  "description": "Native OAuth commands without raw event, store or deep-link access",
+  "windows": [
+    "main"
+  ],
+  "platforms": [
+    "linux",
+    "macOS",
+    "windows"
+  ],
+  "local": false,
+  "remote": {
+    "urls": [
+      "https://alook.ai"
+    ]
+  },
+  "permissions": [
+    "native-oauth"
+  ]
+}

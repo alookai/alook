@@ -1,6 +1,14 @@
 mod commands;
 
 #[cfg(desktop)]
+use tauri::Manager;
+
+#[cfg(desktop)]
+mod native_oauth;
+#[cfg(desktop)]
+mod native_oauth_runtime;
+
+#[cfg(desktop)]
 mod updater;
 
 #[cfg(desktop)]
@@ -11,7 +19,15 @@ mod macos_window;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
+    let builder = tauri::Builder::default();
+    #[cfg(desktop)]
+    let builder = builder
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            commands::show_main_window(app);
+        }))
+        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_store::Builder::default().build());
+    let builder = builder.plugin(tauri_plugin_opener::init());
 
     // Desktop-only plugins
     #[cfg(desktop)]
@@ -20,9 +36,6 @@ pub fn run() {
             .manage(zoom::ZoomState::default())
             .manage(updater::UpdatePromptState::default())
             .append_invoke_initialization_script(zoom::shortcut_script(std::env::consts::OS))
-            .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-                commands::show_main_window(app);
-            }))
             .plugin(tauri_plugin_notification::init())
             .plugin(tauri_plugin_updater::Builder::new().build())
             .plugin(tauri_plugin_dialog::init())
@@ -66,10 +79,22 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
         commands::set_window_theme,
         commands::close_splashscreen,
         zoom::desktop_zoom_shortcut,
+        native_oauth_runtime::native_oauth_snapshot,
+        native_oauth_runtime::native_oauth_listen,
+        native_oauth_runtime::native_oauth_unlisten,
+        native_oauth_runtime::native_oauth_prepare,
+        native_oauth_runtime::native_oauth_open_start,
+        native_oauth_runtime::native_oauth_pending_exchange,
+        native_oauth_runtime::native_oauth_reject_candidate,
+        native_oauth_runtime::native_oauth_finish,
+        native_oauth_runtime::native_oauth_cancel,
     ]);
 
     // System tray + window setup (desktop only)
     builder = builder.setup(|app| {
+        if native_oauth_runtime::setup(app.handle()).is_err() {
+            eprintln!("native OAuth storage unavailable");
+        }
         zoom::restore(app)?;
         commands::setup_tray(app)?;
         updater::auto_check_updates(app.handle().clone());
@@ -93,7 +118,6 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
         // macOS: inset the webview with rounded corners, window bg as frame
         #[cfg(target_os = "macos")]
         {
-            use tauri::Manager;
             if let Some(window) = app.get_webview_window("main") {
                 commands::set_window_theme(window.clone(), false);
                 macos_window::setup_inset_webview(&window);
@@ -103,7 +127,18 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
         Ok(())
     });
 
+    builder = builder.on_page_load(|webview, payload| {
+        if webview.label() == "main"
+            && matches!(payload.event(), tauri::webview::PageLoadEvent::Started)
+        {
+            native_oauth_runtime::retire_listener(webview.app_handle());
+        }
+    });
+
     builder = builder.on_window_event(|window, event| {
+        if window.label() == "main" && matches!(event, tauri::WindowEvent::Destroyed) {
+            native_oauth_runtime::retire_listener(window.app_handle());
+        }
         #[cfg(target_os = "macos")]
         if window.label() == "main"
             && matches!(
@@ -111,7 +146,6 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
                 tauri::WindowEvent::Resized(_) | tauri::WindowEvent::ScaleFactorChanged { .. }
             )
         {
-            use tauri::Manager;
             if let Some(webview) = window.app_handle().get_webview_window("main") {
                 macos_window::update_inset_webview(&webview);
             }

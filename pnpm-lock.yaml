@@ -550,6 +550,9 @@ importers:
       unique-names-generator:
         specifier: ^4.7.1
         version: 4.7.1
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
       zustand:
         specifier: ^4.5.7
         version: 4.5.7(@types/react@19.2.18)(react@19.2.8)

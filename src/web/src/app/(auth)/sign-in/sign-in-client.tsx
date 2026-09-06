@@ -12,7 +12,7 @@ import {
   FieldSeparator,
 } from "@/components/ui/field"
 import { SignInEmailField, SignInOtpField } from "./sign-in-fields"
-import { SiGithub, SiGoogle } from "@icons-pack/react-simple-icons"
+import { SocialSignIn } from "./social-sign-in"
 import { GradientBackground } from "@/components/gradient-background"
 import { Logo } from "@/components/logo"
 import { LandingShellMotion } from "@/components/home/landing-shell-motion"
@@ -233,28 +233,7 @@ function SignInForm({ postLoginUrl, isProd }: { postLoginUrl: string; isProd: bo
       <FieldSeparator className="*:data-[slot=field-separator-content]:bg-card">
         Or continue with
       </FieldSeparator>
-      <Field className="grid grid-cols-2 gap-4">
-        <Button
-          variant="outline"
-          type="button"
-          onClick={() =>
-            signIn.social({ provider: "github", callbackURL: postLoginUrl })
-          }
-        >
-          <SiGithub className="size-4" />
-          GitHub
-        </Button>
-        <Button
-          variant="outline"
-          type="button"
-          onClick={() =>
-            signIn.social({ provider: "google", callbackURL: postLoginUrl })
-          }
-        >
-          <SiGoogle className="size-4" />
-          Google
-        </Button>
-      </Field>
+      <SocialSignIn postLoginUrl={postLoginUrl} />
     </FieldGroup>
   )
 }

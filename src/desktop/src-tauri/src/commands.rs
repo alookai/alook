@@ -954,7 +954,7 @@ mod tests {
 
         let app_source = include_str!("lib.rs");
         let cargo_manifest = include_str!("../Cargo.toml");
-        for removed in ["autostart", "global_shortcut", "deep_link"] {
+        for removed in ["autostart", "global_shortcut"] {
             assert!(!app_source.contains(removed));
             assert!(!cargo_manifest.contains(&removed.replace('_', "-")));
         }

@@ -9,6 +9,7 @@ import { SignupTracker } from "@/components/signup-tracker"
 import { CommunitySessionPendingFrame } from "@/components/community/shell/community-session-pending-frame"
 import { resolveCommunityModulePlan } from "@/lib/community/community-route"
 import { AuthenticatedContextMenuBoundary } from "@/components/authenticated-context-menu-boundary"
+import { AuthenticatedNativeOauthCleanup } from "@/components/authenticated-native-oauth-cleanup"
 import {
   clearCommunityColdEntryAttempts,
   retireCommunityColdEntryAttempt,
@@ -66,6 +67,7 @@ export default function CommunityLayout({
 
   return (
     <AuthenticatedContextMenuBoundary>
+      <AuthenticatedNativeOauthCleanup />
       <SignupTracker redirectTo="/c/me/machines" />
       <CommunityShell currentUser={currentUser}>{children}</CommunityShell>
     </AuthenticatedContextMenuBoundary>

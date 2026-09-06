@@ -30,6 +30,9 @@ vi.mock("@/components/community/shell/community-session-pending-frame", () => ({
 vi.mock("@/components/signup-tracker", () => ({
   SignupTracker: (props: Record<string, unknown>) => createElement("signup-tracker", props),
 }))
+vi.mock("@/components/authenticated-native-oauth-cleanup", () => ({
+  AuthenticatedNativeOauthCleanup: () => createElement("native-oauth-cleanup"),
+}))
 import CommunityLayout from "./layout"
 
 function render() {
@@ -53,6 +56,7 @@ describe("CommunityLayout session boundary", () => {
     const renderer = render()
     expect(renderer.root.findByType("session-pending").props.pathname).toBe("/c/me")
     expect(renderer.root.findAllByType("community-shell")).toHaveLength(0)
+    expect(renderer.root.findAllByType("native-oauth-cleanup")).toHaveLength(0)
     expect(mocks.retireAttempt).not.toHaveBeenCalled()
     expect(mocks.clearAttempts).not.toHaveBeenCalled()
   })
@@ -63,6 +67,7 @@ describe("CommunityLayout session boundary", () => {
     expect(mocks.replace).toHaveBeenCalledWith("/sign-in")
     expect(mocks.clearAttempts).toHaveBeenCalledTimes(1)
     expect(renderer.root.findByType("session-pending").props.pathname).toBe("/c/me")
+    expect(renderer.root.findAllByType("native-oauth-cleanup")).toHaveLength(0)
   })
 
   it("constructs the shell only after identity is available", () => {
@@ -77,6 +82,7 @@ describe("CommunityLayout session boundary", () => {
     expect(shell.props.currentUser.id).toBe("u1")
     expect(mocks.retireAttempt).toHaveBeenCalledWith("u1", "/c/me")
     expect(mocks.clearAttempts).not.toHaveBeenCalled()
+    expect(renderer.root.findAllByType("native-oauth-cleanup")).toHaveLength(1)
   })
 
   it("preserves the public invite bypass", () => {
@@ -85,6 +91,7 @@ describe("CommunityLayout session boundary", () => {
     expect(renderer.root.findAllByType("child")).toHaveLength(1)
     expect(renderer.root.findAllByType("session-pending")).toHaveLength(0)
     expect(mocks.replace).not.toHaveBeenCalled()
+    expect(renderer.root.findAllByType("native-oauth-cleanup")).toHaveLength(0)
   })
 
   it("does not broaden the public bypass to malformed invite descendants", () => {
