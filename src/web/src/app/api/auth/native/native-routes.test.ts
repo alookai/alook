@@ -116,12 +116,24 @@ async function expectNativeOauthErrorPage(response: Response, status: number) {
   expect(response.status).toBe(status);
   expect(response.headers.get("Cache-Control")).toContain("no-store");
   expect(response.headers.get("Content-Security-Policy")).toContain("default-src 'none'");
+  expect(response.headers.get("Content-Security-Policy")).toContain("script-src 'none'");
+  expect(response.headers.get("Content-Security-Policy")).toContain("font-src data:");
   const body = await response.text();
-  expect(body).toContain("Alook");
-  expect(body).toContain('<h1 id="native-oauth-error-title">Sign-in unavailable</h1>');
+  expect(body).toContain('<div class="avatar-field" aria-hidden="true">');
+  expect(body.match(/class="avatar avatar-\d"/g)).toHaveLength(7);
+  expect(body).toContain('<span class="brand-mark" aria-hidden="true">');
+  expect(body).toContain('<span class="brand-name">Alook</span>');
+  expect(body).toContain('font-family: "DM Sans"');
+  expect(body).toContain('font-family: "Caveat"');
+  expect(body).toContain("@media (prefers-color-scheme: dark)");
+  expect(body).toContain("@media (prefers-reduced-motion: reduce)");
+  expect(body).toContain('<section aria-labelledby="return-title">');
+  expect(body).toContain('<h1 id="return-title">Sign-in unavailable</h1>');
   expect(body).toContain("Close this page and return to Alook to try again.");
   expect(body).not.toContain(ATTEMPT);
-  expect(body).not.toMatch(/(?:href|src)\s*=|<form|http-equiv=["']?refresh/i);
+  expect(body).not.toMatch(
+    /(?:href|src)\s*=|<(?:script|form|img|link|iframe|object|embed)\b|data-open-alook|http-equiv=["']?refresh/i,
+  );
   return body;
 }
 

@@ -5,10 +5,12 @@ import { renderFaceSvg } from "../src/lib/avatar/face";
 import handler, {
   ANDROID_ASSET_LINKS,
   APPLE_APP_SITE_ASSOCIATION,
+  AUTH_STATUS_PAGE_CSP,
   AUTH_RETURN_AVATAR_SEEDS,
   AUTH_WORKER_AASA_PATH,
   AUTH_WORKER_ASSET_LINKS_PATH,
   AUTH_WORKER_RETURN_PATH,
+  renderAuthStatusPage,
 } from "./index";
 
 const ATTEMPT = "attempt_1234567890123456";
@@ -115,6 +117,23 @@ describe("alook-auth Worker", () => {
     expect(body).toContain("button:focus-visible");
     expect(body.match(/<script>/g)).toHaveLength(1);
     expect(body).not.toMatch(/<(?:img|link)\b/i);
+  });
+
+  it("shares the static no-action visual for unavailable native sign-in", () => {
+    const body = renderAuthStatusPage("unavailable");
+
+    expect(AUTH_STATUS_PAGE_CSP.split("; ")).toContain("script-src 'none'");
+    expect(AUTH_STATUS_PAGE_CSP.split("; ")).toContain("font-src data:");
+    expect(body).toContain(CANONICAL_LOGO);
+    expect(body).toContain('<div class="avatar-field" aria-hidden="true">');
+    expect(body.match(/class="avatar avatar-\d"/g)).toHaveLength(
+      AUTH_RETURN_AVATAR_SEEDS.length,
+    );
+    expect(body).toContain('<h1 id="return-title">Sign-in unavailable</h1>');
+    expect(body).toContain("Close this page and return to Alook to try again.");
+    expect(body).not.toMatch(
+      /(?:href|src)\s*=|<(?:script|form|img|link|iframe|object|embed)\b|data-open-alook|http-equiv=["']?refresh/i,
+    );
   });
 
   it.each([

@@ -6,12 +6,12 @@ import {
   expireBrowserAnalyticsCookies,
   isNativeOauthAttemptId,
   isNativeOauthRequestTarget,
-  nativeOauthErrorPage,
   nativeOauthRedirect,
   nativeOauthReturnUrl,
   sanitizeOauthFailure,
   sha256Hex,
 } from "@/lib/native-oauth";
+import { nativeOauthErrorPage } from "../error-page";
 
 const log = createLogger({ service: "native-oauth/callback" });
 type CallbackKind = "signin" | "signup" | "error";

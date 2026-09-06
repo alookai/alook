@@ -6,9 +6,9 @@ import {
   isNativeOauthAttemptId,
   isNativeOauthRequestTarget,
   nativeOauthCallbackUrls,
-  nativeOauthErrorPage,
   nativeOauthRedirect,
 } from "@/lib/native-oauth";
+import { nativeOauthErrorPage } from "../error-page";
 
 const log = createLogger({ service: "native-oauth/start" });
 
