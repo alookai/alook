@@ -39,6 +39,9 @@ const COVERAGE_EXCLUDES = [
   /\.d\.ts$/,
   /^src\/cli\/src\/index\.ts$/,
   /^src\/shared\/src\/index\.ts$/,
+  // Static service-worker source is published verbatim and cannot appear in
+  // Vitest's Istanbul report; its behavior is enforced by a source contract test.
+  /^src\/web\/public\/sw\.js$/,
   /^src\/web\/scripts\//,
   /^src\/web\/readme-capture\//,
   /^src\/web\/src\/.*\.tsx$/,

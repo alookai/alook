@@ -349,6 +349,7 @@ describe("coverage name-status contract", () => {
       "src/app/scripts/app-packed-artifact.mjs",
       "src/cli/scripts/prepare-dist.mjs",
       "src/shared/src/index.ts",
+      "src/web/public/sw.js",
       "src/web/auth/vitest.config.ts",
       "src/web/vitest.config.ts",
       "src/web/vitest.runtime.config.mts",
