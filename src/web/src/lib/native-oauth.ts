@@ -51,6 +51,53 @@ export function nativeOauthHtml(
   return new Response(body, { ...init, headers });
 }
 
+const NATIVE_OAUTH_ERROR_DOCUMENT = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign-in unavailable · Alook</title>
+  <style>
+    :root { color-scheme: light dark; font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; background: #f6f7f9; color: #17191d; }
+    main { width: min(100%, 440px); }
+    .card { border: 1px solid #e2e5ea; border-radius: 18px; padding: 28px; background: #fff; box-shadow: 0 14px 40px rgb(20 24 32 / 9%); }
+    .brand { display: flex; align-items: center; gap: 10px; margin: 0 0 28px; color: #31343a; font-size: 15px; font-weight: 650; letter-spacing: .01em; }
+    .mark { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 9px; background: #17191d; color: #fff; font-size: 15px; }
+    .status { display: inline-block; margin-bottom: 12px; color: #666b75; font-size: 13px; font-weight: 600; }
+    h1 { margin: 0; font-size: clamp(24px, 6vw, 31px); line-height: 1.2; letter-spacing: -.025em; }
+    p { margin: 14px 0 0; color: #5f646d; font-size: 16px; line-height: 1.65; }
+    @media (prefers-color-scheme: dark) {
+      body { background: #111317; color: #f5f6f8; }
+      .card { border-color: #30343b; background: #1b1e23; box-shadow: 0 14px 40px rgb(0 0 0 / 28%); }
+      .brand { color: #e8eaed; }
+      .mark { background: #f5f6f8; color: #17191d; }
+      .status, p { color: #aeb3bd; }
+    }
+  </style>
+</head>
+<body>
+  <main aria-labelledby="native-oauth-error-title">
+    <section class="card" role="alert">
+      <div class="brand"><span class="mark" aria-hidden="true">A</span><span>Alook</span></div>
+      <span class="status">Authentication</span>
+      <h1 id="native-oauth-error-title">Sign-in unavailable</h1>
+      <p>Close this page and return to Alook to try again.</p>
+    </section>
+  </main>
+</body>
+</html>`;
+
+export function nativeOauthErrorPage(status: number): Response {
+  return nativeOauthHtml(NATIVE_OAUTH_ERROR_DOCUMENT, {
+    status,
+    headers: {
+      "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    },
+  });
+}
+
 export function nativeOauthRedirect(
   location: string,
   sourceHeaders?: Headers,

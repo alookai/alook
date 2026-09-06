@@ -6,18 +6,11 @@ import {
   isNativeOauthAttemptId,
   isNativeOauthRequestTarget,
   nativeOauthCallbackUrls,
-  nativeOauthHtml,
+  nativeOauthErrorPage,
   nativeOauthRedirect,
 } from "@/lib/native-oauth";
 
 const log = createLogger({ service: "native-oauth/start" });
-
-function errorPage(status: number): Response {
-  return nativeOauthHtml(
-    "<!doctype html><title>Sign-in unavailable</title><p>This sign-in request is unavailable.</p>",
-    { status },
-  );
-}
 
 export const GET = withEnv(async (request, ctx) => {
   const requestUrl = new URL(request.url);
@@ -26,13 +19,13 @@ export const GET = withEnv(async (request, ctx) => {
     !isNativeOauthRequestTarget(request, ctx.env.BETTER_AUTH_URL) ||
     !isNativeOauthAttemptId(attemptId)
   ) {
-    return errorPage(400);
+    return nativeOauthErrorPage(400);
   }
 
   try {
     const db = getPrimaryDb(ctx.env.DB);
     const attempt = await queries.nativeOauth.claimStart(db, attemptId);
-    if (!attempt) return errorPage(410);
+    if (!attempt) return nativeOauthErrorPage(410);
 
     try {
       const result = await createAuth(ctx.env).api.signInSocial({
@@ -49,10 +42,10 @@ export const GET = withEnv(async (request, ctx) => {
     } catch {
       await queries.nativeOauth.failOpenedAttempt(db, attempt.id, "start_failed");
       log.warn("native OAuth provider start failed");
-      return errorPage(502);
+      return nativeOauthErrorPage(502);
     }
   } catch {
     log.error("native OAuth start unavailable");
-    return errorPage(503);
+    return nativeOauthErrorPage(503);
   }
 });

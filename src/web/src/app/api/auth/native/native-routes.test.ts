@@ -112,6 +112,19 @@ async function loadCallbackRoute() {
   return (await import("../../../auth/native/callback/route")).GET;
 }
 
+async function expectNativeOauthErrorPage(response: Response, status: number) {
+  expect(response.status).toBe(status);
+  expect(response.headers.get("Cache-Control")).toContain("no-store");
+  expect(response.headers.get("Content-Security-Policy")).toContain("default-src 'none'");
+  const body = await response.text();
+  expect(body).toContain("Alook");
+  expect(body).toContain('<h1 id="native-oauth-error-title">Sign-in unavailable</h1>');
+  expect(body).toContain("Close this page and return to Alook to try again.");
+  expect(body).not.toContain(ATTEMPT);
+  expect(body).not.toMatch(/(?:href|src)\s*=|<form|http-equiv=["']?refresh/i);
+  return body;
+}
+
 describe("native OAuth routes", () => {
   beforeEach(() => {
     vi.resetModules();
@@ -227,7 +240,7 @@ describe("native OAuth routes", () => {
     const invalidStart = await start(
       new Request(`${BASE_URL}/auth/native/start?attempt=invalid`),
     );
-    expect(invalidStart.status).toBe(400);
+    const startBody = await expectNativeOauthErrorPage(invalidStart, 400);
     expect(queryMocks.claimStart).not.toHaveBeenCalled();
 
     vi.resetModules();
@@ -237,7 +250,8 @@ describe("native OAuth routes", () => {
         `${BASE_URL}/auth/native/callback?attempt=${ATTEMPT}&kind=invalid`,
       ),
     );
-    expect(invalidCallback.status).toBe(400);
+    const callbackBody = await expectNativeOauthErrorPage(invalidCallback, 400);
+    expect(callbackBody).toBe(startBody);
     expect(queryMocks.getOpenedAttempt).not.toHaveBeenCalled();
   });
 
@@ -271,7 +285,7 @@ describe("native OAuth routes", () => {
         }),
       }),
     );
-    expect(second.status).toBe(410);
+    await expectNativeOauthErrorPage(second, 410);
     expect(authMocks.signInSocial).toHaveBeenCalledOnce();
   });
 
@@ -290,7 +304,7 @@ describe("native OAuth routes", () => {
       new Request(`${BASE_URL}/auth/native/start?attempt=${ATTEMPT}`),
     );
 
-    expect(response.status).toBe(502);
+    await expectNativeOauthErrorPage(response, 502);
     expect(queryMocks.failOpenedAttempt).toHaveBeenCalledWith(
       db,
       ATTEMPT,
@@ -305,8 +319,7 @@ describe("native OAuth routes", () => {
       new Request(`${BASE_URL}/auth/native/start?attempt=${ATTEMPT}`),
     );
 
-    expect(response.status).toBe(503);
-    expect(response.headers.get("Cache-Control")).toContain("no-store");
+    await expectNativeOauthErrorPage(response, 503);
   });
 
   it("hashes the callback handoff and never exposes it in stored form", async () => {
@@ -368,7 +381,7 @@ describe("native OAuth routes", () => {
       ),
     );
 
-    expect(response.status).toBe(410);
+    await expectNativeOauthErrorPage(response, 410);
     expect(authMocks.generateOneTimeToken).not.toHaveBeenCalled();
   });
 
@@ -386,7 +399,7 @@ describe("native OAuth routes", () => {
       ),
     );
 
-    expect(response.status).toBe(410);
+    await expectNativeOauthErrorPage(response, 410);
   });
 
   it("fails the attempt when callback handoff generation fails", async () => {
@@ -423,8 +436,7 @@ describe("native OAuth routes", () => {
       ),
     );
 
-    expect(response.status).toBe(503);
-    expect(response.headers.get("Cache-Control")).toContain("no-store");
+    await expectNativeOauthErrorPage(response, 503);
   });
 
   it("rejects a malformed exchange before D1 or OTT verification", async () => {

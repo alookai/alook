@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   nativeOauthCallbackUrls,
+  nativeOauthErrorPage,
   nativeOauthExchangeSchema,
   nativeOauthHtml,
   nativeOauthJson,
@@ -225,5 +226,26 @@ describe("native OAuth protocol helpers", () => {
     );
     expect(response.headers.get("Cache-Control")).toBe("no-store, max-age=0");
     expect(response.headers.get("Referrer-Policy")).toBe("no-referrer");
+  });
+
+  it("renders a static, accessible, CSP-locked Alook error document", async () => {
+    const response = nativeOauthErrorPage(410);
+    const body = await response.text();
+
+    expect(response.status).toBe(410);
+    expect(response.headers.get("Content-Type")).toBe("text/html; charset=utf-8");
+    expect(response.headers.get("Cache-Control")).toBe("no-store, max-age=0");
+    expect(response.headers.get("Content-Security-Policy")).toBe(
+      "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    );
+    expect(body).toContain('<html lang="en">');
+    expect(body).toContain('<meta name="viewport"');
+    expect(body).toContain('<main aria-labelledby="native-oauth-error-title">');
+    expect(body).toContain('<h1 id="native-oauth-error-title">Sign-in unavailable</h1>');
+    expect(body).toContain("Close this page and return to Alook to try again.");
+    expect(body).toContain("prefers-color-scheme: dark");
+    expect(body).not.toMatch(
+      /<script|https?:\/\/|attempt_|(?:href|src)\s*=|<form|http-equiv=["']?refresh/i,
+    );
   });
 });

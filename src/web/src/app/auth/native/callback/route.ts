@@ -6,7 +6,7 @@ import {
   expireBrowserAnalyticsCookies,
   isNativeOauthAttemptId,
   isNativeOauthRequestTarget,
-  nativeOauthHtml,
+  nativeOauthErrorPage,
   nativeOauthRedirect,
   nativeOauthReturnUrl,
   sanitizeOauthFailure,
@@ -20,13 +20,6 @@ function isCallbackKind(value: string | null): value is CallbackKind {
   return value === "signin" || value === "signup" || value === "error";
 }
 
-function errorPage(status: number): Response {
-  return nativeOauthHtml(
-    "<!doctype html><title>Sign-in unavailable</title><p>This sign-in request is unavailable.</p>",
-    { status },
-  );
-}
-
 export const GET = withEnv(async (request, ctx) => {
   const requestUrl = new URL(request.url);
   const baseUrl = new URL(ctx.env.BETTER_AUTH_URL);
@@ -37,13 +30,13 @@ export const GET = withEnv(async (request, ctx) => {
     !isNativeOauthAttemptId(attemptId) ||
     !isCallbackKind(kind)
   ) {
-    return errorPage(400);
+    return nativeOauthErrorPage(400);
   }
 
   try {
     const db = getPrimaryDb(ctx.env.DB);
     const attempt = await queries.nativeOauth.getOpenedAttempt(db, attemptId);
-    if (!attempt) return errorPage(410);
+    if (!attempt) return nativeOauthErrorPage(410);
 
     if (kind === "error") {
       const failureCode = sanitizeOauthFailure(requestUrl.searchParams.get("error"));
@@ -64,7 +57,7 @@ export const GET = withEnv(async (request, ctx) => {
         handoffCodeHash: await sha256Hex(handoffCode),
         authKind: kind,
       });
-      if (!attached) return errorPage(410);
+      if (!attached) return nativeOauthErrorPage(410);
 
       const responseHeaders = new Headers(generated.headers);
       expireBrowserAnalyticsCookies(
@@ -90,6 +83,6 @@ export const GET = withEnv(async (request, ctx) => {
     }
   } catch {
     log.error("native OAuth callback unavailable");
-    return errorPage(503);
+    return nativeOauthErrorPage(503);
   }
 });
