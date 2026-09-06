@@ -238,7 +238,7 @@ function MessageImpl({
   const [touchMenuOpen, setTouchMenuOpen] = useState(false)
   const [touchMenuAnchor, setTouchMenuAnchor] = useState<ReturnType<typeof createMessageMenuPointAnchor> | null>(null)
   const [linkTarget, setLinkTarget] = useState<MessageExternalLinkTarget | null>(null)
-  const [desktopMenuInputSeen, setDesktopMenuInputSeen] = useState(false)
+  const [menuInputModality, setMenuInputModality] = useState<"desktop" | "touch" | null>(null)
   const linkPointerRef = useRef<{
     href: string
     pointerType: string | null
@@ -306,7 +306,9 @@ function MessageImpl({
   const showMenu = hasMessageMenu(menuHandlers)
   const interactive = !compact && !m.failed && showMenu
   const touchInputCapable = !hoverCapable
-  const touchFallbackActive = !desktopMenuInputSeen && touchInputCapable
+  const desktopMenuInputActive = menuInputModality === "desktop"
+  const touchFallbackActive = menuInputModality === "touch"
+    || (!desktopMenuInputActive && touchInputCapable)
   // A hybrid device can alternate between mouse and touch. Switching the menu
   // shell after a mouse gesture must not remove the row's touch swipe handler.
   const swipeReplyEnabled = interactive && touchInputCapable && !selectMode && !!onReply
@@ -334,7 +336,7 @@ function MessageImpl({
           // target that was just restored into the row.
           const activeElement = typeof document === "undefined" ? null : document.activeElement
           if (shouldAdoptDesktopMenuInput(pointerType, event.currentTarget, activeElement)) {
-            setDesktopMenuInputSeen(true)
+            setMenuInputModality("desktop")
           }
           activateLinkOrOverlays?.(event)
         } else if (hoverCapable) {
@@ -357,7 +359,7 @@ function MessageImpl({
           return
         }
         keyboardLinkActivationRef.current = false
-        setDesktopMenuInputSeen(true)
+        setMenuInputModality("desktop")
         activateLinkOrOverlays?.(event)
       }
     : undefined
@@ -406,8 +408,15 @@ function MessageImpl({
             if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
             keyboardLinkActivationRef.current = false
             const target = messageExternalLinkTargetFromEventTarget(event.target)
+            const pointerType = messageLinkPointerType(event.nativeEvent)
+            if (shouldActivateMessageOverlays(event.target)) {
+              if (pointerType === "mouse") setMenuInputModality("desktop")
+              else if (pointerType === "touch" || pointerType === "pen") {
+                setMenuInputModality("touch")
+              }
+            }
             linkPointerRef.current = target && event.button === 0
-              ? { href: target.href, pointerType: messageLinkPointerType(event.nativeEvent) }
+              ? { href: target.href, pointerType }
               : null
           }
         : undefined}
@@ -559,7 +568,7 @@ function MessageImpl({
               clickPointerType: messageLinkPointerType(event.nativeEvent),
               capturedPointerType: capturedPointer,
               hoverCapable,
-              desktopInputSeen: desktopMenuInputSeen || keyboardInputSeen,
+              desktopInputSeen: desktopMenuInputActive || keyboardInputSeen,
             })) return
 
             event.preventDefault()
