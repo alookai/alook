@@ -27,7 +27,7 @@ vi.mock("../../src/db/queries/community/thread", () => ({
 }));
 
 import {
-  resolveChannelRecipientUserIds,
+  resolveChannelNotificationRecipientUserIds,
   resolveScopeMemberUserIds,
   resolveScopeMembers,
 } from "../../src/db/queries/community/members-resolver";
@@ -76,7 +76,7 @@ beforeEach(() => {
   mockListMemberUserIds.mockResolvedValue([]);
 });
 
-describe("resolveChannelRecipientUserIds", () => {
+describe("resolveChannelNotificationRecipientUserIds", () => {
   const runWithPhaseLog = (phases: string[]) =>
     async <T>(phase: string, query: () => Promise<T>): Promise<T> => {
       phases.push(phase);
@@ -89,7 +89,7 @@ describe("resolveChannelRecipientUserIds", () => {
     const phases: string[] = [];
 
     await expect(
-      resolveChannelRecipientUserIds({} as Database, CHANNEL, runWithPhaseLog(phases)),
+      resolveChannelNotificationRecipientUserIds({} as Database, CHANNEL, runWithPhaseLog(phases)),
     ).resolves.toEqual(["p1", "p2"]);
 
     expect(phases).toEqual(["channel-type", "thread-participants"]);
@@ -103,7 +103,7 @@ describe("resolveChannelRecipientUserIds", () => {
     const phases: string[] = [];
 
     await expect(
-      resolveChannelRecipientUserIds({} as Database, CHANNEL, runWithPhaseLog(phases)),
+      resolveChannelNotificationRecipientUserIds({} as Database, CHANNEL, runWithPhaseLog(phases)),
     ).resolves.toEqual(["u1", "u2"]);
 
     expect(phases).toEqual(["channel-type", "dm-members"]);
@@ -117,7 +117,7 @@ describe("resolveChannelRecipientUserIds", () => {
     const phases: string[] = [];
     const db = makeDb({ select: [[{ serverId: "srv-1" }]] });
 
-    await expect(resolveChannelRecipientUserIds(db, CHANNEL, runWithPhaseLog(phases)))
+    await expect(resolveChannelNotificationRecipientUserIds(db, CHANNEL, runWithPhaseLog(phases)))
       .resolves.toEqual(["u1", "u2"]);
 
     expect(phases).toEqual(["channel-type", "scope-members"]);
@@ -131,7 +131,7 @@ describe("resolveChannelRecipientUserIds", () => {
     const phases: string[] = [];
     const db = makeDb({ select: [[{ serverId: "srv-1" }]] });
 
-    await expect(resolveChannelRecipientUserIds(db, CHANNEL, runWithPhaseLog(phases)))
+    await expect(resolveChannelNotificationRecipientUserIds(db, CHANNEL, runWithPhaseLog(phases)))
       .resolves.toEqual(["fallback"]);
     expect(phases).toEqual(["channel-type", "scope-members"]);
   });
@@ -143,7 +143,7 @@ describe("resolveChannelRecipientUserIds", () => {
     const phases: string[] = [];
 
     await expect(
-      resolveChannelRecipientUserIds({} as Database, CHANNEL, runWithPhaseLog(phases)),
+      resolveChannelNotificationRecipientUserIds({} as Database, CHANNEL, runWithPhaseLog(phases)),
     ).rejects.toBe(failure);
     expect(phases).toEqual(["channel-type", "thread-participants"]);
   });

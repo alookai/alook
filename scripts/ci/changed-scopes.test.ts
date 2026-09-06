@@ -310,6 +310,23 @@ describe("canonical execution plan", () => {
 })
 
 describe("coverage name-status contract", () => {
+  it("excludes E2E support files according to Web's Vitest project boundary", () => {
+    const webConfig = readFileSync("src/web/vitest.config.ts", "utf8")
+    expect(webConfig).toContain('"src/test/e2e/**"')
+    expect(webConfig).toContain('"src/test/e2e-ui/**"')
+    const fixtures = [
+      "src/web/src/test/e2e-ui/_fixtures/community-notification-requests.ts",
+      "src/web/src/test/e2e-ui/_setup/global-setup.ts",
+      "src/web/src/test/e2e/_fixtures/session.ts",
+    ]
+    const product = "src/web/src/lib/community/message-dispatcher.ts"
+    const lookalike = "src/web/src/test/e2e-ui-helpers/session.ts"
+    const result = plan([...fixtures, product, lookalike])
+    expect(result.coverage.required_changed_files).toEqual([product, lookalike])
+    expect(result.jobs.ui_e2e).toBe(true)
+    expect(result.coverage.targets).toContain("web")
+  })
+
   it("requires surviving A/M and rename/copy new sides but not deleted or old paths", () => {
     const result = buildExecutionPlan([
       { status: "A", path: "src/cli/src/added.ts" },

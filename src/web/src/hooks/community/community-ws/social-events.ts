@@ -117,6 +117,7 @@ export function handleMentionCreate(
   }: SocialEventContext,
 ) {
   const viewerId = viewerUserIdRef.current
+  if (!viewerId || event.userId !== viewerId) return
   if (viewerId && event.userId === viewerId && event.channelId) {
     const candidate = messageEvidenceByChannel?.get(event.channelId)
     const evidence = candidate?.messageId === event.messageId ? candidate : undefined

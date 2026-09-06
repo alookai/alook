@@ -97,6 +97,8 @@ export const mockTimeoutPendingDiagnosticReportsForMachine = vi.fn().mockResolve
 export const mockGetNextPendingDiagnosticDeadlineForMachine = vi.fn().mockResolvedValue(null)
 export const mockGetCoMemberUserIds = vi.fn<(db: unknown, userId: string) => Promise<string[]>>().mockResolvedValue([])
 export const mockGetFriendUserIds = vi.fn<(db: unknown, userId: string) => Promise<string[]>>().mockResolvedValue([])
+export const mockListReadableChannelsForUser = vi.fn()
+const mockGetReadableMessageChannelId = vi.fn()
 export const mockGetChannelForMember = vi.fn()
 export const mockListChannelMemberUserIds = vi.fn<(db: unknown, channelId: string) => Promise<string[]>>().mockResolvedValue([])
 export const mockIsChannelPrivate = vi.fn<(db: unknown, channelId: string) => Promise<boolean>>().mockResolvedValue(false)
@@ -105,13 +107,12 @@ export const mockResolveScopeMemberUserIds = vi.fn<(db: unknown, opts: { scope: 
 // Default: non-thread channel → typing uses the shared resolver path.
 export const mockGetChannelType = vi.fn<(db: unknown, channelId: string) => Promise<string | null>>().mockResolvedValue("text")
 export const mockListThreadParticipantUserIds = vi.fn<(db: unknown, channelId: string) => Promise<string[]>>().mockResolvedValue([])
-async function resolveChannelRecipientUserIdsMock(db: unknown, channelId: string): Promise<string[]> {
+async function resolveChannelContentRecipientUserIdsMock(db: unknown, channelId: string): Promise<string[]> {
   const type = await mockGetChannelType(db, channelId)
-  if (type === "thread") return mockListThreadParticipantUserIds(db, channelId)
   if (type === "dm") return mockListChannelMemberUserIds(db, channelId)
   return mockResolveScopeMemberUserIds(db, { scope: "channel", scopeId: channelId })
 }
-export const mockResolveChannelRecipientUserIds = vi.fn(resolveChannelRecipientUserIdsMock)
+export const mockResolveChannelRecipientUserIds = vi.fn(resolveChannelContentRecipientUserIdsMock)
 export const mockWithD1Retry = vi.fn(async <T>(fn: () => Promise<T>, _opts?: unknown): Promise<T> => fn())
 export const mockGetDM = vi.fn()
 export const mockListMembers = vi.fn()
@@ -442,6 +443,8 @@ vi.mock("@alook/shared", async () => {
         getFriendUserIds: (...a: [unknown, string]) => mockGetFriendUserIds(...a),
       },
       communityChannel: {
+        listReadableChannelsForUser: (...a: unknown[]) => mockListReadableChannelsForUser(...a),
+        getReadableMessageChannelId: (...a: unknown[]) => mockGetReadableMessageChannelId(...a),
         getChannelForMember: (...a: any[]) => mockGetChannelForMember(...a),
         getChannelType: (...a: any[]) => mockGetChannelType(...a),
         listChannelMemberUserIds: (...a: any[]) => mockListChannelMemberUserIds(...a),
@@ -450,7 +453,7 @@ vi.mock("@alook/shared", async () => {
       },
       communityMembersResolver: {
         resolveScopeMemberUserIds: (...a: any[]) => mockResolveScopeMemberUserIds(...a),
-        resolveChannelRecipientUserIds: (...a: [unknown, string]) =>
+        resolveChannelContentRecipientUserIds: (...a: [unknown, string]) =>
           mockResolveChannelRecipientUserIds(...a),
       },
       communityThread: {
@@ -514,6 +517,8 @@ export const flushAsyncWork = async () => {
 }
 export function resetHarness() {
     vi.clearAllMocks()
+    mockListReadableChannelsForUser.mockImplementation(async (_db, _userId, ids: string[]) => ids.map((id) => ({ id, serverId: null, parentChannelId: null })))
+    mockGetReadableMessageChannelId.mockResolvedValue("ch-1")
     // `clearAllMocks` doesn't undo a `mockResolvedValue` set by a prior test —
     // re-pin these two to their empty default so presence-audience tests
     // don't leak state into unrelated auth-flow tests.
@@ -530,7 +535,7 @@ export function resetHarness() {
     mockListThreadParticipantUserIds.mockResolvedValue([])
     mockListChannelMemberUserIds.mockResolvedValue([])
     mockResolveScopeMemberUserIds.mockResolvedValue([])
-    mockResolveChannelRecipientUserIds.mockImplementation(resolveChannelRecipientUserIdsMock)
+    mockResolveChannelRecipientUserIds.mockImplementation(resolveChannelContentRecipientUserIdsMock)
     mockWithD1Retry.mockImplementation(async <T>(fn: () => Promise<T>, _opts?: unknown): Promise<T> => fn())
     mockGetBotBinding.mockResolvedValue(null)
     mockGetBotBindingWithOwner.mockResolvedValue(null)

@@ -49,6 +49,15 @@ describe("useCommunityWs — member events", () => {
       actors: [],
     })
 
+    useMessageStreamStore.getState().dispatch(
+      { kind: "channel", id: "stream-only-child", serverId: "srv_1" },
+      { type: "wsMessage", message: {
+        id: "stream-only-message", seq: 1, authorId: "author", authorName: "Author",
+        authorAvatar: "", authorAvatarVersion: 0, content: "private", type: "chat",
+        createdAt: "2026-09-05T00:00:00.000Z",
+      } },
+    )
+
     capturedOnMessage!({
       type: "community:member.leave",
       serverId: "srv_1",
@@ -396,64 +405,20 @@ describe("useCommunityWs — member events", () => {
   })
 })
 describe("useCommunityWs — channel.member_add/remove → invalidate rosters", () => {
-  it("keeps a viewer's cached raw row fenced across remove then add until fresh access confirms", async () => {
+  it("retires notification arrivals on participant removal without retiring access", async () => {
     await mountHook({ viewerUserId: "u_me" })
-    const sidebarKey = communityKeys.forumSidebarThreads("srv_1")
-    capturedQueryClient.setQueryData(sidebarKey, forumSidebarFixture(["private"]))
-    const unreadProjection = getAccountUnreadProjection(capturedQueryClient, "u_me")
-    unreadProjection.recordArrival({ channelId: "private", serverId: "srv_1", seq: 1 })
-
-    capturedOnMessage!({
-      type: "community:channel.member_remove",
-      serverId: "srv_1",
-      channelId: "private",
-      userId: "u_me",
-    })
-    expect(unreadProjection.projectUnread("inbox-unreads", "private", true, 1)).toBe(false)
-
-    const apiFetch = getCommunityApiFetchMock()
-    apiFetch.mockImplementation(async (url: string) => {
-      if (url === "/api/community/users/me/read-state") {
-        return { revision: 0, readStates: [] }
-      }
-      if (url.startsWith("/api/community/servers/srv_1/channels?")) {
-        return {
-          channels: [],
-          canonicalChannels: [],
-          retainedChannel: {
-            id: "private",
-            name: "Private",
-            parentChannelId: "forum_1",
-            parentMessageId: "opener-private",
-            activityAt: "2026-08-01T00:00:00.000Z",
-            expiresAt: "2099-08-04T00:00:00.000Z",
-            unread: false,
-            serverId: "srv_1",
-            type: "thread",
-          },
-          retainedDisposition: "eligible",
-          included: {
-            parentMessages: [{ id: "opener-private", content: "Private" }],
-          },
-          serverNow: "2026-08-01T00:00:00.000Z",
-        }
-      }
-      throw new Error(`unexpected API fetch: ${url}`)
-    })
-    capturedOnMessage!({
-      type: "community:channel.member_add",
-      serverId: "srv_1",
-      channelId: "private",
-      userId: "u_me",
-    })
-    await vi.waitFor(() => expect(
-      capturedQueryClient.getQueryData(communityKeys.forumSidebarRetained("srv_1", "private")),
-    ).toMatchObject({ id: "private" }))
-    expect(unreadProjection.projectUnread("inbox-unreads", "private", true, 1)).toBe(false)
-
-    unreadProjection.recordArrival({ channelId: "private", serverId: "srv_1", seq: 2 })
-    expect(unreadProjection.projectUnread("inbox-unreads", "private", true, 2)).toBe(true)
+    const { useCommunityWsStore } = await import("@/stores/community/ws")
+    const epoch = useCommunityWsStore.getState().accessEpoch
+    capturedQueryClient.setQueryData(communityKeys.channelMeta("srv_1", "private"), { type: "thread", verifiedEpoch: epoch })
+    const projection = getAccountUnreadProjection(capturedQueryClient, "u_me")
+    projection.recordArrival({ channelId: "private", serverId: "srv_1", seq: 1 })
+    capturedOnMessage!({ type: "community:channel.member_remove", serverId: "srv_1", channelId: "private", userId: "u_me" })
+    expect(projection.projectUnread("inbox-unreads", "private", true, 1)).toBe(false)
+    expect(useCommunityWsStore.getState().isChannelAccessRevoked("private")).toBe(false)
+    projection.recordArrival({ channelId: "private", serverId: "srv_1", seq: 2 })
+    expect(projection.projectUnread("inbox-unreads", "private", false)).toBe(true)
   })
+
 
   it("member_add invalidates channelMembers AND threadParticipants for a child thread", async () => {
     await mountHook()
@@ -547,6 +512,10 @@ describe("useCommunityWs — channel.member_add/remove → invalidate rosters", 
       parentMessageId: "opener-post_1",
     })
 
+    const { useCommunityWsStore } = await import("@/stores/community/ws")
+    for (const id of ["post_1", "post_2"]) capturedQueryClient.setQueryData(
+      communityKeys.channelMeta("srv_1", id), { type: "thread", verifiedEpoch: useCommunityWsStore.getState().accessEpoch },
+    )
     capturedOnMessage!({
       type: "community:channel.member_remove",
       serverId: "srv_1",
@@ -554,7 +523,7 @@ describe("useCommunityWs — channel.member_add/remove → invalidate rosters", 
       userId: "u_me",
     })
     expect(capturedQueryClient.getQueryData<ReturnType<typeof forumSidebarFixture>>(key)?.threads).toEqual([])
-    expect(useCommunityStore.getState().currentChannelMeta).toBeNull()
+    expect(useCommunityStore.getState().currentChannelMeta?.name).toBe("Private forum title")
 
     capturedQueryClient.setQueryData(key, forumSidebarFixture([]))
     capturedOnMessage!({
@@ -630,5 +599,83 @@ describe("useCommunityWs — channel.member_add/remove → invalidate rosters", 
     expect(capturedQueryClient.getQueryState(metaKey)).toBeUndefined()
     expect(capturedQueryClient.getQueryData(hintKey)).toBe(before.hint)
     expect(useCommunityStore.getState().currentChannelMeta).toBeNull()
+  })
+})
+
+describe("membership metadata and access lifetime", () => {
+  it("resolves a cold notify removal without evicting readable content", async () => {
+    await mountHook({ viewerUserId: "u_me" })
+    const api = getCommunityApiFetchMock()
+    api.mockResolvedValue({ id: "child", serverId: "server", type: "thread", parentChannelId: "parent", parentMessageId: "opener", name: "Child", archived: false })
+    const key = communityKeys.channelMessages("child")
+    const content = { pages: [{ messages: [{ id: "m1", content: "readable" }] }] }
+    capturedQueryClient.setQueryData(key, content)
+    capturedOnMessage!({ type: "community:channel.member_remove", channelId: "child", serverId: "server", userId: "u_me" })
+    await vi.waitFor(() => expect(capturedQueryClient.getQueryData(communityKeys.channelMeta("server", "child"))).toMatchObject({ type: "thread" }))
+    expect(capturedQueryClient.getQueryData(key)).toEqual(content)
+  })
+
+  it.each([403, 404, 500])("distinguishes authoritative %s from a temporary metadata failure", async (status) => {
+    await mountHook({ viewerUserId: "u_me" })
+    const { ApiError } = await import("@/lib/errors")
+    const { useCommunityWsStore } = await import("@/stores/community/ws")
+    getCommunityApiFetchMock().mockRejectedValue(new ApiError("lookup failed", status))
+    const key = communityKeys.channelMessages("child")
+    capturedQueryClient.setQueryData(key, { pages: [] })
+    capturedOnMessage!({ type: "community:channel.member_remove", channelId: "child", serverId: "server", userId: "u_me" })
+    await vi.waitFor(() => expect(getCommunityApiFetchMock()).toHaveBeenCalledWith("/api/community/channels/child", expect.anything()))
+    await vi.waitFor(() => expect(capturedQueryClient.getQueryState(communityKeys.channelMeta("server", "child"))?.fetchStatus ?? "idle").toBe("idle"))
+    expect(useCommunityWsStore.getState().isChannelAccessRevoked("child")).toBe(status !== 500)
+    expect(capturedQueryClient.getQueryData(key) === undefined).toBe(status !== 500)
+  })
+
+  it("discards a slow removal after a newer add and a slow metadata result after server leave", async () => {
+    await mountHook({ viewerUserId: "u_me" })
+    const { useCommunityWsStore } = await import("@/stores/community/ws")
+    let release!: (value: unknown) => void
+    const api = getCommunityApiFetchMock()
+    api.mockImplementationOnce(() => new Promise((resolve) => { release = resolve }))
+    capturedOnMessage!({ type: "community:channel.member_remove", channelId: "child", serverId: "server", userId: "u_me" })
+    await vi.waitFor(() => expect(release).toBeTypeOf("function"))
+    const meta = { id: "child", serverId: "server", type: "thread", parentChannelId: "parent", parentMessageId: "opener", archived: false }
+    api.mockResolvedValue(meta)
+    capturedOnMessage!({ type: "community:channel.member_add", channelId: "child", serverId: "server", userId: "u_me" })
+    await vi.waitFor(() => expect(capturedQueryClient.getQueryData(communityKeys.channelMeta("server", "child"))).toMatchObject({ type: "thread" }))
+    release({ ...meta, type: "text", parentChannelId: null })
+    await Promise.resolve()
+    expect(useCommunityWsStore.getState().isChannelAccessRevoked("child")).toBe(false)
+    expect(capturedQueryClient.getQueryData(communityKeys.channelMeta("server", "child"))).toMatchObject({ type: "thread" })
+
+    let releaseAfterLeave!: (value: unknown) => void
+    api.mockImplementationOnce(() => new Promise((resolve) => { releaseAfterLeave = resolve }))
+    capturedOnMessage!({ type: "community:channel.member_add", channelId: "other", serverId: "server", userId: "u_me" })
+    await vi.waitFor(() => expect(releaseAfterLeave).toBeTypeOf("function"))
+    capturedOnMessage!({ type: "community:member.leave", serverId: "server", userId: "u_me" })
+    releaseAfterLeave({ ...meta, id: "other" })
+    await Promise.resolve()
+    expect(useCommunityWsStore.getState().isChannelAccessRevoked("other", "server")).toBe(true)
+    expect(capturedQueryClient.getQueryData(communityKeys.channelMeta("server", "other"))).toBeUndefined()
+  })
+
+  it("evicts private descendants and ignores late content after parent removal", async () => {
+    await mountHook({ viewerUserId: "u_me" })
+    const { useCommunityWsStore } = await import("@/stores/community/ws")
+    const { useCommunityStore } = await import("@/stores/community")
+    const ws = useCommunityWsStore.getState()
+    ws.rememberChannelAccess("server", "parent")
+    ws.rememberChannelAccess("server", "child", "parent")
+    capturedQueryClient.setQueryData(communityKeys.channelMeta("server", "parent"), { id: "parent", type: "forum", verifiedEpoch: ws.accessEpoch })
+    capturedQueryClient.setQueryData(communityKeys.channelMeta("server", "child"), { id: "child", type: "thread", parentChannelId: "parent" })
+    capturedQueryClient.setQueryData(communityKeys.pins("child"), { pins: [{ id: "m1" }] })
+    useCommunityStore.getState().setCurrentServerId("server")
+    useCommunityStore.getState().setCurrentChannelId("child")
+    useCommunityStore.getState().subscribe({ channelId: "child" })
+    capturedOnMessage!({ type: "community:channel.member_remove", channelId: "parent", serverId: "server", userId: "u_me" })
+    expect(capturedQueryClient.getQueryData(communityKeys.pins("child"))).toBeUndefined()
+    expect(useCommunityStore.getState().currentChannelId).toBeNull()
+    capturedOnMessage!({ type: "community:message.create", channelId: "child", parentChannelId: "parent", serverId: "server", message: {
+      id: "late", seq: 2, authorId: "author", authorName: "Author", authorAvatarVersion: 0, content: "late", type: "chat", createdAt: "2026-09-06T00:00:00.000Z",
+    } })
+    expect(getMessageOverlay({ kind: "channel", id: "child", serverId: "server" }).liveById.size).toBe(0)
   })
 })

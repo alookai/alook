@@ -94,6 +94,34 @@ describe("message delivery route", () => {
     vi.resetModules()
   })
 
+  it("settles mixed delivered and revoked targets while retaining temporary failures for retry", async () => {
+    const inputs = new Map<string, InternalBundleBody[]>()
+    let failTransient = true
+    doMock.stubFetch.mockImplementation(async (request: Request) => {
+      const target = decodeURIComponent(request.headers.get(INTERNAL_USER_TARGET_HEADER)!)
+      const body = await request.clone().json() as InternalBundleBody
+      inputs.set(target, [...(inputs.get(target) ?? []), body])
+      if (target === "revoked") return Response.json({
+        status: "cancelled", reason: "access-revoked", targetUserId: target,
+        operationId: body.operationId, operationDigest: body.operationDigest, eventCount: body.events.length,
+      })
+      if (target === "transient" && failTransient) return Response.json({ error: "D1 unavailable" }, { status: 503 })
+      return successfulReceipt(request)
+    })
+    const mixed = { messageId: batch.messageId, messageEvent, contentUserIds: ["success", "revoked", "transient"], unreadPlainUserIds: ["success", "revoked", "transient"], unreadMentionUserIds: [], mentionUserIds: [] }
+    const first = await handler.fetch(await deliveryRequest(mixed), env as never)
+    expect(first.status).toBe(207)
+    expect(await first.json()).toEqual({ failedUserIds: ["transient"] })
+    failTransient = false
+    const retry = { ...mixed, contentUserIds: ["transient"], unreadPlainUserIds: ["transient"] }
+    const second = await handler.fetch(await deliveryRequest(retry), env as never)
+    expect(await second.json()).toEqual({ failedUserIds: [] })
+    expect(inputs.get("success")).toHaveLength(1)
+    expect(inputs.get("revoked")).toHaveLength(1)
+    expect(inputs.get("transient")).toHaveLength(2)
+    expect(inputs.get("transient")![0]).toEqual(inputs.get("transient")![1])
+  })
+
   it("inverts buckets into one ordered bundle per user", async () => {
     doMock.stubFetch.mockImplementation(successfulReceipt)
 

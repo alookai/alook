@@ -25,7 +25,7 @@ function messageFrame(frame: CapturedCommunityFrame, channelId: string, content:
 }
 
 test.describe.serial("committed message delivery QA", () => {
-  test("Q4: a parent-only forum viewer gets the parent projection and no child message", async ({ asUser }) => {
+  test("Q4: a readable nonparticipant gets child content and parent projection without notifications", async ({ asUser }) => {
     const serverId = await seedServer("alice", `Parent projection ${Date.now()}`)
     const forumId = await seedChannel("alice", serverId, "parent-projection", "forum")
     await seedJoinServer("alice", "bob", serverId)
@@ -33,11 +33,13 @@ test.describe.serial("committed message delivery QA", () => {
     const threadId = await seedForumThread("alice", forumId, `Projection ${Date.now()}`, "opener")
 
     const carol = await asUser("carol")
-    let armed = false
     const carolProxy = await proxyCommunityWebSockets(carol.context)
     await gotoAfterUserWsAuth(carol.page, `/c/channels/${serverId}/${forumId}`)
     await expect(carol.page.getByTestId(tid.forumThreadCard(threadId))).toBeVisible({ timeout: 20_000 })
-    armed = true
+    const membersBefore = await carol.page.request.get(`/api/community/channels/${threadId}/members`)
+    expect(membersBefore.status()).toBe(200)
+    expect((await membersBefore.json() as { members: Array<{ id: string }> }).members.map((member) => member.id)).not.toContain(userId("carol"))
+    const frameStart = carolProxy.frames.length
 
     const bob = await asUser("bob")
     await gotoAfterUserWsAuth(bob.page, `/c/channels/${serverId}/${threadId}`)
@@ -45,12 +47,20 @@ test.describe.serial("committed message delivery QA", () => {
     const body = `participant reply ${Date.now()}`
     await sendMessage(bob.page, body)
 
-    await expect.poll(() => carolProxy.frames.some((frame) => armed
-      && communityFrameEvents(frame).some((event) =>
+    await expect.poll(() => carolProxy.frames.slice(frameStart).some((frame) => communityFrameEvents(frame).some((event) =>
         event.type === "community:channel.child_update"
         && event.parentChannelId === forumId
         && event.channelId === threadId)), { timeout: 20_000 }).toBe(true)
-    expect(carolProxy.frames.some((frame) => messageFrame(frame, threadId, body))).toBe(false)
+    await expect.poll(() => carolProxy.frames.slice(frameStart).some((frame) => messageFrame(frame, threadId, body))).toBe(true)
+    const childDelivery = carolProxy.frames.slice(frameStart).find((frame) => messageFrame(frame, threadId, body))!
+    expect(communityFrameEvents(childDelivery).filter((event) =>
+      event.type === "community:unread.bump" || event.type === "community:mention.create")).toEqual([])
+    expect(carolProxy.frames.slice(frameStart).flatMap(communityFrameEvents).filter((event) =>
+      event.channelId === threadId && event.userId === userId("carol")
+      && (event.type === "community:unread.bump" || event.type === "community:mention.create" || event.type === "community:channel.member_add"))).toEqual([])
+    const membersAfter = await carol.page.request.get(`/api/community/channels/${threadId}/members`)
+    expect(membersAfter.status()).toBe(200)
+    expect((await membersAfter.json() as { members: Array<{ id: string }> }).members.map((member) => member.id)).not.toContain(userId("carol"))
     await expect(carol.page.getByText(body, { exact: false })).toHaveCount(0)
   })
 

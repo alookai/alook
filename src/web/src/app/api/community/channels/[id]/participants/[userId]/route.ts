@@ -77,7 +77,7 @@ export const DELETE = withCommunityActor(async (req: NextRequest, ctx) => {
     channelId,
     userId: targetUserId,
   } as const
-  const remaining = await queries.communityThread.listThreadParticipantUserIds(db, channelId)
+  const remaining = await queries.communityMembersResolver.resolveChannelContentRecipientUserIds(db, channelId)
   await Promise.all(
     [...new Set([...remaining, targetUserId])].map((userId) =>
       broadcastToUserSafe(userId, event),

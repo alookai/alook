@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
+import { decodeCommunityBrowserEvent } from "@alook/shared"
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
@@ -9,7 +10,7 @@ const mockResolveChannelAccessContext = vi.fn()
 const mockResolveTargetForMember = vi.fn()
 const mockParseRef = vi.hoisted(() => vi.fn())
 const mockDeleteThreadParticipantWithCreatorHandoff = vi.fn()
-const mockListThreadParticipantUserIds = vi.fn()
+const mockResolveChannelContentRecipientUserIds = vi.fn()
 const mockBroadcastToUserSafe = vi.fn()
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
@@ -33,8 +34,8 @@ vi.mock("@alook/shared", async () => {
         deleteThreadParticipantWithCreatorHandoff: (...a: unknown[]) =>
           mockDeleteThreadParticipantWithCreatorHandoff(...a),
       },
-      communityThread: {
-        listThreadParticipantUserIds: (...a: unknown[]) => mockListThreadParticipantUserIds(...a),
+      communityMembersResolver: {
+        resolveChannelContentRecipientUserIds: (...a: unknown[]) => mockResolveChannelContentRecipientUserIds(...a),
       },
     },
   }
@@ -86,12 +87,16 @@ describe("DELETE /channels/[id]/participants/[userId] — leave", () => {
     mockResolveChannelAccessContext.mockResolvedValue(threadCtx())
     mockResolveTargetForMember.mockResolvedValue({ kind: "channel", channelId: "t1" })
     mockDeleteThreadParticipantWithCreatorHandoff.mockResolvedValue({ id: "tp1" })
-    mockListThreadParticipantUserIds.mockResolvedValue(["u2", "u3"])
+    mockResolveChannelContentRecipientUserIds.mockResolvedValue(["u2", "u3"])
   })
 
   it("thread creator leaves after creator handoff and removes their own row", async () => {
     const res = await DELETE(delReq(), { params: { id: "t1", userId: "u1" } } as any)
     expect(res.status).toBe(204)
+    for (const [, event] of mockBroadcastToUserSafe.mock.calls) {
+      expect(Object.keys(event).sort()).toEqual(["channelId", "serverId", "type", "userId"])
+      expect(decodeCommunityBrowserEvent(event).ok).toBe(true)
+    }
     expect(mockDeleteThreadParticipantWithCreatorHandoff).toHaveBeenCalledWith(
       expect.anything(),
       "t1",

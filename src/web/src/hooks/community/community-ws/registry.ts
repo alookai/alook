@@ -1,3 +1,4 @@
+import { useCommunityWsStore } from "@/stores/community/ws"
 import type { CommunityWsEvent } from "@alook/shared"
 import type { CommunityWsReconcilePolicy } from "@/lib/analytics"
 import type {
@@ -163,6 +164,16 @@ export function dispatchCommunityWsEvents(
       messageEvidenceByChannel,
     }
     for (const event of events) {
+      const channelId = "channelId" in event ? event.channelId
+        : event.type === "community:channel.child_create" ? event.channel.id
+        : event.type === "community:channel.create" ? event.channel.id
+        : undefined
+      const serverId = "serverId" in event ? event.serverId : undefined
+      const parentChannelId = "parentChannelId" in event ? event.parentChannelId : undefined
+      if (channelId
+        && !["community:channel.member_add", "community:channel.member_remove", "community:channel.delete"].includes(event.type)
+        && useCommunityWsStore.getState().isChannelAccessRevoked(channelId, serverId, parentChannelId ?? undefined)) continue
+      if (channelId && serverId) useCommunityWsStore.getState().observeChannelScope(serverId, channelId, parentChannelId)
       const entry = communityWsRegistry[event.type] as RegistryEntry<typeof event.type>
       entry.handler(event, handlerContext)
     }

@@ -92,7 +92,7 @@ describe("child channel metadata stale rendering", () => {
     })
     await waitFor(() => apiFetchMock.mock.calls.length === 1)
 
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/channels/post-1")
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/channels/post-1", { signal: expect.any(AbortSignal) })
     expect(queryClient.getQueryData(
       communityKeys.channelMeta("server-1", "post-1"),
     )).toMatchObject({ id: "post-1", parentChannelId: "forum-1" })

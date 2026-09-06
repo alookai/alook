@@ -29,32 +29,15 @@ async function getServerMemberUserIds(db: Database, serverId: string): Promise<s
   return queries.communityMember.listMemberUserIds(db, serverId)
 }
 
-/**
- * Resolves the recipient set for a channel event.
- *
- * - THREAD (`type="thread"`, including a post — a thread rooted directly
- *   under a forum) → the unit's NOTIFY set (its participant rows) — the
- *   notification dimension: message events reach only participants (join by
- *   spoke/mention/added), NOT the whole parent channel or server, and NOT
- *   admins (never auto-participants). A public post therefore doesn't blast
- *   the whole server, and a private post doesn't ping every roster member on
- *   every message — only the people actually involved.
- * - DM (`type="dm"`) → its two `relation='access'` members. A DM has
- *   `server_id = NULL`, so it must NOT fall through to the server-scoped
- *   resolver (which would query `server_id = NULL` and return an empty set).
- * - channel / forum → the access audience via the shared resolver
- *   (public/private split; a forum owns its roster like a text channel).
- *
- * The split lives here so fan-out and bot-wake use the same recipient set.
- */
 async function getChannelRecipientUserIds(db: Database, channelId: string): Promise<string[]> {
   const retryRoute = {
     "channel-type": "fanout:channel-type",
     "thread-participants": "fanout:thread-participants",
     "dm-members": "fanout:dm-members",
     "scope-members": "fanout:scope-members",
+    "readable-members": "fanout:readable-members",
   } as const
-  return queries.communityMembersResolver.resolveChannelRecipientUserIds(
+  return queries.communityMembersResolver.resolveChannelContentRecipientUserIds(
     db,
     channelId,
     (phase, query) => withD1Retry(query, { route: retryRoute[phase] }),

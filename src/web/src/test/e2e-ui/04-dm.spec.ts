@@ -4,18 +4,16 @@ import { tid } from "./_fixtures/testids"
 import { sendMessage } from "./_fixtures/actions"
 import { proxyCommunityWebSockets } from "./_fixtures/community-ws-proxy"
 import { seedDm, seedBlock, seedDmMessage } from "./_fixtures/seed"
+import { captureNotificationRequests, gotoAfterNotificationStartup, notificationPaths, notificationResponsesFinished } from "./_fixtures/community-notification-requests"
 
 // Journey 4 — DMs. human↔human needs only not-blocked (no friendship). Covers
 // the new-conversation-appears-live path and the blocked-composer regression.
 test.describe.serial("direct messages", () => {
-  test("an Inbox first-DM click commits immediately and stays on the conversation", async ({ asUser }) => {
+  test("an Inbox first-DM click commits immediately and stays on the conversation", async ({ asUser }, testInfo) => {
     const bob = await asUser("bob")
-    const initialDms = bob.page.waitForResponse((response) =>
-      response.request().method() === "GET"
-      && new URL(response.url()).pathname === "/api/community/users/me/dms",
-    )
-    await bob.page.goto("/c/me")
-    expect((await initialDms).status()).toBe(200)
+    const trace = captureNotificationRequests(bob.page)
+    const proxy = await gotoAfterNotificationStartup(bob.page, bob.context, trace)
+    trace.phase("notification")
 
     let releaseCanonical!: () => void
     let canonicalFinished!: () => void
@@ -39,9 +37,13 @@ test.describe.serial("direct messages", () => {
       }
     })
 
+    const notificationRefresh = notificationResponsesFinished(bob.page, notificationPaths.filter((path) => path.includes("/inbox/")))
     const dmId = await seedDm("alice", userId("bob"))
     const body = `first inbox DM ${Date.now()}`
     const messageId = await seedDmMessage("alice", dmId, body)
+    await expect.poll(() => trace.events.some((event) =>
+      event.type === "community:unread.bump" && event.channelId === dmId && event.userId === userId("bob"))).toBe(true)
+    await notificationRefresh
     await expect.poll(() => dmsGets).toBe(1)
     const routeHistory: string[] = []
     const recordRoute = (frame: Frame) => {
@@ -53,7 +55,9 @@ test.describe.serial("direct messages", () => {
       await bob.page.getByRole("button", { name: "Inbox" }).click()
       const inboxRow = bob.page.getByTestId(tid.inboxUnreadDm(dmId))
       await expect(inboxRow).toBeVisible({ timeout: 20_000 })
+      trace.phase("click")
       const dmsGetsBeforeClick = dmsGets
+      expect(dmsGetsBeforeClick).toBe(1)
       await inboxRow.click()
 
       await bob.page.waitForURL(new RegExp(`/c/me/${dmId}$`), {
@@ -70,12 +74,17 @@ test.describe.serial("direct messages", () => {
       await expect(bob.page.getByText(body, { exact: false }).first()).toBeVisible({ timeout: 20_000 })
       await expect(bob.page).toHaveURL(new RegExp(`/c/me/${dmId}$`))
       expect(routeHistory).not.toContain("/c/me")
+      trace.phase("click-complete")
       expect(dmsGets - dmsGetsBeforeClick).toBe(0)
     } finally {
       releaseCanonical()
       await canonicalSettled
       bob.page.off("framenavigated", recordRoute)
       await bob.page.unroute(dmsPattern)
+      await testInfo.attach("community-request-timeline", {
+        body: JSON.stringify({ connectionFrames: proxy.connectionFrames, timeline: trace.timeline, dmsGets }, null, 2),
+        contentType: "application/json",
+      })
     }
   })
 

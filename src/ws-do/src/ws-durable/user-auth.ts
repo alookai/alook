@@ -10,6 +10,7 @@ import {
 import {
   createCommunityDeliveryReceipt,
   type CommunityDeliverySocketResult,
+  type CommunityDeliveryCancellation,
 } from "../community-delivery-receipt"
 import type {
   CommunityMachineConnectionState,
@@ -38,6 +39,7 @@ import {
   withCommunityDeliveryProgress,
   type CommunityDeliveryProgress,
 } from "./community-delivery-state"
+import { canDeliverCommunityContent } from "../community-content-access"
 import { handleUserAgentInterrupt } from "./agent-interrupt"
 
 export async function handleUserFetch(
@@ -57,6 +59,24 @@ export async function handleUserFetch(
       logCommunityBrowserEventRejected(context.log, "target-do-bundle", bundle)
       return deliveryErrorResponse(400, { operationId: null, code: "invalid_request" })
     }
+    if (!hasAuthenticatedTargetSocket(context, targetUserId)) {
+      return deliverCommunityBundle(context, bundle, targetUserId)
+    }
+    try {
+      if (!await canDeliverCommunityContent(createDb(context.env.DB), targetUserId, bundle.prepared.events)) {
+        return jsonResponse({
+          status: "cancelled",
+          reason: "access-revoked",
+          targetUserId,
+          operationId: bundle.operationId,
+          operationDigest: bundle.operationDigest,
+          eventCount: bundle.eventCount,
+        } satisfies CommunityDeliveryCancellation, 200)
+      }
+    } catch (error) {
+      context.log.warn("community_delivery_access_failed", { targetUserId, error: String(error) })
+      return jsonResponse({ operationId: bundle.operationId, error: "access_check_failed" }, 503)
+    }
     return deliverCommunityBundle(context, bundle, targetUserId)
   }
 
@@ -71,6 +91,18 @@ export async function handleUserFetch(
     if (!event.ok) {
       logCommunityBrowserEventRejected(context.log, "target-do", event)
       return invalidCommunityBrowserEventResponse(event)
+    }
+    if (!hasAuthenticatedTargetSocket(context, targetUserId)) {
+      return jsonResponse({ sent: broadcast(context, event.body, targetUserId) })
+    }
+    try {
+      if (!await canDeliverCommunityContent(createDb(context.env.DB), targetUserId, [event.event])) {
+        context.log.info("community_content_access_denied", { targetUserId, type: event.event.type })
+        return jsonResponse({ sent: 0 }, 200)
+      }
+    } catch (error) {
+      context.log.warn("community_content_access_failed", { targetUserId, error: String(error) })
+      return jsonResponse({ error: "access_check_failed" }, 503)
     }
     const sent = broadcast(context, event.body, targetUserId)
     return new Response(JSON.stringify({ sent }), {
@@ -334,6 +366,13 @@ export async function handleWebSocketError(
 ): Promise<void> {
   context.log.error("websocket error", { err: error instanceof Error ? error : String(error) })
   try { ws.close(1011, "Internal error") } catch { }
+}
+
+function hasAuthenticatedTargetSocket(context: WsDurableContext, targetUserId: string): boolean {
+  return context.ctx.getWebSockets().some((ws) => {
+    const state = ws.deserializeAttachment() as ConnectionState
+    return state?.type === "user" && state.authenticated && state.userId === targetUserId
+  })
 }
 
 function broadcast(

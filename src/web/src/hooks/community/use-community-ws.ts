@@ -109,14 +109,11 @@ function deliveryInboxRefresh(
   let inbox = false
   let dms = false
   for (const event of events) {
-    if (
-      event.type === "community:message.create"
-      && event.message.authorId !== viewerId
-    ) {
+    if (event.type === "community:unread.bump" && event.userId === viewerId) {
       inbox = true
-      dms = true
+      dms ||= !event.serverId
     }
-    if (event.type === "community:mention.create") inbox = true
+    if (event.type === "community:mention.create" && event.userId === viewerId) inbox = true
   }
   return inbox ? { inbox: true, dms } : null
 }

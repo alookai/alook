@@ -36,6 +36,7 @@ import {
 import type { StructureTreeEventContext } from "@/hooks/community/community-ws/handler-context"
 import {
   projectChannelScopeEviction,
+  evictServerChannelScopes,
   projectForumPostUnitEviction,
 } from "./channel-scope-projection"
 import {
@@ -308,6 +309,7 @@ export function handleServerDelete(
   event: CommunityServerDelete,
   { queryClient, projection }: StructureTreeEventContext,
 ) {
+  evictServerChannelScopes(queryClient, event.serverId)
   getActiveAccountUnreadProjection(queryClient).retireAccessScope({
     kind: "server",
     serverId: event.serverId,

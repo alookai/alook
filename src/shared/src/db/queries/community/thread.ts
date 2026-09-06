@@ -80,8 +80,6 @@ export async function addThreadParticipants(
   return insertedUserIds;
 }
 
-// The NOTIFY set: every participant userId. This is what thread fan-out /
-// mention rows / inbox unread scope to.
 export async function listThreadParticipantUserIds(
   db: Database,
   threadChannelId: string

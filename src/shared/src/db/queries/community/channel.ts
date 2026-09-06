@@ -11,6 +11,7 @@ import {
 import type { Database } from "../../index";
 import { PARTICIPANT_SOURCE } from "../../../constants/community";
 import { canSeePrivateChannel, visibilityIsDmParticipant } from "../../../utils/community-roles";
+import { user } from "../../schema";
 import { chunk, D1_MAX_IN_PARAMS, maxInParams } from "../_chunk";
 
 // Column selection shared by every read query.
@@ -79,6 +80,59 @@ export function channelReadableSql(
       )
     end
   )`;
+}
+
+
+export async function listReadableChannelsForUser(
+  db: Database,
+  userId: string,
+  channelIds: readonly string[],
+) {
+  const ids = [...new Set(channelIds)];
+  const batches = chunk(ids, D1_MAX_IN_PARAMS).map((part) => db
+    .select({
+      id: communityChannel.id,
+      serverId: communityChannel.serverId,
+      parentChannelId: communityChannel.parentChannelId,
+    })
+    .from(communityChannel)
+    .where(and(
+      inArray(communityChannel.id, part),
+      channelReadableSql(userId, CHANNEL_COLUMNS),
+    )));
+  return (await Promise.all(batches)).flat();
+}
+
+export async function getReadableMessageChannelId(
+  db: Database,
+  userId: string,
+  messageId: string,
+): Promise<string | null> {
+  const rows = await db.select({ channelId: communityChannel.id })
+    .from(communityMessage)
+    .innerJoin(communityChannel, eq(communityChannel.id, communityMessage.channelId))
+    .where(and(eq(communityMessage.id, messageId), channelReadableSql(userId, CHANNEL_COLUMNS)))
+    .limit(1);
+  return rows[0]?.channelId ?? null;
+}
+
+export async function filterChannelReadableUserIds(
+  db: Database,
+  channelId: string,
+  userIds: readonly string[],
+): Promise<string[]> {
+  const ids = [...new Set(userIds)];
+  const batches = chunk(ids, D1_MAX_IN_PARAMS).map((part) => db
+    .select({ userId: user.id })
+    .from(communityChannel)
+    .innerJoin(user, inArray(user.id, part))
+    .where(and(
+      eq(communityChannel.id, channelId),
+      channelReadableSql(user.id, CHANNEL_COLUMNS),
+    )));
+  const rows = (await Promise.all(batches)).flat();
+  const readable = new Set(rows.map((row) => row.userId));
+  return ids.filter((id) => readable.has(id));
 }
 
 

@@ -121,16 +121,16 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
 
   it("reactivates the Inbox owner after a Strict Effects cleanup/setup replay", async () => {
     vi.useFakeTimers()
-    await mountHook()
+    await mountHook({ viewerUserId: "u_me" })
     flushEffects()
     unmountHook()
 
     resetHookMemoization()
-    await mountHook()
+    await mountHook({ viewerUserId: "u_me" })
     flushEffects()
     const invalidate = vi.spyOn(capturedQueryClient, "invalidateQueries")
 
-    capturedOnMessage?.(messageCreate("ch_effect_replay"))
+    capturedOnMessage?.({ type: "community:unread.bump", channelId: "dm_effect_replay", userId: "u_me", isMention: false })
     await vi.advanceTimersByTimeAsync(500)
 
     expect(invalidate).toHaveBeenCalledWith({ queryKey: communityKeys.inbox() })
