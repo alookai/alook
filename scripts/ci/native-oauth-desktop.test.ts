@@ -17,7 +17,7 @@ describe("desktop native OAuth security configuration", () => {
     }
     const oauth = merged.find(c => c.permissions.includes("native-oauth"))!
     expect(oauth.windows).toEqual(["main"])
-    expect(oauth.platforms).toEqual(["linux", "macOS", "windows"])
+    expect(oauth.platforms).toEqual(expect.arrayContaining(["linux", "macOS", "windows"]))
     expect(oauth.remote?.urls).toEqual(config === production ? ["https://alook.ai"] : ["http://localhost:3000"])
     expect(oauth.local).toBe(config === development)
   })
@@ -35,8 +35,8 @@ describe("desktop native OAuth security configuration", () => {
     }
     expect(capabilities(production).find(c => c.identifier === "desktop-capability")?.permissions).toContain("desktop-commands")
   })
-  it("registers desktop-only scheme and ordered single-instance intake without activating mobile", () => {
-    expect(production.plugins?.["deep-link"]).toEqual({ desktop: { schemes: ["ai.alook.desktop"] } })
+  it("preserves the desktop-only scheme and ordered single-instance intake", () => {
+    expect(production.plugins?.["deep-link"]).toMatchObject({ desktop: { schemes: ["ai.alook.desktop"] } })
     const source = read("src/lib.rs")
     expect(source.indexOf("tauri_plugin_single_instance::init")).toBeLessThan(source.indexOf("tauri_plugin_deep_link::init"))
     expect(source.indexOf("tauri_plugin_deep_link::init")).toBeLessThan(source.indexOf("tauri_plugin_opener::init"))

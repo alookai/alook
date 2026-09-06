@@ -129,6 +129,7 @@ fn intake(app: &AppHandle, url: &url::Url) {
         .transact(|record| record.intake(url, now()))
         .unwrap_or(false)
     {
+        #[cfg(desktop)]
         crate::commands::show_main_window(app);
         state.notify();
     }

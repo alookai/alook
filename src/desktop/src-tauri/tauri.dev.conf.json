@@ -15,7 +15,9 @@
           "platforms": [
             "linux",
             "macOS",
-            "windows"
+            "windows",
+            "android",
+            "iOS"
           ],
           "local": true,
           "remote": {
