@@ -161,7 +161,7 @@ describe("useCommunityWs — account unread projection", () => {
       .projectServerUnread("s1", [])).toBe(false)
   })
 
-  it("keeps focused content sync and the existing debounced Inbox refresh", async () => {
+  it("syncs focused content without refreshing notification surfaces", async () => {
     vi.useFakeTimers()
     try {
       await mountHook({ viewerUserId: "u_me" })
@@ -182,7 +182,7 @@ describe("useCommunityWs — account unread projection", () => {
       }).liveById.has("m_1")).toBe(true)
       expect(invalidateSpy.mock.calls.some((call) => (
         (call[0]?.queryKey as unknown[] | undefined)?.includes("inbox")
-      ))).toBe(true)
+      ))).toBe(false)
     } finally {
       vi.useRealTimers()
     }
@@ -249,7 +249,7 @@ describe("useCommunityWs — friend + mention → invalidate", () => {
   it("routes mention.create through the debounced Inbox owner", async () => {
     vi.useFakeTimers()
     try {
-      await mountHook()
+      await mountHook({ viewerUserId: "u_1" })
       const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
       const event: CommunityMentionCreate = {
         type: "community:mention.create",
@@ -269,7 +269,7 @@ describe("useCommunityWs — friend + mention → invalidate", () => {
   })
 
   it("mention.create invalidates servers so authoritative source counts refresh", async () => {
-    await mountHook()
+    await mountHook({ viewerUserId: "u_1" })
     const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
     const event: CommunityMentionCreate = {
       type: "community:mention.create",

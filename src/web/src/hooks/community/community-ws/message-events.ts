@@ -11,10 +11,7 @@ import { projectCommunityMessageCreate } from "@/lib/community/message-wire"
 import { useCommunityStore } from "@/stores/community"
 import { useMessageStreamStore } from "@/stores/community/message-stream"
 import {
-  getForumSidebarBase,
-  hasForumSidebarThread,
   isForumSidebarParent,
-  invalidateForumSidebarBaseExact,
   patchForumSidebarActivityExact,
 } from "@/hooks/community/use-forum-sidebar-threads"
 import { reconcileForumOpenerTitle } from "@/hooks/community/forum-opener-title-reconciliation"
@@ -50,9 +47,7 @@ export function handleMessageCreate(
     wsStore,
     sub,
     viewerUserIdRef,
-    deliveryMode,
     matchesFocus,
-    scheduleInboxInvalidate,
     projection,
   }: MessageEventContext,
 ) {
@@ -96,9 +91,6 @@ export function handleMessageCreate(
       { type: "wsMessage", message: projected },
     )
   }
-  if (deliveryMode === "batch" && event.message.authorId !== viewerId) {
-    scheduleInboxInvalidate({ inbox: true, dms: true })
-  }
   if (hasSeenMessage) return
   wsStore.markSeenMessage(event.message.id)
   // Sending a message is an implicit typing.stop for its author —
@@ -109,19 +101,12 @@ export function handleMessageCreate(
   // regular channel (`ch:`) so the pill clears in the right bucket.
   clearTypingIndicator(typingScopeKey(event, sub), event.message.authorId)
 
-  // Participation, not unread state, is the sidebar truth. A child
-  // message reaches every notify member even when muted; use its
-  // explicit server/parent metadata to re-rank a loaded row without a
-  // GET, or refetch when the active post is currently absent/expired.
+
   if (
     event.serverId &&
     event.parentChannelId &&
     isForumSidebarParent(queryClient, event.serverId, event.parentChannelId)
   ) {
-    const canonical = hasForumSidebarThread(
-      getForumSidebarBase(queryClient, event.serverId),
-      event.channelId,
-    )
     patchForumSidebarActivityExact(
       queryClient,
       event.serverId,
@@ -129,26 +114,15 @@ export function handleMessageCreate(
       event.parentChannelId,
       event.message.createdAt,
     )
-    if (!canonical) {
-      void invalidateForumSidebarBaseExact(queryClient, event.serverId)
-    }
   }
 
   // 1) A child channel enrolls its sender and mentioned users in its
   //    member set server-side, so refresh an open child roster live.
   if (
-    event.channelId === sub.channelId &&
-    communityStore.currentChannelId === event.channelId &&
-    communityStore.currentChannelMeta?.parentChannelId
+    (event.channelId === sub.channelId || event.channelId === sub.secondaryChannelId) &&
+    (event.parentChannelId || (communityStore.currentChannelId === event.channelId && communityStore.currentChannelMeta?.parentChannelId))
   ) {
     invalidateChannelMembers(projection, event.channelId)
-  }
-
-  // 2) Every message.create — regardless of focus — schedules a
-  //    debounced inbox invalidation. Skip messages authored by the
-  //    viewer since they never affect their own unreads.
-  if (deliveryMode === "single" && event.message.authorId !== viewerId) {
-    scheduleInboxInvalidate({ inbox: true, dms: true })
   }
 
   // 3) Live channel-sidebar unread dot is NO LONGER flipped here.

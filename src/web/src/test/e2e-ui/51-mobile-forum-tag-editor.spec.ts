@@ -60,6 +60,7 @@ async function seedForum(label: string) {
   const threadId = await seedForumThread("alice", forumId, `Post ${Date.now()}`, "tag editor body")
   return {
     route: `/c/channels/${serverId}/${forumId}`,
+    forumId,
     threadId,
   }
 }
@@ -219,7 +220,7 @@ test.describe.serial("forum tag editor", () => {
   })
 
   test("converges Archive and Unarchive across two tabs", async ({ asUser }) => {
-    const { route, threadId } = await seedForum("Archive cross tab")
+    const { route, forumId, threadId } = await seedForum("Archive cross tab")
     const tabA = await asUser("alice")
     const tabB = await asUser("alice")
     await Promise.all([
@@ -253,12 +254,31 @@ test.describe.serial("forum tag editor", () => {
       && new URL(response.url()).pathname.endsWith("/tags")
     ))
     await tabB.page.getByTestId(tid.forumThreadArchiveBtn(threadId)).click()
-    expect((await unarchived).status()).toBe(200)
-    await expect(cardA).toHaveCount(0)
-
-    await tabA.page.getByTestId(tid.forumTagAll).click()
-    await expect(cardA).toBeVisible()
-    await expect(tabA.page.getByTestId(tid.forumThreadCard(threadId))).toHaveCount(1)
+    const unarchivedResponse = await unarchived
+    expect(unarchivedResponse.status()).toBe(200)
+    expect(await unarchivedResponse.json()).toEqual({ tags: [] })
+    await expect.poll(async () => {
+      const [tags, feed] = await Promise.all([
+        tabA.page.request.get(`/api/community/channels/${forumId}/messages/tags`),
+        tabA.page.request.get(`/api/community/channels/${forumId}/threads`),
+      ])
+      expect(tags.status()).toBe(200)
+      expect(feed.status()).toBe(200)
+      return {
+        tags: (await tags.json() as { tags: string[] }).tags,
+        threads: (await feed.json() as { threads: Array<{ id: string }> }).threads.map((thread) => thread.id),
+      }
+    }).toEqual({ tags: [], threads: [threadId] })
+    for (const { page } of [tabA, tabB]) {
+      await expect(page.getByTestId(tid.forumTagChip("archived"))).toHaveCount(0)
+      await expect(page.getByTestId(tid.forumTagAll)).toHaveCount(0)
+      await expect.poll(() => page.evaluate((id) => localStorage.getItem(`alook:forum-tag:${id}`), forumId)).toBeNull()
+      const card = page.getByTestId(tid.forumThreadCard(threadId))
+      await expect(card).toBeVisible()
+      await expect(card).toHaveCount(1)
+      await expect(page.getByTestId(tid.forumThreadArchiveBtn(threadId))).toHaveAttribute("aria-label", "Archive post")
+      await expect(page.getByTestId(tid.forumThreadArchiveBtn(threadId))).toHaveAttribute("aria-pressed", "false")
+    }
   })
 
   test("discards implicit close and commits only explicit Save", async ({ asUser }) => {

@@ -1,21 +1,14 @@
-"use client"
-
-import { MessageList } from "@/components/community/messages/message-list"
-import { ComposerSkeleton } from "@/components/community/messages/composer"
-import { ChannelHeaderSkeleton } from "./channel-header"
+import { UnresolvedMainSkeleton } from "../shell/unresolved-main-skeleton"
 
 export function ChannelLoadingFrame() {
   return (
     <div
       aria-busy="true"
       aria-label="Loading conversation"
+      data-community-mobile-transition="suppress"
       className="flex min-h-0 min-w-0 flex-1 flex-col"
     >
-      <ChannelHeaderSkeleton />
-      <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <MessageList channel="" messages={[]} loading onOpenThread={() => {}} />
-        <ComposerSkeleton />
-      </main>
+      <UnresolvedMainSkeleton />
       <span className="sr-only">Loading conversation</span>
     </div>
   )

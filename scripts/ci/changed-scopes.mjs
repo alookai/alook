@@ -43,6 +43,7 @@ const COVERAGE_EXCLUDES = [
   /^src\/web\/readme-capture\//,
   /^src\/web\/src\/.*\.tsx$/,
   /^src\/web\/src\/test\/fixtures\//,
+  /^src\/web\/src\/test\/(?:e2e|e2e-ui)\//,
   /^src\/web\/src\/hooks\/(?:use-agent-chat|use-chat-sheets|use-file-attachments|use-message-flags|use-text-selection-quote)\.ts$/,
   /^src\/web\/src\/components\/agent-chat\/use-rotating-placeholder\.ts$/,
 ]

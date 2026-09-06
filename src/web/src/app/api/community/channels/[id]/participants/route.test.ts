@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
+import { decodeCommunityBrowserEvent } from "@alook/shared"
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
@@ -8,7 +9,7 @@ vi.mock("@opennextjs/cloudflare", () => ({
 const mockResolveChannelAccessContext = vi.fn()
 const mockListThreadParticipants = vi.fn()
 const mockAddThreadParticipant = vi.fn()
-const mockListThreadParticipantUserIds = vi.fn()
+const mockResolveChannelContentRecipientUserIds = vi.fn()
 const mockResolveScopeMemberUserIds = vi.fn()
 const mockBroadcastToUserSafe = vi.fn()
 
@@ -23,11 +24,11 @@ vi.mock("@alook/shared", async () => {
         resolveChannelAccessContext: (...a: unknown[]) => mockResolveChannelAccessContext(...a),
       },
       communityMembersResolver: {
+        resolveChannelContentRecipientUserIds: (...a: unknown[]) => mockResolveChannelContentRecipientUserIds(...a),
         resolveScopeMemberUserIds: (...a: unknown[]) => mockResolveScopeMemberUserIds(...a),
       },
       communityThread: {
         listThreadParticipants: (...a: unknown[]) => mockListThreadParticipants(...a),
-        listThreadParticipantUserIds: (...a: unknown[]) => mockListThreadParticipantUserIds(...a),
         addThreadParticipant: (...a: unknown[]) => mockAddThreadParticipant(...a),
       },
     },
@@ -83,12 +84,16 @@ describe("POST /channels/[id]/participants", () => {
     // Parent-channel audience (same source the read gate/fan-out uses).
     mockResolveScopeMemberUserIds.mockResolvedValue(["u1", "u2"])
     mockAddThreadParticipant.mockResolvedValue({ id: "tp1" })
-    mockListThreadParticipantUserIds.mockResolvedValue(["u1", "u2", "u3"])
+    mockResolveChannelContentRecipientUserIds.mockResolvedValue(["u1", "u2", "u3"])
   })
 
   it("any participant adds a parent-channel member as a participant", async () => {
     const res = await POST(postReq({ userId: "u2" }), ctx)
     expect(res.status).toBe(201)
+    for (const [, event] of mockBroadcastToUserSafe.mock.calls) {
+      expect(Object.keys(event).sort()).toEqual(["channelId", "serverId", "type", "userId"])
+      expect(decodeCommunityBrowserEvent(event).ok).toBe(true)
+    }
     expect(mockAddThreadParticipant).toHaveBeenCalledWith(expect.anything(), {
       threadChannelId: "t1", userId: "u2", source: "added",
     })

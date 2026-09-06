@@ -3,6 +3,7 @@ import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { useMessages } from "./use-messages"
+import { useCommunityWsStore } from "@/stores/community/ws"
 import { communityKeys } from "@/lib/query-keys"
 
 const apiFetchMock = vi.fn()
@@ -12,6 +13,7 @@ vi.mock("@/lib/api/client", () => ({
 
 beforeEach(() => {
   apiFetchMock.mockReset()
+  useCommunityWsStore.getState().reset()
 })
 
 function Capture({ onRender, channelId, lastReadMessageId }: {
@@ -48,11 +50,40 @@ async function waitForSettled(predicate: () => boolean, tries = 40) {
 
 function deferred<T>() {
   let resolve!: (value: T) => void
-  const promise = new Promise<T>((done) => { resolve = done })
-  return { promise, resolve }
+  let reject!: (error: Error) => void
+  const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail })
+  return { promise, resolve, reject }
 }
 
 describe("useMessages — Fix 3 anchor re-validation", () => {
+  it.each(["resolves", "rejects"])("does not restore evicted content when an old anchor repair %s", async (outcome) => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const key = communityKeys.channelMessages("child")
+    client.setQueryData(key, {
+      pages: [{ messages: [{ id: "newest", seq: 3 }], hasMoreOlder: true }],
+      pageParams: [{ mode: "newest" }],
+    }, { updatedAt: Date.now() - 120_000 })
+    const pending = deferred<{ messages: Array<{ id: string; seq: number }> }>()
+    apiFetchMock.mockReturnValue(pending.promise)
+    let renderer!: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(React.createElement(QueryClientProvider, { client },
+        React.createElement(Capture, { onRender: () => undefined, channelId: "child", lastReadMessageId: "anchor" })))
+    })
+    await waitForSettled(() => apiFetchMock.mock.calls.length > 0)
+    expect(apiFetchMock).toHaveBeenCalled()
+    act(() => {
+      useCommunityWsStore.getState().revokeChannelAccess("s1", "parent")
+      client.removeQueries({ queryKey: key, exact: true })
+      renderer.unmount()
+    })
+    if (outcome === "resolves") pending.resolve({ messages: [{ id: "old-secret", seq: 2 }] })
+    else pending.reject(new Error("old request failed"))
+    await flush()
+    expect(client.getQueryData(key)).toBeUndefined()
+    client.clear()
+  })
+
   it("shares one pending anchor repair across an asynchronous route remount", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const key = communityKeys.channelMessages("ch_remount")

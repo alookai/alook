@@ -1,0 +1,21 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "native-oauth-mobile",
+  "description": "Native OAuth commands for the trusted mobile WebView",
+  "windows": [
+    "main"
+  ],
+  "platforms": [
+    "android",
+    "iOS"
+  ],
+  "local": false,
+  "remote": {
+    "urls": [
+      "https://alook.ai"
+    ]
+  },
+  "permissions": [
+    "native-oauth"
+  ]
+}

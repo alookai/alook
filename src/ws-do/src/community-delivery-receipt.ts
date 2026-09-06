@@ -1,6 +1,7 @@
 import {
   isCommunityDeliveryDigest,
   isCommunityDeliveryOperationId,
+  isValidCommunityUserTarget,
 } from "@alook/shared"
 
 type CommunityDeliveryOutcome =
@@ -204,4 +205,32 @@ export function isExactCommunityDeliveryReceipt(
     && value.partial === 0
     && value.failed === 0
     && value.ambiguousClosed === 0
+}
+
+export type CommunityDeliveryCancellation = {
+  status: "cancelled"
+  reason: "access-revoked"
+  targetUserId: string
+  operationId: string
+  operationDigest: string
+  eventCount: number
+}
+
+export function isExactCommunityDeliveryCancellation(
+  value: unknown,
+  expected: { targetUserId: string; operationId: string; operationDigest: string; eventCount: number },
+): value is CommunityDeliveryCancellation {
+  return isRecord(value)
+    && hasExactKeys(value, ["status", "reason", "targetUserId", "operationId", "operationDigest", "eventCount"])
+    && value.status === "cancelled"
+    && value.reason === "access-revoked"
+    && isValidCommunityUserTarget(value.targetUserId)
+    && value.targetUserId === expected.targetUserId
+    && isCommunityDeliveryOperationId(value.operationId)
+    && value.operationId === expected.operationId
+    && isCommunityDeliveryDigest(value.operationDigest)
+    && value.operationDigest === expected.operationDigest
+    && isNonNegativeInteger(value.eventCount)
+    && (value.eventCount as number) > 0
+    && value.eventCount === expected.eventCount
 }

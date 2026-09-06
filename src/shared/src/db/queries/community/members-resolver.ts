@@ -12,6 +12,7 @@ import {
 } from "../../../utils/community-roles";
 import {
   getChannelType,
+  filterChannelReadableUserIds,
   getPrivateChannelAudienceUserIds,
   isChannelPrivate,
   listChannelMemberUserIds,
@@ -19,11 +20,6 @@ import {
 import { listMemberUserIds } from "./member";
 import { listThreadParticipantUserIds } from "./thread";
 
-// The ACCESS scopes — units that own (or inherit) a stored/derived access
-// roster. `forum` resolves like a top-level text channel (its own roster);
-// `channel` is a top-level text channel. Child threads are NOT here: they
-// are the NOTIFICATION dimension (participant set), resolved at the call site
-// via `listThreadParticipantUserIds` — never through this resolver.
 export type ScopeKind = "channel" | "forum";
 
 // Why a user is in the resolved set. Lets callers distinguish an explicitly
@@ -41,7 +37,8 @@ export type ChannelRecipientQueryPhase =
   | "channel-type"
   | "thread-participants"
   | "dm-members"
-  | "scope-members";
+  | "scope-members"
+  | "readable-members";
 
 export type ChannelRecipientQueryRunner = <T>(
   phase: ChannelRecipientQueryPhase,
@@ -50,7 +47,7 @@ export type ChannelRecipientQueryRunner = <T>(
 
 const runChannelRecipientQuery: ChannelRecipientQueryRunner = (_phase, query) => query();
 
-export async function resolveChannelRecipientUserIds(
+export async function resolveChannelNotificationRecipientUserIds(
   db: Database,
   channelId: string,
   runQuery: ChannelRecipientQueryRunner = runChannelRecipientQuery,
@@ -74,6 +71,21 @@ export async function resolveChannelRecipientUserIds(
   }
 }
 
+export async function resolveChannelContentRecipientUserIds(
+  db: Database,
+  channelId: string,
+  runQuery: ChannelRecipientQueryRunner = runChannelRecipientQuery,
+): Promise<string[]> {
+  const type = await runQuery("channel-type", () => getChannelType(db, channelId));
+  if (!isStoredChannelType(type)) return [];
+  const candidates = type === "dm"
+    ? await runQuery("dm-members", () => listChannelMemberUserIds(db, channelId))
+    : await runQuery("scope-members", () => resolveScopeMemberUserIds(db, {
+        scope: "channel", scopeId: channelId,
+      }));
+  return runQuery("readable-members", () => filterChannelReadableUserIds(db, channelId, candidates));
+}
+
 /**
  * The single source of truth for "who can access this scope." Consolidates the
  * public/private split for the ACCESS dimension:
@@ -85,9 +97,6 @@ export async function resolveChannelRecipientUserIds(
  *     creator (delegates to `getPrivateChannelAudienceUserIds`, which climbs
  *     `parentChannelId` so a forum resolves its own roster like a text channel).
  *
- * Only ACCESS units (`channel`/`forum`) reach here. Child threads resolve their
- * recipient set from the participant table at the
- * call site.
  */
 export async function resolveScopeMemberUserIds(
   db: Database,

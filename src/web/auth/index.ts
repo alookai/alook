@@ -133,11 +133,22 @@ const SECURITY_HEADERS = {
   "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
 } as const;
 
-const RETURN_CSP = [
+const AUTH_STATUS_PAGE_CSP_BASE = [
   "default-src 'none'",
   "base-uri 'none'",
   "form-action 'none'",
   "frame-ancestors 'none'",
+];
+
+export const AUTH_STATUS_PAGE_CSP = [
+  ...AUTH_STATUS_PAGE_CSP_BASE,
+  "script-src 'none'",
+  "style-src 'unsafe-inline'",
+  "font-src data:",
+].join("; ");
+
+const RETURN_CSP = [
+  ...AUTH_STATUS_PAGE_CSP_BASE,
   `script-src 'sha256-${RETURN_SCRIPT_SHA256}'`,
   "style-src 'unsafe-inline'",
   "font-src data:",
@@ -282,14 +293,40 @@ const PAGE_STYLE = `
   }
 `;
 
-function returnPage(valid: boolean): string {
-  const detail = valid
-    ? "Continue in the Alook app to finish this sign-in."
-    : "This sign-in link is invalid.";
-  const control = valid
+export type AuthStatusPageVariant = "return" | "invalid" | "unavailable";
+
+const AUTH_STATUS_PAGE_COPY = {
+  return: {
+    documentTitle: "Return to Alook",
+    heading: "Return to Alook",
+    detail: "Continue in the Alook app to finish this sign-in.",
+  },
+  invalid: {
+    documentTitle: "Return to Alook",
+    heading: "Return to Alook",
+    detail: "This sign-in link is invalid.",
+  },
+  unavailable: {
+    documentTitle: "Sign-in unavailable · Alook",
+    heading: "Sign-in unavailable",
+    detail: "Close this page and return to Alook to try again.",
+  },
+} as const satisfies Record<AuthStatusPageVariant, {
+  documentTitle: string;
+  heading: string;
+  detail: string;
+}>;
+
+export function renderAuthStatusPage(variant: AuthStatusPageVariant): string {
+  const copy = AUTH_STATUS_PAGE_COPY[variant];
+  const control = variant === "return"
     ? `<button type="button" data-open-alook>Open Alook</button><script>${RETURN_SCRIPT}</script>`
     : "";
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark"><title>Return to Alook</title><style>${PAGE_STYLE}</style></head><body>${AVATAR_FIELD}<main><div class="brand"><span class="brand-mark" aria-hidden="true">${ALOOK_LOGO}</span><span class="brand-name">Alook</span></div><section aria-labelledby="return-title"><h1 id="return-title">Return to Alook</h1><p>${detail}</p>${control}</section></main></body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark"><title>${copy.documentTitle}</title><style>${PAGE_STYLE}</style></head><body>${AVATAR_FIELD}<main><div class="brand"><span class="brand-mark" aria-hidden="true">${ALOOK_LOGO}</span><span class="brand-name">Alook</span></div><section aria-labelledby="return-title"><h1 id="return-title">${copy.heading}</h1><p>${copy.detail}</p>${control}</section></main></body></html>`;
+}
+
+function returnPage(valid: boolean): string {
+  return renderAuthStatusPage(valid ? "return" : "invalid");
 }
 
 function response(

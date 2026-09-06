@@ -3,6 +3,7 @@ import { deriveCommunityDeliveryOperationId } from "@alook/shared"
 import {
   createCommunityDeliveryReceipt,
   isExactCommunityDeliveryReceipt,
+  isExactCommunityDeliveryCancellation,
 } from "./community-delivery-receipt"
 
 describe("community delivery receipt conservation", () => {
@@ -99,5 +100,21 @@ describe("community delivery receipt conservation", () => {
       operationDigest,
       eventCount: 1,
     })).toBe(false)
+  })
+})
+
+describe("terminal community cancellation", () => {
+  it("binds every field to the original target bundle and remains separate from sent receipts", async () => {
+    const expected = { targetUserId: "user-1", operationId: await deriveCommunityDeliveryOperationId("message-1"), operationDigest: "b".repeat(64), eventCount: 3 }
+    const cancellation = { status: "cancelled", reason: "access-revoked", ...expected }
+    expect(isExactCommunityDeliveryCancellation(cancellation, expected)).toBe(true)
+    expect(isExactCommunityDeliveryReceipt(cancellation, expected)).toBe(false)
+    for (const invalid of [null, [], 1, {}, { ...cancellation, targetUserId: "other" },
+      { ...cancellation, operationId: await deriveCommunityDeliveryOperationId("other") },
+      { ...cancellation, operationDigest: "c".repeat(64) }, { ...cancellation, eventCount: 2 },
+      { ...cancellation, eventCount: 0 }, { ...cancellation, reason: "temporary" },
+      { ...cancellation, status: "complete" }, { ...cancellation, validated: true }]) {
+      expect(isExactCommunityDeliveryCancellation(invalid, expected)).toBe(false)
+    }
   })
 })

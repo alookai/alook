@@ -1,12 +1,14 @@
 "use client"
 
-import { useEffect, useMemo } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useQueryClient } from "@tanstack/react-query"
 import { isForum as isForumType } from "@alook/shared"
 import { useServer } from "./use-servers"
 import { useCommunityStore, useCurrentChannelMeta } from "@/stores/community"
 import { toastApiError } from "@/lib/api/client"
+import { ApiError } from "@/lib/errors"
+import { useCommunityWsStore } from "@/stores/community/ws"
 import { isDefinitiveChildMetaFailure } from "@/lib/community/eject-server"
 import { clearLastChannel, getLastChannel } from "@/lib/community/last-channel"
 import {
@@ -71,6 +73,28 @@ export function useChannelRouteModel(
     .some((candidate) => candidate.id === channelId)
   const isChild = !!server?.categories && !topLevelChannel
   const metaQuery = useChildChannelMeta(serverId, channelId, isChild)
+  const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
+  const retryScope = JSON.stringify([accountId, serverId, channelId, accessEpoch])
+  const retryAttemptRef = useRef<{ scope: string } | null>(null)
+  const [retryAttempt, setRetryAttempt] = useState<{ scope: string } | null>(null)
+  const retryingMetadata = retryAttempt?.scope === retryScope
+  const metadataExit = isDefinitiveChildMetaFailure(metaQuery.error)
+    || (metaQuery.error instanceof ApiError && metaQuery.error.status === 401)
+    || !!metaQuery.data?.archived
+  const metadataError = isChild && !metaQuery.isVerified && !metadataExit
+    && (metaQuery.isError || retryingMetadata)
+  const retryMetadata = useCallback(async () => {
+    if (!metadataError || metaQuery.isFetching || retryAttemptRef.current?.scope === retryScope) return
+    const attempt = { scope: retryScope }
+    retryAttemptRef.current = attempt
+    setRetryAttempt(attempt)
+    try {
+      await metaQuery.refetch({ cancelRefetch: false })
+    } finally {
+      if (retryAttemptRef.current === attempt) retryAttemptRef.current = null
+      setRetryAttempt((current) => current === attempt ? null : current)
+    }
+  }, [metadataError, metaQuery, retryScope])
   const model = useMemo(
     () => buildChannelRouteModel(
       server,
@@ -127,5 +151,5 @@ export function useChannelRouteModel(
       toastApiError(metaQuery.error, "Failed to load thread")
     }
   }, [accountId, channelId, isChild, metaQuery.data, metaQuery.error, metaQuery.isVerified, queryClient, router, serverId, serverParam])
-  return { ...model, routeLifecycle }
+  return { ...model, routeLifecycle, metadataError, retryingMetadata, retryMetadata }
 }

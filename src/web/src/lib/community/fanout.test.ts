@@ -36,7 +36,7 @@ vi.mock("@alook/shared", async () => {
       },
       communityMembersResolver: {
         resolveScopeMemberUserIds: (...a: unknown[]) => mockResolveScopeMemberUserIds(...a),
-        resolveChannelRecipientUserIds: (...a: unknown[]) => mockResolveChannelRecipientUserIds(...a),
+        resolveChannelContentRecipientUserIds: (...a: unknown[]) => mockResolveChannelRecipientUserIds(...a),
       },
       communityThread: {
         listThreadParticipantUserIds: (...a: unknown[]) => mockListThreadParticipantUserIds(...a),
@@ -211,7 +211,7 @@ describe("fanOutToServerMembers", () => {
     )
   })
 
-  it("fanOutToChannel routes a THREAD to its participant set (not the channel audience)", async () => {
+  it("fanOutToChannel delegates thread content to the shared readable audience", async () => {
     mockResolveChannelRecipientUserIds.mockResolvedValue(["u1", "u2"])
 
     await fanOutToChannel("t1", {

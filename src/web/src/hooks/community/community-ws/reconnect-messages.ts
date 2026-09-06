@@ -1,6 +1,7 @@
 import type { InfiniteData, QueryClient, QueryKey } from "@tanstack/react-query"
 import { apiFetchProfiles, messageProfilePatches } from "@/lib/community/profile-seed"
 import { ApiError } from "@/lib/errors"
+import { captureChannelMetadataToken, isChannelMetadataTokenCurrent } from "@/hooks/community/channel-metadata"
 import { communityKeys } from "@/lib/query-keys"
 import { getMessageOverlay, useMessageStreamStore } from "@/stores/community/message-stream"
 import type {
@@ -300,7 +301,10 @@ export async function reconcileFocusedMessageQueries(
     queryKey,
     type: "active",
   })
+  const token = captureChannelMetadataToken(scopeId)
   const operations = queries.map(async (query) => {
+    const isCurrent = () => isChannelMetadataTokenCurrent(token)
+      && queryClient.getQueryCache().find({ queryKey: query.queryKey, exact: true }) === query
     // Infinite-query pagination computes its result from the data snapshot at
     // fetch start. If that generation completes after reconciliation, TanStack
     // can replace the reconciled cache with its stale snapshot. Capture the
@@ -312,6 +316,7 @@ export async function reconcileFocusedMessageQueries(
       { revert: true, silent: true },
     )
 
+    if (!isCurrent()) return
     let accessDenied = false
     try {
       const window = warmReconnectWindow(query.queryKey, query.state.data)
@@ -327,21 +332,24 @@ export async function reconcileFocusedMessageQueries(
         window.pageParam,
         window.tag,
       )
+      if (!isCurrent()) return
       const catchUp = window.cursor !== null
         && (refreshed.latestSeq ?? 0) > window.latestSeq
         ? await fetchCatchUp(scopeId, window.cursor, window.tag)
         : null
+      if (!isCurrent()) return
       queryClient.setQueryData<MessageCache>(query.queryKey, (current) => (
         isMessageCache(current)
           ? mergeReconciledPages(current, refreshed, catchUp)
           : current
       ))
     } catch (error) {
+      if (!isCurrent()) return
       if (!isDefinitiveAccessDenial(error)) throw error
       accessDenied = true
       clearDeniedMessageScope(queryClient, kind, scopeId)
     } finally {
-      if (pendingDirection && !accessDenied) {
+      if (pendingDirection && !accessDenied && isCurrent()) {
         await query.fetch(undefined, {
           meta: { fetchMore: { direction: pendingDirection } },
         })

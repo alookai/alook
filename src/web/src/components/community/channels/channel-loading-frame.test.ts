@@ -1,39 +1,19 @@
 import { createElement } from "react"
-import TestRenderer, { act } from "react-test-renderer"
-import { describe, expect, it, vi } from "vitest"
-
-vi.mock("./channel-header", () => ({
-  ChannelHeaderSkeleton: (props: Record<string, unknown>) =>
-    createElement("channel-header-skeleton", props),
-}))
-vi.mock("@/components/community/messages/message-list", () => ({
-  MessageList: (props: Record<string, unknown>) => createElement("message-list", props),
-}))
-vi.mock("@/components/community/messages/composer", () => ({
-  ComposerSkeleton: () => createElement("composer-skeleton"),
-}))
-
+import { renderToStaticMarkup } from "react-dom/server"
+import { describe, expect, it } from "vitest"
+import ServerLoading from "@/app/c/channels/[serverId]/loading"
 import { ChannelLoadingFrame } from "./channel-loading-frame"
 
 describe("ChannelLoadingFrame", () => {
-  it("composes canonical detail zones with mobile Back loading geometry", () => {
-    let renderer!: TestRenderer.ReactTestRenderer
-    act(() => {
-      renderer = TestRenderer.create(createElement(ChannelLoadingFrame))
-    })
+  it.each([ChannelLoadingFrame, ServerLoading])("keeps the server route fallback neutral before its leaf is known: %s", (Component) => {
+    const markup = renderToStaticMarkup(createElement(Component))
 
-    expect(renderer.root.findByType("channel-header-skeleton").props).toEqual({})
-    expect(renderer.root.findByType("message-list").props).toMatchObject({
-      channel: "",
-      messages: [],
-      loading: true,
-    })
-    expect(renderer.root.findAllByType("composer-skeleton")).toHaveLength(1)
-    const tree = renderer.toJSON() as TestRenderer.ReactTestRendererJSON
-    expect(tree.props).toMatchObject({
-      "aria-busy": "true",
-      "aria-label": "Loading conversation",
-    })
+    expect(markup.match(/data-community-unresolved-main=""/g)).toHaveLength(1)
+    expect(markup.match(/data-slot="skeleton"/g)).toHaveLength(1)
+    expect(markup).toContain('aria-busy="true"')
+    expect(markup).toContain('aria-label="Loading conversation"')
+    expect(markup).toContain('data-community-mobile-transition="suppress"')
+    expect(markup).not.toMatch(/<(?:header|button|a|form|textarea)\b/)
+    expect(markup).not.toMatch(/composer|message-list|channel-header/)
   })
-
 })

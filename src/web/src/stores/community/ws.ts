@@ -65,8 +65,24 @@ export type CommunityWsConnectionStatus = "connected" | "reconnecting" | "failed
 
 const NOOP_RECONNECT = () => undefined
 
+type ChannelAccessScope = {
+  serverId: string
+  parentChannelId?: string | null
+  generation: number
+  revoked: boolean
+}
+
 export type CommunityWsStoreState = {
   accessEpoch: number
+  channelAccessScopes: Map<string, ChannelAccessScope>
+  revokedServerIds: Set<string>
+  beginChannelMembershipChange: (serverId: string, channelId: string) => number
+  observeChannelScope: (serverId: string, channelId: string, parentChannelId?: string | null) => void
+  rememberChannelAccess: (serverId: string, channelId: string, parentChannelId?: string | null) => void
+  revokeChannelAccess: (serverId: string, channelId: string) => string[]
+  revokeServerAccess: (serverId: string) => void
+  grantServerAccess: (serverId: string) => void
+  isChannelAccessRevoked: (channelId: string, serverId?: string, parentChannelId?: string) => boolean
   accessConnected: boolean
   connectionStatus: CommunityWsConnectionStatus
   reconnectNow: () => void
@@ -118,10 +134,12 @@ const initialState = (): Pick<
   "profileViewerId" | "profileAccountEpoch" | "profileRevision"
   | "profilesByUserId" | "profileRevisionsByUserId"
   | "seenMessageIds" | "seenDeliveryOperations" | "botAuditEvents"
-  | "accessEpoch" | "accessConnected"
+  | "accessEpoch" | "accessConnected" | "channelAccessScopes" | "revokedServerIds"
   | "connectionStatus" | "reconnectNow"
 > => ({
   accessEpoch: 0,
+  channelAccessScopes: new Map(),
+  revokedServerIds: new Set(),
   accessConnected: false,
   connectionStatus: "connected",
   reconnectNow: NOOP_RECONNECT,
@@ -232,7 +250,9 @@ export const useCommunityWsStore = create<CommunityWsStoreState>((set, get) => {
       set({
         profileViewerId: viewerId,
         profileAccountEpoch,
-        profileRevision: 0,
+        accessEpoch: state.accessEpoch + 1,
+        channelAccessScopes: new Map(),
+        revokedServerIds: new Set(),        profileRevision: 0,
         profilesByUserId: new Map(),
         profileRevisionsByUserId: new Map(),
       })
@@ -299,6 +319,69 @@ export const useCommunityWsStore = create<CommunityWsStoreState>((set, get) => {
     next.set(operationId, { ...observed, completed: true })
     set({ seenDeliveryOperations: next })
     return true
+  },
+
+  beginChannelMembershipChange: (serverId, channelId) => {
+    const scopes = new Map(get().channelAccessScopes)
+    const previous = scopes.get(channelId)
+    const generation = (previous?.generation ?? 0) + 1
+    scopes.set(channelId, { serverId, revoked: false, ...previous, generation })
+    set({ channelAccessScopes: scopes })
+    return generation
+  },
+
+  observeChannelScope: (serverId, channelId, parentChannelId) => {
+    const previous = get().channelAccessScopes.get(channelId)
+    if (previous?.serverId === serverId && (!parentChannelId || previous.parentChannelId === parentChannelId)) return
+    const scopes = new Map(get().channelAccessScopes)
+    scopes.set(channelId, { generation: 0, revoked: false, ...previous, serverId, ...(parentChannelId ? { parentChannelId } : {}) })
+    set({ channelAccessScopes: scopes })
+  },
+
+  rememberChannelAccess: (serverId, channelId, parentChannelId) => {
+    const scopes = new Map(get().channelAccessScopes)
+    const previous = scopes.get(channelId)
+    scopes.set(channelId, { serverId, parentChannelId, generation: previous?.generation ?? 0, revoked: false })
+    if (parentChannelId && scopes.get(parentChannelId)?.revoked) {
+      const parent = scopes.get(parentChannelId)!
+      scopes.set(parentChannelId, { ...parent, revoked: false })
+    }
+    set({ channelAccessScopes: scopes })
+  },
+
+  revokeChannelAccess: (serverId, channelId) => {
+    const scopes = new Map(get().channelAccessScopes)
+    const affected = new Set([channelId])
+    for (const [id, scope] of scopes) {
+      if (scope.serverId === serverId && scope.parentChannelId === channelId) affected.add(id)
+    }
+    for (const id of affected) {
+      const previous = scopes.get(id)
+      scopes.set(id, { serverId, ...previous, generation: (previous?.generation ?? 0) + 1, revoked: true })
+    }
+    set({ channelAccessScopes: scopes, accessEpoch: get().accessEpoch + 1 })
+    return [...affected]
+  },
+
+  revokeServerAccess: (serverId) => {
+    const revokedServerIds = new Set(get().revokedServerIds).add(serverId)
+    set({ revokedServerIds, accessEpoch: get().accessEpoch + 1 })
+  },
+
+  grantServerAccess: (serverId) => {
+    const revokedServerIds = new Set(get().revokedServerIds)
+    revokedServerIds.delete(serverId)
+    set({ revokedServerIds })
+  },
+
+  isChannelAccessRevoked: (channelId, serverId, parentChannelId) => {
+    const state = get()
+    const scope = state.channelAccessScopes.get(channelId)
+    const server = serverId ?? scope?.serverId
+    const parent = parentChannelId ?? scope?.parentChannelId
+    return Boolean(scope?.revoked
+      || (server && state.revokedServerIds.has(server))
+      || (parent && state.channelAccessScopes.get(parent)?.revoked))
   },
 
   markAccessDisconnected: () => set((state) => ({

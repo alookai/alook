@@ -6,7 +6,8 @@ import { ConversationResolutionPendingFrame } from "@/components/community/chann
 import { DmLoadingFrame } from "@/components/community/channels/dm-loading-frame"
 import { MachineListSkeleton } from "@/components/community/machines/machine-list"
 import { FriendsPage } from "@/components/community/social/friends-page"
-import { Skeleton } from "@/components/ui/skeleton"
+import { ServerLandingPendingFrame } from "./server-landing-pending-frame"
+import { UnresolvedMainSkeleton } from "./unresolved-main-skeleton"
 import {
   resolveCommunityModulePlan,
   type CommunityModulePlan,
@@ -15,26 +16,8 @@ import { tid } from "@/lib/community/testids"
 
 function MeRootPendingFrame() {
   return (
-    <main aria-busy="true" aria-label="Loading your space" className="flex min-h-0 flex-1 flex-col gap-3 p-4">
-      <Skeleton className="h-6 w-32" />
-      <Skeleton className="h-14 w-full" />
-      <Skeleton className="h-14 w-5/6" />
-    </main>
-  )
-}
-
-function ServerLandingPendingFrame() {
-  return (
-    <main aria-busy="true" aria-label="Loading server" className="flex min-h-0 flex-1 flex-col">
-      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-3">
-        <Skeleton className="size-6 rounded-md" />
-        <Skeleton className="h-4 w-32 rounded" />
-      </header>
-      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-4">
-        <Skeleton className="size-12 rounded-xl" />
-        <Skeleton className="h-4 w-36 rounded" />
-        <Skeleton className="h-3 w-52 max-w-full rounded" />
-      </div>
+    <main aria-busy="true" aria-label="Loading your space" className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <UnresolvedMainSkeleton />
     </main>
   )
 }
@@ -44,10 +27,9 @@ function RouteResolutionPendingFrame() {
     <main
       aria-busy="true"
       aria-label="Resolving community route"
-      className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 bg-background p-4"
+      className="flex min-h-0 min-w-0 flex-1 flex-col"
     >
-      <Skeleton className="size-10 rounded-xl" />
-      <Skeleton className="h-4 w-40 rounded" />
+      <UnresolvedMainSkeleton />
     </main>
   )
 }

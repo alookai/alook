@@ -1,4 +1,9 @@
 {
   "$schema": "./gen/schemas/ios-schema.json",
-  "identifier": "ai.alook.ios"
+  "identifier": "ai.alook.ios",
+  "bundle": {
+    "iOS": {
+      "developmentTeam": "5RF24VHDQB"
+    }
+  }
 }

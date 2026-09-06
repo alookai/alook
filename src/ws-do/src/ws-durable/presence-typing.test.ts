@@ -782,11 +782,11 @@ describe("WebSocketDurableObject", () => {
       expect(mockStubFetch).toHaveBeenCalledTimes(1)
     })
 
-    it("thread: typing fans out to PARTICIPANTS, not the channel audience", async () => {
+    it("thread: typing reaches readable nonparticipants", async () => {
       const { durable, env } = createDO()
       mockGetChannelForMember.mockResolvedValueOnce({ id: "t-1", serverId: "server-1" })
       mockGetChannelType.mockResolvedValueOnce("thread")
-      mockListThreadParticipantUserIds.mockResolvedValueOnce(["sender-1", "part-1"])
+      mockResolveScopeMemberUserIds.mockResolvedValueOnce(["sender-1", "reader-1"])
 
       const ws = createMockWebSocket()
       ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true })
@@ -797,10 +797,9 @@ describe("WebSocketDurableObject", () => {
       )
       await flush()
 
-      expect(mockListThreadParticipantUserIds).toHaveBeenCalledWith(expect.anything(), "t-1")
-      // Thread typing must NOT fall back to the channel-audience resolver.
-      expect(mockResolveScopeMemberUserIds).not.toHaveBeenCalled()
-      expect((env.WS_DO as any).idFromName).toHaveBeenCalledWith("user:part-1")
+      expect(mockListThreadParticipantUserIds).not.toHaveBeenCalled()
+      expect(mockResolveScopeMemberUserIds).toHaveBeenCalled()
+      expect((env.WS_DO as any).idFromName).toHaveBeenCalledWith("user:reader-1")
       expect((env.WS_DO as any).idFromName).not.toHaveBeenCalledWith("user:sender-1")
       expect(mockStubFetch).toHaveBeenCalledTimes(1)
     })

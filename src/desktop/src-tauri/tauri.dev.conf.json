@@ -2,7 +2,37 @@
   "$schema": "./gen/schemas/desktop-schema.json",
   "app": {
     "security": {
-      "capabilities": ["desktop-capability", "external-links"]
+      "capabilities": [
+        "desktop-capability",
+        "external-links",
+        {
+          "$schema": "../gen/schemas/desktop-schema.json",
+          "identifier": "native-oauth-dev",
+          "description": "Native OAuth commands without raw event, store or deep-link access",
+          "windows": [
+            "main"
+          ],
+          "platforms": [
+            "linux",
+            "macOS",
+            "windows",
+            "android",
+            "iOS"
+          ],
+          "local": true,
+          "remote": {
+            "urls": [
+              "http://localhost:3000"
+            ]
+          },
+          "permissions": [
+            "native-oauth"
+          ]
+        }
+      ]
     }
+  },
+  "build": {
+    "frontendDist": "http://localhost:3000/c"
   }
 }

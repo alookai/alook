@@ -5,6 +5,7 @@ import {
   QueryObserver,
 } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
+import { useCommunityWsStore } from "@/stores/community/ws"
 import { ApiError } from "@/lib/errors"
 import {
   reconcileFocusedMessageQueries,
@@ -82,9 +83,35 @@ function seedEmptyActiveQuery(
 
 beforeEach(() => {
   apiFetchMock.mockReset()
+  useCommunityWsStore.getState().reset()
 })
 
 describe("focused message reconnect catch-up", () => {
+  it.each(["account", "parent", "replacement"] as const)("drops old reconnect data after %s changes", async (change) => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const key = communityKeys.channelMessages("child")
+    const { unsubscribe } = seedActiveQuery(queryClient, key)
+    let release!: (value: unknown) => void
+    apiFetchMock.mockImplementationOnce(() => new Promise((resolve) => { release = resolve }))
+    const result = reconcileFocusedMessageQueries(queryClient, "channel", "child")
+    await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
+    const state = useCommunityWsStore.getState()
+    if (change === "account") {
+      state.activateProfileAccount("b")
+      useCommunityWsStore.getState().activateProfileAccount("a")
+    } else if (change === "parent") state.revokeChannelAccess("server", "parent")
+    else {
+      queryClient.removeQueries({ queryKey: key, exact: true })
+      queryClient.setQueryData(key, { pages: [{ messages: [{ id: "new-account-message" }] }], pageParams: [] })
+    }
+    const expected = queryClient.getQueryData(key)
+    release({ messages: [{ id: "old-reconnect-message" }], latestSeq: 2, hasMore: false })
+    await result
+    expect(queryClient.getQueryData(key)).toBe(expected)
+    unsubscribe()
+    queryClient.clear()
+  })
+
   it("does not repair exact-next, duplicate, or out-of-order frames", () => {
     const queryClient = new QueryClient()
     const queryKey = communityKeys.channelMessages("ch_contiguous")

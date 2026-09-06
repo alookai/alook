@@ -9,6 +9,7 @@ import {
 } from "@tanstack/react-query"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { apiFetchProfiles, messageProfilePatches } from "@/lib/community/profile-seed"
+import { captureChannelMetadataToken, isChannelMetadataTokenCurrent } from "@/hooks/community/channel-metadata"
 import { communityKeys } from "@/lib/query-keys"
 import type {
   MessagesPage,
@@ -529,7 +530,11 @@ function useMessagesInner(
     //   - STALE cache (cross-session IDB hydration): the loaded window is
     //     untrustworthy, so REPLACE it with just the fresh anchor page.
     const anchorPageParam: MessagesPageParam = { mode: "anchor", anchor: anchorId }
-    const anchorRequestKey = JSON.stringify([queryKey, anchorPageParam])
+    const accessToken = captureChannelMetadataToken(scopeId!)
+    const currentQuery = queryClient.getQueryCache().find({ queryKey, exact: true })
+    const isCurrent = () => isChannelMetadataTokenCurrent(accessToken)
+      && queryClient.getQueryCache().find({ queryKey, exact: true }) === currentQuery
+    const anchorRequestKey = JSON.stringify([queryKey, anchorPageParam, accessToken])
     fetchSharedAnchorRepair(
       queryClient,
       anchorRequestKey,
@@ -539,7 +544,7 @@ function useMessagesInner(
         // Re-check right before the swap — a concurrent send/WS update or a
         // second re-anchor attempt in the interim shouldn't be clobbered by
         // a now-outdated fetch result landing late.
-        if (anchorResetKeyRef.current !== resetKey) return
+        if (anchorResetKeyRef.current !== resetKey || !isCurrent()) return
         queryClient.setQueryData<PageCache>(queryKey, (current) => {
           // Stale replace-path: use the fresh page even if `current` is
           // somehow absent — never fall back to leaving an un-anchored
@@ -572,6 +577,7 @@ function useMessagesInner(
         })
       })
       .catch(() => {
+        if (!isCurrent()) return
         // Out-of-band fetch failed — fall back to the reset path so the
         // scope isn't stuck showing a stale, un-anchored window forever.
         // This is the ONLY `resetQueries` path left: an outright fetch
