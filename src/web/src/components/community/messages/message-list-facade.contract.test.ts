@@ -78,7 +78,6 @@ describe("MessageList facade contract", () => {
 
   it("keeps all production consumers on the original path", () => {
     const importers = [
-      "src/app/c/channels/[serverId]/page.tsx",
       "src/app/c/me/[dmId]/page.tsx",
       "src/components/community/channels/thread-channel-surface.tsx",
       "src/components/community/channels/channel-route.tsx",
@@ -88,6 +87,15 @@ describe("MessageList facade contract", () => {
       const text = source(path)
       expect(text).toMatch(/messages\/message-list["']/)
       expect(text).not.toMatch(/message-list-(types|controller|view|row)/)
+    }
+  })
+
+  it("keeps unresolved server entries independent of message layout modules", () => {
+    for (const path of [
+      "src/app/c/channels/[serverId]/page.tsx",
+      "src/components/community/channels/channel-loading-frame.tsx",
+    ]) {
+      expect(source(path)).not.toMatch(/messages\/(?:message-list|composer)|[\/."]channel-header["']/)
     }
   })
 })

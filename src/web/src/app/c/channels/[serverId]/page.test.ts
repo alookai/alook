@@ -2,6 +2,7 @@ import { createElement } from "react"
 import TestRenderer, { act } from "react-test-renderer"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import ServerDefaultPage from "./page"
+import { UnresolvedMainSkeleton } from "@/components/community/shell/unresolved-main-skeleton"
 
 const mocks = vi.hoisted(() => ({
   breakpoint: { current: "mobile" as "mobile" | "desktop" | "unknown" },
@@ -33,15 +34,6 @@ vi.mock("@/lib/community/last-channel", async () => {
     getLastChannel: () => mocks.lastChannel.current,
   }
 })
-vi.mock("@/components/community/messages/message-list", () => ({
-  MessageList: (props: Record<string, unknown>) => createElement("message-list", props),
-}))
-vi.mock("@/components/community/channels/channel-header", () => ({
-  ChannelHeaderSkeleton: (props: Record<string, unknown>) => createElement("channel-header-skeleton", props),
-}))
-vi.mock("@/components/community/messages/composer", () => ({
-  ComposerSkeleton: (props: Record<string, unknown>) => createElement("composer-skeleton", props),
-}))
 
 beforeEach(() => {
   mocks.breakpoint.current = "mobile"
@@ -54,7 +46,8 @@ beforeEach(() => {
 })
 
 describe("ServerDefaultPage checkpoint route contract", () => {
-  it("keeps the mobile server root on the list route without rendering detail", async () => {
+  it.each(["mobile", "unknown"] as const)("keeps the %s server root on the list route without rendering detail", async (breakpoint) => {
+    mocks.breakpoint.current = breakpoint
     let renderer!: TestRenderer.ReactTestRenderer
     await act(async () => {
       renderer = TestRenderer.create(createElement(ServerDefaultPage))
@@ -62,6 +55,30 @@ describe("ServerDefaultPage checkpoint route contract", () => {
 
     expect(mocks.replace).not.toHaveBeenCalled()
     expect(renderer.toJSON()).toBeNull()
+  })
+
+  it("keeps metadata loading neutral, then redirects only when the target is known", async () => {
+    mocks.breakpoint.current = "desktop"
+    mocks.server.current = null
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(createElement(ServerDefaultPage))
+    })
+
+    expect(mocks.replace).not.toHaveBeenCalled()
+    expect(renderer.root.findAllByType(UnresolvedMainSkeleton)).toHaveLength(1)
+    expect(renderer.root.findByType("main").props).toMatchObject({
+      "aria-label": "Loading server",
+      "aria-busy": "true",
+      "data-community-mobile-transition": "suppress",
+    })
+    expect(renderer.root.findAll((node) => typeof node.type === "string"
+      && ["header", "button", "form", "textarea"].includes(node.type))).toHaveLength(0)
+
+    mocks.server.current = { categories: [{ channels: [{ id: "channel_ready" }] }] }
+    await act(async () => { renderer.update(createElement(ServerDefaultPage)) })
+    expect(mocks.replace).toHaveBeenCalledExactlyOnceWith("/c/channels/server_1/channel_ready")
+    expect(renderer.root.findAllByType(UnresolvedMainSkeleton)).toHaveLength(1)
   })
 
   it("replaces the desktop server root with the remembered channel and preserves search", async () => {
@@ -76,9 +93,7 @@ describe("ServerDefaultPage checkpoint route contract", () => {
     expect(mocks.replace).toHaveBeenCalledWith(
       "/c/channels/server_1/channel_2?settings=1",
     )
-    expect(renderer.root.findAllByType("message-list")).toHaveLength(1)
-    expect(renderer.root.findAllByType("channel-header-skeleton")).toHaveLength(1)
-    expect(renderer.root.findAllByType("composer-skeleton")).toHaveLength(1)
+    expect(renderer.root.findAllByType(UnresolvedMainSkeleton)).toHaveLength(1)
   })
 
   it("falls back to the first top-level channel on desktop", async () => {
@@ -102,7 +117,7 @@ describe("ServerDefaultPage checkpoint route contract", () => {
     })
 
     expect(mocks.replace).not.toHaveBeenCalled()
-    expect(renderer.root.findAllByType("message-list")).toHaveLength(0)
+    expect(renderer.root.findAllByType(UnresolvedMainSkeleton)).toHaveLength(0)
     expect(renderer.root.findAllByType("span").map((node) => node.children.join(" "))).toEqual([
       "No channels yet",
       "Create a channel from the sidebar to get started.",

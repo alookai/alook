@@ -1,4 +1,4 @@
-import { Skeleton } from "@/components/ui/skeleton"
+import { UnresolvedMainSkeleton } from "../shell/unresolved-main-skeleton"
 
 /** Inert main-area placeholder used until canonical route metadata proves the subtype. */
 export function ConversationResolutionPendingFrame() {
@@ -8,9 +8,9 @@ export function ConversationResolutionPendingFrame() {
       aria-label="Resolving conversation"
       data-community-conversation-subtype="unknown"
       data-community-mobile-transition="suppress"
-      className="min-h-0 min-w-0 flex-1 bg-background"
+      className="flex min-h-0 min-w-0 flex-1 flex-col"
     >
-      <Skeleton aria-hidden className="h-full w-full rounded-none" />
+      <UnresolvedMainSkeleton />
       <span className="sr-only">Resolving conversation</span>
     </main>
   )

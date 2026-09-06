@@ -24,6 +24,7 @@ test.describe.serial("profile card stability", () => {
     await page.getByRole("button", { name: /member/i }).first().click()
     await page.getByTestId(tid.memberRow(userId("bob"))).click()
     await expect(page.getByTestId(tid.profileCard)).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByTestId(tid.profileCard).getByRole("textbox")).toBeFocused()
 
     // Close by pressing Escape; the card detaches.
     await page.keyboard.press("Escape")

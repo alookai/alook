@@ -12,6 +12,7 @@ import { ThreadChannelSurface } from "@/components/community/channels/thread-cha
 import { ThreadSplitView } from "@/components/community/channels/thread-split-view"
 import { ThreadSplitParentSurface } from "@/components/community/channels/thread-split-parent-surface"
 import { ForumChannelSurface } from "@/components/community/channels/forum-channel-surface"
+import { ConversationResolutionErrorFrame } from "@/components/community/channels/conversation-resolution-error-frame"
 import { ConversationResolutionPendingFrame } from "@/components/community/channels/conversation-resolution-pending-frame"
 import { useChannelMemberViewModel } from "@/components/community/members/channel-member-view-model"
 import type { OpenProfile } from "@/components/community/social/profile-types"
@@ -206,7 +207,14 @@ export function ChannelRoute({ serverParam, channelId }: {
     isChild: isChildChannel,
     isForum,
   })
-  if (subtype === "unknown") return <ConversationResolutionPendingFrame />
+  if (subtype === "unknown") {
+    return routeModel.metadataError
+      ? <ConversationResolutionErrorFrame
+          retrying={routeModel.retryingMetadata}
+          onRetry={() => { void routeModel.retryMetadata() }}
+        />
+      : <ConversationResolutionPendingFrame />
+  }
   if (!channelHydrated) {
     if (subtype === "thread") {
       const split = threadSplit.mode === "split" && !!currentServer && !!parentChannelInServer
