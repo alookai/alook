@@ -26,6 +26,7 @@ type CommunityAsUser = (
 ) => Promise<{ context: BrowserContext; page: Page }>
 type MobileWidth = 320 | 390 | 639
 const RAIL_OVERFLOW_SERVER_COUNT = 20
+const ISOLATED_GEOMETRY_USER: UserKey = "dave"
 const ANDROID_USER_AGENTS = {
   chrome: "Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36",
   webview: "Mozilla/5.0 (Linux; Android 15; Pixel 9 Build/AP3A.240905.015; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/140.0.0.0 Mobile Safari/537.36",
@@ -318,28 +319,37 @@ async function visibleSkeletonAnimationProperties(page: Page) {
 
 export async function seedGeometryRoutes(): Promise<Omit<MatrixCase, "width">[]> {
   const stamp = Date.now()
-    const serverId = await seedServer("alice", `Geometry ${stamp}`)
+    const serverId = await seedServer(ISOLATED_GEOMETRY_USER, `Geometry ${stamp}`)
     for (let index = 1; index < RAIL_OVERFLOW_SERVER_COUNT; index += 1) {
-      await seedServer("alice", `Geometry rail ${stamp}-${index}`)
+      await seedServer(ISOLATED_GEOMETRY_USER, `Geometry rail ${stamp}-${index}`)
     }
-    const textId = await seedChannel("alice", serverId, `geometry-text-${stamp}`)
-    const forumId = await seedChannel("alice", serverId, `geometry-forum-${stamp}`, "forum")
+    const textId = await seedChannel(ISOLATED_GEOMETRY_USER, serverId, `geometry-text-${stamp}`)
+    const forumId = await seedChannel(
+      ISOLATED_GEOMETRY_USER,
+      serverId,
+      `geometry-forum-${stamp}`,
+      "forum",
+    )
     const textMessage = `geometry opener ${stamp}`
     const threadMessage = `geometry reply ${stamp}`
     const forumTitle = `Geometry forum post ${stamp}`
     const forumMessage = `geometry forum reply ${stamp}`
     const dmMessage = `geometry dm ${stamp}`
-    const openerId = await seedMessage("alice", textId, textMessage)
-    const threadId = await seedThread("alice", openerId, `geometry-thread-${stamp}`)
-    await seedMessage("alice", threadId, threadMessage)
+    const openerId = await seedMessage(ISOLATED_GEOMETRY_USER, textId, textMessage)
+    const threadId = await seedThread(
+      ISOLATED_GEOMETRY_USER,
+      openerId,
+      `geometry-thread-${stamp}`,
+    )
+    await seedMessage(ISOLATED_GEOMETRY_USER, threadId, threadMessage)
     const forumPostId = await seedForumThread(
-      "alice",
+      ISOLATED_GEOMETRY_USER,
       forumId,
       forumTitle,
       forumMessage,
     )
-    const dmId = await seedDm("alice", userId("bob"))
-    await seedMessage("alice", dmId, dmMessage)
+    const dmId = await seedDm(ISOLATED_GEOMETRY_USER, userId("bob"))
+    await seedMessage(ISOLATED_GEOMETRY_USER, dmId, dmMessage)
 
     const main = (page: Page) => shellPanel(page, "main")
     const messageReady = (content: string) => (page: Page) =>
@@ -451,12 +461,12 @@ export async function runNeutralRootGeometry(
   testInfo: TestInfo,
 ) {
       for (const width of [390, 1280] as const) {
-        const { context, page } = await asUser("alice")
+        const { context, page } = await asUser(ISOLATED_GEOMETRY_USER)
         await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
         await page.emulateMedia({ colorScheme: theme })
         await page.addInitScript((storageKey) => {
           localStorage.removeItem(storageKey)
-        }, `community:lastRoute:${encodeURIComponent(userId("alice"))}`)
+        }, `community:lastRoute:${encodeURIComponent(userId(ISOLATED_GEOMETRY_USER))}`)
         const session = await holdSession(page)
         await page.goto("/c", { waitUntil: "commit" })
         await expect.poll(session.hits).toBeGreaterThan(0)
@@ -515,7 +525,7 @@ export async function runRouteLoadingGeometry(
       expect(cases).toHaveLength(18)
 
       for (const entry of cases) {
-        const { context, page } = await asUser("alice")
+        const { context, page } = await asUser(ISOLATED_GEOMETRY_USER)
         await page.setViewportSize({ width: entry.width, height: entry.width === 390 ? 844 : 900 })
         await page.emulateMedia({ colorScheme: theme })
         await startClsObserver(page)
