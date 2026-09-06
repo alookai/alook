@@ -1,6 +1,6 @@
 import { spawn, spawnSync, type ChildProcess } from "child_process"
 import { createRequire } from "module"
-import { closeSync, cpSync, existsSync, mkdirSync, openSync, rmSync } from "fs"
+import { closeSync, cpSync, existsSync, mkdirSync, openSync, rmSync, statSync } from "fs"
 import { dirname, resolve } from "path"
 import { REPO_ROOT, SERVICE_LOG_DIR, SERVICE_STATE_PATH, WEB_URL, WS_URL } from "./paths"
 import {
@@ -29,6 +29,10 @@ export interface ServiceDefinition {
 }
 
 export const E2E_WRANGLER_VERSION = "4.113.0"
+export const E2E_PREBUILT_ENTRYPOINTS = [
+  "src/web/.open-next/worker.js",
+  "src/web/blog/.open-next/worker.js",
+] as const
 
 export function resolveE2EWranglerRuntime(): {
   command: string
@@ -226,9 +230,22 @@ export async function waitForServicesReady(
   await Promise.all(services.map((service) => wait(service)))
 }
 
-export function prepareServices(): void {
-  if (!SINGLE_RUNTIME) return
-  const builds = [
+export function serviceBuildCommands(
+  singleRuntime = SINGLE_RUNTIME,
+  prebuilt = process.env.ALOOK_E2E_PREBUILT === "1",
+  root = REPO_ROOT,
+): Array<{ name: string; args: string[] }> {
+  if (!singleRuntime) return []
+  if (prebuilt) {
+    for (const entrypoint of E2E_PREBUILT_ENTRYPOINTS) {
+      const path = resolve(root, entrypoint)
+      if (!existsSync(path) || !statSync(path).isFile()) {
+        throw new Error(`prebuilt OpenNext worker entrypoint is missing: ${path}`)
+      }
+    }
+    return []
+  }
+  return [
     {
       name: "web worker",
       args: ["--filter", "@alook/web", "exec", "opennextjs-cloudflare", "build"],
@@ -238,7 +255,10 @@ export function prepareServices(): void {
       args: ["--filter", "@alook/web", "build:blog"],
     },
   ]
-  for (const build of builds) {
+}
+
+export function prepareServices(): void {
+  for (const build of serviceBuildCommands()) {
     const res = spawnSync("pnpm", build.args, {
       cwd: REPO_ROOT,
       stdio: "inherit",

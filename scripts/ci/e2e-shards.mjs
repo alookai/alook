@@ -4,71 +4,80 @@ import { fileURLToPath } from "node:url"
 
 export const E2E_SPEC_ROOT = "src/web/src/test/e2e-ui"
 export const E2E_SHARD_BUDGET_SECONDS = 240
-export const DEFAULT_SPEC_SECONDS = E2E_SHARD_BUDGET_SECONDS
+export const E2E_FIXED_SETUP_SECONDS = 60
+export const E2E_SAFETY_MARGIN_SECONDS = 15
+export const E2E_SPEC_BUDGET_SECONDS = E2E_SHARD_BUDGET_SECONDS
+  - E2E_FIXED_SETUP_SECONDS
+  - E2E_SAFETY_MARGIN_SECONDS
+export const DEFAULT_SPEC_SECONDS = E2E_SPEC_BUDGET_SECONDS
 export const PLAYWRIGHT_IMAGE_REPOSITORY = "mcr.microsoft.com/playwright"
 
 export const SPEC_SECONDS = {
-  "01-auth.spec.ts": 5,
-  "02-server-channel-message.spec.ts": 75,
-  "03-realtime-multiuser.spec.ts": 63,
-  "04-dm.spec.ts": 42,
-  "05-mention-bot.spec.ts": 15,
-  "06-channel-member-admin.spec.ts": 17,
-  "07-invite.spec.ts": 10,
-  "08-mobile.spec.ts": 7,
-  "09-forum-thread.spec.ts": 35,
-  "10-eject-nav-auth.spec.ts": 30,
-  "11-profile-ui-stability.spec.ts": 9,
-  "12-friends.spec.ts": 6,
-  "13-mentions.spec.ts": 50,
-  "14-forum-post-tags-presence.spec.ts": 59,
-  "15-mention-scope.spec.ts": 74,
-  "16-jump-to-present.spec.ts": 30,
-  "17-forum-sidebar-stage-b.spec.ts": 35,
-  "18-new-divider-scroll.spec.ts": 46,
-  "19-marketing-seo.spec.ts": 5,
-  "20-community-attachment-thumbnails.spec.ts": 60,
-  "21-mobile-message-layout.spec.ts": 20,
-  "22-committed-message-delivery.spec.ts": 85,
-  "23-message-selection-context-menu.spec.ts": 10,
-  "24-composer-overflow.spec.ts": 35,
-  "25-community-ws-reconnect-overlay.spec.ts": 60,
-  "25-composer-accessory-rail-occupancy.spec.ts": 95,
-  "26-mobile-forum-post-actions.spec.ts": 45,
-  "27-canonical-forum-post-delete.spec.ts": 30,
-  "28-community-delete-media-cleanup.spec.ts": 45,
-  "29-community-bot-avatar-cleanup.spec.ts": 15,
-  "29-multi-device-read-state.spec.ts": 45,
-  "30-bot-profile-audit-preview.spec.ts": 35,
-  "31-mention-candidate-pagination.spec.ts": 10,
-  "31-machine-guide-motion.spec.ts": 10,
-  "32-mobile-ws-foreground-validation.spec.ts": 80,
-  "33-picker-async-layout.spec.ts": 57,
-  "34-inbox-read-race.spec.ts": 42,
-  "35-channel-ref-directory-states.spec.ts": 60,
-  "35-bot-token-usage-quota.spec.ts": 45,
-  "36-server-switch-pending-checkpoint.spec.ts": 60,
-  "37-server-rail-pdd.spec.ts": 120,
-  "38-community-navigation-checkpoint-matrix.spec.ts": 60,
-  "39-mobile-message-interactions.spec.ts": 20,
-  "39-mobile-composer-send.spec.ts": 45,
-  "40-mobile-server-header-hierarchy.spec.ts": 28,
-  "40-server-rail-unread.spec.ts": 60,
-  "41-account-unread-projection.spec.ts": 55,
-  "41-community-initial-load-module-skeletons.spec.ts": 30,
-  "42-versioned-avatar-identity.spec.ts": 50,
-  "44-mobile-reaction-details.spec.ts": 70,
-  "45-desktop-thread-split-view.spec.ts": 60,
-  "46-community-loading-geometry-matrix.spec.ts": 150,
-  "50-daemon-update-notice.spec.ts": 35,
-  "51-mobile-forum-tag-editor.spec.ts": 60,
-  "51-share-image-assets.spec.ts": 20,
-  "52-chat-composer-ordered-list.spec.ts": 90,
-  "53-mobile-inbox-surface.spec.ts": 45,
-  "54-authenticated-context-menu-policy.spec.ts": 55,
-  "54-blog-multizone.spec.ts": 60,
-  "55-message-scroll-characterization.spec.ts": 180,
-  "56-remote-image-state-contract.spec.ts": 15,
+  "01-auth.spec.ts": 3.997,
+  "02-server-channel-message.spec.ts": 9.687,
+  "03-realtime-multiuser.spec.ts": 13.037,
+  "04-dm.spec.ts": 15.545,
+  "05-mention-bot.spec.ts": 4.117,
+  "06-channel-member-admin.spec.ts": 3.819,
+  "07-invite.spec.ts": 9.843,
+  "08-mobile.spec.ts": 37.929,
+  "09-forum-thread.spec.ts": 4.538,
+  "10-eject-nav-auth.spec.ts": 6.193,
+  "11-profile-ui-stability.spec.ts": 2.554,
+  "12-friends.spec.ts": 3.905,
+  "13-mentions.spec.ts": 9.591,
+  "14-forum-post-tags-presence.spec.ts": 16.213,
+  "15-mention-scope.spec.ts": 10.94,
+  "16-jump-to-present.spec.ts": 5.997,
+  "17-forum-sidebar-stage-b.spec.ts": 43.842,
+  "18-new-divider-scroll.spec.ts": 10.956,
+  "19-marketing-seo.spec.ts": 1.713,
+  "20-community-attachment-thumbnails.spec.ts": 11.117,
+  "21-mobile-message-layout.spec.ts": 5.12,
+  "22-committed-message-delivery.spec.ts": 40.086,
+  "23-message-selection-context-menu.spec.ts": 3.392,
+  "24-composer-overflow.spec.ts": 12.763,
+  "25-community-ws-reconnect-overlay.spec.ts": 36.437,
+  "25-composer-accessory-rail-occupancy.spec.ts": 40.804,
+  "26-mobile-forum-post-actions.spec.ts": 21.297,
+  "27-canonical-forum-post-delete.spec.ts": 11.097,
+  "28-community-delete-media-cleanup.spec.ts": 11.925,
+  "28-thread-realtime-audiences.spec.ts": 26.477,
+  "29-community-bot-avatar-cleanup.spec.ts": 8.216,
+  "29-multi-device-read-state.spec.ts": 72.169,
+  "30-bot-profile-audit-preview.spec.ts": 29.213,
+  "31-machine-guide-motion.spec.ts": 4.201,
+  "31-mention-candidate-pagination.spec.ts": 3.836,
+  "32-mobile-ws-foreground-validation.spec.ts": 95.792,
+  "33-picker-async-layout.spec.ts": 18.776,
+  "34-inbox-read-race.spec.ts": 26.519,
+  "35-bot-token-usage-quota.spec.ts": 10.867,
+  "35-channel-ref-directory-states.spec.ts": 12.626,
+  "36-server-switch-pending-checkpoint.spec.ts": 5.732,
+  "37-server-rail-pdd.spec.ts": 21.594,
+  "38-community-navigation-checkpoint-matrix.spec.ts": 4.646,
+  "39-mobile-composer-send.spec.ts": 16.534,
+  "39-mobile-message-interactions.spec.ts": 58.479,
+  "40-mobile-server-header-hierarchy.spec.ts": 14.449,
+  "40-server-rail-unread.spec.ts": 11.954,
+  "41-account-unread-projection.spec.ts": 28.753,
+  "41-community-initial-load-module-skeletons.spec.ts": 29.632,
+  "42-versioned-avatar-identity.spec.ts": 13.96,
+  "43-composer-attachment-drafts.spec.ts": 12.139,
+  "44-mobile-reaction-details.spec.ts": 32.952,
+  "45-desktop-thread-split-view.spec.ts": 11.647,
+  "46-community-loading-geometry-android.spec.ts": 49.779,
+  "46-community-loading-geometry-dark.spec.ts": 63.284,
+  "46-community-loading-geometry-light.spec.ts": 63.095,
+  "50-daemon-update-notice.spec.ts": 7.656,
+  "51-mobile-forum-tag-editor.spec.ts": 26.043,
+  "51-share-image-assets.spec.ts": 46.186,
+  "52-chat-composer-ordered-list.spec.ts": 16.531,
+  "53-mobile-inbox-surface.spec.ts": 8.362,
+  "54-authenticated-context-menu-policy.spec.ts": 13.721,
+  "54-blog-multizone.spec.ts": 5.485,
+  "55-message-scroll-characterization.spec.ts": 45.089,
+  "56-remote-image-state-contract.spec.ts": 3.122,
 }
 
 function walk(directory) {
@@ -146,19 +155,29 @@ function weightedSpecs(specs, weights, defaultSeconds, budgetSeconds) {
     .sort((left, right) => right.seconds - left.seconds || left.path.localeCompare(right.path))
 }
 
-function packE2eShards(weighted, shardCount) {
+function roundedSeconds(value) {
+  return Math.round(value * 1_000) / 1_000
+}
+
+function packE2eShards(weighted, shardCount, fixedSetupSeconds, safetyMarginSeconds) {
   const shards = Array.from({ length: shardCount }, (_, index) => ({
     shard: index + 1,
-    predicted_seconds: 0,
+    spec_seconds: 0,
+    fixed_setup_seconds: fixedSetupSeconds,
+    safety_margin_seconds: safetyMarginSeconds,
+    predicted_seconds: roundedSeconds(fixedSetupSeconds + safetyMarginSeconds),
     files: [],
   }))
 
   for (const spec of weighted) {
     const target = [...shards].sort(
-      (left, right) => left.predicted_seconds - right.predicted_seconds || left.shard - right.shard,
+      (left, right) => left.spec_seconds - right.spec_seconds || left.shard - right.shard,
     )[0]
     target.files.push(spec.path)
-    target.predicted_seconds += spec.seconds
+    target.spec_seconds = roundedSeconds(target.spec_seconds + spec.seconds)
+    target.predicted_seconds = roundedSeconds(
+      target.spec_seconds + fixedSetupSeconds + safetyMarginSeconds,
+    )
   }
 
   return shards.map((shard) => ({
@@ -172,15 +191,27 @@ export function planE2eShards(specs, options = {}) {
     weights = SPEC_SECONDS,
     defaultSeconds = DEFAULT_SPEC_SECONDS,
     budgetSeconds = E2E_SHARD_BUDGET_SECONDS,
+    fixedSetupSeconds = E2E_FIXED_SETUP_SECONDS,
+    safetyMarginSeconds = E2E_SAFETY_MARGIN_SECONDS,
   } = options
-  const weighted = weightedSpecs(specs, weights, defaultSeconds, budgetSeconds)
+  if (!Number.isFinite(fixedSetupSeconds) || fixedSetupSeconds < 0) {
+    throw new Error("fixedSetupSeconds must be a non-negative finite number")
+  }
+  if (!Number.isFinite(safetyMarginSeconds) || safetyMarginSeconds < 0) {
+    throw new Error("safetyMarginSeconds must be a non-negative finite number")
+  }
+  const specBudgetSeconds = budgetSeconds - fixedSetupSeconds - safetyMarginSeconds
+  if (!Number.isFinite(specBudgetSeconds) || specBudgetSeconds <= 0) {
+    throw new Error("fixed setup and safety margin must leave a positive spec budget")
+  }
+  const weighted = weightedSpecs(specs, weights, defaultSeconds, specBudgetSeconds)
   const totalSeconds = weighted.reduce((total, spec) => total + spec.seconds, 0)
-  let shardCount = Math.ceil(totalSeconds / budgetSeconds)
-  let shards = packE2eShards(weighted, shardCount)
+  let shardCount = Math.ceil(totalSeconds / specBudgetSeconds)
+  let shards = packE2eShards(weighted, shardCount, fixedSetupSeconds, safetyMarginSeconds)
 
-  while (shards.some((shard) => shard.predicted_seconds > budgetSeconds)) {
+  while (shards.some((shard) => shard.spec_seconds > specBudgetSeconds)) {
     shardCount += 1
-    shards = packE2eShards(weighted, shardCount)
+    shards = packE2eShards(weighted, shardCount, fixedSetupSeconds, safetyMarginSeconds)
   }
   return shards
 }
@@ -201,6 +232,9 @@ export function createE2eMatrix(specs = discoverE2eSpecs(), image = resolvePlayw
       shard: shard.shard,
       total: shards.length,
       image,
+      spec_seconds: shard.spec_seconds,
+      fixed_setup_seconds: shard.fixed_setup_seconds,
+      safety_margin_seconds: shard.safety_margin_seconds,
       predicted_seconds: shard.predicted_seconds,
       specs: shard.files.map((path) => `src/test/e2e-ui/${path}`),
     })),
@@ -218,11 +252,11 @@ function parseArgs(argv) {
 
 function writeSummary(path, matrix) {
   const rows = matrix.include
-    .map((shard) => `| ${shard.shard}/${shard.total} | ${shard.predicted_seconds}s | \`${shard.specs.join(" ")}\` |`)
+    .map((shard) => `| ${shard.shard}/${shard.total} | ${shard.spec_seconds}s | ${shard.fixed_setup_seconds}s | ${shard.safety_margin_seconds}s | ${shard.predicted_seconds}s | \`${shard.specs.join(" ")}\` |`)
     .join("\n")
   appendFileSync(
     path,
-    `## UI E2E shards\n\nPredicted Playwright execution only; ${E2E_SHARD_BUDGET_SECONDS}s budget per shard. Runner setup and dependency installation are not included.\n\n| Shard | Predicted Playwright | Specs |\n| --- | ---: | --- |\n${rows}\n`,
+    `## UI E2E shards\n\nPredicted Playwright command step; ${E2E_SHARD_BUDGET_SECONDS}s budget per shard. Each total includes measured spec time, fixed service setup, and an explicit safety margin.\n\n| Shard | Specs | Fixed setup | Margin | Predicted total | Files |\n| --- | ---: | ---: | ---: | ---: | --- |\n${rows}\n`,
   )
 }
 

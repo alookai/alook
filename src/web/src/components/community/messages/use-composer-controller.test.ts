@@ -935,6 +935,51 @@ describe("useComposerController", () => {
     expect(vi.getTimerCount()).toBe(1)
   })
 
+  it("resets the leading-edge typing timer only after an accepted send", async () => {
+    vi.useFakeTimers()
+    const onTyping = vi.fn()
+    const reject = vi.fn(() => false)
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(createElement(Harness, {
+        ...acceptedProps(reject),
+        onTyping,
+      }))
+    })
+
+    await act(async () => {
+      editorOptions.onUpdate({ editor })
+    })
+    expect(onTyping).toHaveBeenCalledOnce()
+
+    await enter()
+    await act(async () => {
+      editorOptions.onUpdate({ editor })
+    })
+    expect(onTyping).toHaveBeenCalledOnce()
+    await act(async () => {
+      vi.advanceTimersByTime(3_000)
+    })
+
+    const accept = vi.fn(() => true)
+    clearContent.mockImplementationOnce(() => {
+      editorOptions.onUpdate({ editor })
+    })
+    await act(async () => {
+      renderer.update(createElement(Harness, {
+        ...acceptedProps(accept),
+        onTyping,
+      }))
+    })
+    await enter()
+    expect(onTyping).toHaveBeenCalledOnce()
+
+    await act(async () => {
+      editorOptions.onUpdate({ editor })
+    })
+    expect(onTyping).toHaveBeenCalledTimes(2)
+  })
+
   it("skips all draft restore and chat focus effects in forum mode", async () => {
     const props: ComposerProps = {
       channel: "forum",
@@ -1259,8 +1304,10 @@ describe("useComposerController", () => {
     expect(source).toContain("useLayoutEffect(")
     expect(source).toContain("emitUpdate: false")
     expect(source).toContain("errorOnInvalidContent: true")
-    expect(source).toContain("restoringDraftRef.current = false")
+    expect(source).toContain("suppressUpdateEffectsRef.current = false")
     expect(source).toContain("3_000")
-    expect(source).not.toContain("clearTimeout(")
+    expect(source.indexOf("clearTimeout(typingTimer.current)"))
+      .toBeLessThan(source.indexOf("editor.commands.clearContent()"))
+    expect(source).toContain("typingTimer.current = null")
   })
 })

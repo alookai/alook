@@ -41,7 +41,7 @@ import {
   communityWsSubscribe,
   communityWsUnsubscribe,
   communityWsSendTyping,
-  communityWsResetTypingThrottle,
+  communityWsEndTyping,
 } from "@/hooks/community/use-community-ws"
 import {
   advanceCommunityOnboarding,
@@ -426,7 +426,7 @@ function DmView() {
     void receipt.committed.then((result) => {
       if (result.ok) advanceOnboardingAfterSend()
     })
-    communityWsResetTypingThrottle({ channelId: dmId })
+    communityWsEndTyping({ channelId: dmId })
     setReplyTo(null)
     return true
   }

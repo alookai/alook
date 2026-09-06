@@ -6,7 +6,7 @@ const mocks = vi.hoisted(() => ({
   getRetryPayload: vi.fn(),
   dispatch: vi.fn(),
   toastApiError: vi.fn(),
-  resetTyping: vi.fn(),
+  endTyping: vi.fn(),
   zip: vi.fn(),
   toVm: vi.fn((channelId: string, attachment: { id: string }) => ({
     kind: "file", url: `/api/${channelId}/${attachment.id}`, name: attachment.id, size: 1,
@@ -27,7 +27,7 @@ vi.mock("@/hooks/community/mutations", () => ({
   zipUploadResultsWithDimensions: mocks.zip,
 }))
 vi.mock("@/hooks/community/use-community-ws", () => ({
-  communityWsResetTypingThrottle: mocks.resetTyping,
+  communityWsEndTyping: mocks.endTyping,
 }))
 vi.mock("@/lib/api/client", () => ({ toastApiError: mocks.toastApiError }))
 
@@ -78,7 +78,7 @@ describe("message channel send helpers", () => {
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:new")
     expect(URL.revokeObjectURL).not.toHaveBeenCalledWith("blob:supplied")
     expect(runner).not.toHaveBeenCalled()
-    expect(mocks.resetTyping).not.toHaveBeenCalled()
+    expect(mocks.endTyping).not.toHaveBeenCalled()
     expect(clearReply).not.toHaveBeenCalled()
   })
 
@@ -113,7 +113,7 @@ describe("message channel send helpers", () => {
       return true
     })
     const runner = vi.fn(async () => { order.push("run") })
-    mocks.resetTyping.mockImplementation(() => order.push("typing"))
+    mocks.endTyping.mockImplementation(() => order.push("typing"))
     const clearReply = vi.fn(() => order.push("clear"))
     expect(acceptChannelMessage({
       markdown: "hello",
@@ -127,7 +127,7 @@ describe("message channel send helpers", () => {
       clearReply,
     })).toBe(true)
     expect(runner).toHaveBeenCalledWith("nonce_1")
-    expect(mocks.resetTyping).toHaveBeenCalledWith({ channelId: "channel_1" })
+    expect(mocks.endTyping).toHaveBeenCalledWith({ channelId: "channel_1" })
     expect(order).toEqual(["accept", "run", "typing", "clear"])
     expect(URL.revokeObjectURL).not.toHaveBeenCalled()
   })
@@ -169,7 +169,7 @@ describe("message channel send helpers", () => {
       mentionType: undefined,
     })
     expect(runner).toHaveBeenCalledWith("nonce_1")
-    expect(mocks.resetTyping).toHaveBeenCalledWith({ channelId: "channel_1" })
+    expect(mocks.endTyping).toHaveBeenCalledWith({ channelId: "channel_1" })
     expect(clearReply).toHaveBeenCalledOnce()
   })
 

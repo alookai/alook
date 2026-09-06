@@ -223,7 +223,7 @@ vi.mock("@/hooks/community/mutations", () => ({
 }))
 vi.mock("@/hooks/community/use-community-ws", () => ({
   communityWsSendTyping: vi.fn(),
-  communityWsResetTypingThrottle: vi.fn(),
+  communityWsEndTyping: vi.fn(),
   communityWsClaimSecondaryChannel: vi.fn(),
   communityWsReleaseSecondaryChannel: vi.fn(),
 }))

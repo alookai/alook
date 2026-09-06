@@ -1,5 +1,5 @@
 import { type Locator, type Page } from "@playwright/test"
-import { test, expect, userId } from "./_fixtures/community-fixture"
+import { test, expect, userId, userName } from "./_fixtures/community-fixture"
 import { composerEditable, ignoreNextDevToolsPointerCapture } from "./_fixtures/actions"
 import { tid } from "./_fixtures/testids"
 import {
@@ -228,6 +228,10 @@ test.describe.serial("community composer text containment", () => {
       secondaryChannelName,
     )
     dmId = await seedDm("alice", userId("carol"))
+  })
+
+  test.afterAll(async () => {
+    await renameUser("bob", userName("bob"))
   })
 
   test("default channel placeholder stays in the editable width and leaves controls clickable", async ({ asUser }) => {

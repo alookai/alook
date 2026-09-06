@@ -1,5 +1,12 @@
-import type { Locator, Page, Route } from "@playwright/test"
-import { expect, sessionCookie, test, userId } from "./_fixtures/community-fixture"
+import type {
+  BrowserContext,
+  BrowserContextOptions,
+  Locator,
+  Page,
+  Route,
+  TestInfo,
+} from "@playwright/test"
+import { expect, sessionCookie, userId } from "./community-fixture"
 import {
   seedChannel,
   seedDm,
@@ -7,11 +14,16 @@ import {
   seedMessage,
   seedServer,
   seedThread,
-} from "./_fixtures/seed"
-import { tid } from "./_fixtures/testids"
-import { WEB_URL } from "./_setup/paths"
+} from "./seed"
+import { tid } from "./testids"
+import { WEB_URL } from "../_setup/paths"
+import type { UserKey } from "../_setup/users"
 
 type Theme = "light" | "dark"
+type CommunityAsUser = (
+  key: UserKey,
+  options?: Omit<BrowserContextOptions, "storageState">,
+) => Promise<{ context: BrowserContext; page: Page }>
 type MobileWidth = 320 | 390 | 639
 const RAIL_OVERFLOW_SERVER_COUNT = 20
 const ANDROID_USER_AGENTS = {
@@ -304,12 +316,8 @@ async function visibleSkeletonAnimationProperties(page: Page) {
   )).sort())
 }
 
-test.describe.serial("community pending-to-loaded geometry matrix", () => {
-  let routes!: Omit<MatrixCase, "width">[]
-
-  test.beforeAll(async () => {
-    test.setTimeout(120_000)
-    const stamp = Date.now()
+export async function seedGeometryRoutes(): Promise<Omit<MatrixCase, "width">[]> {
+  const stamp = Date.now()
     const serverId = await seedServer("alice", `Geometry ${stamp}`)
     for (let index = 1; index < RAIL_OVERFLOW_SERVER_COUNT; index += 1) {
       await seedServer("alice", `Geometry rail ${stamp}-${index}`)
@@ -339,7 +347,7 @@ test.describe.serial("community pending-to-loaded geometry matrix", () => {
     const threadComposerReady = (page: Page) => page
       .getByTestId(tid.threadSplitPanel)
       .getByTestId(tid.composerInput)
-    routes = [
+  return [
       { name: "me-list", pathname: "/c/me", mobileRail: true, ready: (page) => page.getByRole("button", { name: "Friends", exact: true }) },
       { name: "friends", pathname: "/c/me/friends", ready: (page) => page.getByPlaceholder("Search friends") },
       { name: "machines", pathname: "/c/me/machines", ready: (page) => page.getByTestId(tid.machinePairOpen) },
@@ -373,11 +381,10 @@ test.describe.serial("community pending-to-loaded geometry matrix", () => {
           ready: threadComposerReady,
         },
       },
-    ]
-  })
+  ]
+}
 
-  test("Android Chrome/WebView keep 320/390/639 cold frames mobile before breakpoint hydration", async ({ asUser }) => {
-    test.setTimeout(240_000)
+export async function runAndroidLoadingGeometry(asUser: CommunityAsUser) {
     await pairMachine()
     for (const userAgent of Object.values(ANDROID_USER_AGENTS)) {
       for (const width of [320, 390, 639] as const) {
@@ -416,9 +423,9 @@ test.describe.serial("community pending-to-loaded geometry matrix", () => {
         }
       }
     }
-  })
+}
 
-  test("community skeleton pulse changes only opacity and stops for reduced motion", async ({ asUser }) => {
+export async function runSkeletonLoadingMotion(asUser: CommunityAsUser) {
     for (const reducedMotion of ["no-preference", "reduce"] as const) {
       const { context, page } = await asUser("alice", {
         userAgent: ANDROID_USER_AGENTS.webview,
@@ -436,10 +443,13 @@ test.describe.serial("community pending-to-loaded geometry matrix", () => {
       session.release()
       await context.close()
     }
-  })
+}
 
-  for (const theme of ["light", "dark"] as const satisfies readonly Theme[]) {
-    test(`${theme}: neutral root owns two viewport cold restores`, async ({ asUser }, testInfo) => {
+export async function runNeutralRootGeometry(
+  theme: Theme,
+  asUser: CommunityAsUser,
+  testInfo: TestInfo,
+) {
       for (const width of [390, 1280] as const) {
         const { context, page } = await asUser("alice")
         await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
@@ -490,10 +500,14 @@ test.describe.serial("community pending-to-loaded geometry matrix", () => {
         ))).toBe(true)
         await context.close()
       }
-    })
+}
 
-    test(`${theme}: 18 route × viewport pending→loaded pairs keep shell CLS at zero`, async ({ asUser }, testInfo) => {
-      test.setTimeout(600_000)
+export async function runRouteLoadingGeometry(
+  theme: Theme,
+  routes: Omit<MatrixCase, "width">[],
+  asUser: CommunityAsUser,
+  testInfo: TestInfo,
+) {
       const cases: MatrixCase[] = routes.flatMap((route) => ([
         { ...route, width: 390 },
         { ...route, width: 1280 },
@@ -569,6 +583,4 @@ test.describe.serial("community pending-to-loaded geometry matrix", () => {
         })
         await context.close()
       }
-    })
-  }
-})
+}

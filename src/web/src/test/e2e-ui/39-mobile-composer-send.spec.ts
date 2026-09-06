@@ -2,6 +2,7 @@ import type { Page, TestInfo } from "@playwright/test"
 import { test, expect, userId } from "./_fixtures/community-fixture"
 import {
   composerEditable,
+  gotoAfterUserWsAuth,
   ignoreNextDevToolsPointerCapture,
   installInputCapability,
 } from "./_fixtures/actions"
@@ -51,7 +52,7 @@ async function expectHoverKeyboardSend({
       && new URL(request.url()).pathname === `/api/community/channels/${channelId}/messages`
     ) messagePosts += 1
   })
-  await page.goto(route, { waitUntil: "commit" })
+  await gotoAfterUserWsAuth(page, route)
   await ignoreNextDevToolsPointerCapture(page)
 
   const editable = composerEditable(page)
@@ -128,7 +129,7 @@ async function expectExplicitTouchSend({
       && new URL(request.url()).pathname === `/api/community/channels/${channelId}/messages`
     ) messagePosts += 1
   })
-  await page.goto(route, { waitUntil: "commit" })
+  await gotoAfterUserWsAuth(page, route)
   await ignoreNextDevToolsPointerCapture(page)
 
   const editable = composerEditable(page)

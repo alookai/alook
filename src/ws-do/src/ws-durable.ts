@@ -41,6 +41,9 @@ export class WebSocketDurableObject extends DurableObject<Env> {
    */
   private typingDedup = new Map<string, Map<string, number>>()
 
+  /** Preserve start/stop delivery order independently for each user and scope. */
+  private typingFanoutChains = new Map<string, Promise<void>>()
+
   /** Typing dedup window: 8 seconds */
   private static readonly TYPING_DEDUP_MS = 8_000
 
@@ -52,6 +55,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       env: this.env,
       log,
       typingDedup: this.typingDedup,
+      typingFanoutChains: this.typingFanoutChains,
       typingDedupMs: WebSocketDurableObject.TYPING_DEDUP_MS,
       subrequestBatchSize: WebSocketDurableObject.SUBREQUEST_BATCH_SIZE,
     }

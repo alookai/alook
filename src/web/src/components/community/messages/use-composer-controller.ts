@@ -112,10 +112,8 @@ export function useComposerController(
     },
     [],
   )
-  const restoringDraftRef = useRef(false)
-  const resolvedPlaceholder =
-    placeholder ??
-    (context === "channel" ? `Message /${channel}` : `Message ${channel}`)
+  const suppressUpdateEffectsRef = useRef(false)
+  const resolvedPlaceholder = placeholder ?? (context === "channel" ? `Message /${channel}` : `Message ${channel}`)
   const placeholderRef = useRef(resolvedPlaceholder)
   const resolvePlaceholder = useCallback(() => placeholderRef.current, [])
   const suggestions = useComposerSuggestions({
@@ -203,7 +201,7 @@ export function useComposerController(
     },
     onUpdate: ({ editor: updatedEditor }) => {
       setEditorHasContent(!updatedEditor.isEmpty)
-      if (restoringDraftRef.current) return
+      if (suppressUpdateEffectsRef.current) return
       fireTyping()
       emitDirtyTransition()
       const key = draftKeyRef.current
@@ -233,7 +231,7 @@ export function useComposerController(
     if (!editor || isForumThreadBody || !draftKey) return
     const doc = readComposerDraft(draftKey)
     if (!doc) return
-    restoringDraftRef.current = true
+    suppressUpdateEffectsRef.current = true
     try {
       editor.commands.setContent(doc as JSONContent, {
         emitUpdate: false,
@@ -242,9 +240,7 @@ export function useComposerController(
       setEditorHasContent(!editor.isEmpty)
     } catch {
       clearComposerDraft(draftKey)
-    } finally {
-      restoringDraftRef.current = false
-    }
+    } finally { suppressUpdateEffectsRef.current = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor, draftKey])
   const previousHasContentRef = useRef(false)
@@ -288,7 +284,11 @@ export function useComposerController(
         await onDeferredSubmit?.(markdown, payload, mentionType)
       }
       if (isForumThreadBody) return
-      editor.commands.clearContent()
+      const accepted = sendContract === "accepted"
+      if (accepted && typingTimer.current) clearTimeout(typingTimer.current)
+      if (accepted) typingTimer.current = null
+      suppressUpdateEffectsRef.current = accepted
+      try { editor.commands.clearContent() } finally { suppressUpdateEffectsRef.current = false }
       setEditorHasContent(false)
       if (draftKeyRef.current) clearComposerDraft(draftKeyRef.current)
       transferPendingFiles()

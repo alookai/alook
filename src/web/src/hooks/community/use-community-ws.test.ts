@@ -72,8 +72,8 @@ describe("useCommunityWs — public helper contracts", () => {
     expect(useCommunityStore.getState().subscription.dmConversationId).toBeUndefined()
   })
 
-  it("free typing helpers no-op before mount, throttle, and send again after reset", async () => {
-    const { communityWsResetTypingThrottle, communityWsSendTyping } = await import("./use-community-ws")
+  it("ends a typing burst, resets the throttle, and permits an immediate fresh start", async () => {
+    const { communityWsEndTyping, communityWsSendTyping } = await import("./use-community-ws")
     const target = { channelId: "ch_typing_contract" }
 
     communityWsSendTyping(target)
@@ -82,6 +82,8 @@ describe("useCommunityWs — public helper contracts", () => {
     await mountHook()
     flushEffects()
     const send = getStableSend()
+    communityWsEndTyping(target)
+    expect(send).not.toHaveBeenCalled()
     communityWsSendTyping(target)
     communityWsSendTyping(target)
     expect(send).toHaveBeenCalledOnce()
@@ -90,10 +92,14 @@ describe("useCommunityWs — public helper contracts", () => {
       channelId: "ch_typing_contract",
     })
 
-    communityWsResetTypingThrottle(target)
+    communityWsEndTyping(target)
     communityWsSendTyping(target)
-    expect(send).toHaveBeenCalledTimes(2)
+    expect(send).toHaveBeenCalledTimes(3)
     expect(send).toHaveBeenNthCalledWith(2, {
+      type: "community:typing.stop",
+      channelId: "ch_typing_contract",
+    })
+    expect(send).toHaveBeenNthCalledWith(3, {
       type: "community:typing.start",
       channelId: "ch_typing_contract",
     })

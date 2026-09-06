@@ -208,15 +208,11 @@ export function communityWsSendTyping(target: { channelId: string }) {
   send({ type: "community:typing.start", channelId: key })
 }
 
-/**
- * Reset the outbound typing.start throttle for a channel. Sending a message
- * ends the current typing burst; the very next keystroke should re-emit
- * typing.start immediately, not wait out the 8s dedup window.
- */
-export function communityWsResetTypingThrottle(target: { channelId: string }) {
+export function communityWsEndTyping(target: { channelId: string }) {
   const key = target.channelId
   if (!key) return
-  useCommunityStore.getState().lastTypingSent.delete(key)
+  const hadActiveBurst = useCommunityStore.getState().lastTypingSent.delete(key)
+  if (hadActiveBurst) activeSend?.({ type: "community:typing.stop", channelId: key })
 }
 
 export function useCommunityWs(options?: UseCommunityWsOptions): void {

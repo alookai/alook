@@ -278,6 +278,54 @@ describe("E2E UI workflow", () => {
     expect(ciJob("e2e-ui")).not.toContain("playwright install-deps")
     expect(ciJob("e2e-ui")).not.toContain("playwright install chromium")
   })
+
+  it("builds one exact-head OpenNext artifact and makes every shard verify it without fallback", () => {
+    const producer = ciJob("ui-e2e-build")
+    const shard = ciJob("e2e-ui")
+    const gate = ciJob("ui-e2e-gate")
+    const devVars = "printf 'BETTER_AUTH_SECRET=ci-e2e-ui-secret\\nBETTER_AUTH_URL=http://localhost:3000\\nDEVICE_CLIENT_IDS=e2e-test-client\\nENCRYPTION_KEY=ci-e2e-encryption-key-32chars!!\\nDEV_WS_DO_URL=http://localhost:3000\\nNODE_ENV=development\\n' > src/web/.dev.vars"
+
+    expect(producer).toContain("image: ${{ fromJSON(needs.scope.outputs.e2e_matrix).include[0].image }}")
+    expect(producer).toContain("options: --init --ipc=host --user 1001")
+    expect(producer).toContain("NEXT_PUBLIC_WS_DO_PORT: \"3000\"")
+    expect(producer).toContain(devVars)
+    expect(shard).toContain(devVars)
+    expect(producer.match(/opennextjs-cloudflare build/g)).toHaveLength(1)
+    expect(producer.match(/pnpm --filter @alook\/web build:blog/g)).toHaveLength(1)
+    expect(producer).toContain("e2e-build-artifact.mjs create")
+    expect(producer).toContain("name: ${{ steps.artifact_identity.outputs.artifact_name }}")
+    expect(producer).toContain("ui-e2e-build-manifest.json")
+    expect(producer).toContain("ui-e2e-build.tgz")
+    expect(producer).toContain("include-hidden-files: true")
+    expect(producer).toContain("--directory .ci/ui-e2e-build")
+
+    expect(shard).toContain("needs: [scope, ui-e2e-build]")
+    expect(shard).toContain("actions/download-artifact")
+    expect(shard).toContain("e2e-build-artifact.mjs verify")
+    expect(shard).toContain('ALOOK_E2E_PREBUILT: "1"')
+    expect(shard).not.toContain("opennextjs-cloudflare build")
+    expect(shard).not.toContain("pnpm --filter @alook/web build:blog")
+    expect(shard.indexOf("e2e-build-artifact.mjs verify"))
+      .toBeLessThan(shard.indexOf("playwright test"))
+
+    expect(gate).toContain("needs: [scope, ui-e2e-build, e2e-ui, merge-reports]")
+    expect(gate).toContain('{"name":"ui-e2e-build"')
+  })
+
+  it("pins partial reruns to the successful producer's artifact identity", () => {
+    const producer = ciJob("ui-e2e-build")
+    const shard = ciJob("e2e-ui")
+
+    expect(producer).toContain("artifact_name: ${{ steps.artifact_identity.outputs.artifact_name }}")
+    expect(producer).toContain("artifact_attempt: ${{ steps.artifact_identity.outputs.artifact_attempt }}")
+    expect(producer).toContain('artifact_name=ui-e2e-build-%s-%s\\n')
+    expect(producer).toContain('--attempt "${{ steps.artifact_identity.outputs.artifact_attempt }}"')
+    expect(producer).toContain("name: ${{ steps.artifact_identity.outputs.artifact_name }}")
+
+    expect(shard).toContain("name: ${{ needs.ui-e2e-build.outputs.artifact_name }}")
+    expect(shard).toContain('--attempt "${{ needs.ui-e2e-build.outputs.artifact_attempt }}"')
+    expect(shard).not.toContain("name: ui-e2e-build-${{ github.run_id }}-${{ github.run_attempt }}")
+  })
 })
 
 describe("Bun workflow setup", () => {
@@ -357,7 +405,8 @@ describe("CI workflow graph", () => {
     expect(scope).toContain("name: execution-plan-${{ github.run_id }}-${{ github.run_attempt }}")
     for (const job of [
       "auth-build", "blog-build", "static-checks", "test-linux", "test-windows", "app-packed-artifact",
-      "e2e", "desktop-rust", "lighthouse", "e2e-ui", "merge-reports", "ci-gate", "ui-e2e-gate",
+      "e2e", "desktop-rust", "lighthouse", "ui-e2e-build", "e2e-ui", "merge-reports",
+      "ci-gate", "ui-e2e-gate",
     ]) {
       const definition = ciJob(job)
       expect(definition, job).toContain("CI_EXECUTION_PLAN: ${{ needs.scope.outputs.execution_plan }}")
