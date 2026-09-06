@@ -142,6 +142,11 @@ describe("planE2eShards", () => {
     expect(() => planE2eShards([""])).toThrow("non-empty strings")
     expect(() => planE2eShards(["a.spec.ts"], { budgetSeconds: 0 }))
       .toThrow("positive spec budget")
+    expect(() => planE2eShards(["a.spec.ts"], {
+      budgetSeconds: 1.5,
+      fixedSetupSeconds: 0,
+      safetyMarginSeconds: 0,
+    })).toThrow("budgetSeconds must be a positive integer")
     expect(() => planE2eShards(["a.spec.ts"], { defaultSeconds: Number.NaN }))
       .toThrow("positive finite")
     expect(() => planE2eShards(["a.spec.ts"], { weights: { "a.spec.ts": 0 } }))

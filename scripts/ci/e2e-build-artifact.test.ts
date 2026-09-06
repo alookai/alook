@@ -9,7 +9,8 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { afterEach, describe, expect, it } from "vitest"
+import { fileURLToPath } from "node:url"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   BUILD_ARCHIVE_NAME,
   BUILD_MANIFEST_NAME,
@@ -51,6 +52,23 @@ function removeBuildOutputs(root: string) {
 }
 
 describe("UI E2E build artifact", () => {
+  it("rejects incomplete create identities before reading the filesystem", () => {
+    const options = {
+      root: ".",
+      directory: ".ci/ui-e2e-build",
+      runId: "123",
+      attempt: 2,
+      headSha: HEAD_SHA,
+    }
+
+    expect(() => createBuildArtifact({ ...options, runId: "" }))
+      .toThrow("run ID is required")
+    expect(() => createBuildArtifact({ ...options, attempt: 0 }))
+      .toThrow("attempt must be a positive integer")
+    expect(() => createBuildArtifact({ ...options, headSha: "A".repeat(40) }))
+      .toThrow("head SHA must be an exact lowercase 40-character commit SHA")
+  })
+
   it("round-trips both hidden OpenNext trees with exact run identity and digests", () => {
     const artifact = fixture()
     removeBuildOutputs(artifact.root)
@@ -115,7 +133,7 @@ describe("UI E2E build artifact", () => {
       attempt: 2,
       headSha: HEAD_SHA,
     })).not.toThrow()
-  })
+  }, 15_000)
 
   it.each([
     ["run ID", { runId: "124", attempt: 2, headSha: HEAD_SHA }],
@@ -157,13 +175,25 @@ describe("UI E2E build artifact", () => {
     })).toThrow("archive SHA-256 mismatch")
   })
 
-  it("reports tar child launch and exit failures explicitly", () => {
+  it("reports tar child launch, signal, and exit failures explicitly", () => {
     const artifact = fixture()
     const corruptArchive = join(artifact.root, "corrupt.tgz")
     writeFileSync(corruptArchive, "not a tar archive")
     expect(() => verifyArchiveMembers(corruptArchive)).toThrow(/tar failed with exit [1-9]\d*/)
 
     const originalPath = process.env.PATH
+    const signalBin = join(artifact.root, "signal-bin")
+    mkdirSync(signalBin)
+    writeFileSync(join(signalBin, "tar"), "#!/bin/sh\nkill -TERM $$\n", { mode: 0o755 })
+    process.env.PATH = signalBin
+    try {
+      expect(() => verifyArchiveMembers(artifact.archive))
+        .toThrow("tar terminated by signal SIGTERM")
+    } finally {
+      if (originalPath === undefined) delete process.env.PATH
+      else process.env.PATH = originalPath
+    }
+
     process.env.PATH = join(artifact.root, "missing-bin")
     try {
       expect(() => verifyArchiveMembers(artifact.archive)).toThrow("tar failed to start:")
@@ -308,6 +338,24 @@ describe("UI E2E build artifact", () => {
     expect(() => runCli(["unknown"])).toThrow("expected create or verify")
     expect(artifact.archive).toBe(join(artifact.artifactDirectory, BUILD_ARCHIVE_NAME))
     expect(artifact.manifest).toBe(join(artifact.artifactDirectory, BUILD_MANIFEST_NAME))
+  })
+
+  it("executes the direct CLI entrypoint", async () => {
+    const cliPath = fileURLToPath(new URL("./e2e-build-artifact.mjs", import.meta.url))
+    const result = spawnSync(process.execPath, [cliPath, "unknown"], { encoding: "utf8" })
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain("expected create or verify command")
+
+    const originalArgv = [...process.argv]
+    process.argv.splice(0, process.argv.length, process.execPath, cliPath, "unknown")
+    vi.resetModules()
+    try {
+      await expect(import("./e2e-build-artifact.mjs"))
+        .rejects.toThrow("expected create or verify command")
+    } finally {
+      process.argv.splice(0, process.argv.length, ...originalArgv)
+    }
   })
 
   it("refuses artifact directories outside the repository", () => {

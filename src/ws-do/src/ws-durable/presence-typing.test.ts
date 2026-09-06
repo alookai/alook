@@ -901,6 +901,36 @@ describe("WebSocketDurableObject", () => {
       expect(maximum).toBe(40)
     })
 
+    it("logs a serialized fan-out failure and accepts the next operation", async () => {
+      const { durable } = createDO()
+      mockGetChannelForMember
+        .mockRejectedValueOnce(new Error("D1 unavailable"))
+        .mockResolvedValueOnce({ id: "chan-1", serverId: "server-1" })
+      mockResolveScopeMemberUserIds.mockResolvedValue(["sender-1", "recipient-1"])
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true })
+
+      await durable.webSocketMessage(
+        ws as any,
+        JSON.stringify({ type: "community:typing.start", channelId: "chan-1" }),
+      )
+      await durable.webSocketMessage(
+        ws as any,
+        JSON.stringify({ type: "community:typing.stop", channelId: "chan-1" }),
+      )
+
+      expect(mockLogWarn).toHaveBeenCalledWith("community:typing.start fan-out failed", {
+        err: "Error: D1 unavailable",
+      })
+      expect(mockStubFetch).toHaveBeenCalledTimes(1)
+      const request = mockStubFetch.mock.calls[0]![0] as Request
+      expect(JSON.parse(await request.text())).toEqual({
+        type: "community:typing.stop",
+        channelId: "chan-1",
+        userId: "sender-1",
+      })
+    })
+
     it("rejects typing.stop before authentication", async () => {
       const { durable } = createDO()
       const ws = createMockWebSocket()
