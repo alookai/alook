@@ -877,6 +877,138 @@ describe("Message reaction picker", () => {
 })
 
 describe("Message touch action menu", () => {
+  const findMenuRow = (renderer: TestRenderer.ReactTestRenderer) => renderer.root.find(
+    (node) => typeof node.props.className === "string"
+      && node.props.className.includes("group relative -mx-2"),
+  )
+  const findControlledTouchMenu = (renderer: TestRenderer.ReactTestRenderer) => (
+    renderer.root.findAllByType("mock-dropdown-menu")
+      .find((node) => typeof node.props.open === "boolean")
+  )
+
+  it("recovers the same row from mouse input to a real touch tap and back", async () => {
+    vi.stubGlobal("window", { getSelection: () => null })
+    let renderer: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(makeTree({
+        m: baseMsg(),
+        hoverCapable: false,
+        onOpenThread: vi.fn(),
+        onCopy: vi.fn(),
+      }), { createNodeMock: () => genericMock })
+    })
+    const ownedTarget = { closest: () => null, matches: () => false }
+    const currentTarget = {
+      contains: (target: unknown) => target === ownedTarget,
+    }
+
+    let row = findMenuRow(renderer!)
+    act(() => row.props.onPointerEnter({
+      target: ownedTarget,
+      currentTarget,
+      nativeEvent: { type: "pointerenter", pointerType: "mouse" },
+    }))
+    row = findMenuRow(renderer!)
+    expect(row.props["data-slot"]).toBe("context-menu-trigger")
+    expect(row.props.onClick).toBeUndefined()
+
+    act(() => row.props.onPointerDownCapture({
+      button: 0,
+      target: ownedTarget,
+      currentTarget,
+      nativeEvent: { type: "pointerdown", pointerType: "mouse" },
+    }))
+    act(() => row.props.onClickCapture({
+      target: ownedTarget,
+      currentTarget,
+      nativeEvent: { type: "click" },
+    }))
+    expect(findControlledTouchMenu(renderer!)).toBeUndefined()
+
+    row = findMenuRow(renderer!)
+    act(() => row.props.onPointerDownCapture({
+      button: 0,
+      target: ownedTarget,
+      currentTarget,
+      nativeEvent: { type: "pointerdown", pointerType: "touch" },
+    }))
+    row = findMenuRow(renderer!)
+    expect(row.props["data-slot"]).toBeUndefined()
+    expect(row.props.onClick).toBeTypeOf("function")
+    expect(renderer!.root.findAllByProps({ "data-slot": "dropdown-menu-trigger" })
+      .filter((node) => node.props["aria-hidden"] === true)).toHaveLength(1)
+    expect(renderer!.root.findAllByProps({ "data-slot": "context-menu-trigger" }))
+      .toHaveLength(0)
+
+    act(() => row.props.onTouchStart({ target: ownedTarget, currentTarget }))
+    act(() => row.props.onTouchEnd({ target: ownedTarget, currentTarget }))
+    await act(async () => {
+      row.props.onClick({
+        clientX: 271,
+        clientY: 603,
+        target: ownedTarget,
+        currentTarget,
+        nativeEvent: { composedPath: () => [ownedTarget] },
+      })
+    })
+    expect(findControlledTouchMenu(renderer!)?.props.open).toBe(true)
+
+    act(() => findControlledTouchMenu(renderer!)?.props.onOpenChange(false))
+    row = findMenuRow(renderer!)
+    act(() => row.props.onPointerDownCapture({
+      button: 2,
+      target: ownedTarget,
+      currentTarget,
+      nativeEvent: { type: "pointerdown", pointerType: "mouse" },
+    }))
+    row = findMenuRow(renderer!)
+    expect(row.props["data-slot"]).toBe("context-menu-trigger")
+    expect(renderer!.root.findAllByProps({ "data-slot": "dropdown-menu-trigger" }))
+      .toHaveLength(1)
+  })
+
+  it("uses the touch menu for a concrete body tap on a hover-capable hybrid", async () => {
+    vi.stubGlobal("window", { getSelection: () => null })
+    let renderer: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(makeTree({
+        m: baseMsg(),
+        hoverCapable: true,
+        onOpenThread: vi.fn(),
+        onCopy: vi.fn(),
+      }), { createNodeMock: () => genericMock })
+    })
+    const ownedTarget = { closest: () => null, matches: () => false }
+    const currentTarget = {
+      contains: (target: unknown) => target === ownedTarget,
+    }
+
+    let row = findMenuRow(renderer!)
+    act(() => row.props.onPointerDownCapture({
+      button: 0,
+      target: ownedTarget,
+      currentTarget,
+      nativeEvent: { type: "pointerdown", pointerType: "touch" },
+    }))
+    row = findMenuRow(renderer!)
+    expect(row.props.onClick).toBeTypeOf("function")
+    expect(renderer!.root.findAllByProps({ "data-slot": "dropdown-menu-trigger" }))
+      .toHaveLength(1)
+
+    act(() => row.props.onTouchStart({ target: ownedTarget, currentTarget }))
+    act(() => row.props.onTouchEnd({ target: ownedTarget, currentTarget }))
+    await act(async () => {
+      row.props.onClick({
+        clientX: 44,
+        clientY: 88,
+        target: ownedTarget,
+        currentTarget,
+        nativeEvent: { composedPath: () => [ownedTarget] },
+      })
+    })
+    expect(findControlledTouchMenu(renderer!)?.props.open).toBe(true)
+  })
+
   it("swipes right past threshold into the existing reply callback exactly once", async () => {
     vi.stubGlobal("window", { getSelection: () => null })
     const vibrate = vi.fn()

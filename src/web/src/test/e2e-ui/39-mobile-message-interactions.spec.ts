@@ -171,6 +171,31 @@ async function dispatchCancelledAvatarPress(
   await target.dispatchEvent("click", { clientX: point.x, clientY: point.y })
 }
 
+async function expectTouchActionMenu(
+  page: Page,
+  message: Locator,
+  actionName: string,
+): Promise<Locator> {
+  const action = page.getByRole("menuitem", { name: actionName })
+  await expect.poll(async () => ({
+    menuVisible: await action.isVisible(),
+    touchTriggerCount: await message.locator(
+      '[data-slot="dropdown-menu-trigger"][aria-hidden="true"]',
+    ).count(),
+    contextTriggerCount: await message.locator(
+      '[data-slot="context-menu-trigger"]',
+    ).count(),
+  }), {
+    timeout: 3_000,
+    message: "touch action menu state after same-row mouse then touch input",
+  }).toEqual({
+    menuVisible: true,
+    touchTriggerCount: 1,
+    contextTriggerCount: 0,
+  })
+  return action
+}
+
 async function latestSeq(page: Page, channelId: string): Promise<number> {
   const response = await page.request.get(`/api/community/channels/${channelId}/messages`)
   expect(response.ok()).toBe(true)
@@ -300,6 +325,39 @@ async function expectRetainedMountGets(
   expect(tracker.abortedMessageGets).toBeLessThanOrEqual(1)
   expect(tracker.failures).toEqual([])
 }
+
+test("same message row recovers its action menu from mouse to touch", async ({ asUser }) => {
+  const stamp = Date.now()
+  const serverId = await seedServer("alice", `Pointer-modality-${stamp}`)
+  const channelId = await seedChannel("alice", serverId, "pointer-modality")
+  const messageId = await seedMessage("alice", channelId, `pointer modality ${stamp}`)
+  const alice = await asUser("alice", { hasTouch: true })
+  await installInputCapability(alice.page, false)
+  await alice.page.setViewportSize({ width: 390, height: 844 })
+  const aliceProxy = await proxyCommunityWebSockets(alice.context)
+  await gotoAfterUserWsAuth(alice.page, `/c/channels/${serverId}/${channelId}`)
+  await ignoreNextDevToolsPointerCapture(alice.page)
+
+  const message = alice.page.getByTestId(tid.message(messageId))
+  const body = message.getByText(`pointer modality ${stamp}`, { exact: true })
+  await expect(body).toBeVisible()
+  const beforeSeq = await latestSeq(alice.page, channelId)
+  const messageCreatesBefore = aliceProxy.frames.filter((frame) => (
+    communityFrameEvents(frame).some((event) => event.type === "community:message.create")
+  )).length
+
+  await body.click()
+  await expect(alice.page.getByRole("menuitem")).toHaveCount(0, { timeout: 3_000 })
+  await body.tap()
+  const copyAction = await expectTouchActionMenu(alice.page, message, "Copy")
+  await alice.page.keyboard.press("Escape")
+  await expect(copyAction).toBeHidden({ timeout: 3_000 })
+
+  expect(await latestSeq(alice.page, channelId)).toBe(beforeSeq)
+  expect(aliceProxy.frames.filter((frame) => (
+    communityFrameEvents(frame).some((event) => event.type === "community:message.create")
+  ))).toHaveLength(messageCreatesBefore)
+})
 
 test("mobile reply, avatar mention, and typing rail keep exact backend and WS identity", async ({ asUser }) => {
   test.setTimeout(240_000)
@@ -610,7 +668,12 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   await expect(alice.page.getByTestId(tid.typingIndicator)).toBeVisible({ timeout: 4_000 })
   const finalChannelMessage = alice.page.getByTestId(tid.message(typingWsReadyId))
   await finalChannelMessage.getByText(`typing ws ready ${stamp}`, { exact: true }).tap()
-  await alice.page.getByRole("menuitem", { name: "Share as Image" }).click()
+  const shareAsImage = await expectTouchActionMenu(
+    alice.page,
+    finalChannelMessage,
+    "Share as Image",
+  )
+  await shareAsImage.click({ timeout: 3_000 })
   await expect(alice.page.getByTestId(tid.messageSelectionToolbar)).toBeVisible()
   await expect(alice.page.locator("[data-selection-typing-fit]"))
     .toHaveAttribute("data-selection-typing-fit", /^(visible|hidden)$/)
