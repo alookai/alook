@@ -35,4 +35,15 @@ describe("shared settings shell", () => {
       expect(source).not.toContain("SETTINGS_TABS_LIST_CLASS")
     }
   })
+
+  it("keeps Privacy last above the existing Log Out footer", () => {
+    const source = readSettings("user-settings.tsx")
+    const privacyTab = source.indexOf('{ value: "privacy", label: "Privacy"')
+    const advancedTab = source.indexOf('{ value: "advanced", label: "Advanced"')
+    const logout = source.indexOf('aria-label="Log out"')
+
+    expect(privacyTab).toBeGreaterThan(advancedTab)
+    expect(logout).toBeGreaterThan(privacyTab)
+    expect(source).toContain("<PrivacyPolicyContent />")
+  })
 })

@@ -3,11 +3,12 @@
 import { useEffect, useState } from "react"
 import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"
-import { User, LogOut, Palette, Sun, Moon, Monitor, Database, Camera } from "lucide-react"
+import { User, LogOut, Palette, Sun, Moon, Monitor, Database, Camera, Shield } from "lucide-react"
 import { useTheme } from "next-themes"
 import { Button } from "@/components/ui/button"
 import { AutoResizeTextarea } from "@/components/ui/auto-resize-textarea"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
+import { PrivacyPolicyContent } from "@/components/privacy/privacy-policy-content"
 import { clearPersistedCache } from "@/lib/query-persister"
 import { tid } from "@/lib/community/testids"
 import { Avatar } from "../avatar"
@@ -24,10 +25,13 @@ const THEME_OPTIONS = [
   { value: "system", label: "System", icon: Monitor },
 ] as const
 
-const USER_SETTINGS_TABS: SettingsShellTab<"profile" | "appearance" | "advanced">[] = [
+type UserSettingsTab = "profile" | "appearance" | "advanced" | "privacy"
+
+const USER_SETTINGS_TABS: SettingsShellTab<UserSettingsTab>[] = [
   { value: "profile", label: "My Profile", icon: User },
   { value: "appearance", label: "Appearance", icon: Palette },
   { value: "advanced", label: "Advanced", icon: Database },
+  { value: "privacy", label: "Privacy", icon: Shield },
 ]
 
 function AppearanceSettings() {
@@ -152,7 +156,7 @@ export function UserSettings({ onClose, userId, userName, aboutMe, avatar, statu
     emoji: statusEmoji ?? null,
     text: statusText ?? null,
   })
-  const [tab, setTab] = useState<"profile" | "appearance" | "advanced">("profile")
+  const [tab, setTab] = useState<UserSettingsTab>("profile")
 
   const dirty =
     name !== baseline.name ||
@@ -188,7 +192,7 @@ export function UserSettings({ onClose, userId, userName, aboutMe, avatar, statu
       value={tab}
       onValueChange={setTab}
       label="User Settings"
-      title={tab === "appearance" ? "Appearance" : tab === "advanced" ? "Advanced" : "My Profile"}
+      title={tab === "appearance" ? "Appearance" : tab === "advanced" ? "Advanced" : tab === "privacy" ? "Privacy Policy" : "My Profile"}
       tabs={USER_SETTINGS_TABS}
       onClose={onClose}
       navFooter={
@@ -258,6 +262,11 @@ export function UserSettings({ onClose, userId, userName, aboutMe, avatar, statu
       </SettingsShellPanel>
       <SettingsShellPanel value="advanced" className="h-full">
         <AdvancedSettings userId={userId} />
+      </SettingsShellPanel>
+      <SettingsShellPanel value="privacy">
+        <div className="mx-auto w-full max-w-2xl pb-8">
+          <PrivacyPolicyContent />
+        </div>
       </SettingsShellPanel>
     </SettingsShell>
   )
