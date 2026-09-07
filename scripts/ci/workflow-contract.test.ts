@@ -825,11 +825,12 @@ describe("Turbo CI execution", () => {
     )
   })
 
-  it("wraps the single selected Linux Web run with the migration audit", () => {
+  it("wraps the single selected Linux Web run with the permanent zero-warning audit", () => {
     const linux = ciJob("test-linux")
     expect(linux).toContain('if [[ "$root" == "src/web" ]]; then')
     expect(linux).toContain("node scripts/ci/react-test-warning-audit.mjs")
-    expect(linux).toContain("--contract src/web/test-audit/react-test-renderer-p0.json --")
+    expect(linux).toContain("node scripts/ci/react-test-warning-audit.mjs --")
+    expect(linux).not.toContain("react-test-renderer-migration.json")
     expect(linux).toContain('"${vitest_args[@]}"')
     expect(linux.match(/react-test-warning-audit\.mjs/g)).toHaveLength(1)
   })

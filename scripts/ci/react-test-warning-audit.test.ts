@@ -9,39 +9,15 @@ import {
   countRendererMounts,
   countWarnings,
   fullAuditCommand,
-  loadAuditContract,
-  migratedCommand,
+  maxWallTimeMs,
   scanRendererInventory,
   streamCommand,
-  validateInventory,
-  validateWarningBudget,
+  validateZeroAudit,
 } from "./react-test-warning-audit.mjs"
 
 const patterns = {
   rendererDeprecation: "renderer warning",
   actEnvironment: "act warning",
-}
-
-function contract() {
-  return {
-    schemaVersion: 1,
-    phase: "P0",
-    maxWallTimeMs: 1_000,
-    patterns,
-    fresh: {
-      warnings: { rendererDeprecation: 5, actEnvironment: 8 },
-    },
-    globalWarningReduction: { rendererDeprecation: 2 },
-    expected: {
-      rendererFiles: 1,
-      rendererMounts: 2,
-      warnings: { rendererDeprecation: 3 },
-      warningExclusiveUpperBounds: { actEnvironment: 8 },
-    },
-    observedWarnings: { actEnvironment: [5, 7] },
-    migratedFiles: ["src/web/src/example.dom.test.ts"],
-    residual: [{ path: "src/web/src/example.test.ts", mounts: 2 }],
-  }
 }
 
 function fakeChild(stdout: string, stderr: string, exitCode: number) {
@@ -100,71 +76,28 @@ describe("react test warning audit", () => {
     )).toEqual({ rendererDeprecation: 2, actEnvironment: 2 })
   })
 
-  it("rejects malformed contracts and exact residual drift", () => {
-    const root = mkdtempSync(join(tmpdir(), "alook-renderer-contract-"))
-    const validPath = join(root, "valid.json")
-    const invalidPath = join(root, "invalid.json")
-    const missingPatternPath = join(root, "missing-pattern.json")
-    const invalidObservationPath = join(root, "invalid-observation.json")
-    try {
-      writeFileSync(validPath, JSON.stringify(contract()))
-      writeFileSync(invalidPath, JSON.stringify({ schemaVersion: 2 }))
-      writeFileSync(missingPatternPath, JSON.stringify({
-        ...contract(),
-        patterns: { rendererDeprecation: "renderer warning" },
-      }))
-      writeFileSync(invalidObservationPath, JSON.stringify({
-        ...contract(),
-        observedWarnings: { actEnvironment: [8] },
-      }))
-      expect(loadAuditContract(validPath)).toMatchObject({ phase: "P0" })
-      expect(() => loadAuditContract(invalidPath)).toThrow("schemaVersion")
-      expect(() => loadAuditContract(missingPatternPath)).toThrow("budget keys")
-      expect(() => loadAuditContract(invalidObservationPath)).toThrow("observed warnings")
-      expect(validateInventory(contract(), contract().residual)).toEqual([])
-      expect(validateInventory(contract(), [
-        { path: "src/web/src/other.test.ts", mounts: 2 },
-      ])).toContain("renderer residual ownership differs from the contract")
-      expect(validateInventory(contract(), [
-        { path: "src/web/src/example.test.ts", mounts: 3 },
-      ])).toContain("renderer mounts: expected 2, received 3")
-    } finally {
-      rmSync(root, { recursive: true, force: true })
-    }
-  })
-
-  it("enforces exact budgets, exclusive ceilings, timeout, and child failure precedence", () => {
-    const output = [
-      "renderer warning",
-      "renderer warning",
-      "renderer warning",
-      "act warning",
-      "act warning",
-      "act warning",
-      "act warning",
-      "act warning",
-    ].join("\n")
-    expect(validateWarningBudget(contract(), output, 999, 0)).toMatchObject({
+  it("enforces permanent zero inventory, zero warnings, timeout, and child precedence", () => {
+    expect(validateZeroAudit([], "clean output", maxWallTimeMs, 0)).toMatchObject({
       errors: [],
       exitCode: 0,
     })
-    expect(validateWarningBudget(contract(), `${output}\nact warning\nact warning\nact warning`, 1, 0))
-      .toMatchObject({
-        errors: ["actEnvironment warnings: expected below 8, received 8"],
-        exitCode: auditExitCode,
-      })
-    expect(validateWarningBudget(contract(), output, 1_001, 0)).toMatchObject({
+    expect(validateZeroAudit(
+      [{ path: "src/web/src/example.test.ts", mounts: 2 }],
+      "react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer",
+      1,
+      0,
+    )).toMatchObject({
+      errors: [
+        "renderer files: expected 0, received 1",
+        "renderer mounts: expected 0, received 2",
+        "rendererDeprecation warnings: expected 0, received 1",
+      ],
       exitCode: auditExitCode,
     })
-    expect(validateWarningBudget(contract(), "", 1, 7)).toMatchObject({ exitCode: 7 })
-    const invalid = contract()
-    invalid.expected.warnings.rendererDeprecation = 4
-    expect(validateWarningBudget(invalid, output, 1, 0).errors)
-      .toContain("rendererDeprecation warning budget does not equal fresh minus global reduction")
-    const raisedUpperBound = contract()
-    raisedUpperBound.expected.warningExclusiveUpperBounds.actEnvironment = 9
-    expect(validateWarningBudget(raisedUpperBound, output, 1, 0).errors)
-      .toContain("actEnvironment warning upper bound does not equal fresh baseline")
+    expect(validateZeroAudit([], "", maxWallTimeMs + 1, 0)).toMatchObject({
+      exitCode: auditExitCode,
+    })
+    expect(validateZeroAudit([], "", 1, 7)).toMatchObject({ exitCode: 7 })
   })
 
   it("streams child output unchanged and preserves its exit code", async () => {
@@ -183,9 +116,7 @@ describe("react test warning audit", () => {
     expect(stderr.write).toHaveBeenCalledWith(expect.any(Buffer))
   })
 
-  it("locks migrated and full command topology", () => {
-    expect(migratedCommand("src/web/src/example.dom.test.ts")).toContain("src/example.dom.test.ts")
-    expect(() => migratedCommand("src/shared/example.test.ts")).toThrow("outside Web")
+  it("locks the full command topology", () => {
     expect(fullAuditCommand()).toEqual([
       "pnpm", "vitest", "run", "--project=web-node", "--project=web-dom",
       "--project=web-runtime", "--project=auth-node", "--project=auth-runtime",

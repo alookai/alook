@@ -154,7 +154,6 @@
     "jsdom": "29.1.1",
     "knip": "^6.32.2",
     "react-scan": "0.5.7",
-    "react-test-renderer": "19.2.8",
     "remark-parse": "^11.0.0",
     "tailwindcss": "^4",
     "tsx": "^4.23.12",

@@ -84,7 +84,7 @@ describe("Composer public facade", () => {
       "src/components/community/channels/text-channel-surface.tsx",
       "src/components/community/messages/create-forum-thread.tsx",
       "src/components/community/messages/message-channel-controller.tsx",
-      "src/components/community/channels/thread-channel-surface.test.ts",
+      "src/components/community/channels/thread-channel-surface.dom.test.ts",
     ]
     for (const importer of importers) {
       const source = readWeb(importer)

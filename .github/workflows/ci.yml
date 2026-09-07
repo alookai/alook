@@ -351,8 +351,7 @@ jobs:
             vitest_args=("${project_args[@]}")
             if (( ${#root_coverage[@]} )); then vitest_args+=("${root_coverage[@]}"); fi
             if [[ "$root" == "src/web" ]]; then
-              node scripts/ci/react-test-warning-audit.mjs \
-                --contract src/web/test-audit/react-test-renderer-p0.json -- \
+              node scripts/ci/react-test-warning-audit.mjs -- \
                 "${vitest_args[@]}" \
                 --reporter=default --reporter=blob \
                 --outputFile.blob="$report_dir/root-${root_index}-${report_stem}.blob" \
