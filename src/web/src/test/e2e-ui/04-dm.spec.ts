@@ -5,6 +5,8 @@ import { sendMessage } from "./_fixtures/actions"
 import { proxyCommunityWebSockets } from "./_fixtures/community-ws-proxy"
 import { seedDm, seedBlock, seedDmMessage } from "./_fixtures/seed"
 import { captureNotificationRequests, gotoAfterNotificationStartup, notificationPaths, notificationResponsesFinished } from "./_fixtures/community-notification-requests"
+import { DM_ROUTE_VERIFICATION_HEADER } from "@/hooks/community/use-dm-route-verification"
+import { lastMeLocationKey } from "@/lib/community/last-me-location"
 
 // Journey 4 — DMs. human↔human needs only not-blocked (no friendship). Covers
 // the new-conversation-appears-live path and the blocked-composer regression.
@@ -188,20 +190,23 @@ test.describe.serial("direct messages", () => {
     const wsProxy = await proxyCommunityWebSockets(alice.context, {
       decideConnectionFrame: (frame) => frame.type === "auth.ok" ? "hold" : "forward",
     })
+    await alice.page.addInitScript((storageKey) => localStorage.removeItem(storageKey), lastMeLocationKey())
     const missingDmId = `dm-missing-${Date.now()}`
-    let dmsGets = 0
+    let canonicalDmsGets = 0
+    let authorityDmsGets = 0
     const dmsPattern = "**/api/community/users/me/dms"
     await alice.page.route(dmsPattern, async (route) => {
       if (route.request().method() !== "GET") {
         await route.continue()
         return
       }
-      dmsGets += 1
-      if (dmsGets === 1) {
+      if (route.request().headers()[DM_ROUTE_VERIFICATION_HEADER.toLowerCase()] !== "1") {
+        canonicalDmsGets += 1
         await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ conversations: [] }) })
         return
       }
-      if (dmsGets === 2) {
+      authorityDmsGets += 1
+      if (authorityDmsGets === 1) {
         await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "temporary" }) })
         return
       }
@@ -210,18 +215,22 @@ test.describe.serial("direct messages", () => {
 
     try {
       await alice.page.goto(`/c/me/${missingDmId}`)
+      await expect.poll(() => wsProxy.heldConnectionCount()).toBe(1)
+      expect(wsProxy.releaseHeldConnections((frame) => frame.type === "auth.ok")).toBe(1)
+      await expect(alice.page.getByTestId(tid.wsReconnectOverlay)).toHaveCount(0)
+
       const verificationAlert = alice.page.getByRole("alert").filter({
         hasText: "Couldn\'t verify this conversation",
       })
       await expect(verificationAlert).toBeVisible()
       await expect(alice.page).toHaveURL(new RegExp(`/c/me/${missingDmId}$`))
-      await expect.poll(() => wsProxy.heldConnectionCount()).toBe(1)
-      expect(dmsGets).toBe(2)
+      await expect.poll(() => canonicalDmsGets).toBeGreaterThanOrEqual(2)
+      await expect(verificationAlert).toBeVisible()
+      await expect(alice.page).toHaveURL(new RegExp(`/c/me/${missingDmId}$`))
+      expect(authorityDmsGets).toBe(1)
 
-      expect(wsProxy.releaseHeldConnections((frame) => frame.type === "auth.ok")).toBe(1)
-      await expect(alice.page.getByTestId(tid.wsReconnectOverlay)).toHaveCount(0)
       await verificationAlert.getByRole("button", { name: "Retry" }).click()
-      await expect.poll(() => dmsGets).toBe(3)
+      await expect.poll(() => authorityDmsGets).toBe(2)
       await expect.poll(() => new URL(alice.page.url()).pathname).toBe("/c/me/friends")
     } finally {
       wsProxy.releaseHeldConnections()

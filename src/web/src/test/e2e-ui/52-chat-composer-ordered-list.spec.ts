@@ -2,6 +2,7 @@ import type { Locator, Page, TestInfo } from "@playwright/test"
 import { test, expect, userId } from "./_fixtures/community-fixture"
 import {
   composerEditable,
+  gotoAfterUserWsAuth,
   ignoreNextDevToolsPointerCapture,
   installInputCapability,
 } from "./_fixtures/actions"
@@ -100,7 +101,7 @@ test.describe.serial("chat composer ordered-list continuation", () => {
     const { page, context } = await asUser("alice")
     await installInputCapability(page, true)
     const proxy = await proxyCommunityWebSockets(context)
-    await page.goto(`/c/channels/${serverId}/${channelAId}`, { waitUntil: "commit" })
+    await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelAId}`)
     await ignoreNextDevToolsPointerCapture(page)
 
     const editable = await typeCanonicalMarker(page, 9, "parent")
@@ -155,7 +156,7 @@ test.describe.serial("chat composer ordered-list continuation", () => {
         && new URL(request.url()).pathname === `/api/community/channels/${channelAId}/messages`
       ) posts += 1
     })
-    await page.goto(`/c/channels/${serverId}/${channelAId}`, { waitUntil: "commit" })
+    await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelAId}`)
     await ignoreNextDevToolsPointerCapture(page)
 
     const editable = await typeCanonicalMarker(page, 9, "first")
@@ -195,7 +196,7 @@ test.describe.serial("chat composer ordered-list continuation", () => {
     ]
 
     for (const { route, channelId, start } of routes) {
-      await page.goto(route, { waitUntil: "commit" })
+      await gotoAfterUserWsAuth(page, route)
       const root = channelId === threadId ? page.getByTestId(tid.threadSplitPanel) : page
       const editable = await typeCanonicalMarker(page, start, "first", root)
       await page.keyboard.press("Shift+Enter")

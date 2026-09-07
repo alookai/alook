@@ -361,8 +361,7 @@ export async function handleWebSocketClose(
     notifyUserDO(context, state.userId, { type: "runtime.status", status: "offline", daemonId: state.daemonId }).catch(() => { })
   }
   if (state?.type === "user" && state.authenticated) {
-    const remaining = countAuthenticatedUserConnections(context, state.userId) - 1
-    if (remaining <= 0) {
+    if (!hasOtherAuthenticatedUserConnection(context, ws, state.userId)) {
       broadcastPresence(context, state.userId, false).catch(() => { })
     }
   }
@@ -666,6 +665,18 @@ function countAuthenticatedUserConnections(context: WsDurableContext, userId: st
     }
   }
   return count
+}
+
+function hasOtherAuthenticatedUserConnection(
+  context: WsDurableContext,
+  closingSocket: WebSocket,
+  userId: string,
+): boolean {
+  return context.ctx.getWebSockets().some((ws) => {
+    if (ws === closingSocket) return false
+    const state = ws.deserializeAttachment() as ConnectionState
+    return state?.type === "user" && state.authenticated && state.userId === userId
+  })
 }
 
 async function getDaemonIdForUser(context: WsDurableContext, userId: string): Promise<string | null> {

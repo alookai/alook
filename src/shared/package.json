@@ -22,16 +22,16 @@
   "dependencies": {
     "drizzle-orm": "^0.45.2",
     "nanoid": "^5.1.16",
-    "zod": "^4.4"
+    "zod": "^4.5"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260702.1",
+    "@cloudflare/workers-types": "^5.20260907.1",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^25.9.4",
     "better-sqlite3": "^12.11.1",
     "knip": "^6.32.2",
     "playwright-core": "^1.62.1",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.10"
+    "vitest": "4.1.11"
   }
 }

@@ -154,7 +154,7 @@ describe("daemon control plane — real ws-do wake round-trip", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ content: "hey bot, wake up" }),
     })
-    expect(postRes.ok).toBe(true)
+    await assertResOk(postRes, "owner message post (human→wake hop)")
 
     const wake = await waitFor(
       () => receivedCommands.find((c): c is HostCommand & { type: "agent:wake" } => c.type === "agent:wake"),

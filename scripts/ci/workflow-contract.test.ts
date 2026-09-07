@@ -134,6 +134,10 @@ const nativeOauthWebConfig = readFileSync(
   resolve(import.meta.dirname, "../../src/web/wrangler.toml"),
   "utf8",
 )
+const blogWorkerConfig = readFileSync(
+  resolve(import.meta.dirname, "../../src/web/blog/wrangler.toml"),
+  "utf8",
+)
 const nativeOauthContract = readFileSync(
   resolve(import.meta.dirname, "../../src/web/src/lib/native-oauth.ts"),
   "utf8",
@@ -435,6 +439,16 @@ describe("CI workflow graph", () => {
     expect(e2e).toContain("- run: pnpm run db:migrate")
     expect(e2e).toContain("- name: Start dev servers\n        run: |")
     expect(e2e).toContain("- name: Wait for services\n        run: |")
+    expect(e2e.indexOf("pnpm --filter @alook/ws-do dev &")).toBeLessThan(
+      e2e.indexOf("pnpm --filter @alook/wake-worker dev &"),
+    )
+    expect(e2e.indexOf("pnpm --filter @alook/wake-worker dev &")).toBeLessThan(
+      e2e.indexOf("pnpm --filter @alook/email-worker dev &"),
+    )
+    expect(e2e.indexOf("pnpm --filter @alook/email-worker dev &")).toBeLessThan(
+      e2e.indexOf("pnpm --filter @alook/web dev &"),
+    )
+    expect(e2e).not.toContain('pkill -f "wrangler"')
     expect(e2e.match(new RegExp(webCondition.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")))
       .toHaveLength(1)
     expect(e2e.match(new RegExp(cliCondition.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")))
@@ -444,6 +458,17 @@ describe("CI workflow graph", () => {
     expect(e2e).toContain(`${webCondition}\n        run: pnpm test:e2e`)
     expect(e2e).toContain(`${cliCondition}\n        run: pnpm --filter @alook/cli run test:integration`)
     expect(e2e).toContain(`${daemonCondition}\n        run: pnpm --filter @alook/daemon run test:integration`)
+  })
+
+  it("migrates Lighthouse's fresh local database before starting the web app", () => {
+    const lighthouse = ciJob("lighthouse")
+
+    expect(lighthouse).toContain("BETTER_AUTH_SECRET=ci-lighthouse-secret")
+    expect(lighthouse).toContain("- run: pnpm run db:migrate")
+    expect(lighthouse).toContain("npx @lhci/cli autorun --config=lighthouserc.json")
+    expect(lighthouse.indexOf("pnpm run db:migrate")).toBeLessThan(
+      lighthouse.indexOf("npx @lhci/cli autorun --config=lighthouserc.json"),
+    )
   })
 
   it("consolidates static work and preserves non-blocking Knip steps", () => {
@@ -799,7 +824,7 @@ describe("Turbo CI execution", () => {
     for (const module of directWorkerModules) {
       expect(module.packageJson.scripts.test).toBe("vitest run --config vitest.workspace.config.ts")
       expect(module.packageJson.scripts).not.toHaveProperty("test:workers")
-      expect(module.packageJson.devDependencies["@cloudflare/vitest-plugin"]).toBe("1.0.0")
+      expect(module.packageJson.devDependencies["@cloudflare/vitest-plugin"]).toBe("1.1.4")
       const expectedProjects = module.name === "web" ? 2 : 1
       expect(module.workspaceConfig.match(/vitest\.config\.ts/g)).toHaveLength(expectedProjects)
       expect(module.workspaceConfig.match(/vitest\.runtime\.config\.mts/g)).toHaveLength(expectedProjects)
@@ -819,6 +844,18 @@ describe("Turbo CI execution", () => {
     expect(ciJob("test-linux")).toContain("projects=(web-node web-dom web-runtime auth-node auth-runtime)")
   })
 
+  it("pins every deployed Worker to the latest reviewed compatibility date", () => {
+    const configs = [
+      ...directWorkerModules.map((module) => module.wranglerConfig),
+      nativeOauthAuthConfig,
+      blogWorkerConfig,
+    ]
+    expect(configs).toHaveLength(6)
+    for (const config of configs) {
+      expect(config).toContain('compatibility_date = "2026-09-07"')
+    }
+  })
+
   it("runs Blog tests through both Web Node and DOM projects", () => {
     expect(ciJob("blog-build")).toContain(
       "pnpm --filter @alook/web exec vitest run --config vitest.workspace.config.ts --project=web-node --project=web-dom blog",
@@ -826,7 +863,7 @@ describe("Turbo CI execution", () => {
   })
 
   it("collects Node and workerd projects in one Istanbul report", () => {
-    expect(rootPackageJson.devDependencies["@vitest/coverage-istanbul"]).toBe("4.1.10")
+    expect(rootPackageJson.devDependencies["@vitest/coverage-istanbul"]).toBe("4.1.11")
     expect(rootPackageJson.devDependencies).not.toHaveProperty("@vitest/coverage-v8")
     expect(rootVitestConfig).toContain('provider: "istanbul"')
     expect(rootVitestConfig).toContain('"src/**/*.{ts,tsx,js,jsx}"')

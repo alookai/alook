@@ -1,6 +1,6 @@
 name = "alook-web"
 main = "custom-worker.ts"
-compatibility_date = "2026-04-09"
+compatibility_date = "2026-09-07"
 compatibility_flags = ["nodejs_compat"]
 # Disable esbuild keep_names — otherwise __name(...) wrappers leak into
 # stringified inline scripts (ThemeScript, next-themes) and throw

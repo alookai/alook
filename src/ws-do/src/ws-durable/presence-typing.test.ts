@@ -152,7 +152,7 @@ describe("WebSocketDurableObject", () => {
         authenticatedUserId: "attacker",
       })
 
-      await durable.webSocketClose(attacker as any)
+      await durable.webSocketClose(attacker as any, 1008, "Unauthorized", true)
       await flushAsyncWork()
 
       expect(mockGetCoMemberUserIds).not.toHaveBeenCalled()
@@ -310,7 +310,7 @@ describe("WebSocketDurableObject", () => {
       })
       expect(attacker.close).toHaveBeenCalledWith(1008, "Unauthorized")
 
-      await durable.webSocketClose(attacker as any)
+      await durable.webSocketClose(attacker as any, 1008, "Unauthorized", true)
       await flushAsyncWork()
 
       expect(mockGetCoMemberUserIds).not.toHaveBeenCalled()

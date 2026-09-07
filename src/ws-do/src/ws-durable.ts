@@ -118,7 +118,13 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     )
   }
 
-  async webSocketClose(ws: WebSocket): Promise<void> {
+  async webSocketClose(
+    ws: WebSocket,
+    code: number,
+    reason: string,
+    _wasClean: boolean,
+  ): Promise<void> {
+    try { ws.close(code, reason) } catch { }
     await handleWebSocketClose(
       this.domainContext(),
       ws,

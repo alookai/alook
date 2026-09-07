@@ -320,7 +320,9 @@ let renderCount = 0
 // wrapper element type stable across `.update()` so the memo behavior under
 // test isn't disturbed. Retries off + no network — the query stays idle
 // (`enabled` only flips true once a menu opens, which these trees don't do).
-const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { retry: false, gcTime: Infinity } },
+})
 function makeTree(props: Parameters<typeof Message>[0]) {
   return React.createElement(
     QueryClientProvider,

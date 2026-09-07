@@ -154,6 +154,10 @@ describe("landing content contract", () => {
     const root = webRoot()
     const config = JSON.parse(readFileSync(path.join(root, "lighthouserc.json"), "utf8"))
 
+    expect(config.ci.collect.startServerReadyPattern).toBe(
+      "Alook multi-zone Next development ready",
+    )
+    expect(config.ci.collect.startServerReadyTimeout).toBe(90_000)
     expect(config.ci.assert.assertions["categories:seo"]).toEqual(["error", { minScore: 1 }])
   })
 
