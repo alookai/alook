@@ -428,7 +428,7 @@ mod platform {
         Ok(())
     }
 
-    fn navigate(webview: &ICoreWebView2, target: &str) -> webview2_com::Result<()> {
+    fn navigate(webview: &ICoreWebView2, target: &str) -> windows::core::Result<()> {
         let target = CoTaskMemPWSTR::from(target);
         unsafe { webview.Navigate(*target.as_ref().as_pcwstr())? };
         Ok(())
