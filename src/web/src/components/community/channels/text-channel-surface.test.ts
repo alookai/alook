@@ -85,7 +85,7 @@ vi.mock("@/hooks/community/mutations", () => ({
 }))
 vi.mock("@/hooks/community/use-community-ws", () => ({
   communityWsSendTyping: vi.fn(),
-  communityWsResetTypingThrottle: vi.fn(),
+  communityWsEndTyping: vi.fn(),
 }))
 
 function feed(overrides: Record<string, unknown> = {}) {

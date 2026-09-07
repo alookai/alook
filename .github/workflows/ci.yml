@@ -655,9 +655,68 @@ jobs:
       - working-directory: src/web
         run: npx @lhci/cli autorun --config=lighthouserc.json && node scripts/print-lighthouse-scores.mjs
 
+  ui-e2e-build:
+    name: UI Playwright E2E build
+    needs: scope
+    outputs:
+      artifact_name: ${{ steps.artifact_identity.outputs.artifact_name }}
+      artifact_attempt: ${{ steps.artifact_identity.outputs.artifact_attempt }}
+    if: needs.scope.outputs.run_ui_e2e == 'true' && github.event_name != 'push'
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ fromJSON(needs.scope.outputs.e2e_matrix).include[0].image }}
+      options: --init --ipc=host --user 1001
+    defaults:
+      run:
+        shell: bash
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Validate execution plan
+        env:
+          CI_EXECUTION_PLAN: ${{ needs.scope.outputs.execution_plan }}
+          CI_PLAN_HASH: ${{ needs.scope.outputs.plan_hash }}
+          CI_PROJECTION_NAME: e2e_matrix
+          CI_PROJECTION_VALUE: ${{ needs.scope.outputs.e2e_matrix }}
+        run: node scripts/ci/validate-execution-plan.mjs
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Record build artifact identity
+        id: artifact_identity
+        run: |
+          printf 'artifact_name=ui-e2e-build-%s-%s\n' "${{ github.run_id }}" "${{ github.run_attempt }}" >> "$GITHUB_OUTPUT"
+          printf 'artifact_attempt=%s\n' "${{ github.run_attempt }}" >> "$GITHUB_OUTPUT"
+      - run: printf 'BETTER_AUTH_SECRET=ci-e2e-ui-secret\nBETTER_AUTH_URL=http://localhost:3000\nDEVICE_CLIENT_IDS=e2e-test-client\nENCRYPTION_KEY=ci-e2e-encryption-key-32chars!!\nDEV_WS_DO_URL=http://localhost:3000\nNODE_ENV=development\n' > src/web/.dev.vars
+      - name: Build Web and Blog OpenNext workers
+        env:
+          NEXT_PUBLIC_WS_DO_PORT: "3000"
+        run: |
+          pnpm --filter @alook/web exec opennextjs-cloudflare build
+          pnpm --filter @alook/web build:blog
+      - name: Create exact-head build artifact
+        run: |
+          node scripts/ci/e2e-build-artifact.mjs create \
+            --directory .ci/ui-e2e-build \
+            --run-id "${{ github.run_id }}" \
+            --attempt "${{ steps.artifact_identity.outputs.artifact_attempt }}" \
+            --head-sha "${{ github.sha }}"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ steps.artifact_identity.outputs.artifact_name }}
+          path: |
+            .ci/ui-e2e-build/ui-e2e-build.tgz
+            .ci/ui-e2e-build/ui-e2e-build-manifest.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+
   e2e-ui:
     name: UI Playwright E2E (${{ matrix.shard }}/${{ matrix.total }})
-    needs: scope
+    needs: [scope, ui-e2e-build]
     if: needs.scope.outputs.run_ui_e2e == 'true' && github.event_name != 'push'
     runs-on: ubuntu-latest
     container:
@@ -699,7 +758,19 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: printf 'BETTER_AUTH_SECRET=ci-e2e-ui-secret\nBETTER_AUTH_URL=http://localhost:3000\nDEVICE_CLIENT_IDS=e2e-test-client\nENCRYPTION_KEY=ci-e2e-encryption-key-32chars!!\nDEV_WS_DO_URL=http://localhost:3000\nNODE_ENV=development\n' > src/web/.dev.vars
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ${{ needs.ui-e2e-build.outputs.artifact_name }}
+          path: .ci/ui-e2e-build
+      - name: Verify exact-head build artifact
+        run: |
+          node scripts/ci/e2e-build-artifact.mjs verify \
+            --directory .ci/ui-e2e-build \
+            --run-id "${{ github.run_id }}" \
+            --attempt "${{ needs.ui-e2e-build.outputs.artifact_attempt }}" \
+            --head-sha "${{ github.sha }}"
       - env:
+          ALOOK_E2E_PREBUILT: "1"
           E2E_SPECS: ${{ toJSON(matrix.specs) }}
         run: |
           mapfile -t specs < <(node -e 'for (const spec of JSON.parse(process.env.E2E_SPECS)) console.log(spec)')
@@ -819,13 +890,14 @@ jobs:
   ui-e2e-gate:
     name: UI E2E Gate
     if: always()
-    needs: [scope, e2e-ui, merge-reports]
+    needs: [scope, ui-e2e-build, e2e-ui, merge-reports]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
       CI_GATE_RESULTS: >-
         [
           {"name":"scope","expected":true,"result":"${{ needs.scope.result }}"},
+          {"name":"ui-e2e-build","expected":${{ needs.scope.outputs.run_ui_e2e == 'true' && github.event_name != 'push' }},"result":"${{ needs.ui-e2e-build.result }}"},
           {"name":"e2e-ui","expected":${{ needs.scope.outputs.run_ui_e2e == 'true' && github.event_name != 'push' }},"result":"${{ needs.e2e-ui.result }}"},
           {"name":"merge-reports","expected":${{ needs.scope.outputs.run_ui_e2e == 'true' && github.event_name != 'push' }},"result":"${{ needs.merge-reports.result }}"}
         ]

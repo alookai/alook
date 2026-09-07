@@ -619,12 +619,7 @@ describe("WebSocketDurableObject", () => {
   })
 
 
-  describe("webSocketMessage — community:typing.start authz (fanOutTyping)", () => {
-    // fanOutTyping runs fire-and-forget (`.catch()`, not awaited) inside
-    // webSocketMessage, so `await durable.webSocketMessage(...)` alone
-    // doesn't guarantee its internal DB-then-broadcast chain has settled.
-    // Flush a macrotask so all pending microtasks (getDM/getChannelForMember
-    // → listMembers → Promise.all(fetch)) drain before asserting.
+  describe("webSocketMessage — community typing authz and dedup", () => {
     const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
 
     it("does nothing when a typing frame has no channelId", async () => {
@@ -904,6 +899,166 @@ describe("WebSocketDurableObject", () => {
 
       expect(fetch).toHaveBeenCalledTimes(81)
       expect(maximum).toBe(40)
+    })
+
+    it("logs a serialized fan-out failure and accepts the next operation", async () => {
+      const { durable } = createDO()
+      mockGetChannelForMember
+        .mockRejectedValueOnce(new Error("D1 unavailable"))
+        .mockResolvedValueOnce({ id: "chan-1", serverId: "server-1" })
+      mockResolveScopeMemberUserIds.mockResolvedValue(["sender-1", "recipient-1"])
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true })
+
+      await durable.webSocketMessage(
+        ws as any,
+        JSON.stringify({ type: "community:typing.start", channelId: "chan-1" }),
+      )
+      await durable.webSocketMessage(
+        ws as any,
+        JSON.stringify({ type: "community:typing.stop", channelId: "chan-1" }),
+      )
+
+      expect(mockLogWarn).toHaveBeenCalledWith("community:typing.start fan-out failed", {
+        err: "Error: D1 unavailable",
+      })
+      expect(mockStubFetch).toHaveBeenCalledTimes(1)
+      const request = mockStubFetch.mock.calls[0]![0] as Request
+      expect(JSON.parse(await request.text())).toEqual({
+        type: "community:typing.stop",
+        channelId: "chan-1",
+        userId: "sender-1",
+      })
+    })
+
+    it("rejects typing.stop before authentication", async () => {
+      const { durable } = createDO()
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: false })
+
+      await durable.webSocketMessage(
+        ws as any,
+        JSON.stringify({ type: "community:typing.stop", channelId: "chan-1" }),
+      )
+      await flushAsyncWork()
+
+      expect(ws.close).toHaveBeenCalledWith(1008, "Not authenticated")
+      expect(mockGetChannelForMember).not.toHaveBeenCalled()
+      expect(mockStubFetch).not.toHaveBeenCalled()
+    })
+
+    it("consumes a typing.stop without a channel and does not fan out", async () => {
+      const { durable } = createDO()
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true })
+
+      await durable.webSocketMessage(
+        ws as any,
+        JSON.stringify({ type: "community:typing.stop" }),
+      )
+      await flushAsyncWork()
+
+      expect(mockGetChannelForMember).not.toHaveBeenCalled()
+      expect(mockStubFetch).not.toHaveBeenCalled()
+    })
+
+    it("clears only the sender and scope while keeping stop fan-out membership-authorized", async () => {
+      const { durable, env } = createDO()
+      const typingDedup = (durable as unknown as {
+        typingDedup: Map<string, Map<string, number>>
+      }).typingDedup
+      typingDedup.set("chan-1", new Map([
+        ["sender-1", 10_000],
+        ["other-1", 11_000],
+      ]))
+      typingDedup.set("chan-2", new Map([["sender-1", 12_000]]))
+      mockGetChannelForMember.mockResolvedValue({ id: "chan-1", serverId: "server-1" })
+      mockResolveScopeMemberUserIds.mockResolvedValue(["sender-1", "recipient-1"])
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true })
+
+      await durable.webSocketMessage(
+        ws as any,
+        JSON.stringify({
+          type: "community:typing.stop",
+          channelId: "chan-1",
+          userId: "spoofed-user",
+        }),
+      )
+      await flushAsyncWork()
+
+      expect(typingDedup.get("chan-1")).toEqual(new Map([["other-1", 11_000]]))
+      expect(typingDedup.get("chan-2")).toEqual(new Map([["sender-1", 12_000]]))
+      expect(mockGetChannelForMember).toHaveBeenCalledWith(expect.anything(), "chan-1", "sender-1")
+      expect((env.WS_DO as any).idFromName).toHaveBeenCalledWith("user:recipient-1")
+      expect((env.WS_DO as any).idFromName).not.toHaveBeenCalledWith("user:sender-1")
+      const request = mockStubFetch.mock.calls[0]![0] as Request
+      expect(JSON.parse(await request.text())).toEqual({
+        type: "community:typing.stop",
+        channelId: "chan-1",
+        userId: "sender-1",
+      })
+    })
+
+    it("does not fan out a typing.stop from a non-member", async () => {
+      const { durable } = createDO()
+      mockGetChannelForMember.mockResolvedValue(null)
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "user", userId: "attacker", authenticated: true })
+
+      await durable.webSocketMessage(
+        ws as any,
+        JSON.stringify({ type: "community:typing.stop", channelId: "chan-private" }),
+      )
+      await flushAsyncWork()
+
+      expect(mockGetChannelForMember).toHaveBeenCalledWith(
+        expect.anything(),
+        "chan-private",
+        "attacker",
+      )
+      expect(mockResolveChannelRecipientUserIds).not.toHaveBeenCalled()
+      expect(mockStubFetch).not.toHaveBeenCalled()
+    })
+
+    it("serializes a delayed start-stop-immediate-start sequence without time advancement", async () => {
+      const { durable } = createDO()
+      mockGetChannelForMember.mockResolvedValue({ id: "chan-1", serverId: "server-1" })
+      mockResolveScopeMemberUserIds.mockResolvedValue(["sender-1", "recipient-1"])
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true })
+      let releaseFirstFetch!: () => void
+      mockStubFetch.mockImplementationOnce(() => new Promise<Response>((resolve) => {
+        releaseFirstFetch = () => resolve(new Response(null, { status: 200 }))
+      }))
+      const now = vi.spyOn(Date, "now").mockReturnValue(10_000)
+      try {
+        const deliveries = [
+          "community:typing.start",
+          "community:typing.stop",
+          "community:typing.start",
+        ].map((type) => (
+          durable.webSocketMessage(
+            ws as any,
+            JSON.stringify({ type, channelId: "chan-1" }),
+          )
+        ))
+        await flushAsyncWork()
+        expect(mockStubFetch).toHaveBeenCalledTimes(1)
+        releaseFirstFetch()
+        await Promise.all(deliveries)
+
+        const frames = await Promise.all(mockStubFetch.mock.calls.map(async ([request]) => (
+          JSON.parse(await (request as Request).text()) as { type: string }
+        )))
+        expect(frames.map((frame) => frame.type)).toEqual([
+          "community:typing.start",
+          "community:typing.stop",
+          "community:typing.start",
+        ])
+      } finally {
+        now.mockRestore()
+      }
     })
 
     it("contains no local reach classifier after delegating to shared", () => {

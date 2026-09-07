@@ -487,6 +487,7 @@ test("owner-only bot mark sticker, Stop lifecycle, owner swap, and URL-owned aud
     for (let index = 0; index < 11; index += 1) {
       machine.socket.send(JSON.stringify({
         type: "bot_audit_event",
+        eventId: `bae_${suffix}_${String(index).padStart(2, "0")}`,
         agentId: botId,
         sessionId: `session-${suffix}`,
         launchId: `launch-${suffix}`,
@@ -552,6 +553,7 @@ test("owner-only bot mark sticker, Stop lifecycle, owner swap, and URL-owned aud
       /open activity log 0$/i.test(text))).toBe(false)
     machine.socket.send(JSON.stringify({
       type: "bot_audit_event",
+      eventId: `bae_${suffix}_11`,
       agentId: botId,
       sessionId: `session-${suffix}`,
       launchId: `launch-${suffix}`,

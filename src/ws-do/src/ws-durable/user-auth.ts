@@ -20,6 +20,7 @@ import type {
 import {
   broadcastPresence,
   handleClientTypingStart,
+  handleClientTypingStop,
   notifyUserDO,
   sendPresenceSnapshot,
 } from "./presence-typing"
@@ -335,7 +336,18 @@ export async function handleWebSocketMessage(
   }
 
   if (state.type === "user" && await handleUserAgentInterrupt(context, state, parsed)) return
-  if (state.type === "user" && handleClientTypingStart(context, state, parsed)) return
+  if (state.type === "user") {
+    const typingStart = handleClientTypingStart(context, state, parsed)
+    if (typingStart) {
+      await typingStart
+      return
+    }
+    const typingStop = handleClientTypingStop(context, state, parsed)
+    if (typingStop) {
+      await typingStop
+      return
+    }
+  }
 }
 
 export async function handleWebSocketClose(

@@ -1,5 +1,12 @@
-import type { Locator, Page, Route } from "@playwright/test"
-import { expect, sessionCookie, test, userId } from "./_fixtures/community-fixture"
+import type {
+  BrowserContext,
+  BrowserContextOptions,
+  Locator,
+  Page,
+  Route,
+  TestInfo,
+} from "@playwright/test"
+import { expect, sessionCookie, userId } from "./community-fixture"
 import {
   seedChannel,
   seedDm,
@@ -7,13 +14,19 @@ import {
   seedMessage,
   seedServer,
   seedThread,
-} from "./_fixtures/seed"
-import { tid } from "./_fixtures/testids"
-import { WEB_URL } from "./_setup/paths"
+} from "./seed"
+import { tid } from "./testids"
+import { WEB_URL } from "../_setup/paths"
+import type { UserKey } from "../_setup/users"
 
 type Theme = "light" | "dark"
+type CommunityAsUser = (
+  key: UserKey,
+  options?: Omit<BrowserContextOptions, "storageState">,
+) => Promise<{ context: BrowserContext; page: Page }>
 type MobileWidth = 320 | 390 | 639
 const RAIL_OVERFLOW_SERVER_COUNT = 20
+const ISOLATED_GEOMETRY_USER: UserKey = "dave"
 const ANDROID_USER_AGENTS = {
   chrome: "Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36",
   webview: "Mozilla/5.0 (Linux; Android 15; Pixel 9 Build/AP3A.240905.015; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/140.0.0.0 Mobile Safari/537.36",
@@ -304,34 +317,39 @@ async function visibleSkeletonAnimationProperties(page: Page) {
   )).sort())
 }
 
-test.describe.serial("community pending-to-loaded geometry matrix", () => {
-  let routes!: Omit<MatrixCase, "width">[]
-
-  test.beforeAll(async () => {
-    test.setTimeout(120_000)
-    const stamp = Date.now()
-    const serverId = await seedServer("alice", `Geometry ${stamp}`)
+export async function seedGeometryRoutes(): Promise<Omit<MatrixCase, "width">[]> {
+  const stamp = Date.now()
+    const serverId = await seedServer(ISOLATED_GEOMETRY_USER, `Geometry ${stamp}`)
     for (let index = 1; index < RAIL_OVERFLOW_SERVER_COUNT; index += 1) {
-      await seedServer("alice", `Geometry rail ${stamp}-${index}`)
+      await seedServer(ISOLATED_GEOMETRY_USER, `Geometry rail ${stamp}-${index}`)
     }
-    const textId = await seedChannel("alice", serverId, `geometry-text-${stamp}`)
-    const forumId = await seedChannel("alice", serverId, `geometry-forum-${stamp}`, "forum")
+    const textId = await seedChannel(ISOLATED_GEOMETRY_USER, serverId, `geometry-text-${stamp}`)
+    const forumId = await seedChannel(
+      ISOLATED_GEOMETRY_USER,
+      serverId,
+      `geometry-forum-${stamp}`,
+      "forum",
+    )
     const textMessage = `geometry opener ${stamp}`
     const threadMessage = `geometry reply ${stamp}`
     const forumTitle = `Geometry forum post ${stamp}`
     const forumMessage = `geometry forum reply ${stamp}`
     const dmMessage = `geometry dm ${stamp}`
-    const openerId = await seedMessage("alice", textId, textMessage)
-    const threadId = await seedThread("alice", openerId, `geometry-thread-${stamp}`)
-    await seedMessage("alice", threadId, threadMessage)
+    const openerId = await seedMessage(ISOLATED_GEOMETRY_USER, textId, textMessage)
+    const threadId = await seedThread(
+      ISOLATED_GEOMETRY_USER,
+      openerId,
+      `geometry-thread-${stamp}`,
+    )
+    await seedMessage(ISOLATED_GEOMETRY_USER, threadId, threadMessage)
     const forumPostId = await seedForumThread(
-      "alice",
+      ISOLATED_GEOMETRY_USER,
       forumId,
       forumTitle,
       forumMessage,
     )
-    const dmId = await seedDm("alice", userId("bob"))
-    await seedMessage("alice", dmId, dmMessage)
+    const dmId = await seedDm(ISOLATED_GEOMETRY_USER, userId("bob"))
+    await seedMessage(ISOLATED_GEOMETRY_USER, dmId, dmMessage)
 
     const main = (page: Page) => shellPanel(page, "main")
     const messageReady = (content: string) => (page: Page) =>
@@ -339,7 +357,7 @@ test.describe.serial("community pending-to-loaded geometry matrix", () => {
     const threadComposerReady = (page: Page) => page
       .getByTestId(tid.threadSplitPanel)
       .getByTestId(tid.composerInput)
-    routes = [
+  return [
       { name: "me-list", pathname: "/c/me", mobileRail: true, ready: (page) => page.getByRole("button", { name: "Friends", exact: true }) },
       { name: "friends", pathname: "/c/me/friends", ready: (page) => page.getByPlaceholder("Search friends") },
       { name: "machines", pathname: "/c/me/machines", ready: (page) => page.getByTestId(tid.machinePairOpen) },
@@ -373,11 +391,10 @@ test.describe.serial("community pending-to-loaded geometry matrix", () => {
           ready: threadComposerReady,
         },
       },
-    ]
-  })
+  ]
+}
 
-  test("Android Chrome/WebView keep 320/390/639 cold frames mobile before breakpoint hydration", async ({ asUser }) => {
-    test.setTimeout(240_000)
+export async function runAndroidLoadingGeometry(asUser: CommunityAsUser) {
     await pairMachine()
     for (const userAgent of Object.values(ANDROID_USER_AGENTS)) {
       for (const width of [320, 390, 639] as const) {
@@ -416,9 +433,9 @@ test.describe.serial("community pending-to-loaded geometry matrix", () => {
         }
       }
     }
-  })
+}
 
-  test("community skeleton pulse changes only opacity and stops for reduced motion", async ({ asUser }) => {
+export async function runSkeletonLoadingMotion(asUser: CommunityAsUser) {
     for (const reducedMotion of ["no-preference", "reduce"] as const) {
       const { context, page } = await asUser("alice", {
         userAgent: ANDROID_USER_AGENTS.webview,
@@ -436,17 +453,20 @@ test.describe.serial("community pending-to-loaded geometry matrix", () => {
       session.release()
       await context.close()
     }
-  })
+}
 
-  for (const theme of ["light", "dark"] as const satisfies readonly Theme[]) {
-    test(`${theme}: neutral root owns two viewport cold restores`, async ({ asUser }, testInfo) => {
+export async function runNeutralRootGeometry(
+  theme: Theme,
+  asUser: CommunityAsUser,
+  testInfo: TestInfo,
+) {
       for (const width of [390, 1280] as const) {
-        const { context, page } = await asUser("alice")
+        const { context, page } = await asUser(ISOLATED_GEOMETRY_USER)
         await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
         await page.emulateMedia({ colorScheme: theme })
         await page.addInitScript((storageKey) => {
           localStorage.removeItem(storageKey)
-        }, `community:lastRoute:${encodeURIComponent(userId("alice"))}`)
+        }, `community:lastRoute:${encodeURIComponent(userId(ISOLATED_GEOMETRY_USER))}`)
         const session = await holdSession(page)
         await page.goto("/c", { waitUntil: "commit" })
         await expect.poll(session.hits).toBeGreaterThan(0)
@@ -490,10 +510,14 @@ test.describe.serial("community pending-to-loaded geometry matrix", () => {
         ))).toBe(true)
         await context.close()
       }
-    })
+}
 
-    test(`${theme}: 18 route × viewport pending→loaded pairs keep shell CLS at zero`, async ({ asUser }, testInfo) => {
-      test.setTimeout(600_000)
+export async function runRouteLoadingGeometry(
+  theme: Theme,
+  routes: Omit<MatrixCase, "width">[],
+  asUser: CommunityAsUser,
+  testInfo: TestInfo,
+) {
       const cases: MatrixCase[] = routes.flatMap((route) => ([
         { ...route, width: 390 },
         { ...route, width: 1280 },
@@ -501,7 +525,7 @@ test.describe.serial("community pending-to-loaded geometry matrix", () => {
       expect(cases).toHaveLength(18)
 
       for (const entry of cases) {
-        const { context, page } = await asUser("alice")
+        const { context, page } = await asUser(ISOLATED_GEOMETRY_USER)
         await page.setViewportSize({ width: entry.width, height: entry.width === 390 ? 844 : 900 })
         await page.emulateMedia({ colorScheme: theme })
         await startClsObserver(page)
@@ -569,6 +593,4 @@ test.describe.serial("community pending-to-loaded geometry matrix", () => {
         })
         await context.close()
       }
-    })
-  }
-})
+}

@@ -1,18 +1,29 @@
 import { EventEmitter } from "node:events"
 import type { ChildProcess } from "node:child_process"
 import { createRequire } from "node:module"
-import { describe, expect, it } from "vitest"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { dirname, resolve } from "node:path"
+import { afterEach, describe, expect, it } from "vitest"
 import {
+  E2E_PREBUILT_ENTRYPOINTS,
   E2E_WRANGLER_VERSION,
   hasExactHealth,
   readinessExitMessage,
   resolveE2EWranglerRuntime,
+  serviceBuildCommands,
   serviceDefinitions,
   waitForHealth,
   waitForServicesReady,
   wranglerLogEnvironment,
 } from "./e2e-ui/_setup/services"
 import { resolveMachineWsUrl, resolveWsUrl } from "./e2e-ui/_setup/paths"
+
+const temporaryRoots: string[] = []
+
+afterEach(() => {
+  for (const root of temporaryRoots.splice(0)) rmSync(root, { recursive: true, force: true })
+})
 
 describe("UI E2E service definitions", () => {
   it("isolates the exact E2E Wrangler from the normal project CLI", () => {
@@ -52,6 +63,22 @@ describe("UI E2E service definitions", () => {
       { name: "web", command: "pnpm" },
       { name: "ws-do", command: "pnpm" },
     ])
+  })
+
+  it("skips both builds only when both prebuilt worker entrypoints exist", () => {
+    const root = mkdtempSync(resolve(tmpdir(), "alook-prebuilt-services-"))
+    temporaryRoots.push(root)
+    for (const entrypoint of E2E_PREBUILT_ENTRYPOINTS) {
+      mkdirSync(dirname(resolve(root, entrypoint)), { recursive: true })
+      writeFileSync(resolve(root, entrypoint), "export default {}\n")
+    }
+
+    expect(serviceBuildCommands(true, true, root)).toEqual([])
+    rmSync(resolve(root, E2E_PREBUILT_ENTRYPOINTS[1]))
+    expect(() => serviceBuildCommands(true, true, root))
+      .toThrow("prebuilt OpenNext worker entrypoint is missing")
+    expect(serviceBuildCommands(true, false, root)).toHaveLength(2)
+    expect(serviceBuildCommands(false, true, root)).toEqual([])
   })
 
   it("uses the web URL for ws-do in the CI single-runtime topology", () => {

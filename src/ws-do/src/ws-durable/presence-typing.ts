@@ -26,11 +26,31 @@ function normalizeBrowserPayload(
   return { ok: true, payload: normalized.event }
 }
 
+async function serializeTypingFanOut(
+  context: WsDurableContext,
+  userId: string,
+  channelId: string,
+  type: "start" | "stop",
+  operation: () => Promise<void>,
+): Promise<void> {
+  const key = `${channelId}\u0000${userId}`
+  const previous = context.typingFanoutChains.get(key) ?? Promise.resolve()
+  const delivery = previous.then(operation).catch((err) => {
+    context.log.warn(`community:typing.${type} fan-out failed`, { err: String(err) })
+  })
+  context.typingFanoutChains.set(key, delivery)
+  try {
+    await delivery
+  } finally {
+    if (context.typingFanoutChains.get(key) === delivery) context.typingFanoutChains.delete(key)
+  }
+}
+
 export function handleClientTypingStart(
   context: WsDurableContext,
   state: UserConnectionState,
   parsed: unknown,
-): boolean {
+): false | Promise<void> {
   const msg = parsed as { type: string }
   if (msg.type !== WS_EVENTS.TYPING_START) return false
   const typingMsg = parsed as {
@@ -38,7 +58,7 @@ export function handleClientTypingStart(
     channelId?: string
   }
   const scopeKey = typingMsg.channelId
-  if (!scopeKey) return true
+  if (!scopeKey) return Promise.resolve()
 
   const now = Date.now()
   let scopeMap = context.typingDedup.get(scopeKey)
@@ -47,7 +67,7 @@ export function handleClientTypingStart(
     context.typingDedup.set(scopeKey, scopeMap)
   }
   const lastTs = scopeMap.get(state.userId) || 0
-  if (now - lastTs < context.typingDedupMs) return true
+  if (now - lastTs < context.typingDedupMs) return Promise.resolve()
   scopeMap.set(state.userId, now)
 
   if (context.typingDedup.size > 200) {
@@ -71,10 +91,28 @@ export function handleClientTypingStart(
     discriminator: state.discriminator,
   }
 
-  fanOutTyping(context, state.userId, typingMsg.channelId, event).catch((err) => {
-    context.log.warn("community:typing.start fan-out failed", { err: String(err) })
-  })
-  return true
+  return serializeTypingFanOut(context, state.userId, scopeKey, "start", () => (
+    fanOutTyping(context, state.userId, scopeKey, event)
+  ))
+}
+
+export function handleClientTypingStop(
+  context: WsDurableContext,
+  state: UserConnectionState,
+  parsed: unknown,
+): false | Promise<void> {
+  const msg = parsed as { type: string; channelId?: string }
+  if (msg.type !== WS_EVENTS.TYPING_STOP) return false
+  const scopeKey = msg.channelId
+  if (!scopeKey) return Promise.resolve()
+
+  const scopeMap = context.typingDedup.get(scopeKey)
+  scopeMap?.delete(state.userId)
+  if (scopeMap?.size === 0) context.typingDedup.delete(scopeKey)
+
+  return serializeTypingFanOut(context, state.userId, scopeKey, "stop", () => (
+    fanOutTypingStop(context, state.userId, scopeKey)
+  ))
 }
 
 export async function notifyUserDO(

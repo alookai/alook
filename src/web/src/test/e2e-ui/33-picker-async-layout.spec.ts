@@ -1,5 +1,5 @@
 import type { Locator, Page } from "@playwright/test"
-import { expect, test, userId } from "./_fixtures/community-fixture"
+import { expect, test, userId, userName } from "./_fixtures/community-fixture"
 import { tid } from "./_fixtures/testids"
 import {
   memberInfo,
@@ -95,6 +95,14 @@ test.describe.serial("invite and participant picker async states", () => {
     await seedMessage("carol", emptyThreadId, "existing participant carol")
     bobName = (await memberInfo("alice", participantServerId, userId("bob"))).name
     carolName = (await memberInfo("alice", participantServerId, userId("carol"))).name
+  })
+
+  test.afterAll(async () => {
+    const restorations = await Promise.allSettled([
+      renameUser("bob", userName("bob")),
+      renameUser("carol", userName("carol")),
+    ])
+    expect(restorations.map((result) => result.status)).toEqual(["fulfilled", "fulfilled"])
   })
 
   test("Invite friends keeps cold data provisional, search local, row pending, and title clear", async ({ asUser }) => {

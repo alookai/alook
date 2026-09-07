@@ -1,11 +1,28 @@
 import type { Page, TestInfo } from "@playwright/test"
-import { test, expect } from "./_fixtures/community-fixture"
+import { test, expect, userName } from "./_fixtures/community-fixture"
 import { composerEditable, gotoAfterUserWsAuth, sendMessage } from "./_fixtures/actions"
 import { renameUser, seedChannel, seedJoinServer, seedMessage, seedServer } from "./_fixtures/seed"
 import { tid } from "./_fixtures/testids"
 
 const VIEWPORT_WIDTHS = [320, 390, 639, 640, 1280] as const
 const LONG_TYPING_NAME = `Typing ${"occupancy ".repeat(8)}edge`
+
+test.afterAll(async () => {
+  const restorations = await Promise.allSettled([
+    renameUser("bob", userName("bob")),
+    renameUser("carol", userName("carol")),
+  ])
+  expect(restorations.map((result) => result.status)).toEqual(["fulfilled", "fulfilled"])
+})
+
+async function sendExactMessageAndObserve(sender: Page, observer: Page, text: string) {
+  const editable = composerEditable(sender)
+  await editable.click()
+  await sender.keyboard.press("ControlOrMeta+A")
+  await sender.keyboard.press("Backspace")
+  await sendMessage(sender, text)
+  await expect(observer.getByText(text, { exact: true }).first()).toBeVisible()
+}
 
 type Rect = {
   left: number
@@ -430,13 +447,12 @@ test("composer accessory rail reallocates every occupied slot without overflow",
   })
 
   const bobEditor = composerEditable(bob.page)
-  await expect(async () => {
-    await bobEditor.click()
-    await bob.page.keyboard.press("ControlOrMeta+A")
-    await bob.page.keyboard.press("Backspace")
-    await bob.page.keyboard.type("typing occupancy")
-    await expect(alice.page.getByTestId(tid.typingIndicator)).toBeVisible({ timeout: 4_000 })
-  }).toPass({ timeout: 20_000 })
+  await bobEditor.click()
+  await bob.page.keyboard.press("ControlOrMeta+A")
+  await bob.page.keyboard.press("Backspace")
+  await bob.page.keyboard.type("typing occupancy")
+  await expect(alice.page.getByTestId(tid.typingIndicator))
+    .toContainText(LONG_TYPING_NAME, { timeout: 20_000 })
 
   const typingAndCenter = await captureState({
     page: alice.page,
@@ -474,16 +490,19 @@ test("composer accessory rail reallocates every occupied slot without overflow",
   expect(leftOnly[320].typingText?.whiteSpace).toBe("nowrap")
   expect(leftOnly[320].typingText!.scrollWidth).toBeGreaterThan(leftOnly[320].typingText!.clientWidth)
 
-  await sendMessage(bob.page, `long typing clear ${Date.now()}`)
+  await sendExactMessageAndObserve(
+    bob.page,
+    alice.page,
+    `long typing clear ${Date.now()}`,
+  )
   await expect(alice.page.getByTestId(tid.typingIndicator)).toHaveCount(0)
   const carolEditor = composerEditable(carol.page)
-  await expect(async () => {
-    await carolEditor.click()
-    await carol.page.keyboard.press("ControlOrMeta+A")
-    await carol.page.keyboard.press("Backspace")
-    await carol.page.keyboard.type("short selection typing")
-    await expect(alice.page.getByTestId(tid.typingIndicator)).toBeVisible({ timeout: 4_000 })
-  }).toPass({ timeout: 20_000 })
+  await carolEditor.click()
+  await carol.page.keyboard.press("ControlOrMeta+A")
+  await carol.page.keyboard.press("Backspace")
+  await carol.page.keyboard.type("short selection typing")
+  await expect(alice.page.getByTestId(tid.typingIndicator))
+    .toContainText("Cy", { timeout: 20_000 })
 
   row = alice.page.getByTestId(tid.message(selectableMessageId))
   await row.hover()
@@ -508,15 +527,14 @@ test("composer accessory rail reallocates every occupied slot without overflow",
     expect(selectionShort[width].center!.center).toBe(selectionNone[width].center!.center)
   }
 
-  await expect(async () => {
-    await bobEditor.click()
-    await bob.page.keyboard.press("ControlOrMeta+A")
-    await bob.page.keyboard.press("Backspace")
-    await bob.page.keyboard.type("multiple selection typing")
-    await expect(alice.page.getByTestId(tid.typingIndicator)).toContainText(" and ", {
-      timeout: 4_000,
-    })
-  }).toPass({ timeout: 20_000 })
+  await bobEditor.click()
+  await bob.page.keyboard.press("ControlOrMeta+A")
+  await bob.page.keyboard.press("Backspace")
+  await bob.page.keyboard.type("multiple selection typing")
+  await expect(alice.page.getByTestId(tid.typingIndicator))
+    .toContainText(LONG_TYPING_NAME, { timeout: 20_000 })
+  await expect(alice.page.getByTestId(tid.typingIndicator)).toContainText("Cy")
+  await expect(alice.page.getByTestId(tid.typingIndicator)).toContainText(" and ")
   const selectionMultiple = await captureState({
     page: alice.page,
     testInfo,
@@ -532,16 +550,24 @@ test("composer accessory rail reallocates every occupied slot without overflow",
     expect(selectionMultiple[width].center!.center).toBe(selectionNone[width].center!.center)
   }
 
-  await sendMessage(bob.page, `multiple typing clear ${Date.now()}`)
-  await sendMessage(carol.page, `short typing clear ${Date.now()}`)
+  await sendExactMessageAndObserve(
+    bob.page,
+    alice.page,
+    `multiple typing clear ${Date.now()}`,
+  )
+  await sendExactMessageAndObserve(
+    carol.page,
+    alice.page,
+    `short typing clear ${Date.now()}`,
+  )
   await expect(alice.page.getByTestId(tid.typingIndicator)).toHaveCount(0)
-  await expect(async () => {
-    await bobEditor.click()
-    await bob.page.keyboard.press("ControlOrMeta+A")
-    await bob.page.keyboard.press("Backspace")
-    await bob.page.keyboard.type("long selection typing")
-    await expect(alice.page.getByTestId(tid.typingIndicator)).toHaveCount(1, { timeout: 4_000 })
-  }).toPass({ timeout: 20_000 })
+  await bobEditor.click()
+  await bob.page.keyboard.press("ControlOrMeta+A")
+  await bob.page.keyboard.press("Backspace")
+  await bob.page.keyboard.type("long selection typing")
+  await expect(alice.page.getByTestId(tid.typingIndicator))
+    .toContainText(LONG_TYPING_NAME, { timeout: 20_000 })
+  await expect(alice.page.getByTestId(tid.typingIndicator)).not.toContainText("Cy")
   const selectionLong = await captureState({
     page: alice.page,
     testInfo,
@@ -558,7 +584,11 @@ test("composer accessory rail reallocates every occupied slot without overflow",
     expect(selectionLong[width].typing).toBeNull()
   }
 
-  await sendMessage(bob.page, `theme typing clear ${Date.now()}`)
+  await sendExactMessageAndObserve(
+    bob.page,
+    alice.page,
+    `theme typing clear ${Date.now()}`,
+  )
   await expect(alice.page.getByTestId(tid.typingIndicator)).toHaveCount(0)
   await captureState({
     page: alice.page,

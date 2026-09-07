@@ -11,7 +11,7 @@ import {
 } from "@/hooks/community/mutations"
 import { toastApiError } from "@/lib/api/client"
 import { useMessageStreamStore } from "@/stores/community/message-stream"
-import { communityWsResetTypingThrottle } from "@/hooks/community/use-community-ws"
+import { communityWsEndTyping } from "@/hooks/community/use-community-ws"
 import { canonicalizeReplyContent } from "@/lib/community/reply-content"
 
 type ChannelMessageScope = {
@@ -183,7 +183,7 @@ export function acceptChannelMessage({
     return false
   }
   void runAcceptedIntent(nonce)
-  communityWsResetTypingThrottle({ channelId })
+  communityWsEndTyping({ channelId })
   clearReply()
   return true
 }

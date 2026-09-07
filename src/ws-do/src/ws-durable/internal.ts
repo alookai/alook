@@ -69,6 +69,7 @@ export interface WsDurableContext {
   readonly env: Env
   readonly log: Logger
   readonly typingDedup: Map<string, Map<string, number>>
+  readonly typingFanoutChains: Map<string, Promise<void>>
   readonly typingDedupMs: number
   readonly subrequestBatchSize: number
 }
