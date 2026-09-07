@@ -33,7 +33,7 @@ describe("UI E2E service definitions", () => {
 
     expect(runtime.version).toBe(E2E_WRANGLER_VERSION)
     expect(runtime.version).toBe("4.113.0")
-    expect(normalManifest.version).toBe("4.125.0")
+    expect(normalManifest.version).toBe("4.129.0")
     expect(runtime.entry).toMatch(/wrangler@4\.113\.0.*bin[/\\]wrangler\.js$/)
   })
 
