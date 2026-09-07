@@ -17,7 +17,7 @@ describe("desktop native OAuth security configuration", () => {
     }
     const oauth = merged.find(c => c.permissions.includes("native-oauth"))!
     const isProduction = config === production
-    expect(config.build.frontendDist).toBe(isProduction ? "https://alook.ai/c" : "http://localhost:3000/c")
+    expect(config.build.frontendDist).toBe(isProduction ? "alook-recovery://localhost/bootstrap" : "http://localhost:3000/c")
     expect(oauth.windows).toEqual(["main"])
     expect(oauth.platforms).toEqual(expect.arrayContaining(["linux", "macOS", "windows"]))
     expect(oauth.remote?.urls).toEqual(isProduction ? ["https://alook.ai"] : ["http://localhost:3000"])

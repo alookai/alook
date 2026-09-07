@@ -1,0 +1,23 @@
+[env]
+WRY_RUSTWEBVIEWCLIENT_CLASS_EXTENSION = { value = '''
+    @Suppress("DEPRECATION")
+    override fun onReceivedError(
+        view: WebView,
+        errorCode: Int,
+        description: String?,
+        failingUrl: String?
+    ) {
+        if (!WebviewRecovery.handleError(view, errorCode, currentUrl, failingUrl)) {
+            super.onReceivedError(view, errorCode, description, failingUrl)
+        }
+    }
+
+    override fun onReceivedSslError(
+        view: WebView,
+        handler: SslErrorHandler,
+        error: android.net.http.SslError
+    ) {
+        handler.cancel()
+        WebviewRecovery.handleSslError(view, currentUrl, error.url)
+    }
+''', force = true }

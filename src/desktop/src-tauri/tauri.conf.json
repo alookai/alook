@@ -4,7 +4,7 @@
   "identifier": "ai.alook.desktop",
   "build": {
     "devUrl": "http://localhost:3000/c",
-    "frontendDist": "https://alook.ai/c"
+    "frontendDist": "alook-recovery://localhost/bootstrap"
   },
   "bundle": {
     "active": true,

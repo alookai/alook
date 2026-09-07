@@ -4,6 +4,7 @@ use tauri::Manager;
 
 mod native_oauth;
 mod native_oauth_runtime;
+mod webview_recovery;
 
 #[cfg(desktop)]
 mod updater;
@@ -16,7 +17,7 @@ mod macos_window;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder = tauri::Builder::default();
+    let builder = webview_recovery::register_protocol(tauri::Builder::default());
     #[cfg(desktop)]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
         commands::show_main_window(app);
@@ -73,6 +74,9 @@ fn run_mobile(mut builder: tauri::Builder<tauri::Wry>) {
     ]);
 
     builder = builder.setup(|app| {
+        if let Some(window) = app.get_webview_window("main") {
+            webview_recovery::attach(&window);
+        }
         if native_oauth_runtime::setup(app.handle()).is_err() {
             eprintln!("native OAuth storage unavailable");
         }
@@ -80,6 +84,7 @@ fn run_mobile(mut builder: tauri::Builder<tauri::Wry>) {
     });
 
     builder = builder.on_page_load(|webview, payload| {
+        webview_recovery::on_page_load(webview, payload);
         if webview.label() == "main"
             && matches!(payload.event(), tauri::webview::PageLoadEvent::Started)
         {
@@ -121,6 +126,9 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
 
     // System tray + window setup (desktop only)
     builder = builder.setup(|app| {
+        if let Some(window) = app.get_webview_window("main") {
+            webview_recovery::attach(&window);
+        }
         if native_oauth_runtime::setup(app.handle()).is_err() {
             eprintln!("native OAuth storage unavailable");
         }
@@ -128,7 +136,7 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
         commands::setup_tray(app)?;
         updater::auto_check_updates(app.handle().clone());
 
-        // Create splash window with inline HTML (frontendDist is remote, so url won't work)
+        // Serve the splash independently through its inline local protocol.
         commands::create_splash_window(app)?;
 
         // Minimum splash display time (1s) to prevent flash
@@ -157,6 +165,7 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
     });
 
     builder = builder.on_page_load(|webview, payload| {
+        webview_recovery::on_page_load(webview, payload);
         if webview.label() == "main"
             && matches!(payload.event(), tauri::webview::PageLoadEvent::Started)
         {
