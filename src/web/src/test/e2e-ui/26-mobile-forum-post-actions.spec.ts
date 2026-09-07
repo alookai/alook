@@ -1,6 +1,7 @@
 import type { Locator, Page, TestInfo } from "@playwright/test"
 import { test, expect, sessionCookie } from "./_fixtures/community-fixture"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
+import { isClientMutationRequest } from "./_fixtures/client-request-policy"
 import { seedChannel, seedForumThread, seedJoinServer, seedMessage, seedServer } from "./_fixtures/seed"
 import { tid } from "./_fixtures/testids"
 import { WEB_URL } from "./_setup/paths"
@@ -120,10 +121,11 @@ async function expectNewPostGeometry(
 function observeClientWrites(page: Page) {
   const state = { active: false, http: [] as string[], ws: [] as string[] }
   page.on("request", (request) => {
-    if (!state.active || ["GET", "HEAD", "OPTIONS"].includes(request.method())) return
+    if (!state.active) return
     const path = new URL(request.url()).pathname
     if (!path.startsWith("/api/community/")) return
     if (path.endsWith("/read")) return
+    if (!isClientMutationRequest(request.method(), path)) return
     state.http.push(`${request.method()} ${path}`)
   })
   page.on("websocket", (socket) => {

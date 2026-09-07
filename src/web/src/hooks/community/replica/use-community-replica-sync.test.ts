@@ -35,13 +35,16 @@ import {
   flushCommunityReplicaIntents,
   flushCommunityReplicaReadIntents,
   retainCommunityReplicaBootstrapTails,
+  runCommunityReplicaSyncSingleFlight,
   selectCommunityReplicaDeltaFrontier,
+  serializeCommunityReplicaSync,
   synchronizeCommunityReplica,
 } from "./use-community-replica-sync"
 import {
   deleteCommunityReplicaAccount,
   replaceCommunityReplicaBootstrap,
 } from "@/lib/community/replica/store"
+import { clearCommunityReplicaReadMutations } from "@/lib/community/replica/read-mutation"
 
 const server: ServerDetail = {
   id: "s1",
@@ -65,11 +68,13 @@ const server: ServerDetail = {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  clearCommunityReplicaReadMutations("account-1")
   mocks.listIntents.mockResolvedValue([])
   mocks.listReadWal.mockReturnValue([])
 })
 
 afterEach(async () => {
+  vi.useRealTimers()
   await deleteCommunityReplicaAccount("account-delta-only")
   await deleteCommunityReplicaAccount("account-bootstrap-publication")
   vi.unstubAllGlobals()
@@ -109,6 +114,113 @@ describe("community Replica bootstrap request", () => {
       { scope: { kind: "channel", id: "c1" }, revision: 30 },
       { scope: { kind: "channel", id: "c2" }, revision: 40 },
     ])
+  })
+
+  it("uses one semantic key across equivalent seeded server objects", () => {
+    const user = { id: "viewer", name: "Viewer", email: "v@example.com", avatar: "V", avatarVersion: 0 }
+    const first = serializeCommunityReplicaSync(user, "/c/channels/s1/c1", "s1", "c1", server)
+    const reseeded = serializeCommunityReplicaSync(
+      { ...user },
+      "/c/channels/s1/c1",
+      "s1",
+      "c1",
+      structuredClone(server),
+    )
+
+    expect(reseeded).toBe(first)
+  })
+
+  it("changes the semantic key when the offline session identity changes", () => {
+    const user = { id: "viewer", name: "Viewer", email: "v@example.com", avatar: "V", avatarVersion: 0 }
+    const first = serializeCommunityReplicaSync(user, "/c/channels/s1/c1", "s1", "c1", server)
+    const updated = serializeCommunityReplicaSync(
+      { ...user, avatarVersion: 1 },
+      "/c/channels/s1/c1",
+      "s1",
+      "c1",
+      structuredClone(server),
+    )
+
+    expect(updated).not.toBe(first)
+  })
+})
+
+describe("community Replica session single-flight", () => {
+  it("joins an equivalent remount before aborting the shared work", async () => {
+    vi.useFakeTimers()
+    const queryClient = new QueryClient()
+    const first = new AbortController()
+    const second = new AbortController()
+    let finish!: () => void
+    const pending = new Promise<void>((resolve) => { finish = resolve })
+    const run = vi.fn(async (signal: AbortSignal) => {
+      expect(signal.aborted).toBe(false)
+      await pending
+    })
+
+    const user = { id: "viewer", name: "Viewer", email: "v@example.com", avatar: "V", avatarVersion: 0 }
+    const firstKey = serializeCommunityReplicaSync(user, "/c/channels/s1/c1", "s1", "c1", server)!
+    const equivalentKey = serializeCommunityReplicaSync(
+      { ...user },
+      "/c/channels/s1/c1",
+      "s1",
+      "c1",
+      structuredClone(server),
+    )!
+    const firstResult = runCommunityReplicaSyncSingleFlight(
+      queryClient,
+      firstKey,
+      first.signal,
+      run,
+    )
+    first.abort()
+    const secondResult = runCommunityReplicaSyncSingleFlight(
+      queryClient,
+      equivalentKey,
+      second.signal,
+      run,
+    )
+    await vi.advanceTimersByTimeAsync(50)
+
+    expect(run).toHaveBeenCalledTimes(1)
+    finish()
+    await Promise.all([firstResult, secondResult])
+  })
+
+  it("aborts work whose offline session identity was superseded", async () => {
+    const queryClient = new QueryClient()
+    const caller = new AbortController()
+    const user = { id: "viewer", name: "Viewer", email: "v@example.com", avatar: "V", avatarVersion: 0 }
+    const firstKey = serializeCommunityReplicaSync(user, "/c/channels/s1/c1", "s1", "c1", server)!
+    const updatedKey = serializeCommunityReplicaSync(
+      { ...user, avatarVersion: 1 },
+      "/c/channels/s1/c1",
+      "s1",
+      "c1",
+      server,
+    )!
+    let firstSignal!: AbortSignal
+    const first = runCommunityReplicaSyncSingleFlight(
+      queryClient,
+      firstKey,
+      caller.signal,
+      async (signal) => {
+        firstSignal = signal
+        await new Promise<void>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason), { once: true })
+        })
+      },
+    )
+    const second = runCommunityReplicaSyncSingleFlight(
+      queryClient,
+      updatedKey,
+      caller.signal,
+      async () => undefined,
+    )
+
+    expect(firstSignal.aborted).toBe(true)
+    await expect(first).rejects.toBeDefined()
+    await second
   })
 })
 

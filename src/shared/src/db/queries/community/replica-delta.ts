@@ -39,6 +39,7 @@ export async function loadReplicaAccountServers(
       ownerId: communityServer.ownerId,
       role: communityServerMember.role,
       railOrder: communityServerMember.railOrder,
+      joinedAt: communityServerMember.joinedAt,
     })
     .from(communityServer)
     .innerJoin(communityServerMember, and(
@@ -200,6 +201,7 @@ export async function loadReplicaChannels(
       categoryId: communityChannel.categoryId,
       name: communityChannel.name,
       position: communityChannel.position,
+      createdAt: communityChannel.createdAt,
       type: communityChannel.type,
       creatorId: communityChannel.creatorId,
     })

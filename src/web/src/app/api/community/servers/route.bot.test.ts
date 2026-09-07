@@ -78,20 +78,68 @@ describe("GET /api/community/servers — bot path (folded listServers)", () => {
 
   it("200 lists servers scoped to the bot's own membership", async () => {
     mockListUserServers.mockResolvedValue([
-      { id: "srv_1", name: "Studio", ownerId: "u_owner" },
-      { id: "srv_2", name: "Lab" },
+      {
+        id: "srv_1",
+        name: "Studio",
+        discriminator: "1001",
+        description: "Production studio",
+        icon: "stored-icon",
+        ownerId: "u_owner",
+        createdAt: "2026-08-01T00:00:00.000Z",
+        role: "member",
+        railOrder: 0,
+        mentions: 2,
+        joinedAt: "2026-08-02T00:00:00.000Z",
+      },
+      {
+        id: "srv_2",
+        name: "Lab",
+        discriminator: "1002",
+        description: null,
+        icon: null,
+        ownerId: "u_owner",
+        createdAt: "2026-08-03T00:00:00.000Z",
+        role: "owner",
+        railOrder: 1,
+        mentions: 0,
+        joinedAt: "2026-08-04T00:00:00.000Z",
+      },
     ])
     const res = await GET(req({ Authorization: "Bearer crk_abc" }))
     expect(res.status).toBe(200)
-    const body = (await res.json()) as { servers: Array<{ id: string; name: string }> }
-    expect(body.servers.map((s) => ({ id: s.id, name: s.name }))).toEqual([
-      { id: "srv_1", name: "Studio" },
-      { id: "srv_2", name: "Lab" },
-    ])
+    const body = await res.json()
+    expect(body).toEqual({
+      servers: [
+        {
+          id: "srv_1",
+          name: "Studio",
+          discriminator: "1001",
+          description: "Production studio",
+          icon: null,
+          ownerId: "u_owner",
+          createdAt: "2026-08-01T00:00:00.000Z",
+          role: "member",
+          railOrder: 0,
+          mentions: 2,
+        },
+        {
+          id: "srv_2",
+          name: "Lab",
+          discriminator: "1002",
+          description: null,
+          icon: null,
+          ownerId: "u_owner",
+          createdAt: "2026-08-03T00:00:00.000Z",
+          role: "owner",
+          railOrder: 1,
+          mentions: 0,
+        },
+      ],
+    })
     // Scoping red line: the bot sees only ITS OWN servers (actor.userId=bot_1).
     expect(mockListUserServers).toHaveBeenCalledWith(expect.anything(), "bot_1")
     expect(mockListEligibleUnreadServerIds).not.toHaveBeenCalled()
-    expect(body.servers.every((server) => !("unread" in server))).toBe(true)
+    expect(body.servers.every((server: Record<string, unknown>) => !("unread" in server))).toBe(true)
   })
 
   it("200 with an empty list when the bot is in no servers", async () => {

@@ -35,5 +35,5 @@ const withMDX = createMDX({
 export default withMDX(nextConfig);
 
 initOpenNextCloudflareForDev({
-	configPath: path.resolve(__dirname, "wrangler.toml"),
+	configPath: path.resolve(__dirname, "wrangler.dev.toml"),
 });

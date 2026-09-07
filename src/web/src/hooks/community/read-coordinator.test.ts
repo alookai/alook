@@ -17,6 +17,7 @@ vi.mock("./community-ws/read-state-reconciliation", () => ({
 import {
   confirmReadSurface,
   disposeReadCoordinator,
+  flushCommunityReplicaReadIntents,
   flushPendingReadIntents,
   getReadCoordinator,
   projectReadCoordinatorSnapshot,
@@ -27,6 +28,7 @@ import {
   submitReadIntent,
   submitReadIntentGeneration,
 } from "./read-coordinator"
+import { clearCommunityReplicaReadMutations } from "@/lib/community/replica/read-mutation"
 import {
   activateInboxProjectionTicket,
   inboxReadCandidateFingerprint,
@@ -63,6 +65,7 @@ describe("read coordinator", () => {
     vi.useFakeTimers()
     apiFetch.mockReset()
     reconcileAccountReadState.mockReset().mockResolvedValue(undefined)
+    clearCommunityReplicaReadMutations("user-1")
   })
 
   afterEach(() => {
@@ -115,6 +118,36 @@ describe("read coordinator", () => {
       targetRevision: 9,
     })
     expect(submitTimeline(lease, 7)).toBe(false)
+  })
+
+  it("shares one physical write between the coordinator and WAL recovery", async () => {
+    const values = new Map<string, string>()
+    vi.stubGlobal("localStorage", {
+      get length() { return values.size },
+      key: (index: number) => [...values.keys()][index] ?? null,
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    })
+    const queryClient = new QueryClient()
+    const lease = timelineLease(queryClient)
+    let resolveWrite!: (value: unknown) => void
+    apiFetch.mockReturnValue(new Promise((resolve) => { resolveWrite = resolve }))
+
+    submitTimeline(lease, 7)
+    await vi.advanceTimersByTimeAsync(READ_COORDINATOR_DEBOUNCE_MS)
+    const replay = flushCommunityReplicaReadIntents(
+      "user-1",
+      new AbortController().signal,
+    )
+
+    expect(apiFetch).toHaveBeenCalledOnce()
+    resolveWrite({ changed: true, revision: 11, targetSeq: 7 })
+    await replay
+    await vi.waitFor(() => expect(reconcileAccountReadState).toHaveBeenCalledOnce())
+
+    await flushCommunityReplicaReadIntents("user-1", new AbortController().signal)
+    expect(apiFetch).toHaveBeenCalledOnce()
   })
 
   it("settles a queued optimistic generation when a higher target supersedes it", () => {

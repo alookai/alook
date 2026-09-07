@@ -42,7 +42,24 @@ export async function requestBlogDiscoveryManifest({
 	return parseBlogDiscoveryManifest(value, serialized);
 }
 
+export async function requestBlogDiscoveryManifestFromOrigin(
+	origin: string,
+	timeoutMs = 3_000,
+): Promise<BlogDiscoveryManifestV1> {
+	const response = await withTimeout(
+		fetch(new URL("/internal/blog-discovery", origin)),
+		timeoutMs,
+	);
+	if (!response.ok) {
+		throw new Error(`Blog discovery route returned ${response.status}`);
+	}
+	const serialized = await response.text();
+	return parseBlogDiscoveryManifest(JSON.parse(serialized), serialized);
+}
+
 export async function getBlogDiscoveryManifest(): Promise<BlogDiscoveryManifestV1 | null> {
+	const devOrigin = process.env.BLOG_DEV_INTERNAL_ORIGIN;
+	if (devOrigin) return requestBlogDiscoveryManifestFromOrigin(devOrigin);
 	const { env } = await getCloudflareContext({ async: true });
 	return requestBlogDiscoveryManifest({
 		worker: env.BLOG_WORKER as unknown as BlogDiscoveryRpc | undefined,

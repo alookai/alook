@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest"
 import {
+  advanceNewerPageTransition,
   decideScrollAction,
   createScrollAnchorState,
   computeHeroScrollCompensation,
@@ -102,6 +103,63 @@ describe("decideScrollAction — mount (rewritten — neither case is free with 
     )
     expect(phase2.action).toEqual({ type: "mount", newDividerBefore: "m2" })
     expect(phase2.nextState.didDividerConverge).toBe(true)
+  })
+
+  it("phase 2 — converges when the resolved anchor window replaces a warm cached tail", () => {
+    const phase1 = decideScrollAction(baseInput({
+      initialScrollReady: false,
+      messages: msgs("m1", "m2", "cached-tail"),
+    }))
+    const phase2 = decideScrollAction(baseInput({
+      state: phase1.nextState,
+      messages: msgs("m1", "m2", "anchor-window-tail"),
+      initialScrollReady: true,
+      newDividerBefore: "m2",
+      hasMoreNewer: true,
+      isAtEnd: true,
+    }))
+    expect(phase2.action).toEqual({ type: "mount", newDividerBefore: "m2" })
+    expect(phase2.nextState.didDividerConverge).toBe(true)
+  })
+
+  it("keeps the divider anchored across the full warm-tail → anchor-window → newer-page sequence", () => {
+    const warmTail = decideScrollAction(baseInput({
+      initialScrollReady: false,
+      messages: msgs(...Array.from({ length: 72 }, (_, index) => `m${index + 1}`)),
+    }))
+    expect(warmTail.action).toEqual({ type: "scrollToEnd" })
+
+    const anchorWindow = decideScrollAction(baseInput({
+      state: warmTail.nextState,
+      messages: msgs(...Array.from({ length: 49 }, (_, index) => `m${index + 1}`)),
+      newDividerBefore: "m25",
+      initialScrollReady: true,
+      hasMoreNewer: true,
+      isAtEnd: true,
+    }))
+    expect(anchorWindow.action).toEqual({ type: "mount", newDividerBefore: "m25" })
+    expect(anchorWindow.nextState.didDividerConverge).toBe(true)
+
+    const fetching = advanceNewerPageTransition({
+      wasFetchingNewer: false,
+      isFetchingNewer: true,
+      tailChanged: false,
+    })
+    const landed = advanceNewerPageTransition({
+      wasFetchingNewer: fetching.nextWasFetchingNewer,
+      isFetchingNewer: false,
+      tailChanged: true,
+    })
+    const completedTail = decideScrollAction(baseInput({
+      state: anchorWindow.nextState,
+      messages: msgs(...Array.from({ length: 72 }, (_, index) => `m${index + 1}`)),
+      newDividerBefore: "m25",
+      initialScrollReady: true,
+      hasMoreNewer: false,
+      newerPageTransition: landed.newerPageTransition,
+      isAtEnd: true,
+    }))
+    expect(completedTail.action).toEqual({ type: "none" })
   })
 
   it("phase 2 — does NOT yank the viewport if the user scrolled away before the snapshot resolved", () => {
@@ -232,6 +290,20 @@ describe("decideScrollAction — self-send / peer-follow (both hand-rolled — f
     expect(action).toEqual({ type: "none" })
   })
 
+  it("newer-page completion is pagination, not a peer append", () => {
+    const state = mountedState({ didDividerConverge: true })
+    const messages = [{ id: "m1" }, { id: "m2" }, { id: "m3" }, { id: "m4", authorId: "peer" }]
+    const { action } = decideScrollAction(baseInput({
+      state,
+      messages,
+      viewerUserId: "viewer",
+      hasMoreNewer: false,
+      newerPageTransition: true,
+      isAtEnd: true,
+    }))
+    expect(action).toEqual({ type: "none" })
+  })
+
   it("no action when the tail id is unchanged", () => {
     const state = mountedState()
     const { action } = decideScrollAction(baseInput({ state, viewerUserId: "viewer" }))
@@ -250,6 +322,27 @@ describe("decideScrollAction — self-send / peer-follow (both hand-rolled — f
     const messages = [{ id: "m1" }, { id: "m2" }, { id: "srv_abc", authorId: "viewer" }]
     const { action } = decideScrollAction(baseInput({ state, messages, viewerUserId: "viewer" }))
     expect(action).toEqual({ type: "scrollToEnd" })
+  })
+})
+
+describe("advanceNewerPageTransition", () => {
+  it("carries an in-flight newer fetch through the tail-changing completion commit", () => {
+    expect(advanceNewerPageTransition({
+      wasFetchingNewer: true,
+      isFetchingNewer: false,
+      tailChanged: true,
+    })).toEqual({
+      newerPageTransition: true,
+      nextWasFetchingNewer: false,
+    })
+  })
+
+  it("does not classify an ordinary tail change as pagination", () => {
+    expect(advanceNewerPageTransition({
+      wasFetchingNewer: false,
+      isFetchingNewer: false,
+      tailChanged: true,
+    }).newerPageTransition).toBe(false)
   })
 })
 
@@ -306,6 +399,25 @@ describe("shouldAdjustMessageScrollPosition", () => {
 
   it("does not compensate a first measurement while the user scrolls upward", () => {
     expect(shouldAdjustMessageScrollPosition(item, 96, instance({ scrollDirection: "backward" }))).toBe(false)
+  })
+
+  it("lets divider reconciliation own first measurements but preserves later growth", () => {
+    expect(shouldAdjustMessageScrollPosition(
+      item,
+      96,
+      instance({ scrollDirection: "backward" }),
+      false,
+      true,
+    )).toBe(false)
+
+    const measured = new Map([[item.key, item.size]])
+    expect(shouldAdjustMessageScrollPosition(
+      item,
+      96,
+      instance({ itemSizeCache: measured }),
+      false,
+      true,
+    )).toBe(true)
   })
 
   it("compensates a measured row wholly above an away viewport", () => {

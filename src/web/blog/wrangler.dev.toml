@@ -1,0 +1,10 @@
+name = "alook-blog"
+compatibility_date = "2026-04-09"
+compatibility_flags = ["nodejs_compat"]
+
+# `next dev` serves directly from public/. Production deploys continue to use
+# wrangler.toml and its generated .open-next/assets directory.
+[assets]
+directory = "public"
+binding = "ASSETS"
+html_handling = "none"

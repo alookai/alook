@@ -1,6 +1,9 @@
 import { test, expect } from "./_fixtures/community-fixture"
 import { tid } from "./_fixtures/testids"
 import { composerEditable, createServer, sendMessage, expectMessageVisible } from "./_fixtures/actions"
+import { waitForAcceptedReplicaTextIntent } from "./_fixtures/replica-intent"
+
+const REPLICA_INTENTS_PATH = "/api/community/replica/intents"
 
 test("server → channel → message", async ({ asUser }) => {
   test.setTimeout(120_000)
@@ -13,15 +16,10 @@ test("server → channel → message", async ({ asUser }) => {
   const channelId = new URL(channelUrl).pathname.split("/").at(-1)!
 
   const firstBody = `hello world ${Date.now()}`
-  const firstResponsePromise = page.waitForResponse((response) => {
-    const pathname = new URL(response.url()).pathname
-    return response.request().method() === "POST"
-      && /^\/api\/community\/channels\/[^/]+\/messages$/.test(pathname)
-  })
+  const firstResponsePromise = waitForAcceptedReplicaTextIntent(page, channelId, firstBody)
   await sendMessage(page, firstBody)
-  const firstResponse = await firstResponsePromise
-  expect(firstResponse.status()).toBe(201)
-  const firstPayload = await firstResponse.json() as { message: { id: string; seq: number } }
+  const firstCanonical = await firstResponsePromise
+  const firstPayload = { message: { id: firstCanonical.messageId, seq: firstCanonical.seq } }
   expect(firstPayload.message.seq).toBeGreaterThan(0)
   await expectMessageVisible(page, firstBody)
   await expect(page.getByTestId(tid.message(firstPayload.message.id))).toHaveCount(1)
@@ -75,7 +73,7 @@ test("server → channel → message", async ({ asUser }) => {
   let sends = 0
   page.on("request", (request) => {
     const pathname = new URL(request.url()).pathname
-    if (request.method() === "POST" && /^\/api\/community\/channels\/[^/]+\/messages$/.test(pathname)) sends++
+    if (request.method() === "POST" && pathname === REPLICA_INTENTS_PATH) sends++
   })
 
   const imeBody = `ime probe ${Date.now()}`
@@ -96,15 +94,10 @@ test("server → channel → message", async ({ asUser }) => {
   })
   await expect(editable).toContainText(imeBody)
   await expect.poll(() => sends).toBe(0)
-  const imeResponsePromise = page.waitForResponse((response) => {
-    const pathname = new URL(response.url()).pathname
-    return response.request().method() === "POST"
-      && /^\/api\/community\/channels\/[^/]+\/messages$/.test(pathname)
-  })
+  const imeResponsePromise = waitForAcceptedReplicaTextIntent(page, channelId, imeBody)
   await page.keyboard.press("Enter")
-  const imeResponse = await imeResponsePromise
-  expect(imeResponse.status()).toBe(201)
-  const imePayload = await imeResponse.json() as { message: { id: string; seq: number } }
+  const imeCanonical = await imeResponsePromise
+  const imePayload = { message: { id: imeCanonical.messageId, seq: imeCanonical.seq } }
   expect(imePayload.message.seq).toBeGreaterThan(firstPayload.message.seq)
   await expectMessageVisible(page, imeBody)
   await expect(page.getByTestId(tid.message(imePayload.message.id))).toHaveCount(1)
@@ -215,7 +208,7 @@ test("server → channel → message", async ({ asUser }) => {
   let pendingSendIntercepted = false
   let pendingSendCompleted = false
   let pendingPostCount = 0
-  await page.route("**/api/community/channels/*/messages", async (route) => {
+  await page.route(`**${REPLICA_INTENTS_PATH}`, async (route) => {
     if (route.request().method() !== "POST") {
       await route.continue()
       return
@@ -277,7 +270,7 @@ test("server → channel → message", async ({ asUser }) => {
 
   releasePendingSend()
   await expect.poll(() => pendingSendCompleted).toBe(true)
-  await page.unroute("**/api/community/channels/*/messages")
+  await page.unroute(`**${REPLICA_INTENTS_PATH}`)
   await page.goto("/c/me", { waitUntil: "commit" })
   await page.goto(channelUrl, { waitUntil: "commit" })
   const persisted = composerEditable(page)

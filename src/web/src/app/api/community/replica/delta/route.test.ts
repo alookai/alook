@@ -212,6 +212,7 @@ describe("POST /api/community/replica/delta", () => {
       ownerId: "u1",
       role: "owner",
       railOrder: 0,
+      joinedAt: now,
       unreadSources: [],
       mentionSources: [],
       mentions: 0,
@@ -329,6 +330,7 @@ describe("POST /api/community/replica/delta", () => {
       categoryId: "cat1",
       name: "Visible",
       position: 0,
+      createdAt: now,
       type: "text",
       creatorId: null,
     }]);

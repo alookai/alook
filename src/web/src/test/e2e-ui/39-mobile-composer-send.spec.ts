@@ -18,6 +18,7 @@ import {
   seedThread,
 } from "./_fixtures/seed"
 import { tid } from "./_fixtures/testids"
+import { waitForAcceptedReplicaTextIntent } from "./_fixtures/replica-intent"
 
 test.use({ viewport: { width: 390, height: 844 } })
 
@@ -44,12 +45,25 @@ async function expectHoverKeyboardSend({
   channelId: string
   frames: CapturedCommunityFrame[]
 }) {
-  let messagePosts = 0
+  const intentPosts: Array<{
+    intentId?: string
+    scope?: { id?: string }
+    payload?: { content?: string }
+  }> = []
   page.on("request", (request) => {
     if (
       request.method() === "POST"
-      && new URL(request.url()).pathname === `/api/community/channels/${channelId}/messages`
-    ) messagePosts += 1
+      && new URL(request.url()).pathname === "/api/community/replica/intents"
+    ) {
+      const body = request.postDataJSON() as {
+        intents?: Array<{
+          intentId?: string
+          scope?: { id?: string }
+          payload?: { content?: string }
+        }>
+      } | null
+      intentPosts.push(...(body?.intents ?? []))
+    }
   })
   await page.goto(route, { waitUntil: "commit" })
   await ignoreNextDevToolsPointerCapture(page)
@@ -74,6 +88,7 @@ async function expectHoverKeyboardSend({
 
   const firstLine = `narrow PC first ${Date.now()}`
   const secondLine = "narrow PC second"
+  const content = `${firstLine}\n${secondLine}`
   await editable.click()
   await editable.pressSequentially(firstLine)
   await page.keyboard.press("Shift+Enter")
@@ -81,27 +96,33 @@ async function expectHoverKeyboardSend({
   await expect(editable.locator("br")).toHaveCount(1)
   await expect(editable).toContainText(firstLine)
   await expect(editable).toContainText(secondLine)
-  expect(messagePosts).toBe(0)
+  expect(new Set(intentPosts.filter((intent) => (
+    intent.scope?.id === channelId && intent.payload?.content === content
+  )).map((intent) => intent.intentId)).size).toBe(0)
 
-  const responsePromise = page.waitForResponse((response) => (
-    response.request().method() === "POST"
-    && new URL(response.url()).pathname === `/api/community/channels/${channelId}/messages`
-  ))
+  const responsePromise = waitForAcceptedReplicaTextIntent(
+    page,
+    channelId,
+    content,
+  )
   await page.keyboard.press("Enter")
-  const response = await responsePromise
-  expect(response.status()).toBe(201)
-  const payload = await response.json() as { message: { id: string } }
+  const canonical = await responsePromise
+  const payload = { message: { id: canonical.messageId } }
   await expect(page.getByTestId(tid.message(payload.message.id))).toHaveCount(1)
   await expect(page.getByTestId(tid.message(payload.message.id))).toContainText(firstLine)
   await expect(page.getByTestId(tid.message(payload.message.id))).toContainText(secondLine)
   await expect(editable).toHaveText("")
-  expect(messagePosts).toBe(1)
+  expect(new Set(intentPosts.filter((intent) => (
+    intent.scope?.id === channelId && intent.payload?.content === content
+  )).map((intent) => intent.intentId)).size).toBe(1)
   await expect.poll(() => hasMessageFrame(frames, channelId, payload.message.id)).toBe(true)
 
   await page.reload({ waitUntil: "commit" })
   await expect(composerEditable(page)).toBeVisible({ timeout: 20_000 })
   await expect(page.getByTestId(tid.message(payload.message.id))).toContainText(firstLine)
-  expect(messagePosts).toBe(1)
+  expect(new Set(intentPosts.filter((intent) => (
+    intent.scope?.id === channelId && intent.payload?.content === content
+  )).map((intent) => intent.intentId)).size).toBe(1)
 }
 
 async function expectExplicitTouchSend({
@@ -112,6 +133,7 @@ async function expectExplicitTouchSend({
   frames,
   exerciseResize = false,
   testInfo,
+  transport = "replica",
 }: {
   page: Page
   route: string
@@ -120,13 +142,36 @@ async function expectExplicitTouchSend({
   frames: CapturedCommunityFrame[]
   exerciseResize?: boolean
   testInfo?: TestInfo
+  transport?: "replica" | "legacy"
 }) {
-  let messagePosts = 0
+  const sendPath = transport === "replica"
+    ? "/api/community/replica/intents"
+    : `/api/community/channels/${channelId}/messages`
+  const sendPosts: Array<{ intentId?: string; content: string }> = []
   page.on("request", (request) => {
     if (
       request.method() === "POST"
-      && new URL(request.url()).pathname === `/api/community/channels/${channelId}/messages`
-    ) messagePosts += 1
+      && new URL(request.url()).pathname === sendPath
+    ) {
+      const body = request.postDataJSON() as {
+        content?: string
+        intents?: Array<{
+          intentId?: string
+          scope?: { id?: string }
+          payload?: { content?: string }
+        }>
+      } | null
+      if (transport === "replica") {
+        sendPosts.push(...(body?.intents ?? [])
+          .filter((intent) => intent.scope?.id === channelId)
+          .map((intent) => ({
+            intentId: intent.intentId,
+            content: intent.payload?.content ?? "",
+          })))
+      } else {
+        sendPosts.push({ content: body?.content ?? "" })
+      }
+    }
   })
   await page.goto(route, { waitUntil: "commit" })
   await ignoreNextDevToolsPointerCapture(page)
@@ -176,6 +221,7 @@ async function expectExplicitTouchSend({
 
   const firstLine = `${label} first ${Date.now()}`
   const secondLine = `${label} second`
+  const content = `${firstLine}\n\n${secondLine}`
   await editable.click()
   await editable.pressSequentially(firstLine)
   await page.keyboard.press("Enter")
@@ -185,7 +231,7 @@ async function expectExplicitTouchSend({
   await expect(editable).toContainText(secondLine)
   await expect(send).toBeEnabled()
   await expect(send).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
-  expect(messagePosts).toBe(0)
+  expect(sendPosts.filter((item) => item.content === content)).toHaveLength(0)
   await expect(page.locator("[data-msg-id]").filter({ hasText: firstLine })).toHaveCount(0)
 
   if (testInfo) {
@@ -195,30 +241,42 @@ async function expectExplicitTouchSend({
     })
   }
 
-  const responsePromise = page.waitForResponse((response) => (
-    response.request().method() === "POST"
-    && new URL(response.url()).pathname === `/api/community/channels/${channelId}/messages`
-  ))
+  const responsePromise = transport === "replica"
+    ? waitForAcceptedReplicaTextIntent(page, channelId, content)
+    : page.waitForResponse((response) => (
+        response.request().method() === "POST"
+        && new URL(response.url()).pathname === sendPath
+      )).then(async (response) => {
+        expect(response.status()).toBe(201)
+        expect(response.request().postDataJSON()).toMatchObject({ content })
+        const payload = await response.json() as { message: { id: string } }
+        return { messageId: payload.message.id }
+      })
   await send.evaluate((button) => {
     const sendButton = button as HTMLButtonElement
     sendButton.click()
     sendButton.click()
   })
-  const response = await responsePromise
-  expect(response.status()).toBe(201)
-  const payload = await response.json() as { message: { id: string } }
+  const committed = await responsePromise
+  const payload = { message: { id: committed.messageId } }
   await expect(page.getByTestId(tid.message(payload.message.id))).toHaveCount(1)
   await expect(page.getByTestId(tid.message(payload.message.id))).toContainText(firstLine)
   await expect(page.getByTestId(tid.message(payload.message.id))).toContainText(secondLine)
   await expect(editable).toHaveText("")
   await expect(send).toBeDisabled()
-  expect(messagePosts).toBe(1)
+  const matchingPosts = sendPosts.filter((item) => item.content === content)
+  expect(transport === "replica"
+    ? new Set(matchingPosts.map((item) => item.intentId)).size
+    : matchingPosts.length).toBe(1)
   await expect.poll(() => hasMessageFrame(frames, channelId, payload.message.id)).toBe(true)
 
   await page.reload({ waitUntil: "commit" })
   await expect(composerEditable(page)).toBeVisible({ timeout: 20_000 })
   await expect(page.getByTestId(tid.message(payload.message.id))).toContainText(firstLine)
-  expect(messagePosts).toBe(1)
+  const matchingPostsAfterReload = sendPosts.filter((item) => item.content === content)
+  expect(transport === "replica"
+    ? new Set(matchingPostsAfterReload.map((item) => item.intentId)).size
+    : matchingPostsAfterReload.length).toBe(1)
 }
 
 test.describe.serial("composer send by input capability", () => {
@@ -285,6 +343,7 @@ test.describe.serial("composer send by input capability", () => {
       channelId: dmId,
       label: "dm",
       frames: proxy.frames,
+      transport: "legacy",
     })
   })
 })

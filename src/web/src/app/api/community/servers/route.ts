@@ -20,7 +20,18 @@ export const GET = withCommunityActor(async (_req, ctx) => {
     () => queries.communityServer.listUserServers(db, ctx.actor.userId),
     { route: "community/servers:list" },
   )
-  const servers = rows.map((row) => ({ ...row, icon: serverIconUrl(row) }))
+  const servers = rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    discriminator: row.discriminator,
+    description: row.description,
+    icon: serverIconUrl(row),
+    ownerId: row.ownerId,
+    createdAt: row.createdAt,
+    role: row.role,
+    railOrder: row.railOrder,
+    mentions: row.mentions,
+  }))
   if (ctx.actor.kind === "bot") return writeJSON({ servers })
 
   const [visibleChannelIds, mentionSourceRows] = await Promise.all([

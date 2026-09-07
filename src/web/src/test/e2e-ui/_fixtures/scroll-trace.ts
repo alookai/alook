@@ -18,6 +18,7 @@ export type ScrollTraceStatus = "stable" | "settlementTimedOut"
 export type ScrollTraceDataSource =
   | "initial-cold"
   | "initial-cache"
+  | "cached-tail"
   | "older-page"
   | "newer-page"
   | "anchor-swap"

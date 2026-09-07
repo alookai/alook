@@ -6,7 +6,11 @@ vi.mock("@opennextjs/cloudflare", () => ({
 	getCloudflareContext: mocks.getCloudflareContext,
 }));
 
-import { getBlogDiscoveryManifest, requestBlogDiscoveryManifest } from "./blog-worker-client";
+import {
+	getBlogDiscoveryManifest,
+	requestBlogDiscoveryManifest,
+	requestBlogDiscoveryManifestFromOrigin,
+} from "./blog-worker-client";
 
 const manifest = {
 	version: 1 as const,
@@ -55,5 +59,17 @@ describe("Blog discovery RPC client", () => {
 		await expect(getBlogDiscoveryManifest()).resolves.toEqual(manifest);
 		expect(mocks.getCloudflareContext).toHaveBeenCalledWith({ async: true });
 		expect(getDiscoveryManifest).toHaveBeenCalledOnce();
+	});
+
+	it("validates discovery fetched from the local multi-zone Blog origin", async () => {
+		const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			new Response(JSON.stringify(manifest)),
+		);
+
+		await expect(requestBlogDiscoveryManifestFromOrigin("http://127.0.0.1:3002"))
+			.resolves.toEqual(manifest);
+		expect(fetchMock).toHaveBeenCalledWith(
+			new URL("http://127.0.0.1:3002/internal/blog-discovery"),
+		);
 	});
 });

@@ -53,8 +53,8 @@ describe("GET /api/community/servers — human unread seed", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.listUserServers.mockResolvedValue([
-      { id: "server-a", name: "A", icon: null },
-      { id: "server-b", name: "B", icon: null },
+      { id: "server-a", name: "A", icon: null, joinedAt: "2026-09-01T00:00:00.000Z" },
+      { id: "server-b", name: "B", icon: null, joinedAt: "2026-09-02T00:00:00.000Z" },
     ])
     mocks.listVisibleChannelIdsForUser.mockResolvedValue(["channel-b"])
     mocks.listEligibleUnreadChannels.mockResolvedValue([])

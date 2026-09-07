@@ -38,12 +38,17 @@ import {
   submitReadIntent,
 } from "@/hooks/community/read-coordinator"
 import { getActiveAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
+import { clearCommunityReplicaReadMutations } from "@/lib/community/replica/read-mutation"
 
 beforeEach(async () => {
   reconcileCommunityWsReconnect.mockClear()
+  clearCommunityReplicaReadMutations("viewer-1")
   await resetCommunityWsHarness()
 })
-afterEach(cleanupCommunityWsHarness)
+afterEach(async () => {
+  clearCommunityReplicaReadMutations("viewer-1")
+  await cleanupCommunityWsHarness()
+})
 
 const message = {
   type: "community:message.create" as const,
@@ -223,6 +228,12 @@ describe("useCommunityWs — operation bundles", () => {
 
       expect(invalidationCount(communityKeys.inbox())).toBe(1)
       expect(invalidationCount(communityKeys.dms())).toBe(1)
+      expect(getCommunityApiFetchMock().mock.calls.filter(([url]) => (
+        url === "/api/community/channels/ch-1/read"
+      ))).toHaveLength(1)
+      expect(getCommunityApiFetchMock().mock.calls.filter(([url]) => (
+        url === "/api/community/users/me/read-state"
+      ))).toHaveLength(1)
       releaseReadSurface(lease)
     } finally {
       vi.useRealTimers()
@@ -289,6 +300,12 @@ describe("useCommunityWs — operation bundles", () => {
 
       expect(invalidationCount(communityKeys.inbox())).toBe(1)
       expect(invalidationCount(communityKeys.dms())).toBe(1)
+      expect(getCommunityApiFetchMock().mock.calls.filter(([url]) => (
+        url === "/api/community/channels/ch-1/read"
+      ))).toHaveLength(1)
+      expect(getCommunityApiFetchMock().mock.calls.filter(([url]) => (
+        url === "/api/community/users/me/read-state"
+      ))).toHaveLength(1)
       releaseReadSurface(lease)
     } finally {
       vi.useRealTimers()

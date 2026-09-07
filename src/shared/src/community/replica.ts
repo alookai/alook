@@ -119,6 +119,7 @@ export const communityReplicaServerValueSchema = z.strictObject({
   initial: z.string().min(1),
   isOwner: z.boolean(),
   railOrder: z.number().int().nonnegative(),
+  joinedAt: timestampSchema,
   unread: z.boolean(),
   mentions: z.number().int().nonnegative(),
   unreadSources: z.array(unreadSourceSchema),
@@ -140,6 +141,7 @@ export const communityReplicaChannelValueSchema = z.strictObject({
   categoryId: idSchema.nullable(),
   name: z.string().min(1),
   position: z.number().int().nonnegative(),
+  createdAt: timestampSchema,
   type: z.enum(["text", "forum"]),
   creatorId: idSchema.nullable(),
 });

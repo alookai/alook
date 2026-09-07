@@ -88,7 +88,9 @@ test("Workspace artifact thumbnails and full images hold geometry through failur
       await thumbnailGate
       return route.fulfill({ status: 503, body: "thumbnail unavailable" })
     }
-    return route.continue()
+    const response = await route.fetch()
+    expect(response.status()).toBe(200)
+    return route.fulfill({ response })
   })
 
   await page.goto(`/w/${workspace.slug}/agents/${agent.id}`, { waitUntil: "commit" })
@@ -124,7 +126,9 @@ test("Workspace artifact thumbnails and full images hold geometry through failur
       await contentGate
       return route.fulfill({ status: 503, body: "content unavailable" })
     }
-    return route.continue()
+    const response = await route.fetch()
+    expect(response.status()).toBe(200)
+    return route.fulfill({ response })
   })
 
   await page.getByRole("button", { name: "Open artifact.png" }).first().click()

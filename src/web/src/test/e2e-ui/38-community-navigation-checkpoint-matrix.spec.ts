@@ -1,5 +1,6 @@
 import type { Page, Route } from "@playwright/test"
 import { test, expect } from "./_fixtures/community-fixture"
+import { isClientMutationRequest } from "./_fixtures/client-request-policy"
 import { seedChannel, seedServer } from "./_fixtures/seed"
 import { tid } from "./_fixtures/testids"
 
@@ -41,43 +42,43 @@ test("community checkpoint shows target pending for detail and keeps list surfac
   await page.goto(`/c/channels/${serverId}/${channelA}`)
   await expect(channelHeader(page, channelAName)).toBeVisible({ timeout: 30_000 })
 
-  const readOnlyPostPaths = new Set([
-    "/api/community/messages/batch",
-    "/api/community/messages/tags/batch",
-    "/api/community/channels/participants/batch",
-  ])
   const mutations: string[] = []
   page.on("request", (request) => {
     const method = request.method()
     const pathname = new URL(request.url()).pathname
-    if (
-      !["GET", "HEAD", "OPTIONS"].includes(method)
-      && !(method === "POST" && readOnlyPostPaths.has(pathname))
-    ) mutations.push(`${method} ${pathname}`)
+    if (isClientMutationRequest(method, pathname)) {
+      mutations.push(`${method} ${pathname}`)
+    }
   })
 
   const leafGate = await holdRoute(page, `/c/channels/${serverId}/${channelB}`)
   await page.getByTestId(tid.channelRow(channelB)).click({ noWaitAfter: true })
   await expect.poll(leafGate.held).toBeGreaterThan(0)
-  await expect(page.getByLabel("Resolving conversation")).toBeVisible()
+  await expect(page.getByLabel("Resolving conversation")).toHaveCount(0)
   await expect(channelHeader(page, channelAName)).toHaveCount(0)
+  await expect(channelHeader(page, channelBName)).toBeVisible()
   await page.waitForTimeout(150)
-  await expect(page.getByLabel("Resolving conversation")).toBeVisible()
+  await expect(page.getByLabel("Resolving conversation")).toHaveCount(0)
   await expect(channelHeader(page, channelAName)).toHaveCount(0)
+  await expect(channelHeader(page, channelBName)).toBeVisible()
   await leafGate.release()
+  await expect(page).toHaveURL(new RegExp(`/c/channels/${serverId}/${channelB}$`))
   await expect(channelHeader(page, channelBName)).toBeVisible({ timeout: 30_000 })
 
   await page.setViewportSize({ width: 390, height: 844 })
-  const rootGate = await holdRoute(page, `/c/channels/${serverId}`)
+  await expect(page.locator('[data-community-mobile-surface="detail"]')).toBeVisible()
   await page.getByRole("banner").getByRole("button", { name: "Back" }).click({ noWaitAfter: true })
-  await expect.poll(rootGate.held).toBeGreaterThan(0)
+  await expect(page).toHaveURL(new RegExp(`/c/channels/${serverId}$`))
+  await expect(page.locator('[data-community-mobile-surface="list"]')).toBeVisible()
+  await expect(page.getByTestId(tid.channelRow(channelB))).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByLabel("Resolving conversation")).toHaveCount(0)
   await page.setViewportSize({ width: 1280, height: 900 })
+  await expect(page).toHaveURL(new RegExp(`/c/channels/${serverId}/${channelB}$`))
   await expect(page.getByLabel("Resolving conversation")).toHaveCount(0)
   await expect(channelHeader(page, channelBName)).toBeVisible()
   await page.waitForTimeout(150)
   await expect(page.getByLabel("Resolving conversation")).toHaveCount(0)
   await expect(channelHeader(page, channelBName)).toBeVisible()
-  await rootGate.release()
   await expect(channelHeader(page, channelBName)).toBeVisible({ timeout: 30_000 })
 
   await page.goto("/c/me/friends")

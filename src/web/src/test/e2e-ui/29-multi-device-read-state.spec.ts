@@ -121,6 +121,49 @@ test("one human account converges read state across two browser profiles", async
     revision: number
     readStates: Array<{ channelId: string; lastReadSeq: number }>
   }
+  const accountId = userId("bob")
+  type AccountDeltaPayload = {
+    protocolVersion: number
+    status: string
+    batches?: Array<{
+      deltas: Array<{
+        scope: { kind: string; id: string }
+        fromRevision: number
+        toRevision: number
+      }>
+    }>
+  }
+  const hasAdvancingAccountDelta = (payload: AccountDeltaPayload) => (
+    payload.batches?.flatMap((batch) => batch.deltas).some((delta) => (
+      delta.scope.kind === "account"
+      && delta.scope.id === accountId
+      && delta.toRevision > delta.fromRevision
+    )) ?? false
+  )
+  const waitForAccountDelta = () => deviceB.page.waitForResponse(async (response) => {
+    if (
+      response.request().method() !== "POST"
+      || new URL(response.url()).pathname !== "/api/community/replica/delta"
+    ) return false
+    const request = response.request().postDataJSON() as {
+      frontier?: Array<{ scope?: { kind?: string; id?: string } }>
+    }
+    const hasAccountFrontier = request.frontier?.some((entry) => (
+      entry.scope?.kind === "account" && entry.scope.id === accountId
+    )) ?? false
+    if (!hasAccountFrontier || response.status() !== 200) return false
+    return hasAdvancingAccountDelta(await response.json() as AccountDeltaPayload)
+  })
+  const expectAccountDeltaAdvanced = async (
+    responsePromise: ReturnType<typeof waitForAccountDelta>,
+  ) => {
+    const response = await responsePromise
+    expect(response.status()).toBe(200)
+    const payload = await response.json() as AccountDeltaPayload
+    expect(payload.protocolVersion).toBe(1)
+    expect(payload.status).toBe("ok")
+    expect(hasAdvancingAccountDelta(payload)).toBe(true)
+  }
   const channelResponses: number[] = []
   const trackChannelResponse = (response: {
     request: () => { method: () => string }
@@ -139,16 +182,13 @@ test("one human account converges read state across two browser profiles", async
     response.request().method() === "PUT"
     && new URL(response.url()).pathname === `/api/community/channels/${channelId}/read`,
   )
-  const channelRepair = deviceB.page.waitForResponse((response) =>
-    response.request().method() === "GET"
-    && new URL(response.url()).pathname === "/api/community/users/me/read-state",
-  )
+  const channelRepair = waitForAccountDelta()
   const channelFrameStart = proxyB.frames.length
   await gotoAfterUserWsAuth(deviceA.page, `/c/channels/${serverId}/${channelId}`)
   expect((await channelRead).status()).toBe(200)
   await expect.poll(() => readStateEventsSince(proxyB.frames, channelFrameStart).length,
     { timeout: 20_000 }).toBeGreaterThan(0)
-  expect((await channelRepair).status()).toBe(200)
+  await expectAccountDeltaAdvanced(channelRepair)
   await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(channelId))).toHaveCount(0)
   await expect(deviceB.page.getByTestId(tid.inboxUnreadDm(dmId))).toBeVisible()
   await deviceA.page.waitForTimeout(1_200) // duplicate channel-read repair exclusion window
@@ -177,16 +217,13 @@ test("one human account converges read state across two browser profiles", async
     response.request().method() === "PUT"
     && new URL(response.url()).pathname === `/api/community/channels/${dmId}/read`,
   )
-  const dmRepair = deviceB.page.waitForResponse((response) =>
-    response.request().method() === "GET"
-    && new URL(response.url()).pathname === "/api/community/users/me/read-state",
-  )
+  const dmRepair = waitForAccountDelta()
   const dmFrameStart = proxyB.frames.length
   await gotoAfterUserWsAuth(deviceA.page, `/c/me/${dmId}`)
   expect((await dmRead).status()).toBe(200)
   await expect.poll(() => readStateEventsSince(proxyB.frames, dmFrameStart).length,
     { timeout: 20_000 }).toBeGreaterThan(0)
-  expect((await dmRepair).status()).toBe(200)
+  await expectAccountDeltaAdvanced(dmRepair)
   await expectJourneyUnreadsCleared()
   await deviceA.page.waitForTimeout(1_200) // duplicate DM-read repair exclusion window
   expect(dmResponses).toEqual([200])
@@ -208,6 +245,7 @@ test("one human account converges read state across two browser profiles", async
   await seedDmMessage("alice", dmId, `offline dm ${stamp}`)
   await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(channelId))).toBeVisible({ timeout: 20_000 })
   await expect(deviceB.page.getByTestId(tid.inboxUnreadDm(dmId))).toBeVisible({ timeout: 20_000 })
+  const beforeOfflineRepair = await accountSnapshot()
 
   await deviceB.context.setOffline(true)
   await proxyB.disconnect()
@@ -223,14 +261,31 @@ test("one human account converges read state across two browser profiles", async
   )
   await gotoAfterUserWsAuth(deviceA.page, `/c/me/${dmId}`)
   expect((await offlineDmRead).status()).toBe(200)
-  const snapshotResponse = deviceB.page.waitForResponse((response) =>
-    response.request().method() === "GET"
-    && new URL(response.url()).pathname === "/api/community/users/me/read-state",
-  )
+  let offlineRepairDeltaCount = 0
+  const trackOfflineRepairDelta = (request: { method: () => string; url: () => string }) => {
+    if (
+      request.method() === "POST"
+      && new URL(request.url()).pathname === "/api/community/replica/delta"
+    ) offlineRepairDeltaCount += 1
+  }
+  deviceB.page.on("request", trackOfflineRepairDelta)
+  const deltaResponsePromise = waitForAccountDelta()
   await deviceB.context.setOffline(false)
-  expect((await snapshotResponse).status()).toBe(200)
+  await expectAccountDeltaAdvanced(deltaResponsePromise)
   await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(channelId))).toHaveCount(0)
   await expect(deviceB.page.getByTestId(tid.inboxUnreadDm(dmId))).toHaveCount(0)
+  await deviceB.page.waitForTimeout(300)
+  expect(offlineRepairDeltaCount).toBeGreaterThanOrEqual(1)
+  // Going online and reconnecting the user socket can each request repair;
+  // QueryClient singleflight must collapse every overlapping duplicate.
+  expect(offlineRepairDeltaCount).toBeLessThanOrEqual(2)
+  deviceB.page.off("request", trackOfflineRepairDelta)
+  const afterOfflineRepair = await accountSnapshot()
+  expect(afterOfflineRepair.revision).toBe(beforeOfflineRepair.revision + 2)
+  expect(afterOfflineRepair.readStates.find((row) => row.channelId === channelId)?.lastReadSeq)
+    .toBeGreaterThan(beforeOfflineRepair.readStates.find((row) => row.channelId === channelId)?.lastReadSeq ?? 0)
+  expect(afterOfflineRepair.readStates.find((row) => row.channelId === dmId)?.lastReadSeq)
+    .toBeGreaterThan(beforeOfflineRepair.readStates.find((row) => row.channelId === dmId)?.lastReadSeq ?? 0)
 
   await seedMessage("alice", channelId, `read-all channel ${stamp}`)
   await seedDmMessage("alice", dmId, `read-all dm ${stamp}`)
@@ -349,6 +404,8 @@ test("hidden eager channel and DM mounts defer cross-device reads until visible"
   const deviceB = await asUser("bob")
   await gotoAfterUserWsAuth(deviceA.page, "/c/me")
   await gotoAfterUserWsAuth(deviceB.page, "/c/me")
+  await expect(deviceA.page.getByPlaceholder("Search friends")).toBeVisible({ timeout: 20_000 })
+  await expect(deviceB.page.getByPlaceholder("Search friends")).toBeVisible({ timeout: 20_000 })
   await deviceA.page.evaluate(() => {
     let qaVisibility: DocumentVisibilityState = "visible"
     Object.defineProperty(document, "visibilityState", {
@@ -386,6 +443,7 @@ test("hidden eager channel and DM mounts defer cross-device reads until visible"
   ) => snapshot.readStates.find((row) => row.channelId === targetChannelId)?.lastReadSeq ?? 0
 
   await deviceB.page.getByRole("button", { name: "Inbox" }).click()
+  await expect(deviceB.page.getByRole("heading", { name: "Inbox", exact: true })).toBeVisible()
   await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(channelId))).toBeVisible()
   await expect(deviceB.page.getByTestId(tid.inboxUnreadDm(dmId))).toBeVisible()
 

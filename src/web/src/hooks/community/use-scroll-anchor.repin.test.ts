@@ -68,9 +68,11 @@ async function mountHook({
   initialClientHeight = 800,
   initialScrollHeight = 1_600,
   items = [] as FlatItem[],
+  newDividerBefore,
   initialScrollReady = false,
   heroMeasured = false,
   hasMoreNewer,
+  isFetchingNewer,
   presentVersion,
   viewerUserId,
 }: {
@@ -78,19 +80,23 @@ async function mountHook({
   initialClientHeight?: number
   initialScrollHeight?: number
   items?: FlatItem[]
+  newDividerBefore?: string
   initialScrollReady?: boolean
   heroMeasured?: boolean
   hasMoreNewer?: boolean
+  isFetchingNewer?: boolean
   presentVersion?: number
   viewerUserId?: string
 } = {}) {
   const { useScrollAnchor } = await import("./use-scroll-anchor")
   const hookInput = {
     items,
+    newDividerBefore,
     initialScrollReady,
     heroHeight: 0,
     heroMeasured,
     hasMoreNewer,
+    isFetchingNewer,
     presentVersion,
     viewerUserId,
   }
@@ -218,6 +224,75 @@ function growingRow(requestFrame: (callback: FrameRequestCallback) => void) {
 beforeEach(resetHarness)
 
 describe("useScrollAnchor delayed row-growth re-pin", () => {
+  it("uses start anchoring throughout an active and just-landed newer-page transition", async () => {
+    const { rerender } = await mountHook({ isFetchingNewer: true })
+    expect(virtualizerOptions?.anchorTo).toBe("start")
+    expect(virtualizer.options.anchorTo).toBe("start")
+
+    rerender({ isFetchingNewer: false })
+    expect(virtualizerOptions?.anchorTo).toBe("start")
+    expect(virtualizer.options.anchorTo).toBe("start")
+  })
+
+  it("switches to start anchoring before executing a divider mount", async () => {
+    const items: FlatItem[] = [
+      messageItem("m1"),
+      { kind: "new-divider", key: "new-divider" },
+      messageItem("m2"),
+    ]
+    await mountHook({
+      items,
+      newDividerBefore: "m2",
+      initialScrollReady: true,
+      heroMeasured: true,
+    })
+
+    expect(virtualizer.scrollToIndex).toHaveBeenCalledWith(1, { align: "center" })
+    expect(virtualizer.options.anchorTo).toBe("start")
+  })
+
+  it("distinguishes divider-mount scrolling from real pointer input", async () => {
+    const { dispatchScroll, listeners, setBrowserScrollTop } = await mountHook({
+      items: [
+        messageItem("m1"),
+        { kind: "new-divider", key: "new-divider" },
+        messageItem("m2"),
+      ],
+      newDividerBefore: "m2",
+      initialScrollReady: true,
+      heroMeasured: true,
+    })
+    const adjust = virtualizer.shouldAdjustScrollPositionOnItemSizeChange
+    virtualizer.isAtEnd.mockReturnValue(false)
+    setBrowserScrollTop(400)
+    dispatchScroll()
+    expect(adjust!(
+      { key: "unmeasured", start: 0, end: 20 } as never,
+      20,
+      {
+        itemSizeCache: new Map(),
+        scrollAdjustments: 0,
+        scrollDirection: "backward",
+        scrollOffset: 400,
+      } as never,
+    )).toBe(false)
+
+    listeners.get("pointerdown")?.(new Event("pointerdown"))
+    virtualizer.isAtEnd.mockReturnValue(true)
+    setBrowserScrollTop(800)
+    dispatchScroll()
+    expect(adjust!(
+      { key: "unmeasured", start: 0, end: 20 } as never,
+      20,
+      {
+        itemSizeCache: new Map(),
+        scrollAdjustments: 0,
+        scrollDirection: null,
+        scrollOffset: 800,
+      } as never,
+    )).toBe(true)
+  })
+
   it("measures live growth and re-pins after the direct-DOM size write settles", async () => {
     const { scrollWrites } = await mountHook()
     let frame: FrameRequestCallback | undefined
@@ -252,6 +327,35 @@ describe("useScrollAnchor delayed row-growth re-pin", () => {
 
     expect(scrollWrites).toEqual([])
     expect(frame).toBeUndefined()
+  })
+
+  it("cancels a queued row-growth re-pin when divider mount clears exact-pin", async () => {
+    const { rerender, scrollWrites } = await mountHook()
+    let frame: FrameRequestCallback | undefined
+    const row = growingRow((callback) => { frame = callback })
+    const measure = virtualizerOptions?.measureElement
+
+    expect(measure!(row.element, undefined, virtualizer as never)).toBe(400)
+    row.growTo(780)
+    expect(measure!(row.element, undefined, virtualizer as never)).toBe(780)
+
+    rerender({
+      items: [
+        messageItem("m1"),
+        { kind: "new-divider", key: "new-divider" },
+        messageItem("m2"),
+      ],
+      newDividerBefore: "m2",
+      initialScrollReady: true,
+      heroMeasured: true,
+    })
+    expect(virtualizer.scrollToIndex).toHaveBeenCalledWith(1, { align: "center" })
+
+    await Promise.resolve()
+    expect(scrollWrites).toEqual([])
+    expect(frame).toBeTypeOf("function")
+    frame!(0)
+    expect(scrollWrites).toEqual([])
   })
 
   it("switches live resize anchoring with scroll and keyboard intent", async () => {

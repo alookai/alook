@@ -263,6 +263,7 @@ export async function listUserServers(db: Database, userId: string) {
       createdAt: communityServer.createdAt,
       role: communityServerMember.role,
       railOrder: communityServerMember.railOrder,
+      joinedAt: communityServerMember.joinedAt,
       // COALESCE has no ORM operator in this Drizzle version — the LEFT JOIN
       // yields NULL for servers with zero unread mentions. Wrap the aggregate
       // column with a narrow `sql` cast so the client always receives a
@@ -278,7 +279,11 @@ export async function listUserServers(db: Database, userId: string) {
       )
     )
     .leftJoin(mentionCounts, eq(mentionCounts.serverId, communityServer.id))
-    .orderBy(asc(communityServerMember.railOrder));
+    .orderBy(
+      asc(communityServerMember.railOrder),
+      asc(communityServerMember.joinedAt),
+      asc(communityServer.id),
+    );
 }
 
 /**

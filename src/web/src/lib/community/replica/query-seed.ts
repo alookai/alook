@@ -16,6 +16,7 @@ import {
   listCommunityReplicaReadWal,
   settleCommunityReplicaReadWal,
 } from "./read-wal"
+import { settleCommunityReplicaReadMutations } from "./read-mutation"
 
 type SeedCoverage = {
   channelTails: Map<string, CommunityReplicaMessageSearchCoverage>
@@ -60,10 +61,24 @@ function byPositionThenId(a: Record<string, unknown>, b: Record<string, unknown>
   return position || String(a.id).localeCompare(String(b.id))
 }
 
+function byPositionThenCreatedAtThenId(
+  a: Record<string, unknown>,
+  b: Record<string, unknown>,
+) {
+  const position = Number(a.position ?? 0) - Number(b.position ?? 0)
+  return position
+    || String(a.createdAt).localeCompare(String(b.createdAt))
+    || String(a.id).localeCompare(String(b.id))
+}
+
 function projectServers(rows: ReplicaEntityRow[]): ServersResponse {
   const servers = rows
     .map((row) => row.value)
-    .sort((a, b) => Number(a.railOrder ?? 0) - Number(b.railOrder ?? 0) || String(a.id).localeCompare(String(b.id)))
+    .sort((a, b) => (
+      Number(a.railOrder ?? 0) - Number(b.railOrder ?? 0)
+      || String(a.joinedAt).localeCompare(String(b.joinedAt))
+      || String(a.id).localeCompare(String(b.id))
+    ))
     .map((value): Server => ({
       id: String(value.id),
       name: String(value.name),
@@ -105,7 +120,7 @@ function projectServerDetail(
   }
   const channels = channelRows
     .map((row) => row.value)
-    .sort(byPositionThenId)
+    .sort(byPositionThenCreatedAtThenId)
     .map((value): Channel & { categoryId: string | null } => ({
       id: String(value.id),
       name: String(value.name),
@@ -172,6 +187,55 @@ function projectMessagePage(
   }
 }
 
+function mergeReplicaIntoAnchoredMessageWindow(
+  current: InfiniteData<MessagesPage, MessagesPageParam> | undefined,
+  projected: InfiniteData<MessagesPage, MessagesPageParam>,
+  coverage: CoveredReplicaProjection["coverage"][number],
+) {
+  if (!current?.pageParams.some((pageParam) => pageParam.mode === "anchor")) {
+    return projected
+  }
+
+  // An anchored window expresses where the user is reading. Replica tails
+  // describe newer durable facts, but they do not grant permission to turn
+  // that window into a newest-tail view; only the explicit Jump to present
+  // action may do that. Refresh canonical rows already present in the window
+  // while preserving its pages, pageParams, edge cursors, and scroll target.
+  // A missing row is canonical deletion evidence only inside the exact range
+  // Replica covers (or when the complete scope is canonically empty). Older
+  // anchored history and optimistic rows outside that range remain unknown
+  // rather than being mistaken for deletes.
+  const replicaMessages = new Map(
+    projected.pages.flatMap((page) => page.messages).map((message) => [message.id, message]),
+  )
+  const isCanonicallyCovered = (message: Msg) => {
+    const range = coverage.messageRange
+    if (!range) return coverage.completeness === "complete"
+    return typeof message.seq === "number"
+      && Number.isInteger(message.seq)
+      && message.seq >= range.firstSeq
+      && message.seq <= range.lastSeq
+  }
+  let changed = false
+  const pages = current.pages.map((page) => {
+    let pageChanged = false
+    const messages = page.messages.flatMap((message) => {
+      const canonical = replicaMessages.get(message.id)
+      if (!canonical && isCanonicallyCovered(message)) {
+        changed = true
+        pageChanged = true
+        return []
+      }
+      if (!canonical || canonical === message) return [message]
+      changed = true
+      pageChanged = true
+      return [canonical]
+    })
+    return pageChanged ? { ...page, messages } : page
+  })
+  return changed ? { ...current, pages } : current
+}
+
 export function seedCommunityReplicaQueries(
   queryClient: QueryClient,
   projection: CoveredReplicaProjection,
@@ -209,12 +273,13 @@ export function seedCommunityReplicaQueries(
       : channelCoverage.completeness === "complete"
     if (!isCoveredTail) continue
     const channelId = channelCoverage.scope.id
-    queryClient.setQueryData(
+    const projected = projectMessagePage(
+      rowsOfKind(projection, "message").filter((row) => row.scopeKey === `channel:${channelId}`),
+      channelCoverage.messageRange,
+    )
+    queryClient.setQueryData<InfiniteData<MessagesPage, MessagesPageParam>>(
       communityKeys.channelMessages(channelId),
-      projectMessagePage(
-        rowsOfKind(projection, "message").filter((row) => row.scopeKey === `channel:${channelId}`),
-        channelCoverage.messageRange,
-      ),
+      (current) => mergeReplicaIntoAnchoredMessageWindow(current, projected, channelCoverage),
     )
     channelTails.set(channelId, {
       completeness: channelCoverage.messageRange?.hasOlder === true ? "partial" : "complete",
@@ -280,6 +345,11 @@ export function seedCommunityReplicaQueries(
       const canonicalSeq = Number(readState?.lastReadSeq ?? 0)
       if (durable && canonicalSeq >= durable.seq) {
         settleCommunityReplicaReadWal(
+          accountCoverage.scope.id,
+          channelCoverage.scope.id,
+          canonicalSeq,
+        )
+        settleCommunityReplicaReadMutations(
           accountCoverage.scope.id,
           channelCoverage.scope.id,
           canonicalSeq,

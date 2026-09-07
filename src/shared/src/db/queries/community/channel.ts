@@ -982,7 +982,11 @@ export async function listServerChannelsForViewer(
       .select(CHANNEL_COLUMNS)
       .from(communityChannel)
       .where(base)
-      .orderBy(asc(communityChannel.position)),
+      .orderBy(
+        asc(communityChannel.position),
+        asc(communityChannel.createdAt),
+        asc(communityChannel.id),
+      ),
     resolveVisibleChannelIdSet(db, userId, { serverIds: [serverId] }),
   ]);
   return rows.filter((r) => visibleSet.has(r.id));

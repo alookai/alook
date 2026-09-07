@@ -90,7 +90,7 @@ describe("human account read-state writer contract", () => {
     expect(readState).not.toContain("accountReadStateRowsForUsersBuilder")
   })
 
-  it("keeps the sole browser read transport in the account coordinator only", () => {
+  it("keeps the sole browser read transport in the shared Replica mutation boundary", () => {
     const webSourceRoot = resolve(repositoryRoot, "src/web/src")
     const transportPattern = /\/api\/community\/channels\/\$\{[^}]+\}\/read(?!-)/
     const owners = walkTypeScript(webSourceRoot)
@@ -99,8 +99,17 @@ describe("human account read-state writer contract", () => {
       .map((path) => relative(repositoryRoot, path).replaceAll("\\", "/"))
 
     expect(owners).toEqual([
-      "src/web/src/hooks/community/read-coordinator.ts",
+      "src/web/src/lib/community/replica/read-mutation.ts",
     ])
+
+    const coordinator = source("src/web/src/hooks/community/read-coordinator.ts")
+    const replicaSync = source(
+      "src/web/src/hooks/community/replica/use-community-replica-sync.ts",
+    )
+    expect(coordinator).toContain("sendCommunityReplicaReadMutation")
+    expect(replicaSync).toContain("flushCommunityReplicaReadIntents")
+    expect(coordinator).not.toMatch(transportPattern)
+    expect(replicaSync).not.toMatch(transportPattern)
   })
 
   it("keeps the account unread ledger synchronous and I/O-free", () => {

@@ -27,6 +27,10 @@ import {
   clearCommunityReplicaReadWal,
   discardCommunityReplicaReadWal,
 } from "./read-wal"
+import {
+  clearCommunityReplicaReadMutations,
+  discardCommunityReplicaReadMutations,
+} from "./read-mutation"
 
 const REPLICA_DB_VERSION = 1
 const REPLICA_DB_PREFIX = `alook-community-replica-v${COMMUNITY_REPLICA_PROTOCOL_VERSION}:`
@@ -298,6 +302,7 @@ async function invalidateScopes(
     for (const intentId of retiredIntentIds) removeIntentWal(accountId, intentId)
     for (const channelId of revokedChannelIds) {
       discardCommunityReplicaReadWal(accountId, channelId)
+      discardCommunityReplicaReadMutations(accountId, channelId)
     }
     if (retiredIntentIds.length > 0) notifyIntentRowsChanged(accountId)
   }
@@ -615,5 +620,6 @@ export async function deleteCommunityReplicaAccount(accountId: string) {
   connections.delete(accountId)
   clearIntentWal(accountId)
   clearCommunityReplicaReadWal(accountId)
+  clearCommunityReplicaReadMutations(accountId)
   if (typeof indexedDB !== "undefined") await deleteDB(databaseName(accountId))
 }

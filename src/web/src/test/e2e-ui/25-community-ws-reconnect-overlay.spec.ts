@@ -3,15 +3,19 @@ import { test, expect } from "./_fixtures/community-fixture"
 import { composerEditable, gotoAfterUserWsAuth } from "./_fixtures/actions"
 import { seedChannel, seedServer } from "./_fixtures/seed"
 import { tid } from "./_fixtures/testids"
+import { isClientMutationRequest } from "./_fixtures/client-request-policy"
 
-test("real WebSocket outage blocks the whole community surface and Retry restores it", async ({ asUser }, testInfo) => {
+test("real WebSocket outage keeps covered content and drafts usable while Retry restores realtime", async ({ asUser }, testInfo) => {
   test.setTimeout(120_000)
   const serverId = await seedServer("alice", `Reconnect overlay ${Date.now()}`)
   const channelId = await seedChannel("alice", serverId, "reconnect-overlay")
   const alice = await asUser("alice")
   let aliceWs: WebSocketRoute | null = null
+  let wsConnections = 0
+  const businessMutations: string[] = []
   await alice.page.routeWebSocket((url) => url.pathname.endsWith("/user"), (ws) => {
     aliceWs = ws
+    wsConnections += 1
     ws.connectToServer()
   })
   await alice.page.emulateMedia({ reducedMotion: "reduce", colorScheme: "dark" })
@@ -20,6 +24,12 @@ test("real WebSocket outage blocks the whole community surface and Retry restore
   const composer = composerEditable(alice.page)
   await expect(composer).toBeVisible()
   await expect(alice.page.getByTestId(tid.wsReconnectOverlay)).toHaveCount(0)
+  alice.page.on("request", (request) => {
+    const pathname = new URL(request.url()).pathname
+    if (isClientMutationRequest(request.method(), pathname)) {
+      businessMutations.push(`${request.method()} ${pathname}`)
+    }
+  })
 
   try {
     await alice.context.setOffline(true)
@@ -29,40 +39,32 @@ test("real WebSocket outage blocks the whole community surface and Retry restore
     const overlay = alice.page.getByTestId(tid.wsReconnectOverlay)
     await expect(overlay).toBeVisible({ timeout: 10_000 })
     await expect(overlay).toHaveAttribute("data-ws-status", "reconnecting")
-    await expect(overlay).toBeFocused()
-    await expect(overlay.getByRole("status")).toContainText("Connecting…")
+    await expect(overlay).not.toBeFocused()
+    await expect(overlay.getByRole("status")).toContainText("Reconnecting…")
     const reconnectingEvidence = await overlay.evaluate((element) => {
-      const rect = element.getBoundingClientRect()
+      const pill = element.firstElementChild as HTMLElement | null
+      if (!pill) throw new Error("reconnect status pill is missing")
+      const rect = pill.getBoundingClientRect()
       const content = element.previousElementSibling as HTMLElement | null
-      const connectingMotion = element.querySelector<HTMLElement>("[data-connecting-motion]")
-      const connectingDot = element.querySelector<SVGCircleElement>(".community-ws-connecting-dot")
-      const connectingStyle = connectingMotion ? getComputedStyle(connectingMotion) : null
       return {
         ariaHidden: content?.getAttribute("aria-hidden"),
         inert: content?.hasAttribute("inert"),
-        animationName: connectingDot ? getComputedStyle(connectingDot).animationName : null,
-        loaderBackground: connectingStyle?.backgroundColor,
-        loaderBlendMode: connectingStyle?.mixBlendMode,
-        loaderElement: connectingMotion?.tagName.toLowerCase(),
         rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
         viewport: { width: innerWidth, height: innerHeight },
       }
     })
     expect(reconnectingEvidence).toMatchObject({
-      ariaHidden: "true",
-      inert: true,
-      animationName: "none",
-      loaderBackground: "rgba(0, 0, 0, 0)",
-      loaderBlendMode: "normal",
-      loaderElement: "svg",
-      rect: { x: 0, y: 0, width: 390, height: 844 },
+      ariaHidden: null,
+      inert: false,
       viewport: { width: 390, height: 844 },
     })
-    await alice.page.keyboard.press("Tab")
-    expect(await alice.page.evaluate(() => {
-      const inertRoot = document.querySelector("[inert]")
-      return inertRoot?.contains(document.activeElement) ?? false
-    })).toBe(false)
+    expect(reconnectingEvidence.rect.width).toBeLessThan(390)
+    expect(reconnectingEvidence.rect.height).toBeLessThanOrEqual(60)
+    const draft = `offline draft ${Date.now()}`
+    await composer.fill(draft)
+    await expect(composer).toContainText(draft)
+    await expect(composer).toBeFocused()
+    expect(businessMutations).toEqual([])
     const mobileReconnectPath = testInfo.outputPath("390-dark-reconnecting-reduced-motion.png")
     await alice.page.screenshot({ path: mobileReconnectPath })
     await testInfo.attach("390-dark-reconnecting-reduced-motion.png", {
@@ -71,7 +73,9 @@ test("real WebSocket outage blocks the whole community surface and Retry restore
     })
 
     await alice.page.setViewportSize({ width: 1280, height: 900 })
-    expect(await overlay.boundingBox()).toMatchObject({ x: 0, y: 0, width: 1280, height: 900 })
+    const overlayPill = overlay.locator(":scope > *").first()
+    expect((await overlayPill.boundingBox())!.width).toBeLessThan(1280)
+    await expect(composer).toContainText(draft)
     const desktopReconnectPath = testInfo.outputPath("1280-dark-reconnecting-reduced-motion.png")
     await alice.page.screenshot({ path: desktopReconnectPath })
     await testInfo.attach("1280-dark-reconnecting-reduced-motion.png", {
@@ -100,13 +104,15 @@ test("real WebSocket outage blocks the whole community surface and Retry restore
     const retry = alice.page.getByTestId(tid.wsRetry)
     await expect(retry).toBeVisible({ timeout: 40_000 })
     await expect(overlay).toHaveAttribute("data-ws-status", "failed")
-    await expect(overlay.getByRole("alert")).toContainText("Connection lost")
-    expect((await retry.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+    await expect(overlay.getByRole("alert")).toContainText("Realtime unavailable")
+    expect((await retry.boundingBox())!.height).toBeGreaterThanOrEqual(32)
+    await expect(composer).toContainText(draft)
 
     await alice.page.setViewportSize({ width: 1280, height: 900 })
-    const desktopRect = await overlay.boundingBox()
-    expect(desktopRect).toMatchObject({ x: 0, y: 0, width: 1280, height: 900 })
-    expect((await retry.boundingBox())!.height).toBeGreaterThanOrEqual(40)
+    const desktopRect = await overlayPill.boundingBox()
+    expect(desktopRect!.width).toBeLessThan(1280)
+    expect(desktopRect!.height).toBeLessThanOrEqual(60)
+    expect((await retry.boundingBox())!.height).toBeGreaterThanOrEqual(32)
     await testInfo.attach("1280-failed-retry.png", {
       body: await alice.page.screenshot(),
       contentType: "image/png",
@@ -115,8 +121,11 @@ test("real WebSocket outage blocks the whole community surface and Retry restore
     await alice.context.setOffline(false)
     await retry.click()
     await expect(overlay).toHaveCount(0, { timeout: 20_000 })
+    await expect.poll(() => wsConnections).toBeGreaterThan(1)
     await expect(composer).toBeVisible()
+    await expect(composer).toContainText(draft)
     expect(await alice.page.locator("[inert]").count()).toBe(0)
+    expect(businessMutations).toEqual([])
   } finally {
     await alice.context.setOffline(false)
   }
@@ -147,6 +156,9 @@ test("an active onboarding form yields focus priority during outage, then resume
     const onboarding = page.getByRole("dialog")
     await expect(onboarding).toBeVisible()
     await expect(onboarding.getByRole("heading", { name: "Which harness do you already use?" })).toBeVisible()
+    const onboardingFocus = onboarding.getByRole("radio").first()
+    await onboardingFocus.focus()
+    await expect(onboardingFocus).toBeFocused()
 
     blockUserWs = true
     expect(userWs).not.toBeNull()
@@ -154,31 +166,28 @@ test("an active onboarding form yields focus priority during outage, then resume
 
     const overlay = page.getByTestId(tid.wsReconnectOverlay)
     await expect(overlay).toBeVisible({ timeout: 10_000 })
-    await expect(overlay).toBeFocused()
-    const stacking = await page.evaluate((overlayId) => {
+    await expect(overlay).not.toBeFocused()
+    await expect(onboardingFocus).toBeFocused()
+    const focusAndLayout = await page.evaluate((overlayId) => {
       const reconnect = document.querySelector<HTMLElement>(`[data-testid='${overlayId}']`)
       const dialog = document.querySelector<HTMLElement>("[role='dialog']")
-      if (!reconnect || !dialog) throw new Error("stacking targets are missing")
-      const reconnectRect = reconnect.getBoundingClientRect()
-      const topAtCenter = document.elementFromPoint(
-        reconnectRect.left + reconnectRect.width / 2,
-        reconnectRect.top + reconnectRect.height / 2,
-      )
+      if (!reconnect || !dialog) throw new Error("reconnect/dialog targets are missing")
+      const pill = reconnect.firstElementChild as HTMLElement | null
+      if (!pill) throw new Error("reconnect status pill is missing")
+      const reconnectRect = pill.getBoundingClientRect()
       return {
-        reconnect: Number.parseInt(getComputedStyle(reconnect).zIndex, 10),
-        dialog: Number.parseInt(getComputedStyle(dialog).zIndex, 10),
-        topBelongsToReconnect: reconnect.contains(topAtCenter),
+        dialogOwnsFocus: dialog.contains(document.activeElement),
+        reconnectHeight: reconnectRect.height,
+        inertCount: document.querySelectorAll("[inert]").length,
       }
     }, tid.wsReconnectOverlay)
-    expect(stacking.reconnect).toBeGreaterThanOrEqual(stacking.dialog)
-    expect(stacking.topBelongsToReconnect).toBe(true)
+    expect(focusAndLayout).toEqual({
+      dialogOwnsFocus: true,
+      reconnectHeight: expect.any(Number),
+      inertCount: 0,
+    })
+    expect(focusAndLayout.reconnectHeight).toBeLessThanOrEqual(60)
 
-    await expect(overlay).toBeFocused()
-    await page.keyboard.press("Tab")
-    expect(await page.evaluate((overlayId) => {
-      const reconnect = document.querySelector(`[data-testid='${overlayId}']`)
-      return reconnect?.contains(document.activeElement) ?? false
-    }, tid.wsReconnectOverlay)).toBe(true)
     await testInfo.attach("390-active-onboarding-reconnecting.png", {
       body: await page.screenshot(),
       contentType: "image/png",

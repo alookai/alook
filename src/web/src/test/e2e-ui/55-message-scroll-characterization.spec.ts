@@ -1,10 +1,11 @@
-import type { Locator, Page, Route, TestInfo } from "@playwright/test"
+import type { Locator, Page, Request, Route, TestInfo } from "@playwright/test"
 import { test, expect, sessionCookie } from "./_fixtures/community-fixture"
 import { composerEditable, gotoAfterUserWsAuth, sendMessage } from "./_fixtures/actions"
 import {
   communityFrameEvents,
   proxyCommunityWebSockets,
 } from "./_fixtures/community-ws-proxy"
+import { waitForAcceptedReplicaTextIntent } from "./_fixtures/replica-intent"
 import { seedChannel, seedJoinServer, seedMessage, seedServer } from "./_fixtures/seed"
 import {
   abortScrollTrace,
@@ -23,6 +24,7 @@ import {
 } from "./_fixtures/scroll-trace"
 import { tid } from "./_fixtures/testids"
 import { WEB_URL } from "./_setup/paths"
+import type { UserKey } from "./_setup/users"
 
 const VIEWPORT = { width: 1280, height: 800 }
 
@@ -35,7 +37,7 @@ type HeldRequest = {
 async function holdNextRequest(
   page: Page,
   pattern: string,
-  predicate: (url: URL) => boolean,
+  predicate: (url: URL, request: Request) => boolean,
 ): Promise<HeldRequest> {
   let resolveMatched!: (url: URL) => void
   let release!: () => void
@@ -50,8 +52,9 @@ async function holdNextRequest(
   })
   const gate = new Promise<void>((resolveValue) => { release = resolveValue })
   const handler = async (route: Route) => {
-    const url = new URL(route.request().url())
-    if (!consumed && predicate(url)) {
+    const request = route.request()
+    const url = new URL(request.url())
+    if (!consumed && predicate(url, request)) {
       consumed = true
       resolveMatched(url)
       await gate
@@ -113,11 +116,15 @@ async function seedProfile(
   return { ids, estimates }
 }
 
-async function setReadCheckpoint(channelId: string, messageId: string): Promise<void> {
+async function setReadCheckpoint(
+  channelId: string,
+  messageId: string,
+  user: UserKey = "alice",
+): Promise<void> {
   const response = await fetch(`${WEB_URL}/api/community/channels/${channelId}/read`, {
     method: "PUT",
     headers: {
-      Cookie: sessionCookie("alice"),
+      Cookie: sessionCookie(user),
       "Content-Type": "application/json",
       Origin: WEB_URL,
     },
@@ -126,9 +133,9 @@ async function setReadCheckpoint(channelId: string, messageId: string): Promise<
   expect(response.ok).toBe(true)
 }
 
-function identity(channelId: string) {
+function identity(channelId: string, account: UserKey = "alice") {
   return createScrollTraceIdentity({
-    account: "alice",
+    account,
     channel: channelId,
     viewport: { ...VIEWPORT, dpr: 1 },
   })
@@ -373,19 +380,30 @@ test.describe.serial("message scroll characterization", () => {
     upwardChannelId = await seedChannel("alice", serverId, `scroll-upward-${stamp}`)
     composerChannelId = await seedChannel("alice", serverId, `scroll-composer-${stamp}`)
     loadingProfile = await seedProfile(loadingChannelId, 130, false, "rotate", 64)
+    await setReadCheckpoint(loadingChannelId, loadingProfile.ids[64]!, "bob")
     upwardProfile = await seedProfile(upwardChannelId, 72, false, "rotate", 23)
     composerProfile = await seedProfile(composerChannelId, 36, true, "alice")
   })
 
-  test("cold and warm loading, older prepend, and jump-to-present remain observable", async ({ asUser }, testInfo) => {
+  test("cold and warm loading, older prepend, and cached-tail return remain observable", async ({ asUser }, testInfo) => {
     test.setTimeout(180_000)
     const alice = await asUser("alice")
     await alice.page.setViewportSize(VIEWPORT)
     await installScrollTrace(alice.page)
-    const initialMessages = await holdNextRequest(
+    const initialBootstrap = await holdNextRequest(
       alice.page,
-      `**/api/community/channels/${coldChannelId}/messages**`,
-      () => true,
+      "**/api/community/replica/bootstrap",
+      (_url, request) => {
+        if (request.method() !== "POST") return false
+        const body = request.postDataJSON() as {
+          protocolVersion?: number
+          serverId?: string
+          tails?: Array<{ channelId?: string }>
+        }
+        return body.protocolVersion === 1
+          && body.serverId === serverId
+          && body.tails?.[0]?.channelId === coldChannelId
+      },
     )
     const image = await holdNextRequest(
       alice.page,
@@ -393,8 +411,7 @@ test.describe.serial("message scroll characterization", () => {
       () => true,
     )
     await alice.page.goto(`/c/channels/${serverId}/${coldChannelId}`, { waitUntil: "commit" })
-    const initialUrl = await initialMessages.matched
-    expect(initialUrl.searchParams.has("anchor")).toBe(false)
+    await initialBootstrap.matched
     const scroller = alice.page.getByTestId(tid.messageScroller)
     await expect(scroller.locator('[data-slot="skeleton"]').first()).toBeVisible({ timeout: 20_000 })
     const selfTest = await scrollTraceSelfTest(alice.page)
@@ -416,7 +433,7 @@ test.describe.serial("message scroll characterization", () => {
     })
     await markScrollTrace(alice.page, "cold-request-held", { dataTransitionSource: "initial-cold" })
     const coldProfile = await seedProfile(coldChannelId, 12, true, "alice")
-    initialMessages.release()
+    initialBootstrap.release()
     await image.matched
     await expect(alice.page.getByTestId(tid.message(coldProfile.ids.at(-1)!))).toBeVisible({ timeout: 30_000 })
     await markScrollTrace(alice.page, "async-image-release", {
@@ -427,7 +444,7 @@ test.describe.serial("message scroll characterization", () => {
     await endScrollTraceAnalysis(alice.page, "cold-load-and-async-row")
     const cold = await finishAndAttach(alice.page, testInfo)
     expect(cold.frames.some((frame) => frame.loaders.top.mounted || frame.rows.length === 0)).toBe(true)
-    await initialMessages.dispose()
+    await initialBootstrap.dispose()
     await image.dispose()
 
     await installScrollTraceInCurrentDocument(alice.page)
@@ -436,8 +453,12 @@ test.describe.serial("message scroll characterization", () => {
     await expect(alice.page.getByTestId(tid.messageScroller)).toBeVisible()
     const warmRequest = await holdNextRequest(
       alice.page,
-      `**/api/community/channels/${coldChannelId}/messages**`,
-      () => true,
+      "**/api/community/replica/delta",
+      (_url, request) => (
+        request.method() === "POST"
+        && new URL(alice.page.url()).pathname
+          === `/c/channels/${serverId}/${coldChannelId}`
+      ),
     )
     await alice.page.getByTestId(tid.channelRow(coldChannelId)).click()
     await alice.page.waitForURL(new RegExp(coldChannelId), { waitUntil: "commit" })
@@ -460,7 +481,10 @@ test.describe.serial("message scroll characterization", () => {
     await finishAndAttach(alice.page, testInfo)
     await warmRequest.dispose()
 
-    const anchored = await asUser("alice")
+    // Alice visited this channel in the warm-cache phase and correctly read
+    // its tail. Use another server member whose unread boundary is untouched
+    // for the older-page/new-divider characterization.
+    const anchored = await asUser("bob")
     await anchored.page.setViewportSize(VIEWPORT)
     await installScrollTrace(anchored.page)
     await anchored.page.goto(`/c/channels/${serverId}/${loadingChannelId}`, { waitUntil: "commit" })
@@ -472,7 +496,7 @@ test.describe.serial("message scroll characterization", () => {
     )
     await startScrollTrace(anchored.page, {
       scenario: "older-loading-prepend",
-      identity: identity(loadingChannelId),
+      identity: identity(loadingChannelId, "bob"),
       estimatedSizes: loadingProfile.estimates,
     })
     await beginScrollTraceAnalysis(anchored.page, "older-loading-prepend", {
@@ -498,6 +522,7 @@ test.describe.serial("message scroll characterization", () => {
     await installScrollTraceInCurrentDocument(anchored.page)
     const present = anchored.page.getByTestId(tid.scrollToPresent)
     await expect(present).toBeVisible({ timeout: 30_000 })
+    await expect(present).toHaveAccessibleName(/^Scroll to bottom, \d+ more below$/)
     let newestGets = 0
     anchored.page.on("request", (request) => {
       const url = new URL(request.url())
@@ -507,32 +532,23 @@ test.describe.serial("message scroll characterization", () => {
         && url.search === ""
       ) newestGets += 1
     })
-    const newest = await holdNextRequest(
-      anchored.page,
-      `**/api/community/channels/${loadingChannelId}/messages**`,
-      (url) => url.search === "",
-    )
     await startScrollTrace(anchored.page, {
-      scenario: "newer-loading-present",
-      identity: identity(loadingChannelId),
+      scenario: "cached-tail-present",
+      identity: identity(loadingChannelId, "bob"),
       estimatedSizes: loadingProfile.estimates,
     })
-    await beginScrollTraceAnalysis(anchored.page, "newer-loading-present", {
-      dataTransitionSource: "newer-page",
+    await beginScrollTraceAnalysis(anchored.page, "cached-tail-present", {
+      dataTransitionSource: "cached-tail",
       commandDirection: "forward",
     })
-    await markScrollTrace(anchored.page, "stimulus:jump-present", { dataTransitionSource: "newer-page" })
+    await markScrollTrace(anchored.page, "stimulus:scroll-present", { dataTransitionSource: "cached-tail" })
     await present.click()
-    await newest.matched
-    newest.release()
     await expect(anchored.page.getByTestId(tid.message(loadingProfile.ids.at(-1)!))).toBeVisible({ timeout: 30_000 })
     await expect(present).toHaveCount(0)
-    await endScrollTraceAnalysis(anchored.page, "newer-loading-present")
+    await endScrollTraceAnalysis(anchored.page, "cached-tail-present")
     await finishAndAttach(anchored.page, testInfo)
-    await expect.poll(() => newestGets).toBe(1)
     await anchored.page.waitForTimeout(500)
-    expect(newestGets).toBe(1)
-    await newest.dispose()
+    expect(newestGets).toBe(0)
   })
 
   test("remote receive states and sustained upward input produce diagnostic traces", async ({ asUser }, testInfo) => {
@@ -647,12 +663,18 @@ test.describe.serial("message scroll characterization", () => {
     await alice.page.setViewportSize(VIEWPORT)
     await installScrollTrace(alice.page)
     const proxy = await proxyCommunityWebSockets(alice.context)
-    let messagePosts = 0
+    let messageIntents = 0
     alice.page.on("request", (request) => {
-      if (
-        request.method() === "POST"
-        && new URL(request.url()).pathname === `/api/community/channels/${composerChannelId}/messages`
-      ) messagePosts += 1
+      if (request.method() !== "POST") return
+      if (new URL(request.url()).pathname !== "/api/community/replica/intents") return
+      const body = request.postDataJSON() as {
+        intents?: Array<{ kind?: string; scope?: { kind?: string; id?: string } }>
+      }
+      messageIntents += body.intents?.filter((intent) => (
+        intent.kind === "message.send"
+        && intent.scope?.kind === "channel"
+        && intent.scope.id === composerChannelId
+      )).length ?? 0
     })
     await gotoAfterUserWsAuth(alice.page, `/c/channels/${serverId}/${composerChannelId}`)
     const scroller = alice.page.getByTestId(tid.messageScroller)
@@ -686,7 +708,7 @@ test.describe.serial("message scroll characterization", () => {
     await alice.page.keyboard.press("ControlOrMeta+A")
     await alice.page.keyboard.press("Backspace")
     await expect(alice.page.getByTestId(tid.composerInput)).toHaveText("")
-    expect(messagePosts).toBe(0)
+    expect(messageIntents).toBe(0)
     expect(proxy.frames.flatMap(communityFrameEvents).filter((event) =>
       event.type === "community:message.create" && event.channelId === composerChannelId)).toHaveLength(0)
     await endScrollTraceAnalysis(alice.page, "manual-delete-pinned")
@@ -706,7 +728,7 @@ test.describe.serial("message scroll characterization", () => {
     await alice.page.keyboard.press("ControlOrMeta+A")
     await alice.page.keyboard.press("Backspace")
     await expect(alice.page.getByTestId(tid.composerInput)).toHaveText("")
-    expect(messagePosts).toBe(0)
+    expect(messageIntents).toBe(0)
     await endScrollTraceAnalysis(alice.page, "manual-delete-away")
 
     await markScrollTrace(alice.page, "stimulus:pin-for-send")
@@ -723,8 +745,10 @@ test.describe.serial("message scroll characterization", () => {
     })
     const pinnedSend = `optimistic pinned ${Date.now()}`
     await markScrollTrace(alice.page, "optimistic-pinned", { dataTransitionSource: "optimistic-send" })
+    const pinnedIntent = waitForAcceptedReplicaTextIntent(alice.page, composerChannelId, pinnedSend)
     await sendMessage(alice.page, pinnedSend)
     await expect(alice.page.getByText(pinnedSend, { exact: true })).toHaveCount(1)
+    await pinnedIntent
     await markScrollTrace(alice.page, "post-ack-pinned", { dataTransitionSource: "post-ack" })
     await expect.poll(() => messageCreateCount(proxy.frames, composerChannelId, pinnedSend)).toBe(1)
     await markScrollTrace(alice.page, "ws-dedupe-pinned", { dataTransitionSource: "ws-dedupe" })
@@ -744,14 +768,16 @@ test.describe.serial("message scroll characterization", () => {
     })
     const awaySend = `optimistic away ${Date.now()}`
     await markScrollTrace(alice.page, "optimistic-away", { dataTransitionSource: "optimistic-send" })
+    const awayIntent = waitForAcceptedReplicaTextIntent(alice.page, composerChannelId, awaySend)
     await sendMessage(alice.page, awaySend)
     await expect(alice.page.getByText(awaySend, { exact: true })).toHaveCount(1)
+    await awayIntent
     await markScrollTrace(alice.page, "post-ack-away", { dataTransitionSource: "post-ack" })
     await expect.poll(() => messageCreateCount(proxy.frames, composerChannelId, awaySend)).toBe(1)
     await markScrollTrace(alice.page, "ws-dedupe-away", { dataTransitionSource: "ws-dedupe" })
     await expect.poll(() => scroller.evaluate((element) =>
       Math.max(0, element.scrollHeight - element.clientHeight - element.scrollTop))).toBeLessThanOrEqual(1)
-    expect(messagePosts).toBe(2)
+    expect(messageIntents).toBe(2)
     await endScrollTraceAnalysis(alice.page, "optimistic-send-away")
 
     await beginScrollTraceAnalysis(alice.page, "viewport-keyboard-profile")
@@ -782,7 +808,10 @@ test.describe.serial("message scroll characterization", () => {
       const pathname = new URL(request.url()).pathname
       if (
         request.method() === "POST"
-        && (pathname.endsWith("/messages") || pathname.includes("/attachments"))
+        && (
+          pathname === "/api/community/replica/intents"
+          || pathname.includes("/attachments")
+        )
       ) mutationPosts += 1
     })
     await gotoAfterUserWsAuth(alice.page, `/c/channels/${serverId}/${composerChannelId}`)

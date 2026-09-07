@@ -110,6 +110,7 @@ export function useMessageListController({
     newDividerBefore,
     initialScrollReady: scrollAnchorReady,
     hasMoreNewer,
+    isFetchingNewer,
     presentVersion,
     viewerUserId,
     heroHeight,

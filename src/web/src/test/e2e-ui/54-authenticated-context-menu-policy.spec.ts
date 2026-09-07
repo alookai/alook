@@ -1,6 +1,7 @@
 import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "./_fixtures/community-fixture"
 import { composerEditable, gotoAfterUserWsAuth } from "./_fixtures/actions"
+import { isClientMutationRequest } from "./_fixtures/client-request-policy"
 import { seedChannel, seedMessage, seedServer } from "./_fixtures/seed"
 import { tid } from "./_fixtures/testids"
 
@@ -106,7 +107,7 @@ test("Community owns ordinary context menus and preserves native exceptions", as
   await page.waitForTimeout(250)
   const writes: string[] = []
   page.on("request", (request) => {
-    if (!["GET", "HEAD", "OPTIONS"].includes(request.method())) {
+    if (isClientMutationRequest(request.method(), new URL(request.url()).pathname)) {
       writes.push(`${request.method()} ${new URL(request.url()).pathname}`)
     }
   })
@@ -177,7 +178,7 @@ test("workspace menus keep custom behavior while editors and escapes stay native
 
   const writes: string[] = []
   page.on("request", (request) => {
-    if (!["GET", "HEAD", "OPTIONS"].includes(request.method())) {
+    if (isClientMutationRequest(request.method(), new URL(request.url()).pathname)) {
       writes.push(`${request.method()} ${new URL(request.url()).pathname}`)
     }
   })

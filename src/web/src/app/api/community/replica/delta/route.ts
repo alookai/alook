@@ -261,6 +261,7 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
       initial: avatarInitial(server.name),
       isOwner: isServerOwner(server.role),
       railOrder: server.railOrder ?? 0,
+      joinedAt: server.joinedAt,
       unread: server.unreadSources.length > 0,
       mentions: server.mentions,
       unreadSources: server.unreadSources,

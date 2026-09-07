@@ -52,6 +52,81 @@ export { flushCommunityReplicaReadIntents } from "@/hooks/community/read-coordin
 const TAIL_LIMIT = 100
 const MAX_TAILS = 32
 const BACKGROUND_SYNC_INTERVAL_MS = 15_000
+const STRICT_MODE_ABORT_GRACE_MS = 50
+
+type CommunityReplicaSyncFlight = {
+  key: string
+  promise: Promise<void>
+  controller: AbortController
+  signals: Set<AbortSignal>
+  abortTimer: ReturnType<typeof setTimeout> | null
+}
+
+const communityReplicaSyncFlights = new WeakMap<QueryClient, CommunityReplicaSyncFlight>()
+
+function attachCommunityReplicaSyncSignal(
+  queryClient: QueryClient,
+  flight: CommunityReplicaSyncFlight,
+  signal: AbortSignal,
+) {
+  if (flight.signals.has(signal)) return
+  if (flight.abortTimer !== null) {
+    globalThis.clearTimeout(flight.abortTimer)
+    flight.abortTimer = null
+  }
+  flight.signals.add(signal)
+  const release = () => {
+    flight.signals.delete(signal)
+    if (flight.signals.size > 0 || flight.abortTimer !== null) return
+    flight.abortTimer = globalThis.setTimeout(() => {
+      flight.abortTimer = null
+      if (
+        communityReplicaSyncFlights.get(queryClient) === flight
+        && flight.signals.size === 0
+      ) {
+        flight.controller.abort()
+      }
+    }, STRICT_MODE_ABORT_GRACE_MS)
+  }
+  if (signal.aborted) release()
+  else signal.addEventListener("abort", release, { once: true })
+}
+
+export function runCommunityReplicaSyncSingleFlight(
+  queryClient: QueryClient,
+  key: string,
+  signal: AbortSignal,
+  run: (signal: AbortSignal) => Promise<void>,
+) {
+  const pending = communityReplicaSyncFlights.get(queryClient)
+  if (pending?.key === key && !pending.controller.signal.aborted) {
+    attachCommunityReplicaSyncSignal(queryClient, pending, signal)
+    return pending.promise
+  }
+  if (pending) {
+    if (pending.abortTimer !== null) globalThis.clearTimeout(pending.abortTimer)
+    pending.controller.abort()
+    communityReplicaSyncFlights.delete(queryClient)
+  }
+
+  const controller = new AbortController()
+  const promise = run(controller.signal).finally(() => {
+    const current = communityReplicaSyncFlights.get(queryClient)
+    if (current?.promise !== promise) return
+    if (current.abortTimer !== null) globalThis.clearTimeout(current.abortTimer)
+    communityReplicaSyncFlights.delete(queryClient)
+  })
+  const flight: CommunityReplicaSyncFlight = {
+    key,
+    promise,
+    controller,
+    signals: new Set(),
+    abortTimer: null,
+  }
+  communityReplicaSyncFlights.set(queryClient, flight)
+  attachCommunityReplicaSyncSignal(queryClient, flight, signal)
+  return promise
+}
 
 export function buildCommunityReplicaBootstrapRequest(
   serverId: string,
@@ -70,6 +145,21 @@ export function buildCommunityReplicaBootstrapRequest(
       limit: TAIL_LIMIT,
     })),
   }
+}
+
+export function serializeCommunityReplicaSync(
+  user: ReplicaSessionUser,
+  pathname: string,
+  serverId: string,
+  currentChannelId: string | null,
+  server: ServerDetail | null,
+) {
+  if (!server) return null
+  return JSON.stringify({
+    user,
+    pathname,
+    request: buildCommunityReplicaBootstrapRequest(serverId, currentChannelId, server),
+  })
 }
 
 export function retainCommunityReplicaBootstrapTails(
@@ -410,30 +500,50 @@ export function useCommunityReplicaSync({
     avatar: user.avatar,
     avatarVersion: user.avatarVersion ?? 0,
   }), [user.avatar, user.avatarVersion, user.email, user.id, user.name])
-  const request = useMemo(
-    () => server
-      ? buildCommunityReplicaBootstrapRequest(serverId, currentChannelId, server)
-      : null,
-    [currentChannelId, server, serverId],
+  const serializedSync = serializeCommunityReplicaSync(
+    replicaUser,
+    pathname,
+    serverId,
+    currentChannelId,
+    server,
   )
+  const sync = useMemo<{
+    key: string
+    user: ReplicaSessionUser
+    pathname: string
+    request: CommunityReplicaBootstrapRequest
+  } | null>(() => {
+    if (!serializedSync) return null
+    const value = JSON.parse(serializedSync) as {
+      user: ReplicaSessionUser
+      pathname: string
+      request: CommunityReplicaBootstrapRequest
+    }
+    return { ...value, key: serializedSync }
+  }, [serializedSync])
   const onCurrentAccessRevoked = useCallback(() => {
     commitLastCommunityRoute(user.id, "/c/me/machines")
     router.replace("/c/me/machines")
   }, [router, user.id])
 
   useEffect(() => {
-    if (!request) return
+    if (!sync) return
     let active: AbortController | null = null
     const synchronize = () => {
       active?.abort()
       active = new AbortController()
-      void synchronizeCommunityReplica(
+      void runCommunityReplicaSyncSingleFlight(
         queryClient,
-        replicaUser,
-        pathname,
-        request,
+        sync.key,
         active.signal,
-        onCurrentAccessRevoked,
+        (signal) => synchronizeCommunityReplica(
+          queryClient,
+          sync.user,
+          sync.pathname,
+          sync.request,
+          signal,
+          onCurrentAccessRevoked,
+        ),
       )
         .catch(() => undefined)
     }
@@ -452,5 +562,5 @@ export function useCommunityReplicaSync({
       window.removeEventListener(COMMUNITY_REPLICA_SYNC_EVENT, synchronize)
       document.removeEventListener("visibilitychange", onVisible)
     }
-  }, [onCurrentAccessRevoked, pathname, queryClient, replicaUser, request])
+  }, [onCurrentAccessRevoked, queryClient, sync])
 }

@@ -1,5 +1,6 @@
 import type { Page, Route } from "@playwright/test"
 import { test, expect } from "./_fixtures/community-fixture"
+import { isClientMutationRequest } from "./_fixtures/client-request-policy"
 import { seedChannel, seedServer } from "./_fixtures/seed"
 import { tid } from "./_fixtures/testids"
 
@@ -93,19 +94,15 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
   await page.goto(`/c/channels/${serverA}/${channelA}`)
   await expect(page.getByRole("heading", { name: channelAName })).toBeVisible({ timeout: 30_000 })
 
-  const readOnlyPostPaths = new Set([
-    "/api/community/messages/batch",
-    "/api/community/messages/tags/batch",
-    "/api/community/channels/participants/batch",
-  ])
   const mutations: string[] = []
+  const replicaReads: string[] = []
   page.on("request", (request) => {
     const method = request.method()
     const pathname = new URL(request.url()).pathname
-    if (
-      !["GET", "HEAD", "OPTIONS"].includes(method)
-      && !(method === "POST" && readOnlyPostPaths.has(pathname))
-    ) {
+    if (method === "POST" && pathname.startsWith("/api/community/replica/")) {
+      replicaReads.push(pathname)
+    }
+    if (isClientMutationRequest(method, pathname)) {
       mutations.push(`${method} ${pathname}`)
     }
   })
@@ -214,4 +211,13 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
   await coldF.release()
   await expect.poll(() => new URL(page.url()).pathname.startsWith(`/c/channels/${serverF}`))
     .toBe(true)
+  expect(mutations).toEqual([])
+  // This route deliberately crosses several distinct server scopes, so each
+  // navigation may perform one bootstrap and one immediate delta. Keep the
+  // total finite enough to catch an effect/seed feedback loop (the regression
+  // emitted 61 deltas in 12.5s) without suppressing the normal 15s refresh.
+  expect(replicaReads.filter((pathname) => pathname.endsWith("/bootstrap")).length)
+    .toBeLessThanOrEqual(12)
+  expect(replicaReads.filter((pathname) => pathname.endsWith("/delta")).length)
+    .toBeLessThanOrEqual(12)
 })

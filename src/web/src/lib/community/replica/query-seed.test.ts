@@ -34,9 +34,9 @@ const projection = {
     { scope: { kind: "channel", id: "c1" }, revision: 3, completeness: "partial", permission: lease, messageRange: { firstSeq: 8, lastSeq: 9, hasOlder: true, hasNewer: false } },
   ],
   entities: [
-    { key: "server", scopeKey: "account:viewer", entity: { kind: "server", id: "s1" }, value: { id: "s1", name: "Alook", discriminator: "0001", description: "desc", ownerId: "owner", icon: null, initial: "A", isOwner: false, railOrder: 0, unread: true, mentions: 1, unreadSources: [{ channelId: "c1", lastUnreadSeq: 9 }], mentionSources: [] } },
+    { key: "server", scopeKey: "account:viewer", entity: { kind: "server", id: "s1" }, value: { id: "s1", name: "Alook", discriminator: "0001", description: "desc", ownerId: "owner", icon: null, initial: "A", isOwner: false, railOrder: 0, joinedAt: lease.checkedAt, unread: true, mentions: 1, unreadSources: [{ channelId: "c1", lastUnreadSeq: 9 }], mentionSources: [] } },
     { key: "category", scopeKey: "server:s1", entity: { kind: "category", id: "cat" }, value: { id: "cat", serverId: "s1", name: "General", position: 0, private: false, creatorId: null } },
-    { key: "channel", scopeKey: "server:s1", entity: { kind: "channel", id: "c1" }, value: { id: "c1", serverId: "s1", categoryId: "cat", name: "chat", position: 0, type: "text", creatorId: null } },
+    { key: "channel", scopeKey: "server:s1", entity: { kind: "channel", id: "c1" }, value: { id: "c1", serverId: "s1", categoryId: "cat", name: "chat", position: 0, createdAt: lease.checkedAt, type: "text", creatorId: null } },
     { key: "unread", scopeKey: "server:s1", entity: { kind: "unread-source", id: "c1" }, value: { channelId: "c1", serverId: "s1", parentChannelId: null, lastUnreadSeq: 9, lastAttentionSeq: null } },
     { key: "read", scopeKey: "account:viewer", entity: { kind: "read-state", id: "c1" }, value: { channelId: "c1", lastReadMessageId: "m8", lastReadAt: "2026-01-01T00:00:08.000Z", lastReadSeq: 8 } },
     { key: "m8", scopeKey: "channel:c1", entity: { kind: "message", id: "m8" }, value: { id: "m8", type: "chat", seq: 8, createdAt: "2026-01-01T00:00:08.000Z", content: "eight" } },
@@ -101,6 +101,113 @@ describe("community Replica query seed", () => {
       completeness: "partial",
       firstSeq: 8,
       lastSeq: 9,
+    })
+  })
+
+  it("keeps canonical join and creation order when numeric positions tie", () => {
+    const queryClient = new QueryClient()
+    const tiedProjection = {
+      ...projection,
+      entities: [
+        ...projection.entities,
+        {
+          key: "server-earlier",
+          scopeKey: "account:viewer",
+          entity: { kind: "server", id: "z-server" },
+          value: {
+            ...projection.entities[0]!.value,
+            id: "z-server",
+            name: "Earlier server",
+            joinedAt: "2025-12-31T23:59:00.000Z",
+          },
+        },
+        {
+          key: "channel-earlier",
+          scopeKey: "server:s1",
+          entity: { kind: "channel", id: "z-channel" },
+          value: {
+            ...projection.entities[2]!.value,
+            id: "z-channel",
+            name: "earlier channel",
+            createdAt: "2025-12-31T23:59:00.000Z",
+          },
+        },
+      ],
+    } as unknown as CoveredReplicaProjection
+
+    seedCommunityReplicaQueries(queryClient, tiedProjection)
+
+    expect(queryClient.getQueryData<ServersResponse>(communityKeys.servers())?.servers
+      .map((server) => server.id)).toEqual(["z-server", "s1"])
+    expect(queryClient.getQueryData<ServerDetail>(communityKeys.server("s1"))?.categories[0]
+      ?.channels.map((channel) => channel.id)).toEqual(["z-channel", "c1"])
+  })
+
+  it("refreshes canonical rows without replacing an active anchored window", () => {
+    const queryClient = new QueryClient()
+    const anchorPage = {
+      messages: [
+        { id: "m8", type: "chat", seq: 8, createdAt: "2026-01-01T00:00:08.000Z", content: "stale eight" },
+        { id: "m_anchor_only", type: "chat", seq: 8.5, createdAt: "2026-01-01T00:00:08.500Z", content: "anchor only" },
+      ],
+      latestSeq: 9,
+      hasMoreOlder: true,
+      hasMoreNewer: true,
+      olderCursor: "older",
+      newerCursor: "newer",
+    }
+    queryClient.setQueryData(communityKeys.channelMessages("c1"), {
+      pages: [anchorPage],
+      pageParams: [{ mode: "anchor", anchor: "m_anchor_only" }],
+    })
+
+    seedCommunityReplicaQueries(queryClient, projection)
+
+    expect(queryClient.getQueryData(communityKeys.channelMessages("c1"))).toEqual({
+      pages: [{
+        ...anchorPage,
+        messages: [
+          expect.objectContaining({ id: "m8", content: "eight" }),
+          expect.objectContaining({ id: "m_anchor_only", content: "anchor only" }),
+        ],
+      }],
+      pageParams: [{ mode: "anchor", anchor: "m_anchor_only" }],
+    })
+  })
+
+  it("removes covered canonical rows without dropping unknown anchored history", () => {
+    const queryClient = new QueryClient()
+    const anchorPage = {
+      messages: [
+        { id: "m7", type: "chat", seq: 7, createdAt: "2026-01-01T00:00:07.000Z", content: "older history" },
+        { id: "m8", type: "chat", seq: 8, createdAt: "2026-01-01T00:00:08.000Z", content: "deleted anchor" },
+        { id: "m9", type: "chat", seq: 9, createdAt: "2026-01-01T00:00:09.000Z", content: "stale nine" },
+      ],
+      latestSeq: 9,
+      hasMoreOlder: true,
+      hasMoreNewer: true,
+      olderCursor: "older",
+      newerCursor: "newer",
+    }
+    queryClient.setQueryData(communityKeys.channelMessages("c1"), {
+      pages: [anchorPage],
+      pageParams: [{ mode: "anchor", anchor: "m8" }],
+    })
+
+    seedCommunityReplicaQueries(queryClient, {
+      ...projection,
+      entities: projection.entities.filter((row) => row.entity.id !== "m8"),
+    })
+
+    expect(queryClient.getQueryData(communityKeys.channelMessages("c1"))).toEqual({
+      pages: [{
+        ...anchorPage,
+        messages: [
+          expect.objectContaining({ id: "m7", content: "older history" }),
+          expect.objectContaining({ id: "m9", content: "nine" }),
+        ],
+      }],
+      pageParams: [{ mode: "anchor", anchor: "m8" }],
     })
   })
 

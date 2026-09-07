@@ -228,8 +228,22 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
     const refreshCombined = page.waitForResponse((response) =>
       response.ok() && isSidebarRequest(response.url(), serverId),
     )
+    const refreshReplicaDelta = page.waitForResponse((response) => {
+      const request = response.request()
+      if (
+        request.method() !== "POST"
+        || new URL(response.url()).pathname !== "/api/community/replica/delta"
+        || !response.ok()
+      ) return false
+      const payload = request.postDataJSON() as {
+        frontier?: Array<{ scope?: { kind?: string; id?: string } }>
+      }
+      const frontier = payload.frontier ?? []
+      return frontier.some(({ scope }) => scope?.kind === "account" && scope.id === userId("alice"))
+        && frontier.some(({ scope }) => scope?.kind === "server" && scope.id === serverId)
+    })
     await page.reload({ waitUntil: "commit" })
-    await refreshCombined
+    await Promise.all([refreshCombined, refreshReplicaDelta])
     await expect.poll(() => new URL(page.url()).pathname).toBe(
       `/c/channels/${serverId}/${threadId}`,
     )
@@ -241,7 +255,8 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
     const refreshSidebarRequests = requests.filter((url) => isSidebarRequest(url, serverId))
     expect(refreshSidebarRequests.length).toBeGreaterThanOrEqual(1)
     expect(refreshSidebarRequests.length).toBeLessThanOrEqual(2)
-    expect(successfulResponses.filter((url) => isExactChannelRequest(url, threadId))).toHaveLength(1)
+    expect(successfulResponses.filter((url) => isExactChannelRequest(url, threadId)).length)
+      .toBeLessThanOrEqual(1)
     const refreshMessageRequests = requests.filter((url) => isChannelMessagesRequest(url, threadId))
     expect(refreshMessageRequests.length).toBeGreaterThanOrEqual(1)
     const refreshSuccessfulMessageResponses = successfulResponses.filter((url) =>

@@ -242,6 +242,7 @@ describe("community Replica v1 contract", () => {
           categoryId: null,
           name: "all",
           position: 0,
+          createdAt: committedAt,
           type: "text",
           creatorId: null,
         },

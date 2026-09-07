@@ -1,7 +1,6 @@
 "use client"
 
 import type { QueryClient } from "@tanstack/react-query"
-import { apiFetch } from "@/lib/api/client"
 import { ApiError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
 import { reconcileAccountReadState } from "./community-ws/read-state-reconciliation"
@@ -22,6 +21,11 @@ import {
   discardCommunityReplicaReadWal,
   listCommunityReplicaReadWal,
 } from "@/lib/community/replica/read-wal"
+import {
+  discardCommunityReplicaReadMutations,
+  sendCommunityReplicaReadMutation,
+  type CommunityReplicaReadMutationResponse,
+} from "@/lib/community/replica/read-mutation"
 
 export const READ_COORDINATOR_DEBOUNCE_MS = 500
 
@@ -54,20 +58,14 @@ export async function flushCommunityReplicaReadIntents(
   const intents = listCommunityReplicaReadWal(accountId)
   for (const intent of intents) {
     try {
-      await apiFetch<{ targetSeq: number }>(
-        `/api/community/channels/${intent.channelId}/read`,
-        {
-          method: "PUT",
-          body: JSON.stringify({ lastReadMessageId: intent.messageId }),
-          signal,
-        },
-      )
+      await sendCommunityReplicaReadMutation(accountId, intent, signal)
     } catch (error) {
       // A durable read for a scope that was revoked must not wedge every later
       // bootstrap. Delta/bootstrap revocation handling retires the projection;
       // this terminal write can only be discarded.
       if (error instanceof ApiError && error.status === 403) {
         discardCommunityReplicaReadWal(accountId, intent.channelId)
+        discardCommunityReplicaReadMutations(accountId, intent.channelId)
         continue
       }
       throw error
@@ -83,12 +81,6 @@ type ReadAttemptOutcome = {
 
 type PendingReadFlushOptions = {
   deferInboxDms?: () => boolean
-}
-
-type ReadMutationResponse = {
-  changed: boolean
-  revision: number
-  targetSeq: number
 }
 
 type SurfaceLease = {
@@ -465,15 +457,12 @@ class ReadCoordinator {
     attemptEpoch: number,
   ): Promise<ReadAttemptOutcome> {
     const identityEpoch = this.identityEpoch
-    let response: ReadMutationResponse
+    let response: CommunityReplicaReadMutationResponse
     try {
-      response = await apiFetch<ReadMutationResponse>(
-        `/api/community/channels/${target.intent.channelId}/read`,
-        {
-          method: "PUT",
-          body: JSON.stringify({ lastReadMessageId: target.intent.messageId }),
-          signal: controller.signal,
-        },
+      response = await sendCommunityReplicaReadMutation(
+        this.ownerUserId,
+        target.intent,
+        controller.signal,
       )
     } catch (error) {
       if (!this.attemptActive(state, attemptEpoch, identityEpoch)) {
@@ -490,6 +479,7 @@ class ReadCoordinator {
       if (!retryable(error)) {
         if (state.dirty && sameIntent(state.dirty, target)) state.dirty = null
         discardCommunityReplicaReadWal(this.ownerUserId, target.intent.channelId)
+        discardCommunityReplicaReadMutations(this.ownerUserId, target.intent.channelId)
         state.retryCount = 0
       } else if (state.retryCount < 3) {
         state.retryCount += 1

@@ -1,6 +1,7 @@
 import { test, expect } from "./_fixtures/community-fixture"
 import { tid } from "./_fixtures/testids"
 import { sendMessage, expectMessageVisible, composerEditable, gotoAfterUserWsAuth } from "./_fixtures/actions"
+import { waitForAcceptedReplicaTextIntent } from "./_fixtures/replica-intent"
 import { seedServer, seedChannel, seedJoinServer } from "./_fixtures/seed"
 
 // Journey 3 — multi-user realtime. Alice and Bob are both online in the same
@@ -39,13 +40,9 @@ test.describe.serial("multi-user realtime", () => {
     await expect(composerEditable(bob.page)).toBeVisible()
 
     const body = `live from alice ${Date.now()}`
-    const aliceMessagePromise = alice.page.waitForResponse((response) => {
-      return response.request().method() === "POST"
-        && new URL(response.url()).pathname === messagesPath
-    })
+    const aliceMessagePromise = waitForAcceptedReplicaTextIntent(alice.page, channelId, body)
     await sendMessage(alice.page, body)
-    const aliceMessage = await aliceMessagePromise
-    expect(aliceMessage.status()).toBe(201)
+    await aliceMessagePromise
     // Bob sees it without reloading.
     await expectMessageVisible(bob.page, body)
   })
@@ -84,14 +81,11 @@ test.describe.serial("multi-user realtime", () => {
 
     // Alice sends; her typing indicator clears on Bob's side (assert
     // presence→absence, not an exact duration).
-    const finalMessagePromise = alice.page.waitForResponse((response) => {
-      return response.request().method() === "POST"
-        && new URL(response.url()).pathname === `/api/community/channels/${channelId}/messages`
-    })
+    const finalBody = "typing…"
+    const finalMessagePromise = waitForAcceptedReplicaTextIntent(alice.page, channelId, finalBody)
     await alice.page.keyboard.press("Enter")
-    const finalMessage = await finalMessagePromise
-    expect(finalMessage.status()).toBe(201)
-    await expectMessageVisible(bob.page, "typing…")
+    await finalMessagePromise
+    await expectMessageVisible(bob.page, finalBody)
     await expect(bob.page.getByTestId(tid.typingIndicator)).toBeHidden({ timeout: 15_000 })
   })
 })

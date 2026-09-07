@@ -18,10 +18,7 @@ import {
   seedThread,
 } from "./_fixtures/seed"
 import { tid } from "./_fixtures/testids"
-
-type MessageResponse = {
-  message: { id: string; channelId: string; content: string }
-}
+import { waitForAcceptedReplicaTextIntent } from "./_fixtures/replica-intent"
 
 function createdMessage(
   frames: CapturedCommunityFrame[],
@@ -41,27 +38,40 @@ async function expectExactMessageCommit({
   content,
   frames,
   submit,
+  transport = "replica",
 }: {
   page: Page
   channelId: string
   content: string
   frames: CapturedCommunityFrame[]
   submit: () => Promise<void>
+  transport?: "replica" | "legacy"
 }) {
-  const responsePromise = page.waitForResponse((response) => (
-    response.request().method() === "POST"
-    && new URL(response.url()).pathname === `/api/community/channels/${channelId}/messages`
-  ))
+  if (transport === "legacy") {
+    const responsePromise = page.waitForResponse((response) => (
+      response.request().method() === "POST"
+      && new URL(response.url()).pathname === `/api/community/channels/${channelId}/messages`
+    ))
+    await submit()
+    const response = await responsePromise
+    expect(response.status()).toBe(201)
+    expect(response.request().postDataJSON()).toMatchObject({ content })
+    const payload = await response.json() as {
+      message: { id: string; channelId: string; content: string }
+    }
+    expect(payload.message).toMatchObject({ channelId, content })
+    await expect(page.getByTestId(tid.message(payload.message.id))).toBeVisible()
+    await expect.poll(() => createdMessage(frames, channelId, payload.message.id)?.message?.content)
+      .toBe(content)
+    return payload.message.id
+  }
+  const responsePromise = waitForAcceptedReplicaTextIntent(page, channelId, content)
   await submit()
-  const response = await responsePromise
-  expect(response.status()).toBe(201)
-  expect(response.request().postDataJSON()).toMatchObject({ content })
-  const payload = await response.json() as MessageResponse
-  expect(payload.message).toMatchObject({ channelId, content })
-  await expect(page.getByTestId(tid.message(payload.message.id))).toBeVisible()
-  await expect.poll(() => createdMessage(frames, channelId, payload.message.id)?.message?.content)
+  const canonical = await responsePromise
+  await expect(page.getByTestId(tid.message(canonical.messageId))).toBeVisible()
+  await expect.poll(() => createdMessage(frames, channelId, canonical.messageId)?.message?.content)
     .toBe(content)
-  return payload.message.id
+  return canonical.messageId
 }
 
 async function typeCanonicalMarker(
@@ -148,12 +158,25 @@ test.describe.serial("chat composer ordered-list continuation", () => {
     const { page, context } = await asUser("alice", { viewport: { width: 390, height: 844 } })
     await installInputCapability(page, false)
     const proxy = await proxyCommunityWebSockets(context)
-    let posts = 0
+    const intentPosts: Array<{
+      intentId?: string
+      scope?: { id?: string }
+      payload?: { content?: string }
+    }> = []
     page.on("request", (request) => {
       if (
         request.method() === "POST"
-        && new URL(request.url()).pathname === `/api/community/channels/${channelAId}/messages`
-      ) posts += 1
+        && new URL(request.url()).pathname === "/api/community/replica/intents"
+      ) {
+        const body = request.postDataJSON() as {
+          intents?: Array<{
+            intentId?: string
+            scope?: { id?: string }
+            payload?: { content?: string }
+          }>
+        } | null
+        intentPosts.push(...(body?.intents ?? []))
+      }
     })
     await page.goto(`/c/channels/${serverId}/${channelAId}`, { waitUntil: "commit" })
     await ignoreNextDevToolsPointerCapture(page)
@@ -167,9 +190,12 @@ test.describe.serial("chat composer ordered-list continuation", () => {
     await page.keyboard.press("Enter")
     await page.keyboard.press("Enter")
     await editable.pressSequentially("tail")
+    const content = "9. first\n10. second\n\ntail"
     await expect(editable.locator(":scope > ol > li")).toHaveCount(2)
     await expect(editable.locator(":scope > p").filter({ hasText: "tail" })).toHaveCount(1)
-    expect(posts).toBe(0)
+    expect(new Set(intentPosts.filter((intent) => (
+      intent.scope?.id === channelAId && intent.payload?.content === content
+    )).map((intent) => intent.intentId)).size).toBe(0)
 
     await testInfo.attach("ordered-list-touch-exit.png", {
       body: await page.screenshot(),
@@ -178,11 +204,13 @@ test.describe.serial("chat composer ordered-list continuation", () => {
     await expectExactMessageCommit({
       page,
       channelId: channelAId,
-      content: "9. first\n10. second\n\ntail",
+      content,
       frames: proxy.frames,
       submit: async () => { await send.click() },
     })
-    expect(posts).toBe(1)
+    expect(new Set(intentPosts.filter((intent) => (
+      intent.scope?.id === channelAId && intent.payload?.content === content
+    )).map((intent) => intent.intentId)).size).toBe(1)
   })
 
   test("child thread and DM commits stay in their exact channel scope", async ({ asUser }) => {
@@ -206,6 +234,7 @@ test.describe.serial("chat composer ordered-list continuation", () => {
         content: `${start}. first\n${start + 1}. second`,
         frames: proxy.frames,
         submit: async () => { await page.keyboard.press("Enter") },
+        transport: channelId === dmId ? "legacy" : "replica",
       })
     }
   })
@@ -213,10 +242,10 @@ test.describe.serial("chat composer ordered-list continuation", () => {
   test("draft, undo, IME, plain paste, and forum-body boundaries remain stable", async ({ asUser }) => {
     const { page } = await asUser("alice")
     await installInputCapability(page, true)
-    let messagePosts = 0
+    let messageIntents = 0
     page.on("request", (request) => {
-      if (request.method() === "POST" && new URL(request.url()).pathname.endsWith("/messages")) {
-        messagePosts += 1
+      if (request.method() === "POST" && new URL(request.url()).pathname === "/api/community/replica/intents") {
+        messageIntents += 1
       }
     })
     await page.goto(`/c/channels/${serverId}/${channelAId}`, { waitUntil: "commit" })
@@ -248,7 +277,7 @@ test.describe.serial("chat composer ordered-list continuation", () => {
       }))
     })
     await expect(editable).toHaveText("7. plain")
-    expect(messagePosts).toBe(0)
+    expect(messageIntents).toBe(0)
 
     await editable.press("ControlOrMeta+A")
     await editable.press("Backspace")
@@ -264,7 +293,7 @@ test.describe.serial("chat composer ordered-list continuation", () => {
     await expect(editable.locator("ol")).toHaveCount(0)
     await expect(editable).toContainText("1. alpha")
     await expect(editable).toContainText("2. beta")
-    expect(messagePosts).toBe(0)
+    expect(messageIntents).toBe(0)
 
     await editable.press("ControlOrMeta+A")
     await editable.press("Backspace")
@@ -274,7 +303,7 @@ test.describe.serial("chat composer ordered-list continuation", () => {
     await expect(editable.locator(":scope > ol > li")).toHaveCount(1)
     await expect(editable.locator(":scope > ol > li br")).toHaveCount(0)
     await expect(editable.locator(":scope > p")).toHaveCount(1)
-    expect(messagePosts).toBe(0)
+    expect(messageIntents).toBe(0)
 
     await page.goto(`/c/channels/${serverId}/${forumId}`, { waitUntil: "commit" })
     await page.getByRole("button", { name: "New Post" }).click()
@@ -283,6 +312,6 @@ test.describe.serial("chat composer ordered-list continuation", () => {
     await forumBody.pressSequentially("1. literal forum body")
     await expect(forumBody.locator("ol")).toHaveCount(0)
     await expect(forumBody).toHaveText("1. literal forum body")
-    expect(messagePosts).toBe(0)
+    expect(messageIntents).toBe(0)
   })
 })

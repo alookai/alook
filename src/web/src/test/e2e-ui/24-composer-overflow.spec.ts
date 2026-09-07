@@ -232,12 +232,12 @@ test.describe.serial("community composer text containment", () => {
 
   test("default channel placeholder stays in the editable width and leaves controls clickable", async ({ asUser }) => {
     const { page } = await asUser("alice")
-    let messagePosts = 0
+    let messageIntents = 0
     page.on("request", (request) => {
       if (
         request.method() === "POST"
-        && new URL(request.url()).pathname === `/api/community/channels/${longChannelId}/messages`
-      ) messagePosts += 1
+        && new URL(request.url()).pathname === "/api/community/replica/intents"
+      ) messageIntents += 1
     })
     await page.goto(`/c/channels/${serverId}/${longChannelId}`)
     await page.waitForURL(new RegExp(longChannelId), { timeout: 20_000, waitUntil: "commit" })
@@ -267,7 +267,7 @@ test.describe.serial("community composer text containment", () => {
     await expect(editable).not.toBeFocused()
     await expect(editable).toHaveAttribute("data-e2e-focus-events", "0")
     expect(await editable.textContent()).toBe(beforeCancel)
-    expect(messagePosts).toBe(0)
+    expect(messageIntents).toBe(0)
 
     const selectedChooser = page.waitForEvent("filechooser")
     await attach.click()
@@ -279,14 +279,14 @@ test.describe.serial("community composer text containment", () => {
     await expect(page.getByText("direct-picker.txt", { exact: true })).toBeVisible()
     await expect(editable).not.toBeFocused()
     await expect(editable).toHaveAttribute("data-e2e-focus-events", "0")
-    expect(messagePosts).toBe(0)
+    expect(messageIntents).toBe(0)
     await page.getByRole("button", { name: "Remove file" }).click()
     await expect(page.getByText("direct-picker.txt", { exact: true })).toHaveCount(0)
 
     await editable.click()
     await expect(editable).toBeFocused()
     await expect(editable).toHaveAttribute("data-e2e-focus-events", "1")
-    expect(messagePosts).toBe(0)
+    expect(messageIntents).toBe(0)
 
     const emoji = page.getByRole("button", { name: "Emoji picker" })
     await emoji.click()

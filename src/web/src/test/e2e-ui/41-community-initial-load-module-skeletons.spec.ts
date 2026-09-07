@@ -1,5 +1,6 @@
 import type { BrowserContext, Page, Route } from "@playwright/test"
 import { test, expect, userId } from "./_fixtures/community-fixture"
+import { isClientMutationRequest } from "./_fixtures/client-request-policy"
 import { seedChannel, seedDm, seedDmMessage, seedMessage, seedServer } from "./_fixtures/seed"
 import { tid } from "./_fixtures/testids"
 
@@ -417,15 +418,15 @@ test.describe.serial("community initial-load module skeletons", () => {
     ))
     expect(exactMessageReads).toHaveLength(1 + exactMessageFailures.length)
     expect(exactMessageFailures.every(({ error }) => error === "net::ERR_ABORTED")).toBe(true)
-    const readOnlyPostPaths = new Set([
-      "/api/community/messages/batch",
-      "/api/community/messages/tags/batch",
-      "/api/community/channels/participants/batch",
-    ])
     expect(traffic.requests.filter(({ method, pathname }) => (
-      !["GET", "HEAD", "OPTIONS"].includes(method)
-      && !(method === "POST" && readOnlyPostPaths.has(pathname))
+      isClientMutationRequest(method, pathname)
     )))
       .toEqual([])
+    expect(traffic.requests.filter(({ method, pathname }) => (
+      method === "POST" && pathname === "/api/community/replica/bootstrap"
+    ))).toHaveLength(1)
+    expect(traffic.requests.filter(({ method, pathname }) => (
+      method === "POST" && pathname === "/api/community/replica/delta"
+    ))).toHaveLength(1)
   })
 })

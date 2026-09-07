@@ -22,6 +22,7 @@ import {
   type CapturedCommunityFrame,
 } from "./_fixtures/community-ws-proxy"
 import { tid } from "./_fixtures/testids"
+import { waitForAcceptedReplicaTextIntent } from "./_fixtures/replica-intent"
 
 function frameHasMessage(
   frame: CapturedCommunityFrame,
@@ -290,6 +291,7 @@ async function expectRetainedMountGets(
   channelId: string,
   departureReadState: ReadState,
   tracker: SurfaceGetTracker,
+  transport: "legacy" | "covered-replica",
 ) {
   await expect.poll(() => tracker.readStateUrls.length).toBe(1)
   await page.waitForTimeout(300)
@@ -299,10 +301,18 @@ async function expectRetainedMountGets(
   expect(tracker.inFlight()).toBe(0)
   expect(tracker.messageUrls).toHaveLength(settledMessageCount)
 
-  expect(tracker.messageUrls.length).toBeGreaterThanOrEqual(1)
-  expect(tracker.messageUrls.length).toBeLessThanOrEqual(2)
+  if (transport === "legacy") {
+    expect(tracker.messageUrls.length).toBeGreaterThanOrEqual(1)
+    expect(tracker.messageUrls.length).toBeLessThanOrEqual(2)
+  } else {
+    // A retained covered channel/thread may already have the canonical anchor
+    // in its durable Replica window. That path should not manufacture a
+    // messages GET, but a single bounded fallback remains valid if the local
+    // projection cannot answer the return.
+    expect(tracker.messageUrls.length).toBeLessThanOrEqual(1)
+  }
   const anchors = tracker.messageUrls.map((url) => new URL(url).searchParams.get("anchor"))
-  expect(anchors[0]).toBe(departureReadState.lastReadMessageId)
+  if (anchors.length > 0) expect(anchors[0]).toBe(departureReadState.lastReadMessageId)
   const counts = new Map<string, number>()
   for (const anchor of anchors) {
     const identity = anchor ?? "<newest>"
@@ -457,16 +467,22 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   await dispatchSwipe(alice.page, channelBobSecondMessageId, { x: 72, y: 2 })
   await expect(replyPreview).toHaveText(`Replying to ${bobInfo.name} · channel alternate ${stamp}`)
   const replyBody = `swipe reply ${stamp}`
-  const replyResponsePromise = alice.page.waitForResponse((response) => (
-    response.request().method() === "POST"
-    && new URL(response.url()).pathname === `/api/community/channels/${channelId}/messages`
-  ))
+  const replyContent = `@${bobInfo.name}\n${replyBody}`
+  const replyResponsePromise = waitForAcceptedReplicaTextIntent(
+    alice.page,
+    channelId,
+    replyContent,
+    { replyToId: channelBobSecondMessageId },
+  )
   await composerEditable(alice.page).fill(replyBody)
   await alice.page.getByTestId(tid.composerSend).click()
-  const replyResponse = await replyResponsePromise
-  expect(replyResponse.status()).toBe(201)
-  const replyPayload = await replyResponse.json() as {
-    message: { id: string; content: string; replyToId: string | null }
+  const replyCanonical = await replyResponsePromise
+  const replyPayload = {
+    message: {
+      id: replyCanonical.messageId,
+      content: replyContent,
+      replyToId: channelBobSecondMessageId,
+    },
   }
   expect(replyPayload.message.replyToId).toBe(channelBobSecondMessageId)
   expect(replyPayload.message.content).toContain(replyBody)
@@ -531,15 +547,15 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
     `${bobInfo.name}#${bobInfo.discriminator}`,
   )
 
-  const mentionResponsePromise = alice.page.waitForResponse((response) => (
-    response.request().method() === "POST"
-    && new URL(response.url()).pathname === `/api/community/channels/${threadId}/messages`
-  ))
+  const mentionResponsePromise = waitForAcceptedReplicaTextIntent(
+    alice.page,
+    threadId,
+    mentionBody,
+  )
   await alice.page.getByTestId(tid.composerSend).click()
-  const mentionResponse = await mentionResponsePromise
-  expect(mentionResponse.status()).toBe(201)
-  const mentionPayload = await mentionResponse.json() as {
-    message: { id: string; content: string; replyToId: string | null }
+  const mentionCanonical = await mentionResponsePromise
+  const mentionPayload = {
+    message: { id: mentionCanonical.messageId, content: mentionBody, replyToId: null },
   }
   expect(mentionPayload.message).toMatchObject({ content: mentionBody, replyToId: null })
   await expect.poll(() => bobProxy.frames.some((frame) => (
@@ -551,16 +567,22 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   await dispatchSwipe(alice.page, threadBobMessageId, { x: 72, y: 1 })
   await expect(replyPreview).toHaveText(`Replying to ${bobInfo.name} · thread target ${stamp}`)
   const threadReplyBody = `thread swipe reply ${stamp}`
-  const threadReplyResponsePromise = alice.page.waitForResponse((response) => (
-    response.request().method() === "POST"
-    && new URL(response.url()).pathname === `/api/community/channels/${threadId}/messages`
-  ))
+  const threadReplyContent = `@${bobInfo.name}\n${threadReplyBody}`
+  const threadReplyResponsePromise = waitForAcceptedReplicaTextIntent(
+    alice.page,
+    threadId,
+    threadReplyContent,
+    { replyToId: threadBobMessageId },
+  )
   await composerEditable(alice.page).fill(threadReplyBody)
   await alice.page.getByTestId(tid.composerSend).click()
-  const threadReplyResponse = await threadReplyResponsePromise
-  expect(threadReplyResponse.status()).toBe(201)
-  const threadReplyPayload = await threadReplyResponse.json() as {
-    message: { id: string; content: string; replyToId: string | null }
+  const threadReplyCanonical = await threadReplyResponsePromise
+  const threadReplyPayload = {
+    message: {
+      id: threadReplyCanonical.messageId,
+      content: threadReplyContent,
+      replyToId: threadBobMessageId,
+    },
   }
   expect(threadReplyPayload.message.replyToId).toBe(threadBobMessageId)
   expect(threadReplyPayload.message.content).toContain(threadReplyBody)
@@ -765,7 +787,11 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   const dmReplyTarget = alice.page.getByTestId(tid.message(dmWsReadyId))
   const dmScrollToPresent = alice.page.getByTestId(tid.scrollToPresent)
   await expect(dmReplyTarget.or(dmScrollToPresent).first()).toBeVisible()
-  if (await dmScrollToPresent.isVisible()) await dmScrollToPresent.click()
+  if (!await dmReplyTarget.isVisible()) {
+    await dmScrollToPresent.click({ timeout: 5_000 }).catch(async (error) => {
+      if (!await dmReplyTarget.isVisible()) throw error
+    })
+  }
   await expect(dmReplyTarget).toBeVisible()
   await dispatchSwipe(alice.page, dmWsReadyId, { x: 72, y: 1 })
   await expect(replyPreview).toHaveText(`Replying to ${bobInfo.name} · dm reply target ${stamp}`)
@@ -844,7 +870,7 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   await alice.page.getByTestId(tid.dmRow(dmId)).click()
   await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/me/${dmId}`)
   await expect(alice.page.getByTestId(tid.message(dmReadState.lastReadMessageId!))).toBeVisible()
-  await expectRetainedMountGets(alice.page, dmId, dmReadState, dmReturnGets)
+  await expectRetainedMountGets(alice.page, dmId, dmReadState, dmReturnGets, "legacy")
   expect(Math.abs(await dmScroller.evaluate((element) => element.scrollTop) - departedDmScrollTop))
     .toBeGreaterThan(50)
   dmReturnGets.stop()
@@ -860,7 +886,7 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   await alice.page.reload({ waitUntil: "commit" })
   await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/me/${dmId}`)
   await expect(alice.page.getByTestId(tid.message(dmReloadReadState.lastReadMessageId!))).toBeVisible()
-  await expectRetainedMountGets(alice.page, dmId, dmReloadReadState, dmReloadGets)
+  await expectRetainedMountGets(alice.page, dmId, dmReloadReadState, dmReloadGets, "legacy")
   expect(Math.abs(
     await dmScroller.evaluate((element) => element.scrollTop) - departedDmReloadScrollTop,
   )).toBeGreaterThan(50)
@@ -913,7 +939,13 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   await expect(alice.page.getByTestId(tid.message(channelReadState.lastReadMessageId!))).toBeVisible()
   expect(Math.abs(await scroller.evaluate((element) => element.scrollTop) - readingPosition))
     .toBeGreaterThan(50)
-  await expectRetainedMountGets(alice.page, channelId, channelReadState, channelReturnGets)
+  await expectRetainedMountGets(
+    alice.page,
+    channelId,
+    channelReadState,
+    channelReturnGets,
+    "covered-replica",
+  )
   channelReturnGets.stop()
 })
 
@@ -977,7 +1009,13 @@ test("mobile thread return uses server read state instead of tab-local pixel mem
   await alice.page.goForward({ waitUntil: "commit" })
   await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/channels/${serverId}/${threadId}`)
   await expect(alice.page.getByTestId(tid.message(threadReadState.lastReadMessageId!))).toBeVisible()
-  await expectRetainedMountGets(alice.page, threadId, threadReadState, threadReturnGets)
+  await expectRetainedMountGets(
+    alice.page,
+    threadId,
+    threadReadState,
+    threadReturnGets,
+    "covered-replica",
+  )
   expect(Math.abs(await threadScroller.evaluate((element) => element.scrollTop) - departedThreadScrollTop))
     .toBeGreaterThan(50)
   threadReturnGets.stop()

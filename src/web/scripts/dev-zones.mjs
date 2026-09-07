@@ -22,7 +22,11 @@ if ((withWsDo || wranglerEntry) && !workerMode) {
 }
 
 const registryPath = resolve(process.cwd(), "../../.wrangler/registry")
-const childEnv = { ...process.env, WRANGLER_REGISTRY_PATH: registryPath }
+const childEnv = {
+  ...process.env,
+  WRANGLER_REGISTRY_PATH: registryPath,
+  BLOG_DEV_INTERNAL_ORIGIN: `http://127.0.0.1:${LOCAL_WORKER_ENDPOINTS.blog.port}`,
+}
 const processes = []
 let shuttingDown = false
 

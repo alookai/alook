@@ -1,5 +1,5 @@
 import "fake-indexeddb/auto"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { COMMUNITY_REPLICA_PROTOCOL_VERSION } from "@alook/shared"
 import {
   deleteCommunityReplicaAccount,
@@ -62,9 +62,14 @@ function bootstrap() {
   }
 }
 
+beforeEach(() => {
+  vi.spyOn(Date, "now").mockReturnValue(Date.parse(checkedAt) + 1)
+})
+
 afterEach(async () => {
   await clearActiveCommunityReplicaSession()
   await deleteCommunityReplicaAccount(user.id)
+  vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
 

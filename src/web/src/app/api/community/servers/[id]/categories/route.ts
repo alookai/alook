@@ -19,7 +19,7 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
   if (!auth.ok) return writeError(auth.error, auth.status)
   const categories = await db.query.communityCategory.findMany({
     where: (t, { eq }) => eq(t.serverId, serverId),
-    orderBy: (t, { asc }) => [asc(t.position)],
+    orderBy: (t, { asc }) => [asc(t.position), asc(t.id)],
   })
   return writeJSON({ categories })
 })

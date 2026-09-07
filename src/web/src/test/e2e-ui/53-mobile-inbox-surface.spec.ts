@@ -1,6 +1,7 @@
 import type { Page, Request } from "@playwright/test"
 import { expect, sessionCookie, test } from "./_fixtures/community-fixture"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
+import { isClientMutationRequest } from "./_fixtures/client-request-policy"
 import { proxyCommunityWebSockets } from "./_fixtures/community-ws-proxy"
 import { WEB_URL } from "./_setup/paths"
 import {
@@ -97,7 +98,7 @@ async function surfaceGeometry(page: Page): Promise<SurfaceGeometry> {
 function observeWrites(page: Page) {
   const writes: string[] = []
   const listener = (request: Request) => {
-    if (!["GET", "HEAD", "OPTIONS"].includes(request.method())) {
+    if (isClientMutationRequest(request.method(), new URL(request.url()).pathname)) {
       writes.push(`${request.method()} ${new URL(request.url()).pathname}`)
     }
   }
@@ -375,10 +376,10 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
     await bob.page.setViewportSize({ width: 1280, height: 900 })
     const desktopContent = bob.page.locator("[data-slot='popover-content']")
     await expect(desktopContent).toBeVisible()
-    await expect.poll(async () => (await desktopContent.boundingBox())?.width ?? 0)
-      .toBeGreaterThanOrEqual(359)
-    const desktopBox = await desktopContent.boundingBox()
-    expect(desktopBox?.width).toBeLessThanOrEqual(361)
+    await expect.poll(async () => {
+      const width = (await desktopContent.boundingBox())?.width
+      return width !== undefined && width >= 359 && width <= 361
+    }).toBe(true)
     await expect(bob.page.getByTestId(tid.inboxMobileBackdrop)).toHaveCount(0)
     await expect(bob.page.getByRole("tab", { name: "Marked" })).toHaveAttribute("aria-selected", "true")
 

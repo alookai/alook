@@ -84,16 +84,26 @@ type SizeAdjustmentVirtualizer = {
  * put. Forward/idle first measurements retain the original rule, so image
  * growth, prepend anchoring, and normal downward navigation keep their
  * existing compensation behavior.
+ *
+ * While a divider mount is active, scrollToIndex owns reconciliation of first
+ * measurements. Applying estimate-to-measure compensation at the same time is
+ * a second scroll writer and can undo the divider target before the next frame.
+ * Later growth of an already-measured row still needs ordinary compensation.
  */
 export function shouldAdjustMessageScrollPosition(
   item: VirtualItem,
   _delta: number,
   instance: SizeAdjustmentVirtualizer,
   userScrolledAway = false,
+  dividerMountActive = false,
 ): boolean {
   const offset = (instance.scrollOffset ?? 0) + instance.scrollAdjustments
   const isFirstMeasure = !instance.itemSizeCache.has(item.key)
-  if (isFirstMeasure && (userScrolledAway || instance.scrollDirection === "backward")) return false
+  if (dividerMountActive && isFirstMeasure) return false
+  if (
+    isFirstMeasure
+    && (userScrolledAway || instance.scrollDirection === "backward")
+  ) return false
   return isFirstMeasure ? item.start < offset : item.end <= offset
 }
 
@@ -141,6 +151,7 @@ export interface DecideScrollActionInput {
   // useChannelWatermark never advances the read pointer.
   heroMeasured: boolean
   hasMoreNewer?: boolean
+  newerPageTransition?: boolean
   viewerUserId?: string
   // Whether the viewport was within NEAR_BOTTOM_PX of the end BEFORE this
   // commit's append — the caller reads this off `virtualizer.isAtEnd(NEAR_BOTTOM_PX)`.
@@ -173,7 +184,7 @@ export interface DecideScrollActionResult {
  * real virtualizer. Exported for unit testing without DOM/hooks.
  */
 export function decideScrollAction(input: DecideScrollActionInput): DecideScrollActionResult {
-  const { state, messages, newDividerBefore, initialScrollReady, heroMeasured, hasMoreNewer, viewerUserId, isAtEnd, userScrolledAway } = input
+  const { state, messages, newDividerBefore, initialScrollReady, heroMeasured, hasMoreNewer, newerPageTransition, viewerUserId, isAtEnd, userScrolledAway } = input
 
   const nextTail = messages[messages.length - 1]?.id ?? null
   const nextLen = messages.length
@@ -267,7 +278,12 @@ export function decideScrollAction(input: DecideScrollActionInput): DecideScroll
   // the anchor, and only repositions while the viewer is still parked at the
   // bottom (`isAtEnd`): if they've started scrolling we must not yank them
   // (Cecilia's red line #2 — converge, never pull a settled viewport back).
-  if (!state.didDividerConverge && !tailChanged) {
+  // An anchor response can replace a warm, tail-attached cache with a
+  // smaller read-centered window. That changes the tail id, but while
+  // convergence is still pending the divider + newer cursor identify it as
+  // mount settling rather than a live append.
+  const anchorWindowReplacement = !!newDividerBefore && !!hasMoreNewer
+  if (!state.didDividerConverge && (!tailChanged || anchorWindowReplacement)) {
     if (!initialScrollReady || !heroMeasured) {
       return { action: { type: "none" }, nextState: baseNextState }
     }
@@ -282,6 +298,13 @@ export function decideScrollAction(input: DecideScrollActionInput): DecideScroll
     return { action: { type: "none" }, nextState: { ...baseNextState, didDividerConverge: true } }
   }
   if (tailChanged) {
+    // A newer-page request extends an anchored history window toward the
+    // already-existing present. Its landing commit can flip hasMoreNewer to
+    // false, so the fetch transition—not the final cursor value—distinguishes
+    // it from a peer append.
+    if (newerPageTransition) {
+      return { action: { type: "none" }, nextState: baseNextState }
+    }
     // A live append means we're past mount-settling: the divider-convergence
     // one-shot is spent (any pending convergence would now be a stale yank), so
     // consume it on every tail-changed outcome below.
@@ -306,6 +329,21 @@ export function decideScrollAction(input: DecideScrollActionInput): DecideScroll
   }
 
   return { action: { type: "none" }, nextState: baseNextState }
+}
+
+export function advanceNewerPageTransition({
+  wasFetchingNewer,
+  isFetchingNewer,
+  tailChanged,
+}: {
+  wasFetchingNewer: boolean
+  isFetchingNewer: boolean
+  tailChanged: boolean
+}): { newerPageTransition: boolean; nextWasFetchingNewer: boolean } {
+  return {
+    newerPageTransition: tailChanged && (isFetchingNewer || wasFetchingNewer),
+    nextWasFetchingNewer: isFetchingNewer,
+  }
 }
 
 /**
@@ -391,6 +429,7 @@ export function useScrollAnchor({
   newDividerBefore,
   initialScrollReady,
   hasMoreNewer,
+  isFetchingNewer,
   presentVersion,
   viewerUserId,
   heroHeight,
@@ -400,6 +439,7 @@ export function useScrollAnchor({
   newDividerBefore?: string
   initialScrollReady: boolean
   hasMoreNewer?: boolean
+  isFetchingNewer?: boolean
   presentVersion?: number
   viewerUserId?: string
   // Current measured height (px) of the non-virtualized hero block that
@@ -424,6 +464,7 @@ export function useScrollAnchor({
 } {
   const scrollRef = useRef<HTMLDivElement>(null)
   const stateRef = useRef<ScrollAnchorState>(createScrollAnchorState())
+  const wasFetchingNewerRef = useRef(false)
   const messages = extractScrollAnchorMessages(items)
   const tailId = messages[messages.length - 1]?.id ?? null
   const wasAtEndRef = useRef(true)
@@ -433,7 +474,11 @@ export function useScrollAnchor({
   const acceptedScrollTopRef = useRef(0)
   const measuredRowHeightsRef = useRef(new WeakMap<Element, number>())
   const bottomRepinQueuedRef = useRef(false)
-  const liveResizeAnchor = wasExactlyPinnedRef.current && !userScrolledAwayRef.current
+  const dividerMountActiveRef = useRef(false)
+  const preservingNewerPage = !!isFetchingNewer || wasFetchingNewerRef.current
+  const liveResizeAnchor = preservingNewerPage
+    ? "start"
+    : wasExactlyPinnedRef.current && !userScrolledAwayRef.current
     ? "end"
     : "start"
 
@@ -466,7 +511,11 @@ export function useScrollAnchor({
       ) {
         bottomRepinQueuedRef.current = true
         queueMicrotask(() => {
-          if (element.isConnected && !userScrolledAwayRef.current) {
+          if (
+            element.isConnected
+            && wasExactlyPinnedRef.current
+            && !userScrolledAwayRef.current
+          ) {
             const scrollElement = scrollRef.current
             if (scrollElement) scrollElement.scrollTop = scrollElement.scrollHeight
           }
@@ -479,7 +528,11 @@ export function useScrollAnchor({
           // exactly that hero height after a row-only resize.
           element.ownerDocument.defaultView?.requestAnimationFrame(() => {
             bottomRepinQueuedRef.current = false
-            if (element.isConnected && !userScrolledAwayRef.current) {
+            if (
+              element.isConnected
+              && wasExactlyPinnedRef.current
+              && !userScrolledAwayRef.current
+            ) {
               const scrollElement = scrollRef.current
               if (scrollElement) scrollElement.scrollTop = scrollElement.scrollHeight
             }
@@ -490,7 +543,7 @@ export function useScrollAnchor({
       return size
     },
     getItemKey: (index) => items[index].key,
-    anchorTo: "end",
+    anchorTo: preservingNewerPage ? "start" : "end",
     // Deliberately OFF — see this file's module doc comment for the
     // same-commit double-`scrollToEnd()` race this avoids.
     followOnAppend: false,
@@ -515,6 +568,7 @@ export function useScrollAnchor({
       delta,
       instance as unknown as SizeAdjustmentVirtualizer,
       userScrolledAwayRef.current,
+      dividerMountActiveRef.current,
     )
   }) as typeof virtualizer.shouldAdjustScrollPositionOnItemSizeChange
 
@@ -558,7 +612,10 @@ export function useScrollAnchor({
       if (isAtEnd) {
         userScrolledAwayRef.current = false
         virtualizer.options.anchorTo = "end"
-      } else if (leftEnd || nextScrollTop < acceptedScrollTopRef.current - 1) {
+      } else if (
+        !dividerMountActiveRef.current
+        && (leftEnd || nextScrollTop < acceptedScrollTopRef.current - 1)
+      ) {
         userScrolledAwayRef.current = true
         virtualizer.options.anchorTo = "start"
       }
@@ -583,6 +640,7 @@ export function useScrollAnchor({
         : "start"
     }
     const onWheel = (event: WheelEvent) => {
+      dividerMountActiveRef.current = false
       if (event.deltaY < 0) {
         wasExactlyPinnedRef.current = false
         userScrolledAwayRef.current = true
@@ -590,23 +648,37 @@ export function useScrollAnchor({
       }
     }
     const onKeyDown = (event: KeyboardEvent) => {
+      dividerMountActiveRef.current = false
       if (["ArrowUp", "PageUp", "Home"].includes(event.key)) {
         wasExactlyPinnedRef.current = false
         userScrolledAwayRef.current = true
         virtualizer.options.anchorTo = "start"
       }
     }
+    const onPointerDown = () => { dividerMountActiveRef.current = false }
     el.addEventListener("scroll", onScroll, { passive: true })
     el.addEventListener("wheel", onWheel, { passive: true })
     el.addEventListener("keydown", onKeyDown)
+    el.addEventListener("pointerdown", onPointerDown, { passive: true })
+    el.addEventListener("touchstart", onPointerDown, { passive: true })
     return () => {
       el.removeEventListener("scroll", onScroll)
       el.removeEventListener("wheel", onWheel)
       el.removeEventListener("keydown", onKeyDown)
+      el.removeEventListener("pointerdown", onPointerDown)
+      el.removeEventListener("touchstart", onPointerDown)
     }
   }, [virtualizer])
 
   useLayoutEffect(() => {
+    const tailChanged = stateRef.current.lastTailId !== null
+      && stateRef.current.lastTailId !== tailId
+    const transition = advanceNewerPageTransition({
+      wasFetchingNewer: wasFetchingNewerRef.current,
+      isFetchingNewer: !!isFetchingNewer,
+      tailChanged,
+    })
+    wasFetchingNewerRef.current = transition.nextWasFetchingNewer
     const { action, nextState } = decideScrollAction({
       state: stateRef.current,
       messages,
@@ -614,6 +686,7 @@ export function useScrollAnchor({
       initialScrollReady,
       heroMeasured,
       hasMoreNewer,
+      newerPageTransition: transition.newerPageTransition,
       viewerUserId,
       isAtEnd: wasAtEndRef.current,
       userScrolledAway: userScrolledAwayRef.current,
@@ -624,6 +697,9 @@ export function useScrollAnchor({
       case "mount": {
         const idx = action.newDividerBefore ? findMountScrollTargetIndex(items, action.newDividerBefore) : null
         if (idx !== null) {
+          wasExactlyPinnedRef.current = false
+          virtualizer.options.anchorTo = "start"
+          dividerMountActiveRef.current = true
           virtualizer.scrollToIndex(idx, { align: "center" })
         } else {
           wasExactlyPinnedRef.current = true
@@ -644,7 +720,7 @@ export function useScrollAnchor({
     // derives from items) — `items` alone is the correct dep, not a
     // secondary `messages` dep, avoiding a re-derivation-triggered re-fire.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, newDividerBefore, initialScrollReady, heroMeasured, hasMoreNewer, viewerUserId, virtualizer])
+  }, [items, newDividerBefore, initialScrollReady, heroMeasured, hasMoreNewer, isFetchingNewer, viewerUserId, virtualizer])
 
   const consumedPresentVersionRef = useRef(0)
   useLayoutEffect(() => {

@@ -17,6 +17,7 @@ import {
   seedServer,
 } from "./_fixtures/seed"
 import { tid } from "./_fixtures/testids"
+import { waitForAcceptedReplicaTextIntent } from "./_fixtures/replica-intent"
 
 async function installReadObserverGate(page: Page, initiallyBlocked = false) {
   await page.addInitScript((blockInitially) => {
@@ -241,20 +242,16 @@ test.describe.serial("account unread projection", () => {
     const alice = await asUser("alice")
     await gotoAfterUserWsAuth(alice.page, `/c/channels/${serverId}/${channelId}`)
     const mentionText = `Canonical mention ${stamp}`
+    const mentionBody = `@${bobInfo.name}#${bobInfo.discriminator} ${mentionText}`
     const frameStart = proxy.frames.length
-    const response = alice.page.waitForResponse((candidate) => (
-      candidate.request().method() === "POST"
-      && new URL(candidate.url()).pathname === `/api/community/channels/${channelId}/messages`
-    ))
+    const response = waitForAcceptedReplicaTextIntent(alice.page, channelId, mentionBody)
     const editable = composerEditable(alice.page)
     await editable.click()
     await editable.pressSequentially(`@${bobInfo.name.slice(0, 3)}`)
     await alice.page.getByTestId(tid.mentionOption(bobInfo.id)).click()
-    await editable.pressSequentially(` ${mentionText}`)
+    await editable.pressSequentially(mentionText)
     await alice.page.keyboard.press("Enter")
-    const messageResponse = await response
-    expect(messageResponse.status()).toBe(201)
-    const messageId = (await messageResponse.json() as { message: { id: string } }).message.id
+    const messageId = (await response).messageId
     await expect.poll(() => {
       const events = proxy.frames.slice(frameStart).flatMap(communityFrameEvents)
       return events.some((event) => (
@@ -382,7 +379,9 @@ test.describe.serial("account unread projection", () => {
       if (
         request.method() === "PUT"
         && new URL(request.url()).pathname === `/api/community/channels/${unreadChannel}/read`
-      ) targetPuts.push(request.url())
+      ) {
+        targetPuts.push(request.url())
+      }
     })
     await page.getByTestId(tid.inboxUnreadChannel(unreadChannel)).click()
     await expect(page).toHaveURL(`/c/channels/${backgroundServer}/${unreadChannel}`)
@@ -483,17 +482,18 @@ test.describe.serial("account unread projection", () => {
     const triggerComposer = composerEditable(alice.page)
     await expect(triggerComposer).toBeVisible({ timeout: 30_000 })
     const sendRailMention = async (label: string) => {
-      const response = alice.page.waitForResponse((candidate) => (
-        candidate.request().method() === "POST"
-        && new URL(candidate.url()).pathname
-          === `/api/community/channels/${railTriggerChannel}/messages`
-      ))
+      const content = `@${bobInfo.name}#${bobInfo.discriminator} ${label}`
+      const response = waitForAcceptedReplicaTextIntent(
+        alice.page,
+        railTriggerChannel,
+        content,
+      )
       await triggerComposer.click()
       await triggerComposer.pressSequentially(`@${bobInfo.name.slice(0, 3)}`)
       await alice.page.getByTestId(tid.mentionOption(bobInfo.id)).click()
-      await triggerComposer.pressSequentially(` ${label}`)
+      await triggerComposer.pressSequentially(label)
       await alice.page.keyboard.press("Enter")
-      expect((await response).status()).toBe(201)
+      await response
     }
 
     await expectRailReplacementDoesNotBlockMessages({
