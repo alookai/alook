@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { queries } from "@alook/shared"
-import { getDb } from "@/lib/db"
+import { getDb, getPrimaryDb } from "@/lib/db"
 import { createAuth } from "@/lib/auth"
 import { getKV, cacheKeys, bindCacheKV } from "@/lib/cache"
 
@@ -18,6 +18,10 @@ export interface AuthContext {
    * plans/agent-friendship-approval-gate.md §Hardening.
    */
   user?: { isBot: boolean }
+}
+
+interface CookieHumanAuthContext extends AuthContext {
+  executionContext: ExecutionContext
 }
 
 /**
@@ -95,6 +99,11 @@ export type AuthenticatedHandler = (
 export type OptionalAuthHandler = (
   req: NextRequest,
   ctx: OptionalAuthContext & { params?: Record<string, string> }
+) => Promise<NextResponse | Response>
+
+export type CookieHumanAuthHandler = (
+  req: NextRequest,
+  ctx: CookieHumanAuthContext & { params?: Record<string, string> },
 ) => Promise<NextResponse | Response>
 
 /**
@@ -187,6 +196,98 @@ async function resolveSession(
 function clearAuthCookies(res: NextResponse): void {
   res.cookies.set("better-auth.session_token", "", { maxAge: 0, path: "/" })
   res.cookies.set("better-auth.session_data", "", { maxAge: 0, path: "/" })
+}
+
+function clearCookieHumanAuthCookies(res: NextResponse): void {
+  clearAuthCookies(res)
+  res.cookies.set("__Secure-better-auth.session_token", "", {
+    maxAge: 0,
+    path: "/",
+    secure: true,
+  })
+  res.cookies.set("__Secure-better-auth.session_data", "", {
+    maxAge: 0,
+    path: "/",
+    secure: true,
+  })
+}
+
+function forwardSetCookies(res: NextResponse | Response, setCookies: string[]): NextResponse | Response {
+  if (setCookies.length === 0) return res
+  const mutableRes = new NextResponse(res.body, res)
+  for (const cookie of setCookies) mutableRes.headers.append("Set-Cookie", cookie)
+  return mutableRes
+}
+
+function accountDeletionAuthError(error: string, status: number): NextResponse {
+  return NextResponse.json(
+    { error },
+    {
+      status,
+      headers: { "Cache-Control": "no-store, max-age=0" },
+    },
+  )
+}
+
+export function withCookieHumanAuth(handler: CookieHumanAuthHandler) {
+  return async (
+    req: NextRequest,
+    context?: { params?: Promise<Record<string, string>> | Record<string, string> },
+  ) => {
+    const resolvedParams = context?.params
+      ? context.params instanceof Promise
+        ? await context.params
+        : context.params
+      : undefined
+    const requestOrigin = new URL(req.url).origin
+    if (req.method !== "POST" || req.headers.get("Origin") !== requestOrigin) {
+      return accountDeletionAuthError("FORBIDDEN", 403)
+    }
+    if (req.headers.has("Authorization")) {
+      return accountDeletionAuthError("UNAUTHORIZED", 401)
+    }
+
+    const cloudflare = await getCloudflareContext({ async: true })
+    const cloudflareEnv = cloudflare.env as Env
+    bindCacheKV(cloudflareEnv.CACHE_KV ?? null)
+    const resolved = await resolveSession(req, cloudflareEnv)
+    if (resolved.kind === "error") {
+      return accountDeletionAuthError("SESSION_VALIDATION_FAILED", 503)
+    }
+    if (resolved.kind === "none") {
+      return accountDeletionAuthError("UNAUTHORIZED", 401)
+    }
+    if (resolved.kind === "invalid") {
+      const response = accountDeletionAuthError("UNAUTHORIZED", 401)
+      clearCookieHumanAuthCookies(response)
+      return response
+    }
+
+    let liveUser: Awaited<ReturnType<typeof queries.user.getUserInternal>>
+    try {
+      liveUser = await queries.user.getUserInternal(
+        getPrimaryDb(cloudflareEnv.DB),
+        resolved.user.id,
+      )
+    } catch {
+      return accountDeletionAuthError("SESSION_VALIDATION_FAILED", 503)
+    }
+    if (!liveUser || liveUser.isBot || liveUser.deletedAt !== null) {
+      const response = accountDeletionAuthError("UNAUTHORIZED", 401)
+      clearCookieHumanAuthCookies(response)
+      return response
+    }
+
+    const response = await handler(req, {
+      env: cloudflareEnv,
+      executionContext: cloudflare.ctx,
+      userId: liveUser.id,
+      email: liveUser.email,
+      user: { isBot: false },
+      params: resolvedParams,
+    })
+    return forwardSetCookies(response, resolved.setCookies)
+  }
 }
 
 export function withAuth(handler: AuthenticatedHandler) {
@@ -313,15 +414,7 @@ export function withAuth(handler: AuthenticatedHandler) {
     const res = await handler(req, { ...authCtx, params: resolvedParams })
 
     // Forward Set-Cookie headers from Better Auth to refresh session_data cookie cache
-    if (session.setCookies.length > 0) {
-      const mutableRes = new NextResponse(res.body, res)
-      for (const cookie of session.setCookies) {
-        mutableRes.headers.append("Set-Cookie", cookie)
-      }
-      return mutableRes
-    }
-
-    return res
+    return forwardSetCookies(res, session.setCookies)
   }
 }
 
@@ -382,14 +475,6 @@ export function withOptionalAuth(handler: OptionalAuthHandler) {
     const res = await handler(req, { ...authCtx, params: resolvedParams })
 
     // Forward Set-Cookie headers from Better Auth to refresh session_data cookie cache
-    if (session.setCookies.length > 0) {
-      const mutableRes = new NextResponse(res.body, res)
-      for (const cookie of session.setCookies) {
-        mutableRes.headers.append("Set-Cookie", cookie)
-      }
-      return mutableRes
-    }
-
-    return res
+    return forwardSetCookies(res, session.setCookies)
   }
 }

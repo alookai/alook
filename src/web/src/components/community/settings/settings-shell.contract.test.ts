@@ -36,14 +36,16 @@ describe("shared settings shell", () => {
     }
   })
 
-  it("keeps Privacy last above the existing Log Out footer", () => {
+  it("keeps Privacy last above Log Out and Delete account", () => {
     const source = readSettings("user-settings.tsx")
     const privacyTab = source.indexOf('{ value: "privacy", label: "Privacy"')
     const advancedTab = source.indexOf('{ value: "advanced", label: "Advanced"')
     const logout = source.indexOf('aria-label="Log out"')
+    const accountDeletion = source.indexOf('aria-label="Delete account"')
 
     expect(privacyTab).toBeGreaterThan(advancedTab)
     expect(logout).toBeGreaterThan(privacyTab)
+    expect(accountDeletion).toBeGreaterThan(logout)
     expect(source).toContain("<PrivacyPolicyContent />")
   })
 })

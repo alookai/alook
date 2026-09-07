@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   currentUser: {
     id: "self",
     name: "Self",
+    email: "self@example.com",
     avatar: "S",
     avatarVersion: 0,
     aboutMe: "About",
@@ -30,6 +31,7 @@ const mocks = vi.hoisted(() => ({
   toastApiError: vi.fn(),
   validate: vi.fn(),
   disposeReconciliation: vi.fn(),
+  disposeCoordinator: vi.fn(),
 }))
 
 vi.mock("sonner", () => ({ toast: mocks.toast }))
@@ -97,6 +99,9 @@ vi.mock("@/components/community/social/profile-lookup", () => ({
 vi.mock("@/lib/query-persister", () => ({ clearPersistedCache: mocks.clearCache }))
 vi.mock("@/hooks/community/community-ws/read-state-reconciliation", () => ({
   disposeAccountReadStateReconciliation: mocks.disposeReconciliation,
+}))
+vi.mock("@/hooks/community/read-coordinator", () => ({
+  disposeReadCoordinator: mocks.disposeCoordinator,
 }))
 vi.mock("@/lib/auth-client", () => ({ signOut: mocks.signOut }))
 
@@ -448,6 +453,35 @@ describe("useShellProfileController", () => {
     mocks.signOut.mockRejectedValue(new Error("auth"))
     await expect(act(async () => hook.current.userSettingsProps.onLogout())).rejects.toThrow("auth")
     expect(order.some((entry) => entry.startsWith("push:"))).toBe(false)
+  })
+
+  it("uses logout-equivalent local cleanup then replaces into the persistent deletion state", async () => {
+    const order: string[] = []
+    const hook = await renderController()
+    hook.cancelPendingNavigation.mockImplementation(() => { order.push("cancel") })
+    mocks.communityReset.mockImplementation(() => { order.push("community") })
+    mocks.wsReset.mockImplementation(() => { order.push("ws") })
+    mocks.streamReset.mockImplementation(() => { order.push("stream") })
+    mocks.disposeCoordinator.mockImplementation(() => { order.push("coordinator") })
+    mocks.disposeReconciliation.mockImplementation(() => { order.push("reconcile") })
+    hook.queryClient.clear.mockImplementation(() => { order.push("query") })
+    mocks.clearCache.mockImplementation(async () => { order.push("cache") })
+    hook.router.replace.mockImplementation((href: string) => { order.push(`replace:${href}`) })
+
+    await act(async () => hook.current.userSettingsProps.onAccountDeleted())
+
+    expect(order).toEqual([
+      "cancel",
+      "community",
+      "ws",
+      "stream",
+      "coordinator",
+      "reconcile",
+      "query",
+      "cache",
+      "replace:/sign-in?account_deleted=1",
+    ])
+    expect(mocks.signOut).not.toHaveBeenCalled()
   })
 
   it("starts avatar upload before revoking exactly once", async () => {

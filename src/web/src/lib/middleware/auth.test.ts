@@ -3,10 +3,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 
 vi.mock("@opennextjs/cloudflare", () => ({
-  getCloudflareContext: vi.fn(async () => ({ env: { DB: {} } })),
+  getCloudflareContext: vi.fn(async () => ({ env: { DB: {} }, ctx: { waitUntil: vi.fn() } })),
 }));
 
-vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
+vi.mock("@/lib/db", () => ({
+  getDb: vi.fn(() => ({})),
+  getPrimaryDb: vi.fn(() => ({ primary: true })),
+}));
 
 vi.mock("@alook/shared", () => ({
   createDb: vi.fn(() => ({})),
@@ -14,6 +17,9 @@ vi.mock("@alook/shared", () => ({
     machineToken: {
       getMachineTokenByToken: vi.fn(),
       updateMachineTokenLastUsed: vi.fn(),
+    },
+    user: {
+      getUserInternal: vi.fn(),
     },
   },
 }));
@@ -25,13 +31,14 @@ vi.mock("@/lib/auth", () => ({
   })),
 }));
 
-import { withAuth, withOptionalAuth, warmMachineTokenCache } from "./auth";
+import { withAuth, withCookieHumanAuth, withOptionalAuth, warmMachineTokenCache } from "./auth";
 import { queries } from "@alook/shared";
 
 const mockGetMachineTokenByHash = queries.machineToken
   .getMachineTokenByToken as ReturnType<typeof vi.fn>;
 const mockUpdateMachineTokenLastUsed = queries.machineToken
   .updateMachineTokenLastUsed as ReturnType<typeof vi.fn>;
+const mockGetUserInternal = queries.user.getUserInternal as ReturnType<typeof vi.fn>;
 const mockGetCloudflareContext = getCloudflareContext as unknown as ReturnType<typeof vi.fn>;
 
 /** Build a stub KV and point the CF context at it for one test. */
@@ -41,7 +48,7 @@ function bindMockKV(overrides?: { get?: ReturnType<typeof vi.fn> }) {
     put: vi.fn().mockResolvedValue(undefined),
     delete: vi.fn().mockResolvedValue(undefined),
   };
-  mockGetCloudflareContext.mockResolvedValue({ env: { DB: {}, CACHE_KV: kv } });
+  mockGetCloudflareContext.mockResolvedValue({ env: { DB: {}, CACHE_KV: kv }, ctx: { waitUntil: vi.fn() } });
   return kv;
 }
 
@@ -53,7 +60,7 @@ describe("withAuth middleware", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // Default: no KV bound (cold-path every request), matching original tests.
-    mockGetCloudflareContext.mockResolvedValue({ env: { DB: {} } });
+    mockGetCloudflareContext.mockResolvedValue({ env: { DB: {} }, ctx: { waitUntil: vi.fn() } });
   });
 
   const wrapped = withAuth(testHandler);
@@ -355,7 +362,7 @@ describe("withAuth middleware", () => {
 describe("withOptionalAuth middleware", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetCloudflareContext.mockResolvedValue({ env: { DB: {} } });
+    mockGetCloudflareContext.mockResolvedValue({ env: { DB: {} }, ctx: { waitUntil: vi.fn() } });
   });
 
   const wrapped = withOptionalAuth(testHandler);
@@ -454,6 +461,157 @@ describe("withOptionalAuth middleware", () => {
 
     expect(res.status).toBe(200);
     expect(body.ctx.params).toEqual({ token: "t1" });
+  });
+});
+
+describe("withCookieHumanAuth middleware", () => {
+  const wrapped = withCookieHumanAuth(testHandler);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetCloudflareContext.mockResolvedValue({
+      env: { DB: {} },
+      ctx: { waitUntil: vi.fn() },
+    });
+    mockGetSession.mockResolvedValue({
+      headers: new Headers(),
+      response: { user: { id: "user-1", email: "stale@example.com" } },
+    });
+    mockGetUserInternal.mockResolvedValue({
+      id: "user-1",
+      email: "live@example.com",
+      isBot: false,
+      deletedAt: null,
+    });
+  });
+
+  it("requires a same-origin POST before resolving the session", async () => {
+    const req = new NextRequest("https://alook.ai/api/test", {
+      method: "POST",
+      headers: { Origin: "https://evil.example" },
+    });
+
+    const res = await wrapped(req);
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: "FORBIDDEN" });
+    expect(mockGetSession).not.toHaveBeenCalled();
+  });
+
+  it("distinguishes an absent cookie from transient session validation failure", async () => {
+    const req = new NextRequest("https://alook.ai/api/test", {
+      method: "POST",
+      headers: { Origin: "https://alook.ai" },
+    });
+    mockGetSession.mockResolvedValueOnce({ headers: new Headers(), response: null });
+    const absent = await wrapped(req);
+    expect(absent.status).toBe(401);
+    expect(await absent.json()).toEqual({ error: "UNAUTHORIZED" });
+
+    mockGetSession.mockRejectedValue(new Error("auth unavailable"));
+    const transient = await wrapped(req);
+    expect(transient.status).toBe(503);
+    expect(await transient.json()).toEqual({ error: "SESSION_VALIDATION_FAILED" });
+  });
+
+  it("rejects an al_ bearer even when a browser cookie could also resolve", async () => {
+    const req = new NextRequest("https://alook.ai/api/test", {
+      method: "POST",
+      headers: {
+        Origin: "https://alook.ai",
+        Authorization: "Bearer al_machine_token",
+      },
+    });
+
+    const res = await wrapped(req);
+
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: "UNAUTHORIZED" });
+    expect(mockGetSession).not.toHaveBeenCalled();
+    expect(mockGetMachineTokenByHash).not.toHaveBeenCalled();
+  });
+
+  it("rejects a Better Auth bearer because deletion is cookie-session only", async () => {
+    const req = new NextRequest("https://alook.ai/api/test", {
+      method: "POST",
+      headers: {
+        Origin: "https://alook.ai",
+        Authorization: "Bearer browser_session_token",
+      },
+    });
+
+    const res = await wrapped(req);
+
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: "UNAUTHORIZED" });
+    expect(mockGetSession).not.toHaveBeenCalled();
+  });
+
+  it("uses the live primary human row and passes the execution context", async () => {
+    const waitUntil = vi.fn();
+    mockGetCloudflareContext.mockResolvedValue({ env: { DB: {} }, ctx: { waitUntil } });
+    const req = new NextRequest("https://alook.ai/api/test", {
+      method: "POST",
+      headers: { Origin: "https://alook.ai" },
+    });
+
+    const res = await wrapped(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(mockGetUserInternal).toHaveBeenCalledWith({ primary: true }, "user-1");
+    expect(body.ctx.email).toBe("live@example.com");
+    expect(body.ctx.executionContext).toEqual({});
+  });
+
+  it("returns 503 when the primary live-user lookup fails", async () => {
+    mockGetUserInternal.mockRejectedValue(new Error("primary down"));
+    const req = new NextRequest("https://alook.ai/api/test", {
+      method: "POST",
+      headers: { Origin: "https://alook.ai" },
+    });
+
+    const res = await wrapped(req);
+
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: "SESSION_VALIDATION_FAILED" });
+    expect(testHandler).not.toHaveBeenCalled();
+  });
+
+  it("rejects a bot or deleted live row and clears auth cookies", async () => {
+    mockGetUserInternal.mockResolvedValue({
+      id: "bot-1",
+      email: "bot@example.com",
+      isBot: true,
+      deletedAt: null,
+    });
+    const req = new NextRequest("https://alook.ai/api/test", {
+      method: "POST",
+      headers: { Origin: "https://alook.ai" },
+    });
+
+    const res = await wrapped(req);
+
+    expect(res.status).toBe(401);
+    expect(res.headers.getSetCookie()).toHaveLength(4);
+    expect(testHandler).not.toHaveBeenCalled();
+  });
+
+  it("forwards Better Auth cookie refresh headers", async () => {
+    const headers = new Headers();
+    headers.append("Set-Cookie", "better-auth.session_data=fresh; Path=/");
+    mockGetSession.mockResolvedValue({
+      headers,
+      response: { user: { id: "user-1", email: "stale@example.com" } },
+    });
+    const req = new NextRequest("https://alook.ai/api/test", {
+      method: "POST",
+      headers: { Origin: "https://alook.ai" },
+    });
+
+    const res = await wrapped(req);
+
+    expect(res.headers.getSetCookie()).toContain("better-auth.session_data=fresh; Path=/");
   });
 });
 

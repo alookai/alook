@@ -278,7 +278,7 @@ export function useShellProfileController({
     }
   }
 
-  const onLogout = async () => {
+  const clearLocalAccountState = async () => {
     cancelPendingNavigation()
     useCommunityStore.getState().reset()
     useCommunityWsStore.getState().reset()
@@ -287,14 +287,25 @@ export function useShellProfileController({
     disposeAccountReadStateReconciliation(queryClient)
     queryClient.clear()
     await clearPersistedCache(currentUser.id).catch(() => {})
+  }
+
+  const onLogout = async () => {
+    await clearLocalAccountState()
     await signOut()
     router.push("/sign-in")
+  }
+
+  const onAccountDeleted = async () => {
+    await clearLocalAccountState()
+    setEditingProfile(false)
+    router.replace("/sign-in?account_deleted=1")
   }
 
   const userSettingsProps: ComponentProps<typeof UserSettings> = {
     onClose: () => setEditingProfile(false),
     userId: currentUser.id,
     userName: currentUser.name,
+    userEmail: currentUser.email,
     aboutMe: currentUser.aboutMe ?? "",
     avatar: currentUser.avatar,
     statusEmoji: currentUser.statusEmoji,
@@ -302,6 +313,7 @@ export function useShellProfileController({
     onUploadAvatar,
     onSave: onSaveProfile,
     onLogout,
+    onAccountDeleted,
   }
 
   let pendingAvatarCropProps: Omit<ComponentProps<typeof ImageCropDialog>, "maskShape"> | null = null

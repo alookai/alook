@@ -12,7 +12,7 @@ import {
 } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { checkRateLimit } from "@/lib/rate-limit"
-import { getOtpSubject, renderOtpEmail } from "./email-templates"
+import { getOtpSubject, renderOtpEmail, type OtpType } from "./email-templates"
 
 const log = createLogger({ service: "auth" })
 
@@ -27,14 +27,52 @@ function parsePositiveInt(raw: string | undefined, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? n : fallback
 }
 
+export function getAuthOtpRateLimitPolicy(env: Env): { max: number; windowMs: number } {
+  return {
+    max: parsePositiveInt(env.AUTH_OTP_RATE_LIMIT_MAX, DEFAULT_OTP_RATE_LIMIT_MAX),
+    windowMs: parsePositiveInt(
+      env.AUTH_OTP_RATE_LIMIT_WINDOW_SEC,
+      DEFAULT_OTP_RATE_LIMIT_WINDOW_SEC,
+    ) * 1000,
+  }
+}
+
+export async function sendOtpEmail(
+  env: Env,
+  input: { email: string; otp: string; type: OtpType },
+): Promise<void> {
+  log.info("sending OTP email", { to: input.email, type: input.type })
+  try {
+    const fetchOptions = {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        to: input.email,
+        subject: getOtpSubject(input.type),
+        html: renderOtpEmail(input.otp, input.type),
+      }),
+    }
+    let response: Response
+    try {
+      response = await env.EMAIL_WORKER.fetch("http://internal/send/otp", fetchOptions)
+    } catch {
+      response = await fetch(`${DEV_EMAIL_WORKER_URL}/send/otp`, fetchOptions)
+    }
+    if (!response.ok) {
+      const errorBody = await response.text()
+      throw new Error(`EMAIL_WORKER /send/otp failed: ${response.status} ${errorBody}`)
+    }
+    log.info("OTP email sent", { to: input.email, type: input.type })
+  } catch (error) {
+    log.error("OTP email failed", { to: input.email, type: input.type, error })
+    throw error
+  }
+}
+
 export function createAuth(env: Env) {
   const mode = resolveMode({ nodeEnv: env.NODE_ENV ?? process.env.NODE_ENV })
   const isProd = mode === "production"
-  const otpMax = parsePositiveInt(env.AUTH_OTP_RATE_LIMIT_MAX, DEFAULT_OTP_RATE_LIMIT_MAX)
-  const otpWindow = parsePositiveInt(
-    env.AUTH_OTP_RATE_LIMIT_WINDOW_SEC,
-    DEFAULT_OTP_RATE_LIMIT_WINDOW_SEC,
-  )
+  const otpPolicy = getAuthOtpRateLimitPolicy(env)
   const validateClient = (clientId: string) => {
     const allowed = (env.DEVICE_CLIENT_IDS || "").split(",").map((s) => s.trim()).filter(Boolean)
     return allowed.includes(clientId)
@@ -234,8 +272,8 @@ export function createAuth(env: Env) {
               // (the sender's target); anyone attempting to spam a
               // specific inbox gets throttled per inbox.
               const rate = await checkRateLimit(env, "auth:otpSend", email, {
-                windowMs: otpWindow * 1000,
-                max: otpMax,
+                windowMs: otpPolicy.windowMs,
+                max: otpPolicy.max,
               })
               if (!rate.allowed) {
                 log.warn("OTP send rate-limited", {
@@ -244,33 +282,7 @@ export function createAuth(env: Env) {
                 })
                 throw new Error(`OTP rate limit; retry in ${rate.retryAfterSec}s`)
               }
-              log.info("sending OTP email", { to: email, type })
-              try {
-                const otpPayload = JSON.stringify({
-                  to: email,
-                  subject: getOtpSubject(type),
-                  html: renderOtpEmail(otp, type),
-                })
-                const fetchOpts = {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: otpPayload,
-                }
-                let res: Response
-                try {
-                  res = await env.EMAIL_WORKER.fetch("http://internal/send/otp", fetchOpts)
-                } catch {
-                  res = await fetch(`${DEV_EMAIL_WORKER_URL}/send/otp`, fetchOpts)
-                }
-                if (!res.ok) {
-                  const errBody = await res.text()
-                  throw new Error(`EMAIL_WORKER /send/otp failed: ${res.status} ${errBody}`)
-                }
-                log.info("OTP email sent", { to: email, type })
-              } catch (err) {
-                log.error("OTP email failed", { to: email, type, err })
-                throw err
-              }
+              await sendOtpEmail(env, { email, otp, type })
             },
           }),
         ]
