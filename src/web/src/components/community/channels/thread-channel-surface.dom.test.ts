@@ -169,6 +169,7 @@ function surfaceProps(overrides: Record<string, unknown> = {}) {
     serverParam: "server_1",
     channelName: "Thread name",
     viewer: { id: "viewer_1", name: "Viewer", discriminator: "1111", avatar: "V" },
+    canManagePins: true,
     anchorMessageId: "m_target",
     parentChannelId: "parent_1",
     parentMessageId: "opener_1",
@@ -305,6 +306,27 @@ describe("ThreadChannelSurface ownership", () => {
     }))
     act(() => composerProps.onCancelReply?.())
     expect(mocks.setReplyTo).toHaveBeenCalledWith(null)
+  })
+
+  it("gates live and preview Pin actions without removing the pinned panel control", () => {
+    let renderer: ReturnType<typeof render>
+    act(() => {
+      renderer = render(renderSurface({ canManagePins: true }))
+    })
+    expect(mockedMessageList.mock.calls.at(-1)?.[0].onPin).toEqual(expect.any(Function))
+    expect(mockedMessageContextSheet.mock.calls.at(-1)?.[0]).toEqual(expect.objectContaining({
+      canManagePins: true,
+      onOpenPinned: expect.any(Function),
+    }))
+    expect(mockedChannelHeader.mock.calls.at(-1)?.[0].onToggle).toEqual(expect.any(Function))
+
+    act(() => renderer!.rerender(renderSurface({ canManagePins: false })))
+    expect(mockedMessageList.mock.calls.at(-1)?.[0].onPin).toBeUndefined()
+    expect(mockedMessageContextSheet.mock.calls.at(-1)?.[0]).toEqual(expect.objectContaining({
+      canManagePins: false,
+      onOpenPinned: expect.any(Function),
+    }))
+    expect(mockedChannelHeader.mock.calls.at(-1)?.[0].onToggle).toEqual(expect.any(Function))
   })
 
   it("keeps authoritative thread chrome mounted across body loading and error", () => {

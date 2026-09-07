@@ -104,10 +104,12 @@ export function createMessageActions({
         return
       }
       pinMessageMutate({ channelId, messageId: id }, {
-        onSuccess: () => toast("Message pinned"),
+        onSuccess: () => {
+          toast("Message pinned")
+          actionContext.current.onOpenPinned()
+        },
         onError: (error) => toastApiError(error, "Failed to pin message"),
       })
-      actionContext.current.onOpenPinned()
     },
     onMark: (id) => toggleMark(channelId, id),
     onCreateThread: async (id) => {

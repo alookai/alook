@@ -131,13 +131,15 @@ describe("createMessageActions", () => {
     const harness = setup()
     harness.actions.onPin("m1")
     expect(harness.pinMessageMutate).toHaveBeenCalled()
-    expect(harness.onOpenPinned).toHaveBeenCalledOnce()
+    expect(harness.onOpenPinned).not.toHaveBeenCalled()
     const pinOptions = harness.pinMessageMutate.mock.calls[0][1]
     pinOptions.onSuccess()
     expect(mocks.toast).toHaveBeenCalledWith("Message pinned")
+    expect(harness.onOpenPinned).toHaveBeenCalledOnce()
     const pinFailure = new Error("pin failed")
     pinOptions.onError(pinFailure)
     expect(mocks.toastApiError).toHaveBeenCalledWith(pinFailure, "Failed to pin message")
+    expect(harness.onOpenPinned).toHaveBeenCalledOnce()
 
     harness.actionContext.current.pinnedIds = new Set(["m1"])
     harness.actions.onPin("m1")
@@ -146,9 +148,11 @@ describe("createMessageActions", () => {
     const unpinOptions = harness.unpinMessageMutate.mock.calls[0][1]
     unpinOptions.onSuccess()
     expect(mocks.toast).toHaveBeenCalledWith("Message unpinned")
+    expect(harness.onOpenPinned).toHaveBeenCalledOnce()
     const unpinFailure = new Error("unpin failed")
     unpinOptions.onError(unpinFailure)
     expect(mocks.toastApiError).toHaveBeenCalledWith(unpinFailure, "Failed to unpin message")
+    expect(harness.onOpenPinned).toHaveBeenCalledOnce()
 
     let resolveThread: (value: { id: string }) => void = () => {}
     harness.createThreadAsync.mockImplementationOnce(() => new Promise((resolve) => {

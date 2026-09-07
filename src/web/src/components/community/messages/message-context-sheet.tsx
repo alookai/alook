@@ -145,6 +145,8 @@ export function MessageContextSheet({
   onOpenProfile,
   resolveUserName,
   onReply,
+  canManagePins = false,
+  onOpenPinned,
   type = "channel",
 }: {
   open: boolean
@@ -162,6 +164,8 @@ export function MessageContextSheet({
   // composer's replyTo state AND close the sheet — the sheet is a
   // read-only preview, replying belongs on the main surface.
   onReply?: (target: ReplyTarget) => void
+  canManagePins?: boolean
+  onOpenPinned?: () => void
   type?: ScopeType
 }) {
   const currentUser = useCurrentUser()
@@ -290,11 +294,17 @@ export function MessageContextSheet({
       })
     } else {
       pinMessageMut.mutate({ channelId, messageId: id }, {
-        onSuccess: () => toast("Message pinned"),
+        onSuccess: () => {
+          toast("Message pinned")
+          if (onOpenPinned) {
+            onOpenChange(false)
+            onOpenPinned()
+          }
+        },
         onError: (e) => toastApiError(e, "Failed to pin message"),
       })
     }
-  }, [type, channelId, pinnedIds, pinMessageMut, unpinMessageMut])
+  }, [type, channelId, pinnedIds, pinMessageMut, unpinMessageMut, onOpenChange, onOpenPinned])
 
   const onCreateThreadId = useCallback(async (id: string) => {
     if (type === "dm") return
@@ -435,7 +445,7 @@ export function MessageContextSheet({
           onReact={toggleReaction}
           onReply={onReply ? onReplyId : undefined}
           onCopy={onCopyId}
-          onPin={type === "channel" ? onPinId : undefined}
+          onPin={type === "channel" && canManagePins ? onPinId : undefined}
           onMark={onMarkId}
           onCreateThread={type === "channel" ? onCreateThreadId : undefined}
           onPreviewImage={onPreviewImage}
