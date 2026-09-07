@@ -105,8 +105,8 @@ describe("MessageChannelController facade contract", () => {
     const importers = [
       "src/components/community/channels/thread-channel-surface.tsx",
       "src/components/community/channels/text-channel-surface.tsx",
-      "src/components/community/channels/thread-channel-surface.test.ts",
-      "src/components/community/channels/text-channel-surface.test.ts",
+      "src/components/community/channels/thread-channel-surface.dom.test.ts",
+      "src/components/community/channels/text-channel-surface.dom.test.ts",
     ]
     for (const path of importers) {
       const text = source(path)

@@ -318,6 +318,8 @@ describe("coverage name-status contract", () => {
       "src/web/src/test/e2e-ui/_fixtures/community-notification-requests.ts",
       "src/web/src/test/e2e-ui/_setup/global-setup.ts",
       "src/web/src/test/e2e/_fixtures/session.ts",
+      "src/web/src/test/react-dom-harness.ts",
+      "src/web/src/test/react-dom-setup.ts",
     ]
     const product = "src/web/src/lib/community/message-dispatcher.ts"
     const lookalike = "src/web/src/test/e2e-ui-helpers/session.ts"

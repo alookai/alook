@@ -189,7 +189,7 @@ jobs:
       - run: pnpm --filter @alook/web validate:blog
       - run: pnpm --filter @alook/web exec tsc --noEmit -p blog/tsconfig.json
       - run: pnpm --filter @alook/web exec eslint blog/
-      - run: pnpm --filter @alook/web exec vitest run --config vitest.config.ts blog
+      - run: pnpm --filter @alook/web exec vitest run --config vitest.workspace.config.ts --project=web-node --project=web-dom blog
       - run: pnpm --filter @alook/web build:blog
       - run: pnpm --filter @alook/web verify:blog-dry-run
 
@@ -342,7 +342,7 @@ jobs:
               scripts/ci) projects=(ci-scripts) ;;
               src/email-worker) projects=(email-worker-node email-worker-runtime) ;;
               src/wake-worker) projects=(wake-worker-node wake-worker-runtime) ;;
-              src/web) projects=(web-node web-runtime auth-node auth-runtime) ;;
+              src/web) projects=(web-node web-dom web-runtime auth-node auth-runtime) ;;
               src/ws-do) projects=(ws-do-node ws-do-runtime) ;;
               *) projects=("$(node -e 'console.log(require("./" + process.argv[1] + "/package.json").name)' "$root")") ;;
             esac
