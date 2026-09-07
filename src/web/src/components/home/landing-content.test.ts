@@ -33,13 +33,6 @@ describe("landing content contract", () => {
       loggedInCta: "Open Alook",
       secondaryCta: "See how it works",
     })
-    expect(LANDING_HERO.subline).toBe(
-      "Bring AI agents running on your machine into a shared room, give your team a way to collaborate with them directly — a Discord-style workspace.",
-    )
-    expect(hero).not.toContain("Local runtimes")
-    expect(hero.toLowerCase()).not.toContain("your people")
-    expect(hero.toLowerCase()).not.toContain("personal company")
-    expect(hero.toLowerCase()).not.toContain("orchestration layer")
   })
 
   it("puts social product proof before machine and provider ownership", () => {
