@@ -65,7 +65,10 @@ vi.mock("./shell-frame-overlays", () => ({
 vi.mock("./community-pending-frame", () => ({
   CommunityPendingFrame: (props: Record<string, unknown>) => {
     mocks.pendingProps(props)
-    return createElement("div", { "data-channel-loading-frame": "" })
+    return createElement("div", {
+      "data-channel-loading-frame": "",
+      "data-community-mobile-transition": "suppress",
+    })
   },
 }))
 vi.mock("@/components/community/channels/channel-sidebar", () => ({
@@ -383,7 +386,16 @@ describe("ShellFrameView", () => {
       useEffect(() => { effectOrder.push(`passive:${href}`) }, [href])
       return createElement("main-content")
     }
-    const sidebar = () => createElement("sidebar-content")
+    let sidebarMounts = 0
+    function StatefulSidebar() {
+      const [identity] = useState(() => ++sidebarMounts)
+      return createElement(
+        "div",
+        { "data-testid": "community-channel-sidebar-scroll" },
+        createElement("div", { "data-testid": "sidebar-dnd-owner", "data-identity": identity }),
+      )
+    }
+    const sidebar = () => createElement(StatefulSidebar)
     const common = {
       breakpoint: "mobile" as const,
       sidebar,
@@ -400,8 +412,12 @@ describe("ShellFrameView", () => {
     expect(animate).not.toHaveBeenCalled()
     const sidebarPanel = renderer.container.querySelector<HTMLElement>('[data-testid="sidebar"]')!
     const mainPanel = renderer.container.querySelector<HTMLElement>('[data-testid="main"]')!
-    sidebarPanel.scrollTop = 37
-    mainPanel.dataset.dndOwner = "stable"
+    const sidebarScroll = renderer.container.querySelector<HTMLElement>(
+      '[data-testid="community-channel-sidebar-scroll"]',
+    )!
+    const dndOwner = renderer.container.querySelector<HTMLElement>('[data-testid="sidebar-dnd-owner"]')!
+    sidebarScroll.scrollTop = 37
+    dndOwner.dataset.owner = "stable"
     effectOrder.length = 0
 
     renderer.rerender(createElement(
@@ -420,8 +436,11 @@ describe("ShellFrameView", () => {
     expect(effectOrder).toEqual(["animate", "passive:/c/channels/s1"])
     expect(renderer.container.querySelector('[data-testid="sidebar"]')).toBe(sidebarPanel)
     expect(renderer.container.querySelector('[data-testid="main"]')).toBe(mainPanel)
-    expect(sidebarPanel.scrollTop).toBe(37)
-    expect(mainPanel.dataset.dndOwner).toBe("stable")
+    expect(renderer.container.querySelector('[data-testid="community-channel-sidebar-scroll"]'))
+      .toBe(sidebarScroll)
+    expect(renderer.container.querySelector('[data-testid="sidebar-dnd-owner"]')).toBe(dndOwner)
+    expect(sidebarScroll.scrollTop).toBe(37)
+    expect(dndOwner.dataset.owner).toBe("stable")
 
     effectOrder.length = 0
     renderer.rerender(createElement(
@@ -440,8 +459,12 @@ describe("ShellFrameView", () => {
     expect(effectOrder).toEqual(["animate", "passive:/c/channels/s1/c2"])
     expect(renderer.container.querySelector('[data-testid="sidebar"]')).toBe(sidebarPanel)
     expect(renderer.container.querySelector('[data-testid="main"]')).toBe(mainPanel)
-    expect(sidebarPanel.scrollTop).toBe(37)
-    expect(mainPanel.dataset.dndOwner).toBe("stable")
+    expect(renderer.container.querySelector('[data-testid="community-channel-sidebar-scroll"]'))
+      .toBe(sidebarScroll)
+    expect(renderer.container.querySelector('[data-testid="sidebar-dnd-owner"]')).toBe(dndOwner)
+    expect(sidebarScroll.scrollTop).toBe(37)
+    expect(dndOwner.dataset.owner).toBe("stable")
+    expect(sidebarMounts).toBe(1)
 
     effectOrder.length = 0
     renderer.rerender(createElement(
@@ -468,7 +491,88 @@ describe("ShellFrameView", () => {
     expect(animate).toHaveBeenCalledTimes(3)
   })
 
-  it("keeps pending mobile surfaces still and does not replay their expired transition", async () => {
+  it("consumes real pending mobile navigation on either success or cancellation", async () => {
+    const cancel = vi.fn()
+    const animate = vi.fn(() => ({ cancel }))
+    Object.defineProperty(HTMLElement.prototype, "animate", {
+      configurable: true,
+      value: animate,
+    })
+    const common = {
+      breakpoint: "mobile" as const,
+      sidebar: () => createElement("sidebar-content"),
+      cancelPendingNavigation: vi.fn(),
+      rail,
+      profile,
+      inbox,
+    }
+    const renderer = render(createElement(
+      ShellFrameView,
+      { ...common, checkpoint: committedCheckpoint("/c/channels/s1", "list") },
+      createElement("main-content"),
+    ))
+
+    renderer.rerender(createElement(
+      ShellFrameView,
+      {
+        ...common,
+        checkpoint: {
+          mode: "same-scope-leaf",
+          surface: "detail",
+          targetHref: "/c/channels/s1/c2",
+          rail: { kind: "keep" },
+          sidebar: { kind: "keep" },
+          main: { kind: "target-skeleton", href: "/c/channels/s1/c2" },
+        },
+      },
+      createElement("main-content"),
+    ))
+    expect(animate).not.toHaveBeenCalled()
+    expect(renderer.container.querySelector('[data-community-mobile-transition="suppress"]'))
+      .not.toBeNull()
+
+    renderer.rerender(createElement(
+      ShellFrameView,
+      { ...common, checkpoint: committedCheckpoint("/c/channels/s1/c2", "detail") },
+      createElement("main-content"),
+    ))
+    expect(animate).not.toHaveBeenCalled()
+
+    renderer.rerender(createElement(
+      ShellFrameView,
+      { ...common, checkpoint: committedCheckpoint("/c/channels/s1", "list") },
+      createElement("main-content"),
+    ))
+    expect(animate).toHaveBeenCalledOnce()
+
+    renderer.rerender(createElement(
+      ShellFrameView,
+      {
+        ...common,
+        checkpoint: {
+          mode: "same-scope-leaf",
+          surface: "detail",
+          targetHref: "/c/channels/s1/c3",
+          rail: { kind: "keep" },
+          sidebar: { kind: "keep" },
+          main: { kind: "target-skeleton", href: "/c/channels/s1/c3" },
+        },
+      },
+      createElement("main-content"),
+    ))
+    expect(animate).toHaveBeenCalledOnce()
+    expect(cancel).toHaveBeenCalledOnce()
+
+    renderer.rerender(createElement(
+      ShellFrameView,
+      { ...common, checkpoint: committedCheckpoint("/c/channels/s1", "list") },
+      createElement("main-content"),
+    ))
+    expect(animate).toHaveBeenCalledOnce()
+    expect(cancel).toHaveBeenCalledOnce()
+  })
+
+  it("consumes a committed mobile target whose content suppresses entry motion", async () => {
     const cancel = vi.fn()
     const animate = vi.fn(() => ({ cancel }))
     Object.defineProperty(HTMLElement.prototype, "animate", {
@@ -488,10 +592,6 @@ describe("ShellFrameView", () => {
       { ...common, checkpoint: committedCheckpoint("/c/channels/s1/c1", "detail") },
       createElement("main-content"),
     ))
-    const motionSurface = renderer.container.querySelector(
-      '[data-community-mobile-surface="detail"]',
-    )!
-    const querySelector = vi.spyOn(motionSurface, "querySelector")
 
     renderer.rerender(createElement(
       ShellFrameView,
@@ -499,9 +599,6 @@ describe("ShellFrameView", () => {
       createElement("main-content", { "data-community-mobile-transition": "suppress" }),
     ))
     expect(animate).not.toHaveBeenCalled()
-    expect(querySelector).toHaveBeenLastCalledWith(
-      '[data-community-mobile-transition="suppress"]',
-    )
 
     renderer.rerender(createElement(
       ShellFrameView,
@@ -509,21 +606,6 @@ describe("ShellFrameView", () => {
       createElement("main-content"),
     ))
     expect(animate).not.toHaveBeenCalled()
-
-    renderer.rerender(createElement(
-      ShellFrameView,
-      { ...common, checkpoint: committedCheckpoint("/c/channels/s1/c3", "detail") },
-      createElement("main-content"),
-    ))
-    expect(animate).toHaveBeenCalledOnce()
-
-    renderer.rerender(createElement(
-      ShellFrameView,
-      { ...common, checkpoint: committedCheckpoint("/c/channels/s1/c4", "detail") },
-      createElement("main-content", { "data-community-mobile-transition": "suppress" }),
-    ))
-    expect(animate).toHaveBeenCalledOnce()
-    expect(cancel).toHaveBeenCalledOnce()
   })
 
   it("preserves child component identity across the 639 to 640 breakpoint", async () => {

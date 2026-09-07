@@ -81,6 +81,7 @@ export function CommunityShellLayout({
   const sidebarPanelRef = useRef<HTMLDivElement>(null)
   const mainPanelRef = useRef<HTMLDivElement>(null)
   const previousCommittedHrefRef = useRef<string | null>(null)
+  const mobileNavigationPendingRef = useRef(false)
   const mobileSurfaceAnimationRef = useRef<Animation | null>(null)
   const [sidebarWidth, setSidebarWidth] = useState(240)
 
@@ -108,9 +109,21 @@ export function CommunityShellLayout({
   const transitionTargetHref = transition?.targetHref
 
   useLayoutEffect(() => {
-    if (transitionMode !== "committed" || !transitionTargetHref) return
+    if (!transitionTargetHref) return
+    if (transitionMode !== "committed") {
+      mobileNavigationPendingRef.current = true
+      mobileSurfaceAnimationRef.current?.cancel()
+      mobileSurfaceAnimationRef.current = null
+      return
+    }
     const previousHref = previousCommittedHrefRef.current
     previousCommittedHrefRef.current = transitionTargetHref
+    if (mobileNavigationPendingRef.current) {
+      mobileNavigationPendingRef.current = false
+      mobileSurfaceAnimationRef.current?.cancel()
+      mobileSurfaceAnimationRef.current = null
+      return
+    }
     if (
       breakpoint !== "mobile"
       || !previousHref
