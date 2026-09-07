@@ -19,11 +19,20 @@ export async function signIn(email: string, password: string): Promise<string> {
     body: JSON.stringify({ email, password }),
     redirect: "manual",
   })
-  const setCookie = res.headers.get("set-cookie") ?? ""
-  if (!setCookie) {
+  const headers = res.headers as Headers & { getSetCookie?: () => string[] }
+  const setCookies = typeof headers.getSetCookie === "function"
+    ? headers.getSetCookie()
+    : (headers.get("set-cookie")?.split(/,(?=[^;,]+=)/) ?? [])
+  if (setCookies.length === 0) {
     throw new Error(`sign-in failed (${res.status}): no set-cookie header`)
   }
-  return setCookie.split(";")[0]
+  const sessionCookie = setCookies
+    .map((line) => line.split(";")[0].trim())
+    .find((cookie) => /^(?:__Secure-)?better-auth\.session_token=/.test(cookie))
+  if (!sessionCookie) {
+    throw new Error(`sign-in failed (${res.status}): no session cookie`)
+  }
+  return sessionCookie
 }
 
 export async function sessionRequest(
