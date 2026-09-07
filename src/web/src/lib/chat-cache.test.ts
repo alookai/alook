@@ -73,6 +73,20 @@ beforeEach(async () => {
 
 describe("chat-cache", () => {
   describe("openCacheDB", () => {
+    it("returns a deterministic cache miss when IndexedDB is unavailable", () => {
+      const descriptor = Object.getOwnPropertyDescriptor(globalThis, "indexedDB");
+      Object.defineProperty(globalThis, "indexedDB", {
+        configurable: true,
+        value: undefined,
+      });
+      try {
+        expect(openCacheDB("ws_without_indexeddb")).toBeNull();
+      } finally {
+        if (descriptor) Object.defineProperty(globalThis, "indexedDB", descriptor);
+        else delete (globalThis as { indexedDB?: IDBFactory }).indexedDB;
+      }
+    });
+
     it("creates DB with correct schema", async () => {
       const p = openCacheDB(WORKSPACE_ID);
       expect(p).not.toBeNull();

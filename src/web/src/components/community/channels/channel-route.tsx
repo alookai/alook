@@ -260,7 +260,7 @@ export function ChannelRoute({ serverParam, channelId }: {
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           {/*
             `key={channelId}` MUST match the hydrated branches' key below —
-            verified empirically (react-test-renderer) that a mismatched key
+            verified empirically that a mismatched key
             (this branch had none before) is what causes React to treat this
             and the hydrated-branch `<MessageList>` as different component
             identities, forcing a full unmount/remount instead of a props

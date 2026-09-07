@@ -24,6 +24,32 @@ type RecentPostsProps = {
 
 const allTopicsId = "all";
 
+export function subscribeToRecentPostsTopicHash(
+  topicIds: ReadonlySet<string>,
+  selectTopic: (topicId: string) => void,
+): (() => void) | undefined {
+  if (typeof window === "undefined") return;
+
+  const syncTopicFromHash = () => {
+    const hashTopicId = decodeURIComponent(window.location.hash.slice(1));
+    selectTopic(topicIds.has(hashTopicId) ? hashTopicId : allTopicsId);
+  };
+
+  syncTopicFromHash();
+  window.addEventListener("hashchange", syncTopicFromHash);
+  return () => window.removeEventListener("hashchange", syncTopicFromHash);
+}
+
+export function replaceRecentPostsTopicUrl(topicId: string) {
+  if (typeof window === "undefined") return;
+
+  const nextUrl =
+    topicId === allTopicsId
+      ? `${window.location.pathname}${window.location.search}`
+      : `${window.location.pathname}${window.location.search}#${topicId}`;
+  window.history.replaceState(null, "", nextUrl);
+}
+
 export function RecentPosts({ posts, topics }: RecentPostsProps) {
   const [selectedTopicId, setSelectedTopicId] = useState(allTopicsId);
   const breakpoint = useBreakpoint();
@@ -50,27 +76,12 @@ export function RecentPosts({ posts, topics }: RecentPostsProps) {
       : posts.filter((post) => post.topicId === selectedTopicId);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const syncTopicFromHash = () => {
-      const hashTopicId = decodeURIComponent(window.location.hash.slice(1));
-      setSelectedTopicId(topicIds.has(hashTopicId) ? hashTopicId : allTopicsId);
-    };
-
-    syncTopicFromHash();
-    window.addEventListener("hashchange", syncTopicFromHash);
-    return () => window.removeEventListener("hashchange", syncTopicFromHash);
+    return subscribeToRecentPostsTopicHash(topicIds, setSelectedTopicId);
   }, [topicIds]);
 
   const selectTopic = (topicId: string) => {
     setSelectedTopicId(topicId);
-    if (typeof window === "undefined") return;
-
-    const nextUrl =
-      topicId === allTopicsId
-        ? `${window.location.pathname}${window.location.search}`
-        : `${window.location.pathname}${window.location.search}#${topicId}`;
-    window.history.replaceState(null, "", nextUrl);
+    replaceRecentPostsTopicUrl(topicId);
   };
 
   return (
