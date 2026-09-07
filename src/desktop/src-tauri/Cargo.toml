@@ -12,7 +12,7 @@ crate-type = ["lib", "cdylib", "staticlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"] }
+tauri = { version = "=2.11.2", features = ["tray-icon", "image-png", "macos-private-api"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri-plugin-opener = "2"
@@ -33,10 +33,20 @@ tokio = { version = "1", features = ["macros"] }
 command-group = "5.0.1"
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 
+[target."cfg(any(target_os = \"macos\", target_os = \"ios\"))".dependencies]
+objc2 = "=0.6.4"
+objc2-foundation = { version = "=0.3.2", features = ["NSDictionary", "NSError", "NSGeometry", "NSObject", "NSString", "NSURL", "NSURLError", "NSURLRequest"] }
+
 [target."cfg(target_os = \"macos\")".dependencies]
-objc2 = "0.6"
-objc2-foundation = { version = "0.3", features = ["NSGeometry"] }
-objc2-app-kit = { version = "0.3", features = ["NSView", "NSWindow", "NSColor"] }
+objc2-app-kit = { version = "=0.3.2", features = ["NSView", "NSWindow", "NSColor"] }
+objc2-web-kit = { version = "=0.3.2", features = ["WKWebView"], default-features = false }
+
+[target."cfg(windows)".dependencies]
+webview2-com = "=0.38.2"
+windows = "=0.61.3"
+
+[target."cfg(target_os = \"linux\")".dependencies]
+webkit2gtk = { version = "=2.0.2", features = ["v2_6"] }
 
 [features]
 default = ["custom-protocol"]

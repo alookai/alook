@@ -1077,7 +1077,7 @@ describe("Desktop image clipboard", () => {
   it("authorizes configured app documents through one local image-write capability", () => {
     expect(desktopConfig.build).toMatchObject({
       devUrl: "http://localhost:3000/c",
-      frontendDist: "https://alook.ai/c",
+      frontendDist: "alook-recovery://localhost/bootstrap",
     })
     expect(desktopCapability).toMatchObject({
       identifier: "desktop-capability",
