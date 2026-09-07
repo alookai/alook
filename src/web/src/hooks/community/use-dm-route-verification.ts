@@ -7,8 +7,11 @@ import { communityKeys } from "@/lib/query-keys"
 import type { DM } from "@/lib/community/models/people"
 import type { DmsResponse } from "./use-dms"
 
+export const DM_ROUTE_VERIFICATION_HEADER = "X-Alook-DM-Route-Verification"
+
 const dmRouteAuthorityQueryFn = () => apiFetch<DmsResponse>(
   "/api/community/users/me/dms",
+  { headers: { [DM_ROUTE_VERIFICATION_HEADER]: "1" } },
 )
 
 export type DmRouteVerification = "present" | "missing" | "denied"
@@ -47,6 +50,8 @@ function verificationOptions(queryClient: QueryClient, dmId: string) {
     queryKey: communityKeys.dmRouteVerification(dmId),
     queryFn: () => verifyDmRoute(queryClient, dmId),
     retry: false,
+    refetchOnReconnect: false,
+    refetchOnWindowFocus: false,
     // The error frame owns retry UX. Route/layout remounts must preserve a
     // transient failure instead of silently issuing another authority check.
     retryOnMount: false,
@@ -81,9 +86,16 @@ export function useDmRouteVerification(
     dms.some((dm) => dm.id === dmId)
     || canonical?.conversations.some((dm) => dm.id === dmId) === true
   )
+  const options = verificationOptions(queryClient, dmId ?? "__none__")
+  const retainedVerification = queryClient.getQueryState(options.queryKey)
+  const attemptStarted = retainedVerification !== undefined && (
+    retainedVerification.fetchStatus === "fetching"
+    || retainedVerification.dataUpdatedAt > 0
+    || retainedVerification.errorUpdatedAt > 0
+  )
   const verification = useQuery({
-    ...verificationOptions(queryClient, dmId ?? "__none__"),
-    enabled: !!dmId && !canonicalUnsettled && !present,
+    ...options,
+    enabled: !!dmId && !present && (!canonicalUnsettled || attemptStarted),
     staleTime: Infinity,
   })
   const retry = useCallback(() => {
