@@ -491,7 +491,7 @@ describe("ShellFrameView", () => {
     expect(animate).toHaveBeenCalledTimes(3)
   })
 
-  it("consumes real pending mobile navigation on either success or cancellation", async () => {
+  it("animates successful pending commits and consumes canceled stale targets", async () => {
     const cancel = vi.fn()
     const animate = vi.fn(() => ({ cancel }))
     Object.defineProperty(HTMLElement.prototype, "animate", {
@@ -536,14 +536,45 @@ describe("ShellFrameView", () => {
       { ...common, checkpoint: committedCheckpoint("/c/channels/s1/c2", "detail") },
       createElement("main-content"),
     ))
-    expect(animate).not.toHaveBeenCalled()
+    expect(animate).toHaveBeenCalledOnce()
+    expect(animate).toHaveBeenLastCalledWith([
+      { opacity: 0.92, transform: "translate3d(8px, 0, 0)" },
+      { opacity: 1, transform: "translate3d(0, 0, 0)" },
+    ], {
+      duration: 180,
+      easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+    })
+
+    renderer.rerender(createElement(
+      ShellFrameView,
+      {
+        ...common,
+        checkpoint: {
+          mode: "same-scope-leaf",
+          surface: "list",
+          targetHref: "/c/channels/s1",
+          rail: { kind: "keep" },
+          sidebar: { kind: "keep" },
+          main: { kind: "keep" },
+        },
+      },
+      createElement("main-content"),
+    ))
+    expect(animate).toHaveBeenCalledOnce()
 
     renderer.rerender(createElement(
       ShellFrameView,
       { ...common, checkpoint: committedCheckpoint("/c/channels/s1", "list") },
       createElement("main-content"),
     ))
-    expect(animate).toHaveBeenCalledOnce()
+    expect(animate).toHaveBeenCalledTimes(2)
+    expect(animate).toHaveBeenLastCalledWith([
+      { opacity: 0.92, transform: "translate3d(-8px, 0, 0)" },
+      { opacity: 1, transform: "translate3d(0, 0, 0)" },
+    ], {
+      duration: 180,
+      easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+    })
 
     renderer.rerender(createElement(
       ShellFrameView,
@@ -560,16 +591,28 @@ describe("ShellFrameView", () => {
       },
       createElement("main-content"),
     ))
-    expect(animate).toHaveBeenCalledOnce()
-    expect(cancel).toHaveBeenCalledOnce()
+    expect(animate).toHaveBeenCalledTimes(2)
 
     renderer.rerender(createElement(
       ShellFrameView,
       { ...common, checkpoint: committedCheckpoint("/c/channels/s1", "list") },
       createElement("main-content"),
     ))
-    expect(animate).toHaveBeenCalledOnce()
-    expect(cancel).toHaveBeenCalledOnce()
+    expect(animate).toHaveBeenCalledTimes(2)
+
+    renderer.rerender(createElement(
+      ShellFrameView,
+      { ...common, checkpoint: committedCheckpoint("/c/channels/s1/c3", "detail") },
+      createElement("main-content"),
+    ))
+    expect(animate).toHaveBeenCalledTimes(2)
+
+    renderer.rerender(createElement(
+      ShellFrameView,
+      { ...common, checkpoint: committedCheckpoint("/c/channels/s1/c3", "detail") },
+      createElement("main-content"),
+    ))
+    expect(animate).toHaveBeenCalledTimes(2)
   })
 
   it("consumes a committed mobile target whose content suppresses entry motion", async () => {
