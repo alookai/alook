@@ -2,6 +2,7 @@
 
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -106,7 +107,7 @@ export function CommunityShellLayout({
   const transitionMode = transition?.mode
   const transitionTargetHref = transition?.targetHref
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (transitionMode !== "committed" || !transitionTargetHref) return
     const previousHref = previousCommittedHrefRef.current
     previousCommittedHrefRef.current = transitionTargetHref
