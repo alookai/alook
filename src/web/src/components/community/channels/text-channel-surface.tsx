@@ -26,6 +26,7 @@ export function TextChannelSurface({
   serverParam,
   channelName,
   viewer,
+  canManagePins,
   anchorMessageId,
   onNavigateParent,
   notificationLevel,
@@ -46,6 +47,7 @@ export function TextChannelSurface({
   serverParam: string
   channelName: string
   viewer: { id: string; name: string; discriminator?: string; avatar: string }
+  canManagePins: boolean
   anchorMessageId: string | null
   onNavigateParent?: () => void
   notificationLevel: ChannelNotifLevel
@@ -133,6 +135,7 @@ export function TextChannelSurface({
                 typingUsers={controller.typingUsers}
                 onOpenThread={onOpenThread}
                 {...controller.messageActions}
+                onPin={canManagePins ? controller.messageActions.onPin : undefined}
                 onOpenProfile={onOpenProfile}
                 resolveUserName={resolveUserName}
                 resolveAuthorMentionText={mentionInsertion.resolveAuthorMentionText}
@@ -207,6 +210,8 @@ export function TextChannelSurface({
                 onOpenProfile={onOpenProfile}
                 resolveUserName={resolveUserName}
                 onReply={controller.onSheetReply}
+                canManagePins={canManagePins}
+                onOpenPinned={() => setRightPanel("pinned")}
               />
             </>
           )}

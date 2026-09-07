@@ -5,6 +5,8 @@ import { MessageChannelController } from "../messages/message-channel-controller
 import type { MessageChannelControllerValue } from "../messages/message-channel-controller"
 import { ChannelHeader } from "./channel-header"
 import { TextChannelSurface } from "./text-channel-surface"
+import { MessageContextSheet } from "../messages/message-context-sheet"
+import { MessageList } from "../messages/message-list"
 import { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
 import { buildAttachmentUploadFormData } from "@/hooks/community/mutations/uploads"
 import { useMessageStreamStore } from "@/stores/community/message-stream"
@@ -35,8 +37,12 @@ vi.mock("@/components/community/channels/channel-header", () => ({
   ChannelHeader: vi.fn(() => null),
 }))
 vi.mock("@/components/community/channels/channel-shell", () => ({
-  ChannelShell: ({ header, body }: { header: React.ReactNode; body: React.ReactNode }) =>
-    React.createElement(React.Fragment, null, header, body),
+  ChannelShell: ({ header, body, panels, dialogs }: {
+    header: React.ReactNode
+    body: React.ReactNode
+    panels?: React.ReactNode
+    dialogs?: React.ReactNode
+  }) => React.createElement(React.Fragment, null, header, body, panels, dialogs),
 }))
 vi.mock("@/components/community/messages/composer", () => ({
   Composer: vi.fn(() => null),
@@ -101,6 +107,8 @@ function feed(overrides: Record<string, unknown> = {}) {
 }
 
 const mockedChannelHeader = vi.mocked(ChannelHeader)
+const mockedMessageContextSheet = vi.mocked(MessageContextSheet)
+const mockedMessageList = vi.mocked(MessageList)
 const mockedUseChannelMessageFeed = vi.mocked(useChannelMessageFeed)
 
 function renderController(
@@ -242,8 +250,10 @@ describe("MessageChannelController scroll target ownership", () => {
 
     expect(latestActions).toBe(firstActions)
     act(() => latestActions.onPin("m_target"))
-    expect(latestOpenPinned).toHaveBeenCalledTimes(1)
+    expect(latestOpenPinned).not.toHaveBeenCalled()
     expect(firstOpenPinned).not.toHaveBeenCalled()
+    act(() => mutationMocks.pinMessage.mock.calls.at(-1)?.[1]?.onSuccess?.())
+    expect(latestOpenPinned).toHaveBeenCalledTimes(1)
     await act(async () => {
       await latestActions.onCreateThread("m_target")
     })
@@ -271,6 +281,8 @@ describe("MessageChannelController scroll target ownership", () => {
       ))
     })
 
+    expect(latestOpenPinned).not.toHaveBeenCalled()
+    act(() => mutationMocks.pinMessage.mock.calls.at(-1)?.[1]?.onSuccess?.())
     expect(latestOpenPinned).toHaveBeenCalledTimes(1)
     expect(firstOpenPinned).not.toHaveBeenCalled()
   })
@@ -342,6 +354,7 @@ describe("TextChannelSurface header hierarchy", () => {
         serverParam: "server_1",
         channelName: "general",
         viewer: { id: "viewer_1", name: "Viewer", avatar: "V" },
+        canManagePins: false,
         anchorMessageId: null,
         onNavigateParent,
         notificationLevel: "default",
@@ -362,5 +375,55 @@ describe("TextChannelSurface header hierarchy", () => {
     expect(headerProps.mobileBack).toBe(onNavigateParent)
     expect(headerProps.kind).toBe("text")
     expect(headerProps).not.toHaveProperty("onBack")
+  })
+
+  it("keeps pinned reads available while gating live and preview Pin actions", () => {
+    mockedUseChannelMessageFeed.mockReturnValue(feed())
+    const baseProps = {
+      channelId: "channel_1",
+      serverId: "server_1",
+      serverParam: "server_1",
+      channelName: "general",
+      viewer: { id: "viewer_1", name: "Viewer", avatar: "V" },
+      anchorMessageId: null,
+      notificationLevel: "default" as const,
+      onSetNotificationLevel: vi.fn(),
+      composerMembers: [],
+      composerMentionCandidates: undefined,
+      channelRefCandidates: [],
+      memberPanelProps: { members: [] },
+      manageMembersDialog: null,
+      uiHandlers: {},
+      onOpenThread: vi.fn(),
+      onOpenProfile: vi.fn(),
+      resolveUserName: (userId: string) => userId,
+    }
+    let renderer: ReturnType<typeof render>
+
+    act(() => {
+      renderer = render(React.createElement(TextChannelSurface, {
+        ...baseProps,
+        canManagePins: true,
+      }))
+    })
+    expect(mockedMessageList.mock.calls.at(-1)?.[0].onPin).toEqual(expect.any(Function))
+    expect(mockedMessageContextSheet.mock.calls.at(-1)?.[0]).toEqual(expect.objectContaining({
+      canManagePins: true,
+      onOpenPinned: expect.any(Function),
+    }))
+    expect(mockedChannelHeader.mock.calls.at(-1)?.[0].onToggle).toEqual(expect.any(Function))
+
+    act(() => {
+      renderer!.rerender(React.createElement(TextChannelSurface, {
+        ...baseProps,
+        canManagePins: false,
+      }))
+    })
+    expect(mockedMessageList.mock.calls.at(-1)?.[0].onPin).toBeUndefined()
+    expect(mockedMessageContextSheet.mock.calls.at(-1)?.[0]).toEqual(expect.objectContaining({
+      canManagePins: false,
+      onOpenPinned: expect.any(Function),
+    }))
+    expect(mockedChannelHeader.mock.calls.at(-1)?.[0].onToggle).toEqual(expect.any(Function))
   })
 })

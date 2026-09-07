@@ -1,7 +1,7 @@
 "use client"
 
 import type { ComponentProps } from "react"
-import { isForum, USE_SERVER_DEFAULT } from "@alook/shared"
+import { canManageServer, isForum, USE_SERVER_DEFAULT } from "@alook/shared"
 import { toastApiError } from "@/lib/api/client"
 import type { Channel } from "@/lib/community/models/navigation"
 import type { ServerDetail } from "@/hooks/community/use-servers"
@@ -86,6 +86,7 @@ export function ThreadSplitParentSurface({
       serverParam={serverParam}
       channelName={channel.name}
       viewer={viewer}
+      canManagePins={canManageServer(members.myRole)}
       anchorMessageId={null}
       onNavigateParent={onNavigateParent}
       notificationLevel={notificationLevel}

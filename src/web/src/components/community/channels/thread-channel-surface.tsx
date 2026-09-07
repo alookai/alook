@@ -35,6 +35,7 @@ export function ThreadChannelSurface({
   serverParam,
   channelName,
   viewer,
+  canManagePins,
   anchorMessageId,
   parentChannelId,
   parentMessageId,
@@ -62,6 +63,7 @@ export function ThreadChannelSurface({
   serverParam: string
   channelName: string
   viewer: { id: string; name: string; discriminator?: string; avatar: string }
+  canManagePins: boolean
   anchorMessageId: string | null
   parentChannelId: string | null
   parentMessageId: string | null
@@ -233,6 +235,7 @@ export function ThreadChannelSurface({
                 typingUsers={controller.typingUsers}
                 onOpenThread={ignoreNestedThread}
                 {...controller.threadActions}
+                onPin={canManagePins ? controller.threadActions.onPin : undefined}
                 onOpenProfile={onOpenProfile}
                 resolveUserName={resolveUserName}
                 resolveAuthorMentionText={mentionInsertion.resolveAuthorMentionText}
@@ -308,6 +311,8 @@ export function ThreadChannelSurface({
                 onOpenProfile={onOpenProfile}
                 resolveUserName={resolveUserName}
                 onReply={controller.onSheetReply}
+                canManagePins={canManagePins}
+                onOpenPinned={openPinned}
               />
             </>
           )}

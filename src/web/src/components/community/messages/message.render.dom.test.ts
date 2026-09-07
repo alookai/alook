@@ -743,6 +743,58 @@ describe("Message ordinary-link gesture ownership", () => {
   })
 })
 
+describe("Message Pin menu capability", () => {
+  it.each([
+    ["desktop right-click", true, "context-menu-item"],
+    ["mobile touch", false, "dropdown-menu-item"],
+  ] as const)("gates Pin and Unpin in the %s menu", async (_label, hoverCapable, slot) => {
+    const onPin = vi.fn()
+    let renderer: DomRenderer
+    await act(async () => {
+      renderer = render(makeTree({
+        m: baseMsg(),
+        hoverCapable,
+        onOpenThread: vi.fn(),
+        onCopy: vi.fn(),
+      }), { createNodeMock: () => genericMock })
+    })
+    if (hoverCapable) {
+      const row = renderer!.root.find(
+        (node) => typeof node.props.className === "string"
+          && node.props.className.includes("group relative -mx-2"),
+      )
+      act(() => row.props.onPointerEnter({ target: { closest: () => null } }))
+    }
+    const labels = () => renderer!.root
+      .findAllByProps({ "data-slot": slot })
+      .map((item) => textContent(item).trim())
+    expect(labels()).not.toContain("Pin Message")
+    expect(labels()).not.toContain("Unpin Message")
+
+    act(() => renderer!.rerender(makeTree({
+      m: baseMsg(),
+      hoverCapable,
+      onOpenThread: vi.fn(),
+      onCopy: vi.fn(),
+      onPin,
+      pinned: false,
+    })))
+    expect(labels()).toContain("Pin Message")
+    expect(labels()).not.toContain("Unpin Message")
+
+    act(() => renderer!.rerender(makeTree({
+      m: baseMsg(),
+      hoverCapable,
+      onOpenThread: vi.fn(),
+      onCopy: vi.fn(),
+      onPin,
+      pinned: true,
+    })))
+    expect(labels()).not.toContain("Pin Message")
+    expect(labels()).toContain("Unpin Message")
+  })
+})
+
 describe("Message portal event ownership", () => {
   it("keeps a reaction dialog mounted and ignores its pointer, click, and swipe events", async () => {
     vi.useFakeTimers()

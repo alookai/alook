@@ -305,6 +305,7 @@ export function ChannelRoute({ serverParam, channelId }: {
             serverParam={serverParam}
             channelName={channelName}
             viewer={currentUser}
+            canManagePins={canManageServer(myRole)}
             anchorMessageId={jumpTargetId}
             parentChannelId={currentChannelMeta?.parentChannelId ?? null}
             parentMessageId={currentChannelMeta?.parentMessageId ?? null}
@@ -365,6 +366,7 @@ export function ChannelRoute({ serverParam, channelId }: {
       serverParam={serverParam}
       channelName={channelName}
       viewer={currentUser}
+      canManagePins={canManageServer(myRole)}
       anchorMessageId={jumpTargetId}
       onNavigateParent={navigateServerRoot}
       notificationLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? USE_SERVER_DEFAULT}

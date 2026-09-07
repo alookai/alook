@@ -22,6 +22,7 @@ const {
   mockCommitLastCommunityRoute,
   mockNavigationGate,
   mockCurrentChannelId,
+  mockCanManageServer,
 } = vi.hoisted(() => ({
   mockRouter: { push: vi.fn(), replace: vi.fn(), back: vi.fn() },
   mockUiHandlers: { replacePath: vi.fn(), goBackMobile: vi.fn() },
@@ -35,6 +36,7 @@ const {
   mockCommitLastCommunityRoute: vi.fn(),
   mockNavigationGate: { allowed: true },
   mockCurrentChannelId: { value: "channel_1" as string | null },
+  mockCanManageServer: vi.fn((role?: string | null) => role === "owner" || role === "admin"),
   mockRouteModel: {
     server: {
       id: "server_1",
@@ -125,7 +127,7 @@ vi.mock("@/components/community/messages/message-context-sheet", () => ({ Messag
 vi.mock("@/components/community/messages/thread-opener", () => ({ ThreadOpener: () => null }))
 vi.mock("@/components/community/members/add-members-dialog", () => ({ AddMembersDialog: () => null }))
 vi.mock("@alook/shared", () => ({
-  canManageServer: () => false,
+  canManageServer: mockCanManageServer,
   devWsDoPort: () => 8789,
   isForum: () => false,
   deriveThreadName: () => "thread",
@@ -322,6 +324,7 @@ describe("ChannelRoute message surface ownership", () => {
     mockCommitLastCommunityRoute.mockClear()
     mockNavigationGate.allowed = true
     mockCurrentChannelId.value = "channel_1"
+    mockMemberViewModel.myRole = "member"
     Object.assign(mockRouteModel, {
       server: {
         id: "server_1",
@@ -455,6 +458,27 @@ describe("ChannelRoute message surface ownership", () => {
       "viewer_1",
       "/c/channels/server_1/channel_1",
     )
+  })
+
+  it.each([
+    ["owner", true],
+    ["admin", true],
+    ["member", false],
+  ] as const)("maps the %s role to the live text-channel Pin capability", (role, allowed) => {
+    mockMemberViewModel.myRole = role
+    mockedUseChannelMessageFeed.mockReturnValue(feed())
+
+    act(() => {
+      render(React.createElement(ChannelRoute, {
+        serverParam: "server_1",
+        channelId: "channel_1",
+      }))
+    })
+
+    expect(mockCanManageServer).toHaveBeenCalledWith(role)
+    const onPin = mockedMessageList.mock.calls.at(-1)?.[0].onPin
+    if (allowed) expect(onPin).toEqual(expect.any(Function))
+    else expect(onPin).toBeUndefined()
   })
 
   it("defers child msg cleanup until the handoff nonce has its own cleanup", () => {

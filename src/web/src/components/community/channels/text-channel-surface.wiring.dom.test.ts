@@ -94,6 +94,7 @@ describe("TextChannelSurface reply target wiring", () => {
       serverParam: "server_1",
       channelName: "general",
       viewer: { id: "viewer_1", name: "Viewer", avatar: "V" },
+      canManagePins: false,
       anchorMessageId: null,
       notificationLevel: "default",
       onSetNotificationLevel: vi.fn(),
