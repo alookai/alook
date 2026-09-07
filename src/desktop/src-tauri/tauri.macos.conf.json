@@ -6,7 +6,10 @@
     "macOS": {
       "minimumSystemVersion": "11.0",
       "signingIdentity": "-",
-      "hardenedRuntime": true
+      "hardenedRuntime": true,
+      "dmg": {
+        "background": "dmg-background@2x.png"
+      }
     }
   }
 }
