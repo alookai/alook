@@ -32,9 +32,9 @@ describe("UI E2E service definitions", () => {
     const normalManifest = requireFromTest("wrangler/package.json") as { version: string }
 
     expect(runtime.version).toBe(E2E_WRANGLER_VERSION)
-    expect(runtime.version).toBe("4.113.0")
+    expect(runtime.version).toBe("4.129.1")
     expect(normalManifest.version).toBe("4.129.1")
-    expect(runtime.entry).toMatch(/wrangler@4\.113\.0.*bin[/\\]wrangler\.js$/)
+    expect(runtime.entry).toMatch(/wrangler@4\.129\.1.*bin[/\\]wrangler\.js$/)
   })
 
   it("runs both Worker zones while keeping main and ws-do in one pinned runtime", () => {
