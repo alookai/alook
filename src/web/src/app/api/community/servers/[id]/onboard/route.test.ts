@@ -148,6 +148,11 @@ describe("POST /api/community/servers/[id]/onboard", () => {
     mocks.broadcastToUser.mockResolvedValue(undefined)
   })
 
+  it("formats three or more teammate handles as an Oxford list", () => {
+    expect(onboardingGettingReadyMessage(["@One#0001", "@Two#0002", "@Three#0003"]))
+      .toContain("with @One#0001, @Two#0002, and @Three#0003")
+  })
+
   it("adds every bot before per-bot wakes, then finalizes one Lead-authored welcome", async () => {
     const memberIds = new Set(["owner-1"])
     mocks.getMember.mockImplementation((_db, _serverId, userId) =>

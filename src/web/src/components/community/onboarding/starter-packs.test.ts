@@ -123,5 +123,6 @@ describe("starter packs", () => {
   it("does not treat prototype properties as presets and bounds custom role text", () => {
     expect(resolveStarterPack("toString").id).toBe("custom")
     expect(resolveStarterPack("x".repeat(200)).label).toHaveLength(80)
+    expect(resolveStarterPack(" <>`` \n").label).toBe("the owner's work")
   })
 })

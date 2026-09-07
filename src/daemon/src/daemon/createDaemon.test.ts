@@ -126,6 +126,7 @@ const startupSweepDirs: string[] = [];
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   timelineSweepHarness.reset();
   credentialProxyHarness.onInboxPullStart = undefined;
   credentialProxyHarness.onInboxPullResponse = undefined;
@@ -365,6 +366,51 @@ function factory(sockets: FakeSocket[]) {
 }
 
 describe("createDaemon", () => {
+  it("uses the builtin SDK adapter for opted-in onboarding recent context", async () => {
+    const sockets: FakeSocket[] = [];
+    const starts: Array<{ id: string; text: string }> = [];
+    const workingDirectoryBase = mkdtempSync(join(tmpdir(), "daemon-onboarding-context-"));
+    startupSweepDirs.push(workingDirectoryBase);
+    vi.stubEnv("CODEX_HOME", join(workingDirectoryBase, "empty-codex-home"));
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/enroll-agent")) return Response.json({ runnerKey: "runner_test" });
+      if (url.includes("/daemon/bots")) {
+        return Response.json({ bots: [{ id: "bot_lead", name: "Lead", discriminator: "0001" }] });
+      }
+      return Response.json({ attempted: 0 });
+    }));
+    const daemon = await createDaemon({
+      machineKey: "cmk_onboarding_context",
+      serverUrl: "http://server.invalid",
+      serverWsUrl: "ws://x",
+      webSocketFactory: factory(sockets) as never,
+      runtimeReport: [{ id: "codex" }],
+      driverFor: () => fullFakeDriver("codex"),
+      sessionFactory: daemonSessionFactory({ onStart: (input) => starts.push(input) }),
+      capabilities: [],
+      workingDirectoryBase,
+    });
+
+    try {
+      sockets[0]!.emit("open");
+      sockets[0]!.emit("message", JSON.stringify({
+        type: "agent:event",
+        agentId: "bot_lead",
+        config: { version: 1, runtime: "codex", model: { kind: "default" }, mode: { kind: "default" } },
+        launchId: "onboard-lead",
+        prompt: "Lead briefing",
+        includeRecentContext: true,
+      }));
+
+      await vi.waitFor(() => expect(starts).toHaveLength(1));
+      expect(starts[0]!.text).toContain("Lead briefing\n\n## Recent local context");
+      expect(starts[0]!.text).toContain("No recent session files were found.");
+    } finally {
+      await daemon.stop();
+    }
+  });
+
   it("records each agent's actual backend in timeline rows instead of the first reported runtime", async () => {
     const sockets: FakeSocket[] = [];
     const sessions: DaemonFakeSession[] = [];
