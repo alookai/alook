@@ -446,6 +446,17 @@ describe("CI workflow graph", () => {
     expect(e2e).toContain(`${daemonCondition}\n        run: pnpm --filter @alook/daemon run test:integration`)
   })
 
+  it("migrates Lighthouse's fresh local database before starting the web app", () => {
+    const lighthouse = ciJob("lighthouse")
+
+    expect(lighthouse).toContain("BETTER_AUTH_SECRET=ci-lighthouse-secret")
+    expect(lighthouse).toContain("- run: pnpm run db:migrate")
+    expect(lighthouse).toContain("npx @lhci/cli autorun --config=lighthouserc.json")
+    expect(lighthouse.indexOf("pnpm run db:migrate")).toBeLessThan(
+      lighthouse.indexOf("npx @lhci/cli autorun --config=lighthouserc.json"),
+    )
+  })
+
   it("consolidates static work and preserves non-blocking Knip steps", () => {
     const staticChecks = ciJob("static-checks")
     expect(ciWorkflow).not.toMatch(/^  quality:/m)

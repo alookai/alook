@@ -652,6 +652,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: printf 'BETTER_AUTH_SECRET=ci-lighthouse-secret\nBETTER_AUTH_URL=http://localhost:3000\nDEVICE_CLIENT_IDS=e2e-test-client\n' > src/web/.dev.vars
+      - run: pnpm run db:migrate
       - working-directory: src/web
         run: npx @lhci/cli autorun --config=lighthouserc.json && node scripts/print-lighthouse-scores.mjs
 
