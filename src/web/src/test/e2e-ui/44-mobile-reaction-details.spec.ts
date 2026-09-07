@@ -38,6 +38,7 @@ async function installInputCapability(page: Page, hoverCapable: boolean) {
 }
 
 async function holdReaction(page: Page, chip: Locator, pointerId = 41) {
+  await expect(chip).toBeVisible()
   const box = await chip.boundingBox()
   if (!box) throw new Error("reaction chip has no box")
   const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 }
