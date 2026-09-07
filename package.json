@@ -49,17 +49,17 @@
     "pre-commit": "pnpm typecheck && pnpm lint && pnpm test && pnpm typegrep:ws && pnpm typegrep:agent-driver && pnpm knip"
   },
   "devDependencies": {
-    "@vitest/coverage-istanbul": "4.1.10",
+    "@vitest/coverage-istanbul": "4.1.11",
     "simple-git-hooks": "^2.14.0",
     "turbo": "^2.10.12",
     "typescript": "^6.0.3",
-    "vitest": "4.1.10",
+    "vitest": "4.1.11",
     "wrangler": "4.125.0"
   },
   "pnpm": {
     "overrides": {
-      "@vitest/runner": "4.1.10",
-      "@vitest/snapshot": "4.1.10"
+      "@vitest/runner": "4.1.11",
+      "@vitest/snapshot": "4.1.11"
     },
     "patchedDependencies": {
       "@opennextjs/aws@4.1.0": "patches/@opennextjs__aws@4.1.0.patch"

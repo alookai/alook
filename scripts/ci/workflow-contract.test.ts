@@ -799,7 +799,7 @@ describe("Turbo CI execution", () => {
     for (const module of directWorkerModules) {
       expect(module.packageJson.scripts.test).toBe("vitest run --config vitest.workspace.config.ts")
       expect(module.packageJson.scripts).not.toHaveProperty("test:workers")
-      expect(module.packageJson.devDependencies["@cloudflare/vitest-plugin"]).toBe("1.0.0")
+      expect(module.packageJson.devDependencies["@cloudflare/vitest-plugin"]).toBe("1.1.4")
       const expectedProjects = module.name === "web" ? 2 : 1
       expect(module.workspaceConfig.match(/vitest\.config\.ts/g)).toHaveLength(expectedProjects)
       expect(module.workspaceConfig.match(/vitest\.runtime\.config\.mts/g)).toHaveLength(expectedProjects)
@@ -826,7 +826,7 @@ describe("Turbo CI execution", () => {
   })
 
   it("collects Node and workerd projects in one Istanbul report", () => {
-    expect(rootPackageJson.devDependencies["@vitest/coverage-istanbul"]).toBe("4.1.10")
+    expect(rootPackageJson.devDependencies["@vitest/coverage-istanbul"]).toBe("4.1.11")
     expect(rootPackageJson.devDependencies).not.toHaveProperty("@vitest/coverage-v8")
     expect(rootVitestConfig).toContain('provider: "istanbul"')
     expect(rootVitestConfig).toContain('"src/**/*.{ts,tsx,js,jsx}"')
