@@ -47,6 +47,9 @@ function verificationOptions(queryClient: QueryClient, dmId: string) {
     queryKey: communityKeys.dmRouteVerification(dmId),
     queryFn: () => verifyDmRoute(queryClient, dmId),
     retry: false,
+    // The error frame owns retry UX. Route/layout remounts must preserve a
+    // transient failure instead of silently issuing another authority check.
+    retryOnMount: false,
   } as const
 }
 

@@ -357,6 +357,41 @@ describe("DM route verification", () => {
     renderer.unmount()
   })
 
+  it("keeps a transient failure local across an observer remount", async () => {
+    const queryClient = client()
+    const statuses: DmRouteVerificationStatus[] = []
+    apiFetchMock.mockRejectedValueOnce(Object.assign(new Error("offline"), { status: 0 }))
+    apiFetchMock.mockResolvedValue({ conversations: [] })
+    const props = {
+      dmId: "dm-offline-remount",
+      dms: [],
+      onRender: (status: DmRouteVerificationStatus) => statuses.push(status),
+    }
+    const renderer = await renderHook(queryClient, props)
+
+    await waitFor(() => statuses.at(-1) === "error")
+    expect(apiFetchMock).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      renderer.rerender(
+        React.createElement(
+          React.StrictMode,
+          null,
+          React.createElement(
+            QueryClientProvider,
+            { client: queryClient },
+            React.createElement(Capture, { ...props, key: "remounted" }),
+          ),
+        ),
+      )
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
+
+    expect(statuses.at(-1)).toBe("error")
+    expect(apiFetchMock).toHaveBeenCalledTimes(1)
+    renderer.unmount()
+  })
+
   it("stays idle without a route and trusts an existing canonical row", async () => {
     const queryClient = client()
     const canonical: DM = {
