@@ -4,6 +4,7 @@
       "url": ["http://localhost:3000/"],
       "startServerCommand": "pnpm dev",
       "startServerReadyPattern": "Alook multi-zone Next development ready",
+      "startServerReadyTimeout": 90000,
       "numberOfRuns": 1,
       "settings": {
         "onlyCategories": ["seo", "accessibility", "best-practices"],
