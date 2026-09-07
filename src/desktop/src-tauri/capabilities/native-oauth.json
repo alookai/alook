@@ -10,7 +10,7 @@
     "macOS",
     "windows"
   ],
-  "local": false,
+  "local": true,
   "remote": {
     "urls": [
       "https://alook.ai"

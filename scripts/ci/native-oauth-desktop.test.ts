@@ -4,31 +4,35 @@ import { describe, expect, it } from "vitest"
 const root = resolve(import.meta.dirname, "../../src/desktop/src-tauri")
 const read = (file: string) => readFileSync(resolve(root, file), "utf8")
 type Capability = { identifier: string; local?: boolean; remote?: { urls: string[] }; windows: string[]; platforms?: string[]; permissions: (string | { identifier: string })[] }
-type Config = { app: { security: { capabilities: (string | Capability)[] } }; plugins?: { "deep-link"?: unknown } }
+type Config = { app: { security: { capabilities: (string | Capability)[] } }; build: { frontendDist: string }; plugins?: { "deep-link"?: unknown } }
 const production: Config = JSON.parse(read("tauri.conf.json"))
 const development: Config = JSON.parse(read("tauri.dev.conf.json"))
 const capabilities = (config: Config): Capability[] => config.app.security.capabilities.map(c => typeof c === "string" ? JSON.parse(read(`capabilities/${c === "desktop-capability" ? "desktop" : c}.json`)) : c)
 
 describe("desktop native OAuth security configuration", () => {
-  it.each([production, development])("merged permissions cannot listen to raw events or read native storage/deep-link state", config => {
+  it.each([production, development])("grants the app-local frontend only the scoped native OAuth capability", config => {
     const merged = capabilities(config)
     for (const permission of merged.flatMap(c => c.permissions).map(p => typeof p === "string" ? p : p.identifier)) {
       expect(permission).not.toMatch(/^(?:core:default$|core:event:|deep-link:|store:)/)
     }
     const oauth = merged.find(c => c.permissions.includes("native-oauth"))!
+    const isProduction = config === production
+    expect(config.build.frontendDist).toBe(isProduction ? "https://alook.ai/c" : "http://localhost:3000/c")
     expect(oauth.windows).toEqual(["main"])
     expect(oauth.platforms).toEqual(expect.arrayContaining(["linux", "macOS", "windows"]))
-    expect(oauth.remote?.urls).toEqual(config === production ? ["https://alook.ai"] : ["http://localhost:3000"])
-    expect(oauth.local).toBe(config === development)
+    expect(oauth.remote?.urls).toEqual(isProduction ? ["https://alook.ai"] : ["http://localhost:3000"])
+    expect(oauth.local).toBe(true)
   })
   it("requires explicit command ACL while preserving preexisting desktop custom commands", () => {
     const build = read("build.rs")
     const native = read("permissions/native-oauth.toml")
     const existing = read("permissions/desktop-commands.toml")
-    for (const command of ["snapshot", "listen", "unlisten", "prepare", "open_start", "pending_exchange", "reject_candidate", "finish", "cancel"]) {
+    const commands = ["snapshot", "listen", "unlisten", "prepare", "open_start", "pending_exchange", "reject_candidate", "finish", "cancel"]
+    for (const command of commands) {
       expect(build).toContain(`"native_oauth_${command}"`)
       expect(native).toContain(`"native_oauth_${command}"`)
     }
+    expect(native).toContain(`commands.allow = [${commands.map(command => `"native_oauth_${command}"`).join(", ")}]`)
     for (const command of ["daemon_runtime_capability", "daemon_pair", "set_window_theme", "close_splashscreen", "desktop_zoom_shortcut"]) {
       expect(build).toContain(`"${command}"`)
       expect(existing).toContain(`"${command}"`)
@@ -48,5 +52,10 @@ describe("desktop native OAuth security configuration", () => {
     expect(runtime).toContain("channel.send(())")
     expect(source).toContain("PageLoadEvent::Started")
     expect(source).toContain("WindowEvent::Destroyed")
+    expect(runtime).toContain('label == "main"')
+    expect(runtime).toContain("url.origin().ascii_serialization() == expected")
+    expect(runtime).toContain("url.username().is_empty()")
+    expect(runtime).toContain("url.password().is_none()")
+    expect(runtime).toContain("commands_require_main_and_exact_build_origin")
   })
 })
