@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     projects: [
       "./vitest.config.ts",
+      "./vitest.dom.config.ts",
       "./vitest.runtime.config.mts",
       "./auth/vitest.config.ts",
       "./auth/vitest.runtime.config.mts",

@@ -1,7 +1,8 @@
-import React from "react"
-import { readFileSync } from "node:fs"
-import TestRenderer, { act } from "react-test-renderer"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { StrictMode, createElement } from "react"
+import { existsSync, readFileSync } from "node:fs"
+import { resolve } from "node:path"
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest"
+import { act, render } from "@/test/react-dom-harness"
 
 const mocks = vi.hoisted(() => ({
   machinesQueryFn: vi.fn(),
@@ -28,11 +29,11 @@ import {
   eligibleDaemonUpdateMachines,
 } from "./daemon-update-notice"
 
-const values = new Map<string, string>()
-const localStorage = {
-  getItem: vi.fn((key: string) => values.get(key) ?? null),
-  setItem: vi.fn((key: string, value: string) => values.set(key, value)),
-}
+const storageGetItem = vi.spyOn(Storage.prototype, "getItem")
+const storageSetItem = vi.spyOn(Storage.prototype, "setItem")
+const webRoot = existsSync(resolve(process.cwd(), "next.config.ts"))
+  ? process.cwd()
+  : resolve(process.cwd(), "src/web")
 
 function machine(
   daemonVersion: string,
@@ -46,38 +47,38 @@ function machine(
 }
 
 async function renderNotice() {
-  let renderer!: TestRenderer.ReactTestRenderer
+  const rendered = render(createElement(DaemonUpdateNotice, {
+    userId: "user-1",
+    webVersion: "0.1.27",
+    latestDaemonVersion: "0.1.27",
+    requestUpdate: mocks.requestUpdate,
+  }))
   await act(async () => {
-    renderer = TestRenderer.create(
-      React.createElement(DaemonUpdateNotice, {
-        userId: "user-1",
-        webVersion: "0.1.27",
-        latestDaemonVersion: "0.1.27",
-        requestUpdate: mocks.requestUpdate,
-      }),
-    )
+    await new Promise((resolve) => setTimeout(resolve, 0))
   })
-  return renderer
+  return rendered
 }
 
 describe("DaemonUpdateNotice", () => {
   beforeEach(() => {
-    values.clear()
-    localStorage.getItem.mockReset()
-    localStorage.getItem.mockImplementation((key: string) => values.get(key) ?? null)
-    localStorage.setItem.mockReset()
-    localStorage.setItem.mockImplementation((key: string, value: string) => values.set(key, value))
+    window.localStorage.clear()
+    storageGetItem.mockClear()
+    storageSetItem.mockClear()
     mocks.machinesQueryFn.mockReset()
     mocks.notificationAdd.mockReset()
     mocks.notificationAdd.mockReturnValue("toast-1")
     mocks.notificationClose.mockReset()
     mocks.requestUpdate.mockReset()
     mocks.requestUpdate.mockResolvedValue({ dispatched: true })
-    vi.stubGlobal("window", { localStorage })
+  })
+
+  afterAll(() => {
+    storageGetItem.mockRestore()
+    storageSetItem.mockRestore()
   })
 
   it("uses the release daemon package as the Web build target", () => {
-    const config = readFileSync(new URL("../../next.config.ts", import.meta.url), "utf8")
+    const config = readFileSync(resolve(webRoot, "next.config.ts"), "utf8")
     expect(config).toContain('path.resolve(__dirname, "../daemon/package.json")')
     expect(config).toContain("NEXT_PUBLIC_LATEST_DAEMON_VERSION: daemonPkg.version")
   })
@@ -100,7 +101,7 @@ describe("DaemonUpdateNotice", () => {
     await renderNotice()
 
     expect(mocks.machinesQueryFn).toHaveBeenCalledOnce()
-    expect(localStorage.setItem).toHaveBeenCalledWith(
+    expect(storageSetItem).toHaveBeenCalledWith(
       daemonUpdateStorageKey("user-1"),
       "0.1.27",
     )
@@ -108,7 +109,8 @@ describe("DaemonUpdateNotice", () => {
   })
 
   it("skips the query when this user already checked the current Web version", async () => {
-    values.set(daemonUpdateStorageKey("user-1"), "0.1.27")
+    window.localStorage.setItem(daemonUpdateStorageKey("user-1"), "0.1.27")
+    storageSetItem.mockClear()
     await renderNotice()
 
     expect(mocks.machinesQueryFn).not.toHaveBeenCalled()
@@ -116,7 +118,8 @@ describe("DaemonUpdateNotice", () => {
   })
 
   it("checks again when the stored flag belongs to an older Web version", async () => {
-    values.set(daemonUpdateStorageKey("user-1"), "0.1.26")
+    window.localStorage.setItem(daemonUpdateStorageKey("user-1"), "0.1.26")
+    storageSetItem.mockClear()
     mocks.machinesQueryFn.mockResolvedValue({ machines: [machine("0.1.26")] })
     await renderNotice()
 
@@ -143,7 +146,7 @@ describe("DaemonUpdateNotice", () => {
       height: 32,
     })
     expect(notice.timeout).toBe(0)
-    expect(localStorage.setItem).not.toHaveBeenCalled()
+    expect(storageSetItem).not.toHaveBeenCalled()
   })
 
   it("uses plural copy when multiple machines can update", async () => {
@@ -159,19 +162,18 @@ describe("DaemonUpdateNotice", () => {
   it("retries the canceled development pass under React Strict Mode", async () => {
     mocks.machinesQueryFn.mockResolvedValue({ machines: [machine("0.1.26")] })
 
+    render(createElement(
+      StrictMode,
+      null,
+      createElement(DaemonUpdateNotice, {
+        userId: "user-1",
+        webVersion: "0.1.27",
+        latestDaemonVersion: "0.1.27",
+        requestUpdate: mocks.requestUpdate,
+      }),
+    ))
     await act(async () => {
-      TestRenderer.create(
-        React.createElement(
-          React.StrictMode,
-          null,
-          React.createElement(DaemonUpdateNotice, {
-            userId: "user-1",
-            webVersion: "0.1.27",
-            latestDaemonVersion: "0.1.27",
-            requestUpdate: mocks.requestUpdate,
-          }),
-        ),
-      )
+      await new Promise((resolve) => setTimeout(resolve, 0))
     })
 
     expect(mocks.machinesQueryFn).toHaveBeenCalledOnce()
@@ -193,7 +195,7 @@ describe("DaemonUpdateNotice", () => {
     act(() => notice.actionProps.onClick())
     act(() => notice.actionProps.onClick())
     expect(mocks.notificationClose).toHaveBeenCalledWith("toast-1")
-    expect(localStorage.setItem).toHaveBeenCalledWith(
+    expect(storageSetItem).toHaveBeenCalledWith(
       daemonUpdateStorageKey("user-1"),
       "0.1.27",
     )
@@ -216,15 +218,15 @@ describe("DaemonUpdateNotice", () => {
     mocks.machinesQueryFn.mockRejectedValue(new Error("offline"))
     await renderNotice()
 
-    expect(localStorage.setItem).not.toHaveBeenCalled()
+    expect(storageSetItem).not.toHaveBeenCalled()
     expect(mocks.notificationAdd).not.toHaveBeenCalled()
   })
 
   it("fails open when local storage is unavailable", async () => {
-    localStorage.getItem.mockImplementationOnce(() => {
+    storageGetItem.mockImplementationOnce(() => {
       throw new Error("storage disabled")
     })
-    localStorage.setItem.mockImplementationOnce(() => {
+    storageSetItem.mockImplementationOnce(() => {
       throw new Error("storage disabled")
     })
     mocks.machinesQueryFn.mockResolvedValue({ machines: [machine("0.1.27")] })
@@ -235,8 +237,8 @@ describe("DaemonUpdateNotice", () => {
   })
 
   it("mounts the thin controller only in authenticated route groups", () => {
-    const appLayout = readFileSync(new URL("../app/(app)/layout.tsx", import.meta.url), "utf8")
-    const communityShell = readFileSync(new URL("../app/c/community-shell.tsx", import.meta.url), "utf8")
+    const appLayout = readFileSync(resolve(webRoot, "src/app/(app)/layout.tsx"), "utf8")
+    const communityShell = readFileSync(resolve(webRoot, "src/app/c/community-shell.tsx"), "utf8")
     expect(appLayout).toContain("<DaemonUpdateNotice userId={session.user.id} />")
     expect(communityShell).toContain("<CommunityDaemonUpdateNotice userId={currentUser.id} />")
   })

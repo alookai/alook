@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach, vi } from "vitest"
-import React from "react"
-import TestRenderer, { act } from "react-test-renderer"
+import { createElement, type PropsWithChildren } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { beforeEach, describe, expect, it, vi } from "vitest"
+import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 import { useBotAuditLog } from "./use-bot-audit-log"
 import { useCommunityWsStore } from "@/stores/community/ws"
 
@@ -10,28 +10,14 @@ vi.mock("@/lib/api/client", () => ({
   apiFetch: (...a: unknown[]) => mockApiFetch(...a),
 }))
 
-function renderWithHook(hook: () => ReturnType<typeof useBotAuditLog>) {
-  const result: { current: ReturnType<typeof useBotAuditLog> } = { current: null as never }
-  const qc = new QueryClient({
+function renderAuditLog(botId: string | null) {
+  const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   })
-  function Probe() {
-    result.current = hook()
-    return null
+  function Wrapper({ children }: PropsWithChildren) {
+    return createElement(QueryClientProvider, { client: queryClient }, children)
   }
-  let renderer!: TestRenderer.ReactTestRenderer
-  act(() => {
-    renderer = TestRenderer.create(
-      React.createElement(QueryClientProvider, { client: qc }, React.createElement(Probe)),
-    )
-  })
-  return { result, renderer }
-}
-
-async function flush() {
-  await act(async () => {
-    await new Promise((r) => setTimeout(r, 0))
-  })
+  return renderHook(() => useBotAuditLog(botId), { wrapper: Wrapper })
 }
 
 beforeEach(() => {
@@ -55,10 +41,10 @@ describe("useBotAuditLog", () => {
       nextCursor: null,
     })
 
-    const { result } = renderWithHook(() => useBotAuditLog("b1"))
-    await flush()
-    await flush()
-    expect(result.current.events.map((e) => e.id)).toEqual(["e1"])
+    const { result } = renderAuditLog("b1")
+    await waitFor(() => {
+      expect(result.current.events.map((event) => event.id)).toEqual(["e1"])
+    })
 
     act(() => {
       useCommunityWsStore.getState().pushBotAuditEvent({
@@ -69,8 +55,9 @@ describe("useBotAuditLog", () => {
         createdAt: "2025-01-01T00:00:00.000Z",
       })
     })
-    await flush()
-    expect(result.current.events.map((e) => e.id)).toEqual(["e1"])
+    await waitFor(() => {
+      expect(result.current.events.map((event) => event.id)).toEqual(["e1"])
+    })
   })
 
   it("prepends a FRESH WS-live event (id not in cache) into the first page", async () => {
@@ -88,9 +75,10 @@ describe("useBotAuditLog", () => {
       nextCursor: null,
     })
 
-    const { result } = renderWithHook(() => useBotAuditLog("b1"))
-    await flush()
-    await flush()
+    const { result } = renderAuditLog("b1")
+    await waitFor(() => {
+      expect(result.current.events.map((event) => event.id)).toEqual(["e_old"])
+    })
 
     act(() => {
       useCommunityWsStore.getState().pushBotAuditEvent({
@@ -101,8 +89,9 @@ describe("useBotAuditLog", () => {
         createdAt: "2025-01-01T00:00:05.000Z",
       })
     })
-    await flush()
-    expect(result.current.events.map((e) => e.id)).toEqual(["e_new", "e_old"])
+    await waitFor(() => {
+      expect(result.current.events.map((event) => event.id)).toEqual(["e_new", "e_old"])
+    })
   })
 
   it("does NOT include events for a different botId (filter isolates)", async () => {
@@ -120,9 +109,10 @@ describe("useBotAuditLog", () => {
       nextCursor: null,
     })
 
-    const { result } = renderWithHook(() => useBotAuditLog("b1"))
-    await flush()
-    await flush()
+    const { result } = renderAuditLog("b1")
+    await waitFor(() => {
+      expect(result.current.events.map((event) => event.id)).toEqual(["e1"])
+    })
 
     act(() => {
       useCommunityWsStore.getState().pushBotAuditEvent({
@@ -133,13 +123,13 @@ describe("useBotAuditLog", () => {
         createdAt: "2025-01-01T00:00:05.000Z",
       })
     })
-    await flush()
-    expect(result.current.events.map((e) => e.id)).toEqual(["e1"])
+    await waitFor(() => {
+      expect(result.current.events.map((event) => event.id)).toEqual(["e1"])
+    })
   })
 
-  it("is disabled when botId is null — no fetch happens", async () => {
-    renderWithHook(() => useBotAuditLog(null))
-    await flush()
+  it("is disabled when botId is null — no fetch happens", () => {
+    renderAuditLog(null)
     expect(mockApiFetch).not.toHaveBeenCalled()
   })
 })

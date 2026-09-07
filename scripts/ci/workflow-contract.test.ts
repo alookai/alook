@@ -803,6 +803,8 @@ describe("Turbo CI execution", () => {
       const expectedProjects = module.name === "web" ? 2 : 1
       expect(module.workspaceConfig.match(/vitest\.config\.ts/g)).toHaveLength(expectedProjects)
       expect(module.workspaceConfig.match(/vitest\.runtime\.config\.mts/g)).toHaveLength(expectedProjects)
+      if (module.name === "web") expect(module.workspaceConfig).toContain("./vitest.dom.config.ts")
+      else expect(module.workspaceConfig).not.toContain("vitest.dom.config.ts")
 
       const nodeProject = `${module.name}-node`
       const runtimeProject = `${module.name}-runtime`
@@ -814,7 +816,22 @@ describe("Turbo CI execution", () => {
       projectNames.push(nodeProject, runtimeProject)
     }
     expect(new Set(projectNames).size).toBe(projectNames.length)
-    expect(ciJob("test-linux")).toContain("projects=(web-node web-runtime auth-node auth-runtime)")
+    expect(ciJob("test-linux")).toContain("projects=(web-node web-dom web-runtime auth-node auth-runtime)")
+  })
+
+  it("runs Blog tests through both Web Node and DOM projects", () => {
+    expect(ciJob("blog-build")).toContain(
+      "pnpm --filter @alook/web exec vitest run --config vitest.workspace.config.ts --project=web-node --project=web-dom blog",
+    )
+  })
+
+  it("wraps the single selected Linux Web run with the migration audit", () => {
+    const linux = ciJob("test-linux")
+    expect(linux).toContain('if [[ "$root" == "src/web" ]]; then')
+    expect(linux).toContain("node scripts/ci/react-test-warning-audit.mjs")
+    expect(linux).toContain("--contract src/web/test-audit/react-test-renderer-p0.json --")
+    expect(linux).toContain('"${vitest_args[@]}"')
+    expect(linux.match(/react-test-warning-audit\.mjs/g)).toHaveLength(1)
   })
 
   it("collects Node and workerd projects in one Istanbul report", () => {
@@ -824,9 +841,12 @@ describe("Turbo CI execution", () => {
     expect(rootVitestConfig).toContain('"src/**/*.{ts,tsx,js,jsx}"')
     expect(rootVitestConfig).toContain('"**/test-runtime/**"')
     expect(rootVitestConfig).toContain('"**/test-harness.ts"')
+    expect(rootVitestConfig).toContain('"**/react-dom-harness.ts"')
+    expect(rootVitestConfig).toContain('"**/react-dom-setup.ts"')
     for (const project of [
       "src/shared",
       "src/web",
+      "src/web/vitest.dom.config.ts",
       "src/web/auth/vitest.config.ts",
       "src/web/auth/vitest.runtime.config.mts",
       "src/cli",
@@ -869,7 +889,7 @@ describe("Turbo CI execution", () => {
       "projects=(ci-scripts)",
       "projects=(email-worker-node email-worker-runtime)",
       "projects=(wake-worker-node wake-worker-runtime)",
-      "projects=(web-node web-runtime auth-node auth-runtime)",
+      "projects=(web-node web-dom web-runtime auth-node auth-runtime)",
       "projects=(ws-do-node ws-do-runtime)",
     ]) expect(linux).toContain(projects)
     expect(linux).toContain('project_args+=("--project=$project")')
