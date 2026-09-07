@@ -15,7 +15,12 @@ export default mergeConfig(shared, defineConfig({
     environment: "jsdom",
     testTimeout: 30_000,
     hookTimeout: 30_000,
-    include: ["**/*.dom.test.{ts,tsx}"],
+    include: [
+      "src/**/*.dom.test.{ts,tsx}",
+      "blog/**/*.dom.test.{ts,tsx}",
+      "scripts/**/*.dom.test.{ts,tsx}",
+      "readme-capture/**/*.dom.test.{ts,tsx}",
+    ],
     exclude: ["src/test/e2e/**", "src/test/e2e-ui/**"],
     setupFiles: ["src/test/react-dom-setup.ts"],
   },

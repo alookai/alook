@@ -1,20 +1,27 @@
 import { readFileSync, readdirSync } from "node:fs"
-import { relative, resolve } from "node:path"
+import { relative, resolve, sep } from "node:path"
 import { describe, expect, it } from "vitest"
 
 const webRoot = resolve(import.meta.dirname, "../../..")
-const sourceRoot = resolve(webRoot, "src")
+const domProjectRoots = ["src", "blog", "scripts", "readme-capture"]
+  .map((directory) => resolve(webRoot, directory))
+const ignoredDirectories = new Set([".next", ".open-next", "coverage", "dist", "node_modules"])
+const excludedProjectRoots = ["src/test/e2e", "src/test/e2e-ui"]
 
 function domTests() {
   const files: string[] = []
   const visit = (directory: string) => {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       const path = resolve(directory, entry.name)
-      if (entry.isDirectory()) visit(path)
+      const projectPath = relative(webRoot, path).split(sep).join("/")
+      const excluded = excludedProjectRoots.some((root) => (
+        projectPath === root || projectPath.startsWith(`${root}/`)
+      ))
+      if (entry.isDirectory() && !ignoredDirectories.has(entry.name) && !excluded) visit(path)
       else if (entry.isFile() && /\.dom\.test\.tsx?$/.test(entry.name)) files.push(path)
     }
   }
-  visit(sourceRoot)
+  for (const root of domProjectRoots) visit(root)
   return files.sort()
 }
 
@@ -32,8 +39,8 @@ describe("React DOM harness contract", () => {
   })
 
   it("keeps RTL lifecycle ownership in one harness and one setup module", () => {
-    const harness = readFileSync(resolve(sourceRoot, "test/react-dom-harness.ts"), "utf8")
-    const setup = readFileSync(resolve(sourceRoot, "test/react-dom-setup.ts"), "utf8")
+    const harness = readFileSync(resolve(webRoot, "src/test/react-dom-harness.ts"), "utf8")
+    const setup = readFileSync(resolve(webRoot, "src/test/react-dom-setup.ts"), "utf8")
     expect(harness).toContain('from "@testing-library/react"')
     expect(harness).toContain('from "@testing-library/user-event"')
     expect(harness).not.toMatch(/\bcleanup\s*\(/)
