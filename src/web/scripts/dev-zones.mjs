@@ -72,6 +72,26 @@ function waitForPort(port, timeoutMs = 60_000) {
   })
 }
 
+async function waitForHttpOk(url, timeoutMs = 60_000) {
+  const startedAt = Date.now()
+  let lastResult = "unreachable"
+
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      const response = await fetch(url, { redirect: "manual" })
+      await response.body?.cancel()
+      if (response.ok) return
+      lastResult = `HTTP ${response.status}`
+    } catch (error) {
+      lastResult = error instanceof Error ? error.message : String(error)
+    }
+
+    await new Promise((resolveRetry) => setTimeout(resolveRetry, 200))
+  }
+
+  throw new Error(`Timed out waiting for ${url} (${lastResult})`)
+}
+
 const mainWorkerConfigs = withWsDo
   ? ["wrangler.toml", "../ws-do/wrangler.toml"]
   : ["wrangler.toml"]
@@ -130,6 +150,7 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
 try {
   await Promise.all([waitForPort(3001), waitForPort(3002)])
   await ingress.listen()
+  if (!workerMode) await waitForHttpOk("http://127.0.0.1:3000/")
   console.log(
     `Alook multi-zone ${workerMode ? "Worker" : "Next"} development ready at http://127.0.0.1:3000`,
   )
