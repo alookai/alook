@@ -36,6 +36,7 @@ const COVERAGE_EXCLUDES = [
   /(?:^|\/)(?:\.next|\.open-next|\.wrangler|dist|bundled|__mocks__)\//,
   /(?:^|\/)test-runtime\//,
   /(?:^|\/)test-harness\.ts$/,
+  /(?:^|\/)react-dom-(?:harness|setup)\.ts$/,
   /\.d\.ts$/,
   /^src\/cli\/src\/index\.ts$/,
   /^src\/shared\/src\/index\.ts$/,

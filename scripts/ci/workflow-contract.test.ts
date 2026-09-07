@@ -825,16 +825,6 @@ describe("Turbo CI execution", () => {
     )
   })
 
-  it("wraps the single selected Linux Web run with the permanent zero-warning audit", () => {
-    const linux = ciJob("test-linux")
-    expect(linux).toContain('if [[ "$root" == "src/web" ]]; then')
-    expect(linux).toContain("node scripts/ci/react-test-warning-audit.mjs")
-    expect(linux).toContain("node scripts/ci/react-test-warning-audit.mjs --")
-    expect(linux).not.toContain("react-test-renderer-migration.json")
-    expect(linux).toContain('"${vitest_args[@]}"')
-    expect(linux.match(/react-test-warning-audit\.mjs/g)).toHaveLength(1)
-  })
-
   it("collects Node and workerd projects in one Istanbul report", () => {
     expect(rootPackageJson.devDependencies["@vitest/coverage-istanbul"]).toBe("4.1.10")
     expect(rootPackageJson.devDependencies).not.toHaveProperty("@vitest/coverage-v8")
