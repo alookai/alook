@@ -957,7 +957,7 @@ describe("WebSocketDurableObject", () => {
       })
       expect(ws.close).toHaveBeenCalledWith(1008, "Unauthorized")
 
-      await durable.webSocketClose(ws as any)
+      await durable.webSocketClose(ws as any, 1000, "test complete", true)
       await flushAsyncWork()
 
       expect(mockGetCoMemberUserIds).not.toHaveBeenCalled()
@@ -996,7 +996,7 @@ describe("WebSocketDurableObject", () => {
         authenticated: true,
       })
 
-      await durable.webSocketClose(ws as any)
+      await durable.webSocketClose(ws as any, 1000, "test complete", true)
       await flushAsyncWork()
 
       const [request] = mockStubFetch.mock.calls[0] as [Request]
@@ -1302,7 +1302,22 @@ describe("WebSocketDurableObject", () => {
       other.serializeAttachment({ type: "user", userId: "user-1", authenticated: true })
       ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([closing, other])
 
-      await durable.webSocketClose(closing as any)
+      await durable.webSocketClose(closing as any, 1000, "test complete", true)
+      await flushAsyncWork()
+
+      expect(mockGetCoMemberUserIds).not.toHaveBeenCalled()
+      expect(mockStubFetch).not.toHaveBeenCalled()
+    })
+
+    it("keeps user presence online when auto-reply already removed the closing tab", async () => {
+      const { durable, ctx } = createDO()
+      const closing = createMockWebSocket()
+      closing.serializeAttachment({ type: "user", userId: "user-1", authenticated: true })
+      const other = createMockWebSocket()
+      other.serializeAttachment({ type: "user", userId: "user-1", authenticated: true })
+      ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([other])
+
+      await durable.webSocketClose(closing as any, 1000, "test complete", true)
       await flushAsyncWork()
 
       expect(mockGetCoMemberUserIds).not.toHaveBeenCalled()
@@ -1317,7 +1332,7 @@ describe("WebSocketDurableObject", () => {
       closing.serializeAttachment({ type: "user", userId: "user-1", authenticated: true })
       ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([closing])
 
-      await durable.webSocketClose(closing as any)
+      await durable.webSocketClose(closing as any, 1000, "test complete", true)
       await flushAsyncWork()
 
       const [request] = mockStubFetch.mock.calls[0] as [Request]
@@ -1334,9 +1349,12 @@ describe("WebSocketDurableObject", () => {
       const ws = createMockWebSocket()
       ws.serializeAttachment({ type: "daemon", daemonId: "daemon-1", userId: "user-1", authenticated: true })
 
-      await expect(durable.webSocketClose(ws as any)).resolves.toBeUndefined()
+      await expect(
+        durable.webSocketClose(ws as any, 1001, "daemon going away", true),
+      ).resolves.toBeUndefined()
       await flushAsyncWork()
 
+      expect(ws.close).toHaveBeenCalledWith(1001, "daemon going away")
       expect(mockStubFetch).toHaveBeenCalledTimes(1)
       const [request] = mockStubFetch.mock.calls[0] as [Request]
       expect(await request.clone().json()).toEqual({

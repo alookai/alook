@@ -160,7 +160,7 @@
     "typescript": "^6.0.3",
     "unified": "^11.0.5",
     "vitest": "4.1.11",
-    "wrangler": "4.129.0",
+    "wrangler": "4.129.1",
     "wrangler-e2e": "npm:wrangler@4.113.0"
   }
 }

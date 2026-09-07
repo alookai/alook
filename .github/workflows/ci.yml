@@ -561,10 +561,20 @@ jobs:
       - run: pnpm run db:migrate
       - name: Start dev servers
         run: |
-          pnpm --filter @alook/email-worker dev &
+          wait_for() {
+            local url=$1 timeout=60 elapsed=0
+            until curl -sf "$url" > /dev/null 2>&1; do
+              sleep 2; elapsed=$((elapsed + 2))
+              if [ $elapsed -ge $timeout ]; then return 1; fi
+            done
+          }
           pnpm --filter @alook/ws-do dev &
-          pnpm --filter @alook/web dev &
+          wait_for http://localhost:8789/health
           pnpm --filter @alook/wake-worker dev &
+          wait_for http://localhost:8790/health
+          pnpm --filter @alook/email-worker dev &
+          wait_for http://localhost:8787/health
+          pnpm --filter @alook/web dev &
       - name: Wait for services
         run: |
           wait_for() {
@@ -574,20 +584,7 @@ jobs:
               if [ $elapsed -ge $timeout ]; then return 1; fi
             done
           }
-          if ! wait_for http://localhost:8787/health || \
-             ! wait_for http://localhost:8789/health || \
-             ! wait_for http://localhost:3000/api/health || \
-             ! wait_for http://localhost:8790/health; then
-            pkill -f "wrangler" || true; pkill -f "next" || true; sleep 3
-            pnpm --filter @alook/email-worker dev &
-            pnpm --filter @alook/ws-do dev &
-            pnpm --filter @alook/web dev &
-            pnpm --filter @alook/wake-worker dev &
-            wait_for http://localhost:8787/health
-            wait_for http://localhost:8789/health
-            wait_for http://localhost:3000/api/health
-            wait_for http://localhost:8790/health
-          fi
+          wait_for http://localhost:3000/api/health
       - if: contains(fromJSON(needs.scope.outputs.integration_suites), 'web')
         run: pnpm test:e2e
       - if: contains(fromJSON(needs.scope.outputs.integration_suites), 'cli')

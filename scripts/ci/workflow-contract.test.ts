@@ -134,6 +134,10 @@ const nativeOauthWebConfig = readFileSync(
   resolve(import.meta.dirname, "../../src/web/wrangler.toml"),
   "utf8",
 )
+const blogWorkerConfig = readFileSync(
+  resolve(import.meta.dirname, "../../src/web/blog/wrangler.toml"),
+  "utf8",
+)
 const nativeOauthContract = readFileSync(
   resolve(import.meta.dirname, "../../src/web/src/lib/native-oauth.ts"),
   "utf8",
@@ -435,6 +439,16 @@ describe("CI workflow graph", () => {
     expect(e2e).toContain("- run: pnpm run db:migrate")
     expect(e2e).toContain("- name: Start dev servers\n        run: |")
     expect(e2e).toContain("- name: Wait for services\n        run: |")
+    expect(e2e.indexOf("pnpm --filter @alook/ws-do dev &")).toBeLessThan(
+      e2e.indexOf("pnpm --filter @alook/wake-worker dev &"),
+    )
+    expect(e2e.indexOf("pnpm --filter @alook/wake-worker dev &")).toBeLessThan(
+      e2e.indexOf("pnpm --filter @alook/email-worker dev &"),
+    )
+    expect(e2e.indexOf("pnpm --filter @alook/email-worker dev &")).toBeLessThan(
+      e2e.indexOf("pnpm --filter @alook/web dev &"),
+    )
+    expect(e2e).not.toContain('pkill -f "wrangler"')
     expect(e2e.match(new RegExp(webCondition.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")))
       .toHaveLength(1)
     expect(e2e.match(new RegExp(cliCondition.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")))
@@ -828,6 +842,18 @@ describe("Turbo CI execution", () => {
     }
     expect(new Set(projectNames).size).toBe(projectNames.length)
     expect(ciJob("test-linux")).toContain("projects=(web-node web-dom web-runtime auth-node auth-runtime)")
+  })
+
+  it("pins every deployed Worker to the latest reviewed compatibility date", () => {
+    const configs = [
+      ...directWorkerModules.map((module) => module.wranglerConfig),
+      nativeOauthAuthConfig,
+      blogWorkerConfig,
+    ]
+    expect(configs).toHaveLength(6)
+    for (const config of configs) {
+      expect(config).toContain('compatibility_date = "2026-09-07"')
+    }
   })
 
   it("runs Blog tests through both Web Node and DOM projects", () => {

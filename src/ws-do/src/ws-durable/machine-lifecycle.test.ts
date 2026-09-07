@@ -83,7 +83,7 @@ describe("WebSocketDurableObject", () => {
           authenticated: true,
         })
 
-        await durable.webSocketClose(ws as any)
+        await durable.webSocketClose(ws as any, 1000, "test complete", true)
 
         expect(mockMarkMachineOffline).toHaveBeenCalledTimes(1)
         const [, args] = mockMarkMachineOffline.mock.calls[0]!
@@ -121,7 +121,7 @@ describe("WebSocketDurableObject", () => {
         mockStubFetch.mockClear()
         ;(ctx.storage.setAlarm as any).mockClear?.()
         ;(ctx.storage.deleteAlarm as any).mockClear?.()
-        await durable.webSocketClose(ws as any)
+        await durable.webSocketClose(ws as any, 1000, "test complete", true)
 
         expect(mockMarkMachineOffline).toHaveBeenCalledTimes(1)
         // No broadcast fired — the guarded UPDATE returned zero rows.
@@ -148,7 +148,7 @@ describe("WebSocketDurableObject", () => {
           // Clear any setAlarm calls made during createDO setup.
           ; (ctx.storage.setAlarm as any).mockClear?.()
 
-        await durable.webSocketClose(ws as any)
+        await durable.webSocketClose(ws as any, 1000, "test complete", true)
 
         expect(mockMarkMachineOffline).not.toHaveBeenCalled()
         // No alarm armed — with no identity there's nothing recoverable to do.
@@ -211,7 +211,7 @@ describe("WebSocketDurableObject", () => {
 
         mockStubFetch.mockClear()
         ;(ctx.storage.deleteAlarm as any).mockClear?.()
-        await durable.webSocketClose(oldSocket as any)
+        await durable.webSocketClose(oldSocket as any, 1001, "replaced", true)
 
         expect(mockMarkMachineOffline).not.toHaveBeenCalled()
         expect(mockStubFetch).not.toHaveBeenCalled()
@@ -244,7 +244,7 @@ describe("WebSocketDurableObject", () => {
         getWebSockets.mockReturnValue([closing])
         mockMarkMachineOffline.mockResolvedValueOnce(null)
 
-        await durable.webSocketClose(closing as any)
+        await durable.webSocketClose(closing as any, 1000, "test complete", true)
 
         expect(mockMarkMachineOffline).toHaveBeenCalledTimes(1)
       })
@@ -287,7 +287,7 @@ describe("WebSocketDurableObject", () => {
         getWebSockets.mockReturnValue([closing, otherMachine, otherUser, unauthenticated])
         mockMarkMachineOffline.mockResolvedValueOnce(null)
 
-        await durable.webSocketClose(closing as any)
+        await durable.webSocketClose(closing as any, 1000, "test complete", true)
 
         expect(mockMarkMachineOffline).toHaveBeenCalledTimes(1)
       })
@@ -662,7 +662,9 @@ describe("WebSocketDurableObject", () => {
           authenticated: true,
         })
 
-        await expect(durable.webSocketClose(ws as any)).resolves.toBeUndefined()
+        await expect(
+          durable.webSocketClose(ws as any, 1006, "", false),
+        ).resolves.toBeUndefined()
         expect(storage.setAlarm).toHaveBeenCalledWith(3_120_000)
       })
 
