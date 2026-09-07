@@ -71,7 +71,7 @@ describe("onboarding preview flow", () => {
     expect(previewSource).toContain("tid.onboardingIdentityOption")
   })
 
-  it("uses bot terminology without fixed onboarding bot names", () => {
+  it("uses bot terminology and renders the dynamic checkpoint team", () => {
     for (const filename of [
       "community-onboarding-form.tsx",
       "initialize-community-onboarding.ts",
@@ -84,6 +84,10 @@ describe("onboarding preview flow", () => {
     }
 
     expect(previewSource).toMatch(/\bbots?\b/)
+    expect(previewSource).toContain('key: "reviewer"')
+    expect(readFileSync(resolve(directory, "onboarding-status-dialog.tsx"), "utf8"))
+      .toContain("checkpoint.bots.map")
+    expect(onboardingFormSource).not.toContain("Two bots")
   })
 
   it("keeps onboarding mounted until shell navigation commits the new room", () => {

@@ -60,8 +60,11 @@ describe("CommunityOnboardingForm room navigation", () => {
       serverId: "server-1",
       publicChannelId: "channel-1",
       privateChannelId: "channel-2",
-      botAId: "bot-1",
-      botBId: "bot-2",
+      leadBotId: "bot-1",
+      bots: [
+        { key: "lead", id: "bot-1", name: "Nora" },
+        { key: "doer", id: "bot-2", name: "June" },
+      ],
     })
   })
 
@@ -70,7 +73,10 @@ describe("CommunityOnboardingForm room navigation", () => {
 
     await waitFor(() => expect(screen.getByTestId("onboarding-status-dialog"))
       .toHaveAttribute("data-status", "success"))
-    expect(mocks.initialize).toHaveBeenCalledWith(expect.objectContaining({ userName: "Ada" }))
+    expect(mocks.initialize).toHaveBeenCalledWith(expect.objectContaining({
+      userName: "Ada",
+      userDiscriminator: undefined,
+    }))
 
     fireEvent.click(screen.getByTestId("onboarding-status-dialog"))
     expect(mocks.navigate).toHaveBeenCalledWith("server-1", "channel-1")

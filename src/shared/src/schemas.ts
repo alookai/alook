@@ -2,6 +2,7 @@ import { z } from "zod";
 import { IssueStatus, TASK_TYPES } from "./constants";
 import { sanitizeSlug } from "./utils/slug";
 import { DiagnosticReportIdSchema } from "./diagnostics-contract";
+import { AGENT_EVENT_PROMPT_MAX_LENGTH } from "./community-cli-contract";
 import {
   DAILY_TOKEN_USAGE_WINDOW_DAYS,
   DailyUsageSnapshotSchema,
@@ -1252,14 +1253,30 @@ export type CommunityBotAddToServerRequest = z.infer<
 >;
 
 export const CommunityServerOnboardRequestSchema = z.strictObject({
-  botIds: z.array(z.string().min(1).max(128))
+  bots: z.array(z.strictObject({
+    id: z.string().min(1).max(128),
+    wakePrompt: z.string()
+      .max(AGENT_EVENT_PROMPT_MAX_LENGTH)
+      .refine((value) => value.trim().length > 0, "wakePrompt is required"),
+  }))
     .min(1)
     .max(COMMUNITY_BOT_LIMIT_PER_OWNER)
-    .refine((ids) => new Set(ids).size === ids.length, "botIds must be unique"),
-  wakePrompt: z.string()
-    .max(32_768)
-    .refine((value) => value.trim().length > 0, "wakePrompt is required"),
-});
+    .refine((bots) => new Set(bots.map((bot) => bot.id)).size === bots.length, "bot ids must be unique"),
+  leadBotId: z.string().min(1).max(128),
+  action: z.discriminatedUnion("type", [
+    z.strictObject({
+      type: z.literal("wake"),
+      botId: z.string().min(1).max(128),
+    }),
+    z.strictObject({ type: z.literal("finalize") }),
+  ]),
+}).refine(
+  ({ bots, leadBotId }) => bots.some((bot) => bot.id === leadBotId),
+  { message: "leadBotId must reference an onboarded bot", path: ["leadBotId"] },
+).refine(
+  ({ bots, action }) => action.type !== "wake" || bots.some((bot) => bot.id === action.botId),
+  { message: "wake botId must reference an onboarded bot", path: ["action", "botId"] },
+);
 export type CommunityServerOnboardRequest = z.infer<
   typeof CommunityServerOnboardRequestSchema
 >;

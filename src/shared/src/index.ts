@@ -490,6 +490,7 @@ export type {
   BotAuditEventPayload,
 } from "./community-cli-contract";
 export {
+  AGENT_EVENT_PROMPT_MAX_LENGTH,
   CONTROL_HEARTBEAT_CAPABILITY,
   AgentInterruptRequestSchema,
   DM_SERVER,

@@ -22,6 +22,7 @@ import {
   desktopUserBarOverlayWidth,
 } from "./shell-frame-geometry"
 import { Shell } from "./shell"
+import { useHydratedClient } from "./use-hydrated-client"
 
 const SHELL_SURFACE_CLASS = "rounded-tl-xl rounded-tr-none rounded-br-none rounded-bl-none ring-0 border-l border-t border-border/40 shadow-none"
 const MOBILE_SURFACE_TRANSITION_MS = 180
@@ -75,6 +76,7 @@ export function CommunityShellLayout({
     onlySaveAfterUserInteractions: true,
     storage: communityLayoutStorage,
   })
+  const hydratedClient = useHydratedClient()
   const sidebarPanelRef = useRef<HTMLDivElement>(null)
   const mainPanelRef = useRef<HTMLDivElement>(null)
   const previousCommittedHrefRef = useRef<string | null>(null)
@@ -175,6 +177,7 @@ export function CommunityShellLayout({
           )}
         >
           <ResizablePanelGroup
+            key={hydratedClient ? "persisted-layout" : "ssr-layout"}
             id="community-shell"
             orientation="horizontal"
             disabled={!isDesktop}
@@ -185,7 +188,7 @@ export function CommunityShellLayout({
                 "max-sm:*:data-[mobile-hidden=true]:hidden!",
               ],
             )}
-            defaultLayout={defaultLayout}
+            defaultLayout={hydratedClient ? defaultLayout : undefined}
             onLayoutChanged={onLayoutChanged}
           >
             <ResizablePanel

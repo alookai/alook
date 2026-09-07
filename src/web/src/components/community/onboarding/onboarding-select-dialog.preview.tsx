@@ -15,12 +15,26 @@ import {
 } from "./initialize-community-onboarding"
 
 const PREVIEW_CHECKPOINT: OnboardingInitializationCheckpoint = {
-  botAId: "preview-bot-a",
-  botAName: "Ada",
-  botAImage: "avatar:beam:preview-bot-a",
-  botBId: "preview-bot-b",
-  botBName: "Linus",
-  botBImage: "avatar:beam:preview-bot-b",
+  bots: [
+    {
+      key: "lead",
+      id: "preview-bot-a",
+      name: "Lin",
+      image: "avatar:beam:preview-bot-a",
+    },
+    {
+      key: "doer",
+      id: "preview-bot-b",
+      name: "Kit",
+      image: "avatar:beam:preview-bot-b",
+    },
+    {
+      key: "reviewer",
+      id: "preview-bot-c",
+      name: "Moss",
+      image: "avatar:beam:preview-bot-c",
+    },
+  ],
   serverId: "preview-server",
   serverName: "Gustavo-work-room",
 }
