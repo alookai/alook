@@ -30,7 +30,7 @@ import {
   DAEMON_SELF_SLEEP_TIMEOUT_MS,
   type DaemonSelfSleepClock,
 } from "./daemonSelfSleep";
-import { createTimelineRecorder } from "../timeline/index.js";
+import { createTimelineRecorder, readRecentEntries } from "../timeline/index.js";
 
 const timelineSweepHarness = vi.hoisted(() => {
   let implementation: (workingDirectoryBase: string) => Promise<unknown> =
@@ -73,6 +73,7 @@ const credentialProxyHarness = vi.hoisted(() => ({
 
 const timelineRecorderHarness = vi.hoisted(() => ({
   pulls: [] as Array<{ agentId: string; owner: unknown; messages: unknown[] }>,
+  providerFor: undefined as ((agentId: string) => string | null) | undefined,
 }));
 
 vi.mock("../timeline/index.js", async (importOriginal) => {
@@ -81,6 +82,7 @@ vi.mock("../timeline/index.js", async (importOriginal) => {
     ...actual,
     sweepTimelineHistory: (workingDirectoryBase: string) => timelineSweepHarness.run(workingDirectoryBase),
     createTimelineRecorder: (...args: Parameters<typeof actual.createTimelineRecorder>) => {
+      timelineRecorderHarness.providerFor = args[0].providerFor;
       const recorder = actual.createTimelineRecorder(...args);
       return {
         ...recorder,
@@ -133,6 +135,7 @@ afterEach(() => {
   credentialProxyHarness.onInboxAckObservationError = undefined;
   credentialProxyHarness.onProxyRequest = undefined;
   timelineRecorderHarness.pulls.splice(0);
+  timelineRecorderHarness.providerFor = undefined;
   for (const dir of startupSweepDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
@@ -362,6 +365,87 @@ function factory(sockets: FakeSocket[]) {
 }
 
 describe("createDaemon", () => {
+  it("records each agent's actual backend in timeline rows instead of the first reported runtime", async () => {
+    const sockets: FakeSocket[] = [];
+    const sessions: DaemonFakeSession[] = [];
+    const workingDirectoryBase = mkdtempSync(join(tmpdir(), "daemon-timeline-provider-"));
+    startupSweepDirs.push(workingDirectoryBase);
+    for (const agentId of ["bot_codex", "bot_claude", "bot_unknown"]) {
+      mkdirSync(join(workingDirectoryBase, agentId));
+    }
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/enroll-agent")) return Response.json({ runnerKey: "runner_test" });
+      return Response.json({ bots: [] });
+    }));
+    const daemon = await createDaemon({
+      machineKey: "cmk_timeline_provider",
+      serverUrl: "http://server.invalid",
+      serverWsUrl: "ws://x",
+      webSocketFactory: factory(sockets) as never,
+      runtimeReport: [{ id: "claude" }, { id: "codex" }],
+      driverFor: (_agentId, runtimeConfig) => fullFakeDriver(runtimeConfig?.runtime ?? "claude"),
+      sessionFactory: () => {
+        const session = daemonFakeSession();
+        sessions.push(session);
+        return session;
+      },
+      capabilities: [],
+      workingDirectoryBase,
+    });
+
+    const wake = (agentId: string, runtime: "claude" | "codex", latestSeq: number) => {
+      sockets[0]!.emit("message", JSON.stringify({
+        type: "agent:wake",
+        agentId,
+        config: { version: 1, runtime, model: { kind: "default" }, mode: { kind: "default" } },
+        launchId: `launch_${agentId}`,
+        unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq },
+      }));
+    };
+    const observed = (seq: string, text: string) => [{
+      seq,
+      channel: "/demo#1234/general",
+      sender: "@gus#1813",
+      content: { text },
+      time: "2026-09-07T12:00:00Z",
+    }];
+
+    try {
+      sockets[0]!.emit("open");
+      for (const [agentId, runtime, latestSeq] of [
+        ["bot_codex", "codex", 1],
+        ["bot_claude", "claude", 2],
+      ] as const) {
+        sockets[0]!.emit("message", JSON.stringify({
+          type: "bot:added",
+          botId: agentId,
+          name: agentId,
+          discriminator: latestSeq.toString().padStart(4, "0"),
+        }));
+        wake(agentId, runtime, latestSeq);
+      }
+      await vi.waitFor(() => expect(sessions).toHaveLength(2));
+
+      expect(timelineRecorderHarness.providerFor?.("bot_codex")).toBe("codex");
+      expect(timelineRecorderHarness.providerFor?.("bot_claude")).toBe("claude");
+      expect(timelineRecorderHarness.providerFor?.("bot_unknown")).toBeNull();
+
+      credentialProxyHarness.onInboxPullResponse?.("bot_codex", observed("#1", "codex row"));
+      credentialProxyHarness.onInboxPullResponse?.("bot_claude", observed("#2", "claude row"));
+      credentialProxyHarness.onInboxPullResponse?.("bot_unknown", observed("#3", "unknown row"));
+
+      expect(readRecentEntries(join(workingDirectoryBase, "bot_codex", ".context_timeline"))[0]?.provider)
+        .toBe("codex");
+      expect(readRecentEntries(join(workingDirectoryBase, "bot_claude", ".context_timeline"))[0]?.provider)
+        .toBe("claude");
+      expect(readRecentEntries(join(workingDirectoryBase, "bot_unknown", ".context_timeline"))[0]?.provider)
+        .toBeNull();
+    } finally {
+      await daemon.stop();
+    }
+  });
+
   it("commits terminal usage before idle and attaches the current backend quota", async () => {
     const sockets: FakeSocket[] = [];
     const sessions: DaemonFakeSession[] = [];

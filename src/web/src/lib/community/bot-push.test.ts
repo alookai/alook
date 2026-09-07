@@ -32,6 +32,7 @@ describe("pushBotEventToMachine agent:event", () => {
     },
     launchId: "launch-1",
     prompt: "Welcome the user.",
+    includeRecentContext: true,
   }
 
   it("posts the narrow event body and returns the sent count", async () => {

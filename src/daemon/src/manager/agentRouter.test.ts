@@ -278,6 +278,104 @@ describe("AgentRouter — agent:event", () => {
     }]);
   });
 
+  it("appends daemon-local recent context only when the event opts in", async () => {
+    const { mgr, delivers } = fakeManager();
+    const { ch, fire } = fakeChannel();
+    const appendRecentContext = vi.fn(async (prompt: string) => `${prompt}\n\n## Recent local context`);
+    const router = new AgentRouter({
+      manager: mgr,
+      channel: ch,
+      runtimeReport: [{ id: "mock" }],
+      appendRecentContext,
+    });
+    await router.start();
+    const config = {
+      version: 1 as const,
+      runtime: "mock",
+      model: { kind: "default" as const },
+      mode: { kind: "default" as const },
+    };
+
+    await fire({
+      type: "agent:event",
+      agentId: "lead",
+      config,
+      launchId: "onboard-lead",
+      prompt: "Lead briefing",
+      includeRecentContext: true,
+    });
+    await fire({
+      type: "agent:event",
+      agentId: "doer",
+      config,
+      launchId: "onboard-doer",
+      prompt: "Doer briefing",
+      includeRecentContext: false,
+    });
+
+    expect(appendRecentContext).toHaveBeenCalledOnce();
+    expect(appendRecentContext).toHaveBeenCalledWith("Lead briefing", config);
+    expect(delivers.map(({ text }) => text)).toEqual([
+      "Lead briefing\n\n## Recent local context",
+      "Doer briefing",
+    ]);
+  });
+
+  it("delivers the initial briefing before a wake that arrives during context discovery", async () => {
+    const { mgr, delivers } = fakeManager();
+    const { ch, fire } = fakeChannel();
+    let releaseDiscovery!: (prompt: string) => void;
+    let discoveryStarted!: () => void;
+    const started = new Promise<void>((resolve) => { discoveryStarted = resolve; });
+    const pendingContext = new Promise<string>((resolve) => { releaseDiscovery = resolve; });
+    const router = new AgentRouter({
+      manager: mgr,
+      channel: ch,
+      runtimeReport: [{ id: "mock" }],
+      appendRecentContext: async () => {
+        discoveryStarted();
+        return pendingContext;
+      },
+    });
+    await router.start();
+    const config = {
+      version: 1 as const,
+      runtime: "mock",
+      model: { kind: "default" as const },
+      mode: { kind: "default" as const },
+    };
+
+    const briefing = fire({
+      type: "agent:event",
+      agentId: "lead",
+      config,
+      launchId: "onboard",
+      prompt: "Lead role briefing",
+      includeRecentContext: true,
+    });
+    await started;
+    const wake = fire({
+      type: "agent:wake",
+      agentId: "lead",
+      config,
+      launchId: "message",
+      unreadNotice: {
+        kind: "unread_notice",
+        channel: "/demo#1234/all",
+        latestSeq: 2,
+      },
+    });
+    await Promise.resolve();
+    expect(delivers).toEqual([]);
+
+    releaseDiscovery("Lead role briefing + discovered context");
+    await Promise.all([briefing, wake]);
+    expect(delivers.map(({ text }) => text)).toEqual([
+      "Lead role briefing + discovered context",
+      "You have unread messages.",
+    ]);
+  });
+
   it("contains delivery failures and logs them without exposing the prompt", async () => {
     const manager = {
       register: vi.fn(),

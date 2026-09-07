@@ -37,6 +37,7 @@ describe("ServerIcon seeded fallback", () => {
       fontSize: 7,
     }))
     expect(html).toContain("width:10px;height:10px;font-size:7px")
+    expect(html).not.toContain("-translate-x-0.5")
   })
 
   it("leaves uploaded icons untouched", () => {

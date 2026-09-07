@@ -21,6 +21,10 @@ const ALLOWLIST = [
   "src/app/api/community/channels/[id]/messages/route.ts",
   // Bot enrollment welcome message (server owner adds a bot → greeting).
   "src/app/api/community/servers/[id]/bots/route.ts",
+  // First-run onboarding placeholder. Role events start the bots first, then
+  // this invokes the deferred canonical dispatcher so normal mention, wake,
+  // broadcast, and typing behavior all remain intact.
+  "src/app/api/community/servers/[id]/onboard/route.ts",
   // phase2 forum≡thread step 1: the atomic-by-compensation "message+thread"
   // primitive — shared by the send-fold (step 4) and the existing-data
   // migration (step 5) to open a message with its own auto-created thread.
