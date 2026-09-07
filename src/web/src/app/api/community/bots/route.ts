@@ -187,6 +187,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       bot: {
         id: created.botId,
         name: created.name,
+        discriminator: created.discriminator,
         description: created.description,
         image: created.image,
         avatarVersion: 0,

@@ -122,22 +122,18 @@ export function OnboardingStatusDialog({
                     >
                       {ONBOARDING_INITIALIZATION_LABEL[step]}
                     </p>
-                    {isComplete && step === "creating-bots" && checkpoint.botAId && checkpoint.botBId ? (
+                    {isComplete && step === "creating-bots" && checkpoint.bots?.length ? (
                       <span className="flex shrink-0 -space-x-1" aria-label="Bots created">
-                        <ProfileAvatar
-                          label={checkpoint.botAName ?? "Bot"}
-                          seed={checkpoint.botAId}
-                          src={checkpoint.botAImage}
-                          size={20}
-                          className="ring-2 ring-popover"
-                        />
-                        <ProfileAvatar
-                          label={checkpoint.botBName ?? "Bot"}
-                          seed={checkpoint.botBId}
-                          src={checkpoint.botBImage}
-                          size={20}
-                          className="ring-2 ring-popover"
-                        />
+                        {checkpoint.bots.map((bot) => (
+                          <ProfileAvatar
+                            key={bot.id}
+                            label={bot.name}
+                            seed={bot.id}
+                            src={bot.image}
+                            size={20}
+                            className="ring-2 ring-popover"
+                          />
+                        ))}
                       </span>
                     ) : null}
                     {isComplete && step === "creating-room" && checkpoint.serverId ? (

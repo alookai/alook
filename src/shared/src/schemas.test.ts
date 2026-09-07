@@ -29,30 +29,50 @@ function validCreatePayload(image?: string) {
 }
 
 describe("CommunityServerOnboardRequestSchema", () => {
-  it("accepts unique bots and one direct prompt", () => {
+  it("accepts unique bots with one prompt each and an included lead", () => {
     expect(CommunityServerOnboardRequestSchema.safeParse({
-      botIds: ["bot-a", "bot-b"],
-      wakePrompt: "Welcome the user.",
+      bots: [
+        { id: "bot-a", wakePrompt: "Lead the welcome." },
+        { id: "bot-b", wakePrompt: "Wait for a task." },
+      ],
+      leadBotId: "bot-a",
+      action: { type: "wake", botId: "bot-a" },
     }).success).toBe(true)
   })
 
-  it("rejects duplicates, blank prompts, and extra fields", () => {
+  it("rejects duplicates, missing leads, blank prompts, and extra fields", () => {
     expect(CommunityServerOnboardRequestSchema.safeParse({
-      botIds: ["bot-a", "bot-a"],
-      wakePrompt: "Welcome",
+      bots: [
+        { id: "bot-a", wakePrompt: "Lead" },
+        { id: "bot-a", wakePrompt: "Do" },
+      ],
+      leadBotId: "bot-a",
     }).success).toBe(false)
     expect(CommunityServerOnboardRequestSchema.safeParse({
-      botIds: [],
-      wakePrompt: "Welcome",
+      bots: [],
+      leadBotId: "bot-a",
+      action: { type: "finalize" },
     }).success).toBe(false)
     expect(CommunityServerOnboardRequestSchema.safeParse({
-      botIds: ["bot-a"],
-      wakePrompt: "   ",
+      bots: [{ id: "bot-a", wakePrompt: "   " }],
+      leadBotId: "bot-a",
+      action: { type: "finalize" },
     }).success).toBe(false)
     expect(CommunityServerOnboardRequestSchema.safeParse({
-      botIds: ["bot-a"],
-      wakePrompt: "Welcome",
+      bots: [{ id: "bot-a", wakePrompt: "Welcome" }],
+      leadBotId: "bot-b",
+      action: { type: "finalize" },
+    }).success).toBe(false)
+    expect(CommunityServerOnboardRequestSchema.safeParse({
+      bots: [{ id: "bot-a", wakePrompt: "Welcome" }],
+      leadBotId: "bot-a",
+      action: { type: "finalize" },
       channelId: "not-supported",
+    }).success).toBe(false)
+    expect(CommunityServerOnboardRequestSchema.safeParse({
+      bots: [{ id: "bot-a", wakePrompt: "Welcome" }],
+      leadBotId: "bot-a",
+      action: { type: "wake", botId: "bot-b" },
     }).success).toBe(false)
   })
 })

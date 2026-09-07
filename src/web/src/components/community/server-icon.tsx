@@ -55,7 +55,14 @@ export function ServerIcon({
       ) : (
         <>
           <SeededBackdrop seed={id} />
-          <span className="relative -translate-x-0.5 [-webkit-text-stroke:0.5px_currentColor]">{initial}</span>
+          <span
+            className={cn(
+              "relative [-webkit-text-stroke:0.5px_currentColor]",
+              size >= 16 && "-translate-x-0.5",
+            )}
+          >
+            {initial}
+          </span>
         </>
       )}
     </div>

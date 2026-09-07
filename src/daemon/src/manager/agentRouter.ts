@@ -94,6 +94,14 @@ export interface AgentRouterOpts {
    */
   onBeforeAgent?: (agentId: string) => Promise<void>;
   /**
+   * Expands an `agent:event` that explicitly opts into daemon-local recent
+   * context. The normal absent/false event path never calls this seam.
+   */
+  appendRecentContext?: (
+    prompt: string,
+    config: Extract<HostCommand, { type: "agent:event" }>["config"],
+  ) => Promise<string>;
+  /**
    * Format the bodiless `UnreadNotice` into the prompt text the agent
    * actually sees. The default is a generic unread-message line because one
    * admission may cover more channels than the selected wake command names.
@@ -170,6 +178,7 @@ function buildNapRewakePrompt(handoff: string): string {
 
 export class AgentRouter {
   private readonly running = new Set<string>();
+  private readonly pendingAgentEvents = new Map<string, Promise<void>>();
   // WakeCoordinator may deliberately re-admit the same semantic watermark
   // until its coverage is model-seen. Each admission is a new driver command.
   private nextWakeAdmissionOrdinal = 1;
@@ -403,6 +412,45 @@ export class AgentRouter {
     }
   }
 
+  private async deliverAgentEvent(
+    cmd: Extract<HostCommand, { type: "agent:event" }>,
+  ): Promise<void> {
+    try {
+      await this.opts.onBeforeAgent?.(cmd.agentId);
+      this.opts.manager.register(cmd.agentId, {
+        runtimeConfig: cmd.config,
+        launchId: cmd.launchId,
+      });
+      this.running.add(cmd.agentId);
+      const prompt = cmd.includeRecentContext && this.opts.appendRecentContext
+        ? await this.opts.appendRecentContext(cmd.prompt, cmd.config)
+        : cmd.prompt;
+      this.opts.manager.deliver(cmd.agentId, {
+        id: `${cmd.agentId}:event:${cmd.launchId}`,
+        text: prompt,
+      });
+    } catch (err) {
+      this.log.warn("agent:event failed", {
+        agentId: cmd.agentId,
+        err: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  private enqueueAgentEvent(
+    cmd: Extract<HostCommand, { type: "agent:event" }>,
+  ): Promise<void> {
+    const previous = this.pendingAgentEvents.get(cmd.agentId) ?? Promise.resolve();
+    const pending = previous.then(() => this.deliverAgentEvent(cmd));
+    this.pendingAgentEvents.set(cmd.agentId, pending);
+    void pending.finally(() => {
+      if (this.pendingAgentEvents.get(cmd.agentId) === pending) {
+        this.pendingAgentEvents.delete(cmd.agentId);
+      }
+    });
+    return pending;
+  }
+
   private async onCommand(cmd: HostCommand): Promise<void> {
     switch (cmd.type) {
       case "agent:wake":
@@ -412,6 +460,7 @@ export class AgentRouter {
           latestSeq: cmd.unreadNotice.latestSeq,
         });
         try {
+          await this.pendingAgentEvents.get(cmd.agentId);
           // Capture pre-transition FSM status + tracker state BEFORE
           // register/deliver so we can decide whether the FSM's
           // `onAgentActivity` callback owns the first typing frame or this
@@ -530,24 +579,11 @@ export class AgentRouter {
         }
         break;
       case "agent:event":
-        this.log.info("agent:event received", { agentId: cmd.agentId });
-        try {
-          await this.opts.onBeforeAgent?.(cmd.agentId);
-          this.opts.manager.register(cmd.agentId, {
-            runtimeConfig: cmd.config,
-            launchId: cmd.launchId,
-          });
-          this.running.add(cmd.agentId);
-          this.opts.manager.deliver(cmd.agentId, {
-            id: `${cmd.agentId}:event:${cmd.launchId}`,
-            text: cmd.prompt,
-          });
-        } catch (err) {
-          this.log.warn("agent:event failed", {
-            agentId: cmd.agentId,
-            err: err instanceof Error ? err.message : String(err),
-          });
-        }
+        this.log.info("agent:event received", {
+          agentId: cmd.agentId,
+          includeRecentContext: cmd.includeRecentContext === true,
+        });
+        await this.enqueueAgentEvent(cmd);
         break;
       case "agent:reset":
         await this.runRestartCommand(cmd.agentId, cmd.launchId, "agent:reset", () =>

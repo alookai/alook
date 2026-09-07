@@ -637,6 +637,7 @@ describe("WsControlChannel — downlink HostCommand validation (convergence #6)"
     config: { runtime: "claude" } as never,
     launchId: "launch_e",
     prompt: "Welcome the user.",
+    includeRecentContext: true,
   };
   const realNap: HostCommand = {
     type: "agent:nap",
@@ -751,6 +752,7 @@ describe("WsControlChannel — downlink HostCommand validation (convergence #6)"
       { type: "agent:wake", agentId: "b", config: {}, unreadNotice: {} }, // missing launchId
       { type: "agent:event", agentId: "b", config: {}, launchId: "l" }, // missing prompt
       { type: "agent:event", agentId: "b", config: {}, launchId: "l", prompt: "" }, // empty prompt
+      { type: "agent:event", agentId: "b", config: {}, launchId: "l", prompt: "ok", includeRecentContext: "yes" },
       { type: "agent:nap", agentId: "b", config: {}, launchId: "l" }, // missing handoff
       { type: "agent:nap", agentId: "b", config: {}, launchId: "l", handoff: "" }, // empty handoff
       { type: "agent:reset", agentId: "", config: {}, launchId: "l" }, // empty agentId

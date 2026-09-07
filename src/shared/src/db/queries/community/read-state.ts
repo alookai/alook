@@ -405,6 +405,30 @@ export async function markReadToMessage(
   await markReadToMessageBuilder(db, data);
 }
 
+export async function markReadToMessageWithRevision(
+  db: Database,
+  data: {
+    userId: string;
+    channelId: string;
+    message: CanonicalReadTarget;
+  },
+): Promise<ReadAllResult> {
+  const targetExists = canonicalReadTargetExistsCondition(db, data.message);
+  const advances = readStateAdvancesCondition(db, {
+    userId: data.userId,
+    channelId: data.channelId,
+    targetSeq: data.message.seq,
+  }, targetExists);
+  const results = await db.batch([
+    advanceReadStateRevisionWhenBuilder(db, data.userId, advances),
+    markReadToExistingMessageBuilder(db, data),
+    accountReadStateRevisionBuilder(db, data.userId),
+  ] as any) as unknown as unknown[][];
+  const changed = (results[0] as Array<{ revision: number }>).length > 0;
+  const revision = (results.at(-1) as Array<{ revision: number }> | undefined)?.[0]?.revision ?? 0;
+  return { count: changed ? 1 : 0, changed, revision };
+}
+
 /**
  * INVARIANT: every row this writes satisfies
  * lastReadAt === message.createdAt AND lastReadMessageId = message.id.

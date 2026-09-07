@@ -109,6 +109,14 @@ describe("POST /api/community/bots — model", () => {
     )
   })
 
+  it("returns the created discriminator for exact collaborator handles", async () => {
+    const res = await POST(postReq(base()), ctx)
+    expect(res.status).toBe(201)
+    await expect(res.json()).resolves.toMatchObject({
+      bot: { id: "b1", name: "MyBot", discriminator: "0001" },
+    })
+  })
+
   it.each(["opus", "sonnet", "haiku"])("persists the Claude %s alias verbatim", async (alias) => {
     const res = await POST(postReq(base(alias)), ctx)
     expect(res.status).toBe(201)

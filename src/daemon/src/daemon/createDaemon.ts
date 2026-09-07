@@ -60,6 +60,7 @@ import {
   type DaemonSelfSleepClock,
 } from "./daemonSelfSleep.js";
 import { DailyTokenUsageStore } from "../telemetry/index.js";
+import { createRecentContextPromptAppender } from "./recentContextPrompt.js";
 
 // Cold-start warmup backoff schedule (ms).
 const WARMUP_BACKOFF_MS = [250, 500, 1000, 2000, 4000] as const;
@@ -70,6 +71,8 @@ export const RUNTIME_RAW_TRACE_AGENT_IDS_ENV = "ALOOK_RUNTIME_RAW_TRACE_AGENT_ID
 /** How often the daemon rewrites the `daemon status` snapshot file (batch E2). */
 const STATUS_WRITE_INTERVAL_MS = 5_000;
 const TOKEN_USAGE_BACKENDS = new Set<BuiltinBackendId>(["claude", "codex", "opencode", "pi"]);
+const ONBOARDING_RECENT_SESSION_FILES_TOP_K = 10;
+const ONBOARDING_RECENT_PROJECTS_TOP_K = 5;
 
 export function parseRuntimeRawTraceAgentIds(value: string | undefined): ReadonlySet<string> {
   return new Set(
@@ -394,6 +397,12 @@ export function createBuiltinDaemonSessionFactory(
  */
 export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDaemon> {
   const log = opts.logger ?? createLogger({ header: "@alook/daemon" });
+  const recentContextSdk = createBuiltinAgentDriverSdk();
+  const appendRecentContext = createRecentContextPromptAppender(
+    (input) => recentContextSdk.discoverRecentContext(input as never),
+    ONBOARDING_RECENT_SESSION_FILES_TOP_K,
+    ONBOARDING_RECENT_PROJECTS_TOP_K,
+  );
   const fallbackBase = (process.env.ALOOK_PROJECT_ROOT || `${homedir()}/.alook`) + "/daemon";
   const workingDirectoryBase = opts.workingDirectoryBase ?? fallbackBase;
   const workdirFor = (agentId: string) => `${workingDirectoryBase}/${agentId}`;
@@ -432,9 +441,11 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     logger: log,
   });
 
+  let managerRef: AgentProcessManager | null = null;
+
   const timeline = createTimelineRecorder({
     timelineDirFor: (agentId) => `${workdirFor(agentId)}/.context_timeline`,
-    providerFor: () => opts.runtimeReport[0]?.id ?? null,
+    providerFor: (agentId) => managerRef?.agentBackendId(agentId) ?? null,
   });
 
   // Held in a mutable cell so the credential-proxy and manager audit hooks
@@ -443,7 +454,6 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   let channelRef: WsControlChannel | null = null;
   // Populated after `manager` is constructed below. Producer B reads
   // `auditContext(agentId)` off it inside `onProxyRequest`.
-  let managerRef: AgentProcessManager | null = null;
   const providerQuotaSnapshots = (): ProviderQuotaSnapshot[] =>
     [...providerQuotaByBackend.values()].map((snapshot) => structuredClone(snapshot));
   const activityPayload = async (
@@ -1099,6 +1109,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     },
     typingTracker,
     logger: log.child("router"),
+    appendRecentContext,
     // onBeforeAgent gate — reject unknown bots BEFORE enroll to keep the
     // failure code stable (`bot_unknown` vs `bot_enroll_failed`).
     onBeforeAgent: async (agentId) => {

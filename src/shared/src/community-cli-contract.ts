@@ -46,6 +46,8 @@ export type ServerId = Id;
 export type ChannelId = Id;
 export type MessageId = Id;
 
+export const AGENT_EVENT_PROMPT_MAX_LENGTH = 32_768;
+
 /**
  * Per-target monotonically increasing sequence number. Unique and ordered
  * WITHIN a target (channel/dm/thread), not globally. Used for ordering,
@@ -798,6 +800,11 @@ export type HostCommand =
     config: RuntimeConfig;
     launchId: string;
     prompt: string;
+    /**
+     * Ask the host to append bounded, backend-specific recent sessions and
+     * projects before delivery. Absent/false preserves direct event delivery.
+     */
+    includeRecentContext?: boolean;
   }
   | { type: "agent:stop"; agentId: AgentId }
   /**
@@ -1492,7 +1499,8 @@ export const HostCommandSchema = z.discriminatedUnion("type", [
     agentId: z.string().min(1),
     config: z.unknown(),
     launchId: z.string().min(1),
-    prompt: z.string().min(1).max(32_768),
+    prompt: z.string().min(1).max(AGENT_EVENT_PROMPT_MAX_LENGTH),
+    includeRecentContext: z.boolean().optional(),
   }),
   z.object({
     type: z.literal("agent:stop"),

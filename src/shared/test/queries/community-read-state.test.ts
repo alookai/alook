@@ -22,6 +22,7 @@ describe("community/read-state exports", () => {
   it("exports markReadToMessageBuilder + markReadToMessage", () => {
     expect(typeof readStateQueries.markReadToMessageBuilder).toBe("function");
     expect(typeof readStateQueries.markReadToMessage).toBe("function");
+    expect(typeof readStateQueries.markReadToMessageWithRevision).toBe("function");
   });
   it("exports markAllServerChannelsRead", () => {
     expect(typeof readStateQueries.markAllServerChannelsRead).toBe("function");
@@ -34,6 +35,27 @@ describe("community/read-state exports", () => {
       "u_1",
       [sql`1`, sql`0`],
     )).toBeDefined();
+  });
+});
+
+describe("markReadToMessageWithRevision", () => {
+  it("batches one exact canonical message boundary with its account revision", async () => {
+    const db = makeMassMarkDbMock(12);
+    const message = {
+      id: "getting-ready",
+      channelId: "public-1",
+      createdAt: "2026-09-07T06:00:00.000Z",
+      seq: 4,
+    };
+
+    await expect(readStateQueries.markReadToMessageWithRevision(db, {
+      userId: "owner-1",
+      channelId: "public-1",
+      message,
+    })).resolves.toEqual({ count: 1, changed: true, revision: 12 });
+
+    expect(db.batch).toHaveBeenCalledOnce();
+    expect(db.batch.mock.calls[0]![0]).toHaveLength(3);
   });
 });
 

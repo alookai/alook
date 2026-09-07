@@ -82,6 +82,7 @@ export function CommunityOnboardingForm() {
         runtime: state.harness,
         identity: state.identity,
         userName: currentUser.name,
+        userDiscriminator: currentUser.discriminator,
         checkpoint: checkpointRef.current,
         onCheckpoint: (checkpoint) => {
           checkpointRef.current = checkpoint
@@ -101,7 +102,7 @@ export function CommunityOnboardingForm() {
     } finally {
       runningRef.current = false
     }
-  }, [currentUser.name, state])
+  }, [currentUser.discriminator, currentUser.name, state])
 
   useEffect(() => {
     if (state?.stage === "initializing" && initializationStatus === "idle") {
@@ -187,7 +188,7 @@ export function CommunityOnboardingForm() {
           initializationStatus === "error"
             ? initializationError
             : initializationStatus === "success"
-              ? "Two bots are in your room and ready to work."
+              ? `${initializationResult?.bots.length ?? 0} bots are in your room and ready to work.`
               : "Follow along as your room comes together."
         }
         onRetry={() => void runInitialization()}
