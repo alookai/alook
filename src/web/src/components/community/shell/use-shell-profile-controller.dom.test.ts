@@ -449,12 +449,14 @@ describe("useShellProfileController", () => {
     mocks.signOut.mockImplementation(async () => { order.push("signOut") })
     hook.router.push = (href: string) => { order.push(`push:${href}`) }
     await act(async () => hook.current.userSettingsProps.onLogout())
-    expect(order).toEqual(["cancel", "community", "ws", "stream", "reconcile", "query", "cache", "signOut", "push:/sign-in"])
+    expect(order).toEqual(["cancel", "community", "ws", "stream", "reconcile", "query", "signOut", "cache", "push:/sign-in"])
 
     order.length = 0
+    mocks.clearCache.mockClear()
     mocks.clearCache.mockResolvedValue(undefined)
     mocks.signOut.mockRejectedValue(new Error("auth"))
     await expect(act(async () => hook.current.userSettingsProps.onLogout())).rejects.toThrow("auth")
+    expect(mocks.clearCache).not.toHaveBeenCalled()
     expect(order.some((entry) => entry.startsWith("push:"))).toBe(false)
   })
 

@@ -21,6 +21,29 @@ import {
 } from "./account-unread-projection"
 import { useInboxProjectionTarget } from "./use-inbox-auto-collapse"
 import { reservedUnreadExclusion } from "./unread-presentation"
+import { useCommunityWsStore } from "@/stores/community/ws"
+import { ApiError } from "@/lib/errors"
+import { evictServerChannelScopes } from "./community-ws/scope-eviction"
+
+function captureStructuralQueryToken() {
+  const state = useCommunityWsStore.getState()
+  return {
+    viewerId: state.profileViewerId,
+    accountEpoch: state.profileAccountEpoch,
+    accessEpoch: state.accessEpoch,
+  }
+}
+
+function assertStructuralQueryTokenCurrent(
+  token: ReturnType<typeof captureStructuralQueryToken>,
+) {
+  const state = useCommunityWsStore.getState()
+  if (
+    state.profileViewerId !== token.viewerId
+    || state.profileAccountEpoch !== token.accountEpoch
+    || state.accessEpoch !== token.accessEpoch
+  ) throw new DOMException("Stale structural query", "AbortError")
+}
 
 /**
  * Fetches the sidebar list of servers the current user is in.
@@ -100,9 +123,11 @@ function serverListUnreadSources(data: ServersResponse): AccountUnreadSource[] {
 export const serversProjectedQueryFn = (
   projection: AccountUnreadProjection,
 ) => async (context?: QueryFunctionContext) => {
+  const structuralToken = captureStructuralQueryToken()
   const token = projection.beginSnapshot("servers", "channels")
   try {
     const data = await serversQueryFn(context)
+    assertStructuralQueryTokenCurrent(structuralToken)
     projection.absorbSnapshot(token, serverListUnreadSources(data), {
       confirmedAccessScopes: data.servers.map((server) => ({
         kind: "server" as const,
@@ -371,6 +396,7 @@ export const serverProjectedQueryFn = (
   serverId: string,
   signal?: AbortSignal,
 ) => async () => {
+  const structuralToken = captureStructuralQueryToken()
   const projection = getActiveAccountUnreadProjection(queryClient)
   const family = `server-detail:${serverId}` as const
   const token = projection.beginSnapshot(family, "channels")
@@ -381,6 +407,7 @@ export const serverProjectedQueryFn = (
         unreadData = response
       },
     })()
+    assertStructuralQueryTokenCurrent(structuralToken)
     if (!unreadData) throw new Error("server unread response missing")
     const confirmedAccessScopes: AccountUnreadScope[] = [
       { kind: "server", serverId },
@@ -404,6 +431,9 @@ export const serverProjectedQueryFn = (
       )
     } else {
       projection.cancelSnapshot(token)
+    }
+    if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
+      evictServerChannelScopes(queryClient, serverId)
     }
     throw error
   }
@@ -522,6 +552,9 @@ export function useServer(
   }, [query.data, unreadExclusion, serverId, unreadProjection, unreadVersion])
   return {
     ...query,
-    server: projectedServer,
+    server: query.error instanceof ApiError
+      && (query.error.status === 403 || query.error.status === 404)
+      ? null
+      : projectedServer,
   }
 }

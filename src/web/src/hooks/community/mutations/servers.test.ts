@@ -64,6 +64,25 @@ beforeEach(() => {
   capturedQc = new QueryClient()
 })
 
+function seedStructuralSnapshot(serverId = "srv_1") {
+  capturedQc.setQueryData(communityKeys.structuralSnapshot(), {
+    schemaVersion: 1,
+    accountId: "u1",
+    capturedAt: Date.now(),
+    serverOrder: [serverId],
+    folders: [],
+    servers: [{
+      id: serverId,
+      name: "Server",
+      discriminator: "0001",
+      icon: null,
+      categories: [],
+      channels: [],
+      childRouteHints: [],
+    }],
+  })
+}
+
 describe("useLeaveServer — optimistic + rollback", () => {
   it("fences every unread source in the departing scope and rolls back atomically", async () => {
     const mod = await load()
@@ -104,6 +123,7 @@ describe("useLeaveServer — optimistic + rollback", () => {
     "%s success clears the server subtree, stream, and current private route",
     async (operation) => {
       apiFetchMock.mockResolvedValueOnce(undefined)
+      seedStructuralSnapshot()
       const mod = await load()
       const { useCommunityStore } = await import("@/stores/community")
       const { useMessageStreamStore } = await import("@/stores/community/message-stream")
@@ -144,12 +164,17 @@ describe("useLeaveServer — optimistic + rollback", () => {
       expect(capturedQc.getQueryState(communityKeys.server("srv_1"))).toBeUndefined()
       expect([...useMessageStreamStore.getState().entries.values()]
         .some((entry) => entry.scope.serverId === "srv_1")).toBe(false)
+      expect(capturedQc.getQueryData<{
+        serverOrder: string[]
+      }>(communityKeys.structuralSnapshot())?.serverOrder).toEqual([])
     },
   )
 })
 
 describe("useUpdateServer — rollback on both caches", () => {
   it("restores server-detail + servers-list on failure", async () => {
+    seedStructuralSnapshot()
+    const structuralBefore = capturedQc.getQueryData(communityKeys.structuralSnapshot())
     capturedQc.setQueryData(communityKeys.server("srv_1"), {
       id: "srv_1",
       name: "old",
@@ -181,6 +206,7 @@ describe("useUpdateServer — rollback on both caches", () => {
       communityKeys.servers(),
     )
     expect(list?.servers[0]).toMatchObject({ name: "old", description: "d" })
+    expect(capturedQc.getQueryData(communityKeys.structuralSnapshot())).toBe(structuralBefore)
   })
 
   it("keeps the canonical list metadata aligned with an optimistic detail update", async () => {

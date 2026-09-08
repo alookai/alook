@@ -20,6 +20,7 @@ const {
   mockSplitMode,
   mockSplitParentSurface,
   mockCommitLastCommunityRoute,
+  mockSetLastChannel,
   mockNavigationGate,
   mockCurrentChannelId,
   mockCanManageServer,
@@ -34,6 +35,7 @@ const {
   mockSplitMode: { value: "full" as "split" | "full" },
   mockSplitParentSurface: vi.fn(() => null),
   mockCommitLastCommunityRoute: vi.fn(),
+  mockSetLastChannel: vi.fn(),
   mockNavigationGate: { allowed: true },
   mockCurrentChannelId: { value: "channel_1" as string | null },
   mockCanManageServer: vi.fn((role?: string | null) => role === "owner" || role === "admin"),
@@ -62,6 +64,7 @@ const {
     retryMetadata: vi.fn(),
     routeHydrated: true,
     routeLifecycle: "ready" as "pending" | "ready" | "terminal-error",
+    skeletonSubtype: "unknown" as "unknown" | "text" | "forum" | "thread",
   },
   mockMemberViewModel: {
     composerMembers: [],
@@ -104,14 +107,20 @@ vi.mock("@/components/community/channels/channel-header", () => ({
     mockHeaderParentNavigate.current = kind === "thread" ? mobileBack : undefined
     return React.createElement(React.Fragment, null, endActions)
   },
-  ChannelHeaderSkeleton: () => null,
+  ChannelHeaderSkeleton: ({ kind = "text" }: { kind?: string }) =>
+    React.createElement("div", { "data-testid": "channel-header-skeleton", "data-kind": kind }),
 }))
 vi.mock("@/components/community/messages/message-list", () => ({ MessageList: vi.fn(() => null) }))
+vi.mock("@/components/community/channels/conversation-message-skeleton", () => ({
+  ConversationMessageSkeleton: () => React.createElement("div", { "data-message-list-skeleton": true }),
+}))
 vi.mock("@/components/community/messages/composer", () => ({
   Composer: () => null,
   ComposerSkeleton: () => null,
 }))
-vi.mock("@/components/community/channels/forum-view", () => ({ ForumViewSkeleton: () => null }))
+vi.mock("@/components/community/channels/forum-view", () => ({
+  ForumViewSkeleton: () => React.createElement("div", { "data-testid": "forum-view-skeleton" }),
+}))
 vi.mock("@/components/community/channels/forum-channel-surface", () => ({
   ForumChannelSurface: vi.fn(() => null),
 }))
@@ -133,7 +142,9 @@ vi.mock("@alook/shared", () => ({
   deriveThreadName: () => "thread",
   USE_SERVER_DEFAULT: "default",
 }))
-vi.mock("@/lib/community/last-channel", () => ({ setLastChannel: vi.fn() }))
+vi.mock("@/lib/community/last-channel", () => ({
+  setLastChannel: (...args: unknown[]) => mockSetLastChannel(...args),
+}))
 vi.mock("@/lib/community/last-community-route", () => ({
   commitLastCommunityRoute: (...args: unknown[]) => mockCommitLastCommunityRoute(...args),
 }))
@@ -173,17 +184,20 @@ vi.mock("@/components/community/channels/thread-split-view", () => ({
     split,
     parent,
     thread,
+    conversationSubtype,
   }: {
     containerRef: React.Ref<HTMLElement>
     split: boolean
     parent: React.ReactNode
     thread: React.ReactNode
+    conversationSubtype?: string
   }) => React.createElement(
     "main",
     {
       ref: containerRef,
       "data-testid": "community-thread-split",
       "data-layout": split ? "split" : "full",
+      "data-community-conversation-subtype": conversationSubtype,
     },
     split && React.createElement(
       "section",
@@ -322,6 +336,7 @@ describe("ChannelRoute message surface ownership", () => {
     mockHeaderServerNavigate.current = undefined
     mockHeaderParentNavigate.current = undefined
     mockCommitLastCommunityRoute.mockClear()
+    mockSetLastChannel.mockClear()
     mockNavigationGate.allowed = true
     mockCurrentChannelId.value = "channel_1"
     mockMemberViewModel.myRole = "member"
@@ -343,6 +358,7 @@ describe("ChannelRoute message surface ownership", () => {
       retryingMetadata: false,
       routeHydrated: true,
       routeLifecycle: "ready",
+      skeletonSubtype: "unknown",
     })
   })
 
@@ -392,6 +408,68 @@ describe("ChannelRoute message surface ownership", () => {
     )).not.toBeNull()
     expect(mockedForumChannelSurface).not.toHaveBeenCalled()
     expect(mockedMessageList).not.toHaveBeenCalled()
+  })
+
+  it("uses a structural forum hint for skeleton shape without mounting or remembering content", () => {
+    Object.assign(mockRouteModel, {
+      server: null,
+      channel: null,
+      parent: null,
+      currentChannelMeta: null,
+      isForum: false,
+      isChild: false,
+      isForumPostChild: false,
+      routeHydrated: false,
+      routeLifecycle: "pending",
+      skeletonSubtype: "forum",
+    })
+    mockNavigationGate.allowed = false
+    mockCurrentChannelId.value = null
+
+    render(React.createElement(ChannelRoute, {
+      serverParam: "server_1",
+      channelId: "channel_1",
+    }))
+
+    expect(screen.getByTestId("channel-header-skeleton").getAttribute("data-kind")).toBe("forum")
+    expect(screen.getByTestId("forum-view-skeleton")).not.toBeNull()
+    expect(screen.getByTestId("forum-view-skeleton").closest(
+      '[data-community-conversation-subtype="forum"]',
+    )).not.toBeNull()
+    expect(mockedForumChannelSurface).not.toHaveBeenCalled()
+    expect(mockedMessageList).not.toHaveBeenCalled()
+    expect(mockSetLastChannel).not.toHaveBeenCalled()
+    expect(mockCommitLastCommunityRoute).not.toHaveBeenCalled()
+  })
+
+  it("uses a structural text hint without mounting the live MessageList", () => {
+    Object.assign(mockRouteModel, {
+      server: null,
+      channel: null,
+      parent: null,
+      currentChannelMeta: null,
+      isForum: false,
+      isChild: false,
+      isForumPostChild: false,
+      routeHydrated: false,
+      routeLifecycle: "pending",
+      skeletonSubtype: "text",
+    })
+    mockNavigationGate.allowed = false
+    mockCurrentChannelId.value = null
+
+    const renderer = render(React.createElement(ChannelRoute, {
+      serverParam: "server_1",
+      channelId: "channel_1",
+    }))
+
+    expect(renderer.container.querySelector("[data-message-list-skeleton]")).not.toBeNull()
+    expect(renderer.container.querySelector(
+      '[data-community-conversation-subtype="text"]',
+    )).not.toBeNull()
+    expect(mockedMessageList).not.toHaveBeenCalled()
+    expect(mockedUseChannelMessageFeed).not.toHaveBeenCalled()
+    expect(mockCommitLastCommunityRoute).not.toHaveBeenCalled()
   })
 
   it("renders the terminal metadata error without opening a feed and forwards Retry", async () => {

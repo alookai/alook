@@ -36,9 +36,9 @@ import {
 import type { StructureTreeEventContext } from "@/hooks/community/community-ws/handler-context"
 import {
   projectChannelScopeEviction,
-  evictServerChannelScopes,
   projectForumPostUnitEviction,
 } from "./channel-scope-projection"
+import { evictServerChannelScopes } from "./scope-eviction"
 import {
   invalidateChannelMessages,
   invalidateChannelRefDirectory,
@@ -49,6 +49,22 @@ import {
 } from "./invalidation-projections"
 import { getActiveAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 import { projectForumFeedWsTags } from "@/hooks/community/forum-feed-tag-transition"
+import {
+  updateStructuralSnapshot,
+  type StructuralSnapshotV1,
+} from "@/lib/community/structural-snapshot"
+
+function structuralServerIdForParent(
+  queryClient: StructureTreeEventContext["queryClient"],
+  parentChannelId: string,
+): string | null {
+  const snapshot = queryClient.getQueryData<StructuralSnapshotV1>(
+    communityKeys.structuralSnapshot(),
+  )
+  return snapshot?.servers.find((server) =>
+    server.channels.some((channel) => channel.id === parentChannelId),
+  )?.id ?? null
+}
 
 export function handleChildChannelCreate(
   event: CommunityChildChannelCreate,
@@ -121,6 +137,20 @@ export function handleChildChannelCreate(
   if (event.parentMessageId && !openerCached) {
     invalidateChannelMessages(projection, event.parentChannelId)
   }
+  const structuralServerId = structuralServerIdForParent(queryClient, event.parentChannelId)
+  if (structuralServerId && event.parentMessageId) {
+    updateStructuralSnapshot(queryClient, {
+      type: "upsertChildHint",
+      serverId: structuralServerId,
+      child: {
+        id: event.channel.id,
+        name: event.channel.name,
+        type: "thread",
+        parentChannelId: event.parentChannelId,
+        parentMessageId: event.parentMessageId,
+      },
+    })
+  }
 }
 
 export function handleChildChannelUpdate(
@@ -150,6 +180,7 @@ export function handleChildChannelUpdate(
     })
   }
   const sidebarServerId = useCommunityStore.getState().currentServerId
+  const structuralServerId = structuralServerIdForParent(queryClient, event.parentChannelId)
   if (changes.name !== undefined && sidebarServerId) {
     queryClient.setQueryData<Record<string, unknown> | undefined>(
       communityKeys.channelMeta(sidebarServerId, event.channelId),
@@ -259,6 +290,20 @@ export function handleChildChannelUpdate(
       }
     }
   }
+  if (structuralServerId) {
+    updateStructuralSnapshot(queryClient, changes.archived === true
+      ? {
+          type: "removeChildHint",
+          serverId: structuralServerId,
+          channelId: event.channelId,
+        }
+      : {
+          type: "patchChildHint",
+          serverId: structuralServerId,
+          channelId: event.channelId,
+          ...(changes.name !== undefined ? { name: changes.name } : {}),
+        })
+  }
 }
 
 export function handleServerUpdate(
@@ -303,6 +348,14 @@ export function handleServerUpdate(
         }
         : prev,
   )
+  updateStructuralSnapshot(queryClient, {
+    type: "patchServer",
+    serverId: event.serverId,
+    changes: {
+      ...(event.changes.name !== undefined ? { name: event.changes.name } : {}),
+      ...(event.changes.icon !== undefined ? { icon: event.changes.icon } : {}),
+    },
+  })
 }
 
 export function handleServerDelete(
@@ -320,17 +373,6 @@ export function handleServerDelete(
   // detail subtree; the deleted server's own subtree is cleared by
   // the removeQueries below.
   invalidateServersList(projection)
-  queryClient.removeQueries({ queryKey: communityKeys.server(event.serverId) })
-  // #10: if the deleted server is the one the viewer is looking at,
-  // the store pointers now dangle — reset them so the UI drops back
-  // to a safe default instead of rendering a ghost server/channel.
-  const store = useCommunityStore.getState()
-  useMessageStreamStore.getState().removeServer(event.serverId)
-  if (store.currentServerId === event.serverId) {
-    store.setCurrentChannelMeta(null)
-    store.setCurrentChannelId(null)
-    store.setCurrentServerId(null)
-  }
 }
 
 type ChannelEvent =
@@ -386,6 +428,43 @@ export function handleChannelEvent(
       invalidateChannelMessages(projection, event.parentChannelId)
       invalidateThreads(projection, event.parentChannelId)
     }
+  } else if (event.type === "community:channel.create") {
+    if (event.channel.type === "text" || event.channel.type === "forum") {
+      updateStructuralSnapshot(queryClient, {
+        type: "upsertChannel",
+        serverId: event.serverId,
+        channel: {
+          id: event.channel.id,
+          name: event.channel.name,
+          type: event.channel.type,
+          categoryId: event.channel.categoryId ?? null,
+        },
+        position: event.channel.position,
+      })
+    }
+  } else if (event.type === "community:channel.update") {
+    updateStructuralSnapshot(queryClient, {
+      type: "patchChannel",
+      serverId: event.serverId,
+      channelId: event.channelId,
+      changes: {
+        ...(event.changes.name !== undefined ? { name: event.changes.name } : {}),
+        ...(event.changes.type === "text" || event.changes.type === "forum"
+          ? { type: event.changes.type }
+          : {}),
+        ...(event.changes.categoryId !== undefined
+          ? { categoryId: event.changes.categoryId }
+          : {}),
+      },
+    })
+  } else {
+    updateStructuralSnapshot(queryClient, {
+      type: "reorderChannels",
+      serverId: event.serverId,
+      channelIds: [...event.channels]
+        .sort((left, right) => left.position - right.position)
+        .map((channel) => channel.id),
+    })
   }
   invalidateServerDetail(projection, event.serverId)
 }
@@ -398,8 +477,45 @@ type CategoryEvent =
 
 export function handleCategoryEvent(
   event: CategoryEvent,
-  { projection }: StructureTreeEventContext,
+  { queryClient, projection }: StructureTreeEventContext,
 ) {
+  if (event.type === "community:category.create") {
+    updateStructuralSnapshot(queryClient, {
+      type: "upsertCategory",
+      serverId: event.serverId,
+      category: {
+        id: event.category.id,
+        name: event.category.name,
+        private: event.category.private,
+      },
+      position: event.category.position,
+    })
+  } else if (event.type === "community:category.update") {
+    updateStructuralSnapshot(queryClient, {
+      type: "patchCategory",
+      serverId: event.serverId,
+      categoryId: event.categoryId,
+      changes: {
+        ...(event.changes.name !== undefined ? { name: event.changes.name } : {}),
+        ...(event.changes.private !== undefined ? { private: event.changes.private } : {}),
+      },
+      position: event.changes.position,
+    })
+  } else if (event.type === "community:category.delete") {
+    updateStructuralSnapshot(queryClient, {
+      type: "removeCategory",
+      serverId: event.serverId,
+      categoryId: event.categoryId,
+    })
+  } else {
+    updateStructuralSnapshot(queryClient, {
+      type: "reorderCategories",
+      serverId: event.serverId,
+      categoryIds: [...event.categories]
+        .sort((left, right) => left.position - right.position)
+        .map((category) => category.id),
+    })
+  }
   invalidateChannelRefDirectory(projection)
   invalidateServerDetail(projection, event.serverId)
 }

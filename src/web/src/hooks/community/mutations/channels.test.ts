@@ -67,6 +67,25 @@ beforeEach(() => {
   capturedQc = new QueryClient()
 })
 
+function seedStructuralSnapshot() {
+  capturedQc.setQueryData(communityKeys.structuralSnapshot(), {
+    schemaVersion: 1,
+    accountId: "u1",
+    capturedAt: Date.now(),
+    serverOrder: ["s1"],
+    folders: [],
+    servers: [{
+      id: "s1",
+      name: "Studio",
+      discriminator: "0042",
+      icon: null,
+      categories: [{ id: "cat_1", name: "Channels" }],
+      channels: [{ id: "c1", name: "general", type: "text", categoryId: "cat_1" }],
+      childRouteHints: [],
+    }],
+  })
+}
+
 describe("useRenameChannel", () => {
   type CachedChannel = { id: string; name: string; active: boolean; unread: boolean }
   type CachedCategory = { id: string; name: string; channels: CachedChannel[] }
@@ -134,6 +153,7 @@ describe("useRenameChannel", () => {
 
   it("reconciles both caches to the PATCH response's normalized name", async () => {
     seed()
+    seedStructuralSnapshot()
     apiFetchMock.mockResolvedValueOnce({ id: "c1", name: "General-Chat" })
     const mod = await load()
     mod.useRenameChannel()
@@ -146,6 +166,12 @@ describe("useRenameChannel", () => {
     )
     expect(serverChannels().find((channel) => channel.id === "c1")?.name).toBe("General-Chat")
     expect(directory()[0].channels.find((channel) => channel.id === "c1")?.name).toBe("General-Chat")
+    expect(capturedQc.getQueryData<{
+      servers: Array<{ channels: Array<{ id: string; name: string }> }>
+    }>(communityKeys.structuralSnapshot())?.servers[0]?.channels[0]).toMatchObject({
+      id: "c1",
+      name: "General-Chat",
+    })
   })
 
   it("restores both snapshots on failure without optimistic residue", async () => {

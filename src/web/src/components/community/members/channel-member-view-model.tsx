@@ -70,6 +70,7 @@ export function useChannelMemberViewModel({
   isChildChannel,
   isNotifyUnit,
   currentUser,
+  accessAllowed = true,
 }: {
   serverId: string
   channelId: string
@@ -80,6 +81,7 @@ export function useChannelMemberViewModel({
   isChildChannel: boolean
   isNotifyUnit: boolean
   currentUser: { id: string }
+  accessAllowed?: boolean
 }): {
   composerMembers: Member[]
   composerMentionCandidates?: MentionCandidateSource
@@ -88,7 +90,7 @@ export function useChannelMemberViewModel({
   resolveUserName: (userId: string) => string
   myRole: Role | undefined
 } {
-  const membersHook = useServerMembers(serverId)
+  const membersHook = useServerMembers(accessAllowed && currentServer ? serverId : null)
   const profilesByUserId = useCommunityWsStore((state) => state.profilesByUserId)
   const [memberUi, setMemberUi] = useState({ channelId, query: "", dialogOpen: false })
   const memberQuery = memberUi.channelId === channelId ? memberUi.query : ""
@@ -134,10 +136,13 @@ export function useChannelMemberViewModel({
 
   const channelMembersHook = useChannelMembers(
     channelId,
-    isNotifyUnit || (currentChannelPrivate && !isNotifyUnit),
+    accessAllowed && (isNotifyUnit || (currentChannelPrivate && !isNotifyUnit)),
   )
   const parentChannelId = isNotifyUnit ? currentChannelMeta?.parentChannelId ?? null : null
-  const parentChannelMembersHook = useChannelMembers(parentChannelId ?? "", !!parentChannelId)
+  const parentChannelMembersHook = useChannelMembers(
+    parentChannelId ?? "",
+    accessAllowed && !!parentChannelId,
+  )
   const participantMembersData = channelMembersHook.data
   const parentMembersData = parentChannelMembersHook.data
   const refetchParticipantMembers = channelMembersHook.refetch
@@ -168,7 +173,7 @@ export function useChannelMemberViewModel({
   const addableChannelMembers = useAddableMembers(
     serverId,
     channelId,
-    manageMembersOpen && currentChannelPrivate && !isNotifyUnit,
+    accessAllowed && manageMembersOpen && currentChannelPrivate && !isNotifyUnit,
   )
   const {
     data: addableMembersData,

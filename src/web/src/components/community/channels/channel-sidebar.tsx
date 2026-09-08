@@ -235,7 +235,7 @@ export const ChannelSidebar = memo(function ChannelSidebar({
   //   - uncategorized (empty categoryId) / public category → admins only
   //   - private category → any member (they own the channel + its roster)
   const canCreateInCategory = (categoryId: string) =>
-    catPrivate[categoryId] ? true : isAdmin
+    Boolean(onCreateChannel) && (catPrivate[categoryId] ? true : isAdmin)
   const requestCreateChannel = (categoryId: string) => {
     if (!canCreateInCategory(categoryId)) { onBlockedCreate?.(); return }
     setDialog({ kind: "create-channel", categoryId })

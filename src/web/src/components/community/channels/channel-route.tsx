@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { toastApiError } from "@/lib/api/client"
 import { ChannelHeaderSkeleton, type ChannelNotifLevel } from "@/components/community/channels/channel-header"
-import { MessageList } from "@/components/community/messages/message-list"
+import { ConversationMessageSkeleton } from "@/components/community/channels/conversation-message-skeleton"
 import { ComposerSkeleton } from "@/components/community/messages/composer"
 import { ForumViewSkeleton } from "@/components/community/channels/forum-view"
 import { TextChannelSurface } from "@/components/community/channels/text-channel-surface"
@@ -59,12 +59,6 @@ export function ChannelRoute({ serverParam, channelId }: {
   const searchParams = useSearchParams()
   const serverId = decodeURIComponent(serverParam)
   const currentUser = useCurrentUser()
-  // Remember this as the server's last-opened channel (per-browser navigation
-  // memory) so re-entering the server restores here instead of the default.
-  // Pure localStorage write; failures are swallowed in the helper.
-  useEffect(() => {
-    setLastChannel(serverId, channelId)
-  }, [serverId, channelId])
   // Cross-channel "jump to message" target, captured ONCE at mount from `?msg=`.
   // `ChannelView` is keyed by `serverId/channelId`, so a fresh jump remounts and
   // re-reads this. The param is stripped from the URL right after (below) so a
@@ -92,14 +86,10 @@ export function ChannelRoute({ serverParam, channelId }: {
     isForumPostChild,
     isNotifyUnit,
   } = routeModel
-  useEffect(() => {
-    if (routeModel.routeLifecycle !== "ready") return
-    commitLastCommunityRoute(currentUser.id, channelHref(serverId, channelId))
-  }, [channelId, currentUser.id, routeModel.routeLifecycle, serverId])
   const forumPostOpener = useForumOpenerHint(
     serverId,
     currentChannelMeta?.parentMessageId,
-    isForumPostChild && routeModel.routeHydrated,
+    isForumPostChild && routeModel.routeHydrated && navigationGate.allowed,
   )
   const threadOpenerHandoff = useThreadOpenerRouteGate({
     serverId,
@@ -126,6 +116,7 @@ export function ChannelRoute({ serverParam, channelId }: {
     isChildChannel,
     isNotifyUnit,
     currentUser,
+    accessAllowed: routeModel.routeLifecycle === "ready" && navigationGate.allowed,
   })
   const {
     composerMembers,
@@ -197,23 +188,34 @@ export function ChannelRoute({ serverParam, channelId }: {
   }, [uiHandlers])
 
   const channelHydrated =
+    routeModel.routeLifecycle === "ready" &&
     currentChannelId === channelId &&
     routeModel.routeHydrated &&
     (!isForumPostChild || !forumPostOpener.isLoading) &&
     navigationGate.allowed
+  // Route memory is an access-bearing navigation decision. Structural hints
+  // can choose the skeleton, but only live data plus the current access gate
+  // may commit the destination for a later cold entry.
+  useEffect(() => {
+    if (!channelHydrated) return
+    setLastChannel(serverId, channelId)
+    commitLastCommunityRoute(currentUser.id, channelHref(serverId, channelId))
+  }, [channelHydrated, channelId, currentUser.id, serverId])
   const subtype = resolveConversationSubtype({
     routeLifecycle: routeModel.routeLifecycle,
     accessAllowed: navigationGate.allowed,
     isChild: isChildChannel,
     isForum,
+    structuralHint: routeModel.skeletonSubtype,
   })
+  if (routeModel.metadataError) {
+    return <ConversationResolutionErrorFrame
+      retrying={routeModel.retryingMetadata}
+      onRetry={() => { void routeModel.retryMetadata() }}
+    />
+  }
   if (subtype === "unknown") {
-    return routeModel.metadataError
-      ? <ConversationResolutionErrorFrame
-          retrying={routeModel.retryingMetadata}
-          onRetry={() => { void routeModel.retryMetadata() }}
-        />
-      : <ConversationResolutionPendingFrame />
+    return <ConversationResolutionPendingFrame />
   }
   if (!channelHydrated) {
     if (subtype === "thread") {
@@ -222,13 +224,14 @@ export function ChannelRoute({ serverParam, channelId }: {
         <ThreadSplitView
           containerRef={threadSplit.containerRef}
           split={split}
+          conversationSubtype="thread"
           parent={split ? (
             <>
               <ChannelHeaderSkeleton kind={isForumPostChild ? "forum" : "text"} />
               <main className="flex min-h-0 min-w-0 flex-1 flex-col">
                 {isForumPostChild
                   ? <ForumViewSkeleton />
-                  : <MessageList channel="" messages={[]} loading onOpenThread={() => {}} />}
+                  : <ConversationMessageSkeleton />}
               </main>
             </>
           ) : null}
@@ -236,7 +239,7 @@ export function ChannelRoute({ serverParam, channelId }: {
             <>
               <ChannelHeaderSkeleton kind="thread" compactActions={split} />
               <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-                <MessageList key={channelId} channel="" messages={[]} loading onOpenThread={() => {}} />
+                <ConversationMessageSkeleton />
                 <ComposerSkeleton />
               </div>
             </>
@@ -248,7 +251,10 @@ export function ChannelRoute({ serverParam, channelId }: {
       return (
         <>
           <ChannelHeaderSkeleton kind="forum" />
-          <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <main
+            data-community-conversation-subtype="forum"
+            className="flex min-h-0 min-w-0 flex-1 flex-col"
+          >
             <ForumViewSkeleton />
           </main>
         </>
@@ -257,20 +263,11 @@ export function ChannelRoute({ serverParam, channelId }: {
     return (
       <>
         <ChannelHeaderSkeleton />
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-          {/*
-            `key={channelId}` MUST match the hydrated branches' key below —
-            verified empirically that a mismatched key
-            (this branch had none before) is what causes React to treat this
-            and the hydrated-branch `<MessageList>` as different component
-            identities, forcing a full unmount/remount instead of a props
-            update on one instance when `channelHydrated` flips true. With
-            matching keys, this works correctly even though this early
-            `return` and the hydrated branches' `return` produce
-            structurally different JSX trees — React's reconciliation only
-            needs the position + type + key to line up.
-          */}
-          <MessageList key={channelId} channel="" messages={[]} loading={true} onOpenThread={() => { }} />
+        <main
+          data-community-conversation-subtype="text"
+          className="flex min-h-0 min-w-0 flex-1 flex-col"
+        >
+          <ConversationMessageSkeleton />
           <ComposerSkeleton />
         </main>
       </>

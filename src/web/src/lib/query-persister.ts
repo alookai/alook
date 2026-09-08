@@ -5,6 +5,9 @@ import type {
 } from "@tanstack/react-query-persist-client"
 import { del, get, set } from "idb-keyval"
 import type { MessagesPage, Msg } from "@/lib/community/models/message"
+import {
+  parseStructuralSnapshot,
+} from "@/lib/community/structural-snapshot"
 
 /**
  * IDB namespace root. Bumping the tail segment (`v1` → `v2`) invalidates every
@@ -38,6 +41,7 @@ export const PERSIST_MAX_AGE_MS = 24 * 60 * 60 * 1000
 const PERSISTED_KINDS = new Set<string>([
   "channelMessages",
   "dmMessages",
+  "structuralSnapshot",
 ])
 
 // Query keys start with `["community", <kind>, ...]` — the first segment is
@@ -49,6 +53,9 @@ function keyKindFor(queryKey: readonly unknown[]): string | null {
   if (!Array.isArray(queryKey) || queryKey.length < 2) return null
   if (queryKey[0] !== "community") return null
   const second = queryKey[1]
+  if (second === "structural-snapshot" && queryKey.length === 2) {
+    return "structuralSnapshot"
+  }
   // Message queries: ["community", "channel", <id>, "messages"] or
   // ["community", "dm", <id>, "messages"].
   if (second === "channel" || second === "dm") {
@@ -163,14 +170,22 @@ function scrubPage(page: MessagesPage): MessagesPage {
  * from the persister's `serialize` hook, so the filter is applied every time
  * TanStack throttles a save.
  */
-function scrubDehydratedClient(client: PersistedClient): PersistedClient {
+function scrubDehydratedClient(
+  client: PersistedClient,
+  userId: string | null,
+  now = Date.now(),
+): PersistedClient {
   const queries: typeof client.clientState.queries = []
   for (const q of client.clientState.queries) {
     const kind = keyKindFor(q.queryKey)
-    if (kind !== "channelMessages" && kind !== "dmMessages") {
-      queries.push(q)
+    if (kind === "structuralSnapshot") {
+      if (!userId) continue
+      const snapshot = parseStructuralSnapshot(q.state.data, userId, now)
+      if (!snapshot) continue
+      queries.push({ ...q, state: { ...q.state, data: snapshot } })
       continue
     }
+    if (kind !== "channelMessages" && kind !== "dmMessages") continue
     const data = q.state.data as
       | { pages: MessagesPage[]; pageParams: unknown[] }
       | undefined
@@ -196,6 +211,45 @@ function blobKeyFor(userId: string | null): string {
   return `${namespaceFor(userId)}:client`
 }
 
+type PersistCoordination = {
+  generations: Map<string, number>
+  operations: Map<string, Promise<void>>
+}
+
+// Keep the fence shared across client chunks and dev hot-reloads. QueryProvider
+// can retain a persister created by an older module instance while the logout
+// surface imports a freshly evaluated one; module-local maps would let those
+// two instances race even though they operate on the same IndexedDB key.
+const persistGlobal = globalThis as typeof globalThis & {
+  __alookQueryPersistCoordinationV1?: PersistCoordination
+}
+const persistCoordination = persistGlobal.__alookQueryPersistCoordinationV1 ?? {
+  generations: new Map<string, number>(),
+  operations: new Map<string, Promise<void>>(),
+}
+persistGlobal.__alookQueryPersistCoordinationV1 = persistCoordination
+const persistGenerations = persistCoordination.generations
+const persistOperations = persistCoordination.operations
+
+/**
+ * Serialize reads, writes, and clears for one account namespace.
+ *
+ * The generation check rejects work that starts after a logout, but it cannot
+ * cancel an IndexedDB write that already passed the check. Keeping the clear
+ * behind that in-flight write makes the delete the final operation from the
+ * retired generation, while a newly authenticated persister queues after it.
+ */
+function runPersistOperation<T>(key: string, operation: () => Promise<T>): Promise<T> {
+  const previous = persistOperations.get(key) ?? Promise.resolve()
+  const result = previous.then(operation, operation)
+  const tail = result.then(() => undefined, () => undefined)
+  persistOperations.set(key, tail)
+  void tail.then(() => {
+    if (persistOperations.get(key) === tail) persistOperations.delete(key)
+  })
+  return result
+}
+
 /**
  * Create an async-storage persister scoped to a specific user id.
  *
@@ -205,25 +259,37 @@ function blobKeyFor(userId: string | null): string {
  */
 export function createIdbPersister(userId: string | null): Persister {
   const key = blobKeyFor(userId)
+  const generation = persistGenerations.get(key) ?? 0
   return createAsyncStoragePersister({
     storage: {
       getItem: async (_k: string) => {
-        const value = await get<string>(key)
-        return value ?? null
+        return runPersistOperation(key, async () => {
+          const value = await get<string>(key)
+          return value ?? null
+        })
       },
       setItem: async (_k: string, value: string) => {
-        await set(key, value)
+        await runPersistOperation(key, async () => {
+          if ((persistGenerations.get(key) ?? 0) !== generation) return
+          await set(key, value)
+        })
       },
       removeItem: async (_k: string) => {
-        await del(key)
+        await runPersistOperation(key, async () => {
+          if ((persistGenerations.get(key) ?? 0) !== generation) return
+          await del(key)
+        })
       },
     },
     // Passed to storage under the covers, but our storage adapter ignores the
     // key argument (we own the namespace). Leaving a stable literal keeps the
     // persister's internal throttle bookkeeping predictable.
     key: "alook-query-cache",
-    serialize: (client) => JSON.stringify(scrubDehydratedClient(client)),
-    deserialize: (raw) => JSON.parse(raw) as PersistedClient,
+    serialize: (client) => JSON.stringify(scrubDehydratedClient(client, userId)),
+    deserialize: (raw) => scrubDehydratedClient(
+      JSON.parse(raw) as PersistedClient,
+      userId,
+    ),
   })
 }
 
@@ -233,5 +299,7 @@ export function createIdbPersister(userId: string | null): Persister {
  * history to the next tab.
  */
 export async function clearPersistedCache(userId: string | null): Promise<void> {
-  await del(blobKeyFor(userId))
+  const key = blobKeyFor(userId)
+  persistGenerations.set(key, (persistGenerations.get(key) ?? 0) + 1)
+  await runPersistOperation(key, async () => del(key))
 }

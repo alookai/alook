@@ -21,6 +21,7 @@ import { useShellProfileController } from "./use-shell-profile-controller"
 import { useShellInboxController } from "./use-shell-inbox-controller"
 import { useCommunityNavigationController } from "./use-community-navigation-controller"
 import type { ShellFrameProps } from "./shell-frame-types"
+import { useStructuralSnapshot } from "@/hooks/community/use-structural-snapshot"
 
 /** Shared community shell orchestration for the server and DM layouts. */
 export function ShellFrame(props: ShellFrameProps) {
@@ -36,6 +37,7 @@ export function ShellFrame(props: ShellFrameProps) {
   } = props
   const queryClient = useQueryClient()
   const currentUser = useCurrentUser()
+  const structuralSnapshot = useStructuralSnapshot(currentUser.id, queryClient)
   const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
   const breakpoint = useBreakpoint()
   const onboardingState = useCommunityOnboarding()
@@ -61,6 +63,7 @@ export function ShellFrame(props: ShellFrameProps) {
     : null
   const targetReady = target?.scope.kind === "server"
     ? queryClient.getQueryData(communityKeys.server(target.scope.serverId)) !== undefined
+      || structuralSnapshot?.serverOrder.includes(target.scope.serverId) === true
     : target?.scope.kind === "me"
       ? queryClient.getQueryData(communityKeys.dms()) !== undefined
       : false
@@ -87,6 +90,7 @@ export function ShellFrame(props: ShellFrameProps) {
     projectedActiveServerId,
     onOpenActiveServerSettings,
     onOpenActiveServerInvite,
+    accountId: currentUser.id,
   })
   const profile = useShellProfileController({
     router: navigation,

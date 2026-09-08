@@ -102,6 +102,26 @@ const renderForum = (muted = false, activeThreadId = "post_2") => renderToStatic
   }),
 )
 
+const privateHintTree = {
+  ...emptyTree,
+  catOrder: ["cat_private"],
+  order: { cat_private: [] },
+  catNames: { cat_private: "Private" },
+  catPrivate: { cat_private: true },
+  catPending: { cat_private: false },
+} as unknown as ChannelTree
+
+const renderPrivateHint = (onCreateChannel?: () => void) => renderToStaticMarkup(
+  createElement(ChannelSidebar, {
+    tree: privateHintTree,
+    serverName: "Alpha",
+    activeChannel: "",
+    isAdmin: false,
+    setActiveChannel: vi.fn(),
+    onCreateChannel,
+  }),
+)
+
 describe("ChannelSidebar header", () => {
   it("keeps the channel list scrollable without reserving scrollbar width", () => {
     const html = render()
@@ -155,5 +175,10 @@ describe("ChannelSidebar header", () => {
     expect(html).toContain('data-testid="community-forum-sidebar-thread-post_1"')
     expect(html).toContain('aria-current="page"')
     expect(html).not.toContain("bg-primary")
+  })
+
+  it("keeps hint-only private categories inert until live actions are installed", () => {
+    expect(renderPrivateHint()).not.toContain('aria-label="Create channel in Private"')
+    expect(renderPrivateHint(vi.fn())).toContain('aria-label="Create channel in Private"')
   })
 })

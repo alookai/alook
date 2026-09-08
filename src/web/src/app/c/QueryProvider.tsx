@@ -19,6 +19,7 @@ import {
   getAccountUnreadProjection,
 } from "@/hooks/community/account-unread-projection"
 import { communityKeys } from "@/lib/query-keys"
+import { installStructuralSnapshotProjection } from "@/hooks/community/use-structural-snapshot"
 
 /**
  * Owns the TanStack QueryClient for the community subtree.
@@ -94,6 +95,11 @@ export function QueryProvider({
       }, 0)
     }
   }, [queryClient])
+
+  useEffect(
+    () => installStructuralSnapshotProjection(queryClient, userId),
+    [queryClient, userId],
+  )
 
   return (
     <PersistQueryClientProvider

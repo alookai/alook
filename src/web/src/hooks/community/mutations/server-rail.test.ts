@@ -97,7 +97,7 @@ describe("useServerRailCommit", () => {
   it("reconciles temporary ids and invalidates both caches on settle", async () => {
     const options = useServerRailCommit() as any
     await options.onMutate(args)
-    options.onSuccess({ createdFolderIds: { temp_1: "folder_real" } })
+    options.onSuccess({ createdFolderIds: { temp_1: "folder_real" } }, args)
     expect(queryClient.getQueryData<any>(communityKeys.folders()).folders[1].id).toBe("folder_real")
     const invalidate = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue(undefined as never)
     await options.onSettled()

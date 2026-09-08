@@ -27,11 +27,13 @@ export function ThreadSplitView({
   split,
   parent,
   thread,
+  conversationSubtype,
 }: {
   containerRef: RefCallback<HTMLElement>
   split: boolean
   parent: ReactNode
   thread: ReactNode
+  conversationSubtype?: "thread"
 }) {
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({
     id: "community-thread-split-layout",
@@ -44,6 +46,7 @@ export function ThreadSplitView({
       ref={containerRef}
       data-testid={tid.threadSplit}
       data-layout={split ? "split" : "full"}
+      data-community-conversation-subtype={conversationSubtype}
       className="flex min-h-0 min-w-0 flex-1"
     >
       {split ? (

@@ -25,7 +25,8 @@ import { useCommunityWsStore } from "@/stores/community/ws"
 import { fetchChannelMetadata, captureChannelMetadataToken, isChannelMetadataTokenCurrent } from "@/hooks/community/channel-metadata"
 import { runCommunityWsProjectionTransaction } from "./projection-transaction"
 import type { MembershipEventContext } from "@/hooks/community/community-ws/handler-context"
-import { projectChannelScopeEviction, evictServerChannelScopes } from "./channel-scope-projection"
+import { projectChannelScopeEviction } from "./channel-scope-projection"
+import { evictServerChannelScopes } from "./scope-eviction"
 import { avatarInitial } from "@/lib/community/avatar"
 import {
   invalidateChannelRefDirectory,

@@ -3,6 +3,7 @@ import { QueryClient } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, render } from "@/test/react-dom-harness"
 import { useCommunityStore } from "@/stores/community"
+import { communityKeys } from "@/lib/query-keys"
 
 const mocks = vi.hoisted(() => ({
   subscribe: vi.fn(),
@@ -53,7 +54,10 @@ import { buildChannelRouteModel, useChannelRouteModel } from "./use-channel-rout
 
 function Harness({ channelId = "post-1" }: { channelId?: string }) {
   const result = useChannelRouteModel("server-1", "server-1", channelId, "viewer-1")
-  return React.createElement("span", { "data-lifecycle": result.routeLifecycle })
+  return React.createElement("span", {
+    "data-lifecycle": result.routeLifecycle,
+    "data-skeleton-subtype": result.skeletonSubtype,
+  })
 }
 
 function lifecycle(renderer: ReturnType<typeof render>) {
@@ -106,6 +110,37 @@ describe("useChannelRouteModel subscription ownership", () => {
     expect(lifecycle(renderer!)).toBe("ready")
     expect(mocks.metaQuery.isVerified).toBe(false)
     act(() => renderer!.unmount())
+  })
+
+  it("uses persisted structure only to choose the pending skeleton subtype", () => {
+    mocks.server = undefined
+    queryClient.setQueryData(communityKeys.structuralSnapshot(), {
+      schemaVersion: 1,
+      accountId: "viewer-1",
+      capturedAt: Date.now(),
+      serverOrder: ["server-1"],
+      folders: [],
+      servers: [{
+        id: "server-1",
+        name: "Server",
+        discriminator: "0001",
+        icon: null,
+        categories: [],
+        channels: [{ id: "forum-1", name: "Forum", type: "forum", categoryId: null }],
+        childRouteHints: [],
+      }],
+    })
+
+    let renderer!: ReturnType<typeof render>
+    act(() => {
+      renderer = render(React.createElement(Harness, { channelId: "forum-1" }))
+    })
+
+    const node = renderer.container.querySelector("span")
+    expect(node?.getAttribute("data-lifecycle")).toBe("pending")
+    expect(node?.getAttribute("data-skeleton-subtype")).toBe("forum")
+    expect(useCommunityStore.getState().currentChannelMeta).toBeNull()
+    act(() => renderer.unmount())
   })
 
   it("does not hydrate a verified child with the previous child's store metadata", () => {

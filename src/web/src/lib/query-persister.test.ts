@@ -1,6 +1,6 @@
 import "fake-indexeddb/auto"
 import { describe, expect, it, beforeEach } from "vitest"
-import { get } from "idb-keyval"
+import { get, set } from "idb-keyval"
 import { QueryClient } from "@tanstack/react-query"
 import type { PersistedClient } from "@tanstack/react-query-persist-client"
 import { communityKeys } from "@/lib/query-keys"
@@ -22,6 +22,10 @@ describe("shouldPersistQueryKey", () => {
 
   it("persists DM message queries", () => {
     expect(shouldPersistQueryKey(communityKeys.dmMessages("dm_1"))).toBe(true)
+  })
+
+  it("persists the single structural snapshot query", () => {
+    expect(shouldPersistQueryKey(communityKeys.structuralSnapshot())).toBe(true)
   })
 
   it("does NOT persist channel read-state snapshot (refetched on every mount)", () => {
@@ -436,5 +440,98 @@ describe("createIdbPersister — user scoping", () => {
     expect(await get(`alook:qc:v1:u_alice:client`)).toBeUndefined()
     const bobBlob = await readPersistedBlob("u_bob")
     expect(bobBlob.timestamp).toBe(2)
+  })
+
+  it("blocks a delayed writer created before clear", async () => {
+    const stale = createIdbPersister("u_alice")
+    await clearPersistedCache("u_alice")
+    await stale.persistClient({
+      timestamp: 3,
+      buster: "v1",
+      clientState: { mutations: [], queries: [] },
+    })
+    expect(await get(`alook:qc:v1:u_alice:client`)).toBeUndefined()
+  })
+})
+
+describe("createIdbPersister — structural snapshot boundary", () => {
+  beforeEach(async () => {
+    await clearPersistedCache("u_structural")
+    await clearPersistedCache(null)
+  })
+
+  function structuralData(accountId: string) {
+    return {
+      schemaVersion: 1 as const,
+      accountId,
+      capturedAt: Date.now(),
+      serverOrder: ["server-1"],
+      folders: [],
+      servers: [{
+        id: "server-1",
+        name: "Server",
+        discriminator: "0001",
+        icon: null,
+        categories: [],
+        channels: [{ id: "channel-1", name: "chat", type: "text" as const, categoryId: null }],
+        childRouteHints: [],
+      }],
+    }
+  }
+
+  function clientWithStructuralData(data: unknown): PersistedClient {
+    const qc = new QueryClient()
+    qc.setQueryData(communityKeys.structuralSnapshot(), data)
+    return {
+      timestamp: Date.now(),
+      buster: "v1",
+      clientState: {
+        mutations: [],
+        queries: [{
+          queryKey: communityKeys.structuralSnapshot(),
+          queryHash: JSON.stringify(communityKeys.structuralSnapshot()),
+          state: qc.getQueryState(communityKeys.structuralSnapshot())!,
+        }],
+      },
+    }
+  }
+
+  it("keeps a strict same-account snapshot", async () => {
+    const persister = createIdbPersister("u_structural")
+    const data = structuralData("u_structural")
+    await persister.persistClient(clientWithStructuralData(data))
+    const blob = await readPersistedBlob("u_structural")
+    expect(blob.clientState.queries).toHaveLength(1)
+    expect(blob.clientState.queries[0]?.state.data).toEqual(data)
+  })
+
+  it("drops wrong-account, anonymous, and unknown-field snapshots", async () => {
+    const wrongAccount = createIdbPersister("u_structural")
+    await wrongAccount.persistClient(clientWithStructuralData(structuralData("someone-else")))
+    expect((await readPersistedBlob("u_structural")).clientState.queries).toHaveLength(0)
+
+    const unknownField = structuralData("u_structural") as ReturnType<typeof structuralData> & { role?: string }
+    unknownField.role = "owner"
+    await wrongAccount.persistClient(clientWithStructuralData(unknownField))
+    expect((await readPersistedBlob("u_structural")).clientState.queries).toHaveLength(0)
+
+    const anonymous = createIdbPersister(null)
+    await anonymous.persistClient(clientWithStructuralData(structuralData("u_structural")))
+    expect((await readPersistedBlob(null)).clientState.queries).toHaveLength(0)
+  })
+
+  it("reapplies the allowlist and account schema to a directly restored blob", async () => {
+    const injected = clientWithStructuralData(structuralData("someone-else"))
+    const unrelated = new QueryClient()
+    unrelated.setQueryData(communityKeys.servers(), { servers: [] })
+    injected.clientState.queries.push({
+      queryKey: communityKeys.servers(),
+      queryHash: JSON.stringify(communityKeys.servers()),
+      state: unrelated.getQueryState(communityKeys.servers())!,
+    })
+    await set("alook:qc:v1:u_structural:client", JSON.stringify(injected))
+
+    const restored = await createIdbPersister("u_structural").restoreClient()
+    expect(restored?.clientState.queries).toEqual([])
   })
 })
