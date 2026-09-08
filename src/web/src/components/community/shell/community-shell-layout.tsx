@@ -2,6 +2,7 @@
 
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -80,6 +81,11 @@ export function CommunityShellLayout({
   const sidebarPanelRef = useRef<HTMLDivElement>(null)
   const mainPanelRef = useRef<HTMLDivElement>(null)
   const previousCommittedHrefRef = useRef<string | null>(null)
+  const pendingTransitionRef = useRef<{
+    sourceHref: string | null
+    targetHref: string
+  } | null>(null)
+  const canceledTransitionTargetsRef = useRef(new Set<string>())
   const mobileSurfaceAnimationRef = useRef<Animation | null>(null)
   const [sidebarWidth, setSidebarWidth] = useState(240)
 
@@ -106,10 +112,34 @@ export function CommunityShellLayout({
   const transitionMode = transition?.mode
   const transitionTargetHref = transition?.targetHref
 
-  useEffect(() => {
-    if (transitionMode !== "committed" || !transitionTargetHref) return
+  useLayoutEffect(() => {
+    if (!transitionTargetHref) return
+    if (transitionMode !== "committed") {
+      mobileSurfaceAnimationRef.current?.cancel()
+      mobileSurfaceAnimationRef.current = null
+      const pendingTransition = pendingTransitionRef.current
+      if (pendingTransition && pendingTransition.targetHref !== transitionTargetHref) {
+        canceledTransitionTargetsRef.current.add(pendingTransition.targetHref)
+      }
+      canceledTransitionTargetsRef.current.delete(transitionTargetHref)
+      pendingTransitionRef.current = {
+        sourceHref: previousCommittedHrefRef.current,
+        targetHref: transitionTargetHref,
+      }
+      return
+    }
     const previousHref = previousCommittedHrefRef.current
+    const pendingTransition = pendingTransitionRef.current
+    pendingTransitionRef.current = null
+    if (pendingTransition && pendingTransition.targetHref !== transitionTargetHref) {
+      canceledTransitionTargetsRef.current.add(pendingTransition.targetHref)
+    }
     previousCommittedHrefRef.current = transitionTargetHref
+    if (canceledTransitionTargetsRef.current.delete(transitionTargetHref)) {
+      mobileSurfaceAnimationRef.current?.cancel()
+      mobileSurfaceAnimationRef.current = null
+      return
+    }
     if (
       breakpoint !== "mobile"
       || !previousHref

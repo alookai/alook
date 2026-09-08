@@ -28,6 +28,54 @@ function channelHeader(page: Page, name: string) {
   return page.getByRole("banner").getByText(name, { exact: true })
 }
 
+type SurfaceAnimationRecord = {
+  surface: string | null
+  opacity: number
+  transform: string
+  suppressed: boolean
+}
+
+async function installSurfaceAnimationProbe(page: Page) {
+  await page.addInitScript(() => {
+    const state = window as typeof window & {
+      __communitySurfaceAnimations?: Array<{
+        surface: string | null
+        opacity: number
+        transform: string
+        suppressed: boolean
+      }>
+    }
+    state.__communitySurfaceAnimations = []
+    const nativeAnimate = Element.prototype.animate
+    Element.prototype.animate = function (keyframes, options) {
+      if (this.hasAttribute("data-community-mobile-surface") && Array.isArray(keyframes)) {
+        const first = keyframes[0]
+        state.__communitySurfaceAnimations!.push({
+          surface: this.getAttribute("data-community-mobile-surface"),
+          opacity: Number(first?.opacity),
+          transform: String(first?.transform),
+          suppressed: this.querySelector('[data-community-mobile-transition="suppress"]') !== null,
+        })
+      }
+      return nativeAnimate.call(this, keyframes, options)
+    }
+  })
+}
+
+async function surfaceAnimations(page: Page): Promise<SurfaceAnimationRecord[]> {
+  return page.evaluate(() => (
+    window as typeof window & { __communitySurfaceAnimations?: SurfaceAnimationRecord[] }
+  ).__communitySurfaceAnimations ?? [])
+}
+
+async function clearSurfaceAnimations(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    ;(window as typeof window & {
+      __communitySurfaceAnimations?: SurfaceAnimationRecord[]
+    }).__communitySurfaceAnimations = []
+  })
+}
+
 test("community checkpoint shows target pending for detail and keeps list surfaces stable", async ({ asUser }) => {
   test.setTimeout(120_000)
   const stamp = Date.now()
@@ -94,4 +142,90 @@ test("community checkpoint shows target pending for detail and keeps list surfac
     .toBeVisible({ timeout: 30_000 })
 
   expect(mutations).toEqual([])
+})
+
+test("mobile pending commits animate once while sidebar identity survives route changes", async ({ asUser }) => {
+  test.setTimeout(120_000)
+  const stamp = Date.now()
+  const serverId = await seedServer("alice", `Mobile frame ${stamp}`)
+  const fastName = `fast-${stamp}`
+  const pendingName = `pending-${stamp}`
+  const fastChannel = await seedChannel("alice", serverId, fastName)
+  const pendingChannel = await seedChannel("alice", serverId, pendingName)
+  const { page } = await asUser("alice")
+  await page.setViewportSize({ width: 390, height: 844 })
+  await installSurfaceAnimationProbe(page)
+  await page.goto(`/c/channels/${serverId}`)
+
+  const fastRow = page.getByTestId(tid.channelRow(fastChannel))
+  const sidebarScroll = page.getByTestId(tid.channelSidebarScroll)
+  await expect(fastRow).toBeVisible({ timeout: 30_000 })
+  await sidebarScroll.evaluate((element) => {
+    ;(element as typeof element & { __e2eIdentity?: string }).__e2eIdentity = "stable"
+  })
+  await fastRow.evaluate((element) => {
+    ;(element as typeof element & { __e2eDndOwner?: string }).__e2eDndOwner = "stable"
+  })
+  await clearSurfaceAnimations(page)
+
+  await fastRow.click()
+  await expect.poll(() => new URL(page.url()).pathname)
+    .toBe(`/c/channels/${serverId}/${fastChannel}`)
+  await expect(page.getByTestId(tid.composerInput)).toBeVisible()
+  expect(await surfaceAnimations(page)).toEqual([{
+    surface: "detail",
+    opacity: 0.92,
+    transform: "translate3d(8px, 0, 0)",
+    suppressed: false,
+  }])
+  expect(await sidebarScroll.evaluate((element) => (
+    element as typeof element & { __e2eIdentity?: string }
+  ).__e2eIdentity)).toBe("stable")
+  expect(await fastRow.evaluate((element) => (
+    element as typeof element & { __e2eDndOwner?: string }
+  ).__e2eDndOwner)).toBe("stable")
+
+  await page.getByRole("banner").getByRole("button", { name: "Back" }).click()
+  await expect.poll(() => new URL(page.url()).pathname).toBe(`/c/channels/${serverId}`)
+  await expect(fastRow).toBeVisible()
+  expect(await surfaceAnimations(page)).toEqual([
+    {
+      surface: "detail",
+      opacity: 0.92,
+      transform: "translate3d(8px, 0, 0)",
+      suppressed: false,
+    },
+    {
+      surface: "list",
+      opacity: 0.92,
+      transform: "translate3d(-8px, 0, 0)",
+      suppressed: false,
+    },
+  ])
+  expect(await sidebarScroll.evaluate((element) => (
+    element as typeof element & { __e2eIdentity?: string }
+  ).__e2eIdentity)).toBe("stable")
+  expect(await fastRow.evaluate((element) => (
+    element as typeof element & { __e2eDndOwner?: string }
+  ).__e2eDndOwner)).toBe("stable")
+
+  await clearSurfaceAnimations(page)
+  await page.getByTestId(tid.channelRow(pendingChannel)).click({ noWaitAfter: true })
+  await expect(page.getByTestId(tid.pendingMain("server-conversation"))).toBeVisible()
+
+  const pendingPath = `/c/channels/${serverId}/${pendingChannel}`
+  await expect.poll(() => new URL(page.url()).pathname).toBe(pendingPath)
+  await expect(page.getByTestId(tid.composerInput)).toBeVisible({ timeout: 30_000 })
+  expect(await surfaceAnimations(page)).toEqual([{
+    surface: "detail",
+    opacity: 0.92,
+    transform: "translate3d(8px, 0, 0)",
+    suppressed: false,
+  }])
+  expect(await sidebarScroll.evaluate((element) => (
+    element as typeof element & { __e2eIdentity?: string }
+  ).__e2eIdentity)).toBe("stable")
+  expect(await fastRow.evaluate((element) => (
+    element as typeof element & { __e2eDndOwner?: string }
+  ).__e2eDndOwner)).toBe("stable")
 })

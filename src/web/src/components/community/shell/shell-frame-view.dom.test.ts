@@ -1,4 +1,4 @@
-import { createElement, useState, type ReactNode } from "react"
+import { createElement, useEffect, useState, type ReactNode } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, render } from "@/test/react-dom-harness"
 import { ShellFrameView } from "./shell-frame-view"
@@ -65,7 +65,10 @@ vi.mock("./shell-frame-overlays", () => ({
 vi.mock("./community-pending-frame", () => ({
   CommunityPendingFrame: (props: Record<string, unknown>) => {
     mocks.pendingProps(props)
-    return createElement("div", { "data-channel-loading-frame": "" })
+    return createElement("div", {
+      "data-channel-loading-frame": "",
+      "data-community-mobile-transition": "suppress",
+    })
   },
 }))
 vi.mock("@/components/community/channels/channel-sidebar", () => ({
@@ -368,14 +371,31 @@ describe("ShellFrameView", () => {
     expect(detailMotion.className).toContain("flex")
   })
 
-  it("animates committed mobile switches without remounting and skips reduced motion", async () => {
+  it("starts both committed mobile switch directions before passive effects and skips reduced motion", async () => {
     const cancel = vi.fn()
-    const animate = vi.fn(() => ({ cancel }))
+    const effectOrder: string[] = []
+    const animate = vi.fn(() => {
+      effectOrder.push("animate")
+      return { cancel }
+    })
     Object.defineProperty(HTMLElement.prototype, "animate", {
       configurable: true,
       value: animate,
     })
-    const sidebar = () => createElement("sidebar-content")
+    function PassiveFrameProbe({ href }: { href: string }) {
+      useEffect(() => { effectOrder.push(`passive:${href}`) }, [href])
+      return createElement("main-content")
+    }
+    let sidebarMounts = 0
+    function StatefulSidebar() {
+      const [identity] = useState(() => ++sidebarMounts)
+      return createElement(
+        "div",
+        { "data-testid": "community-channel-sidebar-scroll" },
+        createElement("div", { "data-testid": "sidebar-dnd-owner", "data-identity": identity }),
+      )
+    }
+    const sidebar = () => createElement(StatefulSidebar)
     const common = {
       breakpoint: "mobile" as const,
       sidebar,
@@ -387,9 +407,129 @@ describe("ShellFrameView", () => {
     const renderer = render(createElement(
       ShellFrameView,
       { ...common, checkpoint: committedCheckpoint("/c/channels/s1/c1", "detail") },
+      createElement(PassiveFrameProbe, { href: "/c/channels/s1/c1" }),
+    ))
+    expect(animate).not.toHaveBeenCalled()
+    const sidebarPanel = renderer.container.querySelector<HTMLElement>('[data-testid="sidebar"]')!
+    const mainPanel = renderer.container.querySelector<HTMLElement>('[data-testid="main"]')!
+    const sidebarScroll = renderer.container.querySelector<HTMLElement>(
+      '[data-testid="community-channel-sidebar-scroll"]',
+    )!
+    const dndOwner = renderer.container.querySelector<HTMLElement>('[data-testid="sidebar-dnd-owner"]')!
+    sidebarScroll.scrollTop = 37
+    dndOwner.dataset.owner = "stable"
+    effectOrder.length = 0
+
+    renderer.rerender(createElement(
+      ShellFrameView,
+      { ...common, checkpoint: committedCheckpoint("/c/channels/s1", "list") },
+      createElement(PassiveFrameProbe, { href: "/c/channels/s1" }),
+    ))
+    expect(animate).toHaveBeenCalledOnce()
+    expect(animate).toHaveBeenLastCalledWith([
+      { opacity: 0.92, transform: "translate3d(-8px, 0, 0)" },
+      { opacity: 1, transform: "translate3d(0, 0, 0)" },
+    ], {
+      duration: 180,
+      easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+    })
+    expect(effectOrder).toEqual(["animate", "passive:/c/channels/s1"])
+    expect(renderer.container.querySelector('[data-testid="sidebar"]')).toBe(sidebarPanel)
+    expect(renderer.container.querySelector('[data-testid="main"]')).toBe(mainPanel)
+    expect(renderer.container.querySelector('[data-testid="community-channel-sidebar-scroll"]'))
+      .toBe(sidebarScroll)
+    expect(renderer.container.querySelector('[data-testid="sidebar-dnd-owner"]')).toBe(dndOwner)
+    expect(sidebarScroll.scrollTop).toBe(37)
+    expect(dndOwner.dataset.owner).toBe("stable")
+
+    effectOrder.length = 0
+    renderer.rerender(createElement(
+      ShellFrameView,
+      { ...common, checkpoint: committedCheckpoint("/c/channels/s1/c2", "detail") },
+      createElement(PassiveFrameProbe, { href: "/c/channels/s1/c2" }),
+    ))
+    expect(animate).toHaveBeenCalledTimes(2)
+    expect(animate).toHaveBeenLastCalledWith([
+      { opacity: 0.92, transform: "translate3d(8px, 0, 0)" },
+      { opacity: 1, transform: "translate3d(0, 0, 0)" },
+    ], {
+      duration: 180,
+      easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+    })
+    expect(effectOrder).toEqual(["animate", "passive:/c/channels/s1/c2"])
+    expect(renderer.container.querySelector('[data-testid="sidebar"]')).toBe(sidebarPanel)
+    expect(renderer.container.querySelector('[data-testid="main"]')).toBe(mainPanel)
+    expect(renderer.container.querySelector('[data-testid="community-channel-sidebar-scroll"]'))
+      .toBe(sidebarScroll)
+    expect(renderer.container.querySelector('[data-testid="sidebar-dnd-owner"]')).toBe(dndOwner)
+    expect(sidebarScroll.scrollTop).toBe(37)
+    expect(dndOwner.dataset.owner).toBe("stable")
+    expect(sidebarMounts).toBe(1)
+
+    effectOrder.length = 0
+    renderer.rerender(createElement(
+      ShellFrameView,
+      { ...common, checkpoint: committedCheckpoint("/c/channels/s1/c3", "detail") },
+      createElement(PassiveFrameProbe, { href: "/c/channels/s1/c3" }),
+    ))
+    expect(animate).toHaveBeenCalledTimes(3)
+    expect(animate).toHaveBeenLastCalledWith([
+      { opacity: 0.92, transform: "translate3d(8px, 0, 0)" },
+      { opacity: 1, transform: "translate3d(0, 0, 0)" },
+    ], {
+      duration: 180,
+      easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+    })
+    expect(effectOrder).toEqual(["animate", "passive:/c/channels/s1/c3"])
+
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true })))
+    renderer.rerender(createElement(
+      ShellFrameView,
+      { ...common, checkpoint: committedCheckpoint("/c/channels/s1/c4", "detail") },
+      createElement(PassiveFrameProbe, { href: "/c/channels/s1/c4" }),
+    ))
+    expect(animate).toHaveBeenCalledTimes(3)
+  })
+
+  it("animates successful pending commits and consumes canceled stale targets", async () => {
+    const cancel = vi.fn()
+    const animate = vi.fn(() => ({ cancel }))
+    Object.defineProperty(HTMLElement.prototype, "animate", {
+      configurable: true,
+      value: animate,
+    })
+    const common = {
+      breakpoint: "mobile" as const,
+      sidebar: () => createElement("sidebar-content"),
+      cancelPendingNavigation: vi.fn(),
+      rail,
+      profile,
+      inbox,
+    }
+    const renderer = render(createElement(
+      ShellFrameView,
+      { ...common, checkpoint: committedCheckpoint("/c/channels/s1", "list") },
+      createElement("main-content"),
+    ))
+
+    renderer.rerender(createElement(
+      ShellFrameView,
+      {
+        ...common,
+        checkpoint: {
+          mode: "same-scope-leaf",
+          surface: "detail",
+          targetHref: "/c/channels/s1/c2",
+          rail: { kind: "keep" },
+          sidebar: { kind: "keep" },
+          main: { kind: "target-skeleton", href: "/c/channels/s1/c2" },
+        },
+      },
       createElement("main-content"),
     ))
     expect(animate).not.toHaveBeenCalled()
+    expect(renderer.container.querySelector('[data-community-mobile-transition="suppress"]'))
+      .not.toBeNull()
 
     renderer.rerender(createElement(
       ShellFrameView,
@@ -405,16 +545,77 @@ describe("ShellFrameView", () => {
       easing: "cubic-bezier(0.22, 1, 0.36, 1)",
     })
 
-    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true })))
+    renderer.rerender(createElement(
+      ShellFrameView,
+      {
+        ...common,
+        checkpoint: {
+          mode: "same-scope-leaf",
+          surface: "list",
+          targetHref: "/c/channels/s1",
+          rail: { kind: "keep" },
+          sidebar: { kind: "keep" },
+          main: { kind: "keep" },
+        },
+      },
+      createElement("main-content"),
+    ))
+    expect(animate).toHaveBeenCalledOnce()
+
+    renderer.rerender(createElement(
+      ShellFrameView,
+      { ...common, checkpoint: committedCheckpoint("/c/channels/s1", "list") },
+      createElement("main-content"),
+    ))
+    expect(animate).toHaveBeenCalledTimes(2)
+    expect(animate).toHaveBeenLastCalledWith([
+      { opacity: 0.92, transform: "translate3d(-8px, 0, 0)" },
+      { opacity: 1, transform: "translate3d(0, 0, 0)" },
+    ], {
+      duration: 180,
+      easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+    })
+
+    renderer.rerender(createElement(
+      ShellFrameView,
+      {
+        ...common,
+        checkpoint: {
+          mode: "same-scope-leaf",
+          surface: "detail",
+          targetHref: "/c/channels/s1/c3",
+          rail: { kind: "keep" },
+          sidebar: { kind: "keep" },
+          main: { kind: "target-skeleton", href: "/c/channels/s1/c3" },
+        },
+      },
+      createElement("main-content"),
+    ))
+    expect(animate).toHaveBeenCalledTimes(2)
+
+    renderer.rerender(createElement(
+      ShellFrameView,
+      { ...common, checkpoint: committedCheckpoint("/c/channels/s1", "list") },
+      createElement("main-content"),
+    ))
+    expect(animate).toHaveBeenCalledTimes(2)
+
     renderer.rerender(createElement(
       ShellFrameView,
       { ...common, checkpoint: committedCheckpoint("/c/channels/s1/c3", "detail") },
       createElement("main-content"),
     ))
-    expect(animate).toHaveBeenCalledOnce()
+    expect(animate).toHaveBeenCalledTimes(2)
+
+    renderer.rerender(createElement(
+      ShellFrameView,
+      { ...common, checkpoint: committedCheckpoint("/c/channels/s1/c3", "detail") },
+      createElement("main-content"),
+    ))
+    expect(animate).toHaveBeenCalledTimes(2)
   })
 
-  it("keeps pending mobile surfaces still and does not replay their expired transition", async () => {
+  it("consumes a committed mobile target whose content suppresses entry motion", async () => {
     const cancel = vi.fn()
     const animate = vi.fn(() => ({ cancel }))
     Object.defineProperty(HTMLElement.prototype, "animate", {
@@ -434,10 +635,6 @@ describe("ShellFrameView", () => {
       { ...common, checkpoint: committedCheckpoint("/c/channels/s1/c1", "detail") },
       createElement("main-content"),
     ))
-    const motionSurface = renderer.container.querySelector(
-      '[data-community-mobile-surface="detail"]',
-    )!
-    const querySelector = vi.spyOn(motionSurface, "querySelector")
 
     renderer.rerender(createElement(
       ShellFrameView,
@@ -445,9 +642,6 @@ describe("ShellFrameView", () => {
       createElement("main-content", { "data-community-mobile-transition": "suppress" }),
     ))
     expect(animate).not.toHaveBeenCalled()
-    expect(querySelector).toHaveBeenLastCalledWith(
-      '[data-community-mobile-transition="suppress"]',
-    )
 
     renderer.rerender(createElement(
       ShellFrameView,
@@ -455,21 +649,6 @@ describe("ShellFrameView", () => {
       createElement("main-content"),
     ))
     expect(animate).not.toHaveBeenCalled()
-
-    renderer.rerender(createElement(
-      ShellFrameView,
-      { ...common, checkpoint: committedCheckpoint("/c/channels/s1/c3", "detail") },
-      createElement("main-content"),
-    ))
-    expect(animate).toHaveBeenCalledOnce()
-
-    renderer.rerender(createElement(
-      ShellFrameView,
-      { ...common, checkpoint: committedCheckpoint("/c/channels/s1/c4", "detail") },
-      createElement("main-content", { "data-community-mobile-transition": "suppress" }),
-    ))
-    expect(animate).toHaveBeenCalledOnce()
-    expect(cancel).toHaveBeenCalledOnce()
   })
 
   it("preserves child component identity across the 639 to 640 breakpoint", async () => {
