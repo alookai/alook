@@ -205,6 +205,10 @@ fn run_app(builder: tauri::Builder<tauri::Wry>) {
         .expect("error while building tauri application");
 
     app.run(|_app, _event| {
+        #[cfg(target_os = "android")]
+        if matches!(_event, tauri::RunEvent::Resumed) {
+            native_oauth_runtime::notify_listener(_app);
+        }
         #[cfg(target_os = "macos")]
         if let tauri::RunEvent::Reopen { .. } = _event {
             commands::show_main_window(_app);

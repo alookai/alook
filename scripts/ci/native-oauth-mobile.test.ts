@@ -134,6 +134,8 @@ describe("native OAuth mobile activation", () => {
     expect(rustEntry).toContain("fn run_mobile(")
     expect(rustEntry).toContain("native_oauth_runtime::native_oauth_prepare")
     expect(rustEntry).toContain("native_oauth_runtime::setup(app.handle())")
+    expect(rustEntry).toContain("tauri::RunEvent::Resumed")
+    expect(rustEntry).toContain("native_oauth_runtime::notify_listener")
     expect(rustEntry.indexOf("tauri_plugin_single_instance::init")).toBeLessThan(
       rustEntry.indexOf("tauri_plugin_deep_link::init"),
     )

@@ -87,7 +87,8 @@ afterEach(() => { for (const c of controllers.splice(0)) c.dispose(); vi.unstubA
   })
 
   it("registers the listener before reading pending, opens only the registered start, and keeps proofs out of view state", async () => {
-    const f = fixture(); await f.controller.connect(); await f.controller.start("github", "/c/me")
+    const f = fixture(); f.hasSession.mockResolvedValue(true)
+    await f.controller.connect(); await f.controller.start("github", "/c/me")
     expect(f.events.indexOf("listen")).toBeLessThan(f.events.indexOf("native_oauth_pending_exchange"))
     expect(f.events.indexOf("attempt")).toBeLessThan(f.events.indexOf("native_oauth_open_start"))
     expect(f.view().phase).toBe("waiting")
@@ -99,7 +100,8 @@ afterEach(() => { for (const c of controllers.splice(0)) c.dispose(); vi.unstubA
     expect(f.invoke).toHaveBeenCalledWith("native_oauth_finish", expect.anything())
   })
   it("rejects only a forged candidate and processes a later real code after durable retirement", async () => {
-    const f = fixture(); await f.controller.connect(); await f.controller.start("google", "/c/me")
+    const f = fixture(); f.hasSession.mockResolvedValue(true)
+    await f.controller.connect(); await f.controller.start("google", "/c/me")
     const normal = f.post.getMockImplementation()!
     let exchanges = 0
     f.post.mockImplementation(async endpoint => endpoint === "exchange" && ++exchanges === 1 ? { ok: false, data: { error: "invalid_handoff" } } : normal(endpoint))
@@ -109,7 +111,8 @@ afterEach(() => { for (const c of controllers.splice(0)) c.dispose(); vi.unstubA
     expect(f.invoke.mock.calls.filter(([name]) => name === "native_oauth_reject_candidate")).toHaveLength(1)
   })
   it("retires a known-invalid code even with status offline, then exchanges a genuine callback after reload", async () => {
-    const f = fixture(); await f.controller.connect(); await f.controller.start("google", "/c/me")
+    const f = fixture(); f.hasSession.mockResolvedValue(true)
+    await f.controller.connect(); await f.controller.start("google", "/c/me")
     const normal = f.post.getMockImplementation()!
     let exchanges = 0
     f.post.mockImplementation(async endpoint => {
@@ -184,8 +187,76 @@ afterEach(() => { for (const c of controllers.splice(0)) c.dispose(); vi.unstubA
     f.wake(); await new Promise(resolve => setTimeout(resolve, 0))
     expect(f.post.mock.calls.filter(([endpoint]) => endpoint === "exchange")).toHaveLength(1)
   })
+  it.each(["github", "google", "apple"] as const)("reconciles a %s session when foregrounding after the callback was finished", async provider => {
+    const f = fixture(); f.hasSession.mockResolvedValue(true)
+    await f.controller.connect(); await f.controller.start(provider, "/c/me")
+    f.queue(); f.wake()
+    await vi.waitFor(() => expect(f.navigate).toHaveBeenCalledOnce())
+    f.navigate.mockClear(); f.hasSession.mockClear()
+
+    f.wake()
+
+    await vi.waitFor(() => expect(f.navigate).toHaveBeenCalledWith("/c/me"))
+    expect(f.hasSession).toHaveBeenCalledOnce()
+    expect(f.post.mock.calls.filter(([endpoint]) => endpoint === "exchange")).toHaveLength(1)
+  })
+  it("ends resumed waiting with a retryable error when neither callback nor session exists", async () => {
+    const f = fixture(); f.hasSession.mockResolvedValue(false)
+    await f.controller.connect(); await f.controller.start("github", "/c/me")
+
+    f.wake()
+
+    await vi.waitFor(() => expect(f.view()).toMatchObject({ phase: "error", message: "retry_required" }))
+    expect(f.hasSession).toHaveBeenCalledOnce()
+    expect(f.navigate).not.toHaveBeenCalled()
+  })
+  it("ends resumed waiting with a retryable error when session refresh times out", async () => {
+    const f = fixture(); f.hasSession.mockRejectedValue(new Error("timeout"))
+    await f.controller.connect(); await f.controller.start("github", "/c/me")
+
+    f.wake()
+
+    await vi.waitFor(() => expect(f.view()).toMatchObject({ phase: "error", message: "retry_required" }))
+    expect(f.navigate).not.toHaveBeenCalled()
+  })
+  it("consumes a callback that arrives while resumed session reconciliation is in flight", async () => {
+    const f = fixture(); const session = deferred<boolean>()
+    f.hasSession.mockReturnValueOnce(session.promise).mockResolvedValue(true)
+    await f.controller.connect(); await f.controller.start("github", "/c/me")
+    f.wake()
+    await vi.waitFor(() => expect(f.hasSession).toHaveBeenCalledOnce())
+
+    f.queue(); f.wake(); session.resolve(false)
+
+    await vi.waitFor(() => expect(f.navigate).toHaveBeenCalledWith("/c/me"))
+    expect(f.post.mock.calls.filter(([endpoint]) => endpoint === "exchange")).toHaveLength(1)
+  })
+  it("requires a refreshed session before finishing a successful exchange", async () => {
+    const f = fixture(); f.hasSession.mockResolvedValue(false)
+    await f.controller.connect(); await f.controller.start("github", "/c/me")
+    f.queue(); f.wake()
+
+    await vi.waitFor(() => expect(f.view()).toMatchObject({ phase: "error", message: "retry_required" }))
+    expect(f.invoke.mock.calls.some(([name]) => name === "native_oauth_finish")).toBe(false)
+    expect(f.navigate).not.toHaveBeenCalled()
+  })
+  it.each(["cancel", "retry"] as const)("ignores resumed session reconciliation after %s", async action => {
+    const f = fixture(); const session = deferred<boolean>()
+    f.hasSession.mockReturnValue(session.promise)
+    await f.controller.connect(); await f.controller.start("github", "/c/me")
+    f.wake(); await vi.waitFor(() => expect(f.hasSession).toHaveBeenCalledOnce())
+
+    if (action === "cancel") await f.controller.cancel()
+    else await f.controller.start("google", "/c/me")
+    session.resolve(true); await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(f.navigate).not.toHaveBeenCalled()
+    expect(f.view().phase).toBe(action === "cancel" ? "idle" : "waiting")
+    expect(f.snapshot()?.provider ?? null).toBe(action === "cancel" ? null : "google")
+  })
   it("recovers a cold candidate after listener setup, and never replays an already-dispatched persisted code", async () => {
-    const f = fixture(); await f.controller.connect(); await f.controller.start("github", "/c/me")
+    const f = fixture(); f.hasSession.mockResolvedValue(false)
+    await f.controller.connect(); await f.controller.start("github", "/c/me")
     f.queue("k".repeat(32), null, true); f.controller.dispose()
     const restored = f.make(); controllers.push(restored); await restored.connect()
     expect(f.hasSession).toHaveBeenCalledOnce()
@@ -286,7 +357,8 @@ afterEach(() => { for (const c of controllers.splice(0)) c.dispose(); vi.unstubA
     expect(f.post.mock.calls.some(([endpoint]) => endpoint === "exchange")).toBe(false)
   })
   it("recovers a candidate arriving during registration of the new document listener", async () => {
-    const f = fixture(); await f.controller.connect(); await f.controller.start("google", "/c/me"); f.controller.dispose()
+    const f = fixture(); f.hasSession.mockResolvedValue(true)
+    await f.controller.connect(); await f.controller.start("google", "/c/me"); f.controller.dispose()
     f.listen.mockImplementation(async ready => { f.queue(); ready(); return f.stop })
     const restored = f.make(); controllers.push(restored); await restored.connect()
     expect(f.navigate).toHaveBeenCalledOnce()
