@@ -1,10 +1,20 @@
 import { ApiError } from "@/lib/errors";
 
 const API_BASE = "";
+export const ACCOUNT_DELETED_SIGN_IN_PATH = "/sign-in?account_deleted=1";
 
 const MOCK_NETWORK_ENABLED = process.env.NODE_ENV === "development" && process.env.NEXT_PUBLIC_MOCK_NETWORK === "true";
 const MOCK_NETWORK_DELAY_MS = parseInt(process.env.NEXT_PUBLIC_MOCK_NETWORK_DELAY_MS || "300", 10) || 300;
 let mockNetworkLogged = false;
+let accountDeletionAuthTransition = false;
+
+export function beginAccountDeletionAuthTransition() {
+  accountDeletionAuthTransition = true;
+}
+
+export function cancelAccountDeletionAuthTransition() {
+  accountDeletionAuthTransition = false;
+}
 
 function humanizeValidationDetail(detail: string): string {
   const [rawField, ...rest] = detail.split(":");
@@ -44,6 +54,7 @@ function getReadableErrorMessage(error: string | undefined, details: string[] | 
  */
 export function redirectToSignIn() {
   if (typeof window === "undefined") return;
+  if (accountDeletionAuthTransition) return;
   window.location.assign(new URL("/sign-in", window.location.origin));
 }
 

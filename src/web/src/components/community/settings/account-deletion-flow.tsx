@@ -4,6 +4,11 @@ import { useEffect, useRef, useState } from "react"
 import { MailWarning, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp"
+import {
+  ACCOUNT_DELETED_SIGN_IN_PATH,
+  beginAccountDeletionAuthTransition,
+  cancelAccountDeletionAuthTransition,
+} from "@/lib/api/client"
 import { parseRetryAfterSeconds } from "@/lib/retry-after"
 import { tid } from "@/lib/community/testids"
 
@@ -93,24 +98,33 @@ export function AccountDeletionFlow({ email, onCancel, onDeleted }: Props) {
     if (!/^\d{6}$/u.test(otp)) return
     setDeleting(true)
     setError("")
+    beginAccountDeletionAuthTransition()
+    let response: Response
     try {
-      const response = await fetch("/api/community/users/me/account-deletion", {
+      response = await fetch("/api/community/users/me/account-deletion", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ otp }),
       })
-      if (!response.ok) {
-        setOtp("")
-        setError(await responseError(response))
-        setDeleting(false)
-        return
-      }
-      await onDeleted()
     } catch {
+      cancelAccountDeletionAuthTransition()
       setOtp("")
       setError("Your account wasn’t deleted. Check your connection and try again.")
       setDeleting(false)
+      return
+    }
+    if (!response.ok) {
+      cancelAccountDeletionAuthTransition()
+      setOtp("")
+      setError(await responseError(response))
+      setDeleting(false)
+      return
+    }
+    try {
+      await onDeleted()
+    } catch {
+      globalThis.location.replace(ACCOUNT_DELETED_SIGN_IN_PATH)
     }
   }
 

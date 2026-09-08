@@ -3,7 +3,7 @@
 import { useCallback, useState, type ComponentProps } from "react"
 import { parseNameAndTag } from "@alook/shared"
 import { toast } from "sonner"
-import { toastApiError } from "@/lib/api/client"
+import { ACCOUNT_DELETED_SIGN_IN_PATH, toastApiError } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import { userProfileQueryFn, PROFILE_STALE_TIME_MS } from "@/hooks/community/use-user-profile"
 import { validateIconSourceFile } from "@/lib/community/image-crop"
@@ -298,7 +298,7 @@ export function useShellProfileController({
   const onAccountDeleted = async () => {
     await clearLocalAccountState()
     setEditingProfile(false)
-    globalThis.location.replace("/sign-in?account_deleted=1")
+    globalThis.location.replace(ACCOUNT_DELETED_SIGN_IN_PATH)
   }
 
   const userSettingsProps: ComponentProps<typeof UserSettings> = {

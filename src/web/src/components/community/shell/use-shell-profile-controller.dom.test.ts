@@ -35,7 +35,10 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock("sonner", () => ({ toast: mocks.toast }))
-vi.mock("@/lib/api/client", () => ({ toastApiError: mocks.toastApiError }))
+vi.mock("@/lib/api/client", () => ({
+  ACCOUNT_DELETED_SIGN_IN_PATH: "/sign-in?account_deleted=1",
+  toastApiError: mocks.toastApiError,
+}))
 vi.mock("@/hooks/community/use-user-profile", () => ({
   userProfileQueryFn: (id: string) => () => Promise.resolve({ id }),
   PROFILE_STALE_TIME_MS: 300_000,
