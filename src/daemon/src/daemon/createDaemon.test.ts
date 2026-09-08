@@ -688,6 +688,65 @@ describe("createDaemon", () => {
     }
   });
 
+  it("logs and contains daily token usage persistence failures", async () => {
+    const sockets: FakeSocket[] = [];
+    const sessions: DaemonFakeSession[] = [];
+    const logger = stubLogger();
+    const workingDirectoryBase = mkdtempSync(join(tmpdir(), "daemon-telemetry-failure-"));
+    startupSweepDirs.push(workingDirectoryBase);
+    mkdirSync(join(workingDirectoryBase, "bot_1"), { recursive: true });
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/enroll-agent")) return Response.json({ runnerKey: "runner_test" });
+      if (url.includes("/daemon/bots")) {
+        return Response.json({ bots: [{ id: "bot_1", name: "Bot", discriminator: "0001" }] });
+      }
+      return Response.json({ attempted: 0 });
+    }));
+    const daemon = await createDaemon({
+      machineKey: "cmk_telemetry_failure",
+      serverUrl: "http://server.invalid",
+      serverWsUrl: "ws://x",
+      webSocketFactory: factory(sockets) as never,
+      runtimeReport: [{ id: "codex" }],
+      driverFor: () => fullFakeDriver("codex"),
+      sessionFactory: () => {
+        const session = daemonFakeSession();
+        sessions.push(session);
+        return session;
+      },
+      capabilities: [],
+      workingDirectoryBase,
+      logger,
+    });
+
+    try {
+      sockets[0]!.emit("open");
+      sockets[0]!.emit("message", JSON.stringify({
+        type: "agent:wake",
+        agentId: "bot_1",
+        config: { version: 1, runtime: "codex", model: { kind: "default" }, mode: { kind: "default" } },
+        launchId: "launch_telemetry_failure",
+        unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: 1 },
+      }));
+      await vi.waitFor(() => expect(sessions).toHaveLength(1));
+      await sessions[0]!.fire("agent_event", {
+        type: "token_usage",
+        turnId: "daemon-test-turn",
+        source: "test_invalid_usage",
+        usage: { input: -1, output: 0, cache: 0 },
+      });
+
+      await vi.waitFor(() => expect(logger.calls.warn).toContainEqual([
+        "root",
+        "daily token usage persistence failed",
+        [{ agentId: "bot_1" }],
+      ]));
+    } finally {
+      await daemon.stop();
+    }
+  });
+
   it("opens the builtin session factory and reports host preparation failures", async () => {
     const dir = mkdtempSync(join(tmpdir(), "daemon-builtin-session-"));
     try {
