@@ -41,6 +41,7 @@ class MockWebSocket {
   }
   send(data: string) { this.sent.push(data) }
   close() {
+    if (this.readyState === MockWebSocket.CLOSING || this.readyState === MockWebSocket.CLOSED) return
     this.closed = true
     this.readyState = MockWebSocket.CLOSED
     this.onclose?.({ code: 1000, reason: "local detail", wasClean: true })
@@ -216,6 +217,7 @@ function dispatchWindowFocus() {
 }
 
 function resetMockState() {
+  vi.stubGlobal("WebSocket", MockWebSocket)
   MockWebSocket.instances = []
   mockFetch.mockReset()
   effectCleanup = null
@@ -513,6 +515,21 @@ describe("useUserWs", () => {
     expect(MockWebSocket.instances).toHaveLength(1)
   })
 
+  it("publishes reconnecting without fetching during a visible offline cold start", async () => {
+    setupTokenFetch()
+    mockNavigator.onLine = false
+    const onConnectionStateChange = vi.fn()
+
+    await mountHook(vi.fn(), {
+      onConnectionStateChange,
+      requestDaemonStatusOnAuth: false,
+    })
+
+    expect(onConnectionStateChange).toHaveBeenLastCalledWith("reconnecting")
+    expect(mockFetch).not.toHaveBeenCalled()
+    expect(MockWebSocket.instances).toEqual([])
+  })
+
   it("manual reconnect retires the current socket and starts exactly one fresh generation", async () => {
     setupTokenFetch()
     const onAuthenticated = vi.fn()
@@ -567,6 +584,29 @@ describe("useUserWs", () => {
       .toHaveLength(1)
     expect(JSON.stringify(mockTrackCommunityWsLifecycleClose.mock.calls))
       .not.toContain("private remote detail")
+  })
+
+  it.each([
+    [1001, "going-away"],
+    [1011, "server-error"],
+    [4321, "other"],
+  ] as const)("normalizes remote close code %i to %s", async (code, reasonBucket) => {
+    setupTokenFetch()
+    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    const ws = MockWebSocket.instances[0]!
+    ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok" })
+
+    ws.simulateClose(code, "private raw reason", false)
+
+    expect(mockTrackCommunityWsLifecycleClose).toHaveBeenCalledWith({
+      initiator: "remote",
+      code,
+      wasClean: false,
+      reasonBucket,
+    })
+    expect(JSON.stringify(mockTrackCommunityWsLifecycleClose.mock.calls))
+      .not.toContain("private raw reason")
   })
 
   it("manual reconnect invalidates an older pending token before it can create a socket", async () => {
@@ -662,7 +702,7 @@ describe("useUserWs", () => {
     effectCleanup?.()
   })
 
-  it("classifies credential failures without recording token or close reason content", async () => {
+  it("classifies HTTP auth failures without recording token or close reason content", async () => {
     mockFetch.mockResolvedValueOnce({ ok: false, status: 403 })
     await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
 
@@ -681,6 +721,13 @@ describe("useUserWs", () => {
       failureClass: "server",
     })
 
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 429 })
+    latestHookResult!.reconnectNow()
+    await flushPromises()
+    expect(mockTrackCommunityWsAuthFailure).toHaveBeenCalledWith({
+      failureClass: "unknown",
+    })
+
     setupTokenFetch()
     latestHookResult!.reconnectNow()
     await flushPromises()
@@ -696,6 +743,147 @@ describe("useUserWs", () => {
     })
     expect(JSON.stringify(mockTrackCommunityWsLifecycleClose.mock.calls))
       .not.toContain("token=private")
+  })
+
+  it("rechecks offline state before foreground validation after telemetry", async () => {
+    setupTokenFetch()
+    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    const ws = MockWebSocket.instances[0]!
+    ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok" })
+    mockTrackCommunityWsLifecycleRecovery.mockImplementationOnce(() => {
+      mockNavigator.onLine = false
+      mockWindow.dispatch("offline")
+    })
+
+    dispatchWindowFocus()
+
+    expect(connectionPings(ws)).toEqual([])
+    expect(ws.closed).toBe(false)
+  })
+
+  it("rechecks offline state after the reconnecting lifecycle callback", async () => {
+    setupTokenFetch()
+    const onConnectionStateChange = vi.fn((phase: string) => {
+      if (phase === "reconnecting") mockNavigator.onLine = false
+    })
+
+    await mountHook(vi.fn(), {
+      onConnectionStateChange,
+      requestDaemonStatusOnAuth: false,
+    })
+
+    expect(onConnectionStateChange).toHaveBeenCalledWith("reconnecting")
+    expect(mockFetch).not.toHaveBeenCalled()
+    expect(MockWebSocket.instances).toEqual([])
+  })
+
+  it("drops a token body that resolves after navigator becomes offline", async () => {
+    const body = deferred<{ userId: string; token: string }>()
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => body.promise,
+    } as Response)
+    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    expect(mockFetch).toHaveBeenCalledOnce()
+
+    mockNavigator.onLine = false
+    body.resolve({ userId: "stale-user", token: "stale-token" })
+    await flushPromises()
+
+    expect(MockWebSocket.instances).toEqual([])
+  })
+
+  it("does not run a scheduled retry if navigator becomes offline before it fires", async () => {
+    mockFetch.mockRejectedValueOnce(new Error("network unavailable"))
+    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    expect(mockTrackCommunityWsRetryScheduled).toHaveBeenCalledOnce()
+
+    mockNavigator.onLine = false
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    expect(mockFetch).toHaveBeenCalledOnce()
+    expect(MockWebSocket.instances).toEqual([])
+  })
+
+  it("reports WebSocket constructor failures and schedules a retry", async () => {
+    class ThrowingWebSocket {
+      static CONNECTING = 0
+      static OPEN = 1
+      static CLOSING = 2
+      static CLOSED = 3
+      constructor(_url: string) {
+        throw new Error("constructor failed")
+      }
+    }
+    vi.stubGlobal("WebSocket", ThrowingWebSocket)
+    setupTokenFetch()
+
+    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+
+    expect(mockTrackCommunityWsLifecycleStage).toHaveBeenCalledWith(expect.objectContaining({
+      stage: "open",
+      result: "failure",
+    }))
+    expect(mockTrackCommunityWsRetryScheduled).toHaveBeenCalledOnce()
+  })
+
+  it("closes without authenticating if navigator becomes offline before open", async () => {
+    setupTokenFetch()
+    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    const ws = MockWebSocket.instances[0]!
+
+    mockNavigator.onLine = false
+    ws.simulateOpen()
+
+    expect(ws.closed).toBe(true)
+    expect(ws.sent).toEqual([])
+    expect(mockTrackCommunityWsLifecycleClose).toHaveBeenCalledWith(expect.objectContaining({
+      initiator: "offline",
+    }))
+  })
+
+  it("reports an auth transport failure when the auth frame send throws", async () => {
+    setupTokenFetch()
+    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    const ws = MockWebSocket.instances[0]!
+    ws.send = vi.fn(() => { throw new Error("auth send failed") })
+
+    ws.simulateOpen()
+
+    expect(ws.closed).toBe(true)
+    expect(mockTrackCommunityWsLifecycleStage).toHaveBeenCalledWith(expect.objectContaining({
+      stage: "auth",
+      result: "failure",
+    }))
+    expect(mockTrackCommunityWsAuthFailure).toHaveBeenCalledWith({
+      failureClass: "network",
+    })
+    expect(mockTrackCommunityWsLifecycleClose).toHaveBeenCalledWith(expect.objectContaining({
+      initiator: "auth-failure",
+    }))
+  })
+
+  it("retires and retries when the post-auth status frame send throws", async () => {
+    setupTokenFetch()
+    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: true })
+    const ws = MockWebSocket.instances[0]!
+    const send = ws.send.bind(ws)
+    ws.send = vi.fn((data: string) => {
+      if (data === JSON.stringify({ type: "check_daemon_status" })) {
+        throw new Error("status send failed")
+      }
+      send(data)
+    })
+    ws.simulateOpen()
+
+    ws.simulateMessage({ type: "auth.ok" })
+
+    expect(ws.closed).toBe(true)
+    expect(mockTrackCommunityWsLifecycleClose).toHaveBeenCalledWith(expect.objectContaining({
+      initiator: "local-retire",
+    }))
+    expect(mockTrackCommunityWsRetryScheduled).toHaveBeenCalledOnce()
   })
 
   it("uses offline as a hard gate for pending tokens, retries, and manual recovery", async () => {
@@ -768,6 +956,30 @@ describe("useUserWs", () => {
     expect(connectionPings(ws)).toHaveLength(1)
     expect(MockWebSocket.instances).toEqual([ws])
     expect(mockFetch).toHaveBeenCalledTimes(fetchCount)
+  })
+
+  it("publishes reconnecting if a retained authenticated socket closes while offline", async () => {
+    setupTokenFetch()
+    const onConnectionStateChange = vi.fn()
+    await mountHook(vi.fn(), {
+      onConnectionStateChange,
+      requestDaemonStatusOnAuth: false,
+    })
+    const ws = MockWebSocket.instances[0]!
+    ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok" })
+    const fetchCount = mockFetch.mock.calls.length
+
+    mockNavigator.onLine = false
+    mockWindow.dispatch("offline")
+    expect(onConnectionStateChange).toHaveBeenLastCalledWith("suspended")
+
+    ws.simulateClose(1012, "offline remote close", false)
+    expect(onConnectionStateChange).toHaveBeenLastCalledWith("reconnecting")
+    await vi.advanceTimersByTimeAsync(60_000)
+
+    expect(mockFetch).toHaveBeenCalledTimes(fetchCount)
+    expect(MockWebSocket.instances).toEqual([ws])
   })
 
   it("retires an open pre-auth socket offline and ignores every late frame", async () => {
@@ -945,7 +1157,7 @@ describe("useUserWs", () => {
     dispatchWindowFocus()
     await flushPromises()
 
-    expect(closing.closed).toBe(true)
+    expect(closing.closed).toBe(false)
     expect(MockWebSocket.instances).toHaveLength(3)
     expect(mockTrackCommunityWsLifecycleRecovery).toHaveBeenLastCalledWith({
       trigger: "focus",
@@ -953,6 +1165,32 @@ describe("useUserWs", () => {
       socketReadyState: "closing",
       suspensionDuration: "unknown",
     })
+  })
+
+  it("preserves a remote initiator when recovery races a remote closing handshake", async () => {
+    setupTokenFetch()
+    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    const ws = MockWebSocket.instances[0]!
+    ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok" })
+
+    ws.readyState = MockWebSocket.CLOSING
+    dispatchWindowFocus()
+    await flushPromises()
+    expect(mockTrackCommunityWsLifecycleClose).not.toHaveBeenCalled()
+    expect(MockWebSocket.instances).toHaveLength(2)
+
+    ws.simulateClose(1006, "private remote detail", false)
+
+    expect(mockTrackCommunityWsLifecycleClose).toHaveBeenCalledOnce()
+    expect(mockTrackCommunityWsLifecycleClose).toHaveBeenCalledWith({
+      initiator: "remote",
+      code: 1006,
+      wasClean: false,
+      reasonBucket: "abnormal",
+    })
+    expect(JSON.stringify(mockTrackCommunityWsLifecycleClose.mock.calls))
+      .not.toContain("private remote detail")
   })
 
   it("clears a pending reconnect when the page becomes hidden", async () => {
