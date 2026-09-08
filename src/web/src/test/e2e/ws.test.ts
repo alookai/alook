@@ -117,6 +117,24 @@ describe("ws (dev direct to ws-do)", () => {
     ws.close()
   })
 
+  it("echoes the exact authenticated connection-validation nonce", async () => {
+    if (!available) return
+
+    const ws = await openWs(userId)
+    ws.send(JSON.stringify({ type: "auth", token }))
+    await waitForMessage<{ type: string }>(ws, (message) => message.type === "auth.ok")
+
+    const nonce = randomUUID()
+    const pong = waitForMessage<{ type: string; nonce?: string }>(
+      ws,
+      (message) => message.type === "connection.pong",
+    )
+    ws.send(JSON.stringify({ type: "connection.ping", nonce }))
+
+    await expect(pong).resolves.toEqual({ type: "connection.pong", nonce })
+    ws.close()
+  })
+
   it("closes with 1008 on invalid token", async () => {
     if (!available) return
 
