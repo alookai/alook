@@ -58,6 +58,9 @@ targets:
             CFBundleURLSchemes: [ai.alook]
     entitlements:
       path: alook-desktop_iOS/alook-desktop_iOS.entitlements
+      properties:
+        com.apple.developer.associated-domains:
+          - applinks:auth.alook.ai
     scheme:
       environmentVariables:
         RUST_BACKTRACE: full
