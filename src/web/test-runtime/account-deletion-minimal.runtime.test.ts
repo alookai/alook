@@ -53,11 +53,16 @@ describe("minimal account deletion real D1 batch", () => {
     const sharedDraftKey = `emails/drafts/${stamp}/shared.txt`
     const privateDraftKey = `emails/drafts/${stamp}/private.txt`
     const server = `adm_server_${stamp}`
+    const serverChannel = `adm_server_channel_${stamp}`
     const forum = `adm_forum_${stamp}`
     const opener = `adm_opener_${stamp}`
     const thread = `adm_thread_${stamp}`
     const reply = `adm_reply_${stamp}`
     const threadAttachment = `adm_thread_attachment_${stamp}`
+    const pendingServerAttachment = `adm_pending_server_attachment_${stamp}`
+    const pendingThreadAttachment = `adm_pending_thread_attachment_${stamp}`
+    const pendingServerAttachmentKey = `community/pending-server/${stamp}`
+    const pendingThreadAttachmentKey = `community/pending-thread/${stamp}`
     const now = "2026-09-08T00:00:00.000Z"
     survivors.push(reader, earlyReader)
     survivingChannels.push(dm, forum)
@@ -132,6 +137,10 @@ describe("minimal account deletion real D1 batch", () => {
       "INSERT INTO community_server_member (id, server_id, user_id, role, joined_at) VALUES (?, ?, ?, 'member', ?)",
       `server_member_${stamp}`, server, reader, now,
     )
+    await run(
+      "INSERT INTO community_channel (id, server_id, type, message_count, created_at) VALUES (?, ?, 'text', 0, ?)",
+      serverChannel, server, now,
+    )
     await run("INSERT INTO community_channel (id, type, message_count, last_message_at, created_at) VALUES (?, 'dm', 3, ?, ?)", dm, now, now)
     await run(
       "INSERT INTO community_message (id, author_id, content, created_at, channel_id, seq) VALUES (?, ?, 'prior', ?, ?, 1), (?, ?, 'authored', ?, ?, 2), (?, ?, 'bot authored', ?, ?, 3)",
@@ -159,8 +168,10 @@ describe("minimal account deletion real D1 batch", () => {
       reply, reader, now, thread,
     )
     await run(
-      "INSERT INTO community_attachment (id, message_id, uploader_id, target_id, r2_key, filename, position, created_at) VALUES (?, ?, ?, ?, ?, 'reply.txt', 0, ?)",
+      "INSERT INTO community_attachment (id, message_id, uploader_id, target_id, r2_key, filename, position, created_at) VALUES (?, ?, ?, ?, ?, 'reply.txt', 0, ?), (?, NULL, ?, ?, ?, 'pending-server.txt', 0, ?), (?, NULL, ?, ?, ?, 'pending-thread.txt', 0, ?)",
       `attachment_${stamp}`, reply, reader, thread, threadAttachment, now,
+      pendingServerAttachment, reader, serverChannel, pendingServerAttachmentKey, now,
+      pendingThreadAttachment, reader, thread, pendingThreadAttachmentKey, now,
     )
 
     const db = createDb(runtimeEnv.DB)
@@ -170,6 +181,8 @@ describe("minimal account deletion real D1 batch", () => {
     expect(snapshot?.ownedAgentIds.sort()).toEqual([`agent_${stamp}`, ownedSharedAgent].sort())
     expect(snapshot?.machineTokens.sort()).toEqual([ownerMachineToken, workspaceMachineToken].sort())
     expect(snapshot?.media.communityExactKeys).toContain(threadAttachment)
+    expect(snapshot?.media.communityExactKeys).toContain(pendingServerAttachmentKey)
+    expect(snapshot?.media.communityExactKeys).toContain(pendingThreadAttachmentKey)
     expect(snapshot?.media.deletingEmailAttachments).toContain(JSON.stringify([
       { key: sharedDraftKey },
       { key: privateDraftKey },
@@ -196,6 +209,8 @@ describe("minimal account deletion real D1 batch", () => {
     expect(await first("SELECT id FROM community_server WHERE id = ?", server)).toBeNull()
     expect(await first("SELECT id FROM community_channel WHERE id = ?", thread)).toBeNull()
     expect(await first("SELECT id FROM community_attachment WHERE id = ?", `attachment_${stamp}`)).toBeNull()
+    expect(await first("SELECT id FROM community_attachment WHERE id IN (?, ?)", pendingServerAttachment, pendingThreadAttachment)).toBeNull()
+    expect(await first("SELECT id FROM user WHERE id = ?", reader)).toEqual({ id: reader })
     expect(await first("SELECT id FROM deviceCode WHERE userId = ?", owner)).toBeNull()
     expect(await first("SELECT id FROM verification WHERE id IN (?, ?)", `otp_${stamp}`, `ott_${stamp}`)).toBeNull()
     expect(await first<{ message_count: number; last_message_at: string }>(

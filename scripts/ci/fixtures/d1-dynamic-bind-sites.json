@@ -112,6 +112,18 @@
     "strategy": "subquery"
   },
   {
+    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:35",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:36",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:37",
+    "strategy": "subquery"
+  },
+  {
     "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:4",
     "strategy": "subquery"
   },

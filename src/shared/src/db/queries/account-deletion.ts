@@ -434,6 +434,13 @@ export async function deleteAccountRows(
     .select({ id: communityMessage.id })
     .from(communityMessage)
     .where(inArray(communityMessage.authorId, identitiesQuery))
+  const doomedChannelIdsQuery = db
+    .select({ id: communityChannel.id })
+    .from(communityChannel)
+    .where(or(
+      inArray(communityChannel.serverId, ownedServerIdsQuery),
+      inArray(communityChannel.parentMessageId, authoredMessagesQuery),
+    ))
   const affectedChannelIdsQuery = db
     .select({ id: communityMessage.channelId })
     .from(communityMessage)
@@ -524,6 +531,10 @@ export async function deleteAccountRows(
     db.delete(machine).where(inArray(machine.ownerId, identitiesQuery)),
     db.delete(workspace).where(inArray(workspace.id, ownedWorkspaceIdsQuery)),
     db.delete(agent).where(inArray(agent.ownerId, identitiesQuery)),
+    db.delete(communityAttachment).where(and(
+      isNull(communityAttachment.messageId),
+      inArray(communityAttachment.targetId, doomedChannelIdsQuery),
+    )),
     db.delete(communityServer).where(inArray(communityServer.ownerId, identitiesQuery)),
     db.delete(communityAttachment).where(inArray(communityAttachment.uploaderId, identitiesQuery)),
     db.delete(communityDiagnosticReport).where(inArray(communityDiagnosticReport.ownerUserId, identitiesQuery)),
