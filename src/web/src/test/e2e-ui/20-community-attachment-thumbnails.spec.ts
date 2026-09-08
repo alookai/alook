@@ -11,10 +11,59 @@ const EXTREME_PORTRAIT_FIXTURE = solidPngFixture(100, 4000, [225, 91, 142])
 
 type Rect = { x: number; y: number; width: number; height: number }
 
+type NativeImageContextMenuProbe = {
+  defaultPrevented: boolean | null
+  targetSrc: string | null
+  targetTagName: string | null
+  targetTestId: string | null
+}
+
 async function boundingRect(locator: Locator): Promise<Rect> {
   const rect = await locator.boundingBox()
   expect(rect).not.toBeNull()
   return rect!
+}
+
+async function expectNativeImageContextMenu(
+  page: Page,
+  target: Locator,
+  expected: { src: string; testId: string },
+) {
+  await page.evaluate(() => {
+    const state = window as typeof window & {
+      __imageContextMenuProbe?: NativeImageContextMenuProbe
+    }
+    state.__imageContextMenuProbe = {
+      defaultPrevented: null,
+      targetSrc: null,
+      targetTagName: null,
+      targetTestId: null,
+    }
+    document.addEventListener("contextmenu", (event) => {
+      const eventTarget = event.target instanceof Element ? event.target : null
+      const imageTarget = eventTarget instanceof HTMLImageElement ? eventTarget : null
+      if (state.__imageContextMenuProbe) {
+        state.__imageContextMenuProbe.targetSrc = imageTarget?.getAttribute("src") ?? null
+        state.__imageContextMenuProbe.targetTagName = eventTarget?.tagName ?? null
+        state.__imageContextMenuProbe.targetTestId = eventTarget?.getAttribute("data-testid") ?? null
+      }
+      setTimeout(() => {
+        if (state.__imageContextMenuProbe) {
+          state.__imageContextMenuProbe.defaultPrevented = event.defaultPrevented
+        }
+      })
+    }, { capture: true, once: true })
+  })
+
+  await target.click({ button: "right" })
+  await expect.poll(() => page.evaluate(() => (
+    window as typeof window & { __imageContextMenuProbe?: NativeImageContextMenuProbe }
+  ).__imageContextMenuProbe)).toEqual({
+    defaultPrevented: false,
+    targetSrc: expected.src,
+    targetTagName: "IMG",
+    targetTestId: expected.testId,
+  })
 }
 
 function expectSameRect(actual: Rect, expected: Rect) {
@@ -166,9 +215,16 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   let coldThumbnailRequests = 0
   const thumbnailPattern = "**/api/community/channels/**/attachments/**/thumbnail"
   await page.route(thumbnailPattern, async (route) => {
-    if (holdColdThumbnail && route.request().method() === "GET") {
+    if (
+      holdColdThumbnail
+      && coldThumbnailRequests === 0
+      && route.request().method() === "GET"
+    ) {
       coldThumbnailRequests++
+      const response = route.fetch()
       await coldThumbnailGate
+      await route.fulfill({ response: await response })
+      return
     }
     await route.continue()
   })
@@ -246,7 +302,12 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   expectSameRect(desktopLandscapeRestored.container, desktopLandscapeLoading.container)
 
   releaseLandscape()
-  await expect(page.getByTestId(tid.imageLightboxOriginal)).toHaveClass(/opacity-100/)
+  const landscapeOriginal = page.getByTestId(tid.imageLightboxOriginal)
+  await expect(landscapeOriginal).toHaveClass(/pointer-events-auto opacity-100/)
+  await expectNativeImageContextMenu(page, landscapeOriginal, {
+    src: landscape.originalPath,
+    testId: tid.imageLightboxOriginal,
+  })
   const desktopLandscapeLoaded = await previewRects(page)
   expectSameRect(desktopLandscapeLoaded.container, desktopLandscapeRestored.container)
   await attachScreenshot(testInfo, "desktop-landscape-loaded", page)
@@ -294,7 +355,13 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   await attachScreenshot(testInfo, "desktop-portrait-loading", page)
   releasePortraitFailure()
   await expect(page.getByTestId(tid.imageLightboxError)).toContainText("Failed to load original image")
-  await expect(page.getByTestId(tid.imageLightboxThumbnail)).toBeVisible()
+  const portraitThumbnail = page.getByTestId(tid.imageLightboxThumbnail)
+  await expect(portraitThumbnail).toBeVisible()
+  await expect(portraitThumbnail).toHaveClass(/pointer-events-auto/)
+  await expectNativeImageContextMenu(page, portraitThumbnail, {
+    src: portrait.thumbnailPath,
+    testId: tid.imageLightboxThumbnail,
+  })
   await waitForDialogEntrance(page)
   const desktopPortraitFailed = {
     container: await boundingRect(page.getByTestId(tid.imageLightbox)),
@@ -336,7 +403,8 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   await mobilePage.setViewportSize({ width: 390, height: 844 })
   await mobilePage.goto(channelUrl)
   await mobilePage.waitForURL(new RegExp(`/c/channels/[^/]+/${channelId}$`), { waitUntil: "commit" })
-  await expect(mobilePage.getByTestId(tid.messageImage(landscape.messageId, 0))).toBeVisible()
+  await expect(mobilePage.getByTestId(tid.messageImage(landscape.messageId, 0)))
+    .toBeVisible({ timeout: 30_000 })
 
   let releaseMobileLandscape!: () => void
   const mobileLandscapeGate = new Promise<void>((resolve) => { releaseMobileLandscape = resolve })

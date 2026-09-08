@@ -61,6 +61,7 @@ function PreviewFrame({ image }: { image: ImagePreview }) {
     <div className="relative w-fit">
       <div
         data-testid={tid.imageLightbox}
+        data-native-context-menu="true"
         className="relative overflow-hidden rounded-lg bg-background"
         style={frameStyle}
       >
@@ -75,7 +76,7 @@ function PreviewFrame({ image }: { image: ImagePreview }) {
             alt={image.name}
             onLoad={onThumbnailLoad}
             onError={onThumbnailError}
-            className={`absolute inset-0 size-full rounded-lg object-contain transition-opacity duration-150 ease-out motion-reduce:transition-none ${thumbnailReady && !originalReady ? "opacity-100" : "opacity-0"}`}
+            className={`absolute inset-0 size-full rounded-lg object-contain transition-opacity duration-150 ease-out motion-reduce:transition-none ${thumbnailReady && !originalReady ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"}`}
           />
         )}
         {!thumbnailReady && !originalReady && originalStatus === "pending" && (
@@ -98,7 +99,7 @@ function PreviewFrame({ image }: { image: ImagePreview }) {
             alt={image.name}
             onLoad={onOriginalLoad}
             onError={onOriginalError}
-            className={`pointer-events-none absolute inset-0 size-full rounded-lg object-contain transition-opacity duration-150 ease-out motion-reduce:transition-none ${originalReady ? "opacity-100" : "opacity-0"}`}
+            className={`absolute inset-0 size-full rounded-lg object-contain transition-opacity duration-150 ease-out motion-reduce:transition-none ${originalReady ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"}`}
           />
         )}
       </div>

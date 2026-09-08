@@ -95,14 +95,23 @@ describe("ImageLightbox", () => {
       aspectRatio: "800 / 450",
     })
     expect(frame.style.aspectRatio).toBe("800 / 450")
+    expect(frame).toHaveAttribute("data-native-context-menu", "true")
     expect(thumbnail).toHaveClass("absolute", "inset-0", "size-full")
-    expect(original).toHaveClass("absolute", "inset-0", "size-full", "opacity-0")
+    expect(thumbnail).toHaveClass("pointer-events-none")
+    expect(original).toHaveClass(
+      "absolute",
+      "inset-0",
+      "size-full",
+      "pointer-events-none",
+      "opacity-0",
+    )
     expect(frame.parentElement).not.toHaveClass("invisible")
     expect(renderer.getByTestId(tid.imageLightboxLoading))
       .toHaveTextContent("Loading original image")
 
     await loadThumbnail(renderer, 800, 450)
     expect(renderer.getByTestId(tid.imageLightbox).parentElement).not.toHaveClass("invisible")
+    expect(image(renderer, tid.imageLightboxThumbnail)).toHaveClass("pointer-events-auto")
 
     prepareImage(original, 800, 450, () => decodePromise)
     fireEvent.load(original)
@@ -112,8 +121,14 @@ describe("ImageLightbox", () => {
       resolveDecode()
       await decodePromise
     })
-    expect(image(renderer, tid.imageLightboxOriginal)).toHaveClass("opacity-100")
-    expect(image(renderer, tid.imageLightboxThumbnail)).toHaveClass("opacity-0")
+    expect(image(renderer, tid.imageLightboxOriginal)).toHaveClass(
+      "pointer-events-auto",
+      "opacity-100",
+    )
+    expect(image(renderer, tid.imageLightboxThumbnail)).toHaveClass(
+      "pointer-events-none",
+      "opacity-0",
+    )
     expect(previewFrameStyle({ width: 800, height: 450 })).toEqual({
       width: "min(800px, 90vw, 151.111111vh)",
       aspectRatio: "800 / 450",
@@ -133,6 +148,7 @@ describe("ImageLightbox", () => {
 
     expect(renderer.queryAllByTestId(tid.imageLightboxOriginal)).toHaveLength(0)
     expect(image(renderer, tid.imageLightboxThumbnail)).toHaveAttribute("src", "/thumbnail")
+    expect(image(renderer, tid.imageLightboxThumbnail)).toHaveClass("pointer-events-auto")
     expect(renderer.getByTestId(tid.imageLightboxError))
       .toHaveTextContent("Failed to load original image")
     expect(renderer.getByTestId(tid.imageLightboxRetry)).toHaveTextContent("Retry")
