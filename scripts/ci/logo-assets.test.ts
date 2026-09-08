@@ -3,7 +3,10 @@ import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 import {
-  androidAdaptiveForegroundSizes,
+  androidAdaptiveBackgroundColor,
+  androidAdaptiveExpressionShiftX,
+  androidAdaptiveLayerSizes,
+  androidAdaptiveLayerSvgs,
   assertSvgContract,
   canonicalizeIcns,
   desktopRasterAssets,
@@ -131,6 +134,15 @@ describe("logo asset generator", () => {
     expect(publicCopy).toBe(canonical)
     expect(fullBleedSvg(canonical)).toContain("<g>")
     expect(fullBleedSvg(canonical)).not.toContain('<g clip-path="url(#alook-logo-clip)">')
+
+    const adaptive = androidAdaptiveLayerSvgs(canonical)
+    expect(adaptive.background).not.toMatch(/clip-path|rx="236"|data-part="expression"|data-face="orange"/)
+    expect(adaptive.background.match(/data-face=/g)).toHaveLength(4)
+    expect(adaptive.background.match(/<path/g)).toHaveLength(4)
+    expect(adaptive.foreground).not.toMatch(/clip-path|rx="236"|data-face="(?:red|purple|teal|blue)"/)
+    expect(adaptive.foreground).toContain('data-face="orange" data-motion-layer="foreground"')
+    expect(adaptive.foreground).toContain(`transform="translate(${androidAdaptiveExpressionShiftX} 0)"`)
+    expect(adaptive.foreground.match(/<path/g)).toHaveLength(6)
   })
 
   it("covers every approved platform family and protects the exceptions", () => {
@@ -233,24 +245,41 @@ describe("logo asset generator", () => {
     })
   })
 
-  it("fills Android adaptive masks while keeping the expression inside the safe zone at every density", async () => {
+  it("generates split Android adaptive layers with a safe expression at every density", async () => {
     const adaptiveXml = await readFile(resolve(repoRoot, "src/desktop/src-tauri/gen/android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml"), "utf8")
     expect(adaptiveXml).toContain('<foreground android:drawable="@mipmap/ic_launcher_foreground"/>')
-    expect(adaptiveXml).toContain('<background android:drawable="@color/ic_launcher_background"/>')
+    expect(adaptiveXml).toContain('<background android:drawable="@mipmap/ic_launcher_background"/>')
+    expect(adaptiveXml).not.toContain("@color/ic_launcher_background")
 
-    for (const [density, { canvas, artwork }] of Object.entries(androidAdaptiveForegroundSizes)) {
-      const offset = Math.floor((canvas - artwork) / 2)
+    const canonical = await readFile(resolve(repoRoot, "assets/alook.svg"), "utf8")
+    const adaptive = androidAdaptiveLayerSvgs(canonical)
+
+    for (const [density, canvas] of Object.entries(androidAdaptiveLayerSizes)) {
       const safeSize = canvas * 66 / 108
       const safeOffset = (canvas - safeSize) / 2
       const base = resolve(repoRoot, `src/desktop/src-tauri/gen/android/app/src/main/res/mipmap-${density}`)
+      const background = resolve(base, "ic_launcher_background.png")
       const foreground = resolve(base, "ic_launcher_foreground.png")
-      expect(artwork).toBe(canvas * 84 / 108)
-      expect(await alphaBounds(foreground)).toEqual({
+      const expectedBackground = await sharp(Buffer.from(adaptive.background))
+        .resize(canvas, canvas)
+        .flatten({ background: androidAdaptiveBackgroundColor })
+        .png()
+        .toBuffer()
+      const expectedForeground = await sharp(Buffer.from(adaptive.foreground)).resize(canvas, canvas).png().toBuffer()
+      expect(await readFile(background)).toEqual(expectedBackground)
+      expect(await readFile(foreground)).toEqual(expectedForeground)
+      expect(await alphaBounds(background)).toEqual({
         width: canvas,
         height: canvas,
-        bounds: [offset, offset, offset + artwork, offset + artwork],
+        bounds: [0, 0, canvas, canvas],
+        opaque: true,
+      })
+      expect(await alphaBounds(foreground)).toMatchObject({
+        width: canvas,
+        height: canvas,
         opaque: false,
       })
+      expect((await visibleColors(background)).has("255,255,255")).toBe(false)
       const [left, top, right, bottom] = await expressionBounds(foreground)
       expect(left).toBeGreaterThanOrEqual(safeOffset)
       expect(top).toBeGreaterThanOrEqual(safeOffset)

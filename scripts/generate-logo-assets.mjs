@@ -67,14 +67,16 @@ export const iosRasterAssets = [
   "AppIcon-512@2x.png",
 ]
 
-export const androidAdaptiveForegroundSizes = {
-  mdpi: { canvas: 108, artwork: 84 },
-  hdpi: { canvas: 162, artwork: 126 },
-  xhdpi: { canvas: 216, artwork: 168 },
-  xxhdpi: { canvas: 324, artwork: 252 },
-  xxxhdpi: { canvas: 432, artwork: 336 },
+export const androidAdaptiveLayerSizes = {
+  mdpi: 108,
+  hdpi: 162,
+  xhdpi: 216,
+  xxhdpi: 324,
+  xxxhdpi: 432,
 }
-const androidDensities = Object.keys(androidAdaptiveForegroundSizes)
+export const androidAdaptiveBackgroundColor = "#FF9915"
+export const androidAdaptiveExpressionShiftX = -4
+const androidDensities = Object.keys(androidAdaptiveLayerSizes)
 const androidSplashSizes = { mdpi: 108, hdpi: 162, xhdpi: 216, xxhdpi: 324, xxxhdpi: 432 }
 const appleSplashSizes = { "splash_icon@1x.png": 80, "splash_icon@2x.png": 160, "splash_icon@3x.png": 240 }
 
@@ -91,6 +93,29 @@ export function assertSvgContract(svg) {
 export function fullBleedSvg(svg) {
   assertSvgContract(svg)
   return svg.replace('<g clip-path="url(#alook-logo-clip)">', "<g>")
+}
+
+export function androidAdaptiveLayerSvgs(svg) {
+  const unmasked = fullBleedSvg(svg).replace(/\n  <defs>[\s\S]*?\n  <\/defs>/, "")
+  const root = unmasked.match(/^<svg[^>]+>/)?.[0]
+  const motionLayer = unmasked.match(/    <g data-face="orange" data-motion-layer="foreground">[\s\S]*?\n    <\/g>/)?.[0]
+  if (!root || !motionLayer) throw new Error("adaptive logo layers are missing")
+  const motionPaths = motionLayer.match(/      <path\b[\s\S]*?\/>/g)
+  if (motionPaths?.length !== 6) throw new Error("adaptive foreground paths drifted")
+  const [orangeFace, ...expression] = motionPaths
+  const safeMotionLayer = [
+    '    <g data-face="orange" data-motion-layer="foreground">',
+    orangeFace,
+    `      <g transform="translate(${androidAdaptiveExpressionShiftX} 0)">`,
+    ...expression.map(path => path.replace(/^      /, "        ")),
+    "      </g>",
+    "    </g>",
+  ].join("\n")
+  const background = unmasked
+    .replace(motionLayer, "")
+    .replace(/\n      <g data-part="expression" opacity="0">[\s\S]*?\n      <\/g>/g, "")
+  const foreground = `${root}\n  <g>\n${safeMotionLayer}\n  </g>\n</svg>\n`
+  return { background, foreground }
 }
 
 export function canonicalizeIcns(bytes) {
@@ -121,8 +146,8 @@ async function render(svg, width, height = width) {
   return sharp(Buffer.from(svg)).resize(width, height).png().toBuffer()
 }
 
-async function renderOpaque(svg, width, height = width) {
-  return sharp(Buffer.from(svg)).resize(width, height).flatten({ background: "#FE4365" }).png().toBuffer()
+async function renderOpaque(svg, width, height = width, background = "#FE4365") {
+  return sharp(Buffer.from(svg)).resize(width, height).flatten({ background }).png().toBuffer()
 }
 
 async function renderContained(svg, canvasSize, artworkSize) {
@@ -160,6 +185,7 @@ export async function generateLogoAssets() {
   const fullBleedOutput = join(scratch, "full-bleed")
   const fullBleedPath = join(scratch, "alook-full-bleed.svg")
   await writeFile(fullBleedPath, fullBleedSvg(canonical))
+  const androidAdaptiveLayers = androidAdaptiveLayerSvgs(canonical)
 
   for (const [source, output] of [[canonicalPath, roundedOutput], [fullBleedPath, fullBleedOutput]]) {
     execFileSync("pnpm", ["--filter", "@alook/desktop", "tauri", "icon", "--output", output, source], {
@@ -201,10 +227,14 @@ export async function generateLogoAssets() {
     for (const file of ["ic_launcher.png", "ic_launcher_round.png"]) {
       await copy(join(sourceDir, file), `${destinationDir}/${file}`)
     }
-    const { canvas, artwork } = androidAdaptiveForegroundSizes[density]
+    const canvas = androidAdaptiveLayerSizes[density]
+    await writeFile(
+      resolve(repoRoot, destinationDir, "ic_launcher_background.png"),
+      await renderOpaque(androidAdaptiveLayers.background, canvas, canvas, androidAdaptiveBackgroundColor),
+    )
     await writeFile(
       resolve(repoRoot, destinationDir, "ic_launcher_foreground.png"),
-      await renderContained(canonical, canvas, artwork),
+      await render(androidAdaptiveLayers.foreground, canvas),
     )
     const splashSize = androidSplashSizes[density]
     const artworkSize = Math.round(splashSize * 0.5185185185)
