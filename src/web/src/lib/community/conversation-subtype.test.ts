@@ -27,4 +27,25 @@ describe("resolveConversationSubtype", () => {
       ...metadata,
     })).toBe(expected)
   })
+
+  it.each(["text", "forum", "thread"] as const)(
+    "uses the persisted %s subtype only for a pending skeleton",
+    (structuralHint) => {
+      expect(resolveConversationSubtype({
+        routeLifecycle: "pending",
+        accessAllowed: false,
+        isChild: false,
+        isForum: false,
+        structuralHint,
+      })).toBe(structuralHint)
+
+      expect(resolveConversationSubtype({
+        routeLifecycle: "terminal-error",
+        accessAllowed: true,
+        isChild: false,
+        isForum: false,
+        structuralHint,
+      })).toBe("unknown")
+    },
+  )
 })

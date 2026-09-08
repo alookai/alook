@@ -312,6 +312,14 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     const { useCommunityStore } = await import("@/stores/community")
     useCommunityStore.getState().setCurrentServerId("srv_open")
     capturedQueryClient.setQueryData(communityKeys.server("srv_open"), { id: "srv_open" })
+    capturedQueryClient.setQueryData(communityKeys.structuralSnapshot(), {
+      schemaVersion: 1,
+      accountId: "viewer",
+      capturedAt: Date.now(),
+      serverOrder: ["srv_open"],
+      folders: [],
+      servers: [],
+    })
     const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
 
     // handleReconnect reads currentServerId via getState() at call time.
@@ -342,6 +350,11 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
         (k) => JSON.stringify(k) === JSON.stringify(communityKeys.members("srv_open")),
       ),
     ).toBe(true)
+    expect(
+      invalidatedKeys.some(
+        (k) => JSON.stringify(k) === JSON.stringify(communityKeys.structuralSnapshot()),
+      ),
+    ).toBe(false)
   })
 
   it("keeps inactive retained/meta/hint data painted while marking it stale", async () => {

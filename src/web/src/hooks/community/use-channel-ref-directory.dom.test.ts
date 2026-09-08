@@ -1,6 +1,6 @@
 import { createElement, type PropsWithChildren } from "react"
 import { QueryClientProvider } from "@tanstack/react-query"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 
 const apiFetch = vi.fn()
@@ -11,6 +11,7 @@ vi.mock("@/lib/api/client", () => ({
 
 import { createQueryClient } from "@/lib/query-client"
 import { communityKeys } from "@/lib/query-keys"
+import { useCommunityWsStore } from "@/stores/community/ws"
 import {
   channelRefDirectoryQueryFn,
   useChannelRefDirectory,
@@ -60,7 +61,81 @@ describe("channelRefDirectoryQueryFn", () => {
 })
 
 describe("useChannelRefDirectory", () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useCommunityWsStore.getState().reset()
+  })
+
+  afterEach(() => {
+    act(() => useCommunityWsStore.getState().reset())
+  })
+
+  it("keeps a rail-only structural snapshot pending until the live directory resolves", () => {
+    useCommunityWsStore.getState().activateProfileAccount("viewer_1")
+    apiFetch.mockReturnValue(new Promise(() => {}))
+    const client = createQueryClient()
+    client.setQueryData(communityKeys.structuralSnapshot(), {
+      schemaVersion: 1,
+      accountId: "viewer_1",
+      capturedAt: Date.now(),
+      serverOrder: ["server_1"],
+      folders: [],
+      servers: [{
+        id: "server_1",
+        name: "Studio",
+        discriminator: "0042",
+        icon: null,
+        categories: [],
+        channels: [],
+        childRouteHints: [],
+      }],
+    })
+
+    const rendered = renderDirectory(client, true)
+
+    expect(rendered.result.current).toMatchObject({
+      directory: [],
+      isResolved: false,
+      isLoading: true,
+      isError: false,
+    })
+  })
+
+  it("uses a captured structural channel directory while the live query is disabled", () => {
+    useCommunityWsStore.getState().activateProfileAccount("viewer_1")
+    const client = createQueryClient()
+    client.setQueryData(communityKeys.structuralSnapshot(), {
+      schemaVersion: 1,
+      accountId: "viewer_1",
+      capturedAt: Date.now(),
+      serverOrder: ["server_1"],
+      folders: [],
+      servers: [{
+        id: "server_1",
+        name: "Studio",
+        discriminator: "0042",
+        icon: null,
+        categories: [],
+        channels: [{ id: "channel_1", name: "general", type: "text", categoryId: null }],
+        childRouteHints: [],
+      }],
+    })
+
+    const rendered = renderDirectory(client, false)
+
+    expect(apiFetch).not.toHaveBeenCalled()
+    expect(rendered.result.current).toMatchObject({
+      directory: [{
+        id: "server_1",
+        name: "Studio",
+        discriminator: "0042",
+        channels: [{ id: "channel_1", name: "general" }],
+      }],
+      isResolved: true,
+      isLoading: false,
+      isError: false,
+    })
+  })
 
   it("stays dormant until enabled, then owns pending and resolved items", async () => {
     const request = deferred<{ directory: Array<{

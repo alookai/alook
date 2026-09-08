@@ -7,6 +7,7 @@ import { useAddableMembers, useChannelMembers } from "@/hooks/community/use-chan
 
 const mocks = vi.hoisted(() => ({
   serverMembers: [] as Array<Record<string, unknown>>,
+  serverMemberArgs: [] as Array<string | null>,
   channelMembers: new Map<string, Array<Record<string, unknown>>>(),
   channelQueryState: new Map<string, {
     resolved?: boolean
@@ -39,14 +40,17 @@ const mocks = vi.hoisted(() => ({
 vi.mock("sonner", () => ({ toast: vi.fn() }))
 vi.mock("@/lib/api/client", () => ({ toastApiError: vi.fn() }))
 vi.mock("@/hooks/community/use-server-members", () => ({
-  useServerMembers: () => ({
-    members: mocks.serverMembers,
-    loading: false,
-    loadingMore: false,
-    hasMore: true,
-    loadMore: mocks.loadMore,
-    searchMembers: mocks.serverSearch,
-  }),
+  useServerMembers: (serverId: string | null) => {
+    mocks.serverMemberArgs.push(serverId)
+    return {
+      members: mocks.serverMembers,
+      loading: false,
+      loadingMore: false,
+      hasMore: true,
+      loadMore: mocks.loadMore,
+      searchMembers: mocks.serverSearch,
+    }
+  },
 }))
 vi.mock("@/hooks/community/use-channel-members", () => ({
   useChannelMembers: vi.fn((channelId: string, enabled = true) => {
@@ -188,6 +192,7 @@ describe("useChannelMemberViewModel", () => {
       member("viewer_1", "Viewer", { role: "admin" }),
       member("alice_1", "Alice"),
     ]
+    mocks.serverMemberArgs = []
     mocks.channelMembers = new Map()
     mocks.channelQueryState = new Map()
     mocks.channelRefetches = new Map()
@@ -236,6 +241,21 @@ describe("useChannelMemberViewModel", () => {
     })
     expect(mocks.addThreadHookArgs.at(-1)).toEqual(["thread_1", "server_1", "viewer_1"])
     expect(mocks.removeThreadHookArgs.at(-1)).toEqual(["thread_1", "server_1", "viewer_1", true])
+  })
+
+  it("does not activate member queries before current live access is proved", () => {
+    act(() => {
+      rtlRender(renderHarness(props({ accessAllowed: false })))
+    })
+
+    expect(mocks.serverMemberArgs.at(-1)).toBeNull()
+    expect(mockedUseChannelMembers).toHaveBeenNthCalledWith(1, "channel_1", false)
+    expect(mockedUseChannelMembers).toHaveBeenNthCalledWith(2, "", false)
+    expect(mockedUseAddableMembers).toHaveBeenCalledWith(
+      "server_1",
+      "channel_1",
+      false,
+    )
   })
 
   afterEach(() => {

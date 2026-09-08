@@ -6,6 +6,9 @@ const mocks = vi.hoisted(() => ({
   replace: vi.fn(),
   cancelPendingNavigation: vi.fn(),
   runEject: vi.fn(),
+  serverListSuccess: { current: true },
+  serverListFetching: { current: false },
+  serverAccessRevoked: { current: false },
 }))
 
 vi.mock("next/navigation", () => ({
@@ -60,7 +63,15 @@ vi.mock("@/contexts/community/current-user", () => ({
 }))
 vi.mock("@/hooks/community/use-servers", () => ({
   useServer: () => ({ server: undefined }),
-  useServers: () => ({ servers: [], isSuccess: true, isFetching: false }),
+  useServers: () => ({
+    servers: [],
+    isSuccess: mocks.serverListSuccess.current,
+    isFetching: mocks.serverListFetching.current,
+  }),
+}))
+vi.mock("@/hooks/community/use-structural-snapshot", () => ({
+  useStructuralSnapshot: () => null,
+  structuralHintServer: () => null,
 }))
 vi.mock("@/hooks/community/use-server-members", () => ({
   useServerMembers: () => ({
@@ -79,8 +90,15 @@ vi.mock("@/hooks/community/use-forum-sidebar-threads", () => ({
   useForumSidebarThreads: () => ({ threads: [], parentUnread: {} }),
 }))
 vi.mock("@/stores/community/ws", () => ({
-  useCommunityWsStore: (selector: (state: { profilesByUserId: Map<string, unknown> }) => unknown) =>
-    selector({ profilesByUserId: new Map() }),
+  useCommunityWsStore: (selector: (state: {
+    profilesByUserId: Map<string, unknown>
+    revokedServerIds: Set<string>
+  }) => unknown) => selector({
+    profilesByUserId: new Map(),
+    revokedServerIds: mocks.serverAccessRevoked.current
+      ? new Set(["missing-server"])
+      : new Set(),
+  }),
 }))
 vi.mock("@/hooks/community/use-notification-settings", () => ({
   resolveServerNotificationDisplayLevel: () => "default",
@@ -115,6 +133,9 @@ describe("ServerLayout cold-entry ejection context", () => {
     mocks.replace.mockClear()
     mocks.cancelPendingNavigation.mockClear()
     mocks.runEject.mockReset()
+    mocks.serverListSuccess.current = true
+    mocks.serverListFetching.current = false
+    mocks.serverAccessRevoked.current = false
     mocks.runEject.mockImplementation((args: { replace: (destination: string) => void }) => {
       args.replace("/c/me/machines")
       return true
@@ -131,5 +152,19 @@ describe("ServerLayout cold-entry ejection context", () => {
     }))
     expect(mocks.cancelPendingNavigation).toHaveBeenCalledTimes(1)
     expect(mocks.replace).toHaveBeenCalledWith("/c/me/machines")
+  })
+
+  it("treats a target-specific access revoke as definitive while the list read is retired", () => {
+    mocks.serverListSuccess.current = false
+    mocks.serverListFetching.current = true
+    mocks.serverAccessRevoked.current = true
+
+    render(createElement(ServerLayout, null, createElement("div")))
+
+    expect(mocks.runEject).toHaveBeenCalledWith(expect.objectContaining({
+      serverId: "missing-server",
+      isSuccess: true,
+      isFetching: false,
+    }))
   })
 })

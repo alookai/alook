@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   toast: vi.fn(),
   toastApiError: vi.fn(),
   lastMeLeaf: { current: null as string | null },
+  structuralSnapshot: null as null | Record<string, unknown>,
 }))
 
 vi.mock("sonner", () => ({ toast: mocks.toast }))
@@ -31,6 +32,9 @@ vi.mock("@/hooks/community/use-servers", () => ({
   serverProjectedQueryFn: (_queryClient: unknown, id: string) => () => Promise.resolve({ id }),
 }))
 vi.mock("@/hooks/community/use-folders", () => ({ useFolders: () => ({ folders: mocks.folders }) }))
+vi.mock("@/hooks/community/use-structural-snapshot", () => ({
+  useStructuralSnapshot: () => mocks.structuralSnapshot,
+}))
 vi.mock("@/hooks/community/mutations", () => ({
   useCreateServer: () => ({ mutateAsync: mocks.createServer }),
   useLeaveServer: () => ({ mutate: mocks.leaveServer }),
@@ -129,6 +133,7 @@ describe("useShellRailController", () => {
     }
     mocks.folders.length = 0
     mocks.lastMeLeaf.current = null
+    mocks.structuralSnapshot = null
   })
 
   it("commits cold server navigation synchronously without waiting for detail", async () => {
@@ -143,6 +148,35 @@ describe("useShellRailController", () => {
     expect(mocks.markSwitch).toHaveBeenNthCalledWith(1, "server", "s1")
     expect(mocks.markSwitch).toHaveBeenNthCalledWith(2, "server", "s2")
 
+  })
+
+  it("renders a structural rail hint while keeping privileged actions disabled", async () => {
+    mocks.structuralSnapshot = {
+      schemaVersion: 1,
+      accountId: "viewer-1",
+      capturedAt: Date.now(),
+      serverOrder: ["s3"],
+      folders: [{ id: "f1", name: "Saved", serverIds: ["s3"] }],
+      servers: [{
+        id: "s3",
+        name: "Hint",
+        discriminator: "0003",
+        icon: null,
+        categories: [],
+        channels: [{ id: "c3", name: "cached", type: "text", categoryId: null }],
+        childRouteHints: [],
+      }],
+    }
+    const hook = await renderController({ accountId: "viewer-1" })
+
+    expect(hook.current.railProps.servers.map((server) => server.id)).toEqual(["s3"])
+    expect(hook.current.railProps.folders.map((folder) => folder.id)).toEqual(["f1"])
+    expect(hook.current.railProps.onLeaveServer).toBeUndefined()
+    expect(hook.current.railProps.onOpenSettings).toBeUndefined()
+    expect(hook.current.railProps.onOpenInvitePopover).toBeUndefined()
+
+    await act(async () => hook.current.navigate("s3"))
+    expect(hook.pushed).toEqual(["/c/channels/s3/c3"])
   })
 
   it("projects the pending target for every rail entry without changing committed actions", async () => {

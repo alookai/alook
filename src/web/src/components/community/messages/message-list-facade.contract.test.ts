@@ -80,7 +80,6 @@ describe("MessageList facade contract", () => {
     const importers = [
       "src/app/c/me/[dmId]/page.tsx",
       "src/components/community/channels/thread-channel-surface.tsx",
-      "src/components/community/channels/channel-route.tsx",
       "src/components/community/channels/text-channel-surface.tsx",
     ]
     for (const path of importers) {

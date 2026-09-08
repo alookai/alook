@@ -5,12 +5,12 @@ import { apiFetch, readUploadError } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import { avatarInitial } from "@/lib/community/avatar"
 import type { ServersResponse, ServerDetail } from "@/hooks/community/use-servers"
-import { useCommunityStore } from "@/stores/community"
-import { useMessageStreamStore } from "@/stores/community/message-stream"
 import {
   getActiveAccountUnreadProjection,
   type AccountUnreadScopeToken,
 } from "@/hooks/community/account-unread-projection"
+import { updateStructuralSnapshot } from "@/lib/community/structural-snapshot"
+import { evictServerChannelScopes } from "@/hooks/community/community-ws/scope-eviction"
 
 /**
  * Server-scoped mutations. `create`/`join` invalidate the rail; `leave`/`delete`
@@ -75,15 +75,6 @@ export function useJoinServer() {
 
 export type LeaveServerArgs = { serverId: string }
 
-function clearDepartedServer(serverId: string) {
-  useMessageStreamStore.getState().removeServer(serverId)
-  const store = useCommunityStore.getState()
-  if (store.currentServerId !== serverId) return
-  store.setCurrentChannelMeta(null)
-  store.setCurrentChannelId(null)
-  store.setCurrentServerId(null)
-}
-
 export function useLeaveServer() {
   const queryClient = useQueryClient()
   const unreadProjection = getActiveAccountUnreadProjection(queryClient)
@@ -112,12 +103,11 @@ export function useLeaveServer() {
     },
     onSuccess: (_data, args, context) => {
       unreadProjection.commitScopeRetirement(context.token)
-      queryClient.removeQueries({ queryKey: communityKeys.server(args.serverId) })
+      evictServerChannelScopes(queryClient, args.serverId)
       void queryClient.invalidateQueries({
         queryKey: communityKeys.channelRefDirectory(),
         exact: true,
       })
-      clearDepartedServer(args.serverId)
     },
   })
 }
@@ -150,12 +140,11 @@ export function useDeleteServer() {
     },
     onSuccess: (_data, args, context) => {
       unreadProjection.commitScopeRetirement(context.token)
-      queryClient.removeQueries({ queryKey: communityKeys.server(args.serverId) })
+      evictServerChannelScopes(queryClient, args.serverId)
       void queryClient.invalidateQueries({
         queryKey: communityKeys.channelRefDirectory(),
         exact: true,
       })
-      clearDepartedServer(args.serverId)
     },
   })
 }
@@ -217,6 +206,13 @@ export function useUpdateServer() {
       if (ctx?.serverSnap) queryClient.setQueryData(communityKeys.server(args.serverId), ctx.serverSnap)
       if (ctx?.listSnap) queryClient.setQueryData(communityKeys.servers(), ctx.listSnap)
     },
+    onSuccess: (_data, args) => {
+      updateStructuralSnapshot(queryClient, {
+        type: "patchServer",
+        serverId: args.serverId,
+        changes: { name: args.name },
+      })
+    },
     onSettled: () => {
       void queryClient.invalidateQueries({
         queryKey: communityKeys.channelRefDirectory(),
@@ -263,6 +259,11 @@ export function useUploadServerIcon() {
             }
             : prev,
       )
+      updateStructuralSnapshot(queryClient, {
+        type: "patchServer",
+        serverId: args.serverId,
+        changes: { icon: bustUrl },
+      })
     },
   })
 }

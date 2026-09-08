@@ -67,6 +67,25 @@ beforeEach(() => {
   capturedQc = new QueryClient()
 })
 
+function seedStructuralSnapshot() {
+  capturedQc.setQueryData(communityKeys.structuralSnapshot(), {
+    schemaVersion: 1,
+    accountId: "u1",
+    capturedAt: Date.now(),
+    serverOrder: ["s1"],
+    folders: [],
+    servers: [{
+      id: "s1",
+      name: "Studio",
+      discriminator: "0042",
+      icon: null,
+      categories: [{ id: "cat_1", name: "Channels" }],
+      channels: [{ id: "c1", name: "general", type: "text", categoryId: "cat_1" }],
+      childRouteHints: [],
+    }],
+  })
+}
+
 describe("useRenameChannel", () => {
   type CachedChannel = { id: string; name: string; active: boolean; unread: boolean }
   type CachedCategory = { id: string; name: string; channels: CachedChannel[] }
@@ -134,6 +153,7 @@ describe("useRenameChannel", () => {
 
   it("reconciles both caches to the PATCH response's normalized name", async () => {
     seed()
+    seedStructuralSnapshot()
     apiFetchMock.mockResolvedValueOnce({ id: "c1", name: "General-Chat" })
     const mod = await load()
     mod.useRenameChannel()
@@ -146,6 +166,12 @@ describe("useRenameChannel", () => {
     )
     expect(serverChannels().find((channel) => channel.id === "c1")?.name).toBe("General-Chat")
     expect(directory()[0].channels.find((channel) => channel.id === "c1")?.name).toBe("General-Chat")
+    expect(capturedQc.getQueryData<{
+      servers: Array<{ channels: Array<{ id: string; name: string }> }>
+    }>(communityKeys.structuralSnapshot())?.servers[0]?.channels[0]).toMatchObject({
+      id: "c1",
+      name: "General-Chat",
+    })
   })
 
   it("restores both snapshots on failure without optimistic residue", async () => {
@@ -509,5 +535,78 @@ describe("useDeleteCategory — optimistic removal with rollback", () => {
     mod.useDeleteCategory()
     await runMutation({ serverId: "s1", categoryId: "cat_2" }).catch(() => {})
     expect(cats().map((c) => c.id)).toEqual(["cat_1", "cat_2"])
+  })
+
+  it("prunes the persisted category after a committed delete", async () => {
+    seed([{ id: "cat_1", name: "General", channels: [] }])
+    seedStructuralSnapshot()
+    apiFetchMock.mockResolvedValueOnce(undefined)
+    const mod = await load()
+    mod.useDeleteCategory()
+
+    await runMutation({ serverId: "s1", categoryId: "cat_1" })
+
+    const structural = capturedQc.getQueryData<{
+      servers: Array<{ categories: Array<{ id: string }> }>
+    }>(communityKeys.structuralSnapshot())
+    expect(structural?.servers[0]?.categories).toEqual([])
+  })
+})
+
+describe("committed category and order projections", () => {
+  it("patches the persisted category name after update", async () => {
+    seedStructuralSnapshot()
+    apiFetchMock.mockResolvedValueOnce(undefined)
+    const mod = await load()
+    mod.useUpdateCategory()
+
+    await runMutation({ serverId: "s1", categoryId: "cat_1", name: "Renamed" })
+
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/community/servers/s1/categories/cat_1",
+      { method: "PATCH", body: JSON.stringify({ name: "Renamed" }) },
+    )
+    const structural = capturedQc.getQueryData<{
+      servers: Array<{ categories: Array<{ name: string }> }>
+    }>(communityKeys.structuralSnapshot())
+    expect(structural?.servers[0]?.categories[0]?.name).toBe("Renamed")
+  })
+
+  it("projects committed category and channel order", async () => {
+    seedStructuralSnapshot()
+    capturedQc.setQueryData<any>(communityKeys.structuralSnapshot(), (current: any) => ({
+      ...current,
+      servers: current.servers.map((server: any) => ({
+        ...server,
+        categories: [
+          ...server.categories,
+          { id: "cat_2", name: "Later", private: false },
+        ],
+        channels: [
+          ...server.channels,
+          { id: "c2", name: "later", type: "forum", categoryId: "cat_2" },
+        ],
+      })),
+    }))
+    const mod = await load()
+
+    apiFetchMock.mockResolvedValueOnce(undefined)
+    mod.useReorderCategories()
+    await runMutation({ serverId: "s1", categoryIds: ["cat_2", "cat_1"] })
+
+    apiFetchMock.mockResolvedValueOnce(undefined)
+    mod.useReorderChannels()
+    await runMutation({ serverId: "s1", channelIds: ["c2", "c1"] })
+
+    const structural = capturedQc.getQueryData<{
+      servers: Array<{
+        categories: Array<{ id: string }>
+        channels: Array<{ id: string }>
+      }>
+    }>(communityKeys.structuralSnapshot())
+    expect(structural?.servers[0]?.categories.map((category) => category.id))
+      .toEqual(["cat_2", "cat_1"])
+    expect(structural?.servers[0]?.channels.map((channel) => channel.id))
+      .toEqual(["c2", "c1"])
   })
 })

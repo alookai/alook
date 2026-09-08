@@ -5,6 +5,7 @@ import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import { avatarInitial } from "@/lib/community/avatar"
 import type { CommunityFolder } from "@/lib/community/models/navigation"
+import { useCommunityWsStore } from "@/stores/community/ws"
 
 /**
  * Fetches the user's server-folder groupings for the rail.
@@ -26,7 +27,19 @@ export type FoldersResponse = { folders: CommunityFolder[] }
 const EMPTY_FOLDERS: readonly CommunityFolder[] = Object.freeze([])
 
 export const foldersQueryFn = async (): Promise<FoldersResponse> => {
+  const before = useCommunityWsStore.getState()
+  const token = {
+    viewerId: before.profileViewerId,
+    accountEpoch: before.profileAccountEpoch,
+    accessEpoch: before.accessEpoch,
+  }
   const data = await apiFetch<{ folders: RawFolder[] }>("/api/community/users/me/server-folders")
+  const after = useCommunityWsStore.getState()
+  if (
+    after.profileViewerId !== token.viewerId
+    || after.profileAccountEpoch !== token.accountEpoch
+    || after.accessEpoch !== token.accessEpoch
+  ) throw new DOMException("Stale structural query", "AbortError")
   const folders: CommunityFolder[] = data.folders.map((f) => ({
     id: f.id,
     name: f.name,

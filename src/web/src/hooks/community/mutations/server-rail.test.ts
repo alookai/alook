@@ -97,10 +97,33 @@ describe("useServerRailCommit", () => {
   it("reconciles temporary ids and invalidates both caches on settle", async () => {
     const options = useServerRailCommit() as any
     await options.onMutate(args)
-    options.onSuccess({ createdFolderIds: { temp_1: "folder_real" } })
+    options.onSuccess({ createdFolderIds: { temp_1: "folder_real" } }, args)
     expect(queryClient.getQueryData<any>(communityKeys.folders()).folders[1].id).toBe("folder_real")
     const invalidate = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue(undefined as never)
     await options.onSettled()
     expect(invalidate).toHaveBeenCalledTimes(2)
+  })
+
+  it("drops empty folders from the persisted rail projection", () => {
+    queryClient.setQueryData(communityKeys.structuralSnapshot(), {
+      schemaVersion: 1,
+      accountId: "u1",
+      capturedAt: Date.now(),
+      serverOrder: ["a", "b", "c"],
+      folders: [{ id: "one", name: "One", serverIds: ["c"] }],
+      servers: [],
+    })
+    const options = useServerRailCommit() as any
+    const emptyAfter = {
+      ...after,
+      folderOrder: ["one", "empty"],
+      folders: { one: ["c"], empty: [] },
+    }
+    options.onSuccess({ createdFolderIds: {} }, { ...args, after: emptyAfter })
+
+    expect(queryClient.getQueryData<any>(communityKeys.structuralSnapshot())).toMatchObject({
+      serverOrder: ["b", "a", "c"],
+      folders: [{ id: "one", name: "One", serverIds: ["c"] }],
+    })
   })
 })

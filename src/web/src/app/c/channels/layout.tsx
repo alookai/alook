@@ -64,6 +64,10 @@ import {
   useKickMember,
   useRevokeInvite,
 } from "@/hooks/community/mutations"
+import {
+  structuralHintServer,
+  useStructuralSnapshot,
+} from "@/hooks/community/use-structural-snapshot"
 
 export default function ServerLayout({ children }: { children: ReactNode }) {
   const params = useParams<{ serverId: string; channelId?: string }>()
@@ -79,8 +83,21 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     useCommunityStore.getState().uiHandlers.cancelPendingNavigation?.()
   }, [])
   const currentUser = useCurrentUser()
+  const serverAccessRevoked = useCommunityWsStore(
+    (state) => state.revokedServerIds.has(serverId),
+  )
+  const structuralSnapshot = useStructuralSnapshot(currentUser.id)
+  const structuralServer = useMemo(
+    () => structuralHintServer(structuralSnapshot, serverId),
+    [serverId, structuralSnapshot],
+  )
   const { server: currentServer } = useServer(serverId)
-  const membersHook = useServerMembers(serverId)
+  const sidebarCategories = useMemo(
+    () => currentServer?.categories ?? structuralServer?.categoriesView ?? [],
+    [currentServer, structuralServer],
+  )
+  const sidebarHintOnly = !currentServer && !!structuralServer
+  const membersHook = useServerMembers(currentServer ? serverId : null)
   const profilesByUserId = useCommunityWsStore((s) => s.profilesByUserId)
   const enrichedMembers = useMemo(
     () =>
@@ -103,7 +120,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   // stable across presence ticks.
   const myMember = membersHook.members.find((m) => m.userId === currentUser.id)
   const isAdmin = canManageServer(myMember?.role)
-  usePresence(serverId)
+  usePresence(currentServer ? serverId : null)
   const notifs = useNotificationSettings()
   const notifLevel = resolveServerNotificationDisplayLevel(notifs.server[serverId])
   const channelNotif = notifs.channel
@@ -111,14 +128,15 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   const currentChannelMeta = useCurrentChannelMeta()
   const activeForumThreadId = useMemo(() => {
     if (!currentChannelId || !currentChannelMeta?.parentChannelId) return null
-    const parent = currentServer?.categories
+    const parent = sidebarCategories
       .flatMap((category) => category.channels)
       .find((channel) => channel.id === currentChannelMeta.parentChannelId)
     return isForum(parent?.type) ? currentChannelId : null
-  }, [currentChannelId, currentChannelMeta?.parentChannelId, currentServer])
+  }, [currentChannelId, currentChannelMeta?.parentChannelId, sidebarCategories])
   const sidebarRouteCandidate = useMemo(() => {
-    const topLevelChannels = currentServer?.categories
-      ?.flatMap((category) => category.channels) ?? null
+    const topLevelChannels = sidebarCategories.length > 0
+      ? sidebarCategories.flatMap((category) => category.channels)
+      : null
     const parent = currentChannelId === routeChannelId && currentChannelMeta?.parentChannelId
       ? topLevelChannels?.find((channel) => channel.id === currentChannelMeta.parentChannelId)
       : null
@@ -127,7 +145,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
       topLevelChannels?.map((channel) => channel.id) ?? null,
       isForum(parent?.type),
     )
-  }, [currentChannelId, currentChannelMeta?.parentChannelId, currentServer, routeChannelId])
+  }, [currentChannelId, currentChannelMeta?.parentChannelId, routeChannelId, sidebarCategories])
   const forumSidebar = useForumSidebarThreads(
     serverId,
     sidebarRouteCandidate,
@@ -186,8 +204,10 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     ejectedRef.current = runAuthoritativeServerEject({
       serverId,
       servers: serversList.servers,
-      isSuccess: serversList.isSuccess,
-      isFetching: serversList.isFetching,
+      // A target-specific 403/404 is already definitive even if revoking the
+      // target advanced the access epoch and retired an in-flight list read.
+      isSuccess: serverAccessRevoked || serversList.isSuccess,
+      isFetching: serverAccessRevoked ? false : serversList.isFetching,
       consumeVoluntaryLeave,
       clearLastChannel,
       toast,
@@ -198,7 +218,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
         router.replace(destination)
       },
     })
-  }, [cancelPendingNavigation, currentUser.id, pathname, serverId, serversList.isSuccess, serversList.isFetching, serversList.servers, router, searchParams])
+  }, [cancelPendingNavigation, currentUser.id, pathname, serverAccessRevoked, serverId, serversList.isSuccess, serversList.isFetching, serversList.servers, router, searchParams])
   // Reset the guard when the URL changes to a NEW server id — otherwise
   // navigating server → dangling-server → server would leave the ref
   // latched and skip the eject.
@@ -264,14 +284,14 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     currentServer,
   ])
 
-  const categories = useMemo(() => (currentServer?.categories ?? []).map((category) => ({
+  const categories = useMemo(() => sidebarCategories.map((category) => ({
     ...category,
     channels: category.channels.map((channel) =>
       forumSidebar.parentUnread[channel.id] === undefined
         ? channel
         : { ...channel, unread: forumSidebar.parentUnread[channel.id] },
     ),
-  })), [currentServer?.categories, forumSidebar.parentUnread])
+  })), [forumSidebar.parentUnread, sidebarCategories])
   const channelTree = useChannelTree(categories)
 
   const setActiveChannel = useCallback((id: string) => {
@@ -368,35 +388,36 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
 
   const channelProps = useMemo(() => ({
     tree: channelTree,
-    serverName: currentServer?.name ?? "",
-    serverIcon: currentServer?.icon ?? null,
+    serverName: currentServer?.name ?? structuralServer?.name ?? "",
+    serverIcon: currentServer?.icon ?? structuralServer?.icon ?? null,
     activeChannel: currentChannelMeta?.parentChannelId ?? currentChannelId ?? "",
     isAdmin,
     currentUserId: currentUser.id,
-    loading: !currentServer || forumSidebar.isLoading,
+    loading: (!currentServer && !structuralServer)
+      || (!sidebarHintOnly && forumSidebar.isLoading),
     setActiveChannel,
     prefetchChannel,
     forumThreadsByParent,
     activeThreadId: activeForumThreadId,
     onSelectForumThread: setActiveForumThread,
-    onOpenSettings: isAdmin ? onSidebarOpenSettings : undefined,
+    onOpenSettings: !sidebarHintOnly && isAdmin ? onSidebarOpenSettings : undefined,
     onBlockedCreate,
     mutedChannels,
-    onCreateChannel: onCreateChannelInSidebar,
-    onCreateCategory: onCreateCategoryInSidebar,
-    onRenameChannel,
-    onDeleteChannel: onDeleteChannelInSidebar,
-    onDeleteCategory: onDeleteCategoryInSidebar,
-    onUpdateCategory: onUpdateCategoryInSidebar,
-    onReorderCategories: onReorderCategoriesInSidebar,
-    onReorderChannels: onReorderChannelsInSidebar,
-    onMoveChannel: onMoveChannelInSidebar,
+    onCreateChannel: sidebarHintOnly ? undefined : onCreateChannelInSidebar,
+    onCreateCategory: sidebarHintOnly ? undefined : onCreateCategoryInSidebar,
+    onRenameChannel: sidebarHintOnly ? undefined : onRenameChannel,
+    onDeleteChannel: sidebarHintOnly ? undefined : onDeleteChannelInSidebar,
+    onDeleteCategory: sidebarHintOnly ? undefined : onDeleteCategoryInSidebar,
+    onUpdateCategory: sidebarHintOnly ? undefined : onUpdateCategoryInSidebar,
+    onReorderCategories: sidebarHintOnly ? undefined : onReorderCategoriesInSidebar,
+    onReorderChannels: sidebarHintOnly ? undefined : onReorderChannelsInSidebar,
+    onMoveChannel: sidebarHintOnly ? undefined : onMoveChannelInSidebar,
     onBlockedMove,
     serverId,
     invitePopoverOpen,
-    onInvitePopoverOpenChange: setInvitePopoverOpen,
+    onInvitePopoverOpenChange: sidebarHintOnly ? undefined : setInvitePopoverOpen,
   }), [
-    channelTree, currentServer, currentChannelMeta?.parentChannelId,
+    channelTree, currentServer, structuralServer, sidebarHintOnly, currentChannelMeta?.parentChannelId,
     currentChannelId, isAdmin, currentUser.id, setActiveChannel, prefetchChannel,
     forumThreadsByParent, forumSidebar.isLoading, activeForumThreadId, setActiveForumThread,
     onSidebarOpenSettings, onBlockedCreate, mutedChannels,
@@ -419,7 +440,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   ), [channelProps])
 
   const serverSettingsDialog = (
-    <Dialog open={serverSettingsOpen} onOpenChange={(o) => { if (!o) closeSettings() }}>
+    <Dialog open={serverSettingsOpen && !!currentServer && isAdmin} onOpenChange={(o) => { if (!o) closeSettings() }}>
       <DialogContent className="flex h-dvh max-h-dvh w-screen max-w-none flex-col gap-0 overflow-hidden rounded-none p-0 sm:h-[calc(100vh-4rem)] sm:max-h-180 sm:w-[calc(100vw-4rem)] sm:max-w-4xl sm:rounded-xl" showCloseButton={false}>
         <ServerSettings
           section={settingsSection}

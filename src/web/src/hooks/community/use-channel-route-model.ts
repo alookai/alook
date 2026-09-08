@@ -21,6 +21,8 @@ import {
   removeForumSidebarThreadExact,
   removeForumSidebarUnreadChild,
 } from "./use-forum-sidebar-threads"
+import { useStructuralSnapshot } from "./use-structural-snapshot"
+import { updateStructuralSnapshot } from "@/lib/community/structural-snapshot"
 
 type Server = ReturnType<typeof useServer>["server"]
 type ChannelMeta = ReturnType<typeof useCurrentChannelMeta>
@@ -67,6 +69,10 @@ export function useChannelRouteModel(
   const router = useRouter()
   const queryClient = useQueryClient()
   const { server } = useServer(serverId)
+  const structuralSnapshot = useStructuralSnapshot(accountId, queryClient)
+  const structuralServer = structuralSnapshot?.servers.find((candidate) => candidate.id === serverId)
+  const structuralTopLevel = structuralServer?.channels.find((candidate) => candidate.id === channelId)
+  const structuralChild = structuralServer?.childRouteHints.find((candidate) => candidate.id === channelId)
   const currentChannelMeta = useCurrentChannelMeta()
   const topLevelChannel = server?.categories
     ?.flatMap((category) => category.channels)
@@ -115,6 +121,14 @@ export function useChannelRouteModel(
         : model.routeHydrated
           ? "ready" as const
           : "pending" as const
+  const skeletonSubtype = routeLifecycle === "ready"
+    ? model.isChild
+      ? "thread" as const
+      : model.isForum
+        ? "forum" as const
+        : "text" as const
+    : structuralTopLevel?.type
+      ?? (structuralChild ? "thread" as const : "unknown" as const)
   useEffect(() => {
     useCommunityStore.getState().setCurrentChannelId(channelId)
     return () => { useCommunityStore.getState().setCurrentChannelId(null) }
@@ -133,6 +147,11 @@ export function useChannelRouteModel(
       useCommunityStore.getState().setCurrentChannelMeta(null)
       removeForumSidebarUnreadChild(queryClient, serverId, channelId)
       removeForumSidebarThreadExact(queryClient, serverId, channelId)
+      updateStructuralSnapshot(queryClient, {
+        type: "removeChildHint",
+        serverId,
+        channelId,
+      })
       const lastChannel = getLastChannel(serverId)
       if (lastChannel === channelId) {
         clearLastChannel(serverId)
@@ -151,5 +170,12 @@ export function useChannelRouteModel(
       toastApiError(metaQuery.error, "Failed to load thread")
     }
   }, [accountId, channelId, isChild, metaQuery.data, metaQuery.error, metaQuery.isVerified, queryClient, router, serverId, serverParam])
-  return { ...model, routeLifecycle, metadataError, retryingMetadata, retryMetadata }
+  return {
+    ...model,
+    routeLifecycle,
+    skeletonSubtype,
+    metadataError,
+    retryingMetadata,
+    retryMetadata,
+  }
 }

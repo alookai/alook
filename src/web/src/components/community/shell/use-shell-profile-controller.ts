@@ -278,7 +278,7 @@ export function useShellProfileController({
     }
   }
 
-  const clearLocalAccountState = async () => {
+  const clearVolatileAccountState = () => {
     cancelPendingNavigation()
     useCommunityStore.getState().reset()
     useCommunityWsStore.getState().reset()
@@ -286,17 +286,22 @@ export function useShellProfileController({
     disposeReadCoordinator(queryClient)
     disposeAccountReadStateReconciliation(queryClient)
     queryClient.clear()
-    await clearPersistedCache(currentUser.id).catch(() => {})
   }
 
   const onLogout = async () => {
-    await clearLocalAccountState()
+    clearVolatileAccountState()
     await signOut()
+    // Better Auth can synchronously remount the authenticated tree while its
+    // sign-out state settles. Clear last so any transitional QueryProvider
+    // has already captured the retired generation and cannot recreate this
+    // account's persisted blob after logout.
+    await clearPersistedCache(currentUser.id).catch(() => {})
     router.push("/sign-in")
   }
 
   const onAccountDeleted = async () => {
-    await clearLocalAccountState()
+    clearVolatileAccountState()
+    await clearPersistedCache(currentUser.id).catch(() => {})
     setEditingProfile(false)
     globalThis.location.replace(ACCOUNT_DELETED_SIGN_IN_PATH)
   }

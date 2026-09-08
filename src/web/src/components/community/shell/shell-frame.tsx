@@ -21,6 +21,7 @@ import { useShellProfileController } from "./use-shell-profile-controller"
 import { useShellInboxController } from "./use-shell-inbox-controller"
 import { useCommunityNavigationController } from "./use-community-navigation-controller"
 import type { ShellFrameProps } from "./shell-frame-types"
+import { useStructuralSnapshot } from "@/hooks/community/use-structural-snapshot"
 
 /** Shared community shell orchestration for the server and DM layouts. */
 export function ShellFrame(props: ShellFrameProps) {
@@ -36,6 +37,7 @@ export function ShellFrame(props: ShellFrameProps) {
   } = props
   const queryClient = useQueryClient()
   const currentUser = useCurrentUser()
+  const structuralSnapshot = useStructuralSnapshot(currentUser.id, queryClient)
   const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
   const breakpoint = useBreakpoint()
   const onboardingState = useCommunityOnboarding()
@@ -59,8 +61,17 @@ export function ShellFrame(props: ShellFrameProps) {
   const target = navigation.pendingHref
     ? normalizeCommunityHref(navigation.pendingHref)
     : null
-  const targetReady = target?.scope.kind === "server"
-    ? queryClient.getQueryData(communityKeys.server(target.scope.serverId)) !== undefined
+  const targetServerId = target?.scope.kind === "server" ? target.scope.serverId : null
+  const structuralTarget = targetServerId
+    ? structuralSnapshot?.servers.find((server) => server.id === targetServerId)
+    : null
+  const targetReady = targetServerId
+    ? queryClient.getQueryData(communityKeys.server(targetServerId)) !== undefined
+      // `replaceServers` can seed a rail-only identity with an empty tree.
+      // Only a snapshot containing actual tree structure can replace the
+      // target-scoped cold checkpoint.
+      || Boolean(structuralTarget
+        && (structuralTarget.categories.length > 0 || structuralTarget.channels.length > 0))
     : target?.scope.kind === "me"
       ? queryClient.getQueryData(communityKeys.dms()) !== undefined
       : false
@@ -87,6 +98,7 @@ export function ShellFrame(props: ShellFrameProps) {
     projectedActiveServerId,
     onOpenActiveServerSettings,
     onOpenActiveServerInvite,
+    accountId: currentUser.id,
   })
   const profile = useShellProfileController({
     router: navigation,

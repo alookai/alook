@@ -18,6 +18,8 @@ export const communityKeys = {
 
   // ── Servers ──────────────────────────────────────────────────────────────
   servers: () => [...communityKeys.all, "servers"] as const,
+  structuralSnapshot: () =>
+    [...communityKeys.all, "structural-snapshot"] as const,
   channelRefDirectory: () =>
     [...communityKeys.servers(), "channel-ref-directory"] as const,
   server: (serverId: string) =>

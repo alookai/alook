@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
+import { useCommunityWsStore } from "@/stores/community/ws"
 
 const apiFetchMock = vi.fn()
 vi.mock("@/lib/api/client", () => ({
@@ -9,6 +10,7 @@ vi.mock("@/lib/api/client", () => ({
 
 beforeEach(() => {
   apiFetchMock.mockReset()
+  useCommunityWsStore.getState().reset()
 })
 
 describe("useFolders / foldersQueryFn", () => {
@@ -37,5 +39,18 @@ describe("useFolders / foldersQueryFn", () => {
     const key = communityKeys.folders()
     await qc.fetchQuery({ queryKey: key, queryFn: foldersQueryFn })
     expect(qc.getQueryData(key)).toEqual({ folders: [] })
+  })
+
+  it("rejects a folder response captured before the access epoch changes", async () => {
+    useCommunityWsStore.getState().activateProfileAccount("viewer_1")
+    let release!: (value: { folders: [] }) => void
+    apiFetchMock.mockReturnValueOnce(new Promise((resolve) => { release = resolve }))
+    const { foldersQueryFn } = await import("./use-folders")
+
+    const pending = foldersQueryFn()
+    useCommunityWsStore.getState().revokeServerAccess("server_1")
+    release({ folders: [] })
+
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" })
   })
 })

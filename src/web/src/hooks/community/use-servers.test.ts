@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
+import { ApiError } from "@/lib/errors"
+import { useCommunityWsStore } from "@/stores/community/ws"
 
 vi.mock("react", async (importOriginal) => {
   const actual = await importOriginal<typeof import("react")>()
@@ -24,6 +26,7 @@ type CapturedQueryConfig = {
 let capturedQueryConfig: CapturedQueryConfig | null = null
 let capturedHookQueryClient: QueryClient
 let capturedHookQueryData: unknown
+let capturedHookQueryError: unknown
 vi.mock("@tanstack/react-query", async () => {
   const actual = await vi.importActual<typeof import("@tanstack/react-query")>("@tanstack/react-query")
   return {
@@ -31,7 +34,7 @@ vi.mock("@tanstack/react-query", async () => {
     useQueryClient: () => capturedHookQueryClient,
     useQuery: (config: CapturedQueryConfig) => {
       capturedQueryConfig = config
-      return { data: capturedHookQueryData }
+      return { data: capturedHookQueryData, error: capturedHookQueryError }
     },
   }
 })
@@ -41,6 +44,8 @@ beforeEach(() => {
   capturedQueryConfig = null
   capturedHookQueryClient = new QueryClient()
   capturedHookQueryData = undefined
+  capturedHookQueryError = null
+  useCommunityWsStore.getState().reset()
 })
 
 describe("useServers / serversQueryFn", () => {
@@ -132,6 +137,22 @@ describe("useServers / serversQueryFn", () => {
 
     await expect(serversProjectedQueryFn(projection)()).rejects.toThrow("offline")
 
+    expect(projection.inspectForTests().pendingSnapshots).toBe(0)
+  })
+
+  it("rejects a server-list response captured for an earlier account epoch", async () => {
+    useCommunityWsStore.getState().activateProfileAccount("u1")
+    let release!: (value: { servers: [] }) => void
+    apiFetchMock.mockReturnValueOnce(new Promise((resolve) => { release = resolve }))
+    const { serversProjectedQueryFn } = await import("./use-servers")
+    const { AccountUnreadProjection } = await import("./account-unread-projection")
+    const projection = new AccountUnreadProjection("u1")
+
+    const pending = serversProjectedQueryFn(projection)()
+    useCommunityWsStore.getState().activateProfileAccount("u2")
+    release({ servers: [] })
+
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" })
     expect(projection.inspectForTests().pendingSnapshots).toBe(0)
   })
 
@@ -248,6 +269,14 @@ describe("useServers / serversQueryFn", () => {
 })
 
 describe("useServer / serverQueryFn", () => {
+  it.each([403, 404])("hides retained server detail after a definitive %s", async (status) => {
+    capturedHookQueryData = { id: "srv_1", categories: [] }
+    capturedHookQueryError = new ApiError("denied", status)
+    const { useServer } = await import("./use-servers")
+
+    expect(useServer("srv_1").server).toBeNull()
+  })
+
   it("keeps the null-server query disabled without issuing API requests", async () => {
     const { useServer } = await import("./use-servers")
 
@@ -338,6 +367,85 @@ describe("useServer / serverQueryFn", () => {
     await expect(serverProjectedQueryFn(qc, "srv_1")()).rejects.toThrow("offline")
 
     expect(projection.inspectForTests().pendingSnapshots).toBe(0)
+  })
+
+  it.each([
+    ["offline", new Error("offline")],
+    ["5xx", new ApiError("unavailable", 503)],
+  ])("keeps the structural hint on a transient %s failure", async (_label, error) => {
+    apiFetchMock.mockRejectedValue(error)
+    const qc = new QueryClient()
+    qc.setQueryData(communityKeys.servers(), { servers: [{
+      id: "srv_1",
+      name: "Alook",
+      discriminator: "0001",
+      description: "",
+      icon: null,
+      ownerId: "u_1",
+    }] })
+    const hint = {
+      schemaVersion: 1 as const,
+      accountId: "u_1",
+      capturedAt: Date.now(),
+      serverOrder: ["srv_1"],
+      folders: [],
+      servers: [{
+        id: "srv_1",
+        name: "Alook",
+        discriminator: "0001",
+        icon: null,
+        categories: [],
+        channels: [],
+        childRouteHints: [],
+      }],
+    }
+    qc.setQueryData(communityKeys.structuralSnapshot(), hint)
+    const { serverProjectedQueryFn } = await import("./use-servers")
+
+    await expect(serverProjectedQueryFn(qc, "srv_1")()).rejects.toBe(error)
+
+    expect(qc.getQueryData(communityKeys.structuralSnapshot())).toEqual(hint)
+  })
+
+  it.each([403, 404])("evicts live and persisted server state on definitive %s", async (status) => {
+    apiFetchMock.mockRejectedValue(new ApiError("denied", status))
+    const qc = new QueryClient()
+    qc.setQueryData(communityKeys.servers(), { servers: [{
+      id: "srv_1",
+      name: "Alook",
+      discriminator: "0001",
+      description: "",
+      icon: null,
+      ownerId: "u_1",
+    }] })
+    qc.setQueryData(communityKeys.server("srv_1"), {
+      id: "srv_1",
+      name: "Alook",
+      categories: [],
+    })
+    qc.setQueryData(communityKeys.structuralSnapshot(), {
+      schemaVersion: 1,
+      accountId: "u_1",
+      capturedAt: Date.now(),
+      serverOrder: ["srv_1"],
+      folders: [],
+      servers: [{
+        id: "srv_1",
+        name: "Alook",
+        discriminator: "0001",
+        icon: null,
+        categories: [],
+        channels: [],
+        childRouteHints: [],
+      }],
+    })
+    const { serverProjectedQueryFn } = await import("./use-servers")
+
+    await expect(serverProjectedQueryFn(qc, "srv_1")()).rejects.toMatchObject({ status })
+
+    expect(qc.getQueryState(communityKeys.server("srv_1"))).toBeUndefined()
+    expect(qc.getQueryData<{ servers: unknown[] }>(communityKeys.servers())?.servers).toEqual([])
+    expect(qc.getQueryData<{ servers: unknown[] }>(communityKeys.structuralSnapshot())?.servers).toEqual([])
   })
 
   it("merges stale server-detail positives before rejecting the cache write", async () => {

@@ -89,6 +89,30 @@ export function renderMessageListView(
   )
 }
 
+export function MessageListSkeleton({ variant = "channel" }: { variant?: "channel" | "dm" }) {
+  return (
+    <div
+      aria-busy="true"
+      data-message-list-skeleton
+      className="relative flex min-h-0 flex-1 flex-col"
+    >
+      <div data-message-scroller-boundary className="relative min-h-0 flex-1">
+        <div
+          data-testid={tid.messageScroller}
+          className="h-full overflow-x-clip overflow-y-auto thin-scrollbar"
+        >
+          <div
+            data-message-list-content
+            className="flex min-h-full flex-col justify-end px-4 pb-14 pt-8 sm:pb-18"
+          >
+            <MessageListSkeletonContent variant={variant} />
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function MessageListSkeletonContent({ variant }: { variant: "channel" | "dm" }) {
   const clusters: number[][] = [
     [220, 140],

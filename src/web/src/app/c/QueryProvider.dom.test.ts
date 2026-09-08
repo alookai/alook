@@ -7,6 +7,12 @@ import { communityKeys } from "@/lib/query-keys"
 const queryClient = vi.hoisted(() => ({
   id: "query-client",
   invalidateQueries: vi.fn(() => Promise.resolve()),
+  getQueryData: vi.fn(() => undefined),
+  removeQueries: vi.fn(),
+  getQueryCache: vi.fn(() => ({
+    subscribe: vi.fn(() => () => {}),
+    getAll: vi.fn(() => []),
+  })),
 }))
 const createQueryClient = vi.hoisted(() => vi.fn(() => queryClient))
 const seedPersistedMessageProfiles = vi.hoisted(() => vi.fn())
