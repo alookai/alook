@@ -541,6 +541,34 @@ describe("useUserWs", () => {
     expect(MockWebSocket.instances).toHaveLength(2)
   })
 
+  it("reports local retirement and remote close exactly once per socket", async () => {
+    setupTokenFetch()
+    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    const first = MockWebSocket.instances[0]!
+    first.simulateOpen()
+    first.simulateMessage({ type: "auth.ok" })
+
+    latestHookResult!.reconnectNow()
+    await flushPromises()
+    first.simulateClose(1000, "duplicate local detail", true)
+
+    expect(mockTrackCommunityWsLifecycleClose.mock.calls
+      .filter(([event]) => event.initiator === "manual-retry"))
+      .toHaveLength(1)
+
+    const replacement = MockWebSocket.instances[1]!
+    replacement.simulateOpen()
+    replacement.simulateMessage({ type: "auth.ok" })
+    replacement.simulateClose(1006, "private remote detail", false)
+    replacement.simulateClose(1006, "duplicate private detail", false)
+
+    expect(mockTrackCommunityWsLifecycleClose.mock.calls
+      .filter(([event]) => event.initiator === "remote"))
+      .toHaveLength(1)
+    expect(JSON.stringify(mockTrackCommunityWsLifecycleClose.mock.calls))
+      .not.toContain("private remote detail")
+  })
+
   it("manual reconnect invalidates an older pending token before it can create a socket", async () => {
     const firstTokenResponse = deferred<{
       ok: boolean
