@@ -69,9 +69,14 @@ describe("landing content contract", () => {
   })
 
   it("keeps provider examples compact", () => {
-    expect(LANDING_PROVIDERS).toContain("claude")
-    expect(LANDING_PROVIDERS).toContain("codex")
-    expect(LANDING_PROVIDERS).toContain("cursor")
+    expect(LANDING_PROVIDERS).toEqual([
+      { id: "claude", label: "Claude Code" },
+      { id: "codex", label: "Codex" },
+      { id: "grok", label: "Grok Build" },
+      { id: "cursor", label: "Cursor" },
+      { id: "opencode", label: "OpenCode" },
+      { id: "pi", label: "Pi" },
+    ])
   })
 
   it("cycles several truthful typewriter cases", () => {
@@ -180,6 +185,10 @@ describe("landing content contract", () => {
     const motionStyles = readFileSync(path.join(root, "src/components/home/landing-shell-motion.module.css"), "utf8")
     const reachSource = readFileSync(path.join(root, "src/components/home/landing-reach-motion.tsx"), "utf8")
     const reachStyles = readFileSync(path.join(root, "src/components/home/landing-reach-motion.module.css"), "utf8")
+    const reachMockupLicense = readFileSync(
+      path.join(root, "src/components/home/opensourceui-mockups.LICENSE.txt"),
+      "utf8",
+    )
     const shellSource = readFileSync(path.join(root, "src/components/home/landing-shell-motion.tsx"), "utf8")
     const playbackSource = readFileSync(path.join(root, "src/components/home/use-landing-motion-playback.ts"), "utf8")
     const heroSource = readFileSync(path.join(root, "src/components/home/hero-section.tsx"), "utf8")
@@ -216,7 +225,7 @@ describe("landing content contract", () => {
     expect(BRAND_DESCRIPTION).toContain("shared rooms")
     expect(LANDING_META_TITLE).toBe("AI Agent Collaboration Rooms for Local Agents — Alook")
     expect(LANDING_META_DESCRIPTION).toBe(
-      "Share your local AI agents with your team. Claude Code, Codex, Cursor, OpenCode, and Pi get persistent identities and memory — while running on your machine. Open source.",
+      "Share your local AI agents with your team. Claude Code, Codex, Grok Build, Cursor, OpenCode, and Pi get persistent identities and memory — while running on your machine. Open source.",
     )
     expect(brandCopySource).not.toContain("Personal Company")
     expect(rootRoute).toContain("LANDING_META_TITLE")
@@ -359,8 +368,9 @@ describe("landing content contract", () => {
     expect(landingPageSource).toContain("Share what already works")
     expect(landingPageSource).toContain("Invite your team to talk with your AI agents")
     expect(normalizedLandingPageSource).toContain(
-      "Your agents already handle real work — Claude Code, Codex, Cursor, OpenCode, or Pi. Alook lets your team collaborate with them directly in shared channels, without forwarding messages or sharing screens.",
+      "Your agents already handle real work — Claude Code, Codex, Grok Build, Cursor, OpenCode, or Pi. Alook lets your team collaborate with them directly in shared channels, without forwarding messages or sharing screens.",
     )
+    expect(landingPageSource).toContain('data-testid="landing-runtime-badges"')
     expect(landingPageSource).toContain("Across every room")
     expect(landingPageSource).toContain("One persistent agent identity")
     expect(landingPageSource).not.toContain("One persistent identity across rooms")
@@ -439,7 +449,15 @@ describe("landing content contract", () => {
     expect(normalizedLandingPageSource).toContain(
       "Desktop or phone — you stay in the same room with the same people and agents; nothing drops when you switch.",
     )
-    expect(reachSource).toContain("<p>Desktop</p>")
+    expect(reachSource).toContain('data-slot="laptop-mockup-card"')
+    expect(reachSource).toContain('data-variant="starlight"')
+    expect(reachSource).toContain('data-testid="landing-laptop-mockup"')
+    expect(reachSource).toContain('data-slot="phone-mockup-card"')
+    expect(reachSource).toContain('data-variant="titanium"')
+    expect(reachSource).toContain('data-testid="landing-phone-mockup"')
+    expect(reachSource).toContain("styles.phoneDynamicIsland")
+    expect(reachSource).toContain("styles.phoneHomeIndicator")
+    expect(reachSource).not.toContain("styles.deviceBar")
     expect(shellSource).toContain("<span>Phone</span>")
     expect(`${reachSource} ${shellSource}`).not.toContain("Alook Web")
     expect(reachSource).toContain('<LandingShellMotion scene="server" beat={beat} />')
@@ -450,14 +468,17 @@ describe("landing content contract", () => {
     expect(shellSource).toContain("stage.getBoundingClientRect().width / 390")
     expect(motionStyles).toContain("transform: scale(var(--mobile-stage-scale))")
     expect(motionStyles).toMatch(/\.mobileMessages\s*\{[\s\S]*?justify-content: flex-start;/)
-    expect(reachStyles).toContain("width: clamp(148px, 42%, 196px)")
-    expect(reachStyles).toContain("clamp(-220px, -42vw, -160px)")
-    expect(reachStyles).toContain("width: clamp(96px, 24%, 224px)")
-    expect(reachStyles).toContain("right: clamp(20px, 12%, 120px)")
-    expect(reachStyles).toContain("bottom: clamp(24px, 8%, 64px)")
+    expect(reachStyles).toContain("width: clamp(146px, 42%, 190px)")
+    expect(reachStyles).toContain("clamp(-210px, -40vw, -150px)")
+    expect(reachStyles).toContain("width: clamp(108px, 24%, 224px)")
+    expect(reachStyles).toContain("aspect-ratio: 70.6 / 146.6")
+    expect(reachStyles).toContain("right: clamp(14px, 5%, 56px)")
+    expect(reachStyles).toContain("bottom: clamp(24px, 7%, 56px)")
     expect(reachStyles).toContain("aspect-ratio: 1120 / 760")
-    expect(reachStyles).toContain("clamp(12px, 4vw, 24px)")
-    expect(reachStyles).toMatch(/\.desktopShell\s*\{[\s\S]*?left: 9%;/)
+    expect(reachStyles).toContain("clamp(14px, 4vw, 24px)")
+    expect(reachStyles).toMatch(/\.desktopShell\s*\{[\s\S]*?left: 1%;/)
+    expect(reachStyles).toMatch(/\.laptopBase\s*\{[\s\S]*?linear-gradient/)
+    expect(reachMockupLicense).toContain("Copyright (c) 2026 Bidyut Kundu")
     expect(landingPageSource).toContain("BRAND_SLOGAN")
     expect(landingPageSource).toContain("Alook holds the room")
     expect(landingPageSource).toContain("Run AI agents locally on your machine")

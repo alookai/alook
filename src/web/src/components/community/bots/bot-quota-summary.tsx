@@ -155,22 +155,28 @@ function backendPlaceholder(entry: MachineBackendQuota): string {
   return "Unavailable"
 }
 
-function constrainedEntry(entries: MachineBackendQuota[]): {
+type BackendQuotaSummary = {
   entry: MachineBackendQuota
   limit: QuotaLimit
-} | null {
-  const usable = entries.filter(hasQuotaLimits)
-  const limit = selectMostConstrainedLimit(usable.flatMap((entry) => (
-    entry.snapshot.status === "available" || entry.snapshot.status === "stale"
-      ? entry.snapshot.limits
-      : []
-  )))
-  if (!limit) return null
-  const entry = usable.find((candidate) => (
-    (candidate.snapshot.status === "available" || candidate.snapshot.status === "stale")
-    && candidate.snapshot.limits.includes(limit)
-  ))
-  return entry ? { entry, limit } : null
+}
+
+export function summarizeQuotaEntries(entries: MachineBackendQuota[]): BackendQuotaSummary[] {
+  return entries
+    .filter(hasQuotaLimits)
+    .toSorted((a, b) => a.scope.agentBackendId.localeCompare(b.scope.agentBackendId))
+    .flatMap((entry) => {
+      if (entry.snapshot.status !== "available" && entry.snapshot.status !== "stale") return []
+      const limit = selectMostConstrainedLimit(entry.snapshot.limits)
+      return limit ? [{ entry, limit }] : []
+    })
+}
+
+export function sortQuotaEntries(entries: MachineBackendQuota[]): MachineBackendQuota[] {
+  return entries.toSorted((a, b) => {
+    const dataRank = Number(hasQuotaLimits(b)) - Number(hasQuotaLimits(a))
+    if (dataRank !== 0) return dataRank
+    return a.scope.agentBackendId.localeCompare(b.scope.agentBackendId)
+  })
 }
 
 export function MachineQuotaSummary({
@@ -200,23 +206,18 @@ export function MachineQuotaSummary({
     )
   }
 
-  const constrained = constrainedEntry(entries)
-  if (!constrained) return null
+  const backendSummaries = summarizeQuotaEntries(entries)
+  if (backendSummaries.length === 0) return null
   const limitCount = entries.reduce((count, entry) => (
     entry.snapshot.status === "available" || entry.snapshot.status === "stale"
       ? count + entry.snapshot.limits.length
       : count
   ), 0)
-  const stale = constrained.entry.snapshot.status === "stale"
-  const summary = [
-    "Quota",
-    productLabel(constrained.limit),
-    percentLabel(constrained.limit),
-    ...(limitCount > 1 ? [`${limitCount} limits`] : []),
-  ].join(" · ")
-  const sortedEntries = entries.toSorted((a, b) => (
-    a.scope.agentBackendId.localeCompare(b.scope.agentBackendId)
-  ))
+  const summary = backendSummaries.map(({ entry, limit }) => {
+    const stale = entry.snapshot.status === "stale" ? ", stale" : ""
+    return `${backendLabel(entry.scope.agentBackendId)} ${percentLabel(limit)}${stale}`
+  }).join("; ")
+  const sortedEntries = sortQuotaEntries(entries)
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -225,16 +226,35 @@ export function MachineQuotaSummary({
           <button
             type="button"
             aria-expanded={open}
-            aria-label={`Quota details: ${summary}${stale ? ". Stale" : ""}`}
+            aria-label={`Quota details: ${summary}. ${limitCount} ${limitCount === 1 ? "limit" : "limits"}`}
             data-testid={tid.machineQuota(machineId)}
-            className="group flex h-11 max-w-full min-w-0 items-center gap-1.5 rounded-md text-left text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:h-7"
+            className="group flex min-h-11 max-w-full min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-md py-2 text-left text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:min-h-7 sm:py-1"
           >
-            <ProviderLogo
-              provider={constrained.entry.scope.agentBackendId}
-              className="size-3.5 shrink-0"
-            />
-            <span className="truncate text-foreground/85">{summary}</span>
-            {stale && <span className="shrink-0 text-warning">Stale</span>}
+            <span className="shrink-0 text-foreground/70">Quota</span>
+            <span aria-hidden className="shrink-0 text-border">·</span>
+            {backendSummaries.map(({ entry, limit }, index) => {
+              const stale = entry.snapshot.status === "stale"
+              const label = `${backendLabel(entry.scope.agentBackendId)}: ${percentLabel(limit)}${stale ? " (stale)" : ""}`
+              return (
+                <span key={entry.scope.agentBackendId} className="contents">
+                  {index > 0 && <span aria-hidden className="shrink-0 text-border">·</span>}
+                  <span
+                    aria-label={label}
+                    title={label}
+                    className="inline-flex shrink-0 items-center gap-1.5"
+                  >
+                    <ProviderLogo
+                      provider={entry.scope.agentBackendId}
+                      className="size-3.5 shrink-0"
+                    />
+                    <span className={stale ? "font-mono tabular-nums text-warning" : "font-mono tabular-nums text-foreground/85"}>
+                      {remainingPercent(limit)}%
+                    </span>
+                    {stale && <span className="text-[10px] text-warning">stale</span>}
+                  </span>
+                </span>
+              )
+            })}
             <ChevronDown className="size-3 shrink-0 transition-transform group-data-popup-open:rotate-180" />
           </button>
         }
@@ -250,7 +270,11 @@ export function MachineQuotaSummary({
             const snapshot = entry.snapshot
             if (snapshot.status !== "available" && snapshot.status !== "stale") {
               return (
-                <section key={entry.scope.agentBackendId} className="flex flex-col gap-2">
+                <section
+                  key={entry.scope.agentBackendId}
+                  data-quota-backend={entry.scope.agentBackendId}
+                  className="flex flex-col gap-2"
+                >
                   <div className="flex min-w-0 items-center gap-1.5">
                     <ProviderLogo provider={entry.scope.agentBackendId} className="size-3.5 shrink-0" />
                     <span className="truncate text-xs font-medium text-foreground">
@@ -265,7 +289,11 @@ export function MachineQuotaSummary({
             }
             const groups = groupQuotaLimits(snapshot.limits)
             return (
-              <section key={entry.scope.agentBackendId} className="flex flex-col gap-2">
+              <section
+                key={entry.scope.agentBackendId}
+                data-quota-backend={entry.scope.agentBackendId}
+                className="flex flex-col gap-2"
+              >
                 <div className="flex min-w-0 items-center justify-between gap-3">
                   <div className="flex min-w-0 items-center gap-1.5">
                     <ProviderLogo provider={entry.scope.agentBackendId} className="size-3.5 shrink-0" />

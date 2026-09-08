@@ -32,6 +32,7 @@ const configs: Record<BuiltinBackendId, unknown> = {
   claude: { model: { kind: "default" }, provider: { kind: "default" }, mode: "default" },
   codex: { model: { kind: "default" }, mode: "default" },
   cursor: { model: { kind: "default" } },
+  grok: { model: { kind: "default" } },
   opencode: { model: { kind: "default" } },
   pi: { model: { kind: "default" }, provider: { kind: "default" } },
 };
@@ -254,10 +255,10 @@ function executionFor(backend: BuiltinBackendId): BackendExecution {
       terminalOwnership: "transport_request",
     };
   }
-  if (backend === "cursor") {
+  if (backend === "cursor" || backend === "grok") {
     return {
       lifetime: "session",
-      transport: { kind: "stdio_rpc", protocol: "cursor.test.v1" },
+      transport: { kind: "stdio_rpc", protocol: `${backend}.test.v1` },
       wakeStart: "immediate",
       terminalOwnership: "transport_request",
     };
@@ -352,7 +353,7 @@ async function take(
   return events;
 }
 
-describe.each(["claude", "codex", "cursor", "opencode", "pi"] as const)("%s logical-session conformance", (backend) => {
+describe.each(["claude", "codex", "cursor", "grok", "opencode", "pi"] as const)("%s logical-session conformance", (backend) => {
   it("projects the public bounded turn-silence defaults", async () => {
     const { session } = makeSession(backend);
     expect(session.snapshot().diagnostics.turnSilence).toEqual({
@@ -1290,6 +1291,33 @@ describe("backend-owned delivery behavior", () => {
     const events = await take(iterator as never, 4);
     expect(events.filter((event) => event.type === "command_accepted" && event.commandId === "two"))
       .toHaveLength(1);
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+
+  it("keeps a safe-boundary command queued when Grok reports busy and starts it after the root terminal", async () => {
+    const lane = new ControlledRuntimeLane();
+    lane.startAdmission = { ok: true, acceptedAs: "prompt", receipt: "grok:test:1" };
+    const sends: LaneSendInput[] = [];
+    lane.sendImpl = async (input) => {
+      sends.push(input);
+      return input.mode === "busy"
+        ? { ok: false, reason: "runtime_busy" }
+        : { ok: true, acceptedAs: "prompt", receipt: input.terminalOwner! };
+    };
+    const { session } = makeSession("grok", { lane });
+    await expect(session.start({ id: "one", kind: "user", text: "start" })).resolves.toMatchObject({ status: "accepted" });
+    expect(await session.send({ id: "two", kind: "user", text: "follow" })).toEqual({
+      status: "queued",
+      reason: "unsafe_boundary",
+      commandId: "two",
+    });
+    await vi.waitFor(() => expect(sends).toHaveLength(1));
+    expect(session.snapshot().queuedCommands).toEqual([{ commandId: "two", kind: "user" }]);
+
+    lane.emit({ kind: "turn_end", sessionId: "grok-session", turnOwner: "grok:test:1" });
+    await vi.waitFor(() => expect(sends).toHaveLength(2));
+    expect(sends[1]).toMatchObject({ text: "follow", mode: "idle" });
+    expect(session.snapshot().queuedCommands).toEqual([]);
     await session.stop({ reason: "shutdown", forceAfterMs: 10 });
   });
 

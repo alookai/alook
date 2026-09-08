@@ -70,7 +70,7 @@ const RUNTIME_RAW_TRACE_MAX_BYTES = 8 * 1024 * 1024;
 export const RUNTIME_RAW_TRACE_AGENT_IDS_ENV = "ALOOK_RUNTIME_RAW_TRACE_AGENT_IDS";
 /** How often the daemon rewrites the `daemon status` snapshot file (batch E2). */
 const STATUS_WRITE_INTERVAL_MS = 5_000;
-const TOKEN_USAGE_BACKENDS = new Set<BuiltinBackendId>(["claude", "codex", "opencode", "pi"]);
+const TOKEN_USAGE_BACKENDS = new Set<BuiltinBackendId>(["claude", "codex", "grok", "opencode", "pi"]);
 const ONBOARDING_RECENT_SESSION_FILES_TOP_K = 10;
 const ONBOARDING_RECENT_PROJECTS_TOP_K = 5;
 
@@ -409,10 +409,10 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   const dailyTokenUsage = new DailyTokenUsageStore(workingDirectoryBase);
   const providerQuotaReader = opts.providerQuotaReader
     ?? (opts.sessionFactory ? async () => null : readBuiltinProviderQuota);
-  const providerQuotaByBackend = new Map<"claude" | "codex", ProviderQuotaSnapshot>();
+  const providerQuotaByBackend = new Map<"claude" | "codex" | "grok", ProviderQuotaSnapshot>();
   let requestReadyQuotaResend = (): void => {};
   const recordProviderQuota = (
-    backendId: "claude" | "codex",
+    backendId: "claude" | "codex" | "grok",
     quota: ProviderQuotaObservation,
   ): void => {
     const previous = providerQuotaByBackend.get(backendId);
@@ -465,7 +465,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
       const observed = await providerQuotaReader("claude");
       if (observed) recordProviderQuota("claude", observed);
     }
-    const quota = backendId === "claude" || backendId === "codex"
+    const quota = backendId === "claude" || backendId === "codex" || backendId === "grok"
       ? providerQuotaByBackend.get(backendId)
       : undefined;
     const usageWindow = backendId && TOKEN_USAGE_BACKENDS.has(backendId)
@@ -483,6 +483,11 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   };
   let reportAgentActivity = (info: { agentId: string; state: HostAgentActivity["state"] }): void => {
     void channelRef?.reportAgentActivity?.(info);
+  };
+  const reportTelemetryForIdleAgent = (agentId: string): void => {
+    if (managerRef?.agentActivity(agentId) === "idle") {
+      reportAgentActivity({ agentId, state: "idle" });
+    }
   };
   let reminderSchedulerRef: MessageReminderScheduler | null = null;
   const selfSleepScheduler = opts.onSelfSleep
@@ -1015,13 +1020,16 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
       }
     },
     onTokenUsage: ({ agentId, usage }) => {
-      void dailyTokenUsage.record(agentId, usage).catch(() => {
-        log.warn("daily token usage persistence failed", { agentId });
-      });
+      void dailyTokenUsage.record(agentId, usage)
+        .then(() => reportTelemetryForIdleAgent(agentId))
+        .catch(() => {
+          log.warn("daily token usage persistence failed", { agentId });
+        });
     },
-    onProviderQuota: ({ backendId, quota }) => {
-      if (backendId !== "claude" && backendId !== "codex") return;
+    onProviderQuota: ({ agentId, backendId, quota }) => {
+      if (backendId !== "claude" && backendId !== "codex" && backendId !== "grok") return;
       recordProviderQuota(backendId, quota);
+      reportTelemetryForIdleAgent(agentId);
     },
     // Bot audit log — Producer A (runtime thinking + non-Bash tool_call).
     // Bash suppression + thinking truncation happen inside managerRuntime.

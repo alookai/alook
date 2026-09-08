@@ -16,6 +16,7 @@ const EXPECTED: Record<BuiltinBackendId, BackendCapabilities> = {
   claude: { modelSelection: "launchable", providerConfiguration: true, reasoningEffort: true, fastMode: true, disallowedTools: true, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "safe_boundary_queue", interrupt: true },
   codex: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: true, disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "safe_boundary_queue", interrupt: true },
   cursor: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: false, fastMode: false, disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true },
+  grok: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: false, disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "safe_boundary_queue", interrupt: true },
   opencode: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: false, fastMode: false, disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true },
   pi: { modelSelection: "launchable", providerConfiguration: true, reasoningEffort: true, fastMode: false, disallowedTools: false, commandOverride: false, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true },
 };
@@ -50,6 +51,12 @@ describe("driver.capabilities", () => {
       cursor: {
         lifetime: "session",
         transport: { kind: "stdio_rpc", protocol: "cursor.acp.v1" },
+        wakeStart: "immediate",
+        terminalOwnership: "transport_request",
+      },
+      grok: {
+        lifetime: "session",
+        transport: { kind: "stdio_rpc", protocol: "grok.acp.v1" },
         wakeStart: "immediate",
         terminalOwnership: "transport_request",
       },

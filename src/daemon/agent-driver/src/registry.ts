@@ -9,6 +9,7 @@ import type {
 import { ClaudeDriver } from "./adapters/claude/index.js";
 import { CodexDriver } from "./adapters/codex/index.js";
 import { CursorDriver } from "./adapters/cursor/index.js";
+import { GrokDriver } from "./adapters/grok/index.js";
 import { OpenCodeDriver } from "./adapters/opencode/index.js";
 import { PiDriver } from "./adapters/pi/index.js";
 import type { BackendAdapter } from "./internal/adapter.js";
@@ -182,7 +183,7 @@ export function assertAdapterCompatibility(
   }
 }
 
-export const BUILTIN_BACKEND_IDS = ["claude", "codex", "cursor", "opencode", "pi"] as const;
+export const BUILTIN_BACKEND_IDS = ["claude", "codex", "cursor", "grok", "opencode", "pi"] as const;
 
 const capabilities = {
   claude: {
@@ -196,6 +197,10 @@ const capabilities = {
   cursor: {
     modelSelection: "launchable", providerConfiguration: false, reasoningEffort: false, fastMode: false,
     disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true,
+  },
+  grok: {
+    modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: false,
+    disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "safe_boundary_queue", interrupt: true,
   },
   opencode: {
     modelSelection: "launchable", providerConfiguration: false, reasoningEffort: false, fastMode: false,
@@ -212,6 +217,7 @@ export function createBuiltinAgentDriverRegistry(): AgentDriverRegistry<BuiltinB
     { id: "claude", contractVersion: 1, capabilities: capabilities.claude, createAdapter: () => new ClaudeDriver() },
     { id: "codex", contractVersion: 1, capabilities: capabilities.codex, createAdapter: () => new CodexDriver() },
     { id: "cursor", contractVersion: 1, capabilities: capabilities.cursor, createAdapter: () => new CursorDriver() },
+    { id: "grok", contractVersion: 1, capabilities: capabilities.grok, createAdapter: () => new GrokDriver() },
     { id: "opencode", contractVersion: 1, capabilities: capabilities.opencode, createAdapter: () => new OpenCodeDriver() },
     { id: "pi", contractVersion: 1, capabilities: capabilities.pi, createAdapter: () => new PiDriver() },
   ]);

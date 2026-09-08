@@ -108,7 +108,7 @@ export const ProviderQuotaObservationSchema = z.union([
 export type ProviderQuotaObservation = z.infer<typeof ProviderQuotaObservationSchema>;
 
 export const ProviderQuotaSnapshotSchema = z.object({
-  agentBackendId: z.enum(["claude", "codex"]),
+  agentBackendId: z.enum(["claude", "codex", "grok"]),
   observation: ProviderQuotaObservationSchema,
 }).strict();
 export type ProviderQuotaSnapshot = z.infer<typeof ProviderQuotaSnapshotSchema>;

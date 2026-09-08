@@ -14,10 +14,9 @@ import {
   Select,
   SelectTrigger,
   SelectValue,
-  SelectContent,
-  SelectItem,
   SelectSeparator,
 } from "@/components/ui/select"
+import { BotSelectMenuContent, BotSelectMenuItem } from "./bot-select-menu"
 
 /**
  * Per-bot model picker. A `Select` over `[Default, Custom…, ...catalog]` plus a
@@ -112,11 +111,11 @@ export function ModelField({
         >
           <SelectValue placeholder={defaultLabel} />
         </SelectTrigger>
-        <SelectContent className="overflow-y-hidden">
+        <BotSelectMenuContent className="overflow-y-hidden">
           {modelIds.length === 0 ? (
             <>
-              <SelectItem value={MODEL_SELECT_DEFAULT}>{defaultLabel}</SelectItem>
-              <SelectItem value={MODEL_SELECT_CUSTOM}>Custom…</SelectItem>
+              <BotSelectMenuItem value={MODEL_SELECT_DEFAULT}>{defaultLabel}</BotSelectMenuItem>
+              <BotSelectMenuItem value={MODEL_SELECT_CUSTOM}>Custom…</BotSelectMenuItem>
             </>
           ) : (
             <>
@@ -148,16 +147,16 @@ export function ModelField({
                     className="h-10 font-mono sm:h-8"
                   />
                 </div>
-                <SelectItem value={MODEL_SELECT_DEFAULT}>{defaultLabel}</SelectItem>
-                <SelectItem value={MODEL_SELECT_CUSTOM}>Custom…</SelectItem>
-                <SelectSeparator />
+                <BotSelectMenuItem value={MODEL_SELECT_DEFAULT}>{defaultLabel}</BotSelectMenuItem>
+                <BotSelectMenuItem value={MODEL_SELECT_CUSTOM}>Custom…</BotSelectMenuItem>
+                <SelectSeparator className="mx-1 my-1.5" />
               </div>
               <div
                 data-testid="bot-model-probe-results"
                 className="thin-scrollbar max-h-[min(18rem,50dvh)] overflow-y-auto"
               >
                 {filteredModels.map((model) => (
-                  <SelectItem key={model.id} value={model.id}>
+                  <BotSelectMenuItem key={model.id} value={model.id}>
                     {model.displayName && model.displayName !== model.id ? (
                       <div className="flex min-w-0 flex-col items-start gap-0.5">
                         <span>{model.displayName}</span>
@@ -168,7 +167,7 @@ export function ModelField({
                     ) : (
                       <span className="font-mono">{model.id}</span>
                     )}
-                  </SelectItem>
+                  </BotSelectMenuItem>
                 ))}
                 {normalizedFilter && filteredModels.length === 0 ? (
                   <p role="status" className="px-2 py-2 text-xs text-muted-foreground">
@@ -178,7 +177,7 @@ export function ModelField({
               </div>
             </>
           )}
-        </SelectContent>
+        </BotSelectMenuContent>
       </Select>
       {isCustom && (
         <Input

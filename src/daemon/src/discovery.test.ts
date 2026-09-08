@@ -12,7 +12,7 @@ import {
 } from "./discovery";
 import * as drivers from "./drivers/index";
 
-const EXPECTED_RUNTIMES = ["claude", "codex", "cursor", "opencode", "pi"];
+const EXPECTED_RUNTIMES = ["claude", "codex", "cursor", "grok", "opencode", "pi"];
 
 const tmpDirs: string[] = [];
 function mkTmp(): string {
@@ -175,7 +175,7 @@ describe("detectRuntimes", () => {
     }
   });
 
-  it("advertises exactly the five supported runtimes", () => {
+  it("advertises exactly the six supported runtimes", () => {
     const advertised = runtimes.map((r) => r.id).sort();
     expect(advertised).toEqual([...EXPECTED_RUNTIMES].sort());
   });
@@ -226,7 +226,7 @@ describe("detectRuntimes", () => {
 });
 
 describe("driver registry", () => {
-  it("contains exactly the five supported runtimes", () => {
+  it("contains exactly the six supported runtimes", () => {
     expect(drivers.listRuntimeIds().slice().sort()).toEqual([...EXPECTED_RUNTIMES].sort());
   });
 

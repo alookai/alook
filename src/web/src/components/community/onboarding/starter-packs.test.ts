@@ -79,12 +79,20 @@ describe("starter packs", () => {
     expect(prompts[0]).toContain("You are the Lead")
     expect(prompts[0]).toContain("recent-context index appended below")
     expect(prompts[0]).toContain("Before opening or reading any specific session or project")
+    expect(prompts[0]).toContain("mentions @Ada#0042")
     expect(prompts[0]).toContain("explains what you propose to explore and why")
-    expect(prompts[0]).toContain("invites the owner to guide or redirect you")
     expect(prompts[0]).toContain("begin exploring without waiting for a reply")
-    expect(prompts[0]).not.toContain("Wait for the owner's guidance")
-    expect(prompts[0].indexOf("invites the owner to guide or redirect you")).toBeLessThan(
-      prompts[0].indexOf("begin exploring without waiting for a reply"),
+    expect(prompts[0]).toContain("Exploration is read-only")
+    expect(prompts[0]).toContain("After you finish exploring")
+    expect(prompts[0]).toContain("offers up to three concrete action suggestions")
+    expect(prompts[0]).toContain("Then wait for the owner to choose, redirect, or confirm an action")
+    expect(prompts[0]).toContain("Do not open a task thread, assign work, or begin executing")
+    expect(prompts[0]).toContain("Open a task thread only after the owner chooses or assigns concrete work")
+    expect(prompts[0].indexOf("begin exploring without waiting for a reply")).toBeLessThan(
+      prompts[0].indexOf("After you finish exploring"),
+    )
+    expect(prompts[0].indexOf("offers up to three concrete action suggestions")).toBeLessThan(
+      prompts[0].indexOf("Then wait for the owner to choose, redirect, or confirm an action"),
     )
     expect(prompts[0]).toContain("grounded in what the owner has actually been working on")
     expect(prompts[0]).toContain("ask the owner what they want to start with")

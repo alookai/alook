@@ -5,6 +5,7 @@ describe("runtimeDisplayName", () => {
   it("maps known providers to friendly names", () => {
     expect(runtimeDisplayName("claude")).toBe("Claude Code");
     expect(runtimeDisplayName("codex")).toBe("Codex");
+    expect(runtimeDisplayName("grok")).toBe("Grok Build");
     expect(runtimeDisplayName("opencode")).toBe("OpenCode");
   });
 

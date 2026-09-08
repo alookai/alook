@@ -35,14 +35,16 @@ test("real WebSocket outage blocks the whole community surface and Retry restore
       const rect = element.getBoundingClientRect()
       const content = element.previousElementSibling as HTMLElement | null
       const connectingMotion = element.querySelector<HTMLElement>("[data-connecting-motion]")
-      const connectingDot = element.querySelector<SVGCircleElement>(".community-ws-connecting-dot")
+      const connectingLetter = element.querySelector<HTMLElement>(".community-ws-connecting-letter")
       const connectingStyle = connectingMotion ? getComputedStyle(connectingMotion) : null
+      const loaderStyle = getComputedStyle(element.querySelector<HTMLElement>("[data-slot='text-loader']")!)
       return {
         ariaHidden: content?.getAttribute("aria-hidden"),
         inert: content?.hasAttribute("inert"),
-        animationName: connectingDot ? getComputedStyle(connectingDot).animationName : null,
+        iconAnimationName: connectingStyle?.animationName,
+        letterAnimationName: connectingLetter ? getComputedStyle(connectingLetter).animationName : null,
         loaderBackground: connectingStyle?.backgroundColor,
-        loaderBlendMode: connectingStyle?.mixBlendMode,
+        loaderDisplay: loaderStyle.display,
         loaderElement: connectingMotion?.tagName.toLowerCase(),
         rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
         viewport: { width: innerWidth, height: innerHeight },
@@ -51,10 +53,11 @@ test("real WebSocket outage blocks the whole community surface and Retry restore
     expect(reconnectingEvidence).toMatchObject({
       ariaHidden: "true",
       inert: true,
-      animationName: "none",
-      loaderBackground: "rgba(0, 0, 0, 0)",
-      loaderBlendMode: "normal",
-      loaderElement: "svg",
+      iconAnimationName: "none",
+      letterAnimationName: "none",
+      loaderBackground: "rgb(124, 9, 17)",
+      loaderDisplay: "flex",
+      loaderElement: "span",
       rect: { x: 0, y: 0, width: 390, height: 844 },
       viewport: { width: 390, height: 844 },
     })

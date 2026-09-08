@@ -19,6 +19,11 @@ export const ONBOARDING_HARNESSES = [
     provider: "codex",
   },
   {
+    value: "grok",
+    label: "Grok Build",
+    provider: "grok",
+  },
+  {
     value: "cursor",
     label: "Cursor",
     provider: "cursor",

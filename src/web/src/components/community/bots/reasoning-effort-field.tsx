@@ -10,12 +10,11 @@ import {
 import { Label } from "@/components/ui/label"
 import {
   Select,
-  SelectContent,
-  SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
 import { tid } from "@/lib/community/testids"
+import { BotSelectMenuContent, BotSelectMenuItem } from "./bot-select-menu"
 
 const DEFAULT_VALUE = "__default__"
 const REASONING_CATALOG_MIN_DAEMON_VERSION = "0.1.25"
@@ -95,14 +94,14 @@ export function ReasoningEffortField({
         >
           <SelectValue placeholder={defaultLabel} />
         </SelectTrigger>
-        <SelectContent>
-          <SelectItem value={DEFAULT_VALUE}>{defaultLabel}</SelectItem>
+        <BotSelectMenuContent>
+          <BotSelectMenuItem value={DEFAULT_VALUE}>{defaultLabel}</BotSelectMenuItem>
           {options.map((option) => (
-            <SelectItem key={option.value} value={option.value}>
+            <BotSelectMenuItem key={option.value} value={option.value}>
               {effortLabel(option.value)}
-            </SelectItem>
+            </BotSelectMenuItem>
           ))}
-        </SelectContent>
+        </BotSelectMenuContent>
       </Select>
       <p id="bot-reasoning-effort-help" className="text-xs text-muted-foreground">
         {help}

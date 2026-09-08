@@ -58,7 +58,7 @@ function sdkTestLane(receipt = "fresh-receipt") {
 
 describe("createAgentDriverSdk", () => {
   it("exposes the built-ins with default options", () => {
-    expect(createAgentDriverSdk().backendIds).toEqual(["claude", "codex", "cursor", "opencode", "pi"]);
+    expect(createAgentDriverSdk().backendIds).toEqual(["claude", "codex", "cursor", "grok", "opencode", "pi"]);
     expect(SESSION_FILE_DISCOVERY_CAPABILITIES).toEqual(["supported", "unavailable"]);
   });
 
@@ -84,20 +84,21 @@ describe("createAgentDriverSdk", () => {
     });
   });
 
-  it.each(["claude", "codex", "cursor", "opencode"] as const)(
+  it.each(["claude", "codex", "cursor", "grok", "opencode"] as const)(
     "forwards an explicit command override through the real %s probe",
     async (backend) => {
-      await expect(createAgentDriverSdk().probe({ backend, command: process.execPath })).resolves.toMatchObject({
-        status: "healthy",
-      });
+      const result = await createAgentDriverSdk().probe({ backend, command: process.execPath });
+      expect(result).toMatchObject(backend === "grok"
+        ? { status: "unhealthy", error: { code: "grok_acp_process_failed" } }
+        : { status: "healthy" });
     },
   );
 
   it("public SDK factory delegates to the built-in logical SDK", () => {
-    expect(createPublicAgentDriverSdk().backendIds).toEqual(["claude", "codex", "cursor", "opencode", "pi"]);
+    expect(createPublicAgentDriverSdk().backendIds).toEqual(["claude", "codex", "cursor", "grok", "opencode", "pi"]);
   });
 
-  it.each(["claude", "codex", "cursor", "opencode", "pi"] as const)(
+  it.each(["claude", "codex", "cursor", "grok", "opencode", "pi"] as const)(
     "dispatches zero-bound discovery through the built-in %s adapter",
     async (backend) => {
       await expect(createAgentDriverSdk().discoverRecentContext({
@@ -107,7 +108,7 @@ describe("createAgentDriverSdk", () => {
       })).resolves.toEqual({
         ok: true,
         sessionFiles: {
-          capability: backend === "cursor" || backend === "opencode" ? "unavailable" : "supported",
+          capability: backend === "cursor" || backend === "grok" || backend === "opencode" ? "unavailable" : "supported",
           items: [],
         },
         recentProjects: [],

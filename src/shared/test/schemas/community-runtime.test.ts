@@ -307,6 +307,28 @@ describe("HostReadyMessageSchema", () => {
     expect(parsed.runtimeReport).toEqual([{ id: "claude", status: "healthy" }]);
   });
 
+  it("accepts one quota snapshot for each supported provider backend", () => {
+    const providerQuotas = (["claude", "codex", "grok"] as const).map((agentBackendId) => ({
+      agentBackendId,
+      observation: {
+        status: "error" as const,
+        sourceEpoch: "A".repeat(22),
+        code: "unavailable" as const,
+        retryable: false,
+      },
+    }));
+    expect(HostReadyMessageSchema.parse({
+      type: "ready",
+      runtimeReport: [],
+      providerQuotas,
+    }).providerQuotas).toEqual(providerQuotas);
+    expect(HostReadyMessageSchema.safeParse({
+      type: "ready",
+      runtimeReport: [],
+      providerQuotas: [...providerQuotas, providerQuotas[0]],
+    }).success).toBe(false);
+  });
+
   it.each([125, 256, 257])("accepts and de-dupes a complete %i-item runningAgents report", (count) => {
     const ids = Array.from({ length: count }, (_, index) => `agent_${index}`);
     const parsed = HostReadyMessageSchema.parse({

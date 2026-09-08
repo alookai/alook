@@ -73,6 +73,7 @@ describe("GET /api/community/machines — provider quota", () => {
       availableRuntimes: [
         { id: "codex", status: "healthy" },
         { id: "claude", status: "unhealthy" },
+        { id: "grok", status: "healthy" },
         { id: "cursor", status: "healthy" },
       ],
     }])
@@ -96,6 +97,27 @@ describe("GET /api/community/machines — provider quota", () => {
                   window: { kind: "rolling", durationSeconds: 18_000, displayName: "5 hour usage limit" },
                 },
                 usedPercent: 37.5,
+              }],
+            },
+          },
+        },
+        {
+          observedAt,
+          quota: {
+            agentBackendId: "grok",
+            observation: {
+              status: "available",
+              sourceEpoch: "G".repeat(22),
+              planName: "SuperGrok",
+              freshForSeconds: 300,
+              limits: [{
+                bucket: {
+                  limitId: "grok-build",
+                  product: { kind: "reported", id: "grok", displayName: "Grok Build" },
+                  model: { kind: "not_applicable" },
+                  window: { kind: "provider_defined", id: "weekly", displayName: "Weekly limit" },
+                },
+                usedPercent: 12.5,
               }],
             },
           },
@@ -135,6 +157,17 @@ describe("GET /api/community/machines — provider quota", () => {
         capability: "supported",
         runtimeState: "unhealthy",
         snapshot: { status: "error", code: "unauthorized" },
+      },
+      {
+        scope: { kind: "machine_backend", machineId: "cm_1", agentBackendId: "grok" },
+        capability: "supported",
+        runtimeState: "healthy",
+        snapshot: {
+          status: "available",
+          observedAt,
+          planName: "SuperGrok",
+          limits: [expect.objectContaining({ usedPercent: 12.5 })],
+        },
       },
       {
         scope: { kind: "machine_backend", machineId: "cm_1", agentBackendId: "cursor" },

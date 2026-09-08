@@ -990,7 +990,7 @@ export const HostReadyMessageSchema = z.object({
   osRelease: z.string().optional(),
   daemonVersion: z.string().optional(),
   timeZone: z.string().min(1).max(128).optional(),
-  providerQuotas: z.array(ProviderQuotaSnapshotSchema).max(2).optional().default([]),
+  providerQuotas: z.array(ProviderQuotaSnapshotSchema).max(3).optional().default([]),
 });
 export type HostReadyMessage = z.infer<typeof HostReadyMessageSchema>;
 

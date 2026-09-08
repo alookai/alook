@@ -492,7 +492,7 @@ describe("createDaemon", () => {
     }
   });
 
-  it("commits terminal usage before idle and attaches the current backend quota", async () => {
+  it.each(["codex", "grok"] as const)("re-emits enriched idle when terminal %s telemetry arrives after turn completion", async (backendId) => {
     const sockets: FakeSocket[] = [];
     const sessions: DaemonFakeSession[] = [];
     const workingDirectoryBase = mkdtempSync(join(tmpdir(), "daemon-provider-telemetry-"));
@@ -511,8 +511,8 @@ describe("createDaemon", () => {
       serverUrl: "http://server.invalid",
       serverWsUrl: "ws://x",
       webSocketFactory: factory(sockets) as never,
-      runtimeReport: [{ id: "codex" }],
-      driverFor: () => fullFakeDriver("codex"),
+      runtimeReport: [{ id: backendId }],
+      driverFor: () => fullFakeDriver(backendId),
       sessionFactory: () => {
         const session = daemonFakeSession();
         sessions.push(session);
@@ -527,15 +527,26 @@ describe("createDaemon", () => {
       sockets[0]!.emit("message", JSON.stringify({
         type: "agent:wake",
         agentId: "bot_1",
-        config: { version: 1, runtime: "codex", model: { kind: "default" }, mode: { kind: "default" } },
+        config: { version: 1, runtime: backendId, model: { kind: "default" }, mode: { kind: "default" } },
         launchId: "launch_1",
         unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: 1 },
       }));
       await vi.waitFor(() => expect(sessions).toHaveLength(1));
+      await sessions[0]!.fire("runtime_event", { kind: "turn_end", sessionId: "test-session" });
+
+      const frames = () => sockets[0]!.sent.map((frame) => JSON.parse(frame) as any);
+      await vi.waitFor(() => expect(frames().some((frame) =>
+        frame.type === "agent_activity"
+        && frame.agentId === "bot_1"
+        && frame.state === "idle"
+        && frame.dailyUsage === undefined
+        && frame.quota === undefined
+      )).toBe(true));
+
       await sessions[0]!.fire("agent_event", {
         type: "token_usage",
         turnId: "daemon-test-turn",
-        source: "codex_thread_token_usage_updated",
+        source: `${backendId}_settled_usage`,
         usage: {
           input: 20,
           output: 5,
@@ -544,15 +555,15 @@ describe("createDaemon", () => {
       });
       await sessions[0]!.fire("agent_event", {
         type: "rate_limits",
-        source: "codex_account_rate_limits_updated",
+        source: `${backendId}_rate_limits_updated`,
         quota: {
           status: "available",
           sourceEpoch: "A".repeat(22),
           freshForSeconds: 300,
           limits: [{
             bucket: {
-              limitId: "codex",
-              product: { kind: "reported", id: "codex", displayName: "Codex" },
+              limitId: backendId,
+              product: { kind: "reported", id: backendId, displayName: backendId === "grok" ? "Grok Build" : "Codex" },
               model: { kind: "not_applicable" },
               window: { kind: "rolling", durationSeconds: 18_000, displayName: "5 hour usage limit" },
             },
@@ -560,9 +571,7 @@ describe("createDaemon", () => {
           }],
         },
       });
-      await sessions[0]!.fire("runtime_event", { kind: "turn_end", sessionId: "test-session" });
 
-      const frames = () => sockets[0]!.sent.map((frame) => JSON.parse(frame) as any);
       expect(frames().find((frame) => frame.type === "ready")?.timeZone)
         .toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
       await vi.waitFor(() => expect(frames().some((frame) =>
@@ -579,7 +588,7 @@ describe("createDaemon", () => {
       const readyBefore = frames().filter((frame) => frame.type === "ready").length;
       await sessions[0]!.fire("agent_event", {
         type: "rate_limits",
-        source: "codex_account_rate_limits_updated",
+        source: `${backendId}_rate_limits_updated`,
         quota: {
           status: "error",
           sourceEpoch: "B".repeat(22),
@@ -589,7 +598,7 @@ describe("createDaemon", () => {
       });
       await vi.waitFor(() => expect(frames().filter((frame) => frame.type === "ready")).toHaveLength(readyBefore + 1));
       expect(frames().filter((frame) => frame.type === "ready").at(-1)?.providerQuotas).toEqual([{
-        agentBackendId: "codex",
+        agentBackendId: backendId,
         observation: {
           status: "error",
           sourceEpoch: "B".repeat(22),

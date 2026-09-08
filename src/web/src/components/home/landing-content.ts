@@ -4,7 +4,7 @@ import { BRAND_SLOGAN } from "@/lib/brand-copy"
 export const LANDING_META_TITLE = "AI Agent Collaboration Rooms for Local Agents — Alook"
 
 export const LANDING_META_DESCRIPTION =
-  "Share your local AI agents with your team. Claude Code, Codex, Cursor, OpenCode, and Pi get persistent identities and memory — while running on your machine. Open source."
+  "Share your local AI agents with your team. Claude Code, Codex, Grok Build, Cursor, OpenCode, and Pi get persistent identities and memory — while running on your machine. Open source."
 
 export const LANDING_SECTION_ORDER = [
   "hero",
@@ -93,7 +93,14 @@ export const LANDING_CONTINUITY = {
     "Your agent holds context between sessions and moves tasks forward without you repeating instructions. An inbox catches what arrives while you’re away.",
 } as const
 
-export const LANDING_PROVIDERS = ["claude", "codex", "cursor", "opencode", "pi"] as const
+export const LANDING_PROVIDERS = [
+  { id: "claude", label: "Claude Code" },
+  { id: "codex", label: "Codex" },
+  { id: "grok", label: "Grok Build" },
+  { id: "cursor", label: "Cursor" },
+  { id: "opencode", label: "OpenCode" },
+  { id: "pi", label: "Pi" },
+] as const
 
 export const HOME_FAQS = [
   {
@@ -109,7 +116,7 @@ export const HOME_FAQS = [
   {
     question: "Can I bring agents I already use?",
     answer:
-      "Yes. Alook connects to the coding agents already on your machine. It does not supply or host its own models. Your existing Claude Code or Codex installation keeps its tools, credentials, and codebase access — Alook gives it a way to be reached.",
+      "Yes. Alook connects to the coding agents already on your machine. It does not supply or host its own models. Each supported local runtime keeps its tools, credentials, and codebase access — Alook gives it a way to be reached.",
   },
   {
     question: "How is Alook different from Discord or Slack?",

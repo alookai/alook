@@ -95,6 +95,7 @@ const machine = {
     { id: "codex", status: "healthy" },
     { id: "pi", status: "healthy" },
     { id: "claude", status: "healthy" },
+    { id: "grok", status: "healthy" },
   ],
   createdAt: "2026-08-29T00:00:00.000Z",
   updatedAt: "2026-08-29T01:00:00.000Z",
@@ -154,6 +155,26 @@ const machine = {
           },
           usedPercent: 36,
           resetsAt: "2026-08-29T06:00:00.000Z",
+        }],
+      },
+    },
+    {
+      scope: { kind: "machine_backend", machineId: "machine_telemetry", agentBackendId: "grok" },
+      capability: "supported",
+      runtimeState: "healthy",
+      snapshot: {
+        status: "available",
+        observedAt: new Date().toISOString(),
+        planName: "SuperGrok",
+        limits: [{
+          bucket: {
+            limitId: "two-hour",
+            product: { kind: "reported", id: "grok", displayName: "Grok" },
+            model: { kind: "reported", id: "grok-4.6" },
+            window: { kind: "rolling", durationSeconds: 7_200, displayName: "2 hour usage limit" },
+          },
+          usedPercent: 28,
+          resetsAt: "2026-08-29T03:00:00.000Z",
         }],
       },
     },
@@ -294,7 +315,10 @@ test("My Bots restores the 30-day token heatmap across PC and mobile", async ({ 
   )).toHaveCount(30)
   const quota = page.getByTestId(tid.machineQuota(machine.id))
   await expect(quota).toHaveCount(1)
-  await expect(quota).toContainText("Quota · Spark · 18% left · 3 limits")
+  await expect(quota).toHaveAttribute(
+    "aria-label",
+    "Quota details: Claude 64% left; Codex 18% left; Grok 72% left. 4 limits",
+  )
 
   await expect(page.getByTestId(tid.botUsageDay("bot_codex", "2026-08-24")))
     .toHaveClass(/bg-muted-foreground\/15/)
@@ -335,10 +359,17 @@ test("My Bots restores the 30-day token heatmap across PC and mobile", async ({ 
   await expect(quotaDetail).toContainText("Claude")
   await expect(quotaDetail).toContainText("Max")
   await expect(quotaDetail).toContainText("64% left")
+  await expect(quotaDetail).toContainText("Grok")
+  await expect(quotaDetail).toContainText("SuperGrok")
+  await expect(quotaDetail).toContainText("72% left")
   await expect(quotaDetail).toContainText("5 hour usage limit")
   await expect(quotaDetail).toContainText("Weekly usage limit")
   await expect(quotaDetail).toContainText("gpt-5.3-codex-spark")
   await expect(quotaDetail).toHaveCSS("opacity", "1")
+  expect(await quotaDetail.locator("[data-quota-backend]").evaluateAll((elements) => (
+    elements.map((element) => element.getAttribute("data-quota-backend"))
+  ))).toEqual(["claude", "codex", "grok", "pi"])
+  await attachScreenshot(page, testInfo, "my-bots-machine-quota-popover-pc")
 
   await quota.click()
   await expect(quota).toHaveAttribute("aria-expanded", "false")
@@ -396,6 +427,12 @@ test("My Bots restores the 30-day token heatmap across PC and mobile", async ({ 
   expect(mobileMetaBox).not.toBeNull()
   expect(mobileUsageBox!.y).toBeGreaterThan(mobileMetaBox!.y + mobileMetaBox!.height)
   await attachScreenshot(page, testInfo, "my-bots-token-heatmap-mobile")
+  await quota.click()
+  await expect(quotaDetail).toBeVisible()
+  await expect(quotaDetail).toHaveCSS("opacity", "1")
+  await attachScreenshot(page, testInfo, "my-bots-machine-quota-popover-mobile")
+  await quota.click()
+  await expect(quotaDetail).toBeHidden()
   await mobileTrigger.click()
   const usageDialog = page.getByTestId(tid.botUsageDialog("bot_codex"))
   const dateRail = page.getByTestId(tid.botUsageDateRail("bot_codex"))

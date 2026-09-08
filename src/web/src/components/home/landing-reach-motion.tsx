@@ -13,6 +13,11 @@ import {
 import styles from "./landing-reach-motion.module.css"
 import { useLandingMotionPlayback } from "./use-landing-motion-playback"
 
+/**
+ * Device shell anatomy adapted from OpensourceUI's LaptopMockupCard and
+ * PhoneMockupCard. See ./opensourceui-mockups.LICENSE.txt.
+ */
+
 function useReducedMotion() {
   const [reduced, setReduced] = useState(false)
 
@@ -62,18 +67,43 @@ export function LandingReachMotion() {
       data-beat={beat}
       aria-label="The same Alook room updating on desktop and mobile"
     >
-      <div className={styles.desktopShell}>
-        <div className={styles.deviceBar} aria-hidden>
-          <span />
-          <span />
-          <span />
-          <p>Desktop</p>
+      <div
+        className={styles.desktopShell}
+        data-slot="laptop-mockup-card"
+        data-variant="starlight"
+        data-testid="landing-laptop-mockup"
+      >
+        <div className={styles.laptopLid}>
+          <div className={styles.laptopBezel}>
+            <div className={styles.laptopScreen}>
+              <LandingShellMotion scene="server" beat={beat} />
+            </div>
+          </div>
         </div>
-        <LandingShellMotion scene="server" beat={beat} />
+        <div className={styles.laptopBase} aria-hidden="true">
+          <span className={styles.laptopNotch} />
+        </div>
       </div>
 
-      <div className={styles.phone}>
-        <LandingMobileChatMotion beat={beat} />
+      <div
+        className={styles.phone}
+        data-slot="phone-mockup-card"
+        data-variant="titanium"
+        data-testid="landing-phone-mockup"
+      >
+        <span className={styles.phoneMuteButton} aria-hidden="true" />
+        <span className={styles.phoneVolumeUpButton} aria-hidden="true" />
+        <span className={styles.phoneVolumeDownButton} aria-hidden="true" />
+        <span className={styles.phonePowerButton} aria-hidden="true" />
+        <div className={styles.phoneBezel}>
+          <div className={styles.phoneScreen}>
+            <LandingMobileChatMotion beat={beat} />
+            <span className={styles.phoneDynamicIsland} aria-hidden="true">
+              <span />
+            </span>
+            <span className={styles.phoneHomeIndicator} aria-hidden="true" />
+          </div>
+        </div>
       </div>
     </div>
   )

@@ -39,6 +39,8 @@ import {
   quotaBucketIdentity,
   remainingPercent,
   selectMostConstrainedLimit,
+  sortQuotaEntries,
+  summarizeQuotaEntries,
 } from "./bot-quota-summary"
 
 function limit({
@@ -127,6 +129,24 @@ describe("quota helpers", () => {
     expect(groups[0]!.limits.map(quotaBucketIdentity)).toHaveLength(2)
     expect(new Set(groups[0]!.limits.map(quotaBucketIdentity)).size).toBe(2)
   })
+
+  it("summarizes every backend with data and sorts data ahead of placeholders", () => {
+    const codex = quotaEntry([limit({ usedPercent: 82 })], "available", "codex")
+    const grok = quotaEntry([limit({ usedPercent: 35 })], "available", "grok")
+    const claude: MachineBackendQuota = {
+      scope: { kind: "machine_backend", machineId: "m1", agentBackendId: "claude" },
+      capability: "supported",
+      runtimeState: "healthy",
+      snapshot: { status: "pending" },
+    }
+
+    expect(summarizeQuotaEntries([grok, claude, codex]).map(({ entry, limit: item }) => [
+      entry.scope.agentBackendId,
+      remainingPercent(item),
+    ])).toEqual([["codex", 18], ["grok", 65]])
+    expect(sortQuotaEntries([claude, grok, codex]).map((entry) => entry.scope.agentBackendId))
+      .toEqual(["codex", "grok", "claude"])
+  })
 })
 
 describe("MachineQuotaSummary", () => {
@@ -138,6 +158,13 @@ describe("MachineQuotaSummary", () => {
       usedPercent: 55.5,
     })
     const codex = quotaEntry([weekly, rolling])
+    const grok = quotaEntry([limit({
+      limitId: "grok-primary",
+      productId: "grok",
+      productName: "Grok",
+      modelId: "grok-4.6",
+      usedPercent: 35,
+    })], "available", "grok")
     const pi: MachineBackendQuota = {
       scope: { kind: "machine_backend", machineId: "m1", agentBackendId: "pi" },
       capability: "unsupported",
@@ -150,10 +177,17 @@ describe("MachineQuotaSummary", () => {
       runtimeState: "healthy",
       snapshot: { status: "pending" },
     }
-    const renderer = render([pi, codex, claude])
+    const renderer = render([pi, codex, claude, grok])
     const trigger = renderer.getByTestId("community-machine-quota-m1")
     expect(trigger).toHaveAttribute("aria-expanded", "false")
-    expect(text(trigger)).toContain("Quota · Spark · 18% left · 2 limits")
+    expect(text(trigger)).toBe("Quota·18%·65%")
+    expect(trigger).toHaveAttribute(
+      "aria-label",
+      expect.stringContaining("Codex 18% left; Grok 65% left"),
+    )
+    expect([...trigger.querySelectorAll<HTMLElement>("[data-provider-logo]")]
+      .map((node) => node.dataset.providerLogo))
+      .toEqual(["codex", "grok"])
 
     fireEvent.click(trigger)
     expect(renderer.getByTestId("community-machine-quota-m1")).toHaveAttribute("aria-expanded", "true")
@@ -161,6 +195,7 @@ describe("MachineQuotaSummary", () => {
     expect(text(detail)).toContain("Machine quota")
     expect(text(detail)).toContain("Claude")
     expect(text(detail)).toContain("Codex")
+    expect(text(detail)).toContain("Grok")
     expect(text(detail)).toContain("Pi")
     expect(text(detail)).toContain("Pending")
     expect(text(detail)).toContain("Not supported")
@@ -171,14 +206,17 @@ describe("MachineQuotaSummary", () => {
     expect(text(detail)).toContain("2m ago")
     expect([...detail.querySelectorAll<HTMLElement>("[data-provider-logo]")]
       .map((node) => node.dataset.providerLogo))
-      .toEqual(["claude", "codex", "pi"])
+      .toEqual(["codex", "grok", "claude", "pi"])
+    expect([...detail.querySelectorAll<HTMLElement>("[data-quota-backend]")]
+      .map((node) => node.dataset.quotaBackend))
+      .toEqual(["codex", "grok", "claude", "pi"])
   })
 
   it("shows one limit's server-authored window and stale state", () => {
     const renderer = render([quotaEntry([limit({ usedPercent: 37.5 })], "stale")])
     const trigger = renderer.getByTestId("community-machine-quota-m1")
-    expect(text(trigger)).toContain("Quota · Spark · 62.5% left")
-    expect(text(trigger)).toContain("Stale")
+    expect(text(trigger)).toBe("Quota·62.5%stale")
+    expect(trigger).toHaveAttribute("aria-label", expect.stringContaining("Codex 62.5% left, stale"))
   })
 
   it("renders honest fixed-height placeholders for missing capability states", () => {
