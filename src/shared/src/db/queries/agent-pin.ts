@@ -11,14 +11,12 @@ export async function listPins(db: Database, workspaceId: string, userId: string
 }
 
 export async function pinAgent(db: Database, data: { agentId: string; workspaceId: string; userId: string }) {
-  const [maxRow] = await db
-    .select({ maxPos: sql<number>`COALESCE(MAX(${agentPin.position}), -1)` })
-    .from(agentPin)
-    .where(and(eq(agentPin.workspaceId, data.workspaceId), eq(agentPin.userId, data.userId)));
-  const nextPos = (maxRow?.maxPos ?? -1) + 1;
   const rows = await db
     .insert(agentPin)
-    .values({ ...data, position: nextPos })
+    .values({
+      ...data,
+      position: sql<number>`COALESCE((SELECT MAX(${agentPin.position}) FROM ${agentPin} WHERE ${agentPin.workspaceId} = ${data.workspaceId} AND ${agentPin.userId} = ${data.userId}), -1) + 1`,
+    })
     .onConflictDoNothing()
     .returning();
   return rows[0] ?? null;
