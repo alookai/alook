@@ -290,24 +290,30 @@ describe("reduceStructuralSnapshot", () => {
     }, NOW + 8)!
     expect(current.servers[0]?.childRouteHints[0]?.name).toBe("renamed child")
     current = reduceStructuralSnapshot(current, {
-      type: "removeChildHint",
+      type: "patchChildHint",
       serverId: "server-a",
       channelId: "child-1",
     }, NOW + 9)!
+    expect(current.servers[0]?.childRouteHints[0]?.name).toBe("renamed child")
+    current = reduceStructuralSnapshot(current, {
+      type: "removeChildHint",
+      serverId: "server-a",
+      channelId: "child-1",
+    }, NOW + 10)!
     expect(current.servers[0]?.childRouteHints).toEqual([])
 
     current = reduceStructuralSnapshot(current, {
       type: "removeCategory",
       serverId: "server-a",
       categoryId: "category-2",
-    }, NOW + 10)!
+    }, NOW + 11)!
     expect(current.servers[0]?.channels.find((channel) => channel.id === "channel-c")?.categoryId)
       .toBeNull()
 
     current = reduceStructuralSnapshot(current, {
       type: "removeServer",
       serverId: "server-a",
-    }, NOW + 11)!
+    }, NOW + 12)!
     expect(current.folders).toEqual([{ id: "folder-b", name: "B", serverIds: ["server-b"] }])
     expect(current.servers.map((server) => server.id)).toEqual(["server-b"])
 

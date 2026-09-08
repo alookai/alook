@@ -296,6 +296,12 @@ describe("useCommunityWs — channel.* invalidates server(id)", () => {
       changes: { name: "updated", type: "forum", categoryId: null },
     } satisfies CommunityChannelUpdate)
     capturedOnMessage!({
+      type: "community:channel.update",
+      serverId: "srv_1",
+      channelId: "ch_second",
+      changes: { name: "name-only" },
+    } satisfies CommunityChannelUpdate)
+    capturedOnMessage!({
       type: "community:channel.reorder",
       serverId: "srv_1",
       channels: [
@@ -310,7 +316,7 @@ describe("useCommunityWs — channel.* invalidates server(id)", () => {
     expect(channels.map((channel: { id: string }) => channel.id))
       .toEqual(["ch_second", "ch_old"])
     expect(channels[0]).toMatchObject({
-      name: "updated",
+      name: "name-only",
       type: "forum",
       categoryId: null,
     })
