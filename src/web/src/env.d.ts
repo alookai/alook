@@ -6,6 +6,10 @@ interface RuntimeEnv {
   NODE_ENV?: string
   DEV_WS_DO_URL?: string
   DEV_WAKE_WORKER_URL?: string
+  APPLE_CLIENT_ID?: string
+  APPLE_TEAM_ID?: string
+  APPLE_KEY_ID?: string
+  APPLE_PRIVATE_KEY?: string
 }
 
 declare namespace Cloudflare {

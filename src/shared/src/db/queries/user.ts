@@ -1,6 +1,6 @@
 import { eq, inArray, sql, and, ne, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
-import { user } from "../schema";
+import { account, user } from "../schema";
 import type { Database } from "../index";
 import { escapeLikePattern } from "../../utils/sql-like";
 import { computeDiscriminator } from "../../lib/discriminator";
@@ -216,6 +216,33 @@ export async function getUserByEmail(
     .select(publicUserColumns)
     .from(user)
     .where(eq(user.email, email));
+  return (rows[0] as PublicUser | undefined) ?? null;
+}
+
+/**
+ * Auth-internal lookup for a stable OAuth identity. Better Auth 1.7 keys
+ * social accounts by `(providerId, accountId)`; callers must supply the
+ * provider-verified immutable subject, never an email address.
+ */
+export async function getUserByProviderAccount(
+  db: Database,
+  providerId: string,
+  accountId: string
+): Promise<PublicUser | null> {
+  const rows = await db
+    .select(publicUserColumns)
+    .from(account)
+    .innerJoin(user, eq(account.userId, user.id))
+    .where(
+      and(
+        eq(account.providerId, providerId),
+        eq(account.accountId, accountId)
+      )
+    )
+    .limit(2);
+  if (rows.length > 1) {
+    throw new Error("multiple users share one provider account identity");
+  }
   return (rows[0] as PublicUser | undefined) ?? null;
 }
 

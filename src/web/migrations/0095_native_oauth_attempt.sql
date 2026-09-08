@@ -40,7 +40,7 @@ CREATE TABLE native_oauth_attempt (
     )
   ),
   CONSTRAINT ck_native_oauth_attempt_enums CHECK (
-    provider IN ('github', 'google')
+    provider IN ('github', 'google', 'apple')
     AND platform IN ('macos', 'windows', 'linux', 'ios', 'android')
     AND status IN (
       'pending', 'opened', 'ready', 'exchanging',

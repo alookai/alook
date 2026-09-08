@@ -1,5 +1,9 @@
 import { afterEach, describe, it, expect, vi, beforeEach } from "vitest"
 
+const appleMocks = vi.hoisted(() => ({
+  generateClientSecret: vi.fn(async () => "signed-apple-client-secret"),
+}))
+
 vi.mock("better-auth", () => ({
   betterAuth: vi.fn((opts: unknown) => ({ __options: opts })),
 }))
@@ -10,6 +14,14 @@ vi.mock("better-auth/plugins", () => ({
   bearer: vi.fn(() => ({ __plugin: "bearer" })),
   oneTimeToken: vi.fn((cfg: unknown) => ({ __plugin: "oneTimeToken", cfg })),
 }))
+
+vi.mock("@/lib/apple-auth", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/apple-auth")>()
+  return {
+    ...actual,
+    generateAppleClientSecret: appleMocks.generateClientSecret,
+  }
+})
 
 // `probeAvailableDiscriminator` (called from the `user.create.before` hook)
 // does a real `getUserByNameAndDiscriminator` SELECT against `getDb(env.DB)`
@@ -26,12 +38,16 @@ function queueSelectResponse(rows: unknown[]) {
 function makeFakeDb() {
   const chain = {
     from: () => chain,
+    innerJoin: () => chain,
     where: () => chain,
     limit: async () => selectResponses.shift() ?? [],
   }
   return { select: () => chain }
 }
-vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => makeFakeDb()) }));
+vi.mock("@/lib/db", () => ({
+  getDb: vi.fn(() => makeFakeDb()),
+  getPrimaryDb: vi.fn(() => makeFakeDb()),
+}));
 
 vi.mock("@alook/shared", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@alook/shared")>()
@@ -79,6 +95,8 @@ function makeEnv(overrides: Partial<Record<string, unknown>> = {}) {
 }
 
 type AuthOptions = {
+  trustedOrigins?: string[]
+  socialProviders?: Record<string, unknown>
   user?: {
     additionalFields?: Record<
       string,
@@ -90,6 +108,7 @@ type AuthOptions = {
   }
   plugins?: Array<{
     __plugin?: string
+    id?: string
     cfg?: Record<string, unknown> & {
       sendVerificationOTP?: (args: { email: string; otp: string; type: string }) => Promise<void>
     }
@@ -109,6 +128,11 @@ type AuthOptions = {
           [k: string]: unknown
         }) => Promise<{ data: { name?: string; email?: string; [k: string]: unknown } }>
         after?: (user: unknown, ctx: unknown) => Promise<void>
+      }
+    }
+    session?: {
+      create?: {
+        after?: (session: unknown, ctx: unknown) => Promise<void>
       }
     }
   }
@@ -308,6 +332,66 @@ describe("createAuth user fields", () => {
   })
 })
 
+describe("createAuth Apple provider", () => {
+  it("omits Apple and its trusted origin when all Apple configuration is absent", async () => {
+    const createAuth = await loadCreateAuth()
+    const opts = (createAuth(makeEnv() as never) as { __options: AuthOptions }).__options
+
+    expect(opts.socialProviders).not.toHaveProperty("apple")
+    expect(opts.trustedOrigins).not.toContain("https://appleid.apple.com")
+    expect(opts.plugins).not.toContainEqual(expect.objectContaining({ id: "apple-oauth-hardening" }))
+  })
+
+  it.each(["production", "development"])(
+    "enables only the hardened async built-in provider surface in %s",
+    async (nodeEnv) => {
+    const createAuth = await loadCreateAuth()
+    const opts = (createAuth(makeEnv({
+      NODE_ENV: nodeEnv,
+      APPLE_CLIENT_ID: "ai.alook.web",
+      APPLE_TEAM_ID: "TEAM123456",
+      APPLE_KEY_ID: "KEY1234567",
+      APPLE_PRIVATE_KEY: "test-private-key-shape-is-validated-on-provider-use",
+    }) as never) as { __options: AuthOptions }).__options
+
+    expect(opts.socialProviders?.apple).toEqual(expect.any(Function))
+    expect(opts.trustedOrigins).toEqual(["https://appleid.apple.com"])
+    expect(opts.plugins).toContainEqual(expect.objectContaining({ id: "apple-oauth-hardening" }))
+
+    const createAppleProvider = opts.socialProviders?.apple as () => Promise<{
+      clientId: string
+      clientSecret: string
+      mapProfileToUser: (profile: {
+        sub: string
+        email?: string
+        email_verified?: boolean | string
+      }) => Promise<{ email?: string; emailVerified?: boolean; name?: string }>
+    }>
+    const provider = await createAppleProvider()
+    expect(provider).toMatchObject({
+      clientId: "ai.alook.web",
+      clientSecret: "signed-apple-client-secret",
+    })
+    queueSelectResponse([{
+      email: "stored@example.com",
+      emailVerified: true,
+      name: "Stored Person",
+    }])
+    await expect(provider.mapProfileToUser({ sub: "returning-sub" })).resolves.toEqual({
+      email: "stored@example.com",
+      emailVerified: true,
+      name: "Stored Person",
+    })
+    expect(appleMocks.generateClientSecret).toHaveBeenCalled()
+  })
+
+  it("fails closed before Better Auth initializes when configuration is partial", async () => {
+    const createAuth = await loadCreateAuth()
+    expect(() => createAuth(makeEnv({ APPLE_CLIENT_ID: "ai.alook.web" }) as never))
+      .toThrow("Apple authentication configuration is incomplete")
+  })
+})
+
 describe("createAuth device authorization plugin", () => {
   beforeEach(() => vi.clearAllMocks())
 
@@ -397,6 +481,15 @@ describe("createAuth databaseHooks — user.create.after", () => {
     expect(ctx.setCookie).toHaveBeenCalledWith("is_new_signup", "google", expect.anything())
   })
 
+  it("sets method=apple for apple callback path", async () => {
+    const createAuth = await loadCreateAuth()
+    const opts = (createAuth(makeEnv({ NODE_ENV: "production" }) as never) as { __options: AuthOptions }).__options
+    const afterHook = opts.databaseHooks!.user!.create!.after!
+    const ctx = makeCtx("http://localhost:3000/api/auth/callback/apple")
+    await afterHook({ id: "u-apple" }, ctx)
+    expect(ctx.setCookie).toHaveBeenCalledWith("is_new_signup", "apple", expect.anything())
+  })
+
   it("sets method=unknown for unrecognized path", async () => {
     const createAuth = await loadCreateAuth()
     const opts = (createAuth(makeEnv({ NODE_ENV: "production" }) as never) as { __options: AuthOptions }).__options
@@ -411,6 +504,31 @@ describe("createAuth databaseHooks — user.create.after", () => {
     const opts = (createAuth(makeEnv({ NODE_ENV: "production" }) as never) as { __options: AuthOptions }).__options
     const afterHook = opts.databaseHooks!.user!.create!.after!
     await expect(afterHook({ id: "u5" }, null)).resolves.toBeUndefined()
+  })
+})
+
+describe("createAuth databaseHooks — session.create.after", () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it("sets is_sign_in cookie with method=apple for an Apple callback", async () => {
+    const createAuth = await loadCreateAuth()
+    const opts = (createAuth(makeEnv({ NODE_ENV: "production" }) as never) as {
+      __options: AuthOptions
+    }).__options
+    const afterHook = opts.databaseHooks!.session!.create!.after!
+    const ctx = {
+      request: { url: "http://localhost:3000/api/auth/callback/apple" },
+      getCookie: vi.fn(() => undefined),
+      setCookie: vi.fn(),
+    }
+
+    await afterHook({ id: "session-apple", userId: "u-apple" }, ctx)
+
+    expect(ctx.setCookie).toHaveBeenCalledWith(
+      "is_sign_in",
+      "apple",
+      expect.objectContaining({ maxAge: 60 }),
+    )
   })
 })
 

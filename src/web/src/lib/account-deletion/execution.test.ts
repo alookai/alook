@@ -141,7 +141,7 @@ describe("account deletion execution", () => {
       { waitUntil: vi.fn() },
       "user-1",
     )).resolves.toEqual({ kind: "failed" })
-    expect(mocks.getSnapshot).toHaveBeenCalledOnce()
+    expect(mocks.getSnapshot).toHaveBeenCalledTimes(2)
     expect(mocks.deleteRows).not.toHaveBeenCalled()
   })
 
@@ -203,6 +203,61 @@ describe("account deletion execution", () => {
       "account_deletion_post_commit_effects_failed",
       { failures: 1 },
     )
+  })
+
+  it("revokes Apple synchronously before deleting local account rows", async () => {
+    const current = {
+      ...snapshot("current"),
+      providers: [{
+        providerId: "apple",
+        accountId: "stable-sub",
+        accessToken: "access",
+        refreshToken: "refresh",
+      }],
+    }
+    mocks.getSnapshot.mockResolvedValue(current)
+    mocks.deleteRows.mockResolvedValue({ deleted: true, readStateRevisions: [] })
+
+    await expect(executeAccountDeletion(
+      {} as never,
+      {} as never,
+      { waitUntil: vi.fn() },
+      "user-1",
+    )).resolves.toEqual({ kind: "deleted" })
+
+    expect(mocks.revokeProvider).toHaveBeenCalledOnce()
+    expect(mocks.revokeProvider).toHaveBeenCalledWith(expect.anything(), current.providers[0])
+    expect(mocks.revokeProvider.mock.invocationCallOrder[0])
+      .toBeLessThan(mocks.deleteStorage.mock.invocationCallOrder[0])
+    expect(mocks.deleteStorage.mock.invocationCallOrder[0])
+      .toBeLessThan(mocks.deleteStorage.mock.invocationCallOrder[1])
+    expect(mocks.deleteStorage.mock.invocationCallOrder[1])
+      .toBeLessThan(mocks.deleteRows.mock.invocationCallOrder[0])
+  })
+
+  it("preserves the local account when Apple revocation fails", async () => {
+    const current = {
+      ...snapshot("current"),
+      providers: [{
+        providerId: "apple",
+        accountId: "stable-sub",
+        accessToken: "access",
+        refreshToken: "refresh",
+      }],
+    }
+    mocks.getSnapshot.mockResolvedValue(current)
+    mocks.revokeProvider.mockRejectedValue(new Error("Apple unavailable"))
+
+    await expect(executeAccountDeletion(
+      {} as never,
+      {} as never,
+      { waitUntil: vi.fn() },
+      "user-1",
+    )).resolves.toEqual({ kind: "failed" })
+
+    expect(mocks.deleteStorage).not.toHaveBeenCalled()
+    expect(mocks.deleteRows).not.toHaveBeenCalled()
+    expect(mocks.invalidateMany).not.toHaveBeenCalled()
   })
 
   it("keeps a committed deletion successful when machine-token invalidation fails", async () => {

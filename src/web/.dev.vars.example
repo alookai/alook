@@ -21,5 +21,12 @@ GITHUB_CLIENT_SECRET=
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 
+# Sign in with Apple (Services ID + Sign in with Apple private key)
+# Leave all four values empty to disable the provider locally.
+APPLE_CLIENT_ID=
+APPLE_TEAM_ID=
+APPLE_KEY_ID=
+APPLE_PRIVATE_KEY=
+
 # Device Code Flow — comma-separated allowed client IDs
 DEVICE_CLIENT_IDS=alook-cli

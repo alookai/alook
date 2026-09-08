@@ -1,4 +1,5 @@
 import type { queries } from "@alook/shared"
+import { generateAppleClientSecret, resolveAppleAuthConfig } from "@/lib/apple-auth"
 
 type Provider = queries.accountDeletion.AccountDeletionSnapshot["providers"][number]
 
@@ -13,7 +14,15 @@ async function providerFetch(url: string, init: RequestInit): Promise<void> {
 }
 
 export async function revokeProviderAccount(
-  env: Pick<Env, "GITHUB_CLIENT_ID" | "GITHUB_CLIENT_SECRET">,
+  env: Pick<
+    Env,
+    | "GITHUB_CLIENT_ID"
+    | "GITHUB_CLIENT_SECRET"
+    | "APPLE_CLIENT_ID"
+    | "APPLE_TEAM_ID"
+    | "APPLE_KEY_ID"
+    | "APPLE_PRIVATE_KEY"
+  >,
   provider: Provider,
 ): Promise<void> {
   if (provider.providerId === "google") {
@@ -40,6 +49,28 @@ export async function revokeProviderAccount(
         "X-GitHub-Api-Version": "2022-11-28",
       },
       body: JSON.stringify({ access_token: provider.accessToken }),
+    })
+    return
+  }
+
+  if (provider.providerId === "apple") {
+    const refreshToken = provider.refreshToken || undefined
+    const token = refreshToken ?? provider.accessToken
+    if (!token) throw new Error("Apple provider revocation token is unavailable")
+
+    const state = resolveAppleAuthConfig(env)
+    if (!state.enabled) throw new Error("Apple provider revocation configuration is unavailable")
+
+    const clientSecret = await generateAppleClientSecret(state.config)
+    await providerFetch("https://appleid.apple.com/auth/revoke", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: state.config.clientId,
+        client_secret: clientSecret,
+        token,
+        token_type_hint: refreshToken ? "refresh_token" : "access_token",
+      }),
     })
   }
 }

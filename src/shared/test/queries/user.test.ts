@@ -18,6 +18,7 @@ function createSelectLimitMock(rows: any[]) {
   const chain: any = {};
   chain.select = vi.fn(() => chain);
   chain.from = vi.fn(() => chain);
+  chain.innerJoin = vi.fn(() => chain);
   chain.where = vi.fn(() => chain);
   chain.limit = vi.fn(() => Promise.resolve(rows));
   return chain;
@@ -69,6 +70,7 @@ describe("user exports", () => {
   it("exports getUserPublic", () => { expect(typeof userQueries.getUserPublic).toBe("function"); });
   it("exports getUserSelf", () => { expect(typeof userQueries.getUserSelf).toBe("function"); });
   it("exports getUserByEmail", () => { expect(typeof userQueries.getUserByEmail).toBe("function"); });
+  it("exports getUserByProviderAccount", () => { expect(typeof userQueries.getUserByProviderAccount).toBe("function"); });
   it("exports createUser", () => { expect(typeof userQueries.createUser).toBe("function"); });
   it("exports updateUser", () => { expect(typeof userQueries.updateUser).toBe("function"); });
 });
@@ -96,6 +98,44 @@ describe("getUserSelf", () => {
 describe("getUserByEmail", () => {
   it("returns null when not found", async () => { expect(await userQueries.getUserByEmail(createSelectMock([]), "x@x.com")).toBeNull(); });
   it("returns user", async () => { const u = { id: "u_1" }; expect(await userQueries.getUserByEmail(createSelectMock([u]), "a@b.com")).toEqual(u); });
+});
+
+describe("getUserByProviderAccount", () => {
+  it("returns the user joined through the exact provider and account keys", async () => {
+    const user = { id: "u_apple", email: "relay@privaterelay.appleid.com" };
+    const chain = createSelectLimitMock([user]);
+
+    await expect(
+      userQueries.getUserByProviderAccount(chain, "apple", "stable-sub"),
+    ).resolves.toEqual(user);
+    expect(chain.innerJoin).toHaveBeenCalledOnce();
+    expect(chain.limit).toHaveBeenCalledWith(2);
+    const condition = chain.where.mock.calls[0][0];
+    expect(conditionReferencesColumn(condition, "providerId")).toBe(true);
+    expect(conditionReferencesColumn(condition, "accountId")).toBe(true);
+    expect(conditionContainsString(condition, "apple")).toBe(true);
+    expect(conditionContainsString(condition, "stable-sub")).toBe(true);
+  });
+
+  it("returns null when the identity has never been seen", async () => {
+    await expect(
+      userQueries.getUserByProviderAccount(
+        createSelectLimitMock([]),
+        "apple",
+        "new-sub"
+      ),
+    ).resolves.toBeNull();
+  });
+
+  it("fails closed when duplicate provider identities exist", async () => {
+    await expect(
+      userQueries.getUserByProviderAccount(
+        createSelectLimitMock([{ id: "u_1" }, { id: "u_2" }]),
+        "apple",
+        "duplicate-sub"
+      ),
+    ).rejects.toThrow("multiple users share one provider account identity");
+  });
 });
 
 describe("createUser", () => {

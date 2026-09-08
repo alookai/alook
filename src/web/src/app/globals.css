@@ -48,6 +48,8 @@
   --color-secondary: var(--secondary);
   --color-primary-foreground: var(--primary-foreground);
   --color-primary: var(--primary);
+  --color-apple-signin: var(--apple-signin);
+  --color-apple-signin-foreground: var(--apple-signin-foreground);
   --color-popover-foreground: var(--popover-foreground);
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
@@ -499,6 +501,8 @@ body.driver-active .community-ws-reconnect-overlay * {
   --popover-foreground: oklch(0.18 0.03 230);
   --primary: oklch(0.22 0.03 230);
   --primary-foreground: oklch(0.985 0.005 80);
+  --apple-signin: oklch(0 0 0);
+  --apple-signin-foreground: oklch(1 0 0);
   --secondary: oklch(0.96 0.006 80);
   --secondary-foreground: oklch(0.22 0.03 230);
   --shimmer: rgba(0, 0, 0, 0.06);
@@ -553,6 +557,8 @@ body.driver-active .community-ws-reconnect-overlay * {
   --popover-foreground: oklch(0.93 0.006 80);
   --primary: oklch(0.9 0.008 80);
   --primary-foreground: oklch(0.21 0.008 60);
+  --apple-signin: oklch(1 0 0);
+  --apple-signin-foreground: oklch(0 0 0);
   --secondary: oklch(0.27 0.008 60);
   --secondary-foreground: oklch(0.93 0.006 80);
   --shimmer: rgba(255, 255, 255, 0.06);

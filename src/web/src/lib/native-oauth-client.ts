@@ -1,4 +1,11 @@
-import { isSafeRedirectPath, nativeOauthRegistrationSchema, nativeOauthProofSchema, nativeOauthExchangeSchema, tauriInvoke } from "@alook/shared"
+import {
+  isSafeRedirectPath,
+  nativeOauthRegistrationSchema,
+  nativeOauthProofSchema,
+  nativeOauthExchangeSchema,
+  tauriInvoke,
+  type NativeOauthProvider,
+} from "@alook/shared"
 import { z } from "zod"
 import { nativeOauthSnapshotSchema, type NativeOauthSnapshot } from "@/lib/native-oauth-schema"
 
@@ -8,7 +15,7 @@ const exchangeSchema = nativeOauthProofSchema.extend({
 export type { NativeOauthSnapshot } from "@/lib/native-oauth-schema"
 export type NativeOauthView = {
   phase: "initializing" | "idle" | "preparing" | "waiting" | "exchanging" | "checking_status" | "error" | "unsupported"
-  message?: "start_failed" | "expired" | "denied" | "invalid_callback" | "retry_required" | "unavailable"
+  message?: "start_failed" | "expired" | "denied" | "invalid_callback" | "retry_required" | "unavailable" | "apple_update_required"
   attempt: NativeOauthSnapshot | null
 }
 export type NativeOauthDeps = {
@@ -153,7 +160,7 @@ export function createNativeOauthController(deps: NativeOauthDeps, changed: (vie
           : { phase: "unsupported", attempt: null })
       }
     },
-    start(provider: "github" | "google", redirectPath: string) {
+    start(provider: NativeOauthProvider, redirectPath: string) {
       if (disposed || !connected || !isSafeRedirectPath(redirectPath)) return Promise.resolve()
       const version = ++generation
       publish({ phase: "preparing", attempt: view.attempt })
@@ -177,13 +184,21 @@ export function createNativeOauthController(deps: NativeOauthDeps, changed: (vie
           if (!current(version)) return
           publish({ phase: "waiting", attempt: waiting })
           void drain()
-        } catch {
+        } catch (error) {
           if (!current(version)) return
           if (attemptId) {
             const proof = await deps.invoke("native_oauth_cancel", { attemptId }).catch(() => null)
             if (proof) await deps.post("cancel", nativeOauthProofSchema.parse(proof)).catch(() => {})
           }
-          if (current(version)) { setAttempt(null); publish({ phase: "error", message: "start_failed", attempt: null }) }
+          const nativeError = typeof error === "string"
+            ? error
+            : error instanceof Error
+            ? error.message
+            : ""
+          const message = provider === "apple" && !attemptId && nativeError === "invalid_request"
+            ? "apple_update_required"
+            : "start_failed"
+          if (current(version)) { setAttempt(null); publish({ phase: "error", message, attempt: null }) }
         }
       }
       startQueue = startQueue.then(task, task)

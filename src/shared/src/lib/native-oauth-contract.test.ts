@@ -15,6 +15,11 @@ describe("native OAuth contract drift", () => {
     expect(nativeOauthProviderSchema.options).toEqual([
       ...NATIVE_OAUTH_PROVIDERS,
     ]);
+    expect(nativeOauthProviderSchema.options).toEqual([
+      "github",
+      "google",
+      "apple",
+    ]);
     expect(nativeOauthPlatformSchema.options).toEqual([
       ...NATIVE_OAUTH_PLATFORMS,
     ]);
