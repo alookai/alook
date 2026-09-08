@@ -267,9 +267,10 @@ export class GrokAcpLane implements RuntimeLane {
     const proc = this.process;
     if (!proc) return;
     if (this.sessionId && !this.isClosed() && (input.forceAfterMs ?? SESSION_STOP_GRACE_MS) > 0) {
-      await this.call("session/close", { sessionId: this.sessionId }, Math.min(
-        input.forceAfterMs ?? SESSION_CLOSE_TIMEOUT_MS,
-        SESSION_CLOSE_TIMEOUT_MS,
+      await Promise.resolve().then(() => this.call(
+        "session/close",
+        { sessionId: this.sessionId },
+        Math.min(input.forceAfterMs ?? SESSION_CLOSE_TIMEOUT_MS, SESSION_CLOSE_TIMEOUT_MS),
       )).catch(() => undefined);
     }
     this.rejectAllPending(new Error("Grok ACP lane stopped"));

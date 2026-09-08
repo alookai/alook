@@ -96,4 +96,36 @@ describe("Grok telemetry", () => {
       retryable: true,
     });
   });
+
+  it("uses legacy billing dates, duration, and plan-name fallbacks", () => {
+    expect(normalizeGrokBilling({
+      subscription_tier: "Legacy",
+      config: {
+        currentPeriod: {
+          type: "USAGE_PERIOD_TYPE_MONTHLY",
+          creditUsagePercent: 20,
+          billingPeriodStart: "2026-09-01T00:00:00Z",
+          billingPeriodEnd: "2026-10-01T00:00:00Z",
+        },
+      },
+    }, epoch)).toMatchObject({
+      status: "available",
+      planName: "Legacy",
+      limits: [{
+        bucket: { window: { durationSeconds: 2_592_000 } },
+        resetsAt: "2026-10-01T00:00:00.000Z",
+      }],
+    });
+
+    expect(normalizeGrokBilling({
+      config: {
+        currentPeriod: { creditUsagePercent: 30 },
+        billingPeriodStart: "2026-09-01T00:00:00Z",
+        billingPeriodEnd: "2026-09-11T00:00:00Z",
+      },
+    }, epoch)).toMatchObject({
+      status: "available",
+      limits: [{ bucket: { window: { durationSeconds: 864_000 } } }],
+    });
+  });
 });

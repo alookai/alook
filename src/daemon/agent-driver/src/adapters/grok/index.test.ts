@@ -86,6 +86,24 @@ describe("Grok ACP model catalog", () => {
     });
   });
 
+  it("normalizes models without reasoning and snake-case reasoning metadata", () => {
+    expect(parseGrokModelCatalog({
+      currentModelId: "plain",
+      availableModels: [
+        { modelId: "plain", name: "Plain" },
+        { modelId: "snake", meta: { supportsReasoningEffort: true, reasoning_efforts: ["high"] } },
+        { modelId: "empty", _meta: { supportsReasoningEffort: true } },
+      ],
+    })).toMatchObject({
+      defaultModelId: "plain",
+      models: [
+        { id: "plain", supportedReasoningEfforts: [] },
+        { id: "snake", supportedReasoningEfforts: [{ value: "high" }] },
+        { id: "empty", supportedReasoningEfforts: [] },
+      ],
+    });
+  });
+
   it("uses only initialize/authenticate, never creates a session, and cleans exactly once", async () => {
     const messages: Record<string, unknown>[] = [];
     const cleanup = vi.fn(async () => {});
@@ -284,6 +302,55 @@ describe("Grok ACP model catalog", () => {
       timeoutMs: 5,
     })).resolves.toEqual({ status: "unhealthy", lastError: "grok_acp_probe_timeout" });
     expect(timeoutCleanup).toHaveBeenCalledTimes(1);
+  });
+
+  it("covers default cleanup, transport failures, missing results, and stdout bounds", async () => {
+    const cleaned = fakeProcess((process, message) => {
+      if (message.method === "initialize") {
+        respond(process, message, {
+          protocolVersion: 1,
+          agentCapabilities: { loadSession: true },
+          authMethods: [{ id: "cached_token" }],
+          _meta: { modelState },
+        });
+      } else {
+        respond(process, message, {});
+      }
+    });
+    Object.defineProperty(cleaned, "pid", { value: undefined, configurable: true });
+    await expect(probeGrokAcpCatalog(undefined, { spawn: () => cleaned })).resolves.toMatchObject({
+      status: "compatible",
+    });
+    expect(cleaned.kill).toHaveBeenCalledWith("SIGTERM");
+
+    const unavailable = fakeProcess(() => {});
+    unavailable.stdin.end();
+    await expect(probeGrokAcpCatalog(undefined, {
+      spawn: () => unavailable,
+      cleanup: async () => {},
+    })).resolves.toEqual({ status: "unhealthy", lastError: "grok_acp_transport_unavailable" });
+
+    const throwing = fakeProcess(() => {});
+    throwing.stdin.write = (() => { throw new Error("closed"); }) as typeof throwing.stdin.write;
+    await expect(probeGrokAcpCatalog(undefined, {
+      spawn: () => throwing,
+      cleanup: async () => {},
+    })).resolves.toEqual({ status: "unhealthy", lastError: "grok_acp_transport_unavailable" });
+
+    const omitted = fakeProcess((process, message) => {
+      process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: message.id })}\n`);
+    });
+    await expect(probeGrokAcpCatalog(undefined, {
+      spawn: () => omitted,
+      cleanup: async () => {},
+    })).resolves.toEqual({ status: "unhealthy", lastError: "grok_acp_invalid_response" });
+
+    const oversized = fakeProcess((process) => process.stdout.write("x".repeat(65)));
+    await expect(probeGrokAcpCatalog(undefined, {
+      spawn: () => oversized,
+      cleanup: async () => {},
+      outputMaxBytes: 64,
+    })).resolves.toEqual({ status: "unhealthy", lastError: "grok_acp_output_limit" });
   });
 });
 

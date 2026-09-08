@@ -3,13 +3,20 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AdapterEvent, SpawnedProcessHandle } from "../../internal/adapter.js";
 import { createAgentDriverSdk } from "../../sdk.js";
 import { fakeLaunchContext } from "../../testing/adapter-fixture.js";
 import { createFakeAgentDriverHost } from "../../testing/fake-host.js";
 import { GrokAcpLane } from "./acp-lane.js";
 import { GrokDriver } from "./index.js";
+
+const killProcessTree = vi.hoisted(() => vi.fn(async () => {}));
+
+vi.mock("../../internal/killTree.js", async () => {
+  const actual = await vi.importActual<typeof import("../../internal/killTree.js")>("../../internal/killTree.js");
+  return { ...actual, killProcessTree };
+});
 
 type RpcMessage = Record<string, unknown>;
 type FakeProcess = SpawnedProcessHandle & {
@@ -49,8 +56,8 @@ function respond(process: FakeProcess, request: RpcMessage, result: unknown): vo
   send(process, { id: request.id, result });
 }
 
-function fail(process: FakeProcess, request: RpcMessage, message: string): void {
-  send(process, { id: request.id, error: { code: -32000, message } });
+function fail(process: FakeProcess, request: RpcMessage, message: string, code = -32000): void {
+  send(process, { id: request.id, error: { code, message } });
 }
 
 const modelState = {
@@ -87,8 +94,12 @@ function installServer(options: {
   replayBeforeSessionResponse?: boolean;
   omitLoadSessionId?: boolean;
   responseSessionId?: string;
-  billingError?: string;
+  billingError?: string | { message: string; code: number };
   authMethods?: Array<{ id: string }>;
+  initializeResult?: RpcMessage;
+  sessionResult?: unknown;
+  setModelError?: string;
+  onSessionResponse?: () => void;
 } = {}) {
   const messages: RpcMessage[] = [];
   const prompts: RpcMessage[] = [];
@@ -97,7 +108,7 @@ function installServer(options: {
     messages.push(message);
     switch (message.method) {
       case "initialize":
-        respond(proc, message, {
+        respond(proc, message, options.initializeResult ?? {
           protocolVersion: 1,
           agentCapabilities: { loadSession: true },
           authMethods: options.authMethods ?? [{ id: "cached_token" }, { id: "grok.com" }],
@@ -128,15 +139,21 @@ function installServer(options: {
             params: { sessionId, update: { sessionUpdate: "turn_completed" } },
           });
         }
-        respond(proc, message, {
+        respond(proc, message, options.sessionResult ?? {
           ...(message.method === "session/load" && options.omitLoadSessionId
             ? {}
             : { sessionId: options.responseSessionId ?? sessionId }),
           models: modelState,
         });
+        options.onSessionResponse?.();
         break;
       case "_x.ai/billing":
-        if (options.billingError) fail(proc, message, options.billingError);
+        if (options.billingError) {
+          const failure = typeof options.billingError === "string"
+            ? { message: options.billingError, code: -32000 }
+            : options.billingError;
+          fail(proc, message, failure.message, failure.code);
+        }
         else respond(proc, message, {
           subscriptionTier: "SuperGrok",
           config: {
@@ -148,6 +165,9 @@ function installServer(options: {
         });
         break;
       case "session/set_model":
+        if (options.setModelError) fail(proc, message, options.setModelError);
+        else respond(proc, message, {});
+        break;
       case "session/close":
         respond(proc, message, {});
         break;
@@ -160,6 +180,9 @@ function installServer(options: {
 }
 
 describe("Grok ACP persistent lane", () => {
+  beforeEach(() => {
+    killProcessTree.mockClear();
+  });
   it("creates one session, rejects busy input, maps events, and grants active allow-once", async () => {
     const server = installServer({ replayBeforeSessionResponse: true });
     const raw = vi.fn();
@@ -495,6 +518,410 @@ describe("Grok ACP persistent lane", () => {
     }]);
     expect(events.filter((event) => event.kind === "error")).toHaveLength(0);
     expect(events.filter((event) => event.kind === "turn_end")).toHaveLength(1);
+  });
+
+  it("enforces lifecycle and live-settings boundaries", async () => {
+    const server = installServer();
+    const lane = new GrokAcpLane({ spawn: async () => ({ process: server.process }) }, context());
+    eventsFrom(lane);
+
+    await expect(lane.send({ text: "early", mode: "idle" })).resolves.toEqual({
+      ok: false,
+      reason: "closed",
+    });
+    await expect(lane.updateSettings({ reasoningEffort: "low" })).resolves.toMatchObject({
+      status: "failed",
+      error: { code: "settings_session_unavailable", retryable: true },
+    });
+    await lane.start({ text: "settings" });
+    await expect(lane.start({ text: "again" })).resolves.toMatchObject({
+      ok: false,
+      reason: "runtime_error",
+    });
+    await expect(lane.updateSettings({ reasoningEffort: "low" })).resolves.toMatchObject({
+      status: "failed",
+      error: { code: "settings_runtime_busy", retryable: true },
+    });
+    respond(server.process, server.prompts[0]!, { stopReason: "end_turn" });
+    await expect(lane.updateSettings({ reasoningEffort: "max" })).resolves.toMatchObject({
+      status: "failed",
+      error: { code: "unsupported_reasoning_effort" },
+    });
+    await expect(lane.updateSettings({ reasoningEffort: "low" })).resolves.toEqual({ status: "applied" });
+    expect(server.messages.at(-1)).toMatchObject({
+      method: "session/set_model",
+      params: { sessionId: "grok-session", modelId: "grok-4.6", _meta: { reasoningEffort: "low" } },
+    });
+
+    const noCatalog = installServer({
+      initializeResult: {
+        protocolVersion: 1,
+        agentCapabilities: { loadSession: true },
+        authMethods: [{ id: "cached_token" }],
+      },
+      sessionResult: { sessionId: "grok-session" },
+    });
+    const noCatalogLane = new GrokAcpLane(
+      { spawn: async () => ({ process: noCatalog.process }) },
+      context(),
+    );
+    eventsFrom(noCatalogLane);
+    await noCatalogLane.start({ text: "no catalog" });
+    respond(noCatalog.process, noCatalog.prompts[0]!, { stopReason: "end_turn" });
+    await expect(noCatalogLane.updateSettings({ reasoningEffort: null })).resolves.toMatchObject({
+      status: "failed",
+      error: { code: "settings_model_unavailable" },
+    });
+
+    const rejected = installServer({ setModelError: "not accepted" });
+    const rejectedLane = new GrokAcpLane(
+      { spawn: async () => ({ process: rejected.process }) },
+      context(),
+    );
+    eventsFrom(rejectedLane);
+    await rejectedLane.start({ text: "reject settings" });
+    respond(rejected.process, rejected.prompts[0]!, { stopReason: "end_turn" });
+    await expect(rejectedLane.updateSettings({ reasoningEffort: "high" })).resolves.toMatchObject({
+      status: "failed",
+      error: { code: "settings_update_failed", retryable: true },
+    });
+  });
+
+  it.each([
+    {
+      name: "protocol",
+      initializeResult: {
+        protocolVersion: 2,
+        agentCapabilities: { loadSession: true },
+        authMethods: [{ id: "cached_token" }],
+      },
+      error: "protocol version 1",
+    },
+    {
+      name: "load capability",
+      initializeResult: {
+        protocolVersion: 1,
+        agentCapabilities: { loadSession: false },
+        authMethods: [{ id: "cached_token" }],
+      },
+      error: "persistent session loading",
+    },
+    {
+      name: "cached authentication",
+      initializeResult: {
+        protocolVersion: 1,
+        agentCapabilities: { loadSession: true },
+        authMethods: [{ id: "other" }],
+      },
+      error: "cached-token authentication",
+    },
+  ])("fails the strict handshake without $name", async ({ initializeResult, error }) => {
+    const server = installServer({ initializeResult });
+    const lane = new GrokAcpLane({ spawn: async () => ({ process: server.process }) }, context());
+    eventsFrom(lane);
+    await expect(lane.start({ text: "strict" })).resolves.toMatchObject({
+      ok: false,
+      reason: "incompatible_configuration",
+      error: expect.stringContaining(error),
+    });
+  });
+
+  it("rejects malformed session and configured model responses", async () => {
+    const loadFailure = installServer({ loadError: "Permission denied" });
+    const loadLane = new GrokAcpLane(
+      { spawn: async () => ({ process: loadFailure.process }) },
+      context({ config: { sessionId: "saved", runtimeConfig: { model: { kind: "default" } } } }),
+    );
+    eventsFrom(loadLane);
+    await expect(loadLane.start({ text: "load", sessionId: "saved" })).rejects.toThrow("Permission denied");
+
+    for (const sessionResult of ["invalid", {}, { sessionId: " " }]) {
+      const server = installServer({ sessionResult });
+      const lane = new GrokAcpLane({ spawn: async () => ({ process: server.process }) }, context());
+      eventsFrom(lane);
+      await expect(lane.start({ text: "bad session" })).rejects.toThrow(/valid session/);
+    }
+
+    const invalidLoaded = installServer({ sessionResult: { sessionId: " " } });
+    const invalidLoadedLane = new GrokAcpLane(
+      { spawn: async () => ({ process: invalidLoaded.process }) },
+      context({ config: { sessionId: "saved", runtimeConfig: { model: { kind: "default" } } } }),
+    );
+    eventsFrom(invalidLoadedLane);
+    await expect(invalidLoadedLane.start({ text: "bad load", sessionId: "saved" }))
+      .rejects.toThrow("invalid session id");
+
+    const unavailableModel = installServer();
+    const unavailableModelLane = new GrokAcpLane(
+      { spawn: async () => ({ process: unavailableModel.process }) },
+      context({ config: { runtimeConfig: { model: { kind: "named", name: "missing-model" } } } }),
+    );
+    eventsFrom(unavailableModelLane);
+    await expect(unavailableModelLane.start({ text: "model" })).resolves.toMatchObject({
+      ok: false,
+      reason: "incompatible_configuration",
+      error: expect.stringContaining("model is unavailable"),
+    });
+
+    const unavailableEffort = installServer();
+    const unavailableEffortLane = new GrokAcpLane(
+      { spawn: async () => ({ process: unavailableEffort.process }) },
+      context({ config: { runtimeConfig: { model: { kind: "default" }, reasoningEffort: "max" } } }),
+    );
+    eventsFrom(unavailableEffortLane);
+    await expect(unavailableEffortLane.start({ text: "effort" })).resolves.toMatchObject({
+      ok: false,
+      reason: "incompatible_configuration",
+      error: expect.stringContaining("reasoning effort is unavailable"),
+    });
+  });
+
+  it("settles malformed and failed prompt responses without leaking ownership", async () => {
+    const server = installServer();
+    const lane = new GrokAcpLane({ spawn: async () => ({ process: server.process }) }, context());
+    const events = eventsFrom(lane);
+    await lane.start({ text: "first" });
+
+    send(server.process, { id: server.prompts[0]!.id, error: {} });
+    await expect(lane.send({ text: "second", mode: "idle" })).resolves.toMatchObject({ ok: true });
+    send(server.process, { id: server.prompts[1]!.id });
+    await expect(lane.send({ text: "third", mode: "idle" })).resolves.toMatchObject({ ok: true });
+    respond(server.process, server.prompts[2]!, { stopReason: "vendor_stop" });
+
+    expect(events.filter((event) => event.kind === "error")).toEqual([
+      expect.objectContaining({ code: "grok.rpc_error", message: "Grok ACP request failed" }),
+      expect.objectContaining({ code: "grok.invalid_response" }),
+      expect.objectContaining({ code: "grok.invalid_stop_reason" }),
+    ]);
+    expect(events.filter((event) => event.kind === "turn_end")).toHaveLength(3);
+    send(server.process, { id: "unknown", result: {} });
+  });
+
+  it("diagnoses protocol extensions, unsafe updates, and permission fences", async () => {
+    const server = installServer();
+    const lane = new GrokAcpLane({ spawn: async () => ({ process: server.process }) }, context());
+    const events = eventsFrom(lane);
+    const stderr: string[] = [];
+    lane.on("stderr", (text) => stderr.push(text));
+    await lane.start({ text: "protocol" });
+
+    send(server.process, { id: "client-request", method: "terminal_create", params: {} });
+    send(server.process, { method: "vendor/extension", params: {} });
+    send(server.process, { method: "secret=value", params: {} });
+    send(server.process, {
+      id: "permission-denied",
+      method: "session/request_permission",
+      params: { sessionId: "other", options: [{ optionId: "always", kind: "allow_always" }] },
+    });
+    send(server.process, { method: "_x.ai/models/update", params: modelState });
+    const update = (sessionId: string, body: RpcMessage) => send(server.process, {
+      method: "session/update",
+      params: { sessionId, update: body },
+    });
+    update("other", { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "hidden" } });
+    update("grok-session", { sessionUpdate: "user_message_chunk", content: { type: "text", text: "echo" } });
+    update("grok-session", { sessionUpdate: "tool_call", toolCallId: 7, title: "bad" });
+    update("grok-session", { sessionUpdate: "current_model_update", model_id: "grok-next" });
+    update("grok-session", { sessionUpdate: "vendor_secret" });
+    server.process.stderr.write("  warning from grok  \n");
+
+    expect(server.messages).toContainEqual({
+      jsonrpc: "2.0",
+      id: "client-request",
+      error: { code: -32601, message: "Unsupported Grok ACP client request" },
+    });
+    expect(server.messages).toContainEqual({
+      jsonrpc: "2.0",
+      id: "permission-denied",
+      result: { outcome: { outcome: "cancelled" } },
+    });
+    expect(stderr).toEqual(["warning from grok"]);
+
+    respond(server.process, server.prompts[0]!, { stopReason: "end_turn" });
+    update("grok-session", { sessionUpdate: "plan" });
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "runtime_diagnostic", message: expect.stringContaining("terminal_create") }),
+      expect.objectContaining({ kind: "runtime_diagnostic", message: expect.stringContaining("unknown") }),
+      expect.objectContaining({ kind: "runtime_diagnostic", message: expect.stringContaining("different session") }),
+      expect.objectContaining({ kind: "runtime_diagnostic", message: expect.stringContaining("without an active prompt") }),
+    ]));
+    expect(JSON.stringify(events)).not.toContain("secret=value");
+    expect(JSON.stringify(events)).not.toContain("hidden");
+  });
+
+  it.each([
+    { code: -32601, expected: "unavailable" },
+    { code: 401, expected: "unauthorized" },
+  ])("classifies billing RPC error $code as $expected", async ({ code, expected }) => {
+    const server = installServer({ billingError: { message: "billing rejected", code } });
+    const lane = new GrokAcpLane({ spawn: async () => ({ process: server.process }) }, context());
+    const events = eventsFrom(lane);
+    await lane.start({ text: "billing" });
+    await vi.waitFor(() => expect(events).toContainEqual(expect.objectContaining({
+      kind: "telemetry",
+      name: "rate_limits",
+      quota: expect.objectContaining({ status: "error", code: expected, retryable: false }),
+    })));
+  });
+
+  it("fails closed on malformed transport and cleans process failures", async () => {
+    const timeoutProcess = fakeProcess(() => {});
+    const timeoutLane = new GrokAcpLane(
+      { spawn: async () => ({ process: timeoutProcess }) },
+      context(),
+      { handshakeTimeoutMs: 5 },
+    );
+    eventsFrom(timeoutLane);
+    await expect(timeoutLane.start({ text: "timeout" })).rejects.toThrow("initialize timed out");
+
+    const unwritable = fakeProcess(() => {});
+    unwritable.stdin.end();
+    const unwritableLane = new GrokAcpLane({ spawn: async () => ({ process: unwritable }) }, context());
+    eventsFrom(unwritableLane);
+    await expect(unwritableLane.start({ text: "write" })).rejects.toThrow("stdin is not writable");
+
+    const omittedResult = fakeProcess((process, message) => {
+      if (message.method === "initialize") send(process, { id: message.id });
+    });
+    const omittedResultLane = new GrokAcpLane(
+      { spawn: async () => ({ process: omittedResult }) },
+      context(),
+    );
+    eventsFrom(omittedResultLane);
+    await expect(omittedResultLane.start({ text: "omitted result" })).rejects.toThrow("response omitted result");
+
+    let promptWriteServer!: ReturnType<typeof installServer>;
+    promptWriteServer = installServer({ onSessionResponse: () => promptWriteServer.process.stdin.end() });
+    const promptWriteLane = new GrokAcpLane(
+      { spawn: async () => ({ process: promptWriteServer.process }) },
+      context(),
+    );
+    eventsFrom(promptWriteLane);
+    await expect(promptWriteLane.start({ text: "prompt write" })).rejects.toThrow("stdin is not writable");
+
+    const server = installServer();
+    const lane = new GrokAcpLane({ spawn: async () => ({ process: server.process }) }, context());
+    const errors: Error[] = [];
+    const exits: unknown[] = [];
+    const events = eventsFrom(lane);
+    lane.on("error", (error) => errors.push(error instanceof Error ? error : new Error(String(error))));
+    lane.on("exit", (value) => exits.push(value));
+    await lane.start({ text: "runtime" });
+    send(server.process, {
+      method: "session/update",
+      params: {
+        sessionId: "grok-session",
+        update: { sessionUpdate: "tool_call", toolCallId: "open", title: "Open", rawInput: {} },
+      },
+    });
+    server.process.emit("error", new Error("EIO"));
+    server.process.emit("error", new Error("duplicate"));
+    await vi.waitFor(() => expect(exits).toEqual([{ code: null, signal: null, reason: "runtime_exit" }]));
+    expect(errors).toEqual([new Error("EIO")]);
+    expect(events).toContainEqual({ kind: "tool_output", callId: "open", name: "Open" });
+    await vi.waitFor(() => expect(server.process.kill).toHaveBeenCalledOnce());
+
+    const startupMessages: RpcMessage[] = [];
+    const startup = fakeProcess((_process, message) => startupMessages.push(message));
+    const startupLane = new GrokAcpLane(
+      { spawn: async () => ({ process: startup }) },
+      context(),
+      { handshakeTimeoutMs: 1_000 },
+    );
+    const startupErrors: Error[] = [];
+    startupLane.on("runtime_event", () => {});
+    startupLane.on("error", (error) => startupErrors.push(error instanceof Error ? error : new Error(String(error))));
+    const starting = startupLane.start({ text: "startup" });
+    await vi.waitFor(() => expect(startupMessages.map((message) => message.method)).toEqual(["initialize"]));
+    startup.emit("error", new Error("startup EIO"));
+    await expect(starting).rejects.toThrow("startup EIO");
+    expect(startupErrors).toEqual([new Error("startup EIO")]);
+
+    const exited = installServer();
+    const exitedLane = new GrokAcpLane({ spawn: async () => ({ process: exited.process }) }, context());
+    const exitedEvents = eventsFrom(exitedLane);
+    const exitedSignals: unknown[] = [];
+    exitedLane.on("exit", (value) => exitedSignals.push(value));
+    await exitedLane.start({ text: "exit" });
+    send(exited.process, {
+      method: "session/update",
+      params: {
+        sessionId: "grok-session",
+        update: { sessionUpdate: "tool_call", toolCallId: "exit-tool", title: "Exit", rawInput: {} },
+      },
+    });
+    exited.process.emit("exit", 17, null);
+    expect(exitedSignals).toEqual([{ code: 17, signal: null, reason: "runtime_exit" }]);
+    expect(exitedEvents).toContainEqual({ kind: "tool_output", callId: "exit-tool", name: "Exit" });
+  });
+
+  it("covers stop races, protocol failures, close fallback, and detached cleanup", async () => {
+    let releaseSpawn!: (value: { process: FakeProcess }) => void;
+    const delayedProcess = fakeProcess(() => {});
+    const delayedLane = new GrokAcpLane({
+      spawn: () => new Promise((resolve) => { releaseSpawn = resolve; }),
+    }, context());
+    eventsFrom(delayedLane);
+    const delayedStart = delayedLane.start({ text: "delayed" });
+    const delayedStop = delayedLane.stop({ reason: "race", forceAfterMs: 0 });
+    releaseSpawn({ process: delayedProcess });
+    await delayedStop;
+    await expect(delayedStart).rejects.toThrow("start was cancelled");
+
+    let finalLane!: GrokAcpLane;
+    const finalServer = installServer({ onSessionResponse: () => {
+      void finalLane.stop({ reason: "race", forceAfterMs: 0 });
+    } });
+    finalLane = new GrokAcpLane({ spawn: async () => ({ process: finalServer.process }) }, context());
+    eventsFrom(finalLane);
+    await expect(finalLane.start({ text: "final race" })).rejects.toThrow("start was cancelled");
+
+    const protocolServer = installServer();
+    const protocolLane = new GrokAcpLane(
+      { spawn: async () => ({ process: protocolServer.process }) },
+      context(),
+    );
+    const protocolErrors: Error[] = [];
+    protocolLane.on("runtime_event", () => {});
+    protocolLane.on("error", (error) => protocolErrors.push(error instanceof Error ? error : new Error(String(error))));
+    await protocolLane.start({ text: "protocol" });
+    protocolServer.process.stdout.write("{not-json}\n");
+    await vi.waitFor(() => expect(protocolErrors).toContainEqual(new Error("Grok ACP emitted malformed JSON")));
+
+    const replyFailureServer = installServer();
+    const replyFailureLane = new GrokAcpLane(
+      { spawn: async () => ({ process: replyFailureServer.process }) },
+      context(),
+    );
+    const replyFailureErrors: Error[] = [];
+    replyFailureLane.on("runtime_event", () => {});
+    replyFailureLane.on("error", (error) => replyFailureErrors.push(error instanceof Error ? error : new Error(String(error))));
+    await replyFailureLane.start({ text: "reply failure" });
+    replyFailureServer.process.stdin.end();
+    send(replyFailureServer.process, { id: "client-request", method: "terminal_create", params: {} });
+    await vi.waitFor(() => expect(replyFailureErrors).toContainEqual(
+      new Error("Grok ACP could not answer a client-side protocol request"),
+    ));
+
+    for (const wire of [{ jsonrpc: "1.0" }, { jsonrpc: "2.0" }]) {
+      const wireServer = installServer();
+      const wireLane = new GrokAcpLane({ spawn: async () => ({ process: wireServer.process }) }, context());
+      const wireErrors: Error[] = [];
+      wireLane.on("runtime_event", () => {});
+      wireLane.on("error", (error) => wireErrors.push(error instanceof Error ? error : new Error(String(error))));
+      await wireLane.start({ text: "wire" });
+      send(wireServer.process, wire);
+      await vi.waitFor(() => expect(wireErrors).toHaveLength(1));
+    }
+
+    const closeServer = installServer();
+    Object.defineProperty(closeServer.process, "pid", { value: 41_001, configurable: true });
+    const closeLane = new GrokAcpLane({ spawn: async () => ({ process: closeServer.process }) }, context());
+    eventsFrom(closeLane);
+    await closeLane.start({ text: "close" });
+    closeServer.process.stdin.end();
+    await closeLane.stop({ reason: "test", forceAfterMs: 10 });
+    expect(killProcessTree).toHaveBeenCalledWith(41_001, { graceMs: 10 });
   });
 
   it("preserves Grok authentication as a public authentication failure", async () => {

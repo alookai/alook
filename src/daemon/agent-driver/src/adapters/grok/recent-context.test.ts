@@ -107,4 +107,75 @@ describe("Grok recent-context discovery", () => {
       }, { spawn: () => rpc.process, cleanup: async () => {} })).rejects.toThrow(/unavailable/);
     }
   });
+
+  it("accepts the data compatibility field and flushes a final line without a newline", async () => {
+    const root = path.parse(process.cwd()).root;
+    const project = path.join(root, "projects", "grok-final");
+    const stdout = new PassThrough();
+    const stdin = new PassThrough();
+    let buffer = "";
+    const processHandle = Object.assign(new EventEmitter(), {
+      stdout,
+      stderr: new PassThrough(),
+      stdin,
+      pid: undefined,
+      exitCode: null,
+      signalCode: null,
+      kill: vi.fn(() => true),
+    }) as unknown as SpawnedProcessHandle;
+    stdin.on("data", (chunk) => {
+      buffer += chunk.toString();
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        const request = JSON.parse(line) as RpcRequest;
+        if (request.method === "initialize") {
+          stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: {
+            protocolVersion: 1,
+            agentCapabilities: { sessionCapabilities: { list: {} } },
+            authMethods: [{ id: "cached_token" }],
+          } })}\n`);
+        } else if (request.method === "authenticate") {
+          stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: {} })}\n`);
+        } else {
+          stdout.end(JSON.stringify({
+            jsonrpc: "2.0",
+            id: request.id,
+            result: { data: [{ cwd: project, updatedAt: "2026-09-04T00:00:00Z" }] },
+          }));
+        }
+      }
+    });
+
+    await expect(discoverGrokRecentContext({
+      recentSessionFilesTopK: 0,
+      recentProjectsTopK: 1,
+    }, { spawn: () => processHandle, cleanup: async () => {} })).resolves.toMatchObject({
+      recentProjects: [{ projectPath: project }],
+    });
+  });
+
+  it("fails on an incompatible protocol and an early process exit", async () => {
+    const incompatible = fakeRpcProcess((_request, respond) => respond({
+      protocolVersion: 2,
+      agentCapabilities: { sessionCapabilities: { list: true } },
+      authMethods: [{ id: "cached_token" }],
+    }));
+    await expect(discoverGrokRecentContext({
+      recentSessionFilesTopK: 0,
+      recentProjectsTopK: 1,
+    }, { spawn: () => incompatible.process, cleanup: async () => {} }))
+      .rejects.toThrow("protocol is incompatible");
+
+    let exited!: ReturnType<typeof fakeRpcProcess>;
+    exited = fakeRpcProcess(() => queueMicrotask(() => {
+      (exited.process as unknown as EventEmitter).emit("exit", 1, null);
+    }));
+    await expect(discoverGrokRecentContext({
+      recentSessionFilesTopK: 0,
+      recentProjectsTopK: 1,
+    }, { spawn: () => exited.process, cleanup: async () => {} }))
+      .rejects.toThrow("process exited early");
+  });
 });
