@@ -141,7 +141,7 @@ describe("account deletion execution", () => {
       { waitUntil: vi.fn() },
       "user-1",
     )).resolves.toEqual({ kind: "failed" })
-    expect(mocks.getSnapshot).toHaveBeenCalledOnce()
+    expect(mocks.getSnapshot).toHaveBeenCalledTimes(2)
     expect(mocks.deleteRows).not.toHaveBeenCalled()
   })
 
@@ -228,6 +228,10 @@ describe("account deletion execution", () => {
     expect(mocks.revokeProvider).toHaveBeenCalledOnce()
     expect(mocks.revokeProvider).toHaveBeenCalledWith(expect.anything(), current.providers[0])
     expect(mocks.revokeProvider.mock.invocationCallOrder[0])
+      .toBeLessThan(mocks.deleteStorage.mock.invocationCallOrder[0])
+    expect(mocks.deleteStorage.mock.invocationCallOrder[0])
+      .toBeLessThan(mocks.deleteStorage.mock.invocationCallOrder[1])
+    expect(mocks.deleteStorage.mock.invocationCallOrder[1])
       .toBeLessThan(mocks.deleteRows.mock.invocationCallOrder[0])
   })
 
@@ -251,6 +255,7 @@ describe("account deletion execution", () => {
       "user-1",
     )).resolves.toEqual({ kind: "failed" })
 
+    expect(mocks.deleteStorage).not.toHaveBeenCalled()
     expect(mocks.deleteRows).not.toHaveBeenCalled()
     expect(mocks.invalidateMany).not.toHaveBeenCalled()
   })

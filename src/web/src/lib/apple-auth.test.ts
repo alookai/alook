@@ -116,7 +116,7 @@ describe("Apple profile mapping", () => {
       sub: "   ",
       email: "person@example.com",
       email_verified: true,
-    }, lookup)).resolves.toEqual({})
+    }, lookup)).resolves.toEqual({ email: undefined })
     expect(lookup).not.toHaveBeenCalled()
   })
 
@@ -139,7 +139,7 @@ describe("Apple profile mapping", () => {
       sub: "   ",
       email: "person@example.com",
       email_verified: true,
-    }, lookup)).resolves.toEqual({})
+    }, lookup)).resolves.toEqual({ email: undefined })
     expect(lookup).not.toHaveBeenCalled()
   })
 
@@ -165,7 +165,7 @@ describe("Apple profile mapping", () => {
       profile,
       vi.fn().mockResolvedValue(null),
     )
-    expect(result).toEqual({})
+    expect(result).toEqual({ email: undefined })
     expect(JSON.stringify(result)).not.toContain("placeholder")
     expect(JSON.stringify(result)).not.toContain("new-sub")
   })
@@ -178,6 +178,6 @@ describe("Apple profile mapping", () => {
         emailVerified: false,
         name: "Person",
       }),
-    )).resolves.toEqual({})
+    )).resolves.toEqual({ email: undefined })
   })
 })

@@ -1,9 +1,9 @@
-import { isSafeRedirectPath } from "@alook/shared"
+import { isSafeRedirectPath, nativeOauthProviderSchema } from "@alook/shared"
 import { z } from "zod"
 
 export const nativeOauthSnapshotSchema = z.object({
   attemptId: z.string(),
-  provider: z.enum(["github", "google"]),
+  provider: nativeOauthProviderSchema,
   redirectPath: z.string().refine(isSafeRedirectPath),
   expiresAt: z.number(),
   waiting: z.boolean(),

@@ -63,4 +63,19 @@ describe("sign-in client Apple availability", () => {
     expect(social).toHaveAttribute("data-post-login-url", "/c/me")
     expect(social).toHaveAttribute("data-apple-enabled", String(appleEnabled))
   })
+
+  it.each([
+    [true, "Send Code"],
+    [false, "Sign in"],
+  ] as const)("uses the former social outline style for the email action when isProd=%s", (isProd, label) => {
+    render(createElement(SignInPageClient, { isProd, appleEnabled: true }))
+
+    expect(screen.getByRole("button", { name: label })).toHaveClass(
+      "h-9",
+      "border-border",
+      "bg-background",
+      "text-base",
+      "w-full",
+    )
+  })
 })

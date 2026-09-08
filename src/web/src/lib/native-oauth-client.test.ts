@@ -19,7 +19,7 @@ function setup() {
     events.push(command)
     if (command === "native_oauth_snapshot") return snapshot && { ...snapshot }
     if (command === "native_oauth_prepare") {
-      snapshot = { attemptId: `attempt_${String(++count).padStart(24, "0")}`, provider: args!.provider as "github" | "google" | "apple", redirectPath: args!.redirectPath as string, expiresAt: Date.now() + 600_000, waiting: false }
+      snapshot = { attemptId: `attempt_${String(++count).padStart(24, "0")}`, provider: args!.provider as NativeOauthSnapshot["provider"], redirectPath: args!.redirectPath as string, expiresAt: Date.now() + 600_000, waiting: false }
       pending = []
       return { attemptId: snapshot.attemptId, provider: snapshot.provider, redirectPath: snapshot.redirectPath, platform: "macos", stateHash: "a".repeat(64), codeChallenge: "b".repeat(43), instanceKeyHash: "c".repeat(64) }
     }
@@ -62,6 +62,30 @@ function fixture() { const f = setup(); controllers.push(f.controller); return f
 afterEach(() => { for (const c of controllers.splice(0)) c.dispose(); vi.unstubAllGlobals(); vi.useRealTimers() })
 
  describe("native OAuth controller", () => {
+  it("starts and restores Apple through the existing prepare, snapshot, open, and waiting flow", async () => {
+    const f = fixture()
+    await f.controller.connect()
+    await f.controller.start("apple", "/c/me")
+
+    expect(f.view()).toMatchObject({
+      phase: "waiting",
+      attempt: { provider: "apple", redirectPath: "/c/me", waiting: true },
+    })
+    expect(f.events.indexOf("native_oauth_prepare"))
+      .toBeLessThan(f.events.indexOf("attempt"))
+    expect(f.events.indexOf("attempt"))
+      .toBeLessThan(f.events.indexOf("native_oauth_open_start"))
+
+    f.controller.dispose()
+    const restored = f.make()
+    controllers.push(restored)
+    await restored.connect()
+    expect(f.view()).toMatchObject({
+      phase: "waiting",
+      attempt: { provider: "apple", redirectPath: "/c/me", waiting: true },
+    })
+  })
+
   it("registers the listener before reading pending, opens only the registered start, and keeps proofs out of view state", async () => {
     const f = fixture(); await f.controller.connect(); await f.controller.start("github", "/c/me")
     expect(f.events.indexOf("listen")).toBeLessThan(f.events.indexOf("native_oauth_pending_exchange"))

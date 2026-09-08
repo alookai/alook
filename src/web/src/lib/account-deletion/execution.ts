@@ -67,11 +67,11 @@ export async function executeAccountDeletion(
   try {
     const firstSnapshot = await queries.accountDeletion.getAccountDeletionSnapshot(db, userId)
     if (!firstSnapshot) return { kind: "missing" }
-    await deleteAccountStorage(env, firstSnapshot)
 
     const finalDb = getPrimaryDb(env.DB)
     const finalSnapshot = await queries.accountDeletion.getAccountDeletionSnapshot(finalDb, userId)
     if (!finalSnapshot) {
+      await deleteAccountStorage(env, firstSnapshot)
       await invalidateMachineTokens(firstSnapshot.machineTokens)
       return { kind: "missing" }
     }
@@ -79,12 +79,13 @@ export async function executeAccountDeletion(
       ...firstSnapshot.machineTokens,
       ...finalSnapshot.machineTokens,
     ])]
-    await deleteAccountStorage(env, finalSnapshot)
     await Promise.all(
       finalSnapshot.providers
         .filter((provider) => provider.providerId === "apple")
         .map((provider) => revokeProviderAccount(env, provider)),
     )
+    await deleteAccountStorage(env, firstSnapshot)
+    await deleteAccountStorage(env, finalSnapshot)
 
     let deletion: Awaited<ReturnType<typeof queries.accountDeletion.deleteAccountRows>>
     try {

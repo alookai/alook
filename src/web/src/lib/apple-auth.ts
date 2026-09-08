@@ -80,14 +80,14 @@ export async function mapAppleProfileToUser(
   findExisting: (sub: string) => Promise<StoredAppleUser | null>,
 ): Promise<{ email?: string; emailVerified?: boolean; name?: string }> {
   const sub = profile.sub.trim()
-  if (!sub) return {}
+  if (!sub) return { email: undefined }
 
   const email = profile.email?.trim()
   const emailVerified = profile.email_verified === true || profile.email_verified === "true"
   if (email && emailVerified) return { email, emailVerified: true }
 
   const existing = await findExisting(sub)
-  if (!existing || existing.emailVerified !== true) return {}
+  if (!existing || existing.emailVerified !== true) return { email: undefined }
   return {
     email: existing.email,
     emailVerified: true,

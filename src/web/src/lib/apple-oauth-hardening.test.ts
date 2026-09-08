@@ -329,7 +329,6 @@ describe("Better Auth Apple callback integration", () => {
           method: "POST",
           headers: {
             "Content-Type": "application/x-www-form-urlencoded",
-            Cookie: cookie,
           },
           body: new URLSearchParams(params),
           redirect: "manual",
@@ -409,12 +408,39 @@ describe("Better Auth Apple callback integration", () => {
       .toBe("access_denied")
     expect(await db.count({ model: "user" })).toBe(0)
 
+    const unverifiedEmailAuthorization = await begin()
+    nextIdToken = await liveToken(
+      unverifiedEmailAuthorization.url.searchParams.get("nonce")!,
+      {
+        sub: "never-seen-unverified-email-subject",
+        email: "unverified@example.com",
+        email_verified: false,
+      },
+    )
+    const unverifiedEmail = await callback({
+      code: "unverified-email-code",
+      state: unverifiedEmailAuthorization.url.searchParams.get("state")!,
+      iss: APPLE_ISSUER,
+    }, unverifiedEmailAuthorization.cookie)
+    expect(new URL(unverifiedEmail.headers.get("location")!).searchParams.get("error"))
+      .toBe("email_not_found")
+    expect(await db.count({ model: "user" })).toBe(0)
+    expect(await db.count({ model: "account" })).toBe(0)
+
     const authorization = await begin()
     const state = authorization.url.searchParams.get("state")!
     const nonce = authorization.url.searchParams.get("nonce")!
     nextIdToken = await liveToken(nonce)
     const success = await callback(
-      { code: "valid-code", state, iss: APPLE_ISSUER },
+      {
+        code: "valid-code",
+        state,
+        iss: APPLE_ISSUER,
+        user: JSON.stringify({
+          name: { firstName: "Apple", lastName: "Person" },
+          email: "person@example.com",
+        }),
+      },
       authorization.cookie,
     )
 
@@ -422,6 +448,10 @@ describe("Better Auth Apple callback integration", () => {
     expect(success.headers.get("location")).toBe("/signed-in")
     expect(await db.count({ model: "user" })).toBe(1)
     expect(await db.count({ model: "account" })).toBe(1)
+    await expect(db.findOne<{ name: string }>({
+      model: "user",
+      where: [{ field: "email", value: "person@example.com" }],
+    })).resolves.toMatchObject({ name: "Apple Person" })
     await expect(db.findOne<{ providerId: string; accountId: string }>({
       model: "account",
       where: [{ field: "providerId", value: "apple" }],

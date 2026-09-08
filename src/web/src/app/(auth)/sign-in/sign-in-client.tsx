@@ -203,9 +203,11 @@ function SignInForm({
               />
               <Field>
                 <Button
+                  variant="outline"
+                  size="lg"
                   type="submit"
                   disabled={loading || isCoolingDown}
-                  className="w-full"
+                  className="w-full text-base"
                 >
                   {sendLabel}
                 </Button>
@@ -249,7 +251,13 @@ function SignInForm({
               }}
             />
             <Field>
-              <Button type="submit" disabled={loading} className="w-full">
+              <Button
+                variant="outline"
+                size="lg"
+                type="submit"
+                disabled={loading}
+                className="w-full text-base"
+              >
                 {loading ? "Signing in..." : "Sign in"}
               </Button>
             </Field>
