@@ -1,14 +1,16 @@
-type OtpType =
+export type OtpType =
   | "sign-in"
   | "email-verification"
   | "forget-password"
   | "change-email"
+  | "account-deletion"
 
 const subjectByType: Record<OtpType, string> = {
   "sign-in": "Your Alook sign-in code",
   "email-verification": "Verify your Alook email",
   "forget-password": "Reset your Alook password",
   "change-email": "Confirm your new email address",
+  "account-deletion": "Your Alook account deletion code",
 }
 
 const headingByType: Record<OtpType, string> = {
@@ -16,6 +18,7 @@ const headingByType: Record<OtpType, string> = {
   "email-verification": "Verify your email",
   "forget-password": "Reset your password",
   "change-email": "Confirm email change",
+  "account-deletion": "Delete your Alook account",
 }
 
 const descriptionByType: Record<OtpType, string> = {
@@ -23,6 +26,7 @@ const descriptionByType: Record<OtpType, string> = {
   "email-verification": "Enter this code to verify your email address.",
   "forget-password": "Enter this code to reset your password.",
   "change-email": "Enter this code to confirm your new email address.",
+  "account-deletion": "Enter this code in User Settings to permanently delete your account.",
 }
 
 export function getOtpSubject(type: OtpType): string {

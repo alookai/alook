@@ -29,13 +29,15 @@ describe("settings refinement", () => {
     expect(user).not.toContain("rounded-lg border p-4")
   })
 
-  it("keeps form actions on the content axis and preserves focus and readable contrast", () => {
+  it("keeps each form action group on its intended axis and preserves focus and contrast", () => {
     const user = readSettings("user-settings.tsx")
     const server = readSettings("server-settings.tsx")
 
+    expect(user).toContain("flex flex-wrap items-center gap-x-4 gap-y-2")
+    expect(user).toContain("ml-auto flex shrink-0 items-center gap-2")
+    expect(server).toContain("items-center justify-start gap-2")
+    expect(server).not.toContain("items-center justify-end gap-2")
     for (const source of [user, server]) {
-      expect(source).toContain("items-center justify-start gap-2")
-      expect(source).not.toContain("items-center justify-end gap-2")
       expect(source).toContain("focus-visible:ring-2")
       expect(source).not.toContain("placeholder:text-muted-foreground/40")
       expect(source).not.toContain("focus-visible:ring-0")

@@ -35,6 +35,7 @@ export function SettingsShell<Value extends string>({
   tabs,
   onClose,
   navFooter,
+  disabled = false,
   children,
 }: {
   value: Value
@@ -44,6 +45,7 @@ export function SettingsShell<Value extends string>({
   tabs: SettingsShellTab<Value>[]
   onClose: () => void
   navFooter?: ReactNode
+  disabled?: boolean
   children: ReactNode
 }) {
   const breakpoint = useBreakpoint()
@@ -63,6 +65,7 @@ export function SettingsShell<Value extends string>({
           size="icon-sm"
           className="size-11 sm:size-8"
           onClick={onClose}
+          disabled={disabled}
           aria-label="Close settings"
           data-testid={tid.settingsClose}
         >
@@ -81,6 +84,7 @@ export function SettingsShell<Value extends string>({
             <TabsTrigger
               key={tabValue}
               value={tabValue}
+              disabled={disabled}
               className={SETTINGS_TAB_CLASS}
               data-testid={tid.settingsTab(tabValue)}
             >

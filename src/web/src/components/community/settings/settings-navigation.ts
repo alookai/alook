@@ -14,4 +14,4 @@ export const SETTINGS_LOGOUT_CLASS =
   "size-11 shrink-0 justify-center text-destructive hover:text-destructive sm:h-9 sm:w-full sm:justify-start"
 
 export const SETTINGS_NAV_FOOTER_CLASS =
-  "shrink-0 sm:mt-auto sm:w-full sm:pt-2"
+  "flex shrink-0 gap-1 sm:mt-auto sm:w-full sm:flex-col sm:border-t sm:border-border/60 sm:pt-2"

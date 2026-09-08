@@ -32,6 +32,7 @@ export * as inbox from "./queries/inbox";
 export * as issue from "./queries/issue";
 export * as issueComment from "./queries/issue-comment";
 export * as messageFlag from "./queries/message-flag";
+export * as accountDeletion from "./queries/account-deletion";
 export * as communityServer from "./queries/community/server";
 export * as communityChannel from "./queries/community/channel";
 export * as communityCategory from "./queries/community/category";

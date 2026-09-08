@@ -6,6 +6,15 @@ describe("community QA selectors", () => {
     expect(tid.settingsWebVersion).toBe("community-settings-web-version")
   })
 
+  it("exposes the account-deletion journey from the canonical registry", () => {
+    expect(tid.accountDeletionOpen).toBe("community-account-deletion-open")
+    expect(tid.accountDeletionFlow).toBe("community-account-deletion-flow")
+    expect(tid.accountDeletionSendCode).toBe("community-account-deletion-send-code")
+    expect(tid.accountDeletionOtp).toBe("community-account-deletion-otp")
+    expect(tid.accountDeletionSubmit).toBe("community-account-deletion-submit")
+    expect(tid.accountDeletionComplete).toBe("community-account-deletion-complete")
+  })
+
   it("exposes the global reconnect overlay independently from its Retry action", () => {
     expect(tid.wsReconnectOverlay).toBe("community-ws-reconnect-overlay")
     expect(tid.wsRetry).toBe("community-ws-retry")

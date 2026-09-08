@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { ApiError } from "./errors";
+import {
+  beginAccountDeletionAuthTransition,
+  cancelAccountDeletionAuthTransition,
+} from "./api/client";
 
 // Mock window globals needed by apiFetch
 Object.defineProperty(globalThis, "document", {
@@ -26,6 +30,7 @@ Object.defineProperty(globalThis, "window", {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  cancelAccountDeletionAuthTransition();
 });
 
 describe("ApiError class", () => {
@@ -218,6 +223,24 @@ describe("apiFetch", () => {
       expect((e as ApiError).isUnauthorized).toBe(true);
       expect(locationAssignMock).toHaveBeenCalledWith(new URL("/sign-in", "https://alook.test"));
     }
+  });
+
+  it("does not let an in-flight 401 replace the account-deletion navigation", async () => {
+    mockFetch.mockResolvedValue({
+      ok: false,
+      status: 401,
+      json: async () => ({ error: "unauthorized" }),
+    });
+
+    const { listAgents } = await getApiFetch();
+    beginAccountDeletionAuthTransition();
+
+    await expect(listAgents("w1")).rejects.toMatchObject({ status: 401 });
+    expect(locationAssignMock).not.toHaveBeenCalled();
+
+    cancelAccountDeletionAuthTransition();
+    await expect(listAgents("w1")).rejects.toMatchObject({ status: 401 });
+    expect(locationAssignMock).toHaveBeenCalledWith(new URL("/sign-in", "https://alook.test"));
   });
 });
 

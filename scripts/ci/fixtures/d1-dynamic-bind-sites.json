@@ -1,5 +1,306 @@
 [
   {
+    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:1",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:10",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:11",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:12",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:13",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:14",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:15",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:16",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:17",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:18",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:19",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:2",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:20",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:21",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:22",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:23",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:24",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:25",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:26",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:27",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:28",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:29",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:3",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:30",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:31",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:32",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:33",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:34",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:35",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:36",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:37",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:4",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:5",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:6",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:7",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:8",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:9",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:1",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:10",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:11",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:12",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:13",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:14",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:15",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:16",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:17",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:18",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:19",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:2",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:20",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:21",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:22",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:23",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:24",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:25",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:26",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:27",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:28",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:29",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:3",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:30",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:31",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:32",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:33",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:34",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:35",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:36",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:37",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:38",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:4",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:5",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:6",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:7",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:8",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:9",
+    "strategy": "subquery"
+  },
+  {
     "key": "src/shared/src/db/queries/agent-skill.ts:syncAgentSkills:values:1",
     "strategy": "exact-chunk",
     "fixedParams": 10

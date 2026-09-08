@@ -6,6 +6,7 @@ const otpTypes = [
   "email-verification",
   "forget-password",
   "change-email",
+  "account-deletion",
 ] as const
 
 describe("getOtpSubject", () => {

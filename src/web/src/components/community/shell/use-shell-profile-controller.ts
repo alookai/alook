@@ -3,7 +3,7 @@
 import { useCallback, useState, type ComponentProps } from "react"
 import { parseNameAndTag } from "@alook/shared"
 import { toast } from "sonner"
-import { toastApiError } from "@/lib/api/client"
+import { ACCOUNT_DELETED_SIGN_IN_PATH, toastApiError } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import { userProfileQueryFn, PROFILE_STALE_TIME_MS } from "@/hooks/community/use-user-profile"
 import { validateIconSourceFile } from "@/lib/community/image-crop"
@@ -278,7 +278,7 @@ export function useShellProfileController({
     }
   }
 
-  const onLogout = async () => {
+  const clearLocalAccountState = async () => {
     cancelPendingNavigation()
     useCommunityStore.getState().reset()
     useCommunityWsStore.getState().reset()
@@ -287,14 +287,25 @@ export function useShellProfileController({
     disposeAccountReadStateReconciliation(queryClient)
     queryClient.clear()
     await clearPersistedCache(currentUser.id).catch(() => {})
+  }
+
+  const onLogout = async () => {
+    await clearLocalAccountState()
     await signOut()
     router.push("/sign-in")
+  }
+
+  const onAccountDeleted = async () => {
+    await clearLocalAccountState()
+    setEditingProfile(false)
+    globalThis.location.replace(ACCOUNT_DELETED_SIGN_IN_PATH)
   }
 
   const userSettingsProps: ComponentProps<typeof UserSettings> = {
     onClose: () => setEditingProfile(false),
     userId: currentUser.id,
     userName: currentUser.name,
+    userEmail: currentUser.email,
     aboutMe: currentUser.aboutMe ?? "",
     avatar: currentUser.avatar,
     statusEmoji: currentUser.statusEmoji,
@@ -302,6 +313,7 @@ export function useShellProfileController({
     onUploadAvatar,
     onSave: onSaveProfile,
     onLogout,
+    onAccountDeleted,
   }
 
   let pendingAvatarCropProps: Omit<ComponentProps<typeof ImageCropDialog>, "maskShape"> | null = null

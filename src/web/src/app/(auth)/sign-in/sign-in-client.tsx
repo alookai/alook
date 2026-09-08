@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { signIn, signUp, authClient } from "@/lib/auth-client"
 import { parseRetryAfterSeconds } from "@/lib/retry-after"
+import { tid } from "@/lib/community/testids"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import {
@@ -22,6 +23,7 @@ import {
 } from "@/components/home/landing-shell-motion-timeline"
 import galleryStyles from "@/components/home/landing-shell-motion.module.css"
 import { DEV_PASSWORD } from "@alook/shared"
+import { CircleCheck } from "lucide-react"
 
 // Default post-login landing when no explicit `?redirect=` is present. Points
 // at the community home (/c/me); the old `/workspaces` target was the legacy
@@ -35,7 +37,7 @@ function safeRedirectUrl(redirect: string | null): string {
   return DEFAULT_POST_LOGIN
 }
 
-function SignInForm({ postLoginUrl, isProd }: { postLoginUrl: string; isProd: boolean }) {
+function SignInForm({ postLoginUrl, isProd, accountDeleted }: { postLoginUrl: string; isProd: boolean; accountDeleted: boolean }) {
   const [email, setEmail] = useState("")
   const [emailError, setEmailError] = useState("")
   const [otpError, setOtpError] = useState("")
@@ -154,6 +156,21 @@ function SignInForm({ postLoginUrl, isProd }: { postLoginUrl: string; isProd: bo
 
   return (
     <FieldGroup>
+      {accountDeleted ? (
+        <div
+          className="flex gap-3 rounded-xl bg-muted/70 p-4 text-left"
+          role="status"
+          data-testid={tid.accountDeletionComplete}
+        >
+          <CircleCheck className="mt-0.5 size-5 shrink-0 text-muted-foreground" aria-hidden />
+          <div>
+            <div className="text-sm font-medium">Account deleted</div>
+            <p className="mt-0.5 text-sm text-muted-foreground">
+              Your account and its data were removed.
+            </p>
+          </div>
+        </div>
+      ) : null}
       <div className="flex flex-col items-center gap-2 text-center">
         <h1 className="text-2xl font-bold">Sign in</h1>
         <p className="text-sm text-muted-foreground">or create an account to get started</p>
@@ -347,6 +364,7 @@ function ProductGallery() {
 export default function SignInPageClient({ isProd }: { isProd: boolean }) {
   const searchParams = useSearchParams()
   const postLoginUrl = safeRedirectUrl(searchParams.get("redirect"))
+  const accountDeleted = searchParams.get("account_deleted") === "1"
 
   return (
     <div className="relative flex min-h-svh flex-col items-center justify-center p-6 sm:p-10">
@@ -359,7 +377,7 @@ export default function SignInPageClient({ isProd }: { isProd: boolean }) {
           <Card className="overflow-hidden p-0">
             <CardContent className="grid p-0 sm:grid-cols-[minmax(320px,0.82fr)_minmax(0,1.35fr)]">
               <div className="flex flex-col justify-center p-6 sm:min-h-120 sm:p-8">
-                <SignInForm postLoginUrl={postLoginUrl} isProd={isProd} />
+                <SignInForm postLoginUrl={postLoginUrl} isProd={isProd} accountDeleted={accountDeleted} />
               </div>
               <div className="relative hidden min-h-120 overflow-hidden bg-muted sm:block">
                 <ProductGallery />

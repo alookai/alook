@@ -18,6 +18,7 @@ import {
   SETTINGS_LOGOUT_CLASS,
 } from "./settings-navigation"
 import { SettingsShell, SettingsShellPanel, type SettingsShellTab } from "./settings-shell"
+import { AccountDeletionFlow } from "./account-deletion-flow"
 
 const THEME_OPTIONS = [
   { value: "light", label: "Light", icon: Sun },
@@ -132,16 +133,18 @@ function AdvancedSettings({ userId }: { userId: string | null }) {
   )
 }
 
-export function UserSettings({ onClose, userId, userName, aboutMe, avatar, statusEmoji, statusText, onSave, onLogout, onUploadAvatar }: {
+export function UserSettings({ onClose, userId, userName, userEmail, aboutMe, avatar, statusEmoji, statusText, onSave, onLogout, onAccountDeleted, onUploadAvatar }: {
   onClose: () => void
   userId: string | null
   userName: string
+  userEmail: string
   aboutMe: string
   avatar: string
   statusEmoji?: string | null
   statusText?: string | null
   onSave: (data: { name?: string; aboutMe?: string; statusEmoji?: string | null; statusText?: string | null }) => void
   onLogout?: () => void
+  onAccountDeleted: () => Promise<void>
   onUploadAvatar?: () => void
 }) {
   // Draft + saved baseline are mount-only on purpose — a WS-driven prop change
@@ -157,6 +160,7 @@ export function UserSettings({ onClose, userId, userName, aboutMe, avatar, statu
     text: statusText ?? null,
   })
   const [tab, setTab] = useState<UserSettingsTab>("profile")
+  const [deletionOpen, setDeletionOpen] = useState(false)
 
   const dirty =
     name !== baseline.name ||
@@ -192,82 +196,105 @@ export function UserSettings({ onClose, userId, userName, aboutMe, avatar, statu
       value={tab}
       onValueChange={setTab}
       label="User Settings"
-      title={tab === "appearance" ? "Appearance" : tab === "advanced" ? "Advanced" : tab === "privacy" ? "Privacy Policy" : "My Profile"}
+      title={deletionOpen ? "Delete account" : tab === "appearance" ? "Appearance" : tab === "advanced" ? "Advanced" : tab === "privacy" ? "Privacy Policy" : "My Profile"}
       tabs={USER_SETTINGS_TABS}
       onClose={onClose}
+      disabled={deletionOpen}
       navFooter={
-        <Button variant="ghost" className={SETTINGS_LOGOUT_CLASS} size="sm" onClick={onLogout} aria-label="Log out">
+        <Button variant="ghost" className={SETTINGS_LOGOUT_CLASS} size="sm" onClick={onLogout} aria-label="Log out" disabled={deletionOpen}>
           <LogOut className="size-4" /> <span className="sr-only sm:not-sr-only">Log Out</span>
         </Button>
       }
     >
-      <SettingsShellPanel value="profile">
-        <div className="mx-auto w-full max-w-md space-y-8">
-          {/* Avatar — centered in a soft rounded frame, with a hand-rolled
-              pill button beneath (matches the bot create/edit sheet; a stock
-              secondary Button reads as the old square style). */}
-          <div className="flex flex-col items-center gap-2">
-            <span className="block size-24 overflow-hidden rounded-full ring-1 ring-border/50">
-              <Avatar label={avatar} seed={userId ?? undefined} size={96} />
-            </span>
-            <button
-              type="button"
-              onClick={onUploadAvatar}
-              className="flex min-h-11 items-center gap-2 rounded-full border border-border/50 px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:min-h-8"
-            >
-              <Camera className="size-3.5" /> Change photo
-            </button>
-          </div>
-          {/* Display name — inline title input, borderless (name-as-heading,
-              like the agent name on the bot page). */}
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Your name"
-            aria-label="Display name"
-            className="min-h-11 w-full rounded-sm border-0 bg-transparent px-0 py-1 text-xl font-medium leading-[1.2] tracking-tight shadow-none outline-none placeholder:font-normal placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-4 focus-visible:ring-offset-background sm:text-2xl"
-          />
-          {/* About — borderless auto-resizing textarea. */}
-          <div className="space-y-2">
-            <div className="text-xs text-muted-foreground">About</div>
-            <AutoResizeTextarea
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              placeholder="Add a bit about yourself…"
-              className="min-h-11 w-full rounded-sm border-0 bg-transparent px-0 py-1 text-sm leading-6 text-foreground shadow-none outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-4 focus-visible:ring-offset-background"
-            />
-          </div>
-          {/* Status — quiet label + a soft chip (more formed than a bare
-              borderless button, still in the frameless language). */}
-          <div className="space-y-2">
-            <div className="text-xs text-muted-foreground">Status</div>
-            <StatusEditor emoji={status.emoji} text={status.text} onChange={(emoji, text) => setStatus({ emoji, text })}>
-              <button className="inline-flex min-h-11 items-center gap-2 rounded-full border border-border/50 px-3 text-sm transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:min-h-8">
-                {hasStatus(status.emoji, status.text) ? (
-                  <span>{status.emoji} {status.text}</span>
-                ) : (
-                  <span className="text-muted-foreground">Set a status</span>
-                )}
-              </button>
-            </StatusEditor>
-          </div>
-          <div className="flex items-center justify-start gap-2">
-            <Button variant="ghost" size="sm" className="h-11 sm:h-8" onClick={handleCancel} disabled={!dirty}>Cancel</Button>
-            <Button size="sm" className="h-11 sm:h-8" onClick={handleSave} disabled={!dirty}>Save changes</Button>
-          </div>
-        </div>
-      </SettingsShellPanel>
-      <SettingsShellPanel value="appearance">
-        <AppearanceSettings />
-      </SettingsShellPanel>
-      <SettingsShellPanel value="advanced" className="h-full">
-        <AdvancedSettings userId={userId} />
-      </SettingsShellPanel>
-      <SettingsShellPanel value="privacy">
-        <div className="mx-auto w-full max-w-2xl pb-8">
-          <PrivacyPolicyContent />
-        </div>
-      </SettingsShellPanel>
+      {deletionOpen ? (
+        <AccountDeletionFlow
+          email={userEmail}
+          onCancel={() => setDeletionOpen(false)}
+          onDeleted={onAccountDeleted}
+        />
+      ) : (
+        <>
+          <SettingsShellPanel value="profile">
+            <div className="mx-auto w-full max-w-md space-y-8">
+              {/* Avatar — centered in a soft rounded frame, with a hand-rolled
+                  pill button beneath (matches the bot create/edit sheet; a stock
+                  secondary Button reads as the old square style). */}
+              <div className="flex flex-col items-center gap-2">
+                <span className="block size-24 overflow-hidden rounded-full ring-1 ring-border/50">
+                  <Avatar label={avatar} seed={userId ?? undefined} size={96} />
+                </span>
+                <button
+                  type="button"
+                  onClick={onUploadAvatar}
+                  className="flex min-h-11 items-center gap-2 rounded-full border border-border/50 px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:min-h-8"
+                >
+                  <Camera className="size-3.5" /> Change photo
+                </button>
+              </div>
+              {/* Display name — inline title input, borderless (name-as-heading,
+                  like the agent name on the bot page). */}
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Your name"
+                aria-label="Display name"
+                className="min-h-11 w-full rounded-sm border-0 bg-transparent px-0 py-1 text-xl font-medium leading-[1.2] tracking-tight shadow-none outline-none placeholder:font-normal placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-4 focus-visible:ring-offset-background sm:text-2xl"
+              />
+              {/* About — borderless auto-resizing textarea. */}
+              <div className="space-y-2">
+                <div className="text-xs text-muted-foreground">About</div>
+                <AutoResizeTextarea
+                  value={value}
+                  onChange={(e) => setValue(e.target.value)}
+                  placeholder="Add a bit about yourself…"
+                  className="min-h-11 w-full rounded-sm border-0 bg-transparent px-0 py-1 text-sm leading-6 text-foreground shadow-none outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-4 focus-visible:ring-offset-background"
+                />
+              </div>
+              {/* Status — quiet label + a soft chip (more formed than a bare
+                  borderless button, still in the frameless language). */}
+              <div className="space-y-2">
+                <div className="text-xs text-muted-foreground">Status</div>
+                <StatusEditor emoji={status.emoji} text={status.text} onChange={(emoji, text) => setStatus({ emoji, text })}>
+                  <button className="inline-flex min-h-11 items-center gap-2 rounded-full border border-border/50 px-3 text-sm transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:min-h-8">
+                    {hasStatus(status.emoji, status.text) ? (
+                      <span>{status.emoji} {status.text}</span>
+                    ) : (
+                      <span className="text-muted-foreground">Set a status</span>
+                    )}
+                  </button>
+                </StatusEditor>
+              </div>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-11 shrink-0 px-3 text-destructive hover:text-destructive sm:h-8"
+                  onClick={() => setDeletionOpen(true)}
+                  aria-label="Delete account"
+                  data-testid={tid.accountDeletionOpen}
+                >
+                  Delete account
+                </Button>
+                <div className="ml-auto flex shrink-0 items-center gap-2">
+                  <Button variant="ghost" size="sm" className="h-11 sm:h-8" onClick={handleCancel} disabled={!dirty}>Cancel</Button>
+                  <Button size="sm" className="h-11 sm:h-8" onClick={handleSave} disabled={!dirty}>Save changes</Button>
+                </div>
+              </div>
+            </div>
+          </SettingsShellPanel>
+          <SettingsShellPanel value="appearance">
+            <AppearanceSettings />
+          </SettingsShellPanel>
+          <SettingsShellPanel value="advanced" className="h-full">
+            <AdvancedSettings userId={userId} />
+          </SettingsShellPanel>
+          <SettingsShellPanel value="privacy">
+            <div className="mx-auto w-full max-w-2xl pb-8">
+              <PrivacyPolicyContent />
+            </div>
+          </SettingsShellPanel>
+        </>
+      )}
     </SettingsShell>
   )
 }
