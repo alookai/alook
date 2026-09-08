@@ -20,6 +20,8 @@ docs/
 .dev.vars
 plans/
 perf-artifacts/
+src/videos/**/build/
+src/videos/**/out/
 .agents/
 .context_timeline/
 .claude/

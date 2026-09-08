@@ -1,0 +1,41 @@
+{
+  "name": "@alook/video-logo",
+  "version": "1.0.0",
+  "description": "Official Alook logo animation video project",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alookai/alook.git",
+    "directory": "src/videos/logo"
+  },
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {
+    "@remotion/cli": "4.0.522",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "remotion": "4.0.522"
+  },
+  "devDependencies": {
+    "@remotion/eslint-config-flat": "4.0.522",
+    "@types/react": "19.2.7",
+    "@types/web": "0.0.166",
+    "eslint": "9.19.0",
+    "prettier": "3.8.1",
+    "typescript": "5.9.3"
+  },
+  "scripts": {
+    "dev": "remotion studio --no-open",
+    "build": "remotion bundle",
+    "render:mp4": "remotion render AlookLogoPreview out/alook-logo-official.mp4 --codec=h264 --crf=18 --muted",
+    "render:gif": "remotion render AlookLogoPreview out/alook-logo-official.gif --codec=gif --scale=0.5 --every-nth-frame=2 --number-of-gif-loops=0 --muted",
+    "render:first-still": "remotion still AlookLogoAlpha out/first-frame.png --frame=0",
+    "render:final-still": "remotion still AlookLogoAlpha out/final-frame.png --frame=299",
+    "render:reference-still": "remotion still AlookLogoReference out/reference-frame.png",
+    "verify": "npm run lint && node scripts/verify.mjs",
+    "upgrade": "remotion upgrade",
+    "lint": "eslint src && tsc"
+  },
+  "sideEffects": [
+    "*.css"
+  ]
+}

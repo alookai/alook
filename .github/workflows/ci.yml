@@ -3,8 +3,12 @@ name: CI
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "src/videos/**"
   pull_request:
     branches: [main]
+    paths-ignore:
+      - "src/videos/**"
   merge_group:
     types: [checks_requested]
   workflow_dispatch:
