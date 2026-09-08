@@ -95,6 +95,33 @@ async function visibleColors(path: string) {
   return colors
 }
 
+async function expressionBounds(path: string) {
+  const { data, info } = await sharp(path).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
+  let left = info.width
+  let top = info.height
+  let right = 0
+  let bottom = 0
+  let hasBlack = false
+  let hasWhite = false
+  for (let y = 0; y < info.height; y += 1) {
+    for (let x = 0; x < info.width; x += 1) {
+      const offset = (y * info.width + x) * info.channels
+      if (data[offset + 3] === 0) continue
+      const isBlack = data[offset] === 0 && data[offset + 1] === 0 && data[offset + 2] === 0
+      const isWhite = data[offset] === 255 && data[offset + 1] === 255 && data[offset + 2] === 255
+      if (!isBlack && !isWhite) continue
+      hasBlack ||= isBlack
+      hasWhite ||= isWhite
+      left = Math.min(left, x)
+      top = Math.min(top, y)
+      right = Math.max(right, x + 1)
+      bottom = Math.max(bottom, y + 1)
+    }
+  }
+  if (!hasBlack || !hasWhite) throw new Error(`${path} is missing visible expression colors`)
+  return [left, top, right, bottom]
+}
+
 describe("logo asset generator", () => {
   it("locks the canonical structured transparent SVG", async () => {
     const canonical = await readFile(resolve(repoRoot, "assets/alook.svg"), "utf8")
@@ -206,20 +233,29 @@ describe("logo asset generator", () => {
     })
   })
 
-  it("keeps Android adaptive foreground artwork inside the safe zone at every density", async () => {
+  it("fills Android adaptive masks while keeping the expression inside the safe zone at every density", async () => {
     const adaptiveXml = await readFile(resolve(repoRoot, "src/desktop/src-tauri/gen/android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml"), "utf8")
     expect(adaptiveXml).toContain('<foreground android:drawable="@mipmap/ic_launcher_foreground"/>')
     expect(adaptiveXml).toContain('<background android:drawable="@color/ic_launcher_background"/>')
 
     for (const [density, { canvas, artwork }] of Object.entries(androidAdaptiveForegroundSizes)) {
       const offset = Math.floor((canvas - artwork) / 2)
+      const safeSize = canvas * 66 / 108
+      const safeOffset = (canvas - safeSize) / 2
       const base = resolve(repoRoot, `src/desktop/src-tauri/gen/android/app/src/main/res/mipmap-${density}`)
-      expect(await alphaBounds(resolve(base, "ic_launcher_foreground.png"))).toEqual({
+      const foreground = resolve(base, "ic_launcher_foreground.png")
+      expect(artwork).toBe(canvas * 84 / 108)
+      expect(await alphaBounds(foreground)).toEqual({
         width: canvas,
         height: canvas,
         bounds: [offset, offset, offset + artwork, offset + artwork],
         opaque: false,
       })
+      const [left, top, right, bottom] = await expressionBounds(foreground)
+      expect(left).toBeGreaterThanOrEqual(safeOffset)
+      expect(top).toBeGreaterThanOrEqual(safeOffset)
+      expect(right).toBeLessThanOrEqual(safeOffset + safeSize)
+      expect(bottom).toBeLessThanOrEqual(safeOffset + safeSize)
       for (const file of ["ic_launcher.png", "ic_launcher_round.png"]) {
         expect(await alphaBounds(resolve(base, file))).toMatchObject({
           width: androidLegacyIconSizes[density as keyof typeof androidLegacyIconSizes],

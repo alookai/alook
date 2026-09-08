@@ -68,11 +68,11 @@ export const iosRasterAssets = [
 ]
 
 export const androidAdaptiveForegroundSizes = {
-  mdpi: { canvas: 108, artwork: 66 },
-  hdpi: { canvas: 162, artwork: 99 },
-  xhdpi: { canvas: 216, artwork: 132 },
-  xxhdpi: { canvas: 324, artwork: 198 },
-  xxxhdpi: { canvas: 432, artwork: 264 },
+  mdpi: { canvas: 108, artwork: 84 },
+  hdpi: { canvas: 162, artwork: 126 },
+  xhdpi: { canvas: 216, artwork: 168 },
+  xxhdpi: { canvas: 324, artwork: 252 },
+  xxxhdpi: { canvas: 432, artwork: 336 },
 }
 const androidDensities = Object.keys(androidAdaptiveForegroundSizes)
 const androidSplashSizes = { mdpi: 108, hdpi: 162, xhdpi: 216, xxhdpi: 324, xxxhdpi: 432 }
