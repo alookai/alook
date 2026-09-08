@@ -130,6 +130,11 @@ type AuthOptions = {
         after?: (user: unknown, ctx: unknown) => Promise<void>
       }
     }
+    session?: {
+      create?: {
+        after?: (session: unknown, ctx: unknown) => Promise<void>
+      }
+    }
   }
 }
 
@@ -499,6 +504,31 @@ describe("createAuth databaseHooks — user.create.after", () => {
     const opts = (createAuth(makeEnv({ NODE_ENV: "production" }) as never) as { __options: AuthOptions }).__options
     const afterHook = opts.databaseHooks!.user!.create!.after!
     await expect(afterHook({ id: "u5" }, null)).resolves.toBeUndefined()
+  })
+})
+
+describe("createAuth databaseHooks — session.create.after", () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it("sets is_sign_in cookie with method=apple for an Apple callback", async () => {
+    const createAuth = await loadCreateAuth()
+    const opts = (createAuth(makeEnv({ NODE_ENV: "production" }) as never) as {
+      __options: AuthOptions
+    }).__options
+    const afterHook = opts.databaseHooks!.session!.create!.after!
+    const ctx = {
+      request: { url: "http://localhost:3000/api/auth/callback/apple" },
+      getCookie: vi.fn(() => undefined),
+      setCookie: vi.fn(),
+    }
+
+    await afterHook({ id: "session-apple", userId: "u-apple" }, ctx)
+
+    expect(ctx.setCookie).toHaveBeenCalledWith(
+      "is_sign_in",
+      "apple",
+      expect.objectContaining({ maxAge: 60 }),
+    )
   })
 })
 
