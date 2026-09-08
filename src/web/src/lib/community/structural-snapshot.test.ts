@@ -107,6 +107,18 @@ describe("parseStructuralSnapshot", () => {
     expect(parseStructuralSnapshot(oversized, "account-a", NOW)).toBeNull()
   })
 
+  it("rejects malformed and unsafe child-route hints", () => {
+    const unknownField = snapshot() as unknown as {
+      servers: Array<{ childRouteHints: Array<Record<string, unknown>> }>
+    }
+    unknownField.servers[0]!.childRouteHints[0]!.permission = "read"
+    expect(parseStructuralSnapshot(unknownField, "account-a", NOW)).toBeNull()
+
+    const unsafeParentMessage = snapshot()
+    unsafeParentMessage.servers[0]!.childRouteHints[0]!.parentMessageId = ""
+    expect(parseStructuralSnapshot(unsafeParentMessage, "account-a", NOW)).toBeNull()
+  })
+
   it("preserves an empty folder as structural rail state", () => {
     const value = snapshot()
     value.folders = [{ id: "folder-empty", name: "Later", serverIds: [] }]
@@ -178,6 +190,17 @@ describe("reduceStructuralSnapshot", () => {
     expect(next.folders).toEqual([{ id: "folder-1", name: "Work", serverIds: ["server-a"] }])
   })
 
+  it("retains only child hints whose parent remains in a replaced server tree", () => {
+    const next = reduceStructuralSnapshot(snapshot(), {
+      type: "replaceServerTree",
+      serverId: "server-a",
+      categories: [{ id: "category-1", name: "General", private: false }],
+      channels: [{ id: "channel-a", name: "chat", type: "text", categoryId: "category-1" }],
+    }, NOW + 1)!
+
+    expect(next.servers[0]?.childRouteHints.map((child) => child.id)).toEqual(["child-1"])
+  })
+
   it("prunes a parent channel and every related child hint atomically", () => {
     const next = reduceStructuralSnapshot(snapshot(), {
       type: "removeChannel",
@@ -206,6 +229,93 @@ describe("reduceStructuralSnapshot", () => {
     }
     expect(current.servers[0]?.childRouteHints).toHaveLength(STRUCTURAL_SNAPSHOT_CHILD_LIMIT)
     expect(current.servers[0]?.childRouteHints[0]?.id).toBe(`child-${STRUCTURAL_SNAPSHOT_CHILD_LIMIT + 4}`)
+  })
+
+  it("reconciles every ordered tree and rail mutation through one reducer", () => {
+    let current = snapshot()
+    current = reduceStructuralSnapshot(current, {
+      type: "replaceRail",
+      serverOrder: ["server-a", "unknown", "server-a"],
+      folders: [
+        { id: "folder-a", name: "A", serverIds: ["server-a"] },
+        { id: "folder-b", name: "B", serverIds: ["server-b"] },
+      ],
+    }, NOW + 1)!
+    expect(current.serverOrder).toEqual(["server-a", "server-b"])
+
+    current = reduceStructuralSnapshot(current, {
+      type: "upsertCategory",
+      serverId: "server-a",
+      category: { id: "category-2", name: "Later", private: true },
+    }, NOW + 2)!
+    current = reduceStructuralSnapshot(current, {
+      type: "patchCategory",
+      serverId: "server-a",
+      categoryId: "category-2",
+      changes: { name: "First" },
+      position: -5,
+    }, NOW + 3)!
+    current = reduceStructuralSnapshot(current, {
+      type: "reorderCategories",
+      serverId: "server-a",
+      categoryIds: ["category-1", "missing"],
+    }, NOW + 4)!
+    expect(current.servers[0]?.categories.map((category) => category.id))
+      .toEqual(["category-1", "category-2"])
+
+    current = reduceStructuralSnapshot(current, {
+      type: "upsertChannel",
+      serverId: "server-a",
+      channel: { id: "channel-c", name: "later", type: "text", categoryId: "category-2" },
+    }, NOW + 5)!
+    current = reduceStructuralSnapshot(current, {
+      type: "patchChannel",
+      serverId: "server-a",
+      channelId: "channel-c",
+      changes: { name: "renamed", type: "forum" },
+    }, NOW + 6)!
+    current = reduceStructuralSnapshot(current, {
+      type: "reorderChannels",
+      serverId: "server-a",
+      channelIds: ["channel-c", "missing", "channel-a"],
+    }, NOW + 7)!
+    expect(current.servers[0]?.channels.map((channel) => channel.id))
+      .toEqual(["channel-c", "channel-a", "channel-b"])
+
+    current = reduceStructuralSnapshot(current, {
+      type: "patchChildHint",
+      serverId: "server-a",
+      channelId: "child-1",
+      name: "renamed child",
+    }, NOW + 8)!
+    expect(current.servers[0]?.childRouteHints[0]?.name).toBe("renamed child")
+    current = reduceStructuralSnapshot(current, {
+      type: "removeChildHint",
+      serverId: "server-a",
+      channelId: "child-1",
+    }, NOW + 9)!
+    expect(current.servers[0]?.childRouteHints).toEqual([])
+
+    current = reduceStructuralSnapshot(current, {
+      type: "removeCategory",
+      serverId: "server-a",
+      categoryId: "category-2",
+    }, NOW + 10)!
+    expect(current.servers[0]?.channels.find((channel) => channel.id === "channel-c")?.categoryId)
+      .toBeNull()
+
+    current = reduceStructuralSnapshot(current, {
+      type: "removeServer",
+      serverId: "server-a",
+    }, NOW + 11)!
+    expect(current.folders).toEqual([{ id: "folder-b", name: "B", serverIds: ["server-b"] }])
+    expect(current.servers.map((server) => server.id)).toEqual(["server-b"])
+
+    const defaultTimestamp = reduceStructuralSnapshot(current, {
+      type: "replaceFolders",
+      folders: [],
+    })!
+    expect(defaultTimestamp.capturedAt).toBeGreaterThanOrEqual(Date.now() - 1_000)
   })
 
   it("updates exactly one QueryClient owner", () => {

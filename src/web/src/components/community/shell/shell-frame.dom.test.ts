@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => {
     pendingHref: { current: null as string | null },
     navigationPending: { current: false },
     serverCache: new Set<string>(),
+    structuralSnapshot: { current: null as null | Record<string, unknown> },
     breakpoint: { current: "desktop" },
     onboardingState: { current: null as Record<string, unknown> | null },
     replace: vi.fn(),
@@ -73,6 +74,9 @@ vi.mock("@/stores/community/ws", () => ({
 vi.mock("@/contexts/community/current-user", () => ({
   useCurrentUser: () => ({ id: "viewer" }),
 }))
+vi.mock("@/hooks/community/use-structural-snapshot", () => ({
+  useStructuralSnapshot: () => mocks.structuralSnapshot.current,
+}))
 vi.mock("./use-shell-rail-controller", () => ({
   useShellRailController: (options: unknown) => {
     mocks.railOptions(options)
@@ -112,6 +116,7 @@ describe("ShellFrame orchestration", () => {
     mocks.pendingHref.current = null
     mocks.navigationPending.current = false
     mocks.serverCache.clear()
+    mocks.structuralSnapshot.current = null
     mocks.breakpoint.current = "desktop"
     mocks.onboardingState.current = null
     mocks.registerUiHandlers.mockClear()
@@ -193,6 +198,50 @@ describe("ShellFrame orchestration", () => {
       projectedView: "server",
       projectedActiveServerId: "s2",
     }))
+  })
+
+  it("does not promote a rail-only structural identity to a warm server target", () => {
+    mocks.currentHref.current = "/c/channels/s1/c1"
+    mocks.pendingHref.current = "/c/channels/s2"
+    mocks.navigationPending.current = true
+    mocks.structuralSnapshot.current = {
+      serverOrder: ["s2"],
+      servers: [{ id: "s2", categories: [], channels: [] }],
+    }
+
+    render(createElement(ShellFrame, {
+      ...baseProps,
+      frameHref: "/c/channels/s1/c1",
+    }))
+
+    expect(checkpoint()).toMatchObject({
+      mode: "cold-scope",
+      sidebar: { kind: "server-skeleton", serverId: "s2" },
+    })
+  })
+
+  it("uses a captured structural tree as a warm server target", () => {
+    mocks.currentHref.current = "/c/channels/s1/c1"
+    mocks.pendingHref.current = "/c/channels/s2"
+    mocks.navigationPending.current = true
+    mocks.structuralSnapshot.current = {
+      serverOrder: ["s2"],
+      servers: [{
+        id: "s2",
+        categories: [],
+        channels: [{ id: "c2", name: "cached", type: "text", categoryId: null }],
+      }],
+    }
+
+    render(createElement(ShellFrame, {
+      ...baseProps,
+      frameHref: "/c/channels/s1/c1",
+    }))
+
+    expect(checkpoint()).toMatchObject({
+      mode: "warm-scope",
+      main: { kind: "keep" },
+    })
   })
 
   it("lets an exact warm target skip both forced checkpoints without relabeling A", () => {

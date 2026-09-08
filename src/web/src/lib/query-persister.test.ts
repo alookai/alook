@@ -442,6 +442,19 @@ describe("createIdbPersister — user scoping", () => {
     expect(bobBlob.timestamp).toBe(2)
   })
 
+  it("removes the current generation through the persister adapter", async () => {
+    const persister = createIdbPersister("u_remove")
+    await persister.persistClient({
+      timestamp: 4,
+      buster: "v1",
+      clientState: { mutations: [], queries: [] },
+    })
+
+    await persister.removeClient()
+
+    expect(await get("alook:qc:v1:u_remove:client")).toBeUndefined()
+  })
+
   it("blocks a delayed writer created before clear", async () => {
     const stale = createIdbPersister("u_alice")
     await clearPersistedCache("u_alice")

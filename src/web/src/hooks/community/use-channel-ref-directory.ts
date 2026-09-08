@@ -36,7 +36,12 @@ export function useChannelRefDirectory(enabled = true): {
   })
   const structuralDirectory = structuralSnapshotDirectory(structuralSnapshot)
   const directory = query.data ?? structuralDirectory
-  const isResolved = query.data !== undefined || structuralSnapshot !== null
+  // A server-list receipt creates rail identities before any server detail
+  // tree has been loaded. An empty directory from that partial hint is not an
+  // authoritative "no channels" result and must not suppress the live
+  // directory's pending/error state.
+  const hasStructuralChannels = structuralDirectory.some((server) => server.channels.length > 0)
+  const isResolved = query.data !== undefined || hasStructuralChannels
   return {
     directory: isResolved ? directory : EMPTY_DIRECTORY,
     isResolved,

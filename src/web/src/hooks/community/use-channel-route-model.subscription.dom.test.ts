@@ -143,6 +143,23 @@ describe("useChannelRouteModel subscription ownership", () => {
     act(() => renderer.unmount())
   })
 
+  it("reports the live top-level text subtype after access is ready", () => {
+    mocks.server = {
+      id: "server-1",
+      categories: [{
+        id: "cat-1",
+        channels: [{ id: "text-1", name: "Chat", type: "text" }],
+      }],
+    }
+
+    const renderer = render(React.createElement(Harness, { channelId: "text-1" }))
+
+    const node = renderer.container.querySelector("span")
+    expect(node?.getAttribute("data-lifecycle")).toBe("ready")
+    expect(node?.getAttribute("data-skeleton-subtype")).toBe("text")
+    act(() => renderer.unmount())
+  })
+
   it("does not hydrate a verified child with the previous child's store metadata", () => {
     const model = buildChannelRouteModel(
       {

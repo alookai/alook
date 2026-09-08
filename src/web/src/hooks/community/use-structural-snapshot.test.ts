@@ -6,6 +6,7 @@ import type { FoldersResponse } from "./use-folders"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import {
   installStructuralSnapshotProjection,
+  structuralHintServer,
 } from "./use-structural-snapshot"
 
 function servers(name = "Alpha"): ServersResponse {
@@ -223,5 +224,121 @@ describe("installStructuralSnapshotProjection", () => {
     })
     dispose = installStructuralSnapshotProjection(queryClient, "account-a")
     expect(queryClient.getQueryData(communityKeys.structuralSnapshot())).toBeUndefined()
+  })
+
+  it("removes structural state for an anonymous account", () => {
+    queryClient.setQueryData(communityKeys.structuralSnapshot(), { unsafe: true })
+    dispose()
+    dispose = installStructuralSnapshotProjection(queryClient, null)
+
+    expect(queryClient.getQueryData(communityKeys.structuralSnapshot())).toBeUndefined()
+  })
+
+  it("rejects malformed data that is already present when a query is added", () => {
+    queryClient.getQueryCache().build(
+      queryClient,
+      { queryKey: communityKeys.structuralSnapshot() },
+      { data: { unsafe: true } } as never,
+    )
+
+    expect(queryClient.getQueryData(communityKeys.structuralSnapshot())).toBeUndefined()
+  })
+
+  it("projects successful cache entries that predate projection installation", () => {
+    dispose()
+    queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    queryClient.setQueryData(communityKeys.servers(), servers("Cached"))
+
+    dispose = installStructuralSnapshotProjection(queryClient, "account-a")
+
+    expect(queryClient.getQueryData(communityKeys.structuralSnapshot())).toMatchObject({
+      accountId: "account-a",
+      servers: [{ id: "server-1", name: "Cached" }],
+    })
+  })
+
+  it("removes an archived child receipt from the structural snapshot", async () => {
+    await queryClient.fetchQuery({
+      queryKey: communityKeys.servers(),
+      queryFn: () => Promise.resolve(servers()),
+    })
+    await queryClient.fetchQuery({
+      queryKey: communityKeys.server("server-1"),
+      queryFn: () => Promise.resolve({
+        id: "server-1",
+        name: "Alpha",
+        discriminator: "0001",
+        description: "",
+        icon: null,
+        ownerId: "owner-1",
+        categories: [{
+          id: "category-1",
+          name: "General",
+          private: 0,
+          channels: [{
+            id: "channel-1",
+            name: "chat",
+            type: "text",
+            active: false,
+            unread: false,
+          }],
+        }],
+      } satisfies ServerDetail),
+    })
+    queryClient.setQueryData(communityKeys.structuralSnapshot(), (current: any) => ({
+      ...current,
+      servers: current.servers.map((server: any) => ({
+        ...server,
+        childRouteHints: [{
+          id: "child-1",
+          name: "Thread",
+          type: "thread",
+          parentChannelId: "channel-1",
+          parentMessageId: "message-1",
+        }],
+      })),
+    }))
+    await queryClient.fetchQuery({
+      queryKey: communityKeys.channelMeta("server-1", "child-1"),
+      queryFn: () => Promise.resolve({
+        id: "child-1",
+        serverId: "server-1",
+        name: "Thread",
+        type: "thread",
+        parentChannelId: "channel-1",
+        parentMessageId: "message-1",
+        archived: true,
+      }),
+    })
+
+    expect(queryClient.getQueryData<any>(
+      communityKeys.structuralSnapshot(),
+    ).servers[0].childRouteHints).toEqual([])
+  })
+
+  it("projects and misses structural server hints explicitly", () => {
+    const snapshot = {
+      schemaVersion: 1 as const,
+      accountId: "account-a",
+      capturedAt: Date.now(),
+      serverOrder: ["server-1"],
+      folders: [],
+      servers: [{
+        id: "server-1",
+        name: "Alpha",
+        discriminator: "0001",
+        icon: null,
+        categories: [],
+        channels: [],
+        childRouteHints: [],
+      }],
+    }
+
+    expect(structuralHintServer(snapshot, "server-1")).toMatchObject({
+      id: "server-1",
+      categoriesView: [],
+    })
+    expect(structuralHintServer(snapshot, "missing")).toBeNull()
+    expect(structuralHintServer(null, "server-1")).toBeNull()
   })
 })

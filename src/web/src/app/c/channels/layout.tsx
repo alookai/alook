@@ -83,6 +83,9 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     useCommunityStore.getState().uiHandlers.cancelPendingNavigation?.()
   }, [])
   const currentUser = useCurrentUser()
+  const serverAccessRevoked = useCommunityWsStore(
+    (state) => state.revokedServerIds.has(serverId),
+  )
   const structuralSnapshot = useStructuralSnapshot(currentUser.id)
   const structuralServer = useMemo(
     () => structuralHintServer(structuralSnapshot, serverId),
@@ -201,8 +204,10 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     ejectedRef.current = runAuthoritativeServerEject({
       serverId,
       servers: serversList.servers,
-      isSuccess: serversList.isSuccess,
-      isFetching: serversList.isFetching,
+      // A target-specific 403/404 is already definitive even if revoking the
+      // target advanced the access epoch and retired an in-flight list read.
+      isSuccess: serverAccessRevoked || serversList.isSuccess,
+      isFetching: serverAccessRevoked ? false : serversList.isFetching,
       consumeVoluntaryLeave,
       clearLastChannel,
       toast,
@@ -213,7 +218,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
         router.replace(destination)
       },
     })
-  }, [cancelPendingNavigation, currentUser.id, pathname, serverId, serversList.isSuccess, serversList.isFetching, serversList.servers, router, searchParams])
+  }, [cancelPendingNavigation, currentUser.id, pathname, serverAccessRevoked, serverId, serversList.isSuccess, serversList.isFetching, serversList.servers, router, searchParams])
   // Reset the guard when the URL changes to a NEW server id — otherwise
   // navigating server → dangling-server → server would leave the ref
   // latched and skip the eject.

@@ -2,8 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { QueryObserver } from "@tanstack/react-query"
 import type {
   CommunityCategoryCreate,
+  CommunityCategoryDelete,
+  CommunityCategoryReorder,
+  CommunityCategoryUpdate,
   CommunityChannelCreate,
   CommunityChannelDelete,
+  CommunityChannelReorder,
+  CommunityChannelUpdate,
   CommunityChildChannelCreate,
   CommunityChildChannelUpdate,
   CommunityServerDelete,
@@ -196,6 +201,47 @@ describe("useCommunityWs — child channel events", () => {
       childRouteHints: [{ id: "child_1" }],
     })
   })
+
+  it("renames and archives a persisted child hint from structural events", async () => {
+    await mountHook()
+    seedStructuralSnapshot()
+    capturedQueryClient.setQueryData<any>(
+      communityKeys.structuralSnapshot(),
+      (current: any) => ({
+        ...current,
+        servers: current.servers.map((server: any) => ({
+          ...server,
+          childRouteHints: [{
+            id: "child_1",
+            name: "Old",
+            type: "thread",
+            parentChannelId: "ch_old",
+            parentMessageId: "opener_1",
+          }],
+        })),
+      }),
+    )
+
+    capturedOnMessage!({
+      type: "community:channel.child_update",
+      parentChannelId: "ch_old",
+      channelId: "child_1",
+      changes: { name: "Renamed" },
+    } satisfies CommunityChildChannelUpdate)
+    expect(capturedQueryClient.getQueryData<any>(
+      communityKeys.structuralSnapshot(),
+    ).servers[0].childRouteHints[0].name).toBe("Renamed")
+
+    capturedOnMessage!({
+      type: "community:channel.child_update",
+      parentChannelId: "ch_old",
+      channelId: "child_1",
+      changes: { archived: true },
+    } satisfies CommunityChildChannelUpdate)
+    expect(capturedQueryClient.getQueryData<any>(
+      communityKeys.structuralSnapshot(),
+    ).servers[0].childRouteHints).toEqual([])
+  })
 })
 
 describe("useCommunityWs — channel.* invalidates server(id)", () => {
@@ -226,6 +272,49 @@ describe("useCommunityWs — channel.* invalidates server(id)", () => {
     }>(communityKeys.structuralSnapshot())?.servers[0]?.channels.map((channel) => channel.id))
       .toEqual(["ch_new", "ch_old"])
   })
+
+  it("projects channel update and canonical reorder fields", async () => {
+    await mountHook()
+    seedStructuralSnapshot()
+
+    capturedOnMessage!({
+      type: "community:channel.create",
+      serverId: "srv_1",
+      channel: {
+        id: "ch_second",
+        name: "second",
+        type: "text",
+        categoryId: null,
+        position: 1,
+        createdAt: "2026-09-08T00:00:00.000Z",
+      },
+    } satisfies CommunityChannelCreate)
+    capturedOnMessage!({
+      type: "community:channel.update",
+      serverId: "srv_1",
+      channelId: "ch_second",
+      changes: { name: "updated", type: "forum", categoryId: null },
+    } satisfies CommunityChannelUpdate)
+    capturedOnMessage!({
+      type: "community:channel.reorder",
+      serverId: "srv_1",
+      channels: [
+        { id: "ch_old", position: 2 },
+        { id: "ch_second", position: 1 },
+      ],
+    } satisfies CommunityChannelReorder)
+
+    const channels = capturedQueryClient.getQueryData<any>(
+      communityKeys.structuralSnapshot(),
+    ).servers[0].channels
+    expect(channels.map((channel: { id: string }) => channel.id))
+      .toEqual(["ch_second", "ch_old"])
+    expect(channels[0]).toMatchObject({
+      name: "updated",
+      type: "forum",
+      categoryId: null,
+    })
+  })
 })
 
 describe("useCommunityWs — category.* invalidates tree projections", () => {
@@ -252,6 +341,44 @@ describe("useCommunityWs — category.* invalidates tree projections", () => {
       queryKey: communityKeys.server("srv_1"),
       exact: true,
     })
+  })
+
+  it("projects category update, reorder, and delete into the structural tree", async () => {
+    await mountHook()
+    seedStructuralSnapshot()
+
+    for (const [id, position] of [["cat_a", 0], ["cat_b", 1]] as const) {
+      capturedOnMessage!({
+        type: "community:category.create",
+        serverId: "srv_1",
+        category: { id, name: id, position, private: false },
+      } satisfies CommunityCategoryCreate)
+    }
+    capturedOnMessage!({
+      type: "community:category.update",
+      serverId: "srv_1",
+      categoryId: "cat_a",
+      changes: { name: "Renamed", private: true, position: 1 },
+    } satisfies CommunityCategoryUpdate)
+    capturedOnMessage!({
+      type: "community:category.reorder",
+      serverId: "srv_1",
+      categories: [
+        { id: "cat_a", position: 2 },
+        { id: "cat_b", position: 1 },
+      ],
+    } satisfies CommunityCategoryReorder)
+    capturedOnMessage!({
+      type: "community:category.delete",
+      serverId: "srv_1",
+      categoryId: "cat_b",
+    } satisfies CommunityCategoryDelete)
+
+    expect(capturedQueryClient.getQueryData<any>(
+      communityKeys.structuralSnapshot(),
+    ).servers[0].categories).toEqual([
+      { id: "cat_a", name: "Renamed", private: true },
+    ])
   })
 })
 
@@ -282,6 +409,10 @@ describe("useCommunityWs — channel.delete evicts channel-scoped caches", () =>
   it("prunes the structural channel and its child hints after scope eviction", async () => {
     await mountHook()
     seedStructuralSnapshot()
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.setState({
+      typingByScope: new Map([["ch:ch_old", new Map([["u_typing", "Typer"]])]]),
+    })
     capturedQueryClient.setQueryData<{ servers: Array<{
       childRouteHints: Array<Record<string, unknown>>
     }> }>(communityKeys.structuralSnapshot(), (current) => current && ({
@@ -309,6 +440,7 @@ describe("useCommunityWs — channel.delete evicts channel-scoped caches", () =>
     }>(communityKeys.structuralSnapshot())
     expect(snapshot?.servers[0]?.channels).toEqual([])
     expect(snapshot?.servers[0]?.childRouteHints).toEqual([])
+    expect(useCommunityStore.getState().typingByScope.has("ch:ch_old")).toBe(false)
   })
 
   it("fences a deleted channel's cached raw Inbox row", async () => {
