@@ -53,6 +53,9 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         CFBundleShortVersionString: 0.1.34
         CFBundleVersion: "1"
+        CFBundleURLTypes:
+          - CFBundleURLName: ai.alook
+            CFBundleURLSchemes: [ai.alook]
     entitlements:
       path: alook-desktop_iOS/alook-desktop_iOS.entitlements
     scheme:

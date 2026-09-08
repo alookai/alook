@@ -1194,7 +1194,13 @@ describe("Mobile release availability", () => {
     expect(androidGradle).toContain('signingConfig = signingConfigs.getByName("release")')
     expect(androidMainActivity).toContain("package ai.alook.android")
     expect(mobileReleaseWorkflow).toContain("build-android:")
-    expect(mobileReleaseWorkflow).toContain("if: github.event_name == 'push'")
+    expect(mobileReleaseWorkflow).toContain(
+      "if: github.event_name == 'push' || inputs.android == true",
+    )
+    expect(mobileReleaseWorkflow).toContain(
+      'yes | "$sdkmanager" --licenses >/dev/null || [[ ${PIPESTATUS[1]} -eq 0 ]]',
+    )
+    expect(mobileReleaseWorkflow).toContain('test -x "$ndk_home/ndk-build"')
     expect(mobileReleaseWorkflow).toContain("ANDROID_KEYSTORE:")
     expect(mobileReleaseWorkflow).toContain("ANDROID_KEYSTORE_PASSWORD:")
     expect(mobileReleaseWorkflow).toContain("ANDROID_KEY_ALIAS:")

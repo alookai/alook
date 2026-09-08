@@ -150,6 +150,8 @@ describe("native OAuth mobile activation", () => {
     })
     expect(iosProject).toContain("PRODUCT_BUNDLE_IDENTIFIER: ai.alook.ios")
     expect(iosProject).toContain("DEVELOPMENT_TEAM: 5RF24VHDQB")
+    expect(iosProject).toContain("CFBundleURLTypes:")
+    expect(iosProject).toContain("CFBundleURLSchemes: [ai.alook]")
     expect(iosEntitlements).toContain("<string>applinks:auth.alook.ai</string>")
     expect(mobileRelease).toContain('info["CFBundleURLTypes"] ==')
     expect(mobileRelease).toContain("ai.alook")
