@@ -55,6 +55,46 @@ describe("native shell theme color contract", () => {
     expect(androidRuntime).toContain('const val COLOR_DARK = "#100D0A"')
     expect(androidLightSplash).toContain("<item name=\"windowSplashScreenBackground\">#FFFFFF</item>")
     expect(androidDarkSplash).toContain("<item name=\"windowSplashScreenBackground\">#100D0A</item>")
+    expect(androidLightSplash).toContain("<item name=\"android:statusBarColor\">#FFFFFF</item>")
+    expect(androidLightSplash).toContain("<item name=\"android:navigationBarColor\">#FFFFFF</item>")
+    expect(androidLightSplash).toContain("<item name=\"android:windowLightStatusBar\">true</item>")
+    expect(androidLightSplash).toContain("<item name=\"android:windowLightNavigationBar\">true</item>")
+    expect(androidDarkSplash).toContain("<item name=\"android:statusBarColor\">#100D0A</item>")
+    expect(androidDarkSplash).toContain("<item name=\"android:navigationBarColor\">#100D0A</item>")
+    expect(androidDarkSplash).toContain("<item name=\"android:windowLightStatusBar\">false</item>")
+    expect(androidDarkSplash).toContain("<item name=\"android:windowLightNavigationBar\">false</item>")
+  })
+
+  it("synchronizes Android root, system bars, and icon contrast at creation and from the Web bridge", () => {
+    expect(androidRuntime).toContain("applyWindowTheme(isDark)")
+    expect(androidRuntime.indexOf("applyWindowTheme(isDark)")).toBeLessThan(
+      androidRuntime.indexOf("ViewCompat.setOnApplyWindowInsetsListener"),
+    )
+    expect(androidRuntime).toContain("rootView.setBackgroundColor(color)")
+    expect(androidRuntime).toContain("window.statusBarColor = color")
+    expect(androidRuntime).toContain("window.navigationBarColor = color")
+    expect(androidRuntime).toContain("WindowCompat.getInsetsController(window, rootView)")
+    expect(androidRuntime).toContain("isAppearanceLightStatusBars = !dark")
+    expect(androidRuntime).toContain("isAppearanceLightNavigationBars = !dark")
+    expect(androidRuntime).toContain("activity.applyWindowTheme(dark)")
+  })
+
+  it("keeps Android system-bar and IME inset ownership unchanged", () => {
+    expect(androidRuntime).toContain(
+      "insets.getInsets(WindowInsetsCompat.Type.systemBars())",
+    )
+    expect(androidRuntime).toContain(
+      "insets.isVisible(WindowInsetsCompat.Type.ime())",
+    )
+    expect(androidRuntime).toContain(
+      "insets.getInsets(WindowInsetsCompat.Type.ime()).bottom",
+    )
+    expect(androidRuntime).toContain(
+      "if (imeVisible) imeHeight else systemBars.bottom",
+    )
+    expect(androidRuntime).toContain(
+      "v.setPadding(systemBars.left, systemBars.top, systemBars.right, bottomPadding)",
+    )
   })
 
   it("retains runtime theme bridges and removes the legacy light color from native owners", () => {
