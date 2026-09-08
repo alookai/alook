@@ -156,6 +156,28 @@ describe("Grok recent-context discovery", () => {
     });
   });
 
+  it("returns an empty result when the list response omits sessions and a cursor", async () => {
+    const rpc = fakeRpcProcess((request, respond) => {
+      if (request.method === "initialize") {
+        respond({
+          protocolVersion: 1,
+          agentCapabilities: { sessionCapabilities: { list: true } },
+          authMethods: [{ id: "cached_token" }],
+        });
+      } else {
+        respond({});
+      }
+    });
+
+    await expect(discoverGrokRecentContext({
+      recentSessionFilesTopK: 0,
+      recentProjectsTopK: 1,
+    }, { spawn: () => rpc.process, cleanup: async () => {} })).resolves.toEqual({
+      sessionFiles: { capability: "unavailable", items: [] },
+      recentProjects: [],
+    });
+  });
+
   it("fails on an incompatible protocol and an early process exit", async () => {
     const incompatible = fakeRpcProcess((_request, respond) => respond({
       protocolVersion: 2,

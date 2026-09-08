@@ -127,5 +127,26 @@ describe("Grok telemetry", () => {
       status: "available",
       limits: [{ bucket: { window: { durationSeconds: 864_000 } } }],
     });
+
+    expect(normalizeGrokBilling({
+      config: { currentPeriod: { creditUsagePercent: 40 } },
+    }, epoch)).toEqual({
+      status: "available",
+      sourceEpoch: epoch,
+      freshForSeconds: 300,
+      limits: [{
+        bucket: {
+          limitId: "grok-build",
+          product: { kind: "reported", id: "grok", displayName: "Grok Build" },
+          model: { kind: "not_applicable" },
+          window: {
+            kind: "provider_defined",
+            id: "grok-build",
+            displayName: "Grok Build limit",
+          },
+        },
+        usedPercent: 40,
+      }],
+    });
   });
 });
