@@ -298,7 +298,7 @@ export function useShellProfileController({
   const onAccountDeleted = async () => {
     await clearLocalAccountState()
     setEditingProfile(false)
-    router.replace("/sign-in?account_deleted=1")
+    globalThis.location.replace("/sign-in?account_deleted=1")
   }
 
   const userSettingsProps: ComponentProps<typeof UserSettings> = {

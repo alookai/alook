@@ -42,7 +42,14 @@ describe("account deletion submit route", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     getPrimaryDb.mockReturnValue({
-      query: { user: { findFirst: vi.fn().mockResolvedValue({ id: "user-1" }) } },
+      query: {
+        user: {
+          findFirst: vi.fn().mockImplementation(async ({ where }) => {
+            where({ id: "user-1" }, { eq: (left: unknown, right: unknown) => left === right })
+            return { id: "user-1" }
+          }),
+        },
+      },
     })
     verifyDeletionCode.mockResolvedValue({ kind: "verified", challenge })
     executeAccountDeletion.mockResolvedValue({ kind: "deleted" })
@@ -89,5 +96,29 @@ describe("account deletion submit route", () => {
     expect(response.status).toBe(503)
     expect(await response.json()).toEqual({ error: "ACCOUNT_DELETION_FAILED" })
     expect(restoreVerifiedDeletionCode).toHaveBeenCalledWith(expect.anything(), challenge)
+  })
+
+  it("does not restore a consumed code when the failed cleanup already removed the user", async () => {
+    executeAccountDeletion.mockResolvedValue({ kind: "failed" })
+    getPrimaryDb.mockReturnValue({
+      query: { user: { findFirst: vi.fn().mockResolvedValue(null) } },
+    })
+
+    const response = await POST(request({ otp: "123456" }), {} as never)
+
+    expect(response.status).toBe(503)
+    expect(restoreVerifiedDeletionCode).not.toHaveBeenCalled()
+  })
+
+  it("does not restore a consumed code when the live-user retry check fails", async () => {
+    executeAccountDeletion.mockResolvedValue({ kind: "failed" })
+    getPrimaryDb.mockReturnValue({
+      query: { user: { findFirst: vi.fn().mockRejectedValue(new Error("primary down")) } },
+    })
+
+    const response = await POST(request({ otp: "123456" }), {} as never)
+
+    expect(response.status).toBe(503)
+    expect(restoreVerifiedDeletionCode).not.toHaveBeenCalled()
   })
 })

@@ -221,4 +221,30 @@ describe("account deletion execution", () => {
       "user-1",
     )).resolves.toEqual({ kind: "deleted" })
   })
+
+  it("fails closed when the delete batch reports no deleted user and the user remains", async () => {
+    mocks.getSnapshot.mockResolvedValue(snapshot("current"))
+    mocks.deleteRows.mockResolvedValue({ deleted: false, readStateRevisions: [] })
+    mocks.getUser.mockResolvedValue({ id: "user-1" })
+
+    await expect(executeAccountDeletion(
+      {} as never,
+      {} as never,
+      { waitUntil: vi.fn() },
+      "user-1",
+    )).resolves.toEqual({ kind: "failed" })
+  })
+
+  it("keeps a committed deletion successful when waitUntil is unavailable", async () => {
+    mocks.getSnapshot.mockResolvedValue(snapshot("current"))
+    mocks.deleteRows.mockResolvedValue({ deleted: true, readStateRevisions: [] })
+
+    await expect(executeAccountDeletion(
+      {} as never,
+      {} as never,
+      { waitUntil: () => { throw new Error("unavailable") } },
+      "user-1",
+    )).resolves.toEqual({ kind: "deleted" })
+    expect(mocks.warn).toHaveBeenCalledWith("account_deletion_wait_until_unavailable")
+  })
 })

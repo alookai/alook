@@ -47,5 +47,8 @@ describe("shared settings shell", () => {
     expect(logout).toBeGreaterThan(privacyTab)
     expect(accountDeletion).toBeGreaterThan(logout)
     expect(source).toContain("<PrivacyPolicyContent />")
+    expect(source).not.toContain("Trash2")
+    expect(source).toContain('className={`${SETTINGS_LOGOUT_CLASS} w-auto! px-3 sm:w-full!`}')
+    expect(source).toMatch(/data-testid=\{tid\.accountDeletionOpen\}[\s\S]*?>\s*Delete account\s*<\/Button>/u)
   })
 })

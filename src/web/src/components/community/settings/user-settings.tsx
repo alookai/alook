@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"
-import { User, LogOut, Palette, Sun, Moon, Monitor, Database, Camera, Shield, Trash2 } from "lucide-react"
+import { User, LogOut, Palette, Sun, Moon, Monitor, Database, Camera, Shield } from "lucide-react"
 import { useTheme } from "next-themes"
 import { Button } from "@/components/ui/button"
 import { AutoResizeTextarea } from "@/components/ui/auto-resize-textarea"
@@ -207,14 +207,14 @@ export function UserSettings({ onClose, userId, userName, userEmail, aboutMe, av
           </Button>
           <Button
             variant="ghost"
-            className={SETTINGS_LOGOUT_CLASS}
+            className={`${SETTINGS_LOGOUT_CLASS} w-auto! px-3 sm:w-full!`}
             size="sm"
             onClick={() => setDeletionOpen(true)}
             aria-label="Delete account"
             disabled={deletionOpen}
             data-testid={tid.accountDeletionOpen}
           >
-            <Trash2 className="size-4" /> <span className="sr-only sm:not-sr-only">Delete account</span>
+            Delete account
           </Button>
         </>
       }

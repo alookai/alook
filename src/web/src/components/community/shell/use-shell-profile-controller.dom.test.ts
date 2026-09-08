@@ -457,6 +457,9 @@ describe("useShellProfileController", () => {
 
   it("uses logout-equivalent local cleanup then replaces into the persistent deletion state", async () => {
     const order: string[] = []
+    vi.stubGlobal("location", {
+      replace: (href: string) => { order.push(`replace:${href}`) },
+    })
     const hook = await renderController()
     hook.cancelPendingNavigation.mockImplementation(() => { order.push("cancel") })
     mocks.communityReset.mockImplementation(() => { order.push("community") })
@@ -466,7 +469,6 @@ describe("useShellProfileController", () => {
     mocks.disposeReconciliation.mockImplementation(() => { order.push("reconcile") })
     hook.queryClient.clear.mockImplementation(() => { order.push("query") })
     mocks.clearCache.mockImplementation(async () => { order.push("cache") })
-    hook.router.replace.mockImplementation((href: string) => { order.push(`replace:${href}`) })
 
     await act(async () => hook.current.userSettingsProps.onAccountDeleted())
 
@@ -481,6 +483,7 @@ describe("useShellProfileController", () => {
       "cache",
       "replace:/sign-in?account_deleted=1",
     ])
+    expect(hook.router.replace).not.toHaveBeenCalled()
     expect(mocks.signOut).not.toHaveBeenCalled()
   })
 

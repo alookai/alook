@@ -498,6 +498,51 @@ describe("withCookieHumanAuth middleware", () => {
     expect(mockGetSession).not.toHaveBeenCalled();
   });
 
+  it("accepts the exact preserved localhost Host through the development ingress", async () => {
+    const req = new NextRequest("http://127.0.0.1:3001/api/test", {
+      method: "POST",
+      headers: {
+        Host: "localhost:3000",
+        Origin: "http://localhost:3000",
+        "X-Forwarded-Host": "localhost:3000",
+      },
+    });
+
+    const res = await wrapped(req);
+
+    expect(res.status).toBe(200);
+    expect(testHandler).toHaveBeenCalledOnce();
+  });
+
+  it("rejects a mismatched Host and a non-loopback internal target", async () => {
+    for (const req of [
+      new NextRequest("http://127.0.0.1:3001/api/test", {
+        method: "POST",
+        headers: { Host: "evil.example", Origin: "http://localhost:3000" },
+      }),
+      new NextRequest("http://internal.example/api/test", {
+        method: "POST",
+        headers: { Host: "localhost:3000", Origin: "http://localhost:3000" },
+      }),
+    ]) {
+      const res = await wrapped(req);
+      expect(res.status).toBe(403);
+    }
+    expect(mockGetSession).not.toHaveBeenCalled();
+  });
+
+  it("rejects a malformed Origin without throwing", async () => {
+    const req = new NextRequest("http://127.0.0.1:3001/api/test", {
+      method: "POST",
+      headers: { Host: "localhost:3000", Origin: "not-an-origin" },
+    });
+
+    const res = await wrapped(req);
+
+    expect(res.status).toBe(403);
+    expect(mockGetSession).not.toHaveBeenCalled();
+  });
+
   it("distinguishes an absent cookie from transient session validation failure", async () => {
     const req = new NextRequest("https://alook.ai/api/test", {
       method: "POST",
@@ -594,6 +639,24 @@ describe("withCookieHumanAuth middleware", () => {
 
     expect(res.status).toBe(401);
     expect(res.headers.getSetCookie()).toHaveLength(4);
+    expect(testHandler).not.toHaveBeenCalled();
+  });
+
+  it("rejects a bot in the signed session before the live lookup and clears auth cookies", async () => {
+    mockGetSession.mockResolvedValue({
+      headers: new Headers(),
+      response: { user: { id: "bot-1", email: "bot@example.com", isBot: true, deletedAt: null } },
+    });
+    const req = new NextRequest("https://alook.ai/api/test", {
+      method: "POST",
+      headers: { Origin: "https://alook.ai" },
+    });
+
+    const res = await wrapped(req);
+
+    expect(res.status).toBe(401);
+    expect(res.headers.getSetCookie()).toHaveLength(4);
+    expect(mockGetUserInternal).not.toHaveBeenCalled();
     expect(testHandler).not.toHaveBeenCalled();
   });
 

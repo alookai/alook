@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { afterEach, describe, it, expect, vi, beforeEach } from "vitest"
 
 vi.mock("better-auth", () => ({
   betterAuth: vi.fn((opts: unknown) => ({ __options: opts })),
@@ -201,6 +201,44 @@ describe("createAuth rate limiting", () => {
       sendOtp({ email: "a@b.com", otp: "1234", type: "sign-in" }),
     ).rejects.toThrow(/retry in 42s/)
     expect(env.EMAIL_WORKER.fetch).not.toHaveBeenCalled()
+  })
+})
+
+describe("sendOtpEmail", () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it("falls back to the development email endpoint when the service binding rejects", async () => {
+    const internalFetch = vi.fn().mockRejectedValue(new Error("binding unavailable"))
+    const fallbackFetch = vi.fn().mockResolvedValue(new Response("ok", { status: 200 }))
+    vi.stubGlobal("fetch", fallbackFetch)
+    const { sendOtpEmail } = await import("./auth")
+    const env = makeEnv({ EMAIL_WORKER: { fetch: internalFetch } })
+
+    await sendOtpEmail(env as never, {
+      email: "owner@example.com",
+      otp: "123456",
+      type: "account-deletion",
+    })
+
+    expect(fallbackFetch).toHaveBeenCalledWith(
+      "http://localhost:0/send/otp",
+      expect.objectContaining({ method: "POST" }),
+    )
+  })
+
+  it("reports a non-successful email-worker response", async () => {
+    const env = makeEnv({
+      EMAIL_WORKER: {
+        fetch: vi.fn().mockResolvedValue(new Response("worker down", { status: 503 })),
+      },
+    })
+    const { sendOtpEmail } = await import("./auth")
+
+    await expect(sendOtpEmail(env as never, {
+      email: "owner@example.com",
+      otp: "123456",
+      type: "account-deletion",
+    })).rejects.toThrow("EMAIL_WORKER /send/otp failed: 503 worker down")
   })
 })
 

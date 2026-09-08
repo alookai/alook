@@ -233,6 +233,29 @@ function accountDeletionAuthError(error: string, status: number): NextResponse {
   )
 }
 
+function isLoopbackHostname(hostname: string): boolean {
+  return hostname === "localhost"
+    || hostname === "127.0.0.1"
+    || hostname === "[::1]"
+}
+
+function isCookieHumanSameOrigin(req: NextRequest): boolean {
+  const originHeader = req.headers.get("Origin")
+  if (!originHeader) return false
+  let originUrl: URL
+  try {
+    originUrl = new URL(originHeader)
+  } catch {
+    return false
+  }
+  if (originHeader !== originUrl.origin) return false
+  const requestUrl = new URL(req.url)
+  if (originUrl.origin === requestUrl.origin) return true
+  return isLoopbackHostname(originUrl.hostname)
+    && isLoopbackHostname(requestUrl.hostname)
+    && req.headers.get("Host") === originUrl.host
+}
+
 export function withCookieHumanAuth(handler: CookieHumanAuthHandler) {
   return async (
     req: NextRequest,
@@ -243,8 +266,7 @@ export function withCookieHumanAuth(handler: CookieHumanAuthHandler) {
         ? await context.params
         : context.params
       : undefined
-    const requestOrigin = new URL(req.url).origin
-    if (req.method !== "POST" || req.headers.get("Origin") !== requestOrigin) {
+    if (req.method !== "POST" || !isCookieHumanSameOrigin(req)) {
       return accountDeletionAuthError("FORBIDDEN", 403)
     }
     if (req.headers.has("Authorization")) {

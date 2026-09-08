@@ -76,6 +76,21 @@ describe("account deletion challenge", () => {
     expect(generateDeletionOtp(fill as typeof crypto.getRandomValues)).toBe("000042")
   })
 
+  it("rejects out-of-range randomness before formatting the code", () => {
+    const fill = vi.fn()
+      .mockImplementationOnce((view: Uint32Array) => {
+        view[0] = 0xffff_ffff
+        return view
+      })
+      .mockImplementationOnce((view: Uint32Array) => {
+        view[0] = 7
+        return view
+      })
+
+    expect(generateDeletionOtp(fill as typeof crypto.getRandomValues)).toBe("000007")
+    expect(fill).toHaveBeenCalledTimes(2)
+  })
+
   it("persists five-minute challenge before sending deletion-specific email", async () => {
     const result = await sendDeletionCode(db, env, {
       userId: "user-1",
