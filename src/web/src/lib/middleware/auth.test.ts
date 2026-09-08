@@ -609,6 +609,21 @@ describe("withCookieHumanAuth middleware", () => {
     expect(body.ctx.executionContext).toEqual({});
   });
 
+  it("forwards both direct and promised route params", async () => {
+    const request = () => new NextRequest("https://alook.ai/api/test", {
+      method: "POST",
+      headers: { Origin: "https://alook.ai" },
+    });
+
+    const direct = await wrapped(request(), { params: { source: "direct" } });
+    expect((await direct.json()).ctx.params).toEqual({ source: "direct" });
+
+    const promised = await wrapped(request(), {
+      params: Promise.resolve({ source: "promised" }),
+    });
+    expect((await promised.json()).ctx.params).toEqual({ source: "promised" });
+  });
+
   it("returns 503 when the primary live-user lookup fails", async () => {
     mockGetUserInternal.mockRejectedValue(new Error("primary down"));
     const req = new NextRequest("https://alook.ai/api/test", {

@@ -201,22 +201,9 @@ export function UserSettings({ onClose, userId, userName, userEmail, aboutMe, av
       onClose={onClose}
       disabled={deletionOpen}
       navFooter={
-        <>
-          <Button variant="ghost" className={SETTINGS_LOGOUT_CLASS} size="sm" onClick={onLogout} aria-label="Log out" disabled={deletionOpen}>
-            <LogOut className="size-4" /> <span className="sr-only sm:not-sr-only">Log Out</span>
-          </Button>
-          <Button
-            variant="ghost"
-            className={`${SETTINGS_LOGOUT_CLASS} w-auto! px-3 sm:w-full!`}
-            size="sm"
-            onClick={() => setDeletionOpen(true)}
-            aria-label="Delete account"
-            disabled={deletionOpen}
-            data-testid={tid.accountDeletionOpen}
-          >
-            Delete account
-          </Button>
-        </>
+        <Button variant="ghost" className={SETTINGS_LOGOUT_CLASS} size="sm" onClick={onLogout} aria-label="Log out" disabled={deletionOpen}>
+          <LogOut className="size-4" /> <span className="sr-only sm:not-sr-only">Log Out</span>
+        </Button>
       }
     >
       {deletionOpen ? (
@@ -277,9 +264,21 @@ export function UserSettings({ onClose, userId, userName, userEmail, aboutMe, av
                   </button>
                 </StatusEditor>
               </div>
-              <div className="flex items-center justify-start gap-2">
-                <Button variant="ghost" size="sm" className="h-11 sm:h-8" onClick={handleCancel} disabled={!dirty}>Cancel</Button>
-                <Button size="sm" className="h-11 sm:h-8" onClick={handleSave} disabled={!dirty}>Save changes</Button>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-11 shrink-0 px-3 text-destructive hover:text-destructive sm:h-8"
+                  onClick={() => setDeletionOpen(true)}
+                  aria-label="Delete account"
+                  data-testid={tid.accountDeletionOpen}
+                >
+                  Delete account
+                </Button>
+                <div className="ml-auto flex shrink-0 items-center gap-2">
+                  <Button variant="ghost" size="sm" className="h-11 sm:h-8" onClick={handleCancel} disabled={!dirty}>Cancel</Button>
+                  <Button size="sm" className="h-11 sm:h-8" onClick={handleSave} disabled={!dirty}>Save changes</Button>
+                </div>
               </div>
             </div>
           </SettingsShellPanel>

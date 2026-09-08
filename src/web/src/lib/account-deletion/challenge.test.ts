@@ -188,6 +188,15 @@ describe("account deletion challenge", () => {
     })).resolves.toEqual({ kind: "invalid" })
   })
 
+  it("rejects a stored challenge with an unsafe attempt count", async () => {
+    mocks.take.mockResolvedValue(row("123456:9007199254740992"))
+
+    await expect(verifyDeletionCode(db, {
+      userId: "user-1", email: "user@example.com", otp: "123456", now,
+    })).resolves.toEqual({ kind: "invalid" })
+    expect(mocks.restore).not.toHaveBeenCalled()
+  })
+
   it("restores a verified challenge insert-if-absent after retryable failure", async () => {
     const challenge = row()
     await restoreVerifiedDeletionCode(db, challenge)

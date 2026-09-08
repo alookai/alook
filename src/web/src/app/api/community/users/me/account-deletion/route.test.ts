@@ -98,6 +98,16 @@ describe("account deletion submit route", () => {
     expect(restoreVerifiedDeletionCode).toHaveBeenCalledWith(expect.anything(), challenge)
   })
 
+  it("keeps the retryable response when restoring the consumed code fails", async () => {
+    executeAccountDeletion.mockResolvedValue({ kind: "failed" })
+    restoreVerifiedDeletionCode.mockRejectedValue(new Error("primary down"))
+
+    const response = await POST(request({ otp: "123456" }), {} as never)
+
+    expect(response.status).toBe(503)
+    expect(await response.json()).toEqual({ error: "ACCOUNT_DELETION_FAILED" })
+  })
+
   it("does not restore a consumed code when the failed cleanup already removed the user", async () => {
     executeAccountDeletion.mockResolvedValue({ kind: "failed" })
     getPrimaryDb.mockReturnValue({
