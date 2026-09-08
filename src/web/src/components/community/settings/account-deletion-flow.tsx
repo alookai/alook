@@ -146,7 +146,12 @@ export function AccountDeletionFlow({ email, onCancel, onDeleted }: Props) {
             <Button variant="ghost" className="h-11 sm:h-9" onClick={onCancel} disabled={sending}>
               Cancel
             </Button>
-            <Button className="h-11 sm:h-9" onClick={sendCode} disabled={sending || resendAfter > 0}>
+            <Button
+              className="h-11 sm:h-9"
+              onClick={sendCode}
+              disabled={sending || resendAfter > 0}
+              data-testid={tid.accountDeletionSendCode}
+            >
               {sending
                 ? "Sending code…"
                 : resendAfter > 0
@@ -178,6 +183,7 @@ export function AccountDeletionFlow({ email, onCancel, onDeleted }: Props) {
             aria-label="Deletion code"
             aria-invalid={!!error}
             containerClassName="justify-center sm:justify-start"
+            data-testid={tid.accountDeletionOtp}
           >
             <InputOTPGroup>
               {Array.from({ length: 6 }, (_, index) => (

@@ -48,5 +48,6 @@ describe("minimal account deletion architecture", () => {
     expect(signIn).toContain('searchParams.get("account_deleted") === "1"')
     expect(signIn).toContain("Account deleted")
     expect(signIn).toContain("Your account and its data were removed.")
+    expect(signIn).toContain("data-testid={tid.accountDeletionComplete}")
   })
 })

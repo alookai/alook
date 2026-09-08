@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { signIn, signUp, authClient } from "@/lib/auth-client"
 import { parseRetryAfterSeconds } from "@/lib/retry-after"
+import { tid } from "@/lib/community/testids"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import {
@@ -156,7 +157,11 @@ function SignInForm({ postLoginUrl, isProd, accountDeleted }: { postLoginUrl: st
   return (
     <FieldGroup>
       {accountDeleted ? (
-        <div className="flex gap-3 rounded-xl bg-muted/70 p-4 text-left" role="status">
+        <div
+          className="flex gap-3 rounded-xl bg-muted/70 p-4 text-left"
+          role="status"
+          data-testid={tid.accountDeletionComplete}
+        >
           <CircleCheck className="mt-0.5 size-5 shrink-0 text-muted-foreground" aria-hidden />
           <div>
             <div className="text-sm font-medium">Account deleted</div>

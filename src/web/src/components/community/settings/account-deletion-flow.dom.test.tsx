@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, setupUser, waitFor } from "@/test/react-dom-harness"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { tid } from "@/lib/community/testids"
 import { AccountDeletionFlow } from "./account-deletion-flow"
 
 describe("AccountDeletionFlow", () => {
@@ -30,14 +31,14 @@ describe("AccountDeletionFlow", () => {
     render(<AccountDeletionFlow email="owner@example.com" onCancel={vi.fn()} onDeleted={onDeleted} />)
 
     expect(fetchMock).not.toHaveBeenCalled()
-    await user.click(screen.getByRole("button", { name: "Send deletion code" }))
-    const input = await screen.findByLabelText("Deletion code")
+    await user.click(screen.getByTestId(tid.accountDeletionSendCode))
+    const input = await screen.findByTestId(tid.accountDeletionOtp)
     expect(input).toHaveFocus()
     fireEvent.change(input, { target: { value: "123456" } })
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(onDeleted).not.toHaveBeenCalled()
-    await user.click(screen.getByRole("button", { name: "Delete account" }))
+    await user.click(screen.getByTestId(tid.accountDeletionSubmit))
     await waitFor(() => expect(onDeleted).toHaveBeenCalledTimes(1))
     expect(fetchMock).toHaveBeenLastCalledWith(
       "/api/community/users/me/account-deletion",
@@ -53,10 +54,10 @@ describe("AccountDeletionFlow", () => {
     vi.stubGlobal("fetch", fetchMock)
     render(<AccountDeletionFlow email="owner@example.com" onCancel={vi.fn()} onDeleted={vi.fn()} />)
 
-    await user.click(screen.getByRole("button", { name: "Send deletion code" }))
-    const input = await screen.findByLabelText("Deletion code")
+    await user.click(screen.getByTestId(tid.accountDeletionSendCode))
+    const input = await screen.findByTestId(tid.accountDeletionOtp)
     fireEvent.change(input, { target: { value: "000000" } })
-    await user.click(screen.getByRole("button", { name: "Delete account" }))
+    await user.click(screen.getByTestId(tid.accountDeletionSubmit))
 
     await waitFor(() => {
       expect(input).toHaveValue("")
