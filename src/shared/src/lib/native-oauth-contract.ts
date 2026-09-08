@@ -6,7 +6,7 @@ const SHA256_HEX = /^[0-9a-f]{64}$/;
 const BASE64URL_32_BYTES = /^[A-Za-z0-9_-]{43}$/;
 const HANDOFF_CODE = /^[A-Za-z0-9_-]{32,128}$/;
 
-export const nativeOauthProviderSchema = z.enum(["github", "google"]);
+export const nativeOauthProviderSchema = z.enum(["github", "google", "apple"]);
 export const nativeOauthPlatformSchema = z.enum([
   "macos",
   "windows",

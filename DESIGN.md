@@ -76,6 +76,7 @@ Rules:
 - **Pick tokens by intent, not by lightness.** Don't reach for `muted` because it "looks the right gray" — reach for it because the content is genuinely secondary.
 - **Don't signal state by color alone.** Pair color with an icon, label, or weight change so colorblind users and high-contrast modes still read the state.
 - **Accents stay desaturated.** Any new accent must be pulled 20–30% toward gray before it ships. Saturated leftovers from templates are bugs (see Do's & Don'ts).
+- **External identity buttons keep their mandated brand treatment.** Sign in with Apple is the narrow exception: use the semantic `apple-signin*` tokens, which resolve to Apple's required black-on-light and white-on-dark appearances. Never reuse those tokens elsewhere.
 
 ### Typography
 

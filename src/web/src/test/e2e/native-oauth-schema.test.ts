@@ -5,16 +5,21 @@ const TABLE = "native_oauth_attempt";
 const NOW = 1_788_531_200_000;
 const INSTANCE = "a".repeat(64);
 
-function insertPending(id: string, instanceKeyHash = INSTANCE): void {
+function insertPending(
+  id: string,
+  instanceKeyHash = INSTANCE,
+  provider: "github" | "google" | "apple" = "github",
+): void {
   sqlRun(
     `INSERT INTO ${TABLE} (
       id, instance_key_hash, state_hash, pkce_challenge, provider, platform,
       redirect_path, status, attempt_expires_at, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, 'github', 'ios', '/c/me', 'pending', ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, 'ios', '/c/me', 'pending', ?, ?, ?)`,
     id,
     instanceKeyHash,
     "b".repeat(64),
     "c".repeat(43),
+    provider,
     NOW + 600_000,
     NOW,
     NOW,
@@ -90,6 +95,17 @@ describe("native_oauth_attempt migration parity", () => {
     );
     expect(() => insertPending("attempt_new_123456789012")).not.toThrow();
   });
+
+  it.each(["github", "google", "apple"] as const)(
+    "accepts the %s provider through the frozen migration CHECK",
+    (provider) => {
+      expect(() => insertPending(
+        `attempt_${provider}_123456789012`,
+        INSTANCE,
+        provider,
+      )).not.toThrow();
+    },
+  );
 
   it("rejects malformed hashes, unsafe redirects, invalid enums, and bad epochs", () => {
     expect(() => insertPending("too_short")).toThrow(/CHECK constraint failed/i);

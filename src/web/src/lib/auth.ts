@@ -10,8 +10,15 @@ import {
   RATE_LIMITS,
   sanitizeCommunityName,
 } from "@alook/shared"
-import { getDb } from "@/lib/db"
+import { getDb, getPrimaryDb } from "@/lib/db"
 import { checkRateLimit } from "@/lib/rate-limit"
+import {
+  APPLE_ISSUER,
+  generateAppleClientSecret,
+  mapAppleProfileToUser,
+  resolveAppleAuthConfig,
+} from "@/lib/apple-auth"
+import { appleOauthHardeningPlugin } from "@/lib/apple-oauth-hardening"
 import { getOtpSubject, renderOtpEmail, type OtpType } from "./email-templates"
 
 const log = createLogger({ service: "auth" })
@@ -73,6 +80,10 @@ export function createAuth(env: Env) {
   const mode = resolveMode({ nodeEnv: env.NODE_ENV ?? process.env.NODE_ENV })
   const isProd = mode === "production"
   const otpPolicy = getAuthOtpRateLimitPolicy(env)
+  const appleAuth = resolveAppleAuthConfig(env)
+  const applePlugins = appleAuth.enabled
+    ? [appleOauthHardeningPlugin(appleAuth.config.clientId)]
+    : []
   const validateClient = (clientId: string) => {
     const allowed = (env.DEVICE_CLIENT_IDS || "").split(",").map((s) => s.trim()).filter(Boolean)
     return allowed.includes(clientId)
@@ -133,6 +144,7 @@ export function createAuth(env: Env) {
         },
       },
     },
+    trustedOrigins: appleAuth.enabled ? [APPLE_ISSUER] : [],
     socialProviders: {
       github: {
         clientId: env.GITHUB_CLIENT_ID,
@@ -142,6 +154,23 @@ export function createAuth(env: Env) {
         clientId: env.GOOGLE_CLIENT_ID,
         clientSecret: env.GOOGLE_CLIENT_SECRET,
       },
+      ...(appleAuth.enabled ? {
+        apple: async () => ({
+          clientId: appleAuth.config.clientId,
+          clientSecret: await generateAppleClientSecret(appleAuth.config),
+          mapProfileToUser: async (profile: {
+            sub: string
+            email?: string
+            email_verified?: boolean | string
+          }) => mapAppleProfileToUser(profile, async (sub) => {
+            return queries.user.getUserByProviderAccount(
+              getPrimaryDb(env.DB),
+              "apple",
+              sub,
+            )
+          }),
+        }),
+      } : {}),
     },
     // Better-auth's built-in rate limiter is intentionally OFF — we run our
     // own DO-backed limiter inside `sendVerificationOTP` below. That gives
@@ -192,6 +221,7 @@ export function createAuth(env: Env) {
             if (path.includes("email-otp")) method = "email"
             else if (path.includes("github")) method = "github"
             else if (path.includes("google")) method = "google"
+            else if (path.includes("apple")) method = "apple"
             ctx.setCookie("is_new_signup", method, {
               maxAge: 60,
               path: "/",
@@ -245,6 +275,7 @@ export function createAuth(env: Env) {
             if (path.includes("email-otp")) method = "email_otp"
             else if (path.includes("github")) method = "github"
             else if (path.includes("google")) method = "google"
+            else if (path.includes("apple")) method = "apple"
             ctx.setCookie("is_sign_in", method, {
               maxAge: 60,
               path: "/",
@@ -258,6 +289,7 @@ export function createAuth(env: Env) {
     },
     plugins: isProd
       ? [
+          ...applePlugins,
           deviceAuthorization({ verificationUri: "/device", validateClient, expiresIn: "5m", schema: {} }),
           bearer(),
           oneTimeToken({
@@ -287,6 +319,7 @@ export function createAuth(env: Env) {
           }),
         ]
       : [
+          ...applePlugins,
           deviceAuthorization({ verificationUri: "/device", validateClient, expiresIn: "5m", schema: {} }),
           bearer(),
           oneTimeToken({

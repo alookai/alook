@@ -231,7 +231,7 @@ impl Record {
             if !token(&a.id, 43, 43)
                 || !token(&a.state, 43, 43)
                 || !token(&a.verifier, 43, 43)
-                || !matches!(a.provider.as_str(), "github" | "google")
+                || !matches!(a.provider.as_str(), "github" | "google" | "apple")
                 || !safe_redirect(&a.redirect_path)
                 || a.expires_at > now.saturating_add(ATTEMPT_TTL)
                 || a.candidates.len() > MAX_CANDIDATES
@@ -267,7 +267,7 @@ impl Record {
         platform: &str,
         now: u64,
     ) -> Result<Registration, &'static str> {
-        if !matches!(provider, "github" | "google")
+        if !matches!(provider, "github" | "google" | "apple")
             || !safe_redirect(redirect_path)
             || !matches!(platform, "macos" | "windows" | "linux" | "ios" | "android")
         {
@@ -689,10 +689,21 @@ mod tests {
         assert!(r.open("old", &good, false).is_err());
         r.open(&p.attempt_id, &good, false).unwrap();
         assert!(r.open(&p.attempt_id, &good, false).is_err());
-        assert!(r.prepare("apple", "/c/me", "macos", NOW).is_err());
+        assert!(r.prepare("apple", "/c/me", "macos", NOW).is_ok());
         assert!(r.prepare("google", "/c/me", "ios", NOW).is_ok());
         assert!(r.prepare("google", "/c/me", "android", NOW).is_ok());
         assert!(r.prepare("google", "/c/me", "web", NOW).is_err());
+        assert!(r.prepare("twitter", "/c/me", "macos", NOW).is_err());
+    }
+
+    #[test]
+    fn apple_uses_the_existing_bridge_on_all_five_platforms() {
+        for platform in ["macos", "windows", "linux", "ios", "android"] {
+            let mut record = Record::new().unwrap();
+            let registration = record.prepare("apple", "/c/me", platform, NOW).unwrap();
+            assert_eq!(registration.provider, "apple");
+            assert_eq!(record.snapshot().unwrap().provider, "apple");
+        }
     }
 
     #[test]

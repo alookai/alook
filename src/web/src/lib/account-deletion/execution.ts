@@ -44,7 +44,9 @@ function scheduleAfterCommit(
       revision: revision.revision,
       inboxChanged: true,
     })),
-    ...snapshot.providers.map((provider) => revokeProviderAccount(env, provider)),
+    ...snapshot.providers
+      .filter((provider) => provider.providerId !== "apple")
+      .map((provider) => revokeProviderAccount(env, provider)),
   ]).then((results) => {
     const failures = results.filter((result) => result.status === "rejected").length
     if (failures > 0) log.warn("account_deletion_post_commit_effects_failed", { failures })
@@ -78,6 +80,11 @@ export async function executeAccountDeletion(
       ...finalSnapshot.machineTokens,
     ])]
     await deleteAccountStorage(env, finalSnapshot)
+    await Promise.all(
+      finalSnapshot.providers
+        .filter((provider) => provider.providerId === "apple")
+        .map((provider) => revokeProviderAccount(env, provider)),
+    )
 
     let deletion: Awaited<ReturnType<typeof queries.accountDeletion.deleteAccountRows>>
     try {

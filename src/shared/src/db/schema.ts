@@ -96,7 +96,7 @@ export const verification = sqliteTable("verification", {
   updatedAt: text("updatedAt").notNull().$defaultFn(() => new Date().toISOString()),
 });
 
-export const NATIVE_OAUTH_PROVIDERS = ["github", "google"] as const;
+export const NATIVE_OAUTH_PROVIDERS = ["github", "google", "apple"] as const;
 export type NativeOauthProvider = (typeof NATIVE_OAUTH_PROVIDERS)[number];
 
 export const NATIVE_OAUTH_PLATFORMS = [
@@ -188,7 +188,7 @@ export const nativeOauthAttempt = sqliteTable(
     ),
     check(
       "ck_native_oauth_attempt_enums",
-      sql`${t.provider} IN ('github', 'google')
+      sql`${t.provider} IN ('github', 'google', 'apple')
         AND ${t.platform} IN ('macos', 'windows', 'linux', 'ios', 'android')
         AND ${t.status} IN ('pending', 'opened', 'ready', 'exchanging', 'consumed', 'failed', 'cancelled', 'replaced')
         AND (${t.authKind} IS NULL OR ${t.authKind} IN ('signin', 'signup'))

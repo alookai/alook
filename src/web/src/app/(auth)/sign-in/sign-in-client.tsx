@@ -37,7 +37,17 @@ function safeRedirectUrl(redirect: string | null): string {
   return DEFAULT_POST_LOGIN
 }
 
-function SignInForm({ postLoginUrl, isProd, accountDeleted }: { postLoginUrl: string; isProd: boolean; accountDeleted: boolean }) {
+function SignInForm({
+  postLoginUrl,
+  isProd,
+  accountDeleted,
+  appleEnabled,
+}: {
+  postLoginUrl: string
+  isProd: boolean
+  accountDeleted: boolean
+  appleEnabled: boolean
+}) {
   const [email, setEmail] = useState("")
   const [emailError, setEmailError] = useState("")
   const [otpError, setOtpError] = useState("")
@@ -250,7 +260,7 @@ function SignInForm({ postLoginUrl, isProd, accountDeleted }: { postLoginUrl: st
       <FieldSeparator className="*:data-[slot=field-separator-content]:bg-card">
         Or continue with
       </FieldSeparator>
-      <SocialSignIn postLoginUrl={postLoginUrl} />
+      <SocialSignIn postLoginUrl={postLoginUrl} appleEnabled={appleEnabled} />
     </FieldGroup>
   )
 }
@@ -361,7 +371,13 @@ function ProductGallery() {
   )
 }
 
-export default function SignInPageClient({ isProd }: { isProd: boolean }) {
+export default function SignInPageClient({
+  isProd,
+  appleEnabled,
+}: {
+  isProd: boolean
+  appleEnabled: boolean
+}) {
   const searchParams = useSearchParams()
   const postLoginUrl = safeRedirectUrl(searchParams.get("redirect"))
   const accountDeleted = searchParams.get("account_deleted") === "1"
@@ -377,7 +393,12 @@ export default function SignInPageClient({ isProd }: { isProd: boolean }) {
           <Card className="overflow-hidden p-0">
             <CardContent className="grid p-0 sm:grid-cols-[minmax(320px,0.82fr)_minmax(0,1.35fr)]">
               <div className="flex flex-col justify-center p-6 sm:min-h-120 sm:p-8">
-                <SignInForm postLoginUrl={postLoginUrl} isProd={isProd} accountDeleted={accountDeleted} />
+                <SignInForm
+                  postLoginUrl={postLoginUrl}
+                  isProd={isProd}
+                  accountDeleted={accountDeleted}
+                  appleEnabled={appleEnabled}
+                />
               </div>
               <div className="relative hidden min-h-120 overflow-hidden bg-muted sm:block">
                 <ProductGallery />
