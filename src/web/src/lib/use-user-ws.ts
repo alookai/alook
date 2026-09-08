@@ -197,9 +197,15 @@ export function useUserWs(
   const sentinelIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const lastSentinelTickAtRef = useRef(0)
   const offlineRef = useRef(isBrowserOffline())
+  const offlineCleanupAppliedRef = useRef(false)
   const localCloseInitiatorRef = useRef(new WeakMap<WebSocket, CommunityWsCloseInitiator>())
   const reportedCloseSocketsRef = useRef(new WeakSet<WebSocket>())
-  const isOffline = useCallback(() => offlineRef.current || isBrowserOffline(), [])
+  const isOffline = useCallback(() => {
+    if (offlineRef.current) return true
+    if (!isBrowserOffline()) return false
+    offlineRef.current = true
+    return true
+  }, [])
 
   useEffect(() => {
     onMessageRef.current = onMessage
@@ -349,8 +355,8 @@ export function useUserWs(
   }, [closeSocket, isOffline, ownsAuthenticatedConnection, stopHeartbeat])
 
   const retireSocket = useCallback((
-    reportDisconnect = true,
-    initiator: CommunityWsCloseInitiator = "local-retire",
+    reportDisconnect: boolean,
+    initiator: CommunityWsCloseInitiator,
     validationResult: CommunityWsLifecycleStageResult = "aborted",
   ) => {
     const ws = wsRef.current
@@ -385,10 +391,10 @@ export function useUserWs(
     clearConnectionValidation(result)
     retireSocket(true, initiator, result)
     if (generation !== connectionGenerationRef.current) return
-    const suspended = isPageHidden() || isOffline() || frozenRef.current
-    publishConnectionPhase(suspended ? "suspended" : "reconnecting")
+    const parked = isPageHidden() || frozenRef.current
+    publishConnectionPhase(parked ? "suspended" : "reconnecting")
     if (generation !== connectionGenerationRef.current) return
-    if (!suspended) void connectRef.current?.()
+    if (!parked && !isOffline()) void connectRef.current?.()
   }, [clearConnectionValidation, isOffline, publishConnectionPhase, retireSocket])
 
   const validateCurrentConnection = useCallback((ws: WebSocket, generation: number) => {
@@ -833,8 +839,9 @@ export function useUserWs(
   }, [abortPendingToken, clearConnectionValidation, publishConnectionPhase, retireSocket, stopHeartbeat])
 
   const suspendForOffline = useCallback(() => {
-    if (offlineRef.current) return
     offlineRef.current = true
+    if (offlineCleanupAppliedRef.current) return
+    offlineCleanupAppliedRef.current = true
     connectionValidationNeededRef.current = true
     suspendedAtRef.current ??= Date.now()
     clearConnectionValidation("aborted")
@@ -854,7 +861,8 @@ export function useUserWs(
       connectionGenerationRef.current += 1
       retireSocket(true, "offline")
     }
-    publishConnectionPhase(retainAuthenticatedSocket ? "suspended" : "reconnecting")
+    const parked = retainAuthenticatedSocket || isPageHidden() || frozenRef.current
+    publishConnectionPhase(parked ? "suspended" : "reconnecting")
   }, [
     abortPendingToken,
     clearConnectionValidation,
@@ -969,6 +977,7 @@ export function useUserWs(
     const onOnline = () => {
       if (!offlineRef.current) return
       offlineRef.current = false
+      offlineCleanupAppliedRef.current = false
       connectionValidationNeededRef.current = true
       requestForegroundRecovery("online", true)
     }

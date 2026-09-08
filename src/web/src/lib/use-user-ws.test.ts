@@ -515,6 +515,23 @@ describe("useUserWs", () => {
     expect(MockWebSocket.instances).toHaveLength(1)
   })
 
+  it("keeps a hidden socketless page suspended when it goes offline", async () => {
+    setupTokenFetch()
+    mockDocument.visibilityState = "hidden"
+    const onConnectionStateChange = vi.fn()
+
+    await mountHook(vi.fn(), {
+      onConnectionStateChange,
+      requestDaemonStatusOnAuth: false,
+    })
+    mockNavigator.onLine = false
+    mockWindow.dispatch("offline")
+
+    expect(onConnectionStateChange).toHaveBeenLastCalledWith("suspended")
+    expect(mockFetch).not.toHaveBeenCalled()
+    expect(MockWebSocket.instances).toEqual([])
+  })
+
   it("publishes reconnecting without fetching during a visible offline cold start", async () => {
     setupTokenFetch()
     mockNavigator.onLine = false
@@ -956,6 +973,34 @@ describe("useUserWs", () => {
     expect(connectionPings(ws)).toHaveLength(1)
     expect(MockWebSocket.instances).toEqual([ws])
     expect(mockFetch).toHaveBeenCalledTimes(fetchCount)
+  })
+
+  it("applies offline cleanup after send observes the browser offline before the event", async () => {
+    setupTokenFetch()
+    const onConnectionStateChange = vi.fn()
+    await mountHook(vi.fn(), {
+      onConnectionStateChange,
+      requestDaemonStatusOnAuth: false,
+    })
+    const ws = MockWebSocket.instances[0]!
+    ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok" })
+    const authenticatedTimerCount = vi.getTimerCount()
+    const sentCount = ws.sent.length
+
+    mockNavigator.onLine = false
+    latestHookResult!.send({ type: "check_daemon_status" })
+    expect(ws.sent).toHaveLength(sentCount)
+    expect(vi.getTimerCount()).toBe(authenticatedTimerCount)
+
+    mockWindow.dispatch("offline")
+
+    expect(ws.closed).toBe(false)
+    expect(onConnectionStateChange).toHaveBeenLastCalledWith("suspended")
+    expect(vi.getTimerCount()).toBeLessThan(authenticatedTimerCount)
+
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(ws.sent).toHaveLength(sentCount)
   })
 
   it("publishes reconnecting if a retained authenticated socket closes while offline", async () => {
@@ -1754,6 +1799,36 @@ describe("useUserWs", () => {
     expect(onDisconnect).toHaveBeenCalledOnce()
     expect(MockWebSocket.instances).toHaveLength(2)
     expect(mockFetch).toHaveBeenCalledTimes(2)
+  })
+
+  it("recovers once online after validation observes offline before the offline event", async () => {
+    setupTokenFetch()
+    const onConnectionStateChange = vi.fn()
+    const mod = await mountHook(vi.fn(), {
+      onConnectionStateChange,
+      requestDaemonStatusOnAuth: false,
+    })
+    const ws = MockWebSocket.instances[0]!
+    ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok" })
+    dispatchWindowFocus()
+    expect(connectionPings(ws)).toHaveLength(1)
+
+    mockNavigator.onLine = false
+    await vi.advanceTimersByTimeAsync(mod.WS_CONNECTION_VALIDATION_TIMEOUT_MS)
+
+    expect(ws.closed).toBe(true)
+    expect(onConnectionStateChange).toHaveBeenLastCalledWith("reconnecting")
+    expect(mockFetch).toHaveBeenCalledOnce()
+
+    setupTokenFetch()
+    mockNavigator.onLine = true
+    mockWindow.dispatch("online")
+    mockWindow.dispatch("online")
+    await flushPromises()
+
+    expect(mockFetch).toHaveBeenCalledTimes(2)
+    expect(MockWebSocket.instances).toHaveLength(2)
   })
 
   it("treats error as non-authoritative and lets current close start one validation failure chain", async () => {
