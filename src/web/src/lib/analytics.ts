@@ -207,6 +207,47 @@ export type CommunityWsSuspensionDurationBucket =
   | "under-30s"
   | "unknown"
 
+export type CommunityWsCloseInitiator =
+  | "auth-failure"
+  | "connect-timeout"
+  | "freeze"
+  | "heartbeat-timeout"
+  | "local-retire"
+  | "manual-retry"
+  | "offline"
+  | "remote"
+  | "validation-failure"
+  | "validation-timeout"
+
+export type CommunityWsCloseReasonBucket =
+  | "abnormal"
+  | "going-away"
+  | "normal"
+  | "other"
+  | "policy"
+  | "server-error"
+  | "unknown"
+
+export type CommunityWsAuthFailureClass =
+  | "credentials"
+  | "network"
+  | "server"
+  | "timeout"
+  | "unknown"
+
+export type CommunityWsLifecycleStage = "auth" | "open" | "token" | "validation"
+
+export type CommunityWsLifecycleStageResult =
+  | "aborted"
+  | "failure"
+  | "success"
+  | "timeout"
+
+function boundedCommunityWsInteger(value: number, maximum: number): number {
+  if (!Number.isFinite(value)) return 0
+  return Math.min(Math.max(0, Math.round(value)), maximum)
+}
+
 function sendCommunityWsGTMEvent(payload: Record<string, unknown>) {
   try {
     sendGTMEvent(payload)
@@ -268,6 +309,56 @@ export function trackCommunityWsLifecycleRecovery(params: {
     strategy: params.strategy,
     socketReadyState: params.socketReadyState,
     suspensionDuration: params.suspensionDuration,
+  });
+}
+
+export function trackCommunityWsLifecycleClose(params: {
+  initiator: CommunityWsCloseInitiator
+  code: number
+  wasClean: boolean
+  reasonBucket: CommunityWsCloseReasonBucket
+}) {
+  sendCommunityWsGTMEvent({
+    event: "community_ws_lifecycle_close",
+    initiator: params.initiator,
+    code: boundedCommunityWsInteger(params.code, 4999),
+    wasClean: params.wasClean === true,
+    reasonBucket: params.reasonBucket,
+  });
+}
+
+export function trackCommunityWsAuthFailure(params: {
+  failureClass: CommunityWsAuthFailureClass
+}) {
+  sendCommunityWsGTMEvent({
+    event: "community_ws_auth_failure",
+    failureClass: params.failureClass,
+  });
+}
+
+export function trackCommunityWsLifecycleStage(params: {
+  stage: CommunityWsLifecycleStage
+  result: CommunityWsLifecycleStageResult
+  durationMs: number
+}) {
+  sendCommunityWsGTMEvent({
+    event: "community_ws_lifecycle_stage",
+    stage: params.stage,
+    result: params.result,
+    durationMs: boundedCommunityWsInteger(params.durationMs, 600_000),
+  });
+}
+
+export function trackCommunityWsRetryScheduled(params: {
+  attempt: number
+  delayMs: number
+  windowMs: number
+}) {
+  sendCommunityWsGTMEvent({
+    event: "community_ws_retry_scheduled",
+    attempt: boundedCommunityWsInteger(params.attempt, 1_000),
+    delayMs: boundedCommunityWsInteger(params.delayMs, 600_000),
+    windowMs: boundedCommunityWsInteger(params.windowMs, 600_000),
   });
 }
 

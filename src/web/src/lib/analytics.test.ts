@@ -31,9 +31,13 @@ import {
   trackSettingsUpdated,
   trackCanvasLayoutChanged,
   trackCommunityWsFrameDropped,
+  trackCommunityWsAuthFailure,
+  trackCommunityWsLifecycleClose,
   trackCommunityWsLifecycleRecovery,
+  trackCommunityWsLifecycleStage,
   trackCommunityWsReconcileComplete,
   trackCommunityWsReconcileFailure,
+  trackCommunityWsRetryScheduled,
 } from "./analytics"
 
 describe("analytics utility", () => {
@@ -312,6 +316,60 @@ describe("analytics utility", () => {
         socketReadyState: "open",
         suspensionDuration: "over-2m",
       })
+    })
+
+    it("reports normalized close metadata without raw reasons or identities", () => {
+      trackCommunityWsLifecycleClose({
+        initiator: "validation-timeout",
+        code: 1006,
+        wasClean: false,
+        reasonBucket: "abnormal",
+        reason: "token=secret",
+        userId: "user-1",
+        url: "wss://example.test/?token=secret",
+      } as never)
+      expect(mockSendGTMEvent).toHaveBeenCalledWith({
+        event: "community_ws_lifecycle_close",
+        initiator: "validation-timeout",
+        code: 1006,
+        wasClean: false,
+        reasonBucket: "abnormal",
+      })
+    })
+
+    it("reports bounded auth, stage, and retry fields only", () => {
+      trackCommunityWsAuthFailure({
+        failureClass: "credentials",
+        token: "secret",
+      } as never)
+      trackCommunityWsLifecycleStage({
+        stage: "auth",
+        result: "timeout",
+        durationMs: Number.POSITIVE_INFINITY,
+        nonce: "private",
+      } as never)
+      trackCommunityWsRetryScheduled({
+        attempt: 3_000,
+        delayMs: -1,
+        windowMs: 900_000,
+        rawReason: "private",
+      } as never)
+
+      expect(mockSendGTMEvent.mock.calls).toEqual([
+        [{ event: "community_ws_auth_failure", failureClass: "credentials" }],
+        [{
+          event: "community_ws_lifecycle_stage",
+          stage: "auth",
+          result: "timeout",
+          durationMs: 0,
+        }],
+        [{
+          event: "community_ws_retry_scheduled",
+          attempt: 1_000,
+          delayMs: 0,
+          windowMs: 600_000,
+        }],
+      ])
     })
   })
 })
