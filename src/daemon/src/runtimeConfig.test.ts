@@ -3,7 +3,7 @@ import { runtimeModelName, toAgentBackendSelection } from "./runtimeConfig";
 import { makeRuntimeConfig } from "./runtimeConfig";
 
 describe("runtimeModelName", () => {
-  for (const runtime of ["claude", "codex", "cursor", "opencode", "pi"]) {
+  for (const runtime of ["claude", "codex", "cursor", "grok", "opencode", "pi"]) {
     it(`${runtime}: projects a named model without interpreting the backend`, () => {
       expect(runtimeModelName(makeRuntimeConfig({ runtime, model: { kind: "named", name: "opus" } })))
         .toBe("opus");
@@ -25,6 +25,10 @@ describe("toAgentBackendSelection", () => {
   it("maps every runtime into the agent-driver contract", () => {
     expect(toAgentBackendSelection(makeRuntimeConfig({ runtime: "codex" }))).toMatchObject({ backend: "codex" });
     expect(toAgentBackendSelection(makeRuntimeConfig({ runtime: "cursor" }))).toMatchObject({ backend: "cursor" });
+    expect(toAgentBackendSelection(makeRuntimeConfig({ runtime: "grok", reasoningEffort: "high" }))).toMatchObject({
+      backend: "grok",
+      config: { reasoningEffort: "high" },
+    });
     expect(toAgentBackendSelection(makeRuntimeConfig({ runtime: "opencode" }))).toMatchObject({ backend: "opencode" });
     expect(toAgentBackendSelection(makeRuntimeConfig({ runtime: "pi" }))).toMatchObject({
       backend: "pi",

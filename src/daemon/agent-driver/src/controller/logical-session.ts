@@ -170,7 +170,10 @@ function driverError(
 }
 
 class StructuredLaneAdmissionError extends Error {
-  constructor(readonly code: "reset_required" | "incompatible_configuration", message: string) {
+  constructor(
+    readonly code: "reset_required" | "incompatible_configuration" | "authentication_required" | "runtime_busy",
+    message: string,
+  ) {
     super(message);
   }
 }
@@ -594,7 +597,12 @@ implements AgentSession<Specs, Id> {
           return admission.accepted ? acceptedReceipt : { status: "rejected", reason: "closed" };
         }
         const failure = error instanceof StructuredLaneAdmissionError
-          ? driverError("configuration", error.code, error.message, false)
+          ? driverError(
+            error.code === "authentication_required" ? "authentication" : "configuration",
+            error.code,
+            error.message,
+            false,
+          )
           : driverError("process", "failed_to_start", String(error), true);
         if (this.launch.resumeSessionId && this.resumeOutcome === "pending") {
           this.resumeOutcome = error instanceof StructuredLaneAdmissionError && error.code === "reset_required"
@@ -677,6 +685,9 @@ implements AgentSession<Specs, Id> {
     if (!admission.ok) {
       if (admission.reason === "reset_required" || admission.reason === "incompatible_configuration") {
         throw new StructuredLaneAdmissionError(admission.reason, admission.error ?? admission.reason);
+      }
+      if (admission.reason === "authentication") {
+        throw new StructuredLaneAdmissionError("authentication_required", admission.error ?? admission.reason);
       }
       throw new Error(admission.error ?? admission.reason);
     }
@@ -1056,14 +1067,19 @@ implements AgentSession<Specs, Id> {
   private async drainSafeBoundaryQueue(): Promise<void> {
     while (this.canFlushSafeBoundaryQueue()) {
       const item = this.queued.shift()!;
-      this.recordQueueDwell(item);
       const activeTurn = this.activeTurn!;
       const delivery: SafeBoundaryDelivery = { item, activeTurn, finalized: false };
       this.safeBoundaryDelivery = delivery;
       try {
         await this.sendLane(item.message.text, "busy");
       } catch (error) {
+        if (error instanceof StructuredLaneAdmissionError && error.code === "runtime_busy") {
+          this.queued.unshift(item);
+          this.toolBoundaryFlushDisabled = true;
+          return;
+        }
         if (!delivery.finalized) {
+          this.recordQueueDwell(item);
           delivery.finalized = true;
           this.emit({
             type: "command_failed",
@@ -1077,6 +1093,7 @@ implements AgentSession<Specs, Id> {
         if (this.safeBoundaryDelivery === delivery) this.safeBoundaryDelivery = undefined;
       }
       if (delivery.finalized) continue;
+      this.recordQueueDwell(item);
       delivery.finalized = true;
       activeTurn.commandIds.push(item.message.id);
       this.emit({
@@ -1548,7 +1565,12 @@ implements AgentSession<Specs, Id> {
       terminalOwner: mode === "idle" ? this.activeTurn?.terminalOwner : undefined,
     })
       .then((result) => {
-        if (!result.ok) throw new Error(String("reason" in result ? result.reason : "runtime rejected delivery"));
+        if (!result.ok) {
+          if (result.reason === "runtime_busy") {
+            throw new StructuredLaneAdmissionError("runtime_busy", result.error ?? result.reason);
+          }
+          throw new Error(result.error ?? result.reason);
+        }
         return result;
       });
   }

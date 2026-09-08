@@ -32,8 +32,23 @@ describe("builtin config boundary", () => {
     });
   });
 
-  it.each(["codex", "cursor", "opencode", "pi"])("maps %s without daemon-side switches", (runtime) => {
+  it.each(["codex", "cursor", "grok", "opencode", "pi"])("maps %s without daemon-side switches", (runtime) => {
     expect(toBuiltinBackendSelection(config(runtime))).toMatchObject({ backend: runtime });
+  });
+
+  it("maps Grok reasoning without provider configuration", () => {
+    expect(toBuiltinBackendSelection(config("grok", {
+      reasoningEffort: "xhigh",
+      provider: { kind: "custom", apiUrl: "https://example.invalid", apiKey: "must-not-leak" },
+    }))).toEqual({
+      backend: "grok",
+      config: {
+        model: { kind: "default" },
+        command: undefined,
+        environment: undefined,
+        reasoningEffort: "xhigh",
+      },
+    });
   });
 
   it("rejects unknown runtime ids", () => {

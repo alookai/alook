@@ -50,6 +50,8 @@ export function toBuiltinBackendSelection(config: BuiltinRuntimeConfigInput): Bu
       };
     case "cursor":
       return { backend: "cursor", config: base };
+    case "grok":
+      return { backend: "grok", config: { ...base, reasoningEffort: config.reasoningEffort } };
     case "opencode":
       return { backend: "opencode", config: base };
     case "pi":

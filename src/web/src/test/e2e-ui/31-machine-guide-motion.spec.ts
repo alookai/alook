@@ -21,5 +21,18 @@ for (const viewport of [
     ).toBeVisible()
     await expect(onboarding.getByLabel("Step 1 of 3")).toBeVisible()
     await expect(page.getByTestId(tid.machineFirstSignupGuide)).toHaveCount(0)
+
+    const grok = page.getByTestId(tid.onboardingHarnessOption("grok"))
+    await expect(grok).toBeVisible()
+    await expect(grok).toContainText("Grok Build")
+    await expect(grok.locator('[data-provider-logo="grok"]')).toBeVisible()
+    await grok.click()
+    await onboarding.getByRole("button", { name: "Continue", exact: true }).click()
+
+    const machineStep = page.getByTestId(tid.onboardingMachineDialog)
+    await expect(machineStep).toBeVisible()
+    await expect(machineStep.getByRole("heading", { name: /Connect your Grok Build machine/ }))
+      .toBeVisible()
+    await expect(machineStep.locator('[data-provider-logo="grok"]')).toBeVisible()
   })
 }

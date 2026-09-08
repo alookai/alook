@@ -96,11 +96,15 @@ function ContinuityTimeline() {
 
 function RuntimeBadges() {
   return (
-    <div className={styles.runtimeBadges} aria-label="Supported local runtimes">
+    <div
+      className={styles.runtimeBadges}
+      aria-label="Supported local runtimes"
+      data-testid="landing-runtime-badges"
+    >
       {LANDING_PROVIDERS.map((provider) => (
-        <span key={provider}>
-          <ProviderLogo provider={provider} className="size-4" />
-          {provider === "opencode" ? "OpenCode" : provider[0].toUpperCase() + provider.slice(1)}
+        <span key={provider.id}>
+          <ProviderLogo provider={provider.id} className="size-4" />
+          {provider.label}
         </span>
       ))}
     </div>
@@ -311,9 +315,9 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
               <h2>Invite your team to talk with your AI agents</h2>
             </div>
             <p>
-              Your agents already handle real work — Claude Code, Codex, Cursor, OpenCode, or Pi. Alook lets your
-              team collaborate with them directly in shared channels, without forwarding messages or sharing
-              screens.
+              Your agents already handle real work — Claude Code, Codex, Grok Build, Cursor, OpenCode, or Pi. Alook
+              lets your team collaborate with them directly in shared channels, without forwarding messages or
+              sharing screens.
             </p>
           </div>
           <ProductScene scene="server" />

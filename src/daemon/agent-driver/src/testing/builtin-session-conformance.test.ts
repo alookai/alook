@@ -26,7 +26,9 @@ import type {
 import { ClaudeDriver } from "../adapters/claude/index.js";
 import { CodexDriver } from "../adapters/codex/index.js";
 import { CursorDriver } from "../adapters/cursor/index.js";
+import { GrokDriver } from "../adapters/grok/index.js";
 import { CursorAcpLane } from "../adapters/cursor/acp-lane.js";
+import { GrokAcpLane } from "../adapters/grok/acp-lane.js";
 import { OpenCodeDriver } from "../adapters/opencode/index.js";
 import { PiDriver } from "../adapters/pi/index.js";
 import { ProcessLane } from "../controller/process-host.js";
@@ -39,6 +41,7 @@ const configs: { [Id in BuiltinBackendId]: ConfigOf<BuiltinBackendSpecs, Id> } =
   claude: { model: { kind: "default" }, provider: { kind: "default" }, mode: "default" },
   codex: { model: { kind: "default" }, mode: "default" },
   cursor: { model: { kind: "default" } },
+  grok: { model: { kind: "default" } },
   opencode: { model: { kind: "default" } },
   pi: { model: { kind: "default" }, provider: { kind: "default" } },
 };
@@ -165,7 +168,7 @@ function installVendorHarness(backend: BuiltinBackendId): VendorHarness {
       return lane;
     });
   } else {
-    const classes = { claude: ClaudeDriver, codex: CodexDriver, cursor: CursorDriver };
+    const classes = { claude: ClaudeDriver, codex: CodexDriver, cursor: CursorDriver, grok: GrokDriver };
     if (backend === "claude") {
       const beginTurn = ClaudeDriver.prototype.beginTurn;
       vi.spyOn(ClaudeDriver.prototype, "beginTurn").mockImplementation(function (this: ClaudeDriver) {
@@ -199,7 +202,7 @@ function installVendorHarness(backend: BuiltinBackendId): VendorHarness {
           if (!line.trim()) continue;
           const message = JSON.parse(line) as Record<string, unknown>;
           stdinMessages.push(message);
-          if (backend !== "cursor") continue;
+          if (backend !== "cursor" && backend !== "grok") continue;
           const respond = (result: unknown) => process.stdout.write(`${JSON.stringify({
             jsonrpc: "2.0",
             id: message.id,
@@ -209,15 +212,33 @@ function installVendorHarness(backend: BuiltinBackendId): VendorHarness {
             respond({
               protocolVersion: 1,
               agentCapabilities: { loadSession: true },
-              authMethods: [{ id: "cursor_login", name: "Cursor Login" }],
+              authMethods: [{ id: backend === "grok" ? "cached_token" : "cursor_login" }],
+              ...(backend === "grok" ? {
+                _meta: {
+                  modelState: {
+                    currentModelId: "grok-4.6",
+                    availableModels: [{
+                      modelId: "grok-4.6",
+                      name: "Grok 4.6",
+                      _meta: { supportsReasoningEffort: true, reasoningEfforts: ["high", "medium", "low"] },
+                    }],
+                  },
+                },
+              } : {}),
             });
           } else if (message.method === "authenticate") {
             respond({});
+          } else if (message.method === "_x.ai/billing") {
+            respond({
+              config: { currentPeriod: { type: "USAGE_PERIOD_TYPE_WEEKLY", creditUsagePercent: 0 } },
+            });
           } else if (message.method === "session/load") {
             const params = message.params as { sessionId?: string } | undefined;
-            respond({ sessionId: params?.sessionId ?? "cursor-resumed", configOptions: [] });
+            respond({ sessionId: params?.sessionId ?? `${backend}-resumed`, configOptions: [] });
           } else if (message.method === "session/new") {
-            respond({ sessionId: "cursor-resumed", configOptions: [] });
+            respond({ sessionId: `${backend}-resumed`, configOptions: [] });
+          } else if (message.method === "session/close") {
+            respond({});
           }
         }
       });
@@ -269,6 +290,7 @@ function installVendorHarness(backend: BuiltinBackendId): VendorHarness {
           } });
           break;
         case "cursor":
+        case "grok":
           break;
         case "opencode":
           openCodeLanes[0]!.emit({ kind: "assistant_reasoning_completed", text: `turn-${turn}` });
@@ -291,6 +313,7 @@ function installVendorHarness(backend: BuiltinBackendId): VendorHarness {
           } });
           break;
         case "cursor":
+        case "grok":
           {
             const prompts = stdinMessages.filter((message) => message.method === "session/prompt");
             const prompt = prompts[turn - 1]!;
@@ -320,7 +343,8 @@ function installVendorHarness(backend: BuiltinBackendId): VendorHarness {
             threadId: "codex-resumed", turn: { id: `codex-turn-${turn}`, status: "completed" },
           } });
           break;
-        case "cursor": {
+        case "cursor":
+        case "grok": {
           const prompts = stdinMessages.filter((message) => message.method === "session/prompt");
           const prompt = prompts[turn - 1]!;
           write({ jsonrpc: "2.0", id: prompt.id, result: { stopReason: "end_turn", ...overrides } });
@@ -460,7 +484,7 @@ async function runPublicSessionLifecycle(backend: BuiltinBackendId): Promise<voi
   harness.completeTurn(1);
   await settle();
 
-  if (backend === "cursor") {
+  if (backend === "cursor" || backend === "grok") {
     await vi.waitFor(() => {
       expect(harness.stdinMessages.filter((message) => message.method === "session/prompt")).toHaveLength(2);
     });
@@ -476,14 +500,14 @@ async function runPublicSessionLifecycle(backend: BuiltinBackendId): Promise<voi
     expect(await settlePromptAdmission(backend, harness, 2, reuse)).toMatchObject({ status: "accepted" });
     if (backend === "pi") harness.handles[0]!.isStreaming = true;
   }
-  if (backend !== "cursor") {
+  if (backend !== "cursor" && backend !== "grok") {
     if (backend !== "codex") harness.sessionReady(2);
     await settle();
     harness.completeTurn(2);
     await settle();
   }
 
-  if (backend === "claude" || backend === "codex") {
+  if (backend === "claude" || backend === "codex" || backend === "grok") {
     expect(harness.processes).toHaveLength(1);
     expect(harness.processes[0]!.kill).not.toHaveBeenCalled();
   }
@@ -544,7 +568,7 @@ function emitStaleTerminal(backend: BuiltinBackendId, harness: VendorHarness): v
   harness.duplicateTurn(1);
 }
 
-describe.each(["claude", "codex", "cursor", "opencode", "pi"] as const)(
+describe.each(["claude", "codex", "cursor", "grok", "opencode", "pi"] as const)(
   "%s shared persistent stress conformance",
   (backend) => {
     it("runs ten sequential public turns through one physical open", async () => {
@@ -631,7 +655,7 @@ describe.each(["claude", "codex", "cursor", "opencode", "pi"] as const)(
   },
 );
 
-describe.each(["claude", "codex", "cursor", "opencode", "pi"] as const)(
+describe.each(["claude", "codex", "cursor", "grok", "opencode", "pi"] as const)(
   "%s registered public-session lifecycle conformance",
   (backend) => {
     it("runs resume, busy admission, interrupt reuse, environment, release, and requested stop through sdk.open", async () => {
@@ -648,7 +672,7 @@ describe.each(["claude", "codex", "cursor", "opencode", "pi"] as const)(
         ? PiDriver.prototype
         : backend === "opencode"
           ? OpenCodeDriver.prototype
-        : ({ claude: ClaudeDriver, codex: CodexDriver, cursor: CursorDriver, opencode: OpenCodeDriver } as const)[backend].prototype;
+        : ({ claude: ClaudeDriver, codex: CodexDriver, cursor: CursorDriver, grok: GrokDriver, opencode: OpenCodeDriver } as const)[backend].prototype;
       const existing = (prototype as unknown as Record<string, ReturnType<typeof vi.fn>>)[method]!;
       existing.mockImplementationOnce(async (...args: unknown[]) => {
         await openGate;
@@ -699,7 +723,7 @@ describe.each(["claude", "codex", "cursor", "opencode", "pi"] as const)(
         ? PiDriver.prototype
         : backend === "opencode"
           ? OpenCodeDriver.prototype
-          : ({ claude: ClaudeDriver, codex: CodexDriver, cursor: CursorDriver } as const)[backend].prototype;
+          : ({ claude: ClaudeDriver, codex: CodexDriver, cursor: CursorDriver, grok: GrokDriver } as const)[backend].prototype;
       (prototype as unknown as Record<string, ReturnType<typeof vi.fn>>)[method]!.mockRejectedValueOnce(
         new Error("apiKey=supersecret failed at /Users/Alice Smith/private key.json"),
       );
@@ -748,6 +772,8 @@ describe.each(["claude", "codex", "cursor", "opencode", "pi"] as const)(
         ? vi.spyOn(SdkLane.prototype, "stop")
         : backend === "cursor"
           ? vi.spyOn(CursorAcpLane.prototype, "stop")
+          : backend === "grok"
+            ? vi.spyOn(GrokAcpLane.prototype, "stop")
           : backend === "opencode"
             ? vi.spyOn(HarnessRuntimeLane.prototype, "stop")
           : vi.spyOn(ProcessLane.prototype, "stop");
@@ -781,6 +807,8 @@ describe.each(["claude", "codex", "cursor", "opencode", "pi"] as const)(
         ? vi.spyOn(SdkLane.prototype, "stop")
         : backend === "cursor"
           ? vi.spyOn(CursorAcpLane.prototype, "stop")
+          : backend === "grok"
+            ? vi.spyOn(GrokAcpLane.prototype, "stop")
           : backend === "opencode"
             ? vi.spyOn(HarnessRuntimeLane.prototype, "stop")
           : vi.spyOn(ProcessLane.prototype, "stop");

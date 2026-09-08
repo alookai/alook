@@ -281,7 +281,7 @@ export const communityMachineBackendQuota = sqliteTable(
     machineId: text("machine_id")
       .notNull()
       .references(() => communityMachine.id, { onDelete: "cascade" }),
-    agentBackendId: text("agent_backend_id").$type<"claude" | "codex">().notNull(),
+    agentBackendId: text("agent_backend_id").$type<"claude" | "codex" | "grok">().notNull(),
     sourceEpoch: text("source_epoch").notNull(),
     status: text("status").$type<MachineBackendQuotaStatus>().notNull(),
     planName: text("plan_name"),

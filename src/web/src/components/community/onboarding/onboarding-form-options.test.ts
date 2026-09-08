@@ -6,13 +6,18 @@ import {
 } from "./onboarding-form-options"
 
 describe("onboarding form options", () => {
-  it("offers exactly the five supported harnesses", () => {
-    expect(ONBOARDING_HARNESSES.map(({ value }) => value)).toEqual([
-      "claude",
-      "codex",
-      "cursor",
-      "opencode",
-      "pi",
+  it("offers exactly the six supported harnesses with their provider logos", () => {
+    expect(ONBOARDING_HARNESSES.map(({ value, label, provider }) => ({
+      value,
+      label,
+      provider,
+    }))).toEqual([
+      { value: "claude", label: "Claude Code", provider: "claude" },
+      { value: "codex", label: "Codex", provider: "codex" },
+      { value: "grok", label: "Grok Build", provider: "grok" },
+      { value: "cursor", label: "Cursor", provider: "cursor" },
+      { value: "opencode", label: "OpenCode", provider: "opencode" },
+      { value: "pi", label: "Pi", provider: "pi" },
     ])
   })
 

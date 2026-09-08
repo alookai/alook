@@ -2,7 +2,7 @@ export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonObject | readonly JsonValue[];
 export type JsonObject = { readonly [key: string]: JsonValue };
 
-export type BuiltinBackendId = "claude" | "codex" | "cursor" | "opencode" | "pi";
+export type BuiltinBackendId = "claude" | "codex" | "cursor" | "grok" | "opencode" | "pi";
 export type ReasoningEffort =
   | "minimal"
   | "low"
@@ -77,6 +77,9 @@ export interface ModelBackendConfig extends BaseBackendConfig {
 }
 
 export type CursorConfig = ModelBackendConfig;
+export interface GrokConfig extends ModelBackendConfig {
+  readonly reasoningEffort?: ReasoningEffort;
+}
 export type OpenCodeConfig = ModelBackendConfig;
 
 export interface PiConfig extends Omit<BaseBackendConfig, "command"> {
@@ -122,6 +125,7 @@ export type FixedCapabilities<
 export type ClaudeCapabilities = FixedCapabilities<true, true, true, true, true, "safe_boundary_queue", "persistent">;
 export type CodexCapabilities = FixedCapabilities<false, true, true, false, true, "safe_boundary_queue", "persistent">;
 export type CursorCapabilities = FixedCapabilities<false, false, false, false, true, "steer", "persistent">;
+export type GrokCapabilities = FixedCapabilities<false, true, false, false, true, "safe_boundary_queue", "persistent">;
 export type OpenCodeCapabilities = FixedCapabilities<false, false, false, false, true, "steer", "persistent">;
 export type PiCapabilities = FixedCapabilities<true, true, false, false, false, "steer", "persistent">;
 
@@ -141,6 +145,7 @@ export interface BuiltinBackendSpecs {
   readonly claude: BackendTypeSpec<ClaudeConfig, ClaudeCapabilities, {}, never>;
   readonly codex: BackendTypeSpec<CodexConfig, CodexCapabilities, {}, never>;
   readonly cursor: BackendTypeSpec<CursorConfig, CursorCapabilities, {}, never>;
+  readonly grok: BackendTypeSpec<GrokConfig, GrokCapabilities, {}, never>;
   readonly opencode: BackendTypeSpec<OpenCodeConfig, OpenCodeCapabilities, {}, never>;
   readonly pi: BackendTypeSpec<PiConfig, PiCapabilities, {}, never>;
 }

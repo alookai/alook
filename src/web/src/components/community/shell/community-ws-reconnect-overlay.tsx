@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button"
 import { tid } from "@/lib/community/testids"
 import { useCommunityWsStore } from "@/stores/community/ws"
 
+const CONNECTING_LABEL = "Connecting…"
+
 export function CommunityWsReconnectBoundary({ children }: { children: ReactNode }) {
   const connectionStatus = useCommunityWsStore((state) => state.connectionStatus)
   const reconnectNow = useCommunityWsStore((state) => state.reconnectNow)
@@ -73,44 +75,35 @@ export function CommunityWsReconnectBoundary({ children }: { children: ReactNode
                 </Button>
               </>
             ) : (
-              <div role="status" aria-live="polite" aria-atomic="true" className="flex flex-col items-center">
-                <svg
+              <div
+                role="status"
+                aria-live="polite"
+                aria-atomic="true"
+                data-slot="text-loader"
+                data-variant="default"
+                className="community-ws-connecting-loader"
+              >
+                {/* Adapted from OpensourceUI's TextLoader. See ../../home/opensourceui-mockups.LICENSE.txt. */}
+                <span
                   aria-hidden="true"
                   data-connecting-motion=""
-                  className="community-ws-connecting-loader mb-4"
-                  viewBox="0 0 100 100"
+                  className="community-ws-connecting-orb"
+                />
+                <h2
+                  id="community-ws-reconnect-title"
+                  aria-label={CONNECTING_LABEL}
+                  className="community-ws-connecting-text font-heading text-base font-medium"
                 >
-                  <defs>
-                    <filter
-                      id="community-ws-connecting-goo"
-                      x="-20%"
-                      y="-20%"
-                      width="140%"
-                      height="140%"
-                      colorInterpolationFilters="sRGB"
+                  {CONNECTING_LABEL.split("").map((letter, index) => (
+                    <span
+                      key={`${letter}-${index}`}
+                      aria-hidden="true"
+                      className="community-ws-connecting-letter"
+                      style={{ animationDelay: `${index * 0.09}s` }}
                     >
-                      <feGaussianBlur in="SourceGraphic" stdDeviation="5" result="blur" />
-                      <feColorMatrix
-                        in="blur"
-                        values="1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 20 -10"
-                        result="goo"
-                      />
-                      <feBlend in="SourceGraphic" in2="goo" />
-                    </filter>
-                  </defs>
-                  <g fill="currentColor" filter="url(#community-ws-connecting-goo)">
-                    <rect x="10" y="30" width="20" height="40" rx="10" />
-                    <circle
-                      className="community-ws-connecting-dot"
-                      cx="20"
-                      cy="50"
-                      r="10"
-                    />
-                    <rect x="70" y="30" width="20" height="40" rx="10" />
-                  </g>
-                </svg>
-                <h2 id="community-ws-reconnect-title" className="font-heading text-base font-medium">
-                  Connecting…
+                      {letter}
+                    </span>
+                  ))}
                 </h2>
               </div>
             )}

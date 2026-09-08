@@ -8,6 +8,7 @@
 const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   claude: "Claude Code",
   codex: "Codex",
+  grok: "Grok Build",
   opencode: "OpenCode",
 };
 

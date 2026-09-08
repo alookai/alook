@@ -360,6 +360,56 @@ describe("WebSocketDurableObject", () => {
         expect(mockD1Batch).not.toHaveBeenCalled()
       })
 
+      it("persists Claude, Codex, and Grok quotas from one ready frame", async () => {
+        const { durable, store } = createDO()
+        store.set("community-machine-identity", {
+          userId: "u_1",
+          machineId: "cm_1",
+          credentialHash: "0".repeat(64),
+        })
+        mockUpsertMachineByMachineId.mockResolvedValue({
+          machine: {
+            id: "cm_1",
+            availableRuntimes: [{ id: "claude" }, { id: "codex" }, { id: "grok" }],
+            status: "online",
+          },
+          priorAvailableRuntimes: [],
+          priorStatus: "offline",
+        })
+        const ws = createMockWebSocket()
+        ws.serializeAttachment({
+          type: "community-machine",
+          machineId: "cm_1",
+          userId: "u_1",
+          authenticated: true,
+        })
+
+        await durable.webSocketMessage(ws as any, JSON.stringify({
+          type: "ready",
+          runtimeReport: [{ id: "claude" }, { id: "codex" }, { id: "grok" }],
+          capabilities: ["control-heartbeat-v1"],
+          runningAgents: [],
+          providerQuotas: ["claude", "codex", "grok"].map((agentBackendId) => ({
+            agentBackendId,
+            observation: {
+              status: "error",
+              sourceEpoch: agentBackendId[0]!.toUpperCase().repeat(22),
+              code: "network",
+              retryable: true,
+            },
+          })),
+        }))
+
+        expect(mockD1Batch).toHaveBeenCalledOnce()
+        const statements = mockD1Batch.mock.calls[0]![0] as Array<{ values: unknown[] }>
+        expect(statements).toHaveLength(3)
+        expect(statements.map((statement) => statement.values[1])).toEqual([
+          "claude",
+          "codex",
+          "grok",
+        ])
+      })
+
       it("continues core ready reconciliation when optional quota persistence fails", async () => {
         const { durable, store, storage } = createDO()
         store.set("community-machine-identity", {

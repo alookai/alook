@@ -3,6 +3,7 @@ import type {
   ClaudeConfig,
   CodexConfig,
   CursorConfig,
+  GrokConfig,
   OpenCodeConfig,
   PiConfig,
   PreparedExecutionResource,
@@ -15,7 +16,7 @@ import type {
 } from "../contract.js";
 import type { ProviderQuotaObservation, TokenUsageDelta } from "../contract.js";
 
-export type BackendConfig = ClaudeConfig | CodexConfig | CursorConfig | OpenCodeConfig | PiConfig;
+export type BackendConfig = ClaudeConfig | CodexConfig | CursorConfig | GrokConfig | OpenCodeConfig | PiConfig;
 
 export type WellKnownTransportKind =
   | "stdio_stream"

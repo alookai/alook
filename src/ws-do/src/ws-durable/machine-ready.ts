@@ -75,7 +75,7 @@ export async function handleReadyFrame(
   const raw = parsed as Record<string, unknown>
   const quotaParse = raw.providerQuotas === undefined
     ? null
-    : ProviderQuotaSnapshotSchema.array().max(2).safeParse(raw.providerQuotas)
+    : ProviderQuotaSnapshotSchema.array().max(3).safeParse(raw.providerQuotas)
   const quotaBackends = quotaParse?.success
     ? new Set(quotaParse.data.map((snapshot) => snapshot.agentBackendId))
     : null

@@ -9,54 +9,161 @@
 
 .desktopShell {
   position: absolute;
-  top: 0;
-  left: 9%;
-  width: 82%;
-  overflow: hidden;
-  border: 1px solid var(--landing-border);
-  border-radius: var(--radius-xl);
-  background: var(--background);
-  box-shadow: var(--shadow-md);
-}
-
-.deviceBar {
+  top: 3%;
+  left: 1%;
   display: flex;
-  height: 32px;
+  width: 94%;
+  flex-direction: column;
   align-items: center;
-  gap: 6px;
-  padding: 0 12px;
-  border-bottom: 1px solid var(--border);
-  background: var(--muted);
 }
 
-.deviceBar > span {
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: var(--muted-foreground);
-  opacity: 0.36;
+.laptopLid {
+  width: 88.89%;
+  overflow: hidden;
+  border: 2px solid #d8cdb8;
+  border-bottom: 0;
+  border-radius: 12px 12px 0 0;
+  box-shadow:
+    0 34px 76px rgb(20 32 25 / 28%),
+    0 12px 28px rgb(20 32 25 / 16%);
 }
 
-.deviceBar p {
-  margin-left: 8px;
-  color: var(--muted-foreground);
-  font-family: var(--font-mono);
-  font-size: 0.6rem;
+.laptopBezel {
+  padding: 6px 6px 0;
+  background: #26262c;
+}
+
+.laptopScreen {
+  overflow: hidden;
+  border-radius: 4px 4px 0 0;
+  background: #111216;
+}
+
+.laptopBase {
+  position: relative;
+  width: 100%;
+  height: clamp(10px, 1.1vw, 14px);
+  border-radius: 0 0 12px 12px;
+  background: linear-gradient(to bottom, #f0e6d4, #dcd0b8);
+  box-shadow: 0 20px 36px rgb(20 32 25 / 22%);
+}
+
+.laptopNotch {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: clamp(48px, 15%, 72px);
+  height: 4px;
+  border-radius: 0 0 6px 6px;
+  background: #c9bc9e;
+  transform: translateX(-50%);
 }
 
 .phone {
+  --phone-corner-radius: clamp(18px, 2.6vw, 30px);
+
   position: absolute;
   z-index: 5;
-  right: clamp(20px, 12%, 120px);
-  bottom: clamp(24px, 8%, 64px);
-  width: clamp(96px, 24%, 224px);
-  aspect-ratio: 390 / 788;
-  overflow: hidden;
-  border: 3px solid var(--foreground);
-  border-radius: 24px;
-  background: var(--background);
+  right: clamp(14px, 5%, 56px);
+  bottom: clamp(24px, 7%, 56px);
+  width: clamp(108px, 24%, 224px);
+  aspect-ratio: 70.6 / 146.6;
+  padding: 2px;
+  border-radius: var(--phone-corner-radius);
+  background: #9a9590;
   color: var(--foreground);
-  box-shadow: var(--shadow-md);
+  box-shadow:
+    0 34px 72px rgb(20 32 25 / 34%),
+    0 14px 28px rgb(20 32 25 / 22%);
+}
+
+.phoneBezel {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: calc(var(--phone-corner-radius) - 2px);
+  background: #050505;
+}
+
+.phoneScreen {
+  position: absolute;
+  inset: 3.5px;
+  overflow: hidden;
+  border-radius: calc(var(--phone-corner-radius) - 5.5px);
+  background: var(--background);
+}
+
+.phoneMuteButton,
+.phoneVolumeUpButton,
+.phoneVolumeDownButton,
+.phonePowerButton {
+  position: absolute;
+  z-index: 2;
+  width: 2px;
+  border-radius: 2px 0 0 2px;
+  background: #8f8a85;
+}
+
+.phoneMuteButton {
+  top: 15.5%;
+  left: -2px;
+  height: 3.2%;
+}
+
+.phoneVolumeUpButton {
+  top: 21%;
+  left: -2px;
+  height: 7.2%;
+}
+
+.phoneVolumeDownButton {
+  top: 30.5%;
+  left: -2px;
+  height: 7.2%;
+}
+
+.phonePowerButton {
+  top: 23%;
+  right: -2px;
+  height: 11.5%;
+  border-radius: 0 2px 2px 0;
+}
+
+.phoneDynamicIsland {
+  position: absolute;
+  z-index: 20;
+  top: 1.7%;
+  left: 50%;
+  width: 25.8%;
+  height: 3.8%;
+  min-height: 5px;
+  border-radius: 999px;
+  background: #050505;
+  transform: translateX(-50%);
+}
+
+.phoneDynamicIsland > span {
+  position: absolute;
+  top: 50%;
+  right: 8%;
+  width: 12%;
+  aspect-ratio: 1;
+  border-radius: 999px;
+  background: rgb(106 144 200 / 20%);
+  transform: translateY(-50%);
+}
+
+.phoneHomeIndicator {
+  position: absolute;
+  z-index: 20;
+  bottom: 1%;
+  left: 50%;
+  width: 32%;
+  height: 3px;
+  border-radius: 999px;
+  background: rgb(5 5 5 / 28%);
+  transform: translateX(-50%);
 }
 
 @media (max-width: 720px) {
@@ -78,8 +185,8 @@
     position: relative;
     right: auto;
     bottom: auto;
-    width: clamp(148px, 42%, 196px);
-    margin: clamp(-220px, -42vw, -160px) clamp(12px, 4vw, 24px) 0 auto;
+    width: clamp(146px, 42%, 190px);
+    margin: clamp(-210px, -40vw, -150px) clamp(14px, 4vw, 24px) 0 auto;
   }
 }
 
