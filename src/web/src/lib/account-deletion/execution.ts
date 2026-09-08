@@ -1,4 +1,5 @@
 import { createLogger, queries, WS_EVENTS, type Database } from "@alook/shared"
+import { cacheKeys, invalidateMany } from "@/lib/cache"
 import { getPrimaryDb } from "@/lib/db"
 import { broadcastToDaemon } from "@/lib/broadcast"
 import { pushBotEventToMachine } from "@/lib/community/bot-push"
@@ -13,6 +14,10 @@ export type ExecuteAccountDeletionResult =
   | { kind: "deleted" }
   | { kind: "missing" }
   | { kind: "failed" }
+
+async function invalidateMachineTokens(tokens: string[]): Promise<void> {
+  await invalidateMany(tokens.map((token) => cacheKeys.machineToken(token))).catch(() => {})
+}
 
 function scheduleAfterCommit(
   env: Env,
@@ -64,7 +69,14 @@ export async function executeAccountDeletion(
 
     const finalDb = getPrimaryDb(env.DB)
     const finalSnapshot = await queries.accountDeletion.getAccountDeletionSnapshot(finalDb, userId)
-    if (!finalSnapshot) return { kind: "missing" }
+    if (!finalSnapshot) {
+      await invalidateMachineTokens(firstSnapshot.machineTokens)
+      return { kind: "missing" }
+    }
+    const machineTokens = [...new Set([
+      ...firstSnapshot.machineTokens,
+      ...finalSnapshot.machineTokens,
+    ])]
     await deleteAccountStorage(env, finalSnapshot)
 
     let deletion: Awaited<ReturnType<typeof queries.accountDeletion.deleteAccountRows>>
@@ -73,6 +85,7 @@ export async function executeAccountDeletion(
     } catch (error) {
       const remaining = await queries.user.getUserInternal(getPrimaryDb(env.DB), userId)
       if (remaining) throw error
+      await invalidateMachineTokens(machineTokens)
       scheduleAfterCommit(env, executionContext, finalSnapshot, [])
       return { kind: "deleted" }
     }
@@ -81,6 +94,7 @@ export async function executeAccountDeletion(
       if (remaining) return { kind: "failed" }
     }
 
+    await invalidateMachineTokens(machineTokens)
     scheduleAfterCommit(env, executionContext, finalSnapshot, deletion.readStateRevisions)
     return { kind: "deleted" }
   } catch (error) {

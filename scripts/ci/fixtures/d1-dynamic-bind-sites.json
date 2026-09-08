@@ -237,7 +237,8 @@
   },
   {
     "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:32",
-    "strategy": "subquery"
+    "strategy": "exact-chunk",
+    "fixedParams": 10
   },
   {
     "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:33",
@@ -245,6 +246,22 @@
   },
   {
     "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:34",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:35",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:36",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:37",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:38",
     "strategy": "subquery"
   },
   {

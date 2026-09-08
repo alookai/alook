@@ -35,6 +35,7 @@ describe("minimal account deletion real D1 batch", () => {
     const owner = `adm_owner_${stamp}`
     const bot = `adm_bot_${stamp}`
     const reader = `adm_reader_${stamp}`
+    const earlyReader = `adm_early_reader_${stamp}`
     const dm = `adm_dm_${stamp}`
     const prior = `adm_prior_${stamp}`
     const authored = `adm_authored_${stamp}`
@@ -42,6 +43,8 @@ describe("minimal account deletion real D1 batch", () => {
     const workspace = `adm_workspace_${stamp}`
     const sharedWorkspace = `adm_shared_workspace_${stamp}`
     const daemon = `adm_daemon_${stamp}`
+    const ownerMachineToken = `al_owner_${stamp}`
+    const workspaceMachineToken = `al_workspace_${stamp}`
     const runtime = `adm_runtime_${stamp}`
     const survivingAgent = `adm_surviving_agent_${stamp}`
     const ownedSharedAgent = `adm_owned_shared_agent_${stamp}`
@@ -56,13 +59,13 @@ describe("minimal account deletion real D1 batch", () => {
     const reply = `adm_reply_${stamp}`
     const threadAttachment = `adm_thread_attachment_${stamp}`
     const now = "2026-09-08T00:00:00.000Z"
-    survivors.push(reader)
+    survivors.push(reader, earlyReader)
     survivingChannels.push(dm, forum)
     survivingWorkspaces.push(sharedWorkspace)
 
     await run(
-      "INSERT INTO user (id, email, name, discriminator) VALUES (?, ?, 'Owner', '8101'), (?, ?, 'Bot', '8102'), (?, ?, 'Reader', '8103')",
-      owner, `${owner}@example.com`, bot, `${bot}@example.com`, reader, `${reader}@example.com`,
+      "INSERT INTO user (id, email, name, discriminator) VALUES (?, ?, 'Owner', '8101'), (?, ?, 'Bot', '8102'), (?, ?, 'Reader', '8103'), (?, ?, 'Early reader', '8105')",
+      owner, `${owner}@example.com`, bot, `${bot}@example.com`, reader, `${reader}@example.com`, earlyReader, `${earlyReader}@example.com`,
     )
     await run("UPDATE user SET isBot = 1, ownerUserId = ? WHERE id = ?", owner, bot)
     await run(
@@ -92,6 +95,11 @@ describe("minimal account deletion real D1 batch", () => {
       `member_coowner_${stamp}`, workspace, reader, now,
       `member_shared_owner_${stamp}`, sharedWorkspace, reader, now,
       `member_shared_user_${stamp}`, sharedWorkspace, owner, now,
+    )
+    await run(
+      "INSERT INTO machine_token (id, user_id, workspace_id, token, name, status, created_at) VALUES (?, ?, ?, ?, 'Owner token', 'active', ?), (?, ?, ?, ?, 'Workspace token', 'active', ?)",
+      `machine_token_owner_${stamp}`, owner, sharedWorkspace, ownerMachineToken, now,
+      `machine_token_workspace_${stamp}`, reader, workspace, workspaceMachineToken, now,
     )
     await run("INSERT INTO agent (id, workspace_id, name, owner_id, created_at, updated_at) VALUES (?, ?, 'Owned agent', ?, ?, ?)", `agent_${stamp}`, workspace, owner, now, now)
     await run(
@@ -130,8 +138,9 @@ describe("minimal account deletion real D1 batch", () => {
       prior, reader, now, dm, authored, owner, now, dm, botAuthored, bot, now, dm,
     )
     await run(
-      "INSERT INTO community_read_state (id, user_id, channel_id, last_read_at, last_read_message_id, last_read_seq) VALUES (?, ?, ?, ?, ?, 3)",
+      "INSERT INTO community_read_state (id, user_id, channel_id, last_read_at, last_read_message_id, last_read_seq) VALUES (?, ?, ?, ?, ?, 3), (?, ?, ?, ?, ?, 1)",
       `read_${stamp}`, reader, dm, now, botAuthored,
+      `read_early_${stamp}`, earlyReader, dm, now, prior,
     )
     await run(
       "INSERT INTO community_channel (id, type, message_count, last_message_at, created_at) VALUES (?, 'forum', 1, ?, ?)",
@@ -159,6 +168,7 @@ describe("minimal account deletion real D1 batch", () => {
     expect(snapshot?.identities.map((row) => row.id).sort()).toEqual([bot, owner].sort())
     expect(snapshot?.ownedWorkspaceIds).toEqual([workspace])
     expect(snapshot?.ownedAgentIds.sort()).toEqual([`agent_${stamp}`, ownedSharedAgent].sort())
+    expect(snapshot?.machineTokens.sort()).toEqual([ownerMachineToken, workspaceMachineToken].sort())
     expect(snapshot?.media.communityExactKeys).toContain(threadAttachment)
     expect(snapshot?.media.deletingEmailAttachments).toContain(JSON.stringify([
       { key: sharedDraftKey },
@@ -173,6 +183,7 @@ describe("minimal account deletion real D1 batch", () => {
     expect(await first("SELECT id FROM user WHERE id IN (?, ?)", owner, bot)).toBeNull()
     expect(await first("SELECT id FROM workspace WHERE id = ?", workspace)).toBeNull()
     expect(await first("SELECT id FROM workspace WHERE id = ?", sharedWorkspace)).toEqual({ id: sharedWorkspace })
+    expect(await first("SELECT id FROM machine_token WHERE token IN (?, ?)", ownerMachineToken, workspaceMachineToken)).toBeNull()
     expect(await first("SELECT id FROM agent WHERE id = ?", ownedSharedAgent)).toBeNull()
     expect(await first<{ id: string; runtime_id: string | null }>(
       "SELECT id, runtime_id FROM agent WHERE id = ?",
@@ -196,8 +207,19 @@ describe("minimal account deletion real D1 batch", () => {
       reader,
       dm,
     )).toEqual({ last_read_message_id: prior, last_read_seq: 1 })
-    expect(result.readStateRevisions).toEqual([{ userId: reader, revision: 1 }])
+    expect(result.readStateRevisions.sort((left, right) => left.userId.localeCompare(right.userId)))
+      .toEqual([
+        { userId: earlyReader, revision: 1 },
+        { userId: reader, revision: 1 },
+      ].sort((left, right) => left.userId.localeCompare(right.userId)))
     expect(await first("SELECT revision FROM community_read_state_revision WHERE user_id = ?", reader))
+      .toEqual({ revision: 1 })
+    expect(await first<{ last_read_message_id: string; last_read_seq: number }>(
+      "SELECT last_read_message_id, last_read_seq FROM community_read_state WHERE user_id = ? AND channel_id = ?",
+      earlyReader,
+      dm,
+    )).toEqual({ last_read_message_id: prior, last_read_seq: 1 })
+    expect(await first("SELECT revision FROM community_read_state_revision WHERE user_id = ?", earlyReader))
       .toEqual({ revision: 1 })
     expect(await runtimeEnv.DB.prepare("PRAGMA foreign_key_check").all()).toMatchObject({ results: [] })
   })

@@ -42,7 +42,8 @@ export function AccountDeletionFlow({ email, onCancel, onDeleted }: Props) {
   const errorRef = useRef<HTMLParagraphElement>(null)
 
   useEffect(() => {
-    titleRef.current?.focus()
+    if (step === "code") otpRef.current?.focus()
+    else titleRef.current?.focus()
   }, [step])
 
   useEffect(() => {

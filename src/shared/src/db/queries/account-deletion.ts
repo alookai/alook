@@ -9,6 +9,7 @@ import {
   emails,
   issueComment,
   machine,
+  machineToken,
   meetingSession,
   member,
   session,
@@ -125,6 +126,7 @@ export type AccountDeletionSnapshot = {
   ownedWorkspaceIds: string[]
   ownedAgentIds: string[]
   legacyDaemons: Array<{ workspaceId: string; daemonId: string }>
+  machineTokens: string[]
   machineDoNames: string[]
   botBindings: Array<{ botId: string; machineId: string }>
   ownedServers: Array<{ id: string; icon: string | null; memberIds: string[] }>
@@ -176,6 +178,10 @@ export async function getAccountDeletionSnapshot(
     .select({ id: communityMessage.id })
     .from(communityMessage)
     .where(inArray(communityMessage.authorId, identitiesQuery))
+  const authoredChannelIdsQuery = db
+    .selectDistinct({ id: communityMessage.channelId })
+    .from(communityMessage)
+    .where(inArray(communityMessage.authorId, identitiesQuery))
   const doomedChannelIdsQuery = db
     .select({ id: communityChannel.id })
     .from(communityChannel)
@@ -218,6 +224,7 @@ export async function getAccountDeletionSnapshot(
     ownedWorkspaceRows,
     ownedAgentRows,
     legacyDaemons,
+    machineTokens,
     machineCredentials,
     botBindings,
     serverRows,
@@ -254,6 +261,12 @@ export async function getAccountDeletionSnapshot(
         inArray(machine.workspaceId, ownedWorkspaceIdsQuery),
         inArray(machine.ownerId, identitiesQuery),
       )),
+    db.select({ token: machineToken.token })
+      .from(machineToken)
+      .where(or(
+        inArray(machineToken.userId, identitiesQuery),
+        inArray(machineToken.workspaceId, ownedWorkspaceIdsQuery),
+      )),
     db.select({ doName: communityMachineCredential.doName })
       .from(communityMachineCredential)
       .where(inArray(communityMachineCredential.userId, identitiesQuery)),
@@ -277,6 +290,7 @@ export async function getAccountDeletionSnapshot(
         isNull(user.deletedAt),
         or(
           inArray(communityReadState.channelId, doomedChannelIdsQuery),
+          inArray(communityReadState.channelId, authoredChannelIdsQuery),
           inArray(communityReadState.lastReadMessageId, doomedMessageIdsQuery),
         ),
       )),
@@ -352,6 +366,7 @@ export async function getAccountDeletionSnapshot(
     ownedWorkspaceIds: ownedWorkspaceRows.map((row) => row.id),
     ownedAgentIds: ownedAgentRows.map((row) => row.id),
     legacyDaemons,
+    machineTokens: unique(machineTokens.map((row) => row.token)),
     machineDoNames: unique(machineCredentials.map((row) => row.doName)),
     botBindings,
     ownedServers: serverRows.map((row) => ({

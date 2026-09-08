@@ -613,6 +613,31 @@ describe("withCookieHumanAuth middleware", () => {
 
     expect(res.headers.getSetCookie()).toContain("better-auth.session_data=fresh; Path=/");
   });
+
+  it("does not reissue a session cookie that the handler explicitly clears", async () => {
+    const headers = new Headers();
+    headers.append("Set-Cookie", "better-auth.session_data=fresh; Path=/");
+    mockGetSession.mockResolvedValue({
+      headers,
+      response: { user: { id: "user-1", email: "stale@example.com" } },
+    });
+    const deletingHandler = vi.fn(async () => {
+      const response = NextResponse.json({ ok: true });
+      response.cookies.set("better-auth.session_data", "", { maxAge: 0, path: "/" });
+      return response;
+    });
+    const req = new NextRequest("https://alook.ai/api/test", {
+      method: "POST",
+      headers: { Origin: "https://alook.ai" },
+    });
+
+    const res = await withCookieHumanAuth(deletingHandler)(req);
+    const cookies = res.headers.getSetCookie();
+
+    expect(cookies).not.toContain("better-auth.session_data=fresh; Path=/");
+    expect(cookies.filter((cookie) => cookie.startsWith("better-auth.session_data=")))
+      .toHaveLength(1);
+  });
 });
 
 describe("warmMachineTokenCache", () => {

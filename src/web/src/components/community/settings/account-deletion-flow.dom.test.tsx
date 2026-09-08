@@ -1,9 +1,10 @@
-import { fireEvent, render, screen, setupUser, waitFor } from "@/test/react-dom-harness"
+import { act, fireEvent, render, screen, setupUser, waitFor } from "@/test/react-dom-harness"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { AccountDeletionFlow } from "./account-deletion-flow"
 
 describe("AccountDeletionFlow", () => {
   beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
     vi.stubGlobal("ResizeObserver", class {
       observe() {}
       unobserve() {}
@@ -12,10 +13,15 @@ describe("AccountDeletionFlow", () => {
     document.elementFromPoint = vi.fn(() => null)
   })
 
-  afterEach(() => vi.unstubAllGlobals())
+  afterEach(async () => {
+    await act(() => vi.runOnlyPendingTimersAsync())
+    vi.clearAllTimers()
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
 
   it("does not send on open and never deletes when digit six is entered", async () => {
-    const user = setupUser()
+    const user = setupUser({ advanceTimers: (delay) => vi.advanceTimersByTime(delay) })
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(Response.json({ ok: true, expires_in: 300, resend_after: 60 }))
       .mockResolvedValueOnce(Response.json({ ok: true }))
@@ -26,6 +32,7 @@ describe("AccountDeletionFlow", () => {
     expect(fetchMock).not.toHaveBeenCalled()
     await user.click(screen.getByRole("button", { name: "Send deletion code" }))
     const input = await screen.findByLabelText("Deletion code")
+    expect(input).toHaveFocus()
     fireEvent.change(input, { target: { value: "123456" } })
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
@@ -39,7 +46,7 @@ describe("AccountDeletionFlow", () => {
   })
 
   it("clears an invalid code, returns focus to the OTP, and preserves the resend cooldown after Back", async () => {
-    const user = setupUser()
+    const user = setupUser({ advanceTimers: (delay) => vi.advanceTimersByTime(delay) })
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(Response.json({ ok: true, expires_in: 300, resend_after: 60 }))
       .mockResolvedValueOnce(Response.json({ error: "INVALID_OTP" }, { status: 400 }))

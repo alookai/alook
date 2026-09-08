@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   fanOut: vi.fn(),
   broadcastUser: vi.fn(),
   revokeProvider: vi.fn(),
+  invalidateMany: vi.fn(),
   warn: vi.fn(),
 }))
 
@@ -29,6 +30,10 @@ vi.mock("@alook/shared", () => ({
   },
 }))
 vi.mock("@/lib/db", () => ({ getPrimaryDb: () => ({ primary: true }) }))
+vi.mock("@/lib/cache", () => ({
+  cacheKeys: { machineToken: (token: string) => `mt:${token.slice(0, 20)}` },
+  invalidateMany: mocks.invalidateMany,
+}))
 vi.mock("@/lib/community/community-media-cleanup", () => ({ deleteCommunityMediaObjects: vi.fn() }))
 vi.mock("./storage", () => ({ deleteAccountStorage: mocks.deleteStorage }))
 vi.mock("./provider-revocation", () => ({ revokeProviderAccount: mocks.revokeProvider }))
@@ -52,6 +57,7 @@ function snapshot(id: string) {
     ownedWorkspaceIds: [],
     ownedAgentIds: [],
     legacyDaemons: [],
+    machineTokens: [],
     machineDoNames: [],
     botBindings: [],
     ownedServers: [],
@@ -80,12 +86,13 @@ describe("account deletion execution", () => {
       mocks.fanOut,
       mocks.broadcastUser,
       mocks.revokeProvider,
+      mocks.invalidateMany,
     ]) effect.mockResolvedValue(undefined)
   })
 
   it("cleans an initial and final primary snapshot before the D1 batch", async () => {
-    const initial = snapshot("initial")
-    const final = snapshot("final")
+    const initial = { ...snapshot("initial"), machineTokens: ["al_initial_token"] }
+    const final = { ...snapshot("final"), machineTokens: ["al_final_token"] }
     mocks.getSnapshot.mockResolvedValueOnce(initial).mockResolvedValueOnce(final)
     mocks.deleteRows.mockResolvedValue({ deleted: true, readStateRevisions: [] })
     const waitUntil = vi.fn()
@@ -102,7 +109,26 @@ describe("account deletion execution", () => {
     expect(mocks.deleteRows).toHaveBeenCalledWith({ primary: true }, final)
     expect(mocks.deleteStorage.mock.invocationCallOrder[1])
       .toBeLessThan(mocks.deleteRows.mock.invocationCallOrder[0])
+    expect(mocks.invalidateMany).toHaveBeenCalledWith([
+      "mt:al_initial_token",
+      "mt:al_final_token",
+    ])
     expect(waitUntil).toHaveBeenCalledOnce()
+  })
+
+  it("invalidates the initial machine tokens when another request already removed the user", async () => {
+    const initial = { ...snapshot("initial"), machineTokens: ["al_initial_token"] }
+    mocks.getSnapshot.mockResolvedValueOnce(initial).mockResolvedValueOnce(null)
+
+    await expect(executeAccountDeletion(
+      {} as never,
+      {} as never,
+      { waitUntil: vi.fn() },
+      "user-1",
+    )).resolves.toEqual({ kind: "missing" })
+
+    expect(mocks.invalidateMany).toHaveBeenCalledWith(["mt:al_initial_token"])
+    expect(mocks.deleteRows).not.toHaveBeenCalled()
   })
 
   it("does not run the D1 batch after synchronous storage cleanup fails", async () => {
@@ -145,6 +171,7 @@ describe("account deletion execution", () => {
       ...snapshot("current"),
       providers: [{ providerId: "github", accountId: "account", accessToken: "token", refreshToken: null }],
       legacyDaemons: [{ daemonId: "daemon-1", workspaceId: "workspace-1" }],
+      machineTokens: ["al_1234567890abcdefghijklmnop"],
       machineDoNames: ["machine-do"],
       botBindings: [{ botId: "bot-1", machineId: "machine-1" }],
       ownedServers: [{ id: "server-1", icon: null, memberIds: ["member-1"] }],
@@ -171,9 +198,27 @@ describe("account deletion execution", () => {
     expect(mocks.fanOut).toHaveBeenCalled()
     expect(mocks.broadcastUser).toHaveBeenCalled()
     expect(mocks.revokeProvider).toHaveBeenCalled()
+    expect(mocks.invalidateMany).toHaveBeenCalledWith(["mt:al_1234567890abcdefg"])
     expect(mocks.warn).toHaveBeenCalledWith(
       "account_deletion_post_commit_effects_failed",
       { failures: 1 },
     )
+  })
+
+  it("keeps a committed deletion successful when machine-token invalidation fails", async () => {
+    const current = {
+      ...snapshot("current"),
+      machineTokens: ["al_stale_token"],
+    }
+    mocks.getSnapshot.mockResolvedValue(current)
+    mocks.deleteRows.mockResolvedValue({ deleted: true, readStateRevisions: [] })
+    mocks.invalidateMany.mockRejectedValue(new Error("KV unavailable"))
+
+    await expect(executeAccountDeletion(
+      {} as never,
+      {} as never,
+      { waitUntil: vi.fn() },
+      "user-1",
+    )).resolves.toEqual({ kind: "deleted" })
   })
 })

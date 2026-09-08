@@ -214,8 +214,12 @@ function clearCookieHumanAuthCookies(res: NextResponse): void {
 
 function forwardSetCookies(res: NextResponse | Response, setCookies: string[]): NextResponse | Response {
   if (setCookies.length === 0) return res
+  const cookieName = (cookie: string) => cookie.split("=", 1)[0].trim().toLowerCase()
+  const responseCookieNames = new Set(res.headers.getSetCookie().map(cookieName))
+  const forwarded = setCookies.filter((cookie) => !responseCookieNames.has(cookieName(cookie)))
+  if (forwarded.length === 0) return res
   const mutableRes = new NextResponse(res.body, res)
-  for (const cookie of setCookies) mutableRes.headers.append("Set-Cookie", cookie)
+  for (const cookie of forwarded) mutableRes.headers.append("Set-Cookie", cookie)
   return mutableRes
 }
 
