@@ -252,4 +252,32 @@ describe("userBarExtensionReducer", () => {
       extension: "inbox",
     })).toEqual(initialUserBarExtensionState)
   })
+
+  it.each(["inbox", "profile"] as const)(
+    "closes active %s and collapses an expanded update",
+    (extension) => {
+      const update: NonNullable<UserBarExtensionState["update"]> = {
+        phase: "expanded",
+        targetMachineIds: ["m1"],
+        acceptedMachineIds: [],
+        failedMachineIds: [],
+        pendingMachineIds: [],
+      }
+      const state: UserBarExtensionState = {
+        active: extension,
+        update,
+      }
+
+      expect(userBarExtensionReducer(state, {
+        type: "extension.close",
+        extension,
+      })).toEqual({
+        active: "none",
+        update: {
+          ...update,
+          phase: "collapsedBadge",
+        },
+      })
+    },
+  )
 })
