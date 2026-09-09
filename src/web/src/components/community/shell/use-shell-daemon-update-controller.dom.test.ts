@@ -59,8 +59,8 @@ function Capture({
   onResult,
 }: {
   initialState: UserBarExtensionState
-  version: string
-  requestUpdate: (machineId: string) => Promise<unknown>
+  version?: string
+  requestUpdate?: (machineId: string) => Promise<unknown>
   onResult: (snapshot: Snapshot) => void
 }) {
   const [state, dispatch] = useReducer(userBarExtensionReducer, initialState)
@@ -125,7 +125,28 @@ describe("useShellDaemonUpdateController", () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+    vi.unstubAllEnvs()
     window.localStorage.clear()
+  })
+
+  it("uses the configured production dependencies when optional overrides are omitted", async () => {
+    vi.stubEnv("NEXT_PUBLIC_LATEST_DAEMON_VERSION", latestVersion)
+    mocks.machines = { machines: [machine("machine-1")], isSuccess: true }
+    let current!: Snapshot
+    let renderer!: ReturnType<typeof rtlRender>
+
+    await act(async () => {
+      renderer = rtlRender(createElement(Capture, {
+        initialState: initialUserBarExtensionState,
+        onResult: (snapshot) => { current = snapshot },
+      }))
+    })
+
+    expect(current.state).toMatchObject({
+      active: "update",
+      update: { phase: "expanded", targetMachineIds: ["machine-1"] },
+    })
+    renderer.unmount()
   })
 
   it("restores, opens, collapses, and clears the version-scoped preference from live Machines", async () => {

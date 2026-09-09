@@ -221,7 +221,20 @@ describe("userBarExtensionReducer", () => {
 
   it("ignores update-only actions before update state exists", () => {
     expect(userBarExtensionReducer(initialUserBarExtensionState, {
+      type: "update.eligibility",
+      eligibleMachineIds: ["stale"],
+    })).toBe(initialUserBarExtensionState)
+    expect(userBarExtensionReducer(initialUserBarExtensionState, {
+      type: "update.sync",
+      collapsed: false,
+      eligibleMachineIds: [],
+    })).toBe(initialUserBarExtensionState)
+    expect(userBarExtensionReducer(initialUserBarExtensionState, {
       type: "update.open",
+    })).toBe(initialUserBarExtensionState)
+    expect(userBarExtensionReducer(initialUserBarExtensionState, {
+      type: "update.dispatch",
+      machineIds: ["stale"],
     })).toBe(initialUserBarExtensionState)
     expect(userBarExtensionReducer(initialUserBarExtensionState, {
       type: "update.settle",

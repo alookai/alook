@@ -71,8 +71,7 @@ export async function dispatchMachineUpdateRequests(
   const acceptedMachineIds: string[] = []
   const failedMachineIds: string[] = []
   results.forEach((result, index) => {
-    const machineId = machineIds[index]
-    if (!machineId) return
+    const machineId = machineIds[index]!
     if (result.status === "fulfilled") acceptedMachineIds.push(machineId)
     else failedMachineIds.push(machineId)
   })
