@@ -5,10 +5,8 @@ import { ShellFrameView } from "./shell-frame-view"
 import type { CommunityCheckpointPlan, CommunitySurface } from "@/lib/community/community-route"
 
 const mocks = vi.hoisted(() => ({
-  observe: vi.fn(),
-  disconnect: vi.fn(),
   onLayoutChanged: vi.fn(),
-  resizeCallback: { current: undefined as undefined | ((entries: Array<{ contentRect: { width: number } }>) => void) },
+  defaultLayout: { current: { sidebar: 24, main: 76 } },
   groupProps: vi.fn(),
   panelProps: vi.fn(),
   railProps: vi.fn(),
@@ -18,7 +16,10 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock("react-resizable-panels", () => ({
-  useDefaultLayout: () => ({ defaultLayout: { sidebar: 24, main: 76 }, onLayoutChanged: mocks.onLayoutChanged }),
+  useDefaultLayout: () => ({
+    defaultLayout: mocks.defaultLayout.current,
+    onLayoutChanged: mocks.onLayoutChanged,
+  }),
 }))
 vi.mock("@/components/ui/resizable", () => ({
   ResizablePanelGroup: ({ children, ...props }: Record<string, unknown>) => {
@@ -133,44 +134,23 @@ const inbox = {
   onOpenChange: vi.fn(),
 } as never
 
-let offsetWidthDescriptor: PropertyDescriptor | undefined
 let animateDescriptor: PropertyDescriptor | undefined
 
 describe("ShellFrameView", () => {
   beforeEach(() => {
     vi.unstubAllGlobals()
-    mocks.observe.mockClear()
-    mocks.disconnect.mockClear()
     mocks.groupProps.mockClear()
     mocks.panelProps.mockClear()
     mocks.railProps.mockClear()
     mocks.overlayProps.mockClear()
     mocks.pendingProps.mockClear()
     mocks.channelSkeletonProps.mockClear()
-    mocks.resizeCallback.current = undefined
-    offsetWidthDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth")
+    mocks.defaultLayout.current = { sidebar: 24, main: 76 }
     animateDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "animate")
-    Object.defineProperty(HTMLElement.prototype, "offsetWidth", {
-      configurable: true,
-      get: () => 240,
-    })
-    class ResizeObserverMock {
-      constructor(callback: (entries: Array<{ contentRect: { width: number } }>) => void) {
-        mocks.resizeCallback.current = callback
-      }
-      observe = mocks.observe
-      disconnect = mocks.disconnect
-    }
-    vi.stubGlobal("ResizeObserver", ResizeObserverMock)
     vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false })))
   })
 
   afterEach(() => {
-    if (offsetWidthDescriptor) {
-      Object.defineProperty(HTMLElement.prototype, "offsetWidth", offsetWidthDescriptor)
-    } else {
-      delete (HTMLElement.prototype as unknown as Record<string, unknown>).offsetWidth
-    }
     if (animateDescriptor) Object.defineProperty(HTMLElement.prototype, "animate", animateDescriptor)
     else delete (HTMLElement.prototype as unknown as Record<string, unknown>).animate
     vi.restoreAllMocks()
@@ -267,18 +247,59 @@ describe("ShellFrameView", () => {
     expect(mainPanel).toMatchObject({ id: "main", defaultSize: "76%" })
     expect("profileStatusSeeds" in latestProps(mocks.overlayProps)).toBe(false)
     expect(sidebar).toHaveBeenCalledWith()
-    expect(mocks.observe).toHaveBeenCalledTimes(1)
     const userBarOverlay = renderer.container.querySelector<HTMLElement>(
       '[data-slot="community-user-bar-overlay"]',
     )!
-    expect(userBarOverlay.style.width).toBe("297px")
+    expect(userBarOverlay.style.getPropertyValue("--community-desktop-user-bar-width")).toBe(
+      "calc(clamp(160px, calc(24% - 0.48px), 360px) + 58px)",
+    )
     await act(async () => {
-      mocks.resizeCallback.current?.([{ contentRect: { width: 300 } }])
+      const onResize = latestProps(mocks.panelProps, "sidebar").onResize as (
+        size: { asPercentage: number; inPixels: number },
+      ) => void
+      onResize({ asPercentage: 30, inPixels: 300 })
     })
-    expect(userBarOverlay.style.width).toBe("357px")
+    expect(userBarOverlay.style.getPropertyValue("--community-desktop-user-bar-width"))
+      .toBe("358px")
+
+    const renderedSidebar = renderer.container.querySelector<HTMLElement>(
+      '[data-slot="resizable-panel"][data-testid="sidebar"] > div',
+    )!
+    vi.spyOn(renderedSidebar, "getBoundingClientRect").mockReturnValue({
+      ...renderedSidebar.getBoundingClientRect(),
+      width: 299.25,
+    })
+    await act(async () => {
+      const onResize = latestProps(mocks.panelProps, "sidebar").onResize as (
+        size: { asPercentage: number; inPixels: number },
+      ) => void
+      onResize({ asPercentage: 30, inPixels: 300 })
+    })
+    expect(userBarOverlay.style.getPropertyValue("--community-desktop-user-bar-width"))
+      .toBe("357.25px")
 
     renderer.unmount()
-    expect(mocks.disconnect).toHaveBeenCalledTimes(1)
+  })
+
+  it("seeds the User bar from the persisted panel percentage before pixel sizing", () => {
+    mocks.defaultLayout.current = { sidebar: 18.75, main: 81.25 }
+    const renderer = render(createElement(ShellFrameView, {
+      breakpoint: "desktop",
+      checkpoint: committedCheckpoint("/c/me", "list"),
+      sidebar: () => createElement("sidebar-content"),
+      cancelPendingNavigation: vi.fn(),
+      rail,
+      profile,
+      inbox,
+    }, createElement("main-content")))
+
+    const group = latestProps(mocks.groupProps)
+    expect(group.defaultLayout).toEqual({ sidebar: 18.75, main: 81.25 })
+    expect(renderer.container.querySelector<HTMLElement>(
+      '[data-slot="community-user-bar-overlay"]',
+    )!.style.getPropertyValue("--community-desktop-user-bar-width")).toBe(
+      "calc(clamp(160px, calc(18.75% - 0.375px), 360px) + 58px)",
+    )
   })
 
   it("composes the server-root list surface with desktop rail, sidebar, and landing content", async () => {
@@ -683,7 +704,7 @@ describe("ShellFrameView", () => {
     expect(mounts).toBe(1)
   })
 
-  it("disconnects and re-subscribes sidebar observation across breakpoint changes", async () => {
+  it("keeps one panel-owned resize callback across breakpoint changes", async () => {
     const sidebar = vi.fn(() => createElement("sidebar-content"))
     const common = {
       checkpoint: committedCheckpoint("/c/me", "list"),
@@ -696,25 +717,24 @@ describe("ShellFrameView", () => {
     const renderer = render(
       createElement(ShellFrameView, { ...common, breakpoint: "desktop" }, createElement("main-content")),
     )
-    expect(mocks.observe).toHaveBeenCalledTimes(1)
+    const onResize = latestProps(mocks.panelProps, "sidebar").onResize
+    expect(onResize).toBeTypeOf("function")
 
     renderer.rerender(createElement(
       ShellFrameView,
       { ...common, breakpoint: "mobile" },
       createElement("main-content"),
     ))
-    expect(mocks.disconnect).toHaveBeenCalledTimes(1)
-    expect(mocks.observe).toHaveBeenCalledTimes(1)
+    expect(latestProps(mocks.panelProps, "sidebar").onResize).toBe(onResize)
 
     renderer.rerender(createElement(
       ShellFrameView,
       { ...common, breakpoint: "desktop" },
       createElement("main-content"),
     ))
-    expect(mocks.observe).toHaveBeenCalledTimes(2)
+    expect(latestProps(mocks.panelProps, "sidebar").onResize).toBe(onResize)
 
     renderer.unmount()
-    expect(mocks.disconnect).toHaveBeenCalledTimes(2)
   })
 
   it("keeps committed content mounted while same-scope navigation is pending", async () => {

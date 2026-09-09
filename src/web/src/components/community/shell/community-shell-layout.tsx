@@ -1,14 +1,14 @@
 "use client"
 
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
-  useState,
   type CSSProperties,
   type ReactNode,
 } from "react"
-import { useDefaultLayout } from "react-resizable-panels"
+import { useDefaultLayout, type PanelSize } from "react-resizable-panels"
 import { AppSurface } from "@/components/ui/app-surface"
 import {
   ResizableHandle,
@@ -20,6 +20,10 @@ import type { CommunitySurface } from "@/lib/community/community-route"
 import { cn } from "@/lib/utils"
 import {
   COMMUNITY_RAIL_WIDTH,
+  COMMUNITY_SIDEBAR_DEFAULT_PERCENTAGE,
+  COMMUNITY_SIDEBAR_MAX_WIDTH,
+  COMMUNITY_SIDEBAR_MIN_WIDTH,
+  desktopUserBarOverlayCssWidth,
   desktopUserBarOverlayWidth,
 } from "./shell-frame-geometry"
 import { Shell } from "./shell"
@@ -80,6 +84,7 @@ export function CommunityShellLayout({
   const hydratedClient = useHydratedClient()
   const sidebarPanelRef = useRef<HTMLDivElement>(null)
   const mainPanelRef = useRef<HTMLDivElement>(null)
+  const userBarOverlayRef = useRef<HTMLDivElement>(null)
   const previousCommittedHrefRef = useRef<string | null>(null)
   const pendingTransitionRef = useRef<{
     sourceHref: string | null
@@ -87,17 +92,16 @@ export function CommunityShellLayout({
   } | null>(null)
   const canceledTransitionTargetsRef = useRef(new Set<string>())
   const mobileSurfaceAnimationRef = useRef<Animation | null>(null)
-  const [sidebarWidth, setSidebarWidth] = useState(240)
-
-  useEffect(() => {
-    if (breakpoint !== "desktop") return
-    const element = sidebarPanelRef.current
-    if (!element) return
-    setSidebarWidth(element.offsetWidth)
-    const observer = new ResizeObserver(([entry]) => setSidebarWidth(entry!.contentRect.width))
-    observer.observe(element)
-    return () => observer.disconnect()
-  }, [breakpoint])
+  const syncDesktopUserBarWidth = useCallback((size: PanelSize) => {
+    const measuredSidebarWidth = sidebarPanelRef.current?.getBoundingClientRect().width
+    const sidebarWidth = measuredSidebarWidth && measuredSidebarWidth > 0
+      ? measuredSidebarWidth
+      : size.inPixels
+    userBarOverlayRef.current?.style.setProperty(
+      "--community-desktop-user-bar-width",
+      `${desktopUserBarOverlayWidth(sidebarWidth)}px`,
+    )
+  }, [])
 
   const isDesktop = breakpoint === "desktop"
   const isMobileList = breakpoint === "mobile" && surface === "list"
@@ -168,8 +172,14 @@ export function CommunityShellLayout({
   }, [breakpoint, surface, transitionMode, transitionTargetHref])
   useEffect(() => () => mobileSurfaceAnimationRef.current?.cancel(), [])
 
+  const sidebarPercentage = hydratedClient
+    ? defaultLayout?.sidebar ?? COMMUNITY_SIDEBAR_DEFAULT_PERCENTAGE
+    : COMMUNITY_SIDEBAR_DEFAULT_PERCENTAGE
   const initialUserBarStyle = {
-    "--community-desktop-user-bar-width": `${desktopUserBarOverlayWidth(sidebarWidth)}px`,
+    "--community-desktop-user-bar-width": desktopUserBarOverlayCssWidth(
+      sidebarPercentage,
+      hydratedClient,
+    ),
     marginLeft: -COMMUNITY_RAIL_WIDTH,
   } as CSSProperties
 
@@ -223,9 +233,10 @@ export function CommunityShellLayout({
           >
             <ResizablePanel
               id="sidebar"
-              defaultSize="24%"
-              minSize={160}
-              maxSize={360}
+              defaultSize={`${COMMUNITY_SIDEBAR_DEFAULT_PERCENTAGE}%`}
+              minSize={COMMUNITY_SIDEBAR_MIN_WIDTH}
+              maxSize={COMMUNITY_SIDEBAR_MAX_WIDTH}
+              onResize={syncDesktopUserBarWidth}
               hidden={isMobileDetail}
               data-mobile-active={sidebarMobileActive || undefined}
               data-mobile-hidden={sidebarMobileHidden || undefined}
@@ -264,19 +275,16 @@ export function CommunityShellLayout({
 
         {showUserBar && (
           <div
+            ref={userBarOverlayRef}
             data-slot="community-user-bar-overlay"
             className={cn(
               "absolute bottom-0 left-0 z-10",
+              isDesktop && "w-(--community-desktop-user-bar-width)",
               isInitial && "w-[calc(100%+3.5rem)] sm:w-(--community-desktop-user-bar-width)",
               isInitialDetail && "max-sm:hidden",
               isMobileDetail && preserveHiddenMobileModules && "hidden",
             )}
-            style={isDesktop
-              ? {
-                  width: desktopUserBarOverlayWidth(sidebarWidth),
-                  marginLeft: -COMMUNITY_RAIL_WIDTH,
-                }
-              : isMobileList ? {
+            style={isMobileList ? {
                   width: `calc(100% + ${COMMUNITY_RAIL_WIDTH}px)`,
                   marginLeft: -COMMUNITY_RAIL_WIDTH,
                 }
