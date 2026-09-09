@@ -56,7 +56,7 @@ export const POST = withCommunityDaemonAuth(async (req, ctx) => {
     () => queries.communityBot.getBotBinding(db, parsed.data.agentId),
     { route: "community/daemon/enroll-agent:binding" }
   )
-  if (!binding || binding.machineId !== ctx.machineId) {
+  if (!binding || !binding.isActive || binding.machineId !== ctx.machineId) {
     return NextResponse.json({ error: "bot not on this machine" }, { status: 404 })
   }
 

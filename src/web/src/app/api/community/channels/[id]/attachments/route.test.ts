@@ -80,7 +80,7 @@ describe("POST /api/community/channels/[id]/attachments — bot arm (folds attac
     vi.clearAllMocks()
     mockFindActiveAgentRunnerKeyByBearer.mockResolvedValue({ userId: "owner_1", machineId: "m_1", agentId: "bot_1" })
     mockGetUserInternal.mockResolvedValue({ isBot: true, deletedAt: null })
-    mockGetBotBinding.mockResolvedValue({ machineId: "m_1", runtime: "claude" })
+    mockGetBotBinding.mockResolvedValue({ machineId: "m_1", runtime: "claude", isActive: true })
     mockCreatePendingAttachment.mockResolvedValue({
       id: "att_1",
       filename: "hi.png",

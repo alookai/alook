@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from "react"
-import type { BotSummary } from "@/hooks/community/use-bots"
+import type { BotPlanSummary, BotSummary } from "@/hooks/community/use-bots"
 import type { MachineSummary } from "@/hooks/community/use-machines"
 import type { CommunityProfile } from "@/lib/community/models/people"
 
@@ -15,6 +15,10 @@ export type BotMachineGroup = {
 
 export type BotListController = {
   bots: BotSummary[]
+  planSummary: BotPlanSummary | null
+  isCreateDisabled: boolean
+  pendingActiveBotIds: ReadonlySet<string>
+  setBotActive: (bot: BotSummary, active: boolean) => Promise<void>
   isLoading: boolean
   machines: MachineSummary[]
   machinesLoading: boolean

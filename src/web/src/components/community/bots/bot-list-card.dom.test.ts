@@ -20,6 +20,7 @@ vi.mock("@/hooks/community/use-machines", () => ({
 }))
 vi.mock("@/hooks/community/use-bots", () => ({
   useBots: () => useBotsMock(),
+  useSetBotActive: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useDeleteBot: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useResetBotSession: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useResetMachineAgents: () => ({ mutateAsync: vi.fn(), isPending: false }),
@@ -83,6 +84,7 @@ function bot(over: Partial<BotSummary>): BotSummary {
     machineId: "mac1",
     runtime: "claude",
     modelName: null,
+    isActive: true,
     lastRefreshContextAt: null,
     dailyActivity: [],
     ...over,
@@ -142,7 +144,7 @@ describe("BotList — bug-report feature entry", () => {
     useBotsMock.mockReturnValue({
       bots,
       isLoading: false,
-      data: { bots },
+      data: { bots, plan: { id: "free", displayName: "Free" }, limit: 3, ownedCount: 2, activeCount: 2 },
     })
 
     const renderer = render()

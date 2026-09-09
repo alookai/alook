@@ -2,7 +2,6 @@ import { NextRequest } from "next/server"
 import {
   queries,
   CommunityBotCreateRequestSchema,
-  COMMUNITY_BOT_LIMIT_PER_OWNER,
   DAILY_TOKEN_USAGE_WINDOW_DAYS,
   calendarDayKeyDaysAgo,
   dayKeyInTimeZone,
@@ -31,7 +30,10 @@ export function tokenUsageDayWindow(now: Date, timeZone: string | null | undefin
 
 export const GET = withAuth(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
-  const bots = await queries.communityBot.listBotsForOwner(db, ctx.userId)
+  const [bots, capacity] = await Promise.all([
+    queries.communityBot.listBotsForOwner(db, ctx.userId),
+    queries.productPlan.getBotCapacitySummary(db, ctx.userId),
+  ])
   // Attach each bot's last-30-day activity for the my-bots heatmap. One batched
   // read scoped to the owner's bots (no N+1); bots with no rows default to [].
   // The FE pads missing days to zero cells, so an empty array is the normal
@@ -77,7 +79,13 @@ export const GET = withAuth(async (_req, ctx) => {
       },
     }
   })
-  return writeJSON({ bots: withActivity })
+  return writeJSON({
+    bots: withActivity,
+    plan: capacity.plan,
+    limit: capacity.limit,
+    ownedCount: capacity.ownedCount,
+    activeCount: capacity.activeCount,
+  })
 })
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
@@ -86,10 +94,16 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   const db = getDb(ctx.env.DB)
 
-  // Cap check — anti-abuse floor, not a UX cap.
-  const n = await queries.communityBot.countLiveBotsForOwner(db, ctx.userId)
-  if (n >= COMMUNITY_BOT_LIMIT_PER_OWNER) {
-    return writeError("BOT_LIMIT_REACHED", 409)
+  let capacity = await queries.productPlan.getBotCapacitySummary(db, ctx.userId)
+  if (capacity.ownedCount >= capacity.limit) {
+    return writeJSON({
+      error: "BOT_LIMIT_REACHED",
+      plan: capacity.plan.id,
+      planDisplayName: capacity.plan.displayName,
+      limit: capacity.limit,
+      ownedCount: capacity.ownedCount,
+      activeCount: capacity.activeCount,
+    }, 409)
   }
 
   // Machine must be owned by caller AND runtime must be in its availableRuntimes
@@ -125,16 +139,30 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     return writeError(`reasoning effort ${effort} is not supported by this runtime/model`, 400)
   }
 
-  const created = await queries.communityBot.createBot(db, {
-    ownerId: ctx.userId,
-    name: body.name,
-    description: body.description,
-    machineId: body.machineId,
-    runtime: body.runtime,
-    image: body.image ?? null,
-    modelName,
-    reasoningEffort: effortResolution.canonicalEffort,
-  })
+  let created: Awaited<ReturnType<typeof queries.communityBot.createBot>>
+  try {
+    created = await queries.communityBot.createBot(db, {
+      ownerId: ctx.userId,
+      name: body.name,
+      description: body.description,
+      machineId: body.machineId,
+      runtime: body.runtime,
+      image: body.image ?? null,
+      modelName,
+      reasoningEffort: effortResolution.canonicalEffort,
+    })
+  } catch (error) {
+    if (!queries.communityBot.isBotEntitlementLimitError(error)) throw error
+    capacity = await queries.productPlan.getBotCapacitySummary(db, ctx.userId)
+    return writeJSON({
+      error: "BOT_LIMIT_REACHED",
+      plan: capacity.plan.id,
+      planDisplayName: capacity.plan.displayName,
+      limit: capacity.limit,
+      ownedCount: capacity.ownedCount,
+      activeCount: capacity.activeCount,
+    }, 409)
+  }
 
   // The bot's owner is the authenticated caller — resolve their handle to
   // carry in the bot:added push so the daemon can tell the agent who owns it.
@@ -196,6 +224,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
         modelName,
         reasoningEffort: effortResolution.canonicalEffort,
         runtimeConfigRevision: 0,
+        isActive: true,
       },
     },
     201,

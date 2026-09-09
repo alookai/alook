@@ -146,7 +146,10 @@ export async function handleActivityFrame(
       const customStatus =
         (priorEmoji !== null || priorText !== null) &&
         !isBotActivityStatus(priorEmoji, priorText)
-      const profileWritable = !customStatus
+      // An in-flight heartbeat may arrive after deactivation. Preserve its
+      // bounded usage/quota telemetry, but never let an inactive bot project a
+      // new activity status to viewers.
+      const profileWritable = binding.isActive && !customStatus
       const priorIsRunning =
         priorEmoji !== null &&
         RUNNING_PRESETS.some((preset) => preset.emoji === priorEmoji && preset.text === priorText)
@@ -264,7 +267,7 @@ export async function handleTypingFrame(
       () => queries.communityBot.getBotBindingWithOwner(db, agentId),
       { route: "ws-do:agent-typing-binding" },
     ),
-    isMatch: (binding) => binding.machineId === identity.machineId,
+    isMatch: (binding) => binding.isActive && binding.machineId === identity.machineId,
     write: async (binding) => {
       // Membership is enforced by `fanOutTyping`; the binding already carries
       // the bot display identity, avoiding another roster query per heartbeat.

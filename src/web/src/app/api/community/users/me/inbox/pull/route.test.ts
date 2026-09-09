@@ -28,7 +28,9 @@ vi.mock("@alook/shared", async () => {
       ...actual.queries,
       communityMachine: { findActiveAgentRunnerKeyByBearer: (...a: unknown[]) => mockFindActiveAgentRunnerKeyByBearer(...a) },
       user: { getUserInternal: (...a: unknown[]) => mockGetUserInternal(...a) },
-      communityBot: { getBotBinding: (...a: unknown[]) => mockGetBotBinding(...a) },
+      communityBot: {
+        getBotBinding: (...a: unknown[]) => mockGetBotBinding(...a),
+      },
       communityAgentInbox: {
         listAccessVisibleChannelIdsForUser: (...a: unknown[]) => mockListAccessVisibleChannelIdsForUser(...a),
         listUnreadMessagesForAgent: (...a: unknown[]) => mockListUnreadMessagesForAgent(...a),
@@ -63,7 +65,7 @@ describe("POST /api/community/users/me/inbox/pull — bot arm (folds inboxPull)"
     vi.clearAllMocks()
     mockFindActiveAgentRunnerKeyByBearer.mockResolvedValue({ userId: "owner_1", machineId: "m_1", agentId: "bot_1" })
     mockGetUserInternal.mockResolvedValue({ isBot: true, deletedAt: null })
-    mockGetBotBinding.mockResolvedValue({ machineId: "m_1", runtime: "claude" })
+    mockGetBotBinding.mockResolvedValue({ machineId: "m_1", runtime: "claude", isActive: true })
     mockToAgentMessages.mockImplementation((_db: unknown, rows: unknown[]) => Promise.resolve(rows))
     mockListByMessageIds.mockResolvedValue([])
     mockListAccessVisibleChannelIdsForUser.mockResolvedValue(["c_1"])
@@ -78,6 +80,21 @@ describe("POST /api/community/users/me/inbox/pull — bot arm (folds inboxPull)"
   it("400 on invalid JSON body", async () => {
     const res = await POST(req("not-json", { Authorization: "Bearer crk_abc" }))
     expect(res.status).toBe(400)
+  })
+
+  it("returns an empty page for an inactive bot without querying or hydrating inbox data", async () => {
+    mockGetBotBinding.mockResolvedValue({ machineId: "m_1", runtime: "claude", isActive: false })
+
+    const res = await POST(req(undefined, { Authorization: "Bearer crk_abc" }))
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toEqual({ messages: [], hasMore: false, markedCount: 0 })
+    expect(mockListAccessVisibleChannelIdsForUser).not.toHaveBeenCalled()
+    expect(mockListUnreadMessagesForAgent).not.toHaveBeenCalled()
+    expect(mockCountMarksForUser).not.toHaveBeenCalled()
+    expect(mockListByMessageIds).not.toHaveBeenCalled()
+    expect(mockToAgentMessages).not.toHaveBeenCalled()
+    expect(mockGetBotBinding).toHaveBeenCalledOnce()
   })
 
   it("self-scoped: pull always queries the caller's OWN userId (bot_1), never a body-supplied target", async () => {

@@ -325,7 +325,12 @@ export async function reconcileBotActivityFromRunningAgents(
       communityUserProfile,
       eq(communityUserProfile.userId, communityBotBinding.userId)
     )
-    .where(eq(communityBotBinding.machineId, machineId));
+    .where(
+      and(
+        eq(communityBotBinding.machineId, machineId),
+        eq(communityBotBinding.isActive, true),
+      ),
+    );
   if (rows.length === 0) return [];
 
   const runningSet = new Set(runningAgentIds);
@@ -748,6 +753,7 @@ export async function isBotOnline(db: Database, botUserId: string): Promise<bool
     .where(
       and(
         eq(communityBotBinding.userId, botUserId),
+        eq(communityBotBinding.isActive, true),
         isNull(user.deletedAt),
         eq(user.isBot, true),
       ),

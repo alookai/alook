@@ -18,7 +18,14 @@ import { withCommunityActor, requireBot } from "@/lib/middleware/community-actor
 export const GET = withCommunityActor(async (_req: NextRequest, ctx) => {
   const gate = requireBot(ctx.actor)
   if (!gate.ok) return gate.response
-  const { userId: botUserId } = gate.bot
+  const { userId: botUserId, isActive } = gate.bot
+
+  // Match the consuming pull door: inactive bots expose no inbox state and do
+  // not pay the visibility/aggregation/hydration query cost. Runner auth
+  // already loaded the binding state, avoiding a second D1 read on every poll.
+  if (!isActive) {
+    return NextResponse.json({ rows: [], pendingChannels: 0, pendingMessages: 0 })
+  }
 
   const db = getDb(ctx.env.DB)
 
@@ -36,4 +43,4 @@ export const GET = withCommunityActor(async (_req: NextRequest, ctx) => {
     pendingChannels: rows.length,
     pendingMessages: rows.reduce((n, r) => n + r.pendingCount, 0),
   })
-})
+}, { allowInactiveBot: true })

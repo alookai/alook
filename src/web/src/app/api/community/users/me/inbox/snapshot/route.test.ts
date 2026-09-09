@@ -25,7 +25,9 @@ vi.mock("@alook/shared", async () => {
       ...actual.queries,
       communityMachine: { findActiveAgentRunnerKeyByBearer: (...a: unknown[]) => mockFindActiveAgentRunnerKeyByBearer(...a) },
       user: { getUserInternal: (...a: unknown[]) => mockGetUserInternal(...a) },
-      communityBot: { getBotBinding: (...a: unknown[]) => mockGetBotBinding(...a) },
+      communityBot: {
+        getBotBinding: (...a: unknown[]) => mockGetBotBinding(...a),
+      },
       communityAgentInbox: {
         getInboxSnapshotForAgent: (...a: unknown[]) => mockGetInboxSnapshotForAgent(...a),
         toInboxRows: (...a: unknown[]) => mockToInboxRows(...a),
@@ -52,7 +54,7 @@ describe("GET /api/community/users/me/inbox/snapshot — bot arm (folds inboxSna
     vi.clearAllMocks()
     mockFindActiveAgentRunnerKeyByBearer.mockResolvedValue({ userId: "owner_1", machineId: "m_1", agentId: "bot_1" })
     mockGetUserInternal.mockResolvedValue({ isBot: true, deletedAt: null })
-    mockGetBotBinding.mockResolvedValue({ machineId: "m_1", runtime: "claude" })
+    mockGetBotBinding.mockResolvedValue({ machineId: "m_1", runtime: "claude", isActive: true })
   })
 
   it("401 without Authorization (human arm, no session)", async () => {
@@ -79,6 +81,18 @@ describe("GET /api/community/users/me/inbox/snapshot — bot arm (folds inboxSna
     })
     // self-scope: the snapshot query is called with the caller's own bot userId.
     expect(mockGetInboxSnapshotForAgent).toHaveBeenCalledWith(expect.anything(), "bot_1")
+  })
+
+  it("reports zero pending work for an inactive bot without reading or hydrating the inbox", async () => {
+    mockGetBotBinding.mockResolvedValue({ machineId: "m_1", runtime: "claude", isActive: false })
+
+    const res = await GET(req({ Authorization: "Bearer crk_abc" }))
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toEqual({ rows: [], pendingChannels: 0, pendingMessages: 0 })
+    expect(mockGetInboxSnapshotForAgent).not.toHaveBeenCalled()
+    expect(mockToInboxRows).not.toHaveBeenCalled()
+    expect(mockGetBotBinding).toHaveBeenCalledOnce()
   })
 
   it("loudly rejects an orphan scope without leaking internal ids", async () => {

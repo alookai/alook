@@ -16,6 +16,12 @@ export interface ResolvedBotActor {
   botUserId: string
   ownerUserId: string
   machineId: string
+  isActive: boolean
+}
+
+interface ResolveBotActorOptions {
+  /** Narrow escape hatch for inbox pull/snapshot to return their inactive empty shape. */
+  allowInactive?: boolean
 }
 
 const RETRY_OPTS = { route: "community-agent-runner-auth" }
@@ -76,6 +82,7 @@ async function lookupOr503<T>(
 export async function resolveBotActor(
   db: Database,
   authHeader: string | null,
+  options: ResolveBotActorOptions = {},
 ): Promise<
   | { kind: "bot"; actor: ResolvedBotActor }
   | { kind: "not_bot" }
@@ -115,9 +122,17 @@ export async function resolveBotActor(
   if (!binding || binding.machineId !== row.machineId) {
     return { kind: "error", response: NextResponse.json({ error: "bot binding mismatch" }, { status: 401 }) }
   }
+  if (!binding.isActive && !options.allowInactive) {
+    return { kind: "error", response: NextResponse.json({ error: "bot binding mismatch" }, { status: 401 }) }
+  }
 
   return {
     kind: "bot",
-    actor: { botUserId: row.agentId, ownerUserId: row.userId, machineId: row.machineId },
+    actor: {
+      botUserId: row.agentId,
+      ownerUserId: row.userId,
+      machineId: row.machineId,
+      isActive: binding.isActive,
+    },
   }
 }

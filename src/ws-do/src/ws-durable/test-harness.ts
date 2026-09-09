@@ -119,7 +119,7 @@ export const mockListMembers = vi.fn()
 export const mockListBotsForMachine = vi.fn<(db: unknown, machineId: string) => Promise<Array<{ id: string; name: string; discriminator: string; description: string }>>>().mockResolvedValue([])
 export const mockIsBotOnline = vi.fn<(db: unknown, botUserId: string) => Promise<boolean>>().mockResolvedValue(false)
 export const mockGetBotBinding = vi.fn<(db: unknown, botId: string) => Promise<{ machineId: string; runtime: string } | null>>().mockResolvedValue(null)
-export const mockGetBotBindingWithOwner = vi.fn<(db: unknown, botId: string) => Promise<{ machineId: string; runtime: string; ownerUserId: string; name: string; discriminator: string } | null>>().mockResolvedValue(null)
+export const mockGetBotBindingWithOwner = vi.fn<(db: unknown, botId: string) => Promise<{ machineId: string; runtime: string; ownerUserId: string; name: string; discriminator: string; isActive?: boolean } | null>>().mockResolvedValue(null)
 export const mockInsertBotActivityEventAndPrune = vi.fn<(db: unknown, data: any, extraStatements?: unknown[]) => Promise<{ id: string; createdAt: string } | null>>().mockResolvedValue(null)
 export const mockInsertBotAuditSessionReset = vi.fn<(db: unknown, data: unknown) => Promise<{ id: string; createdAt: string } | null>>().mockResolvedValue(null)
 export const mockInsertBotAuditNap = vi.fn<(db: unknown, data: unknown) => Promise<{ id: string; createdAt: string } | null>>().mockResolvedValue(null)
@@ -464,8 +464,14 @@ vi.mock("@alook/shared", async () => {
       },
       communityBot: {
         listBotsForMachine: (...a: [unknown, string]) => mockListBotsForMachine(...a),
-        getBotBinding: (...a: [unknown, string]) => mockGetBotBinding(...a),
-        getBotBindingWithOwner: (...a: [unknown, string]) => mockGetBotBindingWithOwner(...a),
+        getBotBinding: async (...a: [unknown, string]) => {
+          const binding = await mockGetBotBinding(...a)
+          return binding ? { isActive: true, ...binding } : null
+        },
+        getBotBindingWithOwner: async (...a: [unknown, string]) => {
+          const binding = await mockGetBotBindingWithOwner(...a)
+          return binding ? { isActive: true, ...binding } : null
+        },
         touchBotRefreshContext: (...a: [unknown, string, string]) => mockTouchBotRefreshContext(...a),
         touchBotRefreshContextForAuditEventStatement: (...a: [unknown, string, string, string]) =>
           mockTouchBotRefreshContextForAuditEventStatement(...a),

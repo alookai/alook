@@ -55,12 +55,12 @@ describe("withCommunityActor", () => {
   it("resolves a crk_ bearer to a bot actor (kind:bot, userId=botUserId)", async () => {
     mockResolveBotActor.mockResolvedValue({
       kind: "bot",
-      actor: { botUserId: "bot_1", ownerUserId: "owner_1", machineId: "m_1" },
+      actor: { botUserId: "bot_1", ownerUserId: "owner_1", machineId: "m_1", isActive: true },
     })
     const res = await wrapped(bearer("Bearer crk_abc"))
     expect(res.status).toBe(200)
     const body = (await res.json()) as { actor: CommunityActor }
-    expect(body.actor).toEqual({ kind: "bot", userId: "bot_1", ownerUserId: "owner_1", machineId: "m_1" })
+    expect(body.actor).toEqual({ kind: "bot", userId: "bot_1", ownerUserId: "owner_1", machineId: "m_1", isActive: true })
   })
 
   it("a crk_ bearer that fails to resolve returns the error response and NEVER falls through to human", async () => {
@@ -102,7 +102,7 @@ describe("withCommunityActor", () => {
 
 describe("rejectBot / requireBot guards", () => {
   const human: CommunityActor = { kind: "human", userId: "h", email: "e" }
-  const bot: CommunityActor = { kind: "bot", userId: "b", ownerUserId: "o", machineId: "m" }
+  const bot: CommunityActor = { kind: "bot", userId: "b", ownerUserId: "o", machineId: "m", isActive: true }
 
   it("rejectBot: 403 for a bot, null for a human", () => {
     expect(rejectBot(bot)?.status).toBe(403)
@@ -116,6 +116,6 @@ describe("rejectBot / requireBot guards", () => {
 
     const botGate = requireBot(bot)
     expect(botGate.ok).toBe(true)
-    if (botGate.ok) expect(botGate.bot).toEqual({ kind: "bot", userId: "b", ownerUserId: "o", machineId: "m" })
+    if (botGate.ok) expect(botGate.bot).toEqual({ kind: "bot", userId: "b", ownerUserId: "o", machineId: "m", isActive: true })
   })
 })

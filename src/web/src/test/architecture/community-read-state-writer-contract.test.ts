@@ -43,6 +43,7 @@ describe("human account read-state writer contract", () => {
       .sort()
 
     expect(directWriters).toEqual([
+      "src/shared/src/db/queries/community/bot.ts",
       "src/shared/src/db/queries/community/forum-post-delete.ts",
       "src/shared/src/db/queries/community/message.ts",
       "src/shared/src/db/queries/community/read-state.ts",

@@ -120,10 +120,10 @@ export const TERMINAL_MEETING_STATUSES: readonly MeetingStatusType[] = [
 
 // ── Community bots ───────────────────────────────────────────────────────────
 
-// Anti-abuse floor. NOT a UX cap — per-server pollution is prevented by
-// explicit-add-per-server (no fan-out). Bump if abuse patterns change; do not
-// repurpose as a UX signal.
-export const COMMUNITY_BOT_LIMIT_PER_OWNER = 20;
+// Transport/schema safety ceiling for one community bot collection in a
+// request. This is NOT the owner's product-plan limit; business capacity is
+// resolved from the generic `bots.max` entitlement.
+export const COMMUNITY_BOT_REQUEST_MAX_ITEMS = 100;
 // Display-line-fit at 375 px mobile width.
 export const COMMUNITY_BOT_NAME_MIN = 1;
 export const COMMUNITY_BOT_NAME_MAX = 32;

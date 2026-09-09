@@ -16,6 +16,12 @@ const mocks = vi.hoisted(() => ({
   audit: null as string | null,
   bots: [] as BotSummary[],
   botsDataReady: true,
+  planSummary: {
+    plan: { id: "free", displayName: "Free" },
+    limit: 3,
+    ownedCount: 1,
+    activeCount: 1,
+  },
   machines: [] as Array<Record<string, unknown>>,
   botsLoading: false,
   machinesLoading: false,
@@ -28,6 +34,7 @@ const mocks = vi.hoisted(() => ({
   del: vi.fn(),
   resetBot: vi.fn(),
   resetMachine: vi.fn(),
+  setActive: vi.fn(),
   advance: vi.fn(),
   updateResources: vi.fn(),
   recoverMachine: vi.fn(),
@@ -59,7 +66,7 @@ vi.mock("@/hooks/community/use-bots", () => ({
     mocks.hookOrder.push("bots")
     return {
       bots: mocks.bots,
-      data: mocks.botsDataReady ? { bots: mocks.bots } : undefined,
+      data: mocks.botsDataReady ? { bots: mocks.bots, ...mocks.planSummary } : undefined,
       isLoading: mocks.botsLoading,
     }
   },
@@ -74,6 +81,10 @@ vi.mock("@/hooks/community/use-bots", () => ({
   useResetMachineAgents: () => {
     mocks.hookOrder.push("resetMachine")
     return { mutateAsync: mocks.resetMachine }
+  },
+  useSetBotActive: () => {
+    mocks.hookOrder.push("setActive")
+    return { mutateAsync: mocks.setActive }
   },
 }))
 vi.mock("@/hooks/community/use-machines", () => ({
@@ -135,6 +146,7 @@ const bot = (id: string, machineId: string): BotSummary => ({
   machineId,
   runtime: "claude",
   modelName: null,
+  isActive: true,
   lastRefreshContextAt: null,
   dailyActivity: [],
 })
@@ -148,6 +160,12 @@ describe("useBotListController", () => {
     mocks.audit = null
     mocks.bots = [bot("b1", "mac1")]
     mocks.botsDataReady = true
+    mocks.planSummary = {
+      plan: { id: "free", displayName: "Free" },
+      limit: 3,
+      ownedCount: 1,
+      activeCount: 1,
+    }
     mocks.machines = [
       { id: "mac1", displayName: "One", hostname: "one", status: "online" },
       { id: "mac2", displayName: "Two", hostname: "two", status: "online" },
@@ -159,6 +177,7 @@ describe("useBotListController", () => {
     mocks.del.mockResolvedValue(undefined)
     mocks.resetBot.mockResolvedValue({ ok: true })
     mocks.resetMachine.mockResolvedValue({ dispatched: 2 })
+    mocks.setActive.mockResolvedValue({ bot: { id: "b1", isActive: false }, changed: true })
     scrollIntoView.mockReset()
   })
 
@@ -172,9 +191,9 @@ describe("useBotListController", () => {
     return renderer
   }
 
-  it("keeps the exact external hook order and source-owned thirteen states", () => {
+  it("keeps the exact external hook order and source-owned fourteen states", () => {
     render()
-    expect(mocks.hookOrder.slice(0, 9)).toEqual([
+    expect(mocks.hookOrder.slice(0, 10)).toEqual([
       "router",
       "searchParams",
       "bots",
@@ -183,12 +202,13 @@ describe("useBotListController", () => {
       "delete",
       "resetBot",
       "resetMachine",
+      "setActive",
       "dm",
     ])
-    expect(mocks.hookOrder[9]).toBe("onboarding")
+    expect(mocks.hookOrder[10]).toBe("onboarding")
 
     const source = readWebSource("src/components/community/bots/bot-list-controller.ts")
-    expect(source.match(/useState(?:<[^\n]+>)?\(/g)).toHaveLength(13)
+    expect(source.match(/useState(?:<[^\n]+>)?\(/g)).toHaveLength(14)
     expect(source).not.toMatch(/useCallback\(/)
     expect(source.match(/useMemo\(/g)).toHaveLength(1)
     const orderedHooks = [
@@ -209,9 +229,11 @@ describe("useBotListController", () => {
       "const [confirmResetMachine",
       "const [collapsedMachines",
       "const [helpOpen",
+      "const [pendingActiveBotIds",
       "const del = useDeleteBot()",
       "const resetSession = useResetBotSession()",
       "const resetMachineAgents = useResetMachineAgents()",
+      "const setActive = useSetBotActive()",
       "const createOrGetDm = useCreateOrGetDm()",
       "const onboardingState = useCommunityOnboarding()",
       "const groups = useMemo",
@@ -283,6 +305,55 @@ describe("useBotListController", () => {
       "unknown-b",
     ])
     expect(latest.machineName("gone")).toBe("Unknown machine")
+  })
+
+  it("projects plan inventory and blocks create at owned capacity with recovery copy", () => {
+    mocks.target = null
+    mocks.planSummary = {
+      plan: { id: "free", displayName: "Free" },
+      limit: 3,
+      ownedCount: 3,
+      activeCount: 2,
+    }
+    render()
+    expect(latest.planSummary).toEqual(mocks.planSummary)
+    expect(latest.isCreateDisabled).toBe(true)
+    act(() => latest.openGuidedCreate())
+    expect(latest.createOpen).toBe(false)
+    expect(mocks.toastError).toHaveBeenCalledWith(
+      "Bot limit reached — delete a bot or change plan to create another.",
+    )
+  })
+
+  it("disables only the toggled bot, suppresses double clicks, and clears pending on success", async () => {
+    mocks.target = null
+    let resolveActive!: (value: { bot: { id: string; isActive: boolean }; changed: boolean }) => void
+    mocks.setActive.mockReturnValue(new Promise((resolve) => { resolveActive = resolve }))
+    render()
+    let completion!: Promise<void>
+    act(() => { completion = latest.setBotActive(mocks.bots[0]!, false) })
+    expect(latest.pendingActiveBotIds).toEqual(new Set(["b1"]))
+    await act(async () => { await latest.setBotActive(mocks.bots[0]!, false) })
+    expect(mocks.setActive).toHaveBeenCalledTimes(1)
+    await act(async () => {
+      resolveActive({ bot: { id: "b1", isActive: false }, changed: true })
+      await completion
+    })
+    expect(latest.pendingActiveBotIds).toEqual(new Set())
+    expect(mocks.toastSuccess).toHaveBeenCalledWith("b1 is now Inactive")
+  })
+
+  it("keeps the prior state and gives an actionable capacity recovery on toggle failure", async () => {
+    mocks.target = null
+    mocks.setActive.mockRejectedValue({ status: 409, message: "BOT_ACTIVE_LIMIT_REACHED" })
+    render()
+    await act(async () => { await latest.setBotActive(mocks.bots[0]!, false) })
+    expect(latest.bots[0]?.isActive).toBe(true)
+    expect(latest.pendingActiveBotIds).toEqual(new Set())
+    expect(mocks.toastError).toHaveBeenCalledWith(
+      "Plan limit reached — make another bot inactive or change plan.",
+    )
+    expect(mocks.toastApiError).not.toHaveBeenCalled()
   })
 
   it("does nothing without a target or without bots", () => {

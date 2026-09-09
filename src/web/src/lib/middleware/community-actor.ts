@@ -44,6 +44,8 @@ export type CommunityActor =
       /** The bot's OWNER (the human who minted the runner key). */
       ownerUserId: string
       machineId: string
+      /** Server-internal binding state resolved by runner auth. */
+      isActive: boolean
     }
 
 interface CommunityActorContext {
@@ -74,7 +76,10 @@ export type CommunityActorHandler = (
  * A bot request never pays the session-validation cost; a human never hits the
  * runner-key lookups.
  */
-export function withCommunityActor(handler: CommunityActorHandler) {
+export function withCommunityActor(
+  handler: CommunityActorHandler,
+  options: { allowInactiveBot?: boolean } = {},
+) {
   return async (
     req: NextRequest,
     context?: { params?: Promise<Record<string, string>> | Record<string, string> },
@@ -95,7 +100,9 @@ export function withCommunityActor(handler: CommunityActorHandler) {
       const cloudflareEnv = env as Env
       const db = getDb(cloudflareEnv.DB)
 
-      const resolved = await resolveBotActor(db, authHeader)
+      const resolved = await resolveBotActor(db, authHeader, {
+        allowInactive: options.allowInactiveBot,
+      })
       if (resolved.kind === "error") return resolved.response
       // A crk_ bearer that resolves to `not_bot` is unreachable (the guard above
       // guarantees the crk_ prefix), but treat it as an auth failure rather than
@@ -111,6 +118,7 @@ export function withCommunityActor(handler: CommunityActorHandler) {
           userId: resolved.actor.botUserId,
           ownerUserId: resolved.actor.ownerUserId,
           machineId: resolved.actor.machineId,
+          isActive: resolved.actor.isActive,
         },
         params: resolvedParams,
       })

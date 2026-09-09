@@ -3,6 +3,8 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { CreateTile } from "@/components/community/onboarding-tiles/create-tile"
+import { tid } from "@/lib/community/testids"
+import { BotActiveSummary } from "./bot-active-summary"
 import { CreateBotSheet } from "./create-bot-sheet"
 import { renderBotMachineGroup } from "./bot-list-machine-group"
 import { renderBotListOverlaySlots } from "./bot-list-overlays"
@@ -122,6 +124,8 @@ export function renderBotListView(
           <div data-onboarding-target="create-bot" className="w-fit">
             <Button
               onClick={needsMachine ? controller.openMachines : controller.openGuidedCreate}
+              disabled={!needsMachine && controller.isCreateDisabled}
+              data-testid={!needsMachine ? tid.createBot : undefined}
             >
               {needsMachine ? "Connect a machine" : controller.guidedCreateLabel}
             </Button>
@@ -146,9 +150,7 @@ export function renderBotListView(
         <header className="flex items-center justify-between gap-4">
           <div className="flex flex-col gap-1">
             <h1 className="text-xl font-medium text-foreground">My Bots</h1>
-            <p className="text-sm text-muted-foreground">
-              Bots you own — they show up as friends and can be added to any server.
-            </p>
+            <BotActiveSummary summary={controller.planSummary} />
           </div>
           <div className="flex items-center gap-1">
             <Button
@@ -161,7 +163,12 @@ export function renderBotListView(
               <HelpCircle className="size-5" />
             </Button>
             <div data-onboarding-target="create-bot" className="w-fit">
-              <Button onClick={controller.openGuidedCreate}>{controller.guidedCreateLabel}</Button>
+              <Button
+                onClick={controller.openGuidedCreate}
+                disabled={controller.isCreateDisabled}
+                data-testid={tid.createBot}
+                title={controller.isCreateDisabled ? "Bot limit reached. Delete a bot or change plan to create another." : undefined}
+              >{controller.guidedCreateLabel}</Button>
             </div>
           </div>
         </header>

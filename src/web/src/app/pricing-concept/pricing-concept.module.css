@@ -1,0 +1,1092 @@
+.page {
+  --tag-paper: color-mix(in oklab, var(--background) 12%, white);
+  --tag-ink: color-mix(in oklab, var(--foreground) 18%, black);
+  --tag-muted: color-mix(in oklab, var(--tag-ink) 58%, transparent);
+  --tag-border: color-mix(in oklab, var(--tag-ink) 18%, transparent);
+  --house-stock: color-mix(in oklab, var(--foreground) 22%, black);
+  --house-ink: color-mix(in oklab, var(--background) 18%, white);
+  --house-muted: color-mix(in oklab, var(--house-ink) 62%, transparent);
+  min-height: 100svh;
+  color-scheme: dark;
+  overflow: hidden;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+}
+
+.page ::selection {
+  background: var(--foreground);
+  color: var(--background);
+}
+
+.header {
+  display: flex;
+  width: min(100% - 64px, 1280px);
+  height: 80px;
+  margin-inline: auto;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 68%, transparent);
+}
+
+.brand,
+.backLink {
+  color: inherit;
+  text-decoration: none;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-brand);
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.backLink {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  padding-inline: 8px;
+  color: var(--muted-foreground);
+  font-size: 14px;
+  text-underline-offset: 4px;
+  transition: color 150ms ease;
+}
+
+.backLink:hover {
+  color: var(--foreground);
+  text-decoration: underline;
+}
+
+.main {
+  width: min(100% - 64px, 1280px);
+  margin-inline: auto;
+  padding: 64px 0 96px;
+}
+
+.eyebrow {
+  margin: 0 0 16px;
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  line-height: 1;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.main h1 {
+  max-width: 760px;
+  margin: 0 auto;
+  font-family: var(--font-heading);
+  font-size: clamp(44px, 4.5vw, 64px);
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  line-height: 1.05;
+  text-align: center;
+  text-wrap: balance;
+}
+
+.plans {
+  display: grid;
+  grid-template-columns: minmax(210px, 0.7fr) minmax(280px, 0.92fr) minmax(480px, 1.48fr);
+  gap: 32px;
+  align-items: end;
+  max-width: 1260px;
+  margin: 64px auto 0;
+}
+
+.plan {
+  position: relative;
+  min-width: 0;
+}
+
+.plan h2 {
+  margin: 0;
+  font-family: var(--font-brand);
+  font-size: 40px;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1;
+}
+
+.price {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: end;
+  width: fit-content;
+  margin-top: 16px;
+  color: var(--foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.price[data-inverse] {
+  color: var(--house-ink);
+}
+
+.currency {
+  margin-right: 4px;
+  padding-bottom: 8px;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.amount {
+  font-family: var(--font-heading);
+  font-size: 60px;
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  line-height: 0.85;
+}
+
+.cadence {
+  padding: 0 0 5px 8px;
+  color: var(--muted-foreground);
+  font-size: 13px;
+  line-height: 1;
+}
+
+.limit {
+  max-width: 23ch;
+  margin: 32px 0 0;
+  color: var(--muted-foreground);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.limit strong {
+  color: var(--foreground);
+  font-weight: 600;
+}
+
+.freePlan {
+  min-height: 352px;
+  display: flex;
+  align-items: flex-end;
+  isolation: isolate;
+  padding: 0 16px 32px;
+}
+
+.ghostMark {
+  position: absolute;
+  left: -56px;
+  bottom: 48px;
+  z-index: -1;
+  width: 240px;
+  height: 240px;
+  filter: grayscale(1);
+  opacity: 0.035;
+  transform: rotate(-8deg);
+  transition: opacity 220ms var(--ease-out), transform 220ms var(--ease-out);
+}
+
+.freeContent {
+  width: 100%;
+  padding-top: 32px;
+  border-top: 1px solid color-mix(in oklab, var(--border) 42%, transparent);
+}
+
+.freePlan .price,
+.freePlan h2,
+.ghostButton {
+  opacity: 0.82;
+  transition: opacity 220ms var(--ease-out);
+}
+
+.freePlan .limit {
+  opacity: 0.9;
+  transition: opacity 220ms var(--ease-out);
+}
+
+.freePlan:hover .ghostMark,
+.freePlan:focus-within .ghostMark {
+  opacity: 0.075;
+  transform: rotate(-4deg) translateY(-4px);
+}
+
+.freePlan:hover .price,
+.freePlan:hover .limit,
+.freePlan:hover h2,
+.freePlan:hover .ghostButton,
+.freePlan:focus-within .price,
+.freePlan:focus-within .limit,
+.freePlan:focus-within h2,
+.freePlan:focus-within .ghostButton {
+  opacity: 1;
+}
+
+.ghostButton,
+.studioButton,
+.houseButton {
+  min-height: 44px;
+  margin-top: 32px;
+  border: 0;
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease, transform 150ms ease;
+}
+
+.ghostButton {
+  padding: 0;
+  background: transparent;
+  color: var(--foreground);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in oklab, var(--foreground) 28%, transparent);
+  text-underline-offset: 6px;
+}
+
+.ghostButton:hover {
+  text-decoration-color: var(--foreground);
+}
+
+.studioPlan {
+  display: flex;
+  min-height: 448px;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.hangingTag {
+  position: relative;
+  width: 100%;
+  height: 448px;
+  transform: rotate(-1deg);
+  transform-origin: 50% 0;
+  transition: transform 240ms var(--ease-out);
+  will-change: transform;
+}
+
+.studioPlan:hover .hangingTag,
+.studioPlan:focus-within .hangingTag {
+  transform: rotate(1deg) translateY(-4px);
+}
+
+.tagString {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  z-index: 2;
+  width: 1px;
+  height: 64px;
+  background: var(--border);
+  transform: translateX(-50%);
+}
+
+.tagHole {
+  position: absolute;
+  top: 54px;
+  left: 50%;
+  z-index: 3;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--background);
+  box-shadow: var(--e1);
+  transform: translateX(-50%);
+}
+
+.ticketBots {
+  position: absolute;
+  top: 32px;
+  left: 50%;
+  z-index: 0;
+  width: min(78%, 240px);
+  height: 40px;
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+.ticketBot {
+  --bot-tilt: 0deg;
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid var(--tag-border);
+  border-radius: var(--radius-lg);
+  background: var(--tag-paper);
+  box-shadow: var(--e1);
+  opacity: 0;
+  transform: translate(-50%, 20px) rotate(var(--bot-tilt));
+  animation: studio-bot-peek 680ms var(--ease-out) forwards;
+}
+
+.generatedBotAvatar {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+}
+
+.ticketBot:nth-child(1) {
+  --bot-tilt: -8deg;
+  left: 18%;
+  animation-delay: 80ms;
+}
+
+.ticketBot:nth-child(2) {
+  --bot-tilt: 4deg;
+  left: 38%;
+  animation-delay: 150ms;
+}
+
+.ticketBot:nth-child(3) {
+  --bot-tilt: 9deg;
+  left: 82%;
+  animation-delay: 210ms;
+}
+
+.studioPlan:hover .ticketBot,
+.studioPlan:focus-within .ticketBot {
+  animation-name: studio-bot-peek-again;
+  animation-duration: 520ms;
+}
+
+.paperTag {
+  position: absolute;
+  top: 56px;
+  left: 50%;
+  width: min(100%, 330px);
+  min-height: 392px;
+  padding: 48px 32px 24px;
+  border: 1px solid var(--tag-border);
+  border-radius: var(--radius-sm);
+  background: var(--tag-paper);
+  color: var(--tag-ink);
+  box-shadow: var(--e2);
+  transform: translateX(-50%);
+  transition: box-shadow 240ms var(--ease-out);
+  z-index: 1;
+}
+
+@keyframes studio-bot-peek {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 20px) rotate(var(--bot-tilt));
+  }
+
+  46% {
+    opacity: 1;
+    transform: translate(-50%, -12px) rotate(var(--bot-tilt));
+  }
+
+  72% {
+    transform: translate(-50%, -5px) rotate(var(--bot-tilt));
+  }
+
+  100% {
+    opacity: 1;
+    transform: translate(-50%, 0) rotate(var(--bot-tilt));
+  }
+}
+
+@keyframes studio-bot-peek-again {
+  0%,
+  100% {
+    opacity: 1;
+    transform: translate(-50%, 0) rotate(var(--bot-tilt));
+  }
+
+  48% {
+    opacity: 1;
+    transform: translate(-50%, -12px) rotate(var(--bot-tilt));
+  }
+}
+
+.studioPlan:hover .paperTag,
+.studioPlan:focus-within .paperTag {
+  box-shadow: 0 18px 34px -16px color-mix(in oklab, var(--foreground) 25%, transparent);
+}
+
+.monthlyChip {
+  position: absolute;
+  top: 20px;
+  right: 24px;
+  padding: 4px 7px;
+  border: 1px solid var(--tag-border);
+  border-radius: var(--radius-sm);
+  color: var(--tag-muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.billing,
+.houseBilling {
+  margin: 8px 0 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.paperTag .price,
+.paperTag .limit strong {
+  color: var(--tag-ink);
+}
+
+.paperTag .cadence,
+.paperTag .billing,
+.paperTag .limit,
+.paperTag .tagFooter {
+  color: var(--tag-muted);
+}
+
+.tagRule {
+  margin-top: 32px;
+  border-top: 1px dashed var(--tag-border);
+}
+
+.studioButton {
+  width: 100%;
+  padding-inline: 16px;
+  background: var(--house-stock);
+  color: var(--house-ink);
+}
+
+.studioButton:hover {
+  background: color-mix(in oklab, var(--house-stock) 88%, var(--house-ink));
+}
+
+.tagFooter {
+  display: flex;
+  margin-top: 32px;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.08em;
+}
+
+.barcode {
+  display: flex;
+  height: 25px;
+  align-items: stretch;
+  gap: 2px;
+}
+
+.barcode span {
+  width: 1px;
+  background: currentColor;
+  opacity: 0.48;
+}
+
+.barcode span[data-wide] {
+  width: 2px;
+  opacity: 0.72;
+}
+
+.housePlan {
+  --ticket-stub-width: 25%;
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(120px, 1fr);
+  min-height: 352px;
+  overflow: visible;
+  background: transparent;
+  color: var(--house-ink);
+  transition: transform 240ms var(--ease-out);
+}
+
+.housePlan:hover,
+.housePlan:focus-within {
+  transform: translateY(-4px);
+}
+
+.ticketMain {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  padding: 32px;
+  border-radius: var(--radius-xl) 0 0 var(--radius-xl);
+  background: var(--house-stock);
+  box-shadow: var(--e2), inset 0 0 0 1px color-mix(in oklab, var(--house-ink) 9%, transparent);
+  -webkit-mask-image:
+    radial-gradient(circle 10px at 100% 0, transparent 9.5px, black 10px),
+    radial-gradient(circle 10px at 100% 100%, transparent 9.5px, black 10px);
+  -webkit-mask-position: top right, bottom right;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-size: 100% 50%, 100% 50%;
+  mask-image:
+    radial-gradient(circle 10px at 100% 0, transparent 9.5px, black 10px),
+    radial-gradient(circle 10px at 100% 100%, transparent 9.5px, black 10px);
+  mask-position: top right, bottom right;
+  mask-repeat: no-repeat;
+  mask-size: 100% 50%, 100% 50%;
+}
+
+.ticketTopline {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.ticketTopline h2 {
+  font-size: 44px;
+}
+
+.ticketTopline > span {
+  color: color-mix(in oklab, var(--house-ink) 44%, transparent);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+}
+
+.housePlan .price {
+  margin-top: 24px;
+}
+
+.housePlan .cadence,
+.houseBilling {
+  color: var(--house-muted);
+}
+
+.houseLimit {
+  margin: 24px 0 0;
+  color: color-mix(in oklab, var(--house-ink) 72%, transparent);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.houseLimit strong {
+  color: var(--house-ink);
+  font-weight: 600;
+}
+
+.houseButton {
+  width: 100%;
+  margin-top: 24px;
+  padding-inline: 16px;
+  background: var(--house-ink);
+  color: var(--house-stock);
+}
+
+.houseButton:hover {
+  background: color-mix(in oklab, var(--house-ink) 90%, var(--house-stock));
+}
+
+.ticketSerial {
+  display: block;
+  margin-top: 16px;
+  color: color-mix(in oklab, var(--house-ink) 34%, transparent);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.12em;
+}
+
+.ticketStubWrap {
+  position: relative;
+  min-width: 0;
+  transform-origin: 0 50%;
+  transition: filter 240ms var(--ease-out), transform 240ms var(--ease-out);
+  will-change: filter, transform;
+}
+
+.ticketStub {
+  position: relative;
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: 32px 10px;
+  border-radius: 0 var(--radius-xl) var(--radius-xl) 0;
+  background: color-mix(in oklab, var(--house-stock) 92%, var(--house-ink));
+  color: color-mix(in oklab, var(--house-ink) 68%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--house-ink) 9%, transparent);
+  -webkit-mask-image:
+    radial-gradient(circle 10px at 0 0, transparent 9.5px, black 10px),
+    radial-gradient(circle 10px at 0 100%, transparent 9.5px, black 10px);
+  -webkit-mask-position: top left, bottom left;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-size: 100% 50%, 100% 50%;
+  mask-image:
+    radial-gradient(circle 10px at 0 0, transparent 9.5px, black 10px),
+    radial-gradient(circle 10px at 0 100%, transparent 9.5px, black 10px);
+  mask-position: top left, bottom left;
+  mask-repeat: no-repeat;
+  mask-size: 100% 50%, 100% 50%;
+}
+
+.perforation {
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  left: 0;
+  z-index: 2;
+  width: 1px;
+  background: repeating-linear-gradient(
+    to bottom,
+    color-mix(in oklab, var(--house-ink) 24%, transparent) 0 3px,
+    transparent 3px 7px
+  );
+  pointer-events: none;
+}
+
+.housePlan:hover .ticketStubWrap,
+.housePlan:focus-within .ticketStubWrap {
+  filter: drop-shadow(10px 18px 18px color-mix(in oklab, var(--foreground) 28%, transparent));
+  transform: translateX(32px) rotate(1.5deg);
+}
+
+.theater {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 25px;
+  isolation: isolate;
+}
+
+.theater::before {
+  position: absolute;
+  top: 46px;
+  left: 50%;
+  z-index: 0;
+  width: 140px;
+  height: 162px;
+  background: radial-gradient(
+    ellipse 74% 102% at 50% 0,
+    color-mix(in oklab, var(--house-ink) 9%, transparent) 0,
+    color-mix(in oklab, var(--house-ink) 5%, transparent) 32%,
+    color-mix(in oklab, var(--house-ink) 2%, transparent) 62%,
+    transparent 90%
+  );
+  content: "";
+  filter: blur(18px);
+  opacity: 0.72;
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+.theater::after {
+  position: absolute;
+  top: -14px;
+  left: 50%;
+  z-index: 0;
+  width: 126px;
+  height: 92px;
+  background: radial-gradient(
+    ellipse,
+    color-mix(in oklab, var(--house-ink) 7%, transparent),
+    color-mix(in oklab, var(--house-ink) 2%, transparent) 44%,
+    transparent 72%
+  );
+  content: "";
+  filter: blur(12px);
+  opacity: 0.72;
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+.theater > * {
+  position: relative;
+  z-index: 1;
+}
+
+.theaterScreen {
+  position: relative;
+  display: grid;
+  width: 112px;
+  height: 60px;
+  overflow: visible;
+  place-items: center;
+  background:
+    url("/alook.svg") center / 50px 50px no-repeat,
+    linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--house-ink) 7%, transparent),
+      color-mix(in oklab, var(--house-ink) 2%, transparent)
+    );
+  box-shadow: 0 10px 24px -16px color-mix(in oklab, var(--house-ink) 18%, transparent);
+  filter:
+    grayscale(1)
+    brightness(0.78)
+    contrast(1.08)
+    drop-shadow(0 0 9px color-mix(in oklab, var(--house-ink) 12%, transparent));
+  transform: perspective(140px) rotateX(-18deg) translateY(-2px) scale(1.04);
+  transform-origin: center top;
+}
+
+.theaterScreen::after {
+  position: absolute;
+  right: 12%;
+  bottom: -5px;
+  left: 12%;
+  height: 1px;
+  background: color-mix(in oklab, var(--house-ink) 12%, transparent);
+  box-shadow: 0 3px 9px color-mix(in oklab, var(--house-ink) 10%, transparent);
+  content: "";
+}
+
+.seatGrid {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 4px 2px 8px;
+}
+
+.seatRow {
+  --seat-gap: 2px;
+  --seat-width: 6px;
+  display: grid;
+  grid-template-columns: repeat(8, var(--seat-width));
+  column-gap: var(--seat-gap);
+  min-height: 9px;
+  align-items: end;
+  opacity: 0.76;
+}
+
+.seatRow:nth-child(2) {
+  --seat-width: 6.5px;
+  --seat-gap: 2.75px;
+  margin-top: 1px;
+  opacity: 0.69;
+}
+
+.seatRow:nth-child(3) {
+  --seat-width: 7px;
+  --seat-gap: 3.5px;
+  margin-top: 2px;
+  opacity: 0.62;
+}
+
+.seatRow:nth-child(4) {
+  --seat-width: 7.5px;
+  --seat-gap: 4.25px;
+  margin-top: 4px;
+  opacity: 0.55;
+}
+
+.seatRow:nth-child(5) {
+  --seat-width: 8px;
+  --seat-gap: 5px;
+  margin-top: 6px;
+  opacity: 0.48;
+}
+
+.seat {
+  position: relative;
+  width: var(--seat-width);
+  height: 9px;
+}
+
+.seat::before,
+.seat::after {
+  position: absolute;
+  left: 50%;
+  background: currentColor;
+  content: "";
+  transform: translateX(-50%);
+}
+
+.seat::before {
+  top: 0;
+  width: 100%;
+  height: 6px;
+  border-radius: 3px 3px 1px 1px;
+}
+
+.seat::after {
+  bottom: 0;
+  width: calc(100% + 2px);
+  height: 3px;
+  border-radius: 1px 1px 3px 3px;
+  box-shadow: 0 2px 0 color-mix(in oklab, currentColor 42%, transparent);
+}
+
+.ticketStub .barcode {
+  width: 54px;
+  height: 18px;
+  gap: 1px;
+}
+
+.sharedLine {
+  width: fit-content;
+  max-width: 100%;
+  margin: 64px auto 0;
+  padding: 16px 0;
+  border-top: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+  color: var(--muted-foreground);
+  font-size: 15px;
+  line-height: 1.6;
+  text-align: center;
+}
+
+.faq {
+  max-width: 1040px;
+  margin: 112px auto 32px;
+}
+
+.faq > h2 {
+  max-width: 520px;
+  margin: 0;
+  font-family: var(--font-heading);
+  font-size: 40px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.15;
+}
+
+.faqGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 48px;
+  margin: 40px 0 0;
+}
+
+.faqItem {
+  padding: 32px 0;
+  border-top: 1px solid var(--border);
+}
+
+.faqItem dt {
+  max-width: 32ch;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.faqItem dd {
+  max-width: 54ch;
+  margin: 16px 0 0;
+  color: var(--muted-foreground);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.ghostButton:focus-visible,
+.studioButton:focus-visible,
+.houseButton:focus-visible,
+.brand:focus-visible,
+.backLink:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 4px;
+}
+
+.ghostButton:active,
+.studioButton:active,
+.houseButton:active {
+  transform: translateY(1px);
+}
+
+@media (max-width: 1050px) {
+  .plans {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 48px 32px;
+    max-width: 720px;
+  }
+
+  .housePlan {
+    grid-column: 1 / -1;
+    grid-template-columns: minmax(0, 3fr) minmax(120px, 1fr);
+  }
+
+  .sharedLine {
+    margin-top: 64px;
+  }
+
+  .faq {
+    margin-top: 96px;
+  }
+}
+
+@media (max-width: 639px) {
+  .header,
+  .main {
+    width: min(100% - 32px, 520px);
+  }
+
+  .header {
+    height: 72px;
+  }
+
+  .main {
+    padding: 48px 0 64px;
+  }
+
+  .main h1 {
+    max-width: 12ch;
+    font-size: clamp(40px, 12vw, 48px);
+  }
+
+  .plans {
+    grid-template-columns: 1fr;
+    gap: 48px;
+    margin-top: 64px;
+  }
+
+  .freePlan {
+    min-height: 320px;
+    padding-inline: 24px;
+  }
+
+  .ghostMark {
+    left: auto;
+    right: -24px;
+  }
+
+  .studioPlan {
+    min-height: 448px;
+  }
+
+  .hangingTag {
+    height: 448px;
+  }
+
+  .paperTag {
+    width: min(100% - 32px, 348px);
+  }
+
+  .housePlan {
+    --ticket-stub-width: 80px;
+    grid-column: auto;
+    grid-template-columns: minmax(0, 1fr) 80px;
+    min-height: 304px;
+  }
+
+  .ticketMain {
+    padding: 24px;
+  }
+
+  .ticketTopline h2 {
+    font-size: 38px;
+  }
+
+  .housePlan .amount {
+    font-size: 48px;
+  }
+
+  .housePlan .price,
+  .houseLimit,
+  .houseButton {
+    margin-top: 16px;
+  }
+
+  .ticketStub {
+    padding: 24px 8px;
+  }
+
+  .theater {
+    gap: 16px;
+  }
+
+  .theater::before {
+    top: 34px;
+    width: 84px;
+    height: 104px;
+  }
+
+  .theater::after {
+    top: -8px;
+    width: 76px;
+    height: 64px;
+  }
+
+  .theaterScreen {
+    width: 70px;
+    height: 44px;
+    background-size: 34px 34px, auto;
+    transform: perspective(95px) rotateX(-18deg) translateY(-1px) scale(1.03);
+  }
+
+  .seatGrid {
+    gap: 0;
+    padding: 2px 0 6px;
+  }
+
+  .seatRow {
+    --seat-gap: 1px;
+    --seat-width: 3.5px;
+    min-height: 7px;
+  }
+
+  .seatRow:nth-child(2) {
+    --seat-gap: 1.25px;
+    --seat-width: 3.75px;
+  }
+
+  .seatRow:nth-child(3) {
+    --seat-gap: 1.5px;
+    --seat-width: 4.25px;
+  }
+
+  .seatRow:nth-child(4) {
+    --seat-gap: 1.75px;
+    --seat-width: 4.75px;
+  }
+
+  .seatRow:nth-child(5) {
+    --seat-gap: 2px;
+    --seat-width: 5.5px;
+  }
+
+  .seat {
+    height: 7px;
+  }
+
+  .seat::before {
+    height: 5px;
+    border-radius: 2px 2px 1px 1px;
+  }
+
+  .seat::after {
+    width: calc(100% + 2px);
+    height: 2px;
+    border-radius: 1px 1px 2px 2px;
+  }
+
+  .faq {
+    margin-top: 80px;
+  }
+
+  .faqGrid {
+    grid-template-columns: 1fr;
+    margin-top: 32px;
+  }
+
+  .backLink {
+    font-size: 13px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ticketBot {
+    animation: none;
+    opacity: 1;
+    transform: translate(-50%, 0) rotate(var(--bot-tilt));
+  }
+
+  .ghostMark,
+  .freePlan .price,
+  .freePlan .limit,
+  .freePlan h2,
+  .ghostButton,
+  .hangingTag,
+  .paperTag,
+  .housePlan,
+  .ticketStubWrap,
+  .ticketStub,
+  .ghostButton,
+  .studioButton,
+  .houseButton,
+  .backLink {
+    transition: none;
+  }
+}

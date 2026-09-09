@@ -2,6 +2,7 @@ import React from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { BotListController } from "./bot-list-types"
 import { fireEvent, render } from "@/test/react-dom-harness"
+import { tid } from "@/lib/community/testids"
 
 const mocks = vi.hoisted(() => ({
   group: vi.fn(),
@@ -46,6 +47,10 @@ function controller(overrides: Partial<BotListController> = {}): BotListControll
   const noop = vi.fn()
   return {
     bots: [],
+    planSummary: null,
+    isCreateDisabled: false,
+    pendingActiveBotIds: new Set(),
+    setBotActive: noop,
     isLoading: false,
     machines: [],
     machinesLoading: false,
@@ -128,6 +133,7 @@ describe("renderBotListView", () => {
       expect(withClassFragment(renderer.container, "size-10 shrink-0 rounded-full")).toHaveLength(3)
       expect(withClassFragment(renderer.container, "h-6 w-40 max-w-full rounded")).toHaveLength(3)
       expect(withClassFragment(renderer.container, "h-4 w-48 max-w-full rounded")).toHaveLength(3)
+      expect(withClassFragment(renderer.container, "h-4 w-40 rounded")).toHaveLength(0)
       expect(withClassFragment(renderer.container, "size-8 shrink-0 rounded-md")).toHaveLength(3)
       expect(mocks.overlays).not.toHaveBeenCalled()
       expect(mocks.createSheet).not.toHaveBeenCalled()
@@ -219,9 +225,7 @@ describe("renderBotListView", () => {
     expect(withExactClass(renderer.container,
       "flex items-center justify-between gap-4")).toHaveLength(1)
     expect(renderer.getByText("My Bots")).toHaveClass("text-xl", "font-medium", "text-foreground")
-    expect(renderer.getByText(
-      "Bots you own — they show up as friends and can be added to any server.",
-    )).toHaveClass("text-sm", "text-muted-foreground")
+    expect(renderer.getByRole("button", { name: "Active Bots loading" })).toBeDisabled()
     expect(withExactClass(renderer.container, "flex items-center gap-1")).toHaveLength(1)
     expect(withExactClass(renderer.container, "flex flex-col gap-6")).toHaveLength(1)
     fireEvent.click(renderer.getByRole("button", { name: "How your agent works" }))
@@ -239,6 +243,31 @@ describe("renderBotListView", () => {
       "reset",
       "resetMachine",
     ])
+  })
+
+  it("exposes the active summary trigger and explains why create is disabled at capacity", () => {
+    const openGuidedCreate = vi.fn()
+    const renderer = render(renderBotListView({}, controller({
+      bots: [{ id: "b1" }] as BotListController["bots"],
+      planSummary: {
+        plan: { id: "free", displayName: "Free" },
+        limit: 3,
+        ownedCount: 3,
+        activeCount: 2,
+      },
+      isCreateDisabled: true,
+      openGuidedCreate,
+      groups: [],
+    })))
+    expect(renderer.getByTestId(tid.myBotsPlanSummary)).toBe(
+      renderer.getByRole("button", { name: "Active Bots: 2 of 3, Free plan" }),
+    )
+    expect(renderer.queryByRole("status")).not.toBeInTheDocument()
+    const create = renderer.getByTestId(tid.createBot)
+    expect(create).toBeDisabled()
+    expect(create).toHaveAttribute("title", "Bot limit reached. Delete a bot or change plan to create another.")
+    fireEvent.click(create)
+    expect(openGuidedCreate).not.toHaveBeenCalled()
   })
 
   it("keeps the same outer/back-bar contract in loading, empty, and populated branches", () => {

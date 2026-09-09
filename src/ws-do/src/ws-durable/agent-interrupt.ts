@@ -21,7 +21,7 @@ export async function handleUserAgentInterrupt(
       () => queries.communityBot.getBotBindingWithOwner(db, request.data.agentId),
       { route: "ws-do:agent-interrupt-binding" },
     )
-    if (!binding || binding.ownerUserId !== state.userId) return true
+    if (!binding || !binding.isActive || binding.ownerUserId !== state.userId) return true
     const doNames = await withD1Retry(
       () => queries.communityMachine.getActiveDoNamesForMachine(db, binding.machineId),
       { route: "ws-do:agent-interrupt-machine" },
