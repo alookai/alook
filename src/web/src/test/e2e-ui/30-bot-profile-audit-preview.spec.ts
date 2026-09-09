@@ -317,6 +317,8 @@ type MachineSocket = {
   once(event: "open", listener: () => void): void
   once(event: "error", listener: (error: Error) => void): void
   once(event: "message", listener: (data: unknown) => void): void
+  on(event: "message", listener: (data: unknown) => void): void
+  off(event: "message", listener: (data: unknown) => void): void
 }
 
 function connectMachine(credential: string) {
@@ -564,14 +566,31 @@ test("owner-only bot mark sticker, Stop lifecycle, owner swap, and URL-owned aud
       .toBe(true)
     expect((await auditRows.allTextContents()).some((text) =>
       /open activity log 0$/i.test(text))).toBe(false)
-    machine.socket.send(JSON.stringify({
-      type: "bot_audit_event",
-      eventId: `bae_${suffix}_11`,
-      agentId: botId,
-      sessionId: `session-${suffix}`,
-      launchId: `launch-${suffix}`,
-      event: { kind: "tool_call", payload: { name: "Open activity log 11" } },
-    }))
+    const liveEventId = `bae_${suffix}_11`
+    let liveEventAcknowledged = false
+    const onAuditAck = (data: unknown) => {
+      const frame = JSON.parse(String(data)) as { type?: string; eventId?: string }
+      if (frame.type === "bot_audit_event_ack" && frame.eventId === liveEventId) {
+        liveEventAcknowledged = true
+      }
+    }
+    machine.socket.on("message", onAuditAck)
+    try {
+      machine.socket.send(JSON.stringify({
+        type: "bot_audit_event",
+        eventId: liveEventId,
+        agentId: botId,
+        sessionId: `session-${suffix}`,
+        launchId: `launch-${suffix}`,
+        event: { kind: "tool_call", payload: { name: "Open activity log 11" } },
+      }))
+      await expect.poll(() => liveEventAcknowledged, {
+        message: `machine receives bot_audit_event_ack for ${liveEventId}`,
+        timeout: 30_000,
+      }).toBe(true)
+    } finally {
+      machine.socket.off("message", onAuditAck)
+    }
     await expect.poll(async () =>
       (await auditRows.allTextContents()).join(" ").toLowerCase())
       .toContain("open activity log 11")
