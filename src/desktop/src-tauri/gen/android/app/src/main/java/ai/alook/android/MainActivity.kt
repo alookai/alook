@@ -28,7 +28,9 @@ class MainActivity : TauriActivity() {
                 if (window.__alookThemeObserverInstalled) return;
                 window.__alookThemeObserverInstalled = true;
                 function sync() {
-                    var dark = document.documentElement.classList.contains('dark');
+                    var root = document.documentElement;
+                    var dark = root.classList.contains('dark');
+                    if (!dark && !root.classList.contains('light')) return;
                     if (window.AlookNative) window.AlookNative.setWindowTheme(dark);
                 }
                 sync();

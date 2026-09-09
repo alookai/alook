@@ -11,11 +11,35 @@ static UIColor *alookDarkColor(void) {
     return [UIColor colorWithRed:0.063 green:0.051 blue:0.039 alpha:1.0];
 }
 
+static const void *kAlookResolvedDarkThemeKey = &kAlookResolvedDarkThemeKey;
+static const void *kAlookWebDarkThemeKey = &kAlookWebDarkThemeKey;
+
+static BOOL alookEffectiveDarkTheme(UIViewController *viewController) {
+    NSNumber *webTheme = objc_getAssociatedObject(viewController, kAlookWebDarkThemeKey);
+    if (webTheme != nil) return webTheme.boolValue;
+    return viewController.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark;
+}
+
+static void alookApplyTheme(UIViewController *viewController, BOOL isDark) {
+    NSNumber *resolvedTheme = objc_getAssociatedObject(viewController, kAlookResolvedDarkThemeKey);
+    BOOL statusBarNeedsUpdate = resolvedTheme == nil || resolvedTheme.boolValue != isDark;
+    objc_setAssociatedObject(
+        viewController,
+        kAlookResolvedDarkThemeKey,
+        @(isDark),
+        OBJC_ASSOCIATION_RETAIN_NONATOMIC
+    );
+    viewController.view.backgroundColor = isDark ? alookDarkColor() : alookLightColor();
+    if (statusBarNeedsUpdate) [viewController setNeedsStatusBarAppearanceUpdate];
+}
+
 static NSString *const kThemeObserverScript =
     @"(function(){"
     "if(window.__alookThemeObserverInstalled)return;"
     "window.__alookThemeObserverInstalled=true;"
-    "function sync(){var d=document.documentElement.classList.contains('dark');"
+    "function sync(){var r=document.documentElement;"
+    "var d=r.classList.contains('dark');"
+    "if(!d&&!r.classList.contains('light'))return;"
     "window.webkit.messageHandlers.alookTheme.postMessage(d?'dark':'light');}"
     "sync();"
     "new MutationObserver(sync).observe(document.documentElement,"
@@ -34,7 +58,15 @@ static NSString *const kThemeObserverScript =
     NSString *theme = message.body;
     BOOL isDark = [theme isEqualToString:@"dark"];
     dispatch_async(dispatch_get_main_queue(), ^{
-        self.viewController.view.backgroundColor = isDark ? alookDarkColor() : alookLightColor();
+        UIViewController *viewController = self.viewController;
+        if (viewController == nil) return;
+        objc_setAssociatedObject(
+            viewController,
+            kAlookWebDarkThemeKey,
+            @(isDark),
+            OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        );
+        alookApplyTheme(viewController, isDark);
     });
 }
 
@@ -48,7 +80,17 @@ static NSString *const kThemeObserverScript =
         Method original = class_getInstanceMethod(self, @selector(viewDidLayoutSubviews));
         Method swizzled = class_getInstanceMethod(self, @selector(alook_viewDidLayoutSubviews));
         method_exchangeImplementations(original, swizzled);
+
+        Method originalStatusBar = class_getInstanceMethod(self, @selector(preferredStatusBarStyle));
+        Method swizzledStatusBar = class_getInstanceMethod(self, @selector(alook_preferredStatusBarStyle));
+        method_exchangeImplementations(originalStatusBar, swizzledStatusBar);
     });
+}
+
+- (UIStatusBarStyle)alook_preferredStatusBarStyle {
+    NSNumber *resolvedTheme = objc_getAssociatedObject(self, kAlookResolvedDarkThemeKey);
+    if (resolvedTheme == nil) return [self alook_preferredStatusBarStyle];
+    return resolvedTheme.boolValue ? UIStatusBarStyleLightContent : UIStatusBarStyleDarkContent;
 }
 
 - (void)alook_viewDidLayoutSubviews {
@@ -78,8 +120,7 @@ static NSString *const kThemeObserverScript =
                 [webView.configuration.userContentController addUserScript:script];
             });
 
-            BOOL isDark = (self.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark);
-            self.view.backgroundColor = isDark ? alookDarkColor() : alookLightColor();
+            alookApplyTheme(self, alookEffectiveDarkTheme(self));
         }
     }
 }
