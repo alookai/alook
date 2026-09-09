@@ -121,7 +121,6 @@ pub fn retire_listener(app: &AppHandle) {
     }
 }
 
-#[cfg(target_os = "android")]
 pub fn notify_listener(app: &AppHandle) {
     if let Some(state) = app.try_state::<NativeOauthState>() {
         state.notify();

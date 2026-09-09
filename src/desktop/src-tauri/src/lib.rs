@@ -204,14 +204,31 @@ fn run_app(builder: tauri::Builder<tauri::Wry>) {
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 
-    app.run(|_app, _event| {
-        #[cfg(target_os = "android")]
-        if matches!(_event, tauri::RunEvent::Resumed) {
-            native_oauth_runtime::notify_listener(_app);
+    app.run(|app, event| {
+        if should_notify_native_oauth(&event) {
+            native_oauth_runtime::notify_listener(app);
         }
         #[cfg(target_os = "macos")]
-        if let tauri::RunEvent::Reopen { .. } = _event {
-            commands::show_main_window(_app);
+        if let tauri::RunEvent::Reopen { .. } = event {
+            commands::show_main_window(app);
         }
     });
+}
+
+fn should_notify_native_oauth(event: &tauri::RunEvent) -> bool {
+    let tauri::RunEvent::WindowEvent { label, event, .. } = event else {
+        return false;
+    };
+    if label != "main" {
+        return false;
+    }
+
+    #[cfg(mobile)]
+    {
+        matches!(event, tauri::WindowEvent::Resumed)
+    }
+    #[cfg(desktop)]
+    {
+        matches!(event, tauri::WindowEvent::Focused(true))
+    }
 }

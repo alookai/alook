@@ -52,6 +52,8 @@ describe("desktop native OAuth security configuration", () => {
     expect(runtime).toContain("channel.send(())")
     expect(source).toContain("PageLoadEvent::Started")
     expect(source).toContain("WindowEvent::Destroyed")
+    expect(source).toContain("tauri::WindowEvent::Focused(true)")
+    expect(source).not.toContain("tauri::RunEvent::Resumed")
     expect(runtime).toContain('label == "main"')
     expect(runtime).toContain("url.origin().ascii_serialization() == expected")
     expect(runtime).toContain("url.username().is_empty()")
