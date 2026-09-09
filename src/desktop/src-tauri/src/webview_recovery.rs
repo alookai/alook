@@ -447,7 +447,7 @@ fn recovery_html() -> &'static str {
     *{box-sizing:border-box}
     body{min-height:100vh;margin:0;background:var(--background)}
     main{width:100%;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:max(24px,env(safe-area-inset-top)) max(24px,env(safe-area-inset-right)) max(24px,env(safe-area-inset-bottom)) max(24px,env(safe-area-inset-left));text-align:center;cursor:pointer;outline:none;-webkit-user-select:none;user-select:none}
-    main:focus-visible{outline:3px solid var(--ring);outline-offset:-4px}
+    main:focus-visible svg{outline:3px solid var(--ring);outline-offset:4px;border-radius:50%}
     svg{width:48px;height:48px;color:var(--foreground)}
     p{margin:0;color:var(--muted-foreground);font-size:16px;line-height:1.55}
     main[aria-disabled="true"]{cursor:wait}
@@ -465,14 +465,28 @@ fn recovery_html() -> &'static str {
     const candidate=params.get("target")||"";
     const surface=document.querySelector('[data-testid="webview-recovery"]');
     const message=document.querySelector('[data-testid="recovery-message"]');
+    const originalMessage=message.textContent;
     let target="";
     let retrying=false;
+    let blurred=false;
+    let hidden=document.hidden;
     try{const parsed=new URL(candidate);if((parsed.protocol==="http:"||parsed.protocol==="https:")&&parsed.hostname!=="alook-recovery.localhost")target=candidate}catch(_error){}
     if(!target)surface.setAttribute("aria-disabled","true");
-    const refresh=()=>{if(retrying||!target)return;retrying=true;surface.setAttribute("aria-disabled","true");message.textContent="Retrying…";location.replace(target)};
-    surface.addEventListener("click",refresh);
-    surface.addEventListener("keydown",event=>{if(event.key==="Enter"||event.key===" "){event.preventDefault();refresh()}});
-    surface.focus();
+    const refresh=()=>{if(retrying||!target)return;retrying=true;surface.setAttribute("aria-disabled","true");message.textContent="Retrying…";try{location.replace(target)}catch(_error){retrying=false;surface.setAttribute("aria-disabled","false");message.textContent=originalMessage}};
+    const onKeydown=event=>{if(event.key==="Enter"||event.key===" "){event.preventDefault();refresh()}};
+    const onBlur=()=>{blurred=true};
+    const onFocus=()=>{if(!blurred)return;blurred=false;refresh()};
+    const onVisibilityChange=()=>{if(document.hidden){hidden=true;return}if(!hidden)return;hidden=false;refresh()};
+    const listeners=[];
+    const listen=(owner,type,handler)=>{owner.addEventListener(type,handler);listeners.push([owner,type,handler])};
+    const cleanup=()=>{while(listeners.length){const [owner,type,handler]=listeners.pop();owner.removeEventListener(type,handler)}};
+    listen(surface,"click",refresh);
+    listen(surface,"keydown",onKeydown);
+    listen(window,"online",refresh);
+    listen(window,"blur",onBlur);
+    listen(window,"focus",onFocus);
+    listen(document,"visibilitychange",onVisibilityChange);
+    listen(window,"pagehide",cleanup);
     if(window.__TAURI_INTERNALS__)window.__TAURI_INTERNALS__.invoke("close_splashscreen").catch(()=>{});
   </script>
 </body>
@@ -576,7 +590,7 @@ mod tests {
     }
 
     #[test]
-    fn recovery_document_has_stable_test_seams_and_only_explicit_retry() {
+    fn recovery_document_has_stable_test_seams_and_lifecycle_retry() {
         let html = recovery_html();
         for test_id in [
             "webview-recovery",
@@ -589,13 +603,22 @@ mod tests {
         assert!(html.contains("location.replace(target)"));
         assert!(html.contains("event.key===\"Enter\"||event.key===\" \""));
         assert!(html.contains("color:var(--foreground)"));
-        assert!(html.contains("outline:3px solid var(--ring)"));
+        assert!(html.contains("main:focus-visible svg{outline:3px solid var(--ring)"));
         assert!(html.contains("Network connection failed. Click to refresh"));
         assert!(html.contains("message.textContent=\"Retrying…\""));
         assert!(!html.contains("textContent=target"));
+        assert!(!html.contains("autofocus"));
+        assert!(!html.contains("surface.focus()"));
         assert!(!html.contains("location.reload"));
         assert!(!html.contains("setTimeout"));
-        assert!(!html.contains("addEventListener(\"online\""));
+        assert!(!html.contains("setInterval"));
+        for lifecycle_event in ["online", "blur", "focus", "visibilitychange", "pagehide"] {
+            assert!(
+                html.contains(&format!("listen(window,\"{lifecycle_event}\""))
+                    || html.contains(&format!("listen(document,\"{lifecycle_event}\""))
+            );
+        }
+        assert!(html.contains("removeEventListener(type,handler)"));
         assert!(!html.contains("transition:"));
         assert!(!html.contains("linear-gradient"));
         assert!(!html.contains("box-shadow"));
