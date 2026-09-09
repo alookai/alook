@@ -11,6 +11,7 @@ import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
@@ -27,7 +28,9 @@ class MainActivity : TauriActivity() {
                 if (window.__alookThemeObserverInstalled) return;
                 window.__alookThemeObserverInstalled = true;
                 function sync() {
-                    var dark = document.documentElement.classList.contains('dark');
+                    var root = document.documentElement;
+                    var dark = root.classList.contains('dark');
+                    if (!dark && !root.classList.contains('light')) return;
                     if (window.AlookNative) window.AlookNative.setWindowTheme(dark);
                 }
                 sync();
@@ -50,8 +53,7 @@ class MainActivity : TauriActivity() {
         val rootView: View = findViewById(android.R.id.content)
 
         val isDark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
-        val bgColor = if (isDark) Color.parseColor(COLOR_DARK) else Color.parseColor(COLOR_LIGHT)
-        rootView.setBackgroundColor(bgColor)
+        applyWindowTheme(isDark)
 
         ViewCompat.setOnApplyWindowInsetsListener(rootView) { v, insets ->
             val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
@@ -73,18 +75,24 @@ class MainActivity : TauriActivity() {
         }
     }
 
-    fun setTheme(dark: Boolean) {
-        val rootView: View = findViewById(android.R.id.content)
+    private fun applyWindowTheme(dark: Boolean) {
         val color = if (dark) Color.parseColor(COLOR_DARK) else Color.parseColor(COLOR_LIGHT)
         runOnUiThread {
+            val rootView: View = findViewById(android.R.id.content)
             rootView.setBackgroundColor(color)
+            window.statusBarColor = color
+            window.navigationBarColor = color
+            WindowCompat.getInsetsController(window, rootView).apply {
+                isAppearanceLightStatusBars = !dark
+                isAppearanceLightNavigationBars = !dark
+            }
         }
     }
 
     class ThemeBridge(private val activity: MainActivity) {
         @JavascriptInterface
         fun setWindowTheme(dark: Boolean) {
-            activity.setTheme(dark)
+            activity.applyWindowTheme(dark)
         }
     }
 }
