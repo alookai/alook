@@ -639,6 +639,8 @@ test("short server rail keeps Add adjacent and desktop geometry stable", async (
     }
   })
   await page.setViewportSize({ width: 390, height: 844 })
+  await page.getByRole("banner").getByRole("button", { name: "Back" }).click()
+  await expect.poll(() => new URL(page.url()).pathname).toBe(`/c/channels/${serverId}`)
   const onlyServer = page.getByTestId(tid.serverIcon(serverId))
   await expect(onlyServer).toBeVisible()
   await onlyServer.evaluate((element) => {
