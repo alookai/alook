@@ -146,8 +146,21 @@ test("an active onboarding form yields focus priority during outage, then resume
       `guide-reconnect-${process.pid}-${Date.now()}@example.com`,
     )
     await page.getByRole("button", { name: "Sign in", exact: true }).click()
-    await page.waitForURL("**/c/me/machines", { waitUntil: "commit" })
-    const onboarding = page.getByRole("dialog")
+    await page.waitForURL("**/c/me", { waitUntil: "commit" })
+    await expect.poll(async () => {
+      const cookies = await page.context().cookies()
+      return cookies.some((cookie) => cookie.name === "is_new_signup")
+    }).toBe(false)
+
+    const onboarding = page.getByTestId(tid.onboardingHarnessDialog)
+    await page.waitForTimeout(250)
+    await expect(page).toHaveURL(/\/c\/me$/)
+    await expect(onboarding).toHaveCount(0)
+
+    await page.goto("/c/me/machines")
+    const startOnboarding = page.getByTestId(tid.onboardingStart)
+    await expect(startOnboarding).toBeVisible()
+    await startOnboarding.click()
     await expect(onboarding).toBeVisible()
     await expect(onboarding.getByRole("heading", { name: "Which harness do you already use?" })).toBeVisible()
 
