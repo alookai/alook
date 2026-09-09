@@ -355,6 +355,7 @@ describe("coverage name-status contract", () => {
       "src/web/vitest.config.ts",
       "src/web/vitest.runtime.config.mts",
       "src/web/vitest.workspace.config.ts",
+      "src/web/src/components/community/bots/bot-list-types.ts",
     ]) {
       expect(plan([path]).coverage.required_changed_files).toEqual([])
     }
