@@ -34,6 +34,7 @@ export function createNativeOauthController(deps: NativeOauthDeps, changed: (vie
   let stopListening: (() => void) | undefined
   let processing = false
   let wakeAgain = false
+  let reconcileAgain = false
   let startQueue = Promise.resolve()
   let expiry: ReturnType<typeof setTimeout> | undefined
   const publish = (next: NativeOauthView) => {
@@ -61,17 +62,39 @@ export function createNativeOauthController(deps: NativeOauthDeps, changed: (vie
   const confirmSession = async () => {
     try { return await deps.hasSession() } catch { return false }
   }
-  const drain = async () => {
+  const drain = async (reconcileSession = false) => {
     if (disposed || !connected) return
-    if (processing) { wakeAgain = true; return }
+    if (processing) {
+      wakeAgain = true
+      reconcileAgain ||= reconcileSession
+      return
+    }
     processing = true
     const version = generation
+    let shouldReconcile = reconcileSession
     try {
       do {
+        shouldReconcile ||= reconcileAgain
+        reconcileAgain = false
         wakeAgain = false
         const candidate = exchangeSchema.nullable().parse(await deps.invoke("native_oauth_pending_exchange"))
         if (!current(version)) return
-        if (!candidate) return
+        if (!candidate) {
+          const attempt = view.attempt
+          if (!shouldReconcile || !attempt?.waiting) return
+          const snapshot = await readSnapshot()
+          if (!current(version)) return
+          if (snapshot && snapshot.attemptId !== attempt.attemptId) {
+            publish({ phase: snapshot.waiting ? "waiting" : "idle", attempt: snapshot })
+            return
+          }
+          const signedIn = await confirmSession()
+          if (!current(version)) return
+          if (signedIn) deps.navigate(attempt.redirectPath)
+          else publish({ phase: "error", message: "retry_required", attempt: snapshot })
+          return
+        }
+        shouldReconcile = false
         const snapshot = await readSnapshot()
         if (!current(version)) return
         if (!snapshot || snapshot.attemptId !== candidate.attemptId) continue
@@ -95,6 +118,12 @@ export function createNativeOauthController(deps: NativeOauthDeps, changed: (vie
             if (!current(version)) return
             const success = z.object({ redirectPath: z.string().refine(isSafeRedirectPath) }).strict().safeParse(response.data)
             if (response.ok && success.success) {
+              const signedIn = await confirmSession()
+              if (!current(version)) return
+              if (!signedIn) {
+                publish({ phase: "error", message: "retry_required", attempt: snapshot })
+                return
+              }
               await finish(attemptId, candidateId)
               if (current(version)) deps.navigate(success.data.redirectPath)
               return
@@ -139,14 +168,19 @@ export function createNativeOauthController(deps: NativeOauthDeps, changed: (vie
       if (current(version)) publish({ phase: "error", message: "unavailable", attempt: view.attempt })
     } finally {
       processing = false
-      if (wakeAgain && !disposed) { wakeAgain = false; void drain() }
+      if (wakeAgain && !disposed) {
+        const reconcile = reconcileAgain
+        wakeAgain = false
+        reconcileAgain = false
+        void drain(reconcile)
+      }
     }
   }
   return {
     async connect() {
       publish({ phase: "initializing", attempt: null })
       try {
-        const unsubscribe = await deps.listen(() => { void drain() })
+        const unsubscribe = await deps.listen(() => { void drain(true) })
         if (disposed) { unsubscribe(); return }
         stopListening = unsubscribe
         const attempt = await readSnapshot()

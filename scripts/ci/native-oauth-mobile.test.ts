@@ -142,6 +142,19 @@ describe("native OAuth mobile activation", () => {
     )
   })
 
+  it("maps one real mobile resume event to one OAuth re-drive", () => {
+    expect(rustEntry).toMatch(
+      /tauri::RunEvent::WindowEvent\s*\{\s*label,\s*event,\s*\.\./,
+    )
+    expect(rustEntry).toMatch(
+      /#\[cfg\(mobile\)\]\s*\{\s*matches!\(event, tauri::WindowEvent::Resumed\)/,
+    )
+    expect(rustEntry).not.toContain("tauri::RunEvent::Resumed")
+    expect(
+      rustEntry.match(/native_oauth_runtime::notify_listener\(app\)/g),
+    ).toHaveLength(1)
+  })
+
   it("keeps generated Apple identity, entitlement, and fallback sources aligned", () => {
     expect(ios).toEqual({
       $schema: "./gen/schemas/ios-schema.json",
