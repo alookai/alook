@@ -228,6 +228,12 @@ describe("POST /api/community/bots — model", () => {
     })
   })
 
+  it("rethrows creation failures that are not entitlement conflicts", async () => {
+    mockCreateBot.mockRejectedValue(new Error("D1 unavailable"))
+
+    await expect(POST(postReq(base()), ctx)).rejects.toThrow("D1 unavailable")
+  })
+
   it("persists a supported capability-backed reasoning effort", async () => {
     mockGetMachineForOwner.mockResolvedValue({
       id: "mac1",

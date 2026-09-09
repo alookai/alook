@@ -200,6 +200,7 @@ describe("bot runtime-config read projections", () => {
     chain.select = vi.fn(() => chain)
     chain.from = vi.fn(() => chain)
     chain.leftJoin = vi.fn(() => chain)
+    chain.innerJoin = vi.fn(() => chain)
     chain.where = vi.fn(() => chain)
     chain.limit = vi.fn(() => Promise.resolve(rows))
     return chain
@@ -239,6 +240,22 @@ describe("bot runtime-config read projections", () => {
         runtimeConfigRevision: 7,
         ownerUserId: "owner_1",
       })
+  })
+
+  it("returns the owner binding state and stops wake resolution for an inactive bot", async () => {
+    const inactive = { ...storedBot, isBot: true, deletedAt: null, isActive: false }
+
+    await expect(q.getBotBindingWithOwner(makeLimitedReadChain([inactive]), "bot_1"))
+      .resolves.toEqual({
+        machineId: "machine_1",
+        runtime: "codex",
+        ownerUserId: "owner_1",
+        name: "helper",
+        discriminator: "1234",
+        isActive: false,
+      })
+    await expect(q.getBotWakeContext(makeLimitedReadChain([inactive]), "bot_1"))
+      .resolves.toEqual({ state: "bot_inactive" })
   })
 })
 

@@ -1,8 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import Sqlite from "better-sqlite3"
 import { drizzle as drizzleSqlite } from "drizzle-orm/better-sqlite3"
+import { getTableConfig } from "drizzle-orm/sqlite-core"
 import { z } from "zod"
 import * as productPlanQuery from "../../src/db/queries/product-plan"
+import {
+  productPlan,
+  productPlanEntitlement,
+  userProductPlan,
+} from "../../src/db/product-plan-schema"
 
 type ExecutableStatement = {
   toSQL(): { sql: string }
@@ -214,6 +220,38 @@ describe("generic product plan entitlement queries", () => {
 
   beforeEach(() => ({ sqlite, db } = createDatabase()))
   afterEach(() => sqlite.close())
+
+  it("keeps runtime defaults, foreign keys, and indexes available in the Drizzle schema", () => {
+    const planConfig = getTableConfig(productPlan)
+    const entitlementConfig = getTableConfig(productPlanEntitlement)
+    const assignmentConfig = getTableConfig(userProductPlan)
+
+    expect(planConfig.indexes.map((index) => index.config.name)).toContain(
+      "uq_product_plan_active_default",
+    )
+    expect(entitlementConfig.indexes.map((index) => index.config.name)).toContain(
+      "idx_product_plan_entitlement_key",
+    )
+    expect(assignmentConfig.indexes.map((index) => index.config.name)).toContain(
+      "idx_user_product_plan_plan",
+    )
+    expect(entitlementConfig.foreignKeys[0]?.reference().foreignTable).toBe(productPlan)
+    expect(assignmentConfig.foreignKeys.map((key) => key.reference().foreignTable)).toEqual([
+      expect.anything(),
+      productPlan,
+    ])
+
+    for (const column of [
+      productPlan.createdAt,
+      productPlan.updatedAt,
+      productPlanEntitlement.createdAt,
+      productPlanEntitlement.updatedAt,
+      userProductPlan.assignedAt,
+      userProductPlan.updatedAt,
+    ]) {
+      expect(column.defaultFn?.()).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+    }
+  })
 
   it("uses the active default without an assignment and lets an explicit assignment override it", async () => {
     seedPlan(sqlite, { id: "default-plan", displayName: "Default", isDefault: true, botsMax: "3" })
@@ -439,6 +477,37 @@ describe("generic product plan entitlement queries", () => {
     `).all()).toEqual([{ is_active: 0 }, { is_active: 0 }])
   })
 
+  it("fails closed when plan-targeted mutations cannot resolve a valid bots.max", async () => {
+    seedPlan(sqlite, { id: "inactive", isActive: false, botsMax: "3" })
+    seedPlan(sqlite, { id: "missing" })
+    seedPlan(sqlite, { id: "active", botsMax: "3" })
+    seedHuman(sqlite, "owner")
+
+    await expect(productPlanQuery.assignUserPlan(db as never, "owner", "inactive"))
+      .rejects.toMatchObject({ reason: "plan_unavailable" })
+    await expect(productPlanQuery.assignUserPlan(db as never, "owner", "missing"))
+      .rejects.toMatchObject({ reason: "entitlement_missing" })
+    await expect(productPlanQuery.setPlanEntitlement(db as never, "inactive", "bots.max", 2))
+      .rejects.toMatchObject({ reason: "plan_unavailable" })
+    await expect(productPlanQuery.setPlanEntitlement(db as never, "active", "bots.max", "bad"))
+      .rejects.toMatchObject({ reason: "entitlement_malformed" })
+  })
+
+  it("updates a non-capacity entitlement without reconciling bots", async () => {
+    seedPlan(sqlite, { id: "active", botsMax: "3" })
+
+    await expect(productPlanQuery.setPlanEntitlement(
+      db as never,
+      "active",
+      "feature.workflow",
+      { enabled: true },
+    )).resolves.toEqual({ deactivatedBotIds: [] })
+    expect(sqlite.prepare(`
+      SELECT value_json FROM product_plan_entitlement
+      WHERE plan_id = 'active' AND entitlement_key = 'feature.workflow'
+    `).get()).toEqual({ value_json: '{"enabled":true}' })
+  })
+
   it("keeps activation owner-scoped and deactivation idempotent", async () => {
     const { setBotActive } = await import("../../src/db/queries/community/bot")
     seedPlan(sqlite, { id: "free", isDefault: true, botsMax: "3" })
@@ -460,6 +529,68 @@ describe("generic product plan entitlement queries", () => {
       state: "unchanged",
       bot: { id: "bot", isActive: false },
     })
+  })
+
+  it("returns the raced state when a deactivation loses its final ownership predicate", async () => {
+    const { setBotActive } = await import("../../src/db/queries/community/bot")
+    seedPlan(sqlite, { id: "free", isDefault: true, botsMax: "3" })
+    seedHuman(sqlite, "owner")
+    seedBot(sqlite, "owner", "bot", "2026-01-01", true)
+    const update = db.update.bind(db)
+    let injectedRace = false
+    db.update = ((table: Parameters<typeof update>[0]) => {
+      if (!injectedRace) {
+        injectedRace = true
+        sqlite.prepare(`UPDATE community_bot_binding SET is_active = 0 WHERE user_id = 'bot'`).run()
+      }
+      return update(table)
+    }) as typeof db.update
+
+    await expect(setBotActive(db as never, "bot", "owner", false)).resolves.toMatchObject({
+      state: "unchanged",
+      bot: { id: "bot", isActive: false },
+    })
+  })
+
+  it("returns capacity before activation cursor work when every active slot is occupied", async () => {
+    const { setBotActive } = await import("../../src/db/queries/community/bot")
+    seedPlan(sqlite, { id: "free", displayName: "Free", isDefault: true, botsMax: "1" })
+    seedHuman(sqlite, "owner")
+    seedBot(sqlite, "owner", "active", "2026-01-01", true)
+    seedBot(sqlite, "owner", "target", "2026-01-02", false)
+
+    await expect(setBotActive(db as never, "target", "owner", true)).resolves.toMatchObject({
+      state: "capacity",
+      capacity: { limit: 1, activeCount: 1 },
+    })
+  })
+
+  it("returns the raced state when another writer activates the target first", async () => {
+    const { setBotActive } = await import("../../src/db/queries/community/bot")
+    seedPlan(sqlite, { id: "free", isDefault: true, botsMax: "3" })
+    seedHuman(sqlite, "owner")
+    seedBot(sqlite, "owner", "bot", "2026-01-01", false)
+    const executeBatch = db.batch.bind(db)
+    db.batch = async (statements: ExecutableStatement[]) => {
+      sqlite.prepare(`UPDATE community_bot_binding SET is_active = 1 WHERE user_id = 'bot'`).run()
+      return executeBatch(statements)
+    }
+
+    await expect(setBotActive(db as never, "bot", "owner", true)).resolves.toMatchObject({
+      state: "unchanged",
+      bot: { id: "bot", isActive: true },
+    })
+  })
+
+  it("rethrows an unexpected activation batch failure", async () => {
+    const { setBotActive } = await import("../../src/db/queries/community/bot")
+    seedPlan(sqlite, { id: "free", isDefault: true, botsMax: "3" })
+    seedHuman(sqlite, "owner")
+    seedBot(sqlite, "owner", "bot", "2026-01-01", false)
+    db.batch = async () => { throw new Error("unexpected batch failure") }
+
+    await expect(setBotActive(db as never, "bot", "owner", true))
+      .rejects.toThrow("unexpected batch failure")
   })
 
   it("rolls cursor catch-up back when a concurrent activation consumes the final slot", async () => {

@@ -240,6 +240,34 @@ describe("bot mutations wire the bot id into invalidateBotSurfaces", () => {
     act(() => renderer.unmount())
   })
 
+  it("leaves a missing or already-current bot cache unchanged after an activation response", async () => {
+    const { useSetBotActive } = await import("./use-bots")
+    const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
+    const original = {
+      plan: { id: "free", displayName: "Free" },
+      limit: 3,
+      ownedCount: 1,
+      activeCount: 1,
+      bots: [{ id: "bot_1", name: "Bot", isActive: true }],
+    }
+    apiFetchMock.mockResolvedValue({ bot: { id: "bot_1", isActive: true }, changed: false })
+    let mutation!: ReturnType<typeof useSetBotActive>
+    function Probe() { mutation = useSetBotActive(); return null }
+    const renderer = render(React.createElement(
+      QueryClientProvider,
+      { client: queryClient },
+      React.createElement(Probe),
+    ))
+
+    await act(async () => { await mutation.mutateAsync({ id: "bot_1", active: true }) })
+    expect(queryClient.getQueryData(communityKeys.bots())).toBeUndefined()
+
+    queryClient.setQueryData(communityKeys.bots(), original)
+    await act(async () => { await mutation.mutateAsync({ id: "bot_1", active: true }) })
+    expect(queryClient.getQueryData(communityKeys.bots())).toBe(original)
+    act(() => renderer.unmount())
+  })
+
   it("useUpdateBot forwards explicit reasoning effort values and omission", async () => {
     const { useUpdateBot } = await import("./use-bots")
     const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } })

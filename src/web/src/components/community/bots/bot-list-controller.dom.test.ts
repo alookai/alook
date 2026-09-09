@@ -356,6 +356,19 @@ describe("useBotListController", () => {
     expect(mocks.toastApiError).not.toHaveBeenCalled()
   })
 
+  it("reports a generic activation failure through the shared API error path", async () => {
+    mocks.target = null
+    const error = new Error("activation failed")
+    mocks.setActive.mockRejectedValue(error)
+    render()
+
+    await act(async () => { await latest.setBotActive(mocks.bots[0]!, false) })
+
+    expect(mocks.toastApiError).toHaveBeenCalledWith(error, "Couldn't make b1 inactive")
+    expect(mocks.toastError).not.toHaveBeenCalled()
+    expect(latest.pendingActiveBotIds).toEqual(new Set())
+  })
+
   it("does nothing without a target or without bots", () => {
     mocks.target = null
     render()

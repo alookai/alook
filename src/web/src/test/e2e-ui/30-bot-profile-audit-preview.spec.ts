@@ -10,6 +10,18 @@ import { MACHINE_WS_URL, REPO_ROOT, WEB_URL } from "./_setup/paths"
 type UserKey = "alice" | "bob"
 type Rect = { x: number; y: number; width: number; height: number }
 
+const createdBotIds: string[] = []
+
+test.afterEach(async () => {
+  for (const botId of createdBotIds.splice(0)) {
+    const response = await fetch(`${WEB_URL}/api/community/bots/${botId}`, {
+      method: "DELETE",
+      headers: headersFor("alice"),
+    })
+    expect(response.status, `delete test bot ${botId}`).toBe(204)
+  }
+})
+
 async function rect(locator: Locator): Promise<Rect> {
   const value = await locator.boundingBox()
   expect(value).not.toBeNull()
@@ -229,6 +241,7 @@ async function createBot(machineId: string, name: string): Promise<string> {
     method: "POST",
     body: JSON.stringify({ name, machineId, runtime: "codex" }),
   })
+  createdBotIds.push(data.bot.id)
   return data.bot.id
 }
 
@@ -714,14 +727,20 @@ test("CommunitySheet footers keep four consumers horizontal and intrinsic at 390
   const { page } = await asUser("alice")
   await gotoAfterUserWsAuth(page, "/c/me/bots")
 
-  await page.getByRole("button", { name: "Create a bot", exact: true }).click()
+  const capacity = await jsonRequest<{ ownedCount: number; limit: number }>("alice", "/api/community/bots")
+  expect(capacity.ownedCount).toBeLessThan(capacity.limit)
+  const create = page.getByRole("button", { name: "Create a bot", exact: true })
+  await expect(create).toBeEnabled()
+  await create.click()
   for (const width of [390, 639, 640] as const) {
     await expectFooterGeometry(page, "Create a bot", ["Cancel", "Create bot"], width)
   }
   await page.getByRole("dialog", { name: "Create a bot", exact: true })
     .getByRole("button", { name: "Close", exact: true }).click()
 
-  await page.getByRole("button", { name: "Bot actions", exact: true }).first().click()
+  await page.locator('[data-slot="card"]')
+    .filter({ has: page.getByText(botName, { exact: true }) })
+    .getByRole("button", { name: "Bot actions", exact: true }).click()
   await page.getByRole("menuitem", { name: "Edit", exact: true }).click()
   for (const width of [390, 639, 640] as const) {
     await expectFooterGeometry(page, `Edit ${botName}`, ["Cancel", "Save"], width)
