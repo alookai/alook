@@ -524,6 +524,7 @@ describe("useServerRailPdd behavior", () => {
   it("separates taps, scroll, context menu, multi-touch, and cancellation", async () => {
     const hook = await renderHook()
     const a = register(hook.current, { kind: "server", id: "a" }, rect(0, 40))
+    register(hook.current, { kind: "server", id: "b" }, rect(80, 120))
     const desktopContext = a.handle.dispatch("contextmenu", testEvent("contextmenu"))
     expect(desktopContext.defaultPrevented).toBe(false)
     expect(desktopContext.propagationStopped).toBe(false)
@@ -557,6 +558,7 @@ describe("useServerRailPdd behavior", () => {
     touch(a.handle, "touchcancel", [])
 
     const dragStartCount = hook.callbacks.onDragStart.mock.calls.length
+    const longClickCount = a.handle.clickCount
     touch(a.handle, "touchstart", [point(9, 10, 10)])
     await act(async () => vi.advanceTimersByTime(SERVER_RAIL_TOUCH_HOLD_MS - 1))
     expect(hook.callbacks.onDragStart).toHaveBeenCalledTimes(dragStartCount)
@@ -565,6 +567,23 @@ describe("useServerRailPdd behavior", () => {
     expect(context.defaultPrevented).toBe(true)
     expect(context.propagationStopped).toBe(true)
     await act(async () => vi.advanceTimersByTime(1))
+    expect(hook.callbacks.onDragStart).toHaveBeenCalledTimes(dragStartCount)
+    expect(fakeDocument.body.children).toHaveLength(0)
+    expect(fakeDocument.documentElement.style.userSelect).toBe("text")
+    touch(a.handle, "touchend", [], [point(9, 10, 10)])
+    expect(a.handle.clickCount).toBe(longClickCount + 1)
+
+    touch(a.handle, "touchstart", [point(91, 10, 10)])
+    await act(async () => vi.advanceTimersByTime(SERVER_RAIL_TOUCH_HOLD_MS - 1))
+    const preArmMove = touch(a.handle, "touchmove", [point(91, 17, 10)])
+    expect(preArmMove.defaultPrevented).toBe(false)
+    await act(async () => vi.advanceTimersByTime(1))
+    const sevenPixelMove = touch(a.handle, "touchmove", [point(91, 24, 10)])
+    expect(sevenPixelMove.defaultPrevented).toBe(false)
+    expect(hook.callbacks.onDragStart).toHaveBeenCalledTimes(dragStartCount)
+    expect(fakeDocument.body.children).toHaveLength(0)
+    const eightPixelMove = touch(a.handle, "touchmove", [point(91, 25, 10)])
+    expect(eightPixelMove.defaultPrevented).toBe(true)
     expect(hook.callbacks.onDragStart).toHaveBeenCalledTimes(dragStartCount + 1)
     expect(hook.callbacks.onDragStart).toHaveBeenLastCalledWith(a.entity)
     expect(fakeDocument.documentElement.style.userSelect).toBe("none")
@@ -576,12 +595,12 @@ describe("useServerRailPdd behavior", () => {
     expect(floating.style.width).toBe("40px")
     expect(floating.style.height).toBe("40px")
     expect(floating.style.pointerEvents).toBe("none")
-    expect(floating.style.transform).toBe("translate3d(-10px, -10px, 0)")
-    const dragMove = touch(a.handle, "touchmove", [point(9, 30, 50)])
+    expect(floating.style.transform).toBe("translate3d(5px, -10px, 0)")
+    const dragMove = touch(a.handle, "touchmove", [point(91, 30, 50)])
     expect(dragMove.defaultPrevented).toBe(true)
     expect(floating.style.transform).toBe("translate3d(10px, 30px, 0)")
     const clickCount = a.handle.clickCount
-    touch(a.handle, "touchend", [], [point(9, 30, 50)])
+    touch(a.handle, "touchend", [], [point(91, 30, 50)])
     expect(a.handle.clickCount).toBe(clickCount)
     expect(floating.removed).toBe(true)
     expect(fakeDocument.documentElement.style.userSelect).toBe("text")
@@ -600,9 +619,35 @@ describe("useServerRailPdd behavior", () => {
     touch(a.handle, "touchstart", [point(10, 10, 10)])
     hook.callbacks.canStart.mockReturnValue(false)
     await act(async () => vi.advanceTimersByTime(SERVER_RAIL_TOUCH_HOLD_MS))
+    touch(a.handle, "touchmove", [point(10, 18, 10)])
     expect(hook.callbacks.onAnnounce).toHaveBeenCalledWith(
       "A server rail move is already being saved",
     )
+  })
+
+  it("does not arm touch drag when the source has no legal registered target", async () => {
+    const hook = await renderHook({
+      getState: () => ({
+        serverOrder: ["a"],
+        folderOrder: [],
+        folders: {},
+        expanded: [],
+      }),
+    })
+    const a = register(hook.current, { kind: "server", id: "a" }, rect(0, 40))
+
+    touch(a.handle, "touchstart", [point(1, 10, 10)])
+    await act(async () => vi.advanceTimersByTime(SERVER_RAIL_TOUCH_HOLD_MS))
+    const move = touch(a.handle, "touchmove", [point(1, 30, 10)])
+    const end = touch(a.handle, "touchend", [], [point(1, 30, 10)])
+    expect(move.defaultPrevented).toBe(false)
+    expect(end.defaultPrevented).toBe(false)
+    expect(hook.callbacks.onDragStart).not.toHaveBeenCalled()
+    expect(fakeDocument.body.children).toHaveLength(0)
+
+    a.handle.click()
+    expect(a.handle.clickCount).toBe(1)
+    expect(a.handle.lastClickEvent?.defaultPrevented).toBe(false)
   })
 
   it("drags by touch through every hit region and owns edge scroll only after hold", async () => {
@@ -624,14 +669,14 @@ describe("useServerRailPdd behavior", () => {
     ) {
       touch(source.handle, "touchstart", [point(identifier, 20, startY)])
       await act(async () => vi.advanceTimersByTime(SERVER_RAIL_TOUCH_HOLD_MS))
+      expect(fakeDocument.body.children.filter((element) => !element.removed)).toHaveLength(0)
+      fakeDocument.points = [target.element]
+      const move = touch(source.handle, "touchmove", [point(identifier, 20, endY)])
+      expect(move.defaultPrevented).toBe(true)
       const floating = fakeDocument.body.children.at(-1)!
       expect(floating.attributes.get("data-rail-floating-preview")).toBe(source.entity.kind)
       expect(floating.style.width).toBe("40px")
       expect(floating.style.height).toBe("40px")
-      expect(floating.style.transform).toBe(`translate3d(0px, ${startY - 20}px, 0)`)
-      fakeDocument.points = [target.element]
-      const move = touch(source.handle, "touchmove", [point(identifier, 20, endY)])
-      expect(move.defaultPrevented).toBe(true)
       expect(floating.style.transform).toBe(`translate3d(0px, ${endY - 20}px, 0)`)
       touch(source.handle, "touchmove", [point(identifier, 20, endY)])
       flushAnimationFrame()
@@ -688,5 +733,27 @@ describe("useServerRailPdd behavior", () => {
     expect(hook.callbacks.onCancel).toHaveBeenCalledTimes(1)
     expect(adapters.cleanupTarget).toHaveBeenCalledTimes(2)
     expect(adapters.cleanupDraggable).toHaveBeenCalledTimes(2)
+  })
+
+  it("cleans armed touch state on cancellation and source unmount", async () => {
+    const hook = await renderHook()
+    const a = register(hook.current, { kind: "server", id: "a" }, rect(0, 40))
+    register(hook.current, { kind: "server", id: "b" }, rect(80, 120))
+
+    touch(a.handle, "touchstart", [point(1, 10, 10)])
+    await act(async () => vi.advanceTimersByTime(SERVER_RAIL_TOUCH_HOLD_MS))
+    expect(hook.callbacks.onDragStart).not.toHaveBeenCalled()
+    expect(fakeDocument.body.children).toHaveLength(0)
+    touch(a.handle, "touchcancel", [])
+    expect(hook.callbacks.onCancel).toHaveBeenCalledTimes(1)
+
+    touch(a.handle, "touchstart", [point(2, 10, 10)])
+    await act(async () => vi.advanceTimersByTime(SERVER_RAIL_TOUCH_HOLD_MS))
+    a.dispose()
+    await act(async () => Promise.resolve())
+    touch(a.handle, "touchmove", [point(2, 18, 10)])
+    expect(hook.callbacks.onCancel).toHaveBeenCalledTimes(2)
+    expect(hook.callbacks.onDragStart).not.toHaveBeenCalled()
+    expect(fakeDocument.body.children).toHaveLength(0)
   })
 })

@@ -45,7 +45,8 @@ describe("server rail PDD component contract", () => {
     const rail = read("./server-rail.tsx")
     const server = read("./sortable-server.tsx")
     const folder = read("./rail-folder.tsx")
-    expect(adapter).toContain("SERVER_RAIL_TOUCH_HOLD_MS = 450")
+    expect(adapter).toContain("SERVER_RAIL_TOUCH_HOLD_MS = 650")
+    expect(adapter).toContain("SERVER_RAIL_TOUCH_DRAG_PX = 8")
     expect(adapter).toContain("SERVER_RAIL_TOUCH_DRIFT_PX = 10")
     const touchStart = adapter.slice(
       adapter.indexOf("const onTouchStart"),
@@ -78,7 +79,7 @@ describe("server rail PDD component contract", () => {
     expect(adapter).toContain("positionTouchDragPreview")
     expect(adapter).toContain("document.body.appendChild(element)")
     expect(adapter).toContain("requestAnimationFrame(runTouchFrame)")
-    expect(adapter).toContain('begin(entity, "touch")')
+    expect(adapter).toContain('!begin(entity, "touch")')
     expect(adapter).not.toContain('new MouseEvent("contextmenu"')
     expect(adapter).not.toContain("matchMedia")
     expect(rail).toContain("Press Space to pick up a server or group")
