@@ -20,6 +20,7 @@ import {
 } from "./message-share-dialog"
 import type { RenderMsg } from "@/lib/community/models/message"
 import { tid } from "@/lib/community/testids"
+import { formatMessageTime } from "@/lib/community/format-time"
 
 const profileState = vi.hoisted(() => ({ map: new Map<string, Record<string, unknown>>() }))
 const componentMocks = vi.hoisted(() => ({
@@ -137,6 +138,27 @@ function actionButton(testId?: string, text?: string) {
 }
 
 describe("MessageShareDialog message context", () => {
+  it("renders the live message timestamp beside the author", () => {
+    const createdAt = "2026-08-13T03:17:00.000Z"
+    const renderer = renderMessage(message({ createdAt }))
+    const timestamp = renderer.container.querySelector("[data-share-timestamp]")!
+
+    expect(timestamp.textContent).toBe(formatMessageTime(createdAt))
+    expect(timestamp.classList).toContain("text-xs")
+    expect(timestamp.classList).toContain("text-muted-foreground")
+    expect(timestamp.parentElement?.classList).toContain("items-baseline")
+    expect(timestamp.parentElement?.classList).toContain("gap-2")
+  })
+
+  it("keeps the author and timestamp collapsed for grouped follow-ups", () => {
+    const renderer = renderMessage(message({
+      grouped: true,
+      createdAt: "2026-08-13T03:18:00.000Z",
+    }))
+
+    expect(renderer.container.querySelector("[data-share-timestamp]")).toBeNull()
+  })
+
   it("passes the custom avatar URL as an image source, not as fallback copy", () => {
     renderMessage(message({ authorAvatar: "/api/community/users/u1/avatar" }))
     expect(latestCapturedProps(componentMocks.avatarProps)).toMatchObject({

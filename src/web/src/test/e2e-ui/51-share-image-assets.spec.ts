@@ -206,6 +206,61 @@ async function holdNextAvatarRequest(page: Page) {
   }
 }
 
+test("share image timestamp matches the live row and survives both exports", async ({ asUser }) => {
+  test.setTimeout(120_000)
+  const serverId = await seedServer("alice", `Share timestamp ${Date.now()}`)
+  const channelId = await seedChannel("alice", serverId, "share-timestamp")
+  const { page } = await asUser("alice")
+  await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelId}`)
+
+  const seeded = await page.evaluate(async (targetId) => {
+    const response = await fetch(`/api/community/channels/${targetId}/messages`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        content: "Share timestamp parity",
+        attachments: [],
+        nonce: `e2e:${crypto.randomUUID()}`,
+      }),
+    })
+    const payload = await response.json() as {
+      message: { id: string; createdAt: string }
+    }
+    return {
+      status: response.status,
+      messageId: payload.message.id,
+      createdAt: payload.message.createdAt,
+    }
+  }, channelId)
+  expect(seeded.status).toBe(201)
+
+  const expectedTimestamp = await page.evaluate((createdAt) => (
+    new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" })
+      .format(new Date(createdAt))
+  ), seeded.createdAt)
+  const row = page.getByTestId(tid.message(seeded.messageId))
+  await expect(row).toContainText(expectedTimestamp)
+
+  await installShareCapture(page)
+  const dialog = await openShareDialog(page, seeded.messageId)
+  const card = dialog.locator("[data-share-card]")
+  await expect(card.locator("[data-share-timestamp]")).toHaveText(expectedTimestamp)
+
+  const downloadStarted = page.waitForEvent("download")
+  await dialog.getByRole("button", { name: "Download" }).click()
+  await downloadStarted
+  await expect(dialog.getByRole("button", { name: "Copy image" })).toBeEnabled()
+  await dialog.getByRole("button", { name: "Copy image" }).click()
+  await expect(dialog.getByRole("button", { name: "Copied" })).toBeVisible()
+  await expect.poll(() => shareCaptureCounts(page)).toEqual({
+    clipboard: 1,
+    clipboardAttempts: 1,
+    download: 1,
+  })
+  await expect(card.locator("[data-share-timestamp]")).toHaveText(expectedTimestamp)
+})
+
 test("consecutive share-image exports reuse rendered avatar, attachment, and invite icon pixels", async ({ asUser }) => {
   test.setTimeout(120_000)
   const serverId = await seedServer("alice", `Share assets ${Date.now()}`)
