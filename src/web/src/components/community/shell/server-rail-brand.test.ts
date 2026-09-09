@@ -24,7 +24,7 @@ describe("ServerRail Home brand mark", () => {
     const scrollViewport =
       'className="min-h-0 w-full shrink overflow-y-auto overflow-x-clip py-2 thin-scrollbar scrollbar-none"'
     const addRegion =
-      'className="flex w-full shrink-0 justify-center pb-[calc(var(--community-rail-bottom-inset)+var(--app-safe-area-bottom))] sm:pb-(--community-rail-bottom-inset)"'
+      'className="flex w-full shrink-0 justify-center pb-(--community-rail-bottom-inset)"'
 
     expect(source).toContain("data-testid={tid.serverRailScroll}")
     expect(source).toContain(scrollViewport)

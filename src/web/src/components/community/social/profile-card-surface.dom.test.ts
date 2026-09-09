@@ -71,6 +71,27 @@ function renderSurface(bp: "mobile" | "desktop") {
 }
 
 describe("ProfileCard surface contracts", () => {
+  it("reuses profile content without an overlay shell inside the User Bar extension", () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const renderer = render(React.createElement(
+      QueryClientProvider,
+      { client: queryClient },
+      React.createElement(ProfileCard, {
+        data: { name: "Ren", userId: "user_1", mutual: 0 },
+        x: 0,
+        y: 0,
+        bp: "mobile",
+        onClose: vi.fn(),
+        extension: true,
+      }),
+    ))
+
+    const profile = renderer.getByTestId("community-profile-card")
+    expect(profile.className).toBe("w-full")
+    expect(renderer.container.querySelectorAll("sheet-root")).toHaveLength(0)
+    expect(renderer.container.querySelectorAll("popover-root")).toHaveLength(0)
+  })
+
   it("uses the shared modal bottom Sheet without a copied or foreground-derived overlay", () => {
     const { renderer } = renderSurface("mobile")
     const root = mockProps.get("sheet-root")!

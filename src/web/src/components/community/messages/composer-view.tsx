@@ -163,6 +163,7 @@ export function ComposerView({
       )}
 
       <div
+        data-slot="community-composer-base"
         className={`relative ${
           isForumThreadBody
             ? "bg-transparent ring-0"

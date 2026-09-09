@@ -133,6 +133,14 @@ const inbox = {
   open: false,
   onOpenChange: vi.fn(),
 } as never
+const extensionProps = {
+  userBarExtension: { active: "none", update: null },
+  daemonUpdate: { update: null, eligibleMachines: [], request: vi.fn() },
+  onUserBarInboxOpenChange: vi.fn(),
+  onUserBarOpenProfile: vi.fn(),
+  onUserBarOpenUpdate: vi.fn(),
+  dismissUserBarExtension: vi.fn(),
+} as never
 
 let animateDescriptor: PropertyDescriptor | undefined
 
@@ -159,6 +167,7 @@ describe("ShellFrameView", () => {
 
   it("keeps responsive detail shell zones while the breakpoint is unknown", async () => {
     const renderer = render(createElement(ShellFrameView, {
+      ...extensionProps,
       breakpoint: "unknown",
       checkpoint: committedCheckpoint("/c/me/dm_1", "detail"),
       sidebar: () => createElement("sidebar-content"),
@@ -193,6 +202,7 @@ describe("ShellFrameView", () => {
 
   it("keeps rail, sidebar, and UserBar in the unknown list shell", async () => {
     const renderer = render(createElement(ShellFrameView, {
+      ...extensionProps,
       breakpoint: "unknown",
       checkpoint: committedCheckpoint("/c/me", "list"),
       sidebar: () => createElement("sidebar-content"),
@@ -213,6 +223,7 @@ describe("ShellFrameView", () => {
   it("keeps the desktop panel geometry, order, and seeded overlay call", async () => {
     const sidebar = vi.fn(() => createElement("sidebar-content"))
     const renderer = render(createElement(ShellFrameView, {
+      ...extensionProps,
       breakpoint: "desktop",
       checkpoint: committedCheckpoint("/c/channels/s1/c1", "detail"),
       sidebar,
@@ -284,6 +295,7 @@ describe("ShellFrameView", () => {
   it("seeds the User bar from the persisted panel percentage before pixel sizing", () => {
     mocks.defaultLayout.current = { sidebar: 18.75, main: 81.25 }
     const renderer = render(createElement(ShellFrameView, {
+      ...extensionProps,
       breakpoint: "desktop",
       checkpoint: committedCheckpoint("/c/me", "list"),
       sidebar: () => createElement("sidebar-content"),
@@ -305,6 +317,7 @@ describe("ShellFrameView", () => {
   it("composes the server-root list surface with desktop rail, sidebar, and landing content", async () => {
     const sidebar = vi.fn(() => createElement("sidebar-content"))
     const renderer = render(createElement(ShellFrameView, {
+      ...extensionProps,
       breakpoint: "desktop",
       checkpoint: committedCheckpoint("/c/channels/s1", "list"),
       sidebar,
@@ -326,6 +339,7 @@ describe("ShellFrameView", () => {
   it("keeps one responsive skeleton while mobile nav and detail geometry stay distinct", async () => {
     const sidebar = vi.fn(() => createElement("sidebar-content"))
     const renderer = render(createElement(ShellFrameView, {
+      ...extensionProps,
       breakpoint: "mobile",
       checkpoint: committedCheckpoint("/c/me", "list"),
       sidebar,
@@ -367,6 +381,7 @@ describe("ShellFrameView", () => {
     expect(sidebar).toHaveBeenCalledWith({ noHeader: false })
 
     renderer.rerender(createElement(ShellFrameView, {
+      ...extensionProps,
       breakpoint: "mobile",
       checkpoint: committedCheckpoint("/c/me/dm_1", "detail"),
       sidebar,
@@ -418,6 +433,7 @@ describe("ShellFrameView", () => {
     }
     const sidebar = () => createElement(StatefulSidebar)
     const common = {
+      ...extensionProps,
       breakpoint: "mobile" as const,
       sidebar,
       cancelPendingNavigation: vi.fn(),
@@ -520,6 +536,7 @@ describe("ShellFrameView", () => {
       value: animate,
     })
     const common = {
+      ...extensionProps,
       breakpoint: "mobile" as const,
       sidebar: () => createElement("sidebar-content"),
       cancelPendingNavigation: vi.fn(),
@@ -644,6 +661,7 @@ describe("ShellFrameView", () => {
       value: animate,
     })
     const common = {
+      ...extensionProps,
       breakpoint: "mobile" as const,
       sidebar: () => createElement("sidebar-content"),
       cancelPendingNavigation: vi.fn(),
@@ -679,6 +697,7 @@ describe("ShellFrameView", () => {
       return createElement("div", { "data-stateful-main": "", "data-identity": identity })
     }
     const common = {
+      ...extensionProps,
       checkpoint: committedCheckpoint("/c/me/dm_1", "detail"),
       sidebar: () => createElement("sidebar-content"),
       cancelPendingNavigation: vi.fn(),
@@ -707,6 +726,7 @@ describe("ShellFrameView", () => {
   it("keeps one panel-owned resize callback across breakpoint changes", async () => {
     const sidebar = vi.fn(() => createElement("sidebar-content"))
     const common = {
+      ...extensionProps,
       checkpoint: committedCheckpoint("/c/me", "list"),
       sidebar,
       cancelPendingNavigation: vi.fn(),
@@ -740,6 +760,7 @@ describe("ShellFrameView", () => {
   it("keeps committed content mounted while same-scope navigation is pending", async () => {
     const sidebar = vi.fn(() => createElement("sidebar-content"))
     const common = {
+      ...extensionProps,
       sidebar,
       cancelPendingNavigation: vi.fn(),
       rail,
@@ -779,6 +800,7 @@ describe("ShellFrameView", () => {
   it("replaces the committed sidebar with one target-scoped cold server checkpoint", async () => {
     const sidebar = vi.fn(() => createElement("old-sidebar"))
     const common = {
+      ...extensionProps,
       cancelPendingNavigation: vi.fn(),
       checkpoint: {
         mode: "cold-scope",
@@ -829,6 +851,7 @@ describe("ShellFrameView", () => {
     const renderer = render(createElement(
       ShellFrameView,
       {
+        ...extensionProps,
         breakpoint: "desktop",
         checkpoint,
         sidebar,

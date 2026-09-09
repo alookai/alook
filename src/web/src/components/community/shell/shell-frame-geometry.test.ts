@@ -43,11 +43,9 @@ describe("desktop community shell geometry", () => {
 })
 
 describe("mobile Inbox shell geometry", () => {
-  it("uses one safe-area-aware user-bar expression across body portals", () => {
+  it("uses the same 60px visual-plus-margin footprint as the mobile Composer", () => {
     expect(COMMUNITY_USER_BAR_BASE_HEIGHT).toBe(60)
-    expect(COMMUNITY_USER_BAR_HEIGHT_CSS).toBe(
-      "calc(60px + var(--app-safe-area-bottom))",
-    )
+    expect(COMMUNITY_USER_BAR_HEIGHT_CSS).toBe("60px")
   })
 
   it("defaults both safe areas to zero", () => {
@@ -55,15 +53,15 @@ describe("mobile Inbox shell geometry", () => {
   })
 
   it.each([
-    [568, 0, 0, 508],
-    [844, 0, 0, 784],
-    [844, 20, 34, 730],
-    [320, 30, 40, 190],
-    [80, 30, 40, 0],
+    [568, 0, 508],
+    [844, 0, 784],
+    [844, 20, 764],
+    [320, 30, 230],
+    [80, 30, 0],
   ])(
-    "caps a %ipx viewport with %ipx top and %ipx bottom safe areas",
-    (height, top, bottom, expected) => {
-      expect(mobileInboxAvailableHeight(height, top, bottom)).toBe(expected)
+    "caps a %ipx viewport below its %ipx top safe area",
+    (height, top, expected) => {
+      expect(mobileInboxAvailableHeight(height, top)).toBe(expected)
     },
   )
 })

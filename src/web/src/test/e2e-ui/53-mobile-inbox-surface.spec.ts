@@ -1,6 +1,6 @@
 import type { Page, Request } from "@playwright/test"
 import { expect, sessionCookie, test } from "./_fixtures/community-fixture"
-import { gotoAfterUserWsAuth } from "./_fixtures/actions"
+import { gotoAfterUserWsAuth, ignoreNextDevToolsPointerCapture } from "./_fixtures/actions"
 import { proxyCommunityWebSockets } from "./_fixtures/community-ws-proxy"
 import { WEB_URL } from "./_setup/paths"
 import {
@@ -45,15 +45,18 @@ async function removeServerChannels(serverId: string) {
 }
 
 async function surfaceGeometry(page: Page): Promise<SurfaceGeometry> {
-  return page.getByTestId(tid.inboxMobileCard).evaluate((card, ids) => {
+  return page.getByTestId(tid.userBarExtension).evaluate((card, ids) => {
     const userBar = document.querySelector<HTMLElement>(
       `[data-testid='${ids.userBar}']`,
     )
-    const userBarSurface = userBar?.firstElementChild as HTMLElement | null
+    const userBarSurface = userBar?.querySelector<HTMLElement>(
+      "[data-slot='community-user-bar-base']",
+    ) ?? null
     if (!userBar || !userBarSurface) {
       throw new Error("missing mobile Inbox geometry")
     }
-    const userRect = userBar.getBoundingClientRect()
+    const wrapperRect = userBar.getBoundingClientRect()
+    const userRect = userBarSurface.getBoundingClientRect()
     const cardRect = card.getBoundingClientRect()
     const cardStyle = getComputedStyle(card)
     const userBarStyle = getComputedStyle(userBarSurface)
@@ -65,7 +68,7 @@ async function surfaceGeometry(page: Page): Promise<SurfaceGeometry> {
       viewport: { width: innerWidth, height: innerHeight },
       userBar: {
         top: userRect.top,
-        bottom: userRect.bottom,
+        bottom: wrapperRect.bottom,
         left: userRect.left,
         right: userRect.right,
       },
@@ -119,6 +122,7 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
     const ws = await proxyCommunityWebSockets(bob.context)
     await bob.page.setViewportSize({ width: 390, height: 844 })
     await gotoAfterUserWsAuth(bob.page, `/c/channels/${serverId}`)
+    await ignoreNextDevToolsPointerCapture(bob.page)
     await expect(bob.page.getByTestId(tid.inboxTrigger)).toBeVisible()
 
     await bob.page.evaluate(() => {
@@ -148,7 +152,7 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
     const closedInboxIconColor = await inboxIcon.evaluate((element) => getComputedStyle(element).color)
     await inboxTrigger.click()
     await bob.page.mouse.move(0, 0)
-    const mobileSurface = bob.page.getByTestId(tid.inboxMobileSurface)
+    const mobileSurface = bob.page.getByTestId(tid.userBarExtension)
     await expect(mobileSurface).toBeVisible()
     await expect(mobileSurface).toHaveAttribute("role", "dialog")
     await expect(mobileSurface).not.toHaveAttribute("aria-modal", "true")
@@ -174,6 +178,10 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
     await expect(bob.page.getByRole("button", { name: "Close Inbox" })).toHaveCount(1)
     await expect(inboxTrigger).toBeFocused()
     await expect(bob.page.getByTestId(tid.inboxMobileBackdrop)).toHaveCount(0)
+    await expect.poll(async () => {
+      const current = await surfaceGeometry(bob.page)
+      return Math.abs(current.card.bottom - current.userBar.top)
+    }).toBeLessThanOrEqual(1)
     const geometry = await surfaceGeometry(bob.page)
     expect(Math.abs(geometry.card.bottom - geometry.userBar.top)).toBeLessThanOrEqual(1)
     expect(geometry.userBar.bottom).toBe(844)
@@ -220,17 +228,17 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
       ].join(","))
       return {
         exists: !!hit,
-        insideInbox: !!hit?.closest(`[data-testid='${ids.inboxMobileSurface}']`),
+        insideInbox: !!hit?.closest(`[data-testid='${ids.userBarExtension}']`),
         interactive: !!interactive,
       }
-    }, { point: outsidePoint, ids: { inboxMobileSurface: tid.inboxMobileSurface } })
+    }, { point: outsidePoint, ids: { userBarExtension: tid.userBarExtension } })
     expect(outsideHit).toEqual({
       exists: true,
       insideInbox: false,
       interactive: false,
     })
     await bob.page.mouse.click(outsidePoint.x, outsidePoint.y)
-    await expect(bob.page.getByTestId(tid.inboxMobileSurface)).toHaveCount(0)
+    await expect(bob.page.getByTestId(tid.userBarExtension)).toHaveCount(0)
     await expect(inboxTrigger).toBeFocused()
     await expect(inboxTrigger).toHaveAttribute("aria-label", "Open Inbox")
     await expect(inboxTrigger).toHaveAttribute("aria-pressed", "false")
@@ -245,40 +253,89 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
 
     await inboxTrigger.click()
     await inboxTrigger.click()
-    await expect(bob.page.getByTestId(tid.inboxMobileSurface)).toHaveCount(0)
+    await expect(bob.page.getByTestId(tid.userBarExtension)).toHaveCount(0)
     await expect(inboxTrigger).toBeFocused()
 
     await inboxTrigger.click()
     await bob.page.keyboard.press("Escape")
-    await expect(bob.page.getByTestId(tid.inboxMobileSurface)).toHaveCount(0)
+    await expect(bob.page.getByTestId(tid.userBarExtension)).toHaveCount(0)
     await expect(inboxTrigger).toBeFocused()
 
     await inboxTrigger.click()
     await bob.page.getByTestId(tid.userSettingsOpen).click()
-    await expect(bob.page.getByTestId(tid.inboxMobileSurface)).toHaveCount(0)
+    await expect(bob.page.getByTestId(tid.userBarExtension)).toHaveCount(0)
     await expect(bob.page.getByTestId(tid.settingsShell)).toHaveCount(1)
     await expect(inboxTrigger).not.toBeFocused()
     await bob.page.getByTestId(tid.settingsClose).click()
 
     await inboxTrigger.click()
-    await bob.page.getByTestId(tid.userBar).locator("button").first().click()
-    await expect(bob.page.getByTestId(tid.inboxMobileSurface)).toHaveCount(0)
+    await bob.page.locator("[data-slot='community-user-bar-base'] button").first().click()
+    await expect(bob.page.getByTestId(tid.userBarExtension)).toHaveAttribute("data-extension", "profile")
     await expect(bob.page.getByTestId(tid.profileCard)).toHaveCount(1)
     await expect(inboxTrigger).not.toBeFocused()
     await bob.page.keyboard.press("Escape")
 
     await bob.page.setViewportSize({ width: 320, height: 568 })
     await inboxTrigger.click()
+    await expect.poll(async () => {
+      const current = await surfaceGeometry(bob.page)
+      return Math.abs(current.card.bottom - current.userBar.top)
+    }).toBeLessThanOrEqual(1)
     const compact = await surfaceGeometry(bob.page)
-    expect(Math.abs(compact.card.bottom - compact.userBar.top)).toBeLessThanOrEqual(1)
     expect(compact.card.top).toBeGreaterThanOrEqual(20)
-    expect(compact.card.left).toBeGreaterThanOrEqual(18)
-    expect(compact.card.right).toBeLessThanOrEqual(320 - 16)
+    expect(compact.card.left).toBe(12)
+    expect(compact.card.right).toBe(320 - 12)
     await inboxTrigger.click()
 
     expect(writes.writes).toEqual([])
     expect(ws.frames).toHaveLength(wsBefore)
     writes.stop()
+  })
+
+  test("matches the mobile Composer width, height, and bottom margin", async ({ asUser }) => {
+    const stamp = Date.now()
+    const serverId = await seedServer("alice", `User Bar alignment ${stamp}`)
+    const channelId = await seedChannel("alice", serverId, `alignment-${stamp}`)
+    await seedJoinServer("alice", "bob", serverId)
+    const bob = await asUser("bob")
+
+    for (const width of [320, 390]) {
+      await bob.page.setViewportSize({ width, height: 844 })
+      await gotoAfterUserWsAuth(bob.page, `/c/channels/${serverId}`)
+      await bob.page.evaluate(() => {
+        const style = document.documentElement.style
+        style.setProperty("--app-safe-area-top", "20px")
+        style.setProperty("--app-safe-area-right", "16px")
+        style.setProperty("--app-safe-area-bottom", "34px")
+        style.setProperty("--app-safe-area-left", "18px")
+      })
+      const userBarBox = await bob.page
+        .locator("[data-slot='community-user-bar-base']")
+        .boundingBox()
+      expect(userBarBox).not.toBeNull()
+
+      await gotoAfterUserWsAuth(bob.page, `/c/channels/${serverId}/${channelId}`)
+      await bob.page.evaluate(() => {
+        const style = document.documentElement.style
+        style.setProperty("--app-safe-area-top", "20px")
+        style.setProperty("--app-safe-area-right", "16px")
+        style.setProperty("--app-safe-area-bottom", "34px")
+        style.setProperty("--app-safe-area-left", "18px")
+      })
+      const composer = bob.page
+        .getByTestId(tid.channelComposerShell)
+        .locator("[data-slot='community-composer-base']")
+      await expect(composer).toBeVisible()
+      const composerBox = await composer.boundingBox()
+      expect(composerBox).not.toBeNull()
+
+      expect(Math.abs(userBarBox!.x - composerBox!.x)).toBeLessThanOrEqual(1)
+      expect(Math.abs(userBarBox!.width - composerBox!.width)).toBeLessThanOrEqual(1)
+      expect(Math.abs(userBarBox!.height - composerBox!.height)).toBeLessThanOrEqual(1)
+      expect(Math.abs(userBarBox!.y - composerBox!.y)).toBeLessThanOrEqual(1)
+      expect(userBarBox!.height).toBe(48)
+      expect(Math.abs(844 - userBarBox!.y - userBarBox!.height)).toBe(12)
+    }
   })
 
   test("preserves Marked tab, scroll, and request ownership across 639↔640", async ({ asUser }) => {
@@ -352,15 +409,16 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
     const getsBeforeResize = inboxGets.length
 
     await bob.page.setViewportSize({ width: 640, height: 844 })
-    await expect(bob.page.getByTestId(tid.inboxMobileSurface)).toHaveCount(0)
-    await expect(bob.page.locator("[data-slot='popover-content']")).toBeVisible()
+    await expect(bob.page.getByTestId(tid.userBarExtension)).toBeVisible()
+    await expect(bob.page.getByTestId(tid.userBarExtension)).toHaveAttribute("data-extension", "inbox")
+    await expect(bob.page.locator("[data-slot='popover-content']")).toHaveCount(0)
     await expect(bob.page.getByRole("tab", { name: "Marked" })).toHaveAttribute("aria-selected", "true")
     const desktopScroll = bob.page.getByTestId(tid.inboxTabScroll("marked"))
     await expect.poll(() => desktopScroll.evaluate((element) => element.scrollTop))
       .toBeGreaterThanOrEqual(priorScroll - 1)
 
     await bob.page.setViewportSize({ width: 639, height: 844 })
-    await expect(bob.page.getByTestId(tid.inboxMobileSurface)).toBeVisible()
+    await expect(bob.page.getByTestId(tid.userBarExtension)).toBeVisible()
     await expect(bob.page.getByRole("tab", { name: "Marked" })).toHaveAttribute("aria-selected", "true")
     const mobileScroll = bob.page.getByTestId(tid.inboxTabScroll("marked"))
     const restoredMobileScroll = await mobileScroll.evaluate((element) => ({
@@ -373,12 +431,14 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
     )).toBeLessThanOrEqual(1)
 
     await bob.page.setViewportSize({ width: 1280, height: 900 })
-    const desktopContent = bob.page.locator("[data-slot='popover-content']")
+    const desktopContent = bob.page.getByTestId(tid.userBarExtension)
     await expect(desktopContent).toBeVisible()
     await expect.poll(async () => (await desktopContent.boundingBox())?.width ?? 0)
-      .toBeGreaterThanOrEqual(359)
+      .toBeGreaterThanOrEqual(200)
     const desktopBox = await desktopContent.boundingBox()
-    expect(desktopBox?.width).toBeLessThanOrEqual(361)
+    const desktopBaseBox = await bob.page.locator("[data-slot='community-user-bar-base']").boundingBox()
+    expect(desktopBaseBox).not.toBeNull()
+    expect(Math.abs((desktopBox?.width ?? 0) - desktopBaseBox!.width)).toBeLessThanOrEqual(1)
     await expect(bob.page.getByTestId(tid.inboxMobileBackdrop)).toHaveCount(0)
     await expect(bob.page.getByRole("tab", { name: "Marked" })).toHaveAttribute("aria-selected", "true")
 

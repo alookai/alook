@@ -13,7 +13,6 @@ import { useNotificationSettings } from "@/hooks/community/use-notification-sett
 import { PerfTraceBootstrap } from "@/components/perf/perf-trace-bootstrap"
 import { CommunityOnboardingForm } from "@/components/community/onboarding/community-onboarding-form"
 import { CommunityWsReconnectBoundary } from "@/components/community/shell/community-ws-reconnect-overlay"
-import { CommunityDaemonUpdateNotice } from "@/components/daemon-update-notice"
 import { useCommunityWsStore } from "@/stores/community/ws"
 
 /**
@@ -113,7 +112,6 @@ function CommunityBootstrap({ children }: { children: ReactNode }) {
   return (
     <>
       <PerfTraceBootstrap />
-      <CommunityDaemonUpdateNotice userId={currentUser.id} />
       <CommunityWsReconnectBoundary>
         <CommunityOnboardingForm />
         {children}

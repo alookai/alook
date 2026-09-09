@@ -36,6 +36,13 @@ const mocks = vi.hoisted(() => {
       openProfile: handlers.openProfile,
     },
     inbox: {},
+    daemonUpdate: {
+      update: null,
+      eligibleMachines: [],
+      collapse: vi.fn(),
+      open: vi.fn(),
+      request: vi.fn(),
+    },
     viewProps: { current: {} as Record<string, unknown> },
   }
 })
@@ -91,6 +98,9 @@ vi.mock("./use-shell-inbox-controller", () => ({
     mocks.inboxOptions(options)
     return mocks.inbox
   },
+}))
+vi.mock("./use-shell-daemon-update-controller", () => ({
+  useShellDaemonUpdateController: () => mocks.daemonUpdate,
 }))
 vi.mock("./shell-frame-view", () => ({
   ShellFrameView: (props: Record<string, unknown>) => {

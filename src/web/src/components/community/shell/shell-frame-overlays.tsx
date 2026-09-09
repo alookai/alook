@@ -16,16 +16,18 @@ export function ShellFrameOverlays({
   controller,
   breakpoint,
   extraDialogs,
+  suppressProfileCard = false,
 }: {
   controller: ProfileController
   breakpoint: Breakpoint
   extraDialogs?: ReactNode
+  suppressProfileCard?: boolean
 }) {
   const { profile, currentUser } = controller
   const pendingAvatarCrop = controller.pendingAvatarCrop
   return (
     <>
-      {profile && (
+      {profile && !suppressProfileCard && (
         <ProfileCard
           key={`${profile.data.userId ?? profile.data.name}:${profile.x}:${profile.y}`}
           data={profile.data}
