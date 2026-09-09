@@ -1,16 +1,15 @@
 import type { CSSProperties, ReactNode } from "react";
 import {
   AbsoluteFill,
-  CanvasImage,
   Easing,
   Interactive,
   interpolate,
-  staticFile,
   useCurrentFrame,
 } from "remotion";
 
 type LogoAnimationProps = {
   background: "transparent" | "dark";
+  frameOverride?: number;
 };
 
 type FaceKind = "red" | "purple" | "teal" | "blue" | "orange";
@@ -191,6 +190,7 @@ const artworkByFace: Record<
 
 const AvatarLayer = ({
   face,
+  frame,
   name,
   startX,
   startY,
@@ -203,6 +203,7 @@ const AvatarLayer = ({
   zIndex,
 }: {
   face: FaceKind;
+  frame: number;
   name: string;
   startX: number;
   startY: number;
@@ -214,7 +215,6 @@ const AvatarLayer = ({
   fadeExpression: boolean;
   zIndex: number;
 }) => {
-  const frame = useCurrentFrame();
   const introExpressionOpacity = interpolate(
     frame,
     [introStartFrame + 18, introStartFrame + 32],
@@ -234,27 +234,27 @@ const AvatarLayer = ({
     introExpressionOpacity * backgroundExpressionOpacity;
   const pupilShift = interpolate(
     frame,
-    [60, 88, 118, 144, 150],
-    [0, -15, 17, -5, 0],
+    [60, 84, 108, 132, 156],
+    [0, -15, 0, 17, 0],
     {
       easing: [
         Easing.bezier(0.45, 0, 0.55, 1),
         Easing.bezier(0.45, 0, 0.55, 1),
         Easing.bezier(0.45, 0, 0.55, 1),
-        Easing.bezier(0.16, 1, 0.3, 1),
+        Easing.bezier(0.45, 0, 0.55, 1),
       ],
       ...clamp,
     },
   );
   const localRotation = interpolate(
     frame,
-    [0, 60, 90, 120, 144, 150, 270],
+    [0, 60, 84, 108, 132, 156, 270],
     [
       firstRotation,
-      firstRotation * 0.35,
+      0,
       lookRotation,
+      0,
       lookRotation * -0.6,
-      lookRotation * 0.2,
       0,
       0,
     ],
@@ -264,7 +264,7 @@ const AvatarLayer = ({
         Easing.bezier(0.45, 0, 0.55, 1),
         Easing.bezier(0.45, 0, 0.55, 1),
         Easing.bezier(0.45, 0, 0.55, 1),
-        Easing.bezier(0.16, 1, 0.3, 1),
+        Easing.bezier(0.45, 0, 0.55, 1),
         Easing.bezier(0.16, 1, 0.3, 1),
       ],
       ...clamp,
@@ -328,17 +328,12 @@ const AvatarLayer = ({
   );
 };
 
-const CanonicalLogo = () => (
-  <CanvasImage
-    src={staticFile("alook.svg")}
-    style={{ height: 660, width: 660 }}
-  />
-);
-
 export const AlookLogoAnimation: React.FC<LogoAnimationProps> = ({
   background,
+  frameOverride,
 }) => {
-  const frame = useCurrentFrame();
+  const currentFrame = useCurrentFrame();
+  const frame = frameOverride ?? currentFrame;
 
   return (
     <AbsoluteFill
@@ -353,10 +348,6 @@ export const AlookLogoAnimation: React.FC<LogoAnimationProps> = ({
         name="Constructed logo"
         style={{
           height: "100%",
-          opacity: interpolate(frame, [270, 282], [1, 0], {
-            easing: Easing.bezier(0.7, 0, 0.84, 0),
-            ...clamp,
-          }),
           position: "absolute",
           width: "100%",
         }}
@@ -409,6 +400,7 @@ export const AlookLogoAnimation: React.FC<LogoAnimationProps> = ({
             >
               <AvatarLayer
                 face="red"
+                frame={frame}
                 name="Red avatar"
                 startX={-100}
                 startY={-45}
@@ -422,6 +414,7 @@ export const AlookLogoAnimation: React.FC<LogoAnimationProps> = ({
               />
               <AvatarLayer
                 face="purple"
+                frame={frame}
                 name="Purple avatar"
                 startX={-20}
                 startY={-55}
@@ -435,6 +428,7 @@ export const AlookLogoAnimation: React.FC<LogoAnimationProps> = ({
               />
               <AvatarLayer
                 face="teal"
+                frame={frame}
                 name="Teal avatar"
                 startX={-200}
                 startY={20}
@@ -448,6 +442,7 @@ export const AlookLogoAnimation: React.FC<LogoAnimationProps> = ({
               />
               <AvatarLayer
                 face="blue"
+                frame={frame}
                 name="Blue avatar"
                 startX={-85}
                 startY={0}
@@ -464,6 +459,7 @@ export const AlookLogoAnimation: React.FC<LogoAnimationProps> = ({
 
           <AvatarLayer
             face="orange"
+            frame={frame}
             name="Orange avatar"
             startX={55}
             startY={130}
@@ -477,37 +473,10 @@ export const AlookLogoAnimation: React.FC<LogoAnimationProps> = ({
           />
         </Interactive.Div>
       </Interactive.Div>
-
-      <Interactive.Div
-        name="Canonical Alook logo"
-        style={{
-          height: 660,
-          opacity: interpolate(frame, [270, 282], [0, 1], {
-            easing: Easing.bezier(0.16, 1, 0.3, 1),
-            ...clamp,
-          }),
-          position: "absolute",
-          scale: interpolate(frame, [270, 280, 299], [0.995, 1.006, 1], {
-            easing: [
-              Easing.bezier(0.16, 1, 0.3, 1),
-              Easing.bezier(0.7, 0, 0.84, 0),
-            ],
-            output: "perceptual-scale",
-            ...clamp,
-          }),
-          width: 660,
-        }}
-      >
-        <CanonicalLogo />
-      </Interactive.Div>
     </AbsoluteFill>
   );
 };
 
 export const AlookLogoReference: React.FC = () => (
-  <AbsoluteFill
-    style={{ alignItems: "center", display: "flex", justifyContent: "center" }}
-  >
-    <CanonicalLogo />
-  </AbsoluteFill>
+  <AlookLogoAnimation background="transparent" frameOverride={299} />
 );
