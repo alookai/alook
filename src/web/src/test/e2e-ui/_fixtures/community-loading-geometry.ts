@@ -8,6 +8,11 @@ import type {
 } from "@playwright/test"
 import { expect, sessionCookie, userId } from "./community-fixture"
 import {
+  COMMUNITY_RAIL_WIDTH,
+  COMMUNITY_SEPARATOR_WIDTH,
+  COMMUNITY_SURFACE_BORDER_WIDTH,
+} from "@/components/community/shell/shell-frame-geometry"
+import {
   seedChannel,
   seedDm,
   seedForumThread,
@@ -25,8 +30,11 @@ type CommunityAsUser = (
   options?: Omit<BrowserContextOptions, "storageState">,
 ) => Promise<{ context: BrowserContext; page: Page }>
 type MobileWidth = 320 | 390 | 639
+type DesktopWidth = 640 | 768 | 1024 | 1280
+type PersistedSidebarWidth = 160 | 240 | 350 | 360
 const RAIL_OVERFLOW_SERVER_COUNT = 20
 const ISOLATED_GEOMETRY_USER: UserKey = "dave"
+const DESKTOP_DENSITY_SCALES = [1, 1.25] as const
 const ANDROID_USER_AGENTS = {
   chrome: "Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36",
   webview: "Mozilla/5.0 (Linux; Android 15; Pixel 9 Build/AP3A.240905.015; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/140.0.0.0 Mobile Safari/537.36",
@@ -185,6 +193,14 @@ type FirstFrameSample = {
   geometry: Geometry
 }
 
+type DesktopPendingFrameSample = {
+  overflow: number
+  sidebarWidth: number
+  sidebarRight: number
+  mainLeft: number
+  userBarRight: number
+}
+
 async function installFirstFrameProbe(page: Page, surface: "list" | "detail") {
   await page.addInitScript((expectedSurface) => {
     const samples: FirstFrameSample[] = []
@@ -224,6 +240,70 @@ async function firstFrameSamples(page: Page): Promise<FirstFrameSample[]> {
   return page.evaluate(() => (
     Reflect.get(window, "__communityFirstFrameSamples") as FirstFrameSample[]
   ))
+}
+
+function desktopPanelTrackWidth(viewportWidth: DesktopWidth) {
+  return viewportWidth
+    - COMMUNITY_RAIL_WIDTH
+    - COMMUNITY_SURFACE_BORDER_WIDTH
+    - COMMUNITY_SEPARATOR_WIDTH
+}
+
+async function installDesktopPendingFrameProbe(
+  page: Page,
+  viewportWidth: DesktopWidth,
+  sidebarWidth: PersistedSidebarWidth | null,
+) {
+  const panelTrackWidth = desktopPanelTrackWidth(viewportWidth)
+  await page.addInitScript(({ initialFrameTestId, layoutStorageKey, persistedLayout }) => {
+    if (persistedLayout) {
+      localStorage.setItem(layoutStorageKey, JSON.stringify(persistedLayout))
+    } else {
+      localStorage.removeItem(layoutStorageKey)
+    }
+    const samples: DesktopPendingFrameSample[] = []
+    Reflect.set(window, "__communityDesktopPendingFrameSamples", samples)
+
+    const sample = () => {
+      const frame = document.querySelector(`[data-testid="${initialFrameTestId}"]`)
+      const panels = frame?.querySelectorAll<HTMLElement>('[data-slot="resizable-panel"]')
+      const sidebar = panels?.[0]
+      const main = panels?.[1]
+      const userBar = document.querySelector<HTMLElement>(
+        '[data-slot="community-user-bar-overlay"]',
+      )
+      if (frame && sidebar && main && userBar) {
+        const sidebarRect = sidebar.getBoundingClientRect()
+        const mainRect = main.getBoundingClientRect()
+        const userBarRect = userBar.getBoundingClientRect()
+        samples.push({
+          overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          sidebarWidth: sidebarRect.width,
+          sidebarRight: sidebarRect.right,
+          mainLeft: mainRect.left,
+          userBarRight: userBarRect.right,
+        })
+      }
+      if (performance.now() < 5_000) requestAnimationFrame(sample)
+    }
+    requestAnimationFrame(sample)
+  }, {
+    initialFrameTestId: tid.initialFrame,
+    layoutStorageKey: "react-resizable-panels:community-shell",
+    persistedLayout: sidebarWidth === null
+      ? null
+      : {
+          sidebar: sidebarWidth / panelTrackWidth * 100,
+          main: 100 - sidebarWidth / panelTrackWidth * 100,
+        },
+  })
+}
+
+async function desktopPendingFrameSamples(page: Page): Promise<DesktopPendingFrameSample[]> {
+  return page.evaluate(() => Reflect.get(
+    window,
+    "__communityDesktopPendingFrameSamples",
+  ) as DesktopPendingFrameSample[])
 }
 
 function expectMobileGeometry(
@@ -433,6 +513,60 @@ export async function runAndroidLoadingGeometry(asUser: CommunityAsUser) {
         }
       }
     }
+}
+
+export async function runDesktopPersistedPendingGeometry(
+  theme: Theme,
+  asUser: CommunityAsUser,
+) {
+  for (const viewportWidth of [640, 768, 1024, 1280] as const) {
+    for (const sidebarWidth of [null, 160, 240, 350, 360] as const) {
+      for (const deviceScaleFactor of DESKTOP_DENSITY_SCALES) {
+        const caseLabel = `${viewportWidth}px @${deviceScaleFactor}x, sidebar ${sidebarWidth ?? "default"}`
+        const { context, page } = await asUser(ISOLATED_GEOMETRY_USER, {
+          deviceScaleFactor,
+        })
+        await page.setViewportSize({ width: viewportWidth, height: 900 })
+        await page.emulateMedia({ colorScheme: theme })
+        await installDesktopPendingFrameProbe(page, viewportWidth, sidebarWidth)
+        const session = await holdSession(page)
+        await page.goto("/c/me/machines", { waitUntil: "commit" })
+        await expect.poll(session.hits).toBeGreaterThan(0)
+        await expect(page.getByTestId(tid.initialFrame)).toBeVisible()
+        await page.waitForTimeout(250)
+
+        const samples = await desktopPendingFrameSamples(page)
+        expect(samples.length, caseLabel).toBeGreaterThan(0)
+        for (const [index, sample] of samples.entries()) {
+          expect(sample.overflow, `${caseLabel}, frame ${index} horizontal overflow`).toBe(0)
+          expect(
+            Math.abs(sample.userBarRight - sample.mainLeft),
+            `${caseLabel}, frame ${index} User bar/main boundary: ${JSON.stringify(sample)}`,
+          ).toBeLessThanOrEqual(1)
+          const separatorWidth = sample.mainLeft - sample.sidebarRight
+          expect(
+            separatorWidth,
+            `${caseLabel}, frame ${index} separator width: ${JSON.stringify(sample)}`,
+          ).toBeGreaterThanOrEqual(0)
+          expect(
+            separatorWidth,
+            `${caseLabel}, frame ${index} separator width: ${JSON.stringify(sample)}`,
+          ).toBeLessThanOrEqual(1)
+        }
+        const expectedSidebarWidth = sidebarWidth ?? Math.min(
+          360,
+          Math.max(160, desktopPanelTrackWidth(viewportWidth) * 0.24),
+        )
+        expect(
+          Math.abs(samples.at(-1)!.sidebarWidth - expectedSidebarWidth),
+          `${caseLabel}, final sidebar width: ${JSON.stringify(samples.at(-1))}`,
+        ).toBeLessThanOrEqual(1)
+
+        session.release()
+        await context.close()
+      }
+    }
+  }
 }
 
 export async function runSkeletonLoadingMotion(asUser: CommunityAsUser) {

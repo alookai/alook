@@ -1,5 +1,6 @@
 import { test } from "./_fixtures/community-fixture"
 import {
+  runDesktopPersistedPendingGeometry,
   runNeutralRootGeometry,
   runRouteLoadingGeometry,
   seedGeometryRoutes,
@@ -15,6 +16,11 @@ test.describe.serial("community light loading geometry", () => {
 
   test("light: neutral root owns two viewport cold restores", async ({ asUser }, testInfo) => {
     await runNeutralRootGeometry("light", asUser, testInfo)
+  })
+
+  test("light: persisted desktop sidebars keep every pending-frame boundary aligned", async ({ asUser }) => {
+    test.setTimeout(240_000)
+    await runDesktopPersistedPendingGeometry("light", asUser)
   })
 
   test("light: 18 route × viewport pending→loaded pairs keep shell CLS at zero", async ({ asUser }, testInfo) => {
