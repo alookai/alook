@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   machines: { current: [] as unknown[] },
   onboardingState: { current: "done" as unknown },
   guideMotion: vi.fn(),
+  startOnboarding: vi.fn(),
 }))
 
 vi.mock("sonner", () => ({
@@ -91,7 +92,7 @@ vi.mock("@/stores/community", () => ({
 vi.mock("@/lib/community-onboarding", () => ({
   advanceCommunityOnboarding: vi.fn(),
   readCommunityOnboardingState: vi.fn(() => null),
-  startCommunityOnboarding: vi.fn(),
+  startCommunityOnboarding: mocks.startOnboarding,
   updateCommunityOnboardingResources: vi.fn(),
   useCommunityOnboarding: () => mocks.onboardingState.current,
 }))
@@ -132,6 +133,7 @@ describe("machine daemon update UI", () => {
     mocks.toastSuccess.mockReset()
     mocks.toastError.mockReset()
     mocks.fetchLatestDaemonVersion.mockReset()
+    mocks.startOnboarding.mockReset()
     mocks.fetchLatestDaemonVersion.mockResolvedValue({
       version: "0.1.8",
       package: "@alook/daemon",
@@ -164,6 +166,15 @@ describe("machine daemon update UI", () => {
     const renderer = render(React.createElement(MachineList))
 
     expect(renderer.getByTestId(tid.onboardingStart)).toBeInTheDocument()
+  })
+
+  it("keeps the Machines Guide me action wired to manual onboarding", () => {
+    const renderer = render(React.createElement(MachineList))
+
+    fireEvent.click(renderer.getByTestId(tid.onboardingStart))
+
+    expect(mocks.startOnboarding).toHaveBeenCalledOnce()
+    expect(mocks.startOnboarding).toHaveBeenCalledWith({ guideAvatarSeed: expect.any(String) })
   })
 
   it("loads Community update eligibility from the daemon package endpoint", async () => {
