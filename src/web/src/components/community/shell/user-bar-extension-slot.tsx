@@ -12,6 +12,18 @@ import type {
   UserBarUpdateState,
 } from "./user-bar-extension-state"
 
+const EXTERNAL_INTERACTIVE_SELECTOR = [
+  "button:not(:disabled)",
+  "a[href]",
+  "input:not(:disabled)",
+  "select:not(:disabled)",
+  "textarea:not(:disabled)",
+  "[contenteditable='true']",
+  "[role='button']",
+  "[role='link']",
+  "[tabindex]:not([tabindex='-1'])",
+].join(",")
+
 type Props = {
   active: Exclude<UserBarExtensionKind, "none">
   inbox?: ReactNode
@@ -19,7 +31,10 @@ type Props = {
   update: UserBarUpdateState | null
   eligibleMachines: readonly MachineSummary[]
   onDismiss: () => void
+  onDismissOutside?: () => void
   onRequestUpdate: () => void
+  focusOnOpen?: boolean
+  onInitialFocus?: () => void
 }
 
 export function UserBarExtensionSlot({
@@ -29,7 +44,10 @@ export function UserBarExtensionSlot({
   update,
   eligibleMachines,
   onDismiss,
+  onDismissOutside = onDismiss,
   onRequestUpdate,
+  focusOnOpen = false,
+  onInitialFocus,
 }: Props) {
   const ref = useRef<HTMLDivElement>(null)
 
@@ -39,19 +57,26 @@ export function UserBarExtensionSlot({
       event.preventDefault()
       onDismiss()
     }
-    const onPointerDown = (event: PointerEvent) => {
+    const onClick = (event: MouseEvent) => {
       if (!(event.target instanceof Element)) return
       if (ref.current?.contains(event.target)) return
       if (event.target.closest(`[data-testid='${tid.userBar}']`)) return
-      onDismiss()
+      if (event.target.closest(EXTERNAL_INTERACTIVE_SELECTOR)) onDismissOutside()
+      else onDismiss()
     }
     document.addEventListener("keydown", onKeyDown)
-    document.addEventListener("pointerdown", onPointerDown)
+    document.addEventListener("click", onClick)
     return () => {
       document.removeEventListener("keydown", onKeyDown)
-      document.removeEventListener("pointerdown", onPointerDown)
+      document.removeEventListener("click", onClick)
     }
-  }, [onDismiss])
+  }, [onDismiss, onDismissOutside])
+
+  useEffect(() => {
+    if (!focusOnOpen) return
+    ref.current?.focus()
+    onInitialFocus?.()
+  }, [active, focusOnOpen, onInitialFocus])
 
   const title = active === "inbox"
     ? "Inbox"
@@ -68,6 +93,7 @@ export function UserBarExtensionSlot({
       aria-label={title}
       data-testid={tid.userBarExtension}
       data-extension={active}
+      tabIndex={-1}
       className={cn(
         "relative min-h-0 origin-bottom overflow-hidden rounded-t-xl border border-b-0 border-border bg-popover text-popover-foreground shadow-(--e2)",
         "motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-1 motion-safe:duration-150",

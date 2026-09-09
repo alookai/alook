@@ -2,6 +2,7 @@
 
 import {
   useRef,
+  useState,
   type MutableRefObject,
   type ReactNode,
   type RefObject,
@@ -52,6 +53,7 @@ export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox,
   const lastProfileTriggerRef = useRef<HTMLButtonElement | null>(null)
   const inboxTriggerRef = useRef<HTMLButtonElement>(null)
   const updateBadgeRef = useRef<HTMLButtonElement>(null)
+  const [pendingExtensionFocus, setPendingExtensionFocus] = useState<UserBarExtensionKind>("none")
   const suppressInboxFocusReturnRef = useRef(false)
   const closeInboxForAction = () => {
     suppressInboxFocusReturnRef.current = true
@@ -72,7 +74,7 @@ export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox,
   return (
     <div
       data-testid={tid.userBar}
-      className="w-full min-w-0 max-w-full shrink-0 overflow-hidden px-3 pb-3 pt-0"
+      className="w-full min-w-0 max-w-full shrink-0 overflow-hidden pl-[max(0.75rem,var(--app-safe-area-left))] pr-[max(0.75rem,var(--app-safe-area-right))] pb-[calc(0.75rem+var(--app-safe-area-bottom))] pt-0 sm:px-3 sm:pb-3"
     >
       {extension && extension.active !== "none" && (
         <UserBarExtensionSlot
@@ -82,7 +84,14 @@ export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox,
           update={extension.update}
           eligibleMachines={extension.eligibleMachines}
           onDismiss={dismissExtensionWithFocus}
+          onDismissOutside={extension.onDismiss}
           onRequestUpdate={extension.onRequestUpdate}
+          focusOnOpen={pendingExtensionFocus === extension.active}
+          onInitialFocus={() => {
+            if (pendingExtensionFocus === extension.active) {
+              setPendingExtensionFocus("none")
+            }
+          }}
         />
       )}
       <div
@@ -112,6 +121,7 @@ export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox,
           lastProfileTriggerRef={lastProfileTriggerRef}
           inboxTriggerRef={inboxTriggerRef}
           updateBadgeRef={updateBadgeRef}
+          onRequestExtensionFocus={setPendingExtensionFocus}
           extension={extension}
         />
       </div>
@@ -124,7 +134,7 @@ export function UserBarSkeleton() {
     <div
       data-testid={tid.initialUserBarPending}
       aria-hidden
-      className="w-full min-w-0 max-w-full shrink-0 overflow-hidden px-3 pb-3 pt-0"
+      className="w-full min-w-0 max-w-full shrink-0 overflow-hidden pl-[max(0.75rem,var(--app-safe-area-left))] pr-[max(0.75rem,var(--app-safe-area-right))] pb-[calc(0.75rem+var(--app-safe-area-bottom))] pt-0 sm:px-3 sm:pb-3"
     >
       <div className="flex h-12 items-center gap-3 rounded-xl bg-muted px-4 ring-1 ring-border/40">
         <Skeleton className="size-7 shrink-0 rounded-full" />
@@ -136,7 +146,7 @@ export function UserBarSkeleton() {
   )
 }
 
-function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnread, inboxOpen, onInboxOpenChange, inboxAnchorRef, suppressInboxFocusReturnRef, closeInboxForAction, profileTriggerRef, profileNameTriggerRef, lastProfileTriggerRef, inboxTriggerRef, updateBadgeRef, extension }: {
+function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnread, inboxOpen, onInboxOpenChange, inboxAnchorRef, suppressInboxFocusReturnRef, closeInboxForAction, profileTriggerRef, profileNameTriggerRef, lastProfileTriggerRef, inboxTriggerRef, updateBadgeRef, onRequestExtensionFocus, extension }: {
   breakpoint: Breakpoint
   user: { id: string; name: string; avatar: string; presence?: Presence }
   onOpenProfile?: OpenProfile
@@ -153,6 +163,7 @@ function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnrea
   lastProfileTriggerRef: MutableRefObject<HTMLButtonElement | null>
   inboxTriggerRef: RefObject<HTMLButtonElement | null>
   updateBadgeRef: RefObject<HTMLButtonElement | null>
+  onRequestExtensionFocus: (extension: UserBarExtensionKind) => void
   extension?: UserBarExtension
 }) {
   const mobile = breakpoint === "mobile"
@@ -170,6 +181,9 @@ function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnrea
     <div className="flex min-w-0 flex-1 items-center gap-2">
       <button ref={profileTriggerRef} onClick={(e) => {
         lastProfileTriggerRef.current = e.currentTarget
+        if (extension && extension.active !== "profile") {
+          onRequestExtensionFocus("profile")
+        }
         if (!extension) closeInboxForAction()
         onOpenProfile?.(user.name, e, undefined, user.id)
       }} className="shrink-0 rounded-full focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none" aria-expanded={extension ? extension.active === "profile" : undefined} aria-controls={extension?.active === "profile" ? "community-user-bar-extension" : undefined}>
@@ -177,6 +191,9 @@ function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnrea
       </button>
       <button ref={profileNameTriggerRef} onClick={(e) => {
         lastProfileTriggerRef.current = e.currentTarget
+        if (extension && extension.active !== "profile") {
+          onRequestExtensionFocus("profile")
+        }
         if (!extension) closeInboxForAction()
         onOpenProfile?.(user.name, e, undefined, user.id)
       }} className="min-w-0 flex-1 text-left rounded focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none" aria-expanded={extension ? extension.active === "profile" : undefined} aria-controls={extension?.active === "profile" ? "community-user-bar-extension" : undefined}>
@@ -190,7 +207,10 @@ function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnrea
             data-testid={tid.daemonUpdateBadge}
             className="flex h-11 items-center gap-1.5 rounded-lg bg-secondary px-2 text-xs font-medium text-secondary-foreground hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:h-7"
             aria-label={updateBadgeLabel}
-            onClick={extension.onOpenUpdate}
+            onClick={() => {
+              onRequestExtensionFocus("update")
+              extension.onOpenUpdate()
+            }}
           >
             <UpdateBadgeIcon className={cn(
               "size-4",
@@ -212,11 +232,14 @@ function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnrea
                 ? "hover:text-foreground active:text-foreground aria-expanded:text-foreground"
                 : "hover:bg-accent hover:text-foreground",
             )}
-            aria-label={inboxOpen ? "Close Inbox" : "Open Inbox"}
+            aria-label={mobile ? (inboxOpen ? "Close Inbox" : "Open Inbox") : "Inbox"}
             aria-expanded={inboxOpen}
             aria-pressed={mobile ? inboxOpen : undefined}
             aria-controls={inboxOpen ? "community-user-bar-extension" : undefined}
-            onClick={() => onInboxOpenChange?.(!inboxOpen)}
+            onClick={() => {
+              if (!inboxOpen) onRequestExtensionFocus("inbox")
+              onInboxOpenChange?.(!inboxOpen)
+            }}
           >
             <span className="relative grid size-4 place-items-center">
               <Inbox className="size-4" />

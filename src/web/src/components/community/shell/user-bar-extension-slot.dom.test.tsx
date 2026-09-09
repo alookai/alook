@@ -92,8 +92,9 @@ describe("UserBarExtensionSlot", () => {
     expect(onRequestUpdate).toHaveBeenCalledOnce()
   })
 
-  it("dismisses on Escape and outside press but leaves User Bar switching atomic", async () => {
+  it("dismisses on Escape and a blank outside click but leaves User Bar switching atomic", async () => {
     const onDismiss = vi.fn()
+    const onDismissOutside = vi.fn()
     const userBar = document.createElement("div")
     userBar.dataset.testid = tid.userBar
     const switchButton = document.createElement("button")
@@ -105,17 +106,60 @@ describe("UserBarExtensionSlot", () => {
       update: update(),
       eligibleMachines: machines,
       onDismiss,
+      onDismissOutside,
       onRequestUpdate: vi.fn(),
     }))
 
-    await act(async () => switchButton.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })))
+    await act(async () => switchButton.click())
     expect(onDismiss).not.toHaveBeenCalled()
-    await act(async () => document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })))
+    expect(onDismissOutside).not.toHaveBeenCalled()
+    await act(async () => document.body.click())
     expect(onDismiss).toHaveBeenCalledOnce()
+    expect(onDismissOutside).not.toHaveBeenCalled()
     await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })))
     expect(onDismiss).toHaveBeenCalledTimes(2)
 
     renderer.unmount()
     userBar.remove()
+  })
+
+  it("lets an outside control complete its click before dismissing", async () => {
+    const order: string[] = []
+    const outsideButton = document.createElement("button")
+    outsideButton.addEventListener("click", () => order.push("outside action"))
+    document.body.appendChild(outsideButton)
+    const renderer = render(createElement(UserBarExtensionSlot, {
+      active: "update",
+      update: update(),
+      eligibleMachines: machines,
+      onDismiss: () => order.push("focus-return dismiss"),
+      onDismissOutside: () => order.push("outside dismiss"),
+      onRequestUpdate: vi.fn(),
+    }))
+
+    await act(async () => outsideButton.click())
+    expect(order).toEqual(["outside action", "outside dismiss"])
+
+    renderer.unmount()
+    outsideButton.remove()
+  })
+
+  it("moves focus into the dialog only for an explicit open request", () => {
+    const onInitialFocus = vi.fn()
+    const renderer = render(createElement(UserBarExtensionSlot, {
+      active: "inbox",
+      inbox: createElement("button", null, "Inbox action"),
+      update: update(),
+      eligibleMachines: machines,
+      onDismiss: vi.fn(),
+      onRequestUpdate: vi.fn(),
+      focusOnOpen: true,
+      onInitialFocus,
+    }))
+
+    const slot = renderer.getByTestId(tid.userBarExtension)
+    expect(slot).toHaveAttribute("tabindex", "-1")
+    expect(slot).toHaveFocus()
+    expect(onInitialFocus).toHaveBeenCalledOnce()
   })
 })

@@ -6,17 +6,20 @@ export const COMMUNITY_SIDEBAR_DEFAULT_PERCENTAGE = 24
 export const COMMUNITY_SIDEBAR_MIN_WIDTH = 160
 export const COMMUNITY_SIDEBAR_MAX_WIDTH = 360
 export const COMMUNITY_USER_BAR_BASE_HEIGHT = 60
-export const COMMUNITY_USER_BAR_HEIGHT_CSS = `${COMMUNITY_USER_BAR_BASE_HEIGHT}px`
+export const COMMUNITY_USER_BAR_HEIGHT_CSS =
+  `calc(${COMMUNITY_USER_BAR_BASE_HEIGHT}px + var(--app-safe-area-bottom))`
 
 export function mobileInboxAvailableHeight(
   viewportHeight: number,
   safeAreaTop = 0,
+  safeAreaBottom = 0,
 ) {
   return Math.max(
     0,
     viewportHeight
       - COMMUNITY_USER_BAR_BASE_HEIGHT
-      - safeAreaTop,
+      - safeAreaTop
+      - safeAreaBottom,
   )
 }
 

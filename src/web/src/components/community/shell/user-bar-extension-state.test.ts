@@ -218,4 +218,25 @@ describe("userBarExtensionReducer", () => {
       eligibleMachineIds: ["m1"],
     })).toBe(profile)
   })
+
+  it("ignores update-only actions before update state exists", () => {
+    expect(userBarExtensionReducer(initialUserBarExtensionState, {
+      type: "update.open",
+    })).toBe(initialUserBarExtensionState)
+    expect(userBarExtensionReducer(initialUserBarExtensionState, {
+      type: "update.settle",
+      acceptedMachineIds: ["stale"],
+      failedMachineIds: [],
+    })).toBe(initialUserBarExtensionState)
+    expect(userBarExtensionReducer(initialUserBarExtensionState, {
+      type: "update.collapse",
+    })).toBe(initialUserBarExtensionState)
+  })
+
+  it("closes the requested non-update extension without update state", () => {
+    expect(userBarExtensionReducer({ active: "inbox", update: null }, {
+      type: "extension.close",
+      extension: "inbox",
+    })).toEqual(initialUserBarExtensionState)
+  })
 })

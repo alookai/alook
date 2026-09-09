@@ -242,7 +242,7 @@ export function CommunityShellLayout({
               data-mobile-hidden={sidebarMobileHidden || undefined}
               className={cn(
                 "flex flex-col bg-sidebar",
-                (isDesktop || isMobileList || isInitial) && "pb-15",
+                (isDesktop || isMobileList || isInitial) && "pb-[calc(3.75rem+var(--app-safe-area-bottom))] sm:pb-15",
               )}
             >
               <div

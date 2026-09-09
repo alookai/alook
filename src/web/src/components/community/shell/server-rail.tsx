@@ -89,7 +89,7 @@ function ServerRailFrame({
         {add && (
           <div
             data-slot="community-server-rail-add"
-            className="flex w-full shrink-0 justify-center pb-(--community-rail-bottom-inset)"
+            className="flex w-full shrink-0 justify-center pb-[calc(var(--community-rail-bottom-inset)+var(--app-safe-area-bottom))] sm:pb-(--community-rail-bottom-inset)"
             style={{
               "--community-rail-bottom-inset": `${bottomInset ?? 8}px`,
             } as CSSProperties}

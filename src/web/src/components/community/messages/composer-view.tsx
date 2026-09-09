@@ -31,6 +31,9 @@ import {
 import type { ComposerReplyTarget } from "./composer-types"
 import { FluentSendFilledIcon } from "./fluent-send-filled-icon"
 
+const COMPOSER_OUTER_CLASS =
+  "relative pl-[max(0.75rem,var(--app-safe-area-left))] pr-[max(0.75rem,var(--app-safe-area-right))] pb-[calc(0.75rem+var(--app-safe-area-bottom))] pt-0 sm:px-3 sm:pb-3"
+
 export type ComposerViewProps = {
   isForumThreadBody: boolean
   dragging: boolean
@@ -91,7 +94,9 @@ export function ComposerView({
   return (
     <div
       className={
-        isForumThreadBody ? "relative" : "relative px-3 pb-3 pt-0"
+        isForumThreadBody
+          ? "relative"
+          : COMPOSER_OUTER_CLASS
       }
       onDragEnter={onDragEnter}
       onDragLeave={onDragLeave}
@@ -242,7 +247,7 @@ export function ComposerView({
 
 export function ComposerSkeleton() {
   return (
-    <div className="relative px-3 pb-3 pt-0">
+    <div className={COMPOSER_OUTER_CLASS}>
       <div className="relative rounded-xl bg-muted py-3 pl-12 pr-24 shadow-(--e1) ring-1 ring-border/40 sm:px-12">
         <Skeleton className="h-6 w-2/5 rounded" />
         <Skeleton className="absolute left-2 bottom-2 size-8 rounded-full" />

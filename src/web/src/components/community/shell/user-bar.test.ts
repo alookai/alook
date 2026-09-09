@@ -16,8 +16,10 @@ describe("UserBar", () => {
     }))
 
     expect(html).toContain(`data-testid="${tid.userBar}"`)
-    expect(html).toContain("overflow-hidden px-3 pb-3 pt-0")
-    expect(html).not.toContain("var(--app-safe-area")
+    expect(html).toContain("pl-[max(0.75rem,var(--app-safe-area-left))]")
+    expect(html).toContain("pr-[max(0.75rem,var(--app-safe-area-right))]")
+    expect(html).toContain("pb-[calc(0.75rem+var(--app-safe-area-bottom))]")
+    expect(html).toContain("sm:px-3 sm:pb-3")
     expect(html).toContain('class="flex min-w-0 flex-1 items-center gap-2"')
     expect(html).toContain('data-testid="community-user-bar-name"')
     expect(html).toContain('class="truncate text-sm font-medium leading-tight"')
@@ -48,8 +50,10 @@ describe("UserBar", () => {
     const html = renderToStaticMarkup(createElement(UserBarSkeleton))
     expect(html).toContain(`data-testid="${tid.initialUserBarPending}"`)
     expect(html).toContain("aria-hidden=\"true\"")
-    expect(html).toContain("overflow-hidden px-3 pb-3 pt-0")
-    expect(html).not.toContain("var(--app-safe-area")
+    expect(html).toContain("pl-[max(0.75rem,var(--app-safe-area-left))]")
+    expect(html).toContain("pr-[max(0.75rem,var(--app-safe-area-right))]")
+    expect(html).toContain("pb-[calc(0.75rem+var(--app-safe-area-bottom))]")
+    expect(html).toContain("sm:px-3 sm:pb-3")
     expect(html).not.toContain("<button")
     expect(html).not.toContain("<a")
   })
@@ -72,5 +76,39 @@ describe("UserBar", () => {
     expect(closedHtml).toContain(
       'class="flex h-12 items-center gap-3 bg-muted px-4 ring-1 ring-border/40 rounded-xl"',
     )
+  })
+
+  it("preserves the desktop Inbox name while mobile exposes open state", () => {
+    const extension = {
+      active: "none" as const,
+      inbox: createElement("div", null, "Inbox content"),
+      profile: null,
+      update: null,
+      updateBadgePhase: null,
+      eligibleMachines: [],
+      onOpenUpdate: () => {},
+      onRequestUpdate: () => {},
+      onDismiss: () => {},
+    }
+    const props = {
+      user: { id: "u1", name: "User", avatar: "U" },
+      inbox: createElement("div", null, "Inbox content"),
+      hasUnread: false,
+      inboxOpen: false,
+      extension,
+    }
+
+    const desktop = renderToStaticMarkup(createElement(UserBar, {
+      ...props,
+      breakpoint: "desktop",
+    }))
+    expect(desktop).toContain('aria-label="Inbox"')
+    expect(desktop).not.toContain('aria-label="Open Inbox"')
+
+    const mobile = renderToStaticMarkup(createElement(UserBar, {
+      ...props,
+      breakpoint: "mobile",
+    }))
+    expect(mobile).toContain('aria-label="Open Inbox"')
   })
 })

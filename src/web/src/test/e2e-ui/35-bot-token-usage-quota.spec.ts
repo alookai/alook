@@ -314,7 +314,9 @@ test("My Bots restores the 30-day token heatmap across PC and mobile", async ({ 
     `[data-testid^="${tid.botUsageDay("bot_claude", "")}"]`,
   )).toHaveCount(30)
   const quota = page.getByTestId(tid.machineQuota(machine.id))
+  const updateExtension = page.getByTestId(tid.userBarExtension)
   await expect(quota).toHaveCount(1)
+  await expect(updateExtension).toHaveAttribute("data-extension", "update")
   await expect(quota).toHaveAttribute(
     "aria-label",
     "Quota details: Claude 64% left; Codex 18% left; Grok 72% left. 4 limits",
@@ -351,6 +353,7 @@ test("My Bots restores the 30-day token heatmap across PC and mobile", async ({ 
 
   await expect(quota).toHaveAttribute("aria-expanded", "false")
   await quota.click()
+  await expect(updateExtension).toHaveCount(0)
   await expect(quota).toHaveAttribute("aria-expanded", "true")
   const quotaDetail = page.getByTestId(tid.machineQuotaDetail(machine.id))
   await expect(quotaDetail).toContainText("Codex")

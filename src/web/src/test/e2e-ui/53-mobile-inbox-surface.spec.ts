@@ -14,7 +14,7 @@ import { tid } from "./_fixtures/testids"
 
 type SurfaceGeometry = {
   viewport: { width: number; height: number }
-  userBar: { top: number; bottom: number; left: number; right: number }
+  userBar: { top: number; surfaceBottom: number; bottom: number; left: number; right: number }
   card: { top: number; bottom: number; left: number; right: number; height: number }
   seam: {
     cardTopLeft: string
@@ -68,6 +68,7 @@ async function surfaceGeometry(page: Page): Promise<SurfaceGeometry> {
       viewport: { width: innerWidth, height: innerHeight },
       userBar: {
         top: userRect.top,
+        surfaceBottom: userRect.bottom,
         bottom: wrapperRect.bottom,
         left: userRect.left,
         right: userRect.right,
@@ -176,7 +177,9 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
     expect(closedTriggerStyle.borderWidth).toBe("0px")
     expect(closedTriggerStyle.boxShadow).toBe("none")
     await expect(bob.page.getByRole("button", { name: "Close Inbox" })).toHaveCount(1)
-    await expect(inboxTrigger).toBeFocused()
+    await expect(mobileSurface).toBeFocused()
+    await bob.page.keyboard.press("Tab")
+    await expect(bob.page.getByTestId(tid.userBarExtensionClose)).toBeFocused()
     await expect(bob.page.getByTestId(tid.inboxMobileBackdrop)).toHaveCount(0)
     await expect.poll(async () => {
       const current = await surfaceGeometry(bob.page)
@@ -185,6 +188,7 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
     const geometry = await surfaceGeometry(bob.page)
     expect(Math.abs(geometry.card.bottom - geometry.userBar.top)).toBeLessThanOrEqual(1)
     expect(geometry.userBar.bottom).toBe(844)
+    expect(geometry.userBar.surfaceBottom).toBe(844 - 34 - 12)
     expect(geometry.userBarOwnsCenter).toBe(true)
     expect(geometry.card.height).toBeLessThanOrEqual(448)
     expect(geometry.card.top).toBeGreaterThanOrEqual(20)
@@ -283,8 +287,8 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
     }).toBeLessThanOrEqual(1)
     const compact = await surfaceGeometry(bob.page)
     expect(compact.card.top).toBeGreaterThanOrEqual(20)
-    expect(compact.card.left).toBe(12)
-    expect(compact.card.right).toBe(320 - 12)
+    expect(compact.card.left).toBe(18)
+    expect(compact.card.right).toBe(320 - 16)
     await inboxTrigger.click()
 
     expect(writes.writes).toEqual([])
@@ -302,6 +306,10 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
     for (const width of [320, 390]) {
       await bob.page.setViewportSize({ width, height: 844 })
       await gotoAfterUserWsAuth(bob.page, `/c/channels/${serverId}`)
+      await expect(bob.page.locator('meta[name="viewport"]')).toHaveAttribute(
+        "content",
+        /viewport-fit=cover/,
+      )
       await bob.page.evaluate(() => {
         const style = document.documentElement.style
         style.setProperty("--app-safe-area-top", "20px")
@@ -333,8 +341,10 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
       expect(Math.abs(userBarBox!.width - composerBox!.width)).toBeLessThanOrEqual(1)
       expect(Math.abs(userBarBox!.height - composerBox!.height)).toBeLessThanOrEqual(1)
       expect(Math.abs(userBarBox!.y - composerBox!.y)).toBeLessThanOrEqual(1)
+      expect(userBarBox!.x).toBe(18)
+      expect(userBarBox!.x + userBarBox!.width).toBe(width - 16)
       expect(userBarBox!.height).toBe(48)
-      expect(Math.abs(844 - userBarBox!.y - userBarBox!.height)).toBe(12)
+      expect(Math.abs(844 - userBarBox!.y - userBarBox!.height)).toBe(34 + 12)
     }
   })
 
