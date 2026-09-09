@@ -14,6 +14,7 @@ import { MessageBody } from "./message-body"
 import { attachmentAspectRatio } from "./attachment-layout"
 import { tid } from "@/lib/community/testids"
 import { applyHighlightToRange, clearHighlights, hasHighlights } from "@/lib/community/highlight-range"
+import { formatMessageTime } from "@/lib/community/format-time"
 import type { RenderMsg } from "@/lib/community/models/message"
 import { displayReplyContent } from "@/lib/community/reply-content"
 import { useProfilesByUserId } from "@/stores/community/ws"
@@ -525,8 +526,8 @@ type ShareCardExportFlight = {
 }
 
 // Share one OR several messages as an image. Renders a self-contained "share
-// card" that mirrors the in-app message blob(s) (avatar / name / content — NO
-// timestamp, per spec) plus an Alook brand footer, then rasterises THAT SAME
+// card" that mirrors the in-app message blob(s) (avatar / name / timestamp /
+// content) plus an Alook brand footer, then rasterises THAT SAME
 // node to PNG (WYSIWYG) via html-to-image — fully client-side, no backend. The
 // captured node has a fixed width and its own solid background so the export is
 // stable regardless of the surrounding theme surface.
@@ -756,10 +757,21 @@ export function MessageShareDialog({ m, open, onClose }: {
                   <div className="min-w-0 flex-1">
                     {!msg.grouped && (
                       <div
-                        className="mb-0.5 text-[15px] font-semibold"
-                        style={{ color: msg.color ?? "var(--foreground)" }}
+                        className="mb-0.5 flex items-baseline gap-2"
                       >
-                        {author?.name ?? msg.authorName}
+                        <span
+                          className="min-w-0 max-w-full truncate text-[15px] font-semibold"
+                          style={{ color: msg.color ?? "var(--foreground)" }}
+                        >
+                          {author?.name ?? msg.authorName}
+                        </span>
+                        <span
+                          data-share-timestamp
+                          className="shrink-0 text-xs text-muted-foreground"
+                          suppressHydrationWarning
+                        >
+                          {formatMessageTime(msg.createdAt)}
+                        </span>
                       </div>
                     )}
                     {/* Each body: clamp at 32 lines (Alli #137 — one number for
