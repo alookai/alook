@@ -244,6 +244,14 @@ const bots = [
   },
 ]
 
+const botsResponse = {
+  bots,
+  plan: { id: "house", displayName: "House" },
+  limit: 40,
+  ownedCount: bots.length,
+  activeCount: bots.length,
+}
+
 async function attachScreenshot(page: Page, testInfo: TestInfo, name: string) {
   const path = testInfo.outputPath(`${name}.png`)
   await page.screenshot({ path, fullPage: true })
@@ -262,7 +270,7 @@ async function expectDarkTheme(page: Page, expected: boolean) {
 test("My Bots restores the 30-day token heatmap across PC and mobile", async ({ asUser }, testInfo) => {
   const { page } = await asUser("alice", { hasTouch: true })
   await page.route("**/api/community/bots", async (route) => {
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ bots }) })
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(botsResponse) })
   })
   await page.route("**/api/community/machines", async (route) => {
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ machines: [machine] }) })
