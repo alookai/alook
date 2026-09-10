@@ -142,16 +142,19 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
     await expect(inboxTrigger).toHaveAttribute("aria-pressed", "false")
     await expect(inboxIcon).toHaveAttribute("fill", "none")
     await expect(inboxIcon).not.toHaveClass(/fill-current/)
-    const readTriggerStyle = () => inboxTrigger.evaluate((element) => {
+    const readTriggerSurfaceStyle = () => inboxTrigger.evaluate((element) => {
       const style = getComputedStyle(element)
       return {
         backgroundColor: style.backgroundColor,
         color: style.color,
         borderWidth: style.borderWidth,
-        boxShadow: style.boxShadow,
       }
     })
-    const closedTriggerStyle = await readTriggerStyle()
+    const readTriggerFocusRing = () => inboxTrigger.evaluate((element) => (
+      getComputedStyle(element).boxShadow
+    ))
+    const closedTriggerSurfaceStyle = await readTriggerSurfaceStyle()
+    const closedTriggerFocusRing = await readTriggerFocusRing()
     await inboxTrigger.click()
     await bob.page.mouse.move(0, 0)
     const mobileSurface = bob.page.getByTestId(tid.userBarExtension)
@@ -165,21 +168,21 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
     await expect(inboxIcon).toHaveAttribute("fill", "none")
     await expect(inboxIcon).not.toHaveClass(/fill-current/)
     await expect.poll(async () => {
-      const openStyle = await readTriggerStyle()
+      const openStyle = await readTriggerSurfaceStyle()
       return {
-        backgroundChanged: openStyle.backgroundColor !== closedTriggerStyle.backgroundColor,
-        foregroundChanged: openStyle.color !== closedTriggerStyle.color,
+        backgroundChanged: openStyle.backgroundColor !== closedTriggerSurfaceStyle.backgroundColor,
+        foregroundChanged: openStyle.color !== closedTriggerSurfaceStyle.color,
         borderWidth: openStyle.borderWidth,
-        boxShadow: openStyle.boxShadow,
+        boxShadow: await readTriggerFocusRing(),
       }
     }).toEqual({
       backgroundChanged: true,
       foregroundChanged: true,
-      borderWidth: closedTriggerStyle.borderWidth,
-      boxShadow: closedTriggerStyle.boxShadow,
+      borderWidth: closedTriggerSurfaceStyle.borderWidth,
+      boxShadow: closedTriggerFocusRing,
     })
-    expect(closedTriggerStyle.borderWidth).toBe("0px")
-    expect(closedTriggerStyle.boxShadow).toBe("none")
+    expect(closedTriggerSurfaceStyle.borderWidth).toBe("0px")
+    expect(closedTriggerFocusRing).toBe("none")
     await expect(bob.page.getByRole("button", { name: "Close Inbox" })).toHaveCount(1)
     await expect(mobileSurface.getByRole("button", { name: /^Dismiss / })).toHaveCount(0)
     await expect(mobileSurface).toBeFocused()
@@ -256,7 +259,8 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
     await expect(inboxTrigger).toHaveAttribute("aria-pressed", "false")
     await expect(inboxIcon).toHaveAttribute("fill", "none")
     await expect(inboxIcon).not.toHaveClass(/fill-current/)
-    await expect.poll(readTriggerStyle).toEqual(closedTriggerStyle)
+    await expect.poll(readTriggerSurfaceStyle).toEqual(closedTriggerSurfaceStyle)
+    await expect.poll(readTriggerFocusRing).toContain("2px")
     await expect(bob.page).toHaveURL(new RegExp(`/c/channels/${serverId}$`))
     expect(writes.writes).toEqual([])
     expect(ws.frames).toHaveLength(wsBefore)
@@ -268,7 +272,8 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
     await expect(inboxTrigger).toBeFocused()
     await expect(inboxIcon).toHaveAttribute("fill", "none")
     await expect(inboxIcon).not.toHaveClass(/fill-current/)
-    await expect.poll(readTriggerStyle).toEqual(closedTriggerStyle)
+    await expect.poll(readTriggerSurfaceStyle).toEqual(closedTriggerSurfaceStyle)
+    await expect.poll(readTriggerFocusRing).toContain("2px")
 
     await inboxTrigger.click()
     await bob.page.keyboard.press("Escape")
