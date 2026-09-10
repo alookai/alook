@@ -273,7 +273,7 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
     await expect(inboxIcon).toHaveAttribute("fill", "none")
     await expect(inboxIcon).not.toHaveClass(/fill-current/)
     await expect.poll(readTriggerSurfaceStyle).toEqual(closedTriggerSurfaceStyle)
-    await expect.poll(readTriggerFocusRing).toContain("2px")
+    await expect.poll(readTriggerFocusRing).toBe("none")
 
     await inboxTrigger.click()
     await bob.page.keyboard.press("Escape")
