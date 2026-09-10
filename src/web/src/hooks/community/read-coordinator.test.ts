@@ -376,6 +376,34 @@ describe("read coordinator", () => {
     expect(apiFetch).toHaveBeenCalledOnce()
   })
 
+  it.each(["snapshot", "surface"] as const)("sends a queued newer target when %s confirmation retires the active request after debounce", async (confirmation) => {
+    const queryClient = new QueryClient()
+    const lease = timelineLease(queryClient)
+    apiFetch
+      .mockReturnValueOnce(new Promise(() => {}))
+      .mockResolvedValueOnce({ changed: true, revision: 6, targetSeq: 8 })
+
+    submitTimeline(lease, 3)
+    await vi.advanceTimersByTimeAsync(READ_COORDINATOR_DEBOUNCE_MS)
+    const signal = apiFetch.mock.calls[0]?.[1]?.signal as AbortSignal
+    submitTimeline(lease, 8)
+    await vi.advanceTimersByTimeAsync(READ_COORDINATOR_DEBOUNCE_MS)
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+
+    if (confirmation === "snapshot") {
+      projectReadCoordinatorSnapshot(queryClient, {
+        readStates: [{ channelId: "channel-1", lastReadSeq: 3 }],
+      })
+    } else {
+      confirmReadSurface(lease, 3)
+    }
+    expect(signal.aborted).toBe(true)
+    await vi.advanceTimersByTimeAsync(READ_COORDINATOR_DEBOUNCE_MS)
+    expect(apiFetch).toHaveBeenCalledTimes(2)
+    expect(apiFetch.mock.calls[1]?.[1]?.body).toBe(JSON.stringify({ lastReadMessageId: "message-8" }))
+    disposeReadCoordinator(queryClient)
+  })
+
   it("serializes a newer visible target behind the active request", async () => {
     const queryClient = new QueryClient()
     const lease = timelineLease(queryClient)
