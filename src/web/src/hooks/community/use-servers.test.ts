@@ -57,6 +57,7 @@ describe("useServers / serversQueryFn", () => {
           name: "Alook",
           discriminator: "0042",
           description: "Build together",
+          official: true,
           icon: null,
           ownerId: "u_1",
           role: "owner",
@@ -69,6 +70,8 @@ describe("useServers / serversQueryFn", () => {
     const { serversQueryFn } = await import("./use-servers")
     const data = await serversQueryFn()
     expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers", { signal: undefined })
+    expect(data.servers[0].official).toBe(true)
+    expect(data.servers[1].official).toBe(false)
     expect(data.servers[0].initial).toBe("A")
     expect(data.servers[0].isOwner).toBe(true)
     expect(data.servers[0].mentions).toBe(3)
@@ -591,7 +594,7 @@ describe("useServer / serverQueryFn", () => {
   })
 
   it("composes a single server detail from canonical resources", async () => {
-    const detail = { id: "srv_1", name: "Alook", description: "", icon: null, ownerId: "u_1" }
+    const detail = { id: "srv_1", name: "Alook", description: "", icon: null, ownerId: "u_1", official: true }
     apiFetchMock.mockImplementation(async (url: string) => {
       if (url === "/api/community/servers") return { servers: [{ ...detail, discriminator: "0001" }] }
       if (url.endsWith("/categories")) return { categories: [{ id: "cat_1", name: "Main", private: 0 }] }

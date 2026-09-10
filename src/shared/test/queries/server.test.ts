@@ -419,6 +419,7 @@ describe("listUserServers — mention aggregate for the rail badge", () => {
     await serverQueries.listUserServers(db, "u_1");
     const outer = selectChains[1];
     expect(outer.from).toBe(communityServer);
+    expect(outer.fields.official).toBe(communityServer.official);
     // Inner join to member (the "am I in this server" pin) MUST stay — the
     // mention aggregate is a badge on the rail, not a public feed.
     expect(outer.innerJoins).toHaveLength(1);

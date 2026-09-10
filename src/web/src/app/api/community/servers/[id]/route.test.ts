@@ -101,6 +101,19 @@ describe("PATCH /api/community/servers/[id]", () => {
     mockFanOut.mockResolvedValue(undefined)
   })
 
+  it("does not allow an owner to promote a server to official", async () => {
+    const res = await PATCH(patchReq({ official: true }), ctx)
+    expect(res.status).toBe(400)
+    expect(mockUpdateServer).not.toHaveBeenCalled()
+  })
+
+  it("ignores official when updating an allowed field", async () => {
+    mockUpdateServer.mockResolvedValue({ id: "s1", name: "Renamed", official: false })
+    const res = await PATCH(patchReq({ name: "Renamed", official: true }), ctx)
+    expect(res.status).toBe(200)
+    expect(mockUpdateServer).toHaveBeenCalledWith(expect.anything(), "s1", { name: "Renamed" })
+  })
+
   it("normalizes a spaced rename via slugify before calling updateServer", async () => {
     mockUpdateServer.mockResolvedValue({ id: "s1", name: "My-Home" })
 

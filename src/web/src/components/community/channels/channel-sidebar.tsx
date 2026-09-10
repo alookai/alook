@@ -1,5 +1,6 @@
 "use client"
 
+import { OfficialServerBadge } from "../official-server-badge"
 import { Fragment, memo, useRef, useState } from "react"
 import { Settings, Users, Link2, Bell, ChevronDown, UserPlus } from "lucide-react"
 import {
@@ -53,7 +54,7 @@ const channelSidebarCollisionDetection: CollisionDetection = (args) => {
 // right-click) creates; channels right-click to edit/delete. A private category only
 // lets admins create channels — non-admins are blocked via onBlockedCreate.
 export const ChannelSidebar = memo(function ChannelSidebar({
-  tree, serverName, activeChannel, setActiveChannel, prefetchChannel, noHeader, onOpenSettings,
+  tree, serverName, official, activeChannel, setActiveChannel, prefetchChannel, noHeader, onOpenSettings,
   isAdmin = true, currentUserId, onBlockedCreate, mutedChannels, loading,
   onCreateChannel, onCreateCategory, onDeleteChannel, onDeleteCategory,
   onUpdateCategory, onRenameChannel, onReorderCategories, onReorderChannels,
@@ -63,6 +64,7 @@ export const ChannelSidebar = memo(function ChannelSidebar({
 }: {
   tree: ChannelTree
   serverName: string
+  official?: boolean
   serverIcon?: string | null
   activeChannel: string
   setActiveChannel: (id: string) => void
@@ -323,7 +325,8 @@ export const ChannelSidebar = memo(function ChannelSidebar({
   return (
     <aside className="flex min-h-0 min-w-0 flex-1 flex-col">
       {!noHeader && (
-        <header className="flex h-12 items-center gap-1 border-b border-border/40 px-2">
+        <header className="relative flex h-12 items-center gap-1 border-b border-border/40 px-2">
+          <OfficialServerBadge official={official} className="absolute left-1 top-0.5 z-1" />
           {serverName && onOpenSettings ? (
             <DropdownMenu>
               <DropdownMenuTrigger className="flex h-11 min-w-0 max-w-full items-center gap-2 rounded-md px-2 hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:h-auto sm:py-1">

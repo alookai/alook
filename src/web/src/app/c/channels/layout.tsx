@@ -390,6 +390,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     tree: channelTree,
     serverName: currentServer?.name ?? structuralServer?.name ?? "",
     serverIcon: currentServer?.icon ?? structuralServer?.icon ?? null,
+    official: currentServer?.official ?? false,
     activeChannel: currentChannelMeta?.parentChannelId ?? currentChannelId ?? "",
     isAdmin,
     currentUserId: currentUser.id,
