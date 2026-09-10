@@ -49,10 +49,18 @@ describe("UserBarExtensionSlot", () => {
     expect(slot).toHaveAttribute("role", "dialog")
     expect(slot).toHaveAttribute("aria-modal", "false")
     expect(slot).toHaveAttribute("data-extension", "inbox")
-    expect(slot.className).toContain("rounded-t-xl")
-    expect(slot.className).toContain("shadow-(--e2)")
-    expect(slot.className).toContain("[clip-path:inset(-2rem_-2rem_0)]")
-    expect(slot.className).not.toContain("shadow-none")
+    const classes = slot.className.split(" ")
+    expect(classes).toEqual(expect.arrayContaining([
+      "rounded-t-xl",
+      "border-x",
+      "border-t",
+      "border-border/40",
+      "shadow-(--e2)",
+      "[clip-path:inset(-2rem_-2rem_0)]",
+    ]))
+    expect(classes).not.toContain("border-b")
+    expect(classes).not.toContain("border-b-0")
+    expect(classes).not.toContain("shadow-none")
     expect(slot.style.height).toContain("100dvh")
     expect(renderer.getByTestId("inbox-content")).toBeInTheDocument()
     expect(renderer.queryByTestId("profile-content")).not.toBeInTheDocument()

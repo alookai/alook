@@ -98,7 +98,7 @@ export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox,
         ref={inboxAnchorRef}
         data-slot="community-user-bar-base"
         className={cn(
-          "flex h-12 items-center gap-3 bg-muted px-4 ring-1 ring-border/40",
+          "flex h-12 items-center gap-3 border border-border/40 bg-muted px-4",
           (extension && extension.active !== "none") || (breakpoint === "mobile" && inboxOpen)
             ? "rounded-b-xl"
             : "rounded-xl",
@@ -136,7 +136,7 @@ export function UserBarSkeleton() {
       aria-hidden
       className="w-full min-w-0 max-w-full shrink-0 overflow-hidden pl-[max(0.75rem,var(--app-safe-area-left))] pr-[max(0.75rem,var(--app-safe-area-right))] pb-[calc(0.75rem+var(--app-safe-area-bottom))] pt-0 sm:px-3 sm:pb-3"
     >
-      <div className="flex h-12 items-center gap-3 rounded-xl bg-muted px-4 ring-1 ring-border/40">
+      <div className="flex h-12 items-center gap-3 rounded-xl border border-border/40 bg-muted px-4">
         <Skeleton className="size-7 shrink-0 rounded-full" />
         <Skeleton className="h-3.5 min-w-0 flex-1 rounded" />
         <Skeleton className="size-7 shrink-0 rounded-lg" />
