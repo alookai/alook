@@ -1,5 +1,4 @@
 import React from "react"
-import { cleanup } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, render } from "@/test/react-dom-harness"
 import { AlookLoading } from "./AlookLoading"
@@ -40,7 +39,6 @@ describe("AlookLoading playback lifecycle", () => {
   })
 
   afterEach(() => {
-    cleanup()
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
   })
