@@ -201,6 +201,10 @@ describe("community high-cardinality D1 queries", () => {
     );
     await grantBotCapacity(ownerId, `${prefix}_plan`, 125);
     await run(
+      "INSERT INTO product_plan_entitlement (plan_id, entitlement_key, value_json) VALUES (?, 'machines.max', '1')",
+      `${prefix}_plan`,
+    );
+    await run(
       "INSERT INTO community_machine (id, user_id, display_name, hostname, available_runtimes, status, created_at, updated_at) VALUES (?, ?, 'Machine', 'host', '[]', 'online', ?, ?)",
       machineId,
       ownerId,

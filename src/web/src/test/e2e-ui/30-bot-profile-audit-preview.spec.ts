@@ -11,16 +11,28 @@ type UserKey = "alice" | "bob"
 type Rect = { x: number; y: number; width: number; height: number }
 
 const createdBotIds: string[] = []
+const createdMachineIds: string[] = []
 
-test.afterEach(async () => {
-  for (const botId of createdBotIds.splice(0)) {
+async function cleanupCreatedResources(): Promise<void> {
+  for (const botId of [...createdBotIds]) {
     const response = await fetch(`${WEB_URL}/api/community/bots/${botId}`, {
       method: "DELETE",
       headers: headersFor("alice"),
     })
     expect(response.status, `delete test bot ${botId}`).toBe(204)
+    createdBotIds.splice(createdBotIds.indexOf(botId), 1)
   }
-})
+  for (const machineId of [...createdMachineIds]) {
+    const response = await fetch(`${WEB_URL}/api/community/machines/${machineId}`, {
+      method: "DELETE",
+      headers: headersFor("alice"),
+    })
+    expect(response.status, `delete test machine ${machineId}`).toBe(204)
+    createdMachineIds.splice(createdMachineIds.indexOf(machineId), 1)
+  }
+}
+
+test.afterEach(cleanupCreatedResources)
 
 async function rect(locator: Locator): Promise<Rect> {
   const value = await locator.boundingBox()
@@ -233,7 +245,9 @@ async function pairMachine(): Promise<{ credential: string; machineId: string }>
     }),
   })
   expect(response.status).toBe(200)
-  return response.json() as Promise<{ credential: string; machineId: string }>
+  const data = await response.json() as { credential: string; machineId: string }
+  createdMachineIds.push(data.machineId)
+  return data
 }
 
 async function createBot(machineId: string, name: string): Promise<string> {
@@ -767,6 +781,7 @@ test("CommunitySheet footers keep four consumers horizontal and intrinsic at 390
   await page.getByRole("dialog", { name: `Edit ${botName}`, exact: true })
     .getByRole("button", { name: "Close", exact: true }).click()
 
+  await cleanupCreatedResources()
   await gotoAfterUserWsAuth(page, "/c/me/machines")
   await page.getByTestId(tid.machinePairOpen).click()
   for (const width of [390, 639, 640] as const) {

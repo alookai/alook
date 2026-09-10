@@ -114,6 +114,7 @@ export function MachineListSkeleton({
           <header data-slot="community-machines-heading" className={MACHINE_LIST_HEADING_CLASS}>
             <div data-slot="community-machines-heading-copy" className={MACHINE_LIST_HEADING_COPY_CLASS}>
               <Skeleton className="h-7 w-24 rounded" />
+              <Skeleton aria-hidden className="h-11 w-36 max-w-full rounded-sm sm:h-6" />
               <div aria-hidden className="relative w-fit max-w-full">
                 <p className="invisible text-sm">{MACHINE_LIST_DESCRIPTION}</p>
                 <Skeleton className="absolute inset-0 rounded" />
