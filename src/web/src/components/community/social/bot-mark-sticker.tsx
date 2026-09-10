@@ -259,7 +259,7 @@ export function BotMarkSticker({
         </div>
       )}
 
-      <footer className="flex h-12 shrink-0 items-center gap-1 px-3 py-0.5 sm:h-9 sm:py-1">
+      <footer className="flex h-9 shrink-0 items-center gap-1 px-3 py-1">
         {active ? (
           <div className="min-w-0 flex-1 overflow-hidden">
             <BotAuditActiveRow latestEventAt={visibleEvents.at(-1)?.createdAt} tone="note" />
@@ -274,7 +274,7 @@ export function BotMarkSticker({
             onClick={onStop}
             disabled={stopPending}
             aria-label={stopPending ? "Stopping current agent turn" : "Stop current agent turn"}
-            className="flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-[#dc2626] px-2.5 text-xs font-semibold text-white shadow-[0_2px_5px_rgba(127,29,29,0.28)] transition-colors hover:bg-[#b91c1c] active:bg-[#991b1b] focus-visible:ring-2 focus-visible:ring-[#7f1d1d] focus-visible:ring-offset-1 focus-visible:outline-none disabled:cursor-wait disabled:bg-[#b91c1c] disabled:text-white/85 sm:min-h-7"
+            className="flex min-h-7 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-[#dc2626] px-2.5 text-xs font-semibold text-white shadow-[0_2px_5px_rgba(127,29,29,0.28)] transition-colors hover:bg-[#b91c1c] active:bg-[#991b1b] focus-visible:ring-2 focus-visible:ring-[#7f1d1d] focus-visible:ring-offset-1 focus-visible:outline-none disabled:cursor-wait disabled:bg-[#b91c1c] disabled:text-white/85"
           >
             {stopPending
               ? <LoaderCircle className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden />
