@@ -1,12 +1,37 @@
-import type { WebSocketRoute } from "@playwright/test"
+import type { Page, WebSocketRoute } from "@playwright/test"
 import { test, expect } from "./_fixtures/community-fixture"
 import {
   composerEditable,
   gotoAfterUserWsAuth,
-  observeUserWsAuth,
 } from "./_fixtures/actions"
 import { seedChannel, seedServer } from "./_fixtures/seed"
 import { tid } from "./_fixtures/testids"
+
+const USER_WS_AUTH_CONSUMED_ATTRIBUTE = "data-e2e-user-ws-auth-consumed"
+
+async function installUserWsAuthConsumedBarrier(page: Page) {
+  await page.addInitScript(({ attribute }) => {
+    const NativeWebSocket = window.WebSocket
+    window.WebSocket = class extends NativeWebSocket {
+      constructor(...args: ConstructorParameters<typeof WebSocket>) {
+        super(...args)
+        if (!new URL(this.url).pathname.endsWith("/user")) return
+        this.addEventListener("message", (event) => {
+          if (typeof event.data !== "string") return
+          try {
+            const message = JSON.parse(event.data) as { type?: string }
+            if (message.type !== "auth.ok") return
+            // The next task runs after the current message event has finished
+            // dispatching to the application's WebSocket listener.
+            setTimeout(() => {
+              document.documentElement.setAttribute(attribute, "true")
+            }, 0)
+          } catch {}
+        })
+      }
+    }
+  }, { attribute: USER_WS_AUTH_CONSUMED_ATTRIBUTE })
+}
 
 test("slow auth and an initial retry never block a cold Community page", async ({ asUser }) => {
   test.setTimeout(90_000)
@@ -182,7 +207,6 @@ test("an active onboarding form yields focus priority during outage, then resume
   const page = await context.newPage()
   let userWs: WebSocketRoute | null = null
   let blockUserWs = false
-  let authObservation: ReturnType<typeof observeUserWsAuth> | null = null
   await page.routeWebSocket((url) => url.pathname.endsWith("/user"), (ws) => {
     userWs = ws
     if (blockUserWs) {
@@ -193,17 +217,21 @@ test("an active onboarding form yields focus priority during outage, then resume
   })
 
   try {
+    await installUserWsAuthConsumedBarrier(page)
     await page.goto("/sign-in")
     await page.getByRole("textbox", { name: "Email" }).fill(
       `guide-reconnect-${process.pid}-${Date.now()}@example.com`,
     )
-    authObservation = observeUserWsAuth(page)
     await page.getByRole("button", { name: "Sign in", exact: true }).click()
     await page.waitForURL("**/c/me/machines", { waitUntil: "commit" })
     const onboarding = page.getByRole("dialog")
     await expect(onboarding).toBeVisible()
     await expect(onboarding.getByRole("heading", { name: "Which harness do you already use?" })).toBeVisible()
-    await authObservation.authenticated
+    await expect(page.locator("html")).toHaveAttribute(
+      USER_WS_AUTH_CONSUMED_ATTRIBUTE,
+      "true",
+      { timeout: 20_000 },
+    )
 
     blockUserWs = true
     expect(userWs).not.toBeNull()
@@ -246,7 +274,6 @@ test("an active onboarding form yields focus priority during outage, then resume
     await expect(onboarding).toBeVisible()
     await expect(onboarding.getByRole("heading", { name: "Which harness do you already use?" })).toBeVisible()
   } finally {
-    authObservation?.cleanup()
     if (!page.isClosed()) {
       blockUserWs = false
       await context.close()
