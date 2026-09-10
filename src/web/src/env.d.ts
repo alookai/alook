@@ -1,5 +1,7 @@
 interface RuntimeEnv {
   ENCRYPTION_KEY: string
+  APP_REVIEW_EMAIL?: string
+  APP_REVIEW_OTP?: string
   AUTH_OTP_RATE_LIMIT_MAX?: string
   AUTH_OTP_RATE_LIMIT_WINDOW_SEC?: string
   DEVICE_CLIENT_IDS?: string
