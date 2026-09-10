@@ -144,7 +144,7 @@ describe("UserBar", () => {
     },
   )
 
-  it("fills only the active Inbox icon while keeping the trigger mounted", () => {
+  it("keeps the Inbox glyph outlined and expresses open state on its trigger", () => {
     const renderInbox = (open: boolean) => renderToStaticMarkup(createElement(UserBar, {
       breakpoint: "desktop",
       user: { id: "u1", name: "User", avatar: "U" },
@@ -164,7 +164,16 @@ describe("UserBar", () => {
       },
     }))
 
-    expect(renderInbox(false)).not.toContain("size-4 fill-current")
-    expect(renderInbox(true)).toContain("size-4 fill-current")
+    const closed = renderInbox(false)
+    const open = renderInbox(true)
+
+    expect(closed).toContain('aria-expanded="false"')
+    expect(open).toContain('aria-expanded="true"')
+    expect(closed).toContain("aria-expanded:bg-accent")
+    expect(closed).toContain("aria-expanded:text-foreground")
+    expect(open).toContain("aria-expanded:bg-accent")
+    expect(open).toContain("aria-expanded:text-foreground")
+    expect(closed).not.toContain("fill-current")
+    expect(open).not.toContain("fill-current")
   })
 })

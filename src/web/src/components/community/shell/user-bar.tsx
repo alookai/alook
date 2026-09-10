@@ -224,9 +224,9 @@ function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnrea
             type="button"
             data-testid={tid.inboxTrigger}
             className={cn(
-              "relative grid size-11 place-items-center rounded-lg text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:size-7",
+              "relative grid size-11 place-items-center rounded-lg text-muted-foreground aria-expanded:bg-accent aria-expanded:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:size-7",
               mobile
-                ? "hover:text-foreground active:text-foreground aria-expanded:text-foreground"
+                ? "hover:text-foreground active:text-foreground"
                 : "hover:bg-accent hover:text-foreground",
             )}
             aria-label={mobile ? (inboxOpen ? "Close Inbox" : "Open Inbox") : "Inbox"}
@@ -239,7 +239,7 @@ function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnrea
             }}
           >
             <span className="relative grid size-4 place-items-center">
-              <Inbox className={cn("size-4", inboxOpen && "fill-current")} />
+              <Inbox className="size-4" />
               {hasUnread && <span className="absolute -right-1 -top-1 size-2 rounded-full bg-primary" />}
             </span>
           </button>

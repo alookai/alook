@@ -95,7 +95,7 @@ export function UserBarExtensionSlot({
       data-extension={active}
       tabIndex={-1}
       className={cn(
-        "relative min-h-0 origin-bottom overflow-hidden rounded-t-xl border border-b-0 border-border bg-popover text-popover-foreground shadow-(--e2)",
+        "relative min-h-0 origin-bottom overflow-hidden rounded-t-xl border border-b-0 border-border bg-popover text-popover-foreground shadow-(--e2) [clip-path:inset(-2rem_-2rem_0)]",
         "motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-1 motion-safe:duration-150",
         active === "inbox" && "flex flex-col",
       )}
