@@ -1,7 +1,7 @@
 .page {
-  --tag-paper: color-mix(in oklab, var(--background) 12%, white);
-  --tag-ink: color-mix(in oklab, var(--foreground) 18%, black);
-  --tag-muted: color-mix(in oklab, var(--tag-ink) 58%, transparent);
+  --tag-paper: #f4d85b;
+  --tag-ink: #24221e;
+  --tag-muted: color-mix(in oklab, var(--tag-ink) 82%, var(--tag-paper));
   --tag-border: color-mix(in oklab, var(--tag-ink) 18%, transparent);
   --house-stock: color-mix(in oklab, var(--foreground) 22%, black);
   --house-ink: color-mix(in oklab, var(--background) 18%, white);
@@ -450,12 +450,12 @@
 .studioButton {
   width: 100%;
   padding-inline: 16px;
-  background: var(--house-stock);
-  color: var(--house-ink);
+  background: var(--tag-ink);
+  color: #fff8e8;
 }
 
 .studioButton:hover {
-  background: color-mix(in oklab, var(--house-stock) 88%, var(--house-ink));
+  background: color-mix(in oklab, var(--tag-ink) 88%, var(--tag-paper));
 }
 
 .tagFooter {

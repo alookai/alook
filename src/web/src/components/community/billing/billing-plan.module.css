@@ -27,8 +27,8 @@
 }
 
 .offer {
-  --paper: #f4f0e8;
-  --ink: #282621;
+  --paper: #f4d85b;
+  --ink: #24221e;
   position: relative;
   min-width: 0;
   display: flex;
@@ -102,3 +102,6 @@
   .offer:hover,
   .offer:focus-within { transform: none; }
 }
+
+.studio .action { background: #fff8e8; color: var(--ink); }
+.studio .action:hover { background: color-mix(in oklab, #fff8e8 88%, var(--paper)); }
