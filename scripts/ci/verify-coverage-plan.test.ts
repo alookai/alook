@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { describe, expect, it } from "vitest"
@@ -30,6 +30,43 @@ function resignPlan(value) {
 }
 
 describe("verifyCoveragePlan", () => {
+  it("audits the type-only navigation model without waiving the project denominator", () => {
+    const changed = "src/web/src/lib/community/models/navigation.ts"
+    const runtime = "src/web/src/lib/config.ts"
+    const plan = buildExecutionPlan([{ status: "M", path: changed }], { baseSha, headSha })
+    expect(verifyCoveragePlan(plan, { [runtime]: coveredFile(runtime) }))
+      .toMatchObject({ type_only_changed_files: [changed] })
+    expect(() => verifyCoveragePlan(plan, {})).toThrow("nonempty denominator")
+  })
+
+  it.each([
+    ["extra empty statement", "import type { Foo } from './foo'; export type Bar = Foo; export interface Item { id: string };", false],
+    ["type exports", "export type { Foo } from './foo'; export type * from './bar';", true],
+    ["types and interfaces", "import type { Foo } from './foo'; export type Bar = Foo; export interface Item { id: string }", true],
+    ["runtime value", "export type Foo = string; export const value = 1;", false],
+    ["side-effect import", "import './setup'; export type Foo = string;", false],
+    ["value import", "import { Foo } from './foo'; export type Bar = Foo;", false],
+    ["value re-export", "export { Foo } from './foo';", false],
+    ["enum", "export enum Foo { Bar }", false],
+    ["namespace", "export namespace Foo { export const bar = 1 }", false],
+    ["invalid syntax", "export type Foo = ;", false],
+    ["empty source", "", false],
+  ])("handles %s conservatively", (_name, source, typeOnly) => {
+    const root = mkdtempSync(join(tmpdir(), "alook-coverage-types-"))
+    const changed = "src/web/src/types.ts"
+    const runtime = "src/web/src/lib/config.ts"
+    const plan = buildExecutionPlan([{ status: "M", path: changed }], { baseSha, headSha })
+    try {
+      mkdirSync(join(root, "src/web/src"), { recursive: true })
+      writeFileSync(join(root, changed), source)
+      const verify = () => verifyCoveragePlan(plan, { [runtime]: coveredFile(runtime) }, { root })
+      if (typeOnly) expect(verify().type_only_changed_files).toEqual([changed])
+      else expect(verify).toThrow(`required changed coverage file is missing from merged report: ${changed}`)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it("permits an excluded E2E fixture without hiding missing product coverage", () => {
     const fixture = "src/web/src/test/e2e-ui/_fixtures/community-notification-requests.ts"
     const product = "src/web/src/lib/community/message-dispatcher.ts"

@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { isAbsolute, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+import ts from "typescript"
 import {
   loadScopeManifest,
   validateExecutionPlan,
@@ -23,6 +24,18 @@ function statementCounts(file) {
   }
 }
 
+function isTypeOnlySource(path) {
+  if (!/\.[cm]?tsx?$/.test(path)) return false
+  const source = ts.createSourceFile(path, readFileSync(path, "utf8"), ts.ScriptTarget.Latest, true)
+  if (source.parseDiagnostics.length > 0 || source.statements.length === 0) return false
+  return source.statements.every((statement) => (
+    ts.isTypeAliasDeclaration(statement)
+    || ts.isInterfaceDeclaration(statement)
+    || (ts.isImportDeclaration(statement) && statement.importClause?.isTypeOnly === true)
+    || (ts.isExportDeclaration(statement) && statement.isTypeOnly)
+  ))
+}
+
 export function verifyCoveragePlan(plan, report, options = {}) {
   const root = options.root || ROOT
   const manifest = options.manifest || loadScopeManifest()
@@ -33,12 +46,17 @@ export function verifyCoveragePlan(plan, report, options = {}) {
     coverage: value,
   }))
   const reportPaths = new Set(files.map((entry) => entry.path))
+  const typeOnlyChangedFiles = []
 
   for (const path of plan.coverage.required_changed_files) {
     if (!existsSync(resolve(root, path))) {
       throw new Error(`required changed coverage file does not exist at head: ${path}`)
     }
     if (!reportPaths.has(path)) {
+      if (isTypeOnlySource(resolve(root, path))) {
+        typeOnlyChangedFiles.push(path)
+        continue
+      }
       throw new Error(`required changed coverage file is missing from merged report: ${path}`)
     }
   }
@@ -81,6 +99,7 @@ export function verifyCoveragePlan(plan, report, options = {}) {
     plan_hash: plan.plan_hash,
     include_roots: plan.coverage.include_roots,
     required_changed_files: plan.coverage.required_changed_files,
+    type_only_changed_files: typeOnlyChangedFiles,
     report_files: [...reportPaths].sort(),
     targets,
   }
