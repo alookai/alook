@@ -75,6 +75,10 @@ export const blogTopics = [
         slug: "ai-agent-communication",
         userJob: "Choose the right communication layer for agents, protocols, and teams",
       },
+      {
+        slug: "introducing-alook",
+        userJob: "See how people and AI agents talk directly in shared rooms",
+      },
       { slug: "shared-context-between-agents", userJob: "Understand why agents drift without shared context" },
       {
         slug: "what-makes-a-shared-ai-workspace-usable",
