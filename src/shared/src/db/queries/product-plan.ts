@@ -1,7 +1,7 @@
 import { and, count, eq, exists, gt, inArray, isNull, notExists, or, sql, type SQL } from "drizzle-orm";
 import type { z } from "zod";
 import { user } from "../schema";
-import { communityBotBinding } from "../community-machine-schema";
+import { communityBotBinding, communityMachine, communityMachineCredential, communityAgentRunnerKey } from "../community-machine-schema";
 import {
   productPlan,
   productPlanEntitlement,
@@ -10,6 +10,8 @@ import {
 import type { Database } from "../index";
 import {
   BOTS_MAX_ENTITLEMENT_KEY,
+  MACHINES_MAX_ENTITLEMENT_KEY,
+  type MachineCapacitySummary,
   EntitlementValueSchema,
   NonNegativeIntegerEntitlementSchema,
   type BotCapacitySummary,
@@ -150,6 +152,36 @@ export async function resolveBotsMaxForUser(
   );
 }
 
+export async function resolveMachinesMaxForUser(db: Database, userId: string) {
+  return resolveEntitlementForUser(db, userId, MACHINES_MAX_ENTITLEMENT_KEY, NonNegativeIntegerEntitlementSchema);
+}
+
+export async function getMachineCapacitySummary(db: Database, ownerUserId: string): Promise<MachineCapacitySummary> {
+  const [{ plan, value: limit, isFounder }, counts] = await Promise.all([
+    resolveMachinesMaxForUser(db, ownerUserId),
+    db.select({
+      ownedCount: count(),
+      onlineCount: sql<number>`COALESCE(SUM(CASE WHEN ${communityMachine.status} = 'online' THEN 1 ELSE 0 END), 0)`,
+    }).from(communityMachine).where(eq(communityMachine.userId, ownerUserId)),
+  ]);
+  return { plan, isFounder, limit, ownedCount: counts[0]?.ownedCount ?? 0, onlineCount: counts[0]?.onlineCount ?? 0 };
+}
+
+export class MachineLimitReachedError extends Error {
+  constructor(public readonly capacity: MachineCapacitySummary) {
+    super("MACHINE_LIMIT_REACHED");
+    this.name = "MachineLimitReachedError";
+  }
+}
+
+export async function assertMachineCapacity(db: Database, userId: string, kind: "owned" | "online") {
+  const capacity = await getMachineCapacitySummary(db, userId);
+  if ((kind === "owned" ? capacity.ownedCount : capacity.onlineCount) >= capacity.limit) {
+    throw new MachineLimitReachedError(capacity);
+  }
+  return capacity;
+}
+
 export async function getBotCapacitySummary(
   db: Database,
   ownerUserId: string,
@@ -267,6 +299,59 @@ function reconcilePlanActiveBotsBuilder(
   );
 }
 
+export type DisconnectedMachine = { machineId: string; userId: string; doName: string | null };
+
+export function machinesMaxForPlanSql(planId: string): SQL<number> {
+  return sql<number>`COALESCE((
+    SELECT CAST(e.value_json AS INTEGER) FROM product_plan_entitlement e
+    INNER JOIN product_plan p ON p.id = e.plan_id AND p.is_active = 1
+    WHERE e.plan_id = ${planId} AND e.entitlement_key = ${MACHINES_MAX_ENTITLEMENT_KEY}
+      AND json_type(e.value_json) = 'integer' AND CAST(e.value_json AS INTEGER) >= 0 LIMIT 1
+  ), 0)`;
+}
+
+function reconcileOnlineMachinesBuilders(db: Database, ownerCondition: SQL<unknown>, limit: number | SQL<number>) {
+  const ranked = db.$with("ranked_online_machines").as(
+    db.select({
+      machineId: communityMachine.id,
+      onlineRank: sql<number>`ROW_NUMBER() OVER (
+        PARTITION BY ${communityMachine.userId} ORDER BY ${communityMachine.createdAt} ASC, ${communityMachine.id} ASC
+      )`.as("online_rank"),
+    }).from(communityMachine).where(and(eq(communityMachine.status, "online"), ownerCondition)),
+  );
+  const overflow = db.with(ranked).select({ machineId: ranked.machineId }).from(ranked).where(gt(ranked.onlineRank, limit));
+  const affected = db.select({
+    machineId: communityMachine.id, userId: communityMachine.userId, doName: communityMachineCredential.doName,
+  }).from(communityMachine).leftJoin(communityMachineCredential, and(
+    eq(communityMachineCredential.machineId, communityMachine.id), isNull(communityMachineCredential.revokedAt),
+  )).where(inArray(communityMachine.id, overflow));
+  const now = new Date().toISOString();
+  const runners = db.update(communityAgentRunnerKey).set({ revokedAt: now })
+    .where(and(inArray(communityAgentRunnerKey.machineId, overflow), isNull(communityAgentRunnerKey.revokedAt)));
+  const credentials = db.update(communityMachineCredential).set({ revokedAt: now })
+    .where(and(inArray(communityMachineCredential.machineId, overflow), isNull(communityMachineCredential.revokedAt)));
+  const offline = db.update(communityMachine).set({ status: "offline", lastSeenAt: now, updatedAt: now })
+    .where(inArray(communityMachine.id, overflow));
+  return [affected, runners, credentials, offline] as const;
+}
+
+export function reconcileOwnerOnlineMachinesBuilders(db: Database, userId: string, limit: number | SQL<number>, guard?: SQL<unknown>) {
+  return reconcileOnlineMachinesBuilders(db, and(eq(communityMachine.userId, userId), guard)!, limit);
+}
+
+export function machinesMaxForUserSql(userId: string): SQL<number> {
+  return sql<number>`COALESCE((
+    SELECT CAST(e.value_json AS INTEGER)
+    FROM product_plan_entitlement e
+    INNER JOIN product_plan p ON p.id = e.plan_id AND p.is_active = 1
+    LEFT JOIN user_product_plan up ON up.user_id = ${userId}
+    WHERE e.entitlement_key = ${MACHINES_MAX_ENTITLEMENT_KEY}
+      AND json_type(e.value_json) = 'integer' AND CAST(e.value_json AS INTEGER) >= 0
+      AND p.id = COALESCE(up.plan_id, (SELECT id FROM product_plan WHERE is_default = 1 AND is_active = 1 LIMIT 1))
+    LIMIT 1
+  ), 0)`;
+}
+
 export function botsMaxForPlanSql(planId: string): SQL<number> {
   return sql<number>`COALESCE((
     SELECT CAST(entitlement.value_json AS INTEGER)
@@ -314,12 +399,13 @@ export async function assignUserPlan(
   db: Database,
   userId: string,
   planId: string,
-): Promise<{ plan: ResolvedProductPlan; limit: number; deactivatedBotIds: string[] }> {
+): Promise<{ plan: ResolvedProductPlan; limit: number; deactivatedBotIds: string[]; disconnectedMachines: DisconnectedMachine[] }> {
   const resolved = parseStoredEntitlement(
     await resolveStoredEntitlementForPlan(db, planId, BOTS_MAX_ENTITLEMENT_KEY),
     BOTS_MAX_ENTITLEMENT_KEY,
     NonNegativeIntegerEntitlementSchema,
   );
+  parseStoredEntitlement(await resolveStoredEntitlementForPlan(db, planId, MACHINES_MAX_ENTITLEMENT_KEY), MACHINES_MAX_ENTITLEMENT_KEY, NonNegativeIntegerEntitlementSchema);
   const guard = and(nonFounderCondition(db, userId), exists(
     db.select({ id: user.id }).from(user).where(and(
       eq(user.id, userId), eq(user.isBot, false), isNull(user.deletedAt),
@@ -329,12 +415,15 @@ export async function assignUserPlan(
   const reconcile = reconcileOwnerActiveBotsBuilder(
     db, userId, botsMaxForPlanSql(planId), guard,
   );
-  const results = await db.batch([assign, reconcile] as any) as unknown as [Array<{ userId: string }>, Array<{ botId: string }>];
+  const machines = reconcileOwnerOnlineMachinesBuilders(db, userId, machinesMaxForPlanSql(planId), guard);
+  const results = await db.batch([assign, reconcile, ...machines]);
+
   if (results[0].length === 0) throw new Error("PLAN_ASSIGNMENT_PROTECTED");
   return {
     plan: resolved.plan,
     limit: resolved.value,
     deactivatedBotIds: results[1].map((row) => row.botId),
+    disconnectedMachines: results[2],
   };
 }
 
@@ -343,7 +432,7 @@ export async function setPlanEntitlement(
   planId: string,
   entitlementKey: string,
   value: EntitlementValue,
-): Promise<{ deactivatedBotIds: string[] }> {
+): Promise<{ deactivatedBotIds: string[]; disconnectedMachines?: DisconnectedMachine[] }> {
   const parsedValue = EntitlementValueSchema.parse(value);
   const planRows = await db
     .select({ id: productPlan.id })
@@ -361,6 +450,16 @@ export async function setPlanEntitlement(
       target: [productPlanEntitlement.planId, productPlanEntitlement.entitlementKey],
       set: { valueJson: parsedValue, updatedAt: now },
     });
+  if (entitlementKey === MACHINES_MAX_ENTITLEMENT_KEY) {
+    const parsed = NonNegativeIntegerEntitlementSchema.safeParse(parsedValue);
+    if (!parsed.success) throw new ProductEntitlementUnavailableError(entitlementKey, "entitlement_malformed");
+    const explicit = inArray(communityMachine.userId, db.select({ id: userProductPlan.userId }).from(userProductPlan).where(eq(userProductPlan.planId, planId)));
+    const defaultPlan = exists(db.select({ id: productPlan.id }).from(productPlan).where(and(eq(productPlan.id, planId), eq(productPlan.isDefault, true))));
+    const unassigned = notExists(db.select({ id: userProductPlan.userId }).from(userProductPlan).where(eq(userProductPlan.userId, communityMachine.userId)));
+    const machines = reconcileOnlineMachinesBuilders(db, or(explicit, and(defaultPlan, unassigned))!, parsed.data);
+    const results = await db.batch([write, ...machines]);
+    return { deactivatedBotIds: [], disconnectedMachines: results[1] };
+  }
   if (entitlementKey !== BOTS_MAX_ENTITLEMENT_KEY) {
     await write;
     return { deactivatedBotIds: [] };

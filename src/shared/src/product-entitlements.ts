@@ -22,6 +22,7 @@ export const EntitlementValueSchema: z.ZodType<EntitlementValue> = z.lazy(() =>
 export const NonNegativeIntegerEntitlementSchema = z.number().int().nonnegative();
 
 export const BOTS_MAX_ENTITLEMENT_KEY = "bots.max";
+export const MACHINES_MAX_ENTITLEMENT_KEY = "machines.max";
 
 export const CommunityBotActivationRequestSchema = z.strictObject({
   active: z.boolean(),
@@ -42,4 +43,13 @@ export type BotCapacitySummary = {
   limit: number;
   ownedCount: number;
   activeCount: number;
+};
+
+
+export type MachineCapacitySummary = {
+  isFounder: boolean;
+  plan: ResolvedProductPlan;
+  limit: number;
+  ownedCount: number;
+  onlineCount: number;
 };

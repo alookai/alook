@@ -14,14 +14,14 @@ vi.mock("stripe", () => ({ default: class {
 } }))
 import { GET } from "./route"
 
-const mapping = { priceId: "price_studio", planId: "studio", displayName: "Studio", botLimit: 10, portalConfigurationId: "private_config", sortOrder: 1 }
+const mapping = { priceId: "price_studio", planId: "studio", displayName: "Studio", botLimit: 10, machineLimit: 5, portalConfigurationId: "private_config", sortOrder: 1 }
 const price = { id: "price_studio", active: true, livemode: false, type: "recurring", unit_amount: 2000, currency: "usd", recurring: { interval: "month", interval_count: 1 }, product: { active: true, metadata: { private: "hidden" } } }
 const request = () => GET(new NextRequest("http://localhost/api/pricing"))
 
 beforeEach(() => {
   vi.resetAllMocks()
   mocked.listPrices.mockResolvedValue([mapping])
-  mocked.getDefaultPlanOffer.mockResolvedValue({ plan: { id: "free", displayName: "Free" }, botLimit: 3 })
+  mocked.getDefaultPlanOffer.mockResolvedValue({ plan: { id: "free", displayName: "Free" }, botLimit: 3, machineLimit: 1 })
   mocked.retrieve.mockResolvedValue(price)
 })
 
@@ -32,8 +32,8 @@ describe("public pricing", () => {
     expect(response.headers.get("cache-control")).toBe("no-store")
     expect(response.headers.get("set-cookie")).toBeNull()
     expect(await response.json()).toEqual({
-      free: { plan: { id: "free", displayName: "Free" }, botLimit: 3 },
-      offers: [{ priceId: "price_studio", plan: { id: "studio", displayName: "Studio" }, botLimit: 10, unitAmount: 2000, currency: "usd", interval: "month", intervalCount: 1 }],
+      free: { plan: { id: "free", displayName: "Free" }, botLimit: 3, machineLimit: 1 },
+      offers: [{ priceId: "price_studio", plan: { id: "studio", displayName: "Studio" }, botLimit: 10, machineLimit: 5, unitAmount: 2000, currency: "usd", interval: "month", intervalCount: 1 }],
     })
     expect(mocked.listPrices).toHaveBeenCalledTimes(1)
     expect(mocked.getDefaultPlanOffer).toHaveBeenCalledTimes(1)
@@ -41,10 +41,10 @@ describe("public pricing", () => {
   })
 
   it("uses changed entitlement and Stripe amounts rather than marketing constants", async () => {
-    mocked.listPrices.mockResolvedValue([{ ...mapping, botLimit: 17, planId: "new-plan" }])
-    mocked.getDefaultPlanOffer.mockResolvedValue({ plan: { id: "starter", displayName: "Starter" }, botLimit: 5 })
+    mocked.listPrices.mockResolvedValue([{ ...mapping, botLimit: 17, machineLimit: 5, planId: "new-plan" }])
+    mocked.getDefaultPlanOffer.mockResolvedValue({ plan: { id: "starter", displayName: "Starter" }, botLimit: 5, machineLimit: 1 })
     mocked.retrieve.mockResolvedValue({ ...price, unit_amount: 3100, currency: "eur", recurring: { interval: "year", interval_count: 2 } })
-    expect(await (await request()).json()).toMatchObject({ free: { botLimit: 5, plan: { id: "starter" } }, offers: [{ botLimit: 17, unitAmount: 3100, currency: "eur", interval: "year", intervalCount: 2, plan: { id: "new-plan" } }] })
+    expect(await (await request()).json()).toMatchObject({ free: { botLimit: 5, machineLimit: 1, plan: { id: "starter" } }, offers: [{ botLimit: 17, machineLimit: 5, unitAmount: 3100, currency: "eur", interval: "year", intervalCount: 2, plan: { id: "new-plan" } }] })
   })
 
   it.each([

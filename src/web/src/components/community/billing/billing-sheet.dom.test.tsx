@@ -13,7 +13,7 @@ vi.mock("@/components/community/shell/community-sheet", () => ({
 
 const free: BillingSummary = {
   plan: { id: "free", displayName: "Free" }, isFounder: false, subscription: null,
-  offers: [{ priceId: "price_a", plan: { id: "custom-tier", displayName: "Studio" }, botLimit: 10, unitAmount: 2000, currency: "usd", interval: "month", intervalCount: 1 }],
+  offers: [{ priceId: "price_a", plan: { id: "custom-tier", displayName: "Studio" }, botLimit: 10, machineLimit: 5, unitAmount: 2000, currency: "usd", interval: "month", intervalCount: 1 }],
 }
 function state(overrides: Partial<BillingController> = {}): BillingController {
   return { data: free, isPending: false, isError: false, isFetching: false, isBusy: false, returnFrom: null, polling: false, actionError: null, checkout: vi.fn(), portal: vi.fn(), cancelChange: vi.fn(), isCancelingChange: false, refresh: vi.fn(), ...overrides } as unknown as BillingController
@@ -24,6 +24,8 @@ describe("billing sheet", () => {
   it("shows server offers without fixed plan IDs and sends only the selected price", () => {
     const billing = state()
     const ui = view(billing)
+    expect(ui.queryByText("Up to 1 online machine")).not.toBeInTheDocument()
+    expect(ui.getByText((_text, el) => el?.tagName === "P" && el.textContent === "Up to 5 online machines")).toBeInTheDocument()
     expect(ui.getByText("$20.00 USD / month")).toBeInTheDocument()
     expect(ui.getByText((_text, element) => element?.tagName === "P" && element.textContent === "Up to 10 active bots")).toBeInTheDocument()
     expect(ui.getByRole("img", { name: "10 bot slots" })).toBeInTheDocument()

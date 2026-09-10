@@ -16,10 +16,10 @@ vi.mock("@/lib/api/client", () => ({ apiFetch: state.api }))
 vi.mock("@/hooks/community/use-billing", () => ({ useBilling: () => ({ ...state.billing, checkout: state.checkout, portal: state.portal, refresh: state.refresh }) }))
 
 const offers = [
-  { plan: { id: "studio", displayName: "Studio" }, botLimit: 10, priceId: "price_server_studio", unitAmount: 2000, currency: "usd", interval: "month", intervalCount: 1 },
-  { plan: { id: "house", displayName: "House" }, botLimit: 40, priceId: "price_server_house", unitAmount: 4000, currency: "usd", interval: "month", intervalCount: 1 },
+  { plan: { id: "studio", displayName: "Studio" }, botLimit: 10, machineLimit: 5, priceId: "price_server_studio", unitAmount: 2000, currency: "usd", interval: "month", intervalCount: 1 },
+  { plan: { id: "house", displayName: "House" }, botLimit: 40, machineLimit: 10, priceId: "price_server_house", unitAmount: 4000, currency: "usd", interval: "month", intervalCount: 1 },
 ]
-const catalog = { free: { plan: { id: "free", displayName: "Free" }, botLimit: 3 }, offers }
+const catalog = { free: { plan: { id: "free", displayName: "Free" }, botLimit: 3, machineLimit: 1 }, offers }
 const free = { plan: catalog.free.plan, isFounder: false, subscription: null, offers }
 const subscription = { plan: offers[0].plan, status: "active", currentPeriodEnd: null, cancelAt: null, scheduledChange: null }
 
@@ -115,4 +115,12 @@ it("does not allow stale public prices to initiate purchase when account loading
   await view.findByRole("alert")
   expect(view.getByTestId("pricing-choose-studio")).toBeDisabled()
   expect(state.checkout).not.toHaveBeenCalled()
+})
+
+
+it("shows machine allowances supplied by the catalog", async () => {
+  state.api.mockResolvedValue({ ...catalog, offers: [{ ...offers[0], machineLimit: 7 }, offers[1]] })
+  const ui = render(<PricingClient />)
+  expect(await ui.findByText((_text, el) => el?.tagName === "P" && el.textContent === "Up to 7 online machines")).toBeInTheDocument()
+  expect(ui.getByText((_text, el) => el?.tagName === "P" && el.textContent === "Up to 1 online machine")).toBeInTheDocument()
 })

@@ -1,3 +1,5 @@
+vi.mock("@/lib/community/machine-disconnect", () => ({ forceCloseCommunityMachinesByDoNames: vi.fn(async () => {}) }))
+vi.mock("@/lib/broadcast", () => ({ broadcastToUser: vi.fn(async () => {}) }))
 import { describe, expect, it, vi } from "vitest"
 import type Stripe from "stripe"
 vi.mock("@/lib/community/bot-push", () => ({ pushBotEventToMachine: vi.fn() }))
@@ -5,8 +7,8 @@ vi.mock("@/lib/community/fanout", () => ({ fanOutPresenceUpdate: vi.fn() }))
 import { projectSubscription } from "./reconcile"
 
 const catalog = [
-  { priceId: "price_studio", planId: "studio", displayName: "Studio", botLimit: 10, sortOrder: 1, portalConfigurationId: "bpc_studio" },
-  { priceId: "price_house", planId: "house", displayName: "House", botLimit: 40, sortOrder: 2, portalConfigurationId: "bpc_house" },
+  { priceId: "price_studio", planId: "studio", displayName: "Studio", botLimit: 10, machineLimit: 5, sortOrder: 1, portalConfigurationId: "bpc_studio" },
+  { priceId: "price_house", planId: "house", displayName: "House", botLimit: 40, machineLimit: 10, sortOrder: 2, portalConfigurationId: "bpc_house" },
 ]
 const free = { id: "free", displayName: "Free" }
 function invoice(price: string, status = "paid", reason = "subscription_create") {

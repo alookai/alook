@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createMockWebSocket } from "../__mocks__/cf"
 import {
+  mockAssertMachineCapacity,
   CFResponse,
   cleanupHarness,
   createDO,
@@ -114,6 +115,34 @@ describe("WebSocketDurableObject", () => {
       beforeEach(() => {
         mockHashCredential.mockReset().mockImplementation(async (bearer: string) => `hash:${bearer}`)
         mockFindCredentialByHash.mockReset()
+      })
+
+
+      it("rejects offline admission at capacity before accepting a socket", async () => {
+        const { queries } = await import("@alook/shared")
+        mockFindCredentialByHash.mockResolvedValue(auth)
+        mockGetMachineByIdForUser.mockResolvedValue({ id: "cm_1", status: "offline" })
+        mockAssertMachineCapacity.mockRejectedValue(new queries.productPlan.MachineLimitReachedError({ plan: { id: "free", displayName: "Free" }, isFounder: false, limit: 1, ownedCount: 2, onlineCount: 1 }))
+        const { durable, ctx } = createDO()
+        const request = () => new Request("http://internal/", { headers: { Upgrade: "websocket", Authorization: "Bearer cmk_secret" } })
+        expect((await durable.fetch(request())).status).toBe(409)
+        expect(ctx.acceptWebSocket).not.toHaveBeenCalled()
+        expect(mockAssertMachineCapacity).toHaveBeenCalledWith({}, "u_1", "online")
+        mockAssertMachineCapacity.mockRejectedValue(new Error("entitlement unavailable"))
+        expect((await durable.fetch(request())).status).toBe(503)
+        mockGetMachineByIdForUser.mockResolvedValue(null)
+        expect((await durable.fetch(request())).status).toBe(401)
+      })
+      it("checks offline allowance once and skips quota queries for an existing online connection", async () => {
+        mockFindCredentialByHash.mockResolvedValue(auth)
+        mockGetMachineByIdForUser.mockResolvedValue({ id: "cm_1", status: "offline" })
+        const { durable } = createDO()
+        const request = () => new Request("http://internal/", { headers: { Upgrade: "websocket", Authorization: "Bearer cmk_secret" } })
+        expect((await durable.fetch(request())).status).toBe(101)
+        expect(mockAssertMachineCapacity).toHaveBeenCalledOnce()
+        mockGetMachineByIdForUser.mockResolvedValue({ id: "cm_1", status: "online" })
+        expect((await durable.fetch(request())).status).toBe(101)
+        expect(mockAssertMachineCapacity).toHaveBeenCalledOnce()
       })
 
       it("accepts cmk credentials in exact lookup, socket, attachment, storage, and alarm order", async () => {

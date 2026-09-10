@@ -7,7 +7,7 @@ import {
   type CommunityDaemonActivateResponse,
   type CommunityMachineCreated,
 } from "@alook/shared"
-import { getDb } from "@/lib/db"
+import { getPrimaryDb } from "@/lib/db"
 import { broadcastToUser } from "@/lib/broadcast"
 import { forceCloseCommunityMachinesByDoNames } from "@/lib/community/machine-disconnect"
 import { withCommunityPairingToken } from "@/lib/middleware/community-pairing-token"
@@ -39,7 +39,7 @@ export const POST = withCommunityPairingToken(async (req, ctx) => {
     )
   }
 
-  const db = getDb(ctx.env.DB)
+  const db = getPrimaryDb(ctx.env.DB)
 
   try {
     // Map wire field `runtimeReport` → persisted `availableRuntimes` so the
@@ -106,6 +106,12 @@ export const POST = withCommunityPairingToken(async (req, ctx) => {
     }
     return NextResponse.json(body)
   } catch (err) {
+    if (err instanceof queries.productPlan.MachineLimitReachedError) {
+      return NextResponse.json({ error: "MACHINE_LIMIT_REACHED", machineCapacity: err.capacity, sessionOutcome: "not_committed" }, { status: 409 })
+    }
+    if (err instanceof queries.productPlan.ProductEntitlementUnavailableError) {
+      return NextResponse.json({ error: "MACHINE_LIMIT_UNAVAILABLE", sessionOutcome: "not_committed" }, { status: 503 })
+    }
     if (err instanceof queries.communityMachineSession.MachineSessionRotationError) {
       const errorBody = { error: err.message, sessionOutcome: err.sessionOutcome }
       switch (err.kind) {

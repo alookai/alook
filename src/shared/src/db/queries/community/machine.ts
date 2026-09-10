@@ -9,6 +9,7 @@ import {
 } from "../../community-machine-schema";
 import { user } from "../../schema";
 import { communityUserProfile } from "../../community-schema";
+import { assertMachineCapacity } from "../product-plan";
 import type { Database } from "../../index";
 import { BOT_ACTIVITY_PRESETS, isBotActivityStatus } from "../../../community/bot-activity-presets";
 import { COMMUNITY_MACHINE_PAIR_TOKEN_TTL_MS } from "../../../constants";
@@ -70,6 +71,7 @@ export async function createPairingToken(
   userId: string,
   opts: { machineId?: string | null } = {}
 ): Promise<{ tokenId: string; expiresAt: string }> {
+  if (!opts.machineId) await assertMachineCapacity(db, userId, "owned");
   await db
     .update(communityMachineToken)
     .set({ status: "revoked" })
@@ -106,7 +108,7 @@ export async function createReconnectPairingToken(
   machineId: string
 ): Promise<{ tokenId: string; expiresAt: string }> {
   const owned = await db
-    .select({ id: communityMachine.id })
+    .select({ id: communityMachine.id, status: communityMachine.status })
     .from(communityMachine)
     .where(
       and(
@@ -118,6 +120,7 @@ export async function createReconnectPairingToken(
   if (owned.length === 0) {
     throw new Error("createReconnectPairingToken: machine not owned by user");
   }
+  if (owned[0]!.status !== "online") await assertMachineCapacity(db, userId, "online");
   return createPairingToken(db, userId, { machineId });
 }
 

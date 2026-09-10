@@ -88,6 +88,7 @@ export const mockCreateDb = vi.fn().mockReturnValue({})
 export const mockHashCredential = vi.fn(async (bearer: string) => `hash:${bearer}`)
 export const mockFindCredentialByHash = vi.fn()
 export const mockGetMachineByIdForUser = vi.fn()
+export const mockAssertMachineCapacity = vi.fn()
 export const mockGetActiveDoNamesForMachine = vi.fn<(db: unknown, machineId: string) => Promise<string[]>>().mockResolvedValue([])
 export const mockUpsertMachineByMachineId = vi.fn()
 export const mockTouchMachineHeartbeat = vi.fn()
@@ -372,6 +373,7 @@ vi.mock("@alook/shared", async () => {
       return pairs.some((p) => p.emoji === emoji && p.text === text)
     },
     queries: {
+      productPlan: { ...actual.queries.productPlan, assertMachineCapacity: (...a: any[]) => mockAssertMachineCapacity(...a) },
       session: {
         getValidSession: (db: unknown, token: string) => mockGetValidSession(db, token),
         getValidSessionWithIdentity: (db: unknown, token: string) => mockGetValidSessionWithIdentity(db, token),
@@ -523,6 +525,8 @@ export const flushAsyncWork = async () => {
 }
 export function resetHarness() {
     vi.clearAllMocks()
+    mockAssertMachineCapacity.mockReset().mockResolvedValue(undefined)
+    mockGetMachineByIdForUser.mockResolvedValue({ id: "cm_1", status: "online", availableRuntimes: [] })
     mockListReadableChannelsForUser.mockImplementation(async (_db, _userId, ids: string[]) => ids.map((id) => ({ id, serverId: null, parentChannelId: null })))
     mockGetReadableMessageChannelId.mockResolvedValue("ch-1")
     // `clearAllMocks` doesn't undo a `mockResolvedValue` set by a prior test —

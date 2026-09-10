@@ -53,6 +53,7 @@ export function PricingView({ controller: c }: { controller: PricingController }
               <p className={styles.limit}>
                 Up to <strong>{c.catalog?.free.botLimit ?? "—"}</strong> active bots
               </p>
+              <p className={styles.limit}>Up to <strong>{c.catalog?.free.machineLimit ?? "—"}</strong> online machine{c.catalog?.free.machineLimit === 1 ? "" : "s"}</p>
               <button className={styles.ghostButton} type="button" disabled={c.disabled("free")} onClick={() => c.choose("free")} data-testid="pricing-choose-free">
                 {c.label("free")}
               </button>
@@ -73,6 +74,7 @@ export function PricingView({ controller: c }: { controller: PricingController }
                 <p className={styles.limit}>
                   Up to <strong>{c.offer("studio")?.botLimit ?? "—"}</strong> active bots
                 </p>
+                <p className={styles.limit}>Up to <strong>{c.offer("studio")?.machineLimit ?? "—"}</strong> online machine{c.offer("studio")?.machineLimit === 1 ? "" : "s"}</p>
                 <button className={styles.studioButton} type="button" disabled={c.disabled("studio")} onClick={() => c.choose("studio")} data-testid="pricing-choose-studio">
                 {c.label("studio")}
                 </button>
@@ -95,6 +97,7 @@ export function PricingView({ controller: c }: { controller: PricingController }
               <p className={styles.houseLimit}>
                 Up to <strong>{c.offer("house")?.botLimit ?? "—"}</strong> active bots
               </p>
+              <p className={styles.houseLimit}>Up to <strong>{c.offer("house")?.machineLimit ?? "—"}</strong> online machine{c.offer("house")?.machineLimit === 1 ? "" : "s"}</p>
               <button className={styles.houseButton} type="button" disabled={c.disabled("house")} onClick={() => c.choose("house")} data-testid="pricing-choose-house">
                 {c.label("house")}
               </button>
@@ -127,6 +130,10 @@ export function PricingView({ controller: c }: { controller: PricingController }
         <section className={styles.faq} aria-labelledby="pricing-faq-title">
           <h2 id="pricing-faq-title">Questions, answered.</h2>
           <dl className={styles.faqGrid}>
+            <div className={styles.faqItem}>
+              <dt>Which machines count toward my plan?</dt>
+              <dd>Every machine you own counts, including offline machines. Disconnecting one does not make room for another. If you downgrade, newer excess machines are disconnected; your machines and bots are kept.</dd>
+            </div>
             <div className={styles.faqItem}>
               <dt>Which bots count toward my plan?</dt>
               <dd>Every bot you own counts toward your plan allowance, whether it&apos;s Active or Inactive.</dd>

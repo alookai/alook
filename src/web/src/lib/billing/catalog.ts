@@ -18,6 +18,7 @@ async function offerFor(stripe: Stripe, env: Env, mapping: Mapping) {
     priceId: price.id,
     plan: { id: mapping.planId, displayName: mapping.displayName },
     botLimit: mapping.botLimit,
+    machineLimit: mapping.machineLimit,
     unitAmount: price.unit_amount,
     currency: price.currency,
     interval: price.recurring.interval,

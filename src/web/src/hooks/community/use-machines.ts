@@ -1,10 +1,12 @@
 "use client"
 
 import { useQuery, type UseQueryResult } from "@tanstack/react-query"
+import { isPresenceOnline } from "@alook/shared"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import type {
   CommunityMachineSummary,
+  MachineCapacitySummary,
   ProviderQuotaObservation,
   QuotaLimit,
 } from "@alook/shared"
@@ -47,7 +49,20 @@ export type MachineSummary = CommunityMachineSummary & {
  * live-patch `communityKeys.machines()` via `queryClient.setQueryData` on
  * `community:machine.*` WS events, so this list stays fresh without a refetch.
  */
-export type MachinesResponse = { machines: MachineSummary[] }
+export type MachineCapacity = MachineCapacitySummary
+export type MachinesResponse = { machines: MachineSummary[]; machineCapacity?: MachineCapacity }
+
+export function replaceMachines(data: MachinesResponse, machines: MachineSummary[]): MachinesResponse {
+  return {
+    ...data,
+    machines,
+    ...(data.machineCapacity ? { machineCapacity: {
+      ...data.machineCapacity,
+      ownedCount: machines.length,
+      onlineCount: machines.filter(machine => isPresenceOnline(machine.status)).length,
+    } } : {}),
+  }
+}
 
 // Frozen empty fallback — see `use-servers.ts` for the rationale.
 const EMPTY_MACHINES: readonly MachineSummary[] = Object.freeze([])

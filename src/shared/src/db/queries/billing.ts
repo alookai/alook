@@ -1,10 +1,12 @@
 import { and, eq, exists, isNull, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import type { Database } from "../index";
 import { userBilling, billingPrice } from "../billing-schema";
 import { productPlan, productPlanEntitlement, userProductPlan } from "../product-plan-schema";
 import { user } from "../schema";
 import {
   assignUserPlanBuilder, botsMaxForPlanSql, nonFounderCondition,
+  reconcileOwnerOnlineMachinesBuilders, machinesMaxForPlanSql, type DisconnectedMachine,
   reconcileOwnerActiveBotsBuilder, resolveBotsMaxForUser,
 } from "./product-plan";
 
@@ -48,15 +50,18 @@ export async function ensureBilling(db: Database, userId: string, founderAcknowl
 }
 
 export async function listPrices(db: Database, includeDisabled = false) {
+  const machineEntitlement = alias(productPlanEntitlement, "machine_entitlement");
   return db.select({
     priceId: billingPrice.priceId,
     portalConfigurationId: billingPrice.portalConfigurationId,
     botLimit: productPlanEntitlement.valueJson,
+    machineLimit: machineEntitlement.valueJson,
     planId: productPlan.id,
     displayName: productPlan.displayName,
     sortOrder: productPlan.sortOrder,
   }).from(billingPrice).innerJoin(productPlan, eq(productPlan.id, billingPrice.planId))
     .innerJoin(productPlanEntitlement, and(eq(productPlanEntitlement.planId, productPlan.id), eq(productPlanEntitlement.entitlementKey, "bots.max")))
+    .innerJoin(machineEntitlement, and(eq(machineEntitlement.planId, productPlan.id), eq(machineEntitlement.entitlementKey, "machines.max")))
     .where(and(includeDisabled ? undefined : eq(billingPrice.enabled, true), eq(productPlan.isActive, true), eq(productPlan.isDefault, false)))
     .orderBy(productPlan.sortOrder);
 }
@@ -69,13 +74,15 @@ export async function getDefaultPlan(db: Database) {
 }
 
 export async function getDefaultPlanOffer(db: Database) {
+  const machineEntitlement = alias(productPlanEntitlement, "machine_entitlement");
   const rows = await db.select({
     plan: { id: productPlan.id, displayName: productPlan.displayName },
     botLimit: productPlanEntitlement.valueJson,
+    machineLimit: machineEntitlement.valueJson,
   }).from(productPlan).innerJoin(productPlanEntitlement, and(
     eq(productPlanEntitlement.planId, productPlan.id),
     eq(productPlanEntitlement.entitlementKey, "bots.max"),
-  )).where(and(eq(productPlan.isDefault, true), eq(productPlan.isActive, true))).limit(1);
+  )).innerJoin(machineEntitlement, and(eq(machineEntitlement.planId, productPlan.id), eq(machineEntitlement.entitlementKey, "machines.max"))).where(and(eq(productPlan.isDefault, true), eq(productPlan.isActive, true))).limit(1);
   if (!rows[0]) throw new Error("DEFAULT_PLAN_UNAVAILABLE");
   return rows[0];
 }
@@ -99,18 +106,21 @@ export async function applyBillingPlan(
   patch: BillingPatch,
   planId: string,
   founderAttemptId?: string,
-): Promise<{ applied: boolean; deactivatedBotIds: string[] }> {
+): Promise<{ applied: boolean; deactivatedBotIds: string[]; disconnectedMachines: DisconnectedMachine[] }> {
   const founderAttempt = current.checkoutAttempt;
   if (founderAttemptId && (!founderAttempt?.founderAcknowledged || founderAttempt.id !== founderAttemptId
     || patch.checkoutAttempt !== null || !patch.subscriptionId || !patch.subscription)) {
-    return { applied: false, deactivatedBotIds: [] };
+    return { applied: false, deactivatedBotIds: [], disconnectedMachines: [] };
   }
-  const available = await db.select({ value: productPlanEntitlement.valueJson }).from(productPlan)
+  const machineEntitlement = alias(productPlanEntitlement, "machine_entitlement");
+  const available = await db.select({ value: productPlanEntitlement.valueJson, machineValue: machineEntitlement.valueJson }).from(productPlan)
     .innerJoin(productPlanEntitlement, and(eq(productPlanEntitlement.planId, productPlan.id), eq(productPlanEntitlement.entitlementKey, "bots.max")))
+    .innerJoin(machineEntitlement, and(eq(machineEntitlement.planId, productPlan.id), eq(machineEntitlement.entitlementKey, "machines.max")))
     .where(and(eq(productPlan.id, planId), eq(productPlan.isActive, true))).limit(1);
   if (typeof available[0]?.value !== "number" || !Number.isInteger(available[0].value) || available[0].value < 0) {
     throw new Error("BILLING_PLAN_UNAVAILABLE");
   }
+  if (typeof available[0]?.machineValue !== "number" || !Number.isInteger(available[0].machineValue) || available[0].machineValue < 0) throw new Error("BILLING_PLAN_UNAVAILABLE");
   const token = crypto.randomUUID();
   const guard = exists(db.select({ one: sql<number>`1` }).from(userBilling).where(and(
     eq(userBilling.userId, current.userId), eq(userBilling.applyToken, token),
@@ -128,6 +138,10 @@ export async function applyBillingPlan(
         eq(billingPrice.priceId, founderAttempt!.priceId), eq(billingPrice.planId, planId),
       ))),
     ) : undefined,
+    exists(db.select({ id: machineEntitlement.planId }).from(machineEntitlement).where(and(
+      eq(machineEntitlement.planId, planId), eq(machineEntitlement.entitlementKey, "machines.max"),
+      sql`json_type(${machineEntitlement.valueJson}) = 'integer' AND CAST(${machineEntitlement.valueJson} AS INTEGER) >= 0`,
+    ))),
     exists(db.select({ id: productPlan.id }).from(productPlan).innerJoin(productPlanEntitlement, and(
       eq(productPlanEntitlement.planId, productPlan.id), eq(productPlanEntitlement.entitlementKey, "bots.max"),
     )).where(and(eq(productPlan.id, planId), eq(productPlan.isActive, true),
@@ -136,14 +150,15 @@ export async function applyBillingPlan(
   )).returning({ userId: userBilling.userId });
   const assignment = assignUserPlanBuilder(db, current.userId, planId, guard);
   const reconcile = reconcileOwnerActiveBotsBuilder(db, current.userId, botsMaxForPlanSql(planId), guard);
+  const machines = reconcileOwnerOnlineMachinesBuilders(db, current.userId, machinesMaxForPlanSql(planId), guard);
   if (founderAttemptId) {
     const removeFounder = db.update(userProductPlan).set({ isFounder: false })
       .where(and(eq(userProductPlan.userId, current.userId), eq(userProductPlan.isFounder, true), guard));
-    const results = await db.batch([projection, removeFounder, assignment, reconcile]);
-    return { applied: results[0].length === 1, deactivatedBotIds: results[3].map((row) => row.botId) };
+    const results = await db.batch([projection, removeFounder, assignment, reconcile, ...machines]);
+    return { applied: results[0].length === 1, deactivatedBotIds: results[3].map((row) => row.botId), disconnectedMachines: results[4] };
   }
-  const results = await db.batch([projection, assignment, reconcile]);
-  return { applied: results[0].length === 1, deactivatedBotIds: results[2].map((row) => row.botId) };
+  const results = await db.batch([projection, assignment, reconcile, ...machines]);
+  return { applied: results[0].length === 1, deactivatedBotIds: results[2].map((row) => row.botId), disconnectedMachines: results[3] };
 }
 
 export { resolveBotsMaxForUser as getEffectivePlan };

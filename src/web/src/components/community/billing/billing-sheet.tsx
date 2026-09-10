@@ -77,7 +77,10 @@ export function BillingContent({ billing }: { billing: BillingController }) {
               <h3 className={styles.name}>{offer.plan.displayName}</h3>
               <p className={styles.price}>{formatOffer(offer)}</p>
             </div>
-            <p className={styles.limit}>Up to <strong>{offer.botLimit}</strong> active bots</p>
+            <div className="flex flex-col gap-2">
+              <p className={styles.limit}>Up to <strong>{offer.botLimit}</strong> active bots</p>
+              <p className={styles.limit}>Up to <strong>{offer.machineLimit}</strong> online machine{offer.machineLimit === 1 ? "" : "s"}</p>
+            </div>
             <Button className={styles.action} variant={isCurrent || isScheduled ? "outline" : "default"} onClick={() => { if (summary.isFounder) setFounderOffer(offer); else void (subscription ? billing.portal(offer.priceId) : billing.checkout(offer.priceId)) }} disabled={billing.isBusy || Boolean(checkoutPending) || isCurrent || isScheduled} data-testid={subscription ? tid.billingChangePlan : tid.billingCheckout} data-price-id={offer.priceId}>
               {billing.isBusy && !billing.isCancelingChange ? "Opening…" : isScheduled ? "Scheduled" : isCurrent ? "Current plan" : `Choose ${offer.plan.displayName}`}
             </Button>

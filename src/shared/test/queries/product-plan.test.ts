@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { createMachinePlanTables } from "./machine-plan-fixture"
 import Sqlite from "better-sqlite3"
 import { drizzle as drizzleSqlite } from "drizzle-orm/better-sqlite3"
 import { getTableConfig } from "drizzle-orm/sqlite-core"
@@ -162,6 +163,7 @@ function createDatabase() {
       /\breturning\b/i.test(statement.toSQL().sql) ? statement.all() : statement.run()
     )),
   )()
+  createMachinePlanTables(sqlite)
   return { sqlite, db }
 }
 
@@ -187,6 +189,7 @@ function seedPlan(sqlite: Sqlite.Database, input: {
       VALUES (?, 'bots.max', ?)
     `).run(input.id, input.botsMax)
   }
+  sqlite.prepare("INSERT INTO product_plan_entitlement (plan_id, entitlement_key, value_json) VALUES (?, 'machines.max', '10')").run(input.id)
 }
 
 function seedHuman(sqlite: Sqlite.Database, id: string, planId?: string) {

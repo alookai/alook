@@ -8,6 +8,7 @@ export const BillingPlanSchema = z.object({
 export const BillingOfferSchema = z.object({
   priceId: z.string().min(1),
   botLimit: z.number().int().nonnegative(),
+  machineLimit: z.number().int().nonnegative(),
   plan: BillingPlanSchema,
   unitAmount: z.number().int().nonnegative(),
   currency: z.string().min(1),
@@ -30,6 +31,7 @@ export const PublicPricingSchema = z.object({
   free: z.object({
     plan: BillingPlanSchema,
     botLimit: z.number().int().nonnegative(),
+    machineLimit: z.number().int().nonnegative(),
   }),
   offers: z.array(BillingOfferSchema),
 });

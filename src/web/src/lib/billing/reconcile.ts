@@ -4,6 +4,8 @@ import { assertStripeMode, BillingError, stripeId } from "./client"
 import { getCatalog } from "./catalog"
 import { pushBotEventToMachine } from "@/lib/community/bot-push"
 import { fanOutPresenceUpdate } from "@/lib/community/fanout"
+import { forceCloseCommunityMachinesByDoNames } from "@/lib/community/machine-disconnect"
+import { broadcastToUser } from "@/lib/broadcast"
 
 type Catalog = Awaited<ReturnType<typeof getCatalog>>
 type BillingRow = NonNullable<Awaited<ReturnType<typeof queries.billing.getBilling>>>
@@ -140,6 +142,26 @@ export async function notifyDeactivated(env: Env, db: Database, ownerId: string,
   }
 }
 
+export async function notifyDisconnectedMachines(env: Env, db: Database, machines: Array<{ machineId: string; userId: string; doName: string | null }>) {
+  await forceCloseCommunityMachinesByDoNames(env, [...new Set(machines.flatMap((machine) => machine.doName ? [machine.doName] : []))]);
+  const unique = new Map(machines.map((machine) => [machine.machineId, machine]));
+  for (const { machineId, userId } of unique.values()) {
+    try {
+      const machine = await queries.communityMachine.getMachineByIdForUser(db, userId, machineId);
+      if (!machine || machine.status !== "offline") continue;
+      await broadcastToUser(userId, { type: "community:machine.status", machineId, status: "offline", lastSeenAt: machine.lastSeenAt ?? new Date().toISOString() });
+      const bots = await queries.communityBot.listBotsBoundToMachine(db, machineId, userId);
+      for (const bot of bots) {
+        const current = await queries.communityMachine.getMachineByIdForUser(db, userId, machineId);
+        if (current?.status !== "offline") break;
+        await fanOutPresenceUpdate(bot.id, false, userId);
+      }
+    } catch {
+      console.warn("billing_post_commit_machine_notification_failed", { machineId });
+    }
+  }
+}
+
 export async function reconcileBilling(db: Database, stripe: Stripe, env: Env, userId: string) {
   for (let attempt = 0; attempt < 4; attempt++) {
     const row = await queries.billing.getBilling(db, userId)
@@ -176,6 +198,7 @@ export async function reconcileBilling(db: Database, stripe: Stripe, env: Env, u
       : await queries.billing.applyBillingPlan(db, row, patch, projection.plan.id)
     if (result.applied) {
       await notifyDeactivated(env, db, userId, result.deactivatedBotIds)
+      await notifyDisconnectedMachines(env, db, result.disconnectedMachines ?? [])
       return
     }
   }

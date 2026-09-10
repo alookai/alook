@@ -43,6 +43,7 @@ export function useBilling(returnFrom: BillingReturn = null, enabled = false) {
       if (enabled) {
         void qc.invalidateQueries({ queryKey: communityKeys.billing() })
         void qc.invalidateQueries({ queryKey: communityKeys.bots() })
+        void qc.invalidateQueries({ queryKey: communityKeys.machines() })
       }
     }
     window.addEventListener("pageshow", restore)
@@ -68,6 +69,7 @@ export function useBilling(returnFrom: BillingReturn = null, enabled = false) {
     returnStartedAt.current = Date.now()
     void qc.invalidateQueries({ queryKey: communityKeys.billing() })
     void qc.invalidateQueries({ queryKey: communityKeys.bots() })
+    void qc.invalidateQueries({ queryKey: communityKeys.machines() })
     if (returnFrom === "cancel") return
     setPolling(true)
   }, [enabled, returnFrom, qc])
@@ -89,6 +91,7 @@ export function useBilling(returnFrom: BillingReturn = null, enabled = false) {
     const previous = observedPlan.current ?? (cachedBots ? `${cachedBots.plan.id}:${cachedBots.isFounder}` : null)
     if (previous !== null && previous !== projection) {
       void qc.invalidateQueries({ queryKey: communityKeys.bots() })
+      void qc.invalidateQueries({ queryKey: communityKeys.machines() })
     }
     observedPlan.current = projection
     if (
@@ -162,6 +165,7 @@ export function useBilling(returnFrom: BillingReturn = null, enabled = false) {
   const refresh = () => {
     void query.refetch()
     void qc.invalidateQueries({ queryKey: communityKeys.bots() })
+    void qc.invalidateQueries({ queryKey: communityKeys.machines() })
   }
 
   return {

@@ -4,10 +4,12 @@ import { act, fireEvent, render, waitFor } from "@/test/react-dom-harness"
 
 const mocks = vi.hoisted(() => ({
   apiFetch: vi.fn(),
+  fetchQuery: vi.fn(),
   toastSuccess: vi.fn(),
   toastError: vi.fn(),
   fetchLatestDaemonVersion: vi.fn(),
   machinesLoading: { current: false },
+  capacity: { current: { plan: { id: "free", displayName: "Free" }, isFounder: false, limit: 1, ownedCount: 0, onlineCount: 0 } },
   machines: { current: [] as unknown[] },
   onboardingState: { current: "done" as unknown },
   guideMotion: vi.fn(),
@@ -52,7 +54,7 @@ vi.mock("next/navigation", () => ({
 }))
 
 vi.mock("@tanstack/react-query", () => ({
-  useQueryClient: () => ({ setQueryData: vi.fn() }),
+  useQueryClient: () => ({ setQueryData: vi.fn(), invalidateQueries: vi.fn(), fetchQuery: mocks.fetchQuery }),
 }))
 
 vi.mock("@/components/ui/button", () => ({
@@ -79,10 +81,11 @@ vi.mock("./machine-card", () => ({
   MachineCardFrame: ({ children }: React.PropsWithChildren) =>
     React.createElement("machine-card-frame", {}, children),
 }))
-vi.mock("./pair-machine-sheet", () => ({ PairMachineSheet: () => null }))
+vi.mock("./pair-machine-sheet", () => ({ PairMachineSheet: ({ open, onLimitReached }: { open: boolean; onLimitReached: () => void }) => open ? React.createElement("button", { "data-testid": "test-pair-sheet", onClick: onLimitReached }, "Simulate server limit") : null }))
 vi.mock("@/components/community/onboarding-tiles/connect-tile", () => ({ ConnectTile: () => null }))
 vi.mock("@/hooks/community/use-machines", () => ({
-  useMachines: () => ({ machines: mocks.machines.current, isLoading: mocks.machinesLoading.current }),
+  machinesQueryFn: vi.fn(),
+  useMachines: () => ({ machines: mocks.machines.current, isLoading: mocks.machinesLoading.current, data: { machineCapacity: mocks.capacity.current } }),
 }))
 vi.mock("@/hooks/community/use-bots", () => ({ useBots: () => ({ bots: [] }) }))
 vi.mock("@/stores/community", () => ({
@@ -99,7 +102,7 @@ vi.mock("@/lib/community-onboarding", () => ({
 vi.mock("@/lib/api/config", () => ({
   fetchLatestDaemonVersion: mocks.fetchLatestDaemonVersion,
 }))
-vi.mock("@/lib/utils", () => ({ getAppMode: () => "production" }))
+vi.mock("@/lib/utils", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/utils")>(), getAppMode: () => "production" }))
 
 import type { CommunityMachineSummary } from "@alook/shared"
 import { tid } from "@/lib/community/testids"
@@ -129,7 +132,9 @@ function withExactClass(container: HTMLElement, className: string): HTMLElement[
 
 describe("machine daemon update UI", () => {
   beforeEach(() => {
+    mocks.capacity.current = { plan: { id: "free", displayName: "Free" }, isFounder: false, limit: 1, ownedCount: 0, onlineCount: 0 }
     mocks.apiFetch.mockReset()
+    mocks.fetchQuery.mockReset()
     mocks.toastSuccess.mockReset()
     mocks.toastError.mockReset()
     mocks.fetchLatestDaemonVersion.mockReset()
@@ -141,6 +146,48 @@ describe("machine daemon update UI", () => {
     mocks.machinesLoading.current = false
     mocks.machines.current = []
     mocks.onboardingState.current = "done"
+  })
+
+  it("blocks adding at the owned cap even when every machine is offline", async () => {
+    mocks.machines.current = [machine({ status: "offline" })]
+    mocks.capacity.current = { plan: { id: "free", displayName: "Free" }, isFounder: false, limit: 1, ownedCount: 1, onlineCount: 0 }
+    const view = render(React.createElement(MachineList))
+    fireEvent.click(view.getByRole("button", { name: "Connect a machine" }))
+    expect(await view.findByText("Machine limit reached")).toBeInTheDocument()
+    expect(view.queryByTestId("test-pair-sheet")).not.toBeInTheDocument()
+    expect(mocks.apiFetch).not.toHaveBeenCalled()
+    window.history.replaceState(null, "", "/c/me/machines?keep=1")
+    fireEvent.click(view.getByRole("button", { name: "View plan" }))
+    expect(window.location.search).toBe("?keep=1&settings=billing")
+  })
+
+  it("opens pairing when there is room", () => {
+    mocks.machines.current = []
+    const view = render(React.createElement(MachineList))
+    fireEvent.click(view.getByRole("button", { name: "Connect a machine" }))
+    expect(view.getByTestId("test-pair-sheet")).toBeInTheDocument()
+    expect(view.queryByText("Machine limit reached")).not.toBeInTheDocument()
+  })
+
+  it("refreshes the allowance before showing a server rejection", async () => {
+    mocks.fetchQuery.mockImplementation(async () => {
+      mocks.capacity.current = { ...mocks.capacity.current, limit: 5, ownedCount: 5 }
+    })
+    const view = render(React.createElement(MachineList))
+    fireEvent.click(view.getByRole("button", { name: "Connect a machine" }))
+    fireEvent.click(view.getByText("Simulate server limit"))
+    expect(await view.findByText(/Your plan allows 5 machines/)).toBeInTheDocument()
+    expect(mocks.fetchQuery).toHaveBeenCalledOnce()
+    expect(view.queryByTestId("test-pair-sheet")).not.toBeInTheDocument()
+  })
+
+  it("keeps a failed allowance refresh out of the limit dialog", async () => {
+    mocks.fetchQuery.mockRejectedValue(new Error("unavailable"))
+    const view = render(React.createElement(MachineList))
+    fireEvent.click(view.getByRole("button", { name: "Connect a machine" }))
+    fireEvent.click(view.getByText("Simulate server limit"))
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith("Couldn’t refresh your machine allowance. Refresh and try again."))
+    expect(view.queryByText("Machine limit reached")).not.toBeInTheDocument()
   })
 
   it("plays the guide once per empty-page mount and replays after remount", async () => {

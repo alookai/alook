@@ -1,3 +1,5 @@
+vi.mock("@/lib/community/machine-disconnect", () => ({ forceCloseCommunityMachinesByDoNames: vi.fn(async () => {}) }))
+vi.mock("@/lib/broadcast", () => ({ broadcastToUser: vi.fn(async () => {}) }))
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type Stripe from "stripe"
 import type { Database } from "@alook/shared"
@@ -6,6 +8,7 @@ vi.mock("@alook/shared", () => ({ queries: { billing: mocked, user: mocked, comm
 vi.mock("./catalog", () => ({ getCatalog: mocked.getCatalog }))
 vi.mock("@/lib/community/bot-push", () => ({ pushBotEventToMachine: mocked.push }))
 vi.mock("@/lib/community/fanout", () => ({ fanOutPresenceUpdate: mocked.presence }))
+import { forceCloseCommunityMachinesByDoNames } from "@/lib/community/machine-disconnect"
 import { currentSubscription, notifyDeactivated, reconcileBilling } from "./reconcile"
 
 const db = {} as Database
@@ -34,6 +37,14 @@ beforeEach(() => {
 })
 
 describe("reconciliation freshness and post-commit effects", () => {
+  it("passes the committed machine epochs into automatic disconnection", async () => {
+    mocked.applyBillingPlan.mockResolvedValue({ applied: true, deactivatedBotIds: [], disconnectedMachines: [{ machineId: "m", userId: "owner", doName: "captured-old-epoch" }] })
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {})
+    await reconcileBilling(db, stripe, env, "owner")
+    expect(forceCloseCommunityMachinesByDoNames).toHaveBeenCalledExactlyOnceWith(env, ["captured-old-epoch"])
+    warning.mockRestore()
+  })
+
   function confirmedFounder() {
     const attempt = { id: "attempt-founder", priceId: "studio", founderAcknowledged: true, sessionId: "cs-founder" }
     mocked.getBilling.mockResolvedValue({ ...row, checkoutAttempt: attempt })

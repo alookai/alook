@@ -11,7 +11,7 @@ import { getCatalog, requireOffer } from "./catalog"
 
 const db = {} as Database
 const env = { STRIPE_SECRET_KEY: "sk_test_fixture" } as Env
-const mapping = { priceId: "studio", planId: "studio", displayName: "Studio", botLimit: 10 }
+const mapping = { priceId: "studio", planId: "studio", displayName: "Studio", botLimit: 10, machineLimit: 5 }
 const retrieve = vi.fn()
 const stripe = { prices: { retrieve } } as unknown as Stripe
 
@@ -32,7 +32,7 @@ describe("billing catalog purchase boundary", () => {
   })
   it("requires an enabled server mapping and validates the actual Stripe price", async () => {
     expect(await requireOffer(db, stripe, env, "studio")).toEqual({
-      priceId: "studio", plan: { id: "studio", displayName: "Studio" }, botLimit: 10,
+      priceId: "studio", plan: { id: "studio", displayName: "Studio" }, botLimit: 10, machineLimit: 5,
       unitAmount: 2000, currency: "usd", interval: "month", intervalCount: 1,
     })
     expect(mocked.listPrices).toHaveBeenCalledWith(db)

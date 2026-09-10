@@ -66,6 +66,13 @@ describe("PairMachineSheet desktop daemon integration", () => {
     })
   })
 
+  it("hands a server quota rejection back to the machine limit flow", async () => {
+    const onLimitReached = vi.fn()
+    mocks.apiFetch.mockRejectedValue(new Error("MACHINE_LIMIT_REACHED"))
+    render(React.createElement(PairMachineSheet, { open: true, onOpenChange: vi.fn(), pendingTokenId: null, setPendingTokenId: vi.fn(), connectedHostname: null, onLimitReached }))
+    await waitFor(() => expect(onLimitReached).toHaveBeenCalledOnce())
+  })
+
   it("probes and pairs once through Tauri while retaining the command fallback", async () => {
     const renderer = render(React.createElement(PairMachineSheet, {
       open: true,
