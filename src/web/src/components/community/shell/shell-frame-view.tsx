@@ -8,12 +8,17 @@ import { UserBar } from "./user-bar"
 import { InboxPopover } from "./community-inbox-popover"
 import { ShellFrameOverlays } from "./shell-frame-overlays"
 import { CommunityShellLayout } from "./community-shell-layout"
+import { ProfileCard } from "../social/profile-card"
 import type { Breakpoint } from "@/hooks/use-mobile"
 import type { CommunityCheckpointPlan } from "@/lib/community/community-route"
 import type { ShellFrameProps } from "./shell-frame-types"
 import type { useShellRailController } from "./use-shell-rail-controller"
 import type { useShellProfileController } from "./use-shell-profile-controller"
 import type { useShellInboxController } from "./use-shell-inbox-controller"
+import type { useShellDaemonUpdateController } from "./use-shell-daemon-update-controller"
+import type { UserBarExtensionState } from "./user-bar-extension-state"
+import { userBarUpdateBadgePhase } from "./user-bar-extension-state"
+import type { OpenProfile } from "../social/profile-types"
 
 type Props = Pick<ShellFrameProps, "sidebar" | "children" | "extraDialogs"> & {
   breakpoint: Breakpoint
@@ -22,6 +27,12 @@ type Props = Pick<ShellFrameProps, "sidebar" | "children" | "extraDialogs"> & {
   rail: ReturnType<typeof useShellRailController>
   profile: ReturnType<typeof useShellProfileController>
   inbox: ReturnType<typeof useShellInboxController>
+  userBarExtension: UserBarExtensionState
+  daemonUpdate: ReturnType<typeof useShellDaemonUpdateController>
+  onUserBarInboxOpenChange: (open: boolean) => void
+  onUserBarOpenProfile: OpenProfile
+  onUserBarOpenUpdate: () => void
+  dismissUserBarExtension: () => void
 }
 
 export function ShellFrameView({
@@ -34,12 +45,18 @@ export function ShellFrameView({
   rail,
   profile,
   inbox,
+  userBarExtension,
+  daemonUpdate,
+  onUserBarInboxOpenChange,
+  onUserBarOpenProfile,
+  onUserBarOpenUpdate,
+  dismissUserBarExtension,
 }: Props) {
   const { surface } = checkpoint
   const inboxElement = (
     <InboxPopover
       {...inbox.popoverProps}
-      surface={breakpoint === "mobile" ? "mobile" : "desktop"}
+      surface="extension"
     />
   )
   const user = {
@@ -48,6 +65,23 @@ export function ShellFrameView({
     avatar: profile.currentUser.avatar,
   }
   const isInitial = breakpoint === "unknown"
+  const profileInExtension = userBarExtension.active === "profile"
+    && profile.profile?.data.userId === profile.currentUser.id
+  const profileElement = profileInExtension && profile.profile ? (
+    <ProfileCard
+      data={profile.profile.data}
+      x={profile.profile.x}
+      y={profile.profile.y}
+      bp={breakpoint}
+      onClose={profile.closeProfile}
+      onMessage={profile.profileMessage}
+      isSelf
+      onUpdateStatus={profile.updateOwnStatus}
+      onOpenOwnerProfile={profile.openOwnerProfile}
+      onOpenBotAudit={profile.openBotAudit}
+      extension
+    />
+  ) : null
 
   return (
     <CommunityShellLayout
@@ -71,12 +105,23 @@ export function ShellFrameView({
         <UserBar
           breakpoint={breakpoint}
           user={user}
-          onOpenProfile={profile.openProfile}
+          onOpenProfile={onUserBarOpenProfile}
           onEditProfile={profile.openUserSettings}
           inbox={inboxElement}
           hasUnread={inbox.hasUnread}
-          inboxOpen={inbox.open}
-          onInboxOpenChange={inbox.onOpenChange}
+          inboxOpen={userBarExtension.active === "inbox"}
+          onInboxOpenChange={onUserBarInboxOpenChange}
+          extension={{
+            active: userBarExtension.active,
+            inbox: inboxElement,
+            profile: profileElement,
+            update: daemonUpdate.update,
+            updateBadgePhase: userBarUpdateBadgePhase(userBarExtension),
+            eligibleMachines: daemonUpdate.eligibleMachines,
+            onOpenUpdate: onUserBarOpenUpdate,
+            onRequestUpdate: daemonUpdate.request,
+            onDismiss: dismissUserBarExtension,
+          }}
         />
       )}
       overlays={!isInitial && (
@@ -84,6 +129,7 @@ export function ShellFrameView({
           controller={profile}
           breakpoint={breakpoint}
           extraDialogs={extraDialogs}
+          suppressProfileCard={profileInExtension}
         />
       )}
     />

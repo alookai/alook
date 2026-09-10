@@ -195,7 +195,7 @@ function useAuditPreviewPosition(enabled: boolean, x: number, y: number) {
 // Profile card — popover anchored at the click point on desktop, bottom sheet on mobile.
 // Identity, about, status, and presence are read from the global profile map
 // whenever a userId is present. Static cards use their supplied display data.
-export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpdateStatus, onOpenOwnerProfile, onOpenBotAudit, initialStatusEmoji, initialStatusText, activityStatusEmoji, activityStatusText, embedded }: {
+export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpdateStatus, onOpenOwnerProfile, onOpenBotAudit, initialStatusEmoji, initialStatusText, activityStatusEmoji, activityStatusText, embedded, extension }: {
   data: Profile
   x: number
   y: number
@@ -215,6 +215,7 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
   // Static card surface for contexts such as product previews. The regular
   // profile interaction still uses the anchored popover / mobile sheet.
   embedded?: boolean
+  extension?: boolean
 }) {
   const [msg, setMsg] = useState("")
   const [open, setOpen] = useState(true)
@@ -251,7 +252,7 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
   const botIdentity = data.identity?.kind === "bot" ? data.identity : null
   const showOwnedBotCard = Boolean(botIdentity?.ownedByViewer && data.userId)
   const { popoverRef, cardRef, previewRef, position: previewPosition } = useAuditPreviewPosition(
-    showOwnedBotCard && !mobile && !embedded,
+    showOwnedBotCard && !mobile && !embedded && !extension,
     x,
     y,
   )
@@ -443,6 +444,9 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
       onOpenActivity={() => onOpenBotAudit?.(data.userId!)}
     />
   ) : null
+
+  if (extension)
+    return <div data-testid={tid.profileCard} className="w-full">{card}</div>
 
   if (embedded)
     return (

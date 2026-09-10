@@ -1,8 +1,7 @@
 "use client"
 
-import { useCallback, useEffect, useRef, type ComponentPropsWithoutRef } from "react"
+import { useEffect, useRef, type ComponentPropsWithoutRef } from "react"
 import Image from "next/image"
-import { useQueryClient } from "@tanstack/react-query"
 import {
   SELF_UPDATE_MIN_DAEMON_VERSION,
   isPresenceOnline,
@@ -12,7 +11,6 @@ import {
 import { machinesQueryFn, type MachineSummary } from "@/hooks/community/use-machines"
 import { messageNotification } from "@/components/ui/toast"
 import { apiFetch } from "@/lib/api/client"
-import { communityKeys } from "@/lib/query-keys"
 import { tid } from "@/lib/community/testids"
 import { log } from "@/lib/logger"
 
@@ -40,7 +38,7 @@ export function eligibleDaemonUpdateMachines<T extends Pick<MachineSummary, "id"
 
 type MachineUpdateRequester = (machineId: string) => Promise<unknown>
 
-async function requestMachineUpdate(machineId: string): Promise<void> {
+export async function requestMachineUpdate(machineId: string): Promise<void> {
   await apiFetch<{ dispatched: true }>(`/api/community/machines/${machineId}/update`, {
     method: "POST",
   })
@@ -162,17 +160,4 @@ export function DaemonUpdateNotice({
   }, [latestDaemonVersion, loadMachines, requestUpdate, userId, webVersion])
 
   return null
-}
-
-export function CommunityDaemonUpdateNotice({ userId }: { userId: string }) {
-  const queryClient = useQueryClient()
-  const loadMachines = useCallback(
-    () => queryClient.fetchQuery({
-      queryKey: communityKeys.machines(),
-      queryFn: machinesQueryFn,
-    }),
-    [queryClient],
-  )
-
-  return <DaemonUpdateNotice userId={userId} loadMachines={loadMachines} />
 }

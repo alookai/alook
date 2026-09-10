@@ -382,7 +382,7 @@ export function InboxPopover({
   onActiveTabChange?: (tab: InboxTab) => void
   getScrollOffset?: (tab: InboxTab) => number
   onScrollOffsetChange?: (tab: InboxTab, scrollTop: number) => void
-  surface?: "desktop" | "mobile"
+  surface?: "desktop" | "mobile" | "extension"
 }) {
   const profilesByUserId = useProfilesByUserId()
   const hasUnreads = hasProjectedUnreads
@@ -403,7 +403,7 @@ export function InboxPopover({
         onActiveTabChange?.(tab)
         if (tab === "marked") onMarkedTabSelected?.()
       }}
-      className={surface === "mobile" ? "flex h-full min-h-0 flex-col" : "flex h-112 flex-col"}
+      className={surface === "desktop" ? "flex h-112 flex-col" : "flex h-full min-h-0 flex-col"}
     >
       <div className="flex items-center gap-2 px-3 pt-4">
         <Inbox className="size-5" />

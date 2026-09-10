@@ -124,13 +124,19 @@ describe("CommunityLayout session boundary", () => {
     expect(source).toContain("useDmRouteVerification(params.dmId, rawDms, canonicalDmsUnsettled)")
   })
 
-  it("mounts the daemon check inside the authenticated Community query cache", () => {
+  it("keeps the daemon update controller inside the authenticated Community query cache", () => {
     const shell = readFileSync(resolve(
       process.cwd(),
       process.cwd().endsWith("/src/web") ? "" : "src/web",
       "src/app/c/community-shell.tsx",
     ), "utf8")
-    expect(shell.indexOf("<QueryProvider")).toBeLessThan(shell.indexOf("<CommunityDaemonUpdateNotice"))
-    expect(shell).toContain("<CommunityDaemonUpdateNotice userId={currentUser.id} />")
+    const frame = readFileSync(resolve(
+      process.cwd(),
+      process.cwd().endsWith("/src/web") ? "" : "src/web",
+      "src/components/community/shell/shell-frame.tsx",
+    ), "utf8")
+    expect(shell).toMatch(/<QueryProvider[\s\S]*<CurrentUserProvider[\s\S]*<CommunityBootstrap>/)
+    expect(shell).not.toContain("CommunityDaemonUpdateNotice")
+    expect(frame).toContain("useShellDaemonUpdateController")
   })
 })

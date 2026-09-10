@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { useCommunityOnboarding } from "@/lib/community-onboarding"
@@ -22,6 +22,11 @@ import { useShellInboxController } from "./use-shell-inbox-controller"
 import { useCommunityNavigationController } from "./use-community-navigation-controller"
 import type { ShellFrameProps } from "./shell-frame-types"
 import { useStructuralSnapshot } from "@/hooks/community/use-structural-snapshot"
+import {
+  initialUserBarExtensionState,
+  userBarExtensionReducer,
+} from "./user-bar-extension-state"
+import { useShellDaemonUpdateController } from "./use-shell-daemon-update-controller"
 
 /** Shared community shell orchestration for the server and DM layouts. */
 export function ShellFrame(props: ShellFrameProps) {
@@ -117,9 +122,71 @@ export function ShellFrame(props: ShellFrameProps) {
     viewerId: currentUser.id,
     accessEpoch,
   })
+  const [userBarExtension, dispatchUserBarExtension] = useReducer(
+    userBarExtensionReducer,
+    initialUserBarExtensionState,
+  )
+  const daemonUpdate = useShellDaemonUpdateController({
+    userId: currentUser.id,
+    extensionState: userBarExtension,
+    dispatch: dispatchUserBarExtension,
+  })
+  const onUserBarInboxOpenChange = useCallback((open: boolean) => {
+    if (!open) {
+      inbox.onOpenChange(false)
+      dispatchUserBarExtension({ type: "extension.close", extension: "inbox" })
+      return
+    }
+    if (userBarExtension.active === "profile") profile.closeProfile()
+    if (userBarExtension.active === "update") daemonUpdate.collapse()
+    inbox.onOpenChange(true)
+    dispatchUserBarExtension({ type: "extension.open", extension: "inbox" })
+  }, [daemonUpdate, inbox, profile, userBarExtension.active])
+  const onUserBarOpenProfile = useCallback<ReturnType<typeof useShellProfileController>["openProfile"]>((
+    name,
+    event,
+    discriminator,
+    targetUserId,
+  ) => {
+    if (userBarExtension.active === "profile") {
+      profile.closeProfile()
+      dispatchUserBarExtension({ type: "extension.close", extension: "profile" })
+      return
+    }
+    if (userBarExtension.active === "inbox") inbox.onOpenChange(false)
+    if (userBarExtension.active === "update") daemonUpdate.collapse()
+    profile.openProfile(name, event, discriminator, targetUserId)
+    dispatchUserBarExtension({ type: "extension.open", extension: "profile" })
+  }, [daemonUpdate, inbox, profile, userBarExtension.active])
+  const onUserBarOpenUpdate = useCallback(() => {
+    if (userBarExtension.active === "inbox") inbox.onOpenChange(false)
+    if (userBarExtension.active === "profile") profile.closeProfile()
+    daemonUpdate.open()
+  }, [daemonUpdate, inbox, profile, userBarExtension.active])
+  const dismissUserBarExtension = useCallback(() => {
+    if (userBarExtension.active === "inbox") inbox.onOpenChange(false)
+    if (userBarExtension.active === "profile") profile.closeProfile()
+    if (userBarExtension.active === "update") daemonUpdate.collapse()
+    dispatchUserBarExtension({
+      type: "extension.close",
+      extension: userBarExtension.active,
+    })
+  }, [daemonUpdate, inbox, profile, userBarExtension.active])
   const goBackMobile = useCallback(() => {
     if (route.parentPath) navigation.replace(route.parentPath)
   }, [navigation, route.parentPath])
+
+  useEffect(() => {
+    if (userBarExtension.active === "inbox" && !inbox.open) {
+      dispatchUserBarExtension({ type: "extension.close", extension: "inbox" })
+    }
+  }, [inbox.open, userBarExtension.active])
+
+  useEffect(() => {
+    if (userBarExtension.active !== "profile") return
+    if (profile.profile?.data.userId === currentUser.id) return
+    dispatchUserBarExtension({ type: "extension.close", extension: "profile" })
+  }, [currentUser.id, profile.profile, userBarExtension.active])
 
   useEffect(() => {
     if (
@@ -164,6 +231,12 @@ export function ShellFrame(props: ShellFrameProps) {
       rail={rail}
       profile={profile}
       inbox={inbox}
+      userBarExtension={userBarExtension}
+      daemonUpdate={daemonUpdate}
+      onUserBarInboxOpenChange={onUserBarInboxOpenChange}
+      onUserBarOpenProfile={onUserBarOpenProfile}
+      onUserBarOpenUpdate={onUserBarOpenUpdate}
+      dismissUserBarExtension={dismissUserBarExtension}
     >
       {children}
     </ShellFrameView>

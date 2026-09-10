@@ -16,9 +16,9 @@ describe("UserBar", () => {
     }))
 
     expect(html).toContain(`data-testid="${tid.userBar}"`)
-    expect(html).toContain("var(--app-safe-area-left)")
-    expect(html).toContain("var(--app-safe-area-right)")
-    expect(html).toContain("var(--app-safe-area-bottom)")
+    expect(html).toContain("pl-[max(0.75rem,var(--app-safe-area-left))]")
+    expect(html).toContain("pr-[max(0.75rem,var(--app-safe-area-right))]")
+    expect(html).toContain("pb-[calc(0.75rem+var(--app-safe-area-bottom))]")
     expect(html).toContain("sm:px-3 sm:pb-3")
     expect(html).toContain('class="flex min-w-0 flex-1 items-center gap-2"')
     expect(html).toContain('data-testid="community-user-bar-name"')
@@ -46,13 +46,14 @@ describe("UserBar", () => {
     expect(settingsClass).toContain("focus-visible:ring-2")
   })
 
-  it("provides an inert account-neutral placeholder with the same outer geometry", () => {
+  it("provides an inert account-neutral placeholder with the same Composer-aligned geometry", () => {
     const html = renderToStaticMarkup(createElement(UserBarSkeleton))
     expect(html).toContain(`data-testid="${tid.initialUserBarPending}"`)
     expect(html).toContain("aria-hidden=\"true\"")
-    expect(html).toContain("var(--app-safe-area-left)")
-    expect(html).toContain("var(--app-safe-area-right)")
-    expect(html).toContain("var(--app-safe-area-bottom)")
+    expect(html).toContain("pl-[max(0.75rem,var(--app-safe-area-left))]")
+    expect(html).toContain("pr-[max(0.75rem,var(--app-safe-area-right))]")
+    expect(html).toContain("pb-[calc(0.75rem+var(--app-safe-area-bottom))]")
+    expect(html).toContain("sm:px-3 sm:pb-3")
     expect(html).not.toContain("<button")
     expect(html).not.toContain("<a")
   })
@@ -75,5 +76,104 @@ describe("UserBar", () => {
     expect(closedHtml).toContain(
       'class="flex h-12 items-center gap-3 bg-muted px-4 ring-1 ring-border/40 rounded-xl"',
     )
+  })
+
+  it("preserves the desktop Inbox name while mobile exposes open state", () => {
+    const extension = {
+      active: "none" as const,
+      inbox: createElement("div", null, "Inbox content"),
+      profile: null,
+      update: null,
+      updateBadgePhase: null,
+      eligibleMachines: [],
+      onOpenUpdate: () => {},
+      onRequestUpdate: () => {},
+      onDismiss: () => {},
+    }
+    const props = {
+      user: { id: "u1", name: "User", avatar: "U" },
+      inbox: createElement("div", null, "Inbox content"),
+      hasUnread: false,
+      inboxOpen: false,
+      extension,
+    }
+
+    const desktop = renderToStaticMarkup(createElement(UserBar, {
+      ...props,
+      breakpoint: "desktop",
+    }))
+    expect(desktop).toContain('aria-label="Inbox"')
+    expect(desktop).not.toContain('aria-label="Open Inbox"')
+
+    const mobile = renderToStaticMarkup(createElement(UserBar, {
+      ...props,
+      breakpoint: "mobile",
+    }))
+    expect(mobile).toContain('aria-label="Open Inbox"')
+  })
+
+  it.each(["desktop", "mobile"] as const)(
+    "renders the %s Update badge as one accessible icon without status text",
+    (breakpoint) => {
+      const html = renderToStaticMarkup(createElement(UserBar, {
+        breakpoint,
+        user: { id: "u1", name: "User", avatar: "U" },
+        hasUnread: false,
+        extension: {
+          active: "none",
+          inbox: null,
+          profile: null,
+          update: null,
+          updateBadgePhase: "collapsedBadge",
+          eligibleMachines: [],
+          onOpenUpdate: () => {},
+          onRequestUpdate: () => {},
+          onDismiss: () => {},
+        },
+      }))
+      const badge = html.match(new RegExp(
+        `<button[^>]*data-testid="${tid.daemonUpdateBadge}"[^>]*>(.*?)</button>`,
+      ))?.[1]
+
+      expect(html).toContain('aria-label="Open machine update"')
+      expect(badge).toContain("<svg")
+      expect(badge).not.toContain("<span")
+      expect(badge).not.toContain("Update")
+      expect(badge).not.toContain("Updating")
+      expect(badge).not.toContain("Retry")
+    },
+  )
+
+  it("keeps the Inbox glyph outlined and expresses open state on its trigger", () => {
+    const renderInbox = (open: boolean) => renderToStaticMarkup(createElement(UserBar, {
+      breakpoint: "desktop",
+      user: { id: "u1", name: "User", avatar: "U" },
+      inbox: createElement("div", null, "Inbox content"),
+      hasUnread: false,
+      inboxOpen: open,
+      extension: {
+        active: open ? "inbox" : "none",
+        inbox: createElement("div", null, "Inbox content"),
+        profile: null,
+        update: null,
+        updateBadgePhase: null,
+        eligibleMachines: [],
+        onOpenUpdate: () => {},
+        onRequestUpdate: () => {},
+        onDismiss: () => {},
+      },
+    }))
+
+    const closed = renderInbox(false)
+    const open = renderInbox(true)
+
+    expect(closed).toContain('aria-expanded="false"')
+    expect(open).toContain('aria-expanded="true"')
+    expect(closed).toContain("aria-expanded:bg-accent")
+    expect(closed).toContain("aria-expanded:text-foreground")
+    expect(open).toContain("aria-expanded:bg-accent")
+    expect(open).toContain("aria-expanded:text-foreground")
+    expect(closed).not.toContain("fill-current")
+    expect(open).not.toContain("fill-current")
   })
 })

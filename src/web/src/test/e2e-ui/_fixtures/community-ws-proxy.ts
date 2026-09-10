@@ -49,6 +49,7 @@ export type CommunityWsProxy = {
   releaseHeld: (predicate?: (frame: CapturedCommunityFrame) => boolean) => number
   releaseHeldConnections: (predicate?: (frame: CapturedConnectionFrame) => boolean) => number
   replay: (frame: CapturedCommunityFrame) => void
+  send: (frame: CapturedCommunityFrame) => void
   sendConnectionFrame: (frame: { type: "connection.pong" | "auth.ok"; nonce?: string }) => void
   disconnect: () => Promise<void>
 }
@@ -197,6 +198,10 @@ export async function proxyCommunityWebSockets(
       const message = payloads.get(frame)
       if (!message || !activeClient) throw new Error("community frame is not replayable")
       activeClient.send(message)
+    },
+    send: (frame) => {
+      if (!activeClient) throw new Error("community frame target missing")
+      activeClient.send(JSON.stringify(frame))
     },
     sendConnectionFrame: (frame) => {
       if (!activeClient || activeConnectionId === undefined) {

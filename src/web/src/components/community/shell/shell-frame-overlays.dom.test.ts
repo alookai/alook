@@ -144,6 +144,19 @@ describe("ShellFrameOverlays", () => {
     expect(hostProps.get("dialog-root")?.open).toBe(false)
   })
 
+  it("suppresses only the profile shell when its content is in the User Bar extension", () => {
+    const renderer = render(createElement(ShellFrameOverlays, {
+      controller,
+      breakpoint: "desktop",
+      suppressProfileCard: true,
+    }))
+
+    expect(renderer.container.querySelectorAll("profile-card")).toHaveLength(0)
+    expect(renderer.container.querySelectorAll("image-lightbox")).toHaveLength(1)
+    expect(renderer.container.querySelectorAll("attachment-sheet")).toHaveLength(1)
+    expect(renderer.container.querySelectorAll("user-settings")).toHaveLength(1)
+  })
+
   it("stays a render-only boundary", () => {
     const source = readFileSync(resolve(
       process.cwd(),
