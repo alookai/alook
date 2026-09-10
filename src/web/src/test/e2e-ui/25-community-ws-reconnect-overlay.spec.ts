@@ -85,6 +85,14 @@ test("real WebSocket outage blocks the whole community surface and Retry restore
   const serverId = await seedServer("alice", `Reconnect overlay ${Date.now()}`)
   const channelId = await seedChannel("alice", serverId, "reconnect-overlay")
   const alice = await asUser("alice")
+  let authenticatedConnections = 0
+  alice.page.on("websocket", (socket) => {
+    socket.on("framereceived", ({ payload }) => {
+      try {
+        if (JSON.parse(payload.toString()).type === "auth.ok") authenticatedConnections += 1
+      } catch {}
+    })
+  })
   let aliceWs: WebSocketRoute | null = null
   await alice.page.routeWebSocket((url) => url.pathname.endsWith("/user"), (ws) => {
     aliceWs = ws
@@ -114,12 +122,22 @@ test("real WebSocket outage blocks the whole community surface and Retry restore
       const connectingLetter = element.querySelector<HTMLElement>(".community-ws-connecting-letter")
       const connectingStyle = connectingMotion ? getComputedStyle(connectingMotion) : null
       const loaderStyle = getComputedStyle(element.querySelector<HTMLElement>("[data-slot='text-loader']")!)
+      const label = element.querySelector<HTMLElement>(".community-ws-connecting-text")!
+      const artwork = connectingMotion!.firstElementChild!.getBoundingClientRect()
+      const text = label.getBoundingClientRect()
       return {
         ariaHidden: content?.getAttribute("aria-hidden"),
         inert: content?.hasAttribute("inert"),
         iconAnimationName: connectingStyle?.animationName,
         letterAnimationName: connectingLetter ? getComputedStyle(connectingLetter).animationName : null,
-        loaderBackground: connectingStyle?.backgroundColor,
+        svgCount: connectingMotion?.querySelectorAll("svg").length,
+        artworkWidth: artwork.width,
+        artworkHeight: artwork.height,
+        labelWidth: text.width,
+        verticalGap: text.top - artwork.bottom,
+        rowGap: loaderStyle.rowGap,
+        fontFamily: getComputedStyle(label).fontFamily,
+        flexDirection: loaderStyle.flexDirection,
         loaderDisplay: loaderStyle.display,
         loaderElement: connectingMotion?.tagName.toLowerCase(),
         rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
@@ -131,12 +149,36 @@ test("real WebSocket outage blocks the whole community surface and Retry restore
       inert: true,
       iconAnimationName: "none",
       letterAnimationName: "none",
-      loaderBackground: "rgb(124, 9, 17)",
+      svgCount: 5,
+      rowGap: "8px",
+      flexDirection: "column",
       loaderDisplay: "flex",
-      loaderElement: "span",
+      loaderElement: "div",
       rect: { x: 0, y: 0, width: 390, height: 844 },
       viewport: { width: 390, height: 844 },
     })
+    expect(reconnectingEvidence.artworkWidth).toBeCloseTo(172.8, 1)
+    expect(reconnectingEvidence.artworkHeight).toBeCloseTo(172.8, 1)
+    expect(reconnectingEvidence.verticalGap).toBeCloseTo(-6.4, 1)
+    expect(reconnectingEvidence.fontFamily).not.toMatch(/mono/i)
+    expect(reconnectingEvidence.artworkWidth * 660 / 1080).toBeGreaterThan(reconnectingEvidence.labelWidth)
+    const artwork = overlay.locator("[data-connecting-motion]")
+    const staticMarkup = await artwork.innerHTML()
+    await alice.page.waitForTimeout(120)
+    expect(await artwork.innerHTML()).toBe(staticMarkup)
+    await alice.page.emulateMedia({ reducedMotion: "no-preference" })
+    await expect.poll(() => artwork.innerHTML()).not.toBe(staticMarkup)
+    await alice.page.waitForTimeout(2600)
+    await alice.page.screenshot({ path: testInfo.outputPath("390-logo.png") })
+    await alice.page.setViewportSize({ width: 1280, height: 900 })
+    expect((await artwork.locator("span").first().boundingBox())!.width).toBe(192)
+    await alice.page.screenshot({ path: testInfo.outputPath("1280-logo.png") })
+    await expect.poll(() => artwork.locator("div").evaluateAll((elements) => elements.some((element) => (element as HTMLElement).style.clipPath.startsWith("inset(-300px")))).toBe(true)
+    await alice.page.screenshot({ path: testInfo.outputPath("1280-bots.png") })
+    await alice.page.setViewportSize({ width: 390, height: 844 })
+    await alice.page.screenshot({ path: testInfo.outputPath("390-bots.png") })
+    await alice.page.emulateMedia({ reducedMotion: "reduce" })
+    await expect.poll(() => artwork.innerHTML()).toBe(staticMarkup)
     await alice.page.keyboard.press("Tab")
     expect(await alice.page.evaluate(() => {
       const inertRoot = document.querySelector("[inert]")
@@ -196,6 +238,8 @@ test("real WebSocket outage blocks the whole community surface and Retry restore
     await expect(overlay).toHaveCount(0, { timeout: 20_000 })
     await expect(composer).toBeVisible()
     expect(await alice.page.locator("[inert]").count()).toBe(0)
+    expect(authenticatedConnections).toBeGreaterThanOrEqual(2)
+    await testInfo.attach("ws-recovery-evidence", { body: JSON.stringify({ authenticatedConnections, status: "connected", overlayRemoved: true }), contentType: "application/json" })
   } finally {
     await alice.context.setOffline(false)
   }

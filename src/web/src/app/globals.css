@@ -65,22 +65,12 @@
 
 .community-ws-connecting-loader {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: 8px;
   color: var(--foreground);
   user-select: none;
-}
-
-.community-ws-connecting-orb {
-  width: 20px;
-  height: 20px;
-  flex: 0 0 auto;
-  border-radius: 999px;
-  background: transparent;
-  transform: rotate(90deg);
-  animation: community-ws-connecting-orb 1.5s linear infinite;
-  will-change: transform;
 }
 
 .community-ws-connecting-text {
@@ -101,35 +91,6 @@ body.driver-active .community-ws-reconnect-overlay * {
   pointer-events: auto;
 }
 
-@keyframes community-ws-connecting-orb {
-  0% {
-    background: transparent;
-    box-shadow:
-      inset 0 1px 1px #fff,
-      inset 0 3px 5px #ff5f9f,
-      inset 0 4px 4px #0693ff;
-    transform: rotate(90deg);
-  }
-
-  50% {
-    background: #7c0911;
-    box-shadow:
-      inset 0 1px 1px #fff,
-      inset 0 3px 5px #d60a47,
-      inset 0 4px 4px #fbef19;
-    transform: rotate(270deg);
-  }
-
-  100% {
-    background: transparent;
-    box-shadow:
-      inset 0 1px 1px #fff,
-      inset 0 3px 5px #ff5f9f,
-      inset 0 4px 4px #28a9ff;
-    transform: rotate(450deg);
-  }
-}
-
 @keyframes community-ws-connecting-letter {
   0%,
   100% {
@@ -142,21 +103,8 @@ body.driver-active .community-ws-reconnect-overlay * {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .community-ws-connecting-orb {
-    background: #7c0911;
-    box-shadow:
-      inset 0 1px 1px #fff,
-      inset 0 3px 5px #d60a47,
-      inset 0 4px 4px #fbef19;
-    transform: rotate(270deg);
-  }
-
-  .community-ws-connecting-orb,
   .community-ws-connecting-letter {
     animation: none;
-  }
-
-  .community-ws-connecting-letter {
     opacity: 1;
   }
 }
