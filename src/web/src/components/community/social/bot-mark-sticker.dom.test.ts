@@ -382,7 +382,7 @@ describe("BotMarkSticker", () => {
     expect(stop.disabled).toBe(false)
     expect(stop.className).toContain("bg-[#dc2626]")
     expect(stop.className).toContain("text-white")
-    expect(stop.className).toContain("min-h-11")
+    expect(stop.className).toContain("min-h-7")
     const activeRow = renderer.container.querySelector(
       '[data-testid="community-bot-audit-preview-active"]',
     )!

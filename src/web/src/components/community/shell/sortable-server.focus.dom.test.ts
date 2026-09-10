@@ -32,9 +32,9 @@ const server = {
   mentions: 0,
 }
 
-function renderServer(active = false, mentions = 0) {
+function renderServer(active = false, mentions = 0, official = false) {
   const renderer = render(createElement(SortableServer, {
-    server: { ...server, mentions },
+    server: { ...server, mentions, official },
     active,
     onClick: vi.fn(),
     dragDescriptionId: "rail-help",
@@ -46,6 +46,13 @@ function renderServer(active = false, mentions = 0) {
 
 describe("SortableServer lazy menu focus", () => {
   afterEach(() => vi.restoreAllMocks())
+
+  it("announces official status without changing ordinary server labels", () => {
+    const ordinary = renderServer()
+    expect(ordinary.button()).toHaveAccessibleName("A")
+    const official = renderServer(false, 0, true)
+    expect(official.button()).toHaveAccessibleName("A, Official server")
+  })
 
   it("refocuses the icon after first focus activates and replaces its menu wrapper", () => {
     const focus = vi.spyOn(HTMLElement.prototype, "focus")

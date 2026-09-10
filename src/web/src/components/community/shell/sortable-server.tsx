@@ -1,5 +1,7 @@
 "use client";
 
+import { OfficialServerBadge } from "../official-server-badge";
+
 import { memo, useLayoutEffect, useRef, useState } from "react";
 import {
   ContextMenu,
@@ -123,7 +125,7 @@ function SortableServerImpl({
           data-testid={tid.serverIcon(server.id)}
           data-dragging={isDragActive || undefined}
           data-rail-preview={preview ?? undefined}
-          aria-label={server.name}
+          aria-label={server.official ? `${server.name}, Official server` : server.name}
           aria-describedby={dragDescriptionId}
           aria-keyshortcuts="Space ArrowUp ArrowDown ArrowLeft ArrowRight Escape"
           onClick={active ? undefined : onClick}
@@ -151,6 +153,7 @@ function SortableServerImpl({
               : "text-white [text-shadow:0_1px_2px_rgb(0_0_0/0.35)] group-hover/server:brightness-110",
           ].join(" ")}
           />
+          <OfficialServerBadge official={server.official} className="absolute -left-1 -top-1 z-2" />
         </button>
         {server.mentions > 0 && (
           <span
@@ -248,6 +251,7 @@ export function serverPropsEqual(prev: SortableServerProps, next: SortableServer
     a.name === b.name &&
     a.initial === b.initial &&
     a.icon === b.icon &&
+    a.official === b.official &&
     a.unread === b.unread &&
     a.mentions === b.mentions &&
     a.isOwner === b.isOwner &&

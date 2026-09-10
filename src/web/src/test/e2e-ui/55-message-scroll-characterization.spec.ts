@@ -543,6 +543,10 @@ test.describe.serial("message scroll characterization", () => {
     const proxy = await proxyCommunityWebSockets(alice.context)
     await gotoAfterUserWsAuth(alice.page, `/c/channels/${serverId}/${upwardChannelId}`)
     await expect(alice.page.getByTestId(tid.newDivider)).toBeVisible({ timeout: 30_000 })
+    await alice.page.getByTestId(tid.scrollToPresent).click()
+    await expect(alice.page.getByTestId(tid.message(upwardProfile.ids.at(-1)!)))
+      .toBeVisible({ timeout: 30_000 })
+    await expect(alice.page.getByTestId(tid.scrollToPresent)).toHaveCount(0)
     const scroller = alice.page.getByTestId(tid.messageScroller)
     await startScrollTrace(alice.page, {
       scenario: "remote-receive-and-upward-input",

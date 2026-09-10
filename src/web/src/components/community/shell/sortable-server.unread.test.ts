@@ -15,6 +15,13 @@ const base = {
 }
 
 describe("SortableServer unread memo boundary", () => {
+  it("rerenders when official status changes", () => {
+    const official = { ...base, server: { ...base.server, official: true } }
+    expect(serverPropsEqual(base, official)).toBe(false)
+    expect(serverPropsEqual(official, base)).toBe(false)
+    expect(serverPropsEqual(official, { ...official, onClick: vi.fn() })).toBe(true)
+  })
+
   it("rerenders for owned unread changes while ignoring callback identity", () => {
     expect(serverPropsEqual(base, { ...base, onClick: vi.fn() })).toBe(true)
     expect(serverPropsEqual(base, {

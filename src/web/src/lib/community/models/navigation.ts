@@ -17,6 +17,7 @@ export type Server = {
   unreadSources?: Array<{ channelId: string; lastUnreadSeq: number }>
   /** Exact direct-mention sources behind the numeric rail badge. */
   mentionSources?: Array<{ channelId: string; count: number; lastSeq: number }>
+  official?: boolean
   isOwner?: boolean
   icon?: string | null
 }

@@ -25,6 +25,7 @@ export const communityServer = sqliteTable(
     discriminator: text("discriminator").notNull().default("0000"),
     description: text("description").default(""),
     icon: text("icon"),
+    official: integer("official", { mode: "boolean" }).notNull().default(false),
     ownerId: text("owner_id")
       .notNull()
       .references(() => user.id, { onDelete: "restrict" }),

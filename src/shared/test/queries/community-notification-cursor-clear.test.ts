@@ -54,6 +54,7 @@ describe("notification setting read-state isolation contract", () => {
         ('u', 'Bot', '0001'),
         ('author', 'Human', '0002');
       CREATE TABLE community_server (
+        official INTEGER NOT NULL DEFAULT 0,
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         discriminator TEXT NOT NULL DEFAULT '0000',

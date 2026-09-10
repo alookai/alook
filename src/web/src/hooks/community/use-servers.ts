@@ -59,6 +59,7 @@ type RawServerRow = {
   name: string
   discriminator: string
   icon: string | null
+  official?: boolean
   role?: string
   mentions?: number
   unread?: boolean
@@ -96,6 +97,7 @@ export const serversQueryFn = async (
     mentions: s.mentions ?? 0,
     isOwner: isServerOwner(s.role),
     icon: s.icon ?? null,
+    official: s.official === true,
     ...(s.unreadSources ? { unreadSources: s.unreadSources } : {}),
     ...(s.mentionSources ? { mentionSources: s.mentionSources } : {}),
   }))
@@ -251,6 +253,7 @@ export type ServerDetail = {
   discriminator: string
   description: string
   icon: string | null
+  official?: boolean
   ownerId: string
   categories: Category[]
   /** Canonical unread ownership for participating children of forum channels. */
@@ -384,6 +387,7 @@ export const serverQueryFn = (
     discriminator: server.discriminator ?? "",
     description: server.description ?? "",
     icon: server.icon ?? null,
+    official: server.official === true,
     ownerId: server.ownerId ?? "",
     categories,
     forumUnreadState,

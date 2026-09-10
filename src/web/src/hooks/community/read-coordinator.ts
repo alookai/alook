@@ -560,6 +560,9 @@ class ReadCoordinator {
       state.attemptEpoch += 1
       state.inFlight.controller.abort()
       state.inFlight = null
+      if (state.accepted && state.retryTimer === null) {
+        this.schedule(state, Math.max(0, state.accepted.dueAt - Date.now()))
+      }
     }
     if (!state.accepted && state.timer !== null) {
       clearTimeout(state.timer)

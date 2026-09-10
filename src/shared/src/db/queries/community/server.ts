@@ -259,6 +259,7 @@ export async function listUserServers(db: Database, userId: string) {
       discriminator: communityServer.discriminator,
       description: communityServer.description,
       icon: communityServer.icon,
+      official: communityServer.official,
       ownerId: communityServer.ownerId,
       createdAt: communityServer.createdAt,
       role: communityServerMember.role,

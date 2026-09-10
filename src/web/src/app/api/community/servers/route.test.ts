@@ -62,6 +62,18 @@ describe("POST /api/community/servers", () => {
     fanOut.mockResolvedValue(undefined)
   })
 
+  it("does not accept official status when creating a server", async () => {
+    createServer.mockResolvedValue({
+      server: { id: "srv_1", name: "New", ownerId: "u1", official: false },
+      ownerMember: { id: "mem_1", userId: "u1", joinedAt, userName: "Alice" },
+    })
+    const res = await POST(postReq({ name: "New", official: true }))
+    expect(res.status).toBe(201)
+    expect(createServer).toHaveBeenCalledWith(expect.anything(), {
+      name: "New", description: undefined, ownerId: "u1",
+    })
+  })
+
   it("fires MEMBER_JOIN with byte-identical payload sourced from createServer's ownerMember", async () => {
     createServer.mockResolvedValue({
       server: { id: "srv_1", name: "My Server", ownerId: "u1" },
