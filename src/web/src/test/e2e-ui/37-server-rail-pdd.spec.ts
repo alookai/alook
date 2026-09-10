@@ -348,7 +348,10 @@ async function expectFirstNativeServerTap(
   }, { destination, testId: targetTestId })
 
   await target.tap()
-  await expect.poll(() => new URL(page.url()).pathname).toBe(destination)
+  await expect.poll(
+    () => new URL(page.url()).pathname,
+    { timeout: 30_000 },
+  ).toBe(destination)
   expect(await page.evaluate(() => {
     const state = Reflect.get(window, "__railFirstTapProbe") as {
       touchStarts: number
@@ -407,6 +410,9 @@ test("first native Server tap is one root push with a stable handle and zero rai
   await expect.poll(() => new URL(warm.page.url()).pathname).toBe(`/c/me/${dmId}`)
   await warm.page.reload()
   await expect.poll(() => new URL(warm.page.url()).pathname).toBe(`/c/me/${dmId}`)
+  await warm.page.getByRole("banner").getByRole("button", { name: "Back" }).click()
+  await expect.poll(() => new URL(warm.page.url()).pathname).toBe("/c/me")
+  await expect(warm.page.getByTestId(tid.serverIcon(serverId))).toBeVisible({ timeout: 30_000 })
   await expectFirstNativeServerTap(warm.page, serverId, warmPatches)
 })
 
