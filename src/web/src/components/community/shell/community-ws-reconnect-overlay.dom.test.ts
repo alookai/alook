@@ -8,11 +8,17 @@ import { CommunityWsReconnectBoundary } from "./community-ws-reconnect-overlay"
 describe("CommunityWsReconnectBoundary", () => {
   beforeEach(() => {
     useCommunityWsStore.getState().reset()
+    vi.stubGlobal("matchMedia", vi.fn(() => ({matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn()})))
+    vi.stubGlobal("IntersectionObserver", class {
+      observe() {}
+      disconnect() {}
+    })
   })
 
   afterEach(() => {
     useCommunityWsStore.getState().reset()
     vi.restoreAllMocks()
+    vi.unstubAllGlobals()
   })
 
   function render() {
@@ -57,8 +63,12 @@ describe("CommunityWsReconnectBoundary", () => {
     expect(screen.getByRole("status")).toHaveAttribute("data-variant", "default")
     expect(screen.getByRole("heading", { name: "Connecting…" })).toBeInTheDocument()
     const motion = overlay.querySelector<HTMLElement>("[data-connecting-motion]")!
-    expect(motion.tagName.toLowerCase()).toBe("span")
-    expect(motion).toHaveClass("community-ws-connecting-orb")
+    expect(motion).toHaveAttribute("aria-hidden", "true")
+    expect(motion).toHaveClass("h-36", "w-44", "sm:h-40", "sm:w-48", "items-center")
+    expect(motion.querySelectorAll("svg")).toHaveLength(5)
+    expect(motion.querySelector("[role=status]")).toHaveClass("scale-90", "sm:scale-100")
+    expect(motion.querySelector("[role=status]")).toHaveStyle({ width: "192px", height: "192px" })
+    expect(overlay.querySelector(".community-ws-connecting-text")).toHaveClass("font-heading")
     expect(overlay.querySelectorAll(".community-ws-connecting-letter")).toHaveLength(11)
     expect(overlay.querySelector(".community-ws-connecting-text")).toHaveTextContent("Connecting…")
     expect(screen.queryByTestId(tid.wsRetry)).not.toBeInTheDocument()
