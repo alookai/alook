@@ -136,13 +136,32 @@ test("Update, Inbox, and viewer Profile share one persistent User Bar extension"
 
   const writes = observeWrites(page)
   const inboxTrigger = page.getByTestId(tid.inboxTrigger)
+  const inboxIcon = inboxTrigger.locator("svg")
+  const readInboxTriggerStyle = () => inboxTrigger.evaluate((element) => {
+    const style = getComputedStyle(element)
+    return {
+      backgroundColor: style.backgroundColor,
+      color: style.color,
+    }
+  })
   await expect(inboxTrigger).toHaveAttribute("aria-label", "Inbox")
+  await expect(inboxIcon).toHaveAttribute("fill", "none")
+  await expect(inboxIcon).not.toHaveClass(/fill-current/)
+  const closedInboxTriggerStyle = await readInboxTriggerStyle()
   await inboxTrigger.focus()
   await page.keyboard.press("Enter")
   await expect(slot).toHaveAttribute("data-extension", "inbox")
   await expect(slot).toBeFocused()
   await expect(page.getByTestId(tid.daemonUpdateBadge)).toBeVisible()
-  await expect(inboxTrigger.locator("svg")).toHaveClass(/fill-current/)
+  await expect(inboxIcon).toHaveAttribute("fill", "none")
+  await expect(inboxIcon).not.toHaveClass(/fill-current/)
+  await expect.poll(async () => {
+    const openStyle = await readInboxTriggerStyle()
+    return {
+      backgroundChanged: openStyle.backgroundColor !== closedInboxTriggerStyle.backgroundColor,
+      foregroundChanged: openStyle.color !== closedInboxTriggerStyle.color,
+    }
+  }).toEqual({ backgroundChanged: true, foregroundChanged: true })
   const [badgeBox, inboxBox] = await Promise.all([
     page.getByTestId(tid.daemonUpdateBadge).boundingBox(),
     inboxTrigger.boundingBox(),
@@ -152,12 +171,24 @@ test("Update, Inbox, and viewer Profile share one persistent User Bar extension"
   expect(badgeBox!.x + badgeBox!.width).toBeLessThanOrEqual(inboxBox!.x)
 
   await inboxTrigger.click()
+  await page.mouse.move(0, 0)
   await expect(slot).toHaveCount(0)
   await expect(inboxTrigger).toHaveAttribute("aria-expanded", "false")
-  await expect(inboxTrigger.locator("svg")).not.toHaveClass(/fill-current/)
+  await expect(inboxIcon).toHaveAttribute("fill", "none")
+  await expect(inboxIcon).not.toHaveClass(/fill-current/)
+  await expect.poll(readInboxTriggerStyle).toEqual(closedInboxTriggerStyle)
   await inboxTrigger.click()
+  await page.mouse.move(0, 0)
   await expect(slot).toHaveAttribute("data-extension", "inbox")
-  await expect(inboxTrigger.locator("svg")).toHaveClass(/fill-current/)
+  await expect(inboxIcon).toHaveAttribute("fill", "none")
+  await expect(inboxIcon).not.toHaveClass(/fill-current/)
+  await expect.poll(async () => {
+    const openStyle = await readInboxTriggerStyle()
+    return {
+      backgroundChanged: openStyle.backgroundColor !== closedInboxTriggerStyle.backgroundColor,
+      foregroundChanged: openStyle.color !== closedInboxTriggerStyle.color,
+    }
+  }).toEqual({ backgroundChanged: true, foregroundChanged: true })
 
   const profileNameTrigger = userBarBase.getByTestId(tid.userBarName).locator("..")
   await profileNameTrigger.focus()

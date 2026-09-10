@@ -142,15 +142,16 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
     await expect(inboxTrigger).toHaveAttribute("aria-pressed", "false")
     await expect(inboxIcon).toHaveAttribute("fill", "none")
     await expect(inboxIcon).not.toHaveClass(/fill-current/)
-    const closedTriggerStyle = await inboxTrigger.evaluate((element) => {
+    const readTriggerStyle = () => inboxTrigger.evaluate((element) => {
       const style = getComputedStyle(element)
       return {
         backgroundColor: style.backgroundColor,
+        color: style.color,
         borderWidth: style.borderWidth,
         boxShadow: style.boxShadow,
       }
     })
-    const closedInboxIconColor = await inboxIcon.evaluate((element) => getComputedStyle(element).color)
+    const closedTriggerStyle = await readTriggerStyle()
     await inboxTrigger.click()
     await bob.page.mouse.move(0, 0)
     const mobileSurface = bob.page.getByTestId(tid.userBarExtension)
@@ -162,18 +163,21 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
     await expect(inboxTrigger).toHaveAttribute("aria-label", "Close Inbox")
     await expect(inboxTrigger).toHaveAttribute("aria-pressed", "true")
     await expect(inboxIcon).toHaveAttribute("fill", "none")
-    await expect(inboxIcon).toHaveClass(/fill-current/)
-    await expect.poll(() => inboxIcon.evaluate((element) => (
-      getComputedStyle(element).color
-    ))).not.toBe(closedInboxIconColor)
-    await expect.poll(() => inboxTrigger.evaluate((element) => {
-      const style = getComputedStyle(element)
+    await expect(inboxIcon).not.toHaveClass(/fill-current/)
+    await expect.poll(async () => {
+      const openStyle = await readTriggerStyle()
       return {
-        backgroundColor: style.backgroundColor,
-        borderWidth: style.borderWidth,
-        boxShadow: style.boxShadow,
+        backgroundChanged: openStyle.backgroundColor !== closedTriggerStyle.backgroundColor,
+        foregroundChanged: openStyle.color !== closedTriggerStyle.color,
+        borderWidth: openStyle.borderWidth,
+        boxShadow: openStyle.boxShadow,
       }
-    })).toEqual(closedTriggerStyle)
+    }).toEqual({
+      backgroundChanged: true,
+      foregroundChanged: true,
+      borderWidth: closedTriggerStyle.borderWidth,
+      boxShadow: closedTriggerStyle.boxShadow,
+    })
     expect(closedTriggerStyle.borderWidth).toBe("0px")
     expect(closedTriggerStyle.boxShadow).toBe("none")
     await expect(bob.page.getByRole("button", { name: "Close Inbox" })).toHaveCount(1)
@@ -252,17 +256,19 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
     await expect(inboxTrigger).toHaveAttribute("aria-pressed", "false")
     await expect(inboxIcon).toHaveAttribute("fill", "none")
     await expect(inboxIcon).not.toHaveClass(/fill-current/)
-    await expect.poll(() => inboxIcon.evaluate((element) => (
-      getComputedStyle(element).color
-    ))).toBe(closedInboxIconColor)
+    await expect.poll(readTriggerStyle).toEqual(closedTriggerStyle)
     await expect(bob.page).toHaveURL(new RegExp(`/c/channels/${serverId}$`))
     expect(writes.writes).toEqual([])
     expect(ws.frames).toHaveLength(wsBefore)
 
     await inboxTrigger.click()
     await inboxTrigger.click()
+    await bob.page.mouse.move(0, 0)
     await expect(bob.page.getByTestId(tid.userBarExtension)).toHaveCount(0)
     await expect(inboxTrigger).toBeFocused()
+    await expect(inboxIcon).toHaveAttribute("fill", "none")
+    await expect(inboxIcon).not.toHaveClass(/fill-current/)
+    await expect.poll(readTriggerStyle).toEqual(closedTriggerStyle)
 
     await inboxTrigger.click()
     await bob.page.keyboard.press("Escape")
