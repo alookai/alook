@@ -118,11 +118,11 @@ export function SocialSignIn({
           </Button>
         ) : null}
       </Field>
-      {text && <p role={native?.phase === "error" || unsupported ? "alert" : "status"} className="text-sm text-muted-foreground" data-testid="native-oauth-status">{text}</p>}
+      {text && <p role={native?.phase === "error" || unsupported ? "alert" : "status"} className="text-center text-sm text-muted-foreground" data-testid="native-oauth-status">{text}</p>}
       {!unsupported && !appleUpdateRequired && native && (native.attempt || native.phase === "error" || native.phase === "preparing") && (
-        <div className="flex gap-2">
-          {(native.attempt || native.phase === "preparing") && <Button type="button" variant="ghost" data-testid="native-oauth-cancel" onClick={() => { void controller.current?.cancel() }}>Cancel</Button>}
-          <Button type="button" variant="outline" disabled={busy} data-testid="native-oauth-retry" onClick={() => begin(native.attempt?.provider ?? lastProvider.current)}>Try again</Button>
+        <div className="flex justify-center gap-2">
+          {(native.attempt || native.phase === "preparing") && <Button type="button" variant="link" className="h-11 px-3 sm:h-8" data-testid="native-oauth-cancel" onClick={() => { void controller.current?.cancel() }}>Cancel</Button>}
+          <Button type="button" variant="link" className="h-11 px-3 sm:h-8" disabled={busy} data-testid="native-oauth-retry" onClick={() => begin(native.attempt?.provider ?? lastProvider.current)}>Try again</Button>
         </div>
       )}
     </>
