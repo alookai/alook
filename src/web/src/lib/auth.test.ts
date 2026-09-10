@@ -8,6 +8,17 @@ const authLogMocks = vi.hoisted(() => ({
   warn: vi.fn(),
   error: vi.fn(),
 }))
+const cloudflareMocks = vi.hoisted(() => {
+  const waitUntil = vi.fn<(promise: Promise<unknown>) => void>()
+  return {
+    waitUntil,
+    getCloudflareContext: vi.fn(() => ({ ctx: { waitUntil } })),
+  }
+})
+
+vi.mock("@opennextjs/cloudflare", () => ({
+  getCloudflareContext: cloudflareMocks.getCloudflareContext,
+}))
 
 vi.mock("better-auth", () => ({
   betterAuth: vi.fn((opts: unknown) => ({ __options: opts })),
@@ -307,7 +318,7 @@ describe("createAuth App Review OTP", () => {
     expect(env.EMAIL_WORKER.fetch).not.toHaveBeenCalled()
   })
 
-  it("keeps email delivery unchanged for similar emails and other OTP types", async () => {
+  it("keeps email delivery for similar emails and other OTP types", async () => {
     const { env, opts } = await createReviewAuth()
     const sendOtp = getSendOtp(opts)
 
@@ -315,6 +326,94 @@ describe("createAuth App Review OTP", () => {
     await sendOtp({ email: reviewEmail, otp: "975310", type: "email-verification" })
 
     expect(env.EMAIL_WORKER.fetch).toHaveBeenCalledTimes(2)
+    expect(cloudflareMocks.waitUntil).toHaveBeenCalledTimes(2)
+  })
+
+  it("waits for the DO gate but not ordinary email delivery", async () => {
+    let allowRateLimit: ((result: { allowed: true }) => void) | undefined
+    mockCheckRateLimit.mockReturnValueOnce(new Promise((resolve) => {
+      allowRateLimit = resolve
+    }))
+    let finishEmail: ((response: Response) => void) | undefined
+    const emailFetch = vi.fn(() => new Promise<Response>((resolve) => {
+      finishEmail = resolve
+    }))
+    const { opts } = await createReviewAuth({
+      EMAIL_WORKER: { fetch: emailFetch },
+    })
+
+    const send = getSendOtp(opts)({
+      email: "ordinary@example.com",
+      otp: "135790",
+      type: "sign-in",
+    })
+    await Promise.resolve()
+    expect(emailFetch).not.toHaveBeenCalled()
+    expect(cloudflareMocks.waitUntil).not.toHaveBeenCalled()
+
+    allowRateLimit?.({ allowed: true })
+    await expect(send).resolves.toBeUndefined()
+    expect(emailFetch).toHaveBeenCalledOnce()
+    expect(cloudflareMocks.waitUntil).toHaveBeenCalledOnce()
+
+    const backgroundSend = cloudflareMocks.waitUntil.mock.calls[0]?.[0]
+    if (!backgroundSend) throw new Error("email send was not registered")
+    let backgroundSettled = false
+    void backgroundSend.then(() => { backgroundSettled = true })
+    await Promise.resolve()
+    expect(backgroundSettled).toBe(false)
+
+    finishEmail?.(new Response("ok", { status: 200 }))
+    await expect(backgroundSend).resolves.toBeUndefined()
+  })
+
+  it("contains background email failures after returning from the send callback", async () => {
+    const { opts } = await createReviewAuth({
+      EMAIL_WORKER: {
+        fetch: vi.fn().mockResolvedValue(new Response("worker down", { status: 503 })),
+      },
+    })
+
+    await expect(getSendOtp(opts)({
+      email: "ordinary@example.com",
+      otp: "135790",
+      type: "sign-in",
+    })).resolves.toBeUndefined()
+
+    const backgroundSend = cloudflareMocks.waitUntil.mock.calls[0]?.[0]
+    if (!backgroundSend) throw new Error("email send was not registered")
+    await expect(backgroundSend).resolves.toBeUndefined()
+    expect(authLogMocks.error).toHaveBeenCalledWith(
+      "OTP email failed",
+      expect.objectContaining({ to: "ordinary@example.com", type: "sign-in" }),
+    )
+  })
+
+  it("awaits email delivery when Cloudflare background scheduling is unavailable", async () => {
+    cloudflareMocks.getCloudflareContext.mockImplementationOnce(() => {
+      throw new Error("context unavailable")
+    })
+    let finishEmail: ((response: Response) => void) | undefined
+    const emailFetch = vi.fn(() => new Promise<Response>((resolve) => {
+      finishEmail = resolve
+    }))
+    const { opts } = await createReviewAuth({
+      EMAIL_WORKER: { fetch: emailFetch },
+    })
+
+    let callbackSettled = false
+    const send = getSendOtp(opts)({
+      email: "ordinary@example.com",
+      otp: "135790",
+      type: "sign-in",
+    }).then(() => { callbackSettled = true })
+    await vi.waitFor(() => expect(emailFetch).toHaveBeenCalledOnce())
+
+    expect(cloudflareMocks.waitUntil).not.toHaveBeenCalled()
+    expect(callbackSettled).toBe(false)
+    finishEmail?.(new Response("ok", { status: 200 }))
+    await expect(send).resolves.toBeUndefined()
+    expect(callbackSettled).toBe(true)
   })
 
   it.each([undefined, "", "12345", "12345a", "1234567"])(
@@ -369,14 +468,14 @@ describe("createAuth App Review OTP", () => {
     expect(env.EMAIL_WORKER.fetch).not.toHaveBeenCalled()
   })
 
-  it("pins the existing five-minute expiry, three-attempt budget, and hashed storage", async () => {
+  it("pins the five-minute expiry, three-attempt budget, and encrypted storage", async () => {
     const { opts } = await createReviewAuth()
     const plugin = opts.plugins?.find((candidate) => candidate.__plugin === "emailOTP")
 
     expect(plugin?.cfg).toMatchObject({
       expiresIn: 5 * 60,
       allowedAttempts: 3,
-      storeOTP: "hashed",
+      storeOTP: "encrypted",
     })
   })
 })

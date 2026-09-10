@@ -1,5 +1,6 @@
 import { betterAuth } from "better-auth"
 import { emailOTP, deviceAuthorization, bearer, oneTimeToken } from "better-auth/plugins"
+import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { nanoid } from "nanoid"
 import {
   createLogger,
@@ -330,7 +331,7 @@ export function createAuth(env: Env) {
           emailOTP({
             expiresIn: 5 * 60,
             allowedAttempts: 3,
-            storeOTP: "hashed",
+            storeOTP: "encrypted",
             generateOTP({ email, type }) {
               return resolveAppReviewSignInOtp(env, { email, type })
             },
@@ -367,7 +368,17 @@ export function createAuth(env: Env) {
                 if (otp !== appReviewOtp) throw new Error(APP_REVIEW_OTP_UNAVAILABLE)
                 return
               }
-              await sendOtpEmail(env, { email: normalizedEmail, otp, type })
+              const emailSend = sendOtpEmail(env, {
+                email: normalizedEmail,
+                otp,
+                type,
+              }).catch(() => undefined)
+              try {
+                getCloudflareContext().ctx.waitUntil(emailSend)
+              } catch {
+                // Outside Cloudflare, keep the request alive until delivery settles.
+                await emailSend
+              }
             },
           }),
         ]
