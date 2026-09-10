@@ -11,18 +11,15 @@ type HeldServer = {
 async function holdServerTransition(
   page: Page,
   serverId: string,
-  { detail = true }: { detail?: boolean } = {},
 ): Promise<HeldServer> {
   let releaseGate!: () => void
   const gate = new Promise<void>((resolve) => { releaseGate = resolve })
   let heldNavigation = 0
   const patterns: Array<{ pattern: string; navigation: boolean }> = [
     { pattern: `**/c/channels/${serverId}**`, navigation: true },
-    ...(detail ? [
-      { pattern: `**/api/community/servers/${serverId}/categories**`, navigation: false },
-      { pattern: `**/api/community/servers/${serverId}/channels**`, navigation: false },
-      { pattern: `**/api/community/servers/${serverId}/unreads**`, navigation: false },
-    ] : []),
+    { pattern: `**/api/community/servers/${serverId}/categories**`, navigation: false },
+    { pattern: `**/api/community/servers/${serverId}/channels**`, navigation: false },
+    { pattern: `**/api/community/servers/${serverId}/unreads**`, navigation: false },
   ]
   const handlers = new Map<string, (route: Route) => Promise<void>>()
   for (const { pattern, navigation } of patterns) {
@@ -46,10 +43,9 @@ async function holdServerTransition(
 
 async function activateServerIcon(page: Page, serverId: string) {
   const icon = page.getByTestId(tid.serverIcon(serverId))
-  // The first focus lazily mounts the icon's context-menu wrapper and replaces
-  // the trigger node. Let that a11y activation path settle so the following
-  // physical click targets the stable button rather than the pre-activation
-  // node, including during an immediate A→B supersession.
+  // Focus activates the accessible menu path and starts Server-root prefetch.
+  // The trigger and button are already stable, so the same node receives the
+  // following physical click, including during an immediate A→B supersession.
   await icon.focus()
   await expect(icon.locator("xpath=ancestor::*[@data-slot='context-menu-trigger'][1]"))
     .toBeVisible()
@@ -119,28 +115,19 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
   const coldE = await holdServerTransition(page, serverE)
   const coldF = await holdServerTransition(page, serverF)
 
-  // A warm destination means the exact server detail has already settled in
-  // this page's QueryClient. Let B's focus prefetch fill that cache while only
-  // its RSC request is held, and wait for every constituent detail response
-  // to finish before the actual navigation intent begins.
-  const warmB = await holdServerTransition(page, serverB, { detail: false })
-  const detailResponses = Promise.all([
-    "categories", "channels", "unreads",
-  ].map((resource) => page.waitForResponse((response) =>
-    response.url().includes(`/api/community/servers/${serverB}/${resource}`)
+  // Warm B through the exact Server-root RSC contract before the click.
+  const rootPrefetch = page.waitForResponse((response) => {
+    const url = new URL(response.url())
+    return url.pathname === `/c/channels/${serverB}`
+      && url.searchParams.has("_rsc")
       && response.status() === 200
-  )))
+  })
   const serverBIcon = await activateServerIcon(page, serverB)
-  const responses = await detailResponses
-  await Promise.all(responses.map((response) => response.finished()))
-  await page.waitForTimeout(100)
+  const prefetchResponse = await rootPrefetch
+  await prefetchResponse.finished()
   await serverBIcon.click({ noWaitAfter: true })
-  await expect.poll(warmB.heldNavigation).toBeGreaterThan(0)
   await expect(page.getByTestId(tid.channelSidebarPending(serverB))).toHaveCount(0)
   await expect(page.getByTestId(tid.pendingMain("server-landing"))).toHaveCount(0)
-  await expect(page.getByRole("heading", { name: channelAName })).toBeVisible()
-  await expectActiveServer(page, serverA, serverB)
-  await warmB.release()
   await expect.poll(() => new URL(page.url()).pathname.startsWith(`/c/channels/${serverB}`))
     .toBe(true)
   await expect(page.locator("#sidebar").getByRole("button", { name: serverBName, exact: true }))
@@ -201,8 +188,8 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
   await expect(page.getByTestId(tid.serverIcon(serverE))).toBeVisible()
   await clickServer(page, serverE)
   // Dispatch the superseding click directly against the current stable
-  // button so this remains one immediate E→F intent window; waiting for F's
-  // unrelated lazy context-menu wrapper would serialize the two intents.
+  // button so this remains one immediate E→F intent window; awaiting F's
+  // focus-driven prefetch would serialize the two intents.
   await page.getByTestId(tid.serverIcon(serverF)).dispatchEvent("click")
   await expect.poll(coldF.heldNavigation).toBeGreaterThan(0)
   await expect(page.getByTestId(tid.channelSidebarPending(serverE))).toHaveCount(0)

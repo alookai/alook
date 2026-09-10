@@ -378,7 +378,7 @@ test("first native Server tap is one root push with a stable handle and zero rai
   test.setTimeout(120_000)
   const stamp = Date.now()
   const serverId = await seedServer("alice", `First tap ${stamp}`)
-  const channelId = await seedChannel("alice", serverId, `first-tap-${stamp}`)
+  await seedChannel("alice", serverId, `first-tap-${stamp}`)
   await seedJoinServer("alice", "bob", serverId)
   const dmId = await seedDm("alice", userId("bob"))
 
@@ -399,11 +399,13 @@ test("first native Server tap is one root push with a stable handle and zero rai
       warmPatches.push(request.postData() ?? "")
     }
   })
-  await warm.page.goto(`/c/channels/${serverId}/${channelId}`)
+  await warm.page.goto(`/c/channels/${serverId}`)
   await expect(warm.page.getByTestId(tid.serverIcon(serverId))).toBeVisible({ timeout: 30_000 })
   await warm.page.getByTestId(tid.homeButton).click()
   await expect.poll(() => new URL(warm.page.url()).pathname).toBe("/c/me")
   await warm.page.getByTestId(tid.dmRow(dmId)).click()
+  await expect.poll(() => new URL(warm.page.url()).pathname).toBe(`/c/me/${dmId}`)
+  await warm.page.reload()
   await expect.poll(() => new URL(warm.page.url()).pathname).toBe(`/c/me/${dmId}`)
   await expectFirstNativeServerTap(warm.page, serverId, warmPatches)
 })
