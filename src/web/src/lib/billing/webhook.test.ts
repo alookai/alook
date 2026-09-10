@@ -70,3 +70,10 @@ describe("Stripe signed ingress", () => {
     expect(mocked.reconcileBilling).not.toHaveBeenCalled()
   })
 })
+
+it("ignores a validly signed unrelated event without looking up billing", async () => {
+  const raw = JSON.stringify({ ...JSON.parse(body()), type: "payment_intent.succeeded" })
+  await handleBillingWebhook(db, stripe, env, raw, signature(raw))
+  expect(mocked.getBillingByCustomer).not.toHaveBeenCalled()
+  expect(mocked.reconcileBilling).not.toHaveBeenCalled()
+})

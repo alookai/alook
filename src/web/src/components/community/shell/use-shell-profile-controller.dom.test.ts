@@ -211,6 +211,24 @@ describe("useShellProfileController", () => {
     expect(hook.current.userSettingsProps.initialTab).toBe("profile")
   })
 
+  it.each(["settings=billing", "settings=billing&billing=cancel&audit=bot1"])("dismisses the settings dialog through open-change while preserving unrelated navigation (%s)", async (query) => {
+    mocks.search = query
+    window.history.replaceState(null, "", `/c/me/bots?${query}#details`)
+    const hook = await renderController()
+    await act(async () => hook.current.onUserSettingsOpenChange(true))
+    expect(hook.current.editingProfile).toBe(true)
+    expect(window.location.search).toBe(`?${query}`)
+    await act(async () => hook.current.onUserSettingsOpenChange(false))
+    expect(window.location.pathname + window.location.search + window.location.hash).toBe(
+      query.includes("audit=") ? "/c/me/bots?audit=bot1#details" : "/c/me/bots#details",
+    )
+    mocks.search = window.location.search.slice(1)
+    await hook.rerender()
+    expect(hook.current.editingProfile).toBe(false)
+    expect(hook.router.push).not.toHaveBeenCalled()
+    expect(hook.router.replace).not.toHaveBeenCalled()
+  })
+
   it("opens self synchronously only for the exact target id", async () => {
     const hook = await renderController()
     await act(async () => hook.current.openProfile("Self", { clientX: 2, clientY: 3 } as never, undefined, "self"))

@@ -1,5 +1,7 @@
 import { beforeEach, afterEach, describe, expect, it } from "vitest";
 import Sqlite from "better-sqlite3";
+import { getTableConfig } from "drizzle-orm/sqlite-core";
+import { userBilling, billingPrice } from "../../src/db/billing-schema";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { readFileSync } from "node:fs";
 import type { Database } from "../../src/db";
@@ -155,5 +157,44 @@ describe("billing transactional boundaries", () => {
     const other = (await billing.ensureBilling(db, "other"))!;
     await expect(billing.updateBilling(db, other, { customerId: "cus1" })).rejects.toThrow();
     expect((await billing.getBillingByCustomer(db, "cus1"))?.userId).toBe("new-user");
+  });
+});
+
+describe("billing catalog persistence", () => {
+  it("filters sales catalog while retaining disabled mappings for reconciliation", async () => {
+    sqlite.exec("INSERT INTO billing_price(price_id,plan_id,enabled) VALUES('studio-on','studio',1),('house-off','house',0),('free-price','free',1)");
+    expect((await billing.listPrices(db)).map((p) => p.priceId)).toEqual(["studio-on"]);
+    expect((await billing.listPrices(db, true)).map((p) => p.priceId)).toEqual(["studio-on", "house-off"]);
+    sqlite.exec("UPDATE product_plan SET is_active=0 WHERE id='studio'");
+    expect(await billing.listPrices(db)).toEqual([]);
+    expect((await billing.listPrices(db, true)).map((p) => p.priceId)).toEqual(["house-off"]);
+  });
+
+  it("requires an active default plan for billing fallback", async () => {
+    expect(await billing.getDefaultPlan(db)).toEqual({ id: "free", displayName: "Free" });
+    sqlite.exec("UPDATE product_plan SET is_active=0 WHERE id='free'");
+    await expect(billing.getDefaultPlan(db)).rejects.toThrow("DEFAULT_PLAN_UNAVAILABLE");
+  });
+
+  it("rejects unavailable target allowances without changing billing state", async () => {
+    const row = (await billing.ensureBilling(db, "new-user"))!;
+    sqlite.exec("UPDATE product_plan_entitlement SET value_json='-1' WHERE plan_id='studio' AND entitlement_key='bots.max'");
+    await expect(billing.applyBillingPlan(db, row, { subscriptionId: "sub" }, "studio")).rejects.toThrow("BILLING_PLAN_UNAVAILABLE");
+    expect(await billing.getBilling(db, "new-user")).toEqual(row);
+  });
+
+  it("declares required foreign keys and unique Stripe identities, with a generated update timestamp", async () => {
+    const prices = getTableConfig(billingPrice);
+    const billingTable = getTableConfig(userBilling);
+    expect(prices.foreignKeys.map((key) => ({ column: key.reference().columns[0].name, target: key.reference().foreignColumns[0].name, onDelete: key.onDelete })))
+      .toEqual([{ column: "plan_id", target: "id", onDelete: "restrict" }]);
+    expect(billingTable.foreignKeys.map((key) => ({ column: key.reference().columns[0].name, onDelete: key.onDelete })))
+      .toEqual([{ column: "user_id", onDelete: "cascade" }]);
+    expect(billingTable.indexes.map((index) => ({ name: index.config.name, unique: index.config.unique })))
+      .toEqual([{ name: "uq_user_billing_customer", unique: true }, { name: "uq_user_billing_subscription", unique: true }]);
+    const inserted = await db.insert(userBilling).values({ userId: "new-user" }).returning();
+    expect(inserted[0]).toMatchObject({ userId: "new-user", revision: 0, customerId: null, subscriptionId: null });
+    expect(Number.isFinite(Date.parse(inserted[0].updatedAt))).toBe(true);
+    await expect(db.insert(billingPrice).values({ priceId: "bad", planId: "missing" })).rejects.toThrow();
   });
 });

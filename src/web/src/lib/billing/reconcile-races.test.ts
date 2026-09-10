@@ -180,3 +180,34 @@ describe("reconciliation freshness and post-commit effects", () => {
     expect(mocked.applyBillingPlan).toHaveBeenCalledOnce()
   })
 })
+
+it("refuses a deleted customer's still-active subscription instead of revoking blindly", async () => {
+  vi.mocked(stripe.customers.retrieve).mockResolvedValue({ id: "cus_1", deleted: true } as Stripe.Response<Stripe.DeletedCustomer>)
+  await expect(currentSubscription(stripe, env, row)).rejects.toMatchObject({ code: "BILLING_CUSTOMER_UNAVAILABLE", status: 503 })
+  expect(mocked.applyBillingPlan).not.toHaveBeenCalled()
+})
+
+it("refuses a retrieved subscription that belongs to another customer", async () => {
+  retrieve.mockResolvedValue({ ...sub("sub_new", "house"), customer: "foreign" })
+  await expect(currentSubscription(stripe, env, row)).rejects.toMatchObject({ code: "BILLING_SUBSCRIPTION_MISMATCH", status: 503 })
+  expect(mocked.applyBillingPlan).not.toHaveBeenCalled()
+})
+
+it("rejects multiple subscription units without changing entitlements", async () => {
+  const subscription = sub("sub_new", "house")
+  subscription.items.data[0].quantity = 2
+  retrieve.mockResolvedValue(subscription)
+  await expect(reconcileBilling(db, stripe, env, "owner")).rejects.toMatchObject({ code: "BILLING_SUBSCRIPTION_UNSUPPORTED", status: 503 })
+  expect(mocked.applyBillingPlan).not.toHaveBeenCalled()
+})
+
+it("retains the last paid tier when the newest renewal invoice is still open", async () => {
+  const subscription = sub("sub_new", "house")
+  const paid = structuredClone(subscription.latest_invoice)
+  retrieve.mockResolvedValue({ ...subscription, status: "past_due", latest_invoice: { status: "open" } })
+  const list = vi.fn(async () => ({ data: [paid] }))
+  stripe.invoices = { list } as unknown as Stripe["invoices"]
+  await reconcileBilling(db, stripe, env, "owner")
+  expect(list).toHaveBeenCalledWith({ subscription: "sub_new", status: "paid", limit: 1 })
+  expect(mocked.applyBillingPlan).toHaveBeenCalledWith(db, row, expect.objectContaining({ subscription: expect.objectContaining({ status: "past_due" }) }), "house")
+})

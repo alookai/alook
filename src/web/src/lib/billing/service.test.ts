@@ -270,3 +270,11 @@ describe("withdraw a future plan change", () => {
     expect(release).not.toHaveBeenCalled()
   })
 })
+
+it("bounds persistent reservation conflicts without creating Stripe resources", async () => {
+  mocked.updateBilling.mockResolvedValue(null)
+  await expect(checkout()).rejects.toMatchObject({ code: "BILLING_RETRY_REQUIRED", status: 503 })
+  expect(mocked.ensureBilling).toHaveBeenCalledTimes(5)
+  expect(customerCreates).not.toHaveBeenCalled()
+  expect(sessionCreates).not.toHaveBeenCalled()
+})

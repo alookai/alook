@@ -333,15 +333,33 @@ describe("useBotListController", () => {
     expect(mocks.toastError).not.toHaveBeenCalled()
   })
 
-  it("opens plans instead of bypassing create capacity for a non-Founder", () => {
+  it.each([
+    { isFounder: false, ownedCount: 3 },
+    { isFounder: false, ownedCount: 4 },
+    { isFounder: true, ownedCount: 3 },
+    { isFounder: true, ownedCount: 4 },
+  ])("opens capacity recovery for owned=$ownedCount and Founder=$isFounder", ({ isFounder, ownedCount }) => {
     mocks.target = null
-    mocks.isFounder = false
-    mocks.planSummary = { ...mocks.planSummary, ownedCount: 3, limit: 3 }
+    mocks.isFounder = isFounder
+    mocks.planSummary = { ...mocks.planSummary, ownedCount, limit: 3 }
     render()
     expect(latest.canShowLimit).toBe(true)
     act(() => latest.openGuidedCreate())
     expect(latest.billingOpen).toBe(true)
     expect(latest.createOpen).toBe(false)
+  })
+
+  it.each([false, true])("does not infer capacity without an exhausted loaded plan (loaded=%s)", (loaded) => {
+    mocks.target = null
+    mocks.botsDataReady = loaded
+    mocks.planSummary = { ...mocks.planSummary, ownedCount: 2, limit: 3 }
+    render()
+    expect(latest.canShowLimit).toBe(loaded)
+    expect(latest.isCreateDisabled).toBe(false)
+    act(() => latest.openGuidedCreate())
+    expect(latest.createOpen).toBe(true)
+    expect(latest.billingOpen).toBe(false)
+    expect(mocks.toastError).not.toHaveBeenCalled()
   })
 
   it("leaves billing returns to settings and opens the unified plan destination", () => {

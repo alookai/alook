@@ -131,11 +131,7 @@ export function useBotListController(): BotListController {
       return
     }
     if (isCreateDisabled) {
-      if (canShowLimit) {
-        setBillingOpen(true)
-        return
-      }
-      toast.error("Bot limit reached — delete a bot or change plan to create another.")
+      setBillingOpen(true)
       return
     }
     setCreateOpen(true)
