@@ -52,6 +52,14 @@ function button(id: string): HTMLButtonElement {
   return screen.getByTestId(id) as HTMLButtonElement
 }
 
+const attempt = {
+  attemptId: "opaque-id",
+  provider: "google" as const,
+  redirectPath: "/c/me",
+  expiresAt: Date.now() + 600_000,
+  waiting: true,
+}
+
 describe("social sign-in native boundary", () => {
   it("preserves normal browser social login and callback destination", async () => {
     const user = setupUser()
@@ -209,14 +217,6 @@ describe("social sign-in native boundary", () => {
     const user = setupUser()
     mocks.tauri = true
     render(createElement(SocialSignIn, { postLoginUrl: "/c/me" }))
-    const attempt = {
-      attemptId: "opaque-id",
-      provider: "google" as const,
-      redirectPath: "/c/me",
-      expiresAt: Date.now() + 600_000,
-      waiting: true,
-    }
-
     act(() => mocks.emit!({ phase: "exchanging", attempt }))
     expect(button("native-oauth-retry")).toBeDisabled()
     expect(button("native-oauth-cancel")).toBeEnabled()
@@ -229,5 +229,71 @@ describe("social sign-in native boundary", () => {
 
     expect(mocks.start).toHaveBeenCalledWith("google", "/c/me")
     expect(document.body).not.toHaveTextContent("opaque-id")
+  })
+
+  it.each([
+    {
+      name: "preparing",
+      view: { phase: "preparing", attempt: null } as NativeOauthView,
+      copy: "Opening sign-in in your browser…",
+      role: "status",
+      retryDisabled: true,
+    },
+    {
+      name: "waiting",
+      view: { phase: "waiting", attempt } as NativeOauthView,
+      copy: "Finish signing in in your browser.",
+      role: "status",
+      retryDisabled: false,
+    },
+    {
+      name: "error",
+      view: { phase: "error", message: "retry_required", attempt } as NativeOauthView,
+      copy: "Couldn't confirm sign-in. Try again to start a new attempt.",
+      role: "alert",
+      retryDisabled: false,
+    },
+  ])("centers the $name state with responsive text-only actions", ({
+    view,
+    copy,
+    role,
+    retryDisabled,
+  }) => {
+    mocks.tauri = true
+    render(createElement(SocialSignIn, { postLoginUrl: "/c/me" }))
+
+    act(() => mocks.emit!(view))
+
+    const status = screen.getByTestId("native-oauth-status")
+    expect(status).toHaveAttribute("role", role)
+    expect(status).toHaveTextContent(copy)
+    expect(status).toHaveClass("text-center")
+    expect(status.nextElementSibling).toHaveClass(
+      "flex",
+      "justify-center",
+      "gap-2",
+    )
+
+    const cancel = button("native-oauth-cancel")
+    const retry = button("native-oauth-retry")
+    for (const action of [cancel, retry]) {
+      expect(action).toHaveClass(
+        "h-11",
+        "px-3",
+        "sm:h-8",
+        "text-primary",
+        "underline-offset-4",
+      )
+      expect(action).not.toHaveClass(
+        "border-border",
+        "bg-background",
+        "bg-primary",
+        "bg-secondary",
+      )
+      action.focus()
+      expect(action).toHaveFocus()
+    }
+    expect(retry.disabled).toBe(retryDisabled)
+    expect(cancel).toBeEnabled()
   })
 })

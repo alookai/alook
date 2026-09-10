@@ -3,6 +3,7 @@ import {
   test as browserTest,
   expect as browserExpect,
   type Locator,
+  type Page,
 } from "@playwright/test"
 
 async function expectSameHorizontalCenter(first: Locator, second: Locator) {
@@ -26,6 +27,57 @@ async function expectSameWidth(first: Locator, second: Locator) {
   browserExpect(firstBox).not.toBeNull()
   browserExpect(secondBox).not.toBeNull()
   browserExpect(Math.abs(firstBox!.width - secondBox!.width)).toBeLessThanOrEqual(1)
+}
+
+async function expectCenteredNativeOauthState(
+  page: Page,
+  {
+    copy,
+    role,
+    cancel,
+    retryDisabled,
+  }: {
+    copy: string
+    role: "alert" | "status"
+    cancel: boolean
+    retryDisabled: boolean
+  },
+) {
+  const status = page.getByRole(role).filter({ hasText: copy })
+  const retry = page.getByRole("button", { name: "Try again" })
+  const actions = retry.locator("..")
+  const authPane = page.locator('[data-slot="card-content"] > div').first()
+  await browserExpect(status).toHaveRole(role)
+  await browserExpect(status).toHaveText(copy)
+  await browserExpect(status).toHaveClass(/text-center/)
+  await browserExpect(actions).toHaveClass(/justify-center/)
+  await expectSameHorizontalCenter(status, authPane)
+  await expectSameHorizontalCenter(actions, authPane)
+
+  await browserExpect(retry).toHaveText("Try again")
+  await browserExpect(retry).toHaveClass(/h-11/)
+  await browserExpect(retry).toHaveClass(/sm:h-8/)
+  await browserExpect(retry).toHaveClass(/text-primary/)
+  await browserExpect(retry).not.toHaveClass(/border-border|bg-background|bg-primary|bg-secondary/)
+  if (retryDisabled) await browserExpect(retry).toBeDisabled()
+  else {
+    await browserExpect(retry).toBeEnabled()
+    await retry.focus()
+    await browserExpect(retry).toBeFocused()
+  }
+
+  const cancelAction = page.getByRole("button", { name: "Cancel" })
+  if (!cancel) {
+    await browserExpect(cancelAction).toHaveCount(0)
+    return
+  }
+  await browserExpect(cancelAction).toHaveText("Cancel")
+  await browserExpect(cancelAction).toHaveClass(/h-11/)
+  await browserExpect(cancelAction).toHaveClass(/sm:h-8/)
+  await browserExpect(cancelAction).toHaveClass(/text-primary/)
+  await browserExpect(cancelAction).not.toHaveClass(/border-border|bg-background|bg-primary|bg-secondary/)
+  await cancelAction.focus()
+  await browserExpect(cancelAction).toBeFocused()
 }
 
 // Journey 1 — login & first screen. storageState is established in
@@ -204,5 +256,138 @@ browserTest.describe("production OTP error placement", () => {
     await browserExpect(page.getByRole("button", { name: /Wait \d+s/ })).toBeDisabled()
     await browserExpect(page.getByRole("button", { name: "GitHub" })).toBeVisible()
     await browserExpect(page.getByRole("button", { name: "Google" })).toBeVisible()
+  })
+})
+
+browserTest.describe("native OAuth status actions", () => {
+  browserTest("centers responsive preparing, waiting, and error states with text-only actions", async ({ page }) => {
+    const attempt = {
+      attemptId: "attempt_1234567890123456",
+      provider: "github" as const,
+      redirectPath: "/c/me",
+      expiresAt: Date.now() + 600_000,
+      waiting: false,
+    }
+    const registration = {
+      attemptId: attempt.attemptId,
+      stateHash: "a".repeat(64),
+      codeChallenge: "b".repeat(43),
+      instanceKeyHash: "c".repeat(64),
+      platform: "macos",
+      provider: "github",
+      redirectPath: "/c/me",
+    }
+    let snapshot: typeof attempt | null = null
+    let failPrepare = false
+    let releasePrepare!: () => void
+    const prepareGate = new Promise<void>((resolve) => { releasePrepare = resolve })
+
+    await page.exposeFunction("__testNativeOauthInvoke", async (command: string) => {
+      if (command === "native_oauth_snapshot") return snapshot
+      if (command === "native_oauth_pending_exchange") return null
+      if (command === "native_oauth_prepare") {
+        if (failPrepare) throw new Error("start failed")
+        await prepareGate
+        snapshot = attempt
+        return registration
+      }
+      if (command === "native_oauth_open_start") {
+        snapshot = { ...attempt, waiting: true }
+        return null
+      }
+      if (command === "native_oauth_cancel") {
+        snapshot = null
+        return null
+      }
+      return null
+    })
+    await page.addInitScript(() => {
+      const bridge = window as typeof window & {
+        __testNativeOauthInvoke: (command: string, args?: Record<string, unknown>) => Promise<unknown>
+        __TAURI__: {
+          core: {
+            Channel: new () => { onmessage: () => void }
+            invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown>
+          }
+        }
+      }
+      class Channel {
+        onmessage = () => {}
+      }
+      bridge.__TAURI__ = {
+        core: {
+          Channel,
+          invoke: (command, args) => command === "native_oauth_listen"
+            ? Promise.resolve(1)
+            : bridge.__testNativeOauthInvoke(command, args),
+        },
+      }
+    })
+    await page.route("**/api/auth/native/attempt", (route) => route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ startUrl: "https://github.com/login/oauth/authorize" }),
+    }))
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto("/sign-in")
+    await browserExpect(page.getByRole("button", { name: "GitHub" })).toBeEnabled()
+    await page.getByRole("button", { name: "GitHub" }).click()
+    await expectCenteredNativeOauthState(page, {
+      copy: "Opening sign-in in your browser…",
+      role: "status",
+      cancel: true,
+      retryDisabled: true,
+    })
+    await browserExpect.poll(async () => (
+      await page.getByRole("button", { name: "Cancel" }).boundingBox()
+    )?.height ?? 0).toBeGreaterThanOrEqual(44)
+
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await expectCenteredNativeOauthState(page, {
+      copy: "Opening sign-in in your browser…",
+      role: "status",
+      cancel: true,
+      retryDisabled: true,
+    })
+
+    releasePrepare()
+    await expectCenteredNativeOauthState(page, {
+      copy: "Finish signing in in your browser.",
+      role: "status",
+      cancel: true,
+      retryDisabled: false,
+    })
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expectCenteredNativeOauthState(page, {
+      copy: "Finish signing in in your browser.",
+      role: "status",
+      cancel: true,
+      retryDisabled: false,
+    })
+    await browserExpect.poll(async () => (
+      await page.getByRole("button", { name: "Try again" }).boundingBox()
+    )?.height ?? 0).toBeGreaterThanOrEqual(44)
+
+    failPrepare = true
+    await page.getByRole("button", { name: "Try again" }).click()
+    await expectCenteredNativeOauthState(page, {
+      copy: "Couldn't open sign-in. Try again.",
+      role: "alert",
+      cancel: false,
+      retryDisabled: false,
+    })
+    await browserExpect.poll(async () => (
+      await page.getByRole("button", { name: "Try again" }).boundingBox()
+    )?.height ?? 0).toBeGreaterThanOrEqual(44)
+
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await expectCenteredNativeOauthState(page, {
+      copy: "Couldn't open sign-in. Try again.",
+      role: "alert",
+      cancel: false,
+      retryDisabled: false,
+    })
   })
 })
