@@ -223,7 +223,7 @@ async function touchDrag(
     source,
     { x: sourceBox.x + sourceBox.width / 2, y: sourceBox.y + sourceBox.height / 2 },
     { x: targetBox.x + targetBox.width / 2, y: targetBox.y + targetBox.height * targetRatio },
-    460,
+    660,
     { source, target },
     targetRatio,
     previewScreenshotPath,
@@ -251,7 +251,7 @@ async function startStationaryTouch(page: Page, origin: Locator) {
       screenX: args.point.x,
       screenY: args.point.y,
     })
-    element.dispatchEvent(new TouchEvent(args.type, {
+    const allowed = element.dispatchEvent(new TouchEvent(args.type, {
       bubbles: true,
       cancelable: true,
       composed: true,
@@ -259,6 +259,9 @@ async function startStationaryTouch(page: Page, origin: Locator) {
       targetTouches: args.type === "touchend" ? [] : [touch],
       changedTouches: [touch],
     }))
+    // Synthetic TouchEvents do not synthesize the browser's trailing click.
+    // Mirror that default only when the production handler did not cancel it.
+    if (args.type === "touchend" && allowed) (element as HTMLElement).click()
   }, { type, point })
   await dispatch("touchstart")
   return () => dispatch("touchend")
@@ -521,18 +524,30 @@ test("server rail keeps scroll separate from native, touch, and keyboard drag", 
   await expect(page.getByTestId(tid.serverIcon(second))).toBeVisible()
   const beforeLongPress = railRequests.length
   await firstFolder.scrollIntoViewIfNeeded()
+  await firstFolder.evaluate((element) => {
+    Reflect.set(window, "__railStationaryClicks", 0)
+    element.addEventListener("click", () => {
+      Reflect.set(
+        window,
+        "__railStationaryClicks",
+        Number(Reflect.get(window, "__railStationaryClicks")) + 1,
+      )
+    })
+  })
   const endLongPress = await startStationaryTouch(page, firstFolder)
-  await expect(firstFolder).toHaveAttribute("data-dragging", "true")
-  const stationaryFolderPreview = page.locator('[data-rail-floating-preview="folder"]')
-  await expect(stationaryFolderPreview).toHaveCount(1)
-  expect(await stationaryFolderPreview.boundingBox()).toMatchObject({ width: 40, height: 40 })
   await page.waitForTimeout(700)
+  await expect(firstFolder).not.toHaveAttribute("data-dragging", "true")
+  const stationaryFolderPreview = page.locator('[data-rail-floating-preview="folder"]')
+  await expect(stationaryFolderPreview).toHaveCount(0)
   await expect(page.getByRole("menuitem", { name: "Ungroup" })).toHaveCount(0)
   await expect(page.getByRole("menuitem", { name: "Move…" })).toHaveCount(0)
   await expect(page.getByRole("menuitem", { name: "Create group" })).toHaveCount(0)
   await endLongPress()
   await expect(stationaryFolderPreview).toHaveCount(0)
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "__railStationaryClicks")))
+    .toBe(1)
   expect(railRequests).toHaveLength(beforeLongPress)
+  await firstFolder.click()
   await page.getByTestId(tid.serverIcon(tail)).scrollIntoViewIfNeeded()
   await expect.poll(async () => (await railGeometry(page, tail)).targetOwnsCenter)
     .toBe(true)
@@ -616,4 +631,36 @@ test("short server rail keeps Add adjacent and desktop geometry stable", async (
   expect(desktop.target).toEqual(mobile.target)
   expect(desktop.add).toEqual(mobile.add)
   expect(desktop.targetOwnsCenter).toBe(true)
+
+  let railPatchCount = 0
+  page.on("request", (request) => {
+    if (request.method() === "PATCH" && new URL(request.url()).pathname === RAIL_ENDPOINT) {
+      railPatchCount += 1
+    }
+  })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.getByRole("banner").getByRole("button", { name: "Back" }).click()
+  await expect.poll(() => new URL(page.url()).pathname).toBe(`/c/channels/${serverId}`)
+  const onlyServer = page.getByTestId(tid.serverIcon(serverId))
+  await expect(onlyServer).toBeVisible()
+  await onlyServer.evaluate((element) => {
+    Reflect.set(window, "__railOnlyServerClicks", 0)
+    element.addEventListener("click", () => {
+      Reflect.set(
+        window,
+        "__railOnlyServerClicks",
+        Number(Reflect.get(window, "__railOnlyServerClicks")) + 1,
+      )
+    })
+  })
+
+  const endLongPress = await startStationaryTouch(page, onlyServer)
+  await page.waitForTimeout(700)
+  await expect(onlyServer).not.toHaveAttribute("data-dragging", "true")
+  await expect(page.locator("[data-rail-floating-preview]")).toHaveCount(0)
+  await endLongPress()
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "__railOnlyServerClicks")))
+    .toBe(1)
+  expect(new URL(page.url()).pathname).toBe(`/c/channels/${serverId}`)
+  expect(railPatchCount).toBe(0)
 })

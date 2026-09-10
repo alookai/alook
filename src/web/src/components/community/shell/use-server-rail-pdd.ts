@@ -23,7 +23,8 @@ import {
 
 type RailData = Record<string | symbol, unknown>
 
-export const SERVER_RAIL_TOUCH_HOLD_MS = 450
+export const SERVER_RAIL_TOUCH_HOLD_MS = 650
+export const SERVER_RAIL_TOUCH_DRAG_PX = 8
 export const SERVER_RAIL_TOUCH_DRIFT_PX = 10
 const TOUCH_DRAG_PREVIEW_SELECTOR = "[data-rail-drag-preview]"
 
@@ -73,21 +74,36 @@ function createTouchDragPreview(
 }
 
 export function railTouchMoveIntent({
+  armed,
   dragging,
   distance,
   touchCount,
 }: {
+  armed: boolean
   dragging: boolean
   distance: number
   touchCount: number
 }): "wait" | "scroll" | "drag" | "cancel" {
   if (touchCount !== 1) return "cancel"
   if (dragging) return "drag"
+  if (armed) return distance >= SERVER_RAIL_TOUCH_DRAG_PX ? "drag" : "wait"
   return distance > SERVER_RAIL_TOUCH_DRIFT_PX ? "scroll" : "wait"
 }
 
 function sameEntity(left: RailEntity | null, right: RailEntity | null): boolean {
   return left?.kind === right?.kind && left?.id === right?.id
+}
+
+export function railEntityHasAvailableTarget(
+  state: RailState,
+  source: RailEntity,
+  targets: readonly RailEntity[],
+): boolean {
+  return targets.some((target) => {
+    if (sameEntity(source, target)) return false
+    const availability = railOperationAvailability(state, source, target)
+    return availability["reorder-before"] || availability["reorder-after"] || availability.combine
+  })
 }
 
 export function railEntityFromData(data: RailData): RailEntity | null {
@@ -190,6 +206,9 @@ export function useServerRailPdd({
     startY: number
     clientX: number
     clientY: number
+    armX: number
+    armY: number
+    armed: boolean
     dragging: boolean
     timer: ReturnType<typeof setTimeout> | null
     frame: number | null
@@ -441,7 +460,7 @@ export function useServerRailPdd({
     const suppressTouchMenu = (event: TouchEvent) => {
       // Base UI owns a separate 500 ms touch timer on ContextMenuTrigger.
       // Keep the event native (and therefore scrollable), but do not let it
-      // reach that trigger: the rail's 450 ms hold is exclusively drag pickup.
+      // reach that trigger: the rail owns its 650 ms touch intent timer.
       event.stopPropagation()
     }
     const onTouchStart = (event: TouchEvent) => {
@@ -450,8 +469,10 @@ export function useServerRailPdd({
         return
       }
       if (touchRef.current || activeRef.current) return
-      if (!handlersRef.current.canStart()) return
       suppressClickUntilRef.current = 0
+      if (!handlersRef.current.canStart()) return
+      const targets = [...itemsRef.current.values()].map((item) => item.entity)
+      if (!railEntityHasAvailableTarget(handlersRef.current.getState(), entity, targets)) return
       const touch = event.touches[0]!
       const pending = {
         entity,
@@ -460,6 +481,9 @@ export function useServerRailPdd({
         startY: touch.clientY,
         clientX: touch.clientX,
         clientY: touch.clientY,
+        armX: touch.clientX,
+        armY: touch.clientY,
+        armed: false,
         dragging: false,
         timer: null as ReturnType<typeof setTimeout> | null,
         frame: null as number | null,
@@ -468,21 +492,9 @@ export function useServerRailPdd({
       pending.timer = setTimeout(() => {
         if (touchRef.current !== pending) return
         pending.timer = null
-        if (!begin(entity, "touch")) {
-          clearTouch()
-          return
-        }
-        pending.dragging = true
-        pending.preview = createTouchDragPreview(
-          dragHandle,
-          entity,
-          pending.clientX,
-          pending.clientY,
-        )
-        selectionStyleRef.current = document.documentElement.style.userSelect
-        document.documentElement.style.userSelect = "none"
-        document.getSelection()?.removeAllRanges()
-        pending.frame = requestAnimationFrame(runTouchFrame)
+        pending.armX = pending.clientX
+        pending.armY = pending.clientY
+        pending.armed = true
       }, SERVER_RAIL_TOUCH_HOLD_MS)
       touchRef.current = pending
     }
@@ -503,8 +515,11 @@ export function useServerRailPdd({
       if (pending.preview) {
         positionTouchDragPreview(pending.preview, touch.clientX, touch.clientY)
       }
-      const exactDistance = Math.hypot(touch.clientX - pending.startX, touch.clientY - pending.startY)
+      const originX = pending.armed ? pending.armX : pending.startX
+      const originY = pending.armed ? pending.armY : pending.startY
+      const exactDistance = Math.hypot(touch.clientX - originX, touch.clientY - originY)
       const exactIntent = railTouchMoveIntent({
+        armed: pending.armed,
         dragging: pending.dragging,
         distance: exactDistance,
         touchCount: event.touches.length,
@@ -514,6 +529,27 @@ export function useServerRailPdd({
         return
       }
       if (exactIntent === "wait") return
+      if (!pending.dragging) {
+        const targets = [...itemsRef.current.values()].map((item) => item.entity)
+        if (
+          !railEntityHasAvailableTarget(handlersRef.current.getState(), entity, targets)
+          || !begin(entity, "touch")
+        ) {
+          clearTouch()
+          return
+        }
+        pending.dragging = true
+        pending.preview = createTouchDragPreview(
+          dragHandle,
+          entity,
+          pending.clientX,
+          pending.clientY,
+        )
+        selectionStyleRef.current = document.documentElement.style.userSelect
+        document.documentElement.style.userSelect = "none"
+        document.getSelection()?.removeAllRanges()
+        pending.frame = requestAnimationFrame(runTouchFrame)
+      }
       event.preventDefault()
       setPreview(itemAtPoint(entity, touch.clientX, touch.clientY))
     }
@@ -536,14 +572,20 @@ export function useServerRailPdd({
     const onTouchCancel = () => cancelActive()
     const onContextMenu = (event: MouseEvent) => {
       const pending = touchRef.current
+      const pendingMatches = !!pending && sameEntity(pending.entity, entity)
+      const draggingMatches = activeRef.current?.sensor === "touch"
+        && sameEntity(activeRef.current.source, entity)
+      const clickSuppressed = Date.now() < suppressClickUntilRef.current
       if (
-        (pending && sameEntity(pending.entity, entity))
-        || (activeRef.current?.sensor === "touch" && sameEntity(activeRef.current.source, entity))
-        || Date.now() < suppressClickUntilRef.current
+        pendingMatches
+        || draggingMatches
+        || clickSuppressed
       ) {
         event.preventDefault()
         event.stopPropagation()
-        suppressClickUntilRef.current = Date.now() + 800
+        if (draggingMatches || clickSuppressed) {
+          suppressClickUntilRef.current = Date.now() + 800
+        }
       }
     }
     const onClickCapture = (event: MouseEvent) => {
