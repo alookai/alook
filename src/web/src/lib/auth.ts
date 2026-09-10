@@ -8,6 +8,7 @@ import {
   queries,
   COMMUNITY_BOT_EMAIL_DOMAIN,
   RATE_LIMITS,
+  isValidEmail,
   sanitizeCommunityName,
 } from "@alook/shared"
 import { getDb, getPrimaryDb } from "@/lib/db"
@@ -27,6 +28,35 @@ const DEFAULT_OTP_RATE_LIMIT_MAX = RATE_LIMITS["auth:otpSend"].max
 const DEFAULT_OTP_RATE_LIMIT_WINDOW_SEC = Math.round(
   RATE_LIMITS["auth:otpSend"].windowMs / 1000,
 )
+const APP_REVIEW_OTP_PATTERN = /^\d{6}$/u
+const APP_REVIEW_OTP_UNAVAILABLE = "Verification code unavailable"
+const APP_REVIEW_RATE_LIMIT_KEY = "app-review"
+
+type EmailOtpType = Exclude<OtpType, "account-deletion">
+
+function normalizeAuthEmail(email: string): string {
+  return email.trim().toLowerCase()
+}
+
+function resolveAppReviewSignInOtp(
+  env: Env,
+  input: { email: string; type: EmailOtpType },
+): string | undefined {
+  const reviewEmail = normalizeAuthEmail(env.APP_REVIEW_EMAIL ?? "")
+  if (
+    input.type !== "sign-in"
+    || !isValidEmail(reviewEmail)
+    || normalizeAuthEmail(input.email) !== reviewEmail
+  ) {
+    return undefined
+  }
+
+  const reviewOtp = env.APP_REVIEW_OTP
+  if (!reviewOtp || !APP_REVIEW_OTP_PATTERN.test(reviewOtp)) {
+    throw new Error(APP_REVIEW_OTP_UNAVAILABLE)
+  }
+  return reviewOtp
+}
 
 function parsePositiveInt(raw: string | undefined, fallback: number): number {
   if (!raw) return fallback
@@ -298,23 +328,46 @@ export function createAuth(env: Env) {
             storeToken: "hashed",
           }),
           emailOTP({
-            async sendVerificationOTP({ email, otp, type }) {
-              // Rate-limit BEFORE minting/sending the OTP so abuse can't
-              // burn a token slot or hit the email worker. Keyed by email
-              // (the sender's target); anyone attempting to spam a
-              // specific inbox gets throttled per inbox.
-              const rate = await checkRateLimit(env, "auth:otpSend", email, {
-                windowMs: otpPolicy.windowMs,
-                max: otpPolicy.max,
+            expiresIn: 5 * 60,
+            allowedAttempts: 3,
+            storeOTP: "hashed",
+            generateOTP({ email, type }) {
+              return resolveAppReviewSignInOtp(env, { email, type })
+            },
+            async sendVerificationOTP({ email, otp, type }, ctx) {
+              const normalizedEmail = normalizeAuthEmail(email)
+              const appReviewOtp = resolveAppReviewSignInOtp(env, {
+                email: normalizedEmail,
+                type,
               })
+              const rate = await checkRateLimit(
+                env,
+                "auth:otpSend",
+                appReviewOtp ? APP_REVIEW_RATE_LIMIT_KEY : normalizedEmail,
+                {
+                  windowMs: otpPolicy.windowMs,
+                  max: otpPolicy.max,
+                },
+              )
               if (!rate.allowed) {
-                log.warn("OTP send rate-limited", {
-                  to: email,
-                  retryAfterSec: rate.retryAfterSec,
-                })
+                if (appReviewOtp) {
+                  await ctx?.context.internalAdapter.deleteVerificationByIdentifier(
+                    `sign-in-otp-${normalizedEmail}`,
+                  )
+                }
+                log.warn(
+                  "OTP send rate-limited",
+                  appReviewOtp
+                    ? { retryAfterSec: rate.retryAfterSec }
+                    : { to: normalizedEmail, retryAfterSec: rate.retryAfterSec },
+                )
                 throw new Error(`OTP rate limit; retry in ${rate.retryAfterSec}s`)
               }
-              await sendOtpEmail(env, { email, otp, type })
+              if (appReviewOtp) {
+                if (otp !== appReviewOtp) throw new Error(APP_REVIEW_OTP_UNAVAILABLE)
+                return
+              }
+              await sendOtpEmail(env, { email: normalizedEmail, otp, type })
             },
           }),
         ]

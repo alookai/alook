@@ -3,6 +3,11 @@ import { afterEach, describe, it, expect, vi, beforeEach } from "vitest"
 const appleMocks = vi.hoisted(() => ({
   generateClientSecret: vi.fn(async () => "signed-apple-client-secret"),
 }))
+const authLogMocks = vi.hoisted(() => ({
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+}))
 
 vi.mock("better-auth", () => ({
   betterAuth: vi.fn((opts: unknown) => ({ __options: opts })),
@@ -53,7 +58,7 @@ vi.mock("@alook/shared", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@alook/shared")>()
   return {
     ...actual,
-    createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
+    createLogger: () => authLogMocks,
     DEV_EMAIL_WORKER_URL: "http://localhost:0",
   }
 })
@@ -110,7 +115,20 @@ type AuthOptions = {
     __plugin?: string
     id?: string
     cfg?: Record<string, unknown> & {
-      sendVerificationOTP?: (args: { email: string; otp: string; type: string }) => Promise<void>
+      expiresIn?: number
+      allowedAttempts?: number
+      storeOTP?: string
+      generateOTP?: (args: { email: string; type: EmailOtpType }) => string | undefined
+      sendVerificationOTP?: (
+        args: { email: string; otp: string; type: EmailOtpType },
+        ctx?: {
+          context: {
+            internalAdapter: {
+              deleteVerificationByIdentifier: (identifier: string) => Promise<void>
+            }
+          }
+        },
+      ) => Promise<void>
     }
   }>
   session?: {
@@ -138,6 +156,8 @@ type AuthOptions = {
   }
 }
 
+type EmailOtpType = "sign-in" | "email-verification" | "forget-password" | "change-email"
+
 async function loadCreateAuth() {
   vi.resetModules()
   const mod = await import("./auth")
@@ -150,6 +170,13 @@ function getSendOtp(opts: AuthOptions) {
   const otp = opts.plugins?.find((p) => p?.__plugin === "emailOTP")
   const fn = otp?.cfg?.sendVerificationOTP
   if (!fn) throw new Error("emailOTP plugin not present")
+  return fn
+}
+
+function getGenerateOtp(opts: AuthOptions) {
+  const otp = opts.plugins?.find((p) => p?.__plugin === "emailOTP")
+  const fn = otp?.cfg?.generateOTP
+  if (!fn) throw new Error("emailOTP generator not present")
   return fn
 }
 
@@ -225,6 +252,132 @@ describe("createAuth rate limiting", () => {
       sendOtp({ email: "a@b.com", otp: "1234", type: "sign-in" }),
     ).rejects.toThrow(/retry in 42s/)
     expect(env.EMAIL_WORKER.fetch).not.toHaveBeenCalled()
+  })
+})
+
+describe("createAuth App Review OTP", () => {
+  const reviewEmail = "reviewer@example.com"
+  const reviewOtp = "246810"
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockCheckRateLimit.mockReset().mockResolvedValue({ allowed: true })
+  })
+
+  function createReviewAuth(overrides: Partial<Record<string, unknown>> = {}) {
+    return loadCreateAuth().then((createAuth) => {
+      const env = makeEnv({
+        NODE_ENV: "production",
+        APP_REVIEW_EMAIL: `  ${reviewEmail.toUpperCase()}  `,
+        APP_REVIEW_OTP: reviewOtp,
+        ...overrides,
+      })
+      const opts = (createAuth(env as never) as { __options: AuthOptions }).__options
+      return { env, opts }
+    })
+  }
+
+  it("uses the fixed six-digit code only for the normalized exact sign-in email", async () => {
+    const { opts } = await createReviewAuth()
+    const generateOtp = getGenerateOtp(opts)
+
+    expect(generateOtp({ email: reviewEmail.toUpperCase(), type: "sign-in" })).toBe(reviewOtp)
+    expect(generateOtp({ email: `other-${reviewEmail}`, type: "sign-in" })).toBeUndefined()
+    expect(generateOtp({ email: `reviewer+alias@example.com`, type: "sign-in" })).toBeUndefined()
+    expect(generateOtp({ email: reviewEmail, type: "email-verification" })).toBeUndefined()
+    expect(generateOtp({ email: reviewEmail, type: "forget-password" })).toBeUndefined()
+    expect(generateOtp({ email: reviewEmail, type: "change-email" })).toBeUndefined()
+  })
+
+  it("keeps the DO limiter but skips email delivery for the review sign-in", async () => {
+    const { env, opts } = await createReviewAuth()
+
+    await getSendOtp(opts)({
+      email: reviewEmail.toUpperCase(),
+      otp: reviewOtp,
+      type: "sign-in",
+    })
+
+    expect(mockCheckRateLimit).toHaveBeenCalledWith(
+      env,
+      "auth:otpSend",
+      "app-review",
+      { windowMs: 60_000, max: 5 },
+    )
+    expect(env.EMAIL_WORKER.fetch).not.toHaveBeenCalled()
+  })
+
+  it("keeps email delivery unchanged for similar emails and other OTP types", async () => {
+    const { env, opts } = await createReviewAuth()
+    const sendOtp = getSendOtp(opts)
+
+    await sendOtp({ email: "reviewer+alias@example.com", otp: "135790", type: "sign-in" })
+    await sendOtp({ email: reviewEmail, otp: "975310", type: "email-verification" })
+
+    expect(env.EMAIL_WORKER.fetch).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([undefined, "", "12345", "12345a", "1234567"])(
+    "fails closed for a matching review email when the OTP secret is %j",
+    async (configuredOtp) => {
+      const { env, opts } = await createReviewAuth({ APP_REVIEW_OTP: configuredOtp })
+      const generateOtp = getGenerateOtp(opts)
+
+      expect(() => generateOtp({ email: reviewEmail, type: "sign-in" }))
+        .toThrow("Verification code unavailable")
+      expect(env.EMAIL_WORKER.fetch).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each([undefined, "", "not-an-email"])(
+    "does not enable the fixed path when the review email secret is %j",
+    async (configuredEmail) => {
+      const { env, opts } = await createReviewAuth({ APP_REVIEW_EMAIL: configuredEmail })
+
+      expect(getGenerateOtp(opts)({ email: reviewEmail, type: "sign-in" })).toBeUndefined()
+      await getSendOtp(opts)({ email: reviewEmail, otp: "135790", type: "sign-in" })
+      expect(env.EMAIL_WORKER.fetch).toHaveBeenCalledOnce()
+    },
+  )
+
+  it("removes the staged review challenge when the DO limiter blocks", async () => {
+    mockCheckRateLimit.mockResolvedValueOnce({ allowed: false, retryAfterSec: 42 })
+    const deleteVerificationByIdentifier = vi.fn(async () => undefined)
+    const { env, opts } = await createReviewAuth()
+
+    await expect(getSendOtp(opts)(
+      { email: reviewEmail, otp: reviewOtp, type: "sign-in" },
+      { context: { internalAdapter: { deleteVerificationByIdentifier } } },
+    )).rejects.toThrow("OTP rate limit; retry in 42s")
+
+    expect(deleteVerificationByIdentifier).toHaveBeenCalledWith(
+      `sign-in-otp-${reviewEmail}`,
+    )
+    expect(env.EMAIL_WORKER.fetch).not.toHaveBeenCalled()
+    expect(JSON.stringify(authLogMocks.warn.mock.calls)).not.toContain(reviewEmail)
+    expect(JSON.stringify(authLogMocks.warn.mock.calls)).not.toContain(reviewOtp)
+  })
+
+  it("fails closed if the send callback does not receive the configured review code", async () => {
+    const { env, opts } = await createReviewAuth()
+
+    await expect(getSendOtp(opts)({
+      email: reviewEmail,
+      otp: "135790",
+      type: "sign-in",
+    })).rejects.toThrow("Verification code unavailable")
+    expect(env.EMAIL_WORKER.fetch).not.toHaveBeenCalled()
+  })
+
+  it("pins the existing five-minute expiry, three-attempt budget, and hashed storage", async () => {
+    const { opts } = await createReviewAuth()
+    const plugin = opts.plugins?.find((candidate) => candidate.__plugin === "emailOTP")
+
+    expect(plugin?.cfg).toMatchObject({
+      expiresIn: 5 * 60,
+      allowedAttempts: 3,
+      storeOTP: "hashed",
+    })
   })
 })
 
