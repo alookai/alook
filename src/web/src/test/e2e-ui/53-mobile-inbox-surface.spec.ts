@@ -162,7 +162,7 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
     await expect(inboxTrigger).toHaveAttribute("aria-label", "Close Inbox")
     await expect(inboxTrigger).toHaveAttribute("aria-pressed", "true")
     await expect(inboxIcon).toHaveAttribute("fill", "none")
-    await expect(inboxIcon).not.toHaveClass(/fill-current/)
+    await expect(inboxIcon).toHaveClass(/fill-current/)
     await expect.poll(() => inboxIcon.evaluate((element) => (
       getComputedStyle(element).color
     ))).not.toBe(closedInboxIconColor)
@@ -177,9 +177,13 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
     expect(closedTriggerStyle.borderWidth).toBe("0px")
     expect(closedTriggerStyle.boxShadow).toBe("none")
     await expect(bob.page.getByRole("button", { name: "Close Inbox" })).toHaveCount(1)
+    await expect(mobileSurface.getByRole("button", { name: /^Dismiss / })).toHaveCount(0)
     await expect(mobileSurface).toBeFocused()
     await bob.page.keyboard.press("Tab")
-    await expect(bob.page.getByTestId(tid.userBarExtensionClose)).toBeFocused()
+    expect(await mobileSurface.evaluate((element) => (
+      element.contains(document.activeElement)
+      && document.activeElement !== element
+    ))).toBe(true)
     await expect(bob.page.getByTestId(tid.inboxMobileBackdrop)).toHaveCount(0)
     await expect.poll(async () => {
       const current = await surfaceGeometry(bob.page)

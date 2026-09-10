@@ -205,7 +205,7 @@ function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnrea
             ref={updateBadgeRef}
             type="button"
             data-testid={tid.daemonUpdateBadge}
-            className="flex h-11 items-center gap-1.5 rounded-lg bg-secondary px-2 text-xs font-medium text-secondary-foreground hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:h-7"
+            className="grid size-11 place-items-center rounded-lg bg-secondary text-secondary-foreground hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:size-7"
             aria-label={updateBadgeLabel}
             onClick={() => {
               onRequestExtensionFocus("update")
@@ -216,9 +216,6 @@ function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnrea
               "size-4",
               extension.updateBadgePhase === "updating" && "animate-spin motion-reduce:animate-none",
             )} />
-            {!mobile && (
-              <span>{extension.updateBadgePhase === "retry" ? "Retry" : extension.updateBadgePhase === "updating" ? "Updating…" : "Update"}</span>
-            )}
           </button>
         )}
         {inbox && extension ? (
@@ -242,7 +239,7 @@ function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnrea
             }}
           >
             <span className="relative grid size-4 place-items-center">
-              <Inbox className="size-4" />
+              <Inbox className={cn("size-4", inboxOpen && "fill-current")} />
               {hasUnread && <span className="absolute -right-1 -top-1 size-2 rounded-full bg-primary" />}
             </span>
           </button>

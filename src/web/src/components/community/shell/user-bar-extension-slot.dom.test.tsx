@@ -54,6 +54,24 @@ describe("UserBarExtensionSlot", () => {
     expect(renderer.getByTestId("inbox-content")).toBeInTheDocument()
     expect(renderer.queryByTestId("profile-content")).not.toBeInTheDocument()
     expect(renderer.queryByTestId(tid.daemonUpdateNotice)).not.toBeInTheDocument()
+    expect(renderer.queryByRole("button", { name: "Dismiss Inbox" })).not.toBeInTheDocument()
+  })
+
+  it.each([
+    [["machine-1"], "You can update your machine to get more features."],
+    [["machine-1", "machine-2"], "You can update your machines to get more features."],
+  ])("restores the exact initial Update copy for %d eligible Machines", (targetMachineIds, description) => {
+    const renderer = render(createElement(UserBarExtensionSlot, {
+      active: "update",
+      update: update({ targetMachineIds }),
+      eligibleMachines: machines,
+      onDismiss: vi.fn(),
+      onRequestUpdate: vi.fn(),
+    }))
+
+    expect(renderer.getByText("Machine update available")).toBeInTheDocument()
+    expect(renderer.getByText(description)).toBeInTheDocument()
+    expect(renderer.queryByRole("button", { name: "Dismiss Machine update" })).not.toBeInTheDocument()
   })
 
   it("keeps accepted machines in Updating until live eligibility clears", () => {

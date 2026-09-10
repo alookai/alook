@@ -93,7 +93,10 @@ test("Update, Inbox, and viewer Profile share one persistent User Bar extension"
   await expect(slot).toBeVisible()
   await expect(slot).toHaveAttribute("data-extension", "update")
   await expect(slot).toContainText("Machine update available")
+  await expect(slot).toContainText("You can update your machine to get more features.")
   await expect(page.getByTestId(tid.daemonUpdateAction)).toHaveText("Update")
+  await expect(page.getByTestId(tid.daemonUpdateBadge)).toHaveCount(0)
+  await expect(slot.getByRole("button", { name: /^Dismiss / })).toHaveCount(0)
   await expect(slot).toHaveCSS("animation-name", "none")
   expect(requests.machineRequestCount()).toBe(1)
 
@@ -104,10 +107,12 @@ test("Update, Inbox, and viewer Profile share one persistent User Bar extension"
   expect(Math.abs(slotBox!.x - baseBox!.x)).toBeLessThanOrEqual(1)
   expect(Math.abs(slotBox!.width - baseBox!.width)).toBeLessThanOrEqual(1)
 
-  await page.getByTestId(tid.userBarExtensionClose).click()
+  await page.keyboard.press("Escape")
   const badge = page.getByTestId(tid.daemonUpdateBadge)
   await expect(slot).toHaveCount(0)
   await expect(badge).toBeVisible()
+  await expect(badge).toHaveText("")
+  await expect(badge.locator("svg")).toHaveCount(1)
   await expect.poll(() => page.evaluate((version) => {
     for (let index = 0; index < localStorage.length; index += 1) {
       const key = localStorage.key(index)
@@ -125,8 +130,9 @@ test("Update, Inbox, and viewer Profile share one persistent User Bar extension"
   await page.keyboard.press("Enter")
   await expect(slot).toHaveAttribute("data-extension", "update")
   await expect(slot).toBeFocused()
+  await expect(badge).toHaveCount(0)
   await page.keyboard.press("Tab")
-  await expect(page.getByTestId(tid.userBarExtensionClose)).toBeFocused()
+  await expect(page.getByTestId(tid.daemonUpdateAction)).toBeFocused()
 
   const writes = observeWrites(page)
   const inboxTrigger = page.getByTestId(tid.inboxTrigger)
@@ -136,6 +142,7 @@ test("Update, Inbox, and viewer Profile share one persistent User Bar extension"
   await expect(slot).toHaveAttribute("data-extension", "inbox")
   await expect(slot).toBeFocused()
   await expect(page.getByTestId(tid.daemonUpdateBadge)).toBeVisible()
+  await expect(inboxTrigger.locator("svg")).toHaveClass(/fill-current/)
   const [badgeBox, inboxBox] = await Promise.all([
     page.getByTestId(tid.daemonUpdateBadge).boundingBox(),
     inboxTrigger.boundingBox(),
@@ -144,6 +151,14 @@ test("Update, Inbox, and viewer Profile share one persistent User Bar extension"
   expect(inboxBox).not.toBeNull()
   expect(badgeBox!.x + badgeBox!.width).toBeLessThanOrEqual(inboxBox!.x)
 
+  await inboxTrigger.click()
+  await expect(slot).toHaveCount(0)
+  await expect(inboxTrigger).toHaveAttribute("aria-expanded", "false")
+  await expect(inboxTrigger.locator("svg")).not.toHaveClass(/fill-current/)
+  await inboxTrigger.click()
+  await expect(slot).toHaveAttribute("data-extension", "inbox")
+  await expect(inboxTrigger.locator("svg")).toHaveClass(/fill-current/)
+
   const profileNameTrigger = userBarBase.getByTestId(tid.userBarName).locator("..")
   await profileNameTrigger.focus()
   await page.keyboard.press("Enter")
@@ -151,7 +166,7 @@ test("Update, Inbox, and viewer Profile share one persistent User Bar extension"
   await expect(slot).toBeFocused()
   await expect(page.getByTestId(tid.profileCard)).toBeVisible()
   await expect(page.getByTestId(tid.inboxTabList)).toHaveCount(0)
-  await page.getByTestId(tid.userBarExtensionClose).click()
+  await profileNameTrigger.click()
   await expect(slot).toHaveCount(0)
   await expect(profileNameTrigger).toBeFocused()
   await expect(page.getByTestId(tid.daemonUpdateBadge)).toBeVisible()
@@ -177,6 +192,8 @@ test("partial dispatch retries only failed eligible Machines and clears from liv
   await gotoAfterUserWsAuth(page, "/c/me")
 
   const slot = page.getByTestId(tid.userBarExtension)
+  await expect(slot).toContainText("You can update your machines to get more features.")
+  await expect(page.getByTestId(tid.daemonUpdateBadge)).toHaveCount(0)
   await page.getByTestId(tid.daemonUpdateAction).click()
   await expect(slot).toContainText("1 machine is updating. 1 update request failed.")
   await expect(page.getByTestId(tid.daemonUpdateAction)).toHaveText("Retry")
@@ -194,9 +211,10 @@ test("partial dispatch retries only failed eligible Machines and clears from liv
     secondMachine.id,
   ])
 
-  await page.getByTestId(tid.userBarExtensionClose).click()
+  await page.keyboard.press("Escape")
   const progressBadge = page.getByTestId(tid.daemonUpdateBadge)
   await expect(progressBadge).toHaveAttribute("aria-label", "Machine update in progress")
+  await expect(progressBadge).toHaveText("")
 
   const { quota: _firstQuota, ...firstUpdated } = outdatedMachine
   const { quota: _secondQuota, ...secondUpdated } = secondMachine

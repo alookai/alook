@@ -111,4 +111,60 @@ describe("UserBar", () => {
     }))
     expect(mobile).toContain('aria-label="Open Inbox"')
   })
+
+  it.each(["desktop", "mobile"] as const)(
+    "renders the %s Update badge as one accessible icon without status text",
+    (breakpoint) => {
+      const html = renderToStaticMarkup(createElement(UserBar, {
+        breakpoint,
+        user: { id: "u1", name: "User", avatar: "U" },
+        hasUnread: false,
+        extension: {
+          active: "none",
+          inbox: null,
+          profile: null,
+          update: null,
+          updateBadgePhase: "collapsedBadge",
+          eligibleMachines: [],
+          onOpenUpdate: () => {},
+          onRequestUpdate: () => {},
+          onDismiss: () => {},
+        },
+      }))
+      const badge = html.match(new RegExp(
+        `<button[^>]*data-testid="${tid.daemonUpdateBadge}"[^>]*>(.*?)</button>`,
+      ))?.[1]
+
+      expect(html).toContain('aria-label="Open machine update"')
+      expect(badge).toContain("<svg")
+      expect(badge).not.toContain("<span")
+      expect(badge).not.toContain("Update")
+      expect(badge).not.toContain("Updating")
+      expect(badge).not.toContain("Retry")
+    },
+  )
+
+  it("fills only the active Inbox icon while keeping the trigger mounted", () => {
+    const renderInbox = (open: boolean) => renderToStaticMarkup(createElement(UserBar, {
+      breakpoint: "desktop",
+      user: { id: "u1", name: "User", avatar: "U" },
+      inbox: createElement("div", null, "Inbox content"),
+      hasUnread: false,
+      inboxOpen: open,
+      extension: {
+        active: open ? "inbox" : "none",
+        inbox: createElement("div", null, "Inbox content"),
+        profile: null,
+        update: null,
+        updateBadgePhase: null,
+        eligibleMachines: [],
+        onOpenUpdate: () => {},
+        onRequestUpdate: () => {},
+        onDismiss: () => {},
+      },
+    }))
+
+    expect(renderInbox(false)).not.toContain("size-4 fill-current")
+    expect(renderInbox(true)).toContain("size-4 fill-current")
+  })
 })

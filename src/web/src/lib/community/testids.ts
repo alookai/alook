@@ -224,7 +224,6 @@ export const tid = {
   userBar: "community-user-bar",
   userBarName: "community-user-bar-name",
   userBarExtension: "community-user-bar-extension",
-  userBarExtensionClose: "community-user-bar-extension-close",
   inboxTrigger: "community-inbox-trigger",
   inboxMobileBackdrop: "community-inbox-mobile-backdrop",
   inboxMobileSurface: "community-inbox-mobile-surface",

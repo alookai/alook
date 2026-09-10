@@ -16,11 +16,12 @@ function reduce(
 
 describe("userBarExtensionReducer", () => {
   it("opens the first eligible update or restores its persisted badge", () => {
-    expect(reduce([{
+    const expanded = reduce([{
       type: "update.sync",
       collapsed: false,
       eligibleMachineIds: ["m1", "m2"],
-    }])).toEqual({
+    }])
+    expect(expanded).toEqual({
       active: "update",
       update: {
         phase: "expanded",
@@ -30,6 +31,7 @@ describe("userBarExtensionReducer", () => {
         pendingMachineIds: [],
       },
     })
+    expect(userBarUpdateBadgePhase(expanded)).toBeNull()
     expect(reduce([{
       type: "update.sync",
       collapsed: true,

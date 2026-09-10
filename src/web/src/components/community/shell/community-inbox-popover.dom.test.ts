@@ -291,7 +291,7 @@ describe("InboxPopover responsive continuity", () => {
     expect(header).not.toHaveClass("pr-15", "sm:pr-12")
   })
 
-  it("reserves extension header space for the shell close button", () => {
+  it("does not reserve extension header space for a shell close button", () => {
     const renderer = render(React.createElement(InboxPopover, {
       unreads: [],
       unreadDms: [],
@@ -304,15 +304,8 @@ describe("InboxPopover responsive continuity", () => {
     }))
 
     const header = renderer.container.querySelector("h2")?.parentElement
-    expect(header).toHaveClass(
-      "flex",
-      "items-center",
-      "gap-2",
-      "px-3",
-      "pt-4",
-      "pr-15",
-      "sm:pr-12",
-    )
+    expect(header).toHaveClass("flex", "items-center", "gap-2", "px-3", "pt-4")
+    expect(header).not.toHaveClass("pr-15", "sm:pr-12")
     expect(renderer.getByRole("button", { name: "Mark all read" })).toBeInTheDocument()
   })
 })

@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, type ReactNode } from "react"
-import { CircleAlert, Download, LoaderCircle, X } from "lucide-react"
+import { CircleAlert, Download, LoaderCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { MachineSummary } from "@/hooks/community/use-machines"
 import { tid } from "@/lib/community/testids"
@@ -106,15 +106,6 @@ export function UserBarExtensionSlot({
           : undefined,
       }}
     >
-      <button
-        type="button"
-        data-testid={tid.userBarExtensionClose}
-        className="absolute right-2 top-2 z-10 grid size-11 place-items-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:size-8"
-        aria-label={`Dismiss ${title}`}
-        onClick={onDismiss}
-      >
-        <X className="size-4" />
-      </button>
       {active === "inbox" && inbox}
       {active === "profile" && (
         <div className="overflow-y-auto thin-scrollbar p-2">{profile}</div>
@@ -166,12 +157,12 @@ function DaemonUpdateExtension({
         ? `${updatingCount} ${updatingCount === 1 ? "machine is" : "machines are"} updating. ${availableCount} ${availableCount === 1 ? "machine is" : "machines are"} ready to update.`
         : `${activeCount} ${activeCount === 1 ? "machine is" : "machines are"} updating. This will disappear when they report the new version.`
       : initialCount === 1
-        ? "Update your machine to get the latest features."
-        : `Update ${initialCount} machines to get the latest features.`
+        ? "You can update your machine to get more features."
+        : "You can update your machines to get more features."
   const Icon = retry ? CircleAlert : updating ? LoaderCircle : Download
 
   return (
-    <div data-testid={tid.daemonUpdateNotice} className="flex min-h-36 flex-col justify-between gap-5 p-5 pr-13">
+    <div data-testid={tid.daemonUpdateNotice} className="flex min-h-36 flex-col justify-between gap-5 p-5">
       <div className="flex items-start gap-3">
         <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-secondary text-secondary-foreground">
           <Icon

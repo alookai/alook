@@ -18,7 +18,6 @@ import {
 } from "@/hooks/community/inbox-read-reservation"
 import { selectUnreadPresentation } from "@/hooks/community/unread-presentation"
 import { tid } from "@/lib/community/testids"
-import { cn } from "@/lib/utils"
 import type { CommunityProfile } from "@/lib/community/models/people"
 import { useProfilesByUserId } from "@/stores/community/ws"
 import { readCommunityProfile } from "@/lib/community/profile-read"
@@ -406,10 +405,7 @@ export function InboxPopover({
       }}
       className={surface === "desktop" ? "flex h-112 flex-col" : "flex h-full min-h-0 flex-col"}
     >
-      <div className={cn(
-        "flex items-center gap-2 px-3 pt-4",
-        surface === "extension" && "pr-15 sm:pr-12",
-      )}>
+      <div className="flex items-center gap-2 px-3 pt-4">
         <Inbox className="size-5" />
         <h2 className="flex-1 text-lg font-semibold">Inbox</h2>
         {onMarkAllRead && (
