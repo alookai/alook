@@ -1,8 +1,84 @@
-import type { WebSocketRoute } from "@playwright/test"
+import type { Page, WebSocketRoute } from "@playwright/test"
 import { test, expect } from "./_fixtures/community-fixture"
-import { composerEditable, gotoAfterUserWsAuth } from "./_fixtures/actions"
+import {
+  composerEditable,
+  gotoAfterUserWsAuth,
+} from "./_fixtures/actions"
 import { seedChannel, seedServer } from "./_fixtures/seed"
 import { tid } from "./_fixtures/testids"
+
+const USER_WS_AUTH_CONSUMED_ATTRIBUTE = "data-e2e-user-ws-auth-consumed"
+
+async function installUserWsAuthConsumedBarrier(page: Page) {
+  await page.addInitScript(({ attribute }) => {
+    const NativeWebSocket = window.WebSocket
+    window.WebSocket = class extends NativeWebSocket {
+      constructor(...args: ConstructorParameters<typeof WebSocket>) {
+        super(...args)
+        if (!new URL(this.url).pathname.endsWith("/user")) return
+        this.addEventListener("message", (event) => {
+          if (typeof event.data !== "string") return
+          try {
+            const message = JSON.parse(event.data) as { type?: string }
+            if (message.type !== "auth.ok") return
+            // The next task runs after the current message event has finished
+            // dispatching to the application's WebSocket listener.
+            setTimeout(() => {
+              document.documentElement.setAttribute(attribute, "true")
+            }, 0)
+          } catch {}
+        })
+      }
+    }
+  }, { attribute: USER_WS_AUTH_CONSUMED_ATTRIBUTE })
+}
+
+test("slow auth and an initial retry never block a cold Community page", async ({ asUser }) => {
+  test.setTimeout(90_000)
+  const serverId = await seedServer("alice", `Reconnect cold start ${Date.now()}`)
+  const channelId = await seedChannel("alice", serverId, "reconnect-cold-start")
+  const alice = await asUser("alice")
+  let tokenRequests = 0
+  let releaseTokens!: () => void
+  let holdTokens = true
+  const tokenGate = new Promise<void>((resolve) => {
+    releaseTokens = resolve
+  })
+  let socketAttempts = 0
+
+  await alice.page.route("**/api/ws/token", async (route) => {
+    tokenRequests += 1
+    if (holdTokens) await tokenGate
+    await route.continue()
+  })
+  await alice.page.routeWebSocket((url) => url.pathname.endsWith("/user"), (ws) => {
+    socketAttempts += 1
+    void ws.close({ code: 1012, reason: "cold start auth retry" })
+  })
+  await alice.page.setViewportSize({ width: 390, height: 844 })
+
+  try {
+    await alice.page.goto(`/c/channels/${serverId}/${channelId}`)
+    const composer = composerEditable(alice.page)
+    const overlay = alice.page.getByTestId(tid.wsReconnectOverlay)
+    await expect(composer).toBeVisible({ timeout: 30_000 })
+    await expect.poll(() => tokenRequests).toBeGreaterThan(0)
+    await alice.page.waitForTimeout(1_600)
+    await expect(overlay).toHaveCount(0)
+    await composer.fill("Cold start stays usable")
+    await expect(composer).toContainText("Cold start stays usable")
+
+    holdTokens = false
+    releaseTokens()
+    await expect.poll(() => socketAttempts, { timeout: 20_000 }).toBeGreaterThan(1)
+    await alice.page.waitForTimeout(1_600)
+    await expect(overlay).toHaveCount(0)
+    await expect(composer).toContainText("Cold start stays usable")
+  } finally {
+    holdTokens = false
+    releaseTokens()
+  }
+})
 
 test("real WebSocket outage blocks the whole community surface and Retry restores it", async ({ asUser }, testInfo) => {
   test.setTimeout(120_000)
@@ -141,6 +217,7 @@ test("an active onboarding form yields focus priority during outage, then resume
   })
 
   try {
+    await installUserWsAuthConsumedBarrier(page)
     await page.goto("/sign-in")
     await page.getByRole("textbox", { name: "Email" }).fill(
       `guide-reconnect-${process.pid}-${Date.now()}@example.com`,
@@ -150,6 +227,11 @@ test("an active onboarding form yields focus priority during outage, then resume
     const onboarding = page.getByRole("dialog")
     await expect(onboarding).toBeVisible()
     await expect(onboarding.getByRole("heading", { name: "Which harness do you already use?" })).toBeVisible()
+    await expect(page.locator("html")).toHaveAttribute(
+      USER_WS_AUTH_CONSUMED_ATTRIBUTE,
+      "true",
+      { timeout: 20_000 },
+    )
 
     blockUserWs = true
     expect(userWs).not.toBeNull()

@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   COMMUNITY_WS_FAILED_AFTER_MS,
-  COMMUNITY_WS_RECONNECTING_GRACE_MS,
   createCommunityWsConnectionStatusController,
 } from "./connection-status"
 
@@ -19,30 +18,30 @@ describe("community websocket connection status", () => {
     return { controller, publish, reconnectTransport }
   }
 
-  it("hides a short initial handshake and clears both thresholds on auth", () => {
+  it("keeps slow and repeatedly failing initial connection attempts non-blocking", () => {
     const { controller, publish } = setup()
     controller.handlePhase("reconnecting")
     expect(publish).toHaveBeenLastCalledWith("connected")
 
-    vi.advanceTimersByTime(COMMUNITY_WS_RECONNECTING_GRACE_MS - 1)
+    vi.advanceTimersByTime(COMMUNITY_WS_FAILED_AFTER_MS * 2)
     expect(publish).not.toHaveBeenCalledWith("reconnecting")
+    expect(publish).not.toHaveBeenCalledWith("failed")
 
-    controller.handlePhase("authenticated")
-    vi.advanceTimersByTime(COMMUNITY_WS_FAILED_AFTER_MS)
-    expect(publish).toHaveBeenLastCalledWith("connected")
+    controller.handlePhase("suspended")
+    controller.handlePhase("reconnecting")
+    vi.advanceTimersByTime(COMMUNITY_WS_FAILED_AFTER_MS * 2)
+    expect(publish.mock.calls.every(([status]) => status === "connected")).toBe(true)
     expect(publish).not.toHaveBeenCalledWith("failed")
   })
 
-  it("publishes reconnecting after grace and failed after one continuous outage", () => {
+  it("records the first authentication without treating its handshake as an outage", () => {
     const { controller, publish } = setup()
     controller.handlePhase("reconnecting")
-    vi.advanceTimersByTime(COMMUNITY_WS_RECONNECTING_GRACE_MS)
-    expect(publish).toHaveBeenLastCalledWith("reconnecting")
-
-    controller.handlePhase("reconnecting")
-    vi.advanceTimersByTime(COMMUNITY_WS_FAILED_AFTER_MS - COMMUNITY_WS_RECONNECTING_GRACE_MS)
-    expect(publish).toHaveBeenLastCalledWith("failed")
-    expect(publish.mock.calls.filter(([status]) => status === "failed")).toHaveLength(1)
+    controller.handlePhase("authenticated")
+    vi.advanceTimersByTime(COMMUNITY_WS_FAILED_AFTER_MS)
+    expect(publish).toHaveBeenLastCalledWith("connected")
+    expect(publish).not.toHaveBeenCalledWith("reconnecting")
+    expect(publish).not.toHaveBeenCalledWith("failed")
   })
 
   it("publishes reconnecting immediately after a previously authenticated socket drops", () => {
@@ -88,18 +87,26 @@ describe("community websocket connection status", () => {
   it("suspends hidden outages and starts fresh thresholds when visible again", () => {
     const { controller, publish } = setup()
     controller.handlePhase("reconnecting")
-    vi.advanceTimersByTime(COMMUNITY_WS_RECONNECTING_GRACE_MS)
+    controller.handlePhase("authenticated")
+    publish.mockClear()
+
+    controller.handlePhase("reconnecting")
+    vi.advanceTimersByTime(COMMUNITY_WS_FAILED_AFTER_MS - 1)
     controller.handlePhase("suspended")
     vi.advanceTimersByTime(COMMUNITY_WS_FAILED_AFTER_MS)
     expect(publish).toHaveBeenLastCalledWith("connected")
+    expect(publish).not.toHaveBeenCalledWith("failed")
 
     controller.handlePhase("reconnecting")
-    vi.advanceTimersByTime(COMMUNITY_WS_RECONNECTING_GRACE_MS)
     expect(publish).toHaveBeenLastCalledWith("reconnecting")
+    vi.advanceTimersByTime(COMMUNITY_WS_FAILED_AFTER_MS)
+    expect(publish).toHaveBeenLastCalledWith("failed")
   })
 
   it("manual retry leaves failed immediately, calls one transport retry, and rearms failure", () => {
     const { controller, publish, reconnectTransport } = setup()
+    controller.handlePhase("reconnecting")
+    controller.handlePhase("authenticated")
     controller.handlePhase("reconnecting")
     vi.advanceTimersByTime(COMMUNITY_WS_FAILED_AFTER_MS)
     expect(publish).toHaveBeenLastCalledWith("failed")
@@ -111,6 +118,17 @@ describe("community websocket connection status", () => {
     controller.handlePhase("reconnecting")
     vi.advanceTimersByTime(COMMUNITY_WS_FAILED_AFTER_MS)
     expect(publish).toHaveBeenLastCalledWith("failed")
+    expect(reconnectTransport).toHaveBeenCalledOnce()
+  })
+
+  it("keeps a pre-auth manual transport retry non-blocking", () => {
+    const { controller, publish, reconnectTransport } = setup()
+    controller.handlePhase("reconnecting")
+
+    controller.reconnectNow()
+    vi.advanceTimersByTime(COMMUNITY_WS_FAILED_AFTER_MS)
+
+    expect(publish.mock.calls.every(([status]) => status === "connected")).toBe(true)
     expect(reconnectTransport).toHaveBeenCalledOnce()
   })
 
