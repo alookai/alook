@@ -183,6 +183,22 @@ describe("GET /api/community/machines — provider quota", () => {
     expect(mockListMachineBackendQuotasForUser).toHaveBeenCalledWith(expect.anything(), "u1")
   })
 
+  it("distinguishes explicitly unsupported runtimes from unknown runtime capabilities", async () => {
+    mockListMachinesForUser.mockResolvedValue([{
+      id: "cm_1", status: "online",
+      availableRuntimes: ["opencode", "pi", "custom-acp"].map((id) => ({ id, status: "healthy" })),
+    }])
+    mockListMachineBackendQuotasForUser.mockResolvedValue(new Map())
+    const response = await GET(new NextRequest("http://localhost/api/community/machines"))
+    expect(response.status).toBe(200)
+    expect((await response.json()).machines[0].quota).toEqual([
+      ["opencode", "unsupported"], ["pi", "unsupported"], ["custom-acp", "unknown"],
+    ].map(([agentBackendId, capability]) => ({
+      scope: { kind: "machine_backend", machineId: "cm_1", agentBackendId },
+      capability, runtimeState: "healthy", snapshot: { status: "pending" },
+    })))
+  })
+
   it("marks an expired available observation stale and machine runtimes offline", async () => {
     mockListMachinesForUser.mockResolvedValue([{
       id: "cm_1",

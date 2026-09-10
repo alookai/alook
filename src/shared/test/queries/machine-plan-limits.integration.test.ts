@@ -50,6 +50,17 @@ function rotate(id: string, expectedMachineId?: string) {
 }
 
 describe("machine plan SQL boundaries", () => {
+  it("restores the pairing token and preserves a non-quota machine insert error", async () => {
+    token("pending");
+    sqlite.exec("CREATE TRIGGER fail_machine_insert BEFORE INSERT ON community_machine BEGIN SELECT RAISE(ABORT,'machine storage failure'); END");
+    await expect(rotate("pending")).rejects.toThrow("machine storage failure");
+    expect(sqlite.prepare("SELECT status FROM community_machine_token WHERE id='pending'").get()).toEqual({ status: "pending" });
+    expect(sqlite.prepare("SELECT count(*) AS n FROM community_machine").get()).toEqual({ n: 0 });
+    expect(sqlite.prepare("SELECT count(*) AS n FROM community_machine_credential").get()).toEqual({ n: 0 });
+    sqlite.exec("DROP TRIGGER fail_machine_insert");
+    await expect(rotate("pending")).resolves.toMatchObject({ type: "rotated" });
+  });
+
   it("resolves Free/Studio/House and counts offline ownership without writes or owner leakage", async () => {
     machine("a"); machine("other-a", "online", "other");
     const before = sqlite.prepare("SELECT total_changes() AS n").get();
