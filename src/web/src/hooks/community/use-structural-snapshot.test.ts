@@ -257,6 +257,25 @@ describe("installStructuralSnapshotProjection", () => {
     })
   })
 
+  it("does not project reserved server query keys as server trees", async () => {
+    await queryClient.fetchQuery({
+      queryKey: communityKeys.servers(),
+      queryFn: () => Promise.resolve(servers()),
+    })
+    const snapshot = queryClient.getQueryData(communityKeys.structuralSnapshot())
+
+    await queryClient.fetchQuery({
+      queryKey: communityKeys.channelRefDirectory(),
+      queryFn: () => Promise.resolve({ servers: [] }),
+    })
+    await queryClient.fetchQuery({
+      queryKey: communityKeys.server("__none__"),
+      queryFn: () => Promise.resolve({ sentinel: true }),
+    })
+
+    expect(queryClient.getQueryData(communityKeys.structuralSnapshot())).toEqual(snapshot)
+  })
+
   it("removes an archived child receipt from the structural snapshot", async () => {
     await queryClient.fetchQuery({
       queryKey: communityKeys.servers(),

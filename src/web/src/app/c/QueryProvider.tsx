@@ -18,7 +18,10 @@ import {
   disposeAccountUnreadProjection,
   getAccountUnreadProjection,
 } from "@/hooks/community/account-unread-projection"
-import { communityKeys } from "@/lib/query-keys"
+import {
+  communityKeys,
+  isCommunityServerDetailQueryKey,
+} from "@/lib/query-keys"
 import { installStructuralSnapshotProjection } from "@/hooks/community/use-structural-snapshot"
 
 /**
@@ -64,12 +67,7 @@ export function QueryProvider({
       void queryClient.invalidateQueries({ queryKey: communityKeys.dms(), exact: true })
       void queryClient.invalidateQueries({ queryKey: communityKeys.servers(), exact: true })
       void queryClient.invalidateQueries({
-        predicate: ({ queryKey }) => (
-          queryKey.length === 3
-          && queryKey[0] === communityKeys.all[0]
-          && queryKey[1] === communityKeys.servers()[1]
-          && queryKey[2] !== communityKeys.channelRefDirectory()[2]
-        ),
+        predicate: ({ queryKey }) => isCommunityServerDetailQueryKey(queryKey),
       })
     })
     return () => unreadProjection.setReconcileScheduler(null)

@@ -1,5 +1,9 @@
 import type { QueryClient, QueryKey } from "@tanstack/react-query"
-import { communityKeys } from "@/lib/query-keys"
+import {
+  communityKeys,
+  isCommunityServerDetailQueryKey,
+  isCommunityServerIdSegment,
+} from "@/lib/query-keys"
 import { useCommunityStore } from "@/stores/community"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { invalidateForumSidebarBaseExact } from "@/hooks/community/use-forum-sidebar-threads"
@@ -50,14 +54,13 @@ type ServerQueryKey = readonly ["community", "servers", string, ...unknown[]]
 function isServerQueryPrefix(key: QueryKey, serverId?: string): key is ServerQueryKey {
   return key[0] === "community"
     && key[1] === "servers"
-    && typeof key[2] === "string"
-    && key[2] !== "__none__"
+    && isCommunityServerIdSegment(key[2])
     && (serverId === undefined || key[2] === serverId)
 }
 
 function isRecognizedServerQueryKey(key: QueryKey): key is ServerQueryKey {
+  if (isCommunityServerDetailQueryKey(key)) return true
   if (!isServerQueryPrefix(key)) return false
-  if (key.length === 3) return true
   if (key.length === 4) {
     return typeof key[3] === "string" && EXACT_SERVER_QUERY_FAMILIES.has(key[3])
   }

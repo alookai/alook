@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest"
-import { communityKeys } from "./query-keys"
+import {
+  communityKeys,
+  isCommunityServerDetailQueryKey,
+  isCommunityServerIdSegment,
+} from "./query-keys"
 
 /**
  * These tests exist so that segment order and prefix nesting of the query-key
@@ -52,6 +56,22 @@ describe("communityKeys", () => {
     expect(communityKeys.forumSidebarUnreadFallbacks("s1")).toEqual([
       ...server, "forum-sidebar-unread-fallbacks",
     ])
+  })
+
+  it("recognizes only real server-detail keys and server-id segments", () => {
+    expect(isCommunityServerIdSegment("server-1")).toBe(true)
+    expect(isCommunityServerDetailQueryKey(communityKeys.server("server-1"))).toBe(true)
+
+    for (const queryKey of [
+      communityKeys.channelRefDirectory(),
+      communityKeys.server("__none__"),
+      communityKeys.server("__pending__"),
+      communityKeys.server(""),
+      communityKeys.members("server-1"),
+      communityKeys.servers(),
+    ]) {
+      expect(isCommunityServerDetailQueryKey(queryKey)).toBe(false)
+    }
   })
 
   it("nests channel-scoped keys under a stable channel prefix", () => {

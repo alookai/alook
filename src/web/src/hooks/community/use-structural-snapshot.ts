@@ -2,7 +2,10 @@
 
 import { useCallback, useMemo, useSyncExternalStore } from "react"
 import { useQueryClient, type QueryClient, type QueryKey } from "@tanstack/react-query"
-import { communityKeys } from "@/lib/query-keys"
+import {
+  communityKeys,
+  isCommunityServerDetailQueryKey,
+} from "@/lib/query-keys"
 import {
   parseStructuralSnapshot,
   projectServerDetailTree,
@@ -74,9 +77,8 @@ function projectLiveStructuralQuery(
     })
     return
   }
-  if (key.length === 3 && key[0] === "community" && key[1] === "servers") {
-    const serverId = String(key[2])
-    if (serverId === "__none__" || serverId === "channel-ref-directory") return
+  if (isCommunityServerDetailQueryKey(key)) {
+    const serverId = key[2]
     const tree = projectServerDetailTree(data as ServerDetail)
     updateStructuralSnapshot(queryClient, {
       type: "replaceServerTree",

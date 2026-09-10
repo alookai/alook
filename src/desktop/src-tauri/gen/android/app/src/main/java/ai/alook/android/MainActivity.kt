@@ -9,6 +9,7 @@ import android.view.View
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
+import androidx.core.graphics.Insets
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
@@ -56,13 +57,18 @@ class MainActivity : TauriActivity() {
         applyWindowTheme(isDark)
 
         ViewCompat.setOnApplyWindowInsetsListener(rootView) { v, insets ->
-            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            val imeVisible = insets.isVisible(WindowInsetsCompat.Type.ime())
-            val imeHeight = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
-            val bottomPadding = if (imeVisible) imeHeight else systemBars.bottom
+            val chromeTypes = WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+            val chromeInsets = insets.getInsets(chromeTypes)
+            val imeType = WindowInsetsCompat.Type.ime()
+            val imeInsets = insets.getInsets(imeType)
+            val imeVisible = insets.isVisible(imeType)
+            val bottomPadding = if (imeVisible) imeInsets.bottom else chromeInsets.bottom
 
-            v.setPadding(systemBars.left, systemBars.top, systemBars.right, bottomPadding)
-            insets
+            v.setPadding(chromeInsets.left, chromeInsets.top, chromeInsets.right, bottomPadding)
+            WindowInsetsCompat.Builder(insets)
+                .setInsets(chromeTypes, Insets.NONE)
+                .setInsets(imeType, Insets.of(imeInsets.left, imeInsets.top, imeInsets.right, 0))
+                .build()
         }
     }
 

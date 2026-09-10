@@ -80,6 +80,36 @@ function observeWrites(page: Page) {
   return { writes, stop: () => page.off("request", listener) }
 }
 
+async function expectUpdateActionGeometry(
+  page: Page,
+  expected: { height: number; horizontalPadding: number },
+) {
+  const notice = page.getByTestId(tid.daemonUpdateNotice)
+  const action = page.getByTestId(tid.daemonUpdateAction)
+  await expect.poll(() => action.evaluate((element) => {
+    const style = getComputedStyle(element)
+    return {
+      height: Number.parseFloat(style.height),
+      paddingLeft: Number.parseFloat(style.paddingLeft),
+      paddingRight: Number.parseFloat(style.paddingRight),
+    }
+  })).toEqual({
+    height: expected.height,
+    paddingLeft: expected.horizontalPadding,
+    paddingRight: expected.horizontalPadding,
+  })
+  const [noticeBox, actionBox] = await Promise.all([
+    notice.boundingBox(),
+    action.boundingBox(),
+  ])
+  expect(noticeBox).not.toBeNull()
+  expect(actionBox).not.toBeNull()
+  expect(Math.abs(noticeBox!.x + noticeBox!.width - actionBox!.x - actionBox!.width - 20))
+    .toBeLessThanOrEqual(1)
+  expect(Math.abs(noticeBox!.y + noticeBox!.height - actionBox!.y - actionBox!.height - 20))
+    .toBeLessThanOrEqual(1)
+}
+
 test("Update, Inbox, and viewer Profile share one persistent User Bar extension", async ({ asUser }) => {
   const { page } = await asUser("alice")
   const requests = await serveMachines(page)
@@ -95,6 +125,7 @@ test("Update, Inbox, and viewer Profile share one persistent User Bar extension"
   await expect(slot).toContainText("Machine update available")
   await expect(slot).toContainText("You can update your machine to get more features.")
   await expect(page.getByTestId(tid.daemonUpdateAction)).toHaveText("Update")
+  await expectUpdateActionGeometry(page, { height: 36, horizontalPadding: 8 })
   await expect(page.getByTestId(tid.daemonUpdateBadge)).toHaveCount(0)
   await expect(slot.getByRole("button", { name: /^Dismiss / })).toHaveCount(0)
   await expect(slot).toHaveCSS("animation-name", "none")
@@ -225,9 +256,11 @@ test("partial dispatch retries only failed eligible Machines and clears from liv
   const slot = page.getByTestId(tid.userBarExtension)
   await expect(slot).toContainText("You can update your machines to get more features.")
   await expect(page.getByTestId(tid.daemonUpdateBadge)).toHaveCount(0)
+  await expectUpdateActionGeometry(page, { height: 44, horizontalPadding: 12 })
   await page.getByTestId(tid.daemonUpdateAction).click()
   await expect(slot).toContainText("1 machine is updating. 1 update request failed.")
   await expect(page.getByTestId(tid.daemonUpdateAction)).toHaveText("Retry")
+  await expectUpdateActionGeometry(page, { height: 44, horizontalPadding: 12 })
   await expect.poll(() => requests.updateRequests()).toEqual([
     outdatedMachine.id,
     secondMachine.id,

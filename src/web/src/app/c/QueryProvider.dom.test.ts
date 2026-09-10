@@ -141,6 +141,8 @@ describe("QueryProvider profile account lifecycle", () => {
     expect(detailPredicate({ queryKey: communityKeys.server("server-1") })).toBe(true)
     expect(detailPredicate({ queryKey: communityKeys.members("server-1") })).toBe(false)
     expect(detailPredicate({ queryKey: communityKeys.channelRefDirectory() })).toBe(false)
+    expect(detailPredicate({ queryKey: communityKeys.server("__none__") })).toBe(false)
+    expect(detailPredicate({ queryKey: communityKeys.server("__pending__") })).toBe(false)
     act(() => renderer.unmount())
   })
 })

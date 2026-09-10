@@ -193,22 +193,31 @@ describe("native shell theme color contract", () => {
     expect(driveAndroidThemeObserver(["light"]).updates).toEqual([false])
   })
 
-  it("keeps Android system-bar and IME inset ownership unchanged", () => {
+  it("keeps Android inset ownership native and zeroes handled edges for WebView", () => {
     expect(androidRuntime).toContain(
-      "insets.getInsets(WindowInsetsCompat.Type.systemBars())",
+      "WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()",
     )
     expect(androidRuntime).toContain(
-      "insets.isVisible(WindowInsetsCompat.Type.ime())",
+      "val chromeInsets = insets.getInsets(chromeTypes)",
     )
     expect(androidRuntime).toContain(
-      "insets.getInsets(WindowInsetsCompat.Type.ime()).bottom",
+      "val imeInsets = insets.getInsets(imeType)",
     )
     expect(androidRuntime).toContain(
-      "if (imeVisible) imeHeight else systemBars.bottom",
+      "val imeVisible = insets.isVisible(imeType)",
     )
     expect(androidRuntime).toContain(
-      "v.setPadding(systemBars.left, systemBars.top, systemBars.right, bottomPadding)",
+      "if (imeVisible) imeInsets.bottom else chromeInsets.bottom",
     )
+    expect(androidRuntime).toContain(
+      "v.setPadding(chromeInsets.left, chromeInsets.top, chromeInsets.right, bottomPadding)",
+    )
+    expect(androidRuntime).toContain("WindowInsetsCompat.Builder(insets)")
+    expect(androidRuntime).toContain(".setInsets(chromeTypes, Insets.NONE)")
+    expect(androidRuntime).toContain(
+      ".setInsets(imeType, Insets.of(imeInsets.left, imeInsets.top, imeInsets.right, 0))",
+    )
+    expect(androidRuntime).not.toContain("WindowInsetsCompat.CONSUMED")
   })
 
   it("retains runtime theme bridges and removes the legacy light color from native owners", () => {

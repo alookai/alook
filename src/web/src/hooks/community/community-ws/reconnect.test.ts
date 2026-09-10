@@ -454,9 +454,21 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
 
   it("reconciles every recognized cached server snapshot and ignores sentinel or unknown tuples", async () => {
     await mountHook()
+    let directoryFetches = 0
+    const directoryObserver = new QueryObserver(capturedQueryClient, {
+      queryKey: communityKeys.channelRefDirectory(),
+      queryFn: async () => {
+        directoryFetches += 1
+        return { servers: [] }
+      },
+      staleTime: Infinity,
+    })
+    const unsubscribeDirectory = directoryObserver.subscribe(() => {})
+    await vi.waitFor(() => expect(directoryFetches).toBe(1))
     capturedQueryClient.setQueryData(communityKeys.server("srv_a"), { id: "srv_a" })
     capturedQueryClient.setQueryData(communityKeys.members("srv_b"), { pages: [] })
     capturedQueryClient.setQueryData(communityKeys.server("__none__"), { id: "__none__" })
+    capturedQueryClient.setQueryData(communityKeys.server("__pending__"), { id: "__pending__" })
     capturedQueryClient.setQueryData(["community", "servers", "srv_ghost", "unknown-family"], {})
     capturedQueryClient.setQueryData(["community", "servers", "srv_ghost", "members", "unexpected"], {})
     const invalidDerivedTuples = [
@@ -478,6 +490,8 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
 
     await capturedOnReconnect!({ reconnectDurationMs: 250 })
 
+    expect(directoryFetches).toBe(1)
+    expect(capturedQueryClient.getQueryState(communityKeys.channelRefDirectory())?.isInvalidated).toBe(false)
     const calls = spy.mock.calls.map(([filters]) => filters)
     for (const serverId of ["srv_a", "srv_b"]) {
       for (const queryKey of [
@@ -500,6 +514,8 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
       }
     }
     expect(calls.some(({ queryKey }) => queryKey?.includes("__none__"))).toBe(false)
+    expect(calls.some(({ queryKey }) => queryKey?.includes("__pending__"))).toBe(false)
+    expect(calls.some(({ queryKey }) => queryKey?.includes("channel-ref-directory"))).toBe(false)
     expect(calls.some(({ queryKey }) => queryKey?.includes("srv_ghost"))).toBe(false)
     for (const queryKey of invalidDerivedTuples) {
       expect(capturedQueryClient.getQueryData(queryKey)).toEqual({ sentinel: true })
@@ -507,6 +523,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     expect(calls.filter(({ queryKey, exact }) => (
       exact === true && JSON.stringify(queryKey) === JSON.stringify(communityKeys.servers())
     ))).toHaveLength(1)
+    unsubscribeDirectory()
   })
 
   it("isolates one cached-server rejection while completing every other policy", async () => {
