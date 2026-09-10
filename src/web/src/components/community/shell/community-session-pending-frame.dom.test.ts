@@ -66,6 +66,16 @@ describe("CommunitySessionPendingFrame", () => {
     expect(screen.getByTestId(sidebar)).toBeInTheDocument()
     expect(screen.getByTestId("pending-main")).toHaveAttribute("data-main-kind", main)
     expect(screen.getByTestId("user-bar-skeleton")).toBeInTheDocument()
+    const userBarUnderlay = renderer.container.querySelector<HTMLElement>(
+      '[data-slot="community-user-bar-underlay"]',
+    )!
+    expect(userBarUnderlay).toHaveAttribute("aria-hidden", "true")
+    expect(userBarUnderlay.className).toContain("pointer-events-none")
+    expect(userBarUnderlay.className).toContain("from-(--app-bg)")
+    expect(userBarUnderlay.className).toContain("to-transparent")
+    expect(userBarUnderlay.style.height).toBe(
+      "calc(60px + var(--app-safe-area-bottom))",
+    )
     expect(renderer.container.querySelectorAll('[data-testid="skeleton"]').length)
       .toBeGreaterThanOrEqual(2)
     expect(renderer.container.querySelectorAll("button, a")).toHaveLength(0)
@@ -77,6 +87,7 @@ describe("CommunitySessionPendingFrame", () => {
     expect(screen.queryByTestId("me-sidebar")).not.toBeInTheDocument()
     expect(screen.queryByTestId("server-sidebar")).not.toBeInTheDocument()
     expect(screen.queryByTestId("user-bar-skeleton")).not.toBeInTheDocument()
+    expect(document.querySelector('[data-slot="community-user-bar-underlay"]')).toBeNull()
     expect(screen.getByTestId("pending-main")).toHaveAttribute("data-main-kind", "route-resolution")
   })
 
@@ -88,6 +99,7 @@ describe("CommunitySessionPendingFrame", () => {
     expect(screen.queryByTestId("me-sidebar")).not.toBeInTheDocument()
     expect(screen.queryByTestId("server-sidebar")).not.toBeInTheDocument()
     expect(screen.queryByTestId("user-bar-skeleton")).not.toBeInTheDocument()
+    expect(document.querySelector('[data-slot="community-user-bar-underlay"]')).toBeNull()
     expect(screen.getByTestId("pending-main")).toHaveAttribute("data-main-kind", "route-resolution")
   })
 
@@ -98,5 +110,6 @@ describe("CommunitySessionPendingFrame", () => {
     expect(screen.queryByTestId("server-sidebar")).not.toBeInTheDocument()
     expect(screen.queryByTestId("pending-main")).not.toBeInTheDocument()
     expect(screen.queryByTestId("user-bar-skeleton")).not.toBeInTheDocument()
+    expect(document.querySelector('[data-slot="community-user-bar-underlay"]')).toBeNull()
   })
 })

@@ -74,6 +74,12 @@ describe("UserBarExtensionSlot", () => {
 
     expect(renderer.getByText("Machine update available")).toBeInTheDocument()
     expect(renderer.getByText(description)).toBeInTheDocument()
+    const action = renderer.getByTestId(tid.daemonUpdateAction)
+    expect(action.className).toContain("h-11")
+    expect(action.className).toContain("px-3")
+    expect(action.className).toContain("sm:h-9")
+    expect(action.className).toContain("sm:px-2")
+    expect(action.className).not.toContain("min-h-")
     expect(renderer.queryByRole("button", { name: "Dismiss Machine update" })).not.toBeInTheDocument()
   })
 
@@ -109,6 +115,10 @@ describe("UserBarExtensionSlot", () => {
     expect(renderer.getByText("1 machine is updating. 1 update request failed.")).toBeInTheDocument()
     const action = renderer.getByTestId(tid.daemonUpdateAction)
     expect(action).toHaveTextContent("Retry")
+    expect(action.className).toContain("h-11")
+    expect(action.className).toContain("px-3")
+    expect(action.className).toContain("sm:h-9")
+    expect(action.className).toContain("sm:px-2")
     await act(async () => action.click())
     expect(onRequestUpdate).toHaveBeenCalledOnce()
   })

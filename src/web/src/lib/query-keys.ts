@@ -162,3 +162,25 @@ export const communityKeys = {
   profile: (userId: string) =>
     [...communityKeys.all, "profile", userId] as const,
 } as const
+
+const reservedServerIdSegments = new Set<string>([
+  communityKeys.channelRefDirectory()[2],
+])
+
+export type CommunityServerDetailQueryKey = ReturnType<typeof communityKeys.server>
+
+export function isCommunityServerIdSegment(value: unknown): value is string {
+  return typeof value === "string"
+    && value.length > 0
+    && !value.startsWith("__")
+    && !reservedServerIdSegments.has(value)
+}
+
+export function isCommunityServerDetailQueryKey(
+  queryKey: readonly unknown[],
+): queryKey is CommunityServerDetailQueryKey {
+  return queryKey.length === 3
+    && queryKey[0] === communityKeys.all[0]
+    && queryKey[1] === communityKeys.servers()[1]
+    && isCommunityServerIdSegment(queryKey[2])
+}

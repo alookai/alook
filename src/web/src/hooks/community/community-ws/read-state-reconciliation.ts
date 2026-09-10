@@ -1,6 +1,9 @@
 import { notifyManager, type QueryClient, type QueryKey } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
-import { communityKeys } from "@/lib/query-keys"
+import {
+  communityKeys,
+  isCommunityServerDetailQueryKey,
+} from "@/lib/query-keys"
 import { projectReadCoordinatorSnapshot } from "@/hooks/community/read-coordinator-snapshot-projection"
 import { acceptAccountUnreadPrimarySnapshot } from "@/hooks/community/account-unread-projection"
 
@@ -132,13 +135,7 @@ async function invalidateServerSurfaces(queryClient: QueryClient) {
   const serverIds = new Set<string>()
   for (const query of queryClient.getQueryCache().getAll()) {
     const key = query.queryKey
-    if (
-      key[0] === "community"
-      && key[1] === "servers"
-      && typeof key[2] === "string"
-      && key[2] !== "__none__"
-      && key.length === 3
-    ) serverIds.add(key[2])
+    if (isCommunityServerDetailQueryKey(key)) serverIds.add(key[2])
   }
   const refetchOptions = { throwOnError: true, cancelRefetch: true }
   const settled = await Promise.allSettled([

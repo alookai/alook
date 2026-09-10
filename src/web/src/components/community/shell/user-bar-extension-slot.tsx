@@ -186,7 +186,7 @@ function DaemonUpdateExtension({
         <Button
           type="button"
           data-testid={tid.daemonUpdateAction}
-          className="min-h-11 self-end sm:min-h-9"
+          className="h-11 self-end px-3 sm:h-9 sm:px-2"
           onClick={onRequestUpdate}
         >
           {retry ? "Retry" : "Update"}

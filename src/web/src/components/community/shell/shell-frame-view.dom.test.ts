@@ -261,6 +261,23 @@ describe("ShellFrameView", () => {
     const userBarOverlay = renderer.container.querySelector<HTMLElement>(
       '[data-slot="community-user-bar-overlay"]',
     )!
+    const userBarUnderlay = userBarOverlay.querySelector<HTMLElement>(
+      '[data-slot="community-user-bar-underlay"]',
+    )!
+    expect(userBarUnderlay).toHaveAttribute("aria-hidden", "true")
+    expect(userBarUnderlay.className.split(" ")).toEqual(expect.arrayContaining([
+      "pointer-events-none",
+      "absolute",
+      "inset-x-0",
+      "bottom-0",
+      "-z-10",
+      "bg-linear-to-t",
+      "from-(--app-bg)",
+      "to-transparent",
+    ]))
+    expect(userBarUnderlay.style.height).toBe(
+      "calc(60px + var(--app-safe-area-bottom))",
+    )
     expect(userBarOverlay.style.getPropertyValue("--community-desktop-user-bar-width")).toBe(
       "calc(clamp(160px, calc(24% - 0.48px), 360px) + 58px)",
     )
@@ -357,6 +374,9 @@ describe("ShellFrameView", () => {
     const mobileUserBarOverlay = renderer.container.querySelector<HTMLElement>(
       '[data-slot="community-user-bar-overlay"]',
     )!
+    expect(mobileUserBarOverlay.querySelectorAll(
+      '[data-slot="community-user-bar-underlay"]',
+    )).toHaveLength(1)
     expect(mobileUserBarOverlay.style.width).toBe("calc(100% + 56px)")
     expect(mobileUserBarOverlay.style.marginLeft).toBe("-56px")
     const mobileSurface = renderer.container.querySelector("[data-app-surface]")!
@@ -393,6 +413,7 @@ describe("ShellFrameView", () => {
     expect(renderer.container.querySelectorAll("[data-server-rail]")).toHaveLength(0)
     expect(renderer.container.querySelectorAll("[data-user-bar]")).toHaveLength(0)
     expect(renderer.container.querySelectorAll('[data-slot="community-user-bar-overlay"]')).toHaveLength(0)
+    expect(renderer.container.querySelectorAll('[data-slot="community-user-bar-underlay"]')).toHaveLength(0)
     expect(renderer.container.querySelectorAll("[data-app-surface]")).toHaveLength(1)
     expect(renderer.container.querySelector("[data-app-surface]")?.className).toContain("rounded-none")
     expect(renderer.container.querySelectorAll("main-content")).toHaveLength(1)

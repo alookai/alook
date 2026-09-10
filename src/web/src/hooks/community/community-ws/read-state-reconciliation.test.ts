@@ -119,21 +119,57 @@ describe("account read-state reconciliation", () => {
       .toMatchObject({ lastReadMessageId: "m3", lastReadSeq: 3 })
   })
 
-  it("invalidates every cached concrete server detail after applying a snapshot", async () => {
+  it("refetches cached server details without refetching the channel-ref directory", async () => {
     queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
       revision: 1,
       readStates: [],
     })
-    queryClient.setQueryData(communityKeys.server("server-1"), { id: "server-1" })
+    let serverFetches = 0
+    let directoryFetches = 0
+    const serverObserver = new QueryObserver(queryClient, {
+      queryKey: communityKeys.server("server-1"),
+      queryFn: async () => {
+        serverFetches += 1
+        return { id: "server-1" }
+      },
+      staleTime: Infinity,
+    })
+    const directoryObserver = new QueryObserver(queryClient, {
+      queryKey: communityKeys.channelRefDirectory(),
+      queryFn: async () => {
+        directoryFetches += 1
+        return { servers: [] }
+      },
+      staleTime: Infinity,
+    })
+    const unsubscribeServer = serverObserver.subscribe(() => {})
+    const unsubscribeDirectory = directoryObserver.subscribe(() => {})
+    await vi.waitFor(() => {
+      expect(serverFetches).toBe(1)
+      expect(directoryFetches).toBe(1)
+    })
+    queryClient.setQueryData(communityKeys.server("__none__"), { id: "__none__" })
     apiFetch.mockResolvedValue({ revision: 2, readStates: [] })
     const invalidate = vi.spyOn(queryClient, "invalidateQueries")
 
     await reconcileAccountReadState(queryClient, { targetRevision: 2 })
 
+    expect(serverFetches).toBe(2)
+    expect(directoryFetches).toBe(1)
     expect(invalidate).toHaveBeenCalledWith(
       { queryKey: communityKeys.server("server-1"), exact: true, refetchType: "active" },
       { throwOnError: true, cancelRefetch: true },
     )
+    expect(invalidate).not.toHaveBeenCalledWith(
+      { queryKey: communityKeys.channelRefDirectory(), exact: true, refetchType: "active" },
+      expect.anything(),
+    )
+    expect(invalidate).not.toHaveBeenCalledWith(
+      { queryKey: communityKeys.server("__none__"), exact: true, refetchType: "active" },
+      expect.anything(),
+    )
+    unsubscribeDirectory()
+    unsubscribeServer()
   })
 
   it("deduplicates concurrent lifecycle and gap reconciliations per query client", async () => {

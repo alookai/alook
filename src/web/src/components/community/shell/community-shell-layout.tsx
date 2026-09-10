@@ -23,6 +23,7 @@ import {
   COMMUNITY_SIDEBAR_DEFAULT_PERCENTAGE,
   COMMUNITY_SIDEBAR_MAX_WIDTH,
   COMMUNITY_SIDEBAR_MIN_WIDTH,
+  COMMUNITY_USER_BAR_HEIGHT_CSS,
   desktopUserBarOverlayCssWidth,
   desktopUserBarOverlayWidth,
 } from "./shell-frame-geometry"
@@ -290,6 +291,12 @@ export function CommunityShellLayout({
                 }
               : initialUserBarStyle}
           >
+            <div
+              data-slot="community-user-bar-underlay"
+              aria-hidden
+              className="pointer-events-none absolute inset-x-0 bottom-0 -z-10 bg-linear-to-t from-(--app-bg) to-transparent"
+              style={{ height: COMMUNITY_USER_BAR_HEIGHT_CSS }}
+            />
             {userBar}
           </div>
         )}
