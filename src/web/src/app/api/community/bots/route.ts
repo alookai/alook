@@ -82,6 +82,7 @@ export const GET = withAuth(async (_req, ctx) => {
   return writeJSON({
     bots: withActivity,
     plan: capacity.plan,
+    isFounder: capacity.isFounder,
     limit: capacity.limit,
     ownedCount: capacity.ownedCount,
     activeCount: capacity.activeCount,

@@ -189,6 +189,7 @@ export {
 export type { NotifLevel, NotificationLevelValue, ParticipantSource, MentionKind } from "./constants/community";
 export * from "./provider-telemetry";
 export * from "./product-entitlements";
+export * from "./billing";
 
 export type {
   AgentStatusType,

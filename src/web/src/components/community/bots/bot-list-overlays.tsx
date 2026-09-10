@@ -14,11 +14,13 @@ import { BugReportDialog } from "./bug-report-dialog"
 import { CreateBotSheet } from "./create-bot-sheet"
 import { EditBotSheet } from "./edit-bot-sheet"
 import type { BotListController, BotListOverlaySlots } from "./bot-list-types"
+import { BillingSheet } from "@/components/community/billing/billing-sheet"
 
 export function renderBotListOverlaySlots(
   controller: BotListController,
 ): BotListOverlaySlots {
   return {
+    billing: <BillingSheet open={controller.billingOpen && controller.canShowLimit} onOpenChange={controller.setBillingOpen} limit={controller.planSummary?.limit ?? 0} onViewPlan={controller.viewPlan} />,
     create: (
       <CreateBotSheet
         open={controller.createOpen}

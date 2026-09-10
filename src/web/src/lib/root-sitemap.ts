@@ -24,6 +24,7 @@ export function buildRootSitemap(manifest: BlogDiscoveryManifestV1 | null): Meta
 
 	return [
 		{ url: SITE_URL, changeFrequency: "weekly", priority: 1 },
+		{ url: `${SITE_URL}/pricing`, changeFrequency: "monthly", priority: 0.8 },
 		{ url: `${SITE_URL}/templates`, changeFrequency: "weekly", priority: 0.8 },
 		...templateEntries,
 		...(manifest

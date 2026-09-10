@@ -14,6 +14,10 @@ export type BotMachineGroup = {
 }
 
 export type BotListController = {
+  viewPlan: () => void
+  billingOpen: boolean
+  setBillingOpen: (open: boolean) => void
+  canShowLimit: boolean
   bots: BotSummary[]
   planSummary: BotPlanSummary | null
   isCreateDisabled: boolean
@@ -65,6 +69,7 @@ export type BotListController = {
 }
 
 export type BotListOverlaySlots = {
+  billing: React.ReactElement
   create: React.ReactElement
   help: React.ReactElement
   edit: React.ReactElement

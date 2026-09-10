@@ -1,6 +1,8 @@
 "use client"
 
 import { useCallback, useState, type ComponentProps } from "react"
+import { usePathname, useSearchParams } from "next/navigation"
+import { readBillingReturn } from "@/hooks/community/use-billing"
 import { parseNameAndTag } from "@alook/shared"
 import { toast } from "sonner"
 import { ACCOUNT_DELETED_SIGN_IN_PATH, toastApiError } from "@/lib/api/client"
@@ -84,6 +86,19 @@ export function useShellProfileController({
   view,
   activeServerId,
 }: Options) {
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const billingReturn = readBillingReturn(searchParams.get("billing"))
+  const billingRequested = searchParams.get("settings") === "billing" || Boolean(billingReturn)
+  const closeSettings = () => {
+    setEditingProfile(false)
+    if (billingRequested) {
+      const next = new URLSearchParams(searchParams.toString())
+      next.delete("settings")
+      next.delete("billing")
+      window.history.replaceState(null, "", `${pathname}${next.size ? `?${next}` : ""}${window.location.hash}`)
+    }
+  }
   const currentUser = useCurrentUser()
   const { friends } = useFriends()
   const profileServerId = resolveProfileServerId(view, activeServerId)
@@ -289,14 +304,15 @@ export function useShellProfileController({
   }
 
   const onLogout = async () => {
-    clearVolatileAccountState()
-    await signOut()
-    // Better Auth can synchronously remount the authenticated tree while its
-    // sign-out state settles. Clear last so any transitional QueryProvider
-    // has already captured the retired generation and cannot recreate this
-    // account's persisted blob after logout.
-    await clearPersistedCache(currentUser.id).catch(() => {})
-    router.push("/sign-in")
+    const result = await signOut({
+      fetchOptions: {
+        onSuccess: async () => {
+          await clearPersistedCache(currentUser.id).catch(() => {})
+          globalThis.location.replace("/sign-in")
+        },
+      },
+    })
+    if (result?.error) toastApiError(result.error, "Failed to log out")
   }
 
   const onAccountDeleted = async () => {
@@ -307,7 +323,9 @@ export function useShellProfileController({
   }
 
   const userSettingsProps: ComponentProps<typeof UserSettings> = {
-    onClose: () => setEditingProfile(false),
+    onClose: closeSettings,
+    initialTab: billingRequested ? "billing" : "profile",
+    billingReturn,
     userId: currentUser.id,
     userName: currentUser.name,
     userEmail: currentUser.email,
@@ -368,10 +386,10 @@ export function useShellProfileController({
     onAttachmentPreviewOpenChange: (open: boolean) => {
       if (!open) setAttachmentPreview(null)
     },
-    editingProfile,
+    editingProfile: editingProfile || billingRequested,
     openUserSettings: () => setEditingProfile(true),
     onUserSettingsOpenChange: (open: boolean) => {
-      if (!open) setEditingProfile(false)
+      if (!open) closeSettings()
     },
     userSettingsProps,
     pendingAvatarCrop: pendingAvatarCropProps,

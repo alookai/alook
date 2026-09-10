@@ -67,3 +67,5 @@ export * as communityBotAuditLog from "./queries/community/bot-audit-log";
 export * as communityMessageTag from "./queries/community/message-tag";
 export * as communityDiagnosticReport from "./queries/community/diagnostic-report";
 export const nativeOauth = nativeOauthQueries;
+
+export * as billing from "./queries/billing";

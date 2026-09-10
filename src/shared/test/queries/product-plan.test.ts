@@ -67,6 +67,7 @@ function createDatabase() {
     CREATE TABLE user_product_plan (
       user_id TEXT PRIMARY KEY REFERENCES user(id) ON DELETE CASCADE,
       plan_id TEXT NOT NULL REFERENCES product_plan(id) ON DELETE RESTRICT,
+      is_founder INTEGER NOT NULL DEFAULT 0,
       assigned_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
@@ -262,10 +263,12 @@ describe("generic product plan entitlement queries", () => {
     await expect(productPlanQuery.resolveBotsMaxForUser(db as never, "unassigned")).resolves.toEqual({
       plan: { id: "default-plan", displayName: "Default" },
       value: 3,
+      isFounder: false,
     })
     await expect(productPlanQuery.resolveBotsMaxForUser(db as never, "assigned")).resolves.toEqual({
       plan: { id: "larger-plan", displayName: "Larger" },
       value: 11,
+      isFounder: false,
     })
   })
 
@@ -334,6 +337,38 @@ describe("generic product plan entitlement queries", () => {
       limit: 3,
       ownedCount: 2,
       activeCount: 1,
+      isFounder: false,
+    })
+  })
+
+  it("leaves assignment and active bots unchanged when the owner was deleted", async () => {
+    seedPlan(sqlite, { id: "large", botsMax: "3" })
+    seedPlan(sqlite, { id: "small", botsMax: "1" })
+    seedHuman(sqlite, "owner", "large")
+    seedBot(sqlite, "owner", "bot_a", "2026-01-01", true)
+    seedBot(sqlite, "owner", "bot_b", "2026-01-02", true)
+    seedBot(sqlite, "owner", "bot_c", "2026-01-03", true)
+    sqlite.prepare("UPDATE user SET deletedAt = '2026-02-01' WHERE id = 'owner'").run()
+    const beforePlan = sqlite.prepare("SELECT * FROM user_product_plan WHERE user_id = 'owner'").get()
+    const beforeBots = sqlite.prepare("SELECT * FROM community_bot_binding ORDER BY user_id").all()
+
+    await expect(productPlanQuery.assignUserPlan(db as never, "owner", "small"))
+      .rejects.toThrow("PLAN_ASSIGNMENT_PROTECTED")
+
+    expect(sqlite.prepare("SELECT * FROM user_product_plan WHERE user_id = 'owner'").get()).toEqual(beforePlan)
+    expect(sqlite.prepare("SELECT * FROM community_bot_binding ORDER BY user_id").all()).toEqual(beforeBots)
+  })
+
+  it("keeps Founder on the referenced plan and follows its changing entitlements", async () => {
+    seedPlan(sqlite, { id: "free", displayName: "Free", isDefault: true, botsMax: "3" })
+    seedPlan(sqlite, { id: "house", displayName: "House", botsMax: "40" })
+    seedHuman(sqlite, "owner", "house")
+    sqlite.prepare("UPDATE user_product_plan SET is_founder=1 WHERE user_id='owner'").run()
+    await expect(productPlanQuery.assignUserPlan(db as never, "owner", "free"))
+      .rejects.toThrow("PLAN_ASSIGNMENT_PROTECTED")
+    await productPlanQuery.setPlanEntitlement(db as never, "house", "bots.max", 50)
+    await expect(productPlanQuery.getBotCapacitySummary(db as never, "owner")).resolves.toMatchObject({
+      plan: { id: "house" }, isFounder: true, limit: 50,
     })
   })
 
@@ -621,6 +656,7 @@ describe("generic product plan entitlement queries", () => {
         limit: 1,
         ownedCount: 2,
         activeCount: 1,
+        isFounder: false,
       },
     })
     expect(sqlite.prepare(`SELECT is_active FROM community_bot_binding WHERE user_id = 'target'`).get())

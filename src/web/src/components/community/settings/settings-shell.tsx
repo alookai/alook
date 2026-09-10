@@ -3,6 +3,7 @@
 import type { LucideIcon } from "lucide-react"
 import type { ComponentProps, ReactNode } from "react"
 import { X } from "lucide-react"
+import styles from "./settings-shell.module.css"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useBreakpoint } from "@/hooks/use-mobile"
@@ -55,7 +56,7 @@ export function SettingsShell<Value extends string>({
       orientation={breakpoint === "mobile" ? "horizontal" : "vertical"}
       value={value}
       onValueChange={(nextValue) => onValueChange(nextValue as Value)}
-      className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[4rem_auto_minmax(0,1fr)] gap-0 sm:grid-cols-[11rem_minmax(0,1fr)] sm:grid-rows-[4rem_minmax(0,1fr)]"
+      className={`grid min-h-0 w-full flex-1 gap-0 ${styles.shell}`}
       data-testid={tid.settingsShell}
     >
       <header className="col-start-1 row-start-1 flex h-16 min-w-0 items-center px-4 sm:col-start-2 sm:px-8">
@@ -89,7 +90,7 @@ export function SettingsShell<Value extends string>({
               data-testid={tid.settingsTab(tabValue)}
             >
               <Icon className="size-4" />
-              <span className="sr-only sm:not-sr-only">{tabLabel}</span>
+              <span className="sr-only whitespace-nowrap sm:not-sr-only">{tabLabel}</span>
             </TabsTrigger>
           ))}
         </TabsList>
@@ -99,7 +100,7 @@ export function SettingsShell<Value extends string>({
       </nav>
 
       <div
-        className="col-start-1 row-start-3 min-h-0 min-w-0 overflow-y-auto bg-background px-4 pt-2 pb-4 thin-scrollbar sm:col-start-2 sm:row-start-2 sm:p-8 sm:pt-4"
+        className="col-start-1 row-start-3 min-h-0 min-w-0 overflow-y-auto rounded-tl-xl bg-background px-4 pt-6 pb-4 thin-scrollbar sm:col-start-2 sm:row-start-2 sm:p-8 sm:pt-4"
         data-testid={tid.settingsContent}
       >
         {children}

@@ -1,11 +1,14 @@
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { ArrowRight } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import { tid } from "@/lib/community/testids"
 import type { BotPlanSummary } from "@/hooks/community/use-bots"
 
-export function BotActiveSummary({ summary }: { summary: BotPlanSummary | null }) {
+export function BotActiveSummary({ summary, isFounder = false, onViewPlan }: { summary: BotPlanSummary | null; isFounder?: boolean; onViewPlan?: () => void }) {
   const active = summary?.activeCount ?? 0
   const total = summary?.ownedCount ?? 0
-  const percent = total > 0 ? Math.min(100, Math.max(0, active / total * 100)) : 0
+  const limit = summary?.limit ?? 0
+  const percent = limit > 0 ? Math.min(100, Math.max(0, active / limit * 100)) : 0
   return (
     <Popover>
       <PopoverTrigger
@@ -16,7 +19,7 @@ export function BotActiveSummary({ summary }: { summary: BotPlanSummary | null }
             type="button"
             data-testid={tid.myBotsPlanSummary}
             disabled={!summary}
-            aria-label={summary ? `Active Bots: ${active} of ${total}, ${summary.plan.displayName} plan` : "Active Bots loading"}
+            aria-label={summary ? `Active Bots: ${active} of ${summary.limit} allowed, ${total} owned, ${isFounder ? "Founder" : summary.plan.displayName} plan` : "Active Bots loading"}
             className="flex min-h-11 w-fit items-center gap-2 rounded-sm text-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-h-6"
           >
             Active Bots
@@ -27,9 +30,18 @@ export function BotActiveSummary({ summary }: { summary: BotPlanSummary | null }
           </button>
         }
       />
-      <PopoverContent className="w-auto px-3 py-2 text-xs" side="bottom" align="start">
-        <p className="tabular-nums">{active} / {total} active</p>
-        <p className="text-muted-foreground">{summary?.plan.displayName}</p>
+      <PopoverContent className="w-64 overflow-hidden p-0" side="bottom" align="start">
+        <div className="flex flex-col gap-4 p-5">
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="text-sm font-medium">Active bots</span>
+            <span className="font-brand text-xl font-bold leading-none">{isFounder ? "Founder" : summary?.plan.displayName}</span>
+          </div>
+          <p className="text-2xl font-semibold leading-none tracking-tight tabular-nums" aria-label={`${active} of ${limit} active bot slots used`}>
+            {active}<span className="text-lg font-normal text-muted-foreground"> / {limit}</span>
+          </p>
+          <p className="text-sm text-muted-foreground">{total} bots owned</p>
+          {onViewPlan && <PopoverClose onClick={onViewPlan} render={<Button variant="ghost" size="sm" className="-mx-2 min-h-11 justify-between sm:min-h-8" />}>View plan<ArrowRight className="size-3.5" /></PopoverClose>}
+        </div>
       </PopoverContent>
     </Popover>
   )

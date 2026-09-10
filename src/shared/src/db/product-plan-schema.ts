@@ -46,6 +46,7 @@ export const userProductPlan = sqliteTable(
     planId: text("plan_id")
       .notNull()
       .references(() => productPlan.id, { onDelete: "restrict" }),
+    isFounder: integer("is_founder", { mode: "boolean" }).notNull().default(false),
     assignedAt: text("assigned_at").notNull().$defaultFn(() => new Date().toISOString()),
     updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
   },

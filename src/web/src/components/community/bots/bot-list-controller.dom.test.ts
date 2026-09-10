@@ -16,6 +16,8 @@ const mocks = vi.hoisted(() => ({
   audit: null as string | null,
   bots: [] as BotSummary[],
   botsDataReady: true,
+  isFounder: true,
+  billingReturn: null as string | null,
   planSummary: {
     plan: { id: "free", displayName: "Free" },
     limit: 3,
@@ -51,7 +53,7 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => {
     mocks.hookOrder.push("searchParams")
     return {
-      get: (key: string) => key === "machineId" ? mocks.target : mocks.audit,
+      get: (key: string) => key === "machineId" ? mocks.target : key === "audit" ? mocks.audit : mocks.billingReturn,
       toString: () => {
         const params = new URLSearchParams()
         if (mocks.target) params.set("machineId", mocks.target)
@@ -66,7 +68,7 @@ vi.mock("@/hooks/community/use-bots", () => ({
     mocks.hookOrder.push("bots")
     return {
       bots: mocks.bots,
-      data: mocks.botsDataReady ? { bots: mocks.bots, ...mocks.planSummary } : undefined,
+      data: mocks.botsDataReady ? { bots: mocks.bots, ...mocks.planSummary, isFounder: mocks.isFounder } : undefined,
       isLoading: mocks.botsLoading,
     }
   },
@@ -120,6 +122,11 @@ vi.mock("sonner", () => ({
 }))
 vi.mock("@/lib/api/client", () => ({ toastApiError: mocks.toastApiError }))
 
+vi.mock("@/hooks/community/use-billing", () => ({
+  readBillingReturn: (value: string | null) => ["checkout", "cancel", "portal"].includes(value ?? "") ? value : null,
+  useBilling: () => ({ data: undefined, isPending: true, refresh: vi.fn() }),
+}))
+
 import { useBotListController } from "./bot-list-controller"
 
 let latest: BotListController
@@ -155,6 +162,8 @@ describe("useBotListController", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.useFakeTimers()
+    mocks.isFounder = true
+    mocks.billingReturn = null
     mocks.hookOrder.length = 0
     mocks.target = "mac1"
     mocks.audit = null
@@ -208,7 +217,7 @@ describe("useBotListController", () => {
     expect(mocks.hookOrder[10]).toBe("onboarding")
 
     const source = readWebSource("src/components/community/bots/bot-list-controller.ts")
-    expect(source.match(/useState(?:<[^\n]+>)?\(/g)).toHaveLength(14)
+    expect(source.match(/useState(?:<[^\n]+>)?\(/g)).toHaveLength(15)
     expect(source).not.toMatch(/useCallback\(/)
     expect(source.match(/useMemo\(/g)).toHaveLength(1)
     const orderedHooks = [
@@ -240,7 +249,7 @@ describe("useBotListController", () => {
       "const [highlightId",
       "const groupRefs = useRef",
       "const scrolledForRef = useRef",
-      "useEffect(() =>",
+      "useEffect(() => {\n    if (!targetMachineId",
     ]
     const positions = orderedHooks.map((needle) => source.indexOf(needle))
     expect(positions.every((position) => position >= 0)).toBe(true)
@@ -316,13 +325,33 @@ describe("useBotListController", () => {
       activeCount: 2,
     }
     render()
-    expect(latest.planSummary).toEqual(mocks.planSummary)
+    expect(latest.planSummary).toEqual({ ...mocks.planSummary, isFounder: mocks.isFounder })
     expect(latest.isCreateDisabled).toBe(true)
     act(() => latest.openGuidedCreate())
     expect(latest.createOpen).toBe(false)
-    expect(mocks.toastError).toHaveBeenCalledWith(
-      "Bot limit reached — delete a bot or change plan to create another.",
-    )
+    expect(latest.billingOpen).toBe(true)
+    expect(mocks.toastError).not.toHaveBeenCalled()
+  })
+
+  it("opens plans instead of bypassing create capacity for a non-Founder", () => {
+    mocks.target = null
+    mocks.isFounder = false
+    mocks.planSummary = { ...mocks.planSummary, ownedCount: 3, limit: 3 }
+    render()
+    expect(latest.canShowLimit).toBe(true)
+    act(() => latest.openGuidedCreate())
+    expect(latest.billingOpen).toBe(true)
+    expect(latest.createOpen).toBe(false)
+  })
+
+  it("leaves billing returns to settings and opens the unified plan destination", () => {
+    mocks.billingReturn = "checkout"
+    window.history.replaceState(null, "", "/c/me/bots?billing=checkout&audit=bot1#details")
+    render()
+    expect(latest.billingOpen).toBe(false)
+    act(() => latest.viewPlan())
+    expect(window.location.pathname + window.location.search + window.location.hash).toBe("/c/me/bots?audit=bot1&settings=billing#details")
+    expect(mocks.push).not.toHaveBeenCalled()
   })
 
   it("disables only the toggled bot, suppresses double clicks, and clears pending on success", async () => {

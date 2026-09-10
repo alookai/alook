@@ -1,0 +1,12 @@
+.shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: 4rem auto minmax(0, 1fr);
+}
+
+@media (min-width: 40rem) {
+  .shell {
+    grid-template-columns: 15rem minmax(0, 1fr);
+    grid-template-rows: 4rem minmax(0, 1fr);
+  }
+}

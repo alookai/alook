@@ -9,6 +9,7 @@ import { CreateBotSheet } from "./create-bot-sheet"
 import { renderBotMachineGroup } from "./bot-list-machine-group"
 import { renderBotListOverlaySlots } from "./bot-list-overlays"
 import type { BotListController, BotListProps } from "./bot-list-types"
+import { BillingSheet } from "@/components/community/billing/billing-sheet"
 
 function BotCardSkeleton() {
   return (
@@ -124,12 +125,13 @@ export function renderBotListView(
           <div data-onboarding-target="create-bot" className="w-fit">
             <Button
               onClick={needsMachine ? controller.openMachines : controller.openGuidedCreate}
-              disabled={!needsMachine && controller.isCreateDisabled}
+              disabled={!needsMachine && controller.isCreateDisabled && !controller.canShowLimit}
               data-testid={!needsMachine ? tid.createBot : undefined}
             >
               {needsMachine ? "Connect a machine" : controller.guidedCreateLabel}
             </Button>
           </div>
+          {controller.planSummary?.isFounder && <p className="text-sm text-muted-foreground">Founder plan</p>}
         </div>
         <CreateBotSheet
           open={controller.createOpen}
@@ -138,6 +140,7 @@ export function renderBotListView(
           guided={controller.guidedActive}
           avatarSeed={controller.guidedAvatarSeed}
         />
+        <BillingSheet open={controller.billingOpen && controller.canShowLimit} onOpenChange={controller.setBillingOpen} limit={controller.planSummary?.limit ?? 0} onViewPlan={controller.viewPlan} />
       </div>
     )
   }
@@ -150,7 +153,7 @@ export function renderBotListView(
         <header className="flex items-center justify-between gap-4">
           <div className="flex flex-col gap-1">
             <h1 className="text-xl font-medium text-foreground">My Bots</h1>
-            <BotActiveSummary summary={controller.planSummary} />
+            <BotActiveSummary onViewPlan={controller.viewPlan} summary={controller.planSummary} isFounder={controller.planSummary?.isFounder} />
           </div>
           <div className="flex items-center gap-1">
             <Button
@@ -165,7 +168,7 @@ export function renderBotListView(
             <div data-onboarding-target="create-bot" className="w-fit">
               <Button
                 onClick={controller.openGuidedCreate}
-                disabled={controller.isCreateDisabled}
+                disabled={controller.isCreateDisabled && !controller.canShowLimit}
                 data-testid={tid.createBot}
                 title={controller.isCreateDisabled ? "Bot limit reached. Delete a bot or change plan to create another." : undefined}
               >{controller.guidedCreateLabel}</Button>
@@ -179,6 +182,7 @@ export function renderBotListView(
       </div>
 
       {overlays.create}
+      {overlays.billing}
       {overlays.help}
       {overlays.edit}
       {overlays.activity}

@@ -54,6 +54,7 @@ export type BotSummary = {
   usage?: BotTokenUsage
 }
 export type BotPlanSummary = {
+  isFounder: boolean
   plan: {
     id: string
     displayName: string

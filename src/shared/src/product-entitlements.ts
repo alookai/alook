@@ -37,6 +37,7 @@ export type ResolvedProductPlan = {
 };
 
 export type BotCapacitySummary = {
+  isFounder: boolean;
   plan: ResolvedProductPlan;
   limit: number;
   ownedCount: number;

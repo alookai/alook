@@ -41,6 +41,8 @@ vi.mock("@/components/community/onboarding-tiles/create-tile", () => ({
   CreateTile: () => React.createElement("create-tile"),
 }))
 
+vi.mock("@/components/community/billing/billing-sheet", () => ({ BillingSheet: () => null }))
+
 import { BotListSkeleton, renderBotListView } from "./bot-list-view"
 
 function controller(overrides: Partial<BotListController> = {}): BotListController {
@@ -250,6 +252,7 @@ describe("renderBotListView", () => {
     const renderer = render(renderBotListView({}, controller({
       bots: [{ id: "b1" }] as BotListController["bots"],
       planSummary: {
+        isFounder: false,
         plan: { id: "free", displayName: "Free" },
         limit: 3,
         ownedCount: 3,
@@ -260,7 +263,7 @@ describe("renderBotListView", () => {
       groups: [],
     })))
     expect(renderer.getByTestId(tid.myBotsPlanSummary)).toBe(
-      renderer.getByRole("button", { name: "Active Bots: 2 of 3, Free plan" }),
+      renderer.getByRole("button", { name: "Active Bots: 2 of 3 allowed, 3 owned, Free plan" }),
     )
     expect(renderer.queryByRole("status")).not.toBeInTheDocument()
     const create = renderer.getByTestId(tid.createBot)
@@ -268,6 +271,28 @@ describe("renderBotListView", () => {
     expect(create).toHaveAttribute("title", "Bot limit reached. Delete a bot or change plan to create another.")
     fireEvent.click(create)
     expect(openGuidedCreate).not.toHaveBeenCalled()
+  })
+
+  it("preserves the create label at capacity for a non-Founder", () => {
+    const open = vi.fn()
+    const ui = render(renderBotListView({}, controller({
+      bots: [{ id: "b1" }] as BotListController["bots"],
+      isCreateDisabled: true,
+      canShowLimit: true,
+      openGuidedCreate: open,
+    })))
+    fireEvent.click(ui.getByRole("button", { name: "Create a bot" }))
+    expect(open).toHaveBeenCalledOnce()
+    expect(ui.queryByRole("button", { name: "Plan and billing" })).toBeNull()
+  })
+
+  it("keeps Founder visible with no bots and hides its billing entry", () => {
+    const ui = render(renderBotListView({}, controller({
+      planSummary: { plan: { id: "house", displayName: "House" }, isFounder: true, limit: 40, activeCount: 0, ownedCount: 0 },
+      canShowLimit: false,
+    })))
+    expect(ui.getByText("Founder plan")).toBeInTheDocument()
+    expect(ui.queryByTestId(tid.myBotsBilling)).toBeNull()
   })
 
   it("keeps the same outer/back-bar contract in loading, empty, and populated branches", () => {

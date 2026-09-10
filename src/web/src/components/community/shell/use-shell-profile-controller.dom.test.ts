@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { useShellProfileController } from "./use-shell-profile-controller"
 
 const mocks = vi.hoisted(() => ({
+  search: "",
   currentUser: {
     id: "self",
     name: "Self",
@@ -34,6 +35,7 @@ const mocks = vi.hoisted(() => ({
   disposeCoordinator: vi.fn(),
 }))
 
+vi.mock("next/navigation", () => ({ usePathname: () => "/c/me/bots", useSearchParams: () => new URLSearchParams(mocks.search) }))
 vi.mock("sonner", () => ({ toast: mocks.toast }))
 vi.mock("@/lib/api/client", () => ({
   ACCOUNT_DELETED_SIGN_IN_PATH: "/sign-in?account_deleted=1",
@@ -122,7 +124,7 @@ function Capture({ options, onResult }: {
 async function renderController() {
   const pushed: string[] = []
   const router = {
-    push: (href: string) => { pushed.push(href) },
+    push: vi.fn((href: string) => { pushed.push(href) }),
     replace: vi.fn(),
     prefetch: vi.fn(),
   }
@@ -162,6 +164,7 @@ function deferred<T>() {
 
 describe("useShellProfileController", () => {
   beforeEach(() => {
+    mocks.search = ""
     for (const mock of Object.values(mocks)) {
       if (typeof mock === "function" && "mockReset" in mock) mock.mockReset()
     }
@@ -185,6 +188,27 @@ describe("useShellProfileController", () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
+  })
+
+  it.each(["settings=billing", "billing=checkout", "billing=cancel", "billing=portal"])("opens billing settings from %s and clears only billing navigation on close", async (marker) => {
+    mocks.search = `${marker}&audit=bot1`
+    window.history.replaceState(null, "", `/c/me/bots?${mocks.search}#details`)
+    const hook = await renderController()
+    expect(hook.current.editingProfile).toBe(true)
+    expect(hook.current.userSettingsProps.initialTab).toBe("billing")
+    await act(async () => hook.current.userSettingsProps.onClose())
+    expect(window.location.pathname + window.location.search + window.location.hash).toBe("/c/me/bots?audit=bot1#details")
+    expect(hook.router.replace).not.toHaveBeenCalled()
+    mocks.search = window.location.search.slice(1)
+    await hook.rerender()
+    expect(hook.current.editingProfile).toBe(false)
+  })
+
+  it("ignores arbitrary billing return values", async () => {
+    mocks.search = "billing=success"
+    const hook = await renderController()
+    expect(hook.current.editingProfile).toBe(false)
+    expect(hook.current.userSettingsProps.initialTab).toBe("profile")
   })
 
   it("opens self synchronously only for the exact target id", async () => {
@@ -436,8 +460,9 @@ describe("useShellProfileController", () => {
     expect(mocks.toastApiError).toHaveBeenLastCalledWith(saveError, "Failed to save profile")
   })
 
-  it("preserves logout ordering and rejection behavior", async () => {
+  it("replaces the document after logout cleanup and preserves rejection behavior", async () => {
     const order: string[] = []
+    vi.stubGlobal("location", { replace: (href: string) => { order.push(`replace:${href}`) } })
     const hook = await renderController()
     hook.cancelPendingNavigation.mockImplementation(() => { order.push("cancel") })
     mocks.communityReset.mockImplementation(() => { order.push("community") })
@@ -446,10 +471,11 @@ describe("useShellProfileController", () => {
     mocks.disposeReconciliation.mockImplementation(() => { order.push("reconcile") })
     hook.queryClient.clear.mockImplementation(() => { order.push("query") })
     mocks.clearCache.mockImplementation(async () => { order.push("cache"); throw new Error("cache") })
-    mocks.signOut.mockImplementation(async () => { order.push("signOut") })
-    hook.router.push = (href: string) => { order.push(`push:${href}`) }
+    mocks.signOut.mockImplementation(async ({ fetchOptions }) => { order.push("signOut"); await fetchOptions.onSuccess(); order.push("session-notify") })
     await act(async () => hook.current.userSettingsProps.onLogout())
-    expect(order).toEqual(["cancel", "community", "ws", "stream", "reconcile", "query", "signOut", "cache", "push:/sign-in"])
+    expect(order).toEqual(["signOut", "cache", "replace:/sign-in", "session-notify"])
+    expect(hook.router.push).not.toHaveBeenCalled()
+    expect(hook.router.replace).not.toHaveBeenCalled()
 
     order.length = 0
     mocks.clearCache.mockClear()
@@ -457,7 +483,23 @@ describe("useShellProfileController", () => {
     mocks.signOut.mockRejectedValue(new Error("auth"))
     await expect(act(async () => hook.current.userSettingsProps.onLogout())).rejects.toThrow("auth")
     expect(mocks.clearCache).not.toHaveBeenCalled()
-    expect(order.some((entry) => entry.startsWith("push:"))).toBe(false)
+    expect(order.some((entry) => entry.startsWith("replace:"))).toBe(false)
+  })
+
+  it("does not navigate or delete persisted cache when signOut returns an error", async () => {
+    const replace = vi.fn()
+    vi.stubGlobal("location", { replace })
+    const error = { message: "Sign out failed", status: 503 }
+    mocks.signOut.mockResolvedValue({ error })
+    const hook = await renderController()
+    await act(async () => hook.current.userSettingsProps.onLogout())
+    expect(mocks.toastApiError).toHaveBeenCalledWith(error, "Failed to log out")
+    expect(mocks.communityReset).not.toHaveBeenCalled()
+    expect(hook.queryClient.clear).not.toHaveBeenCalled()
+    expect(mocks.clearCache).not.toHaveBeenCalled()
+    expect(replace).not.toHaveBeenCalled()
+    expect(hook.router.push).not.toHaveBeenCalled()
+    expect(hook.router.replace).not.toHaveBeenCalled()
   })
 
   it("uses logout-equivalent local cleanup then replaces into the persistent deletion state", async () => {

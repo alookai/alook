@@ -32,6 +32,7 @@ type StoredEntitlement = {
   displayName: string;
   entitlementKey: string | null;
   value: unknown;
+  isFounder?: boolean | null;
 };
 
 async function resolveStoredEntitlementForUser(
@@ -41,6 +42,7 @@ async function resolveStoredEntitlementForUser(
 ): Promise<StoredEntitlement> {
   const rows = await db
     .select({
+      isFounder: userProductPlan.isFounder,
       planId: productPlan.id,
       displayName: productPlan.displayName,
       entitlementKey: productPlanEntitlement.entitlementKey,
@@ -111,7 +113,7 @@ function parseStoredEntitlement<T>(
   row: StoredEntitlement,
   entitlementKey: string,
   schema: z.ZodType<T>,
-): { plan: ResolvedProductPlan; value: T } {
+): { plan: ResolvedProductPlan; value: T; isFounder: boolean } {
   const parsed = schema.safeParse(row.value);
   if (!parsed.success) {
     throw new ProductEntitlementUnavailableError(entitlementKey, "entitlement_malformed");
@@ -119,6 +121,7 @@ function parseStoredEntitlement<T>(
   return {
     plan: { id: row.planId, displayName: row.displayName },
     value: parsed.data,
+    isFounder: row.isFounder ?? false,
   };
 }
 
@@ -127,7 +130,7 @@ export async function resolveEntitlementForUser<T>(
   userId: string,
   entitlementKey: string,
   schema: z.ZodType<T>,
-): Promise<{ plan: ResolvedProductPlan; value: T }> {
+): Promise<{ plan: ResolvedProductPlan; value: T; isFounder: boolean }> {
   return parseStoredEntitlement(
     await resolveStoredEntitlementForUser(db, userId, entitlementKey),
     entitlementKey,
@@ -138,7 +141,7 @@ export async function resolveEntitlementForUser<T>(
 export async function resolveBotsMaxForUser(
   db: Database,
   userId: string,
-): Promise<{ plan: ResolvedProductPlan; value: number }> {
+): Promise<{ plan: ResolvedProductPlan; value: number; isFounder: boolean }> {
   return resolveEntitlementForUser(
     db,
     userId,
@@ -151,7 +154,7 @@ export async function getBotCapacitySummary(
   db: Database,
   ownerUserId: string,
 ): Promise<BotCapacitySummary> {
-  const [{ plan, value: limit }, counts] = await Promise.all([
+  const [{ plan, value: limit, isFounder }, counts] = await Promise.all([
     resolveBotsMaxForUser(db, ownerUserId),
     db
       .select({
@@ -170,6 +173,7 @@ export async function getBotCapacitySummary(
   ]);
   return {
     plan,
+    isFounder,
     limit,
     ownedCount: counts[0]?.ownedCount ?? 0,
     activeCount: counts[0]?.activeCount ?? 0,
@@ -217,8 +221,9 @@ export function reconcileOwnerActiveBotsBuilder(
   db: Database,
   ownerUserId: string,
   botsMax: number | SQL<number>,
+  guard?: SQL<unknown>,
 ) {
-  return reconcileActiveBotsBuilder(db, eq(user.ownerUserId, ownerUserId), botsMax);
+  return reconcileActiveBotsBuilder(db, and(eq(user.ownerUserId, ownerUserId), guard)!, botsMax);
 }
 
 function reconcilePlanActiveBotsBuilder(
@@ -262,7 +267,7 @@ function reconcilePlanActiveBotsBuilder(
   );
 }
 
-function botsMaxForPlanSql(planId: string): SQL<number> {
+export function botsMaxForPlanSql(planId: string): SQL<number> {
   return sql<number>`COALESCE((
     SELECT CAST(entitlement.value_json AS INTEGER)
     FROM product_plan_entitlement entitlement
@@ -276,6 +281,35 @@ function botsMaxForPlanSql(planId: string): SQL<number> {
   ), 0)`;
 }
 
+export function nonFounderCondition(db: Database, userId: string): SQL<unknown> {
+  return notExists(db.select({ one: sql<number>`1` }).from(userProductPlan).where(
+    and(eq(userProductPlan.userId, userId), eq(userProductPlan.isFounder, true)),
+  ));
+}
+
+export function assignUserPlanBuilder(
+  db: Database,
+  userId: string,
+  planId: string,
+  guard?: SQL<unknown>,
+) {
+  const now = new Date().toISOString();
+  return db.insert(userProductPlan).select(db.select({
+    userId: user.id,
+    planId: sql<string>`${planId}`.as("plan_id"),
+    isFounder: sql<boolean>`0`.as("is_founder"),
+    assignedAt: sql<string>`${now}`.as("assigned_at"),
+    updatedAt: sql<string>`${now}`.as("updated_at"),
+  }).from(user).where(and(
+    eq(user.id, userId), eq(user.isBot, false), isNull(user.deletedAt),
+    nonFounderCondition(db, userId), guard,
+  ))).onConflictDoUpdate({
+    target: userProductPlan.userId,
+    set: { planId, updatedAt: now },
+    setWhere: and(eq(userProductPlan.isFounder, false), guard),
+  }).returning({ userId: userProductPlan.userId });
+}
+
 export async function assignUserPlan(
   db: Database,
   userId: string,
@@ -286,16 +320,17 @@ export async function assignUserPlan(
     BOTS_MAX_ENTITLEMENT_KEY,
     NonNegativeIntegerEntitlementSchema,
   );
-  const now = new Date().toISOString();
-  const assign = db
-    .insert(userProductPlan)
-    .values({ userId, planId, assignedAt: now, updatedAt: now })
-    .onConflictDoUpdate({
-      target: userProductPlan.userId,
-      set: { planId, updatedAt: now },
-    });
-  const reconcile = reconcileOwnerActiveBotsBuilder(db, userId, botsMaxForPlanSql(planId));
-  const results = await db.batch([assign, reconcile] as any) as unknown as [unknown, Array<{ botId: string }>];
+  const guard = and(nonFounderCondition(db, userId), exists(
+    db.select({ id: user.id }).from(user).where(and(
+      eq(user.id, userId), eq(user.isBot, false), isNull(user.deletedAt),
+    )),
+  ))!;
+  const assign = assignUserPlanBuilder(db, userId, planId, guard);
+  const reconcile = reconcileOwnerActiveBotsBuilder(
+    db, userId, botsMaxForPlanSql(planId), guard,
+  );
+  const results = await db.batch([assign, reconcile] as any) as unknown as [Array<{ userId: string }>, Array<{ botId: string }>];
+  if (results[0].length === 0) throw new Error("PLAN_ASSIGNMENT_PROTECTED");
   return {
     plan: resolved.plan,
     limit: resolved.value,

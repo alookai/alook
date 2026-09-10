@@ -1090,3 +1090,8 @@
     transition: none;
   }
 }
+
+.status { max-width: 70rem; margin: 16px auto; text-align: center; color: var(--muted-foreground); }
+.status:empty { display: none; }
+.status button { text-decoration: underline; min-height: 44px; padding: 0 8px; }
+.plans button:disabled { opacity: .55; cursor: default; }

@@ -20,6 +20,7 @@ function host(name: string) {
 vi.mock("@/components/community/onboarding-tiles/agent-help-gallery", () => ({
   AgentHelpGallery: host("help"),
 }))
+vi.mock("@/components/community/billing/billing-sheet", () => ({ BillingSheet: host("billing") }))
 vi.mock("./bot-activity-modal", () => ({ BotActivityModal: host("activity") }))
 vi.mock("./bug-report-dialog", () => ({ BugReportDialog: host("bug") }))
 vi.mock("./create-bot-sheet", () => ({ CreateBotSheet: host("create") }))
@@ -89,13 +90,14 @@ function controller(overrides: Partial<BotListController> = {}): BotListControll
 describe("renderBotListOverlaySlots", () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it("returns exactly eight named elements without an aggregate reconciliation boundary", () => {
+  it("returns all named elements without an aggregate reconciliation boundary", () => {
     const emptySlots = renderBotListOverlaySlots(controller())
     expect(emptySlots.bug).toBeNull()
     const slots = renderBotListOverlaySlots(controller({
       bugReportBot: { id: "b1", name: "Blake" },
     }))
     expect(Object.keys(slots)).toEqual([
+      "billing",
       "create",
       "help",
       "edit",
@@ -110,8 +112,9 @@ describe("renderBotListOverlaySlots", () => {
       expect(Array.isArray(slot)).toBe(false)
       if (React.isValidElement(slot)) expect(slot.type).not.toBe(React.Fragment)
     }
-    expect(Object.values(slots).slice(0, 5).map((slot) =>
+    expect(Object.values(slots).slice(0, 6).map((slot) =>
       (slot!.type as React.ComponentType).displayName)).toEqual([
+      "Host(billing)",
       "Host(create)",
       "Host(help)",
       "Host(edit)",

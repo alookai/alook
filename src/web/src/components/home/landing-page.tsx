@@ -416,6 +416,7 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
       <footer className={styles.footer}>
         <Brand />
         <p>{BRAND_SLOGAN}</p>
+        <Link href="/pricing">Pricing</Link>
         <FooterSocialLinks />
       </footer>
     </main>

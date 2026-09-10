@@ -33,6 +33,14 @@ export function useBotListController(): BotListController {
   const botsQuery = useBots()
   const { bots, isLoading } = botsQuery
   const botsResolved = botsQuery.data !== undefined
+  const [billingOpen, setBillingOpen] = useState(false)
+  const canShowLimit = botsResolved
+  const viewPlan = () => {
+    const next = new URL(window.location.href)
+    next.searchParams.delete("billing")
+    next.searchParams.set("settings", "billing")
+    window.history.pushState(null, "", `${next.pathname}${next.search}${next.hash}`)
+  }
   const { machines, isLoading: machinesLoading } = useMachines()
   const profilesByUserId = useProfilesByUserId()
   const [createOpen, setCreateOpen] = useState(false)
@@ -73,6 +81,7 @@ export function useBotListController(): BotListController {
         limit: botsQuery.data.limit,
         ownedCount: botsQuery.data.ownedCount,
         activeCount: botsQuery.data.activeCount,
+        isFounder: botsQuery.data.isFounder,
       }
     : null
   const isAtCapacity = Boolean(
@@ -122,6 +131,10 @@ export function useBotListController(): BotListController {
       return
     }
     if (isCreateDisabled) {
+      if (canShowLimit) {
+        setBillingOpen(true)
+        return
+      }
       toast.error("Bot limit reached — delete a bot or change plan to create another.")
       return
     }
@@ -295,6 +308,10 @@ export function useBotListController(): BotListController {
   }
 
   return {
+    viewPlan,
+    billingOpen,
+    setBillingOpen,
+    canShowLimit,
     bots,
     planSummary,
     isCreateDisabled,
