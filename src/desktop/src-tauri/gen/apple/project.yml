@@ -51,7 +51,7 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        CFBundleShortVersionString: 0.1.35
+        CFBundleShortVersionString: 0.1.36
         CFBundleVersion: "1"
         CFBundleURLTypes:
           - CFBundleURLName: ai.alook
