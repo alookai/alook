@@ -3,28 +3,10 @@ import { tid } from "./testids"
 
 const HOVER_FINE_QUERY = "(hover: hover) and (pointer: fine)"
 
-export async function installInputCapability(
-  page: Page,
-  hoverCapable: boolean,
-): Promise<void> {
-  await page.addInitScript(({ query, matches }) => {
-    const nativeMatchMedia = window.matchMedia.bind(window)
-    window.matchMedia = (candidate: string) => candidate === query
-      ? {
-          matches,
-          media: candidate,
-          onchange: null,
-          addListener: () => {},
-          removeListener: () => {},
-          addEventListener: () => {},
-          removeEventListener: () => {},
-          dispatchEvent: () => false,
-        } as MediaQueryList
-      : nativeMatchMedia(candidate)
-  }, { query: HOVER_FINE_QUERY, matches: hoverCapable })
-}
-
-export async function gotoAfterUserWsAuth(page: Page, url: string): Promise<void> {
+export function observeUserWsAuth(page: Page): {
+  authenticated: Promise<void>
+  cleanup: () => void
+} {
   const frameHandlers = new Map<WebSocket, (event: { payload: string | Buffer }) => void>()
   let cleanup = () => {}
   const authenticated = new Promise<void>((resolve, reject) => {
@@ -48,11 +30,37 @@ export async function gotoAfterUserWsAuth(page: Page, url: string): Promise<void
     }
     page.on("websocket", onWebSocket)
   })
+  return { authenticated, cleanup: () => cleanup() }
+}
+
+export async function installInputCapability(
+  page: Page,
+  hoverCapable: boolean,
+): Promise<void> {
+  await page.addInitScript(({ query, matches }) => {
+    const nativeMatchMedia = window.matchMedia.bind(window)
+    window.matchMedia = (candidate: string) => candidate === query
+      ? {
+          matches,
+          media: candidate,
+          onchange: null,
+          addListener: () => {},
+          removeListener: () => {},
+          addEventListener: () => {},
+          removeEventListener: () => {},
+          dispatchEvent: () => false,
+        } as MediaQueryList
+      : nativeMatchMedia(candidate)
+  }, { query: HOVER_FINE_QUERY, matches: hoverCapable })
+}
+
+export async function gotoAfterUserWsAuth(page: Page, url: string): Promise<void> {
+  const auth = observeUserWsAuth(page)
 
   try {
-    await Promise.all([page.goto(url, { waitUntil: "commit" }), authenticated])
+    await Promise.all([page.goto(url, { waitUntil: "commit" }), auth.authenticated])
   } finally {
-    cleanup()
+    auth.cleanup()
   }
 }
 

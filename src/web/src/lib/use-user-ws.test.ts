@@ -492,6 +492,31 @@ describe("useUserWs", () => {
     expect(onConnectionStateChange).toHaveBeenLastCalledWith("suspended")
   })
 
+  it("ignores stale lifecycle events after a replacement authenticates", async () => {
+    setupTokenFetch()
+    const onConnectionStateChange = vi.fn()
+    await mountHook(vi.fn(), {
+      onConnectionStateChange,
+      requestDaemonStatusOnAuth: false,
+    })
+    const first = MockWebSocket.instances[0]!
+    first.simulateOpen()
+    first.simulateMessage({ type: "auth.ok" })
+    first.simulateClose()
+
+    setupTokenFetch()
+    await vi.advanceTimersByTimeAsync(2_000)
+    const replacement = MockWebSocket.instances.at(-1)!
+    replacement.simulateOpen()
+    replacement.simulateMessage({ type: "auth.ok" })
+    onConnectionStateChange.mockClear()
+
+    first.simulateClose()
+    first.simulateMessage({ type: "auth.ok" })
+
+    expect(onConnectionStateChange).not.toHaveBeenCalled()
+  })
+
   it("publishes suspended without fetching during a hidden cold start and resumes once visible", async () => {
     setupTokenFetch()
     mockDocument.visibilityState = "hidden"

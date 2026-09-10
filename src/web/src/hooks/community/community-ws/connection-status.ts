@@ -1,7 +1,6 @@
 import type { UserWsConnectionPhase } from "@/lib/use-user-ws"
 import type { CommunityWsConnectionStatus } from "@/stores/community/ws"
 
-export const COMMUNITY_WS_RECONNECTING_GRACE_MS = 1_500
 export const COMMUNITY_WS_FAILED_AFTER_MS = 30_000
 
 export type CommunityWsConnectionStatusController = {
@@ -17,16 +16,13 @@ export function createCommunityWsConnectionStatusController({
   publish: (status: CommunityWsConnectionStatus) => void
   reconnectTransport: () => void
 }): CommunityWsConnectionStatusController {
-  let reconnectingTimer: ReturnType<typeof setTimeout> | null = null
   let failedTimer: ReturnType<typeof setTimeout> | null = null
   let outageActive = false
   let hasAuthenticated = false
   let disposed = false
 
   const clearTimers = () => {
-    if (reconnectingTimer !== null) clearTimeout(reconnectingTimer)
     if (failedTimer !== null) clearTimeout(failedTimer)
-    reconnectingTimer = null
     failedTimer = null
   }
 
@@ -52,26 +48,24 @@ export function createCommunityWsConnectionStatusController({
       publish("connected")
       return
     }
+    if (!hasAuthenticated) {
+      outageActive = false
+      clearTimers()
+      publish("connected")
+      return
+    }
     if (outageActive) return
     outageActive = true
-    if (hasAuthenticated) {
-      publish("reconnecting")
-    } else {
-      publish("connected")
-      reconnectingTimer = setTimeout(() => {
-        reconnectingTimer = null
-        if (!disposed && outageActive) publish("reconnecting")
-      }, COMMUNITY_WS_RECONNECTING_GRACE_MS)
-    }
+    publish("reconnecting")
     armFailedTimer()
   }
 
   const reconnectNow = () => {
     if (disposed) return
-    outageActive = true
     clearTimers()
-    publish("reconnecting")
-    armFailedTimer()
+    outageActive = hasAuthenticated
+    publish(hasAuthenticated ? "reconnecting" : "connected")
+    if (hasAuthenticated) armFailedTimer()
     reconnectTransport()
   }
 

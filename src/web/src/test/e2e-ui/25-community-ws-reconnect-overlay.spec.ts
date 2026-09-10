@@ -1,8 +1,59 @@
 import type { WebSocketRoute } from "@playwright/test"
 import { test, expect } from "./_fixtures/community-fixture"
-import { composerEditable, gotoAfterUserWsAuth } from "./_fixtures/actions"
+import {
+  composerEditable,
+  gotoAfterUserWsAuth,
+  observeUserWsAuth,
+} from "./_fixtures/actions"
 import { seedChannel, seedServer } from "./_fixtures/seed"
 import { tid } from "./_fixtures/testids"
+
+test("slow auth and an initial retry never block a cold Community page", async ({ asUser }) => {
+  test.setTimeout(90_000)
+  const serverId = await seedServer("alice", `Reconnect cold start ${Date.now()}`)
+  const channelId = await seedChannel("alice", serverId, "reconnect-cold-start")
+  const alice = await asUser("alice")
+  let tokenRequests = 0
+  let releaseTokens!: () => void
+  let holdTokens = true
+  const tokenGate = new Promise<void>((resolve) => {
+    releaseTokens = resolve
+  })
+  let socketAttempts = 0
+
+  await alice.page.route("**/api/ws/token", async (route) => {
+    tokenRequests += 1
+    if (holdTokens) await tokenGate
+    await route.continue()
+  })
+  await alice.page.routeWebSocket((url) => url.pathname.endsWith("/user"), (ws) => {
+    socketAttempts += 1
+    void ws.close({ code: 1012, reason: "cold start auth retry" })
+  })
+  await alice.page.setViewportSize({ width: 390, height: 844 })
+
+  try {
+    await alice.page.goto(`/c/channels/${serverId}/${channelId}`)
+    const composer = composerEditable(alice.page)
+    const overlay = alice.page.getByTestId(tid.wsReconnectOverlay)
+    await expect(composer).toBeVisible({ timeout: 30_000 })
+    await expect.poll(() => tokenRequests).toBeGreaterThan(0)
+    await alice.page.waitForTimeout(1_600)
+    await expect(overlay).toHaveCount(0)
+    await composer.fill("Cold start stays usable")
+    await expect(composer).toContainText("Cold start stays usable")
+
+    holdTokens = false
+    releaseTokens()
+    await expect.poll(() => socketAttempts, { timeout: 20_000 }).toBeGreaterThan(1)
+    await alice.page.waitForTimeout(1_600)
+    await expect(overlay).toHaveCount(0)
+    await expect(composer).toContainText("Cold start stays usable")
+  } finally {
+    holdTokens = false
+    releaseTokens()
+  }
+})
 
 test("real WebSocket outage blocks the whole community surface and Retry restores it", async ({ asUser }, testInfo) => {
   test.setTimeout(120_000)
@@ -131,6 +182,7 @@ test("an active onboarding form yields focus priority during outage, then resume
   const page = await context.newPage()
   let userWs: WebSocketRoute | null = null
   let blockUserWs = false
+  let authObservation: ReturnType<typeof observeUserWsAuth> | null = null
   await page.routeWebSocket((url) => url.pathname.endsWith("/user"), (ws) => {
     userWs = ws
     if (blockUserWs) {
@@ -145,11 +197,13 @@ test("an active onboarding form yields focus priority during outage, then resume
     await page.getByRole("textbox", { name: "Email" }).fill(
       `guide-reconnect-${process.pid}-${Date.now()}@example.com`,
     )
+    authObservation = observeUserWsAuth(page)
     await page.getByRole("button", { name: "Sign in", exact: true }).click()
     await page.waitForURL("**/c/me/machines", { waitUntil: "commit" })
     const onboarding = page.getByRole("dialog")
     await expect(onboarding).toBeVisible()
     await expect(onboarding.getByRole("heading", { name: "Which harness do you already use?" })).toBeVisible()
+    await authObservation.authenticated
 
     blockUserWs = true
     expect(userWs).not.toBeNull()
@@ -192,6 +246,7 @@ test("an active onboarding form yields focus priority during outage, then resume
     await expect(onboarding).toBeVisible()
     await expect(onboarding.getByRole("heading", { name: "Which harness do you already use?" })).toBeVisible()
   } finally {
+    authObservation?.cleanup()
     if (!page.isClosed()) {
       blockUserWs = false
       await context.close()
