@@ -720,7 +720,7 @@ describe("useServerRailPdd behavior", () => {
     expect(hook.callbacks.onCancel).toHaveBeenCalled()
   })
 
-  it("cancels when an active source leaves, but survives its lazy replacement", async () => {
+  it("cancels when an active source leaves, but survives same-entity reconciliation", async () => {
     const hook = await renderHook()
     const a = register(hook.current, { kind: "server", id: "a" }, rect(0, 40))
     key(a.handle, " ")

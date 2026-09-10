@@ -1,6 +1,6 @@
 import { devices, type Locator, type Page } from "@playwright/test"
-import { expect, test } from "./_fixtures/community-fixture"
-import { seedChannel, seedServer } from "./_fixtures/seed"
+import { expect, test, userId } from "./_fixtures/community-fixture"
+import { seedChannel, seedDm, seedJoinServer, seedServer } from "./_fixtures/seed"
 import { tid } from "./_fixtures/testids"
 
 const RAIL_ENDPOINT = "/api/community/users/me/server-rail"
@@ -307,6 +307,106 @@ async function dragUntilNativeDrop(
     if (dropped || hasCommitted()) return
   }
 }
+
+async function expectFirstNativeServerTap(
+  page: Page,
+  serverId: string,
+  railPatches: string[],
+) {
+  const target = page.getByTestId(tid.serverIcon(serverId))
+  const targetTestId = tid.serverIcon(serverId)
+  const destination = `/c/channels/${serverId}`
+  await expect(target).toBeVisible({ timeout: 30_000 })
+  const patchesBeforeTap = railPatches.length
+  await target.evaluate((element, args) => {
+    const state = {
+      touchStarts: 0,
+      clicks: 0,
+      pushes: [] as string[],
+      sameNodeAtTouchStart: false,
+      sameNodeAtClick: false,
+    }
+    Reflect.set(window, "__railFirstTapProbe", state)
+    element.addEventListener("touchstart", () => {
+      state.touchStarts += 1
+      state.sameNodeAtTouchStart = element.isConnected
+        && document.querySelector(`[data-testid="${args.testId}"]`) === element
+    }, { once: true })
+    element.addEventListener("click", () => {
+      state.clicks += 1
+      state.sameNodeAtClick = element.isConnected
+        && document.querySelector(`[data-testid="${args.testId}"]`) === element
+    }, { once: true })
+    const pushState = history.pushState
+    history.pushState = function (data, unused, url) {
+      const pathname = url === undefined || url === null
+        ? location.pathname
+        : new URL(String(url), location.href).pathname
+      if (pathname === args.destination) state.pushes.push(pathname)
+      return pushState.call(history, data, unused, url)
+    }
+  }, { destination, testId: targetTestId })
+
+  await target.tap()
+  await expect.poll(() => new URL(page.url()).pathname).toBe(destination)
+  expect(await page.evaluate(() => {
+    const state = Reflect.get(window, "__railFirstTapProbe") as {
+      touchStarts: number
+      clicks: number
+      pushes: string[]
+      sameNodeAtTouchStart: boolean
+      sameNodeAtClick: boolean
+    }
+    return {
+      touchStarts: state.touchStarts,
+      clicks: state.clicks,
+      pushes: state.pushes,
+      sameNodeAtTouchStart: state.sameNodeAtTouchStart,
+      sameNodeAtClick: state.sameNodeAtClick,
+    }
+  })).toEqual({
+    touchStarts: 1,
+    clicks: 1,
+    pushes: [destination],
+    sameNodeAtTouchStart: true,
+    sameNodeAtClick: true,
+  })
+  expect(railPatches).toHaveLength(patchesBeforeTap)
+}
+
+test("first native Server tap is one root push with a stable handle and zero rail PATCH", async ({ asUser }) => {
+  test.setTimeout(120_000)
+  const stamp = Date.now()
+  const serverId = await seedServer("alice", `First tap ${stamp}`)
+  const channelId = await seedChannel("alice", serverId, `first-tap-${stamp}`)
+  await seedJoinServer("alice", "bob", serverId)
+  const dmId = await seedDm("alice", userId("bob"))
+
+  const cold = await asUser("alice", devices["Pixel 7"])
+  const coldPatches: string[] = []
+  cold.page.on("request", (request) => {
+    if (request.method() === "PATCH" && new URL(request.url()).pathname === RAIL_ENDPOINT) {
+      coldPatches.push(request.postData() ?? "")
+    }
+  })
+  await cold.page.goto("/c/me")
+  await expectFirstNativeServerTap(cold.page, serverId, coldPatches)
+
+  const warm = await asUser("bob", devices["Pixel 7"])
+  const warmPatches: string[] = []
+  warm.page.on("request", (request) => {
+    if (request.method() === "PATCH" && new URL(request.url()).pathname === RAIL_ENDPOINT) {
+      warmPatches.push(request.postData() ?? "")
+    }
+  })
+  await warm.page.goto(`/c/channels/${serverId}/${channelId}`)
+  await expect(warm.page.getByTestId(tid.serverIcon(serverId))).toBeVisible({ timeout: 30_000 })
+  await warm.page.getByTestId(tid.homeButton).click()
+  await expect.poll(() => new URL(warm.page.url()).pathname).toBe("/c/me")
+  await warm.page.getByTestId(tid.dmRow(dmId)).click()
+  await expect.poll(() => new URL(warm.page.url()).pathname).toBe(`/c/me/${dmId}`)
+  await expectFirstNativeServerTap(warm.page, serverId, warmPatches)
+})
 
 test("server rail keeps scroll separate from native, touch, and keyboard drag", async ({ asUser }, testInfo) => {
   test.setTimeout(150_000)

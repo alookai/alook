@@ -2,6 +2,7 @@ import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
 import { tid } from "@/lib/community/testids"
+import { RailIcon } from "./rail-icon"
 import { RailIndicator } from "./rail-indicator"
 
 function markup(props: Parameters<typeof RailIndicator>[0]) {
@@ -10,7 +11,8 @@ function markup(props: Parameters<typeof RailIndicator>[0]) {
 
 describe("RailIndicator", () => {
   it.each([
-    [{ active: true, unread: true }, "h-10"],
+    [{ active: true, unread: true }, "h-8"],
+    [{ active: true, unread: false }, "h-8"],
     [{ active: false, unread: true }, "h-2.5"],
     [{ active: false, unread: false }, "h-0"],
   ] as const)("resolves resting height precedence for %o", (props, height) => {
@@ -20,6 +22,7 @@ describe("RailIndicator", () => {
     expect(html).toContain("bg-foreground")
     expect(html).toContain("rounded-r-full")
     expect(html).toContain("duration-150")
+    expect(html).toContain('data-slot="community-server-rail-indicator"')
     if (!props.active) {
       expect(html).toContain("group-hover:h-5")
       expect(html).toContain("group-focus-within:h-5")
@@ -35,5 +38,19 @@ describe("RailIndicator", () => {
   it("builds the canonical server and folder indicator locators", () => {
     expect(tid.serverRailIndicator("server-id")).toBe("community-server-rail-indicator-server-id")
     expect(tid.serverRailFolderIndicator("folder-id")).toBe("community-server-rail-folder-indicator-folder-id")
+  })
+
+  it("keeps Add Server on the shared idle and hover/focus heights", () => {
+    const html = renderToStaticMarkup(createElement(RailIcon, {
+      label: "+",
+      accent: true,
+      testId: tid.serverAdd,
+    }))
+
+    expect(html).toContain('data-testid="community-server-add"')
+    expect(html).toContain("h-0")
+    expect(html).toContain("group-hover:h-5")
+    expect(html).toContain("group-focus-within:h-5")
+    expect(html).not.toContain("h-8")
   })
 })

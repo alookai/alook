@@ -628,9 +628,8 @@ export function useServerRailPdd({
       dragHandle.removeEventListener("click", onClickCapture, true)
       dragHandle.removeEventListener("keydown", onKeyDown)
       itemsRef.current.delete(element)
-      // Lazy context-menu activation briefly remounts the same rail entity.
-      // Defer cancellation until the replacement registration has had a chance
-      // to land, while still cancelling when an entity truly leaves the rail.
+      // Reconciliation may replace a registered element without removing its
+      // entity, so defer cancellation until a same-entity registration can land.
       queueMicrotask(() => {
         const stillRegistered = [...itemsRef.current.values()]
           .some((item) => sameEntity(item.entity, entity))
