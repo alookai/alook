@@ -221,6 +221,31 @@ describe("useAcceptFriendRequest — rollback", () => {
     expect(capturedQc.getQueryData(communityKeys.inboxUnreads())).toBeUndefined()
   })
 
+  it("never reconstructs an absent Friends envelope while compensating Inbox", async () => {
+    capturedQc.setQueryData(communityKeys.inboxUnreads(), {
+      friendRequests: [{
+        id: "a",
+        userId: "ua",
+        name: "A",
+        avatar: "A",
+        avatarVersion: 1,
+        createdAt: "2026-09-12T01:00:00Z",
+      }],
+      servers: [],
+      dms: [],
+    })
+    const mod = await load()
+    mod.useAcceptFriendRequest()
+    const cfg = capturedConfig as MutConfig<{ friendshipId: string }, unknown>
+    const context = await cfg.onMutate?.({ friendshipId: "a" })
+    await cfg.onError?.(new Error("failed"), { friendshipId: "a" }, context)
+
+    expect(capturedQc.getQueryData(communityKeys.friends())).toBeUndefined()
+    expect(capturedQc.getQueryData<{ friendRequests: { id: string }[] }>(
+      communityKeys.inboxUnreads(),
+    )?.friendRequests.map((row) => row.id)).toEqual(["a"])
+  })
+
   it("awaits settled invalidation of Friends and exact Inbox unreads", async () => {
     apiFetchMock.mockResolvedValueOnce(undefined)
     const mod = await load()
@@ -289,6 +314,18 @@ describe("useRemoveFriend — optimistic + rollback", () => {
     await runMutation({ friendshipId: "f_1" }).catch(() => {})
     const cache = capturedQc.getQueryData<{ friends: { id: string }[] }>(communityKeys.friends())
     expect(cache?.friends).toHaveLength(1)
+  })
+
+  it("keeps an absent cache absent and invalidates Friends on success", async () => {
+    apiFetchMock.mockResolvedValueOnce(undefined)
+    const mod = await load()
+    mod.useRemoveFriend()
+    const spy = vi.spyOn(capturedQc, "invalidateQueries")
+
+    await runMutation({ friendshipId: "missing" })
+
+    expect(capturedQc.getQueryData(communityKeys.friends())).toBeUndefined()
+    expect(spy).toHaveBeenCalledWith({ queryKey: communityKeys.friends() })
   })
 })
 

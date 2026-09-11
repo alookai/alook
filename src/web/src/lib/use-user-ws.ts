@@ -669,12 +669,21 @@ export function useUserWs(
           && pending.nonce === msg.nonce
           && authenticatedGenerationRef.current === generation
         ) {
+          const disconnectedAt = disconnectedAtRef.current
           clearConnectionValidation("success")
           publishConnectionPhase("authenticated")
           if (
             isOffline()
             || !ownsAuthenticatedConnection(ws, generation)
           ) return
+          if (disconnectedAt !== null) {
+            disconnectedAtRef.current = null
+            runLifecycleCallback("reconnect", () =>
+              onReconnectRef.current?.({
+                reconnectDurationMs: Math.max(0, Date.now() - disconnectedAt),
+              }))
+            if (isOffline() || !ownsAuthenticatedConnection(ws, generation)) return
+          }
           startHeartbeat(ws, generation)
         }
         return
@@ -857,7 +866,9 @@ export function useUserWs(
     const retainAuthenticatedSocket = ws
       ? ownsAuthenticatedConnection(ws, generation)
       : false
-    if (!retainAuthenticatedSocket) {
+    if (retainAuthenticatedSocket) {
+      disconnectedAtRef.current ??= Date.now()
+    } else {
       connectionGenerationRef.current += 1
       retireSocket(true, "offline")
     }

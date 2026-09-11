@@ -255,6 +255,33 @@ describe("useShellInboxController", () => {
     expect(mocks.reject).not.toHaveBeenCalled()
   })
 
+  it("routes a rejected request through its keyed retry", async () => {
+    mocks.reject
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValueOnce(undefined)
+    const hook = await renderController()
+    const item = hook.current.popoverProps.friendRequests?.[0]
+    expect(item).toBeDefined()
+
+    await act(async () => hook.current.popoverProps.onRejectFriendRequest?.(item!))
+    const failed = hook.current.popoverProps.friendRequests?.[0]
+    expect(failed).toMatchObject({ action: "reject", status: "error" })
+    await act(async () => hook.current.popoverProps.onRetryFriendRequest?.(failed!))
+
+    expect(mocks.reject).toHaveBeenCalledTimes(2)
+    expect(mocks.reject).toHaveBeenNthCalledWith(1, { friendshipId: "fr_1" })
+    expect(mocks.reject).toHaveBeenNthCalledWith(2, { friendshipId: "fr_1" })
+  })
+
+  it("reopens Inbox when friend-request navigation throws", async () => {
+    const hook = await renderController(undefined, () => { throw new Error("push failed") })
+    order.length = 0
+
+    expect(() => hook.current.popoverProps.onOpenFriendRequests?.()).toThrow("push failed")
+    expect(order).toEqual(["close", "cancel", "push", "cancel", "reopen"])
+    expect(mocks.onOpenChange).toHaveBeenCalledWith(true)
+  })
+
   it("keeps Marked lazy and latches it after first selection", async () => {
     const hook = await renderController()
     expect(mocks.markedEnabled.at(-1)).toBe(false)

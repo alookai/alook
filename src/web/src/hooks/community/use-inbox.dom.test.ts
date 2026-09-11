@@ -61,6 +61,35 @@ describe("useInboxUnreads / inboxUnreadsQueryFn", () => {
     await act(async () => renderer.unmount())
   })
 
+  it("seeds a DM peer profile while reading Inbox unreads", async () => {
+    useCommunityWsStore.getState().reset()
+    useCommunityWsStore.getState().activateProfileAccount("viewer")
+    apiFetchMock.mockResolvedValueOnce({
+      friendRequests: [],
+      servers: [],
+      dms: [{
+        channelId: "dm_1",
+        otherUserId: "peer",
+        otherUserName: "Grace",
+        otherUserDiscriminator: "0007",
+        otherUserAvatar: "peer-avatar",
+        otherUserAvatarVersion: 8,
+        lastMessageAt: "2026-09-12T01:01:00Z",
+      }],
+      truncated: false,
+    })
+    const { inboxUnreadsQueryFn } = await import("./use-inbox")
+
+    await inboxUnreadsQueryFn()
+
+    expect(useCommunityWsStore.getState().profilesByUserId.get("peer")).toMatchObject({
+      name: "Grace",
+      discriminator: "0007",
+      avatar: "peer-avatar",
+      avatarVersion: 8,
+    })
+  })
+
   it("keeps last-good friend requests and their boolean after a stale refetch", async () => {
     const request = {
       id: "fr_1",

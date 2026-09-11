@@ -2,7 +2,11 @@ import { createElement, type PropsWithChildren } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 import { describe, expect, it, vi } from "vitest"
-import { useFriendRequestActionState } from "./use-friend-request-action-state"
+import {
+  getFriendRequestActionController,
+  useFriendRequestActionState,
+} from "./use-friend-request-action-state"
+import { communityKeys } from "@/lib/query-keys"
 
 type Row = { id: string; name: string }
 const rows: Row[] = [
@@ -101,5 +105,102 @@ describe("useFriendRequestActionState", () => {
     expect(rendered.result.current.items[1]?.status).toBeUndefined()
     resolvers.get("a")?.()
     await act(async () => { await first })
+  })
+
+  it("fans a user terminal out across snapshots and caches", async () => {
+    const queryClient = new QueryClient()
+    const snapshot = { id: "snapshot", userId: "u1" }
+    const cached = { id: "cached", userId: "u1" }
+    const alreadyTerminal = { id: "terminal", userId: "u1" }
+    queryClient.setQueryData(communityKeys.friends(), { pending: [snapshot] })
+    queryClient.setQueryData(communityKeys.inboxUnreads(), {
+      friendRequests: [cached, alreadyTerminal],
+    })
+    const controller = getFriendRequestActionController(queryClient)
+    controller.claimMutation(snapshot.id, "accept")
+    controller.publishTerminal(alreadyTerminal.id)
+
+    controller.publishTerminalForUser("u1")
+
+    expect(controller.project("friends", [snapshot])).toEqual([])
+    expect(controller.project("inbox", [cached, alreadyTerminal])).toEqual([])
+
+    const late = { id: "late", userId: "u1" }
+    queryClient.setQueryData(communityKeys.inboxUnreads(), { friendRequests: [late] })
+    controller.claimMutation(late.id, "reject")
+    expect(controller.project("inbox", [])).toEqual([])
+    const mutation = vi.fn()
+    await controller.start({
+      action: "reject",
+      index: 0,
+      mutation,
+      retry: false,
+      row: late,
+      surface: "inbox",
+    })
+    expect(mutation).not.toHaveBeenCalled()
+  })
+
+  it("collects a settled terminal only after two absent authority proofs", async () => {
+    const queryClient = new QueryClient()
+    const row = { id: "a", userId: "u1" }
+    queryClient.setQueryData(communityKeys.friends(), { pending: [row] })
+    queryClient.setQueryData(communityKeys.inboxUnreads(), { friendRequests: [row] })
+    const controller = getFriendRequestActionController(queryClient)
+    const generation = controller.claimMutation(row.id, "accept")
+    await controller.publishTerminalAndFence(row.id, generation)
+
+    let friendRows = [row]
+    await queryClient.fetchQuery({
+      queryKey: communityKeys.friends(),
+      queryFn: async () => ({ pending: friendRows }),
+    })
+    friendRows = []
+    await queryClient.refetchQueries({ queryKey: communityKeys.friends(), exact: true })
+    await queryClient.fetchQuery({
+      queryKey: communityKeys.inboxUnreads(),
+      queryFn: async () => ({ friendRequests: [] }),
+    })
+
+    queryClient.setQueryData(communityKeys.friends(), { pending: [row] })
+    controller.settleGeneration(row.id, generation)
+    expect(controller.project("friends", [row])).toEqual([])
+
+    queryClient.setQueryData(communityKeys.friends(), { pending: [] })
+    queryClient.setQueryData(communityKeys.inboxUnreads(), { friendRequests: [row] })
+    controller.settleGeneration(row.id, generation)
+    expect(controller.project("friends", [row])).toEqual([])
+
+    queryClient.setQueryData(communityKeys.inboxUnreads(), { friendRequests: [] })
+    controller.settleGeneration(row.id, generation)
+    expect(controller.project("friends", [row])).toEqual([{ row }])
+  })
+
+  it("keeps a user fence until both surfaces prove absence with no cached row", async () => {
+    const queryClient = new QueryClient()
+    const controller = getFriendRequestActionController(queryClient)
+    queryClient.setQueryData(["unrelated"], {})
+    controller.publishTerminalForUser("ghost")
+
+    await queryClient.fetchQuery({
+      queryKey: communityKeys.inboxUnreads(),
+      queryFn: async () => ({ friendRequests: [] }),
+    })
+    const row = { id: "late", userId: "ghost" }
+    queryClient.setQueryData(communityKeys.inboxUnreads(), { friendRequests: [row] })
+    await queryClient.fetchQuery({
+      queryKey: communityKeys.friends(),
+      queryFn: async () => ({ pending: [] }),
+    })
+    expect(controller.project("friends", [row])).toEqual([])
+
+    queryClient.setQueryData(communityKeys.inboxUnreads(), { friendRequests: [] })
+    queryClient.setQueryData(communityKeys.friends(), { pending: [row] })
+    await queryClient.refetchQueries({ queryKey: communityKeys.inboxUnreads(), exact: true })
+    expect(controller.project("friends", [row])).toEqual([])
+
+    queryClient.setQueryData(communityKeys.friends(), { pending: [] })
+    await queryClient.refetchQueries({ queryKey: communityKeys.inboxUnreads(), exact: true })
+    expect(controller.project("friends", [row])).toEqual([{ row }])
   })
 })
