@@ -14,10 +14,10 @@ vi.mock("@/components/community/bots/bot-list-view", () => ({
     "data-reserve-back-slot": String(Boolean(reserveBackSlot)),
   }),
 }))
-vi.mock("@/components/community/social/friends-page", () => ({
-  FriendsPage: (props: Record<string, unknown>) => createElement("div", {
+vi.mock("@/components/community/social/friends-page-skeleton", () => ({
+  FriendsPageSkeleton: ({ reserveBackSlot }: { reserveBackSlot?: boolean }) => createElement("div", {
     "data-testid": "friends-skeleton",
-    "data-props": JSON.stringify(props),
+    "data-reserve-back-slot": String(Boolean(reserveBackSlot)),
   }),
 }))
 vi.mock("@/components/community/channels/dm-loading-frame", () => ({
@@ -86,13 +86,8 @@ describe("CommunityPendingFrame", () => {
     rendered.unmount()
 
     renderFrame("/c/me/friends#new")
-    expect(JSON.parse(screen.getByTestId("friends-skeleton").dataset.props!)).toMatchObject({
-      friends: [],
-      pending: [],
-      blocked: [],
-      loading: true,
-      reserveBackSlot: true,
-    })
+    expect(screen.getByTestId("friends-skeleton"))
+      .toHaveAttribute("data-reserve-back-slot", "true")
   })
 
   it("separates neutral Me from DM and channel mobile Back geometry", () => {

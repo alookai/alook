@@ -32,6 +32,27 @@ function renderPage(page: React.ReactElement) {
 }
 
 describe("FriendsPage actionable requests", () => {
+  it("keeps the real Back control during a warm-data refresh", () => {
+    const renderer = renderPage(<FriendsPage
+      friends={[{
+        id: "friend_1",
+        userId: "user_1",
+        name: "Alice",
+        discriminator: "0001",
+        avatar: "A",
+        avatarVersion: 0,
+        status: "online",
+        sub: "",
+      }]}
+      pending={[]}
+      blocked={[]}
+      loading
+      onBack={vi.fn()}
+    />)
+
+    expect(renderer.getByRole("button", { name: "Back" })).toBeInTheDocument()
+  })
+
   it("uses the URL-owned tab and counts only actionable incoming rows", () => {
     const onActiveTabChange = vi.fn()
     const renderer = renderPage(<FriendsPage

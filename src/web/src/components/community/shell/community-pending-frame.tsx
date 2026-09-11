@@ -5,7 +5,7 @@ import { BotListSkeleton } from "@/components/community/bots/bot-list-view"
 import { ConversationResolutionPendingFrame } from "@/components/community/channels/conversation-resolution-pending-frame"
 import { DmLoadingFrame } from "@/components/community/channels/dm-loading-frame"
 import { MachineListSkeleton } from "@/components/community/machines/machine-list"
-import { FriendsPage } from "@/components/community/social/friends-page"
+import { FriendsPageSkeleton } from "@/components/community/social/friends-page-skeleton"
 import { ServerLandingPendingFrame } from "./server-landing-pending-frame"
 import { UnresolvedMainSkeleton } from "./unresolved-main-skeleton"
 import {
@@ -59,15 +59,7 @@ export function CommunityPendingFrame({
       content = <BotListSkeleton reserveBackSlot={reserveMeBackSlot} />
       break
     case "friends":
-      content = (
-        <FriendsPage
-          friends={[]}
-          pending={[]}
-          blocked={[]}
-          loading
-          reserveBackSlot={reserveMeBackSlot}
-        />
-      )
+      content = <FriendsPageSkeleton reserveBackSlot={reserveMeBackSlot} />
       break
     case "dm":
       content = <DmLoadingFrame reserveBackSlot={reserveMeBackSlot} />
