@@ -169,6 +169,7 @@ export const ServerRail = memo(function ServerRail({
   const scrollRef = useRef<HTMLDivElement>(null)
   const dragSnapshotRef = useRef<RailState | null>(null)
   const stateRef = useRef(state)
+  const serverActivationRef = useRef({ onServer, onServerNavigate })
   const mutationPendingRef = useRef(false)
   const collapsedPendingFolderIdsRef = useRef(new Set<string>())
   const railMutation = useServerRailCommit()
@@ -227,6 +228,10 @@ export const ServerRail = memo(function ServerRail({
     setStateDataIdentity(railDataIdentity)
   }, [folders, railDataIdentity, serverIds])
 
+  useLayoutEffect(() => {
+    serverActivationRef.current = { onServer, onServerNavigate }
+  }, [onServer, onServerNavigate])
+
   useEffect(() => {
     sessionStorage.setItem("rail-open-folders", JSON.stringify(state.expanded))
   }, [state.expanded])
@@ -237,11 +242,14 @@ export const ServerRail = memo(function ServerRail({
   const [localActiveId, setLocalActiveId] = useState(activeFromProps)
   const activeId = activeFromProps || localActiveId
   useEffect(() => { if (activeFromProps) setLocalActiveId(activeFromProps) }, [activeFromProps])
-  const pickServer = (id: string) => {
+  // SortableServer deliberately ignores callback identity to keep rail-wide
+  // presence/roster ticks cheap. Keep the dispatcher stable while reading the
+  // latest committed navigation semantics through a layout-synchronized ref.
+  const pickServer = useCallback((id: string) => {
     setLocalActiveId(id)
-    onServer?.()
-    onServerNavigate?.(id)
-  }
+    serverActivationRef.current.onServer?.()
+    serverActivationRef.current.onServerNavigate?.(id)
+  }, [])
 
   const serverById = useMemo(() => new Map(servers.map((server) => [server.id, server])), [servers])
   const serverNames = useMemo(

@@ -219,6 +219,56 @@ describe("ServerRail one-in-flight structural guard", () => {
     expect(homeIndicator()).not.toHaveClass("group-hover:h-5", "group-focus-within:h-5")
   })
 
+  it.each(["top-level", "folder"] as const)(
+    "keeps a retained %s Server activation on the latest settled navigation semantics",
+    async (placement) => {
+      const activationHrefs: string[] = []
+      const navigationAt = (publishedHref: string) => vi.fn((id: string) => {
+        const href = `/c/channels/${id}`
+        if (href === publishedHref) return
+        activationHrefs.push(href)
+      })
+      const activationServers = servers.slice(0, 2)
+      const activationFolders = placement === "folder" ? [{
+        id: "activation-folder",
+        name: "Activation folder",
+        position: 0,
+        servers: [{ id: "a" }],
+      }] : []
+      const element = (
+        activeServerId: string,
+        onServerNavigate: (id: string) => void,
+      ) => createElement(ServerRail, {
+        servers: activationServers,
+        folders: activationFolders,
+        activeServerId,
+        view: "server",
+        onHome: vi.fn(),
+        onServerNavigate,
+      })
+      const renderer = render(element("a", navigationAt("/c/channels/a")))
+      if (placement === "folder") {
+        await act(async () => (latestFolderProps("activation-folder").onToggle as () => void)())
+      }
+
+      const projectedNavigation = navigationAt("/c/channels/a")
+      renderer.rerender(element("b", projectedNavigation))
+      const retainedActivation = latestSortableProps("a").onClick as () => void
+
+      const settledNavigation = navigationAt("/c/channels/b")
+      renderer.rerender(element("b", settledNavigation))
+      await act(async () => {
+        retainedActivation() // trusted click
+        retainedActivation() // native Enter button activation
+      })
+
+      expect(projectedNavigation).not.toHaveBeenCalled()
+      expect(settledNavigation).toHaveBeenNthCalledWith(1, "a")
+      expect(settledNavigation).toHaveBeenNthCalledWith(2, "a")
+      expect(activationHrefs).toEqual(["/c/channels/a", "/c/channels/a"])
+    },
+  )
+
   it.each([
     ["empty", 0],
     ["one", 1],
