@@ -87,6 +87,25 @@ describe("owner-delete single-navigation lifecycle", () => {
     expect(isOwnerServerDeleteScopeEvictionBlocked(serverId)).toBe(true)
   })
 
+  it("keeps duplicate begin as a participant without transferring origin ownership", () => {
+    const origin = createOwnerServerDeleteRouteToken()
+    const duplicate = createOwnerServerDeleteRouteToken()
+    beginOwnerServerDelete(serverId, origin)
+    beginOwnerServerDelete(serverId, duplicate)
+
+    expect(commitOwnerServerDelete(serverId, duplicate)).toBe(false)
+    cancelOwnerServerDelete(serverId, duplicate)
+    expect(claimOwnerServerDeleteNavigation(serverId, duplicate, "/c/me")).toBe(false)
+
+    expect(commitOwnerServerDelete(serverId, origin)).toBe(false)
+    expect(claimOwnerServerDeleteNavigation(serverId, origin, "/c/me")).toBe(true)
+    expect(observeOwnerServerDeleteRouteCommit("/c/me")).toEqual([serverId])
+    terminalize(serverId)
+
+    expect(isOwnerServerDeleteRouteProtected(serverId, origin)).toBe(true)
+    expect(isOwnerServerDeleteRouteProtected(serverId, duplicate)).toBe(true)
+  })
+
   it.each([
     "/c/channels/srv_next/channel_remembered",
     "/c/me/friends",
