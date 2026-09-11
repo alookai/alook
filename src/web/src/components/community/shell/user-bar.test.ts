@@ -20,6 +20,8 @@ describe("UserBar", () => {
     expect(html).toContain("pr-[max(0.75rem,var(--app-safe-area-right))]")
     expect(html).toContain("pb-[calc(0.75rem+var(--app-safe-area-bottom))]")
     expect(html).toContain("sm:px-3 sm:pb-3")
+    expect(html).toContain("flex h-12 items-center gap-3 border border-border/40 bg-muted px-4")
+    expect(html).not.toContain("ring-1 ring-border/40")
     expect(html).toContain('class="flex min-w-0 flex-1 items-center gap-2"')
     expect(html).toContain('data-testid="community-user-bar-name"')
     expect(html).toContain('class="truncate text-sm font-medium leading-tight"')
@@ -54,6 +56,10 @@ describe("UserBar", () => {
     expect(html).toContain("pr-[max(0.75rem,var(--app-safe-area-right))]")
     expect(html).toContain("pb-[calc(0.75rem+var(--app-safe-area-bottom))]")
     expect(html).toContain("sm:px-3 sm:pb-3")
+    expect(html).toContain(
+      "flex h-12 items-center gap-3 rounded-xl border border-border/40 bg-muted px-4",
+    )
+    expect(html).not.toContain("ring-1 ring-border/40")
     expect(html).not.toContain("<button")
     expect(html).not.toContain("<a")
   })
@@ -65,7 +71,7 @@ describe("UserBar", () => {
       inboxOpen: true,
     }))
     expect(openHtml).toContain(
-      'class="flex h-12 items-center gap-3 bg-muted px-4 ring-1 ring-border/40 rounded-b-xl"',
+      'class="flex h-12 items-center gap-3 border border-border/40 bg-muted px-4 rounded-b-xl"',
     )
 
     const closedHtml = renderToStaticMarkup(createElement(UserBar, {
@@ -74,7 +80,7 @@ describe("UserBar", () => {
       inboxOpen: false,
     }))
     expect(closedHtml).toContain(
-      'class="flex h-12 items-center gap-3 bg-muted px-4 ring-1 ring-border/40 rounded-xl"',
+      'class="flex h-12 items-center gap-3 border border-border/40 bg-muted px-4 rounded-xl"',
     )
   })
 

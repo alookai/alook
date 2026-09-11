@@ -14,8 +14,13 @@ import { tid } from "./_fixtures/testids"
 
 type SurfaceGeometry = {
   viewport: { width: number; height: number }
-  userBar: { top: number; surfaceBottom: number; bottom: number; left: number; right: number }
-  card: { top: number; bottom: number; left: number; right: number; height: number }
+  userBar: { top: number; surfaceBottom: number; bottom: number; left: number; right: number; width: number }
+  card: { top: number; bottom: number; left: number; right: number; width: number; height: number }
+  borders: {
+    expectedColor: string
+    card: BorderGeometry
+    userBar: BorderGeometry
+  }
   seam: {
     cardTopLeft: string
     cardTopRight: string
@@ -29,6 +34,11 @@ type SurfaceGeometry = {
   userBarOwnsCenter: boolean
   rootScrollTop: number
 }
+
+type BorderGeometry = Record<"top" | "right" | "bottom" | "left", {
+  width: string
+  color: string
+}>
 
 async function removeServerChannels(serverId: string) {
   const headers = { Cookie: sessionCookie("alice"), Origin: WEB_URL }
@@ -53,13 +63,26 @@ async function surfaceGeometry(page: Page): Promise<SurfaceGeometry> {
       "[data-slot='community-user-bar-base']",
     ) ?? null
     if (!userBar || !userBarSurface) {
-      throw new Error("missing mobile Inbox geometry")
+      throw new Error("missing User Bar Extension geometry")
     }
     const wrapperRect = userBar.getBoundingClientRect()
     const userRect = userBarSurface.getBoundingClientRect()
     const cardRect = card.getBoundingClientRect()
     const cardStyle = getComputedStyle(card)
     const userBarStyle = getComputedStyle(userBarSurface)
+    const reference = document.createElement("div")
+    reference.className = "border border-border/40"
+    reference.style.position = "fixed"
+    reference.style.visibility = "hidden"
+    document.body.appendChild(reference)
+    const expectedColor = getComputedStyle(reference).borderTopColor
+    reference.remove()
+    const borders = (style: CSSStyleDeclaration) => ({
+      top: { width: style.borderTopWidth, color: style.borderTopColor },
+      right: { width: style.borderRightWidth, color: style.borderRightColor },
+      bottom: { width: style.borderBottomWidth, color: style.borderBottomColor },
+      left: { width: style.borderLeftWidth, color: style.borderLeftColor },
+    })
     const hit = document.elementFromPoint(
       userRect.left + userRect.width / 2,
       userRect.top + userRect.height / 2,
@@ -72,13 +95,20 @@ async function surfaceGeometry(page: Page): Promise<SurfaceGeometry> {
         bottom: wrapperRect.bottom,
         left: userRect.left,
         right: userRect.right,
+        width: userRect.width,
       },
       card: {
         top: cardRect.top,
         bottom: cardRect.bottom,
         left: cardRect.left,
         right: cardRect.right,
+        width: cardRect.width,
         height: cardRect.height,
+      },
+      borders: {
+        expectedColor,
+        card: borders(cardStyle),
+        userBar: borders(userBarStyle),
       },
       seam: {
         cardTopLeft: cardStyle.borderTopLeftRadius,
@@ -98,6 +128,28 @@ async function surfaceGeometry(page: Page): Promise<SurfaceGeometry> {
   })
 }
 
+function expectJoinedBorderContract(geometry: SurfaceGeometry) {
+  expect(Math.abs(geometry.card.left - geometry.userBar.left)).toBeLessThanOrEqual(1)
+  expect(Math.abs(geometry.card.right - geometry.userBar.right)).toBeLessThanOrEqual(1)
+  expect(Math.abs(geometry.card.width - geometry.userBar.width)).toBeLessThanOrEqual(1)
+  expect(geometry.borders.expectedColor).not.toBe("rgba(0, 0, 0, 0)")
+
+  for (const side of ["top", "right", "left"] as const) {
+    expect(geometry.borders.card[side]).toEqual({
+      width: "1px",
+      color: geometry.borders.expectedColor,
+    })
+  }
+  expect(geometry.borders.card.bottom.width).toBe("0px")
+  for (const side of ["top", "right", "bottom", "left"] as const) {
+    expect(geometry.borders.userBar[side]).toEqual({
+      width: "1px",
+      color: geometry.borders.expectedColor,
+    })
+  }
+  expect(Math.abs(geometry.card.bottom - geometry.userBar.top)).toBeLessThanOrEqual(1)
+}
+
 function observeWrites(page: Page) {
   const writes: string[] = []
   const listener = (request: Request) => {
@@ -112,7 +164,7 @@ function observeWrites(page: Page) {
 test.describe.serial("mobile Inbox interactive user-bar base", () => {
   test.setTimeout(180_000)
 
-  test("keeps the mobile shell unmasked and dismisses on outside press without writes", async ({ asUser }) => {
+  test("keeps the mobile shell unmasked and dismisses on outside press without writes", async ({ asUser }, testInfo) => {
     const stamp = Date.now()
     const serverId = await seedServer("alice", `Inbox surface ${stamp}`)
     const channelId = await seedChannel("alice", serverId, `inbox-${stamp}`)
@@ -197,7 +249,7 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
       return Math.abs(current.card.bottom - current.userBar.top)
     }).toBeLessThanOrEqual(1)
     const geometry = await surfaceGeometry(bob.page)
-    expect(Math.abs(geometry.card.bottom - geometry.userBar.top)).toBeLessThanOrEqual(1)
+    expectJoinedBorderContract(geometry)
     expect(geometry.userBar.bottom).toBe(844)
     expect(geometry.userBar.surfaceBottom).toBe(844 - 34 - 12)
     expect(geometry.userBarOwnsCenter).toBe(true)
@@ -212,6 +264,10 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
     expect(geometry.seam.userBarBottomLeft).not.toBe("0px")
     expect(geometry.seam.userBarBottomRight).not.toBe("0px")
     expect(geometry.rootScrollTop).toBe(0)
+    await testInfo.attach("user-bar-extension-mobile-390x844", {
+      body: await bob.page.screenshot(),
+      contentType: "image/png",
+    })
 
     const outsidePoint = {
       x: Math.floor(geometry.viewport.width / 2),
@@ -301,6 +357,7 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
       return Math.abs(current.card.bottom - current.userBar.top)
     }).toBeLessThanOrEqual(1)
     const compact = await surfaceGeometry(bob.page)
+    expectJoinedBorderContract(compact)
     expect(compact.card.top).toBeGreaterThanOrEqual(20)
     expect(compact.card.left).toBe(18)
     expect(compact.card.right).toBe(320 - 16)
@@ -363,7 +420,7 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
     }
   })
 
-  test("preserves Marked tab, scroll, and request ownership across 639↔640", async ({ asUser }) => {
+  test("preserves Marked tab, scroll, and request ownership across 639↔640", async ({ asUser }, testInfo) => {
     const stamp = Date.now()
     const serverId = await seedServer("alice", `Inbox continuity ${stamp}`)
     const channelId = await seedChannel("alice", serverId, `continuity-${stamp}`)
@@ -464,8 +521,13 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
     const desktopBaseBox = await bob.page.locator("[data-slot='community-user-bar-base']").boundingBox()
     expect(desktopBaseBox).not.toBeNull()
     expect(Math.abs((desktopBox?.width ?? 0) - desktopBaseBox!.width)).toBeLessThanOrEqual(1)
+    expectJoinedBorderContract(await surfaceGeometry(bob.page))
     await expect(bob.page.getByTestId(tid.inboxMobileBackdrop)).toHaveCount(0)
     await expect(bob.page.getByRole("tab", { name: "Marked" })).toHaveAttribute("aria-selected", "true")
+    await testInfo.attach("user-bar-extension-desktop-1280x900", {
+      body: await bob.page.screenshot(),
+      contentType: "image/png",
+    })
 
     expect(inboxGets).toHaveLength(getsBeforeResize)
     expect(writes.writes).toEqual([])

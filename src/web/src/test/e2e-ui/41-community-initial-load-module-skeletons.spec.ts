@@ -18,6 +18,16 @@ type ColdRootProbe = {
   machinesSeen: boolean
 }
 
+type SkeletonGeometry = {
+  wrapper: { left: number; right: number; paddingLeft: number; paddingRight: number }
+  base: { left: number; right: number; width: number; height: number }
+  expectedColor: string
+  borders: Record<"top" | "right" | "bottom" | "left", {
+    width: string
+    color: string
+  }>
+}
+
 const coldRootStorageKey = `community:lastRoute:${encodeURIComponent(userId("alice"))}`
 
 async function installColdRootProbe(page: Page, destination: string | null) {
@@ -58,6 +68,69 @@ async function expectNoMachinesDuringColdRootRestore(page: Page) {
   expect(await page.evaluate(() => (
     window as typeof window & { __communityColdRootProbe?: ColdRootProbe }
   ).__communityColdRootProbe)).toEqual({ machinesSeen: false })
+}
+
+async function userBarSkeletonGeometry(page: Page): Promise<SkeletonGeometry> {
+  return page.getByTestId(tid.initialUserBarPending).evaluate((wrapper) => {
+    const base = wrapper.firstElementChild
+    if (!(base instanceof HTMLElement)) throw new Error("missing User Bar Skeleton base")
+    const wrapperRect = wrapper.getBoundingClientRect()
+    const wrapperStyle = getComputedStyle(wrapper)
+    const baseRect = base.getBoundingClientRect()
+    const baseStyle = getComputedStyle(base)
+    const reference = document.createElement("div")
+    reference.className = "border border-border/40"
+    reference.style.position = "fixed"
+    reference.style.visibility = "hidden"
+    document.body.appendChild(reference)
+    const expectedColor = getComputedStyle(reference).borderTopColor
+    reference.remove()
+    return {
+      wrapper: {
+        left: wrapperRect.left,
+        right: wrapperRect.right,
+        paddingLeft: Number.parseFloat(wrapperStyle.paddingLeft),
+        paddingRight: Number.parseFloat(wrapperStyle.paddingRight),
+      },
+      base: {
+        left: baseRect.left,
+        right: baseRect.right,
+        width: baseRect.width,
+        height: baseRect.height,
+      },
+      expectedColor,
+      borders: {
+        top: { width: baseStyle.borderTopWidth, color: baseStyle.borderTopColor },
+        right: { width: baseStyle.borderRightWidth, color: baseStyle.borderRightColor },
+        bottom: { width: baseStyle.borderBottomWidth, color: baseStyle.borderBottomColor },
+        left: { width: baseStyle.borderLeftWidth, color: baseStyle.borderLeftColor },
+      },
+    }
+  })
+}
+
+function expectUserBarSkeletonBorderContract(geometry: SkeletonGeometry) {
+  expect(geometry.base.height).toBe(48)
+  expect(Math.abs(
+    geometry.base.left - geometry.wrapper.left - geometry.wrapper.paddingLeft,
+  )).toBeLessThanOrEqual(1)
+  expect(Math.abs(
+    geometry.wrapper.right - geometry.wrapper.paddingRight - geometry.base.right,
+  )).toBeLessThanOrEqual(1)
+  expect(geometry.base.width).toBeCloseTo(
+    geometry.wrapper.right
+      - geometry.wrapper.left
+      - geometry.wrapper.paddingLeft
+      - geometry.wrapper.paddingRight,
+    0,
+  )
+  expect(geometry.expectedColor).not.toBe("rgba(0, 0, 0, 0)")
+  for (const side of ["top", "right", "bottom", "left"] as const) {
+    expect(geometry.borders[side]).toEqual({
+      width: "1px",
+      color: geometry.expectedColor,
+    })
+  }
 }
 
 async function holdSession(page: Page) {
@@ -221,6 +294,23 @@ test.describe.serial("community initial-load module skeletons", () => {
       await page.goto(pathname, { waitUntil: "commit" })
       await expect.poll(gate.hits).toBeGreaterThan(0)
       await expectOwnedFrame(page, expected, [serverName, channelName, privateMessage])
+      if (pathname === `/c/channels/${serverId}`) {
+        await page.evaluate(() => {
+          const style = document.documentElement.style
+          style.setProperty("--app-safe-area-top", "20px")
+          style.setProperty("--app-safe-area-right", "16px")
+          style.setProperty("--app-safe-area-bottom", "34px")
+          style.setProperty("--app-safe-area-left", "18px")
+        })
+        const geometry = await userBarSkeletonGeometry(page)
+        expectUserBarSkeletonBorderContract(geometry)
+        expect(geometry.base.left).toBe(18)
+        expect(geometry.base.right).toBe(390 - 16)
+        await testInfo.attach("user-bar-skeleton-mobile-390x844", {
+          body: await page.screenshot(),
+          contentType: "image/png",
+        })
+      }
       if (pathname === "/c") {
         await testInfo.attach("community-root-neutral-390x844", {
           body: await page.screenshot(),
@@ -254,6 +344,14 @@ test.describe.serial("community initial-load module skeletons", () => {
       await page.goto(pathname, { waitUntil: "commit" })
       await expect.poll(gate.hits).toBeGreaterThan(0)
       await expectOwnedFrame(page, expected, [serverName, channelName, privateMessage])
+      if (pathname === `/c/channels/${serverId}`) {
+        const geometry = await userBarSkeletonGeometry(page)
+        expectUserBarSkeletonBorderContract(geometry)
+        await testInfo.attach("user-bar-skeleton-desktop-1280x900", {
+          body: await page.screenshot(),
+          contentType: "image/png",
+        })
+      }
       if (pathname === "/c") {
         await testInfo.attach("community-root-neutral-1280x900", {
           body: await page.screenshot(),
