@@ -442,6 +442,7 @@ body.driver-active .community-ws-reconnect-overlay * {
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
   --background: oklch(1 0 0);
   --app-bg: var(--background);
+  --app-edge-fade-size: 60px;
   --foreground: oklch(0.18 0.03 230);
   --card: oklch(1 0.003 80);
   --card-foreground: oklch(0.18 0.03 230);
