@@ -1,7 +1,7 @@
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { readFileSync } from "node:fs"
-import { resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 import { AppEdgeFade } from "./app-edge-fade"
 
@@ -23,7 +23,10 @@ describe("AppEdgeFade", () => {
   })
 
   it("defines one fixed 60px token independent of the app safe-area tokens", () => {
-    const css = readFileSync(resolve(process.cwd(), "src/app/globals.css"), "utf8")
+    const css = readFileSync(
+      fileURLToPath(new URL("../../app/globals.css", import.meta.url)),
+      "utf8",
+    )
     const token = css.match(/--app-edge-fade-size:\s*([^;]+);/)
 
     expect(token?.[1]?.trim()).toBe("60px")
