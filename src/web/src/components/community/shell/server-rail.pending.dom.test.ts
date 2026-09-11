@@ -196,6 +196,29 @@ describe("ServerRail one-in-flight structural guard", () => {
       .toHaveLength(0)
   })
 
+  it("uses the shared idle, hover/focus, and active heights for Home", () => {
+    const renderer = render(createElement(ServerRail, {
+      servers,
+      folders,
+      view: "server",
+      onHome: vi.fn(),
+    }))
+    const homeIndicator = () => renderer.getByTestId(tid.homeButton)
+      .previousElementSibling as HTMLElement
+
+    expect(homeIndicator()).toHaveAttribute("data-slot", "community-server-rail-indicator")
+    expect(homeIndicator()).toHaveClass("h-0", "group-hover:h-5", "group-focus-within:h-5")
+
+    renderer.rerender(createElement(ServerRail, {
+      servers,
+      folders,
+      view: "dm",
+      onHome: vi.fn(),
+    }))
+    expect(homeIndicator()).toHaveClass("h-8")
+    expect(homeIndicator()).not.toHaveClass("group-hover:h-5", "group-focus-within:h-5")
+  })
+
   it.each([
     ["empty", 0],
     ["one", 1],

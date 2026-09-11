@@ -21,6 +21,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip
 import { Skeleton } from "@/components/ui/skeleton"
 import { SortableServer } from "./sortable-server"
 import { RailFolder } from "./rail-folder"
+import { RailIndicator } from "./rail-indicator"
 import { CreateServerDialog } from "../settings/create-server-dialog"
 import {
   cloneRailState,
@@ -390,10 +391,7 @@ export const ServerRail = memo(function ServerRail({
   const home = (
     <Tooltip>
       <TooltipTrigger render={<div className="group relative flex w-full justify-center" />}>
-        <span className={[
-          "absolute left-0 top-1/2 w-1 -translate-y-1/2 rounded-r-full bg-foreground transition-all duration-150",
-          view === "dm" ? "h-8" : "h-0 group-hover:h-5",
-        ].join(" ")} />
+        <RailIndicator active={view === "dm"} />
         <button
           onClick={onHome}
           onPointerEnter={onHomePrefetch}

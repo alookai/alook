@@ -286,7 +286,7 @@ test.describe.serial("account unread projection", () => {
     await expectNoUnreadDot(bob.page.getByTestId(tid.channelRow(channelId)))
     await expect.poll(async () => bob.page
       .getByTestId(tid.serverRailIndicator(serverId))
-      .evaluate((element) => element.getBoundingClientRect().height)).toBe(40)
+      .evaluate((element) => element.getBoundingClientRect().height)).toBe(32)
     await expect(bob.page.getByTestId(tid.railUnreadBadge(serverId))).toHaveCount(0)
 
     await inboxTrigger.click()

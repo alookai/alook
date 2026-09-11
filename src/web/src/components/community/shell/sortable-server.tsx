@@ -58,17 +58,7 @@ function SortableServerImpl({
 }: SortableServerProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
-  const restoreFocusAfterActivationRef = useRef(false)
   const [confirmLeave, setConfirmLeave] = useState(false);
-  // Lazy-mount the row's Base UI ContextMenu + ConfirmDialog. Eagerly mounting
-  // them per rail icon (one Tooltip + ContextMenu + Dialog stack × N servers)
-  // was the bulk of the switch re-render storm — the DialogPortal /
-  // ContextMenuTrigger / FloatingTree ×1000s in perf:switch came from the rail,
-  // not the message list (which already lazies its overlays; see message.tsx).
-  // Activate on first hover OR focus OR keydown/contextmenu — focus/keydown are
-  // required for a11y (keyboard context menu / Tab-to-icon have no pointerenter,
-  // and a right-click is always preceded by a pointerenter so the menu is
-  // mounted before it's invoked).
   const [activated, setActivated] = useState(false);
   useLayoutEffect(() => {
     if (!registerItem || !rootRef.current || !buttonRef.current) return
@@ -77,20 +67,11 @@ function SortableServerImpl({
       rootRef.current,
       buttonRef.current,
     )
-  }, [activated, registerItem, server.id])
-  useLayoutEffect(() => {
-    if (!activated || !restoreFocusAfterActivationRef.current) return
-    restoreFocusAfterActivationRef.current = false
-    buttonRef.current?.focus()
-  }, [activated])
+  }, [registerItem, server.id])
   const activate = activated ? undefined : () => setActivated(true);
   const activateAndPrefetch = () => {
     activate?.();
     onPrefetch?.();
-  };
-  const activateFromFocus = () => {
-    if (!activated) restoreFocusAfterActivationRef.current = true
-    activateAndPrefetch()
   };
 
   const icon = (
@@ -99,8 +80,10 @@ function SortableServerImpl({
       style={{ opacity: isDragActive ? 0.3 : 1 }}
       className="group relative flex w-full justify-center"
       onPointerEnter={activateAndPrefetch}
-      onFocusCapture={activateFromFocus}
+      onPointerDownCapture={activate}
+      onFocusCapture={activateAndPrefetch}
       onKeyDownCapture={activate}
+      onContextMenuCapture={activate}
     >
       {(preview === "reorder-before" || preview === "reorder-after") && (
         <div
@@ -167,36 +150,35 @@ function SortableServerImpl({
     </div>
   );
 
-  // Until activated, the icon carries no ContextMenu root — just the Tooltip.
-  const withMenu = !activated ? (
-    icon
-  ) : (
+  const withMenu = (
     <ContextMenu>
       <ContextMenuTrigger render={icon} />
-      <ContextMenuContent className="w-52">
-        <div className="truncate px-2 py-1 text-xs font-semibold text-muted-foreground">
-          {server.name}
-        </div>
-        {onOpenInvitePopover && (
-          <ContextMenuItem onClick={onOpenInvitePopover}>
-            Invite to Server
-          </ContextMenuItem>
-        )}
-        <ContextMenuItem onClick={onOpenSettings} data-testid={tid.serverSettingsOpen}>
-          Server settings
-        </ContextMenuItem>
-        {!server.isOwner && !inFolder && (
-          <>
-            <ContextMenuSeparator />
-            <ContextMenuItem
-              onClick={() => setConfirmLeave(true)}
-              className="text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive"
-            >
-              Leave server
+      {activated && (
+        <ContextMenuContent className="w-52">
+          <div className="truncate px-2 py-1 text-xs font-semibold text-muted-foreground">
+            {server.name}
+          </div>
+          {onOpenInvitePopover && (
+            <ContextMenuItem onClick={onOpenInvitePopover}>
+              Invite to Server
             </ContextMenuItem>
-          </>
-        )}
-      </ContextMenuContent>
+          )}
+          <ContextMenuItem onClick={onOpenSettings} data-testid={tid.serverSettingsOpen}>
+            Server settings
+          </ContextMenuItem>
+          {!server.isOwner && !inFolder && (
+            <>
+              <ContextMenuSeparator />
+              <ContextMenuItem
+                onClick={() => setConfirmLeave(true)}
+                className="text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive"
+              >
+                Leave server
+              </ContextMenuItem>
+            </>
+          )}
+        </ContextMenuContent>
+      )}
     </ContextMenu>
   );
 
@@ -212,11 +194,9 @@ function SortableServerImpl({
           {server.name}
         </TooltipContent>
       </Tooltip>
-      {/* ConfirmDialog only mounts once the menu has been activated AND the
-          user chose Leave — never eagerly per rail icon. */}
-      {activated && (
+      {confirmLeave && (
         <ConfirmDialog
-          open={confirmLeave}
+          open
           onOpenChange={setConfirmLeave}
           title={`Leave ${server.name}?`}
           description="You won't see this server's channels anymore, and you'll need a new invite to come back."

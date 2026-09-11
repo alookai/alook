@@ -29,7 +29,6 @@ vi.mock("@/hooks/community/use-servers", () => ({
     servers: mocks.servers,
     isLoading: false,
   }),
-  serverProjectedQueryFn: (_queryClient: unknown, id: string) => () => Promise.resolve({ id }),
 }))
 vi.mock("@/hooks/community/use-folders", () => ({ useFolders: () => ({ folders: mocks.folders }) }))
 vi.mock("@/hooks/community/use-structural-snapshot", () => ({
@@ -276,7 +275,7 @@ describe("useShellRailController", () => {
     expect(hook.pushed).toEqual(["/c/channels/s1"])
   })
 
-  it("uses cached and fetched destinations for navigation and prefetch fallbacks", async () => {
+  it("keeps rail navigation and prefetch on the semantic server root", async () => {
     const hook = await renderController()
     hook.cache.set("s1", {
       categories: [{ channels: [{ id: "pending", pending: true }, { id: "cached", pending: false }] }],
@@ -286,27 +285,16 @@ describe("useShellRailController", () => {
     await act(async () => hook.current.railProps.onServerPrefetch("s1"))
     await act(async () => hook.current.railProps.onHomePrefetch())
     expect(hook.pushed).toEqual(["/c/channels/s1"])
-    expect(hook.prefetched).toEqual(["/c/channels/s1/cached", "/c/me/friends"])
+    expect(hook.prefetched).toEqual(["/c/channels/s1", "/c/me/friends"])
     expect(hook.queryClient.fetchQuery).not.toHaveBeenCalled()
 
-    hook.queryClient.fetchQuery.mockImplementationOnce(async ({ queryKey }: { queryKey: unknown[] }) => {
-      const id = String(queryKey.at(-1))
-      hook.cache.set(id, { categories: [{ channels: [{ id: "fetched", pending: false }] }] })
-    })
     await act(async () => hook.current.railProps.onServerNavigate("s2"))
     expect(hook.pushed).toContain("/c/channels/s2")
-    expect(hook.queryClient.fetchQuery).not.toHaveBeenCalled()
     await act(async () => hook.current.railProps.onServerPrefetch("s2"))
-    expect(hook.prefetched).toContain("/c/channels/s2/fetched")
-    expect(hook.queryClient.fetchQuery).toHaveBeenLastCalledWith(expect.objectContaining({
-      queryKey: expect.any(Array),
-      queryFn: expect.any(Function),
-      staleTime: Infinity,
-    }))
-
-    hook.queryClient.fetchQuery.mockRejectedValueOnce(new Error("offline"))
+    expect(hook.prefetched).toContain("/c/channels/s2")
     await act(async () => hook.current.railProps.onServerPrefetch("s3"))
     expect(hook.prefetched).toContain("/c/channels/s3")
+    expect(hook.queryClient.fetchQuery).not.toHaveBeenCalled()
   })
 
   it("uses one breakpoint-canonical Home destination for click and prefetch", async () => {

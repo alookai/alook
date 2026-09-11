@@ -1,5 +1,6 @@
 import type React from "react"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
+import { RailIndicator } from "./rail-indicator"
 
 export function RailIcon({ label, round, accent, active, onClick, tooltip, testId, onboardingTarget }: {
   label: React.ReactNode
@@ -16,10 +17,7 @@ export function RailIcon({ label, round, accent, active, onClick, tooltip, testI
       className="group relative flex w-full justify-center"
       data-onboarding-target={onboardingTarget}
     >
-      <span className={[
-        "absolute left-0 top-1/2 w-1 -translate-y-1/2 rounded-r-full bg-foreground transition-all duration-150",
-        active ? "h-8" : "h-0 group-hover:h-5",
-      ].join(" ")} />
+      <RailIndicator active={active} />
       <button
         data-testid={testId}
         onClick={onClick}

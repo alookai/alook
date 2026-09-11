@@ -2,7 +2,7 @@ import { createElement, Fragment, type ReactNode } from "react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { SortableServer } from "./sortable-server"
 import { tid } from "@/lib/community/testids"
-import { fireEvent, render } from "@/test/react-dom-harness"
+import { act, fireEvent, render } from "@/test/react-dom-harness"
 
 vi.mock("@/components/ui/context-menu", () => ({
   ContextMenu: ({ children }: { children: ReactNode }) => createElement(Fragment, null, children),
@@ -32,19 +32,25 @@ const server = {
   mentions: 0,
 }
 
-function renderServer(active = false, mentions = 0, official = false) {
+function renderServer(
+  active = false,
+  mentions = 0,
+  official = false,
+  extraProps: Record<string, unknown> = {},
+) {
   const renderer = render(createElement(SortableServer, {
     server: { ...server, mentions, official },
     active,
     onClick: vi.fn(),
     dragDescriptionId: "rail-help",
+    ...extraProps,
   }))
   const button = () => renderer.container.querySelector<HTMLButtonElement>("button")!
   const activationRoot = () => button().closest("div.group") as HTMLDivElement
   return { ...renderer, button, activationRoot }
 }
 
-describe("SortableServer lazy menu focus", () => {
+describe("SortableServer stable menu trigger", () => {
   afterEach(() => vi.restoreAllMocks())
 
   it("announces official status without changing ordinary server labels", () => {
@@ -54,24 +60,48 @@ describe("SortableServer lazy menu focus", () => {
     expect(official.button()).toHaveAccessibleName("A, Official server")
   })
 
-  it("refocuses the icon after first focus activates and replaces its menu wrapper", () => {
-    const focus = vi.spyOn(HTMLElement.prototype, "focus")
+  it("keeps the exact icon button focused when first focus activates menu content", () => {
     const result = renderServer()
-
-    fireEvent.focus(result.button())
+    const originalButton = result.button()
 
     expect(result.container.querySelectorAll("context-menu-trigger")).toHaveLength(1)
-    expect(focus).toHaveBeenCalledTimes(1)
+    expect(result.container.querySelectorAll("context-menu-content")).toHaveLength(0)
+    act(() => originalButton.focus())
+
+    expect(result.button()).toBe(originalButton)
+    expect(document.activeElement).toBe(originalButton)
+    expect(result.container.querySelectorAll("context-menu-trigger")).toHaveLength(1)
+    expect(result.container.querySelectorAll("context-menu-content")).toHaveLength(1)
   })
 
-  it("does not steal focus when pointer hover activates the menu", () => {
+  it("keeps the same button and drag registration when pointer hover activates the menu", () => {
     const focus = vi.spyOn(HTMLElement.prototype, "focus")
-    const result = renderServer()
+    const dispose = vi.fn()
+    const registerItem = vi.fn(() => dispose)
+    const onPrefetch = vi.fn()
+    const result = renderServer(false, 0, false, { registerItem, onPrefetch })
+    const originalButton = result.button()
 
     fireEvent.pointerEnter(result.activationRoot())
 
+    expect(result.button()).toBe(originalButton)
+    expect(registerItem).toHaveBeenCalledTimes(1)
+    expect(onPrefetch).toHaveBeenCalledTimes(1)
     expect(result.container.querySelectorAll("context-menu-trigger")).toHaveLength(1)
+    expect(result.container.querySelectorAll("context-menu-content")).toHaveLength(1)
     expect(focus).not.toHaveBeenCalled()
+    expect(dispose).not.toHaveBeenCalled()
+  })
+
+  it("keeps the same button for first touch-like pointer activation", () => {
+    const result = renderServer()
+    const originalButton = result.button()
+
+    fireEvent.pointerDown(originalButton, { pointerType: "touch" })
+
+    expect(result.button()).toBe(originalButton)
+    expect(originalButton.isConnected).toBe(true)
+    expect(result.container.querySelectorAll("context-menu-content")).toHaveLength(1)
   })
 
   it("exposes keyboard drag help without positional menu shortcuts", () => {
@@ -79,7 +109,8 @@ describe("SortableServer lazy menu focus", () => {
     const button = result.button()
     expect(button).toHaveAttribute("aria-describedby", "rail-help")
     expect(button).toHaveAttribute("aria-keyshortcuts", expect.stringContaining("Space"))
-    fireEvent.pointerEnter(result.activationRoot())
+    fireEvent.keyDown(button, { key: "F10", shiftKey: true })
+    expect(result.container.querySelectorAll("context-menu-content")).toHaveLength(1)
     const menuText = result.container.textContent
     expect(menuText).not.toContain("Move…")
     expect(menuText).not.toContain("Create group")

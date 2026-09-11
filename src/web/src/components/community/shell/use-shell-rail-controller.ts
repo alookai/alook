@@ -6,7 +6,7 @@ import { toastApiError } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import { markSwitch } from "@/lib/perf/switch-mark"
 import { markVoluntaryLeave, pickPostEjectDestination } from "@/lib/community/eject-server"
-import { serverProjectedQueryFn, useServers, type ServerDetail } from "@/hooks/community/use-servers"
+import { useServers, type ServerDetail } from "@/hooks/community/use-servers"
 import { useFolders } from "@/hooks/community/use-folders"
 import {
   useCreateServer,
@@ -87,22 +87,6 @@ export function useShellRailController({
       ?? []
     return pickServerLandingHref(id, channelIds, getLastChannel(id))
   }, [queryClient, structuralSnapshot])
-  const resolveServerDestination = useCallback(async (id: string) => {
-    const root = `/c/channels/${id}`
-    const immediate = serverDestination(id)
-    if (immediate !== root) return immediate
-    try {
-      await queryClient.fetchQuery({
-        queryKey: communityKeys.server(id),
-        queryFn: serverProjectedQueryFn(queryClient, id),
-        staleTime: Infinity,
-      })
-    } catch {
-      return root
-    }
-    return serverDestination(id)
-  }, [queryClient, serverDestination])
-
   const onServerNavigate = useCallback((id: string) => {
     markSwitch("server", id)
     navigation.push(`/c/channels/${id}`)
@@ -117,8 +101,8 @@ export function useShellRailController({
     navigation.push(homeDestination())
   }, [homeDestination, navigation])
   const onServerPrefetch = useCallback((id: string) => {
-    void resolveServerDestination(id).then((destination) => navigation.prefetch(destination))
-  }, [navigation, resolveServerDestination])
+    navigation.prefetch(`/c/channels/${id}`)
+  }, [navigation])
   const onHomePrefetch = useCallback(
     () => navigation.prefetch(homeDestination()),
     [homeDestination, navigation],
