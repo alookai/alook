@@ -58,7 +58,7 @@
     "@next/mdx": "^16.3.4",
     "@next/third-parties": "^16.3.4",
     "@number-flow/react": "^0.6.2",
-    "@opennextjs/cloudflare": "^1.20.2",
+    "@opennextjs/cloudflare": "^1.20.6",
     "@shikijs/core": "4.4.3",
     "@shikijs/engine-oniguruma": "4.4.3",
     "@shikijs/langs": "4.4.3",
@@ -162,7 +162,7 @@
     "typescript": "^6.0.3",
     "unified": "^11.0.5",
     "vitest": "4.1.11",
-    "wrangler": "4.129.1",
-    "wrangler-e2e": "npm:wrangler@4.129.1"
+    "wrangler": "4.131.0",
+    "wrangler-e2e": "npm:wrangler@4.131.0"
   }
 }

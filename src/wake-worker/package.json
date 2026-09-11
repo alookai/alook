@@ -14,11 +14,11 @@
   },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "1.1.4",
-    "@cloudflare/workers-types": "^5.20260907.1",
+    "@cloudflare/workers-types": "^5.20260910.1",
     "@types/node": "^25.9.4",
     "knip": "^6.32.2",
     "typescript": "^6.0.3",
     "vitest": "4.1.11",
-    "wrangler": "4.129.1"
+    "wrangler": "4.131.0"
   }
 }

@@ -28,7 +28,7 @@ export interface ServiceDefinition {
   expectedBody: { status: "ok" }
 }
 
-export const E2E_WRANGLER_VERSION = "4.129.1"
+export const E2E_WRANGLER_VERSION = "4.131.0"
 export const E2E_PREBUILT_ENTRYPOINTS = [
   "src/web/.open-next/worker.js",
   "src/web/blog/.open-next/worker.js",
