@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation"
+import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"
 import { markSwitch } from "@/lib/perf/switch-mark"
@@ -9,12 +10,14 @@ import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { ShellFrame } from "@/components/community/shell/shell-frame"
 import {
   channelHref,
+  communityServerId,
   serverModalMarkerCleanupHref,
   serverRootHref,
 } from "@/lib/community/community-route"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { ChannelSidebarScope } from "@/components/community/channels/channel-sidebar-tree-owner"
 import { ChannelRoute } from "@/components/community/channels/channel-route"
+import { CommunityPendingFrame } from "@/components/community/shell/community-pending-frame"
 import { ServerSettings } from "@/components/community/settings/server-settings"
 import { ImageCropDialog } from "@/components/community/image-crop-dialog"
 import { validateIconSourceFile } from "@/lib/community/image-crop"
@@ -27,13 +30,27 @@ import {
   useCurrentChannelMeta,
 } from "@/stores/community"
 import { useCurrentUser } from "@/contexts/community/current-user"
-import { useServer, useServers } from "@/hooks/community/use-servers"
+import {
+  useServer,
+  useServers,
+  serverProjectedQueryFn,
+  type ServerDetail,
+  type ServersResponse,
+} from "@/hooks/community/use-servers"
 import { useServerMembers } from "@/hooks/community/use-server-members"
 import {
+  claimOwnerServerDeleteNavigation,
   consumeVoluntaryLeave,
+  createOwnerServerDeleteRouteToken,
+  isOwnerServerDeleteRouteProtected,
   runAuthoritativeServerEject,
 } from "@/lib/community/eject-server"
-import { clearLastChannel } from "@/lib/community/last-channel"
+import {
+  clearLastChannel,
+  getLastChannel,
+  pickServerLandingHref,
+} from "@/lib/community/last-channel"
+import { communityKeys } from "@/lib/query-keys"
 import { usePresence } from "@/hooks/community/use-server-panels"
 import {
   resolveForumSidebarRouteCandidate,
@@ -75,10 +92,23 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname()
   const serverId = decodeURIComponent(params.serverId)
   const routeChannelId = params.channelId ? decodeURIComponent(params.channelId) : null
+  const ownerDeleteRouteIdentity = useMemo(
+    () => ({
+      serverId,
+      token: createOwnerServerDeleteRouteToken(),
+    }),
+    [serverId],
+  )
+  const ownerDeleteRouteToken = ownerDeleteRouteIdentity.token
+  const ownerDeleteRouteProtected = isOwnerServerDeleteRouteProtected(
+    serverId,
+    ownerDeleteRouteToken,
+  )
   const hasChannel = !!routeChannelId
   const breakpoint = useBreakpoint()
 
   const router = useRouter()
+  const queryClient = useQueryClient()
   const cancelPendingNavigation = useCallback(() => {
     useCommunityStore.getState().uiHandlers.cancelPendingNavigation?.()
   }, [])
@@ -91,7 +121,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     () => structuralHintServer(structuralSnapshot, serverId),
     [serverId, structuralSnapshot],
   )
-  const { server: currentServer } = useServer(serverId)
+  const { server: currentServer } = useServer(ownerDeleteRouteProtected ? null : serverId)
   const structuralTreeReady = hasStructuralServerTree(structuralServer)
   const sidebarCategories = useMemo(
     () => currentServer?.categories ?? (structuralTreeReady ? structuralServer?.categoriesView : undefined) ?? [],
@@ -162,6 +192,31 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     return grouped
   }, [forumSidebar.threads])
 
+  const serversList = useServers()
+  const serverDestination = useCallback(async (id: string) => {
+    const structural = structuralSnapshot?.servers.find((server) => server.id === id)
+    const lastChannel = getLastChannel(id)
+    let detail = queryClient.getQueryData<ServerDetail>(communityKeys.server(id))
+    if (!detail && !lastChannel && !hasStructuralServerTree(structural)) {
+      try {
+        detail = await queryClient.fetchQuery({
+          queryKey: communityKeys.server(id),
+          queryFn: serverProjectedQueryFn(queryClient, id),
+          staleTime: Infinity,
+        })
+      } catch {
+        // The server landing route remains the safe fallback if its detail
+        // cannot be resolved. Its ordinary loader owns retry/error handling.
+      }
+    }
+    const channelIds = detail?.categories.flatMap((category) =>
+      category.channels
+        .filter((channel) => !channel.pending)
+        .map((channel) => channel.id),
+    ) ?? structural?.channels.map((channel) => channel.id) ?? []
+    return pickServerLandingHref(id, channelIds, lastChannel)
+  }, [queryClient, structuralSnapshot])
+
   // Mutations
   const createChannelMut = useCreateChannel()
   const renameChannelMut = useRenameChannel()
@@ -172,7 +227,31 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   const deleteCategoryMut = useDeleteCategory()
   const reorderCategoriesMut = useReorderCategories()
   const reorderChannelsMut = useReorderChannels()
-  const deleteServerMut = useDeleteServer()
+  const deleteServerMut = useDeleteServer({
+    routeToken: ownerDeleteRouteToken,
+    onSuccess: ({ serverId: deletedServerId }, { needsNavigation }) => {
+      toast("Server deleted")
+      clearLastChannel(deletedServerId)
+      if (!needsNavigation) return
+      void (async () => {
+        const servers = queryClient.getQueryData<ServersResponse>(
+          communityKeys.servers(),
+        )?.servers ?? []
+        const survivor = servers.find((server) => server.id !== deletedServerId)
+        const destination = survivor
+          ? await serverDestination(survivor.id)
+          : "/c/me"
+        if (!claimOwnerServerDeleteNavigation(
+          deletedServerId,
+          ownerDeleteRouteToken,
+          destination,
+        )) return
+        cancelPendingNavigation()
+        router.replace(destination)
+      })()
+    },
+    onError: (error) => toastApiError(error, "Failed to delete server"),
+  })
   const updateServerMut = useUpdateServer()
   const uploadServerIconMut = useUploadServerIcon()
   const setServerNotifMut = useSetServerNotifLevel()
@@ -198,10 +277,11 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   // true after a first 5xx, while a failed background refetch may retain
   // last-good data; treating either as authoritative ejects valid URLs on a
   // transient read failure. The ref prevents a re-fire during navigation.
-  const serversList = useServers()
   const ejectedRef = useRef(false)
   useEffect(() => {
     if (ejectedRef.current) return
+    if (typeof window !== "undefined"
+      && communityServerId(window.location.pathname) !== serverId) return
     ejectedRef.current = runAuthoritativeServerEject({
       serverId,
       servers: serversList.servers,
@@ -209,6 +289,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
       // target advanced the access epoch and retired an in-flight list read.
       isSuccess: serverAccessRevoked || serversList.isSuccess,
       isFetching: serverAccessRevoked ? false : serversList.isFetching,
+      ownerDeleteRouteProtected: isOwnerServerDeleteRouteProtected(serverId),
       consumeVoluntaryLeave,
       clearLastChannel,
       toast,
@@ -484,15 +565,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
           onCopyInvite={(code) => { navigator.clipboard?.writeText(`${window.location.origin}/c/invite/${code}`); toast("Invite copied") }}
           onDeleteServer={async () => {
             closeSettings()
-            deleteServerMut.mutate({ serverId }, {
-              onSuccess: () => {
-                toast("Server deleted")
-                useCommunityStore.getState().setCurrentServerId(null)
-                cancelPendingNavigation()
-                useCommunityStore.getState().uiHandlers.navigatePath?.("/c/me")
-              },
-              onError: (e) => toastApiError(e, "Failed to delete server"),
-            })
+            deleteServerMut.mutate({ serverId })
           }}
           onUploadIcon={() => {
             const input = document.createElement("input")
@@ -549,7 +622,9 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   const structuralFrameHref = routeChannelId
     ? channelHref(serverId, routeChannelId)
     : serverRootHref(serverId)
-  const content = routeChannelId
+  const content = ownerDeleteRouteProtected
+    ? <CommunityPendingFrame href={pathname} />
+    : routeChannelId
     ? (
         <ChannelRoute
           key={`${serverId}/${routeChannelId}`}
@@ -568,6 +643,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
       extraDialogs={<>{serverSettingsDialog}{iconCropDialog}</>}
       onOpenActiveServerSettings={onSidebarOpenSettings}
       onOpenActiveServerInvite={onRailOpenActiveInvite}
+      ownerDeleteRouteScope={ownerDeleteRouteIdentity}
     >
       {content}
     </ShellFrame>

@@ -110,6 +110,12 @@ describe("community route", () => {
     expect(communityServerId(href)).toBe(serverId)
   })
 
+  it("accepts a pathname but rejects an absolute URL at the parser boundary", () => {
+    expect(communityServerId("/c/channels/server_1/channel_1")).toBe("server_1")
+    expect(communityServerId("https://alook.local/c/channels/server_1/channel_1"))
+      .toBeNull()
+  })
+
   it("normalizes query order and keeps structural scope independent from hash", () => {
     expect(normalizeCommunityHref("/c/channels/server_1/channel_1?z=2&a=1#message"))
       .toEqual({

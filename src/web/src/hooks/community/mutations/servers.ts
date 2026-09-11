@@ -10,7 +10,16 @@ import {
   type AccountUnreadScopeToken,
 } from "@/hooks/community/account-unread-projection"
 import { updateStructuralSnapshot } from "@/lib/community/structural-snapshot"
-import { evictServerChannelScopes } from "@/hooks/community/community-ws/scope-eviction"
+import {
+  evictServerChannelScopes,
+  flushOwnerServerDeleteAfterSuccess,
+} from "@/hooks/community/community-ws/scope-eviction"
+import {
+  beginOwnerServerDelete,
+  cancelOwnerServerDelete,
+  commitOwnerServerDelete,
+  type OwnerServerDeleteRouteToken,
+} from "@/lib/community/eject-server"
 
 /**
  * Server-scoped mutations. `create`/`join` invalidate the rail; `leave`/`delete`
@@ -74,6 +83,14 @@ export function useJoinServer() {
 // ── Leave / delete server ──────────────────────────────────────────────────
 
 export type LeaveServerArgs = { serverId: string }
+type DeleteServerCallbacks = {
+  routeToken: OwnerServerDeleteRouteToken
+  onSuccess?: (
+    args: LeaveServerArgs,
+    result: { needsNavigation: boolean },
+  ) => void
+  onError?: (error: Error, args: LeaveServerArgs) => void
+}
 
 export function useLeaveServer() {
   const queryClient = useQueryClient()
@@ -112,17 +129,21 @@ export function useLeaveServer() {
   })
 }
 
-export function useDeleteServer() {
+export function useDeleteServer(callbacks: DeleteServerCallbacks) {
   const queryClient = useQueryClient()
   const unreadProjection = getActiveAccountUnreadProjection(queryClient)
   return useMutation<void, Error, LeaveServerArgs, {
     snapshot: ServersResponse | undefined
     token: AccountUnreadScopeToken
+    routeToken: OwnerServerDeleteRouteToken
+    onSuccess: DeleteServerCallbacks["onSuccess"]
+    onError: DeleteServerCallbacks["onError"]
   }>({
     mutationFn: async ({ serverId }) => {
       await apiFetch(`/api/community/servers/${serverId}`, { method: "DELETE" })
     },
     onMutate: async (args) => {
+      beginOwnerServerDelete(args.serverId, callbacks.routeToken)
       const key = communityKeys.servers()
       await queryClient.cancelQueries({ queryKey: key })
       const snapshot = queryClient.getQueryData<ServersResponse>(key)
@@ -132,19 +153,29 @@ export function useDeleteServer() {
       return {
         snapshot,
         token: unreadProjection.beginScopeRetirement({ kind: "server", serverId: args.serverId }),
+        routeToken: callbacks.routeToken,
+        onSuccess: callbacks.onSuccess,
+        onError: callbacks.onError,
       }
     },
-    onError: (_err, _args, ctx) => {
+    onError: (error, args, ctx) => {
       if (ctx) unreadProjection.rollbackScopeRetirement(ctx.token)
       if (ctx?.snapshot) queryClient.setQueryData(communityKeys.servers(), ctx.snapshot)
+      cancelOwnerServerDelete(args.serverId, ctx?.routeToken ?? callbacks.routeToken)
+      const onError = ctx?.onError ?? callbacks.onError
+      onError?.(error, args)
     },
     onSuccess: (_data, args, context) => {
+      const scopeFlushReady = commitOwnerServerDelete(args.serverId, context.routeToken)
       unreadProjection.commitScopeRetirement(context.token)
-      evictServerChannelScopes(queryClient, args.serverId)
+      if (scopeFlushReady) {
+        flushOwnerServerDeleteAfterSuccess(queryClient, args.serverId)
+      }
       void queryClient.invalidateQueries({
         queryKey: communityKeys.channelRefDirectory(),
         exact: true,
       })
+      context.onSuccess?.(args, { needsNavigation: !scopeFlushReady })
     },
   })
 }

@@ -14,6 +14,7 @@ import { PerfTraceBootstrap } from "@/components/perf/perf-trace-bootstrap"
 import { CommunityOnboardingForm } from "@/components/community/onboarding/community-onboarding-form"
 import { CommunityWsReconnectBoundary } from "@/components/community/shell/community-ws-reconnect-overlay"
 import { useCommunityWsStore } from "@/stores/community/ws"
+import { OwnerServerDeleteRouteGuard } from "@/components/community/shell/owner-server-delete-route-guard"
 
 /**
  * Client wrapper that provides the QueryClient, CurrentUser, and the
@@ -113,6 +114,7 @@ function CommunityBootstrap({ children }: { children: ReactNode }) {
     <>
       <PerfTraceBootstrap />
       <CommunityWsReconnectBoundary>
+        <OwnerServerDeleteRouteGuard />
         <CommunityOnboardingForm />
         {children}
       </CommunityWsReconnectBoundary>

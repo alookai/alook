@@ -42,6 +42,9 @@ vi.mock("@/components/community/onboarding/community-onboarding-form", () => ({
 vi.mock("@/components/community/shell/community-ws-reconnect-overlay", () => ({
   CommunityWsReconnectBoundary: ({ children }: { children: React.ReactNode }) => children,
 }))
+vi.mock("@/components/community/shell/owner-server-delete-route-guard", () => ({
+  OwnerServerDeleteRouteGuard: () => null,
+}))
 
 import { CommunityShell } from "./community-shell"
 

@@ -78,6 +78,7 @@ export const SPEC_SECONDS = {
   "54-blog-multizone.spec.ts": 5.485,
   "55-message-scroll-characterization.spec.ts": 109.548,
   "56-remote-image-state-contract.spec.ts": 3.122,
+  "57-server-delete-navigation-races.spec.ts": 55,
 }
 
 function walk(directory) {

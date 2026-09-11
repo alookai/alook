@@ -30,6 +30,11 @@ import {
   userBarExtensionReducer,
 } from "./user-bar-extension-state"
 import { useShellDaemonUpdateController } from "./use-shell-daemon-update-controller"
+import { flushOwnerServerDeleteRouteCommit } from "@/hooks/community/community-ws/scope-eviction"
+import {
+  observeOwnerServerDeleteRouteCommit,
+  registerOwnerServerDeleteRoute,
+} from "@/lib/community/eject-server"
 
 /** Shared community shell orchestration for the server and DM layouts. */
 export function ShellFrame(props: ShellFrameProps) {
@@ -42,6 +47,7 @@ export function ShellFrame(props: ShellFrameProps) {
     extraDialogs,
     onOpenActiveServerSettings,
     onOpenActiveServerInvite,
+    ownerDeleteRouteScope,
   } = props
   const queryClient = useQueryClient()
   const currentUser = useCurrentUser()
@@ -62,7 +68,19 @@ export function ShellFrame(props: ShellFrameProps) {
     committedFrameRef.current = next
     setCommittedFrame(next)
   }, [])
-  useLayoutEffect(() => commitFrame(frameHref), [commitFrame, frameHref])
+  useLayoutEffect(() => {
+    commitFrame(frameHref)
+    if (ownerDeleteRouteScope) {
+      registerOwnerServerDeleteRoute(
+        ownerDeleteRouteScope.serverId,
+        ownerDeleteRouteScope.token,
+      )
+    }
+    observeOwnerServerDeleteRouteCommit(frameHref)
+  }, [commitFrame, frameHref, ownerDeleteRouteScope])
+  useEffect(() => {
+    flushOwnerServerDeleteRouteCommit(queryClient)
+  }, [frameHref, queryClient])
   const navigation = useCommunityNavigationController(committedFrame)
   const replacePath = navigation.replace
   const route = resolveCommunityRoute(committedFrame.pathname)
