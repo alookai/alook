@@ -97,23 +97,32 @@ type AuditPreviewPosition = {
   height?: number
 }
 
+type MeasuredAuditPreviewPosition = AuditPreviewPosition & {
+  measurementKey: string
+}
+
 function clamp(value: number, min: number, max: number): number {
   if (min > max) return value
   return Math.min(Math.max(value, min), max)
 }
 
-function useAuditPreviewPosition(enabled: boolean, x: number, y: number) {
+function useAuditPreviewPosition(
+  enabled: boolean,
+  previewId: string | undefined,
+  x: number,
+  y: number,
+) {
   const popoverRef = useRef<HTMLDivElement | null>(null)
   const cardRef = useRef<HTMLDivElement | null>(null)
   const previewRef = useRef<HTMLDivElement | null>(null)
-  const [position, setPosition] = useState<AuditPreviewPosition>({
-    placement: "right",
-    left: "calc(100% + 0.5rem)",
-    top: 0,
-  })
+  const [measuredPosition, setMeasuredPosition] = useState<MeasuredAuditPreviewPosition | null>(null)
+  const measurementKey = enabled && previewId ? `${previewId}:${x}:${y}` : null
 
   useLayoutEffect(() => {
-    if (!enabled) return
+    if (!measurementKey) {
+      setMeasuredPosition(null)
+      return
+    }
 
     let frame = 0
     const update = () => {
@@ -153,15 +162,16 @@ function useAuditPreviewPosition(enabled: boolean, x: number, y: number) {
         margin - card.left,
         window.innerWidth - margin - preview.width - card.left,
       )
-      const next: AuditPreviewPosition = placement === "right"
-        ? { placement, left: card.width + gap, top: verticalOffset, height: card.height }
+      const next: MeasuredAuditPreviewPosition = placement === "right"
+        ? { measurementKey, placement, left: card.width + gap, top: verticalOffset, height: card.height }
         : placement === "left"
-          ? { placement, left: -preview.width - gap, top: verticalOffset, height: card.height }
+          ? { measurementKey, placement, left: -preview.width - gap, top: verticalOffset, height: card.height }
           : placement === "top"
-            ? { placement, left: horizontalOffset, top: -preview.height - gap, height: card.height }
-            : { placement, left: horizontalOffset, top: card.height + gap, height: card.height }
+            ? { measurementKey, placement, left: horizontalOffset, top: -preview.height - gap, height: card.height }
+            : { measurementKey, placement, left: horizontalOffset, top: card.height + gap, height: card.height }
 
-      setPosition((current) => current.placement === next.placement
+      setMeasuredPosition((current) => current?.measurementKey === next.measurementKey
+        && current.placement === next.placement
         && current.left === next.left
         && current.top === next.top
         && current.height === next.height
@@ -187,9 +197,17 @@ function useAuditPreviewPosition(enabled: boolean, x: number, y: number) {
       popoverElement?.removeEventListener("animationcancel", update)
       observer?.disconnect()
     }
-  }, [enabled, x, y])
+  }, [measurementKey])
 
-  return { popoverRef, cardRef, previewRef, position }
+  const ready = measurementKey !== null
+    && measuredPosition?.measurementKey === measurementKey
+  return {
+    popoverRef,
+    cardRef,
+    previewRef,
+    position: ready ? measuredPosition : null,
+    ready,
+  }
 }
 
 // Profile card — popover anchored at the click point on desktop, bottom sheet on mobile.
@@ -251,8 +269,15 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
   const mutual = data.mutual ?? 0
   const botIdentity = data.identity?.kind === "bot" ? data.identity : null
   const showOwnedBotCard = Boolean(botIdentity?.ownedByViewer && data.userId)
-  const { popoverRef, cardRef, previewRef, position: previewPosition } = useAuditPreviewPosition(
+  const {
+    popoverRef,
+    cardRef,
+    previewRef,
+    position: previewPosition,
+    ready: previewReady,
+  } = useAuditPreviewPosition(
     showOwnedBotCard && !mobile && !embedded && !extension,
+    data.userId,
     x,
     y,
   )
@@ -491,17 +516,27 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
         className="pointer-events-none fixed size-0"
         style={{ left: x, top: y }}
       />
-      <PopoverContent ref={popoverRef} side="right" align="start" sideOffset={8} className="relative w-75 overflow-visible border-0 bg-transparent p-0 shadow-none">
+      <PopoverContent
+        ref={popoverRef}
+        side="right"
+        align="start"
+        sideOffset={8}
+        className={`relative w-75 border-0 bg-transparent p-0 shadow-none ${secondaryCards && !previewReady ? "overflow-hidden" : "overflow-visible"}`}
+      >
         {secondaryCards && (
           <div
             ref={previewRef}
             data-testid={tid.botAuditPreviewDock}
-            data-placement={previewPosition.placement}
+            data-placement={previewPosition?.placement}
+            data-measurement-ready={previewReady ? "true" : "false"}
+            aria-hidden={!previewReady}
             className="absolute w-full"
             style={{
-              left: previewPosition.left,
-              top: previewPosition.top,
-              height: previewPosition.height,
+              left: previewPosition?.left ?? 0,
+              top: previewPosition?.top ?? 0,
+              height: previewPosition?.height,
+              visibility: previewReady ? "visible" : "hidden",
+              pointerEvents: previewReady ? undefined : "none",
             }}
           >
             {secondaryCards}

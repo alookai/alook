@@ -3,12 +3,25 @@ import { resolve } from "path"
 import type { Locator, Page, TestInfo } from "@playwright/test"
 import { test, expect, sessionCookie } from "./_fixtures/community-fixture"
 import { composerEditable, gotoAfterUserWsAuth } from "./_fixtures/actions"
-import { seedChannel, seedJoinServer, seedServer } from "./_fixtures/seed"
+import { seedChannel, seedForumThread, seedJoinServer, seedServer } from "./_fixtures/seed"
 import { tid } from "./_fixtures/testids"
 import { MACHINE_WS_URL, REPO_ROOT, WEB_URL } from "./_setup/paths"
 
 type UserKey = "alice" | "bob"
 type Rect = { x: number; y: number; width: number; height: number }
+type PreviewFrameSample = {
+  phase: "start" | "mutation" | "frame"
+  rootOverflowX: number
+  rootOverflowY: number
+  scrollX: number
+  scrollY: number
+  ready: string | null
+  visibility: string | null
+  pointerEvents: string | null
+  rect: Rect | null
+  viewportWidth: number
+  viewportHeight: number
+}
 
 const createdBotIds: string[] = []
 const createdMachineIds: string[] = []
@@ -357,6 +370,127 @@ async function openBotProfile(page: Page, botName: string): Promise<void> {
   await expect(page.getByTestId(tid.profileCard)).toBeVisible()
 }
 
+async function installPreviewFrameProbe(page: Page): Promise<void> {
+  await page.evaluate((dockTestId) => {
+    type ProbeState = {
+      active: boolean
+      observer: MutationObserver
+      samples: PreviewFrameSample[]
+    }
+    const target = window as typeof window & { __previewFrameProbe?: ProbeState }
+    const samples: PreviewFrameSample[] = []
+    const sample = (phase: PreviewFrameSample["phase"]) => {
+      if (samples.length >= 500) return
+      const root = document.documentElement
+      const dock = document.querySelector<HTMLElement>(`[data-testid="${dockTestId}"]`)
+      const style = dock ? getComputedStyle(dock) : null
+      const bounds = dock?.getBoundingClientRect()
+      samples.push({
+        phase,
+        rootOverflowX: root.scrollWidth - root.clientWidth,
+        rootOverflowY: root.scrollHeight - root.clientHeight,
+        scrollX: window.scrollX,
+        scrollY: window.scrollY,
+        ready: dock?.getAttribute("data-measurement-ready") ?? null,
+        visibility: style?.visibility ?? null,
+        pointerEvents: style?.pointerEvents ?? null,
+        rect: bounds
+          ? { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height }
+          : null,
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+      })
+    }
+    const observer = new MutationObserver(() => sample("mutation"))
+    observer.observe(document.body, {
+      attributes: true,
+      attributeFilter: ["class", "data-measurement-ready", "style"],
+      childList: true,
+      subtree: true,
+    })
+    target.__previewFrameProbe = { active: true, observer, samples }
+    sample("start")
+    const frame = () => {
+      const state = target.__previewFrameProbe
+      if (!state?.active) return
+      sample("frame")
+      requestAnimationFrame(frame)
+    }
+    requestAnimationFrame(frame)
+  }, tid.botAuditPreviewDock)
+}
+
+async function finishPreviewFrameProbe(page: Page): Promise<PreviewFrameSample[]> {
+  return page.evaluate(async () => {
+    await new Promise<void>((resolveFrames) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(
+        () => resolveFrames(),
+      )))
+    })
+    const target = window as typeof window & {
+      __previewFrameProbe?: {
+        active: boolean
+        observer: MutationObserver
+        samples: PreviewFrameSample[]
+      }
+    }
+    const state = target.__previewFrameProbe
+    if (!state) throw new Error("preview frame probe was not installed")
+    state.active = false
+    state.observer.disconnect()
+    return state.samples
+  })
+}
+
+function expectPreviewFrames(samples: PreviewFrameSample[], label: string): void {
+  expect(samples.length, `${label}: captured frames`).toBeGreaterThan(1)
+  const baseline = samples[0]!
+  expect(baseline.rootOverflowX, `${label}: baseline root X overflow`).toBe(0)
+  expect(baseline.rootOverflowY, `${label}: baseline root Y overflow`).toBe(0)
+  const visible = samples.filter((sample) => sample.ready === "true"
+    && sample.visibility === "visible"
+    && sample.rect)
+  expect(visible.length, `${label}: visible positioned frames`).toBeGreaterThan(0)
+
+  for (const [index, sample] of samples.entries()) {
+    expect(sample.rootOverflowX, `${label}: frame ${index} root X overflow`).toBe(0)
+    expect(sample.rootOverflowY, `${label}: frame ${index} root Y overflow`).toBe(0)
+    expect(sample.scrollX, `${label}: frame ${index} root scrollX`).toBe(baseline.scrollX)
+    expect(sample.scrollY, `${label}: frame ${index} root scrollY`).toBe(baseline.scrollY)
+    if (sample.ready === "false") {
+      expect(sample.visibility, `${label}: frame ${index} hidden measurement`).toBe("hidden")
+      expect(sample.pointerEvents, `${label}: frame ${index} inert measurement`).toBe("none")
+    }
+    if (sample.ready !== "true" || sample.visibility !== "visible" || !sample.rect) continue
+    expect(sample.rect.x, `${label}: frame ${index} left boundary`).toBeGreaterThanOrEqual(7.5)
+    expect(sample.rect.y, `${label}: frame ${index} top boundary`).toBeGreaterThanOrEqual(7.5)
+    expect(
+      sample.rect.x + sample.rect.width,
+      `${label}: frame ${index} right boundary`,
+    ).toBeLessThanOrEqual(sample.viewportWidth - 7.5)
+    expect(
+      sample.rect.y + sample.rect.height,
+      `${label}: frame ${index} bottom boundary`,
+    ).toBeLessThanOrEqual(sample.viewportHeight - 7.5)
+  }
+}
+
+async function probeOwnedBotProfile(
+  page: Page,
+  author: Locator,
+  label: string,
+): Promise<PreviewFrameSample[]> {
+  await expect(author).toBeVisible({ timeout: 20_000 })
+  await installPreviewFrameProbe(page)
+  await author.click()
+  const dock = page.getByTestId(tid.botAuditPreviewDock)
+  await expect(dock).toHaveAttribute("data-measurement-ready", "true")
+  await expect(dock).toBeVisible()
+  const samples = await finishPreviewFrameProbe(page)
+  expectPreviewFrames(samples, label)
+  return samples
+}
+
 test("full audit log reveals a truncated row by hover and touch", async ({ asUser }, testInfo) => {
   test.setTimeout(120_000)
   const suffix = Date.now().toString(36)
@@ -433,6 +567,104 @@ test("full audit log reveals a truncated row by hover and touch", async ({ asUse
   } finally {
     machine.socket.close()
   }
+})
+
+test("owned bot profile preview stays root-bounded from its first visible frame", async ({ asUser }, testInfo) => {
+  test.setTimeout(120_000)
+  const suffix = Date.now().toString(36)
+  const serverId = await seedServer("alice", `preview-overflow-${suffix}`)
+  const channelName = `regular-${suffix}`
+  const forumName = `forum-${suffix}`
+  const channelId = await seedChannel("alice", serverId, channelName)
+  const forumId = await seedChannel("alice", serverId, forumName, "forum")
+  const forumThreadId = await seedForumThread(
+    "alice",
+    forumId,
+    `Right column ${suffix}`,
+    `Forum opener ${suffix}`,
+  )
+  await seedJoinServer("alice", "bob", serverId)
+
+  const { credential, machineId } = await pairMachine()
+  const botName = `Overflow bot ${suffix}`
+  const botId = await createBot(machineId, botName)
+  await jsonRequest("alice", `/api/community/servers/${serverId}/bots`, {
+    method: "POST",
+    body: JSON.stringify({ botId }),
+  })
+  const runnerKey = await enrollBot(credential, botId)
+  const { servers } = await jsonRequest<{
+    servers: Array<{ id: string; name: string; discriminator: string }>
+  }>("alice", "/api/community/servers")
+  const server = servers.find((candidate) => candidate.id === serverId)
+  expect(server).toBeTruthy()
+  const channelRef = `/${server!.name}#${server!.discriminator}/${channelName}`
+  const forumRef = `/${server!.name}#${server!.discriminator}/${forumName}`
+  const forumEnvelope = await jsonRequest<{
+    threads: Array<{ id: string; parentMessageId: string | null }>
+    included: { parentMessages: Array<{ id: string; seq: number }> }
+  }>(
+    "alice",
+    `/api/community/channels/${forumId}/threads?order=createdAt&limit=50&include=parentMessage`,
+  )
+  const forumThread = forumEnvelope.threads.find((thread) => thread.id === forumThreadId)
+  const forumOpener = forumEnvelope.included.parentMessages.find(
+    (message) => message.id === forumThread?.parentMessageId,
+  )
+  expect(forumOpener?.seq).toBeGreaterThan(0)
+  await sendBotMessage(runnerKey, channelRef, `Regular overflow probe ${suffix}`)
+  await sendBotMessage(
+    runnerKey,
+    `${forumRef}/#${forumOpener!.seq}`,
+    `Forum overflow probe ${suffix}`,
+  )
+
+  const regularRoute = `/c/channels/${serverId}/${channelId}`
+  const alice = await asUser("alice")
+  await alice.page.setViewportSize({ width: 1280, height: 900 })
+  await gotoAfterUserWsAuth(alice.page, regularRoute)
+  const regularFrames = await probeOwnedBotProfile(
+    alice.page,
+    alice.page.getByRole("button", { name: botName, exact: true }),
+    "regular channel",
+  )
+  await testInfo.attach("owned-agent-preview-regular-frames.json", {
+    body: Buffer.from(JSON.stringify(regularFrames, null, 2)),
+    contentType: "application/json",
+  })
+  await attachPageScreenshot(testInfo, "owned-agent-preview-regular", alice.page)
+
+  await gotoAfterUserWsAuth(alice.page, `/c/channels/${serverId}/${forumThreadId}`)
+  const split = alice.page.getByTestId(tid.threadSplit)
+  await expect(split).toHaveAttribute("data-layout", "split", { timeout: 20_000 })
+  const threadPanel = alice.page.getByTestId(tid.threadSplitPanel)
+  const forumFrames = await probeOwnedBotProfile(
+    alice.page,
+    threadPanel.getByRole("button", { name: botName, exact: true }),
+    "forum split right column",
+  )
+  await testInfo.attach("owned-agent-preview-forum-split-frames.json", {
+    body: Buffer.from(JSON.stringify(forumFrames, null, 2)),
+    contentType: "application/json",
+  })
+  await attachPageScreenshot(testInfo, "owned-agent-preview-forum-split", alice.page)
+
+  await alice.page.setViewportSize({ width: 390, height: 844 })
+  await gotoAfterUserWsAuth(alice.page, regularRoute)
+  await openBotProfile(alice.page, botName)
+  await expect(alice.page.getByRole("dialog", { name: `${botName} profile` })).toBeVisible()
+  await expect(alice.page.getByTestId(tid.botMarkSticker)).toBeVisible()
+  await expect(alice.page.getByTestId(tid.botAuditPreviewDock)).toHaveCount(0)
+  await attachPageScreenshot(testInfo, "owned-agent-preview-mobile-390", alice.page)
+
+  const bob = await asUser("bob")
+  await bob.page.setViewportSize({ width: 1280, height: 900 })
+  await gotoAfterUserWsAuth(bob.page, regularRoute)
+  await openBotProfile(bob.page, botName)
+  await expect(bob.page.getByTestId(tid.profileOwnerLink)).toBeVisible()
+  await expect(bob.page.getByTestId(tid.botMarkSticker)).toHaveCount(0)
+  await expect(bob.page.getByTestId(tid.botAuditPreviewDock)).toHaveCount(0)
+  await attachPageScreenshot(testInfo, "owned-agent-preview-non-owner", bob.page)
 })
 
 test("owner-only bot mark sticker, Stop lifecycle, owner swap, and URL-owned audit modal", async ({ asUser }, testInfo) => {

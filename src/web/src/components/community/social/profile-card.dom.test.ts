@@ -294,7 +294,7 @@ describe("ProfileCard contextual metadata", () => {
     const independentPreview = desktop.indexOf(`data-testid={tid.botAuditPreviewDock}`)
 
     expect(desktop).toContain(
-      `className="relative w-75 overflow-visible border-0 bg-transparent p-0 shadow-none"`,
+      'secondaryCards && !previewReady ? "overflow-hidden" : "overflow-visible"',
     )
     expect(mainCard).toBeGreaterThan(0)
     expect(independentPreview).toBeGreaterThan(0)
@@ -303,6 +303,10 @@ describe("ProfileCard contextual metadata", () => {
     expect(source).toContain('addEventListener("animationend", update)')
     expect(source).toContain("cardElement.offsetWidth")
     expect(source).toContain("previewElement.offsetWidth")
+    expect(source).toContain("measuredPosition?.measurementKey === measurementKey")
+    expect(source).toContain("data-measurement-ready={previewReady ? \"true\" : \"false\"}")
+    expect(source).toContain("visibility: previewReady ? \"visible\" : \"hidden\"")
+    expect(source).toContain("pointerEvents: previewReady ? undefined : \"none\"")
     expect(source).toContain("<BotMarkSticker")
     expect(source).toContain("onOpenActivity={() => onOpenBotAudit?.(data.userId!)}")
     expect(source).toContain("onStop={interruptAgent}")
