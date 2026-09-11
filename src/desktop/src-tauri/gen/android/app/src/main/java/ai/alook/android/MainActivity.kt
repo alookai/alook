@@ -16,9 +16,11 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
+import ai.alook.plugin.mobileshareimage.MobileShareImageDocumentOwner
 
 class MainActivity : TauriActivity() {
     private var isReady = false
+    private val mobileShareImageDocumentOwner = MobileShareImageDocumentOwner(this)
 
     companion object {
         const val COLOR_LIGHT = "#FFFFFF"
@@ -46,6 +48,7 @@ class MainActivity : TauriActivity() {
         val splashScreen = installSplashScreen()
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        mobileShareImageDocumentOwner.attach(savedInstanceState)
 
         splashScreen.setKeepOnScreenCondition { !isReady }
 
@@ -70,6 +73,16 @@ class MainActivity : TauriActivity() {
                 .setInsets(imeType, Insets.of(imeInsets.left, imeInsets.top, imeInsets.right, 0))
                 .build()
         }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        mobileShareImageDocumentOwner.saveState(outState)
+        super.onSaveInstanceState(outState)
+    }
+
+    override fun onDestroy() {
+        mobileShareImageDocumentOwner.detach()
+        super.onDestroy()
     }
 
     override fun onWebViewCreate(webView: WebView) {

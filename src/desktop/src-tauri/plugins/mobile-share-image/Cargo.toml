@@ -1,0 +1,16 @@
+[package]
+name = "tauri-plugin-mobile-share-image"
+version = "0.1.0"
+edition = "2021"
+links = "tauri-plugin-mobile-share-image"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+tauri = { version = "=2.11.2", default-features = false }
+thiserror = "2"
+
+[target.'cfg(target_os = "ios")'.dependencies]
+tauri = { version = "=2.11.2", features = ["wry"], default-features = false }

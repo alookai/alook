@@ -51,6 +51,8 @@ const iosEntitlements = readTauri(
 const iosProject = readTauri("gen/apple/project.yml")
 const cargo = readTauri("Cargo.toml")
 const rustEntry = readTauri("src/lib.rs")
+const oauthRuntime = readTauri("src/native_oauth_runtime.rs")
+const nativeCommandGuard = readTauri("src/native_command_guard.rs")
 const mobileRelease = readRoot(".github/workflows/mobile-release.yml")
 const desktopPackage = JSON.parse(readRoot("src/desktop/package.json")) as {
   scripts: Record<string, string>
@@ -134,6 +136,10 @@ describe("native OAuth mobile activation", () => {
     expect(rustEntry).toContain("fn run_mobile(")
     expect(rustEntry).toContain("native_oauth_runtime::native_oauth_prepare")
     expect(rustEntry).toContain("native_oauth_runtime::setup(app.handle())")
+    expect(oauthRuntime).toContain("use crate::native_command_guard::guard;")
+    expect(nativeCommandGuard).toContain('label == "main"')
+    expect(nativeCommandGuard).toContain('"http://localhost:3000"')
+    expect(nativeCommandGuard).toContain('"https://alook.ai"')
     expect(rustEntry.indexOf("tauri_plugin_single_instance::init")).toBeLessThan(
       rustEntry.indexOf("tauri_plugin_deep_link::init"),
     )

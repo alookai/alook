@@ -1128,6 +1128,13 @@ describe("Desktop image clipboard", () => {
       "desktop-capability",
       "external-links",
       expect.objectContaining({ identifier: "native-oauth-dev", local: true, remote: { urls: ["http://localhost:3000"] }, permissions: ["native-oauth"] }),
+      expect.objectContaining({
+        identifier: "mobile-share-image-dev",
+        local: true,
+        platforms: ["android", "iOS"],
+        remote: { urls: ["http://localhost:3000"] },
+        permissions: ["allow-mobile-share-image-copy", "allow-mobile-share-image-save"],
+      }),
     ])
   })
 })

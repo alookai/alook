@@ -1252,12 +1252,177 @@ describe("MessageShareDialog action feedback", () => {
     }
   }
 
+  function setupMobileActionEnvironment(invoke: ReturnType<typeof vi.fn>) {
+    Object.defineProperty(window, "__TAURI__", {
+      configurable: true,
+      value: { core: { invoke } },
+    })
+    vi.spyOn(navigator, "userAgent", "get").mockReturnValue("iPhone")
+    Object.defineProperty(document, "fonts", {
+      configurable: true,
+      value: { ready: Promise.resolve() },
+    })
+    vi.stubGlobal("getComputedStyle", vi.fn(() => ({
+      getPropertyValue: vi.fn(() => ""),
+    })))
+    const renderer = renderMessage(message())
+    const copyButton = actionButton(tid.messageShareCopy)
+    const saveButton = actionButton(tid.messageShareSave)
+    const dialog = capturedNode(
+      componentMocks.dialogProps,
+      (props) => typeof props.onOpenChange === "function",
+    )
+    return { copyButton, dialog, renderer, saveButton }
+  }
+
   afterEach(() => {
+    Reflect.deleteProperty(window, "__TAURI__")
     vi.mocked(toBlob).mockReset()
     vi.mocked(toast.success).mockReset()
     vi.mocked(toast.error).mockReset()
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
+  })
+
+  it("routes mobile copy and shows success only after the native terminal receipt", async () => {
+    const native = deferred<Record<string, unknown>>()
+    const invoke = vi.fn(() => native.promise)
+    vi.mocked(toBlob).mockResolvedValue(new Blob(["png"], { type: "image/png" }))
+    const harness = setupMobileActionEnvironment(invoke)
+    let copy!: Promise<void>
+
+    act(() => { copy = harness.copyButton.props.onClick() })
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledOnce())
+    expect(invoke.mock.calls[0]![0]).toBe("mobile_share_image_copy")
+    expect(harness.copyButton.props.disabled).toBe(true)
+    expect(harness.saveButton.props.disabled).toBe(true)
+    expect(toast.success).not.toHaveBeenCalled()
+    const attemptId = (invoke.mock.calls[0]![1] as {
+      payload: { attemptId: string }
+    }).payload.attemptId
+
+    await act(async () => {
+      native.resolve({ attemptId, status: "copied", destination: "clipboard" })
+      await copy
+    })
+
+    expect(toast.success).toHaveBeenCalledWith("Image copied to clipboard")
+    expect(toast.error).not.toHaveBeenCalled()
+    expect(harness.copyButton.children).toContain("Copied")
+  })
+
+  it.each([
+    ["photos", "Saved to Photos"],
+    ["pictures", "Saved to Pictures/Alook"],
+    ["document", "Image saved"],
+  ] as const)("maps mobile %s receipt to exact save feedback", async (destination, feedback) => {
+    const invoke = vi.fn(async (_command: string, args: {
+      payload: { attemptId: string; filename: string }
+    }) => ({
+      attemptId: args.payload.attemptId,
+      status: "saved",
+      destination,
+    }))
+    vi.mocked(toBlob).mockResolvedValue(new Blob(["png"], { type: "image/png" }))
+    const harness = setupMobileActionEnvironment(invoke)
+
+    await act(async () => { await harness.saveButton.props.onClick() })
+
+    expect(invoke).toHaveBeenCalledOnce()
+    expect(invoke.mock.calls[0]![0]).toBe("mobile_share_image_save")
+    expect((invoke.mock.calls[0]![1] as {
+      payload: { filename: string }
+    }).payload.filename).toBe("alook-message-Alice.png")
+    expect(toast.success).toHaveBeenCalledWith(feedback)
+    expect(toast.error).not.toHaveBeenCalled()
+  })
+
+  it("keeps mobile cancellation silent and re-enables both actions", async () => {
+    const invoke = vi.fn().mockRejectedValue({ code: "cancelled", message: "cancelled" })
+    vi.mocked(toBlob).mockResolvedValue(new Blob(["png"], { type: "image/png" }))
+    const harness = setupMobileActionEnvironment(invoke)
+
+    await act(async () => { await harness.saveButton.props.onClick() })
+
+    expect(toast.success).not.toHaveBeenCalled()
+    expect(toast.error).not.toHaveBeenCalled()
+    expect(harness.copyButton.props.disabled).toBe(false)
+    expect(harness.saveButton.props.disabled).toBe(false)
+  })
+
+  it("shows mobile Photos denial and oversize failures without success", async () => {
+    const invoke = vi.fn().mockRejectedValue({
+      code: "permission_denied",
+      message: "denied",
+    })
+    vi.mocked(toBlob).mockResolvedValue(new Blob(["png"], { type: "image/png" }))
+    let harness = setupMobileActionEnvironment(invoke)
+
+    await act(async () => { await harness.saveButton.props.onClick() })
+    expect(toast.error).toHaveBeenCalledWith(
+      "Couldn't save image — allow Photos access in Settings",
+    )
+    expect(toast.success).not.toHaveBeenCalled()
+
+    act(() => harness.renderer.unmount())
+    vi.mocked(toast.error).mockReset()
+    vi.mocked(toBlob).mockResolvedValue({
+      type: "image/png",
+      size: 10 * 1024 * 1024 + 1,
+    } as Blob)
+    harness = setupMobileActionEnvironment(vi.fn())
+    await act(async () => { await harness.copyButton.props.onClick() })
+    expect(toast.error).toHaveBeenCalledWith("Image is too large — select fewer messages")
+    expect(toast.success).not.toHaveBeenCalled()
+  })
+
+  it("keeps the first mobile action as sole native owner during overlap", async () => {
+    const native = deferred<Record<string, unknown>>()
+    const invoke = vi.fn(() => native.promise)
+    vi.mocked(toBlob).mockResolvedValue(new Blob(["png"], { type: "image/png" }))
+    const harness = setupMobileActionEnvironment(invoke)
+    let copy!: Promise<void>
+    let save!: Promise<void>
+
+    act(() => {
+      copy = harness.copyButton.props.onClick()
+      save = harness.saveButton.props.onClick()
+    })
+
+    expect(save).toBe(copy)
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledOnce())
+    expect(invoke.mock.calls[0]![0]).toBe("mobile_share_image_copy")
+    const attemptId = (invoke.mock.calls[0]![1] as {
+      payload: { attemptId: string }
+    }).payload.attemptId
+    await act(async () => {
+      native.resolve({ attemptId, status: "copied", destination: "clipboard" })
+      await copy
+    })
+    expect(toast.success).toHaveBeenCalledOnce()
+  })
+
+  it("suppresses late mobile feedback when closed after native invocation", async () => {
+    const native = deferred<Record<string, unknown>>()
+    const invoke = vi.fn(() => native.promise)
+    vi.mocked(toBlob).mockResolvedValue(new Blob(["png"], { type: "image/png" }))
+    const harness = setupMobileActionEnvironment(invoke)
+    let save!: Promise<void>
+
+    act(() => { save = harness.saveButton.props.onClick() })
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledOnce())
+    act(() => harness.dialog.props.onOpenChange(false))
+    const attemptId = (invoke.mock.calls[0]![1] as {
+      payload: { attemptId: string }
+    }).payload.attemptId
+    await act(async () => {
+      native.resolve({ attemptId, status: "saved", destination: "photos" })
+      await save
+    })
+
+    expect(toast.success).not.toHaveBeenCalled()
+    expect(toast.error).not.toHaveBeenCalled()
+    expect(harness.copyButton.props.disabled).toBe(false)
   })
 
   it("confirms a completed image download", async () => {

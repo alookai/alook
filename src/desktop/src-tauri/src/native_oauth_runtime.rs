@@ -1,3 +1,4 @@
+use crate::native_command_guard::guard;
 use crate::native_oauth::{Exchange, Proof, Record, Registration, Snapshot};
 use std::sync::{Arc, Mutex};
 use tauri::{ipc::Channel, AppHandle, Manager, WebviewWindow};
@@ -48,27 +49,6 @@ fn now() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64
-}
-
-fn caller_allowed(label: &str, url: &url::Url, debug: bool) -> bool {
-    let expected = if debug {
-        "http://localhost:3000"
-    } else {
-        "https://alook.ai"
-    };
-    label == "main"
-        && url.origin().ascii_serialization() == expected
-        && url.username().is_empty()
-        && url.password().is_none()
-}
-
-fn guard(window: &WebviewWindow) -> Result<(), &'static str> {
-    let url = window.url().map_err(|_| "untrusted_caller")?;
-    if caller_allowed(window.label(), &url, cfg!(debug_assertions)) {
-        Ok(())
-    } else {
-        Err("untrusted_caller")
-    }
 }
 
 fn commit_record<T>(
@@ -311,6 +291,7 @@ pub fn native_oauth_cancel(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::native_command_guard::caller_allowed;
     #[test]
     fn durable_commit_precedes_proof_release_and_notification() {
         let time = 1_000_000;

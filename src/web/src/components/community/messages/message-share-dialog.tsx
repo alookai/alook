@@ -6,7 +6,7 @@ import { toBlob } from "html-to-image"
 import { toast } from "sonner"
 import { Check, Copy, Download, Highlighter, Loader2 } from "lucide-react"
 import { writeImage } from "@tauri-apps/plugin-clipboard-manager"
-import { isDesktop, isTauri, stripInlineMarkup } from "@alook/shared"
+import { isDesktop, isMobile, isTauri, stripInlineMarkup } from "@alook/shared"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Avatar } from "../avatar"
@@ -458,6 +458,14 @@ export async function renderShareCard(
 type ShareCardRenderer = () => Promise<Blob | null>
 type ShareCardBlobWriter = (blob: Blob) => Promise<void> | void
 
+function mobileShareImageErrorCode(error: unknown): string | null {
+  if (typeof error !== "object" || error === null) return null
+  const value = error as { name?: unknown; code?: unknown }
+  return value.name === "MobileShareImageError" && typeof value.code === "string"
+    ? value.code
+    : null
+}
+
 export async function writeShareCardToClipboard(blob: Blob): Promise<void> {
   if (isTauri() && isDesktop()) {
     await writeImage(await blob.arrayBuffer())
@@ -543,6 +551,7 @@ export function MessageShareDialog({ m, open, onClose }: {
   onClose: () => void
 }) {
   const messages = useMemo(() => (Array.isArray(m) ? m : [m]), [m])
+  const mobileNative = isTauri() && isMobile()
   const profilesByUserId = useProfilesByUserId()
   const cardRef = useRef<HTMLDivElement>(null)
   // One body wrapper per message — highlight operations are scoped to the body
@@ -643,8 +652,18 @@ export function MessageShareDialog({ m, open, onClose }: {
         })
         if (!isCurrent()) return
 
-        if (action === "copy") await writeShareCardToClipboard(blob)
-        else await saveShareCardDownload(blob, filename)
+        let mobileDestination: "photos" | "pictures" | "document" | null = null
+        if (action === "copy") {
+          if (mobileNative) {
+            const { copyMobileShareImage } = await import("@/lib/community/mobile-share-image")
+            if (!isCurrent()) return
+            await copyMobileShareImage(blob)
+          } else await writeShareCardToClipboard(blob)
+        } else if (mobileNative) {
+          const { saveMobileShareImage } = await import("@/lib/community/mobile-share-image")
+          if (!isCurrent()) return
+          mobileDestination = (await saveMobileShareImage(blob, filename)).destination
+        } else await saveShareCardDownload(blob, filename)
         if (!isCurrent()) return
 
         if (action === "copy") {
@@ -655,14 +674,37 @@ export function MessageShareDialog({ m, open, onClose }: {
             copiedTimerRef.current = null
             setCopied(false)
           }, 1600)
+        } else if (mobileDestination === "photos") {
+          toast.success("Saved to Photos")
+        } else if (mobileDestination === "pictures") {
+          toast.success("Saved to Pictures/Alook")
+        } else if (mobileDestination === "document") {
+          toast.success("Image saved")
         } else {
           toast.success("Image downloaded")
         }
       } catch (error) {
         if (!isCurrent()) return
+        const mobileErrorCode = mobileShareImageErrorCode(error)
+        if (mobileErrorCode === "cancelled") return
+        if (mobileErrorCode === "image_too_large") {
+          toast.error("Image is too large — select fewer messages")
+          return
+        }
+        if (
+          action === "download"
+          && mobileErrorCode === "permission_denied"
+        ) {
+          toast.error("Couldn't save image — allow Photos access in Settings")
+          return
+        }
         toast.error(
           shareCardRenderErrorMessage(error)
-          ?? (action === "copy" ? "Couldn't copy image — try Download instead" : "Couldn't generate image"),
+          ?? (action === "copy"
+            ? mobileNative
+              ? "Couldn't copy image — try Save image instead"
+              : "Couldn't copy image — try Download instead"
+            : mobileNative ? "Couldn't save image" : "Couldn't generate image"),
         )
       } finally {
         if (exportOwnerRef.current.active?.id !== id) return
@@ -672,7 +714,7 @@ export function MessageShareDialog({ m, open, onClose }: {
     })()
 
     return flight.promise
-  }, [messages, profilesByUserId])
+  }, [messages, mobileNative, profilesByUserId])
 
   const close = useCallback(() => {
     invalidateExport()
@@ -875,19 +917,25 @@ export function MessageShareDialog({ m, open, onClose }: {
             )}
           </div>
           <div className="flex gap-2">
-          <Button variant="ghost" size="sm" onClick={download} disabled={busy !== null}>
-            {busy === "download" ? <Loader2 className="animate-spin" /> : <Download />}
-            Download
-          </Button>
-          <Button
-            size="sm"
-            data-testid={tid.messageShareCopy}
-            onClick={copy}
-            disabled={busy !== null}
-          >
-            {busy === "copy" ? <Loader2 className="animate-spin" /> : copied ? <Check /> : <Copy />}
-            {copied ? "Copied" : "Copy image"}
-          </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              data-testid={mobileNative ? tid.messageShareSave : undefined}
+              onClick={download}
+              disabled={busy !== null}
+            >
+              {busy === "download" ? <Loader2 className="animate-spin" /> : <Download />}
+              {mobileNative ? "Save image" : "Download"}
+            </Button>
+            <Button
+              size="sm"
+              data-testid={tid.messageShareCopy}
+              onClick={copy}
+              disabled={busy !== null}
+            >
+              {busy === "copy" ? <Loader2 className="animate-spin" /> : copied ? <Check /> : <Copy />}
+              {copied ? "Copied" : "Copy image"}
+            </Button>
           </div>
         </div>
       </DialogContent>

@@ -48,7 +48,8 @@
         "desktop-capability",
         "external-links",
         "native-oauth",
-        "native-oauth-mobile"
+        "native-oauth-mobile",
+        "mobile-share-image-mobile"
       ]
     }
   },

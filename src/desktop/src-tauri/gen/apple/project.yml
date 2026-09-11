@@ -53,6 +53,7 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         CFBundleShortVersionString: 0.1.36
         CFBundleVersion: "1"
+        NSPhotoLibraryAddUsageDescription: Allow Alook to save shared message images to Photos.
         CFBundleURLTypes:
           - CFBundleURLName: ai.alook
             CFBundleURLSchemes: [ai.alook]

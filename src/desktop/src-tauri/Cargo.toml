@@ -20,9 +20,14 @@ tauri-plugin-deep-link = "2"
 tauri-plugin-store = "2"
 base64 = "0.22"
 getrandom = "0.3"
+png = "0.18"
 sha2 = "0.10"
 subtle = "2"
+unicode-normalization = "0.1"
 url = "2"
+
+[target."cfg(any(target_os = \"android\", target_os = \"ios\"))".dependencies]
+tauri-plugin-mobile-share-image = { path = "plugins/mobile-share-image" }
 
 [target."cfg(not(any(target_os = \"android\", target_os = \"ios\")))".dependencies]
 tauri-plugin-notification = "2"

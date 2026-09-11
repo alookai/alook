@@ -6,6 +6,10 @@ import { tid } from "./_fixtures/testids"
 
 type SamplePoint = { x: number; y: number }
 type CaptureKind = "clipboard" | "download"
+type MobileShareTestState = {
+  calls: Array<{ command: string; attemptId: string; filename?: string }>
+  finish: (index: number, destination: "clipboard" | "pictures") => void
+}
 
 async function uploadPhoto(page: Page): Promise<void> {
   const status = await page.evaluate(async () => {
@@ -206,6 +210,68 @@ async function holdNextAvatarRequest(page: Page) {
   }
 }
 
+async function installMobileShareNativeStub(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const completions: Array<(value: Record<string, unknown>) => void> = []
+    const state: MobileShareTestState = {
+      calls: [],
+      finish(index, destination) {
+        const call = this.calls[index]
+        if (!call) throw new Error(`Missing mobile share call ${index}`)
+        completions[index]?.({
+          attemptId: call.attemptId,
+          status: destination === "clipboard" ? "copied" : "saved",
+          destination,
+        })
+      },
+    }
+    Object.defineProperty(navigator, "userAgent", {
+      configurable: true,
+      get: () => "iPhone",
+    })
+    Object.defineProperty(window, "__mobileShareTestState", {
+      configurable: true,
+      value: state,
+    })
+    Object.defineProperty(window, "__TAURI__", {
+      configurable: true,
+      value: {
+        core: {
+          invoke: (command: string, args: {
+            payload: { attemptId: string; filename?: string }
+          }) => new Promise((resolve) => {
+            state.calls.push({
+              command,
+              attemptId: args.payload.attemptId,
+              filename: args.payload.filename,
+            })
+            completions.push(resolve)
+          }),
+        },
+      },
+    })
+  })
+}
+
+async function mobileShareCalls(page: Page) {
+  return page.evaluate(() => (
+    window as typeof window & { __mobileShareTestState: MobileShareTestState }
+  ).__mobileShareTestState.calls)
+}
+
+async function finishMobileShareCall(
+  page: Page,
+  index: number,
+  destination: "clipboard" | "pictures",
+): Promise<void> {
+  await page.evaluate(({ callIndex, resultDestination }) => {
+    const state = (
+      window as typeof window & { __mobileShareTestState: MobileShareTestState }
+    ).__mobileShareTestState
+    state.finish(callIndex, resultDestination)
+  }, { callIndex: index, resultDestination: destination })
+}
+
 test("share image timestamp matches the live row and survives both exports", async ({ asUser }) => {
   test.setTimeout(120_000)
   const serverId = await seedServer("alice", `Share timestamp ${Date.now()}`)
@@ -259,6 +325,58 @@ test("share image timestamp matches the live row and survives both exports", asy
     download: 1,
   })
   await expect(card.locator("[data-share-timestamp]")).toHaveText(expectedTimestamp)
+})
+
+test("mobile routing waits for native copy and save receipts", async ({ asUser }) => {
+  test.setTimeout(120_000)
+  const serverId = await seedServer("alice", `Mobile share receipt ${Date.now()}`)
+  const channelId = await seedChannel("alice", serverId, "mobile-share-receipt")
+  const { page } = await asUser("alice")
+  await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelId}`)
+  const seeded = await page.evaluate(async (targetId) => {
+    const response = await fetch(`/api/community/channels/${targetId}/messages`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        content: "Native receipt controls success",
+        attachments: [],
+        nonce: `e2e:${crypto.randomUUID()}`,
+      }),
+    })
+    const payload = await response.json() as { message: { id: string } }
+    return { status: response.status, messageId: payload.message.id }
+  }, channelId)
+  expect(seeded.status).toBe(201)
+  await installMobileShareNativeStub(page)
+
+  const dialog = await openShareDialog(page, seeded.messageId)
+  const copy = dialog.getByRole("button", { name: "Copy image" })
+  const save = dialog.getByRole("button", { name: "Save image" })
+  await expect(dialog.getByRole("button", { name: "Download" })).toHaveCount(0)
+
+  await copy.click()
+  await expect.poll(() => mobileShareCalls(page)).toHaveLength(1)
+  await expect(copy).toBeDisabled()
+  await expect(save).toBeDisabled()
+  await expect(page.getByText("Image copied to clipboard", { exact: true })).toHaveCount(0)
+  await finishMobileShareCall(page, 0, "clipboard")
+  await expect(dialog.getByRole("button", { name: "Copied" })).toBeVisible()
+  await expect(copy).toBeVisible({ timeout: 5_000 })
+
+  await save.click()
+  await expect.poll(() => mobileShareCalls(page)).toHaveLength(2)
+  await expect(page.getByText("Saved to Pictures/Alook", { exact: true })).toHaveCount(0)
+  await finishMobileShareCall(page, 1, "pictures")
+  await expect(page.getByText("Saved to Pictures/Alook", { exact: true })).toBeVisible()
+
+  expect(await mobileShareCalls(page)).toEqual([
+    expect.objectContaining({ command: "mobile_share_image_copy" }),
+    expect.objectContaining({
+      command: "mobile_share_image_save",
+      filename: expect.stringMatching(/^alook-message-.+\.png$/),
+    }),
+  ])
 })
 
 test("consecutive share-image exports reuse rendered avatar, attachment, and invite icon pixels", async ({ asUser }) => {

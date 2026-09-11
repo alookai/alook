@@ -2,6 +2,11 @@ mod commands;
 
 use tauri::Manager;
 
+#[cfg(any(mobile, test))]
+mod mobile_share_image;
+#[cfg(mobile)]
+mod mobile_share_image_runtime;
+mod native_command_guard;
 mod native_oauth;
 mod native_oauth_runtime;
 mod webview_recovery;
@@ -61,7 +66,12 @@ pub fn run() {
 
 #[cfg(not(desktop))]
 fn run_mobile(mut builder: tauri::Builder<tauri::Wry>) {
+    builder = builder
+        .manage(mobile_share_image::MobileShareImageState::default())
+        .plugin(tauri_plugin_mobile_share_image::init());
     builder = builder.invoke_handler(tauri::generate_handler![
+        mobile_share_image_runtime::mobile_share_image_copy,
+        mobile_share_image_runtime::mobile_share_image_save,
         native_oauth_runtime::native_oauth_snapshot,
         native_oauth_runtime::native_oauth_listen,
         native_oauth_runtime::native_oauth_unlisten,
