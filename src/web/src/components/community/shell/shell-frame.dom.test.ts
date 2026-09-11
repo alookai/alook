@@ -4,6 +4,7 @@ import { render } from "@/test/react-dom-harness"
 import { ShellFrame } from "./shell-frame"
 
 const mocks = vi.hoisted(() => {
+  const serverCache = new Set<string>()
   const handlers = {
     previewImage: vi.fn(),
     previewAttachment: vi.fn(),
@@ -15,13 +16,21 @@ const mocks = vi.hoisted(() => {
     currentHref: { current: "/c/channels/s1" },
     pendingHref: { current: null as string | null },
     navigationPending: { current: false },
-    serverCache: new Set<string>(),
+    serverCache,
+    queryClient: {
+      getQueryData: (key: unknown[]) => serverCache.has(String(key.at(-1)))
+        ? { id: key.at(-1) }
+        : undefined,
+    },
     structuralSnapshot: { current: null as null | Record<string, unknown> },
     breakpoint: { current: "desktop" },
     onboardingState: { current: null as Record<string, unknown> | null },
     replace: vi.fn(),
     push: vi.fn(),
     registerUiHandlers: vi.fn(),
+    observeOwnerDelete: vi.fn(),
+    registerOwnerDelete: vi.fn(() => "ordinary"),
+    flushOwnerDelete: vi.fn(),
     handlers,
     rail: {
       railProps: {},
@@ -48,11 +57,14 @@ const mocks = vi.hoisted(() => {
 })
 
 vi.mock("@tanstack/react-query", () => ({
-  useQueryClient: () => ({
-    getQueryData: (key: unknown[]) => mocks.serverCache.has(String(key.at(-1)))
-      ? { id: key.at(-1) }
-      : undefined,
-  }),
+  useQueryClient: () => mocks.queryClient,
+}))
+vi.mock("@/hooks/community/community-ws/scope-eviction", () => ({
+  flushOwnerServerDeleteRouteCommit: (...args: unknown[]) => mocks.flushOwnerDelete(...args),
+}))
+vi.mock("@/lib/community/eject-server", () => ({
+  observeOwnerServerDeleteRouteCommit: (...args: unknown[]) => mocks.observeOwnerDelete(...args),
+  registerOwnerServerDeleteRoute: (...args: unknown[]) => mocks.registerOwnerDelete(...args),
 }))
 vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => mocks.breakpoint.current }))
 vi.mock("@/lib/community-onboarding", () => ({
@@ -136,6 +148,9 @@ describe("ShellFrame orchestration", () => {
     mocks.breakpoint.current = "desktop"
     mocks.onboardingState.current = null
     mocks.registerUiHandlers.mockClear()
+    mocks.observeOwnerDelete.mockClear()
+    mocks.registerOwnerDelete.mockClear()
+    mocks.flushOwnerDelete.mockClear()
     mocks.replace.mockClear()
     mocks.push.mockClear()
     mocks.railOptions.mockClear()
@@ -167,6 +182,28 @@ describe("ShellFrame orchestration", () => {
       frameHref: "/c/channels/s1/c2",
     }))
     expect(checkpoint().mode).toBe("committed")
+    expect(mocks.observeOwnerDelete).toHaveBeenLastCalledWith("/c/channels/s1/c2")
+    expect(mocks.flushOwnerDelete).toHaveBeenLastCalledWith(
+      mocks.queryClient,
+    )
+    expect(mocks.observeOwnerDelete.mock.invocationCallOrder.at(-1)).toBeLessThan(
+      mocks.flushOwnerDelete.mock.invocationCallOrder.at(-1) ?? 0,
+    )
+  })
+
+  it("registers the route token at the same committed-frame boundary", () => {
+    const token = {}
+    mocks.registerOwnerDelete.mockReturnValueOnce("participant")
+
+    render(createElement(ShellFrame, {
+      ...baseProps,
+      ownerDeleteRouteScope: { serverId: "s1", token },
+    }))
+
+    expect(mocks.registerOwnerDelete).toHaveBeenCalledWith("s1", token)
+    expect(mocks.registerOwnerDelete.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.observeOwnerDelete.mock.invocationCallOrder[0] ?? 0,
+    )
   })
 
   it("keeps the committed surface until exact frame evidence arrives", () => {

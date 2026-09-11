@@ -1,4 +1,5 @@
 import type { ReactNode } from "react"
+import type { OwnerServerDeleteRouteToken } from "@/lib/community/eject-server"
 import type { View } from "./shell-types"
 
 export type ShellFrameProps = {
@@ -10,6 +11,10 @@ export type ShellFrameProps = {
   extraDialogs?: ReactNode
   onOpenActiveServerSettings?: () => void
   onOpenActiveServerInvite?: () => void
+  ownerDeleteRouteScope?: {
+    serverId: string
+    token: OwnerServerDeleteRouteToken
+  }
 }
 
 export type ShellRouter = {

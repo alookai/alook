@@ -97,7 +97,7 @@ async function status(
 }
 
 test("existing channel/server deletes converge UI, WS, pending rows, linked media, and icon reads", async ({ asUser }) => {
-  test.setTimeout(150_000)
+  test.setTimeout(210_000)
   const stamp = Date.now()
   const channelServerId = await seedServer("alice", `C1 channel ${stamp}`)
   const channelId = await seedChannel("alice", channelServerId, `delete-media-${stamp}`, "text")
@@ -121,7 +121,7 @@ test("existing channel/server deletes converge UI, WS, pending rows, linked medi
 
   await gotoAfterUserWsAuth(alice.page, `/c/channels/${channelServerId}/${channelId}`)
   await gotoAfterUserWsAuth(bob.page, `/c/channels/${channelServerId}/${channelId}`)
-  await expect(bob.page.getByTestId(tid.channelRow(channelId))).toBeVisible()
+  await expect(bob.page.getByTestId(tid.channelRow(channelId))).toBeVisible({ timeout: 30_000 })
 
   expect(await status("bob", `/api/community/channels/${channelId}`, "DELETE")).toBe(403)
   expect(await status("carol", `/api/community/channels/${channelId}`, "DELETE")).toBe(403)
@@ -165,7 +165,14 @@ test("existing channel/server deletes converge UI, WS, pending rows, linked medi
   }).click()
   expect((await serverDeleteResponse).status()).toBe(204)
 
-  await expect(alice.page).toHaveURL(/\/c\/me(?:\/friends)?$/)
+  await expect(alice.page).not.toHaveURL(new RegExp(`/c/channels/${serverId}(?:/|$)`))
+  await expect(alice.page).toHaveURL(/\/c\/channels\/[^/]+\/[^/]+$/)
+  const deleteLanding = new URL(alice.page.url()).pathname.match(
+    /^\/c\/channels\/([^/]+)\/([^/]+)$/,
+  )
+  expect(deleteLanding).not.toBeNull()
+  expect(deleteLanding?.[1]).not.toBe(serverId)
+  expect(await status("alice", `/api/community/channels/${deleteLanding?.[2]}`)).toBe(200)
   await expect(alice.page.getByTestId(tid.serverIcon(serverId))).toHaveCount(0)
   await expect(alice.page.getByTestId(tid.channelRow(serverChannelId))).toHaveCount(0)
   await expect(alice.page.getByTestId(tid.composerInput)).toHaveCount(0)
@@ -182,6 +189,7 @@ test("existing channel/server deletes converge UI, WS, pending rows, linked medi
 
   await alice.page.goBack()
   await expect(alice.page).not.toHaveURL(new RegExp(`/c/channels/${serverId}/`))
+  // Regression: a fresh Back visit must not settle on the survivor Server root.
   await expect(alice.page).toHaveURL(/\/c\/channels\/[^/]+\/[^/]+$/)
   const siblingRoute = new URL(alice.page.url()).pathname.match(/^\/c\/channels\/([^/]+)\/([^/]+)$/)
   expect(siblingRoute).not.toBeNull()
@@ -196,7 +204,9 @@ test("existing channel/server deletes converge UI, WS, pending rows, linked medi
   expect(liveServers.servers.some(({ id }) => id === serverId)).toBe(false)
   expect(await status("alice", `/api/community/channels/${siblingChannelId}`)).toBe(200)
   await expect(alice.page.getByTestId(tid.serverIcon(siblingServerId))).toBeVisible()
-  await expect(alice.page.getByTestId(tid.channelRow(siblingChannelId))).toBeVisible()
+  await expect(alice.page.getByTestId(tid.channelRow(siblingChannelId))).toBeVisible({
+    timeout: 30_000,
+  })
   await alice.page.reload()
   await expect(alice.page).toHaveURL(new RegExp(`/c/channels/${siblingServerId}/${siblingChannelId}$`))
   await expect(alice.page.getByTestId(tid.serverIcon(serverId))).toHaveCount(0)

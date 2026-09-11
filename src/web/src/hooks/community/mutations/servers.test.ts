@@ -113,7 +113,10 @@ describe("useLeaveServer — optimistic + rollback", () => {
     apiFetchMock.mockRejectedValueOnce(new Error("boom"))
     const mod = await load()
     if (operation === "leave") mod.useLeaveServer()
-    else mod.useDeleteServer()
+    else {
+      const lifecycle = await import("@/lib/community/eject-server")
+      mod.useDeleteServer({ routeToken: lifecycle.createOwnerServerDeleteRouteToken() })
+    }
     await runMutation({ serverId: "srv_1" }).catch(() => {})
     const cache = capturedQc.getQueryData<{ servers: { id: string }[] }>(communityKeys.servers())
     expect(cache?.servers).toHaveLength(1)
@@ -152,9 +155,23 @@ describe("useLeaveServer — optimistic + rollback", () => {
         categories: [],
       })
       if (operation === "leave") mod.useLeaveServer()
-      else mod.useDeleteServer()
+      else {
+        const lifecycle = await import("@/lib/community/eject-server")
+        mod.useDeleteServer({ routeToken: lifecycle.createOwnerServerDeleteRouteToken() })
+      }
 
       await runMutation({ serverId: "srv_1" })
+      if (operation === "delete") {
+        expect(useCommunityStore.getState().currentServerId).toBe("srv_1")
+        const { flushOwnerServerDeleteRouteCommit } = await import(
+          "@/hooks/community/community-ws/scope-eviction"
+        )
+        const { observeOwnerServerDeleteRouteCommit } = await import(
+          "@/lib/community/eject-server"
+        )
+        expect(observeOwnerServerDeleteRouteCommit("/c/me")).toEqual(["srv_1"])
+        expect(flushOwnerServerDeleteRouteCommit(capturedQc)).toEqual(["srv_1"])
+      }
 
       expect(useCommunityStore.getState()).toMatchObject({
         currentServerId: null,
@@ -167,8 +184,121 @@ describe("useLeaveServer — optimistic + rollback", () => {
       expect(capturedQc.getQueryData<{
         serverOrder: string[]
       }>(communityKeys.structuralSnapshot())?.serverOrder).toEqual([])
+      if (operation === "delete") {
+        const lifecycle = await import("@/lib/community/eject-server")
+        expect(lifecycle.isOwnerServerDeleteRouteProtected("srv_1")).toBe(false)
+      }
     },
   )
+})
+
+describe("useDeleteServer — navigation lifecycle", () => {
+  it("reports zero navigation and flushes once when a safe route committed before success", async () => {
+    const args = { serverId: "srv_delete_after_safe_commit" }
+    capturedQc.setQueryData(communityKeys.servers(), {
+      servers: [{ id: args.serverId }],
+    })
+    capturedQc.setQueryData(communityKeys.server(args.serverId), {
+      id: args.serverId,
+      categories: [],
+    })
+    apiFetchMock.mockResolvedValueOnce(undefined)
+    const mod = await load()
+    const lifecycle = await import("@/lib/community/eject-server")
+    const routeToken = lifecycle.createOwnerServerDeleteRouteToken()
+    const onSuccess = vi.fn()
+    mod.useDeleteServer({ routeToken, onSuccess })
+    const { flushOwnerServerDeleteRouteCommit } = await import(
+      "@/hooks/community/community-ws/scope-eviction"
+    )
+    lifecycle.cancelOwnerServerDelete(args.serverId)
+    const removeQueries = vi.spyOn(capturedQc, "removeQueries")
+    const cfg = capturedConfig as MutConfig<typeof args, unknown>
+
+    const context = await cfg.onMutate?.(args)
+    expect(lifecycle.observeOwnerServerDeleteRouteCommit("/c/me")).toEqual([])
+    expect(flushOwnerServerDeleteRouteCommit(capturedQc)).toEqual([])
+    expect(capturedQc.getQueryState(communityKeys.server(args.serverId))).toBeDefined()
+    await cfg.mutationFn?.(args)
+    cfg.onSuccess?.(undefined, args, context)
+
+    expect(capturedQc.getQueryState(communityKeys.server(args.serverId))).toBeUndefined()
+    expect(removeQueries).toHaveBeenCalledTimes(1)
+    expect(onSuccess).toHaveBeenCalledWith(args, { needsNavigation: false })
+    expect(flushOwnerServerDeleteRouteCommit(capturedQc)).toEqual([])
+    expect(removeQueries).toHaveBeenCalledTimes(1)
+    expect(lifecycle.isOwnerServerDeleteRouteProtected(args.serverId)).toBe(false)
+    expect(lifecycle.isOwnerServerDeleteRouteProtected(args.serverId, routeToken)).toBe(true)
+  })
+
+  it("requests one navigation while the deleted route remains committed", async () => {
+    const args = { serverId: "srv_delete" }
+    capturedQc.setQueryData(communityKeys.servers(), {
+      servers: [{ id: args.serverId }],
+    })
+    apiFetchMock.mockResolvedValueOnce(undefined)
+    const mod = await load()
+    const lifecycle = await import("@/lib/community/eject-server")
+    const routeToken = lifecycle.createOwnerServerDeleteRouteToken()
+    const onSuccess = vi.fn()
+    mod.useDeleteServer({ routeToken, onSuccess })
+    lifecycle.cancelOwnerServerDelete(args.serverId)
+    const cfg = capturedConfig as MutConfig<typeof args, unknown>
+
+    const context = await cfg.onMutate?.(args)
+    expect(lifecycle.isOwnerServerDeleteRouteProtected(args.serverId)).toBe(true)
+    expect(capturedQc.getQueryData<{ servers: unknown[] }>(
+      communityKeys.servers(),
+    )?.servers).toEqual([])
+    await cfg.mutationFn?.(args)
+
+    cfg.onSuccess?.(undefined, args, context)
+    expect(onSuccess).toHaveBeenCalledWith(args, { needsNavigation: true })
+    expect(lifecycle.claimOwnerServerDeleteNavigation(
+      args.serverId,
+      routeToken,
+      "/c/me",
+    )).toBe(true)
+    const { flushOwnerServerDeleteRouteCommit } = await import(
+      "@/hooks/community/community-ws/scope-eviction"
+    )
+    expect(lifecycle.observeOwnerServerDeleteRouteCommit("/c/me")).toEqual([
+      args.serverId,
+    ])
+    expect(flushOwnerServerDeleteRouteCommit(capturedQc)).toEqual([
+      args.serverId,
+    ])
+    expect(lifecycle.isOwnerServerDeleteRouteProtected(args.serverId)).toBe(false)
+    expect(lifecycle.isOwnerServerDeleteRouteProtected(args.serverId, routeToken)).toBe(true)
+  })
+
+  it("restores the Server row and clears coordination after DELETE failure", async () => {
+    const args = { serverId: "srv_delete_failed" }
+    capturedQc.setQueryData(communityKeys.servers(), {
+      servers: [{ id: args.serverId }],
+    })
+    const mod = await load()
+    const lifecycle = await import("@/lib/community/eject-server")
+    const routeToken = lifecycle.createOwnerServerDeleteRouteToken()
+    const onError = vi.fn()
+    mod.useDeleteServer({ routeToken, onError })
+    lifecycle.cancelOwnerServerDelete(args.serverId)
+    const cfg = capturedConfig as MutConfig<typeof args, unknown>
+
+    const context = await cfg.onMutate?.(args)
+    expect(lifecycle.isOwnerServerDeleteRouteProtected(args.serverId)).toBe(true)
+    const failure = new Error("failed")
+    cfg.onError?.(failure, args, context)
+
+    expect(capturedQc.getQueryData<{ servers: Array<{ id: string }> }>(
+      communityKeys.servers(),
+    )?.servers).toEqual([{ id: args.serverId }])
+    expect(onError).toHaveBeenCalledWith(failure, args)
+    expect(lifecycle.isOwnerServerDeleteRouteProtected(args.serverId)).toBe(false)
+    expect(lifecycle.isOwnerServerDeleteRouteProtected(args.serverId, routeToken)).toBe(false)
+    lifecycle.observeOwnerServerDeleteRouteCommit("/c/me")
+    expect(lifecycle.claimOwnerServerDeleteScopeFlush(args.serverId)).toBe(false)
+  })
 })
 
 describe("useUpdateServer — rollback on both caches", () => {

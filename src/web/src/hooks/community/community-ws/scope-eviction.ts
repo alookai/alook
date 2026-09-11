@@ -5,6 +5,13 @@ import { useCommunityStore } from "@/stores/community"
 import { useMessageStreamStore } from "@/stores/community/message-stream"
 import { clearTypingIndicator } from "./typing"
 import { updateStructuralSnapshot } from "@/lib/community/structural-snapshot"
+import {
+  claimOwnerServerDeleteScopeFlush,
+  completeOwnerServerDeleteScopeFlush,
+  isOwnerServerDeleteScopeFlushReady,
+  isOwnerServerDeleteScopeEvictionBlocked,
+  ownerServerDeleteScopeFlushCandidates,
+} from "@/lib/community/eject-server"
 
 type ThreadPageLike = {
   serverId?: string
@@ -101,7 +108,7 @@ export function evictScopeContent(
   }
 }
 
-export function evictServerChannelScopes(queryClient: QueryClient, serverId: string) {
+function evictServerChannelScopesNow(queryClient: QueryClient, serverId: string) {
   useCommunityWsStore.getState().revokeServerAccess(serverId)
   for (const id of collectChannelScopeIds(queryClient, serverId)) {
     evictScopeContent(queryClient, serverId, id)
@@ -122,4 +129,41 @@ export function evictServerChannelScopes(queryClient: QueryClient, serverId: str
     community.setCurrentServerId(null)
   }
   updateStructuralSnapshot(queryClient, { type: "removeServer", serverId })
+}
+
+export function evictServerChannelScopes(queryClient: QueryClient, serverId: string): boolean {
+  if (isOwnerServerDeleteScopeEvictionBlocked(serverId)) return false
+  evictServerChannelScopesNow(queryClient, serverId)
+  return true
+}
+
+function flushOwnerServerDeleteScopes(
+  queryClient: QueryClient,
+  serverIds: readonly string[],
+): string[] {
+  const flushed: string[] = []
+  for (const serverId of serverIds) {
+    if (!isOwnerServerDeleteScopeFlushReady(serverId)) continue
+    if (!claimOwnerServerDeleteScopeFlush(serverId)) continue
+    evictServerChannelScopesNow(queryClient, serverId)
+    if (!completeOwnerServerDeleteScopeFlush(serverId)) continue
+    flushed.push(serverId)
+  }
+  return flushed
+}
+
+export function flushOwnerServerDeleteAfterSuccess(
+  queryClient: QueryClient,
+  serverId: string,
+): boolean {
+  return flushOwnerServerDeleteScopes(queryClient, [serverId]).length === 1
+}
+
+export function flushOwnerServerDeleteRouteCommit(
+  queryClient: QueryClient,
+): string[] {
+  return flushOwnerServerDeleteScopes(
+    queryClient,
+    ownerServerDeleteScopeFlushCandidates(),
+  )
 }
