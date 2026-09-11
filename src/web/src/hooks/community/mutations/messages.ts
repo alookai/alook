@@ -392,18 +392,24 @@ export function useSendDmMessage() {
   })
 }
 
-// ── Toggle reaction ────────────────────────────────────────────────────────
+// ── Reaction intents ──────────────────────────────────────────────────────
 
-export type ToggleReactionArgs = {
+export type ReactionArgs = {
   serverId?: string
   channelId?: string
   dmId?: string
   messageId: string
   emoji: string
   userId: string
+  currentMe?: boolean
+  skipDefaultCache?: boolean
+  syncReactionState?: (me: boolean) => void
+  onError?: (error: unknown) => void
 }
 
-// Apply an optimistic reaction toggle to any page cache that contains the
+type ReactionIntent = "toggle" | "add"
+
+// Apply an optimistic reaction state to any page cache that contains the
 // message. This mirrors the reducer in the God-context.
 function togglePageCacheReaction(
   cache: PageCache | undefined,
@@ -473,7 +479,7 @@ function toggleSingleMessageReaction<T extends { reactions?: Msg["reactions"] }>
     : message
 }
 
-function messageScope(args: ToggleReactionArgs): MessageScope | undefined {
+function messageScope(args: ReactionArgs): MessageScope | undefined {
   if (args.channelId && args.serverId) {
     return { kind: "channel", id: args.channelId, serverId: args.serverId }
   }
@@ -493,7 +499,7 @@ function currentMaterializedMessage(
 
 function refreshExistingReactionFallback(
   cache: PageCache | undefined,
-  args: ToggleReactionArgs,
+  args: ReactionArgs,
   add: boolean,
 ): void {
   const scope = messageScope(args)
@@ -538,8 +544,8 @@ export function _resetReactionTimers_forTesting() {
 }
 
 /**
- * Practical toggle-reaction callback. Because the fetch verb (`PUT`/`DELETE`)
- * depends on the pre-toggle `me` state, we express the pattern here as a
+ * Coordinated reaction-intent callback. Because the fetch verb (`PUT`/`DELETE`)
+ * depends on the original `me` state, we express the pattern here as a
  * stable closure that (a) writes the optimistic toggle synchronously, (b)
  * schedules the fetch behind a 300ms debounce keyed by `${messageId}:${emoji}`
  * so rapid re-clicks collapse to one request measured against the *original*
@@ -549,9 +555,9 @@ export function _resetReactionTimers_forTesting() {
  * `reset()` (fired on sign-out) clears any outstanding timers before they can
  * hit an already-torn-down cache.
  */
-export function useToggleReactionApi(): (args: ToggleReactionArgs) => void {
+function useReactionApi(intent: ReactionIntent): (args: ReactionArgs) => void {
   const queryClient = useQueryClient()
-  return useCallback((args: ToggleReactionArgs) => {
+  return useCallback((args: ReactionArgs) => {
     const key = args.channelId
       ? communityKeys.channelMessages(args.channelId)
       : args.dmId
@@ -564,21 +570,25 @@ export function useToggleReactionApi(): (args: ToggleReactionArgs) => void {
     const source = scope
       ? currentMaterializedMessage(cache, scope, args.messageId)
       : undefined
-    const wasMe = source
+    const wasMe = args.currentMe ?? (source
       ? source.reactions?.find((reaction) => reaction.emoji === args.emoji)?.me ?? false
       : singleMessage
         ? singleMessage.reactions?.find((reaction) => reaction.emoji === args.emoji)?.me ?? false
-        : currentMeStatus(cache, args.messageId, args.emoji)
-    const nextMe = !wasMe
+        : currentMeStatus(cache, args.messageId, args.emoji))
+    if (intent === "add" && wasMe) return
+    const nextMe = intent === "add" ? true : !wasMe
     // Optimistic write is always synchronous — the debounce only defers the
     // API call, not the visible UI.
-    queryClient.setQueryData<PageCache>(key, (c) =>
-      togglePageCacheReaction(c, args.messageId, args.emoji, args.userId, nextMe),
-    )
-    queryClient.setQueryData(messageKey, (message: typeof singleMessage) =>
-      toggleSingleMessageReaction(message, args.emoji, args.userId, nextMe),
-    )
-    refreshExistingReactionFallback(queryClient.getQueryData<PageCache>(key), args, nextMe)
+    if (!args.skipDefaultCache) {
+      queryClient.setQueryData<PageCache>(key, (c) =>
+        togglePageCacheReaction(c, args.messageId, args.emoji, args.userId, nextMe),
+      )
+      queryClient.setQueryData(messageKey, (message: typeof singleMessage) =>
+        toggleSingleMessageReaction(message, args.emoji, args.userId, nextMe),
+      )
+      refreshExistingReactionFallback(queryClient.getQueryData<PageCache>(key), args, nextMe)
+    }
+    args.syncReactionState?.(nextMe)
 
     const timerKey = `${args.messageId}:${args.emoji}`
     const reactionTimers = useCommunityStore.getState().reactionTimers
@@ -601,19 +611,31 @@ export function useToggleReactionApi(): (args: ToggleReactionArgs) => void {
       reactionTimers.delete(timerKey)
       const method = originalMe ? "DELETE" : "PUT"
       const url = `/api/community/messages/${args.messageId}/reactions/${encodeURIComponent(args.emoji)}`
-      apiFetch(url, { method }).catch(() => {
+      apiFetch(url, { method }).catch((error) => {
         // Roll back to the original server state on failure.
-        queryClient.setQueryData<PageCache>(key, (c) =>
-          togglePageCacheReaction(c, args.messageId, args.emoji, args.userId, originalMe),
-        )
-        queryClient.setQueryData(messageKey, (message: typeof singleMessage) =>
-          toggleSingleMessageReaction(message, args.emoji, args.userId, originalMe),
-        )
-        refreshExistingReactionFallback(queryClient.getQueryData<PageCache>(key), args, originalMe)
+        if (!args.skipDefaultCache) {
+          queryClient.setQueryData<PageCache>(key, (c) =>
+            togglePageCacheReaction(c, args.messageId, args.emoji, args.userId, originalMe),
+          )
+          queryClient.setQueryData(messageKey, (message: typeof singleMessage) =>
+            toggleSingleMessageReaction(message, args.emoji, args.userId, originalMe),
+          )
+          refreshExistingReactionFallback(queryClient.getQueryData<PageCache>(key), args, originalMe)
+        }
+        args.syncReactionState?.(originalMe)
+        args.onError?.(error)
       })
     }, REACTION_DEBOUNCE_MS)
     reactionTimers.set(timerKey, { timer, originalMe })
-  }, [queryClient])
+  }, [intent, queryClient])
+}
+
+export function useToggleReactionApi(): (args: ReactionArgs) => void {
+  return useReactionApi("toggle")
+}
+
+export function useAddReactionApi(): (args: ReactionArgs) => void {
+  return useReactionApi("add")
 }
 
 // ── Pin / unpin ────────────────────────────────────────────────────────────

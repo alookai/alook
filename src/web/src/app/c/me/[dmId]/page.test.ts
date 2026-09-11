@@ -29,4 +29,12 @@ describe("DM page loading ownership", () => {
     expect(source).toContain("channelRefCandidateSource={channelRefCandidateSource}")
     expect(source).toContain("onChannelRefIntent={handleChannelRefIntent}")
   })
+
+  it("keeps chip toggle and picker add on separate reaction intents", () => {
+    const source = readFileSync(new URL("./page.tsx", import.meta.url), "utf8")
+    expect(source).toContain("const toggleReaction = useToggleReactionApi()")
+    expect(source).toContain("const addReaction = useAddReactionApi()")
+    expect(source).toContain("onToggleReaction: (id: string, emoji: string) =>\n      toggleReaction(")
+    expect(source).toContain("onReact: (id: string, emoji: string) =>\n      addReaction(")
+  })
 })

@@ -130,6 +130,7 @@ describe("MessageChannelController facade contract", () => {
       "const [contextTarget, setContextTarget] = useState<MessageContextTarget | null>(null)",
       "useSendMessage()",
       "useToggleReactionApi()",
+      "useAddReactionApi()",
       "usePinMessage()",
       "useUnpinMessage()",
       "useToggleMark()",

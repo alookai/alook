@@ -37,6 +37,7 @@ const mocks = vi.hoisted(() => {
     seq: null as string | null,
     sendMutation: vi.fn(),
     reactionMutation: vi.fn(),
+    addReactionMutation: vi.fn(),
     pinMutation: vi.fn(),
     unpinMutation: vi.fn(),
     markMutation: vi.fn(),
@@ -85,6 +86,7 @@ vi.mock("@/stores/community", () => {
 vi.mock("@/hooks/community/mutations", () => ({
   useSendMessage: () => { mocks.order.push("send"); return { mutateAsync: mocks.sendMutation } },
   useToggleReactionApi: () => { mocks.order.push("reaction"); return mocks.reactionMutation },
+  useAddReactionApi: () => { mocks.order.push("reaction-add"); return mocks.addReactionMutation },
   usePinMessage: () => { mocks.order.push("pin"); return { mutate: mocks.pinMutation } },
   useUnpinMessage: () => { mocks.order.push("unpin"); return { mutate: mocks.unpinMutation } },
   useToggleMark: () => { mocks.order.push("mark"); return mocks.markMutation },
@@ -164,8 +166,8 @@ describe("useMessageChannelController", () => {
     const valueProps = props()
     let renderer: ReturnType<typeof rtlRender>
     act(() => { renderer = rtlRender(React.createElement(Probe, { value: valueProps })) })
-    expect(mocks.order.slice(0, 11)).toEqual([
-      "send", "reaction", "pin", "unpin", "mark", "edit", "thread", "upload",
+    expect(mocks.order.slice(0, 12)).toEqual([
+      "send", "reaction", "reaction-add", "pin", "unpin", "mark", "edit", "thread", "upload",
       "typing-users", "typing-names", "pending-store",
     ])
     expect(mocks.typingScopes.users.length).toBeGreaterThan(0)

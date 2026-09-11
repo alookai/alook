@@ -598,13 +598,155 @@ describe("useSendMessage — no blocked branch on channel path", () => {
   })
 })
 
-// ── useToggleReactionApi — the #9 300ms debounce ────────────────────────
+// ── Reaction intent coordinator — the #9 300ms debounce ────────────────
 //
 // Old context (context.tsx:1061-1130) captured `originalMe` at first click,
 // scheduled the API in a 300ms timer, and either replaced or cancelled the
 // timer on subsequent clicks. Step 3's hook dropped the coalescing; this
 // restores it via useCommunityStore.reactionTimers.
-describe("useToggleReactionApi — 300ms debounce coalescing", () => {
+describe("reaction intents — 300ms debounce coalescing", () => {
+  it("keeps the add-only action stable across renders with a stable query client", async () => {
+    const mod = await loadMod()
+    callbackCounter = 0
+    const first = mod.useAddReactionApi()
+    callbackCounter = 0
+    const second = mod.useAddReactionApi()
+    expect(second).toBe(first)
+  })
+
+  it("treats add on me=true as a strict cache, timer, and network no-op", async () => {
+    vi.useFakeTimers()
+    try {
+      capturedQc.setQueryData(communityKeys.channelMessages("ch_1"), {
+        pages: [{ messages: [{
+          id: "m_1",
+          reactions: [{ emoji: "👍", count: 1, me: true, userIds: ["u_me"] }],
+        }], hasMore: false }],
+        pageParams: [null],
+      })
+      const mod = await loadMod()
+      mod._resetReactionTimers_forTesting()
+      const cacheWrite = vi.spyOn(capturedQc, "setQueryData")
+      const schedule = vi.spyOn(globalThis, "setTimeout")
+      const syncReactionState = vi.fn()
+
+      mod.useAddReactionApi()({
+        channelId: "ch_1",
+        messageId: "m_1",
+        emoji: "👍",
+        userId: "u_me",
+        syncReactionState,
+      })
+
+      const { useCommunityStore } = await import("@/stores/community")
+      expect(cacheWrite).not.toHaveBeenCalled()
+      expect(schedule).not.toHaveBeenCalled()
+      expect(syncReactionState).not.toHaveBeenCalled()
+      expect(useCommunityStore.getState().reactionTimers.size).toBe(0)
+      await vi.advanceTimersByTimeAsync(500)
+      expect(apiFetchMock).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("does not rewrite cache or postpone the first PUT when add is repeated", async () => {
+    vi.useFakeTimers()
+    try {
+      capturedQc.setQueryData(communityKeys.channelMessages("ch_1"), {
+        pages: [{ messages: [{ id: "m_1", reactions: [] }], hasMore: false }],
+        pageParams: [null],
+      })
+      apiFetchMock.mockResolvedValue(undefined)
+      const mod = await loadMod()
+      mod._resetReactionTimers_forTesting()
+      const add = mod.useAddReactionApi()
+      const cacheWrite = vi.spyOn(capturedQc, "setQueryData")
+
+      add({ channelId: "ch_1", messageId: "m_1", emoji: "👍", userId: "u_me" })
+      const { useCommunityStore } = await import("@/stores/community")
+      const firstPending = useCommunityStore.getState().reactionTimers.get("m_1:👍")
+      const firstWriteCount = cacheWrite.mock.calls.length
+      expect(firstPending).toBeDefined()
+
+      await vi.advanceTimersByTimeAsync(150)
+      add({ channelId: "ch_1", messageId: "m_1", emoji: "👍", userId: "u_me" })
+      expect(cacheWrite).toHaveBeenCalledTimes(firstWriteCount)
+      expect(useCommunityStore.getState().reactionTimers.get("m_1:👍")).toBe(firstPending)
+
+      await vi.advanceTimersByTimeAsync(150)
+      expect(apiFetchMock).toHaveBeenCalledTimes(1)
+      expect(apiFetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/api/community/messages/m_1/reactions/"),
+        { method: "PUT" },
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("coalesces chip remove followed by picker add to the original state and zero requests", async () => {
+    vi.useFakeTimers()
+    try {
+      capturedQc.setQueryData(communityKeys.channelMessages("ch_1"), {
+        pages: [{ messages: [{
+          id: "m_1",
+          reactions: [{ emoji: "👍", count: 1, me: true, userIds: ["u_me"] }],
+        }], hasMore: false }],
+        pageParams: [null],
+      })
+      const mod = await loadMod()
+      mod._resetReactionTimers_forTesting()
+      const toggle = mod.useToggleReactionApi()
+      const add = mod.useAddReactionApi()
+
+      toggle({ channelId: "ch_1", messageId: "m_1", emoji: "👍", userId: "u_me" })
+      add({ channelId: "ch_1", messageId: "m_1", emoji: "👍", userId: "u_me" })
+
+      const cache = capturedQc.getQueryData<{ pages: { messages: Msg[] }[] }>(
+        communityKeys.channelMessages("ch_1"),
+      )
+      const { useCommunityStore } = await import("@/stores/community")
+      expect(cache?.pages[0].messages[0].reactions).toEqual([
+        { emoji: "👍", count: 1, me: true, userIds: ["u_me"] },
+      ])
+      expect(useCommunityStore.getState().reactionTimers.size).toBe(0)
+      await vi.advanceTimersByTimeAsync(500)
+      expect(apiFetchMock).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("drives an additional cache through optimistic add and rollback", async () => {
+    vi.useFakeTimers()
+    try {
+      apiFetchMock.mockRejectedValueOnce(new Error("boom"))
+      const mod = await loadMod()
+      mod._resetReactionTimers_forTesting()
+      const syncReactionState = vi.fn()
+      const onError = vi.fn()
+
+      mod.useAddReactionApi()({
+        dmId: "dm_1",
+        messageId: "m_dm",
+        emoji: "🔥",
+        userId: "u_me",
+        currentMe: false,
+        syncReactionState,
+        onError,
+      })
+      expect(syncReactionState).toHaveBeenCalledWith(true)
+
+      await vi.advanceTimersByTimeAsync(300)
+      await Promise.resolve()
+      expect(syncReactionState).toHaveBeenLastCalledWith(false)
+      expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: "boom" }))
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("optimistically patches and rolls back a thread opener's single-message cache", async () => {
     vi.useFakeTimers()
     try {

@@ -14,6 +14,7 @@ import {
   useTypingUsersForScope,
 } from "@/stores/community"
 import {
+  useAddReactionApi,
   useCreateThread,
   useEditMessage,
   usePinMessage,
@@ -63,6 +64,7 @@ export function useMessageChannelController({
   const [contextTarget, setContextTarget] = useState<MessageContextTarget | null>(null)
   const { mutateAsync: sendMessageAsync } = useSendMessage()
   const toggleReactionApi = useToggleReactionApi()
+  const addReactionApi = useAddReactionApi()
   const { mutate: pinMessageMutate } = usePinMessage()
   const { mutate: unpinMessageMutate } = useUnpinMessage()
   const toggleMark = useToggleMark()
@@ -230,6 +232,7 @@ export function useMessageChannelController({
     viewerUserId: viewer.id,
     setReplyTo,
     toggleReactionApi,
+    addReactionApi,
     unpinMessageMutate,
     pinMessageMutate,
     toggleMark,
@@ -242,6 +245,7 @@ export function useMessageChannelController({
     serverId,
     viewer.id,
     toggleReactionApi,
+    addReactionApi,
     unpinMessageMutate,
     pinMessageMutate,
     toggleMark,

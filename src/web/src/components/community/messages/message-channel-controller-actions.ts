@@ -38,6 +38,7 @@ export function createMessageActions({
   viewerUserId,
   setReplyTo,
   toggleReactionApi,
+  addReactionApi,
   unpinMessageMutate,
   pinMessageMutate,
   toggleMark,
@@ -52,6 +53,13 @@ export function createMessageActions({
   viewerUserId: string
   setReplyTo: (reply: ReplyTarget) => void
   toggleReactionApi: (input: {
+    serverId: string
+    channelId: string
+    messageId: string
+    emoji: string
+    userId: string
+  }) => void
+  addReactionApi: (input: {
     serverId: string
     channelId: string
     messageId: string
@@ -84,7 +92,7 @@ export function createMessageActions({
     onToggleReaction: (id, emoji) =>
       toggleReactionApi({ serverId, channelId, messageId: id, emoji, userId: viewerUserId }),
     onReact: (id, emoji) =>
-      toggleReactionApi({ serverId, channelId, messageId: id, emoji, userId: viewerUserId }),
+      addReactionApi({ serverId, channelId, messageId: id, emoji, userId: viewerUserId }),
     onReply: (id) => {
       const message = actionContext.current.messages.find((item) => item.id === id)
       if (message) {
