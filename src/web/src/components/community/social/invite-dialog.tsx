@@ -264,7 +264,7 @@ export function InviteDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="flex max-h-[80vh] w-full flex-col gap-0 p-0 sm:max-w-md">
+      <DialogContent className="flex h-96 max-h-[80vh] w-full flex-col gap-0 p-0 sm:max-w-md">
         <PeoplePickerHeader title={`Invite friends to ${serverName}`} />
 
         <div className="px-4 pt-3">
