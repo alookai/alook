@@ -1,4 +1,4 @@
-import type { Page, WebSocketRoute } from "@playwright/test"
+import type { Locator, Page, TestInfo, WebSocketRoute } from "@playwright/test"
 import { test, expect } from "./_fixtures/community-fixture"
 import {
   composerEditable,
@@ -8,6 +8,98 @@ import { seedChannel, seedServer } from "./_fixtures/seed"
 import { tid } from "./_fixtures/testids"
 
 const USER_WS_AUTH_CONSUMED_ATTRIBUTE = "data-e2e-user-ws-auth-consumed"
+
+type AppEdgeEvidence = {
+  token: string
+  ariaHidden: string | null
+  pointerEvents: string
+  focusableCount: number
+  appBackground: string
+  surfaceBackground: string
+  surface: { top: number; bottom: number; height: number }
+  top: { top: number; bottom: number; height: number; backgroundImage: string }
+  bottom: { top: number; bottom: number; height: number; backgroundImage: string }
+  rootOverflowX: number
+  rootOverflowY: number
+}
+
+async function appEdgeEvidence(surface: Locator): Promise<AppEdgeEvidence> {
+  return surface.evaluate((element) => {
+    const fade = element.querySelector<HTMLElement>('[data-slot="app-edge-fade"]')
+    const top = fade?.querySelector<HTMLElement>('[data-app-edge="top"]')
+    const bottom = fade?.querySelector<HTMLElement>('[data-app-edge="bottom"]')
+    if (!fade || !top || !bottom) throw new Error("missing app edge fade")
+    const probe = document.createElement("div")
+    probe.style.background = "var(--app-bg)"
+    probe.style.position = "fixed"
+    probe.style.visibility = "hidden"
+    document.body.appendChild(probe)
+    const appBackground = getComputedStyle(probe).backgroundColor
+    probe.remove()
+    const surfaceRect = element.getBoundingClientRect()
+    const topRect = top.getBoundingClientRect()
+    const bottomRect = bottom.getBoundingClientRect()
+    const root = document.documentElement
+    return {
+      token: getComputedStyle(root).getPropertyValue("--app-edge-fade-size").trim(),
+      ariaHidden: fade.getAttribute("aria-hidden"),
+      pointerEvents: getComputedStyle(fade).pointerEvents,
+      focusableCount: fade.querySelectorAll("button, a, input, select, textarea, [tabindex]").length,
+      appBackground,
+      surfaceBackground: getComputedStyle(element).backgroundColor,
+      surface: { top: surfaceRect.top, bottom: surfaceRect.bottom, height: surfaceRect.height },
+      top: {
+        top: topRect.top,
+        bottom: topRect.bottom,
+        height: topRect.height,
+        backgroundImage: getComputedStyle(top).backgroundImage,
+      },
+      bottom: {
+        top: bottomRect.top,
+        bottom: bottomRect.bottom,
+        height: bottomRect.height,
+        backgroundImage: getComputedStyle(bottom).backgroundImage,
+      },
+      rootOverflowX: root.scrollWidth - root.clientWidth,
+      rootOverflowY: root.scrollHeight - root.clientHeight,
+    }
+  })
+}
+
+function expectAppEdgeEvidence(evidence: AppEdgeEvidence) {
+  expect(evidence.token).toBe("60px")
+  expect(evidence.ariaHidden).toBe("true")
+  expect(evidence.pointerEvents).toBe("none")
+  expect(evidence.focusableCount).toBe(0)
+  expect(evidence.top.height).toBeCloseTo(60, 1)
+  expect(evidence.bottom.height).toBeCloseTo(60, 1)
+  expect(evidence.top.top).toBeCloseTo(evidence.surface.top, 1)
+  expect(evidence.top.bottom).toBeCloseTo(evidence.surface.top + 60, 1)
+  expect(evidence.bottom.top).toBeCloseTo(evidence.surface.bottom - 60, 1)
+  expect(evidence.bottom.bottom).toBeCloseTo(evidence.surface.bottom, 1)
+  expect(evidence.top.backgroundImage).toContain("linear-gradient")
+  expect(evidence.bottom.backgroundImage).toContain("linear-gradient")
+  expect(evidence.top.backgroundImage).toContain(evidence.appBackground)
+  expect(evidence.bottom.backgroundImage).toContain(evidence.appBackground)
+  expect(evidence.rootOverflowX).toBe(0)
+  expect(evidence.rootOverflowY).toBe(0)
+}
+
+async function attachEvidence(
+  testInfo: TestInfo,
+  page: Page,
+  name: string,
+  evidence: unknown,
+) {
+  await testInfo.attach(`${name}.json`, {
+    body: Buffer.from(JSON.stringify(evidence, null, 2)),
+    contentType: "application/json",
+  })
+  await testInfo.attach(`${name}.png`, {
+    body: await page.screenshot(),
+    contentType: "image/png",
+  })
+}
 
 async function installUserWsAuthConsumedBarrier(page: Page) {
   await page.addInitScript(({ attribute }) => {
@@ -80,7 +172,67 @@ test("slow auth and an initial retry never block a cold Community page", async (
   }
 })
 
-test("real WebSocket outage blocks the whole community surface and Retry restores it", async ({ asUser }, testInfo) => {
+test("app edge fade keeps the unresolved main surface native-aligned across theme, size, and motion", async ({ asUser }, testInfo) => {
+  test.setTimeout(90_000)
+  const suffix = Date.now().toString(36)
+  const serverId = await seedServer("alice", `Edge fade ${suffix}`)
+  const channelId = await seedChannel("alice", serverId, `edge-fade-${suffix}`)
+  const alice = await asUser("alice")
+
+  let releaseServerDetail!: () => void
+  const serverDetailGate = new Promise<void>((resolve) => {
+    releaseServerDetail = resolve
+  })
+  const detailPattern = new RegExp(`/api/community/servers/${serverId}/(?:categories|channels|unreads)(?:\\?|$)`)
+  await alice.page.route(detailPattern, async (route) => {
+    await serverDetailGate
+    await route.continue()
+  })
+
+  try {
+    await alice.page.setViewportSize({ width: 1280, height: 900 })
+    await gotoAfterUserWsAuth(alice.page, `/c/channels/${serverId}/${channelId}`)
+    const unresolved = alice.page.locator("[data-community-unresolved-main]").first()
+    await expect(unresolved).toBeVisible({ timeout: 10_000 })
+    const matrix = [
+      { name: "skeleton-1280-light-motion", width: 1280, height: 900, colorScheme: "light", reducedMotion: "no-preference" },
+      { name: "skeleton-390-dark-motion", width: 390, height: 844, colorScheme: "dark", reducedMotion: "no-preference" },
+      { name: "skeleton-1280-dark-reduced", width: 1280, height: 900, colorScheme: "dark", reducedMotion: "reduce" },
+      { name: "skeleton-390-light-reduced", width: 390, height: 844, colorScheme: "light", reducedMotion: "reduce" },
+    ] as const
+
+    for (const entry of matrix) {
+      await alice.page.emulateMedia({
+        colorScheme: entry.colorScheme,
+        reducedMotion: entry.reducedMotion,
+      })
+      await alice.page.setViewportSize({ width: entry.width, height: entry.height })
+      await expect.poll(() => alice.page.evaluate(() => document.documentElement.classList.contains("dark")))
+        .toBe(entry.colorScheme === "dark")
+      const edge = await appEdgeEvidence(unresolved)
+      expectAppEdgeEvidence(edge)
+      expect(edge.surfaceBackground).toBe(edge.appBackground)
+      const pulse = await unresolved.locator('[data-slot="skeleton"]').evaluate((element) => {
+        const style = getComputedStyle(element)
+        return {
+          animationDuration: style.animationDuration,
+          animationName: style.animationName,
+          backgroundColor: style.backgroundColor,
+        }
+      })
+      expect(pulse.animationName === "none").toBe(entry.reducedMotion === "reduce")
+      if (entry.reducedMotion === "no-preference") {
+        expect(pulse.animationDuration).toBe("2s")
+      }
+      expect(pulse.backgroundColor).not.toBe(edge.appBackground)
+      await attachEvidence(testInfo, alice.page, entry.name, { edge, pulse, entry })
+    }
+  } finally {
+    releaseServerDetail()
+  }
+})
+
+test("app edge fade keeps a real WebSocket outage native-aligned and Retry restores it", async ({ asUser }, testInfo) => {
   test.setTimeout(120_000)
   const serverId = await seedServer("alice", `Reconnect overlay ${Date.now()}`)
   const channelId = await seedChannel("alice", serverId, "reconnect-overlay")
@@ -115,6 +267,9 @@ test("real WebSocket outage blocks the whole community surface and Retry restore
     await expect(overlay).toHaveAttribute("data-ws-status", "reconnecting")
     await expect(overlay).toBeFocused()
     await expect(overlay.getByRole("status")).toContainText("Connecting…")
+    const reconnectingEdge = await appEdgeEvidence(overlay)
+    expectAppEdgeEvidence(reconnectingEdge)
+    expect(reconnectingEdge.surfaceBackground).not.toBe(reconnectingEdge.appBackground)
     const reconnectingEvidence = await overlay.evaluate((element) => {
       const rect = element.getBoundingClientRect()
       const content = element.previousElementSibling as HTMLElement | null
@@ -190,6 +345,10 @@ test("real WebSocket outage blocks the whole community surface and Retry restore
       path: mobileReconnectPath,
       contentType: "image/png",
     })
+    await testInfo.attach("390-dark-reconnecting-reduced-motion-edge.json", {
+      body: Buffer.from(JSON.stringify(reconnectingEdge, null, 2)),
+      contentType: "application/json",
+    })
 
     await alice.page.setViewportSize({ width: 1280, height: 900 })
     expect(await overlay.boundingBox()).toMatchObject({ x: 0, y: 0, width: 1280, height: 900 })
@@ -222,6 +381,12 @@ test("real WebSocket outage blocks the whole community surface and Retry restore
     await expect(retry).toBeVisible({ timeout: 40_000 })
     await expect(overlay).toHaveAttribute("data-ws-status", "failed")
     await expect(overlay.getByRole("alert")).toContainText("Connection lost")
+    const failedEdge = await appEdgeEvidence(overlay)
+    expectAppEdgeEvidence(failedEdge)
+    await testInfo.attach("failed-edge.json", {
+      body: Buffer.from(JSON.stringify(failedEdge, null, 2)),
+      contentType: "application/json",
+    })
     expect((await retry.boundingBox())!.height).toBeGreaterThanOrEqual(44)
 
     await alice.page.setViewportSize({ width: 1280, height: 900 })

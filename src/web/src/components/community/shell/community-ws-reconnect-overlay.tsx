@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, type ReactNode } from "react"
 import { AlookLoading } from "@/components/brand/alook-loading/AlookLoading"
+import { AppEdgeFade } from "@/components/ui/app-edge-fade"
 import { WifiOff } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { tid } from "@/lib/community/testids"
@@ -48,7 +49,8 @@ export function CommunityWsReconnectBoundary({ children }: { children: ReactNode
           data-ws-status={connectionStatus}
           className="community-ws-reconnect-overlay fixed inset-0 z-2147483647 grid place-items-center bg-background/60 px-4 outline-none backdrop-blur-sm supports-backdrop-filter:bg-background/45 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-150"
         >
-          <div className="flex w-full max-w-xs flex-col items-center text-center text-foreground">
+          <AppEdgeFade />
+          <div className="relative z-20 flex w-full max-w-xs flex-col items-center text-center text-foreground">
             {connectionStatus === "failed" ? (
               <>
                 <div

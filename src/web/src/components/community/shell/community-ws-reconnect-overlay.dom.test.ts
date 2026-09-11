@@ -31,6 +31,26 @@ describe("CommunityWsReconnectBoundary", () => {
     return { renderer, focus }
   }
 
+  function expectAppEdgeFade(overlay: HTMLElement) {
+    const fade = overlay.querySelector<HTMLElement>('[data-slot="app-edge-fade"]')!
+    expect(fade).toHaveAttribute("aria-hidden", "true")
+    expect(fade).toHaveClass("pointer-events-none", "absolute", "inset-0")
+    expect(fade.querySelectorAll("[data-app-edge]")).toHaveLength(2)
+    expect(fade.querySelector('[data-app-edge="top"]')).toHaveClass(
+      "top-0",
+      "h-(--app-edge-fade-size)",
+      "from-(--app-bg)",
+      "to-transparent",
+    )
+    expect(fade.querySelector('[data-app-edge="bottom"]')).toHaveClass(
+      "bottom-0",
+      "h-(--app-edge-fade-size)",
+      "from-transparent",
+      "to-(--app-bg)",
+    )
+    expect(fade.querySelectorAll("button, a, input, [tabindex]")).toHaveLength(0)
+  }
+
   it("leaves connected content interactive without rendering an overlay", () => {
     const { renderer } = render()
     const content = renderer.container.querySelector(".contents")!
@@ -57,6 +77,8 @@ describe("CommunityWsReconnectBoundary", () => {
       "z-2147483647",
       "backdrop-blur-sm",
     )
+    expect(overlay).toHaveClass("bg-background/60", "supports-backdrop-filter:bg-background/45")
+    expectAppEdgeFade(overlay)
     expect(screen.getByRole("status")).toHaveAttribute("aria-atomic", "true")
     expect(screen.getByRole("status")).toHaveAttribute("aria-live", "polite")
     expect(screen.getByRole("status")).toHaveAttribute("data-slot", "text-loader")
@@ -85,6 +107,7 @@ describe("CommunityWsReconnectBoundary", () => {
     expect(alert).toHaveAttribute("aria-atomic", "true")
     expect(alert).toHaveAttribute("aria-live", "assertive")
     expect(within(alert).getByRole("heading", { name: "Connection lost" })).toBeInTheDocument()
+    expectAppEdgeFade(screen.getByTestId(tid.wsReconnectOverlay))
     const retry = screen.getByTestId(tid.wsRetry)
     expect(retry).toHaveClass("h-11", "sm:h-10")
     fireEvent.click(retry)
