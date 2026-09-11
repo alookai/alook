@@ -7,7 +7,6 @@ export function ConversationResolutionPendingFrame() {
       aria-busy="true"
       aria-label="Resolving conversation"
       data-community-conversation-subtype="unknown"
-      data-community-mobile-transition="suppress"
       className="flex min-h-0 min-w-0 flex-1 flex-col"
     >
       <UnresolvedMainSkeleton />

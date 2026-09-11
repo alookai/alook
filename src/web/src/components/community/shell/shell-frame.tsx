@@ -21,7 +21,10 @@ import { useShellProfileController } from "./use-shell-profile-controller"
 import { useShellInboxController } from "./use-shell-inbox-controller"
 import { useCommunityNavigationController } from "./use-community-navigation-controller"
 import type { ShellFrameProps } from "./shell-frame-types"
-import { useStructuralSnapshot } from "@/hooks/community/use-structural-snapshot"
+import {
+  hasStructuralServerTree,
+  useStructuralSnapshot,
+} from "@/hooks/community/use-structural-snapshot"
 import {
   initialUserBarExtensionState,
   userBarExtensionReducer,
@@ -75,8 +78,7 @@ export function ShellFrame(props: ShellFrameProps) {
       // `replaceServers` can seed a rail-only identity with an empty tree.
       // Only a snapshot containing actual tree structure can replace the
       // target-scoped cold checkpoint.
-      || Boolean(structuralTarget
-        && (structuralTarget.categories.length > 0 || structuralTarget.channels.length > 0))
+      || hasStructuralServerTree(structuralTarget)
     : target?.scope.kind === "me"
       ? queryClient.getQueryData(communityKeys.dms()) !== undefined
       : false

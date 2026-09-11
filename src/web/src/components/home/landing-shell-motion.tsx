@@ -31,7 +31,7 @@ import { AppSurface } from "@/components/ui/app-surface"
 import { SheetBody, SheetFooter, SheetHeader } from "@/components/ui/sheet"
 import { Shell } from "@/components/community/shell/shell"
 import { ServerRail } from "@/components/community/shell/server-rail"
-import { ChannelSidebar } from "@/components/community/channels/channel-sidebar"
+import { ChannelSidebarTreeOwner } from "@/components/community/channels/channel-sidebar-tree-owner"
 import { DmSidebar } from "@/components/community/channels/dm-sidebar"
 import { DmHeader } from "@/components/community/channels/dm-header"
 import { ChannelHeader } from "@/components/community/channels/channel-header"
@@ -45,7 +45,6 @@ import { ConnectTile } from "@/components/community/onboarding-tiles/connect-til
 import { BotFormFields } from "@/components/community/bots/bot-form-fields"
 import { BotRuntimeFields } from "@/components/community/bots/bot-runtime-fields"
 import { UserBar } from "@/components/community/shell/user-bar"
-import { useChannelTree } from "@/components/community/channels/use-channel-tree"
 import type { Category, Server } from "@/lib/community/models/navigation"
 import type { CommunityProfile, DM } from "@/lib/community/models/people"
 import type { RenderMsg } from "@/lib/community/models/message"
@@ -849,6 +848,11 @@ function PrototypeShell({
     scene === "identity" ||
     continuityRoom !== null
   const room = scene === "spaces" || scene === "identity" ? snapshot.room : continuityRoom
+  const channelTreeScopeKey = landingChannelTreeScopeKey({
+    scene,
+    room,
+    overviewDetails,
+  })
   const servers = overviewDetails && scene === "server"
     ? OVERVIEW_SERVERS
     : scene === "continuity"
@@ -873,6 +877,7 @@ function PrototypeShell({
               {serverView ? (
                 <PrototypeChannelSidebar
                   room={room}
+                  treeScopeKey={channelTreeScopeKey}
                   channels={scene === "continuity" ? CONTINUITY_CHANNELS : SPACE_CHANNELS}
                   rootChannels={overviewDetails && scene === "server" ? SPACE_CHANNELS.work : CHANNELS}
                 />
@@ -906,6 +911,25 @@ function PrototypeShell({
       </div>
     </Shell>
   )
+}
+
+export function landingChannelTreeScopeKey({
+  scene,
+  room,
+  overviewDetails,
+}: {
+  scene: LandingScene
+  room: LandingRoom | null
+  overviewDetails: boolean
+}) {
+  if (room) {
+    return scene === "continuity"
+      ? `landing:continuity:${room}`
+      : `landing:space:${room}`
+  }
+  return overviewDetails && scene === "server"
+    ? "landing:root:overview-work"
+    : "landing:root:default"
 }
 
 function PrototypeUserBar({
@@ -1016,15 +1040,16 @@ function PrototypeServerRail({
 
 function PrototypeChannelSidebar({
   room,
+  treeScopeKey,
   channels = SPACE_CHANNELS,
   rootChannels = CHANNELS,
 }: {
   room: LandingRoom | null
+  treeScopeKey: string
   channels?: Record<LandingRoom, Category[]>
   rootChannels?: Category[]
 }) {
   const categories = room ? channels[room] : rootChannels
-  const tree = useChannelTree(categories)
   const serverName = room
     ? SPACE_SERVERS.find((server) => server.id === room)?.name ?? ""
     : "Gus"
@@ -1053,8 +1078,10 @@ function PrototypeChannelSidebar({
 
   return (
     <div ref={sidebarRef} className="relative flex min-h-0 flex-1 flex-col">
-      <ChannelSidebar
-        tree={tree}
+      <ChannelSidebarTreeOwner
+        key={treeScopeKey}
+        scopeKey={treeScopeKey}
+        categories={categories}
         serverName={serverName}
         activeChannel={activeChannel}
         setActiveChannel={() => {}}

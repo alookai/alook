@@ -53,15 +53,7 @@ const channelSidebarCollisionDetection: CollisionDetection = (args) => {
 // useChannelTree. The category gear/right-click opens settings; "+" (or empty-space
 // right-click) creates; channels right-click to edit/delete. A private category only
 // lets admins create channels — non-admins are blocked via onBlockedCreate.
-export const ChannelSidebar = memo(function ChannelSidebar({
-  tree, serverName, official, activeChannel, setActiveChannel, prefetchChannel, noHeader, onOpenSettings,
-  isAdmin = true, currentUserId, onBlockedCreate, mutedChannels, loading,
-  onCreateChannel, onCreateCategory, onDeleteChannel, onDeleteCategory,
-  onUpdateCategory, onRenameChannel, onReorderCategories, onReorderChannels,
-  onMoveChannel, onBlockedMove,
-  serverId, invitePopoverOpen, onInvitePopoverOpenChange,
-  forumThreadsByParent = {}, activeThreadId, onSelectForumThread,
-}: {
+export type ChannelSidebarProps = {
   tree: ChannelTree
   serverName: string
   official?: boolean
@@ -92,7 +84,17 @@ export const ChannelSidebar = memo(function ChannelSidebar({
   forumThreadsByParent?: Record<string, ForumSidebarThread[]>
   activeThreadId?: string | null
   onSelectForumThread?: (parentId: string, id: string) => void
-}) {
+}
+
+export const ChannelSidebar = memo(function ChannelSidebar({
+  tree, serverName, official, activeChannel, setActiveChannel, prefetchChannel, noHeader, onOpenSettings,
+  isAdmin = true, currentUserId, onBlockedCreate, mutedChannels, loading,
+  onCreateChannel, onCreateCategory, onDeleteChannel, onDeleteCategory,
+  onUpdateCategory, onRenameChannel, onReorderCategories, onReorderChannels,
+  onMoveChannel, onBlockedMove,
+  serverId, invitePopoverOpen, onInvitePopoverOpenChange,
+  forumThreadsByParent = {}, activeThreadId, onSelectForumThread,
+}: ChannelSidebarProps) {
   const { collapsed, catOrder, order, catNames, catPrivate, catPending, toggleCat, removeChannel, renameCategory, onDragOver, onDragEnd: treeDragEnd } = tree
   // Category the dragged channel started in — captured at drag start, because
   // `onDragOver` mutates `order` mid-drag so by drop time it already reflects

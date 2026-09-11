@@ -6,7 +6,6 @@ import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"
 import { markSwitch } from "@/lib/perf/switch-mark"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
-import { useChannelTree } from "@/components/community/channels/use-channel-tree"
 import { ShellFrame } from "@/components/community/shell/shell-frame"
 import {
   channelHref,
@@ -14,7 +13,7 @@ import {
   serverRootHref,
 } from "@/lib/community/community-route"
 import { useBreakpoint } from "@/hooks/use-mobile"
-import { ChannelSidebar } from "@/components/community/channels/channel-sidebar"
+import { ChannelSidebarScope } from "@/components/community/channels/channel-sidebar-tree-owner"
 import { ChannelRoute } from "@/components/community/channels/channel-route"
 import { ServerSettings } from "@/components/community/settings/server-settings"
 import { ImageCropDialog } from "@/components/community/image-crop-dialog"
@@ -65,6 +64,7 @@ import {
   useRevokeInvite,
 } from "@/hooks/community/mutations"
 import {
+  hasStructuralServerTree,
   structuralHintServer,
   useStructuralSnapshot,
 } from "@/hooks/community/use-structural-snapshot"
@@ -92,11 +92,12 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     [serverId, structuralSnapshot],
   )
   const { server: currentServer } = useServer(serverId)
+  const structuralTreeReady = hasStructuralServerTree(structuralServer)
   const sidebarCategories = useMemo(
-    () => currentServer?.categories ?? structuralServer?.categoriesView ?? [],
-    [currentServer, structuralServer],
+    () => currentServer?.categories ?? (structuralTreeReady ? structuralServer?.categoriesView : undefined) ?? [],
+    [currentServer, structuralServer, structuralTreeReady],
   )
-  const sidebarHintOnly = !currentServer && !!structuralServer
+  const sidebarHintOnly = !currentServer && structuralTreeReady
   const membersHook = useServerMembers(currentServer ? serverId : null)
   const profilesByUserId = useCommunityWsStore((s) => s.profilesByUserId)
   const enrichedMembers = useMemo(
@@ -292,7 +293,8 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
         : { ...channel, unread: forumSidebar.parentUnread[channel.id] },
     ),
   })), [forumSidebar.parentUnread, sidebarCategories])
-  const channelTree = useChannelTree(categories)
+  const sidebarDataReady = Boolean(currentServer) || structuralTreeReady
+  const channelTreeScopeKey = `server:${serverId}`
 
   const setActiveChannel = useCallback((id: string) => {
     // Only navigate — do NOT eagerly set the store's currentChannelId here.
@@ -387,7 +389,6 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   }, [])
 
   const channelProps = useMemo(() => ({
-    tree: channelTree,
     serverName: currentServer?.name ?? structuralServer?.name ?? "",
     serverIcon: currentServer?.icon ?? structuralServer?.icon ?? null,
     official: currentServer?.official ?? false,
@@ -418,7 +419,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     invitePopoverOpen,
     onInvitePopoverOpenChange: sidebarHintOnly ? undefined : setInvitePopoverOpen,
   }), [
-    channelTree, currentServer, structuralServer, sidebarHintOnly, currentChannelMeta?.parentChannelId,
+    currentServer, structuralServer, sidebarHintOnly, currentChannelMeta?.parentChannelId,
     currentChannelId, isAdmin, currentUser.id, setActiveChannel, prefetchChannel,
     forumThreadsByParent, forumSidebar.isLoading, activeForumThreadId, setActiveForumThread,
     onSidebarOpenSettings, onBlockedCreate, mutedChannels,
@@ -437,8 +438,14 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   const closeSettings = () => { setServerSettingsOpen(false); setSettingsSection("overview") }
 
   const sidebar = useCallback((opts: { noHeader?: boolean } = {}) => (
-    <ChannelSidebar {...channelProps} {...opts} />
-  ), [channelProps])
+    <ChannelSidebarScope
+      scopeKey={channelTreeScopeKey}
+      categories={sidebarDataReady ? categories : null}
+      targetServerId={serverId}
+      {...channelProps}
+      {...opts}
+    />
+  ), [categories, channelProps, channelTreeScopeKey, serverId, sidebarDataReady])
 
   const serverSettingsDialog = (
     <Dialog open={serverSettingsOpen && !!currentServer && isAdmin} onOpenChange={(o) => { if (!o) closeSettings() }}>

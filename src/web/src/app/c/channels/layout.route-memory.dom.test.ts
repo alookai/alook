@@ -72,6 +72,7 @@ vi.mock("@/hooks/community/use-servers", () => ({
 vi.mock("@/hooks/community/use-structural-snapshot", () => ({
   useStructuralSnapshot: () => null,
   structuralHintServer: () => null,
+  hasStructuralServerTree: () => false,
 }))
 vi.mock("@/hooks/community/use-server-members", () => ({
   useServerMembers: () => ({

@@ -12,7 +12,7 @@ describe("ChannelLoadingFrame", () => {
     expect(markup.match(/data-slot="skeleton"/g)).toHaveLength(1)
     expect(markup).toContain('aria-busy="true"')
     expect(markup).toContain('aria-label="Loading conversation"')
-    expect(markup).toContain('data-community-mobile-transition="suppress"')
+    expect(markup).not.toContain("data-community-mobile-transition")
     expect(markup).not.toMatch(/<(?:header|button|a|form|textarea)\b/)
     expect(markup).not.toMatch(/composer|message-list|channel-header/)
   })

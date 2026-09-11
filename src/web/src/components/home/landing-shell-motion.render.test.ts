@@ -1,7 +1,11 @@
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it, vi } from "vitest"
-import { LandingMobileChatMotion, LandingShellMotion } from "./landing-shell-motion"
+import {
+  LandingMobileChatMotion,
+  LandingShellMotion,
+  landingChannelTreeScopeKey,
+} from "./landing-shell-motion"
 import { SCENE_MAX_BEAT, type LandingScene } from "./landing-shell-motion-timeline"
 
 vi.mock("./landing-shell-motion.module.css", () => ({
@@ -25,6 +29,36 @@ function channelHeader(markup: string) {
 }
 
 describe("landing community preview rendering", () => {
+  it("uses explicit identities for every Channel Tree fixture dataset", () => {
+    expect(landingChannelTreeScopeKey({ scene: "server", room: null, overviewDetails: false }))
+      .toBe("landing:root:default")
+    expect(landingChannelTreeScopeKey({ scene: "server", room: null, overviewDetails: true }))
+      .toBe("landing:root:overview-work")
+    expect(landingChannelTreeScopeKey({ scene: "spaces", room: "life", overviewDetails: false }))
+      .toBe("landing:space:life")
+    expect(landingChannelTreeScopeKey({ scene: "continuity", room: "life", overviewDetails: false }))
+      .toBe("landing:continuity:life")
+  })
+
+  it.each([
+    ["server", 0, false, "landing:root:default", "general"],
+    ["server", 0, true, "landing:root:overview-work", "work-general"],
+    ["spaces", SCENE_MAX_BEAT.spaces, false, "landing:space:play", "play-lobby"],
+    ["continuity", SCENE_MAX_BEAT.continuity, false, "landing:continuity:life", "continuity-family"],
+  ] as const)(
+    "renders the first %s dataset frame from %s without rows from another scope",
+    (scene, beat, overviewDetails, scopeKey, rowId) => {
+      const markup = renderToStaticMarkup(createElement(LandingShellMotion, {
+        scene,
+        beat,
+        overviewDetails,
+      }))
+
+      expect(markup).toContain(`data-community-channel-tree-scope="${scopeKey}"`)
+      expect(markup).toContain(`data-testid="community-channel-row-${rowId}"`)
+    },
+  )
+
   it.each(ALL_SCENES)("renders the final %s scene without unresolved fixture identities", (scene) => {
     const markup = renderToStaticMarkup(createElement(LandingShellMotion, {
       scene,

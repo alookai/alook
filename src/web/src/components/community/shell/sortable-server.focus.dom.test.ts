@@ -2,7 +2,7 @@ import { createElement, Fragment, type ReactNode } from "react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { SortableServer } from "./sortable-server"
 import { tid } from "@/lib/community/testids"
-import { act, fireEvent, render } from "@/test/react-dom-harness"
+import { act, fireEvent, render, setupUser } from "@/test/react-dom-harness"
 
 vi.mock("@/components/ui/context-menu", () => ({
   ContextMenu: ({ children }: { children: ReactNode }) => createElement(Fragment, null, children),
@@ -122,6 +122,18 @@ describe("SortableServer stable menu trigger", () => {
 
     expect(active.button()).toHaveClass("cursor-default")
     expect(inactive.button()).toHaveClass("cursor-pointer")
+  })
+
+  it("dispatches both pointer click and Enter through the inactive Server action", async () => {
+    const onClick = vi.fn()
+    const result = renderServer(false, 0, false, { onClick })
+    const user = setupUser()
+
+    await user.click(result.button())
+    result.button().focus()
+    await user.keyboard("{Enter}")
+
+    expect(onClick).toHaveBeenCalledTimes(2)
   })
 
   it("stacks the numeric mention badge above the icon without changing its presentation", () => {
