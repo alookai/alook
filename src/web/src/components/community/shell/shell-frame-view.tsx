@@ -88,7 +88,6 @@ export function ShellFrameView({
       breakpoint={breakpoint}
       surface={surface}
       onNavigationIntent={cancelPendingNavigation}
-      transition={{ mode: checkpoint.mode, targetHref: checkpoint.targetHref }}
       rail={<ServerRail {...rail.railProps} bottomInset={60} />}
       sidebar={checkpoint.sidebar.kind === "server-skeleton"
           ? <ChannelSidebarSkeleton targetServerId={checkpoint.sidebar.serverId} />

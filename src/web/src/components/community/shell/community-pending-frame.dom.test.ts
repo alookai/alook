@@ -44,11 +44,11 @@ function renderFrame(href: string, reserveBackSlot = true) {
 }
 
 describe("CommunityPendingFrame", () => {
-  it("suppresses the outer mobile transition for every route-pending frame", () => {
+  it("does not expose a route-surface transition protocol", () => {
     for (const href of ["/c/me", "/c/me/dm_1", "/c/me/machines", "/c/channels/s1", "/c/channels/s1/c1"]) {
       const rendered = renderFrame(href)
-      expect(rendered.container.querySelector('[data-community-mobile-transition="suppress"]'))
-        .toBeInTheDocument()
+      expect(rendered.container.querySelector("[data-community-mobile-transition]"))
+        .not.toBeInTheDocument()
       rendered.unmount()
     }
   })
@@ -64,7 +64,7 @@ describe("CommunityPendingFrame", () => {
     const rendered = renderFrame(href)
     expect(screen.getByLabelText(label)).toHaveAttribute("aria-busy", "true")
     expect(rendered.container.querySelector(`[data-community-main-kind="${kind}"]`))
-      .toHaveAttribute("data-community-mobile-transition", "suppress")
+      .toBeInTheDocument()
     expect(rendered.container.querySelectorAll("header, button, a, form, textarea")).toHaveLength(0)
   })
 

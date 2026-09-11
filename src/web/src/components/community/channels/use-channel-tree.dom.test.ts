@@ -1,6 +1,6 @@
 import React from "react"
 import { act, render as rtlRender } from "@/test/react-dom-harness"
-import { describe, it, expect } from "vitest"
+import { describe, it, expect, vi } from "vitest"
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import {
@@ -23,6 +23,36 @@ type Tree = ReturnType<typeof useChannelTree>
 
 function CaptureTree({ categories, onResult }: { categories: Category[]; onResult: (tree: Tree) => void }) {
   onResult(useChannelTree(categories))
+  return null
+}
+
+let nextOwnerId = 0
+
+function ScopedCaptureTree({
+  scopeKey,
+  categories,
+  onResult,
+}: {
+  scopeKey: string
+  categories: Category[]
+  onResult: (tree: Tree, ownerId: number) => void
+}) {
+  return React.createElement(CaptureTreeOwner, {
+    key: scopeKey,
+    categories,
+    onResult,
+  })
+}
+
+function CaptureTreeOwner({
+  categories,
+  onResult,
+}: {
+  categories: Category[]
+  onResult: (tree: Tree, ownerId: number) => void
+}) {
+  const [ownerId] = React.useState(() => ++nextOwnerId)
+  onResult(useChannelTree(categories), ownerId)
   return null
 }
 
@@ -173,6 +203,112 @@ describe("useChannelTree opaque category drag callbacks", () => {
 
     expect(hook.current.order).toBe(beforeOrder)
     expect(hook.current.catOrder).toBe(beforeCatOrder)
+  })
+})
+
+describe("useChannelTree scope ownership", () => {
+  const categoriesA: Category[] = [
+    {
+      id: "cat_A",
+      name: "Alpha",
+      private: true,
+      pending: true,
+      creatorId: "owner_A",
+      channels: [ch("a1"), { ...ch("tmp_A"), pending: true }],
+    },
+    category("cat_A2", [ch("a2")]),
+  ]
+  const categoriesB: Category[] = [
+    {
+      id: "cat_B",
+      name: "Beta",
+      private: false,
+      pending: false,
+      creatorId: "owner_B",
+      channels: [ch("b1"), ch("b2")],
+    },
+  ]
+
+  it("preserves the seven state groups and callback owner under one stable key", async () => {
+    nextOwnerId = 0
+    let current!: Tree
+    let ownerId = 0
+    const onResult = (tree: Tree, id: number) => {
+      current = tree
+      ownerId = id
+    }
+    const renderer = rtlRender(React.createElement(ScopedCaptureTree, {
+      scopeKey: "server:A",
+      categories: categoriesA,
+      onResult,
+    }))
+    const initialOwnerId = ownerId
+    const initialToggle = current.toggleCat
+
+    await act(async () => current.toggleCat("cat_A"))
+    await act(async () => current.onDragOver(dragEvent("a2", "a1")))
+    const movedOrder = current.order
+
+    renderer.rerender(React.createElement(ScopedCaptureTree, {
+      scopeKey: "server:A",
+      categories: categoriesA,
+      onResult,
+    }))
+
+    expect(ownerId).toBe(initialOwnerId)
+    expect(current.collapsed).toEqual(new Set(["cat_A"]))
+    expect(current.order).toBe(movedOrder)
+    expect(current.catOrder).toEqual(["cat_A", "cat_A2"])
+    expect(current.catNames).toMatchObject({ cat_A: "Alpha", cat_A2: "cat_A2" })
+    expect(current.catPrivate.cat_A).toBe(true)
+    expect(current.catPending.cat_A).toBe(true)
+    expect(current.catCreators.cat_A).toBe("owner_A")
+    expect(current.toggleCat).toBe(initialToggle)
+  })
+
+  it("initializes the first render of a new key atomically from only that scope", async () => {
+    nextOwnerId = 0
+    const samples: Array<{ tree: Tree; ownerId: number }> = []
+    const onResult = (tree: Tree, ownerId: number) => samples.push({ tree, ownerId })
+    const renderer = rtlRender(React.createElement(ScopedCaptureTree, {
+      scopeKey: "server:A",
+      categories: categoriesA,
+      onResult,
+    }))
+
+    const current = samples.at(-1)!.tree
+    await act(async () => current.toggleCat("cat_A"))
+    await act(async () => current.onDragOver(dragEvent("a2", "a1")))
+    const ownerA = samples.at(-1)!.ownerId
+    samples.length = 0
+
+    renderer.rerender(React.createElement(ScopedCaptureTree, {
+      scopeKey: "server:B",
+      categories: categoriesB,
+      onResult,
+    }))
+
+    const firstB = samples[0]
+    expect(firstB.ownerId).not.toBe(ownerA)
+    expect(firstB.tree.collapsed).toEqual(new Set())
+    expect(firstB.tree.catOrder).toEqual(["cat_B"])
+    expect(Object.keys(firstB.tree.order)).toEqual(["cat_B"])
+    expect(firstB.tree.order.cat_B.map((channel) => channel.id)).toEqual(["b1", "b2"])
+    expect(firstB.tree.catNames).toEqual({ cat_B: "Beta" })
+    expect(firstB.tree.catPrivate).toEqual({ cat_B: false })
+    expect(firstB.tree.catPending).toEqual({ cat_B: false })
+    expect(firstB.tree.catCreators).toEqual({ cat_B: "owner_B" })
+    expect(JSON.stringify(firstB.tree)).not.toContain("tmp_A")
+
+    samples.length = 0
+    renderer.rerender(React.createElement(ScopedCaptureTree, {
+      scopeKey: "server:A",
+      categories: categoriesA,
+      onResult,
+    }))
+    expect(samples[0].ownerId).not.toBe(firstB.ownerId)
+    expect(samples[0].tree.collapsed).toEqual(new Set())
+    expect(samples[0].tree.order.cat_A.map((channel) => channel.id)).toEqual(["a1", "tmp_A"])
   })
 })
 

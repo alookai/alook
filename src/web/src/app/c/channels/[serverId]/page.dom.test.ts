@@ -61,7 +61,7 @@ describe("ServerDefaultPage checkpoint route contract", () => {
     expect(mocks.replace).not.toHaveBeenCalled()
     expect(screen.getByRole("main", { name: "Loading server" })).toHaveAttribute("aria-busy", "true")
     expect(screen.getByRole("main", { name: "Loading server" }))
-      .toHaveAttribute("data-community-mobile-transition", "suppress")
+      .not.toHaveAttribute("data-community-mobile-transition")
     expect(rendered.container.querySelectorAll("header, button, form, textarea")).toHaveLength(0)
 
     mocks.server.current = { categories: [{ channels: [{ id: "channel_ready" }] }] }

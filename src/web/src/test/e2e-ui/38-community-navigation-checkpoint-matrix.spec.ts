@@ -30,36 +30,68 @@ function channelHeader(page: Page, name: string) {
 
 type SurfaceAnimationRecord = {
   surface: string | null
-  opacity: number
+}
+
+type SurfaceFrameRecord = {
+  pathname: string
+  surface: string | null
   transform: string
-  suppressed: boolean
+  opacity: string
+  rows: string[]
+  pendingMain: string | null
+  treeScope: string | null
 }
 
 async function installSurfaceAnimationProbe(page: Page) {
-  await page.addInitScript(() => {
+  const channelRowPrefix = tid.channelRow("")
+  await page.addInitScript(({ channelRowPrefix }) => {
     const state = window as typeof window & {
       __communitySurfaceAnimations?: Array<{
         surface: string | null
-        opacity: number
-        transform: string
-        suppressed: boolean
       }>
+      __communitySurfaceFrames?: SurfaceFrameRecord[]
+      __communitySurfaceFrameStop?: () => void
     }
     state.__communitySurfaceAnimations = []
+    state.__communitySurfaceFrames = []
     const nativeAnimate = Element.prototype.animate
     Element.prototype.animate = function (keyframes, options) {
-      if (this.hasAttribute("data-community-mobile-surface") && Array.isArray(keyframes)) {
-        const first = keyframes[0]
+      if (this.hasAttribute("data-community-mobile-surface")) {
         state.__communitySurfaceAnimations!.push({
           surface: this.getAttribute("data-community-mobile-surface"),
-          opacity: Number(first?.opacity),
-          transform: String(first?.transform),
-          suppressed: this.querySelector('[data-community-mobile-transition="suppress"]') !== null,
         })
       }
       return nativeAnimate.call(this, keyframes, options)
     }
-  })
+
+    let raf = 0
+    const sample = () => {
+      for (const surface of document.querySelectorAll<HTMLElement>("[data-community-mobile-surface]")) {
+        const style = getComputedStyle(surface)
+        if (style.display === "none" || surface.getClientRects().length === 0) continue
+        const rows = Array.from(surface.querySelectorAll<HTMLElement>(
+          `[data-testid^="${channelRowPrefix}"]`,
+        )).filter((row) => {
+          const rowStyle = getComputedStyle(row)
+          return rowStyle.display !== "none" && row.getClientRects().length > 0
+        }).map((row) => row.dataset.testid!.replace(channelRowPrefix, ""))
+        state.__communitySurfaceFrames!.push({
+          pathname: location.pathname,
+          surface: surface.getAttribute("data-community-mobile-surface"),
+          transform: style.transform,
+          opacity: style.opacity,
+          rows,
+          pendingMain: surface.querySelector<HTMLElement>("[data-community-main-kind]")
+            ?.dataset.communityMainKind ?? null,
+          treeScope: surface.querySelector<HTMLElement>("[data-community-channel-tree-scope]")
+            ?.dataset.communityChannelTreeScope ?? null,
+        })
+      }
+      raf = requestAnimationFrame(sample)
+    }
+    raf = requestAnimationFrame(sample)
+    state.__communitySurfaceFrameStop = () => cancelAnimationFrame(raf)
+  }, { channelRowPrefix })
 }
 
 async function surfaceAnimations(page: Page): Promise<SurfaceAnimationRecord[]> {
@@ -70,10 +102,27 @@ async function surfaceAnimations(page: Page): Promise<SurfaceAnimationRecord[]> 
 
 async function clearSurfaceAnimations(page: Page): Promise<void> {
   await page.evaluate(() => {
-    ;(window as typeof window & {
+    const state = window as typeof window & {
       __communitySurfaceAnimations?: SurfaceAnimationRecord[]
-    }).__communitySurfaceAnimations = []
+      __communitySurfaceFrames?: SurfaceFrameRecord[]
+    }
+    state.__communitySurfaceAnimations = []
+    state.__communitySurfaceFrames = []
   })
+}
+
+async function surfaceFrames(page: Page): Promise<SurfaceFrameRecord[]> {
+  return page.evaluate(() => (
+    window as typeof window & { __communitySurfaceFrames?: SurfaceFrameRecord[] }
+  ).__communitySurfaceFrames ?? [])
+}
+
+function expectStationaryFrames(frames: SurfaceFrameRecord[]) {
+  expect(frames.length).toBeGreaterThan(0)
+  for (const frame of frames) {
+    expect(["none", "matrix(1, 0, 0, 1, 0, 0)"]).toContain(frame.transform)
+    expect(frame.opacity).toBe("1")
+  }
 }
 
 test("community checkpoint shows target pending for detail and keeps list surfaces stable", async ({ asUser }) => {
@@ -144,7 +193,7 @@ test("community checkpoint shows target pending for detail and keeps list surfac
   expect(mutations).toEqual([])
 })
 
-test("mobile pending commits animate once while sidebar identity survives route changes", async ({ asUser }) => {
+test("mobile route commits stay stationary while sidebar identity survives same-server history", async ({ asUser }) => {
   test.setTimeout(120_000)
   const stamp = Date.now()
   const serverId = await seedServer("alice", `Mobile frame ${stamp}`)
@@ -172,12 +221,8 @@ test("mobile pending commits animate once while sidebar identity survives route 
   await expect.poll(() => new URL(page.url()).pathname)
     .toBe(`/c/channels/${serverId}/${fastChannel}`)
   await expect(page.getByTestId(tid.composerInput)).toBeVisible()
-  expect(await surfaceAnimations(page)).toEqual([{
-    surface: "detail",
-    opacity: 0.92,
-    transform: "translate3d(8px, 0, 0)",
-    suppressed: false,
-  }])
+  expect(await surfaceAnimations(page)).toEqual([])
+  expectStationaryFrames(await surfaceFrames(page))
   expect(await sidebarScroll.evaluate((element) => (
     element as typeof element & { __e2eIdentity?: string }
   ).__e2eIdentity)).toBe("stable")
@@ -188,20 +233,8 @@ test("mobile pending commits animate once while sidebar identity survives route 
   await page.getByRole("banner").getByRole("button", { name: "Back" }).click()
   await expect.poll(() => new URL(page.url()).pathname).toBe(`/c/channels/${serverId}`)
   await expect(fastRow).toBeVisible()
-  expect(await surfaceAnimations(page)).toEqual([
-    {
-      surface: "detail",
-      opacity: 0.92,
-      transform: "translate3d(8px, 0, 0)",
-      suppressed: false,
-    },
-    {
-      surface: "list",
-      opacity: 0.92,
-      transform: "translate3d(-8px, 0, 0)",
-      suppressed: false,
-    },
-  ])
+  expect(await surfaceAnimations(page)).toEqual([])
+  expectStationaryFrames(await surfaceFrames(page))
   expect(await sidebarScroll.evaluate((element) => (
     element as typeof element & { __e2eIdentity?: string }
   ).__e2eIdentity)).toBe("stable")
@@ -216,16 +249,35 @@ test("mobile pending commits animate once while sidebar identity survives route 
   const pendingPath = `/c/channels/${serverId}/${pendingChannel}`
   await expect.poll(() => new URL(page.url()).pathname).toBe(pendingPath)
   await expect(page.getByTestId(tid.composerInput)).toBeVisible({ timeout: 30_000 })
-  expect(await surfaceAnimations(page)).toEqual([{
-    surface: "detail",
-    opacity: 0.92,
-    transform: "translate3d(8px, 0, 0)",
-    suppressed: false,
-  }])
+  expect(await surfaceAnimations(page)).toEqual([])
+  expectStationaryFrames(await surfaceFrames(page))
   expect(await sidebarScroll.evaluate((element) => (
     element as typeof element & { __e2eIdentity?: string }
   ).__e2eIdentity)).toBe("stable")
   expect(await fastRow.evaluate((element) => (
     element as typeof element & { __e2eDndOwner?: string }
   ).__e2eDndOwner)).toBe("stable")
+
+  await page.goBack()
+  await expect.poll(() => new URL(page.url()).pathname).toBe(`/c/channels/${serverId}`)
+  await expect(fastRow).toBeVisible()
+  await page.goForward()
+  await expect.poll(() => new URL(page.url()).pathname).toBe(pendingPath)
+  await expect(page.getByTestId(tid.composerInput)).toBeVisible()
+  expect(await surfaceAnimations(page)).toEqual([])
+  expectStationaryFrames(await surfaceFrames(page))
+
+  await page.goBack()
+  await expect(fastRow).toBeVisible()
+  await page.getByTestId(tid.homeButton).click()
+  await expect.poll(() => new URL(page.url()).pathname).toBe("/c/me")
+  await page.getByTestId(tid.serverIcon(serverId)).click()
+  await expect.poll(() => new URL(page.url()).pathname).toBe(`/c/channels/${serverId}`)
+  await expect(fastRow).toBeVisible()
+  expect(await surfaceAnimations(page)).toEqual([])
+  const finalFrames = await surfaceFrames(page)
+  expectStationaryFrames(finalFrames)
+  const targetFrames = finalFrames.filter((frame) => frame.rows.includes(fastChannel))
+  expect(targetFrames.length).toBeGreaterThan(0)
+  expect(targetFrames.every((frame) => frame.treeScope === `server:${serverId}`)).toBe(true)
 })

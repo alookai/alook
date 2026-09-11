@@ -191,3 +191,10 @@ export function structuralHintServer(
   const server = snapshot?.servers.find((candidate) => candidate.id === serverId)
   return server ? { ...server, categoriesView: structuralServerToCategories(server) } : null
 }
+
+/** A rail-only Server identity is not enough to initialize a Channel Tree. */
+export function hasStructuralServerTree(
+  server: Pick<StructuralServerV1, "categories" | "channels"> | null | undefined,
+): boolean {
+  return Boolean(server && (server.categories.length > 0 || server.channels.length > 0))
+}

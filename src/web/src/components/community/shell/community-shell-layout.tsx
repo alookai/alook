@@ -2,8 +2,6 @@
 
 import {
   useCallback,
-  useEffect,
-  useLayoutEffect,
   useRef,
   type CSSProperties,
   type ReactNode,
@@ -31,8 +29,6 @@ import { Shell } from "./shell"
 import { useHydratedClient } from "./use-hydrated-client"
 
 const SHELL_SURFACE_CLASS = "rounded-tl-xl rounded-tr-none rounded-br-none rounded-bl-none ring-0 border-l border-t border-border/40 shadow-none"
-const MOBILE_SURFACE_TRANSITION_MS = 180
-const MOBILE_TRANSITION_SUPPRESSION_SELECTOR = '[data-community-mobile-transition="suppress"]'
 const communityLayoutStorage: Pick<Storage, "getItem" | "setItem"> = {
   getItem: (key) => typeof localStorage === "undefined" ? null : localStorage.getItem(key),
   setItem: (key, value) => {
@@ -49,10 +45,6 @@ type CommunityShellLayoutProps = {
   userBar: ReactNode
   overlays?: ReactNode
   onNavigationIntent?: () => void
-  transition?: {
-    mode: string
-    targetHref: string
-  }
   busy?: boolean
   label?: string
   routeKind?: string
@@ -70,7 +62,6 @@ export function CommunityShellLayout({
   userBar,
   overlays,
   onNavigationIntent,
-  transition,
   busy,
   label,
   routeKind,
@@ -84,15 +75,7 @@ export function CommunityShellLayout({
   })
   const hydratedClient = useHydratedClient()
   const sidebarPanelRef = useRef<HTMLDivElement>(null)
-  const mainPanelRef = useRef<HTMLDivElement>(null)
   const userBarOverlayRef = useRef<HTMLDivElement>(null)
-  const previousCommittedHrefRef = useRef<string | null>(null)
-  const pendingTransitionRef = useRef<{
-    sourceHref: string | null
-    targetHref: string
-  } | null>(null)
-  const canceledTransitionTargetsRef = useRef(new Set<string>())
-  const mobileSurfaceAnimationRef = useRef<Animation | null>(null)
   const syncDesktopUserBarWidth = useCallback((size: PanelSize) => {
     const measuredSidebarWidth = sidebarPanelRef.current?.getBoundingClientRect().width
     const sidebarWidth = measuredSidebarWidth && measuredSidebarWidth > 0
@@ -114,64 +97,6 @@ export function CommunityShellLayout({
   const mainMobileActive = isMobileDetail || isInitialDetail
   const mainMobileHidden = isMobileList || (isInitial && surface === "list")
   const showUserBar = isDesktop || isMobileList || isInitial || preserveHiddenMobileModules
-  const transitionMode = transition?.mode
-  const transitionTargetHref = transition?.targetHref
-
-  useLayoutEffect(() => {
-    if (!transitionTargetHref) return
-    if (transitionMode !== "committed") {
-      mobileSurfaceAnimationRef.current?.cancel()
-      mobileSurfaceAnimationRef.current = null
-      const pendingTransition = pendingTransitionRef.current
-      if (pendingTransition && pendingTransition.targetHref !== transitionTargetHref) {
-        canceledTransitionTargetsRef.current.add(pendingTransition.targetHref)
-      }
-      canceledTransitionTargetsRef.current.delete(transitionTargetHref)
-      pendingTransitionRef.current = {
-        sourceHref: previousCommittedHrefRef.current,
-        targetHref: transitionTargetHref,
-      }
-      return
-    }
-    const previousHref = previousCommittedHrefRef.current
-    const pendingTransition = pendingTransitionRef.current
-    pendingTransitionRef.current = null
-    if (pendingTransition && pendingTransition.targetHref !== transitionTargetHref) {
-      canceledTransitionTargetsRef.current.add(pendingTransition.targetHref)
-    }
-    previousCommittedHrefRef.current = transitionTargetHref
-    if (canceledTransitionTargetsRef.current.delete(transitionTargetHref)) {
-      mobileSurfaceAnimationRef.current?.cancel()
-      mobileSurfaceAnimationRef.current = null
-      return
-    }
-    if (
-      breakpoint !== "mobile"
-      || !previousHref
-      || previousHref === transitionTargetHref
-      || globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches
-    ) return
-
-    const element = surface === "list" ? sidebarPanelRef.current : mainPanelRef.current
-    if (!element?.animate) return
-    if (element.querySelector?.(MOBILE_TRANSITION_SUPPRESSION_SELECTOR)) {
-      mobileSurfaceAnimationRef.current?.cancel()
-      mobileSurfaceAnimationRef.current = null
-      return
-    }
-    mobileSurfaceAnimationRef.current?.cancel()
-    mobileSurfaceAnimationRef.current = element.animate([
-      {
-        opacity: 0.92,
-        transform: `translate3d(${surface === "list" ? -8 : 8}px, 0, 0)`,
-      },
-      { opacity: 1, transform: "translate3d(0, 0, 0)" },
-    ], {
-      duration: MOBILE_SURFACE_TRANSITION_MS,
-      easing: "cubic-bezier(0.22, 1, 0.36, 1)",
-    })
-  }, [breakpoint, surface, transitionMode, transitionTargetHref])
-  useEffect(() => () => mobileSurfaceAnimationRef.current?.cancel(), [])
 
   const sidebarPercentage = hydratedClient
     ? defaultLayout?.sidebar ?? COMMUNITY_SIDEBAR_DEFAULT_PERCENTAGE
@@ -264,7 +189,6 @@ export function CommunityShellLayout({
               className="flex min-w-0 flex-col bg-background"
             >
               <div
-                ref={mainPanelRef}
                 data-community-mobile-surface={isMobileDetail ? "detail" : undefined}
                 className="flex min-h-0 flex-1 flex-col"
               >

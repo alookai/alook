@@ -83,6 +83,12 @@ vi.mock("@/contexts/community/current-user", () => ({
 }))
 vi.mock("@/hooks/community/use-structural-snapshot", () => ({
   useStructuralSnapshot: () => mocks.structuralSnapshot.current,
+  hasStructuralServerTree: (server: {
+    categories: unknown[]
+    channels: unknown[]
+  } | null | undefined) => Boolean(
+    server && (server.categories.length > 0 || server.channels.length > 0),
+  ),
 }))
 vi.mock("./use-shell-rail-controller", () => ({
   useShellRailController: (options: unknown) => {

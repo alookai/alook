@@ -5,6 +5,7 @@ import type { ServerDetail, ServersResponse } from "./use-servers"
 import type { FoldersResponse } from "./use-folders"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import {
+  hasStructuralServerTree,
   installStructuralSnapshotProjection,
   structuralHintServer,
 } from "./use-structural-snapshot"
@@ -357,6 +358,15 @@ describe("installStructuralSnapshotProjection", () => {
       id: "server-1",
       categoriesView: [],
     })
+    expect(hasStructuralServerTree(snapshot.servers[0])).toBe(false)
+    expect(hasStructuralServerTree({
+      ...snapshot.servers[0],
+      categories: [{ id: "category-1", name: "General", private: false }],
+    })).toBe(true)
+    expect(hasStructuralServerTree({
+      ...snapshot.servers[0],
+      channels: [{ id: "channel-1", name: "chat", type: "text" as const, categoryId: null }],
+    })).toBe(true)
     expect(structuralHintServer(snapshot, "missing")).toBeNull()
     expect(structuralHintServer(null, "server-1")).toBeNull()
   })
