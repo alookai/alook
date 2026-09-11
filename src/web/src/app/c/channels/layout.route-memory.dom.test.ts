@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   routeProtected: { current: false },
   routeToken: {},
   clearLastChannel: vi.fn(),
+  communityServerId: vi.fn(),
   useServer: vi.fn(),
   servers: { current: [] as Array<{ id: string }> },
   serverDetails: new Map<string, {
@@ -73,7 +74,7 @@ vi.mock("@/components/community/shell/shell-frame", () => ({
 }))
 vi.mock("@/lib/community/community-route", () => ({
   channelHref: (serverId: string, channelId: string) => `/c/channels/${serverId}/${channelId}`,
-  communityServerId: () => "missing-server",
+  communityServerId: (pathname: string) => mocks.communityServerId(pathname),
   serverRootHref: (serverId: string) => `/c/channels/${serverId}`,
   serverModalMarkerCleanupHref: () => null,
 }))
@@ -235,6 +236,7 @@ import ServerLayout from "./layout"
 
 describe("ServerLayout deletion routing", () => {
   beforeEach(() => {
+    window.history.replaceState({}, "", "/c/channels/missing-server/missing-channel")
     mocks.replace.mockClear()
     mocks.navigatePath.mockClear()
     mocks.cancelPendingNavigation.mockClear()
@@ -249,6 +251,10 @@ describe("ServerLayout deletion routing", () => {
     mocks.registerRoute.mockReturnValue("ordinary")
     mocks.routeProtected.current = false
     mocks.clearLastChannel.mockClear()
+    mocks.communityServerId.mockReset()
+    mocks.communityServerId.mockImplementation((pathname: string) => (
+      pathname.match(/^\/c\/channels\/([^/?#]+)/)?.[1] ?? null
+    ))
     mocks.deleteServerAction.current = null
     mocks.useServer.mockClear()
     mocks.servers.current = []
@@ -269,6 +275,16 @@ describe("ServerLayout deletion routing", () => {
       Promise.resolve(mocks.serverDetails.get(String(queryKey.at(-1))))
     ))
     mocks.runEject.mockReturnValue(false)
+  })
+
+  it("checks the current pathname before running the generic eject", () => {
+    expect(window.location.href).toContain("://")
+
+    render(createElement(ServerLayout, null, createElement("div")))
+
+    expect(mocks.communityServerId).toHaveBeenCalledWith(window.location.pathname)
+    expect(mocks.communityServerId).not.toHaveBeenCalledWith(window.location.href)
+    expect(mocks.runEject).toHaveBeenCalledOnce()
   })
 
   it("passes the authenticated leaf and target-specific revoke facts to generic eject", () => {

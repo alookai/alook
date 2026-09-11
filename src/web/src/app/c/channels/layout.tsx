@@ -281,7 +281,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (ejectedRef.current) return
     if (typeof window !== "undefined"
-      && communityServerId(window.location.href) !== serverId) return
+      && communityServerId(window.location.pathname) !== serverId) return
     ejectedRef.current = runAuthoritativeServerEject({
       serverId,
       servers: serversList.servers,

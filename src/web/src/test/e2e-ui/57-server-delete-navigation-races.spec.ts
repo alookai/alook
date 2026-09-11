@@ -226,16 +226,20 @@ for (const testCase of [
 
 test("slow target RSC survives delete/list/WS convergence and lands on its remembered Channel", async ({ asUser }) => {
   const stamp = Date.now()
-  const survivor = await seedServerRoute("carol", `slow-target-${stamp}`)
+  const ensuredSurvivor = await seedServerRoute("carol", `slow-target-${stamp}`)
   const deleted = await seedServerRoute("carol", `slow-deleted-${stamp}`)
   const page = (await asUser("carol")).page
   await gotoAfterUserWsAuth(
     page,
-    `/c/channels/${survivor.serverId}/${survivor.channelId}`,
+    `/c/channels/${ensuredSurvivor.serverId}/${ensuredSurvivor.channelId}`,
   )
+  const targetServerId = (await serverIds("carol")).find((id) => id !== deleted.serverId)
+  expect(targetServerId).toBeTruthy()
+  await openServer(page, targetServerId!)
+  const targetPathname = await expectServerLeaf(page, targetServerId!)
   await expect(page.getByTestId(tid.composerInput)).toBeVisible()
   await openServer(page, deleted.serverId)
-  const targetRsc = await delayServerRsc(page, survivor.serverId)
+  const targetRsc = await delayServerRsc(page, targetServerId!)
   const response = page.waitForResponse((candidate) => (
     candidate.request().method() === "DELETE"
       && new URL(candidate.url()).pathname === `/api/community/servers/${deleted.serverId}`
@@ -247,25 +251,31 @@ test("slow target RSC survives delete/list/WS convergence and lands on its remem
   await targetRsc.intercepted
   expect(new URL(page.url()).pathname).not.toBe("/c/me")
   targetRsc.release()
-  expect(await expectServerLeaf(page, survivor.serverId)).toBe(
-    `/c/channels/${survivor.serverId}/${survivor.channelId}`,
-  )
+  expect(await expectServerLeaf(page, targetServerId!)).toBe(targetPathname)
   await expect(page.getByTestId(tid.serverIcon(deleted.serverId))).toHaveCount(0)
   await targetRsc.cleanup()
 })
 
 test("a newer user navigation wins while the delete target RSC is pending", async ({ asUser }) => {
   const stamp = Date.now()
-  const target = await seedServerRoute("dave", `queued-target-${stamp}`)
-  const userRoute = await seedServerRoute("dave", `queued-user-${stamp}`)
+  const candidateA = await seedServerRoute("dave", `queued-target-a-${stamp}`)
+  const candidateB = await seedServerRoute("dave", `queued-target-b-${stamp}`)
   const deleted = await seedServerRoute("dave", `queued-deleted-${stamp}`)
   const page = (await asUser("dave")).page
   await gotoAfterUserWsAuth(
     page,
-    `/c/channels/${target.serverId}/${target.channelId}`,
+    `/c/channels/${candidateA.serverId}/${candidateA.channelId}`,
   )
+  const targetServerId = (await serverIds("dave")).find((id) => id !== deleted.serverId)
+  expect(targetServerId).toBeTruthy()
+  const userRoute = [candidateA, candidateB].find(({ serverId }) => (
+    serverId !== targetServerId
+  ))
+  expect(userRoute).toBeTruthy()
+  await openServer(page, targetServerId!)
+  await expectServerLeaf(page, targetServerId!)
   await openServer(page, deleted.serverId)
-  const targetRsc = await delayServerRsc(page, target.serverId)
+  const targetRsc = await delayServerRsc(page, targetServerId!)
   const response = page.waitForResponse((candidate) => (
     candidate.request().method() === "DELETE"
       && new URL(candidate.url()).pathname === `/api/community/servers/${deleted.serverId}`
@@ -275,10 +285,10 @@ test("a newer user navigation wins while the delete target RSC is pending", asyn
 
   expect((await response).status()).toBe(204)
   await targetRsc.intercepted
-  await page.getByTestId(tid.serverIcon(userRoute.serverId)).click()
+  await page.getByTestId(tid.serverIcon(userRoute!.serverId)).click()
   targetRsc.release()
-  await expectServerLeaf(page, userRoute.serverId)
-  await expect(page).not.toHaveURL(new RegExp(`/c/channels/${target.serverId}(?:/|$)`), {
+  await expectServerLeaf(page, userRoute!.serverId)
+  await expect(page).not.toHaveURL(new RegExp(`/c/channels/${targetServerId}(?:/|$)`), {
     timeout: 2_000,
   })
   await targetRsc.cleanup()
