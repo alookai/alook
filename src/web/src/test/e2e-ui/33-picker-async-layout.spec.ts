@@ -129,13 +129,30 @@ test.describe.serial("invite and participant picker async states", () => {
     const dialog = page.getByRole("dialog")
     await expect(dialog.locator('[data-slot="invite-friends-loading"]')).toBeVisible()
     await expect(dialog.getByText(/No friends to invite|No matches/)).toHaveCount(0)
+    const copy = dialog.getByRole("button", { name: "Copy", exact: true })
+    await expect(copy).toBeEnabled({ timeout: 20_000 })
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"])
+    await page.evaluate(() => navigator.clipboard.writeText("invite-copy-not-yet"))
+    const inviteUrl = await dialog.locator("input[readonly]").inputValue()
+    await copy.hover()
+    const copyBeforeLoad = await copy.boundingBox()
+    expect(copyBeforeLoad).not.toBeNull()
+    await page.mouse.move(
+      copyBeforeLoad!.x + copyBeforeLoad!.width / 2,
+      copyBeforeLoad!.y + copyBeforeLoad!.height / 2,
+    )
+    await page.mouse.down()
     acceptedGate.resolve()
     await expect(dialog.getByRole("button", { name: "Invite" }).first()).toBeVisible({ timeout: 20_000 })
+    await page.mouse.up()
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(inviteUrl)
+    await expect.poll(async () => (await copy.boundingBox())!.y).toBe(copyBeforeLoad!.y)
     await expectTitleClearOfClose(dialog, 1280)
 
     const beforeSearch = { acceptedGets, memberGets }
     await dialog.getByPlaceholder("Search for friends").fill("no-user-matches-this-query")
     await expect(dialog.getByText("No matches.", { exact: true })).toBeVisible()
+    expect((await copy.boundingBox())!.y).toBe(copyBeforeLoad!.y)
     expect({ acceptedGets, memberGets }).toEqual(beforeSearch)
     await dialog.getByPlaceholder("Search for friends").fill("")
     await expect(dialog.getByRole("button", { name: "Invite" }).first()).toBeVisible()
@@ -187,6 +204,7 @@ test.describe.serial("invite and participant picker async states", () => {
     await page.getByRole("button", { name: "Invite to server" }).click()
     const dialog = page.getByRole("dialog")
     await expect(dialog.getByText("Couldn't load friends.", { exact: true })).toBeVisible({ timeout: 20_000 })
+    const copyBeforeRetry = await dialog.getByRole("button", { name: "Copy", exact: true }).boundingBox()
     const failedChainGets = acceptedGets
     expect(failedChainGets).toBeGreaterThanOrEqual(2)
     fail = false
@@ -194,6 +212,7 @@ test.describe.serial("invite and participant picker async states", () => {
     await expect(dialog.getByText("No friends to invite — everyone you know is already here.", { exact: true }))
       .toBeVisible({ timeout: 20_000 })
     expect(acceptedGets).toBeGreaterThan(failedChainGets)
+    expect(await dialog.getByRole("button", { name: "Copy", exact: true }).boundingBox()).toEqual(copyBeforeRetry)
     await expectTitleClearOfClose(dialog, 390)
   })
 
