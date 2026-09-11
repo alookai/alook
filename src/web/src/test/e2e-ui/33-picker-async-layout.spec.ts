@@ -146,7 +146,7 @@ test.describe.serial("invite and participant picker async states", () => {
     await expect(dialog.getByRole("button", { name: "Invite" }).first()).toBeVisible({ timeout: 20_000 })
     await page.mouse.up()
     await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(inviteUrl)
-    expect((await copy.boundingBox())!.y).toBe(copyBeforeLoad!.y)
+    await expect.poll(async () => (await copy.boundingBox())!.y).toBe(copyBeforeLoad!.y)
     await expectTitleClearOfClose(dialog, 1280)
 
     const beforeSearch = { acceptedGets, memberGets }
