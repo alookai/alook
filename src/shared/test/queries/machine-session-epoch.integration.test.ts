@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import Sqlite from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -61,6 +62,10 @@ describe("machine session epoch SQL transaction", () => {
         revoked_at TEXT
       );
     `);
+    sqlite.exec("CREATE TABLE user(id TEXT PRIMARY KEY, isBot INTEGER NOT NULL DEFAULT 0, ownerUserId TEXT, createdAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, deletedAt TEXT); CREATE TABLE community_bot_binding(user_id TEXT PRIMARY KEY, machine_id TEXT);");
+    sqlite.exec(readFileSync(new URL("../../../web/migrations/0098_product_plan_bot_active.sql", import.meta.url), "utf8"));
+    sqlite.exec(readFileSync(new URL("../../../web/migrations/0099_billing_founder.sql", import.meta.url), "utf8"));
+    sqlite.exec(readFileSync(new URL("../../../web/migrations/0101_machine_plan_limits.sql", import.meta.url), "utf8"));
     db = drizzle(sqlite);
     // Match D1's all-or-nothing batch contract using real generated SQL.
     (db as any).batch = (statements: Array<{ toSQL: () => { sql: string; params: unknown[] } }>) =>

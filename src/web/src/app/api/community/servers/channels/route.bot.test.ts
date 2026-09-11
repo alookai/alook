@@ -55,7 +55,7 @@ describe("GET /api/community/servers/channels — bot arm (folds listChannels al
     vi.clearAllMocks()
     mockFindActiveAgentRunnerKeyByBearer.mockResolvedValue({ userId: "owner_1", machineId: "m_1", agentId: "bot_1" })
     mockGetUserInternal.mockResolvedValue({ isBot: true, deletedAt: null })
-    mockGetBotBinding.mockResolvedValue({ machineId: "m_1", runtime: "claude" })
+    mockGetBotBinding.mockResolvedValue({ machineId: "m_1", runtime: "claude", isActive: true })
     mockListCategoriesByServer.mockResolvedValue([])
   })
 

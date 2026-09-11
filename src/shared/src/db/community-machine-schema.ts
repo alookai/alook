@@ -266,6 +266,7 @@ export const communityBotBinding = sqliteTable(
     modelName: text("model_name"),
     reasoningEffort: text("reasoning_effort"),
     runtimeConfigRevision: integer("runtime_config_revision").notNull().default(0),
+    isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
     createdAt: text("created_at")
       .notNull()
       .$defaultFn(() => new Date().toISOString()),

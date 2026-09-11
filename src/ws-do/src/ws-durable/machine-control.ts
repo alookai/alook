@@ -194,6 +194,16 @@ export async function acceptCommunityMachineWebSocket(
     return new Response("credential revoked or unknown", { status: 401 })
   }
 
+  try {
+    const machine = await queries.communityMachine.getMachineByIdForUser(db, auth.userId, auth.machineId)
+    if (!machine) return new Response("machine not found", { status: 401 })
+    if (machine.status !== "online") await queries.productPlan.assertMachineCapacity(db, auth.userId, "online")
+  } catch (error) {
+    if (error instanceof queries.productPlan.MachineLimitReachedError) return new Response("MACHINE_LIMIT_REACHED", { status: 409 })
+    context.log.warn("community machine capacity lookup failed", { err: String(error) })
+    return new Response("machine allowance unavailable", { status: 503 })
+  }
+
   const pair = new WebSocketPair()
   const [client, server] = Object.values(pair)
   context.ctx.acceptWebSocket(server)

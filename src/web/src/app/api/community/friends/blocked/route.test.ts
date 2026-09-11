@@ -53,7 +53,7 @@ describe("GET /api/community/friends/blocked", () => {
     vi.clearAllMocks()
     mockFindActiveAgentRunnerKeyByBearer.mockResolvedValue({ userId: "owner_1", machineId: "m_1", agentId: "bot_zoe" })
     mockGetUserInternal.mockResolvedValue({ id: "bot_zoe", isBot: true, deletedAt: null, ownerUserId: "owner_1" })
-    mockGetBotBinding.mockResolvedValue({ machineId: "m_1", runtime: "claude" })
+    mockGetBotBinding.mockResolvedValue({ machineId: "m_1", runtime: "claude", isActive: true })
   })
 
   it("bot → 403 BEFORE any blocked query (owner-only, zero existence leak)", async () => {

@@ -61,6 +61,7 @@ export function MarketingNav({
         </Link>
 
         <div className="relative flex items-center gap-3">
+          <Link href="/pricing" className="px-3 py-2 text-xs uppercase tracking-widest transition-opacity duration-150 hover:opacity-70" style={{ fontFamily: "var(--font-mono)", color: "var(--landing-text)" }}>Pricing</Link>
           {showTemplates && (
             <Link
               href="/templates"

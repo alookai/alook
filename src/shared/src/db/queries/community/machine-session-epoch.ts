@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import {
   communityAgentRunnerKey,
   communityMachine,
@@ -12,6 +12,8 @@ import {
   type MachineMetadataInput,
   type MachineRow,
 } from "./machine";
+
+import { assertMachineCapacity, getMachineCapacitySummary, MachineLimitReachedError, machinesMaxForUserSql } from "../product-plan";
 
 const CREDENTIAL_PREFIX = "cmk_";
 
@@ -136,6 +138,12 @@ async function transitionLiveLease(
       and(
         eq(communityMachine.id, prior.id),
         statusGuard,
+        command.type === "ready" || command.type === "renew"
+          ? or(eq(communityMachine.status, "online"), sql`(
+              SELECT COUNT(*) FROM community_machine online_machine
+              WHERE online_machine.user_id = ${epoch.userId} AND online_machine.status = 'online'
+            ) < ${machinesMaxForUserSql(epoch.userId)}`)
+          : undefined,
         inArray(communityMachine.id, currentEpochMachineIds),
       ),
     )
@@ -196,6 +204,14 @@ async function rotateMachineSessionEpoch(
     );
   }
 
+  if (!token.machineId) {
+    await assertMachineCapacity(db, token.userId, "owned");
+  } else {
+    const machine = await db.select({ status: communityMachine.status }).from(communityMachine)
+      .where(and(eq(communityMachine.id, token.machineId), eq(communityMachine.userId, token.userId))).limit(1);
+    if (machine[0]?.status !== "online") await assertMachineCapacity(db, token.userId, "online");
+  }
+
   const claimed = await db
     .update(communityMachineToken)
     .set({ status: "revoked", lastUsedAt: nowIso })
@@ -235,6 +251,7 @@ async function rotateMachineSessionEpoch(
       });
     } catch (error) {
       await restoreClaimedToken(db, command.tokenId);
+      if (isMachineLimitConstraint(error)) throw new MachineLimitReachedError(await getMachineCapacitySummary(db, token.userId));
       throw error;
     }
     return {
@@ -418,4 +435,11 @@ export class MachineSessionRotationError extends Error {
     super(message);
     this.name = "MachineSessionRotationError";
   }
+}
+
+
+function isMachineLimitConstraint(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return error.message.includes("MACHINE_LIMIT_REACHED")
+    || (error.cause !== error && isMachineLimitConstraint(error.cause));
 }

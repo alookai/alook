@@ -213,6 +213,25 @@ export async function fanOutStatusUpdate(
   }
 }
 
+export async function fanOutPresenceUpdate(
+  userId: string,
+  online: boolean,
+  ownerUserId?: string | null,
+): Promise<void> {
+  try {
+    const { env } = getCloudflareContext()
+    const db = getDb((env as Env).DB)
+    const audience = await getProfileAudience(db, userId, ownerUserId)
+    await broadcastToRecipients(audience, {
+      type: WS_EVENTS.PRESENCE_UPDATE,
+      userId,
+      online,
+    })
+  } catch (err) {
+    log.warn("fanout_presence_update_failed", { userId, online, err: String(err) })
+  }
+}
+
 export async function fanOutProfileUpdate(profile: {
   id: string
   name: string

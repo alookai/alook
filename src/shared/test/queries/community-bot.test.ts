@@ -5,7 +5,7 @@ import Sqlite from "better-sqlite3"
 import * as q from "../../src/db/queries/community/bot"
 import {
   communityBotSyntheticEmail,
-  COMMUNITY_BOT_LIMIT_PER_OWNER,
+  COMMUNITY_BOT_REQUEST_MAX_ITEMS,
   COMMUNITY_BOT_NAME_MAX,
 } from "../../src/constants"
 import { computeDiscriminator } from "../../src/lib/discriminator"
@@ -183,6 +183,7 @@ describe("bot runtime-config read projections", () => {
     modelName: "gpt-5",
     reasoningEffort: "high",
     runtimeConfigRevision: 7,
+    isActive: true,
   }
 
   function makeOwnerListChain(rows: unknown[]) {
@@ -199,20 +200,29 @@ describe("bot runtime-config read projections", () => {
     chain.select = vi.fn(() => chain)
     chain.from = vi.fn(() => chain)
     chain.leftJoin = vi.fn(() => chain)
+    chain.innerJoin = vi.fn(() => chain)
     chain.where = vi.fn(() => chain)
     chain.limit = vi.fn(() => Promise.resolve(rows))
     return chain
   }
 
   it("returns reasoning effort and revision when listing an owner's bots", async () => {
-    await expect(q.listBotsForOwner(makeOwnerListChain([storedBot]), "owner_1")).resolves.toEqual([
-      { ...storedBot, tokenUsageTimeZone: null },
+    await expect(q.listBotsForOwner(makeOwnerListChain([{ ...storedBot, machineStatus: "online" }]), "owner_1")).resolves.toEqual([
+      { ...storedBot, presence: "online", tokenUsageTimeZone: null },
+    ])
+  })
+
+  it("projects inactive bots offline even while their bound machine is online", async () => {
+    await expect(q.listBotsForOwner(makeOwnerListChain([
+      { ...storedBot, isActive: false, machineStatus: "online" },
+    ]), "owner_1")).resolves.toEqual([
+      { ...storedBot, isActive: false, presence: "offline", tokenUsageTimeZone: null },
     ])
   })
 
   it("returns reasoning effort and revision from the owner-scoped lookup", async () => {
     await expect(q.getBotOwnedBy(makeLimitedReadChain([storedBot]), "bot_1", "owner_1")).resolves.toEqual(
-      storedBot,
+      { ...storedBot, avatarObjectKey: undefined },
     )
   })
 
@@ -231,6 +241,22 @@ describe("bot runtime-config read projections", () => {
         ownerUserId: "owner_1",
       })
   })
+
+  it("returns the owner binding state and stops wake resolution for an inactive bot", async () => {
+    const inactive = { ...storedBot, isBot: true, deletedAt: null, isActive: false }
+
+    await expect(q.getBotBindingWithOwner(makeLimitedReadChain([inactive]), "bot_1"))
+      .resolves.toEqual({
+        machineId: "machine_1",
+        runtime: "codex",
+        ownerUserId: "owner_1",
+        name: "helper",
+        discriminator: "1234",
+        isActive: false,
+      })
+    await expect(q.getBotWakeContext(makeLimitedReadChain([inactive]), "bot_1"))
+      .resolves.toEqual({ state: "bot_inactive" })
+  })
 })
 
 describe("getBotBinding", () => {
@@ -244,7 +270,7 @@ describe("getBotBinding", () => {
   }
 
   it("returns the full runtime binding when it exists", async () => {
-    const chain = makeSelectChain([{ machineId: "machine_1", runtime: "codex", modelName: null }])
+    const chain = makeSelectChain([{ machineId: "machine_1", runtime: "codex", modelName: null, isActive: true }])
     const result = await q.getBotBinding(chain, "bot_1")
     expect(result).toEqual({
       machineId: "machine_1",
@@ -252,11 +278,12 @@ describe("getBotBinding", () => {
       modelName: null,
       reasoningEffort: null,
       runtimeConfigRevision: 0,
+      isActive: true,
     })
   })
 
   it("surfaces a stored modelName", async () => {
-    const chain = makeSelectChain([{ machineId: "machine_1", runtime: "claude", modelName: "claude-opus-4-6" }])
+    const chain = makeSelectChain([{ machineId: "machine_1", runtime: "claude", modelName: "claude-opus-4-6", isActive: false }])
     const result = await q.getBotBinding(chain, "bot_1")
     expect(result).toEqual({
       machineId: "machine_1",
@@ -264,6 +291,7 @@ describe("getBotBinding", () => {
       modelName: "claude-opus-4-6",
       reasoningEffort: null,
       runtimeConfigRevision: 0,
+      isActive: false,
     })
   })
 
@@ -482,8 +510,8 @@ describe("listBotsForMachine", () => {
 })
 
 describe("bot limits", () => {
-  it("cap is 20", () => {
-    expect(COMMUNITY_BOT_LIMIT_PER_OWNER).toBe(20)
+  it("keeps the request payload safety bound above the largest seeded entitlement", () => {
+    expect(COMMUNITY_BOT_REQUEST_MAX_ITEMS).toBe(100)
   })
   it("name max is 32", () => {
     expect(COMMUNITY_BOT_NAME_MAX).toBe(32)

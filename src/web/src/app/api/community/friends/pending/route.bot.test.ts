@@ -51,7 +51,7 @@ describe("GET /api/community/friends/pending — bot arm (folds listFriends pend
     vi.clearAllMocks()
     mockFindActiveAgentRunnerKeyByBearer.mockResolvedValue({ userId: "owner_1", machineId: "m_1", agentId: BOT })
     mockGetUserInternal.mockResolvedValue({ id: BOT, isBot: true, deletedAt: null, ownerUserId: "owner_1" })
-    mockGetBotBinding.mockResolvedValue({ machineId: "m_1", runtime: "claude" })
+    mockGetBotBinding.mockResolvedValue({ machineId: "m_1", runtime: "claude", isActive: true })
     mockWsDoFetch.mockResolvedValue({ ok: true, json: async () => ({ online: ["u_bob"] }) })
   })
 

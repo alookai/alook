@@ -37,6 +37,8 @@ export type BotSummary = {
   modelName: string | null
   reasoningEffort: ReasoningEffort | null
   runtimeConfigRevision: number
+  isActive: boolean
+  presence: "online" | "offline"
   // Context lifecycle (my-bots #516): when the agent last refreshed its context
   // (nap, session reset, or provider switch), ISO string, null if it never has. Rendered as the
   // awake-duration "Awake 17h" (Gus #672/#674 — how long the agent has been
@@ -51,7 +53,17 @@ export type BotSummary = {
   // placeholder instead of inventing zero usage.
   usage?: BotTokenUsage
 }
-export type BotsResponse = { bots: BotSummary[] }
+export type BotPlanSummary = {
+  isFounder: boolean
+  plan: {
+    id: string
+    displayName: string
+  }
+  limit: number
+  ownedCount: number
+  activeCount: number
+}
+export type BotsResponse = BotPlanSummary & { bots: BotSummary[] }
 
 const EMPTY_BOTS: readonly BotSummary[] = Object.freeze([])
 
@@ -77,7 +89,7 @@ export function useBots(): UseQueryResult<BotsResponse> & { bots: BotSummary[] }
     queryKey: communityKeys.bots(),
     queryFn: () => apiFetchProfiles<BotsResponse>(
       "/api/community/bots",
-      (data) => data.bots.map(botProfilePatch),
+      (data) => data.bots.map((bot) => ({ ...botProfilePatch(bot), presence: bot.presence })),
     ),
   })
   const profilesByUserId = useCommunityWsStore((state) => state.profilesByUserId)
@@ -136,6 +148,43 @@ export function useCreateBot() {
       const profiles = useCommunityWsStore.getState()
       profiles.patchProfiles(profiles.beginProfileSnapshot(), [botProfilePatch(data.bot)])
       invalidateBotSurfaces(qc, data.bot.id)
+    },
+  })
+}
+
+export type SetBotActiveInput = {
+  id: string
+  active: boolean
+}
+
+export type SetBotActiveResponse = {
+  bot: Pick<BotSummary, "id" | "isActive">
+  changed: boolean
+}
+
+export function useSetBotActive() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, active }: SetBotActiveInput) =>
+      apiFetch<SetBotActiveResponse>(`/api/community/bots/${id}/active`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ active }),
+      }),
+    onSuccess: (data) => {
+      qc.setQueryData<BotsResponse>(communityKeys.bots(), (current) => {
+        if (!current) return current
+        const previous = current.bots.find((bot) => bot.id === data.bot.id)
+        if (!previous || previous.isActive === data.bot.isActive) return current
+        return {
+          ...current,
+          activeCount: Math.max(0, current.activeCount + (data.bot.isActive ? 1 : -1)),
+          bots: current.bots.map((bot) => (
+            bot.id === data.bot.id ? { ...bot, isActive: data.bot.isActive } : bot
+          )),
+        }
+      })
+      qc.invalidateQueries({ queryKey: communityKeys.bots() })
     },
   })
 }

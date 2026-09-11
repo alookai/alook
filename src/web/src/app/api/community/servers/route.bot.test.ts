@@ -66,7 +66,7 @@ describe("GET /api/community/servers — bot path (folded listServers)", () => {
     vi.clearAllMocks()
     mockFindActiveAgentRunnerKeyByBearer.mockResolvedValue({ userId: "owner_1", machineId: "m_1", agentId: "bot_1" })
     mockGetUserInternal.mockResolvedValue({ isBot: true, deletedAt: null })
-    mockGetBotBinding.mockResolvedValue({ machineId: "m_1", runtime: "claude" })
+    mockGetBotBinding.mockResolvedValue({ machineId: "m_1", runtime: "claude", isActive: true })
     mockListEligibleUnreadServerIds.mockRejectedValue(new Error("human unread source failed"))
   })
 

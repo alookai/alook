@@ -52,7 +52,7 @@ describe("POST /api/community/daemon/enroll-agent", () => {
       ownerUserId: "u_1",
       deletedAt: null,
     })
-    mockGetBotBinding.mockResolvedValue({ machineId: "cm_1", runtime: "claude" })
+    mockGetBotBinding.mockResolvedValue({ machineId: "cm_1", runtime: "claude", isActive: true })
   })
 
   it("returns 200 + runnerKey on happy path", async () => {
@@ -162,8 +162,23 @@ describe("POST /api/community/daemon/enroll-agent", () => {
       userId: "u_1",
       machineId: "cm_1",
     })
-    mockGetBotBinding.mockResolvedValue({ machineId: "cm_other", runtime: "claude" })
+    mockGetBotBinding.mockResolvedValue({ machineId: "cm_other", runtime: "claude", isActive: true })
     const res = await POST(req({ agentId: "agent_a" }, { Authorization: "Bearer cmk_ok" }))
+    expect(res.status).toBe(404)
+    expect(await res.json()).toEqual({ error: "bot not on this machine" })
+    expect(mockMint).not.toHaveBeenCalled()
+  })
+
+  it("404 without minting a runner key when the bot is inactive", async () => {
+    mockFindCred.mockResolvedValue({
+      credentialId: "cmk_ok",
+      userId: "u_1",
+      machineId: "cm_1",
+    })
+    mockGetBotBinding.mockResolvedValue({ machineId: "cm_1", runtime: "claude", isActive: false })
+
+    const res = await POST(req({ agentId: "agent_a" }, { Authorization: "Bearer cmk_ok" }))
+
     expect(res.status).toBe(404)
     expect(await res.json()).toEqual({ error: "bot not on this machine" })
     expect(mockMint).not.toHaveBeenCalled()

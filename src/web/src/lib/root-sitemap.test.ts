@@ -35,6 +35,8 @@ describe("sitemap", () => {
 
     expect(urls).toContain("https://alook.ai");
     expect(urls).toContain("https://alook.ai/templates");
+    expect(urls).toContain("https://alook.ai/pricing");
+    expect(urls).not.toContain("https://alook.ai/pricing-concept");
     expect(urls).toContain("https://alook.ai/blog");
     expect(urls).toContain("https://alook.ai/privacy");
     expect(urls).toContain("https://alook.ai/blog/revised");

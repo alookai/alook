@@ -13,6 +13,7 @@ import {
   useDeleteBot,
   useResetBotSession,
   useResetMachineAgents,
+  useSetBotActive,
   type BotSummary,
 } from "@/hooks/community/use-bots"
 import { useCreateOrGetDm } from "@/hooks/community/mutations"
@@ -32,6 +33,14 @@ export function useBotListController(): BotListController {
   const botsQuery = useBots()
   const { bots, isLoading } = botsQuery
   const botsResolved = botsQuery.data !== undefined
+  const [billingOpen, setBillingOpen] = useState(false)
+  const canShowLimit = botsResolved
+  const viewPlan = () => {
+    const next = new URL(window.location.href)
+    next.searchParams.delete("billing")
+    next.searchParams.set("settings", "billing")
+    window.history.pushState(null, "", `${next.pathname}${next.search}${next.hash}`)
+  }
   const { machines, isLoading: machinesLoading } = useMachines()
   const profilesByUserId = useProfilesByUserId()
   const [createOpen, setCreateOpen] = useState(false)
@@ -48,15 +57,37 @@ export function useBotListController(): BotListController {
     () => new Set(),
   )
   const [helpOpen, setHelpOpen] = useState(false)
+  const [pendingActiveBotIds, setPendingActiveBotIds] = useState<Set<string>>(
+    () => new Set(),
+  )
   const del = useDeleteBot()
   const resetSession = useResetBotSession()
   const resetMachineAgents = useResetMachineAgents()
+  const setActive = useSetBotActive()
   const createOrGetDm = useCreateOrGetDm()
   const onboardingState = useCommunityOnboarding()
   const guidedActive = onboardingState?.status === "active" && onboardingState.stage === "bot"
   const guidedPendingBotId = guidedActive ? onboardingState.botId : undefined
   const guidedNeedsMachine =
     guidedActive && !machines.some((machine) => isPresenceOnline(machine.status))
+  const guidedCreateLabel = guidedNeedsMachine
+    ? "Connect a machine"
+    : guidedPendingBotId
+      ? "Open bot chat"
+      : "Create a bot"
+  const planSummary = botsQuery.data
+    ? {
+        plan: botsQuery.data.plan,
+        limit: botsQuery.data.limit,
+        ownedCount: botsQuery.data.ownedCount,
+        activeCount: botsQuery.data.activeCount,
+        isFounder: botsQuery.data.isFounder,
+      }
+    : null
+  const isAtCapacity = Boolean(
+    planSummary && planSummary.ownedCount >= planSummary.limit,
+  )
+  const isCreateDisabled = isAtCapacity && guidedCreateLabel === "Create a bot"
 
   const chatWithBot = async (bot: BotSummary) => {
     try {
@@ -99,14 +130,35 @@ export function useBotListController(): BotListController {
       void openGuidedBotDm(state.botId)
       return
     }
+    if (isCreateDisabled) {
+      setBillingOpen(true)
+      return
+    }
     setCreateOpen(true)
   }
 
-  const guidedCreateLabel = guidedNeedsMachine
-    ? "Connect a machine"
-    : guidedPendingBotId
-      ? "Open bot chat"
-      : "Create a bot"
+  const setBotActive = async (bot: BotSummary, active: boolean) => {
+    if (pendingActiveBotIds.has(bot.id) || bot.isActive === active) return
+    setPendingActiveBotIds((current) => new Set(current).add(bot.id))
+    try {
+      await setActive.mutateAsync({ id: bot.id, active })
+      toast.success(`${bot.name} is now ${active ? "Active" : "Inactive"}`)
+    } catch (error) {
+      const status = (error as { status?: number } | undefined)?.status
+      const message = (error as { message?: string } | undefined)?.message ?? ""
+      if (status === 409 && message === "BOT_ACTIVE_LIMIT_REACHED") {
+        toast.error("Plan limit reached — make another bot inactive or change plan.")
+      } else {
+        toastApiError(error, `Couldn't make ${bot.name} ${active ? "active" : "inactive"}`)
+      }
+    } finally {
+      setPendingActiveBotIds((current) => {
+        const next = new Set(current)
+        next.delete(bot.id)
+        return next
+      })
+    }
+  }
 
   const machineName = (id: string): string => {
     const machine = machines.find((item) => item.id === id)
@@ -252,7 +304,15 @@ export function useBotListController(): BotListController {
   }
 
   return {
+    viewPlan,
+    billingOpen,
+    setBillingOpen,
+    canShowLimit,
     bots,
+    planSummary,
+    isCreateDisabled,
+    pendingActiveBotIds,
+    setBotActive,
     isLoading,
     machines,
     machinesLoading,

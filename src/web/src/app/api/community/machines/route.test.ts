@@ -4,13 +4,14 @@ import { NextRequest } from "next/server"
 const mockListMachinesForUser = vi.fn()
 const mockListMachineBackendQuotasForUser = vi.fn()
 
-vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
+vi.mock("@/lib/db", () => ({ getPrimaryDb: vi.fn(() => ({})) }))
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
   return {
     ...actual,
     queries: {
+      productPlan: { ...actual.queries.productPlan, resolveMachinesMaxForUser: vi.fn(async () => ({ plan: { id: "free", displayName: "Free" }, isFounder: false, value: 1 })) },
       communityMachine: {
         listMachinesForUser: (...args: unknown[]) => mockListMachinesForUser(...args),
         listMachineBackendQuotasForUser: (...args: unknown[]) =>
@@ -33,6 +34,7 @@ vi.mock("@/lib/middleware/helpers", async () => {
 })
 
 import { GET } from "./route"
+import { queries } from "@alook/shared"
 
 describe("GET /api/community/machines — provider quota", () => {
   beforeEach(() => {
@@ -181,6 +183,22 @@ describe("GET /api/community/machines — provider quota", () => {
     expect(mockListMachineBackendQuotasForUser).toHaveBeenCalledWith(expect.anything(), "u1")
   })
 
+  it("distinguishes explicitly unsupported runtimes from unknown runtime capabilities", async () => {
+    mockListMachinesForUser.mockResolvedValue([{
+      id: "cm_1", status: "online",
+      availableRuntimes: ["opencode", "pi", "custom-acp"].map((id) => ({ id, status: "healthy" })),
+    }])
+    mockListMachineBackendQuotasForUser.mockResolvedValue(new Map())
+    const response = await GET(new NextRequest("http://localhost/api/community/machines"))
+    expect(response.status).toBe(200)
+    expect((await response.json()).machines[0].quota).toEqual([
+      ["opencode", "unsupported"], ["pi", "unsupported"], ["custom-acp", "unknown"],
+    ].map(([agentBackendId, capability]) => ({
+      scope: { kind: "machine_backend", machineId: "cm_1", agentBackendId },
+      capability, runtimeState: "healthy", snapshot: { status: "pending" },
+    })))
+  })
+
   it("marks an expired available observation stale and machine runtimes offline", async () => {
     mockListMachinesForUser.mockResolvedValue([{
       id: "cm_1",
@@ -218,4 +236,19 @@ describe("GET /api/community/machines — provider quota", () => {
       snapshot: { status: "stale", observedAt: "2020-01-01T00:00:00.000Z" },
     })
   })
+  it("uses the listed rows for owned and online counts", async () => {
+    mockListMachinesForUser.mockResolvedValue([{ id: "a", status: "online", availableRuntimes: [] }, { id: "b", status: "offline", availableRuntimes: [] }])
+    mockListMachineBackendQuotasForUser.mockResolvedValue(new Map())
+    const response = await GET(new NextRequest("http://localhost/api/community/machines"))
+    expect((await response.json()).machineCapacity).toEqual({ plan: { id: "free", displayName: "Free" }, isFounder: false, limit: 1, ownedCount: 2, onlineCount: 1 })
+  })
+  it("returns 503 when machine entitlement is missing", async () => {
+    vi.mocked(queries.productPlan.resolveMachinesMaxForUser).mockRejectedValueOnce(new queries.productPlan.ProductEntitlementUnavailableError("machines.max", "entitlement_missing"))
+    const response = await GET(new NextRequest("http://localhost/api/community/machines"))
+    expect(response.status).toBe(503)
+    expect(await response.json()).toEqual({ error: "MACHINE_LIMIT_UNAVAILABLE" })
+    mockListMachinesForUser.mockRejectedValueOnce(new Error("db unavailable"))
+    await expect(GET(new NextRequest("http://localhost/api/community/machines"))).rejects.toThrow("db unavailable")
+  })
+
 })

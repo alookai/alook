@@ -117,7 +117,7 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   // integrity bug) we must fail WITHOUT having already written — otherwise a
   // retry sees `before === updated`, computes no change, and never pushes,
   // leaving the daemon's running system prompt permanently stale.
-  const willPush = (nameChanged || descriptionChanged) && !!before.machineId
+  const willPush = before.isActive && (nameChanged || descriptionChanged) && !!before.machineId
   const owner = willPush ? await queries.user.getUserPublic(db, before.ownerUserId) : null
   if (willPush && !owner) {
     return writeError("bot owner not resolvable — refusing to push a bot update with unknown ownership", 500)

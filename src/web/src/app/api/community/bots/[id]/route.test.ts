@@ -41,7 +41,10 @@ vi.mock("@alook/shared", async () => {
     }),
     queries: {
       communityBot: {
-        getBotOwnedBy: (...a: unknown[]) => mockGetBotOwnedBy(...a),
+        getBotOwnedBy: async (...a: unknown[]) => {
+          const bot = await mockGetBotOwnedBy(...a)
+          return bot ? { isActive: true, ...bot } : null
+        },
         updateBot: (...a: unknown[]) => mockUpdateBot(...a),
         updateBotModel: (...a: unknown[]) => mockUpdateBotModel(...a),
         updateBotRuntime: (...a: unknown[]) => mockUpdateBotRuntime(...a),
@@ -179,6 +182,21 @@ describe("PATCH /api/community/bots/[id]", () => {
       "mac1",
       expect.objectContaining({ type: "bot:updated", name: "New", ownerName: "Owner" }),
     )
+  })
+
+  it("persists an inactive bot profile change without re-adding it to the daemon roster", async () => {
+    mockGetBotOwnedBy.mockResolvedValue({
+      id: "b1", name: "Old", description: "old desc", machineId: "mac1", ownerUserId: "u1",
+      runtime: "claude", modelName: null, reasoningEffort: null, runtimeConfigRevision: 0,
+      isActive: false,
+    })
+
+    const res = await PATCH(patchReq({ name: "New" }), ctx)
+
+    expect(res.status).toBe(200)
+    expect(mockUpdateBot).toHaveBeenCalled()
+    expect(mockGetUserPublic).not.toHaveBeenCalled()
+    expect(mockPushBotEventToMachine).not.toHaveBeenCalled()
   })
 
   it("resolves the owner BEFORE mutating: an unresolvable owner fails 500 without writing", async () => {

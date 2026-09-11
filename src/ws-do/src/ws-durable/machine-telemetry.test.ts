@@ -775,6 +775,39 @@ describe("WebSocketDurableObject", () => {
         expect(mockStubFetch).not.toHaveBeenCalled()
       })
 
+      it("agent_typing: drops a stale frame for an inactive bot", async () => {
+        const { durable, store } = createDO()
+        store.set("community-machine-identity", {
+          userId: "u_1",
+          machineId: "cm_1",
+          credentialHash: "0".repeat(64),
+        })
+        mockGetBotBindingWithOwner.mockResolvedValue({
+          machineId: "cm_1",
+          runtime: "codex",
+          ownerUserId: "u_1",
+          name: "Bot",
+          discriminator: "0007",
+          isActive: false,
+        })
+        const ws = createMockWebSocket()
+        ws.serializeAttachment({
+          type: "community-machine",
+          machineId: "cm_1",
+          userId: "u_1",
+          authenticated: true,
+        })
+
+        await durable.webSocketMessage(ws as any, JSON.stringify({
+          type: "agent_typing",
+          agentId: "bot_1",
+          channelId: "dm_1",
+        }))
+
+        expect(mockGetChannelForMember).not.toHaveBeenCalled()
+        expect(mockStubFetch).not.toHaveBeenCalled()
+      })
+
       it("agent_typing: drops a frame for a bot that is not a DM participant — no fan-out", async () => {
         const { durable, store } = createDO()
         store.set("community-machine-identity", {
@@ -1325,6 +1358,19 @@ describe("WebSocketDurableObject", () => {
         expect(mockStubFetch).not.toHaveBeenCalled()
       })
 
+      it("does not project an activity status from an inactive bot", async () => {
+        const { durable, ws } = setup()
+        mockGetBotBinding.mockResolvedValue({ ...binding, isActive: false })
+
+        await durable.webSocketMessage(
+          ws as any,
+          JSON.stringify({ type: "agent_activity", agentId: "bot_1", state: "running" }),
+        )
+
+        expect(mockUpdateProfile).not.toHaveBeenCalled()
+        expect(mockStubFetch).not.toHaveBeenCalled()
+      })
+
       it("classifies activity write failures as plain write drops", async () => {
         const { durable, ws } = setup()
         mockGetBotBinding.mockResolvedValue(binding)
@@ -1405,6 +1451,26 @@ describe("WebSocketDurableObject", () => {
             phase: "binding_check",
           }),
         )
+      })
+
+      it("preserves an in-flight audit completion after the bot becomes inactive", async () => {
+        const { durable, ws } = setup()
+        mockGetBotBindingWithOwner.mockResolvedValue({ ...binding, isActive: false })
+        mockInsertBotActivityEventAndPrune.mockResolvedValue({
+          id: "audit_1",
+          createdAt: "2026-09-09T06:00:00.000Z",
+        })
+
+        await durable.webSocketMessage(
+          ws as any,
+          JSON.stringify({
+            type: "bot_audit_event",
+            agentId: "bot_1",
+            event: { kind: "tool_call", payload: { name: "Read" } },
+          }),
+        )
+
+        expect(mockInsertBotActivityEventAndPrune).toHaveBeenCalledOnce()
       })
 
       it("skips awake and owner notification when an agent-session audit insert returns null", async () => {

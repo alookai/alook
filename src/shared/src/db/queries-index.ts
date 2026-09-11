@@ -33,6 +33,7 @@ export * as issue from "./queries/issue";
 export * as issueComment from "./queries/issue-comment";
 export * as messageFlag from "./queries/message-flag";
 export * as accountDeletion from "./queries/account-deletion";
+export * as productPlan from "./queries/product-plan";
 export * as communityServer from "./queries/community/server";
 export * as communityChannel from "./queries/community/channel";
 export * as communityCategory from "./queries/community/category";
@@ -66,3 +67,5 @@ export * as communityBotAuditLog from "./queries/community/bot-audit-log";
 export * as communityMessageTag from "./queries/community/message-tag";
 export * as communityDiagnosticReport from "./queries/community/diagnostic-report";
 export const nativeOauth = nativeOauthQueries;
+
+export * as billing from "./queries/billing";

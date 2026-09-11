@@ -8,6 +8,8 @@ import { tid } from "@/lib/community/testids"
 // so we can render just the card meta row and assert the model segment. What we
 // assert is the presence/absence of the canonical model test ID and its text.
 
+vi.mock("@/components/community/billing/billing-plan.module.css", () => ({ default: new Proxy({}, { get: (_target, key) => String(key) }) }))
+
 const useBotsMock = vi.fn()
 const bugReportDialogMock = vi.fn()
 
@@ -18,8 +20,13 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/hooks/community/use-machines", () => ({
   useMachines: () => ({ machines: [{ id: "mac1", displayName: "Mac", hostname: "mac", status: "online" }] }),
 }))
+vi.mock("@/hooks/community/use-billing", () => ({
+  readBillingReturn: () => null,
+  useBilling: () => ({ data: undefined, isPending: true, refresh: vi.fn() }),
+}))
 vi.mock("@/hooks/community/use-bots", () => ({
   useBots: () => useBotsMock(),
+  useSetBotActive: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useDeleteBot: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useResetBotSession: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useResetMachineAgents: () => ({ mutateAsync: vi.fn(), isPending: false }),
@@ -83,6 +90,7 @@ function bot(over: Partial<BotSummary>): BotSummary {
     machineId: "mac1",
     runtime: "claude",
     modelName: null,
+    isActive: true,
     lastRefreshContextAt: null,
     dailyActivity: [],
     ...over,
@@ -142,7 +150,7 @@ describe("BotList — bug-report feature entry", () => {
     useBotsMock.mockReturnValue({
       bots,
       isLoading: false,
-      data: { bots },
+      data: { bots, plan: { id: "free", displayName: "Free" }, limit: 3, ownedCount: 2, activeCount: 2 },
     })
 
     const renderer = render()

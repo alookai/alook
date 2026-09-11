@@ -12,9 +12,7 @@ describe("shared settings shell", () => {
 
     expect(source).toContain("useBreakpoint()")
     expect(source).toContain('breakpoint === "mobile" ? "horizontal" : "vertical"')
-    expect(source).toContain("grid-rows-[4rem_auto_minmax(0,1fr)]")
-    expect(source).toContain("sm:grid-cols-[11rem_minmax(0,1fr)]")
-    expect(source).toContain("sm:grid-rows-[4rem_minmax(0,1fr)]")
+    expect(source).toContain("styles.shell")
     expect(source).toContain("data-testid={tid.settingsNav}")
     expect(source).toContain("data-testid={tid.settingsContent}")
     expect(source).toContain("data-testid={tid.settingsClose}")

@@ -53,3 +53,15 @@ describe("useMachines / machinesQueryFn", () => {
     expect(state?.isInvalidated).toBe(true)
   })
 })
+
+
+describe("machine capacity cache", () => {
+  it("updates owned and online counts when a machine disconnects or is removed", async () => {
+    const { replaceMachines } = await import("./use-machines")
+    const original = { machines: [machineFixture], machineCapacity: { plan: { id: "free", displayName: "Free" }, isFounder: false, limit: 1, ownedCount: 1, onlineCount: 1 } }
+    const offline = replaceMachines(original, [{ ...machineFixture, status: "offline" }])
+    expect(offline.machineCapacity).toMatchObject({ limit: 1, ownedCount: 1, onlineCount: 0 })
+    expect(replaceMachines(offline, []).machineCapacity).toMatchObject({ ownedCount: 0, onlineCount: 0 })
+    expect(replaceMachines({ machines: [] }, [machineFixture])).toEqual({ machines: [machineFixture] })
+  })
+})

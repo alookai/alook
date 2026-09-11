@@ -10,7 +10,7 @@ import {
 
 describe("responsive settings navigation", () => {
   it("uses a top tab strip on mobile and the compact left rail on desktop", () => {
-    expect(SETTINGS_NAV_CLASS).toContain("sm:w-44")
+    expect(SETTINGS_NAV_CLASS).not.toMatch(/(?:^|\s)sm:w-/u)
     expect(SETTINGS_NAV_CLASS).not.toContain("w-60")
     expect(SETTINGS_NAV_CLASS).not.toContain("border-b")
     expect(SETTINGS_NAV_CLASS).not.toContain("sm:border-r")

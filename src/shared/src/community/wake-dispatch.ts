@@ -127,6 +127,7 @@ export type SkipReason =
   | "bot_missing"
   | "bot_deleted"
   | "bot_unbound"
+  | "bot_inactive"
   | "forbidden"
   | "notice_channel_unresolvable"
   | "already_read"

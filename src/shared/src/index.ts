@@ -110,7 +110,7 @@ export {
   devWsDoPort,
   MeetingStatus,
   TERMINAL_MEETING_STATUSES,
-  COMMUNITY_BOT_LIMIT_PER_OWNER,
+  COMMUNITY_BOT_REQUEST_MAX_ITEMS,
   COMMUNITY_BOT_NAME_MIN,
   COMMUNITY_BOT_NAME_MAX,
   COMMUNITY_BOT_DESCRIPTION_MAX,
@@ -188,6 +188,8 @@ export {
 } from "./constants/community";
 export type { NotifLevel, NotificationLevelValue, ParticipantSource, MentionKind } from "./constants/community";
 export * from "./provider-telemetry";
+export * from "./product-entitlements";
+export * from "./billing";
 
 export type {
   AgentStatusType,

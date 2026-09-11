@@ -57,6 +57,7 @@ export function PairMachineSheet({
   setPendingTokenId,
   connectedHostname,
   mode = { kind: "pair" },
+  onLimitReached,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -64,6 +65,7 @@ export function PairMachineSheet({
   setPendingTokenId: (tokenId: string | null) => void
   connectedHostname: string | null
   mode?: PairMachineSheetMode
+  onLimitReached?: () => void
 }) {
   const isReconnect = mode.kind === "reconnect"
   const [generating, setGenerating] = useState(false)
@@ -91,6 +93,10 @@ export function PairMachineSheet({
       )
       setPendingTokenId(res.tokenId)
     } catch (err) {
+      if (err instanceof Error && err.message === "MACHINE_LIMIT_REACHED" && onLimitReached) {
+        onLimitReached()
+        return
+      }
       const message = "Couldn't generate a key — try again."
       setGenerationError(message)
       toastApiError(err, message)
@@ -98,7 +104,7 @@ export function PairMachineSheet({
     } finally {
       setGenerating(false)
     }
-  }, [setPendingTokenId, mode])
+  }, [setPendingTokenId, mode, onLimitReached])
 
   // Auto-generate the key when the sheet opens. Track per-open so re-opens or
   // mode swaps trigger a fresh mint.

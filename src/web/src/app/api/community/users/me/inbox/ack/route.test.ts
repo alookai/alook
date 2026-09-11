@@ -71,7 +71,7 @@ describe("POST /api/community/users/me/inbox/ack", () => {
     vi.clearAllMocks()
     mockFindActiveAgentRunnerKeyByBearer.mockResolvedValue({ userId: "owner_1", machineId: "m_1", agentId: "bot_1" })
     mockGetUserInternal.mockResolvedValue({ isBot: true, deletedAt: null })
-    mockGetBotBinding.mockResolvedValue({ machineId: "m_1", runtime: "claude" })
+    mockGetBotBinding.mockResolvedValue({ machineId: "m_1", runtime: "claude", isActive: true })
     mockResolveServerByNameForMember.mockResolvedValue([{ id: "srv_1" }])
     mockResolveChannelByNameForMember.mockResolvedValue([{ id: "ch_1" }])
     mockGetChannelForMember.mockResolvedValue({ id: "ch_1", serverId: "srv_1", parentChannelId: null })

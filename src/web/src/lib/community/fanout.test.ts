@@ -83,6 +83,7 @@ import {
   fanOutToChannel,
   fanOutToDM,
   fanOutStatusUpdate,
+  fanOutPresenceUpdate,
   fanOutIdentityUpdate,
   fanOutProfileUpdate,
   broadcastToUserSafe,
@@ -286,6 +287,41 @@ describe("fanOutStatusUpdate", () => {
     expect(mockWarn).toHaveBeenCalledWith(
       "fanout_status_update_failed",
       expect.objectContaining({ userId: "self1", err: expect.stringContaining("db down") }),
+    )
+  })
+})
+
+describe("fanOutPresenceUpdate", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetCloudflareContext.mockImplementation(() => ({ env: { DB: {} } }))
+    mockBroadcastToUsers.mockResolvedValue(undefined)
+    mockGetCoMemberUserIds.mockResolvedValue(["co-member", "shared"])
+    mockGetFriendUserIds.mockResolvedValue(["friend", "shared"])
+    mockListDmPeerUserIds.mockResolvedValue(["dm-peer"])
+  })
+
+  it("broadcasts presence to the canonical profile audience including the bot owner", async () => {
+    await fanOutPresenceUpdate("bot_1", false, "owner_1")
+
+    expect(mockBroadcastToUsers).toHaveBeenCalledWith(
+      ["bot_1", "co-member", "shared", "friend", "dm-peer", "owner_1"],
+      {
+        type: WS_EVENTS.PRESENCE_UPDATE,
+        userId: "bot_1",
+        online: false,
+      },
+    )
+  })
+
+  it("absorbs an audience failure and logs the presence context", async () => {
+    mockGetCoMemberUserIds.mockRejectedValue(new Error("db down"))
+
+    await expect(fanOutPresenceUpdate("bot_1", true)).resolves.toBeUndefined()
+
+    expect(mockWarn).toHaveBeenCalledWith(
+      "fanout_presence_update_failed",
+      expect.objectContaining({ userId: "bot_1", online: true, err: expect.stringContaining("db down") }),
     )
   })
 })

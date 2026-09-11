@@ -2,6 +2,8 @@ import { createElement } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { render, screen, setupUser } from "@/test/react-dom-harness"
 
+vi.mock("./settings-shell.module.css", () => ({ default: { shell: "settings-shell" } }))
+
 vi.mock("@/hooks/community/use-bots", () => ({
   useBots: () => ({ bots: [] }),
 }))

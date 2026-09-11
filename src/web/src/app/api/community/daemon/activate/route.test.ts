@@ -8,7 +8,7 @@ vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(async () => ({ env: { DB: {} } })),
 }))
 
-vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
+vi.mock("@/lib/db", () => ({ getPrimaryDb: vi.fn(() => ({})) }))
 
 // The activate route also broadcasts machine.created — stub that.
 vi.mock("@/lib/broadcast", () => ({
@@ -37,6 +37,7 @@ vi.mock("@alook/shared", async () => {
   return {
     ...actual,
     queries: {
+      productPlan: { ...actual.queries.productPlan, getMachineCapacitySummary: vi.fn(async () => ({ plan: { id: "free", displayName: "Free" }, isFounder: false, limit: 1, ownedCount: 0, onlineCount: 0 })) },
       communityMachine: {
         getMachineByIdForUser: (...a: unknown[]) => mockGetMachine(...a),
         toSummary: (row: any) => ({
@@ -223,4 +224,18 @@ describe("POST /api/community/daemon/activate", () => {
       error: "activate failed: D1_ERROR: database is locked",
     })
   })
+  it("marks quota denial as not committed and does not notify a creation", async () => {
+    const { queries } = await import("@alook/shared")
+    const capacity = { plan: { id: "free", displayName: "Free" }, isFounder: false, limit: 1, ownedCount: 1, onlineCount: 0 }
+    mockActivate.mockRejectedValue(new queries.productPlan.MachineLimitReachedError(capacity))
+    const response = await POST(jsonReq(goodBody, { Authorization: "Bearer cmt_pairtoken" }))
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({ error: "MACHINE_LIMIT_REACHED", machineCapacity: capacity, sessionOutcome: "not_committed" })
+    expect(mockBroadcast).not.toHaveBeenCalled()
+    mockActivate.mockRejectedValue(new queries.productPlan.ProductEntitlementUnavailableError("machines.max", "entitlement_missing"))
+    const unavailable = await POST(jsonReq(goodBody, { Authorization: "Bearer cmt_pairtoken" }))
+    expect(unavailable.status).toBe(503)
+    expect(await unavailable.json()).toEqual({ error: "MACHINE_LIMIT_UNAVAILABLE", sessionOutcome: "not_committed" })
+  })
+
 })

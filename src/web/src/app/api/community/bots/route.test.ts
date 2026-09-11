@@ -10,6 +10,7 @@ const mockListBotsForOwner = vi.fn()
 const mockGetBotDailyActivityForOwner = vi.fn()
 const mockGetBotDailyTokenUsageForOwner = vi.fn()
 const mockEnsureSiblingBotFriendship = vi.fn()
+const mockGetBotCapacitySummary = vi.fn()
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
@@ -29,6 +30,10 @@ vi.mock("@alook/shared", async () => {
         listBotsForOwner: (...a: unknown[]) => mockListBotsForOwner(...a),
         getBotDailyActivityForOwner: (...a: unknown[]) => mockGetBotDailyActivityForOwner(...a),
         getBotDailyTokenUsageForOwner: (...a: unknown[]) => mockGetBotDailyTokenUsageForOwner(...a),
+        isBotEntitlementLimitError: (error: unknown) => error instanceof Error && error.message.includes("BOT_ENTITLEMENT_LIMIT_REACHED"),
+      },
+      productPlan: {
+        getBotCapacitySummary: (...a: unknown[]) => mockGetBotCapacitySummary(...a),
       },
       communityFriendship: {
         ensureSiblingBotFriendship: (...a: unknown[]) => mockEnsureSiblingBotFriendship(...a),
@@ -88,6 +93,12 @@ describe("POST /api/community/bots — model", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockCountLiveBotsForOwner.mockResolvedValue(0)
+    mockGetBotCapacitySummary.mockResolvedValue({
+      plan: { id: "free", displayName: "Free" },
+      limit: 3,
+      ownedCount: 0,
+      activeCount: 0,
+    })
     mockGetMachineForOwner.mockResolvedValue({
       id: "mac1",
       availableRuntimes: [{ id: "claude", status: "healthy" }, { id: "codex", status: "healthy" }],
@@ -167,6 +178,62 @@ describe("POST /api/community/bots — model", () => {
     expect(mockCreateBot).not.toHaveBeenCalled()
   })
 
+  it("returns stored plan evidence without attempting creation at total owned capacity", async () => {
+    mockGetBotCapacitySummary.mockResolvedValue({
+      plan: { id: "studio", displayName: "Studio" },
+      limit: 10,
+      ownedCount: 10,
+      activeCount: 7,
+    })
+
+    const res = await POST(postReq(base()), ctx)
+
+    expect(res.status).toBe(409)
+    await expect(res.json()).resolves.toEqual({
+      error: "BOT_LIMIT_REACHED",
+      plan: "studio",
+      planDisplayName: "Studio",
+      limit: 10,
+      ownedCount: 10,
+      activeCount: 7,
+    })
+    expect(mockCreateBot).not.toHaveBeenCalled()
+  })
+
+  it("maps the database race backstop to a fresh capacity conflict", async () => {
+    mockCreateBot.mockRejectedValue(new Error("BOT_ENTITLEMENT_LIMIT_REACHED"))
+    mockGetBotCapacitySummary
+      .mockResolvedValueOnce({
+        plan: { id: "free", displayName: "Free" },
+        limit: 3,
+        ownedCount: 2,
+        activeCount: 2,
+      })
+      .mockResolvedValueOnce({
+        plan: { id: "free", displayName: "Free" },
+        limit: 3,
+        ownedCount: 3,
+        activeCount: 3,
+      })
+
+    const res = await POST(postReq(base()), ctx)
+
+    expect(res.status).toBe(409)
+    await expect(res.json()).resolves.toMatchObject({
+      error: "BOT_LIMIT_REACHED",
+      plan: "free",
+      limit: 3,
+      ownedCount: 3,
+      activeCount: 3,
+    })
+  })
+
+  it("rethrows creation failures that are not entitlement conflicts", async () => {
+    mockCreateBot.mockRejectedValue(new Error("D1 unavailable"))
+
+    await expect(POST(postReq(base()), ctx)).rejects.toThrow("D1 unavailable")
+  })
+
   it("persists a supported capability-backed reasoning effort", async () => {
     mockGetMachineForOwner.mockResolvedValue({
       id: "mac1",
@@ -223,6 +290,12 @@ describe("GET /api/community/bots — heatmap activity", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockGetBotDailyTokenUsageForOwner.mockResolvedValue(new Map())
+    mockGetBotCapacitySummary.mockResolvedValue({
+      plan: { id: "free", displayName: "Free" },
+      limit: 3,
+      ownedCount: 0,
+      activeCount: 0,
+    })
   })
 
   it("attaches each bot's 30-day dailyActivity from the batched owner read", async () => {
@@ -257,7 +330,13 @@ describe("GET /api/community/bots — heatmap activity", () => {
     mockGetBotDailyActivityForOwner.mockResolvedValue(new Map())
     const res = await GET(getReq(), ctx)
     expect(res.status).toBe(200)
-    expect((await res.json()) as { bots: unknown[] }).toEqual({ bots: [] })
+    expect((await res.json()) as { bots: unknown[] }).toEqual({
+      bots: [],
+      plan: { id: "free", displayName: "Free" },
+      limit: 3,
+      ownedCount: 0,
+      activeCount: 0,
+    })
   })
 
   it("returns 30 oldest-to-newest usage days with nullable metrics and capability", async () => {

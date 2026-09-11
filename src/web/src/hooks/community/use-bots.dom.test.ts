@@ -64,6 +64,10 @@ describe("invalidateBotSurfaces", () => {
 describe("bot mutations wire the bot id into invalidateBotSurfaces", () => {
   it("useBots fetches through the profile-seeding query function", async () => {
     apiFetchMock.mockResolvedValue({
+      plan: { id: "free", displayName: "Free" },
+      limit: 3,
+      ownedCount: 1,
+      activeCount: 1,
       bots: [{
         id: "bot_1",
         name: "Seeded Bot",
@@ -73,6 +77,7 @@ describe("bot mutations wire the bot id into invalidateBotSurfaces", () => {
         machineId: null,
         runtime: null,
         modelName: null,
+        isActive: true,
         lastRefreshContextAt: null,
         dailyActivity: [],
       }],
@@ -86,6 +91,8 @@ describe("bot mutations wire the bot id into invalidateBotSurfaces", () => {
         "data-name": result.bots[0]?.name,
         "data-avatar": result.bots[0]?.image,
         "data-version": result.bots[0]?.avatarVersion,
+        "data-plan": result.data?.plan.displayName,
+        "data-limit": result.data?.limit,
       })
     }
 
@@ -101,8 +108,50 @@ describe("bot mutations wire the bot id into invalidateBotSurfaces", () => {
       expect(output).toHaveAttribute("data-name", "Seeded Bot")
       expect(output).toHaveAttribute("data-avatar", "S")
       expect(output).toHaveAttribute("data-version", "2")
+      expect(output).toHaveAttribute("data-plan", "Free")
+      expect(output).toHaveAttribute("data-limit", "3")
     })
     act(() => renderer.unmount())
+  })
+
+  it("heals missed presence pushes after activation refetch", async () => {
+    const { useBots, useSetBotActive } = await import("./use-bots")
+    let active = false
+    apiFetchMock.mockImplementation(async (_path: string, options?: RequestInit) => {
+      if (options?.method === "PATCH") {
+        active = true
+        return { bot: { id: "bot_1", isActive: true }, changed: true }
+      }
+      return {
+        plan: { id: "free", displayName: "Free" }, limit: 3, ownedCount: 1, activeCount: Number(active),
+        bots: [{ id: "bot_1", name: "Bot", image: null, avatarVersion: 0, isActive: active, presence: active ? "online" : "offline" }],
+      }
+    })
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    let mutation!: ReturnType<typeof useSetBotActive>
+    function Probe() { useBots(); mutation = useSetBotActive(); return null }
+    render(React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(Probe)))
+    await waitFor(() => expect(useCommunityWsStore.getState().profilesByUserId.get("bot_1")?.presence).toBe("offline"))
+    await act(async () => { await mutation.mutateAsync({ id: "bot_1", active: true }) })
+    await waitFor(() => expect(useCommunityWsStore.getState().profilesByUserId.get("bot_1")?.presence).toBe("online"))
+  })
+
+  it("does not overwrite a newer presence event with a late bot list", async () => {
+    const { useBots } = await import("./use-bots")
+    let resolve!: (value: unknown) => void
+    apiFetchMock.mockReturnValue(new Promise((done) => { resolve = done }))
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    function Probe() { useBots(); return null }
+    render(React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(Probe)))
+    await waitFor(() => expect(apiFetchMock).toHaveBeenCalled())
+    const profiles = useCommunityWsStore.getState()
+    act(() => profiles.patchProfiles(profiles.beginProfileSnapshot(), [{ id: "bot_1", presence: "offline" }]))
+    await act(async () => resolve({
+      plan: { id: "free", displayName: "Free" }, limit: 3, ownedCount: 1, activeCount: 1,
+      bots: [{ id: "bot_1", name: "Bot", image: null, avatarVersion: 0, isActive: true, presence: "online" }],
+    }))
+    await waitFor(() => expect(queryClient.getQueryData(communityKeys.bots())).toBeDefined())
+    expect(useCommunityWsStore.getState().profilesByUserId.get("bot_1")?.presence).toBe("offline")
   })
 
   it("useCreateBot commits the returned bot profile before invalidating metadata", async () => {
@@ -146,6 +195,76 @@ describe("bot mutations wire the bot id into invalidateBotSurfaces", () => {
       avatar: "C",
       avatarVersion: 3,
     })
+    act(() => renderer.unmount())
+  })
+
+  it("useSetBotActive PATCHes once and commits the returned state before invalidating", async () => {
+    const { useSetBotActive } = await import("./use-bots")
+    const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
+    queryClient.setQueryData(communityKeys.bots(), {
+      plan: { id: "free", displayName: "Free" },
+      limit: 3,
+      ownedCount: 1,
+      activeCount: 1,
+      bots: [{ id: "bot_1", name: "Bot", isActive: true }],
+    })
+    apiFetchMock.mockResolvedValue({
+      bot: { id: "bot_1", isActive: false },
+      changed: true,
+    })
+    let mutation!: ReturnType<typeof useSetBotActive>
+    function Probe() {
+      mutation = useSetBotActive()
+      return null
+    }
+    const renderer = render(React.createElement(
+      QueryClientProvider,
+      { client: queryClient },
+      React.createElement(Probe),
+    ))
+
+    await act(async () => {
+      await mutation.mutateAsync({ id: "bot_1", active: false })
+    })
+
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/bots/bot_1/active", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ active: false }),
+    })
+    expect(queryClient.getQueryData(communityKeys.bots())).toMatchObject({
+      activeCount: 0,
+      bots: [{ id: "bot_1", isActive: false }],
+    })
+    expect(queryClient.getQueryState(communityKeys.bots())?.isInvalidated).toBe(true)
+    act(() => renderer.unmount())
+  })
+
+  it("leaves a missing or already-current bot cache unchanged after an activation response", async () => {
+    const { useSetBotActive } = await import("./use-bots")
+    const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
+    const original = {
+      plan: { id: "free", displayName: "Free" },
+      limit: 3,
+      ownedCount: 1,
+      activeCount: 1,
+      bots: [{ id: "bot_1", name: "Bot", isActive: true }],
+    }
+    apiFetchMock.mockResolvedValue({ bot: { id: "bot_1", isActive: true }, changed: false })
+    let mutation!: ReturnType<typeof useSetBotActive>
+    function Probe() { mutation = useSetBotActive(); return null }
+    const renderer = render(React.createElement(
+      QueryClientProvider,
+      { client: queryClient },
+      React.createElement(Probe),
+    ))
+
+    await act(async () => { await mutation.mutateAsync({ id: "bot_1", active: true }) })
+    expect(queryClient.getQueryData(communityKeys.bots())).toBeUndefined()
+
+    queryClient.setQueryData(communityKeys.bots(), original)
+    await act(async () => { await mutation.mutateAsync({ id: "bot_1", active: true }) })
+    expect(queryClient.getQueryData(communityKeys.bots())).toBe(original)
     act(() => renderer.unmount())
   })
 

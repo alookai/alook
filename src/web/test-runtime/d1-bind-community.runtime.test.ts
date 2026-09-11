@@ -27,6 +27,20 @@ async function rows<T>(sql: string, ...bindings: unknown[]): Promise<T[]> {
   return (await runtimeEnv.DB.prepare(sql).bind(...bindings).all<T>()).results;
 }
 
+async function grantBotCapacity(userId: string, planId: string, maximum: number) {
+  await runtimeEnv.DB.batch([
+    runtimeEnv.DB.prepare(
+      "INSERT INTO product_plan (id, display_name, is_default, is_active, sort_order) VALUES (?, 'High-cardinality fixture', 0, 1, 0)",
+    ).bind(planId),
+    runtimeEnv.DB.prepare(
+      "INSERT INTO product_plan_entitlement (plan_id, entitlement_key, value_json) VALUES (?, 'bots.max', ?)",
+    ).bind(planId, JSON.stringify(maximum)),
+    runtimeEnv.DB.prepare(
+      "INSERT INTO user_product_plan (user_id, plan_id) VALUES (?, ?)",
+    ).bind(userId, planId),
+  ]);
+}
+
 afterEach(async () => {
   for (const prefix of prefixes.splice(0)) {
     await run("DELETE FROM community_bot_binding WHERE user_id GLOB ?", `${prefix}*`);
@@ -39,6 +53,7 @@ afterEach(async () => {
     await run("DELETE FROM agent_runtime WHERE id GLOB ?", `${prefix}*`);
     await run("DELETE FROM workspace WHERE id GLOB ?", `${prefix}*`);
     await run("DELETE FROM user WHERE id GLOB ?", `${prefix}*`);
+    await run("DELETE FROM product_plan WHERE id GLOB ?", `${prefix}*`);
   }
 });
 
@@ -184,6 +199,11 @@ describe("community high-cardinality D1 queries", () => {
       ownerId,
       `${ownerId}@example.com`,
     );
+    await grantBotCapacity(ownerId, `${prefix}_plan`, 125);
+    await run(
+      "INSERT INTO product_plan_entitlement (plan_id, entitlement_key, value_json) VALUES (?, 'machines.max', '1')",
+      `${prefix}_plan`,
+    );
     await run(
       "INSERT INTO community_machine (id, user_id, display_name, hostname, available_runtimes, status, created_at, updated_at) VALUES (?, ?, 'Machine', 'host', '[]', 'online', ?, ?)",
       machineId,
@@ -222,6 +242,7 @@ describe("community high-cardinality D1 queries", () => {
       ownerId,
       `${ownerId}@example.com`,
     );
+    await grantBotCapacity(ownerId, `${prefix}_plan`, 125);
 
     const botIds = Array.from({ length: 125 }, (_, index) => `${prefix}_bot_${index}`);
     const peerIds = Array.from({ length: 125 }, (_, index) => `${prefix}_peer_${index}`);

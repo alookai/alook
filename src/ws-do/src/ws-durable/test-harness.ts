@@ -88,6 +88,7 @@ export const mockCreateDb = vi.fn().mockReturnValue({})
 export const mockHashCredential = vi.fn(async (bearer: string) => `hash:${bearer}`)
 export const mockFindCredentialByHash = vi.fn()
 export const mockGetMachineByIdForUser = vi.fn()
+export const mockAssertMachineCapacity = vi.fn()
 export const mockGetActiveDoNamesForMachine = vi.fn<(db: unknown, machineId: string) => Promise<string[]>>().mockResolvedValue([])
 export const mockUpsertMachineByMachineId = vi.fn()
 export const mockTouchMachineHeartbeat = vi.fn()
@@ -119,7 +120,7 @@ export const mockListMembers = vi.fn()
 export const mockListBotsForMachine = vi.fn<(db: unknown, machineId: string) => Promise<Array<{ id: string; name: string; discriminator: string; description: string }>>>().mockResolvedValue([])
 export const mockIsBotOnline = vi.fn<(db: unknown, botUserId: string) => Promise<boolean>>().mockResolvedValue(false)
 export const mockGetBotBinding = vi.fn<(db: unknown, botId: string) => Promise<{ machineId: string; runtime: string } | null>>().mockResolvedValue(null)
-export const mockGetBotBindingWithOwner = vi.fn<(db: unknown, botId: string) => Promise<{ machineId: string; runtime: string; ownerUserId: string; name: string; discriminator: string } | null>>().mockResolvedValue(null)
+export const mockGetBotBindingWithOwner = vi.fn<(db: unknown, botId: string) => Promise<{ machineId: string; runtime: string; ownerUserId: string; name: string; discriminator: string; isActive?: boolean } | null>>().mockResolvedValue(null)
 export const mockInsertBotActivityEventAndPrune = vi.fn<(db: unknown, data: any, extraStatements?: unknown[]) => Promise<{ id: string; createdAt: string } | null>>().mockResolvedValue(null)
 export const mockInsertBotAuditSessionReset = vi.fn<(db: unknown, data: unknown) => Promise<{ id: string; createdAt: string } | null>>().mockResolvedValue(null)
 export const mockInsertBotAuditNap = vi.fn<(db: unknown, data: unknown) => Promise<{ id: string; createdAt: string } | null>>().mockResolvedValue(null)
@@ -372,6 +373,7 @@ vi.mock("@alook/shared", async () => {
       return pairs.some((p) => p.emoji === emoji && p.text === text)
     },
     queries: {
+      productPlan: { ...actual.queries.productPlan, assertMachineCapacity: (...a: any[]) => mockAssertMachineCapacity(...a) },
       session: {
         getValidSession: (db: unknown, token: string) => mockGetValidSession(db, token),
         getValidSessionWithIdentity: (db: unknown, token: string) => mockGetValidSessionWithIdentity(db, token),
@@ -464,8 +466,14 @@ vi.mock("@alook/shared", async () => {
       },
       communityBot: {
         listBotsForMachine: (...a: [unknown, string]) => mockListBotsForMachine(...a),
-        getBotBinding: (...a: [unknown, string]) => mockGetBotBinding(...a),
-        getBotBindingWithOwner: (...a: [unknown, string]) => mockGetBotBindingWithOwner(...a),
+        getBotBinding: async (...a: [unknown, string]) => {
+          const binding = await mockGetBotBinding(...a)
+          return binding ? { isActive: true, ...binding } : null
+        },
+        getBotBindingWithOwner: async (...a: [unknown, string]) => {
+          const binding = await mockGetBotBindingWithOwner(...a)
+          return binding ? { isActive: true, ...binding } : null
+        },
         touchBotRefreshContext: (...a: [unknown, string, string]) => mockTouchBotRefreshContext(...a),
         touchBotRefreshContextForAuditEventStatement: (...a: [unknown, string, string, string]) =>
           mockTouchBotRefreshContextForAuditEventStatement(...a),
@@ -517,6 +525,8 @@ export const flushAsyncWork = async () => {
 }
 export function resetHarness() {
     vi.clearAllMocks()
+    mockAssertMachineCapacity.mockReset().mockResolvedValue(undefined)
+    mockGetMachineByIdForUser.mockResolvedValue({ id: "cm_1", status: "online", availableRuntimes: [] })
     mockListReadableChannelsForUser.mockImplementation(async (_db, _userId, ids: string[]) => ids.map((id) => ({ id, serverId: null, parentChannelId: null })))
     mockGetReadableMessageChannelId.mockResolvedValue("ch-1")
     // `clearAllMocks` doesn't undo a `mockResolvedValue` set by a prior test —

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+vi.mock("../../src/db/queries/product-plan", async (original) => ({ ...await original<typeof import("../../src/db/queries/product-plan")>(), assertMachineCapacity: vi.fn() }));
 import * as q from "../../src/db/queries/community/machine";
 import * as sessionEpoch from "../../src/db/queries/community/machine-session-epoch";
 
@@ -922,7 +923,7 @@ describe("session epoch rotation — success paths", () => {
     });
     chain.from = vi.fn(() => chain);
     chain.where = vi.fn(() => {
-      if (mode === "select" && selectCount === 3) {
+      if (mode === "select" && selectCount === 4) {
         return Promise.resolve([{ doName: "old-do" }]);
       }
       return chain;
@@ -1009,7 +1010,7 @@ describe("session epoch rotation — success paths", () => {
     });
     chain.from = vi.fn(() => chain);
     chain.where = vi.fn(() => {
-      if (mode === "select" && selectCount === 3) return Promise.resolve([]);
+      if (mode === "select" && selectCount === 4) return Promise.resolve([]);
       return chain;
     });
     chain.limit = vi.fn(() => Promise.resolve(

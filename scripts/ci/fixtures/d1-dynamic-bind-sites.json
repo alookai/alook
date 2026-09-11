@@ -445,6 +445,14 @@
     "strategy": "subquery"
   },
   {
+    "key": "src/shared/src/db/queries/community/bot.ts:setBotActive:inArray:1",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/bot.ts:setBotActive:inArray:2",
+    "strategy": "subquery"
+  },
+  {
     "key": "src/shared/src/db/queries/community/bot.ts:softDeleteBot:inArray:1",
     "strategy": "subquery"
   },
@@ -861,6 +869,30 @@
   {
     "key": "src/shared/src/db/queries/overview.ts:getRecentTerminalTasks:inArray:2",
     "strategy": "fixed-literal"
+  },
+  {
+    "key": "src/shared/src/db/queries/product-plan.ts:reconcileActiveBotsBuilder:inArray:1",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/product-plan.ts:reconcileOnlineMachinesBuilders:inArray:1",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/product-plan.ts:reconcileOnlineMachinesBuilders:inArray:2",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/product-plan.ts:reconcileOnlineMachinesBuilders:inArray:3",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/product-plan.ts:reconcileOnlineMachinesBuilders:inArray:4",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/product-plan.ts:setPlanEntitlement:inArray:1",
+    "strategy": "subquery"
   },
   {
     "key": "src/shared/src/db/queries/runtime.ts:deleteRuntimesByDaemonId:inArray:1",

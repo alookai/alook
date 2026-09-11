@@ -40,6 +40,17 @@ describe("agent running-turn interrupt WS routing", () => {
     expect(mockStubFetch).not.toHaveBeenCalled()
   })
 
+  it("does not forward a control request for an inactive bot", async () => {
+    const { durable } = createDO()
+    const ws = userSocket()
+    mockGetBotBindingWithOwner.mockResolvedValue({ ...binding, isActive: false })
+
+    await durable.webSocketMessage(ws as unknown as WebSocket, JSON.stringify(request))
+
+    expect(mockGetActiveDoNamesForMachine).not.toHaveBeenCalled()
+    expect(mockStubFetch).not.toHaveBeenCalled()
+  })
+
   it("logs a binding lookup failure without forwarding", async () => {
     const { durable } = createDO()
     const ws = userSocket()

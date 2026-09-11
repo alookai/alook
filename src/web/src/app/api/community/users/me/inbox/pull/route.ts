@@ -25,7 +25,15 @@ const MAX_PULL = 200
 export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
   const gate = requireBot(ctx.actor)
   if (!gate.ok) return gate.response
-  const { userId: botUserId } = gate.bot
+  const { userId: botUserId, isActive } = gate.bot
+
+  // Inactive bots have no inbox surface at all. Gate before visibility,
+  // unread, mark, attachment, or hydration work so an inactive daemon cannot
+  // observe or consume backlog through the REST door. Runner auth already read
+  // this binding flag, so the polling hot path does not pay a duplicate D1 read.
+  if (!isActive) {
+    return NextResponse.json({ messages: [], hasMore: false, markedCount: 0 })
+  }
 
   const db = getDb(ctx.env.DB)
 
@@ -102,4 +110,4 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
     { route: "community/users/me/inbox/pull:hydrate" },
   )
   return NextResponse.json({ messages, hasMore, markedCount })
-})
+}, { allowInactiveBot: true })

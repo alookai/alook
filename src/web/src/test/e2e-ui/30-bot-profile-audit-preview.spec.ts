@@ -10,6 +10,30 @@ import { MACHINE_WS_URL, REPO_ROOT, WEB_URL } from "./_setup/paths"
 type UserKey = "alice" | "bob"
 type Rect = { x: number; y: number; width: number; height: number }
 
+const createdBotIds: string[] = []
+const createdMachineIds: string[] = []
+
+async function cleanupCreatedResources(): Promise<void> {
+  for (const botId of [...createdBotIds]) {
+    const response = await fetch(`${WEB_URL}/api/community/bots/${botId}`, {
+      method: "DELETE",
+      headers: headersFor("alice"),
+    })
+    expect(response.status, `delete test bot ${botId}`).toBe(204)
+    createdBotIds.splice(createdBotIds.indexOf(botId), 1)
+  }
+  for (const machineId of [...createdMachineIds]) {
+    const response = await fetch(`${WEB_URL}/api/community/machines/${machineId}`, {
+      method: "DELETE",
+      headers: headersFor("alice"),
+    })
+    expect(response.status, `delete test machine ${machineId}`).toBe(204)
+    createdMachineIds.splice(createdMachineIds.indexOf(machineId), 1)
+  }
+}
+
+test.afterEach(cleanupCreatedResources)
+
 async function rect(locator: Locator): Promise<Rect> {
   const value = await locator.boundingBox()
   expect(value).not.toBeNull()
@@ -221,7 +245,9 @@ async function pairMachine(): Promise<{ credential: string; machineId: string }>
     }),
   })
   expect(response.status).toBe(200)
-  return response.json() as Promise<{ credential: string; machineId: string }>
+  const data = await response.json() as { credential: string; machineId: string }
+  createdMachineIds.push(data.machineId)
+  return data
 }
 
 async function createBot(machineId: string, name: string): Promise<string> {
@@ -229,6 +255,7 @@ async function createBot(machineId: string, name: string): Promise<string> {
     method: "POST",
     body: JSON.stringify({ name, machineId, runtime: "codex" }),
   })
+  createdBotIds.push(data.bot.id)
   return data.bot.id
 }
 
@@ -304,6 +331,8 @@ type MachineSocket = {
   once(event: "open", listener: () => void): void
   once(event: "error", listener: (error: Error) => void): void
   once(event: "message", listener: (data: unknown) => void): void
+  on(event: "message", listener: (data: unknown) => void): void
+  off(event: "message", listener: (data: unknown) => void): void
 }
 
 function connectMachine(credential: string) {
@@ -551,14 +580,31 @@ test("owner-only bot mark sticker, Stop lifecycle, owner swap, and URL-owned aud
       .toBe(true)
     expect((await auditRows.allTextContents()).some((text) =>
       /open activity log 0$/i.test(text))).toBe(false)
-    machine.socket.send(JSON.stringify({
-      type: "bot_audit_event",
-      eventId: `bae_${suffix}_11`,
-      agentId: botId,
-      sessionId: `session-${suffix}`,
-      launchId: `launch-${suffix}`,
-      event: { kind: "tool_call", payload: { name: "Open activity log 11" } },
-    }))
+    const liveEventId = `bae_${suffix}_11`
+    let liveEventAcknowledged = false
+    const onAuditAck = (data: unknown) => {
+      const frame = JSON.parse(String(data)) as { type?: string; eventId?: string }
+      if (frame.type === "bot_audit_event_ack" && frame.eventId === liveEventId) {
+        liveEventAcknowledged = true
+      }
+    }
+    machine.socket.on("message", onAuditAck)
+    try {
+      machine.socket.send(JSON.stringify({
+        type: "bot_audit_event",
+        eventId: liveEventId,
+        agentId: botId,
+        sessionId: `session-${suffix}`,
+        launchId: `launch-${suffix}`,
+        event: { kind: "tool_call", payload: { name: "Open activity log 11" } },
+      }))
+      await expect.poll(() => liveEventAcknowledged, {
+        message: `machine receives bot_audit_event_ack for ${liveEventId}`,
+        timeout: 30_000,
+      }).toBe(true)
+    } finally {
+      machine.socket.off("message", onAuditAck)
+    }
     await expect.poll(async () =>
       (await auditRows.allTextContents()).join(" ").toLowerCase())
       .toContain("open activity log 11")
@@ -714,14 +760,20 @@ test("CommunitySheet footers keep four consumers horizontal and intrinsic at 390
   const { page } = await asUser("alice")
   await gotoAfterUserWsAuth(page, "/c/me/bots")
 
-  await page.getByRole("button", { name: "Create a bot", exact: true }).click()
+  const capacity = await jsonRequest<{ ownedCount: number; limit: number }>("alice", "/api/community/bots")
+  expect(capacity.ownedCount).toBeLessThan(capacity.limit)
+  const create = page.getByRole("button", { name: "Create a bot", exact: true })
+  await expect(create).toBeEnabled()
+  await create.click()
   for (const width of [390, 639, 640] as const) {
     await expectFooterGeometry(page, "Create a bot", ["Cancel", "Create bot"], width)
   }
   await page.getByRole("dialog", { name: "Create a bot", exact: true })
     .getByRole("button", { name: "Close", exact: true }).click()
 
-  await page.getByRole("button", { name: "Bot actions", exact: true }).first().click()
+  await page.locator('[data-slot="card"]')
+    .filter({ has: page.getByText(botName, { exact: true }) })
+    .getByRole("button", { name: "Bot actions", exact: true }).click()
   await page.getByRole("menuitem", { name: "Edit", exact: true }).click()
   for (const width of [390, 639, 640] as const) {
     await expectFooterGeometry(page, `Edit ${botName}`, ["Cancel", "Save"], width)
@@ -729,6 +781,7 @@ test("CommunitySheet footers keep four consumers horizontal and intrinsic at 390
   await page.getByRole("dialog", { name: `Edit ${botName}`, exact: true })
     .getByRole("button", { name: "Close", exact: true }).click()
 
+  await cleanupCreatedResources()
   await gotoAfterUserWsAuth(page, "/c/me/machines")
   await page.getByTestId(tid.machinePairOpen).click()
   for (const width of [390, 639, 640] as const) {

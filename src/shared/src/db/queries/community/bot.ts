@@ -18,7 +18,7 @@
  * return null / 404 at the route. The victim's state must be untouched.
  */
 
-import { aliasedTable, and, count, eq, exists, gte, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { aliasedTable, and, count, eq, exists, gt, gte, inArray, isNotNull, isNull, lt, ne, notExists, or, sql } from "drizzle-orm";
 import { user } from "../../schema";
 import {
   communityBotBinding,
@@ -32,6 +32,12 @@ import {
   communityBotDailyActivity,
   communityBotDailyTokenUsage,
   communityBotActivityEvent,
+  communityCategory,
+  communityChannel,
+  communityChannelMember,
+  communityFriendship,
+  communityMessage,
+  communityReadStateRevision,
 } from "../../community-schema";
 import type { DailyUsageSnapshot } from "../../../provider-telemetry";
 import { communityMachine } from "../../community-machine-schema";
@@ -42,6 +48,9 @@ import { nanoid } from "nanoid";
 import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
 import type { ReasoningEffort } from "../../../runtime-config";
 import { CommunityMachineRuntimeSchema, type CommunityMachineRuntime } from "../../../schemas";
+import { getBotCapacitySummary } from "../product-plan";
+import type { BotCapacitySummary } from "../../../product-entitlements";
+import { isPresenceOnline } from "../../../utils/status";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -71,6 +80,7 @@ export type BotBinding = {
   modelName: string | null;
   reasoningEffort: ReasoningEffort | null;
   runtimeConfigRevision: number;
+  isActive: boolean;
   createdAt: string;
 };
 
@@ -79,6 +89,12 @@ export class OwnerHasBotsError extends Error {
     super(message);
     this.name = "OwnerHasBotsError";
   }
+}
+
+const BOT_ENTITLEMENT_LIMIT_ERROR = "BOT_ENTITLEMENT_LIMIT_REACHED";
+
+export function isBotEntitlementLimitError(error: unknown): boolean {
+  return error instanceof Error && error.message.includes(BOT_ENTITLEMENT_LIMIT_ERROR);
 }
 
 // ─── Reads ─────────────────────────────────────────────────────────────────
@@ -96,6 +112,8 @@ export async function listBotsForOwner(
   modelName: string | null;
   reasoningEffort: ReasoningEffort | null;
   runtimeConfigRevision: number;
+  isActive: boolean;
+  presence: "online" | "offline";
   tokenUsageTimeZone: string | null;
 }>> {
   const rows = await db
@@ -115,6 +133,8 @@ export async function listBotsForOwner(
       modelName: communityBotBinding.modelName,
       reasoningEffort: communityBotBinding.reasoningEffort,
       runtimeConfigRevision: communityBotBinding.runtimeConfigRevision,
+      isActive: communityBotBinding.isActive,
+      machineStatus: communityMachine.status,
       tokenUsageTimeZone: communityMachine.timeZone,
     })
     .from(user)
@@ -143,6 +163,8 @@ export async function listBotsForOwner(
     modelName: r.modelName ?? null,
     reasoningEffort: r.reasoningEffort ?? null,
     runtimeConfigRevision: r.runtimeConfigRevision ?? 0,
+    isActive: r.isActive,
+    presence: r.isActive && isPresenceOnline(r.machineStatus) ? "online" : "offline",
     tokenUsageTimeZone: r.tokenUsageTimeZone ?? null,
   }));
 }
@@ -200,6 +222,7 @@ export async function getBotOwnedBy(
   modelName: string | null;
   reasoningEffort: ReasoningEffort | null;
   runtimeConfigRevision: number;
+  isActive: boolean;
   avatarObjectKey: string | null;
 }) | null> {
   const rows = await db
@@ -220,6 +243,7 @@ export async function getBotOwnedBy(
       modelName: communityBotBinding.modelName,
       reasoningEffort: communityBotBinding.reasoningEffort,
       runtimeConfigRevision: communityBotBinding.runtimeConfigRevision,
+      isActive: communityBotBinding.isActive,
     })
     .from(user)
     .leftJoin(communityBotBinding, eq(communityBotBinding.userId, user.id))
@@ -251,6 +275,7 @@ export async function getBotOwnedBy(
     modelName: r.modelName ?? null,
     reasoningEffort: r.reasoningEffort ?? null,
     runtimeConfigRevision: r.runtimeConfigRevision ?? 0,
+    isActive: r.isActive ?? false,
   };
 }
 
@@ -372,6 +397,7 @@ export async function getBotBinding(
   modelName: string | null;
   reasoningEffort: ReasoningEffort | null;
   runtimeConfigRevision: number;
+  isActive: boolean;
 } | null> {
   const rows = await db
     .select({
@@ -380,6 +406,7 @@ export async function getBotBinding(
       modelName: communityBotBinding.modelName,
       reasoningEffort: communityBotBinding.reasoningEffort,
       runtimeConfigRevision: communityBotBinding.runtimeConfigRevision,
+      isActive: communityBotBinding.isActive,
     })
     .from(communityBotBinding)
     .where(eq(communityBotBinding.userId, botId))
@@ -392,7 +419,287 @@ export async function getBotBinding(
     modelName: r.modelName ?? null,
     reasoningEffort: r.reasoningEffort ?? null,
     runtimeConfigRevision: r.runtimeConfigRevision ?? 0,
+    isActive: r.isActive,
   };
+}
+
+function ownerScopedBotIds(
+  db: Database,
+  botId: string,
+  ownerId: string,
+  isActive: boolean,
+) {
+  return db
+    .select({ id: user.id })
+    .from(user)
+    .innerJoin(communityBotBinding, eq(communityBotBinding.userId, user.id))
+    .where(
+      and(
+        eq(user.id, botId),
+        eq(user.ownerUserId, ownerId),
+        eq(user.isBot, true),
+        isNull(user.deletedAt),
+        eq(communityBotBinding.isActive, isActive),
+      ),
+    );
+}
+
+function activationCursorCatchupBuilder(
+  db: Database,
+  botId: string,
+  ownerId: string,
+) {
+  const message = aliasedTable(communityMessage, "activation_message");
+  const newerMessage = aliasedTable(communityMessage, "activation_newer_message");
+  const channel = aliasedTable(communityChannel, "activation_channel");
+  const parent = aliasedTable(communityChannel, "activation_parent_channel");
+  const category = aliasedTable(communityCategory, "activation_category");
+  const serverMember = aliasedTable(communityServerMember, "activation_server_member");
+  const anchorMember = aliasedTable(communityChannelMember, "activation_anchor_member");
+  const dmSelf = aliasedTable(communityChannelMember, "activation_dm_self");
+  const dmPeer = aliasedTable(communityChannelMember, "activation_dm_peer");
+  const blocked = aliasedTable(communityFriendship, "activation_dm_block");
+
+  const anchorId = sql<string>`COALESCE(${parent.id}, ${channel.id})`;
+  const anchorCreatorId = sql<string | null>`COALESCE(${parent.creatorId}, ${channel.creatorId})`;
+  const anchorCategoryId = sql<string | null>`COALESCE(${parent.categoryId}, ${channel.categoryId})`;
+  const ownerScopedInactive = exists(ownerScopedBotIds(db, botId, ownerId, false));
+
+  const dmVisible = and(
+    eq(channel.type, "dm"),
+    exists(
+      db
+        .select({ one: sql<number>`1` })
+        .from(dmSelf)
+        .where(
+          and(
+            eq(dmSelf.channelId, channel.id),
+            eq(dmSelf.userId, botId),
+            eq(dmSelf.relation, "access"),
+          ),
+        ),
+    ),
+    notExists(
+      db
+        .select({ one: sql<number>`1` })
+        .from(dmPeer)
+        .innerJoin(
+          blocked,
+          and(
+            eq(blocked.status, "blocked"),
+            or(
+              and(eq(blocked.requesterId, botId), eq(blocked.addresseeId, dmPeer.userId)),
+              and(eq(blocked.requesterId, dmPeer.userId), eq(blocked.addresseeId, botId)),
+            ),
+          ),
+        )
+        .where(
+          and(
+            eq(dmPeer.channelId, channel.id),
+            eq(dmPeer.relation, "access"),
+            ne(dmPeer.userId, botId),
+          ),
+        ),
+    ),
+  );
+
+  const serverVisible = and(
+    ne(channel.type, "dm"),
+    isNotNull(channel.serverId),
+    exists(
+      db
+        .select({ one: sql<number>`1` })
+        .from(serverMember)
+        .where(
+          and(
+            eq(serverMember.serverId, channel.serverId),
+            eq(serverMember.userId, botId),
+          ),
+        ),
+    ),
+    or(
+      isNull(anchorCategoryId),
+      eq(category.private, 0),
+      eq(anchorCreatorId, botId),
+      exists(
+        db
+          .select({ one: sql<number>`1` })
+          .from(anchorMember)
+          .where(
+            and(
+              eq(anchorMember.channelId, anchorId),
+              eq(anchorMember.userId, botId),
+              eq(anchorMember.relation, "access"),
+            ),
+          ),
+      ),
+    ),
+  );
+
+  const latestVisibleMessages = db
+    .select({
+      id: sql<string>`lower(hex(randomblob(16)))`.as("id"),
+      userId: sql<string>`${botId}`.as("user_id"),
+      channelId: message.channelId,
+      lastReadAt: message.createdAt,
+      lastReadMessageId: message.id,
+      lastReadSeq: message.seq,
+    })
+    .from(message)
+    .innerJoin(channel, eq(channel.id, message.channelId))
+    .leftJoin(parent, eq(parent.id, channel.parentChannelId))
+    .leftJoin(category, eq(category.id, anchorCategoryId))
+    .where(
+      and(
+        ownerScopedInactive,
+        or(dmVisible, serverVisible),
+        notExists(
+          db
+            .select({ one: sql<number>`1` })
+            .from(newerMessage)
+            .where(
+              and(
+                eq(newerMessage.channelId, message.channelId),
+                gt(newerMessage.seq, message.seq),
+              ),
+            ),
+        ),
+      ),
+    );
+
+  return db
+    .insert(communityReadState)
+    .select(latestVisibleMessages)
+    .onConflictDoUpdate({
+      target: [communityReadState.userId, communityReadState.channelId],
+      set: {
+        lastReadAt: sql`excluded.last_read_at`,
+        lastReadMessageId: sql`excluded.last_read_message_id`,
+        lastReadSeq: sql`excluded.last_read_seq`,
+      },
+      setWhere: sql`${communityReadState.lastReadSeq} < excluded.last_read_seq`,
+    });
+}
+
+function activationReadStateRevisionBuilder(
+  db: Database,
+  botId: string,
+  ownerId: string,
+) {
+  const selected = db
+    .select({
+      userId: sql<string>`${botId}`.as("user_id"),
+      revision: sql<number>`1`.as("revision"),
+    })
+    .from(user)
+    .where(
+      and(
+        eq(user.id, botId),
+        eq(user.ownerUserId, ownerId),
+        eq(user.isBot, true),
+        isNull(user.deletedAt),
+        exists(ownerScopedBotIds(db, botId, ownerId, false)),
+      ),
+    )
+    .limit(1);
+  return db
+    .insert(communityReadStateRevision)
+    .select(selected)
+    .onConflictDoUpdate({
+      target: communityReadStateRevision.userId,
+      set: { revision: sql`${communityReadStateRevision.revision} + 1` },
+    });
+}
+
+export type BotActivationMutationResult =
+  | { state: "not_found" }
+  | { state: "capacity"; capacity: BotCapacitySummary }
+  | {
+      state: "unchanged" | "updated";
+      bot: NonNullable<Awaited<ReturnType<typeof getBotOwnedBy>>>;
+    };
+
+export async function setBotActive(
+  db: Database,
+  botId: string,
+  ownerId: string,
+  active: boolean,
+): Promise<BotActivationMutationResult> {
+  const before = await getBotOwnedBy(db, botId, ownerId);
+  if (!before || !before.machineId || !before.runtime) return { state: "not_found" };
+  if (before.isActive === active) return { state: "unchanged", bot: before };
+
+  if (!active) {
+    // Keep the ownership predicate inside the mutation statement so a raced or
+    // cross-owner request cannot deactivate anything. This is a fixed-bind
+    // subquery, not a caller-sized `IN (...)` list.
+    const ownerScopedActiveIds = db
+      .select({ id: user.id })
+      .from(user)
+      .innerJoin(communityBotBinding, eq(communityBotBinding.userId, user.id))
+      .where(
+        and(
+          eq(user.id, botId),
+          eq(user.ownerUserId, ownerId),
+          eq(user.isBot, true),
+          isNull(user.deletedAt),
+          eq(communityBotBinding.isActive, true),
+        ),
+      );
+    const updated = await db
+      .update(communityBotBinding)
+      .set({ isActive: false })
+      .where(inArray(communityBotBinding.userId, ownerScopedActiveIds))
+      .returning({ botId: communityBotBinding.userId });
+    if (updated.length === 0) {
+      const raced = await getBotOwnedBy(db, botId, ownerId);
+      return raced ? { state: "unchanged", bot: raced } : { state: "not_found" };
+    }
+    return { state: "updated", bot: { ...before, isActive: false } };
+  }
+
+  let capacity = await getBotCapacitySummary(db, ownerId);
+  if (capacity.activeCount >= capacity.limit) return { state: "capacity", capacity };
+
+  const cursorCatchup = activationCursorCatchupBuilder(db, botId, ownerId);
+  const revision = activationReadStateRevisionBuilder(db, botId, ownerId);
+  // Repeat the owner-scoped state check in the final UPDATE. The preflight and
+  // cursor statements are not authorization; this subquery is the mutation's
+  // race-safe ownership boundary.
+  const ownerScopedInactiveIds = db
+    .select({ id: user.id })
+    .from(user)
+    .innerJoin(communityBotBinding, eq(communityBotBinding.userId, user.id))
+    .where(
+      and(
+        eq(user.id, botId),
+        eq(user.ownerUserId, ownerId),
+        eq(user.isBot, true),
+        isNull(user.deletedAt),
+        eq(communityBotBinding.isActive, false),
+      ),
+    );
+  const activate = db
+    .update(communityBotBinding)
+    .set({ isActive: true })
+    .where(inArray(communityBotBinding.userId, ownerScopedInactiveIds))
+    .returning({ botId: communityBotBinding.userId });
+  try {
+    const results = await db.batch([cursorCatchup, revision, activate] as any) as unknown as [
+      unknown,
+      unknown,
+      Array<{ botId: string }>,
+    ];
+    if (results[2].length === 0) {
+      const raced = await getBotOwnedBy(db, botId, ownerId);
+      return raced ? { state: "unchanged", bot: raced } : { state: "not_found" };
+    }
+  } catch (error) {
+    if (!isBotEntitlementLimitError(error)) throw error;
+    capacity = await getBotCapacitySummary(db, ownerId);
+    return { state: "capacity", capacity };
+  }
+  return { state: "updated", bot: { ...before, isActive: true } };
 }
 
 /**
@@ -404,7 +711,7 @@ export async function getBotBinding(
 export async function getBotBindingWithOwner(
   db: Database,
   botId: string
-): Promise<{ machineId: string; runtime: string; ownerUserId: string; name: string; discriminator: string } | null> {
+): Promise<{ machineId: string; runtime: string; ownerUserId: string; name: string; discriminator: string; isActive: boolean } | null> {
   const rows = await db
     .select({
       machineId: communityBotBinding.machineId,
@@ -415,6 +722,7 @@ export async function getBotBindingWithOwner(
       // reads the `user` row.
       name: user.name,
       discriminator: user.discriminator,
+      isActive: communityBotBinding.isActive,
     })
     .from(user)
     .innerJoin(communityBotBinding, eq(communityBotBinding.userId, user.id))
@@ -422,13 +730,20 @@ export async function getBotBindingWithOwner(
       and(
         eq(user.id, botId),
         eq(user.isBot, true),
-        isNull(user.deletedAt)
+        isNull(user.deletedAt),
       )
     )
     .limit(1);
   const r = rows[0];
   if (!r || !r.ownerUserId) return null;
-  return { machineId: r.machineId, runtime: r.runtime, ownerUserId: r.ownerUserId, name: r.name, discriminator: r.discriminator };
+  return {
+    machineId: r.machineId,
+    runtime: r.runtime,
+    ownerUserId: r.ownerUserId,
+    name: r.name,
+    discriminator: r.discriminator,
+    isActive: r.isActive,
+  };
 }
 
 /**
@@ -473,7 +788,8 @@ export async function findWakeCandidates(
             and(
               inArray(user.id, ids),
               eq(user.isBot, true),
-              isNull(user.deletedAt)
+              isNull(user.deletedAt),
+              eq(communityBotBinding.isActive, true),
             )
           )
       )
@@ -496,6 +812,7 @@ export type BotWakeContext =
   | { state: "bot_missing" }
   | { state: "bot_deleted" }
   | { state: "bot_unbound" }
+  | { state: "bot_inactive" }
   | {
       state: "ready";
       botUserId: string;
@@ -523,6 +840,7 @@ export async function getBotWakeContext(db: Database, botUserId: string): Promis
       modelName: communityBotBinding.modelName,
       reasoningEffort: communityBotBinding.reasoningEffort,
       runtimeConfigRevision: communityBotBinding.runtimeConfigRevision,
+      isActive: communityBotBinding.isActive,
     })
     .from(user)
     .leftJoin(communityBotBinding, eq(communityBotBinding.userId, user.id))
@@ -532,6 +850,7 @@ export async function getBotWakeContext(db: Database, botUserId: string): Promis
   if (!r || !r.isBot) return { state: "bot_missing" };
   if (r.deletedAt) return { state: "bot_deleted" };
   if (!r.machineId || !r.runtime) return { state: "bot_unbound" };
+  if (!r.isActive) return { state: "bot_inactive" };
   return {
     state: "ready",
     botUserId: r.id,
@@ -592,6 +911,7 @@ export async function listBotsForMachine(
     .where(
       and(
         eq(communityBotBinding.machineId, machineId),
+        eq(communityBotBinding.isActive, true),
         eq(user.isBot, true),
         isNull(user.deletedAt),
         isNull(owner.deletedAt)

@@ -80,7 +80,9 @@ export function renderBotMachineGroup(
       </div>
       <div className="flex flex-col gap-3" hidden={collapsed}>
         {bots.map((bot) => {
-          const online = controller.profilesByUserId.get(bot.id)?.presence === "online"
+          const online = bot.isActive
+            && controller.profilesByUserId.get(bot.id)?.presence === "online"
+          const activePending = controller.pendingActiveBotIds.has(bot.id)
           return (
             <Card key={bot.id} className="flex flex-col gap-3 p-4">
               <div className="flex items-start justify-between gap-3">
@@ -107,17 +109,23 @@ export function renderBotMachineGroup(
                         />
                         {online ? "Online" : "Offline"}
                       </span>
-                      {!online && machine && (
+                      {(!bot.isActive || (!online && machine)) && (
                         <Button
                           size="sm"
                           variant="outline"
                           className="h-6 shrink-0 px-2 text-xs"
+                          disabled={!bot.isActive && activePending}
+                          aria-busy={!bot.isActive && activePending || undefined}
                           onClick={(event) => {
                             event.stopPropagation()
-                            controller.bringMachineOnline(machine.id)
+                            if (!bot.isActive) {
+                              void controller.setBotActive(bot, true)
+                            } else if (machine) {
+                              controller.bringMachineOnline(machine.id)
+                            }
                           }}
                         >
-                          Bring online
+                          {bot.isActive ? "Bring online" : "Activate"}
                         </Button>
                       )}
                     </div>
@@ -200,6 +208,14 @@ export function renderBotMachineGroup(
                       }}
                     >
                       <span className="size-4" aria-hidden /> Report a problem
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      data-testid={tid.botActive(bot.id)}
+                      disabled={activePending}
+                      aria-busy={activePending || undefined}
+                      onClick={() => { void controller.setBotActive(bot, !bot.isActive) }}
+                    >
+                      <span className="size-4" aria-hidden /> {bot.isActive ? "Deactivate" : "Activate"}
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       variant="destructive"

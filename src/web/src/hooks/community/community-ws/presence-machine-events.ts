@@ -1,3 +1,4 @@
+import { replaceMachines } from "@/hooks/community/use-machines"
 import type {
   CommunityBotAuditEvent,
   CommunityMachineCreated,
@@ -59,10 +60,10 @@ export function handleMachineCreated(
     (prev) => {
       if (!prev) return { machines: [event.machine] }
       const idx = prev.machines.findIndex((m) => m.id === event.machine.id)
-      if (idx === -1) return { ...prev, machines: [event.machine, ...prev.machines] }
+      if (idx === -1) return replaceMachines(prev, [event.machine, ...prev.machines])
       const next = prev.machines.slice()
       next[idx] = event.machine
-      return { ...prev, machines: next }
+      return replaceMachines(prev, next)
     },
   )
   useCommunityStore.getState().setPendingMachineTokenId(event.tokenId)
@@ -76,14 +77,11 @@ export function handleMachineStatus(
     communityKeys.machines(),
     (prev) =>
       prev
-        ? {
-          ...prev,
-          machines: prev.machines.map((m) =>
+        ? replaceMachines(prev, prev.machines.map((m) =>
             m.id === event.machineId
               ? { ...m, lastSeenAt: event.lastSeenAt, status: event.status }
               : m,
-          ),
-        }
+          ))
         : prev,
   )
 }
@@ -97,10 +95,10 @@ export function handleMachineUpdated(
     (prev) => {
       if (!prev) return { machines: [event.machine] }
       const idx = prev.machines.findIndex((m) => m.id === event.machine.id)
-      if (idx === -1) return { ...prev, machines: [event.machine, ...prev.machines] }
+      if (idx === -1) return replaceMachines(prev, [event.machine, ...prev.machines])
       const next: CommunityMachineSummary[] = prev.machines.slice()
       next[idx] = event.machine
-      return { ...prev, machines: next }
+      return replaceMachines(prev, next)
     },
   )
 }
@@ -112,6 +110,6 @@ export function handleMachineRemoved(
   queryClient.setQueryData<MachinesResponse | undefined>(
     communityKeys.machines(),
     (prev) =>
-      prev ? { ...prev, machines: prev.machines.filter((m) => m.id !== event.machineId) } : prev,
+      prev ? replaceMachines(prev, prev.machines.filter((m) => m.id !== event.machineId)) : prev,
   )
 }

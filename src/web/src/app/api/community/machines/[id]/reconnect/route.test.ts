@@ -3,10 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const mockCreateReconnectPairingToken = vi.fn()
 const mockRevokeRunnerKeysForMachine = vi.fn()
 
-vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
+vi.mock("@/lib/db", () => ({ getPrimaryDb: vi.fn(() => ({})) }))
 
-vi.mock("@alook/shared", () => ({
+vi.mock("@alook/shared", async () => {
+  const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
+  return {
   queries: {
+    productPlan: actual.queries.productPlan,
     communityMachine: {
       createReconnectPairingToken: (...args: unknown[]) =>
         mockCreateReconnectPairingToken(...args),
@@ -14,7 +17,7 @@ vi.mock("@alook/shared", () => ({
         mockRevokeRunnerKeysForMachine(...args),
     },
   },
-}))
+}})
 
 vi.mock("@/lib/middleware/auth", () => ({
   withAuth: (handler: any) => async (req: any, ctx?: any) =>
@@ -36,6 +39,7 @@ vi.mock("@/lib/middleware/helpers", async () => {
 })
 
 import { POST } from "./route"
+import { queries } from "@alook/shared"
 
 describe("POST /api/community/machines/[id]/reconnect", () => {
   beforeEach(() => {
@@ -70,4 +74,20 @@ describe("POST /api/community/machines/[id]/reconnect", () => {
     const response = await POST({} as any, { params: { id: "cm_other" } } as any)
     expect(response.status).toBe(404)
   })
+  it("returns authoritative capacity on quota denial", async () => {
+    const capacity = { plan: { id: "free", displayName: "Free" }, isFounder: false, limit: 1, ownedCount: 2, onlineCount: 1 }
+    mockCreateReconnectPairingToken.mockRejectedValue(new queries.productPlan.MachineLimitReachedError(capacity))
+    const response = await POST({} as any, { params: { id: "cm_abcdefgh" } } as any)
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({ error: "MACHINE_LIMIT_REACHED", machineCapacity: capacity })
+  })
+  it("fails closed on unavailable entitlement and propagates unexpected failure", async () => {
+    mockCreateReconnectPairingToken.mockRejectedValue(new queries.productPlan.ProductEntitlementUnavailableError("machines.max", "entitlement_missing"))
+    const response = await POST({} as any, { params: { id: "cm_abcdefgh" } } as any)
+    expect(response.status).toBe(503)
+    expect(await response.json()).toEqual({ error: "MACHINE_LIMIT_UNAVAILABLE" })
+    mockCreateReconnectPairingToken.mockRejectedValue(new Error("database unavailable"))
+    await expect(POST({} as any, { params: { id: "cm_abcdefgh" } } as any)).rejects.toThrow("database unavailable")
+  })
+
 })

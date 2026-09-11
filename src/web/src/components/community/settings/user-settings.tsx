@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"
-import { User, LogOut, Palette, Sun, Moon, Monitor, Database, Camera, Shield } from "lucide-react"
+import { User, LogOut, Palette, Sun, Moon, Monitor, Database, Camera, Shield, CreditCard } from "lucide-react"
 import { useTheme } from "next-themes"
 import { Button } from "@/components/ui/button"
 import { AutoResizeTextarea } from "@/components/ui/auto-resize-textarea"
@@ -18,6 +18,8 @@ import {
   SETTINGS_LOGOUT_CLASS,
 } from "./settings-navigation"
 import { SettingsShell, SettingsShellPanel, type SettingsShellTab } from "./settings-shell"
+import { BillingContent } from "../billing/billing-sheet"
+import { useBilling, type BillingReturn } from "@/hooks/community/use-billing"
 import { AccountDeletionFlow } from "./account-deletion-flow"
 
 const THEME_OPTIONS = [
@@ -26,10 +28,11 @@ const THEME_OPTIONS = [
   { value: "system", label: "System", icon: Monitor },
 ] as const
 
-type UserSettingsTab = "profile" | "appearance" | "advanced" | "privacy"
+type UserSettingsTab = "profile" | "appearance" | "advanced" | "privacy" | "billing"
 
 const USER_SETTINGS_TABS: SettingsShellTab<UserSettingsTab>[] = [
   { value: "profile", label: "My Profile", icon: User },
+  { value: "billing", label: "Subscription & billing", icon: CreditCard },
   { value: "appearance", label: "Appearance", icon: Palette },
   { value: "advanced", label: "Advanced", icon: Database },
   { value: "privacy", label: "Privacy", icon: Shield },
@@ -133,7 +136,9 @@ function AdvancedSettings({ userId }: { userId: string | null }) {
   )
 }
 
-export function UserSettings({ onClose, userId, userName, userEmail, aboutMe, avatar, statusEmoji, statusText, onSave, onLogout, onAccountDeleted, onUploadAvatar }: {
+export function UserSettings({ initialTab = "profile", billingReturn = null, onClose, userId, userName, userEmail, aboutMe, avatar, statusEmoji, statusText, onSave, onLogout, onAccountDeleted, onUploadAvatar }: {
+  initialTab?: UserSettingsTab
+  billingReturn?: BillingReturn
   onClose: () => void
   userId: string | null
   userName: string
@@ -159,7 +164,9 @@ export function UserSettings({ onClose, userId, userName, userEmail, aboutMe, av
     emoji: statusEmoji ?? null,
     text: statusText ?? null,
   })
-  const [tab, setTab] = useState<UserSettingsTab>("profile")
+  const [tab, setTab] = useState<UserSettingsTab>(initialTab)
+  useEffect(() => { setTab(initialTab) }, [initialTab])
+  const billing = useBilling(billingReturn, tab === "billing")
   const [deletionOpen, setDeletionOpen] = useState(false)
 
   const dirty =
@@ -196,7 +203,7 @@ export function UserSettings({ onClose, userId, userName, userEmail, aboutMe, av
       value={tab}
       onValueChange={setTab}
       label="User Settings"
-      title={deletionOpen ? "Delete account" : tab === "appearance" ? "Appearance" : tab === "advanced" ? "Advanced" : tab === "privacy" ? "Privacy Policy" : "My Profile"}
+      title={tab === "billing" ? "Subscription & billing" : deletionOpen ? "Delete account" : tab === "appearance" ? "Appearance" : tab === "advanced" ? "Advanced" : tab === "privacy" ? "Privacy Policy" : "My Profile"}
       tabs={USER_SETTINGS_TABS}
       onClose={onClose}
       disabled={deletionOpen}
@@ -214,6 +221,7 @@ export function UserSettings({ onClose, userId, userName, userEmail, aboutMe, av
         />
       ) : (
         <>
+          <SettingsShellPanel value="billing"><div className="mx-auto w-full max-w-xl"><BillingContent billing={billing} /></div></SettingsShellPanel>
           <SettingsShellPanel value="profile">
             <div className="mx-auto w-full max-w-md space-y-8">
               {/* Avatar — centered in a soft rounded frame, with a hand-rolled

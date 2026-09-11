@@ -30,7 +30,7 @@ import { machineName } from "@/lib/community/machine-name"
 import { MachineCard, MachineCardFrame } from "./machine-card"
 import { PairMachineSheet, type PairMachineSheetMode } from "./pair-machine-sheet"
 import { ConnectTile } from "@/components/community/onboarding-tiles/connect-tile"
-import { useMachines, type MachinesResponse } from "@/hooks/community/use-machines"
+import { useMachines, machinesQueryFn, replaceMachines, type MachinesResponse } from "@/hooks/community/use-machines"
 import { useBots } from "@/hooks/community/use-bots"
 import { useCommunityStore, usePendingMachineTokenId } from "@/stores/community"
 import { communityKeys } from "@/lib/query-keys"
@@ -40,6 +40,7 @@ import {
   useCommunityOnboarding,
 } from "@/lib/community-onboarding"
 import { removeCommunityParam } from "@/lib/community/community-route"
+import { MachineCapacityUsage, MachineLimitDialog } from "./machine-capacity"
 import { GuideMeAvatarMotion } from "./guide-me-avatar-motion"
 
 const MACHINE_LIST_HEADING_CLASS =
@@ -113,6 +114,7 @@ export function MachineListSkeleton({
           <header data-slot="community-machines-heading" className={MACHINE_LIST_HEADING_CLASS}>
             <div data-slot="community-machines-heading-copy" className={MACHINE_LIST_HEADING_COPY_CLASS}>
               <Skeleton className="h-7 w-24 rounded" />
+              <Skeleton aria-hidden className="h-11 w-36 max-w-full rounded-sm sm:h-6" />
               <div aria-hidden className="relative w-fit max-w-full">
                 <p className="invisible text-sm">{MACHINE_LIST_DESCRIPTION}</p>
                 <Skeleton className="absolute inset-0 rounded" />
@@ -203,7 +205,15 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const queryClient = useQueryClient()
-  const { machines, isLoading: machinesLoading } = useMachines()
+  const { machines, data: machinesData, isLoading: machinesLoading } = useMachines()
+  const capacity = machinesData?.machineCapacity ?? null
+  const [limitOpen, setLimitOpen] = useState(false)
+  const viewPlan = useCallback(() => {
+    const next = new URL(window.location.href)
+    next.searchParams.delete("billing")
+    next.searchParams.set("settings", "billing")
+    window.history.pushState(null, "", `${next.pathname}${next.search}${next.hash}`)
+  }, [])
   const { bots } = useBots()
   const pendingMachineTokenId = usePendingMachineTokenId()
   const [pairOpen, setPairOpen] = useState(false)
@@ -254,11 +264,20 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
 
   const openPair = useCallback(() => {
     setPairMode({ kind: "pair" })
+    if (!capacity) {
+      void queryClient.invalidateQueries({ queryKey: communityKeys.machines() })
+      toast.error("Couldn’t load your machine allowance. Refresh and try again.")
+      return
+    }
+    if (capacity.ownedCount >= capacity.limit) {
+      setLimitOpen(true)
+      return
+    }
     setPendingTokenId(null)
     setConnectedHostname(null)
     useCommunityStore.getState().setPendingMachineTokenId(null)
     setPairOpen(true)
-  }, [])
+  }, [capacity, queryClient])
 
   const openReconnect = useCallback((machine: CommunityMachineSummary) => {
     setPairMode({
@@ -314,8 +333,9 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
       queryClient.setQueryData<MachinesResponse | undefined>(
         communityKeys.machines(),
         (prev) =>
-          prev ? { ...prev, machines: prev.machines.filter((m) => m.id !== id) } : prev,
+          prev ? replaceMachines(prev, prev.machines.filter((m) => m.id !== id)) : prev,
       )
+      void queryClient.invalidateQueries({ queryKey: communityKeys.machines() })
     } catch (err) {
       // MACHINE_HAS_BOTS can still happen here despite the client-side
       // guard above — e.g. a bot was created on this machine from another
@@ -349,6 +369,17 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
     : []
 
   const backBar = machineBackBar(onBack)
+  const limitDialog = <MachineLimitDialog open={limitOpen} onOpenChange={setLimitOpen} onViewPlan={viewPlan} limit={capacity?.limit ?? 0} reconnect={pairMode.kind === "reconnect"} />
+  const usage = <MachineCapacityUsage summary={capacity} onViewPlan={viewPlan} />
+  const onLimitReached = useCallback(async () => {
+    closePair(false)
+    try {
+      await queryClient.fetchQuery({ queryKey: communityKeys.machines(), queryFn: machinesQueryFn, staleTime: 0 })
+      setLimitOpen(true)
+    } catch {
+      toast.error("Couldn’t refresh your machine allowance. Refresh and try again.")
+    }
+  }, [closePair, queryClient])
 
   if (machinesLoading) {
     return <MachineListSkeleton onBack={onBack} />
@@ -397,8 +428,11 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
               </Button>
             </span>
           </div>
+          {usage}
         </div>
+        {limitDialog}
         <PairMachineSheet
+          onLimitReached={onLimitReached}
           open={pairOpen}
           onOpenChange={closePair}
           pendingTokenId={pendingTokenId}
@@ -418,6 +452,7 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
           <header data-slot="community-machines-heading" className={MACHINE_LIST_HEADING_CLASS}>
             <div data-slot="community-machines-heading-copy" className={MACHINE_LIST_HEADING_COPY_CLASS}>
               <h1 className="text-xl font-medium text-foreground">Machines</h1>
+              {usage}
               <p className="text-sm text-muted-foreground">
                 {MACHINE_LIST_DESCRIPTION}
               </p>
@@ -451,7 +486,9 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
           />
         ))}
       />
+      {limitDialog}
       <PairMachineSheet
+        onLimitReached={onLimitReached}
         open={pairOpen}
         onOpenChange={closePair}
         pendingTokenId={pendingTokenId}

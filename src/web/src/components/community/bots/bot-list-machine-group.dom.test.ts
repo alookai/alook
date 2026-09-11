@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { BotSummary } from "@/hooks/community/use-bots"
 import { tid } from "@/lib/community/testids"
 import type { BotListController, BotMachineGroup } from "./bot-list-types"
-import { act, fireEvent, render } from "@/test/react-dom-harness"
+import { act, fireEvent, render, setupUser } from "@/test/react-dom-harness"
 
 const mocks = vi.hoisted(() => ({
   avatar: vi.fn(),
@@ -74,6 +74,7 @@ const bot = (overrides: Partial<BotSummary> = {}): BotSummary => ({
   machineId: "mac1",
   runtime: "claude",
   modelName: "claude-opus-4-6",
+  isActive: true,
   lastRefreshContextAt: null,
   dailyActivity: [],
   ...overrides,
@@ -83,6 +84,8 @@ function controller(overrides: Partial<BotListController> = {}): BotListControll
   const noop = vi.fn()
   return {
     profilesByUserId: new Map(),
+    pendingActiveBotIds: new Set(),
+    setBotActive: noop,
     collapsedMachines: new Set(),
     setCollapsedMachines: noop,
     setConfirmResetMachine: noop,
@@ -182,6 +185,54 @@ describe("renderBotMachineGroup", () => {
     expect(withExactClass(renderer.container,
       "inline-block size-1.5 shrink-0 rounded-full bg-muted-foreground"))
       .toHaveLength(1)
+  })
+
+  it("renders menu actions, keeps entitlement separate from presence, and scopes pending", () => {
+    const setBotActive = vi.fn()
+    const activeBot = bot({ id: "active", name: "Active Bot" })
+    const inactiveBot = bot({ id: "inactive", name: "Inactive Bot", isActive: false })
+    const renderer = render(renderBotMachineGroup(
+      group({ bots: [activeBot, inactiveBot] }),
+      controller({
+        profilesByUserId: new Map([
+          ["active", { id: "active", presence: "online" }],
+          ["inactive", { id: "inactive", presence: "online" }],
+        ]),
+        pendingActiveBotIds: new Set(["active"]),
+        setBotActive,
+      }),
+    ))
+    const activeSwitch = renderer.getByRole("button", { name: "Deactivate" })
+    const inactiveSwitch = renderer.getByTestId(tid.botActive("inactive"))
+    expect(activeSwitch).toBeDisabled()
+    expect(activeSwitch).toHaveAttribute("aria-busy", "true")
+    expect(inactiveSwitch).not.toBeDisabled()
+    expect(renderer.getByTestId(tid.botActive("active"))).toBe(activeSwitch)
+    expect(renderer.queryByRole("switch")).not.toBeInTheDocument()
+    expect(renderer.getAllByText("Online")).toHaveLength(1)
+    expect(renderer.getAllByText("Offline")).toHaveLength(1)
+    expect(renderer.queryByRole("button", { name: "Bring online" })).not.toBeInTheDocument()
+    const inlineActivate = renderer.getAllByRole("button", { name: "Activate" })
+      .find((element) => !element.hasAttribute("data-host"))!
+    expect(inlineActivate).toHaveClass("h-6", "shrink-0", "px-2", "text-xs")
+    fireEvent.click(inlineActivate)
+    expect(setBotActive).toHaveBeenCalledWith(inactiveBot, true)
+    fireEvent.click(inactiveSwitch)
+    expect(setBotActive).toHaveBeenCalledWith(inactiveBot, true)
+  })
+
+  it("toggles the focused menu action with the keyboard", async () => {
+    const setBotActive = vi.fn()
+    const item = bot({ isActive: false })
+    const renderer = render(renderBotMachineGroup(
+      group({ bots: [item] }),
+      controller({ setBotActive }),
+    ))
+    const activeSwitch = renderer.getByTestId(tid.botActive("b1"))
+    activeSwitch.focus()
+    expect(activeSwitch).toHaveFocus()
+    await setupUser().keyboard(" ")
+    expect(setBotActive).toHaveBeenCalledWith(item, true)
   })
 
   it("projects bot-owned fixed-scale heatmaps and machine-scoped quota once", () => {
@@ -352,6 +403,7 @@ describe("renderBotMachineGroup", () => {
       " Edit",
       " Reset",
       " Report a problem",
+      " Deactivate",
       " Delete",
     ])
     expect(items[3]).toHaveAttribute("data-testid", "bot-reset-session-item")
@@ -363,7 +415,7 @@ describe("renderBotMachineGroup", () => {
       .toEqual(["span", "span", "span", "span"])
     expect(items[1]!.querySelectorAll("activity-icon")).toHaveLength(1)
     expect(items[3]!.querySelectorAll("reset-icon")).toHaveLength(1)
-    expect(items[5]).toHaveAttribute("data-variant", "destructive")
+    expect(items[6]).toHaveAttribute("data-variant", "destructive")
     for (const item of items) fireEvent.click(item)
     expect(chatWithBot).toHaveBeenCalledWith(item)
     expect(openActivity).toHaveBeenCalledWith(item)

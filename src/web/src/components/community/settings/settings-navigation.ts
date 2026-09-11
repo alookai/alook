@@ -1,5 +1,5 @@
 export const SETTINGS_NAV_CLASS =
-  "col-start-1 row-start-2 flex min-w-0 items-center gap-1 px-2 thin-scrollbar sm:row-span-2 sm:row-start-1 sm:w-44 sm:flex-col sm:items-stretch sm:gap-2 sm:overflow-y-auto sm:p-4"
+  "col-start-1 row-start-2 flex min-w-0 items-center gap-1 px-2 thin-scrollbar sm:row-span-2 sm:row-start-1 sm:flex-col sm:items-stretch sm:gap-2 sm:overflow-y-auto sm:p-4"
 
 export const SETTINGS_TABS_LIST_CLASS =
   "h-11 min-w-0 flex-1 flex-row justify-start gap-1 overflow-hidden p-0 group-data-horizontal/tabs:h-11 sm:h-auto sm:w-full sm:flex-none sm:flex-col"
