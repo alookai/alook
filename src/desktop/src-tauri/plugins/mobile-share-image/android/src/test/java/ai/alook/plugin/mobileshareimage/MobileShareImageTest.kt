@@ -123,6 +123,87 @@ class MobileShareImageTest {
         assertFalse(File(directory, "blocked.tmp").exists())
     }
 
+    @Test
+    fun clipboardPublicationFailureDeletesOnlyTheNewBackingAndRejectsOnce() {
+        val directory = temporaryFolder.newFolder("clipboard-publication-failure")
+        val old = File(directory, "old.png").apply { writeText("old") }
+        val published = File(directory, "new.png").apply { writeText("new") }
+        var cleanupAttempts = 0
+        var deleteAttempts = 0
+        var resolveAttempts = 0
+        var rejectAttempts = 0
+        var releases = 0
+
+        commitMobileShareImageClipboard(
+            publish = { throw IllegalStateException("clipboard unavailable") },
+            cleanupAfterPublish = {
+                cleanupAttempts += 1
+                old.delete()
+            },
+            resolve = { resolveAttempts += 1 },
+            reject = {
+                rejectAttempts += 1
+                assertEquals("write_failed", it.code)
+            },
+            deleteUnpublished = {
+                deleteAttempts += 1
+                published.delete()
+            },
+            release = { releases += 1 },
+        )
+
+        assertTrue(old.exists())
+        assertFalse(published.exists())
+        assertEquals(0, cleanupAttempts)
+        assertEquals(1, deleteAttempts)
+        assertEquals(0, resolveAttempts)
+        assertEquals(1, rejectAttempts)
+        assertEquals(1, releases)
+    }
+
+    @Test
+    fun clipboardCommitCannotBeRolledBackByCleanupOrResponseFailure() {
+        for (failurePoint in listOf("cleanup", "resolve")) {
+            val directory = temporaryFolder.newFolder("clipboard-committed-$failurePoint")
+            val old = File(directory, "old.png").apply { writeText("old") }
+            val published = File(directory, "new.png").apply { writeText("new") }
+            val reported = mutableListOf<String>()
+            var clipboardPointsAtPublished = false
+            var deleteAttempts = 0
+            var resolveAttempts = 0
+            var rejectAttempts = 0
+            var releases = 0
+
+            commitMobileShareImageClipboard(
+                publish = { clipboardPointsAtPublished = true },
+                cleanupAfterPublish = {
+                    if (failurePoint == "cleanup") throw IllegalStateException("cleanup failed")
+                    old.delete()
+                },
+                resolve = {
+                    resolveAttempts += 1
+                    if (failurePoint == "resolve") throw IllegalStateException("resolve failed")
+                },
+                reject = { rejectAttempts += 1 },
+                deleteUnpublished = {
+                    deleteAttempts += 1
+                    published.delete()
+                },
+                release = { releases += 1 },
+                reportFailure = { reported += it.message.orEmpty() },
+            )
+
+            assertTrue("failure at $failurePoint", clipboardPointsAtPublished)
+            assertTrue("failure at $failurePoint", published.exists())
+            assertEquals("failure at $failurePoint", 0, deleteAttempts)
+            assertEquals("failure at $failurePoint", 1, resolveAttempts)
+            assertEquals("failure at $failurePoint", 0, rejectAttempts)
+            assertEquals("failure at $failurePoint", 1, releases)
+            assertEquals("failure at $failurePoint", listOf("$failurePoint failed"), reported)
+            assertEquals("failure at $failurePoint", failurePoint == "cleanup", old.exists())
+        }
+    }
+
     private fun assertFailure(code: String, block: () -> Unit) {
         val failure = assertThrows(MobileShareImageFailure::class.java, block)
         assertEquals(code, failure.code)

@@ -61,19 +61,33 @@ class MobileShareImagePlugin(private val activity: Activity) : Plugin(activity) 
                 )
                 val clip = ClipData.newUri(context.contentResolver, "Alook image", uri)
                 activity.runOnUiThread {
-                    try {
-                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                            ?: throw MobileShareImageFailure("unavailable", "Clipboard is unavailable")
-                        clipboard.setPrimaryClip(clip)
-                        MobileShareImage.cleanupClipboardAfterPublish(context, published)
-                        MobileShareImage.logNativeSettle(args.attemptId)
-                        MobileShareImage.resolveCopied(invoke, args.attemptId)
-                    } catch (error: Exception) {
-                        published.delete()
-                        reject(invoke, lease, asFailure(error, "Could not copy image"))
-                        return@runOnUiThread
-                    }
-                    lease.close()
+                    commitMobileShareImageClipboard(
+                        publish = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE)
+                                as? ClipboardManager
+                                ?: throw MobileShareImageFailure(
+                                    "unavailable",
+                                    "Clipboard is unavailable",
+                                )
+                            clipboard.setPrimaryClip(clip)
+                        },
+                        cleanupAfterPublish = {
+                            MobileShareImage.cleanupClipboardAfterPublish(context, published)
+                        },
+                        resolve = {
+                            MobileShareImage.logNativeSettle(args.attemptId)
+                            MobileShareImage.resolveCopied(invoke, args.attemptId)
+                        },
+                        reject = { failure -> MobileShareImage.reject(invoke, failure) },
+                        deleteUnpublished = { published.delete() },
+                        release = lease::close,
+                        reportFailure = {
+                            android.util.Log.w(
+                                "AlookMobileShareImage",
+                                "clipboard post-commit cleanup or response failed",
+                            )
+                        },
+                    )
                 }
             } catch (error: Exception) {
                 staged?.delete()

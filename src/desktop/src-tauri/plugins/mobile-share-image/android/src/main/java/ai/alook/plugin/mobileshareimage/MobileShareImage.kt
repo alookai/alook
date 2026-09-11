@@ -226,10 +226,10 @@ internal object MobileShareImage {
     }
 
     fun cleanupDocumentOrphans(context: Context) {
-        val live = MobileShareImageCoordinator.liveToken()
-        File(context.cacheDir, "mobile-share-image/document").listFiles()?.forEach { file ->
-            if (file.nameWithoutExtension != live) file.delete()
-        }
+        cleanupMobileShareImageDocumentOrphans(
+            File(context.cacheDir, "mobile-share-image/document"),
+            MobileShareImageCoordinator.liveToken(),
+        )
     }
 
     fun resolveSaved(invoke: Invoke, attemptId: String, destination: String) {

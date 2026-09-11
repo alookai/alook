@@ -373,6 +373,34 @@ mod tests {
     }
 
     #[test]
+    fn validated_payload_retains_every_native_dispatch_field() {
+        let encoded = STANDARD.encode(encode_png(1, 1));
+        let validated = validate_payload(MobileShareImagePayload {
+            attempt_id: ATTEMPT_ID.to_string(),
+            png_base64: encoded.clone(),
+            filename: Some("card".to_string()),
+        })
+        .unwrap();
+
+        assert_eq!(validated.attempt_id, ATTEMPT_ID);
+        assert_eq!(validated.png_base64, encoded);
+        assert_eq!(validated.filename, "card.png");
+    }
+
+    #[test]
+    fn native_result_retains_every_response_field() {
+        let result = MobileShareImageResult {
+            attempt_id: ATTEMPT_ID.to_string(),
+            status: "saved".to_string(),
+            destination: "photos".to_string(),
+        };
+
+        assert_eq!(result.attempt_id, ATTEMPT_ID);
+        assert_eq!(result.status, "saved");
+        assert_eq!(result.destination, "photos");
+    }
+
+    #[test]
     fn rejects_oversize_invalid_and_noncanonical_base64_before_native_dispatch() {
         let oversized = STANDARD.encode(vec![0; MAX_PNG_BYTES + 1]);
         assert_eq!(

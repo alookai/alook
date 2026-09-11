@@ -41,6 +41,15 @@ const androidImage = readPlugin(
 const androidDocumentOwner = readPlugin(
   "android/src/main/java/ai/alook/plugin/mobileshareimage/MobileShareImageDocumentOwner.kt",
 )
+const androidDocumentCore = readPlugin(
+  "android/src/main/java/ai/alook/plugin/mobileshareimage/MobileShareImageDocumentCoordinatorCore.kt",
+)
+const androidDocumentResultAdapter = readPlugin(
+  "android/src/main/java/ai/alook/plugin/mobileshareimage/MobileShareImageDocumentResultAdapter.kt",
+)
+const androidClipboardTransaction = readPlugin(
+  "android/src/main/java/ai/alook/plugin/mobileshareimage/MobileShareImageClipboardTransaction.kt",
+)
 const androidPlugin = readPlugin(
   "android/src/main/java/ai/alook/plugin/mobileshareimage/MobileShareImagePlugin.kt",
 )
@@ -137,10 +146,28 @@ describe("native mobile share-image contract", () => {
     expect(androidImage).toContain("MediaStore.QUERY_ARG_MATCH_PENDING")
     expect(androidDocumentOwner).toContain("Intent.ACTION_CREATE_DOCUMENT")
     expect(androidDocumentOwner).toContain("ActivityResultContracts.StartActivityForResult()")
-    expect(androidDocumentOwner).toContain("MobileShareImageDocumentPhase.WRITING")
-    expect(androidDocumentOwner).not.toContain("startActivityForResult")
-    expect(androidDocumentOwner).not.toContain("@ActivityCallback")
-    expect(androidDocumentOwner).not.toContain("contentResolver.delete")
+    expect(androidDocumentOwner).toContain("activity.activityResultRegistry.register(")
+    expect(androidDocumentOwner).toContain("deliver = { token, result ->")
+    expect(androidDocumentResultAdapter).toContain(
+      'private fun resultKey(token: String): String = "alook.mobileShareImage.document.$token"',
+    )
+    expect(androidDocumentResultAdapter).toContain("deliver(token, result)")
+    expect(androidDocumentCore).toContain("class MobileShareImageDocumentCoordinatorCore")
+    expect(androidDocumentCore).toContain("fun begin(")
+    expect(androidDocumentCore).toContain("fun deliver(")
+    expect(androidDocumentCore).toContain("MobileShareImageDocumentPhase.WRITING")
+    const documentSources = [
+      androidDocumentOwner,
+      androidDocumentResultAdapter,
+      androidDocumentCore,
+    ].join("\n")
+    expect(documentSources).not.toContain("startActivityForResult")
+    expect(documentSources).not.toContain("@ActivityCallback")
+    expect(documentSources).not.toContain("contentResolver.delete")
+    expect(androidPlugin).toContain("commitMobileShareImageClipboard(")
+    expect(androidClipboardTransaction.indexOf("publish()"))
+      .toBeLessThan(androidClipboardTransaction.indexOf("runCatching(cleanupAfterPublish)"))
+    expect(androidClipboardTransaction).not.toContain("deleteUnpublished()")
   })
 
   it("uses add-only PhotoKit and the iOS 14-compatible PNG resource property", () => {

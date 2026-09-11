@@ -2,6 +2,7 @@ mod commands;
 
 use tauri::Manager;
 
+#[cfg(any(mobile, test))]
 mod mobile_share_image;
 #[cfg(mobile)]
 mod mobile_share_image_runtime;
