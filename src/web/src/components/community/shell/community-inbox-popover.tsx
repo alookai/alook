@@ -1,14 +1,16 @@
-import { Bookmark, ChevronRight, Inbox, MoreHorizontal, Trash2 } from "lucide-react"
+import { Bookmark, Check, ChevronRight, Inbox, LoaderCircle, MoreHorizontal, Trash2, X } from "lucide-react"
 import { stripInlineMarkup } from "@alook/shared"
 import { EntityIcon } from "../entity-icon"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Button } from "@/components/ui/button"
 import { Avatar } from "../avatar"
 import { ChannelIcon } from "../channels/channel-icon"
 import { EmptyState } from "../empty-state"
 import { formatRelativeTime } from "@/lib/community/format-time"
-import type { Marked, Mention, UnreadDm, UnreadServer } from "@/lib/community/models/inbox"
+import type { InboxFriendRequest, Marked, Mention, UnreadDm, UnreadServer } from "@/lib/community/models/inbox"
+import type { ActionableFriendRequest } from "@/hooks/community/use-friend-request-action-state"
 import {
   inboxChannelRowTarget,
   inboxDmRowTarget,
@@ -116,10 +118,15 @@ function MentionBadge({ count }: { count: number }) {
   )
 }
 
-function UnreadsTab({ servers, dms, loading, onOpenChannel, onOpenThread, onOpenDm, isProjected, profilesByUserId, getScrollOffset, onScrollOffsetChange }: {
+function UnreadsTab({ friendRequests, servers, dms, loading, onOpenFriendRequests, onAcceptFriendRequest, onRejectFriendRequest, onRetryFriendRequest, onOpenChannel, onOpenThread, onOpenDm, isProjected, profilesByUserId, getScrollOffset, onScrollOffsetChange }: {
+  friendRequests: Array<ActionableFriendRequest<InboxFriendRequest>>
   servers: UnreadServer[]
   dms: UnreadDm[]
   loading?: boolean
+  onOpenFriendRequests?: () => void
+  onAcceptFriendRequest?: (request: ActionableFriendRequest<InboxFriendRequest>) => void
+  onRejectFriendRequest?: (request: ActionableFriendRequest<InboxFriendRequest>) => void
+  onRetryFriendRequest?: (request: ActionableFriendRequest<InboxFriendRequest>) => void
   onOpenChannel?: (
     server: UnreadServer,
     channel: UnreadChannel,
@@ -146,11 +153,82 @@ function UnreadsTab({ servers, dms, loading, onOpenChannel, onOpenThread, onOpen
       }
     }).filter((group) => group.directVisible || group.children.length > 0),
   })).filter((group) => group.channels.length > 0)
-  const nothingUnread = visibleServers.length === 0 && visibleDms.length === 0
+  const nothingUnread = friendRequests.length === 0 && visibleServers.length === 0 && visibleDms.length === 0
   return (
     <InboxScrollBody tab="unreads" getScrollOffset={getScrollOffset} onScrollOffsetChange={onScrollOffsetChange}>
       {loading && nothingUnread && <InboxUnreadsSkeleton />}
       {!loading && nothingUnread && <EmptyState icon={Inbox} label="Caught up" />}
+      {friendRequests.length > 0 && (
+        <div className="mb-3">
+          <div className="px-2 pb-1 text-xs font-semibold text-muted-foreground">
+            Friend requests — {friendRequests.length}
+          </div>
+          {friendRequests.map((item) => {
+            const request = item.row
+            const profile = readCommunityProfile(
+              profilesByUserId.get(request.userId),
+              request.userId,
+            )
+            const pending = item.status === "pending"
+            return (
+              <div
+                key={request.id}
+                data-testid={tid.inboxFriendRequest(request.id)}
+                aria-busy={pending || undefined}
+                className="rounded-md px-2 py-2 hover:bg-accent"
+              >
+                <div className="flex items-center gap-2">
+                  <button
+                    data-testid={tid.inboxFriendRequestOpen(request.id)}
+                    onClick={onOpenFriendRequests}
+                    className="flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-md text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-h-0"
+                  >
+                    <Avatar label={profile.avatar} seed={request.userId} size={28} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-medium">{profile.name}</span>
+                      <span className="block truncate text-xs text-muted-foreground">sent you a friend request</span>
+                    </span>
+                  </button>
+                  <div className="flex shrink-0 gap-1">
+                    <Button
+                      data-testid={tid.inboxFriendRequestAccept(request.id)}
+                      variant="secondary"
+                      size="icon"
+                      disabled={pending}
+                      onClick={() => onAcceptFriendRequest?.(item)}
+                      aria-label={`Accept ${profile.name}'s friend request`}
+                      className="size-11 rounded-full text-status-online sm:size-8"
+                    >
+                      {pending && item.action === "accept"
+                        ? <LoaderCircle className="size-4 animate-spin" />
+                        : <Check className="size-4" />}
+                    </Button>
+                    <Button
+                      data-testid={tid.inboxFriendRequestReject(request.id)}
+                      variant="secondary"
+                      size="icon"
+                      disabled={pending}
+                      onClick={() => onRejectFriendRequest?.(item)}
+                      aria-label={`Reject ${profile.name}'s friend request`}
+                      className="size-11 rounded-full text-destructive sm:size-8"
+                    >
+                      {pending && item.action === "reject"
+                        ? <LoaderCircle className="size-4 animate-spin" />
+                        : <X className="size-4" />}
+                    </Button>
+                  </div>
+                </div>
+                {item.error && (
+                  <div role="status" aria-live="polite" className="mt-1 flex items-center justify-end gap-2 text-xs text-destructive">
+                    <span>{item.error}</span>
+                    <button className="min-h-11 min-w-11 font-medium underline sm:min-h-0 sm:min-w-0" onClick={() => onRetryFriendRequest?.(item)}>Retry</button>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
       {visibleDms.length > 0 && (
         <div className="mb-3">
           <div className="px-2 pb-1 text-xs font-semibold text-muted-foreground">Direct Messages</div>
@@ -323,6 +401,7 @@ function MarkedTab({ marked, loading, onOpenMarked, onUnmark, profilesByUserId, 
 }
 
 export function InboxPopover({
+  friendRequests = [],
   unreads,
   unreadDms,
   mentions,
@@ -331,6 +410,11 @@ export function InboxPopover({
   loading,
   hasProjectedUnreads,
   hasProjectedMentions,
+  hasOutstandingFriendRequest = friendRequests.length > 0,
+  onOpenFriendRequests,
+  onAcceptFriendRequest,
+  onRejectFriendRequest,
+  onRetryFriendRequest,
   onOpenChannel,
   onOpenThread,
   onOpenForumThread,
@@ -348,6 +432,7 @@ export function InboxPopover({
   onScrollOffsetChange,
   surface = "desktop",
 }: {
+  friendRequests?: Array<ActionableFriendRequest<InboxFriendRequest>>
   unreads: UnreadServer[]
   unreadDms: UnreadDm[]
   mentions: Mention[]
@@ -356,6 +441,11 @@ export function InboxPopover({
   loading?: boolean
   hasProjectedUnreads: boolean
   hasProjectedMentions: boolean
+  hasOutstandingFriendRequest?: boolean
+  onOpenFriendRequests?: () => void
+  onAcceptFriendRequest?: (request: ActionableFriendRequest<InboxFriendRequest>) => void
+  onRejectFriendRequest?: (request: ActionableFriendRequest<InboxFriendRequest>) => void
+  onRetryFriendRequest?: (request: ActionableFriendRequest<InboxFriendRequest>) => void
   onOpenChannel?: (
     server: UnreadServer,
     channel: UnreadChannel,
@@ -388,12 +478,12 @@ export function InboxPopover({
   const hasUnreads = hasProjectedUnreads
   const hasMentions = hasProjectedMentions
   const showUnreadDot = selectUnreadPresentation({
-    accountUnread: hasUnreads,
+    accountUnread: hasUnreads || hasOutstandingFriendRequest,
   }).showDot
   const showMentionDot = selectUnreadPresentation({
     accountUnread: hasMentions,
   }).showDot
-  const hasAnything = hasUnreads || hasMentions
+  const hasMessageUnread = hasUnreads || hasMentions
   return (
     <Tabs
       defaultValue="unreads"
@@ -411,7 +501,7 @@ export function InboxPopover({
         {onMarkAllRead && (
           <button
             onClick={onMarkAllRead}
-            disabled={!hasAnything}
+            disabled={!hasMessageUnread}
             className="text-xs text-primary hover:underline disabled:cursor-not-allowed disabled:text-muted-foreground disabled:no-underline"
           >
             Mark all read
@@ -435,9 +525,14 @@ export function InboxPopover({
       </TabsList>
       <TabsContent value="unreads" className="min-h-0 flex-1">
         <UnreadsTab
+          friendRequests={friendRequests}
           servers={unreads}
           dms={unreadDms}
           loading={loading}
+          onOpenFriendRequests={onOpenFriendRequests}
+          onAcceptFriendRequest={onAcceptFriendRequest}
+          onRejectFriendRequest={onRejectFriendRequest}
+          onRetryFriendRequest={onRetryFriendRequest}
           onOpenChannel={onOpenChannel}
           onOpenThread={onOpenThread ?? onOpenForumThread ?? (() => {})}
           onOpenDm={onOpenDm}

@@ -93,3 +93,12 @@ export type UnreadDm = {
   lastMessageAt: string
   lastUnreadSeq?: number
 }
+
+export type InboxFriendRequest = {
+  id: string
+  userId: string
+  name: string
+  avatar: string
+  avatarVersion: number | null
+  createdAt: string
+}

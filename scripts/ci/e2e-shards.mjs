@@ -77,6 +77,7 @@ export const SPEC_SECONDS = {
   "54-authenticated-context-menu-policy.spec.ts": 13.721,
   "54-blog-multizone.spec.ts": 5.485,
   "55-message-scroll-characterization.spec.ts": 109.548,
+  "56-inbox-friend-requests.spec.ts": 60,
   "56-remote-image-state-contract.spec.ts": 3.122,
   "57-server-delete-navigation-races.spec.ts": 55,
 }

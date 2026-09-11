@@ -15,6 +15,8 @@ import { useCommunityStore, useCurrentChannelId } from "@/stores/community"
 import { useDms } from "@/hooks/community/use-dms"
 import { useDmRouteVerification } from "@/hooks/community/use-dm-route-verification"
 import { useFriends, useFriendsPresence } from "@/hooks/community/use-friends"
+import { actionableIncomingRequests } from "@/lib/community/friend-requests"
+import { useFriendRequestActionState } from "@/hooks/community/use-friend-request-action-state"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 import { useCurrentUser } from "@/contexts/community/current-user"
@@ -67,7 +69,15 @@ export default function MeLayout({ children }: { children: ReactNode }) {
       }),
     [profilesByUserId, rawDms],
   )
-  const { blocked } = useFriends()
+  const { blocked, pending } = useFriends()
+  const incomingFriendRequests = useMemo(
+    () => actionableIncomingRequests(pending),
+    [pending],
+  )
+  const friendRequestCount = useFriendRequestActionState({
+    rows: incomingFriendRequests,
+    surface: "friends",
+  }).items.length
   const currentChannelId = useCurrentChannelId()
   const cancelPendingNavigation = useCallback(() => {
     useCommunityStore.getState().uiHandlers.cancelPendingNavigation?.()
@@ -149,6 +159,7 @@ export default function MeLayout({ children }: { children: ReactNode }) {
       onPickDm={enterDm}
       onPrefetchDm={prefetchDm}
       onShowFriends={onShowFriends}
+      friendRequestCount={friendRequestCount}
       onPrefetchFriends={prefetchFriends}
       onShowMachines={onShowMachines}
       onPrefetchMachines={prefetchMachines}
@@ -158,7 +169,7 @@ export default function MeLayout({ children }: { children: ReactNode }) {
       machinesActive={machinesActive}
       botsActive={botsActive}
     />
-  ), [dms, currentChannelId, dmsLoading, blockedUserIds, enterDm, prefetchDm, onShowFriends, prefetchFriends, onShowMachines, prefetchMachines, onShowBots, prefetchBots, friendsActive, machinesActive, botsActive])
+  ), [dms, currentChannelId, dmsLoading, blockedUserIds, enterDm, prefetchDm, onShowFriends, friendRequestCount, prefetchFriends, onShowMachines, prefetchMachines, onShowBots, prefetchBots, friendsActive, machinesActive, botsActive])
 
   return (
     <ShellFrame

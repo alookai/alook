@@ -12,6 +12,7 @@ import type {
 import type { SocialEventContext } from "@/hooks/community/community-ws/handler-context"
 import {
   invalidateFriends,
+  invalidateInboxUnreads,
   invalidateServersList,
 } from "./invalidation-projections"
 import {
@@ -21,6 +22,8 @@ import {
 import { getAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 import { removeDmReactionDetails } from "./reaction-details-invalidation"
 import { reconcileNotificationSettings } from "@/hooks/community/use-notification-settings"
+import { getFriendRequestActionController } from "@/hooks/community/use-friend-request-action-state"
+import { communityKeys } from "@/lib/query-keys"
 
 export function handleReadStateAdvanced(
   event: CommunityReadStateAdvanced,
@@ -102,7 +105,27 @@ export function handleFriendEvent(
   event: FriendEvent,
   { projection, queryClient }: SocialEventContext,
 ) {
-  invalidateFriends(projection)
+  if (event.type === "community:friend.request") {
+    invalidateFriends(projection)
+    invalidateInboxUnreads(projection)
+  } else {
+    projection.project(() => {
+      const controller = getFriendRequestActionController(queryClient)
+      if (event.type === "community:friend.block") {
+        controller.publishTerminalForUser(event.userId)
+      } else {
+        controller.publishTerminal(event.friendshipId)
+      }
+    })
+    projection.fence("friends", {
+      queryKey: communityKeys.friends(),
+      exact: true,
+    })
+    projection.fence("inbox-unreads", {
+      queryKey: communityKeys.inboxUnreads(),
+      exact: true,
+    })
+  }
   if (event.type === "community:friend.block") removeDmReactionDetails(queryClient)
 }
 

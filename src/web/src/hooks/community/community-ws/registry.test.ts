@@ -114,6 +114,16 @@ describe("community WebSocket registry", () => {
   })
 
   it.each([
+    "community:friend.request",
+    "community:friend.accept",
+    "community:friend.reject",
+    "community:friend.remove",
+    "community:friend.block",
+  ] as const)("assigns %s to Friends and Inbox reconnect reconciliation", (type) => {
+    expect(communityWsRegistry[type].reconnectPolicies).toEqual(["friends", "inbox-dms"])
+  })
+
+  it.each([
     ["community:message.create", "handleMessageCreate"],
     ["community:typing.start", "handleTypingStart"],
     ["community:server.update", "handleServerUpdate"],

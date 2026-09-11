@@ -3,6 +3,7 @@ import { act, render as rtlRender } from "@/test/react-dom-harness"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
+import { useCommunityWsStore } from "@/stores/community/ws"
 import {
   disposeInboxReadReservation,
   inboxChannelRowTarget,
@@ -20,6 +21,80 @@ beforeEach(() => {
 })
 
 describe("useInboxUnreads / inboxUnreadsQueryFn", () => {
+  it("passes friend requests through, seeds their profile, and exposes the outstanding boolean", async () => {
+    useCommunityWsStore.getState().reset()
+    useCommunityWsStore.getState().activateProfileAccount("viewer")
+    apiFetchMock.mockResolvedValueOnce({
+      friendRequests: [{
+        id: "fr_1",
+        userId: "requester",
+        name: "Ada",
+        avatar: "avatar-url",
+        avatarVersion: 7,
+        createdAt: "2026-09-12T01:00:00Z",
+      }],
+      servers: [],
+      dms: [],
+      truncated: false,
+    })
+    const { useInboxUnreads } = await import("./use-inbox")
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    let latest: ReturnType<typeof useInboxUnreads> | undefined
+    function Harness() {
+      latest = useInboxUnreads()
+      return null
+    }
+    const renderer = rtlRender(React.createElement(
+      QueryClientProvider,
+      { client: qc },
+      React.createElement(Harness),
+    ))
+
+    await vi.waitFor(() => expect(latest?.friendRequests).toHaveLength(1))
+    expect(latest?.hasOutstandingFriendRequest).toBe(true)
+    expect(useCommunityWsStore.getState().profilesByUserId.get("requester")).toMatchObject({
+      name: "Ada",
+      avatar: "avatar-url",
+      avatarVersion: 7,
+    })
+    expect(latest?.hasProjectedUnread).toBe(false)
+    await act(async () => renderer.unmount())
+  })
+
+  it("keeps last-good friend requests and their boolean after a stale refetch", async () => {
+    const request = {
+      id: "fr_1",
+      userId: "requester",
+      name: "Ada",
+      avatar: "A",
+      avatarVersion: 1,
+      createdAt: "2026-09-12T01:00:00Z",
+    }
+    apiFetchMock
+      .mockResolvedValueOnce({ friendRequests: [request], servers: [], dms: [], truncated: false })
+      .mockResolvedValueOnce({ friendRequests: [], servers: [], dms: [], truncated: false, stale: true })
+    const { useInboxUnreads } = await import("./use-inbox")
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    let latest: ReturnType<typeof useInboxUnreads> | undefined
+    function Harness() {
+      latest = useInboxUnreads()
+      return null
+    }
+    const renderer = rtlRender(React.createElement(
+      QueryClientProvider,
+      { client: qc },
+      React.createElement(Harness),
+    ))
+    await vi.waitFor(() => expect(latest?.friendRequests).toEqual([request]))
+    await qc.invalidateQueries({ queryKey: communityKeys.inboxUnreads(), exact: true })
+    await vi.waitFor(() => expect(latest?.isError).toBe(true))
+
+    expect(latest?.friendRequests).toEqual([request])
+    expect(latest?.hasOutstandingFriendRequest).toBe(true)
+    expect(latest?.hasProjectedUnread).toBe(false)
+    await act(async () => renderer.unmount())
+  })
+
   it("supports direct reads without a query context", async () => {
     apiFetchMock.mockResolvedValueOnce({ servers: [], dms: [] })
     const { inboxUnreadsQueryFn } = await import("./use-inbox")

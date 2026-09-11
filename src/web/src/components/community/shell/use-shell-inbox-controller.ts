@@ -18,9 +18,12 @@ import {
 } from "@/hooks/community/inbox-read-reservation"
 import {
   useMarkAllInboxRead,
+  useAcceptFriendRequest,
+  useRejectFriendRequest,
   useDeleteMention,
   useUnmarkMessage,
 } from "@/hooks/community/mutations"
+import { useFriendRequestActionState } from "@/hooks/community/use-friend-request-action-state"
 import type { InboxPopover } from "./community-inbox-popover"
 import type { InboxTab } from "./community-inbox-popover"
 import type { QueryClient } from "@tanstack/react-query"
@@ -78,6 +81,8 @@ export function useShellInboxController({
   const { mutate: unmarkMessageMutate } = useUnmarkMessage()
   const markAllInboxRead = useMarkAllInboxRead()
   const deleteMention = useDeleteMention()
+  const acceptFriendRequest = useAcceptFriendRequest()
+  const rejectFriendRequest = useRejectFriendRequest()
   const inbox = useInboxAutoCollapse({
     queryClient,
     publishedHref,
@@ -94,6 +99,20 @@ export function useShellInboxController({
   const setScrollOffset = useCallback((tab: InboxTab, scrollTop: number) => {
     scrollOffsetsRef.current[tab] = scrollTop
   }, [])
+  const acceptRequest = useCallback(
+    (friendshipId: string) => acceptFriendRequest.mutateAsync({ friendshipId }),
+    [acceptFriendRequest],
+  )
+  const rejectRequest = useCallback(
+    (friendshipId: string) => rejectFriendRequest.mutateAsync({ friendshipId }),
+    [rejectFriendRequest],
+  )
+  const friendRequestActions = useFriendRequestActionState({
+    rows: inboxUnreads.friendRequests,
+    onAccept: acceptRequest,
+    onReject: rejectRequest,
+    surface: "inbox",
+  })
 
   const pushProjected = useCallback((
     target: InboxRowTarget,
@@ -257,7 +276,20 @@ export function useShellInboxController({
     })
   }, [pushProjected])
 
+  const openFriendRequests = useCallback(() => {
+    const previousOpen = inbox.closeWithoutProjection()
+    cancelPendingNavigation()
+    try {
+      pushInboxHref("/c/me/friends?tab=new")
+    } catch (error) {
+      cancelPendingNavigation()
+      inbox.onOpenChange(previousOpen)
+      throw error
+    }
+  }, [cancelPendingNavigation, inbox, pushInboxHref])
+
   const popoverProps: ComponentProps<typeof InboxPopover> = {
+    friendRequests: friendRequestActions.items,
     unreads: unreadFeed,
     unreadDms,
     mentions,
@@ -271,6 +303,10 @@ export function useShellInboxController({
     onOpenDm: openDm,
     onOpenMention: openMention,
     onOpenMarked: openMarked,
+    onOpenFriendRequests: openFriendRequests,
+    onAcceptFriendRequest: (item) => { void friendRequestActions.act(item, "accept") },
+    onRejectFriendRequest: (item) => { void friendRequestActions.act(item, "reject") },
+    onRetryFriendRequest: (item) => { void friendRequestActions.retry(item) },
     activeTab,
     onActiveTabChange: changeActiveTab,
     onMarkedTabSelected: () => setMarkedTabOpened(true),
@@ -285,7 +321,9 @@ export function useShellInboxController({
   return {
     popoverProps,
     hasUnread:
-      inboxUnreads.hasProjectedUnread || inboxMentions.hasProjectedMention,
+      inboxUnreads.hasProjectedUnread
+      || inboxMentions.hasProjectedMention
+      || friendRequestActions.items.length > 0,
     open: inbox.open,
     onOpenChange: inbox.onOpenChange,
   }

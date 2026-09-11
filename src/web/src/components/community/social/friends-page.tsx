@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from "react"
 import type React from "react"
-import { Users, MessagesSquare, ChevronLeft, Check, X, AtSign, UserMinus, Ban, UserPlus, Search } from "lucide-react"
+import { Users, MessagesSquare, ChevronLeft, Check, LoaderCircle, X, AtSign, UserMinus, Ban, UserPlus, Search } from "lucide-react"
 import { toastApiError } from "@/lib/api/client"
 import { apiFetchProfiles } from "@/lib/community/profile-seed"
 import { Button } from "@/components/ui/button"
@@ -19,6 +19,9 @@ import type { OpenProfile } from "@/components/community/social/profile-types"
 import { isSelfBotFriendship, isPresenceOffline, MIN_SEARCH_LENGTH } from "@alook/shared"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { readCommunityProfile } from "@/lib/community/profile-read"
+import { actionableIncomingRequests, compactRequestCount } from "@/lib/community/friend-requests"
+import { useFriendRequestActionState } from "@/hooks/community/use-friend-request-action-state"
+import { tid } from "@/lib/community/testids"
 
 function FriendSection({ title, count, emptyLabel, children }: {
   title: string
@@ -37,6 +40,7 @@ function FriendSection({ title, count, emptyLabel, children }: {
 // Friends page (@me, no DM selected) — All (friends + blocked) / New (add friend + pending).
 export function FriendsPage({
   friends, pending, blocked, loading, onBack, reserveBackSlot = false,
+  activeTab, onActiveTabChange, onOpenProfile,
   onAccept, onReject, onCancelRequest, onUnblock, onSendRequest, onRemoveFriend, onBlock, onDm,
 }: {
   friends: Friend[]
@@ -46,8 +50,10 @@ export function FriendsPage({
   onBack?: () => void
   reserveBackSlot?: boolean
   onOpenProfile?: OpenProfile
-  onAccept?: (id: string) => void
-  onReject?: (id: string) => void
+  activeTab?: "all" | "new"
+  onActiveTabChange?: (tab: "all" | "new") => void
+  onAccept?: (id: string) => Promise<unknown>
+  onReject?: (id: string) => Promise<unknown>
   onCancelRequest?: (req: { id: string }) => void
   onUnblock?: (id: string) => void
   onSendRequest?: (target: { userId: string; username: string }) => void
@@ -83,8 +89,15 @@ export function FriendsPage({
     return m
   }, [friends, pending, blocked])
 
-  const incoming = useMemo(() => pending.filter((p) => p.kind === "incoming"), [pending])
+  const incoming = useMemo(() => actionableIncomingRequests(pending), [pending])
   const outgoing = useMemo(() => pending.filter((p) => p.kind === "outgoing"), [pending])
+  const incomingActions = useFriendRequestActionState({
+    rows: incoming,
+    onAccept,
+    onReject,
+    surface: "friends",
+  })
+  const incomingCount = compactRequestCount(incomingActions.items.length)
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
@@ -206,14 +219,31 @@ export function FriendsPage({
   }
 
   return (
-    <Tabs defaultValue="all" className="min-h-0 flex-1">
+    <Tabs
+      defaultValue="all"
+      value={activeTab}
+      onValueChange={(value) => onActiveTabChange?.(value as "all" | "new")}
+      className="min-h-0 flex-1"
+    >
       <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-4">
         {onBack && (
           <Button variant="ghost" size="icon-sm" onClick={onBack} className="text-muted-foreground hover:text-foreground" aria-label="Back"><ChevronLeft className="size-5" /></Button>
         )}
         <TabsList variant="line">
           <TabsTrigger value="all">All</TabsTrigger>
-          <TabsTrigger value="new">New</TabsTrigger>
+          <TabsTrigger value="new">
+            <span className="inline-flex items-center gap-1.5">
+              New
+              {incomingCount && (
+                <span
+                  data-testid={tid.friendsNewBadge}
+                  className="grid h-5 min-w-5 place-items-center rounded-full bg-primary px-1 text-xs font-semibold text-primary-foreground"
+                >
+                  {incomingCount}
+                </span>
+              )}
+            </span>
+          </TabsTrigger>
         </TabsList>
       </header>
 
@@ -320,26 +350,51 @@ export function FriendsPage({
             </div>
           ) : (
             <>
-              {incoming.length > 0 && (
+              {incomingActions.items.length > 0 && (
                 <div>
-                  <div className="mb-2 text-xs font-semibold text-muted-foreground">Incoming — {incoming.length}</div>
+                  <div className="mb-2 text-xs font-semibold text-muted-foreground">Incoming — {incomingActions.items.length}</div>
                   <div className="flex flex-col gap-1">
-                    {incoming.map((p) => (
-                      <div key={p.id} className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-accent">
-                        <Avatar label={p.avatar} seed={p.userId} size={32} />
-                        <div className="min-w-0 flex-1 truncate text-sm font-medium">{p.name}</div>
-                        <div className="flex gap-2">
-                          <Button variant="secondary" size="icon-sm" onClick={() => onAccept?.(p.id)} className="rounded-full text-status-online" aria-label="Accept"><Check className="size-4" /></Button>
-                          <Button variant="secondary" size="icon-sm" onClick={() => onReject?.(p.id)} className="rounded-full text-destructive" aria-label="Reject"><X className="size-4" /></Button>
+                    {incomingActions.items.map((item) => {
+                      const p = item.row
+                      const actionPending = item.status === "pending"
+                      return (
+                      <div
+                        key={p.id}
+                        aria-busy={actionPending || undefined}
+                        className="rounded-md px-2 py-2 hover:bg-accent"
+                      >
+                        <div className="flex items-center gap-3">
+                          <button
+                            className="flex min-h-11 min-w-0 flex-1 items-center gap-3 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-h-0"
+                            onClick={(event) => onOpenProfile?.(p.name, event, undefined, p.userId)}
+                          >
+                            <Avatar label={p.avatar} seed={p.userId} size={32} />
+                            <span className="min-w-0 flex-1 truncate text-sm font-medium">{p.name}</span>
+                          </button>
+                          <div className="flex gap-2">
+                            <Button variant="secondary" size="icon" disabled={actionPending} onClick={() => { void incomingActions.act(item, "accept") }} className="size-11 rounded-full text-status-online sm:size-8" aria-label={`Accept ${p.name}'s friend request`}>
+                              {actionPending && item.action === "accept" ? <LoaderCircle className="size-4 animate-spin" /> : <Check className="size-4" />}
+                            </Button>
+                            <Button variant="secondary" size="icon" disabled={actionPending} onClick={() => { void incomingActions.act(item, "reject") }} className="size-11 rounded-full text-destructive sm:size-8" aria-label={`Reject ${p.name}'s friend request`}>
+                              {actionPending && item.action === "reject" ? <LoaderCircle className="size-4 animate-spin" /> : <X className="size-4" />}
+                            </Button>
+                          </div>
                         </div>
+                        {item.error && (
+                          <div role="status" aria-live="polite" className="mt-1 flex items-center justify-end gap-2 text-xs text-destructive">
+                            <span>{item.error}</span>
+                            <button className="min-h-11 min-w-11 font-medium underline sm:min-h-0 sm:min-w-0" onClick={() => { void incomingActions.retry(item) }}>Retry</button>
+                          </div>
+                        )}
                       </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 </div>
               )}
 
               {outgoing.length > 0 && (
-                <div className={incoming.length > 0 ? "mt-8" : ""}>
+                <div className={incomingActions.items.length > 0 ? "mt-8" : ""}>
                   <div className="mb-2 text-xs font-semibold text-muted-foreground">Outgoing — {outgoing.length}</div>
                   <div className="flex flex-col gap-1">
                     {outgoing.map((p) => (

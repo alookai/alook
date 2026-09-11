@@ -5,7 +5,7 @@ import { useQuery, useQueryClient, keepPreviousData, type UseQueryResult } from 
 import { apiFetch } from "@/lib/api/client"
 import { apiFetchProfiles, messageProfilePatches } from "@/lib/community/profile-seed"
 import { communityKeys } from "@/lib/query-keys"
-import type { UnreadServer, UnreadDm, Mention, Marked } from "@/lib/community/models/inbox"
+import type { UnreadServer, UnreadDm, InboxFriendRequest, Mention, Marked } from "@/lib/community/models/inbox"
 import {
   inboxMentionRowTarget,
   reserveInboxUnreadsResponse,
@@ -33,6 +33,7 @@ function throwIfStale<T extends { stale?: boolean }>(v: T): T {
 // Frozen empty fallbacks — see `use-servers.ts` for the rationale.
 const EMPTY_UNREADS: readonly UnreadServer[] = Object.freeze([])
 const EMPTY_DMS: readonly UnreadDm[] = Object.freeze([])
+const EMPTY_FRIEND_REQUESTS: readonly InboxFriendRequest[] = Object.freeze([])
 const EMPTY_MENTIONS: readonly Mention[] = Object.freeze([])
 const EMPTY_MARKED: readonly Marked[] = Object.freeze([])
 
@@ -67,6 +68,7 @@ type ProjectedMention = Mention & {
  */
 
 export type UnreadsResponse = {
+  friendRequests: InboxFriendRequest[]
   servers: ProjectedUnreadServer[]
   dms: UnreadDm[]
   limit?: number
@@ -77,17 +79,29 @@ const inboxUnreadsTransportFn = ({ signal }: { signal?: AbortSignal } = {}) =>
   apiFetchProfiles<UnreadsResponse & { stale?: boolean }>(
     "/api/community/users/me/inbox/unreads",
     (data) => {
-      return data.dms.map((dm) => ({
-        id: dm.otherUserId,
-        identityAbout: {
-          name: dm.otherUserName,
-          discriminator: dm.otherUserDiscriminator,
-        },
-        avatar: {
-          avatar: dm.otherUserAvatar,
-          avatarVersion: dm.otherUserAvatarVersion,
-        },
-      }))
+      return [
+        ...(data.friendRequests ?? []).map((request) => ({
+          id: request.userId,
+          identityAbout: { name: request.name },
+          ...(request.avatarVersion === null ? {} : {
+            avatar: {
+              avatar: request.avatar,
+              avatarVersion: request.avatarVersion,
+            },
+          }),
+        })),
+        ...data.dms.map((dm) => ({
+          id: dm.otherUserId,
+          identityAbout: {
+            name: dm.otherUserName,
+            discriminator: dm.otherUserDiscriminator,
+          },
+          avatar: {
+            avatar: dm.otherUserAvatar,
+            avatarVersion: dm.otherUserAvatarVersion,
+          },
+        })),
+      ]
     },
     { signal },
   )
@@ -173,9 +187,11 @@ export const inboxUnreadsProjectedQueryFn = (
 }
 
 export function useInboxUnreads(): UseQueryResult<UnreadsResponse> & {
+  friendRequests: InboxFriendRequest[]
   servers: UnreadServer[]
   dms: UnreadDm[]
   hasProjectedUnread: boolean
+  hasOutstandingFriendRequest: boolean
 } {
   const queryClient = useQueryClient()
   const unreadProjection = useMemo(
@@ -298,6 +314,7 @@ export function useInboxUnreads(): UseQueryResult<UnreadsResponse> & {
   }, [channelExclusion, dmExclusion, query.data, unreadProjection, unreadVersion])
   return {
     ...query,
+    friendRequests: query.data?.friendRequests ?? (EMPTY_FRIEND_REQUESTS as InboxFriendRequest[]),
     servers: projected.servers ?? (EMPTY_UNREADS as UnreadServer[]),
     dms: projected.dms ?? (EMPTY_DMS as UnreadDm[]),
     hasProjectedUnread:
@@ -305,6 +322,7 @@ export function useInboxUnreads(): UseQueryResult<UnreadsResponse> & {
       || projected.dms.length > 0
       || unreadProjection.hasPending("inbox-unreads", "channels", channelExclusion)
       || unreadProjection.hasPending("inbox-unreads", "dms", dmExclusion),
+    hasOutstandingFriendRequest: (query.data?.friendRequests?.length ?? 0) > 0,
   }
 }
 

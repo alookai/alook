@@ -1,17 +1,26 @@
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { describe, expect, it, vi } from "vitest"
 import { FriendsPage } from "./friends-page"
 
+function renderFriendsPage(props: Parameters<typeof FriendsPage>[0]) {
+  return renderToStaticMarkup(createElement(
+    QueryClientProvider,
+    { client: new QueryClient() },
+    createElement(FriendsPage, props),
+  ))
+}
+
 describe("FriendsPage loading header", () => {
   it("keeps Back geometry inert until the real page is loaded", () => {
-    const html = renderToStaticMarkup(createElement(FriendsPage, {
+    const html = renderFriendsPage({
       friends: [],
       pending: [],
       blocked: [],
       loading: true,
       onBack: vi.fn(),
-    }))
+    })
 
     expect(html).toContain('data-slot="loading-back-placeholder"')
     expect(html).not.toContain("<button")
@@ -20,7 +29,7 @@ describe("FriendsPage loading header", () => {
   })
 
   it("keeps the real Back control during a warm-data refresh", () => {
-    const html = renderToStaticMarkup(createElement(FriendsPage, {
+    const html = renderFriendsPage({
       friends: [{
         id: "friend_1",
         userId: "user_1",
@@ -33,7 +42,7 @@ describe("FriendsPage loading header", () => {
       blocked: [],
       loading: true,
       onBack: vi.fn(),
-    }))
+    })
 
     expect(html).toContain('aria-label="Back"')
   })

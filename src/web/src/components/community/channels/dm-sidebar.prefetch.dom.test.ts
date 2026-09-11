@@ -5,6 +5,26 @@ import { fireEvent, render } from "@/test/react-dom-harness"
 import { DmSidebar, DmSidebarSkeleton } from "./dm-sidebar"
 
 describe("DmSidebar navigation intent", () => {
+  it.each([
+    [0, null],
+    [1, "1"],
+    [99, "99"],
+    [100, "99+"],
+  ] as const)("renders the Friends request badge for %i as %s", (count, label) => {
+    const renderer = render(createElement(DmSidebar, {
+      dms: [],
+      activeDm: null,
+      friendRequestCount: count,
+      onPickDm: vi.fn(),
+      onShowFriends: vi.fn(),
+    }))
+    const badge = renderer.queryByTestId(tid.friendsShortcutBadge)
+    if (label === null) expect(badge).toBeNull()
+    else expect(badge).toHaveTextContent(label)
+    expect(renderer.getByRole("button", { name: count ? `Friends, ${count} new requests` : "Friends" }))
+      .toBeInTheDocument()
+  })
+
   it("keeps the pending DM sidebar inert and accessible", () => {
     const renderer = render(createElement(DmSidebarSkeleton))
     const aside = renderer.getByTestId(tid.dmSidebarPending)

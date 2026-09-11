@@ -1,4 +1,5 @@
 import { createElement } from "react"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { act, render as rtlRender } from "@/test/react-dom-harness"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { DmCache } from "@/lib/community/dm-cache"
@@ -11,6 +12,8 @@ const mocks = vi.hoisted(() => ({
   markAll: vi.fn(),
   deleteMention: vi.fn(),
   unmark: vi.fn(),
+  accept: vi.fn(),
+  reject: vi.fn(),
   verifyDm: vi.fn(),
   armOpener: vi.fn(),
   clearOpener: vi.fn(),
@@ -66,8 +69,22 @@ const mention: Mention = {
 }
 
 vi.mock("@/hooks/community/use-inbox", () => ({
-  useInboxUnreads: () => ({ servers: [server], dms: [unreadDm], isLoading: false }),
-  useInboxMentions: () => ({ mentions: [mention], isLoading: false }),
+  useInboxUnreads: () => ({
+    friendRequests: [{
+      id: "fr_1",
+      userId: "requester",
+      name: "Ada",
+      avatar: "A",
+      avatarVersion: 1,
+      createdAt: "2026-09-12T01:00:00Z",
+    }],
+    servers: [server],
+    dms: [unreadDm],
+    isLoading: false,
+    hasProjectedUnread: false,
+    hasOutstandingFriendRequest: true,
+  }),
+  useInboxMentions: () => ({ mentions: [mention], isLoading: false, hasProjectedMention: false }),
   useInboxMarked: (enabled: boolean) => {
     mocks.markedEnabled.push(enabled)
     return { marked: [], isLoading: false }
@@ -89,6 +106,8 @@ vi.mock("@/hooks/community/mutations", () => ({
   useMarkAllInboxRead: () => ({ mutate: mocks.markAll }),
   useDeleteMention: () => ({ mutate: mocks.deleteMention }),
   useUnmarkMessage: () => ({ mutate: mocks.unmark }),
+  useAcceptFriendRequest: () => ({ mutateAsync: mocks.accept }),
+  useRejectFriendRequest: () => ({ mutateAsync: mocks.reject }),
 }))
 vi.mock("@/hooks/community/use-dm-route-verification", () => ({
   startDmRouteVerification: (...args: unknown[]) => mocks.verifyDm(...args),
@@ -144,18 +163,23 @@ async function renderController(
   }
   const cancelPendingNavigation = vi.fn(() => { order.push("cancel") })
   let current!: Result
+  const actionQueryClient = new QueryClient()
   await act(async () => {
-    rtlRender(createElement(Capture, {
-      options: {
-        router,
-        queryClient,
-        cancelPendingNavigation,
-        publishedHref: "/c/channels/s1",
-        navigationPending: false,
-        pendingHref: null,
-      } as never,
-      onResult: (result) => { current = result },
-    }))
+    rtlRender(createElement(
+      QueryClientProvider,
+      { client: actionQueryClient },
+      createElement(Capture, {
+        options: {
+          router,
+          queryClient,
+          cancelPendingNavigation,
+          publishedHref: "/c/channels/s1",
+          navigationPending: false,
+          pendingHref: null,
+        } as never,
+        onResult: (result) => { current = result },
+      }),
+    ))
   })
   return {
     get current() { return current },
@@ -173,6 +197,8 @@ describe("useShellInboxController", () => {
       mocks.markAll,
       mocks.deleteMention,
       mocks.unmark,
+      mocks.accept,
+      mocks.reject,
       mocks.verifyDm,
       mocks.armOpener,
       mocks.clearOpener,
@@ -208,6 +234,25 @@ describe("useShellInboxController", () => {
       return Promise.resolve("present")
     })
     mocks.warmup.mockReturnValue(99)
+    mocks.accept.mockResolvedValue(undefined)
+    mocks.reject.mockResolvedValue(undefined)
+  })
+
+  it("includes friend requests in the global dot while keeping navigation and actions read-neutral", async () => {
+    const hook = await renderController()
+    expect(hook.current.hasUnread).toBe(true)
+    expect(hook.current.popoverProps.hasProjectedUnreads).toBe(false)
+    expect(hook.current.popoverProps.friendRequests).toHaveLength(1)
+
+    hook.current.popoverProps.onOpenFriendRequests?.()
+    expect(hook.pushed).toEqual(["/c/me/friends?tab=new"])
+    expect(mocks.begin).not.toHaveBeenCalled()
+
+    const item = hook.current.popoverProps.friendRequests?.[0]
+    expect(item).toBeDefined()
+    await act(async () => hook.current.popoverProps.onAcceptFriendRequest?.(item!))
+    expect(mocks.accept).toHaveBeenCalledWith({ friendshipId: "fr_1" })
+    expect(mocks.reject).not.toHaveBeenCalled()
   })
 
   it("keeps Marked lazy and latches it after first selection", async () => {

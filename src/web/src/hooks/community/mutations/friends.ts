@@ -4,6 +4,13 @@ import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import type { FriendsResponse } from "@/hooks/community/use-friends"
+import type { UnreadsResponse } from "@/hooks/community/use-inbox"
+import type { PendingRequest } from "@/lib/community/models/people"
+import type { InboxFriendRequest } from "@/lib/community/models/inbox"
+import {
+  getFriendRequestActionController,
+  type FriendRequestAction,
+} from "@/hooks/community/use-friend-request-action-state"
 
 /**
  * Friend-scoped mutations. All six live on one query key
@@ -36,63 +43,147 @@ export function useSendFriendRequest() {
   })
 }
 
-// ── Accept / reject / remove — all decorate the pending list ───────────────
+// ── Accept / reject ────────────────────────────────────────────────────────
 
 export type FriendActionArgs = { friendshipId: string }
 
-function useFriendListMutation(
+type CapturedRow<T> = { row: T; index: number }
+type FriendRequestMutationContext = {
+  friends?: CapturedRow<PendingRequest>
+  generation: number
+  inbox?: CapturedRow<InboxFriendRequest>
+}
+
+function captureRow<T extends { id: string }>(
+  rows: readonly T[],
+  id: string,
+): CapturedRow<T> | undefined {
+  const index = rows.findIndex((row) => row.id === id)
+  return index < 0 ? undefined : { row: rows[index]!, index }
+}
+
+function reinsertRow<T extends { id: string }>(
+  rows: readonly T[],
+  captured: CapturedRow<T> | undefined,
+): T[] {
+  if (!captured || rows.some((row) => row.id === captured.row.id)) return [...rows]
+  const next = [...rows]
+  next.splice(Math.min(captured.index, next.length), 0, captured.row)
+  return next
+}
+
+function useFriendRequestMutation(
+  action: FriendRequestAction,
   buildFetch: (id: string) => Promise<unknown>,
-  patchOptimistic: (prev: FriendsResponse | undefined, id: string) => FriendsResponse | undefined,
 ) {
   const queryClient = useQueryClient()
-  return useMutation<void, Error, FriendActionArgs, { snapshot: FriendsResponse | undefined }>({
+  const controller = getFriendRequestActionController(queryClient)
+  return useMutation<void, Error, FriendActionArgs, FriendRequestMutationContext>({
     mutationFn: async ({ friendshipId }) => {
       await buildFetch(friendshipId)
     },
-    onMutate: async (args) => {
-      const key = communityKeys.friends()
-      await queryClient.cancelQueries({ queryKey: key })
-      const snapshot = queryClient.getQueryData<FriendsResponse>(key)
-      queryClient.setQueryData<FriendsResponse | undefined>(key, (prev) =>
-        patchOptimistic(prev, args.friendshipId),
+    onMutate: async ({ friendshipId }) => {
+      const generation = controller.claimMutation(friendshipId, action)
+      const friendsKey = communityKeys.friends()
+      const inboxKey = communityKeys.inboxUnreads()
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: friendsKey, exact: true }),
+        queryClient.cancelQueries({ queryKey: inboxKey, exact: true }),
+      ])
+      const friends = queryClient.getQueryData<FriendsResponse>(friendsKey)
+      const inbox = queryClient.getQueryData<UnreadsResponse>(inboxKey)
+      const context = {
+        friends: captureRow(friends?.pending ?? [], friendshipId),
+        generation,
+        inbox: captureRow(inbox?.friendRequests ?? [], friendshipId),
+      }
+      queryClient.setQueryData<FriendsResponse | undefined>(friendsKey, (current) =>
+        current
+          ? { ...current, pending: current.pending.filter((row) => row.id !== friendshipId) }
+          : current,
       )
-      return { snapshot }
+      queryClient.setQueryData<UnreadsResponse | undefined>(inboxKey, (current) =>
+        current
+          ? {
+              ...current,
+              friendRequests: (current.friendRequests ?? []).filter((row) => row.id !== friendshipId),
+            }
+          : current,
+      )
+      return context
     },
-    onError: (_err, _args, ctx) => {
-      if (ctx?.snapshot) queryClient.setQueryData(communityKeys.friends(), ctx.snapshot)
+    onSuccess: async (_data, { friendshipId }, context) => {
+      if (!context) return
+      await controller.publishTerminalAndFence(friendshipId, context.generation)
     },
-    onSuccess: () => {
-      // Reconcile once — the accepted friendship needs the "accepted" row from
-      // the server. Invalidation refetches. If the WS event arrives first, the
-      // reconciliation table also invalidates; either way, the final render is
-      // the same.
-      void queryClient.invalidateQueries({ queryKey: communityKeys.friends() })
+    onError: (_error, { friendshipId }, context) => {
+      if (!context) return
+      if (!controller.isCompensatable(friendshipId, context.generation)) return
+      queryClient.setQueryData<FriendsResponse | undefined>(communityKeys.friends(), (current) =>
+        current
+          ? { ...current, pending: reinsertRow(current.pending, context?.friends) }
+          : current,
+      )
+      queryClient.setQueryData<UnreadsResponse | undefined>(communityKeys.inboxUnreads(), (current) =>
+        current
+          ? { ...current, friendRequests: reinsertRow(current.friendRequests ?? [], context?.inbox) }
+          : current,
+      )
+      controller.publishError(friendshipId, context.generation)
+    },
+    onSettled: async (_data, _error, { friendshipId }, context) => {
+      try {
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: communityKeys.friends(), exact: true }),
+          queryClient.invalidateQueries({ queryKey: communityKeys.inboxUnreads(), exact: true }),
+        ])
+      } finally {
+        if (context) controller.settleGeneration(friendshipId, context.generation)
+      }
     },
   })
 }
 
 export function useAcceptFriendRequest() {
-  return useFriendListMutation(
+  return useFriendRequestMutation(
+    "accept",
     (id) => apiFetch(`/api/community/friends/${id}/accept`, { method: "POST" }),
-    (prev, id) =>
-      prev ? { ...prev, pending: prev.pending.filter((p) => p.id !== id) } : prev,
   )
 }
 
 export function useRejectFriendRequest() {
-  return useFriendListMutation(
+  return useFriendRequestMutation(
+    "reject",
     (id) => apiFetch(`/api/community/friends/${id}/reject`, { method: "POST" }),
-    (prev, id) =>
-      prev ? { ...prev, pending: prev.pending.filter((p) => p.id !== id) } : prev,
   )
 }
 
+// ── Remove friend ──────────────────────────────────────────────────────────
+
 export function useRemoveFriend() {
-  return useFriendListMutation(
-    (id) => apiFetch(`/api/community/friends/${id}`, { method: "DELETE" }),
-    (prev, id) =>
-      prev ? { ...prev, friends: prev.friends.filter((f) => f.id !== id) } : prev,
-  )
+  const queryClient = useQueryClient()
+  return useMutation<void, Error, FriendActionArgs, { snapshot: FriendsResponse | undefined }>({
+    mutationFn: async ({ friendshipId }) => {
+      await apiFetch(`/api/community/friends/${friendshipId}`, { method: "DELETE" })
+    },
+    onMutate: async ({ friendshipId }) => {
+      const key = communityKeys.friends()
+      await queryClient.cancelQueries({ queryKey: key })
+      const snapshot = queryClient.getQueryData<FriendsResponse>(key)
+      queryClient.setQueryData<FriendsResponse | undefined>(key, (current) =>
+        current
+          ? { ...current, friends: current.friends.filter((friend) => friend.id !== friendshipId) }
+          : current,
+      )
+      return { snapshot }
+    },
+    onError: (_error, _args, context) => {
+      if (context?.snapshot) queryClient.setQueryData(communityKeys.friends(), context.snapshot)
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: communityKeys.friends() })
+    },
+  })
 }
 
 // ── Cancel outgoing pending (unified) ──────────────────────────────────────

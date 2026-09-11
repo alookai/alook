@@ -3,6 +3,7 @@
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { FriendsPage } from "@/components/community/social/friends-page"
 import { useMemo } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import { useFriends } from "@/hooks/community/use-friends"
 import { useUiHandlers } from "@/stores/community"
 import { useCommunityWsStore } from "@/stores/community/ws"
@@ -22,6 +23,9 @@ import { toastApiError } from "@/lib/api/client"
 
 export default function MeFriendsPage() {
   const bp = useBreakpoint()
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const activeTab = searchParams.get("tab") === "new" ? "new" : "all"
   const { friends: rawFriends, pending, blocked, isLoading } = useFriends()
   const uiHandlers = useUiHandlers()
   const profilesByUserId = useCommunityWsStore((s) => s.profilesByUserId)
@@ -59,22 +63,31 @@ export default function MeFriendsPage() {
       pending={pending}
       blocked={blocked}
       loading={isLoading}
+      activeTab={activeTab}
+      onActiveTabChange={(tab) => {
+        router.replace(tab === "new" ? "/c/me/friends?tab=new" : "/c/me/friends")
+      }}
+      onOpenProfile={(name, event, discriminator, userId) => {
+        uiHandlers.openProfile?.(name, event, discriminator, userId)
+      }}
       onBack={bp === "mobile" ? () => uiHandlers.goBackMobile?.() : undefined}
-      onAccept={(id) =>
-        acceptFriendRequest.mutate(
-          { friendshipId: id },
-          {
-            onSuccess: () => toast("Friend request accepted"),
-            onError: (e) => toastApiError(e, "Failed to accept request"),
-          },
-        )
-      }
-      onReject={(id) =>
-        rejectFriendRequest.mutate(
-          { friendshipId: id },
-          { onError: (e) => toastApiError(e, "Failed to reject request") },
-        )
-      }
+      onAccept={async (id) => {
+        try {
+          await acceptFriendRequest.mutateAsync({ friendshipId: id })
+          toast("Friend request accepted")
+        } catch (error) {
+          toastApiError(error, "Failed to accept request")
+          throw error
+        }
+      }}
+      onReject={async (id) => {
+        try {
+          await rejectFriendRequest.mutateAsync({ friendshipId: id })
+        } catch (error) {
+          toastApiError(error, "Failed to reject request")
+          throw error
+        }
+      }}
       onCancelRequest={({ id }) =>
         // Unified after migration 0065 — outgoing pendings (own or the owner's
         // bots') are real community_friendship rows cancelled via DELETE.
