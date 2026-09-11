@@ -18,6 +18,7 @@ vi.mock("@alook/shared", () => ({ deriveThreadName: mocks.deriveThreadName }))
 function setup() {
   const setReplyTo = vi.fn()
   const toggleReactionApi = vi.fn()
+  const addReactionApi = vi.fn()
   const unpinMessageMutate = vi.fn()
   const pinMessageMutate = vi.fn()
   const toggleMark = vi.fn()
@@ -52,6 +53,7 @@ function setup() {
     viewerUserId: "viewer_1",
     setReplyTo,
     toggleReactionApi,
+    addReactionApi,
     unpinMessageMutate,
     pinMessageMutate,
     toggleMark,
@@ -65,6 +67,7 @@ function setup() {
     actionContext,
     setReplyTo,
     toggleReactionApi,
+    addReactionApi,
     unpinMessageMutate,
     pinMessageMutate,
     toggleMark,
@@ -94,9 +97,10 @@ describe("createMessageActions", () => {
     expect(harness.toggleReactionApi).toHaveBeenNthCalledWith(1, {
       serverId: "server_1", channelId: "channel_1", messageId: "m1", emoji: "👍", userId: "viewer_1",
     })
-    expect(harness.toggleReactionApi).toHaveBeenNthCalledWith(2, {
+    expect(harness.addReactionApi).toHaveBeenCalledWith({
       serverId: "server_1", channelId: "channel_1", messageId: "m1", emoji: "🔥", userId: "viewer_1",
     })
+    expect(harness.toggleReactionApi).toHaveBeenCalledOnce()
     harness.actions.onMark("m1")
     expect(harness.toggleMark).toHaveBeenCalledWith("channel_1", "m1")
     harness.actions.onPreviewImage({ url: "image" })

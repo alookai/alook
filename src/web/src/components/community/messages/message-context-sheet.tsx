@@ -18,7 +18,15 @@ import { formatDateLabel } from "@/lib/community/format-time"
 import { DateDivider } from "../dividers"
 import { useCurrentUser } from "@/contexts/community/current-user"
 import { useUiHandlers } from "@/stores/community"
-import { usePinMessage, useUnpinMessage, useCreateThread, useToggleMark } from "@/hooks/community/mutations"
+import {
+  useAddReactionApi,
+  useCreateThread,
+  usePinMessage,
+  useToggleMark,
+  useToggleReactionApi,
+  useUnpinMessage,
+  type ReactionArgs,
+} from "@/hooks/community/mutations"
 import type { FileAttachment, ImagePreview, MessagesPage, Msg, Reaction, RenderMsg } from "@/lib/community/models/message"
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import { useHoverCapable } from "@/hooks/use-hover-capable"
@@ -177,6 +185,8 @@ export function MessageContextSheet({
   const unpinMessageMut = useUnpinMessage()
   const createThreadMut = useCreateThread()
   const toggleMark = useToggleMark()
+  const toggleReactionApi = useToggleReactionApi()
+  const addReactionApi = useAddReactionApi()
 
   const queryKey = useMemo(
     () => communityKeys.messageContext(type, channelId, targetSeq),
@@ -238,24 +248,38 @@ export function MessageContextSheet({
     [query.data],
   )
 
-  const toggleReaction = useCallback((messageId: string, emoji: string) => {
-    const msg = findMessage(messageId)
+  const runReactionIntent = useCallback((
+    intent: (args: ReactionArgs) => void,
+    messageId: string,
+    emoji: string,
+  ) => {
+    const msg = queryClient.getQueryData<SheetCache>(queryKey)
+      ?.messages?.find((message) => message.id === messageId)
     if (!msg) return
-    const wasMe = msg.reactions?.find((r) => r.emoji === emoji)?.me ?? false
-    const nextMe = !wasMe
-    // Optimistic — flip immediately on the sheet's own cache.
-    queryClient.setQueryData<SheetCache>(queryKey, (c) =>
-      toggleSheetReaction(c, messageId, emoji, currentUser.id, nextMe),
-    )
-    const method = wasMe ? "DELETE" : "PUT"
-    const url = `/api/community/messages/${messageId}/reactions/${encodeURIComponent(emoji)}`
-    apiFetch(url, { method }).catch((e) => {
-      queryClient.setQueryData<SheetCache>(queryKey, (c) =>
-        toggleSheetReaction(c, messageId, emoji, currentUser.id, wasMe),
-      )
-      toastApiError(e, "Failed to update reaction")
+    const currentMe = msg.reactions?.find((r) => r.emoji === emoji)?.me ?? false
+    intent({
+      ...(type === "dm" ? { dmId: channelId } : { channelId }),
+      messageId,
+      emoji,
+      userId: currentUser.id,
+      currentMe,
+      skipDefaultCache: true,
+      syncReactionState: (me) => {
+        queryClient.setQueryData<SheetCache>(queryKey, (c) =>
+          toggleSheetReaction(c, messageId, emoji, currentUser.id, me),
+        )
+      },
+      onError: (error) => toastApiError(error, "Failed to update reaction"),
     })
-  }, [queryKey, queryClient, currentUser.id, findMessage])
+  }, [channelId, currentUser.id, queryClient, queryKey, type])
+
+  const toggleReaction = useCallback((messageId: string, emoji: string) => {
+    runReactionIntent(toggleReactionApi, messageId, emoji)
+  }, [runReactionIntent, toggleReactionApi])
+
+  const addReaction = useCallback((messageId: string, emoji: string) => {
+    runReactionIntent(addReactionApi, messageId, emoji)
+  }, [addReactionApi, runReactionIntent])
 
   const onCopyId = useCallback((id: string) => {
     const m = findMessage(id)
@@ -442,7 +466,7 @@ export function MessageContextSheet({
           onOpenThread={type === "channel" ? onOpenThreadId : undefined}
           resolveUserName={resolveUserName}
           onToggleReaction={toggleReaction}
-          onReact={toggleReaction}
+          onReact={addReaction}
           onReply={onReply ? onReplyId : undefined}
           onCopy={onCopyId}
           onPin={type === "channel" && canManagePins ? onPinId : undefined}

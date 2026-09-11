@@ -14,6 +14,7 @@ import { useMessageStreamStore } from "@/stores/community/message-stream"
 const mutationMocks = vi.hoisted(() => ({
   sendMessage: vi.fn(),
   toggleReaction: vi.fn(),
+  addReaction: vi.fn(),
   pinMessage: vi.fn(),
   unpinMessage: vi.fn(),
   toggleMark: vi.fn(),
@@ -79,6 +80,7 @@ vi.mock("@/stores/community", () => {
 vi.mock("@/hooks/community/mutations", () => ({
   useSendMessage: () => ({ mutateAsync: mutationMocks.sendMessage }),
   useToggleReactionApi: () => mutationMocks.toggleReaction,
+  useAddReactionApi: () => mutationMocks.addReaction,
   usePinMessage: () => ({ mutate: mutationMocks.pinMessage }),
   useUnpinMessage: () => ({ mutate: mutationMocks.unpinMessage }),
   useToggleMark: () => mutationMocks.toggleMark,

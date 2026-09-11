@@ -7,6 +7,11 @@ const mocks = vi.hoisted(() => ({
   close: vi.fn(),
   openThread: undefined as undefined | ((threadId: string) => void),
   pin: undefined as undefined | ((messageId: string) => void),
+  toggleReaction: undefined as undefined | ((messageId: string, emoji: string) => void),
+  addReaction: undefined as undefined | ((messageId: string, emoji: string) => void),
+  toggleReactionApi: vi.fn(),
+  addReactionApi: vi.fn(),
+  setQueryData: vi.fn(),
   pinMutate: vi.fn(),
   unpinMutate: vi.fn(),
   toastApiError: vi.fn(),
@@ -35,7 +40,19 @@ vi.mock("@tanstack/react-query", () => ({
     isLoading: false,
     isError: false,
   }),
-  useQueryClient: () => ({ setQueryData: vi.fn() }),
+  useQueryClient: () => ({
+    getQueryData: () => ({
+      notFound: false,
+      anchorId: "message_1",
+      messages: [{
+        id: "message_1",
+        seq: 1,
+        type: "chat",
+        reactions: [],
+      }],
+    }),
+    setQueryData: mocks.setQueryData,
+  }),
 }))
 vi.mock("@/components/community/shell/community-sheet", () => ({
   CommunitySheet: ({ children }: { children: React.ReactNode }) => children,
@@ -53,12 +70,18 @@ vi.mock("./message-row", () => ({
   MessageRow: ({
     onOpenThread,
     onPinId,
+    onToggleReactionId,
+    onReactId,
   }: {
     onOpenThread: (threadId: string) => void
     onPinId?: (messageId: string) => void
+    onToggleReactionId?: (messageId: string, emoji: string) => void
+    onReactId?: (messageId: string, emoji: string) => void
   }) => {
     mocks.openThread = onOpenThread
     mocks.pin = onPinId
+    mocks.toggleReaction = onToggleReactionId
+    mocks.addReaction = onReactId
     return null
   },
 }))
@@ -76,6 +99,8 @@ vi.mock("@/hooks/community/mutations", () => ({
   useUnpinMessage: () => ({ mutate: mocks.unpinMutate }),
   useCreateThread: () => ({ mutateAsync: vi.fn() }),
   useToggleMark: () => vi.fn(),
+  useToggleReactionApi: () => mocks.toggleReactionApi,
+  useAddReactionApi: () => mocks.addReactionApi,
 }))
 vi.mock("sonner", () => ({ toast: vi.fn() }))
 vi.mock("@/lib/api/client", () => ({ apiFetch: vi.fn(), toastApiError: mocks.toastApiError }))
@@ -90,6 +115,8 @@ describe("MessageContextSheet thread navigation", () => {
     vi.clearAllMocks()
     mocks.openThread = undefined
     mocks.pin = undefined
+    mocks.toggleReaction = undefined
+    mocks.addReaction = undefined
   })
 
   it("opens a rendered channel thread by its flat child id and closes the sheet", () => {
@@ -124,6 +151,39 @@ describe("MessageContextSheet thread navigation", () => {
     })).toBe(false)
     expect(push).not.toHaveBeenCalled()
     expect(close).not.toHaveBeenCalled()
+  })
+
+  it("routes chips to toggle and picker choices to add through the sheet cache", () => {
+    render(React.createElement(MessageContextSheet, {
+      open: true,
+      onOpenChange: mocks.close,
+      channelId: "parent_1",
+      targetSeq: 1,
+    }))
+
+    act(() => mocks.toggleReaction?.("message_1", "👍"))
+    act(() => mocks.addReaction?.("message_1", "🔥"))
+
+    expect(mocks.toggleReactionApi).toHaveBeenCalledWith(expect.objectContaining({
+      channelId: "parent_1",
+      messageId: "message_1",
+      emoji: "👍",
+      currentMe: false,
+      skipDefaultCache: true,
+      syncReactionState: expect.any(Function),
+    }))
+    expect(mocks.addReactionApi).toHaveBeenCalledWith(expect.objectContaining({
+      channelId: "parent_1",
+      messageId: "message_1",
+      emoji: "🔥",
+      currentMe: false,
+      skipDefaultCache: true,
+      syncReactionState: expect.any(Function),
+    }))
+
+    const syncReactionState = mocks.addReactionApi.mock.calls[0]?.[0].syncReactionState
+    act(() => syncReactionState(true))
+    expect(mocks.setQueryData).toHaveBeenCalledWith(expect.anything(), expect.any(Function))
   })
 
   it("exposes preview Pin only to managers and opens pinned only after success", () => {

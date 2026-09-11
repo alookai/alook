@@ -31,6 +31,7 @@ import { useDmWatermark } from "@/hooks/community/use-dm-watermark"
 import { useChannelRefDirectory } from "@/hooks/community/use-channel-ref-directory"
 import { toChannelRefCandidate } from "@/lib/community/channel-ref-extension"
 import {
+  useAddReactionApi,
   useToggleReactionApi,
   useToggleMark,
 } from "@/hooks/community/mutations"
@@ -289,6 +290,7 @@ function DmView() {
   const typingNames = useTypingNamesForScope(`dm:${dmId}`)
   const { accept: acceptDmMessage, retry: retryDmMessage } = useDmMessageSender()
   const toggleReaction = useToggleReactionApi()
+  const addReaction = useAddReactionApi()
   const toggleMark = useToggleMark()
 
   const goBack = useCallback(() => { uiHandlers.goBackMobile?.() }, [uiHandlers])
@@ -367,7 +369,7 @@ function DmView() {
     onToggleReaction: (id: string, emoji: string) =>
       toggleReaction({ dmId, messageId: id, emoji, userId: currentUser.id }),
     onReact: (id: string, emoji: string) =>
-      toggleReaction({ dmId, messageId: id, emoji, userId: currentUser.id }),
+      addReaction({ dmId, messageId: id, emoji, userId: currentUser.id }),
     onReply: (id: string) => {
       const m = messages.find((x) => x.id === id)
       if (m) {
@@ -406,7 +408,7 @@ function DmView() {
     onPreviewAttachment: (attachment: FileAttachment) => {
       uiHandlers.previewAttachment?.(attachment)
     },
-  }), [toggleReaction, toggleMark, dmId, currentUser.id, messages, retryDmMessage, uiHandlers, advanceOnboardingAfterSend])
+  }), [toggleReaction, addReaction, toggleMark, dmId, currentUser.id, messages, retryDmMessage, uiHandlers, advanceOnboardingAfterSend])
 
   // DM endpoint ignores mentionType. Replies are supported — the backend
   // persists replyToId for DMs too.

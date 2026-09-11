@@ -251,6 +251,7 @@ vi.mock("@/stores/community/ws", () => ({
 vi.mock("@/hooks/community/mutations", () => ({
   useSendMessage: () => ({ mutateAsync: vi.fn() }),
   useToggleReactionApi: () => vi.fn(),
+  useAddReactionApi: () => vi.fn(),
   usePinMessage: () => ({ mutate: vi.fn() }),
   useUnpinMessage: () => ({ mutate: vi.fn() }),
   useToggleMark: () => vi.fn(),
