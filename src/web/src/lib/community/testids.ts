@@ -178,6 +178,7 @@ export const tid = {
   messageShareImage: (msgId: string, index: number) =>
     `message-share-image-${msgId}-${index}`,
   messageShareCopy: `community-message-share-copy`,
+  messageShareSave: `community-message-share-save`,
   threadIndicator: (msgId: string) => `community-thread-indicator-${msgId}`,
   get threadSplit() {
     return "community-thread-split" as const

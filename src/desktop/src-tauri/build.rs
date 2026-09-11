@@ -6,6 +6,8 @@ fn main() {
             "set_window_theme",
             "close_splashscreen",
             "desktop_zoom_shortcut",
+            "mobile_share_image_copy",
+            "mobile_share_image_save",
             "native_oauth_snapshot",
             "native_oauth_listen",
             "native_oauth_unlisten",

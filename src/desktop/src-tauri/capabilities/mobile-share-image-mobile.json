@@ -1,0 +1,22 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "mobile-share-image-mobile",
+  "description": "Native mobile image copy and save for the trusted main WebView",
+  "windows": [
+    "main"
+  ],
+  "platforms": [
+    "android",
+    "iOS"
+  ],
+  "local": false,
+  "remote": {
+    "urls": [
+      "https://alook.ai"
+    ]
+  },
+  "permissions": [
+    "allow-mobile-share-image-copy",
+    "allow-mobile-share-image-save"
+  ]
+}

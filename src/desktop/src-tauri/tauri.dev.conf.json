@@ -28,6 +28,28 @@
           "permissions": [
             "native-oauth"
           ]
+        },
+        {
+          "$schema": "../gen/schemas/desktop-schema.json",
+          "identifier": "mobile-share-image-dev",
+          "description": "Native mobile image copy and save for the trusted development WebView",
+          "windows": [
+            "main"
+          ],
+          "platforms": [
+            "android",
+            "iOS"
+          ],
+          "local": true,
+          "remote": {
+            "urls": [
+              "http://localhost:3000"
+            ]
+          },
+          "permissions": [
+            "allow-mobile-share-image-copy",
+            "allow-mobile-share-image-save"
+          ]
         }
       ]
     }
