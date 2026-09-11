@@ -32,6 +32,7 @@ const COVERAGE_EXCLUDES = [
   // Project/workspace configs execute before coverage instrumentation and are
   // excluded by Vitest itself; their behavior is enforced by contract tests.
   /(?:^|\/)vitest(?:\.[^/]+)?\.config\.[cm]?[jt]sx?$/,
+  /^src\/web\/open-next\.config\.ts$/,
   /(?:^|\/)node_modules\//,
   /(?:^|\/)(?:\.next|\.open-next|\.wrangler|dist|bundled|__mocks__)\//,
   /(?:^|\/)test-runtime\//,

@@ -364,6 +364,19 @@ describe("coverage name-status contract", () => {
       .toEqual(["scripts/ci/changed-scopes.mjs"])
   })
 
+  it("excludes only the OpenNext config, not config-lookalike runtime files", () => {
+    const result = plan([
+      "src/web/open-next.config.ts",
+      "src/web/src/lib/runtime-lookalike.config.ts",
+    ])
+
+    expect(result.packages.affected).toEqual(["@alook/web"])
+    expect(result.coverage.targets).toEqual(["web"])
+    expect(result.coverage.required_changed_files).toEqual([
+      "src/web/src/lib/runtime-lookalike.config.ts",
+    ])
+  })
+
   it("parses NUL-delimited statuses without losing rename/copy identity", () => {
     const input = Buffer.from(
       "M\0src/cli/src/a.ts\0D\0src/cli/src/deleted.ts\0R100\0src/cli/src/old.ts\0src/cli/src/new.ts\0C090\0src/shared/src/a.ts\0src/shared/src/b.ts\0",
