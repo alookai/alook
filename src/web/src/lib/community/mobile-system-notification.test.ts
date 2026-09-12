@@ -1,24 +1,56 @@
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
+  acknowledgeMobileSystemNotificationRegistration,
+  checkMobileSystemNotificationPermission,
   createMobileSystemNotificationActivationController,
   createMobileSystemNotificationRegistrationController,
   deleteMobileSystemNotificationRegistration,
+  listenMobileSystemNotificationSignals,
   parseMobileSystemNotificationActivation,
   parseMobileSystemNotificationPermission,
   parseMobileSystemNotificationRegistration,
   postMobileSystemNotificationRegistration,
+  requestMobileSystemNotificationPermission,
   revalidateMobileSystemNotificationActivation,
   resumeMobileSystemNotificationRegistration,
+  snapshotMobileSystemNotificationRegistration,
   suspendMobileSystemNotificationRegistration,
+  takeMobileSystemNotificationActivation,
   type MobileSystemNotificationRegistration,
   type MobileSystemNotificationRegistrationDeps,
+  unregisterCurrentMobileSystemNotification,
 } from "./mobile-system-notification"
+
+const nativeMocks = vi.hoisted(() => ({
+  tauri: true,
+  mobile: true,
+  invoke: vi.fn(),
+}))
+vi.mock("@alook/shared", async () => {
+  const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
+  return {
+    ...actual,
+    isTauri: () => nativeMocks.tauri,
+    isMobile: () => nativeMocks.mobile,
+    tauriInvoke: nativeMocks.invoke,
+  }
+})
 
 const installationId = "123e4567-e89b-42d3-a456-426614174000"
 const notificationId = "4f3bb3fd-5d7f-4a26-8e0e-3ddd1154f71e"
 const token0 = "token-00000000000"
 const token1 = "token-11111111111"
 const token2 = "token-22222222222"
+
+beforeEach(() => {
+  nativeMocks.tauri = true
+  nativeMocks.mobile = true
+  nativeMocks.invoke.mockReset()
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 
 function snapshot(
   overrides: Partial<MobileSystemNotificationRegistration> = {},
@@ -82,6 +114,124 @@ describe("mobile notification native value parsing", () => {
     expect(parseMobileSystemNotificationActivation({ ...activation, serverId: "server_1" })).toBeNull()
     expect(parseMobileSystemNotificationActivation({ ...activation, messageId: "../message" })).toBeNull()
     expect(parseMobileSystemNotificationActivation({ ...activation, notificationId: "bad" })).toBeNull()
+  })
+})
+
+describe("mobile notification native adapter", () => {
+  const nativeSnapshot = {
+    installationId,
+    platform: "ios",
+    providerEnvironment: "sandbox",
+    providerToken: token0,
+    previousProviderToken: null,
+    appVersion: null,
+  }
+
+  it("validates permission, snapshot, acknowledgement, and activation results", async () => {
+    nativeMocks.invoke
+      .mockResolvedValueOnce({ permissionState: "granted" })
+      .mockResolvedValueOnce({ permissionState: "prompt" })
+      .mockResolvedValueOnce({ permissionState: "unknown" })
+      .mockResolvedValueOnce(nativeSnapshot)
+      .mockResolvedValueOnce({ ...nativeSnapshot, secret: true })
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ notificationId, messageId: "message_1", targetId: "channel_1" })
+      .mockResolvedValueOnce({ notificationId: "invalid", messageId: "message_1", targetId: "channel_1" })
+
+    await expect(checkMobileSystemNotificationPermission()).resolves.toBe("granted")
+    await expect(requestMobileSystemNotificationPermission()).resolves.toBe("prompt")
+    await expect(checkMobileSystemNotificationPermission()).rejects.toThrow("invalid_native_response")
+    await expect(snapshotMobileSystemNotificationRegistration()).resolves.toEqual({
+      installationId,
+      platform: "ios",
+      providerEnvironment: "sandbox",
+      providerToken: token0,
+    })
+    await expect(snapshotMobileSystemNotificationRegistration()).rejects.toThrow("invalid_native_response")
+
+    await expect(acknowledgeMobileSystemNotificationRegistration(token0)).resolves.toBeUndefined()
+    expect(nativeMocks.invoke).toHaveBeenNthCalledWith(
+      6,
+      "mobile_system_notification_acknowledge_registration",
+      { providerToken: token0 },
+    )
+    await expect(acknowledgeMobileSystemNotificationRegistration("short")).rejects.toThrow(
+      "invalid_provider_token",
+    )
+
+    await expect(takeMobileSystemNotificationActivation()).resolves.toBeNull()
+    await expect(takeMobileSystemNotificationActivation()).resolves.toEqual({
+      notificationId,
+      messageId: "message_1",
+      targetId: "channel_1",
+    })
+    await expect(takeMobileSystemNotificationActivation()).rejects.toThrow("invalid_native_response")
+  })
+
+  it("bridges native signals and swallows unlisten failures", async () => {
+    class Channel {
+      onmessage = (_value: unknown) => undefined
+    }
+    vi.stubGlobal("window", { __TAURI__: { core: { Channel } } })
+    nativeMocks.invoke
+      .mockResolvedValueOnce(7)
+      .mockRejectedValueOnce(new Error("already stopped"))
+    const ready = vi.fn()
+
+    const stop = await listenMobileSystemNotificationSignals(ready)
+    const channel = nativeMocks.invoke.mock.calls[0]?.[1]?.channel as Channel
+    expect(nativeMocks.invoke).toHaveBeenNthCalledWith(
+      1,
+      "mobile_system_notification_listen",
+      { channel },
+    )
+    channel.onmessage({})
+    expect(ready).toHaveBeenCalledOnce()
+    stop()
+    expect(nativeMocks.invoke).toHaveBeenNthCalledWith(
+      2,
+      "mobile_system_notification_unlisten",
+      { registrationId: 7 },
+    )
+    await Promise.resolve()
+  })
+
+  it("rejects missing native channels and invalid listener registrations", async () => {
+    vi.stubGlobal("window", {})
+    await expect(listenMobileSystemNotificationSignals(vi.fn())).rejects.toThrow(
+      "native_bridge_unavailable",
+    )
+
+    class Channel {
+      onmessage = (_value: unknown) => undefined
+    }
+    vi.stubGlobal("window", { __TAURI__: { core: { Channel } } })
+    nativeMocks.invoke.mockResolvedValue(-1)
+    await expect(listenMobileSystemNotificationSignals(vi.fn())).rejects.toThrow(
+      "invalid_native_response",
+    )
+  })
+
+  it("unregisters the current installation only on a mobile Tauri runtime", async () => {
+    const fetchImpl = vi.fn(async () => new Response(null, { status: 204 }))
+
+    nativeMocks.tauri = false
+    await unregisterCurrentMobileSystemNotification(fetchImpl)
+    nativeMocks.tauri = true
+    nativeMocks.mobile = false
+    await unregisterCurrentMobileSystemNotification(fetchImpl)
+    expect(nativeMocks.invoke).not.toHaveBeenCalled()
+    expect(fetchImpl).not.toHaveBeenCalled()
+
+    nativeMocks.mobile = true
+    nativeMocks.invoke.mockResolvedValue(nativeSnapshot)
+    await unregisterCurrentMobileSystemNotification(fetchImpl)
+    expect(nativeMocks.invoke).toHaveBeenCalledWith("mobile_system_notification_snapshot")
+    expect(fetchImpl).toHaveBeenCalledWith(
+      `/api/community/notifications/devices/${installationId}`,
+      { method: "DELETE", credentials: "same-origin" },
+    )
   })
 })
 
@@ -275,6 +425,26 @@ describe("mobile notification registration controller", () => {
     await disposable.sync()
     expect(disposableDeps.checkPermission).not.toHaveBeenCalled()
   })
+
+  it("preserves an interactive prompt when an active run fails before its rerun", async () => {
+    let rejectFirst = (_error: Error) => undefined
+    const firstCheck = new Promise<never>((_resolve, reject) => { rejectFirst = reject })
+    const deps = registrationDeps({
+      checkPermission: vi.fn()
+        .mockReturnValueOnce(firstCheck)
+        .mockResolvedValueOnce("prompt"),
+    })
+    const controller = createMobileSystemNotificationRegistrationController(deps)
+
+    const first = controller.sync(true)
+    await vi.waitFor(() => expect(deps.checkPermission).toHaveBeenCalledOnce())
+    expect(controller.sync()).toBe(first)
+    rejectFirst(new Error("offline"))
+    await first
+
+    expect(deps.requestPermission).toHaveBeenCalledOnce()
+    expect(deps.register).toHaveBeenCalledOnce()
+  })
 })
 
 describe("mobile notification activation", () => {
@@ -324,6 +494,10 @@ describe("mobile notification activation", () => {
       messages: [{ id: "message_1", seq: 9 }],
       surfaceReceipt: { channelId: "channel_1", surfaceKind: "dm", secret: true },
     }))],
+    ["invalid surface", new Response(JSON.stringify({
+      messages: [{ id: "message_1", seq: 9 }],
+      surfaceReceipt: { channelId: "channel_1", surfaceKind: "private" },
+    }))],
   ])("falls back for %s message-door results", async (_label, response) => {
     await expect(revalidateMobileSystemNotificationActivation(
       activation,
@@ -338,7 +512,7 @@ describe("mobile notification activation", () => {
       take: vi.fn()
         .mockResolvedValueOnce(activation)
         .mockRejectedValueOnce(new Error("invalid native response")),
-      revalidate: vi.fn(async () => null),
+      revalidate: vi.fn().mockRejectedValueOnce(new Error("offline")),
       navigate,
       openInbox,
     })
@@ -346,5 +520,47 @@ describe("mobile notification activation", () => {
     await controller.drain()
     expect(openInbox).toHaveBeenCalledTimes(2)
     expect(navigate).not.toHaveBeenCalled()
+  })
+
+  it("coalesces a signal received while an activation drain is active", async () => {
+    let releaseTake = (_value: null) => undefined
+    const firstTake = new Promise<null>((resolve) => { releaseTake = resolve })
+    const take = vi.fn().mockReturnValueOnce(firstTake).mockResolvedValueOnce(null)
+    const controller = createMobileSystemNotificationActivationController({
+      take,
+      revalidate: vi.fn(),
+      navigate: vi.fn(),
+      openInbox: vi.fn(),
+    })
+
+    const first = controller.drain()
+    await vi.waitFor(() => expect(take).toHaveBeenCalledOnce())
+    await controller.drain()
+    releaseTake(null)
+    await first
+    expect(take).toHaveBeenCalledTimes(2)
+  })
+
+  it("rejects invalid server-channel payloads and network failures", async () => {
+    const messageResponse = () => new Response(JSON.stringify({
+      messages: [{ id: "message_1", seq: 9 }],
+      surfaceReceipt: { channelId: "channel_1", surfaceKind: "thread" },
+    }))
+    const invalidChannel = vi.fn()
+      .mockResolvedValueOnce(messageResponse())
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        id: "channel_1",
+        serverId: "server_1",
+        type: "dm",
+      })))
+    await expect(revalidateMobileSystemNotificationActivation(
+      activation,
+      invalidChannel,
+    )).resolves.toBeNull()
+
+    await expect(revalidateMobileSystemNotificationActivation(
+      activation,
+      vi.fn(async () => { throw new Error("offline") }),
+    )).resolves.toBeNull()
   })
 })

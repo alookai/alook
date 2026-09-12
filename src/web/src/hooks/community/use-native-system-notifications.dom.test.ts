@@ -371,8 +371,10 @@ describe("native system notification hook", () => {
     hookMocks.desktop = false
     hookMocks.mobile = true
     const calls: string[] = []
+    const assign = vi.fn()
     const stop = vi.fn()
     let signal: (() => void) | undefined
+    vi.stubGlobal("location", { href: "https://alook.test/c", assign })
     hookMocks.mobileListen.mockImplementation(async (callback) => {
       calls.push("listen")
       signal = callback
@@ -390,7 +392,27 @@ describe("native system notification hook", () => {
     })
     hookMocks.mobilePost.mockImplementation(async () => { calls.push("post") })
     hookMocks.mobileAck.mockImplementation(async () => { calls.push("ack") })
-    hookMocks.mobileTake.mockImplementation(async () => { calls.push("take"); return null })
+    hookMocks.mobileTake
+      .mockImplementationOnce(async () => {
+        calls.push("take")
+        return {
+          notificationId: "4f3bb3fd-5d7f-4a26-8e0e-3ddd1154f71e",
+          messageId: "message_1",
+          targetId: "channel_1",
+        }
+      })
+      .mockImplementationOnce(async () => {
+        calls.push("take")
+        return {
+          notificationId: "4f3bb3fd-5d7f-4a26-8e0e-3ddd1154f71e",
+          messageId: "message_2",
+          targetId: "channel_1",
+        }
+      })
+      .mockImplementation(async () => { calls.push("take"); return null })
+    hookMocks.mobileRevalidate
+      .mockResolvedValueOnce({ href: "/c/me/channel_1?seq=9" })
+      .mockResolvedValueOnce(null)
 
     const rendered = renderHook(() => useNativeSystemNotifications("viewer_1"))
     await waitFor(() => expect(calls).toEqual([
@@ -402,11 +424,60 @@ describe("native system notification hook", () => {
       "ack",
     ]))
     expect(hookMocks.mobileListen).toHaveBeenCalledOnce()
+    expect(assign).toHaveBeenCalledWith("/c/me/channel_1?seq=9")
 
-    signal?.()
+    const button = document.createElement("button")
+    button.setAttribute("aria-label", "Inbox")
+    const click = vi.spyOn(button, "click")
+    document.body.append(button)
+    const visibilityState = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible")
+    document.dispatchEvent(new Event("visibilitychange"))
     await waitFor(() => expect(hookMocks.mobileCheck).toHaveBeenCalledTimes(2))
     expect(hookMocks.mobileTake).toHaveBeenCalledTimes(2)
+    expect(click).toHaveBeenCalledOnce()
+
+    signal?.()
+    await waitFor(() => expect(hookMocks.mobileCheck).toHaveBeenCalledTimes(3))
+    expect(hookMocks.mobileTake).toHaveBeenCalledTimes(3)
     rendered.unmount()
+    visibilityState.mockRestore()
     expect(stop).toHaveBeenCalledOnce()
+  })
+
+  it("schedules and cancels a mobile registration retry", async () => {
+    hookMocks.desktop = false
+    hookMocks.mobile = true
+    const stop = vi.fn()
+    const setTimeout = vi.spyOn(window, "setTimeout")
+    const clearTimeout = vi.spyOn(window, "clearTimeout")
+    hookMocks.mobileListen.mockResolvedValue(stop)
+    hookMocks.mobileCheck.mockRejectedValue(new Error("offline"))
+    hookMocks.mobileTake.mockResolvedValue(null)
+
+    const rendered = renderHook(() => useNativeSystemNotifications("viewer_1"))
+    await waitFor(() => expect(setTimeout.mock.calls.some(([, delay]) => delay === 1_000)).toBe(true))
+    const clearsBeforeUnmount = clearTimeout.mock.calls.length
+    rendered.unmount()
+
+    expect(clearTimeout.mock.calls).toHaveLength(clearsBeforeUnmount + 1)
+    expect(stop).toHaveBeenCalledOnce()
+  })
+
+  it("continues mobile startup when native listener setup rejects", async () => {
+    hookMocks.desktop = false
+    hookMocks.mobile = true
+    hookMocks.mobileListen.mockRejectedValue(new Error("native unavailable"))
+    hookMocks.mobileCheck.mockResolvedValue("granted")
+    hookMocks.mobileSnapshot.mockResolvedValue({
+      installationId: "123e4567-e89b-42d3-a456-426614174000",
+      platform: "ios",
+      providerEnvironment: "sandbox",
+    })
+    hookMocks.mobileTake.mockResolvedValue(null)
+
+    const rendered = renderHook(() => useNativeSystemNotifications("viewer_1"))
+    await waitFor(() => expect(hookMocks.mobileCheck).toHaveBeenCalledOnce())
+    expect(hookMocks.mobileTake).toHaveBeenCalledOnce()
+    rendered.unmount()
   })
 })
