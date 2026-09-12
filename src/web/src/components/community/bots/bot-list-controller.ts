@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { isPresenceOnline } from "@alook/shared"
 import { toast } from "sonner"
@@ -48,6 +48,7 @@ export function useBotListController(): BotListController {
   const [editOpen, setEditOpen] = useState(false)
   const [activityBot, setActivityBot] = useState<BotSummary | null>(null)
   const [activityOpen, setActivityOpen] = useState(false)
+  const [activityGeneration, setActivityGeneration] = useState(0)
   const [bugReportBot, setBugReportBot] = useState<Pick<BotSummary, "id" | "name"> | null>(null)
   const [bugReportOpen, setBugReportOpen] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState<BotSummary | null>(null)
@@ -190,6 +191,16 @@ export function useBotListController(): BotListController {
   const groupRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const scrolledForRef = useRef<string | null>(null)
   const suppressedAuditRef = useRef<string | null>(null)
+  const activityGenerationRef = useRef(0)
+  const activityOpenRef = useRef(activityOpen)
+  const targetAuditBotIdRef = useRef(targetAuditBotId)
+  const botsRef = useRef(bots)
+  useLayoutEffect(() => {
+    activityGenerationRef.current = activityGeneration
+    activityOpenRef.current = activityOpen
+    targetAuditBotIdRef.current = targetAuditBotId
+    botsRef.current = bots
+  }, [activityGeneration, activityOpen, bots, targetAuditBotId])
   useEffect(() => {
     if (!targetMachineId || bots.length === 0) return
     setCollapsedMachines((current) => {
@@ -210,8 +221,10 @@ export function useBotListController(): BotListController {
     if (!botsResolved) return
     if (!targetAuditBotId) {
       suppressedAuditRef.current = null
-      if (activityOpen) setActivityOpen(false)
-      if (activityBot) setActivityBot(null)
+      if (activityOpen) {
+        activityOpenRef.current = false
+        setActivityOpen(false)
+      }
       return
     }
     if (suppressedAuditRef.current === targetAuditBotId) return
@@ -219,15 +232,27 @@ export function useBotListController(): BotListController {
     const targetBot = bots.find((bot) => bot.id === targetAuditBotId)
     if (!targetBot) {
       suppressedAuditRef.current = targetAuditBotId
-      if (activityOpen) setActivityOpen(false)
-      if (activityBot) setActivityBot(null)
+      if (activityOpen) {
+        activityOpenRef.current = false
+        setActivityOpen(false)
+      }
       const query = searchParams.toString()
       router.replace(removeCommunityParam(`/c/me/bots${query ? `?${query}` : ""}`, "audit"))
       return
     }
 
-    if (activityBot?.id !== targetBot.id) setActivityBot(targetBot)
-    if (!activityOpen) setActivityOpen(true)
+    suppressedAuditRef.current = null
+    const targetChanged = activityBot?.id !== targetBot.id
+    if (!activityOpen || targetChanged) {
+      const nextGeneration = activityGenerationRef.current + 1
+      activityGenerationRef.current = nextGeneration
+      setActivityGeneration(nextGeneration)
+    }
+    if (targetChanged) setActivityBot(targetBot)
+    if (!activityOpen) {
+      activityOpenRef.current = true
+      setActivityOpen(true)
+    }
   }, [activityBot, activityOpen, bots, botsResolved, router, searchParams, targetAuditBotId])
 
   const openActivity = (bot: BotSummary) => {
@@ -240,10 +265,22 @@ export function useBotListController(): BotListController {
   const onActivityOpenChange = (open: boolean) => {
     if (open) return
     if (targetAuditBotId) suppressedAuditRef.current = targetAuditBotId
+    activityOpenRef.current = false
     setActivityOpen(false)
-    setActivityBot(null)
     const query = searchParams.toString()
     router.replace(removeCommunityParam(`/c/me/bots${query ? `?${query}` : ""}`, "audit"))
+  }
+
+  const onActivityOpenChangeComplete = (open: boolean, generation: number) => {
+    if (open || generation !== activityGenerationRef.current || activityOpenRef.current) return
+    const targetId = targetAuditBotIdRef.current
+    const hasUnsuppressedValidTarget = Boolean(
+      targetId &&
+      suppressedAuditRef.current !== targetId &&
+      botsRef.current.some((bot) => bot.id === targetId),
+    )
+    if (hasUnsuppressedValidTarget) return
+    setActivityBot(null)
   }
 
   const openMachines = () => router.push("/c/me/machines")
@@ -325,8 +362,10 @@ export function useBotListController(): BotListController {
     setEditOpen,
     activityBot,
     activityOpen,
+    activityGeneration,
     openActivity,
     onActivityOpenChange,
+    onActivityOpenChangeComplete,
     bugReportBot,
     setBugReportBot,
     bugReportOpen,

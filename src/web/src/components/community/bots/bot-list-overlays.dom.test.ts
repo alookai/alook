@@ -68,7 +68,9 @@ function controller(overrides: Partial<BotListController> = {}): BotListControll
     setEditOpen: noop,
     activityBot: null,
     activityOpen: false,
+    activityGeneration: 0,
     onActivityOpenChange: noop,
+    onActivityOpenChangeComplete: noop,
     openActivity: noop,
     bugReportBot: null,
     bugReportOpen: false,
@@ -131,6 +133,7 @@ describe("renderBotListOverlaySlots", () => {
     const bot = { id: "b1", name: "Blake" }
     const setEditOpen = vi.fn()
     const onActivityOpenChange = vi.fn()
+    const onActivityOpenChangeComplete = vi.fn()
     const setBugReportOpen = vi.fn()
     const state = controller({
       createOpen: true,
@@ -142,7 +145,9 @@ describe("renderBotListOverlaySlots", () => {
       setEditOpen,
       activityBot: bot as BotListController["activityBot"],
       activityOpen: true,
+      activityGeneration: 7,
       onActivityOpenChange,
+      onActivityOpenChangeComplete,
       bugReportBot: bot,
       bugReportOpen: true,
       setBugReportOpen,
@@ -156,7 +161,13 @@ describe("renderBotListOverlaySlots", () => {
       avatarSeed: "seed",
     })
     expect(slots.edit.props).toEqual({ bot, open: true, onOpenChange: setEditOpen })
-    expect(slots.activity.props).toEqual({ bot, open: true, onOpenChange: onActivityOpenChange })
+    expect(slots.activity.key).toBe("7")
+    expect(slots.activity.props).toMatchObject({
+      bot,
+      open: true,
+      onOpenChange: onActivityOpenChange,
+    })
+    expect(slots.activity.props.onOpenChangeComplete).toEqual(expect.any(Function))
     expect(slots.help.props).toEqual({
       open: true,
       onOpenChange: state.setHelpOpen,
@@ -166,9 +177,13 @@ describe("renderBotListOverlaySlots", () => {
 
     slots.edit.props.onOpenChange(false)
     slots.activity.props.onOpenChange(false)
+    slots.activity.props.onOpenChangeComplete(false)
+    slots.activity.props.onOpenChangeComplete(true)
     slots.bug?.props.onOpenChange(false)
     expect(setEditOpen).toHaveBeenCalledWith(false)
     expect(onActivityOpenChange).toHaveBeenCalledWith(false)
+    expect(onActivityOpenChangeComplete).toHaveBeenNthCalledWith(1, false, 7)
+    expect(onActivityOpenChangeComplete).toHaveBeenNthCalledWith(2, true, 7)
     expect(setBugReportOpen).toHaveBeenCalledWith(false)
     expect(state.editingBot).toBe(bot)
     expect(state.activityBot).toBe(bot)
