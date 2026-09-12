@@ -672,8 +672,11 @@ async function loadAndEmbedFonts(
 ): Promise<string> {
   const brand = card.querySelector<HTMLElement>("[data-share-brand]")
   const fontFamily = brand ? getComputedStyle(brand).fontFamily : ""
-  if (fontFamily && document.fonts?.load) {
-    const loadedFaces = await document.fonts.load(`700 14px ${fontFamily}`)
+  if (brand && fontFamily && document.fonts?.load) {
+    const loadedFaces = await document.fonts.load(
+      `700 14px ${fontFamily}`,
+      brand.textContent.trim(),
+    )
     if (loadedFaces.length === 0) throw new Error("Brand font is unavailable")
     await document.fonts.ready
   }

@@ -44,6 +44,13 @@ function imageResponse(
   })
 }
 
+function dataUrlResponse(bytes: Uint8Array) {
+  return {
+    ok: true,
+    blob: vi.fn().mockResolvedValue(new Blob([bytes], { type: "image/png" })),
+  }
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void
   let reject!: (reason?: unknown) => void
@@ -597,7 +604,7 @@ describe("prepareShareImageSession", () => {
   })
 
   it("counts padded base64 data URLs while ignoring ASCII whitespace", async () => {
-    const readDataUrl = vi.fn().mockResolvedValue(imageResponse(new Uint8Array([7])))
+    const readDataUrl = vi.fn().mockResolvedValue(dataUrlResponse(new Uint8Array([7])))
     vi.stubGlobal("fetch", readDataUrl)
     const source = sourceCard('<img alt="inline">')
     source.querySelector("img")!.setAttribute("src", "data:image/png;BASE64,A\tA\f\r\n == ")
@@ -609,7 +616,7 @@ describe("prepareShareImageSession", () => {
   })
 
   it("counts percent escapes and UTF-8 code points in non-base64 data URLs", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(imageResponse(new Uint8Array([8]))))
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(dataUrlResponse(new Uint8Array([8]))))
     const source = sourceCard('<img alt="inline">')
     source.querySelector("img")!.setAttribute("src", "data:image/png,A%20é中😀")
 
@@ -800,12 +807,17 @@ describe("prepareShareImageSession", () => {
     expect(prepared.markup).not.toContain("loading=")
   })
 
-  it("does not second-guess a successfully loaded brand font with fonts.check", async () => {
+  it("loads the actual brand glyphs instead of the source-less fallback's default space", async () => {
+    const primaryFace = { family: "Brand", status: "loaded" } as FontFace
+    vi.mocked(document.fonts.load).mockImplementation(async (_font, text = " ") => {
+      if (text === " ") throw new DOMException("Fallback font has no source", "NetworkError")
+      return [primaryFace]
+    })
     vi.mocked(document.fonts.check).mockReturnValue(false)
     const source = sourceCard("<span>font guard</span>")
 
     await expect(prepare(source)).resolves.toMatchObject({ fontEmbedCSS: FONT_CSS })
-    expect(document.fonts.load).toHaveBeenCalledWith("700 14px Brand")
+    expect(document.fonts.load).toHaveBeenCalledWith("700 14px Brand", "Alook")
     expect(document.fonts.check).not.toHaveBeenCalled()
   })
 
