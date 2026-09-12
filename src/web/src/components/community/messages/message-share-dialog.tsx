@@ -535,6 +535,7 @@ export function MessageShareDialog({ m, open, onClose }: {
               <AnimatedAlookLogo className="size-4" />
               <span
                 data-share-brand
+                data-share-brand-font="caveat"
                 className="text-sm font-bold tracking-tight text-muted-foreground"
                 style={{ fontFamily: "var(--font-brand)" }}
               >

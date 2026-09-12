@@ -1,11 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act } from "@/test/react-dom-harness"
+import { getFontEmbedCSS } from "html-to-image"
 import {
   capturePreparedShareImage,
   prepareShareImageSession,
 } from "./share-image-session"
 
 const FONT_CSS = "@font-face{font-family:Brand;src:url(data:font/woff2;base64,AA==)}"
+
+vi.mock("html-to-image", () => ({ getFontEmbedCSS: vi.fn() }))
 
 class DecodableImage {
   onload: ((event: Event) => void) | null = null
@@ -24,7 +27,7 @@ function sourceCard(markup: string): HTMLElement {
   wrapper.innerHTML = `
     <div data-share-card-source style="width:320px;background-color:rgb(255,255,255);--card:rgb(255,255,255)">
       ${markup}
-      <span data-share-brand style="font-family:Brand;font-weight:700">Alook</span>
+      <span data-share-brand data-share-brand-font="Brand" style="font-family:Brand;font-weight:700">Alook</span>
     </div>
   `
   const source = wrapper.firstElementChild as HTMLElement
@@ -76,6 +79,7 @@ function prepare(
 }
 
 beforeEach(() => {
+  vi.mocked(getFontEmbedCSS).mockResolvedValue(FONT_CSS)
   vi.stubGlobal("Image", DecodableImage)
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 320, 180))
   Object.defineProperty(document, "fonts", {
@@ -97,6 +101,21 @@ afterEach(() => {
 })
 
 describe("prepareShareImageSession", () => {
+  it("prepares an image-free source with default options", async () => {
+    const requestFrame = vi.fn((callback: FrameRequestCallback) => {
+      callback(1)
+      return 1
+    })
+    vi.stubGlobal("requestAnimationFrame", requestFrame)
+    const source = sourceCard("<span>default options</span>")
+
+    const prepared = await prepareShareImageSession(source)
+
+    expect(prepared.markup).toContain("default options")
+    expect(getFontEmbedCSS).toHaveBeenCalledTimes(1)
+    expect(Object.isFrozen(prepared)).toBe(true)
+  })
+
   it("resolves same-origin images to immutable bytes without mutating the React source", async () => {
     const source = sourceCard('<img src="/content.png" alt="content">')
     const fetchAsset = vi.fn().mockResolvedValue(imageResponse())
@@ -807,18 +826,41 @@ describe("prepareShareImageSession", () => {
     expect(prepared.markup).not.toContain("loading=")
   })
 
-  it("loads the actual brand glyphs instead of the source-less fallback's default space", async () => {
-    const primaryFace = { family: "Brand", status: "loaded" } as FontFace
-    vi.mocked(document.fonts.load).mockImplementation(async (_font, text = " ") => {
-      if (text === " ") throw new DOMException("Fallback font has no source", "NetworkError")
+  it("loads only the explicit primary face instead of the computed fallback list", async () => {
+    const primaryFace = { family: "caveat", status: "loaded" } as FontFace
+    vi.mocked(document.fonts.load).mockImplementation(async (font) => {
+      if (font.includes("Fallback")) {
+        throw new DOMException("Fallback font has no source", "NetworkError")
+      }
       return [primaryFace]
     })
-    vi.mocked(document.fonts.check).mockReturnValue(false)
     const source = sourceCard("<span>font guard</span>")
+    const brand = source.querySelector<HTMLElement>("[data-share-brand]")!
+    brand.dataset.shareBrandFont = "caveat"
+    brand.style.fontFamily = 'caveat, "caveat Fallback"'
 
     await expect(prepare(source)).resolves.toMatchObject({ fontEmbedCSS: FONT_CSS })
-    expect(document.fonts.load).toHaveBeenCalledWith("700 14px Brand", "Alook")
-    expect(document.fonts.check).not.toHaveBeenCalled()
+    expect(getComputedStyle(brand).fontFamily).toBe('caveat, "caveat Fallback"')
+    expect(document.fonts.load).toHaveBeenCalledTimes(1)
+    expect(document.fonts.load).toHaveBeenCalledWith('700 14px "caveat"', "Alook")
+  })
+
+  it.each([
+    ["missing", null],
+    ["empty", " \t "],
+  ])("keeps a %s primary brand marker as a hard preparation failure", async (_label, marker) => {
+    const source = sourceCard("<span>font guard</span>")
+    const brand = source.querySelector<HTMLElement>("[data-share-brand]")!
+    if (marker === null) brand.removeAttribute("data-share-brand-font")
+    else brand.dataset.shareBrandFont = marker
+    const getFontCSS = vi.fn().mockResolvedValue(FONT_CSS)
+
+    await expect(prepareShareImageSession(source, {
+      getFontCSS,
+      waitForPaint: vi.fn().mockResolvedValue(undefined),
+    })).rejects.toMatchObject({ stage: "fonts", timedOut: false })
+    expect(document.fonts.load).not.toHaveBeenCalled()
+    expect(getFontCSS).not.toHaveBeenCalled()
   })
 
   it("keeps an empty brand font match as a hard preparation failure", async () => {
@@ -842,6 +884,27 @@ describe("prepareShareImageSession", () => {
       getFontCSS,
       waitForPaint: vi.fn().mockResolvedValue(undefined),
     })).rejects.toMatchObject({ stage: "fonts", timedOut: false })
+    expect(getFontCSS).not.toHaveBeenCalled()
+  })
+
+  it("keeps a rejected font readiness wait as a hard preparation failure", async () => {
+    const readiness = deferred<FontFaceSet>()
+    Object.defineProperty(document.fonts, "ready", {
+      configurable: true,
+      value: readiness.promise,
+    })
+    const source = sourceCard("<span>font guard</span>")
+    const getFontCSS = vi.fn().mockResolvedValue(FONT_CSS)
+    const pending = prepareShareImageSession(source, {
+      getFontCSS,
+      waitForPaint: vi.fn().mockResolvedValue(undefined),
+    })
+    const assertion = expect(pending).rejects.toMatchObject({ stage: "fonts", timedOut: false })
+    await vi.waitFor(() => expect(document.fonts.load).toHaveBeenCalledTimes(1))
+
+    readiness.reject(new Error("font readiness rejected"))
+
+    await assertion
     expect(getFontCSS).not.toHaveBeenCalled()
   })
 

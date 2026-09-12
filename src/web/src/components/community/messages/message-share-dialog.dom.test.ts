@@ -245,6 +245,8 @@ describe("MessageShareDialog session lifecycle", () => {
     expect(preview.querySelector("[data-share-identity-id=u1]")).not.toBeNull()
     expect(preview.querySelector("svg[data-inline-alook-logo]")).not.toBeNull()
     expect(preview.querySelector('img[src="/alook.svg"]')).toBeNull()
+    expect(preview.querySelector("[data-share-brand]")?.getAttribute("data-share-brand-font"))
+      .toBe("caveat")
   })
 
   it("keeps the ready preview frozen across profile-store rerenders", async () => {

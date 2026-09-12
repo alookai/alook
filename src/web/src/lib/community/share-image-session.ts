@@ -671,18 +671,17 @@ async function loadAndEmbedFonts(
   signal: AbortSignal,
 ): Promise<string> {
   const brand = card.querySelector<HTMLElement>("[data-share-brand]")
-  const fontFamily = brand ? getComputedStyle(brand).fontFamily : ""
-  if (brand && fontFamily && document.fonts?.load) {
-    const loadedFaces = await document.fonts.load(
-      `700 14px ${fontFamily}`,
-      brand.textContent.trim(),
-    )
-    if (loadedFaces.length === 0) throw new Error("Brand font is unavailable")
-    await document.fonts.ready
-  }
+  const primaryFontFamily = brand?.dataset.shareBrandFont?.trim()
+  if (!brand || !primaryFontFamily) throw new Error("Share-card brand font is missing")
+  const loadedFaces = await document.fonts.load(
+    `700 14px ${JSON.stringify(primaryFontFamily)}`,
+    brand.textContent.trim(),
+  )
+  if (loadedFaces.length === 0) throw new Error("Brand font is unavailable")
+  await document.fonts.ready
   throwIfAborted(signal)
   const css = await getFontCSS(card)
-  if (fontFamily && !css.trim()) throw new Error("Share-card fonts could not be embedded")
+  if (!css.trim()) throw new Error("Share-card fonts could not be embedded")
   return css
 }
 
