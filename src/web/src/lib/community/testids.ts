@@ -11,6 +11,7 @@ export const tid = {
   scrollToPresent: "community-scroll-to-present",
   messageSelectionToolbar: "community-message-selection-toolbar",
   messageScroller: "community-message-scroller",
+  initialPositionAurora: "community-initial-position-aurora",
   wsReconnectOverlay: "community-ws-reconnect-overlay",
   wsRetry: "community-ws-retry",
   initialFrame: "community-initial-frame",

@@ -195,6 +195,7 @@ describe("useMessageListController", () => {
       viewerUserId: undefined,
       heroHeight: 0,
       heroMeasured: false,
+      onInitialPositionSettled: expect.any(Function),
     })
     expect(mocks.sentinelInputs.slice(0, 2)).toEqual([
       {
@@ -229,6 +230,43 @@ describe("useMessageListController", () => {
     expect(mocks.hookOrder.slice(-3)).toEqual(["anchor", "start", "end"])
   })
 
+  it("reveals an authoritative empty window immediately and skips positioning effects", () => {
+    act(() => {
+      rtlRender(React.createElement(Probe, {
+        value: props({ loading: false, messages: [] }),
+      }))
+    })
+    expect(latest).toMatchObject({
+      isLoading: false,
+      initialPosition: {
+        phase: "revealed",
+        showSkeleton: false,
+        contentVisible: true,
+        auroraVisible: false,
+      },
+    })
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it("waits for the hook-owned post-action settlement callback on ordinary windows", () => {
+    act(() => {
+      rtlRender(React.createElement(Probe, { value: props() }))
+    })
+    expect(latest.initialPosition).toMatchObject({
+      phase: "positioning",
+      contentVisible: false,
+    })
+    const settle = (mocks.scrollInputs.at(-1) as {
+      onInitialPositionSettled: () => void
+    }).onInitialPositionSettled
+    act(() => settle())
+    expect(latest.initialPosition).toMatchObject({
+      phase: "revealed",
+      contentVisible: true,
+      auroraVisible: false,
+    })
+  })
+
   it("passes every pagination/anchor input through and gives jump mode server-count precedence", () => {
     const loadOlder = vi.fn()
     const loadNewer = vi.fn()
@@ -260,6 +298,7 @@ describe("useMessageListController", () => {
       viewerUserId: "viewer_1",
       heroHeight: 0,
       heroMeasured: true,
+      onInitialPositionSettled: expect.any(Function),
     })
     expect(mocks.sentinelInputs.slice(-2)).toEqual([
       {
@@ -330,6 +369,7 @@ describe("useMessageListController", () => {
       }))
     })
     expect((mocks.scrollInputs.at(-1) as { initialScrollReady: boolean }).initialScrollReady).toBe(false)
+    expect(latest.initialPosition.phase).toBe("positioning")
     act(() => {
       renderer!.rerender(React.createElement(Probe, {
         value: props({
@@ -341,8 +381,16 @@ describe("useMessageListController", () => {
     })
     expect((mocks.scrollInputs.at(-1) as { initialScrollReady: boolean }).initialScrollReady).toBe(true)
     expect(consumed).toHaveBeenCalledOnce()
+    const settleAnchor = (mocks.scrollInputs.at(-1) as {
+      onInitialPositionSettled: () => void
+    }).onInitialPositionSettled
+    act(() => settleAnchor())
+    expect(latest.initialPosition.phase).toBe("positioning")
     visibleMessageIds = ["m2"]
     runNextFrame()
+    expect(latest.initialPosition.phase).toBe("positioning")
+    runNextFrame()
+    expect(latest.initialPosition.phase).toBe("revealed")
     act(() => {
       latest.onEnterSelectId("m2")
       latest.setShareOpen(true)
@@ -571,6 +619,23 @@ describe("useMessageListController", () => {
     act(() => renderer!.unmount())
   })
 
+  it("cancels explicit-target frames and transition timers when the keyed mount leaves", () => {
+    let renderer: ReturnType<typeof rtlRender>
+    act(() => {
+      renderer = rtlRender(React.createElement(Probe, {
+        value: props({ scrollToMessageId: "m1" }),
+      }))
+    })
+    const pendingFrames = [...frameCallbacks.keys()]
+    expect(pendingFrames).toHaveLength(2)
+    expect(vi.getTimerCount()).toBe(2)
+
+    act(() => renderer!.unmount())
+    for (const frame of pendingFrames) expect(cancelFrame).toHaveBeenCalledWith(frame)
+    expect(frameCallbacks.size).toBe(0)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
   it("bounds invisible-target polling and gives the newest pending frame and timer ownership", () => {
     visibleMessageIds = []
     let renderer: ReturnType<typeof rtlRender>
@@ -579,6 +644,10 @@ describe("useMessageListController", () => {
         React.createElement(Probe, { value: props() })
       )
     })
+    act(() => (mocks.scrollInputs.at(-1) as {
+      onInitialPositionSettled: () => void
+    }).onInitialPositionSettled())
+    expect(latest.initialPosition.phase).toBe("revealed")
     act(() => latest.jumpTo("m1", "auto"))
     for (let index = 0; index < 120; index += 1) runNextFrame()
     expect(requestFrame).toHaveBeenCalledTimes(120)

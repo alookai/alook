@@ -99,6 +99,8 @@ import { useTimelineReadObserver } from "./use-read-observer"
 type ObserverRecord = {
   callback: IntersectionObserverCallback
   observed: Set<Element>
+  queued: IntersectionObserverEntry[]
+  actions: string[]
   disconnected: boolean
 }
 
@@ -107,21 +109,36 @@ let visibility: DocumentVisibilityState
 let visibilityListeners: Set<() => void>
 let pageShowListeners: Set<() => void>
 let mutationCallback: MutationCallback | undefined
+let mutationObserveOptions: MutationObserverInit | undefined
+let mutationObservedTarget: Node | undefined
 
 class FakeIntersectionObserver {
   private readonly record: ObserverRecord
 
   constructor(callback: IntersectionObserverCallback) {
-    this.record = { callback, observed: new Set(), disconnected: false }
+    this.record = {
+      callback,
+      observed: new Set(),
+      queued: [],
+      actions: [],
+      disconnected: false,
+    }
     observers.push(this.record)
   }
 
   observe(element: Element) {
+    this.record.actions.push(`observe:${(element as HTMLElement).dataset.msgId ?? "unknown"}`)
     this.record.observed.add(element)
   }
 
   unobserve(element: Element) {
+    this.record.actions.push(`unobserve:${(element as HTMLElement).dataset.msgId ?? "unknown"}`)
     this.record.observed.delete(element)
+  }
+
+  takeRecords() {
+    this.record.actions.push("takeRecords")
+    return this.record.queued.splice(0)
   }
 
   disconnect() {
@@ -139,8 +156,39 @@ function makeRow(id: string) {
   } as unknown as HTMLElement
 }
 
-function makeRoot(rows: HTMLElement[]) {
+type ContentBoundary = HTMLElement & {
+  setAriaHidden: (hidden: boolean) => void
+  setInert: (inert: boolean) => void
+  setReadable: (readable: boolean) => void
+}
+
+function makeContentBoundary(initiallyReadable = true) {
+  let ariaHidden = !initiallyReadable
+  let inert = !initiallyReadable
   return {
+    nodeType: 1,
+    getAttribute: (name: string) => name === "aria-hidden"
+      ? ariaHidden ? "true" : "false"
+      : null,
+    hasAttribute: (name: string) => name === "inert" && inert,
+    setAriaHidden: (hidden: boolean) => {
+      ariaHidden = hidden
+    },
+    setInert: (next: boolean) => {
+      inert = next
+    },
+    setReadable: (next: boolean) => {
+      ariaHidden = !next
+      inert = !next
+    },
+  } as unknown as ContentBoundary
+}
+
+function makeRoot(rows: HTMLElement[], boundary: ContentBoundary | null = makeContentBoundary()) {
+  return {
+    querySelector: (selector: string) => selector === "[data-message-list-content]"
+      ? boundary
+      : null,
     querySelectorAll: () => rows,
     contains: (node: Element) => rows.includes(node as HTMLElement),
   } as unknown as HTMLElement
@@ -153,11 +201,44 @@ function runEffects() {
 }
 
 function trigger(record: ObserverRecord, target: Element, ratio = 1) {
-  record.callback([{
+  const entry = {
     target,
     isIntersecting: true,
     intersectionRatio: ratio,
-  } as IntersectionObserverEntry], {} as IntersectionObserver)
+  } as IntersectionObserverEntry
+  record.callback([entry], {} as IntersectionObserver)
+}
+
+function queueEntry(record: ObserverRecord, target: Element, ratio = 1) {
+  record.queued.push({
+    target,
+    isIntersecting: true,
+    intersectionRatio: ratio,
+  } as IntersectionObserverEntry)
+}
+
+function deliverQueued(record: ObserverRecord) {
+  record.callback(record.queued.splice(0), {} as IntersectionObserver)
+}
+
+function presentationAttributeRecord(
+  boundary: ContentBoundary,
+  attributeName: "aria-hidden" | "inert",
+) {
+  return {
+    type: "attributes",
+    target: boundary,
+    attributeName,
+    addedNodes: [] as unknown as NodeList,
+  } as MutationRecord
+}
+
+function setPresentationAttributeReadable(
+  boundary: ContentBoundary,
+  attributeName: "aria-hidden" | "inert",
+) {
+  if (attributeName === "aria-hidden") boundary.setAriaHidden(false)
+  else boundary.setInert(false)
 }
 
 function useTestRender(options: Partial<Parameters<typeof useTimelineReadObserver>[0]> = {}) {
@@ -186,6 +267,8 @@ describe("useTimelineReadObserver", () => {
     visibilityListeners = new Set()
     pageShowListeners = new Set()
     mutationCallback = undefined
+    mutationObserveOptions = undefined
+    mutationObservedTarget = undefined
     hookState.candidate = null
     refState.reset()
     vi.clearAllMocks()
@@ -195,7 +278,10 @@ describe("useTimelineReadObserver", () => {
         mutationCallback = callback
       }
 
-      observe() {}
+      observe(target: Node, options?: MutationObserverInit) {
+        mutationObservedTarget = target
+        mutationObserveOptions = options
+      }
       disconnect() {}
     })
     vi.stubGlobal("document", {
@@ -274,9 +360,15 @@ describe("useTimelineReadObserver", () => {
     expect(observers[0]!.disconnected).toBe(true)
   })
 
-  it("submits only the visible forum-card prefix candidate and preserves unseen newer siblings", () => {
+  it("keeps a no-boundary forum surface readable for intent, negative classification, and resume", () => {
+    hookState.candidate = {
+      channelId: "forum-1",
+      lastMessageAt: "t3",
+      fingerprint: "forum-t3",
+      openerUnread: true,
+    }
     const rows = [makeRow("opener-a"), makeRow("opener-b"), makeRow("opener-c")]
-    const root = makeRoot(rows)
+    const root = makeRoot(rows, null)
     useTestRender({
       channelId: "forum-1",
       messages: [
@@ -285,10 +377,14 @@ describe("useTimelineReadObserver", () => {
         { id: "opener-c", seq: 3, authorId: "alice" },
       ],
       scrollRootEl: root,
+      tailAttached: false,
       confirmedSeq: 0,
     })
     runEffects()
 
+    expect(root.querySelector("[data-message-list-content]")).toBeNull()
+    expect(reservation.negative).toHaveBeenCalledWith({ lease: "reservation" })
+    expect(coordinator.resume).toHaveBeenCalledWith(queryClient)
     trigger(observers[0]!, rows[0]!)
 
     expect(coordinator.submit).toHaveBeenCalledOnce()
@@ -314,6 +410,32 @@ describe("useTimelineReadObserver", () => {
     expect(coordinator.resume).toHaveBeenCalledWith(queryClient)
     trigger(observers[0]!, row)
     expect(coordinator.submit).toHaveBeenCalledOnce()
+  })
+
+  it("keeps all read side effects silent while presentation is hidden and inert", () => {
+    hookState.candidate = {
+      channelId: "channel-1",
+      lastMessageAt: "t4",
+      fingerprint: "focused-t4",
+      openerUnread: false,
+    }
+    const row = makeRow("message-4")
+    const boundary = makeContentBoundary(false)
+    useTestRender({
+      scrollRootEl: makeRoot([row], boundary),
+      tailAttached: false,
+    })
+    runEffects()
+
+    trigger(observers[0]!, row)
+    for (const listener of visibilityListeners) listener()
+    for (const listener of pageShowListeners) listener()
+
+    expect(coordinator.submit).not.toHaveBeenCalled()
+    expect(projection.recordOptimisticRead).not.toHaveBeenCalled()
+    expect(reservation.promote).not.toHaveBeenCalled()
+    expect(reservation.negative).not.toHaveBeenCalled()
+    expect(coordinator.resume).not.toHaveBeenCalled()
   })
 
   it.each([
@@ -449,6 +571,9 @@ describe("useTimelineReadObserver", () => {
     trigger(record, row)
     expect(coordinator.submit).not.toHaveBeenCalled()
     expect(coordinator.release).toHaveBeenCalledWith({ lease: "timeline" })
+    expect(reservation.release.mock.invocationCallOrder[0]).toBeLessThan(
+      coordinator.release.mock.invocationCallOrder[0]!,
+    )
   })
 
   it("binds direct and nested message rows added after the observer mounts", () => {
@@ -469,5 +594,157 @@ describe("useTimelineReadObserver", () => {
 
     expect(observers[0]!.observed.has(direct)).toBe(true)
     expect(observers[0]!.observed.has(nested)).toBe(true)
+  })
+
+  it("drains a hidden queued entry before rebinding the same node for reveal", () => {
+    const row = makeRow("message-4")
+    const boundary = makeContentBoundary(false)
+    const root = makeRoot([row], boundary)
+    useTestRender({ scrollRootEl: root })
+    runEffects()
+    const record = observers[0]!
+    expect(mutationObservedTarget).toBe(root)
+    expect(mutationObserveOptions).toEqual({
+      attributes: true,
+      attributeFilter: ["aria-hidden", "inert"],
+      childList: true,
+      subtree: true,
+    })
+    queueEntry(record, row)
+    record.actions.length = 0
+
+    boundary.setReadable(true)
+    mutationCallback?.([{
+      type: "attributes",
+      target: boundary,
+      attributeName: "aria-hidden",
+      addedNodes: [] as unknown as NodeList,
+    } as MutationRecord], {} as MutationObserver)
+
+    const drainIndex = record.actions.indexOf("takeRecords")
+    expect(drainIndex).toBeGreaterThan(record.actions.indexOf("unobserve:message-4"))
+    expect(record.actions.findIndex((action, index) => (
+      index > drainIndex && action === "observe:message-4"
+    ))).toBeGreaterThan(drainIndex)
+
+    deliverQueued(record)
+    expect(coordinator.submit).not.toHaveBeenCalled()
+
+    queueEntry(record, row)
+    deliverQueued(record)
+    expect(coordinator.submit).toHaveBeenCalledOnce()
+  })
+
+  it.each([
+    {
+      label: "aria-hidden then inert across two deliveries",
+      first: "aria-hidden" as const,
+      second: "inert" as const,
+    },
+    {
+      label: "inert then aria-hidden across two deliveries",
+      first: "inert" as const,
+      second: "aria-hidden" as const,
+    },
+  ])("resamples once for $label", ({ first, second }) => {
+    const row = makeRow("message-4")
+    const boundary = makeContentBoundary(false)
+    useTestRender({ scrollRootEl: makeRoot([row], boundary) })
+    runEffects()
+    const record = observers[0]!
+    record.actions.length = 0
+
+    setPresentationAttributeReadable(boundary, first)
+    mutationCallback?.([
+      presentationAttributeRecord(boundary, first),
+    ], {} as MutationObserver)
+    expect(record.actions.filter((action) => action === "takeRecords")).toHaveLength(0)
+    expect(coordinator.resume).not.toHaveBeenCalled()
+
+    setPresentationAttributeReadable(boundary, second)
+    mutationCallback?.([
+      presentationAttributeRecord(boundary, second),
+    ], {} as MutationObserver)
+    expect(record.actions.filter((action) => action === "takeRecords")).toHaveLength(1)
+    expect(coordinator.resume).toHaveBeenCalledOnce()
+
+    mutationCallback?.([
+      presentationAttributeRecord(boundary, second),
+    ], {} as MutationObserver)
+    expect(record.actions.filter((action) => action === "takeRecords")).toHaveLength(1)
+    expect(coordinator.resume).toHaveBeenCalledOnce()
+  })
+
+  it("resamples once when both presentation attributes become readable in one delivery", () => {
+    const row = makeRow("message-4")
+    const boundary = makeContentBoundary(false)
+    useTestRender({ scrollRootEl: makeRoot([row], boundary) })
+    runEffects()
+    const record = observers[0]!
+    record.actions.length = 0
+
+    boundary.setAriaHidden(false)
+    expect(record.actions.filter((action) => action === "takeRecords")).toHaveLength(0)
+    expect(coordinator.resume).not.toHaveBeenCalled()
+
+    boundary.setInert(false)
+    mutationCallback?.([
+      presentationAttributeRecord(boundary, "aria-hidden"),
+      presentationAttributeRecord(boundary, "inert"),
+    ], {} as MutationObserver)
+    expect(record.actions.filter((action) => action === "takeRecords")).toHaveLength(1)
+    expect(coordinator.resume).toHaveBeenCalledOnce()
+
+    mutationCallback?.([
+      presentationAttributeRecord(boundary, "aria-hidden"),
+      presentationAttributeRecord(boundary, "inert"),
+    ], {} as MutationObserver)
+    expect(record.actions.filter((action) => action === "takeRecords")).toHaveLength(1)
+    expect(coordinator.resume).toHaveBeenCalledOnce()
+  })
+
+  it("drains reveal entries but preserves the document-hidden negative return", () => {
+    const row = makeRow("message-4")
+    const boundary = makeContentBoundary(false)
+    useTestRender({ scrollRootEl: makeRoot([row], boundary) })
+    runEffects()
+    const record = observers[0]!
+    queueEntry(record, row)
+    record.actions.length = 0
+    visibility = "hidden"
+
+    boundary.setReadable(true)
+    mutationCallback?.([{
+      type: "attributes",
+      target: boundary,
+      attributeName: "aria-hidden",
+      addedNodes: [] as unknown as NodeList,
+    } as MutationRecord], {} as MutationObserver)
+
+    expect(record.actions).toEqual(["unobserve:message-4", "takeRecords"])
+    expect(record.queued).toHaveLength(0)
+    expect(reservation.negative).toHaveBeenCalledOnce()
+    expect(coordinator.resume).not.toHaveBeenCalled()
+
+    visibility = "visible"
+    for (const listener of visibilityListeners) listener()
+    expect(record.actions.filter((action) => action === "takeRecords")).toHaveLength(1)
+    expect(record.actions.at(-1)).toBe("observe:message-4")
+    expect(coordinator.resume).toHaveBeenCalledOnce()
+  })
+
+  it("keeps ordinary visibility and pageshow samples independent and undrained", () => {
+    const { row } = useTestRender()
+    runEffects()
+    const record = observers[0]!
+    coordinator.resume.mockClear()
+    record.actions.length = 0
+
+    for (const listener of visibilityListeners) listener()
+    for (const listener of pageShowListeners) listener()
+
+    expect(coordinator.resume).toHaveBeenCalledTimes(2)
+    expect(record.actions.filter((action) => action === "takeRecords")).toHaveLength(0)
+    expect(record.observed.has(row)).toBe(true)
   })
 })

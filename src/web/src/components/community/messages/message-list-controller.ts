@@ -5,6 +5,7 @@ import type { RenderMsg } from "@/lib/community/models/message"
 import { flattenMessageItems } from "@/lib/community/message-list-items"
 import { useScrollAnchor } from "@/hooks/community/use-scroll-anchor"
 import { useVirtualCursorSentinel } from "@/hooks/community/use-virtual-cursor-sentinel"
+import { useInitialPositionTransition } from "./initial-position-transition"
 import type { ResolvedMessageListProps } from "./message-list-types"
 
 const SELECTION_RAIL_GAP_PX = 8
@@ -30,6 +31,10 @@ export function useMessageListController({
   onScrollTargetConsumed,
 }: ResolvedMessageListProps) {
   const [jumped, setJumped] = useState<string | null>(null)
+  const [anchorPositionSettled, setAnchorPositionSettled] = useState(false)
+  const [targetPositionSettled, setTargetPositionSettled] = useState(!scrollToMessageId)
+  const targetSettleFrameRef = useRef<number | null>(null)
+  const consumedScrollTargetRef = useRef<string | null>(null)
 
   const items = useMemo(
     () => flattenMessageItems(messages, newDividerBefore, !!hasMore),
@@ -84,6 +89,8 @@ export function useMessageListController({
   const [heroHeight, setHeroHeight] = useState(0)
   const [heroMeasured, setHeroMeasured] = useState(false)
   const isLoading = !!loading && messages.length === 0
+  const authoritativeEmpty = !loading && messages.length === 0
+  const settleAnchorPosition = useCallback(() => setAnchorPositionSettled(true), [])
   useEffect(() => {
     const element = heroRef.current
     if (!element) return
@@ -114,6 +121,12 @@ export function useMessageListController({
     viewerUserId,
     heroHeight,
     heroMeasured,
+    onInitialPositionSettled: settleAnchorPosition,
+  })
+  const initialPosition = useInitialPositionTransition({
+    firstWindowReady: !isLoading,
+    authoritativeEmpty,
+    positionSettled: anchorPositionSettled && targetPositionSettled,
   })
 
   useLayoutEffect(() => {
@@ -225,7 +238,11 @@ export function useMessageListController({
     }
   }, [])
 
-  const consumedScrollTargetRef = useRef<string | null>(null)
+  useLayoutEffect(() => {
+    if (!scrollToMessageId) return
+    setTargetPositionSettled(false)
+  }, [scrollToMessageId])
+
   useEffect(() => {
     if (!scrollToMessageId) {
       consumedScrollTargetRef.current = null
@@ -236,6 +253,13 @@ export function useMessageListController({
     consumedScrollTargetRef.current = scrollToMessageId
     jumpTo(scrollToMessageId, "auto")
     onScrollTargetConsumed?.(scrollToMessageId)
+    if (targetSettleFrameRef.current !== null) {
+      window.cancelAnimationFrame(targetSettleFrameRef.current)
+    }
+    targetSettleFrameRef.current = window.requestAnimationFrame(() => {
+      targetSettleFrameRef.current = null
+      setTargetPositionSettled(true)
+    })
   }, [
     scrollToMessageId,
     scrollTargetLoaded,
@@ -243,6 +267,11 @@ export function useMessageListController({
     jumpTo,
     onScrollTargetConsumed,
   ])
+  useLayoutEffect(() => () => {
+    if (targetSettleFrameRef.current !== null) {
+      window.cancelAnimationFrame(targetSettleFrameRef.current)
+    }
+  }, [])
 
   const jumpMode = !!hasMoreNewer
   const pillCount = jumpMode ? ((unreadCount ?? belowCount) || 0) : belowCount
@@ -258,6 +287,7 @@ export function useMessageListController({
   return {
     items,
     isLoading,
+    initialPosition,
     jumped,
     selectMode,
     selectedIds,

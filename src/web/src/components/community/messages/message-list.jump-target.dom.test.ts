@@ -43,6 +43,9 @@ vi.mock("./message-row", () => ({
 }))
 vi.mock("./message-share-dialog", () => ({ MessageShareDialog: () => null }))
 vi.mock("./typing-indicator", () => ({ TypingIndicator: () => null }))
+vi.mock("./initial-position-aurora.module.css", () => ({
+  default: new Proxy({}, { get: (_target, key) => String(key) }),
+}))
 
 const target = {
   id: "m_target",

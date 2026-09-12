@@ -1,0 +1,139 @@
+.aurora {
+  --aurora-cool: color-mix(in oklab, var(--ring) 68%, var(--background));
+  --aurora-middle: color-mix(in oklab, var(--primary) 42%, var(--background));
+  --aurora-warm: color-mix(in oklab, var(--accent-foreground) 34%, var(--background));
+  position: absolute;
+  right: 1rem;
+  bottom: 0;
+  left: 1rem;
+  z-index: 10;
+  height: 3.5rem;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 100ms var(--ease-out);
+  will-change: opacity;
+}
+
+.visible {
+  opacity: 0.52;
+}
+
+:global(.dark) .visible {
+  opacity: 0.68;
+}
+
+.leaving {
+  opacity: 0;
+}
+
+.drift {
+  position: absolute;
+  inset: 0 -10%;
+  transform-origin: center bottom;
+  animation: aurora-drift 3.6s ease-in-out infinite alternate;
+}
+
+.peaks,
+.haze {
+  position: absolute;
+  inset: 0;
+  transform-origin: center bottom;
+}
+
+.peaks {
+  background:
+    repeating-linear-gradient(
+      90deg,
+      transparent 0 3%,
+      color-mix(in oklab, var(--aurora-cool) 72%, transparent) 4% 4.7%,
+      transparent 5.8% 9%,
+      color-mix(in oklab, var(--aurora-middle) 66%, transparent) 10% 10.6%,
+      transparent 11.8% 16%,
+      color-mix(in oklab, var(--aurora-warm) 62%, transparent) 17% 17.5%,
+      transparent 18.8% 24%
+    ),
+    linear-gradient(
+      to top,
+      color-mix(in oklab, var(--aurora-cool) 42%, transparent),
+      color-mix(in oklab, var(--aurora-middle) 20%, transparent) 46%,
+      transparent 92%
+    );
+  filter: blur(4px);
+  animation: aurora-breathe 2.4s var(--ease-in-out) infinite alternate;
+}
+
+.haze {
+  background:
+    radial-gradient(
+      38% 80% at 24% 100%,
+      color-mix(in oklab, var(--aurora-cool) 46%, transparent),
+      transparent 72%
+    ),
+    radial-gradient(
+      42% 86% at 58% 100%,
+      color-mix(in oklab, var(--aurora-middle) 38%, transparent),
+      transparent 74%
+    ),
+    radial-gradient(
+      34% 76% at 86% 100%,
+      color-mix(in oklab, var(--aurora-warm) 40%, transparent),
+      transparent 70%
+    );
+  filter: blur(10px);
+  opacity: 0.72;
+  animation: aurora-haze 2.8s var(--ease-in-out) infinite alternate;
+}
+
+@keyframes aurora-drift {
+  from {
+    transform: translateX(-2%);
+  }
+
+  to {
+    transform: translateX(2%);
+  }
+}
+
+@keyframes aurora-breathe {
+  from {
+    transform: scaleY(0.76);
+  }
+
+  to {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes aurora-haze {
+  from {
+    transform: scaleY(0.84);
+    opacity: 0.52;
+  }
+
+  to {
+    transform: scaleY(1);
+    opacity: 0.72;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aurora {
+    transition: opacity 100ms var(--ease-out);
+  }
+
+  .visible {
+    opacity: 0.34;
+  }
+
+  :global(.dark) .visible {
+    opacity: 0.44;
+  }
+
+  .drift,
+  .peaks,
+  .haze {
+    animation: none;
+    transform: none;
+  }
+}

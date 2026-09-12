@@ -395,6 +395,7 @@ export function useScrollAnchor({
   viewerUserId,
   heroHeight,
   heroMeasured,
+  onInitialPositionSettled,
 }: {
   items: FlatItem[]
   newDividerBefore?: string
@@ -414,6 +415,7 @@ export function useScrollAnchor({
   // `DecideScrollActionInput.heroMeasured`'s doc comment for the bug this
   // prevents (mount firing on a stale, default-0 `scrollMargin`).
   heroMeasured: boolean
+  onInitialPositionSettled?: () => void
 }): {
   scrollRef: React.RefObject<HTMLDivElement | null>
   virtualizer: ReactVirtualizer<HTMLDivElement, Element>
@@ -424,6 +426,8 @@ export function useScrollAnchor({
 } {
   const scrollRef = useRef<HTMLDivElement>(null)
   const stateRef = useRef<ScrollAnchorState>(createScrollAnchorState())
+  const initialSettleFrameRef = useRef<number | null>(null)
+  const initialPositionSettledRef = useRef(false)
   const messages = extractScrollAnchorMessages(items)
   const tailId = messages[messages.length - 1]?.id ?? null
   const wasAtEndRef = useRef(true)
@@ -436,6 +440,21 @@ export function useScrollAnchor({
   const liveResizeAnchor = wasExactlyPinnedRef.current && !userScrolledAwayRef.current
     ? "end"
     : "start"
+  const cancelInitialSettleFrame = useCallback(() => {
+    if (initialSettleFrameRef.current === null) return
+    window.cancelAnimationFrame(initialSettleFrameRef.current)
+    initialSettleFrameRef.current = null
+  }, [])
+  const scheduleInitialPositionSettled = useCallback(() => {
+    if (initialPositionSettledRef.current || initialSettleFrameRef.current !== null) return
+    initialSettleFrameRef.current = window.requestAnimationFrame(() => {
+      initialSettleFrameRef.current = null
+      if (initialPositionSettledRef.current) return
+      initialPositionSettledRef.current = true
+      onInitialPositionSettled?.()
+    })
+  }, [onInitialPositionSettled])
+  useLayoutEffect(() => cancelInitialSettleFrame, [cancelInitialSettleFrame])
 
   // eslint-disable-next-line react-hooks/incompatible-library -- library limitation, same as member-list.tsx
   const virtualizer = useVirtualizer({
@@ -619,6 +638,8 @@ export function useScrollAnchor({
       userScrolledAway: userScrolledAwayRef.current,
     })
     stateRef.current = nextState
+    const initialSequenceComplete = nextState.didInitialScroll && nextState.didDividerConverge
+    if (!initialSequenceComplete) cancelInitialSettleFrame()
 
     switch (action.type) {
       case "mount": {
@@ -630,21 +651,32 @@ export function useScrollAnchor({
           virtualizer.options.anchorTo = "end"
           virtualizer.scrollToEnd()
         }
-        return
+        break
       }
       case "scrollToEnd":
         wasExactlyPinnedRef.current = true
         virtualizer.options.anchorTo = "end"
         virtualizer.scrollToEnd()
-        return
+        break
       case "none":
-        return
+        break
     }
+    if (initialSequenceComplete) scheduleInitialPositionSettled()
     // messages/items share identity per render (extractScrollAnchorMessages
     // derives from items) — `items` alone is the correct dep, not a
     // secondary `messages` dep, avoiding a re-derivation-triggered re-fire.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, newDividerBefore, initialScrollReady, heroMeasured, hasMoreNewer, viewerUserId, virtualizer])
+  }, [
+    items,
+    newDividerBefore,
+    initialScrollReady,
+    heroMeasured,
+    hasMoreNewer,
+    viewerUserId,
+    virtualizer,
+    cancelInitialSettleFrame,
+    scheduleInitialPositionSettled,
+  ])
 
   const consumedPresentVersionRef = useRef(0)
   useLayoutEffect(() => {
@@ -661,7 +693,8 @@ export function useScrollAnchor({
     userScrolledAwayRef.current = false
     virtualizer.options.anchorTo = "end"
     virtualizer.scrollToEnd()
-  }, [hasMoreNewer, presentVersion, tailId, virtualizer])
+    scheduleInitialPositionSettled()
+  }, [hasMoreNewer, presentVersion, scheduleInitialPositionSettled, tailId, virtualizer])
 
   // Hero-swap compensation — NOT delegated to `scrollMargin` (verified it
   // never triggers a `scrollOffset` write on its own). Tracks the hero's

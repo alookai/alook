@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { useCurrentUser } from "@/contexts/community/current-user"
 import {
@@ -21,6 +21,14 @@ import {
 import { getAccountUnreadProjection } from "./account-unread-projection"
 
 const READ_VISIBILITY_THRESHOLD = 0.2
+const MESSAGE_LIST_CONTENT_SELECTOR = "[data-message-list-content]"
+
+function readPresentationReadable(scrollRootEl: HTMLElement) {
+  const content = scrollRootEl.querySelector<HTMLElement>(MESSAGE_LIST_CONTENT_SELECTOR)
+  if (!content) return true
+  return content.getAttribute("aria-hidden") === "false"
+    && !content.hasAttribute("inert")
+}
 
 export type ReadCandidate = {
   id: string
@@ -60,7 +68,8 @@ export function useTimelineReadObserver({
   const catchUpStartedRef = useRef(new Set<string>())
   const catchUpSettledRef = useRef(new Set<string>())
   const [candidate, setCandidate] = useState<InboxReadCandidate | null>(null)
-  const [, setCatchUpVersion] = useState(0)
+  const [catchUpVersion, setCatchUpVersion] = useState(0)
+  const classifyCandidateRef = useRef<() => void>(() => undefined)
 
   useLayoutEffect(() => {
     messagesRef.current = messages
@@ -97,11 +106,12 @@ export function useTimelineReadObserver({
     confirmReadSurface(lease, confirmedSeq)
   }, [confirmedSeq, snapshotStatus])
 
-  useEffect(() => {
+  const classifyCandidate = useCallback(() => {
     if (!candidate || !channelId) return
     const reservationLease = reservationLeaseRef.current
     if (!reservationLease) return
     if (snapshotStatus === "pending" || feedStatus === "pending" || !scrollRootEl) return
+    if (!readPresentationReadable(scrollRootEl)) return
     if (
       snapshotStatus === "error"
       || feedStatus === "error"
@@ -155,6 +165,14 @@ export function useTimelineReadObserver({
     tailAttached,
   ])
 
+  useLayoutEffect(() => {
+    classifyCandidateRef.current = classifyCandidate
+  }, [classifyCandidate])
+
+  useEffect(() => {
+    classifyCandidate()
+  }, [catchUpVersion, classifyCandidate])
+
   useEffect(() => {
     if (!channelId || !scrollRootEl) return
     if (typeof IntersectionObserver === "undefined") return
@@ -162,6 +180,7 @@ export function useTimelineReadObserver({
     const reservationLease = reservationLeaseRef.current
     if (!readLease || !reservationLease) return
     let observerGeneration = 0
+    let presentationReadable = readPresentationReadable(scrollRootEl)
     const bindings = new WeakMap<Element, { id: string; generation: number }>()
     const bind = (node: Element) => {
       const id = (node as HTMLElement).dataset.msgId
@@ -170,6 +189,7 @@ export function useTimelineReadObserver({
       observer.observe(node)
     }
     const observer = new IntersectionObserver((entries) => {
+      if (!readPresentationReadable(scrollRootEl)) return
       if (!readyRef.current) return
       if (document.visibilityState !== "visible") {
         takeInboxReadReservationNegative(reservationLease)
@@ -205,6 +225,7 @@ export function useTimelineReadObserver({
     }, { root: scrollRootEl, threshold: READ_VISIBILITY_THRESHOLD })
 
     const sample = () => {
+      if (!readPresentationReadable(scrollRootEl)) return
       if (document.visibilityState !== "visible") {
         takeInboxReadReservationNegative(reservationLease)
         return
@@ -221,6 +242,18 @@ export function useTimelineReadObserver({
     const mutations = typeof MutationObserver === "undefined"
       ? null
       : new MutationObserver((records) => {
+          const nextPresentationReadable = readPresentationReadable(scrollRootEl)
+          const presentationRevealed = !presentationReadable && nextPresentationReadable
+          presentationReadable = nextPresentationReadable
+          if (presentationRevealed) {
+            scrollRootEl.querySelectorAll<HTMLElement>("[data-msg-id]").forEach((node) => {
+              observer.unobserve(node)
+            })
+            observer.takeRecords()
+            sample()
+            if (document.visibilityState === "visible") classifyCandidateRef.current()
+            return
+          }
           for (const record of records) {
             for (const node of record.addedNodes) {
               if ((node as { nodeType?: number }).nodeType !== 1) continue
@@ -230,7 +263,12 @@ export function useTimelineReadObserver({
             }
           }
         })
-    mutations?.observe(scrollRootEl, { childList: true, subtree: true })
+    mutations?.observe(scrollRootEl, {
+      attributes: true,
+      attributeFilter: ["aria-hidden", "inert"],
+      childList: true,
+      subtree: true,
+    })
     document.addEventListener("visibilitychange", sample)
     window.addEventListener("pageshow", sample)
     return () => {
@@ -243,7 +281,13 @@ export function useTimelineReadObserver({
   }, [channelId, currentUser.id, feedStatus, queryClient, scrollRootEl, snapshotStatus])
 
   useEffect(() => {
-    if (!channelId || snapshotStatus !== "ready" || document.visibilityState !== "visible") return
+    if (
+      !channelId
+      || !scrollRootEl
+      || snapshotStatus !== "ready"
+      || document.visibilityState !== "visible"
+      || !readPresentationReadable(scrollRootEl)
+    ) return
     resumeReadCoordinator(queryClient)
-  }, [channelId, messages, queryClient, snapshotStatus])
+  }, [channelId, messages, queryClient, scrollRootEl, snapshotStatus])
 }

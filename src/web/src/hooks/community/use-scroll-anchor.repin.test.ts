@@ -4,7 +4,7 @@
  * deferred bottom re-pin contract stay covered without duplicating that logic
  * in a test-only export.
  */
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { VirtualizerOptions } from "@tanstack/react-virtual"
 import type { FlatItem } from "@/lib/community/message-list-items"
 
@@ -52,6 +52,10 @@ function resetHarness() {
   virtualizer.isAtEnd.mockReturnValue(true)
   virtualizer.scrollToEnd.mockReset()
   virtualizer.scrollToIndex.mockReset()
+  vi.stubGlobal("window", {
+    requestAnimationFrame: vi.fn(() => 1),
+    cancelAnimationFrame: vi.fn(),
+  })
   vi.stubGlobal("ResizeObserver", class {
     constructor(callback: ResizeObserverCallback) {
       resizeCallbacks.push(callback)
@@ -70,9 +74,11 @@ async function mountHook({
   items = [] as FlatItem[],
   initialScrollReady = false,
   heroMeasured = false,
+  newDividerBefore,
   hasMoreNewer,
   presentVersion,
   viewerUserId,
+  onInitialPositionSettled,
 }: {
   distanceToEnd?: number
   initialClientHeight?: number
@@ -80,9 +86,11 @@ async function mountHook({
   items?: FlatItem[]
   initialScrollReady?: boolean
   heroMeasured?: boolean
+  newDividerBefore?: string
   hasMoreNewer?: boolean
   presentVersion?: number
   viewerUserId?: string
+  onInitialPositionSettled?: () => void
 } = {}) {
   const { useScrollAnchor } = await import("./use-scroll-anchor")
   const hookInput = {
@@ -90,9 +98,11 @@ async function mountHook({
     initialScrollReady,
     heroHeight: 0,
     heroMeasured,
+    newDividerBefore,
     hasMoreNewer,
     presentVersion,
     viewerUserId,
+    onInitialPositionSettled,
   }
   // The React module is intentionally mocked above; this calls a deterministic
   // hook shim rather than mounting a real component tree.
@@ -216,8 +226,46 @@ function growingRow(requestFrame: (callback: FrameRequestCallback) => void) {
 }
 
 beforeEach(resetHarness)
+afterEach(() => vi.unstubAllGlobals())
 
 describe("useScrollAnchor delayed row-growth re-pin", () => {
+  it("publishes settlement one frame after the final initial convergence action", async () => {
+    const frameCallbacks: FrameRequestCallback[] = []
+    const cancelFrame = vi.fn()
+    const settled = vi.fn()
+    vi.stubGlobal("window", {
+      requestAnimationFrame: (callback: FrameRequestCallback) => {
+        frameCallbacks.push(callback)
+        return frameCallbacks.length
+      },
+      cancelAnimationFrame: cancelFrame,
+    })
+
+    const mounted = await mountHook({
+      items: [messageItem("m1")],
+      initialScrollReady: false,
+      heroMeasured: true,
+      onInitialPositionSettled: settled,
+    })
+    expect(virtualizer.scrollToEnd).toHaveBeenCalledOnce()
+    expect(frameCallbacks).toHaveLength(0)
+    expect(settled).not.toHaveBeenCalled()
+
+    mounted.rerender({
+      initialScrollReady: true,
+      newDividerBefore: "m1",
+    })
+    expect(virtualizer.scrollToIndex).toHaveBeenCalledOnce()
+    expect(frameCallbacks).toHaveLength(1)
+    expect(settled).not.toHaveBeenCalled()
+
+    frameCallbacks[0](0)
+    expect(settled).toHaveBeenCalledOnce()
+    mounted.rerender({ newDividerBefore: undefined })
+    expect(frameCallbacks).toHaveLength(1)
+    expect(settled).toHaveBeenCalledOnce()
+  })
+
   it("measures live growth and re-pins after the direct-DOM size write settles", async () => {
     const { scrollWrites } = await mountHook()
     let frame: FrameRequestCallback | undefined

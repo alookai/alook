@@ -78,6 +78,7 @@ describe("community QA selectors", () => {
     expect(tid.memberRow("member_1")).toBe("community-member-row-member_1")
     expect(tid.composerFileInput).toBe("community-composer-file-input")
     expect(tid.messageScroller).toBe("community-message-scroller")
+    expect(tid.initialPositionAurora).toBe("community-initial-position-aurora")
     expect(tid.reactionGroup("message_1")).toBe("community-reaction-group-message_1")
     expect(tid.reactionChip("message_1", "🔥"))
       .toBe("community-reaction-chip-message_1-%F0%9F%94%A5")

@@ -7,6 +7,9 @@ import { MessageList } from "./message-list"
 vi.mock("@/components/ui/number-ticker", () => ({
   NumberTicker: ({ value }: { value: number }) => React.createElement("span", null, value),
 }))
+vi.mock("./initial-position-aurora.module.css", () => ({
+  default: new Proxy({}, { get: (_target, key) => String(key) }),
+}))
 
 let scrollTopDescriptor: PropertyDescriptor | undefined
 let scrollToDescriptor: PropertyDescriptor | undefined
