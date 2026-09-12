@@ -212,6 +212,111 @@ describe("InboxPopover thread opener rows", () => {
   })
 })
 
+describe("InboxPopover friend requests", () => {
+  const friendRequest = {
+    row: {
+      id: "fr_1",
+      userId: "u_friend",
+      name: "Ada",
+      avatar: "A",
+      avatarVersion: 1,
+      createdAt: "2026-09-12T01:00:00Z",
+    },
+  }
+
+  it("renders requests before DMs and servers with sibling navigation/actions", () => {
+    const onOpenFriendRequests = vi.fn()
+    const onAcceptFriendRequest = vi.fn()
+    const renderer = render(React.createElement(InboxPopover, {
+      friendRequests: [friendRequest],
+      unreads: unreadFixture(),
+      unreadDms: [{
+        channelId: "dm1",
+        otherUserId: "u2",
+        otherUserName: "Grace",
+        otherUserDiscriminator: "0001",
+        otherUserAvatar: "G",
+        otherUserAvatarVersion: 1,
+        lastMessageAt: "2026-09-12T00:00:00Z",
+      }],
+      mentions: [],
+      marked: [],
+      hasProjectedUnreads: true,
+      hasProjectedMentions: false,
+      onOpenFriendRequests,
+      onAcceptFriendRequest,
+      onOpenThread: vi.fn(),
+    }))
+    const text = renderer.container.textContent ?? ""
+    expect(text.indexOf("Friend requests — 1")).toBeLessThan(text.indexOf("Direct Messages"))
+    expect(text.indexOf("Direct Messages")).toBeLessThan(text.indexOf("Server"))
+
+    const open = renderer.getByTestId(tid.inboxFriendRequestOpen("fr_1"))
+    const accept = renderer.getByTestId(tid.inboxFriendRequestAccept("fr_1"))
+    expect(open.contains(accept)).toBe(false)
+    fireEvent.click(accept)
+    expect(onAcceptFriendRequest).toHaveBeenCalledWith(friendRequest)
+    expect(onOpenFriendRequests).not.toHaveBeenCalled()
+    fireEvent.click(open)
+    expect(onOpenFriendRequests).toHaveBeenCalledTimes(1)
+  })
+
+  it("keeps request-only state out of Caught up while Mark all stays disabled", () => {
+    const renderer = render(React.createElement(InboxPopover, {
+      friendRequests: [friendRequest],
+      unreads: [],
+      unreadDms: [],
+      mentions: [],
+      marked: [],
+      hasProjectedUnreads: false,
+      hasProjectedMentions: false,
+      onMarkAllRead: vi.fn(),
+    }))
+    expect(renderer.queryByText("Caught up")).toBeNull()
+    expect(renderer.getByRole("button", { name: "Mark all read" })).toBeDisabled()
+  })
+
+  it("renders a pending tombstone and an accessible retryable error", () => {
+    const onRetryFriendRequest = vi.fn()
+    const renderer = render(React.createElement(InboxPopover, {
+      friendRequests: [{
+        ...friendRequest,
+        action: "accept",
+        status: "error",
+        error: "Couldn’t accept this request. Try again.",
+      }],
+      unreads: [],
+      unreadDms: [],
+      mentions: [],
+      marked: [],
+      hasProjectedUnreads: false,
+      hasProjectedMentions: false,
+      onRetryFriendRequest,
+    }))
+    expect(renderer.getByRole("status").textContent).toContain("Couldn’t accept")
+    fireEvent.click(renderer.getByRole("button", { name: "Retry" }))
+    expect(onRetryFriendRequest).toHaveBeenCalledTimes(1)
+  })
+
+  it("announces row-local pending state and locks only that request", () => {
+    const renderer = render(React.createElement(InboxPopover, {
+      friendRequests: [{ ...friendRequest, action: "accept", status: "pending" }],
+      unreads: [],
+      unreadDms: [],
+      mentions: [],
+      marked: [],
+      hasProjectedUnreads: false,
+      hasProjectedMentions: false,
+    }))
+    expect(renderer.getByTestId(tid.inboxFriendRequest("fr_1"))).toHaveAttribute(
+      "aria-busy",
+      "true",
+    )
+    expect(renderer.getByTestId(tid.inboxFriendRequestAccept("fr_1"))).toBeDisabled()
+    expect(renderer.getByTestId(tid.inboxFriendRequestReject("fr_1"))).toBeDisabled()
+  })
+})
+
 describe("InboxPopover DM rows", () => {
   it("passes the complete DM summary to the open callback", () => {
     const dm: UnreadDm = {

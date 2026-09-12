@@ -28,13 +28,18 @@ export const GET = withAuth(async (req, ctx) => {
   type UnreadDmRow = Awaited<ReturnType<typeof queries.communityInbox.listEligibleUnreadDms>>[number]
   type ForumOpenerRow = Awaited<ReturnType<typeof queries.communityInbox.listUnreadForumOpeners>>[number]
   type ThreadOpenerRow = Awaited<ReturnType<typeof queries.communityInbox.listThreadOpenersByChildIds>>[number]
+  type FriendRequestRow = Awaited<ReturnType<typeof queries.communityFriendship.listActionableIncomingRequests>>[number]
   const { value: fetched, stale } = await readOrStale<{
     unread: UnreadRow[]
     unreadDms: UnreadDmRow[]
     threadOpeners: Array<ThreadOpenerRow>
+    friendRequests: FriendRequestRow[]
   }>(
     async () => {
-      const visibleChannelIds = await queries.communityChannel.listVisibleChannelIdsForUser(db, ctx.userId)
+      const [visibleChannelIds, friendRequests] = await Promise.all([
+        queries.communityChannel.listVisibleChannelIdsForUser(db, ctx.userId),
+        queries.communityFriendship.listActionableIncomingRequests(db, ctx.userId),
+      ])
       const [unread, unreadDms] = await Promise.all([
         queries.communityInbox.listEligibleUnreadChannels(db, ctx.userId, visibleChannelIds),
         queries.communityInbox.listEligibleUnreadDms(db, ctx.userId),
@@ -88,15 +93,15 @@ export const GET = withAuth(async (req, ctx) => {
           row.type !== "forum" ||
           forumParentsWithUnread.has(row.channelId),
       )
-      return { unread: withoutPhantomForumParents, unreadDms, threadOpeners }
+      return { unread: withoutPhantomForumParents, unreadDms, threadOpeners, friendRequests }
     },
-    { unread: [], unreadDms: [], threadOpeners: [] },
+    { unread: [], unreadDms: [], threadOpeners: [], friendRequests: [] },
     { route: "community/inbox/unreads" },
   )
   if (stale) {
-    return writeJSON({ servers: [], dms: [], limit, truncated: false, stale: true })
+    return writeJSON({ friendRequests: [], servers: [], dms: [], limit, truncated: false, stale: true })
   }
-  const { unread, unreadDms, threadOpeners } = fetched
+  const { unread, unreadDms, threadOpeners, friendRequests: friendRequestRows } = fetched
 
   // Split unread rows into top-level channels and child threads.
   // A child nests under its `parentChannelId`; a parent surfaces in the tree
@@ -378,5 +383,18 @@ export const GET = withAuth(async (req, ctx) => {
     }))
     .sort((a, b) => (a.lastMessageAt < b.lastMessageAt ? 1 : -1))
 
-  return writeJSON({ servers, dms, limit, truncated })
+  const friendRequests = friendRequestRows.map((request) => ({
+    id: request.id,
+    userId: request.userId,
+    name: request.name,
+    avatar: canonicalUserImage(
+      request.userId,
+      request.image,
+      request.avatarVersion,
+    ) ?? avatarInitial(request.name),
+    avatarVersion: request.avatarVersion,
+    createdAt: request.createdAt,
+  }))
+
+  return writeJSON({ friendRequests, servers, dms, limit, truncated })
 })

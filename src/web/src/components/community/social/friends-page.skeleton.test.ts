@@ -1,17 +1,15 @@
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
-import { describe, expect, it, vi } from "vitest"
-import { FriendsPage } from "./friends-page"
+import { describe, expect, it } from "vitest"
+import { FriendsPageSkeleton } from "./friends-page-skeleton"
+
+function renderFriendsPageSkeleton(reserveBackSlot: boolean) {
+  return renderToStaticMarkup(createElement(FriendsPageSkeleton, { reserveBackSlot }))
+}
 
 describe("FriendsPage loading header", () => {
   it("keeps Back geometry inert until the real page is loaded", () => {
-    const html = renderToStaticMarkup(createElement(FriendsPage, {
-      friends: [],
-      pending: [],
-      blocked: [],
-      loading: true,
-      onBack: vi.fn(),
-    }))
+    const html = renderFriendsPageSkeleton(true)
 
     expect(html).toContain('data-slot="loading-back-placeholder"')
     expect(html).not.toContain("<button")
@@ -19,22 +17,10 @@ describe("FriendsPage loading header", () => {
     expect(html).not.toContain('aria-label="Back"')
   })
 
-  it("keeps the real Back control during a warm-data refresh", () => {
-    const html = renderToStaticMarkup(createElement(FriendsPage, {
-      friends: [{
-        id: "friend_1",
-        userId: "user_1",
-        name: "Alice",
-        discriminator: "0001",
-        avatar: "A",
-        status: "online",
-      }],
-      pending: [],
-      blocked: [],
-      loading: true,
-      onBack: vi.fn(),
-    }))
+  it("omits Back geometry when the route does not reserve it", () => {
+    const html = renderFriendsPageSkeleton(false)
 
-    expect(html).toContain('aria-label="Back"')
+    expect(html).not.toContain('data-slot="loading-back-placeholder"')
+    expect(html).not.toContain("<button")
   })
 })

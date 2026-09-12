@@ -1,4 +1,4 @@
-import { eq, and, or, isNull, inArray } from "drizzle-orm";
+import { eq, and, or, isNull, inArray, desc } from "drizzle-orm";
 import {
   communityFriendship,
   communityUserProfile,
@@ -1041,6 +1041,33 @@ export async function listPending(db: Database, userId: string) {
     merged.push({ ...r, kind: "outgoing" });
   }
   return merged;
+}
+
+/**
+ * Incoming friend requests the viewer can act on immediately. This is kept
+ * separate from `listPending`: Inbox must not perform the own-bot lookup or
+ * include outgoing and owner-gated rows from the Friends aggregate.
+ */
+export async function listActionableIncomingRequests(db: Database, userId: string) {
+  return db
+    .select({
+      id: communityFriendship.id,
+      userId: user.id,
+      name: user.name,
+      image: user.image,
+      avatarVersion: user.avatarVersion,
+      createdAt: communityFriendship.createdAt,
+    })
+    .from(communityFriendship)
+    .innerJoin(user, eq(user.id, communityFriendship.requesterId))
+    .where(
+      and(
+        eq(communityFriendship.addresseeId, userId),
+        eq(communityFriendship.status, "pending"),
+        isNull(communityFriendship.needsOwnerApproval)
+      )
+    )
+    .orderBy(desc(communityFriendship.createdAt), desc(communityFriendship.id));
 }
 
 // ─── Owner decision (approve / deny) ─────────────────────────────────────────

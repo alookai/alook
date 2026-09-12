@@ -1000,6 +1000,73 @@ describe("useUserWs", () => {
     expect(mockFetch).toHaveBeenCalledTimes(fetchCount)
   })
 
+  it("reconciles one offline event gap after exact retained-socket validation", async () => {
+    setupTokenFetch()
+    const onMessage = vi.fn()
+    const onReconnect = vi.fn()
+    await mountHook(onMessage, { onReconnect, requestDaemonStatusOnAuth: false })
+    const ws = MockWebSocket.instances[0]!
+    ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok" })
+
+    vi.setSystemTime(new Date("2026-09-12T00:00:00.000Z"))
+    mockNavigator.onLine = false
+    mockWindow.dispatch("offline")
+    ws.simulateMessage({ type: "task.updated", taskId: "missed-offline" })
+    expect(onMessage).not.toHaveBeenCalled()
+
+    vi.setSystemTime(new Date("2026-09-12T00:00:02.500Z"))
+    mockNavigator.onLine = true
+    mockWindow.dispatch("online")
+    const [{ nonce }] = connectionPings(ws)
+    ws.simulateMessage({ type: "connection.pong", nonce })
+
+    expect(onReconnect).toHaveBeenCalledOnce()
+    expect(onReconnect).toHaveBeenCalledWith({ reconnectDurationMs: 2_500 })
+
+    ws.simulateMessage({ type: "connection.pong", nonce })
+    dispatchWindowFocus()
+    const nextNonce = connectionPings(ws).at(-1)!.nonce
+    expect(nextNonce).not.toBe(nonce)
+    ws.simulateMessage({ type: "connection.pong", nonce })
+    ws.simulateMessage({ type: "connection.pong", nonce: nextNonce })
+    expect(onReconnect).toHaveBeenCalledOnce()
+  })
+
+  it("defers offline gap reconciliation to replacement auth after validation failure", async () => {
+    setupTokenFetch()
+    const onReconnect = vi.fn()
+    const mod = await mountHook(vi.fn(), { onReconnect, requestDaemonStatusOnAuth: false })
+    const first = MockWebSocket.instances[0]!
+    first.simulateOpen()
+    first.simulateMessage({ type: "auth.ok" })
+
+    vi.setSystemTime(new Date("2026-09-12T00:00:00.000Z"))
+    mockNavigator.onLine = false
+    mockWindow.dispatch("offline")
+    vi.setSystemTime(new Date("2026-09-12T00:00:01.000Z"))
+    mockNavigator.onLine = true
+    mockWindow.dispatch("online")
+    const [{ nonce }] = connectionPings(first)
+
+    await vi.advanceTimersByTimeAsync(mod.WS_CONNECTION_VALIDATION_TIMEOUT_MS)
+    await flushPromises()
+    expect(first.closed).toBe(true)
+    expect(onReconnect).not.toHaveBeenCalled()
+
+    first.simulateMessage({ type: "connection.pong", nonce })
+    const replacement = MockWebSocket.instances.at(-1)!
+    expect(replacement).not.toBe(first)
+    replacement.simulateOpen()
+    replacement.simulateMessage({ type: "auth.ok" })
+    replacement.simulateMessage({ type: "auth.ok" })
+
+    expect(onReconnect).toHaveBeenCalledOnce()
+    expect(onReconnect).toHaveBeenCalledWith({
+      reconnectDurationMs: 1_000 + mod.WS_CONNECTION_VALIDATION_TIMEOUT_MS,
+    })
+  })
+
   it("applies offline cleanup after send observes the browser offline before the event", async () => {
     setupTokenFetch()
     const onConnectionStateChange = vi.fn()

@@ -2,23 +2,26 @@
 
 import { useState, useEffect, useMemo, useRef } from "react"
 import type React from "react"
-import { Users, MessagesSquare, ChevronLeft, Check, X, AtSign, UserMinus, Ban, UserPlus, Search } from "lucide-react"
+import { Users, MessagesSquare, ChevronLeft, Check, LoaderCircle, X, AtSign, UserMinus, Ban, UserPlus, Search } from "lucide-react"
 import { toastApiError } from "@/lib/api/client"
 import { apiFetchProfiles } from "@/lib/community/profile-seed"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu"
-import { Skeleton } from "@/components/ui/skeleton"
 import { Avatar } from "../avatar"
 import { avatarInitial } from "@/lib/community/avatar"
 import { EmptyState } from "../empty-state"
+import { FriendRowsSkeleton, FriendsPageSkeleton } from "./friends-page-skeleton"
 import { hasStatus } from "./status-presets"
 import type { Friend, PendingRequest, BlockedUser } from "@/lib/community/models/people"
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import { isSelfBotFriendship, isPresenceOffline, MIN_SEARCH_LENGTH } from "@alook/shared"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { readCommunityProfile } from "@/lib/community/profile-read"
+import { actionableIncomingRequests, compactRequestCount } from "@/lib/community/friend-requests"
+import { useFriendRequestActionState } from "@/hooks/community/use-friend-request-action-state"
+import { tid } from "@/lib/community/testids"
 
 function FriendSection({ title, count, emptyLabel, children }: {
   title: string
@@ -37,6 +40,7 @@ function FriendSection({ title, count, emptyLabel, children }: {
 // Friends page (@me, no DM selected) — All (friends + blocked) / New (add friend + pending).
 export function FriendsPage({
   friends, pending, blocked, loading, onBack, reserveBackSlot = false,
+  activeTab, onActiveTabChange, onOpenProfile,
   onAccept, onReject, onCancelRequest, onUnblock, onSendRequest, onRemoveFriend, onBlock, onDm,
 }: {
   friends: Friend[]
@@ -46,8 +50,10 @@ export function FriendsPage({
   onBack?: () => void
   reserveBackSlot?: boolean
   onOpenProfile?: OpenProfile
-  onAccept?: (id: string) => void
-  onReject?: (id: string) => void
+  activeTab?: "all" | "new"
+  onActiveTabChange?: (tab: "all" | "new") => void
+  onAccept?: (id: string) => Promise<unknown>
+  onReject?: (id: string) => Promise<unknown>
   onCancelRequest?: (req: { id: string }) => void
   onUnblock?: (id: string) => void
   onSendRequest?: (target: { userId: string; username: string }) => void
@@ -83,8 +89,15 @@ export function FriendsPage({
     return m
   }, [friends, pending, blocked])
 
-  const incoming = useMemo(() => pending.filter((p) => p.kind === "incoming"), [pending])
+  const incoming = useMemo(() => actionableIncomingRequests(pending), [pending])
   const outgoing = useMemo(() => pending.filter((p) => p.kind === "outgoing"), [pending])
+  const incomingActions = useFriendRequestActionState({
+    rows: incoming,
+    onAccept,
+    onReject,
+    surface: "friends",
+  })
+  const incomingCount = compactRequestCount(incomingActions.items.length)
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
@@ -126,35 +139,7 @@ export function FriendsPage({
   }, [addValue])
 
   if (loading && friends.length === 0 && pending.length === 0 && blocked.length === 0) {
-    return (
-      <div
-        aria-busy="true"
-        aria-label="Loading friends"
-        className="flex min-h-0 min-w-0 flex-1 flex-col gap-2"
-      >
-        <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-4">
-          {(reserveBackSlot || Boolean(onBack)) && (
-            <Skeleton data-slot="loading-back-placeholder" aria-hidden className="size-8 shrink-0 rounded-md" />
-          )}
-          <div aria-hidden className="inline-flex h-8 items-center gap-1 p-0.75 text-muted-foreground">
-            <span className="inline-flex h-[calc(100%-1px)] items-center px-2 py-1 text-sm font-medium">All</span>
-            <span className="inline-flex h-[calc(100%-1px)] items-center px-2 py-1 text-sm font-medium">New</span>
-          </div>
-        </header>
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto thin-scrollbar p-4">
-          <Skeleton className="mb-4 h-11 w-full rounded-md" />
-          <div className="flex min-h-0 flex-col">
-            <div className="mb-2 text-xs font-semibold text-muted-foreground">All friends — …</div>
-            <FriendRowsSkeleton />
-          </div>
-          <div className="mt-8 flex min-h-0 flex-col">
-            <div className="mb-2 text-xs font-semibold text-muted-foreground">Blocked — …</div>
-            <FriendRowsSkeleton withActions />
-          </div>
-        </div>
-        <span className="sr-only">Loading friends</span>
-      </div>
-    )
+    return <FriendsPageSkeleton reserveBackSlot={reserveBackSlot || Boolean(onBack)} />
   }
 
   const sendRequest = (u: { id: string; name: string; discriminator: string }) => {
@@ -206,14 +191,31 @@ export function FriendsPage({
   }
 
   return (
-    <Tabs defaultValue="all" className="min-h-0 flex-1">
+    <Tabs
+      defaultValue="all"
+      value={activeTab}
+      onValueChange={(value) => onActiveTabChange?.(value as "all" | "new")}
+      className="min-h-0 flex-1"
+    >
       <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-4">
         {onBack && (
           <Button variant="ghost" size="icon-sm" onClick={onBack} className="text-muted-foreground hover:text-foreground" aria-label="Back"><ChevronLeft className="size-5" /></Button>
         )}
         <TabsList variant="line">
           <TabsTrigger value="all">All</TabsTrigger>
-          <TabsTrigger value="new">New</TabsTrigger>
+          <TabsTrigger value="new">
+            <span className="inline-flex items-center gap-1.5">
+              New
+              {incomingCount && (
+                <span
+                  data-testid={tid.friendsNewBadge}
+                  className="grid h-5 min-w-5 place-items-center rounded-full bg-primary px-1 text-xs font-semibold text-primary-foreground"
+                >
+                  {incomingCount}
+                </span>
+              )}
+            </span>
+          </TabsTrigger>
         </TabsList>
       </header>
 
@@ -320,26 +322,51 @@ export function FriendsPage({
             </div>
           ) : (
             <>
-              {incoming.length > 0 && (
+              {incomingActions.items.length > 0 && (
                 <div>
-                  <div className="mb-2 text-xs font-semibold text-muted-foreground">Incoming — {incoming.length}</div>
+                  <div className="mb-2 text-xs font-semibold text-muted-foreground">Incoming — {incomingActions.items.length}</div>
                   <div className="flex flex-col gap-1">
-                    {incoming.map((p) => (
-                      <div key={p.id} className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-accent">
-                        <Avatar label={p.avatar} seed={p.userId} size={32} />
-                        <div className="min-w-0 flex-1 truncate text-sm font-medium">{p.name}</div>
-                        <div className="flex gap-2">
-                          <Button variant="secondary" size="icon-sm" onClick={() => onAccept?.(p.id)} className="rounded-full text-status-online" aria-label="Accept"><Check className="size-4" /></Button>
-                          <Button variant="secondary" size="icon-sm" onClick={() => onReject?.(p.id)} className="rounded-full text-destructive" aria-label="Reject"><X className="size-4" /></Button>
+                    {incomingActions.items.map((item) => {
+                      const p = item.row
+                      const actionPending = item.status === "pending"
+                      return (
+                      <div
+                        key={p.id}
+                        aria-busy={actionPending || undefined}
+                        className="rounded-md px-2 py-2 hover:bg-accent"
+                      >
+                        <div className="flex items-center gap-3">
+                          <button
+                            className="flex min-h-11 min-w-0 flex-1 items-center gap-3 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-h-0"
+                            onClick={(event) => onOpenProfile?.(p.name, event, undefined, p.userId)}
+                          >
+                            <Avatar label={p.avatar} seed={p.userId} size={32} />
+                            <span className="min-w-0 flex-1 truncate text-sm font-medium">{p.name}</span>
+                          </button>
+                          <div className="flex gap-2">
+                            <Button variant="secondary" size="icon" disabled={actionPending} onClick={() => { void incomingActions.act(item, "accept") }} className="size-11 rounded-full text-status-online sm:size-8" aria-label={`Accept ${p.name}'s friend request`}>
+                              {actionPending && item.action === "accept" ? <LoaderCircle className="size-4 animate-spin" /> : <Check className="size-4" />}
+                            </Button>
+                            <Button variant="secondary" size="icon" disabled={actionPending} onClick={() => { void incomingActions.act(item, "reject") }} className="size-11 rounded-full text-destructive sm:size-8" aria-label={`Reject ${p.name}'s friend request`}>
+                              {actionPending && item.action === "reject" ? <LoaderCircle className="size-4 animate-spin" /> : <X className="size-4" />}
+                            </Button>
+                          </div>
                         </div>
+                        {item.error && (
+                          <div role="status" aria-live="polite" className="mt-1 flex items-center justify-end gap-2 text-xs text-destructive">
+                            <span>{item.error}</span>
+                            <button className="min-h-11 min-w-11 font-medium underline sm:min-h-0 sm:min-w-0" onClick={() => { void incomingActions.retry(item) }}>Retry</button>
+                          </div>
+                        )}
                       </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 </div>
               )}
 
               {outgoing.length > 0 && (
-                <div className={incoming.length > 0 ? "mt-8" : ""}>
+                <div className={incomingActions.items.length > 0 ? "mt-8" : ""}>
                   <div className="mb-2 text-xs font-semibold text-muted-foreground">Outgoing — {outgoing.length}</div>
                   <div className="flex flex-col gap-1">
                     {outgoing.map((p) => (
@@ -360,32 +387,5 @@ export function FriendsPage({
         </TabsContent>
       </div>
     </Tabs>
-  )
-}
-
-// Skeleton rows for the friends/pending/blocked sections. `withActions` reserves
-// the trailing action-button slot so pending/blocked rows don't reflow into
-// the friend-row footprint and back.
-function FriendRowsSkeleton({ withActions = false }: { withActions?: boolean }) {
-  return (
-    <div className="flex flex-col gap-1">
-      {Array.from({ length: 5 }).map((_, i) => (
-        <div key={i} className="flex items-center gap-3 rounded-md px-2 py-2">
-          <Skeleton className="size-8 shrink-0 rounded-full" />
-          <div className="flex min-w-0 flex-1 flex-col gap-2">
-            <Skeleton className="h-3.5 w-2/5 rounded" />
-            <Skeleton className="h-3 w-3/5 rounded" />
-          </div>
-          {withActions ? (
-            <div className="flex gap-2">
-              <Skeleton className="size-8 shrink-0 rounded-full" />
-              <Skeleton className="size-8 shrink-0 rounded-full" />
-            </div>
-          ) : (
-            <Skeleton className="size-8 shrink-0 rounded-full" />
-          )}
-        </div>
-      ))}
-    </div>
   )
 }

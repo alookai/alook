@@ -601,6 +601,47 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     expect(summary).toMatchObject({ policyCount: 14, successCount: 14, failureCount: 0 })
   })
 
+  it("actively refetches cached Friends and Inbox unreads after a socket gap", async () => {
+    const { reconcileCommunityWsReconnect } = await import("./reconnect")
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+    })
+    let version = 1
+    const friendsQuery = vi.fn(async () => ({ version }))
+    const inboxQuery = vi.fn(async () => ({ version }))
+    const friendsKey = communityKeys.friends()
+    const inboxKey = communityKeys.inboxUnreads()
+    await Promise.all([
+      queryClient.fetchQuery({ queryKey: friendsKey, queryFn: friendsQuery }),
+      queryClient.fetchQuery({ queryKey: inboxKey, queryFn: inboxQuery }),
+    ])
+    const friendsObserver = new QueryObserver(queryClient, {
+      queryKey: friendsKey,
+      queryFn: friendsQuery,
+      staleTime: Infinity,
+    })
+    const inboxObserver = new QueryObserver(queryClient, {
+      queryKey: inboxKey,
+      queryFn: inboxQuery,
+      staleTime: Infinity,
+    })
+    const unsubscribeFriends = friendsObserver.subscribe(() => undefined)
+    const unsubscribeInbox = inboxObserver.subscribe(() => undefined)
+
+    try {
+      version = 2
+      await reconcileCommunityWsReconnect(queryClient)
+
+      expect(friendsQuery).toHaveBeenCalledTimes(2)
+      expect(inboxQuery).toHaveBeenCalledTimes(2)
+      expect(queryClient.getQueryData(friendsKey)).toEqual({ version: 2 })
+      expect(queryClient.getQueryData(inboxKey)).toEqual({ version: 2 })
+    } finally {
+      unsubscribeFriends()
+      unsubscribeInbox()
+    }
+  })
+
   it("resets presence and status overlays before authoritative invalidation starts", async () => {
     const { reconcileCommunityWsReconnect } = await import("./reconnect")
     const { useCommunityWsStore } = await import("@/stores/community/ws")

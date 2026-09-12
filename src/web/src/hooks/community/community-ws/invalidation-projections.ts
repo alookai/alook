@@ -90,6 +90,15 @@ export function invalidateInbox(
   projection.invalidate("inbox", { queryKey: communityKeys.inbox() })
 }
 
+export function invalidateInboxUnreads(
+  projection: CommunityWsProjectionTransaction,
+) {
+  projection.invalidate("inbox-unreads", {
+    queryKey: communityKeys.inboxUnreads(),
+    exact: true,
+  })
+}
+
 export function invalidateDms(
   projection: CommunityWsProjectionTransaction,
 ) {

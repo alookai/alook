@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type {
   CommunityFriendBlock,
-  CommunityFriendRequest,
   CommunityMentionCreate,
   CommunityWsEvent,
 } from "@alook/shared"
@@ -190,10 +189,8 @@ describe("useCommunityWs — account unread projection", () => {
 })
 
 describe("useCommunityWs — friend + mention → invalidate", () => {
-  it("friend.request invalidates communityKeys.friends()", async () => {
-    await mountHook()
-    const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
-    const event: CommunityFriendRequest = {
+  it.each<CommunityWsEvent>([
+    {
       type: "community:friend.request",
       friendship: {
         id: "f_1",
@@ -202,11 +199,25 @@ describe("useCommunityWs — friend + mention → invalidate", () => {
         status: "pending",
         createdAt: "2026-07-03T00:00:00.000Z",
       },
-    }
+    },
+    { type: "community:friend.accept", friendshipId: "f_1" },
+    { type: "community:friend.reject", friendshipId: "f_1" },
+    { type: "community:friend.remove", friendshipId: "f_1" },
+    { type: "community:friend.block", userId: "u_a" },
+  ])("$type invalidates Friends and exact Inbox unreads once", async (event) => {
+    await mountHook()
+    const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
     capturedOnMessage!(event)
-    expect(spy.mock.calls.some((call) => (
-      (call[0]?.queryKey as unknown[] | undefined)?.includes("friends")
-    ))).toBe(true)
+    await vi.waitFor(() => expect(spy).toHaveBeenCalledTimes(2))
+    const friendCalls = spy.mock.calls.filter((call) => (
+      JSON.stringify(call[0]?.queryKey) === JSON.stringify(communityKeys.friends())
+    ))
+    const inboxCalls = spy.mock.calls.filter((call) => (
+      JSON.stringify(call[0]?.queryKey) === JSON.stringify(communityKeys.inboxUnreads())
+    ))
+    expect(friendCalls).toHaveLength(1)
+    expect(inboxCalls).toHaveLength(1)
+    expect(inboxCalls[0]?.[0]).toMatchObject({ exact: true })
   })
 
   it("friend.block evicts cached DM reactor identities", async () => {

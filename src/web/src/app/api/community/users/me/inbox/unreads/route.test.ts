@@ -7,6 +7,7 @@ const mockListThreadOpenersByChildIds = vi.fn()
 const mockListEligibleUnreadDms = vi.fn()
 const mockListVisibleChannelIds = vi.fn()
 const mockGetChannelsByIds = vi.fn()
+const mockListActionableIncomingRequests = vi.fn()
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
@@ -28,6 +29,9 @@ vi.mock("@alook/shared", async () => {
       communityChannel: {
         listVisibleChannelIdsForUser: (...args: unknown[]) => mockListVisibleChannelIds(...args),
         getChannelsByIds: (...args: unknown[]) => mockGetChannelsByIds(...args),
+      },
+      communityFriendship: {
+        listActionableIncomingRequests: (...args: unknown[]) => mockListActionableIncomingRequests(...args),
       },
     },
   }
@@ -115,6 +119,70 @@ describe("GET /api/community/users/me/inbox/unreads", () => {
     mockListThreadOpenersByChildIds.mockResolvedValue([])
     mockListVisibleChannelIds.mockResolvedValue([])
     mockGetChannelsByIds.mockResolvedValue([])
+    mockListActionableIncomingRequests.mockResolvedValue([])
+  })
+
+  it("returns actionable friend requests without consuming the message limit", async () => {
+    mockListEligibleUnreadChannels.mockResolvedValue([
+      row({ channelId: "c1", lastMessageAt: "2026-06-25T12:00:00Z" }),
+      row({ channelId: "c2", lastMessageAt: "2026-06-25T11:00:00Z" }),
+    ])
+    mockListActionableIncomingRequests.mockResolvedValue([
+      {
+        id: "fr_2",
+        userId: "u2",
+        name: "Ada",
+        image: null,
+        avatarVersion: 3,
+        createdAt: "2026-06-25T13:00:00Z",
+      },
+      {
+        id: "fr_1",
+        userId: "u3",
+        name: "Grace",
+        image: null,
+        avatarVersion: 4,
+        createdAt: "2026-06-25T12:30:00Z",
+      },
+    ])
+
+    const response = await GET(new NextRequest(
+      "http://localhost/api/community/users/me/inbox/unreads?limit=1",
+    ))
+    const body = await response.json()
+
+    expect(body.friendRequests).toEqual([
+      expect.objectContaining({ id: "fr_2", userId: "u2", name: "Ada", avatarVersion: 3 }),
+      expect.objectContaining({ id: "fr_1", userId: "u3", name: "Grace", avatarVersion: 4 }),
+    ])
+    expect(body.servers[0].channels).toHaveLength(1)
+    expect(body.limit).toBe(1)
+    expect(body.truncated).toBe(true)
+  })
+
+  it("fails closed with an explicit empty friend-request list on retry exhaustion", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {})
+    try {
+      mockListActionableIncomingRequests.mockRejectedValue(
+        new Error("D1_ERROR: database is locked"),
+      )
+
+      const response = await GET(new NextRequest(
+        "http://localhost/api/community/users/me/inbox/unreads?limit=7",
+      ))
+
+      expect(response.status).toBe(200)
+      expect(await response.json()).toEqual({
+        friendRequests: [],
+        servers: [],
+        dms: [],
+        limit: 7,
+        truncated: false,
+        stale: true,
+      })
+    } finally {
+      logSpy.mockRestore()
+    }
   })
 
   it("groups channels by server", async () => {

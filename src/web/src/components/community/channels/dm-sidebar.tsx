@@ -7,11 +7,13 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { tid } from "@/lib/community/testids"
 import type { DM } from "@/lib/community/models/people"
 import { selectUnreadPresentation } from "@/hooks/community/unread-presentation"
+import { compactRequestCount } from "@/lib/community/friend-requests"
 
 export const DmSidebar = memo(function DmSidebar({
   dms, activeDm, blockedUserIds, loading, onPickDm, onShowFriends, onShowMachines, onShowBots,
   onPrefetchDm, onPrefetchFriends, onPrefetchMachines, onPrefetchBots,
   friendsActive, machinesActive, botsActive,
+  friendRequestCount = 0,
 }: {
   dms: DM[]
   activeDm: string | null
@@ -26,14 +28,17 @@ export const DmSidebar = memo(function DmSidebar({
   onShowBots?: () => void
   onPrefetchBots?: () => void
   friendsActive?: boolean
+  friendRequestCount?: number
   machinesActive?: boolean
   botsActive?: boolean
 }) {
   const isFriendsActive = friendsActive ?? (activeDm === null && !machinesActive && !botsActive)
+  const requestCount = compactRequestCount(friendRequestCount)
   return (
     <aside className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div data-slot="dm-sidebar-shortcuts" className="shrink-0 px-2 pt-4">
         <button
+          aria-label={requestCount ? `Friends, ${friendRequestCount} new requests` : "Friends"}
           onClick={onShowFriends}
           onPointerEnter={onPrefetchFriends}
           onFocus={onPrefetchFriends}
@@ -43,6 +48,14 @@ export const DmSidebar = memo(function DmSidebar({
           ].join(" ")}
         >
           <Users className="size-5" /> Friends
+          {requestCount && (
+            <span
+              data-testid={tid.friendsShortcutBadge}
+              className="ml-auto grid h-5 min-w-5 place-items-center rounded-full bg-primary px-1 text-xs font-semibold text-primary-foreground"
+            >
+              {requestCount}
+            </span>
+          )}
         </button>
         {onShowMachines && (
           <button

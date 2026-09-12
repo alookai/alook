@@ -1,5 +1,5 @@
 import { WEB_URL } from "../_setup/paths"
-import { sessionCookie } from "./community-fixture"
+import { sessionCookie, userId } from "./community-fixture"
 import type { UserKey } from "../_setup/users"
 import { isRetryableSeedStatus, retrySeedRequest, seedRetryDelayMs } from "./seed-retry"
 
@@ -122,6 +122,84 @@ async function findFriendshipId(requester: UserKey, targetUserId: string): Promi
   if (!res.ok) return undefined
   const data = (await res.json()) as { friends: Array<{ id: string; userId: string }> }
   return data.friends.find((f) => f.userId === targetUserId)?.id
+}
+
+type SeedRelationship = {
+  id: string
+  userId: string
+  kind?: "incoming" | "outgoing"
+}
+
+async function listSeedRelationships(key: UserKey): Promise<{
+  accepted: SeedRelationship[]
+  pending: SeedRelationship[]
+}> {
+  const headers = { Cookie: sessionCookie(key), Origin: WEB_URL }
+  const [accepted, pending] = await Promise.all([
+    retrySeedRequest(() => fetch(`${WEB_URL}/api/community/friends/accepted`, { headers })),
+    retrySeedRequest(() => fetch(`${WEB_URL}/api/community/friends/pending`, { headers })),
+  ])
+  if (!accepted.ok) throw new Error(`listSeedRelationships accepted failed (${accepted.status})`)
+  if (!pending.ok) throw new Error(`listSeedRelationships pending failed (${pending.status})`)
+  return {
+    accepted: ((await accepted.json()) as { friends: SeedRelationship[] }).friends,
+    pending: ((await pending.json()) as { pending: SeedRelationship[] }).pending,
+  }
+}
+
+async function deleteSeedRelationship(key: UserKey, id: string): Promise<Response> {
+  return retrySeedRequest(() => fetch(`${WEB_URL}/api/community/friends/${id}`, {
+    method: "DELETE",
+    headers: { Cookie: sessionCookie(key), Origin: WEB_URL },
+  }))
+}
+
+// Normalize a human-to-human pair to one actionable pending request. This uses
+// only the public HTTP routes and is repeatable after an earlier E2E spec (or a
+// Playwright retry) left the pair accepted, blocked, or pending in either
+// direction.
+export async function seedPendingFriendRequest(
+  requester: UserKey,
+  addressee: UserKey,
+  targetUserId: string,
+): Promise<string> {
+  await Promise.all([
+    post(requester, `/api/community/users/${targetUserId}/unblock`),
+    post(addressee, `/api/community/users/${userId(requester)}/unblock`),
+  ])
+
+  const relationships = await listSeedRelationships(requester)
+  const accepted = relationships.accepted.find((row) => row.userId === targetUserId)
+  if (accepted) {
+    const response = await deleteSeedRelationship(requester, accepted.id)
+    if (!response.ok) throw new Error(`seedPendingFriendRequest remove failed (${response.status})`)
+  }
+  const pending = relationships.pending.find((row) => row.userId === targetUserId)
+  if (pending) {
+    const response = pending.kind === "outgoing"
+      ? await deleteSeedRelationship(requester, pending.id)
+      : await post(requester, `/api/community/friends/${pending.id}/reject`)
+    if (!response.ok) throw new Error(`seedPendingFriendRequest clear pending failed (${response.status})`)
+  }
+
+  const response = await retrySeedRequest(() => postRaw(
+    requester,
+    "/api/community/friends/request",
+    { userId: targetUserId },
+  ))
+  if (!response.ok) throw new Error(`seedPendingFriendRequest request failed (${response.status})`)
+  const body = (await response.json()) as { id?: string; friendship?: { id: string } | null }
+  const id = body.id ?? body.friendship?.id
+  if (!id) throw new Error("seedPendingFriendRequest: no friendship id in response")
+  return id
+}
+
+// Withdraw a pending request through the same route used by the product. A
+// terminal/missing row is already cancelled for fixture-cleanup purposes.
+export async function seedCancelFriendRequest(requester: UserKey, friendshipId: string): Promise<void> {
+  const response = await deleteSeedRelationship(requester, friendshipId)
+  if (response.ok || response.status === 400 || response.status === 404) return
+  throw new Error(`seedCancelFriendRequest failed (${response.status})`)
 }
 
 // Full friend handshake: requester sends, addressee accepts (accept is
