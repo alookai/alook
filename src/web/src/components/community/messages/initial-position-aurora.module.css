@@ -1,7 +1,4 @@
 .aurora {
-  --aurora-cool: color-mix(in oklab, var(--ring) 68%, var(--background));
-  --aurora-middle: color-mix(in oklab, var(--primary) 42%, var(--background));
-  --aurora-warm: color-mix(in oklab, var(--accent-foreground) 34%, var(--background));
   position: absolute;
   right: 1rem;
   bottom: 0;
@@ -16,11 +13,7 @@
 }
 
 .visible {
-  opacity: 0.52;
-}
-
-:global(.dark) .visible {
-  opacity: 0.68;
+  opacity: var(--initial-position-aurora-opacity);
 }
 
 .leaving {
@@ -29,9 +22,10 @@
 
 .drift {
   position: absolute;
-  inset: 0 -10%;
+  inset: 0;
   transform-origin: center bottom;
-  animation: aurora-drift 3.6s ease-in-out infinite alternate;
+  will-change: transform;
+  animation: aurora-drift 5.8s var(--ease-in-out) infinite alternate;
 }
 
 .peaks,
@@ -42,78 +36,199 @@
 }
 
 .peaks {
+  z-index: 2;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--initial-position-aurora-cyan) 4%,
+    var(--initial-position-aurora-blue) 30%,
+    var(--initial-position-aurora-violet) 56%,
+    var(--initial-position-aurora-magenta) 82%,
+    var(--initial-position-aurora-cyan) 96%,
+    transparent 100%
+  ) bottom / 100% 2px no-repeat;
+  opacity: var(--initial-position-aurora-glint-opacity);
+  filter:
+    drop-shadow(0 -2px 5px color-mix(in oklab, var(--initial-position-aurora-blue) 48%, transparent))
+    drop-shadow(0 -1px 3px color-mix(in oklab, var(--initial-position-aurora-magenta) 38%, transparent));
+}
+
+.peaks::before,
+.peaks::after,
+.haze::before {
+  position: absolute;
+  inset: 0;
+  content: "";
+  transform-origin: center bottom;
+  will-change: transform, opacity;
+}
+
+.peaks::before {
   background:
-    repeating-linear-gradient(
-      90deg,
-      transparent 0 3%,
-      color-mix(in oklab, var(--aurora-cool) 72%, transparent) 4% 4.7%,
-      transparent 5.8% 9%,
-      color-mix(in oklab, var(--aurora-middle) 66%, transparent) 10% 10.6%,
-      transparent 11.8% 16%,
-      color-mix(in oklab, var(--aurora-warm) 62%, transparent) 17% 17.5%,
-      transparent 18.8% 24%
-    ),
-    linear-gradient(
-      to top,
-      color-mix(in oklab, var(--aurora-cool) 42%, transparent),
-      color-mix(in oklab, var(--aurora-middle) 20%, transparent) 46%,
-      transparent 92%
-    );
-  filter: blur(4px);
-  animation: aurora-breathe 2.4s var(--ease-in-out) infinite alternate;
+    linear-gradient(to top, var(--initial-position-aurora-cyan), transparent) 0% 100% / 0.08rem 0% no-repeat,
+    linear-gradient(to top, var(--initial-position-aurora-cyan), transparent) 2% 100% / 0.16rem 5% no-repeat,
+    linear-gradient(to top, var(--initial-position-aurora-cyan), transparent) 3.4% 100% / 0.1rem 12% no-repeat,
+    linear-gradient(to top, var(--initial-position-aurora-cyan), transparent) 5.5% 100% / 0.24rem 8% no-repeat,
+    linear-gradient(to top, var(--initial-position-aurora-cyan), transparent) 6.8% 100% / 0.12rem 19% no-repeat,
+    linear-gradient(to top, var(--initial-position-aurora-cyan), transparent) 8.4% 100% / 0.12rem 14% no-repeat,
+    linear-gradient(to top, var(--initial-position-aurora-blue), transparent) 10.1% 100% / 0.1rem 26% no-repeat,
+    linear-gradient(to top, var(--initial-position-aurora-cyan), transparent) 12.3% 100% / 0.14rem 21% no-repeat,
+    linear-gradient(to top, var(--initial-position-aurora-blue), transparent) 17% 100% / 0.18rem 36% no-repeat,
+    linear-gradient(to top, var(--initial-position-aurora-violet), transparent) 22.5% 100% / 0.14rem 55% no-repeat,
+    linear-gradient(to top, var(--initial-position-aurora-blue), transparent) 24.2% 100% / 0.1rem 34% no-repeat,
+    linear-gradient(to top, var(--initial-position-aurora-blue), transparent) 27% 100% / 0.28rem 84% no-repeat,
+    linear-gradient(to top, var(--initial-position-aurora-blue), transparent) 28.4% 100% / 0.12rem 46% no-repeat,
+    linear-gradient(to top, var(--initial-position-aurora-violet), transparent) 30.6% 100% / 0.14rem 61% no-repeat,
+    linear-gradient(to top, var(--initial-position-aurora-magenta), transparent) 34.8% 100% / 0.1rem 31% no-repeat,
+    linear-gradient(to top, var(--initial-position-aurora-magenta), transparent) 36% 100% / 0.17rem 43% no-repeat,
+    linear-gradient(to top, var(--initial-position-aurora-violet), transparent) 38.2% 100% / 0.11rem 58% no-repeat,
+    linear-gradient(to top, var(--initial-position-aurora-violet), transparent) 40.5% 100% / 0.22rem 67% no-repeat,
+    linear-gradient(to top, var(--initial-position-aurora-blue), transparent) 42.1% 100% / 0.1rem 39% no-repeat,
+    linear-gradient(to top, var(--initial-position-aurora-magenta), transparent) 45.5% 100% / 0.3rem 91% no-repeat,
+    linear-gradient(to top, var(--initial-position-aurora-violet), transparent) 47.1% 100% / 0.12rem 48% no-repeat,
+    linear-gradient(to top, var(--initial-position-aurora-blue), transparent) 55% 100% / 0.13rem 38% no-repeat,
+    linear-gradient(to top, var(--initial-position-aurora-violet), transparent) 57.3% 100% / 0.1rem 50% no-repeat,
+    linear-gradient(to top, var(--initial-position-aurora-violet), transparent) 60.5% 100% / 0.2rem 58% no-repeat,
+    linear-gradient(to top, var(--initial-position-aurora-magenta), transparent) 62.2% 100% / 0.1rem 35% no-repeat,
+    linear-gradient(to top, var(--initial-position-aurora-magenta), transparent) 64% 100% / 0.26rem 78% no-repeat,
+    linear-gradient(to top, var(--initial-position-aurora-violet), transparent) 65.7% 100% / 0.12rem 45% no-repeat,
+    linear-gradient(to top, var(--initial-position-aurora-blue), transparent) 68.2% 100% / 0.1rem 27% no-repeat,
+    linear-gradient(to top, var(--initial-position-aurora-cyan), transparent) 73.5% 100% / 0.16rem 45% no-repeat,
+    linear-gradient(to top, var(--initial-position-aurora-cyan), transparent) 75.1% 100% / 0.1rem 63% no-repeat,
+    linear-gradient(to top, var(--initial-position-aurora-blue), transparent) 77% 100% / 0.12rem 32% no-repeat,
+    linear-gradient(to top, var(--initial-position-aurora-violet), transparent) 82.1% 100% / 0.11rem 42% no-repeat,
+    linear-gradient(to top, var(--initial-position-aurora-magenta), transparent) 84.2% 100% / 0.12rem 33% no-repeat,
+    linear-gradient(to top, var(--initial-position-aurora-magenta), transparent) 86% 100% / 0.28rem 46% no-repeat,
+    linear-gradient(to top, var(--initial-position-aurora-magenta), transparent) 88.2% 100% / 0.1rem 27% no-repeat,
+    linear-gradient(to top, var(--initial-position-aurora-violet), transparent) 90% 100% / 0.16rem 34% no-repeat,
+    linear-gradient(to top, var(--initial-position-aurora-blue), transparent) 92.4% 100% / 0.1rem 15% no-repeat,
+    linear-gradient(to top, var(--initial-position-aurora-cyan), transparent) 96.5% 100% / 0.22rem 6% no-repeat,
+    linear-gradient(to top, var(--initial-position-aurora-cyan), transparent) 100% 100% / 0.08rem 0% no-repeat;
+  filter: blur(1px);
+  animation: aurora-fine-peaks 3.4s var(--ease-in-out) infinite alternate;
+}
+
+.peaks::after {
+  background:
+    linear-gradient(to top, color-mix(in oklab, var(--initial-position-aurora-cyan) 68%, transparent), transparent) 0% 100% / 0.5rem 0% no-repeat,
+    linear-gradient(to top, color-mix(in oklab, var(--initial-position-aurora-cyan) 78%, transparent), transparent) 4.5% 100% / 1.15rem 11% no-repeat,
+    linear-gradient(to top, color-mix(in oklab, var(--initial-position-aurora-cyan) 68%, transparent), transparent) 11% 100% / 0.7rem 7% no-repeat,
+    linear-gradient(to top, color-mix(in oklab, var(--initial-position-aurora-blue) 70%, transparent), transparent) 18% 100% / 1rem 32% no-repeat,
+    linear-gradient(to top, color-mix(in oklab, var(--initial-position-aurora-blue) 76%, transparent), transparent) 27.5% 100% / 1.2rem 79% no-repeat,
+    linear-gradient(to top, color-mix(in oklab, var(--initial-position-aurora-violet) 74%, transparent), transparent) 39% 100% / 1.65rem 61% no-repeat,
+    linear-gradient(to top, color-mix(in oklab, var(--initial-position-aurora-magenta) 82%, transparent), transparent) 46% 100% / 1.05rem 88% no-repeat,
+    linear-gradient(to top, color-mix(in oklab, var(--initial-position-aurora-violet) 70%, transparent), transparent) 62% 100% / 1.8rem 70% no-repeat,
+    linear-gradient(to top, color-mix(in oklab, var(--initial-position-aurora-cyan) 72%, transparent), transparent) 74% 100% / 0.85rem 47% no-repeat,
+    linear-gradient(to top, color-mix(in oklab, var(--initial-position-aurora-violet) 72%, transparent), transparent) 82% 100% / 1rem 19% no-repeat,
+    linear-gradient(to top, color-mix(in oklab, var(--initial-position-aurora-magenta) 78%, transparent), transparent) 87% 100% / 1.5rem 25% no-repeat,
+    linear-gradient(to top, color-mix(in oklab, var(--initial-position-aurora-cyan) 68%, transparent), transparent) 96% 100% / 0.75rem 8% no-repeat,
+    linear-gradient(to top, color-mix(in oklab, var(--initial-position-aurora-cyan) 68%, transparent), transparent) 100% 100% / 0.5rem 0% no-repeat;
+  opacity: 0.72;
+  filter: blur(5px);
+  animation: aurora-broad-peaks 4.1s var(--ease-in-out) -1.7s infinite alternate;
 }
 
 .haze {
+  z-index: 1;
   background:
     radial-gradient(
-      38% 80% at 24% 100%,
-      color-mix(in oklab, var(--aurora-cool) 46%, transparent),
-      transparent 72%
+      12% 58% at 10% 100%,
+      color-mix(in oklab, var(--initial-position-aurora-cyan) 58%, transparent),
+      transparent 64%
     ),
     radial-gradient(
-      42% 86% at 58% 100%,
-      color-mix(in oklab, var(--aurora-middle) 38%, transparent),
-      transparent 74%
+      22% 95% at 31% 100%,
+      color-mix(in oklab, var(--initial-position-aurora-blue) 52%, transparent),
+      transparent 66%
     ),
     radial-gradient(
-      34% 76% at 86% 100%,
-      color-mix(in oklab, var(--aurora-warm) 40%, transparent),
-      transparent 70%
+      20% 88% at 52% 100%,
+      color-mix(in oklab, var(--initial-position-aurora-violet) 58%, transparent),
+      transparent 64%
+    ),
+    radial-gradient(
+      16% 92% at 68% 100%,
+      color-mix(in oklab, var(--initial-position-aurora-blue) 46%, transparent),
+      transparent 64%
+    ),
+    radial-gradient(
+      14% 62% at 90% 100%,
+      color-mix(in oklab, var(--initial-position-aurora-magenta) 62%, transparent),
+      transparent 66%
     );
-  filter: blur(10px);
-  opacity: 0.72;
-  animation: aurora-haze 2.8s var(--ease-in-out) infinite alternate;
+  opacity: var(--initial-position-aurora-bloom-opacity);
+  filter: blur(16px);
+  mask-image: linear-gradient(to top, black 0%, black 34%, transparent 100%);
+  animation: aurora-haze 4.7s var(--ease-in-out) -2.2s infinite alternate;
+}
+
+.haze::before {
+  background:
+    radial-gradient(14% 54% at 18% 100%, color-mix(in oklab, var(--initial-position-aurora-cyan) 58%, transparent), transparent 66%),
+    radial-gradient(18% 82% at 45% 100%, color-mix(in oklab, var(--initial-position-aurora-magenta) 54%, transparent), transparent 64%),
+    radial-gradient(20% 76% at 72% 100%, color-mix(in oklab, var(--initial-position-aurora-violet) 52%, transparent), transparent 66%),
+    radial-gradient(10% 44% at 92% 100%, color-mix(in oklab, var(--initial-position-aurora-cyan) 46%, transparent), transparent 64%);
+  filter: blur(9px);
+  animation: aurora-secondary-haze 5.3s var(--ease-in-out) -0.9s infinite alternate;
 }
 
 @keyframes aurora-drift {
   from {
-    transform: translateX(-2%);
+    transform: translateX(-0.4%);
   }
 
   to {
-    transform: translateX(2%);
+    transform: translateX(0.4%);
   }
 }
 
-@keyframes aurora-breathe {
+@keyframes aurora-fine-peaks {
   from {
-    transform: scaleY(0.76);
+    transform: scaleY(0.78);
+    opacity: 0.72;
   }
 
   to {
     transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+@keyframes aurora-broad-peaks {
+  from {
+    transform: scaleY(0.92) translateX(0.4%);
+  }
+
+  to {
+    transform: scaleY(1.08) translateX(-0.4%);
   }
 }
 
 @keyframes aurora-haze {
   from {
-    transform: scaleY(0.84);
-    opacity: 0.52;
+    transform: scaleY(0.88) translateX(-0.8%);
   }
 
   to {
-    transform: scaleY(1);
-    opacity: 0.72;
+    transform: scaleY(1.04) translateX(0.8%);
+  }
+}
+
+@keyframes aurora-secondary-haze {
+  from {
+    transform: scaleY(1.02) translateX(0.7%);
+    opacity: 0.7;
+  }
+
+  to {
+    transform: scaleY(0.86) translateX(-0.7%);
+    opacity: 1;
+  }
+}
+
+@media (max-width: 40rem) {
+  .aurora {
+    height: 3rem;
   }
 }
 
@@ -123,16 +238,14 @@
   }
 
   .visible {
-    opacity: 0.34;
-  }
-
-  :global(.dark) .visible {
-    opacity: 0.44;
+    opacity: var(--initial-position-aurora-reduced-opacity);
   }
 
   .drift,
-  .peaks,
-  .haze {
+  .peaks::before,
+  .peaks::after,
+  .haze,
+  .haze::before {
     animation: none;
     transform: none;
   }
