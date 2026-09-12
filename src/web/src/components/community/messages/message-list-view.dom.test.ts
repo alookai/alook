@@ -14,9 +14,25 @@ vi.mock("./message-share-dialog", () => ({ MessageShareDialog: vi.fn(() => null)
 vi.mock("@/components/ui/number-ticker", () => ({
   NumberTicker: ({ value }: { value: number }) => React.createElement("ticker", { value }),
 }))
+vi.mock("./initial-position-aurora.module.css", () => ({
+  default: new Proxy({}, { get: (_target, key) => String(key) }),
+}))
 
 const mockedRail = vi.mocked(ComposerAccessoryRail)
 const mockedShareDialog = vi.mocked(MessageShareDialog)
+
+function initialPosition(
+  overrides: Partial<MessageListController["initialPosition"]> = {},
+): MessageListController["initialPosition"] {
+  return {
+    phase: "revealed",
+    showSkeleton: false,
+    contentVisible: true,
+    contentInteractive: true,
+    auroraVisible: false,
+    ...overrides,
+  }
+}
 
 function props(overrides: Partial<ResolvedMessageListProps> = {}): ResolvedMessageListProps {
   return {
@@ -41,6 +57,7 @@ function controller(overrides: Partial<MessageListController> = {}): MessageList
   return {
     items: [{ kind: "message", key: "m1", m: props().messages[0] }],
     isLoading: false,
+    initialPosition: initialPosition(),
     jumped: null,
     selectMode: false,
     selectedIds: new Set(),
@@ -88,7 +105,16 @@ describe("renderMessageListView", () => {
 
   it("keeps the same wrappers while true empty loading omits the interactive accessory rail", () => {
     const listProps = props({ messages: [] })
-    const state = controller({ isLoading: true, pillCount: 8 })
+    const state = controller({
+      isLoading: true,
+      initialPosition: initialPosition({
+        phase: "skeleton",
+        showSkeleton: true,
+        contentVisible: false,
+        contentInteractive: false,
+      }),
+      pillCount: 8,
+    })
     const renderRows = vi.fn(() => React.createElement("virtual-rows"))
     const renderer = render(renderMessageListView(listProps, state, renderRows))
     expect(renderer.container.firstElementChild).toHaveClass(
@@ -98,6 +124,77 @@ describe("renderMessageListView", () => {
     expect(renderRows).not.toHaveBeenCalled()
     expect(renderer.container.querySelectorAll(".mb-6")).toHaveLength(1)
     expect(renderer.container.querySelectorAll("[data-message-typing-space]")).toHaveLength(0)
+    const content = renderer.container.querySelector<HTMLElement>("[data-message-list-content]")!
+    expect(content).toHaveClass("opacity-100")
+    expect(content).not.toHaveClass("transition-opacity", "duration-100")
+  })
+
+  it("keeps positioned rows measurable but inert and hidden until reveal starts", () => {
+    const renderRows = vi.fn(() => React.createElement("virtual-rows"))
+    const renderer = render(renderMessageListView(
+      props({ loading: false }),
+      controller({
+        initialPosition: initialPosition({
+          phase: "positioning",
+          contentVisible: false,
+          contentInteractive: false,
+        }),
+      }),
+      renderRows,
+    ))
+    const content = renderer.container.querySelector<HTMLElement>("[data-message-list-content]")!
+    expect(renderRows).toHaveBeenCalledOnce()
+    expect(renderer.container.querySelector("virtual-rows")).toBeInTheDocument()
+    expect(content).toHaveAttribute("data-initial-position-phase", "positioning")
+    expect(content).toHaveAttribute("aria-hidden", "true")
+    expect(content).toHaveAttribute("inert")
+    expect(content).toHaveClass("pointer-events-none", "opacity-0")
+    expect(content).not.toHaveClass("transition-opacity", "duration-100")
+    expect(mockedRail).not.toHaveBeenCalled()
+  })
+
+  it("crossfades content against the pointer-transparent aurora without changing geometry", () => {
+    const renderer = render(renderMessageListView(
+      props({ loading: false }),
+      controller({
+        initialPosition: initialPosition({
+          phase: "aurora",
+          contentVisible: false,
+          contentInteractive: false,
+          auroraVisible: true,
+        }),
+      }),
+      () => React.createElement("virtual-rows"),
+    ))
+    const content = () => renderer.container.querySelector<HTMLElement>("[data-message-list-content]")!
+    expect(content()).toHaveClass("opacity-0")
+    expect(content()).not.toHaveClass("transition-opacity", "duration-100")
+    expect(renderer.getByTestId("community-initial-position-aurora"))
+      .toHaveAttribute("data-phase", "aurora")
+
+    renderer.rerender(renderMessageListView(
+      props({ loading: false }),
+      controller({
+        initialPosition: initialPosition({
+          phase: "revealing",
+          auroraVisible: true,
+        }),
+      }),
+      () => React.createElement("virtual-rows"),
+    ))
+    expect(content()).toHaveClass("opacity-100", "transition-opacity", "duration-100")
+    expect(content()).toHaveAttribute("aria-hidden", "false")
+    expect(content()).not.toHaveAttribute("inert")
+    expect(renderer.getByTestId("community-initial-position-aurora"))
+      .toHaveAttribute("data-phase", "revealing")
+
+    renderer.rerender(renderMessageListView(
+      props({ loading: false }),
+      controller({ initialPosition: initialPosition({ phase: "revealed" }) }),
+      () => React.createElement("virtual-rows"),
+    ))
+    expect(content()).toHaveClass("opacity-100")
+    expect(content()).not.toHaveClass("transition-opacity", "duration-100")
   })
 
   it("routes typing through the rail without adding a dynamic flex sibling", () => {

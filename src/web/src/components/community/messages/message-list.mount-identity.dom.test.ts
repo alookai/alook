@@ -6,6 +6,9 @@ import { render } from "@/test/react-dom-harness"
 vi.mock("@/components/ui/number-ticker", () => ({
   NumberTicker: ({ value }: { value: number }) => React.createElement("span", null, value),
 }))
+vi.mock("./initial-position-aurora.module.css", () => ({
+  default: new Proxy({}, { get: (_target, key) => String(key) }),
+}))
 
 let scrollToDescriptor: PropertyDescriptor | undefined
 
@@ -67,6 +70,13 @@ describe("MessageList — loading→loaded mount identity (Phase 4)", () => {
     )
 
     expect(scrollTo).toHaveBeenCalledTimes(callsBeforeLoaded + 1)
+    const positionedContent = renderer.container.querySelector(
+      "[data-message-list-content]",
+    )
+    expect(positionedContent).toHaveAttribute("data-initial-position-phase", "positioning")
+    expect(positionedContent).toHaveAttribute("aria-hidden", "true")
+    expect(positionedContent).toHaveAttribute("inert")
+    expect(positionedContent).toHaveClass("pointer-events-none", "opacity-0")
 
     renderer.rerender(
       React.createElement(MessageList, {

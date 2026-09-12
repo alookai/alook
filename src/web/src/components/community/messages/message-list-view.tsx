@@ -3,6 +3,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { tid } from "@/lib/community/testids"
 import { ChannelIcon } from "../channels/channel-icon"
 import { ComposerAccessoryRail } from "./composer-accessory-rail"
+import { InitialPositionAurora } from "./initial-position-aurora"
 import { MessageShareDialog } from "./message-share-dialog"
 import type { MessageListController } from "./message-list-controller"
 import type { ResolvedMessageListProps } from "./message-list-types"
@@ -22,7 +23,7 @@ export function renderMessageListView(
         />
       )}
       <div data-message-scroller-boundary className="relative min-h-0 flex-1">
-        {!controller.isLoading && (
+        {controller.initialPosition.contentInteractive && (
           <ComposerAccessoryRail
             typingNames={props.typingUsers ?? []}
             scrollCount={controller.pillCount}
@@ -41,9 +42,18 @@ export function renderMessageListView(
         >
           <div
             data-message-list-content
-            className="flex min-h-full flex-col justify-end px-4 pb-14 pt-8 sm:pb-18"
+            data-initial-position-phase={controller.initialPosition.phase}
+            aria-hidden={!controller.initialPosition.showSkeleton && !controller.initialPosition.contentVisible}
+            inert={!controller.initialPosition.showSkeleton && !controller.initialPosition.contentInteractive}
+            className={`flex min-h-full flex-col justify-end px-4 pb-14 pt-8 sm:pb-18 ${
+              controller.initialPosition.phase === "revealing"
+                ? "opacity-100 transition-opacity duration-100 ease-out motion-reduce:transition-opacity"
+                : controller.initialPosition.showSkeleton || controller.initialPosition.contentVisible
+                  ? "opacity-100"
+                  : "pointer-events-none opacity-0"
+            }`}
           >
-          {controller.isLoading ? (
+          {controller.initialPosition.showSkeleton ? (
             <MessageListSkeletonContent variant={props.variant} />
           ) : (
             <>
@@ -84,6 +94,7 @@ export function renderMessageListView(
           )}
           </div>
         </div>
+        <InitialPositionAurora phase={controller.initialPosition.phase} />
       </div>
     </div>
   )
