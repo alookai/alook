@@ -42,9 +42,14 @@ export function renderBotListOverlaySlots(
     ),
     activity: (
       <BotActivityModal
+        key={controller.activityGeneration}
         bot={controller.activityBot}
         open={controller.activityOpen}
         onOpenChange={controller.onActivityOpenChange}
+        onOpenChangeComplete={(open) => controller.onActivityOpenChangeComplete(
+          open,
+          controller.activityGeneration,
+        )}
       />
     ),
     bug: controller.bugReportBot ? (

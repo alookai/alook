@@ -25,6 +25,7 @@ const COMMUNITY_SHEET_MIN_WIDTH = 320
 type CommunitySheetProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
+  onOpenChangeComplete?: (open: boolean) => void
   title: React.ReactNode
   description?: React.ReactNode
   headerLeading?: React.ReactNode
@@ -50,6 +51,7 @@ type CommunitySheetProps = {
 export function CommunitySheet({
   open,
   onOpenChange,
+  onOpenChangeComplete,
   title,
   description,
   headerLeading,
@@ -73,7 +75,12 @@ export function CommunitySheet({
   )
 
   return (
-    <Sheet open={open} onOpenChange={handleOpenChange} modal>
+    <Sheet
+      open={open}
+      onOpenChange={handleOpenChange}
+      onOpenChangeComplete={onOpenChangeComplete}
+      modal
+    >
       {resizable ? (
         <ResizableCommunitySheetContent
           title={title}

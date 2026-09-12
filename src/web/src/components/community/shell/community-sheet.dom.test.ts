@@ -72,6 +72,22 @@ describe("CommunitySheet contracts", () => {
     expect(resizeHandle).not.toHaveBeenCalled()
   })
 
+  it.each([
+    ["fixed", false],
+    ["resizable", true],
+  ])("forwards open completion unchanged for the %s sheet", (_name, resizable) => {
+    const onOpenChangeComplete = vi.fn()
+    renderSheet({ onOpenChangeComplete, resizable })
+
+    expect(sheetProps.get("sheet-root")?.onOpenChangeComplete).toBe(onOpenChangeComplete)
+  })
+
+  it("keeps open completion optional", () => {
+    renderSheet()
+
+    expect(sheetProps.get("sheet-root")?.onOpenChangeComplete).toBeUndefined()
+  })
+
   it("uses the primitive resize policy at the caller's desktop width", () => {
     const { renderer } = renderSheet({ resizable: true, desktopWidth: 672 })
     const content = sheetProps.get("sheet-content")!

@@ -200,7 +200,7 @@ describe("useBotListController", () => {
     return renderer
   }
 
-  it("keeps the exact external hook order and source-owned fourteen states", () => {
+  it("keeps the exact external hook order and source-owned states", () => {
     render()
     expect(mocks.hookOrder.slice(0, 10)).toEqual([
       "router",
@@ -217,7 +217,7 @@ describe("useBotListController", () => {
     expect(mocks.hookOrder[10]).toBe("onboarding")
 
     const source = readWebSource("src/components/community/bots/bot-list-controller.ts")
-    expect(source.match(/useState(?:<[^\n]+>)?\(/g)).toHaveLength(15)
+    expect(source.match(/useState(?:<[^\n]+>)?\(/g)).toHaveLength(16)
     expect(source).not.toMatch(/useCallback\(/)
     expect(source.match(/useMemo\(/g)).toHaveLength(1)
     const orderedHooks = [
@@ -231,6 +231,7 @@ describe("useBotListController", () => {
       "const [editOpen",
       "const [activityBot",
       "const [activityOpen",
+      "const [activityGeneration",
       "const [bugReportBot",
       "const [bugReportOpen",
       "const [confirmDelete",
@@ -444,6 +445,7 @@ describe("useBotListController", () => {
     act(() => renderer.rerender(React.createElement(Probe)))
     expect(latest.activityOpen).toBe(true)
     expect(latest.activityBot?.id).toBe("b1")
+    expect(latest.activityGeneration).toBe(1)
     expect(mocks.replace).not.toHaveBeenCalled()
   })
 
@@ -469,10 +471,11 @@ describe("useBotListController", () => {
     render()
     expect(latest.activityOpen).toBe(false)
     expect(latest.activityBot).toBeNull()
+    expect(latest.activityGeneration).toBe(0)
     expect(mocks.replace).toHaveBeenCalledWith("/c/me/bots?machineId=mac1")
   })
 
-  it("pushes URL-owned activity state, preserves machineId, and closes with replace", () => {
+  it("preserves URL state and retains the closing snapshot until eligible completion", () => {
     const renderer = render()
     act(() => latest.openActivity(mocks.bots[0]!))
     expect(mocks.push).toHaveBeenCalledWith("/c/me/bots?machineId=mac1&audit=b1")
@@ -481,27 +484,125 @@ describe("useBotListController", () => {
     act(() => renderer.rerender(React.createElement(Probe)))
     expect(latest.activityOpen).toBe(true)
     expect(latest.activityBot?.id).toBe("b1")
+    const generation = latest.activityGeneration
 
     act(() => latest.onActivityOpenChange(false))
     expect(latest.activityOpen).toBe(false)
-    expect(latest.activityBot).toBeNull()
+    expect(latest.activityBot?.id).toBe("b1")
     expect(mocks.replace).toHaveBeenLastCalledWith("/c/me/bots?machineId=mac1")
+
+    act(() => latest.onActivityOpenChangeComplete(true, generation))
+    expect(latest.activityBot?.id).toBe("b1")
+    act(() => latest.onActivityOpenChangeComplete(false, generation + 1))
+    expect(latest.activityBot?.id).toBe("b1")
+    act(() => latest.onActivityOpenChangeComplete(false, generation))
+    expect(latest.activityBot).toBeNull()
+    act(() => latest.onActivityOpenChangeComplete(false, generation))
+    expect(latest.activityBot).toBeNull()
   })
 
-  it("closes on Back and reopens the same owned target on Forward", () => {
+  it("retains on Back and fences the old completion after Forward", () => {
     mocks.audit = "b1"
     const renderer = render()
     expect(latest.activityOpen).toBe(true)
+    const closingGeneration = latest.activityGeneration
 
     mocks.audit = null
     act(() => renderer.rerender(React.createElement(Probe)))
     expect(latest.activityOpen).toBe(false)
-    expect(latest.activityBot).toBeNull()
+    expect(latest.activityBot?.id).toBe("b1")
 
     mocks.audit = "b1"
     act(() => renderer.rerender(React.createElement(Probe)))
     expect(latest.activityOpen).toBe(true)
     expect(latest.activityBot?.id).toBe("b1")
+    expect(latest.activityGeneration).toBe(closingGeneration + 1)
+    const reopenedGeneration = latest.activityGeneration
+
+    act(() => latest.onActivityOpenChangeComplete(false, closingGeneration))
+    expect(latest.activityOpen).toBe(true)
+    expect(latest.activityBot?.id).toBe("b1")
+    act(() => latest.onActivityOpenChangeComplete(false, reopenedGeneration))
+    expect(latest.activityOpen).toBe(true)
+    expect(latest.activityBot?.id).toBe("b1")
+  })
+
+  it("advances generation for a same-bot reopen after explicit close", () => {
+    mocks.audit = "b1"
+    const renderer = render()
+    const closingGeneration = latest.activityGeneration
+
+    act(() => latest.onActivityOpenChange(false))
+    expect(latest.activityOpen).toBe(false)
+    expect(latest.activityBot?.id).toBe("b1")
+    mocks.audit = null
+    act(() => renderer.rerender(React.createElement(Probe)))
+
+    act(() => latest.openActivity(mocks.bots[0]!))
+    mocks.audit = "b1"
+    act(() => renderer.rerender(React.createElement(Probe)))
+    expect(latest.activityOpen).toBe(true)
+    expect(latest.activityGeneration).toBe(closingGeneration + 1)
+
+    act(() => latest.onActivityOpenChangeComplete(false, closingGeneration))
+    expect(latest.activityBot?.id).toBe("b1")
+  })
+
+  it("lets B replace a closing A and ignores A's completion", () => {
+    mocks.audit = "b1"
+    mocks.bots = [bot("b1", "mac1"), bot("b2", "mac1")]
+    const renderer = render()
+    const aGeneration = latest.activityGeneration
+
+    act(() => latest.onActivityOpenChange(false))
+    expect(latest.activityOpen).toBe(false)
+    expect(latest.activityBot?.id).toBe("b1")
+
+    act(() => latest.openActivity(mocks.bots[1]!))
+    mocks.audit = "b2"
+    act(() => renderer.rerender(React.createElement(Probe)))
+    expect(latest.activityOpen).toBe(true)
+    expect(latest.activityBot?.id).toBe("b2")
+    expect(latest.activityGeneration).toBe(aGeneration + 1)
+
+    act(() => latest.onActivityOpenChangeComplete(false, aGeneration))
+    expect(latest.activityBot?.id).toBe("b2")
+  })
+
+  it("retains a disappeared target and lets a new valid target beat its completion", () => {
+    mocks.audit = "b1"
+    mocks.bots = [bot("b1", "mac1"), bot("b2", "mac1")]
+    const renderer = render()
+    const aGeneration = latest.activityGeneration
+
+    mocks.bots = [bot("b2", "mac1")]
+    act(() => renderer.rerender(React.createElement(Probe)))
+    expect(latest.activityOpen).toBe(false)
+    expect(latest.activityBot?.id).toBe("b1")
+    expect(mocks.replace).toHaveBeenLastCalledWith("/c/me/bots?machineId=mac1")
+
+    mocks.audit = "b2"
+    act(() => renderer.rerender(React.createElement(Probe)))
+    expect(latest.activityOpen).toBe(true)
+    expect(latest.activityBot?.id).toBe("b2")
+    expect(latest.activityGeneration).toBe(aGeneration + 1)
+
+    act(() => latest.onActivityOpenChangeComplete(false, aGeneration))
+    expect(latest.activityBot?.id).toBe("b2")
+  })
+
+  it("clears a disappeared target only after its matching false completion", () => {
+    mocks.audit = "b1"
+    const renderer = render()
+    const generation = latest.activityGeneration
+
+    mocks.bots = []
+    act(() => renderer.rerender(React.createElement(Probe)))
+    expect(latest.activityOpen).toBe(false)
+    expect(latest.activityBot?.id).toBe("b1")
+
+    act(() => latest.onActivityOpenChangeComplete(false, generation))
+    expect(latest.activityBot).toBeNull()
   })
 
   it("clears a normally consumed target after exactly 2000ms", () => {

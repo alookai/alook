@@ -32,10 +32,12 @@ export function BotActivityModal({
   bot,
   open,
   onOpenChange,
+  onOpenChangeComplete,
 }: {
   bot: BotSummary | null
   open: boolean
   onOpenChange: (open: boolean) => void
+  onOpenChangeComplete: (open: boolean) => void
 }) {
   // "Live" here means the bot's daemon is currently connected (its WS
   // presence). A viewer with a broken WS wouldn't receive events either, but
@@ -49,7 +51,7 @@ export function BotActivityModal({
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
-  } = useBotAuditLog(open ? bot?.id : null)
+  } = useBotAuditLog(bot?.id ?? null)
 
   // Merged stream = paginated GET (DESC) + live WS ring (arrival-ordered).
   // The two are NOT a single monotonic sequence: a live event can carry a
@@ -157,6 +159,7 @@ export function BotActivityModal({
     <CommunitySheet
       open={open}
       onOpenChange={onOpenChange}
+      onOpenChangeComplete={onOpenChangeComplete}
       title={bot?.name ?? "Bot"}
       headerLeading={(
         <AgentAvatar name={bot?.name ?? ""} avatarUrl={bot?.image ?? null} seed={bot?.id} size={32} />
