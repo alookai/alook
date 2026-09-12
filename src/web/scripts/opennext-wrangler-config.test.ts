@@ -32,7 +32,7 @@ describe("OpenNext and Wrangler refresh", () => {
       "package.json",
       "src/app/package.json",
       "src/email-worker/package.json",
-      "src/wake-worker/package.json",
+      "src/queue-worker/package.json",
       "src/web/package.json",
       "src/ws-do/package.json",
     ]
@@ -56,7 +56,7 @@ describe("OpenNext and Wrangler refresh", () => {
     for (const manifest of [
       "src/email-worker/package.json",
       "src/shared/package.json",
-      "src/wake-worker/package.json",
+      "src/queue-worker/package.json",
       "src/ws-do/package.json",
     ]) {
       expect(dependency(manifest, "@cloudflare/workers-types"), manifest)

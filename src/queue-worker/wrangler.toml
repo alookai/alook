@@ -1,4 +1,4 @@
-name = "alook-wake-worker"
+name = "alook-queue-worker"
 main = "src/index.ts"
 compatibility_date = "2026-09-07"
 compatibility_flags = ["nodejs_compat"]
@@ -18,7 +18,7 @@ enabled = true
 head_sampling_rate = 0.05
 destinations = ["grafana-traces"]
 
-# Must match DEV_PORTS.wakeWorker in src/shared/src/constants.ts
+# Must match DEV_PORTS.queueWorker in src/shared/src/constants.ts
 [dev]
 port = 8790
 inspector_port = 9232
@@ -37,7 +37,7 @@ database_id = "1593b87c-d8a8-4cdf-b6c0-c80d94442654"
 database_name = "alook-app"
 
 [[queues.consumers]]
-queue = "alook-wake"
+queue = "alook-queue"
 max_batch_size = 25
 max_retries = 3
-dead_letter_queue = "alook-wake-dlq"
+dead_letter_queue = "alook-queue-dlq"

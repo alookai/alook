@@ -5,7 +5,7 @@ import { seedServer, seedChannel, seedJoinServer } from "./_fixtures/seed"
 
 // Journey 5 — @-mentions. The mention popup shows SERVER MEMBERS (regression
 // a4672ca2: not the viewer's friends). Bot reply is out of scope (no daemon /
-// wake-worker); we assert the mention UI + that a mention produces an inbox
+// queue-worker); we assert the mention UI + that a mention produces an inbox
 // entry for the mentioned user.
 test.describe.serial("mentions", () => {
   let serverId: string

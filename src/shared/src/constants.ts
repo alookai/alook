@@ -202,25 +202,25 @@ export interface DevPortProfile {
   web: number;
   emailWorker: number;
   wsDo: number;
-  wakeWorker: number;
+  queueWorker: number;
 }
 
 // Ports used by `pnpm dev:*` / `wrangler dev` in this monorepo — must match
-// each worker's wrangler.toml `[dev] port` (web via Next, wake-worker via
-// src/wake-worker/wrangler.toml). Single source of truth for the fallback
+// each worker's wrangler.toml `[dev] port` (web via Next, queue-worker via
+// src/queue-worker/wrangler.toml). Single source of truth for the fallback
 // URLs below and every other hardcoded dev-port default across web/cli/daemon.
 export const DEV_PORTS: DevPortProfile = {
   web: 3000,
   emailWorker: 8787,
   wsDo: 8789,
-  wakeWorker: 8790,
+  queueWorker: 8790,
 };
 
 // Local dev URLs (used for service-binding fallbacks)
 export const DEV_WEB_URL = process.env.ALOOK_SERVER_URL || `http://localhost:${DEV_PORTS.web}`;
 export const DEV_WS_DO_URL = process.env.DEV_WS_DO_URL || `http://localhost:${DEV_PORTS.wsDo}`;
 export const DEV_EMAIL_WORKER_URL = process.env.DEV_EMAIL_WORKER_URL || `http://localhost:${DEV_PORTS.emailWorker}`;
-export const DEV_WAKE_WORKER_URL = process.env.DEV_WAKE_WORKER_URL || `http://localhost:${DEV_PORTS.wakeWorker}`;
+export const DEV_QUEUE_WORKER_URL = process.env.DEV_QUEUE_WORKER_URL || `http://localhost:${DEV_PORTS.queueWorker}`;
 
 /** Local ws-do port — derived from `DEV_WS_DO_URL` so env overrides stay in sync. */
 export function devWsDoPort(): number {

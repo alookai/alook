@@ -1,5 +1,5 @@
 {
-  "name": "@alook/wake-worker",
+  "name": "@alook/queue-worker",
   "version": "0.1.36",
   "private": true,
   "scripts": {

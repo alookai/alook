@@ -1,0 +1,13 @@
+# Shared with Web so encrypted device tokens can be decrypted by this worker.
+ENCRYPTION_KEY=
+
+# Apple Push Notification service token credentials and app topic.
+APNS_TEAM_ID=
+APNS_KEY_ID=
+APNS_PRIVATE_KEY=
+APNS_TOPIC=
+
+# Firebase Cloud Messaging HTTP v1 service-account credentials.
+FCM_PROJECT_ID=
+FCM_CLIENT_EMAIL=
+FCM_PRIVATE_KEY=

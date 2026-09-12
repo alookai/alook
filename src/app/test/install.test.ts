@@ -10,8 +10,8 @@ const bundledFixtureFiles = [
   "web/wrangler.toml",
   "email-worker/index.js",
   "ws-do/index.js",
-  "wake-worker/wrangler.toml",
-  "wake-worker/index.js",
+  "queue-worker/wrangler.toml",
+  "queue-worker/index.js",
 ];
 
 function createFiles(rootDir: string, files: string[]): void {
@@ -39,8 +39,8 @@ describe("install", () => {
   describe("normalizeInstallFilePath", () => {
     it("uses forward slashes for logical install paths", async () => {
       const { normalizeInstallFilePath } = await import("../src/lib/install.js");
-      expect(normalizeInstallFilePath("wake-worker\\wrangler.toml")).toBe(
-        "wake-worker/wrangler.toml",
+      expect(normalizeInstallFilePath("queue-worker\\wrangler.toml")).toBe(
+        "queue-worker/wrangler.toml",
       );
     });
   });
@@ -57,8 +57,8 @@ describe("install", () => {
       expect(isInstalled(bundleDir, testDir)).toBe(true);
     });
 
-    it("returns false for a legacy installation without wake-worker", async () => {
-      createFiles(testDir, bundledFixtureFiles.filter((file) => !file.startsWith("wake-worker/")));
+    it("returns false for an installation without queue-worker", async () => {
+      createFiles(testDir, bundledFixtureFiles.filter((file) => !file.startsWith("queue-worker/")));
       const { isInstalled } = await import("../src/lib/install.js");
       expect(isInstalled(bundleDir, testDir)).toBe(false);
     });
@@ -83,21 +83,21 @@ describe("install", () => {
     });
 
     it("treats a directory at a bundled file path as missing", async () => {
-      createFiles(testDir, bundledFixtureFiles.filter((file) => file !== "wake-worker/index.js"));
-      mkdirSync(join(testDir, "wake-worker/index.js"), { recursive: true });
+      createFiles(testDir, bundledFixtureFiles.filter((file) => file !== "queue-worker/index.js"));
+      mkdirSync(join(testDir, "queue-worker/index.js"), { recursive: true });
       const { getMissingInstallFiles } = await import("../src/lib/install.js");
       expect(getMissingInstallFiles(bundleDir, testDir)).toEqual([
-        "wake-worker/index.js",
+        "queue-worker/index.js",
       ]);
     });
   });
 
   describe("assertInstallationComplete", () => {
     it("names missing files in the error", async () => {
-      createFiles(testDir, bundledFixtureFiles.filter((file) => file !== "wake-worker/wrangler.toml"));
+      createFiles(testDir, bundledFixtureFiles.filter((file) => file !== "queue-worker/wrangler.toml"));
       const { assertInstallationComplete } = await import("../src/lib/install.js");
       expect(() => assertInstallationComplete(bundleDir, testDir)).toThrow(
-        "Alook installation is incomplete after installing bundled assets. Missing required files: wake-worker/wrangler.toml. Reinstall @alook/app and try again.",
+        "Alook installation is incomplete after installing bundled assets. Missing required files: queue-worker/wrangler.toml. Reinstall @alook/app and try again.",
       );
     });
 

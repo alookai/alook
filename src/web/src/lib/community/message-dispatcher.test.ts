@@ -15,11 +15,19 @@ const mockResolveRecipients = vi.fn()
 const mockResolveNotificationRecipients = vi.fn()
 const mockResolveEligibility = vi.fn()
 const mockFindWakeCandidates = vi.fn()
+const mockLogWarn = vi.fn()
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
   return {
     ...actual,
+    createLogger: () => ({
+      child() { return this },
+      debug: vi.fn(),
+      error: vi.fn(),
+      info: vi.fn(),
+      warn: (...args: unknown[]) => mockLogWarn(...args),
+    }),
     withD1Retry: (run: () => Promise<unknown>) => run(),
     queries: {
       communityMessage: {
@@ -58,9 +66,9 @@ const mockSendMessageDeliveryBatch = vi.fn()
 vi.mock("./message-delivery-transport", () => ({
   sendMessageDeliveryBatch: (...args: unknown[]) => mockSendMessageDeliveryBatch(...args),
 }))
-const mockEnqueueBotWakePayloads = vi.fn()
-vi.mock("./wake-producer", () => ({
-  enqueueBotWakePayloads: (...args: unknown[]) => mockEnqueueBotWakePayloads(...args),
+const mockEnqueueQueueTasks = vi.fn()
+vi.mock("./queue-producer", () => ({
+  enqueueQueueTasks: (...args: unknown[]) => mockEnqueueQueueTasks(...args),
 }))
 
 import { dispatchCommittedMessage, planCommittedMessage } from "./message-dispatcher"
@@ -141,7 +149,7 @@ describe("planCommittedMessage", () => {
       { botUserId: "bot_1", name: "Bot", machineId: "m1", runtime: "codex" },
     ])
     mockSendMessageDeliveryBatch.mockResolvedValue(undefined)
-    mockEnqueueBotWakePayloads.mockResolvedValue(undefined)
+    mockEnqueueQueueTasks.mockResolvedValue(undefined)
   })
 
   it("derives content, notification, mention, and bot targets from one D1 plan", async () => {
@@ -151,6 +159,7 @@ describe("planCommittedMessage", () => {
     expect(plan.unreadMentionUserIds).toEqual(["u_mentions", "bot_1"])
     expect(plan.mentionUserIds).toEqual(["u_mentions", "u_mention_only", "bot_1"])
     expect(plan.wakeBotUserIds).toEqual(["bot_1"])
+    expect(plan.pushUserIds).toEqual(["u_all", "u_mentions", "bot_1", "u_mention_only"])
     expect(plan.messageEvent).toMatchObject({
       type: "community:message.create",
       channelId: "c1",
@@ -183,6 +192,7 @@ describe("planCommittedMessage", () => {
     expect(plan.unreadMentionUserIds).toEqual([])
     expect(plan.mentionUserIds).toEqual([])
     expect(plan.wakeBotUserIds).toEqual([])
+    expect(plan.pushUserIds).toEqual(["u_all"])
     expect(mockResolveEligibility).toHaveBeenCalledWith({}, ["u_all"], "msg_1")
     expect(mockFindWakeCandidates).toHaveBeenCalledWith({}, expect.objectContaining({ recipients: ["u_all"] }))
   })
@@ -245,6 +255,7 @@ describe("planCommittedMessage", () => {
     const plan = await planCommittedMessage({} as never, "msg_1")
     expect(plan.contentUserIds).toEqual(["author_1", "participant_1"])
     expect(plan.mentionUserIds).toEqual(["parent_viewer"])
+    expect(plan.pushUserIds).toEqual(["participant_1", "parent_viewer"])
     expect(plan.parentProjectionUserIds).toEqual(["participant_1", "parent_viewer"])
     expect(plan.parentProjection).toMatchObject({
       parentChannelId: "forum_1",
@@ -265,6 +276,7 @@ describe("planCommittedMessage", () => {
     const plan = await planCommittedMessage({} as never, "msg_1")
     expect(plan.contentUserIds).toEqual(["author_1", "private_member"])
     expect(plan.unreadPlainUserIds).toEqual(["private_member"])
+    expect(plan.pushUserIds).toEqual(["private_member"])
   })
 
   it("plans a DM from its two resolved members without server projections", async () => {
@@ -284,6 +296,7 @@ describe("planCommittedMessage", () => {
 
     const plan = await planCommittedMessage({} as never, "msg_1")
     expect(plan.contentUserIds).toEqual(["author_1", "dm_peer"])
+    expect(plan.pushUserIds).toEqual(["dm_peer"])
     expect(plan.messageEvent).not.toHaveProperty("serverId")
     expect(plan).not.toHaveProperty("parentProjection")
   })
@@ -302,6 +315,7 @@ describe("planCommittedMessage", () => {
     expect(plan.unreadMentionUserIds).toEqual([])
     expect(plan.mentionUserIds).toEqual([])
     expect(plan.wakeBotUserIds).toEqual([])
+    expect(plan.pushUserIds).toEqual([])
     expect(mockFindWakeCandidates).toHaveBeenCalledWith({}, {
       recipients: [],
       channelId: "c1",
@@ -321,6 +335,7 @@ describe("planCommittedMessage", () => {
     expect(plan.unreadMentionUserIds).toEqual([])
     expect(plan.mentionUserIds).toEqual([])
     expect(plan.wakeBotUserIds).toEqual([])
+    expect(plan.pushUserIds).toEqual([])
   })
 
   it("filters muted, caught-up, and unread-ineligible users consistently", async () => {
@@ -336,6 +351,7 @@ describe("planCommittedMessage", () => {
     expect(plan.unreadMentionUserIds).toEqual([])
     expect(plan.mentionUserIds).toEqual([])
     expect(plan.wakeBotUserIds).toEqual([])
+    expect(plan.pushUserIds).toEqual([])
   })
 
   it("accepts only an in-scope structural participant outcome", async () => {
@@ -365,6 +381,7 @@ describe("planCommittedMessage", () => {
     const plan = await planCommittedMessage({} as never, "msg_1")
     expect(plan.contentUserIds).toEqual(["author_1", "u_mentions"])
     expect(plan.wakeBotUserIds).toEqual([])
+    expect(plan.pushUserIds).toEqual(["u_mentions", "u_mention_only"])
   })
 
   it("deduplicates notification and attention candidates without consulting passive readers", async () => {
@@ -377,6 +394,7 @@ describe("planCommittedMessage", () => {
     expect(plan.unreadPlainUserIds).toEqual(["u_all"])
     expect(plan.unreadMentionUserIds).toEqual(["u_mentions"])
     expect(plan.mentionUserIds).toEqual(["u_mentions", "u_mention_only"])
+    expect(plan.pushUserIds).toEqual(["u_all", "u_mentions", "u_mention_only"])
     expect(plan.wakeBotUserIds).toEqual([])
   })
 
@@ -397,13 +415,16 @@ describe("dispatchCommittedMessage", () => {
     mockListAttachments.mockResolvedValue([])
     mockListAttention.mockResolvedValue([])
     mockResolveRecipients.mockResolvedValue(["author_1"])
+    mockResolveNotificationRecipients.mockImplementation(
+      (db, id, run) => run("thread-participants", () => mockResolveRecipients(db, id)),
+    )
     mockResolveEligibility.mockResolvedValue(new Map())
     mockFindWakeCandidates.mockResolvedValue([])
     mockSendMessageDeliveryBatch.mockResolvedValue(undefined)
-    mockEnqueueBotWakePayloads.mockResolvedValue(undefined)
+    mockEnqueueQueueTasks.mockResolvedValue(undefined)
   })
 
-  it("registers one fail-open dispatch and sends browser plus wake plans", async () => {
+  it("registers one fail-open dispatch and sends browser plus queue plans", async () => {
     const work = dispatchCommittedMessage({} as never, "msg_1")
     expect(mockWaitUntil).toHaveBeenCalledWith(work)
     await expect(work).resolves.toBeUndefined()
@@ -412,7 +433,25 @@ describe("dispatchCommittedMessage", () => {
       expect.objectContaining({ messageId: "msg_1" }),
       await deriveCommunityDeliveryOperationId("msg_1"),
     )
-    expect(mockEnqueueBotWakePayloads).toHaveBeenCalledWith([])
+    expect(mockEnqueueQueueTasks).toHaveBeenCalledWith([])
+  })
+
+  it("enqueues bot wake before the exact three-list mobile push union", async () => {
+    mockResolveRecipients.mockResolvedValue(["author_1", "u_all", "bot_1"])
+    mockListAttention.mockResolvedValue(["bot_1"])
+    mockResolveEligibility.mockResolvedValue(new Map([
+      ["u_all", state()],
+      ["bot_1", state({ hasAttention: true })],
+    ]))
+    mockFindWakeCandidates.mockResolvedValue([{ botUserId: "bot_1" }])
+
+    await dispatchCommittedMessage({} as never, "msg_1")
+
+    expect(mockEnqueueQueueTasks).toHaveBeenCalledWith([
+      { version: 1, kind: "bot-wake", messageId: "msg_1", botUserId: "bot_1" },
+      { version: 1, kind: "mobile-push", messageId: "msg_1", userId: "u_all" },
+      { version: 1, kind: "mobile-push", messageId: "msg_1", userId: "bot_1" },
+    ])
   })
 
   it("does not reject the committed mutation when planning or transport fails", async () => {
@@ -422,5 +461,16 @@ describe("dispatchCommittedMessage", () => {
     mockGetMessage.mockResolvedValue(message)
     mockSendMessageDeliveryBatch.mockRejectedValueOnce(new Error("ws unavailable"))
     await expect(dispatchCommittedMessage({} as never, "msg_1")).resolves.toBeUndefined()
+  })
+
+  it("logs a queue rejection while preserving fail-open dispatch", async () => {
+    mockEnqueueQueueTasks.mockRejectedValueOnce(new Error("queue unavailable"))
+
+    await expect(dispatchCommittedMessage({} as never, "msg_1")).resolves.toBeUndefined()
+
+    expect(mockLogWarn).toHaveBeenCalledWith("committed_message_queue_delivery_failed", {
+      messageId: "msg_1",
+      err: "Error: queue unavailable",
+    })
   })
 })

@@ -3,7 +3,7 @@
  *
  * The canonical `RuntimeConfig`/`makeRuntimeConfig` now live in
  * `@alook/shared/runtime-config` (lifted there so the `src/web` wake producer
- * and `src/wake-worker` consumer, neither of which can depend on this
+ * and `src/queue-worker` consumer, neither of which can depend on this
  * CLI/daemon package, can construct the `config` field of an `agent:wake`
  * `HostCommand` — see `plans/community-agent-cli-bridge.md` §1 and
  * `plans/minimal-wake-queue-unread-notice.md`). Re-exported here so existing

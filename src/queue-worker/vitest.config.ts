@@ -3,7 +3,7 @@ import shared from "../../vitest.shared"
 
 export default mergeConfig(shared, defineConfig({
   test: {
-    name: "wake-worker-node",
+    name: "queue-worker-node",
     include: ["src/**/*.test.ts"],
     sequence: { groupOrder: 1 },
   },

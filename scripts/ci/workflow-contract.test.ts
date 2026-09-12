@@ -27,7 +27,7 @@ type WorkerModuleContract = {
   wranglerConfig: string
 }
 
-const directWorkerModules = ["ws-do", "email-worker", "wake-worker", "web"].map((name): WorkerModuleContract => {
+const directWorkerModules = ["ws-do", "email-worker", "queue-worker", "web"].map((name): WorkerModuleContract => {
   const moduleRoot = resolve(import.meta.dirname, `../../src/${name}`)
   return {
     name,
@@ -436,13 +436,15 @@ describe("CI workflow graph", () => {
 
     expect(e2e).toContain("if: needs.scope.outputs.run_e2e == 'true'")
     expect(e2e).toContain("- name: Create local bindings\n        run:")
+    expect(e2e).toContain("cp src/queue-worker/.dev.vars.example src/queue-worker/.dev.vars")
+    expect(e2e.match(/ci-e2e-encryption-key-32chars!!/g)).toHaveLength(2)
     expect(e2e).toContain("- run: pnpm run db:migrate")
     expect(e2e).toContain("- name: Start dev servers\n        run: |")
     expect(e2e).toContain("- name: Wait for services\n        run: |")
     expect(e2e.indexOf("pnpm --filter @alook/ws-do dev &")).toBeLessThan(
-      e2e.indexOf("pnpm --filter @alook/wake-worker dev &"),
+      e2e.indexOf("pnpm --filter @alook/queue-worker dev &"),
     )
-    expect(e2e.indexOf("pnpm --filter @alook/wake-worker dev &")).toBeLessThan(
+    expect(e2e.indexOf("pnpm --filter @alook/queue-worker dev &")).toBeLessThan(
       e2e.indexOf("pnpm --filter @alook/email-worker dev &"),
     )
     expect(e2e.indexOf("pnpm --filter @alook/email-worker dev &")).toBeLessThan(
@@ -627,7 +629,7 @@ describe("CI test budgets", () => {
     expect(windows).toContain('filters+=("--filter=@alook/$suite")')
     expect(windows).toContain('pnpm turbo run test "${filters[@]}"')
     expect(windows).not.toContain("--affected")
-    for (const packageName of ["web", "email-worker", "ws-do", "wake-worker"]) {
+    for (const packageName of ["web", "email-worker", "ws-do", "queue-worker"]) {
       expect(windows).not.toContain(`--filter=@alook/${packageName}`)
     }
     expect(windows).not.toContain("--project ci-scripts")
@@ -882,7 +884,7 @@ describe("Turbo CI execution", () => {
       "src/daemon/agent-driver",
       "src/email-worker",
       "src/ws-do",
-      "src/wake-worker",
+      "src/queue-worker",
       "src/app",
       "tests/utils",
       "scripts/ci",
@@ -916,7 +918,7 @@ describe("Turbo CI execution", () => {
     for (const projects of [
       "projects=(ci-scripts)",
       "projects=(email-worker-node email-worker-runtime)",
-      "projects=(wake-worker-node wake-worker-runtime)",
+      "projects=(queue-worker-node queue-worker-runtime)",
       "projects=(web-node web-dom web-runtime auth-node auth-runtime)",
       "projects=(ws-do-node ws-do-runtime)",
     ]) expect(linux).toContain(projects)
@@ -1002,8 +1004,8 @@ describe("Turbo CI execution", () => {
     const webRuntime = readRepo("src/web/test-runtime/worker.runtime.test.ts")
     const emailNode = readRepo("src/email-worker/src/index.test.ts")
     const emailRuntime = readRepo("src/email-worker/test-runtime/worker.runtime.test.ts")
-    const wakeNode = readRepo("src/wake-worker/src/index.test.ts")
-    const wakeRuntime = readRepo("src/wake-worker/test-runtime/worker.runtime.test.ts")
+    const queueNode = readRepo("src/queue-worker/src/index.test.ts")
+    const queueRuntime = readRepo("src/queue-worker/test-runtime/worker.runtime.test.ts")
 
     expect(existsSync(resolve(import.meta.dirname, "../../src/ws-do/src/rate-limit-do.test.ts"))).toBe(false)
     expect(wsRuntime).toContain("persists the counter across stubs for the same Durable Object id")
@@ -1018,11 +1020,11 @@ describe("Turbo CI execution", () => {
     expect(emailRuntime).toContain("forwards status and sync routes to the real IMAP Durable Object")
     expect(emailRuntime).toContain("rejects unsupported methods, paths, and missing IMAP account ids")
 
-    expect(wakeNode).not.toContain("returns 400 on invalid JSON body")
-    expect(wakeNode).not.toContain("returns 405 for non-POST methods")
-    expect(wakeNode).not.toContain("returns 200 { status: ok } for GET /health")
-    expect(wakeRuntime).toContain("rejects invalid JSON and non-POST dev requests at the real entrypoint")
-    expect(wakeRuntime).toContain("loads production migrations and serves the production entrypoint")
+    expect(queueNode).not.toContain("returns 400 on invalid JSON body")
+    expect(queueNode).not.toContain("returns 405 for non-POST methods")
+    expect(queueNode).not.toContain("returns 200 { status: ok } for GET /health")
+    expect(queueRuntime).toContain("rejects invalid JSON and non-POST dev requests at the real entrypoint")
+    expect(queueRuntime).toContain("loads production migrations and serves the production entrypoint")
   })
 })
 
