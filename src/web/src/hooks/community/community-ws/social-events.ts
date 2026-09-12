@@ -24,6 +24,10 @@ import { removeDmReactionDetails } from "./reaction-details-invalidation"
 import { reconcileNotificationSettings } from "@/hooks/community/use-notification-settings"
 import { getFriendRequestActionController } from "@/hooks/community/use-friend-request-action-state"
 import { communityKeys } from "@/lib/query-keys"
+import {
+  buildDesktopSystemNotificationCandidate,
+  showDesktopSystemNotification,
+} from "@/lib/community/desktop-system-notification"
 
 export function handleReadStateAdvanced(
   event: CommunityReadStateAdvanced,
@@ -91,6 +95,14 @@ export function handleUnreadBump(
     // Use the existing coalesced owner. This is also the sole authority
     // refresh for legacy/orphan bumps; the ledger itself performs no I/O.
     scheduleInboxInvalidate({ inbox: true, dms: !event.serverId })
+    if (evidence) {
+      const candidate = buildDesktopSystemNotificationCandidate(
+        evidence.messageEvent,
+        event,
+        viewerId,
+      )
+      if (candidate) void showDesktopSystemNotification(candidate).catch(() => undefined)
+    }
   }
 }
 
