@@ -40,6 +40,7 @@ const mocks = vi.hoisted(() => ({
   advance: vi.fn(),
   updateResources: vi.fn(),
   recoverMachine: vi.fn(),
+  onProbeLayout: null as null | ((controller: BotListController) => void),
   toastSuccess: vi.fn(),
   toastError: vi.fn(),
   toastApiError: vi.fn(),
@@ -135,6 +136,7 @@ function Probe() {
   const controller = useBotListController()
   React.useLayoutEffect(() => {
     latest = controller
+    mocks.onProbeLayout?.(controller)
   }, [controller])
   return React.createElement("div", {
     ref: (element: HTMLDivElement | null) => {
@@ -182,6 +184,7 @@ describe("useBotListController", () => {
     mocks.online = new Set()
     mocks.onboardingSnapshot = null
     mocks.actionState = null
+    mocks.onProbeLayout = null
     mocks.createDm.mockResolvedValue({ conversation: { id: "dm1" } })
     mocks.del.mockResolvedValue(undefined)
     mocks.resetBot.mockResolvedValue({ ok: true })
@@ -567,6 +570,25 @@ describe("useBotListController", () => {
 
     act(() => latest.onActivityOpenChangeComplete(false, aGeneration))
     expect(latest.activityBot?.id).toBe("b2")
+  })
+
+  it("keeps a new valid target when close completion races before its open effect", () => {
+    mocks.audit = "b1"
+    mocks.bots = [bot("b1", "mac1"), bot("b2", "mac1")]
+    const renderer = render()
+    const aGeneration = latest.activityGeneration
+
+    act(() => latest.onActivityOpenChange(false))
+    mocks.onProbeLayout = (controller) => {
+      if (controller.activityOpen) return
+      controller.onActivityOpenChangeComplete(false, aGeneration)
+    }
+    mocks.audit = "b2"
+    act(() => renderer.rerender(React.createElement(Probe)))
+
+    expect(latest.activityOpen).toBe(true)
+    expect(latest.activityBot?.id).toBe("b2")
+    expect(latest.activityGeneration).toBe(aGeneration + 1)
   })
 
   it("retains a disappeared target and lets a new valid target beat its completion", () => {
