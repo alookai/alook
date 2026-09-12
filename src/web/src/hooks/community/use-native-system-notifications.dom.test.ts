@@ -1,11 +1,39 @@
-import { describe, expect, it, vi } from "vitest"
-import { waitFor } from "@/test/react-dom-harness"
+import { afterEach, describe, expect, it, vi } from "vitest"
+import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 import {
   createDesktopSystemNotificationActivationController,
   createDesktopSystemNotificationInboxOpener,
   type DesktopSystemNotificationInboxDeps,
+  useNativeSystemNotifications,
 } from "./use-native-system-notifications"
 import type { DesktopSystemNotificationActivation } from "@/lib/community/system-notification-route"
+
+const hookMocks = vi.hoisted(() => ({
+  desktop: true,
+  listen: vi.fn(),
+  take: vi.fn(),
+  revalidate: vi.fn(),
+}))
+vi.mock("@alook/shared", async () => {
+  const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
+  return { ...actual, isDesktop: () => hookMocks.desktop }
+})
+vi.mock("@/lib/community/desktop-system-notification", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/community/desktop-system-notification")>(
+    "@/lib/community/desktop-system-notification",
+  )
+  return {
+    ...actual,
+    listenDesktopSystemNotificationActivations: hookMocks.listen,
+    takeDesktopSystemNotificationActivation: hookMocks.take,
+  }
+})
+vi.mock("@/lib/community/system-notification-route", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/community/system-notification-route")>(
+    "@/lib/community/system-notification-route",
+  )
+  return { ...actual, revalidateDesktopSystemNotificationTarget: hookMocks.revalidate }
+})
 
 const activation: DesktopSystemNotificationActivation = {
   notificationId: "4f3bb3fd-5d7f-4a26-8e0e-3ddd1154f71e",
@@ -17,6 +45,15 @@ const activation: DesktopSystemNotificationActivation = {
     seq: 4,
   },
 }
+
+afterEach(() => {
+  hookMocks.desktop = true
+  window.sessionStorage.clear()
+  document.body.replaceChildren()
+  vi.useRealTimers()
+  vi.unstubAllGlobals()
+  vi.clearAllMocks()
+})
 
 describe("desktop notification activation controller", () => {
   it("drains a cold-start activation after registering the listener", async () => {
@@ -70,6 +107,50 @@ describe("desktop notification activation controller", () => {
     ready?.()
     await Promise.resolve()
     expect(take).toHaveBeenCalledTimes(2)
+  })
+
+  it("reruns a drain when a native signal arrives during an active take", async () => {
+    let ready: (() => void) | undefined
+    let releaseTake = (_value: DesktopSystemNotificationActivation | null) => undefined
+    const firstTake = new Promise<DesktopSystemNotificationActivation | null>((resolve) => {
+      releaseTake = resolve
+    })
+    const take = vi.fn()
+      .mockReturnValueOnce(firstTake)
+      .mockResolvedValueOnce(null)
+    const controller = createDesktopSystemNotificationActivationController({
+      listen: vi.fn(async (callback) => { ready = callback; return () => undefined }),
+      take,
+      revalidate: vi.fn(async () => true),
+      navigate: vi.fn(),
+      openInbox: vi.fn(),
+    })
+
+    const connecting = controller.connect()
+    await waitFor(() => expect(take).toHaveBeenCalledOnce())
+    ready?.()
+    releaseTake(null)
+    await connecting
+    expect(take).toHaveBeenCalledTimes(2)
+  })
+
+  it("stops a listener that resolves after disposal", async () => {
+    let releaseListen = (_stop: () => void) => undefined
+    const listener = new Promise<() => void>((resolve) => { releaseListen = resolve })
+    const stop = vi.fn()
+    const controller = createDesktopSystemNotificationActivationController({
+      listen: vi.fn(() => listener),
+      take: vi.fn(),
+      revalidate: vi.fn(),
+      navigate: vi.fn(),
+      openInbox: vi.fn(),
+    })
+
+    const connecting = controller.connect()
+    controller.dispose()
+    releaseListen(stop)
+    await connecting
+    expect(stop).toHaveBeenCalledOnce()
   })
 })
 
@@ -170,5 +251,87 @@ describe("desktop notification Inbox fallback", () => {
     expect(click).not.toHaveBeenCalled()
     expect(navigate).not.toHaveBeenCalled()
     expect(pending.size).toBe(1)
+  })
+
+  it("treats storage failures as unavailable persistence", async () => {
+    const removeFailure = createDesktopSystemNotificationInboxOpener(inboxDeps(new Map(), {
+      getItem: () => "corrupt",
+      removeItem: () => { throw new Error("blocked") },
+    }))
+    await removeFailure.resume()
+
+    const readFailure = createDesktopSystemNotificationInboxOpener(inboxDeps(new Map(), {
+      getItem: () => { throw new Error("blocked") },
+    }))
+    await readFailure.resume()
+
+    const writeFailure = createDesktopSystemNotificationInboxOpener(inboxDeps(new Map(), {
+      setItem: () => { throw new Error("blocked") },
+    }))
+    await writeFailure.open()
+  })
+})
+
+describe("native system notification hook", () => {
+  it("does nothing in the browser", () => {
+    hookMocks.desktop = false
+    const rendered = renderHook(() => useNativeSystemNotifications())
+    expect(hookMocks.listen).not.toHaveBeenCalled()
+    rendered.unmount()
+  })
+
+  it("navigates an allowed activation and disposes the native listener", async () => {
+    const assign = vi.fn()
+    const stop = vi.fn()
+    vi.stubGlobal("location", { href: "https://alook.test/c", assign })
+    hookMocks.listen.mockResolvedValue(stop)
+    hookMocks.take.mockResolvedValueOnce(activation)
+    hookMocks.revalidate.mockResolvedValue(true)
+
+    const rendered = renderHook(() => useNativeSystemNotifications())
+    await waitFor(() => expect(assign).toHaveBeenCalledWith(
+      "/c/channels/server_1/channel_1?msg=message_1",
+    ))
+    expect(hookMocks.revalidate).toHaveBeenCalledWith(activation.target)
+
+    rendered.unmount()
+    expect(stop).toHaveBeenCalledOnce()
+  })
+
+  it("persists an Inbox fallback, resumes it, and clears it after a real click", async () => {
+    vi.useFakeTimers()
+    const assign = vi.fn()
+    const stop = vi.fn()
+    vi.stubGlobal("location", { href: "https://alook.test/c/channels/server_1/channel_1", assign })
+    hookMocks.listen.mockResolvedValue(stop)
+    hookMocks.take.mockResolvedValueOnce(activation).mockResolvedValue(null)
+    hookMocks.revalidate.mockResolvedValue(false)
+
+    const first = renderHook(() => useNativeSystemNotifications())
+    await act(async () => {
+      await Promise.resolve()
+      await vi.advanceTimersByTimeAsync(2_000)
+    })
+    expect(assign).toHaveBeenCalledWith("https://alook.test/c")
+    first.unmount()
+
+    const button = document.createElement("button")
+    button.setAttribute("aria-label", "Inbox")
+    const click = vi.spyOn(button, "click")
+    document.body.append(button)
+    const second = renderHook(() => useNativeSystemNotifications())
+    await act(async () => { await Promise.resolve() })
+    expect(click).toHaveBeenCalledOnce()
+    expect(window.sessionStorage.length).toBe(0)
+    second.unmount()
+  })
+
+  it("disposes the controller when native listener setup rejects", async () => {
+    hookMocks.listen.mockRejectedValue(new Error("native unavailable"))
+    hookMocks.take.mockResolvedValue(null)
+    const rendered = renderHook(() => useNativeSystemNotifications())
+    await act(async () => { await Promise.resolve() })
+    expect(hookMocks.listen).toHaveBeenCalledOnce()
+    rendered.unmount()
   })
 })

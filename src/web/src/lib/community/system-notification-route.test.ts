@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   desktopSystemNotificationHref,
   parseDesktopSystemNotificationActivation,
@@ -17,6 +17,8 @@ const activation: DesktopSystemNotificationActivation = {
   },
 }
 
+afterEach(() => vi.unstubAllGlobals())
+
 describe("desktop system notification routes", () => {
   it("accepts only exact allowlisted activation fields", () => {
     expect(parseDesktopSystemNotificationActivation(activation)).toEqual(activation)
@@ -28,6 +30,31 @@ describe("desktop system notification routes", () => {
     expect(parseDesktopSystemNotificationActivation({
       ...activation,
       target: { ...activation.target, extra: true },
+    })).toBeNull()
+  })
+
+  it("accepts an exact DM activation and rejects malformed or unknown targets", () => {
+    const dmActivation: DesktopSystemNotificationActivation = {
+      notificationId: activation.notificationId,
+      target: {
+        kind: "dm",
+        channelId: "dm_1",
+        messageId: "message_4",
+        seq: 12,
+      },
+    }
+    expect(parseDesktopSystemNotificationActivation(dmActivation)).toEqual(dmActivation)
+    expect(parseDesktopSystemNotificationActivation({
+      ...dmActivation,
+      target: { ...dmActivation.target, extra: true },
+    })).toBeNull()
+    expect(parseDesktopSystemNotificationActivation({
+      ...dmActivation,
+      target: { ...dmActivation.target, channelId: "../escape" },
+    })).toBeNull()
+    expect(parseDesktopSystemNotificationActivation({
+      ...dmActivation,
+      target: { ...dmActivation.target, kind: "external" },
     })).toBeNull()
   })
 
@@ -54,6 +81,17 @@ describe("desktop system notification routes", () => {
       credentials: "same-origin",
       cache: "no-store",
     })
+  })
+
+  it("uses the global fetch implementation by default", async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ id: "message_3" }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }))
+    vi.stubGlobal("fetch", fetchImpl)
+
+    await expect(revalidateDesktopSystemNotificationTarget(activation.target)).resolves.toBe(true)
+    expect(fetchImpl).toHaveBeenCalledOnce()
   })
 
   it("rejects deleted, revoked, malformed, and mismatched responses", async () => {
