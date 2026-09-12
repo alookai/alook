@@ -157,6 +157,41 @@ mod tests {
     }
 
     #[test]
+    fn accepts_only_allowlisted_permission_states() {
+        for state in ["granted", "denied", "prompt"] {
+            let permission = PermissionResponse {
+                permission_state: state.to_string(),
+            };
+            assert_eq!(
+                validate_permission(permission).unwrap().permission_state,
+                state
+            );
+        }
+
+        let error = validate_permission(PermissionResponse {
+            permission_state: "unknown".to_string(),
+        })
+        .unwrap_err();
+        assert_eq!(error.code, "invalid_native_response");
+    }
+
+    #[test]
+    fn accepts_valid_provider_tokens_and_rejects_invalid_values() {
+        assert!(validate_provider_token("0123456789abcdef").is_ok());
+        assert!(validate_provider_token(&"a".repeat(4096)).is_ok());
+
+        for token in [
+            "short".to_string(),
+            "0123456789abcde\n".to_string(),
+            "a".repeat(4097),
+        ] {
+            let error = validate_provider_token(&token).unwrap_err();
+            assert_eq!(error.code, "invalid_request");
+            assert!(!error.message.contains(&token));
+        }
+    }
+
+    #[test]
     fn accepts_exact_mobile_registration_state() {
         assert!(validate_snapshot(snapshot()).is_ok());
         let mut android = snapshot();
