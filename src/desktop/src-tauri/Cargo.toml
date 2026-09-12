@@ -28,6 +28,7 @@ url = "2"
 
 [target."cfg(any(target_os = \"android\", target_os = \"ios\"))".dependencies]
 tauri-plugin-mobile-share-image = { path = "plugins/mobile-share-image" }
+tauri-plugin-mobile-push = { path = "plugins/mobile-push" }
 
 [target."cfg(not(any(target_os = \"android\", target_os = \"ios\")))".dependencies]
 tauri-plugin-notification = "2"

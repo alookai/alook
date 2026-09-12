@@ -168,6 +168,7 @@ jobs:
           assert entitlements["com.apple.developer.associated-domains"] == [
               "applinks:auth.alook.ai"
           ]
+          assert entitlements["aps-environment"] == "production"
           PY
 
           grep -F 'AUTH_WORKER_HOST = "auth.alook.ai"' src/web/auth/index.ts

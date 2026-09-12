@@ -6,6 +6,10 @@ use tauri::Manager;
 mod mobile_share_image;
 #[cfg(mobile)]
 mod mobile_share_image_runtime;
+#[cfg(any(mobile, test))]
+mod mobile_system_notification;
+#[cfg(mobile)]
+mod mobile_system_notification_runtime;
 mod native_command_guard;
 mod native_oauth;
 mod native_oauth_runtime;
@@ -71,10 +75,18 @@ pub fn run() {
 fn run_mobile(mut builder: tauri::Builder<tauri::Wry>) {
     builder = builder
         .manage(mobile_share_image::MobileShareImageState::default())
-        .plugin(tauri_plugin_mobile_share_image::init());
+        .plugin(tauri_plugin_mobile_share_image::init())
+        .plugin(tauri_plugin_mobile_push::init());
     builder = builder.invoke_handler(tauri::generate_handler![
         mobile_share_image_runtime::mobile_share_image_copy,
         mobile_share_image_runtime::mobile_share_image_save,
+        mobile_system_notification_runtime::mobile_system_notification_check_permission,
+        mobile_system_notification_runtime::mobile_system_notification_request_permission,
+        mobile_system_notification_runtime::mobile_system_notification_snapshot,
+        mobile_system_notification_runtime::mobile_system_notification_acknowledge_registration,
+        mobile_system_notification_runtime::mobile_system_notification_take_activation,
+        mobile_system_notification_runtime::mobile_system_notification_listen,
+        mobile_system_notification_runtime::mobile_system_notification_unlisten,
         native_oauth_runtime::native_oauth_snapshot,
         native_oauth_runtime::native_oauth_listen,
         native_oauth_runtime::native_oauth_unlisten,

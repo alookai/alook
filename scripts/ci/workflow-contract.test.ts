@@ -1137,6 +1137,13 @@ describe("Desktop image clipboard", () => {
         remote: { urls: ["http://localhost:3000"] },
         permissions: ["allow-mobile-share-image-copy", "allow-mobile-share-image-save"],
       }),
+      expect.objectContaining({
+        identifier: "mobile-system-notification-dev",
+        local: true,
+        platforms: ["android", "iOS"],
+        remote: { urls: ["http://localhost:3000"] },
+        permissions: ["mobile-system-notification"],
+      }),
     ])
   })
 })
@@ -1188,6 +1195,9 @@ describe("Mobile release availability", () => {
       'entitlements["com.apple.developer.associated-domains"]',
     )
     expect(mobileReleaseWorkflow).toContain("applinks:auth.alook.ai")
+    expect(mobileReleaseWorkflow).toContain(
+      'entitlements["aps-environment"] == "production"',
+    )
     expect(mobileReleaseWorkflow).toContain("xcrun altool --upload-app")
     expect(mobileReleaseWorkflow).toContain("actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a")
     expect(bumpScript).toContain('args.includes("--mobile")')

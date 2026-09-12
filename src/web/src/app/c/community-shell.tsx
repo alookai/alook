@@ -79,7 +79,7 @@ function CommunityBootstrap({ children }: { children: ReactNode }) {
   const currentUser = useCurrentUser()
 
   useNotificationSettings()
-  useNativeSystemNotifications()
+  useNativeSystemNotifications(currentUser.id)
   // Wire the WS handler once for the whole community subtree. `viewerUserId`
   // powers the `me` flag on incoming reactions — passing null would leave that
   // flag stuck at false for the viewer's own reactions.

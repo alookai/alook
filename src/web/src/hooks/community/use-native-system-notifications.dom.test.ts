@@ -10,13 +10,27 @@ import type { DesktopSystemNotificationActivation } from "@/lib/community/system
 
 const hookMocks = vi.hoisted(() => ({
   desktop: true,
+  mobile: false,
   listen: vi.fn(),
   take: vi.fn(),
   revalidate: vi.fn(),
+  mobileListen: vi.fn(),
+  mobileCheck: vi.fn(),
+  mobileRequest: vi.fn(),
+  mobileSnapshot: vi.fn(),
+  mobilePost: vi.fn(),
+  mobileAck: vi.fn(),
+  mobileDelete: vi.fn(),
+  mobileTake: vi.fn(),
+  mobileRevalidate: vi.fn(),
 }))
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
-  return { ...actual, isDesktop: () => hookMocks.desktop }
+  return {
+    ...actual,
+    isDesktop: () => hookMocks.desktop,
+    isMobile: () => hookMocks.mobile,
+  }
 })
 vi.mock("@/lib/community/desktop-system-notification", async () => {
   const actual = await vi.importActual<typeof import("@/lib/community/desktop-system-notification")>(
@@ -34,6 +48,23 @@ vi.mock("@/lib/community/system-notification-route", async () => {
   )
   return { ...actual, revalidateDesktopSystemNotificationTarget: hookMocks.revalidate }
 })
+vi.mock("@/lib/community/mobile-system-notification", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/community/mobile-system-notification")>(
+    "@/lib/community/mobile-system-notification",
+  )
+  return {
+    ...actual,
+    listenMobileSystemNotificationSignals: hookMocks.mobileListen,
+    checkMobileSystemNotificationPermission: hookMocks.mobileCheck,
+    requestMobileSystemNotificationPermission: hookMocks.mobileRequest,
+    snapshotMobileSystemNotificationRegistration: hookMocks.mobileSnapshot,
+    postMobileSystemNotificationRegistration: hookMocks.mobilePost,
+    acknowledgeMobileSystemNotificationRegistration: hookMocks.mobileAck,
+    deleteMobileSystemNotificationRegistration: hookMocks.mobileDelete,
+    takeMobileSystemNotificationActivation: hookMocks.mobileTake,
+    revalidateMobileSystemNotificationActivation: hookMocks.mobileRevalidate,
+  }
+})
 
 const activation: DesktopSystemNotificationActivation = {
   notificationId: "4f3bb3fd-5d7f-4a26-8e0e-3ddd1154f71e",
@@ -48,6 +79,7 @@ const activation: DesktopSystemNotificationActivation = {
 
 afterEach(() => {
   hookMocks.desktop = true
+  hookMocks.mobile = false
   window.sessionStorage.clear()
   document.body.replaceChildren()
   vi.useRealTimers()
@@ -275,7 +307,7 @@ describe("desktop notification Inbox fallback", () => {
 describe("native system notification hook", () => {
   it("does nothing in the browser", () => {
     hookMocks.desktop = false
-    const rendered = renderHook(() => useNativeSystemNotifications())
+    const rendered = renderHook(() => useNativeSystemNotifications("viewer_1"))
     expect(hookMocks.listen).not.toHaveBeenCalled()
     rendered.unmount()
   })
@@ -288,7 +320,7 @@ describe("native system notification hook", () => {
     hookMocks.take.mockResolvedValueOnce(activation)
     hookMocks.revalidate.mockResolvedValue(true)
 
-    const rendered = renderHook(() => useNativeSystemNotifications())
+    const rendered = renderHook(() => useNativeSystemNotifications("viewer_1"))
     await waitFor(() => expect(assign).toHaveBeenCalledWith(
       "/c/channels/server_1/channel_1?msg=message_1",
     ))
@@ -307,7 +339,7 @@ describe("native system notification hook", () => {
     hookMocks.take.mockResolvedValueOnce(activation).mockResolvedValue(null)
     hookMocks.revalidate.mockResolvedValue(false)
 
-    const first = renderHook(() => useNativeSystemNotifications())
+    const first = renderHook(() => useNativeSystemNotifications("viewer_1"))
     await act(async () => {
       await Promise.resolve()
       await vi.advanceTimersByTimeAsync(2_000)
@@ -319,7 +351,7 @@ describe("native system notification hook", () => {
     button.setAttribute("aria-label", "Inbox")
     const click = vi.spyOn(button, "click")
     document.body.append(button)
-    const second = renderHook(() => useNativeSystemNotifications())
+    const second = renderHook(() => useNativeSystemNotifications("viewer_1"))
     await act(async () => { await Promise.resolve() })
     expect(click).toHaveBeenCalledOnce()
     expect(window.sessionStorage.length).toBe(0)
@@ -329,9 +361,52 @@ describe("native system notification hook", () => {
   it("disposes the controller when native listener setup rejects", async () => {
     hookMocks.listen.mockRejectedValue(new Error("native unavailable"))
     hookMocks.take.mockResolvedValue(null)
-    const rendered = renderHook(() => useNativeSystemNotifications())
+    const rendered = renderHook(() => useNativeSystemNotifications("viewer_1"))
     await act(async () => { await Promise.resolve() })
     expect(hookMocks.listen).toHaveBeenCalledOnce()
     rendered.unmount()
+  })
+
+  it("uses one mobile listener for Web-ready registration and activation signals", async () => {
+    hookMocks.desktop = false
+    hookMocks.mobile = true
+    const calls: string[] = []
+    const stop = vi.fn()
+    let signal: (() => void) | undefined
+    hookMocks.mobileListen.mockImplementation(async (callback) => {
+      calls.push("listen")
+      signal = callback
+      return stop
+    })
+    hookMocks.mobileCheck.mockImplementation(async () => { calls.push("check"); return "granted" })
+    hookMocks.mobileSnapshot.mockImplementation(async () => {
+      calls.push("snapshot")
+      return {
+        installationId: "123e4567-e89b-42d3-a456-426614174000",
+        platform: "ios",
+        providerEnvironment: "sandbox",
+        providerToken: "token-00000000000",
+      }
+    })
+    hookMocks.mobilePost.mockImplementation(async () => { calls.push("post") })
+    hookMocks.mobileAck.mockImplementation(async () => { calls.push("ack") })
+    hookMocks.mobileTake.mockImplementation(async () => { calls.push("take"); return null })
+
+    const rendered = renderHook(() => useNativeSystemNotifications("viewer_1"))
+    await waitFor(() => expect(calls).toEqual([
+      "listen",
+      "check",
+      "take",
+      "snapshot",
+      "post",
+      "ack",
+    ]))
+    expect(hookMocks.mobileListen).toHaveBeenCalledOnce()
+
+    signal?.()
+    await waitFor(() => expect(hookMocks.mobileCheck).toHaveBeenCalledTimes(2))
+    expect(hookMocks.mobileTake).toHaveBeenCalledTimes(2)
+    rendered.unmount()
+    expect(stop).toHaveBeenCalledOnce()
   })
 })

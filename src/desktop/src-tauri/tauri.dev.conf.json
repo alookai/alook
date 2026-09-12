@@ -50,6 +50,27 @@
             "allow-mobile-share-image-copy",
             "allow-mobile-share-image-save"
           ]
+        },
+        {
+          "$schema": "../gen/schemas/desktop-schema.json",
+          "identifier": "mobile-system-notification-dev",
+          "description": "Native mobile system notification orchestration for the trusted development WebView",
+          "windows": [
+            "main"
+          ],
+          "platforms": [
+            "android",
+            "iOS"
+          ],
+          "local": true,
+          "remote": {
+            "urls": [
+              "http://localhost:3000"
+            ]
+          },
+          "permissions": [
+            "mobile-system-notification"
+          ]
         }
       ]
     }

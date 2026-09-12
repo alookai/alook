@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect } from "react"
-import { isDesktop } from "@alook/shared"
+import { isDesktop, isMobile } from "@alook/shared"
 import {
   listenDesktopSystemNotificationActivations,
   takeDesktopSystemNotificationActivation,
@@ -11,6 +11,20 @@ import {
   revalidateDesktopSystemNotificationTarget,
   type DesktopSystemNotificationActivation,
 } from "@/lib/community/system-notification-route"
+import {
+  acknowledgeMobileSystemNotificationRegistration,
+  checkMobileSystemNotificationPermission,
+  createMobileSystemNotificationActivationController,
+  createMobileSystemNotificationRegistrationController,
+  deleteMobileSystemNotificationRegistration,
+  listenMobileSystemNotificationSignals,
+  postMobileSystemNotificationRegistration,
+  requestMobileSystemNotificationPermission,
+  resumeMobileSystemNotificationRegistration,
+  revalidateMobileSystemNotificationActivation,
+  snapshotMobileSystemNotificationRegistration,
+  takeMobileSystemNotificationActivation,
+} from "@/lib/community/mobile-system-notification"
 
 export type DesktopSystemNotificationActivationDeps = {
   listen: (ready: () => void) => Promise<() => void>
@@ -192,9 +206,8 @@ export function createDesktopSystemNotificationActivationController(
   }
 }
 
-export function useNativeSystemNotifications() {
+export function useNativeSystemNotifications(viewerUserId: string) {
   useEffect(() => {
-    if (!isDesktop()) return
     const inbox = createDesktopSystemNotificationInboxOpener({
       getItem: (key) => window.sessionStorage.getItem(key),
       setItem: (key, value) => window.sessionStorage.setItem(key, value),
@@ -206,19 +219,81 @@ export function useNativeSystemNotifications() {
       wait: () => new Promise<void>((resolve) => window.setTimeout(resolve, 50)),
       now: () => Date.now(),
     })
-    const browserDeps: DesktopSystemNotificationActivationDeps = {
-      listen: listenDesktopSystemNotificationActivations,
-      take: takeDesktopSystemNotificationActivation,
-      revalidate: ({ target }) => revalidateDesktopSystemNotificationTarget(target),
+
+    if (isDesktop()) {
+      const browserDeps: DesktopSystemNotificationActivationDeps = {
+        listen: listenDesktopSystemNotificationActivations,
+        take: takeDesktopSystemNotificationActivation,
+        revalidate: ({ target }) => revalidateDesktopSystemNotificationTarget(target),
+        navigate: (href) => window.location.assign(href),
+        openInbox: () => inbox.open(),
+      }
+      const controller = createDesktopSystemNotificationActivationController(browserDeps)
+      void inbox.resume()
+      void controller.connect().catch(() => controller.dispose())
+      return () => {
+        controller.dispose()
+        inbox.dispose()
+      }
+    }
+
+    if (!isMobile()) {
+      inbox.dispose()
+      return
+    }
+
+    resumeMobileSystemNotificationRegistration()
+
+    const registration = createMobileSystemNotificationRegistrationController({
+      checkPermission: checkMobileSystemNotificationPermission,
+      requestPermission: requestMobileSystemNotificationPermission,
+      snapshot: snapshotMobileSystemNotificationRegistration,
+      register: postMobileSystemNotificationRegistration,
+      acknowledge: acknowledgeMobileSystemNotificationRegistration,
+      unregister: deleteMobileSystemNotificationRegistration,
+      schedule: (callback, delayMs) => window.setTimeout(callback, delayMs),
+      cancel: (handle) => window.clearTimeout(handle as number),
+    })
+    const activation = createMobileSystemNotificationActivationController({
+      take: takeMobileSystemNotificationActivation,
+      revalidate: revalidateMobileSystemNotificationActivation,
       navigate: (href) => window.location.assign(href),
       openInbox: () => inbox.open(),
+    })
+    let disposed = false
+    let unlisten: (() => void) | undefined
+
+    const synchronize = () => {
+      void registration.sync()
+      void activation.drain()
     }
-    const controller = createDesktopSystemNotificationActivationController(browserDeps)
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") synchronize()
+    }
+    window.addEventListener("online", synchronize)
+    document.addEventListener("visibilitychange", onVisibilityChange)
+
     void inbox.resume()
-    void controller.connect().catch(() => controller.dispose())
+    void (async () => {
+      try {
+        const stop = await listenMobileSystemNotificationSignals(synchronize)
+        if (disposed) stop()
+        else unlisten = stop
+      } catch {
+        unlisten = undefined
+      }
+      if (disposed) return
+      await Promise.all([registration.sync(true), activation.drain()])
+    })()
+
     return () => {
-      controller.dispose()
+      disposed = true
+      window.removeEventListener("online", synchronize)
+      document.removeEventListener("visibilitychange", onVisibilityChange)
+      unlisten?.()
+      registration.dispose()
+      activation.dispose()
       inbox.dispose()
     }
-  }, [])
+  }, [viewerUserId])
 }
