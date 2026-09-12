@@ -9,6 +9,8 @@ mod mobile_share_image_runtime;
 mod native_command_guard;
 mod native_oauth;
 mod native_oauth_runtime;
+#[cfg(desktop)]
+mod system_notifications;
 mod webview_recovery;
 
 #[cfg(desktop)]
@@ -24,7 +26,8 @@ mod macos_window;
 pub fn run() {
     let builder = webview_recovery::register_protocol(tauri::Builder::default());
     #[cfg(desktop)]
-    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+        system_notifications::intake_args(app, &args);
         commands::show_main_window(app);
     }));
     let builder = builder
@@ -132,6 +135,10 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
         native_oauth_runtime::native_oauth_reject_candidate,
         native_oauth_runtime::native_oauth_finish,
         native_oauth_runtime::native_oauth_cancel,
+        system_notifications::desktop_system_notification_show,
+        system_notifications::desktop_system_notification_listen,
+        system_notifications::desktop_system_notification_take_activation,
+        system_notifications::desktop_system_notification_unlisten,
     ]);
 
     // System tray + window setup (desktop only)
@@ -141,6 +148,9 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
         }
         if native_oauth_runtime::setup(app.handle()).is_err() {
             eprintln!("native OAuth storage unavailable");
+        }
+        if system_notifications::setup(app.handle()).is_err() {
+            eprintln!("desktop system notification storage unavailable");
         }
         zoom::restore(app)?;
         commands::setup_tray(app)?;
@@ -180,12 +190,14 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
             && matches!(payload.event(), tauri::webview::PageLoadEvent::Started)
         {
             native_oauth_runtime::retire_listener(webview.app_handle());
+            system_notifications::retire_listener(webview.app_handle());
         }
     });
 
     builder = builder.on_window_event(|window, event| {
         if window.label() == "main" && matches!(event, tauri::WindowEvent::Destroyed) {
             native_oauth_runtime::retire_listener(window.app_handle());
+            system_notifications::retire_listener(window.app_handle());
         }
         #[cfg(target_os = "macos")]
         if window.label() == "main"

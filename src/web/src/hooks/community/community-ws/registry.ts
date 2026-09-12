@@ -130,6 +130,7 @@ export function dispatchCommunityWsEvents(
     messageId: string
     seq: number
     createdAt: string
+    messageEvent: Extract<CommunityWsEvent, { type: "community:message.create" }>
   }>()
   const messageEvidenceByChannel = new Map<string, {
     messageId: string
@@ -154,6 +155,7 @@ export function dispatchCommunityWsEvents(
       messageId: message.id,
       seq: message.seq,
       createdAt: message.createdAt,
+      messageEvent: creates[0]!,
     })
   }
   runCommunityWsProjectionTransaction(context.queryClient, (projection) => {

@@ -10,6 +10,7 @@ import {
 } from "@/contexts/community/current-user"
 import { useCommunityWs } from "@/hooks/community/use-community-ws"
 import { useNotificationSettings } from "@/hooks/community/use-notification-settings"
+import { useNativeSystemNotifications } from "@/hooks/community/use-native-system-notifications"
 import { PerfTraceBootstrap } from "@/components/perf/perf-trace-bootstrap"
 import { CommunityOnboardingForm } from "@/components/community/onboarding/community-onboarding-form"
 import { CommunityWsReconnectBoundary } from "@/components/community/shell/community-ws-reconnect-overlay"
@@ -78,6 +79,7 @@ function CommunityBootstrap({ children }: { children: ReactNode }) {
   const currentUser = useCurrentUser()
 
   useNotificationSettings()
+  useNativeSystemNotifications()
   // Wire the WS handler once for the whole community subtree. `viewerUserId`
   // powers the `me` flag on incoming reactions — passing null would leave that
   // flag stuck at false for the viewer's own reactions.

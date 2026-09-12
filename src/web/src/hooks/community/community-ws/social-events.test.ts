@@ -23,6 +23,14 @@ import {
   unreadBump,
 } from "./test-harness"
 
+const notificationMocks = vi.hoisted(() => ({ show: vi.fn(async () => undefined) }))
+vi.mock("@/lib/community/desktop-system-notification", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/community/desktop-system-notification")>(
+    "@/lib/community/desktop-system-notification",
+  )
+  return { ...actual, showDesktopSystemNotification: notificationMocks.show }
+})
+
 beforeEach(resetCommunityWsHarness)
 afterEach(cleanupCommunityWsHarness)
 
@@ -158,6 +166,33 @@ describe("useCommunityWs — account unread projection", () => {
     capturedOnMessage!(messageCreate("ch_random"))
     expect(getActiveAccountUnreadProjection(capturedQueryClient)
       .projectServerUnread("s1", [])).toBe(false)
+    expect(notificationMocks.show).not.toHaveBeenCalled()
+  })
+
+  it("notifies only when message.create and the viewer's unread.bump share one bundle", async () => {
+    await mountHook({ viewerUserId: "u_me" })
+    const create = messageCreate("dm_1", "message_1")
+    capturedOnMessage!(await batchFor("message_1", [
+      create,
+      unreadBump("dm_1", "u_me"),
+    ]))
+
+    await vi.waitFor(() => expect(notificationMocks.show).toHaveBeenCalledOnce())
+    expect(notificationMocks.show).toHaveBeenCalledWith(expect.objectContaining({
+      viewerUserId: "u_me",
+      target: {
+        kind: "dm",
+        channelId: "dm_1",
+        messageId: "message_1",
+        seq: 1,
+      },
+    }))
+  })
+
+  it("does not notify for an orphan unread.bump", async () => {
+    await mountHook({ viewerUserId: "u_me" })
+    capturedOnMessage!(unreadBump("dm_1", "u_me"))
+    expect(notificationMocks.show).not.toHaveBeenCalled()
   })
 
   it("syncs focused content without refreshing notification surfaces", async () => {
