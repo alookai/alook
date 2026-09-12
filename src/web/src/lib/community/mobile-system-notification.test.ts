@@ -236,6 +236,38 @@ describe("mobile notification native adapter", () => {
 })
 
 describe("mobile notification HTTP adapter", () => {
+  it("uses the global fetch implementation for every default adapter entry", async () => {
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        messages: [{ id: "message_1", seq: 9 }],
+        surfaceReceipt: { channelId: "channel_1", surfaceKind: "dm" },
+      })))
+    vi.stubGlobal("fetch", fetchImpl)
+
+    await postMobileSystemNotificationRegistration(snapshot())
+    await deleteMobileSystemNotificationRegistration(installationId)
+    nativeMocks.invoke.mockResolvedValue({
+      ...snapshot(),
+      previousProviderToken: null,
+    })
+    await unregisterCurrentMobileSystemNotification()
+    await expect(revalidateMobileSystemNotificationActivation({
+      notificationId,
+      messageId: "message_1",
+      targetId: "channel_1",
+    })).resolves.toEqual({ href: "/c/me/channel_1?seq=9" })
+
+    expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([
+      "/api/community/notifications/devices",
+      `/api/community/notifications/devices/${installationId}`,
+      `/api/community/notifications/devices/${installationId}`,
+      "/api/community/channels/channel_1/messages?anchor=message_1&limit=1",
+    ])
+  })
+
   it("posts the exact registration with same-origin cookies", async () => {
     const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ device: {} }), { status: 200 }))
     await postMobileSystemNotificationRegistration(snapshot({ previousProviderToken: token1 }), fetchImpl)
