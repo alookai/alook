@@ -33,6 +33,8 @@ type Props = {
   onDismiss: () => void
   onDismissOutside?: () => void
   onRequestUpdate: () => void
+  interactive?: boolean
+  animate?: boolean
   focusOnOpen?: boolean
   onInitialFocus?: () => void
 }
@@ -46,12 +48,15 @@ export function UserBarExtensionSlot({
   onDismiss,
   onDismissOutside = onDismiss,
   onRequestUpdate,
+  interactive = true,
+  animate = true,
   focusOnOpen = false,
   onInitialFocus,
 }: Props) {
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
+    if (!interactive) return
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return
       event.preventDefault()
@@ -70,13 +75,13 @@ export function UserBarExtensionSlot({
       document.removeEventListener("keydown", onKeyDown)
       document.removeEventListener("click", onClick)
     }
-  }, [onDismiss, onDismissOutside])
+  }, [interactive, onDismiss, onDismissOutside])
 
   useEffect(() => {
-    if (!focusOnOpen) return
-    ref.current?.focus()
+    if (!interactive || !focusOnOpen) return
+    ref.current?.focus({ preventScroll: true })
     onInitialFocus?.()
-  }, [active, focusOnOpen, onInitialFocus])
+  }, [active, interactive, focusOnOpen, onInitialFocus])
 
   const title = active === "inbox"
     ? "Inbox"
@@ -96,7 +101,7 @@ export function UserBarExtensionSlot({
       tabIndex={-1}
       className={cn(
         "relative min-h-0 origin-bottom overflow-hidden rounded-t-xl border-x border-t border-border/40 bg-popover text-popover-foreground shadow-(--e2) [clip-path:inset(-2rem_-2rem_0)]",
-        "motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-1 motion-safe:duration-150",
+        animate && "motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-1 motion-safe:duration-150",
         active === "inbox" && "flex flex-col",
       )}
       style={{

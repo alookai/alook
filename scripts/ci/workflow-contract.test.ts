@@ -1145,6 +1145,14 @@ describe("Desktop image clipboard", () => {
         remote: { urls: ["http://localhost:3000"] },
         permissions: ["mobile-system-notification"],
       }),
+      "file-save",
+      expect.objectContaining({
+        identifier: "file-save-dev",
+        local: true,
+        windows: ["main"],
+        remote: { urls: ["http://localhost:3000"] },
+        permissions: ["allow-file-save-begin", "allow-file-save-write-chunk", "allow-file-save-commit", "allow-file-save-cancel"],
+      }),
     ])
   })
 })

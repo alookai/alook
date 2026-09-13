@@ -34,7 +34,7 @@ dependencies = [
 
 [[package]]
 name = "alook-desktop"
-version = "0.1.37"
+version = "0.1.38"
 dependencies = [
  "base64 0.22.1",
  "block2",
@@ -56,6 +56,7 @@ dependencies = [
  "tauri-plugin-clipboard-manager",
  "tauri-plugin-deep-link",
  "tauri-plugin-dialog",
+ "tauri-plugin-file-save",
  "tauri-plugin-mobile-push",
  "tauri-plugin-mobile-share-image",
  "tauri-plugin-notification",
@@ -4149,6 +4150,16 @@ dependencies = [
  "tauri-plugin-fs",
  "thiserror 2.0.18",
  "url",
+]
+
+[[package]]
+name = "tauri-plugin-file-save"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
 ]
 
 [[package]]

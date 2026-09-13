@@ -34,6 +34,31 @@ const machines = [{
 }]
 
 describe("UserBarExtensionSlot", () => {
+  it("disables dismissal and focus while retained for the closing animation", async () => {
+    const onDismiss = vi.fn()
+    const onInitialFocus = vi.fn()
+    const props = {
+      active: "profile" as const,
+      profile: createElement("div", null, "Profile"),
+      update: null,
+      eligibleMachines: [],
+      onDismiss,
+      onRequestUpdate: vi.fn(),
+      onInitialFocus,
+    }
+    const renderer = render(createElement(UserBarExtensionSlot, props))
+    renderer.rerender(createElement(UserBarExtensionSlot, {
+      ...props, interactive: false, focusOnOpen: true,
+    }))
+    await act(async () => {
+      document.body.click()
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+    })
+    expect(onDismiss).not.toHaveBeenCalled()
+    expect(onInitialFocus).not.toHaveBeenCalled()
+    expect(renderer.getByText("Profile")).toBeInTheDocument()
+  })
+
   it("renders only the active Inbox occupant in the bounded joined surface", () => {
     const renderer = render(createElement(UserBarExtensionSlot, {
       active: "inbox",
@@ -184,6 +209,7 @@ describe("UserBarExtensionSlot", () => {
   })
 
   it("moves focus into the dialog only for an explicit open request", () => {
+    const focus = vi.spyOn(HTMLElement.prototype, "focus")
     const onInitialFocus = vi.fn()
     const renderer = render(createElement(UserBarExtensionSlot, {
       active: "inbox",
@@ -200,5 +226,7 @@ describe("UserBarExtensionSlot", () => {
     expect(slot).toHaveAttribute("tabindex", "-1")
     expect(slot).toHaveFocus()
     expect(onInitialFocus).toHaveBeenCalledOnce()
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true })
+    focus.mockRestore()
   })
 })

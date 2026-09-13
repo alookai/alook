@@ -16,7 +16,7 @@ import type { Presence } from "@/lib/community/models/people"
 import type { Breakpoint } from "@/hooks/use-mobile"
 import { tid } from "@/lib/community/testids"
 import { cn } from "@/lib/utils"
-import { CommunityInboxSurface } from "./community-inbox-surface"
+import { UserBarExtensionDrawer } from "./user-bar-extension-drawer"
 import { UserBarExtensionSlot } from "./user-bar-extension-slot"
 import type {
   UserBarExtensionKind,
@@ -47,16 +47,13 @@ export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox,
   onInboxOpenChange?: (open: boolean) => void
   extension?: UserBarExtension
 }) {
-  const inboxAnchorRef = useRef<HTMLDivElement>(null)
   const profileTriggerRef = useRef<HTMLButtonElement>(null)
   const profileNameTriggerRef = useRef<HTMLButtonElement>(null)
   const lastProfileTriggerRef = useRef<HTMLButtonElement | null>(null)
   const inboxTriggerRef = useRef<HTMLButtonElement>(null)
   const updateBadgeRef = useRef<HTMLButtonElement>(null)
   const [pendingExtensionFocus, setPendingExtensionFocus] = useState<UserBarExtensionKind>("none")
-  const suppressInboxFocusReturnRef = useRef(false)
   const closeInboxForAction = () => {
-    suppressInboxFocusReturnRef.current = true
     if (inboxOpen) onInboxOpenChange?.(false)
   }
   const dismissExtensionWithFocus = () => {
@@ -71,31 +68,33 @@ export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox,
       else updateBadgeRef.current?.focus()
     })
   }
+  const extensionContent = extension && extension.active !== "none" ? (
+    <UserBarExtensionSlot
+      active={extension.active}
+      inbox={extension.inbox}
+      profile={extension.profile}
+      update={extension.update}
+      eligibleMachines={extension.eligibleMachines}
+      onDismiss={dismissExtensionWithFocus}
+      onDismissOutside={extension.onDismiss}
+      onRequestUpdate={extension.onRequestUpdate}
+      focusOnOpen={pendingExtensionFocus === extension.active}
+      onInitialFocus={() => {
+        if (pendingExtensionFocus === extension.active) {
+          setPendingExtensionFocus("none")
+        }
+      }}
+    />
+  ) : null
   return (
     <div
       data-testid={tid.userBar}
       className="w-full min-w-0 max-w-full shrink-0 overflow-hidden pl-[max(0.75rem,var(--app-safe-area-left))] pr-[max(0.75rem,var(--app-safe-area-right))] pb-[calc(0.75rem+var(--app-safe-area-bottom))] pt-0 sm:px-3 sm:pb-3"
     >
-      {extension && extension.active !== "none" && (
-        <UserBarExtensionSlot
-          active={extension.active}
-          inbox={extension.inbox}
-          profile={extension.profile}
-          update={extension.update}
-          eligibleMachines={extension.eligibleMachines}
-          onDismiss={dismissExtensionWithFocus}
-          onDismissOutside={extension.onDismiss}
-          onRequestUpdate={extension.onRequestUpdate}
-          focusOnOpen={pendingExtensionFocus === extension.active}
-          onInitialFocus={() => {
-            if (pendingExtensionFocus === extension.active) {
-              setPendingExtensionFocus("none")
-            }
-          }}
-        />
-      )}
+      {breakpoint === "mobile"
+        ? <UserBarExtensionDrawer>{extensionContent}</UserBarExtensionDrawer>
+        : extensionContent}
       <div
-        ref={inboxAnchorRef}
         data-slot="community-user-bar-base"
         className={cn(
           "flex h-12 items-center gap-3 border border-border/40 bg-muted px-4",
@@ -113,8 +112,6 @@ export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox,
           hasUnread={hasUnread}
           inboxOpen={inboxOpen}
           onInboxOpenChange={onInboxOpenChange}
-          inboxAnchorRef={inboxAnchorRef}
-          suppressInboxFocusReturnRef={suppressInboxFocusReturnRef}
           closeInboxForAction={closeInboxForAction}
           profileTriggerRef={profileTriggerRef}
           profileNameTriggerRef={profileNameTriggerRef}
@@ -146,7 +143,7 @@ export function UserBarSkeleton() {
   )
 }
 
-function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnread, inboxOpen, onInboxOpenChange, inboxAnchorRef, suppressInboxFocusReturnRef, closeInboxForAction, profileTriggerRef, profileNameTriggerRef, lastProfileTriggerRef, inboxTriggerRef, updateBadgeRef, onRequestExtensionFocus, extension }: {
+function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnread, inboxOpen, onInboxOpenChange, closeInboxForAction, profileTriggerRef, profileNameTriggerRef, lastProfileTriggerRef, inboxTriggerRef, updateBadgeRef, onRequestExtensionFocus, extension }: {
   breakpoint: Breakpoint
   user: { id: string; name: string; avatar: string; presence?: Presence }
   onOpenProfile?: OpenProfile
@@ -155,8 +152,6 @@ function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnrea
   hasUnread: boolean
   inboxOpen?: boolean
   onInboxOpenChange?: (open: boolean) => void
-  inboxAnchorRef: RefObject<HTMLDivElement | null>
-  suppressInboxFocusReturnRef: MutableRefObject<boolean>
   closeInboxForAction: () => void
   profileTriggerRef: RefObject<HTMLButtonElement | null>
   profileNameTriggerRef: RefObject<HTMLButtonElement | null>
@@ -218,7 +213,7 @@ function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnrea
             )} />
           </button>
         )}
-        {inbox && extension ? (
+        {inbox ? (
           <button
             ref={inboxTriggerRef}
             type="button"
@@ -232,7 +227,7 @@ function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnrea
             aria-label={mobile ? (inboxOpen ? "Close Inbox" : "Open Inbox") : "Inbox"}
             aria-expanded={inboxOpen}
             aria-pressed={mobile ? inboxOpen : undefined}
-            aria-controls={inboxOpen ? "community-user-bar-extension" : undefined}
+            aria-controls={inboxOpen && extension ? "community-user-bar-extension" : undefined}
             onClick={() => {
               if (!inboxOpen) onRequestExtensionFocus("inbox")
               onInboxOpenChange?.(!inboxOpen)
@@ -243,17 +238,6 @@ function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnrea
               {hasUnread && <span className="absolute -right-1 -top-1 size-2 rounded-full bg-primary" />}
             </span>
           </button>
-        ) : inbox ? (
-          <CommunityInboxSurface
-            breakpoint={breakpoint}
-            open={inboxOpen}
-            onOpenChange={onInboxOpenChange}
-            hasUnread={hasUnread}
-            anchorRef={inboxAnchorRef}
-            suppressFocusReturnRef={suppressInboxFocusReturnRef}
-          >
-            {inbox}
-          </CommunityInboxSurface>
         ) : null}
         <button
           onClick={() => {

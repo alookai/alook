@@ -1,5 +1,6 @@
 "use client";
 
+import { useArtifactClick } from "@/components/use-artifact-click";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { CircleDot, Eye, EyeOff, Loader2, Plus, Trash2 } from "lucide-react";
@@ -21,7 +22,7 @@ import { DndContext, DragOverlay, PointerSensor, useSensor, useSensors, useDropp
 import { IssueSheet } from "@/components/issues/issue-sheet";
 import { trackIssueCreated, trackIssueStatusChanged } from "@/lib/analytics";
 import { ArtifactSheet } from "@/components/agent-chat/artifact-sheet";
-import { isPreviewable, getArtifactUrl, computeArtifactVersions } from "@/components/artifact-content-renderer";
+import { computeArtifactVersions } from "@/components/artifact-content-renderer";
 
 
 const COLUMNS = [
@@ -251,14 +252,11 @@ export default function IssuesPage() {
     [issueArtifacts],
   );
 
-  const handleArtifactClick = useCallback((artifact: Artifact) => {
-    if (isPreviewable(artifact)) {
-      setSelectedArtifact(artifact);
-      setArtifactSheetOpen(true);
-    } else {
-      window.open(getArtifactUrl(artifact.id, workspaceId, true), "_blank");
-    }
-  }, [workspaceId]);
+  const previewArtifact = useCallback((artifact: Artifact) => {
+    setSelectedArtifact(artifact);
+    setArtifactSheetOpen(true);
+  }, []);
+  const handleArtifactClick = useArtifactClick(workspaceId, previewArtifact);
 
   async function reload() {
     setLoading(true);

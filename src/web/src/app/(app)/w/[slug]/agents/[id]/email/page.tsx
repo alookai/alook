@@ -1,5 +1,6 @@
 "use client";
 
+import { FileDownloadButton } from "@/components/file-download-button"
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams } from "next/navigation";
 import { useWorkspace } from "@/contexts/workspace-context";
@@ -670,12 +671,10 @@ export default function AgentEmailPage() {
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {selected.attachments.map((att, i) => (
-                    <a
+                    <FileDownloadButton
                       key={att.key}
-                      href={`/api/email/${selected.id}/attachment/${i}?workspace_id=${workspaceId}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      download={att.filename}
+                      url={`/api/email/${selected.id}/attachment/${i}?workspace_id=${workspaceId}`}
+                      filename={att.filename}
                       className="flex items-center gap-2 rounded-md border border-border/50 bg-muted/50 px-2 py-2 text-xs hover:bg-muted transition-colors cursor-pointer"
                     >
                       <FileIcon className="size-3 text-muted-foreground shrink-0" />
@@ -683,7 +682,7 @@ export default function AgentEmailPage() {
                       <span className="text-muted-foreground shrink-0">
                         {att.size < 1024 ? `${att.size} B` : att.size < 1024 * 1024 ? `${(att.size / 1024).toFixed(1)} KB` : `${(att.size / (1024 * 1024)).toFixed(1)} MB`}
                       </span>
-                    </a>
+                    </FileDownloadButton>
                   ))}
                 </div>
               </div>

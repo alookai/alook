@@ -1,3 +1,4 @@
+import { contentDisposition, encodeRfc5987 } from "@/lib/content-disposition"
 import { NextResponse, type NextRequest } from "next/server"
 import { createLogger } from "@alook/shared"
 import { getDb } from "@/lib/db"
@@ -31,17 +32,6 @@ function parseByteRange(value: string, size: number): ParsedByteRange | null {
   return { offset, length: end - offset + 1, end }
 }
 
-/**
- * RFC 5987 filename encoding for `X-Alook-Filename`. Percent-encodes
- * everything outside the RFC 5987 attr-char set. The daemon-side client
- * decodes before writing to disk so non-ASCII filenames (`图表.png`) round
- * trip safely.
- */
-function encodeRfc5987(value: string): string {
-  return encodeURIComponent(value)
-    .replace(/['()]/g, escape)
-    .replace(/\*/g, "%2A")
-}
 
 /**
  * GET /api/community/channels/[id]/attachments/[attachmentId] — the canonical
@@ -148,7 +138,7 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
       "Content-Type": contentType,
       "Content-Disposition": isImage || isMedia
         ? "inline"
-        : `attachment; filename="${row.filename}"`,
+        : contentDisposition("attachment", row.filename),
       "Cache-Control": ATTACHMENT_PRIVATE_IMMUTABLE_CACHE,
       "Content-Length": String(parsedRange?.length ?? size),
     }

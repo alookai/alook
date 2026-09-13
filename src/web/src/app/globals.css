@@ -436,6 +436,9 @@ body.driver-active .community-ws-reconnect-overlay * {
   --app-safe-area-right: env(safe-area-inset-right, 0px);
   --app-safe-area-bottom: env(safe-area-inset-bottom, 0px);
   --app-safe-area-left: env(safe-area-inset-left, 0px);
+  --community-composer-inline-start: max(0.75rem, var(--app-safe-area-left));
+  --community-composer-inline-end: max(0.75rem, var(--app-safe-area-right));
+  --community-composer-top-radius: 1.5rem;
   --guide-flight-ease: cubic-bezier(0.45, 0, 0.2, 1);
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
   --ease-in: cubic-bezier(0.8, 0, 0.8, 0.2);
@@ -565,6 +568,19 @@ body.driver-active .community-ws-reconnect-overlay * {
   --sidebar-accent-foreground: oklch(0.93 0.006 80);
   --sidebar-border: oklch(1 0.005 80 / 10%);
   --sidebar-ring: oklch(0.55 0.01 60);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  :root {
+    --community-composer-top-radius: 0.75rem;
+  }
+}
+
+@media (min-width: 40rem) {
+  :root {
+    --community-composer-inline-start: 0.75rem;
+    --community-composer-inline-end: 0.75rem;
+  }
 }
 
 .forum-tag-color {
@@ -3026,5 +3042,30 @@ body {
   .bot-audit-active-heartbeat::before {
     animation: none;
     opacity: 0.55;
+  }
+}
+
+.community-user-bar-drawer-viewport {
+  clip-path: inset(-24px -24px 0 -24px);
+}
+
+.community-user-bar-drawer {
+  animation: none;
+  transform: translateY(0);
+  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.community-user-bar-drawer[data-starting-style],
+.community-user-bar-drawer[data-ending-style] {
+  transform: translateY(100%);
+}
+
+.community-user-bar-drawer[data-ending-style] {
+  transition-duration: 180ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .community-user-bar-drawer {
+    transition: none;
   }
 }

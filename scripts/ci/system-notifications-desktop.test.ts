@@ -26,7 +26,8 @@ describe("desktop system notification contract", () => {
     const manifestCommands = quotedValues(read("build.rs"))
       .filter((command) => !command.startsWith("native_oauth_")
         && !command.startsWith("mobile_share_image_")
-        && !command.startsWith("mobile_system_notification_"))
+        && !command.startsWith("mobile_system_notification_")
+        && !command.startsWith("file_save_"))
     const permissionCommands = quotedValues(
       read("permissions/desktop-commands.toml").match(/commands\.allow\s*=\s*\[[^\]]*\]/s)?.[0] ?? "",
     )

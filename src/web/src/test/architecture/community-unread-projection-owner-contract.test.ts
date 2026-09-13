@@ -36,7 +36,7 @@ describe("community unread projection owner contract", () => {
   it("keeps dot components presentation-only", () => {
     const consumers = [
       "src/web/src/components/community/shell/community-inbox-popover.tsx",
-      "src/web/src/components/community/shell/community-inbox-surface.tsx",
+      "src/web/src/components/community/shell/user-bar.tsx",
       "src/web/src/components/community/shell/rail-folder.tsx",
       "src/web/src/components/community/shell/sortable-server.tsx",
       "src/web/src/components/community/channels/channel-sidebar.tsx",
@@ -65,7 +65,7 @@ describe("community unread projection owner contract", () => {
     expect(popover).not.toMatch(/hasProjectedMentions\s*\?\?/)
 
     const surface = source(
-      "src/web/src/components/community/shell/community-inbox-surface.tsx",
+      "src/web/src/components/community/shell/user-bar.tsx",
     )
     expect(surface).toContain("hasUnread: boolean")
   })

@@ -1,6 +1,10 @@
 fn main() {
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
         tauri_build::AppManifest::new().commands(&[
+            "file_save_begin",
+            "file_save_write_chunk",
+            "file_save_commit",
+            "file_save_cancel",
             "daemon_runtime_capability",
             "daemon_pair",
             "set_window_theme",

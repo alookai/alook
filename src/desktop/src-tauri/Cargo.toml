@@ -1,6 +1,6 @@
 [package]
 name = "alook-desktop"
-version = "0.1.37"
+version = "0.1.38"
 edition = "2021"
 description = "Alook — Share your agents with people you trust"
 
@@ -27,6 +27,7 @@ unicode-normalization = "0.1"
 url = "2"
 
 [target."cfg(any(target_os = \"android\", target_os = \"ios\"))".dependencies]
+tauri-plugin-file-save = { path = "plugins/file-save" }
 tauri-plugin-mobile-share-image = { path = "plugins/mobile-share-image" }
 tauri-plugin-mobile-push = { path = "plugins/mobile-push" }
 

@@ -188,7 +188,7 @@ describe("AttachmentPreviewSheet", () => {
       onOpenChange: vi.fn(),
     }))
     await flush()
-    expect(fetchMock).toHaveBeenCalledWith("/attachments/a1", expect.objectContaining({ credentials: "same-origin" }))
+    expect(fetchMock).toHaveBeenCalledWith("/attachments/a1", expect.objectContaining({ credentials: "same-origin", signal: expect.any(AbortSignal) }))
     expect(renderer.container.querySelector("[data-markdown]")?.textContent).toBe("# Hello")
     const download = renderer.container.querySelector<HTMLButtonElement>(
       '[data-testid="community-attachment-preview-download"]',
@@ -204,7 +204,7 @@ describe("AttachmentPreviewSheet", () => {
       await Promise.resolve()
       await Promise.resolve()
     })
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/attachments/a1", { credentials: "same-origin" })
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/attachments/a1", { credentials: "same-origin", signal: expect.any(AbortSignal) })
     expect(anchor).toEqual(expect.objectContaining({ href: "blob:preview", download: "notes.md" }))
     expect(click).toHaveBeenCalledOnce()
     expect(renderer.container.querySelector(
