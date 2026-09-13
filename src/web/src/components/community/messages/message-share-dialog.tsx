@@ -1,7 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import Image from "next/image"
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react"
 import { toBlob } from "html-to-image"
 import { toast } from "sonner"
 import { Check, Copy, Download, Highlighter, Loader2 } from "lucide-react"
@@ -19,440 +18,23 @@ import type { RenderMsg } from "@/lib/community/models/message"
 import { displayReplyContent } from "@/lib/community/reply-content"
 import { useProfilesByUserId } from "@/stores/community/ws"
 import { readCommunityProfile } from "@/lib/community/profile-read"
+import { AnimatedAlookLogo } from "@/components/community/shell/animated-alook-logo"
+import {
+  capturePreparedShareImage,
+  prepareShareImageSession,
+  ShareImageSessionError,
+  type PreparedShareImageSession,
+} from "@/lib/community/share-image-session"
 
-const SHARE_IMAGE_READY_TIMEOUT_MS = 5_000
-const SHARE_IMAGE_RENDER_TIMEOUT_MS = 15_000
-const SHARE_IMAGE_PIXEL_RATIO = 2
+export { ShareImageSessionError as ShareCardRenderError }
 
-export type ShareCardRenderStage = "snapshot" | "fonts" | "rasterize" | "cleanup"
-
-export class ShareCardRenderError extends Error {
-  constructor(
-    readonly stage: ShareCardRenderStage,
-    readonly timedOut = false,
-    cause?: unknown,
-  ) {
-    super(`Share-card render ${timedOut ? "timed out" : "failed"} during ${stage}`)
-    this.name = "ShareCardRenderError"
-    this.cause = cause
-  }
-}
-
-export class ShareCardImageTimeoutError extends Error {
-  constructor() {
-    super("A share-card image did not finish loading in time")
-    this.name = "ShareCardImageTimeoutError"
-  }
-}
-
-export class ShareImageSnapshotError extends Error {
-  constructor() {
-    super("Share-card image pixels are not readable")
-    this.name = "ShareImageSnapshotError"
-  }
-}
-
-export type ShareCardImageDisposition = {
-  image: HTMLImageElement
-  mode: "snapshot" | "fallback"
-}
-
-function createShareCardAbortError(): DOMException {
-  return new DOMException("Share-card render aborted", "AbortError")
-}
-
-function isProfilePhoto(image: HTMLImageElement): boolean {
-  return image.hasAttribute("data-avatar-photo-state")
-    || image.getAttribute("data-remote-image-kind") === "identity"
-}
-
-function isFailedProfilePhoto(image: HTMLImageElement): boolean {
-  return image.getAttribute("data-avatar-photo-state") === "failed"
-    || (
-      image.getAttribute("data-remote-image-kind") === "identity"
-      && image.getAttribute("data-remote-image-state") === "error"
-    )
-}
-
-function isFailedContentImage(image: HTMLImageElement): boolean {
-  return image.getAttribute("data-remote-image-kind") === "content"
-    && image.getAttribute("data-remote-image-state") === "error"
-}
-
-function isReadyProfilePhoto(image: HTMLImageElement): boolean {
-  if (image.getAttribute("data-remote-image-kind") === "identity") {
-    return image.getAttribute("data-remote-image-state") === "ready"
-  }
-  return image.getAttribute("data-avatar-photo-state") === "ready"
-}
-
-function isUnreadyContentImage(image: HTMLImageElement): boolean {
-  return image.getAttribute("data-remote-image-kind") === "content"
-    && image.getAttribute("data-remote-image-state") !== "ready"
-}
-
-async function waitForImageLoad(
-  image: HTMLImageElement,
-  deadline: number,
-  signal?: AbortSignal,
-): Promise<ShareCardImageDisposition["mode"]> {
-  const fallbackOrThrow = (error: Error): ShareCardImageDisposition["mode"] => {
-    if (isProfilePhoto(image)) return "fallback"
-    throw error
-  }
-  if (signal?.aborted) throw createShareCardAbortError()
-  if (isFailedProfilePhoto(image)) return "fallback"
-  if (isFailedContentImage(image)) throw new ShareImageSnapshotError()
-
-  if (!image.complete) {
-    const result = await new Promise<"loaded" | "error" | "timeout" | "aborted">((resolve) => {
-      let finished = false
-      const finish = (result: "loaded" | "error" | "timeout" | "aborted") => {
-        if (finished) return
-        finished = true
-        image.removeEventListener("load", loaded)
-        image.removeEventListener("error", failed)
-        signal?.removeEventListener("abort", aborted)
-        clearTimeout(timer)
-        resolve(result)
-      }
-      const loaded = () => finish("loaded")
-      const failed = () => finish("error")
-      const aborted = () => finish("aborted")
-      const timer = setTimeout(() => finish("timeout"), Math.max(0, deadline - Date.now()))
-      image.addEventListener("load", loaded, { once: true })
-      image.addEventListener("error", failed, { once: true })
-      signal?.addEventListener("abort", aborted, { once: true })
-      if (image.complete) finish(image.naturalWidth > 0 ? "loaded" : "error")
-      else if (signal?.aborted) finish("aborted")
-    })
-    if (result === "aborted") throw createShareCardAbortError()
-    if (result === "timeout") return fallbackOrThrow(new ShareCardImageTimeoutError())
-    if (result === "error") return fallbackOrThrow(new ShareImageSnapshotError())
-  }
-  if (isFailedProfilePhoto(image)) return "fallback"
-  if (isFailedContentImage(image)) throw new ShareImageSnapshotError()
-  if (image.naturalWidth <= 0 || image.naturalHeight <= 0) {
-    return fallbackOrThrow(new ShareImageSnapshotError())
-  }
-  if (image.decode) {
-    const result = await new Promise<"decoded" | "failed" | "timeout" | "aborted">((resolve) => {
-      let finished = false
-      const finish = (result: "decoded" | "failed" | "timeout" | "aborted") => {
-        if (finished) return
-        finished = true
-        signal?.removeEventListener("abort", aborted)
-        clearTimeout(timer)
-        resolve(result)
-      }
-      const aborted = () => finish("aborted")
-      const timer = setTimeout(() => finish("timeout"), Math.max(0, deadline - Date.now()))
-      signal?.addEventListener("abort", aborted, { once: true })
-      Promise.resolve().then(() => image.decode()).then(
-        () => finish("decoded"),
-        () => finish("failed"),
-      )
-      if (signal?.aborted) finish("aborted")
-    })
-    if (result === "aborted") throw createShareCardAbortError()
-    if (isFailedProfilePhoto(image)) return "fallback"
-    if (isFailedContentImage(image)) throw new ShareImageSnapshotError()
-    if (result !== "decoded" && isProfilePhoto(image)) return "fallback"
-  }
-  return "snapshot"
-}
-
-function nextPaint(): Promise<void> {
-  if (typeof requestAnimationFrame !== "function") return Promise.resolve()
-  return new Promise((resolve) => requestAnimationFrame(() => resolve()))
-}
-
-export async function waitForShareCardImages(
+async function renderShareCard(
   node: HTMLElement,
-  waitForPaint: () => Promise<void> = nextPaint,
-  timeoutMs = SHARE_IMAGE_READY_TIMEOUT_MS,
-  signal?: AbortSignal,
-): Promise<ShareCardImageDisposition[]> {
-  const deadline = Date.now() + timeoutMs
-  const dispositions = await Promise.all(
-    [...node.querySelectorAll("img")].map(async (image) => ({
-      image,
-      mode: await waitForImageLoad(image, deadline, signal),
-    })),
-  )
-  if (signal?.aborted) throw createShareCardAbortError()
-  await waitForPaint()
-  if (signal?.aborted) throw createShareCardAbortError()
-  return dispositions.map((disposition) => {
-    if (isProfilePhoto(disposition.image) && !isReadyProfilePhoto(disposition.image)) {
-      return { ...disposition, mode: "fallback" }
-    }
-    if (isUnreadyContentImage(disposition.image)) throw new ShareImageSnapshotError()
-    return disposition
-  })
-}
-
-type ShareImageWaiter = (
-  node: HTMLElement,
-  waitForPaint?: () => Promise<void>,
-  timeoutMs?: number,
-  signal?: AbortSignal,
-) => Promise<ShareCardImageDisposition[]>
-type ShareImageSnapshotter = (image: HTMLImageElement) => HTMLCanvasElement | null
-
-function copySnapshotPresentation(
-  image: HTMLImageElement,
-  canvas: HTMLCanvasElement,
-  width: number,
-  height: number,
-): void {
-  canvas.className = image.className
-  canvas.style.cssText = image.style.cssText
-  for (const attribute of [...image.attributes]) {
-    if (attribute.name.startsWith("data-") || attribute.name.startsWith("aria-")) {
-      canvas.setAttribute(attribute.name, attribute.value)
-    }
-  }
-  canvas.style.width = `${width}px`
-  canvas.style.height = `${height}px`
-}
-
-function drawShareImageSnapshot(
-  image: HTMLImageElement,
-  canvas: HTMLCanvasElement,
-  objectFit: string,
-): void {
-  if (image.naturalWidth <= 0 || image.naturalHeight <= 0) {
-    throw new ShareImageSnapshotError()
-  }
-  const context = canvas.getContext("2d")
-  if (!context) throw new ShareImageSnapshotError()
-
-  const sourceWidth = image.naturalWidth
-  const sourceHeight = image.naturalHeight
-  const targetWidth = canvas.width
-  const targetHeight = canvas.height
-  const containScale = Math.min(targetWidth / sourceWidth, targetHeight / sourceHeight)
-  const coverScale = Math.max(targetWidth / sourceWidth, targetHeight / sourceHeight)
-  const scale = objectFit === "contain"
-    ? containScale
-    : objectFit === "cover"
-      ? coverScale
-      : objectFit === "none"
-        ? SHARE_IMAGE_PIXEL_RATIO
-        : objectFit === "scale-down"
-          ? Math.min(SHARE_IMAGE_PIXEL_RATIO, containScale)
-          : null
-
-  if (scale === null) {
-    context.drawImage(image, 0, 0, targetWidth, targetHeight)
-    return
-  }
-
-  const width = sourceWidth * scale
-  const height = sourceHeight * scale
-  context.drawImage(
-    image,
-    (targetWidth - width) / 2,
-    (targetHeight - height) / 2,
-    width,
-    height,
-  )
-}
-
-export function createShareImageSnapshot(image: HTMLImageElement): HTMLCanvasElement | null {
-  const rect = image.getBoundingClientRect()
-  if (rect.width <= 0 || rect.height <= 0) return null
-
-  const createCanvas = () => {
-    const canvas = document.createElement("canvas")
-    canvas.width = Math.max(1, Math.round(rect.width * SHARE_IMAGE_PIXEL_RATIO))
-    canvas.height = Math.max(1, Math.round(rect.height * SHARE_IMAGE_PIXEL_RATIO))
-    copySnapshotPresentation(image, canvas, rect.width, rect.height)
-    return canvas
-  }
-
-  const canvas = createCanvas()
-  try {
-    drawShareImageSnapshot(image, canvas, getComputedStyle(image).objectFit)
-    canvas.toDataURL()
-    return canvas
-  } catch {
-    throw new ShareImageSnapshotError()
-  }
-}
-
-export async function snapshotShareCardImages(
-  node: HTMLElement,
-  createSnapshot: ShareImageSnapshotter = createShareImageSnapshot,
-  waitForImages: ShareImageWaiter = waitForShareCardImages,
-  waitForPaint: () => Promise<void> = nextPaint,
-  signal?: AbortSignal,
-): Promise<() => void> {
-  const dispositions = await waitForImages(node, undefined, undefined, signal)
-  const replacements: Array<{ image: HTMLImageElement; replacement: Element }> = []
-  let restored = false
-  const restore = () => {
-    if (restored) return
-    restored = true
-    for (const { image, replacement } of replacements.reverse()) {
-      if (replacement.parentNode) replacement.replaceWith(image)
-    }
-  }
-
-  try {
-    for (const { image, mode } of dispositions) {
-      if (!image.parentNode) continue
-      if (mode === "fallback") {
-        const placeholder = document.createElement("span")
-        placeholder.hidden = true
-        image.replaceWith(placeholder)
-        replacements.push({ image, replacement: placeholder })
-        continue
-      }
-      const canvas = createSnapshot(image)
-      if (!canvas) continue
-      image.replaceWith(canvas)
-      replacements.push({ image, replacement: canvas })
-    }
-    if (signal?.aborted) throw createShareCardAbortError()
-    await waitForPaint()
-    if (signal?.aborted) throw createShareCardAbortError()
-    return restore
-  } catch (error) {
-    restore()
-    throw error
-  }
-}
-
-type ShareCardImageSnapshotter = (
-  node: HTMLElement,
-  signal?: AbortSignal,
-) => Promise<() => void>
-type ShareCardRasterizer = typeof toBlob
-type ShareCardRenderOptions = {
-  timeoutMs?: number
-  loadFonts?: () => Promise<void>
-  onStage?: (stage: ShareCardRenderStage) => void
-  signal?: AbortSignal
-}
-
-function snapshotShareCardImagesForRender(
-  node: HTMLElement,
-  signal?: AbortSignal,
-): Promise<() => void> {
-  return snapshotShareCardImages(
-    node,
-    createShareImageSnapshot,
-    waitForShareCardImages,
-    nextPaint,
-    signal,
-  )
-}
-
-async function loadShareCardFonts(): Promise<void> {
-  const caveatFont = getComputedStyle(document.documentElement)
-    .getPropertyValue("--font-caveat")
-    .trim()
-  if (document.fonts?.load && caveatFont) await document.fonts.load(`16px ${caveatFont}`)
-  await document.fonts?.ready
-}
-
-export async function renderShareCard(
-  node: HTMLElement,
-  snapshotImages: ShareCardImageSnapshotter = snapshotShareCardImagesForRender,
-  rasterize: ShareCardRasterizer = toBlob,
-  options: ShareCardRenderOptions = {},
+  fontEmbedCSS = "",
+  rasterize = toBlob,
+  options: { timeoutMs?: number; signal?: AbortSignal } = {},
 ): Promise<Blob> {
-  const timeoutMs = options.timeoutMs ?? SHARE_IMAGE_RENDER_TIMEOUT_MS
-  const loadFonts = options.loadFonts ?? loadShareCardFonts
-  let stage: ShareCardRenderStage = "snapshot"
-  let restoreImages: (() => void) | null = null
-  let cleanupRequested = false
-  let cleanupComplete = false
-  let stopped = false
-  let terminalError: Error | null = null
-
-  const enterStage = (nextStage: ShareCardRenderStage) => {
-    stage = nextStage
-    options.onStage?.(nextStage)
-  }
-  const cleanup = () => {
-    cleanupRequested = true
-    if (!restoreImages || cleanupComplete) return
-    enterStage("cleanup")
-    cleanupComplete = true
-    restoreImages()
-  }
-
-  enterStage("snapshot")
-  let rejectDeadline!: (reason: Error) => void
-  const deadline = new Promise<never>((_resolve, reject) => {
-    rejectDeadline = reject
-  })
-  const stop = (error: Error) => {
-    if (stopped) return
-    stopped = true
-    terminalError = error
-    try {
-      cleanup()
-      rejectDeadline(error)
-    } catch (cleanupError) {
-      terminalError = new ShareCardRenderError("cleanup", false, cleanupError)
-      rejectDeadline(terminalError)
-    }
-  }
-  const timer = setTimeout(
-    () => stop(new ShareCardRenderError(stage, true)),
-    timeoutMs,
-  )
-  const abort = () => stop(createShareCardAbortError())
-  if (options.signal?.aborted) abort()
-  else options.signal?.addEventListener("abort", abort, { once: true })
-
-  const lifecycle = async (): Promise<Blob> => {
-    try {
-      restoreImages = await snapshotImages(node, options.signal)
-      if (cleanupRequested) cleanup()
-      if (terminalError) throw terminalError
-
-      enterStage("fonts")
-      try {
-        await loadFonts()
-      } catch {
-        // Font loading is best-effort; the fallback font is still renderable.
-      }
-      if (terminalError) throw terminalError
-
-      enterStage("rasterize")
-      const blob = await rasterize(node, {
-        pixelRatio: SHARE_IMAGE_PIXEL_RATIO,
-        fetchRequestInit: { credentials: "same-origin" },
-        // Solid backdrop so the exported PNG never bleeds transparent corners
-        // (the card's own rounded bg sits on top of this).
-        backgroundColor: getComputedStyle(node).getPropertyValue("--card")?.trim() || undefined,
-      })
-      if (terminalError) throw terminalError
-      if (!blob) throw new Error("Rasterizer returned no image")
-      return blob
-    } catch (error) {
-      if (error instanceof ShareCardRenderError) throw error
-      throw new ShareCardRenderError(stage, false, error)
-    } finally {
-      try {
-        cleanup()
-      } catch (error) {
-        throw new ShareCardRenderError("cleanup", false, error)
-      }
-    }
-  }
-
-  try {
-    return await Promise.race([lifecycle(), deadline])
-  } finally {
-    clearTimeout(timer)
-    options.signal?.removeEventListener("abort", abort)
-  }
+  return capturePreparedShareImage(node, fontEmbedCSS, rasterize, options)
 }
 
 type ShareCardRenderer = () => Promise<Blob | null>
@@ -482,7 +64,7 @@ export async function copyRenderedShareCard(
   write: ShareCardBlobWriter = writeShareCardToClipboard,
 ): Promise<void> {
   const blob = await render()
-  if (!blob) throw new ShareCardRenderError("rasterize")
+  if (!blob) throw new ShareImageSessionError("rasterize")
   await write(blob)
 }
 
@@ -491,14 +73,11 @@ async function saveShareCardDownload(
   filename: string,
   save: ShareCardBlobWriter = (value) => {
     const url = URL.createObjectURL(value)
-    try {
-      const anchor = document.createElement("a")
-      anchor.href = url
-      anchor.download = filename
-      anchor.click()
-    } finally {
-      URL.revokeObjectURL(url)
-    }
+    const anchor = document.createElement("a")
+    anchor.href = url
+    anchor.download = filename
+    anchor.click()
+    queueMicrotask(() => URL.revokeObjectURL(url))
   },
 ): Promise<void> {
   await save(blob)
@@ -510,17 +89,18 @@ export async function downloadRenderedShareCard(
   save?: ShareCardBlobWriter,
 ): Promise<void> {
   const blob = await render()
-  if (!blob) throw new ShareCardRenderError("rasterize")
+  if (!blob) throw new ShareImageSessionError("rasterize")
   await saveShareCardDownload(blob, filename, save)
 }
 
 export function shareCardRenderErrorMessage(error: unknown): string | null {
-  if (!(error instanceof ShareCardRenderError)) return null
+  if (!(error instanceof ShareImageSessionError)) return null
   const stage = {
-    snapshot: "preparing images",
+    source: "preparing the preview",
+    assets: "preparing images",
     fonts: "loading fonts",
+    freeze: "freezing the preview",
     rasterize: "rendering the image",
-    cleanup: "restoring the preview",
   }[error.stage]
   return error.timedOut
     ? `Couldn't generate image — ${stage} took too long`
@@ -533,18 +113,11 @@ type ShareCardExportFlight = {
   promise: Promise<void>
 }
 
-// Share one OR several messages as an image. Renders a self-contained "share
-// card" that mirrors the in-app message blob(s) (avatar / name / timestamp /
-// content) plus an Alook brand footer, then rasterises THAT SAME
-// node to PNG (WYSIWYG) via html-to-image — fully client-side, no backend. The
-// captured node has a fixed width and its own solid background so the export is
-// stable regardless of the surrounding theme surface.
-//
-// Multi-message (Gus uiux #128, Alli #133): pass an array of the selected
-// messages (in order). Consecutive same-author messages collapse the avatar/
-// name (each carries `grouped`, computed by the message list — reused verbatim),
-// exactly like the chat stream. Everything else — toBlob capture, Download/Copy,
-// drag-highlight — is shared; highlight is per-message (each body its own ref).
+type ShareSessionState =
+  | { status: "idle" | "preparing" }
+  | { status: "ready"; value: PreparedShareImageSession; filename: string }
+  | { status: "error"; message: string }
+
 export function MessageShareDialog({ m, open, onClose }: {
   m: RenderMsg | RenderMsg[]
   open: boolean
@@ -553,47 +126,65 @@ export function MessageShareDialog({ m, open, onClose }: {
   const messages = useMemo(() => (Array.isArray(m) ? m : [m]), [m])
   const mobileNative = isTauri() && isMobile()
   const profilesByUserId = useProfilesByUserId()
-  const cardRef = useRef<HTMLDivElement>(null)
-  // One body wrapper per message — highlight operations are scoped to the body
-  // the drag happened in, so a drag never wraps the avatar/name/footer OR bleeds
-  // across messages (Alli #133: highlight is per-message). Keyed by message id.
-  const bodyRefs = useRef(new Map<string, HTMLDivElement | null>())
+  const profilesByUserIdRef = useRef(profilesByUserId)
+  const messagesRef = useRef(messages)
+  const previewRef = useRef<HTMLDivElement>(null)
   const exportOwnerRef = useRef<{
     generation: number
     active: ShareCardExportFlight | null
   }>({ generation: 0, active: null })
   const copiedTimerRef = useRef<number | null>(null)
+  const pngRef = useRef<{
+    revision: number
+    promise: Promise<Blob>
+  } | null>(null)
   const [busy, setBusy] = useState<"copy" | "download" | null>(null)
   const [copied, setCopied] = useState(false)
-  // Drives the Reset button's presence. Gus (uiux #95): the button is HIDDEN
-  // (not disabled) when there's nothing to reset — "less is more". Mirrors the
-  // DOM (any `mark[data-hl]` across the bodies) after each apply/reset.
   const [highlighted, setHighlighted] = useState(false)
+  const [captureRevision, setCaptureRevision] = useState(0)
+  const [prepareAttempt, setPrepareAttempt] = useState(0)
+  const [preparationNode, setPreparationNode] = useState<HTMLDivElement | null>(null)
+  const [session, setSession] = useState<ShareSessionState>({ status: "idle" })
 
-  const anyHighlight = useCallback(
-    () => [...bodyRefs.current.values()].some((b) => b && hasHighlights(b)),
-    [],
-  )
+  useEffect(() => {
+    profilesByUserIdRef.current = profilesByUserId
+  }, [profilesByUserId])
 
-  // On mouseup inside a message body, wrap the current selection in a highlight.
-  // Text-node-level wrapping (see highlight-range.ts) — never surroundContents,
-  // so it survives spanning multiple markdown elements. Drags stack; the browser
-  // selection is collapsed afterward so it doesn't also land in the PNG. Scoped
-  // to the one body the drag is in — a selection straying outside it is ignored.
-  const onBodyMouseUp = useCallback((id: string) => {
-    const body = bodyRefs.current.get(id)
-    if (!body) return
+  useEffect(() => {
+    messagesRef.current = messages
+  }, [messages])
+
+  const anyHighlight = useCallback(() => {
+    const preview = previewRef.current
+    return !!preview && [...preview.querySelectorAll<HTMLElement>("[data-share-body-id]")]
+      .some((body) => hasHighlights(body))
+  }, [])
+
+  const onPreviewMouseUp = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    if (busy !== null) return
+    const target = event.target instanceof Element ? event.target : null
+    const body = target?.closest<HTMLElement>("[data-share-body-id]")
+    if (!body || !previewRef.current?.contains(body)) return
     const sel = window.getSelection?.()
     if (!sel || sel.isCollapsed || sel.rangeCount === 0) return
     const range = sel.getRangeAt(0)
     if (!body.contains(range.commonAncestorContainer)) return
     const added = applyHighlightToRange(body, range)
     sel.removeAllRanges()
-    if (added > 0) setHighlighted(anyHighlight())
-  }, [anyHighlight])
+    if (added <= 0) return
+    pngRef.current = null
+    setCaptureRevision((value) => value + 1)
+    setHighlighted(anyHighlight())
+  }, [anyHighlight, busy])
 
   const resetHighlights = useCallback(() => {
-    for (const body of bodyRefs.current.values()) if (body) clearHighlights(body)
+    const preview = previewRef.current
+    if (!preview) return
+    for (const body of preview.querySelectorAll<HTMLElement>("[data-share-body-id]")) {
+      clearHighlights(body)
+    }
+    pngRef.current = null
+    setCaptureRevision((value) => value + 1)
     setHighlighted(false)
   }, [])
 
@@ -602,6 +193,7 @@ export function MessageShareDialog({ m, open, onClose }: {
     owner.generation += 1
     owner.active?.controller.abort()
     owner.active = null
+    pngRef.current = null
     if (copiedTimerRef.current !== null) {
       window.clearTimeout(copiedTimerRef.current)
       copiedTimerRef.current = null
@@ -609,14 +201,49 @@ export function MessageShareDialog({ m, open, onClose }: {
   }, [])
 
   useEffect(() => {
-    if (!open) invalidateExport()
+    if (open) return
+    invalidateExport()
+    setBusy(null)
+    setCopied(false)
+    setSession({ status: "idle" })
+    setHighlighted(false)
   }, [invalidateExport, open])
 
   useEffect(() => () => invalidateExport(), [invalidateExport])
 
+  useEffect(() => {
+    if (!open) return
+    const source = preparationNode
+    if (!source) return
+    const controller = new AbortController()
+    const firstAuthorId = messagesRef.current[0]?.authorId
+    const firstAuthor = firstAuthorId
+      ? readCommunityProfile(profilesByUserIdRef.current.get(firstAuthorId), firstAuthorId)
+      : null
+    const filename = `alook-message-${firstAuthor?.name ?? "share"}.png`
+    setSession({ status: "preparing" })
+    setHighlighted(false)
+    pngRef.current = null
+    void prepareShareImageSession(source, { signal: controller.signal }).then(
+      (value) => {
+        if (controller.signal.aborted) return
+        setSession({ status: "ready", value, filename })
+      },
+      (error) => {
+        if (controller.signal.aborted || (error as { name?: unknown })?.name === "AbortError") return
+        setSession({
+          status: "error",
+          message: shareCardRenderErrorMessage(error) ?? "Couldn't prepare share image",
+        })
+      },
+    )
+    return () => controller.abort()
+  }, [open, preparationNode, prepareAttempt])
+
   const startExport = useCallback((action: "copy" | "download"): Promise<void> => {
     const owner = exportOwnerRef.current
     if (owner.active) return owner.active.promise
+    if (session.status !== "ready") return Promise.resolve()
 
     const id = owner.generation + 1
     const controller = new AbortController()
@@ -634,22 +261,27 @@ export function MessageShareDialog({ m, open, onClose }: {
     setCopied(false)
     setBusy(action)
 
-    const firstAuthorId = messages[0]?.authorId
-    const firstAuthor = firstAuthorId
-      ? readCommunityProfile(profilesByUserId.get(firstAuthorId), firstAuthorId)
-      : null
-    const filename = `alook-message-${firstAuthor?.name ?? "share"}.png`
+    const filename = session.filename
     const isCurrent = () => (
       exportOwnerRef.current.generation === id && !controller.signal.aborted
     )
 
     flight.promise = (async () => {
       try {
-        const node = cardRef.current
-        if (!node) throw new ShareCardRenderError("rasterize")
-        const blob = await renderShareCard(node, undefined, undefined, {
-          signal: controller.signal,
-        })
+        const node = previewRef.current?.querySelector<HTMLElement>("[data-share-card]")
+        if (!node) throw new ShareImageSessionError("rasterize")
+        let rendered = pngRef.current
+        if (!rendered || rendered.revision !== captureRevision) {
+          const promise = renderShareCard(node, session.value.fontEmbedCSS, toBlob, {
+            signal: controller.signal,
+          })
+          rendered = { revision: captureRevision, promise }
+          pngRef.current = rendered
+          promise.catch(() => {
+            if (pngRef.current?.promise === promise) pngRef.current = null
+          })
+        }
+        const blob = await rendered.promise
         if (!isCurrent()) return
 
         let mobileDestination: "photos" | "pictures" | "document" | null = null
@@ -714,7 +346,7 @@ export function MessageShareDialog({ m, open, onClose }: {
     })()
 
     return flight.promise
-  }, [messages, mobileNative, profilesByUserId])
+  }, [captureRevision, mobileNative, session])
 
   const close = useCallback(() => {
     invalidateExport()
@@ -738,24 +370,43 @@ export function MessageShareDialog({ m, open, onClose }: {
           <DialogTitle>{messages.length > 1 ? `Share ${messages.length} messages` : "Share message"}</DialogTitle>
         </DialogHeader>
 
-        {/* Preview area — the padding frames the card; the card itself is what
-            gets captured. Scrolls when the card is tall (many messages, Alli
-            #137): only the PREVIEW is height-bounded + scrollable — `toBlob`
-            captures `cardRef` (the full card), so the export is never cut by
-            this scroll bound. */}
-        <div className="max-h-[60vh] overflow-y-auto bg-muted/40 px-6 py-6">
-          {/* The card takes the full preview width — a generous, poster-like
-              default so the share image reads as a proper card at any content
-              length. The CARD itself is NOT height-capped: the exported PNG is
-              the full card (Alli #137). Runaway height is bounded PER MESSAGE
-              (each body clamps at 32 lines, below), and the PREVIEW container
-              (the wrapper above) scrolls — so a many-message selection is fully
-              exported but doesn't blow the popup out. */}
-          <div
-            ref={cardRef}
-            data-share-card
-            className="rounded-xl bg-card p-5 shadow-(--e1)"
-          >
+        <div className="thin-scrollbar max-h-[60vh] overflow-y-auto bg-muted/40 px-6 py-6">
+          {session.status === "ready" ? (
+            <div
+              ref={previewRef}
+              onMouseUp={onPreviewMouseUp}
+              dangerouslySetInnerHTML={{ __html: session.value.markup }}
+            />
+          ) : (
+            <div
+              data-share-session-state={session.status}
+              className="flex min-h-48 flex-col items-center justify-center gap-3 rounded-xl bg-card p-5 text-sm text-muted-foreground shadow-(--e1)"
+            >
+              {session.status === "error" ? (
+                <>
+                  <span>{session.message}</span>
+                  <Button size="sm" variant="outline" onClick={() => setPrepareAttempt((value) => value + 1)}>
+                    Retry
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Loader2 className="animate-spin" />
+                  <span>Preparing share image…</span>
+                </>
+              )}
+            </div>
+          )}
+          {open && session.status !== "ready" && (
+            <div
+              aria-hidden
+              className="pointer-events-none fixed left-[-10000px] top-0 w-[calc(100vw-5rem)] max-w-2xl opacity-0"
+            >
+              <div
+                ref={setPreparationNode}
+                data-share-card-source
+                className="rounded-xl bg-card p-5 shadow-(--e1)"
+              >
             {messages.map((msg) => {
               const author = msg.authorId
                 ? readCommunityProfile(profilesByUserId.get(msg.authorId), msg.authorId)
@@ -789,12 +440,14 @@ export function MessageShareDialog({ m, open, onClose }: {
                   {msg.grouped
                     ? <div className="w-10 shrink-0" aria-hidden />
                     : (
+                      <div data-share-identity-id={msg.authorId} className="size-10 shrink-0">
                         <Avatar
                           label={author?.name ?? msg.authorName ?? "Unknown"}
                           src={author?.avatar}
                           seed={msg.authorId}
                           size={40}
                         />
+                      </div>
                       )}
                   <div className="min-w-0 flex-1">
                     {!msg.grouped && (
@@ -816,21 +469,9 @@ export function MessageShareDialog({ m, open, onClose }: {
                         </span>
                       </div>
                     )}
-                    {/* Each body: clamp at 32 lines (Alli #137 — one number for
-                        single & multi share). Two layers, same as the original
-                        single-message card: `max-h` hard-bounds any structure
-                        (multi-paragraph markdown escapes line-clamp alone), and
-                        `line-clamp-[32]` gives a single-block message a tidy
-                        ellipsis. Each body also drives its own drag-highlight
-                        (per-message scope, Alli #133) via its ref in `bodyRefs`;
-                        the `mark[data-hl]` styles are the soft-yellow marker
-                        (rasterises cleanly under html-to-image — plain bg +
-                        box-decoration-break, no mask). max-h ≈ 32 lines at the
-                        body's 15px/leading-snug. */}
                     {visibleContent && (
                       <div
-                        ref={(el) => { bodyRefs.current.set(msg.id, el) }}
-                        onMouseUp={() => onBodyMouseUp(msg.id)}
+                        data-share-body-id={msg.id}
                         className="max-h-164 overflow-hidden line-clamp-32 [&_mark[data-hl]]:rounded-xs [&_mark[data-hl]]:bg-[rgba(255,208,92,0.5)] [&_mark[data-hl]]:p-[0_1px] [&_mark[data-hl]]:[box-decoration-break:clone] [&_mark[data-hl]]:[-webkit-box-decoration-break:clone] [&_mark[data-hl]]:text-inherit"
                       >
                         <MessageBody
@@ -890,18 +531,20 @@ export function MessageShareDialog({ m, open, onClose }: {
               )
             })}
 
-            {/* Brand footer — Alook logo + brand font, mirrors the marketing
-                footer treatment. One footer for the whole card, single or multi. */}
             <div className="mt-4 flex items-center gap-1.5 border-t border-border/50 pt-3">
-              <Image src="/alook.svg" alt="" width={16} height={16} />
+              <AnimatedAlookLogo className="size-4" />
               <span
+                data-share-brand
+                data-share-brand-font="caveat"
                 className="text-sm font-bold tracking-tight text-muted-foreground"
                 style={{ fontFamily: "var(--font-brand)" }}
               >
                 Alook
               </span>
             </div>
-          </div>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="flex items-center justify-between gap-2 px-5 pt-3 pb-5">
@@ -922,7 +565,7 @@ export function MessageShareDialog({ m, open, onClose }: {
               size="sm"
               data-testid={mobileNative ? tid.messageShareSave : undefined}
               onClick={download}
-              disabled={busy !== null}
+              disabled={busy !== null || session.status !== "ready"}
             >
               {busy === "download" ? <Loader2 className="animate-spin" /> : <Download />}
               {mobileNative ? "Save image" : "Download"}
@@ -931,7 +574,7 @@ export function MessageShareDialog({ m, open, onClose }: {
               size="sm"
               data-testid={tid.messageShareCopy}
               onClick={copy}
-              disabled={busy !== null}
+              disabled={busy !== null || session.status !== "ready"}
             >
               {busy === "copy" ? <Loader2 className="animate-spin" /> : copied ? <Check /> : <Copy />}
               {copied ? "Copied" : "Copy image"}
