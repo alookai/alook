@@ -400,6 +400,7 @@ describe("CI workflow graph", () => {
     expect(scope).toContain('--expected-class "$EXPECTED_CLASS"')
     expect(scope).toContain('--diagnostic-only')
     expect(scope).toContain('args+=(--base "$EVENT_SHA" --head "$EVENT_SHA" --force-full)')
+    expect(scope).toContain('args+=(--base "$PUSH_BASE_SHA" --head "$EVENT_SHA" --full-unless-benchmark-only)')
     expect(scope).not.toContain("ref: ${{ inputs.fixture_sha }}")
   })
 

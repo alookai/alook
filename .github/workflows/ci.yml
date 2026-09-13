@@ -122,7 +122,7 @@ jobs:
           elif [[ "$EVENT_NAME" == "merge_group" ]]; then
             args+=(--base "$MERGE_BASE_SHA" --head "$EVENT_SHA")
           elif [[ "$EVENT_NAME" == "push" ]]; then
-            args+=(--base "$PUSH_BASE_SHA" --head "$EVENT_SHA" --force-full)
+            args+=(--base "$PUSH_BASE_SHA" --head "$EVENT_SHA" --full-unless-benchmark-only)
           else
             args+=(--base "$EVENT_SHA" --head "$EVENT_SHA" --force-full)
           fi

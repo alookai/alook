@@ -71,7 +71,7 @@ function cleanGitEnvironment() {
   return environment
 }
 
-function gitDiffFixture() {
+function gitDiffFixture(changedPath = "src/cli/src/commands/inbox.ts") {
   const root = mkdtempSync(join(tmpdir(), "alook-ci-git-"))
   const runGit = (...args: string[]) => execFileSync("git", args, {
     cwd: root,
@@ -90,8 +90,7 @@ function gitDiffFixture() {
   runGit("add", "README.md")
   commit("baseline")
 
-  const changedPath = "src/cli/src/commands/inbox.ts"
-  mkdirSync(join(root, "src/cli/src/commands"), { recursive: true })
+  mkdirSync(join(root, changedPath.split("/").slice(0, -1).join("/")), { recursive: true })
   writeFileSync(join(root, changedPath), "export const fixture = true\n")
   runGit("add", changedPath)
   commit("change cli")
@@ -100,6 +99,47 @@ function gitDiffFixture() {
 }
 
 describe("canonical execution plan", () => {
+  it("keeps benchmark-only changes out of product jobs while retaining diff evidence", () => {
+    const changes = [
+      { status: "A", path: "src/benchmark/package.json" },
+      { status: "M", path: "src/benchmark/README.md" },
+      { status: "D", path: "src/benchmark/src/old.mjs" },
+      { status: "R100", old_path: "src/benchmark/src/a.mjs", path: "src/benchmark/src/b.mjs" },
+    ]
+    const result = buildExecutionPlan(changes)
+    expect(result.change_class).toBe("benchmark")
+    expect(result.full).toBe(false)
+    expect(result.paths).toHaveLength(5)
+    expect(result.changes).toHaveLength(4)
+    expect(Object.values(result.jobs).every((run) => !run)).toBe(true)
+    expect(result.packages.affected).toEqual([])
+    expect(result.coverage.include_roots).toEqual([])
+    expect(Object.entries(projectPlan(result)).filter(([name]) => name.startsWith("run_")).every(([, run]) => run === "false")).toBe(true)
+    expect(validateExecutionPlan(result)).toEqual(result)
+  })
+
+  it("preserves existing product contracts when benchmark changes are mixed in", () => {
+    for (const product of ["src/web/src/app/page.tsx", "src/web/auth/index.ts", "src/web/blog/src/app/page.tsx", "src/web/blog/src/content/example.mdx", "src/shared/src/schema.ts"]) {
+      const expected = plan([product])
+      const mixed = plan([product, "src/benchmark/src/runner.mjs"])
+      for (const field of ["change_class", "full", "packages", "suites", "jobs", "coverage", "ui", "auth_only", "blog_only"]) expect(mixed[field]).toEqual(expected[field])
+    }
+    for (const [old_path, path] of [["src/web/auth/index.ts", "src/benchmark/index.ts"], ["src/benchmark/index.ts", "src/web/auth/index.ts"]]) {
+      const result = buildExecutionPlan([{ status: "R100", old_path, path }])
+      expect(result.jobs).toEqual(plan(["src/web/auth/index.ts"]).jobs)
+      expect(result.paths).toEqual(["src/benchmark/index.ts", "src/web/auth/index.ts"])
+    }
+  })
+
+  it("keeps unknown, policy, empty and explicit full changes fail-closed", () => {
+    for (const path of ["src/benchmark-other/new.mjs", "unknown/code.js", ".github/workflows/ci.yml"]) expect(plan([path, "src/benchmark/src/runner.mjs"]).full).toBe(true)
+    expect(plan([]).full).toBe(true)
+    expect(plan(["src/benchmark/src/runner.mjs"], { forceFull: true }).full).toBe(true)
+    expect(plan(["src/benchmark/src/runner.mjs"], { fallbackReason: "diff failed" }).full).toBe(true)
+    expect(plan(["src/benchmark/src/runner.mjs"], { fullUnlessBenchmarkOnly: true }).full).toBe(false)
+    for (const paths of [[], ["README.md"], ["src/web/auth/index.ts", "src/benchmark/src/runner.mjs"]]) expect(plan(paths, { fullUnlessBenchmarkOnly: true }).full).toBe(true)
+  })
+
   it("routes Blog runtime through the complete Web contract and only UI spec 54", () => {
     const result = plan(["src/web/blog/src/app/page.tsx"])
 
@@ -615,6 +655,25 @@ describe("compatibility and CLI fail-closed behavior", () => {
         if (value !== undefined) process.env[name] = value
       }
       stdout.mockRestore()
+      rmSync(fixture.root, { recursive: true, force: true })
+    }
+  })
+
+  it.each([
+    ["src/benchmark/src/runner.mjs", false],
+    ["src/web/auth/index.ts", true],
+  ])("applies main-push policy through the actual CLI diff for %s", (path, full) => {
+    const fixture = gitDiffFixture(String(path))
+    const output = join(fixture.root, "projection")
+    const planFile = join(fixture.root, "plan.json")
+    try {
+      execFileSync(process.execPath, ["scripts/ci/changed-scopes.mjs", "--base", "HEAD^", "--head", "HEAD", "--full-unless-benchmark-only", "--output", output, "--plan-file", planFile], {
+        env: { ...cleanGitEnvironment(), GIT_DIR: join(fixture.root, ".git"), GIT_WORK_TREE: fixture.root },
+      })
+      const result = JSON.parse(readFileSync(planFile, "utf8"))
+      expect(result.full).toBe(full)
+      expect(result.changes).toEqual([{ status: "A", path }])
+    } finally {
       rmSync(fixture.root, { recursive: true, force: true })
     }
   })
