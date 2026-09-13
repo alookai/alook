@@ -497,6 +497,11 @@
     "strategy": "subquery"
   },
   {
+    "key": "src/shared/src/db/queries/community/channel.ts:createChannel:values:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 0
+  },
+  {
     "key": "src/shared/src/db/queries/community/channel.ts:deleteChannelMemberAndChildParticipants:inArray:1",
     "strategy": "subquery"
   },
@@ -709,6 +714,11 @@
     "fixedParams": 10
   },
   {
+    "key": "src/shared/src/db/queries/community/message.ts:eligibleAttachments:inArray:1",
+    "strategy": "bounded-public-input",
+    "maxExport": "MAX_ATTACHMENTS_PER_MESSAGE"
+  },
+  {
     "key": "src/shared/src/db/queries/community/message.ts:getMessagesByIds:inArray:1",
     "strategy": "exact-chunk",
     "fixedParams": 10
@@ -717,6 +727,31 @@
     "key": "src/shared/src/db/queries/community/message.ts:getMessagesByIdsInScope:inArray:1",
     "strategy": "exact-chunk",
     "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/message.ts:insertMessageRow:inArray:1",
+    "strategy": "bounded-public-input",
+    "maxExport": "MAX_ATTACHMENTS_PER_MESSAGE"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/message.ts:insertMessageRow:inArray:2",
+    "strategy": "bounded-public-input",
+    "maxExport": "MAX_ATTACHMENTS_PER_MESSAGE"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/message.ts:insertMessageRow:sql.join:1",
+    "strategy": "bounded-public-input",
+    "maxExport": "MAX_ATTACHMENTS_PER_MESSAGE"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/message.ts:insertMessageRow:values:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 0
+  },
+  {
+    "key": "src/shared/src/db/queries/community/message.ts:insertMessageRow:values:2",
+    "strategy": "exact-chunk",
+    "fixedParams": 0
   },
   {
     "key": "src/shared/src/db/queries/community/message.ts:listMessagesReferencingFriendship:inArray:1",

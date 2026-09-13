@@ -9,7 +9,7 @@ export interface DynamicBindSite {
   file: string
   functionName: string
   operator: DynamicBindOperator
-  strategyHint: "fixed-literal" | "exact-chunk" | "json-set" | "subquery"
+  strategyHint: "fixed-literal" | "exact-chunk" | "json-set" | "subquery" | "bounded-public-input"
   fixedParamsHint?: number
 }
 
@@ -132,17 +132,26 @@ export function scanDynamicBindSites(root: string, sourceOverride?: { file: stri
           const key = `${relativeFile}:${functionName}:${operator}:${ordinal}`
           const hint = bindStrategyHint(node, operator)
           const fixedParamsByKey: Record<string, number> = {
+            "src/shared/src/db/queries/community/channel.ts:createChannel:values:1": 0,
+            "src/shared/src/db/queries/community/message.ts:insertMessageRow:values:1": 0,
+            "src/shared/src/db/queries/community/message.ts:insertMessageRow:values:2": 0,
             "src/shared/src/db/queries/community/channel.ts:resolveVisibleChannelIdSet:inArray:1": 0,
             "src/shared/src/db/queries/community/channel.ts:resolveVisibleChannelIdSet:inArray:2": 2,
             "src/shared/src/db/queries/community/member.ts:getMembersByUserIds:inArray:1": 1,
             "src/shared/src/db/queries/community/reaction.ts:listReactionsByMessageIds:inArray:1": 0,
           }
+          const boundedAttachmentSites = new Set([
+            "src/shared/src/db/queries/community/message.ts:eligibleAttachments:inArray:1",
+            "src/shared/src/db/queries/community/message.ts:insertMessageRow:inArray:1",
+            "src/shared/src/db/queries/community/message.ts:insertMessageRow:inArray:2",
+            "src/shared/src/db/queries/community/message.ts:insertMessageRow:sql.join:1",
+          ])
           sites.push({
             key,
             file: relativeFile,
             functionName,
             operator,
-            ...hint,
+            ...(boundedAttachmentSites.has(key) ? { strategyHint: "bounded-public-input" as const } : hint),
             ...(hint.strategyHint === "exact-chunk" && key in fixedParamsByKey
               ? { fixedParamsHint: fixedParamsByKey[key] }
               : {}),

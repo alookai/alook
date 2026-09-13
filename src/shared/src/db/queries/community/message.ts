@@ -13,6 +13,7 @@ import {
 import { user } from "../../schema";
 import { nanoid } from "nanoid";
 import type { Database } from "../../index";
+import { MAX_ATTACHMENTS_PER_MESSAGE } from "../../../constants/community";
 import { createLogger } from "../../../logger";
 import { chunk, D1_MAX_IN_PARAMS, maxRowsPerInsert } from "../_chunk";
 
@@ -216,6 +217,9 @@ async function insertMessageRow(db: Database, data: CreateMessageData, expectedS
 
   const attachmentIds = data.attachmentIds ?? [];
   const pendingThreadIds = data.forumThread?.pendingAttachmentIds ?? [];
+  if (attachmentIds.length > MAX_ATTACHMENTS_PER_MESSAGE || pendingThreadIds.length > MAX_ATTACHMENTS_PER_MESSAGE) {
+    throw new Error("too many message attachments");
+  }
   const eligibleAttachments = (ids: string[]) => db.select({ value: count() })
     .from(communityAttachment)
     .where(and(

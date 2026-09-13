@@ -34,6 +34,7 @@ describe("D1 dynamic bind strategy contract", () => {
   it("requires strategy-specific bind budgets", () => {
     const exportedLimits = [
       "src/shared/src/constants.ts",
+      "src/shared/src/constants/community.ts",
       "src/shared/src/schemas.ts",
       "src/shared/src/index.ts",
     ].map((file) => readFileSync(resolve(root, file), "utf8")).join("\n")

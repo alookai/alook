@@ -38,6 +38,19 @@ describe("Community durable writes — real SQLite transactions", () => {
     expect(rows("community_channel_member")).toHaveLength(2);
   });
 
+  it("bounds attachment input and keeps maximum-size statements below D1's bind limit", async () => {
+    const ids = Array.from({ length: 10 }, (_, i) => `attachment-${i}`);
+    const pending = Array.from({ length: 10 }, (_, i) => `pending-${i}`);
+    for (const id of [...ids, ...pending]) fixture.sqlite.prepare("INSERT INTO community_attachment (id, uploader_id, target_id) VALUES (?, 'author', 'channel')").run(id);
+    const forumThread = { id: "post", serverId: "server", name: "post", pendingAttachmentIds: pending };
+    await expect(send({ attachmentIds: [...ids, "extra"] })).rejects.toThrow("too many message attachments");
+    await expect(send({ forumThread: { ...forumThread, pendingAttachmentIds: [...pending, "extra"] } })).rejects.toThrow("too many message attachments");
+    expect(rows("community_message")).toEqual([]);
+    await send({ attachmentIds: ids, forumThread });
+    expect(Math.max(...fixture.batchSizes.flat())).toBeLessThanOrEqual(100);
+    expect(rows("community_attachment").filter((row: any) => row.message_id)).toHaveLength(10);
+  });
+
   it("rejects stale seq in a deletion hole without any writes", async () => {
     await send();
     await send();
