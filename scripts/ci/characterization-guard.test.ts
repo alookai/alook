@@ -12,7 +12,7 @@ import {
 
 const candidateSha = "a".repeat(40)
 const fixtureSha = "b".repeat(40)
-const sourcePath = "src/cli/commands/update.ts"
+const sourcePath = "src/app/src/commands/update.ts"
 
 function validInput() {
   const manifest = loadScopeManifest()
@@ -102,7 +102,7 @@ describe("validateCharacterization", () => {
     ["merge commit", { parentShas: [candidateSha, "c".repeat(40)] }],
     ["ancestor", { isAncestor: false }],
     ["regular source", { fileMode: "120000" }],
-    ["single source", { changes: [{ status: "M", path: sourcePath }, { status: "M", path: "src/cli/lib/config.ts" }] }],
+    ["single source", { changes: [{ status: "M", path: sourcePath }, { status: "M", path: "src/app/src/config.ts" }] }],
     ["deletion", { changes: [{ status: "D", path: sourcePath }] }],
     ["class", { expectedClass: "shared" }],
   ])("rejects invalid %s evidence", (_label, override) => {
@@ -121,7 +121,7 @@ describe("validateCharacterization", () => {
     }
     expect(() => validateCharacterization(drift)).toThrow("blob")
 
-    const testPath = "src/cli/commands/update.test.ts"
+    const testPath = "src/app/src/commands/update.test.ts"
     const nonCoverable = validInput()
     nonCoverable.changes = [{ status: "M", path: testPath }]
     nonCoverable.plan = buildExecutionPlan(nonCoverable.changes, {
@@ -147,11 +147,11 @@ describe("validateCharacterization", () => {
   it("rejects full, mixed, unknown, and non-diagnostic plans", () => {
     for (const path of [
       ".github/workflows/ci.yml",
-      "src/cli/commands/update.ts",
+      "src/app/src/commands/update.ts",
       "unexpected/file.ts",
     ]) {
       const input = validInput()
-      input.changes = path === "src/cli/commands/update.ts"
+      input.changes = path === "src/app/src/commands/update.ts"
         ? [{ status: "M", path }, { status: "M", path: "src/shared/src/semver.ts" }]
         : [{ status: "M", path }]
       input.plan = buildExecutionPlan(input.changes, {
@@ -174,7 +174,7 @@ describe("validateCharacterization", () => {
 
 describe("characterization guard CLI", () => {
   it.each([
-    ["package", "src/cli/src/commands/inbox.ts"],
+    ["package", "src/app/src/commands/status.ts"],
     ["auth", "src/web/auth/index.ts"],
     ["blog", "src/web/blog/src/lib/posts.ts"],
     ["shared", "src/shared/src/semver.ts"],

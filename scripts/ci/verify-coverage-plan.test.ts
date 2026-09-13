@@ -126,30 +126,30 @@ describe("verifyCoveragePlan", () => {
   })
 
   it("proves required changed files and a nonempty passing Codecov project denominator", () => {
-    const changed = "src/cli/commands/update.ts"
+    const changed = "src/email-worker/src/index.ts"
     const plan = buildExecutionPlan([{ status: "M", path: changed }], { baseSha, headSha })
     const report = {
       [resolve(changed)]: coveredFile(resolve(changed)),
-      [resolve("src/cli/lib/config.ts")]: coveredFile(resolve("src/cli/lib/config.ts")),
+      [resolve("src/email-worker/src/lib/imap-client.ts")]: coveredFile(resolve("src/email-worker/src/lib/imap-client.ts")),
     }
 
     const result = verifyCoveragePlan(plan, report)
 
     expect(result.required_changed_files).toEqual([changed])
-    expect(result.targets.cli).toMatchObject({ files: 2, statements: 2, covered: 2, percent: 100 })
+    expect(result.targets["email-worker"]).toMatchObject({ files: 2, statements: 2, covered: 2, percent: 100 })
   })
 
   it("rejects a required surviving changed file missing from the merged report", () => {
-    const changed = "src/cli/commands/update.ts"
+    const changed = "src/email-worker/src/index.ts"
     const plan = buildExecutionPlan([{ status: "M", path: changed }], { baseSha, headSha })
 
     expect(() => verifyCoveragePlan(plan, {
-      [resolve("src/cli/lib/config.ts")]: coveredFile(resolve("src/cli/lib/config.ts")),
+      [resolve("src/email-worker/src/lib/imap-client.ts")]: coveredFile(resolve("src/email-worker/src/lib/imap-client.ts")),
     })).toThrow("required changed coverage file")
   })
 
   it("rejects a required changed file that is absent from the checked-out head", () => {
-    const changed = "src/cli/commands/update.ts"
+    const changed = "src/email-worker/src/index.ts"
     const plan = buildExecutionPlan([{ status: "M", path: changed }], { baseSha, headSha })
     const root = mkdtempSync(join(tmpdir(), "alook-coverage-head-"))
     try {
@@ -171,7 +171,7 @@ describe("verifyCoveragePlan", () => {
 
     expect(() => verifyCoveragePlan(testOnlyPlan, {})).toThrow("nonempty denominator")
     expect(() => verifyCoveragePlan(plan, {
-      [resolve("src/cli/lib/config.ts")]: coveredFile(resolve("src/cli/lib/config.ts")),
+      [resolve("src/email-worker/src/lib/imap-client.ts")]: coveredFile(resolve("src/email-worker/src/lib/imap-client.ts")),
       [resolve("src/email-worker/src/index.ts")]: coveredFile(resolve("src/email-worker/src/index.ts")),
       [resolve(changed)]: coveredFile(resolve(changed), false),
       [resolve("src/web/src/lib/config.ts")]: coveredFile(resolve("src/web/src/lib/config.ts")),
@@ -180,7 +180,7 @@ describe("verifyCoveragePlan", () => {
   })
 
   it("rejects targets absent from the Codecov contract", () => {
-    const changed = "src/cli/commands/update.ts"
+    const changed = "src/email-worker/src/index.ts"
     const plan = buildExecutionPlan([{ status: "M", path: changed }], { baseSha, headSha })
     const invalid = structuredClone(plan)
     invalid.coverage.targets = ["future"]
@@ -191,7 +191,7 @@ describe("verifyCoveragePlan", () => {
   })
 
   it("writes an auditable target manifest from the CLI", () => {
-    const changed = "src/cli/commands/update.ts"
+    const changed = "src/email-worker/src/index.ts"
     const plan = buildExecutionPlan([{ status: "M", path: changed }], { baseSha, headSha })
     const directory = mkdtempSync(join(tmpdir(), "alook-coverage-plan-"))
     const planPath = join(directory, "plan.json")

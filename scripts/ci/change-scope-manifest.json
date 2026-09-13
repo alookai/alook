@@ -33,22 +33,6 @@
       "app_artifact": true
     },
     {
-      "name": "@alook/cli",
-      "root": "src/cli",
-      "static": true,
-      "build": true,
-      "knip": true,
-      "unit_root": "src/cli",
-      "coverage_roots": ["src/cli/**/*.{ts,tsx,js,jsx}"],
-      "codecov_target": "cli",
-      "windows_suites": ["cli"],
-      "integration_suites": ["cli"],
-      "linux_suites": [],
-      "ui": false,
-      "lighthouse": false,
-      "app_artifact": false
-    },
-    {
       "name": "@alook/daemon",
       "root": "src/daemon",
       "static": true,
@@ -178,12 +162,11 @@
     }
   ],
   "suites": {
-    "windows": ["agent-driver", "app", "cli", "daemon", "shared"],
-    "integration": ["cli", "daemon", "web"],
+    "windows": ["agent-driver", "app", "daemon", "shared"],
+    "integration": ["daemon", "web"],
     "linux": ["agent-driver-packed", "daemon-packed", "daemon-real"]
   },
   "path_suites": [
-    { "root": "tests/integration/cli", "integration_suites": ["cli"] },
     { "root": "tests/integration/daemon", "integration_suites": ["daemon"] }
   ],
   "ui": {
@@ -195,7 +178,6 @@
   },
   "codecov_targets": {
     "shared": { "path": "src/shared", "target": 50 },
-    "cli": { "path": "src/cli", "target": 60 },
     "email-worker": { "path": "src/email-worker", "target": 70 },
     "ws-do": { "path": "src/ws-do", "target": 70 },
     "web": { "path": "src/web", "target": 30 }
@@ -217,7 +199,6 @@
     "scripts/ci/verify-coverage-plan.mjs",
     "scripts/ci/validate-execution-plan.mjs",
     "src/app/package.json",
-    "src/cli/package.json",
     "src/daemon/agent-driver/package.json",
     "src/daemon/package.json",
     "src/desktop/package.json",

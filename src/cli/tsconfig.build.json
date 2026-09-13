@@ -1,8 +1,0 @@
-{
-  "extends": "./tsconfig.json",
-  "compilerOptions": {
-    "types": ["bun"]
-  },
-  "include": ["src", "commands", "daemon", "lib"],
-  "exclude": ["**/__tests__", "**/*.test.ts"]
-}

@@ -3,7 +3,7 @@ import { buildExecutionPlan, projectPlan, stablePlanJson } from "./changed-scope
 import { runCli, runIfMain, validatePlanEnvelope } from "./validate-execution-plan.mjs"
 
 const plan = buildExecutionPlan(
-  [{ status: "M", path: "src/cli/src/commands/inbox.ts" }],
+  [{ status: "M", path: "src/daemon/src/manager.ts" }],
   { baseSha: "a".repeat(40), headSha: "b".repeat(40) },
 )
 
