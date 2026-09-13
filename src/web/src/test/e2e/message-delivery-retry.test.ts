@@ -42,6 +42,7 @@ function batch(): MessageDeliveryBatch {
 }
 
 beforeAll(async () => {
+  vi.stubEnv("NODE_ENV", "development")
   server = createServer((request, response) => {
     let body = ""
     request.setEncoding("utf8")
@@ -60,6 +61,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
+  vi.unstubAllEnvs()
   await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
 })
 
