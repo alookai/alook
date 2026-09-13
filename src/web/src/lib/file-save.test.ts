@@ -92,6 +92,26 @@ describe("product file save", () => {
     expect((await saveFile(new Blob(["x"]), "a")).status).toBe("error")
     expect(anchor.remove).toHaveBeenCalled(); vi.advanceTimersByTime(60_000); expect(URL.revokeObjectURL).toHaveBeenCalled()
   })
+  it("normalizes a coded native cancellation and cleans the attempt without fallback", async () => {
+    const anchor = browser()
+    native()
+    const original = bridge.invoke.getMockImplementation()!
+    bridge.invoke.mockImplementation(async (...args) => {
+      if (args[0] === "file_save_commit") throw { code: "cancelled" }
+      return original(...args)
+    })
+    expect(await saveFile(new Blob(["a"]), "a.txt")).toEqual({ status: "cancelled" })
+    expect(bridge.invoke).toHaveBeenCalledWith("file_save_cancel", { attemptId: id })
+    expect(anchor.click).not.toHaveBeenCalled()
+  })
+  it("returns a retryable error when the source cannot construct its stream", async () => {
+    const anchor = browser()
+    const blob = new Blob(["a"])
+    vi.spyOn(blob, "stream").mockImplementation(() => { throw new Error("source unavailable") })
+    expect(await saveFile(blob, "a.txt")).toEqual({ status: "error", message: "Couldn’t save this file" })
+    expect(anchor.click).not.toHaveBeenCalled()
+    expect(bridge.invoke).not.toHaveBeenCalled()
+  })
   it("sanitizes paths, controls, reserved names and UTF-8 length", () => {
     expect(fileSaveName("../CON.txt")).toBe("_CON.txt")
     expect(fileSaveName("a\\b\0:c?.txt  ")).toBe("b_c_.txt")

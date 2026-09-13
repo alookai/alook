@@ -39,6 +39,24 @@ describe("artifact card click controller", () => {
     await act(async () => { view.getByRole("button").click() })
     expect(service.success).toHaveBeenCalledWith("Saved")
   })
+  it("a repeated card click cancels the active download without starting a duplicate", async () => {
+    let signal!: AbortSignal
+    service.download.mockImplementationOnce((_url, _name, options) => {
+      signal = options.signal
+      return new Promise(resolve => signal.addEventListener("abort", () => resolve({ status: "cancelled" })))
+    }).mockResolvedValueOnce({ status: "started" })
+    const view = render(<Card />)
+    await act(async () => { view.getByRole("button").click() })
+    expect(signal.aborted).toBe(false)
+    await act(async () => { view.getByRole("button").click() })
+    expect(signal.aborted).toBe(true)
+    expect(service.download).toHaveBeenCalledTimes(1)
+    expect(service.success).not.toHaveBeenCalled()
+    expect(service.error).not.toHaveBeenCalled()
+    await act(async () => { view.getByRole("button").click() })
+    expect(service.download).toHaveBeenCalledTimes(2)
+    expect(service.success).toHaveBeenCalledWith("Download started")
+  })
   it.each([true, false])("preserves the image preview choice (lightbox=%s)", async lightbox => {
     const preview = vi.fn(), image = vi.fn()
     const artifact = { ...binary, content_type: "image/png", filename: "a.png" }

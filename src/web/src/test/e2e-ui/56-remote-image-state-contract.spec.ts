@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises"
 import type { Locator } from "@playwright/test"
 import { test, expect } from "./_fixtures/community-fixture"
 import { solidPngFixture, structuredJpegFixture } from "../fixtures/media"
@@ -12,7 +13,7 @@ async function expectStableFrame(frame: Locator, expected: { width: number; heig
   }).toEqual(expected)
 }
 
-test("Workspace artifact thumbnails and full images hold geometry through failure and exact-URL retry", async ({ asUser }) => {
+test("Workspace artifact thumbnails and full images hold geometry through failure and exact-URL retry", async ({ asUser }, testInfo) => {
   test.setTimeout(180_000)
   const { context, page } = await asUser("alice", { viewport: { width: 1280, height: 800 } })
   const suffix = Date.now().toString(36)
@@ -130,7 +131,7 @@ test("Workspace artifact thumbnails and full images hold geometry through failur
   await page.getByRole("button", { name: "Open artifact.png" }).first().click()
   const fullImage = page.locator('img[alt="artifact.png"][src*="/content"]')
   await expect(fullImage).toHaveAttribute("data-remote-image-state", "pending")
-  await expect(page.getByRole("link", { name: "Download artifact.png" })).toBeVisible()
+  await expect(page.getByRole("button", { name: "Download artifact.png" })).toBeVisible()
   const contentFrame = fullImage.locator("xpath=ancestor::*[@data-remote-image-frame][1]")
   const contentPendingBox = await contentFrame.boundingBox()
   expect(contentPendingBox).not.toBeNull()
@@ -148,6 +149,14 @@ test("Workspace artifact thumbnails and full images hold geometry through failur
   await expect(fullImage).toHaveAttribute("src", contentUrl!)
   await expect(fullImage).toHaveAttribute("data-remote-image-state", "ready")
   await expectStableFrame(contentFrame, contentSize)
+  const downloadStarted = page.waitForEvent("download")
+  await page.getByRole("button", { name: "Download artifact.png" }).click()
+  const download = await downloadStarted
+  expect(download.suggestedFilename()).toBe("artifact.png")
+  const savedPath = testInfo.outputPath("artifact.png")
+  await download.saveAs(savedPath)
+  expect(await readFile(savedPath)).toEqual(ARTIFACT_IMAGE)
+  await expect(page.getByRole("button", { name: "Download artifact.png" }).getByRole("status")).toHaveText("Download started")
   await page.getByRole("button", { name: "Close image" }).click()
   await expect(fullImage).toHaveCount(0)
 })

@@ -46,7 +46,6 @@ describe("verifyCoveragePlan", () => {
     ["runtime value", "export type Foo = string; export const value = 1;", false],
     ["side-effect import", "import './setup'; export type Foo = string;", false],
     ["value import", "import { Foo } from './foo'; export type Bar = Foo;", false],
-    ["value re-export", "export { Foo } from './foo';", false],
     ["enum", "export enum Foo { Bar }", false],
     ["namespace", "export namespace Foo { export const bar = 1 }", false],
     ["invalid syntax", "export type Foo = ;", false],
@@ -65,6 +64,49 @@ describe("verifyCoveragePlan", () => {
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
+  })
+
+  it.each([
+    ["named alias", '"use client"; export { start as download } from "./owner";', true],
+    ["star", 'export * from "./owner";', true],
+    ["namespace re-export", 'export * as owner from "./owner";', true],
+    ["types with forwarding", 'export interface Item { id: string } export { start } from "./owner";', true],
+    ["side-effect import", 'import "./setup"; export * from "./owner";', false],
+    ["local bindings", 'import { start } from "./owner"; export { start };', false],
+    ["executable initializer", 'export * from "./owner"; export const value = run();', false],
+    ["function body", 'export * from "./owner"; export function start() {}', false],
+    ["export expression", 'export default run();', false],
+    ["local export", 'export {};', false],
+    ["only directive", '"use client";', false],
+    ["late directive", 'export * from "./owner"; "use client";', false],
+    ["malformed", 'export { from "./owner";', false],
+  ])("audits forwarding modules: %s", (_name, source, forwardingOnly) => {
+    const root = mkdtempSync(join(tmpdir(), "alook-coverage-forwarding-"))
+    const changed = "src/web/src/barrel.ts"
+    const runtime = "src/web/src/owner.ts"
+    const plan = buildExecutionPlan([{ status: "M", path: changed }], { baseSha, headSha })
+    try {
+      mkdirSync(join(root, "src/web/src"), { recursive: true })
+      writeFileSync(join(root, changed), source)
+      const verify = () => verifyCoveragePlan(plan, { [runtime]: coveredFile(runtime) }, { root })
+      if (forwardingOnly) {
+        expect(verify()).toMatchObject({ re_export_changed_files: [changed], type_only_changed_files: [] })
+        expect(() => verifyCoveragePlan(plan, {}, { root })).toThrow("nonempty denominator")
+      } else expect(verify).toThrow(`required changed coverage file is missing from merged report: ${changed}`)
+    } finally { rmSync(root, { recursive: true, force: true }) }
+  })
+
+  it("does not let a forwarding barrel hide a missing changed implementation", () => {
+    const root = mkdtempSync(join(tmpdir(), "alook-coverage-owner-"))
+    const barrel = "src/web/src/barrel.ts", owner = "src/web/src/owner.ts"
+    const plan = buildExecutionPlan([{ status: "M", path: barrel }, { status: "M", path: owner }], { baseSha, headSha })
+    try {
+      mkdirSync(join(root, "src/web/src"), { recursive: true })
+      writeFileSync(join(root, barrel), '"use client"; export { run } from "./owner";')
+      writeFileSync(join(root, owner), 'export function run() { return 1 }')
+      expect(() => verifyCoveragePlan(plan, {}, { root })).toThrow(`missing from merged report: ${owner}`)
+      expect(verifyCoveragePlan(plan, { [owner]: coveredFile(owner) }, { root })).toMatchObject({ re_export_changed_files: [barrel] })
+    } finally { rmSync(root, { recursive: true, force: true }) }
   })
 
   it("permits an excluded E2E fixture without hiding missing product coverage", () => {

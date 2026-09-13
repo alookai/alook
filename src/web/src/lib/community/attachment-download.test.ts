@@ -30,6 +30,20 @@ describe("shared download owner", () => {
     await startAttachmentDownload(target); expect(readAttachmentDownloadState(target.url).status).toBe("error")
     await startAttachmentDownload(target); expect(readAttachmentDownloadState(target.url).status).toBe("started")
   })
+  it("evicts old inactive results while preserving an in-flight download", async () => {
+    let finish!: (value: { status: string }) => void
+    service.download.mockReturnValueOnce(new Promise(resolve => { finish = resolve })).mockResolvedValue({ status: "started" })
+    const active = startAttachmentDownload({ name: "active", url: "/active" })
+    await Promise.resolve()
+    for (let index = 0; index < 130; index++) await startAttachmentDownload({ name: "file", url: `/file/${index}` })
+    expect(readAttachmentDownloadState("/file/0")).toEqual({ status: "idle" })
+    expect(readAttachmentDownloadState("/file/129")).toEqual({ status: "started" })
+    expect(readAttachmentDownloadState("/active")).toEqual({ status: "downloading" })
+    expect(startAttachmentDownload({ name: "active", url: "/active" })).toBe(active)
+    finish({ status: "cancelled" })
+    await active
+    expect(readAttachmentDownloadState("/active")).toEqual({ status: "cancelled" })
+  })
   it("does not let an abandoned flight overwrite a new attempt", async () => {
     let finish!: (value: {status:string}) => void
     service.download.mockReturnValueOnce(new Promise(resolve => {finish=resolve})).mockResolvedValueOnce({status:"started"})
