@@ -320,10 +320,12 @@ describe("ComposerView", () => {
     const icon = send.querySelector("svg")!
     expect(icon.getAttribute("viewBox")).toBe("0 0 24 24")
     expect(icon.getAttribute("aria-hidden")).toBe("true")
-    expect(icon.getAttribute("class")).toBe("size-5")
+    expect(icon.getAttribute("class")).toBe(
+      "size-5 -translate-x-px translate-y-px",
+    )
     expect(icon.getAttribute("fill")).toBe("none")
     expect(icon.getAttribute("stroke")).toBe("currentColor")
-    expect(icon.getAttribute("stroke-width")).toBe("1.5")
+    expect(icon.getAttribute("stroke-width")).toBe("2")
     expect(icon.getAttribute("stroke-linecap")).toBe("round")
     expect(icon.getAttribute("stroke-linejoin")).toBe("round")
     expect(icon.querySelectorAll("path")).toHaveLength(2)

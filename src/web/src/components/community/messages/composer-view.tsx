@@ -239,7 +239,9 @@ export function ComposerView({
             disabled={sendDisabled}
             onClick={onSend}
           >
-            <SendStrokeRoundedIcon className="size-5" />
+            <SendStrokeRoundedIcon
+              className="size-5 -translate-x-px translate-y-px"
+            />
           </button>
         )}
       </div>
