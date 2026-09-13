@@ -20,19 +20,6 @@ import { broadcastToUserSafe } from "./fanout"
 
 const log = createLogger({ service: "community-message-handler" })
 
-/* istanbul ignore next -- real workerd compensation oracle covers revision fanout */
-async function hardDeleteMessageAndBroadcastReadState(db: Database, messageId: string) {
-  const result = await queries.communityMessage.hardDeleteMessage(db, messageId)
-  await Promise.all((result?.readStateRevisions ?? []).map((revision) =>
-    broadcastToUserSafe(revision.userId, {
-      type: WS_EVENTS.READ_STATE_ADVANCED,
-      revision: revision.revision,
-      inboxChanged: true,
-    })
-  ))
-  return result
-}
-
 export type MessageTarget =
   | { kind: "channel"; channelId: string; serverId: string }
   | {
@@ -255,6 +242,7 @@ export async function createCommunityMessage(params: {
    * identity-agnostic — the bot-only caller supplies the statement.
    */
   extraStatements?: unknown[]
+  forumThread?: Parameters<typeof queries.communityMessage.createMessage>[1]["forumThread"]
 }): Promise<CreateMessageResult> {
   const {
     db,
@@ -357,173 +345,6 @@ export async function createCommunityMessage(params: {
       ? body.mentionType
       : undefined
 
-  const baseMessageData: {
-    authorId: string;
-    authorKind: "human" | "bot";
-    content: string;
-    channelId: string;
-    replyToId: string | undefined;
-    mentionType: MentionType | undefined;
-    type?: string;
-    clientNonce?: string;
-    extraStatements?: unknown[];
-  } = {
-    authorId,
-    authorKind,
-    content,
-    channelId: target.channelId,
-    replyToId,
-    mentionType,
-    ...(messageType !== undefined ? { type: messageType } : {}),
-    ...(clientNonce !== undefined ? { clientNonce } : {}),
-    ...(extraStatements !== undefined ? { extraStatements } : {}),
-  }
-
-  // Insert first so `reserveAttachmentsForMessage`'s UPDATE can key off
-  // `created.id` (the FK enforces the message row exists); compensate with
-  // the cascading `hardDeleteMessage` on reserve failure or partial reserve.
-  // See plans/attachment-pipeline-empty-body-guardrails.md Layer 5-6 for the
-  // rollback contract.
-  //
-  // Narrow once here so downstream branches don't need `attachmentIds!`.
-  const reserveIds: string[] | null =
-    attachmentIds !== undefined && attachmentIds.length > 0 ? attachmentIds : null
-
-  // `createMessage`'s overloads key off whether the `expectedSeq` property
-  // is present at all, not just its runtime value — a `number | undefined`
-  // typed property doesn't cleanly resolve against either overload, so the
-  // pass-through branches explicitly instead of spreading `expectedSeq` in.
-  let created: Awaited<ReturnType<typeof queries.communityMessage.createMessage>>
-  try {
-    created =
-      expectedSeq !== undefined
-        ? await queries.communityMessage.createMessage(db, { ...baseMessageData, expectedSeq })
-        : await queries.communityMessage.createMessage(db, baseMessageData)
-  } catch (err) {
-    // Insert-time idempotency race: two concurrent first-sends with the same
-    // nonce both cleared the pre-check above, then one lost to the partial
-    // unique index `uq_message_author_client_nonce` on INSERT. Recover by
-    // re-fetching the winner's row and returning it as a deduped replay — same
-    // shape as the pre-check hit. The re-fetch is what narrows this to the
-    // NONCE constraint specifically: any OTHER unique violation (or an insert
-    // with no nonce) finds no matching row, so we rethrow the original error
-    // untouched. Only enter this branch when a nonce was actually supplied.
-    if (clientNonce !== undefined && isUniqueConstraintError(err)) {
-      const existing = await withD1Retry(
-        () => queries.communityMessage.getMessageByAuthorAndNonce(db, authorId, clientNonce),
-        { route: "message-handler:nonce-insert-race" },
-      )
-      if (existing) {
-        if (existing.channelId !== target.channelId) throw err
-        return {
-          ok: true,
-          row: existing,
-          attachments: await hydrateStoredAttachments(db, existing.id),
-          deduped: true,
-        }
-      }
-    }
-    throw err
-  }
-
-  // Lost the CAS race (plans/fix-agent-send-race-condition.md) — zero rows
-  // were written anywhere (no message, no channel/DM bump, no read-state
-  // watermark). No attachments were reserved yet, so nothing to unreserve.
-  if (created === null) {
-    return { ok: false, status: 409, error: "seq_conflict" }
-  }
-
-  if (reserveIds) {
-    let reserved: string[]
-    try {
-      reserved = await queries.communityAttachment.reserveAttachmentsForMessage(db, {
-        ids: reserveIds,
-        messageId: created.id,
-      })
-    } catch (err) {
-      // Reserve threw (transient D1 / constraint / etc.). The message row
-      // exists but has zero attachments reserved to it — hard-delete it so
-      // the caller can retry with the same attachment ids. If the
-      // compensating hardDelete ALSO throws (same D1 outage the reserve was
-      // recovering from), log both and re-throw the ORIGINAL reserve error —
-      // it's the one the caller cares about; matches bots/route.ts:139's shape.
-      try {
-        await hardDeleteMessageAndBroadcastReadState(db, created.id)
-      } catch (rollbackErr) {
-        log.error("attachment_reserve_rollback_failed", {
-          messageId: created.id,
-          insertErr: err instanceof Error ? err.message : String(err),
-          rollbackErr: rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
-        })
-      }
-      throw err
-    }
-    if (reserved.length !== reserveIds.length) {
-      // Partial-overlap race (S1={A,B}, S2={B,C}) or an id that no longer
-      // matches (uploader/kind/target/messageId-null). Compensate:
-      // unreserve whatever THIS caller uniquely grabbed AND hard-delete the
-      // orphan message row. Both compensating writes are individually guarded:
-      // if unreserve throws we still try the hardDelete (else we'd leave a
-      // live message row alongside the stale partial-reserve); if either
-      // throws we log but still return the 400 envelope — the caller-facing
-      // shape doesn't depend on whether compensation succeeded.
-      try {
-        await queries.communityAttachment.unreserveAttachments(db, {
-          ids: reserved,
-          messageId: created.id,
-        })
-      } catch (unreserveErr) {
-        log.error("attachment_partial_reserve_unreserve_failed", {
-          messageId: created.id,
-          unreserveErr: unreserveErr instanceof Error ? unreserveErr.message : String(unreserveErr),
-        })
-      }
-      try {
-        await hardDeleteMessageAndBroadcastReadState(db, created.id)
-      } catch (rollbackErr) {
-        log.error("attachment_partial_reserve_rollback_failed", {
-          messageId: created.id,
-          rollbackErr: rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
-        })
-      }
-      return {
-        ok: false,
-        status: 400,
-        error: "attachment not found or not attachable to this target",
-      }
-    }
-  }
-
-  // Reserve-by-id path (human web AND bot): the pending rows were reserved and
-  // pointed at `created.id` above via `reserveAttachmentsForMessage`, so no
-  // INSERT is needed here — just project the linked rows for the response. The
-  // row already carries its dimensions (written at upload time, the single
-  // source), so the display URL is derived id-addressed via `attachmentUrl`.
-  let attachments: CreatedAttachment[] = []
-  if (reserveIds) {
-    const rows = await queries.communityAttachment.listByMessageIds(db, [created.id])
-    attachments = rows.map((r) => ({
-      id: r.id,
-      filename: r.filename,
-      url: attachmentUrl(r.targetId, r.id),
-      ...(r.thumbnailR2Key ? { thumbnailUrl: attachmentThumbnailUrl(r.targetId, r.id) } : {}),
-      contentType: r.contentType,
-      size: r.size,
-      width: r.width,
-      height: r.height,
-    }))
-  }
-
-  const row = await withD1Retry(
-    () => queries.communityMessage.getMessage(db, created.id),
-    { route: "message-handler:read-back" },
-  )
-  if (!row) {
-    // createMessage just inserted this row; getMessage returning null means
-    // the DB is gone — surface that to the caller instead of inventing data.
-    throw new Error("message not found after insert")
-  }
-
   // Reply target for mention broadcasts. Scoped at the query level (not a
   // post-hoc `.filter()`) so a caller can't attach a preview of a message
   // from a different DM/channel by passing its id. The payload-side reply
@@ -531,10 +352,10 @@ export async function createCommunityMessage(params: {
   const replyTargets = new Set<string>()
   // Reuse the in-scope reply target resolved at the write-validation step above
   // (`resolvedReplyMsg`) — it was fetched with the identical `getMessageInScope`
-  // scope, so re-querying here would be redundant. `row.replyToId` is already
+  // scope, so re-querying here would be redundant. `replyToId` is already
   // null when the id was out-of-scope (dropped above), so this block only runs
   // for a genuinely in-scope reply.
-  if (!skipMentions && row.replyToId && resolvedReplyMsg) {
+  if (!skipMentions && replyToId && resolvedReplyMsg) {
     // single-id path — see `dm/[id]/messages/route.ts` / `channels/[id]/messages/route.ts` for the batched N-id path
     if (resolvedReplyMsg.authorId && resolvedReplyMsg.authorId !== authorId) {
       replyTargets.add(resolvedReplyMsg.authorId)
@@ -577,7 +398,7 @@ export async function createCommunityMessage(params: {
         )
       : null
 
-    const hasAtMention = typeof row.content === "string" && row.content.includes("@")
+    const hasAtMention = typeof content === "string" && content.includes("@")
     if (hasAtMention) {
       const allMembers = await withD1Retry(
         () => queries.communityMember.listMembers(db, target.serverId),
@@ -592,11 +413,11 @@ export async function createCommunityMessage(params: {
           if (m.userId !== authorId) mentionTargets.add(m.userId)
         }
       }
-      if (row.content) {
+      if (content) {
         const candidates = members
           .filter((m) => m.userId !== authorId && m.userName)
           .map((m) => ({ userId: m.userId, name: m.userName as string, discriminator: m.discriminator }))
-        for (const id of extractMentionedUserIds(row.content, candidates)) {
+        for (const id of extractMentionedUserIds(content, candidates)) {
           mentionTargets.add(id)
           explicitMentionTargets.add(id)
         }
@@ -650,7 +471,7 @@ export async function createCommunityMessage(params: {
   // parent CHILD_CHANNEL_UPDATE tick), which merely coincides with participant-set
   // for today's types — a future type could have a parent but server reach, or
   // participant reach without a parent, so the two rules stay separate.
-  let joinedParticipantUserIds: string[] = []
+  let participants: { userId: string; source: string }[] = []
   if (reachIsParticipantSet(target.kind) && !skipMentions) {
     const rows: { userId: string; source: typeof PARTICIPANT_SOURCE.SPOKE | typeof PARTICIPANT_SOURCE.MENTION }[] = [
       { userId: authorId, source: PARTICIPANT_SOURCE.SPOKE },
@@ -664,28 +485,65 @@ export async function createCommunityMessage(params: {
       if (id !== authorId) rows.push({ userId: id, source: PARTICIPANT_SOURCE.MENTION })
     }
     // One bulk insert (author + mentioned) instead of N+1 sequential inserts.
-    joinedParticipantUserIds =
-      await queries.communityThread.addThreadParticipants(db, target.channelId, rows) ?? []
+    participants = rows
   }
 
-  // Mention/reply ROW writes are persistence, not broadcast — they run inline
-  // even under `deferBroadcast` (only the WS emissions defer). When
-  // `skipMentions` both sets are empty, so these are no-ops.
-  const liveMentions = [...mentionTargets]
-  const liveReplies = [...replyTargets]
-  if (liveMentions.length > 0) {
-    await queries.communityMention.createMentions(db, {
-      messageId: row.id,
-      userIds: liveMentions,
-      kind: MENTION_KIND.MENTION,
-    })
+  const baseMessageData: Omit<Parameters<typeof queries.communityMessage.createMessage>[1], "expectedSeq"> = {
+    authorId,
+    authorKind,
+    content,
+    channelId: target.channelId,
+    replyToId,
+    mentionType,
+    type: messageType,
+    clientNonce,
+    extraStatements,
+    attachmentIds,
+    participants,
+    mentions: [
+      ...[...mentionTargets].map((userId) => ({ userId, kind: MENTION_KIND.MENTION })),
+      ...[...replyTargets].map((userId) => ({ userId, kind: MENTION_KIND.REPLY })),
+    ],
+    forumThread: params.forumThread,
   }
-  if (liveReplies.length > 0) {
-    await queries.communityMention.createMentions(db, {
-      messageId: row.id,
-      userIds: liveReplies,
-      kind: MENTION_KIND.REPLY,
-    })
+
+  let created: Awaited<ReturnType<typeof queries.communityMessage.createMessage>>
+  try {
+    created =
+      expectedSeq !== undefined
+        ? await queries.communityMessage.createMessage(db, { ...baseMessageData, expectedSeq })
+        : await queries.communityMessage.createMessage(db, baseMessageData)
+  } catch (err) {
+    const attachmentConflict = queries.communityMessage.isMessageAttachmentConflict(err)
+    if (clientNonce !== undefined && (attachmentConflict || isUniqueConstraintError(err))) {
+      const replay = await getCommunityMessageReplay({ db, authorId, channelId: target.channelId, clientNonce })
+      if (replay) return replay
+    }
+    if (attachmentConflict) {
+      return { ok: false, status: 400, error: "attachment not found or not attachable to this target" }
+    }
+    throw err
+  }
+
+  if (created === null) {
+    const replay = await getCommunityMessageReplay({ db, authorId, channelId: target.channelId, clientNonce })
+    if (replay) return replay
+    return { ok: false, status: 409, error: "seq_conflict" }
+  }
+
+  const attachments = attachmentIds?.length
+    ? await hydrateStoredAttachments(db, created.id)
+    : []
+  const joinedParticipantUserIds = created.joinedParticipantUserIds ?? []
+
+  const row = await withD1Retry(
+    () => queries.communityMessage.getMessage(db, created.id),
+    { route: "message-handler:read-back" },
+  )
+  if (!row) {
+    // createMessage just inserted this row; getMessage returning null means
+    // the DB is gone — surface that to the caller instead of inventing data.
+    throw new Error("message not found after insert")
   }
 
   // Delivery is planned from committed D1 facts. The handler contributes only

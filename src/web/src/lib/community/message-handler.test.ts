@@ -32,6 +32,7 @@ vi.mock("@alook/shared", async () => {
     }),
     queries: {
       communityMessage: {
+        isMessageAttachmentConflict: actual.queries.communityMessage.isMessageAttachmentConflict,
         createMessage: (...a: unknown[]) => mockCreateMessage(...a),
         getMessage: (...a: unknown[]) => mockGetMessage(...a),
         getMessageByAuthorAndNonce: (...a: unknown[]) => mockGetMessageByAuthorAndNonce(...a),
@@ -457,11 +458,7 @@ describe("createCommunityMessage — @Name#0042 mention disambiguation", () => {
     })
 
     expect(mockListMembers).toHaveBeenCalledWith({}, "srv_1")
-    expect(mockCreateMentions).toHaveBeenCalledWith({}, {
-      messageId: "msg_1",
-      userIds: ["alex_2"],
-      kind: "mention",
-    })
+    expect(mockCreateMessage.mock.calls.at(-1)?.[1].mentions.filter((row: { kind: string }) => row.kind === "mention")).toEqual(["alex_2"].map((userId) => ({ userId, kind: "mention" })))
   })
 
   it("passes each member's discriminator through as a mention candidate", async () => {
@@ -474,11 +471,7 @@ describe("createCommunityMessage — @Name#0042 mention disambiguation", () => {
       body: { content: "hey @Alex#0001" },
     })
 
-    expect(mockCreateMentions).toHaveBeenCalledWith({}, {
-      messageId: "msg_1",
-      userIds: ["alex_1"],
-      kind: "mention",
-    })
+    expect(mockCreateMessage.mock.calls.at(-1)?.[1].mentions.filter((row: { kind: string }) => row.kind === "mention")).toEqual(["alex_1"].map((userId) => ({ userId, kind: "mention" })))
   })
 })
 
@@ -524,11 +517,7 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
     })
 
     expect(mockCreateChannelMember).not.toHaveBeenCalled()
-    expect(mockCreateMentions).toHaveBeenCalledWith({}, {
-      messageId: "msg_1",
-      userIds: ["cara_1"],
-      kind: "mention",
-    })
+    expect(mockCreateMessage.mock.calls.at(-1)?.[1].mentions.filter((row: { kind: string }) => row.kind === "mention")).toEqual(["cara_1"].map((userId) => ({ userId, kind: "mention" })))
   })
 
   it("@everyone is clamped to the audience (author excluded → only Cara)", async () => {
@@ -543,16 +532,12 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
 
     expect(mockCreateChannelMember).not.toHaveBeenCalled()
     // Bob (non-member) not notified; only the in-audience Cara.
-    expect(mockCreateMentions).toHaveBeenCalledWith({}, {
-      messageId: "msg_1",
-      userIds: ["cara_1"],
-      kind: "mention",
-    })
+    expect(mockCreateMessage.mock.calls.at(-1)?.[1].mentions.filter((row: { kind: string }) => row.kind === "mention")).toEqual(["cara_1"].map((userId) => ({ userId, kind: "mention" })))
   })
 
   it("thread: author joins as 'spoke'; a non-audience mention is dropped (no channel auto-add)", async () => {
     mockGetMessage.mockResolvedValue(messageRow({ content: "hey @Bob", channelId: "t1" }))
-    mockAddThreadParticipants.mockResolvedValueOnce(["author_1"])
+    mockCreateMessage.mockResolvedValueOnce({ id: "msg_1", joinedParticipantUserIds: ["author_1"] })
 
     await createCommunityMessage({
       db: {} as never,
@@ -563,7 +548,7 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
 
     // Author joins the thread's notify set by speaking (bulk insert; Bob is
     // outside the parent audience so he's not in the rows).
-    expect(mockAddThreadParticipants).toHaveBeenCalledWith({}, "t1", [
+    expect(mockCreateMessage.mock.calls.at(-1)?.[1].participants).toEqual([
       { userId: "author_1", source: "spoke" },
     ])
     // Bob is outside the (private) parent audience → dropped, no mention row,
@@ -588,15 +573,11 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
     })
 
     // Bulk insert: author (spoke) + Cara (mention).
-    expect(mockAddThreadParticipants).toHaveBeenCalledWith({}, "t1", [
+    expect(mockCreateMessage.mock.calls.at(-1)?.[1].participants).toEqual([
       { userId: "author_1", source: "spoke" },
       { userId: "cara_1", source: "mention" },
     ])
-    expect(mockCreateMentions).toHaveBeenCalledWith({}, {
-      messageId: "msg_1",
-      userIds: ["cara_1"],
-      kind: "mention",
-    })
+    expect(mockCreateMessage.mock.calls.at(-1)?.[1].mentions.filter((row: { kind: string }) => row.kind === "mention")).toEqual(["cara_1"].map((userId) => ({ userId, kind: "mention" })))
     // Thread participation is NOT a channel roster row.
     expect(mockCreateChannelMember).not.toHaveBeenCalled()
   })
@@ -616,15 +597,11 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
     })
 
     // Only the author joins the notify set — the mass mention does NOT enroll Cara.
-    expect(mockAddThreadParticipants).toHaveBeenCalledWith({}, "t1", [
+    expect(mockCreateMessage.mock.calls.at(-1)?.[1].participants).toEqual([
       { userId: "author_1", source: "spoke" },
     ])
     // Cara is still notified once by the @everyone (a mention row is written).
-    expect(mockCreateMentions).toHaveBeenCalledWith({}, {
-      messageId: "msg_1",
-      userIds: ["cara_1"],
-      kind: "mention",
-    })
+    expect(mockCreateMessage.mock.calls.at(-1)?.[1].mentions.filter((row: { kind: string }) => row.kind === "mention")).toEqual(["cara_1"].map((userId) => ({ userId, kind: "mention" })))
   })
 
   it("thread: a direct REPLY under @everyone still enrolls the replied-to user", async () => {
@@ -647,7 +624,7 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
     })
 
     // Author (spoke) + Cara (enrolled via the reply, despite @everyone dedup).
-    expect(mockAddThreadParticipants).toHaveBeenCalledWith({}, "t1", [
+    expect(mockCreateMessage.mock.calls.at(-1)?.[1].participants).toEqual([
       { userId: "author_1", source: "spoke" },
       { userId: "cara_1", source: "mention" },
     ])
@@ -666,7 +643,7 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
       body: { content: "first reply" },
     })
 
-    expect(mockAddThreadParticipants).toHaveBeenCalledWith({}, "p1", [
+    expect(mockCreateMessage.mock.calls.at(-1)?.[1].participants).toEqual([
       { userId: "author_1", source: "spoke" },
     ])
     expect(mockCreateChannelMember).not.toHaveBeenCalled()
@@ -683,7 +660,7 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
       body: { content: "hey @Cara#0002" },
     })
 
-    expect(mockAddThreadParticipants).toHaveBeenCalledWith({}, "p1", [
+    expect(mockCreateMessage.mock.calls.at(-1)?.[1].participants).toEqual([
       { userId: "author_1", source: "spoke" },
       { userId: "cara_1", source: "mention" },
     ])
@@ -697,7 +674,7 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
     // tick are decoupled: enroll runs, the tick does not.
     mockGetPrivateChannelAudienceUserIds.mockResolvedValue(["author_1", "cara_1"])
     mockGetMessage.mockResolvedValue(messageRow({ content: "welcome @Cara#0002", channelId: "p1" }))
-    mockAddThreadParticipants.mockResolvedValueOnce(["author_1", "cara_1"])
+    mockCreateMessage.mockResolvedValueOnce({ id: "msg_1", joinedParticipantUserIds: ["author_1", "cara_1"] })
 
     await createCommunityMessage({
       db: {} as never,
@@ -708,7 +685,7 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
     })
 
     // Enroll is unaffected by the flag — Cara joins as a participant.
-    expect(mockAddThreadParticipants).toHaveBeenCalledWith({}, "p1", [
+    expect(mockCreateMessage.mock.calls.at(-1)?.[1].participants).toEqual([
       { userId: "author_1", source: "spoke" },
       { userId: "cara_1", source: "mention" },
     ])
@@ -730,11 +707,7 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
     })
 
     expect(mockCreateChannelMember).not.toHaveBeenCalled()
-    expect(mockCreateMentions).toHaveBeenCalledWith({}, {
-      messageId: "msg_1",
-      userIds: ["bob_1"],
-      kind: "mention",
-    })
+    expect(mockCreateMessage.mock.calls.at(-1)?.[1].mentions.filter((row: { kind: string }) => row.kind === "mention")).toEqual(["bob_1"].map((userId) => ({ userId, kind: "mention" })))
   })
 
   it("does not await a pending dispatcher on the normal delivery path", async () => {
@@ -789,16 +762,12 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
     })
 
     // Structural core KEPT: participant enroll (reach-axis write) still runs...
-    expect(mockAddThreadParticipants).toHaveBeenCalledWith({}, "p1", [
+    expect(mockCreateMessage.mock.calls.at(-1)?.[1].participants).toEqual([
       { userId: "author_1", source: "spoke" },
       { userId: "cara_1", source: "mention" },
     ])
     // ...and mention ROW persistence still runs (rows are not a broadcast).
-    expect(mockCreateMentions).toHaveBeenCalledWith({}, {
-      messageId: "msg_1",
-      userIds: ["cara_1"],
-      kind: "mention",
-    })
+    expect(mockCreateMessage.mock.calls.at(-1)?.[1].mentions.filter((row: { kind: string }) => row.kind === "mention")).toEqual(["cara_1"].map((userId) => ({ userId, kind: "mention" })))
     // Real-time delivery shell FULLY dropped: no WS fan-out of any kind.
     expect(mockDispatchCommittedMessage).not.toHaveBeenCalled()
     // ...and no deferred thunk handed back either (unlike deferBroadcast).
@@ -879,25 +848,17 @@ describe("createCommunityMessage — attachment reservation-first flow (agent pa
     }))
   })
 
-  it("reservation-mismatch → unreserve partial, hard-delete the orphan message, generic 400", async () => {
-    mockCreateMessage.mockResolvedValue({ id: "msg_preminted" })
-    mockReserveAttachmentsForMessage.mockResolvedValue(["att_1"]) // only 1 of 2 reserved
-
+  it("atomic attachment eligibility failure returns 400 without compensation or dispatch", async () => {
+    mockCreateMessage.mockRejectedValue(new Error("NOT NULL constraint failed: community_message.content"))
     const res = await createCommunityMessage({
-      db: {} as never,
-      authorId: "author_1",
+      db: {} as never, authorId: "author_1",
       target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
-      body: { content: "hi" },
-      attachmentIds: ["att_1", "att_2"],
+      body: { content: "hi" }, attachmentIds: ["att_1", "att_2"],
     })
-
-    expect(res.ok).toBe(false)
-    if (res.ok) return
-    expect(res.status).toBe(400)
-    expect(res.error).toBe("attachment not found or not attachable to this target")
-    expect(mockCreateMessage).toHaveBeenCalledTimes(1)
-    expect(mockUnreserveAttachments).toHaveBeenCalledWith({}, expect.objectContaining({ ids: ["att_1"] }))
-    expect(mockHardDeleteMessage).toHaveBeenCalledWith({}, "msg_preminted")
+    expect(res).toEqual({ ok: false, status: 400, error: "attachment not found or not attachable to this target" })
+    expect(mockCreateMessage).toHaveBeenCalledWith({}, expect.objectContaining({ attachmentIds: ["att_1", "att_2"] }))
+    expect(mockHardDeleteMessage).not.toHaveBeenCalled()
+    expect(mockUnreserveAttachments).not.toHaveBeenCalled()
     expect(mockDispatchCommittedMessage).not.toHaveBeenCalled()
   })
 
@@ -917,94 +878,6 @@ describe("createCommunityMessage — attachment reservation-first flow (agent pa
     expect(mockReserveAttachmentsForMessage).not.toHaveBeenCalled()
     expect(mockUnreserveAttachments).not.toHaveBeenCalled()
     expect(mockHardDeleteMessage).not.toHaveBeenCalled()
-  })
-
-  it("thrown reserve error → hard-delete the just-inserted message, re-throw", async () => {
-    mockCreateMessage.mockResolvedValue({ id: "msg_preminted" })
-    mockReserveAttachmentsForMessage.mockRejectedValue(new Error("d1_transient_reserve"))
-
-    await expect(
-      createCommunityMessage({
-        db: {} as never,
-        authorId: "author_1",
-        target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
-        body: { content: "hi" },
-        attachmentIds: ["att_1"],
-      }),
-    ).rejects.toThrow("d1_transient_reserve")
-
-    expect(mockHardDeleteMessage).toHaveBeenCalledWith({}, "msg_preminted")
-    expect(mockUnreserveAttachments).not.toHaveBeenCalled()
-  })
-
-  it("thrown reserve error + hardDelete ALSO throws → caller sees the ORIGINAL reserve error (not the rollback error)", async () => {
-    mockCreateMessage.mockResolvedValue({ id: "msg_preminted" })
-    mockReserveAttachmentsForMessage.mockRejectedValue(new Error("d1_transient_reserve"))
-    mockHardDeleteMessage.mockRejectedValue(new Error("d1_transient_rollback"))
-    mockLogError.mockClear()
-
-    await expect(
-      createCommunityMessage({
-        db: {} as never,
-        authorId: "author_1",
-        target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
-        body: { content: "hi" },
-        attachmentIds: ["att_1"],
-      }),
-    ).rejects.toThrow("d1_transient_reserve")
-    // hardDelete WAS attempted; both errors are logged in one line.
-    expect(mockHardDeleteMessage).toHaveBeenCalledWith({}, "msg_preminted")
-    expect(mockLogError).toHaveBeenCalledWith(
-      "attachment_reserve_rollback_failed",
-      expect.objectContaining({
-        messageId: "msg_preminted",
-        insertErr: "d1_transient_reserve",
-        rollbackErr: "d1_transient_rollback",
-      }),
-    )
-  })
-
-  it("partial reserve + unreserve throws → hardDelete STILL fires (not skipped), caller gets 400", async () => {
-    mockCreateMessage.mockResolvedValue({ id: "msg_preminted" })
-    mockReserveAttachmentsForMessage.mockResolvedValue(["att_1"]) // 1 of 2
-    mockUnreserveAttachments.mockRejectedValueOnce(new Error("d1_transient_unreserve"))
-
-    const res = await createCommunityMessage({
-      db: {} as never,
-      authorId: "author_1",
-      target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
-      body: { content: "hi" },
-      attachmentIds: ["att_1", "att_2"],
-    })
-
-    expect(res.ok).toBe(false)
-    if (res.ok) return
-    expect(res.status).toBe(400)
-    expect(res.error).toBe("attachment not found or not attachable to this target")
-    expect(mockUnreserveAttachments).toHaveBeenCalledTimes(1)
-    // hardDelete must NOT be skipped just because unreserve threw first — the
-    // orphan message row still needs cleanup.
-    expect(mockHardDeleteMessage).toHaveBeenCalledWith({}, "msg_preminted")
-  })
-
-  it("partial reserve + unreserve AND hardDelete both throw → caller still gets 400 envelope (no rethrow)", async () => {
-    mockCreateMessage.mockResolvedValue({ id: "msg_preminted" })
-    mockReserveAttachmentsForMessage.mockResolvedValue(["att_1"]) // 1 of 2
-    mockUnreserveAttachments.mockRejectedValueOnce(new Error("d1_transient_unreserve"))
-    mockHardDeleteMessage.mockRejectedValue(new Error("d1_transient_rollback"))
-
-    const res = await createCommunityMessage({
-      db: {} as never,
-      authorId: "author_1",
-      target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
-      body: { content: "hi" },
-      attachmentIds: ["att_1", "att_2"],
-    })
-
-    expect(res.ok).toBe(false)
-    if (res.ok) return
-    expect(res.status).toBe(400)
-    expect(res.error).toBe("attachment not found or not attachable to this target")
   })
 
   it("expectedSeq CAS-null → no reserve, no unreserve, no hardDelete, returns seq_conflict", async () => {

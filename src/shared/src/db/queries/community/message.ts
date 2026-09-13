@@ -1,4 +1,4 @@
-import { eq, and, asc, desc, exists, gt, lt, or, sql, inArray, type SQL } from "drizzle-orm";
+import { eq, and, asc, desc, exists, gt, lt, or, sql, inArray, isNull, count, type SQL } from "drizzle-orm";
 import {
   communityMessage,
   communityChannel,
@@ -8,12 +8,13 @@ import {
   communityChannelMember,
   communityMention,
   communityMessageTag,
+  communityAttachment,
 } from "../../community-schema";
 import { user } from "../../schema";
 import { nanoid } from "nanoid";
 import type { Database } from "../../index";
 import { createLogger } from "../../../logger";
-import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
+import { chunk, D1_MAX_IN_PARAMS, maxRowsPerInsert } from "../_chunk";
 
 // The canonical sender admits bursts of up to 30 requests per actor. Keep the
 // ordinary-send retry budget above a full admitted collision wave so a hot
@@ -48,12 +49,17 @@ function errorChainMessages(error: unknown): string[] {
 }
 
 function isMessageSeqConflict(error: unknown): boolean {
-  return errorChainMessages(error).some(
-    (message) =>
-      /unique constraint failed/i.test(message) &&
-      ((message.includes("community_message.channel_id") &&
-        message.includes("community_message.seq")) ||
-        message.includes("uq_community_message_channel_seq"))
+  return errorChainMessages(error).some((message) =>
+    /not null constraint failed: community_message_seq.next_seq/i.test(message) ||
+    (/unique constraint failed/i.test(message) &&
+      ((message.includes("community_message.channel_id") && message.includes("community_message.seq")) ||
+        message.includes("uq_community_message_channel_seq")))
+  );
+}
+
+export function isMessageAttachmentConflict(error: unknown): boolean {
+  return errorChainMessages(error).some((message) =>
+    /not null constraint failed: community_message.content/i.test(message)
   );
 }
 
@@ -137,6 +143,15 @@ export type CreateMessageData = {
    * identity-agnostic: the CALLER decides what to append, not `createMessage`.
    */
   extraStatements?: unknown[];
+  attachmentIds?: string[];
+  mentions?: { userId: string; kind: string }[];
+  participants?: { userId: string; source: string }[];
+  forumThread?: {
+    id: string;
+    serverId: string;
+    name: string;
+    pendingAttachmentIds: string[];
+  };
 };
 
 /**
@@ -182,28 +197,45 @@ async function insertMessageRow(db: Database, data: CreateMessageData, expectedS
   const messageId = data.id ?? nanoid();
   const authorIsHuman = data.authorKind === "human";
 
-  // D1 batch() is one SQL transaction. The compare-and-swap counter claim and
-  // the row that makes that seq visible must commit together: otherwise a
-  // second agent send can observe the advanced counter while unread detection
-  // cannot yet see the first message, then claim the following seq and bypass
-  // channel alignment. The insert's unique (channel_id, seq) constraint turns
-  // a lost CAS into a transaction failure, rolling back every statement below.
+  // A failed counter claim must abort the batch even when old message rows
+  // have been deleted. next_seq is NOT NULL; a stale claim violates it.
+  const currentCounter = db.select({ value: communityMessageSeq.nextSeq })
+    .from(communityMessageSeq)
+    .where(eq(communityMessageSeq.channelId, data.channelId));
   const claimSeq = db
     .insert(communityMessageSeq)
-    .values({ channelId: data.channelId, nextSeq: seq })
+    .values({
+      channelId: data.channelId,
+      nextSeq: sql`CASE WHEN coalesce((${currentCounter}), 0) = ${expectedSeq} THEN ${seq} ELSE NULL END`,
+    })
     .onConflictDoUpdate({
       target: communityMessageSeq.channelId,
-      set: { nextSeq: seq },
-      setWhere: sql`${communityMessageSeq.nextSeq} = ${expectedSeq}`,
+      set: { nextSeq: sql`CASE WHEN ${communityMessageSeq.nextSeq} = ${expectedSeq} THEN ${seq} ELSE NULL END` },
     })
     .returning({ nextSeq: communityMessageSeq.nextSeq });
+
+  const attachmentIds = data.attachmentIds ?? [];
+  const pendingThreadIds = data.forumThread?.pendingAttachmentIds ?? [];
+  const eligibleAttachments = (ids: string[]) => db.select({ value: count() })
+    .from(communityAttachment)
+    .where(and(
+      inArray(communityAttachment.id, ids),
+      isNull(communityAttachment.messageId),
+      eq(communityAttachment.uploaderId, data.authorId),
+      eq(communityAttachment.targetId, data.channelId),
+    ));
+  const attachmentChecks = [attachmentIds, pendingThreadIds]
+    .filter((ids) => ids.length > 0)
+    .map((ids) => sql`(${eligibleAttachments(ids)}) = ${ids.length}`);
+  const checkedContent = attachmentChecks.length === 0 ? data.content
+    : sql<string>`CASE WHEN ${and(...attachmentChecks)} THEN ${data.content} ELSE NULL END`;
 
   const insertMsg = db
     .insert(communityMessage)
     .values({
       id: messageId,
       authorId: data.authorId,
-      content: data.content,
+      content: checkedContent,
       channelId: data.channelId,
       type: data.type ?? "default",
       mentionType: data.mentionType ?? null,
@@ -239,16 +271,64 @@ async function insertMessageRow(db: Database, data: CreateMessageData, expectedS
       set: { lastReadAt: now, lastReadMessageId: messageId, lastReadSeq: seq },
       setWhere: sql`${communityReadState.lastReadSeq} < ${seq}`,
     });
+  const attachmentStatements = attachmentIds.length === 0 ? [] : [
+    db.update(communityAttachment).set({
+      messageId,
+      position: sql`CASE ${communityAttachment.id} ${sql.join(attachmentIds.map((id, index) => sql`WHEN ${id} THEN ${index}`), sql` `)} END`,
+    }).where(and(inArray(communityAttachment.id, attachmentIds), isNull(communityAttachment.messageId))),
+  ];
+  const threadStatements = data.forumThread ? [
+    db.insert(communityChannel).values({
+      id: data.forumThread.id,
+      serverId: data.forumThread.serverId,
+      parentChannelId: data.channelId,
+      parentMessageId: messageId,
+      name: data.forumThread.name,
+      type: "thread",
+      topic: "",
+      creatorId: data.authorId,
+    }),
+    db.insert(communityChannelMember).values({
+      channelId: data.forumThread.id,
+      userId: data.authorId,
+      relation: "notify",
+      source: "spoke",
+    }),
+    ...(pendingThreadIds.length === 0 ? [] : [
+      db.update(communityAttachment).set({ targetId: data.forumThread.id })
+        .where(and(inArray(communityAttachment.id, pendingThreadIds), isNull(communityAttachment.messageId))),
+    ]),
+  ] : [];
+  const mentionStatements = chunk(data.mentions ?? [], maxRowsPerInsert(5)).map((mentions) =>
+    db.insert(communityMention).values(mentions.map((mention) => ({ messageId, ...mention })))
+  );
+  const participantStatements = chunk(data.participants ?? [], maxRowsPerInsert(6)).map((participants) =>
+    db.insert(communityChannelMember).values(participants.map((participant) => ({
+      channelId: data.channelId,
+      relation: "notify",
+      ...participant,
+    }))).onConflictDoNothing({
+      target: [communityChannelMember.channelId, communityChannelMember.userId, communityChannelMember.relation],
+    }).returning({ userId: communityChannelMember.userId })
+  );
   const baseStatements = [
     claimSeq,
     insertMsg,
     scopeUpdate,
     ...(data.extraStatements ?? []),
     authorWatermark,
+    ...attachmentStatements,
+    ...threadStatements,
+    ...mentionStatements,
+    ...participantStatements,
   ];
+  const participantStart = baseStatements.length - participantStatements.length;
+  const joinedParticipants = (results: any[]): string[] => results
+    .slice(participantStart, participantStart + participantStatements.length)
+    .flatMap((rows: Array<{ userId: string }>) => rows.map((row) => row.userId));
   if (!authorIsHuman) {
     const results = (await db.batch(baseStatements as any)) as any[];
-    return (results[1] as InsertedMessage[])[0]!;
+    return { ...(results[1] as InsertedMessage[])[0]!, joinedParticipantUserIds: joinedParticipants(results) };
   }
 
   const humanRevision = db
@@ -267,7 +347,7 @@ async function insertMessageRow(db: Database, data: CreateMessageData, expectedS
   const revisionRows = results.at(-1) as Array<{ revision: number }> | undefined;
   const revision = revisionRows?.[0]?.revision;
   if (revision === undefined) throw new Error("human author read-state revision missing");
-  return { ...msg, readStateRevision: revision };
+  return { ...msg, readStateRevision: revision, joinedParticipantUserIds: joinedParticipants(results) };
 }
 
 /**

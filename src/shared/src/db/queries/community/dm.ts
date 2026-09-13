@@ -1,29 +1,20 @@
 import { eq, and, asc, desc, exists, isNull, ne, notExists, or, sql } from "drizzle-orm";
+import { nanoid } from "nanoid";
 import { alias } from "drizzle-orm/sqlite-core";
 import { communityChannel, communityChannelMember, communityFriendship } from "../../community-schema";
 import { user } from "../../schema";
 import { PARTICIPANT_SOURCE } from "../../../constants/community";
 import type { Database } from "../../index";
 
-// DMs are channels now (type='dm', server_id NULL). Their two participants are
-// relation='access' community_channel_member rows. One-DM-per-pair is enforced
-// at the application layer by a runtime member-set query — no stored uniqueness
-// key. See plans/community-schema-unification.md.
-
-/**
- * Find the existing type='dm' channel whose relation='access' member set is
- * EXACTLY {a,b} — both present AND no third access member. Returns the channel
- * id or null.
- */
-async function findDmChannelId(
+function dmChannelQuery(
   db: Database,
   userAId: string,
   userBId: string
-): Promise<string | null> {
+) {
   const selfMember = alias(communityChannelMember, "dm_self_member");
   const peerMember = alias(communityChannelMember, "dm_peer_member");
   const thirdMember = alias(communityChannelMember, "dm_third_member");
-  const rows = await db
+  return db
     .select({ id: communityChannel.id })
     .from(communityChannel)
     .where(
@@ -70,6 +61,10 @@ async function findDmChannelId(
     )
     .orderBy(asc(communityChannel.id))
     .limit(1);
+}
+
+async function findDmChannelId(db: Database, userAId: string, userBId: string): Promise<string | null> {
+  const rows = await dmChannelQuery(db, userAId, userBId);
   return rows[0]?.id ?? null;
 }
 
@@ -86,30 +81,46 @@ export async function createOrGetDM(
     return rows[0]!;
   }
 
-  const inserted = await db
-    .insert(communityChannel)
-    .values({ type: "dm", serverId: null, name: null, topic: "" })
-    .returning();
-  const channel = inserted[0]!;
-
+  const id = nanoid();
   const now = new Date().toISOString();
-  await db.insert(communityChannelMember).values([
-    {
-      channelId: channel.id,
-      userId: data.userId1,
-      relation: "access",
-      source: PARTICIPANT_SOURCE.ADDED,
-      addedAt: now,
-    },
-    {
-      channelId: channel.id,
-      userId: data.userId2,
-      relation: "access",
-      source: PARTICIPANT_SOURCE.ADDED,
-      addedAt: now,
-    },
-  ]);
-
+  const insertChannel = db.insert(communityChannel).select(
+    db.select({
+      id: sql<string>`${id}`.as("id"),
+      serverId: sql`NULL`.as("server_id"),
+      categoryId: sql`NULL`.as("category_id"),
+      name: sql`NULL`.as("name"),
+      type: sql<string>`'dm'`.as("type"),
+      topic: sql<string>`''`.as("topic"),
+      position: sql<number>`0`.as("position"),
+      parentChannelId: sql`NULL`.as("parent_channel_id"),
+      creatorId: sql`NULL`.as("creator_id"),
+      messageCount: sql<number>`0`.as("message_count"),
+      archived: sql<number>`0`.as("archived"),
+      parentMessageId: sql`NULL`.as("parent_message_id"),
+      lastMessageAt: sql`NULL`.as("last_message_at"),
+      createdAt: sql<string>`${now}`.as("created_at"),
+    }).from(sql`(SELECT 1)`)
+      .where(notExists(dmChannelQuery(db, data.userId1, data.userId2)))
+  ).returning();
+  const members = [data.userId1, data.userId2].map((userId) =>
+    db.insert(communityChannelMember).select(
+      db.select({
+        id: sql<string>`${nanoid()}`.as("id"),
+        channelId: communityChannel.id,
+        userId: sql<string>`${userId}`.as("user_id"),
+        relation: sql<string>`'access'`.as("relation"),
+        source: sql<string>`${PARTICIPANT_SOURCE.ADDED}`.as("source"),
+        addedBy: sql`NULL`.as("added_by"),
+        addedAt: sql<string>`${now}`.as("added_at"),
+      }).from(communityChannel).where(eq(communityChannel.id, id))
+    )
+  );
+  const [inserted] = await db.batch([insertChannel, ...members] as any);
+  if (Array.isArray(inserted) && inserted[0]) return inserted[0];
+  const winnerId = await findDmChannelId(db, data.userId1, data.userId2);
+  if (!winnerId) throw new Error("DM missing after atomic creation");
+  const rows = await db.select().from(communityChannel).where(eq(communityChannel.id, winnerId));
+  const channel = rows[0]!;
   return channel;
 }
 

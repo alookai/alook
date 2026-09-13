@@ -85,6 +85,7 @@ vi.mock("@alook/shared", async () => {
         deleteChannel: (...a: unknown[]) => mockDeleteChannel(...a),
       },
       communityMessage: {
+        isMessageAttachmentConflict: actual.queries.communityMessage.isMessageAttachmentConflict,
         createMessage: (...a: unknown[]) => mockCreateMessage(...a),
         getMessage: (...a: unknown[]) => mockGetMessage(...a),
         getMessageByAuthorAndNonce: (...a: unknown[]) => mockGetMessageByAuthorAndNonce(...a),
@@ -266,6 +267,7 @@ describe("POST /api/community/channels/[id]/messages", () => {
     mockToAgentMessage.mockImplementation(async (_db, row, _user, attachments) => ({ ...row, attachments }))
     mockCheckMessageRateLimit.mockResolvedValue({ allowed: true })
     mockCreateChannel.mockResolvedValue({ id: "thread_1", creatorId: "u1", createdAt: "t0", name: "thread" })
+    mockGetThreadChannelByParentMessage.mockResolvedValue({ id: "thread_1", creatorId: "u1", createdAt: "t0", name: "thread" })
     mockRebindPendingAttachmentsToChild.mockResolvedValue(true)
     mockAddThreadParticipant.mockResolvedValue(null)
     mockListThreadParticipantUserIds.mockResolvedValue([])
@@ -427,24 +429,16 @@ describe("POST /api/community/channels/[id]/messages", () => {
     mockListByMessageIds.mockResolvedValue([])
     const res = await POST(postReq({ content: "pics", attachments: ["att_1", "att_2"] }), ctx)
     expect(res.status).toBe(201)
-    // The validation query is scoped to THIS user + THIS channel (self-scope /
-    // confused-deputy-safe — the human dual of the download authorize-from-row).
-    expect(mockFindPendingAttachmentsForSender).toHaveBeenCalledWith(
-      {},
-      expect.objectContaining({ ids: ["att_1", "att_2"], uploaderId: "u1" }),
-    )
+    expect(mockCreateMessage).toHaveBeenCalledWith({}, expect.objectContaining({
+      attachmentIds: ["att_1", "att_2"], authorId: "u1", channelId: "c1",
+    }))
   })
 
   it("reserve-by-id confused-deputy guard: a foreign/stolen pending id (count mismatch) → 400, no message", async () => {
-    // The composer sends 2 ids but only 1 is owned by this user in this target
-    // (the other belongs to someone else / a different channel). The
-    // uploader+target-scoped query returns fewer rows than requested → reject
-    // with a generic 400 that never says which id failed, and NO message row is
-    // created. This is the send-side confused-deputy guard.
-    mockFindPendingAttachmentsForSender.mockResolvedValue([{ id: "att_mine" }])
+    mockCreateMessage.mockRejectedValueOnce(new Error("NOT NULL constraint failed: community_message.content"))
     const res = await POST(postReq({ content: "steal", attachments: ["att_mine", "att_theirs"] }), ctx)
     expect(res.status).toBe(400)
-    expect(mockCreateMessage).not.toHaveBeenCalled()
+    expect(mockFanOutToChannel).not.toHaveBeenCalled()
   })
 
   it("fans out @everyone mention to every non-author member", async () => {
@@ -457,10 +451,7 @@ describe("POST /api/community/channels/[id]/messages", () => {
     expect(res.status).toBe(201)
     expect(mockListMemberUserIds).toHaveBeenCalledTimes(1)
     expect(mockListMembers).not.toHaveBeenCalled()
-    expect(mockCreateMentions).toHaveBeenCalledTimes(1)
-    const [, payload] = mockCreateMentions.mock.calls[0]
-    expect(payload.kind).toBe("mention")
-    expect(payload.userIds.sort()).toEqual(["u2", "u3"])
+    expect(mockCreateMessage.mock.calls[0][1].mentions).toEqual([{ userId: "u2", kind: "mention" }, { userId: "u3", kind: "mention" }])
 
     // Delivery receives only the committed identity. The dispatcher reads the
     // mention rows back from D1 and derives policy/audience itself.
@@ -495,10 +486,7 @@ describe("POST /api/community/channels/[id]/messages", () => {
     expect(res.status).toBe(201)
     expect(mockListMembers).toHaveBeenCalledTimes(1)
     expect(mockListMemberUserIds).not.toHaveBeenCalled()
-    expect(mockCreateMentions).toHaveBeenCalledTimes(1)
-    const [, payload] = mockCreateMentions.mock.calls[0]
-    expect(payload.kind).toBe("mention")
-    expect(payload.userIds).toEqual(["u2"])
+    expect(mockCreateMessage.mock.calls[0][1].mentions).toEqual([{ userId: "u2", kind: "mention" }])
   })
 
   it("does not query members for a plain channel post with no '@' and no everyone/here", async () => {
@@ -579,9 +567,9 @@ describe("POST /api/community/channels/[id]/messages", () => {
     expect(first.status).toBe(201)
     expect(replay.status).toBe(200)
     expect(await replay.json()).toEqual(expect.objectContaining({ deduped: true }))
-    expect(mockFindPendingAttachmentsForSender).toHaveBeenCalledTimes(1)
+    expect(mockFindPendingAttachmentsForSender).not.toHaveBeenCalled()
     expect(mockCreateMessage).toHaveBeenCalledTimes(1)
-    expect(mockReserveAttachmentsForMessage).toHaveBeenCalledTimes(1)
+    expect(mockCreateMessage.mock.calls[0][1].attachmentIds).toEqual(["a1"])
   })
 
   it("auto-joins a first-touch thread before alignment, broadcasts once per resulting participant, and blocks on backlog", async () => {
@@ -790,7 +778,7 @@ describe("POST /api/community/channels/[id]/messages", () => {
     expect(first.status).toBe(200)
     expect(replay.status).toBe(200)
     expect(await replay.json()).toEqual(expect.objectContaining({ state: "sent", deduped: true }))
-    expect(mockFindPendingAttachmentsForSender).toHaveBeenCalledTimes(1)
+    expect(mockFindPendingAttachmentsForSender).not.toHaveBeenCalled()
     expect(mockCreateMessage).toHaveBeenCalledTimes(1)
     expect(mockHasDeliverableUnreadForAgentScope).toHaveBeenCalledTimes(1)
   })

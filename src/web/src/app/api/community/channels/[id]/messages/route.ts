@@ -246,15 +246,6 @@ async function handleHumanSend(
   const clientNonce = typeof body?.nonce === "string" ? body.nonce : undefined
   const target = resolved.value.target
 
-  // Reserve-by-id (route/disc step 2b): the composer uploads first (creating a
-  // pending row) and sends the attachment IDS, mirroring the bot flow. Validate
-  // each id against (uploader = this user, target = this channel) BEFORE the
-  // message insert — the SAME `findPendingAttachmentsForSender` scope the bot arm
-  // uses (the query is keyed on the `uploaderId` param, so it is actor-agnostic:
-  // a stolen id owned by another user, or one pending against a different
-  // target, fails the count check and rejects with a generic 400 that never
-  // leaks which id). This is the human-side dual of the download door's
-  // authorize-from-row confused-deputy guard.
   const attachmentIds = Array.isArray(body.attachments)
     ? (body.attachments as unknown[]).filter((x): x is string => typeof x === "string")
     : []
@@ -292,17 +283,6 @@ async function handleHumanSend(
   })
   if (replay) {
     return NextResponse.json({ message: replay.row, deduped: true }, { status: 200 })
-  }
-
-  if (attachmentIds.length > 0) {
-    const channelId = target.channelId
-    const rows = await withD1Retry(
-      () => queries.communityAttachment.findPendingAttachmentsForSender(db, { ids: attachmentIds, uploaderId: userId, targetId: channelId }),
-      { route: "community/messages:human-attachments" },
-    )
-    if (rows.length !== attachmentIds.length) {
-      return NextResponse.json({ error: "attachment not found or not attachable to this target" }, { status: 400 })
-    }
   }
 
   const result = await createCommunityMessage({
@@ -362,15 +342,19 @@ async function handleBotSend(
       clientNonce: body.nonce,
       ...(expectedSeq !== undefined ? { expectedSeq } : {}),
       source: "cli",
+      extraStatements: [
+        queries.communityBot.bumpBotDailyActivityStatement(db, botUserId, utcDayKey(new Date()), "sent"),
+      ],
     })
 
-  const replay = await getCommunityMessageReplay({
-    db,
-    authorId: botUserId,
-    channelId,
-    clientNonce: body.nonce,
-  })
-  if (replay) {
+  const replayResponse = async () => {
+    const replay = await getCommunityMessageReplay({
+      db,
+      authorId: botUserId,
+      channelId,
+      clientNonce: body.nonce,
+    })
+    if (!replay) return null
     if (target.kind === "forum") {
       const created = await createForumOpener(target.serverId)
       if (!created.ok) return NextResponse.json({ error: created.error }, { status: created.status })
@@ -386,6 +370,8 @@ async function handleBotSend(
     const message = await queries.communityAgentInbox.toAgentMessage(db, replay.row, botUserId, orderedAttachments)
     return NextResponse.json({ state: "sent", message, deduped: true })
   }
+  const replay = await replayResponse()
+  if (replay) return replay
 
   if (target.kind === "thread") {
     const created = await withD1Retry(
@@ -421,17 +407,9 @@ async function handleBotSend(
     { route: "community/messages:has-unread" },
   )
   if (hasUnread) {
+    const replay = await replayResponse()
+    if (replay) return replay
     return NextResponse.json({ state: "blocked", reason: "unaligned", unreadCount: Math.max(0, latestSeq - seen), latestSeq })
-  }
-
-  if (body.attachments.length > 0) {
-    const rows = await withD1Retry(
-      () => queries.communityAttachment.findPendingAttachmentsForSender(db, { ids: body.attachments, uploaderId: botUserId, targetId: channelId }),
-      { route: "community/messages:attachments" },
-    )
-    if (rows.length !== body.attachments.length) {
-      return NextResponse.json({ error: "attachment not found or not attachable to this target" }, { status: 400 })
-    }
   }
 
   if (target.kind === "forum") {
