@@ -289,6 +289,9 @@ test.describe.serial("actionable Inbox friend requests", () => {
       const reject = bob.page.getByTestId(tid.inboxFriendRequestReject(friendshipId))
       await expect(accept).toHaveAccessibleName(/Accept .+ friend request/)
       await expect(reject).toHaveAccessibleName(/Reject .+ friend request/)
+      await inboxSurface.evaluate(async (element) => {
+        await Promise.all(element.getAnimations().map((animation) => animation.finished))
+      })
       for (const action of [accept, reject]) {
         const box = await action.boundingBox()
         expect(box).not.toBeNull()

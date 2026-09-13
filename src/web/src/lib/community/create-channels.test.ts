@@ -177,6 +177,17 @@ describe("createMessageWithThread — atomic message composition", () => {
     expect(mockRebindPendingAttachmentsToChild).not.toHaveBeenCalled()
   })
 
+  it("rejects oversized pending attachments before creating a forum opener", async () => {
+    const result = await createMessageWithThread({
+      ...input,
+      pendingAttachmentIdsToRebind: Array.from({ length: 11 }, (_, i) => `attachment-${i}`),
+    })
+    expect(result).toEqual({ ok: false, status: 400, error: "too many attachments (max 10)" })
+    expect(mockCreateCommunityMessage).not.toHaveBeenCalled()
+    expect(mockGetThreadChannelByParentMessage).not.toHaveBeenCalled()
+    expect(mockFanOutToChannel).not.toHaveBeenCalled()
+  })
+
   it("bounds explicit and content-derived thread names", async () => {
     await createMessageWithThread({ ...input, threadName: "x".repeat(4000) })
     expect(mockCreateCommunityMessage.mock.calls[0][0].forumThread.name).toBe("x".repeat(100))

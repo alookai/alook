@@ -1005,6 +1005,14 @@ describe("post-commit notification registration", () => {
     expect(mockHardDeleteMessage).not.toHaveBeenCalled()
   })
 
+  it("surfaces a missing response projection after registering notifications without deleting committed data", async () => {
+    mockGetMessage.mockResolvedValueOnce(null)
+    await expect(createCommunityMessage(params)).rejects.toThrow("message not found after insert")
+    expect(mockDispatchCommittedMessage).toHaveBeenCalledOnce()
+    expect(mockFanOutToChannel).toHaveBeenCalledOnce()
+    expect(mockHardDeleteMessage).not.toHaveBeenCalled()
+  })
+
   it("returns the committed response while delivery is pending", async () => {
     let resolve!: () => void
     const pending = new Promise<void>((done) => { resolve = done })
