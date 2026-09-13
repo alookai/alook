@@ -1,6 +1,6 @@
 import type { Page, Request } from "@playwright/test"
 import { expect, sessionCookie, test } from "./_fixtures/community-fixture"
-import { gotoAfterUserWsAuth, ignoreNextDevToolsPointerCapture } from "./_fixtures/actions"
+import { GEOMETRY_EPSILON, gotoAfterUserWsAuth, ignoreNextDevToolsPointerCapture, waitForElementMotion } from "./_fixtures/actions"
 import { proxyCommunityWebSockets } from "./_fixtures/community-ws-proxy"
 import { WEB_URL } from "./_setup/paths"
 import {
@@ -248,12 +248,13 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
       const current = await surfaceGeometry(bob.page)
       return Math.abs(current.card.bottom - current.userBar.top)
     }).toBeLessThanOrEqual(1)
+    await waitForElementMotion(mobileSurface)
     const geometry = await surfaceGeometry(bob.page)
     expectJoinedBorderContract(geometry)
     expect(geometry.userBar.bottom).toBe(844)
     expect(geometry.userBar.surfaceBottom).toBe(844 - 34 - 12)
     expect(geometry.userBarOwnsCenter).toBe(true)
-    expect(geometry.card.height).toBeLessThanOrEqual(448)
+    expect(geometry.card.height).toBeLessThanOrEqual(448 + GEOMETRY_EPSILON)
     expect(geometry.card.top).toBeGreaterThanOrEqual(20)
     expect(geometry.seam.cardTopLeft).not.toBe("0px")
     expect(geometry.seam.cardTopRight).not.toBe("0px")

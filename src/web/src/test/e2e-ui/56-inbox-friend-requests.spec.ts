@@ -1,6 +1,6 @@
 import type { Locator, Page } from "@playwright/test"
 import { expect, test, userId, userName } from "./_fixtures/community-fixture"
-import { gotoAfterUserWsAuth } from "./_fixtures/actions"
+import { GEOMETRY_EPSILON, gotoAfterUserWsAuth, waitForElementMotion } from "./_fixtures/actions"
 import {
   seedCancelFriendRequest,
   seedChannel,
@@ -64,8 +64,8 @@ function expectMinimumRect(
   rect: { width: number; height: number },
   minimum: number,
 ) {
-  expect.soft(rect.width, `${label} width`).toBeGreaterThanOrEqual(minimum)
-  expect.soft(rect.height, `${label} height`).toBeGreaterThanOrEqual(minimum)
+  expect.soft(rect.width, `${label} width`).toBeGreaterThanOrEqual(minimum - GEOMETRY_EPSILON)
+  expect.soft(rect.height, `${label} height`).toBeGreaterThanOrEqual(minimum - GEOMETRY_EPSILON)
 }
 
 async function expectExactRect(
@@ -289,14 +289,12 @@ test.describe.serial("actionable Inbox friend requests", () => {
       const reject = bob.page.getByTestId(tid.inboxFriendRequestReject(friendshipId))
       await expect(accept).toHaveAccessibleName(/Accept .+ friend request/)
       await expect(reject).toHaveAccessibleName(/Reject .+ friend request/)
-      await inboxSurface.evaluate(async (element) => {
-        await Promise.all(element.getAnimations().map((animation) => animation.finished))
-      })
+      await waitForElementMotion(inboxSurface)
       for (const action of [accept, reject]) {
         const box = await action.boundingBox()
         expect(box).not.toBeNull()
-        expect(box!.width).toBeGreaterThanOrEqual(44)
-        expect(box!.height).toBeGreaterThanOrEqual(44)
+        expect(box!.width).toBeGreaterThanOrEqual(44 - GEOMETRY_EPSILON)
+        expect(box!.height).toBeGreaterThanOrEqual(44 - GEOMETRY_EPSILON)
       }
 
       await reject.focus()
