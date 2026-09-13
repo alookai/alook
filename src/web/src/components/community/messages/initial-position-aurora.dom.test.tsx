@@ -45,12 +45,11 @@ describe("InitialPositionAurora", () => {
     expect(renderer.queryByTestId(tid.initialPositionAurora)).toBeNull()
   })
 
-  it("keeps non-layout overlay geometry, semantic aurora paint, reduced-motion static layers, and a 300ms fade", () => {
+  it("keeps non-layout overlay geometry, semantic aurora paint, reduced-motion static layers, and a linear 300ms exit", () => {
     expect(styles).toMatch(/position:\s*absolute/)
     expect(styles).toMatch(/pointer-events:\s*none/)
-    for (const direction of ["enter", "leave"]) {
-      expect(styles).toContain(`animation: aurora-${direction} ${INITIAL_POSITION_CROSSFADE_MS}ms var(--ease-out) both`)
-    }
+    expect(styles).toContain(`animation: aurora-enter ${INITIAL_POSITION_CROSSFADE_MS}ms var(--ease-out) both`)
+    expect(styles).toContain(`animation: aurora-leave ${INITIAL_POSITION_CROSSFADE_MS}ms linear both`)
     expect(styles).toMatch(/@keyframes aurora-enter\s*\{\s*from \{ opacity: 0; \}\s*to \{ opacity: var\(--aurora-opacity\); \}/)
     expect(styles).toMatch(/@keyframes aurora-leave\s*\{\s*from \{ opacity: var\(--aurora-opacity\); \}\s*to \{ opacity: 0; \}/)
     expect(styles).toContain("calc(var(--initial-position-aurora-opacity) * 0.5)")

@@ -19,7 +19,7 @@
 
 .leaving {
   opacity: 0;
-  animation: aurora-leave 300ms var(--ease-out) both;
+  animation: aurora-leave 300ms linear both;
 }
 
 .drift {
