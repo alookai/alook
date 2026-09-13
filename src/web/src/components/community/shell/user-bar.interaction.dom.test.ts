@@ -1,13 +1,9 @@
-import { createElement, type PropsWithChildren } from "react"
+import { createElement } from "react"
 import { describe, expect, it, vi } from "vitest"
 import { render, screen, setupUser } from "@/test/react-dom-harness"
 import { UserBar } from "./user-bar"
 import { tid } from "@/lib/community/testids"
 
-vi.mock("./community-inbox-surface", () => ({
-  CommunityInboxSurface: ({ children }: PropsWithChildren) =>
-    createElement("div", { "data-testid": "inbox-surface" }, children),
-}))
 vi.mock("../avatar", () => ({
   Avatar: () => createElement("span", { "data-testid": "user-avatar" }),
 }))
@@ -31,6 +27,37 @@ function renderBar() {
 }
 
 describe("UserBar Inbox switching", () => {
+  it.each(["mobile", "desktop"] as const)("renders the real %s extension through its intended motion surface", (breakpoint) => {
+    const inbox = createElement("button", null, "Inbox item")
+    const renderer = render(createElement(UserBar, {
+      breakpoint,
+      user: { id: "u1", name: "User", avatar: "U" },
+      inbox,
+      hasUnread: false,
+      inboxOpen: true,
+      extension: {
+        active: "inbox",
+        inbox,
+        profile: null,
+        update: null,
+        updateBadgePhase: null,
+        eligibleMachines: [],
+        onOpenUpdate: vi.fn(),
+        onRequestUpdate: vi.fn(),
+        onDismiss: vi.fn(),
+      },
+    }))
+    const dialog = renderer.getByRole("dialog", { name: "Inbox" })
+    expect(renderer.getAllByRole("button", { name: "Inbox item" })).toHaveLength(1)
+    if (breakpoint === "mobile") {
+      expect(dialog.closest(".community-user-bar-drawer")).not.toBeNull()
+      expect(dialog.className).not.toContain("fade-in")
+    } else {
+      expect(dialog.closest(".community-user-bar-drawer")).toBeNull()
+      expect(dialog.className).toContain("fade-in")
+    }
+  })
+
   it.each(["avatar", "name"])("closes before the %s profile action exactly once", async (kind) => {
     const user = setupUser()
     const { order, onInboxOpenChange, onOpenProfile } = renderBar()

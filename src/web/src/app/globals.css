@@ -3029,27 +3029,27 @@ body {
   }
 }
 
-.community-inbox-drawer-viewport {
+.community-user-bar-drawer-viewport {
   clip-path: inset(-24px -24px 0 -24px);
 }
 
-.community-inbox-drawer {
+.community-user-bar-drawer {
   animation: none;
   transform: translateY(0);
   transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.community-inbox-drawer[data-starting-style],
-.community-inbox-drawer[data-ending-style] {
+.community-user-bar-drawer[data-starting-style],
+.community-user-bar-drawer[data-ending-style] {
   transform: translateY(100%);
 }
 
-.community-inbox-drawer[data-ending-style] {
+.community-user-bar-drawer[data-ending-style] {
   transition-duration: 180ms;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .community-inbox-drawer {
+  .community-user-bar-drawer {
     transition: none;
   }
 }
