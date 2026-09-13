@@ -51,6 +51,7 @@ describe("AttachmentCard", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("bytes")))
     vi.stubGlobal("document", {
       createElement: vi.fn(() => anchor),
+      body: { appendChild: vi.fn() },
     })
     vi.stubGlobal("URL", { createObjectURL: vi.fn(() => "blob:file"), revokeObjectURL: vi.fn() })
     const archive = attachment({ name: "报告.zip", contentType: "application/zip" })
@@ -69,7 +70,7 @@ describe("AttachmentCard", () => {
       await Promise.resolve()
       await Promise.resolve()
     })
-    expect(fetch).toHaveBeenCalledWith("/attachments/a1", { credentials: "same-origin" })
+    expect(fetch).toHaveBeenCalledWith("/attachments/a1", { credentials: "same-origin", signal: expect.any(AbortSignal) })
     expect(anchor).toEqual(expect.objectContaining({ href: "blob:file", download: "报告.zip" }))
     expect(anchor.click).toHaveBeenCalledOnce()
     expect(onPreview).not.toHaveBeenCalled()
@@ -146,13 +147,14 @@ describe("AttachmentCard", () => {
   })
 
   it("shares one in-flight state and operation across two rendered surfaces", async () => {
-    let resolveBlob!: (blob: Blob) => void
-    const blob = vi.fn(() => new Promise<Blob>((resolve) => { resolveBlob = resolve }))
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, blob })
+    let streamController!: ReadableStreamDefaultController<Uint8Array>
+    const stream = new ReadableStream<Uint8Array>({ start(controller) { streamController = controller } })
+    const fetchMock = vi.fn().mockResolvedValue(new Response(stream))
     const anchor = { href: "", download: "", hidden: false, click: vi.fn(), remove: vi.fn() }
     vi.stubGlobal("fetch", fetchMock)
     vi.stubGlobal("document", {
       createElement: vi.fn(() => anchor),
+      body: { appendChild: vi.fn() },
     })
     vi.stubGlobal("URL", { createObjectURL: vi.fn(() => "blob:file"), revokeObjectURL: vi.fn() })
     const pdf = attachment({ name: "report.pdf", contentType: "application/pdf" })
@@ -171,13 +173,13 @@ describe("AttachmentCard", () => {
     })
     expect(renderer!.getAllByRole("status").map((node) => node.textContent))
       .toEqual(["Downloading…", "Downloading…"])
-    expect(renderer!.getAllByRole("button").every((button) => (button as HTMLButtonElement).disabled))
+    expect(renderer!.getAllByRole("button").every((button) => !(button as HTMLButtonElement).disabled))
       .toBe(true)
     await Promise.resolve()
     expect(fetchMock).toHaveBeenCalledOnce()
 
-    await vi.waitFor(() => expect(blob).toHaveBeenCalledOnce())
-    resolveBlob(new Blob(["complete"]))
+    streamController.enqueue(new TextEncoder().encode("complete"))
+    streamController.close()
     await act(async () => {
       await Promise.resolve()
       await Promise.resolve()

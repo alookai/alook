@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { Blob as NodeBlob } from "node:buffer"
 import React from "react"
 import { act, render } from "@/test/react-dom-harness"
 import { toBlob } from "html-to-image"
@@ -177,6 +178,7 @@ function installMobileNative(invoke: ReturnType<typeof vi.fn>) {
 }
 
 beforeEach(() => {
+  vi.stubGlobal("Blob", NodeBlob)
   vi.clearAllMocks()
   sessionMocks.prepare.mockImplementation(async (source: HTMLElement) => preparedFrom(source))
   sessionMocks.capture.mockImplementation(async (
@@ -486,14 +488,14 @@ describe("MessageShareDialog exports", () => {
     await act(async () => buttonWithText(renderer.container, "Copy image").click())
     await vi.waitFor(() => expect(toast.success).toHaveBeenCalledWith("Image copied to clipboard"))
     await act(async () => buttonWithText(renderer.container, "Download").click())
-    await vi.waitFor(() => expect(toast.success).toHaveBeenCalledWith("Image downloaded"))
+    await vi.waitFor(() => expect(toast.success).toHaveBeenCalledWith("Download started"))
 
     expect(sessionMocks.capture).toHaveBeenCalledTimes(1)
     expect(toBlob).toHaveBeenCalledTimes(1)
     expect(write).toHaveBeenCalledTimes(1)
     expect(click).toHaveBeenCalledTimes(1)
     expect(createObjectURL).toHaveBeenCalledTimes(1)
-    await vi.waitFor(() => expect(revokeObjectURL).toHaveBeenCalledWith("blob:share-card"))
+    expect(revokeObjectURL).not.toHaveBeenCalled()
   })
 
   it("reports rasterization failure without invoking clipboard", async () => {
@@ -677,7 +679,7 @@ describe("MessageShareDialog exports", () => {
 
   it.each([
     ["Copy", "Download", "Image copied to clipboard"],
-    ["Download", "Copy image", "Image downloaded"],
+    ["Download", "Copy image", "Download started"],
   ] as const)("keeps %s as first winner when %s overlaps", async (first, second, feedback) => {
     const rendered = deferred<Blob>()
     sessionMocks.capture.mockReturnValueOnce(rendered.promise)

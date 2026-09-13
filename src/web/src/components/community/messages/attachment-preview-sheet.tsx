@@ -67,7 +67,7 @@ function AttachmentPreviewDownload({ attachment }: { attachment: FileAttachment 
   const statusText = attachmentDownloadStatusText(download.state)
   const Icon = download.state.status === "downloading"
     ? Loader2
-    : download.state.status === "success"
+    : (download.state.status === "saved" || download.state.status === "started")
       ? CircleCheck
       : download.state.status === "error"
         ? RefreshCw
@@ -77,8 +77,7 @@ function AttachmentPreviewDownload({ attachment }: { attachment: FileAttachment 
     <button
       type="button"
       data-testid={tid.attachmentPreviewDownload}
-      onClick={() => void download.start()}
-      disabled={download.state.status === "downloading"}
+      onClick={() => download.state.status === "downloading" ? download.cancel() : void download.start()}
       aria-busy={download.state.status === "downloading"}
       className={buttonVariants({
         variant: "outline",
@@ -87,7 +86,7 @@ function AttachmentPreviewDownload({ attachment }: { attachment: FileAttachment 
       })}
     >
       <Icon className={`size-3.5 ${download.state.status === "downloading" ? "animate-spin motion-reduce:animate-none" : ""}`} />
-      {statusText ?? "Download"}
+      {download.state.status === "downloading" ? "Cancel download" : statusText ?? "Download"}
     </button>
   )
 }

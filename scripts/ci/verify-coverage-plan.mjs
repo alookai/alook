@@ -24,16 +24,31 @@ function statementCounts(file) {
   }
 }
 
-function isTypeOnlySource(path) {
-  if (!/\.[cm]?tsx?$/.test(path)) return false
+function uninstrumentedSourceKind(path) {
+  if (!/\.[cm]?tsx?$/.test(path)) return null
   const source = ts.createSourceFile(path, readFileSync(path, "utf8"), ts.ScriptTarget.Latest, true)
-  if (source.parseDiagnostics.length > 0 || source.statements.length === 0) return false
-  return source.statements.every((statement) => (
-    ts.isTypeAliasDeclaration(statement)
-    || ts.isInterfaceDeclaration(statement)
-    || (ts.isImportDeclaration(statement) && statement.importClause?.isTypeOnly === true)
-    || (ts.isExportDeclaration(statement) && statement.isTypeOnly)
-  ))
+  if (source.parseDiagnostics.length > 0 || source.statements.length === 0) return null
+  let prologue = true
+  let hasTypes = false
+  let hasReExports = false
+  for (const statement of source.statements) {
+    if (prologue && ts.isExpressionStatement(statement) && ts.isStringLiteral(statement.expression)
+      && ["use client", "use server", "use strict"].includes(statement.expression.text)) continue
+    prologue = false
+    if (ts.isTypeAliasDeclaration(statement) || ts.isInterfaceDeclaration(statement)
+      || (ts.isImportDeclaration(statement) && statement.importClause?.isTypeOnly === true)
+      || (ts.isExportDeclaration(statement) && statement.isTypeOnly)) {
+      hasTypes = true
+      continue
+    }
+    if (ts.isExportDeclaration(statement) && statement.moduleSpecifier
+      && ts.isStringLiteral(statement.moduleSpecifier) && !statement.attributes) {
+      hasReExports = true
+      continue
+    }
+    return null
+  }
+  return hasReExports ? "re_export" : hasTypes ? "type_only" : null
 }
 
 export function verifyCoveragePlan(plan, report, options = {}) {
@@ -47,14 +62,17 @@ export function verifyCoveragePlan(plan, report, options = {}) {
   }))
   const reportPaths = new Set(files.map((entry) => entry.path))
   const typeOnlyChangedFiles = []
+  const reExportChangedFiles = []
 
   for (const path of plan.coverage.required_changed_files) {
     if (!existsSync(resolve(root, path))) {
       throw new Error(`required changed coverage file does not exist at head: ${path}`)
     }
     if (!reportPaths.has(path)) {
-      if (isTypeOnlySource(resolve(root, path))) {
-        typeOnlyChangedFiles.push(path)
+      const kind = uninstrumentedSourceKind(resolve(root, path))
+      if (kind) {
+        if (kind === "type_only") typeOnlyChangedFiles.push(path)
+        else reExportChangedFiles.push(path)
         continue
       }
       throw new Error(`required changed coverage file is missing from merged report: ${path}`)
@@ -100,6 +118,7 @@ export function verifyCoveragePlan(plan, report, options = {}) {
     include_roots: plan.coverage.include_roots,
     required_changed_files: plan.coverage.required_changed_files,
     type_only_changed_files: typeOnlyChangedFiles,
+    re_export_changed_files: reExportChangedFiles,
     report_files: [...reportPaths].sort(),
     targets,
   }

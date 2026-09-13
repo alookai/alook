@@ -312,7 +312,7 @@ describe("MediaAttachmentBlock", () => {
       await Promise.resolve()
     })
     expect(stopPropagation).toHaveBeenCalledOnce()
-    expect(fetch).toHaveBeenCalledWith("/attachments/video-1", { credentials: "same-origin" })
+    expect(fetch).toHaveBeenCalledWith("/attachments/video-1", { credentials: "same-origin", signal: expect.any(AbortSignal) })
     expect(anchor).toEqual(expect.objectContaining({ href: "blob:media", download: "clip.mp4" }))
     expect(anchor.click).toHaveBeenCalledOnce()
     expect(renderer.getByRole("status")).toHaveTextContent("Download started")

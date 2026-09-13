@@ -34,7 +34,7 @@ export function MediaAttachmentBlock({
   const downloadStatusText = attachmentDownloadStatusText(attachmentDownload.state)
   const DownloadIcon = attachmentDownload.state.status === "downloading"
     ? LoaderCircle
-    : attachmentDownload.state.status === "success"
+    : (attachmentDownload.state.status === "saved" || attachmentDownload.state.status === "started")
       ? CircleCheck
       : attachmentDownload.state.status === "error"
         ? RefreshCw
@@ -111,7 +111,8 @@ export function MediaAttachmentBlock({
 
   function handleDownload(event: MouseEvent<HTMLButtonElement>): void {
     event.stopPropagation()
-    void attachmentDownload.start()
+    if (attachmentDownload.state.status === "downloading") attachmentDownload.cancel()
+    else void attachmentDownload.start()
   }
 
   const playerProps = {
@@ -290,12 +291,11 @@ export function MediaAttachmentBlock({
           className="size-11 text-muted-foreground hover:text-foreground focus-visible:text-foreground sm:size-8"
           onClick={handleDownload}
           aria-label={`${attachmentDownload.state.status === "downloading"
-            ? "Downloading"
+            ? "Cancel download"
             : attachmentDownload.state.status === "error"
               ? "Retry download"
               : "Download"} ${attachment.name}`}
           aria-busy={attachmentDownload.state.status === "downloading"}
-          disabled={attachmentDownload.state.status === "downloading"}
         >
           <DownloadIcon className={`size-4 ${attachmentDownload.state.status === "downloading" ? "animate-spin motion-reduce:animate-none" : ""}`} />
         </Button>

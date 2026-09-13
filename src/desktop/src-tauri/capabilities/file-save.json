@@ -1,0 +1,19 @@
+{
+  "identifier": "file-save",
+  "description": "User file save from the trusted main webview",
+  "windows": [
+    "main"
+  ],
+  "local": false,
+  "remote": {
+    "urls": [
+      "https://alook.ai"
+    ]
+  },
+  "permissions": [
+    "allow-file-save-begin",
+    "allow-file-save-write-chunk",
+    "allow-file-save-commit",
+    "allow-file-save-cancel"
+  ]
+}

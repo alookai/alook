@@ -78,7 +78,7 @@ function FileAttachmentCard({
     ? Eye
     : download.state.status === "downloading"
       ? LoaderCircle
-      : download.state.status === "success"
+      : (download.state.status === "saved" || download.state.status === "started")
         ? CircleCheck
         : download.state.status === "error"
           ? RefreshCw
@@ -86,7 +86,7 @@ function FileAttachmentCard({
   const action = canPreview
     ? "Preview"
     : download.state.status === "downloading"
-      ? "Downloading"
+      ? "Cancel download"
       : download.state.status === "error"
         ? "Retry download"
         : "Download"
@@ -98,11 +98,10 @@ function FileAttachmentCard({
       data-attachment-category={presentation.category}
       onClick={() => canPreview
         ? onPreview(attachment)
-        : void download.start()}
+        : download.state.status === "downloading" ? download.cancel() : void download.start()}
       className="flex w-full max-w-[320px] items-center gap-3 rounded-lg border border-border bg-card p-2 text-left transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
       aria-label={`${action} ${attachment.name}`}
       aria-busy={!canPreview && download.state.status === "downloading"}
-      disabled={!canPreview && download.state.status === "downloading"}
     >
       <Icon className="size-7 shrink-0 text-muted-foreground" />
       <div className="min-w-0 flex-1">

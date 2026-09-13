@@ -1,5 +1,6 @@
 "use client";
 
+import { FileDownloadButton } from "@/components/file-download-button"
 import React, { useState, useEffect } from "react";
 import { useSheetResize, SheetResizeHandle } from "@/components/ui/sheet-resize-handle";
 import {
@@ -87,14 +88,13 @@ export function ArtifactSheet({ open, onOpenChange, artifacts, workspaceId, init
                     </span>
                   )}
                 </SheetTitle>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="shrink-0"
-                  onClick={() => window.open(getArtifactUrl(selectedArtifact.id, workspaceId, true), "_blank")}
+                <FileDownloadButton
+                  className="shrink-0 inline-flex size-8 items-center justify-center rounded-md hover:bg-accent"
+                  url={getArtifactUrl(selectedArtifact.id, workspaceId, true)}
+                  filename={selectedArtifact.filename}
                 >
                   <Download className="size-4" />
-                </Button>
+                </FileDownloadButton>
               </div>
             </SheetHeader>
             <SheetBody className={cn(

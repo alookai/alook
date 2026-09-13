@@ -1,3 +1,4 @@
+import { contentDisposition } from "@/lib/content-disposition"
 import PostalMime from "postal-mime";
 import { queries, filterDownloadableAttachments } from "@alook/shared";
 import { getDb } from "@/lib/db"
@@ -41,7 +42,7 @@ export const GET = withAuth(async (req, ctx) => {
   return new Response(body as BodyInit, {
     headers: {
       "Content-Type": contentType,
-      "Content-Disposition": `attachment; filename="${filename.replace(/"/g, '\\"')}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+      "Content-Disposition": contentDisposition("attachment", filename),
       "Cache-Control": "private, max-age=3600",
     },
   });

@@ -220,7 +220,17 @@ describe("GET /api/community/channels/[id]/attachments/[attachmentId]", () => {
     mockR2Get.mockResolvedValue(r2Object({ httpMetadata: { contentType: "application/pdf" } }))
     const res = await GET(req(), ctx())
     expect(res.status).toBe(200)
-    expect(res.headers.get("Content-Disposition")).toBe('attachment; filename="doc.pdf"')
+    expect(res.headers.get("Content-Disposition")).toBe("attachment; filename=\"doc.pdf\"; filename*=UTF-8''doc.pdf")
+  })
+
+  it.each(["small-报告.bin", "📎😀.bin", 'a"b\\c.bin', "a\r\nb.bin", "plain.bin"])("human: legal filename header and exact bytes for %j", async filename => {
+    const bytes = new Uint8Array([0, 1, 254, 255])
+    allowPersistedHuman(persistedRow({ filename, contentType: "application/octet-stream", size: bytes.length }))
+    mockR2Get.mockResolvedValue(r2Object({ size: bytes.length }, bytes))
+    const res = await GET(req(), ctx())
+    expect(res.status).toBe(200)
+    expect(decodeURIComponent(res.headers.get("Content-Disposition")!.split("filename*=UTF-8''")[1])).toBe(filename)
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(bytes)
   })
 
   it("human: full media GET is inline, byte-exact, and range-capable", async () => {
@@ -333,7 +343,7 @@ describe("GET /api/community/channels/[id]/attachments/[attachmentId]", () => {
     const res = await GET(req({ Range: "bytes=2-4" }), ctx())
 
     expect(res.status).toBe(200)
-    expect(res.headers.get("Content-Disposition")).toBe('attachment; filename="doc.pdf"')
+    expect(res.headers.get("Content-Disposition")).toBe("attachment; filename=\"doc.pdf\"; filename*=UTF-8''doc.pdf")
     expect(res.headers.get("Accept-Ranges")).toBeNull()
     expect(res.headers.get("Content-Range")).toBeNull()
     expect(mockR2Get).toHaveBeenCalledWith("channel/c_row/uuid/a.png")
