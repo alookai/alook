@@ -39,7 +39,7 @@ describe("Android Firebase release configuration", () => {
     const result = run(raw)
     expect(result.status).toBe(0)
     expect(result.content).toBe(raw)
-    expect(result.mode).toBe(0o600)
+    if (process.platform !== "win32") expect(result.mode).toBe(0o600)
     expect(result.output).not.toContain("private-fixture-sentinel")
   })
   it.each([undefined, "private-fixture-sentinel", "null", "{}"])("rejects missing or malformed configuration without overwriting a file: %s", (raw) => {
