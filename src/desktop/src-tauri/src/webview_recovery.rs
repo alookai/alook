@@ -1,3 +1,4 @@
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::http::{Request, Response, StatusCode};
 use url::Url;
@@ -7,6 +8,11 @@ const HOST: &str = "alook-recovery.localhost";
 const BOOTSTRAP_PATH: &str = "/bootstrap";
 const RECOVERY_PATH: &str = "/network-error";
 const PRODUCTION_TARGET: &str = "https://alook.ai/c";
+const SPLASH_BACKGROUND_LIGHT: &str = "#fff";
+const SPLASH_BACKGROUND_DARK: &str = "#100d0a";
+const SPLASH_LOGO_SIZE: u16 = 80;
+const SPLASH_ICON_PNG: &[u8] =
+    include_bytes!("../gen/apple/Assets.xcassets/SplashIcon.imageset/splash_icon@3x.png");
 static STARTUP: StartupRendezvous = StartupRendezvous::new();
 
 struct StartupRendezvous {
@@ -49,18 +55,18 @@ fn response(request: Request<Vec<u8>>) -> Response<Vec<u8>> {
     let (status, csp, body) = match request.uri().path() {
         BOOTSTRAP_PATH => (
             StatusCode::OK,
-            "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
-            bootstrap_html(),
+            "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+            bootstrap_html().into_bytes(),
         ),
         RECOVERY_PATH => (
             StatusCode::OK,
             "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
-            recovery_html(),
+            recovery_html().as_bytes().to_vec(),
         ),
         _ => (
             StatusCode::NOT_FOUND,
             "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
-            "",
+            Vec::new(),
         ),
     };
     Response::builder()
@@ -70,7 +76,7 @@ fn response(request: Request<Vec<u8>>) -> Response<Vec<u8>> {
         .header("x-content-type-options", "nosniff")
         .header("referrer-policy", "no-referrer")
         .header("content-security-policy", csp)
-        .body(body.as_bytes().to_vec())
+        .body(body)
         .expect("recovery response must be valid")
 }
 
@@ -196,8 +202,14 @@ fn navigate_webview_to_production<R: tauri::Runtime>(webview: &tauri::Webview<R>
     }
 }
 
-fn bootstrap_html() -> &'static str {
-    r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Alook</title><style>:root{color-scheme:light dark;--background:oklch(1 0 0);background:var(--background)}html,body{min-height:100%;margin:0;background:var(--background)}@media(prefers-color-scheme:dark){:root{--background:oklch(0.16 0.008 60)}}</style></head><body></body></html>"#
+fn bootstrap_html() -> String {
+    let icon = STANDARD.encode(SPLASH_ICON_PNG);
+    format!(
+        r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Alook</title><style>:root{{color-scheme:light dark;--background:{light}}}html,body{{width:100%;height:100%;margin:0;overflow:hidden;background:var(--background)}}body{{display:grid;place-items:center}}img{{display:block;width:{size}px;height:{size}px;pointer-events:none;user-select:none}}@media(prefers-color-scheme:dark){{:root{{--background:{dark}}}}}</style></head><body><img src="data:image/png;base64,{icon}" width="{size}" height="{size}" alt="" aria-hidden="true" draggable="false"></body></html>"#,
+        light = SPLASH_BACKGROUND_LIGHT,
+        dark = SPLASH_BACKGROUND_DARK,
+        size = SPLASH_LOGO_SIZE,
+    )
 }
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -661,7 +673,7 @@ mod tests {
     }
 
     #[test]
-    fn bootstrap_is_blank_and_unknown_paths_fail_closed() {
+    fn bootstrap_is_static_and_unknown_paths_fail_closed() {
         let request = Request::builder()
             .uri("alook-recovery://localhost/bootstrap")
             .body(Vec::new())
@@ -671,7 +683,7 @@ mod tests {
         assert_eq!(bootstrap_response.status(), 200);
         assert_eq!(
             bootstrap_response.headers()["content-security-policy"],
-            "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+            "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
         );
         assert_eq!(
             bootstrap_response.headers()["x-content-type-options"],
@@ -691,6 +703,46 @@ mod tests {
         let response = response(request);
         assert_eq!(response.status(), 404);
         assert!(response.body().is_empty());
+    }
+
+    #[test]
+    fn bootstrap_matches_the_ios_launch_screen() {
+        let html = bootstrap_html();
+        let storyboard = include_str!("../gen/apple/LaunchScreen.storyboard");
+        let colors =
+            include_str!("../gen/apple/Assets.xcassets/SplashBackground.colorset/Contents.json");
+
+        assert!(html.contains("--background:#fff"));
+        assert!(html.contains("--background:#100d0a"));
+        assert!(html.contains("body{display:grid;place-items:center}"));
+        assert!(html.contains("img{display:block;width:80px;height:80px"));
+        assert!(html.contains("width=\"80\" height=\"80\""));
+        assert!(!html.contains("animation"));
+        assert!(!html.contains("transition"));
+
+        assert!(storyboard.contains("image=\"SplashIcon\""));
+        assert!(storyboard.contains("name=\"SplashBackground\""));
+        assert_eq!(storyboard.matches("constant=\"80\"").count(), 2);
+        assert!(storyboard.contains("firstAttribute=\"centerX\""));
+        assert!(storyboard.contains("firstAttribute=\"centerY\""));
+
+        for component in [
+            "\"red\": \"1.000\"",
+            "\"green\": \"1.000\"",
+            "\"blue\": \"1.000\"",
+            "\"red\": \"0.063\"",
+            "\"green\": \"0.051\"",
+            "\"blue\": \"0.039\"",
+        ] {
+            assert!(colors.contains(component));
+        }
+
+        let encoded = html
+            .split_once("src=\"data:image/png;base64,")
+            .and_then(|(_, source)| source.split_once('\"'))
+            .map(|(encoded, _)| encoded)
+            .expect("bootstrap must contain an inline PNG");
+        assert_eq!(STANDARD.decode(encoded).unwrap(), SPLASH_ICON_PNG);
     }
 
     #[test]
