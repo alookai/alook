@@ -277,6 +277,15 @@ jobs:
         working-directory: src/desktop
         run: pnpm tauri android init --ci --skip-targets-install
 
+      - name: Prepare Android Firebase configuration
+        env:
+          ANDROID_GOOGLE_SERVICES_JSON: ${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { prepareAndroidFirebase } from "./scripts/ci/prepare-android-firebase.mjs"
+          prepareAndroidFirebase(process.env.ANDROID_GOOGLE_SERVICES_JSON, "src/desktop/src-tauri/gen/android/app/google-services.json")
+          NODE
+
       - name: Read and verify mobile release version
         id: version
         shell: bash

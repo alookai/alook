@@ -1,4 +1,5 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs"
+import { execFileSync } from "node:child_process"
+import { readFileSync, readdirSync } from "node:fs"
 import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 
@@ -128,7 +129,10 @@ describe("mobile system notification contract", () => {
     expect(readRoot(".gitignore")).toContain(
       "src/desktop/src-tauri/gen/android/app/google-services.json",
     )
-    expect(existsSync(resolve(tauriRoot, "gen/android/app/google-services.json"))).toBe(false)
+    expect(execFileSync("git", ["ls-files", "--", "src/desktop/src-tauri/gen/android/app/google-services.json"], {
+      cwd: root,
+      encoding: "utf8",
+    }).trim()).toBe("")
     expect(androidStore).toContain("Context.MODE_PRIVATE")
     expect(androidStore).toContain("acknowledgedToken")
     expect(androidService).toContain("override fun onNewToken")

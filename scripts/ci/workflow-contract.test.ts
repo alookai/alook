@@ -1206,6 +1206,15 @@ describe("Mobile release availability", () => {
     expect(bumpScript).toContain("iOS CFBundleShortVersionString")
   })
 
+  it("restores Firebase client configuration after Android init and before compiling", () => {
+    const init = mobileReleaseWorkflow.indexOf("pnpm tauri android init")
+    const restore = mobileReleaseWorkflow.indexOf("./scripts/ci/prepare-android-firebase.mjs")
+    const build = mobileReleaseWorkflow.indexOf("pnpm tauri android build")
+    expect(mobileReleaseWorkflow).toContain("ANDROID_GOOGLE_SERVICES_JSON: ${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}")
+    expect(restore).toBeGreaterThan(init)
+    expect(build).toBeGreaterThan(restore)
+  })
+
   it("attaches a signed Android APK to --mobile GitHub releases without Google Play", () => {
     expect(desktopAndroidConfig.identifier).toBe("ai.alook.android")
     expect(androidGradle).toContain('namespace = "ai.alook.android"')
