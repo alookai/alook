@@ -5,7 +5,8 @@ Alook's main purpose is to make the cli agent always on, and give it a email add
 - `plans/`: place your dev plans (gitignored, local only)
 - `src/shared`: shared types, schema, queries, validators
 - `src/web`: main Next.js app on Cloudflare Workers (D1 + R2); the independently built Blog app lives at `src/web/blog`
-- `src/cli`: CLI + daemon
+- `src/app`: local app CLI
+- `src/daemon`: agent runtime and daemon CLI
 - `src/email-worker`: inbound email Cloudflare Worker
 - `src/ws-do`: WebSocket Durable Object worker
 
@@ -38,7 +39,6 @@ git push origin main
 This triggers:
 - **CI** — typecheck, lint, tests, coverage (uploaded to Codecov)
 - **Auto-Tag & Release** — CI detects the `release: vX.Y.Z` commit message, creates the git tag, and creates a GitHub Release with generated changelog (`auto-tag-release.yml`)
-- **@alook/cli** → auto-published to npm via `publish-cli.yml` (watches `src/cli/package.json`)
 - **@alook/app** → auto-published to npm via `publish-app.yml` (watches `src/app/package.json`)
 - **@alook/daemon** → auto-published to npm via `publish-daemon.yml` (watches `src/daemon/package.json`)
 - **CF Workers** → each module redeploys when its own `package.json` changes

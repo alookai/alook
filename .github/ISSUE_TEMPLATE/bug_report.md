@@ -17,7 +17,7 @@ A clear description of what the bug is.
 What you expected to happen.
 
 ## Environment
-- **Package**: [e.g., @alook/web, @alook/cli]
+- **Package**: [e.g., @alook/web, @alook/app]
 - **OS**: [e.g., macOS, Ubuntu]
 - **Node Version**: [e.g., 20.x]
 

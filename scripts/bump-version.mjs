@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { execSync } from "node:child_process";
 
 const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
-const WORKSPACE_DIRS = ["src/shared", "src/cli", "src/app", "src/daemon", "src/daemon/agent-driver", "src/web", "src/email-worker", "src/ws-do", "src/queue-worker", "src/desktop"];
+const WORKSPACE_DIRS = ["src/shared", "src/app", "src/daemon", "src/daemon/agent-driver", "src/web", "src/email-worker", "src/ws-do", "src/queue-worker", "src/desktop"];
 const DEPLOY_TRIGGER_DIRS = ["src/web", "src/email-worker", "src/ws-do", "src/queue-worker"];
 
 function readPkg(dir) {

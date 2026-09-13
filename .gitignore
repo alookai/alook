@@ -29,6 +29,5 @@ src/videos/**/out/
 .impeccable.md
 .playwright-mcp/
 .lighthouseci/
-src/cli/LICENSE
 src/daemon/LICENSE
 .superpowers/

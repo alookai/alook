@@ -1,6 +1,5 @@
 packages:
   - "src/shared"
-  - "src/cli"
   - "src/daemon"
   - "src/daemon/agent-driver"
   - "src/web"

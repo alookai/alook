@@ -90,11 +90,11 @@ function gitDiffFixture() {
   runGit("add", "README.md")
   commit("baseline")
 
-  const changedPath = "src/cli/src/commands/inbox.ts"
-  mkdirSync(join(root, "src/cli/src/commands"), { recursive: true })
+  const changedPath = "src/app/src/commands/inbox.ts"
+  mkdirSync(join(root, "src/app/src/commands"), { recursive: true })
   writeFileSync(join(root, changedPath), "export const fixture = true\n")
   runGit("add", changedPath)
-  commit("change cli")
+  commit("change app")
 
   return { changedPath, root }
 }
@@ -150,42 +150,38 @@ describe("canonical execution plan", () => {
     expect(result.jobs.app_packed_artifact).toBe(false)
   })
 
-  it("selects only the CLI package and its explicit platform suites", () => {
-    const result = plan(["src/cli/src/commands/inbox.ts"])
-
+  it("selects the active app package without retired CLI suites", () => {
+    const result = plan(["src/app/src/commands/inbox.ts"])
     expect(result.change_class).toBe("package")
-    expect(result.packages.affected).toEqual(["@alook/cli"])
-    expect(result.suites.static).toEqual(["@alook/cli"])
-    expect(result.suites.unit).toEqual(["src/cli"])
-    expect(result.suites.integration).toEqual(["cli"])
-    expect(result.suites.windows).toEqual(["cli"])
+    expect(result.packages.affected).toEqual(["@alook/app"])
+    expect(result.suites.static).toEqual(["@alook/app"])
+    expect(result.suites.unit).toEqual(["src/app"])
+    expect(result.suites.integration).toEqual([])
+    expect(result.suites.windows).toEqual(["app"])
     expect(result.ui.specs).toEqual([])
-    expect(result.coverage.targets).toEqual(["cli"])
-    expect(result.jobs.app_packed_artifact).toBe(false)
+    expect(result.coverage.targets).toEqual([])
+    expect(result.jobs.app_packed_artifact).toBe(true)
   })
 
   it("routes integration-owned paths without widening to unrelated suites", () => {
-    const cli = plan(["tests/integration/cli/session-resume.test.ts"])
-    expect(cli.suites.integration).toEqual(["cli"])
-    expect(cli.jobs.e2e).toBe(true)
-    expect(cli.jobs.static_checks).toBe(false)
-
-    const daemon = plan(["tests/integration/daemon/lifecycle.test.ts"])
-    expect(daemon.suites.integration).toEqual(["daemon"])
+    const integration = plan(["tests/integration/daemon/lifecycle.test.ts"])
+    expect(integration.suites.integration).toEqual(["daemon"])
+    expect(integration.jobs.e2e).toBe(true)
+    expect(integration.jobs.static_checks).toBe(false)
 
     const undeclared = plan(["tests/integration/future/case.test.ts"])
     expect(undeclared.full).toBe(true)
     expect(undeclared.full_reason).toBe("unknown_path")
-    expect(undeclared.suites.integration).toEqual(["cli", "daemon", "web"])
+    expect(undeclared.suites.integration).toEqual(["daemon", "web"])
 
     const trailingSlashManifest = structuredClone(loadScopeManifest())
-    const cliPathSuite = trailingSlashManifest.path_suites.find((entry) => (
-      entry.root === "tests/integration/cli"
+    const daemonPathSuite = trailingSlashManifest.path_suites.find((entry) => (
+      entry.root === "tests/integration/daemon"
     ))
-    expect(cliPathSuite).toBeDefined()
-    cliPathSuite!.root += "/"
+    expect(daemonPathSuite).toBeDefined()
+    daemonPathSuite!.root += "/"
     const canonicalized = buildExecutionPlan(
-      modified("tests/integration/cli/session-resume.test.ts"),
+      modified("tests/integration/daemon/lifecycle.test.ts"),
       {
         baseSha: sha("a"),
         headSha: sha("b"),
@@ -193,7 +189,7 @@ describe("canonical execution plan", () => {
       },
     )
     expect(canonicalized.full).toBe(false)
-    expect(canonicalized.suites.integration).toEqual(["cli"])
+    expect(canonicalized.suites.integration).toEqual(["daemon"])
   })
 
   it("expands shared changes through the complete workspace dependent closure", () => {
@@ -202,7 +198,6 @@ describe("canonical execution plan", () => {
     expect(result.change_class).toBe("shared")
     expect(result.packages.affected).toEqual([
       "@alook/app",
-      "@alook/cli",
       "@alook/daemon",
       "@alook/email-worker",
       "@alook/queue-worker",
@@ -211,8 +206,8 @@ describe("canonical execution plan", () => {
       "@alook/web",
       "@alook/ws-do",
     ])
-    expect(result.suites.integration).toEqual(["cli", "daemon", "web"])
-    expect(result.suites.windows).toEqual(["app", "cli", "daemon", "shared"])
+    expect(result.suites.integration).toEqual(["daemon", "web"])
+    expect(result.suites.windows).toEqual(["app", "daemon", "shared"])
     expect(result.ui.specs).toEqual(["all"])
     expect(result.jobs.app_packed_artifact).toBe(true)
     expect(result.jobs.rust).toBe(false)
@@ -231,8 +226,8 @@ describe("canonical execution plan", () => {
       const result = plan(paths)
       expect(result.full, paths.join(",") || "empty").toBe(true)
       expect(result.ui.specs).toEqual(["all"])
-      expect(result.suites.integration).toEqual(["cli", "daemon", "web"])
-      expect(result.suites.windows).toEqual(["agent-driver", "app", "cli", "daemon", "shared"])
+      expect(result.suites.integration).toEqual(["daemon", "web"])
+      expect(result.suites.windows).toEqual(["agent-driver", "app", "daemon", "shared"])
     }
 
     expect(plan(["README.md"], { forceFull: true }).full).toBe(true)
@@ -253,23 +248,22 @@ describe("canonical execution plan", () => {
     expect(plan(["src/app/README.md"]).jobs.app_packed_artifact).toBe(true)
     expect(plan(["src/daemon/README.md"]).jobs.app_packed_artifact).toBe(true)
     expect(plan(["src/shared/README.md"]).jobs.app_packed_artifact).toBe(true)
-    expect(plan(["src/cli/README.md"]).jobs.app_packed_artifact).toBe(false)
   })
 
   it("takes a monotonic union for multiple paths", () => {
-    const cli = plan(["src/cli/src/index.ts"])
+    const app = plan(["src/app/src/index.ts"])
     const web = plan(["src/web/src/app/page.tsx"])
-    const combined = plan(["src/web/src/app/page.tsx", "src/cli/src/index.ts"])
+    const combined = plan(["src/web/src/app/page.tsx", "src/app/src/index.ts"])
 
-    for (const value of cli.packages.affected) expect(combined.packages.affected).toContain(value)
+    for (const value of app.packages.affected) expect(combined.packages.affected).toContain(value)
     for (const value of web.packages.affected) expect(combined.packages.affected).toContain(value)
-    for (const value of cli.suites.integration) expect(combined.suites.integration).toContain(value)
+    for (const value of app.suites.integration) expect(combined.suites.integration).toContain(value)
     for (const value of web.suites.integration) expect(combined.suites.integration).toContain(value)
   })
 
   it("produces byte-identical plans, hashes, and mechanical projections", () => {
-    const first = plan(["src/cli/src/index.ts", "src/web/src/app/page.tsx"])
-    const second = plan(["src/web/src/app/page.tsx", "src/cli/src/index.ts"])
+    const first = plan(["src/app/src/index.ts", "src/web/src/app/page.tsx"])
+    const second = plan(["src/web/src/app/page.tsx", "src/app/src/index.ts"])
 
     expect(first).toEqual(second)
     expect(stablePlanJson(first)).toBe(stablePlanJson(second))
@@ -331,25 +325,25 @@ describe("coverage name-status contract", () => {
 
   it("requires surviving A/M and rename/copy new sides but not deleted or old paths", () => {
     const result = buildExecutionPlan([
-      { status: "A", path: "src/cli/src/added.ts" },
-      { status: "M", path: "src/cli/src/modified.ts" },
-      { status: "D", path: "src/cli/src/deleted.ts" },
-      { status: "R100", old_path: "src/cli/src/old.ts", path: "src/cli/src/renamed.ts" },
-      { status: "C090", old_path: "src/cli/src/source.ts", path: "src/cli/src/copied.ts" },
+      { status: "A", path: "src/app/src/added.ts" },
+      { status: "M", path: "src/app/src/modified.ts" },
+      { status: "D", path: "src/app/src/deleted.ts" },
+      { status: "R100", old_path: "src/app/src/old.ts", path: "src/app/src/renamed.ts" },
+      { status: "C090", old_path: "src/app/src/source.ts", path: "src/app/src/copied.ts" },
     ], { baseSha: sha("a"), headSha: sha("b") })
 
     expect(result.coverage.required_changed_files).toEqual([
-      "src/cli/src/added.ts",
-      "src/cli/src/copied.ts",
-      "src/cli/src/modified.ts",
-      "src/cli/src/renamed.ts",
+      "src/app/src/added.ts",
+      "src/app/src/copied.ts",
+      "src/app/src/modified.ts",
+      "src/app/src/renamed.ts",
     ])
   })
 
   it("requires only files selected by the actual coverage globs", () => {
     for (const path of [
       "src/app/scripts/app-packed-artifact.mjs",
-      "src/cli/scripts/prepare-dist.mjs",
+      "src/app/scripts/bundle-daemon.mjs",
       "src/shared/src/index.ts",
       "src/web/auth/vitest.config.ts",
       "src/web/vitest.config.ts",
@@ -379,13 +373,13 @@ describe("coverage name-status contract", () => {
 
   it("parses NUL-delimited statuses without losing rename/copy identity", () => {
     const input = Buffer.from(
-      "M\0src/cli/src/a.ts\0D\0src/cli/src/deleted.ts\0R100\0src/cli/src/old.ts\0src/cli/src/new.ts\0C090\0src/shared/src/a.ts\0src/shared/src/b.ts\0",
+      "M\0src/app/src/a.ts\0D\0src/app/src/deleted.ts\0R100\0src/app/src/old.ts\0src/app/src/new.ts\0C090\0src/shared/src/a.ts\0src/shared/src/b.ts\0",
     )
 
     expect(parseNameStatus(input)).toEqual([
-      { status: "M", path: "src/cli/src/a.ts" },
-      { status: "D", path: "src/cli/src/deleted.ts" },
-      { status: "R100", old_path: "src/cli/src/old.ts", path: "src/cli/src/new.ts" },
+      { status: "M", path: "src/app/src/a.ts" },
+      { status: "D", path: "src/app/src/deleted.ts" },
+      { status: "R100", old_path: "src/app/src/old.ts", path: "src/app/src/new.ts" },
       { status: "C090", old_path: "src/shared/src/a.ts", path: "src/shared/src/b.ts" },
     ])
   })
@@ -397,20 +391,20 @@ describe("coverage name-status contract", () => {
 
   it("sorts equal destination paths by old path and then status", () => {
     const input = Buffer.from([
-      "R100", "src/cli/src/z.ts", "src/cli/src/same.ts",
-      "R090", "src/cli/src/a.ts", "src/cli/src/same.ts",
-      "C100", "src/cli/src/a.ts", "src/cli/src/same.ts",
-      "M", "src/cli/src/same.ts",
-      "A", "src/cli/src/same.ts",
+      "R100", "src/app/src/z.ts", "src/app/src/same.ts",
+      "R090", "src/app/src/a.ts", "src/app/src/same.ts",
+      "C100", "src/app/src/a.ts", "src/app/src/same.ts",
+      "M", "src/app/src/same.ts",
+      "A", "src/app/src/same.ts",
       "",
     ].join("\0"))
 
     expect(parseNameStatus(input)).toEqual([
-      { status: "A", path: "src/cli/src/same.ts" },
-      { status: "M", path: "src/cli/src/same.ts" },
-      { status: "C100", old_path: "src/cli/src/a.ts", path: "src/cli/src/same.ts" },
-      { status: "R090", old_path: "src/cli/src/a.ts", path: "src/cli/src/same.ts" },
-      { status: "R100", old_path: "src/cli/src/z.ts", path: "src/cli/src/same.ts" },
+      { status: "A", path: "src/app/src/same.ts" },
+      { status: "M", path: "src/app/src/same.ts" },
+      { status: "C100", old_path: "src/app/src/a.ts", path: "src/app/src/same.ts" },
+      { status: "R090", old_path: "src/app/src/a.ts", path: "src/app/src/same.ts" },
+      { status: "R100", old_path: "src/app/src/z.ts", path: "src/app/src/same.ts" },
     ])
   })
 })
