@@ -64,14 +64,15 @@ export function dbMetrics(ids, events) {
   const calls = selected.filter(e => e.kind === 'd1')
   const completions = selected.filter(e => e.kind === 'request-complete')
   const completed = new Set(completions.map(e => e.requestId))
+  const missingD1Events = completions.length && completions.every(event => Number.isInteger(event.d1Calls)) ? completions.reduce((sum, event) => sum + Math.max(0, event.d1Calls - calls.filter(call => call.requestId === event.requestId).length), 0) : null
   const observedEmpty = expected.size > 0 && completed.size === expected.size && calls.length === 0 && completions.every(event => event.d1Calls === 0)
   const metadata = calls.flatMap(c => c.metadata)
   const statementCount = calls.some(c => c.statements === null) ? null : calls.reduce((sum, c) => sum + c.statements, 0)
   const metric = (values, expectedCount) => {
     const known = values.filter(Number.isFinite)
     return { total: known.length ? known.reduce((a, b) => a + b, 0) : observedEmpty ? 0 : null,
-      distribution: distribution(known), observed: known.length, expected: expectedCount,
-      coverage: expectedCount > 0 ? known.length / expectedCount : null }
+      distribution: distribution(known), observed: known.length, expected: missingD1Events > 0 ? null : expectedCount,
+      coverage: missingD1Events > 0 ? null : expectedCount > 0 ? known.length / expectedCount : null }
   }
   const rowsRead = metric(metadata.map(m => m.rowsRead), statementCount)
   const rowsWritten = metric(metadata.map(m => m.rowsWritten), statementCount)
@@ -79,7 +80,7 @@ export function dbMetrics(ids, events) {
   return {
     coverage: 'web env.DB invocation only; WS DO and queue consumers not observed; raw/first metadata unavailable',
     status: calls.length ? 'partial' : observedEmpty ? 'observed-empty' : 'unavailable', expectedRequests: expected.size, completedRequests: completed.size,
-    missingD1Events: completions.length && completions.every(event => Number.isInteger(event.d1Calls)) ? Math.max(0, completions.reduce((sum, event) => sum + event.d1Calls, 0) - calls.filter(event => completed.has(event.requestId)).length) : null,
+    missingD1Events,
     requestsWithoutCompletion: [...expected].filter(id => !completed.has(id)).length,
     executionCalls: calls.length || (observedEmpty ? 0 : null), submittedStatements: calls.length || observedEmpty ? statementCount : null,
     failedCalls: calls.length || observedEmpty ? calls.filter(c => !c.ok).length : null,

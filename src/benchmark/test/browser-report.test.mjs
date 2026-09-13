@@ -33,6 +33,9 @@ test('comparison accepts A/A, refuses observation/workload mismatch, and preserv
   const b = structuredClone(a)
   assert.equal(compareReports(a, b).sameVersionControl, true)
   assert.equal(compareReports(a, b).groups[0].metrics['db.directSend.rowsRead.knownTotal'].delta, null)
+  b.db.missingD1Events = 1
+  assert.throws(() => compareReports(a, b), /Incomplete D1 logs/)
+  b.db.missingD1Events = null
   b.config.observeDB = true
   assert.throws(() => compareReports(a, b), /Incompatible/)
   b.config.observeDB = false

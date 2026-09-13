@@ -2,6 +2,7 @@ const canonical = value => JSON.stringify(value, (_, item) => item && !Array.isA
 
 export function compareReports(base, head) {
   if (!base.finishedAt || !head.finishedAt) throw new Error('Incomplete runs cannot be compared')
+  if ([base, head].some(report => report.db?.missingD1Events > 0)) throw new Error('Incomplete D1 logs: declared execution events are missing; cost comparison refused')
   const contract = report => ({ kind: report.kind, config: Object.fromEntries(Object.entries(report.config).filter(([key]) => !['targetVersion', 'baseUrl'].includes(key))), runner: report.runner, fixture: Object.fromEntries(Object.entries(report.fixture).filter(([key]) => !['serverId', 'channelId'].includes(key))) })
   if (base.kind !== 'browser-user-operation' || canonical(contract(base)) !== canonical(contract(head))) throw new Error('Incompatible measurement modes, workload, fixture or runner environment')
   const compare = (a, b) => ({ base: a, head: b, delta: Number.isFinite(a) && Number.isFinite(b) ? b - a : null, percent: Number.isFinite(a) && Number.isFinite(b) && a !== 0 ? 100 * (b - a) / a : null })
