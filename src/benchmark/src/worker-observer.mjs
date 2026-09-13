@@ -8,6 +8,7 @@ export function observeWorker(worker, emit = event => console.log(JSON.stringify
       if (!requestId || !/^[a-zA-Z0-9_-]{1,100}$/.test(requestId)) return worker.fetch(request, env, context)
       const started = performance.now()
       let responded = false
+      let d1Calls = 0
       const tasks = []
       const write = event => {
         try { emit({ benchmark: 1, requestId, ...event }) } catch {}
@@ -15,7 +16,7 @@ export function observeWorker(worker, emit = event => console.log(JSON.stringify
       const observedEnv = new Proxy(env, {
         get(target, key) { return key === 'DB' ? db : Reflect.get(target, key, target) },
       })
-      const db = observeD1(env.DB, event => write({ ...event, startedMs: event.startedMs - started }), () => performance.now(), () => responded)
+      const db = observeD1(env.DB, event => { d1Calls++; write({ ...event, startedMs: event.startedMs - started }) }, () => performance.now(), () => responded)
       const observedContext = new Proxy(context, {
         get(target, key) {
           if (key === 'waitUntil') return task => {
@@ -42,7 +43,7 @@ export function observeWorker(worker, emit = event => console.log(JSON.stringify
             consumed += batch.length
             failedTasks += (await Promise.all(batch)).filter(ok => !ok).length
           }
-          write({ kind: 'request-complete', backgroundTasks: consumed, failedTasks, wallMs: performance.now() - started })
+          write({ kind: 'request-complete', backgroundTasks: consumed, failedTasks, d1Calls, wallMs: performance.now() - started })
         })())
       }
     },

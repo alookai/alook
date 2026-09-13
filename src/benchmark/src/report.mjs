@@ -64,11 +64,12 @@ export function dbMetrics(ids, events) {
   const calls = selected.filter(e => e.kind === 'd1')
   const completions = selected.filter(e => e.kind === 'request-complete')
   const completed = new Set(completions.map(e => e.requestId))
+  const observedEmpty = expected.size > 0 && completed.size === expected.size && calls.length === 0 && completions.every(event => event.d1Calls === 0)
   const metadata = calls.flatMap(c => c.metadata)
   const statementCount = calls.some(c => c.statements === null) ? null : calls.reduce((sum, c) => sum + c.statements, 0)
   const metric = (values, expectedCount) => {
     const known = values.filter(Number.isFinite)
-    return { total: known.length ? known.reduce((a, b) => a + b, 0) : null,
+    return { total: known.length ? known.reduce((a, b) => a + b, 0) : observedEmpty ? 0 : null,
       distribution: distribution(known), observed: known.length, expected: expectedCount,
       coverage: expectedCount > 0 ? known.length / expectedCount : null }
   }
@@ -77,10 +78,11 @@ export function dbMetrics(ids, events) {
   const sqlDuration = metric(metadata.map(m => m.sqlDurationMs), statementCount)
   return {
     coverage: 'web env.DB invocation only; WS DO and queue consumers not observed; raw/first metadata unavailable',
-    status: calls.length ? 'partial' : 'unavailable', expectedRequests: expected.size, completedRequests: completed.size,
+    status: calls.length ? 'partial' : observedEmpty ? 'observed-empty' : 'unavailable', expectedRequests: expected.size, completedRequests: completed.size,
+    missingD1Events: completions.length && completions.every(event => Number.isInteger(event.d1Calls)) ? Math.max(0, completions.reduce((sum, event) => sum + event.d1Calls, 0) - calls.filter(event => completed.has(event.requestId)).length) : null,
     requestsWithoutCompletion: [...expected].filter(id => !completed.has(id)).length,
-    executionCalls: calls.length || null, submittedStatements: calls.length ? statementCount : null,
-    failedCalls: calls.length ? calls.filter(c => !c.ok).length : null,
+    executionCalls: calls.length || (observedEmpty ? 0 : null), submittedStatements: calls.length || observedEmpty ? statementCount : null,
+    failedCalls: calls.length || observedEmpty ? calls.filter(c => !c.ok).length : null,
     failedBackgroundTasks: completions.reduce((sum, c) => sum + c.failedTasks, 0),
     callWallMs: distribution(calls.map(c => c.wallMs)),
     rowsRead, rowsWritten, sqlDuration, knownRowsRead: rowsRead.total, knownRowsWritten: rowsWritten.total, knownSqlDurationMs: sqlDuration.total,

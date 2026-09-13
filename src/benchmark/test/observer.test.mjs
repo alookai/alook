@@ -95,6 +95,7 @@ test('worker keeps response independent of background tasks, isolates simultaneo
     assert.equal(records.filter(e => e.kind === 'd1').length, 2)
     assert.deepEqual(records.filter(e => e.kind === 'd1').map(e => e.startedAfterResponse), [false, true])
     assert.equal(records.at(-1).kind, 'request-complete')
+    assert.equal(records.at(-1).d1Calls, 2)
   }
 })
 

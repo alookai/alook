@@ -39,3 +39,20 @@ test('a fast 429 never improves successful ACK percentiles', () => {
   assert.equal(result.groups[0].failedHttpResponseMs.p50, 1)
   assert.equal(result.groups[0].failed, 1)
 })
+
+
+test('completed observed requests with no D1 execution report real zero, missing logs remain unknown', async () => {
+  const { dbMetrics } = await import('../src/report.mjs')
+  const zero = dbMetrics(['empty'], [{ kind: 'request-complete', requestId: 'empty', failedTasks: 0, d1Calls: 0 }])
+  assert.equal(zero.status, 'observed-empty')
+  assert.equal(zero.executionCalls, 0)
+  assert.equal(zero.submittedStatements, 0)
+  assert.equal(zero.rowsRead.total, 0)
+  assert.equal(zero.sqlBytes.total, 0)
+  const missing = dbMetrics(['empty', 'missing'], [{ kind: 'request-complete', requestId: 'empty', failedTasks: 0, d1Calls: 0 }])
+  assert.equal(missing.executionCalls, null)
+  assert.equal(missing.rowsRead.total, null)
+  const lost = dbMetrics(['empty'], [{ kind: 'request-complete', requestId: 'empty', d1Calls: 1 }])
+  assert.equal(lost.executionCalls, null)
+  assert.equal(lost.missingD1Events, 1)
+})
