@@ -82,16 +82,8 @@ export async function runBrowserBenchmark(config, suppliedCase) {
         if (!record || !operation || (!record.observedDB && !record.inject)) return route.continue()
         const headers = { ...request.headers(), ...(record.observedDB ? { 'x-alook-benchmark-id': record.id } : {}) }
         if (record.inject && operation.phaseConfig.delayMs) {
-          const wait = async () => {
-            const at = performance.now(); await sleep(operation.phaseConfig.delayMs)
-            operation.injections.push({ requestId: record.id, phase: operation.phaseConfig.phase, actualMs: performance.now() - at, configuredMs: operation.phaseConfig.delayMs })
-          }
-          if (operation.phaseConfig.phase === 'request') await wait()
-          else {
-            try { const response = await route.fetch({ headers, timeout: config.timeoutMs, maxRetries: 0 }); await wait(); await route.fulfill({ response }) }
-            catch { record.failure = 'interception-failed'; await route.abort().catch(() => {}) }
-            return
-          }
+          const at = performance.now(); await sleep(operation.phaseConfig.delayMs)
+          operation.injections.push({ requestId: record.id, actualMs: performance.now() - at, configuredMs: operation.phaseConfig.delayMs })
         }
         await route.continue({ headers }).catch(() => { record.failure = 'interception-failed' })
       })

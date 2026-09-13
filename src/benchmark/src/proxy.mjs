@@ -2,25 +2,24 @@ import http from 'node:http'
 import https from 'node:https'
 import { setTimeout as sleep } from 'node:timers/promises'
 
-export async function startProxy({ upstream, delayMs = 0, phase = 'request', port = 0, emit = () => {} }) {
+export async function startProxy({ upstream, delayMs = 0, port = 0, emit = () => {} }) {
   const target = new URL(upstream)
   if (!['http:', 'https:'].includes(target.protocol)) throw new Error('Proxy requires an HTTP(S) upstream')
-  if (!['request', 'response'].includes(phase) || !Number.isInteger(delayMs) || delayMs < 0 || delayMs > 60000) throw new Error('Invalid delay configuration')
+  if (!Number.isInteger(delayMs) || delayMs < 0 || delayMs > 60000) throw new Error('Invalid delay configuration')
   const server = http.createServer(async (request, response) => {
     const selected = request.method === 'POST' && /^\/api\/community\/channels\/[^/]+\/messages(?:\?|$)/.test(request.url)
     const requestId = request.headers['x-alook-benchmark-id']
     const inject = async () => {
       const started = performance.now()
       await sleep(delayMs)
-      emit({ kind: 'injection', requestId, phase, configuredMs: delayMs, actualMs: performance.now() - started })
+      emit({ kind: 'injection', requestId, configuredMs: delayMs, actualMs: performance.now() - started })
     }
-    if (selected && phase === 'request') await inject()
+    if (selected) await inject()
     if (response.destroyed) return
     const transport = target.protocol === 'https:' ? https : http
     const forwarded = transport.request(new URL(request.url, target), {
       method: request.method, headers: { ...request.headers, host: target.host, origin: target.origin },
-    }, async incoming => {
-      if (selected && phase === 'response') await inject()
+    }, incoming => {
       if (response.destroyed) { incoming.destroy(); return }
       response.writeHead(incoming.statusCode, incoming.headers)
       incoming.pipe(response)

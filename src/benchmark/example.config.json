@@ -23,7 +23,6 @@
   "phases": [
     {
       "name": "baseline",
-      "phase": "request",
       "delayMs": 0
     }
   ]

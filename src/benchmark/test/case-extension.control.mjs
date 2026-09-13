@@ -18,7 +18,7 @@ const server = createServer((req, res) => {
   res.end('<button id="increment">Increment</button><output id="count">0</output><script>document.querySelector("#increment").onclick=async()=>{const r=await fetch("/increment",{method:"POST"});document.querySelector("#count").textContent=(await r.json()).count}</script>')
 })
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
-const config = { case: 'http-counter-control', baseUrl: `http://127.0.0.1:${server.address().port}`, targetKind: 'local', targetVersion: 'counter-control-v1', environment: 'single-page extension control', samples: 2, warmup: 0, intervalMs: 0, observationWindowMs: 300, phases: [{ name: 'baseline', phase: 'request', delayMs: 0 }], timeoutMs: 3000 }
+const config = { case: 'http-counter-control', baseUrl: `http://127.0.0.1:${server.address().port}`, targetKind: 'local', targetVersion: 'counter-control-v1', environment: 'single-page extension control', samples: 2, warmup: 0, intervalMs: 0, observationWindowMs: 300, phases: [{ name: 'baseline', delayMs: 0 }], timeoutMs: 3000 }
 try {
   for (const name of ['a', 'b']) {
     const path = `${out}/${name}.json`

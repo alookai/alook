@@ -21,7 +21,7 @@ test('config rejects ambiguous targets/identities and public output excludes fix
     assert.equal(config.expectedMembers, 100)
     assert.equal(config.intervalMs, 400)
     assert.ok(!JSON.stringify(publicConfig(config)).includes('secret'))
-    for (const override of [{ baseUrl: 'https://user:password@example.com' }, { wsUrl: 'ws://localhost/api/ws?token=secret' }, { samples: 0 }, { targetKind: 'production' }]) {
+    for (const override of [{ baseUrl: 'https://user:password@example.com' }, { wsUrl: 'ws://localhost/api/ws?token=secret' }, { phases: [{ name: 'obsolete', phase: 'response', delayMs: 1000 }] }, { samples: 0 }, { targetKind: 'production' }]) {
       await writeFile(path, JSON.stringify({ ...base, ...override }))
       await assert.rejects(loadConfig(path))
     }

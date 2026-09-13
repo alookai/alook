@@ -33,6 +33,7 @@ test('real HTTP/WS control keeps pre-ACK delivery, nonce correlation, late dupli
       const batch = { type: 'community:events.batch', events: [{ type: 'community:message.create', channelId: 'c', message }] }
       for (const socket of sockets) frame(socket, batch)
       setTimeout(() => { for (const socket of sockets) if (!socket.destroyed) frame(socket, batch) }, 40)
+      await new Promise(resolve => setTimeout(resolve, 100))
       result = { message }
     } else result = { messages }
     response.end(JSON.stringify(result))
@@ -50,7 +51,7 @@ test('real HTTP/WS control keeps pre-ACK delivery, nonce correlation, late dupli
   try {
     const report = await runBenchmark({ baseUrl, wsUrl: baseUrl.replace('http', 'ws') + '/api/ws/user', targetKind: 'local', targetVersion: 'control', environment: 'controlled HTTP/WS', outDir,
       samples: 2, warmup: 0, concurrency: 1, timeoutMs: 2000, intervalMs: 60, receivers: 1, expectedMembers: 2, historyLimit: 20, observeDB: false,
-      payloadBytes: [64], phases: [{ name: 'response', phase: 'response', delayMs: 100 }],
+      payloadBytes: [64], phases: [{ name: 'baseline', delayMs: 0 }],
       fixture: { serverId: 's', channelId: 'c', accounts: [{ userId: 'sender', cookie: 'session=secret-cookie' }, { userId: 'receiver', cookie: 'session=secret-cookie' }] } })
     const samples = (await readFile(`${outDir}/samples.jsonl`, 'utf8')).trim().split('\n').map(JSON.parse)
     assert.equal(samples.length, 2)

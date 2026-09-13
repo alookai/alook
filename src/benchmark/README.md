@@ -66,13 +66,12 @@ For D1 diagnostics, set `observeDB: true` and use the optional adapter below. Fo
 
 ```json
 "phases": [
-  { "name": "baseline", "phase": "request", "delayMs": 0 },
-  { "name": "request-delay", "phase": "request", "delayMs": 1000 },
-  { "name": "response-delay", "phase": "response", "delayMs": 1000 }
+  { "name": "baseline", "delayMs": 0 },
+  { "name": "request-delay", "delayMs": 1000 }
 ]
 ```
 
-Only the sender's message POST is delayed. Request delay waits before forwarding; response delay waits after the upstream response. WS and other requests are not delayed. Actual waits are recorded. A receiver may see the message before the delayed response arrives; the local optimistic row need not wait for either delay.
+Only the sender's message POST is delayed, before forwarding it to the server. WS and other requests are not delayed. Actual waits are recorded. The local optimistic row can appear during that wait. There is one delay mode; phase entries contain only a name and delayMs, with no request/response selector.
 
 Any DB-header or delay run uses Playwright routing, which disables HTTP cache for the context. Reports explicitly identify `intercepted-cache-disabled` versus `passive-native-cache`; the comparator refuses to mix these modes. Compare observer-on/off or delayed/undelayed runs as calibration evidence, not as product version improvement. The target's normal entry and bundle contain no benchmark instrumentation; the optional wrapper is selected only by a dedicated runtime command.
 
