@@ -8,7 +8,7 @@ function source(name: string): string {
 describe("committed-message delivery architecture", () => {
   it("keeps the message handler as a persistence-to-dispatch seam", () => {
     const handler = source("./message-handler.ts")
-    expect(handler).toContain("dispatchCommittedMessage(db, row.id")
+    expect(handler).toContain("dispatchCommittedMessage(db, created.id")
     expect(handler).not.toMatch(
       /dispatchMessageNotify|resolveChannelRecipients|wakeMessageRow|enqueueBotWakes/,
     )

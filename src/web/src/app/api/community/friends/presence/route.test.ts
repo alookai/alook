@@ -40,6 +40,7 @@ vi.mock("@/lib/middleware/helpers", () => {
 
 const originalFetch = globalThis.fetch
 beforeEach(() => {
+  vi.stubEnv("NODE_ENV", "development")
   vi.clearAllMocks()
   globalThis.fetch = mockFetch as unknown as typeof fetch
 })
@@ -132,5 +133,6 @@ describe("GET /api/community/friends/presence", () => {
 })
 
 afterAll(() => {
+  vi.unstubAllEnvs()
   globalThis.fetch = originalFetch
 })

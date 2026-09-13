@@ -47,6 +47,7 @@ vi.mock("@/lib/middleware/helpers", () => {
 // the WS_DO_WORKER binding throws.
 const originalFetch = globalThis.fetch
 beforeEach(() => {
+  vi.stubEnv("NODE_ENV", "development")
   vi.clearAllMocks()
   globalThis.fetch = mockFetch as unknown as typeof fetch
 })
@@ -177,5 +178,6 @@ describe("GET /api/community/servers/[id]/presence", () => {
 
 // Restore global fetch after tests in this file finish so we don't leak the stub.
 afterAll(() => {
+  vi.unstubAllEnvs()
   globalThis.fetch = originalFetch
 })
