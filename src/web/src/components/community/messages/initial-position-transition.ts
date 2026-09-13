@@ -3,8 +3,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react"
 
 export const INITIAL_POSITION_EFFECT_DELAY_MS = 800
-export const INITIAL_POSITION_MINIMUM_EFFECT_MS = 160
-export const INITIAL_POSITION_CROSSFADE_MS = 100
+export const INITIAL_POSITION_MINIMUM_EFFECT_MS = 300
+export const INITIAL_POSITION_CROSSFADE_MS = 300
 export const INITIAL_POSITION_TIMEOUT_MS = 2_000
 
 export type InitialPositionPhase =

@@ -14,12 +14,12 @@
 
 .visible {
   opacity: var(--aurora-opacity);
-  animation: aurora-enter 100ms var(--ease-out) both;
+  animation: aurora-enter 300ms var(--ease-out) both;
 }
 
 .leaving {
   opacity: 0;
-  animation: aurora-leave 100ms var(--ease-out) both;
+  animation: aurora-leave 300ms var(--ease-out) both;
 }
 
 .drift {

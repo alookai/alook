@@ -126,7 +126,7 @@ describe("renderMessageListView", () => {
     expect(renderer.container.querySelectorAll("[data-message-typing-space]")).toHaveLength(0)
     const content = renderer.container.querySelector<HTMLElement>("[data-message-list-content]")!
     expect(content).toHaveClass("opacity-100")
-    expect(content).not.toHaveClass("transition-opacity", "duration-100")
+    expect(content).not.toHaveClass("transition-opacity", "duration-300")
   })
 
   it("keeps positioned rows measurable but inert and hidden until reveal starts", () => {
@@ -149,7 +149,7 @@ describe("renderMessageListView", () => {
     expect(content).toHaveAttribute("aria-hidden", "true")
     expect(content).toHaveAttribute("inert")
     expect(content).toHaveClass("pointer-events-none", "opacity-0")
-    expect(content).not.toHaveClass("transition-opacity", "duration-100")
+    expect(content).not.toHaveClass("transition-opacity", "duration-300")
     expect(mockedRail).not.toHaveBeenCalled()
   })
 
@@ -168,7 +168,7 @@ describe("renderMessageListView", () => {
     ))
     const content = () => renderer.container.querySelector<HTMLElement>("[data-message-list-content]")!
     expect(content()).toHaveClass("opacity-0")
-    expect(content()).not.toHaveClass("transition-opacity", "duration-100")
+    expect(content()).not.toHaveClass("transition-opacity", "duration-300")
     expect(renderer.getByTestId("community-initial-position-aurora"))
       .toHaveAttribute("data-phase", "aurora")
 
@@ -182,7 +182,7 @@ describe("renderMessageListView", () => {
       }),
       () => React.createElement("virtual-rows"),
     ))
-    expect(content()).toHaveClass("opacity-100", "transition-opacity", "duration-100")
+    expect(content()).toHaveClass("opacity-100", "transition-opacity", "duration-300")
     const boundary = renderer.container.querySelector("[data-message-scroller-boundary]")!
     expect(boundary).toHaveClass("isolate")
     expect(renderer.getByTestId("community-message-scroller")).toHaveClass("relative", "z-10")
@@ -199,7 +199,7 @@ describe("renderMessageListView", () => {
       () => React.createElement("virtual-rows"),
     ))
     expect(content()).toHaveClass("opacity-100")
-    expect(content()).not.toHaveClass("transition-opacity", "duration-100")
+    expect(content()).not.toHaveClass("transition-opacity", "duration-300")
   })
 
   it("routes typing through the rail without adding a dynamic flex sibling", () => {

@@ -45,7 +45,7 @@ describe("InitialPositionAurora", () => {
     expect(renderer.queryByTestId(tid.initialPositionAurora)).toBeNull()
   })
 
-  it("keeps non-layout overlay geometry, semantic aurora paint, reduced-motion static layers, and a 100ms fade", () => {
+  it("keeps non-layout overlay geometry, semantic aurora paint, reduced-motion static layers, and a 300ms fade", () => {
     expect(styles).toMatch(/position:\s*absolute/)
     expect(styles).toMatch(/pointer-events:\s*none/)
     for (const direction of ["enter", "leave"]) {

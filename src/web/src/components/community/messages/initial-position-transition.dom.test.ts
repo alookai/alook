@@ -82,7 +82,8 @@ describe("useInitialPositionTransition", () => {
     expect(latest.phase).toBe("revealed")
   })
 
-  it("holds a shown aurora for its minimum and crossfades for 100ms", () => {
+  it("holds a shown aurora through its entrance and crossfades for 300ms", () => {
+    expect(INITIAL_POSITION_MINIMUM_EFFECT_MS).toBeGreaterThanOrEqual(INITIAL_POSITION_CROSSFADE_MS)
     const renderer = render(React.createElement(Probe, pending()))
     act(() => vi.advanceTimersByTime(799))
     expect(latest.phase).toBe("positioning")

@@ -47,7 +47,7 @@ export function renderMessageListView(
             inert={!controller.initialPosition.showSkeleton && !controller.initialPosition.contentInteractive}
             className={`flex min-h-full flex-col justify-end px-4 pb-14 pt-8 sm:pb-18 ${
               controller.initialPosition.phase === "revealing"
-                ? "opacity-100 transition-opacity duration-100 ease-out motion-reduce:transition-opacity"
+                ? "opacity-100 transition-opacity duration-300 ease-out motion-reduce:transition-opacity"
                 : controller.initialPosition.showSkeleton || controller.initialPosition.contentVisible
                   ? "opacity-100"
                   : "pointer-events-none opacity-0"
