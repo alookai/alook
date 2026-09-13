@@ -19,6 +19,7 @@ docs/
 .alook/
 .dev.vars
 plans/
+src/desktop/src-tauri/gen/android/app/google-services.json
 perf-artifacts/
 src/videos/**/build/
 src/videos/**/out/

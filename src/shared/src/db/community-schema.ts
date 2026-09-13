@@ -2,6 +2,7 @@ import {
   sqliteTable,
   text,
   integer,
+  check,
   index,
   unique,
   uniqueIndex,
@@ -515,6 +516,47 @@ export const communityNotificationSetting = sqliteTable(
     level: text("level").notNull().default("all"),
   },
   (t) => [index("idx_notification_setting_user").on(t.userId)]
+);
+
+// One durable row per native app installation. Tokens are encrypted before
+// this table boundary; the hash is only a possession check for safe account
+// transfer and must never be used as a provider credential.
+export const communityPushDevice = sqliteTable(
+  "community_push_device",
+  {
+    id: text("id").primaryKey().$defaultFn(() => "cpd_" + nanoid()),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    installationId: text("installation_id").notNull(),
+    platform: text("platform").notNull(),
+    providerEnvironment: text("provider_environment").notNull(),
+    providerTokenEncrypted: text("provider_token_encrypted").notNull(),
+    providerTokenHash: text("provider_token_hash").notNull(),
+    appVersion: text("app_version"),
+    lastSeenAt: text("last_seen_at").notNull().$defaultFn(() => new Date().toISOString()),
+    disabledAt: text("disabled_at"),
+    createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+    updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+  },
+  (t) => [
+    unique("uq_push_device_installation").on(t.installationId),
+    index("idx_push_device_user_active").on(t.userId, t.disabledAt),
+    index("idx_push_device_token_hash").on(t.providerTokenHash),
+    check("ck_push_device_platform", sql`${t.platform} in ('ios', 'android')`),
+    check(
+      "ck_push_device_provider_environment",
+      sql`${t.providerEnvironment} in ('sandbox', 'production')`,
+    ),
+    check(
+      "ck_push_device_android_environment",
+      sql`${t.platform} = 'ios' or ${t.providerEnvironment} = 'production'`,
+    ),
+    check(
+      "ck_push_device_token_hash",
+      sql`length(${t.providerTokenHash}) = 64 and ${t.providerTokenHash} not glob '*[^0-9a-f]*'`,
+    ),
+  ],
 );
 
 // 19. community_bot_approval_request

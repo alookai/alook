@@ -16,12 +16,12 @@ export async function checkPort(port: number): Promise<boolean> {
   });
 }
 
-export async function checkPorts(ports: { web: number; emailWorker: number; wsDo: number; wakeWorker: number }): Promise<void> {
+export async function checkPorts(ports: { web: number; emailWorker: number; wsDo: number; queueWorker: number }): Promise<void> {
   const checks = [
     { name: "web", port: ports.web },
     { name: "email-worker", port: ports.emailWorker },
     { name: "ws-do", port: ports.wsDo },
-    { name: "wake-worker", port: ports.wakeWorker },
+    { name: "queue-worker", port: ports.queueWorker },
   ];
 
   for (const { name, port } of checks) {

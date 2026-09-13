@@ -10,7 +10,7 @@ vi.mock("@alook/shared", () => ({
   daemonCommand: vi.fn(() => "npx @alook/cli daemon start"),
   isTauri: (...args: any[]) => mockIsTauri(...args),
   isMobile: (...args: any[]) => mockIsMobile(...args),
-  DEV_PORTS: { web: 3000, emailWorker: 8787, wsDo: 8789, wakeWorker: 8790 },
+  DEV_PORTS: { web: 3000, emailWorker: 8787, wsDo: 8789, queueWorker: 8790 },
   devWsDoPort: () => 8789,
 }));
 

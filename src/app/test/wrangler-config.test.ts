@@ -30,7 +30,7 @@ function setDevPort(content: string, port: number): string {
 describe("wrangler-config", () => {
 	it("patches the self-hosted Web config to disable Blog discovery", async () => {
 		const root = mkdtempSync(join(tmpdir(), "alook-app-wrangler-"));
-		for (const service of ["web", "email-worker", "ws-do", "wake-worker"]) {
+		for (const service of ["web", "email-worker", "ws-do", "queue-worker"]) {
 			mkdirSync(join(root, service), { recursive: true });
 			writeFileSync(join(root, service, "wrangler.toml"), service === "web"
 				? `name = "web"
@@ -47,11 +47,12 @@ BLOG_DISCOVERY_REQUIRED = "true"
 		vi.resetModules();
 		vi.doMock("../src/lib/constants.js", () => ({ SELF_HOSTED_DIR: root }));
 		const { patchWranglerConfigs } = await import("../src/lib/wrangler-config.js");
-		patchWranglerConfigs({ web: 3000, emailWorker: 8788, wsDo: 8789, wakeWorker: 8790 });
+		patchWranglerConfigs({ web: 3000, emailWorker: 8788, wsDo: 8789, queueWorker: 8790 });
 
 		const web = readFileSync(join(root, "web/wrangler.toml"), "utf8");
 		expect(web).toContain('BLOG_DISCOVERY_REQUIRED = "false"');
 		expect(web).not.toContain('binding = "BLOG_WORKER"');
+		expect(web).toContain('DEV_QUEUE_WORKER_URL = "http://localhost:8790"');
 	});
 
   describe("removeServiceBinding", () => {

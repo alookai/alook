@@ -11,7 +11,7 @@ interface RuntimeEnv {
   DEVICE_CLIENT_IDS?: string
   NODE_ENV?: string
   DEV_WS_DO_URL?: string
-  DEV_WAKE_WORKER_URL?: string
+  DEV_QUEUE_WORKER_URL?: string
   APPLE_CLIENT_ID?: string
   APPLE_TEAM_ID?: string
   APPLE_KEY_ID?: string
@@ -26,8 +26,8 @@ declare namespace Cloudflare {
     BUG_REPORTS: R2Bucket
     WS_DO_WORKER: Fetcher
     EMAIL_WORKER: Fetcher
-    WAKE_QUEUE: Queue<import("@alook/shared").WakePayload>
-    WAKE_WORKER: Fetcher
+    TASK_QUEUE: Queue<import("@alook/shared").AlookQueueTask>
+    QUEUE_WORKER: Fetcher
     WORKER_SELF_REFERENCE: Fetcher
     NEXT_INC_CACHE_R2_BUCKET: R2Bucket
     NEXT_TAG_CACHE_D1: D1Database

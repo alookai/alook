@@ -28,6 +28,7 @@ url = "2"
 
 [target."cfg(any(target_os = \"android\", target_os = \"ios\"))".dependencies]
 tauri-plugin-mobile-share-image = { path = "plugins/mobile-share-image" }
+tauri-plugin-mobile-push = { path = "plugins/mobile-push" }
 
 [target."cfg(not(any(target_os = \"android\", target_os = \"ios\")))".dependencies]
 tauri-plugin-notification = "2"
@@ -43,14 +44,17 @@ objc2 = "=0.6.4"
 objc2-foundation = { version = "=0.3.2", features = ["NSDictionary", "NSError", "NSGeometry", "NSObject", "NSString", "NSURL", "NSURLError", "NSURLRequest"] }
 
 [target."cfg(target_os = \"macos\")".dependencies]
+block2 = "=0.6.2"
 objc2-app-kit = { version = "=0.3.2", features = ["NSView", "NSWindow", "NSColor"] }
+objc2-user-notifications = { version = "=0.3.2", default-features = false, features = ["std", "UNNotification", "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse", "UNNotificationSound", "UNNotificationTrigger", "UNUserNotificationCenter", "block2"] }
 objc2-web-kit = { version = "=0.3.2", features = ["WKWebView"], default-features = false }
 
 [target."cfg(windows)".dependencies]
 webview2-com = "=0.38.2"
-windows = "=0.61.3"
+windows = { version = "=0.61.3", features = ["Data_Xml_Dom", "UI_Notifications"] }
 
 [target."cfg(target_os = \"linux\")".dependencies]
+notify-rust = "=4.17.0"
 webkit2gtk = { version = "=2.0.2", features = ["v2_6"] }
 
 [features]

@@ -73,7 +73,7 @@ All services share a single SQLite database (Cloudflare D1 local mode) with stat
 │   └── migrations/       # SQL migration files
 ├── email-worker/         # Email worker (wrangler.toml, .dev.vars)
 ├── ws-do/                # WebSocket Durable Object worker
-├── wake-worker/          # Agent wake dispatcher
+├── queue-worker/         # Queue task consumer (agent wake + mobile push)
 ├── daemon/               # Private machine credentials, daemon state, and logs
 ├── logs/                 # Service logs (web, email, WS, and wake workers)
 └── .pids.json            # PID tracking for running services

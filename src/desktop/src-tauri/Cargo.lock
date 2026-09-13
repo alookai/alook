@@ -37,11 +37,14 @@ name = "alook-desktop"
 version = "0.1.36"
 dependencies = [
  "base64 0.22.1",
+ "block2",
  "command-group",
  "getrandom 0.3.4",
+ "notify-rust",
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",
+ "objc2-user-notifications",
  "objc2-web-kit",
  "png 0.18.1",
  "serde",
@@ -53,6 +56,7 @@ dependencies = [
  "tauri-plugin-clipboard-manager",
  "tauri-plugin-deep-link",
  "tauri-plugin-dialog",
+ "tauri-plugin-mobile-push",
  "tauri-plugin-mobile-share-image",
  "tauri-plugin-notification",
  "tauri-plugin-opener",
@@ -2625,6 +2629,8 @@ version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9df9128cbbfef73cda168416ccf7f837b62737d748333bfe9ab71c245d76613e"
 dependencies = [
+ "bitflags 2.12.1",
+ "block2",
  "objc2",
  "objc2-foundation",
 ]
@@ -4167,6 +4173,16 @@ dependencies = [
  "thiserror 2.0.18",
  "toml 1.1.2+spec-1.1.0",
  "url",
+]
+
+[[package]]
+name = "tauri-plugin-mobile-push"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "tauri",
+ "tauri-plugin",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

@@ -62,6 +62,7 @@ targets:
       properties:
         com.apple.developer.associated-domains:
           - applinks:auth.alook.ai
+        aps-environment: $(APS_ENVIRONMENT)
     scheme:
       environmentVariables:
         RUST_BACKTRACE: full
@@ -76,7 +77,10 @@ targets:
         ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES: true
         EXCLUDED_ARCHS[sdk=iphoneos*]: x86_64
       configs:
+        debug:
+          APS_ENVIRONMENT: development
         release:
+          APS_ENVIRONMENT: production
           CODE_SIGN_STYLE: Manual
           CODE_SIGN_IDENTITY: Apple Distribution
           DEVELOPMENT_TEAM: 5RF24VHDQB

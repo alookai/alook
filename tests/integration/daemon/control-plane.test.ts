@@ -5,7 +5,7 @@
  *
  *   POST /api/community/channels/:id/messages (human, real HTTP)
  *     → committed message dispatcher → wake producer (dev HTTP transport)
- *     → alook-wake-worker (real process) → dispatchOneUnreadWake
+ *     → alook-queue-worker (real process) → dispatchOneUnreadWake
  *     → sendWakeToMachine → alook-ws-do (real DO) → the daemon's real
  *       `WsControlChannel`, over a real WebSocket, receives `agent:wake`
  *     → the test (playing the "agent" — no CLI spawned) replies via the
@@ -13,8 +13,8 @@
  *     → the reply is visible via a real read of the channel.
  *
  * Requires `wrangler dev` (`@alook/web`), `@alook/ws-do dev`, and
- * `@alook/wake-worker dev` all already running (same servers CI's `e2e`
- * job boots for `@alook/cli`'s integration tests, plus `wake-worker`).
+ * `@alook/queue-worker dev` all already running (same servers CI's `e2e`
+ * job boots for `@alook/cli`'s integration tests, plus `queue-worker`).
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
 import { WebSocket } from "ws"
@@ -148,7 +148,7 @@ describe("daemon control plane — real ws-do wake round-trip", () => {
 
     // Human owner posts a real message — exercises the real wake-producer
     // path (committed dispatcher → wake producer → dev HTTP transport →
-    // wake-worker → forward-agent-wake → the DO → our open socket).
+    // queue-worker → forward-agent-wake → the DO → our open socket).
     const postRes = await sessionRequest(`/api/community/channels/${fixture.channelId}/messages`, cookie, {
       method: "POST",
       headers: { "content-type": "application/json" },

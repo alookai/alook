@@ -1,0 +1,24 @@
+{
+  "name": "@alook/queue-worker",
+  "version": "0.1.36",
+  "private": true,
+  "scripts": {
+    "dev": "node ../../scripts/dev-with-wrangler-registry.mjs ../../.wrangler/registry wrangler dev --persist-to ../web/.wrangler/state",
+    "deploy": "wrangler deploy",
+    "knip": "knip",
+    "test": "vitest run --config vitest.workspace.config.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@alook/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "1.1.4",
+    "@cloudflare/workers-types": "^5.20260910.1",
+    "@types/node": "^25.9.4",
+    "knip": "^6.32.2",
+    "typescript": "^6.0.3",
+    "vitest": "4.1.11",
+    "wrangler": "4.131.0"
+  }
+}

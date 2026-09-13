@@ -122,7 +122,7 @@ describe("message delivery route", () => {
     expect(inputs.get("transient")![0]).toEqual(inputs.get("transient")![1])
   })
 
-  it("inverts buckets into one ordered bundle per user", async () => {
+  it("keeps message and unread events in one ordered bundle per desktop user", async () => {
     doMock.stubFetch.mockImplementation(successfulReceipt)
 
     const response = await handler.fetch(await deliveryRequest(), env as never)

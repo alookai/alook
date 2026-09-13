@@ -47,7 +47,7 @@ export default defineProject({
           WS_DO_WORKER: "ws-do-runtime-stub",
           EMAIL_WORKER: () => new Response("email"),
           BLOG_WORKER: () => new Response("blog"),
-          WAKE_WORKER: () => new Response("wake"),
+          QUEUE_WORKER: () => new Response("queue"),
         },
       },
     }),

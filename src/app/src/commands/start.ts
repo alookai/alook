@@ -12,7 +12,7 @@ export function startCommand(): Command {
     .option("--port-web <port>", "Web server port", String(DEFAULT_PORTS.web))
     .option("--port-email <port>", "Email worker port", String(DEFAULT_PORTS.emailWorker))
     .option("--port-ws <port>", "WebSocket worker port", String(DEFAULT_PORTS.wsDo))
-    .option("--port-wake <port>", "Wake worker port", String(DEFAULT_PORTS.wakeWorker))
+    .option("--port-wake <port>", "Wake worker port", String(DEFAULT_PORTS.queueWorker))
     .action(async (opts) => {
       if (!isInstalled()) {
         console.error("Error: Alook not installed. Run 'npx @alook/app onboard' first.");
@@ -23,7 +23,7 @@ export function startCommand(): Command {
         web: parseInt(opts.portWeb, 10),
         emailWorker: parseInt(opts.portEmail, 10),
         wsDo: parseInt(opts.portWs, 10),
-        wakeWorker: parseInt(opts.portWake, 10),
+        queueWorker: parseInt(opts.portWake, 10),
       };
 
       const alreadyRunning = isRunning();

@@ -276,7 +276,7 @@ This project uses **pnpm** (see the `packageManager` field).
 pnpm install
 pnpm run typecheck           # tsc --noEmit (passes clean)
 pnpm test                    # vitest — unit tests only (drivers/manager/inbox/credentials/server)
-pnpm run test:integration    # real infra: requires wrangler dev + ws-do dev + wake-worker dev (see below)
+pnpm run test:integration    # real infra: requires wrangler dev + ws-do dev + queue-worker dev (see below)
 ```
 
 Unit behavior is covered by `src/**/*.test.ts`. Full control-plane and
@@ -329,7 +329,7 @@ pnpm run daemon -- start --foreground --machine-key cmk_… \
 
 A bot bound to this machine (via the community UI/API) can now be woken by
 posting a message in a channel it's a member of — the real wake-producer path
-(`src/web` → `src/wake-worker` → `src/ws-do`) delivers `agent:wake` over the
+(`src/web` → `src/queue-worker` → `src/ws-do`) delivers `agent:wake` over the
 daemon's real `WsControlChannel`.
 
 `pnpm --filter @alook/daemon build` emits a self-contained daemon bundle. The

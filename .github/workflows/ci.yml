@@ -345,7 +345,7 @@ jobs:
             case "$root" in
               scripts/ci) projects=(ci-scripts) ;;
               src/email-worker) projects=(email-worker-node email-worker-runtime) ;;
-              src/wake-worker) projects=(wake-worker-node wake-worker-runtime) ;;
+              src/queue-worker) projects=(queue-worker-node queue-worker-runtime) ;;
               src/web) projects=(web-node web-dom web-runtime auth-node auth-runtime) ;;
               src/ws-do) projects=(ws-do-node ws-do-runtime) ;;
               *) projects=("$(node -e 'console.log(require("./" + process.argv[1] + "/package.json").name)' "$root")") ;;
@@ -561,7 +561,10 @@ jobs:
           CI_PROJECTION_VALUE: ${{ needs.scope.outputs.integration_suites }}
         run: node scripts/ci/validate-execution-plan.mjs
       - name: Create local bindings
-        run: printf 'BETTER_AUTH_SECRET=ci-e2e-secret\nBETTER_AUTH_URL=http://localhost:3000\nDEVICE_CLIENT_IDS=e2e-test-client\nENCRYPTION_KEY=ci-e2e-encryption-key-32chars!!\n' > src/web/.dev.vars
+        run: |
+          printf 'BETTER_AUTH_SECRET=ci-e2e-secret\nBETTER_AUTH_URL=http://localhost:3000\nDEVICE_CLIENT_IDS=e2e-test-client\nENCRYPTION_KEY=ci-e2e-encryption-key-32chars!!\n' > src/web/.dev.vars
+          cp src/queue-worker/.dev.vars.example src/queue-worker/.dev.vars
+          sed -i 's|^ENCRYPTION_KEY=$|ENCRYPTION_KEY=ci-e2e-encryption-key-32chars!!|' src/queue-worker/.dev.vars
       - run: pnpm run db:migrate
       - name: Start dev servers
         run: |
@@ -574,7 +577,7 @@ jobs:
           }
           pnpm --filter @alook/ws-do dev &
           wait_for http://localhost:8789/health
-          pnpm --filter @alook/wake-worker dev &
+          pnpm --filter @alook/queue-worker dev &
           wait_for http://localhost:8790/health
           pnpm --filter @alook/email-worker dev &
           wait_for http://localhost:8787/health
