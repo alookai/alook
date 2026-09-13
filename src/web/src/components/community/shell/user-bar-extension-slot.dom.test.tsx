@@ -209,6 +209,7 @@ describe("UserBarExtensionSlot", () => {
   })
 
   it("moves focus into the dialog only for an explicit open request", () => {
+    const focus = vi.spyOn(HTMLElement.prototype, "focus")
     const onInitialFocus = vi.fn()
     const renderer = render(createElement(UserBarExtensionSlot, {
       active: "inbox",
@@ -225,5 +226,7 @@ describe("UserBarExtensionSlot", () => {
     expect(slot).toHaveAttribute("tabindex", "-1")
     expect(slot).toHaveFocus()
     expect(onInitialFocus).toHaveBeenCalledOnce()
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true })
+    focus.mockRestore()
   })
 })

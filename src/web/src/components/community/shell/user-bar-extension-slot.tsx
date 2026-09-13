@@ -79,7 +79,7 @@ export function UserBarExtensionSlot({
 
   useEffect(() => {
     if (!interactive || !focusOnOpen) return
-    ref.current?.focus()
+    ref.current?.focus({ preventScroll: true })
     onInitialFocus?.()
   }, [active, interactive, focusOnOpen, onInitialFocus])
 
