@@ -32,7 +32,7 @@ import type { ComposerReplyTarget } from "./composer-types"
 import { SendStrokeRoundedIcon } from "./send-stroke-rounded-icon"
 
 const COMPOSER_OUTER_CLASS =
-  "relative pl-[max(0.75rem,var(--app-safe-area-left))] pr-[max(0.75rem,var(--app-safe-area-right))] pb-[calc(0.75rem+var(--app-safe-area-bottom))] pt-0 sm:px-3 sm:pb-3"
+  "relative pl-[var(--community-composer-inline-start)] pr-[var(--community-composer-inline-end)] pb-[calc(0.75rem+var(--app-safe-area-bottom))] pt-0 sm:pb-3"
 
 export type ComposerViewProps = {
   isForumThreadBody: boolean
@@ -93,7 +93,7 @@ export function ComposerView({
 
   const composerRadius = replyingTo || pendingFiles.length > 0
     ? showSend ? "rounded-b-[24px]" : "rounded-b-xl"
-    : showSend ? "rounded-[24px]" : "rounded-xl"
+    : "rounded-(--community-composer-top-radius)"
 
   return (
     <div
@@ -252,7 +252,7 @@ export function ComposerView({
 export function ComposerSkeleton() {
   return (
     <div className={COMPOSER_OUTER_CLASS}>
-      <div className="relative rounded-xl [@media(hover:none)]:rounded-[24px] bg-muted py-3 px-12 shadow-(--e1) ring-1 ring-border/40">
+      <div className="relative rounded-(--community-composer-top-radius) bg-muted py-3 px-12 shadow-(--e1) ring-1 ring-border/40">
         <Skeleton className="h-6 w-2/5 rounded" />
         <Skeleton className="absolute left-2 bottom-2 size-8 rounded-full" />
         <Skeleton className="absolute right-2 bottom-2 size-8 rounded-full" />

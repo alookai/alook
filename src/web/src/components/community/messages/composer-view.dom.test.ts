@@ -245,7 +245,7 @@ describe("ComposerView", () => {
     expect(onEmojiPick).toHaveBeenCalledWith("🌱")
     expect(
       renderer.container.querySelector('[class*="focus-within:ring-2"]')?.className,
-    ).toContain("rounded-xl")
+    ).toContain("rounded-(--community-composer-top-radius)")
 
     renderer.rerender(createElement(
       ComposerView,
@@ -302,7 +302,9 @@ describe("ComposerView", () => {
     ))
     const input = renderer.container.querySelector(`[data-testid="${tid.composerInput}"]`)!
     expect(input.className).toContain("px-12")
-    expect(input.parentElement?.className).toContain("rounded-[24px]")
+    expect(input.parentElement?.className).toContain(
+      "rounded-(--community-composer-top-radius)",
+    )
     expect(renderer.container.querySelector("[data-emoji-picker]")).toBeNull()
     const send = renderer.container.querySelector<HTMLButtonElement>(
       `[data-testid="${tid.composerSend}"]`,
@@ -367,10 +369,10 @@ describe("ComposerView", () => {
     ])
     expect(renderer.container.firstElementChild?.tagName).toBe("DIV")
     expect(renderer.container.firstElementChild?.className).toBe(
-      "relative pl-[max(0.75rem,var(--app-safe-area-left))] pr-[max(0.75rem,var(--app-safe-area-right))] pb-[calc(0.75rem+var(--app-safe-area-bottom))] pt-0 sm:px-3 sm:pb-3",
+      "relative pl-[var(--community-composer-inline-start)] pr-[var(--community-composer-inline-end)] pb-[calc(0.75rem+var(--app-safe-area-bottom))] pt-0 sm:pb-3",
     )
     expect(renderer.container.innerHTML).toContain(
-      "relative rounded-xl [@media(hover:none)]:rounded-[24px] bg-muted py-3 px-12 shadow-(--e1) ring-1 ring-border/40",
+      "relative rounded-(--community-composer-top-radius) bg-muted py-3 px-12 shadow-(--e1) ring-1 ring-border/40",
     )
   })
 })
