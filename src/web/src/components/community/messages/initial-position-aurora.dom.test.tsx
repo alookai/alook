@@ -5,6 +5,7 @@ import React from "react"
 import { describe, expect, it, vi } from "vitest"
 import { render } from "@/test/react-dom-harness"
 import { tid } from "@/lib/community/testids"
+import { INITIAL_POSITION_CROSSFADE_MS } from "./initial-position-transition"
 import { InitialPositionAurora } from "./initial-position-aurora"
 
 vi.mock("./initial-position-aurora.module.css", () => ({
@@ -30,12 +31,16 @@ describe("InitialPositionAurora", () => {
     expect(aurora).toHaveAttribute("aria-hidden", "true")
     expect(aurora).toHaveAttribute("data-phase", "aurora")
     expect(aurora).toHaveTextContent("")
+    expect(aurora).toHaveClass("visible")
 
     renderer.rerender(React.createElement(InitialPositionAurora, { phase: "revealing" }))
     expect(renderer.getByTestId(tid.initialPositionAurora)).toHaveAttribute(
       "data-phase",
       "revealing",
     )
+    expect(renderer.getByTestId(tid.initialPositionAurora)).toBe(aurora)
+    expect(aurora).toHaveClass("leaving")
+    expect(aurora).not.toHaveClass("visible")
     renderer.rerender(React.createElement(InitialPositionAurora, { phase: "revealed" }))
     expect(renderer.queryByTestId(tid.initialPositionAurora)).toBeNull()
   })
@@ -43,7 +48,18 @@ describe("InitialPositionAurora", () => {
   it("keeps non-layout overlay geometry, semantic aurora paint, reduced-motion static layers, and a 100ms fade", () => {
     expect(styles).toMatch(/position:\s*absolute/)
     expect(styles).toMatch(/pointer-events:\s*none/)
-    expect(styles).toMatch(/transition:\s*opacity 100ms var\(--ease-out\)/)
+    for (const direction of ["enter", "leave"]) {
+      expect(styles).toContain(`animation: aurora-${direction} ${INITIAL_POSITION_CROSSFADE_MS}ms var(--ease-out) both`)
+    }
+    expect(styles).toMatch(/@keyframes aurora-enter\s*\{\s*from \{ opacity: 0; \}\s*to \{ opacity: var\(--aurora-opacity\); \}/)
+    expect(styles).toMatch(/@keyframes aurora-leave\s*\{\s*from \{ opacity: var\(--aurora-opacity\); \}\s*to \{ opacity: 0; \}/)
+    expect(styles).toContain("calc(var(--initial-position-aurora-opacity) * 0.5)")
+    expect(styles).toContain("calc(var(--initial-position-aurora-reduced-opacity) * 0.5)")
+    expect(styles).toMatch(/\.aurora\s*\{[^}]*z-index: 0;/)
+    expect(styles.match(/\.peaks\s*\{([^}]+)\}/)?.[1]).not.toMatch(/background:/)
+    expect(styles).toMatch(/animation: aurora-drift [\d.]+s var\(--ease-in-out\) -[\d.]+s infinite alternate/)
+    expect(styles).toContain("translateX(-4%)")
+    expect(styles).toContain("translateX(4%)")
     expect(styles).toMatch(/\.aurora\s*\{[\s\S]*?height:\s*3\.5rem;/)
     expect(styles).toMatch(
       /@media \(max-width: 40rem\)[\s\S]*?\.aurora\s*\{[\s\S]*?height:\s*3rem;/,

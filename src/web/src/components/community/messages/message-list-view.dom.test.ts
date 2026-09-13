@@ -183,6 +183,11 @@ describe("renderMessageListView", () => {
       () => React.createElement("virtual-rows"),
     ))
     expect(content()).toHaveClass("opacity-100", "transition-opacity", "duration-100")
+    const boundary = renderer.container.querySelector("[data-message-scroller-boundary]")!
+    expect(boundary).toHaveClass("isolate")
+    expect(renderer.getByTestId("community-message-scroller")).toHaveClass("relative", "z-10")
+    expect(boundary.querySelector("accessory-rail")).toBeInTheDocument()
+    expect(renderer.getByTestId("community-initial-position-aurora").parentElement).toBe(boundary)
     expect(content()).toHaveAttribute("aria-hidden", "false")
     expect(content()).not.toHaveAttribute("inert")
     expect(renderer.getByTestId("community-initial-position-aurora"))

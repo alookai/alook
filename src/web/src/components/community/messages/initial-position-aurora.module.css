@@ -1,23 +1,25 @@
 .aurora {
+  --aurora-opacity: calc(var(--initial-position-aurora-opacity) * 0.5);
   position: absolute;
   right: 1rem;
   bottom: 0;
   left: 1rem;
-  z-index: 10;
+  z-index: 0;
   height: 3.5rem;
   overflow: hidden;
   pointer-events: none;
   opacity: 0;
-  transition: opacity 100ms var(--ease-out);
   will-change: opacity;
 }
 
 .visible {
-  opacity: var(--initial-position-aurora-opacity);
+  opacity: var(--aurora-opacity);
+  animation: aurora-enter 100ms var(--ease-out) both;
 }
 
 .leaving {
   opacity: 0;
+  animation: aurora-leave 100ms var(--ease-out) both;
 }
 
 .drift {
@@ -25,7 +27,7 @@
   inset: 0;
   transform-origin: center bottom;
   will-change: transform;
-  animation: aurora-drift 5.8s var(--ease-in-out) infinite alternate;
+  animation: aurora-drift 2.4s var(--ease-in-out) -0.6s infinite alternate;
 }
 
 .peaks,
@@ -37,16 +39,6 @@
 
 .peaks {
   z-index: 2;
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    var(--initial-position-aurora-cyan) 4%,
-    var(--initial-position-aurora-blue) 30%,
-    var(--initial-position-aurora-violet) 56%,
-    var(--initial-position-aurora-magenta) 82%,
-    var(--initial-position-aurora-cyan) 96%,
-    transparent 100%
-  ) bottom / 100% 2px no-repeat;
   opacity: var(--initial-position-aurora-glint-opacity);
   filter:
     drop-shadow(0 -2px 5px color-mix(in oklab, var(--initial-position-aurora-blue) 48%, transparent))
@@ -105,7 +97,7 @@
     linear-gradient(to top, var(--initial-position-aurora-cyan), transparent) 96.5% 100% / 0.22rem 6% no-repeat,
     linear-gradient(to top, var(--initial-position-aurora-cyan), transparent) 100% 100% / 0.08rem 0% no-repeat;
   filter: blur(1px);
-  animation: aurora-fine-peaks 3.4s var(--ease-in-out) infinite alternate;
+  animation: aurora-fine-peaks 2.2s var(--ease-in-out) -0.55s infinite alternate;
 }
 
 .peaks::after {
@@ -125,7 +117,7 @@
     linear-gradient(to top, color-mix(in oklab, var(--initial-position-aurora-cyan) 68%, transparent), transparent) 100% 100% / 0.5rem 0% no-repeat;
   opacity: 0.72;
   filter: blur(5px);
-  animation: aurora-broad-peaks 4.1s var(--ease-in-out) -1.7s infinite alternate;
+  animation: aurora-broad-peaks 2.7s var(--ease-in-out) -1.7s infinite alternate;
 }
 
 .haze {
@@ -159,7 +151,7 @@
   opacity: var(--initial-position-aurora-bloom-opacity);
   filter: blur(16px);
   mask-image: linear-gradient(to top, black 0%, black 34%, transparent 100%);
-  animation: aurora-haze 4.7s var(--ease-in-out) -2.2s infinite alternate;
+  animation: aurora-haze 3.1s var(--ease-in-out) -2.2s infinite alternate;
 }
 
 .haze::before {
@@ -169,16 +161,26 @@
     radial-gradient(20% 76% at 72% 100%, color-mix(in oklab, var(--initial-position-aurora-violet) 52%, transparent), transparent 66%),
     radial-gradient(10% 44% at 92% 100%, color-mix(in oklab, var(--initial-position-aurora-cyan) 46%, transparent), transparent 64%);
   filter: blur(9px);
-  animation: aurora-secondary-haze 5.3s var(--ease-in-out) -0.9s infinite alternate;
+  animation: aurora-secondary-haze 3.7s var(--ease-in-out) -0.9s infinite alternate;
+}
+
+@keyframes aurora-enter {
+  from { opacity: 0; }
+  to { opacity: var(--aurora-opacity); }
+}
+
+@keyframes aurora-leave {
+  from { opacity: var(--aurora-opacity); }
+  to { opacity: 0; }
 }
 
 @keyframes aurora-drift {
   from {
-    transform: translateX(-0.4%);
+    transform: translateX(-4%);
   }
 
   to {
-    transform: translateX(0.4%);
+    transform: translateX(4%);
   }
 }
 
@@ -196,32 +198,32 @@
 
 @keyframes aurora-broad-peaks {
   from {
-    transform: scaleY(0.92) translateX(0.4%);
+    transform: scaleY(0.92) translateX(4%);
   }
 
   to {
-    transform: scaleY(1.08) translateX(-0.4%);
+    transform: scaleY(1.08) translateX(-4%);
   }
 }
 
 @keyframes aurora-haze {
   from {
-    transform: scaleY(0.88) translateX(-0.8%);
+    transform: scaleY(0.88) translateX(-3%);
   }
 
   to {
-    transform: scaleY(1.04) translateX(0.8%);
+    transform: scaleY(1.04) translateX(3%);
   }
 }
 
 @keyframes aurora-secondary-haze {
   from {
-    transform: scaleY(1.02) translateX(0.7%);
+    transform: scaleY(1.02) translateX(2%);
     opacity: 0.7;
   }
 
   to {
-    transform: scaleY(0.86) translateX(-0.7%);
+    transform: scaleY(0.86) translateX(-2%);
     opacity: 1;
   }
 }
@@ -234,11 +236,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .aurora {
-    transition: opacity 100ms var(--ease-out);
-  }
-
-  .visible {
-    opacity: var(--initial-position-aurora-reduced-opacity);
+    --aurora-opacity: calc(var(--initial-position-aurora-reduced-opacity) * 0.5);
   }
 
   .drift,
