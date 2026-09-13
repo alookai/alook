@@ -79,6 +79,19 @@ describe("GET /api/email/[id]/attachment/[index]", () => {
     expect((await res.json()).error).toBe("attachment not found");
   });
 
+  it.each(["small-报告.bin", "📎😀.bin", 'a"b\\c.bin', "a\r\nb.bin", "plain.bin"])("serves %j without invalid header bytes", async filename => {
+    mockGetById.mockResolvedValue({ id: "e1", agentId: "a1", r2Key: "k" });
+    mockGetAgent.mockResolvedValue({ id: "a1" });
+    mockBucketGet.mockResolvedValue({ arrayBuffer: async () => new ArrayBuffer(4) });
+    mockParse.mockResolvedValue({ attachments: [{}] });
+    const bytes = new Uint8Array([0, 1, 254, 255]);
+    mockFilter.mockReturnValue([{ filename, mimeType: "application/octet-stream", content: bytes.buffer }]);
+    const res = await get({ id: "e1", index: "0" });
+    expect(res.status).toBe(200);
+    expect(decodeURIComponent(res.headers.get("Content-Disposition")!.split("filename*=UTF-8''")[1])).toBe(filename);
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(bytes);
+  });
+
   it("streams the attachment with content headers", async () => {
     mockGetById.mockResolvedValue({ id: "e1", agentId: "a1", r2Key: "k" });
     mockGetAgent.mockResolvedValue({ id: "a1" });

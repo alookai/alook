@@ -1,5 +1,6 @@
 "use client"
 
+import { saveFile, fileSaveMessage, type FileSaveResult } from "@/lib/file-save"
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react"
 import { toBlob } from "html-to-image"
 import { toast } from "sonner"
@@ -68,29 +69,15 @@ export async function copyRenderedShareCard(
   await write(blob)
 }
 
-async function saveShareCardDownload(
-  blob: Blob,
-  filename: string,
-  save: ShareCardBlobWriter = (value) => {
-    const url = URL.createObjectURL(value)
-    const anchor = document.createElement("a")
-    anchor.href = url
-    anchor.download = filename
-    anchor.click()
-    queueMicrotask(() => URL.revokeObjectURL(url))
-  },
-): Promise<void> {
-  await save(blob)
+async function saveShareCardDownload(blob: Blob, filename: string, save?: ShareCardBlobWriter, signal?: AbortSignal): Promise<FileSaveResult> {
+  if (save) { await save(blob); return { status: "started" } }
+  return saveFile(blob, filename, { signal })
 }
 
-export async function downloadRenderedShareCard(
-  render: ShareCardRenderer,
-  filename: string,
-  save?: ShareCardBlobWriter,
-): Promise<void> {
+export async function downloadRenderedShareCard(render: ShareCardRenderer, filename: string, save?: ShareCardBlobWriter): Promise<FileSaveResult> {
   const blob = await render()
   if (!blob) throw new ShareImageSessionError("rasterize")
-  await saveShareCardDownload(blob, filename, save)
+  return saveShareCardDownload(blob, filename, save)
 }
 
 export function shareCardRenderErrorMessage(error: unknown): string | null {
@@ -295,7 +282,13 @@ export function MessageShareDialog({ m, open, onClose }: {
           const { saveMobileShareImage } = await import("@/lib/community/mobile-share-image")
           if (!isCurrent()) return
           mobileDestination = (await saveMobileShareImage(blob, filename)).destination
-        } else await saveShareCardDownload(blob, filename)
+        } else {
+          const result = await saveShareCardDownload(blob, filename, undefined, controller.signal)
+          if (!isCurrent()) return
+          if (result.status === "error") toast.error(fileSaveMessage(result))
+          else if (result.status !== "cancelled") toast.success(fileSaveMessage(result))
+          return
+        }
         if (!isCurrent()) return
 
         if (action === "copy") {
@@ -313,7 +306,7 @@ export function MessageShareDialog({ m, open, onClose }: {
         } else if (mobileDestination === "document") {
           toast.success("Image saved")
         } else {
-          toast.success("Image downloaded")
+          toast.success("Download started")
         }
       } catch (error) {
         if (!isCurrent()) return

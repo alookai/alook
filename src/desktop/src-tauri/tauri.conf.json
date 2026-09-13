@@ -50,7 +50,8 @@
         "native-oauth",
         "native-oauth-mobile",
         "mobile-share-image-mobile",
-        "mobile-system-notification-mobile"
+        "mobile-system-notification-mobile",
+        "file-save"
       ]
     }
   },

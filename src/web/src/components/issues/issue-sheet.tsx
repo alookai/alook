@@ -1,5 +1,6 @@
 "use client";
 
+import { IssueAttachmentList } from "./issue-attachment-list";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Sheet,
@@ -25,7 +26,6 @@ import {
   ArrowUp,
   Check,
   CircleDot,
-  File as FileIcon,
   GitBranch,
   Loader2,
   MessageSquare,
@@ -38,8 +38,6 @@ import { toast } from "sonner";
 import { Streamdown } from "streamdown";
 import { mermaid, cjk } from "@/lib/streamdown-plugins";
 import type { Agent, Artifact, Issue, IssueComment, Message, TaskApi } from "@alook/shared";
-import { isPreviewable, getArtifactUrl } from "@/components/artifact-content-renderer";
-import { formatSize } from "@/components/agent-chat/artifact-sheet";
 import { isTerminalIssueStatus, toAlookAddress } from "@alook/shared";
 import type { TraceTask } from "@/lib/api";
 import { updateIssue } from "@/lib/api";
@@ -129,45 +127,6 @@ function CommentRow({ comment, agents }: { comment: IssueComment; agents: Agent[
       <div className="prose prose-sm dark:prose-invert max-w-none text-sm wrap-break-word">
         <Streamdown plugins={{ mermaid, cjk }}>{comment.content}</Streamdown>
       </div>
-    </div>
-  );
-}
-
-function AttachmentList({ artifacts, workspaceId, onArtifactClick }: { artifacts: Artifact[]; workspaceId: string; onArtifactClick?: (artifact: Artifact) => void }) {
-  if (artifacts.length === 0) return null;
-  const baseCls = "flex items-center gap-2 rounded-md px-2 py-2 text-sm transition-colors hover:bg-accent";
-  return (
-    <div className="space-y-1">
-      {artifacts.map((artifact) => {
-        const canPreview = onArtifactClick && isPreviewable(artifact);
-        const inner = (
-          <>
-            <FileIcon className="size-3.5 shrink-0 text-muted-foreground" />
-            <span className="min-w-0 flex-1 truncate">{artifact.filename}</span>
-            <span className="shrink-0 text-xs text-muted-foreground">{formatSize(artifact.size)}</span>
-          </>
-        );
-        return canPreview ? (
-          <button
-            key={artifact.id}
-            type="button"
-            onClick={() => onArtifactClick(artifact)}
-            className={cn(baseCls, "w-full text-left")}
-          >
-            {inner}
-          </button>
-        ) : (
-          <a
-            key={artifact.id}
-            href={getArtifactUrl(artifact.id, workspaceId, true)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={baseCls}
-          >
-            {inner}
-          </a>
-        );
-      })}
     </div>
   );
 }
@@ -626,7 +585,7 @@ export function IssueSheet({
       {/* Attachments (detail mode) */}
       {mode === "detail" && detail?.artifacts && detail.artifacts.length > 0 && (
         <div className="shrink-0 px-2 sm:px-3 py-2">
-          <AttachmentList artifacts={detail.artifacts} workspaceId={workspaceId} onArtifactClick={onArtifactClick} />
+          <IssueAttachmentList artifacts={detail.artifacts} workspaceId={workspaceId} onArtifactClick={onArtifactClick} />
         </div>
       )}
     </>

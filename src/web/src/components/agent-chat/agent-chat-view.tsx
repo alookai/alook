@@ -1,5 +1,6 @@
 "use client";
 
+import { useArtifactClick } from "@/components/use-artifact-click";
 import React, {
   useEffect,
   useLayoutEffect,
@@ -72,8 +73,6 @@ import { ImageLightbox } from "@/components/agent-chat/image-lightbox";
 import { CalendarEventSheet } from "@/components/calendar/calendar-event-sheet";
 import { IssueSheet } from "@/components/issues/issue-sheet";
 import {
-  isPreviewable,
-  getArtifactUrl,
   computeArtifactVersions,
 } from "@/components/artifact-content-renderer";
 import { ScrollToBottomButton } from "@/components/ui/scroll-to-bottom-button";
@@ -365,35 +364,12 @@ export function AgentChatView({
     [],
   );
 
-  const handleArtifactClick = useCallback(
-    (artifact: Artifact) => {
-      if (artifact.content_type.startsWith("image/")) {
-        setLightboxArtifact(artifact);
-      } else if (isPreviewable(artifact)) {
-        setSelectedArtifact(artifact);
-        setArtifactSheetOpen(true);
-      } else {
-        window.open(getArtifactUrl(artifact.id, workspaceId, true), "_blank");
-      }
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- setState fns are stable
-    [workspaceId],
-  );
-
-  const handleIssueArtifactClick = useCallback(
-    (artifact: Artifact) => {
-      if (artifact.content_type.startsWith("image/")) {
-        setLightboxArtifact(artifact);
-      } else if (isPreviewable(artifact)) {
-        setSelectedArtifact(artifact);
-        setArtifactSheetOpen(true);
-      } else {
-        window.open(getArtifactUrl(artifact.id, workspaceId, true), "_blank");
-      }
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- setState fns are stable
-    [workspaceId],
-  );
+  const previewArtifact = useCallback((artifact: Artifact) => {
+    setSelectedArtifact(artifact);
+    setArtifactSheetOpen(true);
+  }, [setSelectedArtifact, setArtifactSheetOpen]);
+  const handleArtifactClick = useArtifactClick(workspaceId, previewArtifact, setLightboxArtifact);
+  const handleIssueArtifactClick = useArtifactClick(workspaceId, previewArtifact, setLightboxArtifact);
 
   // Editor plain text + caret, reported up from the composer, drive the
   // slash-command popup (mentions are handled natively inside the composer).

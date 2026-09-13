@@ -1,5 +1,6 @@
 "use client";
 
+import { FileDownloadButton } from "@/components/file-download-button"
 import React, { useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import type { Artifact } from "@alook/shared";
@@ -53,15 +54,15 @@ export function ImageLightbox(props: LightboxProps) {
     >
       <div className="absolute top-4 right-4 flex items-center gap-2">
         {downloadUrl && (
-          <a
-            href={downloadUrl}
-            download={alt}
+          <FileDownloadButton
+            url={downloadUrl}
+            filename={alt}
             aria-label={`Download ${alt}`}
             onClick={(e) => e.stopPropagation()}
             className="rounded-full p-2 text-white/70 hover:text-white hover:bg-white/10 transition-colors"
           >
             <Download className="size-5" />
-          </a>
+          </FileDownloadButton>
         )}
         <button
           type="button"

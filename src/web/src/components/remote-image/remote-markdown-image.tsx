@@ -1,47 +1,13 @@
 "use client"
 
 import { Download } from "lucide-react"
-import { useCallback } from "react"
+import { FileDownloadButton } from "@/components/file-download-button"
 import { cn } from "@/lib/utils"
 import { useRemoteImageAttempt, useRemoteImageEligibility } from "./remote-image-attempt"
-
-const EXTENSION_RE = /\.[^/.]+$/
 
 function dimension(value: unknown): number | undefined {
   const parsed = typeof value === "number" ? value : Number.parseFloat(String(value ?? ""))
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined
-}
-
-async function downloadRemoteImage(src: string, alt: string) {
-  try {
-    const blob = await fetch(src).then((response) => response.blob())
-    const pathName = new URL(src, window.location.origin).pathname.split("/").pop() || ""
-    const pathExtension = pathName.split(".").pop()
-    const hasExtension = pathName.includes(".") && pathExtension && pathExtension.length <= 4
-    let filename = pathName
-    if (!hasExtension) {
-      const extension = blob.type.includes("jpeg") || blob.type.includes("jpg")
-        ? "jpg"
-        : blob.type.includes("svg")
-          ? "svg"
-          : blob.type.includes("gif")
-            ? "gif"
-            : blob.type.includes("webp")
-              ? "webp"
-              : "png"
-      filename = `${(alt || pathName || "image").replace(EXTENSION_RE, "")}.${extension}`
-    }
-    const objectUrl = URL.createObjectURL(blob)
-    const anchor = document.createElement("a")
-    anchor.href = objectUrl
-    anchor.download = filename
-    document.body.appendChild(anchor)
-    anchor.click()
-    anchor.remove()
-    URL.revokeObjectURL(objectUrl)
-  } catch {
-    window.open(src, "_blank")
-  }
 }
 
 type MarkdownImageProps = Record<string, unknown> & {
@@ -72,9 +38,6 @@ function MarkdownImageAttempt({
   const frameWidth = imageWidth && imageHeight
     ? Math.min(imageWidth, 300 * imageWidth / imageHeight)
     : imageWidth ? Math.min(imageWidth, 300) : 300
-  const download = useCallback(() => {
-    if (src) void downloadRemoteImage(src, alt)
-  }, [alt, src])
 
   if (!src) return null
 
@@ -132,14 +95,14 @@ function MarkdownImageAttempt({
       {status === "ready" && (
         <>
           <span className="pointer-events-none absolute inset-0 hidden rounded-lg bg-foreground/10 group-hover:block" />
-          <button
-            type="button"
+          <FileDownloadButton
             title="Download image"
-            onClick={download}
+            url={src}
+            filename={src.split(/[?#]/)[0].split("/").pop() || alt || "image"}
             className="absolute right-2 bottom-2 flex size-8 cursor-pointer items-center justify-center rounded-md border border-border bg-background/90 opacity-0 shadow-sm backdrop-blur-sm transition-all duration-200 hover:bg-background group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <Download className="size-3.5" />
-          </button>
+          </FileDownloadButton>
         </>
       )}
     </div>

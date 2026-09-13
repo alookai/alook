@@ -1,5 +1,6 @@
 "use client";
 
+import { FileDownloadButton } from "@/components/file-download-button"
 import React, { useEffect, useState } from "react";
 import { getArtifactContent } from "@/lib/api";
 import type { Artifact } from "@alook/shared";
@@ -137,14 +138,14 @@ export function ArtifactContentRenderer({ artifact, workspaceId }: ArtifactConte
       <p className="text-sm text-muted-foreground">
         This file type cannot be previewed.
       </p>
-      <a
-        href={getArtifactUrl(artifact.id, workspaceId, true)}
-        download={artifact.filename}
+      <FileDownloadButton
+        url={getArtifactUrl(artifact.id, workspaceId, true)}
+        filename={artifact.filename}
         className="inline-flex items-center gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground transition-colors"
       >
         <Download className="size-3.5" />
         Download
-      </a>
+      </FileDownloadButton>
     </div>
   );
 }

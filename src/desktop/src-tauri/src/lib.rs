@@ -1,4 +1,8 @@
 mod commands;
+mod file_save;
+#[cfg(desktop)]
+mod file_save_journal;
+mod file_save_runtime;
 
 use tauri::Manager;
 
@@ -35,6 +39,7 @@ pub fn run() {
         commands::show_main_window(app);
     }));
     let builder = builder
+        .manage(file_save_runtime::FileSaveState::default())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_opener::init());
@@ -76,8 +81,13 @@ fn run_mobile(mut builder: tauri::Builder<tauri::Wry>) {
     builder = builder
         .manage(mobile_share_image::MobileShareImageState::default())
         .plugin(tauri_plugin_mobile_share_image::init())
+        .plugin(tauri_plugin_file_save::init())
         .plugin(tauri_plugin_mobile_push::init());
     builder = builder.invoke_handler(tauri::generate_handler![
+        file_save_runtime::file_save_begin,
+        file_save_runtime::file_save_write_chunk,
+        file_save_runtime::file_save_commit,
+        file_save_runtime::file_save_cancel,
         mobile_share_image_runtime::mobile_share_image_copy,
         mobile_share_image_runtime::mobile_share_image_save,
         mobile_system_notification_runtime::mobile_system_notification_check_permission,
@@ -99,6 +109,9 @@ fn run_mobile(mut builder: tauri::Builder<tauri::Wry>) {
     ]);
 
     builder = builder.setup(|app| {
+        if file_save_runtime::setup(app.handle()).is_err() {
+            eprintln!("file save storage unavailable");
+        }
         if let Some(window) = app.get_webview_window("main") {
             webview_recovery::attach(&window);
         }
@@ -114,6 +127,7 @@ fn run_mobile(mut builder: tauri::Builder<tauri::Wry>) {
             && matches!(payload.event(), tauri::webview::PageLoadEvent::Started)
         {
             native_oauth_runtime::retire_listener(webview.app_handle());
+            file_save_runtime::retire(webview.app_handle());
         }
     });
 
@@ -133,6 +147,10 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
 
     // Register IPC commands (desktop only)
     builder = builder.invoke_handler(tauri::generate_handler![
+        file_save_runtime::file_save_begin,
+        file_save_runtime::file_save_write_chunk,
+        file_save_runtime::file_save_commit,
+        file_save_runtime::file_save_cancel,
         commands::daemon_runtime_capability,
         commands::daemon_pair,
         commands::set_window_theme,
@@ -155,6 +173,9 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
 
     // System tray + window setup (desktop only)
     builder = builder.setup(|app| {
+        if file_save_runtime::setup(app.handle()).is_err() {
+            eprintln!("file save storage unavailable");
+        }
         if let Some(window) = app.get_webview_window("main") {
             webview_recovery::attach(&window);
         }
@@ -202,6 +223,7 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
             && matches!(payload.event(), tauri::webview::PageLoadEvent::Started)
         {
             native_oauth_runtime::retire_listener(webview.app_handle());
+            file_save_runtime::retire(webview.app_handle());
             system_notifications::retire_listener(webview.app_handle());
         }
     });
@@ -209,6 +231,7 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
     builder = builder.on_window_event(|window, event| {
         if window.label() == "main" && matches!(event, tauri::WindowEvent::Destroyed) {
             native_oauth_runtime::retire_listener(window.app_handle());
+            file_save_runtime::retire(window.app_handle());
             system_notifications::retire_listener(window.app_handle());
         }
         #[cfg(target_os = "macos")]
