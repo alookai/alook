@@ -168,6 +168,12 @@ describe("account deletion snapshot and delete queries", () => {
       bot, `${bot}@example.com`, `bots/${bot}/avatar`,
       reader, `${reader}@example.com`, earlyReader, `${earlyReader}@example.com`,
     )
+    run(
+      "INSERT INTO community_push_device (id, user_id, installation_id, platform, provider_environment, provider_token_encrypted, provider_token_hash, last_seen_at, created_at, updated_at) VALUES ('owner_device_1', ?, 'owner-installation-1', 'ios', 'sandbox', 'fake-owner-ciphertext-1', ?, ?, ?, ?), ('owner_device_2', ?, 'owner-installation-2', 'android', 'production', 'fake-owner-ciphertext-2', ?, ?, ?, ?), ('reader_device', ?, 'reader-installation', 'ios', 'production', 'fake-reader-ciphertext', ?, ?, ?, ?)",
+      owner, "a".repeat(64), now, now, now,
+      owner, "b".repeat(64), now, now, now,
+      reader, "c".repeat(64), now, now, now,
+    )
     run("UPDATE user SET isBot = 1, ownerUserId = ? WHERE id = ?", owner, bot)
     run(
       "INSERT INTO account (id, userId, accountId, providerId, accessToken, refreshToken, createdAt, updatedAt) VALUES ('account_1', ?, 'provider_account', 'github', 'access', 'refresh', ?, ?)",
@@ -333,6 +339,12 @@ describe("account deletion snapshot and delete queries", () => {
       "pending_thread_attachment",
     )).toBeUndefined()
     expect(sqlite.prepare("SELECT id FROM user WHERE id = ?").get(reader)).toEqual({ id: reader })
+    expect(sqlite.prepare(
+      "SELECT COUNT(*) AS count FROM community_push_device WHERE user_id = ?",
+    ).get(owner)).toEqual({ count: 0 })
+    expect(sqlite.prepare(
+      "SELECT installation_id FROM community_push_device WHERE user_id = ?",
+    ).get(reader)).toEqual({ installation_id: "reader-installation" })
     expect(sqlite.prepare("SELECT message_count FROM community_channel WHERE id = ?").get(dm)).toEqual({ message_count: 1 })
     expect(sqlite.prepare("PRAGMA foreign_key_check").all()).toEqual([])
   })

@@ -1,4 +1,4 @@
 [[permission]]
 identifier = "desktop-commands"
 description = "Existing main-window desktop commands"
-commands.allow = ["daemon_runtime_capability", "daemon_pair", "set_window_theme", "close_splashscreen", "desktop_zoom_shortcut"]
+commands.allow = ["daemon_runtime_capability", "daemon_pair", "set_window_theme", "close_splashscreen", "desktop_zoom_shortcut", "desktop_system_notification_show", "desktop_system_notification_listen", "desktop_system_notification_take_activation", "desktop_system_notification_unlisten"]

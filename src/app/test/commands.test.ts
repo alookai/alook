@@ -82,7 +82,7 @@ describe("start command", () => {
       "--port-wake", "15213",
     ], { from: "user" });
 
-    const ports = { web: 15210, emailWorker: 15211, wsDo: 15212, wakeWorker: 15213 };
+    const ports = { web: 15210, emailWorker: 15211, wsDo: 15212, queueWorker: 15213 };
     expect(mocks.checkPorts).toHaveBeenCalledWith(ports);
     expect(mocks.startServices).toHaveBeenCalledWith(ports, { foreground: false });
     expect(mocks.waitForServer).toHaveBeenCalledWith("http://localhost:15210");

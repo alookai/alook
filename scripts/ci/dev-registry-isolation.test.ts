@@ -7,7 +7,7 @@ const launcherPath = resolve(repositoryRoot, "scripts/dev-with-wrangler-registry
 const packagePaths = [
   "src/web/package.json",
   "src/ws-do/package.json",
-  "src/wake-worker/package.json",
+  "src/queue-worker/package.json",
   "src/email-worker/package.json",
 ]
 const registryLauncher = /(?:^|\s)node\s+\.\.\/\.\.\/scripts\/dev-with-wrangler-registry\.mjs\s+([^\s]+)/g

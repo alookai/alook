@@ -106,7 +106,7 @@ export {
   DEV_WEB_URL,
   DEV_WS_DO_URL,
   DEV_EMAIL_WORKER_URL,
-  DEV_WAKE_WORKER_URL,
+  DEV_QUEUE_WORKER_URL,
   devWsDoPort,
   MeetingStatus,
   TERMINAL_MEETING_STATUSES,
@@ -554,6 +554,15 @@ export type {
 } from "./community-message-delivery";
 export type { DispatchOneWakeResult } from "./community/wake-dispatch";
 export type { WakePayload, BuildUnreadWakeResult } from "./community/wake-dispatch";
+export { parseQueueTask, parseQueueTaskBatch } from "./community/queue-task";
+export type {
+  AlookQueueTask,
+  BotWakeQueueTaskV1,
+  MobilePushQueueTaskV1,
+  QueueTaskRejectReason,
+  QueueTaskParseResult,
+  QueueTaskBatchParseResult,
+} from "./community/queue-task";
 
 export {
   BOT_ACTIVITY_PRESETS,
@@ -698,7 +707,7 @@ export type {
 } from "./community-server-rail";
 export * as schema from "./db/schema";
 export * as queries from "./db/queries-index";
-export { communityServer, communityServerInvite, communityFriendship, communityServerMember, communityServerFolder, communityServerFolderItem, communityBotActivityEvent, communityBotDailyActivity } from "./db/community-schema";
+export { communityServer, communityServerInvite, communityFriendship, communityServerMember, communityServerFolder, communityServerFolderItem, communityBotActivityEvent, communityBotDailyActivity, communityPushDevice } from "./db/community-schema";
 
 // Logger
 export { Logger, createLogger } from "./logger"

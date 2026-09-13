@@ -1,0 +1,21 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "mobile-system-notification-mobile",
+  "description": "Native mobile system notification registration and activation for the trusted main WebView",
+  "windows": [
+    "main"
+  ],
+  "platforms": [
+    "android",
+    "iOS"
+  ],
+  "local": false,
+  "remote": {
+    "urls": [
+      "https://alook.ai"
+    ]
+  },
+  "permissions": [
+    "mobile-system-notification"
+  ]
+}

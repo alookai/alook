@@ -83,7 +83,7 @@ function makeEnv(fetchImpl: (url: string, init?: RequestInit) => Promise<Respons
 
 /**
  * `dispatchOneUnreadWake` is the ONE per-candidate function both
- * `src/wake-worker`'s real queue consumer and `src/web`'s dev-only inline
+ * `src/queue-worker`'s real queue consumer and `src/web`'s dev-only inline
  * stand-in call — these tests exercise it through its real
  * `buildUnreadWakeCommand`/`sendWakeToMachine` wiring end-to-end (query
  * modules mocked, `fetch` mocked), so neither caller needs its own

@@ -75,7 +75,7 @@ export function removeServiceBinding(content: string, binding: string): string {
     .join("");
 }
 
-export function patchWranglerConfigs(ports: { web: number; emailWorker: number; wsDo: number; wakeWorker: number }): void {
+export function patchWranglerConfigs(ports: { web: number; emailWorker: number; wsDo: number; queueWorker: number }): void {
   const webToml = join(SELF_HOSTED_DIR, "web", "wrangler.toml");
   let webContent = deduplicateDevSection(readFileSync(webToml, "utf-8"));
 
@@ -92,7 +92,7 @@ export function patchWranglerConfigs(ports: { web: number; emailWorker: number; 
 
   webContent = setVar(webContent, "DEV_WS_DO_URL", `http://localhost:${ports.wsDo}`);
   webContent = setVar(webContent, "DEV_EMAIL_WORKER_URL", `http://localhost:${ports.emailWorker}`);
-  webContent = setVar(webContent, "DEV_WAKE_WORKER_URL", `http://localhost:${ports.wakeWorker}`);
+  webContent = setVar(webContent, "DEV_QUEUE_WORKER_URL", `http://localhost:${ports.queueWorker}`);
   webContent = setVar(webContent, "NODE_ENV", "development");
   webContent = setVar(webContent, "BLOG_DISCOVERY_REQUIRED", "false");
   webContent = removeServiceBinding(webContent, "BLOG_WORKER");
@@ -100,10 +100,10 @@ export function patchWranglerConfigs(ports: { web: number; emailWorker: number; 
 
   setDevPort(join(SELF_HOSTED_DIR, "email-worker", "wrangler.toml"), ports.emailWorker);
   setDevPort(join(SELF_HOSTED_DIR, "ws-do", "wrangler.toml"), ports.wsDo);
-  setDevPort(join(SELF_HOSTED_DIR, "wake-worker", "wrangler.toml"), ports.wakeWorker);
+  setDevPort(join(SELF_HOSTED_DIR, "queue-worker", "wrangler.toml"), ports.queueWorker);
 
   setInspectorPort(join(SELF_HOSTED_DIR, "web", "wrangler.toml"), 19229);
   setInspectorPort(join(SELF_HOSTED_DIR, "ws-do", "wrangler.toml"), 19230);
   setInspectorPort(join(SELF_HOSTED_DIR, "email-worker", "wrangler.toml"), 19231);
-  setInspectorPort(join(SELF_HOSTED_DIR, "wake-worker", "wrangler.toml"), 19232);
+  setInspectorPort(join(SELF_HOSTED_DIR, "queue-worker", "wrangler.toml"), 19232);
 }

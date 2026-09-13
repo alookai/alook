@@ -6,5 +6,7 @@
 	<array>
 		<string>applinks:auth.alook.ai</string>
 	</array>
+	<key>aps-environment</key>
+	<string>$(APS_ENVIRONMENT)</string>
 </dict>
 </plist>

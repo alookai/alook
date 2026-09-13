@@ -10,7 +10,7 @@ interface ServicePorts {
   web: number;
   emailWorker: number;
   wsDo: number;
-  wakeWorker: number;
+  queueWorker: number;
 }
 
 interface StartOptions {
@@ -76,7 +76,7 @@ function killProcess(pid: number): boolean {
 
 export function startServices(ports: ServicePorts, opts: StartOptions = {}): void {
   const existing = readPids();
-  const anyAlive = [existing.web, existing.emailWorker, existing.wsDo, existing.wakeWorker].some(
+  const anyAlive = [existing.web, existing.emailWorker, existing.wsDo, existing.queueWorker].some(
     (pid) => pid && isAlive(pid),
   );
   if (anyAlive) {
@@ -90,35 +90,35 @@ export function startServices(ports: ServicePorts, opts: StartOptions = {}): voi
   let webChild: ChildProcess;
   let emailChild: ChildProcess;
   let wsChild: ChildProcess;
-  let wakeChild: ChildProcess;
+  let queueChild: ChildProcess;
 
   if (isDevMode) {
     const root = process.env.ALOOK_PROJECT_ROOT!;
     const webDir = join(root, "src", "web");
     const emailDir = join(root, "src", "email-worker");
     const wsDir = join(root, "src", "ws-do");
-    const wakeDir = join(root, "src", "wake-worker");
+    const queueDir = join(root, "src", "queue-worker");
     const persistTo = ["--persist-to", join(SELF_HOSTED_DIR, "web", ".wrangler", "state")];
 
     webChild = spawnService("web", "npx", ["next", "dev", "--port", String(ports.web)], webDir, foreground);
     emailChild = spawnService("email-worker", "npx", ["wrangler", "dev", "--local", "--port", String(ports.emailWorker), ...persistTo], emailDir, foreground);
     wsChild = spawnService("ws-do", "npx", ["wrangler", "dev", "--local", "--port", String(ports.wsDo), ...persistTo], wsDir, foreground);
-    wakeChild = spawnService("wake-worker", "npx", ["wrangler", "dev", "--local", "--port", String(ports.wakeWorker), ...persistTo], wakeDir, foreground);
+    queueChild = spawnService("queue-worker", "npx", ["wrangler", "dev", "--local", "--port", String(ports.queueWorker), ...persistTo], queueDir, foreground);
   } else {
     const persistTo = ["--persist-to", join(SELF_HOSTED_DIR, "web", ".wrangler", "state")];
     const web = wranglerProcess(["dev", "--local", "--port", String(ports.web), ...persistTo]);
     const email = wranglerProcess(["dev", "--local", "--port", String(ports.emailWorker), ...persistTo]);
     const ws = wranglerProcess(["dev", "--local", "--port", String(ports.wsDo), ...persistTo]);
-    const wake = wranglerProcess(["dev", "--local", "--port", String(ports.wakeWorker), ...persistTo]);
+    const queue = wranglerProcess(["dev", "--local", "--port", String(ports.queueWorker), ...persistTo]);
     webChild = spawnService("web", web.command, web.args, join(SELF_HOSTED_DIR, "web"), foreground);
     emailChild = spawnService("email-worker", email.command, email.args, join(SELF_HOSTED_DIR, "email-worker"), foreground);
     wsChild = spawnService("ws-do", ws.command, ws.args, join(SELF_HOSTED_DIR, "ws-do"), foreground);
-    wakeChild = spawnService("wake-worker", wake.command, wake.args, join(SELF_HOSTED_DIR, "wake-worker"), foreground);
+    queueChild = spawnService("queue-worker", queue.command, queue.args, join(SELF_HOSTED_DIR, "queue-worker"), foreground);
   }
 
-  if (!webChild.pid || !emailChild.pid || !wsChild.pid || !wakeChild.pid) {
+  if (!webChild.pid || !emailChild.pid || !wsChild.pid || !queueChild.pid) {
     console.error("Error: failed to start one or more services.");
-    for (const child of [webChild, emailChild, wsChild, wakeChild]) {
+    for (const child of [webChild, emailChild, wsChild, queueChild]) {
       if (child.pid) killProcess(child.pid);
     }
     process.exit(1);
@@ -128,19 +128,19 @@ export function startServices(ports: ServicePorts, opts: StartOptions = {}): voi
     web: webChild.pid,
     emailWorker: emailChild.pid,
     wsDo: wsChild.pid,
-    wakeWorker: wakeChild.pid,
+    queueWorker: queueChild.pid,
     ports: {
       web: ports.web,
       emailWorker: ports.emailWorker,
       wsDo: ports.wsDo,
-      wakeWorker: ports.wakeWorker,
+      queueWorker: ports.queueWorker,
     },
   });
 
   console.log(`  Web:          http://localhost:${ports.web} (pid=${webChild.pid})`);
   console.log(`  Email Worker: port ${ports.emailWorker} (pid=${emailChild.pid})`);
   console.log(`  WS-DO:        port ${ports.wsDo} (pid=${wsChild.pid})`);
-  console.log(`  Wake Worker:  port ${ports.wakeWorker} (pid=${wakeChild.pid})`);
+  console.log(`  Queue Worker: port ${ports.queueWorker} (pid=${queueChild.pid})`);
 
   if (foreground) {
     let exiting = false;
@@ -148,7 +148,7 @@ export function startServices(ports: ServicePorts, opts: StartOptions = {}): voi
       if (exiting) return;
       exiting = true;
       console.log("\nStopping services...");
-      for (const child of [webChild, emailChild, wsChild, wakeChild]) {
+      for (const child of [webChild, emailChild, wsChild, queueChild]) {
         if (child.pid) killProcess(child.pid);
       }
       clearPids();
@@ -183,7 +183,7 @@ export function stopServices(): void {
 
 export function isRunning(): boolean {
   const pids = readPids();
-  return [pids.web, pids.emailWorker, pids.wsDo, pids.wakeWorker].some(
+  return [pids.web, pids.emailWorker, pids.wsDo, pids.queueWorker].some(
     (pid) => pid && isAlive(pid),
   );
 }

@@ -38,7 +38,7 @@ Alook is a monorepo with nine packages:
 | `@alook/app` | `src/app` | One-command local bootstrap (`npx @alook/app onboard`) |
 | `@alook/daemon` | `src/daemon` | Host-side runtime backend, process manager, credential proxy |
 | `@alook/desktop` | `src/desktop` | Desktop app (Tauri) |
-| `@alook/wake-worker` | `src/wake-worker` | Wakes offline agents with unread messages |
+| `@alook/queue-worker` | `src/queue-worker` | Handles versioned bot-wake and mobile-push tasks |
 
 ## Making Changes
 

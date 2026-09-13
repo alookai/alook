@@ -212,10 +212,10 @@ export async function listOwnedBotActivityEvents(
 
 /**
  * Wake-trigger audit write — thin wrapper around
- * `insertBotActivityEventAndPrune` for the wake-worker's write path
+ * `insertBotActivityEventAndPrune` for the queue-worker's write path
  * (`buildUnreadWakeCommand`). Serializes the typed `WakeTriggerPayload` into
  * the existing opaque `payload` text column and runs the same rolling-500
- * prune atomically. Distinct entry point so wake-worker callers can't
+ * prune atomically. Distinct entry point so queue-worker callers can't
  * accidentally construct a shape that fails `BotAuditEventSchema` at read
  * time.
  */

@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * Bundle script — run in CI before `npm publish` of @alook/app.
- * Builds web (opennextjs-cloudflare), email-worker, ws-do, and wake-worker into
+ * Builds web (opennextjs-cloudflare), email-worker, ws-do, and queue-worker into
  * pre-compiled bundles that can run with `wrangler dev --local` without
  * needing source code or node_modules.
  */
@@ -98,19 +98,19 @@ writeFileSync(
   wsToml.replace('main = "src/index.ts"', 'main = "index.js"'),
 );
 
-// --- Build Wake Worker ---
-console.log("\n=== Building Wake Worker ===\n");
-const wakeSrc = join(monoRoot, "src", "wake-worker");
-const wakeDest = join(bundledDir, "wake-worker");
-mkdirSync(wakeDest, { recursive: true });
+// --- Build Queue Worker ---
+console.log("\n=== Building Queue Worker ===\n");
+const queueSrc = join(monoRoot, "src", "queue-worker");
+const queueDest = join(bundledDir, "queue-worker");
+mkdirSync(queueDest, { recursive: true });
 
-run("npx wrangler deploy --dry-run --outdir dist", wakeSrc);
-cpSync(join(wakeSrc, "dist", "index.js"), join(wakeDest, "index.js"));
+run("npx wrangler deploy --dry-run --outdir dist", queueSrc);
+cpSync(join(queueSrc, "dist", "index.js"), join(queueDest, "index.js"));
 
-const wakeToml = readFileSync(join(wakeSrc, "wrangler.toml"), "utf-8");
+const queueToml = readFileSync(join(queueSrc, "wrangler.toml"), "utf-8");
 writeFileSync(
-  join(wakeDest, "wrangler.toml"),
-  wakeToml.replace('main = "src/index.ts"', 'main = "index.js"'),
+  join(queueDest, "wrangler.toml"),
+  queueToml.replace('main = "src/index.ts"', 'main = "index.js"'),
 );
 
 console.log("\n✓ Bundle complete at:", bundledDir);

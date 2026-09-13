@@ -7,7 +7,7 @@ import { withCommunityDaemonAuth } from "@/lib/middleware/community-daemon-auth"
  * POST /api/community/daemon/resync-wakes
  *
  * Daemon-initiated recovery for the "message sent while the daemon was
- * offline" gap: `WAKE_QUEUE`'s consumer acks (never retries) a wake whose
+ * offline" gap: the queue consumer acks (never retries) a wake whose
  * daemon was unreachable at delivery time (`dispatchOneUnreadWake`'s
  * `attempted_nowhere` outcome) — that queue item is gone for good. Rather
  * than the server pushing a catch-up wake on its own when the daemon's WS
@@ -17,7 +17,7 @@ import { withCommunityDaemonAuth } from "@/lib/middleware/community-daemon-auth"
  *
  * This route decides nothing new about addressing/config — for every bot
  * bound to `ctx.machineId` with pending unread, it calls the SAME
- * `dispatchOneUnreadWake` the real `alook-wake-worker` queue consumer uses,
+ * `dispatchOneUnreadWake` the real `alook-queue-worker` queue consumer uses,
  * which re-reads current D1 state and forwards a freshly built `agent:wake`.
  * Because the daemon's WS just connected, `sendWakeToMachine` finds a live
  * socket this time and delivers immediately.

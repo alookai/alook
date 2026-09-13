@@ -8,7 +8,7 @@
  *
  * Lifted from `src/daemon/src/runtimeConfig.ts` into `@alook/shared` because
  * `HostCommand`'s `agent:wake.config` field needs this type, and the wake
- * producer/consumer (`src/web` + `src/wake-worker`, both Workers) has no path
+ * producer/consumer (`src/web` + `src/queue-worker`, both Workers) has no path
  * to import from the CLI/daemon package. `src/daemon` re-exports
  * `RuntimeConfig`/`makeRuntimeConfig` from here; `resolveLaunchFields`/
  * `ResolvedLaunchFields` stay daemon-only (host-side launch resolution, not

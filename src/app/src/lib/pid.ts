@@ -6,12 +6,12 @@ interface PidRecord {
   web?: number;
   emailWorker?: number;
   wsDo?: number;
-  wakeWorker?: number;
+  queueWorker?: number;
   ports?: {
     web?: number;
     emailWorker?: number;
     wsDo?: number;
-    wakeWorker?: number;
+    queueWorker?: number;
   };
 }
 

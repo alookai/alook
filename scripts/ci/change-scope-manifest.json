@@ -130,13 +130,13 @@
       "app_artifact": false
     },
     {
-      "name": "@alook/wake-worker",
-      "root": "src/wake-worker",
+      "name": "@alook/queue-worker",
+      "root": "src/queue-worker",
       "static": true,
       "build": true,
       "knip": true,
-      "unit_root": "src/wake-worker",
-      "coverage_roots": ["src/wake-worker/**/*.{ts,tsx,js,jsx}"],
+      "unit_root": "src/queue-worker",
+      "coverage_roots": ["src/queue-worker/**/*.{ts,tsx,js,jsx}"],
       "windows_suites": [],
       "integration_suites": ["web"],
       "linux_suites": [],
@@ -223,7 +223,7 @@
     "src/desktop/package.json",
     "src/email-worker/package.json",
     "src/shared/package.json",
-    "src/wake-worker/package.json",
+    "src/queue-worker/package.json",
     "src/web/package.json",
     "src/ws-do/package.json",
     "tests/utils/package.json"

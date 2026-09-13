@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-acknowledgeRegistration"
+description = "Enables the acknowledgeRegistration command without any pre-configured scope."
+commands.allow = ["acknowledgeRegistration"]
+
+[[permission]]
+identifier = "deny-acknowledgeRegistration"
+description = "Denies the acknowledgeRegistration command without any pre-configured scope."
+commands.deny = ["acknowledgeRegistration"]

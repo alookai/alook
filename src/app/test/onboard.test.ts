@@ -6,7 +6,7 @@ const mocks = vi.hoisted(() => ({
   checkPorts: vi.fn(),
   createInterface: vi.fn(),
   ensureSecrets: vi.fn(),
-  getMissingInstallFiles: vi.fn(() => ["wake-worker/wrangler.toml"]),
+  getMissingInstallFiles: vi.fn(() => ["queue-worker/wrangler.toml"]),
   installBundled: vi.fn(),
   isInstalled: vi.fn(() => false),
   isRunning: vi.fn(() => false),
@@ -44,7 +44,7 @@ import { onboardCommand } from "../src/commands/onboard.js";
 beforeEach(() => {
   vi.clearAllMocks();
   delete process.env.ALOOK_PROJECT_ROOT;
-  mocks.getMissingInstallFiles.mockReturnValue(["wake-worker/wrangler.toml"]);
+  mocks.getMissingInstallFiles.mockReturnValue(["queue-worker/wrangler.toml"]);
   mocks.isInstalled.mockReturnValue(false);
   mocks.isRunning.mockReturnValue(false);
   mocks.createInterface.mockReturnValue({

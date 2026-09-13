@@ -79,20 +79,19 @@ service = "alook-email-worker"
 binding = "BLOG_WORKER"
 service = "alook-blog"
 
-# Bot wake-on-unread producer — see plans/community-agent-cli-bridge.md §8.
-# Consumer is the separate `alook-wake-worker` (src/wake-worker).
+# Versioned background-task producer. The consumer is `alook-queue-worker`.
 [[queues.producers]]
-binding = "WAKE_QUEUE"
-queue = "alook-wake"
+binding = "TASK_QUEUE"
+queue = "alook-queue"
 
-# Dev-only direct path to the `alook-wake-worker` HTTP dev endpoint — local
+# Dev-only direct path to the `alook-queue-worker` HTTP dev endpoint — local
 # Cloudflare Queues can't bridge separate `wrangler dev`/`next dev` processes
-# (see plans/minimal-wake-queue-unread-notice.md), so `wake-transport.ts` uses
+# (see plans/minimal-wake-queue-unread-notice.md), so `queue-transport.ts` uses
 # this binding (with an HTTP fallback, like `WS_DO_WORKER`) instead of
-# `WAKE_QUEUE` when `NODE_ENV === "development"`. Unused in production.
+# `TASK_QUEUE` when `NODE_ENV === "development"`. Unused in production.
 [[services]]
-binding = "WAKE_WORKER"
-service = "alook-wake-worker"
+binding = "QUEUE_WORKER"
+service = "alook-queue-worker"
 
 [[kv_namespaces]]
 binding = "CACHE_KV"

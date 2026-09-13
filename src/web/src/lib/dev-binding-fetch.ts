@@ -8,7 +8,7 @@ interface FetcherLike {
  * Service-binding-first, dev-HTTP-fallback fetch. Extracted from
  * `broadcast.ts`'s original `wsDoFetch` (that's still the canonical
  * caller/behavior spec — see its tests) because `wake-transport.ts` needs
- * the EXACT same shape of fallback for `WAKE_WORKER`: `next dev`'s
+ * the EXACT same shape of fallback for `QUEUE_WORKER`: `next dev`'s
  * `getPlatformProxy` service bindings to separately-run `wrangler dev`
  * workers are not reliably reachable, so every cross-worker call from
  * `src/web` needs "try the real binding, fall back to a plain HTTP URL at

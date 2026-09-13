@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "mobile-system-notification"
+description = "Native mobile push registration and activation orchestration for the trusted main WebView"
+commands.allow = ["mobile_system_notification_check_permission", "mobile_system_notification_request_permission", "mobile_system_notification_snapshot", "mobile_system_notification_acknowledge_registration", "mobile_system_notification_take_activation", "mobile_system_notification_listen", "mobile_system_notification_unlisten"]

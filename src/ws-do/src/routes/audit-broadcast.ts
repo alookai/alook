@@ -8,12 +8,12 @@ import { createInternalCommunityUserBroadcastRequest } from "../internal-user-br
 import { logCommunityBrowserEventRejected } from "../community-browser-event-ingress"
 
 export async function handleAuditBroadcast({ request, env, url, log }: RouterContext): Promise<Response | null> {
-  // POST /internal/broadcast-bot-audit-event — the wake-worker calls this
+  // POST /internal/broadcast-bot-audit-event — the queue-worker calls this
   // right after `insertBotAuditWakeTrigger` writes a `wake_trigger` row, so
   // the owner's UI receives the audit-event WS frame in the same beat as
   // the D1 insert (matching the daemon-originating path at
   // `ws-durable.ts:906-915`). Reachable ONLY via service binding
-  // (`WS_DO_WORKER: Fetcher` in wake-worker's wrangler.toml), so origin is
+  // (`WS_DO_WORKER: Fetcher` in queue-worker's wrangler.toml), so origin is
   // implicitly restricted to same-project workers.
   //
   // Body: { botId, ownerUserId, id, kind, payload, createdAt, sessionId?,

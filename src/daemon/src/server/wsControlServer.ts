@@ -8,7 +8,7 @@
  * "running agents" set, and does NOT retry/redeliver anything — that
  * server-side control-plane state was retired (minimal-wake-queue-unread-notice
  * plan §6): the real production path is `src/web`'s wake producer →
- * `src/wake-worker`'s queue consumer → `sendWakeToMachine`, and the DAEMON
+ * `src/queue-worker`'s queue consumer → `sendWakeToMachine`, and the DAEMON
  * (not this fixture) decides spawn-vs-notify-vs-coalesce for `agent:wake`.
  * This class exists purely so daemon-side control-plane/e2e tests can drive
  * `agent:wake`/`agent:stop` over a REAL WebSocket instead of an in-process
@@ -84,7 +84,7 @@ export interface WsControlServerOpts {
  * Ws-transport shim for exactly one connected host at a time (the dev/test
  * case); a later host replaces the active socket. Commands are pushed
  * explicitly via `pushCommand` — there is no automatic dispatch, because
- * deciding WHEN to wake an agent is now `src/web`/`src/wake-worker`'s job in
+ * deciding WHEN to wake an agent is now `src/web`/`src/queue-worker`'s job in
  * production, not this fixture's.
  */
 export class WsControlServer {

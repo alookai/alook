@@ -203,4 +203,24 @@ describe("community WebSocket registry", () => {
 
     expect(observed).toEqual([1])
   })
+
+  it("exposes the complete message only to a bump in the same unambiguous bundle", () => {
+    handlers.handleUnreadBump.mockClear()
+    const create = communityWsEventFixtures["community:message.create"]
+    const bump = communityWsEventFixtures["community:unread.bump"]
+
+    dispatchCommunityWsEvents([create, bump], dispatchContext())
+    const pairedContext = handlers.handleUnreadBump.mock.calls[0]?.[1] as CommunityWsHandlerContext
+    expect(pairedContext.unreadBumpEvidence?.get(bump)).toEqual({
+      messageId: create.message.id,
+      seq: create.message.seq,
+      createdAt: create.message.createdAt,
+      messageEvent: create,
+    })
+
+    handlers.handleUnreadBump.mockClear()
+    dispatchCommunityWsEvents([create, { ...create, message: { ...create.message, id: "message-2" } }, bump], dispatchContext())
+    const ambiguousContext = handlers.handleUnreadBump.mock.calls[0]?.[1] as CommunityWsHandlerContext
+    expect(ambiguousContext.unreadBumpEvidence?.get(bump)).toBeUndefined()
+  })
 })

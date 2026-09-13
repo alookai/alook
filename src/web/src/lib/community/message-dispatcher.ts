@@ -10,11 +10,11 @@ import {
   type CommunityDeliveryOperationId,
   type Database,
   type MessageDeliveryBatch,
-  type WakePayload,
+  type AlookQueueTask,
 } from "@alook/shared"
 import { mapMessageForWs } from "./message-payload"
 import { sendMessageDeliveryBatch } from "./message-delivery-transport"
-import { enqueueBotWakePayloads } from "./wake-producer"
+import { enqueueQueueTasks } from "./queue-producer"
 import { attachmentThumbnailUrl, attachmentUrl } from "./storage"
 
 const log = createLogger({ service: "committed-message-dispatcher" })
@@ -29,6 +29,7 @@ export type CommittedMessageStructuralOutcome = {
 export type MessageDeliveryPlan = MessageDeliveryBatch & {
   operationId: CommunityDeliveryOperationId
   wakeBotUserIds: string[]
+  pushUserIds: string[]
 }
 
 const recipientRetryRoute = {
@@ -161,6 +162,11 @@ export async function planCommittedMessage(
       .map((candidate) => candidate.botUserId)
       .filter((id) => notificationSet.has(id) && allowed(id)),
   )
+  const pushUserIds = unique([
+    ...unreadPlainUserIds,
+    ...unreadMentionUserIds,
+    ...mentionUserIds,
+  ])
 
   const replyMap = new Map<string, {
     id: string
@@ -231,6 +237,7 @@ export async function planCommittedMessage(
     unreadMentionUserIds,
     mentionUserIds,
     wakeBotUserIds,
+    pushUserIds,
     ...(structural.memberAddedUserId && channel.serverId
       ? {
           memberAdded: {
@@ -268,13 +275,23 @@ async function runCommittedMessageDispatch(
         }
       : {}),
   }
-  const wakePayloads: WakePayload[] = plan.wakeBotUserIds.map((botUserId) => ({
-    messageId: plan.messageId,
-    botUserId,
-  }))
-  const [browser, wake] = await Promise.allSettled([
+  const queueTasks: AlookQueueTask[] = [
+    ...plan.wakeBotUserIds.map((botUserId) => ({
+      version: 1 as const,
+      kind: "bot-wake" as const,
+      messageId: plan.messageId,
+      botUserId,
+    })),
+    ...plan.pushUserIds.map((userId) => ({
+      version: 1 as const,
+      kind: "mobile-push" as const,
+      messageId: plan.messageId,
+      userId,
+    })),
+  ]
+  const [browser, queue] = await Promise.allSettled([
     sendMessageDeliveryBatch(browserBatch, plan.operationId),
-    enqueueBotWakePayloads(wakePayloads),
+    enqueueQueueTasks(queueTasks),
   ])
   if (browser.status === "rejected") {
     log.warn("committed_message_browser_delivery_failed", {
@@ -282,10 +299,10 @@ async function runCommittedMessageDispatch(
       err: String(browser.reason),
     })
   }
-  if (wake.status === "rejected") {
-    log.warn("committed_message_wake_delivery_failed", {
+  if (queue.status === "rejected") {
+    log.warn("committed_message_queue_delivery_failed", {
       messageId,
-      err: String(wake.reason),
+      err: String(queue.reason),
     })
   }
   log.info("committed_message_dispatch_complete", {
@@ -294,6 +311,7 @@ async function runCommittedMessageDispatch(
     unreadCount: plan.unreadPlainUserIds.length + plan.unreadMentionUserIds.length,
     mentionCount: plan.mentionUserIds.length,
     wakeCount: plan.wakeBotUserIds.length,
+    pushCount: plan.pushUserIds.length,
     parentCount: plan.parentProjectionUserIds?.length ?? 0,
     durationMs: Date.now() - startedAt,
   })

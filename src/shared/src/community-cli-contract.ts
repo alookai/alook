@@ -7,7 +7,7 @@
  *
  * Lifted from `src/daemon/src/server/contract.ts` into `@alook/shared` so the
  * real server routes (`src/web`) and the wake producer/consumer
- * (`src/web`, `src/wake-worker`) can share the exact same types the daemon's
+ * (`src/web`, `src/queue-worker`) can share the exact same types the daemon's
  * CLI and mock server already implement against. `src/daemon`'s
  * `contract.ts` re-exports everything from here — see that file.
  *
@@ -769,7 +769,7 @@ export type AgentInterruptRequest = z.infer<typeof AgentInterruptRequestSchema>;
  * never fans out by channel membership.
  *
  * `agent:wake` is the ONE semantic unread-wake command — "ensure this agent
- * handles unread work." The server/wake-worker does not decide whether a
+ * handles unread work." The server/queue-worker does not decide whether a
  * daemon process is already running; that is daemon-owned state. The daemon
  * decides whether to spawn a fresh process, notify an already-running one, or
  * coalesce the notice for the next turn (see `AgentProcessManager`).
@@ -1145,7 +1145,7 @@ export type WebSocketFactory = (url: string, headers: Record<string, string>) =>
  * inject messages. `postMessage` writes
  * the message; real deployments separately enqueue an `agent:wake` for any
  * bot behind on the new message (see `src/web`'s wake producer +
- * `src/wake-worker`'s consumer) — this admin surface does not itself compute
+ * `src/queue-worker`'s consumer) — this admin surface does not itself compute
  * or dispatch control-plane commands.
  */
 export interface AdminApi {

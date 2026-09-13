@@ -205,9 +205,9 @@ describe("canonical execution plan", () => {
       "@alook/cli",
       "@alook/daemon",
       "@alook/email-worker",
+      "@alook/queue-worker",
       "@alook/shared",
       "@alook/test-utils",
-      "@alook/wake-worker",
       "@alook/web",
       "@alook/ws-do",
     ])

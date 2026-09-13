@@ -46,6 +46,7 @@ export type CommunityWsHandlerContext = CommunityWsDispatchContext & {
     messageId: string
     seq: number
     createdAt: string
+    messageEvent: Extract<CommunityWsEvent, { type: "community:message.create" }>
   }>
   messageEvidenceByChannel?: ReadonlyMap<string, {
     messageId: string

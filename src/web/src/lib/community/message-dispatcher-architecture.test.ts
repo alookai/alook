@@ -17,12 +17,12 @@ describe("committed-message delivery architecture", () => {
 
   it("removes message wake policy from generic fanout", () => {
     const fanout = source("./fanout.ts")
-    expect(fanout).not.toMatch(/wake-producer|wakeMessageRow|excludeWakeUserId|maybeEnqueueWakes/)
+    expect(fanout).not.toMatch(/queue-producer|wakeMessageRow|excludeWakeUserId|maybeEnqueueWakes/)
   })
 
-  it("leaves wake-producer as payload transport rather than a second planner", () => {
-    const producer = source("./wake-producer.ts")
-    expect(producer).toContain("enqueueBotWakePayloads")
+  it("leaves queue-producer as task transport rather than a second planner", () => {
+    const producer = source("./queue-producer.ts")
+    expect(producer).toContain("enqueueQueueTasks")
     expect(producer).not.toMatch(/\bqueries\b|findWakeCandidates|resolveNotificationEligibility/)
   })
 

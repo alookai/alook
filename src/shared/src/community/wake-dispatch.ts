@@ -21,7 +21,7 @@ import { parseAttemptedCountReceipt } from "../transport-receipt";
  * consumers too (`@alook/cli`, `@alook/daemon`), whose tsconfigs don't
  * include `@cloudflare/workers-types` in `types`. A real `Fetcher` service
  * binding satisfies this structurally at the two real call sites
- * (`src/web`, `src/wake-worker`, both of which DO have workers-types).
+ * (`src/web`, `src/queue-worker`, both of which DO have workers-types).
  */
 interface FetcherLike {
   fetch(input: string, init?: RequestInit): Promise<Response>;
@@ -57,11 +57,11 @@ async function unreadWakeLaunchId(input: {
 }
 
 /**
- * One `WAKE_QUEUE` message — deliberately minimal (plan
+ * One bot-wake queue task — deliberately minimal (plan
  * minimal-wake-queue-unread-notice §1): just enough to rebuild the wake
  * command from CURRENT D1 state at consume time. No `machineId`, `runtime`,
  * `launchId`, message text, sender, or preview — all of that is re-derived
- * by `buildUnreadWakeCommand` in `src/wake-worker` so a stale queue item
+ * by `buildUnreadWakeCommand` in `src/queue-worker` so a stale queue item
  * never wakes an old machine or carries stale content. `launchId` is derived
  * deterministically from the bot/message tuple so retry and reconnect replay
  * retain one semantic command identity.
@@ -73,13 +73,13 @@ export interface WakePayload {
 
 /**
  * Thin wake-dispatch seam. Lives in `src/shared` (not `src/web`) because
- * BOTH the `src/web` wake producer AND the `src/wake-worker` queue consumer
+ * BOTH the `src/web` queue producer AND the `src/queue-worker` queue consumer
  * need it, and the consumer has no `@opennextjs/cloudflare` / Next.js
  * context — this module does a plain `Fetcher.fetch`, nothing
  * CF-Workers-Next.js-specific.
  *
  * `env.WS_DO_WORKER` is a service binding to the `alook-ws-do` worker's HTTP
- * surface (never a raw DO namespace — `src/web`/`src/wake-worker` cannot
+ * surface (never a raw DO namespace — `src/web`/`src/queue-worker` cannot
  * fetch a DO stub directly). This function POSTs an already-fully-built
  * `HostCommand` to that worker's `/community-machine/by-id/<machineId>/forward-agent-wake`
  * route and normalizes the attempted socket-write count to a boolean — it never inspects,
@@ -344,10 +344,10 @@ export type DispatchOneWakeResult =
 /**
  * The ONE place that decides what happens for a single `{ messageId,
  * botUserId }` wake candidate: rebuild from current D1 state, and forward if
- * `ready`. Every caller — `src/wake-worker`'s real queue consumer AND
+ * `ready`. Every caller — `src/queue-worker`'s real queue consumer AND
  * `src/web`'s dev-only inline stand-in (local Cloudflare Queues can't bridge
  * separate `wrangler dev`/`next dev` processes, so `next dev` calls this
- * directly instead of going through `WAKE_QUEUE`) — calls this SAME function,
+ * directly instead of going through the production queue) — calls this SAME function,
  * so "what a wake candidate resolves to" has exactly one implementation.
  * Callers own their own retry/ack-vs-log semantics on top; this never
  * swallows a `buildUnreadWakeCommand`/`sendWakeToMachine` throw (a transient

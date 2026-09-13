@@ -90,3 +90,7 @@ dependencies {
 }
 
 apply(from = "tauri.build.gradle.kts")
+
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}

@@ -80,6 +80,7 @@ export const SPEC_SECONDS = {
   "56-inbox-friend-requests.spec.ts": 60,
   "56-remote-image-state-contract.spec.ts": 3.122,
   "57-server-delete-navigation-races.spec.ts": 55,
+  "58-system-notifications.spec.ts": 46.600,
 }
 
 function walk(directory) {
