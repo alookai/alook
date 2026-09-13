@@ -5,9 +5,9 @@ import {
 } from "./_fixtures/community-loading-geometry"
 
 test.describe.serial("community Android loading geometry", () => {
-  test("Android Chrome/WebView keep 320/390/639 cold frames mobile before breakpoint hydration", async ({ asUser }) => {
+  test("Android Chrome/WebView keep parsed SSR layouts mobile before application JS and through hydration", async ({ asUser }, testInfo) => {
     test.setTimeout(240_000)
-    await runAndroidLoadingGeometry(asUser)
+    await runAndroidLoadingGeometry(asUser, testInfo)
   })
 
   test("community skeleton pulse changes only opacity and stops for reduced motion", async ({ asUser }) => {

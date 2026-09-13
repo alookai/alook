@@ -22,6 +22,7 @@ import {
 } from "./seed"
 import { tid } from "./testids"
 import { WEB_URL } from "../_setup/paths"
+import { ssrGeometryErrors, type SsrLifecycleSample } from "./community-ssr-geometry"
 import type { UserKey } from "../_setup/users"
 
 type Theme = "light" | "dark"
@@ -63,6 +64,25 @@ async function holdSession(page: Page) {
   }
   await page.route("**/api/auth/get-session**", handler)
   return { hits: () => hits, release }
+}
+
+async function holdApplicationScripts(page: Page) {
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => { release = resolve })
+  const blocked: string[] = []
+  const received: string[] = []
+  const isApplicationScript = (url: string) => /\/_next\/.*\.js(?:\?|$)/.test(url)
+  page.on("response", (response) => {
+    if (isApplicationScript(response.url())) received.push(response.url())
+  })
+  await page.route("**/_next/**", async (route) => {
+    if (isApplicationScript(route.request().url())) {
+      blocked.push(route.request().url())
+      await gate
+    }
+    await route.continue()
+  })
+  return { blocked, received, release }
 }
 
 async function holdRequest(page: Page, pattern: string) {
@@ -188,11 +208,6 @@ async function readCls(page: Page) {
   }))
 }
 
-type FirstFrameSample = {
-  overflow: number
-  geometry: Geometry
-}
-
 type DesktopPendingFrameSample = {
   overflow: number
   sidebarWidth: number
@@ -201,10 +216,12 @@ type DesktopPendingFrameSample = {
   userBarRight: number
 }
 
-async function installFirstFrameProbe(page: Page, surface: "list" | "detail") {
+async function installSsrLifecycleProbe(page: Page, surface: "list" | "detail") {
   await page.addInitScript((expectedSurface) => {
-    const samples: FirstFrameSample[] = []
-    Reflect.set(window, "__communityFirstFrameSamples", samples)
+    const samples: SsrLifecycleSample[] = []
+    Reflect.set(window, "__communitySsrLifecycleSamples", samples)
+    let parsed = document.readyState !== "loading"
+    document.addEventListener("DOMContentLoaded", () => { parsed = true }, { once: true })
 
     const rect = (selector: string) => {
       const element = document.querySelector<HTMLElement>(selector)
@@ -214,7 +231,8 @@ async function installFirstFrameProbe(page: Page, surface: "list" | "detail") {
       return { x: box.x, y: box.y, width: box.width, height: box.height }
     }
     const sample = () => {
-      if (document.querySelector('[data-slot="community-shell-root"]')) {
+      const shell = document.querySelector('[data-slot="community-shell-root"]')
+      if (shell) {
         const activePanel = '[data-slot="resizable-panel"][data-mobile-active="true"]'
         const hiddenPanel = '[data-slot="resizable-panel"][data-mobile-hidden="true"]'
         const geometry = Object.fromEntries(Object.entries({
@@ -226,19 +244,25 @@ async function installFirstFrameProbe(page: Page, surface: "list" | "detail") {
           userBar: rect('[data-slot="community-user-bar-overlay"]'),
         }).filter((entry): entry is [string, NonNullable<typeof entry[1]>] => entry[1] !== null))
         samples.push({
+          timestamp: performance.now(),
+          phase: !parsed ? "parsing"
+            : Reflect.get(window, "__communityApplicationScriptsReleased") ? "hydrating" : "ssr",
+          readyState: document.readyState,
+          shellChildCount: shell.childElementCount,
+          incompleteShellHtml: geometry.surface ? undefined : shell.outerHTML,
           overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
           geometry,
         })
       }
-      if (performance.now() < 5_000) requestAnimationFrame(sample)
+      if (!Reflect.get(window, "__communitySsrProbeStopped")) requestAnimationFrame(sample)
     }
     requestAnimationFrame(sample)
   }, surface)
 }
 
-async function firstFrameSamples(page: Page): Promise<FirstFrameSample[]> {
+async function ssrLifecycleSamples(page: Page): Promise<SsrLifecycleSample[]> {
   return page.evaluate(() => (
-    Reflect.get(window, "__communityFirstFrameSamples") as FirstFrameSample[]
+    Reflect.get(window, "__communitySsrLifecycleSamples") as SsrLifecycleSample[]
   ))
 }
 
@@ -307,43 +331,11 @@ async function desktopPendingFrameSamples(page: Page): Promise<DesktopPendingFra
 }
 
 function expectMobileGeometry(
-  samples: FirstFrameSample[],
+  samples: SsrLifecycleSample[],
   width: MobileWidth,
   surface: "list" | "detail",
 ) {
-  expect(samples.length).toBeGreaterThan(0)
-  const first = samples[0]!
-  const geometryDrift: string[] = []
-  for (const [index, sample] of samples.entries()) {
-    expect(sample.overflow, `frame ${index} horizontal overflow`).toBe(0)
-    expect(
-      Object.keys(sample.geometry).sort(),
-      `frame ${index} visible modules: ${JSON.stringify(sample)}`,
-    ).toEqual(
-      surface === "list"
-        ? ["rail", "shell", "sidebar", "surface", "userBar"]
-        : ["main", "shell", "surface"],
-    )
-    expect(sample.geometry.shell?.width, `frame ${index} shell width`).toBeCloseTo(width, 0)
-    expect(sample.geometry.surface?.width, `frame ${index} surface width`).toBeCloseTo(
-      surface === "list" ? width - 56 : width,
-      0,
-    )
-    if (surface === "list") {
-      expect(sample.geometry.sidebar?.width, `frame ${index} sidebar width`).toBeCloseTo(width - 57, 0)
-      expect(sample.geometry.userBar?.width, `frame ${index} UserBar width`).toBeCloseTo(width, 0)
-    } else {
-      expect(sample.geometry.main?.width, `frame ${index} main width`).toBeCloseTo(width, 0)
-    }
-    for (const name of Object.keys(first.geometry)) {
-      for (const coordinate of ["x", "y", "width", "height"] as const) {
-        if (Math.abs(first.geometry[name]![coordinate] - sample.geometry[name]![coordinate]) > 1) {
-          geometryDrift.push(`frame ${index} ${name}.${coordinate}`)
-        }
-      }
-    }
-  }
-  expect(geometryDrift, "mobile landmark geometry drift").toEqual([])
+  expect(ssrGeometryErrors(samples, width, surface), JSON.stringify(samples)).toEqual([])
 }
 
 async function expectMachinesHeadingSpacing(page: Page) {
@@ -474,7 +466,7 @@ export async function seedGeometryRoutes(): Promise<Omit<MatrixCase, "width">[]>
   ]
 }
 
-export async function runAndroidLoadingGeometry(asUser: CommunityAsUser) {
+export async function runAndroidLoadingGeometry(asUser: CommunityAsUser, testInfo: TestInfo) {
     await pairMachine()
     for (const userAgent of Object.values(ANDROID_USER_AGENTS)) {
       for (const width of [320, 390, 639] as const) {
@@ -484,32 +476,61 @@ export async function runAndroidLoadingGeometry(asUser: CommunityAsUser) {
         ] as const) {
           const { context, page } = await asUser("alice", { userAgent })
           await page.setViewportSize({ width, height: width === 320 ? 720 : 900 })
-          await installFirstFrameProbe(page, surface)
+          await installSsrLifecycleProbe(page, surface)
           const session = await holdSession(page)
-          await page.goto(pathname, { waitUntil: "commit" })
-          await expect.poll(session.hits).toBeGreaterThan(0)
-          await expect(page.getByTestId(tid.initialFrame)).toBeVisible()
-          await page.waitForTimeout(250)
+          const scripts = await holdApplicationScripts(page)
+          let ssrEvidence: unknown
+          try {
+            await page.goto(pathname, { waitUntil: "domcontentloaded" })
+            await expect.poll(() => scripts.blocked.length).toBeGreaterThan(0)
+            await expect(page.getByTestId(tid.initialFrame)).toBeVisible()
+            await page.waitForTimeout(250)
+            const ssrSamples = await ssrLifecycleSamples(page)
+            ssrEvidence = {
+              samples: ssrSamples,
+              blockedScripts: [...scripts.blocked],
+              receivedScripts: [...scripts.received],
+              sessionRequests: session.hits(),
+            }
+            expect(scripts.received, "application JS must remain blocked during SSR measurement").toEqual([])
+            expect(session.hits(), "application session request must not run before JS release").toBe(0)
+            expect(ssrSamples.some((sample) => sample.phase === "ssr")).toBe(true)
+            expectMobileGeometry(ssrSamples, width, surface)
+            const pendingHeading = pathname === "/c/me/machines"
+              ? await expectMachinesHeadingSpacing(page)
+              : null
 
-          expectMobileGeometry(await firstFrameSamples(page), width, surface)
-          const pendingHeading = pathname === "/c/me/machines"
-            ? await expectMachinesHeadingSpacing(page)
-            : null
-
-          session.release()
-          await expect(page.getByTestId(tid.initialFrame)).toHaveCount(0, { timeout: 30_000 })
-          await expect(
-            pathname === "/c/me"
-              ? page.getByRole("button", { name: "Friends", exact: true })
-              : page.getByTestId(tid.machinePairOpen),
-          ).toBeVisible({ timeout: 30_000 })
-          if (pendingHeading) {
-            const loadedHeading = await expectMachinesHeadingSpacing(page)
-            expectSameGeometry({ heading: pendingHeading }, { heading: loadedHeading })
+            await page.evaluate(() => Reflect.set(window, "__communityApplicationScriptsReleased", true))
+            scripts.release()
+            await expect.poll(session.hits).toBeGreaterThan(0)
+            session.release()
+            await expect(page.getByTestId(tid.initialFrame)).toHaveCount(0, { timeout: 30_000 })
+            await expect(
+              pathname === "/c/me"
+                ? page.getByRole("button", { name: "Friends", exact: true })
+                : page.getByTestId(tid.machinePairOpen),
+            ).toBeVisible({ timeout: 30_000 })
+            if (pendingHeading) {
+              const loadedHeading = await expectMachinesHeadingSpacing(page)
+              expectSameGeometry({ heading: pendingHeading }, { heading: loadedHeading })
+            }
+            await page.waitForTimeout(250)
+            expectMobileGeometry(await ssrLifecycleSamples(page), width, surface)
+          } finally {
+            await page.evaluate(() => Reflect.set(window, "__communitySsrProbeStopped", true))
+            await testInfo.attach(`ssr-lifecycle-${width}-${surface}-${userAgent.includes("; wv") ? "webview" : "chrome"}`, {
+              body: Buffer.from(JSON.stringify({
+                ssrEvidence,
+                allSamples: await ssrLifecycleSamples(page),
+                releasedScriptResponses: scripts.received,
+                sessionRequests: session.hits(),
+              })),
+              contentType: "application/json",
+            })
+            scripts.release()
+            session.release()
+            await context.close()
           }
-          await page.waitForTimeout(250)
-          expectMobileGeometry(await firstFrameSamples(page), width, surface)
-          await context.close()
         }
       }
     }
