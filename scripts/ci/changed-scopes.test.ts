@@ -641,10 +641,12 @@ describe("compatibility and CLI fail-closed behavior", () => {
       for (const name of localEnvironment) delete process.env[name]
       process.env.GIT_DIR = join(fixture.root, ".git")
       process.env.GIT_WORK_TREE = fixture.root
-      runCli(["--base", "HEAD^", "--head", "HEAD", "--summary", summary])
+      runCli(["--base", "HEAD^", "--head", "HEAD", "--full-unless-benchmark-only", "--summary", summary])
 
       const written = stdout.mock.calls.map(([value]) => String(value)).join("")
       const writtenPlan = JSON.parse(written)
+      expect(writtenPlan.full).toBe(true)
+      expect(writtenPlan.full_reason).toBe("forced")
       expect(writtenPlan.base_sha).toBe("HEAD^")
       expect(writtenPlan.head_sha).toBe("HEAD")
       expect(writtenPlan.changes).toEqual([{ status: "A", path: fixture.changedPath }])
