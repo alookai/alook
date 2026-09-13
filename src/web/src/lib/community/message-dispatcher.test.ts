@@ -368,6 +368,7 @@ describe("planCommittedMessage", () => {
   })
 
   it("deduplicates notification and attention candidates without consulting passive readers", async () => {
+    mockGetChannel.mockResolvedValue({ ...channel, type: "thread", parentChannelId: "parent" })
     mockResolveRecipients.mockResolvedValue(["author_1", "reader", "u_all", "u_mentions"])
     mockResolveNotificationRecipients.mockResolvedValue(["author_1", "u_all", "u_all", "u_mentions", "outside"])
     mockListAttention.mockResolvedValue(["author_1", "u_mentions", "u_mentions", "u_mention_only"])
@@ -378,6 +379,13 @@ describe("planCommittedMessage", () => {
     expect(plan.unreadMentionUserIds).toEqual(["u_mentions"])
     expect(plan.mentionUserIds).toEqual(["u_mentions", "u_mention_only"])
     expect(plan.wakeBotUserIds).toEqual([])
+  })
+
+  it.each(["text", "forum", "dm"])("reuses the content audience for %s notification planning", async (type) => {
+    mockGetChannel.mockResolvedValue({ ...channel, type })
+    await planCommittedMessage({} as never, "msg_1")
+    expect(mockResolveRecipients).toHaveBeenCalledOnce()
+    expect(mockResolveNotificationRecipients).not.toHaveBeenCalled()
   })
 
   it("is stable when rerun from the same committed facts", async () => {

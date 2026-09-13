@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { integer, sqliteTable } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
 import { createMessage, isMessageAttachmentConflict } from "../src/db/queries/community/message";
+import { createChannel } from "../src/db/queries/community/channel";
 import { createOrGetDM } from "../src/db/queries/community/dm";
 import { communityWriteDb } from "./helpers/community-write-db";
 
@@ -15,6 +16,27 @@ describe("Community durable writes — real SQLite transactions", () => {
   const rows = (table: string) => fixture.sqlite.prepare(`SELECT * FROM ${table}`).all();
   const activity = sqliteTable("activity", { sent: integer("sent").notNull() });
   const bump = () => fixture.db.update(activity).set({ sent: sql`${activity.sent} + 1` });
+
+  it("rolls back a new ordinary thread when an initial participant insert fails", async () => {
+    const root = await send();
+    const data = { serverId: "server", parentChannelId: "channel", parentMessageId: root!.id,
+      name: "thread", type: "thread", creatorId: "author",
+      initialParticipants: [{ userId: "author", source: "spoke" as const }, { userId: "peer", source: "added" as const }] };
+    fixture.sqlite.exec("CREATE TRIGGER fail_seed BEFORE INSERT ON community_channel_member WHEN NEW.user_id = 'peer' BEGIN SELECT RAISE(ABORT, 'seed failed'); END");
+    await expect(createChannel(fixture.db, data)).rejects.toThrow("seed failed");
+    expect(rows("community_channel")).toHaveLength(1);
+    expect(rows("community_channel_member")).toEqual([]);
+    fixture.sqlite.exec("DROP TRIGGER fail_seed");
+    const thread = await createChannel(fixture.db, data);
+    expect(rows("community_channel_member")).toHaveLength(2);
+    expect(rows("community_channel_member")).toEqual(expect.arrayContaining([
+      expect.objectContaining({ channel_id: thread.id, user_id: "author", source: "spoke", relation: "notify" }),
+      expect.objectContaining({ channel_id: thread.id, user_id: "peer", source: "added", relation: "notify" }),
+    ]));
+    await expect(createChannel(fixture.db, data)).rejects.toThrow();
+    expect(rows("community_channel")).toHaveLength(2);
+    expect(rows("community_channel_member")).toHaveLength(2);
+  });
 
   it("rejects stale seq in a deletion hole without any writes", async () => {
     await send();

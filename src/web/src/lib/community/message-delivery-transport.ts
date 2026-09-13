@@ -17,6 +17,8 @@ const log = createLogger({ service: "message-delivery-transport" })
 const maxAttempts = 3
 const maxActiveChunks = 3
 
+class RetryableMessageDeliveryError extends Error {}
+
 function allTargetUserIds(batch: MessageDeliveryBatch): string[] {
   return [...new Set([
     ...batch.contentUserIds,
@@ -71,20 +73,28 @@ async function sendAttempt(
   operationId: CommunityDeliveryOperationId,
 ): Promise<string[]> {
   const requested = allTargetUserIds(batch)
-  const response = await fetchViaBindingOrDevFallback(
-    env.WS_DO_WORKER,
-    env.DEV_WS_DO_URL || DEV_WS_DO_URL,
-    "/broadcast/community/message-delivery",
-    {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        [COMMUNITY_DELIVERY_OPERATION_ID_HEADER]: operationId,
+  let response: Response
+  try {
+    response = await fetchViaBindingOrDevFallback(
+      env.WS_DO_WORKER,
+      env.DEV_WS_DO_URL || DEV_WS_DO_URL,
+      "/broadcast/community/message-delivery",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          [COMMUNITY_DELIVERY_OPERATION_ID_HEADER]: operationId,
+        },
+        body: serializeMessageDeliveryBatch(batch),
       },
-      body: serializeMessageDeliveryBatch(batch),
-    },
-    { logPrefix: "message_delivery", log, label: batch.messageId },
-  )
+      { logPrefix: "message_delivery", log, label: batch.messageId },
+    )
+  } catch (error) {
+    throw new RetryableMessageDeliveryError("message delivery: transport failed", { cause: error })
+  }
+  if (response.status >= 500 || response.status === 408 || response.status === 429) {
+    throw new RetryableMessageDeliveryError(`message delivery: ws-do responded ${response.status}`)
+  }
   let body: unknown
   try {
     body = await response.json()
@@ -118,7 +128,13 @@ async function sendChunk(
   let pending = initial
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const startedAt = Date.now()
-    const failed = await sendAttempt(env, pending, operationId)
+    let failed: string[]
+    try {
+      failed = await sendAttempt(env, pending, operationId)
+    } catch (error) {
+      if (!(error instanceof RetryableMessageDeliveryError) || attempt === maxAttempts) throw error
+      continue
+    }
     log.info("message_delivery_attempt_complete", {
       messageId: initial.messageId,
       attempt,

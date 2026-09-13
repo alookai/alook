@@ -8,6 +8,7 @@ import { filterChannelReadableUserIds, listReadableChannelsForUser, getReadableM
 describe("realtime channel audiences with canonical SQLite permissions", () => {
   let sqlite: Sqlite.Database;
   let db: Database;
+  let queryCount: number;
   beforeEach(() => {
     sqlite = new Sqlite(":memory:");
     sqlite.exec(`
@@ -39,7 +40,8 @@ describe("realtime channel audiences with canonical SQLite permissions", () => {
         ('da','dm','author','access'),('dr','dm','reader','access');
       INSERT INTO community_message VALUES ('message','private-thread');
     `);
-    db = drizzle(sqlite) as unknown as Database;
+    queryCount = 0;
+    db = drizzle(sqlite, { logger: { logQuery: () => { queryCount++; } } }) as unknown as Database;
   });
   afterEach(() => sqlite.close());
 
@@ -76,6 +78,33 @@ describe("realtime channel audiences with canonical SQLite permissions", () => {
     expect(await resolveChannelContentRecipientUserIds(db, "private-post")).toContain("participant");
     expect(await listReadableChannelsForUser(db, "reader", ["private-thread", "post", "missing", "post"])).toHaveLength(2);
     expect(await filterChannelReadableUserIds(db, "thread", [])).toEqual([]);
+  });
+
+  it("preserves audience semantics while avoiding duplicate membership reads for 100 members", async () => {
+    for (let i = 0; i < 96; i++) {
+      const id = `extra-${i}`;
+      sqlite.prepare("INSERT INTO user VALUES (?)").run(id);
+      sqlite.prepare("INSERT INTO community_server_member VALUES (?, 'server', ?, 'member')").run(id, id);
+    }
+    const counts = [];
+    for (const id of ["text", "forum", "private-text", "private-forum", "dm", "thread", "private-thread"]) {
+      queryCount = 0;
+      const oldContent = await resolveChannelContentRecipientUserIds(db, id);
+      const oldNotifications = await resolveChannelNotificationRecipientUserIds(db, id);
+      const before = queryCount;
+      queryCount = 0;
+      const content = await resolveChannelContentRecipientUserIds(db, id);
+      const notifications = id.includes("thread")
+        ? await resolveChannelNotificationRecipientUserIds(db, id)
+        : content;
+      expect(content).toEqual(oldContent);
+      expect(notifications.filter((userId) => content.includes(userId)).sort())
+        .toEqual(oldNotifications.filter((userId) => oldContent.includes(userId)).sort());
+      if (id.includes("thread")) expect(queryCount).toBe(before);
+      else expect(queryCount).toBeLessThan(before);
+      counts.push({ scope: id, members: content.length, before, after: queryCount });
+    }
+    process.stdout.write("audience-query-counts " + JSON.stringify(counts) + "\n");
   });
 
   it("chunks a large readable audience without dropping or duplicating users", async () => {

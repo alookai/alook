@@ -237,6 +237,14 @@ export async function createThreadForUser(
   const existingThread = await queries.communityChannel.getThreadChannelByParentMessage(db, message.channelId, messageId)
   if (existingThread) return { ok: true, value: existingThread }
 
+  const seedRows: { userId: string; source: typeof PARTICIPANT_SOURCE.SPOKE | typeof PARTICIPANT_SOURCE.ADDED }[] = [
+    { userId: actorUserId, source: PARTICIPANT_SOURCE.SPOKE },
+  ]
+  if (message.authorId !== actorUserId) {
+    const authorStillMember = await requireChannelMember(db, message.channelId, message.authorId)
+    if (authorStillMember.ok) seedRows.push({ userId: message.authorId, source: PARTICIPANT_SOURCE.ADDED })
+  }
+
   let createdByThisAttempt = false
   const threadResult = await createWithCollisionPolicy(channelCreation("thread"), {
     attempt: async () => {
@@ -247,6 +255,7 @@ export async function createThreadForUser(
         name,
         type: "thread",
         creatorId: actorUserId,
+        initialParticipants: seedRows,
       })
       createdByThisAttempt = true
       return created
@@ -257,20 +266,8 @@ export async function createThreadForUser(
   // this policy (it creates or re-selects, else throws); map to 404 defensively.
   if (!threadResult.ok) return { ok: false, status: 404, error: "thread not found" }
   const childChannel = threadResult.value
-  // Seed the NOTIFY set on a fresh create only: creator (spoke) + original author
-  // (added, if still a member — else a private channel's thread could leak to
-  // someone who lost access). Idempotent per (channel,user) via onConflictDoNothing.
   if (createdByThisAttempt) {
-    const seedRows: { userId: string; source: typeof PARTICIPANT_SOURCE.SPOKE | typeof PARTICIPANT_SOURCE.ADDED }[] = [
-      { userId: actorUserId, source: PARTICIPANT_SOURCE.SPOKE },
-    ]
-    if (message.authorId !== actorUserId) {
-      const authorStillMember = await requireChannelMember(db, message.channelId, message.authorId)
-      if (authorStillMember.ok) seedRows.push({ userId: message.authorId, source: PARTICIPANT_SOURCE.ADDED })
-    }
-    await queries.communityThread.addThreadParticipants(db, childChannel.id, seedRows)
-
-    await fanOutToChannel(message.channelId, {
+    void fanOutToChannel(message.channelId, {
       type: WS_EVENTS.CHILD_CHANNEL_CREATE,
       parentChannelId: message.channelId,
       channel: {
@@ -333,7 +330,7 @@ export async function createMessageWithThread(params: {
     clientNonce: params.clientNonce,
     expectedSeq: params.expectedSeq,
     suppressBroadcast: params.suppressBroadcast,
-    deferBroadcast: true,
+    suppressThreadFanout: params.suppressThreadFanout,
     extraStatements: params.extraStatements,
     forumThread: {
       id: nanoid(),
@@ -346,23 +343,6 @@ export async function createMessageWithThread(params: {
   const childChannel = await queries.communityChannel.getThreadChannelByParentMessage(db, parentChannelId, created.row.id)
   if (!childChannel) throw new Error("committed forum opener is missing its thread")
 
-  if (!created.deduped) {
-    await created.broadcast?.()
-    if (!params.suppressThreadFanout) {
-      await fanOutToChannel(parentChannelId, {
-        type: WS_EVENTS.CHILD_CHANNEL_CREATE,
-        parentChannelId,
-        channel: {
-          id: childChannel.id,
-          name: childChannel.name,
-          type: "thread" as const,
-          creatorId: authorId,
-          createdAt: childChannel.createdAt,
-        },
-        parentMessageId: created.row.id,
-      })
-    }
-  }
   return {
     ok: true,
     message: created.row,

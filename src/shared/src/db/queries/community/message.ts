@@ -287,6 +287,7 @@ async function insertMessageRow(db: Database, data: CreateMessageData, expectedS
       type: "thread",
       topic: "",
       creatorId: data.authorId,
+      createdAt: now,
     }),
     db.insert(communityChannelMember).values({
       channelId: data.forumThread.id,
@@ -326,9 +327,10 @@ async function insertMessageRow(db: Database, data: CreateMessageData, expectedS
   const joinedParticipants = (results: any[]): string[] => results
     .slice(participantStart, participantStart + participantStatements.length)
     .flatMap((rows: Array<{ userId: string }>) => rows.map((row) => row.userId));
+  const createdThread = data.forumThread ? { id: data.forumThread.id, name: data.forumThread.name, createdAt: now } : undefined;
   if (!authorIsHuman) {
     const results = (await db.batch(baseStatements as any)) as any[];
-    return { ...(results[1] as InsertedMessage[])[0]!, joinedParticipantUserIds: joinedParticipants(results) };
+    return { ...(results[1] as InsertedMessage[])[0]!, joinedParticipantUserIds: joinedParticipants(results), createdThread };
   }
 
   const humanRevision = db
@@ -347,7 +349,7 @@ async function insertMessageRow(db: Database, data: CreateMessageData, expectedS
   const revisionRows = results.at(-1) as Array<{ revision: number }> | undefined;
   const revision = revisionRows?.[0]?.revision;
   if (revision === undefined) throw new Error("human author read-state revision missing");
-  return { ...msg, readStateRevision: revision, joinedParticipantUserIds: joinedParticipants(results) };
+  return { ...msg, readStateRevision: revision, joinedParticipantUserIds: joinedParticipants(results), createdThread };
 }
 
 /**

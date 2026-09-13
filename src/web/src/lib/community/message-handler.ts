@@ -16,7 +16,7 @@ import type { MentionType } from "@alook/shared"
 import type { Database } from "@alook/shared"
 import { dispatchCommittedMessage } from "./message-dispatcher"
 import { attachmentThumbnailUrl, attachmentUrl } from "./storage"
-import { broadcastToUserSafe } from "./fanout"
+import { broadcastToUserSafe, fanOutToChannel } from "./fanout"
 
 const log = createLogger({ service: "community-message-handler" })
 
@@ -242,6 +242,7 @@ export async function createCommunityMessage(params: {
    * identity-agnostic — the bot-only caller supplies the statement.
    */
   extraStatements?: unknown[]
+  suppressThreadFanout?: boolean
   forumThread?: Parameters<typeof queries.communityMessage.createMessage>[1]["forumThread"]
 }): Promise<CreateMessageResult> {
   const {
@@ -531,20 +532,7 @@ export async function createCommunityMessage(params: {
     return { ok: false, status: 409, error: "seq_conflict" }
   }
 
-  const attachments = attachmentIds?.length
-    ? await hydrateStoredAttachments(db, created.id)
-    : []
   const joinedParticipantUserIds = created.joinedParticipantUserIds ?? []
-
-  const row = await withD1Retry(
-    () => queries.communityMessage.getMessage(db, created.id),
-    { route: "message-handler:read-back" },
-  )
-  if (!row) {
-    // createMessage just inserted this row; getMessage returning null means
-    // the DB is gone — surface that to the caller instead of inventing data.
-    throw new Error("message not found after insert")
-  }
 
   // Delivery is planned from committed D1 facts. The handler contributes only
   // structural outcomes that cannot be safely reconstructed later.
@@ -552,7 +540,7 @@ export async function createCommunityMessage(params: {
     readStateRevision?: number
   }).readStateRevision
   const doBroadcast = async (): Promise<void> => {
-    const deliveries: Promise<void>[] = [dispatchCommittedMessage(db, row.id, {
+    const deliveries: Promise<void>[] = [dispatchCommittedMessage(db, created.id, {
       ...(joinedParticipantUserIds.includes(authorId)
         ? { memberAddedUserId: authorId }
         : {}),
@@ -565,18 +553,39 @@ export async function createCommunityMessage(params: {
         inboxChanged: true,
       }))
     }
+    if (created.createdThread && !params.suppressThreadFanout) {
+      deliveries.push(fanOutToChannel(target.channelId, {
+        type: WS_EVENTS.CHILD_CHANNEL_CREATE,
+        parentChannelId: target.channelId,
+        parentMessageId: created.id,
+        channel: { ...created.createdThread, type: "thread", creatorId: authorId },
+      }))
+    }
     await Promise.all(deliveries)
   }
 
-  // Migration-backfill mode drops the real-time delivery shell entirely — the
-  // structural core (row + thread + enroll + mention rows) already committed
-  // inline above; `doBroadcast` is never run and no thunk is handed back.
-  if (suppressBroadcast) {
-    return { ok: true, row, attachments }
+  if (!suppressBroadcast && !deferBroadcast) {
+    void doBroadcast().catch((error) => {
+      log.warn("post_commit_notification_failed", { messageId: created.id, error: String(error) })
+    })
   }
-  if (deferBroadcast) {
+
+  const attachments = attachmentIds?.length
+    ? await hydrateStoredAttachments(db, created.id)
+    : []
+
+  const row = await withD1Retry(
+    () => queries.communityMessage.getMessage(db, created.id),
+    { route: "message-handler:read-back" },
+  )
+  if (!row) {
+    // createMessage just inserted this row; getMessage returning null means
+    // the DB is gone — surface that to the caller instead of inventing data.
+    throw new Error("message not found after insert")
+  }
+
+  if (!suppressBroadcast && deferBroadcast) {
     return { ok: true, row, attachments, broadcast: doBroadcast }
   }
-  void doBroadcast()
   return { ok: true, row, attachments }
 }

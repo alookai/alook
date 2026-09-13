@@ -15,7 +15,7 @@ interface FetcherLike {
  * the worker's `[dev] port`" — never duplicate this decision tree per
  * binding.
  *
- * Falls back to `fallbackBaseUrl` when the binding is absent, throws, or
+ * In local development only, falls back when the binding is absent, throws, or
  * returns a 5xx. Never falls back on a 4xx (client error — the caller's
  * request was bad, retrying via HTTP won't help, and would just hide the
  * real error behind a second, unrelated one).
@@ -27,6 +27,10 @@ export async function fetchViaBindingOrDevFallback(
   init: RequestInit,
   opts: { logPrefix: string; log: Logger; label?: string; type?: string },
 ): Promise<Response> {
+  if (process.env.NODE_ENV !== "development") {
+    if (!binding) throw new Error(`${opts.logPrefix}: service binding is required outside development`)
+    return binding.fetch(`http://internal${path}`, init)
+  }
   const { logPrefix, log, label, type } = opts
   let bindingAttempted = false
 

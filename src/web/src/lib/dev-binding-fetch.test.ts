@@ -8,10 +8,12 @@ const log = new Logger({ service: "test", level: "silent" })
 
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.stubEnv("NODE_ENV", "development")
   globalThis.fetch = mockFetch as unknown as typeof fetch
 })
 
 afterAll(() => {
+  vi.unstubAllEnvs()
   globalThis.fetch = originalFetch
 })
 
@@ -96,4 +98,14 @@ describe("fetchViaBindingOrDevFallback", () => {
       fetchViaBindingOrDevFallback({ fetch: bindingFetch }, "http://dev:1234", "/x", { method: "POST" }, { logPrefix: "test", log }),
     ).rejects.toThrow("network down")
   })
+  it("production never falls back on a binding failure or missing binding", async () => {
+    vi.stubEnv("NODE_ENV", "production")
+    const bindingFetch = vi.fn().mockRejectedValue(new Error("network"))
+    await expect(fetchViaBindingOrDevFallback({ fetch: bindingFetch }, "http://dev", "/x", {}, { logPrefix: "test", log })).rejects.toThrow("network")
+    bindingFetch.mockResolvedValue(new Response("unavailable", { status: 503 }))
+    expect((await fetchViaBindingOrDevFallback({ fetch: bindingFetch }, "http://dev", "/x", {}, { logPrefix: "test", log })).status).toBe(503)
+    await expect(fetchViaBindingOrDevFallback(undefined, "http://dev", "/x", {}, { logPrefix: "test", log })).rejects.toThrow("service binding is required")
+    expect(mockFetch).not.toHaveBeenCalled()
+  })
+
 })

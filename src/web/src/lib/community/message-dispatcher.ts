@@ -1,6 +1,7 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import {
   deriveCommunityDeliveryOperationId,
+  reachIsParticipantSet,
   WS_EVENTS,
   createLogger,
   queries,
@@ -82,13 +83,16 @@ export async function planCommittedMessage(
     throw new Error("committed message scope not found")
   }
 
-  const [contentCandidates, notificationCandidates] = await Promise.all([
+  const [contentCandidates, participantCandidates] = await Promise.all([
     resolveRecipients(db, channel.id),
-    queries.communityMembersResolver.resolveChannelNotificationRecipientUserIds(
-      db, channel.id,
-      (phase, query) => withD1Retry(query, { route: recipientRetryRoute[phase] }),
-    ),
+    reachIsParticipantSet(channel.type)
+      ? queries.communityMembersResolver.resolveChannelNotificationRecipientUserIds(
+          db, channel.id,
+          (phase, query) => withD1Retry(query, { route: recipientRetryRoute[phase] }),
+        )
+      : Promise.resolve(null),
   ])
+  const notificationCandidates = participantCandidates ?? contentCandidates
   const contentUserIds = unique(contentCandidates)
   const candidateNotificationUserIds = unique(notificationCandidates).filter((id) => id !== message.authorId)
   const attentionIds = unique(attentionUserIds).filter((id) => id !== message.authorId)

@@ -2,6 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 import { communityWriteDb } from "../../../../../../../../shared/test/helpers/community-write-db"
 
+const background: Promise<unknown>[] = []
+vi.mock("@opennextjs/cloudflare", () => ({ getCloudflareContext: () => ({ ctx: { waitUntil: (work: Promise<unknown>) => background.push(work) } }) }))
+
 let fixture: ReturnType<typeof communityWriteDb>
 let actorKind: "human" | "bot" = "bot"
 let targetKind: "channel" | "forum" = "channel"
@@ -58,6 +61,7 @@ describe("message HTTP route — concurrent nonce with real SQL writes", () => {
     actorKind = "bot"
     targetKind = "channel"
     nonceReads = 0
+    background.length = 0
     beforeUnread = undefined
     bothPrechecks = new Promise<void>((resolve) => { releaseReads = resolve })
     vi.clearAllMocks()
@@ -132,7 +136,8 @@ describe("message HTTP route — concurrent nonce with real SQL writes", () => {
     targetKind = "forum"
     nonceReads = 2
     vi.mocked(dispatchCommittedMessage).mockRejectedValueOnce(new Error("notification offline"))
-    await expect(POST(request())).rejects.toThrow("notification offline")
+    expect((await POST(request())).status).toBe(200)
+    await Promise.all(background)
     const committed = fixture.sqlite.prepare("SELECT id FROM community_message").get() as { id: string }
     expect(committed.id).toBeTruthy()
     expect(fixture.sqlite.prepare("SELECT count(*) AS count FROM community_channel WHERE type='thread'").get()).toEqual({ count: 1 })

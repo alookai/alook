@@ -36,11 +36,13 @@ const originalFetch = globalThis.fetch
 const mockFetch = vi.fn<(...args: unknown[]) => Promise<Response>>()
 
 beforeEach(() => {
+    vi.stubEnv("NODE_ENV", "development")
   vi.clearAllMocks()
   globalThis.fetch = mockFetch as unknown as typeof fetch
 })
 
 afterAll(() => {
+    vi.unstubAllEnvs()
   globalThis.fetch = originalFetch
 })
 

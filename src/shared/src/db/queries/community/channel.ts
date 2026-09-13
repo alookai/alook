@@ -9,10 +9,11 @@ import {
   communityMessage,
 } from "../../community-schema";
 import type { Database } from "../../index";
-import { PARTICIPANT_SOURCE } from "../../../constants/community";
+import { nanoid } from "nanoid";
+import { PARTICIPANT_SOURCE, type ParticipantSource } from "../../../constants/community";
 import { canSeePrivateChannel, visibilityIsDmParticipant } from "../../../utils/community-roles";
 import { user } from "../../schema";
-import { chunk, D1_MAX_IN_PARAMS, maxInParams } from "../_chunk";
+import { chunk, D1_MAX_IN_PARAMS, maxInParams, maxRowsPerInsert } from "../_chunk";
 
 // Column selection shared by every read query.
 const CHANNEL_COLUMNS = {
@@ -147,11 +148,14 @@ export async function createChannel(
     parentChannelId?: string | null;
     creatorId?: string | null;
     parentMessageId?: string | null;
+    initialParticipants?: { userId: string; source: ParticipantSource }[];
   }
 ) {
-  const rows = await db
+  const id = nanoid();
+  const insert = db
     .insert(communityChannel)
     .values({
+      id,
       serverId: data.serverId,
       categoryId: data.categoryId || null,
       name: data.name,
@@ -162,6 +166,14 @@ export async function createChannel(
       parentMessageId: data.parentMessageId ?? null,
     })
     .returning();
+  const participants = data.initialParticipants ?? [];
+  if (participants.length === 0) return (await insert)[0]!;
+  if (data.type !== "thread") throw new Error("initial participants require a thread");
+  const seeds = chunk(participants, maxRowsPerInsert(6)).map((batch) => db
+    .insert(communityChannelMember)
+    .values(batch.map((row) => ({ channelId: id, userId: row.userId, relation: "notify", source: row.source })))
+    .onConflictDoNothing({ target: [communityChannelMember.channelId, communityChannelMember.userId, communityChannelMember.relation] }));
+  const [rows] = await db.batch([insert, ...seeds]);
   return rows[0]!;
 }
 

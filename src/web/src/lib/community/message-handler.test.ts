@@ -72,8 +72,10 @@ vi.mock("./message-dispatcher", () => ({
   dispatchCommittedMessage: (...a: unknown[]) => mockDispatchCommittedMessage(...a),
 }))
 
+const mockFanOutToChannel = vi.fn(async () => {})
 const mockBroadcastToUserSafe = vi.fn(async () => {})
 vi.mock("./fanout", () => ({
+  fanOutToChannel: (...a: unknown[]) => mockFanOutToChannel(...a),
   broadcastToUserSafe: (...a: unknown[]) => mockBroadcastToUserSafe(...a),
 }))
 
@@ -971,5 +973,54 @@ describe("createCommunityMessage — attachment reservation-first flow (agent pa
       }),
     ])
     expect(mockUnreserveAttachments).not.toHaveBeenCalled()
+  })
+})
+
+describe("post-commit notification registration", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockCreateMessage.mockResolvedValue({ id: "msg_1", createdThread: { id: "child", name: "post", createdAt: "2026-01-01" } })
+    mockGetUserInternal.mockResolvedValue({ id: "author_1", isBot: false })
+    mockGetMessage.mockResolvedValue(messageRow())
+    mockListByMessageIds.mockResolvedValue([])
+    mockDispatchCommittedMessage.mockResolvedValue(undefined)
+  })
+
+  const params = {
+    db: {} as never,
+    authorId: "author_1",
+    target: { kind: "channel" as const, channelId: "c1", serverId: "s1" },
+    body: { content: "hello" },
+  }
+
+  it.each(["attachments", "message"])("registers message and child notices before a failed %s response read", async (projection) => {
+    const fail = async () => {
+      expect(mockDispatchCommittedMessage).toHaveBeenCalledOnce()
+      expect(mockFanOutToChannel).toHaveBeenCalledOnce()
+      throw new Error("projection unavailable")
+    }
+    if (projection === "attachments") mockListByMessageIds.mockImplementationOnce(fail)
+    else mockGetMessage.mockImplementationOnce(fail)
+    await expect(createCommunityMessage({ ...params, attachmentIds: ["att_1"] })).rejects.toThrow("projection unavailable")
+    expect(mockHardDeleteMessage).not.toHaveBeenCalled()
+  })
+
+  it("returns the committed response while delivery is pending", async () => {
+    let resolve!: () => void
+    const pending = new Promise<void>((done) => { resolve = done })
+    mockDispatchCommittedMessage.mockReturnValueOnce(pending)
+    try {
+      const result = await createCommunityMessage(params)
+      expect(result.ok).toBe(true)
+      expect(mockDispatchCommittedMessage).toHaveBeenCalledOnce()
+    } finally {
+      resolve()
+    }
+  })
+
+  it("preserves explicit notification suppression", async () => {
+    expect((await createCommunityMessage({ ...params, suppressBroadcast: true })).ok).toBe(true)
+    expect(mockDispatchCommittedMessage).not.toHaveBeenCalled()
+    expect(mockFanOutToChannel).not.toHaveBeenCalled()
   })
 })

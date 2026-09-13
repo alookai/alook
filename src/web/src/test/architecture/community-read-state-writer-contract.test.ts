@@ -55,7 +55,7 @@ describe("human account read-state writer contract", () => {
     expect(message).toContain('authorKind?: "human" | "bot"')
     expect(message).toContain("communityReadStateRevision")
     expect(message).toContain("authorWatermark")
-    expect(message).toContain("return { ...msg, readStateRevision: revision }")
+    expect(message).toMatch(/return\s*\{\s*\.\.\.msg,[^}]*readStateRevision:\s*revision/s)
     expect(message).toContain("impactedMentions")
     expect(message).not.toContain("humanSnapshot")
 

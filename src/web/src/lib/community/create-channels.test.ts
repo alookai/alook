@@ -105,11 +105,12 @@ describe("createThreadForUser", () => {
       parentMessageId: "m1",
       creatorId: "cli_author",
     }))
-    expect(mockAddThreadParticipants).toHaveBeenCalledWith(expect.anything(), "thread_1", [
+    expect(mockCreateChannel).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ initialParticipants: [
       { userId: "cli_author", source: "spoke" },
       { userId: "source_author", source: "added" },
-    ])
-    expect(order).toEqual(["create", "participants", "fanout"])
+    ] }))
+    expect(mockAddThreadParticipants).not.toHaveBeenCalled()
+    expect(order).toEqual(["create", "fanout"])
   })
 
   it("treats a same-actor race re-select as non-fresh and skips duplicate side effects", async () => {
@@ -166,12 +167,12 @@ describe("createMessageWithThread — atomic message composition", () => {
     const sent = { statement: "sent" }
     const result = await createMessageWithThread({ ...input, expectedSeq: 8, pendingAttachmentIdsToRebind: ["a"], extraStatements: [sent] })
     expect(mockCreateCommunityMessage).toHaveBeenCalledWith(expect.objectContaining({
-      expectedSeq: 8, extraStatements: [sent], deferBroadcast: true,
+      expectedSeq: 8, extraStatements: [sent],
       forumThread: { id: expect.any(String), name: "Title", serverId: "s1", pendingAttachmentIds: ["a"] },
     }))
     expect(result).toEqual({ ok: true, message: { id: "msg_1" }, attachments: [], thread })
-    expect(broadcast).toHaveBeenCalledOnce()
-    expect(mockFanOutToChannel).toHaveBeenCalledOnce()
+    expect(broadcast).not.toHaveBeenCalled()
+    expect(mockFanOutToChannel).not.toHaveBeenCalled()
     expect(mockCreateChannel).not.toHaveBeenCalled()
     expect(mockRebindPendingAttachmentsToChild).not.toHaveBeenCalled()
   })
@@ -222,4 +223,6 @@ describe("createMessageWithThread — atomic message composition", () => {
     expect(mockCreateCommunityMessage).toHaveBeenCalledWith(expect.objectContaining({ suppressBroadcast: true, forumThread: expect.any(Object) }))
     expect(mockFanOutToChannel).not.toHaveBeenCalled()
   })
+
+
 })

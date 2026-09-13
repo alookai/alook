@@ -91,11 +91,13 @@ function requestOperationId(callIndex: number): string | null {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.stubEnv("NODE_ENV", "development")
   globalThis.fetch = globalFetch as unknown as typeof fetch
   bindingFetch.mockImplementation(async () => Response.json({ failedUserIds: [] }))
 })
 
 afterAll(() => {
+  vi.unstubAllEnvs()
   globalThis.fetch = originalFetch
 })
 
@@ -255,4 +257,34 @@ describe("sendMessageDeliveryBatch", () => {
 
     await expect(sendMessageDeliveryBatch(batch())).rejects.toThrow(/failed for 1 chunk/)
   })
+  it.each(["network", 503, 429])("retries transient production %s with the same operation and payload", async (failure) => {
+    vi.stubEnv("NODE_ENV", "production")
+    if (failure === "network") bindingFetch.mockRejectedValueOnce(new Error("network unavailable"))
+    else bindingFetch.mockResolvedValueOnce(new Response("unavailable", { status: Number(failure) }))
+    await sendMessageDeliveryBatch(batch())
+    expect(bindingFetch).toHaveBeenCalledTimes(2)
+    expect(requestOperationId(1)).toBe(requestOperationId(0))
+    expect(requestBatch(1)).toEqual(requestBatch(0))
+    expect(globalFetch).not.toHaveBeenCalled()
+  })
+
+  it("keeps only the failed subset across a subsequent network retry", async () => {
+    vi.stubEnv("NODE_ENV", "production")
+    bindingFetch.mockResolvedValueOnce(Response.json({ failedUserIds: ["u2"] }, { status: 207 }))
+      .mockRejectedValueOnce(new Error("network unavailable"))
+    await sendMessageDeliveryBatch(batch())
+    expect(bindingFetch).toHaveBeenCalledTimes(3)
+    expect(requestBatch(1).contentUserIds).toEqual(["u2"])
+    expect(requestBatch(2)).toEqual(requestBatch(1))
+    expect(requestOperationId(2)).toBe(requestOperationId(0))
+  })
+
+  it("bounds persistent transport failure at three production attempts", async () => {
+    vi.stubEnv("NODE_ENV", "production")
+    bindingFetch.mockRejectedValue(new Error("network unavailable"))
+    await expect(sendMessageDeliveryBatch(batch())).rejects.toThrow("failed for 1 chunk")
+    expect(bindingFetch).toHaveBeenCalledTimes(3)
+    expect(globalFetch).not.toHaveBeenCalled()
+  })
+
 })
