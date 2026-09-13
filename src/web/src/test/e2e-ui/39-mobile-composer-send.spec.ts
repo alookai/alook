@@ -260,7 +260,7 @@ test.describe.serial("composer send by input capability", () => {
   })
 
   test("touch channel keeps multiline Enter and the explicit button sends once", async ({ asUser }, testInfo) => {
-    const { page, context } = await asUser("alice")
+    const { page, context } = await asUser("alice", { hasTouch: true })
     await installInputCapability(page, false)
     const proxy = await proxyCommunityWebSockets(context)
     await expectExplicitTouchSend({
@@ -275,7 +275,7 @@ test.describe.serial("composer send by input capability", () => {
   })
 
   test("touch child thread button targets the child", async ({ asUser }) => {
-    const { page, context } = await asUser("alice")
+    const { page, context } = await asUser("alice", { hasTouch: true })
     await installInputCapability(page, false)
     const proxy = await proxyCommunityWebSockets(context)
     await expectExplicitTouchSend({
@@ -288,7 +288,7 @@ test.describe.serial("composer send by input capability", () => {
   })
 
   test("touch DM button targets the DM channel", async ({ asUser }) => {
-    const { page, context } = await asUser("alice")
+    const { page, context } = await asUser("alice", { hasTouch: true })
     await installInputCapability(page, false)
     const proxy = await proxyCommunityWebSockets(context)
     await expectExplicitTouchSend({
