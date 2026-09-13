@@ -1,0 +1,29 @@
+{
+  "case": "channel-message-send",
+  "baseUrl": "http://localhost:3000",
+  "targetKind": "local",
+  "targetVersion": "REPLACE_WITH_TARGET_GIT_SHA",
+  "environment": "local Alook test stack; NEXT_PUBLIC_MOCK_NETWORK disabled",
+  "fixtureFile": "fixture.local.json",
+  "outDir": "artifacts/first-run",
+  "expectedMembers": 100,
+  "receivers": 1,
+  "samples": 100,
+  "warmup": 5,
+  "concurrency": 1,
+  "intervalMs": 400,
+  "timeoutMs": 15000,
+  "payloadBytes": [
+    64,
+    1024
+  ],
+  "historyLimit": 20,
+  "observeDB": false,
+  "observationWindowMs": 1800,
+  "phases": [
+    {
+      "name": "baseline",
+      "delayMs": 0
+    }
+  ]
+}

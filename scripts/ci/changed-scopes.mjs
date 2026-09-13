@@ -293,9 +293,10 @@ function isKnownPath(path, manifest) {
     || KNOWN_PREFIXES.some((prefix) => path.startsWith(prefix))
 }
 
-function fullReason(paths, { forceFull, fallbackReason }) {
+function fullReason(paths, { forceFull, fullUnlessBenchmarkOnly, benchmarkOnly, fallbackReason }) {
   if (fallbackReason) return "classifier_error"
-  if (forceFull) return "forced"
+  if (forceFull || (fullUnlessBenchmarkOnly && !benchmarkOnly)) return "forced"
+  if (benchmarkOnly) return null
   if (paths.length === 0) return "empty_diff"
   const docsOnly = paths.every(isMarkdown)
   const blogOnly = paths.every(isBlogContent)
@@ -353,8 +354,9 @@ function requiredCoverageFiles(changes, coverageRoots) {
   }))
 }
 
-function planClass({ full, docsOnly, blogPathsOnly, authPathsOnly, direct }) {
+function planClass({ full, benchmarkOnly, docsOnly, blogPathsOnly, authPathsOnly, direct }) {
   if (full) return "full"
+  if (benchmarkOnly) return "benchmark"
   if (docsOnly) return "docs"
   if (blogPathsOnly) return "blog"
   if (authPathsOnly) return "auth"
@@ -366,13 +368,15 @@ function planClass({ full, docsOnly, blogPathsOnly, authPathsOnly, direct }) {
 export function buildExecutionPlan(inputChanges, options = {}) {
   const manifest = validateScopeManifest(options.manifest || loadScopeManifest())
   const changes = normalizedChanges(inputChanges)
-  const paths = sorted(changes.flatMap(changePaths))
+  const allPaths = sorted(changes.flatMap(changePaths))
+  const paths = allPaths.filter((path) => !pathWithin(path, "src/benchmark"))
+  const benchmarkOnly = allPaths.length > 0 && paths.length === 0
   const docsOnly = paths.length > 0 && paths.every(isMarkdown)
   const blogContentOnly = paths.length > 0 && paths.every(isBlogContent)
   const blogPathsOnly = paths.length > 0 && paths.every((path) => BLOG_ROOT.test(path))
   const authPathsOnly = paths.length > 0 && paths.every((path) => AUTH_ROOT.test(path))
   const unknown = paths.some((path) => !isKnownPath(path, manifest))
-  const reason = fullReason(paths, options) || (unknown ? "unknown_path" : null)
+  const reason = fullReason(paths, { ...options, benchmarkOnly }) || (unknown ? "unknown_path" : null)
   const full = reason !== null
   const direct = sorted(paths.map((path) => findPackage(path, manifest)?.name).filter(Boolean))
 
@@ -447,8 +451,8 @@ export function buildExecutionPlan(inputChanges, options = {}) {
     head_sha: options.headSha || "",
     diagnostic_only: options.diagnosticOnly === true,
     changes,
-    paths,
-    change_class: planClass({ full, docsOnly, blogPathsOnly, authPathsOnly, direct }),
+    paths: allPaths,
+    change_class: planClass({ full, benchmarkOnly, docsOnly, blogPathsOnly, authPathsOnly, direct }),
     full,
     full_reason: reason,
     docs_only: docsOnly && !full,
@@ -582,6 +586,10 @@ function parseArgs(argv) {
       args.forceFull = true
       continue
     }
+    if (arg === "--full-unless-benchmark-only") {
+      args.fullUnlessBenchmarkOnly = true
+      continue
+    }
     if (arg === "--diagnostic-only") {
       args.diagnosticOnly = true
       continue
@@ -621,6 +629,7 @@ export function runCli(argv) {
       baseSha: args.base || "",
       headSha: args.head || "",
       forceFull: args.forceFull,
+      fullUnlessBenchmarkOnly: args.fullUnlessBenchmarkOnly,
       diagnosticOnly: args.diagnosticOnly,
     })
   } catch (error) {

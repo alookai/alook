@@ -1,0 +1,17 @@
+{
+  "name": "@alook/benchmark",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.15"
+  },
+  "scripts": {
+    "benchmark": "node src/cli.mjs",
+    "test": "node --test test/*.test.mjs",
+    "check": "node --check src/cli.mjs && node --test test/*.test.mjs"
+  },
+  "version": "0.1.37",
+  "dependencies": {
+    "playwright": "1.62.1"
+  }
+}
