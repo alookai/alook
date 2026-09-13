@@ -61,11 +61,15 @@ describe("useInitialPositionTransition", () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
-  it("skips aurora when position settles before the 80ms threshold", () => {
+  it("skips aurora when position settles before the 800ms threshold", () => {
+    expect(INITIAL_POSITION_EFFECT_DELAY_MS).toBe(800)
     const renderer = render(React.createElement(Probe, pending()))
     expect(latest.phase).toBe("positioning")
 
-    act(() => vi.advanceTimersByTime(INITIAL_POSITION_EFFECT_DELAY_MS - 1))
+    act(() => vi.advanceTimersByTime(80))
+    expect(latest.phase).toBe("positioning")
+    act(() => vi.advanceTimersByTime(719))
+    expect(latest.phase).toBe("positioning")
     renderer.rerender(React.createElement(Probe, { ...pending(), positionSettled: true }))
     expect(latest).toMatchObject({
       phase: "revealed",
@@ -80,7 +84,9 @@ describe("useInitialPositionTransition", () => {
 
   it("holds a shown aurora for its minimum and crossfades for 100ms", () => {
     const renderer = render(React.createElement(Probe, pending()))
-    act(() => vi.advanceTimersByTime(INITIAL_POSITION_EFFECT_DELAY_MS))
+    act(() => vi.advanceTimersByTime(799))
+    expect(latest.phase).toBe("positioning")
+    act(() => vi.advanceTimersByTime(1))
     expect(latest).toMatchObject({ phase: "aurora", contentVisible: false, auroraVisible: true })
 
     renderer.rerender(React.createElement(Probe, { ...pending(), positionSettled: true }))
