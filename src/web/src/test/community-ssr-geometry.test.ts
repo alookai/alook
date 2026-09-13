@@ -32,6 +32,12 @@ describe("SSR lifecycle geometry boundary", () => {
     expect(errors).toContain(`sample 1 (${phase}): incomplete modules shell`)
   })
 
+  it("rejects a parsed frame where the entire shell disappears", () => {
+    expect(ssrGeometryErrors([
+      sample(), sample({ geometry: {} }), sample(),
+    ], 390, "detail")).toContain("sample 1 (ssr): incomplete modules ")
+  })
+
   it("rejects desktop width and overflow during parsing", () => {
     const errors = ssrGeometryErrors([
       sample({ phase: "parsing", overflow: 250, geometry: { shell: rect(640) } }),

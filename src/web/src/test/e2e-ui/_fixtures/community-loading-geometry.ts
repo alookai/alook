@@ -232,7 +232,7 @@ async function installSsrLifecycleProbe(page: Page, surface: "list" | "detail") 
     }
     const sample = () => {
       const shell = document.querySelector('[data-slot="community-shell-root"]')
-      if (shell) {
+      if (shell || parsed) {
         const activePanel = '[data-slot="resizable-panel"][data-mobile-active="true"]'
         const hiddenPanel = '[data-slot="resizable-panel"][data-mobile-hidden="true"]'
         const geometry = Object.fromEntries(Object.entries({
@@ -248,8 +248,8 @@ async function installSsrLifecycleProbe(page: Page, surface: "list" | "detail") 
           phase: !parsed ? "parsing"
             : Reflect.get(window, "__communityApplicationScriptsReleased") ? "hydrating" : "ssr",
           readyState: document.readyState,
-          shellChildCount: shell.childElementCount,
-          incompleteShellHtml: geometry.surface ? undefined : shell.outerHTML,
+          shellChildCount: shell?.childElementCount ?? 0,
+          incompleteShellHtml: geometry.surface ? undefined : shell?.outerHTML ?? "",
           overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
           geometry,
         })
