@@ -12,7 +12,7 @@
 ## Impact Areas
 - [ ] Shared library (`@alook/shared`)
 - [ ] Web app (`@alook/web`)
-- [ ] CLI (`@alook/cli`)
+- [ ] App (`@alook/app`)
 - [ ] Email Worker (`@alook/email-worker`)
 - [ ] WebSocket DO (`@alook/ws-do`)
 - [ ] CI/CD

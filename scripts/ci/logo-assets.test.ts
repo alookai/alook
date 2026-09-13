@@ -14,8 +14,8 @@ import {
 } from "../generate-logo-assets.mjs"
 
 const repoRoot = resolve(import.meta.dirname, "../..")
-const requireFromCli = createRequire(resolve(repoRoot, "src/cli/package.json"))
-const sharp = requireFromCli("sharp")
+const requireFromRoot = createRequire(resolve(repoRoot, "package.json"))
+const sharp = requireFromRoot("sharp")
 
 const androidLegacyIconSizes = {
   mdpi: 48,

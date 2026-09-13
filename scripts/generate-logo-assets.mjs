@@ -13,8 +13,8 @@ import { createRequire } from "node:module"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..")
-const requireFromCli = createRequire(pathToFileURL(resolve(repoRoot, "src/cli/package.json")))
-const sharp = requireFromCli("sharp")
+const requireFromRoot = createRequire(pathToFileURL(resolve(repoRoot, "package.json")))
+const sharp = requireFromRoot("sharp")
 
 export const preservedAssets = [
   "src/web/src/app/favicon.ico",

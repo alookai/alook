@@ -475,13 +475,13 @@ jobs:
           VITEST_MAX_WORKERS: 1
         run: pnpm --filter @alook/daemon test
       - name: Run selected Windows workspace tests
-        if: contains(fromJSON(needs.scope.outputs.windows_suites), 'app') || contains(fromJSON(needs.scope.outputs.windows_suites), 'cli') || contains(fromJSON(needs.scope.outputs.windows_suites), 'shared')
+        if: contains(fromJSON(needs.scope.outputs.windows_suites), 'app') || contains(fromJSON(needs.scope.outputs.windows_suites), 'shared')
         shell: bash
         env:
           WINDOWS_SUITES: ${{ needs.scope.outputs.windows_suites }}
         run: |
           filters=()
-          for suite in app cli shared; do
+          for suite in app shared; do
             if node -e 'process.exit(JSON.parse(process.env.WINDOWS_SUITES).includes(process.argv[1]) ? 0 : 1)' "$suite"; then
               filters+=("--filter=@alook/$suite")
             fi
@@ -594,8 +594,6 @@ jobs:
           wait_for http://localhost:3000/api/health
       - if: contains(fromJSON(needs.scope.outputs.integration_suites), 'web')
         run: pnpm test:e2e
-      - if: contains(fromJSON(needs.scope.outputs.integration_suites), 'cli')
-        run: pnpm --filter @alook/cli run test:integration
       - if: contains(fromJSON(needs.scope.outputs.integration_suites), 'daemon')
         run: pnpm --filter @alook/daemon run test:integration
 

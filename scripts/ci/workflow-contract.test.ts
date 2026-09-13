@@ -185,7 +185,7 @@ const desktopUpdateRoute = readFileSync(
   resolve(import.meta.dirname, "../../src/web/src/app/api/desktop/update/[target]/[arch]/[current_version]/route.ts"),
   "utf8",
 )
-const publishWorkflows = ["publish-app.yml", "publish-cli.yml", "publish-daemon.yml"]
+const publishWorkflows = ["publish-app.yml", "publish-daemon.yml"]
   .map((name) => normalizeWorkflow(readFileSync(resolve(workflowRoot, name), "utf8")))
 const publishDaemonWorkflow = normalizeWorkflow(
   readFileSync(resolve(workflowRoot, "publish-daemon.yml"), "utf8"),
@@ -431,7 +431,6 @@ describe("CI workflow graph", () => {
   it("prepares shared services for every selected integration suite", () => {
     const e2e = ciJob("e2e")
     const webCondition = "if: contains(fromJSON(needs.scope.outputs.integration_suites), 'web')"
-    const cliCondition = "if: contains(fromJSON(needs.scope.outputs.integration_suites), 'cli')"
     const daemonCondition = "if: contains(fromJSON(needs.scope.outputs.integration_suites), 'daemon')"
 
     expect(e2e).toContain("if: needs.scope.outputs.run_e2e == 'true'")
@@ -453,12 +452,9 @@ describe("CI workflow graph", () => {
     expect(e2e).not.toContain('pkill -f "wrangler"')
     expect(e2e.match(new RegExp(webCondition.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")))
       .toHaveLength(1)
-    expect(e2e.match(new RegExp(cliCondition.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")))
-      .toHaveLength(1)
     expect(e2e.match(new RegExp(daemonCondition.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")))
       .toHaveLength(1)
     expect(e2e).toContain(`${webCondition}\n        run: pnpm test:e2e`)
-    expect(e2e).toContain(`${cliCondition}\n        run: pnpm --filter @alook/cli run test:integration`)
     expect(e2e).toContain(`${daemonCondition}\n        run: pnpm --filter @alook/daemon run test:integration`)
   })
 
@@ -625,7 +621,7 @@ describe("CI test budgets", () => {
 
   it("runs only Windows-relevant workspace packages after the process-bearing suites", () => {
     const windows = ciJob("test-windows")
-    expect(windows).toContain("for suite in app cli shared")
+    expect(windows).toContain("for suite in app shared")
     expect(windows).toContain('filters+=("--filter=@alook/$suite")')
     expect(windows).toContain('pnpm turbo run test "${filters[@]}"')
     expect(windows).not.toContain("--affected")
@@ -879,7 +875,6 @@ describe("Turbo CI execution", () => {
       "src/web/vitest.dom.config.ts",
       "src/web/auth/vitest.config.ts",
       "src/web/auth/vitest.runtime.config.mts",
-      "src/cli",
       "src/daemon",
       "src/daemon/agent-driver",
       "src/email-worker",

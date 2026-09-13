@@ -31,7 +31,6 @@ Alook is a monorepo with nine packages:
 | Package | Location | What it does |
 |---------|----------|-------------|
 | `@alook/web` | `src/web` | Next.js dashboard, REST API, auth, database |
-| `@alook/cli` | `src/cli` | Runtime daemon, task execution, agent orchestration |
 | `@alook/shared` | `src/shared` | Types, constants, DB schema, validation |
 | `@alook/email-worker` | `src/email-worker` | Inbound email parsing and storage |
 | `@alook/ws-do` | `src/ws-do` | Real-time WebSocket channels |
