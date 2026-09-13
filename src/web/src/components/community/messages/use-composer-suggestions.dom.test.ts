@@ -200,6 +200,7 @@ describe("useComposerSuggestions", () => {
       })
       channelOptions.setPopup({
         items: [],
+        query: "gen",
         selectedIndex: 0,
         command: vi.fn(),
         getRect: null,
@@ -685,6 +686,7 @@ describe("useComposerSuggestions", () => {
     expect(resultRef.current!.channelRefPopup.items[0].serverDiscriminator).toBe("0002")
 
     const second = channel({ id: "channel-2", name: "random" })
+    mocks.rankChannel.mockReturnValue([channel(), second])
     await act(async () => {
       channelOptions.setPopup({
         items: [channel(), second],
@@ -819,7 +821,35 @@ describe("useComposerSuggestions", () => {
     expect(resultRef.current!.channelRefPresentation).toBeUndefined()
   })
 
-  it("keeps loading until newly resolved candidates are ranked into the live popup", async () => {
+  it("reconciles a stale suggestion snapshot against warm candidates without loading", async () => {
+    const resultRef: { current: Result | null } = { current: null }
+    const ready = channel()
+    mocks.rankChannel.mockReturnValue([ready])
+    await act(async () => {
+      rtlRender(createElement(Harness, {
+        members: [],
+        context: "dm",
+        channelRefCandidates: [ready],
+        channelRefCandidateSource: channelRefSource(),
+        resultRef,
+      }))
+    })
+    const channelOptions = mocks.buildChannel.mock.calls[0][0]
+    await act(async () => {
+      channelOptions.setPopup({
+        items: [],
+        query: "",
+        selectedIndex: 0,
+        command: vi.fn(),
+        getRect: null,
+      })
+    })
+    expect(resultRef.current!.channelRefPresentation).toEqual({ status: "ready" })
+    expect(resultRef.current!.channelRefPopup.items).toEqual([ready])
+    expect(channelOptions.popupRef.current.items).toEqual([ready])
+  })
+
+  it("ranks resolved candidates before presenting the live popup", async () => {
     const resultRef: { current: Result | null } = { current: null }
     const presentationHistory: Array<Result["channelRefPresentation"]> = []
     let renderer!: ReturnType<typeof rtlRender>
@@ -857,8 +887,8 @@ describe("useComposerSuggestions", () => {
       }))
     })
 
-    expect(presentationHistory.map((presentation) => presentation?.status))
-      .toEqual(["loading", "ready"])
+    expect(presentationHistory.length).toBeGreaterThan(0)
+    expect(presentationHistory.every((presentation) => presentation?.status === "ready")).toBe(true)
     expect(resultRef.current!.channelRefPopup.items).toEqual([ready])
   })
 })

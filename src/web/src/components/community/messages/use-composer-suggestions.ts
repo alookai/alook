@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import {
   buildCommunityMentionExtension,
   EMPTY_MENTION_STATE,
@@ -86,10 +86,23 @@ export function useComposerSuggestions({
     mentionPopupRef.current = mentionPopup
   }, [mentionPopup])
 
-  const [channelRefPopup, setChannelRefPopup] =
+  const [channelRefPopupState, setChannelRefPopup] =
     useState<ChannelRefPopupState>(EMPTY_CHANNEL_REF_STATE)
+  const channelRefPopup = useMemo(() => {
+    if (!channelRefPopupState.command) return channelRefPopupState
+    const items = rankChannelRefItems(channelRefCandidates, channelRefPopupState.query ?? "")
+    if (channelRefItemsEqual(channelRefPopupState.items, items)) return channelRefPopupState
+    return {
+      ...channelRefPopupState,
+      items,
+      selectedIndex: channelRefPopupState.selectedIndex < items.length
+        ? channelRefPopupState.selectedIndex
+        : 0,
+    }
+  }, [channelRefCandidates, channelRefPopupState])
+  if (channelRefPopup !== channelRefPopupState) setChannelRefPopup(channelRefPopup)
   const channelRefPopupRef = useRef(channelRefPopup)
-  useEffect(() => {
+  useLayoutEffect(() => {
     channelRefPopupRef.current = channelRefPopup
   }, [channelRefPopup])
 
@@ -136,18 +149,12 @@ export function useComposerSuggestions({
     channelRefCandidatesRef.current = channelRefCandidates
   }, [channelRefCandidates])
 
-  const channelRefItemsAligned = !channelRefCandidateSource
-    || !channelRefPopup.command
-    || channelRefItemsEqual(
-      channelRefPopup.items,
-      rankChannelRefItems(channelRefCandidates, channelRefPopup.query ?? ""),
-    )
   const channelRefPresentation: ChannelRefCandidatePresentation | undefined =
     channelRefCandidateSource
       ? {
           status: channelRefCandidateSource.failed
             ? "error"
-            : channelRefCandidateSource.loading || !channelRefItemsAligned
+            : channelRefCandidateSource.loading
               ? "loading"
               : channelRefPopup.items.length > 0
                 ? "ready"
@@ -232,22 +239,6 @@ export function useComposerSuggestions({
     }
     return { status: mentionPopup.items.length > 0 ? "ready" : "empty" }
   })()
-
-  useEffect(() => {
-    const current = channelRefPopupRef.current
-    if (!current.command) return
-    const items = rankChannelRefItems(
-      channelRefCandidates,
-      channelRefQueryRef.current,
-    )
-    if (channelRefItemsEqual(current.items, items)) return
-    setChannelRefPopup({
-      ...current,
-      items,
-      selectedIndex:
-        current.selectedIndex < items.length ? current.selectedIndex : 0,
-    })
-  }, [channelRefCandidates])
 
   const resetPopups = () => {
     mentionCandidates?.search("")

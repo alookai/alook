@@ -3,6 +3,22 @@ import { tid } from "./testids"
 
 const HOVER_FINE_QUERY = "(hover: hover) and (pointer: fine)"
 
+export async function waitForElementMotion(locator: Locator): Promise<void> {
+  await locator.evaluate(async (element) => {
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    const animations: Animation[] = []
+    for (let ancestor: Element | null = element; ancestor; ancestor = ancestor.parentElement) {
+      animations.push(...ancestor.getAnimations().filter((animation) => (
+        animation.effect?.getTiming().iterations !== Infinity
+      )))
+    }
+    await Promise.all(animations.map((animation) => animation.finished.catch(() => {})))
+  })
+}
+
+export const GEOMETRY_EPSILON = 0.01
+
 export function observeUserWsAuth(page: Page): {
   authenticated: Promise<void>
   cleanup: () => void
