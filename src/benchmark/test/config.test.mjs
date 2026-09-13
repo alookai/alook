@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { prepareFixture } from '../src/client.mjs'
 import { loadConfig, publicConfig } from '../src/config.mjs'
 
 test('config rejects ambiguous targets/identities and public output excludes fixture secrets', async () => {
@@ -14,10 +15,13 @@ test('config rejects ambiguous targets/identities and public output excludes fix
     await writeFile(join(dir, 'fixture.json'), JSON.stringify({ accounts }))
     await writeFile(path, JSON.stringify(base))
     const config = await loadConfig(path)
+    await assert.rejects(prepareFixture({ ...config, receivers: 2 }), /sender plus/ )
+    await writeFile(path, JSON.stringify({ ...base, case: 'counter-control', fixtureFile: undefined }))
+    assert.deepEqual((await loadConfig(path)).fixture, {})
     assert.equal(config.expectedMembers, 100)
     assert.equal(config.intervalMs, 400)
     assert.ok(!JSON.stringify(publicConfig(config)).includes('secret'))
-    for (const override of [{ baseUrl: 'https://user:password@example.com' }, { wsUrl: 'ws://localhost/api/ws?token=secret' }, { receivers: 2 }, { samples: 0 }, { targetKind: 'production' }]) {
+    for (const override of [{ baseUrl: 'https://user:password@example.com' }, { wsUrl: 'ws://localhost/api/ws?token=secret' }, { samples: 0 }, { targetKind: 'production' }]) {
       await writeFile(path, JSON.stringify({ ...base, ...override }))
       await assert.rejects(loadConfig(path))
     }

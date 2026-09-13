@@ -26,6 +26,11 @@ async function checked(baseUrl, account, path, options) {
 
 export async function prepareFixture(config, create = false) {
   const { fixture, baseUrl } = config
+  if (!Array.isArray(fixture.accounts) || fixture.accounts.some(a => typeof a.cookie !== 'string' || !a.cookie || typeof a.userId !== 'string' || !a.userId)) throw new Error('Fixture requires accounts with cookie and userId')
+  if (new Set(fixture.accounts.map(a => a.userId)).size !== fixture.accounts.length) throw new Error('Fixture accounts must be distinct')
+  for (const [key, min, max] of [['receivers', 1, 1000], ['expectedMembers', 2, 10000], ['historyLimit', 1, 100]]) if (!Number.isInteger(config[key]) || config[key] < min || config[key] > max) throw new Error(`Invalid ${key}`)
+  if (!Array.isArray(config.payloadBytes) || !config.payloadBytes.length || config.payloadBytes.some(n => !Number.isInteger(n) || n < 1 || n > 100000)) throw new Error('Invalid payloadBytes')
+  if (fixture.accounts.length <= config.receivers) throw new Error('Fixture requires a sender plus configured receivers')
   const sender = fixture.accounts[0]
   if (create) {
     if (fixture.accounts.length !== config.expectedMembers) throw new Error('Creation requires exactly expectedMembers fixture accounts')

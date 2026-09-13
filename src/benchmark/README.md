@@ -35,6 +35,29 @@ For fresh local fixtures, `accounts LOCAL_URL FIXTURE [COUNT]` calls the public 
 
 The browser driver navigates to the configured public route, waits for the actual page WS authentication and composer, and uses the visible scroll-to-present control until the page reaches the latest messages. It fills the composer before timing. It never calls product stores, mutation functions or internal UI helpers. Selectors, route templates and `submitAction: "enter" | "click"` can be supplied through `scenario`; defaults describe Alook's public DOM. Desktop Alook uses Enter by default.
 
+## Add a case
+
+`case` selects a factory in `src/cases/index.mjs`; the default is `channel-message-send`. Add one module and one registry entry. The common browser loop and report do not contain message selectors, WS event names, nonce decoding, participant-count assumptions or business success conditions. `http-counter-control` is a synthetic tool control, not additional Alook product coverage.
+
+A factory receives the loaded config and returns this contract:
+
+| Hook/field | Responsibility |
+|---|---|
+| `id`, `version`, `options`, `metrics` | Public case identity and configuration; each metric declares `label`, `unit`, `successOnly`. |
+| `prepare({config})` | Validate case-specific settings; return sanitized public `fixture`, `participants: [{name,path,cookie?}]`, and `workloads: [{id,label,params}]`. Credentials belong only in participants, never the public fixture. |
+| `setupPage({page,context,connection,participant,role,fixture,config})` | Prepare the visible page and install its observer before measurement. |
+| `prepareSample({config,fixture,pages,workload,id})` | Prepare input outside timing; return private input passed to later hooks, not automatically written to artifacts. |
+| `arm`, `perform`, `freeze` | Arm the probe, perform a real browser action and await the case's completion with bounded Playwright timeouts, then return frozen observations. Receive the same context plus `input`; perform/freeze also receive `operation`. |
+| `finish({...context,input,snapshot,operation})` | Return `submit: {role,atMs,isTrusted,eventType}`, `metrics`, sanitized `diagnostics`, and `error` or null. `atMs` is the page's `performance.timeOrigin + performance.now()` from the actual event. Missing/nontrusted/out-of-window submit or nonfinite declared metrics makes the common runner reject success. |
+| Optional `classifyRequest({request,role,fixture,operation,config})` | Return `direct`, `inject`, `observeDB`, sanitized `details`. Only selected requests receive delay. DB tagging also requires same origin and `observeDB: true` in config. |
+| Optional `responseDetails({record,body,fixture,config})`, `frameDetails({payload,direction,role,fixture,config})` | Decode only public correlation metadata. A frame decoder may return `ready` for its own setup and `details` for artifacts. Omitted hooks make no WS/protocol assumptions. |
+
+`pages` contains each public Playwright page/context plus calibrated clock, CDP session and generic connection state. The shared loop owns phase/workload/sample iteration, browser lifetime, network and CPU/heap capture, cutoff copies and persistence. The case owns completion and must bound its action waits with `config.timeoutMs`. Hook failure remains a failed operation or an incomplete run, never successful zero latency.
+
+`fixtureFile` is optional and may contain any case-specific data. Account identity and member-count validation belong to the message preparation helper; `accounts`, `setup` and `calibrate` remain explicit message-fixture/protocol utilities. Message defaults (`payloadBytes`, `receivers`, `expectedMembers`, `historyLimit`, `scenario`) are ignored by the HTTP control. New case options can be read from config and must be recorded in the case's public `options` or workloads for comparison.
+
+Reports aggregate declared metrics and arbitrary participant counts without loading the case. Case ID/version/options, metric names/units, workloads, participants and the tool digest (including nested case modules) form the comparison contract. Browser artifacts use **schema 2**; experimental schema-1 artifacts require their original tool version for rebuilding, and are not silently converted.
+
 ## Native, diagnostic and delay runs
 
 The example is a native observation run: `observeDB: false`, one baseline phase with zero delay. HTTP/WS are observed passively; no routing is installed, so the tool does not disable HTTP cache. Both modes block service workers to ensure the page network is observable; this browser setting is recorded and is a limitation for service-worker-dependent journeys.
@@ -109,7 +132,10 @@ Dedicated tool checks (not product test/CI integration):
 ```sh
 npm run check
 node test/browser-probe.control.mjs
+node test/case-extension.control.mjs
 ```
+
+The extension control starts its own local HTTP server and uses the normal CLI/config/registry with no accounts: two one-page A/A runs, exact report rebuilding, custom metrics and generic HTTP/CPU fields. It also verifies that missing, nontrusted and invalid-page submit records fail. It leaves inspectable artifacts and closes its browser/server.
 
 The probe control verifies trusted input, replacement of an optimistic node before the next frame, frozen observations, and hidden/offscreen exclusion. `test/d1-control-worker.mjs` is a manual actual-D1 control target for trigger, batch rollback, raw columns and first() behavior. `calibrate CONFIG` retains the API/WS/history runner and 0/1000ms proxy for supporting protocol calibration; its `samples.jsonl` report is never the primary user journey.
 

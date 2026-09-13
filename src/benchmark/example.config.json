@@ -1,4 +1,5 @@
 {
+  "case": "channel-message-send",
   "baseUrl": "http://localhost:3000",
   "targetKind": "local",
   "targetVersion": "REPLACE_WITH_TARGET_GIT_SHA",
