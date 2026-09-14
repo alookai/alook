@@ -2,6 +2,8 @@
 
 import {
   useInfiniteQuery,
+  focusManager,
+  onlineManager,
   useQueryClient,
   type UseInfiniteQueryResult,
   type InfiniteData,
@@ -467,131 +469,106 @@ function useMessagesInner(
       current?.attemptId === presentOverride.attemptId ? null : current)
   }, [jumpPending, presentOverride, query.isError, queryClient, queryKey, viewKey])
 
-  // Fix 3 — anchor re-validation.
-  //
-  // When a persisted cache is rehydrated, TanStack uses the cached `pages`
-  // even if `initialPageParam` says "anchor at m_42". If m_42 isn't in the
-  // hydrated window (e.g. the persisted cache was a newest-tail and the
-  // read pointer has since advanced past it), `newDividerBefore` computes
-  // to `undefined` and the list snaps to bottom — no NEW divider, wrong
-  // position.
-  //
-  // Detect that shape and re-anchor. Fire exactly once per (scopeId,
-  // anchorId) pair via a ref — a subsequent watermark tick that advances
-  // lastReadMessageId is a different pair and gets its own single
-  // re-anchor opportunity.
-  //
-  // Two different causes need two different repairs:
-  //   - Genuinely stale cache (cross-session IDB hydration, e.g. the Inbox-
-  //     to-unread-channel case) — `resetQueries` is correct: the whole
-  //     window is untrustworthy anyway.
-  //   - Same-session anchor drift with a still-fresh cache (e.g. returning
-  //     from a Thread after the watermark advanced past the window) — the
-  //     already-loaded history is still valid. `resetQueries` would clear
-  //     `pages` to empty and flash a blank list while it refetches. Instead,
-  //     fetch a fresh anchor-centered page out of band and swap the query
-  //     data directly once it lands — the view jumps straight from the old
-  //     (valid) window to the new one, never passing through an empty state.
-  const anchorResetKeyRef = useRef<string | null>(null)
+  const anchorRepairNeeded = cachedWindowNeedsAnchorReconcile(query.data, anchorId, reconcileLateAnchor)
+  const messageQuery = queryClient.getQueryCache().find({ queryKey, exact: true })
+  const settledAnchorRepairRef = useRef<{ key: string; query: unknown } | null>(null)
+  const anchorRepairFailedRef = useRef(false)
+  const [anchorRetryEpoch, setAnchorRetryEpoch] = useState(0)
+  useEffect(() => {
+    const retry = (ready: boolean) => {
+      if (ready && anchorRepairFailedRef.current) setAnchorRetryEpoch((epoch) => epoch + 1)
+    }
+    const unsubscribeFocus = focusManager.subscribe(retry)
+    const unsubscribeOnline = onlineManager.subscribe(retry)
+    return () => {
+      unsubscribeFocus()
+      unsubscribeOnline()
+    }
+  }, [])
   useEffect(() => {
     if (!enabled) return
     if (forceNewest) return
     if (!anchorId) return
     if (query.isFetching) return
     if (query.isPending) return
-    if (!cachedWindowNeedsAnchorReconcile(
-      query.data,
-      anchorId,
-      reconcileLateAnchor,
-    )) return
-    const resetKey = `${scopeId ?? ""}::${anchorId}`
-    if (anchorResetKeyRef.current === resetKey) return
-    anchorResetKeyRef.current = resetKey
-
-    const updatedAt = query.dataUpdatedAt
+    if (!anchorRepairNeeded || !messageQuery) return
+    const updatedAt = messageQuery.state.dataUpdatedAt
     const isFresh = !!updatedAt && Date.now() - updatedAt < ANCHOR_CACHE_FRESHNESS_MS
-
-    // Both branches fetch a fresh anchor-centered page out of band and swap
-    // it in via `setQueryData` — NEITHER uses `resetQueries`. `resetQueries`
-    // clears `pages` to empty synchronously, which flashes a second loading
-    // skeleton mid-mount and, worse, wipes the virtualizer's measurement
-    // cache so the one-shot mount scroll (fired once the refetch lands)
-    // mis-targets and settles at the top hero instead of the NEW divider —
-    // and the unread rows near the tail then never enter the viewport, so
-    // the read watermark never advances. Keeping the old (renderable) window
-    // on screen until the fresh page lands makes the transition a direct
-    // swap with no empty frame (DESIGN.md "Fade, don't swap").
-    //
-    // The branches differ only in what they keep:
-    //   - FRESH cache (same-session drift, e.g. returning from a Thread after
-    //     the watermark advanced): the already-loaded history is still valid,
-    //     so MERGE the new anchor page into it — dropping it would lose rows
-    //     the user paged in via `fetchOlder`.
-    //   - STALE cache (cross-session IDB hydration): the loaded window is
-    //     untrustworthy, so REPLACE it with just the fresh anchor page.
     const anchorPageParam: MessagesPageParam = { mode: "anchor", anchor: anchorId }
     const accessToken = captureChannelMetadataToken(scopeId!)
-    const currentQuery = queryClient.getQueryCache().find({ queryKey, exact: true })
-    const isCurrent = () => isChannelMetadataTokenCurrent(accessToken)
+    const currentQuery = messageQuery
+    let active = true
+    let retryTimer: ReturnType<typeof setTimeout> | undefined
+    const isCurrent = () => active && isChannelMetadataTokenCurrent(accessToken)
       && queryClient.getQueryCache().find({ queryKey, exact: true }) === currentQuery
     const anchorRequestKey = JSON.stringify([queryKey, anchorPageParam, accessToken])
-    fetchSharedAnchorRepair(
-      queryClient,
-      anchorRequestKey,
-      () => queryFn({ pageParam: anchorPageParam }),
-    )
-      .then((page) => {
-        // Re-check right before the swap — a concurrent send/WS update or a
-        // second re-anchor attempt in the interim shouldn't be clobbered by
-        // a now-outdated fetch result landing late.
-        if (anchorResetKeyRef.current !== resetKey || !isCurrent()) return
-        queryClient.setQueryData<PageCache>(queryKey, (current) => {
-          // Stale replace-path: use the fresh page even if `current` is
-          // somehow absent — never fall back to leaving an un-anchored
-          // window in place.
-          if (!isFresh) {
-            return { pages: [page], pageParams: [anchorPageParam] }
-          }
-          if (!current) return current
-          // Fresh merge-path: fold the freshly-fetched anchor page into the
-          // ALREADY-LOADED history rather than replacing `pages` outright —
-          // discarding it would drop every page the user loaded via
-          // `fetchOlder` (scroll-up pagination), which surfaced as history
-          // vanishing on channel switch. `mergeMessagesPages` sorts +
-          // dedupes by id, so overlapping rows between the old window and
-          // the new anchor page collapse cleanly. The merged set collapses
-          // into a single page — `hasMoreOlder`/`hasMoreNewer` come from the
-          // new anchor page since it alone knows the true state of both
-          // edges relative to the (possibly wider) merged window.
-          const currentMessages = mergeMessagesPages(current.pages)
-          const anchorAlreadyPainted = opts?.waitForAnchor === false
-            && currentMessages.some((message) => message.id === anchorId)
-          const merged = anchorAlreadyPainted
-            ? currentMessages
-            : mergeMessagesPages([...current.pages, page])
-          const mergedPage: MessagesPage = {
-            ...page,
-            messages: merged,
-          }
-          return { pages: [mergedPage], pageParams: [anchorPageParam] }
+    if (settledAnchorRepairRef.current?.key === anchorRequestKey
+      && settledAnchorRepairRef.current.query === currentQuery) return
+    anchorRepairFailedRef.current = false
+    const repair = (attempt: number) => {
+      if (!isCurrent()) return
+      void fetchSharedAnchorRepair(
+        queryClient,
+        anchorRequestKey,
+        () => queryFn({ pageParam: anchorPageParam }),
+      )
+        .then((page) => {
+          // Re-check right before the swap — a concurrent send/WS update or a
+          // second re-anchor attempt in the interim shouldn't be clobbered by
+          // a now-outdated fetch result landing late.
+          if (!isCurrent()) return
+          settledAnchorRepairRef.current = { key: anchorRequestKey, query: currentQuery }
+          anchorRepairFailedRef.current = false
+          queryClient.setQueryData<PageCache>(queryKey, (current) => {
+            // Stale replace-path: use the fresh page even if `current` is
+            // somehow absent — never fall back to leaving an un-anchored
+            // window in place.
+            if (!isFresh) {
+              return { pages: [page], pageParams: [anchorPageParam] }
+            }
+            if (!current) return current
+            // Fresh merge-path: fold the freshly-fetched anchor page into the
+            // ALREADY-LOADED history rather than replacing `pages` outright —
+            // discarding it would drop every page the user loaded via
+            // `fetchOlder` (scroll-up pagination), which surfaced as history
+            // vanishing on channel switch. `mergeMessagesPages` sorts +
+            // dedupes by id, so overlapping rows between the old window and
+            // the new anchor page collapse cleanly. The merged set collapses
+            // into a single page — `hasMoreOlder`/`hasMoreNewer` come from the
+            // new anchor page since it alone knows the true state of both
+            // edges relative to the (possibly wider) merged window.
+            const currentMessages = mergeMessagesPages(current.pages)
+            const anchorAlreadyPainted = opts?.waitForAnchor === false
+              && currentMessages.some((message) => message.id === anchorId)
+            const merged = anchorAlreadyPainted
+              ? currentMessages
+              : mergeMessagesPages([...current.pages, page])
+            const mergedPage: MessagesPage = {
+              ...page,
+              messages: merged,
+            }
+            return { pages: [mergedPage], pageParams: [anchorPageParam] }
+          })
         })
-      })
-      .catch(() => {
-        if (!isCurrent()) return
-        // Out-of-band fetch failed — fall back to the reset path so the
-        // scope isn't stuck showing a stale, un-anchored window forever.
-        // This is the ONLY `resetQueries` path left: an outright fetch
-        // failure has no fresh page to swap in, so the empty-then-refetch
-        // flash is the acceptable last resort rather than the common case.
-        void queryClient.resetQueries({ queryKey })
-      })
+        .catch(() => {
+          if (!isCurrent()) return
+          anchorRepairFailedRef.current = true
+          if (attempt < 2) retryTimer = setTimeout(() => repair(attempt + 1), 1000 * (2 ** attempt))
+        })
+    }
+    repair(0)
+    return () => {
+      active = false
+      clearTimeout(retryTimer)
+    }
   }, [
+    anchorRetryEpoch,
     enabled,
     forceNewest,
     anchorId,
     scopeId,
-    query.data,
-    query.dataUpdatedAt,
+    anchorRepairNeeded,
+    messageQuery,
     query.isFetching,
     query.isPending,
     queryClient,
