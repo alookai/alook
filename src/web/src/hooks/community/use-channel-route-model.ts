@@ -116,7 +116,7 @@ export function useChannelRouteModel(
     ? "pending" as const
     : !isChild
       ? "ready" as const
-      : metaQuery.isError
+      : metadataExit || (metaQuery.isError && !model.routeHydrated)
         ? "terminal-error" as const
         : model.routeHydrated
           ? "ready" as const

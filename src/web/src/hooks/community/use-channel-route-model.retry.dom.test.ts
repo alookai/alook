@@ -19,6 +19,7 @@ vi.mock("./use-servers", () => ({
 vi.mock("./use-community-ws", () => ({ communityWsSubscribe: vi.fn(), communityWsUnsubscribe: vi.fn() }))
 vi.mock("./use-forum-sidebar-threads", () => ({
   removeForumSidebarUnreadChild: vi.fn(), removeForumSidebarThreadExact: vi.fn(),
+  invalidateForumSidebarBaseExact: vi.fn().mockResolvedValue(undefined),
 }))
 vi.mock("@/lib/community/last-channel", () => ({ getLastChannel: () => null, clearLastChannel: vi.fn() }))
 vi.mock("@/lib/community/last-community-route", () => ({
@@ -26,6 +27,7 @@ vi.mock("@/lib/community/last-community-route", () => ({
 }))
 
 import { useChannelRouteModel } from "./use-channel-route-model"
+import { reconcileCommunityWsReconnect } from "./community-ws/reconnect"
 
 let current!: ReturnType<typeof useChannelRouteModel>
 let renderer: ReturnType<typeof render> | undefined
@@ -142,15 +144,48 @@ describe("unresolved metadata terminal error and retry", () => {
     else expect(mocks.replace).toHaveBeenCalledWith("/c/channels/server-1")
   })
 
-  it("does not replace previously verified content with the new error UI on background failure", async () => {
+  it.each([0, 500])("keeps a verified thread ready through disconnect, failed %s revalidation, and recovery", async (status) => {
     mocks.apiFetch.mockResolvedValue(payload())
     await mount()
     await until(() => current.routeHydrated)
-    mocks.apiFetch.mockRejectedValue(new ApiError("offline", 0))
-    await act(async () => { await client.refetchQueries({ queryKey: communityKeys.channelMeta("server-1", "post-1") }) })
-    await until(() => current.routeLifecycle === "terminal-error")
+    await act(async () => { useCommunityWsStore.getState().markAccessDisconnected() })
+    mocks.apiFetch.mockRejectedValue(new ApiError("offline", status))
+    await act(async () => {
+      useCommunityWsStore.getState().markAccessConnected()
+      await reconcileCommunityWsReconnect(client, 60_000)
+    })
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)) })
+    expect(client.getQueryState(communityKeys.channelMeta("server-1", "post-1"))?.status).toBe("error")
+    expect(mocks.apiFetch).toHaveBeenCalledWith("/api/community/channels/post-1", expect.anything())
+    expect(current.routeLifecycle).toBe("ready")
     expect(current.currentChannelMeta?.id).toBe("post-1")
     expect(current.metadataError).toBe(false)
+    mocks.apiFetch.mockResolvedValue(payload())
+    await act(async () => { await reconcileCommunityWsReconnect(client, 60_000) })
+    expect(current.routeLifecycle).toBe("ready")
+    expect(client.getQueryState(communityKeys.channelMeta("server-1", "post-1"))?.status).toBe("success")
+  })
+
+  it.each([401, 403, 404])("does not retain a trusted route after authoritative %s", async (status) => {
+    mocks.apiFetch.mockResolvedValue(payload())
+    await mount()
+    await until(() => current.routeHydrated)
+    await act(async () => { useCommunityWsStore.getState().markAccessDisconnected() })
+    mocks.apiFetch.mockRejectedValue(new ApiError("denied", status))
+    await act(async () => { await reconcileCommunityWsReconnect(client, 60_000) })
+    await until(() => current.routeLifecycle === "terminal-error")
+    expect(current.metadataError).toBe(false)
+    if (status !== 401) expect(mocks.replace).toHaveBeenCalledWith("/c/channels/server-1")
+  })
+
+  it("does not retain a trusted route after an archived metadata response", async () => {
+    mocks.apiFetch.mockResolvedValue(payload())
+    await mount()
+    await until(() => current.routeHydrated)
+    mocks.apiFetch.mockResolvedValue({ ...payload(), archived: true })
+    await act(async () => { await reconcileCommunityWsReconnect(client, 60_000) })
+    await until(() => !current.routeHydrated)
+    expect(current.routeLifecycle).not.toBe("ready")
   })
 
   it("does not let an old route retry completion clear the new route retry", async () => {
