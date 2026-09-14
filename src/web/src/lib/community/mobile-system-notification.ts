@@ -369,7 +369,6 @@ export function createMobileSystemNotificationActivationController(
         try {
           activation = await deps.take()
         } catch {
-          if (!disposed) await deps.openInbox()
           continue
         }
         if (!activation || disposed) continue

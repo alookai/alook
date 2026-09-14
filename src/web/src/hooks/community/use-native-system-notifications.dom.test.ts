@@ -444,6 +444,47 @@ describe("native system notification hook", () => {
     expect(stop).toHaveBeenCalledOnce()
   })
 
+  it.each(["unmounted", "open"])("preserves the page when a foreground activation read fails with Inbox %s", async (inboxState) => {
+    vi.useFakeTimers()
+    hookMocks.desktop = false
+    hookMocks.mobile = true
+    const assign = vi.fn()
+    vi.stubGlobal("location", { href: "https://alook.test/c/channels/server_1/channel_1", assign })
+    hookMocks.mobileListen.mockResolvedValue(vi.fn())
+    hookMocks.mobileCheck.mockResolvedValue("denied")
+    hookMocks.mobileTake.mockResolvedValueOnce(null).mockRejectedValue(new Error("native bridge unavailable"))
+    const button = document.createElement("button")
+    button.setAttribute("aria-label", "Close Inbox")
+    const click = vi.spyOn(button, "click")
+    if (inboxState === "open") document.body.append(button)
+    const visible = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible")
+    const rendered = renderHook(() => useNativeSystemNotifications("viewer_1"))
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"))
+      await vi.advanceTimersByTimeAsync(2_100)
+    })
+    expect(hookMocks.mobileTake).toHaveBeenCalledTimes(2)
+    expect(assign).not.toHaveBeenCalled()
+    expect(click).not.toHaveBeenCalled()
+    expect(window.sessionStorage.length).toBe(0)
+
+    const nextActivation = {
+      notificationId: "4f3bb3fd-5d7f-4a26-8e0e-3ddd1154f71e",
+      messageId: "message_1",
+      targetId: "channel_1",
+    }
+    hookMocks.mobileTake.mockResolvedValueOnce(nextActivation)
+    hookMocks.mobileRevalidate.mockResolvedValueOnce({ href: "/c/me/channel_1?seq=4" })
+    await act(async () => {
+      window.dispatchEvent(new Event("online"))
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    expect(assign).toHaveBeenCalledExactlyOnceWith("/c/me/channel_1?seq=4")
+    rendered.unmount()
+    visible.mockRestore()
+  })
+
   it("schedules and cancels a mobile registration retry", async () => {
     hookMocks.desktop = false
     hookMocks.mobile = true

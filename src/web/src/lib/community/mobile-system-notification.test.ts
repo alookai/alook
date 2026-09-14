@@ -537,7 +537,7 @@ describe("mobile notification activation", () => {
     )).resolves.toBeNull()
   })
 
-  it("opens Inbox on invalid, revoked, or unreadable activations", async () => {
+  it("opens Inbox for an unreadable destination but ignores unavailable activation reads", async () => {
     const openInbox = vi.fn()
     const navigate = vi.fn()
     const controller = createMobileSystemNotificationActivationController({
@@ -549,8 +549,9 @@ describe("mobile notification activation", () => {
       openInbox,
     })
     await controller.drain()
+    expect(openInbox).toHaveBeenCalledTimes(1)
     await controller.drain()
-    expect(openInbox).toHaveBeenCalledTimes(2)
+    expect(openInbox).toHaveBeenCalledTimes(1)
     expect(navigate).not.toHaveBeenCalled()
   })
 
