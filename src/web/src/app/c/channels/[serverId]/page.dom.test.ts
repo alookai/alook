@@ -13,6 +13,10 @@ const mocks = vi.hoisted(() => ({
   } },
 }))
 
+vi.mock("@/components/brand/alook-loading/AlookLoading", () => ({
+  AlookLoading: () => null,
+}))
+
 vi.mock("next/navigation", () => ({
   useParams: () => ({ serverId: "server_1" }),
   useRouter: () => ({ replace: mocks.replace }),

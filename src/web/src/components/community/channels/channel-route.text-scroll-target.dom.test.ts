@@ -76,6 +76,10 @@ const {
   },
 }))
 
+vi.mock("@/components/brand/alook-loading/AlookLoading", () => ({
+  AlookLoading: () => null,
+}))
+
 vi.mock("next/navigation", () => ({
   useRouter: () => mockRouter,
   usePathname: () => "/c/channels/server_1/channel_1",

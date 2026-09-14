@@ -212,20 +212,16 @@ test("app edge fade keeps the unresolved main surface native-aligned across them
       const edge = await appEdgeEvidence(unresolved)
       expectAppEdgeEvidence(edge)
       expect(edge.surfaceBackground).toBe(edge.appBackground)
-      const pulse = await unresolved.locator('[data-slot="skeleton"]').evaluate((element) => {
-        const style = getComputedStyle(element)
-        return {
-          animationDuration: style.animationDuration,
-          animationName: style.animationName,
-          backgroundColor: style.backgroundColor,
-        }
-      })
-      expect(pulse.animationName === "none").toBe(entry.reducedMotion === "reduce")
-      if (entry.reducedMotion === "no-preference") {
-        expect(pulse.animationDuration).toBe("2s")
-      }
-      expect(pulse.backgroundColor).not.toBe(edge.appBackground)
-      await attachEvidence(testInfo, alice.page, entry.name, { edge, pulse, entry })
+      await expect(unresolved.getByRole("heading", { name: "Connecting…" })).toBeVisible()
+      await expect(unresolved.locator('[data-slot="skeleton"]')).toHaveCount(0)
+      await expect(unresolved.getByRole("dialog")).toHaveCount(0)
+      const waiting = await unresolved.evaluate((element) => ({
+        animationName: getComputedStyle(element).animationName,
+        textAnimation: getComputedStyle(element.querySelector(".community-ws-connecting-letter")!).animationName,
+      }))
+      expect(waiting.animationName).toBe("none")
+      expect(waiting.textAnimation === "none").toBe(entry.reducedMotion === "reduce")
+      await attachEvidence(testInfo, alice.page, entry.name, { edge, waiting, entry })
     }
   } finally {
     releaseServerDetail()

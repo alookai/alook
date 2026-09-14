@@ -2,6 +2,10 @@ import { createElement } from "react"
 import { describe, expect, it, vi } from "vitest"
 import { render, screen } from "@/test/react-dom-harness"
 
+vi.mock("@/components/brand/alook-loading/AlookLoading", () => ({
+  AlookLoading: () => null,
+}))
+
 vi.mock("@/components/community/machines/machine-list", () => ({
   MachineListSkeleton: ({ reserveBackSlot }: { reserveBackSlot?: boolean }) => createElement("div", {
     "data-testid": "machine-skeleton",
