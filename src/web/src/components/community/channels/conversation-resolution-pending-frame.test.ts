@@ -8,7 +8,8 @@ describe("ConversationResolutionPendingFrame", () => {
     const markup = renderToStaticMarkup(createElement(ConversationResolutionPendingFrame))
 
     expect(markup.match(/data-community-unresolved-main=""/g)).toHaveLength(1)
-    expect(markup.match(/data-slot="skeleton"/g)).toHaveLength(1)
+    expect(markup).not.toContain('data-slot="skeleton"')
+    expect(markup).toContain('aria-label="Connecting…"')
   })
 
   it("stays inert and exposes no speculative conversation content", () => {

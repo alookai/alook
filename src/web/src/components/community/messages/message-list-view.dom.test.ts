@@ -151,6 +151,10 @@ describe("renderMessageListView", () => {
     expect(content).toHaveClass("pointer-events-none", "opacity-0")
     expect(content).not.toHaveClass("transition-opacity", "duration-300")
     expect(mockedRail).not.toHaveBeenCalled()
+    const skeleton = renderer.container.querySelector("[data-message-positioning-skeleton]")!
+    expect(skeleton).toHaveClass("absolute", "inset-0", "pointer-events-none", "opacity-100")
+    expect(skeleton.querySelector('[data-slot="skeleton"]')).toBeInTheDocument()
+    expect(skeleton.parentElement).toBe(content.parentElement?.parentElement)
   })
 
   it("crossfades content against the pointer-transparent aurora without changing geometry", () => {
@@ -168,6 +172,7 @@ describe("renderMessageListView", () => {
     ))
     const content = () => renderer.container.querySelector<HTMLElement>("[data-message-list-content]")!
     expect(content()).toHaveClass("opacity-0")
+    expect(renderer.container.querySelector("[data-message-positioning-skeleton]")).toHaveClass("opacity-100")
     expect(content()).not.toHaveClass("transition-opacity", "duration-300")
     expect(renderer.getByTestId("community-initial-position-aurora"))
       .toHaveAttribute("data-phase", "aurora")
@@ -183,6 +188,7 @@ describe("renderMessageListView", () => {
       () => React.createElement("virtual-rows"),
     ))
     expect(content()).toHaveClass("opacity-100", "transition-opacity", "duration-300", "ease-linear")
+    expect(renderer.container.querySelector("[data-message-positioning-skeleton]")).toHaveClass("opacity-0", "transition-opacity")
     const boundary = renderer.container.querySelector("[data-message-scroller-boundary]")!
     expect(boundary).toHaveClass("isolate")
     expect(renderer.getByTestId("community-message-scroller")).toHaveClass("relative", "z-10")
@@ -200,6 +206,7 @@ describe("renderMessageListView", () => {
     ))
     expect(content()).toHaveClass("opacity-100")
     expect(content()).not.toHaveClass("transition-opacity", "duration-300")
+    expect(renderer.container.querySelector("[data-message-positioning-skeleton]")).not.toBeInTheDocument()
   })
 
   it("routes typing through the rail without adding a dynamic flex sibling", () => {

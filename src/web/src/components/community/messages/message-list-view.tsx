@@ -94,6 +94,23 @@ export function renderMessageListView(
           )}
           </div>
         </div>
+        {!controller.initialPosition.showSkeleton && (
+          !controller.initialPosition.contentVisible || controller.initialPosition.phase === "revealing"
+        ) && (
+          <div
+            aria-hidden="true"
+            data-message-positioning-skeleton
+            className={`pointer-events-none absolute inset-0 z-20 flex flex-col overflow-hidden bg-(--app-bg) ${
+              controller.initialPosition.contentVisible
+                ? "opacity-0 transition-opacity duration-300 ease-linear motion-reduce:transition-opacity"
+                : "opacity-100"
+            }`}
+          >
+            <div className="flex min-h-full flex-col justify-end px-4 pb-14 pt-8 sm:pb-18">
+              <MessageListSkeletonContent variant={props.variant} />
+            </div>
+          </div>
+        )}
         <InitialPositionAurora phase={controller.initialPosition.phase} />
       </div>
     </div>
