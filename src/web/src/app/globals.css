@@ -453,6 +453,8 @@ body.driver-active .community-ws-reconnect-overlay * {
   --popover-foreground: oklch(0.18 0.03 230);
   --primary: oklch(0.22 0.03 230);
   --primary-foreground: oklch(0.985 0.005 80);
+  --composer-send-active: #34c759;
+  --composer-send-active-foreground: #fff;
   --apple-signin: oklch(0 0 0);
   --apple-signin-foreground: oklch(1 0 0);
   --secondary: oklch(0.96 0.006 80);
@@ -2119,6 +2121,44 @@ body.driver-active .community-ws-reconnect-overlay * {
    px-13 py-3 wrapper own padding. Higher specificity (two classes) beats the
    single-class base rules. Do NOT touch the shared .tiptap rules — the
    comment/email editors depend on them. */
+@media (width < 640px) {
+  .community-composer-send {
+    right: 2px;
+    bottom: 2px;
+    width: 44px;
+    height: 44px;
+    border: 6px solid transparent;
+    background-clip: padding-box;
+    transition: width 150ms var(--ease-out), border-width 150ms var(--ease-out), background-color 150ms var(--ease-out);
+  }
+
+  .community-composer-send:enabled {
+    width: 56px;
+    border-width: 2px;
+    background-color: var(--composer-send-active);
+    color: var(--composer-send-active-foreground);
+  }
+
+  .community-composer-send:enabled:hover {
+    background-color: color-mix(in srgb, var(--composer-send-active) 92%, black);
+  }
+
+  .community-composer-send:enabled:active {
+    background-color: color-mix(in srgb, var(--composer-send-active) 84%, black);
+  }
+
+  .community-composer-send:enabled > svg {
+    width: 24px;
+    height: 24px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .community-composer-send {
+    transition: none;
+  }
+}
+
 .chat-composer .tiptap {
   line-height: 24px;
   /* matches .chat-input-line-height */

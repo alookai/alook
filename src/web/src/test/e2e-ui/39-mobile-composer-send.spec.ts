@@ -139,8 +139,8 @@ async function expectExplicitTouchSend({
   await expect(editable).toHaveAttribute("enterkeyhint", "enter")
   await expect(send).toBeVisible()
   await expect(send).toBeDisabled()
-  await expect(send).toHaveCSS("width", "32px")
-  await expect(send).toHaveCSS("height", "32px")
+  await expect(send).toHaveCSS("width", "44px")
+  await expect(send).toHaveCSS("height", "44px")
   await expect.poll(() => send.evaluate((button) => {
     const size = button.getBoundingClientRect()
     return Number.parseFloat(getComputedStyle(button).borderRadius) >= size.width / 2
@@ -197,6 +197,10 @@ async function expectExplicitTouchSend({
   await expect(editable).toContainText(secondLine)
   await expect(send).toBeEnabled()
   await expect(send).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
+  await expect(send).toHaveCSS("width", "56px")
+  await expect(send).toHaveCSS("height", "44px")
+  await expect(send).toHaveCSS("border-right-width", "2px")
+  await expect(send.locator("svg")).toHaveCSS("width", "24px")
   expect(messagePosts).toBe(0)
   await expect(page.locator("[data-msg-id]").filter({ hasText: firstLine })).toHaveCount(0)
 

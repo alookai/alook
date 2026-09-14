@@ -301,7 +301,7 @@ describe("ComposerView", () => {
       baseProps({ showSend: true, sendDisabled: true, onSend }),
     ))
     const input = renderer.container.querySelector(`[data-testid="${tid.composerInput}"]`)!
-    expect(input.className).toContain("px-12")
+    expect(input.className).toContain("pl-12 pr-16 sm:px-12")
     expect(input.parentElement?.className).toContain(
       "rounded-(--community-composer-top-radius)",
     )
@@ -315,6 +315,7 @@ describe("ComposerView", () => {
     expect(send.className).toContain("right-2")
     expect(send.className).toContain("size-8")
     expect(send.className).toContain("rounded-full")
+    expect(send.className).toContain("community-composer-send")
     expect(send.className).toContain("disabled:bg-transparent")
     expect(send.className).toContain("disabled:text-muted-foreground")
     expect(send.className).toContain("enabled:hover:bg-primary/90")
@@ -330,7 +331,7 @@ describe("ComposerView", () => {
     expect(icon.getAttribute("stroke-width")).toBe("2")
     expect(icon.getAttribute("stroke-linecap")).toBe("round")
     expect(icon.getAttribute("stroke-linejoin")).toBe("round")
-    expect(icon.querySelectorAll("path")).toHaveLength(2)
+    expect(icon.querySelectorAll("path")).toHaveLength(1)
     expect(
       [...renderer.container.querySelectorAll("button")]
         .map((node) => node.getAttribute("aria-label"))

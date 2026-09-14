@@ -200,7 +200,7 @@ export function ComposerView({
           className={`chat-composer relative py-3 ${
             isForumThreadBody
               ? "px-2"
-              : "px-12"
+              : showSend ? "pl-12 pr-16 sm:px-12" : "px-12"
           }`}
           data-testid={tid.composerInput}
         >
@@ -234,7 +234,7 @@ export function ComposerView({
           <button
             type="button"
             data-testid={tid.composerSend}
-            className="absolute right-2 bottom-2 grid size-8 place-items-center rounded-full bg-primary text-primary-foreground enabled:hover:bg-primary/90 enabled:active:bg-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:bg-transparent disabled:text-muted-foreground"
+            className="community-composer-send absolute right-2 bottom-2 grid size-8 place-items-center rounded-full bg-primary text-primary-foreground enabled:hover:bg-primary/90 enabled:active:bg-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:bg-transparent disabled:text-muted-foreground"
             aria-label="Send message"
             disabled={sendDisabled}
             onClick={onSend}
