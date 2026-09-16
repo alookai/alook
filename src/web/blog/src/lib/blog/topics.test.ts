@@ -53,8 +53,8 @@ describe("blogTopics", () => {
     );
     const slugs = orderedSlugs.flat();
 
-    expect(slugs).toHaveLength(25);
-    expect(new Set(slugs).size).toBe(25);
+    expect(slugs).toHaveLength(24);
+    expect(new Set(slugs).size).toBe(24);
     expect(orderedSlugs).toEqual([
       [
         "ai-agent-vs-chatbot",
@@ -79,7 +79,6 @@ describe("blogTopics", () => {
         "introducing-alook",
         "shared-context-between-agents",
         "what-makes-a-shared-ai-workspace-usable",
-        "human-ai-collaboration-small-teams",
         "humans-and-ai-agents-in-one-room",
         "why-we-built-alook",
         "ai-agent-identity",
@@ -142,8 +141,6 @@ describe("blogTopics", () => {
         "Understand why agents drift without shared context",
       "what-makes-a-shared-ai-workspace-usable":
         "Judge whether a shared workspace actually works",
-      "human-ai-collaboration-small-teams":
-        "Move from one chat to a coordinated human+agent team",
       "humans-and-ai-agents-in-one-room":
         "Bring multiple people's agents into one shared room",
       "why-we-built-alook": "Understand why Alook exists (founder narrative)",
