@@ -1,9 +1,15 @@
 import React from "react"
-import { describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { BillingSummary } from "@alook/shared"
 import { fireEvent, render } from "@/test/react-dom-harness"
 import type { BillingController } from "@/hooks/community/use-billing"
 import { BillingContent, BillingSheet } from "./billing-sheet"
+
+const analytics = vi.hoisted(() => ({ cta: vi.fn() }))
+vi.mock("@/lib/analytics", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/lib/analytics")>()
+  return { ...original, trackPricingCtaClick: analytics.cta }
+})
 
 vi.mock("./billing-plan.module.css", () => ({ default: new Proxy({}, { get: (_target, key) => String(key) }) }))
 
@@ -20,6 +26,8 @@ function state(overrides: Partial<BillingController> = {}): BillingController {
 }
 function view(billing: BillingController) { return render(<BillingContent billing={billing} />) }
 
+beforeEach(() => analytics.cta.mockReset())
+
 describe("billing sheet", () => {
   it("shows server offers without fixed plan IDs and sends only the selected price", () => {
     const billing = state()
@@ -30,7 +38,8 @@ describe("billing sheet", () => {
     expect(ui.getByText((_text, element) => element?.tagName === "P" && element.textContent === "Up to 10 active bots")).toBeInTheDocument()
     expect(ui.getByRole("img", { name: "10 bot slots" })).toBeInTheDocument()
     fireEvent.click(ui.getByRole("button", { name: "Choose Studio" }))
-    expect(billing.checkout).toHaveBeenCalledWith("price_a")
+    expect(billing.checkout).toHaveBeenCalledWith("price_a", false, "billing_sheet")
+    expect(analytics.cta).not.toHaveBeenCalled()
   })
   it("shows Founder paid offers and requires explicit confirmation before checkout", () => {
     const billing = state({ data: { ...free, isFounder: true, plan: { id: "house", displayName: "House" }, offers: [...free.offers, { ...free.offers[0]!, priceId: "price_house", plan: { id: "house", displayName: "House" } }] } })
@@ -45,8 +54,9 @@ describe("billing sheet", () => {
     expect(billing.checkout).not.toHaveBeenCalled()
     fireEvent.click(ui.getByRole("button", { name: "Choose House" }))
     fireEvent.click(ui.getByRole("button", { name: "Continue to checkout" }))
-    expect(billing.checkout).toHaveBeenCalledWith("price_house", true)
+    expect(billing.checkout).toHaveBeenCalledWith("price_house", true, "billing_sheet")
     expect(billing.portal).not.toHaveBeenCalled()
+    expect(analytics.cta).toHaveBeenCalledWith({ plan_id: "house", cta_action: "choose_plan", auth_state: "signed_in", current_plan: "founder", entry_point: "billing_sheet" })
   })
   it("keeps Founder while a payment is awaiting confirmation", () => {
     const ui = view(state({ data: { ...free, isFounder: true }, returnFrom: "checkout", polling: true }))
@@ -99,6 +109,14 @@ describe("billing sheet", () => {
     fireEvent.click(ui.getByRole("button", { name: "Choose Studio" }))
     expect(billing.portal).toHaveBeenCalledWith("price_a")
     expect(billing.checkout).not.toHaveBeenCalled()
+  })
+
+  it("emits a fixed billing-sheet CTA payload for a known paid plan", () => {
+    const studio = { ...free.offers[0]!, plan: { id: "studio", displayName: "Untrusted display name" } }
+    const billing = state({ data: { ...free, offers: [studio] } })
+    const ui = view(billing)
+    fireEvent.click(ui.getByRole("button", { name: "Choose Untrusted display name" }))
+    expect(analytics.cta).toHaveBeenCalledWith({ plan_id: "studio", cta_action: "choose_plan", auth_state: "signed_in", current_plan: "free", entry_point: "billing_sheet" })
   })
 
   it("does not send the current price back to Portal when a downgrade is scheduled", () => {

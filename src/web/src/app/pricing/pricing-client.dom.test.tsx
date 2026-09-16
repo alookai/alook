@@ -9,11 +9,16 @@ const state = vi.hoisted(() => ({
   search: new URLSearchParams(),
   push: vi.fn(), api: vi.fn(), checkout: vi.fn(), portal: vi.fn(), refresh: vi.fn(),
   billing: {} as Record<string, unknown>,
+  pricingView: vi.fn(), pricingCta: vi.fn(),
 }))
 vi.mock("@/lib/auth-client", () => ({ useSession: () => state.session }))
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: state.push }), useSearchParams: () => state.search }))
 vi.mock("@/lib/api/client", () => ({ apiFetch: state.api }))
 vi.mock("@/hooks/community/use-billing", () => ({ useBilling: () => ({ ...state.billing, checkout: state.checkout, portal: state.portal, refresh: state.refresh }) }))
+vi.mock("@/lib/analytics", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/lib/analytics")>()
+  return { ...original, trackPricingView: state.pricingView, trackPricingCtaClick: state.pricingCta }
+})
 
 const offers = [
   { plan: { id: "studio", displayName: "Studio" }, botLimit: 10, machineLimit: 5, priceId: "price_server_studio", unitAmount: 2000, currency: "usd", interval: "month", intervalCount: 1 },
@@ -38,6 +43,7 @@ it("sends guests to sign-in with a valid selected plan preserved", async () => {
   expect(url.pathname).toBe("/sign-in")
   expect(url.searchParams.get("redirect")).toBe("/pricing?plan=studio")
   expect(state.checkout).not.toHaveBeenCalled()
+  expect(state.pricingCta).toHaveBeenCalledWith({ plan_id: "studio", cta_action: "choose_plan", auth_state: "guest", current_plan: "none", entry_point: "pricing_page" })
 })
 
 it("preserves selected plan after sign-in without automatically starting payment", async () => {
@@ -49,7 +55,8 @@ it("preserves selected plan after sign-in without automatically starting payment
   expect(state.checkout).not.toHaveBeenCalled()
   await waitFor(() => expect(view.getByRole("button", { name: "Choose Studio" })).toBeEnabled())
   await setupUser().click(view.getByRole("button", { name: "Choose Studio" }))
-  expect(state.checkout).toHaveBeenCalledWith("price_server_studio")
+  expect(state.checkout).toHaveBeenCalledWith("price_server_studio", false, "pricing_page")
+  expect(state.pricingCta).toHaveBeenCalledWith({ plan_id: "studio", cta_action: "choose_plan", auth_state: "signed_in", current_plan: "free", entry_point: "pricing_page" })
 })
 
 it("uses the authenticated offer price and Portal for subscription changes", async () => {
@@ -62,6 +69,7 @@ it("uses the authenticated offer price and Portal for subscription changes", asy
   expect(view.getByRole("button", { name: "Current plan" })).toBeDisabled()
   await setupUser().click(view.getByRole("button", { name: "Manage cancellation" }))
   expect(state.portal).toHaveBeenLastCalledWith()
+  expect(state.pricingCta).toHaveBeenLastCalledWith({ plan_id: "free", cta_action: "manage_cancellation", auth_state: "signed_in", current_plan: "studio", entry_point: "pricing_page" })
 })
 
 it.each(["Studio", "House"])("requires explicit Founder confirmation for %s", async (name) => {
@@ -79,7 +87,7 @@ it.each(["Studio", "House"])("requires explicit Founder confirmation for %s", as
   await user.click(view.getByRole("button", { name: `Choose ${name}` }))
   await user.click(view.getByRole("button", { name: "Continue to checkout" }))
   expect(state.checkout).toHaveBeenCalledTimes(1)
-  expect(state.checkout).toHaveBeenCalledWith(offers.find((offer) => offer.plan.displayName === name)!.priceId, true)
+  expect(state.checkout).toHaveBeenCalledWith(offers.find((offer) => offer.plan.displayName === name)!.priceId, true, "pricing_page")
   expect(state.portal).not.toHaveBeenCalled()
 })
 
@@ -115,6 +123,30 @@ it("does not allow stale public prices to initiate purchase when account loading
   await view.findByRole("alert")
   expect(view.getByTestId("pricing-choose-studio")).toBeDisabled()
   expect(state.checkout).not.toHaveBeenCalled()
+})
+
+it("emits one pricing view across rerenders and a session-key change", async () => {
+  const view = render(<PricingClient />)
+  await waitFor(() => expect(state.pricingView).toHaveBeenCalledWith({ auth_state: "guest", current_plan: "none" }))
+  view.rerender(<PricingClient />)
+  state.session.data = { user: { id: "buyer" } }
+  state.billing.data = free
+  view.rerender(<PricingClient />)
+  await waitFor(() => expect(view.getByText("Your current plan: Free.")).toBeInTheDocument())
+  expect(state.pricingView).toHaveBeenCalledTimes(1)
+})
+
+it("uses fixed CTA actions instead of deriving analytics from button labels", async () => {
+  const guest = render(<PricingClient />)
+  await setupUser().click(await guest.findByRole("button", { name: "Start free" }))
+  expect(state.pricingCta).toHaveBeenLastCalledWith({ plan_id: "free", cta_action: "start_free", auth_state: "guest", current_plan: "none", entry_point: "pricing_page" })
+  guest.unmount()
+  vi.clearAllMocks()
+  state.session.data = { user: { id: "buyer" } }
+  state.billing.data = free
+  const signed = render(<PricingClient />)
+  await setupUser().click(await signed.findByRole("button", { name: "Open Alook" }))
+  expect(state.pricingCta).toHaveBeenLastCalledWith({ plan_id: "free", cta_action: "open_app", auth_state: "signed_in", current_plan: "free", entry_point: "pricing_page" })
 })
 
 

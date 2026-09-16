@@ -5,8 +5,12 @@ import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 import { communityKeys } from "@/lib/query-keys"
 import { readBillingReturn, useBilling } from "./use-billing"
 
-const mocks = vi.hoisted(() => ({ api: vi.fn() }))
+const mocks = vi.hoisted(() => ({ api: vi.fn(), beginCheckout: vi.fn() }))
 vi.mock("@/lib/api/client", () => ({ apiFetch: mocks.api }))
+vi.mock("@/lib/analytics", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/lib/analytics")>()
+  return { ...original, trackBeginCheckout: mocks.beginCheckout }
+})
 const free = { plan: { id: "free", displayName: "Free" }, isFounder: false, offers: [], subscription: null }
 
 function setup(returnFrom: Parameters<typeof useBilling>[0] = null, enabled = true) {
@@ -17,7 +21,7 @@ function setup(returnFrom: Parameters<typeof useBilling>[0] = null, enabled = tr
 }
 
 describe("billing queries and redirects", () => {
-  beforeEach(() => { mocks.api.mockReset(); mocks.api.mockResolvedValue(free) })
+  beforeEach(() => { mocks.api.mockReset(); mocks.api.mockResolvedValue(free); mocks.beginCheckout.mockReset() })
   afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals() })
 
   it("does not load billing for the ordinary My Bots view", () => {
@@ -132,7 +136,7 @@ describe("billing queries and redirects", () => {
     mocks.api.mockResolvedValue({ ...free, isFounder: true })
     const view = setup()
     await waitFor(() => expect(view.result.current.data?.isFounder).toBe(true))
-    await act(async () => { await view.result.current.checkout("price_any"); await view.result.current.portal(); await view.result.current.cancelChange() })
+    await act(async () => { await view.result.current.checkout("price_any", false, "pricing_page"); await view.result.current.portal(); await view.result.current.cancelChange() })
     expect(mocks.api.mock.calls.every(([url]) => url === "/api/community/billing")).toBe(true)
     view.unmount()
   })
@@ -147,8 +151,8 @@ describe("billing queries and redirects", () => {
       ? new Promise((_resolve, rejectPromise) => { reject = rejectPromise }) : Promise.resolve(founder))
     let request!: Promise<void>
     await act(async () => {
-      request = view.result.current.checkout("price_house", true)
-      void view.result.current.checkout("price_studio", true)
+      request = view.result.current.checkout("price_house", true, "pricing_page")
+      void view.result.current.checkout("price_studio", true, "billing_sheet")
     })
     expect(mocks.api.mock.calls.filter(([url]) => url.endsWith("/checkout"))).toHaveLength(1)
     expect(mocks.api).toHaveBeenCalledWith("/api/community/billing/checkout", { method: "POST", body: '{"priceId":"price_house","founderAcknowledged":true}' })
@@ -166,8 +170,8 @@ describe("billing queries and redirects", () => {
       : Promise.resolve(free))
     let request!: Promise<void>
     await act(async () => {
-      request = view.result.current.checkout("price_one")
-      void view.result.current.checkout("price_two")
+      request = view.result.current.checkout("price_one", false, "pricing_page")
+      void view.result.current.checkout("price_two", false, "billing_sheet")
     })
     expect(mocks.api.mock.calls.filter(([url]) => url.endsWith("/checkout"))).toHaveLength(1)
     expect(mocks.api).toHaveBeenCalledWith("/api/community/billing/checkout", { method: "POST", body: '{"priceId":"price_one"}' })
@@ -175,7 +179,7 @@ describe("billing queries and redirects", () => {
     expect(view.result.current.isBusy).toBe(false)
     expect(view.result.current.actionError).toContain("resume your purchase")
     mocks.api.mockImplementation((url: string) => url.endsWith("/checkout") ? Promise.reject(new Error("timeout")) : Promise.resolve(free))
-    await act(async () => { await view.result.current.checkout("price_one") })
+    await act(async () => { await view.result.current.checkout("price_one", false, "pricing_page") })
     expect(mocks.api.mock.calls.filter(([url]) => url.endsWith("/checkout"))).toHaveLength(2)
     view.unmount()
   })
@@ -210,6 +214,51 @@ describe("billing queries and redirects", () => {
     await act(async () => { originalWindow.dispatchEvent(restored) })
     expect(view.result.current.isBusy).toBe(false)
     expect(view.invalidate).toHaveBeenCalledWith({ queryKey: communityKeys.billing() })
+    view.unmount()
+  })
+
+  it("emits one checkout event after URL creation and before navigation", async () => {
+    const offer = { priceId: "price_studio", plan: { id: "studio", displayName: "Mutable label" }, botLimit: 10, machineLimit: 5, unitAmount: 2000, currency: "usd", interval: "month", intervalCount: 1 }
+    const priced = { ...free, offers: [offer] }
+    mocks.api.mockResolvedValue(priced)
+    const view = setup()
+    await waitFor(() => expect(view.result.current.data).toEqual(priced))
+    const originalWindow = window
+    const assign = vi.fn()
+    vi.stubGlobal("window", new Proxy(originalWindow, { get: (target, key) => key === "location" ? { assign } : Reflect.get(target, key, target) }))
+    mocks.api.mockImplementation((url: string) => Promise.resolve(url.endsWith("/checkout") ? { url: "https://checkout.stripe.com/session" } : priced))
+
+    await act(async () => {
+      const first = view.result.current.checkout("price_studio", false, "pricing_page")
+      const duplicate = view.result.current.checkout("price_studio", false, "pricing_page")
+      await Promise.all([first, duplicate])
+    })
+
+    expect(mocks.beginCheckout).toHaveBeenCalledOnce()
+    expect(mocks.beginCheckout).toHaveBeenCalledWith({ plan_id: "studio", currency: "usd", value: 20, entry_point: "pricing_page" })
+    expect(mocks.beginCheckout.mock.invocationCallOrder[0]).toBeLessThan(assign.mock.invocationCallOrder[0]!)
+    expect(assign).toHaveBeenCalledOnce()
+    view.unmount()
+  })
+
+  it.each([
+    { plan: { id: "custom", displayName: "Custom" }, currency: "usd" },
+    { plan: { id: "studio", displayName: "Studio" }, currency: "invalid" },
+  ])("keeps checkout usable without emitting invalid analytics", async ({ plan, currency }) => {
+    const offer = { priceId: "price_target", plan, botLimit: 10, machineLimit: 5, unitAmount: 2000, currency, interval: "month", intervalCount: 1 }
+    const priced = { ...free, offers: [offer] }
+    mocks.api.mockResolvedValue(priced)
+    const view = setup()
+    await waitFor(() => expect(view.result.current.data).toEqual(priced))
+    const originalWindow = window
+    const assign = vi.fn()
+    vi.stubGlobal("window", new Proxy(originalWindow, { get: (target, key) => key === "location" ? { assign } : Reflect.get(target, key, target) }))
+    mocks.api.mockImplementation((url: string) => Promise.resolve(url.endsWith("/checkout") ? { url: "https://checkout.stripe.com/session" } : priced))
+
+    await act(async () => { await view.result.current.checkout("price_target", false, "billing_sheet") })
+
+    expect(mocks.beginCheckout).not.toHaveBeenCalled()
+    expect(assign).toHaveBeenCalledWith("https://checkout.stripe.com/session")
     view.unmount()
   })
 

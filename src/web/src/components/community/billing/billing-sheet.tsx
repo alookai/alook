@@ -11,6 +11,7 @@ import type { BillingController } from "@/hooks/community/use-billing"
 import { PlanBotDots } from "@/components/pricing/plan-bot-dots"
 import styles from "./billing-plan.module.css"
 import { tid } from "@/lib/community/testids"
+import { toAnalyticsCurrentPlan, toAnalyticsPlanId, trackPricingCtaClick } from "@/lib/analytics"
 
 function formatOffer(offer: BillingSummary["offers"][number]) {
   const currency = offer.currency.toUpperCase()
@@ -30,6 +31,21 @@ export function BillingContent({ billing }: { billing: BillingController }) {
   const subscription = summary?.isFounder ? null : summary?.subscription
   const currentOffer = summary?.offers.find((offer) => offer.plan.id === summary.plan.id)
   const checkoutPending = billing.returnFrom === "checkout" && (summary?.isFounder || !subscription || subscription.plan.id !== summary?.plan.id)
+  const chooseOffer = (offer: BillingSummary["offers"][number]) => {
+    if (!summary) return
+    const planId = toAnalyticsPlanId(offer.plan.id)
+    if (planId && planId !== "free") {
+      trackPricingCtaClick({
+        plan_id: planId,
+        cta_action: "choose_plan",
+        auth_state: "signed_in",
+        current_plan: toAnalyticsCurrentPlan(summary.plan.id, summary.isFounder),
+        entry_point: "billing_sheet",
+      })
+    }
+    if (summary.isFounder) setFounderOffer(offer)
+    else void (subscription ? billing.portal(offer.priceId) : billing.checkout(offer.priceId, false, "billing_sheet"))
+  }
 
   return <div className={styles.content} data-testid={tid.billingSheet}>
     <section className="pb-2" aria-label="Current plan">
@@ -81,7 +97,7 @@ export function BillingContent({ billing }: { billing: BillingController }) {
               <p className={styles.limit}>Up to <strong>{offer.botLimit}</strong> active bots</p>
               <p className={styles.limit}>Up to <strong>{offer.machineLimit}</strong> online machine{offer.machineLimit === 1 ? "" : "s"}</p>
             </div>
-            <Button className={styles.action} variant={isCurrent || isScheduled ? "outline" : "default"} onClick={() => { if (summary.isFounder) setFounderOffer(offer); else void (subscription ? billing.portal(offer.priceId) : billing.checkout(offer.priceId)) }} disabled={billing.isBusy || Boolean(checkoutPending) || isCurrent || isScheduled} data-testid={subscription ? tid.billingChangePlan : tid.billingCheckout} data-price-id={offer.priceId}>
+            <Button className={styles.action} variant={isCurrent || isScheduled ? "outline" : "default"} onClick={() => chooseOffer(offer)} disabled={billing.isBusy || Boolean(checkoutPending) || isCurrent || isScheduled} data-testid={subscription ? tid.billingChangePlan : tid.billingCheckout} data-price-id={offer.priceId}>
               {billing.isBusy && !billing.isCancelingChange ? "Opening…" : isScheduled ? "Scheduled" : isCurrent ? "Current plan" : `Choose ${offer.plan.displayName}`}
             </Button>
             <div className={styles.stub}><span>Alook · {offer.botLimit} bots</span><PlanBotDots count={offer.botLimit} className={styles.botDots} /></div>
@@ -90,7 +106,7 @@ export function BillingContent({ billing }: { billing: BillingController }) {
       </div>
       <p className="text-xs text-muted-foreground">{subscription ? "Review changes and any payment on Stripe." : "Continue to Stripe to review and pay."}</p>
     </section>}
-    <FounderPlanChangeDialog offer={founderOffer} busy={billing.isBusy} onCancel={() => setFounderOffer(null)} onConfirm={() => { if (!founderOffer) return; const priceId = founderOffer.priceId; setFounderOffer(null); void billing.checkout(priceId, true) }} />
+    <FounderPlanChangeDialog offer={founderOffer} busy={billing.isBusy} onCancel={() => setFounderOffer(null)} onConfirm={() => { if (!founderOffer) return; const priceId = founderOffer.priceId; setFounderOffer(null); void billing.checkout(priceId, true, "billing_sheet") }} />
     {billing.actionError && <p role="alert" className="text-sm text-destructive">{billing.actionError}</p>}
   </div>
 }
