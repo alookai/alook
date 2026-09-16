@@ -2,6 +2,91 @@
 
 import { sendGTMEvent } from "@next/third-parties/google";
 
+const analyticsAuthStates = ["guest", "signed_in"] as const
+const analyticsPlanIds = ["free", "studio", "house"] as const
+const analyticsCurrentPlans = ["none", "free", "studio", "house", "founder", "unknown"] as const
+const billingEntryPoints = ["pricing_page", "billing_sheet"] as const
+const pricingCtaActions = ["start_free", "open_app", "manage_cancellation", "choose_plan"] as const
+const pricingCtaIds = ["pricing_free", "pricing_studio", "pricing_house", "billing_studio", "billing_house"] as const
+
+export type AnalyticsAuthState = typeof analyticsAuthStates[number]
+export type AnalyticsPlanId = typeof analyticsPlanIds[number]
+export type AnalyticsCurrentPlan = typeof analyticsCurrentPlans[number]
+export type BillingEntryPoint = typeof billingEntryPoints[number]
+export type PricingCtaAction = typeof pricingCtaActions[number]
+type PricingCtaId = typeof pricingCtaIds[number]
+
+const analyticsPlanNames: Record<AnalyticsPlanId, string> = {
+  free: "Free",
+  studio: "Studio",
+  house: "House",
+}
+
+const pricingCtaIdByEntryPoint: Record<BillingEntryPoint, Partial<Record<AnalyticsPlanId, PricingCtaId>>> = {
+  pricing_page: {
+    free: "pricing_free",
+    studio: "pricing_studio",
+    house: "pricing_house",
+  },
+  billing_sheet: {
+    studio: "billing_studio",
+    house: "billing_house",
+  },
+}
+
+const analyticsPlanIdSet = new Set<string>(analyticsPlanIds)
+
+export function toAnalyticsPlanId(value: string): AnalyticsPlanId | null {
+  return analyticsPlanIdSet.has(value) ? value as AnalyticsPlanId : null
+}
+
+export function toAnalyticsCurrentPlan(value: string, isFounder = false): AnalyticsCurrentPlan {
+  if (isFounder) return "founder"
+  return toAnalyticsPlanId(value) ?? "unknown"
+}
+
+function sendCommercialEvent(payload: Record<string, unknown>) {
+  try {
+    sendGTMEvent(payload)
+  } catch {
+    return
+  }
+}
+
+export function trackPricingView(params: {
+  auth_state: AnalyticsAuthState
+  current_plan: AnalyticsCurrentPlan
+}) {
+  const { auth_state, current_plan } = params
+  sendCommercialEvent({ event: "pricing_view", auth_state, current_plan })
+}
+
+export function trackPricingCtaClick(params: {
+  plan_id: AnalyticsPlanId
+  cta_action: PricingCtaAction
+  auth_state: AnalyticsAuthState
+  current_plan: AnalyticsCurrentPlan
+  entry_point: BillingEntryPoint
+}) {
+  const { plan_id, cta_action, auth_state, current_plan, entry_point } = params
+  const cta_id = pricingCtaIdByEntryPoint[entry_point][plan_id]
+  if (!cta_id) return
+  sendCommercialEvent({ event: "pricing_cta_click", plan_id, cta_id, cta_action, auth_state, current_plan, entry_point })
+}
+
+export function trackBeginCheckout(params: {
+  plan_id: Exclude<AnalyticsPlanId, "free">
+  currency: string
+  value: number
+  entry_point: BillingEntryPoint
+}) {
+  const { plan_id, value, entry_point } = params
+  const currency = params.currency.toUpperCase()
+  if (!Intl.supportedValuesOf("currency").includes(currency) || !Number.isFinite(value) || value < 0) return
+  const item = { item_id: plan_id, item_name: analyticsPlanNames[plan_id], price: value, quantity: 1 as const }
+  sendCommercialEvent({ event: "begin_checkout", currency, value: item.price * item.quantity, items: [item], entry_point })
+}
+
 // ─── P0 — Core Funnel Events ───────────────────────────────────────────────
 
 export function trackSignUp(method: string) {

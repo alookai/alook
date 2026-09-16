@@ -5,9 +5,16 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { BillingSummarySchema, BillingRedirectResponseSchema } from "@alook/shared"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
+import { toAnalyticsPlanId, trackBeginCheckout, type BillingEntryPoint } from "@/lib/analytics"
+import { stripeAmountToMajorUnit } from "@/lib/billing/currency"
 
 export type BillingReturn = "checkout" | "cancel" | "portal" | null
-type BillingAction = { kind: "checkout"; priceId: string; founderAcknowledged?: boolean } | { kind: "portal"; priceId?: string }
+type BillingAction = {
+  kind: "checkout"
+  priceId: string
+  founderAcknowledged: boolean
+  entryPoint: BillingEntryPoint
+} | { kind: "portal"; priceId?: string }
 
 export function readBillingReturn(value: string | null): BillingReturn {
   return value === "checkout" || value === "cancel" || value === "portal" ? value : null
@@ -127,6 +134,18 @@ export function useBilling(returnFrom: BillingReturn = null, enabled = false) {
     setActionError(null)
     try {
       const url = await redirect.mutateAsync(action)
+      if (action.kind === "checkout") {
+        const offer = query.data.offers.find((item) => item.priceId === action.priceId)
+        const planId = offer ? toAnalyticsPlanId(offer.plan.id) : null
+        if (offer && planId && planId !== "free") {
+          try {
+            const value = stripeAmountToMajorUnit(offer.unitAmount, offer.currency)
+            if (value !== null) {
+              trackBeginCheckout({ plan_id: planId, currency: offer.currency, value, entry_point: action.entryPoint })
+            }
+          } catch {}
+        }
+      }
       setRedirecting(true)
       window.location.assign(url)
     } catch {
@@ -176,7 +195,7 @@ export function useBilling(returnFrom: BillingReturn = null, enabled = false) {
     isBusy: redirect.isPending || redirecting || cancelChangeMutation.isPending,
     isCancelingChange: cancelChangeMutation.isPending,
     cancelChange,
-    checkout: (priceId: string, founderAcknowledged = false) => start({ kind: "checkout", priceId, founderAcknowledged }),
+    checkout: (priceId: string, founderAcknowledged: boolean, entryPoint: BillingEntryPoint) => start({ kind: "checkout", priceId, founderAcknowledged, entryPoint }),
     portal: (priceId?: string) => start({ kind: "portal", priceId }),
     refresh,
   }

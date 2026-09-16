@@ -38,6 +38,11 @@ import {
   trackCommunityWsReconcileComplete,
   trackCommunityWsReconcileFailure,
   trackCommunityWsRetryScheduled,
+  toAnalyticsCurrentPlan,
+  toAnalyticsPlanId,
+  trackBeginCheckout,
+  trackPricingCtaClick,
+  trackPricingView,
 } from "./analytics"
 
 describe("analytics utility", () => {
@@ -246,6 +251,66 @@ describe("analytics utility", () => {
         event: "canvas_layout_changed",
         layout_type: "tree",
       })
+    })
+  })
+
+  describe("pricing checkout instrumentation", () => {
+    it("pushes only the approved required pricing fields", () => {
+      trackPricingView({ auth_state: "guest", current_plan: "none", email: "ignored@example.com" } as never)
+      trackPricingCtaClick({
+        plan_id: "house",
+        cta_action: "choose_plan",
+        auth_state: "signed_in",
+        current_plan: "studio",
+        entry_point: "pricing_page",
+        user_id: "ignored",
+      } as never)
+
+      expect(mockSendGTMEvent.mock.calls).toEqual([
+        [{ event: "pricing_view", auth_state: "guest", current_plan: "none" }],
+        [{
+          event: "pricing_cta_click",
+          plan_id: "house",
+          cta_id: "pricing_house",
+          cta_action: "choose_plan",
+          auth_state: "signed_in",
+          current_plan: "studio",
+          entry_point: "pricing_page",
+        }],
+      ])
+    })
+
+    it("uses fixed plan and current-plan enums", () => {
+      expect(toAnalyticsPlanId("studio")).toBe("studio")
+      expect(toAnalyticsPlanId("enterprise")).toBeNull()
+      expect(toAnalyticsCurrentPlan("house")).toBe("house")
+      expect(toAnalyticsCurrentPlan("enterprise")).toBe("unknown")
+      expect(toAnalyticsCurrentPlan("house", true)).toBe("founder")
+    })
+
+    it("pushes a GA4-compatible checkout payload from stable plan metadata", () => {
+      trackBeginCheckout({ plan_id: "studio", currency: "usd", value: 20, entry_point: "billing_sheet" })
+      expect(mockSendGTMEvent).toHaveBeenCalledWith({
+        event: "begin_checkout",
+        currency: "USD",
+        value: 20,
+        items: [{ item_id: "studio", item_name: "Studio", price: 20, quantity: 1 }],
+        entry_point: "billing_sheet",
+      })
+    })
+
+    it.each([
+      { plan_id: "studio", currency: "invalid", value: 20, entry_point: "pricing_page" },
+      { plan_id: "studio", currency: "USD", value: -1, entry_point: "pricing_page" },
+      { plan_id: "studio", currency: "USD", value: Number.NaN, entry_point: "pricing_page" },
+    ])("drops invalid checkout data", (payload) => {
+      trackBeginCheckout(payload as never)
+      expect(mockSendGTMEvent).not.toHaveBeenCalled()
+    })
+
+    it("does not break the product path when GTM throws", () => {
+      mockSendGTMEvent.mockImplementationOnce(() => { throw new Error("blocked") })
+      expect(() => trackPricingView({ auth_state: "guest", current_plan: "none" })).not.toThrow()
     })
   })
 
