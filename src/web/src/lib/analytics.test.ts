@@ -1,9 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 
-const mockSendGTMEvent = vi.fn()
-vi.mock("@next/third-parties/google", () => ({
-  sendGTMEvent: (...args: unknown[]) => mockSendGTMEvent(...args),
+const mocks = vi.hoisted(() => ({
+  hasAnalyticsConsent: vi.fn(() => true),
+  sendGTMEvent: vi.fn(),
 }))
+vi.mock("@next/third-parties/google", () => ({
+  sendGTMEvent: (...args: unknown[]) => mocks.sendGTMEvent(...args),
+}))
+vi.mock("./analytics-consent", () => ({
+  hasAnalyticsConsent: () => mocks.hasAnalyticsConsent(),
+}))
+
+const mockSendGTMEvent = mocks.sendGTMEvent
 
 import {
   trackSignUp,
@@ -27,6 +35,10 @@ import {
   trackAgentLinkCreated,
   trackRuntimeConnected,
   trackCommunityRuntimeConnected,
+  trackCommunityOnboardingCompleted,
+  trackCommunityOnboardingSkipped,
+  trackCommunityOnboardingStageCompleted,
+  trackCommunityOnboardingStarted,
   trackFirstAgentReplyPersisted,
   trackHumanInvitationSent,
   trackHumanInvitationCopied,
@@ -54,6 +66,15 @@ import {
 describe("analytics utility", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.hasAnalyticsConsent.mockReturnValue(true)
+  })
+
+  it("drops events while analytics consent is absent or denied", () => {
+    mocks.hasAnalyticsConsent.mockReturnValue(false)
+    trackSignUp("github")
+    trackPricingView({ auth_state: "guest", current_plan: "none" })
+    trackCommunityRuntimeConnected()
+    expect(mockSendGTMEvent).not.toHaveBeenCalled()
   })
 
   describe("P0 — Core Funnel Events", () => {
@@ -238,6 +259,20 @@ describe("analytics utility", () => {
         [{ event: "human_invitation_sent", surface: "community", invite_method: "dm" }],
         [{ event: "human_invitation_copied", surface: "community", invite_method: "link_copy" }],
         [{ event: "invited_human_joined", surface: "community" }],
+      ])
+    })
+
+    it("sends the exact Community onboarding payloads", () => {
+      trackCommunityOnboardingStarted()
+      trackCommunityOnboardingStageCompleted("harness")
+      trackCommunityOnboardingCompleted()
+      trackCommunityOnboardingSkipped("complete")
+
+      expect(mockSendGTMEvent.mock.calls).toEqual([
+        [{ event: "community_onboarding_started" }],
+        [{ event: "community_onboarding_stage_completed", stage: "harness" }],
+        [{ event: "community_onboarding_completed" }],
+        [{ event: "community_onboarding_skipped", stage: "complete" }],
       ])
     })
 

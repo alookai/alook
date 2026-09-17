@@ -1,4 +1,8 @@
 import type { Browser, Page } from "@playwright/test"
+import {
+  ANALYTICS_CONSENT_COOKIE,
+  analyticsConsentCookieValue,
+} from "../../../lib/analytics-consent"
 import { WEB_URL } from "./paths"
 import { emailFor, type SeededUser, type UserKey } from "./users"
 
@@ -53,6 +57,17 @@ export async function loginAndSaveState(
       throw new Error(`ws/token failed for ${key} (${meRes.status()})`)
     }
     const me = (await meRes.json()) as { userId: string }
+
+    // Ordinary product journeys start from the safe necessary-only state so
+    // the global banner does not obscure unrelated controls. A direct denied
+    // cookie cannot enable tracking; the signed persistence endpoint itself is
+    // covered by its dedicated route suite.
+    await context.addCookies([{
+      name: ANALYTICS_CONSENT_COOKIE,
+      value: analyticsConsentCookieValue("denied"),
+      url: WEB_URL,
+      sameSite: "Lax",
+    }])
 
     await context.clearCookies({ name: /^(?:is_new_signup|is_sign_in)$/ })
     await context.storageState({ path: storageStatePath })
