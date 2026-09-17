@@ -26,12 +26,17 @@ async function createRsaPrivateKeyPem(): Promise<string> {
 }
 
 describe("FCM HTTP v1 adapter", () => {
-  afterEach(() => vi.unstubAllGlobals())
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
 
   it("signs a real service-account JWT and uses the default fetch dependency", async () => {
-    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => (
-      Response.json({ access_token: "access-token" })
-    ))
+    let fetchReceiver: unknown = Symbol("unset")
+    const fetchMock = vi.fn(function (this: unknown, _input: RequestInfo | URL, _init?: RequestInit) {
+      fetchReceiver = this
+      return Promise.resolve(Response.json({ access_token: "access-token" }))
+    })
     vi.stubGlobal("fetch", fetchMock)
     const before = Math.floor(Date.now() / 1000)
 
@@ -62,6 +67,7 @@ describe("FCM HTTP v1 adapter", () => {
     expect(claims.iat).toBeGreaterThanOrEqual(before)
     expect(claims.exp).toBe(claims.iat + 3600)
     expect(signaturePart).not.toBe("")
+    expect(fetchReceiver).toBeUndefined()
   })
 
   it("exchanges a service-account assertion for a short-lived access token", async () => {
@@ -92,7 +98,61 @@ describe("FCM HTTP v1 adapter", () => {
     }, {
       fetch: vi.fn(async () => new Response("not json", { status: 503 })) as typeof fetch,
       createAssertion: vi.fn(async () => "signed-assertion"),
-    })).rejects.toMatchObject({ provider: "fcm", status: 503, reason: "oauth" })
+    })).rejects.toMatchObject({
+      provider: "fcm",
+      stage: "oauth_fetch",
+      status: 503,
+      reason: "oauth",
+    })
+  })
+
+  it("classifies service-account key import failures", async () => {
+    const result = createFcmAccessToken({
+      projectId: "test-project",
+      clientEmail: "test@example.test",
+      privateKey: "sensitive-invalid-key",
+    })
+
+    await expect(result).rejects.toMatchObject({
+      provider: "fcm",
+      stage: "key_import",
+    })
+    await expect(result).rejects.not.toThrow(/sensitive-invalid-key/)
+  })
+
+  it("classifies service-account signing failures", async () => {
+    const privateKey = await createRsaPrivateKeyPem()
+    vi.spyOn(crypto.subtle, "sign").mockRejectedValueOnce(new TypeError("sensitive-sign"))
+    const result = createFcmAccessToken({
+      projectId: "test-project",
+      clientEmail: "test@example.test",
+      privateKey,
+    })
+
+    await expect(result).rejects.toMatchObject({
+      provider: "fcm",
+      stage: "sign",
+      errorName: "TypeError",
+    })
+    await expect(result).rejects.not.toThrow(/sensitive-sign/)
+  })
+
+  it("classifies OAuth transport failures", async () => {
+    const result = createFcmAccessToken({
+      projectId: "test-project",
+      clientEmail: "test@example.test",
+      privateKey: "unused",
+    }, {
+      fetch: vi.fn(async () => { throw new TypeError("sensitive-oauth") }) as typeof fetch,
+      createAssertion: vi.fn(async () => "signed-assertion"),
+    })
+
+    await expect(result).rejects.toMatchObject({
+      provider: "fcm",
+      stage: "oauth_fetch",
+      errorName: "TypeError",
+    })
+    await expect(result).rejects.not.toThrow(/sensitive-oauth/)
   })
 
   it("sends notification/data payloads with deterministic collapse semantics", async () => {
@@ -169,8 +229,29 @@ describe("FCM HTTP v1 adapter", () => {
       payload,
       config: { projectId: "test-project" },
     }, fetchMock as typeof fetch)
-    await expect(result).rejects.toMatchObject({ provider: "fcm", status: 503, reason: "UNAVAILABLE" })
+    await expect(result).rejects.toMatchObject({
+      provider: "fcm",
+      stage: "provider_send",
+      status: 503,
+      reason: "UNAVAILABLE",
+    })
     await expect(result).rejects.not.toThrow(/provider-token|Hello/)
+  })
+
+  it("classifies provider transport failures", async () => {
+    const result = sendFcmNotification({
+      providerToken: "provider-token",
+      accessToken: "access-token",
+      payload,
+      config: { projectId: "test-project" },
+    }, vi.fn(async () => { throw new TypeError("sensitive-send") }) as typeof fetch)
+
+    await expect(result).rejects.toMatchObject({
+      provider: "fcm",
+      stage: "provider_send",
+      errorName: "TypeError",
+    })
+    await expect(result).rejects.not.toThrow(/sensitive-send/)
   })
 
   it("uses an unknown reason for a malformed provider error", async () => {
@@ -183,6 +264,7 @@ describe("FCM HTTP v1 adapter", () => {
       config: { projectId: "test-project" },
     }, fetchMock as typeof fetch)).rejects.toMatchObject({
       provider: "fcm",
+      stage: "provider_send",
       status: 418,
       reason: "unknown",
     })

@@ -6,6 +6,11 @@ import {
   createFcmAccessToken,
   sendFcmNotification,
 } from "./providers/fcm"
+import {
+  getPushProviderDiagnostic,
+  type PushProvider,
+  type PushProviderStage,
+} from "./providers/diagnostics"
 
 const log = createLogger({ service: "queue-worker-mobile-push" })
 
@@ -93,11 +98,14 @@ export async function processMobilePush(
   let fcmAccessToken: Promise<string> | undefined
   const results = await Promise.all(devices.map(async (device) => {
     const startedAt = Date.now()
+    const provider: PushProvider = device.platform === "ios" ? "apns" : "fcm"
+    let stage: PushProviderStage = "decrypt"
     try {
       const providerToken = dependencies.decrypt(
         device.providerTokenEncrypted,
         required(env.ENCRYPTION_KEY, "ENCRYPTION_KEY"),
       )
+      stage = provider === "apns" ? "credential_fingerprint" : "key_import"
       const providerResult = device.platform === "ios"
         ? await dependencies.sendApns({
             providerToken,
@@ -141,13 +149,11 @@ export async function processMobilePush(
       })
       return providerResult.outcome
     } catch (error) {
+      const diagnostic = getPushProviderDiagnostic(error, provider, stage)
       log.warn("mobile_push_device_failed", {
-        kind: task.kind,
         messageId: task.messageId,
-        userId: task.userId,
         deviceId: device.id,
-        platform: device.platform,
-        errorName: error instanceof Error ? error.name : "unknown",
+        ...diagnostic,
         durationMs: Date.now() - startedAt,
       })
       return "failed" as const

@@ -19,6 +19,10 @@ vi.mock("@alook/shared", async (importOriginal) => {
 })
 
 import { processMobilePush } from "./mobile-push"
+import {
+  PushProviderError,
+  type PushProviderStage,
+} from "./providers/diagnostics"
 
 const task = {
   version: 1 as const,
@@ -151,7 +155,12 @@ describe("mobile-push processing", () => {
 
   it("continues siblings and returns a caught failure without logging content or tokens", async () => {
     const deps = dependencies()
-    deps.sendApns.mockRejectedValue(new Error("provider unavailable"))
+    deps.sendApns.mockRejectedValue(new PushProviderError(
+      "apns",
+      "provider_send",
+      503,
+      "sensitive-provider-reason",
+    ))
 
     await expect(processMobilePush({} as never, env, task, deps)).resolves.toMatchObject({
       outcome: "processed",
@@ -161,6 +170,24 @@ describe("mobile-push processing", () => {
       failed: 1,
     })
     expect(deps.sendFcm).toHaveBeenCalledTimes(1)
+    expect(mockLogWarn).toHaveBeenCalledWith("mobile_push_device_failed", {
+      messageId: "message-1",
+      deviceId: "device-ios",
+      provider: "apns",
+      stage: "provider_send",
+      errorName: "PushProviderError",
+      httpStatus: 503,
+      durationMs: expect.any(Number),
+    })
+    expect(Object.keys(mockLogWarn.mock.calls[0]![1]).sort()).toEqual([
+      "deviceId",
+      "durationMs",
+      "errorName",
+      "httpStatus",
+      "messageId",
+      "provider",
+      "stage",
+    ])
     const logged = JSON.stringify([
       ...mockLogInfo.mock.calls,
       ...mockLogWarn.mock.calls,
@@ -168,7 +195,136 @@ describe("mobile-push processing", () => {
     expect(logged).not.toContain("private message body")
     expect(logged).not.toContain("plain-ciphertext")
     expect(logged).not.toContain("encryption-key")
+    expect(logged).not.toContain("sensitive-provider-reason")
   })
+
+  it("classifies decrypt failures without logging ciphertext or raw error details", async () => {
+    const deps = dependencies()
+    deps.listDevices.mockResolvedValue([{
+      id: "device-ios",
+      installationId: "installation-ios",
+      platform: "ios" as const,
+      providerEnvironment: "sandbox" as const,
+      providerTokenEncrypted: "sensitive-ciphertext",
+    }])
+    const rawError = new Error("sensitive-decrypt-message")
+    rawError.name = "TypeError"
+    rawError.stack = "sensitive-decrypt-stack"
+    deps.decrypt.mockImplementation(() => { throw rawError })
+
+    await expect(processMobilePush({} as never, env, task, deps)).resolves.toEqual({
+      outcome: "processed",
+      attempted: 1,
+      sent: 0,
+      invalidated: 0,
+      failed: 1,
+    })
+    expect(mockLogWarn).toHaveBeenCalledWith("mobile_push_device_failed", {
+      messageId: "message-1",
+      deviceId: "device-ios",
+      provider: "apns",
+      stage: "decrypt",
+      errorName: "TypeError",
+      durationMs: expect.any(Number),
+    })
+    const logged = JSON.stringify(mockLogWarn.mock.calls)
+    for (const sentinel of [
+      "sensitive-ciphertext",
+      "sensitive-decrypt-message",
+      "sensitive-decrypt-stack",
+    ]) {
+      expect(logged).not.toContain(sentinel)
+    }
+  })
+
+  it("drops unapproved HTTP statuses and error names from failure logs", async () => {
+    const deps = dependencies()
+    deps.listDevices.mockResolvedValue([{
+      id: "device-android",
+      installationId: "installation-android",
+      platform: "android" as const,
+      providerEnvironment: "production" as const,
+      providerTokenEncrypted: "ciphertext-android",
+    }])
+    deps.sendFcm.mockRejectedValue(new PushProviderError(
+      "fcm",
+      "provider_send",
+      418,
+      "sensitive-provider-reason",
+      "SensitiveInternalError",
+    ))
+
+    await processMobilePush({} as never, env, task, deps)
+
+    expect(mockLogWarn).toHaveBeenCalledWith("mobile_push_device_failed", {
+      messageId: "message-1",
+      deviceId: "device-android",
+      provider: "fcm",
+      stage: "provider_send",
+      errorName: "unknown",
+      durationMs: expect.any(Number),
+    })
+    const logged = JSON.stringify(mockLogWarn.mock.calls)
+    expect(logged).not.toContain("418")
+    expect(logged).not.toContain("sensitive-provider-reason")
+    expect(logged).not.toContain("SensitiveInternalError")
+  })
+
+  it.each([
+    ["apns", "credential_fingerprint", "sendApns", undefined],
+    ["apns", "key_import", "sendApns", undefined],
+    ["apns", "sign", "sendApns", undefined],
+    ["apns", "provider_send", "sendApns", 503],
+    ["fcm", "key_import", "createFcmAccessToken", undefined],
+    ["fcm", "sign", "createFcmAccessToken", undefined],
+    ["fcm", "oauth_fetch", "createFcmAccessToken", 503],
+    ["fcm", "provider_send", "sendFcm", 503],
+  ] as const)(
+    "logs only approved keys for %s/%s failures",
+    async (provider, stage, dependency, httpStatus) => {
+      const deps = dependencies()
+      const listedDevices = await deps.listDevices()
+      deps.listDevices.mockResolvedValue(listedDevices.filter(
+        (device) => device.platform === (provider === "apns" ? "ios" : "android"),
+      ))
+      const failure = new PushProviderError(
+        provider,
+        stage as PushProviderStage,
+        httpStatus,
+        "sensitive-stage-reason",
+      )
+      deps[dependency].mockRejectedValue(failure)
+
+      await expect(processMobilePush({} as never, env, task, deps)).resolves.toMatchObject({
+        outcome: "processed",
+        attempted: 1,
+        failed: 1,
+      })
+
+      const expectedDetails = {
+        messageId: "message-1",
+        deviceId: provider === "apns" ? "device-ios" : "device-android",
+        provider,
+        stage,
+        errorName: "PushProviderError",
+        ...(httpStatus === undefined ? {} : { httpStatus }),
+        durationMs: expect.any(Number),
+      }
+      expect(mockLogWarn).toHaveBeenCalledWith("mobile_push_device_failed", expectedDetails)
+      expect(Object.keys(mockLogWarn.mock.calls[0]![1]).sort())
+        .toEqual(Object.keys(expectedDetails).sort())
+      const logged = JSON.stringify(mockLogWarn.mock.calls)
+      for (const sentinel of [
+        "sensitive-stage-reason",
+        "private message body",
+        "plain-ciphertext",
+        "encryption-key",
+        "access-token",
+      ]) {
+        expect(logged).not.toContain(sentinel)
+      }
+    },
+  )
 
   it("skips when no active devices remain", async () => {
     const deps = dependencies()
