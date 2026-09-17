@@ -204,7 +204,9 @@ export function PrivacyPolicyContent({ className }: { className?: string }) {
         </section>
       </div>
 
-      <AnalyticsPreferenceControl />
+      <div className="mt-12">
+        <AnalyticsPreferenceControl />
+      </div>
     </div>
   )
 }

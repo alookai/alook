@@ -24,6 +24,7 @@ describe("shared Privacy policy", () => {
     const html = renderToStaticMarkup(createElement(PrivacyPolicyContent))
 
     expect(html.indexOf("Analytics choices")).toBeGreaterThan(html.indexOf("Contact Us"))
+    expect(html).toContain('<div class="mt-12"><section id="analytics-choices"')
     expect(html).toContain("using the preference control below at any time")
   })
 
