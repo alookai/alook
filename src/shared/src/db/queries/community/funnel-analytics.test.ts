@@ -2,7 +2,8 @@ import Sqlite from "better-sqlite3"
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { drizzle } from "drizzle-orm/better-sqlite3"
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { getTableConfig } from "drizzle-orm/sqlite-core"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import * as communityFunnelAnalyticsSchema from "../../community-funnel-analytics-schema"
 import * as communityMachineSchema from "../../community-machine-schema"
 import * as communitySchema from "../../community-schema"
@@ -79,6 +80,15 @@ describe("Community funnel analytics ledger", () => {
 
   afterEach(() => sqlite.close())
 
+  it("binds ledger owners to users and supplies a runtime creation timestamp", () => {
+    const config = getTableConfig(communityFunnelAnalyticsSchema.communityFunnelAnalyticsEvent)
+    const ownerReference = config.foreignKeys[0]?.reference()
+
+    expect(ownerReference?.foreignTable).toBe(userSchema.user)
+    expect(communityFunnelAnalyticsSchema.communityFunnelAnalyticsEvent.createdAt.defaultFn?.())
+      .toEqual(expect.any(String))
+  })
+
   it("dedupes authoritative facts, filters actors, and claims exact account payloads once", async () => {
     sqlite.prepare("INSERT INTO community_machine (id, user_id, status) VALUES (?, ?, ?)").run("machine", "owner", "online")
     sqlite.prepare("INSERT INTO community_machine_credential (id, user_id, machine_id, credential_hash) VALUES (?, ?, ?, ?)")
@@ -147,5 +157,15 @@ describe("Community funnel analytics ledger", () => {
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run("bad", "owner", "runtime_connected", "dm", "source", "bad", "2026-09-14T00:00:00.000Z"))
       .toThrow()
+  })
+
+  it("drops an unknown stored event instead of exposing an untyped payload", async () => {
+    const returning = vi.fn().mockResolvedValue([{ eventName: "unknown", conversationType: null }])
+    const where = vi.fn(() => ({ returning }))
+    const set = vi.fn(() => ({ where }))
+    const update = vi.fn(() => ({ set }))
+
+    await expect(claimPendingEvents({ update } as unknown as Database, "owner"))
+      .resolves.toEqual([])
   })
 })

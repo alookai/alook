@@ -241,6 +241,14 @@ describe("analytics utility", () => {
       ])
     })
 
+    it("fails open when the tag manager rejects a Community funnel event", () => {
+      mockSendGTMEvent.mockImplementationOnce(() => {
+        throw new Error("tag manager unavailable")
+      })
+
+      expect(() => trackCommunityRuntimeConnected()).not.toThrow()
+    })
+
     it("sends the exact GitHub outbound payload without URL or identifiers", () => {
       trackGithubOutboundClicked("public_nav")
 
