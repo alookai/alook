@@ -1,5 +1,9 @@
 import type { PushNotificationPayload } from "../notification-payload"
-import { PushProviderError, type PushProviderResult } from "./apns"
+import type { PushProviderResult } from "./apns"
+import {
+  PushProviderError,
+  runPushProviderStage,
+} from "./diagnostics"
 
 export interface FcmConfig {
   projectId: string
@@ -40,18 +44,22 @@ async function createFcmServiceAccountAssertion(
     exp: issuedAt + 3600,
   }))
   const signingInput = `${header}.${claims}`
-  const key = await crypto.subtle.importKey(
-    "pkcs8",
-    pemToBytes(config.privateKey),
-    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-    false,
-    ["sign"],
-  )
-  const signature = await crypto.subtle.sign(
-    "RSASSA-PKCS1-v1_5",
-    key,
-    new TextEncoder().encode(signingInput),
-  )
+  const key = await runPushProviderStage("fcm", "key_import", async () => (
+    crypto.subtle.importKey(
+      "pkcs8",
+      pemToBytes(config.privateKey),
+      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+      false,
+      ["sign"],
+    )
+  ))
+  const signature = await runPushProviderStage("fcm", "sign", async () => (
+    crypto.subtle.sign(
+      "RSASSA-PKCS1-v1_5",
+      key,
+      new TextEncoder().encode(signingInput),
+    )
+  ))
   return `${signingInput}.${base64Url(signature)}`
 }
 
@@ -63,22 +71,26 @@ type FcmTokenDependencies = {
 export async function createFcmAccessToken(
   config: FcmConfig,
   dependencies: FcmTokenDependencies = {
-    fetch,
+    fetch: (...args) => fetch(...args),
     createAssertion: createFcmServiceAccountAssertion,
   },
 ): Promise<string> {
-  const assertion = await dependencies.createAssertion(config)
-  const response = await dependencies.fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-      assertion,
-    }),
-  })
+  const assertion = await runPushProviderStage("fcm", "sign", async () => (
+    dependencies.createAssertion(config)
+  ))
+  const response = await runPushProviderStage("fcm", "oauth_fetch", async () => (
+    dependencies.fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+        assertion,
+      }),
+    })
+  ))
   const body = await response.json().catch(() => null) as { access_token?: unknown } | null
   if (!response.ok || typeof body?.access_token !== "string" || !body.access_token) {
-    throw new PushProviderError("fcm", response.status, "oauth")
+    throw new PushProviderError("fcm", "oauth_fetch", response.status, "oauth")
   }
   return body.access_token
 }
@@ -92,7 +104,7 @@ export async function sendFcmNotification(
   },
   fetchImpl: typeof fetch = fetch,
 ): Promise<PushProviderResult> {
-  const response = await fetchImpl(
+  const response = await runPushProviderStage("fcm", "provider_send", async () => fetchImpl(
     `https://fcm.googleapis.com/v1/projects/${encodeURIComponent(input.config.projectId)}/messages:send`,
     {
       method: "POST",
@@ -118,7 +130,7 @@ export async function sendFcmNotification(
         },
       }),
     },
-  )
+  ))
   if (response.ok) return { outcome: "sent" }
 
   const body = await response.json().catch(() => null) as {
@@ -141,5 +153,5 @@ export async function sendFcmNotification(
   ) {
     return { outcome: "invalid-token" }
   }
-  throw new PushProviderError("fcm", response.status, reason)
+  throw new PushProviderError("fcm", "provider_send", response.status, reason)
 }

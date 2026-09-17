@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   createApnsProviderTokenProvider,
   PushProviderError,
@@ -52,11 +52,15 @@ async function createEcPrivateKeyPem(): Promise<string> {
 }
 
 describe("APNs adapter", () => {
+  afterEach(() => vi.restoreAllMocks())
+
   it("signs a real provider JWT and uses the default send dependencies", async () => {
     const originalFetch = globalThis.fetch
-    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => (
-      new Response(null, { status: 200 })
-    ))
+    let fetchReceiver: unknown = Symbol("unset")
+    const fetchMock = vi.fn(function (this: unknown, _input: RequestInfo | URL, _init?: RequestInit) {
+      fetchReceiver = this
+      return Promise.resolve(new Response(null, { status: 200 }))
+    })
     globalThis.fetch = fetchMock as typeof fetch
     vi.resetModules()
 
@@ -79,6 +83,7 @@ describe("APNs adapter", () => {
         iat: expect.any(Number),
       })
       expect(signaturePart).not.toBe("")
+      expect(fetchReceiver).toBeUndefined()
     } finally {
       globalThis.fetch = originalFetch
       vi.resetModules()
@@ -137,10 +142,75 @@ describe("APNs adapter", () => {
     })
     await expect(result).rejects.toEqual(expect.objectContaining<Partial<PushProviderError>>({
       provider: "apns",
+      stage: "provider_send",
       status: 429,
       reason: "TooManyRequests",
     }))
     await expect(result).rejects.not.toThrow(/provider-token|Hello/)
+  })
+
+  it("classifies credential fingerprint failures without retaining the raw error", async () => {
+    const getProviderToken = createApnsProviderTokenProvider()
+    const result = sendApnsNotification({
+      ...input(),
+      config: { ...input().config, privateKey: "sensitive-invalid-***" },
+    }, {
+      fetch: vi.fn() as typeof fetch,
+      getProviderToken,
+    })
+
+    await expect(result).rejects.toMatchObject({
+      provider: "apns",
+      stage: "credential_fingerprint",
+    })
+    await expect(result).rejects.not.toThrow(/sensitive-invalid/)
+  })
+
+  it("classifies provider key import failures", async () => {
+    const getProviderToken = createApnsProviderTokenProvider()
+    const result = sendApnsNotification(input(), {
+      fetch: vi.fn() as typeof fetch,
+      getProviderToken,
+    })
+
+    await expect(result).rejects.toMatchObject({
+      provider: "apns",
+      stage: "key_import",
+    })
+  })
+
+  it("classifies provider signing failures", async () => {
+    const privateKey = await createEcPrivateKeyPem()
+    vi.spyOn(crypto.subtle, "sign").mockRejectedValueOnce(new TypeError("sensitive-sign"))
+    const getProviderToken = createApnsProviderTokenProvider()
+    const result = sendApnsNotification({
+      ...input(),
+      config: { ...input().config, privateKey },
+    }, {
+      fetch: vi.fn() as typeof fetch,
+      getProviderToken,
+    })
+
+    await expect(result).rejects.toMatchObject({
+      provider: "apns",
+      stage: "sign",
+      errorName: "TypeError",
+    })
+    await expect(result).rejects.not.toThrow(/sensitive-sign/)
+  })
+
+  it("classifies provider transport failures", async () => {
+    const result = sendApnsNotification(input(), {
+      fetch: vi.fn(async () => { throw new TypeError("sensitive-send") }) as typeof fetch,
+      getProviderToken: vi.fn(async () => "signed-token"),
+    })
+
+    await expect(result).rejects.toMatchObject({
+      provider: "apns",
+      stage: "provider_send",
+      errorName: "TypeError",
+    })
+    await expect(result).rejects.not.toThrow(/sensitive-send/)
   })
 
   it("reuses one provider token across device/topic/environment sends until refresh", async () => {

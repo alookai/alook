@@ -1,4 +1,10 @@
 import type { PushNotificationPayload } from "../notification-payload"
+import {
+  PushProviderError,
+  runPushProviderStage,
+} from "./diagnostics"
+
+export { PushProviderError } from "./diagnostics"
 
 interface ApnsConfig {
   teamId: string
@@ -20,17 +26,6 @@ export interface ApnsSendInput {
 }
 
 export type PushProviderResult = { outcome: "sent" | "invalid-token" }
-
-export class PushProviderError extends Error {
-  constructor(
-    readonly provider: "apns" | "fcm",
-    readonly status: number,
-    readonly reason: string,
-  ) {
-    super(`${provider} request failed (${status}:${reason})`)
-    this.name = "PushProviderError"
-  }
-}
 
 function base64Url(value: string | ArrayBuffer | Uint8Array): string {
   const bytes = typeof value === "string"
@@ -61,28 +56,34 @@ async function createApnsProviderToken(
     iat: Math.floor(now / 1000),
   }))
   const signingInput = `${header}.${claims}`
-  const key = await crypto.subtle.importKey(
-    "pkcs8",
-    pemToBytes(config.privateKey),
-    { name: "ECDSA", namedCurve: "P-256" },
-    false,
-    ["sign"],
-  )
-  const signature = await crypto.subtle.sign(
-    { name: "ECDSA", hash: "SHA-256" },
-    key,
-    new TextEncoder().encode(signingInput),
-  )
+  const key = await runPushProviderStage("apns", "key_import", async () => (
+    crypto.subtle.importKey(
+      "pkcs8",
+      pemToBytes(config.privateKey),
+      { name: "ECDSA", namedCurve: "P-256" },
+      false,
+      ["sign"],
+    )
+  ))
+  const signature = await runPushProviderStage("apns", "sign", async () => (
+    crypto.subtle.sign(
+      { name: "ECDSA", hash: "SHA-256" },
+      key,
+      new TextEncoder().encode(signingInput),
+    )
+  ))
   return `${signingInput}.${base64Url(signature)}`
 }
 
 async function createCredentialFingerprint(config: ApnsTokenConfig): Promise<string> {
-  const encoded = new TextEncoder().encode(JSON.stringify([
-    config.teamId,
-    config.keyId,
-    base64Url(pemToBytes(config.privateKey)),
-  ]))
-  return base64Url(await crypto.subtle.digest("SHA-256", encoded))
+  return runPushProviderStage("apns", "credential_fingerprint", async () => {
+    const encoded = new TextEncoder().encode(JSON.stringify([
+      config.teamId,
+      config.keyId,
+      base64Url(pemToBytes(config.privateKey)),
+    ]))
+    return base64Url(await crypto.subtle.digest("SHA-256", encoded))
+  })
 }
 
 type ApnsProviderTokenDependencies = {
@@ -213,7 +214,7 @@ type ApnsDependencies = {
 }
 
 const defaultDependencies: ApnsDependencies = {
-  fetch,
+  fetch: (...args) => fetch(...args),
   getProviderToken: getApnsProviderToken,
 }
 
@@ -225,32 +226,34 @@ export async function sendApnsNotification(
   const host = input.providerEnvironment === "sandbox"
     ? "https://api.sandbox.push.apple.com"
     : "https://api.push.apple.com"
-  const response = await dependencies.fetch(
-    `${host}/3/device/${encodeURIComponent(input.providerToken)}`,
-    {
-      method: "POST",
-      headers: {
-        authorization: `bearer ${authorization}`,
-        "content-type": "application/json",
-        "apns-topic": input.config.topic,
-        "apns-push-type": "alert",
-        "apns-priority": "10",
-        "apns-id": input.payload.notificationId,
-        "apns-collapse-id": input.payload.notificationId,
-      },
-      body: JSON.stringify({
-        aps: {
-          alert: {
-            title: input.payload.title,
-            body: input.payload.body,
-          },
-          sound: "default",
-          "thread-id": input.payload.route.targetId,
+  const response = await runPushProviderStage("apns", "provider_send", async () => (
+    dependencies.fetch(
+      `${host}/3/device/${encodeURIComponent(input.providerToken)}`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `bearer ${authorization}`,
+          "content-type": "application/json",
+          "apns-topic": input.config.topic,
+          "apns-push-type": "alert",
+          "apns-priority": "10",
+          "apns-id": input.payload.notificationId,
+          "apns-collapse-id": input.payload.notificationId,
         },
-        ...input.payload.route,
-      }),
-    },
-  )
+        body: JSON.stringify({
+          aps: {
+            alert: {
+              title: input.payload.title,
+              body: input.payload.body,
+            },
+            sound: "default",
+            "thread-id": input.payload.route.targetId,
+          },
+          ...input.payload.route,
+        }),
+      },
+    )
+  ))
   if (response.ok) return { outcome: "sent" }
 
   const body = await response.json().catch(() => null) as { reason?: unknown } | null
@@ -258,5 +261,5 @@ export async function sendApnsNotification(
   if (["BadDeviceToken", "DeviceTokenNotForTopic", "Unregistered"].includes(reason)) {
     return { outcome: "invalid-token" }
   }
-  throw new PushProviderError("apns", response.status, reason)
+  throw new PushProviderError("apns", "provider_send", response.status, reason)
 }
