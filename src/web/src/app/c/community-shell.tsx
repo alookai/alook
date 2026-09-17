@@ -16,7 +16,6 @@ import { CommunityOnboardingForm } from "@/components/community/onboarding/commu
 import { CommunityWsReconnectBoundary } from "@/components/community/shell/community-ws-reconnect-overlay"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { OwnerServerDeleteRouteGuard } from "@/components/community/shell/owner-server-delete-route-guard"
-import { drainCommunityFunnelEvents } from "@/lib/community/funnel-analytics"
 
 /**
  * Client wrapper that provides the QueryClient, CurrentUser, and the
@@ -91,7 +90,6 @@ function CommunityBootstrap({ children }: { children: ReactNode }) {
   // row alongside the community profile fields.
   const currentUserId = currentUser.id
   useEffect(() => {
-    void drainCommunityFunnelEvents()
     apiFetchProfiles<{ id: string; aboutMe: string; avatar: string; avatarVersion: number; discriminator: string; name: string; statusEmoji: string | null; statusText: string }>(
       "/api/community/users/me/profile",
       (profile) => [{

@@ -539,7 +539,6 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
     if (firstAuthentication) {
       scheduleInboxInvalidate({ inbox: true, dms: true })
     }
-    void drainCommunityFunnelEvents()
     await reconcileAccountReadState(queryClient, { surfaceMode: "non-inbox" })
   }, [queryClient, scheduleInboxInvalidate])
   const { send, reconnectNow } = useUserWs(handleMessage, {
