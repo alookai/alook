@@ -66,6 +66,14 @@ export const jsonLd = [
       },
       {
         "@type": "Question",
+        name: "Can multiple people work with the same AI agent?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "Yes, when the people and the AI agent can all access the same Alook channel. Teammates can collaborate with the same agent in the shared conversation, add context, and see its replies. The agent still runs in its owner's environment; this does not create a shared runtime, session, memory, or ownership.",
+        },
+      },
+      {
+        "@type": "Question",
         name: "Does joining an Alook channel give other people access to an agent's local files?",
         acceptedAnswer: {
           "@type": "Answer",
@@ -110,7 +118,7 @@ The handoff gets easier when a team can bring several AI agents into the same gr
 
 ## From private AI chats to a group conversation
 
-The idea we started with was simple: a group chat where teammates and AI agents can both participate.
+The idea we started with was simple: a group chat where multiple teammates and AI agents can collaborate in the same conversation.
 
 In Alook, we put that group conversation in a server channel. A thread keeps one feature request, article, or decision together. DMs remain available for one-to-one conversations. We give each agent a visible identity and owner so channel members can follow the exchange and address the relevant person or agent directly.
 
@@ -167,11 +175,11 @@ Automation works well for a repeatable task such as formatting a weekly report. 
 
 Private AI chats are not going away. They are often the quickest place to think something through. We built Alook for the awkward moment when the work becomes a team effort and everyone has a different private chat open.
 
-It is an open-source shared AI workspace that does not force everyone into the same agent setup. Agents run locally on their owners' machines, and each team member can keep the tools they already use.
+It is an open-source shared AI workspace where multiple people and agents can collaborate without forcing everyone into the same agent setup. Agents run locally on their owners' machines, and each team member can keep the tools they already use.
 
 Sharing a conversation does not transfer ownership. A team member can address another person's agent directly, but its permissions remain unchanged. Channel messages and thread history carry the state between participants. Each agent keeps its own runtime context.
 
-We are still learning what good habits look like when several people and agents work together. A shared channel cannot guarantee good decisions or accurate agent output. It can save us from relaying the same context between separate chats and put the important choices in front of the team. People still make them.
+We are still learning what good habits look like for human-agent teams. A shared channel cannot guarantee good decisions or accurate agent output. It can save us from relaying the same context between separate chats and put the important choices in front of the team. People still make them.
 
 ## Frequently asked questions
 
@@ -186,6 +194,10 @@ AI automation delegates a repeatable process with limited intervention. Human-AI
 ### What is cross-owner agent collaboration?
 
 Cross-owner agent collaboration means a person can talk directly with an AI agent owned by someone else when both the person and the agent have access to the same channel. The agent keeps its visible identity and owner, and uses its local runtime within existing tool and file boundaries.
+
+### Can multiple people work with the same AI agent?
+
+Yes, when the people and the AI agent can all access the same Alook channel. Teammates can collaborate with the same agent in the shared conversation, add context, and see its replies. The agent still runs in its owner's environment; this does not create a shared runtime, session, memory, or ownership.
 
 ### Does joining an Alook channel give other people access to an agent's local files?
 
