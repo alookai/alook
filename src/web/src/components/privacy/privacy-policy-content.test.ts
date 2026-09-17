@@ -20,6 +20,13 @@ describe("shared Privacy policy", () => {
     expect(html).not.toContain("durable background job")
   })
 
+  it("places analytics preferences after the policy content", () => {
+    const html = renderToStaticMarkup(createElement(PrivacyPolicyContent))
+
+    expect(html.indexOf("Analytics choices")).toBeGreaterThan(html.indexOf("Contact Us"))
+    expect(html).toContain("using the preference control below at any time")
+  })
+
   it("is the body source for both public and Settings entry points", () => {
     const publicPage = readFileSync(new URL("../../app/privacy/page.tsx", import.meta.url), "utf8")
     const userSettings = readFileSync(

@@ -17,8 +17,6 @@ export function PrivacyPolicyContent({ className }: { className?: string }) {
         Last updated: {PRIVACY_POLICY.lastUpdated}
       </p>
 
-      <AnalyticsPreferenceControl />
-
       <div className="prose prose-neutral max-w-none space-y-8 text-[1.0625rem] leading-relaxed dark:prose-invert">
         <section>
           <h2 className="mt-10 mb-4 text-xl font-semibold">Interpretation and Definitions</h2>
@@ -73,8 +71,9 @@ export function PrivacyPolicyContent({ className }: { className?: string }) {
           <p className="text-foreground/80">
             We use necessary cookies to provide sign-in, security, and saved preferences. We use
             optional analytics cookies only after You allow them. Your analytics choice is saved
-            in a first-party cookie for 180 days and can be changed above at any time. Choosing
-            only necessary cookies keeps Google Tag Manager and optional analytics disabled.
+            in a first-party cookie for 180 days and can be changed using the preference control
+            below at any time. Choosing only necessary cookies keeps Google Tag Manager and
+            optional analytics disabled.
           </p>
         </section>
 
@@ -204,6 +203,8 @@ export function PrivacyPolicyContent({ className }: { className?: string }) {
           </p>
         </section>
       </div>
+
+      <AnalyticsPreferenceControl />
     </div>
   )
 }
