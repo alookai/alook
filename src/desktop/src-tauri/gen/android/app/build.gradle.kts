@@ -1,9 +1,92 @@
 import java.util.Properties
+import org.gradle.api.GradleException
 
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("rust")
+}
+
+val generatedWebViewClient = file("src/main/java/ai/alook/android/generated/RustWebViewClient.kt")
+val modernErrorMethod = """
+    override fun onReceivedError(
+        view: WebView,
+        request: WebResourceRequest,
+        error: WebResourceError
+    ) {
+""".trim('\n')
+val modernRecoveryDispatch = """
+        if (
+            request.isForMainFrame &&
+            WebviewRecovery.handleError(
+                view,
+                error.errorCode,
+                currentUrl,
+                request.url.toString(),
+            )
+        ) {
+            return
+        }
+
+""".trim('\n')
+val legacyAndSslRecoveryDispatch = "\n\n" + """
+    @Suppress("DEPRECATION")
+    override fun onReceivedError(
+        view: WebView,
+        errorCode: Int,
+        description: String?,
+        failingUrl: String?
+    ) {
+        if (!WebviewRecovery.handleError(view, errorCode, currentUrl, failingUrl)) {
+            super.onReceivedError(view, errorCode, description, failingUrl)
+        }
+    }
+
+    override fun onReceivedSslError(
+        view: WebView,
+        handler: SslErrorHandler,
+        error: android.net.http.SslError
+    ) {
+        handler.cancel()
+        WebviewRecovery.handleSslError(view, currentUrl, error.url)
+    }
+""".trim('\n')
+
+fun String.occurrencesOf(value: String): Int = windowed(value.length).count { it == value }
+
+fun wireGeneratedWebViewRecovery(sourceFile: File) {
+    var source = sourceFile.readText()
+    if (!source.contains(modernRecoveryDispatch)) {
+        if (source.occurrencesOf(modernErrorMethod) != 1) {
+            throw GradleException("Wry RustWebViewClient modern error callback changed")
+        }
+        source = source.replace(modernErrorMethod, modernErrorMethod + "\n" + modernRecoveryDispatch)
+    }
+    if (!source.contains("WebviewRecovery.handleError(view, errorCode, currentUrl, failingUrl)")) {
+        val classEnd = source.lastIndexOf("\n}")
+        if (classEnd < 0) {
+            throw GradleException("Wry RustWebViewClient class boundary is missing")
+        }
+        source = source.substring(0, classEnd) + legacyAndSslRecoveryDispatch + source.substring(classEnd)
+    }
+    sourceFile.writeText(source)
+}
+
+fun verifyGeneratedWebViewRecovery(sourceFile: File) {
+    val source = sourceFile.readText()
+    val required = listOf(
+        "modern main-frame recovery dispatch" to
+            (modernErrorMethod + "\n" + modernRecoveryDispatch),
+        "legacy recovery dispatch" to
+            "WebviewRecovery.handleError(view, errorCode, currentUrl, failingUrl)",
+        "SSL recovery dispatch" to
+            "WebviewRecovery.handleSslError(view, currentUrl, error.url)",
+        "Wry fallback" to "super.onReceivedError(view, request, error)",
+    )
+    val missing = required.filterNot { source.contains(it.second) }.map { it.first }
+    if (missing.isNotEmpty()) {
+        throw GradleException("Generated RustWebViewClient recovery gate failed: ${missing.joinToString()}")
+    }
 }
 
 val tauriProperties = Properties().apply {
@@ -45,6 +128,7 @@ android {
     }
     buildTypes {
         getByName("debug") {
+            applicationIdSuffix = ".qa.madox.nav112v2local"
             manifestPlaceholders["usesCleartextTraffic"] = "true"
             isDebuggable = true
             isJniDebuggable = true
@@ -90,6 +174,36 @@ dependencies {
 }
 
 apply(from = "tauri.build.gradle.kts")
+
+listOf(
+    "UniversalDebug",
+    "UniversalRelease",
+    "Arm64Debug",
+    "Arm64Release",
+    "ArmDebug",
+    "ArmRelease",
+    "X86Debug",
+    "X86Release",
+    "X86_64Debug",
+    "X86_64Release",
+).forEach { variant ->
+    tasks.matching { it.name == "rustBuild$variant" }.configureEach {
+        doLast {
+            synchronized(project) {
+                wireGeneratedWebViewRecovery(generatedWebViewClient)
+            }
+        }
+    }
+    val verify = tasks.register("verify${variant}WebviewRecovery") {
+        mustRunAfter("rustBuild$variant")
+        doLast {
+            verifyGeneratedWebViewRecovery(generatedWebViewClient)
+        }
+    }
+    tasks.matching { it.name == "compile${variant}Kotlin" }.configureEach {
+        dependsOn(verify)
+    }
+}
 
 if (file("google-services.json").exists()) {
     apply(plugin = "com.google.gms.google-services")
