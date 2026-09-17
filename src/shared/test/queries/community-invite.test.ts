@@ -16,7 +16,10 @@ describe("community invite quota consumption", () => {
         image TEXT,
         avatarVersion INTEGER NOT NULL DEFAULT 0,
         avatarObjectKey TEXT,
-        discriminator TEXT
+        discriminator TEXT,
+        isBot INTEGER NOT NULL DEFAULT 0,
+        ownerUserId TEXT,
+        deletedAt TEXT
       );
       CREATE TABLE community_server_invite (
         id TEXT PRIMARY KEY,
@@ -36,6 +39,16 @@ describe("community invite quota consumption", () => {
         rail_order INTEGER DEFAULT 0,
         joined_at TEXT NOT NULL,
         UNIQUE(server_id, user_id)
+      );
+      CREATE TABLE community_funnel_analytics_event (
+        id TEXT PRIMARY KEY NOT NULL,
+        owner_user_id TEXT NOT NULL,
+        event_name TEXT NOT NULL,
+        conversation_type TEXT,
+        source_id TEXT NOT NULL,
+        dedupe_key TEXT NOT NULL UNIQUE,
+        created_at TEXT NOT NULL,
+        claimed_at TEXT
       );
     `);
     db = drizzle(sqlite);

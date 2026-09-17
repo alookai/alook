@@ -6,6 +6,7 @@ import Image from "next/image";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
+import { GithubOutboundLink } from "@/components/github-outbound-link";
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -84,7 +85,18 @@ export function MarketingFooter() {
 
         <nav className="flex items-center gap-4" aria-label="Footer navigation">
           {footerLinks.map((link) =>
-            link.external || link.href === "/blog" ? (
+            link.href === "https://github.com/alookai/alook" ? (
+              <GithubOutboundLink
+                key={link.label}
+                surface="public_footer"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="transition-opacity hover:opacity-70"
+                style={linkStyle}
+              >
+                {link.label}
+              </GithubOutboundLink>
+            ) : link.external || link.href === "/blog" ? (
               <a
                 key={link.label}
                 href={link.href}

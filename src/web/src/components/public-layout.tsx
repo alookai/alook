@@ -1,6 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { BRAND_SLOGAN } from "@/lib/brand-copy";
+import { GithubOutboundLink } from "@/components/github-outbound-link";
 
 const footerLinks = [
   { href: "/templates", label: "Templates" },
@@ -129,7 +130,17 @@ export function PublicLayout({
 
             <nav className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2" aria-label="Footer navigation">
               {footerLinks.map((link) =>
-                link.external ? (
+                link.href === "https://github.com/alookai/alook" ? (
+                  <GithubOutboundLink
+                    key={link.label}
+                    surface="public_footer"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[11px] uppercase tracking-[0.15em] font-mono text-muted-foreground transition-opacity hover:opacity-70"
+                  >
+                    {link.label}
+                  </GithubOutboundLink>
+                ) : link.external ? (
                   <a
                     key={link.label}
                     href={link.href}

@@ -16,6 +16,8 @@ const mocks = vi.hoisted(() => ({
     isFetching: false,
     refetch: vi.fn(),
   },
+  trackHumanInvitationSent: vi.fn(),
+  trackHumanInvitationCopied: vi.fn(),
 }))
 
 vi.mock("sonner", () => ({ toast: mocks.toastSpy }))
@@ -52,6 +54,10 @@ vi.mock("@/hooks/community/use-dm-message-sender", () => ({
 vi.mock("@/contexts/community/current-user", () => ({
   useCurrentUser: () => ({ id: "viewer", name: "Viewer", avatar: "V" }),
 }))
+vi.mock("@/lib/analytics", () => ({
+  trackHumanInvitationSent: mocks.trackHumanInvitationSent,
+  trackHumanInvitationCopied: mocks.trackHumanInvitationCopied,
+}))
 vi.mock("@/components/ui/dialog", async () => {
   const { createElement } = await import("react")
   return {
@@ -69,7 +75,13 @@ vi.mock("../people-picker", async () => {
   }
 })
 
-import { InviteDialog, InviteFriendRow, runInviteFriend } from "./invite-dialog"
+import {
+  InviteDialog,
+  InviteFriendRow,
+  awaitCommittedInvite,
+  copyInviteLink,
+  runInviteFriend,
+} from "./invite-dialog"
 
 const friend: Friend = {
   id: "friend_1",
@@ -304,5 +316,50 @@ describe("runInviteFriend", () => {
     firstGate.resolve()
     await first
     expect(inFlight).toEqual(new Set())
+  })
+})
+
+describe("invite funnel completion boundaries", () => {
+  beforeEach(() => {
+    mocks.trackHumanInvitationSent.mockClear()
+    mocks.trackHumanInvitationCopied.mockClear()
+  })
+
+  it("reports sent only after the DM receipt commits", async () => {
+    await expect(awaitCommittedInvite({
+      accepted: true,
+      nonce: "nonce",
+      committed: Promise.resolve({ ok: true, message: { id: "message", seq: 1 } }),
+    })).resolves.toBeUndefined()
+
+    expect(mocks.trackHumanInvitationSent).toHaveBeenCalledOnce()
+  })
+
+  it.each([
+    { accepted: false } as const,
+    {
+      accepted: true,
+      nonce: "nonce",
+      committed: Promise.resolve({ ok: false, error: new Error("commit failed") }),
+    } as const,
+  ])("does not report sent for rejected or failed receipts", async (receipt) => {
+    await expect(awaitCommittedInvite(receipt)).rejects.toThrow()
+    expect(mocks.trackHumanInvitationSent).not.toHaveBeenCalled()
+  })
+
+  it("reports copied only after clipboard success", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    await copyInviteLink("https://alook.ai/c/invite/token", writeText)
+
+    expect(writeText).toHaveBeenCalledWith("https://alook.ai/c/invite/token")
+    expect(mocks.trackHumanInvitationCopied).toHaveBeenCalledOnce()
+  })
+
+  it("does not report copied when clipboard rejects", async () => {
+    await expect(copyInviteLink(
+      "https://alook.ai/c/invite/token",
+      vi.fn().mockRejectedValue(new Error("denied")),
+    )).rejects.toThrow("denied")
+    expect(mocks.trackHumanInvitationCopied).not.toHaveBeenCalled()
   })
 })

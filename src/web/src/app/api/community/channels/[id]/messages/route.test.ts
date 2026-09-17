@@ -50,6 +50,7 @@ const mockListThreadParticipantUserIds = vi.fn()
 const mockDeleteChannel = vi.fn()
 const mockHardDeleteMessage = vi.fn()
 const mockRebindPendingAttachmentsToChild = vi.fn()
+const mockRecordFirstAgentReplyPersistedStatement = vi.fn(() => ({ kind: "first-agent-reply-statement" }))
 
 const mockFanOutToChannel = vi.fn()
 const mockBroadcastToUserSafe = vi.fn()
@@ -147,6 +148,9 @@ vi.mock("@alook/shared", async () => {
       },
       communityBot: {
         bumpBotDailyActivityStatement: (...a: unknown[]) => mockBumpBotDailyActivityStatement(...a),
+      },
+      communityFunnelAnalytics: {
+        recordFirstAgentReplyPersistedStatement: (...a: unknown[]) => mockRecordFirstAgentReplyPersistedStatement(...a),
       },
       // resolveTargetForMember (real, for the bot ref-via-query arm) resolves
       // the server then channel by name, both member-scoped.

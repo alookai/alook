@@ -21,6 +21,7 @@ beforeEach(() => {
   for (const migration of ["0098_product_plan_bot_active", "0099_billing_founder", "0101_machine_plan_limits"]) {
     sqlite.exec(readFileSync(new URL(`../../../web/migrations/${migration}.sql`, import.meta.url), "utf8"));
   }
+  sqlite.exec(readFileSync(new URL("../../../web/migrations/0103_community_funnel_analytics_event.sql", import.meta.url), "utf8"));
   sqlite.exec("INSERT INTO user(id) VALUES('owner'),('other')");
   db = drizzle(sqlite) as unknown as Database;
   db.batch = (async (statements: Array<{ toSQL(): { sql: string; params: unknown[] }; all(): unknown[]; run(): unknown }>) =>

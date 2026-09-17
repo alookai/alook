@@ -14,6 +14,7 @@ import {
 } from "@alook/shared"
 import type { MentionType } from "@alook/shared"
 import type { Database } from "@alook/shared"
+import { nanoid } from "nanoid"
 import { dispatchCommittedMessage } from "./message-dispatcher"
 import { attachmentThumbnailUrl, attachmentUrl } from "./storage"
 import { broadcastToUserSafe, fanOutToChannel } from "./fanout"
@@ -489,7 +490,24 @@ export async function createCommunityMessage(params: {
     participants = rows
   }
 
+  const qualifiesForFirstAgentReply = authorKind === "bot"
+    && (source === "cli" || source === "daemon-http")
+    && (messageType ?? "default") === "default"
+  const messageId = qualifiesForFirstAgentReply ? nanoid() : undefined
+  const conversationType = target.kind === "dm"
+    ? "dm"
+    : target.kind === "thread" || target.kind === "forum"
+      ? "thread"
+      : "channel"
+  const funnelStatements = qualifiesForFirstAgentReply && messageId
+    ? [queries.communityFunnelAnalytics.recordFirstAgentReplyPersistedStatement(db, {
+        botUserId: authorId,
+        messageId,
+        conversationType,
+      })]
+    : []
   const baseMessageData: Omit<Parameters<typeof queries.communityMessage.createMessage>[1], "expectedSeq"> = {
+    ...(messageId ? { id: messageId } : {}),
     authorId,
     authorKind,
     content,
@@ -498,7 +516,9 @@ export async function createCommunityMessage(params: {
     mentionType,
     type: messageType,
     clientNonce,
-    extraStatements,
+    ...(extraStatements?.length || funnelStatements.length
+      ? { extraStatements: [...(extraStatements ?? []), ...funnelStatements] }
+      : {}),
     attachmentIds,
     participants,
     mentions: [

@@ -66,6 +66,7 @@ describe("machine session epoch SQL transaction", () => {
     sqlite.exec(readFileSync(new URL("../../../web/migrations/0098_product_plan_bot_active.sql", import.meta.url), "utf8"));
     sqlite.exec(readFileSync(new URL("../../../web/migrations/0099_billing_founder.sql", import.meta.url), "utf8"));
     sqlite.exec(readFileSync(new URL("../../../web/migrations/0101_machine_plan_limits.sql", import.meta.url), "utf8"));
+    sqlite.exec(readFileSync(new URL("../../../web/migrations/0103_community_funnel_analytics_event.sql", import.meta.url), "utf8"));
     db = drizzle(sqlite);
     // Match D1's all-or-nothing batch contract using real generated SQL.
     (db as any).batch = (statements: Array<{ toSQL: () => { sql: string; params: unknown[] } }>) =>

@@ -26,6 +26,12 @@ import {
   trackSecondAgentCreated,
   trackAgentLinkCreated,
   trackRuntimeConnected,
+  trackCommunityRuntimeConnected,
+  trackFirstAgentReplyPersisted,
+  trackHumanInvitationSent,
+  trackHumanInvitationCopied,
+  trackInvitedHumanJoined,
+  trackGithubOutboundClicked,
   trackLandingCtaClicked,
   trackTemplatesBrowsed,
   trackSettingsUpdated,
@@ -216,6 +222,32 @@ describe("analytics utility", () => {
       expect(mockSendGTMEvent).toHaveBeenCalledWith({
         event: "runtime_connected",
         runtime_type: "desktop",
+      })
+    })
+
+    it("sends the exact Community funnel payloads", () => {
+      trackCommunityRuntimeConnected()
+      trackFirstAgentReplyPersisted("thread")
+      trackHumanInvitationSent()
+      trackHumanInvitationCopied()
+      trackInvitedHumanJoined()
+
+      expect(mockSendGTMEvent.mock.calls).toEqual([
+        [{ event: "runtime_connected", surface: "community", connection_type: "local_daemon" }],
+        [{ event: "first_agent_reply_persisted", surface: "community", conversation_type: "thread" }],
+        [{ event: "human_invitation_sent", surface: "community", invite_method: "dm" }],
+        [{ event: "human_invitation_copied", surface: "community", invite_method: "link_copy" }],
+        [{ event: "invited_human_joined", surface: "community" }],
+      ])
+    })
+
+    it("sends the exact GitHub outbound payload without URL or identifiers", () => {
+      trackGithubOutboundClicked("public_nav")
+
+      expect(mockSendGTMEvent).toHaveBeenCalledWith({
+        event: "github_outbound_clicked",
+        surface: "public_nav",
+        destination: "alook_repo",
       })
     })
   })

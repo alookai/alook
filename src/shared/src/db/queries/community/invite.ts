@@ -6,6 +6,7 @@ import {
 } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
+import { recordInvitedHumanJoinedStatement } from "./funnel-analytics";
 
 export async function createInvite(
   db: Database,
@@ -165,7 +166,18 @@ export async function useInvite(
         ),
       ),
     );
-  const batchResults = (await db.batch([insertMember, incrementUse] as any)) as any[];
+  const recordJoin = invite.createdBy
+    ? recordInvitedHumanJoinedStatement(db, {
+        ownerUserId: invite.createdBy,
+        membershipId: memberId,
+        invitedUserId: userId,
+        now,
+      })
+    : null;
+  const statements = recordJoin
+    ? [insertMember, incrementUse, recordJoin]
+    : [insertMember, incrementUse];
+  const batchResults = (await db.batch(statements as any)) as any[];
   const insertedMember = (batchResults[0] as Array<typeof communityServerMember.$inferSelect>)[0];
   if (!insertedMember) return null;
 

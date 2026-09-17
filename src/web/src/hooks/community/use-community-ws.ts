@@ -45,6 +45,7 @@ import {
   createCommunityWsConnectionStatusController,
   type CommunityWsConnectionStatusController,
 } from "@/hooks/community/community-ws/connection-status"
+import { drainCommunityFunnelEvents } from "@/lib/community/funnel-analytics"
 
 export type {
   Subscription,
@@ -116,6 +117,12 @@ function deliveryInboxRefresh(
     if (event.type === "community:mention.create" && event.userId === viewerId) inbox = true
   }
   return inbox ? { inbox: true, dms } : null
+}
+
+function hasCommunityFunnelTrigger(events: readonly CommunityWsEvent[]) {
+  return events.some((event) => event.type === "community:machine.status"
+    || event.type === "community:message.create"
+    || event.type === "community:member.join")
 }
 
 function claimInboxRefreshOperation(owner: InboxRefreshOwner, key: string) {
@@ -480,6 +487,9 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
           decoded.batch.operationId,
           decoded.batch.operationDigest,
         )
+        if (hasCommunityFunnelTrigger(decoded.events)) {
+          void drainCommunityFunnelEvents()
+        }
         return
       }
 
@@ -497,6 +507,9 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
         return
       }
       dispatchCommunityWsEvent(decoded.event, context("single"))
+      if (hasCommunityFunnelTrigger([decoded.event])) {
+        void drainCommunityFunnelEvents()
+      }
     },
     [queryClient, scheduleInboxInvalidate],
   )
@@ -526,6 +539,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
     if (firstAuthentication) {
       scheduleInboxInvalidate({ inbox: true, dms: true })
     }
+    void drainCommunityFunnelEvents()
     await reconcileAccountReadState(queryClient, { surfaceMode: "non-inbox" })
   }, [queryClient, scheduleInboxInvalidate])
   const { send, reconnectNow } = useUserWs(handleMessage, {
