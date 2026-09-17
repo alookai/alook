@@ -1,10 +1,10 @@
 import type { LandingScene } from "./landing-shell-motion-timeline"
 import { BRAND_SLOGAN } from "@/lib/brand-copy"
 
-export const LANDING_META_TITLE = "AI Agent Collaboration Rooms for Local Agents — Alook"
+export const LANDING_META_TITLE = "Human-AI Collaboration Workspace for Teams & Agents — Alook"
 
 export const LANDING_META_DESCRIPTION =
-  "Share your local AI agents with your team. Claude Code, Codex, Grok Build, Cursor, OpenCode, and Pi get persistent identities and memory — while running on your machine. Open source."
+  "Build human-AI teams in shared rooms with local Claude Code, Codex, Grok Build, Cursor, OpenCode, and Pi agents running on your machines."
 
 export const LANDING_SECTION_ORDER = [
   "hero",
