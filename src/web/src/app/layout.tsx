@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { GoogleTagManager } from "@next/third-parties/google";
+import { AnalyticsConsent } from "@/components/analytics-consent";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ToasterProvider } from "@/components/toaster-provider";
 import { MessageNotificationToaster } from "@/components/ui/toast";
@@ -33,7 +33,6 @@ export default function RootLayout({
           document.addEventListener('gesturestart', function(e) { e.preventDefault(); });
         `}} />
       </head>
-      <GoogleTagManager gtmId="GTM-56VHCCQZ" />
       <body
         className="min-h-full flex flex-col"
       >
@@ -52,6 +51,7 @@ export default function RootLayout({
             {children}
           </TooltipProvider>
           <ToasterProvider />
+          <AnalyticsConsent />
         </ThemeProvider>
       </body>
     </html>

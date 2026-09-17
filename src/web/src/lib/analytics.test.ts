@@ -1,9 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 
-const mockSendGTMEvent = vi.fn()
-vi.mock("@next/third-parties/google", () => ({
-  sendGTMEvent: (...args: unknown[]) => mockSendGTMEvent(...args),
+const mocks = vi.hoisted(() => ({
+  hasAnalyticsConsent: vi.fn(() => true),
+  sendGTMEvent: vi.fn(),
 }))
+vi.mock("@next/third-parties/google", () => ({
+  sendGTMEvent: (...args: unknown[]) => mocks.sendGTMEvent(...args),
+}))
+vi.mock("./analytics-consent", () => ({
+  hasAnalyticsConsent: () => mocks.hasAnalyticsConsent(),
+}))
+
+const mockSendGTMEvent = mocks.sendGTMEvent
 
 import {
   trackSignUp,
@@ -54,6 +62,15 @@ import {
 describe("analytics utility", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.hasAnalyticsConsent.mockReturnValue(true)
+  })
+
+  it("drops events while analytics consent is absent or denied", () => {
+    mocks.hasAnalyticsConsent.mockReturnValue(false)
+    trackSignUp("github")
+    trackPricingView({ auth_state: "guest", current_plan: "none" })
+    trackCommunityRuntimeConnected()
+    expect(mockSendGTMEvent).not.toHaveBeenCalled()
   })
 
   describe("P0 — Core Funnel Events", () => {

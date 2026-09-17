@@ -1,9 +1,10 @@
 import { cn } from "@/lib/utils"
+import { AnalyticsPreferenceControl } from "@/components/analytics-consent"
 
 export const PRIVACY_POLICY = {
   title: "Privacy Policy",
   description: "How Alook collects, uses, and protects your personal information.",
-  lastUpdated: "May 22, 2026",
+  lastUpdated: "September 17, 2026",
 } as const
 
 const linkClass =
@@ -15,6 +16,8 @@ export function PrivacyPolicyContent({ className }: { className?: string }) {
       <p className="mb-12 text-sm text-muted-foreground">
         Last updated: {PRIVACY_POLICY.lastUpdated}
       </p>
+
+      <AnalyticsPreferenceControl />
 
       <div className="prose prose-neutral max-w-none space-y-8 text-[1.0625rem] leading-relaxed dark:prose-invert">
         <section>
@@ -51,10 +54,9 @@ export function PrivacyPolicyContent({ className }: { className?: string }) {
 
           <h4 className="mt-6 mb-2 text-base font-medium">Usage Data</h4>
           <p className="text-foreground/80">
-            Usage Data is collected automatically when using the Service. It may include
-            information such as Your device&apos;s IP address, browser type, browser version,
-            the pages of our Service that You visit, the time and date of Your visit,
-            the time spent on those pages, and other diagnostic data.
+            Necessary diagnostic data may be processed to keep the Service secure and reliable.
+            Optional analytics, such as the pages You visit and how You interact with product
+            features, is collected only after You choose to allow analytics in this browser.
           </p>
 
           <h4 className="mt-6 mb-2 text-base font-medium">
@@ -69,10 +71,10 @@ export function PrivacyPolicyContent({ className }: { className?: string }) {
 
           <h4 className="mt-6 mb-2 text-base font-medium">Tracking Technologies and Cookies</h4>
           <p className="text-foreground/80">
-            We use cookies and similar tracking technologies to track activity on Our Service
-            and store certain information. These are used to analyze trends, administer the
-            site, and gather demographic information. You can instruct Your browser to refuse
-            all cookies or to indicate when a cookie is being sent.
+            We use necessary cookies to provide sign-in, security, and saved preferences. We use
+            optional analytics cookies only after You allow them. Your analytics choice is saved
+            in a first-party cookie for 180 days and can be changed above at any time. Choosing
+            only necessary cookies keeps Google Tag Manager and optional analytics disabled.
           </p>
         </section>
 

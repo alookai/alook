@@ -4,6 +4,9 @@ const mockSendGTMEvent = vi.fn()
 vi.mock("@next/third-parties/google", () => ({
   sendGTMEvent: (...args: unknown[]) => mockSendGTMEvent(...args),
 }))
+vi.mock("@/lib/analytics-consent", () => ({
+  hasAnalyticsConsent: () => true,
+}))
 
 vi.mock("react", () => ({
   useEffect: (fn: () => void) => fn(),

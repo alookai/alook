@@ -10,6 +10,9 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@next/third-parties/google", () => ({
   sendGTMEvent: (...args: unknown[]) => mocks.sendGTMEvent(...args),
 }))
+vi.mock("@/lib/analytics-consent", () => ({
+  hasAnalyticsConsent: () => true,
+}))
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: mocks.replaceRoute }),
 }))

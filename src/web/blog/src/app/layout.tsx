@@ -1,5 +1,5 @@
-import { GoogleTagManager } from "@next/third-parties/google";
 import type { Metadata, Viewport } from "next";
+import { AnalyticsConsent } from "@/components/analytics-consent";
 import { caveat, dmMono, dmSans, instrumentSerif, literata, vt323 } from "@/app/fonts";
 import { ThemeColorSync } from "@/components/theme-color-sync";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -25,7 +25,6 @@ export default function BlogRootLayout({
 				<meta name="mobile-web-app-capable" content="yes" />
 				<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 			</head>
-			<GoogleTagManager gtmId="GTM-56VHCCQZ" />
 			<body className="min-h-full flex flex-col">
 				<script
 					type="application/ld+json"
@@ -34,6 +33,7 @@ export default function BlogRootLayout({
 				<ThemeProvider attribute="class" defaultTheme="system" enableSystem>
 					<ThemeColorSync />
 					{children}
+					<AnalyticsConsent />
 				</ThemeProvider>
 			</body>
 		</html>
