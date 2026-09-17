@@ -85,10 +85,6 @@ export const blogTopics = [
         userJob: "Judge whether a shared workspace actually works",
       },
       {
-        slug: "human-ai-collaboration-small-teams",
-        userJob: "Move from one chat to a coordinated human+agent team",
-      },
-      {
         slug: "humans-and-ai-agents-in-one-room",
         userJob: "Bring multiple people's agents into one shared room",
       },

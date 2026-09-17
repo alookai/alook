@@ -9,6 +9,11 @@ describe("blogRedirects", () => {
 				destination: "/blog/ai-agent-team",
 				statusCode: 301,
 			},
+			{
+				source: "/blog/human-ai-collaboration-small-teams",
+				destination: "/blog/introducing-alook",
+				statusCode: 301,
+			},
 		]);
 	});
 });
