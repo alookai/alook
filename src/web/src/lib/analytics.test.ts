@@ -35,6 +35,10 @@ import {
   trackAgentLinkCreated,
   trackRuntimeConnected,
   trackCommunityRuntimeConnected,
+  trackCommunityOnboardingCompleted,
+  trackCommunityOnboardingSkipped,
+  trackCommunityOnboardingStageCompleted,
+  trackCommunityOnboardingStarted,
   trackFirstAgentReplyPersisted,
   trackHumanInvitationSent,
   trackHumanInvitationCopied,
@@ -255,6 +259,20 @@ describe("analytics utility", () => {
         [{ event: "human_invitation_sent", surface: "community", invite_method: "dm" }],
         [{ event: "human_invitation_copied", surface: "community", invite_method: "link_copy" }],
         [{ event: "invited_human_joined", surface: "community" }],
+      ])
+    })
+
+    it("sends the exact Community onboarding payloads", () => {
+      trackCommunityOnboardingStarted()
+      trackCommunityOnboardingStageCompleted("harness")
+      trackCommunityOnboardingCompleted()
+      trackCommunityOnboardingSkipped("complete")
+
+      expect(mockSendGTMEvent.mock.calls).toEqual([
+        [{ event: "community_onboarding_started" }],
+        [{ event: "community_onboarding_stage_completed", stage: "harness" }],
+        [{ event: "community_onboarding_completed" }],
+        [{ event: "community_onboarding_skipped", stage: "complete" }],
       ])
     })
 

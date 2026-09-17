@@ -38,6 +38,11 @@ describe("analytics consent proof", () => {
     await expect(verifyAnalyticsConsentProof(stale, SECRET, NOW)).resolves.toBeNull()
     await expect(verifyAnalyticsConsentProof(future, SECRET, NOW)).resolves.toBeNull()
     await expect(verifyAnalyticsConsentProof("v1.granted.nope.signature", SECRET, NOW)).resolves.toBeNull()
+    await expect(verifyAnalyticsConsentProof(
+      `v1.granted.${Math.floor(NOW / 1000)}.A`,
+      SECRET,
+      NOW,
+    )).resolves.toBeNull()
     await expect(verifyAnalyticsConsentProof(current, "other-secret", NOW)).resolves.toBeNull()
   })
 })

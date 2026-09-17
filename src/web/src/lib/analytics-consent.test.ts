@@ -74,6 +74,11 @@ describe("analytics consent browser contract", () => {
     await expect(persistAnalyticsConsent("granted")).rejects.toThrow("was not saved")
   })
 
+  it("rejects a malformed API response", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("not json", { status: 200 })))
+    await expect(persistAnalyticsConsent("granted")).rejects.toThrow("was not saved")
+  })
+
   it("announces the exact saved decision", () => {
     const dispatchEvent = vi.fn()
     vi.stubGlobal("window", { dispatchEvent })

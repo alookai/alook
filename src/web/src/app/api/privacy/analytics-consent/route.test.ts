@@ -87,6 +87,8 @@ describe("POST /api/privacy/analytics-consent", () => {
 
   it.each([
     ["cross-origin", request({ decision: "granted" }, "https://evil.example"), 403],
+    ["non-HTTP origin", request({ decision: "granted" }, "ftp://alook.ai"), 403],
+    ["malformed origin", request({ decision: "granted" }, "not-a-url"), 403],
     ["missing origin", new NextRequest("https://alook.ai/api/privacy/analytics-consent", {
       method: "POST",
       body: JSON.stringify({ decision: "granted" }),
@@ -97,6 +99,20 @@ describe("POST /api/privacy/analytics-consent", () => {
   ] as const)("rejects %s", async (_name, input, status) => {
     const response = await POST(input)
     expect(response.status).toBe(status)
+    expect(response.headers.getSetCookie()).toEqual([])
+  })
+
+  it("rejects malformed JSON", async () => {
+    const response = await POST(new NextRequest(
+      "https://alook.ai/api/privacy/analytics-consent",
+      {
+        method: "POST",
+        headers: { Origin: "https://alook.ai", "Content-Type": "application/json" },
+        body: "{",
+      },
+    ))
+
+    expect(response.status).toBe(400)
     expect(response.headers.getSetCookie()).toEqual([])
   })
 
