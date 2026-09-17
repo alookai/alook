@@ -17,6 +17,8 @@ const mockIsChannelPrivate = vi.fn(() => false)
 const mockGetPrivateChannelAudienceUserIds = vi.fn(() => [] as string[])
 const mockCreateChannelMember = vi.fn()
 const mockAddThreadParticipants = vi.fn()
+const firstAgentReplyStatement = { kind: "first-agent-reply-statement" }
+const mockRecordFirstAgentReplyPersistedStatement = vi.fn(() => firstAgentReplyStatement)
 
 const mockLogError = vi.fn()
 const mockLogWarn = vi.fn()
@@ -62,6 +64,9 @@ vi.mock("@alook/shared", async () => {
       },
       user: {
         getUserInternal: (...a: unknown[]) => mockGetUserInternal(...a),
+      },
+      communityFunnelAnalytics: {
+        recordFirstAgentReplyPersistedStatement: (...a: unknown[]) => mockRecordFirstAgentReplyPersistedStatement(...a),
       },
     },
   }
@@ -1030,5 +1035,94 @@ describe("post-commit notification registration", () => {
     expect((await createCommunityMessage({ ...params, suppressBroadcast: true })).ok).toBe(true)
     expect(mockDispatchCommittedMessage).not.toHaveBeenCalled()
     expect(mockFanOutToChannel).not.toHaveBeenCalled()
+  })
+})
+
+describe("first Agent reply funnel boundary", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockCreateMessage.mockResolvedValue({ id: "msg_1" })
+    mockGetUserInternal.mockResolvedValue({ id: "bot_1", isBot: true, deletedAt: null })
+    mockGetMessage.mockResolvedValue(messageRow({ authorId: "bot_1" }))
+    mockListByMessageIds.mockResolvedValue([])
+  })
+
+  it.each([
+    [{ kind: "dm", channelId: "dm_1", otherUserId: "human_1" }, "dm"],
+    [{ kind: "channel", channelId: "channel_1", serverId: "server_1" }, "channel"],
+    [{ kind: "thread", channelId: "thread_1", parentChannelId: "forum_1", serverId: "server_1" }, "thread"],
+    [{ kind: "forum", channelId: "forum_1", serverId: "server_1" }, "thread"],
+  ] as const)("records a fresh CLI reply for %s", async (target, conversationType) => {
+    await expect(createCommunityMessage({
+      db: {} as never,
+      authorId: "bot_1",
+      authorKind: "bot",
+      target,
+      body: { content: "reply" },
+      source: "cli",
+    })).resolves.toMatchObject({ ok: true })
+
+    expect(mockRecordFirstAgentReplyPersistedStatement).toHaveBeenCalledWith({}, {
+      botUserId: "bot_1",
+      messageId: expect.any(String),
+      conversationType,
+    })
+    const input = mockCreateMessage.mock.calls[0]![1]
+    expect(input.id).toBe(mockRecordFirstAgentReplyPersistedStatement.mock.calls[0]![1].messageId)
+    expect(input.extraStatements).toContain(firstAgentReplyStatement)
+  })
+
+  it.each([
+    { authorKind: "human" as const, source: "web" as const },
+    { authorKind: "bot" as const, source: "web" as const },
+    { authorKind: "bot" as const, source: "cli" as const, messageType: "system" },
+  ])("does not record non-qualifying messages", async (input) => {
+    await createCommunityMessage({
+      db: {} as never,
+      authorId: "bot_1",
+      target: { kind: "channel", channelId: "channel_1", serverId: "server_1" },
+      body: { content: "message" },
+      ...input,
+    })
+
+    expect(mockRecordFirstAgentReplyPersistedStatement).not.toHaveBeenCalled()
+  })
+
+  it("commits the ledger statement with the message even when response read-back fails", async () => {
+    mockGetMessage.mockResolvedValueOnce(null)
+
+    await expect(createCommunityMessage({
+      db: {} as never,
+      authorId: "bot_1",
+      authorKind: "bot",
+      target: { kind: "channel", channelId: "channel_1", serverId: "server_1" },
+      body: { content: "reply" },
+      source: "daemon-http",
+    })).rejects.toThrow("message not found after insert")
+
+    expect(mockRecordFirstAgentReplyPersistedStatement).toHaveBeenCalledOnce()
+    expect(mockCreateMessage.mock.calls[0]![1].extraStatements).toContain(firstAgentReplyStatement)
+    expect(mockDispatchCommittedMessage).toHaveBeenCalledOnce()
+  })
+
+  it("does not record a same-nonce replay", async () => {
+    mockGetMessageByAuthorAndNonce.mockResolvedValueOnce(messageRow({
+      id: "msg_replay",
+      authorId: "bot_1",
+      clientNonce: "nonce",
+    }))
+
+    await expect(createCommunityMessage({
+      db: {} as never,
+      authorId: "bot_1",
+      authorKind: "bot",
+      target: { kind: "channel", channelId: "c1", serverId: "server_1" },
+      body: { content: "reply" },
+      source: "cli",
+      clientNonce: "nonce",
+    })).resolves.toMatchObject({ ok: true, deduped: true })
+
+    expect(mockCreateMessage).not.toHaveBeenCalled()
+    expect(mockRecordFirstAgentReplyPersistedStatement).not.toHaveBeenCalled()
   })
 })

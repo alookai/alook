@@ -12,6 +12,7 @@ import {
   type MachineMetadataInput,
   type MachineRow,
 } from "./machine";
+import { recordRuntimeConnectedStatement } from "./funnel-analytics";
 
 import { assertMachineCapacity, getMachineCapacitySummary, MachineLimitReachedError, machinesMaxForUserSql } from "../product-plan";
 
@@ -131,7 +132,7 @@ async function transitionLiveLease(
         isNull(communityMachineCredential.revokedAt),
       ),
     );
-  const rows = await db
+  const transition = db
     .update(communityMachine)
     .set(values)
     .where(
@@ -148,6 +149,17 @@ async function transitionLiveLease(
       ),
     )
     .returning();
+  const rows = command.type === "ready"
+    ? ((await db.batch([
+        transition,
+        recordRuntimeConnectedStatement(db, {
+          ownerUserId: epoch.userId,
+          machineId: epoch.machineId,
+          credentialHash: epoch.credentialHash,
+          now: nowIso,
+        }),
+      ] as any)) as any[])[0] as MachineRow[]
+    : await transition;
   if (rows.length === 0) return { type: "stale_epoch" };
 
   return {

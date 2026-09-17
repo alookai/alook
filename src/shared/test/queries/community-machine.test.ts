@@ -1,9 +1,13 @@
 import { describe, it, expect, vi } from "vitest";
 vi.mock("../../src/db/queries/product-plan", async (original) => ({ ...await original<typeof import("../../src/db/queries/product-plan")>(), assertMachineCapacity: vi.fn() }));
+vi.mock("../../src/db/queries/community/funnel-analytics", () => ({
+  recordRuntimeConnectedStatement: vi.fn(() => ({ kind: "runtime-connected-statement" })),
+}));
 import * as q from "../../src/db/queries/community/machine";
 import * as sessionEpoch from "../../src/db/queries/community/machine-session-epoch";
 
 async function readyEpoch(db: any, userId: string, machineId: string, metadata: q.MachineMetadataInput, credentialHash: string) {
+  db.batch ??= vi.fn(async (statements: unknown[]) => [await statements[0], []]);
   const result = await sessionEpoch.transitionMachineSessionEpoch(db, {
     type: "ready",
     epoch: { userId, machineId, credentialHash },

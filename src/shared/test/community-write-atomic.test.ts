@@ -121,7 +121,7 @@ describe("Community durable writes — real SQLite transactions", () => {
   });
 
   it("a later mention chunk failure rolls back all chunks and same nonce can retry", async () => {
-    fixture.sqlite.exec(Array.from({ length: 100 }, (_, i) => `INSERT INTO user VALUES ('u${i}');`).join("\n"));
+    fixture.sqlite.exec(Array.from({ length: 100 }, (_, i) => `INSERT INTO user (id) VALUES ('u${i}');`).join("\n"));
     const mentions = Array.from({ length: 100 }, (_, i) => ({ userId: `u${i}`, kind: "mention" }));
     fixture.sqlite.exec("CREATE TRIGGER fail_late_mention BEFORE INSERT ON community_mention WHEN NEW.user_id = 'u85' BEGIN SELECT RAISE(ABORT, 'injected mention failure'); END");
     const data = { clientNonce: "retry", mentions, extraStatements: [bump()] };
@@ -150,7 +150,7 @@ describe("Community durable writes — real SQLite transactions", () => {
     expect(rows("activity")).toEqual([{ sent: 1 }]);
   });
   it("later participant chunk failure rolls back the send and all earlier memberships", async () => {
-    fixture.sqlite.exec(Array.from({ length: 100 }, (_, i) => `INSERT INTO user VALUES ('u${i}');`).join("\n"));
+    fixture.sqlite.exec(Array.from({ length: 100 }, (_, i) => `INSERT INTO user (id) VALUES ('u${i}');`).join("\n"));
     fixture.sqlite.exec("CREATE TRIGGER fail_late_participant BEFORE INSERT ON community_channel_member WHEN NEW.user_id = 'u85' BEGIN SELECT RAISE(ABORT, 'injected participant failure'); END");
     const participants = Array.from({ length: 100 }, (_, i) => ({ userId: `u${i}`, source: "mention" }));
     await expect(send({ participants })).rejects.toThrow("injected participant failure");

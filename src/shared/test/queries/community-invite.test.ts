@@ -16,7 +16,10 @@ describe("community invite quota consumption", () => {
         image TEXT,
         avatarVersion INTEGER NOT NULL DEFAULT 0,
         avatarObjectKey TEXT,
-        discriminator TEXT
+        discriminator TEXT,
+        isBot INTEGER NOT NULL DEFAULT 0,
+        ownerUserId TEXT,
+        deletedAt TEXT
       );
       CREATE TABLE community_server_invite (
         id TEXT PRIMARY KEY,
@@ -36,6 +39,16 @@ describe("community invite quota consumption", () => {
         rail_order INTEGER DEFAULT 0,
         joined_at TEXT NOT NULL,
         UNIQUE(server_id, user_id)
+      );
+      CREATE TABLE community_funnel_analytics_event (
+        id TEXT PRIMARY KEY NOT NULL,
+        owner_user_id TEXT NOT NULL,
+        event_name TEXT NOT NULL,
+        conversation_type TEXT,
+        source_id TEXT NOT NULL,
+        dedupe_key TEXT NOT NULL UNIQUE,
+        created_at TEXT NOT NULL,
+        claimed_at TEXT
       );
     `);
     db = drizzle(sqlite);
@@ -58,12 +71,12 @@ describe("community invite quota consumption", () => {
 
   afterEach(() => sqlite.close());
 
-  function seedInvite(maxUses: number | null = 1) {
+  function seedInvite(maxUses: number | null = 1, createdBy: string | null = "owner") {
     sqlite.prepare(`
       INSERT INTO community_server_invite
         (id, server_id, created_by, token, max_uses, uses, created_at)
-      VALUES ('iv1', 's1', 'owner', 'token1', ?, 0, '2026-01-01T00:00:00.000Z')
-    `).run(maxUses);
+      VALUES ('iv1', 's1', ?, 'token1', ?, 0, '2026-01-01T00:00:00.000Z')
+    `).run(createdBy, maxUses);
   }
 
   it("admits only one member for the final finite use", async () => {
@@ -84,6 +97,15 @@ describe("community invite quota consumption", () => {
 
     expect(sqlite.prepare("SELECT uses FROM community_server_invite WHERE id='iv1'").get())
       .toEqual({ uses: 1 });
+  });
+
+  it("admits a legacy invite without inventing a funnel owner", async () => {
+    seedInvite(1, null);
+
+    await expect(useInvite(db as never, "token1", "u1")).resolves.not.toBeNull();
+
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM community_funnel_analytics_event").get())
+      .toEqual({ count: 0 });
   });
 
   it("enforces the active invite cap inside the insert statement", async () => {

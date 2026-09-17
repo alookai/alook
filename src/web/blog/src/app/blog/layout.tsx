@@ -1,5 +1,6 @@
 import { ThemeToggle } from "@/components/theme-toggle";
 import { PublicLayout } from "@/components/public-layout";
+import { GithubOutboundBoundary } from "@/components/github-outbound-link";
 
 export default function BlogLayout({
   children,
@@ -8,7 +9,9 @@ export default function BlogLayout({
 }) {
   return (
     <PublicLayout zone="blog" breadcrumb="Blog" rightSlot={<ThemeToggle />} footer="rich">
-      {children}
+      <GithubOutboundBoundary surface="blog">
+        {children}
+      </GithubOutboundBoundary>
     </PublicLayout>
   );
 }

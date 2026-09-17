@@ -53,6 +53,14 @@ function sendCommercialEvent(payload: Record<string, unknown>) {
   }
 }
 
+function sendFunnelEvent(payload: Record<string, unknown>) {
+  try {
+    sendGTMEvent(payload)
+  } catch {
+    return
+  }
+}
+
 export function trackPricingView(params: {
   auth_state: AnalyticsAuthState
   current_plan: AnalyticsCurrentPlan
@@ -208,6 +216,54 @@ export function trackRuntimeConnected(params: {
   runtime_type: "desktop" | "cloud";
 }) {
   sendGTMEvent({ event: "runtime_connected", ...params });
+}
+
+export type GithubOutboundSurface = "landing" | "blog" | "public_nav" | "public_footer"
+
+export function trackCommunityRuntimeConnected() {
+  sendFunnelEvent({
+    event: "runtime_connected",
+    surface: "community",
+    connection_type: "local_daemon",
+  })
+}
+
+export function trackFirstAgentReplyPersisted(
+  conversationType: "dm" | "channel" | "thread",
+) {
+  sendFunnelEvent({
+    event: "first_agent_reply_persisted",
+    surface: "community",
+    conversation_type: conversationType,
+  })
+}
+
+export function trackHumanInvitationSent() {
+  sendFunnelEvent({
+    event: "human_invitation_sent",
+    surface: "community",
+    invite_method: "dm",
+  })
+}
+
+export function trackHumanInvitationCopied() {
+  sendFunnelEvent({
+    event: "human_invitation_copied",
+    surface: "community",
+    invite_method: "link_copy",
+  })
+}
+
+export function trackInvitedHumanJoined() {
+  sendFunnelEvent({ event: "invited_human_joined", surface: "community" })
+}
+
+export function trackGithubOutboundClicked(surface: GithubOutboundSurface) {
+  sendFunnelEvent({
+    event: "github_outbound_clicked",
+    surface,
+    destination: "alook_repo",
+  })
 }
 
 export type CommunityOnboardingStage =

@@ -6,8 +6,13 @@ export function communityWriteDb() {
   const sqlite = new Sqlite(":memory:");
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(`
-    CREATE TABLE user (id TEXT PRIMARY KEY);
-    INSERT INTO user VALUES ('author'), ('peer');
+    CREATE TABLE user (
+      id TEXT PRIMARY KEY,
+      isBot INTEGER NOT NULL DEFAULT 0,
+      ownerUserId TEXT,
+      deletedAt TEXT
+    );
+    INSERT INTO user (id) VALUES ('author'), ('peer');
     CREATE TABLE community_channel (
       id TEXT PRIMARY KEY, server_id TEXT, category_id TEXT, name TEXT,
       type TEXT NOT NULL DEFAULT 'text', topic TEXT DEFAULT '', position INTEGER DEFAULT 0,
@@ -43,6 +48,16 @@ export function communityWriteDb() {
     CREATE TABLE community_mention (
       id TEXT PRIMARY KEY, message_id TEXT NOT NULL REFERENCES community_message(id), user_id TEXT NOT NULL REFERENCES user(id),
       kind TEXT NOT NULL DEFAULT 'mention', read INTEGER DEFAULT 0
+    );
+    CREATE TABLE community_funnel_analytics_event (
+      id TEXT PRIMARY KEY NOT NULL,
+      owner_user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
+      event_name TEXT NOT NULL,
+      conversation_type TEXT,
+      source_id TEXT NOT NULL,
+      dedupe_key TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL,
+      claimed_at TEXT
     );
     CREATE TABLE activity (sent INTEGER NOT NULL);
     INSERT INTO activity VALUES (0);

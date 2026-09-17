@@ -190,6 +190,11 @@ export type { NotifLevel, NotificationLevelValue, ParticipantSource, MentionKind
 export * from "./provider-telemetry";
 export * from "./product-entitlements";
 export * from "./billing";
+export type {
+  CommunityFunnelAnalyticsEvent,
+  CommunityFunnelConversationType,
+  CommunityFunnelEventName,
+} from "./db/community-funnel-analytics-schema";
 
 export type {
   AgentStatusType,

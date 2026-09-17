@@ -21,11 +21,18 @@ import {
   useCreateOrGetDm,
 } from "@/hooks/community/mutations"
 import { useFriendsPresence } from "@/hooks/community/use-friends"
-import { useDmMessageSender } from "@/hooks/community/use-dm-message-sender"
+import {
+  useDmMessageSender,
+  type DmSendReceipt,
+} from "@/hooks/community/use-dm-message-sender"
 import { useCurrentUser } from "@/contexts/community/current-user"
 import type { Friend } from "@/lib/community/models/people"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { readCommunityProfile } from "@/lib/community/profile-read"
+import {
+  trackHumanInvitationCopied,
+  trackHumanInvitationSent,
+} from "@/lib/analytics"
 
 const INVITE_ORIGIN =
   typeof window !== "undefined" ? window.location.origin : ""
@@ -110,6 +117,25 @@ export async function runInviteFriend(
     inFlightUserIds.delete(userId)
     setInvitingUserIds(new Set(inFlightUserIds))
   }
+}
+
+export async function awaitCommittedInvite(
+  receipt: DmSendReceipt,
+  onCommitted: () => void = trackHumanInvitationSent,
+) {
+  if (!receipt.accepted) throw new Error("Couldn't send invite")
+  const committed = await receipt.committed
+  if (!committed.ok) throw committed.error
+  onCommitted()
+}
+
+export async function copyInviteLink(
+  url: string,
+  writeText: (value: string) => Promise<void>,
+  onCopied: () => void = trackHumanInvitationCopied,
+) {
+  await writeText(url)
+  onCopied()
 }
 
 /**
@@ -237,9 +263,7 @@ export function InviteDialog({
             avatar: currentUser.avatar,
           },
         })
-        if (!receipt.accepted) throw new Error("Couldn't send invite")
-        const committed = await receipt.committed
-        if (!committed.ok) throw committed.error
+        await awaitCommittedInvite(receipt)
       },
       (invitedUserId) => {
         setInvitedUserIds((prev) => {
@@ -255,7 +279,7 @@ export function InviteDialog({
   const copyLink = async () => {
     if (!token) return
     try {
-      await navigator.clipboard.writeText(inviteUrl(token))
+      await copyInviteLink(inviteUrl(token), (value) => navigator.clipboard.writeText(value))
       toast("Invite link copied")
     } catch {
       toast("Couldn't copy — copy manually")
