@@ -47,6 +47,19 @@ describe("analytics consent browser contract", () => {
         ad_personalization: "denied",
       },
     ])
+
+    applyGoogleConsent("denied")
+
+    expect(browser.dataLayer[1]).toEqual([
+      "consent",
+      "update",
+      {
+        analytics_storage: "denied",
+        ad_storage: "denied",
+        ad_user_data: "denied",
+        ad_personalization: "denied",
+      },
+    ])
   })
 
   it("persists only after the API confirms the same decision", async () => {
