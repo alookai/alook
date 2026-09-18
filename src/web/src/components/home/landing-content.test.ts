@@ -223,9 +223,9 @@ describe("landing content contract", () => {
     expect(BRAND_TITLE).toBe("Alook — Share your agents with people you trust")
     expect(BRAND_DESCRIPTION).toContain("agents you already use")
     expect(BRAND_DESCRIPTION).toContain("shared rooms")
-    expect(LANDING_META_TITLE).toBe("AI Agent Collaboration Rooms for Local Agents — Alook")
+    expect(LANDING_META_TITLE).toBe("Human-AI Collaboration Workspace for Teams & Agents — Alook")
     expect(LANDING_META_DESCRIPTION).toBe(
-      "Share your local AI agents with your team. Claude Code, Codex, Grok Build, Cursor, OpenCode, and Pi get persistent identities and memory — while running on your machine. Open source.",
+      "Build human-AI teams in shared rooms with local Claude Code, Codex, Grok Build, Cursor, OpenCode, and Pi agents running on your machines.",
     )
     expect(brandCopySource).not.toContain("Personal Company")
     expect(rootRoute).toContain("LANDING_META_TITLE")
