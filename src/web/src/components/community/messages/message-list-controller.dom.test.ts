@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   jumpToIndex: vi.fn(),
   scrollToBottom: vi.fn(),
   onImageLoad: vi.fn(),
+  captureOlderPageAnchor: vi.fn(),
 }))
 
 vi.mock("@/hooks/community/use-scroll-anchor", () => ({
@@ -33,6 +34,8 @@ vi.mock("@/hooks/community/use-scroll-anchor", () => ({
       scrollToBottom: mocks.scrollToBottom,
       jumpTo: mocks.jumpToIndex,
       onImageLoad: mocks.onImageLoad,
+      captureOlderPageAnchor: mocks.captureOlderPageAnchor,
+      isOlderPageAnchorSettling: false,
     }
   },
 }))
@@ -191,6 +194,7 @@ describe("useMessageListController", () => {
       newDividerBefore: undefined,
       initialScrollReady: true,
       hasMoreNewer: undefined,
+      isFetchingOlder: undefined,
       presentVersion: undefined,
       viewerUserId: undefined,
       heroHeight: 0,
@@ -202,6 +206,8 @@ describe("useMessageListController", () => {
         scrollRef: mocks.scrollRef,
         hasMore: undefined,
         isFetching: undefined,
+        isSettling: false,
+        onBeforeLoad: mocks.captureOlderPageAnchor,
         onLoad: undefined,
         edge: "start",
       },
@@ -294,6 +300,7 @@ describe("useMessageListController", () => {
       newDividerBefore: "m1",
       initialScrollReady: false,
       hasMoreNewer: true,
+      isFetchingOlder: true,
       presentVersion: 7,
       viewerUserId: "viewer_1",
       heroHeight: 0,
@@ -305,6 +312,8 @@ describe("useMessageListController", () => {
         scrollRef: mocks.scrollRef,
         hasMore: true,
         isFetching: true,
+        isSettling: false,
+        onBeforeLoad: mocks.captureOlderPageAnchor,
         onLoad: loadOlder,
         edge: "start",
       },

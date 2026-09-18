@@ -112,11 +112,14 @@ export function useMessageListController({
     scrollToBottom,
     jumpTo: jumpToIndex,
     onImageLoad,
+    captureOlderPageAnchor,
+    isOlderPageAnchorSettling,
   } = useScrollAnchor({
     items,
     newDividerBefore,
     initialScrollReady: scrollAnchorReady,
     hasMoreNewer,
+    isFetchingOlder,
     presentVersion,
     viewerUserId,
     heroHeight,
@@ -179,6 +182,8 @@ export function useMessageListController({
     scrollRef,
     hasMore,
     isFetching: isFetchingOlder,
+    isSettling: isOlderPageAnchorSettling,
+    onBeforeLoad: captureOlderPageAnchor,
     onLoad: onLoadOlder,
     edge: "start",
   })

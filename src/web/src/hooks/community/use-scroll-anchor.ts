@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef } from "react"
+import { useCallback, useLayoutEffect, useRef, useState } from "react"
 import { useVirtualizer, type ReactVirtualizer, type VirtualItem } from "@tanstack/react-virtual"
 import { COMMUNITY_VIRTUALIZER_REACT_OPTIONS } from "./virtualizer-react-options"
 import { estimateRowHeight, computeBelowCount, type FlatItem } from "@/lib/community/message-list-items"
@@ -10,12 +10,13 @@ import { estimateRowHeight, computeBelowCount, type FlatItem } from "@/lib/commu
 // findings #2/#10 (two disagreeing "near bottom" thresholds, a same-commit
 // double-write race, a silently-unhandled compound case).
 //
-// This version delegates OLDER-PREPEND compensation entirely to
-// `@tanstack/react-virtual`'s `anchorTo: "end"` (verified against the
-// installed `virtual-core@3.17.3` source: its `setOptions` anchor-preserving
-// branch fires on any edge-key/count change on a non-initial commit — exactly
-// what `fetchOlder` prepending rows produces). `decideScrollAction` below
-// therefore only covers the 2 behaviors the library does NOT provide:
+// `@tanstack/react-virtual`'s `anchorTo: "end"` handles ordinary edge-key
+// changes, but a same-day prepend retains the leading date-divider key. At the
+// top edge the library then anchors that structural row instead of the first
+// visible message. This hook captures the real message before `fetchOlder`
+// and restores its id + viewport offset after the page lands.
+// `decideScrollAction` below covers the other 2 behaviors the library does
+// NOT provide:
 // mount-time positioning and self-send/peer-follow. Hero-swap compensation
 // is also NOT delegated to the library (`scrollMargin` shifts the
 // measurement coordinate system only — verified it never triggers a
@@ -100,6 +101,11 @@ export function shouldAdjustMessageScrollPosition(
 export interface ScrollAnchorMessage {
   id: string
   authorId?: string
+}
+
+interface PaginationAnchor {
+  messageId: string
+  viewportOffset: number
 }
 
 export interface ScrollAnchorState {
@@ -370,11 +376,9 @@ export function extractScrollAnchorMessages(items: FlatItem[]): ScrollAnchorMess
 
 /**
  * Owns the message-list scroll container ref, the `useVirtualizer` instance,
- * and every automatic scroll-anchor decision (mount / self-send /
- * peer-follow / hero-swap) plus the "↓ N below" pill's `belowCount`. Older-
- * message prepend compensation is NOT decided here — it's delegated to the
- * virtualizer's own `anchorTo: "end"` config (see this file's module doc
- * comment for the source-verified rationale).
+ * and every automatic scroll-anchor decision (mount / older prepend /
+ * self-send / peer-follow / hero-swap) plus the "↓ N below" pill's
+ * `belowCount`.
  *
  * `jumpTo` (scrolling to an arbitrary earlier message on reply-pill click)
  * DOES live here now, unlike the pre-virtualization hook — it needs direct
@@ -391,6 +395,7 @@ export function useScrollAnchor({
   newDividerBefore,
   initialScrollReady,
   hasMoreNewer,
+  isFetchingOlder,
   presentVersion,
   viewerUserId,
   heroHeight,
@@ -401,6 +406,7 @@ export function useScrollAnchor({
   newDividerBefore?: string
   initialScrollReady: boolean
   hasMoreNewer?: boolean
+  isFetchingOlder?: boolean
   presentVersion?: number
   viewerUserId?: string
   // Current measured height (px) of the non-virtualized hero block that
@@ -423,6 +429,8 @@ export function useScrollAnchor({
   scrollToBottom: () => void
   jumpTo: (messageId: string, behavior?: ScrollBehavior) => void
   onImageLoad: () => void
+  captureOlderPageAnchor: () => void
+  isOlderPageAnchorSettling: boolean
 } {
   const scrollRef = useRef<HTMLDivElement>(null)
   const stateRef = useRef<ScrollAnchorState>(createScrollAnchorState())
@@ -437,6 +445,10 @@ export function useScrollAnchor({
   const acceptedScrollTopRef = useRef(0)
   const measuredRowHeightsRef = useRef(new WeakMap<Element, number>())
   const bottomRepinQueuedRef = useRef(false)
+  const olderPageAnchorRef = useRef<PaginationAnchor | null>(null)
+  const olderPageFetchObservedRef = useRef(false)
+  const olderPageAnchorFrameRef = useRef<number | null>(null)
+  const [isOlderPageAnchorSettling, setIsOlderPageAnchorSettling] = useState(false)
   const liveResizeAnchor = wasExactlyPinnedRef.current && !userScrolledAwayRef.current
     ? "end"
     : "start"
@@ -548,6 +560,87 @@ export function useScrollAnchor({
   // false; the next render's `setOptions({ anchorTo: "end" })` still performs
   // prepend anchoring before this assignment restores the live resize mode.
   virtualizer.options.anchorTo = liveResizeAnchor
+
+  const captureOlderPageAnchor = useCallback(() => {
+    const root = scrollRef.current
+    if (!root) return
+    const rootRect = root.getBoundingClientRect()
+    const row = Array.from(root.querySelectorAll<HTMLElement>("[data-msg-id]"))
+      .find((candidate) => {
+        const rect = candidate.getBoundingClientRect()
+        return rect.bottom > rootRect.top + 1 && rect.top < rootRect.bottom - 1
+      })
+    const messageId = row?.dataset.msgId
+    if (!row || !messageId) return
+    if (olderPageAnchorFrameRef.current !== null) {
+      window.cancelAnimationFrame(olderPageAnchorFrameRef.current)
+      olderPageAnchorFrameRef.current = null
+    }
+    olderPageAnchorRef.current = {
+      messageId,
+      viewportOffset: row.getBoundingClientRect().top - rootRect.top,
+    }
+    olderPageFetchObservedRef.current = false
+    setIsOlderPageAnchorSettling(true)
+  }, [])
+
+  useLayoutEffect(() => {
+    const anchor = olderPageAnchorRef.current
+    if (!anchor) return
+    if (isFetchingOlder) {
+      olderPageFetchObservedRef.current = true
+      return
+    }
+    if (!olderPageFetchObservedRef.current) return
+
+    const root = scrollRef.current
+    const index = findMessageIndex(items, anchor.messageId)
+    if (!root || index === null) {
+      olderPageAnchorRef.current = null
+      setIsOlderPageAnchorSettling(false)
+      return
+    }
+
+    virtualizer.scrollToIndex(index, { align: "start" })
+    let attempts = 0
+    let stableFrames = 0
+    const restore = () => {
+      olderPageAnchorFrameRef.current = null
+      if (olderPageAnchorRef.current !== anchor) return
+      const row = Array.from(root.querySelectorAll<HTMLElement>("[data-msg-id]"))
+        .find((candidate) => candidate.dataset.msgId === anchor.messageId)
+      if (row) {
+        const offset = row.getBoundingClientRect().top - root.getBoundingClientRect().top
+        const delta = offset - anchor.viewportOffset
+        if (Math.abs(delta) > 0.5) {
+          root.scrollTop += delta
+          stableFrames = 0
+        } else {
+          stableFrames += 1
+        }
+      }
+      attempts += 1
+      if (stableFrames >= 2 || attempts >= 12) {
+        olderPageAnchorRef.current = null
+        setIsOlderPageAnchorSettling(false)
+        return
+      }
+      olderPageAnchorFrameRef.current = window.requestAnimationFrame(restore)
+    }
+    olderPageAnchorFrameRef.current = window.requestAnimationFrame(restore)
+    return () => {
+      if (olderPageAnchorFrameRef.current !== null) {
+        window.cancelAnimationFrame(olderPageAnchorFrameRef.current)
+        olderPageAnchorFrameRef.current = null
+      }
+    }
+  }, [isFetchingOlder, items, virtualizer])
+
+  useLayoutEffect(() => () => {
+    if (olderPageAnchorFrameRef.current !== null) {
+      window.cancelAnimationFrame(olderPageAnchorFrameRef.current)
+    }
+  }, [])
 
   // Whether the viewer was within NEAR_BOTTOM_PX of the end BEFORE this
   // commit's append — the semantics `decideScrollAction` documents for its
@@ -797,5 +890,14 @@ export function useScrollAnchor({
     virtualizer.scrollToIndex(idx, { align: "center", behavior })
   }, [items, virtualizer])
 
-  return { scrollRef, virtualizer, belowCount, scrollToBottom, jumpTo, onImageLoad }
+  return {
+    scrollRef,
+    virtualizer,
+    belowCount,
+    scrollToBottom,
+    jumpTo,
+    onImageLoad,
+    captureOlderPageAnchor,
+    isOlderPageAnchorSettling,
+  }
 }

@@ -23,6 +23,7 @@ vi.mock("react", () => ({
     layoutEffects.push(effect)
   },
   useCallback: <T>(callback: T) => callback,
+  useState: <T>(initial: T) => [initial, vi.fn()],
 }))
 
 const virtualizer = {
