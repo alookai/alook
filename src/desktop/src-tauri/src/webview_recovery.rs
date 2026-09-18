@@ -48,7 +48,39 @@ impl StartupRendezvous {
 }
 
 pub fn register_protocol(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
-    builder.register_uri_scheme_protocol(SCHEME, |_context, request| response(request))
+    builder
+        .register_uri_scheme_protocol(SCHEME, |_context, request| response(request))
+        .plugin(
+            tauri::plugin::Builder::<tauri::Wry>::new("main-navigation-boundary")
+                .on_navigation(|webview, url| {
+                    webview.label() != "main" || navigation_allowed(url, tauri::is_dev())
+                })
+                .build(),
+        )
+}
+
+fn navigation_allowed(url: &Url, development: bool) -> bool {
+    if !url.username().is_empty() || url.password().is_some() {
+        return false;
+    }
+
+    let production = url.scheme() == "https"
+        && url.host_str() == Some("alook.ai")
+        && url.port_or_known_default() == Some(443);
+    let recovery = url.query().is_none()
+        && matches!(url.path(), BOOTSTRAP_PATH | RECOVERY_PATH)
+        && ((url.scheme() == SCHEME
+            && url.host_str() == Some("localhost")
+            && url.port().is_none())
+            || (url.scheme() == "http"
+                && url.host_str() == Some(HOST)
+                && url.port_or_known_default() == Some(80)));
+    let local_development = development
+        && url.scheme() == "http"
+        && url.host_str() == Some("localhost")
+        && url.port() == Some(3000);
+
+    production || recovery || local_development
 }
 
 fn response(request: Request<Vec<u8>>) -> Response<Vec<u8>> {
@@ -161,7 +193,7 @@ pub fn attach(window: &tauri::WebviewWindow) {
     let startup_window = window.clone();
     if let Err(error) = window.with_webview(move |webview| match platform::attach(webview) {
         Ok(()) if !tauri::is_dev() && STARTUP.signal_hooks_ready() => {
-            navigate_window_to_production(&startup_window)
+            replace_window_with_production(&startup_window)
         }
         Ok(()) => {}
         Err(error) => eprintln!("webview recovery unavailable: {error}"),
@@ -182,22 +214,24 @@ pub fn on_page_load<R: tauri::Runtime>(
         return;
     }
     if STARTUP.signal_bootstrap_finished() {
-        navigate_webview_to_production(webview);
+        replace_webview_with_production(webview);
     }
 }
 
-fn production_target() -> Url {
-    Url::parse(PRODUCTION_TARGET).expect("production target must be a valid URL")
+fn production_replace_script() -> String {
+    let target = serde_json::to_string(PRODUCTION_TARGET)
+        .expect("production target must serialize as JavaScript string");
+    format!("location.replace({target})")
 }
 
-fn navigate_window_to_production(window: &tauri::WebviewWindow) {
-    if let Err(error) = window.navigate(production_target()) {
+fn replace_window_with_production(window: &tauri::WebviewWindow) {
+    if let Err(error) = window.eval(production_replace_script()) {
         eprintln!("webview recovery initial navigation unavailable: {error}");
     }
 }
 
-fn navigate_webview_to_production<R: tauri::Runtime>(webview: &tauri::Webview<R>) {
-    if let Err(error) = webview.navigate(production_target()) {
+fn replace_webview_with_production<R: tauri::Runtime>(webview: &tauri::Webview<R>) {
+    if let Err(error) = webview.eval(production_replace_script()) {
         eprintln!("webview recovery initial navigation unavailable: {error}");
     }
 }
@@ -240,6 +274,8 @@ mod platform {
         let delegate_class = delegate.class() as *const AnyClass as *mut AnyClass;
 
         unsafe {
+            #[cfg(target_os = "ios")]
+            let _: () = msg_send![webview, setAllowsBackForwardNavigationGestures: false];
             objc_setAssociatedObject(
                 webview as *const AnyObject as *mut AnyObject,
                 marker_key(),
@@ -759,6 +795,51 @@ mod tests {
     }
 
     #[test]
+    fn main_navigation_policy_is_fail_closed() {
+        for target in [
+            "https://alook.ai/",
+            "https://alook.ai/c/channel?after=1#message-2",
+            "https://alook.ai:443/c",
+            "alook-recovery://localhost/bootstrap",
+            "alook-recovery://localhost/network-error#target=https%3A%2F%2Falook.ai%2Fc",
+            "http://alook-recovery.localhost/network-error#target=https%3A%2F%2Falook.ai%2Fc",
+        ] {
+            assert!(
+                navigation_allowed(&Url::parse(target).unwrap(), false),
+                "rejected {target}"
+            );
+        }
+
+        for target in [
+            "http://alook.ai/c",
+            "https://alook.ai.evil.test/c",
+            "https://user@alook.ai/c",
+            "https://alook.ai:444/c",
+            "javascript:alert(1)",
+            "about:blank",
+            "alook-recovery://evil.test/bootstrap",
+            "alook-recovery://localhost/unknown",
+            "alook-recovery://localhost/bootstrap?spoof=1",
+            "https://alook-recovery.localhost/network-error",
+            "http://localhost:3000/c",
+        ] {
+            assert!(
+                !navigation_allowed(&Url::parse(target).unwrap(), false),
+                "accepted {target}"
+            );
+        }
+
+        assert!(navigation_allowed(
+            &Url::parse("http://localhost:3000/c").unwrap(),
+            true,
+        ));
+        assert!(!navigation_allowed(
+            &Url::parse("http://127.0.0.1:3000/c").unwrap(),
+            true,
+        ));
+    }
+
+    #[test]
     fn invalid_fragment_fails_closed() {
         let html = recovery_html();
         assert!(html.contains("if(!target)surface.setAttribute(\"aria-disabled\",\"true\")"));
@@ -828,10 +909,13 @@ mod tests {
         );
         assert!(source.contains("STARTUP.signal_hooks_ready()"));
         assert!(source.contains("STARTUP.signal_bootstrap_finished()"));
-        assert!(source.contains("navigate_window_to_production(&startup_window)"));
-        assert!(source.contains("navigate_webview_to_production(webview)"));
-        let initial_navigation = ["Url::parse(", "PRODUCTION_TARGET)"].concat();
-        assert_eq!(source.matches(&initial_navigation).count(), 1);
+        assert!(source.contains("replace_window_with_production(&startup_window)"));
+        assert!(source.contains("replace_webview_with_production(webview)"));
+        assert_eq!(
+            production_replace_script(),
+            "location.replace(\"https://alook.ai/c\")"
+        );
+        assert!(source.contains("setAllowsBackForwardNavigationGestures: false"));
         assert!(!source.contains(&["window", ".url()"].concat()));
     }
 
@@ -894,5 +978,39 @@ mod tests {
         assert!(wry.contains("request: WebResourceRequest"));
         assert!(wry.contains("request.isForMainFrame"));
         assert!(wry.contains("super.onReceivedError(view, request, error)"));
+
+        let gradle = include_str!("../gen/android/app/build.gradle.kts");
+        assert_order(
+            gradle,
+            &[
+                "request.isForMainFrame &&",
+                "WebviewRecovery.handleError(",
+                "error.errorCode",
+                "request.url.toString()",
+                "super.onReceivedError(view, request, error)",
+            ],
+        );
+        assert!(
+            gradle.contains("WebviewRecovery.handleError(view, errorCode, currentUrl, failingUrl)")
+        );
+        assert!(gradle.contains("WebviewRecovery.handleSslError(view, currentUrl, error.url)"));
+        assert!(gradle.contains("wireGeneratedWebViewRecovery"));
+        assert!(gradle.contains("verifyGeneratedWebViewRecovery"));
+        assert!(gradle.contains("it.name == \"rustBuild$variant\""));
+        assert!(gradle.contains("mustRunAfter(\"rustBuild$variant\")"));
+        assert!(gradle.contains("dependsOn(verify)"));
+
+        let activity =
+            include_str!("../gen/android/app/src/main/java/ai/alook/android/MainActivity.kt");
+        assert!(activity.contains("override val handleBackNavigation: Boolean = false"));
+        assert!(activity.contains("NativeBackDispatcher(::delegateBackToSystem)"));
+        assert!(!activity.contains(&["can", "GoBack()"].concat()));
+        assert!(!activity.contains(&[".", "goBack()"].concat()));
+
+        let dispatcher = include_str!(
+            "../gen/android/app/src/main/java/ai/alook/android/NativeBackDispatcher.kt"
+        );
+        assert!(dispatcher.contains("alook:native-back"));
+        assert!(dispatcher.contains("if (closed || inFlight) return"));
     }
 }

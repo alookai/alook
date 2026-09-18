@@ -35,6 +35,7 @@ import {
   observeOwnerServerDeleteRouteCommit,
   registerOwnerServerDeleteRoute,
 } from "@/lib/community/eject-server"
+import { useNativeMobileBack } from "@/hooks/community/use-native-mobile-back"
 
 /** Shared community shell orchestration for the server and DM layouts. */
 export function ShellFrame(props: ShellFrameProps) {
@@ -192,9 +193,20 @@ export function ShellFrame(props: ShellFrameProps) {
       extension: userBarExtension.active,
     })
   }, [daemonUpdate, inbox, profile, userBarExtension.active])
+  const dismissNativeBackShellOverlay = useCallback(() => {
+    if (userBarExtension.active === "none") return false
+    dismissUserBarExtension()
+    return true
+  }, [dismissUserBarExtension, userBarExtension.active])
   const goBackMobile = useCallback(() => {
     if (route.parentPath) navigation.replace(route.parentPath)
   }, [navigation, route.parentPath])
+
+  useNativeMobileBack({
+    dismissShellOverlay: dismissNativeBackShellOverlay,
+    parentPath: route.parentPath,
+    replacePath,
+  })
 
   useEffect(() => {
     if (userBarExtension.active === "inbox" && !inbox.open) {
