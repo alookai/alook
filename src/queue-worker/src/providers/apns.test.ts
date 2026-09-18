@@ -7,8 +7,8 @@ import {
 
 const payload = {
   notificationId: "4cb8126e-4842-5c26-8d3f-02031c3d014b",
-  title: "Alice",
-  body: "Hello",
+  title: "Studio · #announcements · Release notes",
+  body: "Alice: Hello",
   route: {
     notificationId: "4cb8126e-4842-5c26-8d3f-02031c3d014b",
     messageId: "message-1",
@@ -111,7 +111,10 @@ describe("APNs adapter", () => {
     })
     expect(JSON.parse(init?.body as string)).toEqual({
       aps: {
-        alert: { title: "Alice", body: "Hello" },
+        alert: {
+          title: "Studio · #announcements · Release notes",
+          body: "Alice: Hello",
+        },
         sound: "default",
         "thread-id": "channel-1",
       },

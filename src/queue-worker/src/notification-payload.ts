@@ -50,6 +50,26 @@ function attachmentFallback(contentTypes: Array<string | null>): string {
   return "New message"
 }
 
+function displayName(value: string | null, fallback: string): string {
+  return value?.trim() || fallback
+}
+
+function notificationTitle(
+  target: queries.communityNotificationTarget.PushNotificationTarget,
+  authorName: string,
+): string {
+  if (target.conversationKind === "dm") return authorName
+
+  const serverName = displayName(target.serverName, "Server")
+  if (target.conversationKind === "thread") {
+    const parentChannelName = displayName(target.parentChannelName, "Channel")
+    const threadName = displayName(target.channelName, "Thread")
+    return `${serverName} · #${parentChannelName} · ${threadName}`
+  }
+
+  return `${serverName} · #${displayName(target.channelName, "Channel")}`
+}
+
 export async function buildPushNotificationPayload(
   target: queries.communityNotificationTarget.PushNotificationTarget,
   userId: string,
@@ -61,13 +81,16 @@ export async function buildPushNotificationPayload(
   const plainText = stripInlineMarkup(target.content)
     .replace(/\s+/gu, " ")
     .trim()
+  const authorName = target.authorName.trim() || "Alook"
+  const preview = plainText || attachmentFallback(target.attachmentContentTypes)
+  const body = target.conversationKind === "dm"
+    ? preview
+    : `${authorName}: ${preview}`
 
   return {
     notificationId,
-    title: target.authorName.trim() || "Alook",
-    body: plainText
-      ? truncateMessagePreview(plainText)
-      : attachmentFallback(target.attachmentContentTypes),
+    title: notificationTitle(target, authorName),
+    body: truncateMessagePreview(body),
     route: {
       notificationId,
       messageId: target.messageId,

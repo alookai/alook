@@ -3,8 +3,8 @@ import { createFcmAccessToken, sendFcmNotification } from "./fcm"
 
 const payload = {
   notificationId: "4cb8126e-4842-5c26-8d3f-02031c3d014b",
-  title: "Alice",
-  body: "Hello",
+  title: "Studio · #announcements · Release notes",
+  body: "Alice: Hello",
   route: {
     notificationId: "4cb8126e-4842-5c26-8d3f-02031c3d014b",
     messageId: "message-1",
@@ -173,7 +173,10 @@ describe("FCM HTTP v1 adapter", () => {
     expect(JSON.parse(init?.body as string)).toEqual({
       message: {
         token: "provider-token",
-        notification: { title: "Alice", body: "Hello" },
+        notification: {
+          title: "Studio · #announcements · Release notes",
+          body: "Alice: Hello",
+        },
         data: payload.route,
         android: {
           collapse_key: payload.notificationId,
