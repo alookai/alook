@@ -72,6 +72,7 @@ function Harness({
 
 describe("useScrollAnchor older-page message anchoring", () => {
   let frames: FrameRequestCallback[]
+  let cancelFrame: ReturnType<typeof vi.fn>
   let latest: AnchorResult
 
   beforeEach(() => {
@@ -80,12 +81,13 @@ describe("useScrollAnchor older-page message anchoring", () => {
     harness.scroller = null
     harness.scrollToIndex.mockClear()
     harness.virtualizer.scrollToEnd.mockClear()
+    cancelFrame = vi.fn()
     vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} })
     vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
       frames.push(callback)
       return frames.length
     })
-    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {})
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(cancelFrame)
     vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(600)
     vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(5_000)
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function () {
@@ -160,5 +162,83 @@ describe("useScrollAnchor older-page message anchoring", () => {
     const rendered = runCase(items, items.slice(), 120)
     expect(harness.scrollToIndex).toHaveBeenLastCalledWith(1, { align: "start" })
     rendered.unmount()
+  })
+
+  it("cancels a pending reconciliation before capturing a replacement anchor", () => {
+    const onResult = (result: AnchorResult) => { latest = result }
+    const initial = [message("anchor")]
+    const prepended = [message("older"), message("anchor")]
+    harness.absoluteTops.set("anchor", 120)
+    const rendered = render(createElement(Harness, {
+      items: initial,
+      isFetchingOlder: false,
+      onResult,
+    }))
+    harness.scroller = screen.getByTestId("scroll") as HTMLDivElement
+
+    act(() => latest.captureOlderPageAnchor())
+    rendered.rerender(createElement(Harness, { items: initial, isFetchingOlder: true, onResult }))
+    harness.absoluteTops.set("anchor", 520)
+    rendered.rerender(createElement(Harness, { items: prepended, isFetchingOlder: false, onResult }))
+    expect(frames).toHaveLength(1)
+
+    act(() => latest.captureOlderPageAnchor())
+    expect(cancelFrame).toHaveBeenCalledWith(1)
+    expect(latest.isOlderPageAnchorSettling).toBe(true)
+    rendered.unmount()
+  })
+
+  it("clears settlement when the captured anchor disappears from the loaded window", () => {
+    const onResult = (result: AnchorResult) => { latest = result }
+    const initial = [message("anchor")]
+    harness.absoluteTops.set("anchor", 120)
+    const rendered = render(createElement(Harness, {
+      items: initial,
+      isFetchingOlder: false,
+      onResult,
+    }))
+    harness.scroller = screen.getByTestId("scroll") as HTMLDivElement
+
+    act(() => latest.captureOlderPageAnchor())
+    rendered.rerender(createElement(Harness, { items: initial, isFetchingOlder: true, onResult }))
+    rendered.rerender(createElement(Harness, {
+      items: [day("2026-09-17")],
+      isFetchingOlder: false,
+      onResult,
+    }))
+
+    expect(harness.scrollToIndex).not.toHaveBeenCalled()
+    expect(latest.isOlderPageAnchorSettling).toBe(false)
+    rendered.unmount()
+  })
+
+  it("cancels pending reconciliation on effect replacement and unmount", () => {
+    const onResult = (result: AnchorResult) => { latest = result }
+    const initial = [message("anchor")]
+    const prepended = [message("older"), message("anchor")]
+    harness.absoluteTops.set("anchor", 120)
+    const rendered = render(createElement(Harness, {
+      items: initial,
+      isFetchingOlder: false,
+      onResult,
+    }))
+    harness.scroller = screen.getByTestId("scroll") as HTMLDivElement
+
+    act(() => latest.captureOlderPageAnchor())
+    rendered.rerender(createElement(Harness, { items: initial, isFetchingOlder: true, onResult }))
+    harness.absoluteTops.set("anchor", 520)
+    rendered.rerender(createElement(Harness, { items: prepended, isFetchingOlder: false, onResult }))
+    expect(frames).toHaveLength(1)
+
+    rendered.rerender(createElement(Harness, {
+      items: prepended.slice(),
+      isFetchingOlder: false,
+      onResult,
+    }))
+    expect(cancelFrame).toHaveBeenCalledWith(1)
+    expect(frames).toHaveLength(2)
+
+    rendered.unmount()
+    expect(cancelFrame).toHaveBeenCalledWith(2)
   })
 })

@@ -188,6 +188,64 @@ describe.each(["start", "end"] as const)("useVirtualCursorSentinel (%s edge)", (
     expect(onLoad).toHaveBeenCalledTimes(3)
   })
 
+  it("ignores navigation keys while focus is outside the scroller", () => {
+    const onLoad = vi.fn()
+    const base = { edge, hasMore: true, isFetching: false, onLoad }
+    const view = renderView(base)
+    const key = edge === "start" ? "PageUp" : "PageDown"
+    const scroll = document.querySelector<HTMLElement>('[data-testid="scroll"]')!
+    const outside = document.createElement("button")
+    document.body.append(outside)
+    intersect(true)
+    view.rerender({ ...base, isFetching: true })
+    view.rerender(base)
+
+    outside.focus()
+    fireEvent.keyDown(outside, { key })
+    expect(onLoad).toHaveBeenCalledOnce()
+
+    scroll.tabIndex = -1
+    scroll.focus()
+    fireEvent.keyDown(scroll, { key })
+    expect(onLoad).toHaveBeenCalledTimes(2)
+    outside.remove()
+  })
+
+  it("clears held key, touch, wheel, and timer state on window blur", () => {
+    vi.useFakeTimers()
+    const onLoad = vi.fn()
+    const base = { edge, hasMore: true, isFetching: false, onLoad }
+    const view = renderView(base)
+    const key = edge === "start" ? "PageUp" : "PageDown"
+    const scroll = document.querySelector<HTMLElement>('[data-testid="scroll"]')!
+    intersect(true)
+    view.rerender({ ...base, isFetching: true })
+    view.rerender(base)
+
+    fireEvent.wheel(scroll, { deltaY: edge === "start" ? 20 : -20 })
+    fireEvent.touchStart(scroll, { touches: [{ clientY: 100 }] })
+    fireEvent.keyDown(scroll, { key })
+    expect(onLoad).toHaveBeenCalledTimes(2)
+    expect(vi.getTimerCount()).toBe(1)
+    view.rerender({ ...base, isFetching: true })
+    view.rerender(base)
+
+    act(() => window.dispatchEvent(new Event("blur")))
+    expect(vi.getTimerCount()).toBe(0)
+
+    // No keyup is needed after blur: the next press is a fresh gesture.
+    fireEvent.keyDown(scroll, { key })
+    expect(onLoad).toHaveBeenCalledTimes(3)
+    view.rerender({ ...base, isFetching: true })
+    view.rerender(base)
+
+    // The pre-blur touch no longer has a live coordinate, while wheel is fresh.
+    fireEvent.touchMove(scroll, { touches: [{ clientY: edge === "start" ? 130 : 70 }] })
+    expect(onLoad).toHaveBeenCalledTimes(3)
+    fireEvent.wheel(scroll, { deltaY: edge === "start" ? -20 : 20 })
+    expect(onLoad).toHaveBeenCalledTimes(4)
+  })
+
   it("accepts only fresh input toward the active edge", () => {
     const calls: string[] = []
     const onBeforeLoad = () => calls.push("before")

@@ -12,6 +12,8 @@ let refs: Array<{ current: unknown }> = []
 let refIndex = 0
 let layoutEffects: Array<() => void | (() => void)> = []
 let resizeCallbacks: ResizeObserverCallback[] = []
+const OLDER_PAGE_ANCHOR_FRAME_REF_INDEX = 13
+const OLDER_PAGE_UNMOUNT_EFFECT_INDEX = 2
 
 vi.mock("react", () => ({
   useRef: (initial: unknown) => {
@@ -230,6 +232,17 @@ beforeEach(resetHarness)
 afterEach(() => vi.unstubAllGlobals())
 
 describe("useScrollAnchor delayed row-growth re-pin", () => {
+  it("cancels a pending older-page frame from the unmount fallback", async () => {
+    await mountHook()
+    const olderPageAnchorFrameRef = refs[OLDER_PAGE_ANCHOR_FRAME_REF_INDEX]
+    olderPageAnchorFrameRef.current = 42
+    const cleanup = layoutEffects[OLDER_PAGE_UNMOUNT_EFFECT_INDEX]()
+
+    expect(cleanup).toBeTypeOf("function")
+    cleanup!()
+    expect(window.cancelAnimationFrame).toHaveBeenCalledWith(42)
+  })
+
   it("publishes settlement one frame after the final initial convergence action", async () => {
     const frameCallbacks: FrameRequestCallback[] = []
     const cancelFrame = vi.fn()
