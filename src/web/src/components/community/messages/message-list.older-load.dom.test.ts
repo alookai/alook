@@ -105,6 +105,9 @@ describe("MessageList — older-load sentinel does not cascade", () => {
     expect(onLoadOlder).toHaveBeenCalledTimes(1)
 
     renderer.rerender(view(false))
+    expect(onLoadOlder).toHaveBeenCalledTimes(1)
+
+    fireEvent.wheel(scroller, { deltaY: -20 })
     expect(onLoadOlder).toHaveBeenCalledTimes(2)
 
     renderer.rerender(view(false))
@@ -124,7 +127,7 @@ describe("MessageList — older-load sentinel does not cascade", () => {
     intersect()
     expect(onLoadOlder).toHaveBeenCalledTimes(2)
     renderer.unmount()
-    expect(removeEventListener).toHaveBeenCalledWith("scroll", expect.any(Function))
+    expect(removeEventListener).toHaveBeenCalledWith("wheel", expect.any(Function))
     expect(onLoadOlder).toHaveBeenCalledTimes(2)
   })
 })

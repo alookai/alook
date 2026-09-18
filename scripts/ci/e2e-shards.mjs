@@ -81,6 +81,7 @@ export const SPEC_SECONDS = {
   "56-remote-image-state-contract.spec.ts": 3.122,
   "57-server-delete-navigation-races.spec.ts": 55,
   "58-system-notifications.spec.ts": 46.600,
+  "59-message-pagination-anchor.spec.ts": 45.600,
 }
 
 function walk(directory) {
