@@ -50,6 +50,10 @@ const target = {
   channelId: "channel-1",
   authorName: "Alice",
   content: "private message body",
+  conversationKind: "dm" as const,
+  serverName: null,
+  channelName: null,
+  parentChannelName: null,
   attachmentContentTypes: [],
 }
 
