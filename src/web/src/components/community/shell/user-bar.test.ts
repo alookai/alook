@@ -19,7 +19,7 @@ describe("UserBar", () => {
     expect(html).toContain("pl-[max(0.75rem,var(--app-safe-area-left))]")
     expect(html).toContain("pr-[max(0.75rem,var(--app-safe-area-right))]")
     expect(html).toContain("pb-[calc(0.75rem+var(--app-safe-area-bottom))]")
-    expect(html).toContain("sm:px-3 sm:pb-3")
+    expect(html).toContain("sm:px-2 sm:pb-3")
     expect(html).toContain("flex h-12 items-center gap-3 border border-border/40 bg-muted px-4")
     expect(html).not.toContain("ring-1 ring-border/40")
     expect(html).toContain('class="flex min-w-0 flex-1 items-center gap-2"')
@@ -55,7 +55,7 @@ describe("UserBar", () => {
     expect(html).toContain("pl-[max(0.75rem,var(--app-safe-area-left))]")
     expect(html).toContain("pr-[max(0.75rem,var(--app-safe-area-right))]")
     expect(html).toContain("pb-[calc(0.75rem+var(--app-safe-area-bottom))]")
-    expect(html).toContain("sm:px-3 sm:pb-3")
+    expect(html).toContain("sm:px-2 sm:pb-3")
     expect(html).toContain(
       "flex h-12 items-center gap-3 rounded-xl border border-border/40 bg-muted px-4",
     )

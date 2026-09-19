@@ -1,9 +1,10 @@
 export const COMMUNITY_RAIL_WIDTH = 56
 export const COMMUNITY_SURFACE_BORDER_WIDTH = 1
 export const COMMUNITY_SEPARATOR_WIDTH = 1
-export const COMMUNITY_SHELL_INSET = 12
-export const COMMUNITY_SIDEBAR_DEFAULT_PERCENTAGE = 24
-export const COMMUNITY_SIDEBAR_MIN_WIDTH = 160
+export const COMMUNITY_USER_BAR_DESKTOP_INSET = 8
+export const COMMUNITY_COMPOSER_DESKTOP_INSET = 12
+export const COMMUNITY_SIDEBAR_DEFAULT_WIDTH = 317
+export const COMMUNITY_SIDEBAR_MIN_WIDTH = 300
 export const COMMUNITY_SIDEBAR_MAX_WIDTH = 360
 export const COMMUNITY_USER_BAR_BASE_HEIGHT = 60
 export const COMMUNITY_USER_BAR_HEIGHT_CSS =
@@ -48,4 +49,23 @@ export function desktopUserBarOverlayCssWidth(
     + COMMUNITY_SURFACE_BORDER_WIDTH
     + (constrainToPanelBounds ? COMMUNITY_SEPARATOR_WIDTH : 0)
   return `calc(${sidebarWidth} + ${fixedWidth}px)`
+}
+
+export function desktopUserBarInitialOverlayCssWidth(
+  persistedSidebarPercentage?: number,
+) {
+  return persistedSidebarPercentage === undefined
+    ? `${desktopUserBarOverlayWidth(COMMUNITY_SIDEBAR_DEFAULT_WIDTH)}px`
+    : desktopUserBarOverlayCssWidth(persistedSidebarPercentage, true)
+}
+
+export function desktopSidebarRestoreTarget(
+  cachedSidebarWidth?: number,
+  persistedSidebarPercentage?: number,
+): number | string {
+  if (cachedSidebarWidth !== undefined) return cachedSidebarWidth
+  if (persistedSidebarPercentage !== undefined) {
+    return `${persistedSidebarPercentage}%`
+  }
+  return COMMUNITY_SIDEBAR_DEFAULT_WIDTH
 }

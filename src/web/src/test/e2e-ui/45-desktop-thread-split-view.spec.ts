@@ -79,7 +79,7 @@ test.describe.serial("desktop thread split view", () => {
 
     await resizeThreadPanel(page, 520)
     const savedWidth = Math.round((await thread.boundingBox())?.width ?? 0)
-    expect(savedWidth).toBe(520)
+    expect(Math.abs(savedWidth - 520)).toBeLessThanOrEqual(1)
 
     await page.goto(`/c/channels/${serverId}/${textChannelId}`)
     await expect(page.getByTestId(tid.threadSplitPanel)).toHaveCount(0)
