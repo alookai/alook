@@ -29,6 +29,24 @@ type ShellGeometry = {
   paddingRight: number
 }
 
+type DesktopResizeSample = ShellGeometry & {
+  viewportWidth: number
+  documentClientWidth: number
+  documentScrollWidth: number
+  documentHorizontalOverflow: number
+}
+
+type ComposerGeometry = {
+  shellLeft: number
+  shellRight: number
+  baseLeft: number
+  baseRight: number
+  leftInset: number
+  rightInset: number
+  outerPaddingLeft: number
+  outerPaddingRight: number
+}
+
 const outdatedMachine = {
   id: "machine_desktop_width",
   hostname: "studio-mac",
@@ -166,6 +184,67 @@ async function expectDesktopGeometry(page: Page, sidebarWidth: number) {
   })
 }
 
+async function readDesktopResizeSample(
+  page: Page,
+  viewportWidth: number,
+): Promise<DesktopResizeSample> {
+  const [geometry, documentGeometry] = await Promise.all([
+    readShellGeometry(page),
+    page.evaluate(() => {
+      const documentClientWidth = document.documentElement.clientWidth
+      const documentScrollWidth = Math.max(
+        document.documentElement.scrollWidth,
+        document.body?.scrollWidth ?? 0,
+      )
+      return {
+        documentClientWidth,
+        documentScrollWidth,
+        documentHorizontalOverflow: Math.max(
+          0,
+          documentScrollWidth - documentClientWidth,
+        ),
+      }
+    }),
+  ])
+  return { viewportWidth, ...geometry, ...documentGeometry }
+}
+
+function expectMainAbsorbsViewportDelta(samples: DesktopResizeSample[]) {
+  expect(samples.map(({ viewportWidth }) => viewportWidth)).toEqual([1280, 1024, 640])
+  const initial = samples[0]
+  for (const sample of samples) {
+    expect(sample.documentClientWidth).toBe(sample.viewportWidth)
+    expect(sample.documentHorizontalOverflow).toBe(0)
+    expect(Math.abs(
+      (sample.main - initial.main)
+      - (sample.viewportWidth - initial.viewportWidth),
+    )).toBeLessThanOrEqual(geometryEpsilon)
+  }
+}
+
+async function readComposerGeometry(page: Page): Promise<ComposerGeometry> {
+  return page.getByTestId(tid.channelComposerShell).evaluate((shell) => {
+    const base = shell.querySelector<HTMLElement>(
+      '[data-slot="community-composer-base"]',
+    )
+    const outer = base?.parentElement
+    if (!base || !outer) throw new Error("missing channel Composer geometry")
+    const shellRect = shell.getBoundingClientRect()
+    const baseRect = base.getBoundingClientRect()
+    const outerStyle = getComputedStyle(outer)
+    return {
+      shellLeft: shellRect.left,
+      shellRight: shellRect.right,
+      baseLeft: baseRect.left,
+      baseRight: baseRect.right,
+      leftInset: baseRect.left - shellRect.left,
+      rightInset: shellRect.right - baseRect.right,
+      outerPaddingLeft: Number.parseFloat(outerStyle.paddingLeft),
+      outerPaddingRight: Number.parseFloat(outerStyle.paddingRight),
+    }
+  })
+}
+
 async function expectExtensionGeometry(page: Page) {
   const extension = page.getByTestId(tid.userBarExtension)
   const base = page.getByTestId(tid.userBar).locator(
@@ -225,6 +304,18 @@ test.describe.serial("desktop default User Bar width", () => {
       `/c/channels/${serverId}/${channelId}`,
     )
     await expectDesktopGeometry(fresh.page, expectedDefaultSidebarWidth)
+    const unsavedResizeSequence = [
+      await readDesktopResizeSample(fresh.page, 1280),
+    ]
+    const composerGeometry = await readComposerGeometry(fresh.page)
+    expect(Math.abs(composerGeometry.leftInset - 12)).toBeLessThanOrEqual(
+      geometryEpsilon,
+    )
+    expect(Math.abs(composerGeometry.rightInset - 12)).toBeLessThanOrEqual(
+      geometryEpsilon,
+    )
+    expect(composerGeometry.outerPaddingLeft).toBe(12)
+    expect(composerGeometry.outerPaddingRight).toBe(12)
     await fresh.page.waitForTimeout(250)
     expect(await fresh.page.evaluate((key) => localStorage.getItem(key), layoutStorageKey))
       .toBeNull()
@@ -248,7 +339,11 @@ test.describe.serial("desktop default User Bar width", () => {
     for (const width of [1024, 640]) {
       await fresh.page.setViewportSize({ width, height: 768 })
       await expectDesktopGeometry(fresh.page, expectedDefaultSidebarWidth)
+      unsavedResizeSequence.push(
+        await readDesktopResizeSample(fresh.page, width),
+      )
     }
+    expectMainAbsorbsViewportDelta(unsavedResizeSequence)
     await fresh.page.setViewportSize({ width: 639, height: 768 })
     await expect(shellPanel(fresh.page, "sidebar")).toBeHidden()
     await expect(shellPanel(fresh.page, "main")).toBeVisible()
@@ -321,10 +416,18 @@ test.describe.serial("desktop default User Bar width", () => {
     const restoredWidth = (await readShellGeometry(saved.page)).sidebar
     expect(restoredWidth).toBeGreaterThanOrEqual(160)
     expect(restoredWidth).toBeLessThanOrEqual(360)
+    await expectDesktopGeometry(saved.page, restoredWidth)
+    const savedResizeSequence = [
+      await readDesktopResizeSample(saved.page, 1280),
+    ]
     for (const width of [1024, 640]) {
       await saved.page.setViewportSize({ width, height: 768 })
       await expectDesktopGeometry(saved.page, restoredWidth)
+      savedResizeSequence.push(
+        await readDesktopResizeSample(saved.page, width),
+      )
     }
+    expectMainAbsorbsViewportDelta(savedResizeSequence)
     await saved.page.setViewportSize({ width: 639, height: 768 })
     await expect(shellPanel(saved.page, "sidebar")).toBeHidden()
     await saved.page.setViewportSize({ width: 640, height: 768 })
@@ -364,7 +467,11 @@ test.describe.serial("desktop default User Bar width", () => {
     await attachJson(testInfo, "desktop-width-layout-evidence", {
       hydrationSamples,
       mobileGeometry,
-      unsavedStorage: null,
+      unsaved: {
+        storage: null,
+        resizeSequence: unsavedResizeSequence,
+      },
+      composerGeometry,
       saved: {
         initialStorage: seededStorage,
         finalStorage: await saved.page.evaluate(
@@ -372,6 +479,7 @@ test.describe.serial("desktop default User Bar width", () => {
           layoutStorageKey,
         ),
         restoredWidth,
+        resizeSequence: savedResizeSequence,
       },
       resized: {
         storage: storedLayout,
