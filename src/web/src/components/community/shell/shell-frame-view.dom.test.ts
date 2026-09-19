@@ -290,7 +290,7 @@ describe("ShellFrameView", () => {
     expect(sidebarPanel).toMatchObject({
       id: "sidebar",
       defaultSize: 317,
-      minSize: 160,
+      minSize: 300,
       maxSize: 360,
       groupResizeBehavior: "preserve-pixel-size",
     })
@@ -371,7 +371,7 @@ describe("ShellFrameView", () => {
     expect(renderer.container.querySelector<HTMLElement>(
       '[data-slot="community-user-bar-overlay"]',
     )!.style.getPropertyValue("--community-desktop-user-bar-width")).toBe(
-      "calc(clamp(160px, calc(18.75% - 0.375px), 360px) + 58px)",
+      "calc(clamp(300px, calc(18.75% - 0.375px), 360px) + 58px)",
     )
   })
 
@@ -672,7 +672,7 @@ describe("ShellFrameView", () => {
       const onResize = latestProps(mocks.panelProps, "sidebar").onResize as (
         size: { asPercentage: number; inPixels: number },
       ) => void
-      onResize({ asPercentage: 12.5, inPixels: 160 })
+      onResize({ asPercentage: 24.5, inPixels: 300 })
     })
 
     const renderer = render(createElement(
@@ -702,7 +702,7 @@ describe("ShellFrameView", () => {
     const mobileOnResize = latestProps(mocks.panelProps, "sidebar").onResize as (
       size: { asPercentage: number; inPixels: number },
     ) => void
-    mobileOnResize({ asPercentage: 12.5, inPixels: 160 })
+    mobileOnResize({ asPercentage: 24.5, inPixels: 300 })
     await act(async () => {
       renderer.rerender(createElement(
         ShellFrameView,

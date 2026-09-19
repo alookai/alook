@@ -19,7 +19,7 @@ import {
 
 describe("desktop community shell geometry", () => {
   it("keeps the user bar at 8px while the Composer remains at 12px", () => {
-    const sidebarWidth = 240
+    const sidebarWidth = 300
     const mainStart = COMMUNITY_RAIL_WIDTH
       + COMMUNITY_SURFACE_BORDER_WIDTH
       + sidebarWidth
@@ -39,6 +39,8 @@ describe("desktop community shell geometry", () => {
     const overlayWidth = desktopUserBarOverlayWidth(COMMUNITY_SIDEBAR_DEFAULT_WIDTH)
 
     expect(COMMUNITY_SIDEBAR_DEFAULT_WIDTH).toBe(317)
+    expect(COMMUNITY_SIDEBAR_MIN_WIDTH).toBe(300)
+    expect(COMMUNITY_SIDEBAR_MAX_WIDTH).toBe(360)
     expect(overlayWidth).toBe(375)
     expect(overlayWidth - (2 * COMMUNITY_USER_BAR_DESKTOP_INSET)).toBe(359)
     expect(desktopUserBarInitialOverlayCssWidth()).toBe("375px")
@@ -56,7 +58,7 @@ describe("desktop community shell geometry", () => {
   })
 
   it("restores desktop entry from cached pixels, persisted percentage, then the fixed default", () => {
-    expect(desktopSidebarRestoreTarget(299.25, 25)).toBe(299.25)
+    expect(desktopSidebarRestoreTarget(300.25, 25)).toBe(300.25)
     expect(desktopSidebarRestoreTarget(undefined, 25)).toBe("25%")
     expect(desktopSidebarRestoreTarget()).toBe(317)
   })

@@ -1,7 +1,16 @@
 import type { Page, Request, Route, TestInfo } from "@playwright/test"
-import { expect, test } from "./_fixtures/community-fixture"
+import { expect, test, userId } from "./_fixtures/community-fixture"
 import { gotoAfterUserWsAuth, waitForElementMotion } from "./_fixtures/actions"
-import { seedChannel, seedServer } from "./_fixtures/seed"
+import {
+  memberInfo,
+  seedCancelFriendRequest,
+  seedChannel,
+  seedJoinServer,
+  seedMark,
+  seedMessage,
+  seedPendingFriendRequest,
+  seedServer,
+} from "./_fixtures/seed"
 import { tid } from "./_fixtures/testids"
 
 const layoutStorageKey = "react-resizable-panels:community-shell"
@@ -441,7 +450,7 @@ test.describe.serial("desktop default User Bar width", () => {
       Math.abs((await readShellGeometry(saved.page)).sidebar - expectedDefaultSidebarWidth)
     )).toBeGreaterThan(1)
     const restoredWidth = (await readShellGeometry(saved.page)).sidebar
-    expect(restoredWidth).toBeGreaterThanOrEqual(160)
+    expect(restoredWidth).toBeGreaterThanOrEqual(300)
     expect(restoredWidth).toBeLessThanOrEqual(360)
     await expectDesktopGeometry(saved.page, restoredWidth)
     const savedResizeSequence = [
@@ -479,7 +488,7 @@ test.describe.serial("desktop default User Bar width", () => {
     )).not.toBeNull()
     const resizedWidth = (await readShellGeometry(interaction.page)).sidebar
     expect(Math.abs(resizedWidth - expectedDefaultSidebarWidth)).toBeGreaterThan(1)
-    expect(resizedWidth).toBeGreaterThanOrEqual(160)
+    expect(resizedWidth).toBeGreaterThanOrEqual(300)
     expect(resizedWidth).toBeLessThanOrEqual(360)
     const storedLayout = JSON.parse(await interaction.page.evaluate(
       (key) => localStorage.getItem(key)!,
@@ -514,6 +523,126 @@ test.describe.serial("desktop default User Bar width", () => {
         reloadedWidth: (await readShellGeometry(interaction.page)).sidebar,
       },
     })
+  })
+
+  test("keeps a populated Inbox free of horizontal overflow at the 300px floor", async ({
+    asUser,
+  }, testInfo) => {
+    test.setTimeout(120_000)
+    const stamp = Date.now()
+    const longServerName = `Inbox width with a deliberately long server title ${stamp}`
+    const longChannelName = `inbox-width-with-a-deliberately-long-channel-name-${stamp}`
+    const floorServerId = await seedServer("alice", longServerName)
+    const floorChannelId = await seedChannel(
+      "alice",
+      floorServerId,
+      longChannelName,
+    )
+    await seedJoinServer("alice", "bob", floorServerId)
+    const bobMember = await memberInfo("alice", floorServerId, userId("bob"))
+    const friendRequestId = await seedPendingFriendRequest(
+      "carol",
+      "bob",
+      userId("bob"),
+    )
+
+    try {
+      const markedMessageId = await seedMessage(
+        "alice",
+        floorChannelId,
+        `Marked ${stamp} ${"very-long-row-content ".repeat(12)}`,
+      )
+      await seedMessage(
+        "alice",
+        floorChannelId,
+        `@${bobMember.name}#${bobMember.discriminator} Mention ${stamp} ${"very-long-mention-content ".repeat(12)}`,
+      )
+      await seedMark("bob", floorChannelId, markedMessageId)
+
+      const bob = await asUser("bob")
+      await bob.page.setViewportSize({ width: 1280, height: 900 })
+      await gotoAfterUserWsAuth(bob.page, "/c/me/friends")
+      const sidebarPanel = shellPanel(bob.page, "sidebar")
+      const handle = bob.page.locator('[data-slot="resizable-handle"]')
+      await handle.focus()
+      await bob.page.keyboard.press("Home")
+      await expect.poll(async () => (
+        (await sidebarPanel.boundingBox())?.width ?? 0
+      )).toBeCloseTo(300, 0)
+      await expectDesktopGeometry(bob.page, 300)
+
+      await bob.page.getByTestId(tid.inboxTrigger).click()
+      const extension = bob.page.getByTestId(tid.userBarExtension)
+      await expect(extension).toHaveAttribute("data-extension", "inbox")
+      await waitForElementMotion(extension)
+      expect((await extension.boundingBox())!.width).toBeCloseTo(342, 0)
+
+      const evidence: Array<Record<string, unknown>> = []
+      for (const tab of ["Unreads", "Mentions", "Marked"] as const) {
+        await bob.page.getByRole("tab", { name: tab }).click()
+        const tabKey = tab.toLowerCase() as "unreads" | "mentions" | "marked"
+        const activeBody = bob.page.getByTestId(tid.inboxTabScroll(tabKey))
+        await expect(activeBody).toBeVisible()
+        if (tab === "Unreads") {
+          const requestRow = bob.page.getByTestId(tid.inboxFriendRequest(friendRequestId))
+          await expect(requestRow).toBeVisible()
+          await expect(bob.page.getByTestId(tid.inboxUnreadChannel(floorChannelId))).toBeVisible()
+          await requestRow.hover()
+          await expect(bob.page.getByTestId(tid.inboxFriendRequestAccept(friendRequestId))).toBeVisible()
+          await expect(bob.page.getByTestId(tid.inboxFriendRequestReject(friendRequestId))).toBeVisible()
+        } else {
+          await expect(activeBody).toContainText(
+            tab === "Mentions" ? `Mention ${stamp}` : `Marked ${stamp}`,
+          )
+          await activeBody.getByRole("button").first().hover()
+          await expect(activeBody.getByRole("button", { name: "More" })).toBeVisible()
+        }
+
+        const sample = await extension.evaluate((element, ids) => {
+          const width = (target: HTMLElement) => ({
+            clientWidth: target.clientWidth,
+            scrollWidth: target.scrollWidth,
+            overflow: Math.max(0, target.scrollWidth - target.clientWidth),
+          })
+          const tabList = element.querySelector<HTMLElement>(
+            `[data-testid="${ids.tabList}"]`,
+          )
+          const scrollBody = element.querySelector<HTMLElement>(
+            `[data-testid="${ids.scrollBody}"]`,
+          )
+          if (!tabList || !scrollBody) throw new Error("missing active Inbox geometry")
+          return {
+            extension: width(element as HTMLElement),
+            tabList: width(tabList),
+            scrollBody: width(scrollBody),
+            document: {
+              clientWidth: document.documentElement.clientWidth,
+              scrollWidth: document.documentElement.scrollWidth,
+              overflow: Math.max(
+                0,
+                document.documentElement.scrollWidth - document.documentElement.clientWidth,
+              ),
+            },
+          }
+        }, {
+          tabList: tid.inboxTabList,
+          scrollBody: tid.inboxTabScroll(tabKey),
+        })
+        expect(sample.extension.overflow).toBe(0)
+        expect(sample.tabList.overflow).toBe(0)
+        expect(sample.scrollBody.overflow).toBe(0)
+        expect(sample.document.overflow).toBe(0)
+        evidence.push({ tab, ...sample })
+        await attachScreenshot(
+          bob.page,
+          testInfo,
+          `inbox-300-${tabKey}-no-horizontal-overflow`,
+        )
+      }
+      await attachJson(testInfo, "inbox-300-no-horizontal-overflow", evidence)
+    } finally {
+      await seedCancelFriendRequest("carol", friendRequestId)
+    }
   })
 
   test("restores fresh and saved mobile-first desktop entries before paint", async ({

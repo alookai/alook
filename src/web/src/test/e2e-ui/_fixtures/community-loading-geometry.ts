@@ -11,6 +11,7 @@ import {
   COMMUNITY_RAIL_WIDTH,
   COMMUNITY_SEPARATOR_WIDTH,
   COMMUNITY_SIDEBAR_DEFAULT_WIDTH,
+  COMMUNITY_SIDEBAR_MIN_WIDTH,
   COMMUNITY_SURFACE_BORDER_WIDTH,
 } from "@/components/community/shell/shell-frame-geometry"
 import {
@@ -575,7 +576,9 @@ export async function runDesktopPersistedPendingGeometry(
             `${caseLabel}, frame ${index} separator width: ${JSON.stringify(sample)}`,
           ).toBeLessThanOrEqual(1)
         }
-        const expectedSidebarWidth = sidebarWidth ?? COMMUNITY_SIDEBAR_DEFAULT_WIDTH
+        const expectedSidebarWidth = sidebarWidth === null
+          ? COMMUNITY_SIDEBAR_DEFAULT_WIDTH
+          : Math.max(COMMUNITY_SIDEBAR_MIN_WIDTH, sidebarWidth)
         expect(
           Math.abs(samples.at(-1)!.sidebarWidth - expectedSidebarWidth),
           `${caseLabel}, final sidebar width: ${JSON.stringify(samples.at(-1))}`,
