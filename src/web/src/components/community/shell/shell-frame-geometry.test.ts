@@ -10,6 +10,7 @@ import {
   COMMUNITY_USER_BAR_BASE_HEIGHT,
   COMMUNITY_USER_BAR_DESKTOP_INSET,
   COMMUNITY_USER_BAR_HEIGHT_CSS,
+  desktopSidebarRestoreTarget,
   desktopUserBarInitialOverlayCssWidth,
   desktopUserBarOverlayCssWidth,
   desktopUserBarOverlayWidth,
@@ -52,6 +53,12 @@ describe("desktop community shell geometry", () => {
     )
     expect(desktopUserBarOverlayCssWidth(-20, false)).toContain("0%")
     expect(desktopUserBarOverlayCssWidth(120, false)).toContain("100%")
+  })
+
+  it("restores desktop entry from cached pixels, persisted percentage, then the fixed default", () => {
+    expect(desktopSidebarRestoreTarget(299.25, 25)).toBe(299.25)
+    expect(desktopSidebarRestoreTarget(undefined, 25)).toBe("25%")
+    expect(desktopSidebarRestoreTarget()).toBe(317)
   })
 })
 

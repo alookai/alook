@@ -2,11 +2,17 @@
 
 import {
   useCallback,
+  useInsertionEffect,
+  useLayoutEffect,
   useRef,
   type CSSProperties,
   type ReactNode,
 } from "react"
-import { useDefaultLayout, type PanelSize } from "react-resizable-panels"
+import {
+  useDefaultLayout,
+  type PanelImperativeHandle,
+  type PanelSize,
+} from "react-resizable-panels"
 import { AppSurface } from "@/components/ui/app-surface"
 import {
   ResizableHandle,
@@ -22,6 +28,7 @@ import {
   COMMUNITY_SIDEBAR_MAX_WIDTH,
   COMMUNITY_SIDEBAR_MIN_WIDTH,
   COMMUNITY_USER_BAR_HEIGHT_CSS,
+  desktopSidebarRestoreTarget,
   desktopUserBarInitialOverlayCssWidth,
   desktopUserBarOverlayWidth,
 } from "./shell-frame-geometry"
@@ -52,6 +59,11 @@ type CommunityShellLayoutProps = {
   preserveHiddenMobileModules?: boolean
 }
 
+type PendingDesktopRestore = {
+  target: number | string
+  resizeRequested: boolean
+}
+
 /** The single geometry owner for authenticated and session-pending community shells. */
 export function CommunityShellLayout({
   breakpoint,
@@ -74,18 +86,85 @@ export function CommunityShellLayout({
     storage: communityLayoutStorage,
   })
   const hydratedClient = useHydratedClient()
+  const persistedSidebarPercentage = hydratedClient
+    ? defaultLayout?.sidebar
+    : undefined
   const sidebarPanelRef = useRef<HTMLDivElement>(null)
+  const sidebarPanelHandleRef = useRef<PanelImperativeHandle | null>(null)
   const userBarOverlayRef = useRef<HTMLDivElement>(null)
-  const syncDesktopUserBarWidth = useCallback((size: PanelSize) => {
-    const measuredSidebarWidth = sidebarPanelRef.current?.getBoundingClientRect().width
-    const sidebarWidth = measuredSidebarWidth && measuredSidebarWidth > 0
-      ? measuredSidebarWidth
-      : size.inPixels
+  const committedBreakpointRef = useRef<Breakpoint>(breakpoint)
+  const renderedBreakpointRef = useRef<Breakpoint>(breakpoint)
+  const desktopSidebarWidthRef = useRef<number | undefined>(undefined)
+  const pendingDesktopRestoreRef = useRef<PendingDesktopRestore | null>(null)
+
+  useInsertionEffect(() => {
+    renderedBreakpointRef.current = breakpoint
+    if (
+      committedBreakpointRef.current === "mobile"
+      && breakpoint === "desktop"
+      && pendingDesktopRestoreRef.current === null
+    ) {
+      pendingDesktopRestoreRef.current = {
+        target: desktopSidebarRestoreTarget(
+          desktopSidebarWidthRef.current,
+          persistedSidebarPercentage,
+        ),
+        resizeRequested: false,
+      }
+    }
+  }, [breakpoint, persistedSidebarPercentage])
+
+  const setDesktopUserBarWidth = useCallback((sidebarWidth: number) => {
     userBarOverlayRef.current?.style.setProperty(
       "--community-desktop-user-bar-width",
       `${desktopUserBarOverlayWidth(sidebarWidth)}px`,
     )
   }, [])
+  const syncDesktopUserBarWidth = useCallback((size: PanelSize) => {
+    if (
+      renderedBreakpointRef.current !== "desktop"
+      || pendingDesktopRestoreRef.current !== null
+    ) return
+    const measuredSidebarWidth = sidebarPanelRef.current?.getBoundingClientRect().width
+    const sidebarWidth = measuredSidebarWidth && measuredSidebarWidth > 0
+      ? measuredSidebarWidth
+      : size.inPixels
+    desktopSidebarWidthRef.current = sidebarWidth
+    setDesktopUserBarWidth(sidebarWidth)
+  }, [setDesktopUserBarWidth])
+
+  useLayoutEffect(() => {
+    committedBreakpointRef.current = breakpoint
+    const pendingRestore = pendingDesktopRestoreRef.current
+    if (
+      breakpoint !== "desktop"
+      || pendingRestore === null
+      || pendingRestore.resizeRequested
+    ) return
+
+    const panelHandle = sidebarPanelHandleRef.current
+    if (!panelHandle) return
+
+    pendingRestore.resizeRequested = true
+    panelHandle.resize(pendingRestore.target)
+    queueMicrotask(() => {
+      if (
+        pendingDesktopRestoreRef.current !== pendingRestore
+        || renderedBreakpointRef.current !== "desktop"
+      ) return
+      const imperativeWidth = panelHandle.getSize().inPixels
+      const measuredWidth = sidebarPanelRef.current?.getBoundingClientRect().width
+      const appliedWidth = imperativeWidth > 0
+        ? imperativeWidth
+        : measuredWidth && measuredWidth > 0
+          ? measuredWidth
+          : undefined
+      if (appliedWidth === undefined) return
+      desktopSidebarWidthRef.current = appliedWidth
+      setDesktopUserBarWidth(appliedWidth)
+      pendingDesktopRestoreRef.current = null
+    })
+  }, [breakpoint, setDesktopUserBarWidth])
 
   const isDesktop = breakpoint === "desktop"
   const isMobileList = breakpoint === "mobile" && surface === "list"
@@ -98,9 +177,6 @@ export function CommunityShellLayout({
   const mainMobileHidden = isMobileList || (isInitial && surface === "list")
   const showUserBar = isDesktop || isMobileList || isInitial || preserveHiddenMobileModules
 
-  const persistedSidebarPercentage = hydratedClient
-    ? defaultLayout?.sidebar
-    : undefined
   const initialUserBarStyle = {
     "--community-desktop-user-bar-width": desktopUserBarInitialOverlayCssWidth(
       persistedSidebarPercentage,
@@ -158,6 +234,7 @@ export function CommunityShellLayout({
           >
             <ResizablePanel
               id="sidebar"
+              panelRef={sidebarPanelHandleRef}
               defaultSize={COMMUNITY_SIDEBAR_DEFAULT_WIDTH}
               minSize={COMMUNITY_SIDEBAR_MIN_WIDTH}
               maxSize={COMMUNITY_SIDEBAR_MAX_WIDTH}

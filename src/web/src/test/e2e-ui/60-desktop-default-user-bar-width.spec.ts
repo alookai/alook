@@ -17,6 +17,8 @@ const shellPanel = (page: Page, id: "sidebar" | "main") => (
 type LayoutSample = {
   sidebar: number
   overlay: number
+  viewportWidth: number
+  desktopVisible: boolean
 }
 
 type ShellGeometry = {
@@ -76,7 +78,14 @@ async function installLayoutState(
     }
 
     const samples: LayoutSample[] = []
+    const storageWrites: string[] = []
     Reflect.set(window, "__desktopWidthSamples", samples)
+    Reflect.set(window, "__desktopLayoutWrites", storageWrites)
+    const originalSetItem = Storage.prototype.setItem
+    Storage.prototype.setItem = function setItem(storageKey, value) {
+      if (storageKey === key) storageWrites.push(value)
+      return originalSetItem.call(this, storageKey, value)
+    }
     const capture = () => {
       const sidebar = document.querySelector<HTMLElement>(
         `[data-slot="resizable-panel"][data-testid="${sidebarTestId}"]`,
@@ -88,6 +97,9 @@ async function installLayoutState(
         samples.push({
           sidebar: sidebar.getBoundingClientRect().width,
           overlay: overlay.getBoundingClientRect().width,
+          viewportWidth: window.innerWidth,
+          desktopVisible: getComputedStyle(sidebar).display !== "none"
+            && getComputedStyle(overlay).display !== "none",
         })
       }
       requestAnimationFrame(capture)
@@ -220,6 +232,21 @@ function expectMainAbsorbsViewportDelta(samples: DesktopResizeSample[]) {
       - (sample.viewportWidth - initial.viewportWidth),
     )).toBeLessThanOrEqual(geometryEpsilon)
   }
+}
+
+function expectNoTransientDesktopWidth(
+  samples: LayoutSample[],
+  sidebarWidth: number,
+) {
+  const visibleSamples = samples.filter(({ desktopVisible, sidebar, overlay }) => (
+    desktopVisible && sidebar > 0 && overlay > 0
+  ))
+  expect(visibleSamples.length).toBeGreaterThan(0)
+  const transientSamples = visibleSamples.filter((sample) => (
+    Math.abs(sample.sidebar - sidebarWidth) > geometryEpsilon
+    || Math.abs(sample.overlay - (sidebarWidth + 58)) > geometryEpsilon
+  ))
+  expect(transientSamples).toEqual([])
 }
 
 async function readComposerGeometry(page: Page): Promise<ComposerGeometry> {
@@ -487,6 +514,144 @@ test.describe.serial("desktop default User Bar width", () => {
         reloadedWidth: (await readShellGeometry(interaction.page)).sidebar,
       },
     })
+  })
+
+  test("restores fresh and saved mobile-first desktop entries before paint", async ({
+    asUser,
+  }, testInfo) => {
+    test.setTimeout(240_000)
+
+    const runFreshSequence = async (widths: number[]) => {
+      const session = await asUser("alice")
+      const page = session.page
+      await page.setViewportSize({ width: widths[0], height: 844 })
+      await installLayoutState(page, null)
+      await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelId}`)
+      await expect(page.getByTestId(tid.channelComposerShell)).toBeVisible()
+      const desktopPoints: Array<Record<string, unknown>> = []
+      let previousWidth = widths[0]
+
+      for (const width of widths.slice(1)) {
+        const sampleCursor = await page.evaluate(() => (
+          Reflect.get(window, "__desktopWidthSamples") as LayoutSample[]
+        ).length)
+        await page.setViewportSize({ width, height: 844 })
+        if (width < 640) {
+          await expect(shellPanel(page, "sidebar")).toBeHidden()
+          previousWidth = width
+          continue
+        }
+
+        await expectDesktopGeometry(page, expectedDefaultSidebarWidth)
+        const [shell, composer, samples, storage, storageWrites] = await Promise.all([
+          readDesktopResizeSample(page, width),
+          readComposerGeometry(page),
+          page.evaluate((cursor) => (
+            Reflect.get(window, "__desktopWidthSamples") as LayoutSample[]
+          ).slice(cursor), sampleCursor),
+          page.evaluate((key) => localStorage.getItem(key), layoutStorageKey),
+          page.evaluate(() => (
+            Reflect.get(window, "__desktopLayoutWrites") as string[]
+          )),
+        ])
+        if (previousWidth < 640) {
+          expectNoTransientDesktopWidth(samples, expectedDefaultSidebarWidth)
+        }
+        expect(shell.documentHorizontalOverflow).toBe(0)
+        expect(storage).toBeNull()
+        expect(storageWrites).toEqual([])
+        desktopPoints.push({
+          shell,
+          composer,
+          composerCenter: (composer.shellLeft + composer.shellRight) / 2,
+          samples,
+          storage,
+          storageWrites,
+        })
+        previousWidth = width
+      }
+
+      await session.context.close()
+      return { widths, desktopPoints }
+    }
+
+    const longFresh = await runFreshSequence([320, 390, 639, 640, 1280])
+    const shortFresh = await runFreshSequence([390, 639, 1280])
+    const longFresh1280 = longFresh.desktopPoints.find(({ shell }) => (
+      (shell as DesktopResizeSample).viewportWidth === 1280
+    ))!
+    const shortFresh1280 = shortFresh.desktopPoints.find(({ shell }) => (
+      (shell as DesktopResizeSample).viewportWidth === 1280
+    ))!
+    expect(shortFresh1280.composerCenter).toBe(longFresh1280.composerCenter)
+
+    const seededLayout = { sidebar: 25, main: 75 }
+    const seededStorage = JSON.stringify(seededLayout)
+    const saved = await asUser("alice")
+    await saved.page.setViewportSize({ width: 390, height: 844 })
+    await installLayoutState(saved.page, seededLayout)
+    await gotoAfterUserWsAuth(saved.page, `/c/channels/${serverId}/${channelId}`)
+    await expect(saved.page.getByTestId(tid.channelComposerShell)).toBeVisible()
+    await saved.page.setViewportSize({ width: 639, height: 844 })
+    await expect(shellPanel(saved.page, "sidebar")).toBeHidden()
+    const firstSampleCursor = await saved.page.evaluate(() => (
+      Reflect.get(window, "__desktopWidthSamples") as LayoutSample[]
+    ).length)
+    await saved.page.setViewportSize({ width: 1280, height: 900 })
+    await expect(shellPanel(saved.page, "sidebar")).toBeVisible()
+    await expect.poll(async () => (
+      Math.abs((await readShellGeometry(saved.page)).sidebar - expectedDefaultSidebarWidth)
+    )).toBeGreaterThan(1)
+    const firstAppliedWidth = (await readShellGeometry(saved.page)).sidebar
+    await expectDesktopGeometry(saved.page, firstAppliedWidth)
+    const firstDesktopSamples = await saved.page.evaluate((cursor) => (
+      Reflect.get(window, "__desktopWidthSamples") as LayoutSample[]
+    ).slice(cursor), firstSampleCursor)
+    expectNoTransientDesktopWidth(firstDesktopSamples, firstAppliedWidth)
+    expect(await saved.page.evaluate(
+      (key) => localStorage.getItem(key),
+      layoutStorageKey,
+    )).toBe(seededStorage)
+    expect(await saved.page.evaluate(() => (
+      Reflect.get(window, "__desktopLayoutWrites") as string[]
+    ))).toEqual([])
+
+    await saved.page.setViewportSize({ width: 639, height: 844 })
+    await expect(shellPanel(saved.page, "sidebar")).toBeHidden()
+    const secondSampleCursor = await saved.page.evaluate(() => (
+      Reflect.get(window, "__desktopWidthSamples") as LayoutSample[]
+    ).length)
+    await saved.page.setViewportSize({ width: 1280, height: 900 })
+    await expectDesktopGeometry(saved.page, firstAppliedWidth)
+    const secondAppliedWidth = (await readShellGeometry(saved.page)).sidebar
+    expect(secondAppliedWidth).toBe(firstAppliedWidth)
+    const secondDesktopSamples = await saved.page.evaluate((cursor) => (
+      Reflect.get(window, "__desktopWidthSamples") as LayoutSample[]
+    ).slice(cursor), secondSampleCursor)
+    expectNoTransientDesktopWidth(secondDesktopSamples, firstAppliedWidth)
+    const finalStorage = await saved.page.evaluate(
+      (key) => localStorage.getItem(key),
+      layoutStorageKey,
+    )
+    const savedStorageWrites = await saved.page.evaluate(() => (
+      Reflect.get(window, "__desktopLayoutWrites") as string[]
+    ))
+    expect(finalStorage).toBe(seededStorage)
+    expect(savedStorageWrites).toEqual([])
+
+    await attachJson(testInfo, "mobile-first-desktop-entry-evidence", {
+      fresh: { long: longFresh, short: shortFresh },
+      saved: {
+        seededStorage,
+        firstAppliedWidth,
+        firstDesktopSamples,
+        secondAppliedWidth,
+        secondDesktopSamples,
+        finalStorage,
+        storageWrites: savedStorageWrites,
+      },
+    })
+    await saved.context.close()
   })
 
   test("captures closed, Inbox, Profile, update, and cold Skeleton parity", async ({

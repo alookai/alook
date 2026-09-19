@@ -58,3 +58,14 @@ export function desktopUserBarInitialOverlayCssWidth(
     ? `${desktopUserBarOverlayWidth(COMMUNITY_SIDEBAR_DEFAULT_WIDTH)}px`
     : desktopUserBarOverlayCssWidth(persistedSidebarPercentage, true)
 }
+
+export function desktopSidebarRestoreTarget(
+  cachedSidebarWidth?: number,
+  persistedSidebarPercentage?: number,
+): number | string {
+  if (cachedSidebarWidth !== undefined) return cachedSidebarWidth
+  if (persistedSidebarPercentage !== undefined) {
+    return `${persistedSidebarPercentage}%`
+  }
+  return COMMUNITY_SIDEBAR_DEFAULT_WIDTH
+}
