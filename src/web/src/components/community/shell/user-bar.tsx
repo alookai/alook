@@ -89,7 +89,7 @@ export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox,
   return (
     <div
       data-testid={tid.userBar}
-      className="w-full min-w-0 max-w-full shrink-0 overflow-hidden pl-[max(0.75rem,var(--app-safe-area-left))] pr-[max(0.75rem,var(--app-safe-area-right))] pb-[calc(0.75rem+var(--app-safe-area-bottom))] pt-0 sm:px-3 sm:pb-3"
+      className="w-full min-w-0 max-w-full shrink-0 overflow-hidden pl-[max(0.75rem,var(--app-safe-area-left))] pr-[max(0.75rem,var(--app-safe-area-right))] pb-[calc(0.75rem+var(--app-safe-area-bottom))] pt-0 sm:px-2 sm:pb-3"
     >
       {breakpoint === "mobile"
         ? <UserBarExtensionDrawer>{extensionContent}</UserBarExtensionDrawer>
@@ -131,7 +131,7 @@ export function UserBarSkeleton() {
     <div
       data-testid={tid.initialUserBarPending}
       aria-hidden
-      className="w-full min-w-0 max-w-full shrink-0 overflow-hidden pl-[max(0.75rem,var(--app-safe-area-left))] pr-[max(0.75rem,var(--app-safe-area-right))] pb-[calc(0.75rem+var(--app-safe-area-bottom))] pt-0 sm:px-3 sm:pb-3"
+      className="w-full min-w-0 max-w-full shrink-0 overflow-hidden pl-[max(0.75rem,var(--app-safe-area-left))] pr-[max(0.75rem,var(--app-safe-area-right))] pb-[calc(0.75rem+var(--app-safe-area-bottom))] pt-0 sm:px-2 sm:pb-3"
     >
       <div className="flex h-12 items-center gap-3 rounded-xl border border-border/40 bg-muted px-4">
         <Skeleton className="size-7 shrink-0 rounded-full" />

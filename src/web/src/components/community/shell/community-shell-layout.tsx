@@ -18,11 +18,11 @@ import type { CommunitySurface } from "@/lib/community/community-route"
 import { cn } from "@/lib/utils"
 import {
   COMMUNITY_RAIL_WIDTH,
-  COMMUNITY_SIDEBAR_DEFAULT_PERCENTAGE,
+  COMMUNITY_SIDEBAR_DEFAULT_WIDTH,
   COMMUNITY_SIDEBAR_MAX_WIDTH,
   COMMUNITY_SIDEBAR_MIN_WIDTH,
   COMMUNITY_USER_BAR_HEIGHT_CSS,
-  desktopUserBarOverlayCssWidth,
+  desktopUserBarInitialOverlayCssWidth,
   desktopUserBarOverlayWidth,
 } from "./shell-frame-geometry"
 import { Shell } from "./shell"
@@ -98,13 +98,12 @@ export function CommunityShellLayout({
   const mainMobileHidden = isMobileList || (isInitial && surface === "list")
   const showUserBar = isDesktop || isMobileList || isInitial || preserveHiddenMobileModules
 
-  const sidebarPercentage = hydratedClient
-    ? defaultLayout?.sidebar ?? COMMUNITY_SIDEBAR_DEFAULT_PERCENTAGE
-    : COMMUNITY_SIDEBAR_DEFAULT_PERCENTAGE
+  const persistedSidebarPercentage = hydratedClient
+    ? defaultLayout?.sidebar
+    : undefined
   const initialUserBarStyle = {
-    "--community-desktop-user-bar-width": desktopUserBarOverlayCssWidth(
-      sidebarPercentage,
-      hydratedClient,
+    "--community-desktop-user-bar-width": desktopUserBarInitialOverlayCssWidth(
+      persistedSidebarPercentage,
     ),
     marginLeft: -COMMUNITY_RAIL_WIDTH,
   } as CSSProperties
@@ -159,9 +158,10 @@ export function CommunityShellLayout({
           >
             <ResizablePanel
               id="sidebar"
-              defaultSize={`${COMMUNITY_SIDEBAR_DEFAULT_PERCENTAGE}%`}
+              defaultSize={COMMUNITY_SIDEBAR_DEFAULT_WIDTH}
               minSize={COMMUNITY_SIDEBAR_MIN_WIDTH}
               maxSize={COMMUNITY_SIDEBAR_MAX_WIDTH}
+              groupResizeBehavior="preserve-pixel-size"
               onResize={syncDesktopUserBarWidth}
               hidden={isMobileDetail}
               data-mobile-active={sidebarMobileActive || undefined}
@@ -182,7 +182,7 @@ export function CommunityShellLayout({
             <ResizableHandle className={cn("bg-transparent", !isDesktop && "hidden")} />
             <ResizablePanel
               id="main"
-              defaultSize="76%"
+              groupResizeBehavior="preserve-relative-size"
               hidden={isMobileList}
               data-mobile-active={mainMobileActive || undefined}
               data-mobile-hidden={mainMobileHidden || undefined}

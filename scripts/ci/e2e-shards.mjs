@@ -82,6 +82,7 @@ export const SPEC_SECONDS = {
   "57-server-delete-navigation-races.spec.ts": 55,
   "58-system-notifications.spec.ts": 46.600,
   "59-message-pagination-anchor.spec.ts": 45.600,
+  "60-desktop-default-user-bar-width.spec.ts": 83.700,
 }
 
 function walk(directory) {

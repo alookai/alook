@@ -6,7 +6,10 @@ import type { CommunityCheckpointPlan, CommunitySurface } from "@/lib/community/
 
 const mocks = vi.hoisted(() => ({
   onLayoutChanged: vi.fn(),
-  defaultLayout: { current: { sidebar: 24, main: 76 } },
+  defaultLayout: {
+    current: undefined as { sidebar: number; main: number } | undefined,
+  },
+  defaultLayoutOptions: vi.fn(),
   groupProps: vi.fn(),
   panelProps: vi.fn(),
   railProps: vi.fn(),
@@ -16,10 +19,13 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock("react-resizable-panels", () => ({
-  useDefaultLayout: () => ({
-    defaultLayout: mocks.defaultLayout.current,
-    onLayoutChanged: mocks.onLayoutChanged,
-  }),
+  useDefaultLayout: (options: Record<string, unknown>) => {
+    mocks.defaultLayoutOptions(options)
+    return {
+      defaultLayout: mocks.defaultLayout.current,
+      onLayoutChanged: mocks.onLayoutChanged,
+    }
+  },
 }))
 vi.mock("@/components/ui/resizable", () => ({
   ResizablePanelGroup: ({ children, ...props }: Record<string, unknown>) => {
@@ -148,11 +154,12 @@ describe("ShellFrameView", () => {
     vi.unstubAllGlobals()
     mocks.groupProps.mockClear()
     mocks.panelProps.mockClear()
+    mocks.defaultLayoutOptions.mockClear()
     mocks.railProps.mockClear()
     mocks.overlayProps.mockClear()
     mocks.pendingProps.mockClear()
     mocks.channelSkeletonProps.mockClear()
-    mocks.defaultLayout.current = { sidebar: 24, main: 76 }
+    mocks.defaultLayout.current = undefined
     animateDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "animate")
     vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false })))
   })
@@ -250,11 +257,32 @@ describe("ShellFrameView", () => {
     expect(group.id).toBe("community-shell")
     expect(group.orientation).toBe("horizontal")
     expect(group.disabled).toBe(false)
+    expect(group.defaultLayout).toBeUndefined()
+    expect(group.onLayoutChanged).toBe(mocks.onLayoutChanged)
+    const defaultLayoutOptions = latestProps(mocks.defaultLayoutOptions)
+    expect(defaultLayoutOptions).toMatchObject({
+      id: "community-shell",
+      onlySaveAfterUserInteractions: true,
+    })
+    expect(defaultLayoutOptions.storage).toMatchObject({
+      getItem: expect.any(Function),
+      setItem: expect.any(Function),
+    })
     const sidebarPanel = latestProps(mocks.panelProps, "sidebar")
     const mainPanel = latestProps(mocks.panelProps, "main")
-    expect(sidebarPanel).toMatchObject({ id: "sidebar", defaultSize: "24%", minSize: 160, maxSize: 360 })
+    expect(sidebarPanel).toMatchObject({
+      id: "sidebar",
+      defaultSize: 317,
+      minSize: 160,
+      maxSize: 360,
+      groupResizeBehavior: "preserve-pixel-size",
+    })
     expect(sidebarPanel.className).toContain("pb-15")
-    expect(mainPanel).toMatchObject({ id: "main", defaultSize: "76%" })
+    expect(mainPanel).toMatchObject({
+      id: "main",
+      groupResizeBehavior: "preserve-relative-size",
+    })
+    expect(mainPanel.defaultSize).toBeUndefined()
     expect("profileStatusSeeds" in latestProps(mocks.overlayProps)).toBe(false)
     expect(sidebar).toHaveBeenCalledWith()
     const userBarOverlay = renderer.container.querySelector<HTMLElement>(
@@ -278,7 +306,7 @@ describe("ShellFrameView", () => {
       "calc(60px + var(--app-safe-area-bottom))",
     )
     expect(userBarOverlay.style.getPropertyValue("--community-desktop-user-bar-width")).toBe(
-      "calc(clamp(160px, calc(24% - 0.48px), 360px) + 58px)",
+      "375px",
     )
     await act(async () => {
       const onResize = latestProps(mocks.panelProps, "sidebar").onResize as (

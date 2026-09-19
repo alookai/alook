@@ -1,21 +1,23 @@
 import { describe, expect, it } from "vitest"
 import {
+  COMMUNITY_COMPOSER_DESKTOP_INSET,
   COMMUNITY_RAIL_WIDTH,
-  COMMUNITY_SIDEBAR_DEFAULT_PERCENTAGE,
+  COMMUNITY_SIDEBAR_DEFAULT_WIDTH,
   COMMUNITY_SIDEBAR_MAX_WIDTH,
   COMMUNITY_SIDEBAR_MIN_WIDTH,
   COMMUNITY_SEPARATOR_WIDTH,
-  COMMUNITY_SHELL_INSET,
   COMMUNITY_SURFACE_BORDER_WIDTH,
   COMMUNITY_USER_BAR_BASE_HEIGHT,
+  COMMUNITY_USER_BAR_DESKTOP_INSET,
   COMMUNITY_USER_BAR_HEIGHT_CSS,
+  desktopUserBarInitialOverlayCssWidth,
   desktopUserBarOverlayCssWidth,
   desktopUserBarOverlayWidth,
   mobileInboxAvailableHeight,
 } from "./shell-frame-geometry"
 
 describe("desktop community shell geometry", () => {
-  it("mirrors the user bar and composer around the sidebar boundary", () => {
+  it("keeps the user bar at 8px while the Composer remains at 12px", () => {
     const sidebarWidth = 240
     const mainStart = COMMUNITY_RAIL_WIDTH
       + COMMUNITY_SURFACE_BORDER_WIDTH
@@ -23,18 +25,29 @@ describe("desktop community shell geometry", () => {
       + COMMUNITY_SEPARATOR_WIDTH
     const overlayLeft = COMMUNITY_RAIL_WIDTH - COMMUNITY_RAIL_WIDTH
     const userBarRight =
-      overlayLeft + desktopUserBarOverlayWidth(sidebarWidth) - COMMUNITY_SHELL_INSET
-    const composerLeft = mainStart + COMMUNITY_SHELL_INSET
+      overlayLeft
+      + desktopUserBarOverlayWidth(sidebarWidth)
+      - COMMUNITY_USER_BAR_DESKTOP_INSET
+    const composerLeft = mainStart + COMMUNITY_COMPOSER_DESKTOP_INSET
 
-    expect(mainStart - userBarRight).toBe(COMMUNITY_SHELL_INSET)
-    expect(composerLeft - mainStart).toBe(COMMUNITY_SHELL_INSET)
+    expect(mainStart - userBarRight).toBe(COMMUNITY_USER_BAR_DESKTOP_INSET)
+    expect(composerLeft - mainStart).toBe(COMMUNITY_COMPOSER_DESKTOP_INSET)
   })
 
-  it("seeds the overlay from the same constrained percentage as the sidebar panel", () => {
-    expect(desktopUserBarOverlayCssWidth(COMMUNITY_SIDEBAR_DEFAULT_PERCENTAGE, true)).toBe(
+  it("seeds the unsaved desktop geometry from fixed pixel contracts", () => {
+    const overlayWidth = desktopUserBarOverlayWidth(COMMUNITY_SIDEBAR_DEFAULT_WIDTH)
+
+    expect(COMMUNITY_SIDEBAR_DEFAULT_WIDTH).toBe(317)
+    expect(overlayWidth).toBe(375)
+    expect(overlayWidth - (2 * COMMUNITY_USER_BAR_DESKTOP_INSET)).toBe(359)
+    expect(desktopUserBarInitialOverlayCssWidth()).toBe("375px")
+  })
+
+  it("keeps persisted percentages constrained to the panel bounds", () => {
+    expect(desktopUserBarInitialOverlayCssWidth(24)).toBe(
       `calc(clamp(${COMMUNITY_SIDEBAR_MIN_WIDTH}px, calc(24% - 0.48px), ${COMMUNITY_SIDEBAR_MAX_WIDTH}px) + 58px)`,
     )
-    expect(desktopUserBarOverlayCssWidth(COMMUNITY_SIDEBAR_DEFAULT_PERCENTAGE, false)).toBe(
+    expect(desktopUserBarOverlayCssWidth(24, false)).toBe(
       "calc(calc(24% - 0.24px) + 57px)",
     )
     expect(desktopUserBarOverlayCssWidth(-20, false)).toContain("0%")
