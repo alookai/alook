@@ -144,13 +144,16 @@ test.describe("mobile notification chat routes (native bridge simulation)", () =
       const messageId = await seedMessage("alice", targetId, `${kind} target evidence`)
       await deleteAsAlice(kind === "deleted" ? `/api/community/channels/${targetId}` : `/api/community/channels/${targetId}/members/${userId("bob")}`)
       const { page } = await asUser("bob", devices["iPhone 13"])
-      await installMobileBridge(page, { notificationId: crypto.randomUUID(), targetId, messageId })
+      await installMobileBridge(page, null)
       const door = await captureMessageDoor(page, targetId, messageId)
-      await page.goto("/c/me/friends")
+      const route = `/c/channels/${serverId}`
+      await page.goto(route)
+      await expect(page.getByTestId(tid.inboxTrigger)).toBeVisible({ timeout: 30_000 })
+      await resumeActivation(page, { notificationId: crypto.randomUUID(), targetId, messageId })
       const { status } = await door.result
       expect([403, 404]).toContain(status)
       await expect(page.getByTestId(tid.inboxTrigger)).toHaveAttribute("aria-expanded", "true")
-      await expect(page).toHaveURL(`${WEB_URL}/c/me/friends`)
+      await expect(page).toHaveURL(`${WEB_URL}${route}`)
       await testInfo.attach("fallback-evidence", { body: JSON.stringify({ kind, status, url: page.url() }), contentType: "application/json" })
     })
   }
