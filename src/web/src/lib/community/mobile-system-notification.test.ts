@@ -258,7 +258,7 @@ describe("mobile notification HTTP adapter", () => {
       notificationId,
       messageId: "message_1",
       targetId: "channel_1",
-    })).resolves.toEqual({ href: "/c/me/channel_1?seq=9" })
+    })).resolves.toEqual({ href: "/c/me/channel_1" })
 
     expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([
       "/api/community/notifications/devices",
@@ -482,33 +482,68 @@ describe("mobile notification registration controller", () => {
 describe("mobile notification activation", () => {
   const activation = { notificationId, messageId: "message_1", targetId: "channel_1" }
 
-  it("navigates only after exact DM and server revalidation", async () => {
+  it.each([["channel", "text"], ["forum", "forum"], ["thread", "thread"]] as const)("opens chat pages after exact DM and %s revalidation", async (surfaceKind, type) => {
     const dmFetch = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({
         messages: [{ id: "message_1", seq: 9 }],
         surfaceReceipt: { channelId: "channel_1", surfaceKind: "dm" },
       })))
     await expect(revalidateMobileSystemNotificationActivation(activation, dmFetch)).resolves.toEqual({
-      href: "/c/me/channel_1?seq=9",
+      href: "/c/me/channel_1",
     })
 
     const serverFetch = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({
         messages: [{ id: "message_1", seq: 9 }],
-        surfaceReceipt: { channelId: "channel_1", surfaceKind: "thread" },
+        surfaceReceipt: { channelId: "channel_1", surfaceKind },
       })))
       .mockResolvedValueOnce(new Response(JSON.stringify({
         id: "channel_1",
         serverId: "server_1",
-        type: "thread",
+        type,
       })))
     await expect(revalidateMobileSystemNotificationActivation(activation, serverFetch)).resolves.toEqual({
-      href: "/c/channels/server_1/channel_1?msg=message_1",
+      href: "/c/channels/server_1/channel_1",
     })
     expect(serverFetch.mock.calls.map(([url]) => url)).toEqual([
       "/api/community/channels/channel_1/messages?anchor=message_1&limit=1",
       "/api/community/channels/channel_1",
     ])
+  })
+
+  it.each([
+    ["cold", "dm"], ["resume", "dm"],
+    ["cold", "channel"], ["resume", "channel"],
+  ] as const)("navigates %s %s activation without selecting a message", async (lifecycle, kind) => {
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        messages: [{ id: activation.messageId, seq: 9 }],
+        surfaceReceipt: { channelId: activation.targetId, surfaceKind: kind },
+      })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        id: activation.targetId, serverId: "server_1", type: "text",
+      })))
+    const take = vi.fn()
+    if (lifecycle === "resume") take.mockResolvedValueOnce(null)
+    take.mockResolvedValueOnce(activation)
+    const navigate = vi.fn()
+    const openInbox = vi.fn()
+    const controller = createMobileSystemNotificationActivationController({
+      take,
+      revalidate: (value) => revalidateMobileSystemNotificationActivation(value, fetchImpl),
+      navigate,
+      openInbox,
+    })
+    if (lifecycle === "resume") {
+      await controller.drain()
+      expect(navigate).not.toHaveBeenCalled()
+    }
+    await controller.drain()
+    const href = kind === "dm" ? "/c/me/channel_1" : "/c/channels/server_1/channel_1"
+    expect(navigate).toHaveBeenCalledExactlyOnceWith(href)
+    expect(new URL(href, "https://example.test").search).toBe("")
+    expect(openInbox).not.toHaveBeenCalled()
+    controller.dispose()
   })
 
   it.each([
