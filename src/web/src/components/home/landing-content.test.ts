@@ -31,7 +31,7 @@ describe("landing content contract", () => {
       headlineTail: "with people you trust.",
       loggedOutCta: "Get started",
       loggedInCta: "Open Alook",
-      secondaryCta: "See how it works",
+      secondaryCta: "View on GitHub",
     })
   })
 
@@ -55,6 +55,18 @@ describe("landing content contract", () => {
     expect(LANDING_GALLERY.every((story) => !("description" in story))).toBe(true)
     expect(LANDING_MACHINE_INTRO).toContain("machine and daemon are online")
     expect(LANDING_MACHINE_INTRO).not.toContain("always-on")
+  })
+
+  it("uses the tracked GitHub repository link for the hero secondary CTA", () => {
+    const root = webRoot()
+    const landingPageSource = readFileSync(path.join(root, "src/components/home/landing-page.tsx"), "utf8")
+    const heroSource = readFileSync(path.join(root, "src/components/home/hero-section.tsx"), "utf8")
+
+    expect(landingPageSource).toContain('secondaryCta={{ kind: "github", label: LANDING_HERO.secondaryCta }}')
+    expect(landingPageSource).not.toContain('secondaryCta={{ href: "#product"')
+    expect(heroSource).toMatch(
+      /<GithubOutboundLink[\s\S]*?surface="landing"[\s\S]*?target="_blank"[\s\S]*?rel="noopener noreferrer"[\s\S]*?<svg[^>]*aria-hidden="true"[\s\S]*?\{secondaryCta\.label\}[\s\S]*?<\/GithubOutboundLink>/,
+    )
   })
 
   it("frames continuity as one agent remembering and acting across rooms", () => {

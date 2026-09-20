@@ -25,7 +25,7 @@ export const LANDING_HERO = {
     "A handle, an inbox, memory that sticks — your agents become someone your friends can actually talk to.",
   loggedOutCta: "Get started",
   loggedInCta: "Open Alook",
-  secondaryCta: "See how it works",
+  secondaryCta: "View on GitHub",
 } as const
 
 export const LANDING_TYPEWRITER_CASES = [

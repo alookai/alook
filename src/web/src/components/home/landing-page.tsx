@@ -302,7 +302,7 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
         showCommunityLinks={false}
         showMobileDesktopHint={false}
         primaryCtaLabel={(isLoggedIn ? LANDING_HERO.loggedInCta : LANDING_HERO.loggedOutCta).toUpperCase()}
-        secondaryCta={{ href: "#product", label: LANDING_HERO.secondaryCta.toUpperCase() }}
+        secondaryCta={{ kind: "github", label: LANDING_HERO.secondaryCta }}
         testId="landing-hero"
         highlightPrimaryCta
         backgroundDecoration={<HeroAvatarSwarm />}
