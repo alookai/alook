@@ -67,6 +67,7 @@ describe("landing content contract", () => {
     expect(heroSource).toMatch(
       /<GithubOutboundLink[\s\S]*?surface="landing"[\s\S]*?target="_blank"[\s\S]*?rel="noopener noreferrer"[\s\S]*?<svg[^>]*aria-hidden="true"[\s\S]*?\{secondaryCta\.label\}[\s\S]*?<\/GithubOutboundLink>/,
     )
+    expect(heroSource).toContain('<svg className="size-5 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">')
   })
 
   it("frames continuity as one agent remembering and acting across rooms", () => {
