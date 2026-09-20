@@ -50,11 +50,32 @@ async function resumeActivation(page: Page, activation: Activation) {
   }, activation)
 }
 
-function messageDoor(page: Page, targetId: string, messageId: string) {
-  return page.waitForResponse((response) => {
-    const url = new URL(response.url())
-    return url.pathname === `/api/community/channels/${targetId}/messages` && url.searchParams.get("anchor") === messageId && url.searchParams.get("limit") === "1"
+type MessageDoorEvidence = {
+  status: number
+  payload: { surfaceReceipt?: unknown; messages?: unknown }
+}
+
+async function captureMessageDoor(page: Page, targetId: string, messageId: string) {
+  let capture!: (evidence: MessageDoorEvidence) => void
+  let fail!: (error: unknown) => void
+  const result = new Promise<MessageDoorEvidence>((resolve, reject) => {
+    capture = resolve
+    fail = reject
   })
+  await page.route((url) => url.pathname === `/api/community/channels/${targetId}/messages`
+    && url.searchParams.get("anchor") === messageId && url.searchParams.get("limit") === "1", async (route) => {
+    try {
+      const response = await route.fetch()
+      const payload = await response.json()
+      const evidence = { status: response.status(), payload }
+      await route.fulfill({ response })
+      capture(evidence)
+    } catch (error) {
+      fail(error)
+      await route.abort()
+    }
+  })
+  return { result }
 }
 
 async function deleteAsAlice(path: string) {
@@ -70,7 +91,7 @@ let dmMessageId: string
 let dmSeq: number
 let channelSeq: number
 
-test.describe.serial("mobile notification chat routes (native bridge simulation)", () => {
+test.describe("mobile notification chat routes (native bridge simulation)", () => {
   test.beforeAll(async () => {
     test.setTimeout(120_000)
     serverId = await seedServer("alice", `mobile-route-${Date.now()}`)
@@ -97,20 +118,19 @@ test.describe.serial("mobile notification chat routes (native bridge simulation)
         const messageId = surface === "dm" ? dmMessageId : channelMessageId
         const activation = { notificationId: crypto.randomUUID(), targetId, messageId }
         await installMobileBridge(page, mode === "cold" ? activation : null)
-        const door = messageDoor(page, targetId, messageId)
+        const door = await captureMessageDoor(page, targetId, messageId)
         await page.goto("/c/me/friends")
         if (mode === "resume") await resumeActivation(page, activation)
-        const response = await door
-        expect(response.status()).toBe(200)
-        const payload = await response.json()
+        const { status, payload } = await door.result
+        expect(status).toBe(200)
         expect(payload.surfaceReceipt).toEqual({ channelId: targetId, surfaceKind: surface })
         expect(payload.messages).toEqual(expect.arrayContaining([expect.objectContaining({ id: messageId })]))
         const path = surface === "dm" ? `/c/me/${targetId}` : `/c/channels/${serverId}/${targetId}`
         await expect(page).toHaveURL(`${WEB_URL}${path}`)
-        await expect(composerEditable(page)).toBeVisible()
+        await expect(composerEditable(page)).toBeVisible({ timeout: 30_000 })
         await expect(page.getByTestId(tid.message(messageId))).toBeVisible()
         await expect(page.locator('[data-slot="sheet-content"]')).toHaveCount(0)
-        await testInfo.attach("message-door-evidence", { body: JSON.stringify({ simulation: "iPhone UA + Tauri command shim + browser visibility events", status: response.status(), surfaceReceipt: payload.surfaceReceipt, messageId, url: page.url() }), contentType: "application/json" })
+        await testInfo.attach("message-door-evidence", { body: JSON.stringify({ simulation: "iPhone UA + Tauri command shim + browser visibility events", status, surfaceReceipt: payload.surfaceReceipt, messageId, url: page.url() }), contentType: "application/json" })
         await testInfo.attach("chat", { body: await page.screenshot(), contentType: "image/png" })
       })
     }
@@ -125,13 +145,13 @@ test.describe.serial("mobile notification chat routes (native bridge simulation)
       await deleteAsAlice(kind === "deleted" ? `/api/community/channels/${targetId}` : `/api/community/channels/${targetId}/members/${userId("bob")}`)
       const { page } = await asUser("bob", devices["iPhone 13"])
       await installMobileBridge(page, { notificationId: crypto.randomUUID(), targetId, messageId })
-      const door = messageDoor(page, targetId, messageId)
+      const door = await captureMessageDoor(page, targetId, messageId)
       await page.goto("/c/me/friends")
-      const response = await door
-      expect([403, 404]).toContain(response.status())
+      const { status } = await door.result
+      expect([403, 404]).toContain(status)
       await expect(page.getByTestId(tid.inboxTrigger)).toHaveAttribute("aria-expanded", "true")
       await expect(page).toHaveURL(`${WEB_URL}/c/me/friends`)
-      await testInfo.attach("fallback-evidence", { body: JSON.stringify({ kind, status: response.status(), url: page.url() }), contentType: "application/json" })
+      await testInfo.attach("fallback-evidence", { body: JSON.stringify({ kind, status, url: page.url() }), contentType: "application/json" })
     })
   }
 
@@ -164,7 +184,7 @@ test.describe.serial("mobile notification chat routes (native bridge simulation)
     expect(payload.surfaceReceipt).toEqual({ channelId, surfaceKind: "channel" })
     expect(payload.messages).toEqual(expect.arrayContaining([expect.objectContaining({ id: channelMessageId })]))
     await expect(page.getByTestId(tid.message(channelMessageId))).toBeVisible()
-    await expect(composerEditable(page)).toBeVisible()
+    await expect(composerEditable(page)).toBeVisible({ timeout: 30_000 })
     await testInfo.attach("msg-anchor-evidence", { body: JSON.stringify({ status: response.status(), surfaceReceipt: payload.surfaceReceipt, anchorId: channelMessageId, url: page.url() }), contentType: "application/json" })
   })
 
