@@ -83,6 +83,7 @@ export const SPEC_SECONDS = {
   "58-system-notifications.spec.ts": 46.600,
   "59-message-pagination-anchor.spec.ts": 45.600,
   "60-desktop-default-user-bar-width.spec.ts": 83.700,
+  "63-mobile-notification-chat-route.spec.ts": DEFAULT_SPEC_SECONDS,
 }
 
 function walk(directory) {

@@ -427,7 +427,7 @@ export async function revalidateMobileSystemNotificationActivation(
 
     if (receipt.surfaceKind === "dm") {
       return {
-        href: `/c/me/${encodeURIComponent(activation.targetId)}?seq=${message.seq}`,
+        href: `/c/me/${encodeURIComponent(activation.targetId)}`,
       }
     }
 
@@ -446,7 +446,7 @@ export async function revalidateMobileSystemNotificationActivation(
     const expectedType = receipt.surfaceKind === "channel" ? "text" : receipt.surfaceKind
     if (channel.type !== expectedType) return null
     return {
-      href: `/c/channels/${encodeURIComponent(channel.serverId)}/${encodeURIComponent(activation.targetId)}?msg=${encodeURIComponent(activation.messageId)}`,
+      href: `/c/channels/${encodeURIComponent(channel.serverId)}/${encodeURIComponent(activation.targetId)}`,
     }
   } catch {
     return null
