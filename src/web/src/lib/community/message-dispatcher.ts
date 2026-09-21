@@ -1,7 +1,7 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import {
   deriveCommunityDeliveryOperationId,
-  MENTION_KIND,
+  extractMentionedUserIds,
   reachIsParticipantSet,
   WS_EVENTS,
   createLogger,
@@ -167,6 +167,16 @@ export async function planCommittedMessage(
   const eligibleWakeCandidates = wakeCandidates.filter(
     (candidate) => notificationSet.has(candidate.botUserId) && allowed(candidate.botUserId),
   )
+  const explicitlyMentionedBotIds = new Set(extractMentionedUserIds(
+    message.content,
+    eligibleWakeCandidates.flatMap((candidate) => candidate.name
+      ? [{
+          userId: candidate.botUserId,
+          name: candidate.name,
+          discriminator: candidate.discriminator,
+        }]
+      : []),
+  ))
   const wakeBotUserIds = unique(eligibleWakeCandidates.map((candidate) => candidate.botUserId))
   const pushUserIds = unique([
     ...unreadPlainUserIds,
@@ -262,12 +272,8 @@ export async function planCommittedMessage(
         name: candidate.name,
         discriminator: candidate.discriminator,
         instruction: candidate.instruction,
-        directlyMentioned: message.mentionType !== "everyone" && attentionTargets.some(
-          (target) => target.userId === candidate.botUserId && target.kind === MENTION_KIND.MENTION,
-        ),
-        isReplyTarget: attentionTargets.some(
-          (target) => target.userId === candidate.botUserId && target.kind === MENTION_KIND.REPLY,
-        ),
+        directlyMentioned: explicitlyMentionedBotIds.has(candidate.botUserId),
+        isReplyTarget: replyTarget?.authorId === candidate.botUserId,
       })),
     },
     pushUserIds,

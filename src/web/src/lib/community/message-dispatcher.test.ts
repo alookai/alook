@@ -169,6 +169,7 @@ describe("planCommittedMessage", () => {
   })
 
   it("derives content, notification, mention, and bot targets from one D1 plan", async () => {
+    mockGetMessage.mockResolvedValue({ ...message, content: "@Bot#0001 hello" })
     const plan = await planCommittedMessage({} as never, "msg_1")
     expect(plan.contentUserIds).toEqual(["author_1", "u_all", "u_mentions", "bot_1"])
     expect(plan.unreadPlainUserIds).toEqual(["u_all"])
@@ -260,7 +261,7 @@ describe("planCommittedMessage", () => {
     ])
   })
 
-  it("keeps reply, broadcast, blank content, and attachment metadata in gate context", async () => {
+  it("keeps a reply target when @everyone collapses its stored attention row to mention", async () => {
     mockGetMessage.mockResolvedValue({
       ...message,
       content: "",
@@ -274,10 +275,7 @@ describe("planCommittedMessage", () => {
       authorName: "Bot",
       content: "previous message",
     })
-    mockListAttention.mockResolvedValue([
-      { userId: "bot_1", kind: "mention" },
-      { userId: "bot_1", kind: "reply" },
-    ])
+    mockListAttention.mockResolvedValue([{ userId: "bot_1", kind: "mention" }])
     mockListAttachments.mockResolvedValue([{
       id: "att_1",
       targetId: "c1",
@@ -315,6 +313,26 @@ describe("planCommittedMessage", () => {
       }),
     ])
     expect(JSON.stringify(plan.wakeGateInput)).not.toContain("private-name.png")
+  })
+
+  it("keeps an explicit bot mention when it co-occurs with @everyone", async () => {
+    mockGetMessage.mockResolvedValue({
+      ...message,
+      content: "@everyone @Bot#0001 please investigate",
+      mentionType: "everyone",
+    })
+    mockListAttention.mockResolvedValue([{ userId: "bot_1", kind: "mention" }])
+
+    const plan = await planCommittedMessage({} as never, "msg_1")
+
+    expect(plan.wakeGateInput.message.broadcastMention).toBe(true)
+    expect(plan.wakeGateInput.candidates).toEqual([
+      expect.objectContaining({
+        botUserId: "bot_1",
+        directlyMentioned: true,
+        isReplyTarget: false,
+      }),
+    ])
   })
 
   it("keeps forum-thread participants, mention-only attention, and parent access distinct", async () => {
