@@ -479,6 +479,26 @@ describe("planCommittedMessage", () => {
     expect(serialized).not.toContain("Private Human Name")
   })
 
+  it("orders equal-time conversation entries by sequence and then id", async () => {
+    const createdAt = "2026-08-17T00:00:00.000Z"
+    mockListWakeContextMessagesBefore.mockResolvedValue({
+      messages: [
+        wakeContextRow({ id: "context_z", content: "seq two", seq: 2, createdAt }),
+        wakeContextRow({ id: "context_b", content: "seq one id b", seq: 1, createdAt }),
+        wakeContextRow({ id: "context_a", content: "seq one id a", seq: 1, createdAt }),
+      ],
+      hasMore: false,
+    })
+
+    const plan = await planCommittedMessage({} as never, "msg_1")
+
+    expect(plan.wakeGateInput.conversation.messages.map(({ text }) => text)).toEqual([
+      "seq one id a",
+      "seq one id b",
+      "seq two",
+    ])
+  })
+
   it("fails open to empty context when a context-only lookup fails", async () => {
     mockListWakeContextMessagesBefore.mockRejectedValue(new Error("D1 context unavailable"))
 
