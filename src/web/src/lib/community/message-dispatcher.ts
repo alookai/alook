@@ -2,6 +2,7 @@ import { getCloudflareContext } from "@opennextjs/cloudflare"
 import {
   deriveCommunityDeliveryOperationId,
   extractMentionedUserIds,
+  formatHandle,
   reachIsParticipantSet,
   WS_EVENTS,
   createLogger,
@@ -23,6 +24,87 @@ import {
 import { attachmentThumbnailUrl, attachmentUrl } from "./storage"
 
 const log = createLogger({ service: "committed-message-dispatcher" })
+const RECENT_WAKE_CONTEXT_MESSAGES = 6
+
+type WakeContextRow = Awaited<ReturnType<
+  typeof queries.communityMessage.getWakeContextMessageInScope
+>>
+
+type WakeContextRole = JevWakeGateInput["conversation"]["messages"][number]["roles"][number]
+
+function buildWakeConversation(
+  recent: NonNullable<WakeContextRow>[],
+  replyTarget: WakeContextRow,
+  replyAncestor: WakeContextRow,
+  threadOpener: WakeContextRow,
+  recentTruncated: boolean,
+): JevWakeGateInput["conversation"] {
+  const entries = new Map<string, {
+    row: NonNullable<WakeContextRow>
+    roles: Set<WakeContextRole>
+    priority: number
+  }>()
+  const add = (
+    row: WakeContextRow,
+    role: WakeContextRole,
+    priority: number,
+  ) => {
+    if (!row) return
+    const existing = entries.get(row.id)
+    if (existing) {
+      existing.roles.add(role)
+      existing.priority = Math.min(existing.priority, priority)
+      return
+    }
+    entries.set(row.id, { row, roles: new Set([role]), priority })
+  }
+
+  for (const row of recent) add(row, "recent", 3)
+  add(threadOpener, "thread_opener", 2)
+  add(replyAncestor, "reply_ancestor", 1)
+  add(replyTarget, "reply_target", 0)
+
+  const ordered = [...entries.values()].sort((left, right) =>
+    left.row.createdAt.localeCompare(right.row.createdAt)
+      || left.row.seq - right.row.seq
+      || left.row.id.localeCompare(right.row.id),
+  )
+  const humanAliases = new Map<string, string>()
+  const roleOrder: WakeContextRole[] = [
+    "reply_target",
+    "reply_ancestor",
+    "thread_opener",
+    "recent",
+  ]
+  return {
+    available: true,
+    truncated: recentTruncated,
+    messages: ordered.map(({ row, roles, priority }, order) => {
+      let author: JevWakeGateInput["conversation"]["messages"][number]["author"]
+      if (row.authorIsBot) {
+        author = {
+          kind: "bot",
+          handle: formatHandle(row.authorName, row.authorDiscriminator),
+        }
+      } else {
+        let alias = humanAliases.get(row.authorId)
+        if (!alias) {
+          alias = `member_${humanAliases.size + 1}`
+          humanAliases.set(row.authorId, alias)
+        }
+        author = { kind: "human", alias }
+      }
+      return {
+        text: row.content,
+        messageType: row.type,
+        author,
+        roles: roleOrder.filter((role) => roles.has(role)),
+        priority,
+        order,
+      }
+    }),
+  }
+}
 
 export type CommittedMessageStructuralOutcome = {
   /** A participant row inserted by this exact message write. */
@@ -117,7 +199,7 @@ export async function planCommittedMessage(
     ),
     message.replyToId
       ? withD1Retry(
-          () => queries.communityMessage.getMessageInScope(
+          () => queries.communityMessage.getWakeContextMessageInScope(
             db,
             message.replyToId!,
             { channelId: message.channelId },
@@ -167,6 +249,56 @@ export async function planCommittedMessage(
   const eligibleWakeCandidates = wakeCandidates.filter(
     (candidate) => notificationSet.has(candidate.botUserId) && allowed(candidate.botUserId),
   )
+  const shouldBuildWakeContext = channel.type !== "dm" && eligibleWakeCandidates.length > 0
+  let conversation: JevWakeGateInput["conversation"] = {
+    available: true,
+    messages: [],
+    truncated: false,
+  }
+  if (shouldBuildWakeContext) {
+    try {
+      const [recentContext, threadOpener, replyAncestor] = await Promise.all([
+        withD1Retry(
+          () => queries.communityMessage.listWakeContextMessagesBefore(db, {
+            channelId: message.channelId,
+            beforeSeq: message.seq,
+            limit: RECENT_WAKE_CONTEXT_MESSAGES,
+          }),
+          { route: "message-dispatcher:wake-context-recent" },
+        ),
+        channel.parentChannelId && channel.parentMessageId
+          ? withD1Retry(
+              () => queries.communityMessage.getWakeContextMessageInScope(
+                db,
+                channel.parentMessageId!,
+                { channelId: channel.parentChannelId! },
+              ),
+              { route: "message-dispatcher:wake-context-opener" },
+            )
+          : Promise.resolve(null),
+        replyTarget?.replyToId
+          ? withD1Retry(
+              () => queries.communityMessage.getWakeContextMessageInScope(
+                db,
+                replyTarget.replyToId!,
+                { channelId: message.channelId },
+              ),
+              { route: "message-dispatcher:wake-context-reply-ancestor" },
+            )
+          : Promise.resolve(null),
+      ])
+      conversation = buildWakeConversation(
+        recentContext.messages,
+        replyTarget,
+        replyAncestor,
+        threadOpener,
+        recentContext.hasMore,
+      )
+    } catch {
+      log.warn("committed_message_jev_context_failed_open", { messageId: message.id })
+      conversation.available = false
+    }
+  }
   const explicitlyMentionedBotIds = new Set(extractMentionedUserIds(
     message.content,
     eligibleWakeCandidates.flatMap((candidate) => candidate.name
@@ -263,10 +395,10 @@ export async function planCommittedMessage(
       message: {
         text: message.content,
         type: message.type,
-        replyPreview: replyTarget?.content ?? null,
         broadcastMention: message.mentionType === "everyone",
         attachmentContentTypes: attachments.map((attachment) => attachment.contentType),
       },
+      conversation,
       candidates: eligibleWakeCandidates.map((candidate) => ({
         botUserId: candidate.botUserId,
         name: candidate.name,

@@ -593,6 +593,72 @@ export type ListedMessageRow = {
   authorAvatarVersion: number;
 };
 
+const wakeContextMessageProjection = {
+  id: communityMessage.id,
+  authorId: communityMessage.authorId,
+  authorName: user.name,
+  authorDiscriminator: user.discriminator,
+  authorIsBot: user.isBot,
+  content: communityMessage.content,
+  type: communityMessage.type,
+  replyToId: communityMessage.replyToId,
+  seq: communityMessage.seq,
+  createdAt: communityMessage.createdAt,
+  channelId: communityMessage.channelId,
+} as const;
+
+export type WakeContextMessageRow = {
+  id: string;
+  authorId: string;
+  authorName: string;
+  authorDiscriminator: string;
+  authorIsBot: boolean;
+  content: string;
+  type: string;
+  replyToId: string | null;
+  seq: number;
+  createdAt: string;
+  channelId: string;
+};
+
+export async function listWakeContextMessagesBefore(
+  db: Database,
+  opts: { channelId: string; beforeSeq: number; limit: number }
+): Promise<{ messages: WakeContextMessageRow[]; hasMore: boolean }> {
+  const rows = await db
+    .select(wakeContextMessageProjection)
+    .from(communityMessage)
+    .innerJoin(user, eq(communityMessage.authorId, user.id))
+    .where(and(
+      eq(communityMessage.channelId, opts.channelId),
+      lt(communityMessage.seq, opts.beforeSeq)
+    ))
+    .orderBy(desc(communityMessage.seq))
+    .limit(opts.limit + 1);
+  const hasMore = rows.length > opts.limit;
+  return {
+    messages: rows.slice(0, opts.limit).reverse(),
+    hasMore,
+  };
+}
+
+export async function getWakeContextMessageInScope(
+  db: Database,
+  messageId: string,
+  scope: MessageScope
+): Promise<WakeContextMessageRow | null> {
+  const rows = await db
+    .select(wakeContextMessageProjection)
+    .from(communityMessage)
+    .innerJoin(user, eq(communityMessage.authorId, user.id))
+    .where(and(
+      eq(communityMessage.id, messageId),
+      eq(communityMessage.channelId, scope.channelId)
+    ))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
 function parseEmbeds(r: { id: string; embeds: string | null } & Record<string, unknown>): ListedMessageRow {
   return { ...(r as unknown as ListedMessageRow), embeds: safeParseEmbeds(r.embeds, r.id) };
 }

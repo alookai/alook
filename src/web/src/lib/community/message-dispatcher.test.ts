@@ -6,7 +6,8 @@ vi.mock("@opennextjs/cloudflare", () => ({
 }))
 
 const mockGetMessage = vi.fn()
-const mockGetMessageInScope = vi.fn()
+const mockGetWakeContextMessageInScope = vi.fn()
+const mockListWakeContextMessagesBefore = vi.fn()
 const mockGetMessageClientNonceForDelivery = vi.fn()
 const mockGetChannel = vi.fn()
 const mockListAttention = vi.fn()
@@ -32,7 +33,10 @@ vi.mock("@alook/shared", async () => {
     queries: {
       communityMessage: {
         getMessage: (...args: unknown[]) => mockGetMessage(...args),
-        getMessageInScope: (...args: unknown[]) => mockGetMessageInScope(...args),
+        getWakeContextMessageInScope: (...args: unknown[]) =>
+          mockGetWakeContextMessageInScope(...args),
+        listWakeContextMessagesBefore: (...args: unknown[]) =>
+          mockListWakeContextMessagesBefore(...args),
         getMessageClientNonceForDelivery: (...args: unknown[]) =>
           mockGetMessageClientNonceForDelivery(...args),
       },
@@ -95,6 +99,35 @@ const message = {
   seq: 7,
 }
 
+function wakeContextRow(overrides: Partial<{
+  id: string
+  authorId: string
+  authorName: string
+  authorDiscriminator: string
+  authorIsBot: boolean
+  content: string
+  type: string
+  replyToId: string | null
+  seq: number
+  createdAt: string
+  channelId: string
+}> = {}) {
+  return {
+    id: "context_1",
+    authorId: "human_1",
+    authorName: "Private Human Name",
+    authorDiscriminator: "1234",
+    authorIsBot: false,
+    content: "context",
+    type: "default",
+    replyToId: null,
+    seq: 1,
+    createdAt: "2026-08-17T00:00:00.000Z",
+    channelId: "c1",
+    ...overrides,
+  }
+}
+
 const channel = {
   id: "c1",
   serverId: "s1",
@@ -131,7 +164,8 @@ describe("planCommittedMessage", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockGetMessage.mockResolvedValue(message)
-    mockGetMessageInScope.mockResolvedValue(null)
+    mockGetWakeContextMessageInScope.mockResolvedValue(null)
+    mockListWakeContextMessagesBefore.mockResolvedValue({ messages: [], hasMore: false })
     mockGetMessageClientNonceForDelivery.mockResolvedValue("nonce_1")
     mockGetChannel.mockResolvedValue(channel)
     mockListAttachments.mockResolvedValue([])
@@ -226,15 +260,16 @@ describe("planCommittedMessage", () => {
     expect(plan.pushUserIds).toEqual(["u_all"])
     expect(mockResolveEligibility).toHaveBeenCalledWith({}, ["u_all"], "msg_1")
     expect(mockFindWakeCandidates).toHaveBeenCalledWith({}, expect.objectContaining({ recipients: ["u_all"] }))
+    expect(mockListWakeContextMessagesBefore).not.toHaveBeenCalled()
   })
 
   it("rehydrates attachment dimensions and reply preview from committed rows", async () => {
     mockGetMessage.mockResolvedValue({ ...message, replyToId: "reply_1" })
-    mockGetMessageInScope.mockResolvedValue({
+    mockGetWakeContextMessageInScope.mockResolvedValue(wakeContextRow({
       id: "reply_1",
       authorName: "Earlier",
       content: "previous message",
-    })
+    }))
     mockListAttachments.mockResolvedValue([{
       id: "att_1",
       targetId: "c1",
@@ -269,12 +304,14 @@ describe("planCommittedMessage", () => {
       mentionType: "everyone",
       replyToId: "reply_1",
     })
-    mockGetMessageInScope.mockResolvedValue({
+    mockGetWakeContextMessageInScope.mockResolvedValue(wakeContextRow({
       id: "reply_1",
       authorId: "bot_1",
       authorName: "Bot",
+      authorDiscriminator: "0001",
+      authorIsBot: true,
       content: "previous message",
-    })
+    }))
     mockListAttention.mockResolvedValue([{ userId: "bot_1", kind: "mention" }])
     mockListAttachments.mockResolvedValue([{
       id: "att_1",
@@ -300,7 +337,6 @@ describe("planCommittedMessage", () => {
     expect(plan.wakeGateInput.message).toEqual({
       text: "",
       type: "system",
-      replyPreview: "previous message",
       broadcastMention: true,
       attachmentContentTypes: ["image/png"],
     })
@@ -314,6 +350,127 @@ describe("planCommittedMessage", () => {
       }),
     ])
     expect(JSON.stringify(plan.wakeGateInput)).not.toContain("private-name.png")
+  })
+
+  it("builds scoped reply, opener, and recent context once with merged roles and private human aliases", async () => {
+    mockGetMessage.mockResolvedValue({
+      ...message,
+      channelId: "thread_1",
+      replyToId: "reply_1",
+      seq: 10,
+    })
+    mockGetChannel.mockResolvedValue({
+      ...channel,
+      id: "thread_1",
+      type: "thread",
+      parentChannelId: "forum_1",
+      parentMessageId: "opener_1",
+    })
+    mockResolveRecipients.mockImplementation(async (_db, channelId: string) =>
+      channelId === "thread_1" ? ["author_1", "bot_1"] : ["parent_viewer"],
+    )
+    mockResolveEligibility.mockResolvedValue(new Map([["bot_1", state()]]))
+
+    const recentHuman = wakeContextRow({
+      id: "recent_1",
+      content: "Earlier human context",
+      seq: 7,
+      createdAt: "2026-08-17T00:00:01.000Z",
+      channelId: "thread_1",
+    })
+    const ancestor = wakeContextRow({
+      id: "ancestor_1",
+      authorId: "bot_2",
+      authorName: "Helper",
+      authorDiscriminator: "0002",
+      authorIsBot: true,
+      content: "Original assignment",
+      seq: 8,
+      createdAt: "2026-08-17T00:00:02.000Z",
+      channelId: "thread_1",
+    })
+    const reply = wakeContextRow({
+      id: "reply_1",
+      content: "Do that",
+      replyToId: "ancestor_1",
+      seq: 9,
+      createdAt: "2026-08-17T00:00:03.000Z",
+      channelId: "thread_1",
+    })
+    const opener = wakeContextRow({
+      id: "opener_1",
+      content: "Forum incident",
+      seq: 2,
+      createdAt: "2026-08-17T00:00:00.000Z",
+      channelId: "forum_1",
+    })
+    mockListWakeContextMessagesBefore.mockResolvedValue({
+      messages: [recentHuman, ancestor, reply],
+      hasMore: true,
+    })
+    mockGetWakeContextMessageInScope.mockImplementation(async (_db, id) => ({
+      reply_1: reply,
+      ancestor_1: ancestor,
+      opener_1: opener,
+    })[id] ?? null)
+
+    const plan = await planCommittedMessage({} as never, "msg_1")
+
+    expect(mockListWakeContextMessagesBefore).toHaveBeenCalledWith({}, {
+      channelId: "thread_1",
+      beforeSeq: 10,
+      limit: 6,
+    })
+    expect(mockGetWakeContextMessageInScope).toHaveBeenCalledWith(
+      {},
+      "opener_1",
+      { channelId: "forum_1" },
+    )
+    expect(plan.wakeGateInput.conversation).toEqual({
+      available: true,
+      truncated: true,
+      messages: [
+        expect.objectContaining({
+          text: "Forum incident",
+          author: { kind: "human", alias: "member_1" },
+          roles: ["thread_opener"],
+        }),
+        expect.objectContaining({
+          text: "Earlier human context",
+          author: { kind: "human", alias: "member_1" },
+          roles: ["recent"],
+        }),
+        expect.objectContaining({
+          text: "Original assignment",
+          author: { kind: "bot", handle: "Helper#0002" },
+          roles: ["reply_ancestor", "recent"],
+        }),
+        expect.objectContaining({
+          text: "Do that",
+          author: { kind: "human", alias: "member_1" },
+          roles: ["reply_target", "recent"],
+        }),
+      ],
+    })
+    const serialized = JSON.stringify(plan.wakeGateInput.conversation)
+    expect(serialized).not.toContain("human_1")
+    expect(serialized).not.toContain("Private Human Name")
+  })
+
+  it("fails open to empty context when a context-only lookup fails", async () => {
+    mockListWakeContextMessagesBefore.mockRejectedValue(new Error("D1 context unavailable"))
+
+    const plan = await planCommittedMessage({} as never, "msg_1")
+
+    expect(plan.wakeGateInput.conversation).toEqual({
+      available: false,
+      messages: [],
+      truncated: false,
+    })
+    expect(mockLogWarn).toHaveBeenCalledWith(
+      "committed_message_jev_context_failed_open",
+      { messageId: "msg_1" },
+    )
   })
 
   it("keeps an explicit bot mention when it co-occurs with @everyone", async () => {
@@ -537,6 +694,8 @@ describe("dispatchCommittedMessage", () => {
     vi.clearAllMocks()
     mockGetMessage.mockResolvedValue(message)
     mockGetChannel.mockResolvedValue(channel)
+    mockGetWakeContextMessageInScope.mockResolvedValue(null)
+    mockListWakeContextMessagesBefore.mockResolvedValue({ messages: [], hasMore: false })
     mockGetMessageClientNonceForDelivery.mockResolvedValue("nonce_1")
     mockListAttachments.mockResolvedValue([])
     mockListAttention.mockResolvedValue([])

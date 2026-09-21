@@ -4,10 +4,13 @@ import { createLogger, formatHandle } from "@alook/shared"
 
 const log = createLogger({ service: "jev-wake-gate" })
 
-const PROMPT_VERSION = "wake-v2"
+const PROMPT_VERSION = "wake-v3"
 const MAX_CANDIDATES = 100
 const MAX_QUESTIONS_PER_BATCH = 20
 const MAX_BATCH_BYTES = 128 * 1024
+const MAX_CONTEXT_MESSAGES = 8
+const MAX_CONTEXT_MESSAGE_BYTES = 1024
+const MAX_CONTEXT_BYTES = 8 * 1024
 const REQUEST_TIMEOUT_MS = 1_500
 const TOTAL_TIMEOUT_MS = 2_000
 
@@ -49,6 +52,17 @@ export type JevWakeCandidate = {
   instruction: string
 }
 
+type JevWakeContextEntry = {
+  text: string
+  messageType: string
+  author:
+    | { kind: "bot"; handle: string }
+    | { kind: "human"; alias: string }
+  roles: Array<"reply_target" | "reply_ancestor" | "thread_opener" | "recent">
+  priority: number
+  order: number
+}
+
 export type JevWakeGateInput = {
   messageId: string
   channel: {
@@ -59,9 +73,13 @@ export type JevWakeGateInput = {
   message: {
     text: string
     type: string
-    replyPreview: string | null
     broadcastMention: boolean
     attachmentContentTypes: Array<string | null>
+  }
+  conversation: {
+    available: boolean
+    messages: JevWakeContextEntry[]
+    truncated: boolean
   }
   candidates: Array<JevWakeCandidate & {
     directlyMentioned: boolean
@@ -102,6 +120,69 @@ function chunks<T>(values: readonly T[], size: number): T[][] {
 
 function byteLength(value: unknown): number {
   return new TextEncoder().encode(JSON.stringify(value)).byteLength
+}
+
+function truncateUtf8(value: string, maxBytes: number): { value: string; truncated: boolean } {
+  const encoder = new TextEncoder()
+  if (encoder.encode(value).byteLength <= maxBytes) return { value, truncated: false }
+  const suffix = "…"
+  const contentBudget = maxBytes - encoder.encode(suffix).byteLength
+  let result = ""
+  let used = 0
+  for (const character of value) {
+    const size = encoder.encode(character).byteLength
+    if (used + size > contentBudget) break
+    result += character
+    used += size
+  }
+  return { value: `${result}${suffix}`, truncated: true }
+}
+
+function makeConversation(input: JevWakeGateInput["conversation"]): JevEntry | null {
+  if (input.messages.length === 0) return null
+  let truncated = input.truncated
+  const prepared = input.messages
+    .map((message) => {
+      const text = truncateUtf8(message.text, MAX_CONTEXT_MESSAGE_BYTES)
+      if (text.truncated) truncated = true
+      return {
+        priority: message.priority,
+        order: message.order,
+        wire: {
+          context_roles: message.roles,
+          author: message.author,
+          message_type: message.messageType,
+          text: text.value,
+        },
+      }
+    })
+    .sort((left, right) => left.priority - right.priority || right.order - left.order)
+
+  const selected: typeof prepared = []
+  for (const candidate of prepared) {
+    if (selected.length >= MAX_CONTEXT_MESSAGES) {
+      truncated = true
+      continue
+    }
+    const next = [...selected, candidate]
+      .sort((left, right) => left.order - right.order)
+      .map((item) => item.wire)
+    // Budget against the longest final marker state so a later dropped entry
+    // cannot push an already-selected conversation over the wire limit.
+    if (byteLength({ messages: next, truncated: true }) > MAX_CONTEXT_BYTES) {
+      truncated = true
+      continue
+    }
+    selected.push(candidate)
+  }
+
+  if (selected.length === 0) return null
+  return {
+    messages: selected
+      .sort((left, right) => left.order - right.order)
+      .map((item) => item.wire),
+    truncated,
+  }
 }
 
 function isLoopbackHostname(hostname: string): boolean {
@@ -218,18 +299,19 @@ export function createJevDecisionProvider(config: ProviderConfig): JevDecisionPr
 }
 
 function makeState(input: JevWakeGateInput): JevEntry {
+  const conversation = makeConversation(input.conversation)
   return {
     message: {
       text: input.message.text,
       channel_kind: input.channel.type,
       channel_name: input.channel.name,
       channel_topic: input.channel.topic,
-      reply_preview: input.message.replyPreview,
       broadcast_mention: input.message.broadcastMention,
       message_type: input.message.type,
       attachment_count: input.message.attachmentContentTypes.length,
       attachment_content_types: input.message.attachmentContentTypes,
     },
+    ...(conversation ? { conversation } : {}),
   }
 }
 
@@ -288,6 +370,14 @@ export async function selectJevWakeCandidates(
   dependencies: GateDependencies = {},
 ): Promise<JevWakeCandidate[]> {
   if (input.candidates.length === 0 || input.channel.type === "dm") {
+    return input.candidates
+  }
+  if (!input.conversation.available) {
+    log.warn("jev_wake_gate_fail_open", {
+      messageId: input.messageId,
+      reason: "context_unavailable",
+      candidateCount: input.candidates.length,
+    })
     return input.candidates
   }
   if (input.candidates.length > MAX_CANDIDATES) {

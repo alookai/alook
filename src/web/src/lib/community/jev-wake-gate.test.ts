@@ -60,10 +60,10 @@ const input: JevWakeGateInput = {
   message: {
     text: "Please review this",
     type: "default",
-    replyPreview: null,
     broadcastMention: false,
     attachmentContentTypes: [],
   },
+  conversation: { available: true, messages: [], truncated: false },
   candidates: [candidate],
 }
 
@@ -246,6 +246,112 @@ describe("selectJevWakeCandidates", () => {
     expect(JSON.stringify(request)).not.toContain("bot_1")
   })
 
+  it("serializes shared conversation chronologically without internal selection metadata", async () => {
+    let request: any
+    await selectJevWakeCandidates({
+      ...input,
+      conversation: {
+        available: true,
+        truncated: false,
+        messages: [
+          {
+            text: "newer",
+            messageType: "default",
+            author: { kind: "bot", handle: "Helper#0002" },
+            roles: ["reply_target", "recent"],
+            priority: 0,
+            order: 2,
+          },
+          {
+            text: "older",
+            messageType: "system",
+            author: { kind: "human", alias: "member_1" },
+            roles: ["thread_opener"],
+            priority: 2,
+            order: 0,
+          },
+        ],
+      },
+    }, openRouterEnv, {
+      createProvider: () => provider([1], (value) => { request = value }),
+    })
+
+    expect(request.state.conversation).toEqual({
+      truncated: false,
+      messages: [
+        {
+          context_roles: ["thread_opener"],
+          author: { kind: "human", alias: "member_1" },
+          message_type: "system",
+          text: "older",
+        },
+        {
+          context_roles: ["reply_target", "recent"],
+          author: { kind: "bot", handle: "Helper#0002" },
+          message_type: "default",
+          text: "newer",
+        },
+      ],
+    })
+    expect(JSON.stringify(request)).not.toContain("priority")
+    expect(JSON.stringify(request)).not.toContain("available")
+    expect(JSON.stringify(request)).not.toContain("reply_preview")
+  })
+
+  it("bounds multibyte conversation text and total serialized context while retaining priority", async () => {
+    let request: any
+    const messages = Array.from({ length: 10 }, (_, index) => ({
+      text: `${index}:${"😀".repeat(400)}`,
+      messageType: "default",
+      author: { kind: "human" as const, alias: `member_${index + 1}` },
+      roles: index === 9 ? ["reply_target" as const] : ["recent" as const],
+      priority: index === 9 ? 0 : 3,
+      order: index,
+    }))
+
+    await selectJevWakeCandidates({
+      ...input,
+      conversation: { available: true, messages, truncated: false },
+    }, openRouterEnv, {
+      createProvider: () => provider([1], (value) => { request = value }),
+    })
+
+    const conversation = request.state.conversation
+    expect(new TextEncoder().encode(JSON.stringify(conversation)).byteLength).toBeLessThanOrEqual(8 * 1024)
+    expect(conversation.truncated).toBe(true)
+    expect(conversation.messages).toHaveLength(7)
+    expect(conversation.messages.some((message: any) =>
+      message.context_roles.includes("reply_target"))).toBe(true)
+    for (const message of conversation.messages) {
+      expect(new TextEncoder().encode(message.text).byteLength).toBeLessThanOrEqual(1024)
+      expect(message.text).not.toContain("�")
+    }
+  })
+
+  it("caps short conversation history at eight messages", async () => {
+    let request: any
+    const messages = Array.from({ length: 9 }, (_, index) => ({
+      text: `message ${index}`,
+      messageType: "default",
+      author: { kind: "human" as const, alias: "member_1" },
+      roles: ["recent" as const],
+      priority: 3,
+      order: index,
+    }))
+
+    await selectJevWakeCandidates({
+      ...input,
+      conversation: { available: true, messages, truncated: false },
+    }, openRouterEnv, {
+      createProvider: () => provider([1], (value) => { request = value }),
+    })
+
+    expect(request.state.conversation).toMatchObject({ truncated: true })
+    expect(request.state.conversation.messages).toHaveLength(8)
+    expect(request.state.conversation.messages.map((message: any) => message.text))
+      .toEqual(messages.slice(1).map((message) => message.text))
+  })
+
   it("filters below-threshold answers while failing open only invalid answers", async () => {
     const candidates = [
       candidate,
@@ -299,6 +405,17 @@ describe("selectJevWakeCandidates", () => {
       { createProvider },
     )).resolves.toEqual([candidate])
     expect(createProvider).not.toHaveBeenCalled()
+
+    await expect(selectJevWakeCandidates(
+      { ...input, conversation: { ...input.conversation, available: false } },
+      openRouterEnv,
+      { createProvider },
+    )).resolves.toEqual([candidate])
+    expect(createProvider).not.toHaveBeenCalled()
+    expect(mocks.logWarn).toHaveBeenCalledWith(
+      "jev_wake_gate_fail_open",
+      expect.objectContaining({ reason: "context_unavailable" }),
+    )
 
     await expect(selectJevWakeCandidates(input, {}, { createProvider }))
       .resolves.toEqual([candidate])
