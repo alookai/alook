@@ -66,15 +66,33 @@ describe("listMessageMentionUserIds", () => {
     const chain: any = {};
     chain.from = vi.fn(() => chain);
     chain.where = vi.fn(() => Promise.resolve([
-      { userId: "u_mention" },
-      { userId: "u_reply" },
-      { userId: "u_mention" },
+      { userId: "u_mention", kind: "mention" },
+      { userId: "u_reply", kind: "reply" },
+      { userId: "u_mention", kind: "mention" },
     ]));
     const db = { select: vi.fn(() => chain) };
     await expect(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       mentionQueries.listMessageMentionUserIds(db as any, "msg_1"),
     ).resolves.toEqual(["u_mention", "u_reply"]);
+  });
+
+  it("preserves distinct mention and reply facts for the dispatcher", async () => {
+    const chain: any = {};
+    chain.from = vi.fn(() => chain);
+    chain.where = vi.fn(() => Promise.resolve([
+      { userId: "bot_1", kind: "mention" },
+      { userId: "bot_1", kind: "reply" },
+      { userId: "bot_1", kind: "mention" },
+    ]));
+    const db = { select: vi.fn(() => chain) };
+    await expect(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      mentionQueries.listMessageAttentionTargets(db as any, "msg_1"),
+    ).resolves.toEqual([
+      { userId: "bot_1", kind: "mention" },
+      { userId: "bot_1", kind: "reply" },
+    ]);
   });
 });
 

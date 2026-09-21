@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mockWaitUntil = vi.fn()
 vi.mock("@opennextjs/cloudflare", () => ({
-  getCloudflareContext: () => ({ ctx: { waitUntil: mockWaitUntil } }),
+  getCloudflareContext: () => ({ ctx: { waitUntil: mockWaitUntil }, env: {} }),
 }))
 
 const mockGetMessage = vi.fn()
@@ -40,7 +40,7 @@ vi.mock("@alook/shared", async () => {
         getChannel: (...args: unknown[]) => mockGetChannel(...args),
       },
       communityMention: {
-        listMessageMentionUserIds: (...args: unknown[]) => mockListAttention(...args),
+        listMessageAttentionTargets: (...args: unknown[]) => mockListAttention(...args),
       },
       communityAttachment: {
         listMessageAttachments: (...args: unknown[]) => mockListAttachments(...args),
@@ -69,6 +69,10 @@ vi.mock("./message-delivery-transport", () => ({
 const mockEnqueueQueueTasks = vi.fn()
 vi.mock("./queue-producer", () => ({
   enqueueQueueTasks: (...args: unknown[]) => mockEnqueueQueueTasks(...args),
+}))
+const mockSelectJevWakeCandidates = vi.fn()
+vi.mock("./jev-wake-gate", () => ({
+  selectJevWakeCandidates: (...args: unknown[]) => mockSelectJevWakeCandidates(...args),
 }))
 
 import { dispatchCommittedMessage, planCommittedMessage } from "./message-dispatcher"
@@ -131,7 +135,11 @@ describe("planCommittedMessage", () => {
     mockGetMessageClientNonceForDelivery.mockResolvedValue("nonce_1")
     mockGetChannel.mockResolvedValue(channel)
     mockListAttachments.mockResolvedValue([])
-    mockListAttention.mockResolvedValue(["u_mentions", "u_mention_only", "bot_1"])
+    mockListAttention.mockResolvedValue([
+      { userId: "u_mentions", kind: "mention" },
+      { userId: "u_mention_only", kind: "mention" },
+      { userId: "bot_1", kind: "mention" },
+    ])
     mockResolveRecipients.mockImplementation(async (_db, channelId: string) =>
       channelId === "c1"
         ? ["author_1", "u_all", "u_mentions", "bot_1"]
@@ -146,8 +154,16 @@ describe("planCommittedMessage", () => {
       ["bot_1", state({ hasAttention: true })],
     ]))
     mockFindWakeCandidates.mockResolvedValue([
-      { botUserId: "bot_1", name: "Bot", machineId: "m1", runtime: "codex" },
+      {
+        botUserId: "bot_1",
+        name: "Bot",
+        discriminator: "0001",
+        instruction: "Own support triage",
+        machineId: "m1",
+        runtime: "codex",
+      },
     ])
+    mockSelectJevWakeCandidates.mockImplementation(async (input) => input.candidates)
     mockSendMessageDeliveryBatch.mockResolvedValue(undefined)
     mockEnqueueQueueTasks.mockResolvedValue(undefined)
   })
@@ -159,6 +175,13 @@ describe("planCommittedMessage", () => {
     expect(plan.unreadMentionUserIds).toEqual(["u_mentions", "bot_1"])
     expect(plan.mentionUserIds).toEqual(["u_mentions", "u_mention_only", "bot_1"])
     expect(plan.wakeBotUserIds).toEqual(["bot_1"])
+    expect(plan.wakeGateInput.candidates).toEqual([
+      expect.objectContaining({
+        botUserId: "bot_1",
+        directlyMentioned: true,
+        isReplyTarget: false,
+      }),
+    ])
     expect(plan.pushUserIds).toEqual(["u_all", "u_mentions", "bot_1", "u_mention_only"])
     expect(plan.messageEvent).toMatchObject({
       type: "community:message.create",
@@ -184,7 +207,14 @@ describe("planCommittedMessage", () => {
     mockResolveNotificationRecipients.mockResolvedValue(["author_1", "u_all"])
     mockListAttention.mockResolvedValue([])
     mockResolveEligibility.mockResolvedValue(new Map([["u_all", state()]]))
-    mockFindWakeCandidates.mockResolvedValue([{ botUserId: "passive_bot" }])
+    mockFindWakeCandidates.mockResolvedValue([{
+      botUserId: "passive_bot",
+      name: "Passive",
+      discriminator: "0002",
+      instruction: "",
+      machineId: "m2",
+      runtime: "codex",
+    }])
     const plan = await planCommittedMessage({} as never, "msg_1")
     expect(plan.contentUserIds).toContain("reader")
     expect(plan.contentUserIds).toContain("passive_bot")
@@ -230,6 +260,63 @@ describe("planCommittedMessage", () => {
     ])
   })
 
+  it("keeps reply, broadcast, blank content, and attachment metadata in gate context", async () => {
+    mockGetMessage.mockResolvedValue({
+      ...message,
+      content: "",
+      type: "system",
+      mentionType: "everyone",
+      replyToId: "reply_1",
+    })
+    mockGetMessageInScope.mockResolvedValue({
+      id: "reply_1",
+      authorId: "bot_1",
+      authorName: "Bot",
+      content: "previous message",
+    })
+    mockListAttention.mockResolvedValue([
+      { userId: "bot_1", kind: "mention" },
+      { userId: "bot_1", kind: "reply" },
+    ])
+    mockListAttachments.mockResolvedValue([{
+      id: "att_1",
+      targetId: "c1",
+      filename: "private-name.png",
+      thumbnailR2Key: null,
+      contentType: "image/png",
+      size: 1000,
+      width: 100,
+      height: 100,
+    }])
+    mockFindWakeCandidates.mockResolvedValue([{
+      botUserId: "bot_1",
+      name: "Bot",
+      discriminator: "0001",
+      instruction: "",
+      machineId: "m1",
+      runtime: "codex",
+    }])
+
+    const plan = await planCommittedMessage({} as never, "msg_1")
+
+    expect(plan.wakeGateInput.message).toEqual({
+      text: "",
+      type: "system",
+      replyPreview: "previous message",
+      broadcastMention: true,
+      attachmentContentTypes: ["image/png"],
+    })
+    expect(plan.wakeGateInput.candidates).toEqual([
+      expect.objectContaining({
+        botUserId: "bot_1",
+        instruction: "",
+        directlyMentioned: false,
+        isReplyTarget: true,
+      }),
+    ])
+    expect(JSON.stringify(plan.wakeGateInput)).not.toContain("private-name.png")
+  })
+
   it("keeps forum-thread participants, mention-only attention, and parent access distinct", async () => {
     mockGetMessage.mockResolvedValue({ ...message, channelId: "t1" })
     mockGetChannel.mockResolvedValue({
@@ -239,7 +326,7 @@ describe("planCommittedMessage", () => {
       parentChannelId: "forum_1",
       messageCount: 3,
     })
-    mockListAttention.mockResolvedValue(["parent_viewer"])
+    mockListAttention.mockResolvedValue([{ userId: "parent_viewer", kind: "mention" }])
     mockResolveRecipients.mockImplementation(async (_db, channelId: string) => {
       if (channelId === "t1") return ["author_1", "participant_1"]
       if (channelId === "forum_1") return ["participant_1", "parent_viewer"]
@@ -302,11 +389,18 @@ describe("planCommittedMessage", () => {
   })
 
   it("keeps the author in content while excluding them from every side effect", async () => {
-    mockListAttention.mockResolvedValue(["author_1"])
+    mockListAttention.mockResolvedValue([{ userId: "author_1", kind: "mention" }])
     mockResolveRecipients.mockResolvedValue(["author_1"])
     mockResolveEligibility.mockResolvedValue(new Map([["author_1", state({ hasAttention: true })]]))
     mockFindWakeCandidates.mockResolvedValue([
-      { botUserId: "author_1", name: "Author Bot", machineId: "m1", runtime: "codex" },
+      {
+        botUserId: "author_1",
+        name: "Author Bot",
+        discriminator: "0003",
+        instruction: "",
+        machineId: "m1",
+        runtime: "codex",
+      },
     ])
 
     const plan = await planCommittedMessage({} as never, "msg_1")
@@ -388,7 +482,12 @@ describe("planCommittedMessage", () => {
     mockGetChannel.mockResolvedValue({ ...channel, type: "thread", parentChannelId: "parent" })
     mockResolveRecipients.mockResolvedValue(["author_1", "reader", "u_all", "u_mentions"])
     mockResolveNotificationRecipients.mockResolvedValue(["author_1", "u_all", "u_all", "u_mentions", "outside"])
-    mockListAttention.mockResolvedValue(["author_1", "u_mentions", "u_mentions", "u_mention_only"])
+    mockListAttention.mockResolvedValue([
+      { userId: "author_1", kind: "mention" },
+      { userId: "u_mentions", kind: "mention" },
+      { userId: "u_mentions", kind: "mention" },
+      { userId: "u_mention_only", kind: "mention" },
+    ])
     const plan = await planCommittedMessage({} as never, "msg_1")
     expect(mockResolveEligibility).toHaveBeenCalledWith({}, ["u_all", "u_mentions", "outside", "u_mention_only"], "msg_1")
     expect(plan.contentUserIds).toEqual(["author_1", "reader", "u_all", "u_mentions"])
@@ -428,6 +527,7 @@ describe("dispatchCommittedMessage", () => {
     )
     mockResolveEligibility.mockResolvedValue(new Map())
     mockFindWakeCandidates.mockResolvedValue([])
+    mockSelectJevWakeCandidates.mockImplementation(async (input) => input.candidates)
     mockSendMessageDeliveryBatch.mockResolvedValue(undefined)
     mockEnqueueQueueTasks.mockResolvedValue(undefined)
   })
@@ -444,21 +544,30 @@ describe("dispatchCommittedMessage", () => {
     expect(mockEnqueueQueueTasks).toHaveBeenCalledWith([])
   })
 
-  it("enqueues bot wake before the exact three-list mobile push union", async () => {
+  it("enqueues the exact mobile-push union separately from gated bot wakes", async () => {
     mockResolveRecipients.mockResolvedValue(["author_1", "u_all", "bot_1"])
-    mockListAttention.mockResolvedValue(["bot_1"])
+    mockListAttention.mockResolvedValue([{ userId: "bot_1", kind: "mention" }])
     mockResolveEligibility.mockResolvedValue(new Map([
       ["u_all", state()],
       ["bot_1", state({ hasAttention: true })],
     ]))
-    mockFindWakeCandidates.mockResolvedValue([{ botUserId: "bot_1" }])
+    mockFindWakeCandidates.mockResolvedValue([{
+      botUserId: "bot_1",
+      name: "Bot",
+      discriminator: "0001",
+      instruction: "Own support triage",
+      machineId: "m1",
+      runtime: "codex",
+    }])
 
     await dispatchCommittedMessage({} as never, "msg_1")
 
-    expect(mockEnqueueQueueTasks).toHaveBeenCalledWith([
-      { version: 1, kind: "bot-wake", messageId: "msg_1", botUserId: "bot_1" },
+    expect(mockEnqueueQueueTasks).toHaveBeenNthCalledWith(1, [
       { version: 1, kind: "mobile-push", messageId: "msg_1", userId: "u_all" },
       { version: 1, kind: "mobile-push", messageId: "msg_1", userId: "bot_1" },
+    ])
+    expect(mockEnqueueQueueTasks).toHaveBeenNthCalledWith(2, [
+      { version: 1, kind: "bot-wake", messageId: "msg_1", botUserId: "bot_1" },
     ])
   })
 
@@ -476,9 +585,67 @@ describe("dispatchCommittedMessage", () => {
 
     await expect(dispatchCommittedMessage({} as never, "msg_1")).resolves.toBeUndefined()
 
-    expect(mockLogWarn).toHaveBeenCalledWith("committed_message_queue_delivery_failed", {
+    expect(mockLogWarn).toHaveBeenCalledWith("committed_message_push_queue_delivery_failed", {
       messageId: "msg_1",
       err: "Error: queue unavailable",
     })
+  })
+
+  it("enqueues deterministic candidates when the gate unexpectedly rejects", async () => {
+    mockResolveRecipients.mockResolvedValue(["author_1", "bot_1"])
+    mockResolveEligibility.mockResolvedValue(new Map([["bot_1", state()]]))
+    mockFindWakeCandidates.mockResolvedValue([{
+      botUserId: "bot_1",
+      name: "Bot",
+      discriminator: "0001",
+      instruction: "",
+      machineId: "m1",
+      runtime: "codex",
+    }])
+    mockSelectJevWakeCandidates.mockRejectedValue(new Error("unexpected"))
+
+    await dispatchCommittedMessage({} as never, "msg_1")
+
+    expect(mockEnqueueQueueTasks).toHaveBeenCalledWith([
+      { version: 1, kind: "bot-wake", messageId: "msg_1", botUserId: "bot_1" },
+    ])
+    expect(mockLogWarn).toHaveBeenCalledWith(
+      "committed_message_jev_gate_failed_open",
+      { messageId: "msg_1" },
+    )
+  })
+
+  it("starts browser delivery and mobile push without waiting for JEV", async () => {
+    let releaseGate!: (value: unknown[]) => void
+    mockResolveRecipients.mockResolvedValue(["author_1", "u_all", "bot_1"])
+    mockResolveEligibility.mockResolvedValue(new Map([
+      ["u_all", state()],
+      ["bot_1", state()],
+    ]))
+    mockFindWakeCandidates.mockResolvedValue([{
+      botUserId: "bot_1",
+      name: "Bot",
+      discriminator: "0001",
+      instruction: "",
+      machineId: "m1",
+      runtime: "codex",
+    }])
+    mockSelectJevWakeCandidates.mockReturnValue(new Promise((resolve) => {
+      releaseGate = resolve
+    }))
+
+    const work = dispatchCommittedMessage({} as never, "msg_1")
+    await vi.waitFor(() => {
+      expect(mockSendMessageDeliveryBatch).toHaveBeenCalledOnce()
+      expect(mockEnqueueQueueTasks).toHaveBeenCalledWith([
+        { version: 1, kind: "mobile-push", messageId: "msg_1", userId: "u_all" },
+        { version: 1, kind: "mobile-push", messageId: "msg_1", userId: "bot_1" },
+      ])
+    })
+    expect(mockEnqueueQueueTasks).toHaveBeenCalledTimes(1)
+
+    releaseGate([])
+    await work
+    expect(mockEnqueueQueueTasks).toHaveBeenNthCalledWith(2, [])
   })
 })

@@ -30,3 +30,7 @@ APPLE_PRIVATE_KEY=
 
 # Device Code Flow — comma-separated allowed client IDs
 DEVICE_CLIENT_IDS=alook-cli
+
+# JEV wake relevance providers. Configure the key for the selected JEV_PROVIDER.
+OPENROUTER_API_KEY=
+TYPESAFE_API_KEY=

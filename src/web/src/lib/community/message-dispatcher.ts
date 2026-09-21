@@ -1,6 +1,7 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import {
   deriveCommunityDeliveryOperationId,
+  MENTION_KIND,
   reachIsParticipantSet,
   WS_EVENTS,
   createLogger,
@@ -15,6 +16,10 @@ import {
 import { mapMessageForWs } from "./message-payload"
 import { sendMessageDeliveryBatch } from "./message-delivery-transport"
 import { enqueueQueueTasks } from "./queue-producer"
+import {
+  selectJevWakeCandidates,
+  type JevWakeGateInput,
+} from "./jev-wake-gate"
 import { attachmentThumbnailUrl, attachmentUrl } from "./storage"
 
 const log = createLogger({ service: "committed-message-dispatcher" })
@@ -29,6 +34,7 @@ export type CommittedMessageStructuralOutcome = {
 export type MessageDeliveryPlan = MessageDeliveryBatch & {
   operationId: CommunityDeliveryOperationId
   wakeBotUserIds: string[]
+  wakeGateInput: JevWakeGateInput
   pushUserIds: string[]
 }
 
@@ -62,13 +68,13 @@ export async function planCommittedMessage(
     { route: "message-dispatcher:message" },
   )
   if (!message) throw new Error("committed message not found")
-  const [channel, attentionUserIds, attachments, clientNonce] = await Promise.all([
+  const [channel, attentionTargets, attachments, clientNonce] = await Promise.all([
     withD1Retry(
       () => queries.communityChannel.getChannel(db, message.channelId),
       { route: "message-dispatcher:channel" },
     ),
     withD1Retry(
-      () => queries.communityMention.listMessageMentionUserIds(db, messageId),
+      () => queries.communityMention.listMessageAttentionTargets(db, messageId),
       { route: "message-dispatcher:attention" },
     ),
     withD1Retry(
@@ -96,7 +102,8 @@ export async function planCommittedMessage(
   const notificationCandidates = participantCandidates ?? contentCandidates
   const contentUserIds = unique(contentCandidates)
   const candidateNotificationUserIds = unique(notificationCandidates).filter((id) => id !== message.authorId)
-  const attentionIds = unique(attentionUserIds).filter((id) => id !== message.authorId)
+  const attentionIds = unique(attentionTargets.map((target) => target.userId))
+    .filter((id) => id !== message.authorId)
   const eligibilityUserIds = unique([...candidateNotificationUserIds, ...attentionIds])
 
   const [eligibility, replyTarget] = await Promise.all([
@@ -157,11 +164,10 @@ export async function planCommittedMessage(
     return allowed(id) && Boolean(state?.hasAttention)
   })
   const notificationSet = new Set(notificationUserIds)
-  const wakeBotUserIds = unique(
-    wakeCandidates
-      .map((candidate) => candidate.botUserId)
-      .filter((id) => notificationSet.has(id) && allowed(id)),
+  const eligibleWakeCandidates = wakeCandidates.filter(
+    (candidate) => notificationSet.has(candidate.botUserId) && allowed(candidate.botUserId),
   )
+  const wakeBotUserIds = unique(eligibleWakeCandidates.map((candidate) => candidate.botUserId))
   const pushUserIds = unique([
     ...unreadPlainUserIds,
     ...unreadMentionUserIds,
@@ -237,6 +243,33 @@ export async function planCommittedMessage(
     unreadMentionUserIds,
     mentionUserIds,
     wakeBotUserIds,
+    wakeGateInput: {
+      messageId: message.id,
+      channel: {
+        type: channel.type,
+        name: channel.name,
+        topic: channel.topic,
+      },
+      message: {
+        text: message.content,
+        type: message.type,
+        replyPreview: replyTarget?.content ?? null,
+        broadcastMention: message.mentionType === "everyone",
+        attachmentContentTypes: attachments.map((attachment) => attachment.contentType),
+      },
+      candidates: eligibleWakeCandidates.map((candidate) => ({
+        botUserId: candidate.botUserId,
+        name: candidate.name,
+        discriminator: candidate.discriminator,
+        instruction: candidate.instruction,
+        directlyMentioned: message.mentionType !== "everyone" && attentionTargets.some(
+          (target) => target.userId === candidate.botUserId && target.kind === MENTION_KIND.MENTION,
+        ),
+        isReplyTarget: attentionTargets.some(
+          (target) => target.userId === candidate.botUserId && target.kind === MENTION_KIND.REPLY,
+        ),
+      })),
+    },
     pushUserIds,
     ...(structural.memberAddedUserId && channel.serverId
       ? {
@@ -257,6 +290,7 @@ async function runCommittedMessageDispatch(
   db: Database,
   messageId: string,
   structural: CommittedMessageStructuralOutcome,
+  env: RuntimeEnv,
 ): Promise<void> {
   const startedAt = Date.now()
   const plan = await planCommittedMessage(db, messageId, structural)
@@ -275,23 +309,32 @@ async function runCommittedMessageDispatch(
         }
       : {}),
   }
-  const queueTasks: AlookQueueTask[] = [
-    ...plan.wakeBotUserIds.map((botUserId) => ({
-      version: 1 as const,
-      kind: "bot-wake" as const,
-      messageId: plan.messageId,
-      botUserId,
-    })),
-    ...plan.pushUserIds.map((userId) => ({
-      version: 1 as const,
-      kind: "mobile-push" as const,
-      messageId: plan.messageId,
-      userId,
-    })),
-  ]
-  const [browser, queue] = await Promise.allSettled([
-    sendMessageDeliveryBatch(browserBatch, plan.operationId),
-    enqueueQueueTasks(queueTasks),
+  const pushTasks: AlookQueueTask[] = plan.pushUserIds.map((userId) => ({
+    version: 1 as const,
+    kind: "mobile-push" as const,
+    messageId: plan.messageId,
+    userId,
+  }))
+  const browserDelivery = sendMessageDeliveryBatch(browserBatch, plan.operationId)
+  const pushDelivery = enqueueQueueTasks(pushTasks)
+  const botWake = selectJevWakeCandidates(plan.wakeGateInput, env)
+    .catch(() => {
+      log.warn("committed_message_jev_gate_failed_open", { messageId })
+      return plan.wakeGateInput.candidates
+    })
+    .then(async (candidates) => {
+      await enqueueQueueTasks(candidates.map((candidate) => ({
+        version: 1 as const,
+        kind: "bot-wake" as const,
+        messageId: plan.messageId,
+        botUserId: candidate.botUserId,
+      })))
+      return candidates.length
+    })
+  const [browser, push, wake] = await Promise.allSettled([
+    browserDelivery,
+    pushDelivery,
+    botWake,
   ])
   if (browser.status === "rejected") {
     log.warn("committed_message_browser_delivery_failed", {
@@ -299,10 +342,16 @@ async function runCommittedMessageDispatch(
       err: String(browser.reason),
     })
   }
-  if (queue.status === "rejected") {
-    log.warn("committed_message_queue_delivery_failed", {
+  if (push.status === "rejected") {
+    log.warn("committed_message_push_queue_delivery_failed", {
       messageId,
-      err: String(queue.reason),
+      err: String(push.reason),
+    })
+  }
+  if (wake.status === "rejected") {
+    log.warn("committed_message_wake_queue_delivery_failed", {
+      messageId,
+      err: String(wake.reason),
     })
   }
   log.info("committed_message_dispatch_complete", {
@@ -310,7 +359,7 @@ async function runCommittedMessageDispatch(
     contentCount: plan.contentUserIds.length,
     unreadCount: plan.unreadPlainUserIds.length + plan.unreadMentionUserIds.length,
     mentionCount: plan.mentionUserIds.length,
-    wakeCount: plan.wakeBotUserIds.length,
+    wakeCount: wake.status === "fulfilled" ? wake.value : 0,
     pushCount: plan.pushUserIds.length,
     parentCount: plan.parentProjectionUserIds?.length ?? 0,
     durationMs: Date.now() - startedAt,
@@ -327,13 +376,18 @@ export function dispatchCommittedMessage(
   messageId: string,
   structural: CommittedMessageStructuralOutcome = {},
 ): Promise<void> {
-  const work = runCommittedMessageDispatch(db, messageId, structural).catch((err) => {
-    log.warn("committed_message_dispatch_failed", { messageId, err: String(err) })
-  })
+  let env = {} as RuntimeEnv
+  let executionContext: ExecutionContext | undefined
   try {
-    getCloudflareContext().ctx.waitUntil(work)
+    const cloudflare = getCloudflareContext()
+    env = cloudflare.env
+    executionContext = cloudflare.ctx
   } catch {
     // Unit tests and non-Cloudflare callers may not expose a request context.
   }
+  const work = runCommittedMessageDispatch(db, messageId, structural, env).catch((err) => {
+    log.warn("committed_message_dispatch_failed", { messageId, err: String(err) })
+  })
+  executionContext?.waitUntil(work)
   return work
 }

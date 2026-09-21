@@ -53,11 +53,25 @@ export async function listMessageMentionUserIds(
   db: Database,
   messageId: string,
 ): Promise<string[]> {
+  const rows = await listMessageAttentionTargets(db, messageId);
+  return [...new Set(rows.map((row) => row.userId))];
+}
+
+export async function listMessageAttentionTargets(
+  db: Database,
+  messageId: string,
+): Promise<Array<{ userId: string; kind: MentionKind }>> {
   const rows = await db
-    .select({ userId: communityMention.userId })
+    .select({ userId: communityMention.userId, kind: communityMention.kind })
     .from(communityMention)
     .where(eq(communityMention.messageId, messageId));
-  return [...new Set(rows.map((row) => row.userId))];
+  const seen = new Set<string>();
+  return rows.filter((row) => {
+    const key = `${row.userId}:${row.kind}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).map((row) => ({ ...row, kind: row.kind as MentionKind }));
 }
 
 export async function listUnreadMentions(
