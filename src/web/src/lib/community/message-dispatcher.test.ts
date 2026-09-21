@@ -288,7 +288,7 @@ describe("planCommittedMessage", () => {
     }])
     mockFindWakeCandidates.mockResolvedValue([{
       botUserId: "bot_1",
-      name: "Bot",
+      name: null,
       discriminator: "0001",
       instruction: "",
       machineId: "m1",
@@ -307,6 +307,7 @@ describe("planCommittedMessage", () => {
     expect(plan.wakeGateInput.candidates).toEqual([
       expect.objectContaining({
         botUserId: "bot_1",
+        name: null,
         instruction: "",
         directlyMentioned: false,
         isReplyTarget: true,
@@ -560,6 +561,33 @@ describe("dispatchCommittedMessage", () => {
       await deriveCommunityDeliveryOperationId("msg_1"),
     )
     expect(mockEnqueueQueueTasks).toHaveBeenCalledWith([])
+  })
+
+  it("forwards parent projections in the browser delivery batch", async () => {
+    mockGetMessage.mockResolvedValue({ ...message, channelId: "t1" })
+    mockGetChannel.mockResolvedValue({
+      ...channel,
+      id: "t1",
+      type: "thread",
+      parentChannelId: "forum_1",
+      messageCount: 3,
+    })
+    mockResolveRecipients.mockImplementation(async (_db, channelId: string) =>
+      channelId === "forum_1" ? ["parent_viewer"] : ["author_1"],
+    )
+
+    await dispatchCommittedMessage({} as never, "msg_1")
+
+    expect(mockSendMessageDeliveryBatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parentProjection: expect.objectContaining({
+          parentChannelId: "forum_1",
+          channelId: "t1",
+        }),
+        parentProjectionUserIds: ["parent_viewer"],
+      }),
+      await deriveCommunityDeliveryOperationId("msg_1"),
+    )
   })
 
   it("enqueues the exact mobile-push union separately from gated bot wakes", async () => {

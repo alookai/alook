@@ -207,6 +207,13 @@ describe("selectJevWakeCandidates", () => {
     vi.clearAllMocks()
   })
 
+  it("uses default dependencies while bypassing an empty candidate set", async () => {
+    await expect(selectJevWakeCandidates(
+      { ...input, candidates: [] },
+      {},
+    )).resolves.toEqual([])
+  })
+
   it("passes p=0 at the initial inclusive threshold and builds minimal per-bot questions", async () => {
     let request: unknown
     const selected = await selectJevWakeCandidates(input, openRouterEnv, {
