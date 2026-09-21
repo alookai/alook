@@ -135,7 +135,7 @@
   },
   "devDependencies": {
     "@alook/test-utils": "workspace:*",
-    "@cloudflare/vitest-plugin": "1.1.11",
+    "@cloudflare/vitest-plugin": "1.1.13",
     "@lhci/cli": "^0.15.1",
     "@playwright/test": "^1.63.0",
     "@tailwindcss/node": "^4.3.3",
@@ -162,7 +162,7 @@
     "typescript": "^6.0.3",
     "unified": "^11.0.5",
     "vitest": "4.1.11",
-    "wrangler": "4.133.0",
+    "wrangler": "4.135.0",
     "wrangler-e2e": "npm:wrangler@4.133.0"
   }
 }
