@@ -236,6 +236,28 @@ describe("planCommittedMessage", () => {
     })
   })
 
+  it("runs content-recipient phases through the dispatcher retry callback", async () => {
+    mockResolveRecipients.mockImplementation((
+      _db: unknown,
+      _channelId: string,
+      run: (phase: "channel-type", query: () => Promise<string[]>) => Promise<string[]>,
+    ) => run("channel-type", async () => ["author_1"]))
+    mockListAttention.mockResolvedValue([])
+    mockResolveEligibility.mockResolvedValue(new Map())
+    mockFindWakeCandidates.mockResolvedValue([])
+
+    const plan = await planCommittedMessage({} as never, "msg_1")
+
+    expect(plan.contentUserIds).toEqual(["author_1"])
+  })
+
+  it("rejects a committed message whose channel lookup resolves outside its scope", async () => {
+    mockGetChannel.mockResolvedValue({ ...channel, id: "other_channel" })
+
+    await expect(planCommittedMessage({} as never, "msg_1"))
+      .rejects.toThrow("committed message scope not found")
+  })
+
   it("delivers content to passive readers without adding unread, mention, or wake candidates", async () => {
     mockGetChannel.mockResolvedValue({ ...channel, type: "thread", parentChannelId: "parent" })
     mockResolveRecipients.mockResolvedValue(["author_1", "reader", "passive_bot", "u_all"])
