@@ -187,6 +187,19 @@ describe("JEV provider adapters", () => {
       expect.objectContaining({ timeout: 321, retry: { maxRetries: 0 } }),
     )
   })
+
+  it.each(["openrouter", "typesafe"] as const)(
+    "rejects insecure non-loopback HTTP for the %s adapter",
+    (providerName) => {
+      expect(() => createJevDecisionProvider({
+        providerName,
+        apiKey: "secret",
+        baseURL: "http://provider.example.test",
+        model: "jev-test",
+        threshold: 0,
+      })).toThrow("JEV provider base URL must use HTTPS or loopback HTTP")
+    },
+  )
 })
 
 describe("selectJevWakeCandidates", () => {
@@ -299,11 +312,43 @@ describe("selectJevWakeCandidates", () => {
     { ...openRouterEnv, JEV_WAKE_THRESHOLD: "NaN" },
     { ...openRouterEnv, JEV_WAKE_THRESHOLD: "-0.1" },
     { ...openRouterEnv, OPENROUTER_JEV_BASE_URL: "not-a-url" },
+    { ...openRouterEnv, OPENROUTER_JEV_BASE_URL: "http://openrouter.example.test" },
+    {
+      JEV_PROVIDER: "typesafe",
+      TYPESAFE_API_KEY: "test-key",
+      TYPESAFE_JEV_BASE_URL: "http://typesafe.example.test",
+      TYPESAFE_JEV_MODEL: "jev-1.13.0",
+    },
   ])("fails open for invalid provider configuration", async (env) => {
     const createProvider = vi.fn(() => provider([1]))
     await expect(selectJevWakeCandidates(input, env, { createProvider }))
       .resolves.toEqual([candidate])
     expect(createProvider).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    {
+      env: { ...openRouterEnv, OPENROUTER_JEV_BASE_URL: "http://localhost:8787" },
+      expectedBaseURL: "http://localhost:8787",
+    },
+    {
+      env: {
+        JEV_PROVIDER: "typesafe",
+        JEV_WAKE_THRESHOLD: "0",
+        TYPESAFE_API_KEY: "test-key",
+        TYPESAFE_JEV_BASE_URL: "http://127.0.0.1:8787",
+        TYPESAFE_JEV_MODEL: "jev-1.13.0",
+      },
+      expectedBaseURL: "http://127.0.0.1:8787",
+    },
+  ])("allows loopback HTTP for $env.JEV_PROVIDER", async ({ env, expectedBaseURL }) => {
+    const createProvider = vi.fn(() => provider([1]))
+    await expect(selectJevWakeCandidates(input, env, { createProvider }))
+      .resolves.toEqual([candidate])
+    expect(createProvider).toHaveBeenCalledWith(expect.objectContaining({
+      providerName: env.JEV_PROVIDER,
+      baseURL: expectedBaseURL,
+    }))
   })
 
   it.each([

@@ -104,10 +104,17 @@ function byteLength(value: unknown): number {
   return new TextEncoder().encode(JSON.stringify(value)).byteLength
 }
 
-function validURL(value: string): boolean {
+function isLoopbackHostname(hostname: string): boolean {
+  return hostname === "localhost"
+    || hostname === "[::1]"
+    || /^127(?:\.\d{1,3}){3}$/.test(hostname)
+}
+
+function validProviderBaseURL(value: string): boolean {
   try {
     const url = new URL(value)
-    return url.protocol === "https:" || url.protocol === "http:"
+    return url.protocol === "https:"
+      || (url.protocol === "http:" && isLoopbackHostname(url.hostname))
   } catch {
     return false
   }
@@ -122,7 +129,7 @@ function resolveConfig(env: JevWakeEnv): ProviderConfig | null {
     const baseURL = env.OPENROUTER_JEV_BASE_URL ?? "https://openrouter.ai"
     const apiKey = env.OPENROUTER_API_KEY ?? ""
     const model = env.OPENROUTER_JEV_MODEL ?? "typesafe/jev-1.13"
-    return apiKey && model && validURL(baseURL)
+    return apiKey && model && validProviderBaseURL(baseURL)
       ? { providerName, apiKey, baseURL, model, threshold }
       : null
   }
@@ -130,7 +137,7 @@ function resolveConfig(env: JevWakeEnv): ProviderConfig | null {
     const baseURL = env.TYPESAFE_JEV_BASE_URL ?? "https://api.typesafe.ai"
     const apiKey = env.TYPESAFE_API_KEY ?? ""
     const model = env.TYPESAFE_JEV_MODEL ?? "jev-1.13.0"
-    return apiKey && model && validURL(baseURL)
+    return apiKey && model && validProviderBaseURL(baseURL)
       ? { providerName, apiKey, baseURL, model, threshold }
       : null
   }
@@ -202,6 +209,9 @@ function createTypeSafeProvider(config: ProviderConfig): JevDecisionProvider {
 }
 
 export function createJevDecisionProvider(config: ProviderConfig): JevDecisionProvider {
+  if (!validProviderBaseURL(config.baseURL)) {
+    throw new Error("JEV provider base URL must use HTTPS or loopback HTTP")
+  }
   return config.providerName === "openrouter"
     ? createOpenRouterProvider(config)
     : createTypeSafeProvider(config)
