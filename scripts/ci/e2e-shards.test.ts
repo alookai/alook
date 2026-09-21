@@ -193,7 +193,7 @@ describe("createE2eMatrix", () => {
       predicted_seconds: 121.383,
     })
     expect(matrix.include.every(
-      (entry) => entry.image === "mcr.microsoft.com/playwright:v1.62.1-noble",
+      (entry) => entry.image === resolvePlaywrightImage(),
     )).toBe(true)
   })
 

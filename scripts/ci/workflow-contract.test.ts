@@ -819,11 +819,16 @@ describe("Turbo CI execution", () => {
   })
 
   it("runs each direct Worker Node and runtime project once through its standard test task", () => {
+    const vitestPluginVersion = directWorkerModules[0]
+      .packageJson.devDependencies["@cloudflare/vitest-plugin"]
+    expect(vitestPluginVersion).toMatch(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/)
+
     const projectNames: string[] = []
     for (const module of directWorkerModules) {
       expect(module.packageJson.scripts.test).toBe("vitest run --config vitest.workspace.config.ts")
       expect(module.packageJson.scripts).not.toHaveProperty("test:workers")
-      expect(module.packageJson.devDependencies["@cloudflare/vitest-plugin"]).toBe("1.1.4")
+      expect(module.packageJson.devDependencies["@cloudflare/vitest-plugin"])
+        .toBe(vitestPluginVersion)
       const expectedProjects = module.name === "web" ? 2 : 1
       expect(module.workspaceConfig.match(/vitest\.config\.ts/g)).toHaveLength(expectedProjects)
       expect(module.workspaceConfig.match(/vitest\.runtime\.config\.mts/g)).toHaveLength(expectedProjects)

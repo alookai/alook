@@ -9,9 +9,32 @@ updates:
     commit-message:
       prefix: "chore(deps):"
     groups:
+      playwright:
+        patterns:
+          - "@playwright/*"
+          - "playwright"
+          - "playwright-core"
+      cloudflare-worker-test-toolchain:
+        patterns:
+          - "@cloudflare/vitest-plugin"
+          - "@cloudflare/workers-types"
+          - "@vitest/*"
+          - "vitest"
+          - "wrangler"
+          - "wrangler-e2e"
       dependencies:
         patterns:
           - "*"
+        exclude-patterns:
+          - "@playwright/*"
+          - "playwright"
+          - "playwright-core"
+          - "@cloudflare/vitest-plugin"
+          - "@cloudflare/workers-types"
+          - "@vitest/*"
+          - "vitest"
+          - "wrangler"
+          - "wrangler-e2e"
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]

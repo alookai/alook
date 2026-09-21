@@ -163,6 +163,6 @@
     "unified": "^11.0.5",
     "vitest": "4.1.11",
     "wrangler": "4.133.0",
-    "wrangler-e2e": "npm:wrangler@4.131.0"
+    "wrangler-e2e": "npm:wrangler@4.133.0"
   }
 }
