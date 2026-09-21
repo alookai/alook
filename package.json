@@ -50,10 +50,10 @@
     "@vitest/coverage-istanbul": "4.1.11",
     "sharp": "^0.35.4",
     "simple-git-hooks": "^2.14.0",
-    "turbo": "^2.10.12",
+    "turbo": "^2.10.13",
     "typescript": "^6.0.3",
     "vitest": "4.1.11",
-    "wrangler": "4.131.0"
+    "wrangler": "4.133.0"
   },
   "pnpm": {
     "overrides": {

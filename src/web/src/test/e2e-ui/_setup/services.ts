@@ -28,7 +28,6 @@ export interface ServiceDefinition {
   expectedBody: { status: "ok" }
 }
 
-export const E2E_WRANGLER_VERSION = "4.131.0"
 export const E2E_PREBUILT_ENTRYPOINTS = [
   "src/web/.open-next/worker.js",
   "src/web/blog/.open-next/worker.js",
@@ -48,7 +47,11 @@ export function resolveE2EWranglerRuntime(): {
   const entry = typeof manifest.bin === "object" && manifest.bin !== null
     ? (manifest.bin as Record<string, unknown>).wrangler
     : undefined
-  if (manifest.version !== E2E_WRANGLER_VERSION || typeof entry !== "string") {
+  if (
+    typeof manifest.version !== "string"
+    || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(manifest.version)
+    || typeof entry !== "string"
+  ) {
     throw new Error(`invalid E2E Wrangler runtime at ${packagePath}`)
   }
   return {

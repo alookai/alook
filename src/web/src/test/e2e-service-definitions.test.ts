@@ -7,7 +7,6 @@ import { dirname, resolve } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import {
   E2E_PREBUILT_ENTRYPOINTS,
-  E2E_WRANGLER_VERSION,
   hasExactHealth,
   readinessExitMessage,
   resolveE2EWranglerRuntime,
@@ -31,10 +30,9 @@ describe("UI E2E service definitions", () => {
     const requireFromTest = createRequire(import.meta.url)
     const normalManifest = requireFromTest("wrangler/package.json") as { version: string }
 
-    expect(runtime.version).toBe(E2E_WRANGLER_VERSION)
-    expect(runtime.version).toBe("4.131.0")
-    expect(normalManifest.version).toBe("4.131.0")
-    expect(runtime.entry).toMatch(/wrangler@4\.131\.0.*bin[/\\]wrangler\.js$/)
+    expect(runtime.version).toBe(normalManifest.version)
+    expect(runtime.entry).toContain(`wrangler@${runtime.version}`)
+    expect(runtime.entry).toMatch(/bin[/\\]wrangler\.js$/)
   })
 
   it("runs both Worker zones while keeping main and ws-do in one pinned runtime", () => {

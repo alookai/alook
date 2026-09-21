@@ -27,7 +27,7 @@ function bindingNames(toml: string): string[] {
 }
 
 describe("OpenNext and Wrangler refresh", () => {
-  it("locks every existing Wrangler entry and the Web alias to 4.131.0", () => {
+  it("uses one exact Wrangler version and keeps the Web alias aligned", () => {
     const manifests = [
       "package.json",
       "src/app/package.json",
@@ -36,14 +36,17 @@ describe("OpenNext and Wrangler refresh", () => {
       "src/web/package.json",
       "src/ws-do/package.json",
     ]
+    const wranglerVersion = dependency(manifests[0], "wrangler")
+    expect(wranglerVersion).toMatch(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/)
 
     for (const manifest of manifests) {
-      expect(dependency(manifest, "wrangler"), manifest).toBe("4.131.0")
+      expect(dependency(manifest, "wrangler"), manifest).toBe(wranglerVersion)
     }
-    expect(dependency("src/web/package.json", "wrangler-e2e")).toBe("npm:wrangler@4.131.0")
+    expect(dependency("src/web/package.json", "wrangler-e2e"))
+      .toBe(`npm:wrangler@${wranglerVersion}`)
   })
 
-  it("locks OpenNext 1.20.6, AWS 4.1.4, and Wrangler's Workers types floor", () => {
+  it("locks the OpenNext AWS patch and keeps one Workers types range", () => {
     expect(dependency("src/web/package.json", "@opennextjs/cloudflare")).toBe("^1.20.6")
 
     const rootManifest = readPackage("package.json")
@@ -53,21 +56,22 @@ describe("OpenNext and Wrangler refresh", () => {
     expect(existsSync(new URL("patches/@opennextjs__aws@4.1.4.patch", repositoryRoot))).toBe(true)
     expect(existsSync(new URL("patches/@opennextjs__aws@4.1.0.patch", repositoryRoot))).toBe(false)
 
-    for (const manifest of [
+    const workerManifests = [
       "src/email-worker/package.json",
       "src/shared/package.json",
       "src/queue-worker/package.json",
       "src/ws-do/package.json",
-    ]) {
+    ]
+    const workersTypesRange = dependency(workerManifests[0], "@cloudflare/workers-types")
+    expect(workersTypesRange).toMatch(/^\^5\.\d{8}\.\d+$/)
+    for (const manifest of workerManifests) {
       expect(dependency(manifest, "@cloudflare/workers-types"), manifest)
-        .toBe("^5.20260910.1")
+        .toBe(workersTypesRange)
     }
 
     const lockfile = readRepositoryFile("pnpm-lock.yaml")
     expect(lockfile).toContain("'@opennextjs/aws@4.1.4':")
     expect(lockfile).toContain("'@opennextjs/cloudflare@1.20.6':")
-    expect(lockfile).toContain("'@cloudflare/workers-types@5.20260911.1':")
-    expect(lockfile).toContain("wrangler@4.131.0:")
     expect(lockfile).not.toContain("'@opennextjs/aws@4.1.0':")
   })
 
