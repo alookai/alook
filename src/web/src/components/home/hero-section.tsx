@@ -59,6 +59,9 @@ export function HeroSection({
   const sublineRef = useRef<HTMLParagraphElement>(null);
   const ctaRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
+  const ctaSizingClassName = largeCtas
+    ? "px-3 py-3 text-[clamp(0.6875rem,3vw,1rem)] whitespace-nowrap sm:px-8"
+    : "px-6 py-2 text-sm";
 
   useGSAP(
     () => {
@@ -348,7 +351,7 @@ export function HeroSection({
             <Link
               href="/c/me"
               onClick={() => trackLandingCtaClicked({ cta_name: "open_app" })}
-              className={`inline-flex items-center gap-2 transition-all duration-200 hover:opacity-80 ${largeCtas ? "px-8 py-3 text-base" : "px-6 py-2 text-sm"}`}
+              className={`inline-flex items-center gap-2 transition-all duration-200 hover:opacity-80 ${ctaSizingClassName}`}
               style={{
                 fontFamily: "var(--font-mono)",
                 color: "var(--landing-bg)",
@@ -367,7 +370,7 @@ export function HeroSection({
             <a
               href="/sign-in"
               onClick={() => trackLandingCtaClicked({ cta_name: "get_started" })}
-              className={`inline-flex items-center gap-2 transition-all duration-200 hover:opacity-80 ${largeCtas ? "px-8 py-3 text-base" : "px-6 py-2 text-sm"}`}
+              className={`inline-flex items-center gap-2 transition-all duration-200 hover:opacity-80 ${ctaSizingClassName}`}
               style={{
                 fontFamily: "var(--font-mono)",
                 color: "var(--landing-bg)",
@@ -389,7 +392,7 @@ export function HeroSection({
                 surface="landing"
                 target="_blank"
                 rel="noopener noreferrer"
-                className={`inline-flex items-center gap-2 transition-all duration-200 hover:opacity-80 ${largeCtas ? "px-8 py-3 text-base" : "px-6 py-2 text-sm"}`}
+                className={`inline-flex items-center gap-2 transition-all duration-200 hover:opacity-80 ${ctaSizingClassName}`}
                 style={{
                   fontFamily: "var(--font-mono)",
                   color: "var(--landing-text)",
@@ -406,7 +409,7 @@ export function HeroSection({
               <Link
                 href={secondaryCta?.href ?? "/templates"}
                 onClick={secondaryCta === undefined ? () => trackLandingCtaClicked({ cta_name: "templates" }) : undefined}
-                className={`inline-flex items-center gap-2 transition-all duration-200 hover:opacity-80 ${largeCtas ? "px-8 py-3 text-base" : "px-6 py-2 text-sm"}`}
+                className={`inline-flex items-center gap-2 transition-all duration-200 hover:opacity-80 ${ctaSizingClassName}`}
                 style={{
                   fontFamily: "var(--font-mono)",
                   color: "var(--landing-text)",

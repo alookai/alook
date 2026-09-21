@@ -67,6 +67,7 @@ describe("landing content contract", () => {
     expect(heroSource).toMatch(
       /<GithubOutboundLink[\s\S]*?surface="landing"[\s\S]*?target="_blank"[\s\S]*?rel="noopener noreferrer"[\s\S]*?<svg[^>]*aria-hidden="true"[\s\S]*?\{secondaryCta\.label\}[\s\S]*?<\/GithubOutboundLink>/,
     )
+    expect(heroSource).toContain('"px-3 py-3 text-[clamp(0.6875rem,3vw,1rem)] whitespace-nowrap sm:px-8"')
     expect(heroSource).toContain('<svg className="size-5 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">')
   })
 
