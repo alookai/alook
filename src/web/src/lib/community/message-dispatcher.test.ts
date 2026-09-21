@@ -637,6 +637,29 @@ describe("dispatchCommittedMessage", () => {
     })
   })
 
+  it("logs a bot-wake queue rejection while preserving fail-open dispatch", async () => {
+    mockResolveRecipients.mockResolvedValue(["author_1", "bot_1"])
+    mockResolveEligibility.mockResolvedValue(new Map([["bot_1", state()]]))
+    mockFindWakeCandidates.mockResolvedValue([{
+      botUserId: "bot_1",
+      name: "Bot",
+      discriminator: "0001",
+      instruction: "",
+      machineId: "m1",
+      runtime: "codex",
+    }])
+    mockEnqueueQueueTasks
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("wake queue unavailable"))
+
+    await expect(dispatchCommittedMessage({} as never, "msg_1")).resolves.toBeUndefined()
+
+    expect(mockLogWarn).toHaveBeenCalledWith("committed_message_wake_queue_delivery_failed", {
+      messageId: "msg_1",
+      err: "Error: wake queue unavailable",
+    })
+  })
+
   it("enqueues deterministic candidates when the gate unexpectedly rejects", async () => {
     mockResolveRecipients.mockResolvedValue(["author_1", "bot_1"])
     mockResolveEligibility.mockResolvedValue(new Map([["bot_1", state()]]))
