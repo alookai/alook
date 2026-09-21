@@ -229,7 +229,7 @@ describe("selectJevWakeCandidates", () => {
         },
       },
       questions: {
-        bot_0: {
+        "Jarvis#9866": {
           type: "noul",
           instructions: {
             bot: {
@@ -258,9 +258,9 @@ describe("selectJevWakeCandidates", () => {
         return {
           model: "typesafe/jev-1.13",
           answers: {
-            bot_0: { type: "noul", noul: 0.49 },
-            bot_1: { type: "noul", noul: 0.5 },
-            bot_2: { type: "choice", noul: 1 },
+            "Jarvis#9866": { type: "noul", noul: 0.49 },
+            "Jarvis#0002": { type: "noul", noul: 0.5 },
+            "Jarvis#0003": { type: "choice", noul: 1 },
           },
         }
       },
@@ -283,7 +283,7 @@ describe("selectJevWakeCandidates", () => {
     const invalidProvider: JevDecisionProvider = {
       name: "openrouter",
       async decide() {
-        return { model: "typesafe/jev-1.13", answers: { bot_0: answer } }
+        return { model: "typesafe/jev-1.13", answers: { "Jarvis#9866": answer } }
       },
     }
     await expect(selectJevWakeCandidates(input, openRouterEnv, {
@@ -438,8 +438,8 @@ describe("selectJevWakeCandidates", () => {
     expect(requests[0]).toMatchObject({
       state: { message: { text: "", attachment_content_types: ["image/png"] } },
       questions: {
-        bot_0: { instructions: { bot: { directly_mentioned: true, is_reply_target: false } } },
-        bot_1: { instructions: { bot: { directly_mentioned: false, is_reply_target: true } } },
+        "Jarvis#9866": { instructions: { bot: { directly_mentioned: true, is_reply_target: false } } },
+        "Samara#8738": { instructions: { bot: { directly_mentioned: false, is_reply_target: true } } },
       },
     })
   })

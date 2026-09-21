@@ -1,10 +1,10 @@
 import { OpenRouter } from "@openrouter/sdk"
 import { TypeSafeClient } from "@typesafe-ai/sdk"
-import { createLogger } from "@alook/shared"
+import { createLogger, formatHandle } from "@alook/shared"
 
 const log = createLogger({ service: "jev-wake-gate" })
 
-const PROMPT_VERSION = "wake-v1"
+const PROMPT_VERSION = "wake-v2"
 const MAX_CANDIDATES = 100
 const MAX_QUESTIONS_PER_BATCH = 20
 const MAX_BATCH_BYTES = 128 * 1024
@@ -331,8 +331,8 @@ export async function selectJevWakeCandidates(
   try {
     const selected = await Promise.all(batches.map(async (batch, batchIndex) => {
       const mapping = new Map<string, JevWakeGateInput["candidates"][number]>()
-      const questions = Object.fromEntries(batch.map((candidate, index) => {
-        const key = `bot_${index}`
+      const questions = Object.fromEntries(batch.map((candidate) => {
+        const key = formatHandle(candidate.name ?? "", candidate.discriminator)
         mapping.set(key, candidate)
         return [key, makeQuestion(candidate)]
       }))
