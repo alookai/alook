@@ -166,6 +166,19 @@ async function deleteSeedRelationship(key: UserKey, id: string): Promise<Respons
   }))
 }
 
+// Remove an accepted friendship while preserving any existing DM and history.
+// Use after seedDm/seedDmMessage when a spec needs the post-unfriend read-only
+// state; creating a DM directly as non-friends is no longer a valid fixture.
+export async function seedRemoveFriendship(
+  requester: UserKey,
+  targetUserId: string,
+): Promise<void> {
+  const friendshipId = await findFriendshipId(requester, targetUserId)
+  if (!friendshipId) throw new Error("seedRemoveFriendship: accepted friendship not found")
+  const response = await deleteSeedRelationship(requester, friendshipId)
+  if (!response.ok) throw new Error(`seedRemoveFriendship failed (${response.status})`)
+}
+
 async function acceptSeedFriendship(
   requester: UserKey,
   addressee: UserKey,
