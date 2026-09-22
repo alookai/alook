@@ -170,9 +170,9 @@ describe("planCommittedMessage", () => {
     mockGetChannel.mockResolvedValue(channel)
     mockListAttachments.mockResolvedValue([])
     mockListAttention.mockResolvedValue([
-      { userId: "u_mentions", kind: "mention", isExplicit: true },
-      { userId: "u_mention_only", kind: "mention", isExplicit: true },
-      { userId: "bot_1", kind: "mention", isExplicit: true },
+      { userId: "u_mentions", kind: "mention" },
+      { userId: "u_mention_only", kind: "mention" },
+      { userId: "bot_1", kind: "mention" },
     ])
     mockResolveRecipients.mockImplementation(async (_db, channelId: string) =>
       channelId === "c1"
@@ -213,8 +213,6 @@ describe("planCommittedMessage", () => {
     expect(plan.wakeGateInput.candidates).toEqual([
       expect.objectContaining({
         botUserId: "bot_1",
-        directlyMentioned: true,
-        isReplyTarget: false,
       }),
     ])
     expect(plan.pushUserIds).toEqual(["u_all", "u_mentions", "bot_1", "u_mention_only"])
@@ -334,9 +332,7 @@ describe("planCommittedMessage", () => {
       authorIsBot: true,
       content: "previous message",
     }))
-    mockListAttention.mockResolvedValue([
-      { userId: "bot_1", kind: "mention", isExplicit: false },
-    ])
+    mockListAttention.mockResolvedValue([{ userId: "bot_1", kind: "mention" }])
     mockListAttachments.mockResolvedValue([{
       id: "att_1",
       targetId: "c1",
@@ -361,7 +357,6 @@ describe("planCommittedMessage", () => {
     expect(plan.wakeGateInput.message).toEqual({
       text: "",
       type: "system",
-      broadcastMention: true,
       attachmentContentTypes: ["image/png"],
     })
     expect(plan.wakeGateInput.candidates).toEqual([
@@ -369,39 +364,9 @@ describe("planCommittedMessage", () => {
         botUserId: "bot_1",
         name: null,
         instruction: "",
-        directlyMentioned: false,
-        isReplyTarget: true,
       }),
     ])
     expect(JSON.stringify(plan.wakeGateInput)).not.toContain("private-name.png")
-  })
-
-  it("keeps committed explicit mention provenance when the bot handle changed", async () => {
-    mockGetMessage.mockResolvedValue({
-      ...message,
-      content: "@OldName#0001 please investigate",
-    })
-    mockListAttention.mockResolvedValue([
-      { userId: "bot_1", kind: "mention", isExplicit: true },
-    ])
-    mockFindWakeCandidates.mockResolvedValue([{
-      botUserId: "bot_1",
-      name: "NewName",
-      discriminator: "0001",
-      instruction: "Own support triage",
-      machineId: "m1",
-      runtime: "codex",
-    }])
-
-    const plan = await planCommittedMessage({} as never, "msg_1")
-
-    expect(plan.wakeGateInput.candidates).toEqual([
-      expect.objectContaining({
-        botUserId: "bot_1",
-        name: "NewName",
-        directlyMentioned: true,
-      }),
-    ])
   })
 
   it("builds scoped reply, opener, and recent context once with public author handles", async () => {
@@ -545,26 +510,25 @@ describe("planCommittedMessage", () => {
     )
   })
 
-  it("keeps an explicit bot mention when it co-occurs with @everyone", async () => {
+  it("keeps the raw bot handle when it co-occurs with @everyone", async () => {
     mockGetMessage.mockResolvedValue({
       ...message,
       content: "@everyone @Bot#0001 please investigate",
       mentionType: "everyone",
     })
-    mockListAttention.mockResolvedValue([
-      { userId: "bot_1", kind: "mention", isExplicit: true },
-    ])
+    mockListAttention.mockResolvedValue([{ userId: "bot_1", kind: "mention" }])
 
     const plan = await planCommittedMessage({} as never, "msg_1")
 
-    expect(plan.wakeGateInput.message.broadcastMention).toBe(true)
+    expect(plan.wakeGateInput.message.text).toBe("@everyone @Bot#0001 please investigate")
     expect(plan.wakeGateInput.candidates).toEqual([
       expect.objectContaining({
         botUserId: "bot_1",
-        directlyMentioned: true,
-        isReplyTarget: false,
       }),
     ])
+    expect(JSON.stringify(plan.wakeGateInput)).not.toContain("directlyMentioned")
+    expect(JSON.stringify(plan.wakeGateInput)).not.toContain("isReplyTarget")
+    expect(JSON.stringify(plan.wakeGateInput)).not.toContain("broadcastMention")
   })
 
   it("keeps forum-thread participants, mention-only attention, and parent access distinct", async () => {
@@ -825,9 +789,7 @@ describe("dispatchCommittedMessage", () => {
 
   it("enqueues the exact mobile-push union separately from gated bot wakes", async () => {
     mockResolveRecipients.mockResolvedValue(["author_1", "u_all", "bot_1"])
-    mockListAttention.mockResolvedValue([
-      { userId: "bot_1", kind: "mention", isExplicit: true },
-    ])
+    mockListAttention.mockResolvedValue([{ userId: "bot_1", kind: "mention" }])
     mockResolveEligibility.mockResolvedValue(new Map([
       ["u_all", state()],
       ["bot_1", state({ hasAttention: true })],

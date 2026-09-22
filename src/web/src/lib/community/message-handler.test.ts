@@ -465,7 +465,7 @@ describe("createCommunityMessage — @Name#0042 mention disambiguation", () => {
     })
 
     expect(mockListMembers).toHaveBeenCalledWith({}, "srv_1")
-    expect(mockCreateMessage.mock.calls.at(-1)?.[1].mentions.filter((row: { kind: string }) => row.kind === "mention")).toEqual(["alex_2"].map((userId) => ({ userId, kind: "mention", isExplicit: true })))
+    expect(mockCreateMessage.mock.calls.at(-1)?.[1].mentions.filter((row: { kind: string }) => row.kind === "mention")).toEqual(["alex_2"].map((userId) => ({ userId, kind: "mention" })))
   })
 
   it("passes each member's discriminator through as a mention candidate", async () => {
@@ -478,7 +478,7 @@ describe("createCommunityMessage — @Name#0042 mention disambiguation", () => {
       body: { content: "hey @Alex#0001" },
     })
 
-    expect(mockCreateMessage.mock.calls.at(-1)?.[1].mentions.filter((row: { kind: string }) => row.kind === "mention")).toEqual(["alex_1"].map((userId) => ({ userId, kind: "mention", isExplicit: true })))
+    expect(mockCreateMessage.mock.calls.at(-1)?.[1].mentions.filter((row: { kind: string }) => row.kind === "mention")).toEqual(["alex_1"].map((userId) => ({ userId, kind: "mention" })))
   })
 })
 
@@ -524,7 +524,7 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
     })
 
     expect(mockCreateChannelMember).not.toHaveBeenCalled()
-    expect(mockCreateMessage.mock.calls.at(-1)?.[1].mentions.filter((row: { kind: string }) => row.kind === "mention")).toEqual(["cara_1"].map((userId) => ({ userId, kind: "mention", isExplicit: true })))
+    expect(mockCreateMessage.mock.calls.at(-1)?.[1].mentions.filter((row: { kind: string }) => row.kind === "mention")).toEqual(["cara_1"].map((userId) => ({ userId, kind: "mention" })))
   })
 
   it("@everyone is clamped to the audience (author excluded → only Cara)", async () => {
@@ -539,30 +539,7 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
 
     expect(mockCreateChannelMember).not.toHaveBeenCalled()
     // Bob (non-member) not notified; only the in-audience Cara.
-    expect(mockCreateMessage.mock.calls.at(-1)?.[1].mentions.filter((row: { kind: string }) => row.kind === "mention")).toEqual(["cara_1"].map((userId) => ({ userId, kind: "mention", isExplicit: false })))
-  })
-
-  it("preserves a direct handle when it co-occurs with @everyone", async () => {
-    mockGetMessage.mockResolvedValue(messageRow({
-      content: "@everyone @Cara#0002 please investigate",
-      mentionType: "everyone",
-    }))
-
-    await createCommunityMessage({
-      db: {} as never,
-      authorId: "author_1",
-      target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
-      body: {
-        content: "@everyone @Cara#0002 please investigate",
-        mentionType: "everyone",
-      },
-    })
-
-    expect(mockCreateMessage.mock.calls.at(-1)?.[1].mentions).toContainEqual({
-      userId: "cara_1",
-      kind: "mention",
-      isExplicit: true,
-    })
+    expect(mockCreateMessage.mock.calls.at(-1)?.[1].mentions.filter((row: { kind: string }) => row.kind === "mention")).toEqual(["cara_1"].map((userId) => ({ userId, kind: "mention" })))
   })
 
   it("thread: author joins as 'spoke'; a non-audience mention is dropped (no channel auto-add)", async () => {
@@ -607,7 +584,7 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
       { userId: "author_1", source: "spoke" },
       { userId: "cara_1", source: "mention" },
     ])
-    expect(mockCreateMessage.mock.calls.at(-1)?.[1].mentions.filter((row: { kind: string }) => row.kind === "mention")).toEqual(["cara_1"].map((userId) => ({ userId, kind: "mention", isExplicit: true })))
+    expect(mockCreateMessage.mock.calls.at(-1)?.[1].mentions.filter((row: { kind: string }) => row.kind === "mention")).toEqual(["cara_1"].map((userId) => ({ userId, kind: "mention" })))
     // Thread participation is NOT a channel roster row.
     expect(mockCreateChannelMember).not.toHaveBeenCalled()
   })
@@ -631,7 +608,7 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
       { userId: "author_1", source: "spoke" },
     ])
     // Cara is still notified once by the @everyone (a mention row is written).
-    expect(mockCreateMessage.mock.calls.at(-1)?.[1].mentions.filter((row: { kind: string }) => row.kind === "mention")).toEqual(["cara_1"].map((userId) => ({ userId, kind: "mention", isExplicit: false })))
+    expect(mockCreateMessage.mock.calls.at(-1)?.[1].mentions.filter((row: { kind: string }) => row.kind === "mention")).toEqual(["cara_1"].map((userId) => ({ userId, kind: "mention" })))
   })
 
   it("thread: a direct REPLY under @everyone still enrolls the replied-to user", async () => {
@@ -737,7 +714,7 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
     })
 
     expect(mockCreateChannelMember).not.toHaveBeenCalled()
-    expect(mockCreateMessage.mock.calls.at(-1)?.[1].mentions.filter((row: { kind: string }) => row.kind === "mention")).toEqual(["bob_1"].map((userId) => ({ userId, kind: "mention", isExplicit: true })))
+    expect(mockCreateMessage.mock.calls.at(-1)?.[1].mentions.filter((row: { kind: string }) => row.kind === "mention")).toEqual(["bob_1"].map((userId) => ({ userId, kind: "mention" })))
   })
 
   it("does not await a pending dispatcher on the normal delivery path", async () => {
@@ -797,7 +774,7 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
       { userId: "cara_1", source: "mention" },
     ])
     // ...and mention ROW persistence still runs (rows are not a broadcast).
-    expect(mockCreateMessage.mock.calls.at(-1)?.[1].mentions.filter((row: { kind: string }) => row.kind === "mention")).toEqual(["cara_1"].map((userId) => ({ userId, kind: "mention", isExplicit: true })))
+    expect(mockCreateMessage.mock.calls.at(-1)?.[1].mentions.filter((row: { kind: string }) => row.kind === "mention")).toEqual(["cara_1"].map((userId) => ({ userId, kind: "mention" })))
     // Real-time delivery shell FULLY dropped: no WS fan-out of any kind.
     expect(mockDispatchCommittedMessage).not.toHaveBeenCalled()
     // ...and no deferred thunk handed back either (unlike deferBroadcast).

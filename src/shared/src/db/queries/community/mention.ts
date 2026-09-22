@@ -9,14 +9,13 @@ import {
   advanceReadStateRevisionWhenBuilder,
 } from "./read-state";
 
-// communityMention emits 6 bind params/row (id $defaultFn, message_id, user_id,
-// kind default, explicit flag, read default), so a single INSERT caps at
-// floor(100/6)=16 rows.
-const MENTION_INSERT_MAX_ROWS = maxRowsPerInsert(6);
+// communityMention emits 5 bind params/row (id $defaultFn, message_id, user_id,
+// kind default, read default), so a single INSERT caps at floor(100/5)=20 rows.
+const MENTION_INSERT_MAX_ROWS = maxRowsPerInsert(5);
 
 export async function createMentions(
   db: Database,
-  data: { messageId: string; userIds: string[]; kind?: MentionKind; isExplicit: boolean }
+  data: { messageId: string; userIds: string[]; kind?: MentionKind }
 ) {
   if (data.userIds.length === 0) return [];
 
@@ -33,7 +32,6 @@ export async function createMentions(
               messageId: data.messageId,
               userId,
               kind,
-              isExplicit: data.isExplicit,
             }))
           )
           .returning()
@@ -62,22 +60,18 @@ export async function listMessageMentionUserIds(
 export async function listMessageAttentionTargets(
   db: Database,
   messageId: string,
-): Promise<Array<{ userId: string; kind: MentionKind; isExplicit: boolean }>> {
+): Promise<Array<{ userId: string; kind: MentionKind }>> {
   const rows = await db
-    .select({
-      userId: communityMention.userId,
-      kind: communityMention.kind,
-      isExplicit: communityMention.isExplicit,
-    })
+    .select({ userId: communityMention.userId, kind: communityMention.kind })
     .from(communityMention)
     .where(eq(communityMention.messageId, messageId));
-  const targets = new Map<string, (typeof rows)[number]>();
-  for (const row of rows) {
+  const seen = new Set<string>();
+  return rows.filter((row) => {
     const key = `${row.userId}:${row.kind}`;
-    const existing = targets.get(key);
-    if (!existing || (!existing.isExplicit && row.isExplicit)) targets.set(key, row);
-  }
-  return [...targets.values()].map((row) => ({ ...row, kind: row.kind as MentionKind }));
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).map((row) => ({ ...row, kind: row.kind as MentionKind }));
 }
 
 export async function listUnreadMentions(

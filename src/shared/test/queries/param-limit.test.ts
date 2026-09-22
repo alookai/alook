@@ -39,13 +39,13 @@ function paramsPerRow(table: Parameters<typeof fakeDb.insert>[0], row: Record<st
 }
 
 describe("real emitted params per row (pins the insert caps)", () => {
-  it("communityMention = 6", () => {
+  it("communityMention = 5", () => {
     const p = paramsPerRow(communityMention, {
       messageId: "m1",
       userId: "u1",
       kind: "mention",
     });
-    expect(p).toBe(6);
+    expect(p).toBe(5);
   });
 
   it("communityReadState = 6", () => {
@@ -101,36 +101,31 @@ function makeInsertCapture() {
 }
 
 describe("createMentions chunking", () => {
-  it("100 userIds → 7 insert statements of ≤16 rows, returns all 100", async () => {
+  it("100 userIds → 5 insert statements of ≤20 rows, returns all 100", async () => {
     const { db, inserts } = makeInsertCapture();
     const userIds = Array.from({ length: 100 }, (_, i) => `u${i}`);
     const rows = await mentionQueries.createMentions(db, {
       messageId: "m1",
       userIds,
-      isExplicit: true,
     });
-    // 6 params/row → cap 16 → 100/16 = 6 full statements plus 4.
-    expect(inserts).toEqual([16, 16, 16, 16, 16, 16, 4]);
-    for (const n of inserts) expect(n * 6).toBeLessThanOrEqual(D1_MAX_BIND_PARAMS);
+    // 5 params/row → cap 20 → 100/20 = 5 statements.
+    expect(inserts).toEqual([20, 20, 20, 20, 20]);
+    for (const n of inserts) expect(n * 5).toBeLessThanOrEqual(D1_MAX_BIND_PARAMS);
     expect(rows).toHaveLength(100);
   });
 
   it("empty userIds → no insert", async () => {
     const { db, inserts } = makeInsertCapture();
-    const rows = await mentionQueries.createMentions(db, {
-      messageId: "m1",
-      userIds: [],
-      isExplicit: false,
-    });
+    const rows = await mentionQueries.createMentions(db, { messageId: "m1", userIds: [] });
     expect(inserts).toEqual([]);
     expect(rows).toEqual([]);
   });
 
-  it("21 userIds → 2 statements (16 + 5)", async () => {
+  it("21 userIds → 2 statements (20 + 1)", async () => {
     const { db, inserts } = makeInsertCapture();
     const userIds = Array.from({ length: 21 }, (_, i) => `u${i}`);
-    await mentionQueries.createMentions(db, { messageId: "m1", userIds, isExplicit: true });
-    expect(inserts).toEqual([16, 5]);
+    await mentionQueries.createMentions(db, { messageId: "m1", userIds });
+    expect(inserts).toEqual([20, 1]);
   });
 });
 

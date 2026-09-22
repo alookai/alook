@@ -522,16 +522,8 @@ export async function createCommunityMessage(params: {
     attachmentIds,
     participants,
     mentions: [
-      ...[...mentionTargets].map((userId) => ({
-        userId,
-        kind: MENTION_KIND.MENTION,
-        isExplicit: explicitMentionTargets.has(userId),
-      })),
-      ...[...replyTargets].map((userId) => ({
-        userId,
-        kind: MENTION_KIND.REPLY,
-        isExplicit: false,
-      })),
+      ...[...mentionTargets].map((userId) => ({ userId, kind: MENTION_KIND.MENTION })),
+      ...[...replyTargets].map((userId) => ({ userId, kind: MENTION_KIND.REPLY })),
     ],
     forumThread: params.forumThread,
   }

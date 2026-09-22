@@ -50,8 +50,6 @@ const candidate = {
   name: "Jarvis",
   discriminator: "9866",
   instruction: "Own release coordination",
-  directlyMentioned: true,
-  isReplyTarget: false,
 }
 
 const input: JevWakeGateInput = {
@@ -60,7 +58,6 @@ const input: JevWakeGateInput = {
   message: {
     text: "Please review this",
     type: "default",
-    broadcastMention: false,
     attachmentContentTypes: [],
   },
   conversation: { available: true, messages: [], truncated: false },
@@ -236,14 +233,15 @@ describe("selectJevWakeCandidates", () => {
               name: "Jarvis",
               discriminator: "9866",
               standing_responsibility: "Own release coordination",
-              directly_mentioned: true,
-              is_reply_target: false,
             },
           },
         },
       },
     })
     expect(JSON.stringify(request)).not.toContain("bot_1")
+    expect(JSON.stringify(request)).not.toContain("directly_mentioned")
+    expect(JSON.stringify(request)).not.toContain("is_reply_target")
+    expect(JSON.stringify(request)).not.toContain("broadcast_mention")
   })
 
   it("serializes shared conversation chronologically without internal selection metadata", async () => {
@@ -532,8 +530,6 @@ describe("selectJevWakeCandidates", () => {
         name: "Samara",
         discriminator: "8738",
         instruction: "",
-        directlyMentioned: false,
-        isReplyTarget: true,
       },
     ]
     const selected = await selectJevWakeCandidates({
@@ -543,7 +539,6 @@ describe("selectJevWakeCandidates", () => {
         ...input.message,
         text: "",
         type: "system",
-        broadcastMention: true,
         attachmentContentTypes: ["image/png"],
       },
       candidates,
@@ -555,10 +550,13 @@ describe("selectJevWakeCandidates", () => {
     expect(requests[0]).toMatchObject({
       state: { message: { text: "", attachment_content_types: ["image/png"] } },
       questions: {
-        "Jarvis#9866": { instructions: { bot: { directly_mentioned: true, is_reply_target: false } } },
-        "Samara#8738": { instructions: { bot: { directly_mentioned: false, is_reply_target: true } } },
+        "Jarvis#9866": { instructions: { bot: { name: "Jarvis" } } },
+        "Samara#8738": { instructions: { bot: { name: "Samara" } } },
       },
     })
+    expect(JSON.stringify(requests[0])).not.toContain("directly_mentioned")
+    expect(JSON.stringify(requests[0])).not.toContain("is_reply_target")
+    expect(JSON.stringify(requests[0])).not.toContain("broadcast_mention")
   })
 
   it("batches 21 candidates into 20 plus 1", async () => {

@@ -2,7 +2,6 @@ import { getCloudflareContext } from "@opennextjs/cloudflare"
 import {
   deriveCommunityDeliveryOperationId,
   formatHandle,
-  MENTION_KIND,
   reachIsParticipantSet,
   WS_EVENTS,
   createLogger,
@@ -299,9 +298,6 @@ async function planCommittedMessageBase(
     (candidate) => notificationSet.has(candidate.botUserId) && allowed(candidate.botUserId),
   )
   const shouldBuildWakeContext = channel.type !== "dm" && eligibleWakeCandidates.length > 0
-  const explicitlyMentionedBotIds = new Set(attentionTargets
-    .filter((target) => target.kind === MENTION_KIND.MENTION && target.isExplicit)
-    .map((target) => target.userId))
   const wakeBotUserIds = unique(eligibleWakeCandidates.map((candidate) => candidate.botUserId))
   const pushUserIds = unique([
     ...unreadPlainUserIds,
@@ -396,7 +392,6 @@ async function planCommittedMessageBase(
       message: {
         text: message.content,
         type: message.type,
-        broadcastMention: message.mentionType === "everyone",
         attachmentContentTypes: attachments.map((attachment) => attachment.contentType),
       },
       conversation: emptyWakeConversation(),
@@ -405,8 +400,6 @@ async function planCommittedMessageBase(
         name: candidate.name,
         discriminator: candidate.discriminator,
         instruction: candidate.instruction,
-        directlyMentioned: explicitlyMentionedBotIds.has(candidate.botUserId),
-        isReplyTarget: replyTarget?.authorId === candidate.botUserId,
       })),
     },
     pushUserIds,
