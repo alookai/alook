@@ -4,6 +4,14 @@ compatibility_date = "2026-09-07"
 compatibility_flags = ["nodejs_compat"]
 workers_dev = false
 
+[vars]
+# Public Firebase Android application identifier; not a credential.
+FCM_ANDROID_APP_ID = "1:190599692413:android:316a5d23e2888ac6ce7114"
+
+[triggers]
+# FCM Data API rows can lag by up to five days, so one daily pull is sufficient.
+crons = ["17 3 * * *"]
+
 [observability]
 enabled = true
 head_sampling_rate = 0.1

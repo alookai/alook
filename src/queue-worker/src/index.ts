@@ -5,6 +5,8 @@ import {
   parseQueueTaskBatch,
 } from "@alook/shared"
 import type { AlookQueueTask, Database } from "@alook/shared"
+import { collectFcmDeliveryMetrics } from "./fcm-delivery-metrics"
+import { getPushProviderDiagnostic } from "./providers/diagnostics"
 import { executeQueueTask } from "./task-handler"
 
 const log = createLogger({ service: "queue-worker" })
@@ -99,6 +101,27 @@ export default {
         })
         msg.retry({ delaySeconds: 5 })
       }
+    }
+  },
+
+  /**
+   * Fetches privacy-thresholded, aggregate FCM Android delivery trends.
+   * This path is independent from queue processing and never receives a push
+   * payload, registration token, user ID, device ID, or message ID.
+   */
+  async scheduled(
+    _controller: ScheduledController,
+    env: Env,
+    _ctx: ExecutionContext,
+  ): Promise<void> {
+    try {
+      await collectFcmDeliveryMetrics(env)
+    } catch (error) {
+      log.warn("fcm_delivery_metrics_failed", getPushProviderDiagnostic(
+        error,
+        "fcm",
+        "delivery_data_fetch",
+      ))
     }
   },
 

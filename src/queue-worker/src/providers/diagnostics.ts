@@ -1,11 +1,14 @@
 export type PushProvider = "apns" | "fcm"
 
 export type PushProviderStage =
+  | "configuration"
   | "decrypt"
   | "credential_fingerprint"
   | "key_import"
   | "sign"
   | "oauth_fetch"
+  | "delivery_data_fetch"
+  | "delivery_data_parse"
   | "provider_send"
 
 const SAFE_ERROR_NAMES = new Set([
@@ -40,7 +43,11 @@ const SAFE_HTTP_STATUSES = new Set([
   504,
 ])
 
-const HTTP_STAGES = new Set<PushProviderStage>(["oauth_fetch", "provider_send"])
+const HTTP_STAGES = new Set<PushProviderStage>([
+  "oauth_fetch",
+  "delivery_data_fetch",
+  "provider_send",
+])
 
 function safeErrorName(error: unknown): string {
   if (!(error instanceof Error)) return "unknown"
