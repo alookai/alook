@@ -36,6 +36,7 @@ vi.mock("@alook/shared", async () => {
 
 vi.mock("@/lib/community/permissions", () => ({
   requireMessageSurfaceAccess: (...a: unknown[]) => mockRequireSurfaceAccess(...a),
+  requireMessageSurfaceCommunicationAccess: (...a: unknown[]) => mockRequireSurfaceAccess(...a),
 }));
 
 vi.mock("@/lib/community/fanout", () => ({

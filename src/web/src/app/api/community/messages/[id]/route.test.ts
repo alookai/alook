@@ -29,6 +29,7 @@ const mockGetPrivateChannelAudienceUserIds = vi.fn()
 const mockGetDM = vi.fn()
 const mockGetDMPeer = vi.fn()
 const mockIsBlocked = vi.fn()
+const mockAreFriends = vi.fn()
 const mockListByMessageIds = vi.fn()
 const mockListReactionsByMessageIds = vi.fn()
 const mockGetMessageByChannelAndSeq = vi.fn()
@@ -89,6 +90,7 @@ vi.mock("@alook/shared", async () => {
       },
       communityFriendship: {
         isBlocked: (...a: unknown[]) => mockIsBlocked(...a),
+        areFriends: (...a: unknown[]) => mockAreFriends(...a),
       },
     },
   }
@@ -403,6 +405,8 @@ describe("PATCH /api/community/messages/[id]", () => {
     mockGetMessage.mockResolvedValue({ id: "m1", channelId: "c1", authorId: "u1", content: "old" })
     mockUpdateOwnMessageContent.mockResolvedValue({ id: "m1", channelId: "c1", content: "new" })
     mockFanOutToChannel.mockResolvedValue(undefined)
+    mockIsBlocked.mockResolvedValue(false)
+    mockAreFriends.mockResolvedValue(true)
   })
 
   function editReq(content: unknown, bot = false) {
@@ -479,6 +483,20 @@ describe("PATCH /api/community/messages/[id]", () => {
       messageId: "m1",
       content: "new",
     })
+  })
+
+  it("denies editing an old DM message after unfriend", async () => {
+    mockGetChannel.mockResolvedValue({ id: "dm_1", serverId: null, type: "dm" })
+    mockGetMessage.mockResolvedValue({ id: "m1", channelId: "dm_1", authorId: "u1", content: "old" })
+    mockGetDM.mockResolvedValue({ id: "dm_1", lastMessageAt: null, createdAt: "2026-09-22" })
+    mockGetDMPeer.mockResolvedValue({ otherUserId: "u2" })
+    mockAreFriends.mockResolvedValue(false)
+
+    const res = await PATCH(editReq("new"), { params: { id: "m1" } } as any)
+
+    expect(res.status).toBe(403)
+    expect(await res.json()).toEqual({ error: "accepted friendship required" })
+    expect(mockUpdateOwnMessageContent).not.toHaveBeenCalled()
   })
 
   it("rejects bot credentials and empty content", async () => {

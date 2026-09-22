@@ -1,6 +1,9 @@
 import { queries } from "@alook/shared"
 import type { Database } from "@alook/shared"
-import { requireMessageSurfaceAccess } from "@/lib/community/permissions"
+import {
+  requireMessageSurfaceAccess,
+  requireMessageSurfaceCommunicationAccess,
+} from "@/lib/community/permissions"
 import { requireReactableSurface } from "@/lib/community/channel-write-guard"
 
 type ReactionAccessScope =
@@ -20,6 +23,7 @@ export async function authorizeReaction(
   db: Database,
   messageId: string,
   userId: string,
+  intent: "read-or-remove" | "add" = "read-or-remove",
 ): Promise<ReactionAccessResult> {
   const message = await queries.communityMessage.getMessage(db, messageId)
   if (!message) return { ok: false, status: 404, error: "message not found" }
@@ -27,7 +31,9 @@ export async function authorizeReaction(
   // Preserve the existing surface-specific no-access contract before exposing
   // whether this message's channel supports emoji. In particular, a private
   // forum must remain 403 to a non-member rather than leaking its type via 400.
-  const access = await requireMessageSurfaceAccess(db, message.channelId, userId)
+  const access = intent === "add"
+    ? await requireMessageSurfaceCommunicationAccess(db, message.channelId, userId)
+    : await requireMessageSurfaceAccess(db, message.channelId, userId)
   if (!access.ok) return access
 
   const channelType = await queries.communityChannel.getChannelType(db, message.channelId)

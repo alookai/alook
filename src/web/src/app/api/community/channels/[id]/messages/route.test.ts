@@ -30,6 +30,7 @@ const mockGetUserInternal = vi.fn()
 const mockGetDM = vi.fn()
 const mockGetDMPeer = vi.fn()
 const mockIsBlocked = vi.fn()
+const mockAreFriends = vi.fn()
 const mockCreateOrGetDM = vi.fn()
 const mockListMessagesBySeq = vi.fn()
 const mockToAgentMessages = vi.fn()
@@ -134,6 +135,7 @@ vi.mock("@alook/shared", async () => {
       },
       communityFriendship: {
         isBlocked: (...a: unknown[]) => mockIsBlocked(...a),
+        areFriends: (...a: unknown[]) => mockAreFriends(...a),
       },
       // Bot read arm (GET dual-actor): seq-window + agent-message projection.
       communityAgentInbox: {
@@ -276,6 +278,9 @@ describe("POST /api/community/channels/[id]/messages", () => {
     mockAddThreadParticipant.mockResolvedValue(null)
     mockListThreadParticipantUserIds.mockResolvedValue([])
     mockBroadcastToUserSafe.mockResolvedValue(undefined)
+    mockIsBlocked.mockResolvedValue(false)
+    mockAreFriends.mockResolvedValue(true)
+    mockGetDMBetween.mockResolvedValue(null)
   })
 
   it("starts the write path on a first-primary D1 session", async () => {
@@ -306,6 +311,19 @@ describe("POST /api/community/channels/[id]/messages", () => {
     mockIsBlocked.mockResolvedValue(true)
     const res = await POST(postReq({ content: "sneaking past block" }), ctx)
     expect(res.status).toBe(403)
+    expect(mockCreateMessage).not.toHaveBeenCalled()
+  })
+
+  it("keeps an existing DM readable but denies a human send after unfriend", async () => {
+    mockGetChannel.mockResolvedValue({ id: "c1", serverId: null, type: "dm", parentChannelId: null })
+    mockGetDM.mockResolvedValue({ id: "c1", lastMessageAt: "t", createdAt: "t0" })
+    mockGetDMPeer.mockResolvedValue({ otherUserId: "u2" })
+    mockAreFriends.mockResolvedValue(false)
+
+    const res = await POST(postReq({ content: "after unfriend" }), ctx)
+
+    expect(res.status).toBe(403)
+    expect(await res.json()).toEqual({ error: "accepted friendship required" })
     expect(mockCreateMessage).not.toHaveBeenCalled()
   })
 
@@ -760,6 +778,26 @@ describe("POST /api/community/channels/[id]/messages", () => {
     expect(dmRes.status).toBe(200)
     expect(forumRes.status).toBe(200)
     expect(mockAddThreadParticipant).not.toHaveBeenCalled()
+  })
+
+  it("denies a CLI bot DM send when the friendship is no longer accepted", async () => {
+    mockGetUserByNameAndDiscriminator.mockResolvedValue({ id: "peer_1", discriminator: "0001" })
+    mockGetDMBetween.mockResolvedValue({ id: "dm_1" })
+    mockGetChannel.mockResolvedValue({ id: "dm_1", serverId: null, type: "dm", parentChannelId: null })
+    mockGetDM.mockResolvedValue({ id: "dm_1", lastMessageAt: "t", createdAt: "t0" })
+    mockGetDMPeer.mockResolvedValue({ otherUserId: "peer_1" })
+    mockIsBlocked.mockResolvedValue(false)
+    mockAreFriends.mockResolvedValue(false)
+
+    const res = await POST(botPostReq({
+      channel: "/.dm/peer#0001",
+      content: { text: "after unfriend" },
+    }), ctx)
+
+    expect(res.status).toBe(403)
+    expect(await res.json()).toEqual({ error: "accepted friendship required" })
+    expect(mockCreateOrGetDM).not.toHaveBeenCalled()
+    expect(mockCreateMessage).not.toHaveBeenCalled()
   })
 
   it("bot full-command replay bypasses alignment and pending checks after the first committed send", async () => {

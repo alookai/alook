@@ -16,9 +16,10 @@ import {
  * Message-keyed reaction door (route/disc trunk — message-keyed faces dual-actor).
  * withCommunityActor: both human (session) and bot (crk_, the folded `reactAdd`
  * verb) hit this one route. Authorization is credential-scoped — `authorizeReaction`
- * resolves the message → its channel → the per-surface gate (requireDMAccess for a
- * DM incl block, requireChannelMember otherwise) keyed on `ctx.actor.userId`, so a
- * bot reaction runs the SAME mask a human does (no bot bypass). The bot's ref+seq→
+ * resolves the message → its channel → the communication surface gate (DM
+ * participant + block + accepted friendship, channel member otherwise) keyed
+ * on `ctx.actor.userId`, so a bot reaction runs the SAME mask a human does (no
+ * bot bypass). The bot's ref+seq→
  * messageId resolution happens upstream at the flat-verb→door retarget (proxy); this
  * route is message-keyed (messageId in path) for both actors.
  */

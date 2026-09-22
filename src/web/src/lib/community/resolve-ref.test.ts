@@ -58,6 +58,9 @@ const db = {} as never
 describe("resolveTargetForMember", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockGetDMBetween.mockResolvedValue(null)
+    mockIsBlocked.mockResolvedValue(false)
+    mockAreFriends.mockResolvedValue(true)
   })
 
   it("400 malformed channel ref for a ref not starting with /", async () => {
@@ -112,6 +115,23 @@ describe("resolveTargetForMember", () => {
       mockIsBlocked.mockResolvedValue(true)
       const res = await resolveTargetForMember(db, "u_1", "/.dm/peer#0001", { createDmIfMissing: true })
       expect(res).toEqual({ error: 403, message: "blocked" })
+      expect(mockCreateOrGetDM).not.toHaveBeenCalled()
+    })
+
+    it("with createDmIfMissing: an existing DM defers communication policy to the shared message gate", async () => {
+      mockGetUserByNameAndDiscriminator.mockResolvedValue({ id: "peer_1", discriminator: "0001" })
+      mockGetDMBetween.mockResolvedValue({ id: "dm_1" })
+
+      const res = await resolveTargetForMember(
+        db,
+        "u_1",
+        "/.dm/peer#0001",
+        { createDmIfMissing: true, callerKind: "bot" },
+      )
+
+      expect(res).toEqual({ kind: "dm", channelId: "dm_1", otherUserId: "peer_1" })
+      expect(mockGetUserInternal).not.toHaveBeenCalled()
+      expect(mockAreFriends).not.toHaveBeenCalled()
       expect(mockCreateOrGetDM).not.toHaveBeenCalled()
     })
 

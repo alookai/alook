@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 
 const mockResolveTargetForMember = vi.fn()
 const mockRequireMessageSurfaceAccess = vi.fn()
+const mockRequireMessageSurfaceCommunicationAccess = vi.fn()
 const mockRequireMessageBearingSurface = vi.fn()
 
 vi.mock("./resolve-ref", () => ({
@@ -9,6 +10,8 @@ vi.mock("./resolve-ref", () => ({
 }))
 vi.mock("./permissions", () => ({
   requireMessageSurfaceAccess: (...a: unknown[]) => mockRequireMessageSurfaceAccess(...a),
+  requireMessageSurfaceCommunicationAccess: (...a: unknown[]) =>
+    mockRequireMessageSurfaceCommunicationAccess(...a),
 }))
 vi.mock("./channel-write-guard", () => ({
   requireMessageBearingSurface: (...a: unknown[]) => mockRequireMessageBearingSurface(...a),
@@ -89,6 +92,25 @@ describe("resolveMessageTarget — single mask output + surface→target (Aignei
     mockRequireMessageSurfaceAccess.mockResolvedValue({ ok: false, status: 404, error: "not found" })
     const res = await resolveMessageTarget(db, "u1", { id: "c1" }, "human")
     expect(res).toEqual({ ok: false, status: 404, error: "not found" })
+  })
+
+  it("communication intent uses the stricter shared Web/CLI write gate", async () => {
+    mockRequireMessageSurfaceCommunicationAccess.mockResolvedValue({
+      ok: true,
+      value: { surface: "dm", dm: { id: "d1", otherUserId: "u2" } },
+    })
+
+    const res = await resolveMessageTarget(
+      db,
+      "u1",
+      { id: "d1" },
+      "human",
+      "communicate",
+    )
+
+    expect(res).toMatchObject({ ok: true, value: { target: { kind: "dm" } } })
+    expect(mockRequireMessageSurfaceCommunicationAccess).toHaveBeenCalledWith(db, "d1", "u1")
+    expect(mockRequireMessageSurfaceAccess).not.toHaveBeenCalled()
   })
 
   it("dm surface → dm-kind target, otherUserId consumed from the dispatch peer (no re-query)", async () => {

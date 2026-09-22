@@ -18,16 +18,12 @@ export type GuardDmOpenResult =
  *   preserves pass-as-human for the human route; a `crk_`-authenticated bot
  *   caller has no "pass as human" risk, so 404 here is just "not found",
  *   not deliberate obfuscation).
- * - Peer is a bot: allowed if `senderId` is the bot's owner, else requires
- *   `areFriends`. On friend-check failure:
- *     - `callerKind: "human"` → 404 `user_not_found` (pass-as-human).
- *     - `callerKind: "bot"` → 403 `not_friends` (crk_ authenticated; no
- *       pass-as-human risk to preserve).
- * - `requireNotBlocked` → 403 `blocked` — EXCEPT when `senderId` is the
- *   peer's owner, matching the existing human route's `isOwner` skip
- *   exactly (a deliberate behavior-preservation decision, not an oversight:
- *   a verbatim extraction without this skip would change existing
- *   production behavior for owners DMing their own bot).
+ * - Block always wins, including owner ↔ own-bot pairs.
+ * - Every human/bot pairing requires `areFriends`; that query includes the
+ *   owner ↔ own-bot implicit friendship. On friend-check failure:
+ *     - human caller targeting a bot → 404 `user_not_found` (pass-as-human).
+ *     - every other caller/peer pairing → 403 `not_friends`.
+ * - `requireNotBlocked` → 403 `blocked` before the friendship check.
  */
 export async function guardDmOpen(
   db: Database,
@@ -46,25 +42,17 @@ export async function guardDmOpen(
     return { ok: false, status: 404, error: "user not found", code: "user_not_found" }
   }
 
-  if (peer.isBot === true) {
-    const isOwner = peer.ownerUserId === senderId
-    if (!isOwner) {
-      const areFriends = await queries.communityFriendship.areFriends(db, senderId, peerId)
-      if (!areFriends) {
-        return callerKind === "bot"
-          ? { ok: false, status: 403, error: "not friends with this bot", code: "not_friends" }
-          : { ok: false, status: 404, error: "user not found", code: "user_not_found" }
-      }
+  const blocked = await requireNotBlocked(db, senderId, peerId)
+  if (!blocked.ok) {
+    return { ok: false, status: 403, error: blocked.error, code: "blocked" }
+  }
+
+  const accepted = await queries.communityFriendship.areFriends(db, senderId, peerId)
+  if (!accepted) {
+    if (peer.isBot === true && callerKind === "human") {
+      return { ok: false, status: 404, error: "user not found", code: "user_not_found" }
     }
-    if (!isOwner) {
-      const blocked = await requireNotBlocked(db, senderId, peerId)
-      // `requireNotBlocked` only ever fails with 403 — narrow the wider
-      // `PermissionError` status union to satisfy this function's return type.
-      if (!blocked.ok) return { ok: false, status: 403, error: blocked.error, code: "blocked" }
-    }
-  } else {
-    const blocked = await requireNotBlocked(db, senderId, peerId)
-    if (!blocked.ok) return { ok: false, status: 403, error: blocked.error, code: "blocked" }
+    return { ok: false, status: 403, error: "not friends", code: "not_friends" }
   }
 
   return { ok: true }

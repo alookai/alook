@@ -42,7 +42,10 @@ vi.mock("@alook/shared", async () => {
   }
 })
 vi.mock("@/lib/community/resolve-ref", () => ({ resolveTargetForMember: (...args: unknown[]) => mockResolveTargetForMember(...args) }))
-vi.mock("@/lib/community/permissions", () => ({ requireMessageSurfaceAccess: (...args: unknown[]) => mockRequireMessageSurfaceAccess(...args) }))
+vi.mock("@/lib/community/permissions", () => ({
+  requireMessageSurfaceAccess: (...args: unknown[]) => mockRequireMessageSurfaceAccess(...args),
+  requireMessageSurfaceCommunicationAccess: (...args: unknown[]) => mockRequireMessageSurfaceAccess(...args),
+}))
 vi.mock("@/lib/community/create-channels", () => ({ createMessageWithThread: (...args: unknown[]) => mockCreateMessageWithThread(...args) }))
 vi.mock("@/lib/community/message-handler", () => ({
   createCommunityMessage: vi.fn(),

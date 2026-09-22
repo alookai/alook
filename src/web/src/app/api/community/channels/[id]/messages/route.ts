@@ -186,7 +186,7 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
  * human arm) BEFORE any field is read, so a body field can't flip the actor arm.
  *
  * §3 (Ingaborg #219): the former standalone `requireChannelMember` is REPLACED
- * by `requireMessageSurfaceAccess` (via resolveMessageTarget) — the dispatch
+ * by `requireMessageSurfaceCommunicationAccess` (via resolveMessageTarget) — the dispatch
  * subsumes the member check AND returns the channel, so there is EXACTLY ONE
  * authorization entry (no standalone member/DM gate remains — a second gate
  * would be a bypass of the single mask). A bot hitting this id route passes the
@@ -237,9 +237,9 @@ async function handleHumanSend(
     return NextResponse.json({ error: "rate limited" }, { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSec) } })
   }
 
-  // SINGLE authorization entry — resolveMessageTarget → requireMessageSurfaceAccess
-  // subsumes member/DM + returns the target (no standalone requireChannelMember).
-  const resolved = await resolveMessageTarget(db, userId, descriptor, "human")
+  // SINGLE authorization entry — resolveMessageTarget's communication intent
+  // subsumes member/DM friendship + returns the target (no standalone gate).
+  const resolved = await resolveMessageTarget(db, userId, descriptor, "human", "communicate")
   if (!resolved.ok) return NextResponse.json({ error: resolved.error }, { status: resolved.status })
 
   const body = raw as { nonce?: unknown; attachments?: unknown }
@@ -321,7 +321,7 @@ async function handleBotSend(
     createDmIfMissing: true,
     createThreadIfMissing: true,
   }
-  const resolved = await resolveMessageTarget(db, botUserId, descriptor, "bot")
+  const resolved = await resolveMessageTarget(db, botUserId, descriptor, "bot", "communicate")
   if (!resolved.ok) {
     return NextResponse.json(
       { error: resolved.error, ...(resolved.hint ? { hint: resolved.hint } : {}) },

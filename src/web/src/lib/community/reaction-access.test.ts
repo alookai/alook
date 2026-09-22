@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const mockGetMessage = vi.fn()
 const mockGetChannelType = vi.fn()
 const mockRequireSurfaceAccess = vi.fn()
+const mockRequireCommunicationAccess = vi.fn()
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
@@ -23,6 +24,8 @@ vi.mock("@alook/shared", async () => {
 })
 vi.mock("@/lib/community/permissions", () => ({
   requireMessageSurfaceAccess: (...args: unknown[]) => mockRequireSurfaceAccess(...args),
+  requireMessageSurfaceCommunicationAccess: (...args: unknown[]) =>
+    mockRequireCommunicationAccess(...args),
 }))
 
 import { authorizeReaction } from "./reaction-access"
@@ -58,5 +61,19 @@ describe("authorizeReaction", () => {
       status: 400,
       error: "emoji reactions are not supported on this message surface",
     })
+  })
+
+  it("uses communication access only when adding a reaction", async () => {
+    mockRequireCommunicationAccess.mockResolvedValue({
+      ok: false,
+      status: 403,
+      error: "accepted friendship required",
+    })
+
+    const result = await authorizeReaction({} as any, "m1", "member", "add")
+
+    expect(result).toEqual({ ok: false, status: 403, error: "accepted friendship required" })
+    expect(mockRequireCommunicationAccess).toHaveBeenCalledWith({}, "private-forum", "member")
+    expect(mockRequireSurfaceAccess).not.toHaveBeenCalled()
   })
 })

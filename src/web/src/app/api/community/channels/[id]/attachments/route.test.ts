@@ -19,12 +19,15 @@ vi.mock("@/lib/auth", () => ({
 
 const mockFindActiveAgentRunnerKeyByBearer = vi.fn()
 const mockGetUserInternal = vi.fn()
+const mockGetUserByNameAndDiscriminator = vi.fn()
 const mockGetBotBinding = vi.fn()
 const mockResolveServerByNameForMember = vi.fn()
 const mockResolveChannelByNameForMember = vi.fn()
 const mockGetChannelForMember = vi.fn()
 const mockGetDM = vi.fn()
 const mockGetDMBetween = vi.fn()
+const mockGetDMPeer = vi.fn()
+const mockAreFriends = vi.fn()
 const mockCreatePendingAttachment = vi.fn()
 const mockLogError = vi.fn()
 
@@ -36,7 +39,11 @@ vi.mock("@alook/shared", async () => {
     queries: {
       ...actual.queries,
       communityMachine: { findActiveAgentRunnerKeyByBearer: (...a: unknown[]) => mockFindActiveAgentRunnerKeyByBearer(...a) },
-      user: { getUserInternal: (...a: unknown[]) => mockGetUserInternal(...a) },
+      user: {
+        getUserInternal: (...a: unknown[]) => mockGetUserInternal(...a),
+        getUserByNameAndDiscriminator: (...a: unknown[]) =>
+          mockGetUserByNameAndDiscriminator(...a),
+      },
       communityBot: { getBotBinding: (...a: unknown[]) => mockGetBotBinding(...a) },
       communityServer: { resolveServerByNameForMember: (...a: unknown[]) => mockResolveServerByNameForMember(...a) },
       communityChannel: {
@@ -46,8 +53,12 @@ vi.mock("@alook/shared", async () => {
       communityDm: {
         getDM: (...a: unknown[]) => mockGetDM(...a),
         getDMBetween: (...a: unknown[]) => mockGetDMBetween(...a),
+        getDMPeer: (...a: unknown[]) => mockGetDMPeer(...a),
       },
-      communityFriendship: { isBlocked: async () => false },
+      communityFriendship: {
+        isBlocked: async () => false,
+        areFriends: (...a: unknown[]) => mockAreFriends(...a),
+      },
       communityAttachment: {
         createPendingAttachment: (...a: unknown[]) => mockCreatePendingAttachment(...a),
       },
@@ -142,6 +153,23 @@ describe("POST /api/community/channels/[id]/attachments — bot arm (folds attac
       targetId: "c1",
       r2Key: "channel/c1/uuid/hi.png",
     }))
+  })
+
+  it("denies a bot DM attachment upload after unfriend", async () => {
+    mockGetUserByNameAndDiscriminator.mockResolvedValue({ id: "peer_1" })
+    mockGetDMBetween.mockResolvedValue({ id: "dm_1", type: "dm" })
+    mockGetDM.mockResolvedValue({ id: "dm_1", lastMessageAt: null, createdAt: "2026-09-22" })
+    mockGetDMPeer.mockResolvedValue({ otherUserId: "peer_1" })
+    mockAreFriends.mockResolvedValue(false)
+
+    const res = await POST(botReq("/.dm/Peer#0001", {
+      Authorization: "Bearer crk_abc",
+    }), botCtx)
+
+    expect(res.status).toBe(403)
+    expect(await res.json()).toEqual({ error: "accepted friendship required" })
+    expect(mockHandleAttachmentUpload).not.toHaveBeenCalled()
+    expect(mockCreatePendingAttachment).not.toHaveBeenCalled()
   })
 
   it("persists thumbnail key and dimensions, returning hasThumbnail true", async () => {

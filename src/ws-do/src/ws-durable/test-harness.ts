@@ -116,6 +116,9 @@ async function resolveChannelContentRecipientUserIdsMock(db: unknown, channelId:
 export const mockResolveChannelRecipientUserIds = vi.fn(resolveChannelContentRecipientUserIdsMock)
 export const mockWithD1Retry = vi.fn(async <T>(fn: () => Promise<T>, _opts?: unknown): Promise<T> => fn())
 export const mockGetDM = vi.fn()
+export const mockGetDMPeer = vi.fn()
+export const mockIsBlocked = vi.fn()
+export const mockAreFriends = vi.fn()
 export const mockListMembers = vi.fn()
 export const mockListBotsForMachine = vi.fn<(db: unknown, machineId: string) => Promise<Array<{ id: string; name: string; discriminator: string; description: string }>>>().mockResolvedValue([])
 export const mockIsBotOnline = vi.fn<(db: unknown, botUserId: string) => Promise<boolean>>().mockResolvedValue(false)
@@ -443,6 +446,8 @@ vi.mock("@alook/shared", async () => {
       },
       communityFriendship: {
         getFriendUserIds: (...a: [unknown, string]) => mockGetFriendUserIds(...a),
+        isBlocked: (...a: any[]) => mockIsBlocked(...a),
+        areFriends: (...a: any[]) => mockAreFriends(...a),
       },
       communityChannel: {
         listReadableChannelsForUser: (...a: unknown[]) => mockListReadableChannelsForUser(...a),
@@ -463,6 +468,7 @@ vi.mock("@alook/shared", async () => {
       },
       communityDm: {
         getDM: (...a: any[]) => mockGetDM(...a),
+        getDMPeer: (...a: any[]) => mockGetDMPeer(...a),
       },
       communityBot: {
         listBotsForMachine: (...a: [unknown, string]) => mockListBotsForMachine(...a),
@@ -544,6 +550,9 @@ export function resetHarness() {
     mockGetChannelType.mockResolvedValue("text")
     mockListThreadParticipantUserIds.mockResolvedValue([])
     mockListChannelMemberUserIds.mockResolvedValue([])
+    mockGetDMPeer.mockResolvedValue(null)
+    mockIsBlocked.mockResolvedValue(false)
+    mockAreFriends.mockResolvedValue(true)
     mockResolveScopeMemberUserIds.mockResolvedValue([])
     mockResolveChannelRecipientUserIds.mockImplementation(resolveChannelContentRecipientUserIdsMock)
     mockWithD1Retry.mockImplementation(async <T>(fn: () => Promise<T>, _opts?: unknown): Promise<T> => fn())

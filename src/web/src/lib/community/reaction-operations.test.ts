@@ -87,6 +87,28 @@ describe("reaction operations", () => {
     expect(mockList).not.toHaveBeenCalled()
   })
 
+  it("requires communication only for add while remove and list stay history-safe", async () => {
+    await setReactionForActor({} as any, {
+      messageId: "m1",
+      userId: "bot1",
+      emoji: "👍",
+    })
+    await removeReactionForActor({} as any, {
+      messageId: "m1",
+      userId: "bot1",
+      emoji: "👍",
+    })
+    mockList.mockResolvedValue([])
+    mockActors.mockResolvedValue([])
+    await listReactionsForActor({} as any, { messageId: "m1", userId: "bot1" })
+
+    expect(mockAuthorize.mock.calls.map((call) => call[3])).toEqual([
+      "add",
+      undefined,
+      undefined,
+    ])
+  })
+
   it("treats a duplicate add as changed:false and emits no fanout", async () => {
     const error = new Error("UNIQUE constraint failed")
     mockAdd.mockRejectedValue(error)

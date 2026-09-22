@@ -10,7 +10,7 @@ import {
 } from "@alook/shared"
 import { requireMessageBearingSurface, requireChildSurface } from "./channel-write-guard"
 import { isThread } from "@alook/shared"
-import { requireMessageSurfaceAccess } from "./permissions"
+import { requireMessageSurfaceCommunicationAccess } from "./permissions"
 import { writeError, writeJSON } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import type { AuthContext } from "@/lib/middleware/auth"
@@ -470,9 +470,9 @@ export function handleBotAvatarUpload(
  * collapsed onto this one; the DM/thread routes are now deleted and the web
  * client uploads through `channels/[id]/upload` for every surface.
  *
- * Access + surface come from `requireMessageSurfaceAccess` (the same dispatch
- * the read/read-state routes use), so a DM id runs `requireDMAccess` (block
- * gate) — closing the incidental P0 the trunk covers.
+ * Access + surface come from `requireMessageSurfaceCommunicationAccess`, so a
+ * DM id requires both participant access and an accepted friendship before any
+ * R2 object or pending attachment row is written.
  *
  * `kind` (which feeds `buildMediaKey` → the R2 key path, so its VALUE is
  * load-bearing, not just its guard) is DERIVED from `(surface, channel.type)`
@@ -496,11 +496,11 @@ export async function runAttachmentUpload(
   if (!id) return writeError("missing channel id", 400)
 
   const db = getDb(ctx.env.DB)
-  const auth = await requireMessageSurfaceAccess(db, id, ctx.userId)
+  const auth = await requireMessageSurfaceCommunicationAccess(db, id, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
 
   // Derive kind + apply the per-surface guard from the dispatch's return — no
-  // re-query. The DM arm needs no surface guard (a DM is a valid target).
+  // re-query. The DM arm already passed its communication gate.
   let kind: AttachmentKind
   if (auth.value.surface === "dm") {
     kind = "dm"

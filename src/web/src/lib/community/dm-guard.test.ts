@@ -48,24 +48,36 @@ describe("guardDmOpen", () => {
     expect(res).toEqual({ ok: false, status: 403, error: "blocked", code: "blocked" })
   })
 
-  it("human ↔ human: not blocked → ok", async () => {
+  it("human ↔ human: not blocked but not accepted → 403 not_friends", async () => {
     mockGetUserInternal.mockResolvedValue({ id: "u_2", isBot: false, deletedAt: null })
     mockIsBlocked.mockResolvedValue(false)
+    mockAreFriends.mockResolvedValue(false)
+    const res = await guardDmOpen(db, "u_1", "u_2")
+    expect(res).toEqual({ ok: false, status: 403, error: "not friends", code: "not_friends" })
+  })
+
+  it("human ↔ human: accepted and not blocked → ok", async () => {
+    mockGetUserInternal.mockResolvedValue({ id: "u_2", isBot: false, deletedAt: null })
+    mockIsBlocked.mockResolvedValue(false)
+    mockAreFriends.mockResolvedValue(true)
     const res = await guardDmOpen(db, "u_1", "u_2")
     expect(res).toEqual({ ok: true })
   })
 
   describe("peer is a bot", () => {
-    it("sender is the bot's owner → allowed, skips both friend and block checks", async () => {
+    it("sender is the bot's owner → implicit friendship passes after block check", async () => {
       mockGetUserInternal.mockResolvedValue({ id: "bot_1", isBot: true, ownerUserId: "u_owner", deletedAt: null })
+      mockIsBlocked.mockResolvedValue(false)
+      mockAreFriends.mockResolvedValue(true)
       const res = await guardDmOpen(db, "u_owner", "bot_1")
       expect(res).toEqual({ ok: true })
-      expect(mockAreFriends).not.toHaveBeenCalled()
-      expect(mockIsBlocked).not.toHaveBeenCalled()
+      expect(mockIsBlocked).toHaveBeenCalledWith(db, "u_owner", "bot_1")
+      expect(mockAreFriends).toHaveBeenCalledWith(db, "u_owner", "bot_1")
     })
 
     it("not the owner, not friends, callerKind human (default) → 404 user_not_found (pass-as-human)", async () => {
       mockGetUserInternal.mockResolvedValue({ id: "bot_1", isBot: true, ownerUserId: "u_owner", deletedAt: null })
+      mockIsBlocked.mockResolvedValue(false)
       mockAreFriends.mockResolvedValue(false)
       const res = await guardDmOpen(db, "u_stranger", "bot_1")
       expect(res).toEqual({ ok: false, status: 404, error: "user not found", code: "user_not_found" })
@@ -73,15 +85,16 @@ describe("guardDmOpen", () => {
 
     it("not the owner, not friends, callerKind bot → 403 not_friends", async () => {
       mockGetUserInternal.mockResolvedValue({ id: "bot_1", isBot: true, ownerUserId: "u_owner", deletedAt: null })
+      mockIsBlocked.mockResolvedValue(false)
       mockAreFriends.mockResolvedValue(false)
       const res = await guardDmOpen(db, "bot_caller", "bot_1", { callerKind: "bot" })
-      expect(res).toEqual({ ok: false, status: 403, error: "not friends with this bot", code: "not_friends" })
+      expect(res).toEqual({ ok: false, status: 403, error: "not friends", code: "not_friends" })
     })
 
     it("friends with the bot → block-gated, then ok", async () => {
       mockGetUserInternal.mockResolvedValue({ id: "bot_1", isBot: true, ownerUserId: "u_owner", deletedAt: null })
-      mockAreFriends.mockResolvedValue(true)
       mockIsBlocked.mockResolvedValue(false)
+      mockAreFriends.mockResolvedValue(true)
       const res = await guardDmOpen(db, "u_friend", "bot_1", { callerKind: "bot" })
       expect(res).toEqual({ ok: true })
       expect(mockIsBlocked).toHaveBeenCalled()
@@ -89,10 +102,10 @@ describe("guardDmOpen", () => {
 
     it("friends with the bot but blocked → 403 blocked", async () => {
       mockGetUserInternal.mockResolvedValue({ id: "bot_1", isBot: true, ownerUserId: "u_owner", deletedAt: null })
-      mockAreFriends.mockResolvedValue(true)
       mockIsBlocked.mockResolvedValue(true)
       const res = await guardDmOpen(db, "u_friend", "bot_1", { callerKind: "bot" })
       expect(res).toEqual({ ok: false, status: 403, error: "blocked", code: "blocked" })
+      expect(mockAreFriends).not.toHaveBeenCalled()
     })
   })
 })

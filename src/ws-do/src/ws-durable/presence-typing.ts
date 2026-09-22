@@ -5,6 +5,8 @@ import {
   WS_EVENTS,
   encodeCommunityBrowserEvent,
   isCommunityEventCandidate,
+  visibilityIsDmParticipant,
+  type Database,
 } from "@alook/shared"
 import type { UserConnectionState, WsDurableContext } from "./internal"
 import { createInternalBrowserBroadcastRequest } from "../internal-user-broadcast"
@@ -24,6 +26,24 @@ function normalizeBrowserPayload(
     return { ok: false }
   }
   return { ok: true, payload: normalized.event }
+}
+
+async function canCommunicateInTypingScope(
+  db: Database,
+  channelType: string,
+  channelId: string,
+  senderUserId: string,
+): Promise<boolean> {
+  if (!visibilityIsDmParticipant(channelType)) return true
+  const peer = await queries.communityDm.getDMPeer(db, channelId, senderUserId)
+  if (!peer) return false
+  const blocked = await queries.communityFriendship.isBlocked(
+    db,
+    senderUserId,
+    peer.otherUserId,
+  )
+  if (blocked) return false
+  return queries.communityFriendship.areFriends(db, senderUserId, peer.otherUserId)
 }
 
 async function serializeTypingFanOut(
@@ -181,6 +201,11 @@ export async function fanOutTyping(
     context.log.warn("fanOutTyping: sender not a channel member", { senderUserId, channelId })
     return
   }
+  const mayCommunicate = await withD1Retry(
+    () => canCommunicateInTypingScope(db, membership.type, channelId, senderUserId),
+    { route: "ws-do:agent-typing-communication" },
+  )
+  if (!mayCommunicate) return
   recipientUserIds = await withD1Retry(
     () => queries.communityMembersResolver.resolveChannelContentRecipientUserIds(db, channelId),
     { route: "ws-do:agent-typing-recipients" },
@@ -216,6 +241,11 @@ export async function fanOutTypingStop(
     context.log.warn("fanOutTypingStop: sender not a channel member", { senderUserId, channelId })
     return
   }
+  const mayCommunicate = await withD1Retry(
+    () => canCommunicateInTypingScope(db, membership.type, channelId, senderUserId),
+    { route: "ws-do:agent-typing-stop-communication" },
+  )
+  if (!mayCommunicate) return
   let recipientUserIds = await withD1Retry(
     () => queries.communityMembersResolver.resolveChannelContentRecipientUserIds(db, channelId),
     { route: "ws-do:agent-typing-stop-recipients" },
