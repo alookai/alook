@@ -12,7 +12,14 @@ const mockIsMessageMarked = vi.fn()
 const mockMarkMessage = vi.fn()
 const mockUnmarkMessage = vi.fn()
 
-vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
+const replicaDb = { __db: "replica" }
+const primaryDb = { __db: "primary" }
+const mockGetDb = vi.fn(() => replicaDb)
+const mockGetPrimaryDb = vi.fn(() => primaryDb)
+vi.mock("@/lib/db", () => ({
+  getDb: (...args: unknown[]) => mockGetDb(...args),
+  getPrimaryDb: (...args: unknown[]) => mockGetPrimaryDb(...args),
+}))
 vi.mock("@/lib/community/resolve-message-ref", () => ({
   resolveMessageRefForBot: (...args: unknown[]) => mockResolve(...args),
 }))
@@ -108,7 +115,7 @@ describe("bot message property route", () => {
         { type: "mark", value: false },
       ],
     })
-    expect(mockResolve).toHaveBeenCalledWith({}, "bot1", {
+    expect(mockResolve).toHaveBeenCalledWith(replicaDb, "bot1", {
       channel: "/demo#1234/forum",
       seq: 7,
     }, { requireSurfaceAccess: true })
@@ -178,7 +185,7 @@ describe("bot message property route", () => {
       value: ["existing", "new"],
       changed: true,
     })
-    expect(mockMutateTags).toHaveBeenCalledWith({}, {
+    expect(mockMutateTags).toHaveBeenCalledWith(primaryDb, {
       messageId: "m1",
       userId: "bot1",
       action: "set",
@@ -199,7 +206,8 @@ describe("bot message property route", () => {
     mockGetChannelType.mockResolvedValue("thread")
     const setEmoji = await PUT(mutationRequest("PUT", { type: "emoji", value: "👍" }), ctx)
     expect(await setEmoji.json()).toEqual({ type: "emoji", value: "👍", changed: true })
-    expect(mockSetReaction).toHaveBeenCalledWith({}, {
+    expect(mockGetPrimaryDb).toHaveBeenCalled()
+    expect(mockSetReaction).toHaveBeenCalledWith(primaryDb, {
       messageId: "m1",
       userId: "bot1",
       emoji: "👍",
@@ -207,7 +215,7 @@ describe("bot message property route", () => {
 
     const removeEmoji = await DELETE(mutationRequest("DELETE", { type: "emoji", value: "👍" }), ctx)
     expect(await removeEmoji.json()).toEqual({ type: "emoji", value: "👍", changed: false })
-    expect(mockRemoveReaction).toHaveBeenCalledWith({}, {
+    expect(mockRemoveReaction).toHaveBeenCalledWith(replicaDb, {
       messageId: "m1",
       userId: "bot1",
       emoji: "👍",
@@ -222,7 +230,7 @@ describe("bot message property route", () => {
   it("sets, lists, and removes the calling bot's universal mark", async () => {
     const setRes = await PUT(mutationRequest("PUT", { type: "mark", value: true }), ctx)
     expect(await setRes.json()).toEqual({ type: "mark", value: true, changed: true })
-    expect(mockMarkMessage).toHaveBeenCalledWith({}, {
+    expect(mockMarkMessage).toHaveBeenCalledWith(primaryDb, {
       userId: "bot1",
       channelId: "c1",
       messageId: "m1",
@@ -234,7 +242,7 @@ describe("bot message property route", () => {
 
     const removeRes = await DELETE(mutationRequest("DELETE", { type: "mark", value: true }), ctx)
     expect(await removeRes.json()).toEqual({ type: "mark", value: true, changed: true })
-    expect(mockUnmarkMessage).toHaveBeenCalledWith({}, {
+    expect(mockUnmarkMessage).toHaveBeenCalledWith(replicaDb, {
       userId: "bot1",
       messageId: "m1",
     })

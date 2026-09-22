@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server"
 import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
-import { getDb } from "@/lib/db"
+import { getDb, getPrimaryDb } from "@/lib/db"
 import { resolveMessageRefForBot } from "@/lib/community/resolve-message-ref"
 import {
   removeReactionForActor,
@@ -30,7 +30,9 @@ export const PUT = withCommunityActor(async (req: NextRequest, ctx) => {
   const emoji = decodeURIComponent(rawEmoji)
 
   const userId = ctx.actor.userId
-  const db = getDb(ctx.env.DB)
+  // Reaction add is a communication write; its read-before-write permission
+  // check must observe the latest unfriend/block.
+  const db = getPrimaryDb(ctx.env.DB)
 
   // Target messageId: bot ref+seq (member-scoped → 404), human path id. A bot
   // body is `{ channel, seq, emoji }` — emoji is already the path segment, so

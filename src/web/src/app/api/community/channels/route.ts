@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server"
 import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
-import { getDb } from "@/lib/db"
+import { getDb, getPrimaryDb } from "@/lib/db"
 import {
   createServerChannelForUser,
   createDmForUser,
@@ -50,8 +50,6 @@ import {
  * userId / root messageId).
  */
 export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
-  const db = getDb(ctx.env.DB)
-
   let body: {
     type?: unknown
     serverId?: unknown
@@ -75,6 +73,10 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
     return writeError("forbidden: creating channels is not available to bots", 403)
   }
   const actorUserId = ctx.actor.userId
+  // Opening a DM is read-before-write authorization. Keep other channel kinds
+  // on their existing session policy, but force the DM guard onto primary so a
+  // recent unfriend/block is immediately authoritative.
+  const db = body.type === "dm" ? getPrimaryDb(ctx.env.DB) : getDb(ctx.env.DB)
 
   switch (body.type) {
     case "text":

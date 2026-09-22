@@ -12,8 +12,11 @@ vi.mock("@/lib/middleware/helpers", () => {
   }
 })
 
-const mockGetDb = vi.fn(() => ({ __db: true }))
-vi.mock("@/lib/db", () => ({ getDb: (...a: unknown[]) => mockGetDb(...a) }))
+const primaryDb = { __db: "primary" }
+const mockGetPrimaryDb = vi.fn(() => primaryDb)
+vi.mock("@/lib/db", () => ({
+  getPrimaryDb: (...a: unknown[]) => mockGetPrimaryDb(...a),
+}))
 
 const mockGetChannelType = vi.fn()
 const mockCreatePendingAttachment = vi.fn()
@@ -684,6 +687,12 @@ describe("runAttachmentUpload", () => {
     expect(res.status).toBe(403)
     const body = (await res.json()) as { error: string }
     expect(body.error).toBe("forbidden")
+    expect(mockGetPrimaryDb).toHaveBeenCalledOnce()
+    expect(mockRequireMessageSurfaceCommunicationAccess).toHaveBeenCalledWith(
+      primaryDb,
+      "c1",
+      "u1",
+    )
     expect(put).not.toHaveBeenCalled()
   })
 
@@ -715,7 +724,7 @@ describe("runAttachmentUpload", () => {
     expect(body.url).toBeUndefined()
     // Pending row created with the credential uploaderId + resolved target.
     expect(mockCreatePendingAttachment).toHaveBeenCalledWith(
-      { __db: true },
+      primaryDb,
       expect.objectContaining({ uploaderId: "u1", targetId: "c1" }),
     )
     expect(put).toHaveBeenCalledOnce()
@@ -757,7 +766,7 @@ describe("runAttachmentUpload", () => {
     expect(body.width).toBe(1920)
     expect(body.height).toBe(1080)
     expect(mockCreatePendingAttachment).toHaveBeenCalledWith(
-      { __db: true },
+      primaryDb,
       expect.objectContaining({ width: 1920, height: 1080 }),
     )
   })

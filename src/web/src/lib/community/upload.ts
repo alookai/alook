@@ -12,7 +12,7 @@ import { requireMessageBearingSurface, requireChildSurface } from "./channel-wri
 import { isThread } from "@alook/shared"
 import { requireMessageSurfaceCommunicationAccess } from "./permissions"
 import { writeError, writeJSON } from "@/lib/middleware/helpers"
-import { getDb } from "@/lib/db"
+import { getPrimaryDb } from "@/lib/db"
 import type { AuthContext } from "@/lib/middleware/auth"
 import { isInlineAttachmentContentType } from "./attachment-content-type"
 import { communityMediaCleanupErrorCategory } from "./community-media-cleanup"
@@ -495,7 +495,9 @@ export async function runAttachmentUpload(
   const id = ctx.params?.id
   if (!id) return writeError("missing channel id", 400)
 
-  const db = getDb(ctx.env.DB)
+  // This authorization is read-before-write. Use the primary so an immediately
+  // preceding unfriend/block cannot be hidden by replica lag.
+  const db = getPrimaryDb(ctx.env.DB)
   const auth = await requireMessageSurfaceCommunicationAccess(db, id, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
 

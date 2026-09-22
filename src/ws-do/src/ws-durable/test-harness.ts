@@ -143,6 +143,7 @@ export const mockReconcileBotActivityFromRunningAgents = vi
 const mockD1Prepare = vi.fn((sql: string) => ({
   bind: (...values: unknown[]) => ({ sql, values }),
 }))
+export const mockD1WithSession = vi.fn().mockReturnValue({})
 export const mockD1Batch = vi.fn(async (statements: unknown[]) =>
   statements.map(() => ({ success: true, meta: { changes: 1 } })))
 export const mockGetUserInternal = vi.fn<(db: unknown, id: string) => Promise<{ isBot: boolean; ownerUserId: string | null } | null>>().mockResolvedValue(null)
@@ -514,6 +515,7 @@ export function createDO() {
     DB: {
       prepare: (sql: string) => mockD1Prepare(sql),
       batch: (statements: unknown[]) => mockD1Batch(statements),
+      withSession: (constraint: string) => mockD1WithSession(constraint),
     } as unknown as D1Database,
     WS_DO: {
       idFromName: vi.fn().mockReturnValue("mock-do-id"),
@@ -531,6 +533,7 @@ export const flushAsyncWork = async () => {
 }
 export function resetHarness() {
     vi.clearAllMocks()
+    mockD1WithSession.mockReturnValue({})
     mockAssertMachineCapacity.mockReset().mockResolvedValue(undefined)
     mockGetMachineByIdForUser.mockResolvedValue({ id: "cm_1", status: "online", availableRuntimes: [] })
     mockListReadableChannelsForUser.mockImplementation(async (_db, _userId, ids: string[]) => ids.map((id) => ({ id, serverId: null, parentChannelId: null })))

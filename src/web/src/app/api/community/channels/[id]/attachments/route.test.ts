@@ -7,7 +7,13 @@ vi.mock("@opennextjs/cloudflare", () => ({
     env: { DB: {}, COMMUNITY_MEDIA: { put: vi.fn(), delete: (...a: unknown[]) => mockR2Delete(...(a as [])) } },
   })),
 }))
-vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
+const primaryDb = { __db: "primary" }
+const replicaDb = { __db: "replica" }
+const mockGetPrimaryDb = vi.fn(() => primaryDb)
+vi.mock("@/lib/db", () => ({
+  getDb: vi.fn(() => replicaDb),
+  getPrimaryDb: (...args: unknown[]) => mockGetPrimaryDb(...args),
+}))
 // Unified actor: a request with no `crk_` bearer falls through to the human
 // withAuth path. Mock Better-Auth to resolve "no session" so a no-auth request
 // yields the human-path 401 — the real unified-actor contract.
@@ -148,7 +154,8 @@ describe("POST /api/community/channels/[id]/attachments — bot arm (folds attac
       "c1",
       { uploader: "bot", uploaderUserId: "bot_1" },
     )
-    expect(mockCreatePendingAttachment).toHaveBeenCalledWith({}, expect.objectContaining({
+    expect(mockGetPrimaryDb).toHaveBeenCalledOnce()
+    expect(mockCreatePendingAttachment).toHaveBeenCalledWith(primaryDb, expect.objectContaining({
       uploaderId: "bot_1",
       targetId: "c1",
       r2Key: "channel/c1/uuid/hi.png",
@@ -190,7 +197,7 @@ describe("POST /api/community/channels/[id]/attachments — bot arm (folds attac
     })
     const response = await POST(botReq("/studio#0042/general", { Authorization: "Bearer crk_abc" }), botCtx)
     expect(await response.json()).toMatchObject({ hasThumbnail: true })
-    expect(mockCreatePendingAttachment).toHaveBeenCalledWith({}, expect.objectContaining({
+    expect(mockCreatePendingAttachment).toHaveBeenCalledWith(primaryDb, expect.objectContaining({
       thumbnailR2Key: "channel/c1/uuid/hi.png.thumbnail.jpg",
       width: 640,
       height: 480,

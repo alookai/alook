@@ -9,6 +9,7 @@ import {
   flushAsyncWork,
   mockCheckAliveFetch,
   mockCreateDb,
+  mockD1WithSession,
   mockFindCredentialByHash,
   mockGetBotBinding,
   mockGetBotBindingWithOwner,
@@ -863,6 +864,7 @@ describe("WebSocketDurableObject", () => {
       )
       await flushAsyncWork()
 
+      expect(mockD1WithSession).toHaveBeenCalledWith("first-primary")
       expect(mockAreFriends).toHaveBeenCalledWith(expect.anything(), "alice", "bob")
       expect(mockResolveChannelRecipientUserIds).not.toHaveBeenCalled()
       expect((env.WS_DO as any).get).not.toHaveBeenCalled()

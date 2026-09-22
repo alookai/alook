@@ -4,7 +4,7 @@ import {
   messagePropertyCapabilities,
   type MessagePropertyMutation,
 } from "@alook/shared"
-import { getDb } from "@/lib/db"
+import { getDb, getPrimaryDb } from "@/lib/db"
 import { listForumTagsForActor, mutateForumTagsForActor } from "@/lib/community/forum-tag-operations"
 import { listReactionsForActor, removeReactionForActor, setReactionForActor } from "@/lib/community/reaction-operations"
 import { resolveMessageRefForBot } from "@/lib/community/resolve-message-ref"
@@ -121,7 +121,10 @@ async function mutate(req: NextRequest, ctx: Parameters<Parameters<typeof withCo
     return writeError("invalid JSON body", 400)
   }
 
-  const db = getDb(ctx.env.DB)
+  // A property set can add a reaction, which is a DM communication write.
+  // Resolve + authorize the entire set operation on primary; removals retain
+  // the history-access path and may use the ordinary read session.
+  const db = action === "set" ? getPrimaryDb(ctx.env.DB) : getDb(ctx.env.DB)
   const target = await resolveTarget(db, gate.bot.userId, raw)
   if (!target.ok) return writeError(target.error, target.status)
 

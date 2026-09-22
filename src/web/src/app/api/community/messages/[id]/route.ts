@@ -82,7 +82,9 @@ export const PATCH = withCommunityActor(async (req: NextRequest, ctx) => {
     return writeError(`content must be ≤ ${MAX_MESSAGE_CONTENT_LENGTH} characters`, 400)
   }
 
-  const db = getDb(ctx.env.DB)
+  // Editing is a communication write. Authorize and mutate in a primary
+  // session so a recent unfriend/block cannot be missed by replica lag.
+  const db = getPrimaryDb(ctx.env.DB)
   const message = await queries.communityMessage.getMessage(db, messageId)
   if (!message) return writeError("message not found", 404)
 

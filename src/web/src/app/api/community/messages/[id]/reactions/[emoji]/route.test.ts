@@ -12,8 +12,15 @@ const mockAddReaction = vi.fn();
 const mockRemoveReaction = vi.fn();
 const mockFanOutToChannel = vi.fn();
 const mockFanOutToDM = vi.fn();
+const replicaDb = { __db: "replica" };
+const primaryDb = { __db: "primary" };
+const mockGetDb = vi.fn(() => replicaDb);
+const mockGetPrimaryDb = vi.fn(() => primaryDb);
 
-vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
+vi.mock("@/lib/db", () => ({
+  getDb: (...a: unknown[]) => mockGetDb(...a),
+  getPrimaryDb: (...a: unknown[]) => mockGetPrimaryDb(...a),
+}));
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared");
@@ -162,12 +169,13 @@ describe("reactions [emoji] surface guard", () => {
     mockGetChannelType.mockResolvedValue("text");
     const res = await PUT(botReq("PUT", { channel: "/s/general", seq: 42 }), ctxResolve);
     expect(res.status).toBe(200);
-    expect(mockResolveTargetForMember).toHaveBeenCalledWith({}, "bot_1", "/s/general", {
+    expect(mockGetPrimaryDb).toHaveBeenCalledOnce();
+    expect(mockResolveTargetForMember).toHaveBeenCalledWith(primaryDb, "bot_1", "/s/general", {
       createDmIfMissing: false,
       createThreadIfMissing: false,
       callerKind: "bot",
     });
-    expect(mockGetMessageIdentityByChannelAndSeq).toHaveBeenCalledWith({}, { channelId: "c1" }, 42);
+    expect(mockGetMessageIdentityByChannelAndSeq).toHaveBeenCalledWith(primaryDb, { channelId: "c1" }, 42);
     expect(mockAddReaction).toHaveBeenCalled();
   });
 

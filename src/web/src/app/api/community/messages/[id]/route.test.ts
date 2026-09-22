@@ -39,7 +39,14 @@ const mockFanOutToChannel = vi.fn()
 const mockFanOutToServerMembers = vi.fn()
 const mockBroadcastToUserSafe = vi.fn()
 
-vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})), getPrimaryDb: vi.fn(() => ({})) }))
+const replicaDb = { __db: "replica" }
+const primaryDb = { __db: "primary" }
+const mockGetDb = vi.fn(() => replicaDb)
+const mockGetPrimaryDb = vi.fn(() => primaryDb)
+vi.mock("@/lib/db", () => ({
+  getDb: (...args: unknown[]) => mockGetDb(...args),
+  getPrimaryDb: (...args: unknown[]) => mockGetPrimaryDb(...args),
+}))
 
 vi.mock("@/lib/community/resolve-ref", () => ({
   resolveTargetForMember: (...a: unknown[]) => mockResolveTargetForMember(...a),
@@ -353,12 +360,12 @@ describe("GET /api/community/messages/[id]", () => {
     const res = await GET(botReq("/s/general", "42"), ctxResolve)
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ message: expect.objectContaining({ seq: "#42" }) })
-    expect(mockResolveTargetForMember).toHaveBeenCalledWith({}, "bot_1", "/s/general", {
+    expect(mockResolveTargetForMember).toHaveBeenCalledWith(replicaDb, "bot_1", "/s/general", {
       createDmIfMissing: false,
       createThreadIfMissing: false,
       callerKind: "bot",
     })
-    expect(mockGetMessageByChannelAndSeq).toHaveBeenCalledWith({}, { channelId: "c1" }, 42)
+    expect(mockGetMessageByChannelAndSeq).toHaveBeenCalledWith(replicaDb, { channelId: "c1" }, 42)
   })
 
   it("①-C: bot ref to an UNREACHABLE channel → 404 (member-scoped resolve, not a 403 leak)", async () => {
@@ -420,7 +427,8 @@ describe("PATCH /api/community/messages/[id]", () => {
   it("updates the author's own content", async () => {
     const res = await PATCH(editReq("new"), { params: { id: "m1" } } as any)
     expect(res.status).toBe(200)
-    expect(mockUpdateOwnMessageContent).toHaveBeenCalledWith(expect.anything(), {
+    expect(mockGetPrimaryDb).toHaveBeenCalledOnce()
+    expect(mockUpdateOwnMessageContent).toHaveBeenCalledWith(primaryDb, {
       messageId: "m1", authorId: "u1", content: "new",
     })
     expect(mockFanOutToChannel).toHaveBeenCalledWith("c1", {
