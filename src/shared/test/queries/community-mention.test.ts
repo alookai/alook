@@ -81,17 +81,17 @@ describe("listMessageMentionUserIds", () => {
     const chain: any = {};
     chain.from = vi.fn(() => chain);
     chain.where = vi.fn(() => Promise.resolve([
-      { userId: "bot_1", kind: "mention" },
-      { userId: "bot_1", kind: "reply" },
-      { userId: "bot_1", kind: "mention" },
+      { userId: "bot_1", kind: "mention", isExplicit: false },
+      { userId: "bot_1", kind: "reply", isExplicit: false },
+      { userId: "bot_1", kind: "mention", isExplicit: true },
     ]));
     const db = { select: vi.fn(() => chain) };
     await expect(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       mentionQueries.listMessageAttentionTargets(db as any, "msg_1"),
     ).resolves.toEqual([
-      { userId: "bot_1", kind: "mention" },
-      { userId: "bot_1", kind: "reply" },
+      { userId: "bot_1", kind: "mention", isExplicit: true },
+      { userId: "bot_1", kind: "reply", isExplicit: false },
     ]);
   });
 });

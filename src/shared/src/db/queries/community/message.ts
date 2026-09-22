@@ -145,7 +145,7 @@ export type CreateMessageData = {
    */
   extraStatements?: unknown[];
   attachmentIds?: string[];
-  mentions?: { userId: string; kind: string }[];
+  mentions?: { userId: string; kind: string; isExplicit: boolean }[];
   participants?: { userId: string; source: string }[];
   forumThread?: {
     id: string;
@@ -304,7 +304,7 @@ async function insertMessageRow(db: Database, data: CreateMessageData, expectedS
         .where(and(inArray(communityAttachment.id, pendingThreadIds), isNull(communityAttachment.messageId))),
     ]),
   ] : [];
-  const mentionStatements = chunk(data.mentions ?? [], maxRowsPerInsert(5)).map((mentions) =>
+  const mentionStatements = chunk(data.mentions ?? [], maxRowsPerInsert(6)).map((mentions) =>
     db.insert(communityMention).values(mentions.map((mention) => ({ messageId, ...mention })))
   );
   const participantStatements = chunk(data.participants ?? [], maxRowsPerInsert(6)).map((participants) =>

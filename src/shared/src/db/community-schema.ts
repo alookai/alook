@@ -461,8 +461,10 @@ export const communityPin = sqliteTable(
 
 // 16. community_mention
 // `kind` distinguishes how the mention was created:
-//   - "mention" — explicit @user / @everyone in the message body
+//   - "mention" — an @user or @everyone attention target from the message body
 //   - "reply"   — message replies to one of the user's earlier messages
+// `isExplicit` preserves whether this exact user was named by @handle. It is
+// false for broadcast-only targets and reply rows.
 // The Mentions tab only surfaces kind="mention"; the For You tab uses both.
 export const communityMention = sqliteTable(
   "community_mention",
@@ -475,6 +477,7 @@ export const communityMention = sqliteTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     kind: text("kind").notNull().default("mention"),
+    isExplicit: integer("is_explicit", { mode: "boolean" }).notNull().default(false),
     read: integer("read").default(0),
   },
   (t) => [

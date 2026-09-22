@@ -1,8 +1,8 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import {
   deriveCommunityDeliveryOperationId,
-  extractMentionedUserIds,
   formatHandle,
+  MENTION_KIND,
   reachIsParticipantSet,
   WS_EVENTS,
   createLogger,
@@ -31,6 +31,15 @@ type WakeContextRow = Awaited<ReturnType<
 >>
 
 type WakeContextRole = JevWakeGateInput["conversation"]["messages"][number]["roles"][number]
+
+type WakeContextPlan = {
+  enabled: boolean
+  channelId: string
+  beforeSeq: number
+  parentChannelId: string | null
+  parentMessageId: string | null
+  replyTarget: WakeContextRow
+}
 
 function buildWakeConversation(
   recent: NonNullable<WakeContextRow>[],
@@ -92,6 +101,60 @@ function buildWakeConversation(
   }
 }
 
+function emptyWakeConversation(): JevWakeGateInput["conversation"] {
+  return { available: true, messages: [], truncated: false }
+}
+
+async function loadWakeConversation(
+  db: Database,
+  messageId: string,
+  plan: WakeContextPlan,
+): Promise<JevWakeGateInput["conversation"]> {
+  if (!plan.enabled) return emptyWakeConversation()
+  try {
+    const [recentContext, threadOpener, replyAncestor] = await Promise.all([
+      withD1Retry(
+        () => queries.communityMessage.listWakeContextMessagesBefore(db, {
+          channelId: plan.channelId,
+          beforeSeq: plan.beforeSeq,
+          limit: RECENT_WAKE_CONTEXT_MESSAGES,
+        }),
+        { route: "message-dispatcher:wake-context-recent" },
+      ),
+      plan.parentChannelId && plan.parentMessageId
+        ? withD1Retry(
+            () => queries.communityMessage.getWakeContextMessageInScope(
+              db,
+              plan.parentMessageId!,
+              { channelId: plan.parentChannelId! },
+            ),
+            { route: "message-dispatcher:wake-context-opener" },
+          )
+        : Promise.resolve(null),
+      plan.replyTarget?.replyToId
+        ? withD1Retry(
+            () => queries.communityMessage.getWakeContextMessageInScope(
+              db,
+              plan.replyTarget!.replyToId!,
+              { channelId: plan.channelId },
+            ),
+            { route: "message-dispatcher:wake-context-reply-ancestor" },
+          )
+        : Promise.resolve(null),
+    ])
+    return buildWakeConversation(
+      recentContext.messages,
+      plan.replyTarget,
+      replyAncestor,
+      threadOpener,
+      recentContext.hasMore,
+    )
+  } catch {
+    log.warn("committed_message_jev_context_failed_open", { messageId })
+    return { ...emptyWakeConversation(), available: false }
+  }
+}
+
 export type CommittedMessageStructuralOutcome = {
   /** A participant row inserted by this exact message write. */
   memberAddedUserId?: string
@@ -126,11 +189,11 @@ function unique(values: readonly string[]): string[] {
   return [...new Set(values)]
 }
 
-export async function planCommittedMessage(
+async function planCommittedMessageBase(
   db: Database,
   messageId: string,
   structural: CommittedMessageStructuralOutcome = {},
-): Promise<MessageDeliveryPlan> {
+): Promise<MessageDeliveryPlan & { wakeContextPlan: WakeContextPlan }> {
   const message = await withD1Retry(
     () => queries.communityMessage.getMessage(db, messageId),
     { route: "message-dispatcher:message" },
@@ -236,65 +299,9 @@ export async function planCommittedMessage(
     (candidate) => notificationSet.has(candidate.botUserId) && allowed(candidate.botUserId),
   )
   const shouldBuildWakeContext = channel.type !== "dm" && eligibleWakeCandidates.length > 0
-  let conversation: JevWakeGateInput["conversation"] = {
-    available: true,
-    messages: [],
-    truncated: false,
-  }
-  if (shouldBuildWakeContext) {
-    try {
-      const [recentContext, threadOpener, replyAncestor] = await Promise.all([
-        withD1Retry(
-          () => queries.communityMessage.listWakeContextMessagesBefore(db, {
-            channelId: message.channelId,
-            beforeSeq: message.seq,
-            limit: RECENT_WAKE_CONTEXT_MESSAGES,
-          }),
-          { route: "message-dispatcher:wake-context-recent" },
-        ),
-        channel.parentChannelId && channel.parentMessageId
-          ? withD1Retry(
-              () => queries.communityMessage.getWakeContextMessageInScope(
-                db,
-                channel.parentMessageId!,
-                { channelId: channel.parentChannelId! },
-              ),
-              { route: "message-dispatcher:wake-context-opener" },
-            )
-          : Promise.resolve(null),
-        replyTarget?.replyToId
-          ? withD1Retry(
-              () => queries.communityMessage.getWakeContextMessageInScope(
-                db,
-                replyTarget.replyToId!,
-                { channelId: message.channelId },
-              ),
-              { route: "message-dispatcher:wake-context-reply-ancestor" },
-            )
-          : Promise.resolve(null),
-      ])
-      conversation = buildWakeConversation(
-        recentContext.messages,
-        replyTarget,
-        replyAncestor,
-        threadOpener,
-        recentContext.hasMore,
-      )
-    } catch {
-      log.warn("committed_message_jev_context_failed_open", { messageId: message.id })
-      conversation.available = false
-    }
-  }
-  const explicitlyMentionedBotIds = new Set(extractMentionedUserIds(
-    message.content,
-    eligibleWakeCandidates.flatMap((candidate) => candidate.name
-      ? [{
-          userId: candidate.botUserId,
-          name: candidate.name,
-          discriminator: candidate.discriminator,
-        }]
-      : []),
-  ))
+  const explicitlyMentionedBotIds = new Set(attentionTargets
+    .filter((target) => target.kind === MENTION_KIND.MENTION && target.isExplicit)
+    .map((target) => target.userId))
   const wakeBotUserIds = unique(eligibleWakeCandidates.map((candidate) => candidate.botUserId))
   const pushUserIds = unique([
     ...unreadPlainUserIds,
@@ -363,6 +370,14 @@ export async function planCommittedMessage(
   }
 
   return {
+    wakeContextPlan: {
+      enabled: shouldBuildWakeContext,
+      channelId: message.channelId,
+      beforeSeq: message.seq,
+      parentChannelId: channel.parentChannelId,
+      parentMessageId: channel.parentMessageId,
+      replyTarget,
+    },
     operationId: await deriveCommunityDeliveryOperationId(message.id),
     messageId: message.id,
     messageEvent,
@@ -384,7 +399,7 @@ export async function planCommittedMessage(
         broadcastMention: message.mentionType === "everyone",
         attachmentContentTypes: attachments.map((attachment) => attachment.contentType),
       },
-      conversation,
+      conversation: emptyWakeConversation(),
       candidates: eligibleWakeCandidates.map((candidate) => ({
         botUserId: candidate.botUserId,
         name: candidate.name,
@@ -410,6 +425,23 @@ export async function planCommittedMessage(
   }
 }
 
+export async function planCommittedMessage(
+  db: Database,
+  messageId: string,
+  structural: CommittedMessageStructuralOutcome = {},
+): Promise<MessageDeliveryPlan> {
+  const { wakeContextPlan, ...plan } = await planCommittedMessageBase(
+    db,
+    messageId,
+    structural,
+  )
+  const conversation = await loadWakeConversation(db, messageId, wakeContextPlan)
+  return {
+    ...plan,
+    wakeGateInput: { ...plan.wakeGateInput, conversation },
+  }
+}
+
 async function runCommittedMessageDispatch(
   db: Database,
   messageId: string,
@@ -417,7 +449,11 @@ async function runCommittedMessageDispatch(
   env: RuntimeEnv,
 ): Promise<void> {
   const startedAt = Date.now()
-  const plan = await planCommittedMessage(db, messageId, structural)
+  const { wakeContextPlan, ...plan } = await planCommittedMessageBase(
+    db,
+    messageId,
+    structural,
+  )
   const browserBatch: MessageDeliveryBatch = {
     messageId: plan.messageId,
     messageEvent: plan.messageEvent,
@@ -441,7 +477,11 @@ async function runCommittedMessageDispatch(
   }))
   const browserDelivery = sendMessageDeliveryBatch(browserBatch, plan.operationId)
   const pushDelivery = enqueueQueueTasks(pushTasks)
-  const botWake = selectJevWakeCandidates(plan.wakeGateInput, env)
+  const botWake = loadWakeConversation(db, messageId, wakeContextPlan)
+    .then((conversation) => selectJevWakeCandidates({
+      ...plan.wakeGateInput,
+      conversation,
+    }, env))
     .catch(() => {
       log.warn("committed_message_jev_gate_failed_open", { messageId })
       return plan.wakeGateInput.candidates

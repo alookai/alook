@@ -170,9 +170,9 @@ describe("planCommittedMessage", () => {
     mockGetChannel.mockResolvedValue(channel)
     mockListAttachments.mockResolvedValue([])
     mockListAttention.mockResolvedValue([
-      { userId: "u_mentions", kind: "mention" },
-      { userId: "u_mention_only", kind: "mention" },
-      { userId: "bot_1", kind: "mention" },
+      { userId: "u_mentions", kind: "mention", isExplicit: true },
+      { userId: "u_mention_only", kind: "mention", isExplicit: true },
+      { userId: "bot_1", kind: "mention", isExplicit: true },
     ])
     mockResolveRecipients.mockImplementation(async (_db, channelId: string) =>
       channelId === "c1"
@@ -334,7 +334,9 @@ describe("planCommittedMessage", () => {
       authorIsBot: true,
       content: "previous message",
     }))
-    mockListAttention.mockResolvedValue([{ userId: "bot_1", kind: "mention" }])
+    mockListAttention.mockResolvedValue([
+      { userId: "bot_1", kind: "mention", isExplicit: false },
+    ])
     mockListAttachments.mockResolvedValue([{
       id: "att_1",
       targetId: "c1",
@@ -372,6 +374,34 @@ describe("planCommittedMessage", () => {
       }),
     ])
     expect(JSON.stringify(plan.wakeGateInput)).not.toContain("private-name.png")
+  })
+
+  it("keeps committed explicit mention provenance when the bot handle changed", async () => {
+    mockGetMessage.mockResolvedValue({
+      ...message,
+      content: "@OldName#0001 please investigate",
+    })
+    mockListAttention.mockResolvedValue([
+      { userId: "bot_1", kind: "mention", isExplicit: true },
+    ])
+    mockFindWakeCandidates.mockResolvedValue([{
+      botUserId: "bot_1",
+      name: "NewName",
+      discriminator: "0001",
+      instruction: "Own support triage",
+      machineId: "m1",
+      runtime: "codex",
+    }])
+
+    const plan = await planCommittedMessage({} as never, "msg_1")
+
+    expect(plan.wakeGateInput.candidates).toEqual([
+      expect.objectContaining({
+        botUserId: "bot_1",
+        name: "NewName",
+        directlyMentioned: true,
+      }),
+    ])
   })
 
   it("builds scoped reply, opener, and recent context once with public author handles", async () => {
@@ -521,7 +551,9 @@ describe("planCommittedMessage", () => {
       content: "@everyone @Bot#0001 please investigate",
       mentionType: "everyone",
     })
-    mockListAttention.mockResolvedValue([{ userId: "bot_1", kind: "mention" }])
+    mockListAttention.mockResolvedValue([
+      { userId: "bot_1", kind: "mention", isExplicit: true },
+    ])
 
     const plan = await planCommittedMessage({} as never, "msg_1")
 
@@ -793,7 +825,9 @@ describe("dispatchCommittedMessage", () => {
 
   it("enqueues the exact mobile-push union separately from gated bot wakes", async () => {
     mockResolveRecipients.mockResolvedValue(["author_1", "u_all", "bot_1"])
-    mockListAttention.mockResolvedValue([{ userId: "bot_1", kind: "mention" }])
+    mockListAttention.mockResolvedValue([
+      { userId: "bot_1", kind: "mention", isExplicit: true },
+    ])
     mockResolveEligibility.mockResolvedValue(new Map([
       ["u_all", state()],
       ["bot_1", state({ hasAttention: true })],
@@ -917,5 +951,43 @@ describe("dispatchCommittedMessage", () => {
     releaseGate([])
     await work
     expect(mockEnqueueQueueTasks).toHaveBeenNthCalledWith(2, [])
+  })
+
+  it("starts browser delivery and mobile push without waiting for JEV context", async () => {
+    let releaseContext!: (value: { messages: []; hasMore: false }) => void
+    mockResolveRecipients.mockResolvedValue(["author_1", "u_all", "bot_1"])
+    mockResolveEligibility.mockResolvedValue(new Map([
+      ["u_all", state()],
+      ["bot_1", state()],
+    ]))
+    mockFindWakeCandidates.mockResolvedValue([{
+      botUserId: "bot_1",
+      name: "Bot",
+      discriminator: "0001",
+      instruction: "",
+      machineId: "m1",
+      runtime: "codex",
+    }])
+    mockListWakeContextMessagesBefore.mockReturnValue(new Promise((resolve) => {
+      releaseContext = resolve
+    }))
+
+    const work = dispatchCommittedMessage({} as never, "msg_1")
+    await vi.waitFor(() => {
+      expect(mockSendMessageDeliveryBatch).toHaveBeenCalledOnce()
+      expect(mockEnqueueQueueTasks).toHaveBeenCalledWith([
+        { version: 1, kind: "mobile-push", messageId: "msg_1", userId: "u_all" },
+        { version: 1, kind: "mobile-push", messageId: "msg_1", userId: "bot_1" },
+      ])
+    })
+    expect(mockEnqueueQueueTasks).toHaveBeenCalledTimes(1)
+    expect(mockSelectJevWakeCandidates).not.toHaveBeenCalled()
+
+    releaseContext({ messages: [], hasMore: false })
+    await work
+    expect(mockSelectJevWakeCandidates).toHaveBeenCalledOnce()
+    expect(mockEnqueueQueueTasks).toHaveBeenNthCalledWith(2, [
+      { version: 1, kind: "bot-wake", messageId: "msg_1", botUserId: "bot_1" },
+    ])
   })
 })

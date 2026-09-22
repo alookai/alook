@@ -607,6 +607,52 @@ describe("selectJevWakeCandidates", () => {
     expect(decide).not.toHaveBeenCalled()
   })
 
+  it("enforces the 128 KiB limit on the full wire body including model", async () => {
+    const decide = vi.fn(async (request) => ({
+      model: "typesafe/jev-1.13",
+      answers: Object.fromEntries(Object.keys(request.questions).map((key) => [
+        key,
+        { type: "noul", noul: 1 },
+      ])),
+    }))
+    const dependencies = {
+      createProvider: () => ({ name: "openrouter" as const, decide }),
+    }
+    const byteLength = (value: unknown) => new TextEncoder()
+      .encode(JSON.stringify(value))
+      .byteLength
+
+    await selectJevWakeCandidates(
+      input,
+      { ...openRouterEnv, OPENROUTER_JEV_MODEL: "m" },
+      dependencies,
+    )
+    const request = decide.mock.calls[0]![0]
+    const modelLengthAtLimit = (128 * 1024) - byteLength({ model: "", ...request })
+    const modelAtLimit = "m".repeat(modelLengthAtLimit)
+    expect(byteLength({ model: modelAtLimit, ...request })).toBe(128 * 1024)
+
+    decide.mockClear()
+    await expect(selectJevWakeCandidates(
+      input,
+      { ...openRouterEnv, OPENROUTER_JEV_MODEL: modelAtLimit },
+      dependencies,
+    )).resolves.toEqual([candidate])
+    expect(decide).toHaveBeenCalledOnce()
+
+    decide.mockClear()
+    await expect(selectJevWakeCandidates(
+      input,
+      { ...openRouterEnv, OPENROUTER_JEV_MODEL: `${modelAtLimit}m` },
+      dependencies,
+    )).resolves.toEqual([candidate])
+    expect(decide).not.toHaveBeenCalled()
+    expect(mocks.logWarn).toHaveBeenCalledWith(
+      "jev_wake_gate_fail_open",
+      expect.objectContaining({ reason: "payload_limit" }),
+    )
+  })
+
   it("fails open on provider errors without logging private content or keys", async () => {
     const failing: JevDecisionProvider = {
       name: "openrouter",

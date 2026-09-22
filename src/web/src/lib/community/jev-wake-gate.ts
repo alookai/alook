@@ -426,7 +426,7 @@ export async function selectJevWakeCandidates(
         return [key, makeQuestion(candidate)]
       }))
       const request = { state, questions }
-      if (byteLength(request) > MAX_BATCH_BYTES) {
+      if (byteLength({ model: config.model, ...request }) > MAX_BATCH_BYTES) {
         log.warn("jev_wake_gate_fail_open", {
           messageId: input.messageId,
           provider: provider.name,

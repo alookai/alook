@@ -455,7 +455,10 @@ describe("POST /api/community/channels/[id]/messages", () => {
     expect(res.status).toBe(201)
     expect(mockListMemberUserIds).toHaveBeenCalledTimes(1)
     expect(mockListMembers).not.toHaveBeenCalled()
-    expect(mockCreateMessage.mock.calls[0][1].mentions).toEqual([{ userId: "u2", kind: "mention" }, { userId: "u3", kind: "mention" }])
+    expect(mockCreateMessage.mock.calls[0][1].mentions).toEqual([
+      { userId: "u2", kind: "mention", isExplicit: false },
+      { userId: "u3", kind: "mention", isExplicit: false },
+    ])
 
     // Delivery receives only the committed identity. The dispatcher reads the
     // mention rows back from D1 and derives policy/audience itself.
@@ -490,7 +493,9 @@ describe("POST /api/community/channels/[id]/messages", () => {
     expect(res.status).toBe(201)
     expect(mockListMembers).toHaveBeenCalledTimes(1)
     expect(mockListMemberUserIds).not.toHaveBeenCalled()
-    expect(mockCreateMessage.mock.calls[0][1].mentions).toEqual([{ userId: "u2", kind: "mention" }])
+    expect(mockCreateMessage.mock.calls[0][1].mentions).toEqual([
+      { userId: "u2", kind: "mention", isExplicit: true },
+    ])
   })
 
   it("does not query members for a plain channel post with no '@' and no everyone/here", async () => {

@@ -96,11 +96,13 @@ describe("Community durable writes — real SQLite transactions", () => {
   it("commits attachments, mentions, participants and activity together; nonce collision rolls back", async () => {
     fixture.sqlite.exec("INSERT INTO community_attachment VALUES ('a', 'author', 'channel', NULL, 0)");
     const message = await send({
-      clientNonce: "nonce", attachmentIds: ["a"], mentions: [{ userId: "peer", kind: "mention" }],
+      clientNonce: "nonce", attachmentIds: ["a"], mentions: [{ userId: "peer", kind: "mention", isExplicit: true }],
       participants: [{ userId: "author", source: "spoke" }, { userId: "peer", source: "mention" }], extraStatements: [bump()],
     });
     expect(rows("community_attachment")[0]).toMatchObject({ message_id: message!.id });
-    expect(rows("community_mention")).toHaveLength(1);
+    expect(rows("community_mention")).toEqual([
+      expect.objectContaining({ user_id: "peer", kind: "mention", is_explicit: 1 }),
+    ]);
     expect(rows("community_channel_member")).toHaveLength(2);
     await expect(send({ clientNonce: "nonce", extraStatements: [bump()] })).rejects.toThrow();
     expect(rows("activity")).toEqual([{ sent: 1 }]);
@@ -122,7 +124,11 @@ describe("Community durable writes — real SQLite transactions", () => {
 
   it("a later mention chunk failure rolls back all chunks and same nonce can retry", async () => {
     fixture.sqlite.exec(Array.from({ length: 100 }, (_, i) => `INSERT INTO user (id) VALUES ('u${i}');`).join("\n"));
-    const mentions = Array.from({ length: 100 }, (_, i) => ({ userId: `u${i}`, kind: "mention" }));
+    const mentions = Array.from({ length: 100 }, (_, i) => ({
+      userId: `u${i}`,
+      kind: "mention",
+      isExplicit: true,
+    }));
     fixture.sqlite.exec("CREATE TRIGGER fail_late_mention BEFORE INSERT ON community_mention WHEN NEW.user_id = 'u85' BEGIN SELECT RAISE(ABORT, 'injected mention failure'); END");
     const data = { clientNonce: "retry", mentions, extraStatements: [bump()] };
     await expect(send(data)).rejects.toThrow("injected mention failure");

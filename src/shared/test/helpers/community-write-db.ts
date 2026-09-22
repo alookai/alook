@@ -47,7 +47,7 @@ export function communityWriteDb() {
     );
     CREATE TABLE community_mention (
       id TEXT PRIMARY KEY, message_id TEXT NOT NULL REFERENCES community_message(id), user_id TEXT NOT NULL REFERENCES user(id),
-      kind TEXT NOT NULL DEFAULT 'mention', read INTEGER DEFAULT 0
+      kind TEXT NOT NULL DEFAULT 'mention', is_explicit INTEGER NOT NULL DEFAULT 0, read INTEGER DEFAULT 0
     );
     CREATE TABLE community_funnel_analytics_event (
       id TEXT PRIMARY KEY NOT NULL,
