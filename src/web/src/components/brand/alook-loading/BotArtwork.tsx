@@ -8,13 +8,7 @@ const svgStyle: CSSProperties = {
   width: "100%",
 };
 
-const RedFace = ({
-  expressionOpacity,
-  pupilShift,
-}: {
-  expressionOpacity: number;
-  pupilShift: number;
-}) => (
+const RedFace = ({ expressionOpacity }: { expressionOpacity: number }) => (
   <svg viewBox="0 0 1024 1024" style={svgStyle}>
     <path
       d="M-26.5996 311.221L-39.86 185.057C-55.9935 31.5572 22.3761 -72.3481 148.875 -102.651C194.472 -113.822 206.766 -178.893 309.8 -189.722C482.225 -207.845 613.345 -72.8086 633.015 114.335L646.275 240.499C658.431 356.149 559.924 430.282 328.623 454.592C97.3226 478.903 -14.4443 426.871 -26.5996 311.221Z"
@@ -29,8 +23,6 @@ const RedFace = ({
         d="M378.808 122.982C393.325 121.457 402.965 99.979 400.341 75.0109C397.717 50.0428 383.822 31.039 369.305 32.5647C354.789 34.0904 345.148 55.5679 347.773 80.536C350.397 105.504 364.292 124.508 378.808 122.982Z"
         fill="white"
       />
-      <circle cx={207 + pupilShift} cy="98" r="9" fill="#171313" />
-      <circle cx={376 + pupilShift} cy="80" r="9" fill="#171313" />
       <path
         d="M328.063 167.848C333.26 162.502 341.807 162.382 347.153 167.579C352.499 172.777 352.619 181.324 347.421 186.67C334.382 200.08 319.562 208.689 302.962 210.434C286.361 212.178 270.075 206.839 254.533 196.433C248.337 192.284 246.678 183.899 250.826 177.704C254.974 171.509 263.36 169.849 269.555 173.997C281.456 181.966 291.507 184.489 300.139 183.581C308.771 182.674 318.079 178.117 328.063 167.848Z"
         fill="white"
@@ -39,13 +31,7 @@ const RedFace = ({
   </svg>
 );
 
-const PurpleFace = ({
-  expressionOpacity,
-  pupilShift,
-}: {
-  expressionOpacity: number;
-  pupilShift: number;
-}) => (
+const PurpleFace = ({ expressionOpacity }: { expressionOpacity: number }) => (
   <svg viewBox="0 0 1024 1024" style={svgStyle}>
     <path
       d="M523.747 365.154L550.571 58.5595C556.271 -6.59189 611.194 -38.4735 678.261 -32.6059L1015.52 -3.09997C1082.58 2.76768 1131.14 43.7023 1125.44 108.854L1098.61 415.448C1089.89 515.091 998.635 565.034 797.433 547.431C596.23 529.828 515.03 464.797 523.747 365.154Z"
@@ -54,8 +40,6 @@ const PurpleFace = ({
     <g opacity={expressionOpacity}>
       <circle cx="750" cy="158" r="33" fill="white" />
       <circle cx="903" cy="172" r="33" fill="white" />
-      <circle cx={750 + pupilShift} cy="158" r="11" fill="#171313" />
-      <circle cx={903 + pupilShift} cy="172" r="11" fill="#171313" />
       <path
         d="M879.218 239.983C885.568 236.076 893.884 238.055 897.791 244.405C901.699 250.755 899.719 259.07 893.37 262.978C867.707 278.77 841.761 286.237 815.871 283.972C789.981 281.707 765.725 269.847 743.194 249.839C737.62 244.888 737.114 236.355 742.065 230.78C747.016 225.206 755.549 224.7 761.124 229.651C780.399 246.769 799.403 255.428 818.224 257.075C837.045 258.721 857.264 253.493 879.218 239.983Z"
         fill="white"
@@ -141,11 +125,11 @@ export const artworkByFace: Record<
   FaceKind,
   (expressionOpacity: number, pupilShift: number) => ReactNode
 > = {
-  red: (expressionOpacity, pupilShift) => (
-    <RedFace expressionOpacity={expressionOpacity} pupilShift={pupilShift} />
+  red: (expressionOpacity) => (
+    <RedFace expressionOpacity={expressionOpacity} />
   ),
-  purple: (expressionOpacity, pupilShift) => (
-    <PurpleFace expressionOpacity={expressionOpacity} pupilShift={pupilShift} />
+  purple: (expressionOpacity) => (
+    <PurpleFace expressionOpacity={expressionOpacity} />
   ),
   teal: (expressionOpacity) => (
     <TealFace expressionOpacity={expressionOpacity} />

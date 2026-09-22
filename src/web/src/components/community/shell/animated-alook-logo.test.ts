@@ -28,6 +28,17 @@ describe("AnimatedAlookLogo", () => {
     expect(html).not.toContain("#F2E7D2")
   })
 
+  it("keeps the red and purple reveal expressions white-only", () => {
+    const html = renderToStaticMarkup(createElement(AnimatedAlookLogo))
+    const red = html.slice(html.indexOf('<g data-face="red">'), html.indexOf('<g data-face="purple">'))
+    const purple = html.slice(html.indexOf('<g data-face="purple">'), html.indexOf('<g data-face="teal">'))
+
+    expect(red.match(/fill="white"/g)).toHaveLength(3)
+    expect(purple.match(/fill="white"/g)).toHaveLength(3)
+    expect(red).not.toContain('fill="black"')
+    expect(purple).not.toContain('fill="black"')
+  })
+
   it("locks the approved Reveal transform and damped timing", () => {
     expect(REVEAL_MATRIX).toEqual([0.82598, 0, 0, 0.82599, 194.784, 194.424])
     expect(MOTION_DURATION_MS).toBe(300)
