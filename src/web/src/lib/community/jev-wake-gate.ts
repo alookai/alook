@@ -4,7 +4,6 @@ import { createLogger, formatHandle } from "@alook/shared"
 
 const log = createLogger({ service: "jev-wake-gate" })
 
-const PROMPT_VERSION = "wake-v3"
 const MAX_CANDIDATES = 100
 const MAX_QUESTIONS_PER_BATCH = 20
 const MAX_BATCH_BYTES = 128 * 1024
@@ -465,7 +464,6 @@ export async function selectJevWakeCandidates(
             provider: provider.name,
             upstreamProvider: response.provider,
             model: response.model,
-            promptVersion: PROMPT_VERSION,
             pWake: probability,
             threshold: config.threshold,
             wouldPass,
@@ -493,7 +491,6 @@ export async function selectJevWakeCandidates(
       messageId: input.messageId,
       provider: provider.name,
       model: config.model,
-      promptVersion: PROMPT_VERSION,
       candidateCount: input.candidates.length,
       selectedCount: result.length,
       batchCount: batches.length,
