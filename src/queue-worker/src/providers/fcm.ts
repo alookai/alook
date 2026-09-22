@@ -121,6 +121,7 @@ export async function sendFcmNotification(
           },
           data: input.payload.route,
           android: {
+            priority: "high",
             collapse_key: input.payload.notificationId,
             notification: {
               tag: input.payload.notificationId,

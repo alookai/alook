@@ -179,6 +179,7 @@ describe("FCM HTTP v1 adapter", () => {
         },
         data: payload.route,
         android: {
+          priority: "high",
           collapse_key: payload.notificationId,
           notification: { tag: payload.notificationId, sound: "default" },
         },
