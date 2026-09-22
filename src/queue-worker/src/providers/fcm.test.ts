@@ -332,13 +332,74 @@ describe("FCM HTTP v1 adapter", () => {
           analyticsLabel: FCM_ANDROID_ANALYTICS_LABEL,
           data: { countMessagesAccepted: "credential-like-value" },
         },
+        {
+          appId: "different-app",
+          date: { year: 2026, month: 9, day: 20 },
+          analyticsLabel: FCM_ANDROID_ANALYTICS_LABEL,
+          data: { countMessagesAccepted: "1" },
+        },
+        {
+          appId: "test-app",
+          date: "not-a-date",
+          analyticsLabel: FCM_ANDROID_ANALYTICS_LABEL,
+          data: { countMessagesAccepted: "1" },
+        },
+        {
+          appId: "test-app",
+          date: { year: 2026, month: 9, day: 20 },
+          analyticsLabel: FCM_ANDROID_ANALYTICS_LABEL,
+          data: "not-an-object",
+        },
+        {
+          appId: "test-app",
+          date: { year: 2026, month: 9, day: 20 },
+          analyticsLabel: FCM_ANDROID_ANALYTICS_LABEL,
+          data: {
+            countMessagesAccepted: "not-a-count",
+            countNotificationsAccepted: -1,
+            messageOutcomePercents: { delivered: -1 },
+            deliveryPerformancePercents: { delayedDeviceDoze: 101 },
+            messageInsightPercents: { priorityLowered: "secret-invalid-value" },
+            proxyNotificationInsightPercents: { proxied: null },
+          },
+        },
         "raw-sensitive-value",
       ],
     })) as typeof fetch)
 
-    expect(result).toEqual({ rows: [], pageCount: 1, discardedRowCount: 2 })
+    expect(result).toEqual({ rows: [], pageCount: 1, discardedRowCount: 6 })
     expect(JSON.stringify(result)).not.toContain("credential-like-value")
     expect(JSON.stringify(result)).not.toContain("raw-sensitive-value")
+    expect(JSON.stringify(result)).not.toContain("secret-invalid-value")
+  })
+
+  it.each([
+    ["non-integer year", { year: "2026", month: 9, day: 20 }],
+    ["non-integer month", { year: 2026, month: "9", day: 20 }],
+    ["non-integer day", { year: 2026, month: 9, day: "20" }],
+    ["year below range", { year: 0, month: 9, day: 20 }],
+    ["year above range", { year: 10_000, month: 9, day: 20 }],
+    ["month below range", { year: 2026, month: 0, day: 20 }],
+    ["month above range", { year: 2026, month: 13, day: 20 }],
+    ["day below range", { year: 2026, month: 9, day: 0 }],
+    ["day above range", { year: 2026, month: 9, day: 32 }],
+  ])("discards an owned-label row with a %s", async (_name, date) => {
+    await expect(listFcmAndroidDeliveryData({
+      projectId: "test-project",
+      appId: "test-app",
+      accessToken: "access-token",
+    }, vi.fn(async () => Response.json({
+      androidDeliveryData: [{
+        appId: "test-app",
+        date,
+        analyticsLabel: FCM_ANDROID_ANALYTICS_LABEL,
+        data: { countMessagesAccepted: "1" },
+      }],
+    })) as typeof fetch)).resolves.toEqual({
+      rows: [],
+      pageCount: 1,
+      discardedRowCount: 1,
+    })
   })
 
   it("rejects delivery-data HTTP and malformed response failures without response content", async () => {
@@ -364,6 +425,53 @@ describe("FCM HTTP v1 adapter", () => {
       stage: "delivery_data_parse",
     })
     await expect(shapeResult).rejects.not.toThrow(/secret-shape|access-token/)
+
+    const nonRecordResult = listFcmAndroidDeliveryData({
+      projectId: "test-project",
+      appId: "test-app",
+      accessToken: "access-token",
+    }, vi.fn(async () => Response.json([])) as typeof fetch)
+    await expect(nonRecordResult).rejects.toMatchObject({
+      provider: "fcm",
+      stage: "delivery_data_parse",
+      reason: "invalid_response",
+    })
+
+    const invalidJsonResult = listFcmAndroidDeliveryData({
+      projectId: "test-project",
+      appId: "test-app",
+      accessToken: "access-token",
+    }, vi.fn(async () => new Response("secret-invalid-json")) as typeof fetch)
+    await expect(invalidJsonResult).rejects.toMatchObject({
+      provider: "fcm",
+      stage: "delivery_data_parse",
+      errorName: "SyntaxError",
+    })
+    await expect(invalidJsonResult).rejects.not.toThrow(/secret-invalid-json|access-token/)
+  })
+
+  it("uses the default fetch dependency and accepts an empty final page token", async () => {
+    const fetchMock = vi.fn(async () => Response.json({ nextPageToken: "" }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(listFcmAndroidDeliveryData({
+      projectId: "test-project",
+      appId: "test-app",
+      accessToken: "access-token",
+    })).resolves.toEqual({ rows: [], pageCount: 1, discardedRowCount: 0 })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("rejects a non-string delivery-data page token", async () => {
+    await expect(listFcmAndroidDeliveryData({
+      projectId: "test-project",
+      appId: "test-app",
+      accessToken: "access-token",
+    }, vi.fn(async () => Response.json({ nextPageToken: 123 })) as typeof fetch)).rejects.toMatchObject({
+      provider: "fcm",
+      stage: "delivery_data_parse",
+      reason: "invalid_page_token",
+    })
   })
 
   it("rejects repeated delivery-data page tokens", async () => {
@@ -382,6 +490,25 @@ describe("FCM HTTP v1 adapter", () => {
       reason: "invalid_page_token",
     })
     expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it("stops delivery-data pagination at the bounded page limit", async () => {
+    let page = 0
+    const fetchMock = vi.fn(async () => {
+      page += 1
+      return Response.json({ androidDeliveryData: [], nextPageToken: `page-${page}` })
+    })
+
+    await expect(listFcmAndroidDeliveryData({
+      projectId: "test-project",
+      appId: "test-app",
+      accessToken: "access-token",
+    }, fetchMock as typeof fetch)).rejects.toMatchObject({
+      provider: "fcm",
+      stage: "delivery_data_parse",
+      reason: "page_limit",
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(10)
   })
 
   it("uses the default fetch dependency for notification sends", async () => {

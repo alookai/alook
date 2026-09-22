@@ -1,6 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const { mockLogInfo } = vi.hoisted(() => ({ mockLogInfo: vi.fn() }))
+const {
+  mockCreateFcmDataAccessToken,
+  mockListFcmAndroidDeliveryData,
+  mockLogInfo,
+} = vi.hoisted(() => ({
+  mockCreateFcmDataAccessToken: vi.fn(),
+  mockListFcmAndroidDeliveryData: vi.fn(),
+  mockLogInfo: vi.fn(),
+}))
 vi.mock("@alook/shared", () => ({
   createLogger: () => ({
     debug: vi.fn(),
@@ -9,6 +17,11 @@ vi.mock("@alook/shared", () => ({
     error: vi.fn(),
     child() { return this },
   }),
+}))
+vi.mock("./providers/fcm", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./providers/fcm")>(),
+  createFcmDataAccessToken: (...args: unknown[]) => mockCreateFcmDataAccessToken(...args),
+  listFcmAndroidDeliveryData: (...args: unknown[]) => mockListFcmAndroidDeliveryData(...args),
 }))
 
 import { collectFcmDeliveryMetrics } from "./fcm-delivery-metrics"
@@ -22,7 +35,36 @@ const env = {
 } as unknown as Env
 
 describe("FCM delivery metrics collector", () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockCreateFcmDataAccessToken.mockResolvedValue("default-access-token")
+    mockListFcmAndroidDeliveryData.mockResolvedValue({
+      rows: [],
+      pageCount: 1,
+      discardedRowCount: 0,
+    })
+  })
+
+  it("uses the production OAuth and Data API dependencies by default", async () => {
+    await collectFcmDeliveryMetrics(env)
+
+    expect(mockCreateFcmDataAccessToken).toHaveBeenCalledWith({
+      projectId: "test-project",
+      clientEmail: "test@example.test",
+      privateKey: "private-key",
+    })
+    expect(mockListFcmAndroidDeliveryData).toHaveBeenCalledWith({
+      projectId: "test-project",
+      appId: "test-app",
+      accessToken: "default-access-token",
+    })
+    expect(mockLogInfo).toHaveBeenCalledWith("fcm_delivery_metrics_complete", {
+      analyticsLabel: FCM_ANDROID_ANALYTICS_LABEL,
+      rowCount: 0,
+      pageCount: 1,
+      discardedRowCount: 0,
+    })
+  })
 
   it("logs only projected aggregate rows and a bounded completion summary", async () => {
     const createAccessToken = vi.fn(async () => "access-token")
