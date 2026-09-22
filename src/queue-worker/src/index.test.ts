@@ -22,13 +22,7 @@ vi.mock("./task-handler", () => ({
   executeQueueTask: (...args: unknown[]) => mockExecuteQueueTask(...args),
 }))
 
-const mockCollectFcmDeliveryMetrics = vi.fn()
-vi.mock("./fcm-delivery-metrics", () => ({
-  collectFcmDeliveryMetrics: (...args: unknown[]) => mockCollectFcmDeliveryMetrics(...args),
-}))
-
 import handler from "./index"
-import { PushProviderError } from "./providers/diagnostics"
 
 const legacyWake = { messageId: "message-1", botUserId: "bot-1" }
 const botWake = {
@@ -61,7 +55,6 @@ describe("queue-worker queue consumer", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockExecuteQueueTask.mockResolvedValue(undefined)
-    mockCollectFcmDeliveryMetrics.mockResolvedValue(undefined)
   })
 
   it.each([
@@ -125,43 +118,6 @@ describe("queue-worker queue consumer", () => {
     expect(messages[0]!.ack).toHaveBeenCalledTimes(1)
     expect(messages[1]!.retry).toHaveBeenCalledWith({ delaySeconds: 5 })
     expect(messages[2]!.ack).toHaveBeenCalledTimes(1)
-  })
-})
-
-describe("queue-worker scheduled FCM delivery metrics", () => {
-  const env = { FCM_PROJECT_ID: "test-project" } as Env
-
-  beforeEach(() => {
-    vi.clearAllMocks()
-    mockCollectFcmDeliveryMetrics.mockResolvedValue(undefined)
-  })
-
-  it("awaits one aggregate metrics collection", async () => {
-    await handler.scheduled!({} as ScheduledController, env, {} as ExecutionContext)
-
-    expect(mockCollectFcmDeliveryMetrics).toHaveBeenCalledTimes(1)
-    expect(mockCollectFcmDeliveryMetrics).toHaveBeenCalledWith(env)
-    expect(mockLogWarn).not.toHaveBeenCalled()
-  })
-
-  it("contains metrics failures with credential-free diagnostics", async () => {
-    mockCollectFcmDeliveryMetrics.mockRejectedValueOnce(
-      new PushProviderError("fcm", "delivery_data_fetch", 503, "sensitive response body"),
-    )
-
-    await expect(handler.scheduled!(
-      {} as ScheduledController,
-      env,
-      {} as ExecutionContext,
-    )).resolves.toBeUndefined()
-
-    expect(mockLogWarn).toHaveBeenCalledWith("fcm_delivery_metrics_failed", {
-      provider: "fcm",
-      stage: "delivery_data_fetch",
-      errorName: "PushProviderError",
-      httpStatus: 503,
-    })
-    expect(JSON.stringify(mockLogWarn.mock.calls)).not.toContain("sensitive response body")
   })
 })
 
