@@ -7,6 +7,7 @@ const resolveChannelAccessContext = vi.fn()
 const getDM = vi.fn()
 const getDMPeer = vi.fn()
 const isBlocked = vi.fn()
+const areFriends = vi.fn()
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
@@ -23,7 +24,10 @@ vi.mock("@alook/shared", async () => {
         getDM: (...a: unknown[]) => getDM(...a),
         getDMPeer: (...a: unknown[]) => getDMPeer(...a),
       },
-      communityFriendship: { isBlocked: (...a: unknown[]) => isBlocked(...a) },
+      communityFriendship: {
+        isBlocked: (...a: unknown[]) => isBlocked(...a),
+        areFriends: (...a: unknown[]) => areFriends(...a),
+      },
     },
   }
 })
@@ -34,8 +38,10 @@ import {
   requireChannelMember,
   requireChannelAccess,
   requireDMAccess,
+  requireDMCommunicationAccess,
   requireNotBlocked,
   requireMessageSurfaceAccess,
+  requireMessageSurfaceCommunicationAccess,
 } from "./permissions"
 
 // Build a resolveChannelAccessContext return row. `anchor` defaults to the
@@ -289,6 +295,47 @@ describe("requireDMAccess", () => {
   })
 })
 
+describe("requireDMCommunicationAccess", () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it("allows an accepted friend after the participant and block checks", async () => {
+    getDM.mockResolvedValue({ id: "d1", lastMessageAt: null, createdAt: "2026-06-30" })
+    getDMPeer.mockResolvedValue({ otherUserId: "u2" })
+    isBlocked.mockResolvedValue(false)
+    areFriends.mockResolvedValue(true)
+
+    const res = await requireDMCommunicationAccess(db, "d1", "u1")
+
+    expect(res.ok).toBe(true)
+    expect(areFriends).toHaveBeenCalledWith(db, "u1", "u2")
+  })
+
+  it("keeps history accessible but denies communication after unfriend", async () => {
+    getDM.mockResolvedValue({ id: "d1", lastMessageAt: null, createdAt: "2026-06-30" })
+    getDMPeer.mockResolvedValue({ otherUserId: "u2" })
+    isBlocked.mockResolvedValue(false)
+    areFriends.mockResolvedValue(false)
+
+    await expect(requireDMAccess(db, "d1", "u1")).resolves.toMatchObject({ ok: true })
+    await expect(requireDMCommunicationAccess(db, "d1", "u1")).resolves.toEqual({
+      ok: false,
+      status: 403,
+      error: "accepted friendship required",
+    })
+  })
+
+  it("keeps block higher priority and never consults friendship", async () => {
+    getDM.mockResolvedValue({ id: "d1", lastMessageAt: null, createdAt: "2026-06-30" })
+    getDMPeer.mockResolvedValue({ otherUserId: "u2" })
+    isBlocked.mockResolvedValue(true)
+
+    const res = await requireDMCommunicationAccess(db, "d1", "u1")
+
+    expect(res).toEqual({ ok: false, status: 403, error: "blocked" })
+    expect(areFriends).not.toHaveBeenCalled()
+  })
+})
+
 describe("requireNotBlocked", () => {
   beforeEach(() => vi.clearAllMocks())
 
@@ -373,5 +420,31 @@ describe("requireMessageSurfaceAccess — id-in-path trunk dispatch (surface axi
     const res = await requireMessageSurfaceAccess(db, "t1", "u1")
     expect(res.ok).toBe(true)
     if (res.ok) expect(res.value.surface).toBe("channel")
+  })
+})
+
+describe("requireMessageSurfaceCommunicationAccess", () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it("denies an unaccepted DM without changing its read access", async () => {
+    getChannel.mockResolvedValue({ id: "d1", type: "dm" })
+    getDM.mockResolvedValue({ id: "d1", lastMessageAt: null, createdAt: "2026-06-30" })
+    getDMPeer.mockResolvedValue({ otherUserId: "u2" })
+    isBlocked.mockResolvedValue(false)
+    areFriends.mockResolvedValue(false)
+
+    const res = await requireMessageSurfaceCommunicationAccess(db, "d1", "u1")
+
+    expect(res).toEqual({ ok: false, status: 403, error: "accepted friendship required" })
+  })
+
+  it("leaves non-DM channel communication on the existing member gate", async () => {
+    getChannel.mockResolvedValue({ id: "c1", type: "text" })
+    getChannelForMember.mockResolvedValue({ id: "c1", type: "text", serverId: "s1" })
+
+    const res = await requireMessageSurfaceCommunicationAccess(db, "c1", "u1")
+
+    expect(res).toMatchObject({ ok: true, value: { surface: "channel" } })
+    expect(areFriends).not.toHaveBeenCalled()
   })
 })

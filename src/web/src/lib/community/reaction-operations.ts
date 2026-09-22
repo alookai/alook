@@ -43,7 +43,7 @@ export async function setReactionForActor(
 ): Promise<OperationResult<{ emoji: string; changed: boolean; reaction?: unknown }>> {
   const emoji = validateEmoji(input.emoji)
   if (!emoji.ok) return emoji
-  const access = await authorizeReaction(db, input.messageId, input.userId)
+  const access = await authorizeReaction(db, input.messageId, input.userId, "add")
   if (!access.ok) return access
 
   let reaction: unknown

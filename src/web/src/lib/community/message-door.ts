@@ -1,6 +1,9 @@
 import type { Database } from "@alook/shared"
 import { resolveTargetForMember, type TargetResolution } from "./resolve-ref"
-import { requireMessageSurfaceAccess } from "./permissions"
+import {
+  requireMessageSurfaceAccess,
+  requireMessageSurfaceCommunicationAccess,
+} from "./permissions"
 import { requireMessageBearingSurface } from "./channel-write-guard"
 import { type MessageTarget } from "./message-handler"
 
@@ -87,12 +90,12 @@ function err(status: number, error: string): DoorResult<never> {
  * existence-mask output both arms share (Aigneis ④, the hard red line).
  *
  * ⚠ The id arm does NOT trust the caller-supplied id: a web-sent id is put
- * through the EXACT same `requireMessageSurfaceAccess` gate as a ref-resolved
- * id. "id is web-trusted, skip the mask" would be strictly worse than the old
+ * through the EXACT same intent-selected surface gate as a ref-resolved id.
+ * "id is web-trusted, skip the mask" would be strictly worse than the old
  * two-door inconsistency — an id door with no mask. So both arms:
  *   1. arrive at a channelId (id: direct; ref: resolveTargetForMember),
- *   2. pass through requireMessageSurfaceAccess (one collapse point, one opaque
- *      404 body — a stranger constructing an unreachable id eats the same four
+ *   2. pass through the read gate or communication-write gate (one collapse
+ *      point, one opaque 404 body — a stranger constructing an unreachable id eats the same four
  *      cells: unknown→404 / non-member→403 / DM-non-participant→404 / blocked→403),
  *   3. build the MessageTarget from (surface + channel.type).
  *
@@ -105,6 +108,7 @@ export async function resolveMessageTarget(
   userId: string,
   descriptor: MessageTargetDescriptor,
   callerKind: "human" | "bot",
+  intent: "read" | "communicate" = "read",
 ): Promise<DoorResult<DoorTarget>> {
   let channelId: string
 
@@ -126,7 +130,9 @@ export async function resolveMessageTarget(
   }
 
   // SINGLE mask output — both arms converge here (Aigneis ④).
-  const access = await requireMessageSurfaceAccess(db, channelId, userId)
+  const access = intent === "communicate"
+    ? await requireMessageSurfaceCommunicationAccess(db, channelId, userId)
+    : await requireMessageSurfaceAccess(db, channelId, userId)
   if (!access.ok) return access
 
   if (access.value.surface === "dm") {

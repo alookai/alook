@@ -76,15 +76,13 @@ export async function resolveTargetForMember(
     }
     const peerId = peer.id
 
-    if (opts?.createDmIfMissing) {
-      const guard = await guardDmOpen(db, userId, peerId, { callerKind: opts.callerKind })
-      if (!guard.ok) return { error: guard.status, message: guard.error }
-      const dm = await queries.communityDm.createOrGetDM(db, { userId1: userId, userId2: peerId })
-      return { kind: "dm", channelId: dm.id, otherUserId: peerId }
-    }
+    const existing = await queries.communityDm.getDMBetween(db, userId, peerId)
+    if (existing) return { kind: "dm", channelId: existing.id, otherUserId: peerId }
+    if (!opts?.createDmIfMissing) return { error: 404, message: "dm not found" }
 
-    const dm = await queries.communityDm.getDMBetween(db, userId, peerId)
-    if (!dm) return { error: 404, message: "dm not found" }
+    const guard = await guardDmOpen(db, userId, peerId, { callerKind: opts.callerKind })
+    if (!guard.ok) return { error: guard.status, message: guard.error }
+    const dm = await queries.communityDm.createOrGetDM(db, { userId1: userId, userId2: peerId })
     return { kind: "dm", channelId: dm.id, otherUserId: peerId }
   }
 

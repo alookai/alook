@@ -164,6 +164,30 @@ export async function requireDMAccess(
   })
 }
 
+/**
+ * Verify the caller may continue communicating in this DM. History access and
+ * communication are deliberately separate contracts: `requireDMAccess` keeps
+ * an existing DM readable after an unfriend, while this gate additionally
+ * requires an accepted friendship (owner ↔ own-bot is implicit in
+ * `areFriends`). The access gate runs first so block remains the highest
+ * priority denial.
+ */
+export async function requireDMCommunicationAccess(
+  db: Database,
+  channelId: string,
+  userId: string,
+): Promise<Result<DMAccess>> {
+  const access = await requireDMAccess(db, channelId, userId)
+  if (!access.ok) return access
+  const accepted = await queries.communityFriendship.areFriends(
+    db,
+    userId,
+    access.value.otherUserId,
+  )
+  if (!accepted) return err(403, "accepted friendship required")
+  return access
+}
+
 export type MessageSurfaceAccess =
   | { surface: "dm"; dm: DMAccess }
   | {
@@ -200,6 +224,21 @@ export async function requireMessageSurfaceAccess(
   channelId: string,
   userId: string,
 ): Promise<Result<MessageSurfaceAccess>> {
+  return requireMessageSurfaceAccessWithDmGate(db, channelId, userId, requireDMAccess)
+}
+
+type DMGate = (
+  db: Database,
+  channelId: string,
+  userId: string,
+) => Promise<Result<DMAccess>>
+
+async function requireMessageSurfaceAccessWithDmGate(
+  db: Database,
+  channelId: string,
+  userId: string,
+  dmGate: DMGate,
+): Promise<Result<MessageSurfaceAccess>> {
   // One existence probe, reused for the type dispatch AND the channel-arm's
   // 404 leg — so an unknown id is a single 404 on every surface.
   const channel = await queries.communityChannel.getChannel(db, channelId)
@@ -213,7 +252,7 @@ export async function requireMessageSurfaceAccess(
   // type→route judgement) and avoids seeding a literal type-switch the later
   // forum/thread arms would copy into a parallel type tree.
   if (visibilityIsDmParticipant(channel.type)) {
-    const dm = await requireDMAccess(db, channelId, userId)
+    const dm = await dmGate(db, channelId, userId)
     if (!dm.ok) {
       // ④ opaque 404 (Aigneis #157): a 404 here and the top-level unknown-id
       // 404 must be byte-identical in body, not just status — else a stranger
@@ -233,6 +272,24 @@ export async function requireMessageSurfaceAccess(
   const member = await requireChannelMember(db, channelId, userId)
   if (!member.ok) return member
   return ok({ surface: "channel", channel: member.value })
+}
+
+/**
+ * Communication-write sibling of `requireMessageSurfaceAccess`. Non-DM
+ * channels retain their existing member gate; DMs use the stricter accepted-
+ * friendship gate while preserving the same opaque existence mask.
+ */
+export async function requireMessageSurfaceCommunicationAccess(
+  db: Database,
+  channelId: string,
+  userId: string,
+): Promise<Result<MessageSurfaceAccess>> {
+  return requireMessageSurfaceAccessWithDmGate(
+    db,
+    channelId,
+    userId,
+    requireDMCommunicationAccess,
+  )
 }
 
 /**

@@ -9,7 +9,14 @@ const mockCreateServerChannel = vi.fn()
 const mockCreateDm = vi.fn()
 const mockCreateThread = vi.fn()
 
-vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
+const replicaDb = { __db: "replica" }
+const primaryDb = { __db: "primary" }
+const mockGetDb = vi.fn(() => replicaDb)
+const mockGetPrimaryDb = vi.fn(() => primaryDb)
+vi.mock("@/lib/db", () => ({
+  getDb: (...args: unknown[]) => mockGetDb(...args),
+  getPrimaryDb: (...args: unknown[]) => mockGetPrimaryDb(...args),
+}))
 
 // Dual-actor: crk_ bearer → bot, else human. The bot arm is a capability
 // boundary — creating channels is not a bot capability (channel-create permanent
@@ -68,7 +75,7 @@ describe("POST /api/community/channels (create door — human arm)", () => {
     const res = await POST(req({ type: "text", serverId: "s1", name: "general" }))
     expect(res.status).toBe(201)
     expect(mockCreateServerChannel).toHaveBeenCalledWith(
-      expect.anything(),
+      replicaDb,
       expect.objectContaining({ serverId: "s1", actorUserId: "u1", name: "general", type: "text" }),
     )
     const body = await res.json()
@@ -105,9 +112,10 @@ describe("POST /api/community/channels (create door — human arm)", () => {
     const res = await POST(req({ type: "dm", userId: "u2" }))
     expect(res.status).toBe(201)
     expect(mockCreateDm).toHaveBeenCalledWith(
-      expect.anything(),
+      primaryDb,
       expect.objectContaining({ actorUserId: "u1", peerUserId: "u2" }),
     )
+    expect(mockGetPrimaryDb).toHaveBeenCalledOnce()
     const body = await res.json()
     expect(body.conversation.id).toBe("dm-1")
   })

@@ -9,6 +9,7 @@ import {
   seedMessage,
   seedDm,
   seedDmMessage,
+  seedRemoveFriendship,
 } from "./_fixtures/seed"
 
 // Journey 14 — forum-post notify scope, per-post tags, post-card participant
@@ -108,14 +109,15 @@ test.describe.serial("DM presence stability on refresh", () => {
   let dmId: string
 
   test.beforeAll(async () => {
-    // Server + join makes Alice and Bob co-members (they are NOT friends —
-    // that's the exact shape that reproduced the flicker). The server's default
-    // channel is enough; no extra channel needed.
+    // Server + join makes Alice and Bob co-members. Create the DM and its
+    // history while accepted, then remove the friendship: co-members but NOT
+    // friends is the exact shape that reproduced the flicker.
     serverId = await seedServer("alice", `Presence ${Date.now()}`)
     await seedJoinServer("alice", "bob", serverId)
     dmId = await seedDm("alice", userId("bob"))
     // A message so the DM row is populated in Bob's sidebar.
     await seedDmMessage("alice", dmId, "hi")
+    await seedRemoveFriendship("alice", userId("bob"))
   })
 
   test("peer stays online after the viewer refreshes the DM view", async ({ asUser }) => {

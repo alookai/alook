@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server"
 import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
-import { getDb } from "@/lib/db"
+import { getDb, getPrimaryDb } from "@/lib/db"
 import { resolveMessageRefForBot } from "@/lib/community/resolve-message-ref"
 import {
   removeReactionForActor,
@@ -16,9 +16,10 @@ import {
  * Message-keyed reaction door (route/disc trunk — message-keyed faces dual-actor).
  * withCommunityActor: both human (session) and bot (crk_, the folded `reactAdd`
  * verb) hit this one route. Authorization is credential-scoped — `authorizeReaction`
- * resolves the message → its channel → the per-surface gate (requireDMAccess for a
- * DM incl block, requireChannelMember otherwise) keyed on `ctx.actor.userId`, so a
- * bot reaction runs the SAME mask a human does (no bot bypass). The bot's ref+seq→
+ * resolves the message → its channel → the communication surface gate (DM
+ * participant + block + accepted friendship, channel member otherwise) keyed
+ * on `ctx.actor.userId`, so a bot reaction runs the SAME mask a human does (no
+ * bot bypass). The bot's ref+seq→
  * messageId resolution happens upstream at the flat-verb→door retarget (proxy); this
  * route is message-keyed (messageId in path) for both actors.
  */
@@ -29,7 +30,9 @@ export const PUT = withCommunityActor(async (req: NextRequest, ctx) => {
   const emoji = decodeURIComponent(rawEmoji)
 
   const userId = ctx.actor.userId
-  const db = getDb(ctx.env.DB)
+  // Reaction add is a communication write; its read-before-write permission
+  // check must observe the latest unfriend/block.
+  const db = getPrimaryDb(ctx.env.DB)
 
   // Target messageId: bot ref+seq (member-scoped → 404), human path id. A bot
   // body is `{ channel, seq, emoji }` — emoji is already the path segment, so

@@ -7,6 +7,7 @@ import { canManageServer, queries, MAX_MESSAGE_CONTENT_LENGTH, WS_EVENTS } from 
 import {
   requireChannelMember,
   requireDMAccess,
+  requireDMCommunicationAccess,
   requireMessageSurfaceAccess,
   requireServerMember,
 } from "@/lib/community/permissions"
@@ -81,14 +82,16 @@ export const PATCH = withCommunityActor(async (req: NextRequest, ctx) => {
     return writeError(`content must be ≤ ${MAX_MESSAGE_CONTENT_LENGTH} characters`, 400)
   }
 
-  const db = getDb(ctx.env.DB)
+  // Editing is a communication write. Authorize and mutate in a primary
+  // session so a recent unfriend/block cannot be missed by replica lag.
+  const db = getPrimaryDb(ctx.env.DB)
   const message = await queries.communityMessage.getMessage(db, messageId)
   if (!message) return writeError("message not found", 404)
 
   const channel = await queries.communityChannel.getChannel(db, message.channelId)
   const channelType = channel?.type ?? null
   const access = channelType === "dm"
-    ? await requireDMAccess(db, message.channelId, ctx.actor.userId)
+    ? await requireDMCommunicationAccess(db, message.channelId, ctx.actor.userId)
     : await requireChannelMember(db, message.channelId, ctx.actor.userId)
   if (!access.ok) return writeError(access.error, access.status)
   if (message.authorId !== ctx.actor.userId) return writeError("only the message author may edit it", 403)

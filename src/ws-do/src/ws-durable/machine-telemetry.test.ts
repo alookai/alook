@@ -16,6 +16,9 @@ import {
   mockGetChannelType,
   mockGetCoMemberUserIds,
   mockGetDM,
+  mockGetDMPeer,
+  mockIsBlocked,
+  mockAreFriends,
   mockGetFriendUserIds,
   mockGetLatestTokenForUser,
   mockGetMachineByDaemon,
@@ -683,6 +686,9 @@ describe("WebSocketDurableObject", () => {
         mockGetChannelForMember.mockReset()
         mockGetChannelType.mockReset()
         mockGetChannelType.mockResolvedValue("dm")
+        mockGetDMPeer.mockResolvedValue({ otherUserId: "peer_1" })
+        mockIsBlocked.mockResolvedValue(false)
+        mockAreFriends.mockResolvedValue(true)
         mockListChannelMemberUserIds.mockReset()
         mockListChannelMemberUserIds.mockResolvedValue([])
         mockStubFetch.mockClear()
@@ -702,7 +708,7 @@ describe("WebSocketDurableObject", () => {
           name: "Bot",
           discriminator: "0007",
         })
-        mockGetChannelForMember.mockResolvedValue({ id: "dm_1", serverId: null })
+        mockGetChannelForMember.mockResolvedValue({ id: "dm_1", serverId: null, type: "dm" })
         mockGetChannelType.mockResolvedValue("dm")
         mockListChannelMemberUserIds.mockResolvedValue(["bot_1", "peer_1"])
 
@@ -858,7 +864,7 @@ describe("WebSocketDurableObject", () => {
           name: "Bot",
           discriminator: "0007",
         })
-        mockGetChannelForMember.mockResolvedValue({ id: "dm_1", serverId: null })
+        mockGetChannelForMember.mockResolvedValue({ id: "dm_1", serverId: null, type: "dm" })
         mockGetChannelType.mockResolvedValue("dm")
         mockListChannelMemberUserIds.mockResolvedValue(["bot_1", "peer_1"])
 

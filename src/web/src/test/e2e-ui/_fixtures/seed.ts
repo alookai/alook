@@ -2,6 +2,7 @@ import { WEB_URL } from "../_setup/paths"
 import { sessionCookie, userId } from "./community-fixture"
 import type { UserKey } from "../_setup/users"
 import { isRetryableSeedStatus, retrySeedRequest, seedRetryDelayMs } from "./seed-retry"
+import { manifest } from "./manifest"
 
 // API-driven precondition seeding for the Playwright specs. Deliberately does
 // NOT import @alook/test-utils (that barrel pulls in better-sqlite3 +
@@ -95,6 +96,16 @@ export async function seedChannelMember(owner: UserKey, channelId: string, userI
 }
 
 export async function seedDm(from: UserKey, targetUserId: string): Promise<string> {
+  const addressee = (Object.entries(manifest().users) as Array<[
+    UserKey,
+    { userId: string },
+  ]>).find(([, user]) => user.userId === targetUserId)?.[0]
+  if (!addressee) throw new Error(`seedDm: unknown fixture user ${targetUserId}`)
+
+  // A normal DM fixture models an accepted conversation. Tests that need
+  // non-friend history must create the DM/message first, then remove the
+  // friendship; creating a non-friend DM is no longer a valid precondition.
+  await seedFriendship(from, addressee, targetUserId)
   const res = await post(from, "/api/community/channels", { type: "dm", userId: targetUserId })
   const data = (await res.json()) as { conversation: { id: string } }
   return data.conversation.id
@@ -116,9 +127,10 @@ export async function seedBlock(blocker: UserKey, targetUserId: string): Promise
 // user, from the requester's friends list. Used to recover idempotently when a
 // re-run (Playwright retry) finds the pair already friends.
 async function findFriendshipId(requester: UserKey, targetUserId: string): Promise<string | undefined> {
-  const res = await fetch(`${WEB_URL}/api/community/friends/accepted`, {
-    headers: { Cookie: sessionCookie(requester), Origin: WEB_URL },
-  })
+  const res = await retrySeedRequest(() => fetch(
+    `${WEB_URL}/api/community/friends/accepted`,
+    { headers: { Cookie: sessionCookie(requester), Origin: WEB_URL } },
+  ))
   if (!res.ok) return undefined
   const data = (await res.json()) as { friends: Array<{ id: string; userId: string }> }
   return data.friends.find((f) => f.userId === targetUserId)?.id
@@ -152,6 +164,41 @@ async function deleteSeedRelationship(key: UserKey, id: string): Promise<Respons
     method: "DELETE",
     headers: { Cookie: sessionCookie(key), Origin: WEB_URL },
   }))
+}
+
+// Remove an accepted friendship while preserving any existing DM and history.
+// Use after seedDm/seedDmMessage when a spec needs the post-unfriend read-only
+// state; creating a DM directly as non-friends is no longer a valid fixture.
+export async function seedRemoveFriendship(
+  requester: UserKey,
+  targetUserId: string,
+): Promise<void> {
+  const friendshipId = await findFriendshipId(requester, targetUserId)
+  if (!friendshipId) throw new Error("seedRemoveFriendship: accepted friendship not found")
+  const response = await deleteSeedRelationship(requester, friendshipId)
+  if (!response.ok) throw new Error(`seedRemoveFriendship failed (${response.status})`)
+}
+
+async function acceptSeedFriendship(
+  requester: UserKey,
+  addressee: UserKey,
+  targetUserId: string,
+  pending: SeedRelationship,
+): Promise<string> {
+  const accepter = pending.kind === "outgoing" ? addressee : requester
+  const response = await retrySeedRequest(() => postRaw(
+    accepter,
+    `/api/community/friends/${pending.id}/accept`,
+  ))
+  if (response.ok) return pending.id
+  // Parallel fixtures may both observe the same pending row; one wins the
+  // accept while the other receives a terminal-state response. Confirm the
+  // accepted state instead of treating that harmless race as a seed failure.
+  if (response.status === 400 || response.status === 409) {
+    const existing = await findFriendshipId(requester, targetUserId)
+    if (existing) return existing
+  }
+  throw new Error(`seedFriendship accept failed (${response.status})`)
 }
 
 // Normalize a human-to-human pair to one actionable pending request. This uses
@@ -207,6 +254,19 @@ export async function seedCancelFriendRequest(requester: UserKey, friendshipId: 
 // Playwright retry: if the pair is already friends the request 409s, so we
 // recover the existing friendship id and skip the accept.
 export async function seedFriendship(requester: UserKey, addressee: UserKey, targetUserId: string): Promise<string> {
+  await Promise.all([
+    post(requester, `/api/community/users/${targetUserId}/unblock`),
+    post(addressee, `/api/community/users/${userId(requester)}/unblock`),
+  ])
+
+  const relationships = await listSeedRelationships(requester)
+  const accepted = relationships.accepted.find((row) => row.userId === targetUserId)
+  if (accepted) return accepted.id
+  const pending = relationships.pending.find((row) => row.userId === targetUserId)
+  if (pending) {
+    return acceptSeedFriendship(requester, addressee, targetUserId, pending)
+  }
+
   let reqRes: Response | undefined
   for (let attempt = 0; attempt < 3; attempt++) {
     const response = await postRaw(requester, "/api/community/friends/request", { userId: targetUserId })
@@ -218,14 +278,20 @@ export async function seedFriendship(requester: UserKey, addressee: UserKey, tar
   if (reqRes!.status === 409) {
     const existing = await findFriendshipId(requester, targetUserId)
     if (existing) return existing
-    throw new Error("seedFriendship: 409 but no existing friendship found")
+    const refreshed = await listSeedRelationships(requester)
+    const pending = refreshed.pending.find((row) => row.userId === targetUserId)
+    if (pending) return acceptSeedFriendship(requester, addressee, targetUserId, pending)
+    throw new Error("seedFriendship: 409 but no accepted or pending friendship found")
   }
   if (!reqRes!.ok) throw new Error(`seedFriendship request failed (${reqRes!.status})`)
   const reqData = (await reqRes!.json()) as { id?: string; friendship?: { id: string } | null }
   const friendshipId = reqData.id ?? reqData.friendship?.id
   if (!friendshipId) throw new Error("seedFriendship: no friendship id in response")
-  await post(addressee, `/api/community/friends/${friendshipId}/accept`)
-  return friendshipId
+  return acceptSeedFriendship(requester, addressee, targetUserId, {
+    id: friendshipId,
+    userId: targetUserId,
+    kind: "outgoing",
+  })
 }
 
 // Post a message into a channel via API (persisted with a real server id).

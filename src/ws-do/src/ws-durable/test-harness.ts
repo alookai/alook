@@ -116,6 +116,9 @@ async function resolveChannelContentRecipientUserIdsMock(db: unknown, channelId:
 export const mockResolveChannelRecipientUserIds = vi.fn(resolveChannelContentRecipientUserIdsMock)
 export const mockWithD1Retry = vi.fn(async <T>(fn: () => Promise<T>, _opts?: unknown): Promise<T> => fn())
 export const mockGetDM = vi.fn()
+export const mockGetDMPeer = vi.fn()
+export const mockIsBlocked = vi.fn()
+export const mockAreFriends = vi.fn()
 export const mockListMembers = vi.fn()
 export const mockListBotsForMachine = vi.fn<(db: unknown, machineId: string) => Promise<Array<{ id: string; name: string; discriminator: string; description: string }>>>().mockResolvedValue([])
 export const mockIsBotOnline = vi.fn<(db: unknown, botUserId: string) => Promise<boolean>>().mockResolvedValue(false)
@@ -140,6 +143,7 @@ export const mockReconcileBotActivityFromRunningAgents = vi
 const mockD1Prepare = vi.fn((sql: string) => ({
   bind: (...values: unknown[]) => ({ sql, values }),
 }))
+export const mockD1WithSession = vi.fn().mockReturnValue({})
 export const mockD1Batch = vi.fn(async (statements: unknown[]) =>
   statements.map(() => ({ success: true, meta: { changes: 1 } })))
 export const mockGetUserInternal = vi.fn<(db: unknown, id: string) => Promise<{ isBot: boolean; ownerUserId: string | null } | null>>().mockResolvedValue(null)
@@ -443,6 +447,8 @@ vi.mock("@alook/shared", async () => {
       },
       communityFriendship: {
         getFriendUserIds: (...a: [unknown, string]) => mockGetFriendUserIds(...a),
+        isBlocked: (...a: any[]) => mockIsBlocked(...a),
+        areFriends: (...a: any[]) => mockAreFriends(...a),
       },
       communityChannel: {
         listReadableChannelsForUser: (...a: unknown[]) => mockListReadableChannelsForUser(...a),
@@ -463,6 +469,7 @@ vi.mock("@alook/shared", async () => {
       },
       communityDm: {
         getDM: (...a: any[]) => mockGetDM(...a),
+        getDMPeer: (...a: any[]) => mockGetDMPeer(...a),
       },
       communityBot: {
         listBotsForMachine: (...a: [unknown, string]) => mockListBotsForMachine(...a),
@@ -508,6 +515,7 @@ export function createDO() {
     DB: {
       prepare: (sql: string) => mockD1Prepare(sql),
       batch: (statements: unknown[]) => mockD1Batch(statements),
+      withSession: (constraint: string) => mockD1WithSession(constraint),
     } as unknown as D1Database,
     WS_DO: {
       idFromName: vi.fn().mockReturnValue("mock-do-id"),
@@ -525,6 +533,7 @@ export const flushAsyncWork = async () => {
 }
 export function resetHarness() {
     vi.clearAllMocks()
+    mockD1WithSession.mockReturnValue({})
     mockAssertMachineCapacity.mockReset().mockResolvedValue(undefined)
     mockGetMachineByIdForUser.mockResolvedValue({ id: "cm_1", status: "online", availableRuntimes: [] })
     mockListReadableChannelsForUser.mockImplementation(async (_db, _userId, ids: string[]) => ids.map((id) => ({ id, serverId: null, parentChannelId: null })))
@@ -544,6 +553,9 @@ export function resetHarness() {
     mockGetChannelType.mockResolvedValue("text")
     mockListThreadParticipantUserIds.mockResolvedValue([])
     mockListChannelMemberUserIds.mockResolvedValue([])
+    mockGetDMPeer.mockResolvedValue(null)
+    mockIsBlocked.mockResolvedValue(false)
+    mockAreFriends.mockResolvedValue(true)
     mockResolveScopeMemberUserIds.mockResolvedValue([])
     mockResolveChannelRecipientUserIds.mockImplementation(resolveChannelContentRecipientUserIdsMock)
     mockWithD1Retry.mockImplementation(async <T>(fn: () => Promise<T>, _opts?: unknown): Promise<T> => fn())

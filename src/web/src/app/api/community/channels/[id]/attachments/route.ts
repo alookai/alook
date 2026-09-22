@@ -1,9 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { queries, createLogger } from "@alook/shared"
-import { getDb } from "@/lib/db"
+import { getPrimaryDb } from "@/lib/db"
 import { withCommunityActor, requireBot, type CommunityActor } from "@/lib/middleware/community-actor"
 import { resolveTargetForMember, resolveErrorResponse } from "@/lib/community/resolve-ref"
-import { requireChannelMember, requireDMAccess } from "@/lib/community/permissions"
+import {
+  requireChannelMember,
+  requireDMCommunicationAccess,
+} from "@/lib/community/permissions"
 import { handleAttachmentUpload, runAttachmentUpload } from "@/lib/community/upload"
 import { communityMediaCleanupErrorCategory } from "@/lib/community/community-media-cleanup"
 
@@ -37,7 +40,8 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
     return handleBotAttachmentUpload(req, ctx)
   }
   // Human arm — id-in-path, shared upload trunk (surface dispatch +
-  // per-surface guard + DM block gate live inside runAttachmentUpload).
+  // per-surface guard + DM accepted-friend communication gate live inside
+  // runAttachmentUpload).
   return runAttachmentUpload(req, {
     env: ctx.env,
     userId: ctx.actor.userId,
@@ -75,7 +79,9 @@ async function handleBotAttachmentUpload(
       return NextResponse.json({ error: "missing target query param" }, { status: 400 })
     }
 
-    const db = getDb(ctx.env.DB)
+    // Resolve and authorize against primary before writing R2/D1 so a recent
+    // unfriend/block cannot be bypassed through a lagging replica.
+    const db = getPrimaryDb(ctx.env.DB)
 
     const resolved = await resolveTargetForMember(db, botUserId, target)
     if ("error" in resolved) return resolveErrorResponse(resolved)
@@ -83,7 +89,7 @@ async function handleBotAttachmentUpload(
     let kind: "channel" | "dm"
     let targetId: string
     if (resolved.kind === "dm") {
-      const gate = await requireDMAccess(db, resolved.channelId, botUserId)
+      const gate = await requireDMCommunicationAccess(db, resolved.channelId, botUserId)
       if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status })
       kind = "dm"
       targetId = resolved.channelId

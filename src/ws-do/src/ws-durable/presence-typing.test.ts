@@ -9,6 +9,7 @@ import {
   flushAsyncWork,
   mockCheckAliveFetch,
   mockCreateDb,
+  mockD1WithSession,
   mockFindCredentialByHash,
   mockGetBotBinding,
   mockGetBotBindingWithOwner,
@@ -16,6 +17,9 @@ import {
   mockGetChannelType,
   mockGetCoMemberUserIds,
   mockGetDM,
+  mockGetDMPeer,
+  mockIsBlocked,
+  mockAreFriends,
   mockGetFriendUserIds,
   mockGetLatestTokenForUser,
   mockGetMachineByDaemon,
@@ -821,9 +825,10 @@ describe("WebSocketDurableObject", () => {
 
     it("fans out to the other participant when sender IS a DM participant", async () => {
       const { durable, env } = createDO()
-      mockGetChannelForMember.mockResolvedValueOnce({ id: "dm-1", serverId: null })
+      mockGetChannelForMember.mockResolvedValueOnce({ id: "dm-1", serverId: null, type: "dm" })
       mockGetChannelType.mockResolvedValueOnce("dm")
       mockListChannelMemberUserIds.mockResolvedValueOnce(["alice", "bob"])
+      mockGetDMPeer.mockResolvedValueOnce({ otherUserId: "bob" })
 
       const ws = createMockWebSocket()
       ws.serializeAttachment({ type: "user", userId: "alice", authenticated: true })
@@ -837,6 +842,52 @@ describe("WebSocketDurableObject", () => {
       expect((env.WS_DO as any).idFromName).toHaveBeenCalledWith("user:bob")
       expect((env.WS_DO as any).idFromName).not.toHaveBeenCalledWith("user:alice")
       expect(mockStubFetch).toHaveBeenCalledTimes(1)
+    })
+
+    it("does not fan out DM typing start or stop after unfriend", async () => {
+      const { durable, env } = createDO()
+      mockGetChannelForMember.mockResolvedValue({ id: "dm-1", serverId: null, type: "dm" })
+      mockGetDMPeer.mockResolvedValue({ otherUserId: "bob" })
+      mockIsBlocked.mockResolvedValue(false)
+      mockAreFriends.mockResolvedValue(false)
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "user", userId: "alice", authenticated: true })
+
+      await durable.webSocketMessage(
+        ws as any,
+        JSON.stringify({ type: "community:typing.start", channelId: "dm-1" }),
+      )
+      await durable.webSocketMessage(
+        ws as any,
+        JSON.stringify({ type: "community:typing.stop", channelId: "dm-1" }),
+      )
+      await flushAsyncWork()
+
+      expect(mockD1WithSession).toHaveBeenCalledWith("first-primary")
+      expect(mockAreFriends).toHaveBeenCalledWith(expect.anything(), "alice", "bob")
+      expect(mockResolveChannelRecipientUserIds).not.toHaveBeenCalled()
+      expect((env.WS_DO as any).get).not.toHaveBeenCalled()
+      expect(mockStubFetch).not.toHaveBeenCalled()
+    })
+
+    it("keeps block above accepted friendship for DM typing", async () => {
+      const { durable } = createDO()
+      mockGetChannelForMember.mockResolvedValue({ id: "dm-1", serverId: null, type: "dm" })
+      mockGetDMPeer.mockResolvedValue({ otherUserId: "bob" })
+      mockIsBlocked.mockResolvedValue(true)
+      mockAreFriends.mockResolvedValue(true)
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "user", userId: "alice", authenticated: true })
+      await durable.webSocketMessage(
+        ws as any,
+        JSON.stringify({ type: "community:typing.start", channelId: "dm-1" }),
+      )
+      await flushAsyncWork()
+
+      expect(mockAreFriends).not.toHaveBeenCalled()
+      expect(mockStubFetch).not.toHaveBeenCalled()
     })
 
     it("keeps membership retry separate while recipient retry re-runs the complete shared resolver", async () => {
@@ -862,6 +913,7 @@ describe("WebSocketDurableObject", () => {
       expect(mockResolveChannelRecipientUserIds).toHaveBeenCalledTimes(2)
       expect(mockWithD1Retry.mock.calls.map((call) => (call[1] as { route?: string }).route)).toEqual([
         "ws-do:agent-typing-membership",
+        "ws-do:agent-typing-communication",
         "ws-do:agent-typing-recipients",
       ])
       const request = mockStubFetch.mock.calls[0]![0] as Request
