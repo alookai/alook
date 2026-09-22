@@ -265,7 +265,7 @@ describe("selectJevWakeCandidates", () => {
           {
             text: "older",
             messageType: "system",
-            author: { kind: "human", alias: "member_1" },
+            author: { kind: "human", handle: "Alice#0001" },
             roles: ["thread_opener"],
             priority: 2,
             order: 0,
@@ -281,7 +281,7 @@ describe("selectJevWakeCandidates", () => {
       messages: [
         {
           context_roles: ["thread_opener"],
-          author: { kind: "human", alias: "member_1" },
+          author: { kind: "human", handle: "Alice#0001" },
           message_type: "system",
           text: "older",
         },
@@ -303,7 +303,7 @@ describe("selectJevWakeCandidates", () => {
     const messages = Array.from({ length: 10 }, (_, index) => ({
       text: `${index}:${"😀".repeat(400)}`,
       messageType: "default",
-      author: { kind: "human" as const, alias: `member_${index + 1}` },
+      author: { kind: "human" as const, handle: `Member ${index + 1}#0001` },
       roles: index === 9 ? ["reply_target" as const] : ["recent" as const],
       priority: index === 9 ? 0 : 3,
       order: index,
@@ -333,7 +333,7 @@ describe("selectJevWakeCandidates", () => {
     const messages = Array.from({ length: 9 }, (_, index) => ({
       text: `message ${index}`,
       messageType: "default",
-      author: { kind: "human" as const, alias: "member_1" },
+      author: { kind: "human" as const, handle: "Alice#0001" },
       roles: ["recent" as const],
       priority: 3,
       order: index,

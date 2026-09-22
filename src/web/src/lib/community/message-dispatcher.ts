@@ -69,7 +69,6 @@ function buildWakeConversation(
       || left.row.seq - right.row.seq
       || left.row.id.localeCompare(right.row.id),
   )
-  const humanAliases = new Map<string, string>()
   const roleOrder: WakeContextRole[] = [
     "reply_target",
     "reply_ancestor",
@@ -79,30 +78,17 @@ function buildWakeConversation(
   return {
     available: true,
     truncated: recentTruncated,
-    messages: ordered.map(({ row, roles, priority }, order) => {
-      let author: JevWakeGateInput["conversation"]["messages"][number]["author"]
-      if (row.authorIsBot) {
-        author = {
-          kind: "bot",
-          handle: formatHandle(row.authorName, row.authorDiscriminator),
-        }
-      } else {
-        let alias = humanAliases.get(row.authorId)
-        if (!alias) {
-          alias = `member_${humanAliases.size + 1}`
-          humanAliases.set(row.authorId, alias)
-        }
-        author = { kind: "human", alias }
-      }
-      return {
-        text: row.content,
-        messageType: row.type,
-        author,
-        roles: roleOrder.filter((role) => roles.has(role)),
-        priority,
-        order,
-      }
-    }),
+    messages: ordered.map(({ row, roles, priority }, order) => ({
+      text: row.content,
+      messageType: row.type,
+      author: {
+        kind: row.authorIsBot ? "bot" : "human",
+        handle: formatHandle(row.authorName, row.authorDiscriminator),
+      },
+      roles: roleOrder.filter((role) => roles.has(role)),
+      priority,
+      order,
+    })),
   }
 }
 

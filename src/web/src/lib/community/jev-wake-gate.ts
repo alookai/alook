@@ -56,7 +56,7 @@ type JevWakeContextEntry = {
   messageType: string
   author:
     | { kind: "bot"; handle: string }
-    | { kind: "human"; alias: string }
+    | { kind: "human"; handle: string }
   roles: Array<"reply_target" | "reply_ancestor" | "thread_opener" | "recent">
   priority: number
   order: number

@@ -374,7 +374,7 @@ describe("planCommittedMessage", () => {
     expect(JSON.stringify(plan.wakeGateInput)).not.toContain("private-name.png")
   })
 
-  it("builds scoped reply, opener, and recent context once with merged roles and private human aliases", async () => {
+  it("builds scoped reply, opener, and recent context once with public author handles", async () => {
     mockGetMessage.mockResolvedValue({
       ...message,
       channelId: "thread_1",
@@ -454,12 +454,12 @@ describe("planCommittedMessage", () => {
       messages: [
         expect.objectContaining({
           text: "Forum incident",
-          author: { kind: "human", alias: "member_1" },
+          author: { kind: "human", handle: "Private Human Name#1234" },
           roles: ["thread_opener"],
         }),
         expect.objectContaining({
           text: "Earlier human context",
-          author: { kind: "human", alias: "member_1" },
+          author: { kind: "human", handle: "Private Human Name#1234" },
           roles: ["recent"],
         }),
         expect.objectContaining({
@@ -469,14 +469,14 @@ describe("planCommittedMessage", () => {
         }),
         expect.objectContaining({
           text: "Do that",
-          author: { kind: "human", alias: "member_1" },
+          author: { kind: "human", handle: "Private Human Name#1234" },
           roles: ["reply_target", "recent"],
         }),
       ],
     })
     const serialized = JSON.stringify(plan.wakeGateInput.conversation)
     expect(serialized).not.toContain("human_1")
-    expect(serialized).not.toContain("Private Human Name")
+    expect(serialized).toContain("Private Human Name#1234")
   })
 
   it("orders equal-time conversation entries by sequence and then id", async () => {
