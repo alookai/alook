@@ -12,6 +12,14 @@ interface RuntimeEnv {
   NODE_ENV?: string
   DEV_WS_DO_URL?: string
   DEV_QUEUE_WORKER_URL?: string
+  JEV_PROVIDER?: string
+  JEV_WAKE_THRESHOLD?: string
+  OPENROUTER_API_KEY?: string
+  OPENROUTER_JEV_BASE_URL?: string
+  OPENROUTER_JEV_MODEL?: string
+  TYPESAFE_API_KEY?: string
+  TYPESAFE_JEV_BASE_URL?: string
+  TYPESAFE_JEV_MODEL?: string
   APPLE_CLIENT_ID?: string
   APPLE_TEAM_ID?: string
   APPLE_KEY_ID?: string

@@ -22,6 +22,25 @@ function createSelectMock(...sequences: unknown[][]) {
 }
 
 describe("findWakeCandidates", () => {
+  const row = (overrides: Record<string, unknown> = {}) => ({
+    botUserId: "bot1",
+    name: "zoe",
+    discriminator: "0001",
+    instruction: "Own triage",
+    machineId: "m1",
+    runtime: "claude",
+    lastReadSeq: 0,
+    ...overrides,
+  });
+  const candidate = {
+    botUserId: "bot1",
+    name: "zoe",
+    discriminator: "0001",
+    instruction: "Own triage",
+    machineId: "m1",
+    runtime: "claude",
+  };
+
   it("returns [] and never queries when recipients is empty", async () => {
     const db = createSelectMock([{ botUserId: "never", name: "x", machineId: "m", runtime: "claude", lastReadSeq: 0 }]);
     const result = await findWakeCandidates(db as never, {
@@ -35,51 +54,51 @@ describe("findWakeCandidates", () => {
 
   it("excludes candidates already caught up (lastReadSeq >= newSeq)", async () => {
     const db = createSelectMock([
-      { botUserId: "bot1", name: "zoe", machineId: "m1", runtime: "claude", lastReadSeq: 3 },
-      { botUserId: "bot2", name: "kai", machineId: "m2", runtime: "codex", lastReadSeq: 10 },
+      row({ lastReadSeq: 3 }),
+      row({ botUserId: "bot2", name: "kai", discriminator: "0002", machineId: "m2", runtime: "codex", lastReadSeq: 10 }),
     ]);
     const result = await findWakeCandidates(db as never, {
       recipients: ["bot1", "bot2"],
       channelId: "c1",
       newSeq: 7,
     });
-    expect(result).toEqual([{ botUserId: "bot1", name: "zoe", machineId: "m1", runtime: "claude" }]);
+    expect(result).toEqual([candidate]);
   });
 
   it("treats a NULL lastReadSeq (never read) as behind — included", async () => {
     const db = createSelectMock([
-      { botUserId: "bot1", name: "zoe", machineId: "m1", runtime: "claude", lastReadSeq: null },
+      row({ lastReadSeq: null }),
     ]);
     const result = await findWakeCandidates(db as never, {
       recipients: ["bot1"],
       channelId: "c1",
       newSeq: 1,
     });
-    expect(result).toEqual([{ botUserId: "bot1", name: "zoe", machineId: "m1", runtime: "claude" }]);
+    expect(result).toEqual([candidate]);
   });
 
   it("supports dmConversationId scope", async () => {
     const db = createSelectMock([
-      { botUserId: "bot1", name: "zoe", machineId: "m1", runtime: "claude", lastReadSeq: 0 },
+      row(),
     ]);
     const result = await findWakeCandidates(db as never, {
       recipients: ["bot1"],
       dmConversationId: "dm1",
       newSeq: 1,
     });
-    expect(result).toEqual([{ botUserId: "bot1", name: "zoe", machineId: "m1", runtime: "claude" }]);
+    expect(result).toEqual([candidate]);
   });
 
   it("issues exactly one db.select call — no notification-setting/mention lookups", async () => {
     const db = createSelectMock([
-      { botUserId: "bot1", name: "zoe", machineId: "m1", runtime: "claude", lastReadSeq: 0 },
+      row(),
     ]);
     const result = await findWakeCandidates(db as never, {
       recipients: ["bot1"],
       channelId: "c1",
       newSeq: 1,
     });
-    expect(result).toEqual([{ botUserId: "bot1", name: "zoe", machineId: "m1", runtime: "claude" }]);
+    expect(result).toEqual([candidate]);
     expect((db.select as ReturnType<typeof vi.fn>)).toHaveBeenCalledTimes(1);
   });
 });

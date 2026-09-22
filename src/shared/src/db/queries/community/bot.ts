@@ -763,7 +763,14 @@ export async function findWakeCandidates(
     channelId: string;
     newSeq: number;
   }
-): Promise<Array<{ botUserId: string; name: string | null; machineId: string; runtime: string }>> {
+): Promise<Array<{
+  botUserId: string;
+  name: string | null;
+  discriminator: string;
+  instruction: string;
+  machineId: string;
+  runtime: string;
+}>> {
   if (opts.recipients.length === 0) return [];
   const scopeCond = eq(communityReadState.channelId, opts.channelId);
 
@@ -777,6 +784,8 @@ export async function findWakeCandidates(
           .select({
             botUserId: user.id,
             name: user.name,
+            discriminator: user.discriminator,
+            instruction: communityBotBinding.instruction,
             machineId: communityBotBinding.machineId,
             runtime: communityBotBinding.runtime,
             lastReadSeq: communityReadState.lastReadSeq,
@@ -798,7 +807,14 @@ export async function findWakeCandidates(
 
   return rows
     .filter((r) => (r.lastReadSeq ?? 0) < opts.newSeq)
-    .map((r) => ({ botUserId: r.botUserId, name: r.name, machineId: r.machineId, runtime: r.runtime }));
+    .map((r) => ({
+      botUserId: r.botUserId,
+      name: r.name,
+      discriminator: r.discriminator,
+      instruction: r.instruction,
+      machineId: r.machineId,
+      runtime: r.runtime,
+    }));
 }
 
 /**

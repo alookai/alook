@@ -1,6 +1,7 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import {
   deriveCommunityDeliveryOperationId,
+  formatHandle,
   reachIsParticipantSet,
   WS_EVENTS,
   createLogger,
@@ -15,9 +16,143 @@ import {
 import { mapMessageForWs } from "./message-payload"
 import { sendMessageDeliveryBatch } from "./message-delivery-transport"
 import { enqueueQueueTasks } from "./queue-producer"
+import {
+  selectJevWakeCandidates,
+  type JevWakeGateInput,
+} from "./jev-wake-gate"
 import { attachmentThumbnailUrl, attachmentUrl } from "./storage"
 
 const log = createLogger({ service: "committed-message-dispatcher" })
+const RECENT_WAKE_CONTEXT_MESSAGES = 6
+
+type WakeContextRow = Awaited<ReturnType<
+  typeof queries.communityMessage.getWakeContextMessageInScope
+>>
+
+type WakeContextRole = JevWakeGateInput["conversation"]["messages"][number]["roles"][number]
+
+type WakeContextPlan = {
+  enabled: boolean
+  channelId: string
+  beforeSeq: number
+  parentChannelId: string | null
+  parentMessageId: string | null
+  replyTarget: WakeContextRow
+}
+
+function buildWakeConversation(
+  recent: NonNullable<WakeContextRow>[],
+  replyTarget: WakeContextRow,
+  replyAncestor: WakeContextRow,
+  threadOpener: WakeContextRow,
+  recentTruncated: boolean,
+): JevWakeGateInput["conversation"] {
+  const entries = new Map<string, {
+    row: NonNullable<WakeContextRow>
+    roles: Set<WakeContextRole>
+    priority: number
+  }>()
+  const add = (
+    row: WakeContextRow,
+    role: WakeContextRole,
+    priority: number,
+  ) => {
+    if (!row) return
+    const existing = entries.get(row.id)
+    if (existing) {
+      existing.roles.add(role)
+      existing.priority = Math.min(existing.priority, priority)
+      return
+    }
+    entries.set(row.id, { row, roles: new Set([role]), priority })
+  }
+
+  for (const row of recent) add(row, "recent", 3)
+  add(threadOpener, "thread_opener", 2)
+  add(replyAncestor, "reply_ancestor", 1)
+  add(replyTarget, "reply_target", 0)
+
+  const ordered = [...entries.values()].sort((left, right) =>
+    left.row.createdAt.localeCompare(right.row.createdAt)
+      || left.row.seq - right.row.seq
+      || left.row.id.localeCompare(right.row.id),
+  )
+  const roleOrder: WakeContextRole[] = [
+    "reply_target",
+    "reply_ancestor",
+    "thread_opener",
+    "recent",
+  ]
+  return {
+    available: true,
+    truncated: recentTruncated,
+    messages: ordered.map(({ row, roles, priority }, order) => ({
+      text: row.content,
+      messageType: row.type,
+      author: {
+        kind: row.authorIsBot ? "bot" : "human",
+        handle: formatHandle(row.authorName, row.authorDiscriminator),
+      },
+      roles: roleOrder.filter((role) => roles.has(role)),
+      priority,
+      order,
+    })),
+  }
+}
+
+function emptyWakeConversation(): JevWakeGateInput["conversation"] {
+  return { available: true, messages: [], truncated: false }
+}
+
+async function loadWakeConversation(
+  db: Database,
+  messageId: string,
+  plan: WakeContextPlan,
+): Promise<JevWakeGateInput["conversation"]> {
+  if (!plan.enabled) return emptyWakeConversation()
+  try {
+    const [recentContext, threadOpener, replyAncestor] = await Promise.all([
+      withD1Retry(
+        () => queries.communityMessage.listWakeContextMessagesBefore(db, {
+          channelId: plan.channelId,
+          beforeSeq: plan.beforeSeq,
+          limit: RECENT_WAKE_CONTEXT_MESSAGES,
+        }),
+        { route: "message-dispatcher:wake-context-recent" },
+      ),
+      plan.parentChannelId && plan.parentMessageId
+        ? withD1Retry(
+            () => queries.communityMessage.getWakeContextMessageInScope(
+              db,
+              plan.parentMessageId!,
+              { channelId: plan.parentChannelId! },
+            ),
+            { route: "message-dispatcher:wake-context-opener" },
+          )
+        : Promise.resolve(null),
+      plan.replyTarget?.replyToId
+        ? withD1Retry(
+            () => queries.communityMessage.getWakeContextMessageInScope(
+              db,
+              plan.replyTarget!.replyToId!,
+              { channelId: plan.channelId },
+            ),
+            { route: "message-dispatcher:wake-context-reply-ancestor" },
+          )
+        : Promise.resolve(null),
+    ])
+    return buildWakeConversation(
+      recentContext.messages,
+      plan.replyTarget,
+      replyAncestor,
+      threadOpener,
+      recentContext.hasMore,
+    )
+  } catch {
+    log.warn("committed_message_jev_context_failed_open", { messageId })
+    return { ...emptyWakeConversation(), available: false }
+  }
+}
 
 export type CommittedMessageStructuralOutcome = {
   /** A participant row inserted by this exact message write. */
@@ -29,6 +164,7 @@ export type CommittedMessageStructuralOutcome = {
 export type MessageDeliveryPlan = MessageDeliveryBatch & {
   operationId: CommunityDeliveryOperationId
   wakeBotUserIds: string[]
+  wakeGateInput: JevWakeGateInput
   pushUserIds: string[]
 }
 
@@ -52,23 +188,23 @@ function unique(values: readonly string[]): string[] {
   return [...new Set(values)]
 }
 
-export async function planCommittedMessage(
+async function planCommittedMessageBase(
   db: Database,
   messageId: string,
   structural: CommittedMessageStructuralOutcome = {},
-): Promise<MessageDeliveryPlan> {
+): Promise<MessageDeliveryPlan & { wakeContextPlan: WakeContextPlan }> {
   const message = await withD1Retry(
     () => queries.communityMessage.getMessage(db, messageId),
     { route: "message-dispatcher:message" },
   )
   if (!message) throw new Error("committed message not found")
-  const [channel, attentionUserIds, attachments, clientNonce] = await Promise.all([
+  const [channel, attentionTargets, attachments, clientNonce] = await Promise.all([
     withD1Retry(
       () => queries.communityChannel.getChannel(db, message.channelId),
       { route: "message-dispatcher:channel" },
     ),
     withD1Retry(
-      () => queries.communityMention.listMessageMentionUserIds(db, messageId),
+      () => queries.communityMention.listMessageAttentionTargets(db, messageId),
       { route: "message-dispatcher:attention" },
     ),
     withD1Retry(
@@ -96,7 +232,8 @@ export async function planCommittedMessage(
   const notificationCandidates = participantCandidates ?? contentCandidates
   const contentUserIds = unique(contentCandidates)
   const candidateNotificationUserIds = unique(notificationCandidates).filter((id) => id !== message.authorId)
-  const attentionIds = unique(attentionUserIds).filter((id) => id !== message.authorId)
+  const attentionIds = unique(attentionTargets.map((target) => target.userId))
+    .filter((id) => id !== message.authorId)
   const eligibilityUserIds = unique([...candidateNotificationUserIds, ...attentionIds])
 
   const [eligibility, replyTarget] = await Promise.all([
@@ -110,7 +247,7 @@ export async function planCommittedMessage(
     ),
     message.replyToId
       ? withD1Retry(
-          () => queries.communityMessage.getMessageInScope(
+          () => queries.communityMessage.getWakeContextMessageInScope(
             db,
             message.replyToId!,
             { channelId: message.channelId },
@@ -157,11 +294,11 @@ export async function planCommittedMessage(
     return allowed(id) && Boolean(state?.hasAttention)
   })
   const notificationSet = new Set(notificationUserIds)
-  const wakeBotUserIds = unique(
-    wakeCandidates
-      .map((candidate) => candidate.botUserId)
-      .filter((id) => notificationSet.has(id) && allowed(id)),
+  const eligibleWakeCandidates = wakeCandidates.filter(
+    (candidate) => notificationSet.has(candidate.botUserId) && allowed(candidate.botUserId),
   )
+  const shouldBuildWakeContext = channel.type !== "dm" && eligibleWakeCandidates.length > 0
+  const wakeBotUserIds = unique(eligibleWakeCandidates.map((candidate) => candidate.botUserId))
   const pushUserIds = unique([
     ...unreadPlainUserIds,
     ...unreadMentionUserIds,
@@ -229,6 +366,14 @@ export async function planCommittedMessage(
   }
 
   return {
+    wakeContextPlan: {
+      enabled: shouldBuildWakeContext,
+      channelId: message.channelId,
+      beforeSeq: message.seq,
+      parentChannelId: channel.parentChannelId,
+      parentMessageId: channel.parentMessageId,
+      replyTarget,
+    },
     operationId: await deriveCommunityDeliveryOperationId(message.id),
     messageId: message.id,
     messageEvent,
@@ -237,6 +382,26 @@ export async function planCommittedMessage(
     unreadMentionUserIds,
     mentionUserIds,
     wakeBotUserIds,
+    wakeGateInput: {
+      messageId: message.id,
+      channel: {
+        type: channel.type,
+        name: channel.name,
+        topic: channel.topic,
+      },
+      message: {
+        text: message.content,
+        type: message.type,
+        attachmentContentTypes: attachments.map((attachment) => attachment.contentType),
+      },
+      conversation: emptyWakeConversation(),
+      candidates: eligibleWakeCandidates.map((candidate) => ({
+        botUserId: candidate.botUserId,
+        name: candidate.name,
+        discriminator: candidate.discriminator,
+        instruction: candidate.instruction,
+      })),
+    },
     pushUserIds,
     ...(structural.memberAddedUserId && channel.serverId
       ? {
@@ -253,13 +418,35 @@ export async function planCommittedMessage(
   }
 }
 
+export async function planCommittedMessage(
+  db: Database,
+  messageId: string,
+  structural: CommittedMessageStructuralOutcome = {},
+): Promise<MessageDeliveryPlan> {
+  const { wakeContextPlan, ...plan } = await planCommittedMessageBase(
+    db,
+    messageId,
+    structural,
+  )
+  const conversation = await loadWakeConversation(db, messageId, wakeContextPlan)
+  return {
+    ...plan,
+    wakeGateInput: { ...plan.wakeGateInput, conversation },
+  }
+}
+
 async function runCommittedMessageDispatch(
   db: Database,
   messageId: string,
   structural: CommittedMessageStructuralOutcome,
+  env: RuntimeEnv,
 ): Promise<void> {
   const startedAt = Date.now()
-  const plan = await planCommittedMessage(db, messageId, structural)
+  const { wakeContextPlan, ...plan } = await planCommittedMessageBase(
+    db,
+    messageId,
+    structural,
+  )
   const browserBatch: MessageDeliveryBatch = {
     messageId: plan.messageId,
     messageEvent: plan.messageEvent,
@@ -275,23 +462,36 @@ async function runCommittedMessageDispatch(
         }
       : {}),
   }
-  const queueTasks: AlookQueueTask[] = [
-    ...plan.wakeBotUserIds.map((botUserId) => ({
-      version: 1 as const,
-      kind: "bot-wake" as const,
-      messageId: plan.messageId,
-      botUserId,
-    })),
-    ...plan.pushUserIds.map((userId) => ({
-      version: 1 as const,
-      kind: "mobile-push" as const,
-      messageId: plan.messageId,
-      userId,
-    })),
-  ]
-  const [browser, queue] = await Promise.allSettled([
-    sendMessageDeliveryBatch(browserBatch, plan.operationId),
-    enqueueQueueTasks(queueTasks),
+  const pushTasks: AlookQueueTask[] = plan.pushUserIds.map((userId) => ({
+    version: 1 as const,
+    kind: "mobile-push" as const,
+    messageId: plan.messageId,
+    userId,
+  }))
+  const browserDelivery = sendMessageDeliveryBatch(browserBatch, plan.operationId)
+  const pushDelivery = enqueueQueueTasks(pushTasks)
+  const botWake = loadWakeConversation(db, messageId, wakeContextPlan)
+    .then((conversation) => selectJevWakeCandidates({
+      ...plan.wakeGateInput,
+      conversation,
+    }, env))
+    .catch(() => {
+      log.warn("committed_message_jev_gate_failed_open", { messageId })
+      return plan.wakeGateInput.candidates
+    })
+    .then(async (candidates) => {
+      await enqueueQueueTasks(candidates.map((candidate) => ({
+        version: 1 as const,
+        kind: "bot-wake" as const,
+        messageId: plan.messageId,
+        botUserId: candidate.botUserId,
+      })))
+      return candidates.length
+    })
+  const [browser, push, wake] = await Promise.allSettled([
+    browserDelivery,
+    pushDelivery,
+    botWake,
   ])
   if (browser.status === "rejected") {
     log.warn("committed_message_browser_delivery_failed", {
@@ -299,10 +499,16 @@ async function runCommittedMessageDispatch(
       err: String(browser.reason),
     })
   }
-  if (queue.status === "rejected") {
-    log.warn("committed_message_queue_delivery_failed", {
+  if (push.status === "rejected") {
+    log.warn("committed_message_push_queue_delivery_failed", {
       messageId,
-      err: String(queue.reason),
+      err: String(push.reason),
+    })
+  }
+  if (wake.status === "rejected") {
+    log.warn("committed_message_wake_queue_delivery_failed", {
+      messageId,
+      err: String(wake.reason),
     })
   }
   log.info("committed_message_dispatch_complete", {
@@ -310,7 +516,7 @@ async function runCommittedMessageDispatch(
     contentCount: plan.contentUserIds.length,
     unreadCount: plan.unreadPlainUserIds.length + plan.unreadMentionUserIds.length,
     mentionCount: plan.mentionUserIds.length,
-    wakeCount: plan.wakeBotUserIds.length,
+    wakeCount: wake.status === "fulfilled" ? wake.value : 0,
     pushCount: plan.pushUserIds.length,
     parentCount: plan.parentProjectionUserIds?.length ?? 0,
     durationMs: Date.now() - startedAt,
@@ -327,13 +533,18 @@ export function dispatchCommittedMessage(
   messageId: string,
   structural: CommittedMessageStructuralOutcome = {},
 ): Promise<void> {
-  const work = runCommittedMessageDispatch(db, messageId, structural).catch((err) => {
-    log.warn("committed_message_dispatch_failed", { messageId, err: String(err) })
-  })
+  let env = {} as RuntimeEnv
+  let executionContext: ExecutionContext | undefined
   try {
-    getCloudflareContext().ctx.waitUntil(work)
+    const cloudflare = getCloudflareContext()
+    env = cloudflare.env
+    executionContext = cloudflare.ctx
   } catch {
     // Unit tests and non-Cloudflare callers may not expose a request context.
   }
+  const work = runCommittedMessageDispatch(db, messageId, structural, env).catch((err) => {
+    log.warn("committed_message_dispatch_failed", { messageId, err: String(err) })
+  })
+  executionContext?.waitUntil(work)
   return work
 }

@@ -761,6 +761,61 @@ function createDualLimitMock(sequences: any[][]) {
   return chain;
 }
 
+function wakeContextRow(id: string, seq: number) {
+  return {
+    id,
+    authorId: `u_${id}`,
+    authorName: `User ${id}`,
+    authorDiscriminator: "1234",
+    authorIsBot: false,
+    content: id,
+    type: "default",
+    replyToId: null,
+    seq,
+    createdAt: `2026-01-01T00:00:0${seq}.000Z`,
+    channelId: "c_1",
+  };
+}
+
+describe("JEV wake context queries", () => {
+  it("returns the nearest prior rows chronologically and reports the extra-row probe", async () => {
+    const db = createDualLimitMock([[
+      wakeContextRow("m_3", 3),
+      wakeContextRow("m_2", 2),
+      wakeContextRow("m_1", 1),
+    ]]);
+
+    const result = await messageQueries.listWakeContextMessagesBefore(db, {
+      channelId: "c_1",
+      beforeSeq: 4,
+      limit: 2,
+    });
+
+    expect(db.limit).toHaveBeenCalledWith(3);
+    expect(result.hasMore).toBe(true);
+    expect(result.messages.map((row) => row.id)).toEqual(["m_2", "m_3"]);
+    const projection = db.select.mock.calls[0]![0];
+    expect(projection).toMatchObject({
+      authorDiscriminator: expect.anything(),
+      authorIsBot: expect.anything(),
+    });
+    expect(projection).not.toHaveProperty("authorEmail");
+  });
+
+  it("resolves one context row only through its channel-scoped lookup", async () => {
+    const row = wakeContextRow("m_1", 1);
+    const db = createDualLimitMock([[row]]);
+
+    await expect(messageQueries.getWakeContextMessageInScope(
+      db,
+      "m_1",
+      { channelId: "c_1" },
+    )).resolves.toEqual(row);
+    expect(db.where).toHaveBeenCalledOnce();
+    expect(db.limit).toHaveBeenCalledWith(1);
+  });
+})
+
 function listedRow(id: string, createdAt: string) {
   return {
     id,
