@@ -18,6 +18,16 @@ describe("file download control", () => {
     else if (status !== "cancelled") expect(service.success).toHaveBeenCalledWith(text)
     else { expect(service.error).not.toHaveBeenCalled(); expect(service.success).not.toHaveBeenCalled() }
   })
+  it("announces the native share handoff and permits another download", async () => {
+    service.download.mockResolvedValue({ status: "started", destination: "share" })
+    const view = render(<FileDownloadButton url="/file" filename="a.pdf">Get file</FileDownloadButton>)
+    await act(async () => { view.getByRole("button").click() })
+    expect(view.getByRole("status")).toHaveTextContent("Share sheet opened")
+    expect(service.success).toHaveBeenCalledWith("Share sheet opened")
+    expect(service.success).not.toHaveBeenCalledWith("Saved")
+    await act(async () => { view.getByRole("button").click() })
+    expect(service.download).toHaveBeenCalledTimes(2)
+  })
   it("keeps the busy action cancellable and allows retry", async () => {
     service.download.mockImplementationOnce((_url, _name, { signal }) => new Promise(resolve => signal.addEventListener("abort", () => resolve({ status: "cancelled" }))))
       .mockResolvedValueOnce({ status: "started" })

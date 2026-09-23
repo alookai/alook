@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { downloadUrl, saveFile, fileSaveName, FILE_SAVE_CHUNK_BYTES } from "./file-save"
+import { downloadUrl, saveFile, fileSaveMessage, fileSaveName, FILE_SAVE_CHUNK_BYTES } from "./file-save"
 const bridge = vi.hoisted(() => ({ native: false, invoke: vi.fn() }))
 vi.mock("@alook/shared", () => ({ isTauri: () => bridge.native, tauriInvoke: bridge.invoke }))
 const id = "00000000-0000-4000-8000-000000000001"
@@ -53,6 +53,32 @@ describe("product file save", () => {
     expect((await saveFile(new Blob(["a"]), "a.txt")).status).toBe("error")
     expect(bridge.invoke).toHaveBeenCalledWith("file_save_cancel", { attemptId: id })
     expect(URL.createObjectURL).not.toHaveBeenCalled()
+  })
+  it("reports native share handoff without claiming a save or cancelling the shared file", async () => {
+    native()
+    const original = bridge.invoke.getMockImplementation()!
+    bridge.invoke.mockImplementation(async (...args) => {
+      const result = await original(...args)
+      return args[0] === "file_save_commit" ? { ...result, status: "started", destination: "share" } : result
+    })
+    const result = await saveFile(new Blob(["attachment"]), "report.txt")
+    expect(result).toEqual({ status: "started", destination: "share" })
+    expect(fileSaveMessage(result)).toBe("Share sheet opened")
+    expect(bridge.invoke).not.toHaveBeenCalledWith("file_save_cancel", expect.anything())
+  })
+  it.each([
+    { status: "started", destination: "desktop" },
+    { status: "saved", destination: "share" },
+    { status: "started", destination: "share", bytes: 999 },
+    { status: "started", destination: "share", sha256: "bad" },
+  ])("rejects an inconsistent share receipt %j", async receipt => {
+    native()
+    const original = bridge.invoke.getMockImplementation()!
+    bridge.invoke.mockImplementation(async (...args) => {
+      const result = await original(...args)
+      return args[0] === "file_save_commit" ? { ...result, ...receipt } : result
+    })
+    expect((await saveFile(new Blob(["a"]), "a.txt")).status).toBe("error")
   })
   it("cleans up native staging on a wrong chunk ack", async () => {
     native(); bridge.invoke.mockResolvedValue({ attemptId: id, bytes: 99, sequence: 1 })

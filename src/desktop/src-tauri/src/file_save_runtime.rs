@@ -219,6 +219,7 @@ async fn export(app: &AppHandle, transfer: &Transfer) -> Result<Option<String>, 
         "saved" if ["downloads", "files", "document"].contains(&result.destination.as_str()) => {
             Ok(Some(result.destination))
         }
+        "started" if result.destination == "share" => Ok(Some(result.destination)),
         "cancelled" => Ok(None),
         _ => Err("File export failed".into()),
     }
