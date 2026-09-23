@@ -230,7 +230,7 @@ describe("selectJevWakeCandidates", () => {
         "Jarvis#9866": {
           type: "noul",
           instructions: {
-            question: "Should this candidate act now in response to state.current_message?",
+            question: "Does message content identify this candidate as someone who should act now?",
             candidate: {
               handle: "Jarvis#9866",
               role: "Own release coordination",
@@ -306,7 +306,7 @@ describe("selectJevWakeCandidates", () => {
 
     const question = request.questions[`${instructionLikeName}#9866`]
     expect(question.instructions.question).toBe(
-      "Should this candidate act now in response to state.current_message?",
+      "Does message content identify this candidate as someone who should act now?",
     )
     expect(question.instructions.question).not.toContain(instructionLikeName)
     expect(question.instructions.candidate).toEqual({

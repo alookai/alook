@@ -324,7 +324,7 @@ function makeQuestion(
   return {
     type: "noul",
     instructions: {
-      question: "Should this candidate act now in response to state.current_message?",
+      question: "Does message content identify this candidate as someone who should act now?",
       candidate: {
         handle: formatHandle(candidate.name ?? "", candidate.discriminator),
         role: candidate.instruction,
