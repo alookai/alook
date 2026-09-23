@@ -15,7 +15,7 @@ interface __BaseEnv_CloudflareEnv {
 	MIN_CLI_VERSION: "0.0.159";
 	BLOG_DISCOVERY_REQUIRED: "true";
 	JEV_PROVIDER: "openrouter";
-	JEV_WAKE_THRESHOLD: "0.5";
+	JEV_WAKE_THRESHOLD: "0.25";
 	OPENROUTER_JEV_BASE_URL: "https://openrouter.ai";
 	OPENROUTER_JEV_MODEL: "typesafe/jev-1.13";
 	TYPESAFE_JEV_BASE_URL: "https://api.typesafe.ai";
