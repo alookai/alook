@@ -138,6 +138,7 @@ type OutboundFrame =
   | {
       type: "agent_stopped_ack";
       agentId: AgentId;
+      launchId?: string;
       status: AgentCommandAckStatus;
       error?: AgentCommandAckError;
     }
@@ -368,6 +369,7 @@ export class WsControlChannel implements HostControlChannel {
   /** Reply to an `agent:stop` HostCommand with the stop outcome. */
   async reportStoppedAck(info: {
     agentId: AgentId;
+    launchId?: string;
     status: AgentCommandAckStatus;
     error?: AgentCommandAckError;
   }): Promise<void> {

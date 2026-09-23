@@ -373,13 +373,18 @@ export class AgentRouter {
     launchId: string,
     opName: "agent:reset" | "agent:nap" | "agent:model_switch",
     run: () => Promise<void>,
+    rewake = true,
   ): Promise<void> {
     this.log.info(`${opName} received`, { agentId, launchId });
     try {
       await this.opts.onBeforeAgent?.(agentId);
       await run();
-      this.running.add(agentId);
-      this.scheduleReadyFrameResend();
+      if (rewake) {
+        this.running.add(agentId);
+        this.scheduleReadyFrameResend();
+      } else {
+        await this.opts.channel.reportStoppedAck?.({ agentId, launchId, status: "ok" });
+      }
       this.log.info(`${opName} ok`, { agentId });
     } catch (err) {
       if (err instanceof UnknownRuntimeError) {
@@ -617,16 +622,14 @@ export class AgentRouter {
         }
         break;
       case "agent:nap":
-        // Self-initiated twin of agent:reset — same enroll → forget-session →
-        // fresh-rewake orchestration and `nap` timeline barrier; the only
-        // difference is the rewake prompt carries the agent's own handoff.
         await this.runRestartCommand(cmd.agentId, cmd.launchId, "agent:nap", () =>
           this.opts.manager.resetSession(cmd.agentId, {
             runtimeConfig: cmd.config,
             launchId: cmd.launchId,
-            rewakePrompt: buildNapRewakePrompt(cmd.handoff),
+            rewakePrompt: cmd.handoff === undefined ? undefined : buildNapRewakePrompt(cmd.handoff),
             barrierType: "nap",
           }),
+          cmd.handoff !== undefined,
         );
         break;
       case "agent:model_switch":

@@ -78,6 +78,10 @@ describe("CommunityServerOnboardRequestSchema", () => {
 })
 
 describe("CommunityAgentNapRequestSchema", () => {
+  it("accepts absent handoff but rejects explicit null", () => {
+    expect(CommunityAgentNapRequestSchema.parse({})).toEqual({})
+    expect(CommunityAgentNapRequestSchema.safeParse({ handoff: null }).success).toBe(false)
+  })
   it("rejects whitespace-only handoffs without trimming valid literal content", () => {
     expect(CommunityAgentNapRequestSchema.safeParse({ handoff: "  \n\t" }).success).toBe(false)
     const handoff = "  literal \\\\n text\n中文 🎉  \n"

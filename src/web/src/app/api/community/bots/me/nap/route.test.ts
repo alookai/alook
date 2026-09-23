@@ -75,12 +75,20 @@ describe("POST /api/community/bots/me/nap", () => {
     vi.clearAllMocks()
   })
 
-  it("missing handoff → 400 and never pushes / never touches audit", async () => {
+  it("accepts no handoff without fabricating a note or writing completion early", async () => {
+    mockGetBotWakeContext.mockResolvedValue(READY_CTX)
+    mockPushAgentNapToMachine.mockResolvedValue({ sent: 1 })
     const res = await POST(req({}))
-    expect(res.status).toBe(400)
-    expect(mockPushAgentNapToMachine).not.toHaveBeenCalled()
+    expect(res.status).toBe(200)
+    expect(mockPushAgentNapToMachine.mock.calls[0][2].handoff).toBeUndefined()
     expect(mockInsertBotAuditNap).not.toHaveBeenCalled()
     expect(mockTouchBotRefreshContext).not.toHaveBeenCalled()
+  })
+
+  it.each(["", "   ", null, 1])("rejects an explicitly invalid handoff %j", async (handoff) => {
+    const res = await POST(req({ handoff }))
+    expect(res.status).toBe(400)
+    expect(mockPushAgentNapToMachine).not.toHaveBeenCalled()
   })
 
   it("bot wake context not ready → 409 and never pushes / never touches audit", async () => {

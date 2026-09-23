@@ -780,10 +780,10 @@ async function cmdNap(opts: Record<string, unknown>): Promise<unknown> {
     filePath: fileFlag,
     fileOption: "--handoff <file>",
   });
-  if (handoff === undefined || handoff.trim().length === 0) {
-    throw new CliError("nap: a handoff is required — pass --handoff <file>");
+  if (handoff !== undefined && handoff.trim().length === 0) {
+    throw new CliError("nap: handoff file must not be blank");
   }
-  return await api.nap({ handoff });
+  return await api.nap(handoff === undefined ? {} : { handoff });
 }
 
 /* ------------------------------------------------------------------ */
@@ -1086,7 +1086,7 @@ function buildProgram(stdin: CliInputStream): Command {
 
   program
     .command("nap")
-    .description("end your session and start fresh, carrying a handoff to your reborn self (read the nap rule first)")
+    .description("reset your session; optionally wake a fresh session with a handoff (read the nap rule first)")
     .option("--handoff <file>", "path to your handoff note (your note to your reborn self)")
     .exitOverride()
     .configureOutput({ writeOut: () => {}, writeErr: () => {} })

@@ -266,6 +266,18 @@ describe("ws-do router", () => {
       mockGetActiveDoNamesForMachine.mockResolvedValue([])
     })
 
+    it("forwards an omitted handoff as absence", async () => {
+      mockGetActiveDoNamesForMachine.mockResolvedValue(["do-a"])
+      doMock.stubFetch.mockResolvedValueOnce(new Response(JSON.stringify({ sent: 1 })))
+      const { handoff: _handoff, ...body } = validBody
+      const res = await handler.fetch(new Request(
+        "http://localhost/community-machine/by-id/machine-1/forward-agent-nap",
+        { method: "POST", body: JSON.stringify(body) },
+      ), env as any)
+      expect(res.status).toBe(200)
+      expect(await (doMock.stubFetch.mock.calls[0][0] as Request).json()).toEqual({ type: "agent:nap", ...body })
+    })
+
     it("rejects a blank handoff with the exact invalid-payload response", async () => {
       const res = await handler.fetch(new Request(
         "http://localhost/community-machine/by-id/machine-1/forward-agent-nap",

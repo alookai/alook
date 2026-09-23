@@ -120,10 +120,10 @@ function startAdmission(
 }
 
 describe("reduceManager — single-flight spawn", () => {
-  it("defaults to 30-minute process hibernation and 6-hour session reset", () => {
+  it("defaults to 30-minute process hibernation and 3-hour idle memory maintenance", () => {
     const state = createInitialManagerState();
     expect(DEFAULT_IDLE_TIMEOUT_MS).toBe(30 * 60 * 1_000);
-    expect(DEFAULT_IDLE_RESET_TIMEOUT_MS).toBe(6 * 60 * 60 * 1_000);
+    expect(DEFAULT_IDLE_RESET_TIMEOUT_MS).toBe(3 * 60 * 60 * 1_000);
     expect(state).toMatchObject({
       idleTimeoutMs: DEFAULT_IDLE_TIMEOUT_MS,
       idleResetTimeoutMs: DEFAULT_IDLE_RESET_TIMEOUT_MS,
@@ -718,7 +718,7 @@ describe("reduceManager — tick: stall + idle hibernation", () => {
     expect(r.state.agents.a.sessionId).toBe("sess-1"); // preserved for resume
   });
 
-  it("keeps the per-agent idle clock across hibernation and resets the resumable session at its deadline", () => {
+  it("keeps the idle clock across hibernation and requests memory maintenance without resetting", () => {
     let s = createInitialManagerState(100_000, 100, 100_000, 100_000, 1_000);
     s = register(s, "a", PERSISTENT_GATED);
     s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 0 }).state;
@@ -742,20 +742,10 @@ describe("reduceManager — tick: stall + idle hibernation", () => {
 
     const due = reduceManager(s, { type: "tick", nowMs: 1_000 });
     expect(due.effects).toEqual([
-      { type: "reset_idle_session", agentId: "a", sessionId: "sess-1" },
+      { type: "maintain_idle_memory", agentId: "a", sessionId: "sess-1" },
     ]);
-    const committed = reduceManager(due.state, {
-      type: "idle_reset_committed",
-      agentId: "a",
-      nowMs: 1_000,
-    });
-    expect(committed.effects).toEqual([]);
-    expect(committed.state.agents.a).toMatchObject({
-      status: "idle",
-      sessionId: null,
-      idleSince: null,
-    });
-    expect(reduceManager(committed.state, { type: "tick", nowMs: 12_000 }).effects).toEqual([]);
+    expect(due.state.agents.a).toMatchObject({ status: "idle", sessionId: "sess-1", idleSince: 1_000 });
+    expect(reduceManager(due.state, { type: "tick", nowMs: 1_001 }).effects).toEqual([]);
   });
 
   it("cancels the idle reset clock when a new message wakes a hibernated agent", () => {
@@ -789,31 +779,17 @@ describe("reduceManager — tick: stall + idle hibernation", () => {
     expect(reduceManager(wake.state, { type: "tick", nowMs: 2_000 }).effects).toEqual([]);
   });
 
-  it("commits a due idle reset for a still-running quiescent agent before stopping it", () => {
+  it("requests maintenance for a quiescent session and suppresses adjacent ticks", () => {
     let s = createInitialManagerState(100_000, 0, 100_000, 100_000, 100);
     s = register(s, "a", PERSISTENT_GATED);
     s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 0 }).state;
     s = spawnRoot(s, 0);
     s = reduceManager(s, { type: "backend_session", agentId: "a", sessionId: "sess-1" }).state;
     s = completeRoot(s, "turn-a", 0).state;
-
-    expect(reduceManager(s, { type: "tick", nowMs: 100 }).effects).toEqual([
-      { type: "reset_idle_session", agentId: "a", sessionId: "sess-1" },
-    ]);
-    const committed = reduceManager(s, {
-      type: "idle_reset_committed",
-      agentId: "a",
-      nowMs: 100,
-    });
-    expect(committed.effects).toEqual([
-      { type: "stop", agentId: "a", reason: "idle_session_reset" },
-    ]);
-    expect(committed.state.agents.a).toMatchObject({
-      status: "stopping",
-      sessionId: null,
-      idleSince: null,
-      stoppingSince: 100,
-    });
+    const due = reduceManager(s, { type: "tick", nowMs: 100 });
+    expect(due.effects).toEqual([{ type: "maintain_idle_memory", agentId: "a", sessionId: "sess-1" }]);
+    expect(due.state.agents.a).toMatchObject({ status: "running", sessionId: "sess-1", resetting: false });
+    expect(reduceManager(due.state, { type: "tick", nowMs: 101 }).effects).toEqual([]);
   });
 
   it("root progress after a stale turn_end restores active work and cancels idle hibernation", () => {

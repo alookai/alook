@@ -55,7 +55,7 @@ export const restartPendingKey = (launchId: string) => RESTART_PENDING_PREFIX + 
 export type ResetTrigger = "single" | "reset_all" | "nap"
 export type RestartAttribution =
   | { kind: "session_reset"; trigger: "single" | "reset_all" }
-  | { kind: "nap" }
+  | { kind: "nap"; stoppedAgentId?: string }
   | { kind: "model_switch"; from: string | null; to: string | null }
   | { kind: "provider_switch"; from: string; to: string }
 

@@ -717,12 +717,12 @@ export interface ServerApi {
     pendingIncoming: FriendCard[];
   }>;
   /**
-   * `alook nap` — the agent resets its own session, carrying a mandatory
+   * `alook nap` — the agent resets its own session, optionally carrying a
    * `handoff` note to its reborn self. Self-scoped: the endpoint resolves the
    * bot from the runner key, so `agentId` isn't sent. Returns `{ napped }` on
    * delivery; throws (409) if the daemon is offline.
    */
-  nap(req: { handoff: string }): Promise<{ napped: boolean }>;
+  nap(req: { handoff?: string }): Promise<{ napped: boolean }>;
 }
 
 /* ------------------------------------------------------------------ */
@@ -815,15 +815,7 @@ export type HostCommand =
    * synthetic rewake — see `AgentProcessManager.resetSession`.
    */
   | { type: "agent:reset"; agentId: AgentId; config: RuntimeConfig; launchId: string }
-  /**
-   * Agent-self-initiated reset ("nap"). Mechanically the twin of `agent:reset`
-   * — same register + `nap` timeline barrier + kill + fresh-session rewake —
-   * but self-requested and carrying a mandatory `handoff`: the agent's own
-   * note to its reborn self, spliced into the nap rewake prompt (NOT a message
-   * to anyone, NOT a persisted file). See `AgentProcessManager.resetSession`
-   * and the `agent:nap` case in `agentRouter`.
-   */
-  | { type: "agent:nap"; agentId: AgentId; config: RuntimeConfig; launchId: string; handoff: string }
+  | { type: "agent:nap"; agentId: AgentId; config: RuntimeConfig; launchId: string; handoff?: string }
   /**
    * Owner-triggered model switch. The twin of `agent:reset` — same
    * stop-and-immediate-rewake orchestration and boundary conditions — but it
@@ -1052,6 +1044,7 @@ export interface HostControlChannel {
    */
   reportStoppedAck?(info: {
     agentId: AgentId;
+    launchId?: string;
     status: "ok" | "error";
     error?: { code: string; message: string };
   }): Promise<void>;
@@ -1518,7 +1511,7 @@ export const HostCommandSchema = z.discriminatedUnion("type", [
     agentId: z.string().min(1),
     config: z.unknown(),
     launchId: z.string().min(1),
-    handoff: z.string().min(1),
+    handoff: z.string().refine((value) => value.trim().length > 0).optional(),
   }),
   z.object({
     type: z.literal("agent:model_switch"),

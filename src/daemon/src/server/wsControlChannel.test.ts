@@ -746,6 +746,13 @@ describe("WsControlChannel — downlink HostCommand validation (convergence #6)"
     }
   });
 
+  it("dispatches no-handoff nap without manufacturing a handoff", () => {
+    const { sockets, received } = driven();
+    const frame = { type: "agent:nap", agentId: "b", config: {}, launchId: "no-handoff" };
+    sockets[0].emit("message", JSON.stringify(frame));
+    expect(received).toEqual([frame]);
+  });
+
   it("drops + logs a malformed frame instead of dispatching it", () => {
     const malformed: unknown[] = [
       { type: "agent:wake", config: {}, launchId: "l", unreadNotice: {} }, // missing agentId
@@ -753,7 +760,7 @@ describe("WsControlChannel — downlink HostCommand validation (convergence #6)"
       { type: "agent:event", agentId: "b", config: {}, launchId: "l" }, // missing prompt
       { type: "agent:event", agentId: "b", config: {}, launchId: "l", prompt: "" }, // empty prompt
       { type: "agent:event", agentId: "b", config: {}, launchId: "l", prompt: "ok", includeRecentContext: "yes" },
-      { type: "agent:nap", agentId: "b", config: {}, launchId: "l" }, // missing handoff
+      { type: "agent:nap", agentId: "b", config: {}, launchId: "l", handoff: "  " },
       { type: "agent:nap", agentId: "b", config: {}, launchId: "l", handoff: "" }, // empty handoff
       { type: "agent:reset", agentId: "", config: {}, launchId: "l" }, // empty agentId
       { type: "agent:unknown", agentId: "b" }, // unknown discriminant

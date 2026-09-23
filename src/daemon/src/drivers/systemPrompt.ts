@@ -166,7 +166,7 @@ function cliCommandsSection(): string {
     "",
     "### Context Lifecycle",
     "",
-    `1. \`${CLI} nap --handoff <file>\` — reset the current session from a required handoff file.`,
+    `1. \`${CLI} nap [--handoff <file>]\` — reset the current session; optionally wake a fresh session with a handoff file.`,
     "",
     "### Output format",
     "",
@@ -481,9 +481,10 @@ function workspaceMemorySection(config: HostLaunchConfig): string {
     "",
     "### Napping",
     "",
-    `\`${CLI} nap\` resets your current session and starts a fresh one with your required handoff ` +
-      "injected into it. Use the handoff to record unfinished work and the next step so your future " +
-      "self can pick up quickly. Never nap on your own; only do it when someone explicitly asks.",
+    `\`${CLI} nap\` resets your current session. With optional --handoff <file>, it starts a fresh one ` +
+      "with your note injected; without it, the next real message starts fresh. Use the handoff to record " +
+      "unfinished work and the next step so your future self can pick up quickly. " +
+      "Never nap on your own; only do it when someone explicitly asks.",
     "",
     "### memory.md",
     "",

@@ -181,7 +181,6 @@ export type ManagerEvent =
     }
   | { type: "tick"; nowMs: number }
   | { type: "reset_session"; agentId: string }
-  | { type: "idle_reset_committed"; agentId: string; nowMs: number }
   | { type: "begin_reset"; agentId: string; nowMs: number }
   | { type: "rewake_after_reset"; agentId: string; message: AgentMsg }
   | { type: "runtime_config_queued"; agentId: string; message: AgentMsg }
@@ -218,7 +217,7 @@ export type ManagerEffect =
   | { type: "clear_stall_recovery"; agentId: string; sessionId: string }
   | { type: "expire_admission"; agentId: string; sessionInstanceId: string; commandIds: string[] }
   | { type: "requeue_delivery"; agentId: string; message: AgentMsg; mode: "busy" | "idle" }
-  | { type: "reset_idle_session"; agentId: string; sessionId: string }
+  | { type: "maintain_idle_memory"; agentId: string; sessionId: string }
   | { type: "force_exit"; agentId: string; reason: string };
 
 export const DEFAULT_STALE_THRESHOLD_MS = 120_000;
@@ -230,7 +229,7 @@ export const DEFAULT_TURN_SILENCE_POLICY: TurnSilencePolicy = {
   normalBudgetMs: 360_000,
 };
 export const DEFAULT_IDLE_TIMEOUT_MS = 30 * 60 * 1_000;
-export const DEFAULT_IDLE_RESET_TIMEOUT_MS = 6 * 60 * 60 * 1_000;
+export const DEFAULT_IDLE_RESET_TIMEOUT_MS = 3 * 60 * 60 * 1_000;
 export const DEFAULT_RESET_STUCK_THRESHOLD_MS = 120_000;
 export const DEFAULT_STOPPING_STUCK_THRESHOLD_MS = 30_000;
 
@@ -365,21 +364,6 @@ export function reduceManager(state: ManagerState, event: ManagerEvent): ReduceR
         a.stalledSessionId = null;
         a.idleSince = null;
       });
-
-    case "idle_reset_committed": {
-      const existing = state.agents[event.agentId];
-      if (!existing) return { state, effects: [] };
-      const agent = clone(existing);
-      agent.sessionId = null;
-      agent.stalledSessionId = null;
-      agent.idleSince = null;
-      if (agent.status !== "running") return commit(state, agent, []);
-      agent.status = "stopping";
-      agent.stoppingSince = event.nowMs;
-      return commit(state, agent, [
-        { type: "stop", agentId: event.agentId, reason: "idle_session_reset" },
-      ]);
-    }
 
     case "begin_reset":
       if (!state.agents[event.agentId]) return { state, effects: [] };
@@ -861,7 +845,8 @@ function onTick(state: ManagerState, nowMs: number): ReduceResult {
         (a.status === "running" && lease.state === "none" && lease.lastTerminal !== null)
       );
     if (idleResetEligible && nowMs - a.idleSince! >= state.idleResetTimeoutMs) {
-      effects.push({ type: "reset_idle_session", agentId: id, sessionId: a.sessionId! });
+      agents[id] = { ...a, idleSince: nowMs };
+      effects.push({ type: "maintain_idle_memory", agentId: id, sessionId: a.sessionId! });
       continue;
     }
 

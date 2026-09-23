@@ -555,6 +555,25 @@ describe("AgentRouter — machine:reset_all (batch reset)", () => {
 describe("AgentRouter — agent:nap", () => {
   const CFG = { version: 1 as const, runtime: "mock", model: { kind: "default" as const }, mode: { kind: "default" as const } };
 
+  it("reports no-handoff completion only after cleanup, without inventing a running agent", async () => {
+    const { mgr } = fakeManager();
+    let finish!: () => void;
+    const resetSession = vi.fn(() => new Promise<void>((resolve) => { finish = resolve; }));
+    mgr.resetSession = resetSession;
+    const { ch, fire } = fakeChannel();
+    ch.reportStoppedAck = vi.fn(async () => {});
+    const router = new AgentRouter({ manager: mgr, channel: ch, runtimeReport: [{ id: "mock" }] });
+    await router.start();
+    const pending = fire({ type: "agent:nap", agentId: "a1", config: CFG, launchId: "l1" });
+    await Promise.resolve();
+    expect(ch.reportStoppedAck).not.toHaveBeenCalled();
+    finish();
+    await pending;
+    expect(resetSession).toHaveBeenCalledWith("a1", { runtimeConfig: CFG, launchId: "l1", barrierType: "nap", rewakePrompt: undefined });
+    expect(ch.reportStoppedAck).toHaveBeenCalledWith({ agentId: "a1", launchId: "l1", status: "ok" });
+    expect(router.buildReady().runningAgents).not.toContain("a1");
+  });
+
   it("onBeforeAgent then resetSession with the handoff spliced into the rewake prompt + nap barrier, adds to running", async () => {
     const { mgr, resets, order } = fakeManager();
     const { ch, fire } = fakeChannel();

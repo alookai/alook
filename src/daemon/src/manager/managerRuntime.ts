@@ -1,3 +1,4 @@
+import { MEMORY_MAINTENANCE_PROMPT } from "./memoryMaintenancePrompt.js";
 import {
   reduceManager,
   createInitialManagerState,
@@ -753,7 +754,7 @@ export class AgentProcessManager {
     opts: {
       runtimeConfig: RuntimeConfig;
       launchId: string;
-      rewakePrompt: string;
+      rewakePrompt?: string;
       barrierType?: "reset_session" | "nap";
     },
   ): Promise<void> {
@@ -772,7 +773,7 @@ export class AgentProcessManager {
     opts: {
       runtimeConfig: RuntimeConfig;
       launchId: string;
-      rewakePrompt: string;
+      rewakePrompt?: string;
       forgetSession: boolean;
       barrierType?: "reset_session" | "nap";
       abortCause: "reset" | "nap" | "model_switch";
@@ -792,8 +793,14 @@ export class AgentProcessManager {
     if (!opts.forgetSession) this.opts.timeline?.fenceSession(agentId);
     this.abortCurrentTurn(agentId, opts.abortCause);
     this.markResetting(agentId);
+    const previousOwner = this.activeSpawnState.get(agentId);
+    if (opts.forgetSession && previousOwner) previousOwner.discardEvents = true;
     const status = this.state.agents[agentId]?.status;
     if (status === "idle") {
+      if (opts.rewakePrompt === undefined) {
+        this.dispatch({ type: "exit", agentId });
+        return;
+      }
       try {
         this.deliver(agentId, {
           id: `${opts.launchId}:${opts.abortCause}:rewake`,
@@ -809,11 +816,15 @@ export class AgentProcessManager {
       }
       return;
     }
-    this.enqueueRewake(agentId, {
-      id: `${opts.launchId}:${opts.abortCause}:rewake`,
-      text: opts.rewakePrompt,
-    });
+    if (opts.rewakePrompt !== undefined) {
+      this.enqueueRewake(agentId, {
+        id: `${opts.launchId}:${opts.abortCause}:rewake`,
+        text: opts.rewakePrompt,
+      });
+    }
+    const previousSession = previousOwner?.session ?? this.sessions.get(agentId);
     await this.stop(agentId);
+    if (opts.rewakePrompt === undefined && previousSession) await previousSession.closed;
   }
   async switchModel(
     agentId: string,
@@ -1451,53 +1462,12 @@ export class AgentProcessManager {
           mode: effect.mode,
         });
         break;
-      case "reset_idle_session": {
-        const spawnState = this.activeSpawnState.get(effect.agentId);
-        const completion = {
-          eventId: `bae_${randomUUID()}`,
-          occurredAt: new Date(this.now()).toISOString(),
-        };
-        const persisted = this.forgetSession(
-          effect.agentId,
-          "reset_session",
-          effect.sessionId,
-          completion,
-        );
-        if (!persisted) {
-          this.log.error("idle session reset barrier was not persisted; reset deferred", {
-            agentId: effect.agentId,
-            sessionId: effect.sessionId,
-          });
-          this.emitErrorAudit(
-            effect.agentId,
-            "reset",
-            "resume_control_update_failed",
-            "Idle session reset deferred because resume control could not be persisted",
-          );
-          break;
-        }
-        if (spawnState) spawnState.discardEvents = true;
-        this.dispatch({ type: "idle_reset_committed", agentId: effect.agentId, nowMs: this.now() });
-        if (this.opts.onBotAuditEvent) {
-          try {
-            this.opts.onBotAuditEvent(effect.agentId, {
-              kind: "session_reset",
-              payload: { trigger: "idle_timeout" },
-            }, {
-              sessionId: null,
-              launchId: null,
-              ...completion,
-            });
-          } catch (err) {
-            this.log.debug("audit emit failed (idle session reset)", {
-              agentId: effect.agentId,
-              err: String(err),
-            });
-          }
-        }
-        this.log.info("idle agent session reset", {
-          agentId: effect.agentId,
-          sessionId: effect.sessionId,
+      case "maintain_idle_memory": {
+        const agent = this.state.agents[effect.agentId];
+        if (!agent || agent.sessionId !== effect.sessionId || agent.resetting || agent.idleSince === null) break;
+        this.deliver(effect.agentId, {
+          id: `${effect.agentId}:memory-maintenance:${randomUUID()}`,
+          text: MEMORY_MAINTENANCE_PROMPT,
         });
         break;
       }

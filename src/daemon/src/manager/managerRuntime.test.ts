@@ -1,3 +1,4 @@
+import { MEMORY_MAINTENANCE_PROMPT } from "./memoryMaintenancePrompt.js";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { EventEmitter } from "events";
 import type { ChildProcess } from "child_process";
@@ -363,138 +364,150 @@ function exactTimelineLifecycleStub() {
   };
 }
 
-describe("AgentProcessManager — idle session reset", () => {
-  it("persists an exact reset barrier and clears the local session without waking an idle agent", () => {
+describe("AgentProcessManager — nap without handoff", () => {
+  it.each([false, true])("waits for physical close and preserves real queued work (%s)", async (newWork) => {
+    const old = fakeSession("nap-old");
+    const next = fakeSession("nap-new");
+    const factory = vi.fn().mockReturnValueOnce(old).mockReturnValueOnce(next);
     const forgetSession = vi.fn(() => true);
-    const sessionFactory = vi.fn();
-    const onBotAuditEvent = vi.fn();
-    const mgr = new AgentProcessManager({
-      driverFor: () => fakeDriver("codex"),
-      baseContextFor: () => ({
-        workingDirectory: "/tmp",
-        agentId: "a1",
-        standingPrompt: "",
-        config: {} as LaunchContext["config"],
-        credentialProxy: {} as LaunchContext["credentialProxy"],
-      }),
-      sessionFactory,
-      timeline: { ...exactTimelineLifecycleStub(), forgetSession } as never,
-      now: () => 123,
-      onBotAuditEvent,
-    });
-    mgr.register("a1");
-    const internal = mgr as unknown as { applyEffect(effect: object): void };
-
-    internal.applyEffect({ type: "reset_idle_session", agentId: "a1", sessionId: "sess-old" });
-
-    const completion = forgetSession.mock.calls[0]![3];
-    expect(forgetSession).toHaveBeenCalledWith(
-      "a1",
-      "reset_session",
-      "sess-old",
-      { eventId: expect.stringMatching(/^bae_/), occurredAt: "1970-01-01T00:00:00.123Z" },
-    );
-    expect(sessionFactory).not.toHaveBeenCalled();
-    expect(onBotAuditEvent).toHaveBeenCalledOnce();
-    expect(onBotAuditEvent).toHaveBeenCalledWith(
-      "a1",
-      { kind: "session_reset", payload: { trigger: "idle_timeout" } },
-      { sessionId: null, launchId: null, ...completion },
-    );
-    expect(mgr.snapshot().agents.a1).toMatchObject({ status: "idle", sessionId: null, idleSince: null });
-  });
-
-  it("defers the reset and leaves state retryable when the barrier cannot be persisted", () => {
-    const logger = stubLogger();
-    const forgetSession = vi.fn(() => false);
-    const onBotAuditEvent = vi.fn();
-    const mgr = new AgentProcessManager({
-      driverFor: () => fakeDriver("codex"),
-      baseContextFor: () => ({
-        workingDirectory: "/tmp",
-        agentId: "a1",
-        standingPrompt: "",
-        config: {} as LaunchContext["config"],
-        credentialProxy: {} as LaunchContext["credentialProxy"],
-      }),
-      timeline: { ...exactTimelineLifecycleStub(), forgetSession } as never,
-      logger,
-      onBotAuditEvent,
-    });
-    mgr.register("a1");
-    const before = mgr.snapshot();
-    const internal = mgr as unknown as { applyEffect(effect: object): void };
-
-    internal.applyEffect({ type: "reset_idle_session", agentId: "a1", sessionId: "sess-old" });
-    internal.applyEffect({ type: "reset_idle_session", agentId: "a1", sessionId: "sess-old" });
-
-    expect(forgetSession).toHaveBeenCalledTimes(2);
-    expect(
-      onBotAuditEvent.mock.calls.filter(([, event]) => event.kind === "session_reset"),
-    ).toHaveLength(0);
-    expect(
-      onBotAuditEvent.mock.calls.filter(([, event]) => event.kind === "error"),
-    ).toHaveLength(2);
-    expect(mgr.snapshot()).toBe(before);
-    expect(logger.calls.error.map(([message]) => message)).toEqual([
-      "idle session reset barrier was not persisted; reset deferred",
-      "idle session reset barrier was not persisted; reset deferred",
-    ]);
-  });
-
-  it("fences the old spawn owner before stop so a late session_started cannot restore the reset session", async () => {
-    const session = fakeSession("idle-reset-instance");
-    session.stop = vi.fn(session.stop.bind(session));
     const setSession = vi.fn(() => true);
-    const forgetSession = vi.fn(() => true);
     const mgr = new AgentProcessManager({
       driverFor: () => fakeDriver("codex"),
-      baseContextFor: () => ({
-        workingDirectory: "/tmp",
-        agentId: "a1",
-        standingPrompt: "",
-        config: {} as LaunchContext["config"],
-        credentialProxy: {} as LaunchContext["credentialProxy"],
-      }),
-      sessionFactory: sessionFactoryFor(session),
-      timeline: {
-        ...exactTimelineLifecycleStub(),
-        setSession,
-        forgetSession,
-        resumeSessionId: () => null,
-      } as never,
-      now: () => 123,
+      baseContextFor: () => ({ workingDirectory: "/tmp", agentId: "a1", standingPrompt: "", config: {} as LaunchContext["config"], credentialProxy: {} as LaunchContext["credentialProxy"] }),
+      sessionFactory: factory,
+      timeline: { ...exactTimelineLifecycleStub(), setSession, forgetSession, resumeSessionId: () => null } as never,
     });
     mgr.register("a1");
-    mgr.deliver("a1", { id: "first", text: "hello" });
+    mgr.deliver("a1", { id: "first", text: "original work" });
+    old.startResolver?.();
+    await Promise.resolve();
+    await old.fire("runtime_event", { kind: "session_init", sessionId: "old-backend" });
+    expect(mgr.snapshot().agents.a1.sessionId).toBe("old-backend");
+    let done = false;
+    const nap = mgr.resetSession("a1", { runtimeConfig: B1_RUNTIME_CONFIG, launchId: "nap-launch", barrierType: "nap" }).then(() => { done = true; });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(done).toBe(false);
+    let secondDone = false;
+    const secondNap = mgr.resetSession("a1", { runtimeConfig: B1_RUNTIME_CONFIG, launchId: "second-nap", barrierType: "nap" }).then(() => { secondDone = true; });
+    await Promise.resolve();
+    expect(secondDone).toBe(false);
+    await old.fire("runtime_event", { kind: "session_init", sessionId: "late-old" });
+    expect(setSession).toHaveBeenCalledTimes(1);
+    expect(mgr.snapshot().agents.a1.sessionId).toBeNull();
+    expect(forgetSession).toHaveBeenCalledWith("a1", "nap", undefined);
+    if (newWork) mgr.deliver("a1", { id: "real", text: "new real work" });
+    expect(factory).toHaveBeenCalledTimes(1);
+    await old.fire("exit", { reason: "requested", code: 0 });
+    await Promise.all([nap, secondNap]);
+    expect(done).toBe(true);
+    expect(secondDone).toBe(true);
+    expect(factory).toHaveBeenCalledTimes(newWork ? 2 : 1);
+    if (newWork) {
+      expect(factory.mock.calls[1][0].ctx.prompt).toContain("new real work");
+      expect(factory.mock.calls[1][0].ctx.config.sessionId).toBeUndefined();
+      await old.fire("runtime_event", { kind: "session_init", sessionId: "stale-old" });
+      expect(mgr.snapshot().agents.a1.sessionId).not.toBe("stale-old");
+    } else {
+      expect(mgr.snapshot().agents.a1).toMatchObject({ status: "idle", sessionId: null, resetting: false });
+      for (const hours of [3, 6, 9, 24, 48, 72]) {
+        const effects = (mgr as unknown as { dispatch(event: object): unknown[] }).dispatch({ type: "tick", nowMs: Date.now() + hours * 60 * 60 * 1_000 });
+        expect(effects).toEqual([]);
+        expect(factory).toHaveBeenCalledTimes(1);
+      }
+      mgr.deliver("a1", { id: "later", text: "later real work" });
+      expect(factory).toHaveBeenCalledTimes(2);
+      expect(factory.mock.calls[1][0].ctx.prompt).toContain("later real work");
+    }
+  });
+
+  it("leaves an empty session idle for three days and naps without a synthetic wake", async () => {
+    const { mgr } = makeManager();
+    for (const hours of [3, 6, 24, 48, 72]) {
+      const effects = (mgr as unknown as { dispatch(event: object): unknown[] }).dispatch({ type: "tick", nowMs: hours * 60 * 60 * 1_000 });
+      expect(effects).toEqual([]);
+      expect(mgr.snapshot().agents.a1).toMatchObject({ status: "idle", sessionId: null });
+    }
+    await mgr.resetSession("a1", { runtimeConfig: B1_RUNTIME_CONFIG, launchId: "nap-idle", barrierType: "nap" });
+    expect(mgr.snapshot().agents.a1).toMatchObject({ status: "idle", sessionId: null, resetting: false, inbox: [] });
+  });
+});
+
+describe("AgentProcessManager — idle memory maintenance", () => {
+  it.each([false, true])("delivers once into the prior session, including hibernation (%s), without resetting on completion", async (hibernated) => {
+    let now = 0;
+    const first = fakeSession("maintenance-first");
+    const resumed = fakeSession("maintenance-resumed");
+    const factory = vi.fn().mockReturnValueOnce(first).mockReturnValueOnce(resumed);
+    const forgetSession = vi.fn(() => true);
+    const send = vi.spyOn(first, "send");
+    const mgr = new AgentProcessManager({
+      driverFor: () => fakeDriver("codex"),
+      baseContextFor: () => ({ workingDirectory: "/tmp", agentId: "a1", standingPrompt: "", config: {} as LaunchContext["config"], credentialProxy: {} as LaunchContext["credentialProxy"] }),
+      sessionFactory: factory,
+      timeline: { ...exactTimelineLifecycleStub(), setSession: () => true, forgetSession, resumeSessionId: () => "saved-session" } as never,
+      now: () => now,
+      idleTimeoutMs: 0,
+      idleResetTimeoutMs: 1_000,
+    });
+    mgr.register("a1");
+    mgr.deliver("a1", { id: "first", text: "original" });
+    first.startResolver?.();
+    await Promise.resolve();
+    await first.fire("runtime_event", { kind: "session_init", sessionId: "saved-session" });
+    await first.fire("runtime_event", { kind: "turn_end", sessionId: "saved-session" });
+    if (hibernated) await first.fire("exit", { reason: "requested", code: 0 });
+    const tick = (time: number) => {
+      now = time;
+      (mgr as unknown as { dispatch(event: object): void }).dispatch({ type: "tick", nowMs: now });
+    };
+    tick(1_000);
+    tick(1_001);
+    expect(forgetSession).not.toHaveBeenCalled();
+    expect(mgr.snapshot().agents.a1.sessionId).toBe("saved-session");
+    if (hibernated) {
+      expect(factory).toHaveBeenCalledTimes(2);
+      expect(factory.mock.calls[1][0].ctx.config.sessionId).toBe("saved-session");
+      expect(factory.mock.calls[1][0].ctx.prompt).toContain(MEMORY_MAINTENANCE_PROMPT);
+      resumed.startResolver?.();
+      await Promise.resolve();
+      await resumed.fire("runtime_event", { kind: "session_init", sessionId: "saved-session" });
+      await resumed.fire("runtime_event", { kind: "turn_end", sessionId: "saved-session" });
+    } else {
+      expect(factory).toHaveBeenCalledTimes(1);
+      expect(send).toHaveBeenCalledOnce();
+      expect(send.mock.calls[0][0]).toMatchObject({ text: expect.stringContaining(MEMORY_MAINTENANCE_PROMPT) });
+      await first.fire("runtime_event", { kind: "turn_end", sessionId: "saved-session" });
+    }
+    expect(forgetSession).not.toHaveBeenCalled();
+    expect(mgr.snapshot().agents.a1.sessionId).toBe("saved-session");
+  });
+  it.each(["failed", "timeout"] as const)("does not force reset when maintenance ends with %s", async (outcome) => {
+    let now = 0;
+    const { mgr, session } = makeManager({ now: () => now, idleTimeoutMs: 0, idleResetTimeoutMs: 100, staleThresholdMs: 1_000 });
+    const forget = vi.spyOn(mgr, "forgetSession");
+    mgr.deliver("a1", { id: "initial", text: "work" });
     session.startResolver?.();
     await Promise.resolve();
-    await session.fire("runtime_event", { kind: "session_init", sessionId: "sess-old" });
-    await session.fire("runtime_event", { kind: "turn_end", sessionId: "sess-old" });
-    expect(mgr.snapshot().agents.a1).toMatchObject({ sessionId: "sess-old", idleSince: 123 });
-
-    const internal = mgr as unknown as {
-      applyEffect(effect: object): void;
-      activeSpawnState: Map<string, { discardEvents: boolean }>;
+    await session.fire("runtime_event", { kind: "session_init", sessionId: "retained" });
+    await session.fire("runtime_event", { kind: "turn_end", sessionId: "retained" });
+    const tick = (time: number) => {
+      now = time;
+      (mgr as unknown as { dispatch(event: object): void }).dispatch({ type: "tick", nowMs: time });
     };
-    internal.applyEffect({ type: "reset_idle_session", agentId: "a1", sessionId: "sess-old" });
-
-    expect(forgetSession).toHaveBeenCalledWith(
-      "a1",
-      "reset_session",
-      "sess-old",
-      { eventId: expect.stringMatching(/^bae_/), occurredAt: "1970-01-01T00:00:00.123Z" },
-    );
-    expect(internal.activeSpawnState.get("a1")?.discardEvents).toBe(true);
-    expect(session.stop).toHaveBeenCalledWith({ reason: "idle_timeout", forceAfterMs: 2_000 });
-    expect(mgr.snapshot().agents.a1.sessionId).toBeNull();
-    expect(setSession).toHaveBeenCalledTimes(1);
-
-    await session.fire("runtime_event", { kind: "session_init", sessionId: "sess-old" });
-
-    expect(setSession).toHaveBeenCalledTimes(1);
-    expect(mgr.snapshot().agents.a1.sessionId).toBeNull();
+    tick(100);
+    await Promise.resolve();
+    await Promise.resolve();
+    if (outcome === "failed") {
+      fireManagedTurnFailure(mgr, "maintenance failed");
+    } else {
+      tick(1_101);
+      await session.fire("exit", { reason: "requested", code: 0 });
+    }
+    expect(forget).not.toHaveBeenCalled();
+    expect(mgr.snapshot().agents.a1.sessionId).toBe("retained");
   });
+
 });
 
 describe("AgentProcessManager runtime config revisions", () => {

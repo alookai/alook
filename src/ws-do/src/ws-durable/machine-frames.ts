@@ -41,6 +41,7 @@ export async function handleCommunityMachineMessage(
     context,
     parsed,
     identity,
+    hooks,
   )) return
   if (await handleSessionErrorFrame(
     context,
