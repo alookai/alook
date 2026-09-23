@@ -14,11 +14,11 @@ struct ExportArgs: Decodable {
 struct CancelArgs: Decodable { let attemptId: String }
 struct ExportResult: Encodable { let attemptId: String; let status: String; let destination: String }
 
-final class ExportSession: NSObject, UIDocumentPickerDelegate, UIAdaptivePresentationControllerDelegate {
+final class ExportSession: NSObject, UIAdaptivePresentationControllerDelegate {
   let args: ExportArgs
   let invoke: Invoke
   let directory: URL
-  var picker: UIDocumentPickerViewController?
+  var picker: UIActivityViewController?
   private let lock = NSLock()
   private var stopped = false
   var cancelled: Bool {
@@ -33,16 +33,12 @@ final class ExportSession: NSObject, UIDocumentPickerDelegate, UIAdaptivePresent
   func finish(_ status: String) {
     guard !finished else { return }
     finished = true
-    picker?.delegate = nil
+    picker?.completionWithItemsHandler = nil
     if status == "error" { invoke.reject("File export failed", code: "write_failed") }
-    else { invoke.resolve(ExportResult(attemptId: args.attemptId, status: status, destination: status == "saved" ? "files" : "")) }
+    else { invoke.resolve(ExportResult(attemptId: args.attemptId, status: status, destination: status == "started" ? "share" : "")) }
     try? FileManager.default.removeItem(at: directory)
     release?()
   }
-  func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
-    finish(urls.isEmpty ? "error" : "saved")
-  }
-  func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) { finish("cancelled") }
   func presentationControllerDidDismiss(_ presentationController: UIPresentationController) { finish("cancelled") }
   func cancel() {
     cancelled = true
@@ -97,8 +93,16 @@ final class FileSavePlugin: Plugin {
             if session.cancelled { session.finish("cancelled"); return }
             guard let presenter = self.manager.viewController, presenter.presentedViewController == nil,
                   presenter.view.window != nil else { session.finish("error"); return }
-            let picker = UIDocumentPickerViewController(forExporting: [destination], asCopy: true)
-            session.picker = picker; picker.delegate = session
+            let picker = UIActivityViewController(activityItems: [destination], applicationActivities: nil)
+            session.picker = picker
+            picker.completionWithItemsHandler = { [weak session] _, completed, _, error in
+              session?.finish(error != nil ? "error" : completed ? "started" : "cancelled")
+            }
+            if let popover = picker.popoverPresentationController {
+              popover.sourceView = presenter.view
+              popover.sourceRect = CGRect(x: presenter.view.bounds.midX, y: presenter.view.bounds.midY, width: 1, height: 1)
+              popover.permittedArrowDirections = []
+            }
             presenter.present(picker, animated: true)
             picker.presentationController?.delegate = session
           }

@@ -221,7 +221,9 @@ impl Transfer {
     pub fn receipt(&self, destination: Option<String>) -> Receipt {
         Receipt {
             attempt_id: self.metadata.attempt_id.clone(),
-            status: if destination.is_some() {
+            status: if destination.as_deref() == Some("share") {
+                "started"
+            } else if destination.is_some() {
                 "saved"
             } else {
                 "cancelled"
@@ -238,6 +240,13 @@ impl Transfer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn share_receipt_reports_handoff_instead_of_saved() {
+        let t = transfer(Some(0));
+        let receipt = t.receipt(Some("share".into()));
+        assert_eq!(receipt.status, "started");
+        assert_eq!(receipt.destination, "share");
+    }
     fn transfer(size: Option<u64>) -> Transfer {
         let mut random = [0u8; 16];
         getrandom::fill(&mut random).unwrap();

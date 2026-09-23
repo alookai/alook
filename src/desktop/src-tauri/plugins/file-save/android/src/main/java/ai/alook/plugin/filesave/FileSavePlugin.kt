@@ -1,17 +1,14 @@
 package ai.alook.plugin.filesave
 
 import android.app.Activity
-import android.content.ContentValues
+import android.content.ClipData
+import androidx.core.content.FileProvider
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
-import android.os.Bundle
 import android.provider.MediaStore
 import android.provider.DocumentsContract
-import androidx.activity.ComponentActivity
-import androidx.activity.result.ActivityResultLauncher
-import androidx.activity.result.contract.ActivityResultContracts
 import app.tauri.plugin.JSObject
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
@@ -37,57 +34,18 @@ class ExportArgs {
 class CancelArgs { lateinit var attemptId: String }
 
 private class ExportSession(val args: ExportArgs, val invoke: Invoke) {
-    val token: String = UUID.randomUUID().toString()
     val cancelled = AtomicBoolean(false)
     var terminal = false
-    var waitingPicker = false
-}
-
-class FileSaveDocumentOwner(private val activity: ComponentActivity) {
-    private val launchers = mutableMapOf<String, ActivityResultLauncher<Intent>>()
-    private val tokens = linkedSetOf<String>()
-    fun attach(saved: Bundle?) {
-        FileExporter.owner = this
-        tokens.addAll(saved?.getStringArrayList("alook.fileSave.tokens") ?: emptyList())
-        tokens.toList().forEach { register(it) }
-    }
-    private fun register(id: String): ActivityResultLauncher<Intent> {
-        launchers[id]?.let { return it }
-        var delivered = false
-        val launcher = activity.activityResultRegistry.register("alook.file-save.$id", ActivityResultContracts.StartActivityForResult()) { result ->
-            delivered = true
-            val uri = result.data?.data?.takeIf { result.resultCode == Activity.RESULT_OK }
-            FileExporter.deliver(activity.applicationContext, id, uri)
-            launchers.remove(id)?.unregister()
-            tokens.remove(id)
-        }
-        if (delivered) launcher.unregister() else launchers[id] = launcher
-        return launcher
-    }
-    fun launch(args: ExportArgs, token: String) {
-        tokens.add(token)
-        register(token).launch(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE); type = args.mime; putExtra(Intent.EXTRA_TITLE, args.name)
-        })
-    }
-    fun saveState(out: Bundle) { out.putStringArrayList("alook.fileSave.tokens", ArrayList(tokens)) }
-    fun detach() {
-        if (FileExporter.owner === this) { FileExporter.owner = null; FileExporter.cancelActive() }
-        launchers.values.forEach { it.unregister() }; launchers.clear()
-    }
 }
 
 private object FileExporter {
     val executor = Executors.newSingleThreadExecutor()
-    @Volatile var owner: FileSaveDocumentOwner? = null
     private var session: ExportSession? = null
     private val cancelled = mutableSetOf<String>()
-    @Synchronized fun cancelActive() { session?.let { cancel(it.args.attemptId) } }
     @Synchronized fun cancel(id: String) {
         val active = session
         if (active?.args?.attemptId == id) {
             active.cancelled.set(true)
-            if (active.waitingPicker) settle(active, "cancelled")
         } else { if (cancelled.size > 128) cancelled.clear(); cancelled.add(id) }
     }
     @Synchronized fun acquire(args: ExportArgs, invoke: Invoke): ExportSession? {
@@ -112,16 +70,45 @@ private object FileExporter {
             try {
                 validate(activity, args)
                 if (s.cancelled.get()) { settle(s, "cancelled"); return@execute }
-                if (Build.VERSION.SDK_INT >= 29) saveDownloads(activity.applicationContext, s)
-                else activity.runOnUiThread {
-                    try {
-                        if (s.cancelled.get()) settle(s, "cancelled")
-                        else synchronized(this) {
-                            check(!s.cancelled.get())
-                            s.waitingPicker = true
-                            (owner ?: throw IllegalStateException()).launch(args, s.token)
+                val root = File(activity.cacheDir, "alook-share")
+                root.mkdirs()
+                root.listFiles()?.filter { it.lastModified() < System.currentTimeMillis() - 86_400_000L }?.forEach { it.deleteRecursively() }
+                val directory = File(root, args.attemptId)
+                check(directory.mkdirs())
+                val destination = File(directory, args.name)
+                try {
+                    FileInputStream(args.path).use { input ->
+                        destination.outputStream().use { output ->
+                            FileSaveCopy.write(input, output, args.bytes, args.sha256) { s.cancelled.get() }
                         }
-                    } catch (_: Exception) { settle(s, "error") }
+                    }
+                    activity.runOnUiThread {
+                        synchronized(this) {
+                            try {
+                                if (s.cancelled.get()) {
+                                    directory.deleteRecursively()
+                                    settle(s, "cancelled")
+                                } else {
+                                    val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.file-share", destination)
+                                    val send = Intent(Intent.ACTION_SEND).apply {
+                                        type = args.mime
+                                        putExtra(Intent.EXTRA_STREAM, uri)
+                                        putExtra(Intent.EXTRA_TITLE, args.name)
+                                        clipData = ClipData.newRawUri(args.name, uri)
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    }
+                                    activity.startActivity(Intent.createChooser(send, null))
+                                    settle(s, "started", "share")
+                                }
+                            } catch (_: Exception) {
+                                directory.deleteRecursively()
+                                settle(s, "error")
+                            }
+                        }
+                    }
+                } catch (error: Exception) {
+                    directory.deleteRecursively()
+                    throw error
                 }
             } catch (_: Exception) { settle(s, if (s.cancelled.get()) "cancelled" else "error") }
         }
@@ -132,13 +119,6 @@ private object FileExporter {
         val source = File(args.path).canonicalFile
         require(source.path.startsWith(context.cacheDir.canonicalPath + "/") && source.parentFile?.name == "user-file-save" && source.name == args.attemptId + ".partial")
         require(source.length() == args.bytes)
-    }
-    private fun copy(context: Context, s: ExportSession, uri: Uri) {
-        context.contentResolver.openOutputStream(uri, "w")?.use { output ->
-            FileInputStream(s.args.path).use { input ->
-                FileSaveCopy.write(input, output, s.args.bytes, s.args.sha256) { s.cancelled.get() }
-            }
-        } ?: throw IllegalStateException()
     }
     private fun prefs(context: Context) = context.getSharedPreferences("alook-file-save", Context.MODE_PRIVATE)
     fun repair(context: Context) {
@@ -169,53 +149,6 @@ private object FileExporter {
         reportCleanup(documentCleanup(context).repair())
     }
 
-    private fun saveDownloads(context: Context, s: ExportSession) {
-        val resolver = context.contentResolver
-        val values = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, ".alook-${s.args.attemptId}.partial")
-            put(MediaStore.MediaColumns.MIME_TYPE, s.args.mime)
-            put(MediaStore.MediaColumns.RELATIVE_PATH, "Download/Alook")
-            put(MediaStore.MediaColumns.IS_PENDING, 1)
-        }
-        val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: throw IllegalStateException()
-        var published = false
-        try {
-            check(prefs(context).edit().putString(s.args.attemptId, uri.toString()).commit())
-            copy(context, s, uri)
-            synchronized(this) {
-                check(!s.cancelled.get())
-                check(resolver.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0); put(MediaStore.MediaColumns.DISPLAY_NAME, s.args.name) }, null, null) == 1)
-                published = true
-                settle(s, "saved", "downloads")
-            }
-        } finally {
-            if (published || resolver.delete(uri, null, null) > 0) prefs(context).edit().remove(s.args.attemptId).commit()
-        }
-    }
-    fun deliver(context: Context, id: String, uri: Uri?) {
-        val s = synchronized(this) { session?.takeIf { it.token == id && !it.terminal }?.also { it.waitingPicker = false } }
-        executor.execute {
-            if (s == null || s.cancelled.get()) {
-                if (uri != null) reportCleanup(documentCleanup(context).discard(id, uri.toString()))
-                if (s != null) settle(s, "cancelled")
-                return@execute
-            }
-            if (uri == null) { settle(s, "cancelled"); return@execute }
-            val cleanup = documentCleanup(context)
-            try {
-                cleanup.acquire(id, uri.toString())
-                copy(context, s, uri)
-                synchronized(this) {
-                    check(!s.cancelled.get())
-                    reportCleanup(cleanup.published(id, uri.toString()))
-                    settle(s, "saved", "document")
-                }
-            } catch (_: Exception) {
-                reportCleanup(cleanup.discard(id, uri.toString()))
-                settle(s, if (s.cancelled.get()) "cancelled" else "error")
-            }
-        }
-    }
     private fun reportCleanup(complete: Boolean) {
         if (!complete) android.util.Log.w("AlookFileSave", "Document cleanup incomplete; recovery required")
     }

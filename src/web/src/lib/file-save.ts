@@ -2,7 +2,7 @@ import { isTauri, tauriInvoke } from "@alook/shared"
 
 export const FILE_SAVE_CHUNK_BYTES = 65_536
 export type FileSaveResult =
-  | { status: "started" }
+  | { status: "started"; destination?: "share" }
   | { status: "saved"; name: string; mime: string; bytes: number; sha256: string; destination: string }
   | { status: "cancelled" }
   | { status: "error"; message: string }
@@ -12,7 +12,7 @@ type NativeReceipt = { attemptId: string; status: string; name: string; mime: st
 
 export function fileSaveMessage(result: FileSaveResult): string | null {
   if (result.status === "saved") return "Saved"
-  if (result.status === "started") return "Download started"
+  if (result.status === "started") return result.destination === "share" ? "Share sheet opened" : "Download started"
   if (result.status === "error") return "Couldn’t save — retry"
   return null
 }
@@ -128,12 +128,14 @@ async function nativeSave(source: FileSource, signal?: AbortSignal): Promise<Fil
     const result = await tauriInvoke<NativeReceipt>("file_save_commit", { payload: { attemptId, bytes } })
     if (result.attemptId !== attemptId) throw new Error("Mismatched save receipt")
     if (result.status === "cancelled") return { status: "cancelled" }
-    if (result.status !== "saved" || result.bytes !== bytes || result.name !== source.name
+    const sharing = result.status === "started" && result.destination === "share"
+    if ((!sharing && result.status !== "saved") || result.bytes !== bytes || result.name !== source.name
       || result.mime !== source.mime || !/^[a-f0-9]{64}$/.test(result.sha256)
-      || !["downloads", "files", "document", "desktop"].includes(result.destination)) {
+      || (!sharing && !["downloads", "files", "document", "desktop"].includes(result.destination))) {
       throw new Error("Invalid save receipt")
     }
     completed = true
+    if (sharing) return { status: "started", destination: "share" }
     return { status: "saved", name: result.name, mime: result.mime, bytes, sha256: result.sha256, destination: result.destination }
   } finally {
     signal?.removeEventListener("abort", onAbort)

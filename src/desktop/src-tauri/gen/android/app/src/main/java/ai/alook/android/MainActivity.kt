@@ -18,7 +18,6 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import ai.alook.plugin.mobileshareimage.MobileShareImageDocumentOwner
-import ai.alook.plugin.filesave.FileSaveDocumentOwner
 
 class MainActivity : TauriActivity() {
     override val handleBackNavigation: Boolean = false
@@ -27,7 +26,6 @@ class MainActivity : TauriActivity() {
     private var mainWebView: WebView? = null
     private lateinit var nativeBackCallback: OnBackPressedCallback
     private lateinit var nativeBackDispatcher: NativeBackDispatcher
-    private val fileSaveDocumentOwner = FileSaveDocumentOwner(this)
     private val mobileShareImageDocumentOwner = MobileShareImageDocumentOwner(this)
 
     companion object {
@@ -71,7 +69,6 @@ class MainActivity : TauriActivity() {
         nativeBackDispatcher = NativeBackDispatcher(::delegateBackToSystem)
         onBackPressedDispatcher.addCallback(this, nativeBackCallback)
         mobileShareImageDocumentOwner.attach(savedInstanceState)
-        fileSaveDocumentOwner.attach(savedInstanceState)
 
         splashScreen.setKeepOnScreenCondition { !isReady }
 
@@ -100,7 +97,6 @@ class MainActivity : TauriActivity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         mobileShareImageDocumentOwner.saveState(outState)
-        fileSaveDocumentOwner.saveState(outState)
         super.onSaveInstanceState(outState)
     }
 
@@ -108,7 +104,6 @@ class MainActivity : TauriActivity() {
         nativeBackDispatcher.close()
         mainWebView = null
         mobileShareImageDocumentOwner.detach()
-        fileSaveDocumentOwner.detach()
         super.onDestroy()
     }
 
