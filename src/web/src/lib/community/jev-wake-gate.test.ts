@@ -814,6 +814,35 @@ describe("selectJevWakeCandidates", () => {
     }))
   })
 
+  it("fails open when the candidate stage provider call fails", async () => {
+    const candidateStageFailure: JevDecisionProvider = {
+      name: "openrouter",
+      async decide(request) {
+        if (RECIPIENT_SCOPE_KEY in request.questions) {
+          return {
+            model: "typesafe/jev-1.13",
+            answers: {
+              [RECIPIENT_SCOPE_KEY]: { type: "noul", noul: 1 },
+              [UNIVERSAL_ACTION_KEY]: { type: "noul", noul: 0 },
+            },
+          }
+        }
+        throw new Error("candidate stage unavailable")
+      },
+    }
+
+    await expect(selectJevWakeCandidates(input, openRouterEnv, {
+      createProvider: () => candidateStageFailure,
+    })).resolves.toEqual([candidate])
+    expect(mocks.logWarn).toHaveBeenCalledWith(
+      "jev_wake_gate_fail_open",
+      expect.objectContaining({
+        reason: "provider_error",
+        stage: "current_recipients",
+      }),
+    )
+  })
+
   it("aborts an in-flight provider batch at the total deadline and fails open", async () => {
     vi.useFakeTimers()
     try {
