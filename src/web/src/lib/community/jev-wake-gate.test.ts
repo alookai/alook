@@ -351,6 +351,46 @@ describe("selectJevWakeCandidates", () => {
       .toContain("Mere relevance or ability to help is no")
   })
 
+  it("uses the newest recent message when legacy context has no explicit immediate role", async () => {
+    let request: any
+    await selectJevWakeCandidates({
+      ...input,
+      conversation: {
+        available: true,
+        truncated: false,
+        messages: [
+          {
+            text: "older recent message",
+            messageType: "default",
+            author: { kind: "human", handle: "Alice#0001" },
+            roles: ["recent"],
+            priority: 3,
+            order: 1,
+          },
+          {
+            text: "newest recent message",
+            messageType: "default",
+            author: { kind: "bot", handle: "Helper#0002" },
+            roles: ["recent"],
+            priority: 3,
+            order: 2,
+          },
+        ],
+      },
+    }, openRouterEnv, {
+      createProvider: () => provider([1], (value) => { request = value }),
+    })
+
+    expect(request.state.immediately_previous_message).toEqual({
+      author: "Helper#0002",
+      text: "newest recent message",
+    })
+    expect(request.state.older_context).toEqual([{
+      author: "Alice#0001",
+      text: "older recent message",
+    }])
+  })
+
   it("serializes shared conversation chronologically without internal selection metadata", async () => {
     let request: any
     await selectJevWakeCandidates({
