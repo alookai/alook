@@ -28,6 +28,7 @@ export async function handleAgentCommandAck(
   context: WsDurableContext,
   parsed: unknown,
   identity: CommunityMachineIdentity,
+  hooks: MachineRestartHooks,
 ): Promise<boolean> {
   if (
     !parsed || typeof parsed !== "object" || !("type" in parsed) ||
@@ -57,6 +58,12 @@ export async function handleAgentCommandAck(
       await evictPendingReset(context, ack.launchId)
     }
   } else if (ack.status === "ok") {
+    if (ack.type === "agent_stopped_ack" && typeof ack.launchId === "string" && typeof ack.agentId === "string") {
+      const stored = await context.ctx.storage.get<RestartAttribution>(restartPendingKey(ack.launchId))
+      if (stored?.kind === "nap" && stored.stoppedAgentId === ack.agentId) {
+        await completeRestart(context, identity, hooks, ack.agentId, ack.launchId, stored)
+      }
+    }
     context.log.debug("agent command ack ok", {
       machineId: identity.machineId,
       type: ack.type,
@@ -102,6 +109,19 @@ export async function handleAgentSessionFrame(
   const stored = await context.ctx.storage.get<ResetTrigger | RestartAttribution>(restartPendingKey(launchId))
   if (!stored) return true
   const attribution = normalizeRestartAttribution(stored)
+  if (attribution.kind === "nap" && attribution.stoppedAgentId !== undefined) return true
+  await completeRestart(context, identity, hooks, agentId, launchId, attribution)
+  return true
+}
+
+async function completeRestart(
+  context: WsDurableContext,
+  identity: CommunityMachineIdentity,
+  hooks: MachineRestartHooks,
+  agentId: string,
+  launchId: string,
+  attribution: RestartAttribution,
+): Promise<void> {
   await evictPendingReset(context, launchId)
   const db = createDb(context.env.DB)
   await handleFrameForBoundBot(context, {
@@ -161,7 +181,6 @@ export async function handleAgentSessionFrame(
       }).catch(() => { })
     },
   })
-  return true
 }
 
 export async function recordPendingRestarts(
@@ -183,7 +202,12 @@ export async function recordPendingRestarts(
   if (parsed.type === "agent:reset") {
     await put((parsed as { launchId?: unknown }).launchId, { kind: "session_reset", trigger: "single" })
   } else if (parsed.type === "agent:nap") {
-    await put((parsed as { launchId?: unknown }).launchId, { kind: "nap" })
+    const nap = parsed as { launchId?: unknown; agentId?: unknown; handoff?: unknown }
+    if (nap.handoff === undefined && typeof nap.agentId !== "string") return
+    await put(nap.launchId, {
+      kind: "nap",
+      ...(nap.handoff === undefined ? { stoppedAgentId: nap.agentId as string } : {}),
+    })
   } else if (parsed.type === "machine:reset_all") {
     const resets = (parsed as { resets?: unknown }).resets
     if (Array.isArray(resets)) {

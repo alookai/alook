@@ -54,7 +54,7 @@ type InboundFrame =
   | ({ type: "ready" } & HostReady)
   | { type: "agent_session"; agentId: AgentId; sessionId: string; launchId: string }
   | { type: "agent_wake_ack"; agentId: AgentId; launchId: string; status: AckStatus; error?: AckError }
-  | { type: "agent_stopped_ack"; agentId: AgentId; status: AckStatus; error?: AckError };
+  | { type: "agent_stopped_ack"; agentId: AgentId; launchId?: string; status: AckStatus; error?: AckError };
 
 export interface WsControlServerOpts {
   /**

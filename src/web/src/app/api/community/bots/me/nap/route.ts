@@ -12,7 +12,7 @@ import { withCommunityActor, requireBot } from "@/lib/middleware/community-actor
 import { pushAgentNapToMachine } from "@/lib/community/bot-push"
 
 /**
- * POST /api/community/bots/me/nap — `alook nap --handoff <file>`.
+ * POST /api/community/bots/me/nap — `alook nap [--handoff <file>]`.
  *
  * Relocated from the flat /api/community/nap (route/disc 接口树统一, Gener #215
  * 乙; Blondie #527 placement). nap is a BOT-QUA-BOT self lifecycle action — the
@@ -36,13 +36,6 @@ import { pushAgentNapToMachine } from "@/lib/community/bot-push"
  * is the sole canonical entry; the deploy-orchestration verify-list gates
  * deleting it on the daemon being confirmed on this new target.
  *
- * Agent-self-initiated session reset. The self-serve twin of the owner
- * `bots/{id}/reset-session` route: build the bot's RuntimeConfig → push
- * `agent:nap` (carrying the mandatory handoff) to the bot's OWN machine → on
- * delivery (`sent > 0`) the daemon writes the `nap` audit row at reborn-ready.
- * If the daemon is offline (`sent === 0`) return 409 and write NO audit row —
- * the audit signals a real nap landed, not a request. Notifies no one: a nap is
- * the agent's private self-state change.
  */
 export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
   const gate = requireBot(ctx.actor)
@@ -59,7 +52,7 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
   }
   const parsed = CommunityAgentNapRequestSchema.safeParse(raw)
   if (!parsed.success) {
-    return NextResponse.json({ error: "handoff is required", details: parsed.error.flatten() }, { status: 400 })
+    return NextResponse.json({ error: "invalid nap request", details: parsed.error.flatten() }, { status: 400 })
   }
   const handoff = parsed.data.handoff
 
@@ -93,10 +86,7 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
     )
   }
 
-  // The `nap` audit row + awake-time stamp are NOT written here: they are
-  // re-homed to the daemon completion signal (the `agent_session` frame at
-  // reborn-ready), so the record reflects "the nap actually completed" rather
-  // than "the command was dispatched." See plans/reset-nap-completion-rehome.md.
+
 
   return NextResponse.json({ napped: true })
 })

@@ -469,7 +469,7 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     return parseJsonResponse<FriendRequestResult>(res, "friendRequest");
   }
 
-  async function callNap(req: { handoff: string }): Promise<{ napped: boolean }> {
+  async function callNap(req: { handoff?: string }): Promise<{ napped: boolean }> {
     // RETARGETED off the flat `nap` verb onto POST bots/me/nap (route/disc
     // 接口树统一, Gener #215 乙; Blondie #527). nap is a bot-qua-bot self
     // lifecycle action — the agent resets its OWN session — so it lives under

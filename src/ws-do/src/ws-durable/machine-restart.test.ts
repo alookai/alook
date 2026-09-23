@@ -128,6 +128,27 @@ describe("WebSocketDurableObject", () => {
           .find((r: Request) => r.url.endsWith("/community-broadcast"))
       }
 
+      it("no-handoff nap completes on its matching stop receipt, never on agent_session", async () => {
+        const { durable, store } = onlineDaemon()
+        await pushFrame(durable, { type: "agent:nap", agentId: "bot_1", config: {}, launchId: "l_nap" })
+        for (const frame of [
+          { type: "agent_session", agentId: "bot_1", sessionId: "new", launchId: "l_nap" },
+          { type: "agent_stopped_ack", agentId: "other", launchId: "l_nap", status: "ok" },
+          { type: "agent_stopped_ack", agentId: "bot_1", launchId: "other", status: "ok" },
+          { type: "agent_stopped_ack", agentId: "bot_1", status: "ok" },
+        ]) {
+          await durable.webSocketMessage(machineWs() as any, JSON.stringify(frame))
+        }
+        expect(mockInsertBotAuditNap).not.toHaveBeenCalled()
+        expect(store.has("reset-pending:l_nap")).toBe(true)
+        const receipt = JSON.stringify({ type: "agent_stopped_ack", agentId: "bot_1", launchId: "l_nap", status: "ok" })
+        await durable.webSocketMessage(machineWs() as any, receipt)
+        await durable.webSocketMessage(machineWs() as any, receipt)
+        expect(mockInsertBotAuditNap).toHaveBeenCalledTimes(1)
+        expect(mockTouchBotRefreshContext).toHaveBeenCalledWith(expect.anything(), "bot_1", "2025-06-01T11:00:00.000Z")
+        expect(store.has("reset-pending:l_nap")).toBe(false)
+      })
+
       it("single reset: agent_session writes session_reset audit + stamps awake in lockstep + broadcasts", async () => {
         const { durable } = onlineDaemon()
         // Dispatch: an agent:reset frame is forwarded → records launchId→single.

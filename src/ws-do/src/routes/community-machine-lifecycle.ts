@@ -250,12 +250,6 @@ export async function handleMachineBatchReset({ request, env, url, traceId, log 
 }
 
 export async function handleMachineNap({ request, env, url, traceId, log }: RouterContext): Promise<Response | null> {
-  // POST /community-machine/by-id/<machineId>/forward-agent-nap — agent
-  // self-initiated `agent:nap` push. Twin of /forward-agent-reset but the
-  // allowlist additionally carries the mandatory `handoff` string (the
-  // agent's note to its reborn self, spliced into the rewake prompt). Same
-  // doName resolution + `/push` fan-out + `{sent}` aggregation. Callers must
-  // use `pushAgentNapToMachine`.
   const forwardAgentNap = url.pathname.match(/^\/community-machine\/by-id\/([^/]+)\/forward-agent-nap$/)
   if (!forwardAgentNap || request.method !== "POST") return null
 
@@ -289,7 +283,7 @@ export async function handleMachineNap({ request, env, url, traceId, log }: Rout
   if (!config || typeof config !== "object") {
     return Response.json({ error: "invalid payload" }, { status: 400 })
   }
-  if (typeof handoff !== "string" || handoff.trim().length === 0) {
+  if (handoff !== undefined && (typeof handoff !== "string" || handoff.trim().length === 0)) {
     return Response.json({ error: "invalid payload" }, { status: 400 })
   }
 

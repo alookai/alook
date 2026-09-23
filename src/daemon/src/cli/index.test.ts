@@ -2123,13 +2123,12 @@ describe("message send — required bounded stdin body contract", () => {
 });
 
 describe("nap", () => {
-  it("errors when --handoff is missing, and never calls api.nap", async () => {
+  it("sends an absent handoff when no file is supplied", async () => {
     const napSpy = vi.fn(async () => ({ napped: true }));
     setApiForTesting(stubApi({ nap: napSpy }));
     await main(["nap"]);
-    const env = parseEnvelope(cap.lines());
-    expect(typeof env.error).toBe("string");
-    expect(napSpy).not.toHaveBeenCalled();
+    expect(parseEnvelope(cap.lines())).toEqual({ success: { napped: true } });
+    expect(napSpy).toHaveBeenCalledWith({});
   });
 
   it("errors on a whitespace-only handoff file", async () => {

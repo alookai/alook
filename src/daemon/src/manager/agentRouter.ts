@@ -144,11 +144,15 @@ function defaultFormatUnreadNoticeText(): string {
  *   - "pull your inbox" makes it explicit that any real unread messages
  *     queued during the reset window need to be processed.
  */
-const REWAKE_PROMPT =
-  "Your session was reset by your owner. Prior conversation context is gone. " +
-  "Read @memory.md and your .context_timeline for durable context, then pull your inbox " +
-  "before doing anything else. If it reports marked messages, run `$ALOOK_CLI message mark list` " +
-  "and resume that outstanding work.";
+const REWAKE_PROMPT = `Your session was reset by your owner. Prior conversation context is gone. Read @memory.md and your .context_timeline for durable context, then pull your inbox. If it reports marked messages, run \`$ALOOK_CLI message mark list\` to identify outstanding work. Before continuing work, review memory.md and experiences:
+
+1. Consistency: Read memory.md and experiences. Merge duplicates and resolve conflicting notes against original decisions. Check links.
+2. Facts: Verify claims, especially work progress, against the latest original records. Search the context timeline and task discussions through their latest outcomes. Correct outdated or unsupported claims; keep uncertainty explicit.
+3. Durability: Keep only lasting facts, preferences, and reusable lessons or procedures. Remove task status, milestones, temporary plans, and diaries; extract a reusable lesson only when useful. Keep memory.md brief with links; put procedures, scope, and reasons in experiences. Reason from first principles: distill specific events into underlying causes, constraints, and reusable principles. Omit incidental dates and details; retain context only when it changes the principle’s validity or scope.
+
+Edit only your own memory files.
+
+After completing the review and any needed edits, resume outstanding work and handle your inbox messages.`;
 
 /**
  * Rewake prompt for `agent:model_switch`. Unlike `REWAKE_PROMPT`, the session
@@ -373,13 +377,18 @@ export class AgentRouter {
     launchId: string,
     opName: "agent:reset" | "agent:nap" | "agent:model_switch",
     run: () => Promise<void>,
+    rewake = true,
   ): Promise<void> {
     this.log.info(`${opName} received`, { agentId, launchId });
     try {
       await this.opts.onBeforeAgent?.(agentId);
       await run();
-      this.running.add(agentId);
-      this.scheduleReadyFrameResend();
+      if (rewake) {
+        this.running.add(agentId);
+        this.scheduleReadyFrameResend();
+      } else {
+        await this.opts.channel.reportStoppedAck?.({ agentId, launchId, status: "ok" });
+      }
       this.log.info(`${opName} ok`, { agentId });
     } catch (err) {
       if (err instanceof UnknownRuntimeError) {
@@ -617,16 +626,14 @@ export class AgentRouter {
         }
         break;
       case "agent:nap":
-        // Self-initiated twin of agent:reset — same enroll → forget-session →
-        // fresh-rewake orchestration and `nap` timeline barrier; the only
-        // difference is the rewake prompt carries the agent's own handoff.
         await this.runRestartCommand(cmd.agentId, cmd.launchId, "agent:nap", () =>
           this.opts.manager.resetSession(cmd.agentId, {
             runtimeConfig: cmd.config,
             launchId: cmd.launchId,
-            rewakePrompt: buildNapRewakePrompt(cmd.handoff),
+            rewakePrompt: cmd.handoff === undefined ? undefined : buildNapRewakePrompt(cmd.handoff),
             barrierType: "nap",
           }),
+          cmd.handoff !== undefined,
         );
         break;
       case "agent:model_switch":
