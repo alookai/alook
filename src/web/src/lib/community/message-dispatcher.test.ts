@@ -465,7 +465,7 @@ describe("planCommittedMessage", () => {
         expect.objectContaining({
           text: "Do that",
           author: { kind: "human", handle: "Private Human Name#1234" },
-          roles: ["reply_target", "recent"],
+          roles: ["immediately_previous", "reply_target", "recent"],
         }),
       ],
     })

@@ -68,6 +68,12 @@ function buildWakeConversation(
   }
 
   for (const row of recent) add(row, "recent", 3)
+  const immediatelyPrevious = [...recent].sort((left, right) =>
+    left.createdAt.localeCompare(right.createdAt)
+      || left.seq - right.seq
+      || left.id.localeCompare(right.id),
+  ).at(-1) ?? null
+  add(immediatelyPrevious, "immediately_previous", 0)
   add(threadOpener, "thread_opener", 2)
   add(replyAncestor, "reply_ancestor", 1)
   add(replyTarget, "reply_target", 0)
@@ -78,6 +84,7 @@ function buildWakeConversation(
       || left.row.id.localeCompare(right.row.id),
   )
   const roleOrder: WakeContextRole[] = [
+    "immediately_previous",
     "reply_target",
     "reply_ancestor",
     "thread_opener",
