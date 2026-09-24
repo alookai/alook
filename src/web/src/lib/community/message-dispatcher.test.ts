@@ -857,7 +857,7 @@ describe("dispatchCommittedMessage", () => {
     })
   })
 
-  it("enqueues deterministic candidates when the gate unexpectedly rejects", async () => {
+  it("enqueues eligible candidates without invoking JEV", async () => {
     mockResolveRecipients.mockResolvedValue(["author_1", "bot_1"])
     mockResolveEligibility.mockResolvedValue(new Map([["bot_1", state()]]))
     mockFindWakeCandidates.mockResolvedValue([{
@@ -872,17 +872,17 @@ describe("dispatchCommittedMessage", () => {
 
     await dispatchCommittedMessage({} as never, "msg_1")
 
+    expect(mockSelectJevWakeCandidates).not.toHaveBeenCalled()
     expect(mockEnqueueQueueTasks).toHaveBeenCalledWith([
       { version: 1, kind: "bot-wake", messageId: "msg_1", botUserId: "bot_1" },
     ])
-    expect(mockLogWarn).toHaveBeenCalledWith(
+    expect(mockLogWarn).not.toHaveBeenCalledWith(
       "committed_message_jev_gate_failed_open",
-      { messageId: "msg_1" },
+      expect.anything(),
     )
   })
 
-  it("starts browser delivery and mobile push without waiting for JEV", async () => {
-    let releaseGate!: (value: unknown[]) => void
+  it("dispatches browser, mobile push, and bot wakes without JEV", async () => {
     mockResolveRecipients.mockResolvedValue(["author_1", "u_all", "bot_1"])
     mockResolveEligibility.mockResolvedValue(new Map([
       ["u_all", state()],
@@ -896,27 +896,20 @@ describe("dispatchCommittedMessage", () => {
       machineId: "m1",
       runtime: "codex",
     }])
-    mockSelectJevWakeCandidates.mockReturnValue(new Promise((resolve) => {
-      releaseGate = resolve
-    }))
+    await dispatchCommittedMessage({} as never, "msg_1")
 
-    const work = dispatchCommittedMessage({} as never, "msg_1")
-    await vi.waitFor(() => {
-      expect(mockSendMessageDeliveryBatch).toHaveBeenCalledOnce()
-      expect(mockEnqueueQueueTasks).toHaveBeenCalledWith([
-        { version: 1, kind: "mobile-push", messageId: "msg_1", userId: "u_all" },
-        { version: 1, kind: "mobile-push", messageId: "msg_1", userId: "bot_1" },
-      ])
-    })
-    expect(mockEnqueueQueueTasks).toHaveBeenCalledTimes(1)
-
-    releaseGate([])
-    await work
-    expect(mockEnqueueQueueTasks).toHaveBeenNthCalledWith(2, [])
+    expect(mockSendMessageDeliveryBatch).toHaveBeenCalledOnce()
+    expect(mockSelectJevWakeCandidates).not.toHaveBeenCalled()
+    expect(mockEnqueueQueueTasks).toHaveBeenNthCalledWith(1, [
+      { version: 1, kind: "mobile-push", messageId: "msg_1", userId: "u_all" },
+      { version: 1, kind: "mobile-push", messageId: "msg_1", userId: "bot_1" },
+    ])
+    expect(mockEnqueueQueueTasks).toHaveBeenNthCalledWith(2, [
+      { version: 1, kind: "bot-wake", messageId: "msg_1", botUserId: "bot_1" },
+    ])
   })
 
-  it("starts browser delivery and mobile push without waiting for JEV context", async () => {
-    let releaseContext!: (value: { messages: []; hasMore: false }) => void
+  it("does not load JEV conversation context during dispatch", async () => {
     mockResolveRecipients.mockResolvedValue(["author_1", "u_all", "bot_1"])
     mockResolveEligibility.mockResolvedValue(new Map([
       ["u_all", state()],
@@ -930,24 +923,12 @@ describe("dispatchCommittedMessage", () => {
       machineId: "m1",
       runtime: "codex",
     }])
-    mockListWakeContextMessagesBefore.mockReturnValue(new Promise((resolve) => {
-      releaseContext = resolve
-    }))
+    mockListWakeContextMessagesBefore.mockRejectedValue(new Error("context must not load"))
 
-    const work = dispatchCommittedMessage({} as never, "msg_1")
-    await vi.waitFor(() => {
-      expect(mockSendMessageDeliveryBatch).toHaveBeenCalledOnce()
-      expect(mockEnqueueQueueTasks).toHaveBeenCalledWith([
-        { version: 1, kind: "mobile-push", messageId: "msg_1", userId: "u_all" },
-        { version: 1, kind: "mobile-push", messageId: "msg_1", userId: "bot_1" },
-      ])
-    })
-    expect(mockEnqueueQueueTasks).toHaveBeenCalledTimes(1)
+    await dispatchCommittedMessage({} as never, "msg_1")
+
+    expect(mockListWakeContextMessagesBefore).not.toHaveBeenCalled()
     expect(mockSelectJevWakeCandidates).not.toHaveBeenCalled()
-
-    releaseContext({ messages: [], hasMore: false })
-    await work
-    expect(mockSelectJevWakeCandidates).toHaveBeenCalledOnce()
     expect(mockEnqueueQueueTasks).toHaveBeenNthCalledWith(2, [
       { version: 1, kind: "bot-wake", messageId: "msg_1", botUserId: "bot_1" },
     ])

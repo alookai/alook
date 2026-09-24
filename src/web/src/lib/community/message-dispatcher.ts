@@ -16,10 +16,7 @@ import {
 import { mapMessageForWs } from "./message-payload"
 import { sendMessageDeliveryBatch } from "./message-delivery-transport"
 import { enqueueQueueTasks } from "./queue-producer"
-import {
-  selectJevWakeCandidates,
-  type JevWakeGateInput,
-} from "./jev-wake-gate"
+import type { JevWakeGateInput } from "./jev-wake-gate"
 import { attachmentThumbnailUrl, attachmentUrl } from "./storage"
 
 const log = createLogger({ service: "committed-message-dispatcher" })
@@ -446,10 +443,9 @@ async function runCommittedMessageDispatch(
   db: Database,
   messageId: string,
   structural: CommittedMessageStructuralOutcome,
-  env: RuntimeEnv,
 ): Promise<void> {
   const startedAt = Date.now()
-  const { wakeContextPlan, ...plan } = await planCommittedMessageBase(
+  const plan = await planCommittedMessageBase(
     db,
     messageId,
     structural,
@@ -477,24 +473,12 @@ async function runCommittedMessageDispatch(
   }))
   const browserDelivery = sendMessageDeliveryBatch(browserBatch, plan.operationId)
   const pushDelivery = enqueueQueueTasks(pushTasks)
-  const botWake = loadWakeConversation(db, messageId, wakeContextPlan)
-    .then((conversation) => selectJevWakeCandidates({
-      ...plan.wakeGateInput,
-      conversation,
-    }, env))
-    .catch(() => {
-      log.warn("committed_message_jev_gate_failed_open", { messageId })
-      return plan.wakeGateInput.candidates
-    })
-    .then(async (candidates) => {
-      await enqueueQueueTasks(candidates.map((candidate) => ({
-        version: 1 as const,
-        kind: "bot-wake" as const,
-        messageId: plan.messageId,
-        botUserId: candidate.botUserId,
-      })))
-      return candidates.length
-    })
+  const botWake = enqueueQueueTasks(plan.wakeBotUserIds.map((botUserId) => ({
+    version: 1 as const,
+    kind: "bot-wake" as const,
+    messageId: plan.messageId,
+    botUserId,
+  }))).then(() => plan.wakeBotUserIds.length)
   const [browser, push, wake] = await Promise.allSettled([
     browserDelivery,
     pushDelivery,
@@ -540,16 +524,14 @@ export function dispatchCommittedMessage(
   messageId: string,
   structural: CommittedMessageStructuralOutcome = {},
 ): Promise<void> {
-  let env = {} as RuntimeEnv
   let executionContext: ExecutionContext | undefined
   try {
     const cloudflare = getCloudflareContext()
-    env = cloudflare.env
     executionContext = cloudflare.ctx
   } catch {
     // Unit tests and non-Cloudflare callers may not expose a request context.
   }
-  const work = runCommittedMessageDispatch(db, messageId, structural, env).catch((err) => {
+  const work = runCommittedMessageDispatch(db, messageId, structural).catch((err) => {
     log.warn("committed_message_dispatch_failed", { messageId, err: String(err) })
   })
   executionContext?.waitUntil(work)
