@@ -114,6 +114,10 @@ const iosProject = readFileSync(
   resolve(import.meta.dirname, "../../src/desktop/src-tauri/gen/apple/project.yml"),
   "utf8",
 )
+const iosPodfile = readFileSync(
+  resolve(import.meta.dirname, "../../src/desktop/src-tauri/gen/apple/Podfile"),
+  "utf8",
+)
 const nativeOauthMainAasaRoute = readFileSync(
   resolve(import.meta.dirname, "../../src/web/src/app/.well-known/apple-app-site-association/route.ts"),
   "utf8",
@@ -1166,6 +1170,11 @@ describe("Mobile release availability", () => {
     expect(iosProject).toContain("CODE_SIGN_STYLE: Manual")
     expect(iosProject).toContain("CODE_SIGN_IDENTITY: Apple Distribution")
     expect(iosProject).toContain("PROVISIONING_PROFILE_SPECIFIER: Alook iOS App Store Connect")
+    expect(iosProject).toContain("iOS: 15.0")
+    expect(iosProject).toContain("ITSAppUsesNonExemptEncryption: false")
+    expect(iosProject).not.toContain("iOS: 14.0")
+    expect(iosPodfile).toContain("platform :ios, '15.0'")
+    expect(iosPodfile).not.toContain("platform :ios, '14.0'")
     expect(iosProject).not.toContain("${FORCE_COLOR}")
     expect(iosExportOptions).toContain("<string>app-store-connect</string>")
     expect(iosExportOptions).toContain("<string>manual</string>")

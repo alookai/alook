@@ -2,7 +2,7 @@ name: alook-desktop
 options:
   bundleIdPrefix: ai.alook.ios
   deploymentTarget:
-    iOS: 14.0
+    iOS: 15.0
 fileGroups: [../../src]
 configs:
   debug: debug
@@ -39,6 +39,7 @@ targets:
     info:
       path: alook-desktop_iOS/Info.plist
       properties:
+        ITSAppUsesNonExemptEncryption: false
         LSRequiresIPhoneOS: true
         UILaunchStoryboardName: LaunchScreen
         UIRequiredDeviceCapabilities: [arm64, metal]
