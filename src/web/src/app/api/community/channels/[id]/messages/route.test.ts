@@ -5,6 +5,12 @@ vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
 }))
 
+const mockDuplicateCheck = vi.fn()
+vi.mock("@/lib/community/jev-send-dedup", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/community/jev-send-dedup")>("@/lib/community/jev-send-dedup")
+  return { ...actual, isDuplicateBotMessage: (...args: unknown[]) => mockDuplicateCheck(...args) }
+})
+
 const mockGetChannelForMember = vi.fn()
 const mockGetChannel = vi.fn()
 const mockCreateMessage = vi.fn()
@@ -236,6 +242,7 @@ const ctx = { params: { id: "c1" } } as any
 describe("POST /api/community/channels/[id]/messages", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockDuplicateCheck.mockResolvedValue(false)
     mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1", type: "text", parentChannelId: null })
     // The door's single mask (requireMessageSurfaceAccess) probes getChannel
     // first to dispatch by surface; default = the same text channel.
@@ -283,12 +290,54 @@ describe("POST /api/community/channels/[id]/messages", () => {
     mockGetDMBetween.mockResolvedValue(null)
   })
 
+  it.each(["text", "forum", "thread"])("rejects a redundant bot send in %s before any message write", async (type) => {
+    mockResolveServerByNameForMember.mockResolvedValue([{ id: "s1" }])
+    mockResolveChannelByNameForMember.mockResolvedValue([{ id: "c1", serverId: "s1", type: "text", parentChannelId: null }])
+    mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1", type, parentChannelId: type === "thread" ? "parent" : null })
+    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1", type, parentChannelId: type === "thread" ? "parent" : null })
+    mockDuplicateCheck.mockResolvedValue(true)
+    const res = await POST(botPostReq({ channel: "/demo#0042/general", content: { text: "same update" } }), ctx)
+    expect(res.status).toBe(422)
+    expect(await res.json()).toEqual({ error: "Message rejected: duplicate or substantially similar content adds no new information to this channel. Do not resend it." })
+    expect(mockHasDeliverableUnreadForAgentScope.mock.invocationCallOrder[0]).toBeLessThan(mockDuplicateCheck.mock.invocationCallOrder[0]!)
+    expect(mockCreateMessage).not.toHaveBeenCalled()
+    expect(mockBumpBotDailyActivityStatement).not.toHaveBeenCalled()
+    expect(mockCreateChannel).not.toHaveBeenCalled()
+    expect(mockDispatchCommittedMessage).not.toHaveBeenCalled()
+  })
+
+  it("returns concurrent same-nonce success even when the duplicate check rejects", async () => {
+    mockResolveServerByNameForMember.mockResolvedValue([{ id: "s1" }])
+    mockResolveChannelByNameForMember.mockResolvedValue([{ id: "c1", serverId: "s1", type: "text", parentChannelId: null }])
+    mockDuplicateCheck.mockResolvedValue(true)
+    mockGetMessageByAuthorAndNonce.mockResolvedValueOnce(null).mockResolvedValueOnce({
+      ...await mockGetMessage(), clientNonce: "same-send", authorId: "bot_1",
+    })
+    const res = await POST(botPostReq({ channel: "/demo#0042/general", content: { text: "same update" }, nonce: "same-send" }), ctx)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({ state: "sent", deduped: true })
+    expect(mockCreateMessage).not.toHaveBeenCalled()
+    expect(mockDispatchCommittedMessage).not.toHaveBeenCalled()
+  })
+
+  it("preserves the alignment CAS when a message arrives during JEV evaluation", async () => {
+    mockResolveServerByNameForMember.mockResolvedValue([{ id: "s1" }])
+    mockResolveChannelByNameForMember.mockResolvedValue([{ id: "c1", serverId: "s1", type: "text", parentChannelId: null }])
+    mockGetLatestSeqForScope.mockResolvedValueOnce(2).mockResolvedValue(3)
+    mockDuplicateCheck.mockImplementationOnce(async () => { mockCreateMessage.mockResolvedValueOnce(null); return false })
+    const res = await POST(botPostReq({ channel: "/demo#0042/general", content: { text: "new update" } }), ctx)
+    expect(await res.json()).toMatchObject({ state: "blocked", reason: "unaligned", latestSeq: 3 })
+    expect(mockCreateMessage.mock.calls[0][1].expectedSeq).toBe(2)
+    expect(mockDispatchCommittedMessage).not.toHaveBeenCalled()
+  })
+
   it("starts the write path on a first-primary D1 session", async () => {
     const res = await POST(postReq({ content: "hello" }), ctx)
 
     expect(res.status).toBe(201)
     expect(mockGetPrimaryDb).toHaveBeenCalledTimes(1)
     expect(mockGetDb).not.toHaveBeenCalled()
+    expect(mockDuplicateCheck).not.toHaveBeenCalled()
   })
 
   it("accepts a bare message to a forum top-level (phase2 forum≡thread write-guard reversal — forum is now directly sendable)", async () => {
@@ -642,6 +691,7 @@ describe("POST /api/community/channels/[id]/messages", () => {
       mockHasDeliverableUnreadForAgentScope.mock.invocationCallOrder[0]!,
     )
     expect(mockCreateMessage).not.toHaveBeenCalled()
+    expect(mockDuplicateCheck).not.toHaveBeenCalled()
   })
 
   it("auto-joins an empty first-touch thread and continues the existing send", async () => {
@@ -739,6 +789,7 @@ describe("POST /api/community/channels/[id]/messages", () => {
     expect(mockAddThreadParticipant).not.toHaveBeenCalled()
     expect(mockHasDeliverableUnreadForAgentScope).not.toHaveBeenCalled()
     expect(mockCreateMessage).not.toHaveBeenCalled()
+    expect(mockDuplicateCheck).not.toHaveBeenCalled()
   })
 
   it("does not run thread participant preflight for text, DM, or forum-top-level sends", async () => {
@@ -752,6 +803,7 @@ describe("POST /api/community/channels/[id]/messages", () => {
       content: { text: "text" },
     }), ctx)
 
+    mockDuplicateCheck.mockClear()
     mockGetUserByNameAndDiscriminator.mockResolvedValue({ id: "peer_1", discriminator: "0001" })
     mockGetUserInternal.mockResolvedValue({ isBot: false, deletedAt: null })
     mockIsBlocked.mockResolvedValue(false)
@@ -765,6 +817,7 @@ describe("POST /api/community/channels/[id]/messages", () => {
       content: { text: "dm" },
     }), ctx)
 
+    expect(mockDuplicateCheck).not.toHaveBeenCalled()
     mockResolveChannelByNameForMember.mockResolvedValue([{ id: "forum_1", serverId: "s1", type: "forum", parentChannelId: null }])
     mockGetChannel.mockResolvedValue({ id: "forum_1", serverId: "s1", type: "forum", parentChannelId: null })
     mockGetChannelForMember.mockResolvedValue({ id: "forum_1", serverId: "s1", type: "forum", parentChannelId: null })
