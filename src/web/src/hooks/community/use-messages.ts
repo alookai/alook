@@ -438,6 +438,7 @@ function useMessagesInner(
       )
     ) ? Infinity : 0,
   })
+  const refetchMountedObserver = query.refetch
   const anchorRepairNeeded = cachedWindowNeedsAnchorReconcile(
     query.data,
     anchorId,
@@ -473,22 +474,20 @@ function useMessagesInner(
     // settled, so neither lifecycle is a reliable prerequisite. Retained cache
     // writes are also not proof that the network ran. The query-cache
     // subscription distinguishes manual cache success from a completed
-    // request, while `cancelRefetch: false` joins an automatic request already
-    // in flight.
+    // request. Refetch through this observer rather than asking the cache for
+    // "active" queries: while PersistQueryClientProvider hands hydration back
+    // to React, the mounted observer can briefly fail that cache-level filter.
+    // `cancelRefetch: false` also joins an automatic request already in flight.
     state.requested = true
     if (anchorRepairNeeded || networkFetchObservedRef.current) return
-    void queryClient.invalidateQueries(
-      { queryKey, exact: true, refetchType: "active" },
-      { cancelRefetch: false },
-    )
+    void refetchMountedObserver({ cancelRefetch: false })
   }, [
     anchorRepairNeeded,
     enabled,
     isRestoring,
     opts?.revalidateOnMount,
     query.data,
-    queryClient,
-    queryKey,
+    refetchMountedObserver,
     viewKey,
   ])
 
