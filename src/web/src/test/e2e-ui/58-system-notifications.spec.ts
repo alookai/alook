@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test"
-import { expect, test } from "./_fixtures/community-fixture"
+import { expect, test, userName } from "./_fixtures/community-fixture"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
 import { seedChannel, seedJoinServer, seedMessage, seedServer } from "./_fixtures/seed"
 import { tid } from "./_fixtures/testids"
@@ -75,19 +75,22 @@ async function shownNotifications(page: Page) {
 test.describe.serial("desktop system notifications", () => {
   test("a delivered message+bump bundle invokes the native command with the exact target", async ({ asUser }) => {
     const stamp = Date.now()
-    const serverId = await seedServer("alice", `notification-live-${stamp}`)
-    const channelId = await seedChannel("alice", serverId, `notification-live-${stamp}`)
+    const serverName = `notification-live-${stamp}`
+    const channelName = `notification-live-${stamp}`
+    const serverId = await seedServer("alice", serverName)
+    const channelId = await seedChannel("alice", serverId, channelName)
     await seedJoinServer("alice", "bob", serverId)
     const bob = await asUser("bob")
     await installDesktopNotificationBridge(bob.page)
     await gotoAfterUserWsAuth(bob.page, "/c/me/friends")
+    await expect(bob.page.getByTestId(tid.serverIcon(serverId))).toBeVisible()
 
     const body = `Native notification ${stamp}`
     const messageId = await seedMessage("alice", channelId, body)
     await expect.poll(() => shownNotifications(bob.page)).toEqual([
       expect.objectContaining({
-        title: expect.any(String),
-        body,
+        title: `${serverName} · #${channelName}`,
+        body: `${userName("alice")}: ${body}`,
         target: {
           kind: "server",
           serverId,

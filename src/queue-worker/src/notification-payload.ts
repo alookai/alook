@@ -1,6 +1,5 @@
 import {
-  stripInlineMarkup,
-  truncateMessagePreview,
+  buildCommunityNotificationCopy,
   type queries,
 } from "@alook/shared"
 
@@ -42,34 +41,6 @@ export async function deriveNotificationId(input: {
   return bytesToUuid(new Uint8Array(digest))
 }
 
-function attachmentFallback(contentTypes: Array<string | null>): string {
-  if (contentTypes.some((value) => value?.startsWith("image/"))) return "Photo"
-  if (contentTypes.some((value) => value?.startsWith("video/"))) return "Video"
-  if (contentTypes.some((value) => value?.startsWith("audio/"))) return "Audio"
-  if (contentTypes.length > 0) return "Attachment"
-  return "New message"
-}
-
-function displayName(value: string | null, fallback: string): string {
-  return value?.trim() || fallback
-}
-
-function notificationTitle(
-  target: queries.communityNotificationTarget.PushNotificationTarget,
-  authorName: string,
-): string {
-  if (target.conversationKind === "dm") return authorName
-
-  const serverName = displayName(target.serverName, "Server")
-  if (target.conversationKind === "thread") {
-    const parentChannelName = displayName(target.parentChannelName, "Channel")
-    const threadName = displayName(target.channelName, "Thread")
-    return `${serverName} · #${parentChannelName} · ${threadName}`
-  }
-
-  return `${serverName} · #${displayName(target.channelName, "Channel")}`
-}
-
 export async function buildPushNotificationPayload(
   target: queries.communityNotificationTarget.PushNotificationTarget,
   userId: string,
@@ -78,19 +49,19 @@ export async function buildPushNotificationPayload(
     messageId: target.messageId,
     userId,
   })
-  const plainText = stripInlineMarkup(target.content)
-    .replace(/\s+/gu, " ")
-    .trim()
-  const authorName = target.authorName.trim() || "Alook"
-  const preview = plainText || attachmentFallback(target.attachmentContentTypes)
-  const body = target.conversationKind === "dm"
-    ? preview
-    : `${authorName}: ${preview}`
+  const copy = buildCommunityNotificationCopy({
+    conversationKind: target.conversationKind,
+    authorName: target.authorName,
+    content: target.content,
+    attachmentContentTypes: target.attachmentContentTypes,
+    serverName: target.serverName,
+    channelName: target.channelName,
+    parentChannelName: target.parentChannelName,
+  })
 
   return {
     notificationId,
-    title: notificationTitle(target, authorName),
-    body: truncateMessagePreview(body),
+    ...copy,
     route: {
       notificationId,
       messageId: target.messageId,

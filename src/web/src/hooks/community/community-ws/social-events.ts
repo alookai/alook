@@ -1,13 +1,14 @@
-import type {
-  CommunityFriendAccept,
-  CommunityFriendBlock,
-  CommunityFriendReject,
-  CommunityFriendRemove,
-  CommunityFriendRequest,
-  CommunityMentionCreate,
-  CommunityInboxChanged,
-  CommunityReadStateAdvanced,
-  CommunityWsEvent,
+import {
+  isDesktop,
+  type CommunityFriendAccept,
+  type CommunityFriendBlock,
+  type CommunityFriendReject,
+  type CommunityFriendRemove,
+  type CommunityFriendRequest,
+  type CommunityMentionCreate,
+  type CommunityInboxChanged,
+  type CommunityReadStateAdvanced,
+  type CommunityWsEvent,
 } from "@alook/shared"
 import type { SocialEventContext } from "@/hooks/community/community-ws/handler-context"
 import {
@@ -24,8 +25,9 @@ import { removeDmReactionDetails } from "./reaction-details-invalidation"
 import { reconcileNotificationSettings } from "@/hooks/community/use-notification-settings"
 import { getFriendRequestActionController } from "@/hooks/community/use-friend-request-action-state"
 import { communityKeys } from "@/lib/query-keys"
+import type { StructuralSnapshotV1 } from "@/lib/community/structural-snapshot"
 import {
-  buildDesktopSystemNotificationCandidate,
+  resolveDesktopSystemNotificationCandidate,
   showDesktopSystemNotification,
 } from "@/lib/community/desktop-system-notification"
 
@@ -95,13 +97,18 @@ export function handleUnreadBump(
     // Use the existing coalesced owner. This is also the sole authority
     // refresh for legacy/orphan bumps; the ledger itself performs no I/O.
     scheduleInboxInvalidate({ inbox: true, dms: !event.serverId })
-    if (evidence) {
-      const candidate = buildDesktopSystemNotificationCandidate(
+    if (evidence && isDesktop()) {
+      void resolveDesktopSystemNotificationCandidate(
         evidence.messageEvent,
         event,
         viewerId,
-      )
-      if (candidate) void showDesktopSystemNotification(candidate).catch(() => undefined)
+        queryClient,
+        queryClient.getQueryData<StructuralSnapshotV1>(communityKeys.structuralSnapshot()) ?? null,
+      ).then((candidate) => {
+        if (candidate && viewerUserIdRef.current === viewerId) {
+          return showDesktopSystemNotification(candidate)
+        }
+      }).catch(() => undefined)
     }
   }
 }

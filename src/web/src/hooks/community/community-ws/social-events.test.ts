@@ -24,6 +24,10 @@ import {
 } from "./test-harness"
 
 const notificationMocks = vi.hoisted(() => ({ show: vi.fn(async () => undefined) }))
+vi.mock("@alook/shared", async () => {
+  const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
+  return { ...actual, isDesktop: vi.fn(() => true) }
+})
 vi.mock("@/lib/community/desktop-system-notification", async () => {
   const actual = await vi.importActual<typeof import("@/lib/community/desktop-system-notification")>(
     "@/lib/community/desktop-system-notification",
