@@ -18,10 +18,10 @@
   border-radius: 50%;
   color: var(--inbox-unread-foreground);
   background: var(--inbox-unread);
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: 14px;
   line-height: 1;
-  font-weight: 400;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
   opacity: 0;
   transform: translateY(-28px);
