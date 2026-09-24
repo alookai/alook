@@ -1,4 +1,5 @@
 import { isMobile, isTauri, tauriInvoke } from "@alook/shared"
+import { systemNotificationHref } from "./system-notification-route"
 
 export type MobileSystemNotificationPermission = "granted" | "denied" | "prompt"
 
@@ -427,7 +428,7 @@ export async function revalidateMobileSystemNotificationActivation(
 
     if (receipt.surfaceKind === "dm") {
       return {
-        href: `/c/me/${encodeURIComponent(activation.targetId)}`,
+        href: systemNotificationHref({ kind: "dm", channelId: activation.targetId }),
       }
     }
 
@@ -446,7 +447,11 @@ export async function revalidateMobileSystemNotificationActivation(
     const expectedType = receipt.surfaceKind === "channel" ? "text" : receipt.surfaceKind
     if (channel.type !== expectedType) return null
     return {
-      href: `/c/channels/${encodeURIComponent(channel.serverId)}/${encodeURIComponent(activation.targetId)}`,
+      href: systemNotificationHref({
+        kind: "server",
+        serverId: channel.serverId,
+        channelId: activation.targetId,
+      }),
     }
   } catch {
     return null

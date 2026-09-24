@@ -7,8 +7,8 @@ import {
   takeDesktopSystemNotificationActivation,
 } from "@/lib/community/desktop-system-notification"
 import {
-  desktopSystemNotificationHref,
   revalidateDesktopSystemNotificationTarget,
+  systemNotificationHref,
   type DesktopSystemNotificationActivation,
 } from "@/lib/community/system-notification-route"
 import {
@@ -179,7 +179,7 @@ export function createDesktopSystemNotificationActivationController(
         if (!activation || disposed) continue
         const allowed = await deps.revalidate(activation).catch(() => false)
         if (disposed) continue
-        if (allowed) deps.navigate(desktopSystemNotificationHref(activation.target))
+        if (allowed) deps.navigate(systemNotificationHref(activation.target))
         else await deps.openInbox()
       } while (rerun && !disposed)
     } finally {

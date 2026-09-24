@@ -23,19 +23,31 @@ import {
   unreadBump,
 } from "./test-harness"
 
-const notificationMocks = vi.hoisted(() => ({ show: vi.fn(async () => undefined) }))
+const desktopMode = vi.hoisted(() => ({ value: true }))
+const notificationMocks = vi.hoisted(() => ({
+  resolve: vi.fn(),
+  show: vi.fn(async () => undefined),
+}))
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
-  return { ...actual, isDesktop: vi.fn(() => true) }
+  return { ...actual, isDesktop: vi.fn(() => desktopMode.value) }
 })
 vi.mock("@/lib/community/desktop-system-notification", async () => {
   const actual = await vi.importActual<typeof import("@/lib/community/desktop-system-notification")>(
     "@/lib/community/desktop-system-notification",
   )
-  return { ...actual, showDesktopSystemNotification: notificationMocks.show }
+  notificationMocks.resolve.mockImplementation(actual.resolveDesktopSystemNotificationCandidate)
+  return {
+    ...actual,
+    resolveDesktopSystemNotificationCandidate: notificationMocks.resolve,
+    showDesktopSystemNotification: notificationMocks.show,
+  }
 })
 
-beforeEach(resetCommunityWsHarness)
+beforeEach(async () => {
+  desktopMode.value = true
+  await resetCommunityWsHarness()
+})
 afterEach(cleanupCommunityWsHarness)
 
 async function batchFor(messageId: string, events: readonly CommunityWsEvent[]) {
@@ -196,6 +208,30 @@ describe("useCommunityWs — account unread projection", () => {
   it("does not notify for an orphan unread.bump", async () => {
     await mountHook({ viewerUserId: "u_me" })
     capturedOnMessage!(unreadBump("dm_1", "u_me"))
+    expect(notificationMocks.show).not.toHaveBeenCalled()
+  })
+
+  it("does not resolve native copy outside the desktop shell", async () => {
+    desktopMode.value = false
+    await mountHook({ viewerUserId: "u_me" })
+    capturedOnMessage!(await batchFor("message_1", [
+      messageCreate("dm_1", "message_1"),
+      unreadBump("dm_1", "u_me"),
+    ]))
+
+    expect(notificationMocks.resolve).not.toHaveBeenCalled()
+    expect(notificationMocks.show).not.toHaveBeenCalled()
+  })
+
+  it("keeps a native-copy resolution rejection fail-closed", async () => {
+    notificationMocks.resolve.mockRejectedValueOnce(new Error("metadata unavailable"))
+    await mountHook({ viewerUserId: "u_me" })
+    capturedOnMessage!(await batchFor("message_1", [
+      messageCreate("dm_1", "message_1"),
+      unreadBump("dm_1", "u_me"),
+    ]))
+
+    await vi.waitFor(() => expect(notificationMocks.resolve).toHaveBeenCalledOnce())
     expect(notificationMocks.show).not.toHaveBeenCalled()
   })
 

@@ -62,6 +62,23 @@ describe("buildCommunityNotificationCopy", () => {
     });
   });
 
+  it.each([
+    [["video/mp4"], "Video"],
+    [["audio/mpeg"], "Audio"],
+    [["application/pdf"], "Attachment"],
+    [[], "New message"],
+  ] as const)("uses the shared attachment fallback for %j", (attachmentContentTypes, expected) => {
+    expect(buildCommunityNotificationCopy({
+      ...base,
+      conversationKind: "dm",
+      content: "",
+      attachmentContentTypes,
+    })).toEqual({
+      title: "Alice",
+      body: expected,
+    });
+  });
+
   it("caps the complete author-prefixed body without splitting surrogate pairs", () => {
     const copy = buildCommunityNotificationCopy({
       ...base,

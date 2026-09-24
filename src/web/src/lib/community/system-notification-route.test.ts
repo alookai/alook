@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import {
-  desktopSystemNotificationHref,
   parseDesktopSystemNotificationActivation,
   revalidateDesktopSystemNotificationTarget,
+  systemNotificationHref,
   type DesktopSystemNotificationActivation,
 } from "./system-notification-route"
 
@@ -59,15 +59,13 @@ describe("desktop system notification routes", () => {
   })
 
   it("derives only first-party server and DM routes", () => {
-    expect(desktopSystemNotificationHref(activation.target)).toBe(
-      "/c/channels/server_1/channel-2?msg=message_3",
+    expect(systemNotificationHref(activation.target)).toBe(
+      "/c/channels/server_1/channel-2",
     )
-    expect(desktopSystemNotificationHref({
+    expect(systemNotificationHref({
       kind: "dm",
       channelId: "dm_1",
-      messageId: "message_4",
-      seq: 12,
-    })).toBe("/c/me/dm_1?seq=12")
+    })).toBe("/c/me/dm_1")
   })
 
   it("revalidates the exact message through the authenticated API", async () => {

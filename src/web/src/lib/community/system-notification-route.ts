@@ -18,6 +18,10 @@ export type DesktopSystemNotificationActivation = {
   target: DesktopSystemNotificationTarget
 }
 
+export type SystemNotificationRouteTarget =
+  | { kind: "server"; serverId: string; channelId: string }
+  | { kind: "dm"; channelId: string }
+
 const SAFE_ID = /^[A-Za-z0-9_-]{1,128}$/
 const NOTIFICATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -79,11 +83,11 @@ export function parseDesktopSystemNotificationActivation(
   return null
 }
 
-export function desktopSystemNotificationHref(target: DesktopSystemNotificationTarget): string {
+export function systemNotificationHref(target: SystemNotificationRouteTarget): string {
   if (target.kind === "dm") {
-    return `/c/me/${encodeURIComponent(target.channelId)}?seq=${target.seq}`
+    return `/c/me/${encodeURIComponent(target.channelId)}`
   }
-  return `/c/channels/${encodeURIComponent(target.serverId)}/${encodeURIComponent(target.channelId)}?msg=${encodeURIComponent(target.messageId)}`
+  return `/c/channels/${encodeURIComponent(target.serverId)}/${encodeURIComponent(target.channelId)}`
 }
 
 export async function revalidateDesktopSystemNotificationTarget(

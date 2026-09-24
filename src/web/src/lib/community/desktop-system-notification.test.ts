@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { CommunityMessageCreate, CommunityWsEvent } from "@alook/shared"
 import { QueryClient } from "@tanstack/react-query"
-import { communityKeys } from "@/lib/query-keys"
 import type { StructuralSnapshotV1 } from "./structural-snapshot"
 import {
   buildDesktopSystemNotificationCandidate,
@@ -13,9 +12,16 @@ import {
 
 const invoke = vi.hoisted(() => vi.fn())
 const desktopMode = vi.hoisted(() => ({ value: true }))
+const channelMetadataMocks = vi.hoisted(() => ({ fetch: vi.fn() }))
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
   return { ...actual, isDesktop: vi.fn(() => desktopMode.value), tauriInvoke: invoke }
+})
+vi.mock("@/hooks/community/channel-metadata", async () => {
+  const actual = await vi.importActual<typeof import("@/hooks/community/channel-metadata")>(
+    "@/hooks/community/channel-metadata",
+  )
+  return { ...actual, fetchChannelMetadata: channelMetadataMocks.fetch }
 })
 
 type UnreadBump = Extract<CommunityWsEvent, { type: "community:unread.bump" }>
@@ -109,7 +115,7 @@ describe("desktop system notification candidates", () => {
 
   it("resolves a cold channel name before formatting the desktop copy", async () => {
     const queryClient = new QueryClient()
-    queryClient.setQueryData(communityKeys.channelMeta("server_1", "channel_1"), {
+    channelMetadataMocks.fetch.mockResolvedValue({
       id: "channel_1",
       serverId: "server_1",
       name: "general",
@@ -140,11 +146,12 @@ describe("desktop system notification candidates", () => {
       title: "Studio · #general",
       body: "Ada: Hello there",
     })
+    expect(channelMetadataMocks.fetch).toHaveBeenCalledWith("server_1", "channel_1")
   })
 
   it("resolves cold thread and parent channel names before formatting the desktop copy", async () => {
     const queryClient = new QueryClient()
-    queryClient.setQueryData(communityKeys.channelMeta("server_1", "thread_1"), {
+    channelMetadataMocks.fetch.mockResolvedValueOnce({
       id: "thread_1",
       serverId: "server_1",
       name: "Release notes",
@@ -155,8 +162,7 @@ describe("desktop system notification candidates", () => {
       archived: false,
       lastMessageAt: null,
       createdAt: "2026-09-12T00:00:00.000Z",
-    })
-    queryClient.setQueryData(communityKeys.channelMeta("server_1", "channel_1"), {
+    }).mockResolvedValueOnce({
       id: "channel_1",
       serverId: "server_1",
       name: "general",
@@ -185,6 +191,42 @@ describe("desktop system notification candidates", () => {
       coldSnapshot,
     )).resolves.toMatchObject({
       title: "Studio · #general · Release notes",
+      body: "Ada: Hello there",
+    })
+    expect(channelMetadataMocks.fetch.mock.calls).toEqual([
+      ["server_1", "thread_1"],
+      ["server_1", "channel_1"],
+    ])
+  })
+
+  it("uses the complete current-account snapshot without metadata I/O", async () => {
+    await expect(resolveDesktopSystemNotificationCandidate(
+      create,
+      bump,
+      "viewer_1",
+      new QueryClient(),
+      snapshot,
+    )).resolves.toMatchObject({
+      title: "Studio · #general",
+      body: "Ada: Hello there",
+    })
+    expect(channelMetadataMocks.fetch).not.toHaveBeenCalled()
+  })
+
+  it("keeps safe fallback copy when cold metadata resolution fails", async () => {
+    channelMetadataMocks.fetch.mockRejectedValue(new Error("metadata unavailable"))
+    await expect(resolveDesktopSystemNotificationCandidate(
+      create,
+      bump,
+      "viewer_1",
+      new QueryClient(),
+      { ...snapshot, servers: snapshot.servers.map((server) => ({
+        ...server,
+        channels: [],
+        childRouteHints: [],
+      })) },
+    )).resolves.toMatchObject({
+      title: "Studio · #Channel",
       body: "Ada: Hello there",
     })
   })

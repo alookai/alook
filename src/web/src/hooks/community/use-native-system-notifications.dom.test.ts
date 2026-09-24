@@ -322,7 +322,7 @@ describe("native system notification hook", () => {
 
     const rendered = renderHook(() => useNativeSystemNotifications("viewer_1"))
     await waitFor(() => expect(assign).toHaveBeenCalledWith(
-      "/c/channels/server_1/channel_1?msg=message_1",
+      "/c/channels/server_1/channel_1",
     ))
     expect(hookMocks.revalidate).toHaveBeenCalledWith(activation.target)
 
@@ -411,7 +411,7 @@ describe("native system notification hook", () => {
       })
       .mockImplementation(async () => { calls.push("take"); return null })
     hookMocks.mobileRevalidate
-      .mockResolvedValueOnce({ href: "/c/me/channel_1?seq=9" })
+      .mockResolvedValueOnce({ href: "/c/me/channel_1" })
       .mockResolvedValueOnce(null)
 
     const rendered = renderHook(() => useNativeSystemNotifications("viewer_1"))
@@ -424,7 +424,7 @@ describe("native system notification hook", () => {
       "ack",
     ]))
     expect(hookMocks.mobileListen).toHaveBeenCalledOnce()
-    expect(assign).toHaveBeenCalledWith("/c/me/channel_1?seq=9")
+    expect(assign).toHaveBeenCalledWith("/c/me/channel_1")
 
     const button = document.createElement("button")
     button.setAttribute("aria-label", "Inbox")
@@ -475,12 +475,12 @@ describe("native system notification hook", () => {
       targetId: "channel_1",
     }
     hookMocks.mobileTake.mockResolvedValueOnce(nextActivation)
-    hookMocks.mobileRevalidate.mockResolvedValueOnce({ href: "/c/me/channel_1?seq=4" })
+    hookMocks.mobileRevalidate.mockResolvedValueOnce({ href: "/c/me/channel_1" })
     await act(async () => {
       window.dispatchEvent(new Event("online"))
       await vi.advanceTimersByTimeAsync(0)
     })
-    expect(assign).toHaveBeenCalledExactlyOnceWith("/c/me/channel_1?seq=4")
+    expect(assign).toHaveBeenCalledExactlyOnceWith("/c/me/channel_1")
     rendered.unmount()
     visible.mockRestore()
   })
