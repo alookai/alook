@@ -366,9 +366,7 @@ function useMessagesInner(
     [queryKey, opts?.anchorMessageId],
   )
   const activationRevalidationRef = useRef({
-    anchorGateObserved: !anchorResolved && !!scopeId,
     requested: false,
-    restoreObserved: isRestoring,
     viewKey,
   })
   const attemptIdRef = useRef(0)
@@ -462,36 +460,21 @@ function useMessagesInner(
   }, [queryClient, queryKey, viewKey])
 
   useEffect(() => {
-    const state = activationRevalidationRef.current
+    let state = activationRevalidationRef.current
     if (state.viewKey !== viewKey) {
-      activationRevalidationRef.current = {
-        anchorGateObserved: !anchorResolved && !!scopeId,
-        requested: false,
-        restoreObserved: isRestoring,
-        viewKey,
-      }
-      return
+      state = { requested: false, viewKey }
+      activationRevalidationRef.current = state
     }
-    if (!anchorResolved && !!scopeId) state.anchorGateObserved = true
-    if (isRestoring) state.restoreObserved = true
-  }, [anchorResolved, isRestoring, scopeId, viewKey])
-
-  useEffect(() => {
-    const state = activationRevalidationRef.current
-    if (state.viewKey !== viewKey) return
-    if (
-      isRestoring
-      || (!state.anchorGateObserved && !state.restoreObserved)
-      || state.requested
-    ) return
-    if (!enabled || query.data === undefined || opts?.revalidateOnMount === false) return
+    if (isRestoring || state.requested) return
+    if (!enabled || query.data === undefined || opts?.revalidateOnMount !== true) return
 
     // Guarantee one actual post-mount fetch for cached conversation observers.
-    // Restore/read-state notifications can batch quickly enough that React
-    // never commits an intermediate disabled render, while retained cache
-    // writes are not proof that the network ran. The query-cache subscription
-    // distinguishes manual cache success from a completed request, while
-    // `cancelRefetch: false` joins an automatic request already in flight.
+    // A retained observer can mount after restore and read-state have already
+    // settled, so neither lifecycle is a reliable prerequisite. Retained cache
+    // writes are also not proof that the network ran. The query-cache
+    // subscription distinguishes manual cache success from a completed
+    // request, while `cancelRefetch: false` joins an automatic request already
+    // in flight.
     state.requested = true
     if (anchorRepairNeeded || networkFetchObservedRef.current) return
     void queryClient.invalidateQueries(

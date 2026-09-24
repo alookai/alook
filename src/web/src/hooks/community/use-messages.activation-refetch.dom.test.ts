@@ -344,7 +344,7 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
     renderer.unmount()
   })
 
-  it("guarantees restored-cache revalidation when the anchor is already resolved", async () => {
+  it("guarantees cached revalidation when restore and anchor resolution finish before mount", async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { refetchOnMount: false, retry: false } },
     })
@@ -377,9 +377,7 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
       )
     )
 
-    const renderer = render(view(true))
-    expect(apiFetchMock).not.toHaveBeenCalled()
-    act(() => { renderer.rerender(view(false)) })
+    const renderer = render(view(false))
 
     await waitFor(() => apiFetchMock.mock.calls.filter(
       ([url]) => url.includes("/messages"),
@@ -390,6 +388,51 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
     )
     expect(snapshots.every((snapshot) => snapshot.ids.length > 0)).toBe(true)
     renderer.unmount()
+  })
+
+  it("revalidates a warm DM again after an unmount and same-client remount", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { refetchOnMount: false, retry: false } },
+    })
+    const cachedPage = {
+      messages: [{ id: "m_anchor", seq: 1, createdAt: "2026-08-09T00:00:00.000Z" }],
+      hasMoreOlder: false,
+      hasMoreNewer: false,
+      latestSeq: 1,
+    } satisfies MessagesPage
+    queryClient.setQueryData(communityKeys.dmMessages("dm_activation"), {
+      pages: [cachedPage],
+      pageParams: [{ mode: "anchor", anchor: "m_anchor" }],
+    })
+    queryClient.setQueryData(communityKeys.dmReadStateSnapshot("dm_activation"), {
+      lastReadMessageId: "m_anchor",
+      lastReadAt: "2026-08-09T00:00:00.000Z",
+      lastReadSeq: 1,
+    })
+    apiFetchMock.mockResolvedValue(cachedPage)
+    const snapshots: Array<Snapshot & { readStateFetching: boolean }> = []
+    const element = React.createElement(DmRouteCapture, {
+      onRender: (snapshot) => { snapshots.push(snapshot) },
+    })
+
+    const first = renderCapture(queryClient, element)
+    await waitFor(() => apiFetchMock.mock.calls.filter(
+      ([url]) => url.includes("/messages"),
+    ).length === 1)
+    first.unmount()
+
+    apiFetchMock.mockClear()
+    const second = renderCapture(queryClient, element)
+    await waitFor(() => apiFetchMock.mock.calls.filter(
+      ([url]) => url.includes("/messages"),
+    ).length === 1)
+    expect(apiFetchMock.mock.calls.filter(
+      ([url]) => url.includes("/messages"),
+    )).toEqual([["/api/community/channels/dm_activation/messages?anchor=m_anchor", {
+      signal: expect.any(AbortSignal),
+    }]])
+    expect(snapshots.every((snapshot) => snapshot.ids.length > 0)).toBe(true)
+    second.unmount()
   })
 
   it("does not duplicate a messages request that actually fetched after mount", async () => {
