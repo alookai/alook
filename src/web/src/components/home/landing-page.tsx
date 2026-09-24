@@ -419,16 +419,18 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
 
       <footer className={styles.footer}>
         <div className={`${styles.siteContainer} ${styles.footerLayout}`} data-testid={tid.landingFooterContainer}>
-          <div className={styles.footerBrand} data-testid={tid.landingFooterBrand}>
-            <Brand />
-            <p>{BRAND_SLOGAN}</p>
+          <div className={styles.footerPrimary}>
+            <div className={styles.footerBrand} data-testid={tid.landingFooterBrand}>
+              <Brand />
+            </div>
+            <p className={styles.footerSlogan} data-testid={tid.landingFooterSlogan}>{BRAND_SLOGAN}</p>
+            <div className={styles.footerSocialGroup} data-testid={tid.landingFooterSocial}>
+              <FooterSocialLinks />
+            </div>
           </div>
           <nav className={styles.footerNavigation} aria-label="Footer navigation" data-testid={tid.landingFooterNavigation}>
             <Link href="/pricing">Pricing</Link>
           </nav>
-          <div className={styles.footerSocialGroup} data-testid={tid.landingFooterSocial}>
-            <FooterSocialLinks />
-          </div>
         </div>
       </footer>
     </main>

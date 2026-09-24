@@ -30,6 +30,7 @@ describe("community QA selectors", () => {
     expect(tid.landingMainContainer).toBe("landing-main-container")
     expect(tid.landingFooterContainer).toBe("landing-footer-container")
     expect(tid.landingFooterBrand).toBe("landing-footer-brand")
+    expect(tid.landingFooterSlogan).toBe("landing-footer-slogan")
     expect(tid.landingFooterNavigation).toBe("landing-footer-navigation")
     expect(tid.landingFooterSocial).toBe("landing-footer-social")
     expect(tid.landingMobileMotionStage).toBe("landing-mobile-motion-stage")

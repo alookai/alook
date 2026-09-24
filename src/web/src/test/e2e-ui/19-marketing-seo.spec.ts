@@ -21,9 +21,9 @@ test("homepage header, body, and footer share responsive content edges", async (
   await page.goto("/")
 
   for (const viewport of [
-    { width: 1440, height: 900, stacked: false },
-    { width: 768, height: 900, stacked: false },
-    { width: 390, height: 844, stacked: true },
+    { width: 1440, height: 900 },
+    { width: 768, height: 900 },
+    { width: 390, height: 844 },
   ]) {
     await page.setViewportSize(viewport)
     await page.evaluate(() => new Promise<void>((resolveValue) => {
@@ -53,6 +53,7 @@ test("homepage header, body, and footer share responsive content edges", async (
       main: await rect(tid.landingMainContainer),
       footer: await rect(tid.landingFooterContainer),
       brand: await rect(tid.landingFooterBrand),
+      slogan: await rect(tid.landingFooterSlogan),
       navigation: await rect(tid.landingFooterNavigation),
       social: await rect(tid.landingFooterSocial),
       socialTargets,
@@ -67,13 +68,10 @@ test("homepage header, body, and footer share responsive content edges", async (
     expect(geometry.socialTargets).toHaveLength(3)
     expect(geometry.socialTargets.every((target) => target.width >= 44 && target.height >= 44)).toBe(true)
 
-    if (viewport.stacked) {
-      expect(geometry.brand.bottom).toBeLessThanOrEqual(geometry.navigation.top)
-      expect(geometry.navigation.bottom).toBeLessThanOrEqual(geometry.social.top)
-    } else {
-      expect(geometry.brand.right).toBeLessThanOrEqual(geometry.navigation.left)
-      expect(geometry.navigation.right).toBeLessThanOrEqual(geometry.social.left)
-    }
+    expect(geometry.brand.right).toBeLessThanOrEqual(geometry.slogan.left)
+    expect(geometry.slogan.right).toBeLessThanOrEqual(geometry.social.left)
+    expect(Math.max(geometry.brand.bottom, geometry.slogan.bottom, geometry.social.bottom))
+      .toBeLessThanOrEqual(geometry.navigation.top)
   }
 })
 

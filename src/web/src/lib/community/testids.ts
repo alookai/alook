@@ -107,6 +107,7 @@ export const tid = {
   landingMainContainer: "landing-main-container",
   landingFooterContainer: "landing-footer-container",
   landingFooterBrand: "landing-footer-brand",
+  landingFooterSlogan: "landing-footer-slogan",
   landingFooterNavigation: "landing-footer-navigation",
   landingFooterSocial: "landing-footer-social",
   landingMobileMotionStage: "landing-mobile-motion-stage",
