@@ -115,7 +115,6 @@ describe("JEV provider adapters", () => {
         bot_0: {
           type: "noul" as const,
           instructions: "Wake?",
-          criteria: { true: "yes", false: "no" },
         },
       },
     }
@@ -160,7 +159,6 @@ describe("JEV provider adapters", () => {
         bot_0: {
           type: "noul" as const,
           instructions: "Wake?",
-          criteria: { true: "yes", false: "no" },
         },
       },
     }
@@ -230,16 +228,12 @@ describe("selectJevWakeCandidates", () => {
         "Jarvis#9866": {
           type: "noul",
           instructions: {
-            question: "Does message content identify this candidate as someone who should act now?",
+            question: "Should this candidate act now in response to state.current_message?",
             candidate: {
               handle: "Jarvis#9866",
               role: "Own release coordination",
             },
-            context_rule: "Determine recipients from state.current_message first; new recipients replace earlier recipients. An unqualified whole-audience phrase includes every candidate, while a phrase qualified by a named group includes only that group's members. Use state.immediately_previous_message to resolve a context-dependent answer or approval. Use state.older_context only when current_message refers to a named person, group, or item. Return yes only when this candidate is an intended recipient, the owner of the pending request being answered, or the clear owner of an unaddressed task. Mere relevance or ability to help is no.",
-          },
-          criteria: {
-            true: "This candidate should act now.",
-            false: "This candidate should not act now.",
+            decision_rule: "Determine recipients from state.current_message first; new recipients replace earlier recipients. An unqualified whole-audience phrase includes every candidate, while a phrase qualified by a named group includes only that group's members. Use state.immediately_previous_message to resolve a context-dependent answer or approval. Use state.older_context only when current_message refers to a named person, group, or item. Return yes only when this candidate is an intended recipient, the owner of the pending request being answered, or the clear owner of an unaddressed task. Mere relevance or ability to help is no.",
           },
         },
       },
@@ -306,7 +300,7 @@ describe("selectJevWakeCandidates", () => {
 
     const question = request.questions[`${instructionLikeName}#9866`]
     expect(question.instructions.question).toBe(
-      "Does message content identify this candidate as someone who should act now?",
+      "Should this candidate act now in response to state.current_message?",
     )
     expect(question.instructions.question).not.toContain(instructionLikeName)
     expect(question.instructions.candidate).toEqual({
@@ -343,11 +337,11 @@ describe("selectJevWakeCandidates", () => {
       author: "Gener#6185",
       text: "Jarvis 和 Samara 是这次的审查组。",
     })
-    expect(request.questions["Jarvis#9866"].instructions.context_rule)
+    expect(request.questions["Jarvis#9866"].instructions.decision_rule)
       .toContain("Use state.immediately_previous_message")
-    expect(request.questions["Jarvis#9866"].instructions.context_rule)
+    expect(request.questions["Jarvis#9866"].instructions.decision_rule)
       .toContain("Use state.older_context only when current_message refers")
-    expect(request.questions["Jarvis#9866"].instructions.context_rule)
+    expect(request.questions["Jarvis#9866"].instructions.decision_rule)
       .toContain("Mere relevance or ability to help is no")
   })
 
@@ -498,7 +492,7 @@ describe("selectJevWakeCandidates", () => {
       .toEqual(messages.slice(1, 8).map((message) => message.text))
   })
 
-  it("uses the single configured 0.50 threshold and fails open only invalid answers", async () => {
+  it("uses the single configured inclusive 0.50 threshold", async () => {
     const candidates = [
       candidate,
       { ...candidate, botUserId: "bot_2", discriminator: "0002" },
@@ -512,7 +506,7 @@ describe("selectJevWakeCandidates", () => {
           answers: {
             "Jarvis#9866": { type: "noul", noul: 0.49 },
             "Jarvis#0002": { type: "noul", noul: 0.5 },
-            "Jarvis#0003": { type: "choice", noul: 1 },
+            "Jarvis#0003": { type: "noul", noul: 0.51 },
           },
         }
       },
@@ -523,6 +517,55 @@ describe("selectJevWakeCandidates", () => {
       { createProvider: () => customProvider },
     )
     expect(selected.map((item) => item.botUserId)).toEqual(["bot_2", "bot_3"])
+  })
+
+  it("returns every eligible candidate when all valid scores are below 0.50", async () => {
+    const candidates = [
+      candidate,
+      { ...candidate, botUserId: "bot_2", discriminator: "0002" },
+    ]
+    const selected = await selectJevWakeCandidates(
+      { ...input, candidates },
+      { ...openRouterEnv, JEV_WAKE_THRESHOLD: "0.50" },
+      { createProvider: () => provider([0.49, 0.01]) },
+    )
+
+    expect(selected).toEqual(candidates)
+    expect(mocks.logInfo).toHaveBeenCalledWith(
+      "jev_wake_gate_complete",
+      expect.objectContaining({
+        failOpenReason: "empty_selection",
+        narrowedCount: 0,
+        selectedCount: 2,
+      }),
+    )
+  })
+
+  it("returns every eligible candidate when any response answer is invalid", async () => {
+    const candidates = [
+      candidate,
+      { ...candidate, botUserId: "bot_2", discriminator: "0002" },
+      { ...candidate, botUserId: "bot_3", discriminator: "0003" },
+    ]
+    const invalidProvider: JevDecisionProvider = {
+      name: "openrouter",
+      async decide() {
+        return {
+          model: "typesafe/jev-1.13",
+          answers: {
+            "Jarvis#9866": { type: "noul", noul: 0.1 },
+            "Jarvis#0002": { type: "noul", noul: 0.9 },
+            "Jarvis#0003": { type: "choice", noul: 1 },
+          },
+        }
+      },
+    }
+
+    await expect(selectJevWakeCandidates(
+      { ...input, candidates },
+      { ...openRouterEnv, JEV_WAKE_THRESHOLD: "0.50" },
+      { createProvider: () => invalidProvider },
+    )).resolves.toEqual(candidates)
   })
 
   it.each([
@@ -735,6 +778,40 @@ describe("selectJevWakeCandidates", () => {
     expect(decide).toHaveBeenCalledTimes(2)
     expect(Object.keys(decide.mock.calls[0]![0].questions)).toHaveLength(20)
     expect(Object.keys(decide.mock.calls[1]![0].questions)).toHaveLength(1)
+  })
+
+  it("fails open to every candidate when one provider batch fails", async () => {
+    const candidates = Array.from({ length: 21 }, (_, index) => ({
+      ...candidate,
+      botUserId: `bot_${index + 1}`,
+      discriminator: String(index).padStart(4, "0"),
+    }))
+    const decide = vi.fn(async (request) => {
+      const keys = Object.keys(request.questions)
+      if (keys.length === 1) throw new Error("second batch failed")
+      return {
+        model: "typesafe/jev-1.13",
+        answers: Object.fromEntries(keys.map((key) => [
+          key,
+          { type: "noul", noul: 0.9 },
+        ])),
+      }
+    })
+
+    await expect(selectJevWakeCandidates(
+      { ...input, candidates },
+      { ...openRouterEnv, JEV_WAKE_THRESHOLD: "0.50" },
+      { createProvider: () => ({ name: "openrouter", decide }) },
+    )).resolves.toEqual(candidates)
+    expect(decide).toHaveBeenCalledTimes(2)
+    expect(mocks.logInfo).toHaveBeenCalledWith(
+      "jev_wake_gate_complete",
+      expect.objectContaining({
+        failOpenReason: "batch_failure",
+        narrowedCount: 0,
+        selectedCount: 21,
+      }),
+    )
   })
 
   it("fails open before provider calls for candidate and payload limits", async () => {

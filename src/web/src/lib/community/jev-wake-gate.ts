@@ -19,10 +19,6 @@ type JevEntry = string | JsonValue[] | { [key: string]: JsonValue }
 type JevNoulQuestion = {
   type: "noul"
   instructions: JevEntry
-  criteria: {
-    true: JevEntry
-    false: JevEntry
-  }
 }
 
 type JevProviderRequest = {
@@ -324,16 +320,12 @@ function makeQuestion(
   return {
     type: "noul",
     instructions: {
-      question: "Does message content identify this candidate as someone who should act now?",
+      question: "Should this candidate act now in response to state.current_message?",
       candidate: {
         handle: formatHandle(candidate.name ?? "", candidate.discriminator),
         role: candidate.instruction,
       },
-      context_rule: "Determine recipients from state.current_message first; new recipients replace earlier recipients. An unqualified whole-audience phrase includes every candidate, while a phrase qualified by a named group includes only that group's members. Use state.immediately_previous_message to resolve a context-dependent answer or approval. Use state.older_context only when current_message refers to a named person, group, or item. Return yes only when this candidate is an intended recipient, the owner of the pending request being answered, or the clear owner of an unaddressed task. Mere relevance or ability to help is no.",
-    },
-    criteria: {
-      true: "This candidate should act now.",
-      false: "This candidate should not act now.",
+      decision_rule: "Determine recipients from state.current_message first; new recipients replace earlier recipients. An unqualified whole-audience phrase includes every candidate, while a phrase qualified by a named group includes only that group's members. Use state.immediately_previous_message to resolve a context-dependent answer or approval. Use state.older_context only when current_message refers to a named person, group, or item. Return yes only when this candidate is an intended recipient, the owner of the pending request being answered, or the clear owner of an unaddressed task. Mere relevance or ability to help is no.",
     },
   }
 }
@@ -409,37 +401,44 @@ export async function selectJevWakeCandidates(
     return input.candidates
   }
   const state = makeState(input)
-  const batches = chunks(input.candidates, MAX_QUESTIONS_PER_BATCH)
+  const batches = chunks(input.candidates, MAX_QUESTIONS_PER_BATCH).map((batch, batchIndex) => {
+    const mapping = new Map<string, JevWakeGateInput["candidates"][number]>()
+    const questions = Object.fromEntries(batch.map((candidate) => {
+      const key = formatHandle(candidate.name ?? "", candidate.discriminator)
+      mapping.set(key, candidate)
+      return [key, makeQuestion(candidate)]
+    }))
+    return {
+      batch,
+      batchIndex,
+      mapping,
+      request: { state, questions },
+    }
+  })
+  for (const prepared of batches) {
+    if (byteLength({ model: config.model, ...prepared.request }) <= MAX_BATCH_BYTES) continue
+    log.warn("jev_wake_gate_fail_open", {
+      messageId: input.messageId,
+      provider: provider.name,
+      reason: "payload_limit",
+      batchIndex: prepared.batchIndex,
+      candidateCount: prepared.batch.length,
+    })
+    return input.candidates
+  }
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TOTAL_TIMEOUT_MS)
   const startedAt = Date.now()
 
   try {
-    const selected = await Promise.all(batches.map(async (batch, batchIndex) => {
-      const mapping = new Map<string, JevWakeGateInput["candidates"][number]>()
-      const questions = Object.fromEntries(batch.map((candidate) => {
-        const key = formatHandle(candidate.name ?? "", candidate.discriminator)
-        mapping.set(key, candidate)
-        return [key, makeQuestion(candidate)]
-      }))
-      const request = { state, questions }
-      if (byteLength({ model: config.model, ...request }) > MAX_BATCH_BYTES) {
-        log.warn("jev_wake_gate_fail_open", {
-          messageId: input.messageId,
-          provider: provider.name,
-          reason: "payload_limit",
-          batchIndex,
-          candidateCount: batch.length,
-        })
-        return batch
-      }
-
+    const selections = await Promise.all(batches.map(async ({ batch, batchIndex, mapping, request }) => {
       try {
         const response = await provider.decide(request, {
           signal: controller.signal,
           timeoutMs: REQUEST_TIMEOUT_MS,
         })
         const accepted: JevWakeGateInput["candidates"] = []
+        let valid = true
         for (const [key, candidate] of mapping) {
           const probability = readProbability(response.answers[key])
           if (probability === null) {
@@ -451,7 +450,7 @@ export async function selectJevWakeCandidates(
               reason: "invalid_answer",
               batchIndex,
             })
-            accepted.push(candidate)
+            valid = false
             continue
           }
           const wouldPass = probability >= config.threshold
@@ -467,7 +466,7 @@ export async function selectJevWakeCandidates(
           })
           if (wouldPass) accepted.push(candidate)
         }
-        return accepted
+        return valid ? { ok: true as const, accepted } : { ok: false as const }
       } catch (error) {
         log.warn("jev_wake_gate_fail_open", {
           messageId: input.messageId,
@@ -477,17 +476,27 @@ export async function selectJevWakeCandidates(
           batchIndex,
           candidateCount: batch.length,
         })
-        return batch
+        return { ok: false as const }
       }
     }))
-    const result = selected.flat()
+    const narrowed = selections.every((selection) => selection.ok)
+      ? selections.flatMap((selection) => selection.accepted)
+      : []
+    const failOpenReason = selections.some((selection) => !selection.ok)
+      ? "batch_failure"
+      : narrowed.length === 0
+        ? "empty_selection"
+        : undefined
+    const result = failOpenReason ? input.candidates : narrowed
     log.info("jev_wake_gate_complete", {
       messageId: input.messageId,
       provider: provider.name,
       model: config.model,
       candidateCount: input.candidates.length,
       selectedCount: result.length,
+      narrowedCount: narrowed.length,
       batchCount: batches.length,
+      ...(failOpenReason ? { failOpenReason } : {}),
       durationMs: Date.now() - startedAt,
     })
     return result
