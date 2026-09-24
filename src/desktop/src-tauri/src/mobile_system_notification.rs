@@ -124,6 +124,19 @@ pub fn validate_provider_token(token: &str) -> Result<(), MobileSystemNotificati
     }
 }
 
+pub fn validate_notification_id(
+    notification_id: &str,
+) -> Result<(), MobileSystemNotificationError> {
+    if uuid(notification_id) {
+        Ok(())
+    } else {
+        Err(MobileSystemNotificationError::new(
+            "invalid_request",
+            "Notification id is invalid",
+        ))
+    }
+}
+
 pub fn validate_activation(
     activation: Option<Activation>,
 ) -> Result<Option<Activation>, MobileSystemNotificationError> {
@@ -239,5 +252,11 @@ mod tests {
             target_id: "channel".to_string(),
         };
         assert!(validate_activation(Some(invalid)).is_err());
+    }
+
+    #[test]
+    fn accepts_only_uuid_shaped_notification_ids() {
+        assert!(validate_notification_id("4f3bb3fd-5d7f-4a26-8e0e-3ddd1154f71e").is_ok());
+        assert!(validate_notification_id("bad").is_err());
     }
 }

@@ -307,6 +307,18 @@
           "markdownDescription": "Denies the acknowledgeRegistration command without any pre-configured scope."
         },
         {
+          "description": "Enables the dismissNotification command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-dismissNotification",
+          "markdownDescription": "Enables the dismissNotification command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the dismissNotification command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-dismissNotification",
+          "markdownDescription": "Denies the dismissNotification command without any pre-configured scope."
+        },
+        {
           "description": "Enables the listen command without any pre-configured scope.",
           "type": "string",
           "const": "allow-listen",

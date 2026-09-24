@@ -16,8 +16,8 @@ pub use error::Error;
 #[cfg(mobile)]
 use mobile::MobilePush;
 pub use models::{
-    AcknowledgeRequest, Activation, ListenRequest, PermissionResponse, RegistrationSnapshot,
-    UnlistenRequest,
+    AcknowledgeRequest, Activation, DismissRequest, ListenRequest, PermissionResponse,
+    RegistrationSnapshot, UnlistenRequest,
 };
 
 pub trait MobilePushExt<R: Runtime> {

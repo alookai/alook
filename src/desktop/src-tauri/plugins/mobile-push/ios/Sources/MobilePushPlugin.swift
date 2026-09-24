@@ -121,12 +121,17 @@ final class MobilePushStore {
     return true
   }
 
-  func saveActivation(_ route: MobilePushRoute) {
+  func saveActivation(
+    _ route: MobilePushRoute,
+    deliveredNotificationIdentifier: String? = nil
+  ) {
     lock.lock()
     defer { lock.unlock() }
     defaults.set(route.notificationId, forKey: Keys.pendingNotificationId)
     defaults.set(route.messageId, forKey: Keys.pendingMessageId)
     defaults.set(route.targetId, forKey: Keys.pendingTargetId)
+    defaults.set(route.notificationId, forKey: Keys.dismissNotificationId)
+    defaults.set(deliveredNotificationIdentifier, forKey: Keys.deliveredNotificationIdentifier)
   }
 
   func takeActivation() -> MobilePushRoute? {
@@ -143,6 +148,18 @@ final class MobilePushStore {
     return route
   }
 
+  func takeDeliveredNotificationIdentifier(for notificationId: String) -> String? {
+    lock.lock()
+    defer { lock.unlock() }
+    guard defaults.string(forKey: Keys.dismissNotificationId) == notificationId else {
+      return nil
+    }
+    let deliveredIdentifier = defaults.string(forKey: Keys.deliveredNotificationIdentifier)
+    defaults.removeObject(forKey: Keys.dismissNotificationId)
+    defaults.removeObject(forKey: Keys.deliveredNotificationIdentifier)
+    return deliveredIdentifier
+  }
+
   private func unlockedRegistration() -> MobilePushRegistrationState {
     MobilePushRegistrationState(
       currentToken: defaults.string(forKey: Keys.currentToken),
@@ -157,6 +174,8 @@ final class MobilePushStore {
     static let pendingNotificationId = "alook.mobilePush.pendingNotificationId"
     static let pendingMessageId = "alook.mobilePush.pendingMessageId"
     static let pendingTargetId = "alook.mobilePush.pendingTargetId"
+    static let dismissNotificationId = "alook.mobilePush.dismissNotificationId"
+    static let deliveredNotificationIdentifier = "alook.mobilePush.deliveredNotificationIdentifier"
   }
 }
 
@@ -178,7 +197,10 @@ private final class MobilePushNotificationHandler: NSObject, UNUserNotificationC
     guard let route = MobilePushRoute.from(response.notification.request.content.userInfo) else {
       return
     }
-    MobilePushBridge.shared.acceptActivation(route)
+    MobilePushBridge.shared.acceptActivation(
+      route,
+      deliveredNotificationIdentifier: response.notification.request.identifier
+    )
   }
 }
 
@@ -198,8 +220,14 @@ private final class MobilePushBridge {
     plugin?.signal()
   }
 
-  func acceptActivation(_ route: MobilePushRoute) {
-    store.saveActivation(route)
+  func acceptActivation(
+    _ route: MobilePushRoute,
+    deliveredNotificationIdentifier: String
+  ) {
+    store.saveActivation(
+      route,
+      deliveredNotificationIdentifier: deliveredNotificationIdentifier
+    )
     plugin?.signal()
   }
 }
@@ -304,6 +332,10 @@ private struct AcknowledgeRegistrationArgs: Decodable {
   let providerToken: String
 }
 
+private struct DismissNotificationArgs: Decodable {
+  let notificationId: String
+}
+
 private struct ListenArgs: Decodable {
   let channel: Channel
 }
@@ -391,6 +423,21 @@ final class MobilePushPlugin: Plugin {
       return
     }
     invoke.resolve(activation)
+  }
+
+  @objc public func dismissNotification(_ invoke: Invoke) {
+    do {
+      let args = try invoke.parseArgs(DismissNotificationArgs.self)
+      let identifier = bridge.store.takeDeliveredNotificationIdentifier(
+        for: args.notificationId
+      ) ?? args.notificationId
+      UNUserNotificationCenter.current().removeDeliveredNotifications(
+        withIdentifiers: [identifier]
+      )
+      invoke.resolve()
+    } catch {
+      invoke.reject("Notification dismissal is invalid", code: "invalid_request")
+    }
   }
 
   @objc public func listen(_ invoke: Invoke) {

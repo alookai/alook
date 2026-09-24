@@ -27,6 +27,11 @@ class AcknowledgeRegistrationArgs {
 }
 
 @InvokeArg
+class DismissNotificationArgs {
+    lateinit var notificationId: String
+}
+
+@InvokeArg
 class MobilePushListenArgs {
     lateinit var channel: Channel
 }
@@ -149,6 +154,19 @@ class MobilePushPlugin(private val activity: Activity) : Plugin(activity) {
         } catch (_: Exception) {
             invoke.reject("Native push storage is unavailable", "store_unavailable")
         }
+    }
+
+    @Command
+    fun dismissNotification(invoke: Invoke) {
+        val args = try {
+            invoke.parseArgs(DismissNotificationArgs::class.java)
+        } catch (_: Exception) {
+            invoke.reject("Notification dismissal is invalid", "invalid_request")
+            return
+        }
+        val requestCode = mobilePushNotificationRequestCode(args.notificationId)
+        NotificationManagerCompat.from(activity).cancel(args.notificationId, requestCode)
+        invoke.resolve()
     }
 
     @Command

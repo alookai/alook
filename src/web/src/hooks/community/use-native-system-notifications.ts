@@ -3,6 +3,7 @@
 import { useEffect } from "react"
 import { isDesktop, isMobile } from "@alook/shared"
 import {
+  dismissDesktopSystemNotification,
   listenDesktopSystemNotificationActivations,
   takeDesktopSystemNotificationActivation,
 } from "@/lib/community/desktop-system-notification"
@@ -17,6 +18,7 @@ import {
   createMobileSystemNotificationActivationController,
   createMobileSystemNotificationRegistrationController,
   deleteMobileSystemNotificationRegistration,
+  dismissMobileSystemNotification,
   listenMobileSystemNotificationSignals,
   postMobileSystemNotificationRegistration,
   requestMobileSystemNotificationPermission,
@@ -25,11 +27,32 @@ import {
   snapshotMobileSystemNotificationRegistration,
   takeMobileSystemNotificationActivation,
 } from "@/lib/community/mobile-system-notification"
+import { createNativeSystemNotificationDismissalQueue } from "@/lib/community/native-system-notification-dismissal"
+
+const activeNativeDismissals = new Set<string>()
+
+function dismissPendingNativeSystemNotification(
+  platform: "desktop" | "mobile",
+  pathname: string,
+  dismissal: ReturnType<typeof createNativeSystemNotificationDismissalQueue>,
+  dismiss: (notificationId: string) => Promise<void>,
+) {
+  const notificationId = dismissal.peek(platform, pathname)
+  if (!notificationId) return
+  const key = `${platform}:${pathname}:${notificationId}`
+  if (activeNativeDismissals.has(key)) return
+  activeNativeDismissals.add(key)
+  void dismiss(notificationId)
+    .then(() => { dismissal.complete(platform, pathname, notificationId) })
+    .catch(() => undefined)
+    .finally(() => { activeNativeDismissals.delete(key) })
+}
 
 export type DesktopSystemNotificationActivationDeps = {
   listen: (ready: () => void) => Promise<() => void>
   take: () => Promise<DesktopSystemNotificationActivation | null>
   revalidate: (activation: DesktopSystemNotificationActivation) => Promise<boolean>
+  queueDismiss: (notificationId: string, href: string) => void
   navigate: (href: string) => void
   openInbox: () => Promise<void> | void
 }
@@ -179,8 +202,13 @@ export function createDesktopSystemNotificationActivationController(
         if (!activation || disposed) continue
         const allowed = await deps.revalidate(activation).catch(() => false)
         if (disposed) continue
-        if (allowed) deps.navigate(systemNotificationHref(activation.target))
-        else await deps.openInbox()
+        if (allowed) {
+          const href = systemNotificationHref(activation.target)
+          try {
+            deps.queueDismiss(activation.notificationId, href)
+          } catch {}
+          if (!disposed) deps.navigate(href)
+        } else await deps.openInbox()
       } while (rerun && !disposed)
     } finally {
       draining = false
@@ -208,6 +236,13 @@ export function createDesktopSystemNotificationActivationController(
 
 export function useNativeSystemNotifications(viewerUserId: string) {
   useEffect(() => {
+    const dismissal = createNativeSystemNotificationDismissalQueue({
+      getItem: (key) => window.sessionStorage.getItem(key),
+      setItem: (key, value) => window.sessionStorage.setItem(key, value),
+      removeItem: (key) => window.sessionStorage.removeItem(key),
+      now: () => Date.now(),
+    })
+    const pathname = new URL(window.location.href).pathname
     const inbox = createDesktopSystemNotificationInboxOpener({
       getItem: (key) => window.sessionStorage.getItem(key),
       setItem: (key, value) => window.sessionStorage.setItem(key, value),
@@ -221,10 +256,21 @@ export function useNativeSystemNotifications(viewerUserId: string) {
     })
 
     if (isDesktop()) {
+      const dismissPending = () => dismissPendingNativeSystemNotification(
+        "desktop",
+        pathname,
+        dismissal,
+        dismissDesktopSystemNotification,
+      )
+      dismissPending()
+      window.addEventListener("focus", dismissPending)
       const browserDeps: DesktopSystemNotificationActivationDeps = {
         listen: listenDesktopSystemNotificationActivations,
         take: takeDesktopSystemNotificationActivation,
         revalidate: ({ target }) => revalidateDesktopSystemNotificationTarget(target),
+        queueDismiss: (notificationId, href) => {
+          dismissal.queue("desktop", notificationId, href)
+        },
         navigate: (href) => window.location.assign(href),
         openInbox: () => inbox.open(),
       }
@@ -232,6 +278,7 @@ export function useNativeSystemNotifications(viewerUserId: string) {
       void inbox.resume()
       void controller.connect().catch(() => controller.dispose())
       return () => {
+        window.removeEventListener("focus", dismissPending)
         controller.dispose()
         inbox.dispose()
       }
@@ -243,6 +290,13 @@ export function useNativeSystemNotifications(viewerUserId: string) {
     }
 
     resumeMobileSystemNotificationRegistration()
+    const dismissPending = () => dismissPendingNativeSystemNotification(
+      "mobile",
+      pathname,
+      dismissal,
+      dismissMobileSystemNotification,
+    )
+    dismissPending()
 
     const registration = createMobileSystemNotificationRegistrationController({
       checkPermission: checkMobileSystemNotificationPermission,
@@ -257,6 +311,9 @@ export function useNativeSystemNotifications(viewerUserId: string) {
     const activation = createMobileSystemNotificationActivationController({
       take: takeMobileSystemNotificationActivation,
       revalidate: revalidateMobileSystemNotificationActivation,
+      queueDismiss: (notificationId, href) => {
+        dismissal.queue("mobile", notificationId, href)
+      },
       navigate: (href) => window.location.assign(href),
       openInbox: () => inbox.open(),
     })
@@ -264,6 +321,7 @@ export function useNativeSystemNotifications(viewerUserId: string) {
     let unlisten: (() => void) | undefined
 
     const synchronize = () => {
+      dismissPending()
       void registration.sync()
       void activation.drain()
     }

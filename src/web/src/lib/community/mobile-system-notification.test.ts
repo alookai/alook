@@ -5,6 +5,7 @@ import {
   createMobileSystemNotificationActivationController,
   createMobileSystemNotificationRegistrationController,
   deleteMobileSystemNotificationRegistration,
+  dismissMobileSystemNotification,
   listenMobileSystemNotificationSignals,
   parseMobileSystemNotificationActivation,
   parseMobileSystemNotificationPermission,
@@ -167,6 +168,14 @@ describe("mobile notification native adapter", () => {
       targetId: "channel_1",
     })
     await expect(takeMobileSystemNotificationActivation()).rejects.toThrow("invalid_native_response")
+
+    nativeMocks.invoke.mockResolvedValueOnce(undefined)
+    await expect(dismissMobileSystemNotification(notificationId)).resolves.toBeUndefined()
+    expect(nativeMocks.invoke).toHaveBeenLastCalledWith(
+      "mobile_system_notification_dismiss",
+      { notificationId },
+    )
+    await expect(dismissMobileSystemNotification("bad")).rejects.toThrow("invalid_notification_id")
   })
 
   it("bridges native signals and swallows unlisten failures", async () => {
@@ -528,9 +537,11 @@ describe("mobile notification activation", () => {
     take.mockResolvedValueOnce(activation)
     const navigate = vi.fn()
     const openInbox = vi.fn()
+    const queueDismiss = vi.fn()
     const controller = createMobileSystemNotificationActivationController({
       take,
       revalidate: (value) => revalidateMobileSystemNotificationActivation(value, fetchImpl),
+      queueDismiss,
       navigate,
       openInbox,
     })
@@ -541,6 +552,7 @@ describe("mobile notification activation", () => {
     await controller.drain()
     const href = kind === "dm" ? "/c/me/channel_1" : "/c/channels/server_1/channel_1"
     expect(navigate).toHaveBeenCalledExactlyOnceWith(href)
+    expect(queueDismiss).toHaveBeenCalledExactlyOnceWith(notificationId, href)
     expect(new URL(href, "https://example.test").search).toBe("")
     expect(openInbox).not.toHaveBeenCalled()
     controller.dispose()
@@ -580,6 +592,7 @@ describe("mobile notification activation", () => {
         .mockResolvedValueOnce(activation)
         .mockRejectedValueOnce(new Error("invalid native response")),
       revalidate: vi.fn().mockRejectedValueOnce(new Error("offline")),
+      queueDismiss: vi.fn(),
       navigate,
       openInbox,
     })
@@ -590,6 +603,19 @@ describe("mobile notification activation", () => {
     expect(navigate).not.toHaveBeenCalled()
   })
 
+  it("still navigates when dismissal persistence fails", async () => {
+    const navigate = vi.fn()
+    const controller = createMobileSystemNotificationActivationController({
+      take: vi.fn(async () => activation),
+      revalidate: vi.fn(async () => ({ href: "/c/me/channel_1" })),
+      queueDismiss: vi.fn(() => { throw new Error("storage unavailable") }),
+      navigate,
+      openInbox: vi.fn(),
+    })
+    await controller.drain()
+    expect(navigate).toHaveBeenCalledExactlyOnceWith("/c/me/channel_1")
+  })
+
   it("coalesces a signal received while an activation drain is active", async () => {
     let releaseTake = (_value: null) => undefined
     const firstTake = new Promise<null>((resolve) => { releaseTake = resolve })
@@ -597,6 +623,7 @@ describe("mobile notification activation", () => {
     const controller = createMobileSystemNotificationActivationController({
       take,
       revalidate: vi.fn(),
+      queueDismiss: vi.fn(),
       navigate: vi.fn(),
       openInbox: vi.fn(),
     })

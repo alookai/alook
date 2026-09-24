@@ -195,6 +195,11 @@ export async function takeMobileSystemNotificationActivation(): Promise<MobileSy
   return activation
 }
 
+export async function dismissMobileSystemNotification(notificationId: string): Promise<void> {
+  if (!UUID.test(notificationId)) throw new Error("invalid_notification_id")
+  await tauriInvoke("mobile_system_notification_dismiss", { notificationId })
+}
+
 export async function postMobileSystemNotificationRegistration(
   snapshot: MobileSystemNotificationRegistration,
   fetchImpl: typeof fetch = fetch,
@@ -345,6 +350,7 @@ export type MobileSystemNotificationActivationDeps = {
   revalidate: (
     activation: MobileSystemNotificationActivation,
   ) => Promise<MobileSystemNotificationDestination | null>
+  queueDismiss: (notificationId: string, href: string) => void
   navigate: (href: string) => void
   openInbox: () => Promise<void> | void
 }
@@ -375,8 +381,12 @@ export function createMobileSystemNotificationActivationController(
         if (!activation || disposed) continue
         const destination = await deps.revalidate(activation).catch(() => null)
         if (disposed) continue
-        if (destination) deps.navigate(destination.href)
-        else await deps.openInbox()
+        if (destination) {
+          try {
+            deps.queueDismiss(activation.notificationId, destination.href)
+          } catch {}
+          if (!disposed) deps.navigate(destination.href)
+        } else await deps.openInbox()
       } while (rerun && !disposed)
     } finally {
       draining = false

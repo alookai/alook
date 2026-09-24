@@ -4,6 +4,7 @@ import { QueryClient } from "@tanstack/react-query"
 import type { StructuralSnapshotV1 } from "./structural-snapshot"
 import {
   buildDesktopSystemNotificationCandidate,
+  dismissDesktopSystemNotification,
   listenDesktopSystemNotificationActivations,
   resolveDesktopSystemNotificationCandidate,
   showDesktopSystemNotification,
@@ -371,5 +372,15 @@ describe("desktop system notification activation bridge", () => {
 
     invoke.mockResolvedValueOnce({ href: "https://evil.test" })
     await expect(takeDesktopSystemNotificationActivation()).resolves.toBeNull()
+  })
+
+  it("dismisses exactly one native notification id", async () => {
+    invoke.mockResolvedValueOnce(undefined)
+    const notificationId = "4f3bb3fd-5d7f-4a26-8e0e-3ddd1154f71e"
+    await expect(dismissDesktopSystemNotification(notificationId)).resolves.toBeUndefined()
+    expect(invoke).toHaveBeenCalledWith(
+      "desktop_system_notification_dismiss",
+      { notificationId },
+    )
   })
 })

@@ -24,10 +24,11 @@ class AlookFirebaseMessagingService : FirebaseMessagingService() {
         MobilePushPlugin.createNotificationChannel(applicationContext)
         val launchIntent = packageManager.getLaunchIntentForPackage(packageName) ?: return
         launchIntent.flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        launchIntent.action = mobilePushNotificationAction(packageName, route.notificationId)
         launchIntent.putExtra("notificationId", route.notificationId)
         launchIntent.putExtra("messageId", route.messageId)
         launchIntent.putExtra("targetId", route.targetId)
-        val requestCode = route.notificationId.hashCode() and Int.MAX_VALUE
+        val requestCode = mobilePushNotificationRequestCode(route.notificationId)
         val pendingIntent = PendingIntent.getActivity(
             this,
             requestCode,

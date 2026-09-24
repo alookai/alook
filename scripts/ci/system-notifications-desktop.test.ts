@@ -14,6 +14,7 @@ const desktopCommands = [
   "desktop_system_notification_show",
   "desktop_system_notification_listen",
   "desktop_system_notification_take_activation",
+  "desktop_system_notification_dismiss",
   "desktop_system_notification_unlisten",
 ]
 
@@ -22,7 +23,7 @@ function quotedValues(source: string) {
 }
 
 describe("desktop system notification contract", () => {
-  it("keeps the build manifest and desktop ACL at the exact old-five plus new-four set", () => {
+  it("keeps the build manifest and desktop ACL at the exact old-five plus notification command set", () => {
     const manifestCommands = quotedValues(read("build.rs"))
       .filter((command) => !command.startsWith("native_oauth_")
         && !command.startsWith("mobile_share_image_")
@@ -65,6 +66,9 @@ describe("desktop system notification contract", () => {
     expect(source).toContain('#[cfg(target_os = "linux")]')
     expect(source).toContain('<toast activationType=\\"protocol\\"')
     expect(source).toContain("didReceiveNotificationResponse")
+    expect(source).toContain("removeDeliveredNotificationsWithIdentifiers")
+    expect(source).toContain("RemoveGroupedTagWithId")
+    expect(source).toContain("SetTag(&HSTRING::from(notification_id))")
     const linux = source.slice(source.lastIndexOf('#[cfg(target_os = "linux")]'))
     expect(linux).toContain("show_main_window")
     expect(linux).not.toContain("activate(&app")

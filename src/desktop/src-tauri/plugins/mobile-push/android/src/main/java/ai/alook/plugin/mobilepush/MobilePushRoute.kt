@@ -2,6 +2,12 @@ package ai.alook.plugin.mobilepush
 
 import java.util.UUID
 
+internal fun mobilePushNotificationRequestCode(notificationId: String): Int =
+    notificationId.hashCode() and Int.MAX_VALUE
+
+internal fun mobilePushNotificationAction(packageName: String, notificationId: String): String =
+    "$packageName.mobilepush.notification.$notificationId"
+
 data class MobilePushRoute(
     val notificationId: String,
     val messageId: String,

@@ -23,11 +23,14 @@ async function installDesktopNotificationBridge(
     const usedKey = initialActivation
       ? `notification-activation:${initialActivation.notificationId}`
       : ""
+    const dismissedKey = "qa-desktop-notification-dismissed"
+    const dismissed = JSON.parse(sessionStorage.getItem(dismissedKey) ?? "[]") as unknown[]
     let pending = initialActivation && sessionStorage.getItem(usedKey) !== "used"
       ? initialActivation
       : null
     const state = {
       shows: [] as unknown[],
+      dismissed,
       listener: null as null | { onmessage?: (value: unknown) => void },
     }
     class Channel {
@@ -58,6 +61,11 @@ async function installDesktopNotificationBridge(
               state.shows.push(args?.candidate)
               return undefined
             }
+            if (command === "desktop_system_notification_dismiss") {
+              state.dismissed.push(args?.notificationId)
+              sessionStorage.setItem(dismissedKey, JSON.stringify(state.dismissed))
+              return undefined
+            }
             return undefined
           },
         },
@@ -70,6 +78,12 @@ async function shownNotifications(page: Page) {
   return page.evaluate(() => (
     window as typeof window & { __desktopNotificationTest: { shows: unknown[] } }
   ).__desktopNotificationTest.shows)
+}
+
+async function dismissedNotifications(page: Page) {
+  return page.evaluate(() => (
+    window as typeof window & { __desktopNotificationTest: { dismissed: unknown[] } }
+  ).__desktopNotificationTest.dismissed)
 }
 
 test.describe.serial("desktop system notifications", () => {
@@ -117,6 +131,9 @@ test.describe.serial("desktop system notifications", () => {
 
     await gotoAfterUserWsAuth(bob.page, "/c/me/friends")
     await expect(bob.page).toHaveURL(new RegExp(`/c/channels/${serverId}/${channelId}`))
+    await expect.poll(() => dismissedNotifications(bob.page)).toEqual([
+      "4f3bb3fd-5d7f-4a26-8e0e-3ddd1154f71e",
+    ])
     await expect(bob.page.getByTestId(tid.message(messageId))).toBeVisible({ timeout: 30_000 })
   })
 
@@ -134,5 +151,6 @@ test.describe.serial("desktop system notifications", () => {
     })
     await gotoAfterUserWsAuth(bob.page, "/c/me/friends")
     await expect(bob.page.getByTestId(tid.inboxTrigger)).toHaveAttribute("aria-expanded", "true")
+    expect(await dismissedNotifications(bob.page)).toEqual([])
   })
 })

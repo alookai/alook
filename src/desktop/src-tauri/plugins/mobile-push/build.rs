@@ -3,6 +3,7 @@ fn main() {
         "snapshot",
         "acknowledgeRegistration",
         "takeActivation",
+        "dismissNotification",
         "listen",
         "unlisten",
     ])

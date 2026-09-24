@@ -1,6 +1,6 @@
 use crate::{
-    AcknowledgeRequest, Activation, Error, ListenRequest, PermissionResponse, RegistrationSnapshot,
-    UnlistenRequest,
+    AcknowledgeRequest, Activation, DismissRequest, Error, ListenRequest, PermissionResponse,
+    RegistrationSnapshot, UnlistenRequest,
 };
 use serde::de::DeserializeOwned;
 use tauri::{
@@ -63,6 +63,16 @@ impl<R: Runtime> MobilePush<R> {
     pub async fn take_activation(&self) -> Result<Option<Activation>, Error> {
         self.0
             .run_mobile_plugin_async("takeActivation", ())
+            .await
+            .map_err(Into::into)
+    }
+
+    pub async fn dismiss_notification(&self, notification_id: String) -> Result<(), Error> {
+        self.0
+            .run_mobile_plugin_async(
+                "dismissNotification",
+                DismissRequest { notification_id },
+            )
             .await
             .map_err(Into::into)
     }
