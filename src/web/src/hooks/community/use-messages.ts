@@ -4,6 +4,7 @@ import {
   useInfiniteQuery,
   focusManager,
   onlineManager,
+  useIsRestoring,
   useQueryClient,
   type UseInfiniteQueryResult,
   type InfiniteData,
@@ -345,6 +346,7 @@ function useMessagesInner(
   opts: MessagesOpts | undefined,
 ): MessagesReturn {
   const queryClient = useQueryClient()
+  const isRestoring = useIsRestoring()
 
   // `undefined` = anchor snapshot is still resolving; gate the query on it
   // being a resolved value (string OR null). Owners without a snapshot
@@ -363,6 +365,11 @@ function useMessagesInner(
     () => JSON.stringify([queryKey, opts?.anchorMessageId ?? null]),
     [queryKey, opts?.anchorMessageId],
   )
+  const restoreRevalidationRef = useRef({
+    observedAt: null as number | null,
+    requested: false,
+    viewKey,
+  })
   const attemptIdRef = useRef(0)
   const snapshotRef = useRef<{
     attemptId: number
@@ -426,6 +433,50 @@ function useMessagesInner(
       reconcileLateAnchor,
     ) ? Infinity : 0,
   })
+
+  useEffect(() => {
+    const state = restoreRevalidationRef.current
+    if (state.viewKey !== viewKey) {
+      restoreRevalidationRef.current = {
+        observedAt: isRestoring ? Date.now() : null,
+        requested: false,
+        viewKey,
+      }
+      return
+    }
+    if (isRestoring && state.observedAt === null) state.observedAt = Date.now()
+  }, [isRestoring, viewKey])
+
+  useEffect(() => {
+    const state = restoreRevalidationRef.current
+    if (state.viewKey !== viewKey) return
+    if (isRestoring || state.observedAt === null || state.requested) return
+    if (!enabled || query.data === undefined || opts?.revalidateOnMount === false) return
+
+    // PersistQueryClientProvider does not subscribe observers while restoring.
+    // A non-persisted read-state request can therefore disable this observer
+    // exactly as restoration ends and consume/cancel its ordinary mount fetch.
+    // Revalidate the painted cache once the anchor is ready. `cancelRefetch:
+    // false` joins an automatic fetch already in flight instead of replacing
+    // it, while `dataUpdatedAt` avoids a duplicate if that fetch already won
+    // the race before this effect ran.
+    state.requested = true
+    if (!query.isFetching && query.dataUpdatedAt >= state.observedAt) return
+    void queryClient.invalidateQueries(
+      { queryKey, exact: true, refetchType: "active" },
+      { cancelRefetch: false },
+    )
+  }, [
+    enabled,
+    isRestoring,
+    opts?.revalidateOnMount,
+    query.data,
+    query.dataUpdatedAt,
+    query.isFetching,
+    queryClient,
+    queryKey,
+    viewKey,
+  ])
 
   useEffect(() => {
     setPresentOverride((current) => current?.viewKey === viewKey ? current : null)

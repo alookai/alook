@@ -1,9 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import React from "react"
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import {
+  IsRestoringProvider,
+  QueryClient,
+  QueryClientProvider,
+} from "@tanstack/react-query"
 import { act, render } from "@/test/react-dom-harness"
 import { communityKeys } from "@/lib/query-keys"
 import { useDmMessages, useMessages, type MessagesPage } from "./use-messages"
+import { useDmReadStateSnapshot } from "./use-dm-read-state"
 import { useMessageStreamStore } from "@/stores/community/message-stream"
 
 const apiFetchMock = vi.fn()
@@ -44,6 +49,29 @@ function DmCapture({ lastReadMessageId, onRender }: {
     hasMoreNewer: result.hasMoreNewer,
     ids: result.messages.map((message) => message.id),
     isFetching: result.isFetching,
+  })
+  return null
+}
+
+function RestoredDmRouteCapture({ onRender }: {
+  onRender: (snapshot: Snapshot & { readStateFetching: boolean }) => void
+}) {
+  const { snapshot, isFetching: readStateFetching } = useDmReadStateSnapshot("dm_activation")
+  const result = useDmMessages("dm_activation", {
+    lastReadMessageId: readStateFetching
+      ? undefined
+      : (snapshot?.lastReadMessageId ?? null),
+    waitForAnchor: true,
+    reconcileLateAnchor: true,
+    revalidateOnMount: true,
+    viewerUserId: "viewer_1",
+  })
+  onRender({
+    anchorReconciled: result.anchorReconciled,
+    hasMoreNewer: result.hasMoreNewer,
+    ids: result.messages.map((message) => message.id),
+    isFetching: result.isFetching,
+    readStateFetching,
   })
   return null
 }
@@ -125,6 +153,102 @@ beforeEach(() => {
 })
 
 describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
+  it("revalidates a restored DM cache after read-state becomes ready", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const queryKey = communityKeys.dmMessages("dm_activation")
+    const cachedPage = {
+      messages: [{ id: "m_anchor", seq: 1, createdAt: "2026-08-09T00:00:00.000Z" }],
+      hasMoreOlder: false,
+      hasMoreNewer: false,
+      latestSeq: 1,
+    } satisfies MessagesPage
+    queryClient.setQueryData(
+      queryKey,
+      {
+        pages: [cachedPage],
+        pageParams: [{ mode: "anchor", anchor: "m_anchor" }],
+      },
+      { updatedAt: Date.now() - 60_000 },
+    )
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries")
+    const readStateResponse = deferred<{
+      lastReadMessageId: string
+      lastReadAt: string
+      lastReadSeq: number
+    }>()
+    const messageSignals: AbortSignal[] = []
+    apiFetchMock.mockImplementation((url: string, init?: { signal?: AbortSignal }) => {
+      if (url.endsWith("/read-state")) return readStateResponse.promise
+      const signal = init?.signal
+      if (!signal) throw new Error("messages request requires an abort signal")
+      messageSignals.push(signal)
+      return new Promise<MessagesPage>((_resolve, reject) => {
+        const abort = () => reject(new DOMException("Aborted", "AbortError"))
+        if (signal.aborted) abort()
+        else signal.addEventListener("abort", abort, { once: true })
+      })
+    })
+    const snapshots: Array<Snapshot & { readStateFetching: boolean }> = []
+    const onRender = (snapshot: Snapshot & { readStateFetching: boolean }) => {
+      snapshots.push(snapshot)
+    }
+    const view = (isRestoring: boolean) => (
+      React.createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        React.createElement(
+          IsRestoringProvider,
+          { value: isRestoring },
+          React.createElement(RestoredDmRouteCapture, { onRender }),
+        ),
+      )
+    )
+
+    const renderer = render(view(true))
+    expect(snapshots.at(-1)?.ids).toEqual(["m_anchor"])
+    expect(apiFetchMock).not.toHaveBeenCalled()
+
+    act(() => { renderer.rerender(view(false)) })
+    await waitFor(() => apiFetchMock.mock.calls.some(
+      ([url]) => url === "/api/community/channels/dm_activation/read-state",
+    ))
+    await waitFor(() => messageSignals.length === 1)
+    await queryClient.cancelQueries({ queryKey, exact: true })
+    await waitFor(() => messageSignals[0]?.aborted === true)
+    expect(messageSignals).toHaveLength(1)
+    expect(snapshots.at(-1)?.ids).toEqual(["m_anchor"])
+
+    readStateResponse.resolve({
+      lastReadMessageId: "m_anchor",
+      lastReadAt: "2026-08-09T00:00:00.000Z",
+      lastReadSeq: 1,
+    })
+    await waitFor(() => apiFetchMock.mock.calls.filter(
+      ([url]) => url.includes("/messages"),
+    ).length === 2)
+    await waitFor(() => invalidateQueries.mock.calls.some(([filters, options]) => (
+      filters?.exact === true
+      && filters.refetchType === "active"
+      && JSON.stringify(filters.queryKey) === JSON.stringify(queryKey)
+      && options?.cancelRefetch === false
+    )))
+    expect(apiFetchMock.mock.calls.filter(
+      ([url]) => url.includes("/messages"),
+    )).toEqual([
+      [
+        "/api/community/channels/dm_activation/messages?anchor=m_anchor",
+        { signal: expect.any(AbortSignal) },
+      ],
+      [
+        "/api/community/channels/dm_activation/messages?anchor=m_anchor",
+        { signal: expect.any(AbortSignal) },
+      ],
+    ])
+    expect(invalidateQueries).toHaveBeenCalledTimes(1)
+    expect(snapshots.every((snapshot) => snapshot.ids.length > 0)).toBe(true)
+    renderer.unmount()
+  })
+
   it("starts newest messages without waiting for read-state, then repairs a late anchor", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const newest = deferred<MessagesPage>()
