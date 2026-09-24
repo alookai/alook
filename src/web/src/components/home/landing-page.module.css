@@ -1255,7 +1255,7 @@
 .footerNavigation {
   display: flex;
   align-items: center;
-  justify-self: start;
+  justify-self: center;
 }
 
 .footerNavigation a {
@@ -1656,18 +1656,19 @@
   }
 
   .footerPrimary {
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    gap: 8px;
+    grid-template-columns: 1fr;
+    gap: 12px;
   }
 
   .footerSlogan {
     min-width: 0;
-    overflow-wrap: anywhere;
+    justify-self: center;
+    white-space: nowrap;
   }
 
-  .footerSocials {
-    justify-self: start;
-    gap: 4px;
+  .footerBrand,
+  .footerSocialGroup {
+    justify-self: center;
   }
 }
 

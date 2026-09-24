@@ -21,9 +21,9 @@ test("homepage header, body, and footer share responsive content edges", async (
   await page.goto("/")
 
   for (const viewport of [
-    { width: 1440, height: 900 },
-    { width: 768, height: 900 },
-    { width: 390, height: 844 },
+    { width: 1440, height: 900, stacked: false },
+    { width: 768, height: 900, stacked: false },
+    { width: 390, height: 844, stacked: true },
   ]) {
     await page.setViewportSize(viewport)
     await page.evaluate(() => new Promise<void>((resolveValue) => {
@@ -58,6 +58,9 @@ test("homepage header, body, and footer share responsive content edges", async (
       social: await rect(tid.landingFooterSocial),
       socialTargets,
       documentWidth: await page.evaluate(() => document.documentElement.scrollWidth),
+      sloganWhiteSpace: await page
+        .getByTestId(tid.landingFooterSlogan)
+        .evaluate((element) => getComputedStyle(element).whiteSpace),
     }
 
     for (const surface of [geometry.main, geometry.footer]) {
@@ -68,10 +71,24 @@ test("homepage header, body, and footer share responsive content edges", async (
     expect(geometry.socialTargets).toHaveLength(3)
     expect(geometry.socialTargets.every((target) => target.width >= 44 && target.height >= 44)).toBe(true)
 
-    expect(geometry.brand.right).toBeLessThanOrEqual(geometry.slogan.left)
-    expect(geometry.slogan.right).toBeLessThanOrEqual(geometry.social.left)
-    expect(Math.max(geometry.brand.bottom, geometry.slogan.bottom, geometry.social.bottom))
-      .toBeLessThanOrEqual(geometry.navigation.top)
+    const footerCenter = (geometry.footer.left + geometry.footer.right) / 2
+    const navigationCenter = (geometry.navigation.left + geometry.navigation.right) / 2
+    expect(Math.abs(navigationCenter - footerCenter)).toBeLessThanOrEqual(1)
+
+    if (viewport.stacked) {
+      expect(geometry.brand.bottom).toBeLessThanOrEqual(geometry.slogan.top)
+      expect(geometry.slogan.bottom).toBeLessThanOrEqual(geometry.social.top)
+      expect(geometry.social.bottom).toBeLessThanOrEqual(geometry.navigation.top)
+      expect(geometry.sloganWhiteSpace).toBe("nowrap")
+      for (const group of [geometry.brand, geometry.slogan, geometry.social]) {
+        expect(Math.abs((group.left + group.right) / 2 - footerCenter)).toBeLessThanOrEqual(1)
+      }
+    } else {
+      expect(geometry.brand.right).toBeLessThanOrEqual(geometry.slogan.left)
+      expect(geometry.slogan.right).toBeLessThanOrEqual(geometry.social.left)
+      expect(Math.max(geometry.brand.bottom, geometry.slogan.bottom, geometry.social.bottom))
+        .toBeLessThanOrEqual(geometry.navigation.top)
+    }
   }
 })
 
