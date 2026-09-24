@@ -759,6 +759,12 @@ export * from "./lib/safe-redirect";
 export { generateWorkspaceSlug, sanitizeSlug, slugSuffix } from "./utils/slug";
 export { truncateTitle, stripInlineMarkup, deriveThreadName } from "./utils/title";
 export {
+  buildCommunityNotificationCopy,
+  type CommunityNotificationConversationKind,
+  type CommunityNotificationCopy,
+  type CommunityNotificationCopyInput,
+} from "./utils/community-notification-copy";
+export {
   canManageServer,
   isServerOwner,
   canSeePrivateChannel,

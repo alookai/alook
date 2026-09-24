@@ -1,17 +1,27 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { CommunityMessageCreate, CommunityWsEvent } from "@alook/shared"
+import { QueryClient } from "@tanstack/react-query"
+import type { StructuralSnapshotV1 } from "./structural-snapshot"
 import {
   buildDesktopSystemNotificationCandidate,
   listenDesktopSystemNotificationActivations,
+  resolveDesktopSystemNotificationCandidate,
   showDesktopSystemNotification,
   takeDesktopSystemNotificationActivation,
 } from "./desktop-system-notification"
 
 const invoke = vi.hoisted(() => vi.fn())
 const desktopMode = vi.hoisted(() => ({ value: true }))
+const channelMetadataMocks = vi.hoisted(() => ({ fetch: vi.fn() }))
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
   return { ...actual, isDesktop: vi.fn(() => desktopMode.value), tauriInvoke: invoke }
+})
+vi.mock("@/hooks/community/channel-metadata", async () => {
+  const actual = await vi.importActual<typeof import("@/hooks/community/channel-metadata")>(
+    "@/hooks/community/channel-metadata",
+  )
+  return { ...actual, fetchChannelMetadata: channelMetadataMocks.fetch }
 })
 
 type UnreadBump = Extract<CommunityWsEvent, { type: "community:unread.bump" }>
@@ -36,6 +46,28 @@ const bump: UnreadBump = {
   channelId: "channel_1",
   serverId: "server_1",
 }
+const snapshot: StructuralSnapshotV1 = {
+  schemaVersion: 1,
+  accountId: "viewer_1",
+  capturedAt: 1,
+  serverOrder: ["server_1"],
+  folders: [],
+  servers: [{
+    id: "server_1",
+    name: "Studio",
+    discriminator: "0042",
+    icon: null,
+    categories: [],
+    channels: [{ id: "channel_1", name: "general", type: "text", categoryId: null }],
+    childRouteHints: [{
+      id: "thread_1",
+      name: "Release notes",
+      type: "thread",
+      parentChannelId: "channel_1",
+      parentMessageId: "message_0",
+    }],
+  }],
+}
 
 afterEach(() => {
   desktopMode.value = true
@@ -45,10 +77,10 @@ afterEach(() => {
 
 describe("desktop system notification candidates", () => {
   it("derives a hygienic server notification from one paired bundle", () => {
-    expect(buildDesktopSystemNotificationCandidate(create, bump, "viewer_1")).toEqual({
+    expect(buildDesktopSystemNotificationCandidate(create, bump, "viewer_1", snapshot)).toEqual({
       viewerUserId: "viewer_1",
-      title: "Ada",
-      body: "Hello there",
+      title: "Studio · #general",
+      body: "Ada: Hello there",
       target: {
         kind: "server",
         serverId: "server_1",
@@ -56,6 +88,173 @@ describe("desktop system notification candidates", () => {
         messageId: "message_1",
         seq: 7,
       },
+    })
+  })
+
+  it("uses the same server, parent channel, and thread title hierarchy as mobile", () => {
+    expect(buildDesktopSystemNotificationCandidate({
+      ...create,
+      channelId: "thread_1",
+    }, { ...bump, channelId: "thread_1" }, "viewer_1", snapshot)).toMatchObject({
+      title: "Studio · #general · Release notes",
+      body: "Ada: Hello there",
+    })
+  })
+
+  it("does not reuse conversation names from another account's snapshot", () => {
+    expect(buildDesktopSystemNotificationCandidate(
+      create,
+      bump,
+      "viewer_1",
+      { ...snapshot, accountId: "other" },
+    )).toMatchObject({
+      title: "Server · #Channel",
+      body: "Ada: Hello there",
+    })
+  })
+
+  it("resolves a cold channel name before formatting the desktop copy", async () => {
+    const queryClient = new QueryClient()
+    channelMetadataMocks.fetch.mockResolvedValue({
+      id: "channel_1",
+      serverId: "server_1",
+      name: "general",
+      type: "text",
+      parentChannelId: null,
+      parentMessageId: null,
+      creatorId: null,
+      archived: false,
+      lastMessageAt: null,
+      createdAt: "2026-09-12T00:00:00.000Z",
+    })
+    const coldSnapshot = {
+      ...snapshot,
+      servers: snapshot.servers.map((server) => ({
+        ...server,
+        channels: [],
+        childRouteHints: [],
+      })),
+    }
+
+    await expect(resolveDesktopSystemNotificationCandidate(
+      create,
+      bump,
+      "viewer_1",
+      queryClient,
+      coldSnapshot,
+    )).resolves.toMatchObject({
+      title: "Studio · #general",
+      body: "Ada: Hello there",
+    })
+    expect(channelMetadataMocks.fetch).toHaveBeenCalledWith("server_1", "channel_1")
+  })
+
+  it("uses the default empty snapshot while resolving cold channel metadata", async () => {
+    const queryClient = new QueryClient()
+    channelMetadataMocks.fetch.mockResolvedValue({
+      id: "channel_1",
+      serverId: "server_1",
+      name: "general",
+      type: "text",
+      parentChannelId: null,
+      parentMessageId: null,
+      creatorId: null,
+      archived: false,
+      lastMessageAt: null,
+      createdAt: "2026-09-12T00:00:00.000Z",
+    })
+
+    await expect(resolveDesktopSystemNotificationCandidate(
+      create,
+      bump,
+      "viewer_1",
+      queryClient,
+    )).resolves.toMatchObject({
+      title: "Server · #general",
+      body: "Ada: Hello there",
+    })
+    expect(channelMetadataMocks.fetch).toHaveBeenCalledWith("server_1", "channel_1")
+  })
+
+  it("resolves cold thread and parent channel names before formatting the desktop copy", async () => {
+    const queryClient = new QueryClient()
+    channelMetadataMocks.fetch.mockResolvedValueOnce({
+      id: "thread_1",
+      serverId: "server_1",
+      name: "Release notes",
+      type: "thread",
+      parentChannelId: "channel_1",
+      parentMessageId: "message_0",
+      creatorId: "author_1",
+      archived: false,
+      lastMessageAt: null,
+      createdAt: "2026-09-12T00:00:00.000Z",
+    }).mockResolvedValueOnce({
+      id: "channel_1",
+      serverId: "server_1",
+      name: "general",
+      type: "text",
+      parentChannelId: null,
+      parentMessageId: null,
+      creatorId: null,
+      archived: false,
+      lastMessageAt: null,
+      createdAt: "2026-09-12T00:00:00.000Z",
+    })
+    const coldSnapshot = {
+      ...snapshot,
+      servers: snapshot.servers.map((server) => ({
+        ...server,
+        channels: [],
+        childRouteHints: [],
+      })),
+    }
+
+    await expect(resolveDesktopSystemNotificationCandidate(
+      { ...create, channelId: "thread_1" },
+      { ...bump, channelId: "thread_1" },
+      "viewer_1",
+      queryClient,
+      coldSnapshot,
+    )).resolves.toMatchObject({
+      title: "Studio · #general · Release notes",
+      body: "Ada: Hello there",
+    })
+    expect(channelMetadataMocks.fetch.mock.calls).toEqual([
+      ["server_1", "thread_1"],
+      ["server_1", "channel_1"],
+    ])
+  })
+
+  it("uses the complete current-account snapshot without metadata I/O", async () => {
+    await expect(resolveDesktopSystemNotificationCandidate(
+      create,
+      bump,
+      "viewer_1",
+      new QueryClient(),
+      snapshot,
+    )).resolves.toMatchObject({
+      title: "Studio · #general",
+      body: "Ada: Hello there",
+    })
+    expect(channelMetadataMocks.fetch).not.toHaveBeenCalled()
+  })
+
+  it("keeps safe fallback copy when cold metadata resolution fails", async () => {
+    channelMetadataMocks.fetch.mockRejectedValue(new Error("metadata unavailable"))
+    await expect(resolveDesktopSystemNotificationCandidate(
+      create,
+      bump,
+      "viewer_1",
+      new QueryClient(),
+      { ...snapshot, servers: snapshot.servers.map((server) => ({
+        ...server,
+        channels: [],
+        childRouteHints: [],
+      })) },
+    )).resolves.toMatchObject({
+      title: "Studio · #Channel",
+      body: "Ada: Hello there",
     })
   })
 
@@ -84,7 +283,7 @@ describe("desktop system notification candidates", () => {
         attachments: [{ id: "a", filename: "file", url: "/file", contentType }],
       },
     }, bump, "viewer_1")
-    expect(candidate?.body).toBe(expected)
+    expect(candidate?.body).toBe(`Ada: ${expected}`)
   })
 
   it("uses the generic fallback and derives a DM target", () => {
