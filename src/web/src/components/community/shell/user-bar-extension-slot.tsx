@@ -37,6 +37,7 @@ type Props = {
   animate?: boolean
   focusOnOpen?: boolean
   onInitialFocus?: () => void
+  presentation?: "slot" | "popup"
 }
 
 export function UserBarExtensionSlot({
@@ -52,6 +53,7 @@ export function UserBarExtensionSlot({
   animate = true,
   focusOnOpen = false,
   onInitialFocus,
+  presentation = "slot",
 }: Props) {
   const ref = useRef<HTMLDivElement>(null)
 
@@ -78,10 +80,10 @@ export function UserBarExtensionSlot({
   }, [interactive, onDismiss, onDismissOutside])
 
   useEffect(() => {
-    if (!interactive || !focusOnOpen) return
+    if ((!interactive && presentation === "slot") || !focusOnOpen) return
     ref.current?.focus({ preventScroll: true })
     onInitialFocus?.()
-  }, [active, interactive, focusOnOpen, onInitialFocus])
+  }, [active, interactive, presentation, focusOnOpen, onInitialFocus])
 
   const title = active === "inbox"
     ? "Inbox"
@@ -98,9 +100,11 @@ export function UserBarExtensionSlot({
       aria-label={title}
       data-testid={tid.userBarExtension}
       data-extension={active}
+      data-presentation={presentation}
       tabIndex={-1}
       className={cn(
-        "relative min-h-0 origin-bottom overflow-hidden rounded-t-xl border-x border-t border-border/40 bg-popover text-popover-foreground shadow-(--e2) [clip-path:inset(-2rem_-2rem_0)]",
+        "relative min-h-0 origin-bottom overflow-hidden border-border/40 bg-popover text-popover-foreground shadow-(--e2)",
+        presentation === "popup" ? "rounded-xl border" : "rounded-t-xl border-x border-t [clip-path:inset(-2rem_-2rem_0)]",
         animate && "motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-1 motion-safe:duration-150",
         active === "inbox" && "flex flex-col",
       )}

@@ -283,6 +283,7 @@ async function readComposerGeometry(page: Page): Promise<ComposerGeometry> {
 
 async function expectExtensionGeometry(page: Page) {
   const extension = page.getByTestId(tid.userBarExtension)
+  await expect.poll(async () => (await extension.boundingBox())?.width ?? 0).toBeCloseTo(320, 0)
   const base = page.getByTestId(tid.userBar).locator(
     '[data-slot="community-user-bar-base"]',
   )
@@ -292,15 +293,15 @@ async function expectExtensionGeometry(page: Page) {
   ])
   expect(extensionBox).not.toBeNull()
   expect(baseBox).not.toBeNull()
-  expect(Math.abs(extensionBox!.width - expectedVisibleWidth)).toBeLessThanOrEqual(
+  expect(Math.abs(extensionBox!.width - 320)).toBeLessThanOrEqual(
     geometryEpsilon,
   )
   expect(Math.abs(baseBox!.width - expectedVisibleWidth)).toBeLessThanOrEqual(
     geometryEpsilon,
   )
   expect(Math.abs(extensionBox!.x - baseBox!.x)).toBeLessThanOrEqual(geometryEpsilon)
-  expect(Math.abs(extensionBox!.x + extensionBox!.width - baseBox!.x - baseBox!.width))
-    .toBeLessThanOrEqual(geometryEpsilon)
+  expect(extensionBox!.y + extensionBox!.height).toBeLessThan(baseBox!.y)
+  await expect(extension).toHaveAttribute("data-presentation", "popup")
 }
 
 async function attachScreenshot(page: Page, testInfo: TestInfo, name: string) {
@@ -450,7 +451,7 @@ test.describe.serial("desktop default User Bar width", () => {
       Math.abs((await readShellGeometry(saved.page)).sidebar - expectedDefaultSidebarWidth)
     )).toBeGreaterThan(1)
     const restoredWidth = (await readShellGeometry(saved.page)).sidebar
-    expect(restoredWidth).toBeGreaterThanOrEqual(300)
+    expect(restoredWidth).toBeGreaterThanOrEqual(100)
     expect(restoredWidth).toBeLessThanOrEqual(360)
     await expectDesktopGeometry(saved.page, restoredWidth)
     const savedResizeSequence = [
@@ -488,7 +489,7 @@ test.describe.serial("desktop default User Bar width", () => {
     )).not.toBeNull()
     const resizedWidth = (await readShellGeometry(interaction.page)).sidebar
     expect(Math.abs(resizedWidth - expectedDefaultSidebarWidth)).toBeGreaterThan(1)
-    expect(resizedWidth).toBeGreaterThanOrEqual(300)
+    expect(resizedWidth).toBeGreaterThanOrEqual(100)
     expect(resizedWidth).toBeLessThanOrEqual(360)
     const storedLayout = JSON.parse(await interaction.page.evaluate(
       (key) => localStorage.getItem(key)!,
@@ -525,7 +526,7 @@ test.describe.serial("desktop default User Bar width", () => {
     })
   })
 
-  test("keeps a populated Inbox free of horizontal overflow at the 300px floor", async ({
+  test("keeps a populated Inbox free of horizontal overflow at the 100px floor", async ({
     asUser,
   }, testInfo) => {
     test.setTimeout(120_000)
@@ -568,14 +569,14 @@ test.describe.serial("desktop default User Bar width", () => {
       await bob.page.keyboard.press("Home")
       await expect.poll(async () => (
         (await sidebarPanel.boundingBox())?.width ?? 0
-      )).toBeCloseTo(300, 0)
-      await expectDesktopGeometry(bob.page, 300)
+      )).toBeCloseTo(100, 0)
+      await expectDesktopGeometry(bob.page, 100)
 
       await bob.page.getByTestId(tid.inboxTrigger).click()
       const extension = bob.page.getByTestId(tid.userBarExtension)
       await expect(extension).toHaveAttribute("data-extension", "inbox")
       await waitForElementMotion(extension)
-      expect((await extension.boundingBox())!.width).toBeCloseTo(342, 0)
+      expect((await extension.boundingBox())!.width).toBeCloseTo(320, 0)
 
       const evidence: Array<Record<string, unknown>> = []
       for (const tab of ["Unreads", "Mentions", "Marked"] as const) {
@@ -636,10 +637,10 @@ test.describe.serial("desktop default User Bar width", () => {
         await attachScreenshot(
           bob.page,
           testInfo,
-          `inbox-300-${tabKey}-no-horizontal-overflow`,
+          `inbox-100-${tabKey}-no-horizontal-overflow`,
         )
       }
-      await attachJson(testInfo, "inbox-300-no-horizontal-overflow", evidence)
+      await attachJson(testInfo, "inbox-100-no-horizontal-overflow", evidence)
     } finally {
       await seedCancelFriendRequest("carol", friendRequestId)
     }

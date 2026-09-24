@@ -290,7 +290,7 @@ describe("ShellFrameView", () => {
     expect(sidebarPanel).toMatchObject({
       id: "sidebar",
       defaultSize: 317,
-      minSize: 300,
+      minSize: 100,
       maxSize: 360,
       groupResizeBehavior: "preserve-pixel-size",
     })
@@ -371,7 +371,7 @@ describe("ShellFrameView", () => {
     expect(renderer.container.querySelector<HTMLElement>(
       '[data-slot="community-user-bar-overlay"]',
     )!.style.getPropertyValue("--community-desktop-user-bar-width")).toBe(
-      "calc(clamp(300px, calc(18.75% - 0.375px), 360px) + 58px)",
+      "calc(clamp(100px, calc(18.75% - 0.375px), 360px) + 58px)",
     )
   })
 

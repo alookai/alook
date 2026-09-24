@@ -18,6 +18,7 @@ import { tid } from "@/lib/community/testids"
 import { cn } from "@/lib/utils"
 import { UserBarExtensionDrawer } from "./user-bar-extension-drawer"
 import { UserBarExtensionSlot } from "./user-bar-extension-slot"
+import { UserBarPopover } from "./user-bar-popover"
 import type {
   UserBarExtensionKind,
   UserBarUpdatePhase,
@@ -52,7 +53,9 @@ export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox,
   const lastProfileTriggerRef = useRef<HTMLButtonElement | null>(null)
   const inboxTriggerRef = useRef<HTMLButtonElement>(null)
   const updateBadgeRef = useRef<HTMLButtonElement>(null)
+  const baseRef = useRef<HTMLDivElement>(null)
   const [pendingExtensionFocus, setPendingExtensionFocus] = useState<UserBarExtensionKind>("none")
+  const mobile = breakpoint === "mobile"
   const closeInboxForAction = () => {
     if (inboxOpen) onInboxOpenChange?.(false)
   }
@@ -78,6 +81,8 @@ export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox,
       onDismiss={dismissExtensionWithFocus}
       onDismissOutside={extension.onDismiss}
       onRequestUpdate={extension.onRequestUpdate}
+      interactive={mobile}
+      presentation={mobile ? "slot" : "popup"}
       focusOnOpen={pendingExtensionFocus === extension.active}
       onInitialFocus={() => {
         if (pendingExtensionFocus === extension.active) {
@@ -91,14 +96,23 @@ export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox,
       data-testid={tid.userBar}
       className="w-full min-w-0 max-w-full shrink-0 overflow-hidden pl-[max(0.75rem,var(--app-safe-area-left))] pr-[max(0.75rem,var(--app-safe-area-right))] pb-[calc(0.75rem+var(--app-safe-area-bottom))] pt-0 sm:px-2 sm:pb-3"
     >
-      {breakpoint === "mobile"
+      {mobile
         ? <UserBarExtensionDrawer>{extensionContent}</UserBarExtensionDrawer>
-        : extensionContent}
+        : extensionContent && extension && (
+          <UserBarPopover
+            anchor={baseRef}
+            onDismiss={extension.onDismiss}
+            onEscape={dismissExtensionWithFocus}
+          >
+            {extensionContent}
+          </UserBarPopover>
+        )}
       <div
+        ref={baseRef}
         data-slot="community-user-bar-base"
         className={cn(
           "flex h-12 items-center gap-3 border border-border/40 bg-muted px-4",
-          (extension && extension.active !== "none") || (breakpoint === "mobile" && inboxOpen)
+          mobile && ((extension && extension.active !== "none") || inboxOpen)
             ? "rounded-b-xl"
             : "rounded-xl",
         )}

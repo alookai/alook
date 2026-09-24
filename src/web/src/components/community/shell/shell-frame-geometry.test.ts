@@ -39,7 +39,7 @@ describe("desktop community shell geometry", () => {
     const overlayWidth = desktopUserBarOverlayWidth(COMMUNITY_SIDEBAR_DEFAULT_WIDTH)
 
     expect(COMMUNITY_SIDEBAR_DEFAULT_WIDTH).toBe(317)
-    expect(COMMUNITY_SIDEBAR_MIN_WIDTH).toBe(300)
+    expect(COMMUNITY_SIDEBAR_MIN_WIDTH).toBe(100)
     expect(COMMUNITY_SIDEBAR_MAX_WIDTH).toBe(360)
     expect(overlayWidth).toBe(375)
     expect(overlayWidth - (2 * COMMUNITY_USER_BAR_DESKTOP_INSET)).toBe(359)

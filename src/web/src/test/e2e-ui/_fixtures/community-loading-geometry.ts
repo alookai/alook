@@ -34,7 +34,7 @@ type CommunityAsUser = (
 ) => Promise<{ context: BrowserContext; page: Page }>
 type MobileWidth = 320 | 390 | 639
 type DesktopWidth = 640 | 768 | 1024 | 1280
-type PersistedSidebarWidth = 160 | 240 | 350 | 360
+type PersistedSidebarWidth = 100 | 160 | 240 | 350 | 360
 const RAIL_OVERFLOW_SERVER_COUNT = 20
 const ISOLATED_GEOMETRY_USER: UserKey = "dave"
 const DESKTOP_DENSITY_SCALES = [1, 1.25] as const
@@ -543,7 +543,7 @@ export async function runDesktopPersistedPendingGeometry(
   asUser: CommunityAsUser,
 ) {
   for (const viewportWidth of [640, 768, 1024, 1280] as const) {
-    for (const sidebarWidth of [null, 160, 240, 350, 360] as const) {
+    for (const sidebarWidth of [null, 100, 160, 240, 350, 360] as const) {
       for (const deviceScaleFactor of DESKTOP_DENSITY_SCALES) {
         const caseLabel = `${viewportWidth}px @${deviceScaleFactor}x, sidebar ${sidebarWidth ?? "default"}`
         const { context, page } = await asUser(ISOLATED_GEOMETRY_USER, {
