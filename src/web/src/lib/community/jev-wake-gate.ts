@@ -203,8 +203,10 @@ function validProviderBaseURL(value: string): boolean {
   }
 }
 
-function resolveConfig(env: JevWakeEnv): ProviderConfig | null {
-  const threshold = Number(env.JEV_WAKE_THRESHOLD ?? "0")
+export function resolveJevProviderConfig(
+  env: JevWakeEnv,
+  threshold = Number(env.JEV_WAKE_THRESHOLD ?? "0"),
+): ProviderConfig | null {
   if (!Number.isFinite(threshold) || threshold < 0 || threshold > 1) return null
 
   const providerName = env.JEV_PROVIDER ?? "openrouter"
@@ -377,7 +379,7 @@ export async function selectJevWakeCandidates(
     return input.candidates
   }
 
-  const config = resolveConfig(env)
+  const config = resolveJevProviderConfig(env)
   if (!config) {
     log.warn("jev_wake_gate_fail_open", {
       messageId: input.messageId,
