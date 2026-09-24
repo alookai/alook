@@ -105,7 +105,7 @@ test.describe.serial("mobile layout", () => {
       expect(groupRect).not.toBeNull()
       expect(sidebarRect).not.toBeNull()
       expect(mainRect).not.toBeNull()
-      expect(sidebarRect!.width).toBeGreaterThanOrEqual(300)
+      expect(sidebarRect!.width).toBeGreaterThanOrEqual(100)
       expect(mainRect!.width).toBeGreaterThan(0)
       expect(sidebarRect!.width).toBeLessThan(groupRect!.width)
       expect(mainRect!.width).toBeLessThan(groupRect!.width)

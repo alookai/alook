@@ -110,7 +110,7 @@ async function expectUpdateActionGeometry(
     .toBeLessThanOrEqual(1)
 }
 
-test("Update, Inbox, and viewer Profile share one persistent User Bar extension", async ({ asUser }) => {
+test("Update, Inbox, and viewer Profile share one desktop User Bar pop-up", async ({ asUser }) => {
   const { page } = await asUser("alice")
   const requests = await serveMachines(page)
   await page.emulateMedia({ reducedMotion: "reduce" })
@@ -131,12 +131,14 @@ test("Update, Inbox, and viewer Profile share one persistent User Bar extension"
   await expect(slot).toHaveCSS("animation-name", "none")
   expect(requests.machineRequestCount()).toBe(1)
 
+  await expect.poll(async () => (await slot.boundingBox())?.width ?? 0).toBeCloseTo(320, 0)
   const [slotBox, baseBox] = await Promise.all([slot.boundingBox(), userBarBase.boundingBox()])
   expect(slotBox).not.toBeNull()
   expect(baseBox).not.toBeNull()
-  expect(Math.abs(slotBox!.y + slotBox!.height - baseBox!.y)).toBeLessThanOrEqual(1)
+  expect(slotBox!.y + slotBox!.height).toBeLessThan(baseBox!.y)
   expect(Math.abs(slotBox!.x - baseBox!.x)).toBeLessThanOrEqual(1)
-  expect(Math.abs(slotBox!.width - baseBox!.width)).toBeLessThanOrEqual(1)
+  expect(slotBox!.width).toBeCloseTo(320, 0)
+  await expect(slot).toHaveAttribute("data-presentation", "popup")
 
   await page.keyboard.press("Escape")
   const badge = page.getByTestId(tid.daemonUpdateBadge)
