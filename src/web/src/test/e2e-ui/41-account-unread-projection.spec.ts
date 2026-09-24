@@ -97,6 +97,7 @@ function hasCorrelatedBundle(
 }
 
 async function expectUnreadDot(row: ReturnType<Page["getByTestId"]>) {
+  await expect(row).toBeVisible({ timeout: 30_000 })
   await expect(row.locator("span.rounded-full.bg-primary")).toHaveCount(1)
 }
 
@@ -270,7 +271,7 @@ test.describe.serial("account unread projection", () => {
     }, { timeout: 20_000 }).toBe(true)
 
     const inboxTrigger = bob.page.getByTestId(tid.inboxTrigger)
-    await expect(inboxTrigger.locator("span.bg-primary")).toHaveCount(1)
+    await expect(inboxTrigger.locator('[data-slot="inbox-unread-indicator"]')).toHaveAttribute("data-unread", "true")
     await inboxTrigger.click()
     await expect(bob.page.getByTestId(tid.inboxUnreadChannel(channelId))).toBeVisible()
     await bob.page.getByRole("tab", { name: "Mentions" }).click()
@@ -282,7 +283,7 @@ test.describe.serial("account unread projection", () => {
     await expect(bob.page).toHaveURL(`/c/channels/${serverId}/${channelId}`)
     await expect(bob.page.getByText(mentionText, { exact: false })).toBeVisible({ timeout: 20_000 })
     await expect.poll(observerGate.pending).toBeGreaterThan(0)
-    await expect(inboxTrigger.locator("span.bg-primary")).toHaveCount(0)
+    await expect(inboxTrigger.locator('[data-slot="inbox-unread-indicator"]')).toHaveAttribute("data-count", "0")
     await expectNoUnreadDot(bob.page.getByTestId(tid.channelRow(channelId)))
     await expect.poll(async () => bob.page
       .getByTestId(tid.serverRailIndicator(serverId))
@@ -395,7 +396,7 @@ test.describe.serial("account unread projection", () => {
     await expect(page.getByTestId(tid.inboxUnreadChannel(unreadChannel))).toHaveCount(0)
     await expect(page.getByTestId(tid.inboxUnreadChild(forumChild))).toBeVisible()
     await expect(page.getByTestId(tid.inboxUnreadDm(dmId))).toBeVisible()
-    await expectUnreadDot(page.getByTestId(tid.inboxTrigger))
+    await expect(page.getByTestId(tid.inboxTrigger).locator('[data-slot="inbox-unread-indicator"]')).not.toHaveAttribute("data-count", "0")
     await page.getByTestId(tid.inboxTrigger).click()
     expect(targetPuts).toEqual([])
 

@@ -23,6 +23,7 @@ export function NumberTicker({
   decimals = 0,
   compact = false,
   className,
+  duration,
 }: {
   value: Value
   /** Fixed number of fraction digits. Defaults to 0 (integer display). */
@@ -30,10 +31,15 @@ export function NumberTicker({
   /** Compact notation — 1_500 → "1.5K", 1_200_000 → "1.2M". */
   compact?: boolean
   className?: string
+  duration?: number
 }) {
   return (
     <NumberFlow
       value={value}
+      {...(duration === undefined ? {} : {
+        transformTiming: { duration, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" },
+        opacityTiming: { duration: Math.min(duration, 160), easing: "ease-out" },
+      })}
       format={{
         notation: compact ? "compact" : "standard",
         compactDisplay: "short",

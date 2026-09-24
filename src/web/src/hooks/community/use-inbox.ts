@@ -190,6 +190,7 @@ export function useInboxUnreads(): UseQueryResult<UnreadsResponse> & {
   friendRequests: InboxFriendRequest[]
   servers: UnreadServer[]
   dms: UnreadDm[]
+  pendingChannelIds: string[]
   hasProjectedUnread: boolean
   hasOutstandingFriendRequest: boolean
 } {
@@ -317,6 +318,10 @@ export function useInboxUnreads(): UseQueryResult<UnreadsResponse> & {
     friendRequests: query.data?.friendRequests ?? (EMPTY_FRIEND_REQUESTS as InboxFriendRequest[]),
     servers: projected.servers ?? (EMPTY_UNREADS as UnreadServer[]),
     dms: projected.dms ?? (EMPTY_DMS as UnreadDm[]),
+    pendingChannelIds: [
+      ...unreadProjection.pendingChannelIds("inbox-unreads", "channels", channelExclusion),
+      ...unreadProjection.pendingChannelIds("inbox-unreads", "dms", dmExclusion),
+    ],
     hasProjectedUnread:
       projected.servers.length > 0
       || projected.dms.length > 0
@@ -377,6 +382,7 @@ export const inboxMentionsProjectedQueryFn = (
 
 export function useInboxMentions(): UseQueryResult<MentionsResponse> & {
   mentions: Mention[]
+  pendingChannelIds: string[]
   hasProjectedMention: boolean
 } {
   const queryClient = useQueryClient()
@@ -453,6 +459,7 @@ export function useInboxMentions(): UseQueryResult<MentionsResponse> & {
   return {
     ...query,
     mentions,
+    pendingChannelIds: unreadProjection.pendingChannelIds("inbox-mentions", "mentions", mentionExclusion),
     hasProjectedMention:
       mentions.length > 0
       || unreadProjection.hasPending(

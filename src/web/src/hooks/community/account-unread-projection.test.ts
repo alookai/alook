@@ -12,6 +12,19 @@ import {
 } from "./account-unread-projection"
 
 describe("AccountUnreadProjection", () => {
+  it("enumerates distinct pending conversations using the same read fences as the badge", () => {
+    const projection = new AccountUnreadProjection("u1")
+    projection.recordArrival({ channelId: "dm", seq: 1 })
+    projection.recordArrival({ channelId: "dm", seq: 2 })
+    projection.recordArrival({ channelId: "other", seq: 1 })
+    expect(projection.pendingChannelIds("inbox-unreads", "dms")).toEqual(["dm", "other"])
+    projection.recordRead("dm", 2)
+    expect(projection.pendingChannelIds("inbox-unreads", "dms")).toEqual(["other"])
+    projection.recordRead("other", 1)
+    expect(projection.pendingChannelIds("inbox-unreads", "dms")).toEqual([])
+    expect(projection.hasPending("inbox-unreads", "dms")).toBe(false)
+  })
+
   it("is a per-query-client and account singleton", () => {
     const client = new QueryClient()
     expect(getAccountUnreadProjection(client, "u1"))

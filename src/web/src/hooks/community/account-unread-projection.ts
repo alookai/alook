@@ -1009,12 +1009,20 @@ export class AccountUnreadProjection {
     ), 0)
   }
 
-  hasPending(
+  hasPending(...args: Parameters<AccountUnreadProjection["pendingChannels"]>) {
+    return !this.pendingChannels(...args).next().done
+  }
+
+  pendingChannelIds(...args: Parameters<AccountUnreadProjection["pendingChannels"]>) {
+    return [...new Set(this.pendingChannels(...args))]
+  }
+
+  private *pendingChannels(
     family?: AccountUnreadFamily,
     domain?: AccountUnreadDomain,
     exclusion?: AccountUnreadPresentationExclusion | null,
   ) {
-    if (this.disposed) return false
+    if (this.disposed) return
     for (const arrival of this.exact.values()) {
       if (family && !arrival.families.has(family)) continue
       if (!this.scopeAllowed(arrival)) continue
@@ -1034,7 +1042,7 @@ export class AccountUnreadProjection {
         (!fence || membershipOrdinal > fence.ordinal)
         && this.policyAllows(arrival, facet, this.policy)
         && (facet !== "attention" || !this.attentionDismissed(arrival))
-      ) return true
+      ) yield arrival.channelId
     }
     for (const unknown of this.sticky.values()) {
       if (!this.scopeAllowed(unknown)) continue
@@ -1048,10 +1056,9 @@ export class AccountUnreadProjection {
         if (
           (!fence || pending.ordinal > fence.ordinal)
           && this.policyAllows(unknown, facet, this.policy)
-        ) return true
+        ) yield unknown.channelId
       }
     }
-    return false
   }
 
   setNotificationPolicy(snapshot: AccountUnreadPolicySnapshot) {

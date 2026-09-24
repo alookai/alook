@@ -432,6 +432,8 @@ body.driver-active .community-ws-reconnect-overlay * {
 }
 
 :root {
+  --inbox-unread: #ff9915;
+  --inbox-unread-foreground: #171313;
   --app-safe-area-top: env(safe-area-inset-top, 0px);
   --app-safe-area-right: env(safe-area-inset-right, 0px);
   --app-safe-area-bottom: env(safe-area-inset-bottom, 0px);

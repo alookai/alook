@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useRef, useState, type ComponentProps } from "react"
+import { inboxUnreadCount } from "@/lib/community/inbox-unread-count"
 import { communityKeys } from "@/lib/query-keys"
 import { channelHref } from "@/lib/community/community-route"
 import type { Marked, Mention, UnreadDm, UnreadServer } from "@/lib/community/models/inbox"
@@ -320,6 +321,14 @@ export function useShellInboxController({
 
   return {
     popoverProps,
+    unreadCount: inboxUnreadCount({
+      servers: unreadFeed,
+      dms: unreadDms,
+      mentions: inboxMentions.mentions,
+      friendRequestCount: friendRequestActions.items.length,
+      pendingChannelIds: [...(inboxUnreads.pendingChannelIds ?? []), ...(inboxMentions.pendingChannelIds ?? [])],
+    }),
+    unreadCountPartial: Boolean(inboxUnreads.data?.truncated || inboxMentions.data?.truncated),
     hasUnread:
       inboxUnreads.hasProjectedUnread
       || inboxMentions.hasProjectedMention

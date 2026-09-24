@@ -1,13 +1,15 @@
 "use client"
 
 import {
+  useId,
   useRef,
   useState,
   type MutableRefObject,
   type ReactNode,
   type RefObject,
 } from "react"
-import { CircleAlert, Download, Inbox, LoaderCircle, Settings } from "lucide-react"
+import { CircleAlert, Download, LoaderCircle, Settings } from "lucide-react"
+import { InboxUnreadIndicator } from "./inbox-unread-indicator"
 import { Avatar } from "../avatar"
 import { Skeleton } from "@/components/ui/skeleton"
 import type { MachineSummary } from "@/hooks/community/use-machines"
@@ -37,13 +39,15 @@ type UserBarExtension = {
   onDismiss: () => void
 }
 
-export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnread, inboxOpen, onInboxOpenChange, extension }: {
+export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnread, unreadCount, unreadCountPartial, inboxOpen, onInboxOpenChange, extension }: {
   breakpoint: Breakpoint
   user: { id: string; name: string; avatar: string; presence?: Presence }
   onOpenProfile?: OpenProfile
   onEditProfile?: () => void
   inbox?: ReactNode
   hasUnread: boolean
+  unreadCount?: number
+  unreadCountPartial?: boolean
   inboxOpen?: boolean
   onInboxOpenChange?: (open: boolean) => void
   extension?: UserBarExtension
@@ -124,6 +128,8 @@ export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox,
           onEditProfile={onEditProfile}
           inbox={inbox}
           hasUnread={hasUnread}
+          unreadCount={unreadCount}
+          unreadCountPartial={unreadCountPartial}
           inboxOpen={inboxOpen}
           onInboxOpenChange={onInboxOpenChange}
           closeInboxForAction={closeInboxForAction}
@@ -157,13 +163,15 @@ export function UserBarSkeleton() {
   )
 }
 
-function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnread, inboxOpen, onInboxOpenChange, closeInboxForAction, profileTriggerRef, profileNameTriggerRef, lastProfileTriggerRef, inboxTriggerRef, updateBadgeRef, onRequestExtensionFocus, extension }: {
+function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnread, unreadCount, unreadCountPartial, inboxOpen, onInboxOpenChange, closeInboxForAction, profileTriggerRef, profileNameTriggerRef, lastProfileTriggerRef, inboxTriggerRef, updateBadgeRef, onRequestExtensionFocus, extension }: {
   breakpoint: Breakpoint
   user: { id: string; name: string; avatar: string; presence?: Presence }
   onOpenProfile?: OpenProfile
   onEditProfile?: () => void
   inbox?: ReactNode
   hasUnread: boolean
+  unreadCount?: number
+  unreadCountPartial?: boolean
   inboxOpen?: boolean
   onInboxOpenChange?: (open: boolean) => void
   closeInboxForAction: () => void
@@ -175,6 +183,7 @@ function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnrea
   onRequestExtensionFocus: (extension: UserBarExtensionKind) => void
   extension?: UserBarExtension
 }) {
+  const inboxDescriptionId = useId()
   const mobile = breakpoint === "mobile"
   const updateBadgeLabel = extension?.updateBadgePhase === "retry"
     ? "Retry machine update"
@@ -239,6 +248,7 @@ function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnrea
                 : "hover:bg-accent hover:text-foreground",
             )}
             aria-label={mobile ? (inboxOpen ? "Close Inbox" : "Open Inbox") : "Inbox"}
+            aria-describedby={inboxDescriptionId}
             aria-expanded={inboxOpen}
             aria-pressed={mobile ? inboxOpen : undefined}
             aria-controls={inboxOpen && extension ? "community-user-bar-extension" : undefined}
@@ -247,10 +257,12 @@ function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnrea
               onInboxOpenChange?.(!inboxOpen)
             }}
           >
-            <span className="relative grid size-4 place-items-center">
-              <Inbox className="size-4" />
-              {hasUnread && <span className="absolute -right-1 -top-1 size-2 rounded-full bg-primary" />}
-            </span>
+            <InboxUnreadIndicator
+              descriptionId={inboxDescriptionId}
+              count={unreadCount ?? (hasUnread ? 1 : 0)}
+              partial={unreadCountPartial ?? (unreadCount === undefined && hasUnread)}
+              open={Boolean(inboxOpen)}
+            />
           </button>
         ) : null}
         <button

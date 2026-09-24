@@ -108,6 +108,8 @@ export function ShellFrameView({
           onEditProfile={profile.openUserSettings}
           inbox={inboxElement}
           hasUnread={inbox.hasUnread}
+          unreadCount={inbox.unreadCount}
+          unreadCountPartial={inbox.unreadCountPartial}
           inboxOpen={userBarExtension.active === "inbox"}
           onInboxOpenChange={onUserBarInboxOpenChange}
           extension={{

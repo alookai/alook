@@ -13,12 +13,12 @@ import {
 } from "./_fixtures/seed"
 import { tid } from "./_fixtures/testids"
 
-async function expectInboxDot(page: Page) {
-  await expect(page.getByTestId(tid.inboxTrigger).locator("span.bg-primary")).toHaveCount(1)
+async function expectInboxUnreadCount(page: Page) {
+  await expect(page.getByTestId(tid.inboxTrigger).locator('[data-slot="inbox-unread-indicator"]')).not.toHaveAttribute("data-count", "0")
 }
 
-async function expectNoInboxDot(page: Page) {
-  await expect(page.getByTestId(tid.inboxTrigger).locator("span.bg-primary")).toHaveCount(0)
+async function expectNoInboxUnreadCount(page: Page) {
+  await expect(page.getByTestId(tid.inboxTrigger).locator('[data-slot="inbox-unread-indicator"]')).toHaveAttribute("data-count", "0")
 }
 
 async function clearMessageInbox(page: Page) {
@@ -92,10 +92,27 @@ test.describe.serial("actionable Inbox friend requests", () => {
     try {
       await expect(bob.page.getByTestId(tid.friendsShortcutBadge)).toHaveText("1")
       await expect(bob.page.getByTestId(tid.friendsNewBadge)).toHaveText("1")
-      await expectInboxDot(bob.page)
+      await expectInboxUnreadCount(bob.page)
 
       const trigger = bob.page.getByTestId(tid.inboxTrigger)
+      const indicator = trigger.locator('[data-slot="inbox-unread-indicator"]')
+      await expect(indicator).toHaveAttribute("data-unread", "true")
+      const circle = indicator.locator('[data-slot="inbox-unread-circle"]')
+      await waitForElementMotion(circle)
+      const beforeColor = await circle.evaluate((node) => getComputedStyle(node).backgroundColor)
+      await bob.page.emulateMedia({ reducedMotion: "reduce" })
+      await expect.poll(() => circle.evaluate((node) => getComputedStyle(node).backgroundColor)).toBe(beforeColor)
+      const circleBox = await circle.boundingBox()
+      const buttonBox = await trigger.boundingBox()
+      const settingsBox = await bob.page.getByTestId(tid.userSettingsOpen).boundingBox()
+      expect(circleBox).not.toBeNull()
+      expect(buttonBox).not.toBeNull()
+      expect(settingsBox).not.toBeNull()
+      expect(Math.abs(circleBox!.x + circleBox!.width / 2 - buttonBox!.x - buttonBox!.width / 2)).toBeLessThan(0.5)
+      expect(Math.abs(circleBox!.y + circleBox!.height / 2 - settingsBox!.y - settingsBox!.height / 2)).toBeLessThan(0.5)
+      await bob.page.emulateMedia({ reducedMotion: "no-preference" })
       await trigger.click()
+      await expect(indicator).toHaveAttribute("data-unread", "false")
       const row = bob.page.getByTestId(tid.inboxFriendRequest(friendshipId))
       await expect(row).toBeVisible()
       await expect(bob.page.getByText("Friend requests — 1", { exact: true })).toBeVisible()
@@ -103,7 +120,7 @@ test.describe.serial("actionable Inbox friend requests", () => {
       await expect(bob.page.getByRole("button", { name: "Mark all read" })).toBeDisabled()
 
       await trigger.click()
-      await expectInboxDot(bob.page)
+      await expectInboxUnreadCount(bob.page)
       await trigger.click()
       await expect(row).toBeVisible()
 
@@ -140,7 +157,7 @@ test.describe.serial("actionable Inbox friend requests", () => {
       await seedMessage("alice", channelId, `Friend request channel unread ${stamp}`)
       await seedDmMessage("alice", dmId, `Friend request DM unread ${stamp}`)
 
-      await expectInboxDot(bob.page)
+      await expectInboxUnreadCount(bob.page)
       await bob.page.getByTestId(tid.inboxTrigger).click()
       const requestRow = bob.page.getByTestId(tid.inboxFriendRequest(friendshipId))
       const dmRow = bob.page.getByTestId(tid.inboxUnreadDm(dmId))
@@ -165,7 +182,7 @@ test.describe.serial("actionable Inbox friend requests", () => {
       await expect(dmRow).toHaveCount(0)
       await expect(serverRow).toHaveCount(0)
       await expect(bob.page.getByRole("button", { name: "Mark all read" })).toBeDisabled()
-      await expectInboxDot(bob.page)
+      await expectInboxUnreadCount(bob.page)
     } finally {
       await seedCancelFriendRequest("carol", friendshipId)
     }
@@ -227,7 +244,7 @@ test.describe.serial("actionable Inbox friend requests", () => {
       await expect(secondRow).toHaveCount(0)
       await expect(bob.page.getByTestId(tid.friendsShortcutBadge)).toHaveCount(0)
       await expect(bob.page.getByTestId(tid.friendsNewBadge)).toHaveCount(0)
-      await expectNoInboxDot(bob.page)
+      await expectNoInboxUnreadCount(bob.page)
 
       await bob.page.getByTestId(tid.inboxTrigger).click()
       await bob.page.getByRole("button", { name: "Friends", exact: true }).click()
