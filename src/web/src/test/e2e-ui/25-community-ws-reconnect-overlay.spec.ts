@@ -330,11 +330,13 @@ test("app edge fade keeps a real WebSocket outage native-aligned and Retry resto
     await alice.page.screenshot({ path: testInfo.outputPath("390-bots.png") })
     await alice.page.emulateMedia({ reducedMotion: "reduce" })
     await expect.poll(() => artwork.innerHTML()).toBe(staticMarkup)
+    await expect.poll(() => composer.evaluate((element) =>
+      element.closest("[inert]") !== null,
+    )).toBe(true)
     await alice.page.keyboard.press("Tab")
-    expect(await alice.page.evaluate(() => {
-      const inertRoot = document.querySelector("[inert]")
-      return inertRoot?.contains(document.activeElement) ?? false
-    })).toBe(false)
+    expect(await alice.page.evaluate(() =>
+      document.activeElement?.closest("[inert]") !== null,
+    )).toBe(false)
     const mobileReconnectPath = testInfo.outputPath("390-dark-reconnecting-reduced-motion.png")
     await alice.page.screenshot({ path: mobileReconnectPath })
     await testInfo.attach("390-dark-reconnecting-reduced-motion.png", {
@@ -398,7 +400,9 @@ test("app edge fade keeps a real WebSocket outage native-aligned and Retry resto
     await retry.click()
     await expect(overlay).toHaveCount(0, { timeout: 20_000 })
     await expect(composer).toBeVisible()
-    expect(await alice.page.locator("[inert]").count()).toBe(0)
+    await expect.poll(() => composer.evaluate((element) =>
+      element.closest("[inert]") !== null,
+    )).toBe(false)
     expect(authenticatedConnections).toBeGreaterThanOrEqual(2)
     await testInfo.attach("ws-recovery-evidence", { body: JSON.stringify({ authenticatedConnections, status: "connected", overlayRemoved: true }), contentType: "application/json" })
   } finally {
