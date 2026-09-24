@@ -49,6 +49,7 @@ function props(overrides: Partial<ResolvedMessageListProps> = {}): ResolvedMessa
     onOpenThread: vi.fn(),
     variant: "channel",
     initialScrollReady: true,
+    composerOverlap: 0,
     ...overrides,
   }
 }
@@ -94,6 +95,7 @@ describe("renderMessageListView", () => {
       typingNames: ["Alice"],
       scrollCount: 3,
       selectMode: false,
+      composerOverlap: 0,
     }), undefined)
     const scrollerBoundary = renderer.container.querySelector("[data-message-scroller-boundary]")!
     expect(scrollerBoundary.querySelectorAll("accessory-rail")).toHaveLength(1)

@@ -10,6 +10,7 @@ import { ChannelHeader, type ChannelNotifLevel } from "@/components/community/ch
 import { ChannelShell } from "@/components/community/channels/channel-shell"
 import { CommunityPanel } from "@/components/community/shell/community-panel"
 import { Composer } from "@/components/community/messages/composer"
+import { ComposerOverlayShell } from "@/components/community/messages/composer-overlay-shell"
 import { MessageChannelController } from "@/components/community/messages/message-channel-controller"
 import { MessagePaneNavigationProvider } from "@/components/community/messages/message-pane-navigation"
 import { MessageContextSheet } from "@/components/community/messages/message-context-sheet"
@@ -93,6 +94,7 @@ export function ThreadChannelSurface({
   const router = useRouter()
   const breakpoint = useBreakpoint()
   const [rightPanel, setRightPanel] = useState<RightPanel>(null)
+  const [composerOverlap, setComposerOverlap] = useState(0)
   const [localName, setLocalName] = useState<string | null>(null)
   const mentionInsertion = useAuthorMentionInsertion({
     members: composerMembers,
@@ -224,11 +226,16 @@ export function ThreadChannelSurface({
             />
           )}
             body={(
-            <Body className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <Body
+              data-slot="community-conversation-surface"
+              data-channel-id={channelId}
+              className="flex min-h-0 min-w-0 flex-1 flex-col"
+            >
               <MessageList
                 key={channelId}
                 channel={displayName}
                 messages={controller.feed.messages}
+                composerOverlap={composerOverlap}
                 loading={controller.feed.isLoading}
                 pinnedIds={controller.pinnedIds}
                 newDividerBefore={controller.feed.newDividerBefore}
@@ -256,10 +263,10 @@ export function ThreadChannelSurface({
                 presentVersion={controller.feed.presentVersion}
                 unreadCount={controller.feed.unreadCount}
               />
-              <div
+              <ComposerOverlayShell
                 data-onboarding-target="channel-composer"
                 data-testid={tid.channelComposerShell}
-                className="shrink-0"
+                onOverlapChange={setComposerOverlap}
               >
                 <Composer
                   ref={mentionInsertion.composerRef}
@@ -276,7 +283,7 @@ export function ThreadChannelSurface({
                   autoFocus={breakpoint === "desktop"}
                   draftKey={`${serverId}/${channelId}`}
                 />
-              </div>
+              </ComposerOverlayShell>
             </Body>
           )}
             panels={rightPanel && (
