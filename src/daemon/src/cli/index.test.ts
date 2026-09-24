@@ -810,6 +810,39 @@ describe("message send — idempotent retry (mutation-idempotency ②)", () => {
   });
 });
 
+describe("message send --force", () => {
+  const args = ["message", "send", "--target", "/s#0042/general", "--stdin", "--remind-after", "0"];
+  it.each([false, true])("forwards only an explicit force flag (%s)", async (force) => {
+    const send = vi.fn(async () => ({ state: "sent" as const, message: { seq: "#8", channel: "/s#0042/general", sender: "@a", content: { text: "hi" }, time: "" } }));
+    setApiForTesting(stubApi({ send }));
+    await mainWithStdin([...args, ...(force ? ["--force"] : [])]);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect((send.mock.calls[0][0] as { force?: boolean }).force).toBe(force ? true : undefined);
+    expect(parseEnvelope(cap.lines()).hint).toBeUndefined();
+  });
+  it.each(["duplicate_message", "other_422", undefined])("adds local hint only for duplicate code %s, without retry", async (code) => {
+    const send = vi.fn(async () => { throw Object.assign(new Error("server rejection"), { status: 422, code }); });
+    setApiForTesting(stubApi({ send }));
+    await mainWithStdin(args);
+    const result = parseEnvelope(cap.lines());
+    expect(result.error).toBe("server rejection");
+    expect(result.code).toBe(code);
+    if (code === "duplicate_message") expect(result.hint).toContain("retry with --force");
+    else expect(result.hint).toBeUndefined();
+    expect(send).toHaveBeenCalledTimes(1);
+    expect((send.mock.calls[0][0] as { force?: boolean }).force).toBeUndefined();
+  });
+  it("still reports alignment errors without a force hint", async () => {
+    const send = vi.fn(async () => ({ state: "blocked" as const, reason: "unaligned" as const, unreadCount: 2, latestSeq: 9 }));
+    setApiForTesting(stubApi({ send }));
+    await mainWithStdin([...args, "--force"]);
+    const result = parseEnvelope(cap.lines());
+    expect(result.error).toContain("channel not aligned");
+    expect(result.hint).toBeUndefined();
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("server list", () => {
   it("prints {success:{servers:[...]}} from a stubbed listServers", async () => {
     setApiForTesting(

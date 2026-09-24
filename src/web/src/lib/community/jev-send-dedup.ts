@@ -5,7 +5,7 @@ const log = createLogger({ service: "jev-send-dedup" })
 const TIMEOUT_MS = 1_500
 const THRESHOLD = 0.5
 
-export const DUPLICATE_MESSAGE_ERROR = "Message rejected: duplicate or substantially similar content adds no new information to this channel. Do not resend it."
+export const DUPLICATE_MESSAGE_ERROR = "Message rejected: duplicate or substantially similar content adds no new information to this channel."
 
 export async function isDuplicateBotMessage(input: {
   db: Database
@@ -21,7 +21,7 @@ export async function isDuplicateBotMessage(input: {
   const controller = new AbortController()
   try {
     const messages = await queries.communityMessage.listRecentMessagesForDuplicateCheck(input.db, input.channelId)
-    if (messages.length === 0) return false
+    if (messages.length === 0 || messages[0].authorId === input.authorId) return false
     const age = Date.now() - Date.parse(messages[0].createdAt)
     if (!Number.isFinite(age) || age < 0 || age > 60_000) return false
     const author = await queries.user.getUserSelf(input.db, input.authorId)

@@ -298,12 +298,40 @@ describe("POST /api/community/channels/[id]/messages", () => {
     mockDuplicateCheck.mockResolvedValue(true)
     const res = await POST(botPostReq({ channel: "/demo#0042/general", content: { text: "same update" } }), ctx)
     expect(res.status).toBe(422)
-    expect(await res.json()).toEqual({ error: "Message rejected: duplicate or substantially similar content adds no new information to this channel. Do not resend it." })
+    expect(await res.json()).toEqual({ error: "Message rejected: duplicate or substantially similar content adds no new information to this channel.", code: "duplicate_message" })
     expect(mockHasDeliverableUnreadForAgentScope.mock.invocationCallOrder[0]).toBeLessThan(mockDuplicateCheck.mock.invocationCallOrder[0]!)
     expect(mockCreateMessage).not.toHaveBeenCalled()
     expect(mockBumpBotDailyActivityStatement).not.toHaveBeenCalled()
     expect(mockCreateChannel).not.toHaveBeenCalled()
     expect(mockDispatchCommittedMessage).not.toHaveBeenCalled()
+  })
+
+  it.each(["sent", "unaligned", "forbidden", "attachment", "race"])("force only bypasses JEV: %s", async (outcome) => {
+    mockResolveServerByNameForMember.mockResolvedValue([{ id: "s1" }])
+    mockResolveChannelByNameForMember.mockResolvedValue([{ id: "c1", serverId: "s1", type: "text", parentChannelId: null }])
+    mockDuplicateCheck.mockResolvedValue(true)
+    if (outcome === "unaligned") mockHasDeliverableUnreadForAgentScope.mockResolvedValue(true)
+    if (outcome === "forbidden") mockGetChannelForMember.mockResolvedValue(null)
+    if (outcome === "attachment") mockCreateMessage.mockRejectedValueOnce(new Error("NOT NULL constraint failed: community_message.content"))
+    if (outcome === "race") mockCreateMessage.mockResolvedValueOnce(null)
+    const res = await POST(botPostReq({
+      channel: "/demo#0042/general", content: { text: "same update" }, force: true,
+      ...(outcome === "attachment" ? { attachments: ["foreign"] } : {}),
+    }), ctx)
+    const result = await res.json()
+    expect(mockDuplicateCheck).not.toHaveBeenCalled()
+    if (outcome === "sent") {
+      expect(result.state).toBe("sent")
+      expect(mockCreateMessage).toHaveBeenCalledTimes(1)
+      expect(mockCreateMessage.mock.calls[0][1].expectedSeq).toBeDefined()
+    } else {
+      expect(result.code).toBeUndefined()
+      expect(result.hint).toBeUndefined()
+      if (outcome === "unaligned" || outcome === "race") expect(result).toMatchObject({ state: "blocked", reason: "unaligned" })
+      else expect(res.status).toBe(outcome === "forbidden" ? 403 : 400)
+      expect(mockDispatchCommittedMessage).not.toHaveBeenCalled()
+      if (outcome === "unaligned" || outcome === "forbidden") expect(mockCreateMessage).not.toHaveBeenCalled()
+    }
   })
 
   it("returns concurrent same-nonce success even when the duplicate check rejects", async () => {

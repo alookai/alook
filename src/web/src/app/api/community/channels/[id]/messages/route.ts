@@ -414,13 +414,13 @@ async function handleBotSend(
     return NextResponse.json({ state: "blocked", reason: "unaligned", unreadCount: Math.max(0, latestSeq - seen), latestSeq })
   }
 
-  if (target.kind !== "dm" && await isDuplicateBotMessage({
+  if (!body.force && target.kind !== "dm" && await isDuplicateBotMessage({
     db, env, channelId, authorId: botUserId,
     content: body.content.text,
   })) {
     const replay = await replayResponse()
     if (replay) return replay
-    return NextResponse.json({ error: DUPLICATE_MESSAGE_ERROR }, { status: 422 })
+    return NextResponse.json({ error: DUPLICATE_MESSAGE_ERROR, code: "duplicate_message" }, { status: 422 })
   }
 
   if (target.kind === "forum") {

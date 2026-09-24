@@ -864,6 +864,7 @@ export async function listMessagesSince(
 
 export async function listRecentMessagesForDuplicateCheck(db: Database, channelId: string) {
   return db.select({
+    authorId: communityMessage.authorId,
     name: user.name,
     discriminator: user.discriminator,
     content: communityMessage.content,

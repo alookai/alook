@@ -359,14 +359,23 @@ async function cmdMessageSend(opts: Record<string, unknown>, stdin: CliInputStre
   // the duplicate-send bug. A brand-new invocation gets a fresh nonce, so two
   // genuinely-distinct identical sends are never collapsed.
   const nonce = randomUUID();
-  const res = await sendWithRetry(api, {
-    agentId: agent,
-    channel,
-    content: { text: text ?? "" },
-    attachments: attachmentIds.length > 0 ? attachmentIds : undefined,
-    replyToSeq,
-    nonce,
-  });
+  let res: Awaited<ReturnType<ServerApi["send"]>>;
+  try {
+    res = await sendWithRetry(api, {
+      agentId: agent,
+      channel,
+      content: { text: text ?? "" },
+      attachments: attachmentIds.length > 0 ? attachmentIds : undefined,
+      replyToSeq,
+      nonce,
+      ...(opts.force === true ? { force: true } : {}),
+    });
+  } catch (err) {
+    if (err instanceof Error && "code" in err && err.code === "duplicate_message") {
+      (err as Error & { hint?: string }).hint = "If this message really needs to be sent, retry with --force. This only bypasses duplicate detection; channel alignment is still required.";
+    }
+    throw err;
+  }
   if (res.state === "blocked") {
     throw new CliError(
       `channel not aligned: ${res.unreadCount} unread message(s) in ${channel} (latest #${res.latestSeq}). ` +
@@ -814,6 +823,7 @@ function buildProgram(stdin: CliInputStream): Command {
       (v, prev: string[] = []) => [...prev, v],
       [] as string[],
     )
+    .option("--force", "bypass duplicate detection only; channel alignment and other send checks still apply")
     .option("--reply <seq>", 'reply to a message by its seq in --target (e.g. "#37" or 37)')
     .requiredOption(
       "--remind-after <0|Nm|Nh>",

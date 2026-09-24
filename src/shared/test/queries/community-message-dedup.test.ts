@@ -18,7 +18,7 @@ describe("recent duplicate-check messages", () => {
     fixture.sqlite.exec("DELETE FROM community_message WHERE id = 'm5'");
     const result = await listRecentMessagesForDuplicateCheck(fixture.db, "channel");
     expect(result.map((row) => row.content)).toEqual(["body4", "body3", "body2"]);
-    expect(result[0]).toMatchObject({ content: "body4", name: "helper", discriminator: "1234" });
+    expect(result[0]).toMatchObject({ content: "body4", authorId: "author", name: "helper", discriminator: "1234" });
     expect(await listRecentMessagesForDuplicateCheck(fixture.db, "empty")).toEqual([]);
   });
 

@@ -21,7 +21,7 @@ const input = {
   channelId: "channel", authorId: "bot", content: "The release is complete.",
 }
 const row = (seq: number, age = 1_000) => ({
-  name: `other${seq}`, discriminator: "1234", content: `Release update ${seq}.`, createdAt: new Date(now.getTime() - age).toISOString(),
+  authorId: "other", name: `other${seq}`, discriminator: "1234", content: `Release update ${seq}.`, createdAt: new Date(now.getTime() - age).toISOString(),
 })
 
 describe("bot send duplicate judgment", () => {
@@ -51,6 +51,13 @@ describe("bot send duplicate judgment", () => {
     expect(mocks.recent).toHaveBeenCalledExactlyOnceWith(input.db, "channel")
     expect(mocks.create.mock.calls[0][0].threshold).toBe(0.5)
     expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it("skips when the latest message is its own, without scanning backwards or looking up its handle", async () => {
+    mocks.recent.mockResolvedValue([{ ...row(3), authorId: "bot" }, row(2), row(1)])
+    expect(await isDuplicateBotMessage(input)).toBe(false)
+    expect(mocks.author).not.toHaveBeenCalled()
+    expect(mocks.decide).not.toHaveBeenCalled()
   })
 
   it.each([60_000, 59_999])("checks within the inclusive window at %i ms", async (age) => {
