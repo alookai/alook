@@ -13,6 +13,8 @@ export function MarketingNav({
   revealAfterHero = false,
   collapseLinksOnMobile = false,
   highlightActions = false,
+  containerClassName,
+  containerTestId,
 }: {
   isLoggedIn: boolean;
   showTemplates?: boolean;
@@ -21,6 +23,8 @@ export function MarketingNav({
   revealAfterHero?: boolean;
   collapseLinksOnMobile?: boolean;
   highlightActions?: boolean;
+  containerClassName?: string;
+  containerTestId?: string;
 }) {
   const [revealed, setRevealed] = useState(false);
 
@@ -46,7 +50,10 @@ export function MarketingNav({
         borderBottom: "1px solid var(--landing-border)",
       }}
     >
-      <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-2">
+      <div
+        className={`${containerClassName ?? "mx-auto w-full max-w-5xl px-6"} flex items-center justify-between py-2`}
+        data-testid={containerTestId}
+      >
         <Link href={homeHref} className="flex items-center gap-1">
           <Image src="/alook.svg" alt="Alook" width={22} height={22} />
           <span

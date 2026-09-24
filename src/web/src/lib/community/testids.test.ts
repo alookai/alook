@@ -25,7 +25,13 @@ describe("community QA selectors", () => {
     expect(tid.onboardingIdentityOption("founder")).toBe("community-onboarding-identity-founder")
   })
 
-  it("exposes the landing mobile motion stage from the canonical registry", () => {
+  it("exposes landing geometry surfaces from the canonical registry", () => {
+    expect(tid.landingHeaderContainer).toBe("landing-header-container")
+    expect(tid.landingMainContainer).toBe("landing-main-container")
+    expect(tid.landingFooterContainer).toBe("landing-footer-container")
+    expect(tid.landingFooterBrand).toBe("landing-footer-brand")
+    expect(tid.landingFooterNavigation).toBe("landing-footer-navigation")
+    expect(tid.landingFooterSocial).toBe("landing-footer-social")
     expect(tid.landingMobileMotionStage).toBe("landing-mobile-motion-stage")
   })
 

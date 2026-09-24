@@ -16,6 +16,67 @@ test("homepage SSR keeps product demos out of the heading tree", async ({ page, 
   expect(counts).toEqual({ h1: 1, demoHeadings: 0 })
 })
 
+test("homepage header, body, and footer share responsive content edges", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" })
+  await page.goto("/")
+
+  for (const viewport of [
+    { width: 1440, height: 900, stacked: false },
+    { width: 768, height: 900, stacked: false },
+    { width: 390, height: 844, stacked: true },
+  ]) {
+    await page.setViewportSize(viewport)
+    await page.evaluate(() => new Promise<void>((resolveValue) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolveValue()))
+    }))
+
+    const rect = async (testId: string) => page.getByTestId(testId).evaluate((element) => {
+      const box = element.getBoundingClientRect()
+      return {
+        left: box.left,
+        right: box.right,
+        top: box.top,
+        bottom: box.bottom,
+        width: box.width,
+        height: box.height,
+      }
+    })
+    const socialTargets = await page
+      .getByTestId(tid.landingFooterSocial)
+      .locator("a")
+      .evaluateAll((elements) => elements.map((element) => {
+        const box = element.getBoundingClientRect()
+        return { width: box.width, height: box.height }
+      }))
+    const geometry = {
+      header: await rect(tid.landingHeaderContainer),
+      main: await rect(tid.landingMainContainer),
+      footer: await rect(tid.landingFooterContainer),
+      brand: await rect(tid.landingFooterBrand),
+      navigation: await rect(tid.landingFooterNavigation),
+      social: await rect(tid.landingFooterSocial),
+      socialTargets,
+      documentWidth: await page.evaluate(() => document.documentElement.scrollWidth),
+    }
+
+    for (const surface of [geometry.main, geometry.footer]) {
+      expect(Math.abs(surface.left - geometry.header.left)).toBeLessThanOrEqual(1)
+      expect(Math.abs(surface.right - geometry.header.right)).toBeLessThanOrEqual(1)
+    }
+    expect(geometry.documentWidth).toBeLessThanOrEqual(viewport.width)
+    expect(geometry.socialTargets).toHaveLength(3)
+    expect(geometry.socialTargets.every((target) => target.width >= 44 && target.height >= 44)).toBe(true)
+
+    if (viewport.stacked) {
+      expect(geometry.brand.bottom).toBeLessThanOrEqual(geometry.navigation.top)
+      expect(geometry.navigation.bottom).toBeLessThanOrEqual(geometry.social.top)
+    } else {
+      expect(geometry.brand.right).toBeLessThanOrEqual(geometry.navigation.left)
+      expect(geometry.navigation.right).toBeLessThanOrEqual(geometry.social.left)
+    }
+  }
+})
+
 test("desktop landing keeps the embedded phone Back control on true mobile geometry", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.emulateMedia({ reducedMotion: "reduce" })

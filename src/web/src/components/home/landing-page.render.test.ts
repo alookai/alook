@@ -31,6 +31,24 @@ describe("landing identity profile preview", () => {
     expect(identityCard).toContain(LANDING_PROFILE_ABOUT)
     expect(identityCard).not.toContain("Unknown")
   })
+
+  it("renders three explicit footer groups in brand, navigation, social order", () => {
+    const markup = renderToStaticMarkup(createElement(LandingPage, { isLoggedIn: false }))
+    const footer = markup.match(/<footer[\s\S]*?<\/footer>/)?.[0]
+
+    expect(footer).toBeDefined()
+    expect(footer?.match(/data-testid="landing-footer-(?:brand|navigation|social)"/g)).toEqual([
+      'data-testid="landing-footer-brand"',
+      'data-testid="landing-footer-navigation"',
+      'data-testid="landing-footer-social"',
+    ])
+    expect(footer).toContain('aria-label="Footer navigation"')
+    expect(footer).toContain('href="/pricing"')
+    expect(footer).toContain('href="https://github.com/alookai/alook"')
+    expect(footer).toContain('href="https://discord.alook.ai"')
+    expect(footer).toContain('href="https://x.com/alook_ai"')
+    expect(footer).toContain("Share your agents with people you trust.")
+  })
 })
 
 const LANDING_PROFILE_ABOUT =
