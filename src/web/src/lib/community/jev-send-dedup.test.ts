@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { Database } from "@alook/shared"
 
-const mocks = vi.hoisted(() => ({ recent: vi.fn(), pending: vi.fn(), previous: vi.fn(), decide: vi.fn(), create: vi.fn() }))
+const mocks = vi.hoisted(() => ({ recent: vi.fn(), author: vi.fn(), pending: vi.fn(), previous: vi.fn(), decide: vi.fn(), create: vi.fn() }))
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
   return { ...actual, queries: { ...actual.queries, communityMessage: {
     ...actual.queries.communityMessage, listRecentMessagesForDuplicateCheck: mocks.recent,
-  }, communityAttachment: { findPendingAttachmentsForSender: mocks.pending, listByMessageIds: mocks.previous } } }
+  }, user: { ...actual.queries.user, getUserSelf: mocks.author }, communityAttachment: { findPendingAttachmentsForSender: mocks.pending, listByMessageIds: mocks.previous } } }
 })
 vi.mock("./jev-wake-gate", async () => {
   const actual = await vi.importActual<typeof import("./jev-wake-gate")>("./jev-wake-gate")
@@ -18,11 +18,10 @@ const now = new Date("2026-09-24T12:00:00Z")
 const input = {
   db: {} as Database,
   env: { OPENROUTER_API_KEY: "test-key" },
-  channelId: "channel", authorId: "bot", content: "The release is complete.", attachmentIds: [],
+  channelId: "channel", authorId: "bot", content: "The release is complete.",
 }
 const row = (seq: number, age = 1_000) => ({
-  id: `m${seq}`, seq, authorId: "other", content: "The release is complete.",
-  replyToId: null, createdAt: new Date(now.getTime() - age).toISOString(),
+  name: `other${seq}`, discriminator: "1234", content: `Release update ${seq}.`, createdAt: new Date(now.getTime() - age).toISOString(),
 })
 
 describe("bot send duplicate judgment", () => {
@@ -31,6 +30,7 @@ describe("bot send duplicate judgment", () => {
     vi.setSystemTime(now)
     vi.resetAllMocks()
     mocks.recent.mockResolvedValue([row(3), row(2, 90_000), row(1, 180_000)])
+    mocks.author.mockResolvedValue({ name: "helper", discriminator: "5678" })
     mocks.pending.mockResolvedValue([])
     mocks.previous.mockResolvedValue([])
     mocks.create.mockReturnValue({ name: "openrouter", decide: mocks.decide })
@@ -41,7 +41,13 @@ describe("bot send duplicate judgment", () => {
   it("compares all three messages including older context, in chronological order", async () => {
     expect(await isDuplicateBotMessage(input)).toBe(true)
     const request = mocks.decide.mock.calls[0][0]
-    expect(request.state.recent_messages.map((message: { id: string }) => message.id)).toEqual(["m1", "m2", "m3"])
+    expect(request.state).toEqual({
+      proposed_message: { handle: "helper#5678", content: input.content },
+      recent_messages: [1, 2, 3].map((seq) => ({ handle: `other${seq}#1234`, content: `Release update ${seq}.` })),
+    })
+    expect(mocks.author).toHaveBeenCalledExactlyOnceWith(input.db, "bot")
+    expect(mocks.pending).not.toHaveBeenCalled()
+    expect(mocks.previous).not.toHaveBeenCalled()
     expect(mocks.recent).toHaveBeenCalledExactlyOnceWith(input.db, "channel")
     expect(mocks.create.mock.calls[0][0].threshold).toBe(0.5)
     expect(vi.getTimerCount()).toBe(0)
@@ -62,19 +68,10 @@ describe("bot send duplicate judgment", () => {
     expect(await isDuplicateBotMessage(input)).toBe(false)
     expect(mocks.decide).not.toHaveBeenCalled()
   })
-  it("passes attachments into the decision instead of exempting all attachment sends", async () => {
-    mocks.pending.mockResolvedValue([{ id: "new-file", filename: "result.md", contentType: "text/plain", size: 30 }])
-    mocks.previous.mockResolvedValue([{ id: "old-file", messageId: "m3", filename: "previous.md", contentType: "text/plain", size: 20 }])
-    mocks.decide.mockResolvedValue({ answers: { duplicate: { type: "noul", noul: 0.1 } } })
-    expect(await isDuplicateBotMessage({ ...input, attachmentIds: ["new-file"] })).toBe(false)
-    const state = mocks.decide.mock.calls[0][0].state
-    expect(state.proposed_message.attachments[0].id).toBe("new-file")
-    expect(state.recent_messages[2].attachments[0].id).toBe("old-file")
-    mocks.decide.mockResolvedValue({ answers: { duplicate: { type: "noul", noul: 0.9 } } })
-    expect(await isDuplicateBotMessage({ ...input, attachmentIds: ["new-file"] })).toBe(true)
-  })
-  it("defers invalid attachment ownership to normal send validation", async () => {
-    expect(await isDuplicateBotMessage({ ...input, attachmentIds: ["not-owned"] })).toBe(false)
+  it("fails open when the sender lookup fails or finds no sender", async () => {
+    mocks.author.mockResolvedValueOnce(null).mockRejectedValueOnce(new Error("DB unavailable"))
+    expect(await isDuplicateBotMessage(input)).toBe(false)
+    expect(await isDuplicateBotMessage(input)).toBe(false)
     expect(mocks.decide).not.toHaveBeenCalled()
   })
   it.each([0, 0.499, 0.5, 1])("applies the duplicate probability boundary to %f", async (noul) => {

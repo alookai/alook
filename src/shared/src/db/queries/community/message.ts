@@ -864,14 +864,13 @@ export async function listMessagesSince(
 
 export async function listRecentMessagesForDuplicateCheck(db: Database, channelId: string) {
   return db.select({
-    id: communityMessage.id,
-    authorId: communityMessage.authorId,
+    name: user.name,
+    discriminator: user.discriminator,
     content: communityMessage.content,
-    replyToId: communityMessage.replyToId,
     createdAt: communityMessage.createdAt,
-    seq: communityMessage.seq,
   })
     .from(communityMessage)
+    .innerJoin(user, eq(user.id, communityMessage.authorId))
     .where(eq(communityMessage.channelId, channelId))
     .orderBy(desc(communityMessage.createdAt), desc(communityMessage.id))
     .limit(3);

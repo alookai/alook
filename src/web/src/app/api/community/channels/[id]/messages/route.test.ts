@@ -870,6 +870,8 @@ describe("POST /api/community/channels/[id]/messages", () => {
     const first = await POST(botPostReq(body), ctx)
     const replay = await POST(botPostReq(body), ctx)
 
+    expect(mockDuplicateCheck).toHaveBeenCalledTimes(1)
+    expect(Object.keys(mockDuplicateCheck.mock.calls[0][0]).sort()).toEqual(["authorId", "channelId", "content", "db", "env"])
     expect(first.status).toBe(200)
     expect(replay.status).toBe(200)
     expect(await replay.json()).toEqual(expect.objectContaining({ state: "sent", deduped: true }))

@@ -417,8 +417,6 @@ async function handleBotSend(
   if (target.kind !== "dm" && await isDuplicateBotMessage({
     db, env, channelId, authorId: botUserId,
     content: body.content.text,
-    attachmentIds: body.attachments,
-    replyToSeq: body.replyToSeq,
   })) {
     const replay = await replayResponse()
     if (replay) return replay
