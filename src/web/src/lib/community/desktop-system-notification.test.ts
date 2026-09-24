@@ -149,6 +149,33 @@ describe("desktop system notification candidates", () => {
     expect(channelMetadataMocks.fetch).toHaveBeenCalledWith("server_1", "channel_1")
   })
 
+  it("uses the default empty snapshot while resolving cold channel metadata", async () => {
+    const queryClient = new QueryClient()
+    channelMetadataMocks.fetch.mockResolvedValue({
+      id: "channel_1",
+      serverId: "server_1",
+      name: "general",
+      type: "text",
+      parentChannelId: null,
+      parentMessageId: null,
+      creatorId: null,
+      archived: false,
+      lastMessageAt: null,
+      createdAt: "2026-09-12T00:00:00.000Z",
+    })
+
+    await expect(resolveDesktopSystemNotificationCandidate(
+      create,
+      bump,
+      "viewer_1",
+      queryClient,
+    )).resolves.toMatchObject({
+      title: "Server · #general",
+      body: "Ada: Hello there",
+    })
+    expect(channelMetadataMocks.fetch).toHaveBeenCalledWith("server_1", "channel_1")
+  })
+
   it("resolves cold thread and parent channel names before formatting the desktop copy", async () => {
     const queryClient = new QueryClient()
     channelMetadataMocks.fetch.mockResolvedValueOnce({
