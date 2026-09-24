@@ -19,6 +19,7 @@ export function ComposerAccessoryRail({
   selectedCount,
   onCancelSelection,
   onShareSelection,
+  composerOverlap,
 }: {
   typingNames: string[]
   scrollCount: number
@@ -28,6 +29,7 @@ export function ComposerAccessoryRail({
   selectedCount: number
   onCancelSelection: () => void
   onShareSelection: () => void
+  composerOverlap: number
 }) {
   const hasTyping = typingNames.length > 0
   const hasScroll = scrollCount > 0
@@ -43,6 +45,7 @@ export function ComposerAccessoryRail({
       data-selection={selectMode ? "active" : "inactive"}
       data-layout={layout}
       className="pointer-events-none absolute inset-x-0 bottom-2 z-20 px-2 sm:bottom-4 sm:px-4"
+      style={{ transform: `translateY(-${composerOverlap}px)` }}
     >
       <div
         className={cn(

@@ -14,6 +14,7 @@ vi.mock("./initial-position-aurora.module.css", () => ({
 type ExpectedMessageListProps = {
   channel: string
   messages: Msg[]
+  composerOverlap?: number
   loading?: boolean
   pinnedIds?: Set<string>
   newDividerBefore?: string
@@ -67,6 +68,7 @@ describe("MessageList facade contract", () => {
     const text = source("src/components/community/messages/message-list.tsx")
     expect(text).toContain('variant = "channel"')
     expect(text).toContain("initialScrollReady = true")
+    expect(text).toContain("composerOverlap = 0")
     expect(text).toContain("useMessageListController(resolvedProps)")
     expect(text).toContain("return renderMessageListView(resolvedProps, controller, () => (")
     expect(text).toContain("<VirtualRows")

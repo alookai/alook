@@ -806,14 +806,12 @@ export function useScrollAnchor({
     if (delta !== 0) el.scrollTop += delta
   }, [heroHeight])
 
-  // Composer/viewport resize compensation — the composer is a flex sibling
-  // of this scroll viewport with no `shrink-0`, so when it grows/shrinks
-  // (auto-grow while typing, clearing on send, opening/closing the reply
-  // banner, adding/removing attachment chips) the viewport's `clientHeight`
-  // changes and the bottom-pinned content (`min-h-full … justify-end`) would
-  // otherwise appear to jump. A `ResizeObserver` on the viewport itself
-  // catches every such resize regardless of cause without coupling to the
-  // composer component. Only a viewport that was literally pinned within
+  // Viewport resize compensation — shell or mobile-keyboard changes can alter
+  // this viewport's `clientHeight`, and the bottom-pinned content
+  // (`min-h-full … justify-end`) would otherwise appear to jump. The channel
+  // composer's internal growth is isolated by its stable overlay shell and
+  // does not reach this observer. A `ResizeObserver` on the viewport itself
+  // catches every real viewport resize. Only a viewport literally pinned within
   // 1px re-pins instantly (NOT the smooth `scrollToBottom` — a smooth
   // animation firing on every keystroke resize is janky and fights rapid
   // successive resizes). Every away position is left to the browser; in

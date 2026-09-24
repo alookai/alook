@@ -65,6 +65,7 @@ function props(overrides: Partial<ResolvedMessageListProps> = {}): ResolvedMessa
     onOpenThread: vi.fn(),
     variant: "channel",
     initialScrollReady: true,
+    composerOverlap: 0,
     ...overrides,
   }
 }
@@ -561,6 +562,32 @@ describe("useMessageListController", () => {
     expect(scrollNode.scrollTop).toBe(4)
     runNextFrame()
     expect(frameCallbacks.size).toBe(0)
+    act(() => renderer!.unmount())
+  })
+
+  it("rechecks selected-row clearance when the composer moves the rail", () => {
+    selectionRailTop = 692
+    selectedRowBottom = 684
+    let renderer: ReturnType<typeof rtlRender>
+    act(() => {
+      renderer = rtlRender(
+        React.createElement(Probe, { value: props({ composerOverlap: 0 }) })
+      )
+    })
+
+    act(() => latest.onEnterSelectId("m1"))
+    runNextFrame()
+    runNextFrame()
+    expect(scrollNode.scrollTop).toBe(0)
+
+    selectionRailTop = 596
+    act(() => {
+      renderer!.rerender(
+        React.createElement(Probe, { value: props({ composerOverlap: 96 }) })
+      )
+    })
+    runNextFrame()
+    expect(scrollNode.scrollTop).toBe(96)
     act(() => renderer!.unmount())
   })
 

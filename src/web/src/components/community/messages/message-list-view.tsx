@@ -33,6 +33,7 @@ export function renderMessageListView(
             selectedCount={controller.selectedIds.size}
             onCancelSelection={controller.exitSelect}
             onShareSelection={() => controller.setShareOpen(true)}
+            composerOverlap={props.composerOverlap}
           />
         )}
         <div

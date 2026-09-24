@@ -1,10 +1,11 @@
 import React from "react"
-import { act, render } from "@/test/react-dom-harness"
+import { act, fireEvent, render } from "@/test/react-dom-harness"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { ThreadChannelSurface } from "./thread-channel-surface"
 import { ChannelHeader, ChannelHeaderSkeleton } from "./channel-header"
 import { CommunityPanel } from "../shell/community-panel"
 import { Composer } from "../messages/composer"
+import { ComposerOverlayShell } from "../messages/composer-overlay-shell"
 import { MessageContextSheet } from "../messages/message-context-sheet"
 import { MessageList } from "../messages/message-list"
 import { ThreadOpener } from "../messages/thread-opener"
@@ -65,6 +66,15 @@ vi.mock("@/components/community/shell/community-panel", () => ({
 vi.mock("@/components/community/messages/composer", () => ({
   Composer: vi.fn(() => null),
   ComposerSkeleton: vi.fn(() => null),
+}))
+vi.mock("@/components/community/messages/composer-overlay-shell", () => ({
+  ComposerOverlayShell: vi.fn(({ children, onOverlapChange, ...props }: {
+    children: React.ReactNode
+    onOverlapChange: (overlap: number) => void
+  }) => React.createElement("div", {
+    ...props,
+    onClick: () => onOverlapChange(96),
+  }, children)),
 }))
 vi.mock("@/components/community/messages/message-context-sheet", () => ({
   MessageContextSheet: vi.fn(() => null),
@@ -132,6 +142,7 @@ const mockedChannelHeader = vi.mocked(ChannelHeader)
 const mockedChannelHeaderSkeleton = vi.mocked(ChannelHeaderSkeleton)
 const mockedCommunityPanel = vi.mocked(CommunityPanel)
 const mockedComposer = vi.mocked(Composer)
+const mockedComposerOverlayShell = vi.mocked(ComposerOverlayShell)
 const mockedMessageContextSheet = vi.mocked(MessageContextSheet)
 const mockedMessageList = vi.mocked(MessageList)
 const mockedUseChannelMessageFeed = vi.mocked(useChannelMessageFeed)
@@ -306,6 +317,15 @@ describe("ThreadChannelSurface ownership", () => {
     }))
     act(() => composerProps.onCancelReply?.())
     expect(mocks.setReplyTo).toHaveBeenCalledWith(null)
+  })
+
+  it("passes measured composer overlap to the thread message list", () => {
+    const renderer = render(React.createElement(ThreadChannelSurface, surfaceProps()))
+
+    expect(mockedComposerOverlayShell).toHaveBeenCalled()
+    expect(mockedMessageList.mock.calls.at(-1)?.[0].composerOverlap).toBe(0)
+    fireEvent.click(renderer.getByTestId("community-composer-shell"))
+    expect(mockedMessageList.mock.calls.at(-1)?.[0].composerOverlap).toBe(96)
   })
 
   it("gates live and preview Pin actions without removing the pinned panel control", () => {

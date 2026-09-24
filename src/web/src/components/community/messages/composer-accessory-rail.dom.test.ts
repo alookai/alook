@@ -32,6 +32,7 @@ const baseProps = {
   selectedCount: 0,
   onCancelSelection: vi.fn(),
   onShareSelection: vi.fn(),
+  composerOverlap: 0,
 }
 
 describe("ComposerAccessoryRail", () => {
@@ -132,6 +133,7 @@ describe("ComposerAccessoryRail", () => {
     expect(railClasses).toContain("bottom-2")
     expect(railClasses).toContain("sm:bottom-4")
     expect(railClasses).not.toContain("bottom-3")
+    expect(rail).toHaveStyle({ transform: "translateY(-0px)" })
     expect(rail).toHaveAttribute("data-layout", "centered")
     const scroll = renderer.getByTestId(tid.scrollToPresent)
     expect(scroll).toHaveAttribute("aria-label", "Jump to present, 4 unread below")
@@ -140,6 +142,12 @@ describe("ComposerAccessoryRail", () => {
       .toContain("grid-cols-[minmax(0,1fr)_minmax(0,max-content)_minmax(0,1fr)]")
     fireEvent.click(scroll)
     expect(baseProps.onScroll).toHaveBeenCalledOnce()
+  })
+
+  it("moves above the live composer overlap", () => {
+    const renderer = renderRail({ composerOverlap: 96 })
+    expect(renderer.getByTestId(tid.composerAccessoryRail))
+      .toHaveStyle({ transform: "translateY(-96px)" })
   })
 
   it("never reserves composer space for WebSocket state", () => {

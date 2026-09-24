@@ -10,11 +10,13 @@ import { VirtualRows } from "./virtual-cursor-list"
 export function MessageList({
   variant = "channel",
   initialScrollReady = true,
+  composerOverlap = 0,
   ...props
 }: MessageListProps) {
   const hoverCapable = useHoverCapable()
   const resolvedProps: ResolvedMessageListProps = {
     ...props,
+    composerOverlap,
     variant,
     initialScrollReady,
     hoverCapable,

@@ -12,6 +12,7 @@ const SELECTION_RAIL_GAP_PX = 8
 
 export function useMessageListController({
   messages,
+  composerOverlap,
   loading,
   newDividerBefore,
   scrollToMessageId,
@@ -170,7 +171,7 @@ export function useMessageListController({
     }
     keepSelectionClearOfRail()
     return () => window.cancelAnimationFrame(frame)
-  }, [selectMode, selectedIds, scrollRef])
+  }, [composerOverlap, selectMode, selectedIds, scrollRef])
 
   useEffect(() => {
     if (!onScrollRoot) return
