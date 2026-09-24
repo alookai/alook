@@ -5,7 +5,7 @@ import {
   communityFrameEvents,
   proxyCommunityWebSockets,
 } from "./_fixtures/community-ws-proxy"
-import { seedChannel, seedJoinServer, seedMessage, seedServer } from "./_fixtures/seed"
+import { seedChannel, seedJoinServer, seedMessage, seedServer, seedThread } from "./_fixtures/seed"
 import {
   abortScrollTrace,
   attachScrollTrace,
@@ -203,6 +203,39 @@ async function establishExactPinnedPrecondition(
   return establishScrollDistancePrecondition(scroller, label, targetDistanceToEnd)
 }
 
+async function establishTailMessageBelowViewportPrecondition(
+  scroller: Locator,
+  label: string,
+  tailMessageId: string,
+): Promise<void> {
+  const driveTailBelowViewport = () => scroller.evaluate((element, messageId) => {
+    const root = element as HTMLElement
+    const rootRect = root.getBoundingClientRect()
+    const tail = Array.from(root.querySelectorAll<HTMLElement>("[data-msg-id]"))
+      .find((row) => row.dataset.msgId === messageId)
+    const distanceToEnd = Math.max(0, root.scrollHeight - root.clientHeight - root.scrollTop)
+    // A fresh virtualizer may not have mounted the known tail row yet even
+    // while the viewport is still pinned. Only accept an absent row after an
+    // actual away position has been established.
+    const tailBelowViewport = tail
+      ? tail.getBoundingClientRect().top >= rootRect.bottom - 1
+      : distanceToEnd >= Math.max(1, root.clientHeight / 2)
+    if (!tailBelowViewport) {
+      root.scrollTop = Math.max(0, root.scrollTop - Math.max(400, root.clientHeight / 2))
+      root.dispatchEvent(new Event("scroll"))
+    }
+    return { tailBelowViewport, scrollTop: root.scrollTop, distanceToEnd }
+  }, tailMessageId)
+
+  await expect.poll(driveTailBelowViewport, {
+    timeout: 20_000,
+    message: `${label}: tail row must leave the viewport so the accessory rail is semantically required`,
+  }).toMatchObject({ tailBelowViewport: true })
+  await scroller.evaluate(() => new Promise<void>((resolveValue) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolveValue()))
+  }))
+}
+
 async function establishMidHistoryPrecondition(
   scroller: Locator,
 ): Promise<{ scrollTop: number; scrollHeight: number; clientHeight: number; distanceToEnd: number }> {
@@ -259,6 +292,7 @@ type MessageViewportGeometry = {
   railPosition: string | null
   railRect: { top: number; bottom: number } | null
   composerRect: { top: number; bottom: number } | null
+  surfaceChannelId: string | null
   scrollerRect: { top: number; bottom: number }
 }
 
@@ -266,6 +300,8 @@ async function readMessageViewportGeometry(scroller: Locator): Promise<MessageVi
   return scroller.evaluate((element, accessoryRailTestId) => {
     const root = element as HTMLElement
     const rootRect = root.getBoundingClientRect()
+    const boundary = root.closest<HTMLElement>("[data-message-scroller-boundary]")
+    const surface = root.closest<HTMLElement>('[data-slot="community-conversation-surface"]')
     const firstVisible = Array.from(root.querySelectorAll<HTMLElement>("[data-msg-id]"))
       .find((row) => {
         const rect = row.getBoundingClientRect()
@@ -273,9 +309,9 @@ async function readMessageViewportGeometry(scroller: Locator): Promise<MessageVi
       }) ?? null
     const firstRect = firstVisible?.getBoundingClientRect() ?? null
     const content = root.querySelector<HTMLElement>("[data-message-list-content]")
-    const rail = root.querySelector<HTMLElement>(`[data-testid="${accessoryRailTestId}"]`)
+    const rail = boundary?.querySelector<HTMLElement>(`[data-testid="${accessoryRailTestId}"]`)
     const railRect = rail?.getBoundingClientRect() ?? null
-    const composer = document.querySelector<HTMLElement>('[data-slot="community-composer-overlay"]')
+    const composer = surface?.querySelector<HTMLElement>('[data-slot="community-composer-overlay"]')
     const composerRect = composer?.getBoundingClientRect() ?? null
     return {
       scrollTop: root.scrollTop,
@@ -288,6 +324,7 @@ async function readMessageViewportGeometry(scroller: Locator): Promise<MessageVi
       railPosition: rail ? getComputedStyle(rail).position : null,
       railRect: railRect ? { top: railRect.top, bottom: railRect.bottom } : null,
       composerRect: composerRect ? { top: composerRect.top, bottom: composerRect.bottom } : null,
+      surfaceChannelId: surface?.dataset.channelId ?? null,
       scrollerRect: { top: rootRect.top, bottom: rootRect.bottom },
     }
   }, tid.composerAccessoryRail)
@@ -338,15 +375,14 @@ function expectAwayLatchPreserved(
 
 function expectFixedMessageGeometry(geometry: MessageViewportGeometry, label: string): void {
   expect(geometry.contentPaddingBottom, `${label}: desktop tail safe area`).toBe(72)
+  expect(geometry.composerRect, `${label}: scoped composer`).not.toBeNull()
   if (geometry.railRect) {
     expect(geometry.railPosition, `${label}: rail position`).toBe("absolute")
     expect(geometry.railRect.top, `${label}: rail top`).toBeGreaterThanOrEqual(geometry.scrollerRect.top - 1)
     expect(geometry.railRect.bottom, `${label}: rail bottom`).toBeLessThanOrEqual(geometry.scrollerRect.bottom + 1)
-    if (geometry.composerRect) {
-      expect(geometry.railRect.bottom, `${label}: rail clears composer`).toBeLessThanOrEqual(
-        geometry.composerRect.top + 1,
-      )
-    }
+    expect(geometry.railRect.bottom, `${label}: rail clears composer`).toBeLessThanOrEqual(
+      geometry.composerRect!.top + 1,
+    )
   }
 }
 
@@ -784,6 +820,12 @@ test.describe.serial("message scroll characterization", () => {
 
   test("exact-pinned composer and accessory resizes preserve geometry boundaries", async ({ asUser }, testInfo) => {
     test.setTimeout(180_000)
+    const splitThreadId = await seedThread(
+      "alice",
+      composerProfile.ids.at(-1)!,
+      `scroll split ${Date.now()}`,
+    )
+    const splitProfile = await seedProfile(splitThreadId, 24, false, "alice")
     const alice = await asUser("alice")
     const bob = await asUser("bob")
     await alice.page.setViewportSize(VIEWPORT)
@@ -907,7 +949,7 @@ test.describe.serial("message scroll characterization", () => {
       replyTargetBox!.x + replyTargetBox!.width / 2,
       replyTargetBox!.y + replyTargetBox!.height / 2,
     )
-    const replyButton = replyTarget.getByRole("button", { name: "Reply" })
+    const replyButton = replyTarget.getByRole("button", { name: "Reply", exact: true })
     await expect(replyButton).toBeVisible()
     await expect(replyButton).toBeInViewport()
     expect((await waitForCommittedGeometry(scroller)).distanceToEnd).toBeLessThanOrEqual(1)
@@ -927,8 +969,14 @@ test.describe.serial("message scroll characterization", () => {
     await endScrollTraceAnalysis(alice.page, "reply-banner-pinned")
     await advanceScrollTraceFrame(scroller)
 
-    await establishScrollDistancePrecondition(scroller, "attachment-resize-away", 300)
+    await establishTailMessageBelowViewportPrecondition(
+      scroller,
+      "attachment-resize-away",
+      composerProfile.ids.at(-1)!,
+    )
+    await expect(alice.page.getByTestId(tid.composerAccessoryRail)).toBeVisible()
     const attachmentBase = await waitForCommittedGeometry(scroller)
+    expect(attachmentBase.railRect, "attachment-base-away rail").not.toBeNull()
     await beginScrollTraceAnalysis(alice.page, "attachment-chip-away")
     await alice.page.getByTestId(tid.composerFileInput).setInputFiles({
       name: "geometry-only.txt",
@@ -940,6 +988,7 @@ test.describe.serial("message scroll characterization", () => {
     expect(attachmentOpen.clientHeight).toBe(attachmentBase.clientHeight)
     expectViewportAnchorPreserved(attachmentBase, attachmentOpen, "attachment-open-away")
     expectFixedMessageGeometry(attachmentOpen, "attachment-open-away")
+    expect(attachmentOpen.railRect, "attachment-open-away rail").not.toBeNull()
     await alice.page.getByRole("button", { name: "Remove file" }).click()
     await expect(alice.page.getByText("geometry-only.txt", { exact: true })).toHaveCount(0)
     const attachmentClosed = await waitForCommittedGeometry(scroller)
@@ -957,6 +1006,7 @@ test.describe.serial("message scroll characterization", () => {
     expect(typingOpen.clientHeight).toBe(typingBase.clientHeight)
     expectViewportAnchorPreserved(typingBase, typingOpen, "typing-rail-away")
     expectFixedMessageGeometry(typingOpen, "typing-rail-away")
+    expect(typingOpen.railRect, "typing-rail-away rail").not.toBeNull()
     await bobEditable.fill("")
     await endScrollTraceAnalysis(alice.page, "typing-rail-away")
     await advanceScrollTraceFrame(scroller)
@@ -979,6 +1029,58 @@ test.describe.serial("message scroll characterization", () => {
     expect(mutationPosts).toBe(0)
     expect(proxy.frames.flatMap(communityFrameEvents).filter((event) =>
       event.type === "community:message.create" && event.channelId === composerChannelId)).toHaveLength(0)
+
+    await alice.page.goto(`/c/channels/${serverId}/${splitThreadId}`, { waitUntil: "commit" })
+    const split = alice.page.getByTestId(tid.threadSplit)
+    await expect(split).toHaveAttribute("data-layout", "split", { timeout: 30_000 })
+    const parentPanel = alice.page.getByTestId(tid.threadSplitParent)
+    const threadPanel = alice.page.getByTestId(tid.threadSplitPanel)
+    const parentSurface = parentPanel.locator('[data-slot="community-conversation-surface"]')
+    const threadSurface = threadPanel.locator('[data-slot="community-conversation-surface"]')
+    await expect(parentSurface).toHaveAttribute("data-channel-id", composerChannelId)
+    await expect(threadSurface).toHaveAttribute("data-channel-id", splitThreadId)
+    await expect(parentSurface).toHaveCount(1)
+    await expect(threadSurface).toHaveCount(1)
+
+    const parentEditable = composerEditable(alice.page, parentPanel)
+    const threadEditable = composerEditable(alice.page, threadPanel)
+    await parentEditable.fill(composerLines("split-parent", 2))
+    await threadEditable.fill(composerLines("split-thread", 6))
+    const parentScroller = parentPanel.getByTestId(tid.messageScroller)
+    const threadScroller = threadPanel.getByTestId(tid.messageScroller)
+    await establishTailMessageBelowViewportPrecondition(
+      parentScroller,
+      "split-parent-away",
+      composerProfile.ids.at(-1)!,
+    )
+    await establishTailMessageBelowViewportPrecondition(
+      threadScroller,
+      "split-thread-away",
+      splitProfile.ids.at(-1)!,
+    )
+    await expect(parentPanel.getByTestId(tid.composerAccessoryRail)).toBeVisible()
+    await expect(threadPanel.getByTestId(tid.composerAccessoryRail)).toBeVisible()
+
+    const parentGeometry = await waitForCommittedGeometry(parentScroller)
+    const threadGeometry = await waitForCommittedGeometry(threadScroller)
+    const parentComposerBox = await parentSurface
+      .locator('[data-slot="community-composer-overlay"]')
+      .boundingBox()
+    const threadComposerBox = await threadSurface
+      .locator('[data-slot="community-composer-overlay"]')
+      .boundingBox()
+    expect(parentGeometry.surfaceChannelId).toBe(composerChannelId)
+    expect(threadGeometry.surfaceChannelId).toBe(splitThreadId)
+    expect(parentGeometry.railRect, "split parent rail is located from its boundary").not.toBeNull()
+    expect(threadGeometry.railRect, "split thread rail is located from its boundary").not.toBeNull()
+    expect(parentComposerBox).not.toBeNull()
+    expect(threadComposerBox).not.toBeNull()
+    expect(Math.abs(parentGeometry.composerRect!.top - parentComposerBox!.y)).toBeLessThanOrEqual(1)
+    expect(Math.abs(threadGeometry.composerRect!.top - threadComposerBox!.y)).toBeLessThanOrEqual(1)
+    expect(threadGeometry.composerRect!.top).not.toBe(parentGeometry.composerRect!.top)
+    expectFixedMessageGeometry(parentGeometry, "split-parent")
+    expectFixedMessageGeometry(threadGeometry, "split-thread")
+    expect(mutationPosts).toBe(0)
   })
 
   test.afterEach(async ({ page }) => {

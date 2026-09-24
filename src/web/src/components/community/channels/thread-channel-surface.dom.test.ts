@@ -323,6 +323,8 @@ describe("ThreadChannelSurface ownership", () => {
     const renderer = render(React.createElement(ThreadChannelSurface, surfaceProps()))
 
     expect(mockedComposerOverlayShell).toHaveBeenCalled()
+    expect(renderer.container.querySelector('[data-slot="community-conversation-surface"]'))
+      .toHaveAttribute("data-channel-id", "thread_1")
     expect(mockedMessageList.mock.calls.at(-1)?.[0].composerOverlap).toBe(0)
     fireEvent.click(renderer.getByTestId("community-composer-shell"))
     expect(mockedMessageList.mock.calls.at(-1)?.[0].composerOverlap).toBe(96)

@@ -126,7 +126,11 @@ export function TextChannelSurface({
             />
           )}
             body={(
-            <Body className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <Body
+              data-slot="community-conversation-surface"
+              data-channel-id={channelId}
+              className="flex min-h-0 min-w-0 flex-1 flex-col"
+            >
               <MessageList
                 key={channelId}
                 channel={channelName}
