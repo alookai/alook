@@ -4,7 +4,11 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { GithubOutboundLink } from "@/components/github-outbound-link";
-import { MARKETING_SITE_LINKS } from "./marketing-site-links";
+import {
+  MARKETING_SITE_LINK_CLASS_NAME,
+  MARKETING_SITE_LINK_STYLE,
+  MARKETING_SITE_LINKS,
+} from "./marketing-site-links";
 
 export function MarketingNav({
   isLoggedIn,
@@ -71,13 +75,12 @@ export function MarketingNav({
 
         <div className="relative flex items-center gap-3">
           {MARKETING_SITE_LINKS.map((link) => {
-            const className = `${collapseLinksOnMobile || link.usesDocumentNavigation ? "hidden sm:block" : "block"} marketing-site-link px-3 py-2 text-xs uppercase tracking-widest transition-opacity duration-150 hover:opacity-70`;
-            const style = { fontFamily: "var(--font-mono)", color: "var(--landing-text)" };
+            const className = `${collapseLinksOnMobile || link.usesDocumentNavigation ? "hidden sm:block" : "block"} marketing-site-link ${MARKETING_SITE_LINK_CLASS_NAME}`;
 
             return link.usesDocumentNavigation ? (
-              <a key={link.href} href={link.href} className={className} style={style}>{link.label}</a>
+              <a key={link.href} href={link.href} className={className} style={MARKETING_SITE_LINK_STYLE}>{link.label}</a>
             ) : (
-              <Link key={link.href} href={link.href} className={className} style={style}>{link.label}</Link>
+              <Link key={link.href} href={link.href} className={className} style={MARKETING_SITE_LINK_STYLE}>{link.label}</Link>
             );
           })}
           {showTemplates && (
@@ -149,9 +152,9 @@ export function MarketingNav({
                 }}
               >
                 {MARKETING_SITE_LINKS.map((link) => link.usesDocumentNavigation ? (
-                  <a key={link.href} href={link.href} className="marketing-mobile-site-link block px-3 py-2 text-xs uppercase tracking-widest">{link.label}</a>
+                  <a key={link.href} href={link.href} className={`marketing-mobile-site-link block ${MARKETING_SITE_LINK_CLASS_NAME}`} style={MARKETING_SITE_LINK_STYLE}>{link.label}</a>
                 ) : (
-                  <Link key={link.href} href={link.href} className="marketing-mobile-site-link block px-3 py-2 text-xs uppercase tracking-widest">{link.label}</Link>
+                  <Link key={link.href} href={link.href} className={`marketing-mobile-site-link block ${MARKETING_SITE_LINK_CLASS_NAME}`} style={MARKETING_SITE_LINK_STYLE}>{link.label}</Link>
                 ))}
                 {showTemplates && <Link href="/templates" className="block px-3 py-2 text-xs uppercase tracking-widest">Templates</Link>}
                 <GithubOutboundLink surface="public_nav" target="_blank" rel="noopener noreferrer" className="block px-3 py-2 text-xs uppercase tracking-widest">GitHub</GithubOutboundLink>

@@ -117,11 +117,30 @@ test("homepage shares header and footer site links and collapses mobile header l
     label: element.textContent?.trim(),
   }))
   expect(await mobileLinks.evaluateAll(linkContract)).toEqual(expectedLinks)
-  expect(await page.getByTestId(tid.landingFooterNavigation).locator("a").evaluateAll(linkContract))
-    .toEqual(expectedLinks)
+  const footerLinks = page.getByTestId(tid.landingFooterNavigation).locator("a")
+  expect(await footerLinks.evaluateAll(linkContract)).toEqual(expectedLinks)
+
+  const styleContract = (element: Element) => {
+    const style = getComputedStyle(element)
+    return {
+      color: style.color,
+      fontFamily: style.fontFamily,
+      fontSize: style.fontSize,
+      letterSpacing: style.letterSpacing,
+      paddingInlineEnd: style.paddingInlineEnd,
+      paddingInlineStart: style.paddingInlineStart,
+      textTransform: style.textTransform,
+      transitionDuration: style.transitionDuration,
+      transitionProperty: style.transitionProperty,
+    }
+  }
+  expect(await mobileLinks.first().evaluate(styleContract))
+    .toEqual(await footerLinks.first().evaluate(styleContract))
 
   await page.setViewportSize({ width: 768, height: 900 })
   for (const link of await inlineLinks.all()) await expect(link).toBeVisible()
+  expect(await inlineLinks.first().evaluate(styleContract))
+    .toEqual(await footerLinks.first().evaluate(styleContract))
 })
 
 test("desktop landing keeps the embedded phone Back control on true mobile geometry", async ({ page }) => {

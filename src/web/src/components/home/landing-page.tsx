@@ -14,7 +14,11 @@ import { HomepageFaq } from "./homepage-faq"
 import { LandingReachMotion } from "./landing-reach-motion"
 import { LandingShellMotion } from "./landing-shell-motion"
 import { MarketingNav } from "./marketing-nav"
-import { MARKETING_SITE_LINKS } from "./marketing-site-links"
+import {
+  MARKETING_SITE_LINK_CLASS_NAME,
+  MARKETING_SITE_LINK_STYLE,
+  MARKETING_SITE_LINKS,
+} from "./marketing-site-links"
 import { BRAND_SLOGAN } from "@/lib/brand-copy"
 import {
   LANDING_CONTINUITY,
@@ -431,9 +435,9 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
           </div>
           <nav className={styles.footerNavigation} aria-label="Footer navigation" data-testid={tid.landingFooterNavigation}>
             {MARKETING_SITE_LINKS.map((link) => link.usesDocumentNavigation ? (
-              <a key={link.href} href={link.href}>{link.label}</a>
+              <a key={link.href} href={link.href} className={MARKETING_SITE_LINK_CLASS_NAME} style={MARKETING_SITE_LINK_STYLE}>{link.label}</a>
             ) : (
-              <Link key={link.href} href={link.href}>{link.label}</Link>
+              <Link key={link.href} href={link.href} className={MARKETING_SITE_LINK_CLASS_NAME} style={MARKETING_SITE_LINK_STYLE}>{link.label}</Link>
             ))}
           </nav>
         </div>
