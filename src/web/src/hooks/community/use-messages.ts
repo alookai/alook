@@ -10,7 +10,7 @@ import {
   type InfiniteData,
   type QueryClient,
 } from "@tanstack/react-query"
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { apiFetchProfiles, messageProfilePatches } from "@/lib/community/profile-seed"
 import { captureChannelMetadataToken, isChannelMetadataTokenCurrent } from "@/hooks/community/channel-metadata"
 import { communityKeys } from "@/lib/query-keys"
@@ -366,8 +366,9 @@ function useMessagesInner(
     [queryKey, opts?.anchorMessageId],
   )
   const activationRevalidationRef = useRef({
-    anchorGateObserved: false,
+    anchorGateObserved: !anchorResolved && !!scopeId,
     requested: false,
+    restoreObserved: isRestoring,
     viewKey,
   })
   const attemptIdRef = useRef(0)
@@ -376,6 +377,7 @@ function useMessagesInner(
     data: PageCache | undefined
     viewKey: string
   } | null>(null)
+  const networkFetchObservedRef = useRef(false)
   const [presentOverride, setPresentOverride] = useState<PresentOverride | null>(null)
   const forceNewest = presentOverride?.viewKey === viewKey
   const jumpPending = forceNewest && presentOverride?.phase === "requested"
@@ -423,14 +425,19 @@ function useMessagesInner(
     // Message bases are persisted, while accepted/session rows live in an
     // in-memory overlay. Treat each ordinary active message query as stale so
     // disabled→enabled activation revalidates even inside the global 5-second
-    // freshness window. TanStack keeps cached pages painted during the fetch.
-    // A nonempty window missing the resolved anchor is the one exception: Fix
-    // 3 below owns that repair and must fetch the NEW anchor page before any
+    // freshness window. Once this mounted observer has seen a real request,
+    // hold it fresh so a later disabled→enabled transition cannot duplicate
+    // that request. TanStack keeps cached pages painted during the fetch. A
+    // nonempty window missing the resolved anchor is also held fresh: Fix 3
+    // below owns that repair and must fetch the NEW anchor page before any
     // persisted pageParam can replace or discard the existing history.
-    staleTime: (cachedQuery) => cachedWindowNeedsAnchorReconcile(
-      cachedQuery.state.data as PageCache | undefined,
-      forceNewest ? null : anchorId,
-      reconcileLateAnchor,
+    staleTime: (cachedQuery) => (
+      networkFetchObservedRef.current
+      || cachedWindowNeedsAnchorReconcile(
+        cachedQuery.state.data as PageCache | undefined,
+        forceNewest ? null : anchorId,
+        reconcileLateAnchor,
+      )
     ) ? Infinity : 0,
   })
   const anchorRepairNeeded = cachedWindowNeedsAnchorReconcile(
@@ -438,43 +445,55 @@ function useMessagesInner(
     anchorId,
     reconcileLateAnchor,
   )
+  useLayoutEffect(() => {
+    networkFetchObservedRef.current = false
+    const mountedQuery = queryClient.getQueryCache().find({ queryKey, exact: true })
+    if (!mountedQuery) return
+    return queryClient.getQueryCache().subscribe((event) => {
+      if (
+        event.type === "updated"
+        && event.query.queryHash === mountedQuery.queryHash
+        && event.action.type === "success"
+        && !event.action.manual
+      ) {
+        networkFetchObservedRef.current = true
+      }
+    })
+  }, [queryClient, queryKey, viewKey])
 
   useEffect(() => {
     const state = activationRevalidationRef.current
     if (state.viewKey !== viewKey) {
-      const anchorGateObserved = !anchorResolved && !!scopeId
       activationRevalidationRef.current = {
-        anchorGateObserved,
+        anchorGateObserved: !anchorResolved && !!scopeId,
         requested: false,
+        restoreObserved: isRestoring,
         viewKey,
       }
       return
     }
-    if (!anchorResolved && !!scopeId && !state.anchorGateObserved) {
-      state.anchorGateObserved = true
-    }
-  }, [anchorResolved, scopeId, viewKey])
+    if (!anchorResolved && !!scopeId) state.anchorGateObserved = true
+    if (isRestoring) state.restoreObserved = true
+  }, [anchorResolved, isRestoring, scopeId, viewKey])
 
   useEffect(() => {
     const state = activationRevalidationRef.current
     if (state.viewKey !== viewKey) return
     if (
       isRestoring
-      || !state.anchorGateObserved
+      || (!state.anchorGateObserved && !state.restoreObserved)
       || state.requested
     ) return
     if (!enabled || query.data === undefined || opts?.revalidateOnMount === false) return
 
-    // Cached channel/DM routes paint before their non-persisted read-state is
-    // ready. That temporary anchor gate can consume the observer's ordinary
-    // mount fetch both on same-session returns and after persisted restore.
-    // Revalidate once the anchor is ready. `cancelRefetch: false` joins an
-    // automatic fetch already in flight instead of replacing it. Do not use
-    // `dataUpdatedAt` as proof of a completed network fetch here: retained
-    // cache writes can advance that timestamp while the anchor gate is still
-    // closed, which would incorrectly suppress this required revalidation.
+    // Guarantee one actual post-mount fetch for cached conversation observers.
+    // Restore/read-state notifications can batch quickly enough that React
+    // never commits an intermediate disabled render, while retained cache
+    // writes are not proof that the network ran. The query-cache subscription
+    // distinguishes manual cache success from a completed request, while
+    // `cancelRefetch: false` joins an automatic request already in flight.
     state.requested = true
-    if (anchorRepairNeeded) return
+    if (anchorRepairNeeded || networkFetchObservedRef.current) return
     void queryClient.invalidateQueries(
       { queryKey, exact: true, refetchType: "active" },
       { cancelRefetch: false },

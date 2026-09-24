@@ -53,6 +53,25 @@ function DmCapture({ lastReadMessageId, onRender }: {
   return null
 }
 
+function RevalidatingDmCapture({ lastReadMessageId, onRender }: {
+  lastReadMessageId: string | null | undefined
+  onRender: (snapshot: Snapshot) => void
+}) {
+  const result = useDmMessages("dm_activation", {
+    lastReadMessageId,
+    waitForAnchor: true,
+    reconcileLateAnchor: true,
+    revalidateOnMount: true,
+  })
+  onRender({
+    anchorReconciled: result.anchorReconciled,
+    hasMoreNewer: result.hasMoreNewer,
+    ids: result.messages.map((message) => message.id),
+    isFetching: result.isFetching,
+  })
+  return null
+}
+
 function DmRouteCapture({ onRender }: {
   onRender: (snapshot: Snapshot & { readStateFetching: boolean }) => void
 }) {
@@ -322,6 +341,111 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
     ])
     expect(invalidateQueries).toHaveBeenCalledTimes(1)
     expect(snapshots.every((snapshot) => snapshot.ids.length > 0)).toBe(true)
+    renderer.unmount()
+  })
+
+  it("guarantees restored-cache revalidation when the anchor is already resolved", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { refetchOnMount: false, retry: false } },
+    })
+    const queryKey = communityKeys.dmMessages("dm_activation")
+    const cachedPage = {
+      messages: [{ id: "m_anchor", seq: 1, createdAt: "2026-08-09T00:00:00.000Z" }],
+      hasMoreOlder: false,
+      hasMoreNewer: false,
+      latestSeq: 1,
+    } satisfies MessagesPage
+    queryClient.setQueryData(queryKey, {
+      pages: [cachedPage],
+      pageParams: [{ mode: "anchor", anchor: "m_anchor" }],
+    })
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries")
+    apiFetchMock.mockResolvedValue(cachedPage)
+    const snapshots: Snapshot[] = []
+    const view = (isRestoring: boolean) => (
+      React.createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        React.createElement(
+          IsRestoringProvider,
+          { value: isRestoring },
+          React.createElement(RevalidatingDmCapture, {
+            lastReadMessageId: "m_anchor",
+            onRender: (snapshot) => { snapshots.push(snapshot) },
+          }),
+        ),
+      )
+    )
+
+    const renderer = render(view(true))
+    expect(apiFetchMock).not.toHaveBeenCalled()
+    act(() => { renderer.rerender(view(false)) })
+
+    await waitFor(() => apiFetchMock.mock.calls.filter(
+      ([url]) => url.includes("/messages"),
+    ).length === 1)
+    expect(invalidateQueries).toHaveBeenCalledWith(
+      { queryKey, exact: true, refetchType: "active" },
+      { cancelRefetch: false },
+    )
+    expect(snapshots.every((snapshot) => snapshot.ids.length > 0)).toBe(true)
+    renderer.unmount()
+  })
+
+  it("does not duplicate a messages request that actually fetched after mount", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const queryKey = communityKeys.dmMessages("dm_activation")
+    const cachedPage = {
+      messages: [{ id: "m_anchor", seq: 1, createdAt: "2026-08-09T00:00:00.000Z" }],
+      hasMoreOlder: false,
+      hasMoreNewer: false,
+      latestSeq: 1,
+    } satisfies MessagesPage
+    queryClient.setQueryData(queryKey, {
+      pages: [cachedPage],
+      pageParams: [{ mode: "anchor", anchor: "m_anchor" }],
+    })
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries")
+    const readStateResponse = deferred<{
+      lastReadMessageId: string
+      lastReadAt: string
+      lastReadSeq: number
+    }>()
+    apiFetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("/read-state")) return readStateResponse.promise
+      return Promise.resolve(cachedPage)
+    })
+    const snapshots: Array<Snapshot & { readStateFetching: boolean }> = []
+    const renderer = renderCapture(
+      queryClient,
+      React.createElement(DmRouteCapture, {
+        onRender: (snapshot) => { snapshots.push(snapshot) },
+      }),
+    )
+    expect(snapshots.at(-1)?.readStateFetching).toBe(true)
+
+    await act(async () => {
+      await queryClient.fetchInfiniteQuery({
+        queryKey,
+        queryFn: () => apiFetchMock(
+          "/api/community/channels/dm_activation/messages?anchor=m_anchor",
+        ) as Promise<MessagesPage>,
+        initialPageParam: { mode: "anchor", anchor: "m_anchor" },
+        getNextPageParam: () => undefined,
+      })
+    })
+    expect(apiFetchMock.mock.calls.filter(([url]) => url.includes("/messages"))).toHaveLength(1)
+
+    readStateResponse.resolve({
+      lastReadMessageId: "m_anchor",
+      lastReadAt: "2026-08-09T00:00:00.000Z",
+      lastReadSeq: 1,
+    })
+    await waitFor(() => snapshots.at(-1)?.readStateFetching === false)
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)) })
+
+    expect(invalidateQueries).not.toHaveBeenCalled()
+    expect(apiFetchMock.mock.calls.filter(([url]) => url.includes("/messages"))).toHaveLength(1)
     renderer.unmount()
   })
 
