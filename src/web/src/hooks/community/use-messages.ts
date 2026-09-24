@@ -365,7 +365,8 @@ function useMessagesInner(
     () => JSON.stringify([queryKey, opts?.anchorMessageId ?? null]),
     [queryKey, opts?.anchorMessageId],
   )
-  const restoreRevalidationRef = useRef({
+  const activationRevalidationRef = useRef({
+    anchorGateObserved: false,
     observedAt: null as number | null,
     requested: false,
     viewKey,
@@ -435,31 +436,40 @@ function useMessagesInner(
   })
 
   useEffect(() => {
-    const state = restoreRevalidationRef.current
+    const state = activationRevalidationRef.current
     if (state.viewKey !== viewKey) {
-      restoreRevalidationRef.current = {
-        observedAt: isRestoring ? Date.now() : null,
+      const anchorGateObserved = !anchorResolved && !!scopeId
+      activationRevalidationRef.current = {
+        anchorGateObserved,
+        observedAt: anchorGateObserved ? Date.now() : null,
         requested: false,
         viewKey,
       }
       return
     }
-    if (isRestoring && state.observedAt === null) state.observedAt = Date.now()
-  }, [isRestoring, viewKey])
+    if (!anchorResolved && !!scopeId && !state.anchorGateObserved) {
+      state.anchorGateObserved = true
+      state.observedAt = Date.now()
+    }
+  }, [anchorResolved, scopeId, viewKey])
 
   useEffect(() => {
-    const state = restoreRevalidationRef.current
+    const state = activationRevalidationRef.current
     if (state.viewKey !== viewKey) return
-    if (isRestoring || state.observedAt === null || state.requested) return
+    if (
+      isRestoring
+      || !state.anchorGateObserved
+      || state.observedAt === null
+      || state.requested
+    ) return
     if (!enabled || query.data === undefined || opts?.revalidateOnMount === false) return
 
-    // PersistQueryClientProvider does not subscribe observers while restoring.
-    // A non-persisted read-state request can therefore disable this observer
-    // exactly as restoration ends and consume/cancel its ordinary mount fetch.
-    // Revalidate the painted cache once the anchor is ready. `cancelRefetch:
-    // false` joins an automatic fetch already in flight instead of replacing
-    // it, while `dataUpdatedAt` avoids a duplicate if that fetch already won
-    // the race before this effect ran.
+    // Cached channel/DM routes paint before their non-persisted read-state is
+    // ready. That temporary anchor gate can consume the observer's ordinary
+    // mount fetch both on same-session returns and after persisted restore.
+    // Revalidate once the anchor is ready. `cancelRefetch: false` joins an
+    // automatic fetch already in flight instead of replacing it, while
+    // `dataUpdatedAt` avoids a duplicate if that fetch already won the race.
     state.requested = true
     if (!query.isFetching && query.dataUpdatedAt >= state.observedAt) return
     void queryClient.invalidateQueries(

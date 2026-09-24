@@ -53,7 +53,7 @@ function DmCapture({ lastReadMessageId, onRender }: {
   return null
 }
 
-function RestoredDmRouteCapture({ onRender }: {
+function DmRouteCapture({ onRender }: {
   onRender: (snapshot: Snapshot & { readStateFetching: boolean }) => void
 }) {
   const { snapshot, isFetching: readStateFetching } = useDmReadStateSnapshot("dm_activation")
@@ -153,6 +153,65 @@ beforeEach(() => {
 })
 
 describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
+  it("revalidates a retained DM cache after read-state becomes ready", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const queryKey = communityKeys.dmMessages("dm_activation")
+    const cachedPage = {
+      messages: [{ id: "m_anchor", seq: 1, createdAt: "2026-08-09T00:00:00.000Z" }],
+      hasMoreOlder: false,
+      hasMoreNewer: false,
+      latestSeq: 1,
+    } satisfies MessagesPage
+    queryClient.setQueryData(
+      queryKey,
+      {
+        pages: [cachedPage],
+        pageParams: [{ mode: "anchor", anchor: "m_anchor" }],
+      },
+      { updatedAt: Date.now() - 60_000 },
+    )
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries")
+    const readStateResponse = deferred<{
+      lastReadMessageId: string
+      lastReadAt: string
+      lastReadSeq: number
+    }>()
+    const messagesResponse = deferred<MessagesPage>()
+    apiFetchMock.mockImplementation((url: string) => (
+      url.endsWith("/read-state") ? readStateResponse.promise : messagesResponse.promise
+    ))
+    const snapshots: Array<Snapshot & { readStateFetching: boolean }> = []
+    const renderer = renderCapture(
+      queryClient,
+      React.createElement(DmRouteCapture, {
+        onRender: (snapshot) => { snapshots.push(snapshot) },
+      }),
+    )
+
+    expect(snapshots.at(-1)?.ids).toEqual(["m_anchor"])
+    expect(snapshots.at(-1)?.readStateFetching).toBe(true)
+    expect(apiFetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "/api/community/channels/dm_activation/read-state",
+    ])
+
+    readStateResponse.resolve({
+      lastReadMessageId: "m_anchor",
+      lastReadAt: "2026-08-09T00:00:00.000Z",
+      lastReadSeq: 1,
+    })
+    await waitFor(() => apiFetchMock.mock.calls.filter(
+      ([url]) => url.includes("/messages"),
+    ).length === 1)
+    await waitFor(() => invalidateQueries.mock.calls.length === 1)
+
+    expect(apiFetchMock).toHaveBeenLastCalledWith(
+      "/api/community/channels/dm_activation/messages?anchor=m_anchor",
+      { signal: expect.any(AbortSignal) },
+    )
+    expect(snapshots.every((snapshot) => snapshot.ids.length > 0)).toBe(true)
+    renderer.unmount()
+  })
+
   it("revalidates a restored DM cache after read-state becomes ready", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const queryKey = communityKeys.dmMessages("dm_activation")
@@ -199,7 +258,7 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
         React.createElement(
           IsRestoringProvider,
           { value: isRestoring },
-          React.createElement(RestoredDmRouteCapture, { onRender }),
+          React.createElement(DmRouteCapture, { onRender }),
         ),
       )
     )
