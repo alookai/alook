@@ -434,6 +434,11 @@ function useMessagesInner(
       reconcileLateAnchor,
     ) ? Infinity : 0,
   })
+  const anchorRepairNeeded = cachedWindowNeedsAnchorReconcile(
+    query.data,
+    anchorId,
+    reconcileLateAnchor,
+  )
 
   useEffect(() => {
     const state = activationRevalidationRef.current
@@ -471,12 +476,14 @@ function useMessagesInner(
     // automatic fetch already in flight instead of replacing it, while
     // `dataUpdatedAt` avoids a duplicate if that fetch already won the race.
     state.requested = true
+    if (anchorRepairNeeded) return
     if (!query.isFetching && query.dataUpdatedAt >= state.observedAt) return
     void queryClient.invalidateQueries(
       { queryKey, exact: true, refetchType: "active" },
       { cancelRefetch: false },
     )
   }, [
+    anchorRepairNeeded,
     enabled,
     isRestoring,
     opts?.revalidateOnMount,
@@ -530,7 +537,6 @@ function useMessagesInner(
       current?.attemptId === presentOverride.attemptId ? null : current)
   }, [jumpPending, presentOverride, query.isError, queryClient, queryKey, viewKey])
 
-  const anchorRepairNeeded = cachedWindowNeedsAnchorReconcile(query.data, anchorId, reconcileLateAnchor)
   const messageQuery = queryClient.getQueryCache().find({ queryKey, exact: true })
   const settledAnchorRepairRef = useRef<{ key: string; query: unknown } | null>(null)
   const anchorRepairFailedRef = useRef(false)

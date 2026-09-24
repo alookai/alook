@@ -97,6 +97,39 @@ describe("useChannelReadStateSnapshot — freeze invariant", () => {
     })
   })
 
+  it("withholds a retained cache value until the mount refetch settles", async () => {
+    const useHook = await loadHook()
+    queryReturn = {
+      data: {
+        lastReadMessageId: "m_retained",
+        lastReadAt: "2026-07-01T00:00:00.000Z",
+        lastReadSeq: 10,
+      },
+      isFetching: true,
+    }
+    const pending = useHook("ch_1")
+    flushEffects()
+    expect(pending.snapshot).toBeNull()
+
+    refCounter = 0
+    pendingEffects = []
+    queryReturn = {
+      data: {
+        lastReadMessageId: "m_fresh",
+        lastReadAt: "2026-07-02T00:00:00.000Z",
+        lastReadSeq: 20,
+      },
+      isFetching: false,
+    }
+    const settled = useHook("ch_1")
+    flushEffects()
+    expect(settled.snapshot).toEqual({
+      lastReadMessageId: "m_fresh",
+      lastReadAt: "2026-07-02T00:00:00.000Z",
+      lastReadSeq: 20,
+    })
+  })
+
   it("freezes the snapshot — a subsequent 'refetch' with a NEW value must NOT change what the hook returns", async () => {
     const useHook = await loadHook()
 

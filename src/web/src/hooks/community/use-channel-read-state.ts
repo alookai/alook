@@ -30,18 +30,16 @@ export type ChannelReadStateSnapshot = {
  * once and never update it during the mount, even if TanStack refetches or
  * a WS event mutates the underlying row.
  *
- * Implementation: fire a normal `useQuery`, then latch the first non-null
- * response in a `useRef`. All subsequent calls return the ref value. The
- * `staleTime: Infinity` + `snapshotRef` combo keeps the anchor frozen for
- * the entire mount regardless of what TanStack does mid-mount.
+ * Implementation: force a mount fetch, then latch its first settled non-null
+ * response in a `useRef`. Cached data retained across an unmount is withheld
+ * while that fetch is active; otherwise it could become the new mount's
+ * frozen anchor before the server response arrives. All later calls return
+ * the ref value, keeping the anchor stable through mid-mount refetches.
  *
- * Cross-mount refresh: `gcTime: 0` evicts the cache entry the instant the
- * consumer unmounts. The next mount finds an empty cache and MUST refetch
- * from the server — otherwise the divider re-anchors to the pre-scroll
- * position even after the IntersectionObserver has advanced the read row.
- * Note: `refetchOnMount: true` is NOT enough here — with `staleTime:
- * Infinity`, TanStack considers cached data fresh and skips the refetch.
- * `gcTime: 0` is the only reliable path to a genuine cross-mount reload.
+ * Cross-mount refresh: `gcTime: 0` normally evicts the cache entry after the
+ * consumer unmounts, and `refetchOnMount: "always"` covers a quick remount
+ * before that eviction timer runs. The next snapshot therefore comes from
+ * the current server response rather than the pre-scroll pointer.
  */
 export function useChannelReadStateSnapshot(channelId: string | null | undefined): {
   snapshot: ChannelReadStateSnapshot | null
@@ -59,19 +57,13 @@ export function useChannelReadStateSnapshot(channelId: string | null | undefined
     },
     enabled: !!channelId,
     staleTime: Infinity,
-    // Evict the cache entry the moment the last observer unmounts. Combined
-    // with the fresh useRef on each mount, this guarantees revisiting a
-    // channel fires a real network fetch instead of replaying the stale
-    // pre-scroll pointer — otherwise the "New" divider re-appears at the
-    // old position because TanStack's `staleTime: Infinity` treats cached
-    // data as fresh and refuses to refetch on remount.
+    // Schedule eviction when the last observer unmounts. A rapid remount can
+    // still beat that timer, so the forced refetch and settled-data latch are
+    // both required for a current read pointer.
     gcTime: 0,
-    // Belt-and-braces alongside `gcTime: 0`. If a persisted or hydrated
-    // snapshot ever lands in the cache (e.g. a future feature flips this
-    // key back into the persist allowlist), `refetchOnMount: "always"` still
-    // fires a network fetch on mount. The `snapshotRef` below latches only
-    // the FIRST non-null resolution, so the refetched value is what gets
-    // frozen — the freeze semantics are preserved.
+    // A retained or hydrated cache entry must not become the frozen snapshot
+    // for this mount. Always refetch; the latch below ignores query data until
+    // that request settles.
     refetchOnMount: "always",
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
@@ -94,12 +86,13 @@ export function useChannelReadStateSnapshot(channelId: string | null | undefined
   /* eslint-enable react-hooks/refs */
   useEffect(() => {
     if (snapshotRef.current !== null) return
+    if (query.isFetching) return
     if (query.data) snapshotRef.current = query.data
-  }, [query.data])
+  }, [query.data, query.isFetching])
 
   /* eslint-disable react-hooks/refs -- latched snapshot read; see hook tests */
   return {
-    snapshot: snapshotRef.current ?? (query.data ?? null),
+    snapshot: snapshotRef.current ?? (!query.isFetching ? (query.data ?? null) : null),
     isFetching: query.isFetching,
   }
   /* eslint-enable react-hooks/refs */

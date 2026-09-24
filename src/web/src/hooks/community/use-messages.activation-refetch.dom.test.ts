@@ -153,22 +153,34 @@ beforeEach(() => {
 })
 
 describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
-  it("revalidates a retained DM cache after read-state becomes ready", async () => {
+  it("uses the refreshed anchor when retained DM messages and read-state mount together", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const queryKey = communityKeys.dmMessages("dm_activation")
     const cachedPage = {
-      messages: [{ id: "m_anchor", seq: 1, createdAt: "2026-08-09T00:00:00.000Z" }],
+      messages: [
+        { id: "m_retained", seq: 1, createdAt: "2026-08-09T00:00:00.000Z" },
+        { id: "m_fresh", seq: 2, createdAt: "2026-08-09T00:00:01.000Z" },
+      ],
       hasMoreOlder: false,
       hasMoreNewer: false,
-      latestSeq: 1,
+      latestSeq: 2,
     } satisfies MessagesPage
     queryClient.setQueryData(
       queryKey,
       {
         pages: [cachedPage],
-        pageParams: [{ mode: "anchor", anchor: "m_anchor" }],
+        pageParams: [{ mode: "anchor", anchor: "m_retained" }],
       },
-      { updatedAt: Date.now() - 60_000 },
+      { updatedAt: Date.now() },
+    )
+    queryClient.setQueryData(
+      communityKeys.dmReadStateSnapshot("dm_activation"),
+      {
+        lastReadMessageId: "m_retained",
+        lastReadAt: "2026-08-09T00:00:00.000Z",
+        lastReadSeq: 1,
+      },
+      { updatedAt: Date.now() },
     )
     const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries")
     const readStateResponse = deferred<{
@@ -176,10 +188,15 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
       lastReadAt: string
       lastReadSeq: number
     }>()
-    const messagesResponse = deferred<MessagesPage>()
-    apiFetchMock.mockImplementation((url: string) => (
-      url.endsWith("/read-state") ? readStateResponse.promise : messagesResponse.promise
-    ))
+    apiFetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("/read-state")) return readStateResponse.promise
+      return Promise.resolve({
+        messages: [{ id: "m_fresh", seq: 2, createdAt: "2026-08-09T00:00:01.000Z" }],
+        hasMoreOlder: false,
+        hasMoreNewer: false,
+        latestSeq: 2,
+      } satisfies MessagesPage)
+    })
     const snapshots: Array<Snapshot & { readStateFetching: boolean }> = []
     const renderer = renderCapture(
       queryClient,
@@ -188,26 +205,26 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
       }),
     )
 
-    expect(snapshots.at(-1)?.ids).toEqual(["m_anchor"])
+    expect(snapshots.at(-1)?.ids).toEqual(["m_retained", "m_fresh"])
     expect(snapshots.at(-1)?.readStateFetching).toBe(true)
     expect(apiFetchMock.mock.calls.map(([url]) => url)).toEqual([
       "/api/community/channels/dm_activation/read-state",
     ])
 
     readStateResponse.resolve({
-      lastReadMessageId: "m_anchor",
-      lastReadAt: "2026-08-09T00:00:00.000Z",
-      lastReadSeq: 1,
+      lastReadMessageId: "m_fresh",
+      lastReadAt: "2026-08-09T00:00:01.000Z",
+      lastReadSeq: 2,
     })
     await waitFor(() => apiFetchMock.mock.calls.filter(
       ([url]) => url.includes("/messages"),
     ).length === 1)
-    await waitFor(() => invalidateQueries.mock.calls.length === 1)
+    await waitFor(() => snapshots.at(-1)?.anchorReconciled === true)
 
     expect(apiFetchMock).toHaveBeenLastCalledWith(
-      "/api/community/channels/dm_activation/messages?anchor=m_anchor",
-      { signal: expect.any(AbortSignal) },
+      "/api/community/channels/dm_activation/messages?anchor=m_fresh",
     )
+    expect(invalidateQueries).not.toHaveBeenCalled()
     expect(snapshots.every((snapshot) => snapshot.ids.length > 0)).toBe(true)
     renderer.unmount()
   })
