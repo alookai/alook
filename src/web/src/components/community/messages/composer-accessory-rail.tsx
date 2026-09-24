@@ -10,12 +10,10 @@ export function ComposerAccessoryRail({
   scrollCount,
   scrollMode,
   onScroll,
-  composerOverlap,
 }: {
   scrollCount: number
   scrollMode: "scroll" | "jump"
   onScroll: () => void
-  composerOverlap: number
 }) {
   if (scrollCount <= 0) return null
 
@@ -24,7 +22,6 @@ export function ComposerAccessoryRail({
       data-testid={tid.composerAccessoryRail}
       data-layout="centered"
       className="pointer-events-none absolute inset-x-0 bottom-2 z-20 px-2 sm:bottom-4 sm:px-4"
-      style={{ transform: `translateY(-${composerOverlap}px)` }}
     >
       <div className="grid w-full grid-cols-[minmax(0,1fr)_minmax(0,max-content)_minmax(0,1fr)] items-end">
         <div className="col-start-2 min-w-0 max-w-full justify-self-center">

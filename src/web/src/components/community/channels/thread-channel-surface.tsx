@@ -11,9 +11,9 @@ import { ChannelShell } from "@/components/community/channels/channel-shell"
 import { CommunityPanel } from "@/components/community/shell/community-panel"
 import { Composer } from "@/components/community/messages/composer"
 import {
-  ComposerOverlayShell,
+  ConversationFooterShell,
   ConversationFooterSlotProvider,
-} from "@/components/community/messages/composer-overlay-shell"
+} from "@/components/community/messages/conversation-footer-shell"
 import { MessageChannelController } from "@/components/community/messages/message-channel-controller"
 import { MessagePaneNavigationProvider } from "@/components/community/messages/message-pane-navigation"
 import { MessageContextSheet } from "@/components/community/messages/message-context-sheet"
@@ -97,7 +97,6 @@ export function ThreadChannelSurface({
   const router = useRouter()
   const breakpoint = useBreakpoint()
   const [rightPanel, setRightPanel] = useState<RightPanel>(null)
-  const [composerOverlap, setComposerOverlap] = useState(0)
   const [localName, setLocalName] = useState<string | null>(null)
   const mentionInsertion = useAuthorMentionInsertion({
     members: composerMembers,
@@ -240,7 +239,6 @@ export function ThreadChannelSurface({
                   key={channelId}
                   channel={displayName}
                   messages={controller.feed.messages}
-                  composerOverlap={composerOverlap}
                   loading={controller.feed.isLoading}
                   pinnedIds={controller.pinnedIds}
                   newDividerBefore={controller.feed.newDividerBefore}
@@ -267,10 +265,9 @@ export function ThreadChannelSurface({
                   presentVersion={controller.feed.presentVersion}
                   unreadCount={controller.feed.unreadCount}
                 />
-                <ComposerOverlayShell
+                <ConversationFooterShell
                   data-onboarding-target="channel-composer"
                   data-testid={tid.channelComposerShell}
-                  onOverlapChange={setComposerOverlap}
                 >
                   <Composer
                     ref={mentionInsertion.composerRef}
@@ -287,7 +284,7 @@ export function ThreadChannelSurface({
                     autoFocus={breakpoint === "desktop"}
                     draftKey={`${serverId}/${channelId}`}
                   />
-                </ComposerOverlayShell>
+                </ConversationFooterShell>
               </ConversationFooterSlotProvider>
             </Body>
           )}

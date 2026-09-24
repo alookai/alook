@@ -41,6 +41,62 @@ import { estimateRowHeight, computeBelowCount, type FlatItem } from "@/lib/commu
 // `resizeItem` above-viewport compensation (defaults to 1px otherwise).
 export const NEAR_BOTTOM_PX = 100
 
+type ViewportResizeAnchor = "tail" | "start"
+
+export interface ResolveViewportResizeAnchorInput {
+  previousClientHeight: number
+  nextClientHeight: number
+  previousScrollHeight: number
+  nextScrollHeight: number
+  previousScrollTop: number
+}
+
+export interface ViewportResizeAnchorResult {
+  anchor: ViewportResizeAnchor
+  scrollTop: number
+  distanceToEnd: number
+}
+
+/**
+ * Resolve a conversation viewport resize from the last accepted geometry.
+ *
+ * Composer growth/shrink is a real normal-flow resize. Viewers in tail
+ * context retain their exact distance from the end, while readers farther
+ * away retain their top-based position. When the viewport grows by more than
+ * the old tail distance, a top anchor is physically impossible because the
+ * browser must clamp to the new maximum; that case deliberately falls back
+ * to the equivalent tail-distance anchor.
+ */
+export function resolveViewportResizeAnchor({
+  previousClientHeight,
+  nextClientHeight,
+  previousScrollHeight,
+  nextScrollHeight,
+  previousScrollTop,
+}: ResolveViewportResizeAnchorInput): ViewportResizeAnchorResult {
+  const distanceToEnd = Math.max(
+    0,
+    previousScrollHeight - previousClientHeight - previousScrollTop,
+  )
+  const viewportGrowth = Math.max(0, nextClientHeight - previousClientHeight)
+  const anchor: ViewportResizeAnchor = distanceToEnd <= Math.max(
+    NEAR_BOTTOM_PX,
+    viewportGrowth,
+  )
+    ? "tail"
+    : "start"
+  const maxScrollTop = Math.max(0, nextScrollHeight - nextClientHeight)
+  const requestedScrollTop = anchor === "tail"
+    ? maxScrollTop - distanceToEnd
+    : previousScrollTop
+
+  return {
+    anchor,
+    scrollTop: Math.max(0, Math.min(requestedScrollTop, maxScrollTop)),
+    distanceToEnd,
+  }
+}
+
 /**
  * Measure the row's current visual footprint instead of trusting the initial
  * text estimate or a previously cached measurement. The virtualizer's default
@@ -448,6 +504,7 @@ export function useScrollAnchor({
   const olderPageAnchorRef = useRef<PaginationAnchor | null>(null)
   const olderPageFetchObservedRef = useRef(false)
   const olderPageAnchorFrameRef = useRef<number | null>(null)
+  const acceptedScrollHeightRef = useRef(0)
   const [isOlderPageAnchorSettling, setIsOlderPageAnchorSettling] = useState(false)
   const liveResizeAnchor = wasExactlyPinnedRef.current && !userScrolledAwayRef.current
     ? "end"
@@ -658,6 +715,7 @@ export function useScrollAnchor({
     if (!el) return
     acceptedClientHeightRef.current = el.clientHeight
     acceptedScrollTopRef.current = el.scrollTop
+    acceptedScrollHeightRef.current = el.scrollHeight
     wasExactlyPinnedRef.current = Math.max(
       0,
       el.scrollHeight - el.clientHeight - el.scrollTop,
@@ -689,6 +747,7 @@ export function useScrollAnchor({
           wasExactlyPinnedRef.current = true
         }
         acceptedScrollTopRef.current = nextScrollTop
+        acceptedScrollHeightRef.current = el.scrollHeight
       }
       virtualizer.options.anchorTo = wasExactlyPinnedRef.current && !userScrolledAwayRef.current
         ? "end"
@@ -806,18 +865,14 @@ export function useScrollAnchor({
     if (delta !== 0) el.scrollTop += delta
   }, [heroHeight])
 
-  // Viewport resize compensation — shell or mobile-keyboard changes can alter
-  // this viewport's `clientHeight`, and the bottom-pinned content
-  // (`min-h-full … justify-end`) would otherwise appear to jump. The channel
-  // composer's internal growth is isolated by its stable overlay shell and
-  // does not reach this observer. A `ResizeObserver` on the viewport itself
-  // catches every real viewport resize. Only a viewport literally pinned within
-  // 1px re-pins instantly (NOT the smooth `scrollToBottom` — a smooth
-  // animation firing on every keystroke resize is janky and fights rapid
-  // successive resizes). Every away position is left to the browser; in
-  // particular, the resize policy never writes a compensating height delta.
-  // Keyed on `clientHeight`, orthogonal to the hero compensation above (keyed
-  // on `heroHeight`) — separate effects, no double-apply.
+  // Viewport resize compensation — composer growth/shrink and mobile-keyboard
+  // changes both alter this viewport's real `clientHeight`. Preserve the
+  // conversation's semantic anchor from the last accepted geometry: exact
+  // distance-to-tail through the shared 100px tail context, otherwise the
+  // reading scrollTop. This is the sole writer for footer-driven viewport
+  // changes; the footer itself does not measure or mutate the message list.
+  // Keyed on `clientHeight`, orthogonal to hero compensation above (keyed on
+  // `heroHeight`) — separate effects, no double-apply.
   useLayoutEffect(() => {
     const el = scrollRef.current
     if (!el) return
@@ -826,18 +881,29 @@ export function useScrollAnchor({
     // callback computes a zero delta instead of a spurious jump at mount.
     acceptedClientHeightRef.current = el.clientHeight
     acceptedScrollTopRef.current = el.scrollTop
+    acceptedScrollHeightRef.current = el.scrollHeight
     const ro = new ResizeObserver(() => {
-      const prev = acceptedClientHeightRef.current
-      const next = el.clientHeight
-      if (next === prev) return
-      const wasExactlyPinned = wasExactlyPinnedRef.current
-      acceptedClientHeightRef.current = next
-      acceptedScrollTopRef.current = el.scrollTop
-      if (wasExactlyPinned && !userScrolledAwayRef.current) {
-        wasExactlyPinnedRef.current = true
-        virtualizer.options.anchorTo = "end"
-        virtualizer.scrollToEnd()
+      const previousClientHeight = acceptedClientHeightRef.current
+      const nextClientHeight = el.clientHeight
+      if (nextClientHeight === previousClientHeight) return
+      const result = resolveViewportResizeAnchor({
+        previousClientHeight,
+        nextClientHeight,
+        previousScrollHeight: acceptedScrollHeightRef.current,
+        nextScrollHeight: el.scrollHeight,
+        previousScrollTop: acceptedScrollTopRef.current,
+      })
+      if (Math.abs(el.scrollTop - result.scrollTop) > 0.5) {
+        el.scrollTop = result.scrollTop
       }
+      acceptedClientHeightRef.current = nextClientHeight
+      acceptedScrollTopRef.current = el.scrollTop
+      acceptedScrollHeightRef.current = el.scrollHeight
+      wasAtEndRef.current = result.distanceToEnd <= NEAR_BOTTOM_PX
+      wasExactlyPinnedRef.current = result.distanceToEnd <= 1
+      virtualizer.options.anchorTo = wasExactlyPinnedRef.current && !userScrolledAwayRef.current
+        ? "end"
+        : "start"
     })
     ro.observe(el)
     return () => ro.disconnect()

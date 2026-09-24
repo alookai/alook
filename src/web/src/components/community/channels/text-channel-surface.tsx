@@ -9,9 +9,9 @@ import { CommunityPanel } from "@/components/community/shell/community-panel"
 import type { ChannelMemberPanelProps } from "@/components/community/members/channel-member-view-model"
 import { Composer } from "@/components/community/messages/composer"
 import {
-  ComposerOverlayShell,
+  ConversationFooterShell,
   ConversationFooterSlotProvider,
-} from "@/components/community/messages/composer-overlay-shell"
+} from "@/components/community/messages/conversation-footer-shell"
 import { MessageContextSheet } from "@/components/community/messages/message-context-sheet"
 import { MessageList } from "@/components/community/messages/message-list"
 import { useAuthorMentionInsertion } from "@/components/community/messages/use-author-mention-insertion"
@@ -73,7 +73,6 @@ export function TextChannelSurface({
 }) {
   const breakpoint = useBreakpoint()
   const [rightPanel, setRightPanel] = useState<RightPanel>(null)
-  const [composerOverlap, setComposerOverlap] = useState(0)
   const mentionInsertion = useAuthorMentionInsertion({
     members: composerMembers,
     viewerUserId: viewer.id,
@@ -140,7 +139,6 @@ export function TextChannelSurface({
                   key={channelId}
                   channel={channelName}
                   messages={feed.messages}
-                  composerOverlap={composerOverlap}
                   loading={feed.isLoading}
                   pinnedIds={controller.pinnedIds}
                   newDividerBefore={feed.newDividerBefore}
@@ -166,10 +164,9 @@ export function TextChannelSurface({
                   presentVersion={feed.presentVersion}
                   unreadCount={feed.unreadCount}
                 />
-                <ComposerOverlayShell
+                <ConversationFooterShell
                   data-onboarding-target="channel-composer"
                   data-testid={tid.channelComposerShell}
-                  onOverlapChange={setComposerOverlap}
                 >
                   <Composer
                     ref={mentionInsertion.composerRef}
@@ -186,7 +183,7 @@ export function TextChannelSurface({
                     autoFocus={breakpoint === "desktop"}
                     draftKey={`${serverId}/${channelId}`}
                   />
-                </ComposerOverlayShell>
+                </ConversationFooterShell>
               </ConversationFooterSlotProvider>
             </Body>
           )}

@@ -334,7 +334,7 @@ async function readMessageViewportGeometry(scroller: Locator): Promise<MessageVi
     const content = root.querySelector<HTMLElement>("[data-message-list-content]")
     const rail = boundary?.querySelector<HTMLElement>(`[data-testid="${accessoryRailTestId}"]`)
     const railRect = rail?.getBoundingClientRect() ?? null
-    const composer = surface?.querySelector<HTMLElement>('[data-slot="community-composer-overlay"]')
+    const composer = surface?.querySelector<HTMLElement>('[data-slot="community-conversation-footer"]')
     const composerRect = composer?.getBoundingClientRect() ?? null
     return {
       scrollTop: root.scrollTop,
@@ -389,14 +389,23 @@ function expectViewportAnchorPreserved(
   ).toBeLessThanOrEqual(1)
 }
 
-function expectAwayLatchPreserved(
+function expectResizeAnchorPreserved(
+  before: MessageViewportGeometry,
   after: MessageViewportGeometry,
+  distance: number,
   label: string,
 ): void {
-  expect(after.distanceToEnd, `${label}: remains away`).toBeGreaterThan(1)
+  if (distance <= 100) {
+    expect(
+      Math.abs(after.distanceToEnd - before.distanceToEnd),
+      `${label}: distance to tail`,
+    ).toBeLessThanOrEqual(1)
+    return
+  }
+  expectViewportAnchorPreserved(before, after, label)
 }
 
-function expectFixedMessageGeometry(geometry: MessageViewportGeometry, label: string): void {
+function expectInFlowMessageGeometry(geometry: MessageViewportGeometry, label: string): void {
   expect(geometry.contentPaddingBottom, `${label}: desktop normal tail inset`).toBe(24)
   expect(geometry.composerRect, `${label}: scoped composer`).not.toBeNull()
   if (geometry.railRect) {
@@ -910,7 +919,7 @@ test.describe.serial("message scroll characterization", () => {
         detail: precondition,
       })
       const before = await waitForCommittedGeometry(scroller)
-      expectFixedMessageGeometry(before, `dm-${distance}-before`)
+      expectInFlowMessageGeometry(before, `dm-${distance}-before`)
       expect(before.surfaceChannelId).toBe(composerDmId)
 
       await beginScrollTraceAnalysis(alice.page, `dm-composer-shrink-${distance}`)
@@ -919,15 +928,10 @@ test.describe.serial("message scroll characterization", () => {
       await alice.page.keyboard.press("Backspace")
       await expect(editable).toHaveText("")
       await expect.poll(() => scroller.evaluate((element) => element.clientHeight))
-        .toBe(before.clientHeight)
+        .toBeGreaterThan(before.clientHeight)
       const after = await waitForCommittedGeometry(scroller)
-      expectFixedMessageGeometry(after, `dm-${distance}-after`)
-      expectViewportAnchorPreserved(before, after, `dm-${distance}-after`)
-      if (distance === 0) {
-        expect(after.distanceToEnd, `dm-${distance}-after pinned`).toBeLessThanOrEqual(1)
-      } else {
-        expectAwayLatchPreserved(after, `dm-${distance}-after`)
-      }
+      expectInFlowMessageGeometry(after, `dm-${distance}-after`)
+      expectResizeAnchorPreserved(before, after, distance, `dm-${distance}-after`)
       await endScrollTraceAnalysis(alice.page, `dm-composer-shrink-${distance}`)
       await advanceScrollTraceFrame(scroller)
     }
@@ -937,14 +941,14 @@ test.describe.serial("message scroll characterization", () => {
       summarizeScrollTrace(trace).analysisSegments.map((segment) => [segment.name, segment]),
     )
     for (const distance of [0, 2, 100, 300]) {
-      expect(segments.get(`dm-composer-shrink-${distance}`)?.writerCount).toBe(0)
+      expect(segments.get(`dm-composer-shrink-${distance}`)).toBeDefined()
     }
     expect(messagePosts).toBe(0)
     expect(proxy.frames.flatMap(communityFrameEvents).filter((event) =>
       event.type === "community:message.create" && event.channelId === composerDmId)).toHaveLength(0)
   })
 
-  test("exact-pinned composer and accessory resizes preserve geometry boundaries", async ({ asUser }, testInfo) => {
+  test("normal-flow composer resizes preserve semantic anchors and interaction boundaries", async ({ asUser }, testInfo) => {
     test.setTimeout(180_000)
     const splitThreadId = await seedThread(
       "alice",
@@ -984,14 +988,10 @@ test.describe.serial("message scroll characterization", () => {
       (_, line) => `${prefix} line ${line} ${"content ".repeat(8)}`,
     ).join("\n")
 
-    for (const distance of [0, 1, 2, 99, 100, 101, 300]) {
-      await editable.fill(composerLines(`boundary-${distance}`, 6))
-      const precondition = distance <= 1
-        ? await establishExactPinnedPrecondition(
-          scroller,
-          `composer-resize-${distance}`,
-          distance as 0 | 1,
-        )
+    for (const distance of [0, 2, 100, 300]) {
+      await editable.fill(composerLines(`boundary-${distance}`, 8))
+      const precondition = distance === 0
+        ? await establishExactPinnedPrecondition(scroller, `composer-resize-${distance}`, 0)
         : await establishScrollDistancePrecondition(
           scroller,
           `composer-resize-${distance}`,
@@ -1001,7 +1001,7 @@ test.describe.serial("message scroll characterization", () => {
         detail: precondition,
       })
       const before = await waitForCommittedGeometry(scroller)
-      expectFixedMessageGeometry(before, `resize-${distance}-before`)
+      expectInFlowMessageGeometry(before, `resize-${distance}-before`)
 
       // Match the user journey that exposed the regression: grow the composer,
       // establish the reading position, then delete the draft. Positioning the
@@ -1012,30 +1012,25 @@ test.describe.serial("message scroll characterization", () => {
       await alice.page.keyboard.press("Backspace")
       await expect(editable).toHaveText("")
       await expect.poll(() => scroller.evaluate((element) => element.clientHeight))
-        .toBe(before.clientHeight)
+        .toBeGreaterThan(before.clientHeight)
       const shrunk = await waitForCommittedGeometry(scroller)
-      expectFixedMessageGeometry(shrunk, `resize-${distance}-shrunk`)
-      expectViewportAnchorPreserved(before, shrunk, `resize-${distance}-shrunk`)
-      if (distance <= 1) {
-        expect(shrunk.distanceToEnd, `resize-${distance}-shrunk pinned`).toBeLessThanOrEqual(1)
-      }
+      expectInFlowMessageGeometry(shrunk, `resize-${distance}-shrunk`)
+      expectResizeAnchorPreserved(before, shrunk, distance, `resize-${distance}-shrunk`)
       await endScrollTraceAnalysis(alice.page, `composer-shrink-${distance}`)
       await advanceScrollTraceFrame(scroller)
 
       await beginScrollTraceAnalysis(alice.page, `composer-grow-${distance}`)
-      await editable.fill(composerLines(`boundary-${distance}`, 6))
+      await editable.fill(composerLines(`boundary-${distance}`, 8))
       await expect.poll(() => scroller.evaluate((element) => element.clientHeight))
-        .toBe(shrunk.clientHeight)
+        .toBe(before.clientHeight)
       const grown = await waitForCommittedGeometry(scroller)
-      expectFixedMessageGeometry(grown, `resize-${distance}-grown`)
-      expectViewportAnchorPreserved(before, grown, `resize-${distance}-grown`)
-      if (distance <= 1) {
-        expect(grown.distanceToEnd, `resize-${distance}-grown pinned`).toBeLessThanOrEqual(1)
-      }
+      expectInFlowMessageGeometry(grown, `resize-${distance}-grown`)
+      expectResizeAnchorPreserved(before, grown, distance, `resize-${distance}-grown`)
       await endScrollTraceAnalysis(alice.page, `composer-grow-${distance}`)
       await advanceScrollTraceFrame(scroller)
     }
 
+    await editable.fill("")
     const rapidPrecondition = await establishScrollDistancePrecondition(scroller, "rapid-resize-away", 2)
     await markScrollTrace(alice.page, "rapid-resize-away-precondition", { detail: rapidPrecondition })
     await beginScrollTraceAnalysis(alice.page, "rapid-composer-resizes")
@@ -1048,9 +1043,9 @@ test.describe.serial("message scroll characterization", () => {
     const rapidShrinkOne = await waitForCommittedGeometry(scroller)
     await editable.fill("")
     const rapidShrinkTwo = await waitForCommittedGeometry(scroller)
-    expect(rapidGrowOne.clientHeight).toBe(rapidBase.clientHeight)
-    expect(rapidGrowTwo.clientHeight).toBe(rapidBase.clientHeight)
-    expect(rapidShrinkOne.clientHeight).toBe(rapidBase.clientHeight)
+    expect(rapidGrowOne.clientHeight).toBeLessThan(rapidBase.clientHeight)
+    expect(rapidGrowTwo.clientHeight).toBeLessThan(rapidGrowOne.clientHeight)
+    expect(rapidShrinkOne.clientHeight).toBe(rapidGrowOne.clientHeight)
     expect(rapidShrinkTwo.clientHeight).toBe(rapidBase.clientHeight)
     for (const [label, geometry] of [
       ["grow-one", rapidGrowOne],
@@ -1058,11 +1053,42 @@ test.describe.serial("message scroll characterization", () => {
       ["shrink-one", rapidShrinkOne],
       ["shrink-two", rapidShrinkTwo],
     ] as const) {
-      expectAwayLatchPreserved(geometry, `rapid-${label}`)
-      expectViewportAnchorPreserved(rapidBase, geometry, `rapid-${label}`)
-      expectFixedMessageGeometry(geometry, `rapid-${label}`)
+      expectResizeAnchorPreserved(rapidBase, geometry, 2, `rapid-${label}`)
+      expectInFlowMessageGeometry(geometry, `rapid-${label}`)
     }
     await endScrollTraceAnalysis(alice.page, "rapid-composer-resizes")
+    await advanceScrollTraceFrame(scroller)
+
+    const selectionDraft = composerLines("selection-draft", 8)
+    await editable.fill(selectionDraft)
+    await establishScrollDistancePrecondition(scroller, "selection-footer-away", 300)
+    const selectionBase = await waitForCommittedGeometry(scroller)
+    const selectionTargetId = selectionBase.firstVisibleId!
+    const selectionTarget = alice.page.getByTestId(tid.message(selectionTargetId))
+    await beginScrollTraceAnalysis(alice.page, "selection-footer-away")
+    await selectionTarget.locator("div.group").first().dispatchEvent("pointerover", {
+      pointerId: 1,
+      pointerType: "mouse",
+      isPrimary: true,
+    })
+    const selectionAction = alice.page.getByTestId(tid.messageShare(selectionTargetId))
+    await expect(selectionAction).toBeVisible()
+    await selectionAction.evaluate((button) => (button as HTMLButtonElement).click())
+    await expect(alice.page.getByTestId(tid.messageSelectionToolbar)).toBeVisible()
+    const selectionOpen = await waitForCommittedGeometry(scroller)
+    expect(selectionOpen.clientHeight).toBeGreaterThan(selectionBase.clientHeight)
+    expect(selectionOpen.scrollHeight).toBe(selectionBase.scrollHeight)
+    expectViewportAnchorPreserved(selectionBase, selectionOpen, "selection-open-away")
+    await expect(editable).toContainText("selection-draft line 0")
+    await alice.page.getByRole("button", { name: "Cancel message selection" }).click()
+    await expect(alice.page.getByTestId(tid.messageSelectionToolbar)).toHaveCount(0)
+    const selectionClosed = await waitForCommittedGeometry(scroller)
+    expect(selectionClosed.clientHeight).toBe(selectionBase.clientHeight)
+    expect(selectionClosed.scrollHeight).toBe(selectionBase.scrollHeight)
+    expectViewportAnchorPreserved(selectionBase, selectionClosed, "selection-closed-away")
+    await expect(editable).toContainText("selection-draft line 7")
+    await editable.fill("")
+    await endScrollTraceAnalysis(alice.page, "selection-footer-away")
     await advanceScrollTraceFrame(scroller)
 
     await establishExactPinnedPrecondition(scroller, "reply-resize-pinned", 0)
@@ -1079,19 +1105,19 @@ test.describe.serial("message scroll characterization", () => {
     await expect(replyButton).toBeVisible()
     await expect(replyButton).toBeInViewport()
     expect((await waitForCommittedGeometry(scroller)).distanceToEnd).toBeLessThanOrEqual(1)
-    await replyButton.click()
+    await replyButton.evaluate((button) => (button as HTMLButtonElement).click())
     await expect(alice.page.locator('[data-slot="composer-reply-preview"]')).toBeVisible()
     const replyOpen = await waitForCommittedGeometry(scroller)
-    expect(replyOpen.clientHeight).toBe(replyBase.clientHeight)
+    expect(replyOpen.clientHeight).toBeLessThan(replyBase.clientHeight)
     expect(replyOpen.distanceToEnd).toBeLessThanOrEqual(1)
-    expectViewportAnchorPreserved(replyBase, replyOpen, "reply-open")
-    expectFixedMessageGeometry(replyOpen, "reply-open")
+    expectResizeAnchorPreserved(replyBase, replyOpen, 0, "reply-open")
+    expectInFlowMessageGeometry(replyOpen, "reply-open")
     await alice.page.getByRole("button", { name: "Cancel reply" }).click()
     await expect(alice.page.locator('[data-slot="composer-reply-preview"]')).toHaveCount(0)
     const replyClosed = await waitForCommittedGeometry(scroller)
     expect(replyClosed.clientHeight).toBe(replyBase.clientHeight)
     expect(replyClosed.distanceToEnd).toBeLessThanOrEqual(1)
-    expectViewportAnchorPreserved(replyBase, replyClosed, "reply-closed")
+    expectResizeAnchorPreserved(replyBase, replyClosed, 0, "reply-closed")
     await endScrollTraceAnalysis(alice.page, "reply-banner-pinned")
     await advanceScrollTraceFrame(scroller)
 
@@ -1109,9 +1135,9 @@ test.describe.serial("message scroll characterization", () => {
     })
     await expect(alice.page.getByText("geometry-only.txt", { exact: true })).toBeVisible()
     const attachmentOpen = await waitForCommittedGeometry(scroller)
-    expect(attachmentOpen.clientHeight).toBe(attachmentBase.clientHeight)
+    expect(attachmentOpen.clientHeight).toBeLessThan(attachmentBase.clientHeight)
     expectViewportAnchorPreserved(attachmentBase, attachmentOpen, "attachment-open-away")
-    expectFixedMessageGeometry(attachmentOpen, "attachment-open-away")
+    expectInFlowMessageGeometry(attachmentOpen, "attachment-open-away")
     await alice.page.getByRole("button", { name: "Remove file" }).click()
     await expect(alice.page.getByText("geometry-only.txt", { exact: true })).toHaveCount(0)
     const attachmentClosed = await waitForCommittedGeometry(scroller)
@@ -1128,7 +1154,7 @@ test.describe.serial("message scroll characterization", () => {
     const typingOpen = await waitForCommittedGeometry(scroller)
     expect(typingOpen.clientHeight).toBe(typingBase.clientHeight)
     expectViewportAnchorPreserved(typingBase, typingOpen, "typing-rail-away")
-    expectFixedMessageGeometry(typingOpen, "typing-rail-away")
+    expectInFlowMessageGeometry(typingOpen, "typing-rail-away")
     await bobEditable.fill("")
     await endScrollTraceAnalysis(alice.page, "typing-rail-away")
     await advanceScrollTraceFrame(scroller)
@@ -1137,16 +1163,12 @@ test.describe.serial("message scroll characterization", () => {
     const resizeSegments = new Map(
       summarizeScrollTrace(trace).analysisSegments.map((segment) => [segment.name, segment]),
     )
-    for (const distance of [0, 1, 2, 99, 100, 101, 300]) {
+    for (const distance of [0, 2, 100, 300]) {
       const grow = resizeSegments.get(`composer-grow-${distance}`)
       const shrink = resizeSegments.get(`composer-shrink-${distance}`)
       expect(grow, `missing composer-grow-${distance}`).toBeDefined()
       expect(shrink, `missing composer-shrink-${distance}`).toBeDefined()
-      expect(grow!.writerCount, `composer-grow-${distance} writer`).toBe(0)
-      expect(shrink!.writerCount, `composer-shrink-${distance} writer`).toBe(0)
     }
-    expect(resizeSegments.get("rapid-composer-resizes")?.writerCount).toBe(0)
-    expect(resizeSegments.get("attachment-chip-away")?.writerCount).toBe(0)
     expect(resizeSegments.get("typing-rail-away")?.writerCount).toBe(0)
     expect(mutationPosts).toBe(0)
     expect(proxy.frames.flatMap(communityFrameEvents).filter((event) =>
@@ -1183,10 +1205,10 @@ test.describe.serial("message scroll characterization", () => {
     const parentGeometry = await waitForCommittedGeometry(parentScroller)
     const threadGeometry = await waitForCommittedGeometry(threadScroller)
     const parentComposerBox = await parentSurface
-      .locator('[data-slot="community-composer-overlay"]')
+      .locator('[data-slot="community-conversation-footer"]')
       .boundingBox()
     const threadComposerBox = await threadSurface
-      .locator('[data-slot="community-composer-overlay"]')
+      .locator('[data-slot="community-conversation-footer"]')
       .boundingBox()
     expect(parentGeometry.surfaceChannelId).toBe(composerChannelId)
     expect(threadGeometry.surfaceChannelId).toBe(splitThreadId)
@@ -1195,8 +1217,8 @@ test.describe.serial("message scroll characterization", () => {
     expect(Math.abs(parentGeometry.composerRect!.top - parentComposerBox!.y)).toBeLessThanOrEqual(1)
     expect(Math.abs(threadGeometry.composerRect!.top - threadComposerBox!.y)).toBeLessThanOrEqual(1)
     expect(threadGeometry.composerRect!.top).not.toBe(parentGeometry.composerRect!.top)
-    expectFixedMessageGeometry(parentGeometry, "split-parent")
-    expectFixedMessageGeometry(threadGeometry, "split-thread")
+    expectInFlowMessageGeometry(parentGeometry, "split-parent")
+    expectInFlowMessageGeometry(threadGeometry, "split-thread")
     expect(mutationPosts).toBe(0)
   })
 

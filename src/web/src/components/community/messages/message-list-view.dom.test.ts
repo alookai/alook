@@ -65,7 +65,6 @@ function props(overrides: Partial<ResolvedMessageListProps> = {}): ResolvedMessa
     onOpenThread: vi.fn(),
     variant: "channel",
     initialScrollReady: true,
-    composerOverlap: 0,
     ...overrides,
   }
 }
@@ -109,8 +108,8 @@ describe("renderMessageListView", () => {
     const renderer = render(renderMessageListView(listProps, state, renderRows))
     expect(mockedRail).toHaveBeenCalledWith(expect.objectContaining({
       scrollCount: 3,
-      composerOverlap: 0,
     }), undefined)
+    expect(mockedRail.mock.calls.at(-1)?.[0]).not.toHaveProperty("composerOverlap")
     const scrollerBoundary = renderer.container.querySelector("[data-message-scroller-boundary]")!
     expect(scrollerBoundary.querySelectorAll("accessory-rail")).toHaveLength(1)
     expect(renderer.container.querySelectorAll("[data-message-typing-space]")).toHaveLength(0)

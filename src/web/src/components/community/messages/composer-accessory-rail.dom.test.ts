@@ -27,7 +27,6 @@ const railProps = {
   scrollCount: 4,
   scrollMode: "jump" as const,
   onScroll: vi.fn(),
-  composerOverlap: 0,
 }
 
 describe("ComposerAccessoryRail", () => {
@@ -45,7 +44,7 @@ describe("ComposerAccessoryRail", () => {
     const rail = renderer.getByTestId(tid.composerAccessoryRail)
     expect(rail).toHaveAttribute("data-layout", "centered")
     expect(rail).toHaveClass("absolute", "bottom-2", "sm:bottom-4")
-    expect(rail).toHaveStyle({ transform: "translateY(-0px)" })
+    expect(rail).not.toHaveAttribute("style")
     const scroll = renderer.getByTestId(tid.scrollToPresent)
     expect(scroll).toHaveAttribute("aria-label", "Jump to present, 4 unread below")
     expect(scroll.closest('div[class*="col-start-"]')).toHaveClass("col-start-2")
@@ -64,15 +63,6 @@ describe("ComposerAccessoryRail", () => {
     const failed = renderEmpty()
     expect(failed.queryAllByTestId(tid.composerAccessoryRail)).toHaveLength(0)
     expect(failed.queryAllByTestId(tid.wsRetry)).toHaveLength(0)
-  })
-
-  it("moves above live composer overlap without changing message geometry", () => {
-    const renderer = render(React.createElement(ComposerAccessoryRail, {
-      ...railProps,
-      composerOverlap: 96,
-    }))
-    expect(renderer.getByTestId(tid.composerAccessoryRail))
-      .toHaveStyle({ transform: "translateY(-96px)" })
   })
 
   it("keeps typing and selection ownership out of the viewport rail", () => {

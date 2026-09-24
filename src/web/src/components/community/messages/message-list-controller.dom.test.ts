@@ -65,7 +65,6 @@ function props(overrides: Partial<ResolvedMessageListProps> = {}): ResolvedMessa
     onOpenThread: vi.fn(),
     variant: "channel",
     initialScrollReady: true,
-    composerOverlap: 0,
     ...overrides,
   }
 }

@@ -8,6 +8,7 @@ import {
   extractScrollAnchorMessages,
   measureMessageRow,
   NEAR_BOTTOM_PX,
+  resolveViewportResizeAnchor,
   shouldAdjustMessageScrollPosition,
   type ScrollAnchorState,
   type ScrollAnchorMessage,
@@ -16,6 +17,50 @@ import type { FlatItem } from "@/lib/community/message-list-items"
 import type { VirtualItem } from "@tanstack/react-virtual"
 
 const msgs = (...ids: string[]): ScrollAnchorMessage[] => ids.map((id) => ({ id }))
+
+describe("resolveViewportResizeAnchor", () => {
+  it.each([0, 2, 100])("preserves a %ipx tail distance across footer growth", (distance) => {
+    expect(resolveViewportResizeAnchor({
+      previousClientHeight: 800,
+      nextClientHeight: 608,
+      previousScrollHeight: 1_600,
+      nextScrollHeight: 1_600,
+      previousScrollTop: 800 - distance,
+    })).toEqual({
+      anchor: "tail",
+      scrollTop: 992 - distance,
+      distanceToEnd: distance,
+    })
+  })
+
+  it("preserves a 300px reading position across footer growth", () => {
+    expect(resolveViewportResizeAnchor({
+      previousClientHeight: 800,
+      nextClientHeight: 608,
+      previousScrollHeight: 1_600,
+      nextScrollHeight: 1_600,
+      previousScrollTop: 500,
+    })).toEqual({
+      anchor: "start",
+      scrollTop: 500,
+      distanceToEnd: 300,
+    })
+  })
+
+  it("uses tail distance when viewport expansion makes the old top impossible", () => {
+    expect(resolveViewportResizeAnchor({
+      previousClientHeight: 608,
+      nextClientHeight: 800,
+      previousScrollHeight: 1_600,
+      nextScrollHeight: 1_600,
+      previousScrollTop: 842,
+    })).toEqual({
+      anchor: "tail",
+      scrollTop: 650,
+      distanceToEnd: 150,
+    })
+  })
+})
 
 function baseInput(overrides: Partial<Parameters<typeof decideScrollAction>[0]> = {}) {
   return {

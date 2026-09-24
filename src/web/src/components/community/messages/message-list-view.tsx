@@ -38,7 +38,6 @@ export function renderMessageListView(
             scrollCount={controller.pillCount}
             scrollMode={controller.pillMode}
             onScroll={controller.pillOnClick}
-            composerOverlap={props.composerOverlap}
           />
         )}
         <div

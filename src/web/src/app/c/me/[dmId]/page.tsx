@@ -11,9 +11,9 @@ import { MessageList } from "@/components/community/messages/message-list"
 import { MessageContextSheet } from "@/components/community/messages/message-context-sheet"
 import { Composer, type SendAttachment } from "@/components/community/messages/composer"
 import {
-  ComposerOverlayShell,
+  ConversationFooterShell,
   ConversationFooterSlotProvider,
-} from "@/components/community/messages/composer-overlay-shell"
+} from "@/components/community/messages/conversation-footer-shell"
 import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import {
@@ -96,7 +96,6 @@ function DmView() {
   const uiHandlers = useUiHandlers()
   const notifications = useNotificationSettings()
   const setNotification = useSetChannelNotif()
-  const [composerOverlap, setComposerOverlap] = useState(0)
 
   // MeLayout owns the canonical cold DMs fetch. This second observer consumes
   // that result without treating it as stale on mount; explicit WS/query
@@ -490,7 +489,6 @@ function DmView() {
             variant="dm"
             channel={dm.name}
             messages={messages}
-            composerOverlap={dmBlocked ? 0 : composerOverlap}
             loading={loadingOwnership.messageBodyLoading}
             newDividerBefore={newDividerBefore}
             onOpenThread={() => { }}
@@ -528,13 +526,15 @@ function DmView() {
               </>
             }
           />
-          <ComposerOverlayShell
+          <ConversationFooterShell
             data-onboarding-target="dm-composer"
             data-onboarding-name={dm.name}
-            onOverlapChange={setComposerOverlap}
           >
             {dmBlocked ? (
-              <div data-testid={tid.dmBlockedNotice} className="flex h-14 items-center justify-center border-t border-border/40 px-4 text-sm text-muted-foreground">
+              <div
+                data-testid={tid.dmBlockedNotice}
+                className="flex min-h-[calc(3.75rem+var(--app-safe-area-bottom))] items-center justify-center border-t border-border/40 px-4 pb-(--app-safe-area-bottom) text-sm text-muted-foreground sm:min-h-15 sm:pb-0"
+              >
                 You have blocked this user. Unblock to send messages.
               </div>
             ) : (
@@ -557,7 +557,7 @@ function DmView() {
                 draftKey={`dm/${dmId}`}
               />
             )}
-          </ComposerOverlayShell>
+          </ConversationFooterShell>
         </ConversationFooterSlotProvider>
       </main>
       <MessageContextSheet
