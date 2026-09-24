@@ -7,7 +7,6 @@ vi.mock("@opennextjs/cloudflare", () => ({
 
 const mockGetMessage = vi.fn()
 const mockGetWakeContextMessageInScope = vi.fn()
-const mockListWakeContextMessagesBefore = vi.fn()
 const mockGetMessageClientNonceForDelivery = vi.fn()
 const mockGetChannel = vi.fn()
 const mockListAttention = vi.fn()
@@ -35,8 +34,6 @@ vi.mock("@alook/shared", async () => {
         getMessage: (...args: unknown[]) => mockGetMessage(...args),
         getWakeContextMessageInScope: (...args: unknown[]) =>
           mockGetWakeContextMessageInScope(...args),
-        listWakeContextMessagesBefore: (...args: unknown[]) =>
-          mockListWakeContextMessagesBefore(...args),
         getMessageClientNonceForDelivery: (...args: unknown[]) =>
           mockGetMessageClientNonceForDelivery(...args),
       },
@@ -74,11 +71,6 @@ const mockEnqueueQueueTasks = vi.fn()
 vi.mock("./queue-producer", () => ({
   enqueueQueueTasks: (...args: unknown[]) => mockEnqueueQueueTasks(...args),
 }))
-const mockSelectJevWakeCandidates = vi.fn()
-vi.mock("./jev-wake-gate", () => ({
-  selectJevWakeCandidates: (...args: unknown[]) => mockSelectJevWakeCandidates(...args),
-}))
-
 import { dispatchCommittedMessage, planCommittedMessage } from "./message-dispatcher"
 import { deriveCommunityDeliveryOperationId } from "@alook/shared"
 
@@ -99,7 +91,7 @@ const message = {
   seq: 7,
 }
 
-function wakeContextRow(overrides: Partial<{
+function messageContextRow(overrides: Partial<{
   id: string
   authorId: string
   authorName: string
@@ -165,7 +157,6 @@ describe("planCommittedMessage", () => {
     vi.clearAllMocks()
     mockGetMessage.mockResolvedValue(message)
     mockGetWakeContextMessageInScope.mockResolvedValue(null)
-    mockListWakeContextMessagesBefore.mockResolvedValue({ messages: [], hasMore: false })
     mockGetMessageClientNonceForDelivery.mockResolvedValue("nonce_1")
     mockGetChannel.mockResolvedValue(channel)
     mockListAttachments.mockResolvedValue([])
@@ -197,7 +188,6 @@ describe("planCommittedMessage", () => {
         runtime: "codex",
       },
     ])
-    mockSelectJevWakeCandidates.mockImplementation(async (input) => input.candidates)
     mockSendMessageDeliveryBatch.mockResolvedValue(undefined)
     mockEnqueueQueueTasks.mockResolvedValue(undefined)
   })
@@ -210,11 +200,7 @@ describe("planCommittedMessage", () => {
     expect(plan.unreadMentionUserIds).toEqual(["u_mentions", "bot_1"])
     expect(plan.mentionUserIds).toEqual(["u_mentions", "u_mention_only", "bot_1"])
     expect(plan.wakeBotUserIds).toEqual(["bot_1"])
-    expect(plan.wakeGateInput.candidates).toEqual([
-      expect.objectContaining({
-        botUserId: "bot_1",
-      }),
-    ])
+    expect(plan).not.toHaveProperty("wakeGateInput")
     expect(plan.pushUserIds).toEqual(["u_all", "u_mentions", "bot_1", "u_mention_only"])
     expect(plan.messageEvent).toMatchObject({
       type: "community:message.create",
@@ -280,12 +266,11 @@ describe("planCommittedMessage", () => {
     expect(plan.pushUserIds).toEqual(["u_all"])
     expect(mockResolveEligibility).toHaveBeenCalledWith({}, ["u_all"], "msg_1")
     expect(mockFindWakeCandidates).toHaveBeenCalledWith({}, expect.objectContaining({ recipients: ["u_all"] }))
-    expect(mockListWakeContextMessagesBefore).not.toHaveBeenCalled()
   })
 
   it("rehydrates attachment dimensions and reply preview from committed rows", async () => {
     mockGetMessage.mockResolvedValue({ ...message, replyToId: "reply_1" })
-    mockGetWakeContextMessageInScope.mockResolvedValue(wakeContextRow({
+    mockGetWakeContextMessageInScope.mockResolvedValue(messageContextRow({
       id: "reply_1",
       authorName: "Earlier",
       content: "previous message",
@@ -324,7 +309,7 @@ describe("planCommittedMessage", () => {
       mentionType: "everyone",
       replyToId: "reply_1",
     })
-    mockGetWakeContextMessageInScope.mockResolvedValue(wakeContextRow({
+    mockGetWakeContextMessageInScope.mockResolvedValue(messageContextRow({
       id: "reply_1",
       authorId: "bot_1",
       authorName: "Bot",
@@ -354,181 +339,12 @@ describe("planCommittedMessage", () => {
 
     const plan = await planCommittedMessage({} as never, "msg_1")
 
-    expect(plan.wakeGateInput.message).toEqual({
-      text: "",
-      type: "system",
-      attachmentContentTypes: ["image/png"],
-    })
-    expect(plan.wakeGateInput.candidates).toEqual([
-      expect.objectContaining({
-        botUserId: "bot_1",
-        name: null,
-        instruction: "",
-      }),
-    ])
-    expect(JSON.stringify(plan.wakeGateInput)).not.toContain("private-name.png")
-  })
-
-  it("builds scoped reply, opener, and recent context once with public author handles", async () => {
-    mockGetMessage.mockResolvedValue({
-      ...message,
-      channelId: "thread_1",
-      replyToId: "reply_1",
-      seq: 10,
-    })
-    mockGetChannel.mockResolvedValue({
-      ...channel,
-      id: "thread_1",
-      type: "thread",
-      parentChannelId: "forum_1",
-      parentMessageId: "opener_1",
-    })
-    mockResolveRecipients.mockImplementation(async (_db, channelId: string) =>
-      channelId === "thread_1" ? ["author_1", "bot_1"] : ["parent_viewer"],
-    )
-    mockResolveEligibility.mockResolvedValue(new Map([["bot_1", state()]]))
-
-    const recentHuman = wakeContextRow({
-      id: "recent_1",
-      content: "Earlier human context",
-      seq: 7,
-      createdAt: "2026-08-17T00:00:01.000Z",
-      channelId: "thread_1",
-    })
-    const ancestor = wakeContextRow({
-      id: "ancestor_1",
-      authorId: "bot_2",
-      authorName: "Helper",
-      authorDiscriminator: "0002",
-      authorIsBot: true,
-      content: "Original assignment",
-      seq: 8,
-      createdAt: "2026-08-17T00:00:02.000Z",
-      channelId: "thread_1",
-    })
-    const reply = wakeContextRow({
+    expect(plan.wakeBotUserIds).toEqual(["bot_1"])
+    expect(plan.messageEvent.message.replyTo).toMatchObject({
       id: "reply_1",
-      content: "Do that",
-      replyToId: "ancestor_1",
-      seq: 9,
-      createdAt: "2026-08-17T00:00:03.000Z",
-      channelId: "thread_1",
+      authorName: "Bot",
+      text: "previous message",
     })
-    const opener = wakeContextRow({
-      id: "opener_1",
-      content: "Forum incident",
-      seq: 2,
-      createdAt: "2026-08-17T00:00:00.000Z",
-      channelId: "forum_1",
-    })
-    mockListWakeContextMessagesBefore.mockResolvedValue({
-      messages: [recentHuman, ancestor, reply],
-      hasMore: true,
-    })
-    mockGetWakeContextMessageInScope.mockImplementation(async (_db, id) => ({
-      reply_1: reply,
-      ancestor_1: ancestor,
-      opener_1: opener,
-    })[id] ?? null)
-
-    const plan = await planCommittedMessage({} as never, "msg_1")
-
-    expect(mockListWakeContextMessagesBefore).toHaveBeenCalledWith({}, {
-      channelId: "thread_1",
-      beforeSeq: 10,
-      limit: 6,
-    })
-    expect(mockGetWakeContextMessageInScope).toHaveBeenCalledWith(
-      {},
-      "opener_1",
-      { channelId: "forum_1" },
-    )
-    expect(plan.wakeGateInput.conversation).toEqual({
-      available: true,
-      truncated: true,
-      messages: [
-        expect.objectContaining({
-          text: "Forum incident",
-          author: { kind: "human", handle: "Private Human Name#1234" },
-          roles: ["thread_opener"],
-        }),
-        expect.objectContaining({
-          text: "Earlier human context",
-          author: { kind: "human", handle: "Private Human Name#1234" },
-          roles: ["recent"],
-        }),
-        expect.objectContaining({
-          text: "Original assignment",
-          author: { kind: "bot", handle: "Helper#0002" },
-          roles: ["reply_ancestor", "recent"],
-        }),
-        expect.objectContaining({
-          text: "Do that",
-          author: { kind: "human", handle: "Private Human Name#1234" },
-          roles: ["immediately_previous", "reply_target", "recent"],
-        }),
-      ],
-    })
-    const serialized = JSON.stringify(plan.wakeGateInput.conversation)
-    expect(serialized).not.toContain("human_1")
-    expect(serialized).toContain("Private Human Name#1234")
-  })
-
-  it("orders equal-time conversation entries by sequence and then id", async () => {
-    const createdAt = "2026-08-17T00:00:00.000Z"
-    mockListWakeContextMessagesBefore.mockResolvedValue({
-      messages: [
-        wakeContextRow({ id: "context_z", content: "seq two", seq: 2, createdAt }),
-        wakeContextRow({ id: "context_b", content: "seq one id b", seq: 1, createdAt }),
-        wakeContextRow({ id: "context_a", content: "seq one id a", seq: 1, createdAt }),
-      ],
-      hasMore: false,
-    })
-
-    const plan = await planCommittedMessage({} as never, "msg_1")
-
-    expect(plan.wakeGateInput.conversation.messages.map(({ text }) => text)).toEqual([
-      "seq one id a",
-      "seq one id b",
-      "seq two",
-    ])
-  })
-
-  it("fails open to empty context when a context-only lookup fails", async () => {
-    mockListWakeContextMessagesBefore.mockRejectedValue(new Error("D1 context unavailable"))
-
-    const plan = await planCommittedMessage({} as never, "msg_1")
-
-    expect(plan.wakeGateInput.conversation).toEqual({
-      available: false,
-      messages: [],
-      truncated: false,
-    })
-    expect(mockLogWarn).toHaveBeenCalledWith(
-      "committed_message_jev_context_failed_open",
-      { messageId: "msg_1" },
-    )
-  })
-
-  it("keeps the raw bot handle when it co-occurs with @everyone", async () => {
-    mockGetMessage.mockResolvedValue({
-      ...message,
-      content: "@everyone @Bot#0001 please investigate",
-      mentionType: "everyone",
-    })
-    mockListAttention.mockResolvedValue([{ userId: "bot_1", kind: "mention" }])
-
-    const plan = await planCommittedMessage({} as never, "msg_1")
-
-    expect(plan.wakeGateInput.message.text).toBe("@everyone @Bot#0001 please investigate")
-    expect(plan.wakeGateInput.candidates).toEqual([
-      expect.objectContaining({
-        botUserId: "bot_1",
-      }),
-    ])
-    expect(JSON.stringify(plan.wakeGateInput)).not.toContain("directlyMentioned")
-    expect(JSON.stringify(plan.wakeGateInput)).not.toContain("isReplyTarget")
-    expect(JSON.stringify(plan.wakeGateInput)).not.toContain("broadcastMention")
   })
 
   it("keeps forum-thread participants, mention-only attention, and parent access distinct", async () => {
@@ -733,7 +549,6 @@ describe("dispatchCommittedMessage", () => {
     mockGetMessage.mockResolvedValue(message)
     mockGetChannel.mockResolvedValue(channel)
     mockGetWakeContextMessageInScope.mockResolvedValue(null)
-    mockListWakeContextMessagesBefore.mockResolvedValue({ messages: [], hasMore: false })
     mockGetMessageClientNonceForDelivery.mockResolvedValue("nonce_1")
     mockListAttachments.mockResolvedValue([])
     mockListAttention.mockResolvedValue([])
@@ -743,7 +558,6 @@ describe("dispatchCommittedMessage", () => {
     )
     mockResolveEligibility.mockResolvedValue(new Map())
     mockFindWakeCandidates.mockResolvedValue([])
-    mockSelectJevWakeCandidates.mockImplementation(async (input) => input.candidates)
     mockSendMessageDeliveryBatch.mockResolvedValue(undefined)
     mockEnqueueQueueTasks.mockResolvedValue(undefined)
   })
@@ -857,7 +671,7 @@ describe("dispatchCommittedMessage", () => {
     })
   })
 
-  it("enqueues deterministic candidates when the gate unexpectedly rejects", async () => {
+  it("enqueues eligible candidates directly", async () => {
     mockResolveRecipients.mockResolvedValue(["author_1", "bot_1"])
     mockResolveEligibility.mockResolvedValue(new Map([["bot_1", state()]]))
     mockFindWakeCandidates.mockResolvedValue([{
@@ -868,21 +682,14 @@ describe("dispatchCommittedMessage", () => {
       machineId: "m1",
       runtime: "codex",
     }])
-    mockSelectJevWakeCandidates.mockRejectedValue(new Error("unexpected"))
-
     await dispatchCommittedMessage({} as never, "msg_1")
 
     expect(mockEnqueueQueueTasks).toHaveBeenCalledWith([
       { version: 1, kind: "bot-wake", messageId: "msg_1", botUserId: "bot_1" },
     ])
-    expect(mockLogWarn).toHaveBeenCalledWith(
-      "committed_message_jev_gate_failed_open",
-      { messageId: "msg_1" },
-    )
   })
 
-  it("starts browser delivery and mobile push without waiting for JEV", async () => {
-    let releaseGate!: (value: unknown[]) => void
+  it("dispatches browser, mobile push, and bot wakes concurrently", async () => {
     mockResolveRecipients.mockResolvedValue(["author_1", "u_all", "bot_1"])
     mockResolveEligibility.mockResolvedValue(new Map([
       ["u_all", state()],
@@ -896,60 +703,16 @@ describe("dispatchCommittedMessage", () => {
       machineId: "m1",
       runtime: "codex",
     }])
-    mockSelectJevWakeCandidates.mockReturnValue(new Promise((resolve) => {
-      releaseGate = resolve
-    }))
+    await dispatchCommittedMessage({} as never, "msg_1")
 
-    const work = dispatchCommittedMessage({} as never, "msg_1")
-    await vi.waitFor(() => {
-      expect(mockSendMessageDeliveryBatch).toHaveBeenCalledOnce()
-      expect(mockEnqueueQueueTasks).toHaveBeenCalledWith([
-        { version: 1, kind: "mobile-push", messageId: "msg_1", userId: "u_all" },
-        { version: 1, kind: "mobile-push", messageId: "msg_1", userId: "bot_1" },
-      ])
-    })
-    expect(mockEnqueueQueueTasks).toHaveBeenCalledTimes(1)
-
-    releaseGate([])
-    await work
-    expect(mockEnqueueQueueTasks).toHaveBeenNthCalledWith(2, [])
-  })
-
-  it("starts browser delivery and mobile push without waiting for JEV context", async () => {
-    let releaseContext!: (value: { messages: []; hasMore: false }) => void
-    mockResolveRecipients.mockResolvedValue(["author_1", "u_all", "bot_1"])
-    mockResolveEligibility.mockResolvedValue(new Map([
-      ["u_all", state()],
-      ["bot_1", state()],
-    ]))
-    mockFindWakeCandidates.mockResolvedValue([{
-      botUserId: "bot_1",
-      name: "Bot",
-      discriminator: "0001",
-      instruction: "",
-      machineId: "m1",
-      runtime: "codex",
-    }])
-    mockListWakeContextMessagesBefore.mockReturnValue(new Promise((resolve) => {
-      releaseContext = resolve
-    }))
-
-    const work = dispatchCommittedMessage({} as never, "msg_1")
-    await vi.waitFor(() => {
-      expect(mockSendMessageDeliveryBatch).toHaveBeenCalledOnce()
-      expect(mockEnqueueQueueTasks).toHaveBeenCalledWith([
-        { version: 1, kind: "mobile-push", messageId: "msg_1", userId: "u_all" },
-        { version: 1, kind: "mobile-push", messageId: "msg_1", userId: "bot_1" },
-      ])
-    })
-    expect(mockEnqueueQueueTasks).toHaveBeenCalledTimes(1)
-    expect(mockSelectJevWakeCandidates).not.toHaveBeenCalled()
-
-    releaseContext({ messages: [], hasMore: false })
-    await work
-    expect(mockSelectJevWakeCandidates).toHaveBeenCalledOnce()
+    expect(mockSendMessageDeliveryBatch).toHaveBeenCalledOnce()
+    expect(mockEnqueueQueueTasks).toHaveBeenNthCalledWith(1, [
+      { version: 1, kind: "mobile-push", messageId: "msg_1", userId: "u_all" },
+      { version: 1, kind: "mobile-push", messageId: "msg_1", userId: "bot_1" },
+    ])
     expect(mockEnqueueQueueTasks).toHaveBeenNthCalledWith(2, [
       { version: 1, kind: "bot-wake", messageId: "msg_1", botUserId: "bot_1" },
     ])
   })
+
 })
