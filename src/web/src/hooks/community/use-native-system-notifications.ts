@@ -5,12 +5,14 @@ import { isDesktop, isMobile } from "@alook/shared"
 import {
   dismissDesktopSystemNotification,
   listenDesktopSystemNotificationActivations,
+  retryDesktopSystemNotificationActivation,
   takeDesktopSystemNotificationActivation,
 } from "@/lib/community/desktop-system-notification"
 import {
   revalidateDesktopSystemNotificationTarget,
   systemNotificationHref,
   type DesktopSystemNotificationActivation,
+  type DesktopSystemNotificationTargetValidation,
 } from "@/lib/community/system-notification-route"
 import {
   acknowledgeMobileSystemNotificationRegistration,
@@ -51,7 +53,10 @@ function dismissPendingNativeSystemNotification(
 export type DesktopSystemNotificationActivationDeps = {
   listen: (ready: () => void) => Promise<() => void>
   take: () => Promise<DesktopSystemNotificationActivation | null>
-  revalidate: (activation: DesktopSystemNotificationActivation) => Promise<boolean>
+  revalidate: (
+    activation: DesktopSystemNotificationActivation,
+  ) => Promise<DesktopSystemNotificationTargetValidation>
+  retryActivation: (notificationId: string) => Promise<void>
   queueDismiss: (notificationId: string, href: string) => void
   navigate: (href: string) => void
   openInbox: () => Promise<void> | void
@@ -200,15 +205,21 @@ export function createDesktopSystemNotificationActivationController(
         rerun = false
         const activation = await deps.take().catch(() => null)
         if (!activation || disposed) continue
-        const allowed = await deps.revalidate(activation).catch(() => false)
+        const validation = await deps.revalidate(activation).catch(() => "retryable" as const)
         if (disposed) continue
-        if (allowed) {
+        if (validation === "allowed") {
           const href = systemNotificationHref(activation.target)
           try {
             deps.queueDismiss(activation.notificationId, href)
           } catch {}
           if (!disposed) deps.navigate(href)
-        } else await deps.openInbox()
+        } else {
+          if (validation === "retryable") {
+            await deps.retryActivation(activation.notificationId).catch(() => undefined)
+            if (disposed) continue
+          }
+          await deps.openInbox()
+        }
       } while (rerun && !disposed)
     } finally {
       draining = false
@@ -268,6 +279,7 @@ export function useNativeSystemNotifications(viewerUserId: string) {
         listen: listenDesktopSystemNotificationActivations,
         take: takeDesktopSystemNotificationActivation,
         revalidate: ({ target }) => revalidateDesktopSystemNotificationTarget(target),
+        retryActivation: retryDesktopSystemNotificationActivation,
         queueDismiss: (notificationId, href) => {
           dismissal.queue("desktop", notificationId, href)
         },

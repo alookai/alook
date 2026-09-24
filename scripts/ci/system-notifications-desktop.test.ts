@@ -14,6 +14,7 @@ const desktopCommands = [
   "desktop_system_notification_show",
   "desktop_system_notification_listen",
   "desktop_system_notification_take_activation",
+  "desktop_system_notification_retry_activation",
   "desktop_system_notification_dismiss",
   "desktop_system_notification_unlisten",
 ]

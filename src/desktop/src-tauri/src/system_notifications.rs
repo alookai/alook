@@ -172,6 +172,18 @@ impl NotificationRecord {
             target: item.target.clone(),
         })
     }
+
+    fn retry_activation(&mut self, notification_id: &str) -> bool {
+        let Some(item) = self
+            .recent
+            .iter_mut()
+            .find(|item| item.notification_id == notification_id && item.activated)
+        else {
+            return false;
+        };
+        item.activated = false;
+        true
+    }
 }
 
 struct Notifications<T> {
@@ -462,6 +474,25 @@ pub fn desktop_system_notification_take_activation(
         .lock()
         .map_err(|_| "activation_unavailable")?
         .take())
+}
+
+#[tauri::command]
+pub fn desktop_system_notification_retry_activation(
+    window: WebviewWindow,
+    state: tauri::State<'_, DesktopSystemNotificationState>,
+    notification_id: String,
+) -> Result<(), &'static str> {
+    guard(&window)?;
+    if !valid_notification_id(&notification_id) {
+        return Err("notification_invalid");
+    }
+    state.transact(|record| {
+        if record.retry_activation(&notification_id) {
+            Ok(())
+        } else {
+            Err("activation_unavailable")
+        }
+    })
 }
 
 #[tauri::command]
@@ -780,12 +811,18 @@ mod tests {
     }
 
     #[test]
-    fn activation_is_one_shot_and_restorable() {
+    fn activation_is_one_shot_until_an_exact_retry_and_restorable() {
         let mut record = NotificationRecord::new();
         let id = record.claim(&candidate("viewer_1", "message_1")).unwrap();
         assert_eq!(record.activate(&id).unwrap().target, target("message_1"));
         assert!(record.activate(&id).is_none());
-        let restored = NotificationRecord::restore(serde_json::to_value(record).unwrap()).unwrap();
+        assert!(!record.retry_activation("00000000-0000-0000-0000-000000000000"));
+        assert!(record.retry_activation(&id));
+        assert!(!record.retry_activation(&id));
+        let mut restored =
+            NotificationRecord::restore(serde_json::to_value(record).unwrap()).unwrap();
+        assert!(!restored.recent[0].activated);
+        assert_eq!(restored.activate(&id).unwrap().target, target("message_1"));
         assert!(restored.recent[0].activated);
     }
 

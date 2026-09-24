@@ -167,6 +167,10 @@ export async function takeDesktopSystemNotificationActivation(): Promise<Desktop
   return parseDesktopSystemNotificationActivation(value)
 }
 
+export async function retryDesktopSystemNotificationActivation(notificationId: string): Promise<void> {
+  await tauriInvoke("desktop_system_notification_retry_activation", { notificationId })
+}
+
 export async function dismissDesktopSystemNotification(notificationId: string): Promise<void> {
   await tauriInvoke("desktop_system_notification_dismiss", { notificationId })
 }

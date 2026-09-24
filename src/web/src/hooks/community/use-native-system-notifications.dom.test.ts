@@ -14,6 +14,7 @@ const hookMocks = vi.hoisted(() => ({
   mobile: false,
   listen: vi.fn(),
   take: vi.fn(),
+  retryActivation: vi.fn(async () => undefined),
   dismiss: vi.fn(async () => undefined),
   revalidate: vi.fn(),
   mobileListen: vi.fn(),
@@ -43,6 +44,7 @@ vi.mock("@/lib/community/desktop-system-notification", async () => {
     ...actual,
     listenDesktopSystemNotificationActivations: hookMocks.listen,
     takeDesktopSystemNotificationActivation: hookMocks.take,
+    retryDesktopSystemNotificationActivation: hookMocks.retryActivation,
     dismissDesktopSystemNotification: hookMocks.dismiss,
   }
 })
@@ -98,7 +100,8 @@ describe("desktop notification activation controller", () => {
     const controller = createDesktopSystemNotificationActivationController({
       listen: vi.fn(async () => { calls.push("listen"); return () => calls.push("unlisten") }),
       take: vi.fn(async () => { calls.push("take"); return activation }),
-      revalidate: vi.fn(async () => { calls.push("revalidate"); return true }),
+      revalidate: vi.fn(async () => { calls.push("revalidate"); return "allowed" as const }),
+      retryActivation: vi.fn(),
       queueDismiss: vi.fn(() => { calls.push("queueDismiss") }),
       navigate: vi.fn(() => calls.push("navigate")),
       openInbox: vi.fn(),
@@ -112,10 +115,12 @@ describe("desktop notification activation controller", () => {
   it("falls back to Inbox when the message is deleted or access is revoked", async () => {
     const openInbox = vi.fn()
     const navigate = vi.fn()
+    const retryActivation = vi.fn()
     const controller = createDesktopSystemNotificationActivationController({
       listen: vi.fn(async () => () => undefined),
       take: vi.fn(async () => activation),
-      revalidate: vi.fn(async () => false),
+      revalidate: vi.fn(async () => "invalid" as const),
+      retryActivation,
       queueDismiss: vi.fn(),
       navigate,
       openInbox,
@@ -123,6 +128,33 @@ describe("desktop notification activation controller", () => {
     await controller.connect()
     expect(openInbox).toHaveBeenCalledOnce()
     expect(navigate).not.toHaveBeenCalled()
+    expect(retryActivation).not.toHaveBeenCalled()
+  })
+
+  it("re-arms only a retryable activation before falling back to Inbox", async () => {
+    const calls: string[] = []
+    const retryActivation = vi.fn(async (notificationId: string) => {
+      calls.push(`retry:${notificationId}`)
+    })
+    const controller = createDesktopSystemNotificationActivationController({
+      listen: vi.fn(async () => () => undefined),
+      take: vi.fn(async () => activation),
+      revalidate: vi.fn(async () => {
+        calls.push("revalidate")
+        return "retryable" as const
+      }),
+      retryActivation,
+      queueDismiss: vi.fn(),
+      navigate: vi.fn(),
+      openInbox: vi.fn(async () => { calls.push("inbox") }),
+    })
+
+    await controller.connect()
+    expect(calls).toEqual([
+      "revalidate",
+      `retry:${activation.notificationId}`,
+      "inbox",
+    ])
   })
 
   it("still navigates when dismissal persistence fails", async () => {
@@ -130,7 +162,8 @@ describe("desktop notification activation controller", () => {
     const controller = createDesktopSystemNotificationActivationController({
       listen: vi.fn(async () => () => undefined),
       take: vi.fn(async () => activation),
-      revalidate: vi.fn(async () => true),
+      revalidate: vi.fn(async () => "allowed" as const),
+      retryActivation: vi.fn(),
       queueDismiss: vi.fn(() => { throw new Error("storage unavailable") }),
       navigate,
       openInbox: vi.fn(),
@@ -149,7 +182,8 @@ describe("desktop notification activation controller", () => {
     const controller = createDesktopSystemNotificationActivationController({
       listen: vi.fn(async (callback) => { ready = callback; return () => undefined }),
       take,
-      revalidate: vi.fn(async () => true),
+      revalidate: vi.fn(async () => "allowed" as const),
+      retryActivation: vi.fn(),
       queueDismiss: vi.fn(),
       navigate,
       openInbox: vi.fn(),
@@ -175,7 +209,8 @@ describe("desktop notification activation controller", () => {
     const controller = createDesktopSystemNotificationActivationController({
       listen: vi.fn(async (callback) => { ready = callback; return () => undefined }),
       take,
-      revalidate: vi.fn(async () => true),
+      revalidate: vi.fn(async () => "allowed" as const),
+      retryActivation: vi.fn(),
       queueDismiss: vi.fn(),
       navigate: vi.fn(),
       openInbox: vi.fn(),
@@ -197,6 +232,7 @@ describe("desktop notification activation controller", () => {
       listen: vi.fn(() => listener),
       take: vi.fn(),
       revalidate: vi.fn(),
+      retryActivation: vi.fn(),
       queueDismiss: vi.fn(),
       navigate: vi.fn(),
       openInbox: vi.fn(),
@@ -342,7 +378,7 @@ describe("native system notification hook", () => {
     vi.stubGlobal("location", { href: "https://alook.test/c", assign })
     hookMocks.listen.mockResolvedValue(stop)
     hookMocks.take.mockResolvedValueOnce(activation)
-    hookMocks.revalidate.mockResolvedValue(true)
+    hookMocks.revalidate.mockResolvedValue("allowed")
 
     const rendered = renderHook(() => useNativeSystemNotifications("viewer_1"))
     await waitFor(() => expect(assign).toHaveBeenCalledWith(
@@ -412,7 +448,7 @@ describe("native system notification hook", () => {
     vi.stubGlobal("location", { href: "https://alook.test/c/channels/server_1/channel_1", assign })
     hookMocks.listen.mockResolvedValue(stop)
     hookMocks.take.mockResolvedValueOnce(activation).mockResolvedValue(null)
-    hookMocks.revalidate.mockResolvedValue(false)
+    hookMocks.revalidate.mockResolvedValue("invalid")
 
     const first = renderHook(() => useNativeSystemNotifications("viewer_1"))
     await act(async () => {
@@ -420,6 +456,7 @@ describe("native system notification hook", () => {
       await vi.advanceTimersByTimeAsync(2_000)
     })
     expect(assign).toHaveBeenCalledWith("https://alook.test/c")
+    expect(hookMocks.retryActivation).not.toHaveBeenCalled()
     first.unmount()
 
     const button = document.createElement("button")
@@ -431,6 +468,30 @@ describe("native system notification hook", () => {
     expect(click).toHaveBeenCalledOnce()
     expect(window.sessionStorage.length).toBe(0)
     second.unmount()
+  })
+
+  it("re-arms the exact desktop activation on retryable validation failure", async () => {
+    const assign = vi.fn()
+    const stop = vi.fn()
+    const button = document.createElement("button")
+    button.setAttribute("aria-label", "Inbox")
+    const click = vi.spyOn(button, "click")
+    document.body.append(button)
+    vi.stubGlobal("location", { href: "https://alook.test/c/me/friends", assign })
+    hookMocks.listen.mockResolvedValue(stop)
+    hookMocks.take.mockResolvedValueOnce(activation).mockResolvedValue(null)
+    hookMocks.revalidate.mockResolvedValue("retryable")
+
+    const rendered = renderHook(() => useNativeSystemNotifications("viewer_1"))
+    await waitFor(() => expect(hookMocks.retryActivation).toHaveBeenCalledExactlyOnceWith(
+      activation.notificationId,
+    ))
+    expect(click).toHaveBeenCalledOnce()
+    expect(assign).not.toHaveBeenCalled()
+    expect(hookMocks.dismiss).not.toHaveBeenCalled()
+
+    rendered.unmount()
+    expect(stop).toHaveBeenCalledOnce()
   })
 
   it("disposes the controller when native listener setup rejects", async () => {

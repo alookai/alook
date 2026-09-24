@@ -169,6 +169,7 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
         system_notifications::desktop_system_notification_show,
         system_notifications::desktop_system_notification_listen,
         system_notifications::desktop_system_notification_take_activation,
+        system_notifications::desktop_system_notification_retry_activation,
         system_notifications::desktop_system_notification_dismiss,
         system_notifications::desktop_system_notification_unlisten,
     ]);
