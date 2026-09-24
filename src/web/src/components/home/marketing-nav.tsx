@@ -4,6 +4,11 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { GithubOutboundLink } from "@/components/github-outbound-link";
+import {
+  MARKETING_SITE_LINK_CLASS_NAME,
+  MARKETING_SITE_LINK_STYLE,
+  MARKETING_SITE_LINKS,
+} from "./marketing-site-links";
 
 export function MarketingNav({
   isLoggedIn,
@@ -13,6 +18,8 @@ export function MarketingNav({
   revealAfterHero = false,
   collapseLinksOnMobile = false,
   highlightActions = false,
+  containerClassName,
+  containerTestId,
 }: {
   isLoggedIn: boolean;
   showTemplates?: boolean;
@@ -21,6 +28,8 @@ export function MarketingNav({
   revealAfterHero?: boolean;
   collapseLinksOnMobile?: boolean;
   highlightActions?: boolean;
+  containerClassName?: string;
+  containerTestId?: string;
 }) {
   const [revealed, setRevealed] = useState(false);
 
@@ -46,7 +55,10 @@ export function MarketingNav({
         borderBottom: "1px solid var(--landing-border)",
       }}
     >
-      <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-2">
+      <div
+        className={`${containerClassName ?? "mx-auto w-full max-w-5xl px-6"} flex items-center justify-between py-2`}
+        data-testid={containerTestId}
+      >
         <Link href={homeHref} className="flex items-center gap-1">
           <Image src="/alook.svg" alt="Alook" width={22} height={22} />
           <span
@@ -62,7 +74,15 @@ export function MarketingNav({
         </Link>
 
         <div className="relative flex items-center gap-3">
-          <Link href="/pricing" className="px-3 py-2 text-xs uppercase tracking-widest transition-opacity duration-150 hover:opacity-70" style={{ fontFamily: "var(--font-mono)", color: "var(--landing-text)" }}>Pricing</Link>
+          {MARKETING_SITE_LINKS.map((link) => {
+            const className = `${collapseLinksOnMobile || link.usesDocumentNavigation ? "hidden sm:block" : "block"} marketing-site-link ${MARKETING_SITE_LINK_CLASS_NAME}`;
+
+            return link.usesDocumentNavigation ? (
+              <a key={link.href} href={link.href} className={className} style={MARKETING_SITE_LINK_STYLE}>{link.label}</a>
+            ) : (
+              <Link key={link.href} href={link.href} className={className} style={MARKETING_SITE_LINK_STYLE}>{link.label}</Link>
+            );
+          })}
           {showTemplates && (
             <Link
               href="/templates"
@@ -75,16 +95,6 @@ export function MarketingNav({
               Templates
             </Link>
           )}
-          <a
-            href="/blog"
-            className="hidden sm:block px-3 py-2 text-xs uppercase tracking-widest transition-opacity duration-150 hover:opacity-70"
-            style={{
-              fontFamily: "var(--font-mono)",
-              color: "var(--landing-text)",
-            }}
-          >
-            Blog
-          </a>
           <GithubOutboundLink
             surface="public_nav"
             target="_blank"
@@ -141,8 +151,12 @@ export function MarketingNav({
                   borderColor: "var(--landing-border)",
                 }}
               >
+                {MARKETING_SITE_LINKS.map((link) => link.usesDocumentNavigation ? (
+                  <a key={link.href} href={link.href} className={`marketing-mobile-site-link block ${MARKETING_SITE_LINK_CLASS_NAME}`} style={MARKETING_SITE_LINK_STYLE}>{link.label}</a>
+                ) : (
+                  <Link key={link.href} href={link.href} className={`marketing-mobile-site-link block ${MARKETING_SITE_LINK_CLASS_NAME}`} style={MARKETING_SITE_LINK_STYLE}>{link.label}</Link>
+                ))}
                 {showTemplates && <Link href="/templates" className="block px-3 py-2 text-xs uppercase tracking-widest">Templates</Link>}
-                <a href="/blog" className="block px-3 py-2 text-xs uppercase tracking-widest">Blog</a>
                 <GithubOutboundLink surface="public_nav" target="_blank" rel="noopener noreferrer" className="block px-3 py-2 text-xs uppercase tracking-widest">GitHub</GithubOutboundLink>
                 <a href="https://discord.alook.ai" target="_blank" rel="noopener noreferrer" className="block px-3 py-2 text-xs uppercase tracking-widest">Discord</a>
                 <a href="https://x.com/alook_ai" target="_blank" rel="noopener noreferrer" className="block px-3 py-2 text-xs uppercase tracking-widest">X</a>

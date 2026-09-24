@@ -14,6 +14,11 @@ import { HomepageFaq } from "./homepage-faq"
 import { LandingReachMotion } from "./landing-reach-motion"
 import { LandingShellMotion } from "./landing-shell-motion"
 import { MarketingNav } from "./marketing-nav"
+import {
+  MARKETING_SITE_LINK_CLASS_NAME,
+  MARKETING_SITE_LINK_STYLE,
+  MARKETING_SITE_LINKS,
+} from "./marketing-site-links"
 import { BRAND_SLOGAN } from "@/lib/brand-copy"
 import {
   LANDING_CONTINUITY,
@@ -25,6 +30,7 @@ import {
 } from "./landing-content"
 import styles from "./landing-page.module.css"
 import { GithubOutboundLink } from "@/components/github-outbound-link"
+import { tid } from "@/lib/community/testids"
 
 function Brand() {
   return (
@@ -277,6 +283,8 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
         revealAfterHero
         collapseLinksOnMobile
         highlightActions
+        containerClassName={styles.siteContainer}
+        containerTestId={tid.landingHeaderContainer}
       />
       <HeroSection
         isLoggedIn={isLoggedIn}
@@ -309,7 +317,7 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
       />
 
       <section id="product" className={styles.productSection} data-testid="landing-product-proof">
-        <div className={styles.productLayout}>
+        <div className={styles.productLayout} data-testid={tid.landingMainContainer}>
           <div className={styles.sectionIntro}>
             <div className={styles.sectionLead}>
               <p className={styles.sectionMuted}>Share what already works</p>
@@ -415,10 +423,24 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
       </section>
 
       <footer className={styles.footer}>
-        <Brand />
-        <p>{BRAND_SLOGAN}</p>
-        <Link href="/pricing">Pricing</Link>
-        <FooterSocialLinks />
+        <div className={`${styles.siteContainer} ${styles.footerLayout}`} data-testid={tid.landingFooterContainer}>
+          <div className={styles.footerPrimary}>
+            <div className={styles.footerBrand} data-testid={tid.landingFooterBrand}>
+              <Brand />
+            </div>
+            <p className={styles.footerSlogan} data-testid={tid.landingFooterSlogan}>{BRAND_SLOGAN}</p>
+            <div className={styles.footerSocialGroup} data-testid={tid.landingFooterSocial}>
+              <FooterSocialLinks />
+            </div>
+          </div>
+          <nav className={styles.footerNavigation} aria-label="Footer navigation" data-testid={tid.landingFooterNavigation}>
+            {MARKETING_SITE_LINKS.map((link) => link.usesDocumentNavigation ? (
+              <a key={link.href} href={link.href} className={MARKETING_SITE_LINK_CLASS_NAME} style={MARKETING_SITE_LINK_STYLE}>{link.label}</a>
+            ) : (
+              <Link key={link.href} href={link.href} className={MARKETING_SITE_LINK_CLASS_NAME} style={MARKETING_SITE_LINK_STYLE}>{link.label}</Link>
+            ))}
+          </nav>
+        </div>
       </footer>
     </main>
   )
