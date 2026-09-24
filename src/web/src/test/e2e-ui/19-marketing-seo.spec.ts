@@ -92,6 +92,38 @@ test("homepage header, body, and footer share responsive content edges", async (
   }
 })
 
+test("homepage shares header and footer site links and collapses mobile header links", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto("/")
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+
+  const header = page.locator("nav.marketing-nav")
+  await expect.poll(() => header.evaluate((element) => getComputedStyle(element).visibility)).toBe("visible")
+
+  const inlineLinks = header.locator(".marketing-site-link")
+  await expect(inlineLinks).toHaveCount(2)
+  for (const link of await inlineLinks.all()) await expect(link).toBeHidden()
+
+  const mobileMenu = header.locator("details")
+  await mobileMenu.locator("summary").click()
+  const mobileLinks = mobileMenu.locator(".marketing-mobile-site-link")
+  await expect(mobileLinks).toHaveCount(2)
+  const expectedLinks = [
+    { href: "/pricing", label: "Pricing" },
+    { href: "/blog", label: "Blog" },
+  ]
+  const linkContract = (elements: Element[]) => elements.map((element) => ({
+    href: element.getAttribute("href"),
+    label: element.textContent?.trim(),
+  }))
+  expect(await mobileLinks.evaluateAll(linkContract)).toEqual(expectedLinks)
+  expect(await page.getByTestId(tid.landingFooterNavigation).locator("a").evaluateAll(linkContract))
+    .toEqual(expectedLinks)
+
+  await page.setViewportSize({ width: 768, height: 900 })
+  for (const link of await inlineLinks.all()) await expect(link).toBeVisible()
+})
+
 test("desktop landing keeps the embedded phone Back control on true mobile geometry", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.emulateMedia({ reducedMotion: "reduce" })

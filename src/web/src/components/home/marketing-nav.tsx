@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { GithubOutboundLink } from "@/components/github-outbound-link";
+import { MARKETING_SITE_LINKS } from "./marketing-site-links";
 
 export function MarketingNav({
   isLoggedIn,
@@ -69,7 +70,16 @@ export function MarketingNav({
         </Link>
 
         <div className="relative flex items-center gap-3">
-          <Link href="/pricing" className="px-3 py-2 text-xs uppercase tracking-widest transition-opacity duration-150 hover:opacity-70" style={{ fontFamily: "var(--font-mono)", color: "var(--landing-text)" }}>Pricing</Link>
+          {MARKETING_SITE_LINKS.map((link) => {
+            const className = `${collapseLinksOnMobile || link.usesDocumentNavigation ? "hidden sm:block" : "block"} marketing-site-link px-3 py-2 text-xs uppercase tracking-widest transition-opacity duration-150 hover:opacity-70`;
+            const style = { fontFamily: "var(--font-mono)", color: "var(--landing-text)" };
+
+            return link.usesDocumentNavigation ? (
+              <a key={link.href} href={link.href} className={className} style={style}>{link.label}</a>
+            ) : (
+              <Link key={link.href} href={link.href} className={className} style={style}>{link.label}</Link>
+            );
+          })}
           {showTemplates && (
             <Link
               href="/templates"
@@ -82,16 +92,6 @@ export function MarketingNav({
               Templates
             </Link>
           )}
-          <a
-            href="/blog"
-            className="hidden sm:block px-3 py-2 text-xs uppercase tracking-widest transition-opacity duration-150 hover:opacity-70"
-            style={{
-              fontFamily: "var(--font-mono)",
-              color: "var(--landing-text)",
-            }}
-          >
-            Blog
-          </a>
           <GithubOutboundLink
             surface="public_nav"
             target="_blank"
@@ -148,8 +148,12 @@ export function MarketingNav({
                   borderColor: "var(--landing-border)",
                 }}
               >
+                {MARKETING_SITE_LINKS.map((link) => link.usesDocumentNavigation ? (
+                  <a key={link.href} href={link.href} className="marketing-mobile-site-link block px-3 py-2 text-xs uppercase tracking-widest">{link.label}</a>
+                ) : (
+                  <Link key={link.href} href={link.href} className="marketing-mobile-site-link block px-3 py-2 text-xs uppercase tracking-widest">{link.label}</Link>
+                ))}
                 {showTemplates && <Link href="/templates" className="block px-3 py-2 text-xs uppercase tracking-widest">Templates</Link>}
-                <a href="/blog" className="block px-3 py-2 text-xs uppercase tracking-widest">Blog</a>
                 <GithubOutboundLink surface="public_nav" target="_blank" rel="noopener noreferrer" className="block px-3 py-2 text-xs uppercase tracking-widest">GitHub</GithubOutboundLink>
                 <a href="https://discord.alook.ai" target="_blank" rel="noopener noreferrer" className="block px-3 py-2 text-xs uppercase tracking-widest">Discord</a>
                 <a href="https://x.com/alook_ai" target="_blank" rel="noopener noreferrer" className="block px-3 py-2 text-xs uppercase tracking-widest">X</a>
