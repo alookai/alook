@@ -367,7 +367,6 @@ function useMessagesInner(
   )
   const activationRevalidationRef = useRef({
     anchorGateObserved: false,
-    observedAt: null as number | null,
     requested: false,
     viewKey,
   })
@@ -446,7 +445,6 @@ function useMessagesInner(
       const anchorGateObserved = !anchorResolved && !!scopeId
       activationRevalidationRef.current = {
         anchorGateObserved,
-        observedAt: anchorGateObserved ? Date.now() : null,
         requested: false,
         viewKey,
       }
@@ -454,7 +452,6 @@ function useMessagesInner(
     }
     if (!anchorResolved && !!scopeId && !state.anchorGateObserved) {
       state.anchorGateObserved = true
-      state.observedAt = Date.now()
     }
   }, [anchorResolved, scopeId, viewKey])
 
@@ -464,7 +461,6 @@ function useMessagesInner(
     if (
       isRestoring
       || !state.anchorGateObserved
-      || state.observedAt === null
       || state.requested
     ) return
     if (!enabled || query.data === undefined || opts?.revalidateOnMount === false) return
@@ -473,11 +469,12 @@ function useMessagesInner(
     // ready. That temporary anchor gate can consume the observer's ordinary
     // mount fetch both on same-session returns and after persisted restore.
     // Revalidate once the anchor is ready. `cancelRefetch: false` joins an
-    // automatic fetch already in flight instead of replacing it, while
-    // `dataUpdatedAt` avoids a duplicate if that fetch already won the race.
+    // automatic fetch already in flight instead of replacing it. Do not use
+    // `dataUpdatedAt` as proof of a completed network fetch here: retained
+    // cache writes can advance that timestamp while the anchor gate is still
+    // closed, which would incorrectly suppress this required revalidation.
     state.requested = true
     if (anchorRepairNeeded) return
-    if (!query.isFetching && query.dataUpdatedAt >= state.observedAt) return
     void queryClient.invalidateQueries(
       { queryKey, exact: true, refetchType: "active" },
       { cancelRefetch: false },
@@ -488,8 +485,6 @@ function useMessagesInner(
     isRestoring,
     opts?.revalidateOnMount,
     query.data,
-    query.dataUpdatedAt,
-    query.isFetching,
     queryClient,
     queryKey,
     viewKey,

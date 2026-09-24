@@ -325,6 +325,61 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
     renderer.unmount()
   })
 
+  it("revalidates after an anchor-gated retained-cache write advances dataUpdatedAt", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const queryKey = communityKeys.dmMessages("dm_activation")
+    const cachedPage = {
+      messages: [{ id: "m_anchor", seq: 1, createdAt: "2026-08-09T00:00:00.000Z" }],
+      hasMoreOlder: false,
+      hasMoreNewer: false,
+      latestSeq: 1,
+    } satisfies MessagesPage
+    queryClient.setQueryData(queryKey, {
+      pages: [cachedPage],
+      pageParams: [{ mode: "anchor", anchor: "m_anchor" }],
+    })
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries")
+    const readStateResponse = deferred<{
+      lastReadMessageId: string
+      lastReadAt: string
+      lastReadSeq: number
+    }>()
+    apiFetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("/read-state")) return readStateResponse.promise
+      return Promise.resolve(cachedPage)
+    })
+    const snapshots: Array<Snapshot & { readStateFetching: boolean }> = []
+    const renderer = renderCapture(
+      queryClient,
+      React.createElement(DmRouteCapture, {
+        onRender: (snapshot) => { snapshots.push(snapshot) },
+      }),
+    )
+
+    expect(snapshots.at(-1)?.readStateFetching).toBe(true)
+    act(() => {
+      queryClient.setQueryData(queryKey, (current: unknown) => ({
+        ...(current as object),
+      }))
+    })
+
+    readStateResponse.resolve({
+      lastReadMessageId: "m_anchor",
+      lastReadAt: "2026-08-09T00:00:00.000Z",
+      lastReadSeq: 1,
+    })
+    await waitFor(() => apiFetchMock.mock.calls.filter(
+      ([url]) => url.includes("/messages"),
+    ).length === 1)
+
+    expect(invalidateQueries).toHaveBeenCalledWith(
+      { queryKey, exact: true, refetchType: "active" },
+      { cancelRefetch: false },
+    )
+    expect(snapshots.every((snapshot) => snapshot.ids.length > 0)).toBe(true)
+    renderer.unmount()
+  })
+
   it("starts newest messages without waiting for read-state, then repairs a late anchor", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const newest = deferred<MessagesPage>()

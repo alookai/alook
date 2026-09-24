@@ -277,6 +277,19 @@ describe("decideScrollAction — self-send / peer-follow (both hand-rolled — f
     expect(action).toEqual({ type: "none" })
   })
 
+  it("newer-page pagination never follows the changed tail as a live append", () => {
+    const state = mountedState()
+    const messages = [{ id: "m1" }, { id: "m2" }, { id: "m3" }, { id: "m4", authorId: "peer" }]
+    const { action } = decideScrollAction(baseInput({
+      state,
+      messages,
+      hasMoreNewer: false,
+      isPaginatingNewer: true,
+      isAtEnd: true,
+    }))
+    expect(action).toEqual({ type: "none" })
+  })
+
   it("no action when the tail id is unchanged", () => {
     const state = mountedState()
     const { action } = decideScrollAction(baseInput({ state, viewerUserId: "viewer" }))
