@@ -26,6 +26,13 @@ describe("committed-message delivery architecture", () => {
     expect(producer).not.toMatch(/\bqueries\b|findWakeCandidates|resolveNotificationEligibility/)
   })
 
+  it("keeps the committed-message dispatcher decoupled from the JEV adapter", () => {
+    const dispatcher = source("./message-dispatcher.ts")
+    expect(dispatcher).not.toMatch(
+      /jev-wake-gate|JevWakeGateInput|selectJevWakeCandidates|wakeGateInput|loadWakeConversation/,
+    )
+  })
+
   it("deletes the old per-recipient notify implementation", () => {
     expect(existsSync(new URL("./notify.ts", import.meta.url))).toBe(false)
     expect(existsSync(new URL("./notify.test.ts", import.meta.url))).toBe(false)
