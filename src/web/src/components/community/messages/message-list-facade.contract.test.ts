@@ -18,7 +18,6 @@ type ExpectedMessageListProps = {
   loading?: boolean
   pinnedIds?: Set<string>
   newDividerBefore?: string
-  typingUsers?: string[]
   onOpenThread: (id: string) => void
   onOpenProfile?: OpenProfile
   onToggleReaction?: (id: string, emoji: string) => void

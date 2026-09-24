@@ -106,8 +106,6 @@ describe("useMessageListController", () => {
   let requestFrame: ReturnType<typeof vi.fn>
   let cancelFrame: ReturnType<typeof vi.fn>
   let visibleMessageIds: string[]
-  let selectionRailTop: number | null
-  let selectedRowBottom: number
   const disconnect = vi.fn()
   const heroNode = { offsetHeight: 0 }
   const scrollNode = {
@@ -115,14 +113,9 @@ describe("useMessageListController", () => {
     scrollHeight: 3206,
     clientHeight: 692,
     isConnected: true,
-    parentElement: {
-      querySelector: () => selectionRailTop === null ? null : ({
-        getBoundingClientRect: () => ({ top: selectionRailTop }),
-      }),
-    },
     querySelectorAll: () => visibleMessageIds.map((id) => ({
       dataset: { msgId: id },
-      getBoundingClientRect: () => ({ top: 10, bottom: selectedRowBottom }),
+      getBoundingClientRect: () => ({ top: 10, bottom: 20 }),
     })),
     getBoundingClientRect: () => ({ top: 0, bottom: 100 }),
   }
@@ -143,8 +136,6 @@ describe("useMessageListController", () => {
     nextFrameId = 0
     frameCallbacks = new Map()
     visibleMessageIds = ["m1"]
-    selectionRailTop = null
-    selectedRowBottom = 20
     scrollNode.scrollTop = 0
     scrollNode.clientHeight = 692
     heroNode.offsetHeight = 0
@@ -522,75 +513,6 @@ describe("useMessageListController", () => {
     act(() => renderer.unmount())
   })
 
-  it("minimally scrolls an overlapping selected row above the active accessory rail", () => {
-    selectionRailTop = 692
-    selectedRowBottom = 747.5
-    let renderer: ReturnType<typeof rtlRender>
-    act(() => {
-      renderer = rtlRender(
-        React.createElement(Probe, { value: props() })
-      )
-    })
-
-    act(() => latest.onEnterSelectId("m1"))
-    runNextFrame()
-
-    expect(scrollNode.scrollTop).toBe(63.5)
-    selectedRowBottom = 684
-    runNextFrame()
-    selectionRailTop = null
-    runNextFrame()
-    act(() => renderer!.unmount())
-  })
-
-  it("minimally scrolls a selected row when its non-overlapping rail gap is under 8px", () => {
-    selectionRailTop = 692
-    selectedRowBottom = 688
-    let renderer: ReturnType<typeof rtlRender>
-    act(() => {
-      renderer = rtlRender(
-        React.createElement(Probe, { value: props() })
-      )
-    })
-
-    act(() => latest.onEnterSelectId("m1"))
-    runNextFrame()
-
-    expect(scrollNode.scrollTop).toBe(4)
-    selectedRowBottom = 684
-    runNextFrame()
-    expect(scrollNode.scrollTop).toBe(4)
-    runNextFrame()
-    expect(frameCallbacks.size).toBe(0)
-    act(() => renderer!.unmount())
-  })
-
-  it("rechecks selected-row clearance when the composer moves the rail", () => {
-    selectionRailTop = 692
-    selectedRowBottom = 684
-    let renderer: ReturnType<typeof rtlRender>
-    act(() => {
-      renderer = rtlRender(
-        React.createElement(Probe, { value: props({ composerOverlap: 0 }) })
-      )
-    })
-
-    act(() => latest.onEnterSelectId("m1"))
-    runNextFrame()
-    runNextFrame()
-    expect(scrollNode.scrollTop).toBe(0)
-
-    selectionRailTop = 596
-    act(() => {
-      renderer!.rerender(
-        React.createElement(Probe, { value: props({ composerOverlap: 96 }) })
-      )
-    })
-    runNextFrame()
-    expect(scrollNode.scrollTop).toBe(96)
-    act(() => renderer!.unmount())
-  })
-
   it("closes the share dialog before exiting selection mode", () => {
     const source = readWebSource(
       "src/components/community/messages/message-list-controller.ts",
@@ -603,6 +525,15 @@ describe("useMessageListController", () => {
     expect(closeShare.indexOf("setShareOpen(false)")).toBeLessThan(
       closeShare.indexOf("exitSelect()"),
     )
+  })
+
+  it("does not write scroll position for footer-owned selection controls", () => {
+    const source = readWebSource(
+      "src/components/community/messages/message-list-controller.ts",
+    )
+    expect(source).not.toContain("keepSelectionClearOfRail")
+    expect(source).not.toContain("SELECTION_RAIL_GAP_PX")
+    expect(source).not.toContain("[data-selection=\"active\"]")
   })
 
   it("consumes a loaded target after zero-height measurement and clears highlight after visibility", () => {

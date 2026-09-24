@@ -9,6 +9,23 @@ import type { ResolvedMessageListProps } from "./message-list-types"
 
 vi.mock("./composer-accessory-rail", () => ({
   ComposerAccessoryRail: vi.fn((props: Record<string, unknown>) => React.createElement("accessory-rail", props)),
+  MessageSelectionFooter: ({
+    selectedCount,
+    onCancel,
+    onShare,
+  }: {
+    selectedCount: number
+    onCancel: () => void
+    onShare: () => void
+  }) => React.createElement("div", { "data-selection": "active" },
+    React.createElement("button", {
+      "aria-label": "Cancel message selection",
+      onClick: onCancel,
+    }),
+    React.createElement("button", {
+      "aria-label": `Share ${selectedCount} selected messages as image`,
+      onClick: onShare,
+    })),
 }))
 vi.mock("./message-share-dialog", () => ({ MessageShareDialog: vi.fn(() => null) }))
 vi.mock("@/components/ui/number-ticker", () => ({
@@ -45,7 +62,6 @@ function props(overrides: Partial<ResolvedMessageListProps> = {}): ResolvedMessa
       createdAt: new Date(0).toISOString(),
     }],
     loading: true,
-    typingUsers: ["Alice"],
     onOpenThread: vi.fn(),
     variant: "channel",
     initialScrollReady: true,
@@ -86,15 +102,13 @@ function controller(overrides: Partial<MessageListController> = {}): MessageList
 describe("renderMessageListView", () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it("keeps warm non-empty loading data on the loaded DOM with live typing and pill", () => {
+  it("keeps warm non-empty loading data on the loaded DOM with the away pill", () => {
     const listProps = props()
     const state = controller()
     const renderRows = vi.fn(() => React.createElement("virtual-rows"))
     const renderer = render(renderMessageListView(listProps, state, renderRows))
     expect(mockedRail).toHaveBeenCalledWith(expect.objectContaining({
-      typingNames: ["Alice"],
       scrollCount: 3,
-      selectMode: false,
       composerOverlap: 0,
     }), undefined)
     const scrollerBoundary = renderer.container.querySelector("[data-message-scroller-boundary]")!
@@ -211,47 +225,38 @@ describe("renderMessageListView", () => {
     expect(renderer.container.querySelector("[data-message-positioning-skeleton]")).not.toBeInTheDocument()
   })
 
-  it("routes typing through the rail without adding a dynamic flex sibling", () => {
+  it("keeps typing ownership out of the message list", () => {
     const renderer = render(renderMessageListView(
-      props({ loading: false, typingUsers: [] }),
+      props({ loading: false }),
       controller({ isLoading: false, pillCount: 0 }),
       () => React.createElement("virtual-rows"),
     ))
-    expect(mockedRail).toHaveBeenLastCalledWith(expect.objectContaining({ typingNames: [] }), undefined)
+    expect(mockedRail).toHaveBeenLastCalledWith(expect.objectContaining({ scrollCount: 0 }), undefined)
     expect(renderer.container.querySelectorAll("[data-message-typing-space]")).toHaveLength(0)
-    renderer.rerender(renderMessageListView(
-      props({ loading: false, typingUsers: ["Alice"] }),
-      controller({ isLoading: false, pillCount: 0 }),
-      () => React.createElement("virtual-rows"),
-    ))
-    expect(mockedRail).toHaveBeenLastCalledWith(expect.objectContaining({
-      typingNames: ["Alice"],
-    }), undefined)
-    expect(renderer.container.querySelectorAll("[data-message-typing-space]")).toHaveLength(0)
+    expect(JSON.stringify(mockedRail.mock.calls.at(-1)?.[0])).not.toContain("typing")
   })
 
-  it("keeps one fixed responsive tail safe area across every rail state", () => {
+  it("keeps only the normal tail inset across scroll and selection state", () => {
     const renderer = render(renderMessageListView(
-      props({ typingUsers: [] }),
+      props(),
       controller({ pillCount: 0 }),
       () => React.createElement("virtual-rows"),
     ))
     const content = () => renderer.container.querySelector<HTMLElement>("[data-message-list-content]")!
     for (const state of [
-      { typingUsers: ["Alice"], pillCount: 0, selectMode: false },
-      { typingUsers: [], pillCount: 2, selectMode: false },
-      { typingUsers: ["Alice"], pillCount: 2, selectMode: false },
-      { typingUsers: ["Alice"], pillCount: 0, selectMode: true },
+      { pillCount: 0, selectMode: false },
+      { pillCount: 2, selectMode: false },
+      { pillCount: 0, selectMode: true },
     ]) {
-      expect(content()).toHaveClass("pb-14", "sm:pb-18")
-      expect(content()).not.toHaveClass("pb-8")
+      expect(content()).toHaveClass("pb-4", "sm:pb-6")
+      expect(content()).not.toHaveClass("pb-14", "sm:pb-18")
       renderer.rerender(renderMessageListView(
-        props({ typingUsers: state.typingUsers }),
+        props(),
         controller({ pillCount: state.pillCount, selectMode: state.selectMode }),
         () => React.createElement("virtual-rows"),
       ))
     }
-    expect(content()).toHaveClass("pb-14", "sm:pb-18")
+    expect(content()).toHaveClass("pb-4", "sm:pb-6")
   })
 
   it("wires selection actions and dialog close without changing overlay order", () => {
@@ -267,19 +272,25 @@ describe("renderMessageListView", () => {
       setShareOpen,
       closeShare,
     })
+    const footerSlot = document.createElement("div")
+    document.body.appendChild(footerSlot)
     const renderer = render(renderMessageListView(
       props(),
       state,
       () => React.createElement("virtual-rows"),
+      footerSlot,
     ))
-    const railProps = mockedRail.mock.calls.at(-1)![0]
-    expect(railProps).toMatchObject({
-      selectMode: true,
-      selectedCount: 1,
-    })
-    railProps.onCancelSelection()
+    expect(mockedRail).not.toHaveBeenCalled()
+    expect(footerSlot.querySelector("[data-selection='active']")).not.toBeNull()
+    const cancel = footerSlot.querySelector<HTMLButtonElement>(
+      '[aria-label="Cancel message selection"]',
+    )!
+    const share = footerSlot.querySelector<HTMLButtonElement>(
+      '[aria-label="Share 1 selected messages as image"]',
+    )!
+    cancel.click()
     expect(exitSelect).toHaveBeenCalledOnce()
-    railProps.onShareSelection()
+    share.click()
     expect(setShareOpen).toHaveBeenCalledWith(true)
     expect(mockedShareDialog).toHaveBeenCalledWith(expect.objectContaining({
       m: state.selectedMessages,
@@ -288,7 +299,8 @@ describe("renderMessageListView", () => {
     }), undefined)
     mockedShareDialog.mock.calls.at(-1)![0].onClose()
     expect(closeShare).toHaveBeenCalledOnce()
-    expect(renderer.container.querySelectorAll("accessory-rail")).toHaveLength(1)
+    expect(renderer.container.querySelectorAll("accessory-rail")).toHaveLength(0)
+    footerSlot.remove()
   })
 
   it("keeps both sentinels and the direct rows callback in the exact loaded DOM positions", () => {
@@ -323,7 +335,7 @@ describe("renderMessageListView", () => {
     expect(renderer.getByText("Loading newer messages…")).toBeInTheDocument()
 
     const content = renderer.container.querySelector<HTMLElement>("[data-message-list-content]")!
-    expect(content).toHaveClass("pb-14", "sm:pb-18")
+    expect(content).toHaveClass("pb-4", "sm:pb-6")
     const elementChildren = Array.from(content.children)
     expect(elementChildren).toHaveLength(3)
     expect(elementChildren[0]).toHaveClass("mb-6")

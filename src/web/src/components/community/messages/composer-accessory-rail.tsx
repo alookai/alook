@@ -1,144 +1,55 @@
 "use client"
 
-import { useLayoutEffect, useMemo, useRef, useState } from "react"
 import { ArrowDown, ImageIcon, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { NumberTicker } from "@/components/ui/number-ticker"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { tid } from "@/lib/community/testids"
-import { cn } from "@/lib/utils"
-import { allocateComposerAccessoryRail } from "./composer-accessory-rail-layout"
-import { TypingIndicator } from "./typing-indicator"
 
 export function ComposerAccessoryRail({
-  typingNames,
   scrollCount,
   scrollMode,
   onScroll,
-  selectMode,
-  selectedCount,
-  onCancelSelection,
-  onShareSelection,
   composerOverlap,
 }: {
-  typingNames: string[]
   scrollCount: number
   scrollMode: "scroll" | "jump"
   onScroll: () => void
-  selectMode: boolean
-  selectedCount: number
-  onCancelSelection: () => void
-  onShareSelection: () => void
   composerOverlap: number
 }) {
-  const hasTyping = typingNames.length > 0
-  const hasScroll = scrollCount > 0
-  const layout = allocateComposerAccessoryRail(selectMode
-    ? { mode: "selection" }
-    : { mode: "normal", left: hasTyping, center: hasScroll })
-
-  if (layout === "empty") return null
+  if (scrollCount <= 0) return null
 
   return (
     <div
       data-testid={tid.composerAccessoryRail}
-      data-selection={selectMode ? "active" : "inactive"}
-      data-layout={layout}
+      data-layout="centered"
       className="pointer-events-none absolute inset-x-0 bottom-2 z-20 px-2 sm:bottom-4 sm:px-4"
       style={{ transform: `translateY(-${composerOverlap}px)` }}
     >
-      <div
-        className={cn(
-          "grid w-full items-end gap-1 sm:gap-2",
-          layout === "centered" && "grid-cols-[minmax(0,1fr)_minmax(0,max-content)_minmax(0,1fr)]",
-          layout === "left-only" && "grid-cols-[minmax(0,1fr)]",
-        )}
-      >
-        {selectMode ? (
-          <>
-            {hasTyping && (
-              <SelectionTypingIndicator key="left" names={typingNames} />
-            )}
-            <div key="center" className="col-start-2 min-w-0 max-w-full justify-self-center">
-              <SelectionToolbar
-                selectedCount={selectedCount}
-                onCancel={onCancelSelection}
-                onShare={onShareSelection}
-              />
-            </div>
-          </>
-        ) : (
-          <>
-            {hasTyping && (
-              <div key="left" className="col-start-1 min-w-0 max-w-full">
-                <TypingIndicator names={typingNames} className="w-fit max-w-full" />
-              </div>
-            )}
-            {hasScroll && (
-              <div key="center" className="col-start-2 min-w-0 max-w-full justify-self-center">
-                <ScrollControl count={scrollCount} mode={scrollMode} onClick={onScroll} />
-              </div>
-            )}
-          </>
-        )}
+      <div className="grid w-full grid-cols-[minmax(0,1fr)_minmax(0,max-content)_minmax(0,1fr)] items-end">
+        <div className="col-start-2 min-w-0 max-w-full justify-self-center">
+          <ScrollControl count={scrollCount} mode={scrollMode} onClick={onScroll} />
+        </div>
       </div>
     </div>
   )
 }
 
-export function selectionTypingFits(slotWidth: number, pillWidth: number): boolean {
-  return slotWidth > 0 && pillWidth > 0 && pillWidth <= slotWidth
-}
-
-function SelectionTypingIndicator({ names }: { names: string[] }) {
-  const slotRef = useRef<HTMLDivElement>(null)
-  const pillRef = useRef<HTMLDivElement>(null)
-  const measurementKey = useMemo(() => JSON.stringify(names), [names])
-  const [measurement, setMeasurement] = useState({ key: "", fits: false })
-  const isMeasured = measurement.key === measurementKey
-  const isVisible = isMeasured && measurement.fits
-
-  useLayoutEffect(() => {
-    const slot = slotRef.current
-    const pill = pillRef.current
-    if (!slot || !pill) return
-
-    const measure = () => {
-      const fits = selectionTypingFits(
-        slot.getBoundingClientRect().width,
-        pill.getBoundingClientRect().width,
-      )
-      setMeasurement((current) => (
-        current.key === measurementKey && current.fits === fits
-          ? current
-          : { key: measurementKey, fits }
-      ))
-    }
-
-    measure()
-    if (typeof ResizeObserver === "undefined") return
-    const observer = new ResizeObserver(measure)
-    observer.observe(slot)
-    observer.observe(pill)
-    return () => observer.disconnect()
-  }, [measurementKey])
-
+export function MessageSelectionFooter({
+  selectedCount,
+  onCancel,
+  onShare,
+}: {
+  selectedCount: number
+  onCancel: () => void
+  onShare: () => void
+}) {
   return (
     <div
-      ref={slotRef}
-      data-selection-typing-fit={isMeasured ? (isVisible ? "visible" : "hidden") : "pending"}
-      className="relative col-start-1 min-w-0 max-w-full"
+      data-selection="active"
+      className="pointer-events-auto absolute inset-0 flex items-center justify-center bg-(--app-bg) px-2 pb-(--app-safe-area-bottom) sm:px-4 sm:pb-0"
     >
-      <div
-        ref={pillRef}
-        aria-hidden={!isVisible}
-        className={cn(
-          "w-max max-w-none",
-          isVisible ? "relative" : "invisible absolute bottom-0 left-0",
-        )}
-      >
-        <TypingIndicator names={names} />
-      </div>
+      <SelectionToolbar selectedCount={selectedCount} onCancel={onCancel} onShare={onShare} />
     </div>
   )
 }

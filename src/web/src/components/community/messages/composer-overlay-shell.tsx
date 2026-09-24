@@ -1,6 +1,48 @@
 "use client"
 
-import { useLayoutEffect, useRef, type HTMLAttributes, type ReactNode } from "react"
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Dispatch,
+  type HTMLAttributes,
+  type ReactNode,
+  type SetStateAction,
+} from "react"
+
+type ConversationFooterSlot = {
+  target: HTMLDivElement | null
+  setTarget: Dispatch<SetStateAction<HTMLDivElement | null>>
+  selectionActive: boolean
+  setSelectionActive: Dispatch<SetStateAction<boolean>>
+}
+
+const ConversationFooterSlotContext = createContext<ConversationFooterSlot | null>(null)
+
+export function ConversationFooterSlotProvider({ children }: { children: ReactNode }) {
+  const [target, setTarget] = useState<HTMLDivElement | null>(null)
+  const [selectionActive, setSelectionActive] = useState(false)
+  const value = useMemo(() => ({
+    target,
+    setTarget,
+    selectionActive,
+    setSelectionActive,
+  }), [selectionActive, target])
+
+  return (
+    <ConversationFooterSlotContext.Provider value={value}>
+      {children}
+    </ConversationFooterSlotContext.Provider>
+  )
+}
+
+export function useConversationFooterSlot(): ConversationFooterSlot | null {
+  return useContext(ConversationFooterSlotContext)
+}
 
 export function ComposerOverlayShell({
   children,
@@ -14,6 +56,11 @@ export function ComposerOverlayShell({
   const shellRef = useRef<HTMLDivElement>(null)
   const overlayRef = useRef<HTMLDivElement>(null)
   const overlapRef = useRef<number | null>(null)
+  const footerSlot = useConversationFooterSlot()
+  const setFooterTarget = footerSlot?.setTarget
+  const bindFooterTarget = useCallback((target: HTMLDivElement | null) => {
+    setFooterTarget?.(target)
+  }, [setFooterTarget])
 
   useLayoutEffect(() => {
     const shell = shellRef.current
@@ -47,9 +94,23 @@ export function ComposerOverlayShell({
       <div
         ref={overlayRef}
         data-slot="community-composer-overlay"
-        className="absolute inset-x-0 bottom-0 z-30"
+        data-selection-active={footerSlot?.selectionActive ? "true" : "false"}
+        className={`absolute inset-x-0 bottom-0 z-30${
+          footerSlot?.selectionActive ? " h-full" : ""
+        }`}
       >
-        {children}
+        <div
+          aria-hidden={footerSlot?.selectionActive || undefined}
+          inert={footerSlot?.selectionActive || undefined}
+          className={footerSlot?.selectionActive ? "invisible h-0 overflow-hidden" : undefined}
+        >
+          {children}
+        </div>
+        <div
+          ref={bindFooterTarget}
+          data-slot="community-selection-footer-slot"
+          className="pointer-events-none absolute inset-0 z-10"
+        />
       </div>
     </div>
   )

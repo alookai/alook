@@ -1,8 +1,9 @@
 import type { ReactNode } from "react"
+import { createPortal } from "react-dom"
 import { Skeleton } from "@/components/ui/skeleton"
 import { tid } from "@/lib/community/testids"
 import { ChannelIcon } from "../channels/channel-icon"
-import { ComposerAccessoryRail } from "./composer-accessory-rail"
+import { ComposerAccessoryRail, MessageSelectionFooter } from "./composer-accessory-rail"
 import { InitialPositionAurora } from "./initial-position-aurora"
 import { MessageShareDialog } from "./message-share-dialog"
 import type { MessageListController } from "./message-list-controller"
@@ -12,9 +13,18 @@ export function renderMessageListView(
   props: ResolvedMessageListProps,
   controller: MessageListController,
   renderRows: () => ReactNode,
+  footerSlot: HTMLDivElement | null = null,
 ) {
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
+      {controller.selectMode && footerSlot && createPortal(
+        <MessageSelectionFooter
+          selectedCount={controller.selectedIds.size}
+          onCancel={controller.exitSelect}
+          onShare={() => controller.setShareOpen(true)}
+        />,
+        footerSlot,
+      )}
       {controller.shareOpen && controller.selectedMessages.length > 0 && (
         <MessageShareDialog
           m={controller.selectedMessages}
@@ -23,16 +33,11 @@ export function renderMessageListView(
         />
       )}
       <div data-message-scroller-boundary className="relative isolate min-h-0 flex-1">
-        {controller.initialPosition.contentInteractive && (
+        {controller.initialPosition.contentInteractive && !controller.selectMode && (
           <ComposerAccessoryRail
-            typingNames={props.typingUsers ?? []}
             scrollCount={controller.pillCount}
             scrollMode={controller.pillMode}
             onScroll={controller.pillOnClick}
-            selectMode={controller.selectMode}
-            selectedCount={controller.selectedIds.size}
-            onCancelSelection={controller.exitSelect}
-            onShareSelection={() => controller.setShareOpen(true)}
             composerOverlap={props.composerOverlap}
           />
         )}
@@ -46,7 +51,7 @@ export function renderMessageListView(
             data-initial-position-phase={controller.initialPosition.phase}
             aria-hidden={!controller.initialPosition.showSkeleton && !controller.initialPosition.contentVisible}
             inert={!controller.initialPosition.showSkeleton && !controller.initialPosition.contentInteractive}
-            className={`flex min-h-full flex-col justify-end px-4 pb-14 pt-8 sm:pb-18 ${
+            className={`flex min-h-full flex-col justify-end px-4 pb-4 pt-8 sm:pb-6 ${
               controller.initialPosition.phase === "revealing"
                 ? "opacity-100 transition-opacity duration-300 ease-linear motion-reduce:transition-opacity"
                 : controller.initialPosition.showSkeleton || controller.initialPosition.contentVisible
@@ -107,7 +112,7 @@ export function renderMessageListView(
                 : "opacity-100"
             }`}
           >
-            <div className="flex min-h-full flex-col justify-end px-4 pb-14 pt-8 sm:pb-18">
+            <div className="flex min-h-full flex-col justify-end px-4 pb-4 pt-8 sm:pb-6">
               <MessageListSkeletonContent variant={props.variant} />
             </div>
           </div>
@@ -132,7 +137,7 @@ export function MessageListSkeleton({ variant = "channel" }: { variant?: "channe
         >
           <div
             data-message-list-content
-            className="flex min-h-full flex-col justify-end px-4 pb-14 pt-8 sm:pb-18"
+            className="flex min-h-full flex-col justify-end px-4 pb-4 pt-8 sm:pb-6"
           >
             <MessageListSkeletonContent variant={variant} />
           </div>

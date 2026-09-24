@@ -8,11 +8,8 @@ import { useVirtualCursorSentinel } from "@/hooks/community/use-virtual-cursor-s
 import { useInitialPositionTransition } from "./initial-position-transition"
 import type { ResolvedMessageListProps } from "./message-list-types"
 
-const SELECTION_RAIL_GAP_PX = 8
-
 export function useMessageListController({
   messages,
-  composerOverlap,
   loading,
   newDividerBefore,
   scrollToMessageId,
@@ -132,46 +129,6 @@ export function useMessageListController({
     authoritativeEmpty,
     positionSettled: anchorPositionSettled && targetPositionSettled,
   })
-
-  useLayoutEffect(() => {
-    const element = scrollRef.current
-    if (!element || !selectMode || selectedIds.size === 0) return
-
-    let frame = 0
-    let attempts = 0
-    let stableFrames = 0
-    const keepSelectionClearOfRail = () => {
-      frame = window.requestAnimationFrame(() => {
-        attempts += 1
-        const rail = element.parentElement?.querySelector<HTMLElement>(
-          '[data-selection="active"]',
-        )
-        const selectedRows = Array.from(
-          element.querySelectorAll<HTMLElement>("[data-msg-id]"),
-        ).filter((row) => selectedIds.has(row.dataset.msgId ?? ""))
-
-        if (rail && selectedRows.length > 0) {
-          const railTop = rail.getBoundingClientRect().top
-          const lowestSelectedBottom = Math.max(...selectedRows.map(
-            (row) => row.getBoundingClientRect().bottom,
-          ))
-          const gapShortfall = lowestSelectedBottom + SELECTION_RAIL_GAP_PX - railTop
-          if (gapShortfall > 1) {
-            element.scrollTop += gapShortfall
-            stableFrames = 0
-          } else {
-            stableFrames += 1
-          }
-        } else {
-          stableFrames = 0
-        }
-
-        if (stableFrames < 2 && attempts < 120) keepSelectionClearOfRail()
-      })
-    }
-    keepSelectionClearOfRail()
-    return () => window.cancelAnimationFrame(frame)
-  }, [composerOverlap, selectMode, selectedIds, scrollRef])
 
   useEffect(() => {
     if (!onScrollRoot) return

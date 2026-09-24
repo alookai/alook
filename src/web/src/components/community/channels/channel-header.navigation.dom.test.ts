@@ -1,6 +1,7 @@
 import { createElement } from "react"
 import { describe, expect, it, vi } from "vitest"
 import { fireEvent, render, screen } from "@/test/react-dom-harness"
+import { tid } from "@/lib/community/testids"
 import { ChannelHeader } from "./channel-header"
 
 function renderHeader(overrides: Record<string, unknown> = {}) {
@@ -71,5 +72,11 @@ describe("ChannelHeader hierarchy navigation", () => {
     expect(screen.queryByRole("button", { name: "Channel notifications" })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "More channel options" })).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Open thread full screen" })).toBeInTheDocument()
+  })
+
+  it("owns typing presence without changing the header footprint", () => {
+    const renderer = renderHeader({ typingUsers: ["Alice"] })
+    expect(renderer.getByTestId(tid.typingIndicator)).toHaveTextContent("Alice is typing…")
+    expect(renderer.getByRole("banner")).toHaveClass("h-12", "shrink-0")
   })
 })

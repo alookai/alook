@@ -1,7 +1,11 @@
 import React from "react"
-import { act, render } from "@/test/react-dom-harness"
+import { act, fireEvent, render } from "@/test/react-dom-harness"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { ComposerOverlayShell } from "./composer-overlay-shell"
+import {
+  ComposerOverlayShell,
+  ConversationFooterSlotProvider,
+  useConversationFooterSlot,
+} from "./composer-overlay-shell"
 
 let resize: ResizeObserverCallback | null = null
 let shellHeight = 60
@@ -67,5 +71,39 @@ describe("ComposerOverlayShell", () => {
     overlayHeight = 48
     act(() => resize?.([], {} as ResizeObserver))
     expect(onOverlapChange).toHaveBeenLastCalledWith(0)
+  })
+
+  it("replaces the mounted composer with the fixed selection footer slot", () => {
+    function SelectionToggle() {
+      const footer = useConversationFooterSlot()!
+      return (
+        <button type="button" onClick={() => footer.setSelectionActive(true)}>
+          select
+        </button>
+      )
+    }
+    const renderer = render(
+      <ConversationFooterSlotProvider>
+        <SelectionToggle />
+        <ComposerOverlayShell onOverlapChange={vi.fn()} data-testid="shell">
+          <div data-testid="composer-editor">draft</div>
+        </ComposerOverlayShell>
+      </ConversationFooterSlotProvider>,
+    )
+    const overlay = renderer.container.querySelector<HTMLElement>(
+      '[data-slot="community-composer-overlay"]',
+    )!
+    const editor = renderer.getByTestId("composer-editor")
+    expect(overlay).toHaveAttribute("data-selection-active", "false")
+    expect(editor).toBeInTheDocument()
+    expect(editor.parentElement).not.toHaveClass("invisible")
+
+    fireEvent.click(renderer.getByRole("button", { name: "select" }))
+    expect(overlay).toHaveAttribute("data-selection-active", "true")
+    expect(overlay).toHaveClass("h-full")
+    expect(editor).toBeInTheDocument()
+    expect(editor.parentElement).toHaveClass("invisible", "h-0", "overflow-hidden")
+    expect(overlay.querySelector('[data-slot="community-selection-footer-slot"]'))
+      .toHaveClass("absolute", "inset-0")
   })
 })

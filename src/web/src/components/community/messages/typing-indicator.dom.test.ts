@@ -28,4 +28,16 @@ describe("TypingIndicator", () => {
     expect(status).toHaveTextContent("4 people are typing…")
     expect(status).not.toHaveTextContent("Dorothy")
   })
+
+  it("uses a compact header status without a floating pill footprint", () => {
+    render(createElement(TypingIndicator, {
+      names: ["Alice"],
+      variant: "header",
+    }))
+
+    const status = screen.getByTestId(tid.typingIndicator)
+    expect(status).toHaveClass("h-7", "max-w-[min(16rem,40vw)]")
+    expect(status).not.toHaveClass("h-8", "rounded-full", "shadow-(--e1)")
+    expect(status.querySelector(".min-w-0.truncate")).toHaveClass("hidden", "sm:inline")
+  })
 })

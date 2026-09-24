@@ -68,6 +68,7 @@ vi.mock("@/components/community/messages/composer", () => ({
   ComposerSkeleton: vi.fn(() => null),
 }))
 vi.mock("@/components/community/messages/composer-overlay-shell", () => ({
+  ConversationFooterSlotProvider: ({ children }: { children: React.ReactNode }) => children,
   ComposerOverlayShell: vi.fn(({ children, onOverlapChange, ...props }: {
     children: React.ReactNode
     onOverlapChange: (overlap: number) => void
@@ -363,11 +364,13 @@ describe("ThreadChannelSurface ownership", () => {
       channel: "Thread name",
       kind: "thread",
       mobileBack: props.onNavigateParent,
+      typingUsers: ["Alice"],
     }), undefined)
     expect(mockedMessageList).toHaveBeenCalledWith(expect.objectContaining({
       channel: "Thread name",
       loading: true,
     }), undefined)
+    expect(mockedMessageList.mock.calls.at(-1)?.[0]).not.toHaveProperty("typingUsers")
     expect(mockedComposer).toHaveBeenCalled()
 
     mockedUseChannelMessageFeed.mockReturnValue(feed({ isLoading: false, isError: true }))

@@ -10,6 +10,10 @@ import { Avatar } from "@/components/community/avatar"
 import { MessageList } from "@/components/community/messages/message-list"
 import { MessageContextSheet } from "@/components/community/messages/message-context-sheet"
 import { Composer, type SendAttachment } from "@/components/community/messages/composer"
+import {
+  ComposerOverlayShell,
+  ConversationFooterSlotProvider,
+} from "@/components/community/messages/composer-overlay-shell"
 import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import {
@@ -92,6 +96,7 @@ function DmView() {
   const uiHandlers = useUiHandlers()
   const notifications = useNotificationSettings()
   const setNotification = useSetChannelNotif()
+  const [composerOverlap, setComposerOverlap] = useState(0)
 
   // MeLayout owns the canonical cold DMs fetch. This second observer consumes
   // that result without treating it as stale on mount; explicit WS/query
@@ -468,81 +473,92 @@ function DmView() {
       <DmHeader
         dm={dm}
         onBack={bp === "mobile" ? goBack : undefined}
+        typingUsers={typingUsers.map((id) => typingNames[id] ?? resolveUserName(id))}
         notifLevel={(notifications.channel[dmId] ?? notifLevelDisplay("all")) as NotifLevel}
         onSetNotifLevel={(level) => setNotification.mutate({ channelId: dmId, level }, {
           onError: (error) => toastApiError(error, "Failed to update notification level"),
         })}
       />
-      <main className="flex min-h-0 flex-1 flex-col">
-        <MessageList
-          key={dmId}
-          variant="dm"
-          channel={dm.name}
-          messages={messages}
-          loading={loadingOwnership.messageBodyLoading}
-          newDividerBefore={newDividerBefore}
-          typingUsers={typingUsers.map((id) => typingNames[id] ?? resolveUserName(id))}
-          onOpenThread={() => { }}
-          onToggleReaction={dmBlocked ? undefined : messageActions.onToggleReaction}
-          onReact={dmBlocked ? undefined : messageActions.onReact}
-          onReply={dmBlocked ? undefined : messageActions.onReply}
-          onCopy={messageActions.onCopy}
-          onMark={dmBlocked ? undefined : messageActions.onMark}
-          onRetry={dmBlocked ? undefined : messageActions.onRetry}
-          onDismiss={dmBlocked ? undefined : messageActions.onDismiss}
-          onPreviewImage={messageActions.onPreviewImage}
-          onPreviewAttachment={messageActions.onPreviewAttachment}
-          onOpenProfile={openProfile}
-          resolveUserName={resolveUserName}
-          onScrollRoot={setScrollRootEl}
-          viewerUserId={currentUser.id}
-          // Delay initial scroll until the read-state snapshot resolves AND
-          // the anchor it names is actually present in `messages` — see
-          // `anchorInCache`'s doc comment above.
-          initialScrollReady={!readSnapshotFetching && anchorInCache}
-          hasMore={hasMoreMessages}
-          isFetchingOlder={isFetchingOlderMessages}
-          onLoadOlder={fetchOlderMessages}
-          hasMoreNewer={hasMoreNewerMessages}
-          isFetchingNewer={isFetchingNewerMessages}
-          onLoadNewer={fetchNewerMessages}
-          onJumpToPresent={jumpToPresent}
-          presentVersion={presentVersion}
-          unreadCount={unreadCount}
-          hero={
-            <>
-              <div className="relative mb-3 w-fit"><Avatar label={dm.avatar} seed={dm.userId} size={64} /></div>
-              <h2 className="text-2xl font-semibold leading-tight">{dm.name}</h2>
-              <p className="mt-1 text-sm text-muted-foreground">This is the beginning of your direct message history with <span className="font-medium text-foreground">{dm.name}</span>.</p>
-            </>
-          }
-        />
-        {dmBlocked ? (
-          <div data-testid={tid.dmBlockedNotice} className="flex h-14 shrink-0 items-center justify-center border-t border-border/40 px-4 text-sm text-muted-foreground">
-            You have blocked this user. Unblock to send messages.
-          </div>
-        ) : (
-          <div data-onboarding-target="dm-composer" data-onboarding-name={dm.name} className="shrink-0">
-            <Composer
-              sendContract="accepted"
-              channel={dm.name}
-              context="dm"
-            // DM context short-circuits `rankMentionItems` to `[]` — no popup,
-            // no candidate pool needed. Passing [] keeps the Member[] typing
-            // honest without shimming friends into a member shape.
-            members={[]}
-            channelRefCandidates={channelRefCandidates}
-            channelRefCandidateSource={channelRefCandidateSource}
-            onChannelRefIntent={handleChannelRefIntent}
-            onAcceptSend={acceptDmSend}
-            onTyping={handleTyping}
-            replyingTo={replyTo ?? undefined}
-            onCancelReply={() => setReplyTo(null)}
-            autoFocus={bp === "desktop"}
-              draftKey={`dm/${dmId}`}
-            />
-          </div>
-        )}
+      <main
+        data-slot="community-conversation-surface"
+        data-channel-id={dmId}
+        className="flex min-h-0 flex-1 flex-col"
+      >
+        <ConversationFooterSlotProvider>
+          <MessageList
+            key={dmId}
+            variant="dm"
+            channel={dm.name}
+            messages={messages}
+            composerOverlap={dmBlocked ? 0 : composerOverlap}
+            loading={loadingOwnership.messageBodyLoading}
+            newDividerBefore={newDividerBefore}
+            onOpenThread={() => { }}
+            onToggleReaction={dmBlocked ? undefined : messageActions.onToggleReaction}
+            onReact={dmBlocked ? undefined : messageActions.onReact}
+            onReply={dmBlocked ? undefined : messageActions.onReply}
+            onCopy={messageActions.onCopy}
+            onMark={dmBlocked ? undefined : messageActions.onMark}
+            onRetry={dmBlocked ? undefined : messageActions.onRetry}
+            onDismiss={dmBlocked ? undefined : messageActions.onDismiss}
+            onPreviewImage={messageActions.onPreviewImage}
+            onPreviewAttachment={messageActions.onPreviewAttachment}
+            onOpenProfile={openProfile}
+            resolveUserName={resolveUserName}
+            onScrollRoot={setScrollRootEl}
+            viewerUserId={currentUser.id}
+            // Delay initial scroll until the read-state snapshot resolves AND
+            // the anchor it names is actually present in `messages` — see
+            // `anchorInCache`'s doc comment above.
+            initialScrollReady={!readSnapshotFetching && anchorInCache}
+            hasMore={hasMoreMessages}
+            isFetchingOlder={isFetchingOlderMessages}
+            onLoadOlder={fetchOlderMessages}
+            hasMoreNewer={hasMoreNewerMessages}
+            isFetchingNewer={isFetchingNewerMessages}
+            onLoadNewer={fetchNewerMessages}
+            onJumpToPresent={jumpToPresent}
+            presentVersion={presentVersion}
+            unreadCount={unreadCount}
+            hero={
+              <>
+                <div className="relative mb-3 w-fit"><Avatar label={dm.avatar} seed={dm.userId} size={64} /></div>
+                <h2 className="text-2xl font-semibold leading-tight">{dm.name}</h2>
+                <p className="mt-1 text-sm text-muted-foreground">This is the beginning of your direct message history with <span className="font-medium text-foreground">{dm.name}</span>.</p>
+              </>
+            }
+          />
+          <ComposerOverlayShell
+            data-onboarding-target="dm-composer"
+            data-onboarding-name={dm.name}
+            onOverlapChange={setComposerOverlap}
+          >
+            {dmBlocked ? (
+              <div data-testid={tid.dmBlockedNotice} className="flex h-14 items-center justify-center border-t border-border/40 px-4 text-sm text-muted-foreground">
+                You have blocked this user. Unblock to send messages.
+              </div>
+            ) : (
+              <Composer
+                sendContract="accepted"
+                channel={dm.name}
+                context="dm"
+                // DM context short-circuits `rankMentionItems` to `[]` — no popup,
+                // no candidate pool needed. Passing [] keeps the Member[] typing
+                // honest without shimming friends into a member shape.
+                members={[]}
+                channelRefCandidates={channelRefCandidates}
+                channelRefCandidateSource={channelRefCandidateSource}
+                onChannelRefIntent={handleChannelRefIntent}
+                onAcceptSend={acceptDmSend}
+                onTyping={handleTyping}
+                replyingTo={replyTo ?? undefined}
+                onCancelReply={() => setReplyTo(null)}
+                autoFocus={bp === "desktop"}
+                draftKey={`dm/${dmId}`}
+              />
+            )}
+          </ComposerOverlayShell>
+        </ConversationFooterSlotProvider>
       </main>
       <MessageContextSheet
         open={contextSheetSeq !== null}

@@ -33,6 +33,17 @@ describe("DmHeader", () => {
     expect(markup).toMatch(/class="[^"]*size-11[^"]*sm:hidden[^"]*"/)
     expect(markup).toContain(`data-testid="${tid.dmHeaderTitle}"`)
   })
+
+  it("owns typing presence inside the fixed-height header", () => {
+    const markup = renderToStaticMarkup(createElement(DmHeader, {
+      dm,
+      typingUsers: ["Alice"],
+    }))
+    expect(markup).toContain(`data-testid="${tid.typingIndicator}"`)
+    expect(markup).toContain("Alice")
+    expect(markup).toContain("is typing…")
+    expect(markup).toContain("hidden sm:inline")
+  })
 })
 
 describe("DmHeaderSkeleton", () => {

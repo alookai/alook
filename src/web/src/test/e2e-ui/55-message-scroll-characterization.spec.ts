@@ -1,11 +1,19 @@
 import type { Locator, Page, Route, TestInfo } from "@playwright/test"
-import { test, expect, sessionCookie } from "./_fixtures/community-fixture"
+import { test, expect, sessionCookie, userId } from "./_fixtures/community-fixture"
 import { composerEditable, gotoAfterUserWsAuth, sendMessage } from "./_fixtures/actions"
 import {
   communityFrameEvents,
   proxyCommunityWebSockets,
 } from "./_fixtures/community-ws-proxy"
-import { seedChannel, seedJoinServer, seedMessage, seedServer, seedThread } from "./_fixtures/seed"
+import {
+  seedChannel,
+  seedDm,
+  seedDmMessage,
+  seedJoinServer,
+  seedMessage,
+  seedServer,
+  seedThread,
+} from "./_fixtures/seed"
 import {
   abortScrollTrace,
   attachScrollTrace,
@@ -109,6 +117,21 @@ async function seedProfile(
     ids.push(id)
     estimates[id] = estimatePlainMessage(content)
     if (index === checkpointAt) await setReadCheckpoint(channelId, id)
+  }
+  return { ids, estimates }
+}
+
+async function seedDmProfile(
+  dmId: string,
+  count: number,
+): Promise<{ ids: string[]; estimates: Record<string, number> }> {
+  const ids: string[] = []
+  const estimates: Record<string, number> = {}
+  for (let index = 0; index < count; index += 1) {
+    const content = profileContent(index)
+    const id = await seedDmMessage("alice", dmId, content)
+    ids.push(id)
+    estimates[id] = estimatePlainMessage(content)
   }
   return { ids, estimates }
 }
@@ -374,7 +397,7 @@ function expectAwayLatchPreserved(
 }
 
 function expectFixedMessageGeometry(geometry: MessageViewportGeometry, label: string): void {
-  expect(geometry.contentPaddingBottom, `${label}: desktop tail safe area`).toBe(72)
+  expect(geometry.contentPaddingBottom, `${label}: desktop normal tail inset`).toBe(24)
   expect(geometry.composerRect, `${label}: scoped composer`).not.toBeNull()
   if (geometry.railRect) {
     expect(geometry.railPosition, `${label}: rail position`).toBe("absolute")
@@ -403,9 +426,11 @@ test.describe.serial("message scroll characterization", () => {
   let loadingChannelId: string
   let upwardChannelId: string
   let composerChannelId: string
+  let composerDmId: string
   let loadingProfile: Awaited<ReturnType<typeof seedProfile>>
   let upwardProfile: Awaited<ReturnType<typeof seedProfile>>
   let composerProfile: Awaited<ReturnType<typeof seedProfile>>
+  let composerDmProfile: Awaited<ReturnType<typeof seedDmProfile>>
 
   test.beforeAll(async () => {
     test.setTimeout(240_000)
@@ -417,9 +442,11 @@ test.describe.serial("message scroll characterization", () => {
     loadingChannelId = await seedChannel("alice", serverId, `scroll-loading-${stamp}`)
     upwardChannelId = await seedChannel("alice", serverId, `scroll-upward-${stamp}`)
     composerChannelId = await seedChannel("alice", serverId, `scroll-composer-${stamp}`)
+    composerDmId = await seedDm("alice", userId("bob"))
     loadingProfile = await seedProfile(loadingChannelId, 130, false, "rotate", 64)
     upwardProfile = await seedProfile(upwardChannelId, 72, false, "rotate", 23)
     composerProfile = await seedProfile(composerChannelId, 36, true, "alice")
+    composerDmProfile = await seedDmProfile(composerDmId, 36)
   })
 
   test("cold and warm loading, older prepend, and jump-to-present remain observable", async ({ asUser }, testInfo) => {
@@ -818,6 +845,105 @@ test.describe.serial("message scroll characterization", () => {
     expect(messageCreateCount(proxy.frames, composerChannelId, awaySend)).toBe(1)
   })
 
+  test("DM composer clear preserves pinned and away viewport geometry", async ({ asUser }, testInfo) => {
+    test.setTimeout(180_000)
+    const alice = await asUser("alice")
+    await alice.page.setViewportSize(VIEWPORT)
+    await installScrollTrace(alice.page)
+    const proxy = await proxyCommunityWebSockets(alice.context)
+    let messagePosts = 0
+    alice.page.on("request", (request) => {
+      if (
+        request.method() === "POST"
+        && new URL(request.url()).pathname === `/api/community/channels/${composerDmId}/messages`
+      ) messagePosts += 1
+    })
+    await gotoAfterUserWsAuth(alice.page, `/c/me/${composerDmId}`)
+    const scroller = alice.page.getByTestId(tid.messageScroller)
+    const editable = composerEditable(alice.page)
+    await expect(editable).toBeVisible()
+    await expect(alice.page.getByTestId(tid.message(composerDmProfile.ids.at(-1)!)))
+      .toBeVisible({ timeout: 30_000 })
+    await scroller.evaluate((element) => {
+      element.scrollTop = element.scrollHeight
+      element.dispatchEvent(new Event("scroll"))
+    })
+    const tailGeometry = await alice.page.evaluate(({ scrollerId, messageId }) => {
+      const scrollerElement = document.querySelector<HTMLElement>(
+        `[data-testid="${scrollerId}"]`,
+      )!
+      const content = scrollerElement.querySelector<HTMLElement>("[data-message-list-content]")!
+      const finalMessage = document.querySelector<HTMLElement>(`[data-testid="${messageId}"]`)!
+      const composer = document.querySelector<HTMLElement>('[data-onboarding-target="dm-composer"]')!
+      return {
+        paddingBottom: Number.parseFloat(getComputedStyle(content).paddingBottom),
+        tailGap: scrollerElement.getBoundingClientRect().bottom
+          - finalMessage.getBoundingClientRect().bottom,
+        scrollerBottom: scrollerElement.getBoundingClientRect().bottom,
+        composerTop: composer.getBoundingClientRect().top,
+      }
+    }, {
+      scrollerId: tid.messageScroller,
+      messageId: tid.message(composerDmProfile.ids.at(-1)!),
+    })
+    expect(tailGeometry.paddingBottom).toBe(24)
+    expect(tailGeometry.tailGap).toBeGreaterThanOrEqual(23)
+    expect(tailGeometry.tailGap).toBeLessThanOrEqual(25)
+    expect(tailGeometry.scrollerBottom).toBeLessThanOrEqual(tailGeometry.composerTop + 1)
+    await startScrollTrace(alice.page, {
+      scenario: "dm-composer-clear-viewport",
+      identity: identity(composerDmId),
+      estimatedSizes: composerDmProfile.estimates,
+    })
+
+    const composerLines = (prefix: string) => Array.from(
+      { length: 6 },
+      (_, line) => `${prefix} line ${line} ${"content ".repeat(8)}`,
+    ).join("\n")
+
+    for (const distance of [0, 2, 100, 300]) {
+      await editable.fill(composerLines(`dm-${distance}`))
+      const precondition = distance === 0
+        ? await establishExactPinnedPrecondition(scroller, `dm-composer-${distance}`, 0)
+        : await establishScrollDistancePrecondition(scroller, `dm-composer-${distance}`, distance)
+      await markScrollTrace(alice.page, `dm-composer-${distance}-precondition`, {
+        detail: precondition,
+      })
+      const before = await waitForCommittedGeometry(scroller)
+      expectFixedMessageGeometry(before, `dm-${distance}-before`)
+      expect(before.surfaceChannelId).toBe(composerDmId)
+
+      await beginScrollTraceAnalysis(alice.page, `dm-composer-shrink-${distance}`)
+      await editable.click()
+      await alice.page.keyboard.press("ControlOrMeta+A")
+      await alice.page.keyboard.press("Backspace")
+      await expect(editable).toHaveText("")
+      await expect.poll(() => scroller.evaluate((element) => element.clientHeight))
+        .toBe(before.clientHeight)
+      const after = await waitForCommittedGeometry(scroller)
+      expectFixedMessageGeometry(after, `dm-${distance}-after`)
+      expectViewportAnchorPreserved(before, after, `dm-${distance}-after`)
+      if (distance === 0) {
+        expect(after.distanceToEnd, `dm-${distance}-after pinned`).toBeLessThanOrEqual(1)
+      } else {
+        expectAwayLatchPreserved(after, `dm-${distance}-after`)
+      }
+      await endScrollTraceAnalysis(alice.page, `dm-composer-shrink-${distance}`)
+      await advanceScrollTraceFrame(scroller)
+    }
+
+    const trace = await finishAndAttach(alice.page, testInfo)
+    const segments = new Map(
+      summarizeScrollTrace(trace).analysisSegments.map((segment) => [segment.name, segment]),
+    )
+    for (const distance of [0, 2, 100, 300]) {
+      expect(segments.get(`dm-composer-shrink-${distance}`)?.writerCount).toBe(0)
+    }
+    expect(messagePosts).toBe(0)
+    expect(proxy.frames.flatMap(communityFrameEvents).filter((event) =>
+      event.type === "community:message.create" && event.channelId === composerDmId)).toHaveLength(0)
+  })
+
   test("exact-pinned composer and accessory resizes preserve geometry boundaries", async ({ asUser }, testInfo) => {
     test.setTimeout(180_000)
     const splitThreadId = await seedThread(
@@ -942,13 +1068,13 @@ test.describe.serial("message scroll characterization", () => {
     await establishExactPinnedPrecondition(scroller, "reply-resize-pinned", 0)
     const replyBase = await waitForCommittedGeometry(scroller)
     await beginScrollTraceAnalysis(alice.page, "reply-banner-pinned")
-    const replyTarget = scroller.locator("[data-msg-id]").last()
-    const replyTargetBox = await replyTarget.boundingBox()
-    expect(replyTargetBox).not.toBeNull()
-    await alice.page.mouse.move(
-      replyTargetBox!.x + replyTargetBox!.width / 2,
-      replyTargetBox!.y + replyTargetBox!.height / 2,
-    )
+    const replyTarget = alice.page.getByTestId(tid.message(composerProfile.ids.at(-1)!))
+    await expect(replyTarget).toBeVisible()
+    await replyTarget.locator("div.group").first().dispatchEvent("pointerover", {
+      pointerId: 1,
+      pointerType: "mouse",
+      isPrimary: true,
+    })
     const replyButton = replyTarget.getByRole("button", { name: "Reply", exact: true })
     await expect(replyButton).toBeVisible()
     await expect(replyButton).toBeInViewport()
@@ -974,9 +1100,7 @@ test.describe.serial("message scroll characterization", () => {
       "attachment-resize-away",
       composerProfile.ids.at(-1)!,
     )
-    await expect(alice.page.getByTestId(tid.composerAccessoryRail)).toBeVisible()
     const attachmentBase = await waitForCommittedGeometry(scroller)
-    expect(attachmentBase.railRect, "attachment-base-away rail").not.toBeNull()
     await beginScrollTraceAnalysis(alice.page, "attachment-chip-away")
     await alice.page.getByTestId(tid.composerFileInput).setInputFiles({
       name: "geometry-only.txt",
@@ -988,7 +1112,6 @@ test.describe.serial("message scroll characterization", () => {
     expect(attachmentOpen.clientHeight).toBe(attachmentBase.clientHeight)
     expectViewportAnchorPreserved(attachmentBase, attachmentOpen, "attachment-open-away")
     expectFixedMessageGeometry(attachmentOpen, "attachment-open-away")
-    expect(attachmentOpen.railRect, "attachment-open-away rail").not.toBeNull()
     await alice.page.getByRole("button", { name: "Remove file" }).click()
     await expect(alice.page.getByText("geometry-only.txt", { exact: true })).toHaveCount(0)
     const attachmentClosed = await waitForCommittedGeometry(scroller)
@@ -1006,7 +1129,6 @@ test.describe.serial("message scroll characterization", () => {
     expect(typingOpen.clientHeight).toBe(typingBase.clientHeight)
     expectViewportAnchorPreserved(typingBase, typingOpen, "typing-rail-away")
     expectFixedMessageGeometry(typingOpen, "typing-rail-away")
-    expect(typingOpen.railRect, "typing-rail-away rail").not.toBeNull()
     await bobEditable.fill("")
     await endScrollTraceAnalysis(alice.page, "typing-rail-away")
     await advanceScrollTraceFrame(scroller)
@@ -1058,9 +1180,6 @@ test.describe.serial("message scroll characterization", () => {
       "split-thread-away",
       splitProfile.ids.at(-1)!,
     )
-    await expect(parentPanel.getByTestId(tid.composerAccessoryRail)).toBeVisible()
-    await expect(threadPanel.getByTestId(tid.composerAccessoryRail)).toBeVisible()
-
     const parentGeometry = await waitForCommittedGeometry(parentScroller)
     const threadGeometry = await waitForCommittedGeometry(threadScroller)
     const parentComposerBox = await parentSurface
@@ -1071,8 +1190,6 @@ test.describe.serial("message scroll characterization", () => {
       .boundingBox()
     expect(parentGeometry.surfaceChannelId).toBe(composerChannelId)
     expect(threadGeometry.surfaceChannelId).toBe(splitThreadId)
-    expect(parentGeometry.railRect, "split parent rail is located from its boundary").not.toBeNull()
-    expect(threadGeometry.railRect, "split thread rail is located from its boundary").not.toBeNull()
     expect(parentComposerBox).not.toBeNull()
     expect(threadComposerBox).not.toBeNull()
     expect(Math.abs(parentGeometry.composerRect!.top - parentComposerBox!.y)).toBeLessThanOrEqual(1)

@@ -1,7 +1,15 @@
 import { tid } from "@/lib/community/testids"
 import { cn } from "@/lib/utils"
 
-export function TypingIndicator({ names, className }: { names: string[]; className?: string }) {
+export function TypingIndicator({
+  names,
+  className,
+  variant = "pill",
+}: {
+  names: string[]
+  className?: string
+  variant?: "pill" | "header"
+}) {
   if (names.length === 0) return null
   const label = names.length === 0
     ? null
@@ -17,7 +25,10 @@ export function TypingIndicator({ names, className }: { names: string[]; classNa
       aria-live="polite"
       aria-atomic="true"
       className={cn(
-        "pointer-events-none flex h-8 min-w-0 max-w-full items-center gap-2 rounded-full border border-border bg-background/90 px-3 text-xs text-muted-foreground shadow-(--e1) backdrop-blur-sm",
+        "pointer-events-none flex min-w-0 max-w-full items-center gap-2 text-xs text-muted-foreground",
+        variant === "pill"
+          ? "h-8 rounded-full border border-border bg-background/90 px-3 shadow-(--e1) backdrop-blur-sm"
+          : "h-7 max-w-[min(16rem,40vw)] shrink px-1.5",
         className,
       )}
     >
@@ -26,7 +37,9 @@ export function TypingIndicator({ names, className }: { names: string[]; classNa
         <span className="size-1.5 rounded-full bg-muted-foreground motion-safe:animate-[typing-dot_1.4s_ease-in-out_160ms_infinite]" />
         <span className="size-1.5 rounded-full bg-muted-foreground motion-safe:animate-[typing-dot_1.4s_ease-in-out_320ms_infinite]" />
       </span>
-      <span className="min-w-0 truncate">{label}</span>
+      <span className={cn("min-w-0 truncate", variant === "header" && "hidden sm:inline")}>
+        {label}
+      </span>
     </div>
   )
 }

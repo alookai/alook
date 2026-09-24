@@ -50,6 +50,7 @@ vi.mock("@/components/community/messages/composer", () => ({
   Composer: vi.fn(() => null),
 }))
 vi.mock("@/components/community/messages/composer-overlay-shell", () => ({
+  ConversationFooterSlotProvider: ({ children }: { children: React.ReactNode }) => children,
   ComposerOverlayShell: vi.fn(({ children, onOverlapChange, ...props }: {
     children: React.ReactNode
     onOverlapChange: (overlap: number) => void
@@ -466,6 +467,8 @@ describe("TextChannelSurface header hierarchy", () => {
     expect(renderer.container.querySelector('[data-slot="community-conversation-surface"]'))
       .toHaveAttribute("data-channel-id", "channel_1")
     expect(mockedMessageList.mock.calls.at(-1)?.[0].composerOverlap).toBe(0)
+    expect(mockedMessageList.mock.calls.at(-1)?.[0]).not.toHaveProperty("typingUsers")
+    expect(mockedChannelHeader.mock.calls.at(-1)?.[0].typingUsers).toEqual([])
     fireEvent.click(renderer.getByTestId("community-composer-shell"))
     expect(mockedMessageList.mock.calls.at(-1)?.[0].composerOverlap).toBe(96)
   })
