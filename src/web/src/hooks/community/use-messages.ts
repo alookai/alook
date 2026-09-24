@@ -394,9 +394,13 @@ function useMessagesInner(
     MessagesPageParam
   >({
     queryKey,
-    queryFn: enabled
-      ? queryFn
-      : () => Promise.reject(new Error("disabled")),
+    // `enabled` is the execution gate. Keep the real transport installed even
+    // while the read-state anchor is resolving: a persisted observer can be
+    // explicitly refetched during the disabled→enabled commit before
+    // TanStack's passive option update runs. Installing a rejecting sentinel
+    // here made that one-shot revalidation fail locally without issuing the
+    // required `/messages` request.
+    queryFn,
     initialPageParam,
     // "next" = older side. `fetchNextPage` appends to `data.pages`, so the
     // LAST entry in `pages` is the oldest window we've loaded — that's the

@@ -246,6 +246,11 @@ describe("useScrollAnchor older-page message anchoring", () => {
       isFetchingNewer: false,
       onResult,
     }))
+    expect(harness.scroller.scrollTop).toBe(300)
+    // A virtualizer/browser write can land between the synchronous restore
+    // and its first reconciliation frame. The numeric fallback must repair
+    // that drift even though no real row was visible at capture time.
+    harness.scroller.scrollTop = 1_400
     act(() => {
       while (frames.length > 0) frames.shift()!(0)
     })

@@ -354,6 +354,16 @@ describe("useScrollAnchor delayed row-growth re-pin", () => {
 const VIEWPORT_RESIZE_BOUNDARIES = [0, 1, 2, 99, 100, 101, 300]
 
 describe("useScrollAnchor semantic viewport resize anchoring", () => {
+  it("ignores a ResizeObserver delivery when the viewport height is unchanged", async () => {
+    const mounted = await mountHook({ distanceToEnd: 2 })
+    const before = mounted.geometry()
+
+    mounted.resizeViewport(before.clientHeight)
+
+    expect(mounted.geometry()).toEqual(before)
+    expect(mounted.scrollWrites).toEqual([])
+  })
+
   it.each(VIEWPORT_RESIZE_BOUNDARIES)(
     "resolves a composer growth from an initial %ipx tail distance",
     async (distanceToEnd) => {

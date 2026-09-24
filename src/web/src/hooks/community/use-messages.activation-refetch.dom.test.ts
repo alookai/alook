@@ -74,6 +74,21 @@ function RevalidatingDmCapture({ lastReadMessageId, onRender }: {
   return null
 }
 
+function DisabledDmRefetchProbe() {
+  const { refetch } = useDmMessages("dm_activation", {
+    lastReadMessageId: undefined,
+    waitForAnchor: true,
+    revalidateOnMount: true,
+  })
+  const requested = React.useRef(false)
+  React.useLayoutEffect(() => {
+    if (requested.current) return
+    requested.current = true
+    void refetch()
+  }, [refetch])
+  return null
+}
+
 function DmRouteCapture({ onRender }: {
   onRender: (snapshot: Snapshot & { readStateFetching: boolean }) => void
 }) {
@@ -174,6 +189,26 @@ beforeEach(() => {
 })
 
 describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
+  it("keeps the real transport installed while the anchor gate is disabled", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    apiFetchMock.mockResolvedValue({
+      messages: [],
+      hasMoreOlder: false,
+      hasMoreNewer: false,
+      latestSeq: 0,
+    } satisfies MessagesPage)
+
+    const renderer = renderCapture(
+      queryClient,
+      React.createElement(DisabledDmRefetchProbe),
+    )
+
+    await waitFor(() => apiFetchMock.mock.calls.some(
+      ([url]) => url === "/api/community/channels/dm_activation/messages",
+    ))
+    renderer.unmount()
+  })
+
   it("uses the refreshed anchor when retained DM messages and read-state mount together", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const queryKey = communityKeys.dmMessages("dm_activation")
