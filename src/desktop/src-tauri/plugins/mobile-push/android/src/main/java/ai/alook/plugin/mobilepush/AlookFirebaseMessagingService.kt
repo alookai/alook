@@ -39,7 +39,7 @@ class AlookFirebaseMessagingService : FirebaseMessagingService() {
             .setSmallIcon(ai.alook.plugin.mobilepush.R.drawable.ic_alook_notification)
             .setContentTitle(content.title ?: "Alook")
             .setContentText(content.body ?: "New message")
-            .setAutoCancel(true)
+            .setAutoCancel(MOBILE_PUSH_NOTIFICATION_AUTO_CANCEL)
             .setContentIntent(pendingIntent)
             .setGroup(route.targetId)
             .build()

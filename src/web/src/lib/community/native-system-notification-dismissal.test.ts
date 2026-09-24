@@ -62,4 +62,15 @@ describe("native notification dismissal handoff", () => {
     expect(queue.queue("mobile", notificationId, "/c/me/channel_1")).toBe(false)
     expect(queue.peek("mobile", "/c/me/channel_1")).toBeNull()
   })
+
+  it("drops an invalid handoff even when storage removal is blocked", () => {
+    const values = new Map([
+      ["alook:native-system-notification:pending-dismissal", "corrupt"],
+    ])
+    const removeItem = vi.fn(() => { throw new Error("blocked") })
+    const queue = createNativeSystemNotificationDismissalQueue(deps(values, { removeItem }))
+
+    expect(queue.peek("mobile", "/c/me/channel_1")).toBeNull()
+    expect(removeItem).toHaveBeenCalledOnce()
+  })
 })

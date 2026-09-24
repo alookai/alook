@@ -1,11 +1,17 @@
 package ai.alook.plugin.mobilepush
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MobilePushRouteTest {
+    @Test
+    fun keepsTappedNotificationUntilValidatedDestinationDismissal() {
+        assertFalse(MOBILE_PUSH_NOTIFICATION_AUTO_CANCEL)
+    }
+
     @Test
     fun derivesOneStableNonNegativeNotificationRequestCode() {
         val notificationId = "4f3bb3fd-5d7f-4a26-8e0e-3ddd1154f71e"

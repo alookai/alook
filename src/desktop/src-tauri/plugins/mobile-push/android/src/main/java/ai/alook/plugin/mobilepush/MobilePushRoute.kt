@@ -2,6 +2,8 @@ package ai.alook.plugin.mobilepush
 
 import java.util.UUID
 
+internal const val MOBILE_PUSH_NOTIFICATION_AUTO_CANCEL = false
+
 internal fun mobilePushNotificationRequestCode(notificationId: String): Int =
     notificationId.hashCode() and Int.MAX_VALUE
 
