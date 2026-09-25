@@ -60,7 +60,9 @@ describe("communityKeys", () => {
 
   it("recognizes only real server-detail keys and server-id segments", () => {
     expect(isCommunityServerIdSegment("server-1")).toBe(true)
+    expect(isCommunityServerIdSegment("__real_nanoid")).toBe(true)
     expect(isCommunityServerDetailQueryKey(communityKeys.server("server-1"))).toBe(true)
+    expect(isCommunityServerDetailQueryKey(communityKeys.server("__real_nanoid"))).toBe(true)
 
     for (const queryKey of [
       communityKeys.channelRefDirectory(),

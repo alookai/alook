@@ -32,6 +32,7 @@ import {
   useConversationNavigationGate,
 } from "@/lib/community/conversation-navigation-proof"
 import type { MessageSurfaceReceipt } from "@/lib/community/conversation-navigation-proof"
+import { useMessageProjection } from "@/lib/community-db/projections"
 
 /**
  * Fetches paginated messages for a community channel.
@@ -803,6 +804,7 @@ export function useMessages(
   channelId: string | null,
   opts: ChannelMessagesOpts,
 ): MessagesReturn {
+  const dbMessages = useMessageProjection(channelId)
   const queryClient = useQueryClient()
   const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
   const queryKey = useMemo(() => {
@@ -834,10 +836,10 @@ export function useMessages(
   }), [channelId, opts.serverId])
   const overlay = useMessageOverlay(scope)
   const canonicalBase = useMemo(
-    () => base.messages.filter(
+    () => (dbMessages ?? base.messages).filter(
       (message): message is CanonicalMessage => typeof message.seq === "number",
     ),
-    [base.messages],
+    [base.messages, dbMessages],
   )
   useEffect(() => {
     if (!channelId) return
@@ -865,7 +867,7 @@ export function useMessages(
   return {
     ...base,
     messages: gated ? [] : messages,
-    isLoading: base.isLoading || gated,
+    isLoading: (base.isLoading && canonicalBase.length === 0) || gated,
     navigationBlocked: gated,
   }
 }
@@ -877,6 +879,7 @@ export function useDmMessages(
   dmId: string | null,
   opts?: MessagesOpts,
 ): MessagesReturn {
+  const dbMessages = useMessageProjection(dmId)
   const queryClient = useQueryClient()
   const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
   const queryKey = useMemo(
@@ -907,10 +910,10 @@ export function useDmMessages(
   }), [dmId])
   const overlay = useMessageOverlay(scope)
   const canonicalBase = useMemo(
-    () => base.messages.filter(
+    () => (dbMessages ?? base.messages).filter(
       (message): message is CanonicalMessage => typeof message.seq === "number",
     ),
-    [base.messages],
+    [base.messages, dbMessages],
   )
   useEffect(() => {
     if (!dmId) return
@@ -937,7 +940,7 @@ export function useDmMessages(
   return {
     ...base,
     messages: gated ? [] : messages,
-    isLoading: base.isLoading || gated,
+    isLoading: (base.isLoading && canonicalBase.length === 0) || gated,
     navigationBlocked: gated,
   }
 }

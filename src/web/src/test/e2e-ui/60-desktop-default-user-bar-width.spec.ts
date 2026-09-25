@@ -117,16 +117,40 @@ async function installLayoutState(
   }, { key: layoutStorageKey, savedLayout: layout, sidebarTestId: "sidebar" })
 }
 
-async function holdSession(page: Page) {
+async function holdApplicationScripts(page: Page) {
   let release!: () => void
   const gate = new Promise<void>((resolve) => { release = resolve })
   let hits = 0
+  let sessionRequests = 0
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/api/auth/get-session") sessionRequests += 1
+  })
   const handler = async (route: Route) => {
+    if (!/\/_next\/.*\.js(?:\?|$)/.test(route.request().url())) {
+      await route.continue()
+      return
+    }
     hits += 1
     await gate
     await route.continue()
   }
-  await page.route("**/api/auth/get-session**", handler)
+  await page.route("**/_next/**", handler)
+  return { hits: () => hits, sessionRequests: () => sessionRequests, release }
+}
+
+async function holdCommunityReads(page: Page) {
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => { release = resolve })
+  let hits = 0
+  await page.route("**/api/community/**", async (route) => {
+    if (route.request().method() !== "GET") {
+      await route.continue()
+      return
+    }
+    hits += 1
+    await gate
+    await route.continue()
+  })
   return { hits: () => hits, release }
 }
 
@@ -784,7 +808,7 @@ test.describe.serial("desktop default User Bar width", () => {
     await saved.context.close()
   })
 
-  test("captures closed, Inbox, Profile, update, and cold Skeleton parity", async ({
+  test("captures closed, Inbox, Profile, update, and cold restore parity", async ({
     asUser,
   }, testInfo) => {
     test.setTimeout(240_000)
@@ -903,16 +927,23 @@ test.describe.serial("desktop default User Bar width", () => {
         await pending.page.setViewportSize({ width, height: width === 1024 ? 768 : 900 })
         await pending.page.emulateMedia({ colorScheme: theme })
         await installLayoutState(pending.page, null)
-        const session = await holdSession(pending.page)
+        const scripts = await holdApplicationScripts(pending.page)
+        const communityReads = await holdCommunityReads(pending.page)
         await pending.page.goto(`/c/channels/${serverId}`, { waitUntil: "commit" })
-        await expect.poll(session.hits).toBeGreaterThan(0)
-        await expect(pending.page.getByTestId(tid.initialFrame)).toBeVisible()
-        await expect(pending.page.getByTestId(tid.initialUserBarPending)).toBeVisible()
+        await expect.poll(scripts.hits).toBeGreaterThan(0)
+        expect(scripts.sessionRequests()).toBe(0)
+        const pendingFrame = pending.page.getByTestId(tid.initialFrame)
+        await expect(pendingFrame).toBeVisible()
+        await expect(pendingFrame).toHaveAttribute("aria-busy", "true")
+        await expect(pendingFrame).toHaveAttribute("data-community-route-kind", "server-root")
+        await expect(pending.page.locator('[data-slot="community-restore-bootstrap"]')).toHaveCount(0)
+        await expect(pendingFrame.locator('[data-slot="skeleton"]')).not.toHaveCount(0)
+        scripts.release()
+        await expect.poll(communityReads.hits).toBeGreaterThan(0)
+        await expect(pending.page.locator('[data-slot="community-shell-root"]')).toBeVisible()
         const pendingSidebar = shellPanel(pending.page, "sidebar")
         const pendingOverlay = pending.page.locator('[data-slot="community-user-bar-overlay"]')
-        const pendingBase = pending.page.getByTestId(tid.initialUserBarPending).locator(
-          ":scope > div",
-        )
+        const pendingBase = pending.page.locator('[data-slot="community-user-bar-base"]')
         await expect.poll(async () => Math.abs(
           ((await pendingSidebar.boundingBox())?.width ?? 0) - expectedDefaultSidebarWidth,
         )).toBeLessThanOrEqual(geometryEpsilon)
@@ -925,11 +956,11 @@ test.describe.serial("desktop default User Bar width", () => {
         await attachScreenshot(
           pending.page,
           testInfo,
-          `user-bar-${width}-${theme}-cold-skeleton`,
+          `user-bar-${width}-${theme}-cold-restore`,
         )
         expect(await pending.page.evaluate((key) => localStorage.getItem(key), layoutStorageKey))
           .toBeNull()
-        session.release()
+        communityReads.release()
         await pending.context.close()
       }
     }

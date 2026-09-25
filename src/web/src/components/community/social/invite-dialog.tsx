@@ -27,7 +27,7 @@ import {
 } from "@/hooks/community/use-dm-message-sender"
 import { useCurrentUser } from "@/contexts/community/current-user"
 import type { Friend } from "@/lib/community/models/people"
-import { useCommunityWsStore } from "@/stores/community/ws"
+import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 import {
   trackHumanInvitationCopied,
@@ -161,7 +161,7 @@ export function InviteDialog({
 }) {
   const currentUser = useCurrentUser()
   useFriendsPresence(open)
-  const profilesByUserId = useCommunityWsStore((state) => state.profilesByUserId)
+  const profilesByUserId = useCanonicalProfilesByUserId()
   // Only friends who are NOT already members of `serverId` — server-side
   // filter so a stale local members cache can't leak already-joined rows.
   const friendsQuery = useInvitableFriends(serverId, open)
@@ -216,7 +216,10 @@ export function InviteDialog({
     return friends
       .map((friend) => {
         const userId = friend.userId ?? friend.id
-        const profile = readCommunityProfile(profilesByUserId.get(userId), userId)
+        const canonical = profilesByUserId.get(userId)
+        const profile = canonical
+          ? readCommunityProfile(canonical, userId)
+          : { ...friend, presence: friend.status }
         return {
           ...friend,
           name: profile.name,

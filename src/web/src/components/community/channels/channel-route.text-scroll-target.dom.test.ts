@@ -21,6 +21,7 @@ const {
   mockSplitParentSurface,
   mockCommitLastCommunityRoute,
   mockSetLastChannel,
+  mockClearLastChannel,
   mockNavigationGate,
   mockCurrentChannelId,
   mockCanManageServer,
@@ -36,6 +37,7 @@ const {
   mockSplitParentSurface: vi.fn(() => null),
   mockCommitLastCommunityRoute: vi.fn(),
   mockSetLastChannel: vi.fn(),
+  mockClearLastChannel: vi.fn(),
   mockNavigationGate: { allowed: true },
   mockCurrentChannelId: { value: "channel_1" as string | null },
   mockCanManageServer: vi.fn((role?: string | null) => role === "owner" || role === "admin"),
@@ -148,6 +150,7 @@ vi.mock("@alook/shared", () => ({
 }))
 vi.mock("@/lib/community/last-channel", () => ({
   setLastChannel: (...args: unknown[]) => mockSetLastChannel(...args),
+  clearLastChannel: (...args: unknown[]) => mockClearLastChannel(...args),
 }))
 vi.mock("@/lib/community/last-community-route", () => ({
   commitLastCommunityRoute: (...args: unknown[]) => mockCommitLastCommunityRoute(...args),
@@ -342,6 +345,7 @@ describe("ChannelRoute message surface ownership", () => {
     mockHeaderParentNavigate.current = undefined
     mockCommitLastCommunityRoute.mockClear()
     mockSetLastChannel.mockClear()
+    mockClearLastChannel.mockClear()
     mockNavigationGate.allowed = true
     mockCurrentChannelId.value = "channel_1"
     mockMemberViewModel.myRole = "member"
@@ -506,7 +510,7 @@ describe("ChannelRoute message surface ownership", () => {
     await act(async () => renderer.unmount())
   })
 
-  it("mounts authoritative split geometry before a thread body is active", () => {
+  it("keeps an authoritative split route structural until the effect-owned pointer commits", () => {
     configureThreadRoute()
     mockSplitMode.value = "split"
     mockCurrentChannelId.value = null
@@ -527,6 +531,75 @@ describe("ChannelRoute message surface ownership", () => {
     expect(screen.getByTestId("community-thread-split-parent")).toBeInTheDocument()
     expect(screen.getByTestId("community-thread-split-panel")).toBeInTheDocument()
     expect(mockedUseChannelMessageFeed).not.toHaveBeenCalled()
+  })
+
+  it("keeps the live surface fenced while the channel pointer belongs to the previous route", () => {
+    mockCurrentChannelId.value = "previous_channel"
+    mockedUseChannelMessageFeed.mockReturnValue(feed())
+
+    const renderer = render(React.createElement(ChannelRoute, {
+      serverParam: "server_1",
+      channelId: "channel_1",
+    }))
+
+    expect(renderer.container.querySelector("[data-message-list-skeleton]")).not.toBeNull()
+    expect(mockedUseChannelMessageFeed).not.toHaveBeenCalled()
+    expect(mockSetLastChannel).not.toHaveBeenCalled()
+    expect(mockCommitLastCommunityRoute).not.toHaveBeenCalled()
+  })
+
+  it("fences a cleared pointer without re-committing route memory", () => {
+    mockedUseChannelMessageFeed.mockReturnValue(feed())
+    const renderer = render(React.createElement(ChannelRoute, {
+      serverParam: "server_1",
+      channelId: "channel_1",
+    }))
+    expect(mockedUseChannelMessageFeed).toHaveBeenCalledOnce()
+    expect(mockCommitLastCommunityRoute).toHaveBeenCalledOnce()
+
+    mockedUseChannelMessageFeed.mockClear()
+    mockCommitLastCommunityRoute.mockClear()
+    mockSetLastChannel.mockClear()
+    mockCurrentChannelId.value = null
+    act(() => {
+      renderer.rerender(React.createElement(ChannelRoute, {
+        serverParam: "server_1",
+        channelId: "channel_1",
+      }))
+    })
+
+    expect(renderer.container.querySelector("[data-message-list-skeleton]")).not.toBeNull()
+    expect(mockedUseChannelMessageFeed).not.toHaveBeenCalled()
+    expect(mockSetLastChannel).not.toHaveBeenCalled()
+    expect(mockCommitLastCommunityRoute).not.toHaveBeenCalled()
+  })
+
+  it("leaves a deleted top-level route immediately instead of waiting for metadata fallback", () => {
+    mockedUseChannelMessageFeed.mockReturnValue(feed())
+    const renderer = render(React.createElement(ChannelRoute, {
+      serverParam: "server_1",
+      channelId: "channel_1",
+    }))
+
+    Object.assign(mockRouteModel, {
+      channel: null,
+      isChild: true,
+      routeHydrated: false,
+      routeLifecycle: "pending",
+      server: {
+        ...mockRouteModel.server,
+        categories: [{ channels: [{ id: "channel_2", name: "survivor", type: "text" }] }],
+      },
+    })
+    act(() => {
+      renderer.rerender(React.createElement(ChannelRoute, {
+        serverParam: "server_1",
+        channelId: "channel_1",
+      }))
+    })
+
+    expect(mockClearLastChannel).toHaveBeenCalledExactlyOnceWith("server_1")
+    expect(mockRouter.replace).toHaveBeenCalledWith("/c/channels/server_1/channel_2")
   })
 
   it("commits only a ready channel route for the active account", () => {

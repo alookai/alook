@@ -29,7 +29,7 @@ import {
   type SidebarThreadEnvelope,
   useForumSidebarThreads,
 } from "./use-forum-sidebar-threads"
-import type { ServerDetail } from "./use-servers"
+import { useServer, type ServerDetail } from "./use-servers"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { getActiveAccountUnreadProjection } from "./account-unread-projection"
 
@@ -59,13 +59,15 @@ const envelope = (ids: string[]): SidebarThreadEnvelope => ({
   serverNow: "2026-08-08T00:00:00.000Z",
 })
 
-function Capture({ retainId, onRender, enabled }: {
+function Capture({ retainId, onRender, enabled, onProjectionReady }: {
   retainId: string | null
   onRender: (ids: string[]) => void
   enabled?: boolean
+  onProjectionReady?: (ready: boolean) => void
 }) {
   const result = useForumSidebarThreads("server-1", retainId, enabled)
   onRender(result.threads.map((thread) => thread.id))
+  onProjectionReady?.(result.projectionReady)
   return null
 }
 
@@ -117,6 +119,63 @@ function parentUnread(queryClient: QueryClient): boolean {
 }
 
 describe("useForumSidebarThreads", () => {
+  it("does not replace the canonical server-detail fetcher while observing its cache", async () => {
+    useCommunityWsStore.getState().activateProfileAccount("viewer-1")
+    apiFetchMock.mockImplementation((path: string) => {
+      if (path === "/api/community/servers") {
+        return Promise.resolve({
+          servers: [{
+            id: "server-1",
+            name: "Server",
+            discriminator: "0001",
+            icon: null,
+            ownerId: "viewer-1",
+          }],
+        })
+      }
+      if (path.endsWith("/categories")) return Promise.resolve({ categories: [] })
+      if (path.endsWith("/channels")) return Promise.resolve({ channels: [] })
+      if (path.endsWith("/unreads")) {
+        return Promise.resolve({ channelIds: [], sources: [] })
+      }
+      throw new Error(`unexpected request: ${path}`)
+    })
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    function Harness() {
+      useServer("server-1")
+      useForumSidebarThreads("server-1", null, false)
+      return null
+    }
+    let renderer!: ReturnType<typeof rtlRender>
+    await act(async () => {
+      renderer = rtlRender(React.createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        React.createElement(Harness),
+      ))
+    })
+    await waitFor(() => queryClient.getQueryState(
+      communityKeys.server("server-1"),
+    )?.status === "success")
+
+    await act(async () => {
+      await queryClient.invalidateQueries({
+        queryKey: communityKeys.server("server-1"),
+        exact: true,
+        refetchType: "active",
+      })
+    })
+
+    expect(queryClient.getQueryState(communityKeys.server("server-1"))).toMatchObject({
+      status: "success",
+      fetchStatus: "idle",
+      error: null,
+    })
+    expect(queryClient.getQueryData<ServerDetail>(communityKeys.server("server-1")))
+      .toMatchObject({ id: "server-1", name: "Server" })
+    await act(async () => renderer.unmount())
+  })
+
   it("projects a read thread from server-detail source evidence", async () => {
     apiFetchMock.mockResolvedValue(envelope(["post-1"]))
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -785,6 +844,96 @@ describe("forum sidebar Stage B resources", () => {
     renderer!.unmount()
   })
 
+  it("keeps a cold projection pending until a terminal base error fails open", async () => {
+    let rejectRequest: ((reason: Error) => void) | undefined
+    apiFetchMock.mockImplementationOnce(() => new Promise((_resolve, reject) => {
+      rejectRequest = reject
+    }))
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const readiness: boolean[] = []
+    let renderer!: ReturnType<typeof rtlRender>
+    await act(async () => {
+      renderer = rtlRender(
+        React.createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          React.createElement(Capture, {
+            retainId: null,
+            onRender: () => undefined,
+            onProjectionReady: (ready) => readiness.push(ready),
+          }),
+        ),
+      )
+    })
+    await waitFor(() => apiFetchMock.mock.calls.length === 1)
+    expect(readiness.at(-1)).toBe(false)
+
+    await act(async () => rejectRequest?.(new Error("forum base unavailable")))
+    await waitFor(() => queryClient.getQueryState(
+      communityKeys.forumSidebarThreads("server-1"),
+    )?.status === "error")
+    await waitFor(() => readiness.at(-1) === true)
+    expect(readiness.at(-1)).toBe(true)
+
+    apiFetchMock.mockResolvedValueOnce(envelope(["base-1"]))
+    await act(async () => {
+      await queryClient.refetchQueries({
+        queryKey: communityKeys.forumSidebarThreads("server-1"),
+        exact: true,
+      })
+    })
+    expect(readiness.at(-1)).toBe(true)
+    expect(queryClient.getQueryState(
+      communityKeys.forumSidebarThreads("server-1"),
+    )?.status).toBe("success")
+    renderer.unmount()
+  })
+
+  it("fails open after a terminal retained-child error and recovers on retry", async () => {
+    apiFetchMock.mockResolvedValueOnce(envelope([]))
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const readiness: boolean[] = []
+    const tree = (retainId: string | null) => React.createElement(
+      QueryClientProvider,
+      { client: queryClient },
+      React.createElement(Capture, {
+        retainId,
+        onRender: () => undefined,
+        onProjectionReady: (ready) => readiness.push(ready),
+      }),
+    )
+    let renderer!: ReturnType<typeof rtlRender>
+    await act(async () => {
+      renderer = rtlRender(tree(null))
+    })
+    await waitFor(() => queryClient.getQueryState(
+      communityKeys.forumSidebarThreads("server-1"),
+    )?.status === "success")
+
+    apiFetchMock.mockRejectedValueOnce(new Error("retained child unavailable"))
+    await act(async () => renderer.rerender(tree("retained-1")))
+    const retainedKey = communityKeys.forumSidebarRetained("server-1", "retained-1")
+    await waitFor(() => queryClient.getQueryState(retainedKey)?.status === "error")
+    await waitFor(() => readiness.at(-1) === true)
+    expect(readiness).toContain(false)
+    expect(readiness.at(-1)).toBe(true)
+
+    const retained = envelope(["retained-1"])
+    apiFetchMock.mockResolvedValueOnce({
+      ...envelope([]),
+      canonicalChannels: [],
+      retainedChannel: retained.channels[0],
+      retainedDisposition: "eligible",
+      included: retained.included,
+    })
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: retainedKey, exact: true })
+    })
+    expect(readiness.at(-1)).toBe(true)
+    expect(queryClient.getQueryState(retainedKey)?.status).toBe("success")
+    renderer.unmount()
+  })
+
   it("does not restart the first request when enablement and the route candidate arrive together", async () => {
     let resolveRequest: ((value: SidebarThreadEnvelope) => void) | undefined
     apiFetchMock.mockImplementation(() => new Promise((resolve) => { resolveRequest = resolve }))
@@ -916,7 +1065,7 @@ describe("forum sidebar Stage B resources", () => {
     })).toEqual([])
   })
 
-  it("does not relabel an old in-flight response with a newer access epoch", async () => {
+  it("accepts an authoritative in-flight response across a transport-only reconnect", async () => {
     let resolveRequest: ((value: SidebarThreadEnvelope) => void) | undefined
     apiFetchMock.mockImplementation(() => new Promise((resolve) => { resolveRequest = resolve }))
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -948,8 +1097,8 @@ describe("forum sidebar Stage B resources", () => {
     expect(queryClient.getQueryData<ForumSidebarQueryData>(
       communityKeys.forumSidebarThreads("server-1"),
     )?.verifiedEpoch).toBe(0)
-    expect(useCommunityWsStore.getState().accessEpoch).toBe(1)
-    expect(renders.at(-1)).toEqual([])
+    expect(useCommunityWsStore.getState().accessEpoch).toBe(0)
+    await waitFor(() => renders.at(-1)?.includes("base-1") === true)
     renderer!.unmount()
   })
 
@@ -1579,8 +1728,7 @@ describe("forum sidebar Stage B resources", () => {
     await waitFor(() => apiFetchMock.mock.calls.length === 1)
     let reconnectWork!: Promise<void>
     await act(async () => {
-      useCommunityWsStore.getState().markAccessDisconnected()
-      useCommunityWsStore.getState().markAccessConnected()
+      useCommunityWsStore.setState((state) => ({ accessEpoch: state.accessEpoch + 1 }))
       reconnectWork = invalidateForumSidebarBaseExact(queryClient, "server-1")
     })
     await waitFor(() => apiFetchMock.mock.calls.length === 2)

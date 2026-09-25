@@ -6,6 +6,7 @@ import { communityKeys } from "@/lib/query-keys"
 import { avatarInitial } from "@/lib/community/avatar"
 import type { CommunityFolder } from "@/lib/community/models/navigation"
 import { useCommunityWsStore } from "@/stores/community/ws"
+import { useServerRailProjection } from "@/lib/community-db/projections"
 
 /**
  * Fetches the user's server-folder groupings for the rail.
@@ -57,12 +58,13 @@ export const foldersQueryFn = async (): Promise<FoldersResponse> => {
 export function useFolders(): UseQueryResult<FoldersResponse> & {
   folders: CommunityFolder[]
 } {
+  const dbRail = useServerRailProjection()
   const query = useQuery({
     queryKey: communityKeys.folders(),
     queryFn: foldersQueryFn,
   })
   return {
     ...query,
-    folders: query.data?.folders ?? (EMPTY_FOLDERS as CommunityFolder[]),
+    folders: dbRail?.folders ?? query.data?.folders ?? (EMPTY_FOLDERS as CommunityFolder[]),
   }
 }

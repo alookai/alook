@@ -228,26 +228,14 @@ function policyExecutors(
       await queryClient.invalidateQueries({ queryKey: communityKeys.friends(), refetchType: "active" })
     },
     "presence-overlay": async () => {
-      const profiles = useCommunityWsStore.getState()
-      profiles.patchProfiles(
-        profiles.beginProfileSnapshot(),
-        [...profiles.profilesByUserId.values()]
-          .filter((profile) => (
-            profile.id !== viewerUserId && profile.presence === "online"
-          ))
-          .map((profile) => ({ id: profile.id, presence: "offline" as const })),
-      )
+      const presence = useCommunityWsStore.getState()
+      for (const [userId, status] of presence.presenceByUserId) {
+        if (userId !== viewerUserId && status === "online") {
+          presence.setPresence(userId, "offline")
+        }
+      }
     },
-    "status-overlay": async () => {
-      const profiles = useCommunityWsStore.getState()
-      profiles.patchProfiles(
-        profiles.beginProfileSnapshot(),
-        [...profiles.profilesByUserId.keys()].map((id) => ({
-          id,
-          status: { statusEmoji: null, statusText: null },
-        })),
-      )
-    },
+    "status-overlay": async () => undefined,
     "identity-surfaces": async () => {
       const hasIdentitySurface = queryClient.getQueryCache().getAll().some((query) => (
         query.queryKey[0] === "community"

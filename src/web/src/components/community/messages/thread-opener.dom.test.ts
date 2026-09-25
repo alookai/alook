@@ -6,8 +6,8 @@ const useMessageMock = vi.fn()
 vi.mock("@/hooks/community/use-message", () => ({
   useMessage: (...args: unknown[]) => useMessageMock(...args),
 }))
-vi.mock("@/stores/community/ws", () => ({
-  useCommunityProfile: (userId?: string) => userId
+vi.mock("@/lib/community-db/projections", () => ({
+  useCanonicalCommunityProfile: (userId?: string) => userId
     ? { id: userId, name: "Alice", avatar: "A" }
     : undefined,
 }))

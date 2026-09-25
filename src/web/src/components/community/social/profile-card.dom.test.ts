@@ -23,9 +23,8 @@ const mocks = vi.hoisted(() => ({
   interruptAgent: vi.fn(),
 }))
 
-vi.mock("@/stores/community/ws", async (importOriginal) => ({
-  ...await importOriginal<typeof import("@/stores/community/ws")>(),
-  useCommunityProfile: () => mocks.profile,
+vi.mock("@/lib/community-db/projections", () => ({
+  useCanonicalCommunityProfile: () => mocks.profile,
 }))
 
 vi.mock("@/hooks/community/use-community-ws", () => ({

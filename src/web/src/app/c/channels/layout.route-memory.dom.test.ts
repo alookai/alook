@@ -23,9 +23,6 @@ const mocks = vi.hoisted(() => ({
   serverDetails: new Map<string, {
     categories: Array<{ channels: Array<{ id: string; pending?: boolean }> }>
   }>(),
-  structuralSnapshot: { current: null as null | {
-    servers: Array<{ id: string; channels: Array<{ id: string }> }>
-  } },
   lastChannels: new Map<string, string>(),
   serverListSuccess: { current: true },
   serverListFetching: { current: false },
@@ -129,13 +126,6 @@ vi.mock("@/hooks/community/use-servers", () => ({
     isSuccess: mocks.serverListSuccess.current,
     isFetching: mocks.serverListFetching.current,
   }),
-}))
-vi.mock("@/hooks/community/use-structural-snapshot", () => ({
-  useStructuralSnapshot: () => mocks.structuralSnapshot.current,
-  structuralHintServer: () => null,
-  hasStructuralServerTree: (server: { channels?: unknown[] } | null) => (
-    (server?.channels?.length ?? 0) > 0
-  ),
 }))
 vi.mock("@/hooks/community/use-server-members", () => ({
   useServerMembers: () => ({
@@ -259,7 +249,6 @@ describe("ServerLayout deletion routing", () => {
     mocks.useServer.mockClear()
     mocks.servers.current = []
     mocks.serverDetails.clear()
-    mocks.structuralSnapshot.current = null
     mocks.lastChannels.clear()
     mocks.serverListSuccess.current = true
     mocks.serverListFetching.current = false
@@ -376,34 +365,6 @@ describe("ServerLayout deletion routing", () => {
     )
     expect(mocks.replace).toHaveBeenCalledExactlyOnceWith("/c/me")
     expect(mocks.navigatePath).not.toHaveBeenCalled()
-  })
-
-  it("resolves a survivor leaf from the structural snapshot without waiting for a fetch", async () => {
-    mocks.servers.current = [
-      { id: "missing-server" },
-      { id: "surviving-server" },
-    ]
-    mocks.structuralSnapshot.current = {
-      servers: [{
-        id: "surviving-server",
-        channels: [{ id: "channel-structural" }],
-      }],
-    }
-    render(createElement(ServerLayout, null, createElement("div")))
-
-    await act(async () => mocks.deleteServerAction.current?.())
-    const callbacks = mocks.deleteServer.mock.calls[0]![1] as {
-      onSuccess: (needsNavigation?: boolean) => void
-    }
-    mocks.servers.current = [{ id: "surviving-server" }]
-    await act(async () => callbacks.onSuccess())
-
-    expect(mocks.queryClient.fetchQuery).not.toHaveBeenCalled()
-    expect(mocks.claimNavigation).toHaveBeenCalledWith(
-      "missing-server",
-      mocks.routeToken,
-      "/c/channels/surviving-server/channel-structural",
-    )
   })
 
   it("keeps an already committed safe route without resolving or navigating", async () => {

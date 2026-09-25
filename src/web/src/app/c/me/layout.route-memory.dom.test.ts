@@ -71,7 +71,7 @@ vi.mock("@/stores/community", () => {
   }
 })
 vi.mock("@/hooks/community/use-dms", () => ({
-  useDms: () => ({ dms: [], isLoading: false, isPending: false, isFetching: false }),
+  useDms: () => ({ dms: [], isLoading: false, isPending: false }),
 }))
 vi.mock("@/hooks/community/use-dm-route-verification", () => ({
   useDmRouteVerification: () => ({ status: mocks.dmStatus, retry: vi.fn(), retrying: false }),

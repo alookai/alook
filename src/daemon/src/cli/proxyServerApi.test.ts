@@ -331,7 +331,7 @@ describe("createProxyServerApi — send (retargeted to the canonical messages do
       );
     });
     const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
-    await api.send({ agentId: "a1", channel: "/demo#1234/general", content: { text: "on it" }, replyToSeq: 37, force: true });
+    await api.send({ agentId: "a1", channel: "/demo#1234/general", content: { text: "on it" }, replyToSeq: 37 });
     // Canonical messages door; the `resolve` placeholder id (bot holds a ref).
     expect(seen[0].url).toBe("http://proxy.test/api/community/channels/resolve/messages");
     expect(seen[0].init?.method).toBe("POST");
@@ -339,7 +339,6 @@ describe("createProxyServerApi — send (retargeted to the canonical messages do
     // The channel REF stays in the body (resolved server-side); replyToSeq kept.
     expect(body.channel).toBe("/demo#1234/general");
     expect(body.replyToSeq).toBe(37);
-    expect(body.force).toBe(true);
     expect(body.agentId).toBeUndefined();
   });
 });

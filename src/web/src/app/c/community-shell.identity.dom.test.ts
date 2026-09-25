@@ -42,6 +42,18 @@ vi.mock("@/components/community/onboarding/community-onboarding-form", () => ({
 vi.mock("@/components/community/shell/community-ws-reconnect-overlay", () => ({
   CommunityWsReconnectBoundary: ({ children }: { children: React.ReactNode }) => children,
 }))
+vi.mock("@/components/community/shell/community-restore-bootstrap", () => ({
+  CommunityRestoreBoundary: ({ children }: { children: React.ReactNode }) => children,
+}))
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/c/me",
+}))
+vi.mock("@/components/community/shell/community-session-pending-frame", () => ({
+  CommunitySessionPendingFrame: ({ pathname }: { pathname: string }) => React.createElement(
+    "div",
+    { "data-testid": "session-pending", "data-pathname": pathname },
+  ),
+}))
 vi.mock("@/components/community/shell/owner-server-delete-route-guard", () => ({
   OwnerServerDeleteRouteGuard: () => null,
 }))
@@ -80,23 +92,21 @@ describe("CommunityShell identity boundary", () => {
   })
 
   it("does not mount a new account subtree against the previous account profile state", () => {
-    const renderedProfileStates: Array<{ viewerId: string | null; profileNames: string[] }> = []
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const renderedProfileStates: Array<{ viewerId: string | null; presenceIds: string[] }> = []
     function ProfileStateProbe() {
       const viewerId = useCommunityWsStore((state) => state.profileViewerId)
-      const profiles = useCommunityWsStore((state) => state.profilesByUserId)
+      const presence = useCommunityWsStore((state) => state.presenceByUserId)
       renderedProfileStates.push({
         viewerId,
-        profileNames: [...profiles.values()].map((profile) => profile.name),
+        presenceIds: [...presence.keys()],
       })
       return null
     }
 
     const profiles = useCommunityWsStore.getState()
     profiles.activateProfileAccount("user-a")
-    profiles.patchProfiles(profiles.beginProfileSnapshot(), [{
-      id: "user-a",
-      identityAbout: { name: "Previous account" },
-    }])
+    profiles.setPresence("user-a", "online")
     const accountAEpoch = useCommunityWsStore.getState().profileAccountEpoch
 
     const renderer = render(React.createElement(
@@ -117,13 +127,15 @@ describe("CommunityShell identity boundary", () => {
 
     expect(renderedProfileStates.length).toBeGreaterThan(0)
     expect(renderedProfileStates).toEqual(
-      renderedProfileStates.map(() => ({ viewerId: "user-b", profileNames: [] })),
+      renderedProfileStates.map(() => ({ viewerId: "user-b", presenceIds: [] })),
     )
     expect(useCommunityWsStore.getState()).toMatchObject({
       profileViewerId: "user-b",
       profileAccountEpoch: accountAEpoch + 1,
     })
+    expect(consoleError.mock.calls.flat().join("\n")).not.toContain("while rendering a different component")
     act(() => renderer.unmount())
+    consoleError.mockRestore()
   })
 
   it("reactivates a cleared account without a render-phase update in StrictMode", () => {

@@ -1,9 +1,16 @@
 "use client"
 
-import { useQuery, type UseQueryResult } from "@tanstack/react-query"
+import { useMemo } from "react"
+import {
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+  type UseQueryResult,
+} from "@tanstack/react-query"
 import { apiFetchProfiles, messageProfilePatches } from "@/lib/community/profile-seed"
 import { communityKeys } from "@/lib/query-keys"
-import type { Msg } from "@/lib/community/models/message"
+import type { MessagesPage, Msg } from "@/lib/community/models/message"
+import { useCanonicalMessagesById } from "@/lib/community-db/projections"
 
 /**
  * Fetches a single hydrated message by id — the payload shape returned by
@@ -41,22 +48,63 @@ export const messageQueryFn = (messageId: string) => () =>
     (message) => messageProfilePatches([message]),
   )
 
+export function findCachedMessage(
+  queryClient: QueryClient,
+  messageId: string,
+): OpenerPayload | undefined {
+  for (const [, data] of queryClient.getQueriesData<{ pages?: MessagesPage[] }>({
+    queryKey: communityKeys.all,
+  })) {
+    if (!Array.isArray(data?.pages)) continue
+    for (const page of data.pages) {
+      if (!Array.isArray(page.messages)) continue
+      const message = page.messages.find((candidate) => candidate.id === messageId)
+      if (!message?.authorId || !message.createdAt) continue
+      return {
+        id: message.id,
+        authorId: message.authorId,
+        authorName: message.authorName ?? "Unknown",
+        authorAvatar: message.authorAvatar ?? "",
+        authorAvatarVersion: message.authorAvatarVersion ?? 0,
+        content: message.content ?? "",
+        type: message.type,
+        createdAt: message.createdAt,
+        ...(message.replyTo ? { replyTo: message.replyTo } : {}),
+        ...(message.attachments ? { attachments: message.attachments } : {}),
+        ...(message.embeds ? { embeds: message.embeds } : {}),
+        ...(message.reactions ? { reactions: message.reactions } : {}),
+      }
+    }
+  }
+  return undefined
+}
+
 export function useMessage(
   messageId: string | null | undefined,
 ): UseQueryResult<OpenerPayload> & { message: OpenerPayload | null } {
+  const canonicalMessages = useCanonicalMessagesById()
+  const queryClient = useQueryClient()
   const enabled = !!messageId
+  const placeholderData = useMemo(
+    () => enabled ? findCachedMessage(queryClient, messageId!) : undefined,
+    [enabled, messageId, queryClient],
+  )
   const query = useQuery({
     queryKey: enabled ? communityKeys.message(messageId!) : communityKeys.message("__none__"),
     queryFn: enabled
       ? messageQueryFn(messageId!)
       : (() => Promise.reject(new Error("disabled"))),
     enabled,
+    placeholderData,
     // Quick tab-switches shouldn't hammer the endpoint; 30s window is plenty
     // for the "opener stays live via mutation invalidation" contract.
     staleTime: 30_000,
   })
+  const canonical = messageId ? canonicalMessages?.get(messageId) : undefined
   return {
     ...query,
-    message: query.data ?? null,
+    message: canonicalMessages
+      ? canonical ? canonical as OpenerPayload : null
+      : query.data ?? null,
   }
 }

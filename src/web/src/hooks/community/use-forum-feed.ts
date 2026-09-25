@@ -9,6 +9,7 @@ import { avatarInitial } from "@/lib/community/avatar"
 import { canonicalUserImage } from "@/lib/community/storage"
 import { readForumTagSelection, validateForumTagSelection, writeForumTagSelection } from "@/lib/community/forum-tag-selection"
 import type { ForumThread } from "@/lib/community/models/message"
+import { useCanonicalMessagesById } from "@/lib/community-db/projections"
 import { useForumTags } from "./use-channel-panels"
 import {
   projectForumThreadsThroughActiveTagTransitions,
@@ -62,7 +63,10 @@ export function forumFeedPageQueryFn(channelId: string, tag: string | null) {
   }
 }
 
-export function mapForumFeedPages(pages: ForumFeedPage[]): ForumThread[] {
+export function mapForumFeedPages(
+  pages: ForumFeedPage[],
+  canonicalMessages?: ReadonlyMap<string, import("@/lib/community/models/message").Msg>,
+): ForumThread[] {
   const byId = new Map<string, ForumThread>()
   const createdAtById = new Map<string, string>()
   for (const page of pages) {
@@ -91,7 +95,22 @@ export function mapForumFeedPages(pages: ForumFeedPage[]): ForumThread[] {
     for (const thread of page.threads) {
       if (byId.has(thread.id)) continue
       createdAtById.set(thread.id, thread.createdAt)
-      const opener = thread.parentMessageId ? openerById.get(thread.parentMessageId) : undefined
+      const rawOpener = thread.parentMessageId ? openerById.get(thread.parentMessageId) : undefined
+      const canonicalOpener = rawOpener ? canonicalMessages?.get(rawOpener.id) : undefined
+      if (canonicalMessages && rawOpener && !canonicalOpener) continue
+      const opener = rawOpener && canonicalOpener
+        ? {
+            ...rawOpener,
+            content: canonicalOpener.content ?? rawOpener.content,
+            authorId: canonicalOpener.authorId ?? rawOpener.authorId,
+            authorName: canonicalOpener.authorName ?? rawOpener.authorName,
+            authorImage: canonicalOpener.authorAvatar ?? rawOpener.authorImage,
+            authorAvatarVersion: canonicalOpener.authorAvatarVersion
+              ?? rawOpener.authorAvatarVersion,
+            createdAt: canonicalOpener.createdAt ?? rawOpener.createdAt,
+            seq: canonicalOpener.seq ?? rawOpener.seq,
+          }
+        : rawOpener
       const first = firstByChannel.get(thread.id)
       byId.set(thread.id, {
         id: thread.id,
@@ -127,6 +146,7 @@ export function mapForumFeedPages(pages: ForumFeedPage[]): ForumThread[] {
 
 export function useForumFeed(_serverId: string, channelId: string) {
   const queryClient = useQueryClient()
+  const canonicalMessages = useCanonicalMessagesById()
   const [tag, setTag] = useState(() => {
     if (typeof window === "undefined") return "All"
     try { return readForumTagSelection(window.localStorage, channelId) }
@@ -162,9 +182,9 @@ export function useForumFeed(_serverId: string, channelId: string) {
       queryClient,
       channelId,
       selectedTag,
-      mapForumFeedPages(query.data?.pages ?? []),
+      mapForumFeedPages(query.data?.pages ?? [], canonicalMessages),
     ),
-    [channelId, query.data?.pages, queryClient, selectedTag],
+    [canonicalMessages, channelId, query.data?.pages, queryClient, selectedTag],
   )
 
   return {

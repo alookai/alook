@@ -25,7 +25,6 @@ import { removeDmReactionDetails } from "./reaction-details-invalidation"
 import { reconcileNotificationSettings } from "@/hooks/community/use-notification-settings"
 import { getFriendRequestActionController } from "@/hooks/community/use-friend-request-action-state"
 import { communityKeys } from "@/lib/query-keys"
-import type { StructuralSnapshotV1 } from "@/lib/community/structural-snapshot"
 import {
   resolveDesktopSystemNotificationCandidate,
   showDesktopSystemNotification,
@@ -103,7 +102,6 @@ export function handleUnreadBump(
         event,
         viewerId,
         queryClient,
-        queryClient.getQueryData<StructuralSnapshotV1>(communityKeys.structuralSnapshot()) ?? null,
       ).then((candidate) => {
         if (candidate && viewerUserIdRef.current === viewerId) {
           return showDesktopSystemNotification(candidate)

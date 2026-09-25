@@ -103,19 +103,6 @@ describe("forumFeedPageQueryFn", () => {
     const result = await forumFeedPageQueryFn("forum_one", null)({ pageParam: null })
 
     expect(result).toBe(page)
-    expect(useCommunityWsStore.getState().profilesByUserId.get("author_1")).toMatchObject({
-      name: "Alice",
-      avatar: "A",
-      avatarVersion: 2,
-    })
-    expect(useCommunityWsStore.getState().profilesByUserId.get("participant_1")).toMatchObject({
-      name: "Bob",
-      avatar: "bob.png",
-      avatarVersion: 3,
-    })
-    const anonymousParticipant = useCommunityWsStore.getState().profilesByUserId.get("participant_2")
-    expect(anonymousParticipant).toMatchObject({ avatarVersion: 0 })
-    expect(anonymousParticipant).not.toHaveProperty("name")
   })
 })
 

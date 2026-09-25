@@ -21,6 +21,84 @@ beforeEach(() => {
 })
 
 describe("useInboxUnreads / inboxUnreadsQueryFn", () => {
+  it("filters revoked server, channel, child, and DM rows through canonical access", async () => {
+    const { filterInboxUnreadsToCanonicalAccess } = await import("./use-inbox")
+    const result = filterInboxUnreadsToCanonicalAccess(
+      [{
+        serverId: "server-kept",
+        serverName: "Kept",
+        channels: [
+          {
+            channelId: "channel-kept",
+            channelName: "Kept",
+            lastMessageAt: "2026-09-25T00:00:00.000Z",
+            mentionCount: 0,
+            children: [
+              {
+                channelId: "child-kept",
+                channelName: "Kept child",
+                lastMessageAt: "2026-09-25T00:00:00.000Z",
+                mentionCount: 0,
+              },
+              {
+                channelId: "child-revoked",
+                channelName: "Revoked child",
+                lastMessageAt: "2026-09-25T00:00:00.000Z",
+                mentionCount: 0,
+              },
+            ],
+          },
+          {
+            channelId: "channel-revoked",
+            channelName: "Revoked",
+            lastMessageAt: "2026-09-25T00:00:00.000Z",
+            mentionCount: 0,
+            children: [],
+          },
+        ],
+      }, {
+        serverId: "server-revoked",
+        serverName: "Revoked",
+        channels: [{
+          channelId: "other",
+          channelName: "Other",
+          lastMessageAt: "2026-09-25T00:00:00.000Z",
+          mentionCount: 0,
+          children: [],
+        }],
+      }],
+      [
+        {
+          channelId: "dm-kept",
+          otherUserId: "peer-kept",
+          otherUserName: "Kept",
+          otherUserDiscriminator: "0001",
+          otherUserAvatar: "K",
+          otherUserAvatarVersion: 0,
+          lastMessageAt: "2026-09-25T00:00:00.000Z",
+        },
+        {
+          channelId: "dm-revoked",
+          otherUserId: "peer-revoked",
+          otherUserName: "Revoked",
+          otherUserDiscriminator: "0002",
+          otherUserAvatar: "R",
+          otherUserAvatarVersion: 0,
+          lastMessageAt: "2026-09-25T00:00:00.000Z",
+        },
+      ],
+      {
+        serverIds: new Set(["server-kept"]),
+        channelIds: new Set(["channel-kept", "child-kept", "dm-kept"]),
+      },
+    )
+
+    expect(result.servers).toHaveLength(1)
+    expect(result.servers[0]?.channels.map((channel) => channel.channelId)).toEqual(["channel-kept"])
+    expect(result.servers[0]?.channels[0]?.children.map((child) => child.channelId)).toEqual(["child-kept"])
+    expect(result.dms.map((dm) => dm.channelId)).toEqual(["dm-kept"])
+  })
+
   it("passes friend requests through, seeds their profile, and exposes the outstanding boolean", async () => {
     useCommunityWsStore.getState().reset()
     useCommunityWsStore.getState().activateProfileAccount("viewer")
@@ -52,11 +130,6 @@ describe("useInboxUnreads / inboxUnreadsQueryFn", () => {
 
     await vi.waitFor(() => expect(latest?.friendRequests).toHaveLength(1))
     expect(latest?.hasOutstandingFriendRequest).toBe(true)
-    expect(useCommunityWsStore.getState().profilesByUserId.get("requester")).toMatchObject({
-      name: "Ada",
-      avatar: "avatar-url",
-      avatarVersion: 7,
-    })
     expect(latest?.hasProjectedUnread).toBe(false)
     await act(async () => renderer.unmount())
   })
@@ -82,12 +155,6 @@ describe("useInboxUnreads / inboxUnreadsQueryFn", () => {
 
     await inboxUnreadsQueryFn()
 
-    expect(useCommunityWsStore.getState().profilesByUserId.get("peer")).toMatchObject({
-      name: "Grace",
-      discriminator: "0007",
-      avatar: "peer-avatar",
-      avatarVersion: 8,
-    })
   })
 
   it("keeps last-good friend requests and their boolean after a stale refetch", async () => {

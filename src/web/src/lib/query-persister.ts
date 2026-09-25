@@ -4,17 +4,19 @@ import type {
   Persister,
 } from "@tanstack/react-query-persist-client"
 import { del, get, set } from "idb-keyval"
-import type { MessagesPage, Msg } from "@/lib/community/models/message"
+import type { MessagesPage } from "@/lib/community/models/message"
+import { isCommunityServerDetailQueryKey } from "@/lib/query-keys"
 import {
-  parseStructuralSnapshot,
-} from "@/lib/community/structural-snapshot"
+  communityCollectionSchemas,
+  type CommunityCollectionName,
+} from "@/lib/community-db/schema"
 
 /**
  * IDB namespace root. Bumping the tail segment (`v1` → `v2`) invalidates every
  * cached payload — use it as the escape hatch when the persisted query shape
  * changes in a way the runtime can't reconcile against fresh server data.
  */
-const IDB_PREFIX = "alook:qc:v1"
+const IDB_PREFIX = "alook:qc:v2"
 
 /**
  * Buster tag paired with `PersistedClient`. TanStack throws away restored
@@ -22,15 +24,13 @@ const IDB_PREFIX = "alook:qc:v1"
  * shape of a specific query needs to be reset without touching the IDB
  * namespace.
  */
-export const PERSIST_BUSTER = "v1"
+export const PERSIST_BUSTER = "v2"
 
 /** Persister max-age; queries older than this are discarded on restore. */
 export const PERSIST_MAX_AGE_MS = 24 * 60 * 60 * 1000
 
 /**
- * Only these query-key kinds are persisted. Everything else refetches on mount
- * — presence, live server list, member rosters, etc. are cheap and should
- * always reflect the live server.
+ * Only these query-key kinds are persisted. Everything else refetches on mount.
  *
  * Note: read-state snapshots were previously persisted but were removed to
  * kill a self-inflicted staleness bug — a hydrated snapshot with a stale
@@ -39,10 +39,16 @@ export const PERSIST_MAX_AGE_MS = 24 * 60 * 60 * 1000
  * persisting them is a strict downside (bytes on disk + risk of drift).
  */
 const PERSISTED_KINDS = new Set<string>([
-  "channelMessages",
-  "dmMessages",
-  "structuralSnapshot",
+  "servers",
+  "folders",
+  "dms",
+  "serverDetail",
+  "communityDbCollection",
 ])
+
+export const MAX_PERSISTED_SERVER_DETAILS = 5
+export const MAX_PERSISTED_MESSAGE_SCOPES = 20
+export const MAX_PERSISTED_MESSAGES_PER_SCOPE = 50
 
 // Query keys start with `["community", <kind>, ...]` — the first segment is
 // the namespace, the second segment is a discriminator (`"channel"`, `"dm"`,
@@ -53,9 +59,21 @@ function keyKindFor(queryKey: readonly unknown[]): string | null {
   if (!Array.isArray(queryKey) || queryKey.length < 2) return null
   if (queryKey[0] !== "community") return null
   const second = queryKey[1]
-  if (second === "structural-snapshot" && queryKey.length === 2) {
-    return "structuralSnapshot"
+  if (
+    second === "db"
+    && queryKey.length === 4
+    && typeof queryKey[2] === "string"
+    && typeof queryKey[3] === "string"
+  ) {
+    return "communityDbCollection"
   }
+  if (second === "servers") {
+    if (queryKey.length === 2) return "servers"
+    if (isCommunityServerDetailQueryKey(queryKey)) return "serverDetail"
+    return null
+  }
+  if (second === "folders" && queryKey.length === 2) return "folders"
+  if (second === "dms" && queryKey.length === 2) return "dms"
   // Message queries: ["community", "channel", <id>, "messages"] or
   // ["community", "dm", <id>, "messages"].
   if (second === "channel" || second === "dm") {
@@ -136,65 +154,313 @@ export function shouldPersistQuery(
   return isTrustedMessagesPageZero(pages[0])
 }
 
-/**
- * Optimistic rows carry an id that starts with `temp_` until the server
- * assigns a real id. Persisting them would surface ghost rows on reload — the
- * outgoing POST may never have committed, and if it did, the WS layer will
- * re-deliver the real message with the canonical id. Also strips `failed:
- * true` rows since they only exist to prompt a retry that no longer makes
- * sense once the tab has been closed.
- */
-function scrubMessage(m: Msg): boolean {
-  if (typeof m.id === "string" && m.id.startsWith("temp_")) return false
-  if (m.failed === true) return false
-  return true
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
-function scrubPage(page: MessagesPage): MessagesPage {
-  const messages = page.messages.filter(scrubMessage)
-  if (messages.length === page.messages.length) return page
-  return { ...page, messages }
+function isString(value: unknown): value is string {
+  return typeof value === "string"
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value)
+}
+
+function optional(
+  value: unknown,
+  predicate: (candidate: unknown) => boolean,
+): boolean {
+  return value === undefined || predicate(value)
+}
+
+function nullableString(value: unknown): boolean {
+  return value === null || isString(value)
+}
+
+function isArrayOf(
+  value: unknown,
+  predicate: (candidate: unknown) => boolean,
+): boolean {
+  return Array.isArray(value) && value.every(predicate)
+}
+
+function isPersistedServerUnreadSource(value: unknown): boolean {
+  return isRecord(value)
+    && isString(value.channelId)
+    && isFiniteNumber(value.lastUnreadSeq)
+}
+
+function isPersistedServerMentionSource(value: unknown): boolean {
+  return isRecord(value)
+    && isString(value.channelId)
+    && isFiniteNumber(value.count)
+    && isFiniteNumber(value.lastSeq)
+}
+
+function isPersistedServer(value: unknown): boolean {
+  return isRecord(value)
+    && isString(value.id)
+    && isString(value.name)
+    && isString(value.initial)
+    && typeof value.active === "boolean"
+    && typeof value.unread === "boolean"
+    && isFiniteNumber(value.mentions)
+    && optional(value.discriminator, isString)
+    && optional(value.description, isString)
+    && optional(value.ownerId, isString)
+    && optional(value.icon, nullableString)
+    && optional(value.official, (candidate) => typeof candidate === "boolean")
+    && optional(value.isOwner, (candidate) => typeof candidate === "boolean")
+    && optional(value.unreadSources, (candidate) => (
+      isArrayOf(candidate, isPersistedServerUnreadSource)
+    ))
+    && optional(value.mentionSources, (candidate) => (
+      isArrayOf(candidate, isPersistedServerMentionSource)
+    ))
+}
+
+function isPersistedFolderServer(value: unknown): boolean {
+  return isRecord(value)
+    && isString(value.id)
+    && isString(value.name)
+    && isString(value.initial)
+    && optional(value.icon, nullableString)
+}
+
+function isPersistedFolder(value: unknown): boolean {
+  return isRecord(value)
+    && isString(value.id)
+    && isString(value.name)
+    && isFiniteNumber(value.position)
+    && isArrayOf(value.servers, isPersistedFolderServer)
+}
+
+function isPersistedDm(value: unknown): boolean {
+  return isRecord(value)
+    && isString(value.id)
+    && isString(value.userId)
+    && isString(value.name)
+    && isString(value.discriminator)
+    && isString(value.avatar)
+    && isFiniteNumber(value.avatarVersion)
+    && (value.status === "online" || value.status === "offline")
+    && isString(value.preview)
+    && optional(value.unread, (candidate) => typeof candidate === "boolean")
+    && optional(value.lastUnreadSeq, isFiniteNumber)
+}
+
+function isPersistedChannel(value: unknown): boolean {
+  return isRecord(value)
+    && isString(value.id)
+    && isString(value.name)
+    && typeof value.active === "boolean"
+    && typeof value.unread === "boolean"
+    && optional(value.muted, (candidate) => typeof candidate === "boolean")
+    && optional(value.type, (candidate) => candidate === "text" || candidate === "forum")
+    && optional(value.tags, (candidate) => isArrayOf(candidate, isString))
+    && optional(value.creatorId, nullableString)
+    && optional(value.pending, (candidate) => typeof candidate === "boolean")
+}
+
+function isPersistedCategory(value: unknown): boolean {
+  return isRecord(value)
+    && isString(value.id)
+    && isString(value.name)
+    && isArrayOf(value.channels, isPersistedChannel)
+    && optional(value.private, (candidate) => (
+      typeof candidate === "boolean" || isFiniteNumber(candidate)
+    ))
+    && optional(value.creatorId, nullableString)
+    && optional(value.pending, (candidate) => typeof candidate === "boolean")
+}
+
+function isPersistedForumUnreadStateEntry(value: unknown): boolean {
+  return isRecord(value)
+    && typeof value.baseUnread === "boolean"
+    && isArrayOf(value.childIds, isString)
+}
+
+function isPersistedForumUnreadState(value: unknown): boolean {
+  return isRecord(value)
+    && Object.values(value).every(isPersistedForumUnreadStateEntry)
+}
+
+function isPersistedDetailUnreadSource(value: unknown): boolean {
+  return isRecord(value)
+    && isString(value.channelId)
+    && isFiniteNumber(value.lastUnreadSeq)
+    && (value.lastAttentionSeq === null || isFiniteNumber(value.lastAttentionSeq))
+}
+
+function isPersistedServerDetail(value: unknown, serverId: unknown): boolean {
+  return isRecord(value)
+    && value.id === serverId
+    && isString(value.name)
+    && isString(value.discriminator)
+    && isString(value.description)
+    && nullableString(value.icon)
+    && isString(value.ownerId)
+    && isArrayOf(value.categories, isPersistedCategory)
+    && optional(value.official, (candidate) => typeof candidate === "boolean")
+    && optional(value.forumUnreadState, isPersistedForumUnreadState)
+    && optional(value.unreadSources, (candidate) => (
+      isArrayOf(candidate, isPersistedDetailUnreadSource)
+    ))
+}
+
+function isPersistedReadClosureData(
+  kind: "servers" | "folders" | "dms" | "serverDetail",
+  data: unknown,
+  queryKey: readonly unknown[],
+): boolean {
+  if (!isRecord(data)) return false
+  if (kind === "servers") return isArrayOf(data.servers, isPersistedServer)
+  if (kind === "folders") return isArrayOf(data.folders, isPersistedFolder)
+  if (kind === "dms") return isArrayOf(data.conversations, isPersistedDm)
+  return isPersistedServerDetail(data, queryKey[2])
 }
 
 /**
- * Walk the dehydrated client and:
- * 1. Drop optimistic / failed message rows from each page (temp_/failed rows
- *    would surface as ghosts on the next mount — see `scrubMessage`).
- * 2. Drop the whole query when its trimmed `pages[0]` no longer represents a
- *    trusted newest-tail cache. TanStack's dehydrate step already ran the
- *    `shouldDehydrateQuery` predicate against the *pre-scrub* data; if
- *    scrubbing changed the shape (or the shape was borderline to begin with),
- *    re-run the invariant here so nothing untrustworthy hits disk.
- *
- * Mutates a shallow copy — the live QueryClient cache is untouched. Called
- * from the persister's `serialize` hook, so the filter is applied every time
- * TanStack throttles a save.
+ * Retain the bounded canonical read closure without mutating the live cache.
  */
 function scrubDehydratedClient(
   client: PersistedClient,
   userId: string | null,
-  now = Date.now(),
 ): PersistedClient {
   const queries: typeof client.clientState.queries = []
+  const serverDetails = client.clientState.queries
+    .filter((q) => keyKindFor(q.queryKey) === "serverDetail")
+    .filter((q) => isPersistedReadClosureData("serverDetail", q.state.data, q.queryKey))
+    .sort((a, b) => b.state.dataUpdatedAt - a.state.dataUpdatedAt)
+    .slice(0, MAX_PERSISTED_SERVER_DETAILS)
+  const retainedServerIds = new Set(
+    serverDetails.flatMap((query) => (
+      typeof query.queryKey[2] === "string" ? [query.queryKey[2]] : []
+    )),
+  )
+  const canonical = new Map<CommunityCollectionName, unknown[]>()
   for (const q of client.clientState.queries) {
     const kind = keyKindFor(q.queryKey)
-    if (kind === "structuralSnapshot") {
-      if (!userId) continue
-      const snapshot = parseStructuralSnapshot(q.state.data, userId, now)
-      if (!snapshot) continue
-      queries.push({ ...q, state: { ...q.state, data: snapshot } })
+    if (kind === "communityDbCollection") {
+      if (!userId || q.queryKey[2] !== userId) continue
+      const collectionName = q.queryKey[3] as CommunityCollectionName
+      const schema = communityCollectionSchemas[collectionName]
+      if (!schema) continue
+      const parsed = schema.array().safeParse(q.state.data)
+      if (!parsed.success) continue
+      canonical.set(collectionName, parsed.data)
       continue
     }
-    if (kind !== "channelMessages" && kind !== "dmMessages") continue
-    const data = q.state.data as
-      | { pages: MessagesPage[]; pageParams: unknown[] }
-      | undefined
-    if (!data || !Array.isArray(data.pages)) continue
-    const pages = data.pages.map(scrubPage)
-    const nextData = { ...data, pages }
-    if (!shouldPersistQuery(q.queryKey, nextData)) continue
-    queries.push({ ...q, state: { ...q.state, data: nextData } })
+    if (
+      kind === "servers"
+      || kind === "folders"
+      || kind === "dms"
+      || kind === "serverDetail"
+    ) {
+      if (!isPersistedReadClosureData(kind, q.state.data, q.queryKey)) continue
+      if (kind !== "serverDetail") queries.push(q)
+      continue
+    }
   }
+
+  const channels = (canonical.get("channels") ?? []) as Array<{
+    id: string
+    serverId?: string | null
+    type: "text" | "forum" | "thread" | "dm"
+  }>
+  const retainedChannels = channels.filter((row) => (
+    row.serverId === null || row.serverId === undefined || retainedServerIds.has(row.serverId)
+  ))
+  const retainedChannelIds = new Set(retainedChannels.map((row) => row.id))
+  const retainedDmIds = new Set(
+    retainedChannels.filter((row) => row.type === "dm").map((row) => row.id),
+  )
+  const allMessages = (canonical.get("messages") ?? []) as Array<{
+    id: string
+    channelId: string
+    seq?: number
+    createdAt?: string
+    authorId?: string
+    replyTo?: { authorId?: string }
+    thread?: { participants?: Array<{ id: string }> }
+  }>
+  const messagesByScope = new Map<string, typeof allMessages>()
+  for (const message of allMessages) {
+    if (!retainedChannelIds.has(message.channelId)) continue
+    const rows = messagesByScope.get(message.channelId) ?? []
+    rows.push(message)
+    messagesByScope.set(message.channelId, rows)
+  }
+  const compareMessagesNewest = (a: typeof allMessages[number], b: typeof allMessages[number]) => (
+    (b.seq ?? -1) - (a.seq ?? -1)
+    || String(b.createdAt ?? "").localeCompare(String(a.createdAt ?? ""))
+    || b.id.localeCompare(a.id)
+  )
+  const retainedMessages = [...messagesByScope.values()]
+    .map((rows) => rows.slice().sort(compareMessagesNewest))
+    .sort((a, b) => compareMessagesNewest(a[0]!, b[0]!))
+    .slice(0, MAX_PERSISTED_MESSAGE_SCOPES)
+    .flatMap((rows) => rows.slice(0, MAX_PERSISTED_MESSAGES_PER_SCOPE))
+  const retainedMessageChannelIds = new Set(retainedMessages.map((row) => row.channelId))
+  const durableChannelIds = new Set([...retainedChannelIds, ...retainedMessageChannelIds])
+  const serverMemberships = (canonical.get("serverMemberships") ?? []) as Array<{
+    serverId: string
+    userId: string
+    viewer: boolean
+  }>
+  const retainedServerMemberships = serverMemberships.filter((row) => row.viewer)
+  const channelMemberships = (canonical.get("channelMemberships") ?? []) as Array<{
+    channelId: string
+    userId: string
+    relation: "access" | "notify"
+  }>
+  const retainedChannelMemberships = channelMemberships.filter((row) => (
+    row.relation === "access"
+      && durableChannelIds.has(row.channelId)
+      && (row.userId === userId || retainedDmIds.has(row.channelId))
+  ))
+  const referencedProfileIds = new Set<string>(userId ? [userId] : [])
+  for (const server of (canonical.get("servers") ?? []) as Array<{ ownerId: string }>) {
+    if (server.ownerId) referencedProfileIds.add(server.ownerId)
+  }
+  for (const membership of retainedServerMemberships) referencedProfileIds.add(membership.userId)
+  for (const membership of retainedChannelMemberships) referencedProfileIds.add(membership.userId)
+  for (const message of retainedMessages) {
+    if (message.authorId) referencedProfileIds.add(message.authorId)
+    if (message.replyTo?.authorId) referencedProfileIds.add(message.replyTo.authorId)
+    for (const participant of message.thread?.participants ?? []) {
+      referencedProfileIds.add(participant.id)
+    }
+    for (const profile of [
+      (message as { approval?: { otherProfile?: { id?: string } } }).approval?.otherProfile,
+      (message as { approval?: { botProfile?: { id?: string } } }).approval?.botProfile,
+      (message as { approval?: { waitingOnProfile?: { id?: string } } }).approval?.waitingOnProfile,
+    ]) {
+      if (profile?.id) referencedProfileIds.add(profile.id)
+    }
+  }
+
+  const windowed: Partial<Record<CommunityCollectionName, unknown[]>> = {
+    ...Object.fromEntries(canonical),
+    categories: ((canonical.get("categories") ?? []) as Array<{ serverId: string }>).filter(
+      (row) => retainedServerIds.has(row.serverId),
+    ),
+    channels: retainedChannels,
+    serverMemberships: retainedServerMemberships,
+    channelMemberships: retainedChannelMemberships,
+    messages: retainedMessages,
+    profiles: ((canonical.get("profiles") ?? []) as Array<{ userId: string }>).filter(
+      (row) => referencedProfileIds.has(row.userId),
+    ),
+  }
+  for (const q of client.clientState.queries) {
+    if (keyKindFor(q.queryKey) !== "communityDbCollection") continue
+    if (!userId || q.queryKey[2] !== userId) continue
+    const collectionName = q.queryKey[3] as CommunityCollectionName
+    const data = windowed[collectionName]
+    if (data) queries.push({ ...q, state: { ...q.state, data } })
+  }
+  queries.push(...serverDetails)
   return {
     ...client,
     clientState: { ...client.clientState, queries },
@@ -254,8 +520,8 @@ function runPersistOperation<T>(key: string, operation: () => Promise<T>): Promi
  * Create an async-storage persister scoped to a specific user id.
  *
  * Every read/write is namespaced by `userId` so signing in as a different
- * account never surfaces the previous user's cached rows. `serialize` scrubs
- * `temp_*` and `failed: true` rows before they hit disk (see `scrubMessage`).
+ * account never surfaces the previous user's cached rows. `serialize` retains
+ * only the bounded canonical read closure before it reaches disk.
  */
 export function createIdbPersister(userId: string | null): Persister {
   const key = blobKeyFor(userId)

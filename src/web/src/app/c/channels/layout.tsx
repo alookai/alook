@@ -15,7 +15,7 @@ import {
   serverRootHref,
 } from "@/lib/community/community-route"
 import { useBreakpoint } from "@/hooks/use-mobile"
-import { ChannelSidebarScope } from "@/components/community/channels/channel-sidebar-tree-owner"
+import { ChannelSidebarRevealBoundary } from "@/components/community/channels/channel-sidebar-tree-owner"
 import { ChannelRoute } from "@/components/community/channels/channel-route"
 import { CommunityPendingFrame } from "@/components/community/shell/community-pending-frame"
 import { ServerSettings } from "@/components/community/settings/server-settings"
@@ -81,10 +81,10 @@ import {
   useRevokeInvite,
 } from "@/hooks/community/mutations"
 import {
-  hasStructuralServerTree,
-  structuralHintServer,
-  useStructuralSnapshot,
-} from "@/hooks/community/use-structural-snapshot"
+  useCanonicalProfilesByUserId,
+  useOptionalCommunityDbRegistry,
+  useTrustedRestoredPrimary,
+} from "@/lib/community-db/projections"
 
 export default function ServerLayout({ children }: { children: ReactNode }) {
   const params = useParams<{ serverId: string; channelId?: string }>()
@@ -109,6 +109,8 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
 
   const router = useRouter()
   const queryClient = useQueryClient()
+  const communityDb = useOptionalCommunityDbRegistry()
+  const trustedRestoredPrimary = useTrustedRestoredPrimary()
   const cancelPendingNavigation = useCallback(() => {
     useCommunityStore.getState().uiHandlers.cancelPendingNavigation?.()
   }, [])
@@ -116,24 +118,24 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   const serverAccessRevoked = useCommunityWsStore(
     (state) => state.revokedServerIds.has(serverId),
   )
-  const structuralSnapshot = useStructuralSnapshot(currentUser.id)
-  const structuralServer = useMemo(
-    () => structuralHintServer(structuralSnapshot, serverId),
-    [serverId, structuralSnapshot],
-  )
-  const { server: currentServer } = useServer(ownerDeleteRouteProtected ? null : serverId)
-  const structuralTreeReady = hasStructuralServerTree(structuralServer)
+  const {
+    server: currentServer,
+    data: authoritativeServer,
+  } = useServer(ownerDeleteRouteProtected ? null : serverId)
   const sidebarCategories = useMemo(
-    () => currentServer?.categories ?? (structuralTreeReady ? structuralServer?.categoriesView : undefined) ?? [],
-    [currentServer, structuralServer, structuralTreeReady],
+    () => currentServer?.categories ?? [],
+    [currentServer],
   )
-  const sidebarHintOnly = !currentServer && structuralTreeReady
+  const sidebarHintOnly = Boolean(currentServer && !authoritativeServer)
   const membersHook = useServerMembers(currentServer ? serverId : null)
-  const profilesByUserId = useCommunityWsStore((s) => s.profilesByUserId)
+  const profilesByUserId = useCanonicalProfilesByUserId()
   const enrichedMembers = useMemo(
     () =>
       membersHook.members.map((m) => {
-        const profile = readCommunityProfile(profilesByUserId.get(m.userId), m.userId)
+        const canonical = profilesByUserId.get(m.userId)
+        const profile = canonical
+          ? readCommunityProfile(canonical, m.userId)
+          : { ...m, presence: m.status }
         return {
           ...m,
           name: profile.name,
@@ -194,10 +196,14 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
 
   const serversList = useServers()
   const serverDestination = useCallback(async (id: string) => {
-    const structural = structuralSnapshot?.servers.find((server) => server.id === id)
     const lastChannel = getLastChannel(id)
     let detail = queryClient.getQueryData<ServerDetail>(communityKeys.server(id))
-    if (!detail && !lastChannel && !hasStructuralServerTree(structural)) {
+    const canonicalChannelIds = communityDb
+      ? Array.from(communityDb.collections.channels.values())
+        .filter((channel) => channel.serverId === id && channel.type !== "thread" && !channel.pending)
+        .map((channel) => channel.id)
+      : []
+    if (!detail && !lastChannel && canonicalChannelIds.length === 0) {
       try {
         detail = await queryClient.fetchQuery({
           queryKey: communityKeys.server(id),
@@ -213,9 +219,9 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
       category.channels
         .filter((channel) => !channel.pending)
         .map((channel) => channel.id),
-    ) ?? structural?.channels.map((channel) => channel.id) ?? []
+    ) ?? canonicalChannelIds
     return pickServerLandingHref(id, channelIds, lastChannel)
-  }, [queryClient, structuralSnapshot])
+  }, [communityDb, queryClient])
 
   // Mutations
   const createChannelMut = useCreateChannel()
@@ -374,7 +380,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
         : { ...channel, unread: forumSidebar.parentUnread[channel.id] },
     ),
   })), [forumSidebar.parentUnread, sidebarCategories])
-  const sidebarDataReady = Boolean(currentServer) || structuralTreeReady
+  const sidebarDataReady = Boolean(currentServer)
   const channelTreeScopeKey = `server:${serverId}`
 
   const setActiveChannel = useCallback((id: string) => {
@@ -470,14 +476,12 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   }, [])
 
   const channelProps = useMemo(() => ({
-    serverName: currentServer?.name ?? structuralServer?.name ?? "",
-    serverIcon: currentServer?.icon ?? structuralServer?.icon ?? null,
+    serverName: currentServer?.name ?? "",
+    serverIcon: currentServer?.icon ?? null,
     official: currentServer?.official ?? false,
     activeChannel: currentChannelMeta?.parentChannelId ?? currentChannelId ?? "",
     isAdmin,
     currentUserId: currentUser.id,
-    loading: (!currentServer && !structuralServer)
-      || (!sidebarHintOnly && forumSidebar.isLoading),
     setActiveChannel,
     prefetchChannel,
     forumThreadsByParent,
@@ -500,9 +504,10 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     invitePopoverOpen,
     onInvitePopoverOpenChange: sidebarHintOnly ? undefined : setInvitePopoverOpen,
   }), [
-    currentServer, structuralServer, sidebarHintOnly, currentChannelMeta?.parentChannelId,
+    currentServer, sidebarHintOnly,
+    currentChannelMeta?.parentChannelId,
     currentChannelId, isAdmin, currentUser.id, setActiveChannel, prefetchChannel,
-    forumThreadsByParent, forumSidebar.isLoading, activeForumThreadId, setActiveForumThread,
+    forumThreadsByParent, activeForumThreadId, setActiveForumThread,
     onSidebarOpenSettings, onBlockedCreate, mutedChannels,
     onCreateChannelInSidebar, onCreateCategoryInSidebar, onRenameChannel,
     onDeleteChannelInSidebar, onDeleteCategoryInSidebar, onUpdateCategoryInSidebar,
@@ -519,14 +524,26 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   const closeSettings = () => { setServerSettingsOpen(false); setSettingsSection("overview") }
 
   const sidebar = useCallback((opts: { noHeader?: boolean } = {}) => (
-    <ChannelSidebarScope
+    <ChannelSidebarRevealBoundary
+      key={channelTreeScopeKey}
       scopeKey={channelTreeScopeKey}
-      categories={sidebarDataReady ? categories : null}
+      categories={categories}
+      primaryReady={sidebarDataReady}
+      forumProjectionMissing={!forumSidebar.projectionReady}
+      trustedRestoredPrimary={trustedRestoredPrimary}
       targetServerId={serverId}
       {...channelProps}
       {...opts}
     />
-  ), [categories, channelProps, channelTreeScopeKey, serverId, sidebarDataReady])
+  ), [
+    categories,
+    channelProps,
+    channelTreeScopeKey,
+    forumSidebar.projectionReady,
+    serverId,
+    sidebarDataReady,
+    trustedRestoredPrimary,
+  ])
 
   const serverSettingsDialog = (
     <Dialog open={serverSettingsOpen && !!currentServer && isAdmin} onOpenChange={(o) => { if (!o) closeSettings() }}>

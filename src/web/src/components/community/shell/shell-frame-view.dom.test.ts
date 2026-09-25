@@ -9,12 +9,19 @@ const mocks = vi.hoisted(() => ({
   defaultLayout: {
     current: undefined as { sidebar: number; main: number } | undefined,
   },
+  hydratedClient: {
+    current: true,
+  },
   defaultLayoutOptions: vi.fn(),
   groupProps: vi.fn(),
   panelProps: vi.fn(),
   sidebarPanelHandle: {
     getSize: vi.fn(),
     resize: vi.fn(),
+  },
+  panelGroupHandle: {
+    getLayout: vi.fn(),
+    setLayout: vi.fn(),
   },
   railProps: vi.fn(),
   overlayProps: vi.fn(),
@@ -31,8 +38,17 @@ vi.mock("react-resizable-panels", () => ({
     }
   },
 }))
+vi.mock("./use-hydrated-client", () => ({
+  useHydratedClient: () => mocks.hydratedClient.current,
+}))
 vi.mock("@/components/ui/resizable", () => ({
   ResizablePanelGroup: ({ children, ...props }: Record<string, unknown>) => {
+    useLayoutEffect(() => {
+      const groupRef = props.groupRef as { current: unknown } | undefined
+      if (!groupRef) return
+      groupRef.current = mocks.panelGroupHandle
+      return () => { groupRef.current = null }
+    }, [props.groupRef])
     mocks.groupProps(props)
     return createElement("div", { "data-panel-group": "", className: props.className }, children as ReactNode)
   },
@@ -171,12 +187,15 @@ describe("ShellFrameView", () => {
       inPixels: 317,
     })
     mocks.sidebarPanelHandle.resize.mockReset()
+    mocks.panelGroupHandle.getLayout.mockReset()
+    mocks.panelGroupHandle.setLayout.mockReset()
     mocks.defaultLayoutOptions.mockClear()
     mocks.railProps.mockClear()
     mocks.overlayProps.mockClear()
     mocks.pendingProps.mockClear()
     mocks.channelSkeletonProps.mockClear()
     mocks.defaultLayout.current = undefined
+    mocks.hydratedClient.current = true
     animateDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "animate")
     vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false })))
   })
@@ -199,18 +218,14 @@ describe("ShellFrameView", () => {
       profile,
       inbox,
     }, createElement("main-content")))
-    expect(renderer.container.querySelectorAll("[data-channel-loading-frame]")).toHaveLength(1)
-    expect(latestProps(mocks.pendingProps)).toMatchObject({
-      href: "/c/me/dm_1",
-      reserveBackSlot: true,
-    })
+    expect(renderer.container.querySelectorAll("[data-channel-loading-frame]")).toHaveLength(0)
     const initialRailWrapper = renderer.container.querySelector('[class*="hidden sm:contents"]')!
     expect(initialRailWrapper.className).toContain("min-h-0")
     expect(renderer.container.querySelectorAll("sidebar-content")).toHaveLength(1)
     expect(renderer.container.querySelectorAll("[data-user-bar]")).toHaveLength(1)
     expect(renderer.container.querySelector('[data-slot="community-user-bar-overlay"]')?.className)
       .toContain("max-sm:hidden")
-    expect(renderer.container.querySelectorAll("main-content")).toHaveLength(0)
+    expect(renderer.container.querySelectorAll("main-content")).toHaveLength(1)
     expect(renderer.container.querySelectorAll("[data-shell-overlays]")).toHaveLength(0)
     expect(latestProps(mocks.panelProps, "sidebar")["data-mobile-hidden"]).toBe(true)
     expect(latestProps(mocks.panelProps, "main")["data-mobile-active"]).toBe(true)
@@ -237,8 +252,8 @@ describe("ShellFrameView", () => {
     expect(renderer.container.querySelectorAll("[data-server-rail]")).toHaveLength(1)
     expect(renderer.container.querySelectorAll("sidebar-content")).toHaveLength(1)
     expect(renderer.container.querySelectorAll("[data-user-bar]")).toHaveLength(1)
-    expect(renderer.container.querySelectorAll("[data-channel-loading-frame]")).toHaveLength(1)
-    expect(renderer.container.querySelectorAll("main-content")).toHaveLength(0)
+    expect(renderer.container.querySelectorAll("[data-channel-loading-frame]")).toHaveLength(0)
+    expect(renderer.container.querySelectorAll("main-content")).toHaveLength(1)
     expect(latestProps(mocks.panelProps, "sidebar")["data-mobile-active"]).toBe(true)
     expect(latestProps(mocks.panelProps, "main")["data-mobile-hidden"]).toBe(true)
   })
@@ -373,6 +388,45 @@ describe("ShellFrameView", () => {
     )!.style.getPropertyValue("--community-desktop-user-bar-width")).toBe(
       "calc(clamp(100px, calc(18.75% - 0.375px), 360px) + 58px)",
     )
+  })
+
+  it("applies persisted layout after hydration without replacing the sidebar tree", async () => {
+    mocks.hydratedClient.current = false
+    const common = {
+      ...extensionProps,
+      breakpoint: "desktop" as const,
+      checkpoint: committedCheckpoint("/c/me", "list"),
+      sidebar: () => createElement("sidebar-content"),
+      cancelPendingNavigation: vi.fn(),
+      rail,
+      profile,
+      inbox,
+    }
+    const renderer = render(createElement(
+      ShellFrameView,
+      common,
+      createElement("main-content"),
+    ))
+    const sidebarBeforeHydration = renderer.container.querySelector("sidebar-content")
+
+    mocks.defaultLayout.current = { sidebar: 18.75, main: 81.25 }
+    mocks.hydratedClient.current = true
+    await act(async () => {
+      renderer.rerender(createElement(
+        ShellFrameView,
+        common,
+        createElement("main-content"),
+      ))
+    })
+
+    expect(renderer.container.querySelector("sidebar-content")).toBe(sidebarBeforeHydration)
+    expect(mocks.panelGroupHandle.setLayout).toHaveBeenCalledOnce()
+    expect(mocks.panelGroupHandle.setLayout).toHaveBeenCalledWith({
+      sidebar: 18.75,
+      main: 81.25,
+    })
+
+    renderer.unmount()
   })
 
   it("composes the server-root list surface with desktop rail, sidebar, and landing content", async () => {

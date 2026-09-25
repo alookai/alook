@@ -1,4 +1,4 @@
-import { type Locator, type Page, type WebSocket, expect } from "@playwright/test"
+import { type Locator, type Page, expect } from "@playwright/test"
 import { tid } from "./testids"
 
 const HOVER_FINE_QUERY = "(hover: hover) and (pointer: fine)"
@@ -18,36 +18,6 @@ export async function waitForElementMotion(locator: Locator): Promise<void> {
 }
 
 export const GEOMETRY_EPSILON = 0.01
-
-export function observeUserWsAuth(page: Page): {
-  authenticated: Promise<void>
-  cleanup: () => void
-} {
-  const frameHandlers = new Map<WebSocket, (event: { payload: string | Buffer }) => void>()
-  let cleanup = () => {}
-  const authenticated = new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("user WebSocket did not authenticate")), 20_000)
-    const onWebSocket = (socket: WebSocket) => {
-      const onFrame = (event: { payload: string | Buffer }) => {
-        try {
-          const message = JSON.parse(event.payload.toString()) as { type?: string }
-          if (message.type !== "auth.ok") return
-          cleanup()
-          resolve()
-        } catch {}
-      }
-      frameHandlers.set(socket, onFrame)
-      socket.on("framereceived", onFrame)
-    }
-    cleanup = () => {
-      clearTimeout(timer)
-      page.off("websocket", onWebSocket)
-      for (const [socket, handler] of frameHandlers) socket.off("framereceived", handler)
-    }
-    page.on("websocket", onWebSocket)
-  })
-  return { authenticated, cleanup: () => cleanup() }
-}
 
 export async function installInputCapability(
   page: Page,
@@ -71,13 +41,27 @@ export async function installInputCapability(
 }
 
 export async function gotoAfterUserWsAuth(page: Page, url: string): Promise<void> {
-  const auth = observeUserWsAuth(page)
-
-  try {
-    await Promise.all([page.goto(url, { waitUntil: "commit" }), auth.authenticated])
-  } finally {
-    auth.cleanup()
-  }
+  const attribute = "data-e2e-user-ws-authenticated"
+  await page.addInitScript(({ attribute }) => {
+    const NativeWebSocket = window.WebSocket
+    window.WebSocket = class extends NativeWebSocket {
+      constructor(...args: ConstructorParameters<typeof WebSocket>) {
+        super(...args)
+        if (!new URL(this.url).pathname.endsWith("/user")) return
+        this.addEventListener("message", (event) => {
+          if (typeof event.data !== "string") return
+          try {
+            const message = JSON.parse(event.data) as { type?: string }
+            if (message.type === "auth.ok") {
+              document.documentElement.setAttribute(attribute, "true")
+            }
+          } catch {}
+        })
+      }
+    }
+  }, { attribute })
+  await page.goto(url, { waitUntil: "commit" })
+  await expect(page.locator("html")).toHaveAttribute(attribute, "true", { timeout: 20_000 })
 }
 
 // Keep Next's development-only portals from capturing pointer input intended

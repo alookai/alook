@@ -13,8 +13,8 @@ import { tid } from "@/lib/community/testids"
 import type { ForumThread } from "@/lib/community/models/message"
 
 const profileState = vi.hoisted(() => ({ map: new Map<string, Record<string, unknown>>() }))
-vi.mock("@/stores/community/ws", () => ({
-  useProfilesByUserId: () => profileState.map,
+vi.mock("@/lib/community-db/projections", () => ({
+  useCanonicalProfilesByUserId: () => profileState.map,
 }))
 
 const LAST_AT = "2020-01-01T00:00:00.000Z"

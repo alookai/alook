@@ -5,6 +5,7 @@ import { renderHook, waitFor } from "@/test/react-dom-harness"
 import type { ChildChannelMeta } from "./use-forum-sidebar-threads"
 import { communityKeys } from "@/lib/query-keys"
 import { useCommunityWsStore } from "@/stores/community/ws"
+import { ApiError } from "@/lib/errors"
 
 const apiFetchMock = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/api/client", () => ({
@@ -81,5 +82,45 @@ describe("child channel metadata stale rendering", () => {
     expect(queryClient.getQueryData(
       communityKeys.channelMeta("server-1", "post-1"),
     )).toMatchObject({ id: "post-1", parentChannelId: "forum-1" })
+  })
+
+  it("renders a current-account structural placeholder while exact metadata revalidates", async () => {
+    apiFetchMock.mockImplementation(() => new Promise(() => {}))
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const wrapper = ({ children }: PropsWithChildren) => createElement(
+      QueryClientProvider,
+      { client: queryClient },
+      children,
+    )
+    const cached = meta({ verifiedEpoch: useCommunityWsStore.getState().accessEpoch })
+    const rendered = renderHook(
+      () => useChildChannelMeta("server-1", "post-1", true, cached),
+      { wrapper },
+    )
+
+    expect(rendered.result.current).toMatchObject({
+      data: cached,
+      isVerified: true,
+      isPlaceholderData: true,
+    })
+    await waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
+    rendered.unmount()
+  })
+
+  it("does not retry terminal metadata failures before route ejection", async () => {
+    apiFetchMock.mockRejectedValue(new ApiError("missing", 404))
+    const queryClient = new QueryClient()
+    const wrapper = ({ children }: PropsWithChildren) => createElement(
+      QueryClientProvider,
+      { client: queryClient },
+      children,
+    )
+    const rendered = renderHook(
+      () => useChildChannelMeta("server-1", "post-1", true),
+      { wrapper },
+    )
+
+    await waitFor(() => expect(rendered.result.current.isError).toBe(true))
+    expect(apiFetchMock).toHaveBeenCalledOnce()
   })
 })

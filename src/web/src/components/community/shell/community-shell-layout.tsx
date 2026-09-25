@@ -10,6 +10,7 @@ import {
 } from "react"
 import {
   useDefaultLayout,
+  type GroupImperativeHandle,
   type PanelImperativeHandle,
   type PanelSize,
 } from "react-resizable-panels"
@@ -90,12 +91,14 @@ export function CommunityShellLayout({
     ? defaultLayout?.sidebar
     : undefined
   const sidebarPanelRef = useRef<HTMLDivElement>(null)
+  const panelGroupHandleRef = useRef<GroupImperativeHandle | null>(null)
   const sidebarPanelHandleRef = useRef<PanelImperativeHandle | null>(null)
   const userBarOverlayRef = useRef<HTMLDivElement>(null)
   const committedBreakpointRef = useRef<Breakpoint>(breakpoint)
   const renderedBreakpointRef = useRef<Breakpoint>(breakpoint)
   const desktopSidebarWidthRef = useRef<number | undefined>(undefined)
   const pendingDesktopRestoreRef = useRef<PendingDesktopRestore | null>(null)
+  const hydratedLayoutAppliedRef = useRef(false)
 
   useInsertionEffect(() => {
     renderedBreakpointRef.current = breakpoint
@@ -132,6 +135,20 @@ export function CommunityShellLayout({
     desktopSidebarWidthRef.current = sidebarWidth
     setDesktopUserBarWidth(sidebarWidth)
   }, [setDesktopUserBarWidth])
+
+  useLayoutEffect(() => {
+    if (
+      !hydratedClient
+      || defaultLayout === undefined
+      || hydratedLayoutAppliedRef.current
+    ) return
+
+    const panelGroupHandle = panelGroupHandleRef.current
+    if (!panelGroupHandle) return
+
+    panelGroupHandle.setLayout(defaultLayout)
+    hydratedLayoutAppliedRef.current = true
+  }, [defaultLayout, hydratedClient])
 
   useLayoutEffect(() => {
     committedBreakpointRef.current = breakpoint
@@ -218,8 +235,8 @@ export function CommunityShellLayout({
           )}
         >
           <ResizablePanelGroup
-            key={hydratedClient ? "persisted-layout" : "ssr-layout"}
             id="community-shell"
+            groupRef={panelGroupHandleRef}
             orientation="horizontal"
             disabled={!isDesktop}
             className={cn(

@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { toastApiError } from "@/lib/api/client"
 import { ChannelHeaderSkeleton, type ChannelNotifLevel } from "@/components/community/channels/channel-header"
@@ -17,7 +17,7 @@ import { ConversationResolutionPendingFrame } from "@/components/community/chann
 import { useChannelMemberViewModel } from "@/components/community/members/channel-member-view-model"
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import { canManageServer, USE_SERVER_DEFAULT } from "@alook/shared"
-import { setLastChannel } from "@/lib/community/last-channel"
+import { clearLastChannel, setLastChannel } from "@/lib/community/last-channel"
 import { commitLastCommunityRoute } from "@/lib/community/last-community-route"
 import { resolveChannelDisplayName } from "@/lib/community/channel-display-name"
 import { toChannelRefCandidate } from "@/lib/community/channel-ref-extension"
@@ -86,6 +86,23 @@ export function ChannelRoute({ serverParam, channelId }: {
     isForumPostChild,
     isNotifyUnit,
   } = routeModel
+  const [topLevelRouteOwnership, setTopLevelRouteOwnership] = useState(() => ({
+    channelId,
+    wasTopLevel: channelInServer !== null,
+  }))
+  const routeWasTopLevel = topLevelRouteOwnership.channelId === channelId
+    && topLevelRouteOwnership.wasTopLevel
+  useLayoutEffect(() => {
+    setTopLevelRouteOwnership((ownership) => {
+      if (ownership.channelId !== channelId) {
+        return { channelId, wasTopLevel: channelInServer !== null }
+      }
+      if (channelInServer !== null && !ownership.wasTopLevel) {
+        return { channelId, wasTopLevel: true }
+      }
+      return ownership
+    })
+  }, [channelId, channelInServer])
   const forumPostOpener = useForumOpenerHint(
     serverId,
     currentChannelMeta?.parentMessageId,
@@ -147,6 +164,16 @@ export function ChannelRoute({ serverParam, channelId }: {
   const navigateServerRoot = useCallback(() => {
     uiHandlers.replacePath?.(serverRootHref(serverParam))
   }, [serverParam, uiHandlers])
+  useEffect(() => {
+    if (!routeWasTopLevel || channelInServer !== null) return
+    clearLastChannel(serverId)
+    const survivor = currentServer?.categories
+      .flatMap((category) => category.channels)
+      .find((channel) => channel.id !== channelId && !channel.pending)
+    router.replace(survivor
+      ? channelHref(serverParam, survivor.id)
+      : serverRootHref(serverParam))
+  }, [channelId, channelInServer, currentServer, routeWasTopLevel, router, serverId, serverParam])
   const navigateParent = useCallback(() => {
     const parentChannelId = currentChannelMeta?.parentChannelId
     if (!parentChannelId) return

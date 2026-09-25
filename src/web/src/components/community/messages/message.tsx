@@ -39,7 +39,7 @@ import {
   type MobileReplyGesture,
 } from "./mobile-message-gesture"
 import { useMobileAvatarMention } from "./use-mobile-avatar-mention"
-import { useCommunityProfile } from "@/stores/community/ws"
+import { useCanonicalCommunityProfile } from "@/lib/community-db/projections"
 import { MessageReactions } from "./message-reactions"
 import { RemoteContentImage, RemoteIdentityImage } from "@/components/remote-image/remote-image"
 
@@ -216,8 +216,8 @@ function MessageImpl({
   // default without subscribing at all.
   hoverCapable?: boolean
 }) {
-  const authorProfile = useCommunityProfile(m.authorId)
-  const replyAuthorProfile = useCommunityProfile(m.replyTo?.authorId)
+  const authorProfile = useCanonicalCommunityProfile(m.authorId)
+  const replyAuthorProfile = useCanonicalCommunityProfile(m.replyTo?.authorId)
   const authorName = m.authorId
     ? (authorProfile?.name ?? "Unknown")
     : (m.authorName ?? "Unknown")

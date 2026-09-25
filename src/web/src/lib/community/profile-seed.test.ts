@@ -1,24 +1,24 @@
 import { QueryClient } from "@tanstack/react-query"
-import { beforeEach, describe, expect, it, vi } from "vitest"
-import { communityKeys } from "@/lib/query-keys"
-import type { MessagesPage, Msg } from "@/lib/community/models/message"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import type { Msg } from "@/lib/community/models/message"
 import {
   apiFetchProfiles,
   communityUserProfilePatch,
-  loadAndSeedProfiles,
   messageProfilePatches,
-  seedPersistedMessageProfiles,
+  writeCommunityProfilePatches,
 } from "./profile-seed"
-import { useCommunityWsStore } from "@/stores/community/ws"
+import {
+  createCommunityDbRegistry,
+  registerCommunityDbRegistry,
+  type CommunityDbRegistry,
+} from "@/lib/community-db/collections"
 
 const apiFetch = vi.hoisted(() => vi.fn())
 
 vi.mock("@/lib/api/client", () => ({ apiFetch }))
 
-function activate(viewerId = "viewer") {
-  useCommunityWsStore.getState().activateProfileAccount(viewerId)
-  return useCommunityWsStore.getState().beginProfileSnapshot()
-}
+let registry: CommunityDbRegistry
+let unregister: () => void
 
 function chat(overrides: Partial<Msg> = {}): Msg {
   return {
@@ -29,9 +29,16 @@ function chat(overrides: Partial<Msg> = {}): Msg {
   }
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   apiFetch.mockReset()
-  useCommunityWsStore.getState().reset()
+  registry = createCommunityDbRegistry(new QueryClient(), "viewer")
+  await registry.preload()
+  unregister = registerCommunityDbRegistry(registry)
+})
+
+afterEach(async () => {
+  unregister()
+  await registry.cleanup()
 })
 
 describe("communityUserProfilePatch", () => {
@@ -131,36 +138,21 @@ describe("messageProfilePatches", () => {
 })
 
 describe("profile seeding boundaries", () => {
-  it("seeds restored persisted messages without rewriting the raw Query payload", () => {
-    const snapshot = activate()
-    const queryClient = new QueryClient()
-    const data = {
-      pages: [{
-        messages: [chat({
-          authorId: "u1",
-          authorName: "Persisted Alice",
-          authorAvatar: "/persisted.png",
-          authorAvatarVersion: 8,
-        })],
-        hasMore: false,
-      } satisfies MessagesPage],
-      pageParams: [{ mode: "newest" }],
-    }
-    queryClient.setQueryData(communityKeys.channelMessages("channel"), data)
-    const rawBefore = queryClient.getQueryData(communityKeys.channelMessages("channel"))
+  it("writes profile patches into the canonical collection", () => {
+    writeCommunityProfilePatches([{
+      id: "u1",
+      identityAbout: { name: "Alice", discriminator: "0001" },
+      avatar: { avatar: "/alice.png", avatarVersion: 8 },
+    }], registry)
 
-    seedPersistedMessageProfiles(queryClient, snapshot)
-
-    expect(queryClient.getQueryData(communityKeys.channelMessages("channel"))).toBe(rawBefore)
-    expect(useCommunityWsStore.getState().profilesByUserId.get("u1")).toMatchObject({
-      name: "Persisted Alice",
-      avatar: "/persisted.png",
+    expect(registry.collections.profiles.get("u1")).toMatchObject({
+      name: "Alice",
+      avatar: "/alice.png",
       avatarVersion: 8,
     })
   })
 
-  it("returns the raw API object while seeding its typed profile projection", async () => {
-    activate()
+  it("returns the raw API object while updating its canonical profile projection", async () => {
     const raw = { member: { id: "u2", name: "API Alice" } }
     apiFetch.mockResolvedValueOnce(raw)
 
@@ -174,27 +166,33 @@ describe("profile seeding boundaries", () => {
 
     expect(result).toBe(raw)
     expect(apiFetch).toHaveBeenCalledWith("/profiles")
-    expect(useCommunityWsStore.getState().profilesByUserId.get("u2")?.name).toBe("API Alice")
+    expect(registry.collections.profiles.get("u2")?.name).toBe("API Alice")
   })
 
-  it("does not let a late request overwrite a newer authoritative group patch", async () => {
-    activate()
-    let resolve!: (value: { id: string; name: string }) => void
-    const pending = new Promise<{ id: string; name: string }>((done) => { resolve = done })
-    const resultPromise = loadAndSeedProfiles(
-      () => pending,
-      (data) => [{ id: data.id, identityAbout: { name: data.name } }],
-    )
-
-    const profiles = useCommunityWsStore.getState()
-    profiles.patchProfiles(profiles.beginProfileSnapshot(), [{
+  it("merges partial updates without erasing canonical fields", () => {
+    writeCommunityProfilePatches([{
       id: "u3",
-      identityAbout: { name: "WS Alice" },
-    }])
-    const raw = { id: "u3", name: "Late API Alice" }
-    resolve(raw)
+      identityAbout: { name: "Alice", discriminator: "0003", aboutMe: "hello" },
+      avatar: { avatar: "/alice.png", avatarVersion: 3 },
+    }], registry)
+    writeCommunityProfilePatches([{
+      id: "u3",
+      status: { statusEmoji: "🌱", statusText: "Growing" },
+    }], registry)
+    writeCommunityProfilePatches([{
+      id: "u3",
+      avatar: { avatar: "/stale.png", avatarVersion: 2 },
+      status: { statusEmoji: null, statusText: null },
+    }], registry)
 
-    await expect(resultPromise).resolves.toBe(raw)
-    expect(useCommunityWsStore.getState().profilesByUserId.get("u3")?.name).toBe("WS Alice")
+    expect(registry.collections.profiles.get("u3")).toMatchObject({
+      name: "Alice",
+      discriminator: "0003",
+      aboutMe: "hello",
+      avatar: "/alice.png",
+      avatarVersion: 3,
+      statusEmoji: null,
+      statusText: null,
+    })
   })
 })

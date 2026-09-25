@@ -27,6 +27,11 @@ import { disposeReadCoordinator } from "@/hooks/community/read-coordinator"
 import { useCommunityStore } from "@/stores/community"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { useMessageStreamStore } from "@/stores/community/message-stream"
+import {
+  beginCommunityProfileSeed,
+  writeCommunityProfilePatches,
+  type CommunityProfileSeedSnapshot,
+} from "@/lib/community/profile-seed"
 import { useCurrentUser } from "@/contexts/community/current-user"
 import { useFriends } from "@/hooks/community/use-friends"
 import { useServerMembers } from "@/hooks/community/use-server-members"
@@ -40,7 +45,6 @@ import { useDmMessageSender } from "@/hooks/community/use-dm-message-sender"
 import type { UserSettings } from "@/components/community/settings/user-settings"
 import type { ImageCropDialog } from "@/components/community/image-crop-dialog"
 import type { QueryClient } from "@tanstack/react-query"
-import type { CommunityProfileSnapshot } from "@/lib/community/models/people"
 import type { ShellFrameProps, ShellRouter } from "./shell-frame-types"
 
 export type ShellProfileState = {
@@ -56,11 +60,10 @@ type Options = Pick<ShellFrameProps, "view" | "activeServerId"> & {
 }
 
 function commitCanonicalSelfProfile(
-  snapshot: CommunityProfileSnapshot,
+  snapshot: CommunityProfileSeedSnapshot,
   profile: UpdateProfileResult,
 ) {
-  const profiles = useCommunityWsStore.getState()
-  profiles.commitProfiles(snapshot, [{
+  writeCommunityProfilePatches([{
     id: profile.id,
     identityAbout: {
       name: profile.name,
@@ -76,7 +79,7 @@ function commitCanonicalSelfProfile(
       statusEmoji: profile.statusEmoji,
       statusText: profile.statusText,
     },
-  }])
+  }], snapshot.registry, { snapshot })
 }
 
 export function useShellProfileController({
@@ -224,7 +227,7 @@ export function useShellProfileController({
 
   const updateOwnStatus = async (statusEmoji: string | null, statusText: string | null) => {
     try {
-      const snapshot = useCommunityWsStore.getState().beginProfileSnapshot()
+      const snapshot = beginCommunityProfileSeed()
       const profile = await updateProfile.mutateAsync({ statusEmoji, statusText })
       commitCanonicalSelfProfile(snapshot, profile)
     } catch (error) {
@@ -285,7 +288,7 @@ export function useShellProfileController({
 
   const onSaveProfile: ComponentProps<typeof UserSettings>["onSave"] = async (data) => {
     try {
-      const snapshot = useCommunityWsStore.getState().beginProfileSnapshot()
+      const snapshot = beginCommunityProfileSeed()
       const profile = await updateProfile.mutateAsync(data)
       commitCanonicalSelfProfile(snapshot, profile)
     } catch (error) {
@@ -349,8 +352,7 @@ export function useShellProfileController({
           { file },
           {
             onSuccess: (data) => {
-              const profiles = useCommunityWsStore.getState()
-              profiles.patchProfiles(profiles.beginProfileSnapshot(), [{
+              writeCommunityProfilePatches([{
                 id: currentUser.id,
                 avatar: { avatar: data.url, avatarVersion: data.avatarVersion },
               }])

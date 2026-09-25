@@ -172,12 +172,7 @@ describe("useCommunityWs — member events", () => {
       sub: "",
     })
     const { useCommunityWsStore } = await import("@/stores/community/ws")
-    expect(useCommunityWsStore.getState().profilesByUserId.get("u_1")).toMatchObject({
-      name: "n",
-      discriminator: "0000",
-      avatar: "N",
-      avatarVersion: 0,
-    })
+    expect(useCommunityWsStore.getState()).not.toHaveProperty("profilesByUserId")
   })
 
   it("exact-refetches only the joined server's active presence seed", async () => {
@@ -487,23 +482,6 @@ describe("useCommunityWs — channel.member_add/remove → invalidate rosters", 
       id: "srv_1",
       categories: [{ id: "cat_1", channels: [{ id: "ch_1", type: "text" }] }],
     })
-    capturedQueryClient.setQueryData(communityKeys.structuralSnapshot(), {
-      schemaVersion: 1,
-      accountId: "u_me",
-      capturedAt: Date.now(),
-      serverOrder: ["srv_1"],
-      folders: [],
-      servers: [{
-        id: "srv_1",
-        name: "Server",
-        discriminator: "0001",
-        icon: null,
-        categories: [{ id: "cat_1", name: "Private" }],
-        channels: [{ id: "ch_1", name: "secret", type: "text", categoryId: "cat_1" }],
-        childRouteHints: [],
-      }],
-    })
-
     capturedOnMessage!({
       type: "community:channel.member_remove",
       serverId: "srv_1",
@@ -514,9 +492,6 @@ describe("useCommunityWs — channel.member_add/remove → invalidate rosters", 
     expect(capturedQueryClient.getQueryData<{
       categories: { channels: { id: string }[] }[]
     }>(serverKey)?.categories[0].channels).toEqual([])
-    expect(capturedQueryClient.getQueryData<{
-      servers: Array<{ channels: Array<{ id: string }> }>
-    }>(communityKeys.structuralSnapshot())?.servers[0]?.channels).toEqual([])
   })
 
   it("adds/removes the viewer's participating child in the forum sidebar", async () => {

@@ -5,7 +5,10 @@ import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-quer
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import { patchChannelUnread } from "@/hooks/community/server-detail-cache"
-import type { ServerDetail } from "@/hooks/community/use-servers"
+import {
+  serverProjectedQueryFn,
+  type ServerDetail,
+} from "@/hooks/community/use-servers"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { getActiveAccountUnreadProjection } from "./account-unread-projection"
 import { useInboxProjectionTarget } from "./use-inbox-auto-collapse"
@@ -1031,7 +1034,7 @@ export function useForumSidebarThreads(
   // those must clear a prior fallback instead of being mistaken for expiry.
   const serverDetailQuery = useQuery<ServerDetail>({
     queryKey: communityKeys.server(serverId),
-    queryFn: () => Promise.reject(new Error("server detail observer only")),
+    queryFn: ({ signal }) => serverProjectedQueryFn(queryClient, serverId, signal)(),
     enabled: false,
   })
   const query = useQuery({
@@ -1230,5 +1233,10 @@ export function useForumSidebarThreads(
     ...query,
     threads: projection.threads,
     parentUnread: projection.parentUnread,
+    projectionReady: query.isError || (
+      renderableBase !== undefined && (
+        !retainId || retainIsCanonical || retainedQuery.isSuccess || retainedQuery.isError
+      )
+    ),
   }
 }

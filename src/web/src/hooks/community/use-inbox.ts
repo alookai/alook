@@ -21,6 +21,10 @@ import {
   reservedUnreadExclusion,
   selectUnreadPresentation,
 } from "./unread-presentation"
+import {
+  useCanonicalAccessScopeIds,
+  useCanonicalMessagesById,
+} from "@/lib/community-db/projections"
 
 class StaleReadError extends Error {
   constructor() { super("stale D1 read"); this.name = "StaleReadError" }
@@ -52,6 +56,31 @@ type ProjectedUnreadServer = Omit<UnreadServer, "channels"> & {
 
 type ProjectedMention = Mention & {
   parentChannelId?: string | null
+}
+
+export function filterInboxUnreadsToCanonicalAccess(
+  servers: UnreadServer[],
+  dms: UnreadDm[],
+  access: {
+    serverIds: ReadonlySet<string>
+    channelIds: ReadonlySet<string>
+  } | undefined,
+) {
+  if (!access) return { servers, dms }
+  return {
+    servers: servers.flatMap((server) => {
+      if (!access.serverIds.has(server.serverId)) return []
+      const channels = server.channels.flatMap((channel) => {
+        if (!access.channelIds.has(channel.channelId)) return []
+        return [{
+          ...channel,
+          children: channel.children.filter((child) => access.channelIds.has(child.channelId)),
+        }]
+      })
+      return channels.length > 0 ? [{ ...server, channels }] : []
+    }),
+    dms: dms.filter((dm) => access.channelIds.has(dm.channelId)),
+  }
 }
 
 /**
@@ -194,6 +223,7 @@ export function useInboxUnreads(): UseQueryResult<UnreadsResponse> & {
   hasProjectedUnread: boolean
   hasOutstandingFriendRequest: boolean
 } {
+  const canonicalAccess = useCanonicalAccessScopeIds()
   const queryClient = useQueryClient()
   const unreadProjection = useMemo(
     () => getActiveAccountUnreadProjection(queryClient),
@@ -254,7 +284,12 @@ export function useInboxUnreads(): UseQueryResult<UnreadsResponse> & {
   }, [query.data, unreadProjection])
   const projected = useMemo(() => {
     void unreadVersion
-    const rawServers = query.data?.servers ?? (EMPTY_UNREADS as UnreadServer[])
+    const source = filterInboxUnreadsToCanonicalAccess(
+      query.data?.servers ?? (EMPTY_UNREADS as UnreadServer[]),
+      query.data?.dms ?? (EMPTY_DMS as UnreadDm[]),
+      canonicalAccess,
+    )
+    const rawServers = source.servers
     let serversChanged = false
     const servers = rawServers.flatMap((server) => {
       let channelsChanged = false
@@ -297,7 +332,7 @@ export function useInboxUnreads(): UseQueryResult<UnreadsResponse> & {
       serversChanged = true
       return [{ ...server, channels }]
     })
-    const rawDms = query.data?.dms ?? (EMPTY_DMS as UnreadDm[])
+    const rawDms = source.dms
     const dms = rawDms.filter((dm) => selectUnreadPresentation({
       accountUnread: unreadProjection.projectUnread(
         "inbox-unreads",
@@ -312,7 +347,7 @@ export function useInboxUnreads(): UseQueryResult<UnreadsResponse> & {
       servers: serversChanged ? servers : rawServers,
       dms: dms.length === rawDms.length ? rawDms : dms,
     }
-  }, [channelExclusion, dmExclusion, query.data, unreadProjection, unreadVersion])
+  }, [canonicalAccess, channelExclusion, dmExclusion, query.data, unreadProjection, unreadVersion])
   return {
     ...query,
     friendRequests: query.data?.friendRequests ?? (EMPTY_FRIEND_REQUESTS as InboxFriendRequest[]),
@@ -385,6 +420,7 @@ export function useInboxMentions(): UseQueryResult<MentionsResponse> & {
   pendingChannelIds: string[]
   hasProjectedMention: boolean
 } {
+  const canonicalMessages = useCanonicalMessagesById()
   const queryClient = useQueryClient()
   const unreadProjection = useMemo(
     () => getActiveAccountUnreadProjection(queryClient),
@@ -434,7 +470,13 @@ export function useInboxMentions(): UseQueryResult<MentionsResponse> & {
   }, [query.data, unreadProjection])
   const mentions = useMemo(() => {
     void unreadVersion
-    const raw = query.data?.mentions ?? (EMPTY_MENTIONS as Mention[])
+    const source = query.data?.mentions ?? (EMPTY_MENTIONS as Mention[])
+    const raw = canonicalMessages
+      ? source.flatMap((mention) => {
+          const message = canonicalMessages.get(mention.m.id)
+          return message ? [{ ...mention, m: message }] : []
+        })
+      : source
     const projected = raw.filter((mention) => (
       !mention.channelId
       || selectUnreadPresentation({
@@ -455,7 +497,7 @@ export function useInboxMentions(): UseQueryResult<MentionsResponse> & {
       }).effectiveUnread
     ))
     return projected.length === raw.length ? raw : projected
-  }, [mentionExclusion, query.data, reservationTarget, unreadProjection, unreadVersion])
+  }, [canonicalMessages, mentionExclusion, query.data, reservationTarget, unreadProjection, unreadVersion])
   return {
     ...query,
     mentions,
@@ -491,6 +533,7 @@ const inboxMarkedQueryFn = () =>
 export function useInboxMarked(enabled: boolean): UseQueryResult<MarkedResponse> & {
   marked: Marked[]
 } {
+  const canonicalMessages = useCanonicalMessagesById()
   const query = useQuery({
     queryKey: communityKeys.inboxMarked(),
     queryFn: inboxMarkedQueryFn,
@@ -499,7 +542,12 @@ export function useInboxMarked(enabled: boolean): UseQueryResult<MarkedResponse>
   })
   return {
     ...query,
-    marked: query.data?.marked ?? (EMPTY_MARKED as Marked[]),
+    marked: canonicalMessages
+      ? (query.data?.marked ?? []).flatMap((marked) => {
+          const message = canonicalMessages.get(marked.m.id)
+          return message ? [{ ...marked, m: message }] : []
+        })
+      : query.data?.marked ?? (EMPTY_MARKED as Marked[]),
   }
 }
 

@@ -9,9 +9,10 @@ import {
 } from "react"
 import type { Presence } from "@/lib/community/models/people"
 import {
-  useCommunityProfile,
-  useCommunityWsStore,
-} from "@/stores/community/ws"
+  useCanonicalCommunityProfile,
+  useOptionalCommunityDbRegistry,
+} from "@/lib/community-db/projections"
+import { writeCommunityProfilePatches } from "@/lib/community/profile-seed"
 
 /**
  * Thin context that carries the viewer's identity down the community tree.
@@ -53,11 +54,11 @@ export function CurrentUserProvider({
   initialUser: CurrentUser
   children: ReactNode
 }) {
-  const current = useCommunityProfile(initialUser.id)
+  const communityDb = useOptionalCommunityDbRegistry()
+  const current = useCanonicalCommunityProfile(initialUser.id)
   useLayoutEffect(() => {
     if (current?.name !== undefined && current.avatarVersion !== undefined) return
-    const profiles = useCommunityWsStore.getState()
-    profiles.seedProfiles(profiles.beginProfileSnapshot(), [{
+    writeCommunityProfilePatches([{
       id: initialUser.id,
       ...(current?.name === undefined
         ? { identityAbout: { name: initialUser.name } }
@@ -68,8 +69,8 @@ export function CurrentUserProvider({
             avatarVersion: initialUser.avatarVersion ?? 0,
           } }
         : {}),
-    }])
-  }, [current?.avatarVersion, current?.name, initialUser])
+    }], communityDb)
+  }, [communityDb, current?.avatarVersion, current?.name, initialUser])
   return (
     <CurrentUserContext.Provider value={initialUser}>
       {children}
@@ -79,7 +80,7 @@ export function CurrentUserProvider({
 
 export function useCurrentUser(): CurrentUser {
   const ctx = useContext(CurrentUserContext)
-  const profile = useCommunityProfile(ctx?.id)
+  const profile = useCanonicalCommunityProfile(ctx?.id)
   if (!ctx)
     throw new Error("useCurrentUser must be used within CurrentUserProvider")
   return useMemo(() => ({

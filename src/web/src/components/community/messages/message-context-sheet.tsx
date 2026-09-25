@@ -32,6 +32,7 @@ import type { OpenProfile } from "@/components/community/social/profile-types"
 import { useHoverCapable } from "@/hooks/use-hover-capable"
 import { channelHref } from "@/lib/community/community-route"
 import { communityKeys } from "@/lib/query-keys"
+import { useCanonicalMessagesById } from "@/lib/community-db/projections"
 
 export type ReplyTarget = { id: string; authorName: string; text: string }
 
@@ -187,6 +188,7 @@ export function MessageContextSheet({
   const toggleMark = useToggleMark()
   const toggleReactionApi = useToggleReactionApi()
   const addReactionApi = useAddReactionApi()
+  const canonicalMessages = useCanonicalMessagesById()
 
   const queryKey = useMemo(
     () => communityKeys.messageContext(type, channelId, targetSeq),
@@ -221,7 +223,12 @@ export function MessageContextSheet({
 
   const renderRows = useMemo<RenderMsg[]>(() => {
     if (!query.data || query.data.notFound || !query.data.messages) return []
-    const src = query.data.messages
+    const src = canonicalMessages
+      ? query.data.messages.flatMap((message) => {
+          const canonical = canonicalMessages.get(message.id)
+          return canonical ? [canonical] : []
+        })
+      : query.data.messages
     // Same grouping heuristic the main list uses (adjacent same-author within
     // ~5 min → collapse header). Inlined here rather than sharing the util
     // because the excerpt is small enough that the extra dep isn't worth the
@@ -238,14 +245,15 @@ export function MessageContextSheet({
         new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime() < 5 * 60_000
       return { ...m, grouped }
     })
-  }, [query.data])
+  }, [canonicalMessages, query.data])
 
   const anchorId = query.data && !query.data.notFound ? (query.data.anchorId ?? null) : null
 
   // ── Sheet-local actions ──────────────────────────────────────────────────
   const findMessage = useCallback(
-    (id: string): Msg | undefined => query.data?.messages?.find((m) => m.id === id),
-    [query.data],
+    (id: string): Msg | undefined => canonicalMessages?.get(id)
+      ?? query.data?.messages?.find((m) => m.id === id),
+    [canonicalMessages, query.data],
   )
 
   const runReactionIntent = useCallback((

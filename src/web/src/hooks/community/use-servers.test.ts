@@ -18,6 +18,10 @@ const apiFetchMock = vi.fn()
 vi.mock("@/lib/api/client", () => ({
   apiFetch: (...args: unknown[]) => apiFetchMock(...args),
 }))
+vi.mock("@/lib/community-db/projections", () => ({
+  useServerRailProjection: () => undefined,
+  useServerTreeProjection: () => undefined,
+}))
 
 type CapturedQueryConfig = {
   enabled?: boolean
@@ -375,7 +379,7 @@ describe("useServer / serverQueryFn", () => {
   it.each([
     ["offline", new Error("offline")],
     ["5xx", new ApiError("unavailable", 503)],
-  ])("keeps the structural hint on a transient %s failure", async (_label, error) => {
+  ])("keeps the cached server list on a transient %s failure", async (_label, error) => {
     apiFetchMock.mockRejectedValue(error)
     const qc = new QueryClient()
     qc.setQueryData(communityKeys.servers(), { servers: [{
@@ -386,28 +390,12 @@ describe("useServer / serverQueryFn", () => {
       icon: null,
       ownerId: "u_1",
     }] })
-    const hint = {
-      schemaVersion: 1 as const,
-      accountId: "u_1",
-      capturedAt: Date.now(),
-      serverOrder: ["srv_1"],
-      folders: [],
-      servers: [{
-        id: "srv_1",
-        name: "Alook",
-        discriminator: "0001",
-        icon: null,
-        categories: [],
-        channels: [],
-        childRouteHints: [],
-      }],
-    }
-    qc.setQueryData(communityKeys.structuralSnapshot(), hint)
     const { serverProjectedQueryFn } = await import("./use-servers")
 
     await expect(serverProjectedQueryFn(qc, "srv_1")()).rejects.toBe(error)
 
-    expect(qc.getQueryData(communityKeys.structuralSnapshot())).toEqual(hint)
+    expect(qc.getQueryData<{ servers: Array<{ id: string }> }>(communityKeys.servers())?.servers)
+      .toEqual([expect.objectContaining({ id: "srv_1" })])
   })
 
   it.each([403, 404])("evicts live and persisted server state on definitive %s", async (status) => {
@@ -426,29 +414,12 @@ describe("useServer / serverQueryFn", () => {
       name: "Alook",
       categories: [],
     })
-    qc.setQueryData(communityKeys.structuralSnapshot(), {
-      schemaVersion: 1,
-      accountId: "u_1",
-      capturedAt: Date.now(),
-      serverOrder: ["srv_1"],
-      folders: [],
-      servers: [{
-        id: "srv_1",
-        name: "Alook",
-        discriminator: "0001",
-        icon: null,
-        categories: [],
-        channels: [],
-        childRouteHints: [],
-      }],
-    })
     const { serverProjectedQueryFn } = await import("./use-servers")
 
     await expect(serverProjectedQueryFn(qc, "srv_1")()).rejects.toMatchObject({ status })
 
     expect(qc.getQueryState(communityKeys.server("srv_1"))).toBeUndefined()
     expect(qc.getQueryData<{ servers: unknown[] }>(communityKeys.servers())?.servers).toEqual([])
-    expect(qc.getQueryData<{ servers: unknown[] }>(communityKeys.structuralSnapshot())?.servers).toEqual([])
   })
 
   it("merges stale server-detail positives before rejecting the cache write", async () => {

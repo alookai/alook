@@ -8,7 +8,7 @@ import {
 import { communityKeys } from "@/lib/query-keys"
 import type { DM } from "@/lib/community/models/people"
 import { useEffect, useMemo, useSyncExternalStore } from "react"
-import { useProfilesByUserId } from "@/stores/community/ws"
+import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 import {
   getActiveAccountUnreadProjection,
@@ -20,6 +20,7 @@ import {
   reservedUnreadExclusion,
   selectUnreadPresentation,
 } from "./unread-presentation"
+import { useDmProjection } from "@/lib/community-db/projections"
 
 /**
  * Fetches the DM conversation sidebar list.
@@ -60,6 +61,7 @@ export const dmsProjectedQueryFn = (projection: AccountUnreadProjection) => asyn
 }
 
 export function useDms(): UseQueryResult<DmsResponse> & { dms: DM[] } {
+  const dbDms = useDmProjection()
   const queryClient = useQueryClient()
   const unreadProjection = useMemo(
     () => getActiveAccountUnreadProjection(queryClient),
@@ -85,7 +87,7 @@ export function useDms(): UseQueryResult<DmsResponse> & { dms: DM[] } {
     // refetch this active key explicitly.
     staleTime: Infinity,
   })
-  const profilesByUserId = useProfilesByUserId()
+  const profilesByUserId = useCanonicalProfilesByUserId()
   useEffect(() => {
     if (!query.data) return
     unreadProjection.mergeSources(
@@ -104,8 +106,9 @@ export function useDms(): UseQueryResult<DmsResponse> & { dms: DM[] } {
   }, [query.data, unreadProjection])
   const dms = useMemo(() => {
     void unreadVersion
-    return (query.data?.conversations ?? EMPTY_DMS).map((dm) => {
-      const profile = readCommunityProfile(profilesByUserId.get(dm.userId), dm.userId)
+    return (dbDms ?? query.data?.conversations ?? EMPTY_DMS).map((dm) => {
+      const liveProfile = profilesByUserId.get(dm.userId)
+      const profile = readCommunityProfile(liveProfile, dm.userId)
       const unread = selectUnreadPresentation({
         accountUnread: unreadProjection.projectUnread(
           "dms",
@@ -118,15 +121,15 @@ export function useDms(): UseQueryResult<DmsResponse> & { dms: DM[] } {
       }).effectiveUnread
       return {
         ...dm,
-        name: profile.name,
-        discriminator: profile.discriminator,
-        avatar: profile.avatar,
-        avatarVersion: profile.avatarVersion,
-        status: profile.presence,
+        name: liveProfile?.name ?? dm.name,
+        discriminator: liveProfile?.discriminator ?? dm.discriminator,
+        avatar: liveProfile?.avatar ?? dm.avatar,
+        avatarVersion: liveProfile?.avatarVersion ?? dm.avatarVersion,
+        status: liveProfile ? profile.presence : "offline",
         unread,
       }
     })
-  }, [profilesByUserId, query.data?.conversations, unreadExclusion, unreadProjection, unreadVersion])
+  }, [dbDms, profilesByUserId, query.data?.conversations, unreadExclusion, unreadProjection, unreadVersion])
   return {
     ...query,
     dms,

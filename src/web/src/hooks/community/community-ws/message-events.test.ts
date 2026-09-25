@@ -954,13 +954,7 @@ describe("useCommunityWs — message.updated", () => {
       approval,
     })
     const { useCommunityWsStore } = await import("@/stores/community/ws")
-    expect([...useCommunityWsStore.getState().profilesByUserId.values()]).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ id: "u_other", name: "Other", avatar: "O" }),
-        expect.objectContaining({ id: "bot_1", name: "Bot", avatar: "B" }),
-        expect.objectContaining({ id: "waiting_1", name: "Waiting", avatar: "W" }),
-      ]),
-    )
+    expect(useCommunityWsStore.getState()).not.toHaveProperty("profilesByUserId")
   })
 
   it("refreshes approval fields on a focused channel row that exists only in the overlay", async () => {

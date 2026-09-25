@@ -133,15 +133,28 @@ describe("unresolved metadata terminal error and retry", () => {
     expect(mocks.replace).not.toHaveBeenCalled()
   })
 
-  it.each([401, 403, 404])("preserves the existing %s exit instead of offering metadata Retry", async (status) => {
+  it.each([401, 403, 404])("exits on the first authoritative %s instead of retrying or offering metadata Retry", async (status) => {
     mocks.apiFetch.mockRejectedValue(new ApiError("denied", status))
     await mount()
     await until(() => current.routeLifecycle === "terminal-error")
     expect(current.metadataError).toBe(false)
     await current.retryMetadata()
-    expect(mocks.apiFetch).toHaveBeenCalledTimes(2)
+    expect(mocks.apiFetch).toHaveBeenCalledOnce()
     if (status === 401) expect(mocks.replace).not.toHaveBeenCalled()
     else expect(mocks.replace).toHaveBeenCalledWith("/c/channels/server-1")
+  })
+
+  it("does not let a late missing-metadata response overwrite newer navigation", async () => {
+    const request = deferred()
+    mocks.apiFetch.mockReturnValueOnce(request.promise)
+    await mount()
+    await until(() => mocks.apiFetch.mock.calls.length === 1)
+
+    act(() => useCommunityStore.getState().setCurrentChannelId(null))
+    await act(async () => request.reject(new ApiError("missing", 404)))
+    await until(() => current.routeLifecycle === "terminal-error")
+
+    expect(mocks.replace).not.toHaveBeenCalled()
   })
 
   it.each([0, 500])("keeps a verified thread ready through disconnect, failed %s revalidation, and recovery", async (status) => {
@@ -225,8 +238,7 @@ describe("unresolved metadata terminal error and retry", () => {
     await act(async () => {
       if (change === "account") renderer!.rerender(tree({ accountId: "viewer-2" }))
       else {
-        useCommunityWsStore.getState().markAccessDisconnected()
-        useCommunityWsStore.getState().markAccessConnected()
+        useCommunityWsStore.setState((state) => ({ accessEpoch: state.accessEpoch + 1 }))
       }
     })
     expect(current.retryingMetadata).toBe(false)

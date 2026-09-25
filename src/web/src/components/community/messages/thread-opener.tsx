@@ -14,7 +14,7 @@ import type { OpenProfile } from "@/components/community/social/profile-types"
 import { AttachmentCard } from "./attachment-card"
 import { displayReplyContent } from "@/lib/community/reply-content"
 import { useMobileAvatarMention } from "./use-mobile-avatar-mention"
-import { useCommunityProfile } from "@/stores/community/ws"
+import { useCanonicalCommunityProfile } from "@/lib/community-db/projections"
 import { useHoverCapable } from "@/hooks/use-hover-capable"
 import { MessageReactions } from "./message-reactions"
 import { RemoteContentImage } from "@/components/remote-image/remote-image"
@@ -60,7 +60,7 @@ export function ThreadOpener({
 }) {
   const hoverCapable = useHoverCapable()
   const { message: msg, isLoading, isError } = useMessage(parentMessageId)
-  const authorProfile = useCommunityProfile(msg?.authorId)
+  const authorProfile = useCanonicalCommunityProfile(msg?.authorId)
   const mentionText = msg ? resolveAuthorMentionText?.(msg.authorId) ?? null : null
   const avatarMention = useMobileAvatarMention({
     onMention: mentionText && onInsertMentionText

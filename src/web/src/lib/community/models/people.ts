@@ -26,12 +26,6 @@ export type CommunityProfilePatch = {
   presence?: Presence
 }
 
-export type CommunityProfileSnapshot = {
-  viewerId: string | null
-  accountEpoch: number
-  revision: number
-}
-
 // ── Members / friends / DMs ──────────────────────────────────────────────────
 // Identity fields shared by every community user view-model (member / friend /
 // DM). All three are required `string`: `user.name`/`user.discriminator` are

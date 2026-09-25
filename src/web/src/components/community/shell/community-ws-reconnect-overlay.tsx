@@ -1,8 +1,6 @@
 "use client"
 
-import { useEffect, useRef, type ReactNode } from "react"
-import { CommunityConnectingIndicator } from "./community-connecting-indicator"
-import { AppEdgeFade } from "@/components/ui/app-edge-fade"
+import type { ReactNode } from "react"
 import { WifiOff } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { tid } from "@/lib/community/testids"
@@ -11,74 +9,36 @@ import { useCommunityWsStore } from "@/stores/community/ws"
 export function CommunityWsReconnectBoundary({ children }: { children: ReactNode }) {
   const connectionStatus = useCommunityWsStore((state) => state.connectionStatus)
   const reconnectNow = useCommunityWsStore((state) => state.reconnectNow)
-  const blocked = connectionStatus !== "connected"
-  const dialogRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!blocked) return
-    const dialog = dialogRef.current
-    dialog?.focus()
-    if (typeof document === "undefined") return
-    const keepFocusInDialog = (event: FocusEvent) => {
-      if (!dialog || dialog.contains(event.target as Node)) return
-      dialog.focus()
-    }
-    document.addEventListener("focusin", keepFocusInDialog)
-    return () => document.removeEventListener("focusin", keepFocusInDialog)
-  }, [blocked, connectionStatus])
+  const failed = connectionStatus === "failed"
 
   return (
     <>
-      <div
-        className="contents"
-        inert={blocked ? true : undefined}
-        aria-hidden={blocked ? true : undefined}
-      >
-        {children}
-      </div>
-      {blocked && (
+      <div className="contents">{children}</div>
+      {failed && (
         <div
-          ref={dialogRef}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="community-ws-reconnect-title"
-          tabIndex={-1}
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
           data-testid={tid.wsReconnectOverlay}
           data-ws-status={connectionStatus}
-          className="community-ws-reconnect-overlay fixed inset-0 z-2147483647 grid place-items-center bg-background/60 px-4 outline-none backdrop-blur-sm supports-backdrop-filter:bg-background/45 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-150"
+          className="fixed bottom-4 right-4 z-50 flex max-w-xs items-center gap-3 rounded-lg border bg-popover p-3 text-popover-foreground shadow-(--e2)"
         >
-          <AppEdgeFade />
-          <div className="relative z-20 flex w-full max-w-xs flex-col items-center text-center text-foreground">
-            {connectionStatus === "failed" ? (
-              <>
-                <div
-                  role="alert"
-                  aria-live="assertive"
-                  aria-atomic="true"
-                >
-                  <div
-                    aria-hidden="true"
-                    className="mx-auto mb-4 grid size-10 place-items-center rounded-md bg-destructive/10 text-destructive"
-                  >
-                    <WifiOff className="size-5" />
-                  </div>
-                  <h2 id="community-ws-reconnect-title" className="font-heading text-base font-medium">
-                    Connection lost
-                  </h2>
-                </div>
-                <Button
-                  type="button"
-                  data-testid={tid.wsRetry}
-                  onClick={reconnectNow}
-                  className="mt-4 h-11 w-full sm:h-10 sm:w-auto sm:min-w-24"
-                >
-                  Retry
-                </Button>
-              </>
-            ) : (
-              <CommunityConnectingIndicator titleId="community-ws-reconnect-title" />
-            )}
+          <div aria-hidden="true" className="grid size-9 shrink-0 place-items-center rounded-md bg-warning/10 text-warning">
+            <WifiOff className="size-4" />
           </div>
+          <div className="min-w-0 flex-1">
+            <p className="font-heading text-sm font-medium">Connection lost</p>
+            <p className="text-xs text-muted-foreground">Cached content is still available.</p>
+          </div>
+          <Button
+            type="button"
+            variant="secondary"
+            data-testid={tid.wsRetry}
+            onClick={reconnectNow}
+            className="h-11 shrink-0 sm:h-9"
+          >
+            Retry
+          </Button>
         </div>
       )}
     </>

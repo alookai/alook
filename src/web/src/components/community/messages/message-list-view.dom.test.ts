@@ -144,7 +144,7 @@ describe("renderMessageListView", () => {
     expect(content).not.toHaveClass("transition-opacity", "duration-300")
   })
 
-  it("keeps positioned rows measurable but inert and hidden until reveal starts", () => {
+  it("keeps real rows visible and interactive while initial positioning settles", () => {
     const renderRows = vi.fn(() => React.createElement("virtual-rows"))
     const renderer = render(renderMessageListView(
       props({ loading: false }),
@@ -161,18 +161,16 @@ describe("renderMessageListView", () => {
     expect(renderRows).toHaveBeenCalledOnce()
     expect(renderer.container.querySelector("virtual-rows")).toBeInTheDocument()
     expect(content).toHaveAttribute("data-initial-position-phase", "positioning")
-    expect(content).toHaveAttribute("aria-hidden", "true")
-    expect(content).toHaveAttribute("inert")
-    expect(content).toHaveClass("pointer-events-none", "opacity-0")
+    expect(content).toHaveAttribute("aria-hidden", "false")
+    expect(content).not.toHaveAttribute("inert")
+    expect(content).toHaveClass("opacity-100")
+    expect(content).not.toHaveClass("pointer-events-none", "opacity-0")
     expect(content).not.toHaveClass("transition-opacity", "duration-300")
-    expect(mockedRail).not.toHaveBeenCalled()
-    const skeleton = renderer.container.querySelector("[data-message-positioning-skeleton]")!
-    expect(skeleton).toHaveClass("absolute", "inset-0", "pointer-events-none", "opacity-100")
-    expect(skeleton.querySelector('[data-slot="skeleton"]')).toBeInTheDocument()
-    expect(skeleton.parentElement).toBe(content.parentElement?.parentElement)
+    expect(mockedRail).toHaveBeenCalled()
+    expect(renderer.container.querySelector("[data-message-positioning-skeleton]")).not.toBeInTheDocument()
   })
 
-  it("crossfades content against the pointer-transparent aurora without changing geometry", () => {
+  it("does not reintroduce a loading visual while positioning takes longer", () => {
     const renderer = render(renderMessageListView(
       props({ loading: false }),
       controller({
@@ -186,11 +184,10 @@ describe("renderMessageListView", () => {
       () => React.createElement("virtual-rows"),
     ))
     const content = () => renderer.container.querySelector<HTMLElement>("[data-message-list-content]")!
-    expect(content()).toHaveClass("opacity-0")
-    expect(renderer.container.querySelector("[data-message-positioning-skeleton]")).toHaveClass("opacity-100")
+    expect(content()).toHaveClass("opacity-100")
     expect(content()).not.toHaveClass("transition-opacity", "duration-300")
-    expect(renderer.getByTestId("community-initial-position-aurora"))
-      .toHaveAttribute("data-phase", "aurora")
+    expect(renderer.container.querySelector("[data-message-positioning-skeleton]")).not.toBeInTheDocument()
+    expect(renderer.queryByTestId("community-initial-position-aurora")).toBeNull()
 
     renderer.rerender(renderMessageListView(
       props({ loading: false }),
@@ -202,17 +199,15 @@ describe("renderMessageListView", () => {
       }),
       () => React.createElement("virtual-rows"),
     ))
-    expect(content()).toHaveClass("opacity-100", "transition-opacity", "duration-300", "ease-linear")
-    expect(renderer.container.querySelector("[data-message-positioning-skeleton]")).toHaveClass("opacity-0", "transition-opacity")
+    expect(content()).toHaveClass("opacity-100")
+    expect(content()).not.toHaveClass("transition-opacity", "duration-300", "ease-linear")
     const boundary = renderer.container.querySelector("[data-message-scroller-boundary]")!
     expect(boundary).toHaveClass("isolate")
     expect(renderer.getByTestId("community-message-scroller")).toHaveClass("relative", "z-10")
     expect(boundary.querySelector("accessory-rail")).toBeInTheDocument()
-    expect(renderer.getByTestId("community-initial-position-aurora").parentElement).toBe(boundary)
+    expect(renderer.queryByTestId("community-initial-position-aurora")).toBeNull()
     expect(content()).toHaveAttribute("aria-hidden", "false")
     expect(content()).not.toHaveAttribute("inert")
-    expect(renderer.getByTestId("community-initial-position-aurora"))
-      .toHaveAttribute("data-phase", "revealing")
 
     renderer.rerender(renderMessageListView(
       props({ loading: false }),

@@ -15,7 +15,7 @@ import type {
   Profile,
 } from "@/components/community/social/profile-types"
 import type { Breakpoint } from "@/hooks/use-mobile"
-import { useCommunityProfile } from "@/stores/community/ws"
+import { useCanonicalCommunityProfile } from "@/lib/community-db/projections"
 import { avatarInitial } from "@/lib/community/avatar"
 import { tid } from "@/lib/community/testids"
 import { communityWsInterruptAgent } from "@/hooks/community/use-community-ws"
@@ -239,7 +239,7 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
   const [open, setOpen] = useState(true)
   const [interruptPending, setInterruptPending] = useState(false)
   const mobile = bp === "mobile"
-  const globalProfile = useCommunityProfile(data.userId)
+  const globalProfile = useCanonicalCommunityProfile(data.userId)
   const liveStatus = data.userId
     ? {
         statusEmoji: globalProfile?.statusEmoji,

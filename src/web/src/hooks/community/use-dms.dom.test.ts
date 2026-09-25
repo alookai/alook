@@ -93,7 +93,7 @@ describe("useDms / dmsQueryFn", () => {
     await act(async () => renderer.unmount())
   })
 
-  it("projects the canonical peer profile without rewriting the raw DM cache", async () => {
+  it("uses transient presence without rewriting the raw canonical DM identity", async () => {
     const { useDms } = await import("./use-dms")
     const qc = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity } } })
     const raw = {
@@ -109,13 +109,7 @@ describe("useDms / dmsQueryFn", () => {
       }],
     }
     qc.setQueryData(communityKeys.dms(), raw)
-    const store = useCommunityWsStore.getState()
-    store.patchProfiles(store.beginProfileSnapshot(), [{
-      id: "u_1",
-      identityAbout: { name: "Global Alice", discriminator: "0042" },
-      avatar: { avatar: "global", avatarVersion: 7 },
-      presence: "online",
-    }])
+    useCommunityWsStore.getState().setPresence("u_1", "online")
     let projected!: ReturnType<typeof useDms>
     function Probe() {
       projected = useDms()
@@ -128,14 +122,51 @@ describe("useDms / dmsQueryFn", () => {
     ))
 
     expect(projected.dms[0]).toMatchObject({
-      name: "Global Alice",
-      discriminator: "0042",
-      avatar: "global",
-      avatarVersion: 7,
+      name: "Raw Alice",
+      discriminator: "0001",
+      avatar: "raw",
+      avatarVersion: 1,
       status: "online",
       preview: "hello",
     })
     expect(qc.getQueryData(communityKeys.dms())).toBe(raw)
+    await act(async () => renderer.unmount())
+  })
+
+  it("renders persisted DM identity without a live profile seed", async () => {
+    const { useDms } = await import("./use-dms")
+    const qc = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity } } })
+    qc.setQueryData(communityKeys.dms(), {
+      conversations: [{
+        id: "dm_cached",
+        userId: "u_cached",
+        name: "Cached Alice",
+        discriminator: "0042",
+        avatar: "cached-avatar",
+        avatarVersion: 7,
+        status: "online",
+        preview: "cached preview",
+      }],
+    })
+    let projected!: ReturnType<typeof useDms>
+    function Probe() {
+      projected = useDms()
+      return null
+    }
+    const renderer = render(React.createElement(
+      QueryClientProvider,
+      { client: qc },
+      React.createElement(Probe),
+    ))
+
+    expect(projected.dms[0]).toMatchObject({
+      name: "Cached Alice",
+      discriminator: "0042",
+      avatar: "cached-avatar",
+      avatarVersion: 7,
+      status: "offline",
+    })
+    expect(apiFetchMock).not.toHaveBeenCalled()
     await act(async () => renderer.unmount())
   })
 

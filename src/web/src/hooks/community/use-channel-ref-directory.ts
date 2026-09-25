@@ -4,9 +4,7 @@ import { useQuery } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import type { ChannelRefDirectory } from "@/lib/community/channel-ref"
-import { structuralSnapshotDirectory } from "@/lib/community/structural-snapshot"
-import { useStructuralSnapshot } from "./use-structural-snapshot"
-import { useCommunityWsStore } from "@/stores/community/ws"
+import { useChannelRefDirectoryProjection } from "@/lib/community-db/projections"
 
 const EMPTY_DIRECTORY = Object.freeze([]) as unknown as ChannelRefDirectory
 
@@ -24,8 +22,7 @@ export function useChannelRefDirectory(enabled = true): {
   isError: boolean
   refetch: ReturnType<typeof useQuery<ChannelRefDirectory>>["refetch"]
 } {
-  const accountId = useCommunityWsStore((state) => state.profileViewerId)
-  const structuralSnapshot = useStructuralSnapshot(accountId)
+  const dbDirectory = useChannelRefDirectoryProjection()
   const query = useQuery<ChannelRefDirectory>({
     queryKey: communityKeys.channelRefDirectory(),
     queryFn: channelRefDirectoryQueryFn,
@@ -34,14 +31,9 @@ export function useChannelRefDirectory(enabled = true): {
     refetchOnReconnect: true,
     retry: false,
   })
-  const structuralDirectory = structuralSnapshotDirectory(structuralSnapshot)
-  const directory = query.data ?? structuralDirectory
-  // A server-list receipt creates rail identities before any server detail
-  // tree has been loaded. An empty directory from that partial hint is not an
-  // authoritative "no channels" result and must not suppress the live
-  // directory's pending/error state.
-  const hasStructuralChannels = structuralDirectory.some((server) => server.channels.length > 0)
-  const isResolved = query.data !== undefined || hasStructuralChannels
+  const directory = query.data ?? dbDirectory ?? EMPTY_DIRECTORY
+  const hasDbChannels = dbDirectory?.some((server) => server.channels.length > 0) === true
+  const isResolved = query.data !== undefined || hasDbChannels
   return {
     directory: isResolved ? directory : EMPTY_DIRECTORY,
     isResolved,

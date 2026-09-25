@@ -56,10 +56,20 @@ export interface CapturedSwitch {
   degraded: boolean
 }
 
+export interface CapturedWarmReload {
+  restoreStartTs: number
+  restoreCompleteTs: number
+  firstCachedPaintTs: number
+  stableTs: number
+  customBootstrapSeen: boolean
+  skeletonSeen: boolean
+}
+
 export interface CaptureFile {
   owner: { email: string; userId: string }
   createdAt: string
   switches: CapturedSwitch[]
+  warmReload?: CapturedWarmReload
 }
 
 // In-page globals installed by the perf spec's PerformanceObserver setup.
@@ -74,5 +84,6 @@ declare global {
     __PERF_WAIT_FOR_STABLE_RESIZE__?: () => Promise<void>
     __PERF_SKELETON_TS__?: number | null
     __PERF_PAINTED_TS__?: number | null
+    __PERF_WARM_RELOAD__?: { customBootstrapSeen: boolean; skeletonSeen: boolean }
   }
 }

@@ -18,12 +18,10 @@ import type { FileAttachment, ImagePreview } from "@/lib/community/models/messag
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import {
   useCommunityStore,
-  useCurrentChannelId,
   useUiHandlers,
   useTypingUsersForScope,
   useTypingNamesForScope,
 } from "@/stores/community"
-import { useCommunityWsStore } from "@/stores/community/ws"
 import { tid } from "@/lib/community/testids"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 import { makeUserNameResolver } from "@/lib/community/display-name"
@@ -57,6 +55,7 @@ import { useNotificationSettings } from "@/hooks/community/use-notification-sett
 import { useSetChannelNotif } from "@/hooks/community/mutations"
 import { toastApiError } from "@/lib/api/client"
 import { displayReplyContent } from "@/lib/community/reply-content"
+import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
 
 // Thin re-mount wrapper — same reason as the server-side channel view: the
 // dynamic segment reuses the same component instance across DM switches, so
@@ -69,21 +68,16 @@ export default function DmPage() {
 function resolveDmLoadingOwnership({
   hasDm,
   dmsLoading,
-  currentChannelMatches,
   messagesLoading,
 }: {
   hasDm: boolean
   dmsLoading: boolean
-  currentChannelMatches: boolean
   messagesLoading: boolean
 }) {
   return {
     fullFramePending: !hasDm && dmsLoading,
     notFound: !hasDm && !dmsLoading,
-    messageBodyLoading: hasDm && (
-      !currentChannelMatches ||
-      messagesLoading
-    ),
+    messageBodyLoading: hasDm && messagesLoading,
   }
 }
 
@@ -92,7 +86,6 @@ function DmView() {
   const dmId = params.dmId
   const bp = useBreakpoint()
   const currentUser = useCurrentUser()
-  const currentChannelId = useCurrentChannelId()
   const uiHandlers = useUiHandlers()
   const notifications = useNotificationSettings()
   const setNotification = useSetChannelNotif()
@@ -104,14 +97,17 @@ function DmView() {
   const dms = dmsQuery.dms
   const dmsLoading = dmsQuery.isLoading
   const { friends: rawFriends, blocked } = useFriends()
-  const profilesByUserId = useCommunityWsStore((s) => s.profilesByUserId)
+  const profilesByUserId = useCanonicalProfilesByUserId()
   // Enrich with presence — the Composer @-picker uses `f.status` to render
   // the avatar presence dot; without this enrichment every avatar shows offline.
   const friends = useMemo(
     () =>
       rawFriends.map((f) => {
         const userId = f.userId ?? f.id
-        const profile = readCommunityProfile(profilesByUserId.get(userId), userId)
+        const canonical = profilesByUserId.get(userId)
+        const profile = canonical
+          ? readCommunityProfile(canonical, userId)
+          : { ...f, presence: f.status }
         return {
           ...f,
           name: profile.name,
@@ -324,22 +320,7 @@ function DmView() {
     setReplyTo(null)
   }, [dmId])
 
-  const dm = useMemo(() => {
-    const raw = dms.find((d) => d.id === dmId) ?? null
-    if (!raw) return null
-    const profile = readCommunityProfile(
-      profilesByUserId.get(raw.userId),
-      raw.userId,
-    )
-    return {
-      ...raw,
-      name: profile.name,
-      discriminator: profile.discriminator,
-      avatar: profile.avatar,
-      avatarVersion: profile.avatarVersion,
-      status: profile.presence,
-    }
-  }, [dms, dmId, profilesByUserId])
+  const dm = useMemo(() => dms.find((candidate) => candidate.id === dmId) ?? null, [dms, dmId])
 
   const openProfile: OpenProfile = (name, e, discriminator, userId) => {
     uiHandlers.openProfile?.(name, e, discriminator, userId)
@@ -445,7 +426,6 @@ function DmView() {
   const loadingOwnership = resolveDmLoadingOwnership({
     hasDm: !!dm,
     dmsLoading,
-    currentChannelMatches: currentChannelId === dmId,
     messagesLoading,
   })
 

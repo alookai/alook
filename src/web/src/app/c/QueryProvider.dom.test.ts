@@ -15,7 +15,6 @@ const queryClient = vi.hoisted(() => ({
   })),
 }))
 const createQueryClient = vi.hoisted(() => vi.fn(() => queryClient))
-const seedPersistedMessageProfiles = vi.hoisted(() => vi.fn())
 const setReconcileScheduler = vi.hoisted(() => vi.fn())
 const getAccountUnreadProjection = vi.hoisted(() => vi.fn(() => ({
   setReconcileScheduler,
@@ -45,7 +44,21 @@ vi.mock("@/lib/query-persister", () => ({
   PERSIST_MAX_AGE_MS: 1,
   shouldPersistQuery: vi.fn(() => false),
 }))
-vi.mock("@/lib/community/profile-seed", () => ({ seedPersistedMessageProfiles }))
+vi.mock("@/lib/community-db/collections", () => ({
+  createCommunityDbRegistry: vi.fn(() => ({
+    id: "community-db",
+    captureRestoredCollections: vi.fn(),
+    hasRestoredCollection: vi.fn(() => false),
+    cleanup: vi.fn(() => Promise.resolve()),
+  })),
+  registerCommunityDbRegistry: vi.fn(() => () => {}),
+}))
+vi.mock("@/lib/community-db/projections", () => ({
+  CommunityDbProvider: ({ children }: { children: React.ReactNode }) => children,
+}))
+vi.mock("@/lib/community-db/sync", () => ({
+  installCommunityDbSync: vi.fn(() => () => {}),
+}))
 vi.mock("@/hooks/community/community-ws/read-state-reconciliation", () => ({
   disposeAccountReadStateReconciliation: vi.fn(),
 }))
@@ -63,7 +76,6 @@ beforeEach(() => {
   useCommunityWsStore.setState({ activateProfileAccount: originalActivateProfileAccount })
   useCommunityWsStore.getState().reset()
   createQueryClient.mockClear()
-  seedPersistedMessageProfiles.mockClear()
   setReconcileScheduler.mockClear()
   getAccountUnreadProjection.mockClear()
   disposeAccountUnreadProjection.mockClear()
@@ -71,30 +83,32 @@ beforeEach(() => {
 })
 
 describe("QueryProvider profile account lifecycle", () => {
-  it("does not activate the profile account while rendering", () => {
+  it("activates the restored account after render", async () => {
     const store = useCommunityWsStore.getState()
     store.activateProfileAccount("viewer-a")
     const activateProfileAccountSpy = vi.fn(store.activateProfileAccount)
     useCommunityWsStore.setState({ activateProfileAccount: activateProfileAccountSpy })
+    const observedViewerIds: Array<string | null> = []
+    function Probe() {
+      observedViewerIds.push(useCommunityWsStore.getState().profileViewerId)
+      return null
+    }
 
     const renderer = render(React.createElement(
-      React.StrictMode,
-      null,
-      React.createElement(
-        QueryProvider,
-        { userId: "viewer-a" },
-        React.createElement("span", null, "content"),
-      ),
+      QueryProvider,
+      { userId: "viewer-b" },
+      React.createElement(Probe),
     ))
 
-    expect(activateProfileAccountSpy).not.toHaveBeenCalled()
+    expect(observedViewerIds).toEqual(["viewer-a"])
+    await act(async () => { await Promise.resolve() })
+    expect(activateProfileAccountSpy).toHaveBeenCalledWith("viewer-b")
     act(() => renderer.unmount())
   })
 
-  it("restores persisted profiles against the already-active account epoch", async () => {
+  it("revalidates durable projections after restore", async () => {
     const store = useCommunityWsStore.getState()
     store.activateProfileAccount("viewer-b")
-    const expectedSnapshot = store.beginProfileSnapshot()
 
     const renderer = render(React.createElement(
       QueryProvider,
@@ -103,7 +117,16 @@ describe("QueryProvider profile account lifecycle", () => {
     ))
     await act(async () => { await Promise.resolve() })
 
-    expect(seedPersistedMessageProfiles).toHaveBeenCalledWith(queryClient, expectedSnapshot)
+    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: communityKeys.folders(),
+      exact: true,
+      refetchType: "active",
+    })
+    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: communityKeys.dms(),
+      exact: true,
+      refetchType: "active",
+    })
     act(() => renderer.unmount())
   })
 

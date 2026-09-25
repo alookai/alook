@@ -28,6 +28,7 @@ import type { MembershipEventContext } from "@/hooks/community/community-ws/hand
 import { projectChannelScopeEviction } from "./channel-scope-projection"
 import { evictServerChannelScopes } from "./scope-eviction"
 import { avatarInitial } from "@/lib/community/avatar"
+import { writeCommunityProfilePatches } from "@/lib/community/profile-seed"
 import {
   invalidateChannelRefDirectory,
   invalidateInbox,
@@ -136,8 +137,8 @@ export function handleMemberJoin(
   event: CommunityMemberJoin,
   context: MembershipEventContext,
 ) {
-  const { queryClient, viewerUserIdRef, projection, wsStore } = context
-  wsStore.patchProfiles(wsStore.beginProfileSnapshot(), [{
+  const { queryClient, viewerUserIdRef, projection } = context
+  writeCommunityProfilePatches([{
     id: event.member.userId,
     identityAbout: {
       name: event.member.name,
@@ -147,7 +148,7 @@ export function handleMemberJoin(
       avatar: event.member.avatar ?? avatarInitial(event.member.name),
       avatarVersion: event.member.avatarVersion,
     },
-  }])
+  }], undefined, { event: true })
   const key = communityKeys.members(event.serverId)
   queryClient.setQueryData<InfiniteData<MembersEnvelope> | undefined>(
     key,

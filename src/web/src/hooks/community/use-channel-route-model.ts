@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { useQueryClient } from "@tanstack/react-query"
 import { isForum as isForumType } from "@alook/shared"
 import { useServer } from "./use-servers"
-import { useCommunityStore, useCurrentChannelMeta } from "@/stores/community"
+import { useCommunityStore } from "@/stores/community"
 import { toastApiError } from "@/lib/api/client"
 import { ApiError } from "@/lib/errors"
 import { useCommunityWsStore } from "@/stores/community/ws"
@@ -21,11 +21,12 @@ import {
   removeForumSidebarThreadExact,
   removeForumSidebarUnreadChild,
 } from "./use-forum-sidebar-threads"
-import { useStructuralSnapshot } from "./use-structural-snapshot"
-import { updateStructuralSnapshot } from "@/lib/community/structural-snapshot"
+import { useRouteChannelProjection } from "@/lib/community-db/projections"
+import { useOptionalCommunityDbRegistry } from "@/lib/community-db/projections"
+import { purgeCommunityChannel } from "@/lib/community-db/sync"
 
 type Server = ReturnType<typeof useServer>["server"]
-type ChannelMeta = ReturnType<typeof useCurrentChannelMeta>
+type ChannelMeta = NonNullable<ReturnType<typeof useChildChannelMeta>["data"]> | null
 
 export function buildChannelRouteModel(
   server: Server,
@@ -68,18 +69,32 @@ export function useChannelRouteModel(
 ) {
   const router = useRouter()
   const queryClient = useQueryClient()
+  const communityDb = useOptionalCommunityDbRegistry()
   const { server } = useServer(serverId)
-  const structuralSnapshot = useStructuralSnapshot(accountId, queryClient)
-  const structuralServer = structuralSnapshot?.servers.find((candidate) => candidate.id === serverId)
-  const structuralTopLevel = structuralServer?.channels.find((candidate) => candidate.id === channelId)
-  const structuralChild = structuralServer?.childRouteHints.find((candidate) => candidate.id === channelId)
-  const currentChannelMeta = useCurrentChannelMeta()
+  const dbChannel = useRouteChannelProjection(channelId)
+  const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
   const topLevelChannel = server?.categories
     ?.flatMap((category) => category.channels)
     .some((candidate) => candidate.id === channelId)
   const isChild = !!server?.categories && !topLevelChannel
-  const metaQuery = useChildChannelMeta(serverId, channelId, isChild)
-  const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
+  const cachedChildMeta = useMemo(() => dbChannel?.type === "thread"
+    && dbChannel.parentChannelId
+    && dbChannel.parentMessageId ? {
+    id: dbChannel.id,
+    serverId,
+    name: dbChannel.name,
+    type: dbChannel.type,
+    parentChannelId: dbChannel.parentChannelId,
+    parentMessageId: dbChannel.parentMessageId,
+    creatorId: dbChannel.creatorId ?? null,
+    archived: dbChannel.archived,
+    activityAt: dbChannel.lastMessageAt ?? "",
+    verifiedEpoch: accessEpoch,
+  } : undefined, [accessEpoch, dbChannel, serverId])
+  const metaQuery = useChildChannelMeta(serverId, channelId, isChild, cachedChildMeta)
+  const renderableChannelMeta = isChild && metaQuery.isVerified
+    ? (metaQuery.data ?? null)
+    : cachedChildMeta ?? null
   const retryScope = JSON.stringify([accountId, serverId, channelId, accessEpoch])
   const retryAttemptRef = useRef<{ scope: string } | null>(null)
   const [retryAttempt, setRetryAttempt] = useState<{ scope: string } | null>(null)
@@ -104,13 +119,13 @@ export function useChannelRouteModel(
   const model = useMemo(
     () => buildChannelRouteModel(
       server,
-      currentChannelMeta,
+      renderableChannelMeta,
       channelId,
       isChild
         ? { channelId, settled: metaQuery.isVerified }
         : { channelId, settled: true },
     ),
-    [channelId, currentChannelMeta, isChild, metaQuery.isVerified, server],
+    [channelId, isChild, metaQuery.isVerified, renderableChannelMeta, server],
   )
   const routeLifecycle = !server?.categories
     ? "pending" as const
@@ -127,8 +142,13 @@ export function useChannelRouteModel(
       : model.isForum
         ? "forum" as const
         : "text" as const
-    : structuralTopLevel?.type
-      ?? (structuralChild ? "thread" as const : "unknown" as const)
+    : dbChannel?.type === "forum"
+      ? "forum" as const
+      : dbChannel?.type === "text"
+        ? "text" as const
+        : dbChannel?.type === "thread"
+          ? "thread" as const
+          : "unknown" as const
   useEffect(() => {
     useCommunityStore.getState().setCurrentChannelId(channelId)
     return () => { useCommunityStore.getState().setCurrentChannelId(null) }
@@ -144,18 +164,20 @@ export function useChannelRouteModel(
     }
     const denied = isDefinitiveChildMetaFailure(metaQuery.error)
     if (denied || metaQuery.data?.archived) {
-      useCommunityStore.getState().setCurrentChannelMeta(null)
+      const store = useCommunityStore.getState()
+      const routeStillCurrent = store.currentChannelId === channelId
+      store.setCurrentChannelMeta(null)
       removeForumSidebarUnreadChild(queryClient, serverId, channelId)
       removeForumSidebarThreadExact(queryClient, serverId, channelId)
-      updateStructuralSnapshot(queryClient, {
-        type: "removeChildHint",
-        serverId,
-        channelId,
-      })
+      if (communityDb) purgeCommunityChannel(communityDb, channelId)
       const lastChannel = getLastChannel(serverId)
       if (lastChannel === channelId) {
         clearLastChannel(serverId)
       }
+      // A top-level delete clears the live pointer and starts its survivor
+      // navigation before this fallback metadata request can settle. Do not
+      // let the late 403/404 supersede that newer navigation with the root.
+      if (!routeStillCurrent) return
       const destination = consumeCommunityColdEntryFailure(
         accountId,
         `/c/channels/${serverParam}/${channelId}`,
@@ -169,7 +191,7 @@ export function useChannelRouteModel(
       useCommunityStore.getState().setCurrentChannelMeta(null)
       toastApiError(metaQuery.error, "Failed to load thread")
     }
-  }, [accountId, channelId, isChild, metaQuery.data, metaQuery.error, metaQuery.isVerified, queryClient, router, serverId, serverParam])
+  }, [accountId, channelId, communityDb, isChild, metaQuery.data, metaQuery.error, metaQuery.isVerified, queryClient, router, serverId, serverParam])
   return {
     ...model,
     routeLifecycle,

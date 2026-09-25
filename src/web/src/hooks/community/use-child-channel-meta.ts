@@ -6,6 +6,8 @@ import { fetchChannelMetadata, type ChannelMetadata } from "@/hooks/community/ch
 import { communityKeys } from "@/lib/query-keys"
 import type { ChildChannelMeta } from "@/hooks/community/use-forum-sidebar-threads"
 import { useCommunityWsStore } from "@/stores/community/ws"
+import { ApiError } from "@/lib/errors"
+import { useRouteChannelProjection } from "@/lib/community-db/projections"
 
 function projectChildMeta(payload: ChannelMetadata, verifiedEpoch: number): ChildChannelMeta {
   if (!payload.parentChannelId || !payload.parentMessageId) {
@@ -39,8 +41,27 @@ export function useChildChannelMeta(
   serverId: string,
   channelId: string,
   enabled: boolean,
+  placeholderData?: ChildChannelMeta,
 ) {
+  const dbChannel = useRouteChannelProjection(channelId)
   const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
+  const dbPlaceholder = dbChannel?.type === "thread"
+    && dbChannel.serverId === serverId
+    && dbChannel.parentChannelId
+    && dbChannel.parentMessageId
+    ? {
+        id: dbChannel.id,
+        serverId,
+        name: dbChannel.name,
+        type: dbChannel.type,
+        parentChannelId: dbChannel.parentChannelId,
+        parentMessageId: dbChannel.parentMessageId,
+        creatorId: dbChannel.creatorId ?? null,
+        archived: dbChannel.archived,
+        activityAt: dbChannel.lastMessageAt ?? "",
+        verifiedEpoch: accessEpoch,
+      }
+    : undefined
   const query = useQuery<ChildChannelMeta>({
     queryKey: communityKeys.channelMeta(serverId, channelId),
     queryFn: async ({ signal }) => {
@@ -48,8 +69,12 @@ export function useChildChannelMeta(
       return projectChildMeta(meta, meta.verifiedEpoch)
     },
     enabled,
+    placeholderData: dbPlaceholder ?? placeholderData,
     staleTime: Infinity,
     gcTime: 5 * 60 * 1000,
+    retry: (failureCount, error) =>
+      !(error instanceof ApiError && [401, 403, 404].includes(error.status))
+      && failureCount < 1,
   })
   const [trusted, setTrusted] = useState<{
     channelId: string

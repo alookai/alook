@@ -44,6 +44,46 @@ describe("useMessage / messageQueryFn", () => {
     expect(qc.getQueryData(key)).toBeDefined()
   })
 
+  it("derives an opener placeholder from a persisted message window", async () => {
+    const qc = new QueryClient()
+    qc.setQueryData(communityKeys.members("server-1"), {
+      pages: [{ members: [{ id: "u_1" }] }],
+      pageParams: [null],
+    })
+    qc.setQueryData(communityKeys.channelMessages("channel-1"), {
+      pages: [{
+        messages: [{
+          id: "m_1",
+          type: "chat",
+          authorId: "u_1",
+          authorName: "Alice",
+          content: "cached opener",
+          createdAt: "2026-07-03T00:00:00.000Z",
+          replyTo: { id: "m_0", authorName: "Bob", text: "parent" },
+          attachments: [{ kind: "file", name: "notes.txt", url: "/notes.txt", size: "1 KB" }],
+          embeds: [{ title: "Reference" }],
+          reactions: [{ emoji: "👍", count: 1, me: true, userIds: ["u_1"] }],
+        }],
+        hasMoreOlder: false,
+        hasMoreNewer: false,
+      }],
+      pageParams: [{ mode: "newest" }],
+    })
+    const { findCachedMessage } = await import("./use-message")
+
+    expect(findCachedMessage(qc, "m_1")).toMatchObject({
+      id: "m_1",
+      authorId: "u_1",
+      authorName: "Alice",
+      content: "cached opener",
+      replyTo: { id: "m_0", authorName: "Bob", text: "parent" },
+      attachments: [{ kind: "file", name: "notes.txt", url: "/notes.txt", size: "1 KB" }],
+      embeds: [{ title: "Reference" }],
+      reactions: [{ emoji: "👍", count: 1, me: true, userIds: ["u_1"] }],
+    })
+    expect(findCachedMessage(qc, "missing")).toBeUndefined()
+  })
+
   // ── Invalidation contract guard ──────────────────────────────────────────
   // The whole point of moving ThreadOpener onto useQuery: an edit/reaction on
   // the parent message can invalidate `communityKeys.message(id)` and the

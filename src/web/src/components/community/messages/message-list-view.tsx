@@ -4,7 +4,6 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { tid } from "@/lib/community/testids"
 import { ChannelIcon } from "../channels/channel-icon"
 import { ComposerAccessoryRail, MessageSelectionFooter } from "./composer-accessory-rail"
-import { InitialPositionAurora } from "./initial-position-aurora"
 import { MessageShareDialog } from "./message-share-dialog"
 import type { MessageListController } from "./message-list-controller"
 import type { ResolvedMessageListProps } from "./message-list-types"
@@ -33,7 +32,7 @@ export function renderMessageListView(
         />
       )}
       <div data-message-scroller-boundary className="relative isolate min-h-0 flex-1">
-        {controller.initialPosition.contentInteractive && !controller.selectMode && (
+        {!controller.initialPosition.showSkeleton && !controller.selectMode && (
           <ComposerAccessoryRail
             scrollCount={controller.pillCount}
             scrollMode={controller.pillMode}
@@ -48,15 +47,8 @@ export function renderMessageListView(
           <div
             data-message-list-content
             data-initial-position-phase={controller.initialPosition.phase}
-            aria-hidden={!controller.initialPosition.showSkeleton && !controller.initialPosition.contentVisible}
-            inert={!controller.initialPosition.showSkeleton && !controller.initialPosition.contentInteractive}
-            className={`flex min-h-full flex-col justify-end px-4 pb-4 pt-8 sm:pb-6 ${
-              controller.initialPosition.phase === "revealing"
-                ? "opacity-100 transition-opacity duration-300 ease-linear motion-reduce:transition-opacity"
-                : controller.initialPosition.showSkeleton || controller.initialPosition.contentVisible
-                  ? "opacity-100"
-                  : "pointer-events-none opacity-0"
-            }`}
+            aria-hidden="false"
+            className="flex min-h-full flex-col justify-end px-4 pb-4 pt-8 opacity-100 sm:pb-6"
           >
           {controller.initialPosition.showSkeleton ? (
             <MessageListSkeletonContent variant={props.variant} />
@@ -99,24 +91,6 @@ export function renderMessageListView(
           )}
           </div>
         </div>
-        {!controller.initialPosition.showSkeleton && (
-          !controller.initialPosition.contentVisible || controller.initialPosition.phase === "revealing"
-        ) && (
-          <div
-            aria-hidden="true"
-            data-message-positioning-skeleton
-            className={`pointer-events-none absolute inset-0 z-20 flex flex-col overflow-hidden bg-(--app-bg) ${
-              controller.initialPosition.contentVisible
-                ? "opacity-0 transition-opacity duration-300 ease-linear motion-reduce:transition-opacity"
-                : "opacity-100"
-            }`}
-          >
-            <div className="flex min-h-full flex-col justify-end px-4 pb-4 pt-8 sm:pb-6">
-              <MessageListSkeletonContent variant={props.variant} />
-            </div>
-          </div>
-        )}
-        <InitialPositionAurora phase={controller.initialPosition.phase} />
       </div>
     </div>
   )

@@ -52,8 +52,8 @@ vi.mock("@/components/avatar", () => ({
   AgentAvatar: (props: Record<string, unknown>) => React.createElement("agent-avatar", props),
 }))
 
-vi.mock("@/stores/community/ws", () => ({
-  useCommunityProfile: (botId: string | undefined) => {
+vi.mock("@/lib/community-db/projections", () => ({
+  useCanonicalCommunityProfile: (botId: string | undefined) => {
     profileHook(botId)
     return { presence: "online" }
   },

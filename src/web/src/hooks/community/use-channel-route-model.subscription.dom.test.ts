@@ -3,7 +3,6 @@ import { QueryClient } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, render } from "@/test/react-dom-harness"
 import { useCommunityStore } from "@/stores/community"
-import { communityKeys } from "@/lib/query-keys"
 
 const mocks = vi.hoisted(() => ({
   subscribe: vi.fn(),
@@ -34,7 +33,14 @@ vi.mock("./use-servers", () => ({
   useServer: () => ({ server: mocks.server }),
 }))
 vi.mock("./use-child-channel-meta", () => ({
-  useChildChannelMeta: () => mocks.metaQuery,
+  useChildChannelMeta: (
+    _serverId: string,
+    _channelId: string,
+    _enabled: boolean,
+    placeholderData?: Record<string, unknown>,
+  ) => placeholderData && !mocks.metaQuery.isVerified
+    ? { ...mocks.metaQuery, data: placeholderData, isVerified: true }
+    : mocks.metaQuery,
 }))
 vi.mock("./use-community-ws", () => ({
   communityWsSubscribe: (...args: unknown[]) => mocks.subscribe(...args),
@@ -65,6 +71,7 @@ function lifecycle(renderer: ReturnType<typeof render>) {
 }
 
 beforeEach(() => {
+  queryClient.clear()
   useCommunityStore.getState().reset()
   mocks.subscribe.mockClear()
   mocks.unsubscribe.mockClear()
@@ -110,37 +117,6 @@ describe("useChannelRouteModel subscription ownership", () => {
     expect(lifecycle(renderer!)).toBe("ready")
     expect(mocks.metaQuery.isVerified).toBe(false)
     act(() => renderer!.unmount())
-  })
-
-  it("uses persisted structure only to choose the pending skeleton subtype", () => {
-    mocks.server = undefined
-    queryClient.setQueryData(communityKeys.structuralSnapshot(), {
-      schemaVersion: 1,
-      accountId: "viewer-1",
-      capturedAt: Date.now(),
-      serverOrder: ["server-1"],
-      folders: [],
-      servers: [{
-        id: "server-1",
-        name: "Server",
-        discriminator: "0001",
-        icon: null,
-        categories: [],
-        channels: [{ id: "forum-1", name: "Forum", type: "forum", categoryId: null }],
-        childRouteHints: [],
-      }],
-    })
-
-    let renderer!: ReturnType<typeof render>
-    act(() => {
-      renderer = render(React.createElement(Harness, { channelId: "forum-1" }))
-    })
-
-    const node = renderer.container.querySelector("span")
-    expect(node?.getAttribute("data-lifecycle")).toBe("pending")
-    expect(node?.getAttribute("data-skeleton-subtype")).toBe("forum")
-    expect(useCommunityStore.getState().currentChannelMeta).toBeNull()
-    act(() => renderer.unmount())
   })
 
   it("reports the live top-level text subtype after access is ready", () => {

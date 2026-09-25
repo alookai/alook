@@ -5,6 +5,7 @@ import { apiFetch } from "@/lib/api/client"
 import { apiFetchProfiles, messageProfilePatches } from "@/lib/community/profile-seed"
 import { communityKeys } from "@/lib/query-keys"
 import type { Thread, Msg } from "@/lib/community/models/message"
+import { useCanonicalMessagesById } from "@/lib/community-db/projections"
 
 // Frozen empty fallbacks — see `use-servers.ts` for the rationale.
 const EMPTY_THREADS: readonly Thread[] = Object.freeze([])
@@ -149,6 +150,7 @@ export const pinsQueryFn = (channelId: string) => () =>
 export function usePins(channelId: string | null): UseQueryResult<PinsResponse> & {
   pins: Msg[]
 } {
+  const canonicalMessages = useCanonicalMessagesById()
   const enabled = !!channelId
   const query = useQuery({
     queryKey: enabled ? communityKeys.pins(channelId!) : communityKeys.pins("__none__"),
@@ -157,6 +159,11 @@ export function usePins(channelId: string | null): UseQueryResult<PinsResponse> 
   })
   return {
     ...query,
-    pins: query.data?.pins ?? (EMPTY_PINS as Msg[]),
+    pins: canonicalMessages
+      ? (query.data?.pins ?? []).flatMap((message) => {
+          const canonical = canonicalMessages.get(message.id)
+          return canonical ? [canonical] : []
+        })
+      : query.data?.pins ?? (EMPTY_PINS as Msg[]),
   }
 }

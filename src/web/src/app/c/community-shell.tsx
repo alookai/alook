@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useLayoutEffect, type ReactNode } from "react"
+import { usePathname } from "next/navigation"
 import { apiFetchProfiles } from "@/lib/community/profile-seed"
 import { QueryProvider } from "./QueryProvider"
 import {
@@ -16,6 +17,8 @@ import { CommunityOnboardingForm } from "@/components/community/onboarding/commu
 import { CommunityWsReconnectBoundary } from "@/components/community/shell/community-ws-reconnect-overlay"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { OwnerServerDeleteRouteGuard } from "@/components/community/shell/owner-server-delete-route-guard"
+import { CommunityRestoreBoundary } from "@/components/community/shell/community-restore-bootstrap"
+import { CommunitySessionPendingFrame } from "@/components/community/shell/community-session-pending-frame"
 
 /**
  * Client wrapper that provides the QueryClient, CurrentUser, and the
@@ -38,13 +41,15 @@ export function CommunityShell({
   children: ReactNode
 }) {
   return (
-    <ProfileAccountBoundary viewerId={currentUser.id}>
-      <QueryProvider key={currentUser.id} userId={currentUser.id}>
-        <CurrentUserProvider initialUser={currentUser}>
-          <CommunityBootstrap>{children}</CommunityBootstrap>
-        </CurrentUserProvider>
-      </QueryProvider>
-    </ProfileAccountBoundary>
+    <QueryProvider key={currentUser.id} userId={currentUser.id}>
+      <ProfileAccountBoundary viewerId={currentUser.id}>
+        <CommunityRestoreBoundary>
+          <CurrentUserProvider initialUser={currentUser}>
+            <CommunityBootstrap>{children}</CommunityBootstrap>
+          </CurrentUserProvider>
+        </CommunityRestoreBoundary>
+      </ProfileAccountBoundary>
+    </QueryProvider>
   )
 }
 
@@ -56,15 +61,15 @@ function ProfileAccountBoundary({
   viewerId: string
 }) {
   const activeViewerId = useCommunityWsStore((state) => state.profileViewerId)
-
+  const pathname = usePathname()
   useLayoutEffect(() => {
     if (activeViewerId !== viewerId) {
       useCommunityWsStore.getState().activateProfileAccount(viewerId)
     }
   }, [activeViewerId, viewerId])
-
-  if (activeViewerId !== viewerId) return null
-  return children
+  return activeViewerId === viewerId
+    ? children
+    : <CommunitySessionPendingFrame pathname={pathname} />
 }
 
 /**

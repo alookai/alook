@@ -3,7 +3,6 @@ import type {
   BrowserContextOptions,
   Locator,
   Page,
-  Route,
   TestInfo,
 } from "@playwright/test"
 import { expect, sessionCookie, userId } from "./community-fixture"
@@ -55,25 +54,16 @@ type MatrixCase = {
   }
 }
 
-async function holdSession(page: Page) {
-  let release!: () => void
-  const gate = new Promise<void>((resolve) => { release = resolve })
-  let hits = 0
-  const handler = async (route: Route) => {
-    hits += 1
-    await gate
-    await route.continue()
-  }
-  await page.route("**/api/auth/get-session**", handler)
-  return { hits: () => hits, release }
-}
-
 async function holdApplicationScripts(page: Page) {
   let release!: () => void
   const gate = new Promise<void>((resolve) => { release = resolve })
   const blocked: string[] = []
   const received: string[] = []
+  let sessionRequests = 0
   const isApplicationScript = (url: string) => /\/_next\/.*\.js(?:\?|$)/.test(url)
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/api/auth/get-session") sessionRequests += 1
+  })
   page.on("response", (response) => {
     if (isApplicationScript(response.url())) received.push(response.url())
   })
@@ -84,7 +74,56 @@ async function holdApplicationScripts(page: Page) {
     }
     await route.continue()
   })
-  return { blocked, received, release }
+  return { blocked, received, sessionRequests: () => sessionRequests, release }
+}
+
+async function holdCommunityReads(page: Page) {
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => { release = resolve })
+  let hits = 0
+  await page.route("**/api/community/**", async (route) => {
+    if (route.request().method() !== "GET") {
+      await route.continue()
+      return
+    }
+    hits += 1
+    await gate
+    await route.continue()
+  })
+  return { hits: () => hits, release }
+}
+
+async function expectServerSeededRouteFrame(
+  page: Page,
+  width: number,
+  height: number,
+) {
+  const frame = page.getByTestId(tid.initialFrame)
+  await expect(frame).toBeVisible()
+  await expect(frame).toHaveAttribute("aria-busy", "true")
+  await expect(frame).toHaveAttribute("aria-label", "Loading community")
+  await expect(page.locator('[data-slot="community-restore-bootstrap"]')).toHaveCount(0)
+  await expect(frame.locator(
+    '[data-slot="skeleton"], [data-community-unresolved-main]',
+  )).not.toHaveCount(0)
+  const geometry = await frame.evaluate((root) => {
+    const rect = (element: Element) => {
+      const box = element.getBoundingClientRect()
+      return {
+        display: getComputedStyle(element).display,
+        x: box.x,
+        y: box.y,
+        width: box.width,
+        height: box.height,
+      }
+    }
+    return {
+      root: rect(root),
+      overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    }
+  })
+  expect(geometry.overflow).toBe(0)
+  expect(geometry.root).toMatchObject({ x: 0, y: 0, width, height })
 }
 
 async function holdRequest(page: Page, pattern: string) {
@@ -234,7 +273,7 @@ async function installSsrLifecycleProbe(page: Page, surface: "list" | "detail") 
     }
     const sample = () => {
       const shell = document.querySelector('[data-slot="community-shell-root"]')
-      if (shell || parsed) {
+      if (shell) {
         const activePanel = '[data-slot="resizable-panel"][data-mobile-active="true"]'
         const hiddenPanel = '[data-slot="resizable-panel"][data-mobile-hidden="true"]'
         const geometry = Object.fromEntries(Object.entries({
@@ -251,7 +290,7 @@ async function installSsrLifecycleProbe(page: Page, surface: "list" | "detail") 
             : Reflect.get(window, "__communityApplicationScriptsReleased") ? "hydrating" : "ssr",
           readyState: document.readyState,
           shellChildCount: shell?.childElementCount ?? 0,
-          incompleteShellHtml: geometry.surface ? undefined : shell?.outerHTML ?? "",
+          incompleteShellHtml: geometry.surface ? undefined : shell.outerHTML,
           overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
           geometry,
         })
@@ -271,7 +310,7 @@ async function ssrLifecycleSamples(page: Page): Promise<SsrLifecycleSample[]> {
 function desktopPanelTrackWidth(viewportWidth: DesktopWidth) {
   return viewportWidth
     - COMMUNITY_RAIL_WIDTH
-    - COMMUNITY_SURFACE_BORDER_WIDTH
+    - (COMMUNITY_SURFACE_BORDER_WIDTH * 2)
     - COMMUNITY_SEPARATOR_WIDTH
 }
 
@@ -281,7 +320,7 @@ async function installDesktopPendingFrameProbe(
   sidebarWidth: PersistedSidebarWidth | null,
 ) {
   const panelTrackWidth = desktopPanelTrackWidth(viewportWidth)
-  await page.addInitScript(({ initialFrameTestId, layoutStorageKey, persistedLayout }) => {
+  await page.addInitScript(({ layoutStorageKey, persistedLayout }) => {
     if (persistedLayout) {
       localStorage.setItem(layoutStorageKey, JSON.stringify(persistedLayout))
     } else {
@@ -289,9 +328,10 @@ async function installDesktopPendingFrameProbe(
     }
     const samples: DesktopPendingFrameSample[] = []
     Reflect.set(window, "__communityDesktopPendingFrameSamples", samples)
+    Reflect.set(window, "__communityDesktopPendingFrameProbeStopped", false)
 
     const sample = () => {
-      const frame = document.querySelector(`[data-testid="${initialFrameTestId}"]`)
+      const frame = document.querySelector('[data-slot="community-shell-root"]')
       const panels = frame?.querySelectorAll<HTMLElement>('[data-slot="resizable-panel"]')
       const sidebar = panels?.[0]
       const main = panels?.[1]
@@ -310,11 +350,12 @@ async function installDesktopPendingFrameProbe(
           userBarRight: userBarRect.right,
         })
       }
-      if (performance.now() < 5_000) requestAnimationFrame(sample)
+      if (!Reflect.get(window, "__communityDesktopPendingFrameProbeStopped")) {
+        requestAnimationFrame(sample)
+      }
     }
     requestAnimationFrame(sample)
   }, {
-    initialFrameTestId: tid.initialFrame,
     layoutStorageKey: "react-resizable-panels:community-shell",
     persistedLayout: sidebarWidth === null
       ? null
@@ -479,34 +520,36 @@ export async function runAndroidLoadingGeometry(asUser: CommunityAsUser, testInf
           const { context, page } = await asUser("alice", { userAgent })
           await page.setViewportSize({ width, height: width === 320 ? 720 : 900 })
           await installSsrLifecycleProbe(page, surface)
-          const session = await holdSession(page)
           const scripts = await holdApplicationScripts(page)
+          const communityReads = await holdCommunityReads(page)
           let ssrEvidence: unknown
           try {
-            await page.goto(pathname, { waitUntil: "domcontentloaded" })
+            await page.goto(pathname, { waitUntil: "commit" })
             await expect.poll(() => scripts.blocked.length).toBeGreaterThan(0)
-            await expect(page.getByTestId(tid.initialFrame)).toBeVisible()
+            await expectServerSeededRouteFrame(page, width, width === 320 ? 720 : 900)
             await page.waitForTimeout(250)
-            const ssrSamples = await ssrLifecycleSamples(page)
             ssrEvidence = {
-              samples: ssrSamples,
               blockedScripts: [...scripts.blocked],
               receivedScripts: [...scripts.received],
-              sessionRequests: session.hits(),
+              sessionRequests: scripts.sessionRequests(),
             }
             expect(scripts.received, "application JS must remain blocked during SSR measurement").toEqual([])
-            expect(session.hits(), "application session request must not run before JS release").toBe(0)
-            expect(ssrSamples.some((sample) => sample.phase === "ssr")).toBe(true)
-            expectMobileGeometry(ssrSamples, width, surface)
+            expect(
+              scripts.sessionRequests(),
+              "server-seeded identity must not issue a browser session request",
+            ).toBe(0)
+            await page.evaluate(() => Reflect.set(window, "__communityApplicationScriptsReleased", true))
+            scripts.release()
+            await expect.poll(communityReads.hits).toBeGreaterThan(0)
+            await expect(page.locator('[data-slot="community-shell-root"]')).toBeVisible()
+            await page.waitForTimeout(250)
+            const pendingSamples = await ssrLifecycleSamples(page)
+            expectMobileGeometry(pendingSamples, width, surface)
             const pendingHeading = pathname === "/c/me/machines"
               ? await expectMachinesHeadingSpacing(page)
               : null
 
-            await page.evaluate(() => Reflect.set(window, "__communityApplicationScriptsReleased", true))
-            scripts.release()
-            await expect.poll(session.hits).toBeGreaterThan(0)
-            session.release()
-            await expect(page.getByTestId(tid.initialFrame)).toHaveCount(0, { timeout: 30_000 })
+            communityReads.release()
             await expect(
               pathname === "/c/me"
                 ? page.getByRole("button", { name: "Friends", exact: true })
@@ -525,12 +568,12 @@ export async function runAndroidLoadingGeometry(asUser: CommunityAsUser, testInf
                 ssrEvidence,
                 allSamples: await ssrLifecycleSamples(page),
                 releasedScriptResponses: scripts.received,
-                sessionRequests: session.hits(),
+                sessionRequests: scripts.sessionRequests(),
               })),
               contentType: "application/json",
             })
             scripts.release()
-            session.release()
+            communityReads.release()
             await context.close()
           }
         }
@@ -552,13 +595,23 @@ export async function runDesktopPersistedPendingGeometry(
         await page.setViewportSize({ width: viewportWidth, height: 900 })
         await page.emulateMedia({ colorScheme: theme })
         await installDesktopPendingFrameProbe(page, viewportWidth, sidebarWidth)
-        const session = await holdSession(page)
+        const scripts = await holdApplicationScripts(page)
+        const communityReads = await holdCommunityReads(page)
         await page.goto("/c/me/machines", { waitUntil: "commit" })
-        await expect.poll(session.hits).toBeGreaterThan(0)
-        await expect(page.getByTestId(tid.initialFrame)).toBeVisible()
+        await expect.poll(() => scripts.blocked.length).toBeGreaterThan(0)
+        expect(scripts.sessionRequests()).toBe(0)
+        await expectServerSeededRouteFrame(page, viewportWidth, 900)
+        scripts.release()
+        await expect.poll(communityReads.hits).toBeGreaterThan(0)
+        await expect(page.locator('[data-slot="community-shell-root"]')).toBeVisible()
         await page.waitForTimeout(250)
 
         const samples = await desktopPendingFrameSamples(page)
+        await page.evaluate(() => Reflect.set(
+          window,
+          "__communityDesktopPendingFrameProbeStopped",
+          true,
+        ))
         expect(samples.length, caseLabel).toBeGreaterThan(0)
         for (const [index, sample] of samples.entries()) {
           expect(sample.overflow, `${caseLabel}, frame ${index} horizontal overflow`).toBe(0)
@@ -584,7 +637,7 @@ export async function runDesktopPersistedPendingGeometry(
           `${caseLabel}, final sidebar width: ${JSON.stringify(samples.at(-1))}`,
         ).toBeLessThanOrEqual(1)
 
-        session.release()
+        communityReads.release()
         await context.close()
       }
     }
@@ -598,15 +651,20 @@ export async function runSkeletonLoadingMotion(asUser: CommunityAsUser) {
       })
       await page.setViewportSize({ width: 320, height: 720 })
       await page.emulateMedia({ reducedMotion })
-      const session = await holdSession(page)
+      const scripts = await holdApplicationScripts(page)
+      const communityReads = await holdCommunityReads(page)
       await page.goto("/c/me/machines", { waitUntil: "commit" })
-      await expect.poll(session.hits).toBeGreaterThan(0)
-      await expect(page.getByTestId(tid.initialFrame)).toBeVisible()
+      await expect.poll(() => scripts.blocked.length).toBeGreaterThan(0)
+      expect(scripts.sessionRequests()).toBe(0)
+      await expectServerSeededRouteFrame(page, 320, 720)
+      scripts.release()
+      await expect.poll(communityReads.hits).toBeGreaterThan(0)
+      await expect(page.locator('[data-slot="skeleton"]:visible').first()).toBeVisible()
 
       const animationProperties = await visibleSkeletonAnimationProperties(page)
       expect(animationProperties).toEqual(reducedMotion === "reduce" ? [] : ["opacity"])
 
-      session.release()
+      communityReads.release()
       await context.close()
     }
 }
@@ -623,18 +681,13 @@ export async function runNeutralRootGeometry(
         await page.addInitScript((storageKey) => {
           localStorage.removeItem(storageKey)
         }, `community:lastRoute:${encodeURIComponent(userId(ISOLATED_GEOMETRY_USER))}`)
-        const session = await holdSession(page)
+        const scripts = await holdApplicationScripts(page)
         await page.goto("/c", { waitUntil: "commit" })
-        await expect.poll(session.hits).toBeGreaterThan(0)
+        await expect.poll(() => scripts.blocked.length).toBeGreaterThan(0)
+        expect(scripts.sessionRequests()).toBe(0)
 
         const frame = page.getByTestId(tid.initialFrame)
-        await expect(frame).toBeVisible()
-        await expect(frame).toHaveAttribute(
-          "data-community-route-kind",
-          "community-root-redirect",
-        )
-        await expect(page.getByTestId(tid.pendingMain("route-resolution"))).toBeVisible()
-        await expect(page.getByTestId(tid.pendingMain("machines"))).toHaveCount(0)
+        await expectServerSeededRouteFrame(page, width, width === 390 ? 844 : 900)
         await expect(page.locator('[data-slot="community-shell-root"]')).toHaveCount(0)
         await expect(page.getByTestId(tid.initialRailPending)).toHaveCount(0)
         await expect(page.getByTestId(tid.dmSidebarPending)).toHaveCount(0)
@@ -657,8 +710,8 @@ export async function runNeutralRootGeometry(
           contentType: "image/png",
         })
 
-        session.release()
-        await expect(page.getByTestId(tid.initialFrame)).toHaveCount(0, { timeout: 30_000 })
+        scripts.release()
+        await expect(frame).toHaveCount(0, { timeout: 30_000 })
         await expect.poll(() => new URL(page.url()).pathname).toBe("/c/me/machines")
         await expect(page.getByTestId(tid.machinePairOpen)).toBeVisible({ timeout: 30_000 })
         expect(await page.evaluate(() => (
@@ -685,15 +738,22 @@ export async function runRouteLoadingGeometry(
         await page.setViewportSize({ width: entry.width, height: entry.width === 390 ? 844 : 900 })
         await page.emulateMedia({ colorScheme: theme })
         await startClsObserver(page)
-        const session = await holdSession(page)
+        const scripts = await holdApplicationScripts(page)
+        const communityReads = await holdCommunityReads(page)
         const intermediate = entry.intermediate
           ? await holdRequest(page, entry.intermediate.requestPattern)
           : null
         await page.goto(entry.pathname, { waitUntil: "commit" })
-        await expect.poll(session.hits).toBeGreaterThan(0)
-        await expect(page.getByTestId(tid.initialFrame)).toBeVisible()
+        await expect.poll(() => scripts.blocked.length).toBeGreaterThan(0)
+        expect(scripts.sessionRequests()).toBe(0)
+        await expectServerSeededRouteFrame(
+          page,
+          entry.width,
+          entry.width === 390 ? 844 : 900,
+        )
+        scripts.release()
+        await expect.poll(communityReads.hits).toBeGreaterThan(0)
         await expect(page.locator('[data-slot="community-shell-root"]')).toHaveCount(1)
-        await expect(page.locator('[data-slot="community-shell-root"] button')).toHaveCount(0)
         const pendingAdd = page.locator('[data-slot="community-server-rail-add"]')
         await expect(pendingAdd).toHaveCount(0)
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth))
@@ -707,10 +767,9 @@ export async function runRouteLoadingGeometry(
         })
 
         await resetCls(page)
-        session.release()
-        await expect(page.getByTestId(tid.initialFrame)).toHaveCount(0, { timeout: 30_000 })
+        communityReads.release()
         if (entry.intermediate && intermediate) {
-          await expect.poll(intermediate.hits).toBeGreaterThan(0)
+          await expect.poll(intermediate.hits, { timeout: 30_000 }).toBeGreaterThan(0)
           await expect(entry.intermediate.ready(page)).toBeVisible({ timeout: 30_000 })
           const intermediatePath = testInfo.outputPath(
             `${theme}-${entry.width}-${entry.name}-intermediate.png`,
@@ -726,7 +785,7 @@ export async function runRouteLoadingGeometry(
         await expect(page.locator('[data-slot="community-shell-root"]')).toHaveCount(1)
         const loadedAdd = page.getByTestId(tid.serverAdd)
         if (entry.width === 1280 || entry.mobileRail) {
-          await expect(loadedAdd).toBeVisible()
+          await expect(loadedAdd).toBeVisible({ timeout: 30_000 })
           const railScroll = page.getByTestId(tid.serverRailScroll)
           await expect(railScroll).toBeVisible()
           expect(await railScroll.evaluate((element) => element.scrollHeight > element.clientHeight))

@@ -21,7 +21,7 @@ import {
 import { selectUnreadPresentation } from "@/hooks/community/unread-presentation"
 import { tid } from "@/lib/community/testids"
 import type { CommunityProfile } from "@/lib/community/models/people"
-import { useProfilesByUserId } from "@/stores/community/ws"
+import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 import {
   useLayoutEffect,
@@ -474,7 +474,7 @@ export function InboxPopover({
   onScrollOffsetChange?: (tab: InboxTab, scrollTop: number) => void
   surface?: "desktop" | "mobile" | "extension"
 }) {
-  const profilesByUserId = useProfilesByUserId()
+  const profilesByUserId = useCanonicalProfilesByUserId()
   const hasUnreads = hasProjectedUnreads
   const hasMentions = hasProjectedMentions
   const showUnreadDot = selectUnreadPresentation({

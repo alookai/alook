@@ -16,6 +16,7 @@ import {
   getActiveAccountUnreadProjection,
   type AccountUnreadProjection,
 } from "./account-unread-projection"
+import { useNotificationSettingsProjection } from "@/lib/community-db/projections"
 
 /**
  * Fetches the user's notification-setting rows and materialises them into
@@ -102,6 +103,7 @@ export function useNotificationSettings(): UseQueryResult<NotificationSettings> 
   server: Record<string, string>
   channel: Record<string, string>
 } {
+  const dbSettings = useNotificationSettingsProjection()
   const queryClient = useQueryClient()
   const projection = useMemo(
     () => getActiveAccountUnreadProjection(queryClient),
@@ -116,8 +118,8 @@ export function useNotificationSettings(): UseQueryResult<NotificationSettings> 
   }, [projection, query.data])
   return {
     ...query,
-    server: query.data?.server ?? (EMPTY_NOTIF_SERVER as Record<string, string>),
-    channel: query.data?.channel ?? (EMPTY_NOTIF_CHANNEL as Record<string, string>),
+    server: dbSettings?.server ?? query.data?.server ?? (EMPTY_NOTIF_SERVER as Record<string, string>),
+    channel: dbSettings?.channel ?? query.data?.channel ?? (EMPTY_NOTIF_CHANNEL as Record<string, string>),
   }
 }
 

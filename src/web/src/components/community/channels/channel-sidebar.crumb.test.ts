@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 
-import { ChannelSidebar } from "./channel-sidebar"
+import { ChannelSidebar, ChannelSidebarSkeleton } from "./channel-sidebar"
 import type { ChannelTree } from "./use-channel-tree"
 
 const emptyTree = {
@@ -38,15 +38,8 @@ const render = () =>
 
 const renderLoading = () =>
   renderToStaticMarkup(
-    createElement(ChannelSidebar, {
-      tree: emptyTree,
-      serverName: "Alpha",
-      serverIcon: null,
-      serverId: "srv_1",
-      activeChannel: "",
-      setActiveChannel: vi.fn(),
-      loading: true,
-      onInvitePopoverOpenChange: vi.fn(),
+    createElement(ChannelSidebarSkeleton, {
+      showInviteAction: true,
     }),
   )
 
@@ -134,7 +127,7 @@ describe("ChannelSidebar header", () => {
     expect(css).toContain("scrollbar-width: none")
   })
 
-  it("keeps the same header action slot and scroll owner while loading", () => {
+  it("keeps the same header action slot and scroll owner in the cold skeleton", () => {
     const html = renderLoading()
     expect(html).toContain("flex min-h-0 min-w-0 flex-1 flex-col")
     expect(html).toContain(

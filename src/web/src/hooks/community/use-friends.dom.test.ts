@@ -5,6 +5,13 @@ import { renderHook, waitFor } from "@/test/react-dom-harness"
 import { communityKeys } from "@/lib/query-keys"
 import { useCommunityWsStore } from "@/stores/community/ws"
 
+const canonicalProfiles = vi.hoisted(() => ({
+  current: new Map<string, Record<string, unknown>>(),
+}))
+vi.mock("@/lib/community-db/projections", () => ({
+  useCanonicalProfilesByUserId: () => canonicalProfiles.current,
+}))
+
 const apiFetchMock = vi.fn()
 vi.mock("@/lib/api/client", () => ({
   apiFetch: (...args: unknown[]) => apiFetchMock(...args),
@@ -20,6 +27,7 @@ beforeEach(() => {
   apiFetchMock.mockReset()
   useCommunityWsStore.getState().reset()
   useCommunityWsStore.getState().activateProfileAccount("viewer")
+  canonicalProfiles.current = new Map()
 })
 
 describe("useFriends / friendsQueryFn", () => {
@@ -64,11 +72,6 @@ describe("useFriends / friendsQueryFn", () => {
     expect(data.friends).toHaveLength(1)
     expect(data.blocked).toHaveLength(2)
     expect(data.pending).toHaveLength(1)
-    expect(useCommunityWsStore.getState().profilesByUserId).toMatchObject(new Map([
-      ["friend_1", expect.objectContaining({ name: "n", avatarVersion: 1 })],
-      ["blocked_1", expect.objectContaining({ name: "b", avatarVersion: 2 })],
-      ["pending_1", expect.objectContaining({ name: "p", avatarVersion: 3 })],
-    ]))
     expect(apiFetchMock).toHaveBeenCalledTimes(3)
     expect(apiFetchMock.mock.calls.map((call) => call[0]).sort()).toEqual([
       "/api/community/friends/accepted",
@@ -122,25 +125,29 @@ describe("useFriends / friendsQueryFn", () => {
       ],
     }
     queryClient.setQueryData(communityKeys.friends(), raw)
-    const store = useCommunityWsStore.getState()
-    store.patchProfiles(store.beginProfileSnapshot(), [
-      {
+    canonicalProfiles.current = new Map([
+      ["friend_1", {
         id: "friend_1",
-        identityAbout: { name: "Global Friend", discriminator: "0042" },
-        avatar: { avatar: "friend-global", avatarVersion: 4 },
+        name: "Global Friend",
+        discriminator: "0042",
+        avatar: "friend-global",
+        avatarVersion: 4,
         presence: "online",
-        status: { statusEmoji: "🌿", statusText: "Here" },
-      },
-      {
+        statusEmoji: "🌿",
+        statusText: "Here",
+      }],
+      ["pending_1", {
         id: "pending_1",
-        identityAbout: { name: "Global Pending" },
-        avatar: { avatar: "pending-global", avatarVersion: 5 },
-      },
-      {
+        name: "Global Pending",
+        avatar: "pending-global",
+        avatarVersion: 5,
+      }],
+      ["blocked_1", {
         id: "blocked_1",
-        identityAbout: { name: "Global Blocked" },
-        avatar: { avatar: "blocked-global", avatarVersion: 6 },
-      },
+        name: "Global Blocked",
+        avatar: "blocked-global",
+        avatarVersion: 6,
+      }],
     ])
     const rendered = renderHook(() => useFriends(), {
       wrapper: wrapperFor(queryClient),

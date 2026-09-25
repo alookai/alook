@@ -24,6 +24,10 @@ import { reservedUnreadExclusion } from "./unread-presentation"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { ApiError } from "@/lib/errors"
 import { evictServerChannelScopes } from "./community-ws/scope-eviction"
+import {
+  useServerRailProjection,
+  useServerTreeProjection,
+} from "@/lib/community-db/projections"
 
 function captureStructuralQueryToken() {
   const state = useCommunityWsStore.getState()
@@ -42,7 +46,9 @@ function assertStructuralQueryTokenCurrent(
     state.profileViewerId !== token.viewerId
     || state.profileAccountEpoch !== token.accountEpoch
     || state.accessEpoch !== token.accessEpoch
-  ) throw new DOMException("Stale structural query", "AbortError")
+  ) {
+    throw new DOMException("Stale structural query", "AbortError")
+  }
 }
 
 /**
@@ -154,6 +160,7 @@ function serversQueryOptions() {
 export function useServers(): UseQueryResult<ServersResponse> & {
   servers: Server[]
 } {
+  const dbRail = useServerRailProjection()
   const queryClient = useQueryClient()
   const unreadProjection = useMemo(
     () => getActiveAccountUnreadProjection(queryClient),
@@ -217,7 +224,7 @@ export function useServers(): UseQueryResult<ServersResponse> & {
   }, [query.data, unreadProjection])
   const projectedServers = useMemo(() => {
     void unreadVersion
-    const raw = query.data?.servers
+    const raw = dbRail?.servers ?? query.data?.servers
     if (!raw) return undefined
     let changed = false
     const projected = raw.map((server) => {
@@ -238,7 +245,7 @@ export function useServers(): UseQueryResult<ServersResponse> & {
       return { ...server, unread, mentions }
     })
     return changed ? projected : raw
-  }, [query.data, unreadExclusion, unreadProjection, unreadVersion])
+  }, [dbRail?.servers, query.data, unreadExclusion, unreadProjection, unreadVersion])
   return {
     ...query,
     servers: projectedServers ?? (EMPTY_SERVERS as Server[]),
@@ -451,6 +458,7 @@ export const serverProjectedQueryFn = (
 export function useServer(
   serverId: string | null,
 ): UseQueryResult<ServerDetail> & { server: ServerDetail | null } {
+  const dbServer = useServerTreeProjection(serverId)
   const queryClient = useQueryClient()
   const unreadProjection = useMemo(
     () => getActiveAccountUnreadProjection(queryClient),
@@ -521,12 +529,13 @@ export function useServer(
   }, [query.data, serverId, unreadProjection])
   const projectedServer = useMemo(() => {
     void unreadVersion
-    if (!query.data || !serverId) return null
+    const source = dbServer ?? query.data
+    if (!source || !serverId) return null
     const sourceByChannel = new Map(
-      (query.data.unreadSources ?? []).map((source) => [source.channelId, source]),
+      (query.data?.unreadSources ?? []).map((source) => [source.channelId, source]),
     )
     let changed = false
-    const categories = query.data.categories.map((category) => {
+    const categories = source.categories.map((category) => {
       let categoryChanged = false
       const channels = category.channels.map((channel) => {
         const forum = query.data?.forumUnreadState?.[channel.id]
@@ -552,8 +561,8 @@ export function useServer(
       changed = true
       return { ...category, channels }
     })
-    return changed ? { ...query.data, categories } : query.data
-  }, [query.data, unreadExclusion, serverId, unreadProjection, unreadVersion])
+    return changed ? { ...source, categories } : source
+  }, [dbServer, query.data, unreadExclusion, serverId, unreadProjection, unreadVersion])
   return {
     ...query,
     server: query.error instanceof ApiError

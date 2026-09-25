@@ -1314,7 +1314,6 @@ export const CommunityAgentSendRequestSchema = z
       .default([]),
     seenUpToSeq: CommunityAgentSeqSchema.optional(),
     replyToSeq: CommunityAgentPositiveSeqSchema.optional(),
-    force: z.boolean().optional(),
     // Idempotency key — generated once per logical message, reused across
     // retries; server dedupes on (author, nonce). Bounded length so a client
     // can't stuff arbitrary data. Absent = no dedup (legacy behavior).

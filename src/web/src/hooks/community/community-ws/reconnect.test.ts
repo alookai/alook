@@ -67,11 +67,6 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     await capturedOnReconnect!({ reconnectDurationMs: 1_000 })
 
     expect(apiFetch).toHaveBeenCalledWith("/api/community/users/self/profile")
-    const { useCommunityWsStore } = await import("@/stores/community/ws")
-    expect(useCommunityWsStore.getState().profilesByUserId.get("self")).toMatchObject({
-      avatar: "/api/community/users/self/avatar?v=7",
-      avatarVersion: 7,
-    })
   })
 
   it("invalidates cached identity surfaces after a reconnect gap", async () => {
@@ -87,18 +82,16 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     const { reconcileCommunityWsReconnect } = await import("./reconnect")
     const { useCommunityWsStore } = await import("@/stores/community/ws")
     const profiles = useCommunityWsStore.getState()
-    profiles.patchProfiles(profiles.beginProfileSnapshot(), [
-      { id: "self", presence: "online" },
-      { id: "peer", presence: "online" },
-    ])
+    profiles.setPresence("self", "online")
+    profiles.setPresence("peer", "online")
 
     await reconcileCommunityWsReconnect(capturedQueryClient, 0, {
       viewerUserId: "self",
     })
 
-    expect(useCommunityWsStore.getState().profilesByUserId.get("self")?.presence)
+    expect(useCommunityWsStore.getState().presenceByUserId.get("self"))
       .toBe("online")
-    expect(useCommunityWsStore.getState().profilesByUserId.get("peer")?.presence)
+    expect(useCommunityWsStore.getState().presenceByUserId.get("peer"))
       .toBe("offline")
   })
 
@@ -312,14 +305,6 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     const { useCommunityStore } = await import("@/stores/community")
     useCommunityStore.getState().setCurrentServerId("srv_open")
     capturedQueryClient.setQueryData(communityKeys.server("srv_open"), { id: "srv_open" })
-    capturedQueryClient.setQueryData(communityKeys.structuralSnapshot(), {
-      schemaVersion: 1,
-      accountId: "viewer",
-      capturedAt: Date.now(),
-      serverOrder: ["srv_open"],
-      folders: [],
-      servers: [],
-    })
     const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
 
     // handleReconnect reads currentServerId via getState() at call time.
@@ -350,11 +335,6 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
         (k) => JSON.stringify(k) === JSON.stringify(communityKeys.members("srv_open")),
       ),
     ).toBe(true)
-    expect(
-      invalidatedKeys.some(
-        (k) => JSON.stringify(k) === JSON.stringify(communityKeys.structuralSnapshot()),
-      ),
-    ).toBe(false)
   })
 
   it("keeps inactive retained/meta/hint data painted while marking it stale", async () => {
@@ -564,18 +544,14 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
   it("isolates a policy rejection and reports only the stable policy key", async () => {
     const { reconcileCommunityWsReconnect } = await import("./reconnect")
     const { useCommunityWsStore } = await import("@/stores/community/ws")
-    const originalPatchProfiles = useCommunityWsStore.getState().patchProfiles
-    let patchCallCount = 0
+    const originalSetPresence = useCommunityWsStore.getState().setPresence
+    originalSetPresence("peer", "online")
     useCommunityWsStore.setState({
-      patchProfiles: (...args) => {
-        patchCallCount += 1
-        if (patchCallCount === 1) throw new Error("private sync detail")
-        return originalPatchProfiles(...args)
-      },
+      setPresence: () => { throw new Error("private sync detail") },
     })
 
     const summary = await reconcileCommunityWsReconnect(capturedQueryClient, 10)
-    useCommunityWsStore.setState({ patchProfiles: originalPatchProfiles })
+    useCommunityWsStore.setState({ setPresence: originalSetPresence })
 
     expect(summary).toMatchObject({ policyCount: 15, successCount: 14, failureCount: 1 })
     expect(telemetry.failure).toHaveBeenCalledWith({
@@ -642,22 +618,17 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     }
   })
 
-  it("resets presence and status overlays before authoritative invalidation starts", async () => {
+  it("resets the presence overlay before authoritative invalidation starts", async () => {
     const { reconcileCommunityWsReconnect } = await import("./reconnect")
     const { useCommunityWsStore } = await import("@/stores/community/ws")
     const store = useCommunityWsStore.getState()
-    store.patchProfiles(store.beginProfileSnapshot(), [{
-      id: "peer",
-      presence: "online",
-      status: { statusEmoji: "🌱", statusText: "Growing" },
-    }])
-    const originalPatchProfiles = useCommunityWsStore.getState().patchProfiles
+    store.setPresence("peer", "online")
+    const originalSetPresence = useCommunityWsStore.getState().setPresence
     const order: string[] = []
     useCommunityWsStore.setState({
-      patchProfiles: (_snapshot, patches) => {
-        if (patches.some((patch) => patch.presence !== undefined)) order.push("presence-reset")
-        if (patches.some((patch) => patch.status !== undefined)) order.push("status-reset")
-        return true
+      setPresence: (userId, presence) => {
+        if (userId === "peer" && presence === "offline") order.push("presence-reset")
+        originalSetPresence(userId, presence)
       },
     })
     const originalInvalidate = capturedQueryClient.invalidateQueries.bind(capturedQueryClient)
@@ -672,11 +643,11 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
 
     await reconcileCommunityWsReconnect(capturedQueryClient)
     useCommunityWsStore.setState({
-      patchProfiles: originalPatchProfiles,
+      setPresence: originalSetPresence,
     })
 
-    expect(order.slice(0, 2)).toEqual(["presence-reset", "status-reset"])
-    expect(order.indexOf("authoritative-invalidate")).toBeGreaterThan(1)
+    expect(order[0]).toBe("presence-reset")
+    expect(order.indexOf("authoritative-invalidate")).toBeGreaterThan(0)
   })
 
   it("waits for focused route reconciliation before starting background domains", async () => {

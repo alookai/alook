@@ -352,7 +352,6 @@ export interface SendRequest {
    * scope is rejected 400 (no cross-scope citing).
    */
   replyToSeq?: Seq;
-  force?: boolean;
   /**
    * Idempotency key (mutation-idempotency plan). Generate ONE per logical
    * message and REUSE it across retries — the server dedupes on
