@@ -422,19 +422,27 @@ function useMessagesInner(
       return { mode: "newer", cursor }
     },
     enabled,
-    ...(opts?.revalidateOnMount === false ? { refetchOnMount: false } : {}),
+    // Explicit mount policy is owned below: `false` skips it, `true` performs
+    // the anchor-normalized observer refetch. Disable TanStack's parallel
+    // mount refetch for both so it cannot replay a pre-resolution pageParam.
+    ...(opts?.revalidateOnMount !== undefined ? { refetchOnMount: false } : {}),
     refetchOnReconnect: false,
     // Message bases are persisted, while accepted/session rows live in an
-    // in-memory overlay. Treat each ordinary active message query as stale so
-    // disabled→enabled activation revalidates even inside the global 5-second
-    // freshness window. Once this mounted observer has seen a real request,
-    // hold it fresh so a later disabled→enabled transition cannot duplicate
-    // that request. TanStack keeps cached pages painted during the fetch. A
-    // nonempty window missing the resolved anchor is also held fresh: Fix 3
-    // below owns that repair and must fetch the NEW anchor page before any
-    // persisted pageParam can replace or discard the existing history.
+    // in-memory overlay. Ordinary observers stay stale; opt-in cached mounts
+    // are held fresh only until the anchor-normalized revalidation below owns
+    // their request. Once this mounted observer has seen a real request, hold
+    // it fresh so a later disabled→enabled transition cannot duplicate that
+    // request. TanStack keeps cached pages painted during the fetch. A nonempty
+    // window missing the resolved anchor is also held fresh: Fix 3 below owns
+    // that repair and must fetch the NEW anchor page before any persisted
+    // pageParam can replace or discard the existing history.
     staleTime: (cachedQuery) => (
-      networkFetchObservedRef.current
+      // Opt-in cached mounts are revalidated explicitly below so the request
+      // can first normalize its semantic page identity. Mark them fresh here
+      // to prevent TanStack's enabled-transition fetch from racing that owner
+      // with a persisted cursor/newest pageParam.
+      (opts?.revalidateOnMount === true && cachedQuery.state.data !== undefined)
+      || networkFetchObservedRef.current
       || cachedWindowNeedsAnchorReconcile(
         cachedQuery.state.data as PageCache | undefined,
         forceNewest ? null : anchorId,
@@ -464,7 +472,7 @@ function useMessagesInner(
     })
   }, [queryClient, queryKey, viewKey])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     let state = activationRevalidationRef.current
     if (state.viewKey !== viewKey) {
       state = { requested: false, viewKey }
@@ -481,16 +489,30 @@ function useMessagesInner(
     // request. Refetch through this observer rather than asking the cache for
     // "active" queries: while PersistQueryClientProvider hands hydration back
     // to React, the mounted observer can briefly fail that cache-level filter.
-    // `cancelRefetch: false` also joins an automatic request already in flight.
+    // An infinite-query refetch replays its first persisted pageParam. Normalize
+    // that identity to this mount's resolved anchor/newest target first: after
+    // older pagination or hydration the stored first param can be a cursor,
+    // which must never outrun the read-state anchor on a retained mount.
+    // Running in layout also starts the semantic revalidation before the
+    // message-list's passive IntersectionObserver can request another page.
     state.requested = true
     if (anchorRepairNeeded || networkFetchObservedRef.current) return
+    queryClient.setQueryData<PageCache>(queryKey, (current) => current
+      ? {
+          ...current,
+          pageParams: [initialPageParam, ...current.pageParams.slice(1)],
+        }
+      : current)
     void refetchMountedObserver({ cancelRefetch: false })
   }, [
     anchorRepairNeeded,
     enabled,
+    initialPageParam,
     isRestoring,
     opts?.revalidateOnMount,
     query.data,
+    queryClient,
+    queryKey,
     refetchMountedObserver,
     viewKey,
   ])
@@ -672,6 +694,18 @@ function useMessagesInner(
   const fetchOlder = useCallback(() => {
     if (!query.hasNextPage) return
     if (query.isFetchingNextPage) return
+    // Initial-position sentinels can intersect while a retained-mount
+    // revalidation is still in flight. Queue their pagination behind that
+    // semantic request instead of letting fetchNextPage cancel it and make a
+    // cursor GET the first completed request for the mount.
+    if (query.isFetching) {
+      void query.refetch({ cancelRefetch: false }).then(() => {
+        // The observer method reads the just-refreshed page/cursor state. If
+        // that page has no older cursor, TanStack resolves without a request.
+        void query.fetchNextPage({ cancelRefetch: false })
+      })
+      return
+    }
     void query.fetchNextPage()
   }, [query])
 
