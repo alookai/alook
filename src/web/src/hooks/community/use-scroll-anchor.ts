@@ -694,6 +694,11 @@ export function useScrollAnchor({
       setPaginationDirection(null)
       return
     }
+    const acceptGeometry = () => {
+      acceptedClientHeightRef.current = root.clientHeight
+      acceptedScrollTopRef.current = root.scrollTop
+      acceptedScrollHeightRef.current = root.scrollHeight
+    }
 
     // Newer pages only add rows below the viewport. Restore the captured
     // numeric position synchronously before any tail-follow or measurement
@@ -702,6 +707,7 @@ export function useScrollAnchor({
     // reconciles its precise visual offset after it remounts.
     if (anchor.direction === "newer") root.scrollTop = anchor.scrollTop
     if (index !== null) virtualizer.scrollToIndex(index, { align: "start" })
+    acceptGeometry()
     let attempts = 0
     let stableFrames = 0
     const restore = () => {
@@ -729,6 +735,7 @@ export function useScrollAnchor({
           stableFrames += 1
         }
       }
+      acceptGeometry()
       attempts += 1
       if (stableFrames >= 2 || attempts >= 12) {
         paginationAnchorRef.current = null

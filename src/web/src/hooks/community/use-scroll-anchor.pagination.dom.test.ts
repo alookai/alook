@@ -75,24 +75,35 @@ function Harness({
 
 describe("useScrollAnchor older-page message anchoring", () => {
   let frames: FrameRequestCallback[]
+  let resizeCallbacks: ResizeObserverCallback[]
+  let clientHeight: number
   let cancelFrame: ReturnType<typeof vi.fn>
   let latest: AnchorResult
 
   beforeEach(() => {
     frames = []
+    resizeCallbacks = []
+    clientHeight = 600
     harness.absoluteTops.clear()
     harness.scroller = null
     harness.scrollToIndex.mockClear()
     harness.virtualizer.scrollToEnd.mockClear()
     harness.virtualizer.options.anchorTo = "end"
     cancelFrame = vi.fn()
-    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} })
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(callback: ResizeObserverCallback) {
+        resizeCallbacks.push(callback)
+      }
+
+      observe() {}
+      disconnect() {}
+    })
     vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
       frames.push(callback)
       return frames.length
     })
     vi.spyOn(window, "cancelAnimationFrame").mockImplementation(cancelFrame)
-    vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(600)
+    vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(() => clientHeight)
     vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(5_000)
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function () {
       const element = this as HTMLElement
@@ -203,6 +214,21 @@ describe("useScrollAnchor older-page message anchoring", () => {
     const items = [day("2026-09-18"), message("anchor")]
     const rendered = runCase(items, items.slice(), 120)
     expect(harness.scrollToIndex).toHaveBeenLastCalledWith(1, { align: "start" })
+    rendered.unmount()
+  })
+
+  it("keeps a settled older-page anchor through the following viewport resize", () => {
+    const initial = [day("2026-09-18"), message("anchor")]
+    const prepended = [day("2026-09-18"), message("older"), message("anchor")]
+    const rendered = runCase(initial, prepended, 520)
+    const anchor = rendered.container.querySelector<HTMLElement>('[data-msg-id="anchor"]')!
+
+    expect(harness.scroller!.scrollTop).toBe(400)
+    clientHeight = 500
+    act(() => resizeCallbacks.at(-1)?.([], {} as ResizeObserver))
+
+    expect(harness.scroller!.scrollTop).toBe(400)
+    expect(anchor.getBoundingClientRect().top).toBe(120)
     rendered.unmount()
   })
 
