@@ -144,6 +144,57 @@ function PaginatingChannelCapture({ lastReadMessageId, onRender }: {
   return null
 }
 
+function LayoutPaginatingChannelCapture({ lastReadMessageId, onRender }: {
+  lastReadMessageId: string
+  onRender: (snapshot: Snapshot) => void
+}) {
+  const result = useMessages("ch_activation", {
+    serverId: "server_1",
+    lastReadMessageId,
+    revalidateOnMount: true,
+  })
+  const fetchOlder = result.fetchOlder
+  const requested = React.useRef(false)
+  React.useLayoutEffect(() => {
+    if (requested.current) return
+    requested.current = true
+    fetchOlder()
+  }, [fetchOlder])
+  onRender({
+    anchorReconciled: result.anchorReconciled,
+    hasMoreNewer: result.hasMoreNewer,
+    ids: result.messages.map((message) => message.id),
+    isFetching: result.isFetching,
+  })
+  return null
+}
+
+function SwitchingLayoutPaginationCapture({ channelId, queueOlder, onRender }: {
+  channelId: string
+  queueOlder: boolean
+  onRender: (snapshot: Snapshot) => void
+}) {
+  const result = useMessages(channelId, {
+    serverId: "server_1",
+    lastReadMessageId: `m_anchor_${channelId}`,
+    revalidateOnMount: queueOlder,
+  })
+  const fetchOlder = result.fetchOlder
+  const queuedFor = React.useRef<string | null>(null)
+  React.useLayoutEffect(() => {
+    if (!queueOlder || queuedFor.current === channelId) return
+    queuedFor.current = channelId
+    fetchOlder()
+  }, [channelId, fetchOlder, queueOlder])
+  onRender({
+    anchorReconciled: result.anchorReconciled,
+    hasMoreNewer: result.hasMoreNewer,
+    ids: result.messages.map((message) => message.id),
+    isFetching: result.isFetching,
+  })
+  return null
+}
+
 function IndependentChannelCapture({ lastReadMessageId, onRender }: {
   lastReadMessageId: string | null | undefined
   onRender: (snapshot: Snapshot) => void
@@ -297,6 +348,7 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
 
     expect(apiFetchMock).toHaveBeenLastCalledWith(
       "/api/community/channels/dm_activation/messages?anchor=m_fresh",
+      { signal: expect.any(AbortSignal) },
     )
     expect(invalidateQueries).not.toHaveBeenCalled()
     expect(snapshots.every((snapshot) => snapshot.ids.length > 0)).toBe(true)
@@ -425,6 +477,46 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
       ([url]) => url.includes("/messages"),
     ).length === 1)
     expect(invalidateQueries).not.toHaveBeenCalled()
+    expect(snapshots.every((snapshot) => snapshot.ids.length > 0)).toBe(true)
+    renderer.unmount()
+  })
+
+  it("does not fabricate cache data if normalization observes a vanished entry", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const cachedPage = {
+      messages: [{ id: "m_anchor", seq: 1, createdAt: "2026-08-09T00:00:00.000Z" }],
+      hasMoreOlder: false,
+      hasMoreNewer: false,
+      latestSeq: 1,
+    } satisfies MessagesPage
+    queryClient.setQueryData(communityKeys.dmMessages("dm_activation"), {
+      pages: [cachedPage],
+      pageParams: [{ mode: "anchor", anchor: "m_anchor" }],
+    })
+    apiFetchMock.mockResolvedValue(cachedPage)
+    const setQueryData = vi.spyOn(queryClient, "setQueryData")
+    setQueryData.mockImplementationOnce(((
+      _queryKey: readonly unknown[],
+      updater: unknown,
+    ) => {
+      expect(typeof updater).toBe("function")
+      expect((updater as (current: undefined) => unknown)(undefined)).toBeUndefined()
+      return undefined
+    }) as typeof queryClient.setQueryData)
+    const snapshots: Snapshot[] = []
+    const renderer = renderCapture(
+      queryClient,
+      React.createElement(RevalidatingDmCapture, {
+        lastReadMessageId: "m_anchor",
+        onRender: (snapshot) => { snapshots.push(snapshot) },
+      }),
+    )
+
+    await waitFor(() => apiFetchMock.mock.calls.length === 1)
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/community/channels/dm_activation/messages?anchor=m_anchor",
+      { signal: expect.any(AbortSignal) },
+    )
     expect(snapshots.every((snapshot) => snapshot.ids.length > 0)).toBe(true)
     renderer.unmount()
   })
@@ -1103,6 +1195,131 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
     )
     await waitFor(() => snapshots.at(-1)?.ids.includes("m_old") === true)
     expect(snapshots.at(-1)?.ids).toEqual(["m_old", "m_anchor"])
+    renderer.unmount()
+  })
+
+  it("keeps cold-restore pagination behind a missing-anchor revalidation", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const key = communityKeys.channelMessages("ch_activation")
+    queryClient.setQueryData(key, {
+      pages: [{
+        messages: [{ id: "m_newest", seq: 3, createdAt: "2026-08-09T00:00:02.000Z" }],
+        hasMore: true,
+        cursor: "persisted-cursor",
+        latestSeq: 3,
+      }],
+      pageParams: [{ mode: "newest" }],
+    })
+    const anchorResponse = deferred<MessagesPage>()
+    apiFetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("?anchor=m_anchor")) return anchorResponse.promise
+      if (url.endsWith("?cursor=fresh-cursor")) {
+        return Promise.resolve({
+          messages: [{ id: "m_old", seq: 1, createdAt: "2026-08-09T00:00:00.000Z" }],
+          hasMoreOlder: false,
+          hasMoreNewer: false,
+          latestSeq: 3,
+        } satisfies MessagesPage)
+      }
+      throw new Error(`unexpected messages URL: ${url}`)
+    })
+    const snapshots: Snapshot[] = []
+    const renderer = renderCapture(
+      queryClient,
+      React.createElement(LayoutPaginatingChannelCapture, {
+        lastReadMessageId: "m_anchor",
+        onRender: (snapshot) => { snapshots.push(snapshot) },
+      }),
+    )
+
+    await waitFor(() => apiFetchMock.mock.calls.length === 1)
+    expect(apiFetchMock.mock.calls[0]?.[0]).toBe(
+      "/api/community/channels/ch_activation/messages?anchor=m_anchor",
+    )
+
+    anchorResponse.resolve({
+      messages: [{ id: "m_anchor", seq: 2, createdAt: "2026-08-09T00:00:01.000Z" }],
+      hasMoreOlder: true,
+      hasMoreNewer: false,
+      olderCursor: "fresh-cursor",
+      latestSeq: 3,
+    })
+    await waitFor(() => apiFetchMock.mock.calls.length === 2)
+    expect(apiFetchMock.mock.calls[1]?.[0]).toBe(
+      "/api/community/channels/ch_activation/messages?cursor=fresh-cursor",
+    )
+    await waitFor(() => snapshots.at(-1)?.ids.includes("m_old") === true)
+    expect(snapshots.at(-1)?.ids).toEqual(["m_old", "m_anchor"])
+    expect(apiFetchMock.mock.calls.some(
+      ([url]) => url.includes("cursor=persisted-cursor"),
+    )).toBe(false)
+    renderer.unmount()
+  })
+
+  it("drops queued pagination when the conversation changes during revalidation", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    queryClient.setQueryData(communityKeys.channelMessages("ch_a"), {
+      pages: [{
+        messages: [{ id: "m_newest_a", seq: 3, createdAt: "2026-08-09T00:00:02.000Z" }],
+        hasMore: true,
+        cursor: "persisted-cursor-a",
+        latestSeq: 3,
+      }],
+      pageParams: [{ mode: "newest" }],
+    })
+    queryClient.setQueryData(communityKeys.channelMessages("ch_b"), {
+      pages: [{
+        messages: [{ id: "m_anchor_ch_b", seq: 4, createdAt: "2026-08-09T00:00:03.000Z" }],
+        hasMoreOlder: false,
+        hasMoreNewer: false,
+        latestSeq: 4,
+      }],
+      pageParams: [{ mode: "anchor", anchor: "m_anchor_ch_b" }],
+    })
+    const anchorResponse = deferred<MessagesPage>()
+    apiFetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("/ch_a/messages?anchor=m_anchor_ch_a")) return anchorResponse.promise
+      if (url.endsWith("/ch_b/messages?anchor=m_anchor_ch_b")) {
+        return Promise.resolve({
+          messages: [{ id: "m_anchor_ch_b", seq: 4, createdAt: "2026-08-09T00:00:03.000Z" }],
+          hasMoreOlder: false,
+          hasMoreNewer: false,
+          latestSeq: 4,
+        } satisfies MessagesPage)
+      }
+      throw new Error(`unexpected messages URL: ${url}`)
+    })
+    const snapshots: Snapshot[] = []
+    const view = (channelId: string, queueOlder: boolean) => React.createElement(
+      SwitchingLayoutPaginationCapture,
+      {
+        channelId,
+        queueOlder,
+        onRender: (snapshot: Snapshot) => { snapshots.push(snapshot) },
+      },
+    )
+    const renderer = renderCapture(queryClient, view("ch_a", true))
+
+    await waitFor(() => apiFetchMock.mock.calls.length === 1)
+    expect(apiFetchMock.mock.calls[0]?.[0]).toBe(
+      "/api/community/channels/ch_a/messages?anchor=m_anchor_ch_a",
+    )
+    updateCapture(renderer, queryClient, view("ch_b", false))
+
+    anchorResponse.resolve({
+      messages: [{ id: "m_anchor_ch_a", seq: 2, createdAt: "2026-08-09T00:00:01.000Z" }],
+      hasMoreOlder: true,
+      hasMoreNewer: false,
+      olderCursor: "fresh-cursor-a",
+      latestSeq: 3,
+    })
+    await act(async () => { await anchorResponse.promise })
+    await act(async () => { await Promise.resolve() })
+    expect(apiFetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "/api/community/channels/ch_a/messages?anchor=m_anchor_ch_a",
+      "/api/community/channels/ch_b/messages?anchor=m_anchor_ch_b",
+    ])
+    expect(snapshots.at(-1)?.ids).toEqual(["m_anchor_ch_b"])
     renderer.unmount()
   })
 })

@@ -333,6 +333,12 @@ type PresentOverride = {
   viewKey: string
 }
 
+type ActivationRevalidationState = {
+  pending: Promise<unknown> | null
+  requested: boolean
+  viewKey: string
+}
+
 // Shared pagination + reducer used by both channel and DM hooks. Kept inline
 // as a hook because both variants need the same TanStack setup — factoring
 // out a plain function would leak query internals; a hook stays clean.
@@ -365,7 +371,8 @@ function useMessagesInner(
     () => JSON.stringify([queryKey, opts?.anchorMessageId ?? null]),
     [queryKey, opts?.anchorMessageId],
   )
-  const activationRevalidationRef = useRef({
+  const activationRevalidationRef = useRef<ActivationRevalidationState>({
+    pending: null,
     requested: false,
     viewKey,
   })
@@ -475,7 +482,7 @@ function useMessagesInner(
   useLayoutEffect(() => {
     let state = activationRevalidationRef.current
     if (state.viewKey !== viewKey) {
-      state = { requested: false, viewKey }
+      state = { pending: null, requested: false, viewKey }
       activationRevalidationRef.current = state
     }
     if (isRestoring || state.requested) return
@@ -496,14 +503,19 @@ function useMessagesInner(
     // Running in layout also starts the semantic revalidation before the
     // message-list's passive IntersectionObserver can request another page.
     state.requested = true
-    if (anchorRepairNeeded || networkFetchObservedRef.current) return
+    if (networkFetchObservedRef.current) return
     queryClient.setQueryData<PageCache>(queryKey, (current) => current
       ? {
           ...current,
           pageParams: [initialPageParam, ...current.pageParams.slice(1)],
         }
       : current)
-    void refetchMountedObserver({ cancelRefetch: false })
+    const request = refetchMountedObserver({ cancelRefetch: false })
+    state.pending = request
+    const clearPending = () => {
+      if (state.pending === request) state.pending = null
+    }
+    void request.then(clearPending, clearPending)
   }, [
     anchorRepairNeeded,
     enabled,
@@ -578,6 +590,10 @@ function useMessagesInner(
     if (!enabled) return
     if (forceNewest) return
     if (!anchorId) return
+    // The opt-in mount owner has already normalized the first page to this
+    // anchor and started its observer refetch. Do not launch the independent
+    // repair path in the same commit before the observer update is rendered.
+    if (activationRevalidationRef.current.pending) return
     if (query.isFetching) return
     if (query.isPending) return
     if (!anchorRepairNeeded || !messageQuery) return
@@ -692,8 +708,19 @@ function useMessagesInner(
   // internal state change — closing over the whole query object keeps the
   // exhaustive-deps rule happy without spelling every subfield.
   const fetchOlder = useCallback(() => {
+    if (!enabled) return
     if (!query.hasNextPage) return
     if (query.isFetchingNextPage) return
+    const activationRequest = activationRevalidationRef.current.viewKey === viewKey
+      ? activationRevalidationRef.current.pending
+      : null
+    if (activationRequest) {
+      void activationRequest.then(() => {
+        if (activationRevalidationRef.current.viewKey !== viewKey) return
+        void query.fetchNextPage({ cancelRefetch: false })
+      })
+      return
+    }
     // Initial-position sentinels can intersect while a retained-mount
     // revalidation is still in flight. Queue their pagination behind that
     // semantic request instead of letting fetchNextPage cancel it and make a
@@ -707,7 +734,7 @@ function useMessagesInner(
       return
     }
     void query.fetchNextPage()
-  }, [query])
+  }, [enabled, query, viewKey])
 
   const fetchNewer = useCallback(() => {
     if (!query.hasPreviousPage) return
