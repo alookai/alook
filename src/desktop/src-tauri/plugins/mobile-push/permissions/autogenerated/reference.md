@@ -36,6 +36,32 @@ Denies the acknowledgeRegistration command without any pre-configured scope.
 <tr>
 <td>
 
+`mobile-push:allow-dismissNotification`
+
+</td>
+<td>
+
+Enables the dismissNotification command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mobile-push:deny-dismissNotification`
+
+</td>
+<td>
+
+Denies the dismissNotification command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `mobile-push:allow-listen`
 
 </td>

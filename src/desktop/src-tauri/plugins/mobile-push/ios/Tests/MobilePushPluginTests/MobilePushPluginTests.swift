@@ -70,8 +70,14 @@ final class MobilePushPluginTests: XCTestCase {
       messageId: "message_1",
       targetId: "channel_2"
     )
-    store.saveActivation(route)
+    store.saveActivation(route, deliveredNotificationIdentifier: "apns-delivered-1")
     XCTAssertEqual(store.takeActivation(), route)
     XCTAssertNil(store.takeActivation())
+    XCTAssertNil(store.takeDeliveredNotificationIdentifier(for: "another-notification"))
+    XCTAssertEqual(
+      store.takeDeliveredNotificationIdentifier(for: route.notificationId),
+      "apns-delivered-1"
+    )
+    XCTAssertNil(store.takeDeliveredNotificationIdentifier(for: route.notificationId))
   }
 }

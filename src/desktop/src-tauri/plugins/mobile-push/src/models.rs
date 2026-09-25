@@ -32,6 +32,12 @@ pub struct AcknowledgeRequest {
     pub provider_token: String,
 }
 
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DismissRequest {
+    pub notification_id: String,
+}
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ListenRequest {

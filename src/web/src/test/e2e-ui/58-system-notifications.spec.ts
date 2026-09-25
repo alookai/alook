@@ -23,12 +23,25 @@ async function installDesktopNotificationBridge(
     const usedKey = initialActivation
       ? `notification-activation:${initialActivation.notificationId}`
       : ""
+    const dismissedKey = "qa-desktop-notification-dismissed"
+    const dismissed = JSON.parse(sessionStorage.getItem(dismissedKey) ?? "[]") as unknown[]
     let pending = initialActivation && sessionStorage.getItem(usedKey) !== "used"
       ? initialActivation
       : null
     const state = {
       shows: [] as unknown[],
+      dismissed,
+      retryActivations: [] as unknown[],
       listener: null as null | { onmessage?: (value: unknown) => void },
+      click: () => undefined,
+    }
+    let activated = pending === null && initialActivation !== null
+    state.click = () => {
+      if (!initialActivation || activated) return
+      activated = true
+      pending = initialActivation
+      sessionStorage.setItem(usedKey, "used")
+      state.listener?.onmessage?.(undefined)
     }
     class Channel {
       onmessage?: (value: unknown) => void
@@ -51,11 +64,28 @@ async function installDesktopNotificationBridge(
             if (command === "desktop_system_notification_take_activation") {
               const value = pending
               pending = null
-              if (value) sessionStorage.setItem(usedKey, "used")
+              if (value) {
+                activated = true
+                sessionStorage.setItem(usedKey, "used")
+              }
               return value
+            }
+            if (command === "desktop_system_notification_retry_activation") {
+              const notificationId = args?.notificationId
+              if (notificationId !== initialActivation?.notificationId || !activated) {
+                throw new Error("activation_unavailable")
+              }
+              activated = false
+              state.retryActivations.push(notificationId)
+              return undefined
             }
             if (command === "desktop_system_notification_show") {
               state.shows.push(args?.candidate)
+              return undefined
+            }
+            if (command === "desktop_system_notification_dismiss") {
+              state.dismissed.push(args?.notificationId)
+              sessionStorage.setItem(dismissedKey, JSON.stringify(state.dismissed))
               return undefined
             }
             return undefined
@@ -70,6 +100,24 @@ async function shownNotifications(page: Page) {
   return page.evaluate(() => (
     window as typeof window & { __desktopNotificationTest: { shows: unknown[] } }
   ).__desktopNotificationTest.shows)
+}
+
+async function dismissedNotifications(page: Page) {
+  return page.evaluate(() => (
+    window as typeof window & { __desktopNotificationTest: { dismissed: unknown[] } }
+  ).__desktopNotificationTest.dismissed)
+}
+
+async function retriedNotifications(page: Page) {
+  return page.evaluate(() => (
+    window as typeof window & { __desktopNotificationTest: { retryActivations: unknown[] } }
+  ).__desktopNotificationTest.retryActivations)
+}
+
+async function clickDesktopNotification(page: Page) {
+  await page.evaluate(() => (
+    window as typeof window & { __desktopNotificationTest: { click: () => void } }
+  ).__desktopNotificationTest.click())
 }
 
 test.describe.serial("desktop system notifications", () => {
@@ -117,6 +165,9 @@ test.describe.serial("desktop system notifications", () => {
 
     await gotoAfterUserWsAuth(bob.page, "/c/me/friends")
     await expect(bob.page).toHaveURL(new RegExp(`/c/channels/${serverId}/${channelId}`))
+    await expect.poll(() => dismissedNotifications(bob.page)).toEqual([
+      "4f3bb3fd-5d7f-4a26-8e0e-3ddd1154f71e",
+    ])
     await expect(bob.page.getByTestId(tid.message(messageId))).toBeVisible({ timeout: 30_000 })
   })
 
@@ -134,5 +185,40 @@ test.describe.serial("desktop system notifications", () => {
     })
     await gotoAfterUserWsAuth(bob.page, "/c/me/friends")
     await expect(bob.page.getByTestId(tid.inboxTrigger)).toHaveAttribute("aria-expanded", "true")
+    expect(await dismissedNotifications(bob.page)).toEqual([])
+  })
+
+  test("a transient validation failure re-arms the exact notification for a later click", async ({ asUser }) => {
+    test.setTimeout(90_000)
+    const stamp = Date.now()
+    const serverId = await seedServer("alice", `notification-retry-${stamp}`)
+    const channelId = await seedChannel("alice", serverId, `notification-retry-${stamp}`)
+    await seedJoinServer("alice", "bob", serverId)
+    const messageId = await seedMessage("alice", channelId, `Retry activation ${stamp}`)
+    const notificationId = "4f3bb3fd-5d7f-4a26-8e0e-3ddd1154f720"
+    const bob = await asUser("bob")
+    let attempts = 0
+    await bob.page.route(`**/api/community/messages/${messageId}`, async (route) => {
+      attempts += 1
+      if (attempts === 1) {
+        await route.fulfill({ status: 503, body: "temporarily unavailable" })
+        return
+      }
+      await route.continue()
+    })
+    await installDesktopNotificationBridge(bob.page, {
+      notificationId,
+      target: { kind: "server", serverId, channelId, messageId, seq: 1 },
+    })
+
+    await gotoAfterUserWsAuth(bob.page, "/c/me/friends")
+    await expect(bob.page.getByTestId(tid.inboxTrigger)).toHaveAttribute("aria-expanded", "true")
+    await expect.poll(() => retriedNotifications(bob.page)).toEqual([notificationId])
+    expect(await dismissedNotifications(bob.page)).toEqual([])
+
+    await clickDesktopNotification(bob.page)
+    await expect(bob.page).toHaveURL(new RegExp(`/c/channels/${serverId}/${channelId}`))
+    await expect.poll(() => dismissedNotifications(bob.page)).toEqual([notificationId])
+    expect(attempts).toBe(2)
   })
 })

@@ -6,15 +6,17 @@ import { tid } from "./_fixtures/testids"
 import { WEB_URL } from "./_setup/paths"
 
 type Activation = { notificationId: string; messageId: string; targetId: string }
-type Bridge = { pending: Activation | null; listener: unknown; takes: number; visibility: DocumentVisibilityState }
+type Bridge = { pending: Activation | null; listener: unknown; takes: number; dismissed: string[]; visibility: DocumentVisibilityState }
 
 async function installMobileBridge(page: Page, activation: Activation | null) {
   await page.addInitScript((initial) => {
     const key = `qa-mobile-consumed:${initial?.notificationId}`
+    const dismissedKey = "qa-mobile-notification-dismissed"
     const state: Bridge = {
       pending: initial && !sessionStorage.getItem(key) ? initial : null,
       listener: null,
       takes: 0,
+      dismissed: JSON.parse(sessionStorage.getItem(dismissedKey) ?? "[]") as string[],
       visibility: "visible",
     }
     Object.defineProperty(document, "visibilityState", { configurable: true, get: () => state.visibility })
@@ -32,6 +34,11 @@ async function installMobileBridge(page: Page, activation: Activation | null) {
           return value
         }
         if (command === "mobile_system_notification_check_permission" || command === "mobile_system_notification_request_permission") return { permissionState: "prompt" }
+        if (command === "mobile_system_notification_dismiss") {
+          state.dismissed.push(args?.notificationId as string)
+          sessionStorage.setItem(dismissedKey, JSON.stringify(state.dismissed))
+          return undefined
+        }
         return undefined
       } } },
     })
@@ -127,6 +134,9 @@ test.describe("mobile notification chat routes (native bridge simulation)", () =
         expect(payload.messages).toEqual(expect.arrayContaining([expect.objectContaining({ id: messageId })]))
         const path = surface === "dm" ? `/c/me/${targetId}` : `/c/channels/${serverId}/${targetId}`
         await expect(page).toHaveURL(`${WEB_URL}${path}`)
+        await expect.poll(() => page.evaluate(() => (
+          window as typeof window & { __mobileNotificationQa: Bridge }
+        ).__mobileNotificationQa.dismissed)).toEqual([activation.notificationId])
         await expect(composerEditable(page)).toBeVisible({ timeout: 30_000 })
         await expect(page.getByTestId(tid.message(messageId))).toBeVisible()
         await expect(page.locator('[data-slot="sheet-content"]')).toHaveCount(0)
@@ -154,6 +164,9 @@ test.describe("mobile notification chat routes (native bridge simulation)", () =
       expect([403, 404]).toContain(status)
       await expect(page.getByTestId(tid.inboxTrigger)).toHaveAttribute("aria-expanded", "true")
       await expect(page).toHaveURL(`${WEB_URL}${route}`)
+      expect(await page.evaluate(() => (
+        window as typeof window & { __mobileNotificationQa: Bridge }
+      ).__mobileNotificationQa.dismissed)).toEqual([])
       await testInfo.attach("fallback-evidence", { body: JSON.stringify({ kind, status, url: page.url() }), contentType: "application/json" })
     })
   }

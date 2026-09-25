@@ -32,6 +32,10 @@ impl<R: Runtime> MobilePush<R> {
         Err(Error::unavailable("Mobile push is unavailable"))
     }
 
+    pub async fn dismiss_notification(&self, _notification_id: String) -> Result<(), Error> {
+        Err(Error::unavailable("Mobile push is unavailable"))
+    }
+
     pub async fn listen(&self, _channel: Channel<()>) -> Result<u64, Error> {
         Err(Error::unavailable("Mobile push is unavailable"))
     }

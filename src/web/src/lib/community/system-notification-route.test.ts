@@ -73,7 +73,10 @@ describe("desktop system notification routes", () => {
       status: 200,
       headers: { "content-type": "application/json" },
     }))
-    await expect(revalidateDesktopSystemNotificationTarget(activation.target, fetchImpl)).resolves.toBe(true)
+    await expect(revalidateDesktopSystemNotificationTarget(
+      activation.target,
+      fetchImpl,
+    )).resolves.toBe("allowed")
     expect(fetchImpl).toHaveBeenCalledWith("/api/community/messages/message_3", {
       method: "GET",
       credentials: "same-origin",
@@ -88,21 +91,33 @@ describe("desktop system notification routes", () => {
     }))
     vi.stubGlobal("fetch", fetchImpl)
 
-    await expect(revalidateDesktopSystemNotificationTarget(activation.target)).resolves.toBe(true)
+    await expect(revalidateDesktopSystemNotificationTarget(activation.target)).resolves.toBe("allowed")
     expect(fetchImpl).toHaveBeenCalledOnce()
   })
 
-  it("rejects deleted, revoked, malformed, and mismatched responses", async () => {
+  it("classifies deleted and revoked targets as permanently invalid", async () => {
     for (const response of [
       new Response(null, { status: 404 }),
       new Response(null, { status: 403 }),
-      new Response("nope", { status: 200 }),
-      new Response(JSON.stringify({ id: "other" }), { status: 200 }),
     ]) {
       await expect(revalidateDesktopSystemNotificationTarget(
         activation.target,
         vi.fn(async () => response),
-      )).resolves.toBe(false)
+      )).resolves.toBe("invalid")
+    }
+  })
+
+  it("classifies network, server, malformed, and mismatched responses as retryable", async () => {
+    for (const fetchImpl of [
+      vi.fn(async () => { throw new Error("offline") }),
+      vi.fn(async () => new Response(null, { status: 503 })),
+      vi.fn(async () => new Response("nope", { status: 200 })),
+      vi.fn(async () => new Response(JSON.stringify({ id: "other" }), { status: 200 })),
+    ]) {
+      await expect(revalidateDesktopSystemNotificationTarget(
+        activation.target,
+        fetchImpl,
+      )).resolves.toBe("retryable")
     }
   })
 })

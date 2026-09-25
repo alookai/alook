@@ -95,6 +95,7 @@ fn run_mobile(mut builder: tauri::Builder<tauri::Wry>) {
         mobile_system_notification_runtime::mobile_system_notification_snapshot,
         mobile_system_notification_runtime::mobile_system_notification_acknowledge_registration,
         mobile_system_notification_runtime::mobile_system_notification_take_activation,
+        mobile_system_notification_runtime::mobile_system_notification_dismiss,
         mobile_system_notification_runtime::mobile_system_notification_listen,
         mobile_system_notification_runtime::mobile_system_notification_unlisten,
         native_oauth_runtime::native_oauth_snapshot,
@@ -168,6 +169,8 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
         system_notifications::desktop_system_notification_show,
         system_notifications::desktop_system_notification_listen,
         system_notifications::desktop_system_notification_take_activation,
+        system_notifications::desktop_system_notification_retry_activation,
+        system_notifications::desktop_system_notification_dismiss,
         system_notifications::desktop_system_notification_unlisten,
     ]);
 

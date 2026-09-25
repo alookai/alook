@@ -11,6 +11,10 @@ const MAX_RECENT: usize = 256;
 const ACTIVATION_SCHEME: &str = "ai.alook.desktop";
 const ACTIVATION_HOST: &str = "notification";
 const ACTIVATION_PATH: &str = "/open";
+#[cfg(windows)]
+const WINDOWS_APP_ID: &str = "ai.alook.desktop";
+#[cfg(windows)]
+const WINDOWS_NOTIFICATION_GROUP: &str = "messages";
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
@@ -167,6 +171,18 @@ impl NotificationRecord {
             notification_id: item.notification_id.clone(),
             target: item.target.clone(),
         })
+    }
+
+    fn retry_activation(&mut self, notification_id: &str) -> bool {
+        let Some(item) = self
+            .recent
+            .iter_mut()
+            .find(|item| item.notification_id == notification_id && item.activated)
+        else {
+            return false;
+        };
+        item.activated = false;
+        true
     }
 }
 
@@ -460,6 +476,69 @@ pub fn desktop_system_notification_take_activation(
         .take())
 }
 
+#[tauri::command]
+pub fn desktop_system_notification_retry_activation(
+    window: WebviewWindow,
+    state: tauri::State<'_, DesktopSystemNotificationState>,
+    notification_id: String,
+) -> Result<(), &'static str> {
+    guard(&window)?;
+    if !valid_notification_id(&notification_id) {
+        return Err("notification_invalid");
+    }
+    state.transact(|record| {
+        if record.retry_activation(&notification_id) {
+            Ok(())
+        } else {
+            Err("activation_unavailable")
+        }
+    })
+}
+
+#[tauri::command]
+pub fn desktop_system_notification_dismiss(
+    window: WebviewWindow,
+    notification_id: String,
+) -> Result<(), &'static str> {
+    guard(&window)?;
+    if !valid_notification_id(&notification_id) {
+        return Err("notification_invalid");
+    }
+    dismiss_notification(&notification_id).map_err(|_| "notification_unavailable")
+}
+
+#[cfg(target_os = "macos")]
+fn dismiss_notification(notification_id: &str) -> Result<(), ()> {
+    use objc2_foundation::{NSArray, NSString};
+    use objc2_user_notifications::UNUserNotificationCenter;
+
+    let identifier = NSString::from_str(notification_id);
+    let identifiers = NSArray::from_slice(&[&*identifier]);
+    UNUserNotificationCenter::currentNotificationCenter()
+        .removeDeliveredNotificationsWithIdentifiers(&identifiers);
+    Ok(())
+}
+
+#[cfg(windows)]
+fn dismiss_notification(notification_id: &str) -> Result<(), ()> {
+    use windows::core::HSTRING;
+    use windows::UI::Notifications::ToastNotificationManager;
+
+    ToastNotificationManager::History()
+        .map_err(|_| ())?
+        .RemoveGroupedTagWithId(
+            &HSTRING::from(notification_id),
+            &HSTRING::from(WINDOWS_NOTIFICATION_GROUP),
+            &HSTRING::from(WINDOWS_APP_ID),
+        )
+        .map_err(|_| ())
+}
+
+#[cfg(target_os = "linux")]
+fn dismiss_notification(_notification_id: &str) -> Result<(), ()> {
+    Ok(())
+}
+
 #[cfg(target_os = "macos")]
 async fn display_notification(
     _app: &AppHandle,
@@ -626,8 +705,14 @@ async fn display_notification(
     let document = XmlDocument::new().map_err(|_| ())?;
     document.LoadXml(&HSTRING::from(xml)).map_err(|_| ())?;
     let toast = ToastNotification::CreateToastNotification(&document).map_err(|_| ())?;
+    toast
+        .SetTag(&HSTRING::from(notification_id))
+        .map_err(|_| ())?;
+    toast
+        .SetGroup(&HSTRING::from(WINDOWS_NOTIFICATION_GROUP))
+        .map_err(|_| ())?;
     let notifier =
-        ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from("ai.alook.desktop"))
+        ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(WINDOWS_APP_ID))
             .map_err(|_| ())?;
     notifier.Show(&toast).map_err(|_| ())
 }
@@ -726,12 +811,18 @@ mod tests {
     }
 
     #[test]
-    fn activation_is_one_shot_and_restorable() {
+    fn activation_is_one_shot_until_an_exact_retry_and_restorable() {
         let mut record = NotificationRecord::new();
         let id = record.claim(&candidate("viewer_1", "message_1")).unwrap();
         assert_eq!(record.activate(&id).unwrap().target, target("message_1"));
         assert!(record.activate(&id).is_none());
-        let restored = NotificationRecord::restore(serde_json::to_value(record).unwrap()).unwrap();
+        assert!(!record.retry_activation("00000000-0000-0000-0000-000000000000"));
+        assert!(record.retry_activation(&id));
+        assert!(!record.retry_activation(&id));
+        let mut restored =
+            NotificationRecord::restore(serde_json::to_value(record).unwrap()).unwrap();
+        assert!(!restored.recent[0].activated);
+        assert_eq!(restored.activate(&id).unwrap().target, target("message_1"));
         assert!(restored.recent[0].activated);
     }
 

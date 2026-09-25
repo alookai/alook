@@ -1,6 +1,7 @@
 use crate::mobile_system_notification::{
-    validate_activation, validate_permission, validate_provider_token, validate_snapshot,
-    Activation, MobileSystemNotificationError, PermissionResponse, RegistrationSnapshot,
+    validate_activation, validate_notification_id, validate_permission, validate_provider_token,
+    validate_snapshot, Activation, MobileSystemNotificationError, PermissionResponse,
+    RegistrationSnapshot,
 };
 use crate::native_command_guard::guard;
 use tauri::{ipc::Channel, Manager, WebviewWindow};
@@ -92,6 +93,22 @@ pub async fn mobile_system_notification_take_activation(
         message_id: value.message_id,
         target_id: value.target_id,
     }))
+}
+
+#[tauri::command]
+pub async fn mobile_system_notification_dismiss(
+    window: WebviewWindow,
+    notification_id: String,
+) -> Result<(), MobileSystemNotificationError> {
+    guard(&window)
+        .map_err(|code| MobileSystemNotificationError::new(code, "Caller is not trusted"))?;
+    validate_notification_id(&notification_id)?;
+    window
+        .app_handle()
+        .mobile_push()
+        .dismiss_notification(notification_id)
+        .await?;
+    Ok(())
 }
 
 #[tauri::command]
