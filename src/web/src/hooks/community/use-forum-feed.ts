@@ -97,7 +97,6 @@ export function mapForumFeedPages(
       createdAtById.set(thread.id, thread.createdAt)
       const rawOpener = thread.parentMessageId ? openerById.get(thread.parentMessageId) : undefined
       const canonicalOpener = rawOpener ? canonicalMessages?.get(rawOpener.id) : undefined
-      if (canonicalMessages && rawOpener && !canonicalOpener) continue
       const opener = rawOpener && canonicalOpener
         ? {
             ...rawOpener,

@@ -159,11 +159,8 @@ export function usePins(channelId: string | null): UseQueryResult<PinsResponse> 
   })
   return {
     ...query,
-    pins: canonicalMessages
-      ? (query.data?.pins ?? []).flatMap((message) => {
-          const canonical = canonicalMessages.get(message.id)
-          return canonical ? [canonical] : []
-        })
-      : query.data?.pins ?? (EMPTY_PINS as Msg[]),
+    pins: query.data?.pins
+      ? query.data.pins.map((message) => canonicalMessages?.get(message.id) ?? message)
+      : (EMPTY_PINS as Msg[]),
   }
 }

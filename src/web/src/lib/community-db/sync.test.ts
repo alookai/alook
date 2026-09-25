@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import type { CommunityWsEvent } from "@alook/shared"
 import { communityKeys } from "@/lib/query-keys"
 import { getAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
+import { rememberMessageAccessScope } from "./message-access-scope"
 import { getLastChannel, setLastChannel } from "@/lib/community/last-channel"
 import {
   getLastMeLeaf,
@@ -384,6 +385,29 @@ describe("community DB sync", () => {
     expect(db.collections.channels.get("dm1")).toBeDefined()
   })
 
+  it("purges a scoped raw single-message query before it materializes canonically", async () => {
+    const db = await registry()
+    rememberMessageAccessScope(db.queryClient, "cold-opener", {
+      channelId: "detail-not-loaded",
+      serverId: "s1",
+    })
+    db.queryClient.setQueryData(communityKeys.message("cold-opener"), {
+      id: "cold-opener",
+      type: "chat",
+      authorId: "peer",
+      authorName: "Peer",
+      authorAvatar: "P",
+      authorAvatarVersion: 0,
+      content: "raw only",
+      createdAt: "2026-09-25T00:00:00.000Z",
+    })
+
+    expect(db.collections.messages.get("cold-opener")).toBeUndefined()
+    purgeCommunityServer(db, "s1")
+
+    expect(db.queryClient.getQueryState(communityKeys.message("cold-opener"))).toBeUndefined()
+  })
+
   it("purges only the selected child channel without removing its parent or siblings", async () => {
     const db = await registry()
     ingestServerDetail(db, {
@@ -572,8 +596,10 @@ describe("community DB sync", () => {
       content: "edited",
       reactions: [{ emoji: "👍", count: 1, me: true, userIds: ["viewer"] }],
     })
+    db.queryClient.setQueryData(communityKeys.message("pin"), message("pin", "stale"))
     purgeCommunityChannel(db, "c1")
     expect(db.collections.messages.size).toBe(0)
+    expect(db.queryClient.getQueryState(communityKeys.message("pin"))).toBeUndefined()
     uninstall()
   })
 

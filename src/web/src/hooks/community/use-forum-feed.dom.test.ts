@@ -212,7 +212,7 @@ describe("mapForumFeedPages", () => {
       },
     ]
 
-    const result = mapForumFeedPages(pages)
+    const result = mapForumFeedPages(pages, new Map())
     expect(result.map((thread) => thread.id)).toEqual(["t1", "t2"])
     expect(result[1]).toMatchObject({
       name: "  Opener title  ",

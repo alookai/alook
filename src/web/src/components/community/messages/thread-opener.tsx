@@ -35,6 +35,8 @@ import { RemoteContentImage } from "@/components/remote-image/remote-image"
 // reflect here without a page reload once the mutation invalidates this key.
 export function ThreadOpener({
   parentMessageId,
+  parentChannelId,
+  serverId,
   viewerUserId,
   onOpenProfile,
   onPreviewImage,
@@ -46,6 +48,8 @@ export function ThreadOpener({
   onInsertMentionText,
 }: {
   parentMessageId: string
+  parentChannelId: string | null
+  serverId: string
   viewerUserId: string
   onOpenProfile?: OpenProfile
   onPreviewImage?: (image: ImagePreview) => void
@@ -59,7 +63,10 @@ export function ThreadOpener({
   onJump?: () => void
 }) {
   const hoverCapable = useHoverCapable()
-  const { message: msg, isLoading, isError } = useMessage(parentMessageId)
+  const { message: msg, isLoading, isError } = useMessage(parentMessageId, {
+    ...(parentChannelId ? { channelId: parentChannelId } : {}),
+    serverId,
+  })
   const authorProfile = useCanonicalCommunityProfile(msg?.authorId)
   const mentionText = msg ? resolveAuthorMentionText?.(msg.authorId) ?? null : null
   const avatarMention = useMobileAvatarMention({

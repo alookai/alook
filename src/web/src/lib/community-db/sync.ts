@@ -21,6 +21,7 @@ import { useCommunityWsStore } from "@/stores/community/ws"
 import { useMessageStreamStore } from "@/stores/community/message-stream"
 import { clearTypingIndicator } from "@/hooks/community/community-ws/typing"
 import { getAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
+import { takeMessageIdsForAccessScope } from "./message-access-scope"
 import { clearLastChannel, getLastChannel } from "@/lib/community/last-channel"
 import { clearLastMeLocation, getLastMeLeaf } from "@/lib/community/last-me-location"
 import {
@@ -281,6 +282,22 @@ function clearChannelTransientState(
   channelIds: ReadonlySet<string>,
   serverId: string | null,
 ) {
+  const messageIds = new Set([
+    ...takeMessageIdsForAccessScope(registry.queryClient, channelIds, serverId),
+    ...collectionRows(registry, "messages", messageSchema)
+      .filter((row) => channelIds.has(row.channelId))
+      .map((row) => row.id),
+  ])
+  for (const messageId of messageIds) {
+    void registry.queryClient.cancelQueries({
+      queryKey: communityKeys.message(messageId),
+      exact: true,
+    })
+    registry.queryClient.removeQueries({
+      queryKey: communityKeys.message(messageId),
+      exact: true,
+    })
+  }
   if (channelIds.size === 0) return
   for (const entry of useMessageStreamStore.getState().entries.values()) {
     if (channelIds.has(entry.scope.id)) useMessageStreamStore.getState().removeScope(entry.scope)

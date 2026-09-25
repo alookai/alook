@@ -224,7 +224,21 @@ export function useServers(): UseQueryResult<ServersResponse> & {
   }, [query.data, unreadProjection])
   const projectedServers = useMemo(() => {
     void unreadVersion
-    const raw = dbRail?.servers ?? query.data?.servers
+    const queryServers = query.data?.servers
+    const raw = queryServers
+      ? queryServers.flatMap((server) => {
+          if (!unreadProjection.allowsAccess({ serverId: server.id })) return []
+          const canonical = dbRail?.servers.find((candidate) => candidate.id === server.id)
+          return canonical ? [{
+            ...server,
+            ...canonical,
+            unread: server.unread,
+            mentions: server.mentions,
+            ...(server.unreadSources ? { unreadSources: server.unreadSources } : {}),
+            ...(server.mentionSources ? { mentionSources: server.mentionSources } : {}),
+          }] : [server]
+        })
+      : dbRail?.servers.filter((server) => unreadProjection.allowsAccess({ serverId: server.id }))
     if (!raw) return undefined
     let changed = false
     const projected = raw.map((server) => {

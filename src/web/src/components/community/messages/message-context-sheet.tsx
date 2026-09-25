@@ -223,12 +223,9 @@ export function MessageContextSheet({
 
   const renderRows = useMemo<RenderMsg[]>(() => {
     if (!query.data || query.data.notFound || !query.data.messages) return []
-    const src = canonicalMessages
-      ? query.data.messages.flatMap((message) => {
-          const canonical = canonicalMessages.get(message.id)
-          return canonical ? [canonical] : []
-        })
-      : query.data.messages
+    const src = query.data.messages.map((message) => (
+      canonicalMessages?.get(message.id) ?? message
+    ))
     // Same grouping heuristic the main list uses (adjacent same-author within
     // ~5 min → collapse header). Inlined here rather than sharing the util
     // because the excerpt is small enough that the extra dep isn't worth the

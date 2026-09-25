@@ -170,6 +170,8 @@ export function ThreadChannelSurface({
   const opener = parentMessageId && !parentIsForum ? (
     <ThreadOpener
       parentMessageId={parentMessageId}
+      parentChannelId={parentChannelId}
+      serverId={serverId}
       viewerUserId={viewer.id}
       onOpenProfile={onOpenProfile}
       onToggleReaction={parentChannelId ? toggleOpenerReaction : undefined}

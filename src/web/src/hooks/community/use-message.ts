@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo } from "react"
+import { useEffect, useMemo, useSyncExternalStore } from "react"
 import {
   useQuery,
   useQueryClient,
@@ -11,6 +11,11 @@ import { apiFetchProfiles, messageProfilePatches } from "@/lib/community/profile
 import { communityKeys } from "@/lib/query-keys"
 import type { MessagesPage, Msg } from "@/lib/community/models/message"
 import { useCanonicalMessagesById } from "@/lib/community-db/projections"
+import {
+  rememberMessageAccessScope,
+  type MessageAccessScope,
+} from "@/lib/community-db/message-access-scope"
+import { getActiveAccountUnreadProjection } from "./account-unread-projection"
 
 /**
  * Fetches a single hydrated message by id — the payload shape returned by
@@ -81,13 +86,29 @@ export function findCachedMessage(
 
 export function useMessage(
   messageId: string | null | undefined,
+  accessScope?: MessageAccessScope,
 ): UseQueryResult<OpenerPayload> & { message: OpenerPayload | null } {
   const canonicalMessages = useCanonicalMessagesById()
   const queryClient = useQueryClient()
-  const enabled = !!messageId
+  const accessProjection = useMemo(
+    () => getActiveAccountUnreadProjection(queryClient),
+    [queryClient],
+  )
+  const accessVersion = useSyncExternalStore(
+    accessProjection.subscribe,
+    accessProjection.getSnapshot,
+    accessProjection.getSnapshot,
+  )
+  void accessVersion
+  const accessAllowed = !accessScope || accessProjection.allowsAccess(accessScope)
+  const enabled = !!messageId && accessAllowed
+  useEffect(() => {
+    if (!messageId || !accessScope || !accessAllowed) return
+    rememberMessageAccessScope(queryClient, messageId, accessScope)
+  }, [accessAllowed, accessScope, messageId, queryClient])
   const placeholderData = useMemo(
-    () => enabled ? findCachedMessage(queryClient, messageId!) : undefined,
-    [enabled, messageId, queryClient],
+    () => messageId && accessAllowed ? findCachedMessage(queryClient, messageId) : undefined,
+    [accessAllowed, messageId, queryClient],
   )
   const query = useQuery({
     queryKey: enabled ? communityKeys.message(messageId!) : communityKeys.message("__none__"),
@@ -103,8 +124,8 @@ export function useMessage(
   const canonical = messageId ? canonicalMessages?.get(messageId) : undefined
   return {
     ...query,
-    message: canonicalMessages
-      ? canonical ? canonical as OpenerPayload : null
-      : query.data ?? null,
+    message: accessAllowed
+      ? (canonical as OpenerPayload | undefined) ?? query.data ?? null
+      : null,
   }
 }

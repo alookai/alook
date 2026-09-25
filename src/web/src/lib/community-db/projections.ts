@@ -352,25 +352,6 @@ export function useCanonicalMessagesById(): ReadonlyMap<string, Msg> | undefined
   ), [registry, result.data])
 }
 
-export function useCanonicalAccessScopeIds(): {
-  serverIds: ReadonlySet<string>
-  channelIds: ReadonlySet<string>
-} | undefined {
-  const rows = useCollectionRows()
-  return useMemo(() => {
-    if (!rows.registry) return undefined
-    const serverIds = new Set((rows.servers ?? []).map((server) => server.id))
-    return {
-      serverIds,
-      channelIds: new Set((rows.channels ?? []).flatMap((channel) => (
-        channel.serverId === null || channel.serverId === undefined || serverIds.has(channel.serverId)
-          ? [channel.id]
-          : []
-      ))),
-    }
-  }, [rows.channels, rows.registry, rows.servers])
-}
-
 export function useNotificationSettingsProjection() {
   const rows = useCollectionRows()
   return useMemo(() => {
