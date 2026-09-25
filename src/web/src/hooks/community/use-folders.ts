@@ -1,12 +1,22 @@
 "use client"
 
-import { useQuery, type UseQueryResult } from "@tanstack/react-query"
+import {
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+  type QueryFunctionContext,
+  type UseQueryResult,
+} from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import { avatarInitial } from "@/lib/community/avatar"
 import type { CommunityFolder } from "@/lib/community/models/navigation"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { useServerRailProjection } from "@/lib/community-db/projections"
+import {
+  captureCommunityLiveSnapshotToken,
+  publishCommunityLiveSnapshot,
+} from "@/lib/community-db/sync"
 
 /**
  * Fetches the user's server-folder groupings for the rail.
@@ -27,14 +37,21 @@ export type FoldersResponse = { folders: CommunityFolder[] }
 // Frozen empty fallback — see `use-servers.ts` for the rationale.
 const EMPTY_FOLDERS: readonly CommunityFolder[] = Object.freeze([])
 
-export const foldersQueryFn = async (): Promise<FoldersResponse> => {
+export const foldersQueryFn = async (
+  context: QueryFunctionContext = {} as QueryFunctionContext,
+): Promise<FoldersResponse> => {
   const before = useCommunityWsStore.getState()
   const token = {
     viewerId: before.profileViewerId,
     accountEpoch: before.profileAccountEpoch,
     accessEpoch: before.accessEpoch,
   }
-  const data = await apiFetch<{ folders: RawFolder[] }>("/api/community/users/me/server-folders")
+  const data = context.signal
+    ? await apiFetch<{ folders: RawFolder[] }>(
+        "/api/community/users/me/server-folders",
+        { signal: context.signal },
+      )
+    : await apiFetch<{ folders: RawFolder[] }>("/api/community/users/me/server-folders")
   const after = useCommunityWsStore.getState()
   if (
     after.profileViewerId !== token.viewerId
@@ -55,13 +72,26 @@ export const foldersQueryFn = async (): Promise<FoldersResponse> => {
   return { folders }
 }
 
+export const foldersProjectedQueryFn = (
+  queryClient: QueryClient,
+) => async (context: QueryFunctionContext = {} as QueryFunctionContext) => {
+  const token = captureCommunityLiveSnapshotToken(queryClient)
+  const data = await foldersQueryFn(context)
+  publishCommunityLiveSnapshot(queryClient, {
+    snapshot: { kind: "folders", data },
+    proof: { kind: "structural", token, signal: context.signal },
+  })
+  return data
+}
+
 export function useFolders(): UseQueryResult<FoldersResponse> & {
   folders: CommunityFolder[]
 } {
   const dbRail = useServerRailProjection()
+  const queryClient = useQueryClient()
   const query = useQuery({
     queryKey: communityKeys.folders(),
-    queryFn: foldersQueryFn,
+    queryFn: foldersProjectedQueryFn(queryClient),
   })
   return {
     ...query,

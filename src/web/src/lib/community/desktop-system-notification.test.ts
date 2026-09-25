@@ -274,6 +274,15 @@ describe("desktop system notification candidates", () => {
       body: "Ada: Hello there",
     })
     expect(channelMetadataMocks.fetch).not.toHaveBeenCalled()
+
+    await expect(resolveDesktopSystemNotificationCandidate(
+      { ...create, channelId: "thread_1" },
+      { ...bump, channelId: "thread_1" },
+      "viewer_1",
+      queryClient,
+    )).resolves.toMatchObject({
+      title: "Studio · #general · Release notes",
+    })
   })
 
   it("keeps safe fallback copy when cold metadata resolution fails", async () => {

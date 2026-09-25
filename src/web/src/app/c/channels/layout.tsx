@@ -293,7 +293,11 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
       servers: serversList.servers,
       // A target-specific 403/404 is already definitive even if revoking the
       // target advanced the access epoch and retired an in-flight list read.
-      isSuccess: serverAccessRevoked || serversList.isSuccess,
+      // A restored list is renderable but its absence is not an access
+      // verdict. Only a live list confirmed for this QueryClient + auth
+      // generation may drive the generic eject path.
+      isSuccess: serverAccessRevoked
+        || (serversList.isSuccess && serversList.isLiveAuthoritative),
       isFetching: serverAccessRevoked ? false : serversList.isFetching,
       ownerDeleteRouteProtected: isOwnerServerDeleteRouteProtected(serverId),
       consumeVoluntaryLeave,
@@ -306,7 +310,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
         router.replace(destination)
       },
     })
-  }, [cancelPendingNavigation, currentUser.id, pathname, serverAccessRevoked, serverId, serversList.isSuccess, serversList.isFetching, serversList.servers, router, searchParams])
+  }, [cancelPendingNavigation, currentUser.id, pathname, serverAccessRevoked, serverId, serversList.isLiveAuthoritative, serversList.isSuccess, serversList.isFetching, serversList.servers, router, searchParams])
   // Reset the guard when the URL changes to a NEW server id — otherwise
   // navigating server → dangling-server → server would leave the ref
   // latched and skip the eject.

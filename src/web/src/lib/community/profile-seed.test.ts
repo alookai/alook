@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { Msg } from "@/lib/community/models/message"
 import {
   apiFetchProfiles,
+  beginCommunityProfileSeed,
   communityUserProfilePatch,
   messageProfilePatches,
   writeCommunityProfilePatches,
@@ -150,6 +151,20 @@ describe("profile seeding boundaries", () => {
       avatar: "/alice.png",
       avatarVersion: 8,
     })
+  })
+
+  it("rejects a request snapshot captured by a different registry", async () => {
+    const other = createCommunityDbRegistry(new QueryClient(), "other")
+    await other.preload()
+    const snapshot = beginCommunityProfileSeed(other)
+
+    writeCommunityProfilePatches([{
+      id: "u-mismatch",
+      identityAbout: { name: "Wrong account" },
+    }], registry, { snapshot })
+
+    expect(registry.collections.profiles.get("u-mismatch")).toBeUndefined()
+    await other.cleanup()
   })
 
   it("returns the raw API object while updating its canonical profile projection", async () => {

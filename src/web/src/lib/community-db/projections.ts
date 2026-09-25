@@ -209,7 +209,7 @@ export function useServerTreeProjection(serverId: string | null) {
   return useMemo(() => {
     if (!serverId || !rows.servers || !rows.categories || !rows.channels) return undefined
     const server = rows.servers.find((candidate) => candidate.id === serverId)
-    if (!server) return undefined
+    if (!server?.detailComplete) return undefined
     const channels = rows.channels.filter((channel) => (
       channel.serverId === serverId && channel.type !== "thread"
     ))

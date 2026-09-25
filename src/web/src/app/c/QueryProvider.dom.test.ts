@@ -20,6 +20,7 @@ const getAccountUnreadProjection = vi.hoisted(() => vi.fn(() => ({
   setReconcileScheduler,
 })))
 const disposeAccountUnreadProjection = vi.hoisted(() => vi.fn())
+const registryCleanup = vi.hoisted(() => vi.fn(() => Promise.resolve()))
 
 vi.mock("@tanstack/react-query-devtools", () => ({ ReactQueryDevtools: () => null }))
 vi.mock("@tanstack/react-query-persist-client", async () => {
@@ -49,7 +50,7 @@ vi.mock("@/lib/community-db/collections", () => ({
     id: "community-db",
     captureRestoredCollections: vi.fn(),
     hasRestoredCollection: vi.fn(() => false),
-    cleanup: vi.fn(() => Promise.resolve()),
+    cleanup: registryCleanup,
   })),
   registerCommunityDbRegistry: vi.fn(() => () => {}),
 }))
@@ -79,6 +80,7 @@ beforeEach(() => {
   setReconcileScheduler.mockClear()
   getAccountUnreadProjection.mockClear()
   disposeAccountUnreadProjection.mockClear()
+  registryCleanup.mockClear()
   queryClient.invalidateQueries.mockClear()
 })
 
@@ -167,5 +169,23 @@ describe("QueryProvider profile account lifecycle", () => {
     expect(detailPredicate({ queryKey: communityKeys.server("__none__") })).toBe(false)
     expect(detailPredicate({ queryKey: communityKeys.server("__pending__") })).toBe(false)
     act(() => renderer.unmount())
+  })
+
+  it("does not manually destroy collections while descendant live queries release", async () => {
+    vi.useFakeTimers()
+    try {
+      const renderer = render(React.createElement(
+        QueryProvider,
+        { userId: "viewer-d" },
+        React.createElement("span", null, "content"),
+      ))
+
+      act(() => renderer.unmount())
+      await act(async () => vi.runAllTimersAsync())
+
+      expect(registryCleanup).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

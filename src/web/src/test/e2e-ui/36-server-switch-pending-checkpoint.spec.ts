@@ -1,4 +1,4 @@
-import type { Page, Route } from "@playwright/test"
+import type { Page, Request, Response, Route } from "@playwright/test"
 import { test, expect } from "./_fixtures/community-fixture"
 import { seedChannel, seedServer } from "./_fixtures/seed"
 import { tid } from "./_fixtures/testids"
@@ -19,11 +19,38 @@ type SidebarFrame = {
   opacity: string | null
 }
 
+type HistoryEvent = {
+  kind: "pushState" | "replaceState" | "popstate"
+  pathname: string
+}
+
 async function installSidebarFrameProbe(page: Page) {
   const channelRowPrefix = tid.channelRow("")
   await page.addInitScript(({ channelRowPrefix }) => {
-    const state = window as typeof window & { __communitySidebarFrames?: SidebarFrame[] }
+    const state = window as typeof window & {
+      __communityHistoryEvents?: HistoryEvent[]
+      __communitySidebarFrames?: SidebarFrame[]
+    }
     state.__communitySidebarFrames = []
+    state.__communityHistoryEvents = []
+    const recordHistory = (
+      kind: HistoryEvent["kind"],
+      href: string | URL | null | undefined,
+    ) => {
+      const url = href == null ? new URL(location.href) : new URL(String(href), location.href)
+      state.__communityHistoryEvents!.push({ kind, pathname: url.pathname })
+    }
+    const pushState = history.pushState.bind(history)
+    history.pushState = (...args) => {
+      recordHistory("pushState", args[2])
+      return pushState(...args)
+    }
+    const replaceState = history.replaceState.bind(history)
+    history.replaceState = (...args) => {
+      recordHistory("replaceState", args[2])
+      return replaceState(...args)
+    }
+    addEventListener("popstate", () => recordHistory("popstate", location.href))
     const ownerIds = new WeakMap<Element, number>()
     let nextOwnerId = 0
     const sample = () => {
@@ -64,6 +91,19 @@ async function clearSidebarFrames(page: Page) {
     ;(window as typeof window & { __communitySidebarFrames?: SidebarFrame[] })
       .__communitySidebarFrames = []
   })
+}
+
+async function clearHistoryEvents(page: Page) {
+  await page.evaluate(() => {
+    ;(window as typeof window & { __communityHistoryEvents?: HistoryEvent[] })
+      .__communityHistoryEvents = []
+  })
+}
+
+async function historyEvents(page: Page): Promise<HistoryEvent[]> {
+  return page.evaluate(() => (
+    window as typeof window & { __communityHistoryEvents?: HistoryEvent[] }
+  ).__communityHistoryEvents ?? [])
 }
 
 async function sidebarFrames(page: Page): Promise<SidebarFrame[]> {
@@ -123,6 +163,79 @@ async function holdServerTransition(
       releaseGate()
       await page.waitForTimeout(100)
       await Promise.all([...handlers].map(([pattern, handler]) => page.unroute(pattern, handler)))
+    },
+  }
+}
+
+function isTargetRsc(request: Request, serverId: string): boolean {
+  return request.resourceType() === "fetch"
+    && request.headers().rsc === "1"
+    && new URL(request.url()).pathname.startsWith(`/c/channels/${serverId}/`)
+}
+
+function observeTargetRsc(
+  page: Page,
+  serverId: string,
+  timeoutMs: number,
+): {
+  finished: Promise<void>
+  requests: () => string[]
+  stop: () => void
+} {
+  const requests: string[] = []
+  let settled = false
+  let resolveFinished!: () => void
+  let rejectFinished!: (error: Error) => void
+  const finished = new Promise<void>((resolve, reject) => {
+    resolveFinished = resolve
+    rejectFinished = reject
+  })
+  const settle = (error?: Error) => {
+    if (settled) return
+    settled = true
+    clearTimeout(timeout)
+    if (error) rejectFinished(error)
+    else resolveFinished()
+  }
+  const onRequest = (request: Request) => {
+    if (isTargetRsc(request, serverId)) requests.push(request.url())
+  }
+  const onRequestFailed = (request: Request) => {
+    if (!isTargetRsc(request, serverId)) return
+    settle(new Error(
+      `Target RSC request failed: ${request.failure()?.errorText ?? "unknown failure"}`,
+    ))
+  }
+  const onResponse = (response: Response) => {
+    if (!isTargetRsc(response.request(), serverId)) return
+    if (response.status() !== 200) {
+      settle(new Error(`Target RSC responded ${response.status()}: ${response.url()}`))
+      return
+    }
+    void response.finished().then((failure) => {
+      if (failure) {
+        settle(new Error(`Target RSC did not finish: ${failure.message}`))
+        return
+      }
+      settle()
+    }, (error: unknown) => {
+      settle(new Error(`Target RSC completion rejected: ${String(error)}`))
+    })
+  }
+  const timeout = setTimeout(() => {
+    settle(new Error(`Target RSC did not finish within ${timeoutMs}ms for server ${serverId}`))
+  }, timeoutMs)
+  page.on("request", onRequest)
+  page.on("requestfailed", onRequestFailed)
+  page.on("response", onResponse)
+  return {
+    finished,
+    requests: () => [...requests],
+    stop: () => {
+      clearTimeout(timeout)
+      page.off("request", onRequest)
+      page.off("requestfailed", onRequestFailed)
+      page.off("response", onResponse)
     },
   }
 }
@@ -269,18 +382,30 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
   await page.reload()
   await expect(page.getByRole("heading", { name: channelAName })).toBeVisible({ timeout: 30_000 })
   const structuralC = await holdServerTransition(page, serverC)
+  const targetRsc = observeTargetRsc(page, serverC, 30_000)
   await clearSidebarFrames(page)
-  await clickServer(page, serverC)
-  await expect.poll(structuralC.heldNavigation).toBeGreaterThan(0)
-  await structuralC.release()
-  await expectDesktopServerDetail(page, serverC)
-  await expect(page.getByTestId(tid.channelRow(channelC))).toBeVisible({ timeout: 30_000 })
-  expectAtomicTargetFrames(
-    await sidebarFrames(page),
-    `server:${serverC}`,
-    channelC,
-    [channelA, channelB],
-  )
+  await clearHistoryEvents(page)
+  try {
+    await clickServer(page, serverC)
+    await expect.poll(structuralC.heldNavigation).toBeGreaterThan(0)
+    await structuralC.release()
+    await targetRsc.finished
+    expect(targetRsc.requests()).toHaveLength(1)
+    await expectDesktopServerDetail(page, serverC)
+    await expect(page.getByTestId(tid.channelRow(channelC))).toBeVisible({ timeout: 30_000 })
+    expectAtomicTargetFrames(
+      await sidebarFrames(page),
+      `server:${serverC}`,
+      channelC,
+      [channelA, channelB],
+    )
+    const navigationEvents = await historyEvents(page)
+    expect(navigationEvents).toHaveLength(1)
+    expect(navigationEvents[0]).toMatchObject({ kind: "pushState" })
+    expect(navigationEvents[0]?.pathname.startsWith(`/c/channels/${serverC}/`)).toBe(true)
+  } finally {
+    targetRsc.stop()
+  }
 
   await clickServer(page, serverA)
   await expectDesktopServerDetail(page, serverA)

@@ -4,9 +4,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 
 const apiFetch = vi.fn()
+const dbProjection = vi.hoisted(() => ({ current: undefined as unknown }))
 
 vi.mock("@/lib/api/client", () => ({
   apiFetch: (...args: unknown[]) => apiFetch(...args),
+}))
+vi.mock("@/lib/community-db/projections", () => ({
+  useChannelRefDirectoryProjection: () => dbProjection.current,
 }))
 
 import { createQueryClient } from "@/lib/query-client"
@@ -63,6 +67,7 @@ describe("channelRefDirectoryQueryFn", () => {
 describe("useChannelRefDirectory", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    dbProjection.current = undefined
     useCommunityWsStore.getState().reset()
   })
 
@@ -179,6 +184,26 @@ describe("useChannelRefDirectory", () => {
     })
 
     rendered.rerender({ active: true })
+    expect(apiFetch).not.toHaveBeenCalled()
+  })
+
+  it("resolves from canonical channels while the transport query is dormant", () => {
+    const directory = [{
+      id: "server_db",
+      name: "Canonical",
+      discriminator: "0001",
+      channels: [{ id: "channel_db", name: "chat" }],
+    }]
+    dbProjection.current = directory
+
+    const rendered = renderDirectory(createQueryClient(), false)
+
+    expect(rendered.result.current).toMatchObject({
+      directory,
+      isResolved: true,
+      isLoading: false,
+      isError: false,
+    })
     expect(apiFetch).not.toHaveBeenCalled()
   })
 

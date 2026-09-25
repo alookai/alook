@@ -1,6 +1,12 @@
 "use client"
 
-import { useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query"
+import {
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+  type QueryFunctionContext,
+  type UseQueryResult,
+} from "@tanstack/react-query"
 import {
   apiFetchProfiles,
   communityUserProfilePatch,
@@ -21,6 +27,11 @@ import {
   selectUnreadPresentation,
 } from "./unread-presentation"
 import { useDmProjection } from "@/lib/community-db/projections"
+import {
+  assertCommunityLiveSnapshotTokenCurrent,
+  captureCommunityLiveSnapshotToken,
+  publishCommunityLiveSnapshot,
+} from "@/lib/community-db/sync"
 
 /**
  * Fetches the DM conversation sidebar list.
@@ -35,10 +46,13 @@ export type DmsResponse = { conversations: DM[] }
 // Frozen empty fallback — see `use-servers.ts` for the rationale.
 const EMPTY_DMS: readonly DM[] = Object.freeze([])
 
-export const dmsQueryFn = () =>
+export const dmsQueryFn = (
+  context: QueryFunctionContext = {} as QueryFunctionContext,
+) =>
   apiFetchProfiles<DmsResponse>(
     "/api/community/users/me/dms",
     (data) => data.conversations.map((dm) => communityUserProfilePatch(dm.userId, dm)),
+    context.signal ? { signal: context.signal } : undefined,
   )
 
 function dmUnreadSources(data: DmsResponse): AccountUnreadSource[] {
@@ -48,11 +62,26 @@ function dmUnreadSources(data: DmsResponse): AccountUnreadSource[] {
   }])
 }
 
-export const dmsProjectedQueryFn = (projection: AccountUnreadProjection) => async () => {
+export const dmsProjectedQueryFn = (
+  projection: AccountUnreadProjection,
+  queryClient?: QueryClient,
+) => async (context: QueryFunctionContext = {} as QueryFunctionContext) => {
+  const publicationToken = queryClient
+    ? captureCommunityLiveSnapshotToken(queryClient)
+    : null
   const token = projection.beginSnapshot("dms", "dms")
   try {
-    const data = await dmsQueryFn()
+    const data = await dmsQueryFn(context)
+    if (queryClient && publicationToken) {
+      assertCommunityLiveSnapshotTokenCurrent(queryClient, publicationToken, context.signal)
+    }
     projection.absorbSnapshot(token, dmUnreadSources(data))
+    if (queryClient && publicationToken) {
+      publishCommunityLiveSnapshot(queryClient, {
+        snapshot: { kind: "dms", data },
+        proof: { kind: "structural", token: publicationToken, signal: context.signal },
+      })
+    }
     return data
   } catch (error) {
     projection.cancelSnapshot(token)
@@ -77,7 +106,10 @@ export function useDms(): UseQueryResult<DmsResponse> & { dms: DM[] } {
     () => reservedUnreadExclusion(reservationTarget, "dms"),
     [reservationTarget],
   )
-  const queryFn = useMemo(() => dmsProjectedQueryFn(unreadProjection), [unreadProjection])
+  const queryFn = useMemo(
+    () => dmsProjectedQueryFn(unreadProjection, queryClient),
+    [queryClient, unreadProjection],
+  )
   const query = useQuery({
     queryKey: communityKeys.dms(),
     queryFn,

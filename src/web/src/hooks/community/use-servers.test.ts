@@ -131,7 +131,7 @@ describe("useServers / serversQueryFn", () => {
     projection.setNotificationPolicy({})
     projection.recordArrival({ channelId: "c1", serverId: "s1", seq: 2 })
 
-    await serversProjectedQueryFn(projection)()
+    await serversProjectedQueryFn(projection, new QueryClient())()
 
     expect(projection.projectUnread("servers", "c1", false)).toBe(false)
   })
@@ -142,7 +142,7 @@ describe("useServers / serversQueryFn", () => {
     const { AccountUnreadProjection } = await import("./account-unread-projection")
     const projection = new AccountUnreadProjection("u1")
 
-    await expect(serversProjectedQueryFn(projection)()).rejects.toThrow("offline")
+    await expect(serversProjectedQueryFn(projection, new QueryClient())()).rejects.toThrow("offline")
 
     expect(projection.inspectForTests().pendingSnapshots).toBe(0)
   })
@@ -155,12 +155,94 @@ describe("useServers / serversQueryFn", () => {
     const { AccountUnreadProjection } = await import("./account-unread-projection")
     const projection = new AccountUnreadProjection("u1")
 
-    const pending = serversProjectedQueryFn(projection)()
+    const pending = serversProjectedQueryFn(projection, new QueryClient())()
     useCommunityWsStore.getState().activateProfileAccount("u2")
     release({ servers: [] })
 
     await expect(pending).rejects.toMatchObject({ name: "AbortError" })
     expect(projection.inspectForTests().pendingSnapshots).toBe(0)
+  })
+
+  it("confirms live list authority only for the current QueryClient and auth generation", async () => {
+    useCommunityWsStore.getState().activateProfileAccount("u1")
+    apiFetchMock.mockResolvedValueOnce({ servers: [] })
+    const { useServers } = await import("./use-servers")
+
+    expect(useServers().isLiveAuthoritative).toBe(false)
+    await capturedQueryConfig?.queryFn?.()
+    expect(useServers().isLiveAuthoritative).toBe(true)
+
+    useCommunityWsStore.getState().activateProfileAccount("u2")
+    expect(useServers().isLiveAuthoritative).toBe(false)
+
+    capturedHookQueryClient = new QueryClient()
+    expect(useServers().isLiveAuthoritative).toBe(false)
+  })
+
+  it("invalidates live list authority when the access epoch changes", async () => {
+    useCommunityWsStore.getState().activateProfileAccount("u1")
+    apiFetchMock.mockResolvedValueOnce({ servers: [] })
+    const { useServers } = await import("./use-servers")
+
+    useServers()
+    await capturedQueryConfig?.queryFn?.()
+    expect(useServers().isLiveAuthoritative).toBe(true)
+
+    useCommunityWsStore.getState().revokeChannelAccess("s1", "c1")
+
+    expect(useServers().isLiveAuthoritative).toBe(false)
+  })
+
+  it("binds live authority to the projected unordered server membership", async () => {
+    useCommunityWsStore.getState().activateProfileAccount("u1")
+    const liveServers = Array.from({ length: 7 }, (_, index) => ({
+      id: `s${index + 1}`,
+      name: `Server ${index + 1}`,
+      discriminator: `000${index + 1}`,
+      icon: null,
+      ownerId: "u1",
+      unread: false,
+      mentions: 0,
+    }))
+    const liveResponse = { servers: liveServers }
+    capturedHookQueryData = { servers: liveServers.slice(0, 6) }
+    apiFetchMock.mockResolvedValueOnce(liveResponse)
+    const { useServers } = await import("./use-servers")
+
+    useServers()
+    const committedLiveResponse = await capturedQueryConfig?.queryFn?.() as typeof liveResponse
+
+    expect(useServers().servers.map((server) => server.id)).toEqual([
+      "s1", "s2", "s3", "s4", "s5", "s6",
+    ])
+    expect(useServers().isLiveAuthoritative).toBe(false)
+
+    capturedHookQueryData = committedLiveResponse
+    expect(useServers().isLiveAuthoritative).toBe(true)
+
+    capturedHookQueryData = { servers: [...committedLiveResponse.servers].reverse() }
+    expect(useServers().isLiveAuthoritative).toBe(true)
+
+    capturedHookQueryData = { servers: [...committedLiveResponse.servers, {
+      id: "s8",
+      name: "Server 8",
+      discriminator: "0008",
+      icon: null,
+      ownerId: "u1",
+      unread: false,
+      mentions: 0,
+    }] }
+    expect(useServers().isLiveAuthoritative).toBe(false)
+  })
+
+  it("does not confirm live list authority after a transport failure", async () => {
+    useCommunityWsStore.getState().activateProfileAccount("u1")
+    apiFetchMock.mockRejectedValueOnce(new Error("offline"))
+    const { useServers } = await import("./use-servers")
+
+    useServers()
+    await expect(capturedQueryConfig?.queryFn?.()).rejects.toThrow("offline")
+    expect(useServers().isLiveAuthoritative).toBe(false)
   })
 
   it("correlates cold rail unread sources with their attention facets", async () => {
@@ -184,7 +266,7 @@ describe("useServers / serversQueryFn", () => {
     const projection = new AccountUnreadProjection("u1")
     projection.setNotificationPolicy({ server: { s1: "mentions" } })
 
-    await serversProjectedQueryFn(projection)()
+    await serversProjectedQueryFn(projection, new QueryClient())()
 
     expect(projection.projectUnread("servers", "attention", false)).toBe(true)
     expect(projection.projectUnread("servers", "ordinary", false)).toBe(false)

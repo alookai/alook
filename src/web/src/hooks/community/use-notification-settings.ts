@@ -17,6 +17,10 @@ import {
   type AccountUnreadProjection,
 } from "./account-unread-projection"
 import { useNotificationSettingsProjection } from "@/lib/community-db/projections"
+import {
+  captureCommunityLiveSnapshotToken,
+  publishCommunityLiveSnapshot,
+} from "@/lib/community-db/sync"
 
 /**
  * Fetches the user's notification-setting rows and materialises them into
@@ -56,6 +60,9 @@ export function resolveServerNotificationDisplayLevel(level?: string): string {
 export const notificationSettingsQueryFn = async (
   context: QueryFunctionContext = {} as QueryFunctionContext,
 ): Promise<NotificationSettings> => {
+  const publicationToken = context.client
+    ? captureCommunityLiveSnapshotToken(context.client)
+    : null
   const rows = context.signal
     ? await apiFetch<NotificationSettingRow[]>(
         "/api/community/users/me/notifications",
@@ -71,7 +78,14 @@ export const notificationSettingsQueryFn = async (
     if (s.channelId) channel[s.channelId] = level
     else if (s.serverId) server[s.serverId] = level
   }
-  return { raw: rows, server, channel }
+  const data = { raw: rows, server, channel }
+  if (context.client && publicationToken) {
+    publishCommunityLiveSnapshot(context.client, {
+      snapshot: { kind: "notification-settings", data },
+      proof: { kind: "structural", token: publicationToken, signal: context.signal },
+    })
+  }
+  return data
 }
 
 function projectNotificationSettings(

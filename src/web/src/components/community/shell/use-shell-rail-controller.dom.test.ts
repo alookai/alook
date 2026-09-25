@@ -14,6 +14,10 @@ const mocks = vi.hoisted(() => ({
   toast: vi.fn(),
   toastApiError: vi.fn(),
   lastMeLeaf: { current: null as string | null },
+  communityDb: { current: null as null | { collections: {
+    servers: { get: (id: string) => { detailComplete?: boolean } | undefined }
+    channels: { values: () => IterableIterator<Record<string, unknown>> }
+  } } },
 }))
 
 vi.mock("sonner", () => ({ toast: mocks.toast }))
@@ -30,6 +34,9 @@ vi.mock("@/hooks/community/use-servers", () => ({
   }),
 }))
 vi.mock("@/hooks/community/use-folders", () => ({ useFolders: () => ({ folders: mocks.folders }) }))
+vi.mock("@/lib/community-db/projections", () => ({
+  useOptionalCommunityDbRegistry: () => mocks.communityDb.current,
+}))
 vi.mock("@/hooks/community/mutations", () => ({
   useCreateServer: () => ({ mutateAsync: mocks.createServer }),
   useLeaveServer: () => ({ mutate: mocks.leaveServer }),
@@ -128,6 +135,7 @@ describe("useShellRailController", () => {
     }
     mocks.folders.length = 0
     mocks.lastMeLeaf.current = null
+    mocks.communityDb.current = null
   })
 
   it("commits cold server navigation synchronously without waiting for detail", async () => {
@@ -231,17 +239,49 @@ describe("useShellRailController", () => {
     expect(hook.queryClient.fetchQuery).not.toHaveBeenCalled()
   })
 
-  it("always sends rail selection to the semantic server root", async () => {
+  it("sends a raw-detail-complete rail selection directly to its canonical child", async () => {
     const hook = await renderController()
     hook.cache.set("s1", {
       categories: [{ channels: [{ id: "cached", pending: false }] }],
     })
 
     await act(async () => hook.current.railProps.onServerNavigate("s1"))
-    expect(hook.pushed).toEqual(["/c/channels/s1"])
+    expect(hook.pushed).toEqual(["/c/channels/s1/cached"])
   })
 
-  it("keeps rail navigation and prefetch on the semantic server root", async () => {
+  it("uses canonical channels only when the restored server detail is complete", async () => {
+    const servers = new Map([
+      ["s1", { id: "s1", detailComplete: true }],
+      ["s2", { id: "s2", detailComplete: false }],
+    ])
+    const channels = new Map([
+      ["pending", { id: "pending", serverId: "s1", type: "text", pending: true }],
+      ["thread", { id: "thread", serverId: "s1", type: "thread", pending: false }],
+      ["canonical", { id: "canonical", serverId: "s1", type: "text", pending: false }],
+      ["foreign", { id: "foreign", serverId: "s2", type: "text", pending: false }],
+    ])
+    mocks.communityDb.current = { collections: {
+      servers: { get: (id) => servers.get(id) },
+      channels: { values: () => channels.values() },
+    } }
+    const hook = await renderController()
+
+    await act(async () => hook.current.railProps.onServerNavigate("s1"))
+    await act(async () => hook.current.railProps.onServerPrefetch("s1"))
+    await act(async () => hook.current.railProps.onServerNavigate("s2"))
+    await act(async () => hook.current.railProps.onServerPrefetch("s2"))
+
+    expect(hook.pushed).toEqual([
+      "/c/channels/s1/canonical",
+      "/c/channels/s2",
+    ])
+    expect(hook.prefetched).toEqual([
+      "/c/channels/s1/canonical",
+      "/c/channels/s2",
+    ])
+  })
+
+  it("keeps live warm selection and prefetch on the same complete destination", async () => {
     const hook = await renderController()
     hook.cache.set("s1", {
       categories: [{ channels: [{ id: "pending", pending: true }, { id: "cached", pending: false }] }],
@@ -250,8 +290,8 @@ describe("useShellRailController", () => {
     await act(async () => hook.current.railProps.onServerNavigate("s1"))
     await act(async () => hook.current.railProps.onServerPrefetch("s1"))
     await act(async () => hook.current.railProps.onHomePrefetch())
-    expect(hook.pushed).toEqual(["/c/channels/s1"])
-    expect(hook.prefetched).toEqual(["/c/channels/s1", "/c/me/friends"])
+    expect(hook.pushed).toEqual(["/c/channels/s1/cached"])
+    expect(hook.prefetched).toEqual(["/c/channels/s1/cached", "/c/me/friends"])
     expect(hook.queryClient.fetchQuery).not.toHaveBeenCalled()
 
     await act(async () => hook.current.railProps.onServerNavigate("s2"))

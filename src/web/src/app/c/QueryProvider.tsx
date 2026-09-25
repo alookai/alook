@@ -63,7 +63,6 @@ function CommunityDbRuntime({
         disposeReadCoordinator(queryClient)
         disposeAccountReadStateReconciliation(queryClient)
         disposeAccountUnreadProjection(queryClient)
-        void registry.cleanup()
       }, 0)
     }
   }, [queryClient, registry])

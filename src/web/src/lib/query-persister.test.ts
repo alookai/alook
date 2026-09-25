@@ -423,7 +423,7 @@ describe("createIdbPersister — serialize filter", () => {
       serverId: `srv_${index}`,
       type: "text" as const,
     }))
-    const messages = dmChannels.flatMap((channel, scopeIndex) => (
+    const messages = [...dmChannels.flatMap((channel, scopeIndex) => (
       Array.from({ length: MAX_PERSISTED_MESSAGES_PER_SCOPE + 1 }, (_, messageIndex) => ({
         id: `${channel.id}:m_${messageIndex}`,
         channelId: channel.id,
@@ -438,9 +438,18 @@ describe("createIdbPersister — serialize filter", () => {
             botProfile: { id: "approval_bot" },
             waitingOnProfile: { id: "approval_waiting" },
           },
+          replyTo: { authorId: "reply_author" },
+          thread: { participants: [{ id: "thread_participant" }] },
         } : {}),
       }))
-    ))
+    )), {
+      id: "orphan-message",
+      channelId: "not-retained",
+      type: "chat" as const,
+      seq: 1,
+      createdAt: "2026-09-25T00:00:00.000Z",
+      authorId: "orphan-author",
+    }]
     const collectionData = {
       servers: Array.from({ length: 7 }, (_, index) => ({
         id: `srv_${index}`,
@@ -479,7 +488,10 @@ describe("createIdbPersister — serialize filter", () => {
           avatar: "O",
           avatarVersion: 0,
         })),
-        ...["approval_other", "approval_bot", "approval_waiting", "dm_peer", "roster_only", "notify_only"].map(
+        ...[
+          "approval_other", "approval_bot", "approval_waiting", "reply_author",
+          "thread_participant", "dm_peer", "roster_only", "notify_only",
+        ].map(
           (userId) => ({
             userId,
             name: userId,
@@ -511,9 +523,20 @@ describe("createIdbPersister — serialize filter", () => {
     for (const [name, data] of Object.entries(collectionData)) {
       qc.setQueryData(communityKeys.communityDbCollection("u_1", name), data)
     }
+    const wrongAccountKey = communityKeys.communityDbCollection("other", "channels")
+    const unknownCollectionKey = communityKeys.communityDbCollection("u_1", "unknown")
+    const malformedCollectionKey = communityKeys.communityDbCollection("u_1", "folders")
+    qc.setQueryData(wrongAccountKey, dmChannels)
+    qc.setQueryData(unknownCollectionKey, [])
+    qc.setQueryData(malformedCollectionKey, [{ id: "malformed" }])
+    qc.setQueryData(communityKeys.servers(), null)
     const keys = [
       ...detailKeys,
       ...Object.keys(collectionData).map((name) => communityKeys.communityDbCollection("u_1", name)),
+      wrongAccountKey,
+      unknownCollectionKey,
+      malformedCollectionKey,
+      communityKeys.servers(),
     ]
     await createIdbPersister("u_1").persistClient({
       timestamp: Date.now(),
@@ -555,6 +578,8 @@ describe("createIdbPersister — serialize filter", () => {
       "approval_other",
       "approval_bot",
       "approval_waiting",
+      "reply_author",
+      "thread_participant",
       "dm_peer",
     ]))
     expect(profileIds.has("roster_only")).toBe(false)

@@ -14,6 +14,7 @@ export const serverSchema = z.object({
   isOwner: z.boolean(),
   unread: z.boolean(),
   mentions: z.number().int().nonnegative(),
+  detailComplete: z.boolean().default(false),
 })
 
 export const categorySchema = z.object({

@@ -40,6 +40,10 @@ describe("useNotificationSettings / notificationSettingsQueryFn", () => {
     const queryClient = new QueryClient()
     const key = communityKeys.notificationSettings()
     await queryClient.fetchQuery({ queryKey: key, queryFn: notificationSettingsQueryFn })
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/community/users/me/notifications",
+      { signal: expect.any(AbortSignal) },
+    )
     expect(queryClient.getQueryData(key)).toBeDefined()
   })
 

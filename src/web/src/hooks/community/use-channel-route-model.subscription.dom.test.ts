@@ -18,6 +18,8 @@ const mocks = vi.hoisted(() => ({
     isVerified: false,
     isError: false,
   },
+  communityDb: { current: {} as Record<string, unknown> | null },
+  purgeCommunityChannel: vi.fn(),
 }))
 
 const queryClient = new QueryClient()
@@ -55,6 +57,13 @@ vi.mock("@/lib/community/last-community-route", () => ({
   COMMUNITY_COLD_ENTRY_FALLBACK: "/c/me/machines",
   consumeCommunityColdEntryFailure: (...args: unknown[]) => mocks.consumeColdEntryFailure(...args),
 }))
+vi.mock("@/lib/community-db/projections", () => ({
+  useOptionalCommunityDbRegistry: () => mocks.communityDb.current,
+  useRouteChannelProjection: () => undefined,
+}))
+vi.mock("@/lib/community-db/sync", () => ({
+  purgeCommunityChannel: (...args: unknown[]) => mocks.purgeCommunityChannel(...args),
+}))
 
 import { buildChannelRouteModel, useChannelRouteModel } from "./use-channel-route-model"
 
@@ -79,6 +88,8 @@ beforeEach(() => {
   mocks.clearLastChannel.mockClear()
   mocks.consumeColdEntryFailure.mockReset()
   mocks.consumeColdEntryFailure.mockReturnValue(false)
+  mocks.communityDb.current = {}
+  mocks.purgeCommunityChannel.mockClear()
   mocks.lastChannel = null
   mocks.server = {
     id: "server-1",
@@ -242,6 +253,7 @@ describe("useChannelRouteModel subscription ownership", () => {
 
     expect(mocks.clearLastChannel).toHaveBeenCalledWith("server-1")
     expect(mocks.replace).toHaveBeenCalledWith("/c/channels/server-1")
+    expect(mocks.purgeCommunityChannel).toHaveBeenCalledWith(mocks.communityDb.current, "post-1")
     expect(mocks.subscribe).toHaveBeenCalledTimes(1)
     expect(mocks.unsubscribe).not.toHaveBeenCalled()
 

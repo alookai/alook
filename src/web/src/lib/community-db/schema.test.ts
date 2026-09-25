@@ -5,6 +5,7 @@ import {
   folderItemKey,
   notificationSettingKey,
   notificationSettingSchema,
+  serverSchema,
   serverMembershipKey,
 } from "./schema"
 
@@ -48,5 +49,23 @@ describe("community DB schemas", () => {
       serverId: "s1",
       channelId: null,
     }).success).toBe(true)
+    expect(() => notificationSettingKey({ serverId: null, channelId: null })).toThrow(
+      "notification setting target missing",
+    )
+  })
+
+  it("treats restored server identities without a detail marker as incomplete", () => {
+    expect(serverSchema.parse({
+      id: "s1",
+      name: "Server",
+      discriminator: "0001",
+      description: "",
+      ownerId: "owner",
+      icon: null,
+      official: false,
+      isOwner: false,
+      unread: false,
+      mentions: 0,
+    }).detailComplete).toBe(false)
   })
 })

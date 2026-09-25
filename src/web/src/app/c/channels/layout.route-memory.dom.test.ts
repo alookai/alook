@@ -26,6 +26,7 @@ const mocks = vi.hoisted(() => ({
   lastChannels: new Map<string, string>(),
   serverListSuccess: { current: true },
   serverListFetching: { current: false },
+  serverListLiveAuthoritative: { current: true },
   serverAccessRevoked: { current: false },
   queryClient: { getQueryData: vi.fn(), fetchQuery: vi.fn() },
 }))
@@ -125,6 +126,7 @@ vi.mock("@/hooks/community/use-servers", () => ({
     servers: mocks.servers.current,
     isSuccess: mocks.serverListSuccess.current,
     isFetching: mocks.serverListFetching.current,
+    isLiveAuthoritative: mocks.serverListLiveAuthoritative.current,
   }),
 }))
 vi.mock("@/hooks/community/use-server-members", () => ({
@@ -252,6 +254,7 @@ describe("ServerLayout deletion routing", () => {
     mocks.lastChannels.clear()
     mocks.serverListSuccess.current = true
     mocks.serverListFetching.current = false
+    mocks.serverListLiveAuthoritative.current = true
     mocks.serverAccessRevoked.current = false
     mocks.queryClient.getQueryData.mockImplementation((key: unknown[]) => {
       if (key.length === 2 && key[1] === "servers") {
@@ -279,6 +282,7 @@ describe("ServerLayout deletion routing", () => {
   it("passes the authenticated leaf and target-specific revoke facts to generic eject", () => {
     mocks.serverListSuccess.current = false
     mocks.serverListFetching.current = true
+    mocks.serverListLiveAuthoritative.current = false
     mocks.serverAccessRevoked.current = true
     mocks.runEject.mockImplementation((args: {
       replace: (destination: string) => void
@@ -299,6 +303,38 @@ describe("ServerLayout deletion routing", () => {
     expect(mocks.cancelPendingNavigation).toHaveBeenCalledTimes(1)
     expect(mocks.replace).toHaveBeenCalledWith("/c/me/machines")
     expect(mocks.registerRoute).toHaveBeenCalledWith("missing-server", mocks.routeToken)
+  })
+
+  it("keeps restored absence non-authoritative until the current client settles a live list", () => {
+    mocks.serverListLiveAuthoritative.current = false
+    const rendered = render(createElement(ServerLayout, null, createElement("div")))
+
+    expect(mocks.runEject).toHaveBeenLastCalledWith(expect.objectContaining({
+      isSuccess: false,
+      isFetching: false,
+    }))
+    expect(mocks.replace).not.toHaveBeenCalled()
+
+    mocks.serverListLiveAuthoritative.current = true
+    rendered.rerender(createElement(ServerLayout, null, createElement("div")))
+
+    expect(mocks.runEject).toHaveBeenLastCalledWith(expect.objectContaining({
+      isSuccess: true,
+      isFetching: false,
+    }))
+  })
+
+  it("keeps a failed list non-authoritative even after this client had a live snapshot", () => {
+    mocks.serverListSuccess.current = false
+    mocks.serverListLiveAuthoritative.current = true
+
+    render(createElement(ServerLayout, null, createElement("div")))
+
+    expect(mocks.runEject).toHaveBeenLastCalledWith(expect.objectContaining({
+      isSuccess: false,
+      isFetching: false,
+    }))
+    expect(mocks.replace).not.toHaveBeenCalled()
   })
 
   it("suppresses optimistic/list eject and replaces directly to the survivor Channel leaf", async () => {

@@ -72,8 +72,9 @@ export function useShellRailController({
     const liveChannelIds = detail?.categories.flatMap((category) =>
       category.channels.filter((channel) => !channel.pending).map((channel) => channel.id)
     )
+    const canonicalDetailComplete = communityDb?.collections.servers.get(id)?.detailComplete === true
     const channelIds = liveChannelIds
-      ?? (communityDb
+      ?? (communityDb && canonicalDetailComplete
         ? Array.from(communityDb.collections.channels.values())
           .filter((channel) => channel.serverId === id && channel.type !== "thread" && !channel.pending)
           .map((channel) => channel.id)
@@ -83,8 +84,8 @@ export function useShellRailController({
   }, [communityDb, queryClient])
   const onServerNavigate = useCallback((id: string) => {
     markSwitch("server", id)
-    navigation.push(`/c/channels/${id}`)
-  }, [navigation])
+    navigation.push(serverDestination(id))
+  }, [navigation, serverDestination])
   const homeDestination = useCallback(
     () => breakpoint === "desktop"
       ? pickMeLandingLocation(getLastMeLeaf())
@@ -95,8 +96,8 @@ export function useShellRailController({
     navigation.push(homeDestination())
   }, [homeDestination, navigation])
   const onServerPrefetch = useCallback((id: string) => {
-    navigation.prefetch(`/c/channels/${id}`)
-  }, [navigation])
+    navigation.prefetch(serverDestination(id))
+  }, [navigation, serverDestination])
   const onHomePrefetch = useCallback(
     () => navigation.prefetch(homeDestination()),
     [homeDestination, navigation],
