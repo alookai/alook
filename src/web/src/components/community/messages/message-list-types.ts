@@ -5,11 +5,9 @@ import type { OpenProfile } from "@/components/community/social/profile-types"
 export type MessageListProps = {
   channel: string
   messages: Msg[]
-  composerOverlap?: number
   loading?: boolean
   pinnedIds?: Set<string>
   newDividerBefore?: string
-  typingUsers?: string[]
   onOpenThread: (id: string) => void
   onOpenProfile?: OpenProfile
   onToggleReaction?: (id: string, emoji: string) => void
@@ -48,6 +46,5 @@ export type MessageListProps = {
 export type ResolvedMessageListProps = MessageListProps & {
   variant: "channel" | "dm"
   initialScrollReady: boolean
-  composerOverlap: number
   hoverCapable: boolean
 }

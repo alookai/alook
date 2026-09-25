@@ -246,6 +246,9 @@ describe("ComposerView", () => {
     expect(
       renderer.container.querySelector('[class*="focus-within:ring-2"]')?.className,
     ).toContain("rounded-(--community-composer-top-radius)")
+    expect(renderer.container.querySelector("[data-editor-content]")?.className).toContain(
+      "max-h-48",
+    )
 
     renderer.rerender(createElement(
       ComposerView,

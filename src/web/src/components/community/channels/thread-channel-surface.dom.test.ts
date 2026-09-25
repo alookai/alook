@@ -5,7 +5,7 @@ import { ThreadChannelSurface } from "./thread-channel-surface"
 import { ChannelHeader, ChannelHeaderSkeleton } from "./channel-header"
 import { CommunityPanel } from "../shell/community-panel"
 import { Composer } from "../messages/composer"
-import { ComposerOverlayShell } from "../messages/composer-overlay-shell"
+import { ConversationFooterShell } from "../messages/conversation-footer-shell"
 import { MessageContextSheet } from "../messages/message-context-sheet"
 import { MessageList } from "../messages/message-list"
 import { ThreadOpener } from "../messages/thread-opener"
@@ -67,14 +67,11 @@ vi.mock("@/components/community/messages/composer", () => ({
   Composer: vi.fn(() => null),
   ComposerSkeleton: vi.fn(() => null),
 }))
-vi.mock("@/components/community/messages/composer-overlay-shell", () => ({
-  ComposerOverlayShell: vi.fn(({ children, onOverlapChange, ...props }: {
+vi.mock("@/components/community/messages/conversation-footer-shell", () => ({
+  ConversationFooterSlotProvider: ({ children }: { children: React.ReactNode }) => children,
+  ConversationFooterShell: vi.fn(({ children, ...props }: {
     children: React.ReactNode
-    onOverlapChange: (overlap: number) => void
-  }) => React.createElement("div", {
-    ...props,
-    onClick: () => onOverlapChange(96),
-  }, children)),
+  }) => React.createElement("div", props, children)),
 }))
 vi.mock("@/components/community/messages/message-context-sheet", () => ({
   MessageContextSheet: vi.fn(() => null),
@@ -142,7 +139,7 @@ const mockedChannelHeader = vi.mocked(ChannelHeader)
 const mockedChannelHeaderSkeleton = vi.mocked(ChannelHeaderSkeleton)
 const mockedCommunityPanel = vi.mocked(CommunityPanel)
 const mockedComposer = vi.mocked(Composer)
-const mockedComposerOverlayShell = vi.mocked(ComposerOverlayShell)
+const mockedConversationFooterShell = vi.mocked(ConversationFooterShell)
 const mockedMessageContextSheet = vi.mocked(MessageContextSheet)
 const mockedMessageList = vi.mocked(MessageList)
 const mockedUseChannelMessageFeed = vi.mocked(useChannelMessageFeed)
@@ -319,15 +316,13 @@ describe("ThreadChannelSurface ownership", () => {
     expect(mocks.setReplyTo).toHaveBeenCalledWith(null)
   })
 
-  it("passes measured composer overlap to the thread message list", () => {
+  it("keeps the composer in the shared normal-flow footer", () => {
     const renderer = render(React.createElement(ThreadChannelSurface, surfaceProps()))
 
-    expect(mockedComposerOverlayShell).toHaveBeenCalled()
+    expect(mockedConversationFooterShell).toHaveBeenCalled()
     expect(renderer.container.querySelector('[data-slot="community-conversation-surface"]'))
       .toHaveAttribute("data-channel-id", "thread_1")
-    expect(mockedMessageList.mock.calls.at(-1)?.[0].composerOverlap).toBe(0)
-    fireEvent.click(renderer.getByTestId("community-composer-shell"))
-    expect(mockedMessageList.mock.calls.at(-1)?.[0].composerOverlap).toBe(96)
+    expect(mockedMessageList.mock.calls.at(-1)?.[0]).not.toHaveProperty("composerOverlap")
   })
 
   it("gates live and preview Pin actions without removing the pinned panel control", () => {
@@ -363,11 +358,13 @@ describe("ThreadChannelSurface ownership", () => {
       channel: "Thread name",
       kind: "thread",
       mobileBack: props.onNavigateParent,
+      typingUsers: ["Alice"],
     }), undefined)
     expect(mockedMessageList).toHaveBeenCalledWith(expect.objectContaining({
       channel: "Thread name",
       loading: true,
     }), undefined)
+    expect(mockedMessageList.mock.calls.at(-1)?.[0]).not.toHaveProperty("typingUsers")
     expect(mockedComposer).toHaveBeenCalled()
 
     mockedUseChannelMessageFeed.mockReturnValue(feed({ isLoading: false, isError: true }))

@@ -4,12 +4,13 @@ import {
   useInfiniteQuery,
   focusManager,
   onlineManager,
+  useIsRestoring,
   useQueryClient,
   type UseInfiniteQueryResult,
   type InfiniteData,
   type QueryClient,
 } from "@tanstack/react-query"
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { apiFetchProfiles, messageProfilePatches } from "@/lib/community/profile-seed"
 import { captureChannelMetadataToken, isChannelMetadataTokenCurrent } from "@/hooks/community/channel-metadata"
 import { communityKeys } from "@/lib/query-keys"
@@ -332,6 +333,12 @@ type PresentOverride = {
   viewKey: string
 }
 
+type ActivationRevalidationState = {
+  pending: Promise<unknown> | null
+  requested: boolean
+  viewKey: string
+}
+
 // Shared pagination + reducer used by both channel and DM hooks. Kept inline
 // as a hook because both variants need the same TanStack setup — factoring
 // out a plain function would leak query internals; a hook stays clean.
@@ -345,6 +352,7 @@ function useMessagesInner(
   opts: MessagesOpts | undefined,
 ): MessagesReturn {
   const queryClient = useQueryClient()
+  const isRestoring = useIsRestoring()
 
   // `undefined` = anchor snapshot is still resolving; gate the query on it
   // being a resolved value (string OR null). Owners without a snapshot
@@ -363,12 +371,18 @@ function useMessagesInner(
     () => JSON.stringify([queryKey, opts?.anchorMessageId ?? null]),
     [queryKey, opts?.anchorMessageId],
   )
+  const activationRevalidationRef = useRef<ActivationRevalidationState>({
+    pending: null,
+    requested: false,
+    viewKey,
+  })
   const attemptIdRef = useRef(0)
   const snapshotRef = useRef<{
     attemptId: number
     data: PageCache | undefined
     viewKey: string
   } | null>(null)
+  const networkFetchObservedRef = useRef(false)
   const [presentOverride, setPresentOverride] = useState<PresentOverride | null>(null)
   const forceNewest = presentOverride?.viewKey === viewKey
   const jumpPending = forceNewest && presentOverride?.phase === "requested"
@@ -387,9 +401,13 @@ function useMessagesInner(
     MessagesPageParam
   >({
     queryKey,
-    queryFn: enabled
-      ? queryFn
-      : () => Promise.reject(new Error("disabled")),
+    // `enabled` is the execution gate. Keep the real transport installed even
+    // while the read-state anchor is resolving: a persisted observer can be
+    // explicitly refetched during the disabled→enabled commit before
+    // TanStack's passive option update runs. Installing a rejecting sentinel
+    // here made that one-shot revalidation fail locally without issuing the
+    // required `/messages` request.
+    queryFn,
     initialPageParam,
     // "next" = older side. `fetchNextPage` appends to `data.pages`, so the
     // LAST entry in `pages` is the oldest window we've loaded — that's the
@@ -411,21 +429,105 @@ function useMessagesInner(
       return { mode: "newer", cursor }
     },
     enabled,
-    ...(opts?.revalidateOnMount === false ? { refetchOnMount: false } : {}),
+    // Explicit mount policy is owned below: `false` skips it, `true` performs
+    // the anchor-normalized observer refetch. Disable TanStack's parallel
+    // mount refetch for both so it cannot replay a pre-resolution pageParam.
+    ...(opts?.revalidateOnMount !== undefined ? { refetchOnMount: false } : {}),
     refetchOnReconnect: false,
     // Message bases are persisted, while accepted/session rows live in an
-    // in-memory overlay. Treat each ordinary active message query as stale so
-    // disabled→enabled activation revalidates even inside the global 5-second
-    // freshness window. TanStack keeps cached pages painted during the fetch.
-    // A nonempty window missing the resolved anchor is the one exception: Fix
-    // 3 below owns that repair and must fetch the NEW anchor page before any
-    // persisted pageParam can replace or discard the existing history.
-    staleTime: (cachedQuery) => cachedWindowNeedsAnchorReconcile(
-      cachedQuery.state.data as PageCache | undefined,
-      forceNewest ? null : anchorId,
-      reconcileLateAnchor,
+    // in-memory overlay. Ordinary observers stay stale; opt-in cached mounts
+    // are held fresh only until the anchor-normalized revalidation below owns
+    // their request. Once this mounted observer has seen a real request, hold
+    // it fresh so a later disabled→enabled transition cannot duplicate that
+    // request. TanStack keeps cached pages painted during the fetch. A nonempty
+    // window missing the resolved anchor is also held fresh: Fix 3 below owns
+    // that repair and must fetch the NEW anchor page before any persisted
+    // pageParam can replace or discard the existing history.
+    staleTime: (cachedQuery) => (
+      // Opt-in cached mounts are revalidated explicitly below so the request
+      // can first normalize its semantic page identity. Mark them fresh here
+      // to prevent TanStack's enabled-transition fetch from racing that owner
+      // with a persisted cursor/newest pageParam.
+      (opts?.revalidateOnMount === true && cachedQuery.state.data !== undefined)
+      || networkFetchObservedRef.current
+      || cachedWindowNeedsAnchorReconcile(
+        cachedQuery.state.data as PageCache | undefined,
+        forceNewest ? null : anchorId,
+        reconcileLateAnchor,
+      )
     ) ? Infinity : 0,
   })
+  const refetchMountedObserver = query.refetch
+  const anchorRepairNeeded = cachedWindowNeedsAnchorReconcile(
+    query.data,
+    anchorId,
+    reconcileLateAnchor,
+  )
+  useLayoutEffect(() => {
+    networkFetchObservedRef.current = false
+    const mountedQuery = queryClient.getQueryCache().find({ queryKey, exact: true })
+    if (!mountedQuery) return
+    return queryClient.getQueryCache().subscribe((event) => {
+      if (
+        event.type === "updated"
+        && event.query.queryHash === mountedQuery.queryHash
+        && event.action.type === "success"
+        && !event.action.manual
+      ) {
+        networkFetchObservedRef.current = true
+      }
+    })
+  }, [queryClient, queryKey, viewKey])
+
+  useLayoutEffect(() => {
+    let state = activationRevalidationRef.current
+    if (state.viewKey !== viewKey) {
+      state = { pending: null, requested: false, viewKey }
+      activationRevalidationRef.current = state
+    }
+    if (isRestoring || state.requested) return
+    if (!enabled || query.data === undefined || opts?.revalidateOnMount !== true) return
+
+    // Guarantee one actual post-mount fetch for cached conversation observers.
+    // A retained observer can mount after restore and read-state have already
+    // settled, so neither lifecycle is a reliable prerequisite. Retained cache
+    // writes are also not proof that the network ran. The query-cache
+    // subscription distinguishes manual cache success from a completed
+    // request. Refetch through this observer rather than asking the cache for
+    // "active" queries: while PersistQueryClientProvider hands hydration back
+    // to React, the mounted observer can briefly fail that cache-level filter.
+    // An infinite-query refetch replays its first persisted pageParam. Normalize
+    // that identity to this mount's resolved anchor/newest target first: after
+    // older pagination or hydration the stored first param can be a cursor,
+    // which must never outrun the read-state anchor on a retained mount.
+    // Running in layout also starts the semantic revalidation before the
+    // message-list's passive IntersectionObserver can request another page.
+    state.requested = true
+    if (networkFetchObservedRef.current) return
+    queryClient.setQueryData<PageCache>(queryKey, (current) => current
+      ? {
+          ...current,
+          pageParams: [initialPageParam, ...current.pageParams.slice(1)],
+        }
+      : current)
+    const request = refetchMountedObserver({ cancelRefetch: false })
+    state.pending = request
+    const clearPending = () => {
+      if (state.pending === request) state.pending = null
+    }
+    void request.then(clearPending, clearPending)
+  }, [
+    anchorRepairNeeded,
+    enabled,
+    initialPageParam,
+    isRestoring,
+    opts?.revalidateOnMount,
+    query.data,
+    queryClient,
+    queryKey,
+    refetchMountedObserver,
+    viewKey,
+  ])
 
   useEffect(() => {
     setPresentOverride((current) => current?.viewKey === viewKey ? current : null)
@@ -469,7 +571,6 @@ function useMessagesInner(
       current?.attemptId === presentOverride.attemptId ? null : current)
   }, [jumpPending, presentOverride, query.isError, queryClient, queryKey, viewKey])
 
-  const anchorRepairNeeded = cachedWindowNeedsAnchorReconcile(query.data, anchorId, reconcileLateAnchor)
   const messageQuery = queryClient.getQueryCache().find({ queryKey, exact: true })
   const settledAnchorRepairRef = useRef<{ key: string; query: unknown } | null>(null)
   const anchorRepairFailedRef = useRef(false)
@@ -489,6 +590,10 @@ function useMessagesInner(
     if (!enabled) return
     if (forceNewest) return
     if (!anchorId) return
+    // The opt-in mount owner has already normalized the first page to this
+    // anchor and started its observer refetch. Do not launch the independent
+    // repair path in the same commit before the observer update is rendered.
+    if (activationRevalidationRef.current.pending) return
     if (query.isFetching) return
     if (query.isPending) return
     if (!anchorRepairNeeded || !messageQuery) return
@@ -603,10 +708,33 @@ function useMessagesInner(
   // internal state change — closing over the whole query object keeps the
   // exhaustive-deps rule happy without spelling every subfield.
   const fetchOlder = useCallback(() => {
+    if (!enabled) return
     if (!query.hasNextPage) return
     if (query.isFetchingNextPage) return
+    const activationState = activationRevalidationRef.current
+    if (activationState.viewKey !== viewKey) return
+    const activationRequest = activationState.pending
+    if (activationRequest) {
+      void activationRequest.then(() => {
+        if (activationRevalidationRef.current.viewKey !== viewKey) return
+        void query.fetchNextPage({ cancelRefetch: false })
+      })
+      return
+    }
+    // Initial-position sentinels can intersect while a retained-mount
+    // revalidation is still in flight. Queue their pagination behind that
+    // semantic request instead of letting fetchNextPage cancel it and make a
+    // cursor GET the first completed request for the mount.
+    if (query.isFetching) {
+      void query.refetch({ cancelRefetch: false }).then(() => {
+        // The observer method reads the just-refreshed page/cursor state. If
+        // that page has no older cursor, TanStack resolves without a request.
+        void query.fetchNextPage({ cancelRefetch: false })
+      })
+      return
+    }
     void query.fetchNextPage()
-  }, [query])
+  }, [enabled, query, viewKey])
 
   const fetchNewer = useCallback(() => {
     if (!query.hasPreviousPage) return

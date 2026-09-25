@@ -10,7 +10,10 @@ import { ChannelHeader, type ChannelNotifLevel } from "@/components/community/ch
 import { ChannelShell } from "@/components/community/channels/channel-shell"
 import { CommunityPanel } from "@/components/community/shell/community-panel"
 import { Composer } from "@/components/community/messages/composer"
-import { ComposerOverlayShell } from "@/components/community/messages/composer-overlay-shell"
+import {
+  ConversationFooterShell,
+  ConversationFooterSlotProvider,
+} from "@/components/community/messages/conversation-footer-shell"
 import { MessageChannelController } from "@/components/community/messages/message-channel-controller"
 import { MessagePaneNavigationProvider } from "@/components/community/messages/message-pane-navigation"
 import { MessageContextSheet } from "@/components/community/messages/message-context-sheet"
@@ -94,7 +97,6 @@ export function ThreadChannelSurface({
   const router = useRouter()
   const breakpoint = useBreakpoint()
   const [rightPanel, setRightPanel] = useState<RightPanel>(null)
-  const [composerOverlap, setComposerOverlap] = useState(0)
   const [localName, setLocalName] = useState<string | null>(null)
   const mentionInsertion = useAuthorMentionInsertion({
     members: composerMembers,
@@ -217,6 +219,7 @@ export function ThreadChannelSurface({
               titleRename={parentIsForum}
               onRename={parentChannelId && !splitActions ? rename : undefined}
               compactActions={!!splitActions}
+              typingUsers={controller.typingUsers}
               endActions={splitActions ? (
                 <ThreadPanelActions
                   onFullscreen={splitActions.onFullscreen}
@@ -231,59 +234,58 @@ export function ThreadChannelSurface({
               data-channel-id={channelId}
               className="flex min-h-0 min-w-0 flex-1 flex-col"
             >
-              <MessageList
-                key={channelId}
-                channel={displayName}
-                messages={controller.feed.messages}
-                composerOverlap={composerOverlap}
-                loading={controller.feed.isLoading}
-                pinnedIds={controller.pinnedIds}
-                newDividerBefore={controller.feed.newDividerBefore}
-                typingUsers={controller.typingUsers}
-                onOpenThread={ignoreNestedThread}
-                {...controller.threadActions}
-                onPin={canManagePins ? controller.threadActions.onPin : undefined}
-                onOpenProfile={onOpenProfile}
-                resolveUserName={resolveUserName}
-                resolveAuthorMentionText={mentionInsertion.resolveAuthorMentionText}
-                onInsertMentionText={mentionInsertion.insertMentionText}
-                scrollToMessageId={controller.scrollTargetId}
-                hero={opener}
-                onScrollRoot={controller.feed.setScrollRootEl}
-                viewerUserId={viewer.id}
-                initialScrollReady={!controller.feed.readSnapshotFetching && controller.feed.anchorInCache}
-                onScrollTargetConsumed={controller.consumeScrollTarget}
-                hasMore={controller.feed.hasMoreOlder}
-                isFetchingOlder={controller.feed.isFetchingOlder}
-                onLoadOlder={controller.feed.fetchOlder}
-                hasMoreNewer={controller.feed.hasMoreNewer}
-                isFetchingNewer={controller.feed.isFetchingNewer}
-                onLoadNewer={controller.feed.fetchNewer}
-                onJumpToPresent={controller.feed.jumpToPresent}
-                presentVersion={controller.feed.presentVersion}
-                unreadCount={controller.feed.unreadCount}
-              />
-              <ComposerOverlayShell
-                data-onboarding-target="channel-composer"
-                data-testid={tid.channelComposerShell}
-                onOverlapChange={setComposerOverlap}
-              >
-                <Composer
-                  ref={mentionInsertion.composerRef}
+              <ConversationFooterSlotProvider>
+                <MessageList
+                  key={channelId}
                   channel={displayName}
-                  context="thread"
-                  members={composerMembers}
-                  mentionCandidates={composerMentionCandidates}
-                  channelRefCandidates={channelRefCandidates}
-                  sendContract="accepted"
-                  onAcceptSend={controller.acceptMessage}
-                  onTyping={controller.handleTyping}
-                  replyingTo={controller.replyTo ?? undefined}
-                  onCancelReply={() => controller.setReplyTo(null)}
-                  autoFocus={breakpoint === "desktop"}
-                  draftKey={`${serverId}/${channelId}`}
+                  messages={controller.feed.messages}
+                  loading={controller.feed.isLoading}
+                  pinnedIds={controller.pinnedIds}
+                  newDividerBefore={controller.feed.newDividerBefore}
+                  onOpenThread={ignoreNestedThread}
+                  {...controller.threadActions}
+                  onPin={canManagePins ? controller.threadActions.onPin : undefined}
+                  onOpenProfile={onOpenProfile}
+                  resolveUserName={resolveUserName}
+                  resolveAuthorMentionText={mentionInsertion.resolveAuthorMentionText}
+                  onInsertMentionText={mentionInsertion.insertMentionText}
+                  scrollToMessageId={controller.scrollTargetId}
+                  hero={opener}
+                  onScrollRoot={controller.feed.setScrollRootEl}
+                  viewerUserId={viewer.id}
+                  initialScrollReady={!controller.feed.readSnapshotFetching && controller.feed.anchorInCache}
+                  onScrollTargetConsumed={controller.consumeScrollTarget}
+                  hasMore={controller.feed.hasMoreOlder}
+                  isFetchingOlder={controller.feed.isFetchingOlder}
+                  onLoadOlder={controller.feed.fetchOlder}
+                  hasMoreNewer={controller.feed.hasMoreNewer}
+                  isFetchingNewer={controller.feed.isFetchingNewer}
+                  onLoadNewer={controller.feed.fetchNewer}
+                  onJumpToPresent={controller.feed.jumpToPresent}
+                  presentVersion={controller.feed.presentVersion}
+                  unreadCount={controller.feed.unreadCount}
                 />
-              </ComposerOverlayShell>
+                <ConversationFooterShell
+                  data-onboarding-target="channel-composer"
+                  data-testid={tid.channelComposerShell}
+                >
+                  <Composer
+                    ref={mentionInsertion.composerRef}
+                    channel={displayName}
+                    context="thread"
+                    members={composerMembers}
+                    mentionCandidates={composerMentionCandidates}
+                    channelRefCandidates={channelRefCandidates}
+                    sendContract="accepted"
+                    onAcceptSend={controller.acceptMessage}
+                    onTyping={controller.handleTyping}
+                    replyingTo={controller.replyTo ?? undefined}
+                    onCancelReply={() => controller.setReplyTo(null)}
+                    autoFocus={breakpoint === "desktop"}
+                    draftKey={`${serverId}/${channelId}`}
+                  />
+                </ConversationFooterShell>
+              </ConversationFooterSlotProvider>
             </Body>
           )}
             panels={rightPanel && (

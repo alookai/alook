@@ -357,6 +357,33 @@ afterEach(() => {
 })
 
 describe("Message memo comparator", () => {
+  it("keeps selection controls out of the message row layout", () => {
+    let renderer: DomRenderer
+    act(() => {
+      renderer = render(makeTree({
+        m: baseMsg({ content: "a long selectable message ".repeat(20) }),
+        onOpenThread: vi.fn(),
+        selectMode: true,
+        selected: false,
+        onToggleSelect: vi.fn(),
+      }), { createNodeMock: () => genericMock })
+    })
+
+    const row = renderer!.root.find((node) => (
+      typeof node.props.className === "string"
+      && node.props.className.includes("group relative -mx-2")
+    ))
+    const checkbox = renderer!.root.find((node) => (
+      typeof node.props.className === "string"
+      && node.props.className.includes("absolute left-5 top-1/2")
+    ))
+
+    expect(row.props.className).toContain("cursor-pointer")
+    expect(row.props.className).not.toContain("pl-9")
+    expect(checkbox.parent?.element).toBe(row.element)
+    act(() => renderer!.unmount())
+  })
+
   it("keeps the strict Unknown fallback for unresolved live authors", () => {
     let renderer: DomRenderer
     act(() => {

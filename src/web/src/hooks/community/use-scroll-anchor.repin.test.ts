@@ -12,8 +12,8 @@ let refs: Array<{ current: unknown }> = []
 let refIndex = 0
 let layoutEffects: Array<() => void | (() => void)> = []
 let resizeCallbacks: ResizeObserverCallback[] = []
-const OLDER_PAGE_ANCHOR_FRAME_REF_INDEX = 13
-const OLDER_PAGE_UNMOUNT_EFFECT_INDEX = 2
+const PAGINATION_ANCHOR_FRAME_REF_INDEX = 14
+const PAGINATION_UNMOUNT_EFFECT_INDEX = 2
 
 vi.mock("react", () => ({
   useRef: (initial: unknown) => {
@@ -234,9 +234,9 @@ afterEach(() => vi.unstubAllGlobals())
 describe("useScrollAnchor delayed row-growth re-pin", () => {
   it("cancels a pending older-page frame from the unmount fallback", async () => {
     await mountHook()
-    const olderPageAnchorFrameRef = refs[OLDER_PAGE_ANCHOR_FRAME_REF_INDEX]
-    olderPageAnchorFrameRef.current = 42
-    const cleanup = layoutEffects[OLDER_PAGE_UNMOUNT_EFFECT_INDEX]()
+    const paginationAnchorFrameRef = refs[PAGINATION_ANCHOR_FRAME_REF_INDEX]
+    paginationAnchorFrameRef.current = 42
+    const cleanup = layoutEffects[PAGINATION_UNMOUNT_EFFECT_INDEX]()
 
     expect(cleanup).toBeTypeOf("function")
     cleanup!()
@@ -351,118 +351,110 @@ describe("useScrollAnchor delayed row-growth re-pin", () => {
   })
 })
 
-const EXACT_PIN_BOUNDARIES = [0, 1, 2, 99, 100, 101, 300]
+const VIEWPORT_RESIZE_BOUNDARIES = [0, 1, 2, 99, 100, 101, 300]
 
-describe("useScrollAnchor viewport resize exact-pinned latch", () => {
-  it.each(EXACT_PIN_BOUNDARIES)(
-    "uses the resize end writer only for an initial %ipx distance when the viewport grows",
+describe("useScrollAnchor semantic viewport resize anchoring", () => {
+  it("ignores a ResizeObserver delivery when the viewport height is unchanged", async () => {
+    const mounted = await mountHook({ distanceToEnd: 2 })
+    const before = mounted.geometry()
+
+    mounted.resizeViewport(before.clientHeight)
+
+    expect(mounted.geometry()).toEqual(before)
+    expect(mounted.scrollWrites).toEqual([])
+  })
+
+  it.each(VIEWPORT_RESIZE_BOUNDARIES)(
+    "resolves a composer growth from an initial %ipx tail distance",
     async (distanceToEnd) => {
-      const { resizeViewport } = await mountHook({ distanceToEnd })
+      const { geometry, resizeViewport } = await mountHook({ distanceToEnd })
 
       resizeViewport(799)
 
-      expect(virtualizer.scrollToEnd).toHaveBeenCalledTimes(distanceToEnd <= 1 ? 1 : 0)
-    },
-  )
-
-  it.each(EXACT_PIN_BOUNDARIES)(
-    "uses the resize end writer only for an initial %ipx distance when the viewport shrinks",
-    async (distanceToEnd) => {
-      const { resizeViewport } = await mountHook({ distanceToEnd })
-
-      resizeViewport(801)
-
-      expect(virtualizer.scrollToEnd).toHaveBeenCalledTimes(distanceToEnd <= 1 ? 1 : 0)
-    },
-  )
-
-  it("promotes false only after a stable scroll moves toward the literal end", async () => {
-    const { dispatchScroll, geometry, resizeViewport, setBrowserScrollTop } = await mountHook({
-      distanceToEnd: 2,
-    })
-
-    setBrowserScrollTop(geometry().scrollHeight - geometry().clientHeight)
-    dispatchScroll()
-    resizeViewport(799)
-
-    expect(virtualizer.scrollToEnd).toHaveBeenCalledTimes(1)
-  })
-
-  it("does not promote false when content shrink reaches 1px at the same scrollTop", async () => {
-    const { dispatchScroll, geometry, resizeViewport, setScrollHeight } = await mountHook({
-      distanceToEnd: 2,
-    })
-
-    setScrollHeight(geometry().scrollHeight - 1)
-    dispatchScroll()
-    resizeViewport(799)
-
-    expect(virtualizer.scrollToEnd).not.toHaveBeenCalled()
-  })
-
-  it("clears exact-pinned immediately on existing upward wheel and keyboard intent", async () => {
-    const wheel = await mountHook({ distanceToEnd: 0 })
-    wheel.listeners.get("wheel")?.({ deltaY: -1 } as WheelEvent)
-    wheel.resizeViewport(799)
-    expect(virtualizer.scrollToEnd).not.toHaveBeenCalled()
-
-    resetHarness()
-    const keyboard = await mountHook({ distanceToEnd: 0 })
-    keyboard.listeners.get("keydown")?.({ key: "PageUp" } as KeyboardEvent)
-    keyboard.resizeViewport(799)
-    expect(virtualizer.scrollToEnd).not.toHaveBeenCalled()
-  })
-
-  it.each(["scroll-ro", "ro-scroll"] as const)(
-    "keeps a clamped false latch false through a second resize for %s ordering",
-    async (order) => {
-      const { resizeViewport } = await mountHook({ distanceToEnd: 2 })
-
-      // Growing the viewport by 3px clamps the browser scrollTop down to its
-      // new max. Whether that scroll callback runs before or after RO, it must
-      // not turn the original 2px-away latch true.
-      resizeViewport(803, order)
-      resizeViewport(799, "ro-scroll")
-
+      const expectedScrollTop = distanceToEnd <= 100
+        ? 1_600 - 799 - distanceToEnd
+        : 1_600 - 800 - distanceToEnd
+      expect(geometry()).toEqual({
+        clientHeight: 799,
+        scrollHeight: 1_600,
+        scrollTop: expectedScrollTop,
+      })
       expect(virtualizer.scrollToEnd).not.toHaveBeenCalled()
     },
   )
+
+  it.each(VIEWPORT_RESIZE_BOUNDARIES)(
+    "resolves a composer shrink from an initial %ipx tail distance",
+    async (distanceToEnd) => {
+      const { geometry, resizeViewport } = await mountHook({ distanceToEnd })
+
+      resizeViewport(801)
+
+      const expectedScrollTop = distanceToEnd <= 100
+        ? 1_600 - 801 - distanceToEnd
+        : 1_600 - 800 - distanceToEnd
+      expect(geometry()).toEqual({
+        clientHeight: 801,
+        scrollHeight: 1_600,
+        scrollTop: expectedScrollTop,
+      })
+      expect(virtualizer.scrollToEnd).not.toHaveBeenCalled()
+    },
+  )
+
+  it("preserves tail distance regardless of scroll/resize callback ordering", async () => {
+    for (const order of ["scroll-ro", "ro-scroll"] as const) {
+      const mounted = await mountHook({ distanceToEnd: 2 })
+
+      mounted.resizeViewport(803, order)
+
+      const { clientHeight, scrollHeight, scrollTop } = mounted.geometry()
+      expect(scrollHeight - clientHeight - scrollTop).toBe(2)
+      resetHarness()
+    }
+  })
 
   it.each([
     { name: "grow→grow", heights: [780, 760] },
     { name: "shrink→shrink", heights: [801, 802] },
     { name: "grow→shrink", heights: [780, 800] },
-  ])("preserves a false latch across rapid $name viewport sequences", async ({ heights }) => {
-    const { resizeViewport } = await mountHook({ distanceToEnd: 2 })
+  ])("preserves a 2px tail distance across rapid $name sequences", async ({ heights }) => {
+    const { geometry, resizeViewport } = await mountHook({ distanceToEnd: 2 })
 
     for (const height of heights) resizeViewport(height)
 
-    expect(virtualizer.scrollToEnd).not.toHaveBeenCalled()
+    const { clientHeight, scrollHeight, scrollTop } = geometry()
+    expect(scrollHeight - clientHeight - scrollTop).toBe(2)
   })
 
-  it("keeps an exact-pinned latch continuous across rapid grow and shrink", async () => {
-    const { resizeViewport } = await mountHook({ distanceToEnd: 1 })
+  it("preserves a 300px reading scrollTop across rapid growth and shrink", async () => {
+    const { geometry, resizeViewport } = await mountHook({ distanceToEnd: 300 })
+    const initialScrollTop = geometry().scrollTop
 
     resizeViewport(780)
     resizeViewport(760)
     resizeViewport(800)
 
-    expect(virtualizer.scrollToEnd).toHaveBeenCalledTimes(3)
+    expect(geometry().scrollTop).toBe(initialScrollTop)
   })
 
   it("lets the existing explicit end action restore the latch", async () => {
-    const { resizeViewport, result } = await mountHook({ distanceToEnd: 300 })
+    const { dispatchScroll, geometry, resizeViewport, result } = await mountHook({
+      distanceToEnd: 300,
+    })
 
     result.scrollToBottom()
+    dispatchScroll()
     virtualizer.scrollToEnd.mockClear()
     resizeViewport(799)
 
-    expect(virtualizer.scrollToEnd).toHaveBeenCalledTimes(1)
+    expect(geometry().scrollHeight - geometry().clientHeight - geometry().scrollTop).toBe(0)
+    expect(virtualizer.scrollToEnd).not.toHaveBeenCalled()
   })
 
   it("restores the latch for warm-mount and peer-follow end actions", async () => {
     const first = messageItem("m1", "peer")
-    const { rerender, resizeViewport } = await mountHook({
+    const { geometry, rerender, resizeViewport } = await mountHook({
       distanceToEnd: 2,
       items: [first],
       heroMeasured: true,
@@ -481,11 +473,12 @@ describe("useScrollAnchor viewport resize exact-pinned latch", () => {
 
     virtualizer.scrollToEnd.mockClear()
     resizeViewport(799)
-    expect(virtualizer.scrollToEnd).toHaveBeenCalledTimes(1)
+    expect(geometry().scrollHeight - geometry().clientHeight - geometry().scrollTop).toBe(0)
+    expect(virtualizer.scrollToEnd).not.toHaveBeenCalled()
   })
 
   it("restores the latch for an explicit present action", async () => {
-    const { resizeViewport } = await mountHook({
+    const { geometry, resizeViewport } = await mountHook({
       distanceToEnd: 300,
       items: [messageItem("m1")],
       presentVersion: 1,
@@ -496,7 +489,8 @@ describe("useScrollAnchor viewport resize exact-pinned latch", () => {
 
     virtualizer.scrollToEnd.mockClear()
     resizeViewport(799)
-    expect(virtualizer.scrollToEnd).toHaveBeenCalledTimes(1)
+    expect(geometry().scrollHeight - geometry().clientHeight - geometry().scrollTop).toBe(0)
+    expect(virtualizer.scrollToEnd).not.toHaveBeenCalled()
   })
 
   it("re-pins an exactly pinned image load but ignores one after upward intent", async () => {

@@ -19,6 +19,7 @@ import type { RightPanel } from "@/components/community/shell/panel-types"
 import type { EntityKind } from "@/lib/community/models/navigation"
 import { CreateDialogShell } from "../settings/create-dialog-shell"
 import { tid } from "@/lib/community/testids"
+import { TypingIndicator } from "../messages/typing-indicator"
 import { MessageHeader, MessageHeaderMobileBack } from "./message-header"
 
 // Skeleton header for the loading frame between route change and channel
@@ -74,7 +75,7 @@ export type ChannelNotifLevel = typeof USE_SERVER_DEFAULT | NotifLevel
 export function ChannelHeader({
   channel, rightPanel, onToggle, notifLevel, onSetNotifLevel,
   kind = "text", server, mobileBack, mobileBackDisplay = "viewport", onBack, tools,
-  onRename, titleRename, endActions, compactActions,
+  onRename, titleRename, endActions, compactActions, typingUsers = [],
 }: {
   channel: string
   kind?: EntityKind
@@ -91,6 +92,7 @@ export function ChannelHeader({
   tools?: { threads?: boolean; pinned?: boolean; members?: boolean }
   endActions?: ReactNode
   compactActions?: boolean
+  typingUsers?: string[]
 }) {
 
   const tool = (k: Exclude<RightPanel, null>, Icon: LucideIcon, label: string) => (
@@ -119,6 +121,7 @@ export function ChannelHeader({
         <EntityIcon kind={kind} className="size-4" />
       </div>
       <span className="min-w-0 truncate text-base font-semibold" title={channel}>{channel}</span>
+      <TypingIndicator names={typingUsers} variant="header" />
       {onRename && (
         <HeaderRename
           label={channel}

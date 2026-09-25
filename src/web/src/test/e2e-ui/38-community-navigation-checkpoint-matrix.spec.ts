@@ -243,10 +243,13 @@ test("mobile route commits stay stationary while sidebar identity survives same-
   ).__e2eDndOwner)).toBe("stable")
 
   await clearSurfaceAnimations(page)
-  await page.getByTestId(tid.channelRow(pendingChannel)).click({ noWaitAfter: true })
-  await expect(page.getByTestId(tid.pendingMain("server-conversation"))).toBeVisible()
-
   const pendingPath = `/c/channels/${serverId}/${pendingChannel}`
+  const pendingGate = await holdRoute(page, pendingPath)
+  await page.getByTestId(tid.channelRow(pendingChannel)).click({ noWaitAfter: true })
+  await expect.poll(pendingGate.held).toBeGreaterThan(0)
+  await expect(page.getByTestId(tid.pendingMain("server-conversation"))).toBeVisible()
+  await pendingGate.release()
+
   await expect.poll(() => new URL(page.url()).pathname).toBe(pendingPath)
   await expect(page.getByTestId(tid.composerInput)).toBeVisible({ timeout: 30_000 })
   expect(await surfaceAnimations(page)).toEqual([])

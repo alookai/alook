@@ -6,7 +6,7 @@ import type { MessageChannelControllerValue } from "../messages/message-channel-
 import { ChannelHeader } from "./channel-header"
 import { TextChannelSurface } from "./text-channel-surface"
 import { MessageContextSheet } from "../messages/message-context-sheet"
-import { ComposerOverlayShell } from "../messages/composer-overlay-shell"
+import { ConversationFooterShell } from "../messages/conversation-footer-shell"
 import { MessageList } from "../messages/message-list"
 import { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
 import { buildAttachmentUploadFormData } from "@/hooks/community/mutations/uploads"
@@ -49,14 +49,11 @@ vi.mock("@/components/community/channels/channel-shell", () => ({
 vi.mock("@/components/community/messages/composer", () => ({
   Composer: vi.fn(() => null),
 }))
-vi.mock("@/components/community/messages/composer-overlay-shell", () => ({
-  ComposerOverlayShell: vi.fn(({ children, onOverlapChange, ...props }: {
+vi.mock("@/components/community/messages/conversation-footer-shell", () => ({
+  ConversationFooterSlotProvider: ({ children }: { children: React.ReactNode }) => children,
+  ConversationFooterShell: vi.fn(({ children, ...props }: {
     children: React.ReactNode
-    onOverlapChange: (overlap: number) => void
-  }) => React.createElement("div", {
-    ...props,
-    onClick: () => onOverlapChange(96),
-  }, children)),
+  }) => React.createElement("div", props, children)),
 }))
 vi.mock("@/components/community/messages/message-list", () => ({
   MessageList: vi.fn(() => null),
@@ -120,7 +117,7 @@ function feed(overrides: Record<string, unknown> = {}) {
 
 const mockedChannelHeader = vi.mocked(ChannelHeader)
 const mockedMessageContextSheet = vi.mocked(MessageContextSheet)
-const mockedComposerOverlayShell = vi.mocked(ComposerOverlayShell)
+const mockedConversationFooterShell = vi.mocked(ConversationFooterShell)
 const mockedMessageList = vi.mocked(MessageList)
 const mockedUseChannelMessageFeed = vi.mocked(useChannelMessageFeed)
 
@@ -440,7 +437,7 @@ describe("TextChannelSurface header hierarchy", () => {
     expect(mockedChannelHeader.mock.calls.at(-1)?.[0].onToggle).toEqual(expect.any(Function))
   })
 
-  it("passes measured composer overlap to the message list", () => {
+  it("keeps the composer in the shared normal-flow footer", () => {
     mockedUseChannelMessageFeed.mockReturnValue(feed())
     const renderer = render(React.createElement(TextChannelSurface, {
       channelId: "channel_1",
@@ -462,11 +459,11 @@ describe("TextChannelSurface header hierarchy", () => {
       resolveUserName: (userId: string) => userId,
     }))
 
-    expect(mockedComposerOverlayShell).toHaveBeenCalled()
+    expect(mockedConversationFooterShell).toHaveBeenCalled()
     expect(renderer.container.querySelector('[data-slot="community-conversation-surface"]'))
       .toHaveAttribute("data-channel-id", "channel_1")
-    expect(mockedMessageList.mock.calls.at(-1)?.[0].composerOverlap).toBe(0)
-    fireEvent.click(renderer.getByTestId("community-composer-shell"))
-    expect(mockedMessageList.mock.calls.at(-1)?.[0].composerOverlap).toBe(96)
+    expect(mockedMessageList.mock.calls.at(-1)?.[0]).not.toHaveProperty("composerOverlap")
+    expect(mockedMessageList.mock.calls.at(-1)?.[0]).not.toHaveProperty("typingUsers")
+    expect(mockedChannelHeader.mock.calls.at(-1)?.[0].typingUsers).toEqual([])
   })
 })

@@ -40,7 +40,10 @@ type ScrollerGeometry = {
   bottom: number
   height: number
   clientHeight: number
+  scrollHeight: number
   scrollTop: number
+  firstVisibleId: string | null
+  firstVisibleOffset: number | null
 }
 
 async function settledScrollerGeometry(page: Page): Promise<ScrollerGeometry> {
@@ -50,12 +53,19 @@ async function settledScrollerGeometry(page: Page): Promise<ScrollerGeometry> {
   await expect.poll(async () => {
     const current = await scroller.evaluate((element) => {
       const rect = element.getBoundingClientRect()
+      const firstVisible = Array.from(element.querySelectorAll<HTMLElement>("[data-msg-id]"))
+        .find((row) => row.getBoundingClientRect().bottom > rect.top)
       return {
         top: rect.top,
         bottom: rect.bottom,
         height: rect.height,
         clientHeight: element.clientHeight,
+        scrollHeight: element.scrollHeight,
         scrollTop: element.scrollTop,
+        firstVisibleId: firstVisible?.dataset.msgId ?? null,
+        firstVisibleOffset: firstVisible
+          ? firstVisible.getBoundingClientRect().top - rect.top
+          : null,
       }
     })
     const signature = JSON.stringify(current)
@@ -68,8 +78,15 @@ async function settledScrollerGeometry(page: Page): Promise<ScrollerGeometry> {
 }
 
 function expectStableScroller(before: ScrollerGeometry, after: ScrollerGeometry): void {
-  for (const key of ["top", "bottom", "height", "clientHeight", "scrollTop"] as const) {
+  for (const key of ["top", "bottom", "height", "clientHeight", "scrollHeight", "scrollTop"] as const) {
     expect(Math.abs(after[key] - before[key]), `${key}: ${JSON.stringify({ before, after })}`)
+      .toBeLessThanOrEqual(1)
+  }
+  expect(after.firstVisibleId).toBe(before.firstVisibleId)
+  if (before.firstVisibleOffset === null || after.firstVisibleOffset === null) {
+    expect(after.firstVisibleOffset).toBe(before.firstVisibleOffset)
+  } else {
+    expect(Math.abs(after.firstVisibleOffset - before.firstVisibleOffset))
       .toBeLessThanOrEqual(1)
   }
 }
@@ -495,8 +512,8 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
     composerId: tid.channelComposerShell,
   })
   expect(restingThreadGap).not.toBeNull()
-  expect(restingThreadGap!).toBeGreaterThanOrEqual(55)
-  expect(restingThreadGap!).toBeLessThanOrEqual(58)
+  expect(restingThreadGap!).toBeGreaterThanOrEqual(15)
+  expect(restingThreadGap!).toBeLessThanOrEqual(18)
   const threadWsReadyId = await seedMessage("alice", threadId, `thread ws ready ${stamp}`)
   await expect.poll(() => bobProxy.frames.some((frame) => (
     frameHasMessage(frame, threadId, threadWsReadyId)
@@ -629,12 +646,11 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
     indicatorId: tid.typingIndicator,
     replyMessageTestId: tid.message(typingWsReadyId),
   })
-  expect(geometry.contentPaddingBottom).toBe(56)
+  expect(geometry.contentPaddingBottom).toBe(16)
   expect(geometry.scroller!.bottom).toBeLessThanOrEqual(geometry.composer!.top + 1)
-  expect(geometry.rail!.bottom).toBeLessThanOrEqual(geometry.scroller!.bottom + 1)
-  expect(geometry.indicator!.top).toBeGreaterThanOrEqual(geometry.rail!.top - 1)
-  expect(geometry.indicator!.bottom).toBeLessThanOrEqual(geometry.rail!.bottom + 1)
-  expect(geometry.indicator!.top - geometry.finalMessage!.bottom).toBeGreaterThanOrEqual(7)
+  expect(geometry.rail).toBeNull()
+  expect(geometry.indicator!.bottom).toBeLessThanOrEqual(geometry.scroller!.top + 1)
+  expect(geometry.scroller!.bottom - geometry.finalMessage!.bottom).toBeGreaterThanOrEqual(15)
   expect(geometry.finalMessage!.bottom).toBeLessThanOrEqual(geometry.scroller!.bottom + 1)
   expect(geometry.horizontalOverflow).toBeLessThanOrEqual(0)
 
@@ -660,12 +676,13 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   })
   expect(scrollTypingGeometry.rail!.bottom).toBeLessThanOrEqual(scrollTypingGeometry.scroller!.bottom + 1)
   expect(scrollTypingGeometry.scroll!.bottom).toBeLessThanOrEqual(scrollTypingGeometry.scroller!.bottom + 1)
-  expect(scrollTypingGeometry.indicator!.top).toBeGreaterThanOrEqual(scrollTypingGeometry.rail!.top - 1)
+  expect(scrollTypingGeometry.indicator!.bottom).toBeLessThanOrEqual(scrollTypingGeometry.scroller!.top + 1)
 
   await alice.page.getByTestId(tid.scrollToPresent).click()
   await expect(alice.page.getByTestId(tid.scrollToPresent)).toHaveCount(0)
   await bobEditable.pressSequentially(" selection")
   await expect(alice.page.getByTestId(tid.typingIndicator)).toBeVisible({ timeout: 4_000 })
+  const channelScrollerBeforeSelection = await settledScrollerGeometry(alice.page)
   const finalChannelMessage = alice.page.getByTestId(tid.message(typingWsReadyId))
   await finalChannelMessage.getByText(`typing ws ready ${stamp}`, { exact: true }).tap()
   const shareAsImage = await expectTouchActionMenu(
@@ -675,14 +692,11 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   )
   await shareAsImage.click({ timeout: 3_000 })
   await expect(alice.page.getByTestId(tid.messageSelectionToolbar)).toBeVisible()
-  await expect(alice.page.locator("[data-selection-typing-fit]"))
-    .toHaveAttribute("data-selection-typing-fit", /^(visible|hidden)$/)
+  const channelScrollerDuringSelection = await settledScrollerGeometry(alice.page)
+  expectStableScroller(channelScrollerBeforeSelection, channelScrollerDuringSelection)
   const selectionTypingGeometry = await alice.page.evaluate((ids) => {
     const rect = (element: Element | null) => element?.getBoundingClientRect() ?? null
-    const typingSlot = document.querySelector<HTMLElement>("[data-selection-typing-fit]")
-    const typingPill = typingSlot?.firstElementChild as HTMLElement | null
     const typingIndicator = document.querySelector<HTMLElement>(`[data-testid="${ids.indicator}"]`)
-    const typingText = typingIndicator?.querySelector<HTMLElement>("span.min-w-0.truncate")
     return {
       finalMessage: rect(document.querySelector(`[data-testid="${ids.finalMessage}"]`)),
       scroller: rect(document.querySelector(`[data-testid="${ids.scroller}"]`)),
@@ -690,16 +704,6 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
       selection: rect(document.querySelector(`[data-testid="${ids.selection}"]`)),
       indicator: rect(typingIndicator),
       composer: rect(document.querySelector(`[data-testid="${ids.composer}"]`)),
-      typingFit: typingSlot && typingPill && typingIndicator && typingText
-        ? {
-          state: typingSlot.dataset.selectionTypingFit,
-          slotWidth: typingSlot.getBoundingClientRect().width,
-          pillWidth: typingPill.getBoundingClientRect().width,
-          visibility: getComputedStyle(typingIndicator).visibility,
-          textClientWidth: typingText.clientWidth,
-          textScrollWidth: typingText.scrollWidth,
-        }
-        : null,
     }
   }, {
     finalMessage: tid.message(typingWsReadyId),
@@ -709,24 +713,16 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
     indicator: tid.typingIndicator,
     composer: tid.channelComposerShell,
   })
-  expect(selectionTypingGeometry.selection!.top - selectionTypingGeometry.finalMessage!.bottom)
-    .toBeGreaterThanOrEqual(7)
-  expect(selectionTypingGeometry.rail!.bottom).toBeLessThanOrEqual(selectionTypingGeometry.scroller!.bottom + 1)
-  expect(selectionTypingGeometry.selection!.bottom).toBeLessThanOrEqual(selectionTypingGeometry.scroller!.bottom + 1)
+  expect(selectionTypingGeometry.rail).toBeNull()
+  expect(selectionTypingGeometry.selection!.top).toBeGreaterThanOrEqual(selectionTypingGeometry.composer!.top - 1)
+  expect(selectionTypingGeometry.selection!.bottom).toBeLessThanOrEqual(selectionTypingGeometry.composer!.bottom + 1)
   expect(selectionTypingGeometry.scroller!.bottom).toBeLessThanOrEqual(selectionTypingGeometry.composer!.top + 1)
   expect(selectionTypingGeometry.finalMessage!.bottom).toBeLessThanOrEqual(selectionTypingGeometry.scroller!.bottom + 1)
-  expect(selectionTypingGeometry.typingFit).not.toBeNull()
-  const selectionTypingFits = selectionTypingGeometry.typingFit!.pillWidth
-    <= selectionTypingGeometry.typingFit!.slotWidth
-  expect(selectionTypingGeometry.typingFit!.state)
-    .toBe(selectionTypingFits ? "visible" : "hidden")
-  expect(selectionTypingGeometry.typingFit!.visibility)
-    .toBe(selectionTypingFits ? "visible" : "hidden")
-  if (selectionTypingFits) {
-    expect(selectionTypingGeometry.typingFit!.textScrollWidth)
-      .toBeLessThanOrEqual(selectionTypingGeometry.typingFit!.textClientWidth)
-  }
+  expect(selectionTypingGeometry.indicator!.bottom)
+    .toBeLessThanOrEqual(selectionTypingGeometry.scroller!.top + 1)
   await alice.page.getByRole("button", { name: "Cancel message selection" }).click()
+  const channelScrollerAfterSelection = await settledScrollerGeometry(alice.page)
+  expectStableScroller(channelScrollerBeforeSelection, channelScrollerAfterSelection)
 
   await bobEditable.fill("")
   await expect(alice.page.getByTestId(tid.typingIndicator)).toBeHidden({ timeout: 15_000 })
@@ -816,10 +812,10 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
     railId: tid.composerAccessoryRail,
     indicatorId: tid.typingIndicator,
   })
-  expect(dmGeometry.contentPaddingBottom).toBe(56)
+  expect(dmGeometry.contentPaddingBottom).toBe(16)
   expect(dmGeometry.scroller!.bottom).toBeLessThanOrEqual(dmGeometry.composer!.top + 1)
-  expect(dmGeometry.rail!.bottom).toBeLessThanOrEqual(dmGeometry.scroller!.bottom + 1)
-  expect(dmGeometry.indicator!.bottom).toBeLessThanOrEqual(dmGeometry.rail!.bottom + 1)
+  expect(dmGeometry.rail).toBeNull()
+  expect(dmGeometry.indicator!.bottom).toBeLessThanOrEqual(dmGeometry.scroller!.top + 1)
   expect(dmGeometry.horizontalOverflow).toBeLessThanOrEqual(0)
   await bobDmEditable.fill("")
   await expect(alice.page.getByTestId(tid.typingIndicator)).toBeHidden({ timeout: 15_000 })

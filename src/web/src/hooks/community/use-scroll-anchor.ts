@@ -41,6 +41,62 @@ import { estimateRowHeight, computeBelowCount, type FlatItem } from "@/lib/commu
 // `resizeItem` above-viewport compensation (defaults to 1px otherwise).
 export const NEAR_BOTTOM_PX = 100
 
+type ViewportResizeAnchor = "tail" | "start"
+
+export interface ResolveViewportResizeAnchorInput {
+  previousClientHeight: number
+  nextClientHeight: number
+  previousScrollHeight: number
+  nextScrollHeight: number
+  previousScrollTop: number
+}
+
+export interface ViewportResizeAnchorResult {
+  anchor: ViewportResizeAnchor
+  scrollTop: number
+  distanceToEnd: number
+}
+
+/**
+ * Resolve a conversation viewport resize from the last accepted geometry.
+ *
+ * Composer growth/shrink is a real normal-flow resize. Viewers in tail
+ * context retain their exact distance from the end, while readers farther
+ * away retain their top-based position. When the viewport grows by more than
+ * the old tail distance, a top anchor is physically impossible because the
+ * browser must clamp to the new maximum; that case deliberately falls back
+ * to the equivalent tail-distance anchor.
+ */
+export function resolveViewportResizeAnchor({
+  previousClientHeight,
+  nextClientHeight,
+  previousScrollHeight,
+  nextScrollHeight,
+  previousScrollTop,
+}: ResolveViewportResizeAnchorInput): ViewportResizeAnchorResult {
+  const distanceToEnd = Math.max(
+    0,
+    previousScrollHeight - previousClientHeight - previousScrollTop,
+  )
+  const viewportGrowth = Math.max(0, nextClientHeight - previousClientHeight)
+  const anchor: ViewportResizeAnchor = distanceToEnd <= Math.max(
+    NEAR_BOTTOM_PX,
+    viewportGrowth,
+  )
+    ? "tail"
+    : "start"
+  const maxScrollTop = Math.max(0, nextScrollHeight - nextClientHeight)
+  const requestedScrollTop = anchor === "tail"
+    ? maxScrollTop - distanceToEnd
+    : previousScrollTop
+
+  return {
+    anchor,
+    scrollTop: Math.max(0, Math.min(requestedScrollTop, maxScrollTop)),
+    distanceToEnd,
+  }
+}
+
 /**
  * Measure the row's current visual footprint instead of trusting the initial
  * text estimate or a previously cached measurement. The virtualizer's default
@@ -104,8 +160,10 @@ export interface ScrollAnchorMessage {
 }
 
 interface PaginationAnchor {
-  messageId: string
-  viewportOffset: number
+  direction: "older" | "newer"
+  messageId: string | null
+  viewportOffset: number | null
+  scrollTop: number
 }
 
 export interface ScrollAnchorState {
@@ -147,6 +205,7 @@ export interface DecideScrollActionInput {
   // useChannelWatermark never advances the read pointer.
   heroMeasured: boolean
   hasMoreNewer?: boolean
+  isPaginatingNewer?: boolean
   viewerUserId?: string
   // Whether the viewport was within NEAR_BOTTOM_PX of the end BEFORE this
   // commit's append — the caller reads this off `virtualizer.isAtEnd(NEAR_BOTTOM_PX)`.
@@ -179,7 +238,7 @@ export interface DecideScrollActionResult {
  * real virtualizer. Exported for unit testing without DOM/hooks.
  */
 export function decideScrollAction(input: DecideScrollActionInput): DecideScrollActionResult {
-  const { state, messages, newDividerBefore, initialScrollReady, heroMeasured, hasMoreNewer, viewerUserId, isAtEnd, userScrolledAway } = input
+  const { state, messages, newDividerBefore, initialScrollReady, heroMeasured, hasMoreNewer, isPaginatingNewer, viewerUserId, isAtEnd, userScrolledAway } = input
 
   const nextTail = messages[messages.length - 1]?.id ?? null
   const nextLen = messages.length
@@ -292,6 +351,14 @@ export function decideScrollAction(input: DecideScrollActionInput): DecideScroll
     // one-shot is spent (any pending convergence would now be a stale yank), so
     // consume it on every tail-changed outcome below.
     const liveState = { ...baseNextState, didDividerConverge: true }
+    // A newer-page fetch also changes the tail id, but it is historical
+    // pagination rather than a live append. Its captured visible-message
+    // anchor owns the viewport; treating it as peer-follow would snap to the
+    // newly loaded page end and can virtualize the captured row away before
+    // reconciliation gets a chance to restore it.
+    if (isPaginatingNewer) {
+      return { action: { type: "none" }, nextState: liveState }
+    }
     const tail = messages[messages.length - 1]
     const isSelfSend = !!viewerUserId && tail?.authorId === viewerUserId
     if (isSelfSend) {
@@ -396,6 +463,7 @@ export function useScrollAnchor({
   initialScrollReady,
   hasMoreNewer,
   isFetchingOlder,
+  isFetchingNewer,
   presentVersion,
   viewerUserId,
   heroHeight,
@@ -407,6 +475,7 @@ export function useScrollAnchor({
   initialScrollReady: boolean
   hasMoreNewer?: boolean
   isFetchingOlder?: boolean
+  isFetchingNewer?: boolean
   presentVersion?: number
   viewerUserId?: string
   // Current measured height (px) of the non-virtualized hero block that
@@ -431,6 +500,8 @@ export function useScrollAnchor({
   onImageLoad: () => void
   captureOlderPageAnchor: () => void
   isOlderPageAnchorSettling: boolean
+  captureNewerPageAnchor: () => void
+  isNewerPageAnchorSettling: boolean
 } {
   const scrollRef = useRef<HTMLDivElement>(null)
   const stateRef = useRef<ScrollAnchorState>(createScrollAnchorState())
@@ -445,11 +516,17 @@ export function useScrollAnchor({
   const acceptedScrollTopRef = useRef(0)
   const measuredRowHeightsRef = useRef(new WeakMap<Element, number>())
   const bottomRepinQueuedRef = useRef(false)
-  const olderPageAnchorRef = useRef<PaginationAnchor | null>(null)
-  const olderPageFetchObservedRef = useRef(false)
-  const olderPageAnchorFrameRef = useRef<number | null>(null)
-  const [isOlderPageAnchorSettling, setIsOlderPageAnchorSettling] = useState(false)
-  const liveResizeAnchor = wasExactlyPinnedRef.current && !userScrolledAwayRef.current
+  const paginationAnchorRef = useRef<PaginationAnchor | null>(null)
+  const paginationFetchObservedRef = useRef(false)
+  const newerPageFetchActiveRef = useRef(false)
+  const paginationAnchorFrameRef = useRef<number | null>(null)
+  const acceptedScrollHeightRef = useRef(0)
+  const [paginationDirection, setPaginationDirection] = useState<"older" | "newer" | null>(null)
+  const isOlderPageAnchorSettling = paginationDirection === "older"
+  const isNewerPageAnchorSettling = paginationDirection === "newer"
+  const liveResizeAnchor = !isNewerPageAnchorSettling
+    && wasExactlyPinnedRef.current
+    && !userScrolledAwayRef.current
     ? "end"
     : "start"
   const cancelInitialSettleFrame = useCallback(() => {
@@ -561,7 +638,7 @@ export function useScrollAnchor({
   // prepend anchoring before this assignment restores the live resize mode.
   virtualizer.options.anchorTo = liveResizeAnchor
 
-  const captureOlderPageAnchor = useCallback(() => {
+  const capturePageAnchor = useCallback((direction: "older" | "newer") => {
     const root = scrollRef.current
     if (!root) return
     const rootRect = root.getBoundingClientRect()
@@ -571,45 +648,76 @@ export function useScrollAnchor({
         return rect.bottom > rootRect.top + 1 && rect.top < rootRect.bottom - 1
       })
     const messageId = row?.dataset.msgId
-    if (!row || !messageId) return
-    if (olderPageAnchorFrameRef.current !== null) {
-      window.cancelAnimationFrame(olderPageAnchorFrameRef.current)
-      olderPageAnchorFrameRef.current = null
+    // Older-page prepends require a real-message anchor because content is
+    // inserted above the viewport. Newer pages append below it, so the exact
+    // scrollTop is itself a stable anchor and also covers the brief moment
+    // where the virtualizer has not mounted the newly visible end rows yet.
+    if (direction === "older" && (!row || !messageId)) return
+    if (paginationAnchorFrameRef.current !== null) {
+      window.cancelAnimationFrame(paginationAnchorFrameRef.current)
+      paginationAnchorFrameRef.current = null
     }
-    olderPageAnchorRef.current = {
-      messageId,
-      viewportOffset: row.getBoundingClientRect().top - rootRect.top,
+    paginationAnchorRef.current = {
+      direction,
+      messageId: messageId ?? null,
+      viewportOffset: row ? row.getBoundingClientRect().top - rootRect.top : null,
+      scrollTop: root.scrollTop,
     }
-    olderPageFetchObservedRef.current = false
-    setIsOlderPageAnchorSettling(true)
+    paginationFetchObservedRef.current = false
+    newerPageFetchActiveRef.current = direction === "newer"
+    setPaginationDirection(direction)
   }, [])
+  const captureOlderPageAnchor = useCallback(
+    () => capturePageAnchor("older"),
+    [capturePageAnchor],
+  )
+  const captureNewerPageAnchor = useCallback(
+    () => capturePageAnchor("newer"),
+    [capturePageAnchor],
+  )
 
   useLayoutEffect(() => {
-    const anchor = olderPageAnchorRef.current
+    const anchor = paginationAnchorRef.current
     if (!anchor) return
-    if (isFetchingOlder) {
-      olderPageFetchObservedRef.current = true
+    const isFetching = anchor.direction === "older" ? isFetchingOlder : isFetchingNewer
+    if (isFetching) {
+      paginationFetchObservedRef.current = true
       return
     }
-    if (!olderPageFetchObservedRef.current) return
+    if (!paginationFetchObservedRef.current) return
+    newerPageFetchActiveRef.current = false
 
     const root = scrollRef.current
-    const index = findMessageIndex(items, anchor.messageId)
-    if (!root || index === null) {
-      olderPageAnchorRef.current = null
-      setIsOlderPageAnchorSettling(false)
+    const index = anchor.messageId === null ? null : findMessageIndex(items, anchor.messageId)
+    if (!root || (anchor.direction === "older" && index === null)) {
+      paginationAnchorRef.current = null
+      setPaginationDirection(null)
       return
     }
+    const acceptGeometry = () => {
+      acceptedClientHeightRef.current = root.clientHeight
+      acceptedScrollTopRef.current = root.scrollTop
+      acceptedScrollHeightRef.current = root.scrollHeight
+    }
 
-    virtualizer.scrollToIndex(index, { align: "start" })
+    // Newer pages only add rows below the viewport. Restore the captured
+    // numeric position synchronously before any tail-follow or measurement
+    // callback can leave the captured row outside the mounted range. When a
+    // real row was available at capture time, the rAF loop below additionally
+    // reconciles its precise visual offset after it remounts.
+    if (anchor.direction === "newer") root.scrollTop = anchor.scrollTop
+    if (index !== null) virtualizer.scrollToIndex(index, { align: "start" })
+    acceptGeometry()
     let attempts = 0
     let stableFrames = 0
     const restore = () => {
-      olderPageAnchorFrameRef.current = null
-      if (olderPageAnchorRef.current !== anchor) return
-      const row = Array.from(root.querySelectorAll<HTMLElement>("[data-msg-id]"))
-        .find((candidate) => candidate.dataset.msgId === anchor.messageId)
-      if (row) {
+      paginationAnchorFrameRef.current = null
+      if (paginationAnchorRef.current !== anchor) return
+      const row = anchor.messageId === null
+        ? undefined
+        : Array.from(root.querySelectorAll<HTMLElement>("[data-msg-id]"))
+          .find((candidate) => candidate.dataset.msgId === anchor.messageId)
+      if (row && anchor.viewportOffset !== null) {
         const offset = row.getBoundingClientRect().top - root.getBoundingClientRect().top
         const delta = offset - anchor.viewportOffset
         if (Math.abs(delta) > 0.5) {
@@ -618,27 +726,36 @@ export function useScrollAnchor({
         } else {
           stableFrames += 1
         }
+      } else if (anchor.direction === "newer") {
+        const delta = root.scrollTop - anchor.scrollTop
+        if (Math.abs(delta) > 0.5) {
+          root.scrollTop = anchor.scrollTop
+          stableFrames = 0
+        } else {
+          stableFrames += 1
+        }
       }
+      acceptGeometry()
       attempts += 1
       if (stableFrames >= 2 || attempts >= 12) {
-        olderPageAnchorRef.current = null
-        setIsOlderPageAnchorSettling(false)
+        paginationAnchorRef.current = null
+        setPaginationDirection(null)
         return
       }
-      olderPageAnchorFrameRef.current = window.requestAnimationFrame(restore)
+      paginationAnchorFrameRef.current = window.requestAnimationFrame(restore)
     }
-    olderPageAnchorFrameRef.current = window.requestAnimationFrame(restore)
+    paginationAnchorFrameRef.current = window.requestAnimationFrame(restore)
     return () => {
-      if (olderPageAnchorFrameRef.current !== null) {
-        window.cancelAnimationFrame(olderPageAnchorFrameRef.current)
-        olderPageAnchorFrameRef.current = null
+      if (paginationAnchorFrameRef.current !== null) {
+        window.cancelAnimationFrame(paginationAnchorFrameRef.current)
+        paginationAnchorFrameRef.current = null
       }
     }
-  }, [isFetchingOlder, items, virtualizer])
+  }, [isFetchingNewer, isFetchingOlder, items, virtualizer])
 
   useLayoutEffect(() => () => {
-    if (olderPageAnchorFrameRef.current !== null) {
-      window.cancelAnimationFrame(olderPageAnchorFrameRef.current)
+    if (paginationAnchorFrameRef.current !== null) {
+      window.cancelAnimationFrame(paginationAnchorFrameRef.current)
     }
   }, [])
 
@@ -658,12 +775,27 @@ export function useScrollAnchor({
     if (!el) return
     acceptedClientHeightRef.current = el.clientHeight
     acceptedScrollTopRef.current = el.scrollTop
+    acceptedScrollHeightRef.current = el.scrollHeight
     wasExactlyPinnedRef.current = Math.max(
       0,
       el.scrollHeight - el.clientHeight - el.scrollTop,
     ) <= 1
     const onScroll = () => {
       const nextScrollTop = el.scrollTop
+      const paginationAnchor = paginationAnchorRef.current
+      if (newerPageFetchActiveRef.current && paginationAnchor?.direction === "newer") {
+        const rootRect = el.getBoundingClientRect()
+        const row = Array.from(el.querySelectorAll<HTMLElement>("[data-msg-id]"))
+          .find((candidate) => {
+            const rect = candidate.getBoundingClientRect()
+            return rect.bottom > rootRect.top + 1 && rect.top < rootRect.bottom - 1
+          })
+        paginationAnchor.scrollTop = nextScrollTop
+        paginationAnchor.messageId = row?.dataset.msgId ?? null
+        paginationAnchor.viewportOffset = row
+          ? row.getBoundingClientRect().top - rootRect.top
+          : null
+      }
       const isAtEnd = virtualizer.isAtEnd(NEAR_BOTTOM_PX)
       const leftEnd = wasAtEndRef.current && !isAtEnd
       wasAtEndRef.current = isAtEnd
@@ -689,6 +821,7 @@ export function useScrollAnchor({
           wasExactlyPinnedRef.current = true
         }
         acceptedScrollTopRef.current = nextScrollTop
+        acceptedScrollHeightRef.current = el.scrollHeight
       }
       virtualizer.options.anchorTo = wasExactlyPinnedRef.current && !userScrolledAwayRef.current
         ? "end"
@@ -726,6 +859,7 @@ export function useScrollAnchor({
       initialScrollReady,
       heroMeasured,
       hasMoreNewer,
+      isPaginatingNewer: isNewerPageAnchorSettling,
       viewerUserId,
       isAtEnd: wasAtEndRef.current,
       userScrolledAway: userScrolledAwayRef.current,
@@ -765,6 +899,7 @@ export function useScrollAnchor({
     initialScrollReady,
     heroMeasured,
     hasMoreNewer,
+    isNewerPageAnchorSettling,
     viewerUserId,
     virtualizer,
     cancelInitialSettleFrame,
@@ -806,18 +941,14 @@ export function useScrollAnchor({
     if (delta !== 0) el.scrollTop += delta
   }, [heroHeight])
 
-  // Viewport resize compensation — shell or mobile-keyboard changes can alter
-  // this viewport's `clientHeight`, and the bottom-pinned content
-  // (`min-h-full … justify-end`) would otherwise appear to jump. The channel
-  // composer's internal growth is isolated by its stable overlay shell and
-  // does not reach this observer. A `ResizeObserver` on the viewport itself
-  // catches every real viewport resize. Only a viewport literally pinned within
-  // 1px re-pins instantly (NOT the smooth `scrollToBottom` — a smooth
-  // animation firing on every keystroke resize is janky and fights rapid
-  // successive resizes). Every away position is left to the browser; in
-  // particular, the resize policy never writes a compensating height delta.
-  // Keyed on `clientHeight`, orthogonal to the hero compensation above (keyed
-  // on `heroHeight`) — separate effects, no double-apply.
+  // Viewport resize compensation — composer growth/shrink and mobile-keyboard
+  // changes both alter this viewport's real `clientHeight`. Preserve the
+  // conversation's semantic anchor from the last accepted geometry: exact
+  // distance-to-tail through the shared 100px tail context, otherwise the
+  // reading scrollTop. This is the sole writer for footer-driven viewport
+  // changes; the footer itself does not measure or mutate the message list.
+  // Keyed on `clientHeight`, orthogonal to hero compensation above (keyed on
+  // `heroHeight`) — separate effects, no double-apply.
   useLayoutEffect(() => {
     const el = scrollRef.current
     if (!el) return
@@ -826,18 +957,29 @@ export function useScrollAnchor({
     // callback computes a zero delta instead of a spurious jump at mount.
     acceptedClientHeightRef.current = el.clientHeight
     acceptedScrollTopRef.current = el.scrollTop
+    acceptedScrollHeightRef.current = el.scrollHeight
     const ro = new ResizeObserver(() => {
-      const prev = acceptedClientHeightRef.current
-      const next = el.clientHeight
-      if (next === prev) return
-      const wasExactlyPinned = wasExactlyPinnedRef.current
-      acceptedClientHeightRef.current = next
-      acceptedScrollTopRef.current = el.scrollTop
-      if (wasExactlyPinned && !userScrolledAwayRef.current) {
-        wasExactlyPinnedRef.current = true
-        virtualizer.options.anchorTo = "end"
-        virtualizer.scrollToEnd()
+      const previousClientHeight = acceptedClientHeightRef.current
+      const nextClientHeight = el.clientHeight
+      if (nextClientHeight === previousClientHeight) return
+      const result = resolveViewportResizeAnchor({
+        previousClientHeight,
+        nextClientHeight,
+        previousScrollHeight: acceptedScrollHeightRef.current,
+        nextScrollHeight: el.scrollHeight,
+        previousScrollTop: acceptedScrollTopRef.current,
+      })
+      if (Math.abs(el.scrollTop - result.scrollTop) > 0.5) {
+        el.scrollTop = result.scrollTop
       }
+      acceptedClientHeightRef.current = nextClientHeight
+      acceptedScrollTopRef.current = el.scrollTop
+      acceptedScrollHeightRef.current = el.scrollHeight
+      wasAtEndRef.current = result.distanceToEnd <= NEAR_BOTTOM_PX
+      wasExactlyPinnedRef.current = result.distanceToEnd <= 1
+      virtualizer.options.anchorTo = wasExactlyPinnedRef.current && !userScrolledAwayRef.current
+        ? "end"
+        : "start"
     })
     ro.observe(el)
     return () => ro.disconnect()
@@ -897,5 +1039,7 @@ export function useScrollAnchor({
     onImageLoad,
     captureOlderPageAnchor,
     isOlderPageAnchorSettling,
+    captureNewerPageAnchor,
+    isNewerPageAnchorSettling,
   }
 }

@@ -396,7 +396,7 @@ function MessageImpl({
         swipeReplyEnabled ? "z-10 touch-pan-y bg-background" : "",
         swipeVisual.active ? "transition-none" : "transition-transform duration-150 ease-out",
         m.grouped ? "py-0" : "mt-3 pt-1.5 pb-0",
-        selectable ? "cursor-pointer pl-9" : "",
+        selectable ? "cursor-pointer" : "",
         selected ? "bg-primary/10" : highlighted ? "bg-primary/10" : selectable ? "hover:bg-accent/40" : "hover:bg-accent/40",
       ].join(" ")}
       style={swipeVisual.offset > 0
@@ -594,7 +594,7 @@ function MessageImpl({
           <span
             aria-hidden
             className={[
-              "absolute left-1.5 top-1/2 z-20 grid size-4 -translate-y-1/2 place-items-center rounded-[5px] border transition-colors",
+              "absolute left-5 top-1/2 z-20 grid size-4 -translate-y-1/2 place-items-center rounded-[5px] border transition-colors",
               selected ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/50 bg-card",
             ].join(" ")}
           >

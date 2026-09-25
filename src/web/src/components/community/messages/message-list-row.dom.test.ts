@@ -46,7 +46,6 @@ const props = {
   messages: [],
   variant: "channel" as const,
   initialScrollReady: true,
-  composerOverlap: 0,
   viewerUserId: "viewer_1",
   pinnedIds: new Set(["m1"]),
   ...callbacks,

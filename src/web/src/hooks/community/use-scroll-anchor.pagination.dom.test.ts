@@ -45,16 +45,19 @@ const day = (key: string): FlatItem => ({ kind: "date-divider", label: key, key:
 function Harness({
   items,
   isFetchingOlder,
+  isFetchingNewer = false,
   onResult,
 }: {
   items: FlatItem[]
   isFetchingOlder: boolean
+  isFetchingNewer?: boolean
   onResult: (result: AnchorResult) => void
 }) {
   const result = useScrollAnchor({
     items,
     initialScrollReady: false,
     isFetchingOlder,
+    isFetchingNewer,
     heroHeight: 0,
     heroMeasured: false,
   })
@@ -72,23 +75,35 @@ function Harness({
 
 describe("useScrollAnchor older-page message anchoring", () => {
   let frames: FrameRequestCallback[]
+  let resizeCallbacks: ResizeObserverCallback[]
+  let clientHeight: number
   let cancelFrame: ReturnType<typeof vi.fn>
   let latest: AnchorResult
 
   beforeEach(() => {
     frames = []
+    resizeCallbacks = []
+    clientHeight = 600
     harness.absoluteTops.clear()
     harness.scroller = null
     harness.scrollToIndex.mockClear()
     harness.virtualizer.scrollToEnd.mockClear()
+    harness.virtualizer.options.anchorTo = "end"
     cancelFrame = vi.fn()
-    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} })
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(callback: ResizeObserverCallback) {
+        resizeCallbacks.push(callback)
+      }
+
+      observe() {}
+      disconnect() {}
+    })
     vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
       frames.push(callback)
       return frames.length
     })
     vi.spyOn(window, "cancelAnimationFrame").mockImplementation(cancelFrame)
-    vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(600)
+    vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(() => clientHeight)
     vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(5_000)
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function () {
       const element = this as HTMLElement
@@ -138,6 +153,44 @@ describe("useScrollAnchor older-page message anchoring", () => {
     return rendered
   }
 
+  function runNewerCase(initialItems: FlatItem[], nextItems: FlatItem[], nextAnchorTop: number) {
+    const onResult = (result: AnchorResult) => { latest = result }
+    harness.absoluteTops.set("anchor", 120)
+    const rendered = render(createElement(Harness, {
+      items: initialItems,
+      isFetchingOlder: false,
+      onResult,
+    }))
+    harness.scroller = screen.getByTestId("scroll") as HTMLDivElement
+
+    act(() => latest.captureNewerPageAnchor())
+    expect(latest.isNewerPageAnchorSettling).toBe(true)
+    expect(harness.virtualizer.options.anchorTo).toBe("start")
+    rendered.rerender(createElement(Harness, {
+      items: initialItems,
+      isFetchingOlder: false,
+      isFetchingNewer: true,
+      onResult,
+    }))
+    harness.scroller.scrollTop = 96
+    harness.scroller.dispatchEvent(new Event("scroll"))
+    harness.absoluteTops.set("anchor", nextAnchorTop)
+    rendered.rerender(createElement(Harness, {
+      items: nextItems,
+      isFetchingOlder: false,
+      isFetchingNewer: false,
+      onResult,
+    }))
+    act(() => {
+      while (frames.length > 0) frames.shift()!(0)
+    })
+
+    const anchor = rendered.container.querySelector<HTMLElement>('[data-msg-id="anchor"]')!
+    expect(anchor.getBoundingClientRect().top).toBe(24)
+    expect(latest.isNewerPageAnchorSettling).toBe(false)
+    return rendered
+  }
+
   it("preserves the real message across same-day and cross-day divider shapes", () => {
     const initial = [day("2026-09-18"), message("anchor")]
     const sameDay = [day("2026-09-18"), message("older"), message("anchor")]
@@ -161,6 +214,77 @@ describe("useScrollAnchor older-page message anchoring", () => {
     const items = [day("2026-09-18"), message("anchor")]
     const rendered = runCase(items, items.slice(), 120)
     expect(harness.scrollToIndex).toHaveBeenLastCalledWith(1, { align: "start" })
+    rendered.unmount()
+  })
+
+  it("keeps a settled older-page anchor through the following viewport resize", () => {
+    const initial = [day("2026-09-18"), message("anchor")]
+    const prepended = [day("2026-09-18"), message("older"), message("anchor")]
+    const rendered = runCase(initial, prepended, 520)
+    const anchor = rendered.container.querySelector<HTMLElement>('[data-msg-id="anchor"]')!
+
+    expect(harness.scroller!.scrollTop).toBe(400)
+    clientHeight = 500
+    act(() => resizeCallbacks.at(-1)?.([], {} as ResizeObserver))
+
+    expect(harness.scroller!.scrollTop).toBe(400)
+    expect(anchor.getBoundingClientRect().top).toBe(120)
+    rendered.unmount()
+  })
+
+  it("preserves the real message while a newer page appends at the loaded-window tail", () => {
+    const initial = [day("2026-09-18"), message("anchor")]
+    const appended = [
+      day("2026-09-18"),
+      message("anchor"),
+      message("newer"),
+    ]
+    const rendered = runNewerCase(initial, appended, 120)
+    expect(harness.scrollToIndex).toHaveBeenLastCalledWith(1, { align: "start" })
+    expect(harness.virtualizer.scrollToEnd).not.toHaveBeenCalled()
+    rendered.unmount()
+  })
+
+  it("captures newer-page scrollTop even when virtual rows lag the end intersection", () => {
+    const onResult = (result: AnchorResult) => { latest = result }
+    harness.absoluteTops.set("anchor", 2_000)
+    const initial = [message("anchor")]
+    const rendered = render(createElement(Harness, {
+      items: initial,
+      isFetchingOlder: false,
+      onResult,
+    }))
+    harness.scroller = screen.getByTestId("scroll") as HTMLDivElement
+    harness.scroller.scrollTop = 300
+
+    act(() => latest.captureNewerPageAnchor())
+    expect(latest.isNewerPageAnchorSettling).toBe(true)
+    rendered.rerender(createElement(Harness, {
+      items: initial,
+      isFetchingOlder: false,
+      isFetchingNewer: true,
+      onResult,
+    }))
+    harness.scroller.scrollTop = 1_000
+    harness.scroller.dispatchEvent(new Event("scroll"))
+    harness.scroller.scrollTop = 1_400
+    rendered.rerender(createElement(Harness, {
+      items: [...initial, message("newer")],
+      isFetchingOlder: false,
+      isFetchingNewer: false,
+      onResult,
+    }))
+    expect(harness.scroller.scrollTop).toBe(1_000)
+    // A virtualizer/browser write can land between the synchronous restore
+    // and its first reconciliation frame. The numeric fallback must repair
+    // that drift even though no real row was visible at capture time.
+    harness.scroller.scrollTop = 1_400
+    act(() => {
+      while (frames.length > 0) frames.shift()!(0)
+    })
+
+    expect(harness.scroller.scrollTop).toBe(1_000)
+    expect(latest.isNewerPageAnchorSettling).toBe(false)
     rendered.unmount()
   })
 

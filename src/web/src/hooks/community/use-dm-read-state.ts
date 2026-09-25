@@ -48,13 +48,12 @@ export function useDmReadStateSnapshot(dmId: string | null | undefined): {
     },
     enabled: !!dmId,
     staleTime: Infinity,
-    // Match the channel hook exactly — see its docstring for why `gcTime: 0`
-    // is the only reliable way to force a real refetch on remount when
-    // `staleTime: Infinity` treats the cached anchor as fresh forever.
+    // Match the channel hook exactly. A zero GC time normally removes the
+    // prior mount's snapshot, while the forced mount refetch below also
+    // covers a retained entry whose eviction timer has not run yet.
     gcTime: 0,
-    // Belt-and-braces alongside `gcTime: 0` — see channel sibling for the
-    // rationale. The `snapshotRef` freeze semantics still hold because the
-    // ref latches only the first non-null resolution.
+    // A retained cache value is not the new mount's snapshot. The latch below
+    // waits for this forced fetch to settle before accepting query data.
     refetchOnMount: "always",
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
@@ -71,12 +70,13 @@ export function useDmReadStateSnapshot(dmId: string | null | undefined): {
   /* eslint-enable react-hooks/refs */
   useEffect(() => {
     if (snapshotRef.current !== null) return
+    if (query.isFetching) return
     if (query.data) snapshotRef.current = query.data
-  }, [query.data])
+  }, [query.data, query.isFetching])
 
   /* eslint-disable react-hooks/refs -- latched snapshot read; see channel hook tests */
   return {
-    snapshot: snapshotRef.current ?? (query.data ?? null),
+    snapshot: snapshotRef.current ?? (!query.isFetching ? (query.data ?? null) : null),
     isFetching: query.isFetching,
   }
   /* eslint-enable react-hooks/refs */

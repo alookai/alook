@@ -206,7 +206,7 @@ export function ComposerView({
         >
           <EditorContent
             editor={editor}
-            className={`${isForumThreadBody ? "max-h-60" : "max-h-40"} overflow-y-auto thin-scrollbar text-base chat-input-line-height outline-none`}
+            className={`${isForumThreadBody ? "max-h-60" : "max-h-48"} overflow-y-auto thin-scrollbar text-base chat-input-line-height outline-none`}
           />
         </div>
         {!hideAttach && (
