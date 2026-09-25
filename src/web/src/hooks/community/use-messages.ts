@@ -711,9 +711,9 @@ function useMessagesInner(
     if (!enabled) return
     if (!query.hasNextPage) return
     if (query.isFetchingNextPage) return
-    const activationRequest = activationRevalidationRef.current.viewKey === viewKey
-      ? activationRevalidationRef.current.pending
-      : null
+    const activationState = activationRevalidationRef.current
+    if (activationState.viewKey !== viewKey) return
+    const activationRequest = activationState.pending
     if (activationRequest) {
       void activationRequest.then(() => {
         if (activationRevalidationRef.current.viewKey !== viewKey) return

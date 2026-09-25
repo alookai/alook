@@ -165,6 +165,19 @@ function RefetchingPaginationCapture({ onRender }: {
   return null
 }
 
+function DynamicPaginationCapture({ channelId, onRender }: {
+  channelId: string | null
+  onRender: (fetchOlder: () => void) => void
+}) {
+  const result = useMessages(channelId, {
+    serverId: "server_1",
+    lastReadMessageId: channelId ? `m_anchor_${channelId}` : undefined,
+    revalidateOnMount: false,
+  })
+  onRender(result.fetchOlder)
+  return null
+}
+
 function LayoutPaginatingChannelCapture({ lastReadMessageId, onRender }: {
   lastReadMessageId: string
   onRender: (snapshot: Snapshot) => void
@@ -1305,6 +1318,45 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
     expect(apiFetchMock.mock.calls.some(
       ([url]) => url.includes("cursor=persisted-cursor"),
     )).toBe(false)
+    renderer.unmount()
+  })
+
+  it("ignores an old view's pagination callback after the conversation changes", () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    queryClient.setQueryData(communityKeys.channelMessages("ch_a"), {
+      pages: [{
+        messages: [{ id: "m_anchor_ch_a", seq: 2, createdAt: "2026-08-09T00:00:01.000Z" }],
+        hasMoreOlder: true,
+        hasMoreNewer: false,
+        olderCursor: "persisted-cursor-a",
+        latestSeq: 2,
+      }],
+      pageParams: [{ mode: "anchor", anchor: "m_anchor_ch_a" }],
+    })
+    apiFetchMock.mockImplementation((url: string) => {
+      throw new Error(`unexpected messages URL: ${url}`)
+    })
+    let currentFetchOlder = () => {}
+    const renderer = renderCapture(
+      queryClient,
+      React.createElement(DynamicPaginationCapture, {
+        channelId: "ch_a",
+        onRender: (fetchOlder) => { currentFetchOlder = fetchOlder },
+      }),
+    )
+    const oldFetchOlder = currentFetchOlder
+
+    updateCapture(
+      renderer,
+      queryClient,
+      React.createElement(DynamicPaginationCapture, {
+        channelId: null,
+        onRender: (fetchOlder) => { currentFetchOlder = fetchOlder },
+      }),
+    )
+    act(() => oldFetchOlder())
+
+    expect(apiFetchMock).not.toHaveBeenCalled()
     renderer.unmount()
   })
 
