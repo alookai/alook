@@ -144,6 +144,27 @@ function PaginatingChannelCapture({ lastReadMessageId, onRender }: {
   return null
 }
 
+function RefetchingPaginationCapture({ onRender }: {
+  onRender: (
+    snapshot: Snapshot,
+    refetch: () => Promise<unknown>,
+    fetchOlder: () => void,
+  ) => void
+}) {
+  const result = useMessages("ch_activation", {
+    serverId: "server_1",
+    lastReadMessageId: "m_anchor",
+    revalidateOnMount: false,
+  })
+  onRender({
+    anchorReconciled: result.anchorReconciled,
+    hasMoreNewer: result.hasMoreNewer,
+    ids: result.messages.map((message) => message.id),
+    isFetching: result.isFetching,
+  }, result.refetch, result.fetchOlder)
+  return null
+}
+
 function LayoutPaginatingChannelCapture({ lastReadMessageId, onRender }: {
   lastReadMessageId: string
   onRender: (snapshot: Snapshot) => void
@@ -1195,6 +1216,95 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
     )
     await waitFor(() => snapshots.at(-1)?.ids.includes("m_old") === true)
     expect(snapshots.at(-1)?.ids).toEqual(["m_old", "m_anchor"])
+    renderer.unmount()
+  })
+
+  it("ignores older pagination while the anchor gate is disabled", () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    queryClient.setQueryData(communityKeys.channelMessages("ch_activation"), {
+      pages: [{
+        messages: [{ id: "m_cached", seq: 1, createdAt: "2026-08-09T00:00:00.000Z" }],
+        hasMore: true,
+        cursor: "persisted-cursor",
+        latestSeq: 1,
+      }],
+      pageParams: [{ mode: "newest" }],
+    })
+    let fetchOlder = () => {}
+    const renderer = renderCapture(
+      queryClient,
+      React.createElement(PaginatingChannelCapture, {
+        lastReadMessageId: undefined,
+        onRender: (_snapshot, nextFetchOlder) => { fetchOlder = nextFetchOlder },
+      }),
+    )
+
+    act(() => fetchOlder())
+    expect(apiFetchMock).not.toHaveBeenCalled()
+    renderer.unmount()
+  })
+
+  it("queues older pagination behind a generic in-flight refetch", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    queryClient.setQueryData(communityKeys.channelMessages("ch_activation"), {
+      pages: [{
+        messages: [{ id: "m_anchor", seq: 2, createdAt: "2026-08-09T00:00:01.000Z" }],
+        hasMoreOlder: true,
+        hasMoreNewer: false,
+        olderCursor: "persisted-cursor",
+        latestSeq: 2,
+      }],
+      pageParams: [{ mode: "anchor", anchor: "m_anchor" }],
+    })
+    const refetchResponse = deferred<MessagesPage>()
+    apiFetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("?anchor=m_anchor")) return refetchResponse.promise
+      if (url.endsWith("?cursor=fresh-cursor")) {
+        return Promise.resolve({
+          messages: [{ id: "m_old", seq: 1, createdAt: "2026-08-09T00:00:00.000Z" }],
+          hasMoreOlder: false,
+          hasMoreNewer: false,
+          latestSeq: 2,
+        } satisfies MessagesPage)
+      }
+      throw new Error(`unexpected messages URL: ${url}`)
+    })
+    const snapshots: Snapshot[] = []
+    let refetch = () => Promise.resolve()
+    let fetchOlder = () => {}
+    const renderer = renderCapture(
+      queryClient,
+      React.createElement(RefetchingPaginationCapture, {
+        onRender: (snapshot, nextRefetch, nextFetchOlder) => {
+          snapshots.push(snapshot)
+          refetch = nextRefetch
+          fetchOlder = nextFetchOlder
+        },
+      }),
+    )
+
+    act(() => { void refetch() })
+    await waitFor(() => snapshots.at(-1)?.isFetching === true)
+    expect(apiFetchMock).toHaveBeenCalledTimes(1)
+    act(() => fetchOlder())
+    expect(apiFetchMock).toHaveBeenCalledTimes(1)
+
+    refetchResponse.resolve({
+      messages: [{ id: "m_anchor", seq: 2, createdAt: "2026-08-09T00:00:01.000Z" }],
+      hasMoreOlder: true,
+      hasMoreNewer: false,
+      olderCursor: "fresh-cursor",
+      latestSeq: 2,
+    })
+    await waitFor(() => apiFetchMock.mock.calls.length === 2)
+    expect(apiFetchMock.mock.calls[1]?.[0]).toBe(
+      "/api/community/channels/ch_activation/messages?cursor=fresh-cursor",
+    )
+    await waitFor(() => snapshots.at(-1)?.ids.includes("m_old") === true)
+    expect(snapshots.at(-1)?.ids).toEqual(["m_old", "m_anchor"])
+    expect(apiFetchMock.mock.calls.some(
+      ([url]) => url.includes("cursor=persisted-cursor"),
+    )).toBe(false)
     renderer.unmount()
   })
 
