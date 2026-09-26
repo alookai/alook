@@ -3,12 +3,32 @@ import { QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
 
 const apiFetchMock = vi.fn()
+const {
+  liveSnapshotToken,
+  captureCommunityLiveSnapshotTokenMock,
+  publishCommunityMessagesMock,
+} = vi.hoisted(() => {
+  const token = { canonicalRevision: 0 }
+  return {
+    liveSnapshotToken: token,
+    captureCommunityLiveSnapshotTokenMock: vi.fn(() => token),
+    publishCommunityMessagesMock: vi.fn(),
+  }
+})
 vi.mock("@/lib/api/client", () => ({
   apiFetch: (...args: unknown[]) => apiFetchMock(...args),
+}))
+vi.mock("@/lib/community-db/sync", () => ({
+  captureCommunityLiveSnapshotToken: (...args: unknown[]) => (
+    captureCommunityLiveSnapshotTokenMock(...args)
+  ),
+  publishCommunityMessages: (...args: unknown[]) => publishCommunityMessagesMock(...args),
 }))
 
 beforeEach(() => {
   apiFetchMock.mockReset()
+  captureCommunityLiveSnapshotTokenMock.mockClear()
+  publishCommunityMessagesMock.mockReset()
 })
 
 describe("useMessage / messageQueryFn", () => {
@@ -42,6 +62,31 @@ describe("useMessage / messageQueryFn", () => {
     const key = communityKeys.message("m_1")
     await qc.fetchQuery({ queryKey: key, queryFn: messageQueryFn("m_1") })
     expect(qc.getQueryData(key)).toBeDefined()
+  })
+
+  it("publishes an exact opener through the channel id carried by its response", async () => {
+    const payload = {
+      id: "m_1",
+      channelId: "archived-post-1",
+      type: "chat" as const,
+      authorId: "u_1",
+      authorName: "Alice",
+      authorAvatar: "",
+      authorAvatarVersion: 0,
+      content: "archived opener",
+      createdAt: "2026-07-03T00:00:00.000Z",
+    }
+    apiFetchMock.mockResolvedValueOnce(payload)
+    const { messageQueryFn } = await import("./use-message")
+    const queryClient = new QueryClient()
+
+    await messageQueryFn("m_1", queryClient)()
+
+    expect(publishCommunityMessagesMock).toHaveBeenCalledWith(queryClient, {
+      channelId: "archived-post-1",
+      messages: [payload],
+      proof: { token: liveSnapshotToken, signal: undefined },
+    })
   })
 
   it("derives an opener placeholder from a persisted message window", async () => {

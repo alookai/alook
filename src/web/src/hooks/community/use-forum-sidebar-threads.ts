@@ -159,12 +159,12 @@ function compareThreads(left: ForumSidebarThread, right: ForumSidebarThread) {
 }
 
 function patchForumSidebarActivity(
-  data: ForumSidebarQueryData | undefined,
+  data: ForumSidebarQueryData,
   threadId: string,
   parentChannelId: string,
   activityAt: string,
-): ForumSidebarQueryData | undefined {
-  if (!data || !data.threads.some((thread) => (
+): ForumSidebarQueryData {
+  if (!data.threads.some((thread) => (
     thread.id === threadId && thread.parentChannelId === parentChannelId
   ))) return data
   const expiresAt = new Date(Date.parse(activityAt) + SIDEBAR_ACTIVITY_WINDOW_MS).toISOString()
@@ -179,11 +179,10 @@ function patchForumSidebarActivity(
 }
 
 function patchForumSidebarTitle(
-  data: ForumSidebarQueryData | undefined,
+  data: ForumSidebarQueryData,
   threadId: string,
   title: string,
 ) {
-  if (!data) return data
   return {
     ...data,
     threads: data.threads.map((thread) => (
@@ -193,12 +192,10 @@ function patchForumSidebarTitle(
 }
 
 function removeForumSidebarThread(
-  data: ForumSidebarQueryData | undefined,
+  data: ForumSidebarQueryData,
   threadId: string,
 ) {
-  return data
-    ? { ...data, threads: data.threads.filter((thread) => thread.id !== threadId) }
-    : data
+  return { ...data, threads: data.threads.filter((thread) => thread.id !== threadId) }
 }
 
 function projectForumSidebarThreads(data: SidebarThreadEnvelope) {
@@ -372,7 +369,7 @@ function fetchForumSidebar(
     signal: controller.signal,
   }).then((envelope) => normalizeForumSidebarEnvelope(envelope, retainId))
     .then((normalized) => {
-      let base: ForumSidebarQueryData | undefined = normalized.base
+      let base = normalized.base
       let retained = normalized.retained
       const channelMetas = { ...normalized.channelMetas }
       const openerHints = { ...normalized.openerHints }
@@ -409,7 +406,7 @@ function fetchForumSidebar(
         base = removeForumSidebarThread(base, childId)
         if (retained?.id === childId) retained = null
       }
-      return { ...normalized, base: base!, retained, channelMetas, openerHints }
+      return { ...normalized, base, retained, channelMetas, openerHints }
     }).finally(() => {
       const current = inflight.get(serverId)
       if (current?.promise !== request) return

@@ -524,6 +524,16 @@ export function useScrollAnchor({
   const [paginationDirection, setPaginationDirection] = useState<"older" | "newer" | null>(null)
   const isOlderPageAnchorSettling = paginationDirection === "older"
   const isNewerPageAnchorSettling = paginationDirection === "newer"
+  const previousTailId = stateRef.current.lastTailId
+  const previousTailIndex = previousTailId === null
+    ? -1
+    : messages.findIndex((message) => message.id === previousTailId)
+  const firstMeasureAppendIds = initialPositionSettledRef.current
+    && !isNewerPageAnchorSettling
+    && previousTailIndex >= 0
+    && previousTailIndex < messages.length - 1
+    ? new Set(messages.slice(previousTailIndex + 1).map((message) => message.id))
+    : null
   const liveResizeAnchor = !isNewerPageAnchorSettling
     && wasExactlyPinnedRef.current
     && !userScrolledAwayRef.current
@@ -555,6 +565,11 @@ export function useScrollAnchor({
       const size = measureMessageRow(element)
       const previousSize = measuredRowHeightsRef.current.get(element)
       measuredRowHeightsRef.current.set(element, size)
+      const index = Number((element as HTMLElement).dataset.index)
+      const measuredItem = Number.isInteger(index) ? items[index] : undefined
+      const isFirstMeasureOfSettledAppend = previousSize === undefined
+        && measuredItem?.kind === "message"
+        && firstMeasureAppendIds?.has(measuredItem.m.id) === true
 
       // `resizeItem` grows the direct-DOM sizer only after this callback
       // returns. Its immediate scroll adjustment can therefore be clamped by
@@ -562,8 +577,13 @@ export function useScrollAnchor({
       // viewer who was already pinned remains pinned; never move somebody who
       // deliberately scrolled away.
       if (
-        previousSize !== undefined
-        && previousSize !== size
+        previousSize !== size
+        // Ref callbacks run before the first layout effect. Do not let those
+        // initial measurements inherit the optimistic `true` latch. Even
+        // after that effect, anchored mount can still be positioning and
+        // measuring its initial rows; only a message identity appended after
+        // initial settlement may give a first measurement re-pin ownership.
+        && (previousSize !== undefined || isFirstMeasureOfSettledAppend)
         // Read the last real scroll sample, not `instance.isAtEnd()` here.
         // By the time ResizeObserver calls us, an overflowing child can have
         // already increased the browser scrollHeight without emitting a
@@ -574,7 +594,11 @@ export function useScrollAnchor({
       ) {
         bottomRepinQueuedRef.current = true
         queueMicrotask(() => {
-          if (element.isConnected && !userScrolledAwayRef.current) {
+          if (
+            element.isConnected
+            && wasExactlyPinnedRef.current
+            && !userScrolledAwayRef.current
+          ) {
             const scrollElement = scrollRef.current
             if (scrollElement) scrollElement.scrollTop = scrollElement.scrollHeight
           }
@@ -587,7 +611,11 @@ export function useScrollAnchor({
           // exactly that hero height after a row-only resize.
           element.ownerDocument.defaultView?.requestAnimationFrame(() => {
             bottomRepinQueuedRef.current = false
-            if (element.isConnected && !userScrolledAwayRef.current) {
+            if (
+              element.isConnected
+              && wasExactlyPinnedRef.current
+              && !userScrolledAwayRef.current
+            ) {
               const scrollElement = scrollRef.current
               if (scrollElement) scrollElement.scrollTop = scrollElement.scrollHeight
             }

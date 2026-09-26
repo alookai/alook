@@ -176,6 +176,7 @@ describe("GET /api/community/messages/[id]", () => {
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.id).toBe("m1")
+    expect(body.channelId).toBe("c1")
     expect(body.content).toBe("hello")
     expect(body.authorName).toBe("Alice")
     // Attachments came through the mapper (grouped shape) — url is now the

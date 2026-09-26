@@ -17,7 +17,12 @@ vi.mock("@/lib/community-db/projections", () => ({
   useOptionalCommunityDbRegistry: () => projectedChannel.current === undefined ? null : {},
 }))
 
-import { pickRenderableChildMeta, useChildChannelMeta } from "./use-child-channel-meta"
+import {
+  pickRenderableChildMeta,
+  sameChildChannelMeta,
+  updateTrustedChildMeta,
+  useChildChannelMeta,
+} from "./use-child-channel-meta"
 
 const meta = (overrides: Partial<ChildChannelMeta> = {}): ChildChannelMeta => ({
   id: "post-1",
@@ -53,6 +58,14 @@ beforeEach(() => {
 })
 
 describe("child channel metadata stale rendering", () => {
+  it("compares every durable child metadata field", () => {
+    const left = meta()
+    expect(sameChildChannelMeta(left, { ...left })).toBe(true)
+    expect(sameChildChannelMeta(left, { ...left, verifiedEpoch: 3 })).toBe(false)
+    const trusted = { channelId: left.id, meta: left }
+    expect(updateTrustedChildMeta(trusted, left.id, { ...left })).toBe(trusted)
+  })
+
   it("keeps a previously authorized snapshot renderable across a WS epoch", () => {
     const trusted = meta({ verifiedEpoch: 2 })
     expect(pickRenderableChildMeta(trusted, trusted, 3)).toBe(trusted)
@@ -149,7 +162,7 @@ describe("child channel metadata stale rendering", () => {
 
   it("does not retry terminal metadata failures before route ejection", async () => {
     apiFetchMock.mockRejectedValue(new ApiError("missing", 404))
-    const queryClient = new QueryClient()
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retryDelay: 0 } } })
     const wrapper = ({ children }: PropsWithChildren) => createElement(
       QueryClientProvider,
       { client: queryClient },
@@ -162,5 +175,46 @@ describe("child channel metadata stale rendering", () => {
 
     await waitFor(() => expect(rendered.result.current.isError).toBe(true))
     expect(apiFetchMock).toHaveBeenCalledOnce()
+  })
+
+  it("retries one transient metadata failure", async () => {
+    apiFetchMock.mockRejectedValue(new Error("offline"))
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retryDelay: 0 } } })
+    const wrapper = ({ children }: PropsWithChildren) => createElement(
+      QueryClientProvider,
+      { client: queryClient },
+      children,
+    )
+    const rendered = renderHook(
+      () => useChildChannelMeta("server-1", "post-1", true),
+      { wrapper },
+    )
+
+    await waitFor(() => expect(rendered.result.current.isError).toBe(true))
+    expect(apiFetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it("preserves the trusted object when an exact refetch returns identical metadata", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, structuralSharing: false } },
+    })
+    const wrapper = ({ children }: PropsWithChildren) => createElement(
+      QueryClientProvider,
+      { client: queryClient },
+      children,
+    )
+    const rendered = renderHook(
+      () => useChildChannelMeta("server-1", "post-1", true),
+      { wrapper },
+    )
+    await waitFor(() => expect(rendered.result.current.isVerified).toBe(true))
+    const trusted = rendered.result.current.data
+
+    await queryClient.refetchQueries({
+      queryKey: communityKeys.channelMeta("server-1", "post-1"),
+      exact: true,
+    })
+    await waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(2))
+    expect(rendered.result.current.data).toStrictEqual(trusted)
   })
 })

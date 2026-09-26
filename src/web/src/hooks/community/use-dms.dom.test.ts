@@ -10,6 +10,7 @@ import {
   createCommunityDbRegistry,
   registerCommunityDbRegistry,
 } from "@/lib/community-db/collections"
+import { CommunityDbProvider } from "@/lib/community-db/projections"
 import { ingestDms } from "@/lib/community-db/sync"
 
 const apiFetchMock = vi.fn()
@@ -176,6 +177,52 @@ describe("useDms / dmsQueryFn", () => {
 
     expect(apiFetchMock).not.toHaveBeenCalled()
     await act(async () => renderer.unmount())
+  })
+
+  it("uses transport conversations without a canonical registry", async () => {
+    const conversations = [dm("dm-providerless")]
+    const { useDms } = await import("./use-dms")
+    const qc = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity } } })
+    qc.setQueryData(communityKeys.dms(), { conversations })
+    let latest: ReturnType<typeof useDms> | undefined
+
+    function Probe() {
+      latest = useDms()
+      return null
+    }
+
+    const renderer = render(React.createElement(
+      QueryClientProvider,
+      { client: qc },
+      React.createElement(Probe),
+    ))
+    expect(latest?.dms.map(({ id }) => id)).toEqual(["dm-providerless"])
+    await act(async () => renderer.unmount())
+  })
+
+  it("uses canonical conversations while a registry is active", async () => {
+    const { useDms } = await import("./use-dms")
+    const qc = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity } } })
+    const registry = createCommunityDbRegistry(qc, "viewer")
+    await registry.preload()
+    const unregister = registerCommunityDbRegistry(registry)
+    const disposeRegistry = registry.cleanup
+    ingestDms(registry, { conversations: [dm("dm-canonical")] })
+    let latest: ReturnType<typeof useDms> | undefined
+
+    function Probe() {
+      latest = useDms()
+      return null
+    }
+    const renderer = render(React.createElement(
+      QueryClientProvider,
+      { client: qc },
+      React.createElement(CommunityDbProvider, { registry }, React.createElement(Probe)),
+    ))
+    expect(latest?.dms.map(({ id }) => id)).toEqual(["dm-canonical"])
+    await act(async () => renderer.unmount())
+    unregister()
+    await disposeRegistry()
   })
 
   it("uses transient presence without rewriting the raw canonical DM identity", async () => {

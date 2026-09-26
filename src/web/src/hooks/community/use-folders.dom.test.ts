@@ -9,9 +9,10 @@ const dbRail = vi.hoisted(() => ({
     folders: [{ id: "db-folder", name: "Canonical", position: 0, servers: [] }],
   },
 }))
+const registryActive = vi.hoisted(() => ({ current: true }))
 vi.mock("@/lib/community-db/projections", () => ({
   useServerRailProjection: () => dbRail.current,
-  useOptionalCommunityDbRegistry: () => ({}),
+  useOptionalCommunityDbRegistry: () => registryActive.current ? {} : null,
 }))
 vi.mock("@/lib/api/client", () => ({ apiFetch: vi.fn(() => new Promise(() => undefined)) }))
 
@@ -30,5 +31,25 @@ describe("useFolders canonical projection", () => {
     expect(rendered.result.current.folders).toEqual(dbRail.current.folders)
     rendered.unmount()
     client.clear()
+  })
+
+  it("uses transport folders without a canonical registry", () => {
+    registryActive.current = false
+    const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity } } })
+    client.setQueryData(["community", "folders"], {
+      folders: [{ id: "query-folder", name: "Query", position: 0, servers: [] }],
+    })
+    const wrapper = ({ children }: PropsWithChildren) => createElement(
+      QueryClientProvider,
+      { client },
+      children,
+    )
+    const rendered = renderHook(useFolders, { wrapper })
+
+    expect(rendered.result.current.folders).toEqual([
+      { id: "query-folder", name: "Query", position: 0, servers: [] },
+    ])
+    rendered.unmount()
+    registryActive.current = true
   })
 })

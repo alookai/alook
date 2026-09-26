@@ -100,7 +100,7 @@ describe("forumFeedPageQueryFn", () => {
     }
     apiFetchMock.mockResolvedValue(page)
 
-    const result = await forumFeedPageQueryFn("forum_one", null)({ pageParam: null })
+    const result = await forumFeedPageQueryFn("forum_one", null, new QueryClient())({ pageParam: null })
 
     expect(result).toBe(page)
   })

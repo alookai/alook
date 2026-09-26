@@ -539,11 +539,9 @@ export function useInboxMentions(): UseQueryResult<MentionsResponse> & {
 
 export type MarkedResponse = { marked: Marked[] }
 
-const inboxMarkedQueryFn = (queryClient?: QueryClient) =>
+const inboxMarkedQueryFn = (queryClient: QueryClient) =>
   async ({ signal }: { signal?: AbortSignal } = {}) => {
-    const publicationToken = queryClient
-      ? captureCommunityLiveSnapshotToken(queryClient)
-      : null
+    const publicationToken = captureCommunityLiveSnapshotToken(queryClient)
     const data = await apiFetchProfiles<MarkedResponse & { stale?: boolean }>(
       "/api/community/users/me/marks",
       (response) => {
@@ -552,7 +550,7 @@ const inboxMarkedQueryFn = (queryClient?: QueryClient) =>
       },
       signal ? { signal } : undefined,
     )
-    if (queryClient && publicationToken) {
+    if (publicationToken) {
       publishCommunityEmbeddedMessages(queryClient, {
         entries: data.marked.map((marked) => ({
           channelId: marked.channelId,

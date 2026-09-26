@@ -991,6 +991,34 @@ describe("useInboxMentions / inboxMentionsQueryFn", () => {
     expect(projection.projectUnread("inbox-mentions", "c1", false)).toBe(false)
   })
 
+  it("publishes only scoped embedded mention messages", async () => {
+    const message = {
+      id: "message-1",
+      type: "chat" as const,
+      seq: 4,
+      authorId: "author",
+      authorName: "Author",
+      content: "mention",
+      createdAt: "2026-09-26T00:00:00.000Z",
+    }
+    apiFetchMock.mockResolvedValueOnce({
+      mentions: [
+        { id: "scoped", server: "One", serverId: "s1", channel: "General", channelId: "c1", m: message },
+        { id: "unscoped", server: "One", serverId: "s1", channel: "General", m: { ...message, id: "message-2" } },
+      ],
+      truncated: false,
+    })
+    const { inboxMentionsProjectedQueryFn } = await import("./use-inbox")
+    const { AccountUnreadProjection } = await import("./account-unread-projection")
+
+    const result = await inboxMentionsProjectedQueryFn(
+      new AccountUnreadProjection("u1"),
+      new QueryClient(),
+    )()
+
+    expect(result.mentions).toHaveLength(2)
+  })
+
   it("cancels Mentions snapshot coverage when the transport fails", async () => {
     apiFetchMock.mockRejectedValueOnce(new Error("offline"))
     const { inboxMentionsProjectedQueryFn } = await import("./use-inbox")
@@ -1263,7 +1291,19 @@ describe("eager Inbox query ownership", () => {
 
 describe("useInboxMarked", () => {
   it("fetches the identity-aware marked feed only when enabled", async () => {
-    apiFetchMock.mockResolvedValue({ marked: [] })
+    apiFetchMock.mockResolvedValue({ marked: [{
+      id: "mark-1",
+      channelId: "c1",
+      serverId: "s1",
+      m: {
+        id: "message-1",
+        type: "chat",
+        authorId: "author",
+        authorName: "Author",
+        content: "marked",
+        createdAt: "2026-09-26T00:00:00.000Z",
+      },
+    }] })
     const { useInboxMarked } = await import("./use-inbox")
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     function Harness() {
@@ -1285,7 +1325,8 @@ describe("useInboxMarked", () => {
         expect.objectContaining({ signal: expect.any(AbortSignal) }),
       )
     })
-    expect(renderer.container.querySelector("span")).toHaveAttribute("data-count", "0")
+    await vi.waitFor(() => expect(renderer.container.querySelector("span"))
+      .toHaveAttribute("data-count", "1"))
     act(() => renderer.unmount())
   })
 })

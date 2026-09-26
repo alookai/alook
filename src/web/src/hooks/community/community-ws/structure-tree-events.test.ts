@@ -23,6 +23,7 @@ import {
   canonicalForumSidebar,
   cleanupCommunityWsHarness,
   forumSidebarFixture,
+  getCommunityApiFetchMock,
   hasCanonicalChannelAccess,
   hasCanonicalChannelNotify,
   messageCreate,
@@ -764,6 +765,25 @@ describe("useCommunityWs — child_create patches parent thread badge with count
       changes: { archived: false },
     } satisfies CommunityChildChannelUpdate)
     expect(canonicalForumSidebar("s1").threads.map(({ id }) => id)).toEqual(["ch_thread"])
+  })
+
+  it("absorbs a failed unarchive ownership probe", async () => {
+    await mountHook()
+    seedCanonicalForumSidebar("s1", [])
+    getCommunityApiFetchMock().mockRejectedValueOnce(new Error("offline"))
+
+    capturedOnMessage!({
+      type: "community:channel.child_update",
+      parentChannelId: "forum_1",
+      channelId: "missing-post",
+      changes: { archived: false },
+    } satisfies CommunityChildChannelUpdate)
+
+    await vi.waitFor(() => expect(getCommunityApiFetchMock()).toHaveBeenCalledWith(
+      expect.stringContaining("retainId=missing-post"),
+      expect.anything(),
+    ))
+    await Promise.resolve()
   })
 
   it("clears active child metadata synchronously on channel.delete", async () => {

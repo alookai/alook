@@ -363,6 +363,10 @@ test("a true-cold channel load reuses localized skeletons without a custom boots
       ) state.localizedSkeletonAfterRestore = true
     }
     new MutationObserver(inspect).observe(document, { childList: true, subtree: true })
+    // Restore lifecycle marks do not mutate the DOM. Observe marks as well so
+    // a skeleton that is already mounted when `restore:complete` lands is not
+    // missed merely because no later DOM mutation happens in a fast CI run.
+    new PerformanceObserver(inspect).observe({ type: "mark", buffered: true })
     inspect()
   }, structuralLoadingSelectors)
 

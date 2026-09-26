@@ -206,10 +206,11 @@ function messageItem(id: string, authorId?: string): FlatItem {
   }
 }
 
-function growingRow(requestFrame: (callback: FrameRequestCallback) => void) {
+function growingRow(requestFrame: (callback: FrameRequestCallback) => void, index = 0) {
   let height = 400
   return {
     element: {
+      dataset: { index: String(index) },
       getBoundingClientRect: () => ({ height }),
       get scrollHeight() {
         return height
@@ -298,6 +299,66 @@ describe("useScrollAnchor delayed row-growth re-pin", () => {
 
     frame!(0)
     expect(scrollWrites).toEqual([1_600, 1_600])
+  })
+
+  it("settles a pinned tail after an appended row's first real measurement", async () => {
+    const settleFrames: FrameRequestCallback[] = []
+    vi.stubGlobal("window", {
+      requestAnimationFrame: (callback: FrameRequestCallback) => {
+        settleFrames.push(callback)
+        return settleFrames.length
+      },
+      cancelAnimationFrame: vi.fn(),
+    })
+    const mounted = await mountHook({
+      items: [messageItem("m1")],
+      initialScrollReady: true,
+      heroMeasured: true,
+    })
+    expect(settleFrames).toHaveLength(1)
+    settleFrames[0](0)
+    mounted.rerender({ items: [messageItem("m1"), messageItem("m2")] })
+
+    let frame: FrameRequestCallback | undefined
+    const row = growingRow((callback) => { frame = callback }, 1)
+    const measure = virtualizerOptions?.measureElement
+
+    expect(measure!(row.element, undefined, virtualizer as never)).toBe(400)
+    expect(mounted.scrollWrites).toEqual([])
+
+    await Promise.resolve()
+    expect(mounted.scrollWrites).toEqual([1_600])
+    expect(frame).toBeTypeOf("function")
+
+    frame!(0)
+    expect(mounted.scrollWrites).toEqual([1_600, 1_600])
+  })
+
+  it("does not treat an anchored mount row as an append before initial positioning settles", async () => {
+    const settleFrames: FrameRequestCallback[] = []
+    vi.stubGlobal("window", {
+      requestAnimationFrame: (callback: FrameRequestCallback) => {
+        settleFrames.push(callback)
+        return settleFrames.length
+      },
+      cancelAnimationFrame: vi.fn(),
+    })
+    const mounted = await mountHook({
+      items: [messageItem("anchor"), messageItem("newer")],
+      initialScrollReady: true,
+      heroMeasured: true,
+      newDividerBefore: "anchor",
+    })
+    let frame: FrameRequestCallback | undefined
+    const row = growingRow((callback) => { frame = callback }, 1)
+    const measure = virtualizerOptions?.measureElement
+
+    expect(settleFrames).toHaveLength(1)
+    expect(measure!(row.element, undefined, virtualizer as never)).toBe(400)
+    await Promise.resolve()
+
+    expect(mounted.scrollWrites).toEqual([])
+    expect(frame).toBeUndefined()
   })
 
   it("does not schedule a re-pin after upward user intent", async () => {

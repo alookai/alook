@@ -40,6 +40,10 @@ import {
  */
 export type OpenerPayload = {
   id: string
+  // Exact-message responses carry their owning surface so a hard-refresh can
+  // publish an archived opener even when the route model has no parent hint.
+  // Persisted list-window placeholders predate that response field.
+  channelId?: string
   authorId: string
   authorName: string
   authorAvatar: string
@@ -66,9 +70,10 @@ export const messageQueryFn = (
     (message) => messageProfilePatches([message]),
     context.signal ? { signal: context.signal } : undefined,
   )
-  if (queryClient && channelId && token) {
+  const publishChannelId = message.channelId ?? channelId
+  if (queryClient && publishChannelId && token) {
     publishCommunityMessages(queryClient, {
-      channelId,
+      channelId: publishChannelId,
       messages: [message],
       proof: { token, signal: context.signal },
     })

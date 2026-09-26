@@ -370,6 +370,24 @@ async function waitForCommittedGeometry(scroller: Locator): Promise<MessageViewp
   return settled!
 }
 
+async function waitForStableTail(scroller: Locator, label: string): Promise<void> {
+  await expect.poll(async () => {
+    const before = await readMessageViewportGeometry(scroller)
+    await scroller.evaluate(() => new Promise<void>((resolveValue) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolveValue()))
+    }))
+    const after = await readMessageViewportGeometry(scroller)
+    return {
+      atTail: after.distanceToEnd <= 1,
+      stable: Math.abs(after.scrollTop - before.scrollTop) <= 1
+        && Math.abs(after.scrollHeight - before.scrollHeight) <= 1,
+    }
+  }, {
+    timeout: 20_000,
+    message: `${label}: product scroll-to-bottom must finish before exact-pinned setup`,
+  }).toMatchObject({ atTail: true, stable: true })
+}
+
 async function advanceScrollTraceFrame(scroller: Locator): Promise<void> {
   await scroller.evaluate(() => new Promise<void>((resolveValue) => {
     requestAnimationFrame(() => resolveValue())
@@ -623,12 +641,15 @@ test.describe.serial("message scroll characterization", () => {
     await installScrollTrace(alice.page)
     const proxy = await proxyCommunityWebSockets(alice.context)
     await gotoAfterUserWsAuth(alice.page, `/c/channels/${serverId}/${upwardChannelId}`)
-    await expect(alice.page.getByTestId(tid.newDivider)).toBeVisible({ timeout: 30_000 })
-    await alice.page.getByTestId(tid.scrollToPresent).click()
+    const scroller = alice.page.getByTestId(tid.messageScroller)
+    await expect(scroller).toBeVisible({ timeout: 30_000 })
+    const present = alice.page.getByTestId(tid.scrollToPresent)
+    await expect(present).toBeVisible({ timeout: 30_000 })
+    await present.click()
     await expect(alice.page.getByTestId(tid.message(upwardProfile.ids.at(-1)!)))
       .toBeVisible({ timeout: 30_000 })
-    await expect(alice.page.getByTestId(tid.scrollToPresent)).toHaveCount(0)
-    const scroller = alice.page.getByTestId(tid.messageScroller)
+    await expect(present).toHaveCount(0)
+    await waitForStableTail(scroller, "remote-fixture-tail")
     await startScrollTrace(alice.page, {
       scenario: "remote-receive-and-upward-input",
       commandDirection: "backward",
@@ -637,7 +658,7 @@ test.describe.serial("message scroll characterization", () => {
     })
 
     await markScrollTrace(alice.page, "stimulus:pin-tail")
-    const pinnedPrecondition = await establishScrollDistancePrecondition(scroller, "remote-pinned", 0)
+    const pinnedPrecondition = await establishExactPinnedPrecondition(scroller, "remote-pinned", 0)
     await markScrollTrace(alice.page, "remote-pinned-precondition", {
       detail: pinnedPrecondition,
     })

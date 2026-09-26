@@ -257,7 +257,7 @@ async function handleHumanGet(
   const replyMap = new Map(replyMessages.map((m) => [m.id, m]))
 
   const payload = mapMessageForApi(message, { replyMap, attachmentsByMessage, reactionsByMessage })
-  return writeJSON(payload)
+  return writeJSON({ ...payload, channelId: message.channelId })
 }
 
 /**

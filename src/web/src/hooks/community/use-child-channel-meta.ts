@@ -34,7 +34,7 @@ function projectChildMeta(payload: ChannelMetadata, verifiedEpoch: number): Chil
   }
 }
 
-function sameChildChannelMeta(left: ChildChannelMeta, right: ChildChannelMeta): boolean {
+export function sameChildChannelMeta(left: ChildChannelMeta, right: ChildChannelMeta): boolean {
   return left.id === right.id &&
     left.serverId === right.serverId &&
     left.name === right.name &&
@@ -45,6 +45,21 @@ function sameChildChannelMeta(left: ChildChannelMeta, right: ChildChannelMeta): 
     left.archived === right.archived &&
     left.activityAt === right.activityAt &&
     left.verifiedEpoch === right.verifiedEpoch
+}
+
+type TrustedChildMeta = { channelId: string; meta: ChildChannelMeta } | null
+
+export function updateTrustedChildMeta(
+  current: TrustedChildMeta,
+  channelId: string,
+  data: ChildChannelMeta,
+): TrustedChildMeta {
+  if (data.archived) return current === null ? current : null
+  if (
+    current?.channelId === channelId
+    && sameChildChannelMeta(current.meta, data)
+  ) return current
+  return { channelId, meta: data }
 }
 
 export function pickRenderableChildMeta(
@@ -103,21 +118,11 @@ export function useChildChannelMeta(
       !(error instanceof ApiError && [401, 403, 404].includes(error.status))
       && failureCount < 1,
   })
-  const [trusted, setTrusted] = useState<{
-    channelId: string
-    meta: ChildChannelMeta
-  } | null>(null)
+  const [trusted, setTrusted] = useState<TrustedChildMeta>(null)
   useEffect(() => {
     if (registry) return
     if (query.data?.verifiedEpoch !== accessEpoch) return
-    setTrusted((current) => {
-      if (query.data!.archived) return current === null ? current : null
-      if (
-        current?.channelId === channelId &&
-        sameChildChannelMeta(current.meta, query.data!)
-      ) return current
-      return { channelId, meta: query.data! }
-    })
+    setTrusted((current) => updateTrustedChildMeta(current, channelId, query.data!))
   }, [accessEpoch, channelId, query.data, registry])
   const trustedMeta = trusted?.channelId === channelId ? trusted.meta : undefined
   const renderable = registry
