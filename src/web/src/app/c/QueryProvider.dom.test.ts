@@ -21,6 +21,8 @@ const getAccountUnreadProjection = vi.hoisted(() => vi.fn(() => ({
 })))
 const disposeAccountUnreadProjection = vi.hoisted(() => vi.fn())
 const registryCleanup = vi.hoisted(() => vi.fn(() => Promise.resolve()))
+const captureRestoredCollections = vi.hoisted(() => vi.fn())
+const restoreResult = vi.hoisted(() => ({ current: "success" as "success" | "error" }))
 
 vi.mock("@tanstack/react-query-devtools", () => ({ ReactQueryDevtools: () => null }))
 vi.mock("@tanstack/react-query-persist-client", async () => {
@@ -29,11 +31,16 @@ vi.mock("@tanstack/react-query-persist-client", async () => {
     PersistQueryClientProvider: ({
       children,
       onSuccess,
+      onError,
     }: {
       children: React.ReactNode
       onSuccess: () => void
+      onError: () => void
     }) => {
-      useEffect(() => onSuccess(), [onSuccess])
+      useEffect(() => {
+        if (restoreResult.current === "success") onSuccess()
+        else onError()
+      }, [onError, onSuccess])
       return children
     },
   }
@@ -48,7 +55,7 @@ vi.mock("@/lib/query-persister", () => ({
 vi.mock("@/lib/community-db/collections", () => ({
   createCommunityDbRegistry: vi.fn(() => ({
     id: "community-db",
-    captureRestoredCollections: vi.fn(),
+    captureRestoredCollections,
     hasRestoredCollection: vi.fn(() => false),
     cleanup: registryCleanup,
   })),
@@ -81,6 +88,8 @@ beforeEach(() => {
   getAccountUnreadProjection.mockClear()
   disposeAccountUnreadProjection.mockClear()
   registryCleanup.mockClear()
+  captureRestoredCollections.mockClear()
+  restoreResult.current = "success"
   queryClient.invalidateQueries.mockClear()
 })
 
@@ -129,6 +138,27 @@ describe("QueryProvider profile account lifecycle", () => {
       exact: true,
       refetchType: "active",
     })
+    act(() => renderer.unmount())
+  })
+
+  it("confirms the new viewer and empty canonical baseline after restore failure", async () => {
+    restoreResult.current = "error"
+    const store = useCommunityWsStore.getState()
+    store.activateProfileAccount("viewer-old")
+    const activateProfileAccountSpy = vi.fn(store.activateProfileAccount)
+    useCommunityWsStore.setState({ activateProfileAccount: activateProfileAccountSpy })
+
+    const renderer = render(React.createElement(
+      QueryProvider,
+      { userId: "viewer-new" },
+      React.createElement("span", null, "content"),
+    ))
+    await act(async () => { await Promise.resolve() })
+
+    expect(captureRestoredCollections).toHaveBeenCalledOnce()
+    expect(activateProfileAccountSpy).toHaveBeenCalledWith("viewer-new")
+    expect(useCommunityWsStore.getState().profileViewerId).toBe("viewer-new")
+    expect(queryClient.invalidateQueries).not.toHaveBeenCalled()
     act(() => renderer.unmount())
   })
 

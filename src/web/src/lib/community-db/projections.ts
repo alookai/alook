@@ -158,8 +158,13 @@ export function useServerRailProjection() {
         .map((membership) => membership.serverId),
     )
     const servers: Server[] = rows.servers
-      .filter((server) => allowed.has(server.id))
-      .map((server) => ({
+      .map((server, fallbackPosition) => ({ server, fallbackPosition }))
+      .sort((left, right) => (
+        (left.server.position ?? left.fallbackPosition)
+        - (right.server.position ?? right.fallbackPosition)
+      ))
+      .filter(({ server }) => allowed.has(server.id))
+      .map(({ server }) => ({
         id: server.id,
         name: server.name,
         discriminator: server.discriminator,

@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
     isVerified: false,
     isError: false,
   },
+  dbChannel: undefined as undefined | Record<string, unknown>,
   communityDb: { current: {} as Record<string, unknown> | null },
   purgeCommunityChannel: vi.fn(),
 }))
@@ -59,7 +60,7 @@ vi.mock("@/lib/community/last-community-route", () => ({
 }))
 vi.mock("@/lib/community-db/projections", () => ({
   useOptionalCommunityDbRegistry: () => mocks.communityDb.current,
-  useRouteChannelProjection: () => undefined,
+  useRouteChannelProjection: () => mocks.dbChannel,
 }))
 vi.mock("@/lib/community-db/sync", () => ({
   purgeCommunityChannel: (...args: unknown[]) => mocks.purgeCommunityChannel(...args),
@@ -99,6 +100,7 @@ beforeEach(() => {
     }],
   }
   mocks.metaQuery = { data: undefined, error: null, isVerified: false, isError: false }
+  mocks.dbChannel = undefined
 })
 
 afterEach(() => {
@@ -144,6 +146,43 @@ describe("useChannelRouteModel subscription ownership", () => {
     const node = renderer.container.querySelector("span")
     expect(node?.getAttribute("data-lifecycle")).toBe("ready")
     expect(node?.getAttribute("data-skeleton-subtype")).toBe("text")
+    act(() => renderer.unmount())
+  })
+
+  it.each(["forum", "text", "thread"] as const)(
+    "uses the canonical %s subtype while the route is pending",
+    (type) => {
+      mocks.server = undefined
+      mocks.dbChannel = { id: "post-1", type }
+
+      const renderer = render(React.createElement(Harness))
+
+      expect(renderer.container.querySelector("span")?.getAttribute("data-skeleton-subtype"))
+        .toBe(type)
+      act(() => renderer.unmount())
+    },
+  )
+
+  it("hydrates a canonical thread placeholder with nullable child fields", () => {
+    mocks.dbChannel = {
+      id: "post-1",
+      serverId: "server-1",
+      name: "Post",
+      type: "thread",
+      parentChannelId: "forum-1",
+      parentMessageId: "opener-1",
+      creatorId: undefined,
+      archived: false,
+      lastMessageAt: undefined,
+    }
+
+    const renderer = render(React.createElement(Harness))
+
+    expect(renderer.container.querySelector("span")).toHaveAttribute("data-lifecycle", "ready")
+    expect(useCommunityStore.getState().currentChannelMeta).toMatchObject({
+      creatorId: null,
+      activityAt: "",
+    })
     act(() => renderer.unmount())
   })
 

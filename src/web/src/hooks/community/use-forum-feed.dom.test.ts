@@ -238,6 +238,64 @@ describe("mapForumFeedPages", () => {
     })
   })
 
+  it("projects a canonical opener while preserving transport fallbacks", () => {
+    const pages: ForumFeedPage[] = [{
+      serverId: "server_1",
+      parentType: "forum",
+      threads: [{
+        id: "post-1",
+        name: "transport title",
+        creatorId: "transport-author",
+        messageCount: 1,
+        parentMessageId: "opener-1",
+        lastMessageAt: null,
+        createdAt: "2026-08-08T00:00:00.000Z",
+        activityAt: "2026-08-08T00:00:00.000Z",
+      }],
+      included: {
+        parentMessages: [{
+          id: "opener-1",
+          channelId: "forum-1",
+          seq: 7,
+          content: "transport content",
+          authorId: "transport-author",
+          authorName: "Transport",
+          authorImage: "/transport.png",
+          authorAvatarVersion: 4,
+          createdAt: "2026-08-08T00:00:00.000Z",
+        }],
+        firstMessages: [],
+        tags: [],
+        participants: [],
+      },
+      hasMore: false,
+    }]
+    const canonical = new Map([[
+      "opener-1",
+      {
+        id: "opener-1",
+        type: "chat",
+        content: "canonical content",
+        authorId: undefined,
+        authorName: "Canonical",
+        authorAvatar: undefined,
+        authorAvatarVersion: undefined,
+        createdAt: undefined,
+        seq: undefined,
+      } as never,
+    ]])
+
+    expect(mapForumFeedPages(pages, canonical)).toEqual([
+      expect.objectContaining({
+        name: "canonical content",
+        authorId: "transport-author",
+        authorAvatarVersion: 4,
+        openerCreatedAt: "2026-08-08T00:00:00.000Z",
+        parentSeq: 7,
+      }),
+    ])
+  })
+
   it("matches SQLite BINARY id ordering for equal-created mixed-case nanoids", () => {
     const expectedIds = [
       "kMRip4KDm4Ki2HU8vQ2qd",

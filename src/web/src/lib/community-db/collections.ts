@@ -46,6 +46,16 @@ function restoredRows<T extends object>(
   return queryClient.getQueryData<T[]>(collectionQueryKey(accountId, name)) ?? []
 }
 
+function migrateLegacyServerPositions(queryClient: QueryClient, accountId: string) {
+  const key = collectionQueryKey(accountId, "servers")
+  const rows = queryClient.getQueryData<ServerRow[]>(key)
+  if (!rows?.some((row) => row.position === undefined)) return
+  queryClient.setQueryData(key, rows.map((row, position) => ({
+    ...row,
+    position: row.position ?? position,
+  })))
+}
+
 export function createCommunityDbRegistry(
   queryClient: QueryClient,
   accountId: string | null,
@@ -244,6 +254,7 @@ export function createCommunityDbRegistry(
     captureRestoredCollections: () => {
       if (restoredSnapshotCaptured) return
       restoredSnapshotCaptured = true
+      migrateLegacyServerPositions(queryClient, scopeId)
       for (const name of Object.keys(collections) as CollectionName[]) {
         if (queryClient.getQueryData(collectionQueryKey(scopeId, name)) !== undefined) {
           restoredCollectionNames.add(name)

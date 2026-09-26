@@ -84,8 +84,8 @@ export function useShellRailController({
   }, [communityDb, queryClient])
   const onServerNavigate = useCallback((id: string) => {
     markSwitch("server", id)
-    navigation.push(serverDestination(id))
-  }, [navigation, serverDestination])
+    navigation.push(`/c/channels/${id}`)
+  }, [navigation])
   const homeDestination = useCallback(
     () => breakpoint === "desktop"
       ? pickMeLandingLocation(getLastMeLeaf())
@@ -96,8 +96,8 @@ export function useShellRailController({
     navigation.push(homeDestination())
   }, [homeDestination, navigation])
   const onServerPrefetch = useCallback((id: string) => {
-    navigation.prefetch(serverDestination(id))
-  }, [navigation, serverDestination])
+    navigation.prefetch(`/c/channels/${id}`)
+  }, [navigation])
   const onHomePrefetch = useCallback(
     () => navigation.prefetch(homeDestination()),
     [homeDestination, navigation],

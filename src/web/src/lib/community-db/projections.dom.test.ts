@@ -119,6 +119,93 @@ describe("community DB projections", () => {
     await registry["cleanup"]()
   })
 
+  it("keeps the canonical rail in server-list order instead of collection-key order", async () => {
+    const queryClient = new QueryClient()
+    const legacyServers = [
+      {
+        id: "z-first",
+        name: "First",
+        discriminator: "0001",
+        description: "",
+        ownerId: "viewer",
+        icon: null,
+        official: false,
+        isOwner: true,
+        unread: false,
+        mentions: 0,
+        detailComplete: false,
+      },
+      {
+        id: "a-second",
+        name: "Second",
+        discriminator: "0001",
+        description: "",
+        ownerId: "viewer",
+        icon: null,
+        official: false,
+        isOwner: true,
+        unread: false,
+        mentions: 0,
+        detailComplete: false,
+      },
+    ]
+    queryClient.setQueryData(
+      communityKeys.communityDbCollection("viewer", "servers"),
+      legacyServers,
+    )
+    queryClient.setQueryData(
+      communityKeys.communityDbCollection("viewer", "serverMemberships"),
+      legacyServers.map((server) => ({
+        id: `${server.id}:viewer`,
+        serverId: server.id,
+        userId: "viewer",
+        role: "owner",
+        viewer: true,
+      })),
+    )
+    const registry = createCommunityDbRegistry(queryClient, "viewer")
+    registry.captureRestoredCollections()
+    await registry.preload()
+    const wrapper = ({ children }: { children: ReactNode }) => React.createElement(
+      QueryClientProvider,
+      { client: queryClient },
+      React.createElement(CommunityDbProvider, { registry }, children),
+    )
+    const rendered = renderHook(useServerRailProjection, { wrapper })
+
+    await waitFor(() => expect(rendered.result.current?.servers.map((server) => server.id))
+      .toEqual(["z-first", "a-second"]))
+
+    act(() => ingestServers(registry, {
+      servers: [
+        {
+          id: "z-first",
+          name: "First",
+          initial: "F",
+          active: false,
+          unread: false,
+          mentions: 0,
+          ownerId: "viewer",
+        },
+        {
+          id: "a-second",
+          name: "Second",
+          initial: "S",
+          active: false,
+          unread: false,
+          mentions: 0,
+          ownerId: "viewer",
+        },
+      ],
+    }))
+
+    await waitFor(() => expect(rendered.result.current?.servers.map((server) => server.id))
+      .toEqual(["z-first", "a-second"]))
+
+    rendered.unmount()
+    await registry["cleanup"]()
+  })
+
   it("projects the complete canonical graph through every read model", async () => {
     const queryClient = new QueryClient()
     const collection = (name: string, rows: unknown[]) => queryClient.setQueryData(
@@ -126,7 +213,7 @@ describe("community DB projections", () => {
       rows,
     )
     collection("servers", [{
-      id: "s1", name: "Server", discriminator: "0001", description: "desc",
+      id: "s1", position: 0, name: "Server", discriminator: "0001", description: "desc",
       ownerId: "owner", icon: null, official: true, isOwner: false, unread: true,
       mentions: 2, detailComplete: true,
     }])
@@ -147,17 +234,20 @@ describe("community DB projections", () => {
       { ...channelBase, id: "forum1", serverId: "s1", categoryId: null, name: "forum", type: "forum", position: 1 },
       { ...channelBase, id: "thread1", serverId: "s1", categoryId: null, name: "thread", type: "thread", parentChannelId: "forum1" },
       { ...channelBase, id: "dm1", serverId: null, categoryId: null, name: "Peer", type: "dm", preview: "hello", lastUnreadSeq: 8 },
+      { ...channelBase, id: "dm-no-read-state", serverId: null, categoryId: null, name: "Quiet", type: "dm" },
       { ...channelBase, id: "dm-no-member", serverId: null, categoryId: null, name: "Missing", type: "dm" },
       { ...channelBase, id: "dm-no-profile", serverId: null, categoryId: null, name: "Missing profile", type: "dm" },
     ])
     collection("channelMemberships", [
       { id: "dm1:viewer:access", channelId: "dm1", userId: "viewer", relation: "access" },
       { id: "dm1:peer:access", channelId: "dm1", userId: "peer", relation: "access" },
+      { id: "dm-no-read-state:quiet:access", channelId: "dm-no-read-state", userId: "quiet", relation: "access" },
       { id: "dm-no-profile:ghost:access", channelId: "dm-no-profile", userId: "ghost", relation: "access" },
     ])
     collection("profiles", [
       { userId: "viewer", name: "Viewer", discriminator: "0001", avatar: "V", avatarVersion: 1 },
       { userId: "peer", name: "Peer", discriminator: "0002", avatar: "P", avatarVersion: 2 },
+      { userId: "quiet", name: "Quiet", discriminator: "0003", avatar: "Q", avatarVersion: 1 },
     ])
     collection("messages", [
       { id: "m2", channelId: "c1", type: "chat", authorId: "peer", content: "second", seq: 2 },
@@ -219,9 +309,12 @@ describe("community DB projections", () => {
       expect.objectContaining({ id: "cat1", channels: expect.arrayContaining([expect.objectContaining({ id: "c1" })]) }),
       expect.objectContaining({ id: "__uncategorized__", channels: expect.arrayContaining([expect.objectContaining({ id: "forum1" })]) }),
     ]))
-    expect(rendered.result.current.dms).toEqual([
+    expect(rendered.result.current.dms).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "dm1", userId: "peer", lastUnreadSeq: 8 }),
-    ])
+      expect.objectContaining({ id: "dm-no-read-state", userId: "quiet" }),
+    ]))
+    expect(rendered.result.current.dms?.find((dm) => dm.id === "dm-no-read-state"))
+      .not.toHaveProperty("lastUnreadSeq")
     expect(rendered.result.current.route?.id).toBe("c1")
     expect(rendered.result.current.messages?.map((message) => message.id)).toEqual(["m1", "m2"])
     expect(rendered.result.current.messagesById?.get("m2")?.content).toBe("second")

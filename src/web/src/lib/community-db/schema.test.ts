@@ -55,7 +55,7 @@ describe("community DB schemas", () => {
   })
 
   it("treats restored server identities without a detail marker as incomplete", () => {
-    expect(serverSchema.parse({
+    const parsed = serverSchema.parse({
       id: "s1",
       name: "Server",
       discriminator: "0001",
@@ -66,6 +66,8 @@ describe("community DB schemas", () => {
       isOwner: false,
       unread: false,
       mentions: 0,
-    }).detailComplete).toBe(false)
+    })
+    expect(parsed.detailComplete).toBe(false)
+    expect(parsed).not.toHaveProperty("position")
   })
 })

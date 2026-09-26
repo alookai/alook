@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   markSwitch: vi.fn(),
   toast: vi.fn(),
   toastApiError: vi.fn(),
+  lastChannel: { current: null as string | null },
   lastMeLeaf: { current: null as string | null },
   communityDb: { current: null as null | { collections: {
     servers: { get: (id: string) => { detailComplete?: boolean } | undefined }
@@ -47,7 +48,7 @@ vi.mock("@/stores/community", () => ({
     selector({ currentServerId: "s1" }),
 }))
 vi.mock("@/lib/community/last-channel", () => ({
-  getLastChannel: () => null,
+  getLastChannel: () => mocks.lastChannel.current,
   pickServerLandingHref: (id: string, channelIds: string[]) =>
     channelIds[0] ? `/c/channels/${id}/${channelIds[0]}` : `/c/channels/${id}`,
 }))
@@ -134,6 +135,7 @@ describe("useShellRailController", () => {
       if (typeof mock === "function" && "mockReset" in mock) mock.mockReset()
     }
     mocks.folders.length = 0
+    mocks.lastChannel.current = null
     mocks.lastMeLeaf.current = null
     mocks.communityDb.current = null
   })
@@ -239,14 +241,15 @@ describe("useShellRailController", () => {
     expect(hook.queryClient.fetchQuery).not.toHaveBeenCalled()
   })
 
-  it("sends a raw-detail-complete rail selection directly to its canonical child", async () => {
+  it("always sends rail selection to the semantic server root", async () => {
     const hook = await renderController()
     hook.cache.set("s1", {
       categories: [{ channels: [{ id: "cached", pending: false }] }],
     })
+    mocks.lastChannel.current = "cached"
 
     await act(async () => hook.current.railProps.onServerNavigate("s1"))
-    expect(hook.pushed).toEqual(["/c/channels/s1/cached"])
+    expect(hook.pushed).toEqual(["/c/channels/s1"])
   })
 
   it("uses canonical channels only when the restored server detail is complete", async () => {
@@ -266,9 +269,9 @@ describe("useShellRailController", () => {
     } }
     const hook = await renderController()
 
-    await act(async () => hook.current.railProps.onServerNavigate("s1"))
+    await act(async () => hook.current.navigate("s1"))
     await act(async () => hook.current.railProps.onServerPrefetch("s1"))
-    await act(async () => hook.current.railProps.onServerNavigate("s2"))
+    await act(async () => hook.current.navigate("s2"))
     await act(async () => hook.current.railProps.onServerPrefetch("s2"))
 
     expect(hook.pushed).toEqual([
@@ -276,22 +279,23 @@ describe("useShellRailController", () => {
       "/c/channels/s2",
     ])
     expect(hook.prefetched).toEqual([
-      "/c/channels/s1/canonical",
+      "/c/channels/s1",
       "/c/channels/s2",
     ])
   })
 
-  it("keeps live warm selection and prefetch on the same complete destination", async () => {
+  it("keeps rail navigation and prefetch on the semantic server root", async () => {
     const hook = await renderController()
     hook.cache.set("s1", {
       categories: [{ channels: [{ id: "pending", pending: true }, { id: "cached", pending: false }] }],
     })
+    mocks.lastChannel.current = "cached"
 
     await act(async () => hook.current.railProps.onServerNavigate("s1"))
     await act(async () => hook.current.railProps.onServerPrefetch("s1"))
     await act(async () => hook.current.railProps.onHomePrefetch())
-    expect(hook.pushed).toEqual(["/c/channels/s1/cached"])
-    expect(hook.prefetched).toEqual(["/c/channels/s1/cached", "/c/me/friends"])
+    expect(hook.pushed).toEqual(["/c/channels/s1"])
+    expect(hook.prefetched).toEqual(["/c/channels/s1", "/c/me/friends"])
     expect(hook.queryClient.fetchQuery).not.toHaveBeenCalled()
 
     await act(async () => hook.current.railProps.onServerNavigate("s2"))

@@ -8,8 +8,12 @@ import { useCommunityWsStore } from "@/stores/community/ws"
 import { ApiError } from "@/lib/errors"
 
 const apiFetchMock = vi.hoisted(() => vi.fn())
+const projectedChannel = vi.hoisted(() => ({ current: undefined as undefined | Record<string, unknown> }))
 vi.mock("@/lib/api/client", () => ({
   apiFetch: (...args: unknown[]) => apiFetchMock(...args),
+}))
+vi.mock("@/lib/community-db/projections", () => ({
+  useRouteChannelProjection: () => projectedChannel.current,
 }))
 
 import { pickRenderableChildMeta, useChildChannelMeta } from "./use-child-channel-meta"
@@ -44,6 +48,7 @@ beforeEach(() => {
   })
   useCommunityWsStore.getState().reset()
   useCommunityWsStore.getState().markAccessConnected()
+  projectedChannel.current = undefined
 })
 
 describe("child channel metadata stale rendering", () => {
@@ -100,6 +105,40 @@ describe("child channel metadata stale rendering", () => {
 
     expect(rendered.result.current).toMatchObject({
       data: cached,
+      isVerified: true,
+      isPlaceholderData: true,
+    })
+    await waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
+    rendered.unmount()
+  })
+
+  it("builds a structural placeholder from a complete canonical thread row", async () => {
+    apiFetchMock.mockImplementation(() => new Promise(() => {}))
+    projectedChannel.current = {
+      id: "post-1",
+      serverId: "server-1",
+      name: "post",
+      type: "thread",
+      parentChannelId: "forum-1",
+      parentMessageId: "opener-1",
+      creatorId: undefined,
+      archived: false,
+      lastMessageAt: undefined,
+    }
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const wrapper = ({ children }: PropsWithChildren) => createElement(
+      QueryClientProvider,
+      { client: queryClient },
+      children,
+    )
+
+    const rendered = renderHook(
+      () => useChildChannelMeta("server-1", "post-1", true),
+      { wrapper },
+    )
+
+    expect(rendered.result.current).toMatchObject({
+      data: { creatorId: null, activityAt: "" },
       isVerified: true,
       isPlaceholderData: true,
     })

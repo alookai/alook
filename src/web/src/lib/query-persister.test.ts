@@ -450,6 +450,24 @@ describe("createIdbPersister — serialize filter", () => {
       createdAt: "2026-09-25T00:00:00.000Z",
       authorId: "orphan-author",
     }]
+    messages.push(
+      {
+        id: "dm_0:tie_a",
+        channelId: "dm_0",
+        type: "chat",
+        seq: 100,
+        createdAt: "2026-09-30T00:00:00.000Z",
+        authorId: "author_0",
+      },
+      {
+        id: "dm_0:tie_b",
+        channelId: "dm_0",
+        type: "chat",
+        seq: 100,
+        createdAt: "2026-09-30T00:00:00.000Z",
+        authorId: "author_0",
+      },
+    )
     const collectionData = {
       servers: Array.from({ length: 7 }, (_, index) => ({
         id: `srv_${index}`,
@@ -561,9 +579,18 @@ describe("createIdbPersister — serialize filter", () => {
     expect(persistedMessages).toHaveLength(
       MAX_PERSISTED_MESSAGE_SCOPES * MAX_PERSISTED_MESSAGES_PER_SCOPE,
     )
+    expect(persistedMessages.filter((message) => message.id.startsWith("dm_0:tie_"))
+      .map((message) => message.id)).toEqual(["dm_0:tie_b", "dm_0:tie_a"])
     expect(Math.min(...persistedMessages.map((message) => message.seq))).toBe(1)
     expect((collection("categories") as Array<{ serverId: string }>).map((row) => row.serverId))
       .toEqual(["srv_2", "srv_3", "srv_4", "srv_5", "srv_6"])
+    expect((collection("servers") as Array<{ id: string; position?: number }>).map((row) => ({
+      id: row.id,
+      position: row.position,
+    }))).toEqual(Array.from({ length: 7 }, (_, index) => ({
+      id: `srv_${index}`,
+      position: undefined,
+    })))
     expect((collection("channels") as Array<{ serverId: string | null }>).filter(
       (row) => row.serverId !== null,
     ).map((row) => row.serverId)).toEqual(["srv_2", "srv_3", "srv_4", "srv_5", "srv_6"])

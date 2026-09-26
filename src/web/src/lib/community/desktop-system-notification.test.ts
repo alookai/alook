@@ -166,6 +166,18 @@ describe("desktop system notification candidates", () => {
     })
   })
 
+  it("does not resolve account-scoped metadata without a viewer", async () => {
+    const queryClient = new QueryClient()
+
+    await expect(resolveDesktopSystemNotificationCandidate(
+      create,
+      bump,
+      null,
+      queryClient,
+    )).resolves.toBeNull()
+    expect(channelMetadataMocks.fetch).not.toHaveBeenCalled()
+  })
+
   it("resolves a cold channel name before formatting the desktop copy", async () => {
     const queryClient = new QueryClient()
     seedCanonicalDirectory(queryClient, { channels: false })

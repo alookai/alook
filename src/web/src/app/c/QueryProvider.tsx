@@ -133,6 +133,13 @@ export function QueryProvider({
   // id, so we don't need to reactively rebuild the persister mid-session.
   const [persister] = useState(() => createIdbPersister(userId))
   const isDev = process.env.NODE_ENV !== "production"
+  const settleRestoredAccount = () => {
+    communityDb.captureRestoredCollections()
+    const profiles = useCommunityWsStore.getState()
+    if (profiles.profileViewerId !== userId) {
+      profiles.activateProfileAccount(userId)
+    }
+  }
 
   return (
     <PersistQueryClientProvider
@@ -141,11 +148,7 @@ export function QueryProvider({
         // `onSuccess` runs after hydrate and before `isRestoring` becomes
         // false. Freeze which canonical collections came from that restore so
         // later network results can never be misclassified as persisted.
-        communityDb.captureRestoredCollections()
-        const profiles = useCommunityWsStore.getState()
-        if (profiles.profileViewerId !== userId) {
-          profiles.activateProfileAccount(userId)
-        }
+        settleRestoredAccount()
         void Promise.all([
           queryClient.invalidateQueries({
             queryKey: communityKeys.servers(),
@@ -168,7 +171,10 @@ export function QueryProvider({
           }),
         ])
       }}
-      onError={() => communityDb.captureRestoredCollections()}
+      // A failed IndexedDB read still completes the identity handoff. The
+      // account gate remains visible until this atomically clears any previous
+      // viewer state, then the new account mounts against an empty live cache.
+      onError={settleRestoredAccount}
       persistOptions={{
         persister,
         maxAge: PERSIST_MAX_AGE_MS,

@@ -76,6 +76,28 @@ afterEach(async () => {
 })
 
 describe("community DB sync", () => {
+  it("keeps anonymous canonical ingestion free of viewer access rows", async () => {
+    const db = createCommunityDbRegistry(new QueryClient(), null)
+    registries.push(db)
+    await db.preload()
+
+    ingestServers(db, { servers: [{
+      id: "s1", name: "Server", initial: "S", active: false, unread: false,
+      mentions: 0, ownerId: "owner",
+    }] })
+    ingestServerDetail(db, {
+      id: "s1", name: "Server", discriminator: "0001", description: "",
+      icon: null, ownerId: "owner", categories: [{
+        id: "cat1", name: "General", channels: [{
+          id: "c1", name: "general", active: false, unread: false,
+        }],
+      }],
+    })
+
+    expect([...db.collections.serverMemberships.values()]).toEqual([])
+    expect([...db.collections.channelMemberships.values()]).toEqual([])
+  })
+
   it.each(["signal", "account", "access"] as const)(
     "rejects a structurally stale %s proof before destructive replacement",
     async (race) => {
@@ -1458,6 +1480,8 @@ describe("community DB sync", () => {
       createdAt: "2026-09-25T00:00:00.000Z",
       reactions: [],
     })
+    db.queryClient.setQueryData(communityKeys.inboxMentions(), {})
+    db.queryClient.setQueryData(communityKeys.inboxMarked(), {})
     db.queryClient.setQueryData(communityKeys.pins("c1"), { pins: [message("pin", "pin")] })
     db.queryClient.setQueryData(communityKeys.inboxMentions(), {
       mentions: [{ id: "mention", channelId: "c1", m: message("mention-message", "mention") }],

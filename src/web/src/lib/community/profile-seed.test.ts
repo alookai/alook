@@ -1,6 +1,7 @@
 import { QueryClient } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { Msg } from "@/lib/community/models/message"
+import { communityKeys } from "@/lib/query-keys"
 import {
   apiFetchProfiles,
   beginCommunityProfileSeed,
@@ -150,6 +151,26 @@ describe("profile seeding boundaries", () => {
       name: "Alice",
       avatar: "/alice.png",
       avatarVersion: 8,
+    })
+  })
+
+  it("falls back to live collection rows when the canonical query cache is absent", () => {
+    writeCommunityProfilePatches([{
+      id: "u-cache-gap",
+      identityAbout: { name: "Before", discriminator: "0009" },
+    }], registry)
+    const queryKey = communityKeys.communityDbCollection(registry.scopeId, "profiles")
+    registry.queryClient.removeQueries({ queryKey, exact: true })
+
+    writeCommunityProfilePatches([{
+      id: "u-cache-gap",
+      status: { statusEmoji: "🌱", statusText: "Growing" },
+    }], registry)
+
+    expect(registry.collections.profiles.get("u-cache-gap")).toMatchObject({
+      name: "Before",
+      discriminator: "0009",
+      statusEmoji: "🌱",
     })
   })
 

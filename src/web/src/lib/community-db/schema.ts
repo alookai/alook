@@ -5,6 +5,9 @@ const optionalNullableString = nullableString.optional()
 
 export const serverSchema = z.object({
   id: z.string().min(1),
+  // Optional only for v2 rows written before canonical rail ordering landed.
+  // Registry restore migrates those rows from their persisted array order.
+  position: z.number().int().nonnegative().optional(),
   name: z.string(),
   discriminator: z.string(),
   description: z.string(),

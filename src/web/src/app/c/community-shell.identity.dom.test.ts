@@ -43,7 +43,11 @@ vi.mock("@/components/community/shell/community-ws-reconnect-overlay", () => ({
   CommunityWsReconnectBoundary: ({ children }: { children: React.ReactNode }) => children,
 }))
 vi.mock("@/components/community/shell/community-restore-bootstrap", () => ({
-  CommunityRestoreBoundary: ({ children }: { children: React.ReactNode }) => children,
+  CommunityRestoreBoundary: ({ children }: { children: React.ReactNode }) => React.createElement(
+    "div",
+    { "data-testid": "restore-boundary" },
+    children,
+  ),
 }))
 vi.mock("next/navigation", () => ({
   usePathname: () => "/c/me",
@@ -71,6 +75,25 @@ beforeEach(() => {
 })
 
 describe("CommunityShell identity boundary", () => {
+  it("keeps restore lifecycle ownership outside the account activation frame", () => {
+    const activateProfileAccount = useCommunityWsStore.getState().activateProfileAccount
+    useCommunityWsStore.setState({
+      profileViewerId: null,
+      activateProfileAccount: vi.fn(() => 0),
+    })
+    const renderer = render(React.createElement(
+      CommunityShell,
+      { currentUser: activeUser },
+      React.createElement("span", null, "content"),
+    ))
+
+    const pending = renderer.getByTestId("session-pending")
+    expect(renderer.getByTestId("restore-boundary").contains(pending)).toBe(true)
+
+    act(() => renderer.unmount())
+    useCommunityWsStore.setState({ activateProfileAccount })
+  })
+
   it("remounts the in-memory query boundary when the signed-in user changes", () => {
     const renderer = render(React.createElement(
       CommunityShell,

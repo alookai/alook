@@ -42,13 +42,13 @@ export function CommunityShell({
 }) {
   return (
     <QueryProvider key={currentUser.id} userId={currentUser.id}>
-      <ProfileAccountBoundary viewerId={currentUser.id}>
-        <CommunityRestoreBoundary>
+      <CommunityRestoreBoundary>
+        <ProfileAccountBoundary viewerId={currentUser.id}>
           <CurrentUserProvider initialUser={currentUser}>
             <CommunityBootstrap>{children}</CommunityBootstrap>
           </CurrentUserProvider>
-        </CommunityRestoreBoundary>
-      </ProfileAccountBoundary>
+        </ProfileAccountBoundary>
+      </CommunityRestoreBoundary>
     </QueryProvider>
   )
 }

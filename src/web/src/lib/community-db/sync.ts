@@ -188,9 +188,7 @@ function deleteRows<T extends object>(
   const keyByValue = new Map(current.map((row) => [row, (
     registry.collections[name] as unknown as { getKeyFromItem: (value: T) => string }
   ).getKeyFromItem(row)]))
-  writeCollectionRows(registry, name, next, (row) => keyByValue.get(row) ?? (
-    registry.collections[name] as unknown as { getKeyFromItem: (value: T) => string }
-  ).getKeyFromItem(row))
+  writeCollectionRows(registry, name, next, (row) => keyByValue.get(row)!)
   publishRows(registry, name, next)
 }
 
@@ -370,8 +368,9 @@ export function ingestServers(
   const removedServerIds = currentServers
     .filter((server) => !incomingServerIds.has(server.id))
     .map((server) => server.id)
-  const servers: ServerRow[] = response.servers.map((server) => ({
+  const servers: ServerRow[] = response.servers.map((server, position) => ({
     id: server.id,
+    position,
     name: server.name,
     discriminator: server.discriminator ?? "",
     description: server.description ?? "",
@@ -432,6 +431,7 @@ export function ingestServerDetail(
     .find((row) => row.id === detail.id)
   const server: ServerRow = {
     id: detail.id,
+    position: existing?.position ?? 0,
     name: detail.name,
     discriminator: detail.discriminator,
     description: detail.description,
