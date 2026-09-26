@@ -20,6 +20,7 @@ import {
   type MessageTargetDescriptor,
 } from "@/lib/community/message-door"
 import { broadcastToUserSafe } from "@/lib/community/fanout"
+import { isDuplicateBotMessage, DUPLICATE_MESSAGE_ERROR } from "@/lib/community/jev-send-dedup"
 
 // A bot addresses by ref-in-body; the path `[id]` is then a placeholder
 // (`channels/resolve/messages`) since a ref carries `/` and can't sit in a path
@@ -208,7 +209,7 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
   }
 
   if (ctx.actor.kind === "bot") {
-    return handleBotSend(db, ctx.actor.userId, raw)
+    return handleBotSend(db, ctx.actor.userId, ctx.env, raw)
   }
   return handleHumanSend(db, ctx.actor.userId, ctx.env, ctx.params?.id, raw)
 })
@@ -308,6 +309,7 @@ async function handleHumanSend(
 async function handleBotSend(
   db: ReturnType<typeof getDb>,
   botUserId: string,
+  env: RuntimeEnv,
   raw: unknown,
 ): Promise<NextResponse> {
   const parsed = CommunityAgentSendRequestSchema.safeParse(raw)
@@ -410,6 +412,15 @@ async function handleBotSend(
     const replay = await replayResponse()
     if (replay) return replay
     return NextResponse.json({ state: "blocked", reason: "unaligned", unreadCount: Math.max(0, latestSeq - seen), latestSeq })
+  }
+
+  if (!body.force && target.kind !== "dm" && await isDuplicateBotMessage({
+    db, env, channelId, authorId: botUserId,
+    content: body.content.text,
+  })) {
+    const replay = await replayResponse()
+    if (replay) return replay
+    return NextResponse.json({ error: DUPLICATE_MESSAGE_ERROR, code: "duplicate_message" }, { status: 422 })
   }
 
   if (target.kind === "forum") {

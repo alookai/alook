@@ -862,6 +862,21 @@ export async function listMessagesSince(
   return rows.map(parseEmbeds);
 }
 
+export async function listRecentMessagesForDuplicateCheck(db: Database, channelId: string) {
+  return db.select({
+    authorId: communityMessage.authorId,
+    name: user.name,
+    discriminator: user.discriminator,
+    content: communityMessage.content,
+    createdAt: communityMessage.createdAt,
+  })
+    .from(communityMessage)
+    .innerJoin(user, eq(user.id, communityMessage.authorId))
+    .where(eq(communityMessage.channelId, channelId))
+    .orderBy(desc(communityMessage.createdAt), desc(communityMessage.id))
+    .limit(3);
+}
+
 /**
  * The largest `seq` value in a channel or DM scope, or `0` for an empty
  * scope. Consumed by the message-list envelope so the client can compute

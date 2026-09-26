@@ -48,3 +48,14 @@ describe("CommunityAgentSendRequestSchema — replyToSeq", () => {
     expect(parsed.success).toBe(false);
   });
 });
+
+
+describe("CommunityAgentSendRequestSchema — force", () => {
+  it.each([true, false, undefined])("accepts optional boolean %s", (force) => {
+    const result = CommunityAgentSendRequestSchema.parse({ channel: "/s/general", content: { text: "hi" }, force });
+    expect(result.force).toBe(force);
+  });
+  it.each(["true", "false", 1, null])("rejects non-boolean %s", (force) => {
+    expect(CommunityAgentSendRequestSchema.safeParse({ channel: "/s/general", content: { text: "hi" }, force }).success).toBe(false);
+  });
+});
