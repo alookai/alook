@@ -14,7 +14,7 @@ vi.mock("../internal/killTree.js", async (importOriginal) => ({
 }));
 
 /*
- * Red-line-5(b) of plans/daemon-trace-completeness-charter.md (T1): the synthetic
+ * Trace-completeness invariant: the synthetic
  * `session.fire("exit", {...})` tests in managerRuntime.test.ts prove the daemon
  * THREADS exitCode/exitSignal/abnormal into the FSM/trace. They do NOT prove the
  * SOURCE is real — that a genuinely killed subprocess actually fills `info.code`

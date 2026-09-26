@@ -43,6 +43,11 @@ import {
   removeServerReactionDetails,
 } from "./reaction-details-invalidation"
 import { getAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
+import {
+  captureCommunityLiveSnapshotToken,
+  publishCommunityChannelMetadata,
+  setCanonicalCommunityChannelMembership,
+} from "@/lib/community-db/sync"
 
 type ChannelMemberEvent = Extract<
   CommunityWsEvent,
@@ -73,6 +78,8 @@ export function handleChannelMemberEvent(
           kind: "channel", channelId: event.channelId,
         })
         removeForumSidebarProjectionExact(queryClient, event.serverId, event.channelId)
+      } else {
+        setCanonicalCommunityChannelMembership(queryClient, event.channelId, "notify", true)
       }
       void invalidateForumSidebarBaseExact(queryClient, event.serverId).catch(() => undefined)
       invalidateInbox(activeProjection)
@@ -85,6 +92,7 @@ export function handleChannelMemberEvent(
       })
       projectChannelScopeEviction(activeProjection, queryClient, event.serverId, event.channelId)
     } else {
+      setCanonicalCommunityChannelMembership(queryClient, event.channelId, "access", true)
       useCommunityWsStore.getState().rememberChannelAccess(event.serverId, event.channelId)
       getAccountUnreadProjection(queryClient, event.userId).grantAccessScope({
         kind: "channel", channelId: event.channelId,
@@ -105,7 +113,15 @@ export function handleChannelMemberEvent(
     try {
       const meta = await queryClient.fetchQuery({
         queryKey: key,
-        queryFn: ({ signal }) => fetchChannelMetadata(event.serverId, event.channelId, signal),
+        queryFn: async ({ signal }) => {
+          const liveToken = captureCommunityLiveSnapshotToken(queryClient)
+          const metadata = await fetchChannelMetadata(event.serverId, event.channelId, signal)
+          publishCommunityChannelMetadata(queryClient, {
+            metadata,
+            proof: { token: liveToken, signal },
+          })
+          return metadata
+        },
         staleTime: 0,
       })
       if (!isChannelMetadataTokenCurrent(token)) return

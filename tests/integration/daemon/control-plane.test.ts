@@ -239,7 +239,7 @@ describe("daemon control plane — real ws-do wake round-trip", () => {
     // Bot activity is stored on the same `statusEmoji`/`statusText` fields
     // humans use — the WS DO translates the daemon's `agent_activity` frame
     // into the appropriate preset and writes/broadcasts it as an ordinary
-    // status update (see plans/community-bot-status-telemetry.md).
+    // status update.
     await channel!.reportAgentActivity({ agentId: fixture.bot.botUserId, state: "running" })
     const runningProfile = await waitForAsync(async () => {
       const res = await sessionRequest(`/api/community/users/${fixture.bot.botUserId}/profile`, cookie)

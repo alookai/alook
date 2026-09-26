@@ -14,6 +14,7 @@ vi.mock("@/lib/api/client", () => ({
 }))
 vi.mock("@/lib/community-db/projections", () => ({
   useRouteChannelProjection: () => projectedChannel.current,
+  useOptionalCommunityDbRegistry: () => projectedChannel.current === undefined ? null : {},
 }))
 
 import { pickRenderableChildMeta, useChildChannelMeta } from "./use-child-channel-meta"
@@ -140,7 +141,7 @@ describe("child channel metadata stale rendering", () => {
     expect(rendered.result.current).toMatchObject({
       data: { creatorId: null, activityAt: "" },
       isVerified: true,
-      isPlaceholderData: true,
+      isPlaceholderData: false,
     })
     await waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
     rendered.unmount()

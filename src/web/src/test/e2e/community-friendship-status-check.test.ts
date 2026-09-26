@@ -3,8 +3,7 @@ import { sql, sqlRun, sqlQuery } from "@alook/test-utils"
 
 /**
  * Real-DB verification that the `community_friendship.status` CHECK constraint
- * admits every status the query layer writes. See
- * plans/friend-cancel-card-cleanup.md.
+ * admits every status the query layer writes.
  *
  * The unit tests for `cancelPendingRequest` / `rejectRequest` mock the drizzle
  * chain, so a `.set({ status: 'cancelled' })` "succeeds" without touching the

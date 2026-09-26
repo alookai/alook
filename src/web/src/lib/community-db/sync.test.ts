@@ -23,6 +23,10 @@ import {
   ingestServers,
   installCommunityDbSync,
   captureCommunityLiveSnapshotToken,
+  patchCanonicalCommunityMessage,
+  publishCommunityDmSummary,
+  publishCommunityMessages,
+  publishCommunityChannelDirectory,
   publishCommunityLiveSnapshot as publishCommunityLiveSnapshotWithProof,
   projectCommunityWsEventToDb,
   purgeCommunityChannel,
@@ -76,6 +80,39 @@ afterEach(async () => {
 })
 
 describe("community DB sync", () => {
+  it("does not regress a known channel subtype when directory transport omits it", async () => {
+    const db = await registry()
+    ingestServers(db, { servers: [{
+      id: "s1", name: "Server", initial: "S", active: false, unread: false,
+      mentions: 0, ownerId: "viewer",
+    }] })
+    ingestServerDetail(db, {
+      id: "s1", name: "Server", discriminator: "0001", description: "",
+      icon: null, ownerId: "viewer", categories: [{
+        id: "cat1", name: "General", channels: [{
+          id: "forum1", name: "Forum", active: false, unread: false, type: "forum",
+        }],
+      }],
+    })
+
+    expect(publishCommunityChannelDirectory(db.queryClient, {
+      directory: [{
+        id: "s1",
+        name: "Server",
+        discriminator: "0001",
+        channels: [{ id: "forum1", name: "Forum renamed" }],
+      }],
+      proof: {
+        token: captureCommunityLiveSnapshotToken(db.queryClient),
+        signal: undefined,
+      },
+    })).toBe("published")
+    expect(db.collections.channels.get("forum1")).toMatchObject({
+      name: "Forum renamed",
+      type: "forum",
+    })
+  })
+
   it("keeps anonymous canonical ingestion free of viewer access rows", async () => {
     const db = createCommunityDbRegistry(new QueryClient(), null)
     registries.push(db)
@@ -131,6 +168,306 @@ describe("community DB sync", () => {
     },
   )
 
+  it("keeps a projected Inbox DM over an older authoritative snapshot", async () => {
+    const db = await registry()
+    const token = captureCommunityLiveSnapshotToken(db.queryClient)
+    const dm = {
+      id: "dm-first-click",
+      userId: "peer",
+      name: "Peer",
+      discriminator: "0001",
+      avatar: "P",
+      status: "offline" as const,
+      preview: "",
+      unread: false,
+    }
+
+    expect(publishCommunityDmSummary(db.queryClient, dm)).toBe("published")
+    publishCommunityLiveSnapshotWithProof(db.queryClient, {
+      snapshot: { kind: "dms", data: { conversations: [] } },
+      proof: { kind: "structural", token, signal: undefined },
+    })
+
+    expect(db.collections.channels.get(dm.id)).toMatchObject({ id: dm.id, type: "dm" })
+    expect(db.collections.channelMemberships.get(`${dm.id}:viewer:access`)).toBeDefined()
+    expect(db.collections.channelMemberships.get(`${dm.id}:peer:access`)).toBeDefined()
+    expect(db.collections.profiles.get("peer")).toMatchObject({ name: "Peer" })
+  })
+
+  it("preserves a same-entity WS message edit over an older HTTP response", async () => {
+    const db = await registry()
+    const staleMessage = {
+      id: "m1",
+      type: "chat" as const,
+      seq: 1,
+      content: "stale HTTP",
+      createdAt: "2026-09-26T00:00:00.000Z",
+    }
+    ingestMessages(db, "c1", [staleMessage])
+    const token = captureCommunityLiveSnapshotToken(db.queryClient)
+
+    projectCommunityWsEventToDb(db.queryClient, {
+      type: "community:message.edited",
+      channelId: "c1",
+      messageId: "m1",
+      content: "new WS value",
+    } as CommunityWsEvent)
+    publishCommunityMessages(db.queryClient, {
+      channelId: "c1",
+      messages: [staleMessage],
+      proof: { token, signal: undefined },
+    })
+
+    expect(db.collections.messages.get("m1")?.content).toBe("new WS value")
+  })
+
+  it("preserves a local canonical message patch over an older HTTP response", async () => {
+    const db = await registry()
+    const staleMessage = {
+      id: "m-local",
+      type: "chat" as const,
+      seq: 1,
+      content: "message",
+      createdAt: "2026-09-26T00:00:00.000Z",
+      reactions: [{ emoji: "👍", count: 1, me: false }],
+    }
+    ingestMessages(db, "c1", [staleMessage])
+    const token = captureCommunityLiveSnapshotToken(db.queryClient)
+
+    patchCanonicalCommunityMessage(db.queryClient, "m-local", (message) => ({
+      ...message,
+      reactions: [{ emoji: "👍", count: 2, me: true }],
+    }))
+    publishCommunityMessages(db.queryClient, {
+      channelId: "c1",
+      messages: [staleMessage],
+      proof: { token, signal: undefined },
+    })
+
+    expect(db.collections.messages.get("m-local")?.reactions).toEqual([
+      { emoji: "👍", count: 2, me: true },
+    ])
+  })
+
+  it("merges a WS message edit for an absent row into an older HTTP response", async () => {
+    const db = await registry()
+    const token = captureCommunityLiveSnapshotToken(db.queryClient)
+
+    projectCommunityWsEventToDb(db.queryClient, {
+      type: "community:message.edited",
+      channelId: "c1",
+      messageId: "m1",
+      content: "new WS value",
+    } as CommunityWsEvent)
+    publishCommunityMessages(db.queryClient, {
+      channelId: "c1",
+      messages: [{
+        id: "m1",
+        type: "chat",
+        seq: 1,
+        content: "stale HTTP",
+        createdAt: "2026-09-26T00:00:00.000Z",
+      }],
+      proof: { token, signal: undefined },
+    })
+
+    expect(db.collections.messages.get("m1")?.content).toBe("new WS value")
+
+    db.collections.messages.utils.writeDelete("m1")
+    db.queryClient.setQueryData(
+      communityKeys.communityDbCollection("viewer", "messages"),
+      [],
+    )
+    publishCommunityMessages(db.queryClient, {
+      channelId: "c1",
+      messages: [{
+        id: "m1",
+        type: "chat",
+        seq: 1,
+        content: "stale HTTP replay",
+        createdAt: "2026-09-26T00:00:00.000Z",
+      }],
+      proof: { token, signal: undefined },
+    })
+    expect(db.collections.messages.get("m1")).toBeUndefined()
+  })
+
+  it("does not retain pending closures for WS patches that hit an existing row", async () => {
+    const db = await registry()
+    ingestMessages(db, "c1", [{
+      id: "m1",
+      type: "chat",
+      seq: 1,
+      content: "seed",
+      createdAt: "2026-09-26T00:00:00.000Z",
+    }])
+    const token = captureCommunityLiveSnapshotToken(db.queryClient)
+    for (let index = 0; index < 100; index += 1) {
+      projectCommunityWsEventToDb(db.queryClient, {
+        type: "community:message.edited",
+        channelId: "c1",
+        messageId: "m1",
+        content: `edit ${index}`,
+      } as CommunityWsEvent)
+    }
+
+    db.collections.messages.utils.writeDelete("m1")
+    db.queryClient.setQueryData(
+      communityKeys.communityDbCollection("viewer", "messages"),
+      [],
+    )
+    publishCommunityMessages(db.queryClient, {
+      channelId: "c1",
+      messages: [{
+        id: "m1",
+        type: "chat",
+        seq: 1,
+        content: "stale HTTP",
+        createdAt: "2026-09-26T00:00:00.000Z",
+      }],
+      proof: { token, signal: undefined },
+    })
+
+    expect(db.collections.messages.get("m1")).toBeUndefined()
+  })
+
+  it("preserves same-entity WS server/channel writes over older HTTP", async () => {
+    const db = await registry()
+    const detail = {
+      id: "s1",
+      name: "Stale server",
+      discriminator: "0001",
+      description: "",
+      icon: null,
+      ownerId: "viewer",
+      categories: [{
+        id: "cat1",
+        name: "General",
+        channels: [{
+          id: "c1",
+          name: "stale channel",
+          active: false,
+          unread: false,
+          type: "text" as const,
+        }, {
+          id: "c2",
+          name: "deleted channel",
+          active: false,
+          unread: false,
+          type: "text" as const,
+        }],
+      }],
+    }
+    ingestServers(db, { servers: [{
+      id: "s1", name: "Stale server", initial: "S", active: false,
+      unread: false, mentions: 0, ownerId: "viewer",
+    }] })
+    ingestServerDetail(db, detail)
+    const token = captureCommunityLiveSnapshotToken(db.queryClient)
+
+    projectCommunityWsEventToDb(db.queryClient, {
+      type: "community:server.update",
+      serverId: "s1",
+      changes: { name: "Fresh server" },
+    } as CommunityWsEvent)
+    projectCommunityWsEventToDb(db.queryClient, {
+      type: "community:channel.update",
+      serverId: "s1",
+      channelId: "c1",
+      changes: { name: "fresh channel" },
+    } as CommunityWsEvent)
+    publishCommunityLiveSnapshotWithProof(db.queryClient, {
+      snapshot: { kind: "server-detail", data: detail },
+      proof: { kind: "structural", token, signal: undefined },
+    })
+
+    expect(db.collections.servers.get("s1")?.name).toBe("Fresh server")
+    expect(db.collections.channels.get("c1")?.name).toBe("fresh channel")
+  })
+
+  it("merges a WS channel update for an absent row into older HTTP", async () => {
+    const db = await registry()
+    const token = captureCommunityLiveSnapshotToken(db.queryClient)
+    const detail = {
+      id: "s1", name: "Server", discriminator: "0001", description: "",
+      icon: null, ownerId: "viewer", categories: [{
+        id: "cat1", name: "General", channels: [{
+          id: "c1", name: "stale channel", active: false, unread: false,
+          type: "text" as const,
+        }],
+      }],
+    }
+
+    projectCommunityWsEventToDb(db.queryClient, {
+      type: "community:channel.update",
+      serverId: "s1",
+      channelId: "c1",
+      changes: { name: "fresh channel" },
+    } as CommunityWsEvent)
+    publishCommunityLiveSnapshotWithProof(db.queryClient, {
+      snapshot: { kind: "server-detail", data: detail },
+      proof: { kind: "structural", token, signal: undefined },
+    })
+
+    expect(db.collections.channels.get("c1")?.name).toBe("fresh channel")
+  })
+
+  it("does not revive a channel deleted after an HTTP request starts", async () => {
+    const db = await registry()
+    const detail = {
+      id: "s1", name: "Server", discriminator: "0001", description: "",
+      icon: null, ownerId: "viewer", categories: [{
+        id: "cat1", name: "General", channels: [{
+          id: "c1", name: "deleted channel", active: false, unread: false,
+          type: "text" as const,
+        }],
+      }],
+    }
+    ingestServers(db, { servers: [{
+      id: "s1", name: "Server", initial: "S", active: false,
+      unread: false, mentions: 0, ownerId: "viewer",
+    }] })
+    ingestServerDetail(db, detail)
+    const token = captureCommunityLiveSnapshotToken(db.queryClient)
+
+    projectCommunityWsEventToDb(db.queryClient, {
+      type: "community:channel.delete",
+      serverId: "s1",
+      channelId: "c1",
+    } as CommunityWsEvent)
+    expect(() => publishCommunityLiveSnapshotWithProof(db.queryClient, {
+      snapshot: { kind: "server-detail", data: detail },
+      proof: { kind: "structural", token, signal: undefined },
+    })).toThrowError(expect.objectContaining({ name: "AbortError" }))
+    expect(db.collections.channels.get("c1")).toBeUndefined()
+  })
+
+  it("keeps an absent WS-deleted channel out of an older HTTP response", async () => {
+    const db = await registry()
+    const token = captureCommunityLiveSnapshotToken(db.queryClient)
+    const detail = {
+      id: "s1", name: "Server", discriminator: "0001", description: "",
+      icon: null, ownerId: "viewer", categories: [{
+        id: "cat1", name: "General", channels: [{
+          id: "c1", name: "deleted channel", active: false, unread: false,
+          type: "text" as const,
+        }],
+      }],
+    }
+
+    projectCommunityWsEventToDb(db.queryClient, {
+      type: "community:channel.delete",
+      serverId: "s1",
+      channelId: "c1",
+    } as CommunityWsEvent)
+    expect(publishCommunityLiveSnapshotWithProof(db.queryClient, {
+      snapshot: { kind: "server-detail", data: detail },
+      proof: { kind: "structural", token, signal: undefined },
+    })).toBe("published")
+
+    expect(db.collections.channels.get("c1")).toBeUndefined()
+  })
+
   it("rejects a superseded read-state freshness proof before replacement", async () => {
     const db = await registry()
     publishCommunityLiveSnapshot(db.queryClient, {
@@ -170,7 +507,7 @@ describe("community DB sync", () => {
     expect(db.collections.readStates.get("c2")).toBeDefined()
   })
 
-  it("routes only exact server-detail query keys into canonical detail rows", async () => {
+  it("never treats raw server-detail query keys as canonical writers", async () => {
     const db = await registry()
     const uninstall = installCommunityDbSync(db.queryClient, db)
 
@@ -191,14 +528,11 @@ describe("community DB sync", () => {
       ownerId: "viewer",
       categories: [],
     })
-    expect(db.collections.servers.get("s1")).toMatchObject({
-      id: "s1",
-      detailComplete: true,
-    })
+    expect(db.collections.servers.get("s1")).toBeUndefined()
     uninstall()
   })
 
-  it("merge-replays every cached query surface through exact query routing", async () => {
+  it("does not replay hydrated or setQueryData transport payloads into canonical DB", async () => {
     const db = await registry()
     db.queryClient.setQueryData(communityKeys.servers(), { servers: [{
       id: "s1", name: "Server", initial: "S", active: false, unread: false,
@@ -213,8 +547,9 @@ describe("community DB sync", () => {
       queryFn: async () => null,
     })
     const uninstall = installCommunityDbSync(db.queryClient, db)
-    await vi.waitFor(() => expect(db.collections.servers.get("s1")).toBeDefined())
-    expect(db.collections.channels.get("dm1")).toBeDefined()
+    await db.preload()
+    expect(db.collections.servers.get("s1")).toBeUndefined()
+    expect(db.collections.channels.get("dm1")).toBeUndefined()
     db.queryClient.setQueryData(communityKeys.folders(), {
       folders: [{
         id: "f1", name: "Folder", position: 1,
@@ -280,18 +615,15 @@ describe("community DB sync", () => {
       pageParams: [null],
     })
 
-    expect(db.collections.folders.get("f1")).toMatchObject({ name: "Folder" })
-    expect(db.collections.folders.get("f2")).toMatchObject({ name: "Replacement" })
-    expect(db.collections.folderItems.get("f1:s1")).toBeDefined()
-    expect(db.collections.channels.get("c1")).toMatchObject({ name: "chat renamed", archived: true })
+    expect(db.collections.folders.get("f1")).toBeUndefined()
+    expect(db.collections.folders.get("f2")).toBeUndefined()
+    expect(db.collections.folderItems.get("f1:s1")).toBeUndefined()
+    expect(db.collections.channels.get("c1")).toBeUndefined()
     expect(db.collections.channels.get("ignored")).toBeUndefined()
-    expect(db.collections.messages.get("page-message")?.channelId).toBe("c1")
-    expect(db.collections.messages.get("context-message")?.channelId).toBe("c1")
-    expect(db.collections.readStateClock.get("account")?.revision).toBe(2)
-    expect([...db.collections.notificationSettings.keys()].sort()).toEqual([
-      "channel:c1",
-      "server:s1",
-    ])
+    expect(db.collections.messages.get("page-message")).toBeUndefined()
+    expect(db.collections.messages.get("context-message")).toBeUndefined()
+    expect(db.collections.readStateClock.get("account")).toBeUndefined()
+    expect([...db.collections.notificationSettings.keys()]).toEqual([])
     uninstall()
   })
 
@@ -1170,7 +1502,7 @@ describe("community DB sync", () => {
     } as CommunityWsEvent)
   })
 
-  it("projects thread participation without revoking channel access", async () => {
+  it("leaves channel membership projection to the type-resolved handler", async () => {
     const db = await registry()
     ingestServerDetail(db, {
       id: "s1",
@@ -1203,10 +1535,7 @@ describe("community DB sync", () => {
       userId: "viewer",
     } as CommunityWsEvent)
 
-    expect(db.collections.channelMemberships.get("thread1:viewer:notify")).toMatchObject({
-      relation: "notify",
-      source: "explicit",
-    })
+    expect(db.collections.channelMemberships.get("thread1:viewer:notify")).toBeUndefined()
     projectCommunityWsEventToDb(db.queryClient, {
       type: "community:channel.member_remove",
       serverId: "s1",
@@ -1224,8 +1553,8 @@ describe("community DB sync", () => {
       channelId: "c1",
       userId: "viewer",
     } as CommunityWsEvent)
-    expect(db.collections.channels.get("c1")).toBeUndefined()
-    expect(db.collections.channels.get("thread1")).toBeUndefined()
+    expect(db.collections.channels.get("c1")).toBeDefined()
+    expect(db.collections.channels.get("thread1")).toBeDefined()
   })
 
   it("projects structural, message, and profile websocket deltas into canonical rows", async () => {
@@ -1454,7 +1783,7 @@ describe("community DB sync", () => {
       type: "community:channel.child_update", channelId: "thread1",
       changes: { archived: true },
     })
-    expect(db.collections.channels.get("thread1")).toBeUndefined()
+    expect(db.collections.channels.get("thread1")).toMatchObject({ archived: true })
     event({ type: "community:channel.delete", serverId: "s1", channelId: "c2" })
     expect(db.collections.channels.get("c2")).toBeUndefined()
     event({ type: "community:server.delete", serverId: "s1" })
@@ -1468,7 +1797,7 @@ describe("community DB sync", () => {
     event({ type: "community:unknown" })
   })
 
-  it("normalizes message-bearing surfaces into one identity for edits, reactions, and purge", async () => {
+  it("ignores raw message-bearing surfaces while canonical rows still accept WS deltas", async () => {
     const db = await registry()
     const uninstall = installCommunityDbSync(db.queryClient, db)
     const message = (id: string, content: string) => ({
@@ -1509,12 +1838,8 @@ describe("community DB sync", () => {
       pageParams: [null],
     })
 
-    expect([...db.collections.messages.keys()].sort()).toEqual([
-      "forum-message",
-      "marked-message",
-      "mention-message",
-      "pin",
-    ])
+    expect([...db.collections.messages.keys()]).toEqual([])
+    ingestMessages(db, "c1", [message("pin", "pin")])
     projectCommunityWsEventToDb(db.queryClient, {
       type: "community:message.edited",
       channelId: "c1",
@@ -1539,7 +1864,7 @@ describe("community DB sync", () => {
     uninstall()
   })
 
-  it("normalizes a cold single-message opener through child-channel ownership", async () => {
+  it("does not infer a cold opener from raw Query but accepts explicit canonical publication", async () => {
     const db = await registry()
     const uninstall = installCommunityDbSync(db.queryClient, db)
     ingestServers(db, {
@@ -1584,6 +1909,17 @@ describe("community DB sync", () => {
       createdAt: "2026-09-25T00:00:00.000Z",
     })
 
+    expect(db.collections.messages.get("opener")).toBeUndefined()
+    ingestMessages(db, "forum1", [{
+      id: "opener",
+      type: "chat",
+      authorId: "peer",
+      authorName: "Peer",
+      authorAvatar: "P",
+      authorAvatarVersion: 0,
+      content: "cold opener",
+      createdAt: "2026-09-25T00:00:00.000Z",
+    }])
     expect(db.collections.messages.get("opener")).toMatchObject({
       channelId: "forum1",
       content: "cold opener",

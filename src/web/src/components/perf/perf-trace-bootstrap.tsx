@@ -15,7 +15,7 @@ import { installReactScan } from "@/lib/perf/react-scan-install"
  * lifetime is the whole tab/page session, and a React effect cleanup (which
  * StrictMode double-invokes in dev) must never detach react-scan's commit hook
  * — doing so was silently killing all post-mount capture (~300ms in), which is
- * exactly the switch data we need. See plans/community-switch-perf-diagnosis.md.
+ * exactly the switch data we need.
  *
  * Renders nothing and does nothing when the perf gate is off, so it is inert in
  * every real build.

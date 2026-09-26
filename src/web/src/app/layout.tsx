@@ -8,6 +8,7 @@ import { MockNetworkBanner } from "@/components/mock-network-banner";
 import { TauriThemeSync } from "@/components/tauri-theme-sync";
 import { ThemeColorSync } from "@/components/theme-color-sync";
 import { siteMetadata, siteStructuredData, siteViewport } from "@/lib/seo/site-metadata";
+import { communityShellLayoutBootstrapScript } from "@/components/community/shell/shell-frame-geometry";
 import { caveat, dmMono, dmSans, instrumentSerif, literata, vt323 } from "./fonts";
 import "./globals.css";
 
@@ -26,6 +27,7 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <head>
+        <script dangerouslySetInnerHTML={{ __html: communityShellLayoutBootstrapScript }} />
         <link rel="manifest" href="/manifest.json" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />

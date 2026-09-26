@@ -64,6 +64,8 @@ vi.mock("@/lib/community-db/projections", () => ({
 }))
 vi.mock("@/lib/community-db/sync", () => ({
   purgeCommunityChannel: (...args: unknown[]) => mocks.purgeCommunityChannel(...args),
+  patchCanonicalCommunityChannel: vi.fn(() => true),
+  removeCanonicalCommunityChannel: vi.fn(),
 }))
 
 import { buildChannelRouteModel, useChannelRouteModel } from "./use-channel-route-model"
@@ -248,6 +250,38 @@ describe("useChannelRouteModel subscription ownership", () => {
 
     act(() => renderer!.unmount())
     expect(mocks.unsubscribe).toHaveBeenCalledTimes(1)
+  })
+
+  it("does not republish equivalent verified metadata with a new object reference", () => {
+    const meta = {
+      id: "post-1",
+      serverId: "server-1",
+      name: "Post",
+      type: "thread",
+      parentChannelId: "forum-1",
+      parentMessageId: "opener-1",
+      creatorId: "user-1",
+      archived: false,
+      activityAt: "2026-08-09T00:00:00.000Z",
+      verifiedEpoch: 0,
+    }
+    mocks.metaQuery = { data: meta, error: null, isVerified: true, isError: false }
+    const storeListener = vi.fn()
+    const unsubscribeStore = useCommunityStore.subscribe(storeListener)
+    const renderer = render(React.createElement(Harness))
+    const writesAfterFirstPublish = storeListener.mock.calls.length
+
+    mocks.metaQuery = {
+      data: { ...meta },
+      error: null,
+      isVerified: true,
+      isError: false,
+    }
+    act(() => renderer.rerender(React.createElement(Harness)))
+
+    expect(storeListener).toHaveBeenCalledTimes(writesAfterFirstPublish)
+    unsubscribeStore()
+    act(() => renderer.unmount())
   })
 
   it("exposes terminal-error only after the child metadata query errors", () => {

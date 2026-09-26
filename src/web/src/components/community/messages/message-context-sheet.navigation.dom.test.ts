@@ -104,9 +104,12 @@ vi.mock("@/hooks/community/mutations", () => ({
 }))
 vi.mock("sonner", () => ({ toast: vi.fn() }))
 vi.mock("@/lib/api/client", () => ({ apiFetch: vi.fn(), toastApiError: mocks.toastApiError }))
-vi.mock("@/lib/community-db/projections", () => ({
-  useCanonicalMessagesById: () => new Map(),
-}))
+vi.mock("@/lib/community-db/projections", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/community-db/projections")>(
+    "@/lib/community-db/projections",
+  )
+  return { ...actual, useCanonicalMessagesById: () => undefined }
+})
 
 import {
   MessageContextSheet,

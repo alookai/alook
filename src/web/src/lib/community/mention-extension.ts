@@ -60,8 +60,8 @@ export function rankMentionItems(
 
   // Every member mention is serialized with its `#dddd` discriminator (via
   // `renderText`), so each pill resolves to the EXACT user — no name-collision
-  // ambiguity, and the trailing tag lets the display parser accept spaced names
-  // (see plans/mandatory-mention-discriminator.md). A member with no
+  // ambiguity, and the trailing tag lets the display parser accept spaced names.
+  // A member with no
   // discriminator can't produce a valid mention token, so it is filtered OUT of
   // the popup entirely — the user physically can't pick an unmentionable member
   // and get an inert, non-notifying dud. This is a should-never-happen guard
@@ -251,8 +251,7 @@ export function buildCommunityMentionExtension(opts: {
 /**
  * Standalone-token scan for `@everyone`. Used at send time to set
  * `mentionType` on the outgoing POST body so the server fans out to all
- * members. Iterates `MENTION_TYPES` (now just `everyone`; `@here` was removed —
- * see plans/remove-here-mention.md).
+ * members. Iterates `MENTION_TYPES`, now just `everyone`; `@here` was removed.
  */
 export function detectMentionType(text: string): MentionType | undefined {
   if (!text) return undefined

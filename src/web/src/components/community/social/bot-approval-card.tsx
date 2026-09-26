@@ -11,8 +11,7 @@ import { readCommunityProfile } from "@/lib/community/profile-read"
 /**
  * Inline friend-approval card, rendered in a bot owner's DM with their bot when
  * a message carries an `approval` payload. States are driven by the per-viewer
- * projection (`status` × `waitingOn`) — see
- * plans/agent-friendship-approval-gate.md §UI. Only the actionable state
+ * projection (`status` × `waitingOn`). Only the actionable state
  * (`pending, waitingOn='you'`) shows Approve/Deny; everything else is a chip.
  */
 export function BotApprovalCard({ approval }: { approval: FriendApprovalPayload }) {

@@ -263,8 +263,8 @@ function MessageImpl({
   const { data: markedData } = useMessageMarked(m.id, markMenuOpen)
   // Lazy-mount the row's Base UI overlay roots (ContextMenu / DropdownMenu /
   // EmojiPicker Popover / reaction Tooltips). Eagerly mounting them per visible
-  // row was the bulk of the switch re-render storm (FloatingTree/MenuRoot ×1000s
-  // — see plans/community-switch-perf-optimization.md). Activate on the first
+  // row was the bulk of the switch re-render storm (FloatingTree/MenuRoot ×1000s).
+  // Activate on the first
   // hover OR focus OR keydown/contextmenu — focus/keydown are required for a11y
   // (keyboard context menu / Tab-to-row have no pointerenter).
   const [activated, setActivated] = useState(false)

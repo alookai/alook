@@ -14,8 +14,7 @@ export interface AuthContext {
    * The authenticated user's internal flags. Populated from the request-time
    * session guard. `isBot` is always false in production (a bot session is
    * rejected at 401 before the handler runs), but friend-graph routes assert
-   * `ctx.user?.isBot` locally as belt-and-suspenders — see
-   * plans/agent-friendship-approval-gate.md §Hardening.
+   * `ctx.user?.isBot` locally as belt-and-suspenders.
    */
   user?: { isBot: boolean }
 }

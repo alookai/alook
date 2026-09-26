@@ -27,8 +27,7 @@ export const SEARCH_DEBOUNCE_MS = 200
 
 // ── Pure reducers (exported for direct unit tests) ────────────────────────────
 //
-// These implement the WS-event insertion strategy documented in
-// `plans/09-members-infinite-scroll.md` §Milestone (b):
+// WS-event insertion rules for paginated member lists:
 //   - MEMBER_JOIN appends at the *tail* only when the last page is loaded
 //     (`!hasMore`); otherwise the event is dropped — the joiner will show up
 //     once the intervening pages load.

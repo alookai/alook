@@ -9,7 +9,7 @@
  * `<baseDir>/status.json`, which multiple daemons clobbered) and the
  * `daemon status` CLI reads that file (Cecilia's ruling (a): snapshot-file,
  * not a control listener — zero new network/attack surface, crash-safe: if the
- * daemon dies the last frame is still readable). See plans/daemon-fsm-desync.md.
+ * daemon dies the last frame is still readable).
  *
  * ATOMIC: write to `<path>.tmp` then `rename` over `<path>`, so a concurrent
  * `daemon status` read never sees a half-written file (rename is atomic on the

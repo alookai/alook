@@ -6,8 +6,7 @@ import { toAttachmentVm } from "./messages"
 // carries the pending-row `id` (no server url), and the display url is derived
 // CLIENT-side from (channelId, id) — matching the id-addressed
 // `channels/{id}/attachments/{attachmentId}` door the server read path emits.
-// The image branch must carry width/height through — a silent-drop site flagged
-// in plans/attachment-image-dimensions.md's plan review.
+// The image branch must carry width/height through without silently dropping it.
 describe("toAttachmentVm", () => {
   it("derives the canonical thumbnail URL only from server confirmation", () => {
     expect(toAttachmentVm("c1", {

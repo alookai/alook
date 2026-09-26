@@ -20,7 +20,7 @@ import { pushBatchResetToMachine } from "@/lib/community/bot-push"
  * v1 is DISPATCH-level (Gus 架构#825): we confirm the daemon RECEIVED the batch,
  * not per-agent reset completion — matching single-reset's fire-and-confirm-
  * delivery honesty. No per-agent success tracking (that'd be a v2 correlated-ack
- * path the control channel doesn't have). See plans/daemon-batch-reset.md.
+ * path the control channel doesn't have).
  */
 export const POST = withAuth(async (_req, ctx) => {
   const machineId = ctx.params?.id as string

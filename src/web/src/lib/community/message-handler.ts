@@ -161,8 +161,7 @@ export async function createCommunityMessage(params: {
   /** Provenance tag included in diagnostics when a requested reply target is out of scope. */
   source?: "cli" | "daemon-http" | "web"
   /**
-   * CAS guard for the agent-send race fix
-   * (plans/fix-agent-send-race-condition.md). Only the agent `send` route
+   * CAS guard for the agent-send race fix. Only the agent `send` route
    * passes this — it's the `latestSeq` snapshot that route's own alignment
    * check already computed. Omitted by every other caller (web/human sends,
    * thread posts), which keep the unconditional, always-succeeds claim.

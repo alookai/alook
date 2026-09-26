@@ -5,6 +5,12 @@ import { act, render as renderDom } from "@/test/react-dom-harness"
 import { communityKeys } from "@/lib/query-keys"
 import { useDmMessages, useMessages, type MessagesPage } from "./use-messages"
 import { useMessageStreamStore } from "@/stores/community/message-stream"
+import {
+  createCommunityDbRegistry,
+  registerCommunityDbRegistry,
+} from "@/lib/community-db/collections"
+import { CommunityDbProvider } from "@/lib/community-db/projections"
+import { ingestMessages } from "@/lib/community-db/sync"
 
 const apiFetchMock = vi.fn()
 vi.mock("@/lib/api/client", () => ({
@@ -12,6 +18,7 @@ vi.mock("@/lib/api/client", () => ({
 }))
 
 type Snapshot = {
+  fetchOlder: () => void
   hasMoreNewer: boolean
   ids: string[]
   isFetchingNewer: boolean
@@ -35,6 +42,7 @@ function ChannelCapture({
     serverId: "server_1",
   })
   onRender({
+    fetchOlder: result.fetchOlder,
     hasMoreNewer: result.hasMoreNewer,
     ids: result.messages.map((message) => message.id),
     isFetchingNewer: result.isFetchingNewer,
@@ -54,11 +62,55 @@ function DmCapture({
 }) {
   const result = useDmMessages(dmId, { lastReadMessageId })
   onRender({
+    fetchOlder: result.fetchOlder,
     hasMoreNewer: result.hasMoreNewer,
     ids: result.messages.map((message) => message.id),
     isFetchingNewer: result.isFetchingNewer,
     jumpToPresent: result.jumpToPresent,
   })
+  return null
+}
+
+function ChannelWindowCommitCapture({
+  blocker,
+  channelId,
+  onCommit,
+  suspend,
+}: {
+  blocker: Promise<never>
+  channelId: string
+  onCommit: (ids: string[]) => void
+  suspend: boolean
+}) {
+  const result = useMessages(channelId, {
+    lastReadMessageId: undefined,
+    serverId: "server_1",
+  })
+  const signature = result.messages.map((message) => message.id).join(",")
+  React.useLayoutEffect(() => {
+    onCommit(signature ? signature.split(",") : [])
+  }, [onCommit, signature])
+  if (suspend) throw blocker
+  return null
+}
+
+function DmWindowCommitCapture({
+  blocker,
+  dmId,
+  onCommit,
+  suspend,
+}: {
+  blocker: Promise<never>
+  dmId: string
+  onCommit: (ids: string[]) => void
+  suspend: boolean
+}) {
+  const result = useDmMessages(dmId, { lastReadMessageId: undefined })
+  const signature = result.messages.map((message) => message.id).join(",")
+  React.useLayoutEffect(() => {
+    onCommit(signature ? signature.split(",") : [])
+  }, [onCommit, signature])
+  if (suspend) throw blocker
   return null
 }
 
@@ -139,6 +191,161 @@ beforeEach(() => {
 })
 
 describe("useMessages jumpToPresent", () => {
+  it("uses canonical content only for the active transport window", async () => {
+    const queryClient = createClient()
+    const registry = createCommunityDbRegistry(queryClient, "viewer")
+    const disposeRegistry = registry.cleanup.bind(registry)
+    await registry.preload()
+    const unregister = registerCommunityDbRegistry(registry)
+    const message = (id: string, seq: number) => ({
+      id,
+      type: "chat" as const,
+      seq,
+      createdAt: new Date(Date.UTC(2026, 7, 9, 0, 0, seq)).toISOString(),
+    })
+    ingestMessages(registry, "channel_window", [
+      message("m40", 40),
+      message("m60", 60),
+      message("m80", 80),
+      message("m90", 90),
+      message("m100", 100),
+    ])
+    queryClient.setQueryData(communityKeys.channelMessages("channel_window"), {
+      pages: [{
+        messages: [message("m40", 40), message("m60", 60)],
+        hasMoreOlder: false,
+        hasMoreNewer: true,
+        newerCursor: "m60",
+        latestSeq: 100,
+      }],
+      pageParams: [{ mode: "anchor", anchor: "m40" }],
+    })
+    apiFetchMock.mockImplementation((url: string) => {
+      if (url === "/api/community/channels/channel_window/messages") {
+        return Promise.resolve({
+          messages: [message("m90", 90), message("m100", 100)],
+          hasMore: true,
+          cursor: "older-present",
+          latestSeq: 100,
+        } satisfies MessagesPage)
+      }
+      if (url === "/api/community/channels/channel_window/messages?cursor=older-present") {
+        return Promise.resolve({
+          messages: [message("m80", 80)],
+          hasMore: false,
+          latestSeq: 100,
+        } satisfies MessagesPage)
+      }
+      throw new Error(`unexpected URL: ${url}`)
+    })
+    let latest!: Snapshot
+    const renderer = renderDom(
+      React.createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        React.createElement(
+          CommunityDbProvider,
+          { registry },
+          React.createElement(ChannelCapture, {
+            channelId: "channel_window",
+            lastReadMessageId: "m40",
+            onRender: (snapshot) => { latest = snapshot },
+          }),
+        ),
+      ),
+    )
+
+    await waitFor(() => latest?.ids.join(",") === "m40,m60")
+    act(() => latest.jumpToPresent())
+    await waitFor(() => latest.ids.join(",") === "m90,m100")
+    act(() => latest.fetchOlder())
+    await waitFor(() => latest.ids.join(",") === "m80,m90,m100")
+
+    expect(latest.ids).not.toContain("m40")
+    expect(latest.ids).not.toContain("m60")
+    renderer.unmount()
+    unregister()
+    await disposeRegistry()
+  })
+
+  it.each(["channel", "dm"] as const)(
+    "does not let an aborted %s key switch rewrite committed transport-window ownership",
+    async (kind) => {
+      const queryClient = createClient()
+      const registry = createCommunityDbRegistry(queryClient, "viewer")
+      const disposeRegistry = registry.cleanup.bind(registry)
+      await registry.preload()
+      const unregister = registerCommunityDbRegistry(registry)
+      const scopeA = `${kind}_committed_a`
+      const scopeB = `${kind}_aborted_b`
+      const message = (id: string, seq: number) => ({
+        id,
+        type: "chat" as const,
+        seq,
+        createdAt: new Date(Date.UTC(2026, 7, 9, 0, 0, seq)).toISOString(),
+      })
+      const visible = message(`${kind}_visible`, 1)
+      const outsideWindow = message(`${kind}_outside`, 2)
+      ingestMessages(registry, scopeA, [visible, outsideWindow])
+      const queryKey = kind === "channel"
+        ? communityKeys.channelMessages(scopeA)
+        : communityKeys.dmMessages(scopeA)
+      queryClient.setQueryData(queryKey, {
+        pages: [{
+          messages: [visible],
+          hasMoreOlder: false,
+          hasMoreNewer: false,
+          latestSeq: 2,
+        }],
+        pageParams: [{ mode: "newest" }],
+      })
+      const blocker = new Promise<never>(() => {})
+      let committedIds: string[] = []
+      const onCommit = (ids: string[]) => { committedIds = ids }
+      const tree = (scopeId: string, suspend: boolean) => React.createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        React.createElement(
+          CommunityDbProvider,
+          { registry },
+          React.createElement(
+            React.Suspense,
+            { fallback: null },
+            kind === "channel"
+              ? React.createElement(ChannelWindowCommitCapture, {
+                  blocker,
+                  channelId: scopeId,
+                  onCommit,
+                  suspend,
+                })
+              : React.createElement(DmWindowCommitCapture, {
+                  blocker,
+                  dmId: scopeId,
+                  onCommit,
+                  suspend,
+                }),
+          ),
+        ),
+      )
+      const renderer = renderDom(tree(scopeA, false))
+      await waitFor(() => committedIds.join(",") === visible.id)
+
+      act(() => {
+        React.startTransition(() => renderer.rerender(tree(scopeB, true)))
+      })
+      act(() => {
+        queryClient.removeQueries({ queryKey, exact: true })
+        renderer.rerender(tree(scopeA, false))
+      })
+      await waitFor(() => committedIds.length === 0)
+
+      expect(committedIds).not.toContain(outsideWindow.id)
+      renderer.unmount()
+      unregister()
+      await disposeRegistry()
+    },
+  )
+
   it("resets once, fetches newest once, and keeps the old last-read anchor suppressed", async () => {
     const queryClient = createClient()
     const queryKey = communityKeys.channelMessages("channel_1")

@@ -7,8 +7,12 @@ import { useCommunityWsStore } from "@/stores/community/ws"
 import {
   CommunityDbProvider,
 } from "@/lib/community-db/projections"
-import { createCommunityDbRegistry } from "@/lib/community-db/collections"
 import {
+  createCommunityDbRegistry,
+  registerCommunityDbRegistry,
+} from "@/lib/community-db/collections"
+import {
+  getCanonicalCommunityMessages,
   ingestServers,
   purgeCommunityServer,
 } from "@/lib/community-db/sync"
@@ -189,18 +193,18 @@ async function mountRailOnlyInbox() {
 }
 
 describe("useInboxUnreads / inboxUnreadsQueryFn", () => {
-  it("keeps rail-only Inbox rows visible before server detail materializes", async () => {
+  it("does not render raw message entities while the canonical store is empty", async () => {
     const mounted = await mountRailOnlyInbox()
 
     expect([...mounted.registry.collections.channels.keys()]).toEqual([])
     expect([...mounted.registry.collections.messages.keys()]).toEqual([])
     expect(mounted.snapshot).toEqual({
       unreadIds: ["channel-detail-pending"],
-      mentionIds: ["message-rail-only"],
-      markedIds: ["message-rail-only"],
-      pinIds: ["message-rail-only"],
-      attachmentNames: ["evidence.txt", "evidence.txt"],
-      railUnreadIds: ["server-rail-only", "server-canonical-match"],
+      mentionIds: [],
+      markedIds: [],
+      pinIds: [],
+      attachmentNames: [],
+      railUnreadIds: ["server-canonical-match"],
     })
     await mounted.dispose()
   })
@@ -998,6 +1002,47 @@ describe("useInboxMentions / inboxMentionsQueryFn", () => {
     expect(projection.inspectForTests().pendingSnapshots).toBe(0)
   })
 
+  it("rejects a stale Mentions response before publishing its embedded message", async () => {
+    apiFetchMock.mockResolvedValueOnce({
+      mentions: [{
+        id: "attention-stale",
+        server: "One",
+        serverId: "s1",
+        channel: "General",
+        channelId: "c1",
+        m: {
+          id: "message-stale",
+          type: "chat",
+          seq: 4,
+          authorId: "author",
+          authorName: "Author",
+          content: "must not publish",
+          createdAt: "2026-09-26T00:00:00.000Z",
+        },
+      }],
+      truncated: false,
+      stale: true,
+    })
+    const { inboxMentionsProjectedQueryFn } = await import("./use-inbox")
+    const { AccountUnreadProjection } = await import("./account-unread-projection")
+    const queryClient = new QueryClient()
+    const registry = createCommunityDbRegistry(queryClient, "u1")
+    await registry.preload()
+    const unregister = registerCommunityDbRegistry(registry)
+    const projection = new AccountUnreadProjection("u1")
+
+    try {
+      await expect(inboxMentionsProjectedQueryFn(projection, queryClient)())
+        .rejects.toThrow("stale D1 read")
+      expect(getCanonicalCommunityMessages(queryClient)).toEqual([])
+      expect(projection.inspectForTests().pendingSnapshots).toBe(0)
+      expect(projection.projectUnread("inbox-mentions", "c1", false)).toBe(false)
+    } finally {
+      unregister()
+      await registry["cleanup"]()
+    }
+  })
+
   it("filters read mentions, preserves unscoped rows, and reports pending arrivals", async () => {
     const scoped = { id: "m1", channelId: "c1", m: { seq: 2 } }
     const unscoped = { id: "m2", m: { seq: 1 } }
@@ -1235,7 +1280,10 @@ describe("useInboxMarked", () => {
     })
 
     await vi.waitFor(() => {
-      expect(apiFetchMock).toHaveBeenCalledWith("/api/community/users/me/marks")
+      expect(apiFetchMock).toHaveBeenCalledWith(
+        "/api/community/users/me/marks",
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      )
     })
     expect(renderer.container.querySelector("span")).toHaveAttribute("data-count", "0")
     act(() => renderer.unmount())

@@ -6,17 +6,26 @@ import type { PresenceResponse } from "@/hooks/community/use-server-panels"
 import { communityKeys } from "@/lib/query-keys"
 import { getAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 import {
+  getCanonicalCommunityChannels,
+  patchCanonicalCommunityChannel,
+} from "@/lib/community-db/sync"
+import {
   subscribeMemberOverlayEvents,
   type MemberOverlayEvent,
 } from "@/hooks/community/use-server-members"
 import {
   capturedOnMessage,
   capturedQueryClient,
+  hasCanonicalChannel,
+  hasCanonicalChannelAccess,
+  hasCanonicalChannelNotify,
   cleanupCommunityWsHarness,
   forumSidebarFixture,
   getCommunityApiFetchMock,
   mountHook,
   resetCommunityWsHarness,
+  seedCanonicalForumSidebar,
+  seedCanonicalThread,
 } from "./test-harness"
 
 beforeEach(resetCommunityWsHarness)
@@ -478,6 +487,7 @@ describe("useCommunityWs — channel.member_add/remove → invalidate rosters", 
   it("removes a private channel from the viewer's server tree on access loss", async () => {
     await mountHook({ viewerUserId: "u_me" })
     const serverKey = communityKeys.server("srv_1")
+    seedCanonicalThread("srv_1", "ch_1", "text", "private-child")
     capturedQueryClient.setQueryData(serverKey, {
       id: "srv_1",
       categories: [{ id: "cat_1", channels: [{ id: "ch_1", type: "text" }] }],
@@ -489,16 +499,18 @@ describe("useCommunityWs — channel.member_add/remove → invalidate rosters", 
       userId: "u_me",
     })
 
-    expect(capturedQueryClient.getQueryData<{
-      categories: { channels: { id: string }[] }[]
-    }>(serverKey)?.categories[0].channels).toEqual([])
+    expect(hasCanonicalChannel("ch_1")).toBe(false)
   })
 
   it("adds/removes the viewer's participating child in the forum sidebar", async () => {
     await mountHook({ viewerUserId: "u_me" })
     const { useCommunityStore } = await import("@/stores/community")
     const key = communityKeys.forumSidebarThreads("srv_1")
-    capturedQueryClient.setQueryData(key, forumSidebarFixture())
+    seedCanonicalForumSidebar("srv_1", ["post_1", "post_2"])
+    patchCanonicalCommunityChannel(capturedQueryClient, "post_1", (row) => ({
+      ...row,
+      unread: true,
+    }))
     useCommunityStore.getState().setCurrentChannelId("post_1")
     useCommunityStore.getState().setCurrentChannelMeta({
       name: "Private forum title",
@@ -516,19 +528,19 @@ describe("useCommunityWs — channel.member_add/remove → invalidate rosters", 
       channelId: "post_1",
       userId: "u_me",
     })
-    expect(capturedQueryClient.getQueryData<ReturnType<typeof forumSidebarFixture>>(key)?.threads).toEqual([])
+    expect(hasCanonicalChannelAccess("post_1", "u_me")).toBe(true)
+    expect(hasCanonicalChannelNotify("post_1", "u_me")).toBe(false)
+    expect(getCanonicalCommunityChannels(capturedQueryClient)
+      .find(({ id }) => id === "post_1")?.unread).toBe(false)
     expect(useCommunityStore.getState().currentChannelMeta?.name).toBe("Private forum title")
 
-    capturedQueryClient.setQueryData(key, forumSidebarFixture([]))
     capturedOnMessage!({
       type: "community:channel.member_add",
       serverId: "srv_1",
       channelId: "post_2",
       userId: "u_me",
     })
-    await vi.waitFor(() => {
-      expect(capturedQueryClient.getQueryState(key)?.isInvalidated).toBe(true)
-    })
+    expect(hasCanonicalChannelAccess("post_2", "u_me")).toBe(true)
   })
 
   it("does not touch forum resources for a known ordinary text child", async () => {
@@ -538,6 +550,7 @@ describe("useCommunityWs — channel.member_add/remove → invalidate rosters", 
     const retainedKey = communityKeys.forumSidebarRetained("srv_1", "forum_post")
     const metaKey = communityKeys.channelMeta("srv_1", "text_thread")
     const hintKey = communityKeys.forumOpenerHint("srv_1", "forum_opener")
+    seedCanonicalThread("srv_1", "text_parent", "text", "text_thread")
     capturedQueryClient.setQueryData(communityKeys.server("srv_1"), {
       id: "srv_1",
       categories: [{
@@ -631,7 +644,11 @@ describe("membership metadata and access lifetime", () => {
     api.mockImplementationOnce(() => new Promise((resolve) => { release = resolve }))
     capturedOnMessage!({ type: "community:channel.member_remove", channelId: "child", serverId: "server", userId: "u_me" })
     await vi.waitFor(() => expect(release).toBeTypeOf("function"))
-    const meta = { id: "child", serverId: "server", type: "thread", parentChannelId: "parent", parentMessageId: "opener", archived: false }
+    const meta = {
+      id: "child", serverId: "server", name: "Child", type: "thread",
+      parentChannelId: "parent", parentMessageId: "opener", creatorId: null,
+      archived: false, lastMessageAt: null,
+    }
     api.mockResolvedValue(meta)
     capturedOnMessage!({ type: "community:channel.member_add", channelId: "child", serverId: "server", userId: "u_me" })
     await vi.waitFor(() => expect(capturedQueryClient.getQueryData(communityKeys.channelMeta("server", "child"))).toMatchObject({ type: "thread" }))

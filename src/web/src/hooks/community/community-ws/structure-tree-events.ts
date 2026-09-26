@@ -22,10 +22,10 @@ import { getMessageOverlay, useMessageStreamStore } from "@/stores/community/mes
 import type { ServersResponse, ServerDetail } from "@/hooks/community/use-servers"
 import {
   grantForumSidebarChild,
+  hasForumSidebarOwnershipEvidence,
   isForumSidebarParent,
   patchForumSidebarActivityExact,
   reconcileForumSidebarArchiveTag,
-  removeForumSidebarThreadExact,
   removeForumSidebarUnreadChild,
 } from "@/hooks/community/use-forum-sidebar-threads"
 import {
@@ -168,12 +168,21 @@ export function handleChildChannelUpdate(
     sidebarServerId &&
     isForumSidebarParent(queryClient, sidebarServerId, event.parentChannelId)
   ) {
-    if (changes.archived === true) {
+    if (changes.archived === true || changes.archived === false) {
       removeForumSidebarUnreadChild(queryClient, sidebarServerId, event.channelId)
-      removeForumSidebarThreadExact(queryClient, sidebarServerId, event.channelId)
-    } else if (changes.archived === false) {
-      void grantForumSidebarChild(queryClient, sidebarServerId, event.channelId)
-        .catch(() => undefined)
+      void reconcileForumSidebarArchiveTag(
+        queryClient,
+        sidebarServerId,
+        event.channelId,
+        changes.archived,
+      )
+      if (
+        changes.archived === false
+        && !hasForumSidebarOwnershipEvidence(queryClient, sidebarServerId, event.channelId)
+      ) {
+        void grantForumSidebarChild(queryClient, sidebarServerId, event.channelId)
+          .catch(() => undefined)
+      }
     } else if (changes.tags !== undefined) {
       void reconcileForumSidebarArchiveTag(
         queryClient,

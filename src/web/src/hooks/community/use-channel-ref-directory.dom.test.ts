@@ -11,6 +11,7 @@ vi.mock("@/lib/api/client", () => ({
 }))
 vi.mock("@/lib/community-db/projections", () => ({
   useChannelRefDirectoryProjection: () => dbProjection.current,
+  useOptionalCommunityDbRegistry: () => dbProjection.current === undefined ? null : {},
 }))
 
 import { createQueryClient } from "@/lib/query-client"
@@ -205,6 +206,21 @@ describe("useChannelRefDirectory", () => {
       isError: false,
     })
     expect(apiFetch).not.toHaveBeenCalled()
+  })
+
+  it("keeps an empty canonical preload unresolved while HTTP is stalled", () => {
+    dbProjection.current = []
+    apiFetch.mockReturnValue(new Promise(() => {}))
+
+    const rendered = renderDirectory(createQueryClient(), true)
+
+    expect(rendered.result.current).toMatchObject({
+      directory: [],
+      isResolved: false,
+      isLoading: true,
+      isError: false,
+    })
+    expect(apiFetch).toHaveBeenCalledOnce()
   })
 
   it("keeps cached rows resolved through a failed background refetch", async () => {

@@ -5,6 +5,16 @@ import {
   disposeAccountUnreadProjection,
   getAccountUnreadProjection,
 } from "./account-unread-projection"
+import {
+  createCommunityDbRegistry,
+  registerCommunityDbRegistry,
+  type CommunityDbRegistry,
+} from "@/lib/community-db/collections"
+import {
+  captureCommunityLiveSnapshotToken,
+  publishCommunityForumSidebar,
+} from "@/lib/community-db/sync"
+import { getForumSidebarBase } from "./use-forum-sidebar-threads"
 
 const apiFetchMock = vi.fn()
 vi.mock("@/lib/api/client", () => ({
@@ -18,6 +28,8 @@ type MutationConfig = {
 
 let config: MutationConfig
 let queryClient: QueryClient
+let registry: CommunityDbRegistry
+let unregister: () => void
 vi.mock("@tanstack/react-query", async () => {
   const actual = await vi.importActual<typeof import("@tanstack/react-query")>("@tanstack/react-query")
   return {
@@ -48,14 +60,19 @@ function sidebarData() {
   }
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   apiFetchMock.mockReset()
   apiFetchMock.mockResolvedValue(undefined)
   queryClient = new QueryClient()
+  registry = createCommunityDbRegistry(queryClient, "viewer_1")
+  await registry.preload()
+  unregister = registerCommunityDbRegistry(registry)
 })
 
-afterEach(() => {
+afterEach(async () => {
   disposeAccountUnreadProjection(queryClient)
+  unregister()
+  await registry.cleanup()
   queryClient.clear()
 })
 
@@ -64,6 +81,19 @@ describe("useRemoveThreadParticipant", () => {
     const key = communityKeys.forumSidebarThreads("server_1")
     const metaKey = communityKeys.channelMeta("server_1", "post_1")
     queryClient.setQueryData(key, sidebarData())
+    publishCommunityForumSidebar(queryClient, {
+      serverId: "server_1",
+      channels: [{
+        id: "post_1", name: "Post", parentChannelId: "forum_1",
+        parentMessageId: "opener_1", activityAt: "2026-08-08T00:00:00.000Z",
+        unread: false, type: "thread",
+      }],
+      openers: [{ id: "opener_1", channelId: "forum_1", content: "Post", type: "chat" }],
+      proof: {
+        token: captureCommunityLiveSnapshotToken(queryClient),
+        signal: undefined,
+      },
+    })
     queryClient.setQueryData(metaKey, { id: "post_1", parentChannelId: "forum_1" })
     const unreadProjection = getAccountUnreadProjection(queryClient, "viewer_1")
     unreadProjection.recordArrival({
@@ -81,7 +111,11 @@ describe("useRemoveThreadParticipant", () => {
       "/api/community/channels/post_1/participants/viewer_1",
       { method: "DELETE" },
     )
-    expect(queryClient.getQueryData<ReturnType<typeof sidebarData>>(key)?.threads).toEqual([])
+    expect(getForumSidebarBase(queryClient, "server_1").threads).toHaveLength(0)
+    expect(registry.collections.channelMemberships.get("post_1:viewer_1:access"))
+      .toBeDefined()
+    expect(registry.collections.channelMemberships.get("post_1:viewer_1:notify"))
+      .toBeUndefined()
     expect(queryClient.getQueryData(metaKey)).toEqual({ id: "post_1", parentChannelId: "forum_1" })
     expect(unreadProjection.projectUnread("inbox-unreads", "post_1", false, 7)).toBe(false)
   })

@@ -377,6 +377,25 @@ export function useCanonicalMessagesById(): ReadonlyMap<string, Msg> | undefined
   ), [registry, result.data])
 }
 
+export function materializeCanonicalMessage(
+  transport: Msg,
+  canonical: ReadonlyMap<string, Msg> | undefined,
+): Msg | undefined {
+  return canonical === undefined ? transport : canonical.get(transport.id)
+}
+
+export function materializeCanonicalMessages(
+  transport: readonly Msg[],
+  canonical: ReadonlyMap<string, Msg> | undefined,
+): Msg[] {
+  return canonical === undefined
+    ? [...transport]
+    : transport.flatMap((message) => {
+        const row = canonical.get(message.id)
+        return row ? [row] : []
+      })
+}
+
 export function useNotificationSettingsProjection() {
   const rows = useCollectionRows()
   return useMemo(() => {
@@ -447,7 +466,121 @@ export function useChannelRefDirectoryProjection(): ChannelRefDirectory | undefi
       discriminator: server.discriminator,
       channels: channels
         .filter((channel) => channel.serverId === server.id)
-        .map((channel) => ({ id: channel.id, name: channel.name })),
+        .flatMap((channel) => (
+          channel.type === "text" || channel.type === "forum"
+            ? [{ id: channel.id, name: channel.name, type: channel.type }]
+            : []
+        )),
     }))
   }, [rows.channels, rows.servers])
+}
+
+export type CanonicalForumSidebarThread = {
+  id: string
+  parentChannelId: string
+  parentMessageId: string
+  title: string
+  activityAt: string
+  expiresAt: string
+  unread: boolean
+}
+
+const FORUM_SIDEBAR_ACTIVITY_WINDOW_MS = 72 * 60 * 60 * 1000
+
+export function useForumSidebarProjection(
+  serverId: string,
+  retainId: string | null,
+  serverNowMs: number | null,
+) {
+  const rows = useCollectionRows()
+  return useMemo(() => {
+    if (
+      serverNowMs === null
+      || !rows.registry
+      || !rows.channels
+      || !rows.channelMemberships
+      || !rows.messages
+    ) return undefined
+    const viewerId = rows.registry.accountId
+    const participating = new Set(rows.channelMemberships
+      .filter((membership) => (
+        membership.relation === "notify"
+        && membership.userId === viewerId
+      ))
+      .map((membership) => membership.channelId))
+    const messageById = new Map(rows.messages.map((message) => [message.id, message]))
+    const candidates: CanonicalForumSidebarThread[] = rows.channels
+      .filter((channel) => (
+        channel.serverId === serverId
+        && channel.type === "thread"
+        && !channel.archived
+        && participating.has(channel.id)
+        && channel.parentChannelId
+        && channel.parentMessageId
+      ))
+      .map((channel) => {
+        const activityAt = channel.lastMessageAt ?? ""
+        const activityMs = Date.parse(activityAt)
+        return {
+          id: channel.id,
+          parentChannelId: channel.parentChannelId!,
+          parentMessageId: channel.parentMessageId!,
+          title: messageById.get(channel.parentMessageId!)?.content ?? channel.name,
+          activityAt,
+          expiresAt: Number.isFinite(activityMs)
+            ? new Date(activityMs + FORUM_SIDEBAR_ACTIVITY_WINDOW_MS).toISOString()
+            : activityAt,
+          unread: channel.unread,
+        }
+      })
+      .filter((thread) => (
+        thread.id === retainId
+        || !Number.isFinite(Date.parse(thread.expiresAt))
+        || Date.parse(thread.expiresAt) > serverNowMs
+      ))
+      .sort((left, right) => (
+        left.parentChannelId.localeCompare(right.parentChannelId)
+        || right.activityAt.localeCompare(left.activityAt)
+        || right.id.localeCompare(left.id)
+      ))
+    const byParent = new Map<string, CanonicalForumSidebarThread[]>()
+    for (const thread of candidates) {
+      const siblings = byParent.get(thread.parentChannelId) ?? []
+      siblings.push(thread)
+      byParent.set(thread.parentChannelId, siblings)
+    }
+    const threads = [...byParent.values()].flatMap((siblings) => {
+      const retained = retainId
+        ? siblings.find((thread) => thread.id === retainId)
+        : undefined
+      if (!retained) return siblings.slice(0, 5)
+      if (siblings.slice(0, 5).some((thread) => thread.id === retained.id)) {
+        return siblings.slice(0, 5)
+      }
+      return [...siblings.filter((thread) => thread.id !== retained.id).slice(0, 4), retained]
+        .sort((left, right) => (
+          right.activityAt.localeCompare(left.activityAt)
+          || right.id.localeCompare(left.id)
+        ))
+    })
+    const renderedIds = new Set(threads.map((thread) => thread.id))
+    const parentUnread: Record<string, boolean> = {}
+    for (const parent of rows.channels.filter((channel) => (
+      channel.serverId === serverId && channel.type === "forum"
+    ))) {
+      parentUnread[parent.id] = parent.baseUnread ?? parent.unread
+    }
+    for (const child of rows.channels) {
+      if (
+        child.serverId === serverId
+        && child.type === "thread"
+        && child.unread
+        && child.parentChannelId
+        && !renderedIds.has(child.id)
+      ) {
+        parentUnread[child.parentChannelId] = true
+      }
+    }
+    return { threads, parentUnread }
+  }, [retainId, rows, serverId, serverNowMs])
 }

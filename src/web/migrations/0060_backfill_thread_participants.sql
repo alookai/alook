@@ -1,5 +1,5 @@
 -- Backfill: seed participant rows for existing THREADS.
--- See plans/nested-membership-model.md (Phase D).
+-- Existing threads receive participant rows before reads switch to this table.
 --
 -- Before the nested-membership model, every parent-channel member was notified
 -- of thread activity. Now only participants are. Without this backfill, ongoing

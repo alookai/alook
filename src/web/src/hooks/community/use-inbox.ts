@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useSyncExternalStore } from "react"
-import { useQuery, useQueryClient, keepPreviousData, type UseQueryResult } from "@tanstack/react-query"
+import { useQuery, useQueryClient, keepPreviousData, type QueryClient, type UseQueryResult } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { apiFetchProfiles, messageProfilePatches } from "@/lib/community/profile-seed"
 import { communityKeys } from "@/lib/query-keys"
@@ -22,8 +22,13 @@ import {
   selectUnreadPresentation,
 } from "./unread-presentation"
 import {
+  materializeCanonicalMessage,
   useCanonicalMessagesById,
 } from "@/lib/community-db/projections"
+import {
+  captureCommunityLiveSnapshotToken,
+  publishCommunityEmbeddedMessages,
+} from "@/lib/community-db/sync"
 
 class StaleReadError extends Error {
   constructor() { super("stale D1 read"); this.name = "StaleReadError" }
@@ -376,10 +381,11 @@ export type MentionsResponse = {
   truncated?: boolean
 }
 
-const inboxMentionsTransportFn = () =>
+const inboxMentionsTransportFn = (signal?: AbortSignal) =>
   apiFetchProfiles<MentionsResponse & { stale?: boolean }>(
     "/api/community/users/me/inbox/mentions",
     (data) => messageProfilePatches(data.mentions.map((mention) => mention.m)),
+    signal ? { signal } : undefined,
   )
 
 export const inboxMentionsQueryFn = async () => (
@@ -404,15 +410,27 @@ function inboxMentionSources(data: MentionsResponse): AccountUnreadSource[] {
 
 export const inboxMentionsProjectedQueryFn = (
   projection: AccountUnreadProjection,
-) => async () => {
+  queryClient?: QueryClient,
+) => async ({ signal }: { signal?: AbortSignal } = {}) => {
   const token = projection.beginSnapshot("inbox-mentions", "mentions")
+  const publicationToken = queryClient
+    ? captureCommunityLiveSnapshotToken(queryClient)
+    : null
   try {
-    const data = await inboxMentionsTransportFn()
+    const data = throwIfStale(await inboxMentionsTransportFn(signal))
+    if (queryClient && publicationToken) {
+      publishCommunityEmbeddedMessages(queryClient, {
+        entries: data.mentions.flatMap((mention) => mention.channelId
+          ? [{ channelId: mention.channelId, message: mention.m }]
+          : []),
+        proof: { token: publicationToken, signal },
+      })
+    }
     projection.absorbSnapshot(token, inboxMentionSources(data), {
       truncated: data.truncated ?? true,
       stale: data.stale,
     })
-    return throwIfStale(data)
+    return data
   } catch (error) {
     projection.cancelSnapshot(token)
     throw error
@@ -441,8 +459,8 @@ export function useInboxMentions(): UseQueryResult<MentionsResponse> & {
     [reservationTarget],
   )
   const queryFn = useMemo(
-    () => inboxMentionsProjectedQueryFn(unreadProjection),
-    [unreadProjection],
+    () => inboxMentionsProjectedQueryFn(unreadProjection, queryClient),
+    [queryClient, unreadProjection],
   )
   const query = useQuery({
     queryKey: communityKeys.inboxMentions(),
@@ -475,10 +493,12 @@ export function useInboxMentions(): UseQueryResult<MentionsResponse> & {
   const mentions = useMemo(() => {
     void unreadVersion
     const source = query.data?.mentions ?? (EMPTY_MENTIONS as Mention[])
-    const raw = source.map((mention) => {
-      const message = canonicalMessages?.get(mention.m.id)
-      return message ? { ...mention, m: message } : mention
-    })
+    const raw = canonicalMessages === undefined
+      ? source
+      : source.flatMap((mention) => {
+          const message = materializeCanonicalMessage(mention.m, canonicalMessages)
+          return message ? [{ ...mention, m: message }] : []
+        })
     const projected = raw.filter((mention) => (
       !mention.channelId
       || unreadProjection.allowsAccess({
@@ -519,14 +539,30 @@ export function useInboxMentions(): UseQueryResult<MentionsResponse> & {
 
 export type MarkedResponse = { marked: Marked[] }
 
-const inboxMarkedQueryFn = () =>
-  apiFetchProfiles<MarkedResponse & { stale?: boolean }>(
-    "/api/community/users/me/marks",
-    (data) => {
-      throwIfStale(data)
-      return messageProfilePatches(data.marked.map((marked) => marked.m))
-    },
-  )
+const inboxMarkedQueryFn = (queryClient?: QueryClient) =>
+  async ({ signal }: { signal?: AbortSignal } = {}) => {
+    const publicationToken = queryClient
+      ? captureCommunityLiveSnapshotToken(queryClient)
+      : null
+    const data = await apiFetchProfiles<MarkedResponse & { stale?: boolean }>(
+      "/api/community/users/me/marks",
+      (response) => {
+        throwIfStale(response)
+        return messageProfilePatches(response.marked.map((marked) => marked.m))
+      },
+      signal ? { signal } : undefined,
+    )
+    if (queryClient && publicationToken) {
+      publishCommunityEmbeddedMessages(queryClient, {
+        entries: data.marked.map((marked) => ({
+          channelId: marked.channelId,
+          message: marked.m,
+        })),
+        proof: { token: publicationToken, signal },
+      })
+    }
+    return throwIfStale(data)
+  }
 
 /**
  * The Marked feed is lazy — unlike unreads/mentions (which the shell reads
@@ -551,7 +587,7 @@ export function useInboxMarked(enabled: boolean): UseQueryResult<MarkedResponse>
   )
   const query = useQuery({
     queryKey: communityKeys.inboxMarked(),
-    queryFn: inboxMarkedQueryFn,
+    queryFn: inboxMarkedQueryFn(queryClient),
     placeholderData: keepPreviousData,
     enabled,
   })
@@ -563,8 +599,8 @@ export function useInboxMarked(enabled: boolean): UseQueryResult<MarkedResponse>
         channelId: marked.channelId,
         serverId: marked.serverId,
       })) return []
-      const message = canonicalMessages?.get(marked.m.id)
-      return [{ ...marked, m: message ?? marked.m }]
+      const message = materializeCanonicalMessage(marked.m, canonicalMessages)
+      return message ? [{ ...marked, m: message }] : []
     })
   }, [canonicalMessages, query.data?.marked, unreadProjection, unreadVersion])
   return {

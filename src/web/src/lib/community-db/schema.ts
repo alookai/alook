@@ -43,6 +43,8 @@ export const channelSchema = z.object({
   archived: z.boolean(),
   muted: z.boolean(),
   unread: z.boolean(),
+  /** Forum channel's own unread bit, excluding participating child rows. */
+  baseUnread: z.boolean().optional(),
   tags: z.array(z.string()),
   pending: z.boolean(),
   lastMessageAt: optionalNullableString,

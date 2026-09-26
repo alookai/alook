@@ -17,6 +17,7 @@ vi.mock("@/lib/api/client", () => ({
 }))
 vi.mock("@/lib/community-db/projections", () => ({
   useCanonicalMessagesById: () => canonicalMessagesMock(),
+  useOptionalCommunityDbRegistry: () => canonicalMessagesMock() === undefined ? null : {},
 }))
 
 beforeEach(() => {
@@ -113,7 +114,7 @@ describe("useMessage cache-first placeholder", () => {
     })
   })
 
-  it("falls back to a raw single-message response in an active partial registry", () => {
+  it("does not fall back to a raw single-message response in an active partial registry", () => {
     const queryClient = new QueryClient()
     queryClient.setQueryData(communityKeys.message("m_1"), {
       id: "m_1",
@@ -139,11 +140,7 @@ describe("useMessage cache-first placeholder", () => {
       wrapper: wrapperFor(queryClient),
     })
 
-    expect(rendered.result.current.message).toMatchObject({
-      authorId: "raw",
-      content: "raw query",
-      attachments: [expect.objectContaining({ name: "raw.txt" })],
-    })
+    expect(rendered.result.current.message).toBeNull()
   })
 
   it("keeps the access index empty while fenced and restores it after rollback or grant", () => {
@@ -165,7 +162,7 @@ describe("useMessage cache-first placeholder", () => {
     }), {
       wrapper: wrapperFor(queryClient),
     })
-    expect(rendered.result.current.message).toMatchObject({ content: "must not revive" })
+    expect(rendered.result.current.message).toBeNull()
     expect(takeMessageIdsForAccessScope(
       queryClient,
       new Set(["channel-1"]),
@@ -186,7 +183,7 @@ describe("useMessage cache-first placeholder", () => {
     )).toEqual([])
 
     act(() => projection.rollbackScopeRetirement(retirement))
-    expect(rendered.result.current.message).toMatchObject({ content: "must not revive" })
+    expect(rendered.result.current.message).toBeNull()
     expect(takeMessageIdsForAccessScope(
       queryClient,
       new Set(["channel-1"]),
@@ -208,7 +205,7 @@ describe("useMessage cache-first placeholder", () => {
         projection.beginAccessConfirmation(),
       )
     })
-    expect(rendered.result.current.message).toMatchObject({ content: "must not revive" })
+    expect(rendered.result.current.message).toBeNull()
     expect(takeMessageIdsForAccessScope(
       queryClient,
       new Set(["channel-1"]),

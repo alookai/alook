@@ -1,7 +1,7 @@
 /**
  * Stress-seed the local community DB for perf diagnosis.
  *
- * See plans/community-switch-perf-diagnosis.md. This is a LOCAL diagnostic tool
+ * This is a LOCAL diagnostic tool
  * — it is not wired into CI and ships nothing to prod.
  *
  * Usage:

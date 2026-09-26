@@ -1790,7 +1790,7 @@ describe("AgentProcessManager — launchId threading", () => {
   // `baseContextFor` returned (almost always undefined, since no host wires
   // it there) instead of the launchId tracked from the latest agent:wake —
   // every real spawn's voucher silently collided on cliTransport's "default"
-  // fallback path (see plans/fix-credential-proxy-connection-leak.md).
+  // fallback path, causing unrelated launches to share one credential proxy.
   it("passes the latest agent:wake's launchId into the spawned driver's LaunchContext", async () => {
     let capturedCtx: LaunchContext | undefined;
     const factory: SessionFactory = (hooks) => {
@@ -3703,7 +3703,7 @@ describe("onBotAuditEvent — integration through onRuntimeEvent (T9/T10)", () =
   });
 });
 
-// FSM transition trace (plans/daemon-fsm-desync.md): pure-observability hook
+// FSM transition trace: pure-observability hook
 // used to make a wedge that logs nothing else reconstructable. Two guarantees:
 // it fires per dispatch with the fields the wedge-triage needs, and it does NOT
 // change behavior (effects identical whether or not the hook is wired).
@@ -3895,7 +3895,7 @@ describe("AgentProcessManager — onFsmTransition trace (observability, zero beh
     }
   });
 
-  // ---- B1: crashed-turn tag (plans/daemon-runtime-error-rewake.md) ----------
+  // ---- B1: crashed-turn tag -----------------------------------------------
   // The trailing turn_end after a mid-turn `error` carries `endReason:"errored"`
   // + `errorDetail` into the trace, so a crashed turn is externally
   // distinguishable from a clean nap/idle (red line 7). B1 only RECORDS it —

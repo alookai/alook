@@ -212,7 +212,7 @@ describe("mapForumFeedPages", () => {
       },
     ]
 
-    const result = mapForumFeedPages(pages, new Map())
+    const result = mapForumFeedPages(pages)
     expect(result.map((thread) => thread.id)).toEqual(["t1", "t2"])
     expect(result[1]).toMatchObject({
       name: "  Opener title  ",
@@ -238,7 +238,7 @@ describe("mapForumFeedPages", () => {
     })
   })
 
-  it("projects a canonical opener while preserving transport fallbacks", () => {
+  it("projects a canonical opener without reviving transport message fields", () => {
     const pages: ForumFeedPage[] = [{
       serverId: "server_1",
       parentType: "forum",
@@ -264,7 +264,7 @@ describe("mapForumFeedPages", () => {
           authorAvatarVersion: 4,
           createdAt: "2026-08-08T00:00:00.000Z",
         }],
-        firstMessages: [],
+        firstMessages: [{ channelId: "post-1", content: "transport preview" }],
         tags: [],
         participants: [],
       },
@@ -289,11 +289,13 @@ describe("mapForumFeedPages", () => {
       expect.objectContaining({
         name: "canonical content",
         authorId: "transport-author",
-        authorAvatarVersion: 4,
-        openerCreatedAt: "2026-08-08T00:00:00.000Z",
-        parentSeq: 7,
+        authorAvatarVersion: 0,
+        preview: "",
+        parent: { authorName: "Canonical", text: "" },
       }),
     ])
+    expect(mapForumFeedPages(pages, canonical)[0]).not.toHaveProperty("openerCreatedAt")
+    expect(mapForumFeedPages(pages, canonical)[0]).not.toHaveProperty("parentSeq")
   })
 
   it("matches SQLite BINARY id ordering for equal-created mixed-case nanoids", () => {

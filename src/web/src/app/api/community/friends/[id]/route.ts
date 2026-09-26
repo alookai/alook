@@ -9,7 +9,7 @@ export const DELETE = withAuth(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
   const id = ctx.params?.id as string
 
-  // Hardening — see plans/agent-friendship-approval-gate.md §Hardening.
+  // Bots cannot bypass the owner-approval path through the human route.
   if (ctx.user?.isBot) return writeError("forbidden", 403)
 
   if (!id) {

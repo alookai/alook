@@ -238,9 +238,8 @@ describe("WebSocketDurableObject", () => {
 
   describe("fetch — /check-user-online (bot-aware, keyed by ?userId=)", () => {
     // This DO instance is keyed by `user:<id>` (idFromName) but can't read
-    // its own name back off `ctx` on this worker's pinned compatibility_date
-    // — see plans/community-account-debt-fixes.md Fix 3 — so every caller
-    // passes `?userId=` explicitly and the handler branches on it.
+    // its own name back off `ctx` on this worker's pinned compatibility_date,
+    // so every caller passes `?userId=` explicitly and the handler branches on it.
     it("answers via isBotOnline for a bot id, bypassing the live-socket check entirely", async () => {
       const { durable, ctx } = createDO()
       mockGetUserInternal.mockResolvedValue({ isBot: true } as any)

@@ -31,7 +31,7 @@ describe("rankMentionItems", () => {
   ]
 
   it("puts everyone at the top in channel context with empty query", () => {
-    // @here was removed (plans/remove-here-mention.md) — @everyone is the only
+    // @here was removed; @everyone is the only
     // virtual mention item now.
     const items = rankMentionItems(roster, "channel", "")
     expect(items[0].id).toBe("everyone")
@@ -627,7 +627,7 @@ describe("detectMentionType", () => {
   })
 
   it("does NOT detect @here — it was removed as a broadcast trigger", () => {
-    // plans/remove-here-mention.md: @here is no longer a mention type.
+    // @here is no longer a mention type.
     expect(detectMentionType("ping @here please")).toBe(undefined)
   })
 

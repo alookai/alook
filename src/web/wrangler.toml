@@ -88,8 +88,8 @@ binding = "TASK_QUEUE"
 queue = "alook-queue"
 
 # Dev-only direct path to the `alook-queue-worker` HTTP dev endpoint — local
-# Cloudflare Queues can't bridge separate `wrangler dev`/`next dev` processes
-# (see plans/minimal-wake-queue-unread-notice.md), so `queue-transport.ts` uses
+# Cloudflare Queues can't bridge separate `wrangler dev`/`next dev` processes,
+# so `queue-transport.ts` uses
 # this binding (with an HTTP fallback, like `WS_DO_WORKER`) instead of
 # `TASK_QUEUE` when `NODE_ENV === "development"`. Unused in production.
 [[services]]

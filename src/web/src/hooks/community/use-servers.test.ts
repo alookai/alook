@@ -19,6 +19,7 @@ vi.mock("@/lib/api/client", () => ({
   apiFetch: (...args: unknown[]) => apiFetchMock(...args),
 }))
 vi.mock("@/lib/community-db/projections", () => ({
+  useOptionalCommunityDbRegistry: () => null,
   useServerRailProjection: () => undefined,
   useServerTreeProjection: () => undefined,
 }))

@@ -8,8 +8,7 @@ import type { UploadFileResult } from "./uploads"
 
 // The zip must happen BEFORE filtering out failed uploads (`null` results),
 // or indices between `results` and the original `attachments` input array
-// misalign once a failed upload is dropped — see the design note in
-// plans/attachment-image-dimensions.md ("Exact zip transform").
+// misalign once a failed upload is dropped.
 describe("zipUploadResultsWithDimensions", () => {
   const upload = (name: string): UploadFileResult => ({
     url: `/media/${name}`,

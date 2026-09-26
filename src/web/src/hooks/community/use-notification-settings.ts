@@ -16,7 +16,10 @@ import {
   getActiveAccountUnreadProjection,
   type AccountUnreadProjection,
 } from "./account-unread-projection"
-import { useNotificationSettingsProjection } from "@/lib/community-db/projections"
+import {
+  useNotificationSettingsProjection,
+  useOptionalCommunityDbRegistry,
+} from "@/lib/community-db/projections"
 import {
   captureCommunityLiveSnapshotToken,
   publishCommunityLiveSnapshot,
@@ -117,6 +120,7 @@ export function useNotificationSettings(): UseQueryResult<NotificationSettings> 
   server: Record<string, string>
   channel: Record<string, string>
 } {
+  const registry = useOptionalCommunityDbRegistry()
   const dbSettings = useNotificationSettingsProjection()
   const queryClient = useQueryClient()
   const projection = useMemo(
@@ -127,13 +131,18 @@ export function useNotificationSettings(): UseQueryResult<NotificationSettings> 
     queryKey: communityKeys.notificationSettings(),
     queryFn: notificationSettingsQueryFn,
   })
+  const projectedSettings = registry ? dbSettings : query.data
   useEffect(() => {
-    if (query.data) projectNotificationSettings(projection, query.data)
-  }, [projection, query.data])
+    if (projectedSettings) projectNotificationSettings(projection, projectedSettings)
+  }, [projectedSettings, projection])
   return {
     ...query,
-    server: dbSettings?.server ?? query.data?.server ?? (EMPTY_NOTIF_SERVER as Record<string, string>),
-    channel: dbSettings?.channel ?? query.data?.channel ?? (EMPTY_NOTIF_CHANNEL as Record<string, string>),
+    server: registry
+      ? dbSettings?.server ?? (EMPTY_NOTIF_SERVER as Record<string, string>)
+      : query.data?.server ?? (EMPTY_NOTIF_SERVER as Record<string, string>),
+    channel: registry
+      ? dbSettings?.channel ?? (EMPTY_NOTIF_CHANNEL as Record<string, string>)
+      : query.data?.channel ?? (EMPTY_NOTIF_CHANNEL as Record<string, string>),
   }
 }
 

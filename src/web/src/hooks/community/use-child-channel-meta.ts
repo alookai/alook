@@ -1,13 +1,20 @@
 "use client"
 
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useState } from "react"
 import { fetchChannelMetadata, type ChannelMetadata } from "@/hooks/community/channel-metadata"
 import { communityKeys } from "@/lib/query-keys"
 import type { ChildChannelMeta } from "@/hooks/community/use-forum-sidebar-threads"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { ApiError } from "@/lib/errors"
-import { useRouteChannelProjection } from "@/lib/community-db/projections"
+import {
+  useOptionalCommunityDbRegistry,
+  useRouteChannelProjection,
+} from "@/lib/community-db/projections"
+import {
+  captureCommunityLiveSnapshotToken,
+  publishCommunityChannelMetadata,
+} from "@/lib/community-db/sync"
 
 function projectChildMeta(payload: ChannelMetadata, verifiedEpoch: number): ChildChannelMeta {
   if (!payload.parentChannelId || !payload.parentMessageId) {
@@ -27,6 +34,19 @@ function projectChildMeta(payload: ChannelMetadata, verifiedEpoch: number): Chil
   }
 }
 
+function sameChildChannelMeta(left: ChildChannelMeta, right: ChildChannelMeta): boolean {
+  return left.id === right.id &&
+    left.serverId === right.serverId &&
+    left.name === right.name &&
+    left.type === right.type &&
+    left.parentChannelId === right.parentChannelId &&
+    left.parentMessageId === right.parentMessageId &&
+    (left.creatorId ?? null) === (right.creatorId ?? null) &&
+    left.archived === right.archived &&
+    left.activityAt === right.activityAt &&
+    left.verifiedEpoch === right.verifiedEpoch
+}
+
 export function pickRenderableChildMeta(
   meta: ChildChannelMeta | undefined,
   trusted: ChildChannelMeta | undefined,
@@ -43,6 +63,8 @@ export function useChildChannelMeta(
   enabled: boolean,
   placeholderData?: ChildChannelMeta,
 ) {
+  const registry = useOptionalCommunityDbRegistry()
+  const queryClient = useQueryClient()
   const dbChannel = useRouteChannelProjection(channelId)
   const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
   const dbPlaceholder = dbChannel?.type === "thread"
@@ -65,11 +87,16 @@ export function useChildChannelMeta(
   const query = useQuery<ChildChannelMeta>({
     queryKey: communityKeys.channelMeta(serverId, channelId),
     queryFn: async ({ signal }) => {
+      const token = captureCommunityLiveSnapshotToken(queryClient)
       const meta = await fetchChannelMetadata(serverId, channelId, signal)
+      publishCommunityChannelMetadata(queryClient, {
+        metadata: meta,
+        proof: { token, signal },
+      })
       return projectChildMeta(meta, meta.verifiedEpoch)
     },
     enabled,
-    placeholderData: dbPlaceholder ?? placeholderData,
+    placeholderData: registry ? undefined : placeholderData,
     staleTime: Infinity,
     gcTime: 5 * 60 * 1000,
     retry: (failureCount, error) =>
@@ -81,11 +108,21 @@ export function useChildChannelMeta(
     meta: ChildChannelMeta
   } | null>(null)
   useEffect(() => {
+    if (registry) return
     if (query.data?.verifiedEpoch !== accessEpoch) return
-    setTrusted(query.data.archived ? null : { channelId, meta: query.data })
-  }, [accessEpoch, channelId, query.data])
+    setTrusted((current) => {
+      if (query.data!.archived) return current === null ? current : null
+      if (
+        current?.channelId === channelId &&
+        sameChildChannelMeta(current.meta, query.data!)
+      ) return current
+      return { channelId, meta: query.data! }
+    })
+  }, [accessEpoch, channelId, query.data, registry])
   const trustedMeta = trusted?.channelId === channelId ? trusted.meta : undefined
-  const renderable = pickRenderableChildMeta(query.data, trustedMeta, accessEpoch)
+  const renderable = registry
+    ? dbPlaceholder?.archived ? undefined : dbPlaceholder
+    : pickRenderableChildMeta(query.data, trustedMeta, accessEpoch)
   return {
     ...query,
     data: renderable,

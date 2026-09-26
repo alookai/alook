@@ -315,6 +315,47 @@ beforeEach(() => {
 })
 
 describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
+  it("reuses one cold initial anchor request across a StrictMode-style remount", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const transport = deferred<MessagesPage>()
+    apiFetchMock.mockImplementation((_url: string, init?: { signal?: AbortSignal }) => (
+      new Promise<MessagesPage>((resolve, reject) => {
+        const abort = () => reject(new DOMException("Aborted", "AbortError"))
+        if (init?.signal?.aborted) abort()
+        else init?.signal?.addEventListener("abort", abort, { once: true })
+        void transport.promise.then(resolve, reject)
+      })
+    ))
+    const snapshots: Snapshot[] = []
+
+    const capture = React.createElement(ChannelCapture, {
+      lastReadMessageId: "m_anchor",
+      onRender: (snapshot) => { snapshots.push(snapshot) },
+    })
+    const firstMount = renderCapture(
+      queryClient,
+      capture,
+    )
+
+    await waitFor(() => apiFetchMock.mock.calls.length > 0)
+    firstMount.unmount()
+    const remount = renderCapture(queryClient, capture)
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)) })
+    expect(apiFetchMock.mock.calls.filter(([url]) => url.includes("/messages")))
+      .toHaveLength(1)
+
+    transport.resolve({
+      messages: [{ id: "m_anchor", seq: 1, createdAt: "2026-08-09T00:00:00.000Z" }],
+      hasMoreOlder: false,
+      hasMoreNewer: false,
+      latestSeq: 1,
+    })
+    await waitFor(() => snapshots.some((snapshot) => snapshot.ids.includes("m_anchor")))
+    expect(queryClient.getQueryData(communityKeys.channelMessages("ch_activation")))
+      .toMatchObject({ pages: [{ messages: [expect.objectContaining({ id: "m_anchor" })] }] })
+    remount.unmount()
+  })
+
   it("keeps the real transport installed while the anchor gate is disabled", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     apiFetchMock.mockResolvedValue({
@@ -1077,7 +1118,6 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
     await waitFor(() => apiFetchMock.mock.calls.length === 1)
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/community/channels/ch_activation/messages",
-      { signal: expect.any(AbortSignal) },
     )
 
     newest.resolve({

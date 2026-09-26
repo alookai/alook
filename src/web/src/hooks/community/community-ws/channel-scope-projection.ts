@@ -106,10 +106,6 @@ export function evictForumPostUnitQueryCaches(
     ),
   )
   queryClient.removeQueries({
-    queryKey: communityKeys.forumOpenerHint(unit.serverId, unit.openerMessageId),
-    exact: true,
-  })
-  queryClient.removeQueries({
     queryKey: communityKeys.message(unit.openerMessageId),
     exact: true,
   })

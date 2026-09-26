@@ -32,7 +32,15 @@ import {
   useConversationNavigationGate,
 } from "@/lib/community/conversation-navigation-proof"
 import type { MessageSurfaceReceipt } from "@/lib/community/conversation-navigation-proof"
-import { useMessageProjection } from "@/lib/community-db/projections"
+import {
+  useCanonicalMessagesById,
+  useMessageProjection,
+  useOptionalCommunityDbRegistry,
+} from "@/lib/community-db/projections"
+import {
+  captureCommunityLiveSnapshotToken,
+  publishCommunityMessages,
+} from "@/lib/community-db/sync"
 
 /**
  * Fetches paginated messages for a community channel.
@@ -56,12 +64,47 @@ export type { MessagesPage, MessagesPageParam } from "@/lib/community/models/mes
 
 export type { MessageSurfaceReceipt } from "@/lib/community/conversation-navigation-proof"
 
+type CommittedTransportWindow = {
+  key: string
+  observed: boolean
+}
+
+function useCommittedTransportWindow(
+  queryKey: readonly unknown[],
+  hasData: boolean,
+): boolean {
+  const key = useMemo(() => JSON.stringify(queryKey), [queryKey])
+  const [committed, setCommitted] = useState<CommittedTransportWindow>(() => ({
+    key,
+    observed: hasData,
+  }))
+  const observed = committed.key === key
+    ? committed.observed || hasData
+    : hasData
+
+  // A suspended render may inspect another query key, but it must not advance
+  // window ownership. Commit the sticky "observed" bit only after React has
+  // accepted this render, and reset it semantically when the key commits.
+  useLayoutEffect(() => {
+    setCommitted((current) => {
+      const nextObserved = current.key === key
+        ? current.observed || hasData
+        : hasData
+      if (current.key === key && current.observed === nextObserved) return current
+      return { key, observed: nextObserved }
+    })
+  }, [hasData, key])
+
+  return observed
+}
+
 type MessagesTransportPage = MessagesPage & {
   surfaceReceipt?: MessageSurfaceReceipt
 }
 
 type MessagesTransportOptions = {
   onSurfaceReceipt?: (receipt: MessageSurfaceReceipt) => void
+  queryClient?: QueryClient
 }
 
 function isMessageSurfaceReceipt(value: unknown): value is MessageSurfaceReceipt {
@@ -124,12 +167,23 @@ export const channelMessagesQueryFn =
     pageParam: MessagesPageParam
     signal?: AbortSignal
   }): Promise<MessagesPage> => {
+    const publicationToken = options?.queryClient
+      ? captureCommunityLiveSnapshotToken(options.queryClient)
+      : null
     const url = buildMessagesUrl(
       `/api/community/channels/${channelId}/messages`,
       pageParam,
       tag,
     )
-    return fetchMessagesTransport(url, signal, options)
+    const page = await fetchMessagesTransport(url, signal, options)
+    if (options?.queryClient && publicationToken) {
+      publishCommunityMessages(options.queryClient, {
+        channelId,
+        messages: page.messages,
+        proof: { token: publicationToken, signal },
+      })
+    }
+    return page
   }
 
 export const dmMessagesQueryFn =
@@ -141,11 +195,22 @@ export const dmMessagesQueryFn =
     pageParam: MessagesPageParam
     signal?: AbortSignal
   }): Promise<MessagesPage> => {
+    const publicationToken = options?.queryClient
+      ? captureCommunityLiveSnapshotToken(options.queryClient)
+      : null
     const url = buildMessagesUrl(
       `/api/community/channels/${dmId}/messages`,
       pageParam,
     )
-    return fetchMessagesTransport(url, signal, options)
+    const page = await fetchMessagesTransport(url, signal, options)
+    if (options?.queryClient && publicationToken) {
+      publishCommunityMessages(options.queryClient, {
+        channelId: dmId,
+        messages: page.messages,
+        proof: { token: publicationToken, signal },
+      })
+    }
+    return page
   }
 
 export function messageMatchesTag(message: Msg, tag?: string | null): boolean {
@@ -437,7 +502,7 @@ function useMessagesInner(
   >({
     queryKey,
     // `enabled` is the execution gate. Keep the real transport installed even
-    // while the read-state anchor is resolving: a persisted observer can be
+    // while the read-state anchor is resolving: a retained observer can be
     // explicitly refetched during the disabled→enabled commit before
     // TanStack's passive option update runs. Installing a rejecting sentinel
     // here made that one-shot revalidation fail locally without issuing the
@@ -447,6 +512,11 @@ function useMessagesInner(
       const attemptId = stateAtStart.activationKey === activationKey
         ? stateAtStart.activeAttemptId
         : null
+      const coldInitialRequest = !forceNewest
+        && attemptId === null
+        && queryClient.getQueryData(queryKey) === undefined
+        && sameMessagesPageParam(context.pageParam, initialPageParam)
+      const transportSignal = coldInitialRequest ? undefined : context.signal
       const markAborted = () => {
         if (
           attemptId !== null
@@ -457,11 +527,11 @@ function useMessagesInner(
           stateAtStart.abortedAttemptId = attemptId
         }
       }
-      context.signal?.addEventListener("abort", markAborted, { once: true })
+      transportSignal?.addEventListener("abort", markAborted, { once: true })
       try {
-        return await queryFn(context)
+        return await queryFn({ pageParam: context.pageParam, signal: transportSignal })
       } finally {
-        context.signal?.removeEventListener("abort", markAborted)
+        transportSignal?.removeEventListener("abort", markAborted)
       }
     },
     initialPageParam,
@@ -490,8 +560,8 @@ function useMessagesInner(
     // mount refetch for both so it cannot replay a pre-resolution pageParam.
     ...(opts?.revalidateOnMount !== undefined ? { refetchOnMount: false } : {}),
     refetchOnReconnect: false,
-    // Message bases are persisted, while accepted/session rows live in an
-    // in-memory overlay. Ordinary observers stay stale; opt-in cached mounts
+    // Canonical message rows are persisted, while transport page ownership
+    // and accepted/session rows stay in memory. Ordinary observers stay stale; opt-in cached mounts
     // are held fresh only until the anchor-normalized revalidation below owns
     // their request. Once this mounted observer has seen a real request, hold
     // it fresh so a later disabled→enabled transition cannot duplicate that
@@ -503,7 +573,7 @@ function useMessagesInner(
       // Opt-in cached mounts are revalidated explicitly below so the request
       // can first normalize its semantic page identity. Mark them fresh here
       // to prevent TanStack's enabled-transition fetch from racing that owner
-      // with a persisted cursor/newest pageParam.
+      // with an older cursor/newest pageParam.
       (opts?.revalidateOnMount === true && cachedQuery.state.data !== undefined)
       || cachedWindowNeedsAnchorReconcile(
         cachedQuery.state.data as PageCache | undefined,
@@ -583,7 +653,7 @@ function useMessagesInner(
     // request. Refetch through this observer rather than asking the cache for
     // "active" queries: while PersistQueryClientProvider hands hydration back
     // to React, the mounted observer can briefly fail that cache-level filter.
-    // An infinite-query refetch replays its first persisted pageParam. Normalize
+    // An infinite-query refetch replays its first retained pageParam. Normalize
     // that identity to this mount's resolved anchor/newest target first: after
     // older pagination or hydration the stored first param can be a cursor,
     // which must never outrun the read-state anchor on a retained mount.
@@ -856,7 +926,7 @@ function useMessagesInner(
   return {
     ...query,
     // Instant channel switch: a warm channel already has its newest-tail
-    // hydrated into `messages` (from the persisted `channelMessages` cache)
+    // restored in canonical message rows
     // before the read anchor resolves. Those rows must paint immediately rather
     // than wait on the read-snapshot round-trip — switching must not
     // happen on a network timescale. So only report loading when there is
@@ -867,7 +937,7 @@ function useMessagesInner(
     // forces `isFetching` false in that state, so native
     // `isLoading = isPending && isFetching` computes to `false` even with no
     // data — leaving callers a frame of "ready but empty". We still guard that
-    // empty case, but a non-empty hydrated cache is the warm tail and renders
+    // empty case, but a non-empty canonical tail is warm and renders
     // now. The scroll-to-bottom / NEW-divider / unread count stay gated in the
     // page + `useScrollAnchor` (which now scrolls a warm tail to the bottom on
     // first paint and converges the divider once the snapshot lands), so early
@@ -904,7 +974,9 @@ export function useMessages(
   channelId: string | null,
   opts: ChannelMessagesOpts,
 ): MessagesReturn {
+  const registry = useOptionalCommunityDbRegistry()
   const dbMessages = useMessageProjection(channelId)
+  const canonicalMessagesById = useCanonicalMessagesById()
   const queryClient = useQueryClient()
   const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
   const queryKey = useMemo(() => {
@@ -913,6 +985,7 @@ export function useMessages(
   }, [channelId, opts.tag])
   const queryFn = useMemo(
     () => channelMessagesQueryFn(channelId ?? "__none__", opts.tag, {
+      queryClient,
       onSurfaceReceipt: (receipt) => {
         recordConversationNavigationReceipt(
           queryClient,
@@ -929,6 +1002,10 @@ export function useMessages(
     queryFn,
     opts,
   )
+  const transportWindowObserved = useCommittedTransportWindow(
+    queryKey,
+    base.data !== undefined,
+  )
   const scope = useMemo<MessageScope>(() => ({
     kind: "channel",
     id: channelId ?? "__none__",
@@ -936,10 +1013,20 @@ export function useMessages(
   }), [channelId, opts.serverId])
   const overlay = useMessageOverlay(scope)
   const canonicalBase = useMemo(
-    () => (dbMessages ?? base.messages).filter(
-      (message): message is CanonicalMessage => typeof message.seq === "number",
-    ),
-    [base.messages, dbMessages],
+    () => {
+      const messages = !registry
+        ? base.messages
+        : !transportWindowObserved
+          ? dbMessages ?? []
+          : base.messages.flatMap((message) => {
+              const canonical = canonicalMessagesById?.get(message.id)
+              return canonical ? [canonical] : []
+            })
+      return messages.filter(
+        (message): message is CanonicalMessage => typeof message.seq === "number",
+      )
+    },
+    [base.messages, canonicalMessagesById, dbMessages, registry, transportWindowObserved],
   )
   useEffect(() => {
     if (!channelId) return
@@ -979,7 +1066,9 @@ export function useDmMessages(
   dmId: string | null,
   opts?: MessagesOpts,
 ): MessagesReturn {
+  const registry = useOptionalCommunityDbRegistry()
   const dbMessages = useMessageProjection(dmId)
+  const canonicalMessagesById = useCanonicalMessagesById()
   const queryClient = useQueryClient()
   const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
   const queryKey = useMemo(
@@ -988,6 +1077,7 @@ export function useDmMessages(
   )
   const queryFn = useMemo(
     () => dmMessagesQueryFn(dmId ?? "__none__", {
+      queryClient,
       onSurfaceReceipt: (receipt) => {
         recordConversationNavigationReceipt(
           queryClient,
@@ -1004,16 +1094,30 @@ export function useDmMessages(
     queryFn,
     opts,
   )
+  const transportWindowObserved = useCommittedTransportWindow(
+    queryKey,
+    base.data !== undefined,
+  )
   const scope = useMemo<MessageScope>(() => ({
     kind: "dm",
     id: dmId ?? "__none__",
   }), [dmId])
   const overlay = useMessageOverlay(scope)
   const canonicalBase = useMemo(
-    () => (dbMessages ?? base.messages).filter(
-      (message): message is CanonicalMessage => typeof message.seq === "number",
-    ),
-    [base.messages, dbMessages],
+    () => {
+      const messages = !registry
+        ? base.messages
+        : !transportWindowObserved
+          ? dbMessages ?? []
+          : base.messages.flatMap((message) => {
+              const canonical = canonicalMessagesById?.get(message.id)
+              return canonical ? [canonical] : []
+            })
+      return messages.filter(
+        (message): message is CanonicalMessage => typeof message.seq === "number",
+      )
+    },
+    [base.messages, canonicalMessagesById, dbMessages, registry, transportWindowObserved],
   )
   useEffect(() => {
     if (!dmId) return

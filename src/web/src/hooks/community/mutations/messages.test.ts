@@ -7,10 +7,11 @@
  * `onError` manually. Same qc is used for cache assertions before/after each
  * step.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { afterEach, describe, it, expect, vi, beforeEach } from "vitest"
 import { QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
 import type { Msg } from "@/lib/community/models/message"
+import type { CommunityDbRegistry } from "@/lib/community-db/collections"
 
 // ── React shim (mirrors use-community-ws.test.ts) ────────────────────────
 let refs: Map<string, { current: unknown }> = new Map()
@@ -68,6 +69,8 @@ type MutConfig<Args, Ctx> = {
 }
 let capturedConfig: MutConfig<unknown, unknown> | null = null
 let capturedQc: QueryClient
+let canonicalRegistry: CommunityDbRegistry | null = null
+let unregisterCanonicalRegistry: (() => void) | null = null
 vi.mock("@tanstack/react-query", async () => {
   const actual = await vi.importActual<typeof import("@tanstack/react-query")>("@tanstack/react-query")
   return {
@@ -155,6 +158,60 @@ beforeEach(() => {
   callbackCounter = 0
 })
 
+afterEach(async () => {
+  unregisterCanonicalRegistry?.()
+  unregisterCanonicalRegistry = null
+  await canonicalRegistry?.cleanup()
+  canonicalRegistry = null
+})
+
+async function installCanonicalRegistry() {
+  const collections = await import("@/lib/community-db/collections")
+  canonicalRegistry = collections.createCommunityDbRegistry(capturedQc, "u_me")
+  await canonicalRegistry.preload()
+  unregisterCanonicalRegistry = collections.registerCommunityDbRegistry(canonicalRegistry)
+}
+
+async function seedCanonicalParent(type: "forum" | "text") {
+  if (!canonicalRegistry) throw new Error("canonical test registry is not active")
+  const sync = await import("@/lib/community-db/sync")
+  sync.ingestServers(canonicalRegistry, { servers: [{
+    id: "s1", name: "Server", initial: "S", active: false, unread: false,
+    mentions: 0, ownerId: "u_me",
+  }] })
+  sync.ingestServerDetail(canonicalRegistry, {
+    id: "s1", name: "Server", discriminator: "0001", description: "",
+    icon: null, ownerId: "u_me", categories: [{
+      id: "cat_1", name: "Category", channels: [{
+        id: "forum_1", name: "Parent", active: false, unread: false, type,
+      }],
+    }],
+  })
+}
+
+async function seedCanonicalSidebar() {
+  await seedCanonicalParent("forum")
+  const sync = await import("@/lib/community-db/sync")
+  sync.publishCommunityForumSidebar(capturedQc, {
+    serverId: "s1",
+    channels: [{
+      id: "post_1", name: "Post", parentChannelId: "forum_1",
+      parentMessageId: "opener_1", activityAt: "2026-08-06T00:00:00.000Z",
+      unread: false, type: "thread",
+    }],
+    openers: [{ id: "opener_1", channelId: "forum_1", content: "Old title", type: "chat" }],
+    proof: {
+      token: sync.captureCommunityLiveSnapshotToken(capturedQc),
+      signal: undefined,
+    },
+  })
+}
+
+async function canonicalSidebar() {
+  const { getForumSidebarBase } = await import("../use-forum-sidebar-threads")
+  return getForumSidebarBase(capturedQc, "s1")
+}
+
 describe("useEditMessage", () => {
   it("optimistically patches content and rolls back when PATCH fails", async () => {
     const key = communityKeys.channelMessages("ch_1")
@@ -213,11 +270,10 @@ describe("useEditMessage", () => {
   })
 
   it("patches a loaded forum-sidebar title after the opener edit succeeds", async () => {
-    seedParent("forum")
-    const sidebarKey = communityKeys.forumSidebarThreads("s1")
-    capturedQc.setQueryData(sidebarKey, sidebarData())
     apiFetchMock.mockResolvedValueOnce(undefined)
     const mod = await loadMod()
+    await installCanonicalRegistry()
+    await seedCanonicalSidebar()
     mod.useEditMessage()
 
     await runMutation({
@@ -229,8 +285,7 @@ describe("useEditMessage", () => {
       forumThreadId: "post_1",
     })
 
-    expect(capturedQc.getQueryData<ReturnType<typeof sidebarData>>(sidebarKey)?.threads[0].title)
-      .toBe("New title")
+    expect((await canonicalSidebar()).threads[0]?.title).toBe("New title")
   })
 })
 
@@ -275,11 +330,10 @@ describe("useSendMessage — happy path", () => {
   })
 
   it("re-ranks a loaded participating forum thread from the canonical send timestamp", async () => {
-    seedParent("forum")
-    const sidebarKey = communityKeys.forumSidebarThreads("s1")
-    capturedQc.setQueryData(sidebarKey, sidebarData())
     apiFetchMock.mockResolvedValueOnce({ message: postedMessage("server_id_1", 9) })
     const mod = await loadMod()
+    await installCanonicalRegistry()
+    await seedCanonicalSidebar()
     mod.useSendMessage()
 
     await runMutation({
@@ -290,7 +344,7 @@ describe("useSendMessage — happy path", () => {
       author: { id: "u_me", name: "me", avatar: "M" },
     })
 
-    expect(capturedQc.getQueryData<ReturnType<typeof sidebarData>>(sidebarKey)?.threads[0])
+    expect((await canonicalSidebar()).threads[0])
       .toMatchObject({
         activityAt: "2026-08-07T10:00:00.000Z",
         expiresAt: "2026-08-10T10:00:00.000Z",
@@ -298,12 +352,12 @@ describe("useSendMessage — happy path", () => {
   })
 
   it("invalidates the sidebar collection when a just-enrolled thread is not loaded", async () => {
-    seedParent("forum")
     const sidebarKey = communityKeys.forumSidebarThreads("s1")
-    const empty = { ...sidebarData(), threads: [] }
-    capturedQc.setQueryData(sidebarKey, empty)
+    capturedQc.setQueryData(sidebarKey, { ...sidebarData(), threads: [] })
     apiFetchMock.mockResolvedValueOnce({ message: postedMessage("server_id_1", 9) })
     const mod = await loadMod()
+    await installCanonicalRegistry()
+    await seedCanonicalParent("forum")
     mod.useSendMessage()
 
     await runMutation({

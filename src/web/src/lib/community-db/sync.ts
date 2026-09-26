@@ -1,5 +1,5 @@
 import { notifyManager, type QueryClient } from "@tanstack/react-query"
-import type { InfiniteData, Query } from "@tanstack/react-query"
+import type { Query } from "@tanstack/react-query"
 import { UNCATEGORIZED_CATEGORY_ID, type CommunityWsEvent } from "@alook/shared"
 import type { DmsResponse } from "@/hooks/community/use-dms"
 import type { FoldersResponse } from "@/hooks/community/use-folders"
@@ -7,18 +7,16 @@ import type {
   AccountReadStateSnapshot,
 } from "@/hooks/community/community-ws/read-state-reconciliation"
 import type { ServerDetail, ServersResponse } from "@/hooks/community/use-servers"
-import type { MessagesPage, Msg } from "@/lib/community/models/message"
+import type { Msg } from "@/lib/community/models/message"
 import type { NotificationSettings } from "@/hooks/community/use-notification-settings"
-import {
-  communityKeys,
-  isCommunityServerDetailQueryKey,
-} from "@/lib/query-keys"
+import { communityKeys } from "@/lib/query-keys"
 import {
   communityUserProfilePatch,
   messageProfilePatches,
   writeCommunityProfilePatches,
 } from "@/lib/community/profile-seed"
 import type { CommunityProfilePatch } from "@/lib/community/models/people"
+import type { ChannelRefDirectory } from "@/lib/community/channel-ref"
 import { useCommunityStore } from "@/stores/community"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { useMessageStreamStore } from "@/stores/community/message-stream"
@@ -65,6 +63,153 @@ import type { z } from "zod"
 
 type CollectionName = keyof CommunityDbRegistry["collections"]
 type SnapshotIngestMode = "authoritative" | "merge"
+
+type CanonicalRevisionState = {
+  revision: number
+  entityRevisions: Map<string, number>
+  pendingOperations: Map<string, CanonicalPendingOperation[]>
+}
+
+type CanonicalPendingOperation =
+  | { revision: number; kind: "patch"; apply: (row: object) => object }
+  | { revision: number; kind: "delete" }
+
+type CanonicalWriteContext =
+  | { kind: "event" }
+  | { kind: "query"; requestRevision: number }
+
+const canonicalRevisionStates = new WeakMap<QueryClient, CanonicalRevisionState>()
+const canonicalWriteContexts = new WeakMap<QueryClient, CanonicalWriteContext>()
+
+function canonicalRevisionState(queryClient: QueryClient) {
+  let state = canonicalRevisionStates.get(queryClient)
+  if (!state) {
+    state = { revision: 0, entityRevisions: new Map(), pendingOperations: new Map() }
+    canonicalRevisionStates.set(queryClient, state)
+  }
+  return state
+}
+
+function canonicalEntityKey(name: CollectionName, key: string) {
+  return `${name}:${key}`
+}
+
+function isProtectedFromQueryWrite(
+  registry: CommunityDbRegistry,
+  name: CollectionName,
+  key: string,
+) {
+  const context = canonicalWriteContexts.get(registry.queryClient)
+  if (context?.kind !== "query") return false
+  return (canonicalRevisionState(registry.queryClient).entityRevisions.get(
+    canonicalEntityKey(name, key),
+  ) ?? 0) > context.requestRevision
+}
+
+function recordEventWrites(
+  registry: CommunityDbRegistry,
+  name: CollectionName,
+  keys: Iterable<string>,
+) {
+  if (canonicalWriteContexts.get(registry.queryClient)?.kind !== "event") return
+  const state = canonicalRevisionState(registry.queryClient)
+  for (const key of new Set(keys)) {
+    state.revision += 1
+    state.entityRevisions.set(canonicalEntityKey(name, key), state.revision)
+  }
+}
+
+function recordEventPatches<T extends object>(
+  registry: CommunityDbRegistry,
+  name: CollectionName,
+  keys: Iterable<string>,
+  patch: (row: T) => T,
+  presentKeys: ReadonlySet<string>,
+) {
+  if (canonicalWriteContexts.get(registry.queryClient)?.kind !== "event") return
+  const state = canonicalRevisionState(registry.queryClient)
+  for (const key of new Set(keys)) {
+    state.revision += 1
+    const entityKey = canonicalEntityKey(name, key)
+    state.entityRevisions.set(entityKey, state.revision)
+    if (presentKeys.has(key)) {
+      state.pendingOperations.delete(entityKey)
+      continue
+    }
+    const pending = state.pendingOperations.get(entityKey) ?? []
+    pending.push({
+      revision: state.revision,
+      kind: "patch",
+      apply: patch as unknown as (row: object) => object,
+    })
+    state.pendingOperations.set(entityKey, pending)
+  }
+}
+
+function recordEventDeletes(
+  registry: CommunityDbRegistry,
+  name: CollectionName,
+  keys: Iterable<string>,
+) {
+  if (canonicalWriteContexts.get(registry.queryClient)?.kind !== "event") return
+  const state = canonicalRevisionState(registry.queryClient)
+  for (const key of new Set(keys)) {
+    state.revision += 1
+    const entityKey = canonicalEntityKey(name, key)
+    state.entityRevisions.set(entityKey, state.revision)
+    state.pendingOperations.set(entityKey, [{
+      revision: state.revision,
+      kind: "delete",
+    }])
+  }
+}
+
+function clearPendingOperations(
+  registry: CommunityDbRegistry,
+  name: CollectionName,
+  keys: Iterable<string>,
+) {
+  const pending = canonicalRevisionState(registry.queryClient).pendingOperations
+  for (const key of keys) pending.delete(canonicalEntityKey(name, key))
+}
+
+function mergePendingOperationsIntoQueryRow<T extends object>(
+  registry: CommunityDbRegistry,
+  name: CollectionName,
+  key: string,
+  schema: z.ZodType<T>,
+  incoming: T,
+) {
+  const context = canonicalWriteContexts.get(registry.queryClient)
+  if (context?.kind !== "query") return incoming
+  const operations = canonicalRevisionState(registry.queryClient).pendingOperations
+    .get(canonicalEntityKey(name, key))
+    ?.filter((operation) => operation.revision > context.requestRevision)
+  if (!operations?.length) return undefined
+  let next: object | undefined = incoming
+  for (const operation of operations) {
+    if (operation.kind === "delete") next = undefined
+    else if (next) next = operation.apply(next)
+  }
+  if (!next) return undefined
+  clearPendingOperations(registry, name, [key])
+  return schema.parse(next)
+}
+
+function withCanonicalWriteContext<T>(
+  queryClient: QueryClient,
+  context: CanonicalWriteContext,
+  publish: () => T,
+) {
+  const previous = canonicalWriteContexts.get(queryClient)
+  canonicalWriteContexts.set(queryClient, context)
+  try {
+    return publish()
+  } finally {
+    if (previous) canonicalWriteContexts.set(queryClient, previous)
+    else canonicalWriteContexts.delete(queryClient)
+  }
+}
 
 function collectionRows<T extends object>(
   registry: CommunityDbRegistry,
@@ -132,11 +277,33 @@ function replaceRows<T extends object>(
 ) {
   const parsedIncoming = incoming.map((row) => schema.parse(row))
   const current = collectionRows(registry, name, schema)
-  const nextByKey = new Map(current.filter((row) => !owns(row)).map((row) => [getKey(row), row]))
-  for (const row of parsedIncoming) nextByKey.set(getKey(row), row)
+  const nextByKey = new Map(current.flatMap((row) => {
+    const key = getKey(row)
+    return !owns(row) || isProtectedFromQueryWrite(registry, name, key)
+      ? [[key, row] as const]
+      : []
+  }))
+  for (const row of parsedIncoming) {
+    const key = getKey(row)
+    if (!isProtectedFromQueryWrite(registry, name, key)) {
+      nextByKey.set(key, row)
+      clearPendingOperations(registry, name, [key])
+      continue
+    }
+    if (nextByKey.has(key)) {
+      clearPendingOperations(registry, name, [key])
+      continue
+    }
+    const merged = mergePendingOperationsIntoQueryRow(registry, name, key, schema, row)
+    if (merged) nextByKey.set(key, merged)
+  }
   const next = [...nextByKey.values()]
   writeCollectionRows(registry, name, next, getKey)
   publishRows(registry, name, next)
+  recordEventWrites(registry, name, [
+    ...current.filter(owns).map(getKey),
+    ...parsedIncoming.map(getKey),
+  ])
 }
 
 function upsertRows<T extends object>(
@@ -150,10 +317,26 @@ function upsertRows<T extends object>(
   const nextByKey = new Map(
     collectionRows(registry, name, schema).map((row) => [getKey(row), row]),
   )
-  for (const row of parsedIncoming) nextByKey.set(getKey(row), row)
+  const acceptedKeys: string[] = []
+  for (const row of parsedIncoming) {
+    const key = getKey(row)
+    if (!isProtectedFromQueryWrite(registry, name, key)) {
+      nextByKey.set(key, row)
+      acceptedKeys.push(key)
+      clearPendingOperations(registry, name, [key])
+      continue
+    }
+    if (nextByKey.has(key)) {
+      clearPendingOperations(registry, name, [key])
+      continue
+    }
+    const merged = mergePendingOperationsIntoQueryRow(registry, name, key, schema, row)
+    if (merged) nextByKey.set(key, merged)
+  }
   const next = [...nextByKey.values()]
   writeCollectionRows(registry, name, next, getKey)
   publishRows(registry, name, next)
+  recordEventWrites(registry, name, acceptedKeys)
 }
 
 function patchRows<T extends object>(
@@ -163,18 +346,28 @@ function patchRows<T extends object>(
   getKey: (row: T) => string,
   patch: (row: T) => T,
   matches: (row: T) => boolean,
+  eventKeys?: Iterable<string>,
 ) {
   const current = collectionRows(registry, name, schema)
   let changed = false
+  const changedKeys: string[] = []
   const next = current.map((row) => {
     if (!matches(row)) return row
+    const key = getKey(row)
+    if (isProtectedFromQueryWrite(registry, name, key)) return row
     changed = true
+    changedKeys.push(key)
     return schema.parse(patch(row))
   })
-  if (!changed) return false
-  writeCollectionRows(registry, name, next, getKey)
-  publishRows(registry, name, next)
-  return true
+  if (changed) {
+    writeCollectionRows(registry, name, next, getKey)
+    publishRows(registry, name, next)
+  }
+  if (eventKeys) {
+    recordEventPatches(registry, name, eventKeys, patch, new Set(changedKeys))
+  }
+  else recordEventWrites(registry, name, changedKeys)
+  return changed
 }
 
 function deleteRows<T extends object>(
@@ -182,14 +375,26 @@ function deleteRows<T extends object>(
   name: CollectionName,
   schema: z.ZodType<T>,
   remove: (row: T) => boolean,
+  eventKeys?: Iterable<string>,
 ) {
   const current = collectionRows(registry, name, schema)
-  const next = current.filter((row) => !remove(row))
+  const removedKeys: string[] = []
+  const next = current.filter((row) => {
+    if (!remove(row)) return true
+    const key = (registry.collections[name] as unknown as {
+      getKeyFromItem: (value: T) => string
+    }).getKeyFromItem(row)
+    if (isProtectedFromQueryWrite(registry, name, key)) return true
+    removedKeys.push(key)
+    return false
+  })
   const keyByValue = new Map(current.map((row) => [row, (
     registry.collections[name] as unknown as { getKeyFromItem: (value: T) => string }
   ).getKeyFromItem(row)]))
   writeCollectionRows(registry, name, next, (row) => keyByValue.get(row)!)
   publishRows(registry, name, next)
+  if (eventKeys) recordEventDeletes(registry, name, eventKeys)
+  else recordEventWrites(registry, name, removedKeys)
 }
 
 function referencedProfileIds(registry: CommunityDbRegistry) {
@@ -472,6 +677,9 @@ export function ingestServerDetail(
         archived: false,
         muted: channel.muted === true,
         unread: channel.unread,
+        ...(channel.type === "forum" ? {
+          baseUnread: detail.forumUnreadState?.[channel.id]?.baseUnread ?? channel.unread,
+        } : {}),
         tags: channel.tags ?? [],
         pending: channel.pending === true,
         lastMessageAt: null,
@@ -495,6 +703,52 @@ export function ingestServerDetail(
         relation: "access",
         source: "inherited",
       }))
+    : []
+  const existingChannels = new Map(
+    collectionRows(registry, "channels", channelSchema).map((row) => [row.id, row]),
+  )
+  const unreadChildOwnership = Object.entries(detail.forumUnreadState ?? {})
+    .flatMap(([parentChannelId, state]) => state.childIds.map((childId) => ({
+      childId,
+      parentChannelId,
+    })))
+  const unreadChildStubs: ChannelRow[] = unreadChildOwnership.flatMap((ownership) => {
+    if (existingChannels.has(ownership.childId)) return []
+    return [{
+      id: ownership.childId,
+      serverId: detail.id,
+      categoryId: null,
+      name: "",
+      type: "thread" as const,
+      parentChannelId: ownership.parentChannelId,
+      parentMessageId: null,
+      creatorId: null,
+      position: 0,
+      archived: false,
+      muted: false,
+      unread: true,
+      tags: [],
+      pending: false,
+      lastMessageAt: null,
+    }]
+  })
+  const unreadChildMemberships: ChannelMembershipRow[] = viewerId
+    ? unreadChildOwnership.flatMap(({ childId }) => ([
+        {
+          id: channelMembershipKey(childId, viewerId, "access"),
+          channelId: childId,
+          userId: viewerId,
+          relation: "access" as const,
+          source: "explicit" as const,
+        },
+        {
+          id: channelMembershipKey(childId, viewerId, "notify"),
+          channelId: childId,
+          userId: viewerId,
+          relation: "notify" as const,
+          source: "explicit" as const,
+        },
+      ]))
     : []
   const authoritativeTopLevelIds = new Set([...currentTopLevelIds, ...incomingTopLevelIds])
   notifyManager.batch(() => {
@@ -544,7 +798,26 @@ export function ingestServerDetail(
           accessMemberships,
         )
       }
+      upsertRows(
+        registry,
+        "channelMemberships",
+        channelMembershipSchema,
+        (row) => row.id,
+        unreadChildMemberships,
+      )
     }
+    upsertRows(registry, "channels", channelSchema, (row) => row.id, unreadChildStubs)
+    const unreadChildren = new Set(
+      Object.values(detail.forumUnreadState ?? {}).flatMap((state) => state.childIds),
+    )
+    patchRows(
+      registry,
+      "channels",
+      channelSchema,
+      (row) => row.id,
+      (row) => ({ ...row, unread: unreadChildren.has(row.id) }),
+      (row) => row.serverId === detail.id && row.type === "thread",
+    )
   })
 }
 
@@ -578,6 +851,7 @@ function ingestChannelMetadata(
     archived: metadata.archived === true || metadata.archived === 1,
     muted: existing?.muted ?? false,
     unread: existing?.unread ?? false,
+    ...(existing?.baseUnread === undefined ? {} : { baseUnread: existing.baseUnread }),
     tags: existing?.tags ?? [],
     pending: false,
     lastMessageAt: metadata.lastMessageAt,
@@ -661,6 +935,24 @@ export function ingestDms(
       )
     }
     writeCommunityProfilePatches(profilePatches, registry)
+  })
+}
+
+/**
+ * Projects one locally confirmed DM summary before navigation. This is an
+ * additive event write: it cannot remove sibling conversations, and its
+ * revision fence prevents an older in-flight `/dms` snapshot from deleting
+ * the destination before the route mounts.
+ */
+export function publishCommunityDmSummary(
+  queryClient: QueryClient,
+  dm: DmsResponse["conversations"][number],
+) {
+  const registry = getCommunityDbRegistry(queryClient)
+  if (!registry) return "no-registry" as const
+  return withCanonicalWriteContext(queryClient, { kind: "event" }, () => {
+    ingestDms(registry, { conversations: [dm] }, "merge")
+    return "published" as const
   })
 }
 
@@ -774,6 +1066,7 @@ export type CommunityLiveSnapshotToken = {
   readonly viewerId: string | null
   readonly accountEpoch: number
   readonly accessEpoch: number
+  readonly canonicalRevision: number
   readonly queryClient: QueryClient
   readonly [communityLiveSnapshotTokenBrand]: true
 }
@@ -801,6 +1094,11 @@ type CommunityLiveSnapshotPublication =
       }
     }
 
+export type CommunityFreshQueryProof = {
+  token: CommunityLiveSnapshotToken
+  signal: AbortSignal | undefined
+}
+
 export function captureCommunityLiveSnapshotToken(
   queryClient: QueryClient,
 ): CommunityLiveSnapshotToken {
@@ -809,6 +1107,7 @@ export function captureCommunityLiveSnapshotToken(
     viewerId: state.profileViewerId,
     accountEpoch: state.profileAccountEpoch,
     accessEpoch: state.accessEpoch,
+    canonicalRevision: canonicalRevisionState(queryClient).revision,
     queryClient,
   } as CommunityLiveSnapshotToken
 }
@@ -832,9 +1131,8 @@ export function assertCommunityLiveSnapshotTokenCurrent(
  * Publishes a newly settled live snapshot into the canonical DB.
  *
  * This is the only query-owned path allowed to replace or delete canonical
- * rows. Query-cache observers deliberately replay cache state as merge-only:
- * hydration, optimistic setQueryData, invalidation, fetch, retry, and cancel
- * notifications do not prove that retained data is a fresh complete snapshot.
+ * rows. Hydrated or manually written transport caches are never DB inputs;
+ * only the fresh queryFn that owns this proof may publish its response.
  */
 export function publishCommunityLiveSnapshot(
   queryClient: QueryClient,
@@ -854,30 +1152,497 @@ export function publishCommunityLiveSnapshot(
   }
   const registry = getCommunityDbRegistry(queryClient)
   if (!registry) return "no-registry" as const
-  switch (snapshot.kind) {
-    case "servers":
-      ingestServers(registry, snapshot.data)
-      break
-    case "server-detail":
-      ingestServerDetail(registry, snapshot.data)
-      break
-    case "folders":
-      ingestFolders(registry, snapshot.data)
-      break
-    case "dms":
-      ingestDms(registry, snapshot.data)
-      break
-    case "read-state":
-      ingestReadStateSnapshot(registry, snapshot.data)
-      break
-    case "notification-settings":
-      ingestNotificationSettings(registry, snapshot.data)
-      break
+  return withCanonicalWriteContext(queryClient, {
+    kind: "query",
+    requestRevision: proof.token.canonicalRevision,
+  }, () => {
+    switch (snapshot.kind) {
+      case "servers":
+        ingestServers(registry, snapshot.data)
+        break
+      case "server-detail":
+        ingestServerDetail(registry, snapshot.data)
+        break
+      case "folders":
+        ingestFolders(registry, snapshot.data)
+        break
+      case "dms":
+        ingestDms(registry, snapshot.data)
+        break
+      case "read-state":
+        ingestReadStateSnapshot(registry, snapshot.data)
+        break
+      case "notification-settings":
+        ingestNotificationSettings(registry, snapshot.data)
+        break
+    }
+    return "published" as const
+  })
+}
+
+/** Merge confirmed rows from one fresh transport response into canonical DB. */
+export function publishCommunityMessages(
+  queryClient: QueryClient,
+  publication: {
+    channelId: string
+    messages: Msg[]
+    proof: CommunityFreshQueryProof
+  },
+) {
+  assertCommunityLiveSnapshotTokenCurrent(
+    queryClient,
+    publication.proof.token,
+    publication.proof.signal,
+  )
+  const registry = getCommunityDbRegistry(queryClient)
+  if (!registry) return "no-registry" as const
+  return withCanonicalWriteContext(queryClient, {
+    kind: "query",
+    requestRevision: publication.proof.token.canonicalRevision,
+  }, () => {
+    ingestMessages(registry, publication.channelId, publication.messages)
+    return "published" as const
+  })
+}
+
+/** Publish message entities embedded in a cross-scope transport response. */
+export function publishCommunityEmbeddedMessages(
+  queryClient: QueryClient,
+  publication: {
+    entries: Array<{ channelId: string; message: Msg }>
+    proof: CommunityFreshQueryProof
+  },
+) {
+  assertCommunityLiveSnapshotTokenCurrent(
+    queryClient,
+    publication.proof.token,
+    publication.proof.signal,
+  )
+  const registry = getCommunityDbRegistry(queryClient)
+  if (!registry) return "no-registry" as const
+  return withCanonicalWriteContext(queryClient, {
+    kind: "query",
+    requestRevision: publication.proof.token.canonicalRevision,
+  }, () => {
+    const byChannel = new Map<string, Msg[]>()
+    for (const { channelId, message } of publication.entries) {
+      byChannel.set(channelId, [...(byChannel.get(channelId) ?? []), message])
+    }
+    notifyManager.batch(() => {
+      for (const [channelId, messages] of byChannel) {
+        ingestMessages(registry, channelId, messages)
+      }
+    })
+    return "published" as const
+  })
+}
+
+export type CommunityChannelMetadata = {
+  id: string
+  serverId: string
+  name: string
+  type: string
+  parentChannelId: string | null
+  parentMessageId: string | null
+  creatorId: string | null
+  archived: boolean | number
+  lastMessageAt: string | null
+}
+
+/** Publish one verified channel metadata response and its viewer access fact. */
+export function publishCommunityChannelMetadata(
+  queryClient: QueryClient,
+  publication: {
+    metadata: CommunityChannelMetadata
+    proof: CommunityFreshQueryProof
+  },
+) {
+  assertCommunityLiveSnapshotTokenCurrent(
+    queryClient,
+    publication.proof.token,
+    publication.proof.signal,
+  )
+  const registry = getCommunityDbRegistry(queryClient)
+  if (!registry) return "no-registry" as const
+  return withCanonicalWriteContext(queryClient, {
+    kind: "query",
+    requestRevision: publication.proof.token.canonicalRevision,
+  }, () => {
+    ingestChannelMetadata(registry, publication.metadata)
+    const viewerId = registry.accountId
+    if (viewerId) {
+      upsertRows(
+        registry,
+        "channelMemberships",
+        channelMembershipSchema,
+        (row) => row.id,
+        [{
+          id: channelMembershipKey(publication.metadata.id, viewerId, "access"),
+          channelId: publication.metadata.id,
+          userId: viewerId,
+          relation: "access",
+          source: "explicit",
+        }],
+      )
+    }
+    return "published" as const
+  })
+}
+
+/** Merge the fresh all-server ref directory without degrading known rows. */
+export function publishCommunityChannelDirectory(
+  queryClient: QueryClient,
+  publication: {
+    directory: ChannelRefDirectory
+    proof: CommunityFreshQueryProof
+  },
+) {
+  assertCommunityLiveSnapshotTokenCurrent(
+    queryClient,
+    publication.proof.token,
+    publication.proof.signal,
+  )
+  const registry = getCommunityDbRegistry(queryClient)
+  if (!registry) return "no-registry" as const
+  return withCanonicalWriteContext(queryClient, {
+    kind: "query",
+    requestRevision: publication.proof.token.canonicalRevision,
+  }, () => {
+    const existingServers = new Map(
+    collectionRows(registry, "servers", serverSchema).map((row) => [row.id, row]),
+  )
+  const existingChannels = new Map(
+    collectionRows(registry, "channels", channelSchema).map((row) => [row.id, row]),
+  )
+  const viewerId = registry.accountId
+  const servers: ServerRow[] = publication.directory.map((server, position) => ({
+    id: server.id,
+    position: existingServers.get(server.id)?.position ?? position,
+    name: server.name,
+    discriminator: server.discriminator,
+    description: existingServers.get(server.id)?.description ?? "",
+    ownerId: existingServers.get(server.id)?.ownerId ?? "",
+    icon: existingServers.get(server.id)?.icon ?? null,
+    official: existingServers.get(server.id)?.official ?? false,
+    isOwner: existingServers.get(server.id)?.isOwner ?? false,
+    unread: existingServers.get(server.id)?.unread ?? false,
+    mentions: existingServers.get(server.id)?.mentions ?? 0,
+    detailComplete: existingServers.get(server.id)?.detailComplete ?? false,
+  }))
+  const channels: ChannelRow[] = publication.directory.flatMap((server) => (
+    server.channels.flatMap((channel, position) => {
+      const existing = existingChannels.get(channel.id)
+      const type = channel.type ?? existing?.type
+      if (type !== "text" && type !== "forum") return []
+      return [{
+        id: channel.id,
+        serverId: server.id,
+        categoryId: existing?.categoryId ?? null,
+        name: channel.name,
+        type,
+        parentChannelId: null,
+        parentMessageId: null,
+        creatorId: existing?.creatorId ?? null,
+        position: existing?.position ?? position,
+        archived: existing?.archived ?? false,
+        muted: existing?.muted ?? false,
+        unread: existing?.unread ?? false,
+        ...(existing?.baseUnread === undefined ? {} : { baseUnread: existing.baseUnread }),
+        tags: existing?.tags ?? [],
+        pending: existing?.pending ?? false,
+        lastMessageAt: existing?.lastMessageAt ?? null,
+      }]
+    })
+  ))
+  notifyManager.batch(() => {
+    upsertRows(registry, "servers", serverSchema, (row) => row.id, servers)
+    upsertRows(registry, "channels", channelSchema, (row) => row.id, channels)
+    if (viewerId) {
+      upsertRows(
+        registry,
+        "serverMemberships",
+        serverMembershipSchema,
+        (row) => row.id,
+        servers.map((server) => ({
+          id: serverMembershipKey(server.id, viewerId),
+          serverId: server.id,
+          userId: viewerId,
+          role: server.isOwner ? "owner" : "member",
+          viewer: true,
+        })),
+      )
+      upsertRows(
+        registry,
+        "channelMemberships",
+        channelMembershipSchema,
+        (row) => row.id,
+        channels.map((channel) => ({
+          id: channelMembershipKey(channel.id, viewerId, "access"),
+          channelId: channel.id,
+          userId: viewerId,
+          relation: "access" as const,
+          source: "inherited" as const,
+        })),
+      )
+    }
+  })
+    return "published" as const
+  })
+}
+
+export type CommunityForumSidebarChannel = {
+  id: string
+  name: string
+  parentChannelId: string | null
+  parentMessageId: string | null
+  activityAt: string
+  unread: boolean
+  serverId?: string
+  type?: string
+  creatorId?: string | null
+  archived?: boolean | number
+  lastMessageAt?: string | null
+  participating?: boolean
+}
+
+export type CommunityForumSidebarOpener = {
+  id: string
+  content: string
+  seq?: number
+  channelId?: string
+  type?: "chat" | "system"
+}
+
+/** Publish the service facts carried by one forum-sidebar response. */
+export function publishCommunityForumSidebar(
+  queryClient: QueryClient,
+  publication: {
+    serverId: string
+    channels: CommunityForumSidebarChannel[]
+    openers: CommunityForumSidebarOpener[]
+    negativeRetain?: {
+      id: string
+      disposition: "opener-archived" | "genuine-negative"
+    } | null
+    proof: CommunityFreshQueryProof
+  },
+) {
+  assertCommunityLiveSnapshotTokenCurrent(
+    queryClient,
+    publication.proof.token,
+    publication.proof.signal,
+  )
+  const registry = getCommunityDbRegistry(queryClient)
+  if (!registry) return "no-registry" as const
+  return withCanonicalWriteContext(queryClient, {
+    kind: "query",
+    requestRevision: publication.proof.token.canonicalRevision,
+  }, () => {
+    const existingById = new Map(
+    collectionRows(registry, "channels", channelSchema).map((row) => [row.id, row]),
+  )
+  const channels: ChannelRow[] = publication.channels.flatMap((channel) => {
+    if (!channel.parentChannelId || !channel.parentMessageId) return []
+    const existing = existingById.get(channel.id)
+    return [{
+      id: channel.id,
+      serverId: channel.serverId ?? publication.serverId,
+      categoryId: null,
+      name: channel.name,
+      type: "thread" as const,
+      parentChannelId: channel.parentChannelId,
+      parentMessageId: channel.parentMessageId,
+      creatorId: channel.creatorId ?? existing?.creatorId ?? null,
+      position: existing?.position ?? 0,
+      archived: channel.archived === true || channel.archived === 1,
+      muted: existing?.muted ?? false,
+      unread: channel.unread,
+      tags: existing?.tags ?? [],
+      pending: false,
+      lastMessageAt: channel.lastMessageAt ?? channel.activityAt,
+    }]
+  })
+  const viewerId = registry.accountId
+  notifyManager.batch(() => {
+    upsertRows(registry, "channels", channelSchema, (row) => row.id, channels)
+    if (viewerId) {
+      upsertRows(
+        registry,
+        "channelMemberships",
+        channelMembershipSchema,
+        (row) => row.id,
+        channels.map((channel) => ({
+          id: channelMembershipKey(channel.id, viewerId, "access"),
+          channelId: channel.id,
+          userId: viewerId,
+          relation: "access" as const,
+          source: "explicit" as const,
+        })),
+      )
+      const participating = publication.channels
+        .filter((channel) => channel.participating !== false)
+        .map((channel) => channel.id)
+      upsertRows(
+        registry,
+        "channelMemberships",
+        channelMembershipSchema,
+        (row) => row.id,
+        participating.map((channelId) => ({
+          id: channelMembershipKey(channelId, viewerId, "notify"),
+          channelId,
+          userId: viewerId,
+          relation: "notify" as const,
+          source: "explicit" as const,
+        })),
+      )
+    }
+    for (const opener of publication.openers) {
+      const channelId = opener.channelId
+        ?? channels.find((channel) => channel.parentMessageId === opener.id)?.parentChannelId
+      if (!channelId) continue
+      ingestMessages(registry, channelId, [{
+        ...opener,
+        type: opener.type ?? "chat",
+      } as Msg])
+    }
+    if (publication.negativeRetain) {
+      const { id, disposition } = publication.negativeRetain
+      deleteRows(
+        registry,
+        "channelMemberships",
+        channelMembershipSchema,
+        (row) => row.channelId === id
+          && row.userId === viewerId
+          && row.relation === "notify",
+      )
+      if (disposition === "genuine-negative") {
+        patchRows(
+          registry,
+          "channels",
+          channelSchema,
+          (row) => row.id,
+          (row) => ({ ...row, unread: false }),
+          (row) => row.id === id,
+        )
+      }
+    }
+  })
+    return "published" as const
+  })
+}
+
+export function patchCanonicalCommunityChannel(
+  queryClient: QueryClient,
+  channelId: string,
+  patch: (row: ChannelRow) => ChannelRow,
+) {
+  const registry = getCommunityDbRegistry(queryClient)
+  if (!registry) return false
+  return patchRows(
+    registry,
+    "channels",
+    channelSchema,
+    (row) => row.id,
+    patch,
+    (row) => row.id === channelId,
+  )
+}
+
+export function patchCanonicalCommunityMessage(
+  queryClient: QueryClient,
+  messageId: string,
+  patch: (row: MessageRow) => MessageRow,
+) {
+  const registry = getCommunityDbRegistry(queryClient)
+  if (!registry) return false
+  return withCanonicalWriteContext(queryClient, { kind: "event" }, () => (
+    patchRows(
+      registry,
+      "messages",
+      messageSchema,
+      (row) => row.id,
+      patch,
+      (row) => row.id === messageId,
+    )
+  ))
+}
+
+export function removeCanonicalCommunityChannel(
+  queryClient: QueryClient,
+  channelId: string,
+) {
+  const registry = getCommunityDbRegistry(queryClient)
+  if (!registry) return false
+  const exists = collectionRows(registry, "channels", channelSchema)
+    .some((row) => row.id === channelId)
+  if (exists) purgeCommunityChannel(registry, channelId)
+  return exists
+}
+
+export function removeCanonicalCommunityChannelMembership(
+  queryClient: QueryClient,
+  channelId: string,
+  relation: "access" | "notify",
+) {
+  const registry = getCommunityDbRegistry(queryClient)
+  if (!registry?.accountId) return false
+  deleteRows(
+    registry,
+    "channelMemberships",
+    channelMembershipSchema,
+    (row) => row.channelId === channelId
+      && row.userId === registry.accountId
+      && row.relation === relation,
+  )
+  return true
+}
+
+export function setCanonicalCommunityChannelMembership(
+  queryClient: QueryClient,
+  channelId: string,
+  relation: "access" | "notify",
+  present: boolean,
+) {
+  const registry = getCommunityDbRegistry(queryClient)
+  if (!registry?.accountId) return false
+  if (!present) {
+    return removeCanonicalCommunityChannelMembership(queryClient, channelId, relation)
   }
-  return "published" as const
+  upsertRows(
+    registry,
+    "channelMemberships",
+    channelMembershipSchema,
+    (row) => row.id,
+    [{
+      id: channelMembershipKey(channelId, registry.accountId, relation),
+      channelId,
+      userId: registry.accountId,
+      relation,
+      source: "explicit",
+    }],
+  )
+  return true
+}
+
+export function getCanonicalCommunityChannels(queryClient: QueryClient) {
+  const registry = getCommunityDbRegistry(queryClient)
+  return registry ? collectionRows(registry, "channels", channelSchema) : []
+}
+
+export function getCanonicalCommunityChannelMemberships(queryClient: QueryClient) {
+  const registry = getCommunityDbRegistry(queryClient)
+  return registry
+    ? collectionRows(registry, "channelMemberships", channelMembershipSchema)
+    : []
+}
+
+export function getCanonicalCommunityMessages(queryClient: QueryClient) {
+  const registry = getCommunityDbRegistry(queryClient)
+  return registry ? collectionRows(registry, "messages", messageSchema) : []
 }
 
 export function purgeCommunityServer(registry: CommunityDbRegistry, serverId: string) {
+  if (isProtectedFromQueryWrite(registry, "servers", serverId)) return
   const removedChannelIds = new Set(
     collectionRows(registry, "channels", channelSchema)
       .filter((row) => row.serverId === serverId)
@@ -904,7 +1669,7 @@ export function purgeCommunityServer(registry: CommunityDbRegistry, serverId: st
     community.setCurrentServerId(null)
   }
   notifyManager.batch(() => {
-    deleteRows(registry, "servers", serverSchema, (row) => row.id === serverId)
+    deleteRows(registry, "servers", serverSchema, (row) => row.id === serverId, [serverId])
     deleteRows(registry, "categories", categorySchema, (row) => row.serverId === serverId)
     deleteRows(registry, "channels", channelSchema, (row) => removedChannelIds.has(row.id))
     deleteRows(registry, "serverMemberships", serverMembershipSchema, (row) => row.serverId === serverId)
@@ -920,6 +1685,7 @@ export function purgeCommunityServer(registry: CommunityDbRegistry, serverId: st
 }
 
 export function purgeCommunityChannel(registry: CommunityDbRegistry, channelId: string) {
+  if (isProtectedFromQueryWrite(registry, "channels", channelId)) return
   const channels = collectionRows(registry, "channels", channelSchema)
   const root = channels.find((row) => row.id === channelId)
   const removed = new Set([
@@ -930,7 +1696,7 @@ export function purgeCommunityChannel(registry: CommunityDbRegistry, channelId: 
   ])
   clearChannelTransientState(registry, removed, root?.serverId ?? null)
   notifyManager.batch(() => {
-    deleteRows(registry, "channels", channelSchema, (row) => removed.has(row.id))
+    deleteRows(registry, "channels", channelSchema, (row) => removed.has(row.id), [channelId])
     deleteRows(registry, "channelMemberships", channelMembershipSchema, (row) => removed.has(row.channelId))
     deleteRows(registry, "messages", messageSchema, (row) => removed.has(row.channelId))
     deleteRows(registry, "readStates", readStateSchema, (row) => removed.has(row.channelId))
@@ -952,8 +1718,8 @@ function projectProfilePatch(
 /**
  * Applies low-latency WS facts directly to the canonical account-scoped
  * collections. Existing React Query handlers still own reconciliation and
- * fetch invalidation; those successful HTTP responses flow back through
- * `installCommunityDbSync` and authoritatively replace the same rows.
+ * fetch invalidation; a successful queryFn explicitly publishes its fresh
+ * response into the same rows after its signal and account token are checked.
  */
 export function projectCommunityWsEventToDb(
   queryClient: QueryClient,
@@ -961,9 +1727,21 @@ export function projectCommunityWsEventToDb(
 ) {
   const registry = getCommunityDbRegistry(queryClient)
   if (!registry) return
-  switch (event.type) {
+  return withCanonicalWriteContext(queryClient, { kind: "event" }, () => {
+    switch (event.type) {
     case "community:message.create":
       ingestMessages(registry, event.channelId, [projectCommunityMessageCreate(event.message)])
+      if (event.message.createdAt) {
+        patchRows(
+          registry,
+          "channels",
+          channelSchema,
+          (row) => row.id,
+          (row) => ({ ...row, lastMessageAt: event.message.createdAt }),
+          (row) => row.id === event.channelId,
+          [event.channelId],
+        )
+      }
       return
     case "community:message.edited":
       patchRows(
@@ -973,6 +1751,7 @@ export function projectCommunityWsEventToDb(
         (row) => row.id,
         (row) => ({ ...row, content: event.content }),
         (row) => row.id === event.messageId,
+        [event.messageId],
       )
       return
     case "community:message.updated":
@@ -983,6 +1762,7 @@ export function projectCommunityWsEventToDb(
         (row) => row.id,
         (row) => ({ ...row, approval: event.approval }),
         (row) => row.id === event.messageId,
+        [event.messageId],
       )
       return
     case "community:reaction.add":
@@ -1020,6 +1800,7 @@ export function projectCommunityWsEventToDb(
           return { ...row, reactions: normalized }
         },
         (row) => row.id === event.messageId,
+        [event.messageId],
       )
       return
     case "community:channel.child_create": {
@@ -1044,13 +1825,24 @@ export function projectCommunityWsEventToDb(
         pending: false,
         lastMessageAt: event.channel.createdAt,
       }])
+      if (registry.accountId) {
+        upsertRows(
+          registry,
+          "channelMemberships",
+          channelMembershipSchema,
+          (row) => row.id,
+          [{
+            id: channelMembershipKey(event.channel.id, registry.accountId, "access"),
+            channelId: event.channel.id,
+            userId: registry.accountId,
+            relation: "access",
+            source: "explicit",
+          }],
+        )
+      }
       return
     }
     case "community:channel.child_update":
-      if (event.changes.archived === true) {
-        purgeCommunityChannel(registry, event.channelId)
-        return
-      }
       patchRows(
         registry,
         "channels",
@@ -1064,6 +1856,7 @@ export function projectCommunityWsEventToDb(
           ...(event.changes.lastMessageAt === undefined ? {} : { lastMessageAt: event.changes.lastMessageAt }),
         }),
         (row) => row.id === event.channelId,
+        [event.channelId],
       )
       return
     case "community:server.update":
@@ -1074,6 +1867,7 @@ export function projectCommunityWsEventToDb(
         (row) => row.id,
         (row) => ({ ...row, ...event.changes }),
         (row) => row.id === event.serverId,
+        [event.serverId],
       )
       return
     case "community:server.delete":
@@ -1106,6 +1900,7 @@ export function projectCommunityWsEventToDb(
         (row) => row.id,
         (row) => ({ ...row, ...event.changes }),
         (row) => row.id === event.channelId,
+        [event.channelId],
       )
       return
     case "community:channel.delete":
@@ -1120,44 +1915,16 @@ export function projectCommunityWsEventToDb(
         (row) => row.id,
         (row) => ({ ...row, position: positionById.get(row.id) ?? row.position }),
         (row) => row.serverId === event.serverId && positionById.has(row.id),
+        positionById.keys(),
       )
       return
     }
-    case "community:channel.member_add": {
-      const channel = collectionRows(registry, "channels", channelSchema)
-        .find((row) => row.id === event.channelId)
-      const relation = channel?.type === "thread" || channel?.parentChannelId
-        ? "notify"
-        : "access"
-      upsertRows(registry, "channelMemberships", channelMembershipSchema, (row) => row.id, [{
-        id: channelMembershipKey(event.channelId, event.userId, relation),
-        channelId: event.channelId,
-        userId: event.userId,
-        relation,
-        source: "explicit",
-      }])
+    case "community:channel.member_add":
+    case "community:channel.member_remove":
+      // Relation ownership depends on resolved channel type. The membership
+      // handler publishes this only after canonical metadata proves whether
+      // the event changes thread notify or top-level access.
       return
-    }
-    case "community:channel.member_remove": {
-      const channel = collectionRows(registry, "channels", channelSchema)
-        .find((row) => row.id === event.channelId)
-      const isKnownAccessScope = Boolean(
-        channel && channel.type !== "thread" && !channel.parentChannelId,
-      )
-      if (event.userId === registry.accountId && isKnownAccessScope) {
-        purgeCommunityChannel(registry, event.channelId)
-      } else {
-        deleteRows(
-          registry,
-          "channelMemberships",
-          channelMembershipSchema,
-          (row) => row.channelId === event.channelId
-            && row.userId === event.userId
-            && (row.relation === "access" || row.relation === "notify"),
-        )
-      }
-      return
-    }
     case "community:category.create":
       upsertRows(registry, "categories", categorySchema, (row) => row.id, [{
         id: event.category.id,
@@ -1176,10 +1943,17 @@ export function projectCommunityWsEventToDb(
         (row) => row.id,
         (row) => ({ ...row, ...event.changes }),
         (row) => row.id === event.categoryId,
+        [event.categoryId],
       )
       return
     case "community:category.delete":
-      deleteRows(registry, "categories", categorySchema, (row) => row.id === event.categoryId)
+      deleteRows(
+        registry,
+        "categories",
+        categorySchema,
+        (row) => row.id === event.categoryId,
+        [event.categoryId],
+      )
       return
     case "community:category.reorder": {
       const positionById = new Map(event.categories.map((row) => [row.id, row.position]))
@@ -1190,6 +1964,7 @@ export function projectCommunityWsEventToDb(
         (row) => row.id,
         (row) => ({ ...row, position: positionById.get(row.id) ?? row.position }),
         (row) => row.serverId === event.serverId && positionById.has(row.id),
+        positionById.keys(),
       )
       return
     }
@@ -1242,6 +2017,8 @@ export function projectCommunityWsEventToDb(
         (row) => row.id,
         (row) => ({ ...row, unread: true }),
         (row) => row.id === event.channelId || row.id === event.railChannelId,
+        [event.channelId, event.railChannelId]
+          .filter((channelId): channelId is string => Boolean(channelId)),
       )
       if (event.serverId) {
         patchRows(
@@ -1255,6 +2032,7 @@ export function projectCommunityWsEventToDb(
             mentions: row.mentions + (event.isMention ? 1 : 0),
           }),
           (row) => row.id === event.serverId,
+          [event.serverId],
         )
       }
       return
@@ -1287,152 +2065,19 @@ export function projectCommunityWsEventToDb(
       })
       return
     }
-    default:
-      return
-  }
-}
-
-function messagesFromInfiniteData(data: unknown): Msg[] {
-  const pages = (data as InfiniteData<MessagesPage> | undefined)?.pages
-  if (!Array.isArray(pages)) return []
-  const byId = new Map<string, Msg>()
-  for (const page of pages) {
-    for (const message of page.messages ?? []) byId.set(message.id, message)
-  }
-  return [...byId.values()]
-}
-
-function ingestScopedMessages(
-  registry: CommunityDbRegistry,
-  entries: readonly { channelId: string; message: Msg }[],
-) {
-  const byChannel = new Map<string, Msg[]>()
-  for (const { channelId, message } of entries) {
-    const messages = byChannel.get(channelId) ?? []
-    messages.push(message)
-    byChannel.set(channelId, messages)
-  }
-  for (const [channelId, messages] of byChannel) ingestMessages(registry, channelId, messages)
-}
-
-function forumMessagesFromData(data: unknown) {
-  const pages = (data as InfiniteData<{
-    included?: { parentMessages?: Array<Record<string, unknown>> }
-  }> | undefined)?.pages
-  if (!Array.isArray(pages)) return []
-  return pages.flatMap((page) => (page.included?.parentMessages ?? []).flatMap((raw) => {
-    if (typeof raw.id !== "string" || typeof raw.channelId !== "string") return []
-    return [{
-      channelId: raw.channelId,
-      message: {
-        ...raw,
-        type: "chat",
-        authorAvatar: typeof raw.authorImage === "string" ? raw.authorImage : "",
-      } as Msg,
-    }]
-  }))
-}
-
-function ingestSuccessfulQuery(registry: CommunityDbRegistry, query: Query) {
-  if (query.state.status !== "success") return
-  const key = query.queryKey
-  if (key[0] !== "community" || key[1] === "db") return
-  const data = query.state.data
-  if (key.length === 2 && key[1] === "servers") {
-    ingestServers(registry, data as ServersResponse, "merge")
-    return
-  }
-  if (key.length === 2 && key[1] === "folders") {
-    ingestFolders(registry, data as FoldersResponse, "merge")
-    return
-  }
-  if (key.length === 2 && key[1] === "dms") {
-    ingestDms(registry, data as DmsResponse, "merge")
-    return
-  }
-  if (isCommunityServerDetailQueryKey(key)) {
-    ingestServerDetail(registry, data as ServerDetail, "merge")
-    return
-  }
-  if (key.includes("channel-meta") && data && typeof data === "object") {
-    ingestChannelMetadata(registry, data as Parameters<typeof ingestChannelMetadata>[1])
-    return
-  }
-  if ((key[1] === "channel" || key[1] === "dm") && key.at(-1) === "messages") {
-    const channelId = typeof key[2] === "string" ? key[2] : null
-    if (channelId) ingestMessages(registry, channelId, messagesFromInfiniteData(data))
-    return
-  }
-  if (key[1] === "channel" && typeof key[2] === "string" && key.at(-1) === "pins") {
-    const pins = (data as { pins?: Msg[] } | undefined)?.pins ?? []
-    ingestMessages(registry, key[2], pins)
-    return
-  }
-  if (key[1] === "message-context" && typeof key[3] === "string") {
-    const messages = (data as { messages?: Msg[] } | undefined)?.messages ?? []
-    ingestMessages(registry, key[3], messages)
-    return
-  }
-  if (key[1] === "inbox" && key[2] === "mentions") {
-    const mentions = (data as { mentions?: Array<{ channelId?: string; m: Msg }> } | undefined)
-      ?.mentions ?? []
-    ingestScopedMessages(registry, mentions.flatMap((mention) => (
-      mention.channelId ? [{ channelId: mention.channelId, message: mention.m }] : []
-    )))
-    return
-  }
-  if (key[1] === "inbox" && key[2] === "marked") {
-    const marked = (data as { marked?: Array<{ channelId: string; m: Msg }> } | undefined)
-      ?.marked ?? []
-    ingestScopedMessages(registry, marked.map((entry) => ({
-      channelId: entry.channelId,
-      message: entry.m,
-    })))
-    return
-  }
-  if (key[1] === "channel" && key[3] === "threads" && key[4] === "feed") {
-    ingestScopedMessages(registry, forumMessagesFromData(data))
-    return
-  }
-  if (key[1] === "message" && key.length === 3 && data && typeof data === "object") {
-    const message = data as Msg
-    const existing = collectionRows(registry, "messages", messageSchema)
-      .find((row) => row.id === message.id)
-    const inferredChannelId = existing?.channelId ?? collectionRows(
-      registry,
-      "channels",
-      channelSchema,
-    ).find((row) => row.parentMessageId === message.id)?.parentChannelId
-    if (inferredChannelId) ingestMessages(registry, inferredChannelId, [message])
-    return
-  }
-  if (key.length === 2 && key[1] === "read-state-snapshot") {
-    ingestReadStateSnapshot(registry, data as AccountReadStateSnapshot, "merge")
-    return
-  }
-  if (key.length === 2 && key[1] === "notification-settings") {
-    ingestNotificationSettings(registry, data as NotificationSettings, "merge")
-  }
+      default:
+        return
+    }
+  })
 }
 
 export function installCommunityDbSync(
   queryClient: QueryClient,
   registry: CommunityDbRegistry,
 ) {
-  let disposed = false
-  const ingestAll = () => {
-    if (disposed) return
-    for (const query of queryClient.getQueryCache().getAll()) {
-      ingestSuccessfulQuery(registry, query)
-    }
-  }
-  void registry.preload().then(ingestAll)
-  const unsubscribe = queryClient.getQueryCache().subscribe((event) => {
-    if (disposed || event.type !== "updated") return
-    ingestSuccessfulQuery(registry, event.query)
-  })
-  return () => {
-    disposed = true
-    unsubscribe()
-  }
+  // Canonical collections hydrate themselves. Raw Query payloads are never
+  // replayed into DB: a cache notification does not prove request freshness.
+  void queryClient
+  void registry.preload()
+  return () => {}
 }

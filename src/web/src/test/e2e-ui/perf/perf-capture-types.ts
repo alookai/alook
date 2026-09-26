@@ -1,7 +1,7 @@
 // Shared schema between the Playwright perf spec (producer) and the report
 // generator (consumer). All timestamps are the BROWSER monotonic clock
 // (performance.now()) so network, marks, renders, and layout shifts correlate
-// without cross-clock skew. See plans/community-switch-perf-diagnosis.md.
+// without cross-clock skew.
 
 export type CacheState = "cold" | "memory-warm" | "disk-warm"
 export type SwitchKind = "server" | "channel"

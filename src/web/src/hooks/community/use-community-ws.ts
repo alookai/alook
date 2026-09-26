@@ -57,7 +57,7 @@ export type {
  *
  * Every event either patches the TanStack Query cache directly (fast — no
  * refetch) or invalidates a query key (slow — triggers refetch). The choice
- * is driven by the reconciliation table in `plans/21-community-tech-debt-pass-2.md`.
+ * is driven by the reconciliation table in `the community reconciliation table`.
  *
  * State this hook owns *outside* the query cache:
  * - `useCommunityWsStore.presenceByUserId` — transient presence only; durable

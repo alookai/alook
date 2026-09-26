@@ -17,7 +17,7 @@ vi.mock("child_process", () => ({ execFileSync: vi.fn() }));
  * `resolveSpawnSpec` is what makes Cursor/OpenCode/Codex spawnable on Windows
  * when the CLI resolves to a
  * `.cmd`/`.bat` shim, which `child_process.spawn` can only exec through a
- * shell. See plans/other-drivers-audit-fixes.md finding #2.
+ * shell.
  */
 describe("resolveSpawnSpec", () => {
   it("sets shell: true on win32 when the resolved binary is a .cmd shim", () => {

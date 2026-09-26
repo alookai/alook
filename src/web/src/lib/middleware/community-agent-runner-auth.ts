@@ -8,8 +8,8 @@ const log = createLogger({ service: "community-agent-runner-auth" })
  * The bot identity resolved from a `crk_` runner key — the BOT's own user id,
  * its OWNER's user id, and the machine it's bound to. Consumed by the unified
  * `withCommunityActor` (see community-actor.ts). The legacy `withAgentRunnerAuth`
- * wrapper and the `/api/community/agent/*` route tree it guarded were deleted in
- * plans/22 §9 phase 5 once every bot verb moved onto the unified actor;
+ * wrapper and the `/api/community/agent/*` route tree it guarded were deleted
+ * once every bot verb moved onto the unified actor;
  * `resolveBotActor` is the surviving, shared crk_ validator.
  */
 export interface ResolvedBotActor {

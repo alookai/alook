@@ -19,7 +19,7 @@
  *   - The capture is flushed to switch-events.json after every switch. The
  *     runner clears old artifacts first and only reports a successful run.
  *
- * See plans/community-switch-perf-diagnosis.md. LOCAL-ONLY — runs via
+ * LOCAL-ONLY — runs via
  * playwright.perf.config.ts, which has NO global-setup, so the stress-seeded
  * DB is preserved and this spec drives as the STABLE seed identity recorded in
  * the manifest.

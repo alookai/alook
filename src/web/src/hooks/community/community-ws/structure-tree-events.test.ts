@@ -20,13 +20,18 @@ import { getAccountUnreadProjection } from "@/hooks/community/account-unread-pro
 import {
   capturedOnMessage,
   capturedQueryClient,
+  canonicalForumSidebar,
   cleanupCommunityWsHarness,
   forumSidebarFixture,
+  hasCanonicalChannelAccess,
+  hasCanonicalChannelNotify,
   messageCreate,
   mountHook,
   resetCommunityWsHarness,
   resetHookMemoization,
+  seedCanonicalForumSidebar,
 } from "./test-harness"
+import { getCanonicalCommunityChannels } from "@/lib/community-db/sync"
 
 function forumFeedFixture(rows: Array<{ id: string; opener: string; tags: string[] }>) {
   return {
@@ -269,7 +274,7 @@ describe("useCommunityWs — channel.delete evicts channel-scoped caches", () =>
     capturedQueryClient.setQueryData(communityKeys.pins("ch_dead"), { pins: [{ id: "p" }] })
     capturedQueryClient.setQueryData(communityKeys.threads("ch_dead"), { threads: [{ id: "t" }] })
     const sidebarKey = communityKeys.forumSidebarThreads("srv_1")
-    capturedQueryClient.setQueryData(sidebarKey, forumSidebarFixture(["ch_dead"]))
+    seedCanonicalForumSidebar("srv_1", ["ch_dead"])
 
     const event: CommunityChannelDelete = {
       type: "community:channel.delete",
@@ -281,7 +286,7 @@ describe("useCommunityWs — channel.delete evicts channel-scoped caches", () =>
     expect(capturedQueryClient.getQueryData(communityKeys.channelMessages("ch_dead"))).toBeUndefined()
     expect(capturedQueryClient.getQueryData(communityKeys.pins("ch_dead"))).toBeUndefined()
     expect(capturedQueryClient.getQueryData(communityKeys.threads("ch_dead"))).toBeUndefined()
-    expect(capturedQueryClient.getQueryData<ReturnType<typeof forumSidebarFixture>>(sidebarKey)?.threads).toEqual([])
+    expect(canonicalForumSidebar("srv_1").threads).toEqual([])
   })
 
   it("evicts the deleted row while an active server-tree refetch is pending", async () => {
@@ -382,10 +387,7 @@ describe("useCommunityWs — channel.delete evicts channel-scoped caches", () =>
     }
     capturedQueryClient.setQueryData(communityKeys.forumFeed("forum_1", "bug"), forumFeed)
     capturedQueryClient.setQueryData(communityKeys.forumTags("forum_1"), { tags: ["bug"] })
-    capturedQueryClient.setQueryData(
-      communityKeys.forumSidebarThreads("srv_1"),
-      forumSidebarFixture(["post_1", "post_keep"]),
-    )
+    seedCanonicalForumSidebar("srv_1", ["post_1", "post_keep"])
     capturedQueryClient.setQueryData(
       communityKeys.forumOpenerHint("srv_1", "opener-post_1"),
       { id: "opener-post_1", content: "Post" },
@@ -420,12 +422,8 @@ describe("useCommunityWs — channel.delete evicts channel-scoped caches", () =>
       ?.pages[0].messages.map((message) => message.id)).toEqual(["opener-keep"])
     expect(capturedQueryClient.getQueryData<typeof forumFeed>(communityKeys.forumFeed("forum_1", "bug"))
       ?.pages[0].threads.map((thread) => thread.id)).toEqual(["post_keep"])
-    expect(capturedQueryClient.getQueryData<ReturnType<typeof forumSidebarFixture>>(
-      communityKeys.forumSidebarThreads("srv_1"),
-    )?.threads.map((thread) => thread.id)).toEqual(["post_keep"])
-    expect(capturedQueryClient.getQueryData(
-      communityKeys.forumOpenerHint("srv_1", "opener-post_1"),
-    )).toBeUndefined()
+    expect(canonicalForumSidebar("srv_1").threads.map((thread) => thread.id))
+      .toEqual(["post_keep"])
     expect(getMessageOverlay({ kind: "channel", id: "forum_1", serverId: "srv_1" })
       .liveById.has("opener-post_1")).toBe(false)
     expect(useCommunityStore.getState().currentChannelMeta).toBeNull()
@@ -655,29 +653,7 @@ describe("useCommunityWs — child_create patches parent thread badge with count
     await mountHook()
     const { useCommunityStore } = await import("@/stores/community")
     const baseKey = communityKeys.forumSidebarThreads("s1")
-    const retainedKey = communityKeys.forumSidebarRetained("s1", "post_1")
-    const metaKey = communityKeys.channelMeta("s1", "post_1")
-    const hintKey = communityKeys.forumOpenerHint("s1", "opener-post_1")
-    const fallbackKey = communityKeys.forumSidebarUnreadFallbacks("s1")
-    capturedQueryClient.setQueryData(communityKeys.server("s1"), {
-      id: "s1",
-      categories: [{ id: "cat_1", channels: [{ id: "forum_1", type: "forum" }] }],
-    })
-    const base = forumSidebarFixture(["post_1", "post_2"])
-    capturedQueryClient.setQueryData(baseKey, base)
-    capturedQueryClient.setQueryData(retainedKey, base.threads[0])
-    capturedQueryClient.setQueryData(metaKey, {
-      id: "post_1",
-      parentChannelId: "forum_1",
-      parentMessageId: "opener-post_1",
-    })
-    capturedQueryClient.setQueryData(hintKey, {
-      id: "opener-post_1",
-      content: "Post one",
-    })
-    capturedQueryClient.setQueryData(fallbackKey, {
-      forum_1: { baseUnread: false, childIds: ["post_1"] },
-    })
+    seedCanonicalForumSidebar("s1", ["post_1", "post_2"])
     useCommunityStore.getState().setCurrentChannelId("post_1")
     useCommunityStore.getState().setCurrentChannelMeta({
       name: "Post one",
@@ -692,23 +668,14 @@ describe("useCommunityWs — child_create patches parent thread badge with count
       changes: { tags: ["bug", "archived"] },
     } satisfies CommunityChildChannelUpdate)
 
-    expect(capturedQueryClient.getQueryData<ReturnType<typeof forumSidebarFixture>>(baseKey)
-      ?.threads.map(({ id }) => id)).toEqual(["post_2"])
-    expect(capturedQueryClient.getQueryState(retainedKey)).toBeUndefined()
-    expect(capturedQueryClient.getQueryData(metaKey)).toMatchObject({ id: "post_1" })
-    expect(capturedQueryClient.getQueryData(hintKey)).toEqual({
-      id: "opener-post_1",
-      content: "Post one",
-    })
-    expect(capturedQueryClient.getQueryData(fallbackKey)).toEqual({
-      forum_1: { baseUnread: false, childIds: ["post_1"] },
-    })
+    expect(canonicalForumSidebar("s1").threads.map(({ id }) => id)).toEqual(["post_2"])
+    expect(getCanonicalCommunityChannels(capturedQueryClient)
+      .find(({ id }) => id === "post_1")).toMatchObject({ archived: false })
+    expect(hasCanonicalChannelAccess("post_1", "u_me")).toBe(true)
+    expect(hasCanonicalChannelNotify("post_1", "u_me")).toBe(false)
     expect(useCommunityStore.getState().currentChannelId).toBe("post_1")
     expect(useCommunityStore.getState().currentChannelMeta).toMatchObject({
       parentMessageId: "opener-post_1",
-    })
-    await vi.waitFor(() => {
-      expect(capturedQueryClient.getQueryState(baseKey)?.isInvalidated).toBe(true)
     })
   })
 
@@ -719,25 +686,8 @@ describe("useCommunityWs — child_create patches parent thread badge with count
     await mountHook()
     const { useCommunityStore } = await import("@/stores/community")
     const baseKey = communityKeys.forumSidebarThreads("s1")
-    const retainedKey = communityKeys.forumSidebarRetained("s1", "post_1")
-    const metaKey = communityKeys.channelMeta("s1", "post_1")
-    const hintKey = communityKeys.forumOpenerHint("s1", "opener-post_1")
-    capturedQueryClient.setQueryData(communityKeys.server("s1"), {
-      id: "s1",
-      categories: [{ id: "cat_1", channels: [{ id: "forum_1", type: "forum" }] }],
-    })
-    const base = forumSidebarFixture(["post_1", "post_2"])
-    capturedQueryClient.setQueryData(baseKey, base)
-    capturedQueryClient.setQueryData(retainedKey, base.threads[0])
-    capturedQueryClient.setQueryData(metaKey, {
-      id: "post_1",
-      parentChannelId: "forum_1",
-      parentMessageId: "opener-post_1",
-    })
-    capturedQueryClient.setQueryData(hintKey, {
-      id: "opener-post_1",
-      content: "Post one",
-    })
+    seedCanonicalForumSidebar("s1", ["post_1", "post_2"])
+    const before = canonicalForumSidebar("s1").threads
     useCommunityStore.getState().setCurrentChannelId("post_1")
     useCommunityStore.getState().setCurrentChannelMeta({
       name: "Post one",
@@ -752,17 +702,9 @@ describe("useCommunityWs — child_create patches parent thread badge with count
       changes: { tags },
     } satisfies CommunityChildChannelUpdate)
 
-    expect(capturedQueryClient.getQueryData(baseKey)).toEqual(base)
-    expect(capturedQueryClient.getQueryData(retainedKey)).toEqual(base.threads[0])
-    expect(capturedQueryClient.getQueryData(metaKey)).toMatchObject({ id: "post_1" })
-    expect(capturedQueryClient.getQueryData(hintKey)).toEqual({
-      id: "opener-post_1",
-      content: "Post one",
-    })
+    expect(canonicalForumSidebar("s1").threads).toEqual(before)
     expect(useCommunityStore.getState().currentChannelId).toBe("post_1")
-    await vi.waitFor(() => {
-      expect(capturedQueryClient.getQueryState(baseKey)?.isInvalidated).toBe(true)
-    })
+    expect(capturedQueryClient.getQueryState(baseKey)?.isInvalidated ?? false).toBe(false)
   })
 
   it("child_update rename patches focused child metadata and its cached channel meta", async () => {
@@ -798,11 +740,7 @@ describe("useCommunityWs — child_create patches parent thread badge with count
     await mountHook()
     const { useCommunityStore } = await import("@/stores/community")
     const key = communityKeys.forumSidebarThreads("s1")
-    capturedQueryClient.setQueryData(communityKeys.server("s1"), {
-      id: "s1",
-      categories: [{ id: "cat_1", channels: [{ id: "forum_1", type: "forum" }] }],
-    })
-    capturedQueryClient.setQueryData(key, forumSidebarFixture(["ch_thread"]))
+    seedCanonicalForumSidebar("s1", ["ch_thread"])
     useCommunityStore.getState().setCurrentChannelId("ch_thread")
     useCommunityStore.getState().setCurrentChannelMeta({
       name: "Private title",
@@ -816,7 +754,7 @@ describe("useCommunityWs — child_create patches parent thread badge with count
       channelId: "ch_thread",
       changes: { archived: true, tags: ["bug"] },
     } satisfies CommunityChildChannelUpdate)
-    expect(capturedQueryClient.getQueryData<ReturnType<typeof forumSidebarFixture>>(key)?.threads).toEqual([])
+    expect(canonicalForumSidebar("s1").threads).toEqual([])
     expect(useCommunityStore.getState().currentChannelMeta).toBeNull()
 
     capturedOnMessage!({
@@ -825,9 +763,7 @@ describe("useCommunityWs — child_create patches parent thread badge with count
       channelId: "ch_thread",
       changes: { archived: false },
     } satisfies CommunityChildChannelUpdate)
-    await vi.waitFor(() => {
-      expect(capturedQueryClient.getQueryState(key)?.isInvalidated).toBe(true)
-    })
+    expect(canonicalForumSidebar("s1").threads.map(({ id }) => id)).toEqual(["ch_thread"])
   })
 
   it("clears active child metadata synchronously on channel.delete", async () => {

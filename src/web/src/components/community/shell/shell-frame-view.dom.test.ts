@@ -2,7 +2,9 @@ import { createElement, useLayoutEffect, useState, type ReactNode } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, render } from "@/test/react-dom-harness"
 import { ShellFrameView } from "./shell-frame-view"
+import { CommunitySessionPendingFrame } from "./community-session-pending-frame"
 import type { CommunityCheckpointPlan, CommunitySurface } from "@/lib/community/community-route"
+import { desktopUserBarInitialOverlayCssWidth } from "./shell-frame-geometry"
 
 const mocks = vi.hoisted(() => ({
   onLayoutChanged: vi.fn(),
@@ -14,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   },
   defaultLayoutOptions: vi.fn(),
   groupProps: vi.fn(),
+  handleProps: vi.fn(),
   panelProps: vi.fn(),
   sidebarPanelHandle: {
     getSize: vi.fn(),
@@ -22,6 +25,9 @@ const mocks = vi.hoisted(() => ({
   panelGroupHandle: {
     getLayout: vi.fn(),
     setLayout: vi.fn(),
+  },
+  sidebarElement: {
+    current: null as HTMLElement | null,
   },
   railProps: vi.fn(),
   overlayProps: vi.fn(),
@@ -40,6 +46,9 @@ vi.mock("react-resizable-panels", () => ({
 }))
 vi.mock("./use-hydrated-client", () => ({
   useHydratedClient: () => mocks.hydratedClient.current,
+}))
+vi.mock("@/hooks/use-mobile", () => ({
+  useBreakpoint: () => "desktop",
 }))
 vi.mock("@/components/ui/resizable", () => ({
   ResizablePanelGroup: ({ children, ...props }: Record<string, unknown>) => {
@@ -62,6 +71,11 @@ vi.mock("@/components/ui/resizable", () => ({
     }, [props.id, props.panelRef])
     mocks.panelProps(props)
     return createElement("div", {
+      ref: (node: HTMLDivElement | null) => {
+        if (props.id !== "sidebar") return
+        mocks.sidebarElement.current = node
+        if (node && !node.style.width) node.style.width = "317px"
+      },
       "data-slot": "resizable-panel",
       "data-testid": props.id,
       "data-mobile-active": props["data-mobile-active"],
@@ -70,7 +84,17 @@ vi.mock("@/components/ui/resizable", () => ({
       className: props.className,
     }, children as ReactNode)
   },
-  ResizableHandle: (props: Record<string, unknown>) => createElement("div", { "data-panel-handle": "", className: props.className }),
+  ResizableHandle: (props: Record<string, unknown>) => {
+    mocks.handleProps(props)
+    return createElement("div", {
+      "data-panel-handle": "",
+      className: props.className,
+      ref: (node: HTMLDivElement | null) => {
+        const elementRef = props.elementRef as { current: HTMLDivElement | null }
+        elementRef.current = node
+      },
+    })
+  },
 }))
 vi.mock("@/components/ui/app-surface", () => ({
   AppSurface: ({ children, ...props }: Record<string, unknown>) => createElement("div", { ...props, "data-app-surface": "" }, children as ReactNode),
@@ -83,9 +107,11 @@ vi.mock("./server-rail", () => ({
     mocks.railProps(props)
     return createElement("div", { "data-server-rail": "" })
   },
+  ServerRailPending: () => createElement("div", { "data-server-rail-pending": "" }),
 }))
 vi.mock("./user-bar", () => ({
   UserBar: () => createElement("div", { "data-user-bar": "" }),
+  UserBarSkeleton: () => createElement("div", { "data-user-bar-skeleton": "" }),
 }))
 vi.mock("./community-inbox-popover", () => ({
   InboxPopover: () => createElement("div", { "data-inbox-popover": "" }),
@@ -179,7 +205,9 @@ let animateDescriptor: PropertyDescriptor | undefined
 describe("ShellFrameView", () => {
   beforeEach(() => {
     vi.unstubAllGlobals()
+    mocks.onLayoutChanged.mockClear()
     mocks.groupProps.mockClear()
+    mocks.handleProps.mockClear()
     mocks.panelProps.mockClear()
     mocks.sidebarPanelHandle.getSize.mockReset()
     mocks.sidebarPanelHandle.getSize.mockReturnValue({
@@ -189,6 +217,7 @@ describe("ShellFrameView", () => {
     mocks.sidebarPanelHandle.resize.mockReset()
     mocks.panelGroupHandle.getLayout.mockReset()
     mocks.panelGroupHandle.setLayout.mockReset()
+    mocks.sidebarElement.current = null
     mocks.defaultLayoutOptions.mockClear()
     mocks.railProps.mockClear()
     mocks.overlayProps.mockClear()
@@ -428,6 +457,108 @@ describe("ShellFrameView", () => {
 
     renderer.unmount()
   })
+
+  it("persists the library double-click reset as a user interaction", async () => {
+    const resetLayout = { sidebar: 26, main: 74 }
+    mocks.panelGroupHandle.getLayout.mockReturnValue(resetLayout)
+    const renderer = render(createElement(ShellFrameView, {
+      ...extensionProps,
+      breakpoint: "desktop",
+      checkpoint: committedCheckpoint("/c/me", "list"),
+      sidebar: () => createElement("sidebar-content"),
+      cancelPendingNavigation: vi.fn(),
+      rail,
+      profile,
+      inbox,
+    }, createElement("main-content")))
+
+    await act(async () => {
+      renderer.container.querySelector<HTMLElement>("[data-panel-handle]")!
+        .dispatchEvent(new MouseEvent("dblclick", { bubbles: true }))
+    })
+
+    expect(mocks.sidebarPanelHandle.resize).toHaveBeenCalledOnce()
+    expect(mocks.sidebarPanelHandle.resize).toHaveBeenCalledWith(317)
+    expect(mocks.onLayoutChanged).toHaveBeenCalledOnce()
+    expect(mocks.onLayoutChanged).toHaveBeenCalledWith(
+      resetLayout,
+      { isUserInteraction: true },
+    )
+    renderer.unmount()
+  })
+
+  it.each([100, 160, 240, 350, 360])(
+    "keeps session-pending and loaded shells at the saved %ipx width from the first animation frame",
+    async (savedWidth) => {
+      const savedPercentage = savedWidth / 10
+      mocks.hydratedClient.current = false
+      mocks.defaultLayout.current = {
+        sidebar: savedPercentage,
+        main: 100 - savedPercentage,
+      }
+      mocks.panelGroupHandle.setLayout.mockImplementation((layout: { sidebar: number }) => {
+        const width = Math.min(360, Math.max(100, layout.sidebar * 10))
+        if (mocks.sidebarElement.current) {
+          mocks.sidebarElement.current.style.width = `${width}px`
+        }
+      })
+      const animationFrames: FrameRequestCallback[] = []
+      vi.stubGlobal("requestAnimationFrame", vi.fn((callback: FrameRequestCallback) => {
+        animationFrames.push(callback)
+        return animationFrames.length
+      }))
+      const frames: Array<{ sidebar: number; userBar: string }> = []
+      const captureNextFrame = async () => {
+        requestAnimationFrame(() => {
+          frames.push({
+            sidebar: Number.parseFloat(mocks.sidebarElement.current?.style.width ?? "0"),
+            userBar: renderer.container.querySelector<HTMLElement>(
+              '[data-slot="community-user-bar-overlay"]',
+            )?.style.getPropertyValue("--community-desktop-user-bar-width") ?? "",
+          })
+        })
+        await act(async () => {
+          for (const callback of animationFrames.splice(0)) callback(0)
+        })
+      }
+      const common = {
+        ...extensionProps,
+        breakpoint: "desktop" as const,
+        sidebar: () => createElement("loaded-sidebar"),
+        cancelPendingNavigation: vi.fn(),
+        rail,
+        profile,
+        inbox,
+      }
+      const renderer = render(createElement(
+        CommunitySessionPendingFrame,
+        { pathname: "/c/channels/s2/c2" },
+      ))
+      expect(renderer.container.querySelector("[data-channel-sidebar-skeleton]"))
+        .not.toBeNull()
+      await captureNextFrame()
+
+      mocks.hydratedClient.current = true
+      renderer.rerender(createElement(
+        ShellFrameView,
+        { ...common, checkpoint: committedCheckpoint("/c/channels/s2/c2", "detail") },
+        createElement("loaded-main"),
+      ))
+      await captureNextFrame()
+
+      expect(frames).toEqual([
+        {
+          sidebar: savedWidth,
+          userBar: desktopUserBarInitialOverlayCssWidth(savedPercentage),
+        },
+        {
+          sidebar: savedWidth,
+          userBar: desktopUserBarInitialOverlayCssWidth(savedPercentage),
+        },
+      ])
+      renderer.unmount()
+    },
+  )
 
   it("composes the server-root list surface with desktop rail, sidebar, and landing content", async () => {
     const sidebar = vi.fn(() => createElement("sidebar-content"))

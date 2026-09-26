@@ -340,7 +340,7 @@ describe("community DB projections", () => {
     expect(rendered.result.current.directory).toEqual([
       expect.objectContaining({ id: "s1", channels: expect.arrayContaining([
         expect.objectContaining({ id: "c1" }),
-        expect.objectContaining({ id: "thread1" }),
+        expect.objectContaining({ id: "forum1" }),
       ]) }),
     ])
 

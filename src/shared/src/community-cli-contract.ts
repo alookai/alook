@@ -847,7 +847,7 @@ export type HostCommand =
    * the reconnect transient + closes the pre-existing "register+spawn any
    * agentId" hole). Routed by machineId to the single daemon that owns it (one
    * live credential per machineId). See the `machine:reset_all` case in
-   * `agentRouter` and plans/daemon-batch-reset.md.
+   * `agentRouter`.
    */
   | { type: "machine:reset_all"; resets: Array<{ agentId: AgentId; config: RuntimeConfig; launchId: string }> }
   | { type: "machine:update" }
@@ -981,7 +981,7 @@ export type BotAuditEventPayload =
   // the daemon only after its local six-hour reset barrier commits. `trigger`
   // distinguishes the entry-point so my-bots can read "was reset" vs "slept";
   // `actorId` never travels — it is the bot owner, resolved server-side at the
-  // landing (reset is owner-only). See plans/reset-nap-completion-rehome.md.
+  // landing because reset is owner-only.
   | { kind: "session_reset"; payload: { trigger: "single" | "reset_all" | "idle_timeout" } }
   | { kind: "nap"; payload: { trigger: "nap" } };
 
@@ -1463,7 +1463,7 @@ export function formatSeq(seq: Seq): string {
 // (drizzle, queries) into the daemon bundle. The lockstep guard below also only
 // compiles here, where the `HostCommand` type is in scope.
 //
-// SHALLOW by design (CTO ruling — plans/daemon-downlink-zod.md): validate the
+// SHALLOW by design: validate the
 // discriminant `type` + each arm's REQUIRED top-level scalars, and enumerate
 // EVERY top-level field per arm (including optional load-bearing ones like
 // `wake.sessionId`) so zod's default strip drops nothing real. The nested typed

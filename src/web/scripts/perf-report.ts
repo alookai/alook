@@ -1,6 +1,6 @@
 /**
  * Turn perf-artifacts/switch-events.json into a human-readable
- * perf-artifacts/switch-report.md. See plans/community-switch-perf-diagnosis.md.
+ * perf-artifacts/switch-report.md.
  *
  * The correlation core (`analyzeSwitch`, `renderReport`) is pure and exported
  * for unit testing — no filesystem, no browser.

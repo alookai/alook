@@ -1,5 +1,5 @@
 -- Community schema unification (1/5): merge the membership tables.
--- See plans/community-schema-unification.md.
+-- One relation column now distinguishes access from notification membership.
 --
 -- `community_channel_member` gains two axes on one table:
 --   relation — access | notify. `access` rows gate private units (a channel in

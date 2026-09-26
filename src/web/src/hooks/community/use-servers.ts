@@ -25,6 +25,7 @@ import { useCommunityWsStore } from "@/stores/community/ws"
 import { ApiError } from "@/lib/errors"
 import { evictServerChannelScopes } from "./community-ws/scope-eviction"
 import {
+  useOptionalCommunityDbRegistry,
   useServerRailProjection,
   useServerTreeProjection,
 } from "@/lib/community-db/projections"
@@ -167,6 +168,7 @@ export function useServers(): UseQueryResult<ServersResponse> & {
   servers: Server[]
   isLiveAuthoritative: boolean
 } {
+  const registry = useOptionalCommunityDbRegistry()
   const dbRail = useServerRailProjection()
   const queryClient = useQueryClient()
   const structuralGeneration = useSyncExternalStore(
@@ -245,21 +247,9 @@ export function useServers(): UseQueryResult<ServersResponse> & {
   }, [query.data, unreadProjection])
   const projectedServers = useMemo(() => {
     void unreadVersion
-    const queryServers = query.data?.servers
-    const raw = queryServers
-      ? queryServers.flatMap((server) => {
-          if (!unreadProjection.allowsAccess({ serverId: server.id })) return []
-          const canonical = dbRail?.servers.find((candidate) => candidate.id === server.id)
-          return canonical ? [{
-            ...server,
-            ...canonical,
-            unread: server.unread,
-            mentions: server.mentions,
-            ...(server.unreadSources ? { unreadSources: server.unreadSources } : {}),
-            ...(server.mentionSources ? { mentionSources: server.mentionSources } : {}),
-          }] : [server]
-        })
-      : dbRail?.servers.filter((server) => unreadProjection.allowsAccess({ serverId: server.id }))
+    const raw = registry
+      ? dbRail?.servers.filter((server) => unreadProjection.allowsAccess({ serverId: server.id }))
+      : query.data?.servers.filter((server) => unreadProjection.allowsAccess({ serverId: server.id }))
     if (!raw) return undefined
     let changed = false
     const projected = raw.map((server) => {
@@ -280,7 +270,7 @@ export function useServers(): UseQueryResult<ServersResponse> & {
       return { ...server, unread, mentions }
     })
     return changed ? projected : raw
-  }, [dbRail?.servers, query.data, unreadExclusion, unreadProjection, unreadVersion])
+  }, [dbRail?.servers, query.data, registry, unreadExclusion, unreadProjection, unreadVersion])
   return {
     ...query,
     servers: projectedServers ?? (EMPTY_SERVERS as Server[]),
@@ -515,6 +505,7 @@ export const serverProjectedQueryFn = (
 export function useServer(
   serverId: string | null,
 ): UseQueryResult<ServerDetail> & { server: ServerDetail | null } {
+  const registry = useOptionalCommunityDbRegistry()
   const dbServer = useServerTreeProjection(serverId)
   const queryClient = useQueryClient()
   const unreadProjection = useMemo(
@@ -586,7 +577,7 @@ export function useServer(
   }, [query.data, serverId, unreadProjection])
   const projectedServer = useMemo(() => {
     void unreadVersion
-    const source = dbServer ?? query.data
+    const source = registry ? dbServer : query.data
     if (!source || !serverId) return null
     const sourceByChannel = new Map(
       (query.data?.unreadSources ?? []).map((source) => [source.channelId, source]),
@@ -619,7 +610,7 @@ export function useServer(
       return { ...category, channels }
     })
     return changed ? { ...source, categories } : source
-  }, [dbServer, query.data, unreadExclusion, serverId, unreadProjection, unreadVersion])
+  }, [dbServer, query.data, registry, unreadExclusion, serverId, unreadProjection, unreadVersion])
   return {
     ...query,
     server: query.error instanceof ApiError

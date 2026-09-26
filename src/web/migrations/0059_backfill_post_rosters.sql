@@ -1,5 +1,5 @@
 -- Backfill: give existing forum POSTS their own member roster.
--- See plans/nested-membership-model.md (Phase D).
+-- Existing posts inherit the members who could already access their parent forum.
 --
 -- Before the nested-membership model, a forum_post inherited its forum's
 -- audience. Now a post owns its roster. Without this backfill, existing posts

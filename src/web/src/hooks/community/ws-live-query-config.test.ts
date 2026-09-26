@@ -58,6 +58,7 @@ vi.mock("@/lib/api/client", () => ({
   toastApiError: vi.fn(),
 }))
 vi.mock("@/lib/community-db/projections", () => ({
+  useOptionalCommunityDbRegistry: () => null,
   useServerRailProjection: () => undefined,
   useServerTreeProjection: () => undefined,
 }))

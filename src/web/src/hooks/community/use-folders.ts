@@ -12,7 +12,10 @@ import { communityKeys } from "@/lib/query-keys"
 import { avatarInitial } from "@/lib/community/avatar"
 import type { CommunityFolder } from "@/lib/community/models/navigation"
 import { useCommunityWsStore } from "@/stores/community/ws"
-import { useServerRailProjection } from "@/lib/community-db/projections"
+import {
+  useOptionalCommunityDbRegistry,
+  useServerRailProjection,
+} from "@/lib/community-db/projections"
 import {
   captureCommunityLiveSnapshotToken,
   publishCommunityLiveSnapshot,
@@ -87,6 +90,7 @@ export const foldersProjectedQueryFn = (
 export function useFolders(): UseQueryResult<FoldersResponse> & {
   folders: CommunityFolder[]
 } {
+  const registry = useOptionalCommunityDbRegistry()
   const dbRail = useServerRailProjection()
   const queryClient = useQueryClient()
   const query = useQuery({
@@ -95,6 +99,8 @@ export function useFolders(): UseQueryResult<FoldersResponse> & {
   })
   return {
     ...query,
-    folders: dbRail?.folders ?? query.data?.folders ?? (EMPTY_FOLDERS as CommunityFolder[]),
+    folders: registry
+      ? dbRail?.folders ?? (EMPTY_FOLDERS as CommunityFolder[])
+      : query.data?.folders ?? (EMPTY_FOLDERS as CommunityFolder[]),
   }
 }

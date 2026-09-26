@@ -47,6 +47,56 @@ describe("useCommunityStore", () => {
     })
   })
 
+  it("does not notify for semantically equal effect-facing writes", () => {
+    const listener = vi.fn()
+    const unsubscribe = useCommunityStore.subscribe(listener)
+    const store = useCommunityStore.getState()
+
+    store.setCurrentServerId("s1")
+    listener.mockClear()
+    store.setCurrentServerId("s1")
+    expect(listener).not.toHaveBeenCalled()
+
+    store.setCurrentChannelMeta({
+      name: "post",
+      parentChannelId: "forum-1",
+      parentMessageId: "opener-1",
+      creatorId: "user-1",
+    })
+    listener.mockClear()
+    store.setCurrentChannelMeta({
+      name: "post",
+      parentChannelId: "forum-1",
+      parentMessageId: "opener-1",
+      creatorId: "user-1",
+    })
+    expect(listener).not.toHaveBeenCalled()
+
+    store.setPendingMachineTokenId("token-1")
+    listener.mockClear()
+    store.setPendingMachineTokenId("token-1")
+    expect(listener).not.toHaveBeenCalled()
+
+    store.setPendingReply({
+      channelId: "channel-1",
+      target: { id: "message-1", authorName: "Alice", text: "hello" },
+    })
+    listener.mockClear()
+    store.setPendingReply({
+      channelId: "channel-1",
+      target: { id: "message-1", authorName: "Alice", text: "hello" },
+    })
+    expect(listener).not.toHaveBeenCalled()
+
+    const previewImage = vi.fn()
+    store.registerUiHandlers({ previewImage })
+    listener.mockClear()
+    store.registerUiHandlers({ previewImage })
+    expect(listener).not.toHaveBeenCalled()
+
+    unsubscribe()
+  })
+
   it("subscribe / unsubscribe mutate the subscription slot", () => {
     useCommunityStore.getState().subscribe({ channelId: "c1" })
     expect(useCommunityStore.getState().subscription).toEqual({ channelId: "c1" })

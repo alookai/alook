@@ -7,14 +7,11 @@ import { communityKeys } from "@/lib/query-keys"
 import {
   clearPersistedCache,
   createIdbPersister,
-  isTrustedMessagesPageZero,
   MAX_PERSISTED_MESSAGES_PER_SCOPE,
   MAX_PERSISTED_MESSAGE_SCOPES,
-  MAX_PERSISTED_SERVER_DETAILS,
   shouldPersistQuery,
   shouldPersistQueryKey,
 } from "@/lib/query-persister"
-import type { MessagesPage } from "@/lib/community/models/message"
 
 // ── shouldPersistQueryKey ─────────────────────────────────────────────────
 
@@ -33,11 +30,11 @@ describe("shouldPersistQueryKey", () => {
     )).toBe(true)
   })
 
-  it("persists the minimum warm-shell read closure", () => {
-    expect(shouldPersistQueryKey(communityKeys.servers())).toBe(true)
-    expect(shouldPersistQueryKey(communityKeys.folders())).toBe(true)
-    expect(shouldPersistQueryKey(communityKeys.dms())).toBe(true)
-    expect(shouldPersistQueryKey(communityKeys.server("srv_1"))).toBe(true)
+  it("does not persist raw warm-shell transport queries", () => {
+    expect(shouldPersistQueryKey(communityKeys.servers())).toBe(false)
+    expect(shouldPersistQueryKey(communityKeys.folders())).toBe(false)
+    expect(shouldPersistQueryKey(communityKeys.dms())).toBe(false)
+    expect(shouldPersistQueryKey(communityKeys.server("srv_1"))).toBe(false)
   })
 
   it("does NOT persist channel read-state snapshot (refetched on every mount)", () => {
@@ -62,6 +59,17 @@ describe("shouldPersistQueryKey", () => {
     expect(shouldPersistQueryKey(communityKeys.inbox())).toBe(false)
   })
 
+  it("does not restore transient transport state on reload", () => {
+    expect(shouldPersistQueryKey(communityKeys.forumSidebarThreads("srv_1"))).toBe(false)
+    expect(shouldPersistQueryKey(communityKeys.channelMeta("srv_1", "thread_1"))).toBe(false)
+    expect(shouldPersistQueryKey(communityKeys.message("opener_1"))).toBe(false)
+    expect(shouldPersistQueryKey(communityKeys.channelRefDirectory())).toBe(false)
+    expect(shouldPersistQueryKey(communityKeys.presence("srv_1"))).toBe(false)
+    expect(shouldPersistQueryKey(
+      communityKeys.communityDbCollection("u_1", "channels"),
+    )).toBe(true)
+  })
+
   it("does NOT persist pins/threads/forum tags (message-related but ephemeral)", () => {
     expect(shouldPersistQueryKey(communityKeys.pins("ch_1"))).toBe(false)
     expect(shouldPersistQueryKey(communityKeys.threads("ch_1"))).toBe(false)
@@ -75,14 +83,6 @@ describe("shouldPersistQueryKey", () => {
 })
 
 // ── createIdbPersister: serialize scrubbing ───────────────────────────────
-
-function makePage(messages: Array<Partial<MessagesPage["messages"][number]>>): MessagesPage {
-  return {
-    messages: messages as MessagesPage["messages"],
-    hasMore: false,
-    latestSeq: 0,
-  }
-}
 
 const validServer = {
   id: "srv_1",
@@ -177,11 +177,15 @@ describe("createIdbPersister — serialize filter", () => {
     const qc = new QueryClient()
     qc.setQueryData(communityKeys.channelMessages("ch_1"), {
       pages: [
-        makePage([
-          { id: "m_real_1", content: "keep", createdAt: "2026-07-01T00:00:00.000Z" },
-          { id: "temp_abc", content: "drop", createdAt: "2026-07-01T00:00:01.000Z" },
-          { id: "m_real_2", content: "keep", createdAt: "2026-07-01T00:00:02.000Z" },
-        ]),
+        {
+          messages: [
+            { id: "m_real_1", content: "keep", createdAt: "2026-07-01T00:00:00.000Z" },
+            { id: "temp_abc", content: "drop", createdAt: "2026-07-01T00:00:01.000Z" },
+            { id: "m_real_2", content: "keep", createdAt: "2026-07-01T00:00:02.000Z" },
+          ],
+          hasMore: false,
+          latestSeq: 0,
+        },
       ],
       pageParams: [{ mode: "newest" }],
     })
@@ -210,15 +214,19 @@ describe("createIdbPersister — serialize filter", () => {
     const qc = new QueryClient()
     qc.setQueryData(communityKeys.dmMessages("dm_1"), {
       pages: [
-        makePage([
-          { id: "m_ok", content: "keep", createdAt: "2026-07-01T00:00:00.000Z" },
-          {
-            id: "m_bad",
-            content: "drop",
-            createdAt: "2026-07-01T00:00:01.000Z",
-            failed: true,
-          },
-        ]),
+        {
+          messages: [
+            { id: "m_ok", content: "keep", createdAt: "2026-07-01T00:00:00.000Z" },
+            {
+              id: "m_bad",
+              content: "drop",
+              createdAt: "2026-07-01T00:00:01.000Z",
+              failed: true,
+            },
+          ],
+          hasMore: false,
+          latestSeq: 0,
+        },
       ],
       pageParams: [{ mode: "newest" }],
     })
@@ -243,123 +251,13 @@ describe("createIdbPersister — serialize filter", () => {
     expect(blob.clientState.queries).toEqual([])
   })
 
-  it("drops message queries whose pages[0] is a since-mode envelope (no hasMore flag on tail)", async () => {
-    const qc = new QueryClient()
-    // Simulate a since-mode envelope: only `hasMoreNewer` / `newerCursor` /
-    // `latestSeq` — no `hasMore`, no `hasMoreOlder`. If we persisted this,
-    // the next mount would compute `hasMoreOlder ?? hasMore ?? false === false`
-    // and silently claim there's no more history.
-    qc.setQueryData(communityKeys.channelMessages("ch_since"), {
-      pages: [
-        {
-          messages: [
-            { id: "m_1", content: "x", createdAt: "2026-07-01T00:00:00.000Z" },
-          ],
-          hasMoreNewer: true,
-          newerCursor: "cur_new",
-          latestSeq: 42,
-        },
-      ],
-      pageParams: [{ mode: "since", since: "cur_since" }],
-    })
-
-    const persister = createIdbPersister("u_1")
-    await persister.persistClient({
-      timestamp: Date.now(),
-      buster: "v1",
-      clientState: {
-        mutations: [],
-        queries: [
-          {
-            queryKey: communityKeys.channelMessages("ch_since"),
-            queryHash: JSON.stringify(communityKeys.channelMessages("ch_since")),
-            state: qc.getQueryState(communityKeys.channelMessages("ch_since"))!,
-          },
-        ],
-      },
-    })
-
-    const blob = await readPersistedBlob("u_1")
-    // The whole query was dropped by scrubDehydratedClient — nothing to
-    // rehydrate, so the next mount refetches from scratch (self-healing).
-    expect(blob.clientState.queries).toHaveLength(0)
-  })
-
-  it("drops anchor-mode transport messages even with a trustworthy tail", async () => {
-    const qc = new QueryClient()
-    qc.setQueryData(communityKeys.channelMessages("ch_anchor"), {
-      pages: [
-        {
-          messages: [
-            { id: "m_1", content: "x", createdAt: "2026-07-01T00:00:00.000Z" },
-          ],
-          hasMoreOlder: true,
-          olderCursor: "cur_older",
-          hasMoreNewer: false,
-          latestSeq: 42,
-        },
-      ],
-      pageParams: [{ mode: "anchor", anchor: "m_1" }],
-    })
-
-    const persister = createIdbPersister("u_1")
-    await persister.persistClient({
-      timestamp: Date.now(),
-      buster: "v1",
-      clientState: {
-        mutations: [],
-        queries: [
-          {
-            queryKey: communityKeys.channelMessages("ch_anchor"),
-            queryHash: JSON.stringify(communityKeys.channelMessages("ch_anchor")),
-            state: qc.getQueryState(communityKeys.channelMessages("ch_anchor"))!,
-          },
-        ],
-      },
-    })
-
-    const blob = await readPersistedBlob("u_1")
-    expect(blob.clientState.queries).toHaveLength(0)
-  })
-
-  it("drops legacy newest-mode transport messages", async () => {
-    const qc = new QueryClient()
-    qc.setQueryData(communityKeys.channelMessages("ch_legacy"), {
-      pages: [
-        makePage([
-          { id: "m_1", content: "x", createdAt: "2026-07-01T00:00:00.000Z" },
-        ]),
-      ],
-      pageParams: [{ mode: "newest" }],
-    })
-
-    const persister = createIdbPersister("u_1")
-    await persister.persistClient({
-      timestamp: Date.now(),
-      buster: "v1",
-      clientState: {
-        mutations: [],
-        queries: [
-          {
-            queryKey: communityKeys.channelMessages("ch_legacy"),
-            queryHash: JSON.stringify(communityKeys.channelMessages("ch_legacy")),
-            state: qc.getQueryState(communityKeys.channelMessages("ch_legacy"))!,
-          },
-        ],
-      },
-    })
-
-    const blob = await readPersistedBlob("u_1")
-    expect(blob.clientState.queries).toHaveLength(0)
-  })
-
-  it("keeps valid shell queries and bounds server details by recency", async () => {
+  it("drops valid raw shell queries and server details", async () => {
     const qc = new QueryClient()
     qc.setQueryData(communityKeys.servers(), { servers: [validServer] }, { updatedAt: 1 })
     qc.setQueryData(communityKeys.folders(), { folders: [validFolder] }, { updatedAt: 2 })
     qc.setQueryData(communityKeys.dms(), { conversations: [validDm] }, { updatedAt: 3 })
     const detailKeys = Array.from(
-      { length: MAX_PERSISTED_SERVER_DETAILS + 2 },
+      { length: 2 },
       (_, index) => communityKeys.server(`srv_${index}`),
     )
     detailKeys.forEach((key, index) => {
@@ -386,12 +284,7 @@ describe("createIdbPersister — serialize filter", () => {
     })
 
     const blob = await readPersistedBlob("u_1")
-    expect(blob.clientState.queries.map((query) => query.queryKey)).toEqual([
-      communityKeys.servers(),
-      communityKeys.folders(),
-      communityKeys.dms(),
-      ...detailKeys.slice(2).reverse(),
-    ])
+    expect(blob.clientState.queries.map((query) => query.queryKey)).toEqual([])
   })
 
   it("windows canonical server trees, message tails, and referenced profiles", async () => {
@@ -530,6 +423,7 @@ describe("createIdbPersister — serialize filter", () => {
         { id: "dm_0:dm_peer:access", channelId: "dm_0", userId: "dm_peer", relation: "access" },
         { id: "dm_0:notify_only:notify", channelId: "dm_0", userId: "notify_only", relation: "notify" },
         { id: "ch_6:u_1:access", channelId: "ch_6", userId: "u_1", relation: "access" },
+        { id: "ch_6:u_1:notify", channelId: "ch_6", userId: "u_1", relation: "notify" },
         { id: "ch_6:roster_only:access", channelId: "ch_6", userId: "roster_only", relation: "access" },
       ],
       readStates: [
@@ -583,7 +477,7 @@ describe("createIdbPersister — serialize filter", () => {
       .map((message) => message.id)).toEqual(["dm_0:tie_b", "dm_0:tie_a"])
     expect(Math.min(...persistedMessages.map((message) => message.seq))).toBe(1)
     expect((collection("categories") as Array<{ serverId: string }>).map((row) => row.serverId))
-      .toEqual(["srv_2", "srv_3", "srv_4", "srv_5", "srv_6"])
+      .toEqual(["srv_0", "srv_1", "srv_2", "srv_3", "srv_4", "srv_5", "srv_6"])
     expect((collection("servers") as Array<{ id: string; position?: number }>).map((row) => ({
       id: row.id,
       position: row.position,
@@ -593,7 +487,9 @@ describe("createIdbPersister — serialize filter", () => {
     })))
     expect((collection("channels") as Array<{ serverId: string | null }>).filter(
       (row) => row.serverId !== null,
-    ).map((row) => row.serverId)).toEqual(["srv_2", "srv_3", "srv_4", "srv_5", "srv_6"])
+    ).map((row) => row.serverId)).toEqual([
+      "srv_0", "srv_1", "srv_2", "srv_3", "srv_4", "srv_5", "srv_6",
+    ])
     const profileIds = new Set((collection("profiles") as Array<{ userId: string }>).map(
       (row) => row.userId,
     ))
@@ -618,8 +514,9 @@ describe("createIdbPersister — serialize filter", () => {
       expect.objectContaining({ channelId: "dm_0", userId: "u_1", relation: "access" }),
       expect.objectContaining({ channelId: "dm_0", userId: "dm_peer", relation: "access" }),
       expect.objectContaining({ channelId: "ch_6", userId: "u_1", relation: "access" }),
+      expect.objectContaining({ channelId: "ch_6", userId: "u_1", relation: "notify" }),
     ]))
-    expect(collection("channelMemberships")).toHaveLength(3)
+    expect(collection("channelMemberships")).toHaveLength(4)
     expect((collection("readStates") as Array<{ channelId: string }>).map((row) => row.channelId))
       .toEqual(["ch_0", "dm_0"])
     expect(collection("readStateClock")).toEqual([{ id: "account", revision: 9 }])
@@ -709,117 +606,16 @@ describe("createIdbPersister — serialize filter", () => {
   })
 })
 
-// ── isTrustedMessagesPageZero + shouldPersistQuery invariants ────────────
-
-describe("isTrustedMessagesPageZero", () => {
-  it("trusts legacy newest-mode envelopes (hasMore defined, no anchor flags)", () => {
-    expect(
-      isTrustedMessagesPageZero({ messages: [], hasMore: false, latestSeq: 0 }),
-    ).toBe(true)
-    expect(
-      isTrustedMessagesPageZero({ messages: [], hasMore: true, latestSeq: 0 }),
-    ).toBe(true)
-  })
-
-  it("trusts anchor-mode envelopes with the tail attached (hasMoreNewer=false)", () => {
-    expect(
-      isTrustedMessagesPageZero({
-        messages: [],
-        hasMoreOlder: true,
-        hasMoreNewer: false,
-        latestSeq: 0,
-      }),
-    ).toBe(true)
-  })
-
-  it("rejects since-mode envelopes (no hasMore flag on tail)", () => {
-    expect(
-      isTrustedMessagesPageZero({
-        messages: [],
-        hasMoreNewer: true,
-        newerCursor: "c",
-        latestSeq: 0,
-      }),
-    ).toBe(false)
-  })
-
-  it("rejects a tail-attached page that carries NO older-side signal", () => {
-    // hasMoreNewer===false alone is not enough — without an older-side signal
-    // the next mount computes `hasMoreOlder ?? hasMore ?? false === false` and
-    // scroll-up dies. This is the exact shape the DM-history bug rehydrated.
-    expect(
-      isTrustedMessagesPageZero({
-        messages: [],
-        hasMoreNewer: false,
-        newerCursor: undefined,
-        latestSeq: 0,
-      }),
-    ).toBe(false)
-  })
-
-  it("trusts a since page once it carries the older-side signal (post-fix shape)", () => {
-    // buildSinceResponse now emits hasMoreOlder + olderCursor, so even a since
-    // delta that lands as the standalone tail can be paged back through.
-    expect(
-      isTrustedMessagesPageZero({
-        messages: [],
-        hasMoreNewer: false,
-        hasMoreOlder: true,
-        olderCursor: "cur_older",
-        latestSeq: 0,
-      }),
-    ).toBe(true)
-  })
-
-  it("rejects anchor-mode envelopes that still have newer history above (hasMoreNewer=true)", () => {
-    expect(
-      isTrustedMessagesPageZero({
-        messages: [],
-        hasMoreOlder: false,
-        hasMoreNewer: true,
-        latestSeq: 0,
-      }),
-    ).toBe(false)
-  })
-
-  it("rejects undefined pages", () => {
-    expect(isTrustedMessagesPageZero(undefined)).toBe(false)
-  })
-})
-
 describe("shouldPersistQuery", () => {
-  it("returns false for a transport message query even with a trusted page[0]", () => {
+  it("persists only canonical collection keys regardless of data", () => {
     expect(
-      shouldPersistQuery(communityKeys.channelMessages("ch_1"), {
-        pages: [{ messages: [], hasMore: false, latestSeq: 0 }],
-        pageParams: [],
-      }),
-    ).toBe(false)
-  })
-
-  it("returns false for a message query with an untrusted page[0]", () => {
-    expect(
-      shouldPersistQuery(communityKeys.channelMessages("ch_1"), {
-        pages: [{ messages: [], hasMoreNewer: true, newerCursor: "c", latestSeq: 0 }],
-        pageParams: [],
-      }),
-    ).toBe(false)
-  })
-
-  it("returns false for message queries with empty pages", () => {
-    expect(
-      shouldPersistQuery(communityKeys.channelMessages("ch_1"), {
-        pages: [],
-        pageParams: [],
-      }),
-    ).toBe(false)
-  })
-
-  it("accepts allowlisted shell queries before serialize-time shape scrubbing", () => {
-    expect(shouldPersistQuery(communityKeys.servers(), { servers: [] })).toBe(true)
-  })
-
-  it("returns false for keys outside the allowlist regardless of data", () => {
+      shouldPersistQuery(
+        communityKeys.communityDbCollection("u_1", "channels"),
+        undefined,
+      ),
+    ).toBe(true)
+    expect(shouldPersistQuery(communityKeys.servers(), { servers: [] })).toBe(false)
+    expect(shouldPersistQuery(communityKeys.channelMessages("ch_1"), undefined)).toBe(false)
     expect(
       shouldPersistQuery(communityKeys.channelReadStateSnapshot("ch_1"), {
         lastReadMessageId: "m_1",

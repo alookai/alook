@@ -10,6 +10,10 @@ import { canonicalUserImage } from "@/lib/community/storage"
 import { readForumTagSelection, validateForumTagSelection, writeForumTagSelection } from "@/lib/community/forum-tag-selection"
 import type { ForumThread } from "@/lib/community/models/message"
 import { useCanonicalMessagesById } from "@/lib/community-db/projections"
+import {
+  captureCommunityLiveSnapshotToken,
+  publishCommunityEmbeddedMessages,
+} from "@/lib/community-db/sync"
 import { useForumTags } from "./use-channel-panels"
 import {
   projectForumThreadsThroughActiveTagTransitions,
@@ -19,8 +23,15 @@ import {
 export { removeForumPostFromFeed } from "./forum-feed-tag-transition"
 export type { ForumFeedPage } from "./forum-feed-tag-transition"
 
-export function forumFeedPageQueryFn(channelId: string, tag: string | null) {
+export function forumFeedPageQueryFn(
+  channelId: string,
+  tag: string | null,
+  queryClient?: ReturnType<typeof useQueryClient>,
+) {
   return ({ pageParam, signal }: { pageParam: string | null; signal?: AbortSignal }) => {
+    const publicationToken = queryClient
+      ? captureCommunityLiveSnapshotToken(queryClient)
+      : null
     const params = new URLSearchParams({
       order: "createdAt",
       limit: String(DEFAULT_MESSAGE_PAGE_SIZE),
@@ -59,7 +70,32 @@ export function forumFeedPageQueryFn(channelId: string, tag: string | null) {
         })),
       ],
       signal ? { signal } : undefined,
-    )
+    ).then((page) => {
+      if (queryClient && publicationToken) {
+        publishCommunityEmbeddedMessages(queryClient, {
+          entries: page.included.parentMessages.map((message) => ({
+            channelId: message.channelId,
+            message: {
+              id: message.id,
+              type: "chat",
+              seq: message.seq,
+              createdAt: message.createdAt,
+              content: message.content,
+              authorId: message.authorId,
+              authorName: message.authorName,
+              authorAvatar: canonicalUserImage(
+                message.authorId,
+                message.authorImage,
+                message.authorAvatarVersion,
+              ) ?? undefined,
+              authorAvatarVersion: message.authorAvatarVersion,
+            },
+          })),
+          proof: { token: publicationToken, signal },
+        })
+      }
+      return page
+    })
   }
 }
 
@@ -97,23 +133,36 @@ export function mapForumFeedPages(
       createdAtById.set(thread.id, thread.createdAt)
       const rawOpener = thread.parentMessageId ? openerById.get(thread.parentMessageId) : undefined
       const canonicalOpener = rawOpener ? canonicalMessages?.get(rawOpener.id) : undefined
-      const opener = rawOpener && canonicalOpener
-        ? {
-            ...rawOpener,
-            content: canonicalOpener.content ?? rawOpener.content,
-            authorId: canonicalOpener.authorId ?? rawOpener.authorId,
-            authorName: canonicalOpener.authorName ?? rawOpener.authorName,
-            authorImage: canonicalOpener.authorAvatar ?? rawOpener.authorImage,
-            authorAvatarVersion: canonicalOpener.authorAvatarVersion
-              ?? rawOpener.authorAvatarVersion,
-            createdAt: canonicalOpener.createdAt ?? rawOpener.createdAt,
-            seq: canonicalOpener.seq ?? rawOpener.seq,
-          }
-        : rawOpener
-      const first = firstByChannel.get(thread.id)
+      if (canonicalMessages !== undefined && thread.parentMessageId && !canonicalOpener) continue
+      const opener = canonicalMessages === undefined
+        ? rawOpener
+          ? {
+              id: rawOpener.id,
+              type: "chat" as const,
+              content: rawOpener.content,
+              authorId: rawOpener.authorId,
+              authorName: rawOpener.authorName,
+              authorAvatar: canonicalUserImage(
+                rawOpener.authorId,
+                rawOpener.authorImage,
+                rawOpener.authorAvatarVersion,
+              ) ?? undefined,
+              authorAvatarVersion: rawOpener.authorAvatarVersion,
+              createdAt: rawOpener.createdAt,
+              seq: rawOpener.seq,
+            }
+          : undefined
+        : canonicalOpener
+      // The forum transport exposes firstMessages only as a channel/content
+      // preview with no stable message identity. It is a providerless read
+      // projection only; a canonical-backed surface must never treat it as a
+      // second message entity source because edits/deletes cannot reconcile it.
+      const first = canonicalMessages === undefined
+        ? firstByChannel.get(thread.id)
+        : undefined
       byId.set(thread.id, {
         id: thread.id,
-        name: opener?.content.trim() ? opener.content : thread.name?.trim() || "Post",
+        name: opener?.content?.trim() ? opener.content : thread.name?.trim() || "Post",
         messageCount: thread.messageCount ?? 0,
         lastMessageAt: thread.activityAt,
         parent: {
@@ -123,13 +172,12 @@ export function mapForumFeedPages(
         },
         authorId: opener?.authorId ?? thread.creatorId ?? "",
         authorAvatar: opener
-          ? canonicalUserImage(opener.authorId, opener.authorImage, opener.authorAvatarVersion)
-            ?? avatarInitial(opener.authorName)
+          ? opener.authorAvatar ?? avatarInitial(opener.authorName ?? "")
           : avatarInitial(""),
         authorAvatarVersion: opener?.authorAvatarVersion ?? 0,
         openerMessageId: thread.parentMessageId ?? "",
         ...(opener?.createdAt ? { openerCreatedAt: opener.createdAt } : {}),
-        ...(opener ? { parentSeq: opener.seq } : {}),
+        ...(opener?.seq !== undefined ? { parentSeq: opener.seq } : {}),
         tags: thread.parentMessageId ? tagsByMessage.get(thread.parentMessageId) ?? [] : [],
         preview: (first?.content ?? "").slice(0, 100),
         participants: participantsByChannel.get(thread.id) ?? [],
@@ -172,7 +220,7 @@ export function useForumFeed(_serverId: string, channelId: string) {
     string | null
   >({
     queryKey,
-    queryFn: forumFeedPageQueryFn(channelId, selectedTag),
+    queryFn: forumFeedPageQueryFn(channelId, selectedTag, queryClient),
     initialPageParam: null,
     getNextPageParam: (lastPage) => lastPage.hasMore ? lastPage.nextCursor : undefined,
   })

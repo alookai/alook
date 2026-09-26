@@ -11,6 +11,7 @@ const dbRail = vi.hoisted(() => ({
 }))
 vi.mock("@/lib/community-db/projections", () => ({
   useServerRailProjection: () => dbRail.current,
+  useOptionalCommunityDbRegistry: () => ({}),
 }))
 vi.mock("@/lib/api/client", () => ({ apiFetch: vi.fn(() => new Promise(() => undefined)) }))
 

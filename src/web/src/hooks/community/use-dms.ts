@@ -14,7 +14,10 @@ import {
 import { communityKeys } from "@/lib/query-keys"
 import type { DM } from "@/lib/community/models/people"
 import { useEffect, useMemo, useSyncExternalStore } from "react"
-import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
+import {
+  useCanonicalProfilesByUserId,
+  useOptionalCommunityDbRegistry,
+} from "@/lib/community-db/projections"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 import {
   getActiveAccountUnreadProjection,
@@ -90,6 +93,7 @@ export const dmsProjectedQueryFn = (
 }
 
 export function useDms(): UseQueryResult<DmsResponse> & { dms: DM[] } {
+  const registry = useOptionalCommunityDbRegistry()
   const dbDms = useDmProjection()
   const queryClient = useQueryClient()
   const unreadProjection = useMemo(
@@ -138,7 +142,10 @@ export function useDms(): UseQueryResult<DmsResponse> & { dms: DM[] } {
   }, [query.data, unreadProjection])
   const dms = useMemo(() => {
     void unreadVersion
-    return (dbDms ?? query.data?.conversations ?? EMPTY_DMS).map((dm) => {
+    const source = registry
+      ? dbDms ?? EMPTY_DMS
+      : query.data?.conversations ?? EMPTY_DMS
+    return source.map((dm) => {
       const liveProfile = profilesByUserId.get(dm.userId)
       const profile = readCommunityProfile(liveProfile, dm.userId)
       const unread = selectUnreadPresentation({
@@ -161,7 +168,7 @@ export function useDms(): UseQueryResult<DmsResponse> & { dms: DM[] } {
         unread,
       }
     })
-  }, [dbDms, profilesByUserId, query.data?.conversations, unreadExclusion, unreadProjection, unreadVersion])
+  }, [dbDms, profilesByUserId, query.data?.conversations, registry, unreadExclusion, unreadProjection, unreadVersion])
   return {
     ...query,
     dms,

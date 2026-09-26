@@ -868,7 +868,7 @@ describe("reduceManager — tick: stall + idle hibernation", () => {
   });
 });
 
-// Batch A (plans/daemon-fsm-desync.md): the suspected-deaf detector catches the
+// The suspected-deaf detector catches the
 // gated-no-further-turn_end permanent orphan that slips BOTH existing tick
 // predicates. Reproduces Olivia's wedge: a gated agent turn-ends idle, a later
 // wake drain-sends (stamping lastDeliverAt, re-arming turnActive), then the
@@ -948,8 +948,8 @@ describe("reduceManager — admission timeout", () => {
   });
 });
 
-// Batch D (plans/daemon-fsm-desync.md): the reset-stuck reconcile. The reset
-// window (`resetting`) closes only via `enterStable` at a stable running/idle
+// The reset-stuck reconciliation closes the reset window (`resetting`) only
+// via `enterStable` at a stable running/idle
 // state; if the converging event never arrives the agent wedges in `starting`
 // with `resetting` stuck true — invisible to the three running-keyed onTick
 // predicates. This watchdog is the ONLY thing that catches it.
@@ -1033,7 +1033,7 @@ describe("reduceManager — tick: reset-stuck reconcile (batch D)", () => {
   });
 });
 
-// Batch L3 (plans/daemon-fsm-desync.md): the stopping-wedge black hole. A
+// The stopping-wedge guard covers the case where a
 // stop/terminate set status=stopping expecting an `exit` that never arrived
 // (no-op stop / kill didn't take). No other predicate keys on `stopping`, and
 // onWake only queues there → permanent wedge (observed live: Olivia 2026-07-31,

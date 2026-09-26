@@ -186,7 +186,7 @@ vi.mock("@/components/ui/number-ticker", () => ({
     React.createElement("span", null, value),
 }))
 
-// WS3 render-behavior tests (see plans/community-switch-perf-optimization.md):
+// Message-row render-behavior tests:
 // - the custom memo comparator bails out despite the per-render `m` clone,
 // - but does NOT drop legit content/reaction/thread updates,
 // - and overlay roots are lazily mounted (bare row until activated).

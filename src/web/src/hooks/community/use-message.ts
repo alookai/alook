@@ -5,17 +5,25 @@ import {
   useQuery,
   useQueryClient,
   type QueryClient,
+  type QueryFunctionContext,
   type UseQueryResult,
 } from "@tanstack/react-query"
 import { apiFetchProfiles, messageProfilePatches } from "@/lib/community/profile-seed"
 import { communityKeys } from "@/lib/query-keys"
 import type { MessagesPage, Msg } from "@/lib/community/models/message"
-import { useCanonicalMessagesById } from "@/lib/community-db/projections"
+import {
+  useCanonicalMessagesById,
+  useOptionalCommunityDbRegistry,
+} from "@/lib/community-db/projections"
 import {
   rememberMessageAccessScope,
   type MessageAccessScope,
 } from "@/lib/community-db/message-access-scope"
 import { getActiveAccountUnreadProjection } from "./account-unread-projection"
+import {
+  captureCommunityLiveSnapshotToken,
+  publishCommunityMessages,
+} from "@/lib/community-db/sync"
 
 /**
  * Fetches a single hydrated message by id — the payload shape returned by
@@ -47,11 +55,26 @@ export type OpenerPayload = {
   reactions?: Msg["reactions"]
 }
 
-export const messageQueryFn = (messageId: string) => () =>
-  apiFetchProfiles<OpenerPayload>(
+export const messageQueryFn = (
+  messageId: string,
+  queryClient?: QueryClient,
+  channelId?: string,
+) => async (context: QueryFunctionContext = {} as QueryFunctionContext) => {
+  const token = queryClient ? captureCommunityLiveSnapshotToken(queryClient) : null
+  const message = await apiFetchProfiles<OpenerPayload>(
     `/api/community/messages/${messageId}`,
     (message) => messageProfilePatches([message]),
+    context.signal ? { signal: context.signal } : undefined,
   )
+  if (queryClient && channelId && token) {
+    publishCommunityMessages(queryClient, {
+      channelId,
+      messages: [message],
+      proof: { token, signal: context.signal },
+    })
+  }
+  return message
+}
 
 export function findCachedMessage(
   queryClient: QueryClient,
@@ -88,6 +111,7 @@ export function useMessage(
   messageId: string | null | undefined,
   accessScope?: MessageAccessScope,
 ): UseQueryResult<OpenerPayload> & { message: OpenerPayload | null } {
+  const registry = useOptionalCommunityDbRegistry()
   const canonicalMessages = useCanonicalMessagesById()
   const queryClient = useQueryClient()
   const accessProjection = useMemo(
@@ -113,7 +137,7 @@ export function useMessage(
   const query = useQuery({
     queryKey: enabled ? communityKeys.message(messageId!) : communityKeys.message("__none__"),
     queryFn: enabled
-      ? messageQueryFn(messageId!)
+      ? messageQueryFn(messageId!, queryClient, accessScope?.channelId)
       : (() => Promise.reject(new Error("disabled"))),
     enabled,
     placeholderData,
@@ -125,7 +149,9 @@ export function useMessage(
   return {
     ...query,
     message: accessAllowed
-      ? (canonical as OpenerPayload | undefined) ?? query.data ?? null
+      ? registry
+        ? (canonical as OpenerPayload | undefined) ?? null
+        : query.data ?? null
       : null,
   }
 }

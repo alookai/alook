@@ -2,7 +2,7 @@ import { describe, it, expect, afterAll } from "vitest"
 import { sql, sqlRun, sqlQuery } from "@alook/test-utils"
 
 /**
- * Real-DB verification for `plans/community-account-debt-fixes.md` Fix 1.
+ * Real-DB verification that deleting an owner cannot orphan a bot row.
  *
  * `src/web/migrations/0050_community_bots.sql` added `ownerUserId TEXT
  * REFERENCES user(id)` with no explicit `ON DELETE` clause (defaults to

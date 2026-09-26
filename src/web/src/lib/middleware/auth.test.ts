@@ -101,7 +101,7 @@ describe("withAuth middleware", () => {
   });
 
   it("rejects a crk_ runner-key bearer — a bot never authenticates as a human here (§5 red line)", async () => {
-    // Privilege-escalation red line (plans/22 §5): the human-only community
+    // Privilege-escalation invariant: the human-only community
     // surfaces (/bots/*, /daemon/*, human inbox, channel management) stay on
     // withAuth, NOT withCommunityActor. A crk_ bearer is neither an al_ machine
     // token nor a session, so it falls through to the session path and finds no

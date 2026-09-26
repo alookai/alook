@@ -179,8 +179,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   // real accepted community_friendship row for every existing live sibling.
   // Idempotent (ON CONFLICT DO NOTHING) so a concurrent createBot race is
   // absorbed. A per-sibling failure never fails createBot — the
-  // bot exists and is usable; siblings can reconcile via the CLI later. See
-  // plans/agent-friendship-approval-gate.md §Bot creation.
+  // bot exists and is usable; siblings can reconcile via the CLI later.
   try {
     const siblings = await queries.communityBot.listBotsForOwner(db, ctx.userId)
     for (const sibling of siblings) {

@@ -5,8 +5,7 @@
  * `@alook/shared/runtime-config` (lifted there so the `src/web` wake producer
  * and `src/queue-worker` consumer, neither of which can depend on this
  * CLI/daemon package, can construct the `config` field of an `agent:wake`
- * `HostCommand` — see `plans/community-agent-cli-bridge.md` §1 and
- * `plans/minimal-wake-queue-unread-notice.md`). Re-exported here so existing
+ * `HostCommand`. Re-exported here so existing
  * daemon call sites keep importing from `./runtimeConfig.js` unchanged.
  *
  * The daemon only translates the shared wire shape into the public agent-driver

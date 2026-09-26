@@ -9,6 +9,23 @@
 
 @custom-variant dark (&:is(.dark *));
 
+@media (min-width: 640px) {
+  html[data-community-shell-layout] [data-slot="community-shell-root"] [data-slot="resizable-panel-group"][data-testid="community-shell"] > [data-slot="resizable-panel"][data-testid="sidebar"] {
+    flex-basis: var(--community-shell-prepaint-sidebar-width) !important;
+    flex-grow: 0 !important;
+    flex-shrink: 0 !important;
+  }
+
+  html[data-community-shell-layout] [data-slot="community-shell-root"] [data-slot="resizable-panel-group"][data-testid="community-shell"] > [data-slot="resizable-panel"][data-testid="main"] {
+    flex-basis: 0 !important;
+    flex-grow: 1 !important;
+  }
+
+  html[data-community-shell-layout] [data-slot="community-shell-root"] [data-slot="community-user-bar-overlay"] {
+    --community-desktop-user-bar-width: var(--community-shell-prepaint-user-bar-width) !important;
+  }
+}
+
 @theme inline {
   --text-base: 0.9375rem;
   --text-base--line-height: 1.6;

@@ -1,4 +1,4 @@
-// Drag-to-highlight for the share card (plans/share-card-drag-highlight.md).
+// Drag-to-highlight for the share card.
 //
 // The card body is Streamdown-rendered rich markdown — a DOM tree of
 // <p>/<strong>/<em>/<a>/… A user's text selection can span multiple elements,
