@@ -13,9 +13,19 @@ import {
 } from "./reconnect-messages"
 
 const apiFetchMock = vi.hoisted(() => vi.fn())
+const publicationToken = vi.hoisted(() => ({ canonicalRevision: 7 }))
+const captureCommunityLiveSnapshotTokenMock = vi.hoisted(() => vi.fn(() => publicationToken))
+const publishCommunityMessagesMock = vi.hoisted(() => vi.fn())
 
 vi.mock("@/lib/api/client", () => ({
   apiFetch: (...args: unknown[]) => apiFetchMock(...args),
+}))
+
+vi.mock("@/lib/community-db/sync", () => ({
+  captureCommunityLiveSnapshotToken: (...args: unknown[]) => (
+    captureCommunityLiveSnapshotTokenMock(...args)
+  ),
+  publishCommunityMessages: (...args: unknown[]) => publishCommunityMessagesMock(...args),
 }))
 
 function seedActiveQuery(
@@ -83,6 +93,8 @@ function seedEmptyActiveQuery(
 
 beforeEach(() => {
   apiFetchMock.mockReset()
+  captureCommunityLiveSnapshotTokenMock.mockClear()
+  publishCommunityMessagesMock.mockReset()
   useCommunityWsStore.getState().reset()
 })
 
@@ -140,6 +152,7 @@ describe("focused message reconnect catch-up", () => {
     const queryClient = new QueryClient()
     const queryKey = communityKeys.channelMessages("ch_gap")
     const { unsubscribe } = seedActiveQuery(queryClient, queryKey)
+    const setQueryDataSpy = vi.spyOn(queryClient, "setQueryData")
     apiFetchMock
       .mockResolvedValueOnce({
         messages: [{
@@ -176,6 +189,20 @@ describe("focused message reconnect catch-up", () => {
     expect(second).toBe(first)
     await first
     expect(apiFetchMock).toHaveBeenCalledTimes(2)
+    expect(captureCommunityLiveSnapshotTokenMock).toHaveBeenCalledOnce()
+    expect(publishCommunityMessagesMock).toHaveBeenCalledWith(queryClient, {
+      channelId: "ch_gap",
+      messages: expect.arrayContaining([
+        expect.objectContaining({ id: "m_2" }),
+        expect.objectContaining({ id: "m_3" }),
+        expect.objectContaining({ id: "m_6" }),
+      ]),
+      proof: { token: publicationToken, signal: undefined },
+    })
+    expect(captureCommunityLiveSnapshotTokenMock.mock.invocationCallOrder[0])
+      .toBeLessThan(apiFetchMock.mock.invocationCallOrder[0]!)
+    expect(publishCommunityMessagesMock.mock.invocationCallOrder[0])
+      .toBeLessThan(setQueryDataSpy.mock.invocationCallOrder[0]!)
     unsubscribe()
   })
 
