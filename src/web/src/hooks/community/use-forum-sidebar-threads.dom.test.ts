@@ -14,6 +14,7 @@ import {
   projectCommunityWsEventToDb,
   publishCommunityForumSidebar,
   removeCanonicalCommunityChannelMembership,
+  setCanonicalCommunityChannelMembership,
 } from "@/lib/community-db/sync"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { communityKeys } from "@/lib/query-keys"
@@ -271,6 +272,31 @@ describe("forum sidebar canonical projection", () => {
     rendered.unmount()
   })
 
+  it("does not let an older reconnect response delete a newer WS notify membership", async () => {
+    const { queryClient, registry } = await setup()
+    publish(queryClient, envelopeFor(["post-ws"]))
+    removeCanonicalCommunityChannelMembership(queryClient, "post-ws", "notify")
+    let settle!: (value: SidebarThreadEnvelope) => void
+    apiFetchMock.mockReturnValue(new Promise<SidebarThreadEnvelope>((resolve) => {
+      settle = resolve
+    }))
+
+    const pending = reconcileForumSidebarNotifyMemberships(queryClient, "server-1")
+    await waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
+    setCanonicalCommunityChannelMembership(
+      queryClient,
+      "post-ws",
+      "notify",
+      true,
+      { event: true },
+    )
+    settle(envelopeFor(["post-fresh"]))
+    await pending
+
+    expect(registry.collections.channelMemberships.get("post-ws:viewer:notify"))
+      .toBeDefined()
+  })
+
   it("keeps warm DB rows visible while the HTTP transport is stalled", async () => {
     const { queryClient, wrapper } = await setup()
     publish(queryClient)
@@ -288,6 +314,49 @@ describe("forum sidebar canonical projection", () => {
     expect(rendered.result.current.fetchStatus).toBe("fetching")
     rendered.unmount()
     await invalidateForumSidebarBaseExact(queryClient, "server-1")
+  })
+
+  it("removes a restored notify row displaced by the fresh bounded window", async () => {
+    const { queryClient, registry, wrapper } = await setup()
+    const restored = envelopeFor([
+      "post-6",
+      "post-5",
+      "post-4",
+      "post-3",
+      "post-2",
+    ])
+    publish(queryClient, restored)
+    const fresh = envelopeFor([
+      "post-5",
+      "post-4",
+      "post-3",
+      "post-2",
+      "post-1",
+    ])
+    for (const channel of fresh.channels) {
+      channel.activityAt = restored.channels[0]!.activityAt
+      channel.lastMessageAt = channel.activityAt
+    }
+    apiFetchMock.mockResolvedValue({ ...fresh, canonicalChannels: fresh.channels })
+
+    const rendered = renderHook(
+      () => useForumSidebarThreads("server-1", null),
+      { wrapper },
+    )
+
+    await waitFor(() => expect(rendered.result.current.isSuccess).toBe(true))
+    await waitFor(() => expect(rendered.result.current.threads.map(({ id }) => id)).toEqual([
+      "post-5",
+      "post-4",
+      "post-3",
+      "post-2",
+      "post-1",
+    ]))
+    expect(registry.collections.channelMemberships.get("post-6:viewer:notify"))
+      .toBeUndefined()
+    expect(registry.collections.channelMemberships.get("post-6:viewer:access"))
+      .toBeDefined()
+    rendered.unmount()
   })
 
   it("keeps an unverified cold empty projection pending while HTTP is stalled", async () => {

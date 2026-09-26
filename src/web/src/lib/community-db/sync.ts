@@ -1604,26 +1604,33 @@ export function setCanonicalCommunityChannelMembership(
   channelId: string,
   relation: "access" | "notify",
   present: boolean,
+  options?: { event?: boolean },
 ) {
   const registry = getCommunityDbRegistry(queryClient)
   if (!registry?.accountId) return false
   if (!present) {
     return removeCanonicalCommunityChannelMembership(queryClient, channelId, relation)
   }
-  upsertRows(
-    registry,
-    "channelMemberships",
-    channelMembershipSchema,
-    (row) => row.id,
-    [{
-      id: channelMembershipKey(channelId, registry.accountId, relation),
-      channelId,
-      userId: registry.accountId,
-      relation,
-      source: "explicit",
-    }],
-  )
-  return true
+  const viewerId = registry.accountId
+  const write = () => {
+    upsertRows(
+      registry,
+      "channelMemberships",
+      channelMembershipSchema,
+      (row) => row.id,
+      [{
+        id: channelMembershipKey(channelId, viewerId, relation),
+        channelId,
+        userId: viewerId,
+        relation,
+        source: "explicit",
+      }],
+    )
+    return true
+  }
+  return options?.event
+    ? withCanonicalWriteContext(queryClient, { kind: "event" }, write)
+    : write()
 }
 
 export function getCanonicalCommunityChannels(queryClient: QueryClient) {

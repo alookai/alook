@@ -22,6 +22,7 @@ import {
   removeCanonicalCommunityChannelMembership,
   removeCanonicalCommunityChannel,
   setCanonicalCommunityChannelMembership,
+  type CommunityFreshQueryProof,
 } from "@/lib/community-db/sync"
 import { getActiveAccountUnreadProjection } from "./account-unread-projection"
 
@@ -679,12 +680,14 @@ async function fetchForumSidebarBaseExact(
   const token = captureCommunityLiveSnapshotToken(queryClient)
   const requestEpoch = useCommunityWsStore.getState().accessEpoch
   let normalized: NormalizedForumSidebarEnvelope | undefined
+  let proof: CommunityFreshQueryProof | undefined
   await queryClient.fetchQuery({
     queryKey,
     staleTime: 0,
     queryFn: async ({ signal }) => {
       normalized = await fetchForumSidebar(serverId, null, signal)
       if (signal.aborted) throw new DOMException("Aborted", "AbortError")
+      proof = { token, signal }
       publishNormalizedForumSidebar(
         queryClient,
         serverId,
@@ -707,8 +710,8 @@ async function fetchForumSidebarBaseExact(
       }
     },
   })
-  if (!normalized) throw new Error("Forum sidebar base fetch did not settle")
-  return normalized
+  if (!normalized || !proof) throw new Error("Forum sidebar base fetch did not settle")
+  return { normalized, proof }
 }
 
 /**
@@ -723,6 +726,25 @@ async function fetchForumSidebarBaseExact(
 export async function reconcileForumSidebarNotifyMemberships(
   queryClient: QueryClient,
   serverId: string,
+) {
+  // One authoritative query-cache fetch both refreshes active observers and
+  // supplies the bounded negative proof. Avoid invalidating into a first
+  // active refetch and then issuing a second direct request.
+  const { normalized, proof } = await fetchForumSidebarBaseExact(queryClient, serverId)
+  return reconcileForumSidebarNotifyMembershipsFromBase(
+    queryClient,
+    serverId,
+    normalized.base,
+    proof,
+  )
+}
+
+function reconcileForumSidebarNotifyMembershipsFromBase(
+  queryClient: QueryClient,
+  serverId: string,
+  base: ForumSidebarQueryData,
+  proof: CommunityFreshQueryProof,
+  protectedRetainId: string | null = null,
 ) {
   const channels = getCanonicalCommunityChannels(queryClient)
   const channelById = new Map(channels.map((channel) => [channel.id, channel]))
@@ -739,22 +761,22 @@ export async function reconcileForumSidebarNotifyMemberships(
     && channelById.get(channel.parentChannelId)?.type === "forum"
   ))
 
-  // One authoritative query-cache fetch both refreshes active observers and
-  // supplies the bounded negative proof. Avoid invalidating into a first
-  // active refetch and then issuing a second direct request.
-  const base = await fetchForumSidebarBaseExact(queryClient, serverId)
-  const baseIds = new Set(base.base.threads.map((thread) => thread.id))
+  const baseIds = new Set(base.threads.map((thread) => thread.id))
   const baseByParent = new Map<string, ForumSidebarThread[]>()
-  for (const thread of base.base.threads) {
+  for (const thread of base.threads) {
     baseByParent.set(thread.parentChannelId, [
       ...(baseByParent.get(thread.parentChannelId) ?? []),
       thread,
     ])
   }
-  const serverNowMs = Date.parse(base.base.serverNow)
+  const serverNowMs = Date.parse(base.serverNow)
   const removedIds: string[] = []
   for (const channel of candidates) {
-    if (baseIds.has(channel.id) || !channel.parentChannelId) continue
+    if (
+      channel.id === protectedRetainId
+      || baseIds.has(channel.id)
+      || !channel.parentChannelId
+    ) continue
     const activityAt = channel.lastMessageAt ?? ""
     const activityMs = Date.parse(activityAt)
     if (
@@ -782,10 +804,7 @@ export async function reconcileForumSidebarNotifyMemberships(
       channels: [],
       openers: [],
       negativeRetain: { id: channel.id, disposition: "genuine-negative" },
-      proof: {
-        token: captureCommunityLiveSnapshotToken(queryClient),
-        signal: undefined,
-      },
+      proof,
     })
     removedIds.push(channel.id)
   }
@@ -875,6 +894,15 @@ export function useForumSidebarThreads(
           retainId,
           signal,
           token,
+        )
+        reconcileForumSidebarNotifyMembershipsFromBase(
+          queryClient,
+          serverId,
+          normalized.base,
+          { token, signal },
+          normalized.retainedDisposition === "eligible"
+            ? normalized.retained?.id ?? null
+            : null,
         )
       }
       unreadProjection.confirmAccessScopes(

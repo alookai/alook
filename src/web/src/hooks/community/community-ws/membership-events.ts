@@ -79,7 +79,13 @@ export function handleChannelMemberEvent(
         })
         removeForumSidebarProjectionExact(queryClient, event.serverId, event.channelId)
       } else {
-        setCanonicalCommunityChannelMembership(queryClient, event.channelId, "notify", true)
+        setCanonicalCommunityChannelMembership(
+          queryClient,
+          event.channelId,
+          "notify",
+          true,
+          { event: true },
+        )
       }
       void invalidateForumSidebarBaseExact(queryClient, event.serverId).catch(() => undefined)
       invalidateInbox(activeProjection)
@@ -92,7 +98,13 @@ export function handleChannelMemberEvent(
       })
       projectChannelScopeEviction(activeProjection, queryClient, event.serverId, event.channelId)
     } else {
-      setCanonicalCommunityChannelMembership(queryClient, event.channelId, "access", true)
+      setCanonicalCommunityChannelMembership(
+        queryClient,
+        event.channelId,
+        "access",
+        true,
+        { event: true },
+      )
       useCommunityWsStore.getState().rememberChannelAccess(event.serverId, event.channelId)
       getAccountUnreadProjection(queryClient, event.userId).grantAccessScope({
         kind: "channel", channelId: event.channelId,

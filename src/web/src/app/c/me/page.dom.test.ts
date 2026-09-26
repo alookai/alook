@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   breakpoint: "unknown" as "unknown" | "desktop" | "mobile",
   lastLeaf: null as string | null,
   onboarding: null as { status: "active"; stage: "harness" } | null,
+  ownerDeleteRootLanding: false,
   replace: vi.fn(),
 }))
 
@@ -17,6 +18,9 @@ vi.mock("@/lib/community-onboarding", () => ({
 vi.mock("@/lib/community/last-me-location", () => ({
   getLastMeLeaf: () => mocks.lastLeaf,
   pickMeLandingLocation: (leaf: string | null) => `/c/me/${leaf ?? "friends"}`,
+}))
+vi.mock("@/lib/community/eject-server", () => ({
+  isOwnerServerDeleteMeRootLanding: () => mocks.ownerDeleteRootLanding,
 }))
 vi.mock("@/components/community/shell/community-pending-frame", () => ({
   CommunityPendingFrame: ({ href }: { href: string }) => createElement("div", {
@@ -32,6 +36,7 @@ describe("MeListPage", () => {
     mocks.breakpoint = "unknown"
     mocks.lastLeaf = null
     mocks.onboarding = null
+    mocks.ownerDeleteRootLanding = false
     mocks.replace.mockClear()
   })
 
@@ -56,6 +61,14 @@ describe("MeListPage", () => {
     render(createElement(MeListPage))
     expect(mocks.replace).toHaveBeenCalledWith("/c/me/friends")
     expect(screen.getByTestId("pending-frame")).toHaveAttribute("data-href", "/c/me/friends")
+  })
+
+  it("keeps an explicit owner-delete landing on the canonical root", () => {
+    mocks.breakpoint = "desktop"
+    mocks.ownerDeleteRootLanding = true
+    const rendered = render(createElement(MeListPage))
+    expect(mocks.replace).not.toHaveBeenCalled()
+    expect(rendered.container).toBeEmptyDOMElement()
   })
 
   it("keeps desktop on the canonical root while onboarding is active", () => {

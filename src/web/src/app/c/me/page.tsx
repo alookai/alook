@@ -6,12 +6,15 @@ import { useBreakpoint } from "@/hooks/use-mobile"
 import { CommunityPendingFrame } from "@/components/community/shell/community-pending-frame"
 import { useCommunityOnboarding } from "@/lib/community-onboarding"
 import { getLastMeLeaf, pickMeLandingLocation } from "@/lib/community/last-me-location"
+import { isOwnerServerDeleteMeRootLanding } from "@/lib/community/eject-server"
 
 export default function MeListPage() {
   const router = useRouter()
   const breakpoint = useBreakpoint()
   const onboarding = useCommunityOnboarding()
-  const destination = breakpoint === "desktop" && !onboarding
+  const destination = breakpoint === "desktop"
+    && !onboarding
+    && !isOwnerServerDeleteMeRootLanding()
     ? pickMeLandingLocation(getLastMeLeaf())
     : null
 
