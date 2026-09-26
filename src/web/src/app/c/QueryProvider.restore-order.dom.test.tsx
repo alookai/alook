@@ -9,8 +9,10 @@ import type { PersistedClient, Persister } from "@tanstack/react-query-persist-c
 import { act, render, screen, waitFor } from "@/test/react-dom-harness"
 import { communityKeys } from "@/lib/query-keys"
 import { PERSIST_BUSTER } from "@/lib/query-persister"
+import { CurrentUserProvider } from "@/contexts/community/current-user"
 import {
   useCanonicalMessagesById,
+  useDmProjection,
   useTrustedRestoredPrimary,
 } from "@/lib/community-db/projections"
 
@@ -57,7 +59,52 @@ describe("QueryProvider persistence ordering", () => {
     )
     seedClient.setQueryData(
       communityKeys.communityDbCollection(viewerId, "channels"),
-      [],
+      [{
+        id: "persisted-dm",
+        serverId: null,
+        categoryId: null,
+        name: "",
+        type: "dm",
+        parentChannelId: null,
+        parentMessageId: null,
+        creatorId: null,
+        position: 0,
+        archived: false,
+        muted: false,
+        unread: false,
+        tags: [],
+        pending: false,
+        lastMessageAt: null,
+      }],
+      { updatedAt: Date.now() - 60_000 },
+    )
+    seedClient.setQueryData(
+      communityKeys.communityDbCollection(viewerId, "channelMemberships"),
+      [
+        {
+          id: `persisted-dm:${viewerId}:access`,
+          channelId: "persisted-dm",
+          userId: viewerId,
+          relation: "access",
+        },
+        {
+          id: "persisted-dm:peer:access",
+          channelId: "persisted-dm",
+          userId: "peer",
+          relation: "access",
+        },
+      ],
+      { updatedAt: Date.now() - 60_000 },
+    )
+    seedClient.setQueryData(
+      communityKeys.communityDbCollection(viewerId, "profiles"),
+      [{
+        userId: "peer",
+        name: "Persisted peer",
+        discriminator: "0001",
+        avatar: "P",
+        avatarVersion: 0,
+      }],
       { updatedAt: Date.now() - 60_000 },
     )
     seedClient.setQueryData(canonicalKey, [message], {
@@ -78,19 +125,28 @@ describe("QueryProvider persistence ordering", () => {
       mounted.client = useQueryClient()
       const trustedRestoredPrimary = useTrustedRestoredPrimary()
       const messages = useCanonicalMessagesById()
+      const dms = useDmProjection()
       return React.createElement(
         "output",
         {
           "data-testid": "canonical-message",
           "data-trusted-restored-primary": String(trustedRestoredPrimary),
         },
-        messages?.get(message.id)?.content ?? "missing",
+        [messages?.get(message.id)?.content ?? "missing", dms?.[0]?.name ?? "missing-dm"].join("|"),
       )
     }
 
     const renderer = render(
       <QueryProvider userId={viewerId}>
-        <Probe />
+        <CurrentUserProvider initialUser={{
+          id: viewerId,
+          name: "Restored viewer",
+          email: "viewer@example.test",
+          avatar: "V",
+          avatarVersion: 0,
+        }}>
+          <Probe />
+        </CurrentUserProvider>
       </QueryProvider>,
     )
 
@@ -103,7 +159,7 @@ describe("QueryProvider persistence ordering", () => {
     await act(async () => resolveRestore(persisted))
     await waitFor(() => {
       expect(screen.getByTestId("canonical-message").textContent)
-        .toBe(message.content)
+        .toBe(`${message.content}|Persisted peer`)
     })
     expect(screen.getByTestId("canonical-message"))
       .toHaveAttribute("data-trusted-restored-primary", "true")

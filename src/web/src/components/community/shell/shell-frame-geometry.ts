@@ -40,11 +40,11 @@ try {
       && main >= 0
       && main <= 100
     ) {
-      const correction = Number((sidebar * 2 / 100).toFixed(6));
+      const viewportTrackCorrection = Number((sidebar * ${COMMUNITY_RAIL_WIDTH + (COMMUNITY_SURFACE_BORDER_WIDTH * 2) + COMMUNITY_SEPARATOR_WIDTH} / 100).toFixed(6));
       const root = document.documentElement;
       root.style.setProperty(
         ${JSON.stringify(COMMUNITY_LAYOUT_PREPAINT_SIDEBAR_WIDTH)},
-        "clamp(${COMMUNITY_SIDEBAR_MIN_WIDTH}px, calc(" + sidebar + "% - " + correction + "px), ${COMMUNITY_SIDEBAR_MAX_WIDTH}px)",
+        "clamp(${COMMUNITY_SIDEBAR_MIN_WIDTH}px, calc(" + sidebar + "vw - " + viewportTrackCorrection + "px), ${COMMUNITY_SIDEBAR_MAX_WIDTH}px)",
       );
       root.style.setProperty(
         ${JSON.stringify(COMMUNITY_LAYOUT_PREPAINT_USER_BAR_WIDTH)},
@@ -82,8 +82,9 @@ export function desktopUserBarOverlayCssWidth(
   constrainToPanelBounds: boolean,
 ) {
   const percentage = Math.min(100, Math.max(0, sidebarPercentage))
-  const panelTrackInset = COMMUNITY_SURFACE_BORDER_WIDTH
-    + (constrainToPanelBounds ? COMMUNITY_SEPARATOR_WIDTH : 0)
+  const panelTrackInset = constrainToPanelBounds
+    ? (COMMUNITY_SURFACE_BORDER_WIDTH * 2) + COMMUNITY_SEPARATOR_WIDTH
+    : COMMUNITY_SURFACE_BORDER_WIDTH
   const percentageTrackCorrection = Number(
     (percentage * panelTrackInset / 100).toFixed(6),
   )

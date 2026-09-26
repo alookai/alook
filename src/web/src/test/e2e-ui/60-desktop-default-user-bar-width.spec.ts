@@ -294,8 +294,9 @@ function expectNoTransientDesktopWidth(
   const visibleSamples = samples.filter(({ desktopVisible, sidebar, overlay }) => (
     desktopVisible && sidebar > 0 && overlay > 0
   ))
-  expect(visibleSamples.length).toBeGreaterThan(0)
-  const transientSamples = visibleSamples.filter((sample) => (
+  const desktopSamples = visibleSamples.filter(({ viewportWidth }) => viewportWidth >= 640)
+  expect(desktopSamples.length).toBeGreaterThan(0)
+  const transientSamples = desktopSamples.filter((sample) => (
     Math.abs(sample.sidebar - sidebarWidth) > geometryEpsilon
     || Math.abs(sample.overlay - (sidebarWidth + 58)) > geometryEpsilon
   ))
@@ -849,27 +850,28 @@ test.describe.serial("desktop default User Bar width", () => {
 
     const seededLayout = { sidebar: 25, main: 75 }
     const seededStorage = JSON.stringify(seededLayout)
+    const savedSidebarWidth = 0.25 * (1280 - 58)
     const saved = await asUser("alice")
     await saved.page.setViewportSize({ width: 390, height: 844 })
     await installLayoutState(saved.page, seededLayout)
-    await gotoAfterUserWsAuth(saved.page, `/c/channels/${serverId}/${channelId}`)
-    await expect(saved.page.getByTestId(tid.channelComposerShell)).toBeVisible()
+    await gotoAfterUserWsAuth(saved.page, "/c/me")
+    await expect(saved.page.getByRole("button", { name: "Friends", exact: true })).toBeVisible()
     await saved.page.setViewportSize({ width: 639, height: 844 })
-    await expect(shellPanel(saved.page, "sidebar")).toBeHidden()
+    await expect(shellPanel(saved.page, "sidebar")).toBeVisible()
     const firstSampleCursor = await saved.page.evaluate(() => (
       Reflect.get(window, "__desktopWidthSamples") as LayoutSample[]
     ).length)
     await saved.page.setViewportSize({ width: 1280, height: 900 })
     await expect(shellPanel(saved.page, "sidebar")).toBeVisible()
-    await expect.poll(async () => (
-      Math.abs((await readShellGeometry(saved.page)).sidebar - expectedDefaultSidebarWidth)
-    )).toBeGreaterThan(1)
+    await expect.poll(() => saved.page.evaluate(() => (
+      document.documentElement.hasAttribute("data-community-shell-layout")
+    ))).toBe(false)
+    await expectDesktopGeometry(saved.page, savedSidebarWidth)
     const firstAppliedWidth = (await readShellGeometry(saved.page)).sidebar
-    await expectDesktopGeometry(saved.page, firstAppliedWidth)
     const firstDesktopSamples = await saved.page.evaluate((cursor) => (
       Reflect.get(window, "__desktopWidthSamples") as LayoutSample[]
     ).slice(cursor), firstSampleCursor)
-    expectNoTransientDesktopWidth(firstDesktopSamples, firstAppliedWidth)
+    expectNoTransientDesktopWidth(firstDesktopSamples, savedSidebarWidth)
     expect(await saved.page.evaluate(
       (key) => localStorage.getItem(key),
       layoutStorageKey,
@@ -880,17 +882,23 @@ test.describe.serial("desktop default User Bar width", () => {
 
     await saved.page.setViewportSize({ width: 639, height: 844 })
     await expect(shellPanel(saved.page, "sidebar")).toBeHidden()
+    await saved.page.goto("/c/me")
+    await expect(saved.page.getByRole("button", { name: "Friends", exact: true })).toBeVisible()
+    await expect(shellPanel(saved.page, "sidebar")).toBeVisible()
     const secondSampleCursor = await saved.page.evaluate(() => (
       Reflect.get(window, "__desktopWidthSamples") as LayoutSample[]
     ).length)
     await saved.page.setViewportSize({ width: 1280, height: 900 })
-    await expectDesktopGeometry(saved.page, firstAppliedWidth)
+    await expect.poll(() => saved.page.evaluate(() => (
+      document.documentElement.hasAttribute("data-community-shell-layout")
+    ))).toBe(false)
+    await expectDesktopGeometry(saved.page, savedSidebarWidth)
     const secondAppliedWidth = (await readShellGeometry(saved.page)).sidebar
     expect(secondAppliedWidth).toBe(firstAppliedWidth)
     const secondDesktopSamples = await saved.page.evaluate((cursor) => (
       Reflect.get(window, "__desktopWidthSamples") as LayoutSample[]
     ).slice(cursor), secondSampleCursor)
-    expectNoTransientDesktopWidth(secondDesktopSamples, firstAppliedWidth)
+    expectNoTransientDesktopWidth(secondDesktopSamples, savedSidebarWidth)
     const finalStorage = await saved.page.evaluate(
       (key) => localStorage.getItem(key),
       layoutStorageKey,

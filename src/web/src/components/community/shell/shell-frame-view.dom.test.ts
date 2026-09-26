@@ -4,7 +4,10 @@ import { act, render } from "@/test/react-dom-harness"
 import { ShellFrameView } from "./shell-frame-view"
 import { CommunitySessionPendingFrame } from "./community-session-pending-frame"
 import type { CommunityCheckpointPlan, CommunitySurface } from "@/lib/community/community-route"
-import { desktopUserBarInitialOverlayCssWidth } from "./shell-frame-geometry"
+import {
+  COMMUNITY_LAYOUT_PREPAINT_ATTRIBUTE,
+  desktopUserBarInitialOverlayCssWidth,
+} from "./shell-frame-geometry"
 
 const mocks = vi.hoisted(() => ({
   onLayoutChanged: vi.fn(),
@@ -230,6 +233,7 @@ describe("ShellFrameView", () => {
   })
 
   afterEach(() => {
+    document.documentElement.removeAttribute(COMMUNITY_LAYOUT_PREPAINT_ATTRIBUTE)
     if (animateDescriptor) Object.defineProperty(HTMLElement.prototype, "animate", animateDescriptor)
     else delete (HTMLElement.prototype as unknown as Record<string, unknown>).animate
     vi.restoreAllMocks()
@@ -415,7 +419,7 @@ describe("ShellFrameView", () => {
     expect(renderer.container.querySelector<HTMLElement>(
       '[data-slot="community-user-bar-overlay"]',
     )!.style.getPropertyValue("--community-desktop-user-bar-width")).toBe(
-      "calc(clamp(100px, calc(18.75% - 0.375px), 360px) + 58px)",
+      "calc(clamp(100px, calc(18.75% - 0.5625px), 360px) + 58px)",
     )
   })
 
@@ -934,6 +938,36 @@ describe("ShellFrameView", () => {
 
   it("restores a saved mobile-first percentage without writing storage", async () => {
     mocks.defaultLayout.current = { sidebar: 25, main: 75 }
+    document.documentElement.setAttribute(COMMUNITY_LAYOUT_PREPAINT_ATTRIBUTE, "")
+    let desktopGeometry = false
+    let appliedLayout = { sidebar: 91.817, main: 8.183 }
+    mocks.panelGroupHandle.getLayout.mockImplementation(() => appliedLayout)
+    mocks.panelGroupHandle.setLayout.mockImplementation((layout) => {
+      appliedLayout = Object.keys(layout)[0] === "main"
+        ? layout as typeof appliedLayout
+        : { sidebar: 70.54, main: 29.46 }
+      return appliedLayout
+    })
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function () {
+      const isGroup = this.hasAttribute("data-panel-group")
+      const isSidebar = this.closest('[data-testid="sidebar"]') !== null
+      const width = isGroup
+        ? desktopGeometry ? 1_223 : 583
+        : isSidebar
+          ? desktopGeometry ? 305.5 : 583
+          : 0
+      return {
+        bottom: 844,
+        height: 844,
+        left: 56,
+        right: 56 + width,
+        top: 0,
+        width,
+        x: 56,
+        y: 0,
+        toJSON: () => ({}),
+      }
+    })
     mocks.sidebarPanelHandle.getSize.mockReturnValue({
       asPercentage: 25,
       inPixels: 305.5,
@@ -941,7 +975,66 @@ describe("ShellFrameView", () => {
     const storageWrite = vi.spyOn(Storage.prototype, "setItem")
     const common = {
       ...extensionProps,
-      checkpoint: committedCheckpoint("/c/me/dm_1", "detail"),
+      checkpoint: committedCheckpoint("/c/me", "list"),
+      sidebar: () => createElement("sidebar-content"),
+      cancelPendingNavigation: vi.fn(),
+      rail,
+      profile,
+      inbox,
+    }
+    const renderer = render(createElement(
+      ShellFrameView,
+      { ...common, breakpoint: "mobile" },
+      createElement("main-content"),
+    ))
+
+    desktopGeometry = true
+    await act(async () => {
+      renderer.rerender(createElement(
+        ShellFrameView,
+        { ...common, breakpoint: "desktop" },
+        createElement("main-content"),
+      ))
+    })
+    expect(mocks.panelGroupHandle.setLayout).toHaveBeenCalledWith({
+      main: 75,
+      sidebar: 25,
+    })
+    expect(mocks.sidebarPanelHandle.resize).not.toHaveBeenCalled()
+    expect(renderer.container.querySelector<HTMLElement>(
+      '[data-slot="community-user-bar-overlay"]',
+    )?.style.getPropertyValue("--community-desktop-user-bar-width")).toBe("363.5px")
+
+    desktopGeometry = false
+    renderer.rerender(createElement(
+      ShellFrameView,
+      { ...common, breakpoint: "mobile" },
+      createElement("main-content"),
+    ))
+    desktopGeometry = true
+    await act(async () => {
+      renderer.rerender(createElement(
+        ShellFrameView,
+        { ...common, breakpoint: "desktop" },
+        createElement("main-content"),
+      ))
+    })
+    expect(mocks.panelGroupHandle.setLayout).toHaveBeenLastCalledWith({
+      main: 75,
+      sidebar: 25,
+    })
+    expect(storageWrite).not.toHaveBeenCalled()
+
+    renderer.unmount()
+  })
+
+  it("releases a pending desktop geometry constraint on mobile cancel and unmount", async () => {
+    mocks.defaultLayout.current = { sidebar: 25, main: 75 }
+    mocks.panelGroupHandle.getLayout.mockReturnValue({ sidebar: 91.817, main: 8.183 })
+    mocks.panelGroupHandle.setLayout.mockReturnValue({ sidebar: 91.817, main: 8.183 })
+    const common = {
+      ...extensionProps,
+      checkpoint: committedCheckpoint("/c/me", "list"),
       sidebar: () => createElement("sidebar-content"),
       cancelPendingNavigation: vi.fn(),
       rail,
@@ -961,16 +1054,15 @@ describe("ShellFrameView", () => {
         createElement("main-content"),
       ))
     })
-    expect(mocks.sidebarPanelHandle.resize).toHaveBeenLastCalledWith("25%")
-    expect(renderer.container.querySelector<HTMLElement>(
-      '[data-slot="community-user-bar-overlay"]',
-    )?.style.getPropertyValue("--community-desktop-user-bar-width")).toBe("363.5px")
+    expect(document.documentElement).toHaveAttribute(COMMUNITY_LAYOUT_PREPAINT_ATTRIBUTE)
 
     renderer.rerender(createElement(
       ShellFrameView,
       { ...common, breakpoint: "mobile" },
       createElement("main-content"),
     ))
+    expect(document.documentElement).not.toHaveAttribute(COMMUNITY_LAYOUT_PREPAINT_ATTRIBUTE)
+
     await act(async () => {
       renderer.rerender(createElement(
         ShellFrameView,
@@ -978,10 +1070,9 @@ describe("ShellFrameView", () => {
         createElement("main-content"),
       ))
     })
-    expect(mocks.sidebarPanelHandle.resize).toHaveBeenLastCalledWith(305.5)
-    expect(storageWrite).not.toHaveBeenCalled()
-
+    expect(document.documentElement).toHaveAttribute(COMMUNITY_LAYOUT_PREPAINT_ATTRIBUTE)
     renderer.unmount()
+    expect(document.documentElement).not.toHaveAttribute(COMMUNITY_LAYOUT_PREPAINT_ATTRIBUTE)
   })
 
   it("keeps committed content mounted while same-scope navigation is pending", async () => {

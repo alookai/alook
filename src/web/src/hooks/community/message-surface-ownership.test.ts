@@ -148,4 +148,28 @@ describe("embedded message surface ownership", () => {
       threads: [],
     })
   })
+
+  it("normalizes legacy embedded messages that omit the transport type", async () => {
+    const queryClient = new QueryClient()
+    registry = createCommunityDbRegistry(queryClient, "viewer")
+    await registry.preload()
+    unregister = registerCommunityDbRegistry(registry)
+    const transport = {
+      id: "legacy-mention-message",
+      seq: 1,
+      content: "legacy embedded payload",
+      createdAt: "2026-09-26T00:00:00.000Z",
+    } as Msg
+
+    expect(publishCommunityEmbeddedMessages(queryClient, {
+      entries: [{ channelId: "c1", message: transport }],
+      proof: {
+        token: captureCommunityLiveSnapshotToken(queryClient),
+        signal: undefined,
+      },
+    })).toBe("published")
+    expect(getCanonicalCommunityMessages(queryClient)).toEqual([
+      expect.objectContaining({ id: transport.id, type: "chat" }),
+    ])
+  })
 })

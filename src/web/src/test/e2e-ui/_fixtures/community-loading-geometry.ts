@@ -37,6 +37,7 @@ type PersistedSidebarWidth = 100 | 160 | 240 | 350 | 360
 const RAIL_OVERFLOW_SERVER_COUNT = 20
 const ISOLATED_GEOMETRY_USER: UserKey = "dave"
 const DESKTOP_DENSITY_SCALES = [1, 1.25] as const
+const ONE_CSS_PIXEL_WITH_LAYOUT_QUANTIZATION = 1 + (1 / 64)
 const ANDROID_USER_AGENTS = {
   chrome: "Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36",
   webview: "Mozilla/5.0 (Linux; Android 15; Pixel 9 Build/AP3A.240905.015; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/140.0.0.0 Mobile Safari/537.36",
@@ -635,7 +636,7 @@ export async function runDesktopPersistedPendingGeometry(
         expect(
           Math.abs(samples.at(-1)!.sidebarWidth - expectedSidebarWidth),
           `${caseLabel}, final sidebar width: ${JSON.stringify(samples.at(-1))}`,
-        ).toBeLessThanOrEqual(1)
+        ).toBeLessThanOrEqual(ONE_CSS_PIXEL_WITH_LAYOUT_QUANTIZATION)
 
         communityReads.release()
         await context.close()

@@ -10,6 +10,7 @@ import {
 import { parseBoundedInt } from "@/lib/community/messages"
 import { avatarInitial } from "@/lib/community/avatar"
 import { canonicalUserImage } from "@/lib/community/storage"
+import { projectMessageWireType } from "@/lib/community/message-wire-type"
 
 export const GET = withAuth(async (req, ctx) => {
   const db = getDb(ctx.env.DB)
@@ -74,6 +75,7 @@ export const GET = withAuth(async (req, ctx) => {
       parentChannelId: ch?.parentChannelId ?? null,
       m: {
         id: row.message.id,
+        ...projectMessageWireType(row.message.type),
         seq: row.message.seq,
         // authorId is the beam-avatar seed the popover renders from
         // (<Avatar seed={authorId}>); omitting it left image-less authors with

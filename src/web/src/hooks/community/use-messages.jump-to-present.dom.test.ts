@@ -30,15 +30,18 @@ function ChannelCapture({
   channelId,
   lastReadMessageId,
   onRender,
+  revalidateOnMount,
 }: {
   anchorMessageId?: string | null
   channelId: string
   lastReadMessageId: string | null
   onRender: (snapshot: Snapshot) => void
+  revalidateOnMount?: boolean
 }) {
   const result = useMessages(channelId, {
     anchorMessageId,
     lastReadMessageId,
+    revalidateOnMount,
     serverId: "server_1",
   })
   onRender({
@@ -391,6 +394,51 @@ describe("useMessages jumpToPresent", () => {
     )
     await waitFor(() => latest.ids[0] === "latest_1")
     expect(apiFetchMock).toHaveBeenCalledTimes(1)
+    renderer.unmount()
+  })
+
+  it("gives resetQueries sole request ownership after a revalidated mount jumps to present", async () => {
+    const queryClient = createClient()
+    const queryKey = communityKeys.channelMessages("channel_revalidated")
+    seedAnchor(queryClient, queryKey, "anchor_revalidated")
+    apiFetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("?anchor=anchor_revalidated")) {
+        return Promise.resolve({
+          messages: [{
+            id: "anchor_revalidated",
+            seq: 1,
+            createdAt: "2026-08-09T00:00:00.000Z",
+          }],
+          hasMoreOlder: false,
+          hasMoreNewer: true,
+          newerCursor: "anchor_revalidated",
+          latestSeq: 36,
+        } satisfies MessagesPage)
+      }
+      return Promise.resolve(newestPage("latest_revalidated"))
+    })
+    let latest!: Snapshot
+    const renderer = render(
+      queryClient,
+      React.createElement(ChannelCapture, {
+        channelId: "channel_revalidated",
+        lastReadMessageId: "anchor_revalidated",
+        onRender: (snapshot) => { latest = snapshot },
+        revalidateOnMount: true,
+      }),
+    )
+
+    await waitFor(() => apiFetchMock.mock.calls.length === 1)
+    await waitFor(() => !queryClient.isFetching({ queryKey }))
+    apiFetchMock.mockClear()
+    act(() => latest.jumpToPresent())
+    await waitFor(() => latest.ids[0] === "latest_revalidated" && !latest.isFetchingNewer)
+
+    expect(apiFetchMock).toHaveBeenCalledTimes(1)
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/community/channels/channel_revalidated/messages",
+      { signal: expect.any(AbortSignal) },
+    )
     renderer.unmount()
   })
 

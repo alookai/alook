@@ -4,6 +4,7 @@ import { render, screen } from "@/test/react-dom-harness"
 import { CommunityRestoreBoundary } from "./community-restore-bootstrap"
 
 const restoring = vi.hoisted(() => ({ current: false }))
+const restored = vi.hoisted(() => ({ dataExists: false }))
 const queryClient = vi.hoisted(() => ({
   getQueryData: vi.fn<() => unknown>(() => undefined),
 }))
@@ -12,9 +13,15 @@ vi.mock("@tanstack/react-query", () => ({
   useIsRestoring: () => restoring.current,
   useQueryClient: () => queryClient,
 }))
+vi.mock("@/lib/community-db/projections", () => ({
+  useOptionalCommunityDbRegistry: () => ({
+    hasRestoredData: () => restored.dataExists,
+  }),
+}))
 
 beforeEach(() => {
   restoring.current = false
+  restored.dataExists = false
   queryClient.getQueryData.mockReset()
   queryClient.getQueryData.mockReturnValue(undefined)
 })
@@ -65,7 +72,7 @@ describe("CommunityRestoreBoundary", () => {
       callback(0)
       return 1
     })
-    queryClient.getQueryData.mockReturnValue({ cached: true })
+    restored.dataExists = true
     restoring.current = true
     const renderer = render(React.createElement(
       CommunityRestoreBoundary,

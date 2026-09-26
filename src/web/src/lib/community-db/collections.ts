@@ -244,6 +244,7 @@ export function createCommunityDbRegistry(
   const restoredCollectionNames = new Set<CollectionName>()
   const restoredCollectionListeners = new Set<() => void>()
   let restoredSnapshotCaptured = false
+  let restoredDataExists = false
 
   return {
     accountId,
@@ -256,13 +257,16 @@ export function createCommunityDbRegistry(
       restoredSnapshotCaptured = true
       migrateLegacyServerPositions(queryClient, scopeId)
       for (const name of Object.keys(collections) as CollectionName[]) {
-        if (queryClient.getQueryData(collectionQueryKey(scopeId, name)) !== undefined) {
+        const data = queryClient.getQueryData(collectionQueryKey(scopeId, name))
+        if (data !== undefined) {
           restoredCollectionNames.add(name)
+          if (Array.isArray(data) && data.length > 0) restoredDataExists = true
         }
       }
       for (const listener of restoredCollectionListeners) listener()
     },
     hasRestoredCollection: (name: CollectionName) => restoredCollectionNames.has(name),
+    hasRestoredData: () => restoredDataExists,
     subscribeRestoredCollections: (listener: () => void) => {
       restoredCollectionListeners.add(listener)
       return () => restoredCollectionListeners.delete(listener)

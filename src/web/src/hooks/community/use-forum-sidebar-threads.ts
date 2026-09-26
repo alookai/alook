@@ -35,6 +35,9 @@ export type ForumSidebarThread = {
   unread: boolean
 }
 
+const subscribeToNoRestoredForumProjection = () => () => {}
+const noRestoredForumProjection = () => false
+
 type ForumSidebarRetainedDisposition =
   | "eligible"
   | "opener-archived"
@@ -837,6 +840,15 @@ export function useForumSidebarThreads(
   enabled = true,
 ) {
   const registry = useOptionalCommunityDbRegistry()
+  const restoredForumProjection = useSyncExternalStore(
+    registry?.subscribeRestoredCollections ?? subscribeToNoRestoredForumProjection,
+    () => Boolean(
+      registry?.hasRestoredCollection("channels")
+      && registry.hasRestoredCollection("channelMemberships")
+      && registry.hasRestoredCollection("messages"),
+    ),
+    noRestoredForumProjection,
+  )
   const queryClient = useQueryClient()
   const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
   const unreadProjection = useMemo(
@@ -931,7 +943,11 @@ export function useForumSidebarThreads(
     parentUnread: projection.parentUnread,
     projectionReady: query.isError || (
       clockNowMs !== null
-      && (registry ? canonical !== undefined : query.data !== undefined)
+      && (registry
+        ? query.data !== undefined
+          || restoredForumProjection
+          || (canonical?.threads.length ?? 0) > 0
+        : query.data !== undefined)
     ),
     verifiedEpoch: accessEpoch,
   }

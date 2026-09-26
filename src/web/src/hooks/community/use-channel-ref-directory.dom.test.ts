@@ -188,6 +188,41 @@ describe("useChannelRefDirectory", () => {
     expect(apiFetch).not.toHaveBeenCalled()
   })
 
+  it("keeps the account-scoped warm request alive after its popup observer unmounts", async () => {
+    const request = deferred<{ directory: Array<{
+      id: string
+      name: string
+      discriminator: string
+      channels: Array<{ id: string; name: string }>
+    }> }>()
+    apiFetch.mockReturnValue(request.promise)
+    const client = createQueryClient()
+    const first = renderDirectory(client, true)
+
+    expect(apiFetch).toHaveBeenCalledWith("/api/community/users/me/channel-directory")
+    first.unmount()
+
+    const directory = [{
+      id: "server_1",
+      name: "Studio",
+      discriminator: "0042",
+      channels: [{ id: "channel_1", name: "general" }],
+    }]
+    await act(async () => request.resolve({ directory }))
+    await waitFor(() => expect(
+      client.getQueryData(communityKeys.channelRefDirectory()),
+    ).toEqual(directory))
+
+    const second = renderDirectory(client, true)
+    expect(second.result.current).toMatchObject({
+      directory,
+      isResolved: true,
+      isLoading: false,
+      isError: false,
+    })
+    expect(apiFetch).toHaveBeenCalledOnce()
+  })
+
   it("resolves from canonical channels while the transport query is dormant", () => {
     const directory = [{
       id: "server_db",
@@ -208,11 +243,37 @@ describe("useChannelRefDirectory", () => {
     expect(apiFetch).not.toHaveBeenCalled()
   })
 
-  it("keeps an empty canonical preload unresolved while HTTP is stalled", () => {
-    dbProjection.current = []
+  it("keeps a canonical server with no channels unresolved while HTTP is stalled", () => {
+    dbProjection.current = [{
+      id: "server_db",
+      name: "Canonical",
+      discriminator: "0001",
+      channels: [],
+    }]
     apiFetch.mockReturnValue(new Promise(() => {}))
 
     const rendered = renderDirectory(createQueryClient(), true)
+
+    expect(rendered.result.current).toMatchObject({
+      directory: [],
+      isResolved: false,
+      isLoading: true,
+      isError: false,
+    })
+    expect(apiFetch).toHaveBeenCalledOnce()
+  })
+
+  it("keeps an invalidated empty success pending while its refresh is stalled", () => {
+    dbProjection.current = []
+    apiFetch.mockReturnValue(new Promise(() => {}))
+    const client = createQueryClient()
+    client.setQueryData(communityKeys.channelRefDirectory(), [])
+    void client.invalidateQueries({
+      queryKey: communityKeys.channelRefDirectory(),
+      refetchType: "none",
+    })
+
+    const rendered = renderDirectory(client, true)
 
     expect(rendered.result.current).toMatchObject({
       directory: [],

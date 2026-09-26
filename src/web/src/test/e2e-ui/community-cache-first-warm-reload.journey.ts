@@ -27,6 +27,15 @@ type PersistedQuery = {
   data: unknown
 }
 
+const structuralLoadingSelectors = [
+  '[aria-label="Loading community"]',
+  "[data-message-list-skeleton]",
+  `[data-testid^="${tid.pendingMain("")}"]`,
+  `[data-testid="${tid.initialRailPending}"]`,
+  `[data-testid="${tid.dmSidebarPending}"]`,
+  `[data-testid^="${tid.channelSidebarPending("")}"]`,
+]
+
 async function persistedQueries(page: Page, viewerId: string): Promise<PersistedQuery[]> {
   return page.evaluate((key) => new Promise<PersistedQuery[]>((resolve, reject) => {
     const open = indexedDB.open("keyval-store")
@@ -68,7 +77,9 @@ function containsPersistedId(value: unknown, id: string): boolean {
   if (Array.isArray(value)) return value.some((entry) => containsPersistedId(entry, id))
   if (!value || typeof value !== "object") return false
   const record = value as Record<string, unknown>
-  return record.id === id || Object.values(record).some((entry) => containsPersistedId(entry, id))
+  return Object.values(record).some((entry) => (
+    entry === id || containsPersistedId(entry, id)
+  ))
 }
 
 async function expectPersistedClosure(
@@ -137,14 +148,6 @@ async function expectCacheFirstReload(
   page: Page,
   assertCachedContent: () => Promise<void>,
 ): Promise<ReloadCapture> {
-  const structuralLoadingSelectors = [
-    '[aria-label="Loading community"]',
-    "[data-message-list-skeleton]",
-    `[data-testid^="${tid.pendingMain("")}"]`,
-    `[data-testid="${tid.initialRailPending}"]`,
-    `[data-testid="${tid.dmSidebarPending}"]`,
-    `[data-testid^="${tid.channelSidebarPending("")}"]`,
-  ]
   await page.addInitScript((loadingSelectors) => {
     const state = {
       customBootstrapSeen: false,
@@ -200,7 +203,7 @@ async function expectCacheFirstReload(
     await assertCachedContent()
     await expect.poll(() => heldReads).toBeGreaterThan(0)
     await expect.poll(() => wsAttempts).toBeGreaterThan(0)
-    const capture = await page.evaluate(() => {
+    const readCapture = () => page.evaluate((): ReloadCapture | null => {
       const state = (window as unknown as {
         __cacheFirstReload?: {
           customBootstrapSeen: boolean
@@ -216,7 +219,7 @@ async function expectCacheFirstReload(
         stable: latest("alook:restore:stable"),
       }
       if (Object.values(marks).some((mark) => mark === undefined)) {
-        throw new Error("warm reload restore lifecycle marks are incomplete")
+        return null
       }
       return {
         customBootstrapSeen: state?.customBootstrapSeen === true,
@@ -225,6 +228,9 @@ async function expectCacheFirstReload(
         marks: marks as ReloadCapture["marks"],
       }
     })
+    await expect.poll(readCapture, { timeout: 10_000 }).not.toBeNull()
+    const capture = await readCapture()
+    if (!capture) throw new Error("warm reload restore lifecycle marks are incomplete")
     expect(capture.customBootstrapSeen).toBe(false)
     expect(capture.skeletonSeen, capture.firstSkeleton ?? "warm reload regional skeleton").toBe(true)
     expect(capture.marks.complete).toBeGreaterThanOrEqual(capture.marks.start)
@@ -248,10 +254,9 @@ test("a warm channel reload replaces regional skeletons with cached shell and me
   await page.goto(`/c/channels/${serverId}/${channelId}`)
   await expect(page.getByText(body, { exact: false }).first()).toBeVisible({ timeout: 20_000 })
   await expectPersistedClosure(page, userId("alice"), [
-    { key: ["community", "servers"] },
-    { key: ["community", "folders"] },
+    { key: ["community", "db", userId("alice"), "servers"], containsId: serverId },
+    { key: ["community", "db", userId("alice"), "folders"] },
     { key: ["community", "db", userId("alice"), "channels"], containsId: channelId },
-    { key: ["community", "servers", serverId], containsId: channelId },
     { key: ["community", "db", userId("alice"), "messages"], containsId: messageId },
   ])
 
@@ -271,9 +276,11 @@ test("a warm DM reload replaces regional skeletons with cached identity and mess
   await page.goto(`/c/me/${dmId}`)
   await expect(page.getByText(body, { exact: false }).first()).toBeVisible({ timeout: 20_000 })
   await expectPersistedClosure(page, userId("alice"), [
-    { key: ["community", "servers"] },
-    { key: ["community", "folders"] },
-    { key: ["community", "dms"], containsId: dmId },
+    { key: ["community", "db", userId("alice"), "servers"] },
+    { key: ["community", "db", userId("alice"), "folders"] },
+    { key: ["community", "db", userId("alice"), "channels"], containsId: dmId },
+    { key: ["community", "db", userId("alice"), "channelMemberships"], containsId: dmId },
+    { key: ["community", "db", userId("alice"), "profiles"], containsId: userId("bob") },
     { key: ["community", "db", userId("alice"), "messages"], containsId: messageId },
   ])
 
@@ -300,10 +307,9 @@ test("a warm desktop split reload replaces regional skeletons in both cached pan
   })
   await expect(page.getByText(threadBody, { exact: false }).first()).toBeVisible({ timeout: 20_000 })
   await expectPersistedClosure(page, userId("alice"), [
-    { key: ["community", "servers"] },
-    { key: ["community", "folders"] },
+    { key: ["community", "db", userId("alice"), "servers"], containsId: serverId },
+    { key: ["community", "db", userId("alice"), "folders"] },
     { key: ["community", "db", userId("alice"), "channels"], containsId: channelId },
-    { key: ["community", "servers", serverId], containsId: channelId },
     { key: ["community", "db", userId("alice"), "messages"], containsId: openerId },
     { key: ["community", "db", userId("alice"), "messages"], containsId: threadMessageId },
   ])
@@ -329,7 +335,12 @@ test("a true-cold channel load reuses localized skeletons without a custom boots
   const { page } = await asUser("alice")
   await page.goto("/")
   await clearQueryPersistence(page)
-  await page.addInitScript(() => {
+  // Clearing IndexedDB does not cancel the current page's already queued
+  // throttled persist. Let that write drain, then clear once more so the next
+  // document really starts without a disk snapshot.
+  await page.waitForTimeout(1_100)
+  await clearQueryPersistence(page)
+  await page.addInitScript((loadingSelectors) => {
     const state = {
       customBootstrapSeen: false,
       localizedSkeletonAfterRestore: false,
@@ -348,12 +359,12 @@ test("a true-cold channel load reuses localized skeletons without a custom boots
       }
       if (
         performance.getEntriesByName("alook:restore:complete", "mark").length > 0
-        && document.querySelector('[data-slot="skeleton"]')
+        && document.querySelector(loadingSelectors.join(","))
       ) state.localizedSkeletonAfterRestore = true
     }
     new MutationObserver(inspect).observe(document, { childList: true, subtree: true })
     inspect()
-  })
+  }, structuralLoadingSelectors)
 
   let releaseReads!: () => void
   const readsGate = new Promise<void>((resolve) => { releaseReads = resolve })

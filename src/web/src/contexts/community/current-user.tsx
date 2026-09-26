@@ -7,6 +7,7 @@ import {
   useMemo,
   type ReactNode,
 } from "react"
+import { useIsRestoring } from "@tanstack/react-query"
 import type { Presence } from "@/lib/community/models/people"
 import {
   useCanonicalCommunityProfile,
@@ -54,9 +55,11 @@ export function CurrentUserProvider({
   initialUser: CurrentUser
   children: ReactNode
 }) {
+  const isRestoring = useIsRestoring()
   const communityDb = useOptionalCommunityDbRegistry()
   const current = useCanonicalCommunityProfile(initialUser.id)
   useLayoutEffect(() => {
+    if (isRestoring) return
     if (current?.name !== undefined && current.avatarVersion !== undefined) return
     writeCommunityProfilePatches([{
       id: initialUser.id,
@@ -70,7 +73,7 @@ export function CurrentUserProvider({
           } }
         : {}),
     }], communityDb)
-  }, [communityDb, current?.avatarVersion, current?.name, initialUser])
+  }, [communityDb, current?.avatarVersion, current?.name, initialUser, isRestoring])
   return (
     <CurrentUserContext.Provider value={initialUser}>
       {children}

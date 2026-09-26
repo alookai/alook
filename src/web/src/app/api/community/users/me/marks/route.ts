@@ -11,6 +11,7 @@ import {
 import { parseBoundedInt } from "@/lib/community/messages"
 import { avatarInitial } from "@/lib/community/avatar"
 import { canonicalUserImage } from "@/lib/community/storage"
+import { projectMessageWireType } from "@/lib/community/message-wire-type"
 
 // Cross-channel Marked tab: every message the current user has marked, newest
 // first. Scoped to the viewer's visible channels in-query (same guard as the
@@ -120,6 +121,7 @@ export const GET = withCommunityActor(async (req, ctx) => {
       parentChannelId: ch?.parentChannelId ?? null,
       m: {
         id: row.message.id,
+        ...projectMessageWireType(row.message.type),
         authorId: row.author.id,
         authorName: row.author.name,
         authorAvatar: canonicalUserImage(

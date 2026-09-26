@@ -83,8 +83,13 @@ export function useCommunityNavigationController(
     cancelActiveConversationNavigationProof(queryClient)
     pendingBaselineRevisionRef.current = committedFrame.revision
     pendingBaselineLeafRef.current = committedFrame.leafKey
-    setNavigationPending(true)
-    setPendingHref(href)
+    // Publish the target checkpoint before Next starts the RSC transition.
+    // Otherwise React can leave this event-batched behind a suspended push and
+    // the committed conversation remains visible while the target is pending.
+    flushSync(() => {
+      setNavigationPending(true)
+      setPendingHref(href)
+    })
     router.push(href)
   }, [committedFrame.leafKey, committedFrame.revision, publishedHref, queryClient, router])
 

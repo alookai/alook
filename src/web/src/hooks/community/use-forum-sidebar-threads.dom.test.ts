@@ -248,6 +248,25 @@ describe("forum sidebar canonical projection", () => {
     await invalidateForumSidebarBaseExact(queryClient, "server-1")
   })
 
+  it("keeps an unverified cold empty projection pending while HTTP is stalled", async () => {
+    const { queryClient, wrapper } = await setup()
+    apiFetchMock.mockReturnValue(new Promise(() => {}))
+
+    const rendered = renderHook(
+      () => useForumSidebarThreads("server-1", null),
+      { wrapper },
+    )
+
+    await waitFor(() => expect(rendered.result.current.fetchStatus).toBe("fetching"))
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    expect(rendered.result.current.threads).toEqual([])
+    expect(rendered.result.current.projectionReady).toBe(false)
+    rendered.unmount()
+    await invalidateForumSidebarBaseExact(queryClient, "server-1")
+  })
+
   it("publishes an HTTP response once and renders later WS edits from the same rows", async () => {
     const { queryClient, wrapper } = await setup()
     apiFetchMock.mockResolvedValue(envelope())

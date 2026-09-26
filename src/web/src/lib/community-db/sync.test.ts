@@ -113,6 +113,27 @@ describe("community DB sync", () => {
     })
   })
 
+  it("ingests an unknown legacy directory channel as text", async () => {
+    const db = await registry()
+
+    expect(publishCommunityChannelDirectory(db.queryClient, {
+      directory: [{
+        id: "s1",
+        name: "Server",
+        discriminator: "0001",
+        channels: [{ id: "c1", name: "General" }],
+      }],
+      proof: {
+        token: captureCommunityLiveSnapshotToken(db.queryClient),
+        signal: undefined,
+      },
+    })).toBe("published")
+    expect(db.collections.channels.get("c1")).toMatchObject({
+      name: "General",
+      type: "text",
+    })
+  })
+
   it("keeps anonymous canonical ingestion free of viewer access rows", async () => {
     const db = createCommunityDbRegistry(new QueryClient(), null)
     registries.push(db)

@@ -251,18 +251,25 @@ export function useServers(): UseQueryResult<ServersResponse> & {
       ? dbRail?.servers.filter((server) => unreadProjection.allowsAccess({ serverId: server.id }))
       : query.data?.servers.filter((server) => unreadProjection.allowsAccess({ serverId: server.id }))
     if (!raw) return undefined
+    // Canonical rail rows intentionally contain renderable aggregates only.
+    // Keep using the fresh list response as exact source evidence so the
+    // unread projection can reconcile numeric mention badges by channel.
+    const liveEvidenceByServer = new Map(
+      query.data?.servers.map((server) => [server.id, server]) ?? [],
+    )
     let changed = false
     const projected = raw.map((server) => {
+      const liveEvidence = liveEvidenceByServer.get(server.id)
       const unread = unreadProjection.projectServerUnread(
         server.id,
-        server.unreadSources ?? [],
-        server.unread,
+        liveEvidence?.unreadSources ?? server.unreadSources ?? [],
+        liveEvidence?.unread ?? server.unread,
         unreadExclusion,
       )
       const mentions = unreadProjection.projectServerMentionCount(
         server.id,
-        server.mentionSources ?? [],
-        server.mentions,
+        liveEvidence?.mentionSources ?? server.mentionSources ?? [],
+        liveEvidence?.mentions ?? server.mentions,
         unreadExclusion,
       )
       if (unread === server.unread && mentions === server.mentions) return server

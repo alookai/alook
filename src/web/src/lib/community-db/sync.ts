@@ -994,6 +994,7 @@ export function ingestMessages(
     .filter((message) => !message.id.startsWith("temp_") && message.failed !== true)
     .map((message) => ({
       ...message,
+      type: message.type ?? "chat",
       channelId,
       replyToId: message.replyTo?.id,
     }))
@@ -1332,8 +1333,9 @@ export function publishCommunityChannelDirectory(
   const channels: ChannelRow[] = publication.directory.flatMap((server) => (
     server.channels.flatMap((channel, position) => {
       const existing = existingChannels.get(channel.id)
-      const type = channel.type ?? existing?.type
-      if (type !== "text" && type !== "forum") return []
+      // Older directory payloads predate the subtype field and therefore only
+      // describe text channels. Preserve any richer canonical subtype first.
+      const type = channel.type ?? existing?.type ?? "text"
       return [{
         id: channel.id,
         serverId: server.id,

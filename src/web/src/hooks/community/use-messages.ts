@@ -633,7 +633,7 @@ function useMessagesInner(
       }
       activationRevalidationRef.current = state
     }
-    if (isRestoring || state.completed || state.pending) return
+    if (isRestoring || forceNewest || state.completed || state.pending) return
     if (!enabled || query.data === undefined || opts?.revalidateOnMount !== true) return
 
     const receipt = initialWindowReceiptRef.current
@@ -690,6 +690,7 @@ function useMessagesInner(
     activationKey,
     anchorRepairNeeded,
     enabled,
+    forceNewest,
     initialPageParam,
     isRestoring,
     opts?.revalidateOnMount,

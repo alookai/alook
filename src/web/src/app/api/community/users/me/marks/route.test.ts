@@ -102,7 +102,7 @@ describe("GET /api/community/users/me/marks", () => {
     mockListMarksForUser.mockResolvedValue([
       {
         mark: { id: "mk1", channelId: "c1", createdAt: "2026-06-25T10:00:00Z" },
-        message: { id: "m1", seq: 42, content: "pinned thought", createdAt: "2026-06-25T09:00:00Z" },
+        message: { id: "m1", type: "system", seq: 42, content: "pinned thought", createdAt: "2026-06-25T09:00:00Z" },
         author: { id: "u-alice", name: "Alice", email: "alice@t.com", image: null },
       },
     ])
@@ -127,8 +127,29 @@ describe("GET /api/community/users/me/marks", () => {
       // serverId + channelId locate the channel, m.seq jumps to the message —
       // all three required for cross-channel navigation. seq lives inside `m`
       // to match the frontend `Marked` type (m: Msg).
-      m: { id: "m1", authorId: "u-alice", authorName: "Alice", content: "pinned thought", seq: 42 },
+      m: { id: "m1", type: "system", authorId: "u-alice", authorName: "Alice", content: "pinned thought", seq: 42 },
     })
+  })
+
+  it("normalizes an ordinary stored message to the canonical chat wire type", async () => {
+    mockListMarksForUser.mockResolvedValue([{
+      mark: { id: "mk-default", channelId: "c1" },
+      message: {
+        id: "m-default",
+        type: "default",
+        seq: 1,
+        content: "hello",
+        createdAt: "2026-06-25T09:00:00Z",
+      },
+      author: { id: "u-alice", name: "Alice", image: null, avatarVersion: 0 },
+    }])
+    mockGetChannelsByIds.mockResolvedValue([{ id: "c1", name: "general", serverId: "s1" }])
+    mockGetServersByIds.mockResolvedValue([{ id: "s1", name: "Server 1" }])
+
+    const body = await (await GET(new NextRequest(
+      "http://localhost/api/community/users/me/marks",
+    ))).json()
+    expect(body.marked[0].m).toMatchObject({ id: "m-default", type: "chat" })
   })
 
   it("returns empty marked array when none", async () => {

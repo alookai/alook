@@ -15,12 +15,16 @@ vi.mock("react", async (importOriginal) => {
 })
 
 const apiFetchMock = vi.fn()
+const dbProjection = vi.hoisted(() => ({
+  registry: null as object | null,
+  rail: undefined as { servers: Array<Record<string, unknown>>; folders: unknown[] } | undefined,
+}))
 vi.mock("@/lib/api/client", () => ({
   apiFetch: (...args: unknown[]) => apiFetchMock(...args),
 }))
 vi.mock("@/lib/community-db/projections", () => ({
-  useOptionalCommunityDbRegistry: () => null,
-  useServerRailProjection: () => undefined,
+  useOptionalCommunityDbRegistry: () => dbProjection.registry,
+  useServerRailProjection: () => dbProjection.rail,
   useServerTreeProjection: () => undefined,
 }))
 
@@ -50,6 +54,8 @@ beforeEach(() => {
   capturedHookQueryClient = new QueryClient()
   capturedHookQueryData = undefined
   capturedHookQueryError = null
+  dbProjection.registry = null
+  dbProjection.rail = undefined
   useCommunityWsStore.getState().reset()
 })
 
@@ -309,6 +315,30 @@ describe("useServers / serversQueryFn", () => {
     expect(result.servers[0]?.unread).toBe(true)
     expect(result.servers[1]).toBe(unchanged)
     expect(result.servers[2]).toBe(legacy)
+  })
+
+  it("projects live mention-source evidence onto canonical rail rows", async () => {
+    dbProjection.registry = {}
+    dbProjection.rail = {
+      servers: [{ id: "s1", unread: false, mentions: 1 }],
+      folders: [],
+    }
+    capturedHookQueryData = {
+      servers: [{
+        id: "s1",
+        unread: true,
+        mentions: 1,
+        unreadSources: [{ channelId: "c1", lastUnreadSeq: 4 }],
+        mentionSources: [{ channelId: "c1", count: 1, lastSeq: 4 }],
+      }],
+    }
+    const { useServers } = await import("./use-servers")
+
+    expect(useServers().servers[0]).toMatchObject({
+      id: "s1",
+      unread: true,
+      mentions: 1,
+    })
   })
 
   it("returns the frozen empty server list before query data arrives", async () => {
