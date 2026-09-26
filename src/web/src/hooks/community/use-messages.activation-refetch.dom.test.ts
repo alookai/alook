@@ -229,6 +229,29 @@ function SwitchingLayoutPaginationCapture({ channelId, queueOlder, onRender }: {
   return null
 }
 
+function ConfigurableChannelCapture({
+  channelId,
+  revalidateOnMount,
+  onRender,
+}: {
+  channelId: string
+  revalidateOnMount: boolean
+  onRender: (snapshot: Snapshot, fetchOlder: () => void) => void
+}) {
+  const result = useMessages(channelId, {
+    serverId: "server_1",
+    lastReadMessageId: `m_anchor_${channelId}`,
+    revalidateOnMount,
+  })
+  onRender({
+    anchorReconciled: result.anchorReconciled,
+    hasMoreNewer: result.hasMoreNewer,
+    ids: result.messages.map((message) => message.id),
+    isFetching: result.isFetching,
+  }, result.fetchOlder)
+  return null
+}
+
 function IndependentChannelCapture({ lastReadMessageId, onRender }: {
   lastReadMessageId: string | null | undefined
   onRender: (snapshot: Snapshot) => void
@@ -512,6 +535,232 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
     ).length === 1)
     expect(invalidateQueries).not.toHaveBeenCalled()
     expect(snapshots.every((snapshot) => snapshot.ids.length > 0)).toBe(true)
+    renderer.unmount()
+  })
+
+  it("retries an aborted first activation refresh until a network success receipt", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const queryKey = communityKeys.dmMessages("dm_activation")
+    const cachedPage = {
+      messages: [{ id: "m_anchor", seq: 1, createdAt: "2026-08-09T00:00:00.000Z" }],
+      hasMoreOlder: false,
+      hasMoreNewer: false,
+      latestSeq: 1,
+    } satisfies MessagesPage
+    queryClient.setQueryData(queryKey, {
+      pages: [cachedPage],
+      pageParams: [{ mode: "anchor", anchor: "m_anchor" }],
+    })
+    let messageAttempts = 0
+    apiFetchMock.mockImplementation((_url: string, init?: { signal?: AbortSignal }) => {
+      messageAttempts += 1
+      if (messageAttempts > 1) return Promise.resolve(cachedPage)
+      return new Promise<MessagesPage>((_resolve, reject) => {
+        const signal = init?.signal
+        const abort = () => reject(new DOMException("Aborted", "AbortError"))
+        if (signal?.aborted) abort()
+        else signal?.addEventListener("abort", abort, { once: true })
+      })
+    })
+    const snapshots: Snapshot[] = []
+    const renderer = renderCapture(
+      queryClient,
+      React.createElement(RevalidatingDmCapture, {
+        lastReadMessageId: "m_anchor",
+        onRender: (snapshot) => { snapshots.push(snapshot) },
+      }),
+    )
+
+    await waitFor(() => messageAttempts === 1)
+    await act(async () => {
+      await queryClient.cancelQueries({ queryKey, exact: true })
+    })
+    await waitFor(() => messageAttempts === 2)
+
+    expect(apiFetchMock.mock.calls.filter(([url]) => url.includes("/messages")))
+      .toHaveLength(2)
+    expect(snapshots.every((snapshot) => snapshot.ids.includes("m_anchor")))
+      .toBe(true)
+    renderer.unmount()
+  })
+
+  it("does not let a previous view's late success satisfy the current activation", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    for (const channelId of ["ch_a", "ch_b"]) {
+      queryClient.setQueryData(communityKeys.channelMessages(channelId), {
+        pages: [{
+          messages: [{
+            id: `m_anchor_${channelId}`,
+            seq: 1,
+            createdAt: "2026-08-09T00:00:00.000Z",
+          }],
+          hasMoreOlder: false,
+          hasMoreNewer: false,
+          latestSeq: 1,
+        }],
+        pageParams: [{ mode: "anchor", anchor: `m_anchor_${channelId}` }],
+      })
+    }
+    const lateA = deferred<MessagesPage>()
+    let bAttempts = 0
+    apiFetchMock.mockImplementation((url: string, init?: { signal?: AbortSignal }) => {
+      if (url.includes("/ch_a/messages")) return lateA.promise
+      bAttempts += 1
+      if (bAttempts > 1) {
+        return Promise.resolve({
+          messages: [{ id: "m_anchor_ch_b", seq: 1, createdAt: "2026-08-09T00:00:00.000Z" }],
+          hasMoreOlder: false,
+          hasMoreNewer: false,
+          latestSeq: 1,
+        } satisfies MessagesPage)
+      }
+      return new Promise<MessagesPage>((_resolve, reject) => {
+        const abort = () => reject(new DOMException("Aborted", "AbortError"))
+        if (init?.signal?.aborted) abort()
+        else init?.signal?.addEventListener("abort", abort, { once: true })
+      })
+    })
+    const view = (channelId: string) => React.createElement(ConfigurableChannelCapture, {
+      key: channelId,
+      channelId,
+      revalidateOnMount: true,
+      onRender: () => {},
+    })
+    const renderer = renderCapture(queryClient, view("ch_a"))
+
+    await waitFor(() => apiFetchMock.mock.calls.length === 1)
+    updateCapture(renderer, queryClient, view("ch_b"))
+    await waitFor(() => bAttempts === 1)
+    lateA.resolve({
+      messages: [{ id: "m_anchor_ch_a", seq: 1, createdAt: "2026-08-09T00:00:00.000Z" }],
+      hasMoreOlder: false,
+      hasMoreNewer: false,
+      latestSeq: 1,
+    })
+    await act(async () => { await lateA.promise })
+    await act(async () => {
+      await queryClient.cancelQueries({
+        queryKey: communityKeys.channelMessages("ch_b"),
+        exact: true,
+      })
+    })
+    await waitFor(() => bAttempts === 2)
+
+    renderer.unmount()
+  })
+
+  it("does not treat older pagination success as an initial-window receipt", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const queryKey = communityKeys.channelMessages("ch_activation")
+    queryClient.setQueryData(queryKey, {
+      pages: [{
+        messages: [{ id: "m_anchor_ch_activation", seq: 2, createdAt: "2026-08-09T00:00:01.000Z" }],
+        hasMoreOlder: true,
+        hasMoreNewer: false,
+        olderCursor: "older-cursor",
+        latestSeq: 2,
+      }],
+      pageParams: [{ mode: "anchor", anchor: "m_anchor_ch_activation" }],
+    })
+    apiFetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("?cursor=older-cursor")) {
+        return Promise.resolve({
+          messages: [{ id: "m_old", seq: 1, createdAt: "2026-08-09T00:00:00.000Z" }],
+          hasMoreOlder: false,
+          hasMoreNewer: false,
+          latestSeq: 2,
+        } satisfies MessagesPage)
+      }
+      if (url.endsWith("?anchor=m_anchor_ch_activation")) {
+        return Promise.resolve({
+          messages: [{ id: "m_anchor_ch_activation", seq: 2, createdAt: "2026-08-09T00:00:01.000Z" }],
+          hasMoreOlder: false,
+          hasMoreNewer: false,
+          latestSeq: 2,
+        } satisfies MessagesPage)
+      }
+      throw new Error(`unexpected messages URL: ${url}`)
+    })
+    let fetchOlder = () => {}
+    const view = (revalidateOnMount: boolean) => React.createElement(
+      ConfigurableChannelCapture,
+      {
+        channelId: "ch_activation",
+        revalidateOnMount,
+        onRender: (_snapshot: Snapshot, nextFetchOlder: () => void) => {
+          fetchOlder = nextFetchOlder
+        },
+      },
+    )
+    const renderer = renderCapture(queryClient, view(false))
+
+    act(() => fetchOlder())
+    await waitFor(() => apiFetchMock.mock.calls.length === 1)
+    expect(apiFetchMock.mock.calls[0]?.[0]).toContain("cursor=older-cursor")
+    updateCapture(renderer, queryClient, view(true))
+    await waitFor(() => apiFetchMock.mock.calls.length === 2)
+    expect(apiFetchMock.mock.calls[1]?.[0]).toContain(
+      "anchor=m_anchor_ch_activation",
+    )
+
+    renderer.unmount()
+  })
+
+  it("retries when a later page in the activation refetch is aborted", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const queryKey = communityKeys.dmMessages("dm_activation")
+    const anchorPage = {
+      messages: [{ id: "m_anchor", seq: 2, createdAt: "2026-08-09T00:00:01.000Z" }],
+      hasMoreOlder: true,
+      hasMoreNewer: false,
+      olderCursor: "older-cursor",
+      latestSeq: 2,
+    } satisfies MessagesPage
+    const olderPage = {
+      messages: [{ id: "m_old", seq: 1, createdAt: "2026-08-09T00:00:00.000Z" }],
+      hasMoreOlder: false,
+      hasMoreNewer: false,
+      latestSeq: 2,
+    } satisfies MessagesPage
+    queryClient.setQueryData(queryKey, {
+      pages: [anchorPage, olderPage],
+      pageParams: [
+        { mode: "anchor", anchor: "m_anchor" },
+        { mode: "older", cursor: "older-cursor" },
+      ],
+    })
+    let anchorAttempts = 0
+    let olderAttempts = 0
+    apiFetchMock.mockImplementation((url: string, init?: { signal?: AbortSignal }) => {
+      if (url.endsWith("?anchor=m_anchor")) {
+        anchorAttempts += 1
+        return Promise.resolve(anchorPage)
+      }
+      if (url.endsWith("?cursor=older-cursor")) {
+        olderAttempts += 1
+        if (olderAttempts > 1) return Promise.resolve(olderPage)
+        return new Promise<MessagesPage>((_resolve, reject) => {
+          const abort = () => reject(new DOMException("Aborted", "AbortError"))
+          if (init?.signal?.aborted) abort()
+          else init?.signal?.addEventListener("abort", abort, { once: true })
+        })
+      }
+      throw new Error(`unexpected messages URL: ${url}`)
+    })
+    const renderer = renderCapture(
+      queryClient,
+      React.createElement(RevalidatingDmCapture, {
+        lastReadMessageId: "m_anchor",
+        onRender: () => {},
+      }),
+    )
+
+    await waitFor(() => anchorAttempts === 1 && olderAttempts === 1)
+    await act(async () => {
+      await queryClient.cancelQueries({ queryKey, exact: true })
+    })
+    await waitFor(() => anchorAttempts === 2 && olderAttempts === 2)
+
     renderer.unmount()
   })
 

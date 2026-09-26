@@ -395,11 +395,12 @@ describe("ChannelRoute message surface ownership", () => {
   it.each([
     ["pending", true],
     ["ready", false],
-  ] as const)("keeps %s metadata neutral while access=%s", (routeLifecycle, accessAllowed) => {
+  ] as const)("keeps %s metadata on its known forum skeleton while access=%s", (routeLifecycle, accessAllowed) => {
     Object.assign(mockRouteModel, {
       channel: { id: "channel_1", name: "cached-forum", type: "forum" },
       isForum: true,
       routeLifecycle,
+      skeletonSubtype: "forum",
     })
     mockNavigationGate.allowed = accessAllowed
     mockedUseChannelMessageFeed.mockReturnValue(feed())
@@ -413,8 +414,9 @@ describe("ChannelRoute message surface ownership", () => {
     })
 
     expect(renderer.container.querySelector(
-      '[data-community-conversation-subtype="unknown"]',
+      '[data-community-conversation-subtype="forum"]',
     )).not.toBeNull()
+    expect(screen.getByTestId("forum-view-skeleton")).not.toBeNull()
     expect(mockedForumChannelSurface).not.toHaveBeenCalled()
     expect(mockedMessageList).not.toHaveBeenCalled()
   })

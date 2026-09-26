@@ -39,7 +39,7 @@ vi.mock("@/lib/cache", () => ({
   cached: vi.fn(),
   throttled: vi.fn(),
 }))
-vi.mock("@/lib/auth", () => ({ createAuth: vi.fn() }))
+vi.mock("@/lib/auth", () => ({ createAuth: vi.fn(), getAuth: vi.fn() }))
 
 import { POST } from "./route"
 

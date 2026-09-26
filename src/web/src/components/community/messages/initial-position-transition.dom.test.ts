@@ -102,24 +102,52 @@ describe("useInitialPositionTransition", () => {
     expect(latest).toMatchObject({ phase: "revealed", auroraVisible: false })
   })
 
-  it("times out to best-known content and ignores every late readiness change", () => {
+  it("does not let the visual timeout expose content before position settlement", () => {
     const renderer = render(React.createElement(Probe, pending()))
     act(() => vi.advanceTimersByTime(INITIAL_POSITION_TIMEOUT_MS))
-    expect(latest).toMatchObject({ phase: "revealing", contentVisible: true })
+    expect(latest).toMatchObject({
+      phase: "aurora",
+      contentVisible: false,
+      contentInteractive: false,
+      auroraVisible: true,
+    })
 
     renderer.rerender(React.createElement(Probe, { ...pending(), positionSettled: true }))
-    renderer.rerender(React.createElement(Probe, {
-      firstWindowReady: false,
-      authoritativeEmpty: false,
-      positionSettled: false,
-    }))
-    expect(latest.phase).toBe("revealing")
+    act(() => vi.advanceTimersByTime(0))
+    expect(latest).toMatchObject({
+      phase: "revealing",
+      contentVisible: true,
+      contentInteractive: true,
+    })
 
     act(() => vi.advanceTimersByTime(INITIAL_POSITION_CROSSFADE_MS))
     expect(latest).toMatchObject({ phase: "revealed", showSkeleton: false })
+  })
 
-    renderer.rerender(React.createElement(Probe, pending()))
-    act(() => vi.runAllTimers())
+  it("preserves the crossfade when settlement arrives after the timeout window", () => {
+    const renderer = render(React.createElement(Probe, pending()))
+    act(() => vi.advanceTimersByTime(
+      INITIAL_POSITION_TIMEOUT_MS + INITIAL_POSITION_CROSSFADE_MS,
+    ))
+    expect(latest).toMatchObject({
+      phase: "aurora",
+      contentVisible: false,
+      contentInteractive: false,
+      auroraVisible: true,
+    })
+
+    renderer.rerender(React.createElement(Probe, { ...pending(), positionSettled: true }))
+    act(() => vi.advanceTimersByTime(0))
+    expect(latest).toMatchObject({
+      phase: "revealing",
+      contentVisible: true,
+      contentInteractive: true,
+      auroraVisible: true,
+    })
+
+    act(() => vi.advanceTimersByTime(INITIAL_POSITION_CROSSFADE_MS - 1))
+    expect(latest.phase).toBe("revealing")
+    act(() => vi.advanceTimersByTime(1))
     expect(latest).toMatchObject({ phase: "revealed", auroraVisible: false })
   })
 

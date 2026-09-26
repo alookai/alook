@@ -335,9 +335,35 @@ type PresentOverride = {
 }
 
 type ActivationRevalidationState = {
+  abortedAttemptId: number | null
+  activeAttemptId: number | null
+  attemptId: number
   pending: Promise<unknown> | null
-  requested: boolean
+  completed: boolean
+  activationKey: string
+}
+
+type InitialWindowReceipt = {
+  pageParam: MessagesPageParam
   viewKey: string
+}
+
+type InitialMessagesPageParam = Extract<
+  MessagesPageParam,
+  { mode: "newest" | "anchor" }
+>
+
+function sameMessagesPageParam(
+  left: MessagesPageParam | undefined,
+  right: InitialMessagesPageParam,
+): boolean {
+  if (!left || left.mode !== right.mode) return false
+  switch (right.mode) {
+    case "newest":
+      return true
+    case "anchor":
+      return left.mode === "anchor" && left.anchor === right.anchor
+  }
 }
 
 // Shared pagination + reducer used by both channel and DM hooks. Kept inline
@@ -372,27 +398,35 @@ function useMessagesInner(
     () => JSON.stringify([queryKey, opts?.anchorMessageId ?? null]),
     [queryKey, opts?.anchorMessageId],
   )
-  const activationRevalidationRef = useRef<ActivationRevalidationState>({
-    pending: null,
-    requested: false,
-    viewKey,
-  })
   const attemptIdRef = useRef(0)
   const snapshotRef = useRef<{
     attemptId: number
     data: PageCache | undefined
     viewKey: string
   } | null>(null)
-  const networkFetchObservedRef = useRef(false)
+  const [activationRetryEpoch, setActivationRetryEpoch] = useState(0)
   const [presentOverride, setPresentOverride] = useState<PresentOverride | null>(null)
   const forceNewest = presentOverride?.viewKey === viewKey
   const jumpPending = forceNewest && presentOverride?.phase === "requested"
 
-  const initialPageParam = useMemo<MessagesPageParam>(() => {
+  const initialPageParam = useMemo<InitialMessagesPageParam>(() => {
     if (forceNewest) return { mode: "newest" }
     if (anchorId) return { mode: "anchor", anchor: anchorId }
     return { mode: "newest" }
   }, [forceNewest, anchorId])
+  const activationKey = useMemo(
+    () => JSON.stringify([viewKey, initialPageParam]),
+    [initialPageParam, viewKey],
+  )
+  const activationRevalidationRef = useRef<ActivationRevalidationState>({
+    abortedAttemptId: null,
+    activeAttemptId: null,
+    attemptId: 0,
+    pending: null,
+    completed: false,
+    activationKey,
+  })
+  const initialWindowReceiptRef = useRef<InitialWindowReceipt | null>(null)
 
   const query = useInfiniteQuery<
     MessagesPage,
@@ -408,7 +442,28 @@ function useMessagesInner(
     // TanStack's passive option update runs. Installing a rejecting sentinel
     // here made that one-shot revalidation fail locally without issuing the
     // required `/messages` request.
-    queryFn,
+    queryFn: async (context) => {
+      const stateAtStart = activationRevalidationRef.current
+      const attemptId = stateAtStart.activationKey === activationKey
+        ? stateAtStart.activeAttemptId
+        : null
+      const markAborted = () => {
+        if (
+          attemptId !== null
+          && activationRevalidationRef.current === stateAtStart
+          && stateAtStart.activationKey === activationKey
+          && stateAtStart.activeAttemptId === attemptId
+        ) {
+          stateAtStart.abortedAttemptId = attemptId
+        }
+      }
+      context.signal?.addEventListener("abort", markAborted, { once: true })
+      try {
+        return await queryFn(context)
+      } finally {
+        context.signal?.removeEventListener("abort", markAborted)
+      }
+    },
     initialPageParam,
     // "next" = older side. `fetchNextPage` appends to `data.pages`, so the
     // LAST entry in `pages` is the oldest window we've loaded — that's the
@@ -450,7 +505,6 @@ function useMessagesInner(
       // to prevent TanStack's enabled-transition fetch from racing that owner
       // with a persisted cursor/newest pageParam.
       (opts?.revalidateOnMount === true && cachedQuery.state.data !== undefined)
-      || networkFetchObservedRef.current
       || cachedWindowNeedsAnchorReconcile(
         cachedQuery.state.data as PageCache | undefined,
         forceNewest ? null : anchorId,
@@ -465,7 +519,6 @@ function useMessagesInner(
     reconcileLateAnchor,
   )
   useLayoutEffect(() => {
-    networkFetchObservedRef.current = false
     const mountedQuery = queryClient.getQueryCache().find({ queryKey, exact: true })
     if (!mountedQuery) return
     return queryClient.getQueryCache().subscribe((event) => {
@@ -474,20 +527,53 @@ function useMessagesInner(
         && event.query.queryHash === mountedQuery.queryHash
         && event.action.type === "success"
         && !event.action.manual
+        && event.query.state.fetchMeta === null
       ) {
-        networkFetchObservedRef.current = true
+        const receiptPageParam = (event.query.state.data as PageCache | undefined)
+          ?.pageParams[0]
+        if (!receiptPageParam) return
+        initialWindowReceiptRef.current = {
+          pageParam: receiptPageParam,
+          viewKey,
+        }
+        const state = activationRevalidationRef.current
+        if (
+          state.activationKey === activationKey
+          && sameMessagesPageParam(receiptPageParam, initialPageParam)
+        ) {
+          state.completed = true
+          state.activeAttemptId = null
+          state.abortedAttemptId = null
+          state.pending = null
+        }
       }
     })
-  }, [queryClient, queryKey, viewKey])
+  }, [activationKey, initialPageParam, queryClient, queryKey, viewKey])
 
   useLayoutEffect(() => {
     let state = activationRevalidationRef.current
-    if (state.viewKey !== viewKey) {
-      state = { pending: null, requested: false, viewKey }
+    if (state.activationKey !== activationKey) {
+      state = {
+        abortedAttemptId: null,
+        activeAttemptId: null,
+        attemptId: 0,
+        pending: null,
+        completed: false,
+        activationKey,
+      }
       activationRevalidationRef.current = state
     }
-    if (isRestoring || state.requested) return
+    if (isRestoring || state.completed || state.pending) return
     if (!enabled || query.data === undefined || opts?.revalidateOnMount !== true) return
+
+    const receipt = initialWindowReceiptRef.current
+    if (
+      receipt?.viewKey === viewKey
+      && sameMessagesPageParam(receipt.pageParam, initialPageParam)
+    ) {
+      state.completed = true
+      return
+    }
 
     // Guarantee one actual post-mount fetch for cached conversation observers.
     // A retained observer can mount after restore and read-state have already
@@ -503,21 +589,35 @@ function useMessagesInner(
     // which must never outrun the read-state anchor on a retained mount.
     // Running in layout also starts the semantic revalidation before the
     // message-list's passive IntersectionObserver can request another page.
-    state.requested = true
-    if (networkFetchObservedRef.current) return
     queryClient.setQueryData<PageCache>(queryKey, (current) => current
       ? {
           ...current,
           pageParams: [initialPageParam, ...current.pageParams.slice(1)],
         }
       : current)
+    state.attemptId += 1
+    const attemptId = state.attemptId
+    state.activeAttemptId = attemptId
+    state.abortedAttemptId = null
     const request = refetchMountedObserver({ cancelRefetch: false })
     state.pending = request
-    const clearPending = () => {
+    const settleAttempt = () => {
       if (state.pending === request) state.pending = null
+      if (state.completed) return
+      if (
+        state.abortedAttemptId === attemptId
+        && state.activeAttemptId === attemptId
+        && activationRevalidationRef.current === state
+        && state.activationKey === activationKey
+      ) {
+        state.activeAttemptId = null
+        setActivationRetryEpoch((epoch) => epoch + 1)
+      }
     }
-    void request.then(clearPending, clearPending)
+    void request.then(settleAttempt, settleAttempt)
   }, [
+    activationRetryEpoch,
+    activationKey,
     anchorRepairNeeded,
     enabled,
     initialPageParam,
@@ -713,11 +813,11 @@ function useMessagesInner(
     if (!query.hasNextPage) return
     if (query.isFetchingNextPage) return
     const activationState = activationRevalidationRef.current
-    if (activationState.viewKey !== viewKey) return
+    if (activationState.activationKey !== activationKey) return
     const activationRequest = activationState.pending
     if (activationRequest) {
       void activationRequest.then(() => {
-        if (activationRevalidationRef.current.viewKey !== viewKey) return
+        if (activationRevalidationRef.current.activationKey !== activationKey) return
         void query.fetchNextPage({ cancelRefetch: false })
       })
       return
@@ -735,7 +835,7 @@ function useMessagesInner(
       return
     }
     void query.fetchNextPage()
-  }, [enabled, query, viewKey])
+  }, [activationKey, enabled, query])
 
   const fetchNewer = useCallback(() => {
     if (!query.hasPreviousPage) return

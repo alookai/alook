@@ -144,7 +144,7 @@ describe("renderMessageListView", () => {
     expect(content).not.toHaveClass("transition-opacity", "duration-300")
   })
 
-  it("keeps real rows visible and interactive while initial positioning settles", () => {
+  it("keeps positioned rows measurable but inert and hidden until reveal starts", () => {
     const renderRows = vi.fn(() => React.createElement("virtual-rows"))
     const renderer = render(renderMessageListView(
       props({ loading: false }),
@@ -161,16 +161,19 @@ describe("renderMessageListView", () => {
     expect(renderRows).toHaveBeenCalledOnce()
     expect(renderer.container.querySelector("virtual-rows")).toBeInTheDocument()
     expect(content).toHaveAttribute("data-initial-position-phase", "positioning")
-    expect(content).toHaveAttribute("aria-hidden", "false")
-    expect(content).not.toHaveAttribute("inert")
-    expect(content).toHaveClass("opacity-100")
-    expect(content).not.toHaveClass("pointer-events-none", "opacity-0")
+    expect(content).toHaveAttribute("aria-hidden", "true")
+    expect(content).toHaveAttribute("inert")
+    expect(content).toHaveClass("pointer-events-none", "opacity-0")
     expect(content).not.toHaveClass("transition-opacity", "duration-300")
-    expect(mockedRail).toHaveBeenCalled()
-    expect(renderer.container.querySelector("[data-message-positioning-skeleton]")).not.toBeInTheDocument()
+    expect(mockedRail).not.toHaveBeenCalled()
+    const skeleton = renderer.container.querySelector("[data-message-positioning-skeleton]")!
+    expect(skeleton).toHaveClass(
+      "absolute", "inset-0", "z-20", "pointer-events-none", "opacity-100",
+    )
+    expect(skeleton.querySelector('[data-slot="skeleton"]')).toBeInTheDocument()
   })
 
-  it("does not reintroduce a loading visual while positioning takes longer", () => {
+  it("keeps the typed positioning skeleton through a timeout until settlement", () => {
     const renderer = render(renderMessageListView(
       props({ loading: false }),
       controller({
@@ -184,39 +187,42 @@ describe("renderMessageListView", () => {
       () => React.createElement("virtual-rows"),
     ))
     const content = () => renderer.container.querySelector<HTMLElement>("[data-message-list-content]")!
-    expect(content()).toHaveClass("opacity-100")
+    expect(content()).toHaveClass("opacity-0")
     expect(content()).not.toHaveClass("transition-opacity", "duration-300")
-    expect(renderer.container.querySelector("[data-message-positioning-skeleton]")).not.toBeInTheDocument()
-    expect(renderer.queryByTestId("community-initial-position-aurora")).toBeNull()
+    expect(renderer.container.querySelector("[data-message-positioning-skeleton]")).toHaveClass("opacity-100")
+    expect(renderer.getByTestId("community-initial-position-aurora"))
+      .toHaveAttribute("data-phase", "aurora")
 
     renderer.rerender(renderMessageListView(
       props({ loading: false }),
       controller({
         initialPosition: initialPosition({
           phase: "revealing",
+          contentVisible: false,
+          contentInteractive: false,
           auroraVisible: true,
         }),
       }),
       () => React.createElement("virtual-rows"),
     ))
-    expect(content()).toHaveClass("opacity-100")
-    expect(content()).not.toHaveClass("transition-opacity", "duration-300", "ease-linear")
+    expect(content()).toHaveClass("opacity-0")
+    expect(content()).not.toHaveClass("transition-opacity", "duration-300")
     const boundary = renderer.container.querySelector("[data-message-scroller-boundary]")!
     expect(boundary).toHaveClass("isolate")
     expect(renderer.getByTestId("community-message-scroller")).toHaveClass("relative", "z-10")
-    expect(boundary.querySelector("accessory-rail")).toBeInTheDocument()
-    expect(renderer.queryByTestId("community-initial-position-aurora")).toBeNull()
-    expect(content()).toHaveAttribute("aria-hidden", "false")
-    expect(content()).not.toHaveAttribute("inert")
+    expect(boundary.querySelector("accessory-rail")).not.toBeInTheDocument()
+    expect(content()).toHaveAttribute("aria-hidden", "true")
+    expect(content()).toHaveAttribute("inert")
 
     renderer.rerender(renderMessageListView(
       props({ loading: false }),
-      controller({ initialPosition: initialPosition({ phase: "revealed" }) }),
+      controller({ initialPosition: initialPosition({ phase: "revealing" }) }),
       () => React.createElement("virtual-rows"),
     ))
-    expect(content()).toHaveClass("opacity-100")
-    expect(content()).not.toHaveClass("transition-opacity", "duration-300")
-    expect(renderer.container.querySelector("[data-message-positioning-skeleton]")).not.toBeInTheDocument()
+    expect(content()).toHaveClass("opacity-100", "transition-opacity", "duration-300")
+    expect(content()).toHaveAttribute("aria-hidden", "false")
+    expect(content()).not.toHaveAttribute("inert")
+    expect(renderer.container.querySelector("[data-message-positioning-skeleton]")).toHaveClass("opacity-0")
   })
 
   it("keeps typing ownership out of the message list", () => {

@@ -93,6 +93,11 @@ function makeEnvBase() {
 function makeEnv(overrides: Partial<Record<string, unknown>> = {}) {
   return {
     ...makeEnvBase(),
+    CF_VERSION_METADATA: {
+      id: "version-a",
+      tag: "",
+      timestamp: "2026-09-26T00:00:00.000Z",
+    },
     DB: {},
     EMAIL_BUCKET: {},
     WS_DO_WORKER: {},
@@ -174,6 +179,72 @@ async function loadCreateAuth() {
   const mod = await import("./auth")
   return mod.createAuth
 }
+
+async function loadAuthModule() {
+  vi.resetModules()
+  return import("./auth")
+}
+
+describe("getAuth lifecycle", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("reuses one version instance across fresh DB and service binding wrappers", async () => {
+    const { getAuth } = await loadAuthModule()
+    const first = getAuth(makeEnv({
+      DB: { request: 1 },
+      EMAIL_WORKER: { fetch: vi.fn() },
+    }) as never)
+    const second = getAuth(makeEnv({
+      DB: { request: 2 },
+      EMAIL_WORKER: { fetch: vi.fn() },
+    }) as never)
+
+    expect(second).toBe(first)
+  })
+
+  it("rebuilds when the Worker version and binding generation changes", async () => {
+    const { getAuth } = await loadAuthModule()
+    const first = getAuth(makeEnv({
+      CF_VERSION_METADATA: { id: "version-a", tag: "", timestamp: "a" },
+      DB: { generation: "a" },
+      EMAIL_WORKER: { fetch: vi.fn() },
+    }) as never)
+    const second = getAuth(makeEnv({
+      CF_VERSION_METADATA: { id: "version-b", tag: "", timestamp: "b" },
+      DB: { generation: "b" },
+      EMAIL_WORKER: { fetch: vi.fn() },
+    }) as never)
+
+    expect(second).not.toBe(first)
+  })
+
+  it("does not reuse an instance in production without version metadata", async () => {
+    const { getAuth } = await loadAuthModule()
+    const env = makeEnv({ NODE_ENV: "production", CF_VERSION_METADATA: undefined })
+
+    expect(getAuth(env as never)).not.toBe(getAuth(env as never))
+  })
+
+  it("rebuilds when provider configuration changes", async () => {
+    const { getAuth } = await loadAuthModule()
+    const first = getAuth(makeEnv({ GITHUB_CLIENT_ID: "github-a" }) as never)
+    const second = getAuth(makeEnv({ GITHUB_CLIENT_ID: "github-b" }) as never)
+
+    expect(second).not.toBe(first)
+  })
+
+  it("starts a fresh lifecycle after a module reload", async () => {
+    const env = makeEnv()
+    const firstModule = await loadAuthModule()
+    const first = firstModule.getAuth(env as never)
+    const secondModule = await loadAuthModule()
+    const second = secondModule.getAuth(env as never)
+
+    expect(second).not.toBe(first)
+  })
+})
 
 // Fetches the OTP-plugin `sendVerificationOTP` callback for a given env
 // so tests can drive rate-limit + email-send behavior directly.

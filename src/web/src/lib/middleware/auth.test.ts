@@ -25,9 +25,10 @@ vi.mock("@alook/shared", () => ({
 }));
 
 const mockGetSession = vi.fn();
+const mockSignOut = vi.fn();
 vi.mock("@/lib/auth", () => ({
-  createAuth: vi.fn(() => ({
-    api: { getSession: mockGetSession },
+  getAuth: vi.fn(() => ({
+    api: { getSession: mockGetSession, signOut: mockSignOut },
   })),
 }));
 
@@ -135,6 +136,31 @@ describe("withAuth middleware", () => {
     expect(testHandler).toHaveBeenCalledOnce();
   });
 
+  it("keeps concurrent cookie sessions request-local", async () => {
+    mockGetSession.mockImplementation(async ({ headers }: { headers: Headers }) => {
+      const id = headers.get("Cookie")?.split("=")[1] ?? "missing";
+      return {
+        headers: new Headers({ "Set-Cookie": `viewer=${id}; Path=/` }),
+        response: { user: { id, email: `${id}@example.com` } },
+      };
+    });
+
+    const [first, second] = await Promise.all([
+      wrapped(new NextRequest("http://localhost/api/test", {
+        headers: { Cookie: "viewer=user-a" },
+      })),
+      wrapped(new NextRequest("http://localhost/api/test", {
+        headers: { Cookie: "viewer=user-b" },
+      })),
+    ]);
+    const [firstBody, secondBody] = await Promise.all([first.json(), second.json()]);
+
+    expect(firstBody.ctx.userId).toBe("user-a");
+    expect(secondBody.ctx.userId).toBe("user-b");
+    expect(first.headers.get("Set-Cookie")).toContain("viewer=user-a");
+    expect(second.headers.get("Set-Cookie")).toContain("viewer=user-b");
+  });
+
   it("rejects a session whose user carries isBot=true (guard reads it off the session user, no getUserInternal)", async () => {
     mockGetSession.mockResolvedValue({
       headers: new Headers(),
@@ -164,6 +190,7 @@ describe("withAuth middleware", () => {
 
     expect(res.status).toBe(401);
     expect((await res.json()).error).toBe("session no longer valid");
+    expect(mockSignOut).toHaveBeenCalledWith({ headers: req.headers });
     expect(testHandler).not.toHaveBeenCalled();
   });
 

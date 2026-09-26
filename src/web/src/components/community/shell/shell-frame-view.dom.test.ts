@@ -598,6 +598,10 @@ describe("ShellFrameView", () => {
     ))
     expect(animate).not.toHaveBeenCalled()
     expect(renderer.container.querySelector("[data-channel-loading-frame]")).not.toBeNull()
+    expect(mocks.pendingProps).toHaveBeenLastCalledWith(expect.objectContaining({
+      href: "/c/channels/s1/c2",
+      conversationSubtype: undefined,
+    }))
     expect(renderer.container.querySelector("[data-community-mobile-transition]")).toBeNull()
 
     renderer.rerender(createElement(
@@ -606,6 +610,30 @@ describe("ShellFrameView", () => {
       createElement("main-content", { "data-href": "/c/channels/s1/c2" }),
     ))
     expect(animate).not.toHaveBeenCalled()
+
+    renderer.rerender(createElement(
+      ShellFrameView,
+      {
+        ...common,
+        checkpoint: {
+          mode: "same-scope-leaf",
+          surface: "detail",
+          targetHref: "/c/channels/s1/c3",
+          rail: { kind: "keep" },
+          sidebar: { kind: "keep" },
+          main: {
+            kind: "target-skeleton",
+            href: "/c/channels/s1/c3",
+            conversationSubtype: "thread",
+          },
+        },
+      },
+      createElement("main-content"),
+    ))
+    expect(mocks.pendingProps).toHaveBeenLastCalledWith(expect.objectContaining({
+      href: "/c/channels/s1/c3",
+      conversationSubtype: "thread",
+    }))
     renderer.rerender(createElement(
       ShellFrameView,
       {

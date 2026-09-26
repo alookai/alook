@@ -13,6 +13,9 @@ vi.mock("@/lib/auth", () => ({
   createAuth: vi.fn(() => ({
     api: { getSession: vi.fn(async () => ({ headers: new Headers(), response: null })) },
   })),
+  getAuth: vi.fn(() => ({
+    api: { getSession: vi.fn(async () => ({ headers: new Headers(), response: null })) },
+  })),
 }))
 
 const mockFindActiveAgentRunnerKeyByBearer = vi.fn()

@@ -98,6 +98,7 @@ export function ShellFrameView({
         <CommunityPendingFrame
           href={checkpoint.targetHref}
           reserveBackSlot={surface === "detail"}
+          conversationSubtype={checkpoint.main.conversationSubtype}
         />
       ) : children}
       userBar={(

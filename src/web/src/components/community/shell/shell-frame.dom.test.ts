@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => {
         : undefined,
     },
     projectedServer: { current: undefined as undefined | Record<string, unknown> },
+    projectedChannel: { current: undefined as undefined | Record<string, unknown> },
     breakpoint: { current: "desktop" },
     onboardingState: { current: null as Record<string, unknown> | null },
     replace: vi.fn(),
@@ -95,6 +96,7 @@ vi.mock("@/contexts/community/current-user", () => ({
 }))
 vi.mock("@/lib/community-db/projections", () => ({
   useServerTreeProjection: () => mocks.projectedServer.current,
+  useRouteChannelProjection: () => mocks.projectedChannel.current,
 }))
 vi.mock("./use-shell-rail-controller", () => ({
   useShellRailController: (options: unknown) => {
@@ -139,6 +141,7 @@ describe("ShellFrame orchestration", () => {
     mocks.navigationPending.current = false
     mocks.serverCache.clear()
     mocks.projectedServer.current = undefined
+    mocks.projectedChannel.current = undefined
     mocks.breakpoint.current = "desktop"
     mocks.onboardingState.current = null
     mocks.registerUiHandlers.mockClear()
@@ -264,6 +267,27 @@ describe("ShellFrame orchestration", () => {
     expect(checkpoint()).toMatchObject({
       mode: "warm-scope",
       main: { kind: "keep" },
+    })
+  })
+
+  it("carries the canonical target subtype through the navigation checkpoint", () => {
+    mocks.currentHref.current = "/c/channels/s1/c1"
+    mocks.pendingHref.current = "/c/channels/s1/c2"
+    mocks.navigationPending.current = true
+    mocks.projectedChannel.current = { id: "c2", type: "forum" }
+
+    render(createElement(ShellFrame, {
+      ...baseProps,
+      frameHref: "/c/channels/s1/c1",
+    }))
+
+    expect(checkpoint()).toMatchObject({
+      mode: "same-scope-leaf",
+      main: {
+        kind: "target-skeleton",
+        href: "/c/channels/s1/c2",
+        conversationSubtype: "forum",
+      },
     })
   })
 

@@ -17,8 +17,7 @@ export function resolveConversationSubtype({
   isForum: boolean
   structuralHint?: ConversationSubtype
 }): ConversationSubtype {
-  if (routeLifecycle === "pending") return structuralHint
-  if (routeLifecycle !== "ready" || !accessAllowed) return "unknown"
+  if (routeLifecycle !== "ready" || !accessAllowed) return structuralHint
   if (isChild) return "thread"
   return isForum ? "forum" : "text"
 }

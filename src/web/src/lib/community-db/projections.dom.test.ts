@@ -15,6 +15,7 @@ import {
   useDmProjection,
   useMessageProjection,
   useNotificationSettingsProjection,
+  useReadStateProjection,
   useRouteChannelProjection,
   useServerRailProjection,
   useServerTreeProjection,
@@ -33,6 +34,7 @@ describe("community DB projections", () => {
       messages: useMessageProjection("c1"),
       messagesById: useCanonicalMessagesById(),
       notifications: useNotificationSettingsProjection(),
+      readState: useReadStateProjection("c1"),
       directory: useChannelRefDirectoryProjection(),
     }))
 
@@ -45,6 +47,7 @@ describe("community DB projections", () => {
       messages: undefined,
       messagesById: undefined,
       notifications: undefined,
+      readState: undefined,
       directory: undefined,
     })
     rendered.unmount()
@@ -256,6 +259,9 @@ describe("community DB projections", () => {
     collection("readStates", [{
       channelId: "dm1", lastReadMessageId: null, lastReadAt: "2026-09-25T00:00:00.000Z",
       lastReadSeq: 7,
+    }, {
+      channelId: "c1", lastReadMessageId: "m1", lastReadAt: "2026-09-25T00:00:01.000Z",
+      lastReadSeq: 1,
     }])
     collection("readStateClock", [{ id: "account", revision: 1 }])
     collection("folders", [
@@ -293,6 +299,7 @@ describe("community DB projections", () => {
       messages: useMessageProjection("c1"),
       messagesById: useCanonicalMessagesById(),
       notifications: useNotificationSettingsProjection(),
+      readState: useReadStateProjection("c1"),
       profiles: useCanonicalProfilesByUserId(),
       profile: useCanonicalCommunityProfile("peer"),
       directory: useChannelRefDirectoryProjection(),
@@ -321,6 +328,11 @@ describe("community DB projections", () => {
     expect(rendered.result.current.notifications).toMatchObject({
       server: { s1: "All Messages" },
       channel: { c1: "Only @mentions" },
+    })
+    expect(rendered.result.current.readState).toEqual({
+      lastReadMessageId: "m1",
+      lastReadAt: "2026-09-25T00:00:01.000Z",
+      lastReadSeq: 1,
     })
     expect(rendered.result.current.profiles.get("peer")?.id).toBe("peer")
     expect(rendered.result.current.profiles.get("peer")?.presence).toBe("online")

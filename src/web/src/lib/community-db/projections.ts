@@ -323,6 +323,26 @@ export function useRouteChannelProjection(channelId: string | null) {
   }, [channelId, result.data])
 }
 
+export function useReadStateProjection(channelId: string | null | undefined) {
+  const registry = useOptionalCommunityDbRegistry()
+  const result = useLiveQuery({
+    query: (q) => registry
+      ? q.from({ readState: registry.collections.readStates })
+      : undefined,
+  })
+  return useMemo(() => {
+    if (!channelId || !result.data) return undefined
+    const row = (result.data as ReadStateRow[])
+      .find((candidate) => candidate.channelId === channelId)
+    if (!row) return undefined
+    return {
+      lastReadMessageId: row.lastReadMessageId,
+      lastReadAt: row.lastReadAt,
+      lastReadSeq: row.lastReadSeq,
+    }
+  }, [channelId, result.data])
+}
+
 export function useMessageProjection(channelId: string | null) {
   const registry = useOptionalCommunityDbRegistry()
   const result = useLiveQuery({

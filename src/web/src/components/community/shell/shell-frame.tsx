@@ -8,6 +8,7 @@ import {
   advanceCommunityCommittedFrame,
   normalizeCommunityHref,
   resolveCommunityCheckpointPlan,
+  resolveCommunityModulePlan,
   resolveCommunityRoute,
   type CommunityCommittedFrame,
 } from "@/lib/community/community-route"
@@ -32,7 +33,10 @@ import {
   registerOwnerServerDeleteRoute,
 } from "@/lib/community/eject-server"
 import { useNativeMobileBack } from "@/hooks/community/use-native-mobile-back"
-import { useServerTreeProjection } from "@/lib/community-db/projections"
+import {
+  useRouteChannelProjection,
+  useServerTreeProjection,
+} from "@/lib/community-db/projections"
 
 /** Shared community shell orchestration for the server and DM layouts. */
 export function ShellFrame(props: ShellFrameProps) {
@@ -85,7 +89,23 @@ export function ShellFrame(props: ShellFrameProps) {
     ? normalizeCommunityHref(navigation.pendingHref)
     : null
   const targetServerId = target?.scope.kind === "server" ? target.scope.serverId : null
+  const targetModulePlan = navigation.pendingHref
+    ? resolveCommunityModulePlan(navigation.pendingHref)
+    : null
+  const targetChannelId = targetModulePlan?.main.kind === "server-conversation"
+    ? targetModulePlan.main.leafId
+    : null
   const targetServer = useServerTreeProjection(targetServerId)
+  const targetRouteChannel = useRouteChannelProjection(targetChannelId)
+  const targetChannel = targetServer?.categories
+    ?.flatMap((category) => category.channels)
+    .find((channel) => channel.id === targetChannelId)
+    ?? targetRouteChannel
+  const targetConversationSubtype = targetChannel?.type === "text"
+    || targetChannel?.type === "forum"
+    || targetChannel?.type === "thread"
+    ? targetChannel.type
+    : undefined
   const targetReady = targetServerId
     ? queryClient.getQueryData(communityKeys.server(targetServerId)) !== undefined
       || targetServer !== undefined
@@ -97,6 +117,7 @@ export function ShellFrame(props: ShellFrameProps) {
     targetHref: navigation.pendingHref,
     pending: navigation.navigationPending,
     targetReady,
+    targetConversationSubtype,
   })
   const projectedView = checkpoint.rail.kind === "target"
     ? checkpoint.rail.view

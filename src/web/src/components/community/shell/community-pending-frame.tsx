@@ -38,10 +38,12 @@ export function CommunityPendingFrame({
   href,
   reserveBackSlot = false,
   plan: suppliedPlan,
+  conversationSubtype,
 }: {
   href: string
   reserveBackSlot?: boolean
   plan?: CommunityModulePlan
+  conversationSubtype?: "text" | "forum" | "thread"
 }) {
   const plan = suppliedPlan ?? resolveCommunityModulePlan(href)
   const reserveMeBackSlot = reserveBackSlot || (
@@ -68,7 +70,7 @@ export function CommunityPendingFrame({
       content = <ServerLandingPendingFrame />
       break
     case "server-conversation":
-      content = <ConversationResolutionPendingFrame />
+      content = <ConversationResolutionPendingFrame subtype={conversationSubtype} />
       break
     case "route-resolution":
       content = <RouteResolutionPendingFrame />

@@ -1,10 +1,10 @@
 import { NextRequest } from "next/server"
-import { createAuth } from "@/lib/auth"
+import { getAuth } from "@/lib/auth"
 import { DEV_WS_DO_URL } from "@alook/shared"
 import { withEnv } from "@/lib/middleware/env"
 
 export const GET = withEnv(async (req: NextRequest, ctx) => {
-  const auth = createAuth(ctx.env)
+  const auth = getAuth(ctx.env)
   const session = await auth.api.getSession({ headers: req.headers })
   if (!session) return new Response("Unauthorized", { status: 401 })
 

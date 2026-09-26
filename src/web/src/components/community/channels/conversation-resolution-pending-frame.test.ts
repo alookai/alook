@@ -24,4 +24,19 @@ describe("ConversationResolutionPendingFrame", () => {
     expect(markup).not.toMatch(/<(?:header|button|a|form|textarea)\b/)
     expect(markup).not.toMatch(/Message|Forum|Thread|composer|previous channel/i)
   })
+
+  it.each([
+    ["text", "Loading conversation"],
+    ["forum", "Loading forum"],
+    ["thread", "Loading thread"],
+  ] as const)("keeps a known %s transition on its typed skeleton", (subtype, label) => {
+    const markup = renderToStaticMarkup(createElement(
+      ConversationResolutionPendingFrame,
+      { subtype },
+    ))
+
+    expect(markup).toContain(`data-community-conversation-subtype="${subtype}"`)
+    expect(markup).toContain(`aria-label="${label}"`)
+    expect(markup).not.toContain('data-community-conversation-subtype="unknown"')
+  })
 })

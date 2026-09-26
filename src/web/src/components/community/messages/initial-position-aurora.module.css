@@ -4,7 +4,7 @@
   right: calc(var(--community-composer-inline-end) + var(--community-composer-top-radius));
   bottom: 0;
   left: calc(var(--community-composer-inline-start) + var(--community-composer-top-radius));
-  z-index: 0;
+  z-index: 30;
   height: 3.5rem;
   overflow: hidden;
   pointer-events: none;

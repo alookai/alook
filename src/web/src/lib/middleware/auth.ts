@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { queries } from "@alook/shared"
 import { getDb, getPrimaryDb } from "@/lib/db"
-import { createAuth } from "@/lib/auth"
+import { getAuth } from "@/lib/auth"
 import { getKV, cacheKeys, bindCacheKV } from "@/lib/cache"
 
 export interface AuthContext {
@@ -133,7 +133,7 @@ async function resolveSession(
   req: NextRequest,
   cloudflareEnv: Env,
 ): Promise<SessionResolution> {
-  const auth = createAuth(cloudflareEnv)
+  const auth = getAuth(cloudflareEnv)
   let sessionResult: { headers: Headers; response: Awaited<ReturnType<typeof auth.api.getSession>> } | null = null
   let lastErr: unknown
 
