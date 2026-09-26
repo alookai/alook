@@ -22,6 +22,7 @@ import {
 import {
   capturedOnMessage,
   capturedQueryClient,
+  canonicalForumSidebar,
   cleanupCommunityWsHarness,
   forumSidebarFixture,
   getCommunityApiFetchMock,
@@ -30,6 +31,7 @@ import {
   mountHook,
   resetCommunityWsHarness,
   resetHookMemoization,
+  seedCanonicalForumSidebar,
 } from "./test-harness"
 
 const scheduleGapRepairMock = vi.hoisted(() => vi.fn(() => null))
@@ -93,9 +95,8 @@ describe("useCommunityWs — message.create", () => {
 
   it("patches a loaded forum-sidebar child activity without a refetch", async () => {
     await mountHook()
-    seedParent("srv_1", "forum_1", "forum")
+    seedCanonicalForumSidebar("srv_1")
     const key = communityKeys.forumSidebarThreads("srv_1")
-    capturedQueryClient.setQueryData(key, forumSidebarFixture())
     const invalidateSpy = vi.spyOn(capturedQueryClient, "invalidateQueries")
     const event = {
       ...messageCreate("post_1"),
@@ -105,7 +106,7 @@ describe("useCommunityWs — message.create", () => {
 
     capturedOnMessage!(event)
 
-    const data = capturedQueryClient.getQueryData<ReturnType<typeof forumSidebarFixture>>(key)
+    const data = canonicalForumSidebar("srv_1")
     expect(data?.threads[0]).toMatchObject({
       id: "post_1",
       activityAt: "2026-07-03T00:00:00.000Z",
@@ -139,14 +140,8 @@ describe("useCommunityWs — message.create", () => {
         useCommunityStore.getState().subscribe({ channelId: "post_retained" })
       }
       await mountHook()
-      seedParent("srv_1", "forum_1", "forum")
+      seedCanonicalForumSidebar("srv_1", ["post_retained"])
       const key = communityKeys.forumSidebarThreads("srv_1")
-      const retainedKey = communityKeys.forumSidebarRetained("srv_1", "post_retained")
-      capturedQueryClient.setQueryData(key, forumSidebarFixture([]))
-      capturedQueryClient.setQueryData(
-        retainedKey,
-        forumSidebarFixture(["post_retained"]).threads[0],
-      )
 
       capturedOnMessage!({
         ...messageCreate("post_retained"),
@@ -154,19 +149,16 @@ describe("useCommunityWs — message.create", () => {
         parentChannelId: "forum_1",
       } satisfies CommunityMessageCreate)
 
-      expect(capturedQueryClient.getQueryData<ReturnType<typeof forumSidebarFixture>["threads"][number]>(
-        retainedKey,
-      )).toMatchObject({
+      expect(canonicalForumSidebar("srv_1").threads[0]).toMatchObject({
         activityAt: "2026-07-03T00:00:00.000Z",
         expiresAt: "2026-07-06T00:00:00.000Z",
       })
       await vi.waitFor(() => {
-        expect(capturedQueryClient.getQueryState(key)?.isInvalidated).toBe(false)
+        expect(capturedQueryClient.getQueryState(key)?.isInvalidated ?? false).toBe(false)
       })
 
-      capturedQueryClient.setQueryData(key, forumSidebarFixture(["post_retained"]))
-      expect(capturedQueryClient.getQueryData<ReturnType<typeof forumSidebarFixture>>(key)
-        ?.threads.some((thread) => thread.id === "post_retained")).toBe(true)
+      expect(canonicalForumSidebar("srv_1").threads
+        .some((thread) => thread.id === "post_retained")).toBe(true)
     },
   )
 
@@ -954,13 +946,7 @@ describe("useCommunityWs — message.updated", () => {
       approval,
     })
     const { useCommunityWsStore } = await import("@/stores/community/ws")
-    expect([...useCommunityWsStore.getState().profilesByUserId.values()]).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ id: "u_other", name: "Other", avatar: "O" }),
-        expect.objectContaining({ id: "bot_1", name: "Bot", avatar: "B" }),
-        expect.objectContaining({ id: "waiting_1", name: "Waiting", avatar: "W" }),
-      ]),
-    )
+    expect(useCommunityWsStore.getState()).not.toHaveProperty("profilesByUserId")
   })
 
   it("refreshes approval fields on a focused channel row that exists only in the overlay", async () => {
@@ -1149,7 +1135,7 @@ describe("useCommunityWs — message edit refreshes forum opener summary", () =>
     capturedQueryClient.setQueryData(allKey, forumPage)
     capturedQueryClient.setQueryData(bugKey, forumPage)
     const sidebarKey = communityKeys.forumSidebarThreads("s1")
-    capturedQueryClient.setQueryData(sidebarKey, forumSidebarFixture())
+    seedCanonicalForumSidebar("s1")
     capturedQueryClient.setQueryData(communityKeys.threads("forum_1"), {
       parentType: "forum",
       serverId: "s1",
@@ -1168,8 +1154,7 @@ describe("useCommunityWs — message edit refreshes forum opener summary", () =>
     expect(capturedQueryClient.getQueryData<{ pages: { messages: { content: string }[] }[] }>(allKey)?.pages[0].messages[0].content).toBe("new title")
     expect(capturedQueryClient.getQueryData<{ pages: { messages: { content: string }[] }[] }>(bugKey)?.pages[0].messages[0].content).toBe("new title")
     expect(capturedQueryClient.getQueryData<{ content: string }>(communityKeys.message("opener-post_1"))?.content).toBe("new title")
-    expect(capturedQueryClient.getQueryData<ReturnType<typeof forumSidebarFixture>>(sidebarKey)?.threads[0].title)
-      .toBe("new title")
+    expect(canonicalForumSidebar("s1").threads[0]?.title).toBe("new title")
 
     invalidateSpy.mockClear()
     capturedOnMessage!({

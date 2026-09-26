@@ -4,12 +4,13 @@ import { describe, expect, it } from "vitest"
 import { UnresolvedMainSkeleton } from "./unresolved-main-skeleton"
 
 describe("UnresolvedMainSkeleton", () => {
-  it("shows the shared Connecting indicator on a static app surface with inert edge fades", () => {
+  it("shows only the neutral loading motion on a static app surface with inert edge fades", () => {
     const markup = renderToStaticMarkup(createElement(UnresolvedMainSkeleton))
 
     expect(markup).not.toContain('data-slot="skeleton"')
     expect(markup).toContain('role="status"')
-    expect(markup).toContain('aria-label="Connecting…"')
+    expect(markup).toContain('aria-label="Loading"')
+    expect(markup).not.toContain("Connecting")
     expect(markup).not.toContain('role="dialog"')
     expect(markup).not.toContain('aria-modal')
     expect(markup).not.toContain('community-ws-reconnect-title')

@@ -32,6 +32,15 @@ import {
   useConversationNavigationGate,
 } from "@/lib/community/conversation-navigation-proof"
 import type { MessageSurfaceReceipt } from "@/lib/community/conversation-navigation-proof"
+import {
+  useCanonicalMessagesById,
+  useMessageProjection,
+  useOptionalCommunityDbRegistry,
+} from "@/lib/community-db/projections"
+import {
+  captureCommunityLiveSnapshotToken,
+  publishCommunityMessages,
+} from "@/lib/community-db/sync"
 
 /**
  * Fetches paginated messages for a community channel.
@@ -55,12 +64,47 @@ export type { MessagesPage, MessagesPageParam } from "@/lib/community/models/mes
 
 export type { MessageSurfaceReceipt } from "@/lib/community/conversation-navigation-proof"
 
+type CommittedTransportWindow = {
+  key: string
+  observed: boolean
+}
+
+function useCommittedTransportWindow(
+  queryKey: readonly unknown[],
+  hasData: boolean,
+): boolean {
+  const key = useMemo(() => JSON.stringify(queryKey), [queryKey])
+  const [committed, setCommitted] = useState<CommittedTransportWindow>(() => ({
+    key,
+    observed: hasData,
+  }))
+  const observed = committed.key === key
+    ? committed.observed || hasData
+    : hasData
+
+  // A suspended render may inspect another query key, but it must not advance
+  // window ownership. Commit the sticky "observed" bit only after React has
+  // accepted this render, and reset it semantically when the key commits.
+  useLayoutEffect(() => {
+    setCommitted((current) => {
+      const nextObserved = current.key === key
+        ? current.observed || hasData
+        : hasData
+      if (current.key === key && current.observed === nextObserved) return current
+      return { key, observed: nextObserved }
+    })
+  }, [hasData, key])
+
+  return observed
+}
+
 type MessagesTransportPage = MessagesPage & {
   surfaceReceipt?: MessageSurfaceReceipt
 }
 
 type MessagesTransportOptions = {
   onSurfaceReceipt?: (receipt: MessageSurfaceReceipt) => void
+  queryClient?: QueryClient
 }
 
 function isMessageSurfaceReceipt(value: unknown): value is MessageSurfaceReceipt {
@@ -123,12 +167,23 @@ export const channelMessagesQueryFn =
     pageParam: MessagesPageParam
     signal?: AbortSignal
   }): Promise<MessagesPage> => {
+    const publicationToken = options?.queryClient
+      ? captureCommunityLiveSnapshotToken(options.queryClient)
+      : null
     const url = buildMessagesUrl(
       `/api/community/channels/${channelId}/messages`,
       pageParam,
       tag,
     )
-    return fetchMessagesTransport(url, signal, options)
+    const page = await fetchMessagesTransport(url, signal, options)
+    if (options?.queryClient && publicationToken) {
+      publishCommunityMessages(options.queryClient, {
+        channelId,
+        messages: page.messages,
+        proof: { token: publicationToken, signal },
+      })
+    }
+    return page
   }
 
 export const dmMessagesQueryFn =
@@ -140,11 +195,22 @@ export const dmMessagesQueryFn =
     pageParam: MessagesPageParam
     signal?: AbortSignal
   }): Promise<MessagesPage> => {
+    const publicationToken = options?.queryClient
+      ? captureCommunityLiveSnapshotToken(options.queryClient)
+      : null
     const url = buildMessagesUrl(
       `/api/community/channels/${dmId}/messages`,
       pageParam,
     )
-    return fetchMessagesTransport(url, signal, options)
+    const page = await fetchMessagesTransport(url, signal, options)
+    if (options?.queryClient && publicationToken) {
+      publishCommunityMessages(options.queryClient, {
+        channelId: dmId,
+        messages: page.messages,
+        proof: { token: publicationToken, signal },
+      })
+    }
+    return page
   }
 
 export function messageMatchesTag(message: Msg, tag?: string | null): boolean {
@@ -334,9 +400,35 @@ type PresentOverride = {
 }
 
 type ActivationRevalidationState = {
+  abortedAttemptId: number | null
+  activeAttemptId: number | null
+  attemptId: number
   pending: Promise<unknown> | null
-  requested: boolean
+  completed: boolean
+  activationKey: string
+}
+
+type InitialWindowReceipt = {
+  pageParam: MessagesPageParam
   viewKey: string
+}
+
+type InitialMessagesPageParam = Extract<
+  MessagesPageParam,
+  { mode: "newest" | "anchor" }
+>
+
+function sameMessagesPageParam(
+  left: MessagesPageParam | undefined,
+  right: InitialMessagesPageParam,
+): boolean {
+  if (!left || left.mode !== right.mode) return false
+  switch (right.mode) {
+    case "newest":
+      return true
+    case "anchor":
+      return left.mode === "anchor" && left.anchor === right.anchor
+  }
 }
 
 // Shared pagination + reducer used by both channel and DM hooks. Kept inline
@@ -371,27 +463,35 @@ function useMessagesInner(
     () => JSON.stringify([queryKey, opts?.anchorMessageId ?? null]),
     [queryKey, opts?.anchorMessageId],
   )
-  const activationRevalidationRef = useRef<ActivationRevalidationState>({
-    pending: null,
-    requested: false,
-    viewKey,
-  })
   const attemptIdRef = useRef(0)
   const snapshotRef = useRef<{
     attemptId: number
     data: PageCache | undefined
     viewKey: string
   } | null>(null)
-  const networkFetchObservedRef = useRef(false)
+  const [activationRetryEpoch, setActivationRetryEpoch] = useState(0)
   const [presentOverride, setPresentOverride] = useState<PresentOverride | null>(null)
   const forceNewest = presentOverride?.viewKey === viewKey
   const jumpPending = forceNewest && presentOverride?.phase === "requested"
 
-  const initialPageParam = useMemo<MessagesPageParam>(() => {
+  const initialPageParam = useMemo<InitialMessagesPageParam>(() => {
     if (forceNewest) return { mode: "newest" }
     if (anchorId) return { mode: "anchor", anchor: anchorId }
     return { mode: "newest" }
   }, [forceNewest, anchorId])
+  const activationKey = useMemo(
+    () => JSON.stringify([viewKey, initialPageParam]),
+    [initialPageParam, viewKey],
+  )
+  const activationRevalidationRef = useRef<ActivationRevalidationState>({
+    abortedAttemptId: null,
+    activeAttemptId: null,
+    attemptId: 0,
+    pending: null,
+    completed: false,
+    activationKey,
+  })
+  const initialWindowReceiptRef = useRef<InitialWindowReceipt | null>(null)
 
   const query = useInfiniteQuery<
     MessagesPage,
@@ -402,12 +502,38 @@ function useMessagesInner(
   >({
     queryKey,
     // `enabled` is the execution gate. Keep the real transport installed even
-    // while the read-state anchor is resolving: a persisted observer can be
+    // while the read-state anchor is resolving: a retained observer can be
     // explicitly refetched during the disabled→enabled commit before
     // TanStack's passive option update runs. Installing a rejecting sentinel
     // here made that one-shot revalidation fail locally without issuing the
     // required `/messages` request.
-    queryFn,
+    queryFn: async (context) => {
+      const stateAtStart = activationRevalidationRef.current
+      const attemptId = stateAtStart.activationKey === activationKey
+        ? stateAtStart.activeAttemptId
+        : null
+      const coldInitialRequest = !forceNewest
+        && attemptId === null
+        && queryClient.getQueryData(queryKey) === undefined
+        && sameMessagesPageParam(context.pageParam, initialPageParam)
+      const transportSignal = coldInitialRequest ? undefined : context.signal
+      const markAborted = () => {
+        if (
+          attemptId !== null
+          && activationRevalidationRef.current === stateAtStart
+          && stateAtStart.activationKey === activationKey
+          && stateAtStart.activeAttemptId === attemptId
+        ) {
+          stateAtStart.abortedAttemptId = attemptId
+        }
+      }
+      transportSignal?.addEventListener("abort", markAborted, { once: true })
+      try {
+        return await queryFn({ pageParam: context.pageParam, signal: transportSignal })
+      } finally {
+        transportSignal?.removeEventListener("abort", markAborted)
+      }
+    },
     initialPageParam,
     // "next" = older side. `fetchNextPage` appends to `data.pages`, so the
     // LAST entry in `pages` is the oldest window we've loaded — that's the
@@ -434,8 +560,8 @@ function useMessagesInner(
     // mount refetch for both so it cannot replay a pre-resolution pageParam.
     ...(opts?.revalidateOnMount !== undefined ? { refetchOnMount: false } : {}),
     refetchOnReconnect: false,
-    // Message bases are persisted, while accepted/session rows live in an
-    // in-memory overlay. Ordinary observers stay stale; opt-in cached mounts
+    // Canonical message rows are persisted, while transport page ownership
+    // and accepted/session rows stay in memory. Ordinary observers stay stale; opt-in cached mounts
     // are held fresh only until the anchor-normalized revalidation below owns
     // their request. Once this mounted observer has seen a real request, hold
     // it fresh so a later disabled→enabled transition cannot duplicate that
@@ -447,9 +573,8 @@ function useMessagesInner(
       // Opt-in cached mounts are revalidated explicitly below so the request
       // can first normalize its semantic page identity. Mark them fresh here
       // to prevent TanStack's enabled-transition fetch from racing that owner
-      // with a persisted cursor/newest pageParam.
+      // with an older cursor/newest pageParam.
       (opts?.revalidateOnMount === true && cachedQuery.state.data !== undefined)
-      || networkFetchObservedRef.current
       || cachedWindowNeedsAnchorReconcile(
         cachedQuery.state.data as PageCache | undefined,
         forceNewest ? null : anchorId,
@@ -464,7 +589,6 @@ function useMessagesInner(
     reconcileLateAnchor,
   )
   useLayoutEffect(() => {
-    networkFetchObservedRef.current = false
     const mountedQuery = queryClient.getQueryCache().find({ queryKey, exact: true })
     if (!mountedQuery) return
     return queryClient.getQueryCache().subscribe((event) => {
@@ -473,20 +597,53 @@ function useMessagesInner(
         && event.query.queryHash === mountedQuery.queryHash
         && event.action.type === "success"
         && !event.action.manual
+        && event.query.state.fetchMeta === null
       ) {
-        networkFetchObservedRef.current = true
+        const receiptPageParam = (event.query.state.data as PageCache | undefined)
+          ?.pageParams[0]
+        if (!receiptPageParam) return
+        initialWindowReceiptRef.current = {
+          pageParam: receiptPageParam,
+          viewKey,
+        }
+        const state = activationRevalidationRef.current
+        if (
+          state.activationKey === activationKey
+          && sameMessagesPageParam(receiptPageParam, initialPageParam)
+        ) {
+          state.completed = true
+          state.activeAttemptId = null
+          state.abortedAttemptId = null
+          state.pending = null
+        }
       }
     })
-  }, [queryClient, queryKey, viewKey])
+  }, [activationKey, initialPageParam, queryClient, queryKey, viewKey])
 
   useLayoutEffect(() => {
     let state = activationRevalidationRef.current
-    if (state.viewKey !== viewKey) {
-      state = { pending: null, requested: false, viewKey }
+    if (state.activationKey !== activationKey) {
+      state = {
+        abortedAttemptId: null,
+        activeAttemptId: null,
+        attemptId: 0,
+        pending: null,
+        completed: false,
+        activationKey,
+      }
       activationRevalidationRef.current = state
     }
-    if (isRestoring || state.requested) return
+    if (isRestoring || state.completed || state.pending) return
     if (!enabled || query.data === undefined || opts?.revalidateOnMount !== true) return
+
+    const receipt = initialWindowReceiptRef.current
+    if (
+      receipt?.viewKey === viewKey
+      && sameMessagesPageParam(receipt.pageParam, initialPageParam)
+    ) {
+      state.completed = true
+      return
+    }
 
     // Guarantee one actual post-mount fetch for cached conversation observers.
     // A retained observer can mount after restore and read-state have already
@@ -496,27 +653,41 @@ function useMessagesInner(
     // request. Refetch through this observer rather than asking the cache for
     // "active" queries: while PersistQueryClientProvider hands hydration back
     // to React, the mounted observer can briefly fail that cache-level filter.
-    // An infinite-query refetch replays its first persisted pageParam. Normalize
+    // An infinite-query refetch replays its first retained pageParam. Normalize
     // that identity to this mount's resolved anchor/newest target first: after
     // older pagination or hydration the stored first param can be a cursor,
     // which must never outrun the read-state anchor on a retained mount.
     // Running in layout also starts the semantic revalidation before the
     // message-list's passive IntersectionObserver can request another page.
-    state.requested = true
-    if (networkFetchObservedRef.current) return
     queryClient.setQueryData<PageCache>(queryKey, (current) => current
       ? {
           ...current,
           pageParams: [initialPageParam, ...current.pageParams.slice(1)],
         }
       : current)
+    state.attemptId += 1
+    const attemptId = state.attemptId
+    state.activeAttemptId = attemptId
+    state.abortedAttemptId = null
     const request = refetchMountedObserver({ cancelRefetch: false })
     state.pending = request
-    const clearPending = () => {
+    const settleAttempt = () => {
       if (state.pending === request) state.pending = null
+      if (state.completed) return
+      if (
+        state.abortedAttemptId === attemptId
+        && state.activeAttemptId === attemptId
+        && activationRevalidationRef.current === state
+        && state.activationKey === activationKey
+      ) {
+        state.activeAttemptId = null
+        setActivationRetryEpoch((epoch) => epoch + 1)
+      }
     }
-    void request.then(clearPending, clearPending)
+    void request.then(settleAttempt, settleAttempt)
   }, [
+    activationRetryEpoch,
+    activationKey,
     anchorRepairNeeded,
     enabled,
     initialPageParam,
@@ -712,11 +883,11 @@ function useMessagesInner(
     if (!query.hasNextPage) return
     if (query.isFetchingNextPage) return
     const activationState = activationRevalidationRef.current
-    if (activationState.viewKey !== viewKey) return
+    if (activationState.activationKey !== activationKey) return
     const activationRequest = activationState.pending
     if (activationRequest) {
       void activationRequest.then(() => {
-        if (activationRevalidationRef.current.viewKey !== viewKey) return
+        if (activationRevalidationRef.current.activationKey !== activationKey) return
         void query.fetchNextPage({ cancelRefetch: false })
       })
       return
@@ -734,7 +905,7 @@ function useMessagesInner(
       return
     }
     void query.fetchNextPage()
-  }, [enabled, query, viewKey])
+  }, [activationKey, enabled, query])
 
   const fetchNewer = useCallback(() => {
     if (!query.hasPreviousPage) return
@@ -755,7 +926,7 @@ function useMessagesInner(
   return {
     ...query,
     // Instant channel switch: a warm channel already has its newest-tail
-    // hydrated into `messages` (from the persisted `channelMessages` cache)
+    // restored in canonical message rows
     // before the read anchor resolves. Those rows must paint immediately rather
     // than wait on the read-snapshot round-trip — switching must not
     // happen on a network timescale. So only report loading when there is
@@ -766,7 +937,7 @@ function useMessagesInner(
     // forces `isFetching` false in that state, so native
     // `isLoading = isPending && isFetching` computes to `false` even with no
     // data — leaving callers a frame of "ready but empty". We still guard that
-    // empty case, but a non-empty hydrated cache is the warm tail and renders
+    // empty case, but a non-empty canonical tail is warm and renders
     // now. The scroll-to-bottom / NEW-divider / unread count stay gated in the
     // page + `useScrollAnchor` (which now scrolls a warm tail to the bottom on
     // first paint and converges the divider once the snapshot lands), so early
@@ -803,6 +974,9 @@ export function useMessages(
   channelId: string | null,
   opts: ChannelMessagesOpts,
 ): MessagesReturn {
+  const registry = useOptionalCommunityDbRegistry()
+  const dbMessages = useMessageProjection(channelId)
+  const canonicalMessagesById = useCanonicalMessagesById()
   const queryClient = useQueryClient()
   const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
   const queryKey = useMemo(() => {
@@ -811,6 +985,7 @@ export function useMessages(
   }, [channelId, opts.tag])
   const queryFn = useMemo(
     () => channelMessagesQueryFn(channelId ?? "__none__", opts.tag, {
+      queryClient,
       onSurfaceReceipt: (receipt) => {
         recordConversationNavigationReceipt(
           queryClient,
@@ -827,6 +1002,10 @@ export function useMessages(
     queryFn,
     opts,
   )
+  const transportWindowObserved = useCommittedTransportWindow(
+    queryKey,
+    base.data !== undefined,
+  )
   const scope = useMemo<MessageScope>(() => ({
     kind: "channel",
     id: channelId ?? "__none__",
@@ -834,10 +1013,20 @@ export function useMessages(
   }), [channelId, opts.serverId])
   const overlay = useMessageOverlay(scope)
   const canonicalBase = useMemo(
-    () => base.messages.filter(
-      (message): message is CanonicalMessage => typeof message.seq === "number",
-    ),
-    [base.messages],
+    () => {
+      const messages = !registry
+        ? base.messages
+        : !transportWindowObserved
+          ? dbMessages ?? []
+          : base.messages.flatMap((message) => {
+              const canonical = canonicalMessagesById?.get(message.id)
+              return canonical ? [canonical] : []
+            })
+      return messages.filter(
+        (message): message is CanonicalMessage => typeof message.seq === "number",
+      )
+    },
+    [base.messages, canonicalMessagesById, dbMessages, registry, transportWindowObserved],
   )
   useEffect(() => {
     if (!channelId) return
@@ -865,7 +1054,7 @@ export function useMessages(
   return {
     ...base,
     messages: gated ? [] : messages,
-    isLoading: base.isLoading || gated,
+    isLoading: (base.isLoading && canonicalBase.length === 0) || gated,
     navigationBlocked: gated,
   }
 }
@@ -877,6 +1066,9 @@ export function useDmMessages(
   dmId: string | null,
   opts?: MessagesOpts,
 ): MessagesReturn {
+  const registry = useOptionalCommunityDbRegistry()
+  const dbMessages = useMessageProjection(dmId)
+  const canonicalMessagesById = useCanonicalMessagesById()
   const queryClient = useQueryClient()
   const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
   const queryKey = useMemo(
@@ -885,6 +1077,7 @@ export function useDmMessages(
   )
   const queryFn = useMemo(
     () => dmMessagesQueryFn(dmId ?? "__none__", {
+      queryClient,
       onSurfaceReceipt: (receipt) => {
         recordConversationNavigationReceipt(
           queryClient,
@@ -901,16 +1094,30 @@ export function useDmMessages(
     queryFn,
     opts,
   )
+  const transportWindowObserved = useCommittedTransportWindow(
+    queryKey,
+    base.data !== undefined,
+  )
   const scope = useMemo<MessageScope>(() => ({
     kind: "dm",
     id: dmId ?? "__none__",
   }), [dmId])
   const overlay = useMessageOverlay(scope)
   const canonicalBase = useMemo(
-    () => base.messages.filter(
-      (message): message is CanonicalMessage => typeof message.seq === "number",
-    ),
-    [base.messages],
+    () => {
+      const messages = !registry
+        ? base.messages
+        : !transportWindowObserved
+          ? dbMessages ?? []
+          : base.messages.flatMap((message) => {
+              const canonical = canonicalMessagesById?.get(message.id)
+              return canonical ? [canonical] : []
+            })
+      return messages.filter(
+        (message): message is CanonicalMessage => typeof message.seq === "number",
+      )
+    },
+    [base.messages, canonicalMessagesById, dbMessages, registry, transportWindowObserved],
   )
   useEffect(() => {
     if (!dmId) return
@@ -937,7 +1144,7 @@ export function useDmMessages(
   return {
     ...base,
     messages: gated ? [] : messages,
-    isLoading: base.isLoading || gated,
+    isLoading: (base.isLoading && canonicalBase.length === 0) || gated,
     navigationBlocked: gated,
   }
 }

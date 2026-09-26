@@ -3,7 +3,7 @@
  * given a roster of candidate members. Only fully-tagged handles resolve — a
  * hand-typed bare `@Name` (no discriminator) is NOT a mention, matching the
  * display parser in `chat-syntax-plugin.ts` so the pill and the notification
- * fan-out never disagree (see plans/mandatory-mention-discriminator.md).
+ * fan-out never disagree.
  *
  * A handle match must:
  *  - be preceded by start-of-string or a non-identifier character
@@ -54,8 +54,7 @@ export function extractMentionedUserIds(
 
   // Only exact `@Name#0042` handles resolve — the bare-name fallback was
   // removed so the send side agrees with the display parser: a hand-typed bare
-  // `@Alice` is NOT a mention on either surface (see
-  // plans/mandatory-mention-discriminator.md). Handles are tried longest-first
+  // `@Alice` is NOT a mention on either surface. Handles are tried longest-first
   // and built from ALL candidates (a handle is already unambiguous per user;
   // two same-name "Alex"es both keep their distinct handle). A candidate with
   // no discriminator can't be mentioned and is dropped here.

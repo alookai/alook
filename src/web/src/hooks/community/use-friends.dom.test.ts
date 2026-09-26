@@ -5,6 +5,13 @@ import { renderHook, waitFor } from "@/test/react-dom-harness"
 import { communityKeys } from "@/lib/query-keys"
 import { useCommunityWsStore } from "@/stores/community/ws"
 
+const canonicalProfiles = vi.hoisted(() => ({
+  current: new Map<string, Record<string, unknown>>(),
+}))
+vi.mock("@/lib/community-db/projections", () => ({
+  useCanonicalProfilesByUserId: () => canonicalProfiles.current,
+}))
+
 const apiFetchMock = vi.fn()
 vi.mock("@/lib/api/client", () => ({
   apiFetch: (...args: unknown[]) => apiFetchMock(...args),
@@ -20,6 +27,7 @@ beforeEach(() => {
   apiFetchMock.mockReset()
   useCommunityWsStore.getState().reset()
   useCommunityWsStore.getState().activateProfileAccount("viewer")
+  canonicalProfiles.current = new Map()
 })
 
 describe("useFriends / friendsQueryFn", () => {
@@ -64,11 +72,6 @@ describe("useFriends / friendsQueryFn", () => {
     expect(data.friends).toHaveLength(1)
     expect(data.blocked).toHaveLength(2)
     expect(data.pending).toHaveLength(1)
-    expect(useCommunityWsStore.getState().profilesByUserId).toMatchObject(new Map([
-      ["friend_1", expect.objectContaining({ name: "n", avatarVersion: 1 })],
-      ["blocked_1", expect.objectContaining({ name: "b", avatarVersion: 2 })],
-      ["pending_1", expect.objectContaining({ name: "p", avatarVersion: 3 })],
-    ]))
     expect(apiFetchMock).toHaveBeenCalledTimes(3)
     expect(apiFetchMock.mock.calls.map((call) => call[0]).sort()).toEqual([
       "/api/community/friends/accepted",
@@ -107,40 +110,57 @@ describe("useFriends / friendsQueryFn", () => {
           statusText: "",
           sub: "legacy presentation",
         },
+        {
+          id: "missing",
+          userId: "friend_missing",
+          name: "missing friend",
+          discriminator: "0003",
+          avatar: "missing",
+          avatarVersion: 0,
+          status: "offline",
+          sub: "missing presentation",
+        },
       ],
-      pending: [{
-        id: "p1",
-        userId: "pending_1",
-        name: "raw pending",
-        avatar: "raw",
-        avatarVersion: 1,
-        kind: "incoming",
-      }],
+      pending: [
+        {
+          id: "p1", userId: "pending_1", name: "raw pending", avatar: "raw",
+          avatarVersion: 1, kind: "incoming",
+        },
+        {
+          id: "p-missing", userId: "pending_missing", name: "missing pending",
+          avatar: "missing", avatarVersion: 0, kind: "outgoing",
+        },
+      ],
       blocked: [
         { id: "b1", userId: "blocked_1", name: "raw blocked", avatar: "raw", avatarVersion: 1 },
         { id: "legacy-blocked", name: "legacy blocked", avatar: "legacy", avatarVersion: 0 },
+        { id: "missing-blocked", userId: "blocked_missing", name: "missing blocked", avatar: "missing", avatarVersion: 0 },
       ],
     }
     queryClient.setQueryData(communityKeys.friends(), raw)
-    const store = useCommunityWsStore.getState()
-    store.patchProfiles(store.beginProfileSnapshot(), [
-      {
+    canonicalProfiles.current = new Map([
+      ["friend_1", {
         id: "friend_1",
-        identityAbout: { name: "Global Friend", discriminator: "0042" },
-        avatar: { avatar: "friend-global", avatarVersion: 4 },
+        name: "Global Friend",
+        discriminator: "0042",
+        avatar: "friend-global",
+        avatarVersion: 4,
         presence: "online",
-        status: { statusEmoji: "🌿", statusText: "Here" },
-      },
-      {
+        statusEmoji: "🌿",
+        statusText: "Here",
+      }],
+      ["pending_1", {
         id: "pending_1",
-        identityAbout: { name: "Global Pending" },
-        avatar: { avatar: "pending-global", avatarVersion: 5 },
-      },
-      {
+        name: "Global Pending",
+        avatar: "pending-global",
+        avatarVersion: 5,
+      }],
+      ["blocked_1", {
         id: "blocked_1",
-        identityAbout: { name: "Global Blocked" },
-        avatar: { avatar: "blocked-global", avatarVersion: 6 },
-      },
+        name: "Global Blocked",
+        avatar: "blocked-global",
+        avatarVersion: 6,
+      }],
     ])
     const rendered = renderHook(() => useFriends(), {
       wrapper: wrapperFor(queryClient),
@@ -158,12 +178,14 @@ describe("useFriends / friendsQueryFn", () => {
         sub: "raw presentation",
       }),
       expect.objectContaining({ name: "legacy", sub: "legacy presentation" }),
+      expect.objectContaining({ name: "missing friend", sub: "missing presentation" }),
     ])
     expect(rendered.result.current.pending[0]).toMatchObject({
       name: "Global Pending",
       avatar: "pending-global",
       avatarVersion: 5,
     })
+    expect(rendered.result.current.pending[1]).toMatchObject({ name: "missing pending" })
     expect(rendered.result.current.blocked).toEqual([
       expect.objectContaining({
         name: "Global Blocked",
@@ -171,6 +193,7 @@ describe("useFriends / friendsQueryFn", () => {
         avatarVersion: 6,
       }),
       expect.objectContaining({ name: "legacy blocked" }),
+      expect.objectContaining({ name: "missing blocked" }),
     ])
     expect(queryClient.getQueryData(communityKeys.friends())).toBe(raw)
   })

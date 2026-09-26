@@ -9,7 +9,6 @@ import {
   getActiveAccountUnreadProjection,
   type AccountUnreadScopeToken,
 } from "@/hooks/community/account-unread-projection"
-import { updateStructuralSnapshot } from "@/lib/community/structural-snapshot"
 import {
   evictServerChannelScopes,
   flushOwnerServerDeleteAfterSuccess,
@@ -237,13 +236,6 @@ export function useUpdateServer() {
       if (ctx?.serverSnap) queryClient.setQueryData(communityKeys.server(args.serverId), ctx.serverSnap)
       if (ctx?.listSnap) queryClient.setQueryData(communityKeys.servers(), ctx.listSnap)
     },
-    onSuccess: (_data, args) => {
-      updateStructuralSnapshot(queryClient, {
-        type: "patchServer",
-        serverId: args.serverId,
-        changes: { name: args.name },
-      })
-    },
     onSettled: () => {
       void queryClient.invalidateQueries({
         queryKey: communityKeys.channelRefDirectory(),
@@ -290,11 +282,6 @@ export function useUploadServerIcon() {
             }
             : prev,
       )
-      updateStructuralSnapshot(queryClient, {
-        type: "patchServer",
-        serverId: args.serverId,
-        changes: { icon: bustUrl },
-      })
     },
   })
 }

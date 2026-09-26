@@ -12,6 +12,16 @@ import {
 } from "./account-unread-projection"
 
 describe("AccountUnreadProjection", () => {
+  it("treats unknown access as allowed and only denies explicit retirement", () => {
+    const projection = new AccountUnreadProjection("u1")
+
+    expect(projection.allowsAccess({ channelId: "unknown", serverId: "server" })).toBe(true)
+    projection.retireAccessScope({ kind: "server", serverId: "server" })
+    expect(projection.allowsAccess({ channelId: "unknown", serverId: "server" })).toBe(false)
+    projection.dispose()
+    expect(projection.allowsAccess({ channelId: "other" })).toBe(false)
+  })
+
   it("enumerates distinct pending conversations using the same read fences as the badge", () => {
     const projection = new AccountUnreadProjection("u1")
     projection.recordArrival({ channelId: "dm", seq: 1 })

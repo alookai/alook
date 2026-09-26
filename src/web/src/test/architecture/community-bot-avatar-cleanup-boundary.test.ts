@@ -57,7 +57,7 @@ describe("bot and machine-cascade avatar cleanup C2 boundary", () => {
   it("keeps the human self-avatar branch on Better Auth and user storage", () => {
     const meAvatar = source("src/web/src/app/api/community/users/me/avatar/route.ts")
     expect(meAvatar).toContain("handleUserAvatarUpload(req, ctx.env, userId)")
-    expect(meAvatar).toContain("const auth = createAuth(ctx.env)")
+    expect(meAvatar).toContain("const auth = getAuth(ctx.env)")
     expect(meAvatar).toContain("auth.api.updateUser")
     expect(meAvatar).toContain("userAvatarUrl(userId)")
   })

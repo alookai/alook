@@ -9,9 +9,6 @@ import type { ForumFeedPage } from "@/hooks/community/use-forum-feed"
 import {
   getForumSidebarBase,
   patchForumSidebarTitleExact,
-  type ChildChannelMeta,
-  type ForumOpenerHint,
-  type ForumSidebarThread,
 } from "@/hooks/community/use-forum-sidebar-threads"
 import { patchMessageContentInCache } from "@/hooks/community/community-ws/cache"
 import { useMessageStreamStore } from "@/stores/community/message-stream"
@@ -80,24 +77,10 @@ function patchFeed(
 }
 
 function sidebarIdentityMatches(queryClient: QueryClient, identity: ForumOpenerTitleIdentity) {
-  const meta = queryClient.getQueryData<ChildChannelMeta>(
-    communityKeys.channelMeta(identity.serverId, identity.childChannelId),
-  )
-  if (meta) {
-    return meta.parentChannelId === identity.forumChannelId &&
-      meta.parentMessageId === identity.openerMessageId
-  }
   const base = getForumSidebarBase(queryClient, identity.serverId)?.threads
     .find((thread) => thread.id === identity.childChannelId)
-  if (base) {
-    return base.parentChannelId === identity.forumChannelId &&
-      base.parentMessageId === identity.openerMessageId
-  }
-  const retained = queryClient.getQueryData<ForumSidebarThread | null>(
-    communityKeys.forumSidebarRetained(identity.serverId, identity.childChannelId),
-  )
-  return !!retained && retained.parentChannelId === identity.forumChannelId &&
-    retained.parentMessageId === identity.openerMessageId
+  return !!base && base.parentChannelId === identity.forumChannelId &&
+    base.parentMessageId === identity.openerMessageId
 }
 
 export async function reconcileForumOpenerTitle(
@@ -191,13 +174,6 @@ export async function reconcileForumOpenerTitle(
       identity.content,
     )
   }
-  queryClient.setQueryData<ForumOpenerHint | undefined>(
-    communityKeys.forumOpenerHint(identity.serverId, identity.openerMessageId),
-    (hint) => hint?.id === identity.openerMessageId
-      ? { ...hint, content: identity.content }
-      : hint,
-  )
-
   const streamStore = useMessageStreamStore.getState()
   for (const entry of streamStore.entries.values()) {
     if (

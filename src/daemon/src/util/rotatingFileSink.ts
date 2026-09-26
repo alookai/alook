@@ -1,6 +1,6 @@
 /**
  * A tiny size-capped, rotating append sink — the bounded backing for the
- * default-on FSM transition trace (plans/daemon-fsm-desync.md batch E1).
+ * default-on FSM transition trace.
  *
  * WHY net-new: the daemon has no rotation utility (recon-confirmed), and the
  * raw `appendFileSync` sink the trace shipped with (createDaemon.ts) is

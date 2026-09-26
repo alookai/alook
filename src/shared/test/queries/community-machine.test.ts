@@ -339,8 +339,6 @@ describe("reconcileBotActivityFromRunningAgents", () => {
   // The reconciler only clears "stuck" system-driven bot-activity pills to
   // Idle when the bot isn't in the daemon's runningAgents list. Owner-set
   // custom statuses (not matching the known bot presets) are left alone.
-  // See plans/community-bot-status-telemetry.md.
-
   it("returns [] when no bots are bound to the machine", async () => {
     const db: any = {
       select: vi.fn(() => ({

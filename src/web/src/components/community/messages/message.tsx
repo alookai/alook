@@ -39,7 +39,7 @@ import {
   type MobileReplyGesture,
 } from "./mobile-message-gesture"
 import { useMobileAvatarMention } from "./use-mobile-avatar-mention"
-import { useCommunityProfile } from "@/stores/community/ws"
+import { useCanonicalCommunityProfile } from "@/lib/community-db/projections"
 import { MessageReactions } from "./message-reactions"
 import { RemoteContentImage, RemoteIdentityImage } from "@/components/remote-image/remote-image"
 
@@ -216,8 +216,8 @@ function MessageImpl({
   // default without subscribing at all.
   hoverCapable?: boolean
 }) {
-  const authorProfile = useCommunityProfile(m.authorId)
-  const replyAuthorProfile = useCommunityProfile(m.replyTo?.authorId)
+  const authorProfile = useCanonicalCommunityProfile(m.authorId)
+  const replyAuthorProfile = useCanonicalCommunityProfile(m.replyTo?.authorId)
   const authorName = m.authorId
     ? (authorProfile?.name ?? "Unknown")
     : (m.authorName ?? "Unknown")
@@ -263,8 +263,8 @@ function MessageImpl({
   const { data: markedData } = useMessageMarked(m.id, markMenuOpen)
   // Lazy-mount the row's Base UI overlay roots (ContextMenu / DropdownMenu /
   // EmojiPicker Popover / reaction Tooltips). Eagerly mounting them per visible
-  // row was the bulk of the switch re-render storm (FloatingTree/MenuRoot ×1000s
-  // — see plans/community-switch-perf-optimization.md). Activate on the first
+  // row was the bulk of the switch re-render storm (FloatingTree/MenuRoot ×1000s).
+  // Activate on the first
   // hover OR focus OR keydown/contextmenu — focus/keydown are required for a11y
   // (keyboard context menu / Tab-to-row have no pointerenter).
   const [activated, setActivated] = useState(false)

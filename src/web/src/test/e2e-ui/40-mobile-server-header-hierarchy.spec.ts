@@ -1,4 +1,4 @@
-import type { Page, Request } from "@playwright/test"
+import type { Page, Request, Response } from "@playwright/test"
 import { test, expect } from "./_fixtures/community-fixture"
 import {
   seedChannel,
@@ -113,6 +113,20 @@ test.describe.serial("mobile server header direct hierarchy", () => {
   test("639↔640 preserves the header and composer owners without resize requests", async ({ asUser }) => {
     const { page } = await asUser("alice")
     const coldBootReconciliation = observeColdBootServerReconciliation(page, serverId)
+    const startupInboxPaths = [
+      "/api/community/users/me/inbox/unreads",
+      "/api/community/users/me/inbox/mentions",
+    ] as const
+    const startupInboxGenerations = new Map<string, number>(
+      startupInboxPaths.map((pathname) => [pathname, 0]),
+    )
+    const observeStartupInbox = (response: Response) => {
+      const pathname = new URL(response.url()).pathname
+      if (response.request().method() !== "GET" || !response.ok()) return
+      if (!startupInboxGenerations.has(pathname)) return
+      startupInboxGenerations.set(pathname, (startupInboxGenerations.get(pathname) ?? 0) + 1)
+    }
+    page.on("response", observeStartupInbox)
     await page.setViewportSize({ width: 639, height: 844 })
     await page.goto(`/c/channels/${serverId}/${threadId}`, { waitUntil: "commit" })
     await expect(page.getByTestId(tid.composerInput)).toBeVisible({ timeout: 20_000 })
@@ -122,6 +136,13 @@ test.describe.serial("mobile server header direct hierarchy", () => {
       timeout: 10_000,
     }).toBe(true)
     coldBootReconciliation.dispose()
+    // A cold mount fetches once when the observer appears, then once more
+    // when persistence restore succeeds and invalidates the active inbox
+    // queries. Keep both generations outside the resize measurement window.
+    await expect.poll(() => startupInboxPaths.every(
+      (pathname) => (startupInboxGenerations.get(pathname) ?? 0) >= 2,
+    )).toBe(true)
+    page.off("response", observeStartupInbox)
 
     await page.evaluate(({ composerTestId }) => {
       const backControl = document.querySelector('button[aria-label="Back"]')

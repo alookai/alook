@@ -15,7 +15,7 @@ import { pushAgentResetToMachine } from "@/lib/community/bot-push"
  * The `session_reset` audit row + awake-time stamp + broadcast are NOT written
  * here: they are re-homed to the daemon completion signal (the `agent_session`
  * frame at reborn-ready), so the record reflects "the reset actually completed"
- * rather than "the command was dispatched." See plans/reset-nap-completion-rehome.md.
+ * rather than "the command was dispatched."
  */
 export const POST = withAuth(async (_req, ctx) => {
   const id = ctx.params?.id as string

@@ -1,9 +1,29 @@
 "use client"
 
-import { useQuery, type UseQueryResult } from "@tanstack/react-query"
+import { useEffect, useMemo, useSyncExternalStore } from "react"
+import {
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+  type QueryFunctionContext,
+  type UseQueryResult,
+} from "@tanstack/react-query"
 import { apiFetchProfiles, messageProfilePatches } from "@/lib/community/profile-seed"
 import { communityKeys } from "@/lib/query-keys"
-import type { Msg } from "@/lib/community/models/message"
+import type { MessagesPage, Msg } from "@/lib/community/models/message"
+import {
+  useCanonicalMessagesById,
+  useOptionalCommunityDbRegistry,
+} from "@/lib/community-db/projections"
+import {
+  rememberMessageAccessScope,
+  type MessageAccessScope,
+} from "@/lib/community-db/message-access-scope"
+import { getActiveAccountUnreadProjection } from "./account-unread-projection"
+import {
+  captureCommunityLiveSnapshotToken,
+  publishCommunityMessages,
+} from "@/lib/community-db/sync"
 
 /**
  * Fetches a single hydrated message by id — the payload shape returned by
@@ -35,28 +55,103 @@ export type OpenerPayload = {
   reactions?: Msg["reactions"]
 }
 
-export const messageQueryFn = (messageId: string) => () =>
-  apiFetchProfiles<OpenerPayload>(
+export const messageQueryFn = (
+  messageId: string,
+  queryClient?: QueryClient,
+  channelId?: string,
+) => async (context: QueryFunctionContext = {} as QueryFunctionContext) => {
+  const token = queryClient ? captureCommunityLiveSnapshotToken(queryClient) : null
+  const message = await apiFetchProfiles<OpenerPayload>(
     `/api/community/messages/${messageId}`,
     (message) => messageProfilePatches([message]),
+    context.signal ? { signal: context.signal } : undefined,
   )
+  if (queryClient && channelId && token) {
+    publishCommunityMessages(queryClient, {
+      channelId,
+      messages: [message],
+      proof: { token, signal: context.signal },
+    })
+  }
+  return message
+}
+
+export function findCachedMessage(
+  queryClient: QueryClient,
+  messageId: string,
+): OpenerPayload | undefined {
+  for (const [, data] of queryClient.getQueriesData<{ pages?: MessagesPage[] }>({
+    queryKey: communityKeys.all,
+  })) {
+    if (!Array.isArray(data?.pages)) continue
+    for (const page of data.pages) {
+      if (!Array.isArray(page.messages)) continue
+      const message = page.messages.find((candidate) => candidate.id === messageId)
+      if (!message?.authorId || !message.createdAt) continue
+      return {
+        id: message.id,
+        authorId: message.authorId,
+        authorName: message.authorName ?? "Unknown",
+        authorAvatar: message.authorAvatar ?? "",
+        authorAvatarVersion: message.authorAvatarVersion ?? 0,
+        content: message.content ?? "",
+        type: message.type,
+        createdAt: message.createdAt,
+        ...(message.replyTo ? { replyTo: message.replyTo } : {}),
+        ...(message.attachments ? { attachments: message.attachments } : {}),
+        ...(message.embeds ? { embeds: message.embeds } : {}),
+        ...(message.reactions ? { reactions: message.reactions } : {}),
+      }
+    }
+  }
+  return undefined
+}
 
 export function useMessage(
   messageId: string | null | undefined,
+  accessScope?: MessageAccessScope,
 ): UseQueryResult<OpenerPayload> & { message: OpenerPayload | null } {
-  const enabled = !!messageId
+  const registry = useOptionalCommunityDbRegistry()
+  const canonicalMessages = useCanonicalMessagesById()
+  const queryClient = useQueryClient()
+  const accessProjection = useMemo(
+    () => getActiveAccountUnreadProjection(queryClient),
+    [queryClient],
+  )
+  const accessVersion = useSyncExternalStore(
+    accessProjection.subscribe,
+    accessProjection.getSnapshot,
+    accessProjection.getSnapshot,
+  )
+  void accessVersion
+  const accessAllowed = !accessScope || accessProjection.allowsAccess(accessScope)
+  const enabled = !!messageId && accessAllowed
+  useEffect(() => {
+    if (!messageId || !accessScope || !accessAllowed) return
+    rememberMessageAccessScope(queryClient, messageId, accessScope)
+  }, [accessAllowed, accessScope, messageId, queryClient])
+  const placeholderData = useMemo(
+    () => messageId && accessAllowed ? findCachedMessage(queryClient, messageId) : undefined,
+    [accessAllowed, messageId, queryClient],
+  )
   const query = useQuery({
     queryKey: enabled ? communityKeys.message(messageId!) : communityKeys.message("__none__"),
     queryFn: enabled
-      ? messageQueryFn(messageId!)
+      ? messageQueryFn(messageId!, queryClient, accessScope?.channelId)
       : (() => Promise.reject(new Error("disabled"))),
     enabled,
+    placeholderData,
     // Quick tab-switches shouldn't hammer the endpoint; 30s window is plenty
     // for the "opener stays live via mutation invalidation" contract.
     staleTime: 30_000,
   })
+  const canonical = messageId ? canonicalMessages?.get(messageId) : undefined
   return {
     ...query,
-    message: query.data ?? null,
+    message: accessAllowed
+      ? registry
+        ? (canonical as OpenerPayload | undefined) ?? null
+        : query.data ?? null
+      : null,
   }
 }

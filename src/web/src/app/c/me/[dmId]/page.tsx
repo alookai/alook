@@ -18,12 +18,10 @@ import type { FileAttachment, ImagePreview } from "@/lib/community/models/messag
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import {
   useCommunityStore,
-  useCurrentChannelId,
   useUiHandlers,
   useTypingUsersForScope,
   useTypingNamesForScope,
 } from "@/stores/community"
-import { useCommunityWsStore } from "@/stores/community/ws"
 import { tid } from "@/lib/community/testids"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 import { makeUserNameResolver } from "@/lib/community/display-name"
@@ -31,6 +29,7 @@ import { useDms } from "@/hooks/community/use-dms"
 import { useFriends } from "@/hooks/community/use-friends"
 import { useDmMessages } from "@/hooks/community/use-messages"
 import { useDmReadStateSnapshot } from "@/hooks/community/use-dm-read-state"
+import { resolveMessageReadProjection } from "@/lib/community/message-read-projection"
 import { useDmWatermark } from "@/hooks/community/use-dm-watermark"
 import { useChannelRefDirectory } from "@/hooks/community/use-channel-ref-directory"
 import { toChannelRefCandidate } from "@/lib/community/channel-ref-extension"
@@ -57,6 +56,10 @@ import { useNotificationSettings } from "@/hooks/community/use-notification-sett
 import { useSetChannelNotif } from "@/hooks/community/mutations"
 import { toastApiError } from "@/lib/api/client"
 import { displayReplyContent } from "@/lib/community/reply-content"
+import {
+  useCanonicalProfilesByUserId,
+  useReadStateProjection,
+} from "@/lib/community-db/projections"
 
 // Thin re-mount wrapper — same reason as the server-side channel view: the
 // dynamic segment reuses the same component instance across DM switches, so
@@ -69,21 +72,16 @@ export default function DmPage() {
 function resolveDmLoadingOwnership({
   hasDm,
   dmsLoading,
-  currentChannelMatches,
   messagesLoading,
 }: {
   hasDm: boolean
   dmsLoading: boolean
-  currentChannelMatches: boolean
   messagesLoading: boolean
 }) {
   return {
     fullFramePending: !hasDm && dmsLoading,
     notFound: !hasDm && !dmsLoading,
-    messageBodyLoading: hasDm && (
-      !currentChannelMatches ||
-      messagesLoading
-    ),
+    messageBodyLoading: hasDm && messagesLoading,
   }
 }
 
@@ -92,7 +90,6 @@ function DmView() {
   const dmId = params.dmId
   const bp = useBreakpoint()
   const currentUser = useCurrentUser()
-  const currentChannelId = useCurrentChannelId()
   const uiHandlers = useUiHandlers()
   const notifications = useNotificationSettings()
   const setNotification = useSetChannelNotif()
@@ -104,14 +101,17 @@ function DmView() {
   const dms = dmsQuery.dms
   const dmsLoading = dmsQuery.isLoading
   const { friends: rawFriends, blocked } = useFriends()
-  const profilesByUserId = useCommunityWsStore((s) => s.profilesByUserId)
+  const profilesByUserId = useCanonicalProfilesByUserId()
   // Enrich with presence — the Composer @-picker uses `f.status` to render
   // the avatar presence dot; without this enrichment every avatar shows offline.
   const friends = useMemo(
     () =>
       rawFriends.map((f) => {
         const userId = f.userId ?? f.id
-        const profile = readCommunityProfile(profilesByUserId.get(userId), userId)
+        const canonical = profilesByUserId.get(userId)
+        const profile = canonical
+          ? readCommunityProfile(canonical, userId)
+          : { ...f, presence: f.status }
         return {
           ...f,
           name: profile.name,
@@ -128,8 +128,9 @@ function DmView() {
   // Frozen-once snapshot of the viewer's DM read pointer — the anchor for
   // the "New" divider AND the initial-page mode. Mirrors the channel-view
   // wiring so both surfaces open with the same anchor-window UX.
+  const canonicalReadSnapshot = useReadStateProjection(dmId)
   const { snapshot: readSnapshot, isFetching: readSnapshotFetching } =
-    useDmReadStateSnapshot(dmId)
+    useDmReadStateSnapshot(dmId, canonicalReadSnapshot)
 
   // Anchor the initial page on the viewer's read pointer. Pass `undefined`
   // (not `null`) while the snapshot resolves — the hook's initialPageParam
@@ -151,6 +152,7 @@ function DmView() {
     isError: messagesError,
     refetch: refetchMessages,
     navigationBlocked,
+    anchorReconciled,
   } = useDmMessages(dmId, {
     lastReadMessageId: readSnapshotFetching
       ? undefined
@@ -231,26 +233,13 @@ function DmView() {
   // inputs aren't guaranteed to agree on every commit).
   const { newDividerBefore, anchorFound } = useMemo(() => {
     if (!readSnapshot) return { newDividerBefore: undefined, anchorFound: false }
-    const lastId = readSnapshot.lastReadMessageId
-    // First-visit case: viewer never opened this DM (no read-state row
-    // yet). The inbox surfaces the DM as unread, so the whole loaded
-    // window is unread from the viewer's perspective — anchor the
-    // divider on the first non-self message so the user lands centered
-    // on "here's what you missed" instead of the bottom. No anchor id to
-    // find — trivially "in cache".
-    if (!lastId) {
-      for (const m of messages) {
-        if (m.authorId !== currentUser.id) return { newDividerBefore: m.id, anchorFound: true }
-      }
-      return { newDividerBefore: undefined, anchorFound: true }
-    }
-    const idx = messages.findIndex((m) => m.id === lastId)
-    if (idx === -1) return { newDividerBefore: undefined, anchorFound: false }
-    for (let i = idx + 1; i < messages.length; i++) {
-      if (messages[i].authorId !== currentUser.id) return { newDividerBefore: messages[i].id, anchorFound: true }
-    }
-    return { newDividerBefore: undefined, anchorFound: true }
-  }, [messages, readSnapshot, currentUser.id])
+    return resolveMessageReadProjection({
+      messages,
+      lastReadMessageId: readSnapshot.lastReadMessageId,
+      viewerUserId: currentUser.id,
+      anchorReconciled,
+    })
+  }, [anchorReconciled, messages, readSnapshot, currentUser.id])
 
   // Gates `<MessageList>`'s mount-time scroll action until the anchor is
   // actually present in the loaded `messages`.
@@ -324,22 +313,7 @@ function DmView() {
     setReplyTo(null)
   }, [dmId])
 
-  const dm = useMemo(() => {
-    const raw = dms.find((d) => d.id === dmId) ?? null
-    if (!raw) return null
-    const profile = readCommunityProfile(
-      profilesByUserId.get(raw.userId),
-      raw.userId,
-    )
-    return {
-      ...raw,
-      name: profile.name,
-      discriminator: profile.discriminator,
-      avatar: profile.avatar,
-      avatarVersion: profile.avatarVersion,
-      status: profile.presence,
-    }
-  }, [dms, dmId, profilesByUserId])
+  const dm = useMemo(() => dms.find((candidate) => candidate.id === dmId) ?? null, [dms, dmId])
 
   const openProfile: OpenProfile = (name, e, discriminator, userId) => {
     uiHandlers.openProfile?.(name, e, discriminator, userId)
@@ -445,7 +419,6 @@ function DmView() {
   const loadingOwnership = resolveDmLoadingOwnership({
     hasDm: !!dm,
     dmsLoading,
-    currentChannelMatches: currentChannelId === dmId,
     messagesLoading,
   })
 

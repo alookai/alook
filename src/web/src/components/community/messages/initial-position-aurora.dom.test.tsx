@@ -108,7 +108,9 @@ describe("InitialPositionAurora", () => {
     expect(styles).toMatch(/@keyframes aurora-leave\s*\{\s*from \{ opacity: var\(--aurora-opacity\); \}\s*to \{ opacity: 0; \}/)
     expect(styles).toContain("calc(var(--initial-position-aurora-opacity) * 0.5)")
     expect(styles).toContain("calc(var(--initial-position-aurora-reduced-opacity) * 0.5)")
-    expect(styles).toMatch(/\.aurora\s*\{[^}]*z-index: 0;/)
+    // The positioning skeleton is an opaque z-20 overlay. Keep the aurora
+    // above it so the waiting effect is visible before the reveal crossfade.
+    expect(styles).toMatch(/\.aurora\s*\{[^}]*z-index: 30;/)
     expect(styles.match(/\.peaks\s*\{([^}]+)\}/)?.[1]).not.toMatch(/background:/)
     expect(styles).toContain("left: var(--bar-x);")
     expect(styles).toContain("transform-origin: center bottom;")

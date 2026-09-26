@@ -2,21 +2,14 @@
 
 import { create } from "zustand"
 import type { CommunityBotAuditEvent } from "@alook/shared"
-import type {
-  CommunityProfile,
-  CommunityProfilePatch,
-  CommunityProfileSnapshot,
-} from "@/lib/community/models/people"
-import { useCommunityPreviewProfiles } from "@/stores/community/profile-preview"
 
 /**
  * Zustand store for community WS-live-patched state.
  *
  * Owned exclusively by the WS handler (`hooks/community/use-community-ws.ts`)
- * after Step 4 lands; consumers read via the selector hooks below. Kept
- * separate from `useCommunityStore` so subscription re-renders only fire on
- * the axis that changed — a presence tick doesn't re-render a component that
- * only cares about the current channel id.
+ * Durable profile fields live in the canonical TanStack DB collection. This
+ * store retains only the WS generation guards and transient overlays such as
+ * presence, so a presence tick does not rewrite the persisted profile row.
  *
  * Loop-breaker rules (short version — full rulebook lives in `./index.ts`):
  * - Setters no-op on identical projected values. Zustand notifies every
@@ -59,8 +52,12 @@ export type BotAuditEventEntry = {
   createdAt: string
 }
 
-type ProfileRevisions = { identityAbout: number; status: number; presence: number }
-type ProfileWriteMode = "seed" | "patch" | "commit"
+export type CommunityPresence = "online" | "offline"
+export type CommunityPresenceSnapshot = {
+  viewerId: string | null
+  accountEpoch: number
+  revision: number
+}
 export type CommunityWsConnectionStatus = "connected" | "reconnecting" | "failed"
 
 const NOOP_RECONNECT = () => undefined
@@ -88,9 +85,9 @@ export type CommunityWsStoreState = {
   reconnectNow: () => void
   profileViewerId: string | null
   profileAccountEpoch: number
-  profileRevision: number
-  profilesByUserId: Map<string, CommunityProfile>
-  profileRevisionsByUserId: Map<string, ProfileRevisions>
+  presenceRevision: number
+  presenceByUserId: Map<string, CommunityPresence>
+  presenceRevisionsByUserId: Map<string, number>
   seenMessageIds: Set<string>
   seenDeliveryOperations: Map<string, DeliveryOperationState>
   /**
@@ -101,19 +98,12 @@ export type CommunityWsStoreState = {
   botAuditEvents: Map<string, BotAuditEventEntry[]>
 
   activateProfileAccount: (viewerId: string | null) => number
-  beginProfileSnapshot: () => CommunityProfileSnapshot
-  seedProfiles: (
-    snapshot: CommunityProfileSnapshot,
-    patches: readonly CommunityProfilePatch[],
+  beginPresenceSnapshot: () => CommunityPresenceSnapshot
+  seedPresence: (
+    snapshot: CommunityPresenceSnapshot,
+    patches: ReadonlyMap<string, CommunityPresence> | readonly [string, CommunityPresence][],
   ) => boolean
-  commitProfiles: (
-    snapshot: CommunityProfileSnapshot,
-    patches: readonly CommunityProfilePatch[],
-  ) => boolean
-  patchProfiles: (
-    snapshot: Pick<CommunityProfileSnapshot, "viewerId" | "accountEpoch">,
-    patches: readonly CommunityProfilePatch[],
-  ) => boolean
+  setPresence: (userId: string, presence: CommunityPresence) => boolean
   hasSeenMessage: (id: string) => boolean
   markSeenMessage: (id: string) => void
   observeDeliveryOperation: (
@@ -131,8 +121,8 @@ export type CommunityWsStoreState = {
 
 const initialState = (): Pick<
   CommunityWsStoreState,
-  "profileViewerId" | "profileAccountEpoch" | "profileRevision"
-  | "profilesByUserId" | "profileRevisionsByUserId"
+  "profileViewerId" | "profileAccountEpoch" | "presenceRevision"
+  | "presenceByUserId" | "presenceRevisionsByUserId"
   | "seenMessageIds" | "seenDeliveryOperations" | "botAuditEvents"
   | "accessEpoch" | "accessConnected" | "channelAccessScopes" | "revokedServerIds"
   | "connectionStatus" | "reconnectNow"
@@ -145,47 +135,19 @@ const initialState = (): Pick<
   reconnectNow: NOOP_RECONNECT,
   profileViewerId: null,
   profileAccountEpoch: 0,
-  profileRevision: 0,
-  profilesByUserId: new Map(),
-  profileRevisionsByUserId: new Map(),
+  presenceRevision: 0,
+  presenceByUserId: new Map(),
+  presenceRevisionsByUserId: new Map(),
   seenMessageIds: new Set(),
   seenDeliveryOperations: new Map(),
   botAuditEvents: new Map(),
 })
 
-const ZERO_REVISIONS: ProfileRevisions = { identityAbout: 0, status: 0, presence: 0 }
-
-function mergeIdentityAbout(
-  profile: CommunityProfile,
-  patch: CommunityProfilePatch["identityAbout"],
-) {
-  if (!patch) return profile
-  return { ...profile, ...patch }
-}
-
-function mergeAvatar(profile: CommunityProfile, patch: CommunityProfilePatch["avatar"]) {
-  if (!patch || !Number.isSafeInteger(patch.avatarVersion) || patch.avatarVersion < 0) {
-    return profile
-  }
-  if (profile.avatarVersion !== undefined && patch.avatarVersion <= profile.avatarVersion) {
-    return profile
-  }
-  return { ...profile, ...patch }
-}
-
-function profileChanged(previous: CommunityProfile, next: CommunityProfile) {
-  const keys = new Set([...Object.keys(previous), ...Object.keys(next)])
-  for (const key of keys) {
-    if (previous[key as keyof CommunityProfile] !== next[key as keyof CommunityProfile]) return true
-  }
-  return false
-}
-
 export const useCommunityWsStore = create<CommunityWsStoreState>((set, get) => {
-  const writeProfiles = (
-    snapshot: CommunityProfileSnapshot,
-    patches: readonly CommunityProfilePatch[],
-    mode: ProfileWriteMode,
+  const writePresence = (
+    snapshot: CommunityPresenceSnapshot,
+    patches: ReadonlyMap<string, CommunityPresence> | readonly [string, CommunityPresence][],
+    guardSnapshot: boolean,
   ) => {
     const state = get()
     if (
@@ -193,50 +155,26 @@ export const useCommunityWsStore = create<CommunityWsStoreState>((set, get) => {
       || snapshot.viewerId !== state.profileViewerId
       || snapshot.accountEpoch !== state.profileAccountEpoch
     ) return false
-    const revision = state.profileRevision + 1
-    const guardsRevision = mode !== "patch"
-    const advancesRevisionForGroups = mode !== "seed"
-    let profiles: Map<string, CommunityProfile> | null = null
-    let revisions: Map<string, ProfileRevisions> | null = null
-    let advancesRevision = false
-    for (const patch of patches) {
-      const previous = (profiles ?? state.profilesByUserId).get(patch.id) ?? { id: patch.id }
-      const previousRevisions = (revisions ?? state.profileRevisionsByUserId)
-        .get(patch.id) ?? ZERO_REVISIONS
-      let next = previous
-      const identityAbout = patch.identityAbout !== undefined
-        && (!guardsRevision || previousRevisions.identityAbout <= snapshot.revision)
-      const status = patch.status !== undefined
-        && (!guardsRevision || previousRevisions.status <= snapshot.revision)
-      const presence = patch.presence !== undefined
-        && (!guardsRevision || previousRevisions.presence <= snapshot.revision)
-      if (identityAbout) next = mergeIdentityAbout(next, patch.identityAbout)
-      next = mergeAvatar(next, patch.avatar)
-      if (status) next = { ...next, ...patch.status }
-      if (presence) next = { ...next, presence: patch.presence }
-      if (profileChanged(previous, next)) {
-        profiles ??= new Map(state.profilesByUserId)
-        profiles.set(patch.id, next)
+    const entries = patches instanceof Map ? patches.entries() : patches
+    const revision = state.presenceRevision + 1
+    let presenceByUserId: Map<string, CommunityPresence> | null = null
+    let revisions: Map<string, number> | null = null
+    for (const [userId, presence] of entries) {
+      const previousRevision = state.presenceRevisionsByUserId.get(userId) ?? 0
+      if (guardSnapshot && previousRevision > snapshot.revision) continue
+      if ((presenceByUserId ?? state.presenceByUserId).get(userId) !== presence) {
+        presenceByUserId ??= new Map(state.presenceByUserId)
+        presenceByUserId.set(userId, presence)
       }
-      if (advancesRevisionForGroups && (identityAbout || status || presence)) {
-        advancesRevision = true
-        revisions ??= new Map(state.profileRevisionsByUserId)
-        revisions.set(patch.id, {
-          identityAbout: identityAbout ? revision : previousRevisions.identityAbout,
-          status: status ? revision : previousRevisions.status,
-          presence: presence ? revision : previousRevisions.presence,
-        })
+      if (!guardSnapshot) {
+        revisions ??= new Map(state.presenceRevisionsByUserId)
+        revisions.set(userId, revision)
       }
     }
-    if (profiles || advancesRevision) {
-      set({
-        ...(profiles ? { profilesByUserId: profiles } : {}),
-        ...(advancesRevision ? {
-          profileRevision: revision,
-          profileRevisionsByUserId: revisions!,
-        } : {}),
-      })
-    }
+    if (presenceByUserId || revisions) set({
+      ...(presenceByUserId ? { presenceByUserId } : {}),
+      ...(revisions ? { presenceRevision: revision, presenceRevisionsByUserId: revisions } : {}),
+    })
     return true
   }
 
@@ -252,25 +190,29 @@ export const useCommunityWsStore = create<CommunityWsStoreState>((set, get) => {
         profileAccountEpoch,
         accessEpoch: state.accessEpoch + 1,
         channelAccessScopes: new Map(),
-        revokedServerIds: new Set(),        profileRevision: 0,
-        profilesByUserId: new Map(),
-        profileRevisionsByUserId: new Map(),
+        revokedServerIds: new Set(),
+        presenceRevision: 0,
+        presenceByUserId: new Map(),
+        presenceRevisionsByUserId: new Map(),
       })
       return profileAccountEpoch
     },
 
-    beginProfileSnapshot: () => ({
+    beginPresenceSnapshot: () => ({
       viewerId: get().profileViewerId,
       accountEpoch: get().profileAccountEpoch,
-      revision: get().profileRevision,
+      revision: get().presenceRevision,
     }),
 
-    seedProfiles: (snapshot, patches) => writeProfiles(snapshot, patches, "seed"),
-    commitProfiles: (snapshot, patches) => writeProfiles(snapshot, patches, "commit"),
-    patchProfiles: (snapshot, patches) => writeProfiles(
-      { ...snapshot, revision: get().profileRevision },
-      patches,
-      "patch",
+    seedPresence: (snapshot, patches) => writePresence(snapshot, patches, true),
+    setPresence: (userId, presence) => writePresence(
+      {
+        viewerId: get().profileViewerId,
+        accountEpoch: get().profileAccountEpoch,
+        revision: get().presenceRevision,
+      },
+      [[userId, presence]],
+      false,
     ),
 
   hasSeenMessage: (id) => get().seenMessageIds.has(id),
@@ -384,10 +326,11 @@ export const useCommunityWsStore = create<CommunityWsStoreState>((set, get) => {
       || (parent && state.channelAccessScopes.get(parent)?.revoked))
   },
 
-  markAccessDisconnected: () => set((state) => ({
-    accessEpoch: state.accessEpoch + 1,
-    accessConnected: false,
-  })),
+  markAccessDisconnected: () => {
+    const state = get()
+    if (!state.accessConnected) return
+    set({ accessConnected: false })
+  },
 
   markAccessConnected: () => set({ accessConnected: true }),
 
@@ -418,28 +361,6 @@ export const useCommunityWsStore = create<CommunityWsStoreState>((set, get) => {
     }),
   }
 })
-
-// ── Selectors ────────────────────────────────────────────────────────────────
-
-export function useCommunityProfile(userId: string | null | undefined) {
-  const previewProfiles = useCommunityPreviewProfiles()
-  const liveProfile = useCommunityWsStore((state) =>
-    previewProfiles || !userId
-      ? undefined
-      : state.profilesByUserId.get(userId),
-  )
-  return previewProfiles && userId
-    ? previewProfiles.get(userId)
-    : liveProfile
-}
-
-export function useProfilesByUserId(): ReadonlyMap<string, CommunityProfile> {
-  const previewProfiles = useCommunityPreviewProfiles()
-  const liveProfiles = useCommunityWsStore((state) =>
-    previewProfiles ? null : state.profilesByUserId,
-  )
-  return previewProfiles ?? liveProfiles!
-}
 
 const EMPTY_AUDIT_EVENTS: BotAuditEventEntry[] = []
 

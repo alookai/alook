@@ -10,6 +10,7 @@ import {
 } from "react"
 import {
   useDefaultLayout,
+  type GroupImperativeHandle,
   type PanelImperativeHandle,
   type PanelSize,
 } from "react-resizable-panels"
@@ -24,6 +25,9 @@ import type { CommunitySurface } from "@/lib/community/community-route"
 import { cn } from "@/lib/utils"
 import {
   COMMUNITY_RAIL_WIDTH,
+  COMMUNITY_LAYOUT_PREPAINT_ATTRIBUTE,
+  COMMUNITY_LAYOUT_PREPAINT_SIDEBAR_WIDTH,
+  COMMUNITY_LAYOUT_PREPAINT_USER_BAR_WIDTH,
   COMMUNITY_SIDEBAR_DEFAULT_WIDTH,
   COMMUNITY_SIDEBAR_MAX_WIDTH,
   COMMUNITY_SIDEBAR_MIN_WIDTH,
@@ -90,12 +94,15 @@ export function CommunityShellLayout({
     ? defaultLayout?.sidebar
     : undefined
   const sidebarPanelRef = useRef<HTMLDivElement>(null)
+  const panelGroupHandleRef = useRef<GroupImperativeHandle | null>(null)
   const sidebarPanelHandleRef = useRef<PanelImperativeHandle | null>(null)
+  const resizeHandleRef = useRef<HTMLDivElement>(null)
   const userBarOverlayRef = useRef<HTMLDivElement>(null)
   const committedBreakpointRef = useRef<Breakpoint>(breakpoint)
   const renderedBreakpointRef = useRef<Breakpoint>(breakpoint)
   const desktopSidebarWidthRef = useRef<number | undefined>(undefined)
   const pendingDesktopRestoreRef = useRef<PendingDesktopRestore | null>(null)
+  const hydratedLayoutAppliedRef = useRef(false)
 
   useInsertionEffect(() => {
     renderedBreakpointRef.current = breakpoint
@@ -132,6 +139,53 @@ export function CommunityShellLayout({
     desktopSidebarWidthRef.current = sidebarWidth
     setDesktopUserBarWidth(sidebarWidth)
   }, [setDesktopUserBarWidth])
+  const persistDoubleClickReset = useCallback(() => {
+    const sidebarPanelHandle = sidebarPanelHandleRef.current
+    if (!sidebarPanelHandle) return
+    sidebarPanelHandle.resize(COMMUNITY_SIDEBAR_DEFAULT_WIDTH)
+    queueMicrotask(() => {
+      const layout = panelGroupHandleRef.current?.getLayout()
+      if (!layout || Object.keys(layout).length === 0) return
+      onLayoutChanged(layout, { isUserInteraction: true })
+    })
+  }, [onLayoutChanged])
+
+  useLayoutEffect(() => {
+    const onDoubleClick = (event: MouseEvent) => {
+      const resizeHandle = resizeHandleRef.current
+      if (!resizeHandle) return
+      const rect = resizeHandle.getBoundingClientRect()
+      const hitPadding = 10
+      if (
+        event.clientX >= rect.left - hitPadding
+        && event.clientX <= rect.right + hitPadding
+        && event.clientY >= rect.top
+        && event.clientY <= rect.bottom
+      ) persistDoubleClickReset()
+    }
+    document.addEventListener("dblclick", onDoubleClick, true)
+    return () => document.removeEventListener("dblclick", onDoubleClick, true)
+  }, [persistDoubleClickReset])
+
+  useLayoutEffect(() => {
+    if (
+      defaultLayout === undefined
+      || hydratedLayoutAppliedRef.current
+    ) return
+
+    const panelGroupHandle = panelGroupHandleRef.current
+    if (!panelGroupHandle) return
+
+    panelGroupHandle.setLayout(defaultLayout)
+    userBarOverlayRef.current?.style.setProperty(
+      "--community-desktop-user-bar-width",
+      desktopUserBarInitialOverlayCssWidth(defaultLayout.sidebar),
+    )
+    document.documentElement.removeAttribute(COMMUNITY_LAYOUT_PREPAINT_ATTRIBUTE)
+    document.documentElement.style.removeProperty(COMMUNITY_LAYOUT_PREPAINT_SIDEBAR_WIDTH)
+    document.documentElement.style.removeProperty(COMMUNITY_LAYOUT_PREPAINT_USER_BAR_WIDTH)
+    hydratedLayoutAppliedRef.current = true
+  }, [defaultLayout])
 
   useLayoutEffect(() => {
     committedBreakpointRef.current = breakpoint
@@ -218,8 +272,8 @@ export function CommunityShellLayout({
           )}
         >
           <ResizablePanelGroup
-            key={hydratedClient ? "persisted-layout" : "ssr-layout"}
             id="community-shell"
+            groupRef={panelGroupHandleRef}
             orientation="horizontal"
             disabled={!isDesktop}
             className={cn(
@@ -256,7 +310,11 @@ export function CommunityShellLayout({
                 {sidebar}
               </div>
             </ResizablePanel>
-            <ResizableHandle className={cn("bg-transparent", !isDesktop && "hidden")} />
+            <ResizableHandle
+              className={cn("bg-transparent", !isDesktop && "hidden")}
+              disableDoubleClick
+              elementRef={resizeHandleRef}
+            />
             <ResizablePanel
               id="main"
               groupResizeBehavior="preserve-relative-size"

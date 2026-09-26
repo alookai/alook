@@ -1,9 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { QueryClient } from "@tanstack/react-query"
 import type { CommunityWsEvent } from "@alook/shared"
 import type { ThreadsResponse } from "@/hooks/community/use-channel-panels"
 import type { ForumFeedPage } from "@/hooks/community/use-forum-feed"
 import { communityKeys } from "@/lib/query-keys"
 import { useCommunityWsStore } from "@/stores/community/ws"
+import {
+  createCommunityDbRegistry,
+  registerCommunityDbRegistry,
+} from "@/lib/community-db/collections"
+import { ingestServerDetail, projectCommunityWsEventToDb } from "@/lib/community-db/sync"
+import {
+  applyForumPostUnitClientEffects,
+  projectChannelScopeEviction,
+} from "./channel-scope-projection"
 import {
   capturedOnMessage,
   capturedQueryClient,
@@ -15,6 +25,41 @@ import {
 
 beforeEach(resetCommunityWsHarness)
 afterEach(cleanupCommunityWsHarness)
+
+it("purges canonical rows for authoritative channel and forum-post eviction", async () => {
+  const queryClient = new QueryClient()
+  const registry = createCommunityDbRegistry(queryClient, "viewer")
+  await registry.preload()
+  const unregister = registerCommunityDbRegistry(registry)
+  ingestServerDetail(registry, {
+    id: "server", name: "Server", discriminator: "0001", description: "",
+    icon: null, ownerId: "viewer",
+    categories: [{
+      id: "cat", name: "General",
+      channels: [
+        { id: "channel", name: "chat", active: false, unread: false },
+        { id: "forum", name: "forum", active: false, unread: false, type: "forum" },
+      ],
+    }],
+  })
+  projectCommunityWsEventToDb(queryClient, {
+    type: "community:channel.child_create", parentChannelId: "forum", parentMessageId: "opener",
+    channel: { id: "thread", name: "Thread", type: "thread", createdAt: "2026-09-25T00:00:00.000Z" },
+  } as CommunityWsEvent)
+  const projection = { project: (callback: () => void) => callback() } as never
+
+  projectChannelScopeEviction(projection, queryClient, "server", "channel")
+  expect(registry.collections.channels.get("channel")).toBeUndefined()
+
+  applyForumPostUnitClientEffects(queryClient, {
+    serverId: "server", forumChannelId: "forum", childChannelId: "thread",
+    openerMessageId: "opener",
+  })
+  expect(registry.collections.channels.get("thread")).toBeUndefined()
+
+  unregister()
+  await registry.cleanup()
+})
 
 function seedThreads(serverId: string, parentId: string, children: string[], shape: "text" | "forum") {
   if (shape === "text") {

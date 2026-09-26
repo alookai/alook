@@ -1,5 +1,5 @@
 -- Per-channel membership for PRIVATE-category channels.
--- See plans/channel-category-role-permissions.md.
+-- Membership gates visibility without widening category-level access.
 --
 -- Rows exist ONLY for channels in private categories (creator + directly-added
 -- members). Public/uncategorized channels imply access via server membership;

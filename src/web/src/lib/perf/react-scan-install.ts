@@ -4,8 +4,8 @@ import { pushPerfEvent, type PerfEventRecord, type PerfFiberRecord } from "./per
 import type { LiteEvent, LiteFiberSummary, LiteHandle } from "react-scan/lite"
 
 /**
- * Local render instrumentation install. Diagnosis-only (see
- * plans/community-switch-perf-diagnosis.md) — NEVER runs in a real build.
+ * Local render instrumentation install. Diagnosis-only; it never runs in a
+ * real build.
  *
  * Must run before react-dom installs its DevTools global hook, so this is
  * imported from `instrumentation-client.ts` (Next's pre-hydration client

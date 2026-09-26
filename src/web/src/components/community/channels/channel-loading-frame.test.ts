@@ -10,7 +10,8 @@ describe("ChannelLoadingFrame", () => {
 
     expect(markup.match(/data-community-unresolved-main=""/g)).toHaveLength(1)
     expect(markup).not.toContain('data-slot="skeleton"')
-    expect(markup).toContain('aria-label="Connecting…"')
+    expect(markup).toContain('aria-label="Loading"')
+    expect(markup).not.toContain("Connecting")
     expect(markup).toContain('aria-busy="true"')
     expect(markup).toContain('aria-label="Loading conversation"')
     expect(markup).not.toContain("data-community-mobile-transition")

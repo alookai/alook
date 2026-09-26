@@ -9,7 +9,11 @@ import { parseNameAndTag, parseRef } from "@alook/shared"
  * This file is used by `/c` UI only. Real-server segments still obey the
  * public ref contract and require a name#discriminator handle.
  */
-type ChannelRefDirectoryChannel = { id: string; name: string }
+type ChannelRefDirectoryChannel = {
+  id: string
+  name: string
+  type?: "text" | "forum"
+}
 export type ChannelRefDirectoryServer = {
   id: string
   name: string

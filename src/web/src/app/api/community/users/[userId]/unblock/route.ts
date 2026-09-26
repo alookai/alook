@@ -7,7 +7,7 @@ export const POST = withAuth(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
   const targetId = ctx.params?.userId as string
 
-  // Hardening — see plans/agent-friendship-approval-gate.md §Hardening.
+  // Bots cannot mutate the human friendship graph through this route.
   if (ctx.user?.isBot) return writeError("forbidden", 403)
 
   if (!targetId) return writeError("userId is required", 400)

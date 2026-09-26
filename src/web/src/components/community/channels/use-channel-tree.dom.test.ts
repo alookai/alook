@@ -26,6 +26,12 @@ function CaptureTree({ categories, onResult }: { categories: Category[]; onResul
   return null
 }
 
+function ReallocatedCaptureTree({ onResult }: { onResult: (tree: Tree) => void }) {
+  const categories = [category("cat_A", [ch("a1"), ch("a2")])]
+  onResult(useChannelTree(categories))
+  return null
+}
+
 let nextOwnerId = 0
 
 function ScopedCaptureTree({
@@ -310,11 +316,90 @@ describe("useChannelTree scope ownership", () => {
     expect(samples[0].tree.collapsed).toEqual(new Set())
     expect(samples[0].tree.order.cat_A.map((channel) => channel.id)).toEqual(["a1", "tmp_A"])
   })
+
+  it("does not schedule an order update for equivalent categories with new references", async () => {
+    let current!: Tree
+    let renders = 0
+    const onResult = (tree: Tree) => {
+      current = tree
+      renders += 1
+    }
+    const renderer = rtlRender(React.createElement(ReallocatedCaptureTree, { onResult }))
+    const initialOrder = current.order
+
+    await act(async () => current.toggleCat("cat_A"))
+    expect(current.collapsed).toEqual(new Set(["cat_A"]))
+    expect(current.order).toBe(initialOrder)
+    expect(renders).toBe(2)
+
+    renderer.rerender(React.createElement(ReallocatedCaptureTree, { onResult }))
+    expect(renders).toBe(3)
+    expect(current.order).toBe(initialOrder)
+  })
+
+  it("reconciles category metadata without replacing drag order", async () => {
+    let current!: Tree
+    const onResult = (tree: Tree) => { current = tree }
+    const renderer = rtlRender(React.createElement(CaptureTree, {
+      categories: categoriesA,
+      onResult,
+    }))
+    const initialOrder = current.order
+
+    renderer.rerender(React.createElement(CaptureTree, {
+      categories: categoriesA.map((item) => item.id === "cat_A" ? {
+        ...item,
+        name: "Renamed",
+        private: false,
+        pending: false,
+        creatorId: "owner_B",
+      } : item),
+      onResult,
+    }))
+    await act(async () => { await Promise.resolve() })
+
+    expect(current.order).toBe(initialOrder)
+    expect(current.catNames.cat_A).toBe("Renamed")
+    expect(current.catPrivate.cat_A).toBe(false)
+    expect(current.catPending.cat_A).toBe(false)
+    expect(current.catCreators.cat_A).toBe("owner_B")
+  })
+
+  it("reconciles channel interaction, permission, and type metadata for stable ids", async () => {
+    let current!: Tree
+    const onResult = (tree: Tree) => { current = tree }
+    const initial: Category[] = [category("cat_A", [{
+      ...ch("channel_1"),
+      pending: true,
+      creatorId: "owner_A",
+      type: "text",
+    }])]
+    const renderer = rtlRender(React.createElement(CaptureTree, {
+      categories: initial,
+      onResult,
+    }))
+
+    renderer.rerender(React.createElement(CaptureTree, {
+      categories: [category("cat_A", [{
+        ...ch("channel_1"),
+        pending: false,
+        creatorId: "owner_B",
+        type: "forum",
+      }])],
+      onResult,
+    }))
+    await act(async () => { await Promise.resolve() })
+
+    expect(current.order.cat_A[0]).toMatchObject({
+      pending: false,
+      creatorId: "owner_B",
+      type: "forum",
+    })
+  })
 })
 
-// Regression: the sync effect's id-set early-return silently swallowed
-// metadata-only updates (unread/name) — see "The useChannelTree gap" in
-// plans/community-unread-indicators.md.
+// Regression: the sync effect's id-set early-return must not swallow
+// metadata-only updates such as unread and name changes.
 describe("mergeChannelMetadata", () => {
   const cat = (id: string, channels: Channel[]): Category => ({ id, name: id, channels })
 

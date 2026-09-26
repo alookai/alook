@@ -11,8 +11,7 @@ import { resolveBotActor } from "./community-agent-runner-auth"
  * pre-existing wrappers (`withAuth` for humans, `withAgentRunnerAuth` for bots)
  * behind one decorator so a route can serve both callers and branch on
  * `actor.kind` for the few genuinely bot-specific semantics (channel-alignment
- * gate on send, invite owner-gate on join) — see
- * plans/22-community-unified-actor-route-unify.md.
+ * gate on send, invite owner-gate on join).
  *
  * Discriminated on `kind` (NOT a flat `isBot` boolean): the semantic branches
  * read `actor.kind === "bot"` and, in that arm, `ownerUserId`/`machineId` are

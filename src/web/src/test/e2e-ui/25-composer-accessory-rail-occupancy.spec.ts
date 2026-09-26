@@ -15,12 +15,20 @@ test.afterAll(async () => {
   expect(restorations.map((result) => result.status)).toEqual(["fulfilled", "fulfilled"])
 })
 
-async function sendExactMessage(sender: Page, text: string) {
+async function sendExactMessage(sender: Page, receiver: Page, text: string) {
   const editable = composerEditable(sender)
   await editable.click()
   await sender.keyboard.press("ControlOrMeta+A")
   await sender.keyboard.press("Backspace")
+  const responsePromise = sender.waitForResponse((response) => (
+    response.request().method() === "POST"
+    && /\/api\/community\/channels\/[^/]+\/messages$/.test(new URL(response.url()).pathname)
+  ))
   await sendMessage(sender, text)
+  const response = await responsePromise
+  expect(response.status()).toBe(201)
+  const payload = await response.json() as { message: { id: string } }
+  await expect(receiver.getByTestId(tid.message(payload.message.id))).toBeVisible()
 }
 
 type Rect = {
@@ -483,6 +491,7 @@ test("composer accessory rail reallocates every occupied slot without overflow",
 
   await sendExactMessage(
     bob.page,
+    alice.page,
     `long typing clear ${Date.now()}`,
   )
   await expect(alice.page.getByTestId(tid.typingIndicator)).toHaveCount(0)
@@ -538,10 +547,12 @@ test("composer accessory rail reallocates every occupied slot without overflow",
 
   await sendExactMessage(
     bob.page,
+    alice.page,
     `multiple typing clear ${Date.now()}`,
   )
   await sendExactMessage(
     carol.page,
+    alice.page,
     `short typing clear ${Date.now()}`,
   )
   await expect(alice.page.getByTestId(tid.typingIndicator)).toHaveCount(0)
@@ -569,6 +580,7 @@ test("composer accessory rail reallocates every occupied slot without overflow",
 
   await sendExactMessage(
     bob.page,
+    alice.page,
     `theme typing clear ${Date.now()}`,
   )
   await expect(alice.page.getByTestId(tid.typingIndicator)).toHaveCount(0)

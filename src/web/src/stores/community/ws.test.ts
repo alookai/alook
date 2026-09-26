@@ -14,7 +14,7 @@ beforeEach(() => {
 
 function activate(viewerId = "viewer") {
   useCommunityWsStore.getState().activateProfileAccount(viewerId)
-  return useCommunityWsStore.getState().beginProfileSnapshot()
+  return useCommunityWsStore.getState().beginPresenceSnapshot()
 }
 
 describe("useCommunityWsStore", () => {
@@ -31,170 +31,43 @@ describe("useCommunityWsStore", () => {
     expect(calls).toEqual(["retry"])
   })
 
-  it("fails closed until websocket authentication and advances access epochs", () => {
+  it("tracks websocket authentication without treating transport loss as revocation", () => {
+    expect(useCommunityWsStore.getState()).toMatchObject({ accessConnected: false, accessEpoch: 0 })
+    useCommunityWsStore.getState().markAccessDisconnected()
     expect(useCommunityWsStore.getState()).toMatchObject({ accessConnected: false, accessEpoch: 0 })
     useCommunityWsStore.getState().markAccessConnected()
     useCommunityWsStore.getState().markAccessDisconnected()
-    expect(useCommunityWsStore.getState()).toMatchObject({ accessConnected: false, accessEpoch: 1 })
+    useCommunityWsStore.getState().markAccessDisconnected()
+    expect(useCommunityWsStore.getState()).toMatchObject({ accessConnected: false, accessEpoch: 0 })
   })
 
-  it("seeds eligible groups and preserves groups patched after request start", () => {
-    const initial = activate()
-    useCommunityWsStore.getState().seedProfiles(initial, [{
-      id: "u1",
-      identityAbout: { name: "API old", aboutMe: "api bio" },
-      status: { statusEmoji: "🌱", statusText: "api" },
-      presence: "offline",
-    }])
-
-    const request = useCommunityWsStore.getState().beginProfileSnapshot()
-    useCommunityWsStore.getState().patchProfiles(request, [{
-      id: "u1",
-      identityAbout: { name: "WS new", aboutMe: undefined },
-      presence: "online",
-    }])
-    useCommunityWsStore.getState().seedProfiles(request, [{
-      id: "u1",
-      identityAbout: { name: "late API", aboutMe: "late bio" },
-      status: { statusEmoji: "🎧", statusText: "late status" },
-      presence: "offline",
-    }])
-
-    expect(useCommunityWsStore.getState().profilesByUserId.get("u1")).toMatchObject({
-      name: "WS new",
-      aboutMe: undefined,
-      statusEmoji: "🎧",
-      statusText: "late status",
-      presence: "online",
-    })
+  it("keeps only presence in the websocket overlay", () => {
+    activate()
+    useCommunityWsStore.getState().setPresence("u1", "online")
+    expect(useCommunityWsStore.getState().presenceByUserId).toEqual(
+      new Map([["u1", "online"]]),
+    )
+    expect(useCommunityWsStore.getState()).not.toHaveProperty("profilesByUserId")
   })
 
-  it("advances authoritative group revisions even when values are equal", () => {
-    const initial = activate()
-    useCommunityWsStore.getState().seedProfiles(initial, [{
-      id: "u1",
-      status: { statusEmoji: null, statusText: null },
-    }])
-    const request = useCommunityWsStore.getState().beginProfileSnapshot()
-    useCommunityWsStore.getState().patchProfiles(request, [{
-      id: "u1",
-      status: { statusEmoji: null, statusText: null },
-    }])
-    const afterPatch = useCommunityWsStore.getState()
-    expect(afterPatch.profileRevision).toBe(request.revision + 1)
-
-    afterPatch.seedProfiles(request, [{
-      id: "u1",
-      status: { statusEmoji: "stale", statusText: "stale" },
-    }])
-    expect(useCommunityWsStore.getState().profilesByUserId.get("u1")).toMatchObject({
-      statusEmoji: null,
-      statusText: null,
-    })
+  it("preserves a live presence delta over an older HTTP seed", () => {
+    const request = activate()
+    useCommunityWsStore.getState().setPresence("u1", "online")
+    useCommunityWsStore.getState().seedPresence(request, [["u1", "offline"]])
+    expect(useCommunityWsStore.getState().presenceByUserId.get("u1")).toBe("online")
   })
 
-  it("conditionally commits a successful mutation ahead of an older API seed", () => {
-    const oldGet = activate()
-    const mutation = useCommunityWsStore.getState().beginProfileSnapshot()
-
-    useCommunityWsStore.getState().commitProfiles(mutation, [{
-      id: "u1",
-      identityAbout: { name: "Local mutation" },
-    }])
-    expect(useCommunityWsStore.getState().profileRevision).toBe(1)
-
-    useCommunityWsStore.getState().seedProfiles(oldGet, [{
-      id: "u1",
-      identityAbout: { name: "Old GET" },
-    }])
-    expect(useCommunityWsStore.getState().profilesByUserId.get("u1")?.name)
-      .toBe("Local mutation")
-  })
-
-  it("does not let a mutation response overwrite a newer WS group patch", () => {
-    const mutation = activate()
-    const profiles = useCommunityWsStore.getState()
-    profiles.patchProfiles(profiles.beginProfileSnapshot(), [{
-      id: "u1",
-      identityAbout: { name: "Newer WS" },
-    }])
-
-    profiles.commitProfiles(mutation, [{
-      id: "u1",
-      identityAbout: { name: "Mutation response" },
-    }])
-    expect(useCommunityWsStore.getState().profilesByUserId.get("u1")?.name)
-      .toBe("Newer WS")
-    expect(useCommunityWsStore.getState().profileRevision).toBe(1)
-  })
-
-  it("compares avatar versions independently without advancing group revision", () => {
-    const snapshot = activate()
-    const store = useCommunityWsStore.getState()
-    store.patchProfiles(snapshot, [{
-      id: "u1",
-      avatar: { avatar: "/a?v=2", avatarVersion: 2 },
-    }])
-    expect(useCommunityWsStore.getState().profileRevision).toBe(0)
-
-    store.patchProfiles(snapshot, [{
-      id: "u1",
-      avatar: { avatar: "/stale?v=1", avatarVersion: 1 },
-    }, {
-      id: "u1",
-      avatar: { avatar: "/conflict?v=2", avatarVersion: 2 },
-    }])
-    expect(useCommunityWsStore.getState().profilesByUserId.get("u1")).toMatchObject({
-      avatar: "/a?v=2",
-      avatarVersion: 2,
-    })
-
-    store.seedProfiles(snapshot, [{
-      id: "u1",
-      avatar: { avatar: "/a?v=3", avatarVersion: 3 },
-    }])
-    expect(useCommunityWsStore.getState().profilesByUserId.get("u1")).toMatchObject({
-      avatar: "/a?v=3",
-      avatarVersion: 3,
-    })
-  })
-
-  it("rejects late work after viewer switch and prevents reset ABA", () => {
+  it("rejects a presence seed after viewer switch or reset", () => {
     const oldSnapshot = activate("viewer-a")
     useCommunityWsStore.getState().activateProfileAccount("viewer-b")
-    expect(useCommunityWsStore.getState().seedProfiles(oldSnapshot, [{
-      id: "u1",
-      identityAbout: { name: "wrong viewer" },
-    }])).toBe(false)
-
-    const beforeReset = useCommunityWsStore.getState().beginProfileSnapshot()
+    expect(useCommunityWsStore.getState().seedPresence(oldSnapshot, [["u1", "online"]]))
+      .toBe(false)
+    const beforeReset = useCommunityWsStore.getState().beginPresenceSnapshot()
     useCommunityWsStore.getState().reset()
     useCommunityWsStore.getState().activateProfileAccount("viewer-b")
-    expect(useCommunityWsStore.getState().patchProfiles(beforeReset, [{
-      id: "u1",
-      identityAbout: { name: "ABA" },
-    }])).toBe(false)
-    expect(useCommunityWsStore.getState().profilesByUserId.size).toBe(0)
-  })
-
-  it("applies multiple same-user groups in one authoritative batch", () => {
-    const snapshot = activate()
-    useCommunityWsStore.getState().patchProfiles(snapshot, [{
-      id: "u1",
-      identityAbout: { name: "Alice" },
-    }, {
-      id: "u1",
-      status: { statusEmoji: "🎧", statusText: "Focus" },
-      presence: "online",
-    }])
-    expect(useCommunityWsStore.getState().profilesByUserId.get("u1")).toMatchObject({
-      name: "Alice",
-      statusEmoji: "🎧",
-      statusText: "Focus",
-      presence: "online",
-    })
-    expect(useCommunityWsStore.getState().profileRevisionsByUserId.get("u1"))
-      .toEqual({ identityAbout: 1, status: 1, presence: 1 })
+    expect(useCommunityWsStore.getState().seedPresence(beforeReset, [["u1", "online"]]))
+      .toBe(false)
+    expect(useCommunityWsStore.getState().presenceByUserId.size).toBe(0)
   })
 
   it("deduplicates seen messages and trims the oldest ids", () => {

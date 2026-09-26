@@ -22,6 +22,7 @@ import { armInboxReadReservationCandidate } from "@/hooks/community/inbox-read-r
 import {
   approvalProfilePatches,
   messageProfilePatches,
+  writeCommunityProfilePatches,
 } from "@/lib/community/profile-seed"
 import {
   projectApprovalCopies,
@@ -62,10 +63,7 @@ export function handleMessageCreate(
     })
   }
   const projected = projectCommunityMessageCreate(event.message)
-  wsStore.patchProfiles(
-    wsStore.beginProfileSnapshot(),
-    messageProfilePatches([projected]),
-  )
+  writeCommunityProfilePatches(messageProfilePatches([projected]), undefined, { event: true })
   if (event.channelId === sub.channelId || event.channelId === sub.secondaryChannelId) {
     const serverId = useCommunityStore.getState().currentServerId
     if (serverId) {
@@ -159,10 +157,7 @@ export function handleMessageUpdated(
   event: CommunityMessageUpdated,
   context: MessageEventContext,
 ) {
-  context.wsStore.patchProfiles(
-    context.wsStore.beginProfileSnapshot(),
-    approvalProfilePatches(event.approval),
-  )
+  writeCommunityProfilePatches(approvalProfilePatches(event.approval), undefined, { event: true })
   projectApprovalCopies(event, context)
   // When a card resolves (accepted/denied/superseded), the friend graph
   // changed — invalidate friends + pending so the owner's lists reflect

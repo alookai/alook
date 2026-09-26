@@ -19,8 +19,7 @@ const log = createLogger({ service: "community/daemon/activate" })
  *
  * Exchanges a pending pairing token (`cmt_...`, Bearer) for a long-lived
  * daemon credential (`cmk_...`). Server atomically revokes the pairing
- * token so it can't be re-used. See plans/remove-community-mode.md
- * "Contract 1" for the wire spec.
+ * token so it can't be re-used.
  */
 export const POST = withCommunityPairingToken(async (req, ctx) => {
   const tokenId = ctx.rawTokenId

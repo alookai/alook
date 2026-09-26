@@ -57,7 +57,7 @@ describe("ServerDefaultPage checkpoint route contract", () => {
     expect(rendered.container).toBeEmptyDOMElement()
   })
 
-  it("keeps metadata loading neutral, then redirects only when the target is known", async () => {
+  it("keeps cold or incomplete detail on the root, then redirects only when canonical detail is known", async () => {
     mocks.breakpoint.current = "desktop"
     mocks.server.current = null
     const rendered = render(createElement(ServerDefaultPage))
@@ -84,6 +84,28 @@ describe("ServerDefaultPage checkpoint route contract", () => {
       "/c/channels/server_1/channel_2?settings=1",
     )
     expect(screen.getByRole("main", { name: "Loading server" })).toBeInTheDocument()
+  })
+
+  it("does not enqueue the same landing redirect again while restored detail reconciles", async () => {
+    mocks.breakpoint.current = "desktop"
+    mocks.lastChannel.current = "channel_2"
+    const rendered = render(createElement(ServerDefaultPage))
+
+    mocks.server.current = {
+      categories: [{ channels: [{ id: "channel_1" }, { id: "channel_2" }] }],
+    }
+    rendered.rerender(createElement(ServerDefaultPage))
+    expect(mocks.replace).toHaveBeenCalledExactlyOnceWith(
+      "/c/channels/server_1/channel_2",
+    )
+
+    mocks.lastChannel.current = null
+    mocks.server.current = { categories: [{ channels: [{ id: "channel_3" }] }] }
+    rendered.rerender(createElement(ServerDefaultPage))
+    expect(mocks.replace).toHaveBeenNthCalledWith(
+      2,
+      "/c/channels/server_1/channel_3",
+    )
   })
 
   it("falls back to the first top-level channel on desktop", async () => {

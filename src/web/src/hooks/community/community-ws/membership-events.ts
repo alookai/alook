@@ -28,6 +28,7 @@ import type { MembershipEventContext } from "@/hooks/community/community-ws/hand
 import { projectChannelScopeEviction } from "./channel-scope-projection"
 import { evictServerChannelScopes } from "./scope-eviction"
 import { avatarInitial } from "@/lib/community/avatar"
+import { writeCommunityProfilePatches } from "@/lib/community/profile-seed"
 import {
   invalidateChannelRefDirectory,
   invalidateInbox,
@@ -42,6 +43,11 @@ import {
   removeServerReactionDetails,
 } from "./reaction-details-invalidation"
 import { getAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
+import {
+  captureCommunityLiveSnapshotToken,
+  publishCommunityChannelMetadata,
+  setCanonicalCommunityChannelMembership,
+} from "@/lib/community-db/sync"
 
 type ChannelMemberEvent = Extract<
   CommunityWsEvent,
@@ -72,6 +78,8 @@ export function handleChannelMemberEvent(
           kind: "channel", channelId: event.channelId,
         })
         removeForumSidebarProjectionExact(queryClient, event.serverId, event.channelId)
+      } else {
+        setCanonicalCommunityChannelMembership(queryClient, event.channelId, "notify", true)
       }
       void invalidateForumSidebarBaseExact(queryClient, event.serverId).catch(() => undefined)
       invalidateInbox(activeProjection)
@@ -84,6 +92,7 @@ export function handleChannelMemberEvent(
       })
       projectChannelScopeEviction(activeProjection, queryClient, event.serverId, event.channelId)
     } else {
+      setCanonicalCommunityChannelMembership(queryClient, event.channelId, "access", true)
       useCommunityWsStore.getState().rememberChannelAccess(event.serverId, event.channelId)
       getAccountUnreadProjection(queryClient, event.userId).grantAccessScope({
         kind: "channel", channelId: event.channelId,
@@ -104,7 +113,15 @@ export function handleChannelMemberEvent(
     try {
       const meta = await queryClient.fetchQuery({
         queryKey: key,
-        queryFn: ({ signal }) => fetchChannelMetadata(event.serverId, event.channelId, signal),
+        queryFn: async ({ signal }) => {
+          const liveToken = captureCommunityLiveSnapshotToken(queryClient)
+          const metadata = await fetchChannelMetadata(event.serverId, event.channelId, signal)
+          publishCommunityChannelMetadata(queryClient, {
+            metadata,
+            proof: { token: liveToken, signal },
+          })
+          return metadata
+        },
         staleTime: 0,
       })
       if (!isChannelMetadataTokenCurrent(token)) return
@@ -136,8 +153,8 @@ export function handleMemberJoin(
   event: CommunityMemberJoin,
   context: MembershipEventContext,
 ) {
-  const { queryClient, viewerUserIdRef, projection, wsStore } = context
-  wsStore.patchProfiles(wsStore.beginProfileSnapshot(), [{
+  const { queryClient, viewerUserIdRef, projection } = context
+  writeCommunityProfilePatches([{
     id: event.member.userId,
     identityAbout: {
       name: event.member.name,
@@ -147,7 +164,7 @@ export function handleMemberJoin(
       avatar: event.member.avatar ?? avatarInitial(event.member.name),
       avatarVersion: event.member.avatarVersion,
     },
-  }])
+  }], undefined, { event: true })
   const key = communityKeys.members(event.serverId)
   queryClient.setQueryData<InfiniteData<MembersEnvelope> | undefined>(
     key,

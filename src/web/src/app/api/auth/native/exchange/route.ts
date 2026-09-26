@@ -1,5 +1,5 @@
 import { createLogger, queries } from "@alook/shared";
-import { createAuth } from "@/lib/auth";
+import { getAuth } from "@/lib/auth";
 import { getPrimaryDb } from "@/lib/db";
 import { withEnv } from "@/lib/middleware/env";
 import {
@@ -45,7 +45,7 @@ export const POST = withEnv(async (request, ctx) => {
 
   let verifiedHeaders: Headers;
   try {
-    const verified = await createAuth(ctx.env).api.verifyOneTimeToken({
+    const verified = await getAuth(ctx.env).api.verifyOneTimeToken({
       body: { token: parsed.data.code },
       returnHeaders: true,
     });

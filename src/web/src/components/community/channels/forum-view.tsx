@@ -23,7 +23,7 @@ import { useVirtualCursorSentinel } from "@/hooks/community/use-virtual-cursor-s
 import { tagColorClassName, tagColorStyle } from "@/lib/community/tag-color"
 import { cn } from "@/lib/utils"
 import { FORUM_ARCHIVE_TAG } from "@alook/shared"
-import { useProfilesByUserId } from "@/stores/community/ws"
+import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 import {
   HorizontalOverflowFadeOverlays,
@@ -221,7 +221,7 @@ export function ForumView({
   deletingPost?: string | null
   onScrollRoot?: (node: HTMLDivElement | null) => void
 }) {
-  const profilesByUserId = useProfilesByUserId()
+  const profilesByUserId = useCanonicalProfilesByUserId()
   const [composing, setComposing] = useState(false)
   const [deletingFor, setDeletingFor] = useState<ForumThread | null>(null)
   const newPostTriggerRef = useRef<HTMLButtonElement>(null)

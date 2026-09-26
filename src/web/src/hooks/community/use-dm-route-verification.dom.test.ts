@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, render } from "@/test/react-dom-harness"
 import { communityKeys } from "@/lib/query-keys"
 import type { DM } from "@/lib/community/models/people"
+import { useCommunityWsStore } from "@/stores/community/ws"
 import {
   classifyDmRouteAuthorityError,
   DM_ROUTE_VERIFICATION_HEADER,
@@ -80,7 +81,11 @@ async function waitFor(predicate: () => boolean, tries = 80) {
 }
 
 describe("DM route verification", () => {
-  beforeEach(() => apiFetchMock.mockReset())
+  beforeEach(() => {
+    apiFetchMock.mockReset()
+    useCommunityWsStore.getState().reset()
+    useCommunityWsStore.getState().activateProfileAccount("viewer")
+  })
   afterEach(() => onlineManager.setOnline(true))
 
   it("bypasses a fresh cached miss, updates the canonical list, and dedupes callers", async () => {
@@ -109,6 +114,7 @@ describe("DM route verification", () => {
     expect(apiFetchMock).toHaveBeenCalledTimes(1)
     expect(apiFetchMock).toHaveBeenCalledWith("/api/community/users/me/dms", {
       headers: { [DM_ROUTE_VERIFICATION_HEADER]: "1" },
+      signal: expect.any(AbortSignal),
     })
     expect(queryClient.getQueryData(communityKeys.dms())).toEqual(authoritative)
   })
@@ -121,6 +127,47 @@ describe("DM route verification", () => {
     await expect(startDmRouteVerification(queryClient, "dm-missing")).resolves.toBe("missing")
     expect(apiFetchMock).toHaveBeenCalledTimes(1)
   })
+
+  it.each(["cancel", "account", "access"] as const)(
+    "rejects a %s-superseded route authority response before canonical cache publication",
+    async (race) => {
+      const queryClient = client()
+      const current: DM = {
+        id: "dm-current",
+        userId: "u-current",
+        name: "Current peer",
+        discriminator: "0001",
+        avatar: "C",
+        status: "offline",
+        preview: "",
+      }
+      queryClient.setQueryData(communityKeys.dms(), { conversations: [current] })
+      const request = deferred<{ conversations: DM[] }>()
+      apiFetchMock.mockReturnValueOnce(request.promise)
+
+      const pending = startDmRouteVerification(queryClient, "dm-stale-target")
+      const rejected = expect(pending).rejects.toMatchObject(
+        race === "cancel" ? {} : { name: "AbortError" },
+      )
+      await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(1))
+      if (race === "cancel") {
+        await queryClient.cancelQueries({
+          queryKey: communityKeys.dmRouteVerification("dm-stale-target"),
+          exact: true,
+        })
+      } else if (race === "account") {
+        useCommunityWsStore.getState().activateProfileAccount("other")
+      } else {
+        useCommunityWsStore.setState((state) => ({ accessEpoch: state.accessEpoch + 1 }))
+      }
+      request.resolve({ conversations: [] })
+
+      await rejected
+      expect(queryClient.getQueryData(communityKeys.dms())).toEqual({
+        conversations: [current],
+      })
+    },
+  )
 
   it("trusts a provisional canonical cache row without starting authority", async () => {
     const queryClient = client()
@@ -166,6 +213,14 @@ describe("DM route verification", () => {
 
   it.each([403, 404])("classifies explicit %s as denied", async (status) => {
     expect(classifyDmRouteAuthorityError({ status })).toBe("denied")
+  })
+
+  it("returns denied for an explicit authority rejection", async () => {
+    const queryClient = client()
+    apiFetchMock.mockRejectedValueOnce(Object.assign(new Error("denied"), { status: 403 }))
+
+    await expect(startDmRouteVerification(queryClient, "dm-denied")).resolves.toBe("denied")
+    expect(queryClient.getQueryData(communityKeys.dms())).toBeUndefined()
   })
 
   it("does not classify a transient failure as denied", () => {

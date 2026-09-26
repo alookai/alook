@@ -20,13 +20,18 @@ import { getAccountUnreadProjection } from "@/hooks/community/account-unread-pro
 import {
   capturedOnMessage,
   capturedQueryClient,
+  canonicalForumSidebar,
   cleanupCommunityWsHarness,
   forumSidebarFixture,
+  hasCanonicalChannelAccess,
+  hasCanonicalChannelNotify,
   messageCreate,
   mountHook,
   resetCommunityWsHarness,
   resetHookMemoization,
+  seedCanonicalForumSidebar,
 } from "./test-harness"
+import { getCanonicalCommunityChannels } from "@/lib/community-db/sync"
 
 function forumFeedFixture(rows: Array<{ id: string; opener: string; tags: string[] }>) {
   return {
@@ -82,32 +87,12 @@ function forumFeedIds(filter: string | null) {
   )?.pages.flatMap((page) => page.threads.map((thread) => thread.id)) ?? []
 }
 
-function seedStructuralSnapshot(serverId = "srv_1") {
-  capturedQueryClient.setQueryData(communityKeys.structuralSnapshot(), {
-    schemaVersion: 1,
-    accountId: "u_me",
-    capturedAt: Date.now(),
-    serverOrder: [serverId],
-    folders: [],
-    servers: [{
-      id: serverId,
-      name: "old",
-      discriminator: "0001",
-      icon: null,
-      categories: [],
-      channels: [{ id: "ch_old", name: "old", type: "text", categoryId: null }],
-      childRouteHints: [],
-    }],
-  })
-}
-
 beforeEach(resetCommunityWsHarness)
 afterEach(cleanupCommunityWsHarness)
 
 describe("useCommunityWs — server.update patches server + list caches", () => {
   it("applies name and description changes to server(id) and servers()", async () => {
     await mountHook()
-    seedStructuralSnapshot()
     capturedQueryClient.setQueryData(communityKeys.server("srv_1"), {
       id: "srv_1",
       name: "old",
@@ -148,11 +133,6 @@ describe("useCommunityWs — server.update patches server + list caches", () => 
         communityKeys.servers(),
       )?.servers[0],
     ).toMatchObject({ name: "new", description: "new description", initial: "N" })
-    const structural = capturedQueryClient.getQueryData<{
-      servers: Array<Record<string, unknown>>
-    }>(communityKeys.structuralSnapshot())
-    expect(structural?.servers[0]).toMatchObject({ name: "new" })
-    expect(structural?.servers[0]).not.toHaveProperty("description")
   })
 })
 describe("useCommunityWs — child channel events", () => {
@@ -176,78 +156,11 @@ describe("useCommunityWs — child channel events", () => {
     expect(keys).not.toContainEqual(communityKeys.channelMessages("ch_1"))
   })
 
-  it("projects a background child hint into the server that owns its parent", async () => {
-    await mountHook()
-    seedStructuralSnapshot("srv_background")
-    const { useCommunityStore } = await import("@/stores/community")
-    useCommunityStore.getState().setCurrentServerId("srv_foreground")
-
-    capturedOnMessage!({
-      type: "community:channel.child_create",
-      parentChannelId: "ch_old",
-      parentMessageId: "opener_1",
-      channel: {
-        id: "child_1",
-        name: "Thread",
-        type: "thread",
-        createdAt: "2026-09-08T00:00:00.000Z",
-      },
-    } satisfies CommunityChildChannelCreate)
-
-    expect(capturedQueryClient.getQueryData<{
-      servers: Array<{ id: string; childRouteHints: Array<{ id: string }> }>
-    }>(communityKeys.structuralSnapshot())?.servers[0]).toMatchObject({
-      id: "srv_background",
-      childRouteHints: [{ id: "child_1" }],
-    })
-  })
-
-  it("renames and archives a persisted child hint from structural events", async () => {
-    await mountHook()
-    seedStructuralSnapshot()
-    capturedQueryClient.setQueryData<any>(
-      communityKeys.structuralSnapshot(),
-      (current: any) => ({
-        ...current,
-        servers: current.servers.map((server: any) => ({
-          ...server,
-          childRouteHints: [{
-            id: "child_1",
-            name: "Old",
-            type: "thread",
-            parentChannelId: "ch_old",
-            parentMessageId: "opener_1",
-          }],
-        })),
-      }),
-    )
-
-    capturedOnMessage!({
-      type: "community:channel.child_update",
-      parentChannelId: "ch_old",
-      channelId: "child_1",
-      changes: { name: "Renamed" },
-    } satisfies CommunityChildChannelUpdate)
-    expect(capturedQueryClient.getQueryData<any>(
-      communityKeys.structuralSnapshot(),
-    ).servers[0].childRouteHints[0].name).toBe("Renamed")
-
-    capturedOnMessage!({
-      type: "community:channel.child_update",
-      parentChannelId: "ch_old",
-      channelId: "child_1",
-      changes: { archived: true },
-    } satisfies CommunityChildChannelUpdate)
-    expect(capturedQueryClient.getQueryData<any>(
-      communityKeys.structuralSnapshot(),
-    ).servers[0].childRouteHints).toEqual([])
-  })
 })
 
 describe("useCommunityWs — channel.* invalidates server(id)", () => {
   it("channel.create invalidates server(serverId)", async () => {
     await mountHook()
-    seedStructuralSnapshot()
     const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
     const event: CommunityChannelCreate = {
       type: "community:channel.create",
@@ -267,59 +180,6 @@ describe("useCommunityWs — channel.* invalidates server(id)", () => {
         return Array.isArray(key) && key.includes("srv_1")
       }),
     ).toBe(true)
-    expect(capturedQueryClient.getQueryData<{
-      servers: Array<{ channels: Array<{ id: string }> }>
-    }>(communityKeys.structuralSnapshot())?.servers[0]?.channels.map((channel) => channel.id))
-      .toEqual(["ch_new", "ch_old"])
-  })
-
-  it("projects channel update and canonical reorder fields", async () => {
-    await mountHook()
-    seedStructuralSnapshot()
-
-    capturedOnMessage!({
-      type: "community:channel.create",
-      serverId: "srv_1",
-      channel: {
-        id: "ch_second",
-        name: "second",
-        type: "text",
-        categoryId: null,
-        position: 1,
-        createdAt: "2026-09-08T00:00:00.000Z",
-      },
-    } satisfies CommunityChannelCreate)
-    capturedOnMessage!({
-      type: "community:channel.update",
-      serverId: "srv_1",
-      channelId: "ch_second",
-      changes: { name: "updated", type: "forum", categoryId: null },
-    } satisfies CommunityChannelUpdate)
-    capturedOnMessage!({
-      type: "community:channel.update",
-      serverId: "srv_1",
-      channelId: "ch_second",
-      changes: { name: "name-only" },
-    } satisfies CommunityChannelUpdate)
-    capturedOnMessage!({
-      type: "community:channel.reorder",
-      serverId: "srv_1",
-      channels: [
-        { id: "ch_old", position: 2 },
-        { id: "ch_second", position: 1 },
-      ],
-    } satisfies CommunityChannelReorder)
-
-    const channels = capturedQueryClient.getQueryData<any>(
-      communityKeys.structuralSnapshot(),
-    ).servers[0].channels
-    expect(channels.map((channel: { id: string }) => channel.id))
-      .toEqual(["ch_second", "ch_old"])
-    expect(channels[0]).toMatchObject({
-      name: "name-only",
-      type: "forum",
-      categoryId: null,
-    })
   })
 })
 
@@ -349,43 +209,6 @@ describe("useCommunityWs — category.* invalidates tree projections", () => {
     })
   })
 
-  it("projects category update, reorder, and delete into the structural tree", async () => {
-    await mountHook()
-    seedStructuralSnapshot()
-
-    for (const [id, position] of [["cat_a", 0], ["cat_b", 1]] as const) {
-      capturedOnMessage!({
-        type: "community:category.create",
-        serverId: "srv_1",
-        category: { id, name: id, position, private: false },
-      } satisfies CommunityCategoryCreate)
-    }
-    capturedOnMessage!({
-      type: "community:category.update",
-      serverId: "srv_1",
-      categoryId: "cat_a",
-      changes: { name: "Renamed", private: true, position: 1 },
-    } satisfies CommunityCategoryUpdate)
-    capturedOnMessage!({
-      type: "community:category.reorder",
-      serverId: "srv_1",
-      categories: [
-        { id: "cat_a", position: 2 },
-        { id: "cat_b", position: 1 },
-      ],
-    } satisfies CommunityCategoryReorder)
-    capturedOnMessage!({
-      type: "community:category.delete",
-      serverId: "srv_1",
-      categoryId: "cat_b",
-    } satisfies CommunityCategoryDelete)
-
-    expect(capturedQueryClient.getQueryData<any>(
-      communityKeys.structuralSnapshot(),
-    ).servers[0].categories).toEqual([
-      { id: "cat_a", name: "Renamed", private: true },
-    ])
-  })
 })
 
 describe("useCommunityWs — invite.create", () => {
@@ -412,40 +235,18 @@ describe("useCommunityWs — invite.create", () => {
 })
 
 describe("useCommunityWs — channel.delete evicts channel-scoped caches", () => {
-  it("prunes the structural channel and its child hints after scope eviction", async () => {
+  it("clears ephemeral channel state after scope eviction", async () => {
     await mountHook()
-    seedStructuralSnapshot()
     const { useCommunityStore } = await import("@/stores/community")
     useCommunityStore.setState({
       typingByScope: new Map([["ch:ch_old", new Map([["u_typing", "Typer"]])]]),
     })
-    capturedQueryClient.setQueryData<{ servers: Array<{
-      childRouteHints: Array<Record<string, unknown>>
-    }> }>(communityKeys.structuralSnapshot(), (current) => current && ({
-      ...current,
-      servers: current.servers.map((server) => ({
-        ...server,
-        childRouteHints: [{
-          id: "child_1",
-          name: "private title",
-          type: "thread",
-          parentChannelId: "ch_old",
-          parentMessageId: "message_1",
-        }],
-      })),
-    }))
-
     capturedOnMessage!({
       type: "community:channel.delete",
       serverId: "srv_1",
       channelId: "ch_old",
     } satisfies CommunityChannelDelete)
 
-    const snapshot = capturedQueryClient.getQueryData<{
-      servers: Array<{ channels: unknown[]; childRouteHints: unknown[] }>
-    }>(communityKeys.structuralSnapshot())
-    expect(snapshot?.servers[0]?.channels).toEqual([])
-    expect(snapshot?.servers[0]?.childRouteHints).toEqual([])
     expect(useCommunityStore.getState().typingByScope.has("ch:ch_old")).toBe(false)
   })
 
@@ -473,7 +274,7 @@ describe("useCommunityWs — channel.delete evicts channel-scoped caches", () =>
     capturedQueryClient.setQueryData(communityKeys.pins("ch_dead"), { pins: [{ id: "p" }] })
     capturedQueryClient.setQueryData(communityKeys.threads("ch_dead"), { threads: [{ id: "t" }] })
     const sidebarKey = communityKeys.forumSidebarThreads("srv_1")
-    capturedQueryClient.setQueryData(sidebarKey, forumSidebarFixture(["ch_dead"]))
+    seedCanonicalForumSidebar("srv_1", ["ch_dead"])
 
     const event: CommunityChannelDelete = {
       type: "community:channel.delete",
@@ -485,7 +286,7 @@ describe("useCommunityWs — channel.delete evicts channel-scoped caches", () =>
     expect(capturedQueryClient.getQueryData(communityKeys.channelMessages("ch_dead"))).toBeUndefined()
     expect(capturedQueryClient.getQueryData(communityKeys.pins("ch_dead"))).toBeUndefined()
     expect(capturedQueryClient.getQueryData(communityKeys.threads("ch_dead"))).toBeUndefined()
-    expect(capturedQueryClient.getQueryData<ReturnType<typeof forumSidebarFixture>>(sidebarKey)?.threads).toEqual([])
+    expect(canonicalForumSidebar("srv_1").threads).toEqual([])
   })
 
   it("evicts the deleted row while an active server-tree refetch is pending", async () => {
@@ -586,10 +387,7 @@ describe("useCommunityWs — channel.delete evicts channel-scoped caches", () =>
     }
     capturedQueryClient.setQueryData(communityKeys.forumFeed("forum_1", "bug"), forumFeed)
     capturedQueryClient.setQueryData(communityKeys.forumTags("forum_1"), { tags: ["bug"] })
-    capturedQueryClient.setQueryData(
-      communityKeys.forumSidebarThreads("srv_1"),
-      forumSidebarFixture(["post_1", "post_keep"]),
-    )
+    seedCanonicalForumSidebar("srv_1", ["post_1", "post_keep"])
     capturedQueryClient.setQueryData(
       communityKeys.forumOpenerHint("srv_1", "opener-post_1"),
       { id: "opener-post_1", content: "Post" },
@@ -624,12 +422,8 @@ describe("useCommunityWs — channel.delete evicts channel-scoped caches", () =>
       ?.pages[0].messages.map((message) => message.id)).toEqual(["opener-keep"])
     expect(capturedQueryClient.getQueryData<typeof forumFeed>(communityKeys.forumFeed("forum_1", "bug"))
       ?.pages[0].threads.map((thread) => thread.id)).toEqual(["post_keep"])
-    expect(capturedQueryClient.getQueryData<ReturnType<typeof forumSidebarFixture>>(
-      communityKeys.forumSidebarThreads("srv_1"),
-    )?.threads.map((thread) => thread.id)).toEqual(["post_keep"])
-    expect(capturedQueryClient.getQueryData(
-      communityKeys.forumOpenerHint("srv_1", "opener-post_1"),
-    )).toBeUndefined()
+    expect(canonicalForumSidebar("srv_1").threads.map((thread) => thread.id))
+      .toEqual(["post_keep"])
     expect(getMessageOverlay({ kind: "channel", id: "forum_1", serverId: "srv_1" })
       .liveById.has("opener-post_1")).toBe(false)
     expect(useCommunityStore.getState().currentChannelMeta).toBeNull()
@@ -859,29 +653,7 @@ describe("useCommunityWs — child_create patches parent thread badge with count
     await mountHook()
     const { useCommunityStore } = await import("@/stores/community")
     const baseKey = communityKeys.forumSidebarThreads("s1")
-    const retainedKey = communityKeys.forumSidebarRetained("s1", "post_1")
-    const metaKey = communityKeys.channelMeta("s1", "post_1")
-    const hintKey = communityKeys.forumOpenerHint("s1", "opener-post_1")
-    const fallbackKey = communityKeys.forumSidebarUnreadFallbacks("s1")
-    capturedQueryClient.setQueryData(communityKeys.server("s1"), {
-      id: "s1",
-      categories: [{ id: "cat_1", channels: [{ id: "forum_1", type: "forum" }] }],
-    })
-    const base = forumSidebarFixture(["post_1", "post_2"])
-    capturedQueryClient.setQueryData(baseKey, base)
-    capturedQueryClient.setQueryData(retainedKey, base.threads[0])
-    capturedQueryClient.setQueryData(metaKey, {
-      id: "post_1",
-      parentChannelId: "forum_1",
-      parentMessageId: "opener-post_1",
-    })
-    capturedQueryClient.setQueryData(hintKey, {
-      id: "opener-post_1",
-      content: "Post one",
-    })
-    capturedQueryClient.setQueryData(fallbackKey, {
-      forum_1: { baseUnread: false, childIds: ["post_1"] },
-    })
+    seedCanonicalForumSidebar("s1", ["post_1", "post_2"])
     useCommunityStore.getState().setCurrentChannelId("post_1")
     useCommunityStore.getState().setCurrentChannelMeta({
       name: "Post one",
@@ -896,23 +668,14 @@ describe("useCommunityWs — child_create patches parent thread badge with count
       changes: { tags: ["bug", "archived"] },
     } satisfies CommunityChildChannelUpdate)
 
-    expect(capturedQueryClient.getQueryData<ReturnType<typeof forumSidebarFixture>>(baseKey)
-      ?.threads.map(({ id }) => id)).toEqual(["post_2"])
-    expect(capturedQueryClient.getQueryState(retainedKey)).toBeUndefined()
-    expect(capturedQueryClient.getQueryData(metaKey)).toMatchObject({ id: "post_1" })
-    expect(capturedQueryClient.getQueryData(hintKey)).toEqual({
-      id: "opener-post_1",
-      content: "Post one",
-    })
-    expect(capturedQueryClient.getQueryData(fallbackKey)).toEqual({
-      forum_1: { baseUnread: false, childIds: ["post_1"] },
-    })
+    expect(canonicalForumSidebar("s1").threads.map(({ id }) => id)).toEqual(["post_2"])
+    expect(getCanonicalCommunityChannels(capturedQueryClient)
+      .find(({ id }) => id === "post_1")).toMatchObject({ archived: false })
+    expect(hasCanonicalChannelAccess("post_1", "u_me")).toBe(true)
+    expect(hasCanonicalChannelNotify("post_1", "u_me")).toBe(false)
     expect(useCommunityStore.getState().currentChannelId).toBe("post_1")
     expect(useCommunityStore.getState().currentChannelMeta).toMatchObject({
       parentMessageId: "opener-post_1",
-    })
-    await vi.waitFor(() => {
-      expect(capturedQueryClient.getQueryState(baseKey)?.isInvalidated).toBe(true)
     })
   })
 
@@ -923,25 +686,8 @@ describe("useCommunityWs — child_create patches parent thread badge with count
     await mountHook()
     const { useCommunityStore } = await import("@/stores/community")
     const baseKey = communityKeys.forumSidebarThreads("s1")
-    const retainedKey = communityKeys.forumSidebarRetained("s1", "post_1")
-    const metaKey = communityKeys.channelMeta("s1", "post_1")
-    const hintKey = communityKeys.forumOpenerHint("s1", "opener-post_1")
-    capturedQueryClient.setQueryData(communityKeys.server("s1"), {
-      id: "s1",
-      categories: [{ id: "cat_1", channels: [{ id: "forum_1", type: "forum" }] }],
-    })
-    const base = forumSidebarFixture(["post_1", "post_2"])
-    capturedQueryClient.setQueryData(baseKey, base)
-    capturedQueryClient.setQueryData(retainedKey, base.threads[0])
-    capturedQueryClient.setQueryData(metaKey, {
-      id: "post_1",
-      parentChannelId: "forum_1",
-      parentMessageId: "opener-post_1",
-    })
-    capturedQueryClient.setQueryData(hintKey, {
-      id: "opener-post_1",
-      content: "Post one",
-    })
+    seedCanonicalForumSidebar("s1", ["post_1", "post_2"])
+    const before = canonicalForumSidebar("s1").threads
     useCommunityStore.getState().setCurrentChannelId("post_1")
     useCommunityStore.getState().setCurrentChannelMeta({
       name: "Post one",
@@ -956,17 +702,9 @@ describe("useCommunityWs — child_create patches parent thread badge with count
       changes: { tags },
     } satisfies CommunityChildChannelUpdate)
 
-    expect(capturedQueryClient.getQueryData(baseKey)).toEqual(base)
-    expect(capturedQueryClient.getQueryData(retainedKey)).toEqual(base.threads[0])
-    expect(capturedQueryClient.getQueryData(metaKey)).toMatchObject({ id: "post_1" })
-    expect(capturedQueryClient.getQueryData(hintKey)).toEqual({
-      id: "opener-post_1",
-      content: "Post one",
-    })
+    expect(canonicalForumSidebar("s1").threads).toEqual(before)
     expect(useCommunityStore.getState().currentChannelId).toBe("post_1")
-    await vi.waitFor(() => {
-      expect(capturedQueryClient.getQueryState(baseKey)?.isInvalidated).toBe(true)
-    })
+    expect(capturedQueryClient.getQueryState(baseKey)?.isInvalidated ?? false).toBe(false)
   })
 
   it("child_update rename patches focused child metadata and its cached channel meta", async () => {
@@ -1002,11 +740,7 @@ describe("useCommunityWs — child_create patches parent thread badge with count
     await mountHook()
     const { useCommunityStore } = await import("@/stores/community")
     const key = communityKeys.forumSidebarThreads("s1")
-    capturedQueryClient.setQueryData(communityKeys.server("s1"), {
-      id: "s1",
-      categories: [{ id: "cat_1", channels: [{ id: "forum_1", type: "forum" }] }],
-    })
-    capturedQueryClient.setQueryData(key, forumSidebarFixture(["ch_thread"]))
+    seedCanonicalForumSidebar("s1", ["ch_thread"])
     useCommunityStore.getState().setCurrentChannelId("ch_thread")
     useCommunityStore.getState().setCurrentChannelMeta({
       name: "Private title",
@@ -1020,7 +754,7 @@ describe("useCommunityWs — child_create patches parent thread badge with count
       channelId: "ch_thread",
       changes: { archived: true, tags: ["bug"] },
     } satisfies CommunityChildChannelUpdate)
-    expect(capturedQueryClient.getQueryData<ReturnType<typeof forumSidebarFixture>>(key)?.threads).toEqual([])
+    expect(canonicalForumSidebar("s1").threads).toEqual([])
     expect(useCommunityStore.getState().currentChannelMeta).toBeNull()
 
     capturedOnMessage!({
@@ -1029,9 +763,7 @@ describe("useCommunityWs — child_create patches parent thread badge with count
       channelId: "ch_thread",
       changes: { archived: false },
     } satisfies CommunityChildChannelUpdate)
-    await vi.waitFor(() => {
-      expect(capturedQueryClient.getQueryState(key)?.isInvalidated).toBe(true)
-    })
+    expect(canonicalForumSidebar("s1").threads.map(({ id }) => id)).toEqual(["ch_thread"])
   })
 
   it("clears active child metadata synchronously on channel.delete", async () => {
@@ -1230,7 +962,6 @@ describe("useCommunityWs — server.update icon removal", () => {
 describe("useCommunityWs — server.delete resets store when focused server dies", () => {
   it("fences cached raw Inbox rows from the deleted server", async () => {
     await mountHook({ viewerUserId: "u_me" })
-    seedStructuralSnapshot("srv_doomed")
     const unreadProjection = getAccountUnreadProjection(capturedQueryClient, "u_me")
     unreadProjection.recordArrival({ channelId: "ch_dead", serverId: "srv_doomed", seq: 1 })
 
@@ -1240,9 +971,6 @@ describe("useCommunityWs — server.delete resets store when focused server dies
     } satisfies CommunityServerDelete)
 
     expect(unreadProjection.projectUnread("inbox-unreads", "ch_dead", true, 1)).toBe(false)
-    expect(capturedQueryClient.getQueryData<{
-      serverOrder: string[]
-    }>(communityKeys.structuralSnapshot())?.serverOrder).toEqual([])
   })
 
   it("clears currentServerId + currentChannelId if the deleted server is currently focused", async () => {

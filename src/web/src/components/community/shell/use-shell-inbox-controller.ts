@@ -36,6 +36,7 @@ import {
 import { startConversationNavigationWarmup } from "@/lib/community/conversation-navigation-warmup"
 import type { ConversationNavigationTarget } from "@/lib/community/conversation-navigation-proof"
 import { cancelConversationNavigationProof } from "@/lib/community/conversation-navigation-proof"
+import { publishCommunityDmSummary } from "@/lib/community-db/sync"
 
 type UnreadChannel = UnreadServer["channels"][number]
 type UnreadChild = UnreadChannel["children"][number]
@@ -252,12 +253,14 @@ export function useShellInboxController({
         expectedSurfaceKind: "dm",
       },
       () => {
+        const summary = dmSummaryFromInbox(dm)
         queryClient.setQueryData(
           communityKeys.dms(),
           (previous: DmCache | undefined) => (
-            upsertDmSummary(previous, dmSummaryFromInbox(dm))
+            upsertDmSummary(previous, summary)
           ),
         )
+        publishCommunityDmSummary(queryClient, summary)
       },
       () => {
         void startDmRouteVerification(queryClient, dmId).catch(() => undefined)

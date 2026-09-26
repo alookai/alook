@@ -1,6 +1,7 @@
 import type { Page, Request, Route, TestInfo } from "@playwright/test"
 import { expect, test, userId } from "./_fixtures/community-fixture"
 import { gotoAfterUserWsAuth, waitForElementMotion } from "./_fixtures/actions"
+import { COMMUNITY_LAYOUT_STORAGE_KEY } from "@/components/community/shell/shell-frame-geometry"
 import {
   memberInfo,
   seedCancelFriendRequest,
@@ -13,7 +14,7 @@ import {
 } from "./_fixtures/seed"
 import { tid } from "./_fixtures/testids"
 
-const layoutStorageKey = "react-resizable-panels:community-shell"
+const layoutStorageKey = COMMUNITY_LAYOUT_STORAGE_KEY
 const expectedDefaultSidebarWidth = 317
 const expectedOuterWidth = 375
 const expectedVisibleWidth = 359
@@ -24,10 +25,12 @@ const shellPanel = (page: Page, id: "sidebar" | "main") => (
 )
 
 type LayoutSample = {
+  frame: number
   sidebar: number
   overlay: number
   viewportWidth: number
   desktopVisible: boolean
+  pending: boolean
 }
 
 type ShellGeometry = {
@@ -77,8 +80,15 @@ const outdatedMachine = {
 async function installLayoutState(
   page: Page,
   layout: { sidebar: number; main: number } | null,
+  sampleLimit = 240,
 ) {
-  await page.addInitScript(({ key, savedLayout, sidebarTestId }) => {
+  await page.addInitScript(({
+    key,
+    savedLayout,
+    sidebarTestId,
+    pendingTestId,
+    sampleLimit,
+  }) => {
     const initializedKey = `${key}:test-initialized`
     if (!sessionStorage.getItem(initializedKey)) {
       if (savedLayout) localStorage.setItem(key, JSON.stringify(savedLayout))
@@ -95,38 +105,72 @@ async function installLayoutState(
       if (storageKey === key) storageWrites.push(value)
       return originalSetItem.call(this, storageKey, value)
     }
+    let frame = 0
     const capture = () => {
+      frame += 1
       const sidebar = document.querySelector<HTMLElement>(
         `[data-slot="resizable-panel"][data-testid="${sidebarTestId}"]`,
       )
       const overlay = document.querySelector<HTMLElement>(
         '[data-slot="community-user-bar-overlay"]',
       )
-      if (sidebar && overlay && samples.length < 240) {
+      if (sidebar && overlay && samples.length < sampleLimit) {
         samples.push({
+          frame,
           sidebar: sidebar.getBoundingClientRect().width,
           overlay: overlay.getBoundingClientRect().width,
           viewportWidth: window.innerWidth,
           desktopVisible: getComputedStyle(sidebar).display !== "none"
             && getComputedStyle(overlay).display !== "none",
+          pending: document.querySelector(`[data-testid="${pendingTestId}"]`) !== null,
         })
       }
       requestAnimationFrame(capture)
     }
     requestAnimationFrame(capture)
-  }, { key: layoutStorageKey, savedLayout: layout, sidebarTestId: "sidebar" })
+  }, {
+    key: layoutStorageKey,
+    savedLayout: layout,
+    sidebarTestId: "sidebar",
+    pendingTestId: tid.initialFrame,
+    sampleLimit,
+  })
 }
 
-async function holdSession(page: Page) {
+async function holdApplicationScripts(page: Page) {
   let release!: () => void
   const gate = new Promise<void>((resolve) => { release = resolve })
   let hits = 0
+  let sessionRequests = 0
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/api/auth/get-session") sessionRequests += 1
+  })
   const handler = async (route: Route) => {
+    if (!/\/_next\/.*\.js(?:\?|$)/.test(route.request().url())) {
+      await route.continue()
+      return
+    }
     hits += 1
     await gate
     await route.continue()
   }
-  await page.route("**/api/auth/get-session**", handler)
+  await page.route("**/_next/**", handler)
+  return { hits: () => hits, sessionRequests: () => sessionRequests, release }
+}
+
+async function holdCommunityReads(page: Page) {
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => { release = resolve })
+  let hits = 0
+  await page.route("**/api/community/**", async (route) => {
+    if (route.request().method() !== "GET") {
+      await route.continue()
+      return
+    }
+    hits += 1
+    await gate
+    await route.continue()
+  })
   return { hits: () => hits, release }
 }
 
@@ -258,6 +302,22 @@ function expectNoTransientDesktopWidth(
   expect(transientSamples).toEqual([])
 }
 
+function compactLayoutSamples(samples: LayoutSample[]) {
+  const compact: LayoutSample[] = []
+  for (const sample of samples) {
+    const previous = compact.at(-1)
+    if (
+      previous
+      && previous.sidebar === sample.sidebar
+      && previous.overlay === sample.overlay
+      && previous.desktopVisible === sample.desktopVisible
+      && previous.pending === sample.pending
+    ) continue
+    compact.push(sample)
+  }
+  return compact
+}
+
 async function readComposerGeometry(page: Page): Promise<ComposerGeometry> {
   return page.getByTestId(tid.channelComposerShell).evaluate((shell) => {
     const base = shell.querySelector<HTMLElement>(
@@ -326,6 +386,64 @@ test.describe.serial("desktop default User Bar width", () => {
     const stamp = Date.now()
     serverId = await seedServer("alice", `Desktop width ${stamp}`)
     channelId = await seedChannel("alice", serverId, `desktop-width-${stamp}`)
+  })
+
+  test("prepaints saved pending-shell widths and preserves the loaded handoff", async ({
+    asUser,
+  }, testInfo) => {
+    test.setTimeout(240_000)
+    const evidence: Array<{
+      targetWidth: number
+      savedLayout: { sidebar: number; main: number }
+      sequence: LayoutSample[]
+    }> = []
+
+    for (const targetWidth of [100, 160, 240, 350, 360]) {
+      const session = await asUser("alice")
+      const page = session.page
+      await page.setViewportSize({ width: 1280, height: 900 })
+      const availablePanelWidth = 1280 - 58
+      const sidebar = targetWidth === 100
+        ? 0
+        : targetWidth === 360
+          ? 100
+          : targetWidth / availablePanelWidth * 100
+      const savedLayout = { sidebar, main: 100 - sidebar }
+      await installLayoutState(page, savedLayout, 2_000)
+      const scripts = await holdApplicationScripts(page)
+      const communityReads = await holdCommunityReads(page)
+
+      await page.goto(`/c/channels/${serverId}/${channelId}`, { waitUntil: "commit" })
+      await expect.poll(scripts.hits).toBeGreaterThan(0)
+      const pendingFrame = page.getByTestId(tid.initialFrame)
+      await expect(pendingFrame).toBeVisible()
+      await expect.poll(async () => (
+        (await page.evaluate(() => (
+          Reflect.get(window, "__desktopWidthSamples") as LayoutSample[]
+        ))).some(({ pending }) => pending)
+      )).toBe(true)
+      scripts.release()
+      communityReads.release()
+      await expect(page.getByTestId(tid.channelComposerShell)).toBeVisible()
+      await page.evaluate(() => new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+      }))
+      const sequence = compactLayoutSamples(await page.evaluate(() => (
+        Reflect.get(window, "__desktopWidthSamples") as LayoutSample[]
+      )))
+      evidence.push({ targetWidth, savedLayout, sequence })
+      await session.context.close()
+    }
+
+    await attachJson(testInfo, "saved-pending-shell-frame-sequences", evidence)
+    for (const { targetWidth, sequence } of evidence) {
+      expect(sequence.every(({ sidebar, overlay }) => (
+        Math.abs(sidebar - targetWidth) <= geometryEpsilon
+        && Math.abs(overlay - (targetWidth + 58)) <= geometryEpsilon
+      ))).toBe(true)
+      expect(sequence.some(({ pending }) => pending)).toBe(true)
+      expect(sequence.at(-1)?.pending).toBe(false)
+    }
   })
 
   test("keeps unsaved, saved, and user-resized layouts pixel-stable", async ({
@@ -501,6 +619,19 @@ test.describe.serial("desktop default User Bar width", () => {
     })
     await interaction.page.reload({ waitUntil: "commit" })
     await expectDesktopGeometry(interaction.page, resizedWidth)
+    const resetHandle = interaction.page.locator('[data-slot="resizable-handle"]')
+    await resetHandle.dblclick({ force: true })
+    await expectDesktopGeometry(interaction.page, expectedDefaultSidebarWidth)
+    await expect.poll(() => interaction.page.evaluate(
+      (key) => localStorage.getItem(key),
+      layoutStorageKey,
+    )).not.toBe(JSON.stringify(storedLayout))
+    const resetStorage = JSON.parse(await interaction.page.evaluate(
+      (key) => localStorage.getItem(key)!,
+      layoutStorageKey,
+    )) as Record<string, unknown>
+    await interaction.page.reload({ waitUntil: "commit" })
+    await expectDesktopGeometry(interaction.page, expectedDefaultSidebarWidth)
     await attachJson(testInfo, "desktop-width-layout-evidence", {
       hydrationSamples,
       mobileGeometry,
@@ -521,7 +652,8 @@ test.describe.serial("desktop default User Bar width", () => {
       resized: {
         storage: storedLayout,
         resizedWidth,
-        reloadedWidth: (await readShellGeometry(interaction.page)).sidebar,
+        resetStorage,
+        reloadedResetWidth: (await readShellGeometry(interaction.page)).sidebar,
       },
     })
   })
@@ -784,7 +916,7 @@ test.describe.serial("desktop default User Bar width", () => {
     await saved.context.close()
   })
 
-  test("captures closed, Inbox, Profile, update, and cold Skeleton parity", async ({
+  test("captures closed, Inbox, Profile, update, and cold restore parity", async ({
     asUser,
   }, testInfo) => {
     test.setTimeout(240_000)
@@ -903,16 +1035,23 @@ test.describe.serial("desktop default User Bar width", () => {
         await pending.page.setViewportSize({ width, height: width === 1024 ? 768 : 900 })
         await pending.page.emulateMedia({ colorScheme: theme })
         await installLayoutState(pending.page, null)
-        const session = await holdSession(pending.page)
+        const scripts = await holdApplicationScripts(pending.page)
+        const communityReads = await holdCommunityReads(pending.page)
         await pending.page.goto(`/c/channels/${serverId}`, { waitUntil: "commit" })
-        await expect.poll(session.hits).toBeGreaterThan(0)
-        await expect(pending.page.getByTestId(tid.initialFrame)).toBeVisible()
-        await expect(pending.page.getByTestId(tid.initialUserBarPending)).toBeVisible()
+        await expect.poll(scripts.hits).toBeGreaterThan(0)
+        expect(scripts.sessionRequests()).toBe(0)
+        const pendingFrame = pending.page.getByTestId(tid.initialFrame)
+        await expect(pendingFrame).toBeVisible()
+        await expect(pendingFrame).toHaveAttribute("aria-busy", "true")
+        await expect(pendingFrame).toHaveAttribute("data-community-route-kind", "server-root")
+        await expect(pending.page.locator('[data-slot="community-restore-bootstrap"]')).toHaveCount(0)
+        await expect(pendingFrame.locator('[data-slot="skeleton"]')).not.toHaveCount(0)
+        scripts.release()
+        await expect.poll(communityReads.hits).toBeGreaterThan(0)
+        await expect(pending.page.locator('[data-slot="community-shell-root"]')).toBeVisible()
         const pendingSidebar = shellPanel(pending.page, "sidebar")
         const pendingOverlay = pending.page.locator('[data-slot="community-user-bar-overlay"]')
-        const pendingBase = pending.page.getByTestId(tid.initialUserBarPending).locator(
-          ":scope > div",
-        )
+        const pendingBase = pending.page.locator('[data-slot="community-user-bar-base"]')
         await expect.poll(async () => Math.abs(
           ((await pendingSidebar.boundingBox())?.width ?? 0) - expectedDefaultSidebarWidth,
         )).toBeLessThanOrEqual(geometryEpsilon)
@@ -925,11 +1064,11 @@ test.describe.serial("desktop default User Bar width", () => {
         await attachScreenshot(
           pending.page,
           testInfo,
-          `user-bar-${width}-${theme}-cold-skeleton`,
+          `user-bar-${width}-${theme}-cold-restore`,
         )
         expect(await pending.page.evaluate((key) => localStorage.getItem(key), layoutStorageKey))
           .toBeNull()
-        session.release()
+        communityReads.release()
         await pending.context.close()
       }
     }

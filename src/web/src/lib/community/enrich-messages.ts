@@ -7,7 +7,7 @@ import { canonicalUserImage } from "@/lib/community/storage"
 
 // Message enrichment shared by the channel messages route, the channel
 // bootstrap route, and the DM messages route (previously three near-identical
-// copies — see plans/community-switch-perf-optimization.md WS2). Attaches
+// copies). Attaches
 // attachments, reactions, reply-target previews, `latestSeq`, and — for
 // non-DM channel scope only — child-channel thread indicators.
 //

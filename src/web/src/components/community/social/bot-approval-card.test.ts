@@ -8,8 +8,8 @@ import { BotApprovalCard } from "./bot-approval-card"
 import { avatarInitial } from "@/lib/community/avatar"
 
 const profileState = vi.hoisted(() => ({ map: new Map<string, Record<string, unknown>>() }))
-vi.mock("@/stores/community/ws", () => ({
-  useCommunityProfile: (id?: string) => id ? profileState.map.get(id) : undefined,
+vi.mock("@/lib/community-db/projections", () => ({
+  useCanonicalCommunityProfile: (id?: string) => id ? profileState.map.get(id) : undefined,
 }))
 
 const OTHER = { id: "u_alice", name: "Alice", discriminator: "0042", image: null, avatarVersion: 0 }

@@ -1,6 +1,6 @@
 /**
  * Tests for `CodexEventNormalizer` — in particular the tool_call/tool_output
- * symmetry fix from plans/wire-gated-busy-steering-daemon.md (§9c): before
+ * tool-call/tool-output symmetry fix: before
  * this fix, `handleItemCompleted` had no case for `fileChange`, `webSearch`,
  * or `collabAgentToolCall`, so `outstandingToolUses` (tracked by the manager
  * via these `AdapterEvent`s) would permanently increment on the first such

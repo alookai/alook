@@ -70,7 +70,11 @@ export type CommunityCheckpointPlan = {
     | { kind: "keep" }
     | { kind: "server-skeleton"; serverId: string }
     | { kind: "me-skeleton" }
-  main: { kind: "keep" } | { kind: "target-skeleton"; href: string }
+  main: { kind: "keep" } | {
+    kind: "target-skeleton"
+    href: string
+    conversationSubtype?: "text" | "forum" | "thread"
+  }
 }
 
 export function communityServerId(href: string): string | null {
@@ -283,11 +287,13 @@ export function resolveCommunityCheckpointPlan({
   targetHref,
   pending,
   targetReady,
+  targetConversationSubtype,
 }: {
   committedFrame: CommunityCommittedFrame
   targetHref: string | null
   pending: boolean
   targetReady: boolean
+  targetConversationSubtype?: "text" | "forum" | "thread"
 }): CommunityCheckpointPlan {
   if (!pending || !targetHref) {
     return committedPlan(committedFrame)
@@ -308,7 +314,11 @@ export function resolveCommunityCheckpointPlan({
       rail: { kind: "keep" },
       sidebar: { kind: "keep" },
       main: isConversationTarget
-        ? { kind: "target-skeleton", href: target.href }
+        ? {
+            kind: "target-skeleton",
+            href: target.href,
+            ...(targetConversationSubtype ? { conversationSubtype: targetConversationSubtype } : {}),
+          }
         : { kind: "keep" },
     }
   }
@@ -319,7 +329,11 @@ export function resolveCommunityCheckpointPlan({
       mode: "warm-scope",
       surface: target.surface,
       main: isConversationTarget
-        ? { kind: "target-skeleton", href: target.href }
+        ? {
+            kind: "target-skeleton",
+            href: target.href,
+            ...(targetConversationSubtype ? { conversationSubtype: targetConversationSubtype } : {}),
+          }
         : { kind: "keep" },
     }
   }
@@ -336,7 +350,11 @@ export function resolveCommunityCheckpointPlan({
     targetHref: target.href,
     rail,
     sidebar,
-    main: { kind: "target-skeleton", href: target.href },
+    main: {
+      kind: "target-skeleton",
+      href: target.href,
+      ...(targetConversationSubtype ? { conversationSubtype: targetConversationSubtype } : {}),
+    },
   }
 }
 

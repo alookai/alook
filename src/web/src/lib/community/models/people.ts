@@ -26,18 +26,12 @@ export type CommunityProfilePatch = {
   presence?: Presence
 }
 
-export type CommunityProfileSnapshot = {
-  viewerId: string | null
-  accountEpoch: number
-  revision: number
-}
-
 // ── Members / friends / DMs ──────────────────────────────────────────────────
 // Identity fields shared by every community user view-model (member / friend /
 // DM). All three are required `string`: `user.name`/`user.discriminator` are
 // NOT NULL columns always projected on live payloads. Requiring `discriminator`
 // here (in one place) moves the "a mention target always has a tag" guarantee
-// to compile time — see plans/mandatory-mention-discriminator.md. `userId` is
+// to compile time. `userId` is
 // NOT part of the core: it's required on Member/DM but optional on Friend, so
 // each type declares it. Only types whose identity fields are identically
 // shaped extend this — AddableMember/ThreadParticipant (nullable projections),

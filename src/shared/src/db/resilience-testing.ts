@@ -21,8 +21,8 @@ export function makeD1Error(signature: ErrorSignature = "internal_error"): Drizz
  * Test-fixture: returns an async fn that throws a DrizzleQueryError-shaped
  * error for the first `n` invocations, then resolves with `value`.
  *
- * Every integration test in `plans/d1-critical-path-resilience-v2.md` uses
- * this helper — DO NOT replace with `withD1Retry: vi.fn((fn) => fn())`
+ * Every D1 resilience integration test uses this helper; do not replace it
+ * with `withD1Retry: vi.fn((fn) => fn())`
  * passthrough mocks. The passthrough pattern used by daemon-plane tests is
  * fine there (they DON'T test retry semantics); this plan's new tests DO,
  * so they need the real retry path, injected at the query-fn level.

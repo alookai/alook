@@ -32,8 +32,8 @@ vi.mock("@/lib/community/bot-push", () => ({
   pushAgentNapToMachine: (...a: unknown[]) => mockPushAgentNapToMachine(...a),
 }))
 
-// Unified actor: nap is a bot-only verb (moved from /agent/nap to /community/nap,
-// plans/22 §9). withCommunityActor injects the resolved actor; the bot acts on
+// Unified actor: nap is a bot-only verb moved from /agent/nap to /community/nap.
+// withCommunityActor injects the resolved actor; the bot acts on
 // ITSELF — botUserId/machineId come from the authenticated runner, not the body.
 // requireBot is a passthrough for a bot actor (human → 403, covered by the
 // community-actor unit test). This test mocks the wrapper directly (as the
@@ -134,7 +134,7 @@ describe("POST /api/community/bots/me/nap", () => {
     // The `nap` audit row + lastRefreshContextAt stamp are re-homed to the daemon
     // completion signal (agent_session frame at reborn-ready), so the record
     // reflects "the nap actually completed," not "the command was dispatched."
-    // The route must NOT write either. See plans/reset-nap-completion-rehome.md.
+    // The route must NOT write either.
     expect(mockInsertBotAuditNap).not.toHaveBeenCalled()
     expect(mockTouchBotRefreshContext).not.toHaveBeenCalled()
   })

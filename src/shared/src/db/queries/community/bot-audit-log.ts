@@ -276,8 +276,7 @@ export async function insertBotAuditSessionReset(
  * `"nap"` so my-bots reads "slept" vs a "was reset". Written when the reborn
  * agent's `agent_session` lands (completion), NOT at dispatch — so a nap that
  * dispatches but whose cold-start fails writes no row (the DO evicts the
- * pending map entry on the failure frame instead). See
- * plans/reset-nap-completion-rehome.md.
+ * pending map entry on the failure frame instead).
  */
 export async function insertBotAuditNap(
   db: Database,

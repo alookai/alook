@@ -3,7 +3,6 @@ import { QueryClient } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, render } from "@/test/react-dom-harness"
 import { useCommunityStore } from "@/stores/community"
-import { communityKeys } from "@/lib/query-keys"
 
 const mocks = vi.hoisted(() => ({
   subscribe: vi.fn(),
@@ -19,6 +18,9 @@ const mocks = vi.hoisted(() => ({
     isVerified: false,
     isError: false,
   },
+  dbChannel: undefined as undefined | Record<string, unknown>,
+  communityDb: { current: {} as Record<string, unknown> | null },
+  purgeCommunityChannel: vi.fn(),
 }))
 
 const queryClient = new QueryClient()
@@ -34,7 +36,14 @@ vi.mock("./use-servers", () => ({
   useServer: () => ({ server: mocks.server }),
 }))
 vi.mock("./use-child-channel-meta", () => ({
-  useChildChannelMeta: () => mocks.metaQuery,
+  useChildChannelMeta: (
+    _serverId: string,
+    _channelId: string,
+    _enabled: boolean,
+    placeholderData?: Record<string, unknown>,
+  ) => placeholderData && !mocks.metaQuery.isVerified
+    ? { ...mocks.metaQuery, data: placeholderData, isVerified: true }
+    : mocks.metaQuery,
 }))
 vi.mock("./use-community-ws", () => ({
   communityWsSubscribe: (...args: unknown[]) => mocks.subscribe(...args),
@@ -48,6 +57,15 @@ vi.mock("@/lib/community/last-channel", () => ({
 vi.mock("@/lib/community/last-community-route", () => ({
   COMMUNITY_COLD_ENTRY_FALLBACK: "/c/me/machines",
   consumeCommunityColdEntryFailure: (...args: unknown[]) => mocks.consumeColdEntryFailure(...args),
+}))
+vi.mock("@/lib/community-db/projections", () => ({
+  useOptionalCommunityDbRegistry: () => mocks.communityDb.current,
+  useRouteChannelProjection: () => mocks.dbChannel,
+}))
+vi.mock("@/lib/community-db/sync", () => ({
+  purgeCommunityChannel: (...args: unknown[]) => mocks.purgeCommunityChannel(...args),
+  patchCanonicalCommunityChannel: vi.fn(() => true),
+  removeCanonicalCommunityChannel: vi.fn(),
 }))
 
 import { buildChannelRouteModel, useChannelRouteModel } from "./use-channel-route-model"
@@ -65,6 +83,7 @@ function lifecycle(renderer: ReturnType<typeof render>) {
 }
 
 beforeEach(() => {
+  queryClient.clear()
   useCommunityStore.getState().reset()
   mocks.subscribe.mockClear()
   mocks.unsubscribe.mockClear()
@@ -72,6 +91,8 @@ beforeEach(() => {
   mocks.clearLastChannel.mockClear()
   mocks.consumeColdEntryFailure.mockReset()
   mocks.consumeColdEntryFailure.mockReturnValue(false)
+  mocks.communityDb.current = {}
+  mocks.purgeCommunityChannel.mockClear()
   mocks.lastChannel = null
   mocks.server = {
     id: "server-1",
@@ -81,6 +102,7 @@ beforeEach(() => {
     }],
   }
   mocks.metaQuery = { data: undefined, error: null, isVerified: false, isError: false }
+  mocks.dbChannel = undefined
 })
 
 afterEach(() => {
@@ -112,37 +134,6 @@ describe("useChannelRouteModel subscription ownership", () => {
     act(() => renderer!.unmount())
   })
 
-  it("uses persisted structure only to choose the pending skeleton subtype", () => {
-    mocks.server = undefined
-    queryClient.setQueryData(communityKeys.structuralSnapshot(), {
-      schemaVersion: 1,
-      accountId: "viewer-1",
-      capturedAt: Date.now(),
-      serverOrder: ["server-1"],
-      folders: [],
-      servers: [{
-        id: "server-1",
-        name: "Server",
-        discriminator: "0001",
-        icon: null,
-        categories: [],
-        channels: [{ id: "forum-1", name: "Forum", type: "forum", categoryId: null }],
-        childRouteHints: [],
-      }],
-    })
-
-    let renderer!: ReturnType<typeof render>
-    act(() => {
-      renderer = render(React.createElement(Harness, { channelId: "forum-1" }))
-    })
-
-    const node = renderer.container.querySelector("span")
-    expect(node?.getAttribute("data-lifecycle")).toBe("pending")
-    expect(node?.getAttribute("data-skeleton-subtype")).toBe("forum")
-    expect(useCommunityStore.getState().currentChannelMeta).toBeNull()
-    act(() => renderer.unmount())
-  })
-
   it("reports the live top-level text subtype after access is ready", () => {
     mocks.server = {
       id: "server-1",
@@ -157,6 +148,43 @@ describe("useChannelRouteModel subscription ownership", () => {
     const node = renderer.container.querySelector("span")
     expect(node?.getAttribute("data-lifecycle")).toBe("ready")
     expect(node?.getAttribute("data-skeleton-subtype")).toBe("text")
+    act(() => renderer.unmount())
+  })
+
+  it.each(["forum", "text", "thread"] as const)(
+    "uses the canonical %s subtype while the route is pending",
+    (type) => {
+      mocks.server = undefined
+      mocks.dbChannel = { id: "post-1", type }
+
+      const renderer = render(React.createElement(Harness))
+
+      expect(renderer.container.querySelector("span")?.getAttribute("data-skeleton-subtype"))
+        .toBe(type)
+      act(() => renderer.unmount())
+    },
+  )
+
+  it("hydrates a canonical thread placeholder with nullable child fields", () => {
+    mocks.dbChannel = {
+      id: "post-1",
+      serverId: "server-1",
+      name: "Post",
+      type: "thread",
+      parentChannelId: "forum-1",
+      parentMessageId: "opener-1",
+      creatorId: undefined,
+      archived: false,
+      lastMessageAt: undefined,
+    }
+
+    const renderer = render(React.createElement(Harness))
+
+    expect(renderer.container.querySelector("span")).toHaveAttribute("data-lifecycle", "ready")
+    expect(useCommunityStore.getState().currentChannelMeta).toMatchObject({
+      creatorId: null,
+      activityAt: "",
+    })
     act(() => renderer.unmount())
   })
 
@@ -224,6 +252,38 @@ describe("useChannelRouteModel subscription ownership", () => {
     expect(mocks.unsubscribe).toHaveBeenCalledTimes(1)
   })
 
+  it("does not republish equivalent verified metadata with a new object reference", () => {
+    const meta = {
+      id: "post-1",
+      serverId: "server-1",
+      name: "Post",
+      type: "thread",
+      parentChannelId: "forum-1",
+      parentMessageId: "opener-1",
+      creatorId: "user-1",
+      archived: false,
+      activityAt: "2026-08-09T00:00:00.000Z",
+      verifiedEpoch: 0,
+    }
+    mocks.metaQuery = { data: meta, error: null, isVerified: true, isError: false }
+    const storeListener = vi.fn()
+    const unsubscribeStore = useCommunityStore.subscribe(storeListener)
+    const renderer = render(React.createElement(Harness))
+    const writesAfterFirstPublish = storeListener.mock.calls.length
+
+    mocks.metaQuery = {
+      data: { ...meta },
+      error: null,
+      isVerified: true,
+      isError: false,
+    }
+    act(() => renderer.rerender(React.createElement(Harness)))
+
+    expect(storeListener).toHaveBeenCalledTimes(writesAfterFirstPublish)
+    unsubscribeStore()
+    act(() => renderer.unmount())
+  })
+
   it("exposes terminal-error only after the child metadata query errors", () => {
     mocks.metaQuery = {
       data: undefined,
@@ -266,6 +326,7 @@ describe("useChannelRouteModel subscription ownership", () => {
 
     expect(mocks.clearLastChannel).toHaveBeenCalledWith("server-1")
     expect(mocks.replace).toHaveBeenCalledWith("/c/channels/server-1")
+    expect(mocks.purgeCommunityChannel).toHaveBeenCalledWith(mocks.communityDb.current, "post-1")
     expect(mocks.subscribe).toHaveBeenCalledTimes(1)
     expect(mocks.unsubscribe).not.toHaveBeenCalled()
 

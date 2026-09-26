@@ -283,7 +283,7 @@ export type SendRequestOutcome =
 /**
  * Send a friend request — the single entry point for the human route AND the
  * agent route. Supersede-before-write lives here so every caller gets it
- * uniformly. See plans/agent-friendship-approval-gate.md §sendRequest.
+ * uniformly.
  *
  * Throws `Error("blocked")` if a blocked row exists between the pair.
  * Throws `Error("already friends")` / `Error("friend request already sent")`
@@ -777,7 +777,7 @@ export async function listFriends(db: Database, userId: string) {
  * these rows here (to match `listFriends`' "no join" cost-saving, not
  * realizing that trimmed the whole reason a bot's owner needs to be in this
  * list) — that's what caused a bot's owner to never learn about its own
- * presence, see plans/community-account-debt-fixes.md Fix 3 hotfix.
+ * presence.
  */
 export async function getFriendUserIds(db: Database, userId: string): Promise<string[]> {
   const [rows, selfBotRows] = await Promise.all([
@@ -960,7 +960,7 @@ export async function listBlocked(db: Database, userId: string) {
  * The friend page's pending buckets for a human viewer. Direction-aware, one
  * row shape everywhere (no `source` tag). Every row carries
  * `needsOwnerApproval` so the UI can branch (actionable vs "Waiting on <owner>"
- * chip). See plans/agent-friendship-approval-gate.md §Read model.
+ * chip).
  *
  * - incoming: act-on-me rows — `addresseeId=viewer AND status=pending AND
  *   needsOwnerApproval IS NULL`. A bot→human request only surfaces here once
@@ -1078,8 +1078,7 @@ export type OwnerDecisionResult =
 
 /**
  * The bot owner approves or denies a gated friendship row via a DM card.
- * One function, all four cases (deny + three approve sub-cases). See
- * plans/agent-friendship-approval-gate.md §ownerDecideOnRow.
+ * One function owns all four cases: deny plus the three approval sub-cases.
  *
  * Auth: `actorId` must equal the row's current `needsOwnerApproval` (else
  * forbidden). Compare-and-set on `status='pending' AND needsOwnerApproval=?`
@@ -1312,7 +1311,7 @@ export type EnsureSiblingResult =
 
 /**
  * Direction-agnostic, idempotent accepted-friendship between two sibling bots
- * (same owner). See plans/agent-friendship-approval-gate.md §ensureSiblingBotFriendship.
+ * that share one owner.
  *
  * Precondition (programmer-error guard, throws): both users are bots sharing an
  * owner. Then: SELECT any existing row; blocked → sentinel; accepted → return

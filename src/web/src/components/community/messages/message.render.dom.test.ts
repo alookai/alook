@@ -18,7 +18,11 @@ import {
 } from "./message"
 import { EmojiPickerPopover } from "./emoji-picker"
 import type { RenderMsg } from "@/lib/community/models/message"
-import { useCommunityWsStore } from "@/stores/community/ws"
+vi.mock("@/lib/community-db/projections", () => ({
+  useCanonicalCommunityProfile: (userId: string | null | undefined) => userId === "u1"
+    ? { userId, name: "Alice", discriminator: "", avatar: "A", avatarVersion: 0 }
+    : undefined,
+}))
 
 vi.mock("./emoji-picker", async () => {
   const ReactModule = await import("react")
@@ -182,7 +186,7 @@ vi.mock("@/components/ui/number-ticker", () => ({
     React.createElement("span", null, value),
 }))
 
-// WS3 render-behavior tests (see plans/community-switch-perf-optimization.md):
+// Message-row render-behavior tests:
 // - the custom memo comparator bails out despite the per-render `m` clone,
 // - but does NOT drop legit content/reaction/thread updates,
 // - and overlay roots are lazily mounted (bare row until activated).
@@ -339,13 +343,6 @@ function textContent(node: DomTestInstance): string {
 
 beforeEach(() => {
   renderCount = 0
-  useCommunityWsStore.getState().reset()
-  useCommunityWsStore.getState().activateProfileAccount("viewer")
-  const profiles = useCommunityWsStore.getState()
-  profiles.seedProfiles(profiles.beginProfileSnapshot(), [{
-    id: "u1",
-    identityAbout: { name: "Alice" },
-  }])
   const g = globalThis as unknown as { ResizeObserver: unknown; IntersectionObserver: unknown }
   g.ResizeObserver = class { observe() {} disconnect() {} unobserve() {} }
   g.IntersectionObserver = class { observe() {} disconnect() {} unobserve() {} }

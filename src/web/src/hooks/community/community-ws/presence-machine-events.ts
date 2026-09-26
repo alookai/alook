@@ -18,23 +18,13 @@ import type { PresenceMachineEventContext } from "@/hooks/community/community-ws
 export function handlePresenceUpdate(
   event: CommunityPresenceUpdate,
 ) {
-  const profiles = useCommunityWsStore.getState()
-  profiles.patchProfiles(profiles.beginProfileSnapshot(), [{
-    id: event.userId,
-    presence: event.online ? "online" : "offline",
-  }])
+  useCommunityWsStore.getState().setPresence(
+    event.userId,
+    event.online ? "online" : "offline",
+  )
 }
 
-// Status uses the same WS-store overlay pattern as presence.
-export function handleStatusUpdate(event: CommunityStatusUpdate) {
-  const profiles = useCommunityWsStore.getState()
-  profiles.patchProfiles(profiles.beginProfileSnapshot(), [{
-    id: event.userId,
-    status: {
-      statusEmoji: event.statusEmoji,
-      statusText: event.statusText,
-    },
-  }])
+export function handleStatusUpdate(_event: CommunityStatusUpdate) {
 }
 
 // Push audit events into the bounded ring; the audit-log hook filters and

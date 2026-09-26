@@ -77,6 +77,8 @@ describe("MessageList — loading→loaded mount identity (Phase 4)", () => {
     expect(positionedContent).toHaveAttribute("aria-hidden", "true")
     expect(positionedContent).toHaveAttribute("inert")
     expect(positionedContent).toHaveClass("pointer-events-none", "opacity-0")
+    expect(renderer.container.querySelector("[data-message-positioning-skeleton]"))
+      .toBeInTheDocument()
 
     renderer.rerender(
       React.createElement(MessageList, {

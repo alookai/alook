@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react"
 import { arrayMove } from "@dnd-kit/sortable"
 import type { DragEndEvent } from "@dnd-kit/core"
 import type { Category, Channel } from "@/lib/community/models/navigation"
@@ -10,6 +10,36 @@ import type { Category, Channel } from "@/lib/community/models/navigation"
 export const catId = (id: string) => id
 
 export type ChannelOrder = Record<string, Channel[]>
+
+function channelTreeIdentity(categories: Category[]): string {
+  return JSON.stringify(categories.map((category) => [
+    category.id,
+    category.name,
+    Boolean(category.private),
+    Boolean(category.pending),
+    category.creatorId ?? null,
+    category.channels.map((channel) => [
+      channel.id,
+      channel.name,
+      Boolean(channel.unread),
+      channel.pending ?? null,
+      channel.creatorId ?? null,
+      channel.type ?? null,
+    ]),
+  ]))
+}
+
+function replaceRecordIfChanged<T>(
+  current: Record<string, T>,
+  next: Record<string, T>,
+): Record<string, T> {
+  const keys = Object.keys(next)
+  if (keys.length === Object.keys(current).length &&
+      keys.every((key) => current[key] === next[key])) {
+    return current
+  }
+  return next
+}
 
 /** Which category currently holds a channel id (or the category itself if `id` is an order key). */
 export function catOf(id: string, order: ChannelOrder): string | undefined {
@@ -78,9 +108,23 @@ export function mergeChannelMetadata(
     next[catId] = channels.map((ch) => {
       const src = incoming.get(ch.id)
       if (!src) return ch
-      if (src.unread === ch.unread && src.name === ch.name) return ch
+      const pending = src.pending === undefined ? ch.pending : src.pending
+      if (
+        src.unread === ch.unread &&
+        src.name === ch.name &&
+        Boolean(pending) === Boolean(ch.pending) &&
+        (src.creatorId ?? null) === (ch.creatorId ?? null) &&
+        (src.type ?? null) === (ch.type ?? null)
+      ) return ch
       changed = true
-      return { ...ch, unread: src.unread, name: src.name }
+      return {
+        ...ch,
+        unread: src.unread,
+        name: src.name,
+        pending,
+        creatorId: src.creatorId,
+        type: src.type,
+      }
     })
   }
   return { next: changed ? next : order, changed }
@@ -101,6 +145,7 @@ export function reorderCategories(catOrder: string[], activeCatId: string, overC
  * sort among themselves, channels sort across categories.
  */
 export function useChannelTree(categories: Category[]) {
+  const categoriesIdentity = channelTreeIdentity(categories)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [catOrder, setCatOrder] = useState<string[]>(() => categories.map((c) => c.id))
   const [order, setOrder] = useState<ChannelOrder>(() =>
@@ -125,11 +170,12 @@ export function useChannelTree(categories: Category[]) {
   )
 
   // Sync state when categories change from API (initial load or server switch)
-  const prevCatsRef = useRef(categories)
-  useEffect(() => {
-    const prev = prevCatsRef.current
-    prevCatsRef.current = categories
-    if (categories === prev) return
+  const prevCatsRef = useRef({ categories, identity: categoriesIdentity })
+  const reconcileCategories = useEffectEvent(() => {
+    const previous = prevCatsRef.current
+    if (previous.identity === categoriesIdentity) return
+    const prev = previous.categories
+    prevCatsRef.current = { categories, identity: categoriesIdentity }
     // Server-detail cleared on route change — collapse our derived state so the
     // sidebar's loading branch can render the skeleton instead of stale rows.
     if (categories.length === 0) {
@@ -148,12 +194,31 @@ export function useChannelTree(categories: Category[]) {
     if (prevKey === nextKey) {
       // Id sets are unchanged, but metadata fields (`unread`, `name`) may
       // have changed underneath — e.g. a WS-driven cache patch or a refetch
-      // that only flips a flag. Merge those without resetting drag order or
-      // collapse state (see plans/community-unread-indicators.md).
+      // that only flips a flag. Merge those while preserving drag order and
+      // collapse state.
       setOrder((prevOrder) => {
         const { next, changed } = mergeChannelMetadata(prevOrder, categories)
         return changed ? next : prevOrder
       })
+      setCatNames((current) => replaceRecordIfChanged(
+        current,
+        Object.fromEntries(categories.map((category) => [category.id, category.name])),
+      ))
+      setCatPrivate((current) => replaceRecordIfChanged(
+        current,
+        Object.fromEntries(categories.map((category) => [category.id, !!category.private])),
+      ))
+      setCatPending((current) => replaceRecordIfChanged(
+        current,
+        Object.fromEntries(categories.map((category) => [
+          category.id,
+          category.pending === undefined ? (current[category.id] ?? false) : category.pending,
+        ])),
+      ))
+      setCatCreators((current) => replaceRecordIfChanged(
+        current,
+        Object.fromEntries(categories.map((category) => [category.id, category.creatorId ?? null])),
+      ))
       return
     }
     setCatOrder(categories.map((c) => c.id))
@@ -162,7 +227,10 @@ export function useChannelTree(categories: Category[]) {
     setCatPrivate(Object.fromEntries(categories.map((c) => [c.id, !!c.private])))
     setCatPending(Object.fromEntries(categories.map((c) => [c.id, !!c.pending])))
     setCatCreators(Object.fromEntries(categories.map((c) => [c.id, c.creatorId ?? null])))
-  }, [categories])
+  })
+  useEffect(() => {
+    reconcileCategories()
+  }, [categoriesIdentity])
 
   const toggleCat = useCallback((id: string) =>
     setCollapsed((prev) => {

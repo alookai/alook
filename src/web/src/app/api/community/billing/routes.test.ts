@@ -12,6 +12,7 @@ vi.mock("@opennextjs/cloudflare", () => ({
 vi.mock("@/lib/db", () => ({ getPrimaryDb: vi.fn(() => mocks.db), getDb: vi.fn(() => mocks.db) }))
 vi.mock("@/lib/auth", () => ({
   createAuth: vi.fn(() => ({ api: { getSession: mocks.session, signOut: vi.fn() } })),
+  getAuth: vi.fn(() => ({ api: { getSession: mocks.session, signOut: vi.fn() } })),
 }))
 vi.mock("@alook/shared", async (original) => ({
   ...await original<typeof import("@alook/shared")>(),

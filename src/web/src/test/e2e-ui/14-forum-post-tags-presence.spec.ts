@@ -16,7 +16,7 @@ import {
 // avatars, and DM presence stability. Covers the batch that made forum posts
 // notify only their participants (like threads), moved tag editing onto each
 // post card, showed participant AvatarGroups, and fixed the DM presence flicker
-// on refresh. See plans/community-machine-fixes-2026-07.md.
+// on refresh.
 
 test.describe.serial("forum post tags + participant avatars", () => {
   let serverId: string

@@ -586,8 +586,7 @@ export async function getDirectChildThreadsByIds(
 }
 
 // ---------------------------------------------------------------------------
-// Private-channel membership + visibility
-// (plans/channel-category-role-permissions.md)
+// Private-channel membership and visibility.
 // ---------------------------------------------------------------------------
 
 /**
@@ -1004,16 +1003,25 @@ export type ChannelRefDirectoryRow = {
   serverId: string;
   channelId: string;
   channelName: string;
+  channelType: "text" | "forum";
 };
 
 export function groupChannelRefDirectoryRows(
   servers: Array<{ id: string; name: string; discriminator: string }>,
   channels: ChannelRefDirectoryRow[]
 ) {
-  const channelsByServer = new Map<string, Array<{ id: string; name: string }>>();
+  const channelsByServer = new Map<string, Array<{
+    id: string;
+    name: string;
+    type: "text" | "forum";
+  }>>();
   for (const channel of channels) {
     const current = channelsByServer.get(channel.serverId) ?? [];
-    current.push({ id: channel.channelId, name: channel.channelName });
+    current.push({
+      id: channel.channelId,
+      name: channel.channelName,
+      type: channel.channelType,
+    });
     channelsByServer.set(channel.serverId, current);
   }
   return servers.map((server) => ({
@@ -1046,6 +1054,7 @@ export async function listChannelRefDirectoryForUser(db: Database, userId: strin
         serverId: communityChannel.serverId,
         channelId: communityChannel.id,
         channelName: communityChannel.name,
+        channelType: communityChannel.type,
       })
       .from(communityChannel)
       .innerJoin(

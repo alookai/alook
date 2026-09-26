@@ -58,7 +58,6 @@ describe("WebSocketDurableObject", () => {
 
   describe("community-machine — webSocketClose presence lifecycle", () => {
       // These tests cover the "graceful daemon quit → immediate offline" fix.
-      // See plans/community-machine-presence-fix.md § Server transitions.
       it("flips status=offline via credential-scoped markMachineOffline and broadcasts on real transition", async () => {
         const { durable, store, ctx } = createDO()
         store.set("community-machine-identity", {

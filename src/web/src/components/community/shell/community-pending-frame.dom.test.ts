@@ -31,8 +31,9 @@ vi.mock("@/components/community/channels/dm-loading-frame", () => ({
   }),
 }))
 vi.mock("@/components/community/channels/conversation-resolution-pending-frame", () => ({
-  ConversationResolutionPendingFrame: () => createElement("main", {
+  ConversationResolutionPendingFrame: ({ subtype = "unknown" }: { subtype?: string }) => createElement("main", {
     "data-testid": "conversation-resolution",
+    "data-subtype": subtype,
     "aria-label": "Resolving conversation",
     "aria-busy": "true",
   }),
@@ -109,6 +110,17 @@ describe("CommunityPendingFrame", () => {
 
     renderFrame("/c/channels/s1")
     expect(screen.getByLabelText("Loading server")).toHaveAttribute("aria-busy", "true")
+  })
+
+  it("forwards a known navigation subtype without changing route ownership", () => {
+    const rendered = render(createElement(CommunityPendingFrame, {
+      href: "/c/channels/s1/c1",
+      conversationSubtype: "forum",
+    }))
+    expect(screen.getByTestId("conversation-resolution"))
+      .toHaveAttribute("data-subtype", "forum")
+    expect(rendered.container.querySelector('[data-community-main-kind="server-conversation"]'))
+      .toBeInTheDocument()
   })
 
   it("uses a neutral route-resolution frame for malformed paths", () => {

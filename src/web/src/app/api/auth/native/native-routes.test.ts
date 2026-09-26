@@ -52,7 +52,7 @@ function installMocks() {
     checkRateLimit: (...args: unknown[]) => rateLimitMock(...args),
   }));
   vi.doMock("@/lib/auth", () => ({
-    createAuth: () => ({ api: authMocks }),
+    getAuth: () => ({ api: authMocks }),
   }));
   vi.doMock("@alook/shared", async () => {
     const actual = await vi.importActual<typeof import("@alook/shared")>(

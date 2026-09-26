@@ -2,7 +2,7 @@
  * Preset status terms (emoji + short term) offered by `StatusEditor`, plus
  * the shared "is a status set" predicate every display surface uses.
  *
- * Tone is deliberately casual/fun, not work-mode — see plans/profile-card.md.
+ * Tone is deliberately casual and fun, not work-mode.
  */
 export type StatusPreset = { emoji: string; text: string }
 

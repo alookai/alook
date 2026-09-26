@@ -17,8 +17,8 @@ vi.mock("@/hooks/community/use-reaction-details", () => ({
     isLoading: false,
   }),
 }))
-vi.mock("@/stores/community/ws", () => ({
-  useCommunityProfile: () => undefined,
+vi.mock("@/lib/community-db/projections", () => ({
+  useCanonicalCommunityProfile: () => undefined,
 }))
 vi.mock("@/components/ui/dialog", () => ({
   Dialog: ({ open, children, ...props }: { open: boolean; children: React.ReactNode }) => {

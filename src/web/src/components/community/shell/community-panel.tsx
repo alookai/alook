@@ -18,7 +18,7 @@ import type { RightPanel } from "@/components/community/shell/panel-types"
 import type { Msg, RenderMsg, Thread } from "@/lib/community/models/message"
 import type { Member } from "@/lib/community/models/people"
 import type { CommunityProfile } from "@/lib/community/models/people"
-import { useProfilesByUserId } from "@/stores/community/ws"
+import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 
 export type CommunityPanelProps = {
@@ -53,7 +53,7 @@ export type CommunityPanelProps = {
 export function CommunityPanel(props: CommunityPanelProps) {
   const { open, onOpenChange, kind } = props
   const { icon: Icon, label } = panelHeading(kind)
-  const profilesByUserId = useProfilesByUserId()
+  const profilesByUserId = useCanonicalProfilesByUserId()
 
   return (
     <CommunitySheet

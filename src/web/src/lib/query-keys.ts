@@ -15,11 +15,13 @@
  */
 export const communityKeys = {
   all: ["community"] as const,
+  communityDb: (accountId: string) =>
+    [...communityKeys.all, "db", accountId] as const,
+  communityDbCollection: (accountId: string, collection: string) =>
+    [...communityKeys.communityDb(accountId), collection] as const,
 
   // ── Servers ──────────────────────────────────────────────────────────────
   servers: () => [...communityKeys.all, "servers"] as const,
-  structuralSnapshot: () =>
-    [...communityKeys.all, "structural-snapshot"] as const,
   channelRefDirectory: () =>
     [...communityKeys.servers(), "channel-ref-directory"] as const,
   server: (serverId: string) =>
@@ -166,6 +168,8 @@ export const communityKeys = {
 
 const reservedServerIdSegments = new Set<string>([
   communityKeys.channelRefDirectory()[2],
+  "__none__",
+  "__pending__",
 ])
 
 export type CommunityServerDetailQueryKey = ReturnType<typeof communityKeys.server>
@@ -173,7 +177,6 @@ export type CommunityServerDetailQueryKey = ReturnType<typeof communityKeys.serv
 export function isCommunityServerIdSegment(value: unknown): value is string {
   return typeof value === "string"
     && value.length > 0
-    && !value.startsWith("__")
     && !reservedServerIdSegments.has(value)
 }
 

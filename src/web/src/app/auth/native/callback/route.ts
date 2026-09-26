@@ -1,5 +1,5 @@
 import { createLogger, queries } from "@alook/shared";
-import { createAuth } from "@/lib/auth";
+import { getAuth } from "@/lib/auth";
 import { getPrimaryDb } from "@/lib/db";
 import { withEnv } from "@/lib/middleware/env";
 import {
@@ -47,7 +47,7 @@ export const GET = withEnv(async (request, ctx) => {
     }
 
     try {
-      const generated = await createAuth(ctx.env).api.generateOneTimeToken({
+      const generated = await getAuth(ctx.env).api.generateOneTimeToken({
         headers: request.headers,
         returnHeaders: true,
       });

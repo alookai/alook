@@ -3,7 +3,7 @@ import { createLogger, queries } from "@alook/shared"
 import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeError, writeJSON } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { createAuth } from "@/lib/auth"
+import { getAuth } from "@/lib/auth"
 import { handleBotAvatarUpload, handleUserAvatarUpload } from "@/lib/community/upload"
 import { botAvatarUrl, userAvatarUrl } from "@/lib/community/storage"
 import { persistUploadedBotAvatar } from "@/lib/community/bot-avatar-persistence"
@@ -112,7 +112,7 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
   const url = userAvatarUrl(userId, avatarVersion)
   let authHeaders: Headers | null = null
   try {
-    const auth = createAuth(ctx.env)
+    const auth = getAuth(ctx.env)
     const authResult = (await auth.api.updateUser({
       body: { image: userAvatarUrl(userId) },
       headers: req.headers,

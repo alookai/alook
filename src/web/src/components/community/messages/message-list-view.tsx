@@ -51,7 +51,7 @@ export function renderMessageListView(
             aria-hidden={!controller.initialPosition.showSkeleton && !controller.initialPosition.contentVisible}
             inert={!controller.initialPosition.showSkeleton && !controller.initialPosition.contentInteractive}
             className={`flex min-h-full flex-col justify-end px-4 pb-4 pt-8 sm:pb-6 ${
-              controller.initialPosition.phase === "revealing"
+              controller.initialPosition.phase === "revealing" && controller.initialPosition.contentVisible
                 ? "opacity-100 transition-opacity duration-300 ease-linear motion-reduce:transition-opacity"
                 : controller.initialPosition.showSkeleton || controller.initialPosition.contentVisible
                   ? "opacity-100"

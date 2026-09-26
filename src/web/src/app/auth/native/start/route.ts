@@ -1,5 +1,5 @@
 import { createLogger, queries } from "@alook/shared";
-import { createAuth } from "@/lib/auth";
+import { getAuth } from "@/lib/auth";
 import { getPrimaryDb } from "@/lib/db";
 import { withEnv } from "@/lib/middleware/env";
 import {
@@ -28,7 +28,7 @@ export const GET = withEnv(async (request, ctx) => {
     if (!attempt) return nativeOauthErrorPage(410);
 
     try {
-      const result = await createAuth(ctx.env).api.signInSocial({
+      const result = await getAuth(ctx.env).api.signInSocial({
         body: {
           provider: attempt.provider,
           disableRedirect: true,

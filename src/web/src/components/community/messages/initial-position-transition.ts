@@ -65,7 +65,7 @@ export function useInitialPositionTransition({
       INITIAL_POSITION_TIMEOUT_MS - (Date.now() - startedAt),
     )
     const timeoutTimer = window.setTimeout(() => {
-      if (revealedRef.current) return
+      if (revealedRef.current || !positionSettled) return
       revealedRef.current = true
       setPhase("revealing")
     }, timeoutRemaining)
@@ -120,8 +120,10 @@ export function useInitialPositionTransition({
   return {
     phase: renderedPhase,
     showSkeleton: renderedPhase === "skeleton",
-    contentVisible: renderedPhase === "revealing" || renderedPhase === "revealed",
-    contentInteractive: renderedPhase === "revealing" || renderedPhase === "revealed",
+    contentVisible: (authoritativeEmpty || positionSettled)
+      && (renderedPhase === "revealing" || renderedPhase === "revealed"),
+    contentInteractive: (authoritativeEmpty || positionSettled)
+      && (renderedPhase === "revealing" || renderedPhase === "revealed"),
     auroraVisible: renderedPhase === "aurora" || renderedPhase === "revealing",
   }
 }

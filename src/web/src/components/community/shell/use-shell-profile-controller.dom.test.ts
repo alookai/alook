@@ -20,9 +20,8 @@ const mocks = vi.hoisted(() => ({
   acceptDm: vi.fn(),
   updateProfile: vi.fn(),
   uploadAvatar: vi.fn(),
-  beginProfileSnapshot: vi.fn(),
-  commitProfiles: vi.fn(),
-  patchProfiles: vi.fn(),
+  beginCommunityProfileSeed: vi.fn(),
+  writeCommunityProfilePatches: vi.fn(),
   communityReset: vi.fn(),
   wsReset: vi.fn(),
   streamReset: vi.fn(),
@@ -58,11 +57,12 @@ vi.mock("@/stores/community/ws", () => ({
   useCommunityWsStore: Object.assign(vi.fn(), {
     getState: () => ({
       reset: mocks.wsReset,
-      beginProfileSnapshot: mocks.beginProfileSnapshot,
-      commitProfiles: mocks.commitProfiles,
-      patchProfiles: mocks.patchProfiles,
     }),
   }),
+}))
+vi.mock("@/lib/community/profile-seed", () => ({
+  beginCommunityProfileSeed: mocks.beginCommunityProfileSeed,
+  writeCommunityProfilePatches: mocks.writeCommunityProfilePatches,
 }))
 vi.mock("@/stores/community/message-stream", () => ({
   useMessageStreamStore: Object.assign(vi.fn(), {
@@ -180,7 +180,7 @@ describe("useShellProfileController", () => {
       statusEmoji: "🙂",
       statusText: "Here",
     })
-    mocks.beginProfileSnapshot.mockReturnValue({ viewerId: "self", accountEpoch: 1, revision: 0 })
+    mocks.beginCommunityProfileSeed.mockReturnValue({ registry: "registry", revision: 0 })
     mocks.clearCache.mockResolvedValue(undefined)
     mocks.signOut.mockResolvedValue(undefined)
   })
@@ -452,9 +452,10 @@ describe("useShellProfileController", () => {
       statusEmoji: "🌱",
       statusText: "Growing",
     })
-    expect(mocks.commitProfiles).toHaveBeenCalledWith(
-      { viewerId: "self", accountEpoch: 1, revision: 0 },
+    expect(mocks.writeCommunityProfilePatches).toHaveBeenCalledWith(
       [expect.objectContaining({ id: "self" })],
+      "registry",
+      { snapshot: { registry: "registry", revision: 0 } },
     )
 
     await act(async () => hook.current.userSettingsProps.onSave({
@@ -463,9 +464,9 @@ describe("useShellProfileController", () => {
       statusEmoji: "🚀",
       statusText: "Shipping",
     }))
-    expect(mocks.commitProfiles).toHaveBeenCalledTimes(2)
+    expect(mocks.writeCommunityProfilePatches).toHaveBeenCalledTimes(2)
     await act(async () => hook.current.userSettingsProps.onSave({ aboutMe: "About only" }))
-    expect(mocks.commitProfiles).toHaveBeenCalledTimes(3)
+    expect(mocks.writeCommunityProfilePatches).toHaveBeenCalledTimes(3)
 
     const statusError = new Error("status")
     mocks.updateProfile.mockRejectedValueOnce(statusError)
@@ -581,8 +582,7 @@ describe("useShellProfileController", () => {
 
     const uploadOptions = mocks.uploadAvatar.mock.calls[0]![1]
     await act(async () => uploadOptions.onSuccess({ url: "/avatar.png?v=4", avatarVersion: 4 }))
-    expect(mocks.patchProfiles).toHaveBeenCalledWith(
-      { viewerId: "self", accountEpoch: 1, revision: 0 },
+    expect(mocks.writeCommunityProfilePatches).toHaveBeenCalledWith(
       [{
         id: "self",
         avatar: { avatar: "/avatar.png?v=4", avatarVersion: 4 },

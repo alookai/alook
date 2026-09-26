@@ -148,8 +148,7 @@ export const mockD1Batch = vi.fn(async (statements: unknown[]) =>
   statements.map(() => ({ success: true, meta: { changes: 1 } })))
 export const mockGetUserInternal = vi.fn<(db: unknown, id: string) => Promise<{ isBot: boolean; ownerUserId: string | null } | null>>().mockResolvedValue(null)
 // mockToSummary now returns row.status verbatim — status is the source of
-// truth on the column, not a derivation from lastSeenAt. See
-// plans/community-machine-presence-fix.md.
+// truth on the column, not a derivation from lastSeenAt.
 export const mockToSummary = vi.fn((row: any) => ({
   id: row.id,
   hostname: row.hostname ?? "",

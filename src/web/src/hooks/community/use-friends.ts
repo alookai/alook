@@ -10,7 +10,7 @@ import {
 } from "@/lib/community/profile-seed"
 import { communityKeys } from "@/lib/query-keys"
 import type { Friend, PendingRequest, BlockedUser } from "@/lib/community/models/people"
-import { useProfilesByUserId } from "@/stores/community/ws"
+import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 
 /**
@@ -110,14 +110,13 @@ export function useFriends(): UseQueryResult<FriendsResponse> & {
     queryFn: friendsQueryFn,
     placeholderData: keepPreviousData,
   })
-  const profilesByUserId = useProfilesByUserId()
+  const profilesByUserId = useCanonicalProfilesByUserId()
   const friends = useMemo(
     () => (query.data?.friends ?? EMPTY_FRIENDS).map((friend) => {
       if (!friend.userId) return friend
-      const profile = readCommunityProfile(
-        profilesByUserId.get(friend.userId),
-        friend.userId,
-      )
+      const canonical = profilesByUserId.get(friend.userId)
+      if (!canonical) return friend
+      const profile = readCommunityProfile(canonical, friend.userId)
       return {
         ...friend,
         name: profile.name,
@@ -133,10 +132,9 @@ export function useFriends(): UseQueryResult<FriendsResponse> & {
   )
   const pending = useMemo(
     () => (query.data?.pending ?? EMPTY_PENDING).map((request) => {
-      const profile = readCommunityProfile(
-        profilesByUserId.get(request.userId),
-        request.userId,
-      )
+      const canonical = profilesByUserId.get(request.userId)
+      if (!canonical) return request
+      const profile = readCommunityProfile(canonical, request.userId)
       return {
         ...request,
         name: profile.name,
@@ -149,10 +147,9 @@ export function useFriends(): UseQueryResult<FriendsResponse> & {
   const blocked = useMemo(
     () => (query.data?.blocked ?? EMPTY_BLOCKED).map((entry) => {
       if (!entry.userId) return entry
-      const profile = readCommunityProfile(
-        profilesByUserId.get(entry.userId),
-        entry.userId,
-      )
+      const canonical = profilesByUserId.get(entry.userId)
+      if (!canonical) return entry
+      const profile = readCommunityProfile(canonical, entry.userId)
       return {
         ...entry,
         name: profile.name,

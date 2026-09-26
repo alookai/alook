@@ -14,8 +14,7 @@ import {
 // as `@Name#dddd`, which lets a name with spaces render as one pill AND makes a
 // same-name mention resolve to the EXACT person on click (regression for the
 // sanitize allowlist case-mismatch that stripped the discriminator — bugfix
-// 4044fd6c). A hand-typed bare `@name` is not a mention. See
-// plans/mandatory-mention-discriminator.md.
+// 4044fd6c). A hand-typed bare `@name` is not a mention.
 //
 // Fixture: Bob and Carol are both renamed "John Doe" (spaced name), each keeping
 // its own auto-assigned discriminator — so the same journey exercises the

@@ -151,7 +151,6 @@ describe("POST /api/community/bots/[id]/reset-session", () => {
     // re-homed to the daemon completion signal (agent_session frame at
     // reborn-ready), so the record reflects "the reset actually completed," not
     // "the command was dispatched." The route must NOT write any of them.
-    // See plans/reset-nap-completion-rehome.md.
     expect(mockInsertBotAuditSessionReset).not.toHaveBeenCalled()
     expect(mockTouchBotRefreshContext).not.toHaveBeenCalled()
     expect(mockBroadcastToUser).not.toHaveBeenCalled()

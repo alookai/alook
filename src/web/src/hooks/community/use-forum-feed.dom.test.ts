@@ -103,19 +103,6 @@ describe("forumFeedPageQueryFn", () => {
     const result = await forumFeedPageQueryFn("forum_one", null)({ pageParam: null })
 
     expect(result).toBe(page)
-    expect(useCommunityWsStore.getState().profilesByUserId.get("author_1")).toMatchObject({
-      name: "Alice",
-      avatar: "A",
-      avatarVersion: 2,
-    })
-    expect(useCommunityWsStore.getState().profilesByUserId.get("participant_1")).toMatchObject({
-      name: "Bob",
-      avatar: "bob.png",
-      avatarVersion: 3,
-    })
-    const anonymousParticipant = useCommunityWsStore.getState().profilesByUserId.get("participant_2")
-    expect(anonymousParticipant).toMatchObject({ avatarVersion: 0 })
-    expect(anonymousParticipant).not.toHaveProperty("name")
   })
 })
 
@@ -249,6 +236,66 @@ describe("mapForumFeedPages", () => {
       tags: [],
       participantCount: 0,
     })
+  })
+
+  it("projects a canonical opener without reviving transport message fields", () => {
+    const pages: ForumFeedPage[] = [{
+      serverId: "server_1",
+      parentType: "forum",
+      threads: [{
+        id: "post-1",
+        name: "transport title",
+        creatorId: "transport-author",
+        messageCount: 1,
+        parentMessageId: "opener-1",
+        lastMessageAt: null,
+        createdAt: "2026-08-08T00:00:00.000Z",
+        activityAt: "2026-08-08T00:00:00.000Z",
+      }],
+      included: {
+        parentMessages: [{
+          id: "opener-1",
+          channelId: "forum-1",
+          seq: 7,
+          content: "transport content",
+          authorId: "transport-author",
+          authorName: "Transport",
+          authorImage: "/transport.png",
+          authorAvatarVersion: 4,
+          createdAt: "2026-08-08T00:00:00.000Z",
+        }],
+        firstMessages: [{ channelId: "post-1", content: "transport preview" }],
+        tags: [],
+        participants: [],
+      },
+      hasMore: false,
+    }]
+    const canonical = new Map([[
+      "opener-1",
+      {
+        id: "opener-1",
+        type: "chat",
+        content: "canonical content",
+        authorId: undefined,
+        authorName: "Canonical",
+        authorAvatar: undefined,
+        authorAvatarVersion: undefined,
+        createdAt: undefined,
+        seq: undefined,
+      } as never,
+    ]])
+
+    expect(mapForumFeedPages(pages, canonical)).toEqual([
+      expect.objectContaining({
+        name: "canonical content",
+        authorId: "transport-author",
+        authorAvatarVersion: 0,
+        preview: "",
+        parent: { authorName: "Canonical", text: "" },
+      }),
+    ])
+    expect(mapForumFeedPages(pages, canonical)[0]).not.toHaveProperty("openerCreatedAt")
+    expect(mapForumFeedPages(pages, canonical)[0]).not.toHaveProperty("parentSeq")
   })
 
   it("matches SQLite BINARY id ordering for equal-created mixed-case nanoids", () => {

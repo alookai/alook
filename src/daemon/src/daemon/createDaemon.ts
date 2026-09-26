@@ -291,14 +291,14 @@ export interface CreateDaemonOptions {
    * (`<fsmTraceDir>/fsm-trace.jsonl`, size-capped/rotating — batch E1). When
    * omitted the default trace is off (test stubs). `ALOOK_FSM_TRACE=<path>`
    * overrides BOTH: it takes precedence and uses an unbounded single-file
-   * append (deep-investigation mode). See plans/daemon-fsm-desync.md batch E.
+   * append for deep investigations.
    */
   fsmTraceDir?: string;
   /**
    * Absolute path for the periodic `daemon status` snapshot file (batch E2).
    * The running daemon writes a slim per-agent FSM projection here (atomic
    * tmp→rename) on a timer; the `daemon status` CLI reads it. Omit for test
-   * stubs → no snapshot writing. See plans/daemon-fsm-desync.md batch E2.
+   * stubs → no snapshot writing.
    */
   statusFilePath?: string;
   /**
@@ -1042,7 +1042,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     onRuntimeRawLine,
     // FSM transition trace → file. One JSON line per reduce so a wedge that
     // logs nothing else is reconstructable from its FSM history (the "no log
-    // when it breaks" fix, plans/daemon-fsm-desync.md). Two modes:
+    // when it breaks" fix). Two modes:
     //   - DEFAULT ON (batch E1): a bounded, size-capped/rotating sink at
     //     `<fsmTraceDir>/fsm-trace.jsonl` — so we're never blind to the last
     //     wedge without pre-setting an env, and it can't fill the disk.

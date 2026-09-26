@@ -2,8 +2,7 @@ import { describe, it, expect } from "vitest";
 import { extractMentionedUserIds } from "../../src/utils/community-mentions";
 
 // Every mention now resolves ONLY via a fully-tagged `@Name#dddd` handle — a
-// hand-typed bare `@Alice` is not a mention (see
-// plans/mandatory-mention-discriminator.md). Rosters carry a discriminator.
+// hand-typed bare `@Alice` is not a mention. Rosters carry a discriminator.
 const ROSTER = [
   { userId: "u1", name: "Alice", discriminator: "0001" },
   { userId: "u2", name: "Bob", discriminator: "0002" },

@@ -23,7 +23,7 @@ beforeEach(resetCommunityWsHarness)
 afterEach(cleanupCommunityWsHarness)
 
 describe("useCommunityWs — presence", () => {
-  it("presence.update writes only to the canonical profile map", async () => {
+  it("presence.update writes only to the transient presence map", async () => {
     await mountHook()
     const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
     capturedQueryClient.setQueryData(communityKeys.friendsPresence(), {
@@ -36,7 +36,7 @@ describe("useCommunityWs — presence", () => {
     }
     capturedOnMessage!(event)
     const { useCommunityWsStore } = await import("@/stores/community/ws")
-    expect(useCommunityWsStore.getState().profilesByUserId.get("u_pres")?.presence).toBe("online")
+    expect(useCommunityWsStore.getState().presenceByUserId.get("u_pres")).toBe("online")
     expect(capturedQueryClient.getQueryData(communityKeys.friendsPresence())).toEqual({
       online: ["friend_existing"],
     })
@@ -54,10 +54,7 @@ describe("useCommunityWs — presence", () => {
       online: ["friend_non_member"],
     })
     const store = useCommunityWsStore.getState()
-    store.patchProfiles(store.beginProfileSnapshot(), [{
-      id: "friend_non_member",
-      presence: "online",
-    }])
+    store.setPresence("friend_non_member", "online")
 
     const offline: CommunityPresenceUpdate = {
       type: "community:presence.update",
@@ -65,7 +62,7 @@ describe("useCommunityWs — presence", () => {
       online: false,
     }
     capturedOnMessage!(offline)
-    expect(useCommunityWsStore.getState().profilesByUserId.get("friend_non_member")?.presence)
+    expect(useCommunityWsStore.getState().presenceByUserId.get("friend_non_member"))
       .toBe("offline")
     expect(capturedQueryClient.getQueryData(communityKeys.friendsPresence()))
       .toEqual({ online: ["friend_non_member"] })
@@ -83,8 +80,8 @@ describe("useCommunityWs — presence", () => {
   })
 
 })
-describe("useCommunityWs — status.update → Zustand store, no cache", () => {
-  it("status.update writes to useCommunityWsStore only", async () => {
+describe("useCommunityWs — status.update", () => {
+  it("does not create a durable status track in Zustand", async () => {
     await mountHook()
     const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
     const event: CommunityStatusUpdate = {
@@ -95,11 +92,8 @@ describe("useCommunityWs — status.update → Zustand store, no cache", () => {
     }
     capturedOnMessage!(event)
     const { useCommunityWsStore } = await import("@/stores/community/ws")
-    expect(useCommunityWsStore.getState().profilesByUserId.get("u_status")).toMatchObject({
-      statusEmoji: "🎧",
-      statusText: "Vibing",
-    })
-    // No cache touched.
+    expect(useCommunityWsStore.getState()).not.toHaveProperty("profilesByUserId")
+    expect(useCommunityWsStore.getState().presenceByUserId.has("u_status")).toBe(false)
     expect(spy).not.toHaveBeenCalled()
   })
 })

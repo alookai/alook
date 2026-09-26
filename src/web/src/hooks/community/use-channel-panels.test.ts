@@ -15,7 +15,10 @@ describe("useThreads / threadsQueryFn", () => {
   it("fetches from /channels/:id/threads and returns { threads }", async () => {
     apiFetchMock
       .mockResolvedValueOnce({ serverId: "s1", parentType: "forum", threads: [{ id: "t_1", name: "t", type: "thread", creatorId: "u1", parentMessageId: "m1", messageCount: 1, lastMessageAt: null, createdAt: "now" }] })
-      .mockResolvedValueOnce({ messages: [{ id: "m1", channelId: "ch_1", content: "root", seq: 1, authorId: "u1", authorName: "A", authorImage: null }], firstMessages: [] })
+      .mockResolvedValueOnce({
+        messages: [{ id: "m1", channelId: "ch_1", content: "root", seq: 1, authorId: "u1", authorName: "A", authorImage: null }],
+        firstMessages: [{ channelId: "t_1", content: "identityless preview" }],
+      })
       .mockResolvedValueOnce({ tags: [] })
       .mockResolvedValueOnce({ participants: [] })
     const { threadsQueryFn } = await import("./use-channel-panels")
@@ -23,6 +26,7 @@ describe("useThreads / threadsQueryFn", () => {
     expect(apiFetchMock).toHaveBeenCalledWith("/api/community/channels/ch_1/threads", { signal: undefined })
     expect(apiFetchMock).not.toHaveBeenCalledWith("/api/community/channels/ch_1/posts")
     expect(data.threads).toHaveLength(1)
+    expect(data.threads[0]?.parent.text).toBe("identityless preview")
   })
 
   it("populates queryClient at communityKeys.threads(channelId)", async () => {
@@ -34,7 +38,9 @@ describe("useThreads / threadsQueryFn", () => {
     const qc = new QueryClient()
     const key = communityKeys.threads("ch_1")
     await qc.fetchQuery({ queryKey: key, queryFn: threadsQueryFn("ch_1") })
-    expect(qc.getQueryData(key)).toEqual({ threads: [], serverId: "s1", parentType: "text", parentChannelId: "ch_1" })
+    expect(qc.getQueryData(key)).toEqual({
+      threads: [], serverId: "s1", parentType: "text", parentChannelId: "ch_1",
+    })
   })
 
   it("uses full opener content only for forum parents and shares one AbortSignal", async () => {

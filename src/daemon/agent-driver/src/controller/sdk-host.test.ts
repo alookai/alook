@@ -3,7 +3,7 @@ import { SdkLane } from "./sdk-host.js";
 import type { VendorSessionHandle } from "../internal/adapter.js";
 
 /**
- * See plans/sdk-runtime-session-live-isstreaming-guard.md — `send()`'s idle
+ * `send()`'s idle
  * path is a second, independent line of defense against "Agent is already
  * processing": it re-checks the vendor SDK's live `isStreaming` at the
  * moment of delivery instead of trusting the caller's `mode: "idle"` at face

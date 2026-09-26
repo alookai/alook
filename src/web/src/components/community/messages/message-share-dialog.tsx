@@ -17,7 +17,7 @@ import { applyHighlightToRange, clearHighlights, hasHighlights } from "@/lib/com
 import { formatMessageTime } from "@/lib/community/format-time"
 import type { RenderMsg } from "@/lib/community/models/message"
 import { displayReplyContent } from "@/lib/community/reply-content"
-import { useProfilesByUserId } from "@/stores/community/ws"
+import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 import { AnimatedAlookLogo } from "@/components/community/shell/animated-alook-logo"
 import {
@@ -112,7 +112,7 @@ export function MessageShareDialog({ m, open, onClose }: {
 }) {
   const messages = useMemo(() => (Array.isArray(m) ? m : [m]), [m])
   const mobileNative = isTauri() && isMobile()
-  const profilesByUserId = useProfilesByUserId()
+  const profilesByUserId = useCanonicalProfilesByUserId()
   const profilesByUserIdRef = useRef(profilesByUserId)
   const messagesRef = useRef(messages)
   const previewRef = useRef<HTMLDivElement>(null)

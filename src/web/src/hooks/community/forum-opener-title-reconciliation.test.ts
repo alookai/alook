@@ -1,7 +1,18 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
 import { reconcileForumOpenerTitle } from "./forum-opener-title-reconciliation"
+import {
+  createCommunityDbRegistry,
+  registerCommunityDbRegistry,
+  type CommunityDbRegistry,
+} from "@/lib/community-db/collections"
+import {
+  captureCommunityLiveSnapshotToken,
+  getCanonicalCommunityMessages,
+  publishCommunityForumSidebar,
+} from "@/lib/community-db/sync"
+import { getForumSidebarBase } from "./use-forum-sidebar-threads"
 
 const identity = {
   serverId: "server_1",
@@ -12,12 +23,35 @@ const identity = {
 }
 
 let queryClient: QueryClient
+let registry: CommunityDbRegistry
+let unregister: () => void
 
-beforeEach(() => {
+beforeEach(async () => {
   queryClient = new QueryClient()
+  registry = createCommunityDbRegistry(queryClient, "viewer")
+  await registry.preload()
+  unregister = registerCommunityDbRegistry(registry)
+})
+
+afterEach(async () => {
+  unregister()
+  await registry.cleanup()
 })
 
 function seedCanonicalCaches() {
+  publishCommunityForumSidebar(queryClient, {
+    serverId: "server_1",
+    channels: [{
+      id: "post_1", name: "Post", parentChannelId: "forum_1",
+      parentMessageId: "opener_1", activityAt: "2026-09-26T00:00:00.000Z",
+      unread: false, type: "thread",
+    }],
+    openers: [{ id: "opener_1", channelId: "forum_1", content: "Old title", type: "chat" }],
+    proof: {
+      token: captureCommunityLiveSnapshotToken(queryClient),
+      signal: undefined,
+    },
+  })
   queryClient.setQueryData(communityKeys.message("opener_1"), {
     id: "opener_1", type: "chat", content: "Old title",
   })
@@ -113,8 +147,9 @@ describe("reconcileForumOpenerTitle", () => {
     expect(queryClient.getQueryData<any>(communityKeys.inboxUnreads()).servers[0].channels[0].children[0].channelName).toBe("Full new title")
     expect(queryClient.getQueryData<any>(communityKeys.threads("forum_1")).threads[0].name).toBe("Full new title")
     expect(queryClient.getQueryData<any>(feedKey).pages[0].included.parentMessages[0].content).toBe("Full new title")
-    expect(queryClient.getQueryData<any>(communityKeys.forumSidebarThreads("server_1")).threads[0].title).toBe("Full new title")
-    expect(queryClient.getQueryData<any>(communityKeys.forumOpenerHint("server_1", "opener_1")).content).toBe("Full new title")
+    expect(getForumSidebarBase(queryClient, "server_1").threads[0]?.title).toBe("Full new title")
+    expect(getCanonicalCommunityMessages(queryClient)
+      .find(({ id }) => id === "opener_1")?.content).toBe("Full new title")
   })
 
   it("is idempotent and leaves title caches unchanged for every mismatched identity", async () => {
@@ -132,7 +167,7 @@ describe("reconcileForumOpenerTitle", () => {
 
     expect(queryClient.getQueryData<any>(communityKeys.inboxUnreads()).servers[0].channels[0].children[0].channelName).toBe("Old title")
     expect(queryClient.getQueryData<any>(communityKeys.threads("forum_1")).threads[0].name).toBe("Old title")
-    expect(queryClient.getQueryData<any>(communityKeys.forumSidebarThreads("server_1")).threads[0].title).toBe("Old title")
+    expect(getForumSidebarBase(queryClient, "server_1").threads[0]?.title).toBe("Old title")
   })
 
   it("never rewrites a text-thread name", async () => {

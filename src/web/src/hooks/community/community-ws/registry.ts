@@ -49,6 +49,7 @@ import {
   handleIdentityUpdate,
   handleProfileUpdate,
 } from "@/hooks/community/community-ws/identity-events"
+import { projectCommunityWsEventToDb } from "@/lib/community-db/sync"
 
 type CommunityEventType = CommunityWsEvent["type"]
 type CommunityEventFor<T extends CommunityEventType> = Extract<CommunityWsEvent, { type: T }>
@@ -178,6 +179,7 @@ export function dispatchCommunityWsEvents(
       if (channelId && serverId) useCommunityWsStore.getState().observeChannelScope(serverId, channelId, parentChannelId)
       const entry = communityWsRegistry[event.type] as RegistryEntry<typeof event.type>
       entry.handler(event, handlerContext)
+      projectCommunityWsEventToDb(context.queryClient, event)
     }
   })
 }

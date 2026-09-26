@@ -26,7 +26,7 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   // Only the name is mutable. Category privacy (public/private) is fixed at
   // creation — flipping it would silently widen/tighten channel visibility, so
   // `private` is intentionally NOT accepted here (change it by recreating the
-  // category). See plans/channel-category-role-permissions.md.
+  // category).
   let body: { name?: string }
   try {
     body = await req.json()

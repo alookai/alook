@@ -1,4 +1,4 @@
--- Mutation-idempotency (plans/mutation-idempotency.md): give community_message
+-- Give community_message
 -- a client-supplied idempotency key so a resend of the SAME logical message
 -- (retry over a response-losing gateway) is deduped server-side instead of
 -- inserting a duplicate row.
