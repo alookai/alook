@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   AccountAttentionSnapshotSchema,
+  AttentionItemSchema,
 } from "./community-attention"
 
 const scope = {
@@ -25,6 +26,18 @@ const item = {
 }
 
 describe("account attention wire schemas", () => {
+  it("rejects invalid attention-item reference shapes", () => {
+    expect(AttentionItemSchema.safeParse({
+      ...item,
+      kind: "friend_request",
+    }).success).toBe(false)
+    expect(AttentionItemSchema.safeParse({
+      ...item,
+      scopeId: null,
+      messageId: null,
+    }).success).toBe(false)
+  })
+
   it("accepts ref-only snapshots and the existing reply kind", () => {
     expect(AccountAttentionSnapshotSchema.parse({
       scopes: [scope],

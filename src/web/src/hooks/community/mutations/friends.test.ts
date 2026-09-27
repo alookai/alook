@@ -107,6 +107,80 @@ describe("useSendFriendRequest — invalidates friends on success", () => {
 })
 
 describe("useAcceptFriendRequest — rollback", () => {
+  it("commits canonical attention removal and reconciles after success", async () => {
+    const mod = await load()
+    await installCanonicalRegistry()
+    const { ingestAttentionSnapshot } = await import("@/lib/community-db/sync")
+    const canonical = {
+      scopes: [],
+      items: [{
+        id: "friend_request:f_1", kind: "friend_request" as const, sourceId: "f_1",
+        scopeId: null, messageId: null, actorUserId: "u_1",
+        createdAt: "2026-09-27T00:00:00.000Z",
+      }],
+      limit: 100,
+      truncated: false,
+    }
+    ingestAttentionSnapshot(canonicalRegistry!, canonical)
+    capturedQc.setQueryData(communityKeys.friends(), {
+      friends: [], blocked: [],
+      pending: [{ id: "f_1", userId: "u_1", name: "One", avatar: "1", kind: "incoming" }],
+    })
+    capturedQc.setQueryData(communityKeys.inboxUnreads(), {
+      friendRequests: [{
+        id: "f_1", userId: "u_1", name: "One", avatar: "1",
+        createdAt: "2026-09-27T00:00:00.000Z",
+      }],
+      servers: [],
+      dms: [],
+    })
+    apiFetchMock.mockImplementation(async (path: string) => (
+      path === "/api/community/users/me/attention"
+        ? { ...canonical, items: [] }
+        : undefined
+    ))
+
+    mod.useAcceptFriendRequest()
+    const cfg = capturedConfig as MutConfig<{ friendshipId: string }, unknown>
+    const context = await cfg.onMutate?.({ friendshipId: "f_1" })
+    await cfg.onSuccess?.(undefined, { friendshipId: "f_1" }, context)
+
+    await vi.waitFor(() => {
+      expect(apiFetchMock).toHaveBeenCalledWith(
+        "/api/community/users/me/attention",
+        expect.objectContaining({ signal: expect.anything() }),
+      )
+    })
+  })
+
+  it("does not compensate a late error after the same action is terminal", async () => {
+    const mod = await load()
+    await installCanonicalRegistry()
+    const { ingestAttentionSnapshot } = await import("@/lib/community-db/sync")
+    ingestAttentionSnapshot(canonicalRegistry!, {
+      scopes: [],
+      items: [{
+        id: "friend_request:f_1", kind: "friend_request", sourceId: "f_1",
+        scopeId: null, messageId: null, actorUserId: "u_1",
+        createdAt: "2026-09-27T00:00:00.000Z",
+      }],
+      limit: 100,
+      truncated: false,
+    })
+    capturedQc.setQueryData(communityKeys.friends(), {
+      friends: [], blocked: [],
+      pending: [{ id: "f_1", userId: "u_1", name: "One", avatar: "1", kind: "incoming" }],
+    })
+
+    mod.useAcceptFriendRequest()
+    const cfg = capturedConfig as MutConfig<{ friendshipId: string }, unknown>
+    const context = await cfg.onMutate?.({ friendshipId: "f_1" })
+    await cfg.onSuccess?.(undefined, { friendshipId: "f_1" }, context)
+    await cfg.onError?.(new Error("late failure"), { friendshipId: "f_1" }, context)
+
+    expect(context).toBeDefined()
+  })
+
   it("reconciles a failed friend action after an intervening canonical event", async () => {
     const mod = await load()
     await installCanonicalRegistry()

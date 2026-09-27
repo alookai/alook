@@ -158,4 +158,32 @@ describe("POST /api/issues", () => {
       }),
     );
   });
+
+  it("records a stable dispatch failure when enqueue rejects with a non-Error", async () => {
+    mockGetAgent.mockResolvedValue({ id: "ag_1", ownerId: "u1", runtimeId: "rt1" });
+    mockCreateConversation.mockResolvedValue({ id: "c1" });
+    mockCreateIssue.mockResolvedValue({
+      id: "iss_1",
+      agentId: "ag_1",
+      title: "Fix",
+      description: "Body",
+      status: "todo",
+      conversationId: "c1",
+    });
+    mockCreateMessage
+      .mockResolvedValueOnce({ id: "m1", content: "Issue created: Fix" })
+      .mockResolvedValueOnce({ id: "m2", content: "Issue dispatch failed: reason unavailable" });
+    mockEnqueueTask.mockRejectedValueOnce("queue unavailable");
+
+    const res = await POST(new NextRequest("http://localhost/api/issues", {
+      method: "POST",
+      body: JSON.stringify({ agent_id: "ag_1", title: "Fix", description: "Body" }),
+    }), {} as any);
+
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "failed to dispatch issue" });
+    expect(mockCreateMessage).toHaveBeenLastCalledWith({}, expect.objectContaining({
+      content: "Issue dispatch failed: reason unavailable",
+    }));
+  });
 });

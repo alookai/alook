@@ -1353,6 +1353,43 @@ describe("useMarkAllInboxRead", () => {
 // ── useDeleteMention — rollback ──────────────────────────────────────────
 
 describe("useDeleteMention — rollback", () => {
+  it("commits canonical attention removal and reconciles after success", async () => {
+    const mod = await loadMod()
+    await installCanonicalRegistry()
+    const { ingestAttentionSnapshot } = await import("@/lib/community-db/sync")
+    const canonical = {
+      scopes: [{
+        scopeId: "ch_1", channelId: "ch_1", serverId: "s_1", parentChannelId: null,
+        ordinaryUnread: false, lastUnreadSeq: 4, lastAttentionSeq: 4, attentionCount: 1,
+      }],
+      items: [{
+        id: "mention:men_1", kind: "mention" as const, sourceId: "men_1", scopeId: "ch_1",
+        messageId: "m_1", actorUserId: "u_2", createdAt: "2026-09-27T00:00:00.000Z",
+      }],
+      limit: 100,
+      truncated: false,
+    }
+    ingestAttentionSnapshot(canonicalRegistry!, canonical)
+    capturedQc.setQueryData(communityKeys.inboxMentions(), {
+      mentions: [{ id: "men_1", channelId: "ch_1", kind: "mention", m: { id: "m_1", seq: 4 } }],
+    })
+    apiFetchMock.mockImplementation(async (path: string) => (
+      path === "/api/community/users/me/attention"
+        ? { ...canonical, scopes: [], items: [] }
+        : { revision: 5 }
+    ))
+
+    mod.useDeleteMention()
+    await runMutation({ mentionId: "men_1" })
+
+    await vi.waitFor(() => {
+      expect(apiFetchMock).toHaveBeenCalledWith(
+        "/api/community/users/me/attention",
+        expect.objectContaining({ signal: expect.anything() }),
+      )
+    })
+  })
+
   it("reconciles a failed dismissal after an intervening canonical event", async () => {
     const mod = await loadMod()
     await installCanonicalRegistry()

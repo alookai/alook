@@ -10,6 +10,9 @@ const mockListArtifactsByConversation = vi.fn();
 const mockListComments = vi.fn();
 const mockCreateComment = vi.fn();
 const mockGetTask = vi.fn();
+const mockGetAgent = vi.fn();
+const mockCreateConversation = vi.fn();
+const mockEnqueueTask = vi.fn();
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
@@ -27,7 +30,10 @@ vi.mock("@alook/shared", async () => {
         listIssueMessages: (...a: unknown[]) => mockListIssueMessages(...a),
         updateIssue: (...a: unknown[]) => mockUpdateIssue(...a),
         deleteIssue: (...a: unknown[]) => mockDeleteIssue(...a),
+        setLatestTask: vi.fn(),
       },
+      agent: { getAgent: (...a: unknown[]) => mockGetAgent(...a) },
+      conversation: { createConversation: (...a: unknown[]) => mockCreateConversation(...a) },
       task: {
         getTask: (...a: unknown[]) => mockGetTask(...a),
       },
@@ -59,6 +65,7 @@ vi.mock("@/lib/middleware/workspace", () => ({
 vi.mock("@/lib/api/responses", () => ({
   issueToResponse: (i: any) => ({ id: i.id, status: i.status, conversation_id: i.conversationId }),
   messageToResponse: (m: any) => ({ id: m.id, role: m.role, content: m.content }),
+  taskToResponse: (t: any) => ({ id: t.id, status: t.status }),
 }));
 
 vi.mock("@/lib/logger", () => ({
@@ -74,6 +81,7 @@ const mockCancelActiveTask = vi.fn();
 const mockCancelTrace = vi.fn();
 vi.mock("@/lib/services/task", () => ({
   TaskService: class {
+    enqueueTask(...args: any[]) { return mockEnqueueTask(...args); }
     cancelActiveTask(...args: any[]) { return mockCancelActiveTask(...args); }
     cancelTrace(...args: any[]) { return mockCancelTrace(...args); }
   },
@@ -115,6 +123,34 @@ describe("PATCH /api/issues/[id]", () => {
     expect(mockUpdateIssue).toHaveBeenCalledWith({}, "iss_1", "w1", { title: undefined, description: undefined, status: "in_progress" });
     expect(mockCreateMessage).toHaveBeenCalledWith({}, expect.objectContaining({ role: "event", content: "Issue status changed: todo -> in_progress" }));
     expect(mockBroadcastToUser).toHaveBeenCalledWith("u1", expect.objectContaining({ type: "conversation.message", conversationId: "c1" }));
+  });
+
+  it("records a stable assignment failure when enqueue rejects with a non-Error", async () => {
+    mockGetIssue.mockResolvedValue({
+      id: "iss_1",
+      title: "Fix",
+      description: "Body",
+      status: "todo",
+      conversationId: null,
+    });
+    mockGetAgent.mockResolvedValue({ id: "ag_1", ownerId: "u1" });
+    mockCreateConversation.mockResolvedValue({ id: "c1" });
+    mockUpdateIssue
+      .mockResolvedValueOnce({ id: "iss_1", status: "in_progress", conversationId: "c1" })
+      .mockResolvedValueOnce({ id: "iss_1", status: "todo", conversationId: "c1" });
+    mockCreateMessage.mockResolvedValue({ id: "m1", role: "event" });
+    mockEnqueueTask.mockRejectedValueOnce("queue unavailable");
+
+    const res = await PATCH(new NextRequest("http://localhost/api/issues/iss_1", {
+      method: "PATCH",
+      body: JSON.stringify({ agent_id: "ag_1" }),
+    }), { params: { id: "iss_1" } } as any);
+
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "failed to dispatch issue" });
+    expect(mockCreateMessage).toHaveBeenLastCalledWith({}, expect.objectContaining({
+      content: "Issue dispatch failed: reason unavailable",
+    }));
   });
 });
 
