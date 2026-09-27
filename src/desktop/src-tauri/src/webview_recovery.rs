@@ -928,7 +928,11 @@ mod tests {
         assert!(apple.contains("viewController.view.window ?: viewController.view"));
         assert!(apple.contains("NSClassFromString(@\"TaoUIViewController\")"));
         assert!(apple.contains("[host bringSubviewToFront:overlay]"));
-        assert!(apple.contains("alookInstallStartupOverlay(self)"));
+        assert!(apple.contains("@selector(alook_viewDidLoad)"));
+        assert!(apple.contains("@selector(alook_viewDidAppear:)"));
+        assert!(apple.contains("alookPrepareStartupOverlay(self)"));
+        assert!(apple.contains("(insets.bottom - insets.top) / 2.0"));
+        assert!(apple.contains("--alook-mobile-splash-offset-y"));
         assert!(apple.contains("alookWaitForWebViewSurface(self, startupWebView, 0)"));
         assert_order(
             apple,

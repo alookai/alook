@@ -18,6 +18,11 @@ static const void *kAlookStartupProbeStartedKey = &kAlookStartupProbeStartedKey;
 static const void *kAlookStartupCompletedKey = &kAlookStartupCompletedKey;
 static const NSInteger kAlookStartupLogoTag = 8738;
 
+static BOOL alookIsTauriRootController(UIViewController *viewController) {
+    Class taoViewController = NSClassFromString(@"TaoUIViewController");
+    return taoViewController != Nil && [viewController isKindOfClass:taoViewController];
+}
+
 static UIView *alookStartupHostView(UIViewController *viewController) {
     return viewController.view.window ?: viewController.view;
 }
@@ -83,6 +88,12 @@ static void alookLayoutStartupOverlay(UIViewController *viewController, UIView *
         size
     );
     [host bringSubviewToFront:overlay];
+}
+
+static void alookPrepareStartupOverlay(UIViewController *viewController) {
+    if (!alookIsTauriRootController(viewController)) return;
+    UIView *overlay = alookInstallStartupOverlay(viewController);
+    if (overlay != nil) alookLayoutStartupOverlay(viewController, overlay);
 }
 
 static void alookFinishStartupOverlay(UIViewController *viewController) {
@@ -180,9 +191,17 @@ static NSString *const kThemeObserverScript =
 + (void)load {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
+        Method originalDidLoad = class_getInstanceMethod(self, @selector(viewDidLoad));
+        Method swizzledDidLoad = class_getInstanceMethod(self, @selector(alook_viewDidLoad));
+        method_exchangeImplementations(originalDidLoad, swizzledDidLoad);
+
         Method original = class_getInstanceMethod(self, @selector(viewDidLayoutSubviews));
         Method swizzled = class_getInstanceMethod(self, @selector(alook_viewDidLayoutSubviews));
         method_exchangeImplementations(original, swizzled);
+
+        Method originalDidAppear = class_getInstanceMethod(self, @selector(viewDidAppear:));
+        Method swizzledDidAppear = class_getInstanceMethod(self, @selector(alook_viewDidAppear:));
+        method_exchangeImplementations(originalDidAppear, swizzledDidAppear);
 
         Method originalStatusBar = class_getInstanceMethod(self, @selector(preferredStatusBarStyle));
         Method swizzledStatusBar = class_getInstanceMethod(self, @selector(alook_preferredStatusBarStyle));
@@ -196,14 +215,20 @@ static NSString *const kThemeObserverScript =
     return resolvedTheme.boolValue ? UIStatusBarStyleLightContent : UIStatusBarStyleDarkContent;
 }
 
+- (void)alook_viewDidLoad {
+    [self alook_viewDidLoad];
+    alookPrepareStartupOverlay(self);
+}
+
+- (void)alook_viewDidAppear:(BOOL)animated {
+    [self alook_viewDidAppear:animated];
+    alookPrepareStartupOverlay(self);
+}
+
 - (void)alook_viewDidLayoutSubviews {
     [self alook_viewDidLayoutSubviews];
-    Class taoViewController = NSClassFromString(@"TaoUIViewController");
-    BOOL isTauriRoot = taoViewController != Nil && [self isKindOfClass:taoViewController];
-    if (isTauriRoot) {
-        UIView *overlay = alookInstallStartupOverlay(self);
-        if (overlay != nil) alookLayoutStartupOverlay(self, overlay);
-    }
+    BOOL isTauriRoot = alookIsTauriRootController(self);
+    if (isTauriRoot) alookPrepareStartupOverlay(self);
     UIEdgeInsets insets = self.view.safeAreaInsets;
     WKWebView *startupWebView = nil;
     for (UIView *subview in self.view.subviews) {
@@ -218,6 +243,11 @@ static NSString *const kThemeObserverScript =
 
             WKWebView *webView = (WKWebView *)subview;
             startupWebView = webView;
+            CGFloat splashOffsetY = (insets.bottom - insets.top) / 2.0;
+            NSString *splashOffsetScript = [NSString stringWithFormat:
+                @"document.documentElement.style.setProperty('--alook-mobile-splash-offset-y','%.3fpx')",
+                splashOffsetY];
+            [webView evaluateJavaScript:splashOffsetScript completionHandler:nil];
             static dispatch_once_t scriptToken;
             dispatch_once(&scriptToken, ^{
                 AlookThemeHandler *handler = [[AlookThemeHandler alloc] init];
