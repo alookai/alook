@@ -16,10 +16,10 @@
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                         <subviews>
                             <imageView clipsSubviews="YES" userInteractionEnabled="NO" contentMode="scaleAspectFit" image="SplashIcon" translatesAutoresizingMaskIntoConstraints="NO" id="splash-img">
-                                <rect key="frame" x="187" y="428" width="40" height="40"/>
+                                <rect key="frame" x="154" y="395" width="106" height="106"/>
                                 <constraints>
-                                    <constraint firstAttribute="width" constant="40" id="w-constraint"/>
-                                    <constraint firstAttribute="height" constant="40" id="h-constraint"/>
+                                    <constraint firstAttribute="width" constant="106" id="w-constraint"/>
+                                    <constraint firstAttribute="height" constant="106" id="h-constraint"/>
                                 </constraints>
                             </imageView>
                         </subviews>
@@ -36,7 +36,7 @@
         </scene>
     </scenes>
     <resources>
-        <image name="SplashIcon" width="40" height="40"/>
+        <image name="SplashIcon" width="106" height="106"/>
         <namedColor name="SplashBackground"/>
     </resources>
 </document>

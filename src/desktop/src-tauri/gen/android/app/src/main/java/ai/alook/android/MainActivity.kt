@@ -83,6 +83,11 @@ class MainActivity : TauriActivity() {
         mobileShareImageDocumentOwner.attach(savedInstanceState)
 
         splashScreen.setKeepOnScreenCondition { !isReady }
+        splashScreen.setOnExitAnimationListener { provider ->
+            provider.view.postOnAnimation {
+                provider.view.postOnAnimation { provider.remove() }
+            }
+        }
 
         Handler(Looper.getMainLooper()).postDelayed({ isReady = true }, 10000)
 

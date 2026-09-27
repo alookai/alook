@@ -75,11 +75,11 @@ export const androidAdaptiveForegroundSizes = {
   xxxhdpi: { canvas: 432, artwork: 336 },
 }
 const androidDensities = Object.keys(androidAdaptiveForegroundSizes)
-export const mobileSplashVisibleSize = 40
+export const mobileSplashVisibleSize = 106
 export const androidSplashSystemIconSize = 288
 export const androidSplashSizes = { mdpi: 108, hdpi: 162, xhdpi: 216, xxhdpi: 324, xxxhdpi: 432 }
-export const androidSplashArtworkSizes = { mdpi: 15, hdpi: 23, xhdpi: 30, xxhdpi: 45, xxxhdpi: 60 }
-export const appleSplashSizes = { "splash_icon@1x.png": 40, "splash_icon@2x.png": 80, "splash_icon@3x.png": 120 }
+export const androidSplashArtworkSizes = { mdpi: 40, hdpi: 60, xhdpi: 80, xxhdpi: 119, xxxhdpi: 159 }
+export const appleSplashSizes = { "splash_icon@1x.png": 106, "splash_icon@2x.png": 212, "splash_icon@3x.png": 318 }
 
 export function assertSvgContract(svg) {
   if (!svg.includes('viewBox="0 0 1024 1024"')) throw new Error("logo viewBox drifted")

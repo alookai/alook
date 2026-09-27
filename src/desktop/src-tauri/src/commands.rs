@@ -402,64 +402,102 @@ fn should_close_splash(frontend_ready: bool, min_elapsed: bool, max_wait_elapsed
 #[cfg(desktop)]
 pub fn splash_html() -> String {
     let logo = include_str!("../../../../assets/alook.svg");
-    let mut html = String::with_capacity(logo.len() + 4_096);
+    let mut html = String::with_capacity(logo.len() + 6_144);
     html.push_str(
         r#"<!doctype html><html><head><meta charset="utf-8"><style>
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{width:100%;height:100%;overflow:hidden;background:transparent;display:flex;align-items:center;justify-content:center;-webkit-user-select:none;user-select:none}
-svg{width:96px;height:96px;filter:drop-shadow(0 8px 16px rgba(0,0,0,.18))}
-</style></head><body>"#,
+#stage{position:relative;width:192px;height:192px;flex:none}
+#canvas{position:absolute;width:1080px;height:1080px;transform:scale(.1777777778);transform-origin:top left}
+#clip{position:absolute;left:210px;top:210px;width:660px;height:660px}
+#orbit,.face,.art{position:absolute;inset:0;width:660px;height:660px}
+.face,.art{transform-origin:center}
+.art svg{display:block;width:660px;height:660px;overflow:visible}
+#source{display:none}
+</style></head><body><div id="stage" role="status" aria-label="Loading"><div id="canvas"><div id="clip"><div id="orbit"></div></div></div></div><template id="source">"#,
     );
     html.push_str(logo);
     html.push_str(
-        r#"<script>
-const svg=document.querySelector("svg");
-const foreground=svg.querySelector('[data-motion-layer="foreground"]');
-const expressions=[...svg.querySelectorAll('[data-part="expression"]')];
-const revealMatrix=[0.82598,0,0,0.82599,194.784,194.424];
-const offsets=[0,0.55,0.73,0.88,1];
-const progressPoints=[0,1.06,0.975,1.01,1];
-const duration=300;
-const easings=[cubicBezier(0.2,0.8,0.2,1),cubicBezier(0.42,0,0.58,1),cubicBezier(0.42,0,0.58,1),cubicBezier(0,0,0.58,1)];
-svg.setAttribute("role","img");
-svg.setAttribute("aria-label","Alook");
-function cubicBezier(x1,y1,x2,y2){
-  const sample=(t,a1,a2)=>((1-3*a2+3*a1)*t+(3*a2-6*a1))*t*t+3*a1*t;
-  const slope=(t,a1,a2)=>3*(1-3*a2+3*a1)*t*t+2*(3*a2-6*a1)*t+3*a1;
-  return x=>{
-    let t=x;
-    for(let index=0;index<8;index+=1){const currentSlope=slope(t,x1,x2);if(Math.abs(currentSlope)<0.000001)break;t-=(sample(t,x1,x2)-x)/currentSlope}
-    if(t<0||t>1){let low=0;let high=1;t=x;for(let index=0;index<12;index+=1){if(sample(t,x1,x2)<x)low=t;else high=t;t=(low+high)/2}}
-    return sample(t,y1,y2);
-  };
+        r##"</template><script>
+const DURATION=540;
+const bots=[
+  {face:"red",x:-100,y:-45,scale:.8,tilt:8},
+  {face:"purple",x:-20,y:-55,scale:.78,tilt:-9},
+  {face:"teal",x:-200,y:20,scale:.76,tilt:-7},
+  {face:"blue",x:-85,y:0,scale:.77,tilt:7},
+  {face:"orange",x:55,y:130,scale:.76,tilt:-5}
+];
+const source=document.querySelector("#source").content;
+const clip=document.querySelector("#clip");
+const orbitElement=document.querySelector("#orbit");
+const namespace="http://www.w3.org/2000/svg";
+const faces=bots.map((bot,index)=>{
+  const wrapper=document.createElement("div");
+  wrapper.className="face";
+  wrapper.style.zIndex=String(index+1);
+  const art=document.createElement("div");
+  art.className="art";
+  const svg=document.createElementNS(namespace,"svg");
+  svg.setAttribute("viewBox","0 0 1024 1024");
+  svg.setAttribute("aria-hidden","true");
+  const group=source.querySelector(`[data-face="${bot.face}"]`).cloneNode(true);
+  const pupils=bot.face==="orange"?[group.children[2],group.children[4]]:[];
+  svg.appendChild(group);
+  art.appendChild(svg);
+  wrapper.appendChild(art);
+  (index<4?orbitElement:clip).appendChild(wrapper);
+  return {wrapper,art,expressions:[...group.querySelectorAll('[data-part="expression"]')],pupils};
+});
+function smooth(value){const t=Math.max(0,Math.min(1,value));return t*t*t*(t*(t*6-15)+10)}
+function motionAt(frame){
+  const merge=smooth(frame/144);
+  const split=smooth((frame-204)/144);
+  const joined=merge-split;
+  const times=[348,384,414,450,486,510];
+  const values=[0,-1,-1,1,1,0];
+  let look=0;
+  for(let index=0;index<times.length-1;index+=1){
+    if(frame>=times[index]&&frame<times[index+1]){
+      look=values[index]+(values[index+1]-values[index])*smooth((frame-times[index])/(times[index+1]-times[index]));
+    }
+  }
+  return {joined,orbit:((merge+split)*1080)%360,look};
 }
-function format(value){const rounded=Math.abs(value)<0.000005?0:Number(value.toFixed(5));return String(rounded)}
-function apply(progress,state){
-  const a=1+(revealMatrix[0]-1)*progress;
-  const d=1+(revealMatrix[3]-1)*progress;
-  foreground.setAttribute("transform",`matrix(${format(a)} 0 0 ${format(d)} ${format(revealMatrix[4]*progress)} ${format(revealMatrix[5]*progress)})`);
-  const opacity=format(Math.max(0,Math.min(1,progress)));
-  for(const expression of expressions)expression.setAttribute("opacity",opacity);
-  svg.dataset.state=state;
+function apply(frame){
+  const {joined,orbit,look}=motionAt(frame);
+  clip.style.clipPath=`inset(${-300*(1-joined)}px round ${152.109375*joined}px)`;
+  orbitElement.style.rotate=`${orbit}deg`;
+  for(let index=0;index<faces.length;index+=1){
+    const bot=bots[index];
+    const face=faces[index];
+    face.wrapper.style.translate=`${bot.x*.96*(1-joined)}px ${bot.y*.96*(1-joined)}px`;
+    face.wrapper.style.scale=String(bot.scale+(1-bot.scale)*joined);
+    face.art.style.rotate=`${look*bot.tilt}deg`;
+    const expressionOpacity=index===4?1:1-smooth((joined-.45)/.55);
+    for(const expression of face.expressions)expression.style.opacity=String(expressionOpacity);
+    for(const pupil of face.pupils)pupil.setAttribute("transform",`translate(${look*23.2} 0)`);
+  }
 }
-function progressAt(elapsed){
-  if(elapsed>=duration)return 1;
-  const position=Math.max(0,elapsed)/duration;
-  let segment=offsets.length-2;
-  for(let index=0;index<offsets.length-1;index+=1){if(position<=offsets[index+1]){segment=index;break}}
-  const local=(position-offsets[segment])/(offsets[segment+1]-offsets[segment]);
-  const eased=easings[segment](Math.max(0,Math.min(1,local)));
-  return progressPoints[segment]+(progressPoints[segment+1]-progressPoints[segment])*eased;
+const media=window.matchMedia("(prefers-reduced-motion: reduce)");
+let elapsed=0;
+let last;
+let request=0;
+function tick(now){
+  if(last!==undefined)elapsed+=now-last;
+  last=now;
+  apply(Math.floor(elapsed*60/1000)%DURATION);
+  request=requestAnimationFrame(tick);
 }
-apply(0,"default");
-if(!window.matchMedia("(prefers-reduced-motion: reduce)").matches){
-  requestAnimationFrame(()=>{
-    const startedAt=performance.now();
-    const tick=now=>{const elapsed=now-startedAt;const done=elapsed>=duration;apply(progressAt(elapsed),done?"reveal":"transitioning");if(!done)requestAnimationFrame(tick)};
-    requestAnimationFrame(tick);
-  });
+function sync(){
+  cancelAnimationFrame(request);
+  last=undefined;
+  if(media.matches)apply(180);
+  else if(!document.hidden)request=requestAnimationFrame(tick);
 }
-</script></body></html>"#,
+media.addEventListener("change",sync);
+document.addEventListener("visibilitychange",sync);
+sync();
+</script></body></html>"##,
     );
     html
 }
@@ -474,7 +512,7 @@ pub fn create_splash_window(app: &tauri::App) -> Result<(), Box<dyn std::error::
         WebviewUrl::CustomProtocol("splash://index".parse()?),
     )
     .title("Alook")
-    .inner_size(200.0, 200.0)
+    .inner_size(240.0, 240.0)
     .center()
     .decorations(false)
     .resizable(false)
@@ -945,19 +983,29 @@ mod tests {
     }
 
     #[test]
-    fn desktop_splash_uses_the_canonical_structured_logo_motion() {
+    fn desktop_splash_matches_the_main_unknown_neutral_motion() {
         let html = splash_html();
         let canonical = include_str!("../../../../assets/alook.svg");
+        let web_motion = include_str!("../../../web/src/components/brand/alook-loading/motion.ts");
+        let web_frame =
+            include_str!("../../../web/src/components/brand/alook-loading/LoadingFrame.tsx");
 
         assert!(html.contains(canonical));
-        assert!(html.contains("svg{width:96px;height:96px"));
-        assert!(html.contains("data-motion-layer=\"foreground\""));
-        assert!(html.contains("[0.82598,0,0,0.82599,194.784,194.424]"));
-        assert!(html.contains("[0,1.06,0.975,1.01,1]"));
-        assert!(html.contains("const duration=300"));
+        assert!(html.contains("#stage{position:relative;width:192px;height:192px"));
+        assert!(html.contains("const DURATION=540"));
+        assert!(html.contains("const times=[348,384,414,450,486,510]"));
+        assert!(html.contains("const values=[0,-1,-1,1,1,0]"));
+        assert!(html.contains("orbit:((merge+split)*1080)%360"));
+        assert!(html.contains("expressionOpacity=index===4?1:1-smooth((joined-.45)/.55)"));
+        assert!(html.contains("apply(180)"));
         assert!(html.contains("prefers-reduced-motion: reduce"));
-        assert!(html.contains("apply(0,\"default\")"));
         assert!(!html.contains("data:image/png"));
+        assert!(web_motion.contains("export const DURATION = 540"));
+        assert!(web_motion.contains("const times = [348, 384, 414, 450, 486, 510]"));
+        assert!(web_motion.contains("const values = [0, -1, -1, 1, 1, 0]"));
+        assert!(web_frame.contains("width: 660"));
+        assert!(web_frame.contains("height: 660"));
+        assert!(web_frame.contains("rotate: `${orbit}deg`"));
     }
 
     #[test]

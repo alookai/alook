@@ -18,6 +18,10 @@ static const void *kAlookStartupProbeStartedKey = &kAlookStartupProbeStartedKey;
 static const void *kAlookStartupCompletedKey = &kAlookStartupCompletedKey;
 static const NSInteger kAlookStartupLogoTag = 8738;
 
+static UIView *alookStartupHostView(UIViewController *viewController) {
+    return viewController.view.window ?: viewController.view;
+}
+
 static BOOL alookEffectiveDarkTheme(UIViewController *viewController) {
     NSNumber *webTheme = objc_getAssociatedObject(viewController, kAlookWebDarkThemeKey);
     if (webTheme != nil) return webTheme.boolValue;
@@ -42,7 +46,8 @@ static UIView *alookInstallStartupOverlay(UIViewController *viewController) {
     UIView *overlay = objc_getAssociatedObject(viewController, kAlookStartupOverlayKey);
     if (overlay != nil) return overlay;
 
-    overlay = [[UIView alloc] initWithFrame:viewController.view.bounds];
+    UIView *host = alookStartupHostView(viewController);
+    overlay = [[UIView alloc] initWithFrame:host.bounds];
     overlay.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     overlay.userInteractionEnabled = NO;
     overlay.accessibilityElementsHidden = YES;
@@ -50,7 +55,7 @@ static UIView *alookInstallStartupOverlay(UIViewController *viewController) {
     logo.tag = kAlookStartupLogoTag;
     logo.contentMode = UIViewContentModeScaleAspectFit;
     [overlay addSubview:logo];
-    [viewController.view addSubview:overlay];
+    [host addSubview:overlay];
     objc_setAssociatedObject(
         viewController,
         kAlookStartupOverlayKey,
@@ -62,17 +67,22 @@ static UIView *alookInstallStartupOverlay(UIViewController *viewController) {
 
 static void alookLayoutStartupOverlay(UIViewController *viewController, UIView *overlay) {
     BOOL isDark = viewController.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark;
-    overlay.frame = viewController.view.bounds;
+    UIView *host = alookStartupHostView(viewController);
+    if (overlay.superview != host) {
+        [overlay removeFromSuperview];
+        [host addSubview:overlay];
+    }
+    overlay.frame = host.bounds;
     overlay.backgroundColor = isDark ? alookDarkColor() : alookLightColor();
     UIView *logo = [overlay viewWithTag:kAlookStartupLogoTag];
-    CGFloat size = 40.0;
+    CGFloat size = 106.0;
     logo.frame = CGRectMake(
         (overlay.bounds.size.width - size) / 2.0,
         (overlay.bounds.size.height - size) / 2.0,
         size,
         size
     );
-    [viewController.view bringSubviewToFront:overlay];
+    [host bringSubviewToFront:overlay];
 }
 
 static void alookFinishStartupOverlay(UIViewController *viewController) {
@@ -188,6 +198,12 @@ static NSString *const kThemeObserverScript =
 
 - (void)alook_viewDidLayoutSubviews {
     [self alook_viewDidLayoutSubviews];
+    Class taoViewController = NSClassFromString(@"TaoUIViewController");
+    BOOL isTauriRoot = taoViewController != Nil && [self isKindOfClass:taoViewController];
+    if (isTauriRoot) {
+        UIView *overlay = alookInstallStartupOverlay(self);
+        if (overlay != nil) alookLayoutStartupOverlay(self, overlay);
+    }
     UIEdgeInsets insets = self.view.safeAreaInsets;
     WKWebView *startupWebView = nil;
     for (UIView *subview in self.view.subviews) {
@@ -219,7 +235,8 @@ static NSString *const kThemeObserverScript =
         }
     }
     if (startupWebView != nil) {
-        UIView *overlay = alookInstallStartupOverlay(self);
+        UIView *overlay = isTauriRoot ? objc_getAssociatedObject(self, kAlookStartupOverlayKey)
+                                     : alookInstallStartupOverlay(self);
         if (overlay != nil) alookLayoutStartupOverlay(self, overlay);
         if (![objc_getAssociatedObject(self, kAlookStartupProbeStartedKey) boolValue]) {
             objc_setAssociatedObject(

@@ -232,8 +232,8 @@ describe("logo asset generator", () => {
     })
   })
 
-  it("aligns native mobile splash artwork with the 40px WebView mark", async () => {
-    expect(mobileSplashVisibleSize).toBe(40)
+  it("aligns native mobile splash artwork with the mobile unknown/neutral frame", async () => {
+    expect(mobileSplashVisibleSize).toBe(106)
 
     for (const [density, canvas] of Object.entries(androidSplashSizes)) {
       const artwork = androidSplashArtworkSizes[density as keyof typeof androidSplashArtworkSizes]
@@ -260,9 +260,9 @@ describe("logo asset generator", () => {
     }
 
     const storyboard = await readFile(resolve(repoRoot, "src/desktop/src-tauri/gen/apple/LaunchScreen.storyboard"), "utf8")
-    expect(storyboard).toContain('<constraint firstAttribute="width" constant="40" id="w-constraint"/>')
-    expect(storyboard).toContain('<constraint firstAttribute="height" constant="40" id="h-constraint"/>')
-    expect(storyboard).toContain('<image name="SplashIcon" width="40" height="40"/>')
+    expect(storyboard).toContain('<constraint firstAttribute="width" constant="106" id="w-constraint"/>')
+    expect(storyboard).toContain('<constraint firstAttribute="height" constant="106" id="h-constraint"/>')
+    expect(storyboard).toContain('<image name="SplashIcon" width="106" height="106"/>')
 
     const serverRail = await readFile(resolve(repoRoot, "src/web/src/components/community/shell/server-rail.tsx"), "utf8")
     expect(serverRail).toContain('<AnimatedAlookLogo className="size-10" />')

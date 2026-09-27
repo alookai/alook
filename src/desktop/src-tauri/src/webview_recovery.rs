@@ -10,7 +10,7 @@ const RECOVERY_PATH: &str = "/network-error";
 const PRODUCTION_TARGET: &str = "https://alook.ai/c";
 const SPLASH_BACKGROUND_LIGHT: &str = "#fff";
 const SPLASH_BACKGROUND_DARK: &str = "#100d0a";
-const SPLASH_LOGO_SIZE: u16 = 40;
+const SPLASH_LOGO_SIZE: u16 = 106;
 const SPLASH_ICON_PNG: &[u8] =
     include_bytes!("../gen/apple/Assets.xcassets/SplashIcon.imageset/splash_icon@3x.png");
 static STARTUP: StartupRendezvous = StartupRendezvous::new();
@@ -754,14 +754,14 @@ mod tests {
         assert!(html.contains(
             "body{display:grid;place-items:center;transform:translateY(var(--alook-mobile-splash-offset-y))}"
         ));
-        assert!(html.contains("img{display:block;width:40px;height:40px"));
-        assert!(html.contains("width=\"40\" height=\"40\""));
+        assert!(html.contains("img{display:block;width:106px;height:106px"));
+        assert!(html.contains("width=\"106\" height=\"106\""));
         assert!(!html.contains("animation"));
         assert!(!html.contains("transition"));
 
         assert!(storyboard.contains("image=\"SplashIcon\""));
         assert!(storyboard.contains("name=\"SplashBackground\""));
-        assert_eq!(storyboard.matches("constant=\"40\"").count(), 2);
+        assert_eq!(storyboard.matches("constant=\"106\"").count(), 2);
         assert!(storyboard.contains("firstAttribute=\"centerX\""));
         assert!(storyboard.contains("firstAttribute=\"centerY\""));
 
@@ -924,7 +924,10 @@ mod tests {
         let apple = include_str!("../gen/apple/Sources/alook-desktop/main.mm");
         assert!(apple.contains("[UIImage imageNamed:@\"SplashIcon\"]"));
         assert!(apple.contains("static const NSInteger kAlookStartupLogoTag = 8738"));
-        assert!(apple.contains("CGFloat size = 40.0"));
+        assert!(apple.contains("CGFloat size = 106.0"));
+        assert!(apple.contains("viewController.view.window ?: viewController.view"));
+        assert!(apple.contains("NSClassFromString(@\"TaoUIViewController\")"));
+        assert!(apple.contains("[host bringSubviewToFront:overlay]"));
         assert!(apple.contains("alookInstallStartupOverlay(self)"));
         assert!(apple.contains("alookWaitForWebViewSurface(self, startupWebView, 0)"));
         assert_order(
@@ -1031,6 +1034,14 @@ mod tests {
         assert!(activity.contains("(chromeInsets.bottom - chromeInsets.top)"));
         assert!(activity.contains("--alook-mobile-splash-offset-y"));
         assert!(activity.contains("webView.postVisualStateCallback"));
+        assert_order(
+            activity,
+            &[
+                "splashScreen.setOnExitAnimationListener",
+                "provider.view.postOnAnimation",
+                "provider.view.postOnAnimation { provider.remove() }",
+            ],
+        );
         assert!(activity
             .contains("Handler(Looper.getMainLooper()).postDelayed({ isReady = true }, 10000)"));
         assert!(!activity.contains(&["can", "GoBack()"].concat()));
