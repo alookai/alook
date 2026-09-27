@@ -10,6 +10,15 @@ function normalizeWorkflow(text: string): string {
 
 const ciWorkflow = normalizeWorkflow(readFileSync(resolve(workflowRoot, "ci.yml"), "utf8"))
 const workflow = ciWorkflow
+const dependabotConfig = normalizeWorkflow(
+  readFileSync(resolve(repositoryRoot, ".github/dependabot.yml"), "utf8"),
+)
+const changeScopeManifest = JSON.parse(
+  readFileSync(resolve(repositoryRoot, "scripts/ci/change-scope-manifest.json"), "utf8"),
+) as { ui: { contracts: { resizable_panels: string[] } } }
+const webPackageManifest = JSON.parse(
+  readFileSync(resolve(repositoryRoot, "src/web/package.json"), "utf8"),
+) as { dependencies: Record<string, string> }
 const legacyUiWorkflowPath = resolve(workflowRoot, "e2e-ui.yml")
 const playwrightConfig = readFileSync(
   resolve(import.meta.dirname, "../../src/web/playwright.config.ts"),
@@ -226,6 +235,13 @@ function ciJob(name: string): string {
 }
 
 describe("E2E UI workflow", () => {
+  it("isolates resizable-panels upgrades after adopting the latest compatible release", () => {
+    expect(webPackageManifest.dependencies["react-resizable-panels"]).toBe("4.14.1")
+    expect(dependabotConfig).toMatch(/^[ ]{6}resizable-panels:\n[ ]{8}patterns:\n[ ]{10}- "react-resizable-panels"$/m)
+    expect(dependabotConfig).toMatch(/^[ ]{8}exclude-patterns:[\s\S]*?^[ ]{10}- "react-resizable-panels"$/m)
+    expect(dependabotConfig).not.toMatch(/^[ ]{6}- dependency-name: "react-resizable-panels"$/m)
+  })
+
   it("uses the canonical CI scope before merge and removes the second classifier", () => {
     expect(workflow).toMatch(/^  pull_request:/m)
     expect(workflow).toMatch(/^  merge_group:/m)
@@ -316,8 +332,30 @@ describe("E2E UI workflow", () => {
     expect(shard.indexOf("e2e-build-artifact.mjs verify"))
       .toBeLessThan(shard.indexOf("playwright test"))
 
-    expect(gate).toContain("needs: [scope, ui-e2e-build, e2e-ui, merge-reports]")
+    expect(gate).toContain("needs: [scope, ui-e2e-build, e2e-ui, resizable-panels-compat, merge-reports]")
     expect(gate).toContain('{"name":"ui-e2e-build"')
+  })
+
+  it("gates isolated resizable-panels upgrades on responsive shell journeys", () => {
+    const compatibility = ciJob("resizable-panels-compat")
+    const gate = ciJob("ui-e2e-gate")
+
+    expect(changeScopeManifest.ui.contracts.resizable_panels).toEqual([
+      "53-mobile-inbox-surface.spec.ts",
+      "60-desktop-default-user-bar-width.spec.ts",
+    ])
+    expect(compatibility).toContain("needs.scope.outputs.run_resizable_panels_compat == 'true'")
+    for (const spec of changeScopeManifest.ui.contracts.resizable_panels) {
+      expect(compatibility).toContain(`src/test/e2e-ui/${spec}`)
+    }
+    expect(compatibility).toContain("preserves Marked tab, scroll, and request ownership across 639↔640")
+    expect(compatibility).toContain("restores fresh and saved mobile-first desktop entries before paint")
+    expect(compatibility).toContain("needs: [scope, ui-e2e-build]")
+    expect(compatibility).toContain("e2e-build-artifact.mjs verify")
+    expect(compatibility).toContain('ALOOK_E2E_PREBUILT: "1"')
+    expect(compatibility).not.toContain("opennextjs-cloudflare build")
+    expect(gate).toContain('{"name":"resizable-panels-compat"')
+    expect(gate).toContain("needs.scope.outputs.run_resizable_panels_compat == 'true'")
   })
 
   it("pins partial reruns to the successful producer's artifact identity", () => {
@@ -414,7 +452,7 @@ describe("CI workflow graph", () => {
     expect(scope).toContain("name: execution-plan-${{ github.run_id }}-${{ github.run_attempt }}")
     for (const job of [
       "auth-build", "blog-build", "static-checks", "test-linux", "test-windows", "app-packed-artifact",
-      "e2e", "desktop-rust", "lighthouse", "ui-e2e-build", "e2e-ui", "merge-reports",
+      "e2e", "desktop-rust", "lighthouse", "ui-e2e-build", "e2e-ui", "resizable-panels-compat", "merge-reports",
       "ci-gate", "ui-e2e-gate",
     ]) {
       const definition = ciJob(job)

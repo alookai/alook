@@ -319,6 +319,7 @@ function emptyJobs() {
     e2e: false,
     lighthouse: false,
     merge_reports: false,
+    resizable_panels_compat: false,
     rust: false,
     static_checks: false,
     test_linux: false,
@@ -443,6 +444,7 @@ export function buildExecutionPlan(inputChanges, options = {}) {
   jobs.lighthouse = lighthouse
   jobs.ui_e2e = uiSpecs.length > 0
   jobs.merge_reports = jobs.ui_e2e
+  jobs.resizable_panels_compat = options.resizablePanelsChanged === true
 
   const basePlan = {
     schema_version: manifest.schema_version,
@@ -458,6 +460,9 @@ export function buildExecutionPlan(inputChanges, options = {}) {
     docs_only: docsOnly && !full,
     auth_only: authPathsOnly && !full,
     blog_only: blogContentOnly && !full,
+    compatibility: {
+      resizable_panels: options.resizablePanelsChanged === true,
+    },
     workflow_changed: paths.some((path) => WORKFLOW.test(path)),
     packages: {
       direct,
@@ -487,6 +492,12 @@ export function validateExecutionPlan(plan, options = {}) {
     throw new Error("execution plan schema/policy version mismatch")
   }
   if (hashPlan(plan) !== plan.plan_hash) throw new Error("execution plan hash mismatch")
+  if (typeof plan.compatibility?.resizable_panels !== "boolean") {
+    throw new Error("execution plan resizable-panels compatibility flag is required")
+  }
+  if (plan.jobs.resizable_panels_compat !== plan.compatibility.resizable_panels) {
+    throw new Error("execution plan resizable-panels job does not match its compatibility flag")
+  }
 
   const packageNames = new Set(manifest.packages.map((entry) => entry.name))
   for (const name of [...plan.packages.direct, ...plan.packages.affected, ...plan.suites.static, ...plan.suites.build, ...plan.suites.knip]) {
@@ -529,6 +540,7 @@ export function projectPlan(plan) {
     run_windows: String(plan.jobs.test_windows),
     run_e2e: String(plan.jobs.e2e),
     run_ui_e2e: String(plan.jobs.ui_e2e),
+    run_resizable_panels_compat: String(plan.jobs.resizable_panels_compat),
     run_rust: String(plan.jobs.rust),
     run_lighthouse: String(plan.jobs.lighthouse),
     run_knip: String(plan.suites.knip.length > 0),
@@ -576,6 +588,35 @@ function readChangedFiles(args) {
     { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"] },
   )
   return parseNameStatus(diff)
+}
+
+function dependencySpecifier(source, dependency) {
+  const manifest = JSON.parse(source)
+  return manifest.dependencies?.[dependency]
+    ?? manifest.devDependencies?.[dependency]
+    ?? manifest.optionalDependencies?.[dependency]
+    ?? manifest.peerDependencies?.[dependency]
+}
+
+export function packageDependencyVersionChanged(baseSource, headSource, dependency) {
+  return dependencySpecifier(baseSource, dependency) !== dependencySpecifier(headSource, dependency)
+}
+
+function readPackageAtRef(ref, path) {
+  return execFileSync("git", ["show", `${ref}:${path}`], {
+    cwd: ROOT,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  })
+}
+
+function resizablePanelsVersionChanged(args) {
+  if (!args.base || !args.head || args.base === args.head) return false
+  return packageDependencyVersionChanged(
+    readPackageAtRef(args.base, "src/web/package.json"),
+    readPackageAtRef(args.head, "src/web/package.json"),
+    "react-resizable-panels",
+  )
 }
 
 function parseArgs(argv) {
@@ -631,6 +672,7 @@ export function runCli(argv) {
       forceFull: args.forceFull,
       fullUnlessBenchmarkOnly: args.fullUnlessBenchmarkOnly,
       diagnosticOnly: args.diagnosticOnly,
+      resizablePanelsChanged: resizablePanelsVersionChanged(args),
     })
   } catch (error) {
     fallbackReason = error instanceof Error ? error.message : String(error)
@@ -640,6 +682,7 @@ export function runCli(argv) {
       forceFull: true,
       fallbackReason,
       diagnosticOnly: args.diagnosticOnly,
+      resizablePanelsChanged: true,
     })
   }
   validateExecutionPlan(plan)

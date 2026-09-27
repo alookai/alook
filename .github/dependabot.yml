@@ -21,7 +21,9 @@ updates:
           - "@vitest/*"
           - "vitest"
           - "wrangler"
-          - "wrangler-e2e"
+      resizable-panels:
+        patterns:
+          - "react-resizable-panels"
       dependencies:
         patterns:
           - "*"
@@ -34,7 +36,7 @@ updates:
           - "@vitest/*"
           - "vitest"
           - "wrangler"
-          - "wrangler-e2e"
+          - "react-resizable-panels"
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]

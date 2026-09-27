@@ -66,6 +66,7 @@ jobs:
       run_windows: ${{ steps.scope.outputs.run_windows }}
       run_e2e: ${{ steps.scope.outputs.run_e2e }}
       run_ui_e2e: ${{ steps.scope.outputs.run_ui_e2e }}
+      run_resizable_panels_compat: ${{ steps.scope.outputs.run_resizable_panels_compat }}
       run_rust: ${{ steps.scope.outputs.run_rust }}
       run_lighthouse: ${{ steps.scope.outputs.run_lighthouse }}
       run_knip: ${{ steps.scope.outputs.run_knip }}
@@ -799,6 +800,67 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  resizable-panels-compat:
+    name: Resizable panels compatibility
+    needs: [scope, ui-e2e-build]
+    if: needs.scope.outputs.run_resizable_panels_compat == 'true' && github.event_name != 'push'
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ fromJSON(needs.scope.outputs.e2e_matrix).include[0].image }}
+      options: --init --ipc=host --user 1001
+    defaults:
+      run:
+        shell: bash
+    timeout-minutes: 15
+    env:
+      BETTER_AUTH_SECRET: ci-e2e-ui-secret
+      BETTER_AUTH_URL: http://localhost:3000
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Validate execution plan
+        env:
+          CI_EXECUTION_PLAN: ${{ needs.scope.outputs.execution_plan }}
+          CI_PLAN_HASH: ${{ needs.scope.outputs.plan_hash }}
+          CI_PROJECTION_NAME: e2e_matrix
+          CI_PROJECTION_VALUE: ${{ needs.scope.outputs.e2e_matrix }}
+        run: node scripts/ci/validate-execution-plan.mjs
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: printf 'BETTER_AUTH_SECRET=ci-e2e-ui-secret\nBETTER_AUTH_URL=http://localhost:3000\nDEVICE_CLIENT_IDS=e2e-test-client\nENCRYPTION_KEY=ci-e2e-encryption-key-32chars!!\nDEV_WS_DO_URL=http://localhost:3000\nNODE_ENV=development\n' > src/web/.dev.vars
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ${{ needs.ui-e2e-build.outputs.artifact_name }}
+          path: .ci/ui-e2e-build
+      - name: Verify exact-head build artifact
+        run: |
+          node scripts/ci/e2e-build-artifact.mjs verify \
+            --directory .ci/ui-e2e-build \
+            --run-id "${{ github.run_id }}" \
+            --attempt "${{ needs.ui-e2e-build.outputs.artifact_attempt }}" \
+            --head-sha "${{ github.sha }}"
+      - name: Run responsive shell compatibility journeys
+        env:
+          ALOOK_E2E_PREBUILT: "1"
+        run: |
+          pnpm --filter @alook/web exec playwright test \
+            src/test/e2e-ui/53-mobile-inbox-surface.spec.ts \
+            src/test/e2e-ui/60-desktop-default-user-bar-width.spec.ts \
+            --grep 'preserves Marked tab, scroll, and request ownership across 639↔640|restores fresh and saved mobile-first desktop entries before paint'
+      - if: failure()
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: resizable-panels-artifacts-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            src/web/test-results/
+            src/web/e2e-service-logs/
+          if-no-files-found: ignore
+          retention-days: 7
+
   merge-reports:
     name: Merge Playwright Reports
     needs: [scope, e2e-ui]
@@ -893,7 +955,7 @@ jobs:
   ui-e2e-gate:
     name: UI E2E Gate
     if: always()
-    needs: [scope, ui-e2e-build, e2e-ui, merge-reports]
+    needs: [scope, ui-e2e-build, e2e-ui, resizable-panels-compat, merge-reports]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
@@ -902,6 +964,7 @@ jobs:
           {"name":"scope","expected":true,"result":"${{ needs.scope.result }}"},
           {"name":"ui-e2e-build","expected":${{ needs.scope.outputs.run_ui_e2e == 'true' && github.event_name != 'push' }},"result":"${{ needs.ui-e2e-build.result }}"},
           {"name":"e2e-ui","expected":${{ needs.scope.outputs.run_ui_e2e == 'true' && github.event_name != 'push' }},"result":"${{ needs.e2e-ui.result }}"},
+          {"name":"resizable-panels-compat","expected":${{ needs.scope.outputs.run_resizable_panels_compat == 'true' && github.event_name != 'push' }},"result":"${{ needs.resizable-panels-compat.result }}"},
           {"name":"merge-reports","expected":${{ needs.scope.outputs.run_ui_e2e == 'true' && github.event_name != 'push' }},"result":"${{ needs.merge-reports.result }}"}
         ]
     steps:

@@ -39,7 +39,7 @@ export function resolveE2EWranglerRuntime(): {
   version: string
 } {
   const requireFromWeb = createRequire(resolve(REPO_ROOT, "src/web/package.json"))
-  const packagePath = requireFromWeb.resolve("wrangler-e2e/package.json")
+  const packagePath = requireFromWeb.resolve("wrangler/package.json")
   const manifest = requireFromWeb(packagePath) as {
     version?: unknown
     bin?: unknown
