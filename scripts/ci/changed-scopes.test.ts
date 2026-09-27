@@ -8,6 +8,7 @@ import {
   buildExecutionPlan,
   classifyPaths,
   loadScopeManifest,
+  packageDependencyVersionChanged,
   parseNameStatus,
   projectPlan,
   runCli,
@@ -87,11 +88,23 @@ function gitDiffFixture(changedPath = "src/app/src/commands/inbox.ts") {
 
   runGit("init", "--quiet")
   writeFileSync(join(root, "README.md"), "baseline\n")
-  runGit("add", "README.md")
+  mkdirSync(join(root, "src/web"), { recursive: true })
+  writeFileSync(
+    join(root, "src/web/package.json"),
+    JSON.stringify({ dependencies: { "react-resizable-panels": "4.12.3" } }),
+  )
+  runGit("add", "README.md", "src/web/package.json")
   commit("baseline")
 
-  mkdirSync(join(root, changedPath.split("/").slice(0, -1).join("/")), { recursive: true })
-  writeFileSync(join(root, changedPath), "export const fixture = true\n")
+  if (changedPath === "src/web/package.json") {
+    writeFileSync(
+      join(root, changedPath),
+      JSON.stringify({ dependencies: { "react-resizable-panels": "4.12.4" } }),
+    )
+  } else {
+    mkdirSync(join(root, changedPath.split("/").slice(0, -1).join("/")), { recursive: true })
+    writeFileSync(join(root, changedPath), "export const fixture = true\n")
+  }
   runGit("add", changedPath)
   commit("change app")
 
@@ -321,6 +334,28 @@ describe("canonical execution plan", () => {
     expect(() => validateExecutionPlan({ ...first, head_sha: sha("c") })).toThrow("hash")
   })
 
+  it("projects the resizable-panels compatibility gate from the dependency diff", () => {
+    const unchanged = plan(["src/web/package.json"])
+    expect(unchanged.compatibility.resizable_panels).toBe(false)
+    expect(unchanged.jobs.resizable_panels_compat).toBe(false)
+    expect(projectPlan(unchanged).run_resizable_panels_compat).toBe("false")
+
+    const changed = plan(["src/web/package.json"], { resizablePanelsChanged: true })
+    expect(changed.compatibility.resizable_panels).toBe(true)
+    expect(changed.jobs.resizable_panels_compat).toBe(true)
+    expect(projectPlan(changed).run_resizable_panels_compat).toBe("true")
+
+    const altered = structuredClone(changed)
+    altered.jobs.resizable_panels_compat = false
+    expect(() => validateExecutionPlan(resignPlan(altered)))
+      .toThrow("does not match")
+
+    const missingFlag = structuredClone(changed)
+    delete missingFlag.compatibility.resizable_panels
+    expect(() => validateExecutionPlan(resignPlan(missingFlag)))
+      .toThrow("compatibility flag is required")
+  })
+
   it("rejects every stale identifier in an otherwise authentic signed plan", () => {
     const current = plan(["src/shared/src/schema.ts"])
     expect(() => validateExecutionPlan({ ...current, schema_version: 2 }))
@@ -521,7 +556,7 @@ describe("scope manifest", () => {
     try {
       expect(() => validateScopeManifest(manifest, {
         root,
-        specs: manifest.ui.contracts.blog,
+        specs: Object.values(manifest.ui.contracts).flat(),
       })).not.toThrow()
     } finally {
       rmSync(root, { recursive: true, force: true })
@@ -537,7 +572,7 @@ describe("scope manifest", () => {
       try {
         expect(() => validateScopeManifest(manifest, {
           root,
-          specs: manifest.ui.contracts.blog,
+          specs: Object.values(manifest.ui.contracts).flat(),
         })).toThrow("codecov.yml")
       } finally {
         rmSync(root, { recursive: true, force: true })
@@ -554,7 +589,7 @@ describe("scope manifest", () => {
       writeFileSync(packagePath, JSON.stringify(packageManifest))
       expect(() => validateScopeManifest(manifest, {
         root,
-        specs: manifest.ui.contracts.blog,
+        specs: Object.values(manifest.ui.contracts).flat(),
       })).toThrow("declares test scope")
     } finally {
       rmSync(root, { recursive: true, force: true })
@@ -563,6 +598,28 @@ describe("scope manifest", () => {
 })
 
 describe("compatibility and CLI fail-closed behavior", () => {
+  it("detects dependency changes from package manifests instead of branch names", () => {
+    const manifest = (version?: string) => JSON.stringify({
+      dependencies: version ? { "react-resizable-panels": version } : {},
+    })
+
+    expect(packageDependencyVersionChanged(
+      manifest("4.12.3"),
+      manifest("4.12.3"),
+      "react-resizable-panels",
+    )).toBe(false)
+    expect(packageDependencyVersionChanged(
+      manifest("4.12.3"),
+      manifest("4.13.3"),
+      "react-resizable-panels",
+    )).toBe(true)
+    expect(packageDependencyVersionChanged(
+      manifest(),
+      manifest("4.13.3"),
+      "react-resizable-panels",
+    )).toBe(true)
+  })
+
   it("keeps classifyPaths as a canonical-plan adapter", () => {
     const result = classifyPaths(["src/desktop/src-tauri/src/lib.rs"])
     expect(result.jobs.rust).toBe(true)
@@ -586,8 +643,10 @@ describe("compatibility and CLI fail-closed behavior", () => {
       const writtenPlan = JSON.parse(readFileSync(planFile, "utf8"))
       expect(values).toContain("full=true")
       expect(values).toContain("run_ui_e2e=true")
+      expect(values).toContain("run_resizable_panels_compat=true")
       expect(writtenPlan.full).toBe(true)
       expect(writtenPlan.full_reason).toBe("classifier_error")
+      expect(writtenPlan.compatibility.resizable_panels).toBe(true)
       expect(readFileSync(summary, "utf8")).toContain("Fail-closed reason:")
     } finally {
       rmSync(directory, { recursive: true, force: true })
@@ -669,6 +728,23 @@ describe("compatibility and CLI fail-closed behavior", () => {
       const result = JSON.parse(readFileSync(planFile, "utf8"))
       expect(result.full).toBe(full)
       expect(result.changes).toEqual([{ status: "A", path }])
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true })
+    }
+  })
+
+  it("enables the compatibility gate for an actual package-version diff", () => {
+    const fixture = gitDiffFixture("src/web/package.json")
+    const output = join(fixture.root, "projection")
+    const planFile = join(fixture.root, "plan.json")
+    try {
+      execFileSync(process.execPath, ["scripts/ci/changed-scopes.mjs", "--base", "HEAD^", "--head", "HEAD", "--output", output, "--plan-file", planFile], {
+        env: { ...cleanGitEnvironment(), GIT_DIR: join(fixture.root, ".git"), GIT_WORK_TREE: fixture.root },
+      })
+      const result = JSON.parse(readFileSync(planFile, "utf8"))
+      expect(result.compatibility.resizable_panels).toBe(true)
+      expect(result.jobs.resizable_panels_compat).toBe(true)
+      expect(readFileSync(output, "utf8")).toContain("run_resizable_panels_compat=true")
     } finally {
       rmSync(fixture.root, { recursive: true, force: true })
     }

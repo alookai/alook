@@ -422,7 +422,11 @@ export function CommunityShellLayout({
               "min-h-0 flex-1",
               !isDesktop && [
                 "max-sm:*:data-[mobile-active=true]:flex-1!",
-                "max-sm:*:data-[mobile-hidden=true]:hidden!",
+                "max-sm:*:data-[mobile-hidden=true]:flex-none!",
+                "max-sm:*:data-[mobile-hidden=true]:w-0!",
+                "max-sm:*:data-[mobile-hidden=true]:min-w-0!",
+                "max-sm:*:data-[mobile-hidden=true]:max-w-0!",
+                "max-sm:*:data-[mobile-hidden=true]:overflow-hidden!",
               ],
             )}
             defaultLayout={hydratedClient ? defaultLayout : undefined}
@@ -436,7 +440,7 @@ export function CommunityShellLayout({
               maxSize={COMMUNITY_SIDEBAR_MAX_WIDTH}
               groupResizeBehavior="preserve-pixel-size"
               onResize={syncDesktopUserBarWidth}
-              hidden={isMobileDetail}
+              disabled={!isDesktop}
               data-mobile-active={sidebarMobileActive || undefined}
               data-mobile-hidden={sidebarMobileHidden || undefined}
               className={cn(
@@ -446,28 +450,42 @@ export function CommunityShellLayout({
             >
               <div
                 ref={sidebarPanelRef}
+                data-slot="community-sidebar-panel-content"
                 data-community-mobile-surface={isMobileList ? "list" : undefined}
-                className="flex min-h-0 min-w-0 flex-1 flex-col"
+                hidden={isMobileDetail}
+                className={cn(
+                  "flex min-h-0 min-w-0 flex-1 flex-col",
+                  isInitialDetail && "max-sm:hidden",
+                )}
               >
                 {sidebar}
               </div>
             </ResizablePanel>
             <ResizableHandle
-              className={cn("bg-transparent", !isDesktop && "hidden")}
+              disabled={!isDesktop}
+              className={cn(
+                "bg-transparent",
+                !isDesktop && "max-sm:w-0! max-sm:min-w-0! max-sm:max-w-0! max-sm:overflow-hidden",
+              )}
               disableDoubleClick
               elementRef={resizeHandleRef}
             />
             <ResizablePanel
               id="main"
               groupResizeBehavior="preserve-relative-size"
-              hidden={isMobileList}
+              disabled={!isDesktop}
               data-mobile-active={mainMobileActive || undefined}
               data-mobile-hidden={mainMobileHidden || undefined}
               className="flex min-w-0 flex-col bg-background"
             >
               <div
+                data-slot="community-main-panel-content"
                 data-community-mobile-surface={isMobileDetail ? "detail" : undefined}
-                className="flex min-h-0 flex-1 flex-col"
+                hidden={isMobileList}
+                className={cn(
+                  "flex min-h-0 flex-1 flex-col",
+                  isInitial && surface === "list" && "max-sm:hidden",
+                )}
               >
                 {main}
               </div>

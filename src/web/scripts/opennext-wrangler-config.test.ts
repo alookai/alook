@@ -27,7 +27,7 @@ function bindingNames(toml: string): string[] {
 }
 
 describe("OpenNext and Wrangler refresh", () => {
-  it("uses one exact Wrangler version and keeps the Web alias aligned", () => {
+  it("uses one exact Wrangler dependency identity across the workspace", () => {
     const manifests = [
       "package.json",
       "src/app/package.json",
@@ -42,8 +42,7 @@ describe("OpenNext and Wrangler refresh", () => {
     for (const manifest of manifests) {
       expect(dependency(manifest, "wrangler"), manifest).toBe(wranglerVersion)
     }
-    expect(dependency("src/web/package.json", "wrangler-e2e"))
-      .toBe(`npm:wrangler@${wranglerVersion}`)
+    expect(dependency("src/web/package.json", "wrangler-e2e")).toBeUndefined()
   })
 
   it("locks the OpenNext AWS patch and keeps one Workers types range", () => {

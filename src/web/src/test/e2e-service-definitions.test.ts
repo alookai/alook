@@ -25,13 +25,14 @@ afterEach(() => {
 })
 
 describe("UI E2E service definitions", () => {
-  it("isolates the exact E2E Wrangler from the normal project CLI", () => {
+  it("launches the exact Web workspace Wrangler instead of a PATH-selected CLI", () => {
     const runtime = resolveE2EWranglerRuntime()
     const requireFromTest = createRequire(import.meta.url)
     const normalManifest = requireFromTest("wrangler/package.json") as { version: string }
 
     expect(runtime.version).toBe(normalManifest.version)
     expect(runtime.entry).toContain(`wrangler@${runtime.version}`)
+    expect(runtime.entry).not.toContain("wrangler-e2e")
     expect(runtime.entry).toMatch(/bin[/\\]wrangler\.js$/)
   })
 
