@@ -973,10 +973,16 @@ export function useScrollAnchor({
   // changes both alter this viewport's real `clientHeight`. Preserve the
   // conversation's semantic anchor from the last accepted geometry: exact
   // distance-to-tail through the shared 100px tail context, otherwise the
-  // reading scrollTop. This is the sole writer for footer-driven viewport
-  // changes; the footer itself does not measure or mutate the message list.
-  // Keyed on `clientHeight`, orthogonal to hero compensation above (keyed on
-  // `heroHeight`) — separate effects, no double-apply.
+  // reading scrollTop. This hook remains the sole writer for footer-driven
+  // viewport changes; the footer itself does not measure or mutate the list.
+  //
+  // A footer DOM mutation is observed in the microtask that created it so the
+  // correction lands before the next animation frame. Waiting only for the
+  // scroller ResizeObserver leaves one frame where the browser has already
+  // clamped scrollTop to its new maximum (a visible 100px flash at the tail
+  // boundary). ResizeObserver remains the fallback for pure layout changes
+  // such as the mobile keyboard. Both paths share and immediately accept the
+  // same geometry, so a later delivery is a no-op rather than a double-write.
   useLayoutEffect(() => {
     const el = scrollRef.current
     if (!el) return
@@ -986,7 +992,7 @@ export function useScrollAnchor({
     acceptedClientHeightRef.current = el.clientHeight
     acceptedScrollTopRef.current = el.scrollTop
     acceptedScrollHeightRef.current = el.scrollHeight
-    const ro = new ResizeObserver(() => {
+    const reconcileViewportResize = () => {
       const previousClientHeight = acceptedClientHeightRef.current
       const nextClientHeight = el.clientHeight
       if (nextClientHeight === previousClientHeight) return
@@ -1008,9 +1014,25 @@ export function useScrollAnchor({
       virtualizer.options.anchorTo = wasExactlyPinnedRef.current && !userScrolledAwayRef.current
         ? "end"
         : "start"
-    })
+    }
+    const ro = new ResizeObserver(reconcileViewportResize)
     ro.observe(el)
-    return () => ro.disconnect()
+    const footer = el
+      .closest<HTMLElement>('[data-slot="community-conversation-surface"]')
+      ?.querySelector<HTMLElement>('[data-slot="community-conversation-footer"]')
+    const mo = footer && typeof MutationObserver !== "undefined"
+      ? new MutationObserver(reconcileViewportResize)
+      : null
+    mo?.observe(footer!, {
+      attributes: true,
+      characterData: true,
+      childList: true,
+      subtree: true,
+    })
+    return () => {
+      ro.disconnect()
+      mo?.disconnect()
+    }
   }, [virtualizer])
 
   // "↓ N below" pill count — a plain arithmetic derivation from data

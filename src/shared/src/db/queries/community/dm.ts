@@ -282,7 +282,7 @@ export async function listDMs(db: Database, userId: string) {
   return result.sort((a, b) => {
     const aTime = a.lastMessageAt ?? a.createdAt;
     const bTime = b.lastMessageAt ?? b.createdAt;
-    return bTime.localeCompare(aTime);
+    return bTime.localeCompare(aTime) || a.id.localeCompare(b.id);
   });
 }
 

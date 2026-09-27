@@ -423,6 +423,41 @@ function expectResizeAnchorPreserved(
   expectViewportAnchorPreserved(before, after, label)
 }
 
+function expectContinuousResizeAnchorPreserved(
+  trace: ScrollTraceResult,
+  segmentName: string,
+  distance: number,
+): void {
+  const start = trace.marks.find((mark) => mark.name === `analysis-start:${segmentName}`)
+  const end = trace.marks.find((mark) => mark.name === `analysis-end:${segmentName}`)
+  expect(start, `${segmentName}: start mark`).toBeDefined()
+  expect(end, `${segmentName}: end mark`).toBeDefined()
+  const frames = trace.frames.filter((frame) => (
+    frame.frame >= start!.frame && frame.frame <= end!.frame
+  ))
+  expect(frames.length, `${segmentName}: continuous frames`).toBeGreaterThan(1)
+
+  const baseline = frames[0]!
+  if (distance <= 100) {
+    for (const frame of frames) {
+      expect(
+        Math.abs(frame.distanceToEnd - baseline.distanceToEnd),
+        `${segmentName}: frame ${frame.frame} tail-distance drift`,
+      ).toBeLessThanOrEqual(1)
+    }
+    return
+  }
+
+  for (const frame of frames) {
+    expect(frame.firstVisibleId, `${segmentName}: frame ${frame.frame} visible row`)
+      .toBe(baseline.firstVisibleId)
+    expect(
+      Math.abs((frame.firstVisibleOffset ?? 0) - (baseline.firstVisibleOffset ?? 0)),
+      `${segmentName}: frame ${frame.frame} visible-anchor drift`,
+    ).toBeLessThanOrEqual(1)
+  }
+}
+
 function expectInFlowMessageGeometry(geometry: MessageViewportGeometry, label: string): void {
   expect(geometry.contentPaddingBottom, `${label}: desktop normal tail inset`).toBe(24)
   expect(geometry.composerRect, `${label}: scoped composer`).not.toBeNull()
@@ -962,7 +997,9 @@ test.describe.serial("message scroll characterization", () => {
       summarizeScrollTrace(trace).analysisSegments.map((segment) => [segment.name, segment]),
     )
     for (const distance of [0, 2, 100, 300]) {
-      expect(segments.get(`dm-composer-shrink-${distance}`)).toBeDefined()
+      const segmentName = `dm-composer-shrink-${distance}`
+      expect(segments.get(segmentName)).toBeDefined()
+      expectContinuousResizeAnchorPreserved(trace, segmentName, distance)
     }
     expect(messagePosts).toBe(0)
     expect(proxy.frames.flatMap(communityFrameEvents).filter((event) =>
@@ -1096,6 +1133,9 @@ test.describe.serial("message scroll characterization", () => {
     await expect(selectionAction).toBeVisible()
     await selectionAction.evaluate((button) => (button as HTMLButtonElement).click())
     await expect(alice.page.getByTestId(tid.messageSelectionToolbar)).toBeVisible()
+    const conversationFooter = alice.page.locator('[data-slot="community-conversation-footer"]')
+    await expect(conversationFooter).toHaveAttribute("data-selection-active", "true")
+    await expect(editable).toBeHidden()
     const selectionOpen = await waitForCommittedGeometry(scroller)
     expect(selectionOpen.clientHeight).toBeGreaterThan(selectionBase.clientHeight)
     expect(selectionOpen.scrollHeight).toBe(selectionBase.scrollHeight)
@@ -1103,6 +1143,8 @@ test.describe.serial("message scroll characterization", () => {
     await expect(editable).toContainText("selection-draft line 0")
     await alice.page.getByRole("button", { name: "Cancel message selection" }).click()
     await expect(alice.page.getByTestId(tid.messageSelectionToolbar)).toHaveCount(0)
+    await expect(conversationFooter).toHaveAttribute("data-selection-active", "false")
+    await expect(editable).toBeVisible()
     const selectionClosed = await waitForCommittedGeometry(scroller)
     expect(selectionClosed.clientHeight).toBe(selectionBase.clientHeight)
     expect(selectionClosed.scrollHeight).toBe(selectionBase.scrollHeight)
@@ -1189,8 +1231,11 @@ test.describe.serial("message scroll characterization", () => {
       const shrink = resizeSegments.get(`composer-shrink-${distance}`)
       expect(grow, `missing composer-grow-${distance}`).toBeDefined()
       expect(shrink, `missing composer-shrink-${distance}`).toBeDefined()
+      expectContinuousResizeAnchorPreserved(trace, `composer-grow-${distance}`, distance)
+      expectContinuousResizeAnchorPreserved(trace, `composer-shrink-${distance}`, distance)
     }
     expect(resizeSegments.get("typing-rail-away")?.writerCount).toBe(0)
+    expectContinuousResizeAnchorPreserved(trace, "selection-footer-away", 300)
     expect(mutationPosts).toBe(0)
     expect(proxy.frames.flatMap(communityFrameEvents).filter((event) =>
       event.type === "community:message.create" && event.channelId === composerChannelId)).toHaveLength(0)

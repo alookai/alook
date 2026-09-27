@@ -364,7 +364,7 @@ function MessageImpl({
       }
     : undefined
   // In select mode (multi-share), the whole row is a big toggle target and gets
-  // a leading checkbox overlay + a tint when picked. `canShare` rows only —
+  // a name-row checkbox overlay + a tint when picked. `canShare` rows only —
   // approval/attachment-only rows aren't selectable (nothing to put on the card).
   const selectable = selectMode && canShare
   const reactionAddButton = (
@@ -585,23 +585,6 @@ function MessageImpl({
           }
         : undefined}
     >
-      {selectMode && (
-        // Checkbox overlay (absolute → no layout shift / no virtualizer
-        // remeasure storm on enter/exit, per the list's dynamic measurement).
-        // Selectable rows show an interactive box; non-selectable (approval/
-        // system) rows show nothing so they read as "can't pick this".
-        selectable && (
-          <span
-            aria-hidden
-            className={[
-              "absolute left-5 top-1/2 z-20 grid size-4 -translate-y-1/2 place-items-center rounded-[5px] border transition-colors",
-              selected ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/50 bg-card",
-            ].join(" ")}
-          >
-            {selected && <Check className="size-3" strokeWidth={3} />}
-          </span>
-        )
-      )}
       <div className="min-w-0 flex-1">
       {interactive && activated && !selectMode && (
         <div className={`absolute right-2 z-20 flex items-center gap-1 rounded-lg border border-border/60 bg-card px-2 py-1 shadow-(--e1) transition-opacity duration-150 ${m.grouped ? "-top-2" : "-top-3"} ${toolbarOpen ? "opacity-100" : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"}`}>
@@ -668,9 +651,21 @@ function MessageImpl({
             <Avatar label={authorAvatar} seed={m.authorId} size={40} />
           </button>
         )}
-        <div className="min-w-0 flex-1">
+        <div className="relative min-w-0 flex-1">
+          {m.grouped && selectable && (
+            <span
+              aria-hidden
+              data-message-selection-checkbox
+              className={[
+                "absolute right-0 top-0 z-20 grid size-4 place-items-center rounded-[5px] border transition-colors",
+                selected ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/50 bg-card",
+              ].join(" ")}
+            >
+              {selected && <Check className="size-3" strokeWidth={3} />}
+            </span>
+          )}
           {!m.grouped && (
-            <div className="flex items-baseline gap-2">
+            <div className={`relative flex items-baseline gap-2${selectable ? " pr-6" : ""}`}>
               <button
                 onClick={(e) => onOpenProfile?.(authorName, e, undefined, m.authorId)}
                 className="min-w-0 max-w-full truncate text-[15px] font-semibold hover:underline"
@@ -679,6 +674,18 @@ function MessageImpl({
                 {authorName}
               </button>
               <span className="shrink-0 text-xs text-muted-foreground" suppressHydrationWarning>{formatMessageTime(m.createdAt)}</span>
+              {selectable && (
+                <span
+                  aria-hidden
+                  data-message-selection-checkbox
+                  className={[
+                    "absolute right-0 top-1/2 z-20 grid size-4 -translate-y-1/2 place-items-center rounded-[5px] border transition-colors",
+                    selected ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/50 bg-card",
+                  ].join(" ")}
+                >
+                  {selected && <Check className="size-3" strokeWidth={3} />}
+                </span>
+              )}
             </div>
           )}
           {m.approval ? (

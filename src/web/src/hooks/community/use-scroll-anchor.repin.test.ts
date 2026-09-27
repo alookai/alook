@@ -12,6 +12,7 @@ let refs: Array<{ current: unknown }> = []
 let refIndex = 0
 let layoutEffects: Array<() => void | (() => void)> = []
 let resizeCallbacks: ResizeObserverCallback[] = []
+let mutationCallbacks: MutationCallback[] = []
 const PAGINATION_ANCHOR_FRAME_REF_INDEX = 14
 const PAGINATION_UNMOUNT_EFFECT_INDEX = 2
 
@@ -50,6 +51,7 @@ function resetHarness() {
   refIndex = 0
   layoutEffects = []
   resizeCallbacks = []
+  mutationCallbacks = []
   virtualizerOptions = undefined
   virtualizer.options.anchorTo = "end"
   virtualizer.isAtEnd.mockReturnValue(true)
@@ -67,6 +69,15 @@ function resetHarness() {
     observe() {}
     unobserve() {}
     disconnect() {}
+  })
+  vi.stubGlobal("MutationObserver", class {
+    constructor(callback: MutationCallback) {
+      mutationCallbacks.push(callback)
+    }
+
+    observe() {}
+    disconnect() {}
+    takeRecords() { return [] }
   })
 }
 
@@ -120,6 +131,7 @@ async function mountHook({
   const scroller = {
     addEventListener: (type: string, listener: EventListener) => listeners.set(type, listener),
     removeEventListener: vi.fn(),
+    closest: () => ({ querySelector: () => ({}) }),
     get clientHeight() {
       return clientHeight
     },
@@ -169,6 +181,7 @@ async function mountHook({
   }
   const dispatchScroll = () => listeners.get("scroll")?.(new Event("scroll"))
   const dispatchResize = () => resizeCallbacks.at(-1)?.([], {} as ResizeObserver)
+  const dispatchMutation = () => mutationCallbacks.at(-1)?.([], {} as MutationObserver)
   const resizeViewport = (
     nextClientHeight: number,
     order: "scroll-ro" | "ro-scroll" = "ro-scroll",
@@ -190,8 +203,10 @@ async function mountHook({
     scroller,
     result,
     dispatchScroll,
+    dispatchMutation,
     resizeViewport,
     setBrowserScrollTop,
+    setClientHeight,
     setScrollHeight,
     geometry,
     rerender,
@@ -473,6 +488,21 @@ describe("useScrollAnchor semantic viewport resize anchoring", () => {
       expect(scrollHeight - clientHeight - scrollTop).toBe(2)
       resetHarness()
     }
+  })
+
+  it("repairs browser shrink clamping in the footer-mutation microtask before ResizeObserver", async () => {
+    const mounted = await mountHook({ distanceToEnd: 100 })
+
+    mounted.setClientHeight(920)
+    expect(mounted.geometry().scrollHeight - mounted.geometry().clientHeight - mounted.geometry().scrollTop)
+      .toBe(0)
+    mounted.dispatchMutation()
+
+    expect(mounted.geometry().scrollHeight - mounted.geometry().clientHeight - mounted.geometry().scrollTop)
+      .toBe(100)
+    mounted.resizeViewport(920)
+    expect(mounted.geometry().scrollHeight - mounted.geometry().clientHeight - mounted.geometry().scrollTop)
+      .toBe(100)
   })
 
   it.each([

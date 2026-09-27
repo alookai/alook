@@ -1,5 +1,6 @@
 import type { UnreadDm } from "./models/inbox"
 import type { DM } from "./models/people"
+import { sortDmsByActivity } from "./dm-order"
 
 export type DmCache = { conversations: DM[] }
 
@@ -13,6 +14,7 @@ export function dmSummaryFromInbox(unread: UnreadDm): DM {
     avatarVersion: unread.otherUserAvatarVersion,
     status: "offline",
     preview: "",
+    activityAt: unread.lastMessageAt,
     unread: false,
   }
 }
@@ -24,11 +26,11 @@ export function upsertDmSummary(
   if (!previous) return { conversations: [incoming] }
   const existingIndex = previous.conversations.findIndex((dm) => dm.id === incoming.id)
   if (existingIndex < 0) {
-    return { ...previous, conversations: [incoming, ...previous.conversations] }
+    return { ...previous, conversations: sortDmsByActivity([incoming, ...previous.conversations]) }
   }
   return {
     ...previous,
-    conversations: previous.conversations.map((dm, index) =>
+    conversations: sortDmsByActivity(previous.conversations.map((dm, index) =>
       index === existingIndex
         ? {
           ...dm,
@@ -37,6 +39,6 @@ export function upsertDmSummary(
           preview: dm.preview,
         }
         : dm
-    ),
+    )),
   }
 }

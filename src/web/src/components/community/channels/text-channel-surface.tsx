@@ -125,7 +125,6 @@ export function TextChannelSurface({
               notifLevel={notificationLevel}
               onSetNotifLevel={onSetNotificationLevel}
               mobileBack={onNavigateParent}
-              typingUsers={controller.typingUsers}
             />
           )}
             body={(
@@ -163,6 +162,7 @@ export function TextChannelSurface({
                   onJumpToPresent={feed.jumpToPresent}
                   presentVersion={feed.presentVersion}
                   unreadCount={feed.unreadCount}
+                  typingUsers={controller.typingUsers}
                 />
                 <ConversationFooterShell
                   data-onboarding-target="channel-composer"

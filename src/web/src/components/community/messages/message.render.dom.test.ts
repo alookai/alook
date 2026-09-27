@@ -371,13 +371,17 @@ describe("Message memo comparator", () => {
       && node.props.className.includes("group relative -mx-2")
     ))
     const checkbox = renderer!.root.find((node) => (
-      typeof node.props.className === "string"
-      && node.props.className.includes("absolute left-5 top-1/2")
+      node.props["data-message-selection-checkbox"] === true
     ))
+    const nameRow = checkbox.parent!
 
     expect(row.props.className).toContain("cursor-pointer")
     expect(row.props.className).not.toContain("pl-9")
-    expect(checkbox.parent?.element).toBe(row.element)
+    expect(checkbox.props.className).toContain("absolute right-0 top-1/2")
+    expect(nameRow.props.className).toContain("relative")
+    expect(nameRow.props.className).toContain("pr-6")
+    expect(nameRow.parent?.props.className).toContain("min-w-0 flex-1")
+    expect(nameRow.parent?.props.className).not.toContain("pr-6")
     act(() => renderer!.unmount())
   })
 

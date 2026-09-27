@@ -360,13 +360,13 @@ describe("ThreadChannelSurface ownership", () => {
       channel: "Thread name",
       kind: "thread",
       mobileBack: props.onNavigateParent,
-      typingUsers: ["Alice"],
     }), undefined)
+    expect(mockedChannelHeader.mock.calls.at(-1)?.[0]).not.toHaveProperty("typingUsers")
     expect(mockedMessageList).toHaveBeenCalledWith(expect.objectContaining({
       channel: "Thread name",
       loading: true,
     }), undefined)
-    expect(mockedMessageList.mock.calls.at(-1)?.[0]).not.toHaveProperty("typingUsers")
+    expect(mockedMessageList.mock.calls.at(-1)?.[0].typingUsers).toEqual(["Alice"])
     expect(mockedComposer).toHaveBeenCalled()
 
     mockedUseChannelMessageFeed.mockReturnValue(feed({ isLoading: false, isError: true }))

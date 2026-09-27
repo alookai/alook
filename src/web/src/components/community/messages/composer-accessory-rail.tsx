@@ -5,28 +5,54 @@ import { Button } from "@/components/ui/button"
 import { NumberTicker } from "@/components/ui/number-ticker"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { tid } from "@/lib/community/testids"
+import { cn } from "@/lib/utils"
+import { allocateComposerAccessoryRail } from "./composer-accessory-rail-layout"
+import { TypingIndicator } from "./typing-indicator"
 
 export function ComposerAccessoryRail({
+  typingNames,
   scrollCount,
   scrollMode,
   onScroll,
 }: {
+  typingNames: string[]
   scrollCount: number
   scrollMode: "scroll" | "jump"
   onScroll: () => void
 }) {
-  if (scrollCount <= 0) return null
+  const hasTyping = typingNames.length > 0
+  const hasScroll = scrollCount > 0
+  const layout = allocateComposerAccessoryRail({
+    mode: "normal",
+    left: hasTyping,
+    center: hasScroll,
+  })
+
+  if (layout === "empty") return null
 
   return (
     <div
       data-testid={tid.composerAccessoryRail}
-      data-layout="centered"
+      data-layout={layout}
       className="pointer-events-none absolute inset-x-0 bottom-2 z-20 px-2 sm:bottom-4 sm:px-4"
     >
-      <div className="grid w-full grid-cols-[minmax(0,1fr)_minmax(0,max-content)_minmax(0,1fr)] items-end">
-        <div className="col-start-2 min-w-0 max-w-full justify-self-center">
-          <ScrollControl count={scrollCount} mode={scrollMode} onClick={onScroll} />
-        </div>
+      <div
+        className={cn(
+          "grid w-full items-end gap-1 sm:gap-2",
+          layout === "centered" && "grid-cols-[minmax(0,1fr)_minmax(0,max-content)_minmax(0,1fr)]",
+          layout === "left-only" && "grid-cols-[minmax(0,1fr)]",
+        )}
+      >
+        {hasTyping && (
+          <div className="col-start-1 min-w-0 max-w-full">
+            <TypingIndicator names={typingNames} className="w-fit max-w-full" />
+          </div>
+        )}
+        {hasScroll && (
+          <div className="col-start-2 min-w-0 max-w-full justify-self-center">
+            <ScrollControl count={scrollCount} mode={scrollMode} onClick={onScroll} />
+          </div>
+        )}
       </div>
     </div>
   )

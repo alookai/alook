@@ -86,6 +86,9 @@ describe("GET /api/community/users/me/dms — name projection", () => {
     expect(body.conversations[0]?.name).toBe("Alice")
     expect(body.conversations[0]?.name).not.toContain("@")
     expect(body.conversations[0]?.avatar).toBe("A")
+    expect(body.conversations[0]).toMatchObject({
+      activityAt: "2026-06-30T00:00:00.000Z",
+    })
   })
 
   it("projects canonical unread state and its sequence evidence", async () => {
@@ -108,6 +111,7 @@ describe("GET /api/community/users/me/dms — name projection", () => {
     const res = await GET(getReq(), {} as any)
     expect((await res.json()).conversations[0]).toMatchObject({
       id: "d1",
+      activityAt: "2026-06-30T00:00:00.000Z",
       unread: true,
       lastUnreadSeq: 9,
     })

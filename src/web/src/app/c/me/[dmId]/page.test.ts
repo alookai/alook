@@ -21,8 +21,10 @@ describe("DM page loading ownership", () => {
     expect(source).not.toContain("composerOverlap")
     expect(source).not.toContain("onOverlapChange")
     expect(source).toContain("typingUsers={typingUsers.map((id) => typingNames[id] ?? resolveUserName(id))}")
-    const messageListProps = source.split("          <MessageList\n")[1]?.split("          />")[0]
-    expect(messageListProps).not.toContain("typingUsers")
+    const dmHeaderProps = source.split("<DmHeader\n")[1]?.split("/>")[0]
+    expect(dmHeaderProps).not.toContain("typingUsers")
+    const messageListProps = source.split("<MessageList\n")[1]?.split("/>")[0]
+    expect(messageListProps).toContain("typingUsers")
     expect(source).not.toContain('data-onboarding-name={dm.name} className="shrink-0"')
     expect(source).toContain("loading={loadingOwnership.messageBodyLoading}")
     expect(source).not.toContain("<ComposerSkeleton")

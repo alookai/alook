@@ -221,7 +221,6 @@ export function ThreadChannelSurface({
               titleRename={parentIsForum}
               onRename={parentChannelId && !splitActions ? rename : undefined}
               compactActions={!!splitActions}
-              typingUsers={controller.typingUsers}
               endActions={splitActions ? (
                 <ThreadPanelActions
                   onFullscreen={splitActions.onFullscreen}
@@ -266,6 +265,7 @@ export function ThreadChannelSurface({
                   onJumpToPresent={controller.feed.jumpToPresent}
                   presentVersion={controller.feed.presentVersion}
                   unreadCount={controller.feed.unreadCount}
+                  typingUsers={controller.typingUsers}
                 />
                 <ConversationFooterShell
                   data-onboarding-target="channel-composer"

@@ -199,9 +199,12 @@ describe("InboxPopover thread opener rows", () => {
       isProjected: (target) => target?.kind === "channel-direct",
     }))
     const parentRows = renderer.queryAllByTestId(tid.inboxUnreadChannel("f1"))
+    const openerRows = renderer.queryAllByTestId(tid.inboxUnreadChild("p1"))
     expect(parentRows).toHaveLength(1)
-    expect(renderer.queryAllByTestId(tid.inboxUnreadChild("p1"))).toHaveLength(1)
+    expect(openerRows).toHaveLength(1)
     expect(renderer.queryAllByTestId(tid.inboxUnreadChild("t1"))).toHaveLength(1)
+    expect(textOf(parentRows[0]!)).toContain("Forum")
+    expect(textOf(openerRows[0]!)).toContain("Full authoritative opener content")
     expect(textOf(parentRows[0]!)).not.toContain("2")
     fireEvent.click(parentRows[0]!)
     expect(onOpenChannel).toHaveBeenCalledWith(

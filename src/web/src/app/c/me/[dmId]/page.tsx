@@ -445,7 +445,6 @@ function DmView() {
       <DmHeader
         dm={dm}
         onBack={bp === "mobile" ? goBack : undefined}
-        typingUsers={typingUsers.map((id) => typingNames[id] ?? resolveUserName(id))}
         notifLevel={(notifications.channel[dmId] ?? notifLevelDisplay("all")) as NotifLevel}
         onSetNotifLevel={(level) => setNotification.mutate({ channelId: dmId, level }, {
           onError: (error) => toastApiError(error, "Failed to update notification level"),
@@ -491,6 +490,7 @@ function DmView() {
             onJumpToPresent={jumpToPresent}
             presentVersion={presentVersion}
             unreadCount={unreadCount}
+            typingUsers={typingUsers.map((id) => typingNames[id] ?? resolveUserName(id))}
             hero={
               <>
                 <div className="relative mb-3 w-fit"><Avatar label={dm.avatar} seed={dm.userId} size={64} /></div>

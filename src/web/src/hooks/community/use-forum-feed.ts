@@ -153,13 +153,10 @@ export function mapForumFeedPages(
             }
           : undefined
         : canonicalOpener
-      // The forum transport exposes firstMessages only as a channel/content
-      // preview with no stable message identity. It is a providerless read
-      // projection only; a canonical-backed surface must never treat it as a
-      // second message entity source because edits/deletes cannot reconcile it.
-      const first = canonicalMessages === undefined
-        ? firstByChannel.get(thread.id)
-        : undefined
+      // firstMessages is transport-owned view metadata, not a canonical
+      // message entity. Keep rendering the preview on canonical-backed
+      // surfaces without publishing it into the canonical message collection.
+      const first = firstByChannel.get(thread.id)
       byId.set(thread.id, {
         id: thread.id,
         name: opener?.content?.trim() ? opener.content : thread.name?.trim() || "Post",
