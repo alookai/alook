@@ -156,12 +156,12 @@ test.describe.serial("Inbox/read refresh ownership", () => {
       expect.stringContaining(`/c/channels/${serverId}/${channelA}`),
     ])
 
-    const reconciledInbox = page.waitForResponse((response) => (
+    const reconciledAttention = page.waitForResponse((response) => (
       response.request().method() === "GET"
-      && new URL(response.url()).pathname === "/api/community/users/me/inbox/unreads"
+      && new URL(response.url()).pathname === "/api/community/users/me/attention"
     ))
     readGate.resolve()
-    expect((await reconciledInbox).status()).toBe(200)
+    expect((await reconciledAttention).status()).toBe(200)
     await expect(page.getByTestId(tid.inboxUnreadChannel(channelA))).toHaveCount(0)
     await expect(page.getByTestId(tid.inboxUnreadChannel(channelB))).toBeVisible()
   })
@@ -178,15 +178,15 @@ test.describe.serial("Inbox/read refresh ownership", () => {
     const readObserverGate = await installReadObserverGate(page)
     const proxy = await proxyCommunityWebSockets(context)
     await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelA}`)
-    const initialInbox = page.waitForResponse((response) => (
+    const initialAttention = page.waitForResponse((response) => (
       response.request().method() === "GET"
-      && new URL(response.url()).pathname === "/api/community/users/me/inbox/unreads"
+      && new URL(response.url()).pathname === "/api/community/users/me/attention"
     ))
     await expect(page.getByRole("heading", { name: channelAName, exact: true })).toBeVisible({
       timeout: 20_000,
     })
     await page.getByRole("button", { name: "Inbox", exact: true }).click()
-    expect((await initialInbox).status()).toBe(200)
+    expect((await initialAttention).status()).toBe(200)
     await expect(page.getByTestId(tid.inboxUnreadChannel(channelA))).toHaveCount(0)
 
     const stopWatchingA = await watchInboxRow(page, tid.inboxUnreadChannel(channelA))
@@ -199,22 +199,16 @@ test.describe.serial("Inbox/read refresh ownership", () => {
     const requestStart = requests.length
     const frameStart = proxy.frames.length
     await readObserverGate.block()
-    const staleInboxResponse = page.waitForResponse(async (response) => {
+    const staleAttentionResponse = page.waitForResponse(async (response) => {
       if (
         response.request().method() !== "GET"
-        || new URL(response.url()).pathname !== "/api/community/users/me/inbox/unreads"
+        || new URL(response.url()).pathname !== "/api/community/users/me/attention"
         || response.status() !== 200
       ) return false
       const payload = await response.json() as {
-        servers: Array<{ channels: Array<{
-          channelId: string
-          children: Array<{ channelId: string }>
-        }> }>
+        scopes: Array<{ scopeId: string }>
       }
-      return payload.servers.some((server) => server.channels.some((channel) => (
-        channel.channelId === channelA
-        || channel.children.some((child) => child.channelId === channelA)
-      )))
+      return payload.scopes.some((scope) => scope.scopeId === channelA)
     })
     const readResponse = page.waitForResponse((response) => (
       response.request().method() === "PUT"
@@ -225,19 +219,12 @@ test.describe.serial("Inbox/read refresh ownership", () => {
     const bodyDm = `background dm ${stamp}`
     const messageA = await seedMessage("alice", channelA, bodyA)
     await expect(page.getByText(bodyA, { exact: true })).toBeVisible({ timeout: 20_000 })
-    const staleResponse = await staleInboxResponse
+    const staleResponse = await staleAttentionResponse
     expect(staleResponse.status()).toBe(200)
     const stalePayload = await staleResponse.json() as {
-      servers: Array<{ channels: Array<{
-        channelId: string
-        children: Array<{ channelId: string }>
-      }> }>
-      dms: Array<{ channelId: string }>
+      scopes: Array<{ scopeId: string }>
     }
-    expect(stalePayload.servers.some((server) => server.channels.some((channel) => (
-      channel.channelId === channelA
-      || channel.children.some((child) => child.channelId === channelA)
-    )))).toBe(true)
+    expect(stalePayload.scopes.some((scope) => scope.scopeId === channelA)).toBe(true)
     expect(await readObserverGate.pending()).toBeGreaterThan(0)
     await expect(page.getByTestId(tid.inboxUnreadChannel(channelA))).toHaveCount(0)
     const messageB = await seedMessage("alice", channelB, bodyB)
@@ -262,12 +249,13 @@ test.describe.serial("Inbox/read refresh ownership", () => {
       request.method === "PUT"
       && request.path === `/api/community/channels/${channelA}/read`
     ))
-    const inboxIndex = journeyRequests.findIndex((request) => (
+    const attentionIndex = journeyRequests.findIndex((request) => (
       request.method === "GET"
-      && request.path === "/api/community/users/me/inbox/unreads"
+      && request.path === "/api/community/users/me/attention"
     ))
     expect(readIndex).toBeGreaterThanOrEqual(0)
-    expect(inboxIndex).toBeLessThan(readIndex)
+    expect(attentionIndex).toBeGreaterThanOrEqual(0)
+    expect(attentionIndex).toBeLessThan(readIndex)
 
     const snapshot = await (await page.request.get(
       "/api/community/users/me/read-state",
@@ -288,15 +276,15 @@ test.describe.serial("Inbox/read refresh ownership", () => {
     await seedJoinServer("alice", "bob", serverId)
     const { page } = await asUser("bob")
     await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelId}`)
-    const initialInbox = page.waitForResponse((response) => (
+    const initialAttention = page.waitForResponse((response) => (
       response.request().method() === "GET"
-      && new URL(response.url()).pathname === "/api/community/users/me/inbox/unreads"
+      && new URL(response.url()).pathname === "/api/community/users/me/attention"
     ))
     await expect(page.getByRole("heading", { name: channelName, exact: true })).toBeVisible({
       timeout: 20_000,
     })
     await page.getByRole("button", { name: "Inbox", exact: true }).click()
-    expect((await initialInbox).status()).toBe(200)
+    expect((await initialAttention).status()).toBe(200)
     await expect(page.getByTestId(tid.inboxUnreadChannel(channelId))).toHaveCount(0)
 
     const retryGate = deferred()
@@ -327,7 +315,7 @@ test.describe.serial("Inbox/read refresh ownership", () => {
     expect(puts).toBe(2)
   })
 
-  test("an Inbox forum child claims only its exact opener and preserves a later opener", async ({ asUser }) => {
+  test("a cold forum opener aggregate uses the canonical parent row", async ({ asUser }) => {
     const stamp = Date.now()
     const serverId = await seedServer("alice", `Inbox opener handoff ${stamp}`)
     const forumId = await seedChannel("alice", serverId, `handoff-forum-${stamp}`, "forum")
@@ -379,29 +367,30 @@ test.describe.serial("Inbox/read refresh ownership", () => {
     })
 
     await page.getByRole("button", { name: "Inbox", exact: true }).click()
-    await expect(page.getByTestId(tid.inboxUnreadChild(firstChildId))).toBeVisible()
+    await expect(page.getByTestId(tid.inboxUnreadChannel(forumId))).toBeVisible()
+    await expect(page.getByTestId(tid.inboxUnreadChild(firstChildId))).toHaveCount(0)
+    await expect(page.getByTestId(tid.inboxUnreadChild(laterChildId))).toHaveCount(0)
     const parentRead = page.waitForResponse((response) => (
       response.request().method() === "PUT"
       && new URL(response.url()).pathname === `/api/community/channels/${forumId}/read`
     ))
-    await page.getByTestId(tid.inboxUnreadChild(firstChildId)).click()
+    await page.getByTestId(tid.inboxUnreadChannel(forumId)).click()
     expect((await parentRead).status()).toBe(200)
     await expect.poll(() => new URL(page.url()).searchParams.has("inboxThreadOpener")).toBe(false)
-    expect(parentTargets).toEqual([first!.openerMessageId])
+    expect(parentTargets).toEqual([later!.openerMessageId])
     expect(childTargets).toEqual([])
 
     await page.getByRole("button", { name: "Inbox", exact: true }).click()
-    await expect(page.getByTestId(tid.inboxUnreadChild(firstChildId))).toHaveCount(0)
-    await expect(page.getByTestId(tid.inboxUnreadChild(laterChildId))).toBeVisible()
+    await expect(page.getByTestId(tid.inboxUnreadChannel(forumId))).toHaveCount(0)
     const snapshot = await (await page.request.get(
       "/api/community/users/me/read-state",
     )).json() as { readStates: Array<{ channelId: string; lastReadSeq: number }> }
     expect(snapshot.readStates.find((row) => row.channelId === forumId)?.lastReadSeq)
-      .toBe(first!.openerSeq)
+      .toBe(later!.openerSeq)
     expect(snapshot.readStates.some((row) => row.channelId === firstChildId)).toBe(false)
   })
 
-  test("eligible text children enrich opener state without widening participation", async ({ asUser }) => {
+  test("cold text-child evidence projects through the canonical parent row", async ({ asUser }) => {
     const stamp = Date.now()
     const serverId = await seedServer("alice", `Inbox text opener ${stamp}`)
     const parentId = await seedChannel("alice", serverId, `text-parent-${stamp}`)
@@ -430,14 +419,14 @@ test.describe.serial("Inbox/read refresh ownership", () => {
       `Nonparticipant thread ${stamp}`,
     )
     await seedMessage("alice", nonParticipantChildId, `Invisible child reply ${stamp}`)
-    await seedMessage("alice", parentId, `Later parent message ${stamp}`)
+    const laterParentMessageId = await seedMessage("alice", parentId, `Later parent message ${stamp}`)
 
     await page.setViewportSize({ width: 768, height: 844 })
     await gotoAfterUserWsAuth(page, "/c/me")
     const unreadResponse = await page.request.get("/api/community/users/me/inbox/unreads")
     expect(unreadResponse.status()).toBe(200)
     const unread = await unreadResponse.json() as {
-      servers: Array<{ channels: Array<{ channelId: string; children: Array<{
+      servers: Array<{ channels: Array<{ channelId: string; lastUnreadSeq?: number; children: Array<{
         channelId: string
         openerMessageId?: string
         openerSeq?: number
@@ -458,6 +447,11 @@ test.describe.serial("Inbox/read refresh ownership", () => {
       openerUnread: true,
     })
     expect(parent?.children.some((child) => child.channelId === nonParticipantChildId)).toBe(false)
+    const beforeSnapshot = await (await page.request.get(
+      "/api/community/users/me/read-state",
+    )).json() as { readStates: Array<{ channelId: string; lastReadSeq: number }> }
+    const beforeCursor = (channelId: string) => beforeSnapshot.readStates
+      .find((row) => row.channelId === channelId)?.lastReadSeq ?? 0
 
     const puts: Array<{ channelId: string; target: string }> = []
     page.on("request", (request) => {
@@ -469,44 +463,30 @@ test.describe.serial("Inbox/read refresh ownership", () => {
     })
 
     await page.getByRole("button", { name: "Inbox", exact: true }).click()
-    await expect(page.getByTestId(tid.inboxUnreadChild(readChildId))).toBeVisible()
-    const readChildPut = page.waitForResponse((response) => (
-      response.request().method() === "PUT"
-      && new URL(response.url()).pathname === `/api/community/channels/${readChildId}/read`
-    ))
-    await page.getByTestId(tid.inboxUnreadChild(readChildId)).click()
-    expect((await readChildPut).status()).toBe(200)
-    await page.waitForTimeout(700)
-    expect(puts.filter((put) => put.channelId === parentId)).toEqual([])
-
-    await page.getByRole("button", { name: "Inbox", exact: true }).click()
-    await expect(page.getByTestId(tid.inboxUnreadChild(unreadChildId))).toBeVisible()
+    await expect(page.getByTestId(tid.inboxUnreadChannel(parentId))).toBeVisible()
+    await expect(page.getByTestId(tid.inboxUnreadChild(readChildId))).toHaveCount(0)
+    await expect(page.getByTestId(tid.inboxUnreadChild(unreadChildId))).toHaveCount(0)
     const parentPut = page.waitForResponse((response) => (
       response.request().method() === "PUT"
       && new URL(response.url()).pathname === `/api/community/channels/${parentId}/read`
     ))
-    const unreadChildPut = page.waitForResponse((response) => (
-      response.request().method() === "PUT"
-      && new URL(response.url()).pathname === `/api/community/channels/${unreadChildId}/read`
-    ))
-    await page.getByTestId(tid.inboxUnreadChild(unreadChildId)).click()
+    await page.getByTestId(tid.inboxUnreadChannel(parentId)).click()
     expect((await parentPut).status()).toBe(200)
-    expect((await unreadChildPut).status()).toBe(200)
+    await page.waitForTimeout(700)
     expect(puts.filter((put) => put.channelId === parentId)).toEqual([
-      { channelId: parentId, target: unreadOpenerId },
+      { channelId: parentId, target: laterParentMessageId },
     ])
+    expect(puts.some((put) => put.channelId === readChildId)).toBe(false)
+    expect(puts.some((put) => put.channelId === unreadChildId)).toBe(false)
 
     const snapshot = await (await page.request.get(
       "/api/community/users/me/read-state",
     )).json() as { readStates: Array<{ channelId: string; lastReadSeq: number }> }
     const cursor = (channelId: string) => snapshot.readStates
       .find((row) => row.channelId === channelId)?.lastReadSeq ?? 0
-    expect(cursor(parentId)).toBe(unreadChild!.openerSeq)
-    expect(cursor(readChildId)).toBeGreaterThan(0)
-    expect(cursor(unreadChildId)).toBeGreaterThan(0)
-    await page.getByRole("button", { name: "Inbox", exact: true }).click()
-    await expect(page.getByTestId(tid.inboxUnreadChannel(parentId))).toBeVisible()
-    await expect(page.getByTestId(tid.inboxUnreadChild(nonParticipantChildId))).toHaveCount(0)
+    expect(cursor(parentId)).toBe(parent?.lastUnreadSeq)
+    expect(cursor(readChildId)).toBe(beforeCursor(readChildId))
+    expect(cursor(unreadChildId)).toBe(beforeCursor(unreadChildId))
   })
 
   test("a later focused intent keeps its own 500ms generation", async ({ asUser }) => {
@@ -517,15 +497,15 @@ test.describe.serial("Inbox/read refresh ownership", () => {
     await seedJoinServer("alice", "bob", serverId)
     const { page } = await asUser("bob")
     await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelId}`)
-    const initialInbox = page.waitForResponse((response) => (
+    const initialAttention = page.waitForResponse((response) => (
       response.request().method() === "GET"
-      && new URL(response.url()).pathname === "/api/community/users/me/inbox/unreads"
+      && new URL(response.url()).pathname === "/api/community/users/me/attention"
     ))
     await expect(page.getByRole("heading", { name: channelName, exact: true })).toBeVisible({
       timeout: 20_000,
     })
     await page.getByRole("button", { name: "Inbox", exact: true }).click()
-    expect((await initialInbox).status()).toBe(200)
+    expect((await initialAttention).status()).toBe(200)
     await expect(page.getByTestId(tid.inboxUnreadChannel(channelId))).toHaveCount(0)
     const stopWatching = await watchInboxRow(page, tid.inboxUnreadChannel(channelId))
 

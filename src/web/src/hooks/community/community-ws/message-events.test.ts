@@ -7,6 +7,7 @@ import type {
 } from "@alook/shared"
 import { getMessageOverlay, useMessageStreamStore } from "@/stores/community/message-stream"
 import { communityKeys } from "@/lib/query-keys"
+import { getCanonicalCommunityChannels } from "@/lib/community-db/sync"
 import {
   registerReadSurface,
   releaseReadSurface,
@@ -26,6 +27,7 @@ import {
   cleanupCommunityWsHarness,
   forumSidebarFixture,
   getCommunityApiFetchMock,
+  hasCanonicalChannel,
   markReadMutate,
   messageCreate,
   mountHook,
@@ -130,6 +132,59 @@ describe("useCommunityWs — message.create", () => {
     await vi.waitFor(() => {
       expect(capturedQueryClient.getQueryState(key)?.isInvalidated).toBe(false)
     })
+  })
+
+  it("warms an unknown forum child owner from live message evidence", async () => {
+    await mountHook()
+    seedCanonicalForumSidebar("srv_1")
+    expect(hasCanonicalChannel("post_live")).toBe(false)
+    getCommunityApiFetchMock().mockImplementation(async (url: string) => {
+      if (url === "/api/community/channels/post_live") {
+        return {
+          id: "post_live",
+          serverId: "srv_1",
+          name: "Live post",
+          type: "thread",
+          parentChannelId: "forum_1",
+          parentMessageId: "opener_live",
+          creatorId: "u_other",
+          archived: false,
+          lastMessageAt: "2026-07-01T00:00:00.000Z",
+          createdAt: "2026-07-02T00:00:00.000Z",
+        }
+      }
+      if (url === "/api/community/users/me/read-state") {
+        return { revision: 0, readStates: [] }
+      }
+      throw new Error(`unexpected API fetch: ${url}`)
+    })
+
+    capturedOnMessage!({
+      ...messageCreate("post_live"),
+      serverId: "srv_1",
+      parentChannelId: "forum_1",
+    } satisfies CommunityMessageCreate)
+
+    await vi.waitFor(() => expect(hasCanonicalChannel("post_live")).toBe(true))
+    expect(getCanonicalCommunityChannels(capturedQueryClient)
+      .find((channel) => channel.id === "post_live")?.lastMessageAt)
+      .toBe("2026-07-03T00:00:00.000Z")
+    expect(getCommunityApiFetchMock()).toHaveBeenCalledWith(
+      "/api/community/channels/post_live",
+      { signal: undefined },
+    )
+
+    getCommunityApiFetchMock().mockRejectedValueOnce(new Error("metadata unavailable"))
+    capturedOnMessage!({
+      ...messageCreate("post_unavailable"),
+      serverId: "srv_1",
+      parentChannelId: "forum_1",
+    } satisfies CommunityMessageCreate)
+    await vi.waitFor(() => expect(getCommunityApiFetchMock()).toHaveBeenCalledWith(
+      "/api/community/channels/post_unavailable",
+      { signal: undefined },
+    ))
+    expect(hasCanonicalChannel("post_unavailable")).toBe(false)
   })
 
   it.each([false, true])(

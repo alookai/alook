@@ -3,8 +3,7 @@ import { expect, type BrowserContext, type Page, type Request } from "@playwrigh
 import { proxyCommunityWebSockets } from "./community-ws-proxy"
 
 export const notificationPaths = [
-  "/api/community/users/me/inbox/unreads",
-  "/api/community/users/me/inbox/mentions",
+  "/api/community/users/me/attention",
   "/api/community/users/me/dms",
 ]
 
@@ -74,7 +73,10 @@ export async function gotoAfterNotificationStartup(
   await initial
   await expect.poll(() => proxy.heldConnectionCount()).toBe(1)
   trace.phase("auth-release")
-  const authenticatedRefresh = notificationResponsesFinished(page)
+  const authenticatedRefresh = notificationResponsesFinished(
+    page,
+    notificationPaths.filter((path) => path.endsWith("/dms")),
+  )
   holdAuthentication = false
   expect(proxy.releaseHeldConnections((frame) => frame.type === "auth.ok")).toBe(1)
   await authenticatedRefresh

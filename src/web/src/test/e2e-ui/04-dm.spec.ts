@@ -39,7 +39,10 @@ test.describe.serial("direct messages", () => {
       }
     })
 
-    const notificationRefresh = notificationResponsesFinished(bob.page, notificationPaths.filter((path) => path.includes("/inbox/")))
+    const notificationRefresh = notificationResponsesFinished(
+      bob.page,
+      notificationPaths.filter((path) => path.endsWith("/attention")),
+    )
     const dmId = await seedDm("alice", userId("bob"))
     const body = `first inbox DM ${Date.now()}`
     const messageId = await seedDmMessage("alice", dmId, body)
@@ -47,6 +50,8 @@ test.describe.serial("direct messages", () => {
       event.type === "community:unread.bump" && event.channelId === dmId && event.userId === userId("bob"))).toBe(true)
     await notificationRefresh
     await expect.poll(() => dmsGets).toBe(1)
+    releaseCanonical()
+    await canonicalSettled
     const routeHistory: string[] = []
     const recordRoute = (frame: Frame) => {
       if (frame === bob.page.mainFrame()) routeHistory.push(new URL(frame.url()).pathname)

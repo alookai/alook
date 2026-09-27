@@ -396,7 +396,7 @@ test.describe.serial("account unread projection", () => {
     await expect(page.getByTestId(tid.inboxUnreadChannel(unreadChannel))).toHaveCount(0)
     await expect(page.getByTestId(tid.inboxUnreadChild(forumChild))).toBeVisible()
     await expect(page.getByTestId(tid.inboxUnreadDm(dmId))).toBeVisible()
-    await expect(page.getByTestId(tid.inboxTrigger).locator('[data-slot="inbox-unread-indicator"]')).not.toHaveAttribute("data-count", "0")
+    await expect(page.getByTestId(tid.inboxTrigger).locator('[data-slot="inbox-unread-indicator"]')).toHaveAttribute("data-count", "0")
     await page.getByTestId(tid.inboxTrigger).click()
     expect(targetPuts).toEqual([])
 

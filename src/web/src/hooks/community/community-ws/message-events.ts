@@ -11,6 +11,7 @@ import { projectCommunityMessageCreate } from "@/lib/community/message-wire"
 import { useCommunityStore } from "@/stores/community"
 import { useMessageStreamStore } from "@/stores/community/message-stream"
 import {
+  hasForumSidebarOwnershipEvidence,
   isForumSidebarParent,
   patchForumSidebarActivityExact,
 } from "@/hooks/community/use-forum-sidebar-threads"
@@ -34,11 +35,37 @@ import {
   invalidateFriends,
   invalidatePins,
 } from "@/hooks/community/community-ws/invalidation-projections"
+import { fetchChannelMetadata } from "@/hooks/community/channel-metadata"
+import {
+  captureCommunityLiveSnapshotToken,
+  publishCommunityChannelMetadata,
+} from "@/lib/community-db/sync"
 
 type CommunityMessageEdited = Extract<
   CommunityWsEvent,
   { type: "community:message.edited" }
 >
+
+function warmLiveForumChildOwner(
+  queryClient: MessageEventContext["queryClient"],
+  event: CommunityMessageCreate,
+) {
+  if (
+    !event.serverId
+    || !event.parentChannelId
+    || !isForumSidebarParent(queryClient, event.serverId, event.parentChannelId)
+    || hasForumSidebarOwnershipEvidence(queryClient, event.serverId, event.channelId)
+  ) return
+  const token = captureCommunityLiveSnapshotToken(queryClient)
+  void fetchChannelMetadata(event.serverId, event.channelId)
+    .then((metadata) => {
+      publishCommunityChannelMetadata(queryClient, {
+        metadata,
+        proof: { token, signal: undefined },
+      })
+    })
+    .catch(() => undefined)
+}
 
 export function handleMessageCreate(
   event: CommunityMessageCreate,
@@ -52,18 +79,20 @@ export function handleMessageCreate(
     projection,
   }: MessageEventContext,
 ) {
+  warmLiveForumChildOwner(queryClient, event)
   const viewerId = viewerUserIdRef.current
   const hasSeenMessage = wsStore.hasSeenMessage(event.message.id)
   const isForeignFocused = event.message.authorId !== viewerId
     && matchesFocus(event)
+  const projected = projectCommunityMessageCreate(event.message)
+  writeCommunityProfilePatches(messageProfilePatches([projected]), undefined, { event: true })
   if (isForeignFocused && !hasSeenMessage) {
     armInboxReadReservationCandidate(queryClient, {
       channelId: event.channelId,
       lastMessageAt: event.message.createdAt,
+      seq: event.message.seq,
     })
   }
-  const projected = projectCommunityMessageCreate(event.message)
-  writeCommunityProfilePatches(messageProfilePatches([projected]), undefined, { event: true })
   if (event.channelId === sub.channelId || event.channelId === sub.secondaryChannelId) {
     const serverId = useCommunityStore.getState().currentServerId
     if (serverId) {

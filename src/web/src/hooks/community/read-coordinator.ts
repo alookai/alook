@@ -17,6 +17,15 @@ import {
   settleInboxReadReservationGeneration,
 } from "./inbox-read-reservation"
 import { getAccountUnreadProjection } from "./account-unread-projection"
+import { getCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
+import {
+  clearAttentionScopeOptimistically,
+  commitAttentionScopeOptimisticSnapshot,
+  hasAttentionScopeOptimisticFence,
+  restoreAttentionScopeOptimisticSnapshot,
+  type AttentionScopeOptimisticSnapshot,
+} from "@/lib/community-db/sync"
+import { reconcileAccountAttention } from "./use-account-attention"
 
 export const READ_COORDINATOR_DEBOUNCE_MS = 500
 
@@ -87,6 +96,10 @@ type ScopeState = {
   attemptEpoch: number
   retryCount: number
   confirmedSeq: number
+  attentionOptimistic: {
+    registry: CommunityDbRegistry
+    snapshot: AttentionScopeOptimisticSnapshot
+  } | null
 }
 
 const coordinators = new WeakMap<QueryClient, ReadCoordinator>()
@@ -147,6 +160,7 @@ class ReadCoordinator {
         attemptEpoch: 0,
         retryCount: 0,
         confirmedSeq,
+        attentionOptimistic: null,
       }
       this.states.set(key, state)
     } else if (surface.kind === "timeline") {
@@ -206,6 +220,9 @@ class ReadCoordinator {
           state.surface.channelId,
         )
       }
+      if (!state.accepted && !state.dirty && !state.inFlight) {
+        this.rollbackAttentionOptimisticRead(state)
+      }
       return
     }
     if (state.leases.size > 0 || state.releaseTimer !== null) return
@@ -246,6 +263,7 @@ class ReadCoordinator {
     }
     state.accepted = laterIntent(state.accepted, queued)
     state.dirty = laterIntent(state.dirty, queued)
+    this.beginAttentionOptimisticRead(state)
     for (const generation of supersededGenerations) {
       getAccountUnreadProjection(this.queryClient, this.ownerUserId)
         .settleOptimisticRead(generation, false)
@@ -297,6 +315,7 @@ class ReadCoordinator {
       if (state.retryTimer !== null) clearTimeout(state.retryTimer)
       if (state.releaseTimer !== null) clearTimeout(state.releaseTimer)
       state.inFlight?.controller.abort()
+      this.commitAttentionOptimisticRead(state)
       state.attemptEpoch += 1
       state.accepted = null
       state.dirty = null
@@ -398,6 +417,7 @@ class ReadCoordinator {
       this.cancelConfirmedWork(state)
       return Promise.resolve({ committed: false, reconciled: false })
     }
+    this.beginAttentionOptimisticRead(state)
     state.accepted = null
     const controller = new AbortController()
     const attemptEpoch = ++state.attemptEpoch
@@ -448,6 +468,10 @@ class ReadCoordinator {
       )
       getAccountUnreadProjection(this.queryClient, this.ownerUserId)
         .settleOptimisticRead(target.generation, false)
+      const newerOptimisticRead = [state.accepted, state.dirty].some((pending) => (
+        pending !== null && pending.generation > target.generation
+      ))
+      if (!newerOptimisticRead) this.rollbackAttentionOptimisticRead(state)
       if (!retryable(error)) {
         if (state.dirty && sameIntent(state.dirty, target)) state.dirty = null
         state.retryCount = 0
@@ -491,11 +515,17 @@ class ReadCoordinator {
         && state.accepted !== null
         && state.accepted.generation > activeAttempt.drainCutoff)
     try {
-      await reconcileAccountReadState(this.queryClient, {
-        surfaceMode: deferInboxDms ? "non-inbox" : "all",
-        awaitSurfaceMode: deferInboxDms ? "none" : "inbox-dms",
-        targetRevision: response.revision,
-      })
+      const attentionRegistry = getCommunityDbRegistry(this.queryClient)
+      await Promise.all([
+        reconcileAccountReadState(this.queryClient, {
+          surfaceMode: deferInboxDms ? "non-inbox" : "all",
+          awaitSurfaceMode: deferInboxDms ? "none" : "inbox-dms",
+          targetRevision: response.revision,
+        }),
+        attentionRegistry
+          ? reconcileAccountAttention(attentionRegistry).catch(() => undefined)
+          : Promise.resolve(),
+      ])
       if (deferInboxDms) {
         publishInboxProjectionGenerationTerminal(
           this.queryClient,
@@ -525,6 +555,9 @@ class ReadCoordinator {
       )
       return { committed: true, reconciled: false }
     } finally {
+      if (!state.accepted && !state.dirty) {
+        this.commitAttentionOptimisticRead(state)
+      }
       this.finishAttempt(state, attemptEpoch)
     }
   }
@@ -571,6 +604,55 @@ class ReadCoordinator {
     if (!state.dirty && state.retryTimer !== null) {
       clearTimeout(state.retryTimer)
       state.retryTimer = null
+    }
+    if (!state.accepted && !state.dirty && !state.inFlight) {
+      this.commitAttentionOptimisticRead(state)
+      const registry = getCommunityDbRegistry(this.queryClient)
+      if (registry) void reconcileAccountAttention(registry).catch(() => undefined)
+    }
+  }
+
+  private beginAttentionOptimisticRead(state: ScopeState) {
+    const targetSeq = state.accepted?.intent.seq ?? state.dirty?.intent.seq ?? 0
+    if (
+      state.attentionOptimistic
+      && state.attentionOptimistic.snapshot.targetSeq >= targetSeq
+    ) return
+    if (state.attentionOptimistic) this.rollbackAttentionOptimisticRead(state)
+    if (state.retryCount > 0) return
+    const registry = getCommunityDbRegistry(this.queryClient)
+    if (!registry) return
+    if (hasAttentionScopeOptimisticFence(
+      this.queryClient,
+      state.surface.channelId,
+      targetSeq,
+    )) return
+    state.attentionOptimistic = {
+      registry,
+      snapshot: clearAttentionScopeOptimistically(
+        registry,
+        state.surface.channelId,
+        targetSeq,
+      ),
+    }
+  }
+
+  private commitAttentionOptimisticRead(state: ScopeState) {
+    const optimistic = state.attentionOptimistic
+    if (!optimistic) return
+    state.attentionOptimistic = null
+    commitAttentionScopeOptimisticSnapshot(optimistic.registry, optimistic.snapshot)
+  }
+
+  private rollbackAttentionOptimisticRead(state: ScopeState) {
+    const optimistic = state.attentionOptimistic
+    if (!optimistic) return
+    state.attentionOptimistic = null
+    if (!restoreAttentionScopeOptimisticSnapshot(optimistic.registry, optimistic.snapshot)) {
+      const registry = getCommunityDbRegistry(this.queryClient)
+      if (registry === optimistic.registry) {
+        void reconcileAccountAttention(registry).catch(() => undefined)
+      }
     }
   }
 

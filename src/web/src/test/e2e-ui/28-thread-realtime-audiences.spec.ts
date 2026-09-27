@@ -36,7 +36,7 @@ for (const parentType of ["text", "forum"] as const) {
         await expect.poll(() => trace.events.some((event) => event.type === "community:message.create" && event.message.id === firstId)).toBe(true)
         await bob.page.waitForTimeout(750)
         expect(trace.events.filter((event) => (event.type === "community:unread.bump" || event.type === "community:mention.create") && event.channelId === childId)).toEqual([])
-        expect(trace.requests.filter((path) => path.startsWith("/api/community/users/me/inbox/") || path === "/api/community/users/me/dms" || path === `/api/community/channels/${childId}/read`)).toEqual([])
+        expect(trace.requests.filter((path) => path === "/api/community/users/me/attention" || path === "/api/community/users/me/dms" || path === `/api/community/channels/${childId}/read`)).toEqual([])
 
         await bob.page.goto(`/c/channels/${serverId}/${childId}`)
         await expect(bob.page.getByTestId(tid.message(firstId))).toBeVisible()

@@ -347,6 +347,22 @@ function upsertRows<T extends object>(
   recordEventWrites(registry, name, acceptedKeys)
 }
 
+function promoteServerDetailComplete(
+  registry: CommunityDbRegistry,
+  serverId: string,
+) {
+  const current = collectionRows(registry, "servers", serverSchema)
+  let changed = false
+  const next = current.map((row) => {
+    if (row.id !== serverId || row.detailComplete) return row
+    changed = true
+    return serverSchema.parse({ ...row, detailComplete: true })
+  })
+  if (!changed) return
+  writeCollectionRows(registry, "servers", next, (row) => row.id)
+  publishRows(registry, "servers", next)
+}
+
 function patchRows<T extends object>(
   registry: CommunityDbRegistry,
   name: CollectionName,
@@ -764,6 +780,10 @@ export function ingestServerDetail(
       for (const channelId of removedTopLevelIds) purgeCommunityChannel(registry, channelId)
     }
     upsertRows(registry, "servers", serverSchema, (row) => row.id, [server])
+    // Completeness is monotonic query state, not mutable server identity. A
+    // newer WS event may protect the row's fields without blocking this proof
+    // that its canonical tree has arrived.
+    promoteServerDetailComplete(registry, detail.id)
     if (mode === "authoritative") {
       replaceRows(
         registry,
@@ -1057,6 +1077,13 @@ function ingestAttentionIncluded(
 
 type AttentionProtectionState = {
   optimisticClears: Set<symbol>
+  optimisticScopeDeletes: Map<symbol, {
+    scopeId: string
+    targetSeq: number
+    clearedAttentionCount: number
+    itemIds: Set<string>
+    requiresReconcileOnRestore: boolean
+  }>
   optimisticItemDeletes: Map<symbol, Set<string>>
   heldScopes: Set<string>
   heldItems: Set<string>
@@ -1071,6 +1098,7 @@ function attentionProtectionState(queryClient: QueryClient) {
   if (!state) {
     state = {
       optimisticClears: new Set(),
+      optimisticScopeDeletes: new Map(),
       optimisticItemDeletes: new Map(),
       heldScopes: new Set(),
       heldItems: new Set(),
@@ -1080,6 +1108,15 @@ function attentionProtectionState(queryClient: QueryClient) {
     attentionProtectionStates.set(queryClient, state)
   }
   return state
+}
+
+export function hasAttentionScopeOptimisticFence(
+  queryClient: QueryClient,
+  scopeId: string,
+  targetSeq: number,
+) {
+  return [...attentionProtectionState(queryClient).optimisticScopeDeletes.values()]
+    .some((entry) => entry.scopeId === scopeId && entry.targetSeq >= targetSeq)
 }
 
 export function ingestAttentionSnapshot(
@@ -1131,12 +1168,55 @@ export function ingestAttentionSnapshot(
   }
 
   const optimisticClear = protection.optimisticClears.size > 0
+  const optimisticScopeDeletes = [...protection.optimisticScopeDeletes.values()]
   const optimisticItemDeletes = new Set(
     [...protection.optimisticItemDeletes.values()].flatMap((ids) => [...ids]),
   )
-  const scopes = optimisticClear ? [] : [...scopesById.values()]
+  const attentionMessages = new Map(
+    collectionRows(registry, "messages", messageSchema).map((message) => [message.id, message]),
+  )
+  for (const message of snapshot.included?.messages ?? []) {
+    const parsed = messageSchema.safeParse(message)
+    if (parsed.success) attentionMessages.set(parsed.data.id, parsed.data)
+  }
+  const fencedItems = new Set<string>()
+  for (const item of itemsById.values()) {
+    const fenced = optimisticScopeDeletes.some((entry) => (
+      item.scopeId === entry.scopeId
+      && (
+        entry.itemIds.has(item.id)
+        || (item.messageId
+          && (attentionMessages.get(item.messageId)?.seq ?? Number.POSITIVE_INFINITY)
+            <= entry.targetSeq)
+      )
+    ))
+    if (!fenced) continue
+    fencedItems.add(item.id)
+  }
+  const scopes = optimisticClear ? [] : [...scopesById.values()].flatMap((scope) => {
+    const targetSeq = optimisticScopeDeletes.reduce((target, entry) => (
+      entry.scopeId === scope.scopeId ? Math.max(target, entry.targetSeq) : target
+    ), -1)
+    if (targetSeq < 0) return [scope]
+    const clearedAttentionCount = optimisticScopeDeletes.reduce((count, entry) => (
+      entry.scopeId === scope.scopeId ? count + entry.clearedAttentionCount : count
+    ), 0)
+    const ordinaryUnread = scope.ordinaryUnread && scope.lastUnreadSeq > targetSeq
+    const lastAttentionSeq = scope.lastAttentionSeq !== null
+      && scope.lastAttentionSeq !== undefined
+      && scope.lastAttentionSeq > targetSeq
+      ? scope.lastAttentionSeq
+      : null
+    const attentionCount = lastAttentionSeq === null
+      ? 0
+      : Math.max(0, scope.attentionCount - clearedAttentionCount)
+    return ordinaryUnread || attentionCount > 0
+      ? [{ ...scope, ordinaryUnread, lastAttentionSeq, attentionCount }]
+      : []
+  })
   const items = [...itemsById.values()].filter((item) => (
     (!optimisticClear || item.kind === "friend_request")
+    && !fencedItems.has(item.id)
     && !optimisticItemDeletes.has(item.id)
   ))
   notifyManager.batch(() => {
@@ -1257,6 +1337,170 @@ export function restoreAttentionOptimisticSnapshot(
         (row) => row.id,
         snapshot.items,
         () => true,
+      )
+    })
+  })
+  return true
+}
+
+export type AttentionScopeOptimisticSnapshot = {
+  token: symbol
+  publicationRevision: number
+  scopeId: string
+  targetSeq: number
+  clearedAttentionCount: number
+  scopes: AttentionScopeRow[]
+  items: AttentionItemRow[]
+}
+
+export function clearAttentionScopeOptimistically(
+  registry: CommunityDbRegistry,
+  scopeId: string,
+  targetSeq: number,
+): AttentionScopeOptimisticSnapshot {
+  const token = Symbol("attention-scope-delete")
+  const scopes = collectionRows(registry, "attentionScopes", attentionScopeSchema)
+    .filter((scope) => scope.scopeId === scopeId)
+  const messages = new Map(
+    collectionRows(registry, "messages", messageSchema).map((message) => [message.id, message]),
+  )
+  const currentScope = scopes[0]
+  const items = collectionRows(registry, "attentionItems", attentionItemSchema)
+    .filter((item) => {
+      if (item.scopeId !== scopeId) return false
+      const seq = item.messageId ? messages.get(item.messageId)?.seq : undefined
+      return seq !== undefined ? seq <= targetSeq : (currentScope?.lastUnreadSeq ?? 0) <= targetSeq
+    })
+  const itemIds = new Set(items.map((item) => item.id))
+  const survivingAttentionCount = collectionRows(registry, "attentionItems", attentionItemSchema)
+    .filter((item) => {
+      if (item.scopeId !== scopeId || !item.messageId) return false
+      const seq = messages.get(item.messageId)?.seq
+      return seq !== undefined && seq > targetSeq
+    })
+    .length
+  const clearedAttentionCount = Math.max(
+    0,
+    (currentScope?.attentionCount ?? 0) - survivingAttentionCount,
+  )
+  const protection = attentionProtectionState(registry.queryClient)
+  protection.optimisticScopeDeletes.set(token, {
+    scopeId,
+    targetSeq,
+    clearedAttentionCount,
+    itemIds,
+    requiresReconcileOnRestore: false,
+  })
+  withCanonicalWriteContext(registry.queryClient, { kind: "event" }, () => {
+    notifyManager.batch(() => {
+      const scope = currentScope
+      if (scope) {
+        const ordinaryUnread = scope.ordinaryUnread && scope.lastUnreadSeq > targetSeq
+        const lastAttentionSeq = scope.lastAttentionSeq !== null
+          && scope.lastAttentionSeq !== undefined
+          && scope.lastAttentionSeq > targetSeq
+          ? scope.lastAttentionSeq
+          : null
+        const attentionCount = lastAttentionSeq === null
+          ? 0
+          : Math.max(0, scope.attentionCount - clearedAttentionCount)
+        if (ordinaryUnread || attentionCount > 0) {
+          upsertRows(
+            registry,
+            "attentionScopes",
+            attentionScopeSchema,
+            (row) => row.scopeId,
+            [{ ...scope, ordinaryUnread, lastAttentionSeq, attentionCount }],
+          )
+        } else {
+          deleteRows(
+            registry,
+            "attentionScopes",
+            attentionScopeSchema,
+            (row) => row.scopeId === scopeId,
+          )
+        }
+      }
+      deleteRows(
+        registry,
+        "attentionItems",
+        attentionItemSchema,
+        (item) => itemIds.has(item.id),
+      )
+    })
+  })
+  return {
+    token,
+    publicationRevision: canonicalRevisionState(registry.queryClient).revision,
+    scopeId,
+    targetSeq,
+    clearedAttentionCount,
+    scopes,
+    items,
+  }
+}
+
+export function commitAttentionScopeOptimisticSnapshot(
+  registry: CommunityDbRegistry,
+  snapshot: AttentionScopeOptimisticSnapshot,
+) {
+  const fences = attentionProtectionState(registry.queryClient).optimisticScopeDeletes
+  const settled = fences.get(snapshot.token)
+  if (!settled || !fences.delete(snapshot.token)) return
+  const remaining = [...fences.values()]
+    .filter((entry) => entry.scopeId === snapshot.scopeId)
+    .sort((left, right) => right.targetSeq - left.targetSeq)
+  const successor = remaining[0]
+  if (!successor) return
+  successor.targetSeq = Math.max(successor.targetSeq, settled.targetSeq)
+  successor.clearedAttentionCount += settled.clearedAttentionCount
+  for (const itemId of settled.itemIds) successor.itemIds.add(itemId)
+  successor.requiresReconcileOnRestore ||= settled.requiresReconcileOnRestore
+}
+
+export function restoreAttentionScopeOptimisticSnapshot(
+  registry: CommunityDbRegistry,
+  snapshot: AttentionScopeOptimisticSnapshot,
+) {
+  const fences = attentionProtectionState(registry.queryClient).optimisticScopeDeletes
+  const settled = fences.get(snapshot.token)
+  fences.delete(snapshot.token)
+  const successor = [...fences.values()]
+    .find((entry) => (
+      entry.scopeId === snapshot.scopeId && entry.targetSeq >= snapshot.targetSeq
+    ))
+  if (settled && successor) {
+    successor.clearedAttentionCount += settled.clearedAttentionCount
+    for (const itemId of settled.itemIds) successor.itemIds.add(itemId)
+    successor.requiresReconcileOnRestore = true
+  }
+  const absorbedCommittedFence = Boolean(
+    settled
+    && settled.targetSeq > snapshot.targetSeq
+  )
+  if (
+    successor
+    || absorbedCommittedFence
+    || settled?.requiresReconcileOnRestore
+    || canonicalRevisionState(registry.queryClient).revision !== snapshot.publicationRevision
+  ) {
+    return false
+  }
+  withCanonicalWriteContext(registry.queryClient, { kind: "event" }, () => {
+    notifyManager.batch(() => {
+      upsertRows(
+        registry,
+        "attentionScopes",
+        attentionScopeSchema,
+        (row) => row.scopeId,
+        snapshot.scopes,
+      )
+      upsertRows(
+        registry,
+        "attentionItems",
+        attentionItemSchema,
+        (row) => row.id,
+        snapshot.items,
       )
     })
   })
@@ -2050,6 +2294,7 @@ export function projectAttentionUnreadBump(
   const current = collectionRows(registry, "attentionScopes", attentionScopeSchema)
     .find((row) => row.scopeId === event.channelId)
   const seq = evidence?.seq ?? current?.lastUnreadSeq ?? 0
+  if (hasAttentionScopeOptimisticFence(queryClient, event.channelId, seq)) return
   const next: AttentionScopeRow = {
     scopeId: event.channelId,
     channelId: event.channelId,
@@ -2078,6 +2323,10 @@ export function projectAttentionMentionHint(
   const message = collectionRows(registry, "messages", messageSchema)
     .find((row) => row.id === event.messageId)
   if (!message?.authorId) return
+  if (
+    message.seq !== undefined
+    && hasAttentionScopeOptimisticFence(queryClient, event.channelId, message.seq)
+  ) return
   const id = `pending:${event.messageId}`
   const item: AttentionItemRow = {
     id,
