@@ -1,5 +1,7 @@
 package ai.alook.android
 
+import android.content.Context
+import android.content.ContextWrapper
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import java.net.URI
@@ -49,6 +51,26 @@ internal object WebviewRecovery {
 
     fun handleSslError(view: WebView, currentUrl: String?, failingUrl: String?): Boolean {
         return showRecovery(view, currentUrl, failingUrl)
+    }
+
+    fun handlePageCommitVisible(view: WebView, url: String?) {
+        if (!isStartupDocument(url)) return
+        findActivity(view.context)?.markStartupSurfaceReady(view)
+    }
+
+    private fun isStartupDocument(target: String?): Boolean {
+        if (target.isNullOrEmpty()) return false
+        return runCatching {
+            val parsed = URI(target)
+            parsed.host.equals(RECOVERY_ORIGIN, ignoreCase = true) ||
+                parsed.host.equals("alook.ai", ignoreCase = true)
+        }.getOrDefault(false)
+    }
+
+    private tailrec fun findActivity(context: Context?): MainActivity? = when (context) {
+        is MainActivity -> context
+        is ContextWrapper -> findActivity(context.baseContext)
+        else -> null
     }
 
     private fun isHttpTarget(target: String?): Boolean {

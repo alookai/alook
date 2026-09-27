@@ -29,6 +29,13 @@ val modernRecoveryDispatch = """
         }
 
 """.trim('\n')
+val pageCommitVisibleDispatch = """
+
+    override fun onPageCommitVisible(view: WebView, url: String?) {
+        super.onPageCommitVisible(view, url)
+        WebviewRecovery.handlePageCommitVisible(view, url)
+    }
+""".trim('\n')
 val legacyAndSslRecoveryDispatch = "\n\n" + """
     @Suppress("DEPRECATION")
     override fun onReceivedError(
@@ -56,6 +63,13 @@ fun String.occurrencesOf(value: String): Int = windowed(value.length).count { it
 
 fun wireGeneratedWebViewRecovery(sourceFile: File) {
     var source = sourceFile.readText()
+    if (!source.contains("WebviewRecovery.handlePageCommitVisible(view, url)")) {
+        val classEnd = source.lastIndexOf("\n}")
+        if (classEnd < 0) {
+            throw GradleException("Wry RustWebViewClient class boundary is missing")
+        }
+        source = source.substring(0, classEnd) + "\n\n" + pageCommitVisibleDispatch + source.substring(classEnd)
+    }
     if (!source.contains(modernRecoveryDispatch)) {
         if (source.occurrencesOf(modernErrorMethod) != 1) {
             throw GradleException("Wry RustWebViewClient modern error callback changed")
@@ -77,6 +91,8 @@ fun verifyGeneratedWebViewRecovery(sourceFile: File) {
     val required = listOf(
         "modern main-frame recovery dispatch" to
             (modernErrorMethod + "\n" + modernRecoveryDispatch),
+        "startup visual-state dispatch" to
+            "WebviewRecovery.handlePageCommitVisible(view, url)",
         "legacy recovery dispatch" to
             "WebviewRecovery.handleError(view, errorCode, currentUrl, failingUrl)",
         "SSL recovery dispatch" to

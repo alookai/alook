@@ -4,11 +4,16 @@ import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 import {
   androidAdaptiveForegroundSizes,
+  androidSplashArtworkSizes,
+  androidSplashSizes,
+  androidSplashSystemIconSize,
+  appleSplashSizes,
   assertSvgContract,
   canonicalizeIcns,
   desktopRasterAssets,
   fullBleedSvg,
   iosRasterAssets,
+  mobileSplashVisibleSize,
   preservedAssets,
   trayRasterAssets,
 } from "../generate-logo-assets.mjs"
@@ -202,7 +207,7 @@ describe("logo asset generator", () => {
     expect(source).not.toMatch(/tray-(?:default|online|offline)/)
   })
 
-  it("preserves web, platform, and splash canvas contracts", async () => {
+  it("preserves web and platform canvas contracts", async () => {
     expect(await alphaBounds(resolve(repoRoot, "src/web/public/icon-192.png"))).toEqual({
       width: 192,
       height: 192,
@@ -215,12 +220,6 @@ describe("logo asset generator", () => {
       bounds: [0, 0, 180, 180],
       opaque: true,
     })
-    expect(await alphaBounds(resolve(repoRoot, "src/desktop/src-tauri/gen/android/app/src/main/res/drawable-mdpi/splash_icon.png"))).toEqual({
-      width: 108,
-      height: 108,
-      bounds: [26, 26, 82, 82],
-      opaque: false,
-    })
     expect(await alphaBounds(resolve(repoRoot, "src/desktop/src-tauri/gen/android/app/src/main/res/mipmap-mdpi/ic_launcher.png"))).toMatchObject({
       width: 48,
       height: 48,
@@ -231,6 +230,42 @@ describe("logo asset generator", () => {
       height: 48,
       bounds: [2, 2, 46, 46],
     })
+  })
+
+  it("aligns native mobile splash artwork with the mobile unknown/neutral frame", async () => {
+    expect(mobileSplashVisibleSize).toBe(106)
+
+    for (const [density, canvas] of Object.entries(androidSplashSizes)) {
+      const artwork = androidSplashArtworkSizes[density as keyof typeof androidSplashArtworkSizes]
+      const offset = Math.floor((canvas - artwork) / 2)
+      const path = resolve(repoRoot, `src/desktop/src-tauri/gen/android/app/src/main/res/drawable-${density}/splash_icon.png`)
+      const systemVisibleSize = artwork * androidSplashSystemIconSize / canvas
+      expect(Math.abs(systemVisibleSize - mobileSplashVisibleSize)).toBeLessThanOrEqual(1)
+      expect(await alphaBounds(path)).toEqual({
+        width: canvas,
+        height: canvas,
+        bounds: [offset, offset, offset + artwork, offset + artwork],
+        opaque: false,
+      })
+    }
+
+    for (const [file, size] of Object.entries(appleSplashSizes)) {
+      const path = resolve(repoRoot, "src/desktop/src-tauri/gen/apple/Assets.xcassets/SplashIcon.imageset", file)
+      expect(await alphaBounds(path)).toEqual({
+        width: size,
+        height: size,
+        bounds: [0, 0, size, size],
+        opaque: false,
+      })
+    }
+
+    const storyboard = await readFile(resolve(repoRoot, "src/desktop/src-tauri/gen/apple/LaunchScreen.storyboard"), "utf8")
+    expect(storyboard).toContain('<constraint firstAttribute="width" constant="106" id="w-constraint"/>')
+    expect(storyboard).toContain('<constraint firstAttribute="height" constant="106" id="h-constraint"/>')
+    expect(storyboard).toContain('<image name="SplashIcon" width="106" height="106"/>')
+
+    const serverRail = await readFile(resolve(repoRoot, "src/web/src/components/community/shell/server-rail.tsx"), "utf8")
+    expect(serverRail).toContain('<AnimatedAlookLogo className="size-10" />')
   })
 
   it("fills Android adaptive masks while keeping the expression inside the safe zone at every density", async () => {

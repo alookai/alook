@@ -16,18 +16,18 @@
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                         <subviews>
                             <imageView clipsSubviews="YES" userInteractionEnabled="NO" contentMode="scaleAspectFit" image="SplashIcon" translatesAutoresizingMaskIntoConstraints="NO" id="splash-img">
-                                <rect key="frame" x="167" y="408" width="80" height="80"/>
+                                <rect key="frame" x="154" y="400" width="106" height="106"/>
                                 <constraints>
-                                    <constraint firstAttribute="width" constant="80" id="w-constraint"/>
-                                    <constraint firstAttribute="height" constant="80" id="h-constraint"/>
+                                    <constraint firstAttribute="width" constant="106" id="w-constraint"/>
+                                    <constraint firstAttribute="height" constant="106" id="h-constraint"/>
                                 </constraints>
                             </imageView>
                         </subviews>
                         <viewLayoutGuide key="safeArea" id="vDu-zF-Fre"/>
                         <color key="backgroundColor" name="SplashBackground"/>
                         <constraints>
-                            <constraint firstItem="splash-img" firstAttribute="centerX" secondItem="5EZ-qb-Rvc" secondAttribute="centerX" id="cx"/>
-                            <constraint firstItem="splash-img" firstAttribute="centerY" secondItem="5EZ-qb-Rvc" secondAttribute="centerY" id="cy"/>
+                            <constraint firstItem="splash-img" firstAttribute="centerX" secondItem="vDu-zF-Fre" secondAttribute="centerX" id="cx"/>
+                            <constraint firstItem="splash-img" firstAttribute="centerY" secondItem="vDu-zF-Fre" secondAttribute="centerY" id="cy"/>
                         </constraints>
                     </view>
                 </viewController>
@@ -36,7 +36,7 @@
         </scene>
     </scenes>
     <resources>
-        <image name="SplashIcon" width="80" height="80"/>
+        <image name="SplashIcon" width="106" height="106"/>
         <namedColor name="SplashBackground"/>
     </resources>
 </document>

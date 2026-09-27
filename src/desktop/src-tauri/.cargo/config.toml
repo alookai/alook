@@ -1,5 +1,10 @@
 [env]
 WRY_RUSTWEBVIEWCLIENT_CLASS_EXTENSION = { value = '''
+    override fun onPageCommitVisible(view: WebView, url: String?) {
+        super.onPageCommitVisible(view, url)
+        WebviewRecovery.handlePageCommitVisible(view, url)
+    }
+
     @Suppress("DEPRECATION")
     override fun onReceivedError(
         view: WebView,
