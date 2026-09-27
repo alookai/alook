@@ -762,8 +762,12 @@ mod tests {
         assert!(storyboard.contains("image=\"SplashIcon\""));
         assert!(storyboard.contains("name=\"SplashBackground\""));
         assert_eq!(storyboard.matches("constant=\"106\"").count(), 2);
-        assert!(storyboard.contains("firstAttribute=\"centerX\""));
-        assert!(storyboard.contains("firstAttribute=\"centerY\""));
+        assert!(storyboard.contains(
+            "firstAttribute=\"centerX\" secondItem=\"vDu-zF-Fre\" secondAttribute=\"centerX\""
+        ));
+        assert!(storyboard.contains(
+            "firstAttribute=\"centerY\" secondItem=\"vDu-zF-Fre\" secondAttribute=\"centerY\""
+        ));
 
         for component in [
             "\"red\": \"1.000\"",
@@ -935,8 +939,9 @@ mod tests {
         assert!(apple.contains("@selector(alook_viewDidLoad)"));
         assert!(apple.contains("@selector(alook_viewDidAppear:)"));
         assert!(apple.contains("alookPrepareStartupOverlay(self)"));
-        assert!(apple.contains("(insets.bottom - insets.top) / 2.0"));
-        assert!(apple.contains("--alook-mobile-splash-offset-y"));
+        assert!(apple.contains("UIEdgeInsetsInsetRect(overlay.bounds, host.safeAreaInsets)"));
+        assert!(apple.contains("takeSnapshotWithConfiguration:nil"));
+        assert!(!apple.contains("--alook-mobile-splash-offset-y"));
         assert!(apple.contains("alookWaitForWebViewSurface(self, startupWebView, 0)"));
         assert_order(
             apple,

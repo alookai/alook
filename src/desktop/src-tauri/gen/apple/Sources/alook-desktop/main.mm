@@ -60,9 +60,10 @@ static void alookAttachStartupOverlay(UIView *overlay, UIView *host, BOOL isDark
     overlay.backgroundColor = isDark ? alookDarkColor() : alookLightColor();
     UIView *logo = [overlay viewWithTag:kAlookStartupLogoTag];
     CGFloat size = 106.0;
+    CGRect safeBounds = UIEdgeInsetsInsetRect(overlay.bounds, host.safeAreaInsets);
     logo.frame = CGRectMake(
-        (overlay.bounds.size.width - size) / 2.0,
-        (overlay.bounds.size.height - size) / 2.0,
+        CGRectGetMidX(safeBounds) - size / 2.0,
+        CGRectGetMidY(safeBounds) - size / 2.0,
         size,
         size
     );
@@ -159,11 +160,21 @@ static void alookWaitForWebViewSurface(
         WKWebView *strongWebView = weakWebView;
         if (strongViewController == nil || strongWebView == nil) return;
         if (error == nil && [result respondsToSelector:@selector(boolValue)] && [result boolValue]) {
-            dispatch_after(
-                dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.05 * NSEC_PER_SEC)),
-                dispatch_get_main_queue(),
-                ^{ alookFinishStartupOverlay(strongViewController); }
-            );
+            [strongWebView takeSnapshotWithConfiguration:nil completionHandler:^(UIImage *image, NSError *snapshotError) {
+                if (image == nil || snapshotError != nil) {
+                    dispatch_after(
+                        dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.05 * NSEC_PER_SEC)),
+                        dispatch_get_main_queue(),
+                        ^{ alookWaitForWebViewSurface(strongViewController, strongWebView, attempt + 1); }
+                    );
+                    return;
+                }
+                dispatch_after(
+                    dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.05 * NSEC_PER_SEC)),
+                    dispatch_get_main_queue(),
+                    ^{ alookFinishStartupOverlay(strongViewController); }
+                );
+            }];
             return;
         }
         dispatch_after(
@@ -283,11 +294,6 @@ static NSString *const kThemeObserverScript =
 
             WKWebView *webView = (WKWebView *)subview;
             startupWebView = webView;
-            CGFloat splashOffsetY = (insets.bottom - insets.top) / 2.0;
-            NSString *splashOffsetScript = [NSString stringWithFormat:
-                @"document.documentElement.style.setProperty('--alook-mobile-splash-offset-y','%.3fpx')",
-                splashOffsetY];
-            [webView evaluateJavaScript:splashOffsetScript completionHandler:nil];
             static dispatch_once_t scriptToken;
             dispatch_once(&scriptToken, ^{
                 AlookThemeHandler *handler = [[AlookThemeHandler alloc] init];
