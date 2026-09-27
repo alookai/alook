@@ -13,6 +13,10 @@ static UIColor *alookDarkColor(void) {
 
 static const void *kAlookResolvedDarkThemeKey = &kAlookResolvedDarkThemeKey;
 static const void *kAlookWebDarkThemeKey = &kAlookWebDarkThemeKey;
+static const void *kAlookStartupOverlayKey = &kAlookStartupOverlayKey;
+static const void *kAlookStartupProbeStartedKey = &kAlookStartupProbeStartedKey;
+static const void *kAlookStartupCompletedKey = &kAlookStartupCompletedKey;
+static const NSInteger kAlookStartupLogoTag = 8738;
 
 static BOOL alookEffectiveDarkTheme(UIViewController *viewController) {
     NSNumber *webTheme = objc_getAssociatedObject(viewController, kAlookWebDarkThemeKey);
@@ -31,6 +35,95 @@ static void alookApplyTheme(UIViewController *viewController, BOOL isDark) {
     );
     viewController.view.backgroundColor = isDark ? alookDarkColor() : alookLightColor();
     if (statusBarNeedsUpdate) [viewController setNeedsStatusBarAppearanceUpdate];
+}
+
+static UIView *alookInstallStartupOverlay(UIViewController *viewController) {
+    if ([objc_getAssociatedObject(viewController, kAlookStartupCompletedKey) boolValue]) return nil;
+    UIView *overlay = objc_getAssociatedObject(viewController, kAlookStartupOverlayKey);
+    if (overlay != nil) return overlay;
+
+    overlay = [[UIView alloc] initWithFrame:viewController.view.bounds];
+    overlay.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    overlay.userInteractionEnabled = NO;
+    overlay.accessibilityElementsHidden = YES;
+    UIImageView *logo = [[UIImageView alloc] initWithImage:[UIImage imageNamed:@"SplashIcon"]];
+    logo.tag = kAlookStartupLogoTag;
+    logo.contentMode = UIViewContentModeScaleAspectFit;
+    [overlay addSubview:logo];
+    [viewController.view addSubview:overlay];
+    objc_setAssociatedObject(
+        viewController,
+        kAlookStartupOverlayKey,
+        overlay,
+        OBJC_ASSOCIATION_RETAIN_NONATOMIC
+    );
+    return overlay;
+}
+
+static void alookLayoutStartupOverlay(UIViewController *viewController, UIView *overlay) {
+    BOOL isDark = viewController.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark;
+    overlay.frame = viewController.view.bounds;
+    overlay.backgroundColor = isDark ? alookDarkColor() : alookLightColor();
+    UIView *logo = [overlay viewWithTag:kAlookStartupLogoTag];
+    CGFloat size = 40.0;
+    logo.frame = CGRectMake(
+        (overlay.bounds.size.width - size) / 2.0,
+        (overlay.bounds.size.height - size) / 2.0,
+        size,
+        size
+    );
+    [viewController.view bringSubviewToFront:overlay];
+}
+
+static void alookFinishStartupOverlay(UIViewController *viewController) {
+    if (viewController == nil) return;
+    UIView *overlay = objc_getAssociatedObject(viewController, kAlookStartupOverlayKey);
+    [overlay removeFromSuperview];
+    objc_setAssociatedObject(viewController, kAlookStartupOverlayKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(
+        viewController,
+        kAlookStartupCompletedKey,
+        @YES,
+        OBJC_ASSOCIATION_RETAIN_NONATOMIC
+    );
+}
+
+static void alookWaitForWebViewSurface(
+    UIViewController *viewController,
+    WKWebView *webView,
+    NSInteger attempt
+) {
+    if (viewController == nil || webView == nil) return;
+    if (attempt >= 200) {
+        alookFinishStartupOverlay(viewController);
+        return;
+    }
+    NSString *probe =
+        @"(function(){"
+        "if(location.hostname==='alook-recovery.localhost'&&location.pathname==='/bootstrap')return false;"
+        "return document.readyState==='complete'&&!!document.body&&"
+        "document.body.children.length>0&&document.body.getBoundingClientRect().height>0;"
+        "})()";
+    __weak UIViewController *weakViewController = viewController;
+    __weak WKWebView *weakWebView = webView;
+    [webView evaluateJavaScript:probe completionHandler:^(id result, NSError *error) {
+        UIViewController *strongViewController = weakViewController;
+        WKWebView *strongWebView = weakWebView;
+        if (strongViewController == nil || strongWebView == nil) return;
+        if (error == nil && [result respondsToSelector:@selector(boolValue)] && [result boolValue]) {
+            dispatch_after(
+                dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.05 * NSEC_PER_SEC)),
+                dispatch_get_main_queue(),
+                ^{ alookFinishStartupOverlay(strongViewController); }
+            );
+            return;
+        }
+        dispatch_after(
+            dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.05 * NSEC_PER_SEC)),
+            dispatch_get_main_queue(),
+            ^{ alookWaitForWebViewSurface(strongViewController, strongWebView, attempt + 1); }
+        );
+    }];
 }
 
 static NSString *const kThemeObserverScript =
@@ -96,6 +189,7 @@ static NSString *const kThemeObserverScript =
 - (void)alook_viewDidLayoutSubviews {
     [self alook_viewDidLayoutSubviews];
     UIEdgeInsets insets = self.view.safeAreaInsets;
+    WKWebView *startupWebView = nil;
     for (UIView *subview in self.view.subviews) {
         if ([subview isKindOfClass:[WKWebView class]]) {
             CGRect bounds = self.view.bounds;
@@ -107,6 +201,7 @@ static NSString *const kThemeObserverScript =
             );
 
             WKWebView *webView = (WKWebView *)subview;
+            startupWebView = webView;
             static dispatch_once_t scriptToken;
             dispatch_once(&scriptToken, ^{
                 AlookThemeHandler *handler = [[AlookThemeHandler alloc] init];
@@ -121,6 +216,19 @@ static NSString *const kThemeObserverScript =
             });
 
             alookApplyTheme(self, alookEffectiveDarkTheme(self));
+        }
+    }
+    if (startupWebView != nil) {
+        UIView *overlay = alookInstallStartupOverlay(self);
+        if (overlay != nil) alookLayoutStartupOverlay(self, overlay);
+        if (![objc_getAssociatedObject(self, kAlookStartupProbeStartedKey) boolValue]) {
+            objc_setAssociatedObject(
+                self,
+                kAlookStartupProbeStartedKey,
+                @YES,
+                OBJC_ASSOCIATION_RETAIN_NONATOMIC
+            );
+            alookWaitForWebViewSurface(self, startupWebView, 0);
         }
     }
 }

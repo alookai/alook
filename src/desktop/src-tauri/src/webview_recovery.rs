@@ -239,7 +239,7 @@ fn replace_webview_with_production<R: tauri::Runtime>(webview: &tauri::Webview<R
 fn bootstrap_html() -> String {
     let icon = STANDARD.encode(SPLASH_ICON_PNG);
     format!(
-        r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Alook</title><style>:root{{color-scheme:light dark;--background:{light}}}html,body{{width:100%;height:100%;margin:0;overflow:hidden;background:var(--background)}}body{{display:grid;place-items:center}}img{{display:block;width:{size}px;height:{size}px;pointer-events:none;user-select:none}}@media(prefers-color-scheme:dark){{:root{{--background:{dark}}}}}</style></head><body><img src="data:image/png;base64,{icon}" width="{size}" height="{size}" alt="" aria-hidden="true" draggable="false"></body></html>"#,
+        r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Alook</title><style>:root{{color-scheme:light dark;--background:{light};--alook-mobile-splash-offset-y:0px}}html,body{{width:100%;height:100%;margin:0;overflow:hidden;background:var(--background)}}body{{display:grid;place-items:center;transform:translateY(var(--alook-mobile-splash-offset-y))}}img{{display:block;width:{size}px;height:{size}px;pointer-events:none;user-select:none}}@media(prefers-color-scheme:dark){{:root{{--background:{dark}}}}}</style></head><body><img src="data:image/png;base64,{icon}" width="{size}" height="{size}" alt="" aria-hidden="true" draggable="false"></body></html>"#,
         light = SPLASH_BACKGROUND_LIGHT,
         dark = SPLASH_BACKGROUND_DARK,
         size = SPLASH_LOGO_SIZE,
@@ -750,7 +750,10 @@ mod tests {
 
         assert!(html.contains("--background:#fff"));
         assert!(html.contains("--background:#100d0a"));
-        assert!(html.contains("body{display:grid;place-items:center}"));
+        assert!(html.contains("--alook-mobile-splash-offset-y:0px"));
+        assert!(html.contains(
+            "body{display:grid;place-items:center;transform:translateY(var(--alook-mobile-splash-offset-y))}"
+        ));
         assert!(html.contains("img{display:block;width:40px;height:40px"));
         assert!(html.contains("width=\"40\" height=\"40\""));
         assert!(!html.contains("animation"));
@@ -917,6 +920,22 @@ mod tests {
         );
         assert!(source.contains("setAllowsBackForwardNavigationGestures: false"));
         assert!(!source.contains(&["window", ".url()"].concat()));
+
+        let apple = include_str!("../gen/apple/Sources/alook-desktop/main.mm");
+        assert!(apple.contains("[UIImage imageNamed:@\"SplashIcon\"]"));
+        assert!(apple.contains("static const NSInteger kAlookStartupLogoTag = 8738"));
+        assert!(apple.contains("CGFloat size = 40.0"));
+        assert!(apple.contains("alookInstallStartupOverlay(self)"));
+        assert!(apple.contains("alookWaitForWebViewSurface(self, startupWebView, 0)"));
+        assert_order(
+            apple,
+            &[
+                "location.hostname==='alook-recovery.localhost'",
+                "location.pathname==='/bootstrap'",
+                "document.readyState==='complete'",
+                "alookFinishStartupOverlay(strongViewController)",
+            ],
+        );
     }
 
     #[test]
@@ -954,6 +973,8 @@ mod tests {
     fn android_extension_preserves_wry_client_and_cancels_ssl() {
         let extension = include_str!("../.cargo/config.toml");
         assert!(extension.contains("WRY_RUSTWEBVIEWCLIENT_CLASS_EXTENSION"));
+        assert!(extension.contains("override fun onPageCommitVisible(view: WebView, url: String?)"));
+        assert!(extension.contains("WebviewRecovery.handlePageCommitVisible(view, url)"));
         assert!(extension.contains("override fun onReceivedError("));
         assert!(extension
             .contains("WebviewRecovery.handleError(view, errorCode, currentUrl, failingUrl)"));
@@ -969,6 +990,9 @@ mod tests {
 
         let helper =
             include_str!("../gen/android/app/src/main/java/ai/alook/android/WebviewRecovery.kt");
+        assert!(helper.contains("findActivity(view.context)?.markStartupSurfaceReady(view)"));
+        assert!(helper.contains("parsed.host.equals(RECOVERY_ORIGIN"));
+        assert!(helper.contains("parsed.host.equals(\"alook.ai\""));
         assert!(helper.contains("documentIdentity(currentUrl) != documentIdentity(failingUrl)"));
         assert!(helper.contains("return recoveryUrl(currentUrl)"));
 
@@ -1004,6 +1028,11 @@ mod tests {
             include_str!("../gen/android/app/src/main/java/ai/alook/android/MainActivity.kt");
         assert!(activity.contains("override val handleBackNavigation: Boolean = false"));
         assert!(activity.contains("NativeBackDispatcher(::delegateBackToSystem)"));
+        assert!(activity.contains("(chromeInsets.bottom - chromeInsets.top)"));
+        assert!(activity.contains("--alook-mobile-splash-offset-y"));
+        assert!(activity.contains("webView.postVisualStateCallback"));
+        assert!(activity
+            .contains("Handler(Looper.getMainLooper()).postDelayed({ isReady = true }, 10000)"));
         assert!(!activity.contains(&["can", "GoBack()"].concat()));
         assert!(!activity.contains(&[".", "goBack()"].concat()));
 
