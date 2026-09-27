@@ -9,7 +9,11 @@ import { Button } from "@/components/ui/button"
 import { AutoResizeTextarea } from "@/components/ui/auto-resize-textarea"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { PrivacyPolicyContent } from "@/components/privacy/privacy-policy-content"
-import { clearPersistedCache } from "@/lib/query-persister"
+import {
+  clearAllPersistedCaches,
+  formatBytes,
+  getPersistedCacheSizeBytes,
+} from "@/lib/query-persister"
 import { tid } from "@/lib/community/testids"
 import { Avatar } from "../avatar"
 import { Field } from "./field"
@@ -73,31 +77,46 @@ function AppearanceSettings() {
   )
 }
 
-// Advanced settings — currently just a "Clear local cache" affordance. Local
-// cache = the IndexedDB-persisted TanStack Query blob (message pages +
-// read-state snapshots). Rare to need in normal use; useful when a bad build
-// leaves the persisted state inconsistent (see 2026-07-09 fetchOlder pollution).
-function AdvancedSettings({ userId }: { userId: string | null }) {
+type CacheSizeState = number | "loading" | "unavailable"
+
+export function AdvancedSettings() {
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [clearing, setClearing] = useState(false)
+  const [cacheSize, setCacheSize] = useState<CacheSizeState>("loading")
   const webVersion = process.env.NEXT_PUBLIC_APP_VERSION
+
+  useEffect(() => {
+    let active = true
+    void getPersistedCacheSizeBytes().then(
+      (bytes) => { if (active) setCacheSize(bytes) },
+      () => { if (active) setCacheSize("unavailable") },
+    )
+    return () => { active = false }
+  }, [])
+
   return (
     <>
       <ConfirmDialog
         open={confirmOpen}
         onOpenChange={(o) => { if (!o) setConfirmOpen(false) }}
         title="Clear local cache?"
-        description="This removes the locally persisted messages and read-state for your account. The next channel or DM you open will refetch from the server. Your unread state on the server is unaffected."
+        description="This removes locally persisted messages for every account used on this device. The next channel or DM you open will refetch from the server. Nothing on the server is deleted."
         confirmLabel="Clear cache"
         loadingLabel="Clearing..."
         loading={clearing}
         onConfirm={async () => {
           setClearing(true)
           try {
-            await clearPersistedCache(userId)
+            await clearAllPersistedCaches()
+            setCacheSize(0)
+            setClearing(false)
+            setConfirmOpen(false)
             toast("Local cache cleared — reloading")
-            // Hard reload so the QueryClient starts fresh without racing an
-            // in-flight persister write.
+            await new Promise<void>((resolve) => {
+              window.requestAnimationFrame(() => {
+                window.requestAnimationFrame(() => resolve())
+              })
+            })
             window.location.reload()
           } catch (e) {
             toastApiError(e, "Failed to clear cache")
@@ -109,10 +128,23 @@ function AdvancedSettings({ userId }: { userId: string | null }) {
       <div className="mx-auto flex min-h-full w-full max-w-md flex-col">
         <section className="space-y-2">
           <h2 className="text-base font-medium tracking-tight">Clear local cache</h2>
+          <p className="flex items-baseline justify-between gap-4 text-sm">
+            <span className="text-muted-foreground">Cached messages</span>
+            <span
+              data-testid={tid.settingsCacheSize}
+              className="font-mono tabular-nums text-foreground"
+            >
+              {cacheSize === "loading"
+                ? "Calculating…"
+                : cacheSize === "unavailable"
+                  ? "Unavailable"
+                  : formatBytes(cacheSize)}
+            </span>
+          </p>
           <p className="max-w-[65ch] text-sm leading-6 text-muted-foreground">
-            Removes the locally persisted message history and read-state stored
-            in this browser. The next channel or DM you open will refetch from
-            the server. Nothing on the server is deleted.
+            Removes locally persisted messages for every account used on this
+            device. The next channel or DM you open will refetch from the server.
+            Nothing on the server is deleted.
           </p>
           <Button
             variant="destructive"
@@ -294,7 +326,7 @@ export function UserSettings({ initialTab = "profile", billingReturn = null, onC
             <AppearanceSettings />
           </SettingsShellPanel>
           <SettingsShellPanel value="advanced" className="h-full">
-            <AdvancedSettings userId={userId} />
+            <AdvancedSettings />
           </SettingsShellPanel>
           <SettingsShellPanel value="privacy">
             <div className="mx-auto w-full max-w-2xl pb-8">

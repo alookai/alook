@@ -3,7 +3,7 @@ import type {
   PersistedClient,
   Persister,
 } from "@tanstack/react-query-persist-client"
-import { del, get, set } from "idb-keyval"
+import { del, get, keys, set } from "idb-keyval"
 import {
   communityCollectionSchemas,
   type CommunityCollectionName,
@@ -244,6 +244,22 @@ function blobKeyFor(userId: string | null): string {
   return `${namespaceFor(userId)}:client`
 }
 
+function isPersistedCacheBlobKey(key: IDBValidKey): key is string {
+  return typeof key === "string" && /^alook:qc:[^:]+:[^:]+:client$/.test(key)
+}
+
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  const units = ["KB", "MB", "GB"] as const
+  let value = bytes / 1024
+  let unitIndex = 0
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024
+    unitIndex += 1
+  }
+  return `${Number(value.toFixed(1))} ${units[unitIndex]}`
+}
+
 type PersistCoordination = {
   generations: Map<string, number>
   operations: Map<string, Promise<void>>
@@ -335,4 +351,28 @@ export async function clearPersistedCache(userId: string | null): Promise<void> 
   const key = blobKeyFor(userId)
   persistGenerations.set(key, (persistGenerations.get(key) ?? 0) + 1)
   await runPersistOperation(key, async () => del(key))
+}
+
+export async function getPersistedCacheSizeBytes(): Promise<number> {
+  const cacheKeys = (await keys()).filter(isPersistedCacheBlobKey)
+  const values = await Promise.all(cacheKeys.map((key) => (
+    runPersistOperation(key, () => get<unknown>(key))
+  )))
+  const encoder = new TextEncoder()
+  return values.reduce<number>((total, value) => (
+    typeof value === "string" ? total + encoder.encode(value).byteLength : total
+  ), 0)
+}
+
+export async function clearAllPersistedCaches(): Promise<void> {
+  const storedKeys = (await keys()).filter(isPersistedCacheBlobKey)
+  const coordinatedKeys = [...persistGenerations.keys()].filter(isPersistedCacheBlobKey)
+  const cacheKeys = [...new Set([...storedKeys, ...coordinatedKeys])]
+
+  for (const key of cacheKeys) {
+    persistGenerations.set(key, (persistGenerations.get(key) ?? 0) + 1)
+  }
+  await Promise.all(cacheKeys.map((key) => (
+    runPersistOperation(key, async () => del(key))
+  )))
 }

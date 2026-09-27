@@ -37,6 +37,7 @@ export const tid = {
   settingsClose: "community-settings-close",
   settingsLabel: "community-settings-label",
   settingsWebVersion: "community-settings-web-version",
+  settingsCacheSize: "community-settings-cache-size",
   analyticsConsentBanner: "analytics-consent-banner",
   analyticsPreferenceControl: "analytics-preference-control",
   analyticsConsentNecessary: "analytics-consent-necessary",

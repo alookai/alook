@@ -1,12 +1,15 @@
 import "fake-indexeddb/auto"
 import { describe, expect, it, beforeEach } from "vitest"
-import { get, set } from "idb-keyval"
+import { del, get, set } from "idb-keyval"
 import { QueryClient } from "@tanstack/react-query"
 import type { PersistedClient } from "@tanstack/react-query-persist-client"
 import { communityKeys } from "@/lib/query-keys"
 import {
   clearPersistedCache,
+  clearAllPersistedCaches,
   createIdbPersister,
+  formatBytes,
+  getPersistedCacheSizeBytes,
   MAX_PERSISTED_MESSAGES_PER_SCOPE,
   MAX_PERSISTED_MESSAGE_SCOPES,
   shouldPersistQuery,
@@ -698,5 +701,73 @@ describe("createIdbPersister — user scoping", () => {
       clientState: { mutations: [], queries: [] },
     })
     expect(await get(`alook:qc:v2:u_alice:client`)).toBeUndefined()
+  })
+})
+
+describe("all-account persisted cache management", () => {
+  beforeEach(async () => {
+    await clearAllPersistedCaches()
+    await del("unrelated")
+    await del("alook:qc:v2:u_alice:metadata")
+    await del("alook:qc:v2:extra:segment:client")
+  })
+
+  it("sums serialized UTF-8 bytes across account and cache versions", async () => {
+    await set("alook:qc:v1:u_alice:client", "abc")
+    await set("alook:qc:v2:u_bob:client", "你好")
+    await set("alook:qc:v99:u_future:client", "!")
+
+    expect(await getPersistedCacheSizeBytes()).toBe(10)
+  })
+
+  it("ignores unrelated shapes and non-string values", async () => {
+    await set("alook:qc:v2:u_alice:client", "cache")
+    await set("unrelated", "outside")
+    await set("alook:qc:v2:u_alice:metadata", "outside")
+    await set("alook:qc:v2:extra:segment:client", "outside")
+    await set("alook:qc:v2:u_binary:client", new Uint8Array([1, 2, 3]))
+
+    expect(await getPersistedCacheSizeBytes()).toBe(5)
+  })
+
+  it("clears every current account blob and preserves unrelated keys", async () => {
+    const stale = createIdbPersister("u_alice")
+    await set("alook:qc:v1:u_legacy:client", "legacy")
+    await set("alook:qc:v2:u_alice:client", "alice")
+    await set("alook:qc:v2:u_bob:client", "bob")
+    await set("alook:qc:v99:u_future:client", "future")
+    await set("unrelated", "keep")
+    await set("alook:qc:v2:extra:segment:client", "keep")
+
+    await clearAllPersistedCaches()
+    await stale.persistClient({
+      timestamp: 3,
+      buster: "v2",
+      clientState: { mutations: [], queries: [] },
+    })
+
+    expect(await get("alook:qc:v1:u_legacy:client")).toBeUndefined()
+    expect(await get("alook:qc:v2:u_alice:client")).toBeUndefined()
+    expect(await get("alook:qc:v2:u_bob:client")).toBeUndefined()
+    expect(await get("alook:qc:v99:u_future:client")).toBeUndefined()
+    expect(await get("unrelated")).toBe("keep")
+    expect(await get("alook:qc:v2:extra:segment:client")).toBe("keep")
+  })
+
+  it("reports an empty cache as zero bytes", async () => {
+    expect(await getPersistedCacheSizeBytes()).toBe(0)
+  })
+})
+
+describe("formatBytes", () => {
+  it.each([
+    [0, "0 B"],
+    [1023, "1023 B"],
+    [1024, "1 KB"],
+    [1536, "1.5 KB"],
+    [1024 * 1024, "1 MB"],
+    [Math.round(12.4 * 1024 * 1024), "12.4 MB"],
+  ])("formats %i bytes as %s", (bytes, expected) => {
+    expect(formatBytes(bytes)).toBe(expected)
   })
 })
