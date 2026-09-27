@@ -1,3 +1,5 @@
+import { compareAsciiSqliteBinary } from "@alook/shared"
+
 export type DmOrderKey = {
   id: string
   activityAt?: string
@@ -11,7 +13,7 @@ export type DmOrderKey = {
  */
 function compareDmOrder(left: DmOrderKey, right: DmOrderKey): number {
   const activity = (right.activityAt ?? "").localeCompare(left.activityAt ?? "")
-  return activity || left.id.localeCompare(right.id)
+  return activity || compareAsciiSqliteBinary(left.id, right.id)
 }
 
 export function sortDmsByActivity<T extends DmOrderKey>(dms: readonly T[]): T[] {

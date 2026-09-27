@@ -16,4 +16,20 @@ describe("DM sidebar order", () => {
       { id: "dm-a", activityAt: "2026-09-27T03:00:00.000Z", unread: false },
     ]).map((dm) => dm.id)).toEqual(["dm-a", "dm-b"])
   })
+
+  it("matches SQLite BINARY ordering for equal-activity mixed-case nanoids", () => {
+    const activityAt = "2026-09-27T03:00:00.000Z"
+
+    expect(sortDmsByActivity([
+      { id: "kMRip4KDm4Ki2HU8vQ2qd", activityAt },
+      { id: "bc02tEwQaazjdPwrMuNih", activityAt },
+      { id: "XzKeKetmiRMJ16hwOrhSl", activityAt },
+      { id: "3kY1MAppCm6RYM4IvnXPN", activityAt },
+    ]).map((dm) => dm.id)).toEqual([
+      "3kY1MAppCm6RYM4IvnXPN",
+      "XzKeKetmiRMJ16hwOrhSl",
+      "bc02tEwQaazjdPwrMuNih",
+      "kMRip4KDm4Ki2HU8vQ2qd",
+    ])
+  })
 })
