@@ -1054,6 +1054,7 @@ export async function listActionableIncomingRequests(db: Database, userId: strin
       id: communityFriendship.id,
       userId: user.id,
       name: user.name,
+      discriminator: user.discriminator,
       image: user.image,
       avatarVersion: user.avatarVersion,
       createdAt: communityFriendship.createdAt,

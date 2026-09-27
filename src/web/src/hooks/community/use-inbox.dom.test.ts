@@ -199,19 +199,19 @@ describe("useInboxUnreads / inboxUnreadsQueryFn", () => {
     expect([...mounted.registry.collections.channels.keys()]).toEqual([])
     expect([...mounted.registry.collections.messages.keys()]).toEqual([])
     expect(mounted.snapshot).toEqual({
-      unreadIds: ["channel-detail-pending"],
+      unreadIds: [],
       mentionIds: [],
       markedIds: [],
       pinIds: [],
       attachmentNames: [],
-      railUnreadIds: ["server-canonical-match"],
+      railUnreadIds: [],
     })
     await mounted.dispose()
   })
 
   it("keeps late Inbox rows hidden after an authoritative server purge", async () => {
     const mounted = await mountRailOnlyInbox()
-    expect(mounted.snapshot.unreadIds).toEqual(["channel-detail-pending"])
+    expect(mounted.snapshot.unreadIds).toEqual([])
 
     await act(async () => {
       purgeCommunityServer(mounted.registry, "server-rail-only")
@@ -229,12 +229,12 @@ describe("useInboxUnreads / inboxUnreadsQueryFn", () => {
       unreadIds: [],
       mentionIds: [],
       markedIds: [],
-      railUnreadIds: ["server-canonical-match"],
+      railUnreadIds: [],
     })
     await mounted.dispose()
   })
 
-  it("filters only a retired child while preserving its unread parent", async () => {
+  it("does not project legacy Inbox child rows without canonical attention", async () => {
     const data = {
       friendRequests: [],
       servers: [{
@@ -278,14 +278,11 @@ describe("useInboxUnreads / inboxUnreadsQueryFn", () => {
         React.createElement(Harness),
       ))
     })
-    expect(latest?.servers[0]?.channels[0]?.children.map((child) => child.channelId))
-      .toEqual(["child"])
+    expect(latest?.servers).toEqual([])
 
     act(() => projection.retireAccessScope({ kind: "channel", channelId: "child" }))
 
-    expect(latest?.servers[0]?.channels).toHaveLength(1)
-    expect(latest?.servers[0]?.channels[0]?.channelId).toBe("parent")
-    expect(latest?.servers[0]?.channels[0]?.children).toEqual([])
+    expect(latest?.servers).toEqual([])
     await act(async () => renderer.unmount())
   })
 
@@ -334,7 +331,7 @@ describe("useInboxUnreads / inboxUnreadsQueryFn", () => {
     await registry["cleanup"]()
   })
 
-  it("passes friend requests through, seeds their profile, and exposes the outstanding boolean", async () => {
+  it("does not project friend requests from the retired Inbox endpoint", async () => {
     useCommunityWsStore.getState().reset()
     useCommunityWsStore.getState().activateProfileAccount("viewer")
     apiFetchMock.mockResolvedValueOnce({
@@ -363,8 +360,8 @@ describe("useInboxUnreads / inboxUnreadsQueryFn", () => {
       React.createElement(Harness),
     ))
 
-    await vi.waitFor(() => expect(latest?.friendRequests).toHaveLength(1))
-    expect(latest?.hasOutstandingFriendRequest).toBe(true)
+    expect(latest?.friendRequests).toEqual([])
+    expect(latest?.hasOutstandingFriendRequest).toBe(false)
     expect(latest?.hasProjectedUnread).toBe(false)
     await act(async () => renderer.unmount())
   })
@@ -392,7 +389,7 @@ describe("useInboxUnreads / inboxUnreadsQueryFn", () => {
 
   })
 
-  it("keeps last-good friend requests and their boolean after a stale refetch", async () => {
+  it("ignores last-good friend requests from the retired Inbox endpoint", async () => {
     const request = {
       id: "fr_1",
       userId: "requester",
@@ -416,12 +413,11 @@ describe("useInboxUnreads / inboxUnreadsQueryFn", () => {
       { client: qc },
       React.createElement(Harness),
     ))
-    await vi.waitFor(() => expect(latest?.friendRequests).toEqual([request]))
+    expect(latest?.friendRequests).toEqual([])
     await qc.invalidateQueries({ queryKey: communityKeys.inboxUnreads(), exact: true })
-    await vi.waitFor(() => expect(latest?.isError).toBe(true))
 
-    expect(latest?.friendRequests).toEqual([request])
-    expect(latest?.hasOutstandingFriendRequest).toBe(true)
+    expect(latest?.friendRequests).toEqual([])
+    expect(latest?.hasOutstandingFriendRequest).toBe(false)
     expect(latest?.hasProjectedUnread).toBe(false)
     await act(async () => renderer.unmount())
   })
@@ -697,7 +693,7 @@ describe("useInboxUnreads / inboxUnreadsQueryFn", () => {
     disposeInboxReadReservation(qc)
   })
 
-  it("wires the production hook to its live QueryClient across rerenders", async () => {
+  it("keeps the visible hook read-only across rerenders", async () => {
     apiFetchMock.mockResolvedValue({ servers: [], dms: [] })
     const { useInboxUnreads } = await import("./use-inbox")
     const qc = new QueryClient({
@@ -718,16 +714,16 @@ describe("useInboxUnreads / inboxUnreadsQueryFn", () => {
     await act(async () => {
       renderer = rtlRender(tree)
     })
-    await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
+    expect(apiFetchMock).not.toHaveBeenCalled()
     await act(async () => {
       renderer.rerender(tree)
     })
     expect(renderer.container.querySelector("span")).toHaveAttribute("data-count", "0")
-    expect(apiFetchMock).toHaveBeenCalledOnce()
+    expect(apiFetchMock).not.toHaveBeenCalled()
     await act(async () => renderer.unmount())
   })
 
-  it("projects nested channel and DM reads while preserving unchanged rows", async () => {
+  it("ignores nested rows from the retired Inbox endpoint", async () => {
     const removable = {
       serverId: "s1",
       serverName: "One",
@@ -795,15 +791,13 @@ describe("useInboxUnreads / inboxUnreadsQueryFn", () => {
       ))
     })
 
-    expect(latest?.servers).toEqual([retained])
-    expect(latest?.servers[0]).toBe(retained)
-    expect(latest?.dms).toEqual([keptDm])
-    expect(latest?.dms[0]).toBe(keptDm)
-    expect(latest?.hasProjectedUnread).toBe(true)
+    expect(latest?.servers).toEqual([])
+    expect(latest?.dms).toEqual([])
+    expect(latest?.hasProjectedUnread).toBe(false)
     await act(async () => renderer.unmount())
   })
 
-  it("projects one Inbox reservation into the feed aggregate and restores it on rollback", async () => {
+  it("does not let a legacy Inbox reservation create canonical attention", async () => {
     const channel = {
       channelId: "reserved",
       channelName: "Reserved",
@@ -844,7 +838,7 @@ describe("useInboxUnreads / inboxUnreadsQueryFn", () => {
         React.createElement(Harness),
       ))
     })
-    expect(latest?.hasProjectedUnread).toBe(true)
+    expect(latest?.hasProjectedUnread).toBe(false)
 
     let epoch = 0
     await act(async () => {
@@ -859,12 +853,12 @@ describe("useInboxUnreads / inboxUnreadsQueryFn", () => {
     await act(async () => {
       collapse!.rollbackProjection(epoch)
     })
-    expect(latest?.servers).toEqual([server])
-    expect(latest?.hasProjectedUnread).toBe(true)
+    expect(latest?.servers).toEqual([])
+    expect(latest?.hasProjectedUnread).toBe(false)
     await act(async () => renderer.unmount())
   })
 
-  it("keeps a child-only parent and clones only its changed channel path", async () => {
+  it("does not project a child-only parent from legacy Inbox data", async () => {
     const child = {
       channelId: "child",
       channelName: "Post",
@@ -902,14 +896,11 @@ describe("useInboxUnreads / inboxUnreadsQueryFn", () => {
         React.createElement(Harness),
       ))
     })
-    expect(latest?.servers[0]).not.toBe(server)
-    expect(latest?.servers[0]?.channels[0]).not.toBe(channel)
-    expect(latest?.servers[0]?.channels[0]?.hasDirectUnread).toBe(false)
-    expect(latest?.servers[0]?.channels[0]?.children[0]).toBe(child)
+    expect(latest?.servers).toEqual([])
     await act(async () => renderer.unmount())
   })
 
-  it("retains legacy unread evidence after an absent rolling-deploy response", async () => {
+  it("does not retain legacy unread evidence after an absent response", async () => {
     const data = {
       servers: [{
         serverId: "s1",
@@ -962,7 +953,7 @@ describe("useInboxUnreads / inboxUnreadsQueryFn", () => {
     await vi.waitFor(() => expect(latest?.servers).toEqual([]))
     expect(latest?.servers).toEqual([])
     expect(latest?.dms).toEqual([])
-    expect(latest?.hasProjectedUnread).toBe(true)
+    expect(latest?.hasProjectedUnread).toBe(false)
     await act(async () => renderer.unmount())
   })
 })
@@ -1071,7 +1062,7 @@ describe("useInboxMentions / inboxMentionsQueryFn", () => {
     }
   })
 
-  it("filters read mentions, preserves unscoped rows, and reports pending arrivals", async () => {
+  it("ignores mentions from the retired Inbox endpoint", async () => {
     const scoped = { id: "m1", channelId: "c1", m: { seq: 2 } }
     const unscoped = { id: "m2", m: { seq: 1 } }
     const data = { mentions: [scoped, unscoped], truncated: false }
@@ -1096,13 +1087,12 @@ describe("useInboxMentions / inboxMentionsQueryFn", () => {
         React.createElement(Harness),
       ))
     })
-    expect(latest?.mentions).toEqual([unscoped])
-    expect(latest?.mentions[0]).toBe(unscoped)
-    expect(latest?.hasProjectedMention).toBe(true)
+    expect(latest?.mentions).toEqual([])
+    expect(latest?.hasProjectedMention).toBe(false)
     await act(async () => renderer.unmount())
   })
 
-  it("suppresses same-sequence attention with an Unread reservation and keeps newer attention", async () => {
+  it("does not let legacy mention reservations mutate canonical attention", async () => {
     const channel = {
       channelId: "shared",
       channelName: "Shared",
@@ -1164,7 +1154,7 @@ describe("useInboxMentions / inboxMentionsQueryFn", () => {
         React.createElement(Harness),
       ))
     })
-    expect(mentions?.mentions).toEqual([same, newer])
+    expect(mentions?.mentions).toEqual([])
 
     let epoch = 0
     await act(async () => {
@@ -1174,16 +1164,16 @@ describe("useInboxMentions / inboxMentionsQueryFn", () => {
       )
     })
 
-    expect(unreads?.servers).toEqual([server])
-    expect(unreads?.hasProjectedUnread).toBe(true)
-    expect(mentions?.mentions).toEqual([newer])
-    expect(mentions?.hasProjectedMention).toBe(true)
+    expect(unreads?.servers).toEqual([])
+    expect(unreads?.hasProjectedUnread).toBe(false)
+    expect(mentions?.mentions).toEqual([])
+    expect(mentions?.hasProjectedMention).toBe(false)
 
     await act(async () => {
       collapse!.rollbackProjection(epoch)
     })
-    expect(unreads?.servers).toEqual([server])
-    expect(mentions?.mentions).toEqual([same, newer])
+    expect(unreads?.servers).toEqual([])
+    expect(mentions?.mentions).toEqual([])
     await act(async () => renderer.unmount())
   })
 
@@ -1209,7 +1199,7 @@ describe("useInboxMentions / inboxMentionsQueryFn", () => {
     await act(async () => renderer.unmount())
   })
 
-  it("retains a legacy mention after it falls outside a later window", async () => {
+  it("does not retain a legacy mention outside canonical attention", async () => {
     const legacy = {
       id: "legacy",
       channelId: "c1",
@@ -1240,13 +1230,13 @@ describe("useInboxMentions / inboxMentionsQueryFn", () => {
     })
     await vi.waitFor(() => expect(latest?.mentions).toEqual([]))
     expect(latest?.mentions).toEqual([])
-    expect(latest?.hasProjectedMention).toBe(true)
+    expect(latest?.hasProjectedMention).toBe(false)
     await act(async () => renderer.unmount())
   })
 })
 
-describe("eager Inbox query ownership", () => {
-  it("keeps WS-live feeds fresh across observer remounts without duplicate reads", async () => {
+describe("canonical account attention query ownership", () => {
+  it("keeps visible Inbox projections transport-free across observer remounts", async () => {
     apiFetchMock.mockImplementation((url: string) => Promise.resolve(
       url.endsWith("/unreads")
         ? { servers: [], dms: [] }
@@ -1268,23 +1258,18 @@ describe("eager Inbox query ownership", () => {
     await act(async () => {
       renderer = rtlRender(tree)
     })
-    await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(2))
+    expect(apiFetchMock).not.toHaveBeenCalled()
     await act(async () => renderer.unmount())
     await act(async () => {
       renderer = rtlRender(tree)
     })
 
-    expect(apiFetchMock).toHaveBeenCalledTimes(2)
-    for (const queryKey of [
-      communityKeys.inboxUnreads(),
-      communityKeys.inboxMentions(),
-    ]) {
-      const options = qc.getQueryCache().find({ queryKey })?.options
-      expect(options?.staleTime).toBe(Infinity)
-      expect(options?.refetchOnReconnect).toBe(true)
-    }
+    expect(apiFetchMock).not.toHaveBeenCalled()
+    expect(qc.getQueryCache().find({ queryKey: communityKeys.accountAttention() })).toBeDefined()
+    expect(qc.getQueryCache().find({ queryKey: communityKeys.inboxUnreads() })).toBeUndefined()
+    expect(qc.getQueryCache().find({ queryKey: communityKeys.inboxMentions() })).toBeUndefined()
     await qc.invalidateQueries({ queryKey: communityKeys.inbox() })
-    await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(4))
+    expect(apiFetchMock).not.toHaveBeenCalled()
     await act(async () => renderer.unmount())
   })
 })

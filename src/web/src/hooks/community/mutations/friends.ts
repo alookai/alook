@@ -11,6 +11,14 @@ import {
   getFriendRequestActionController,
   type FriendRequestAction,
 } from "@/hooks/community/use-friend-request-action-state"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import {
+  commitAttentionItemsOptimisticSnapshot,
+  removeAttentionItemsOptimistically,
+  restoreAttentionItemsOptimisticSnapshot,
+  type AttentionItemsOptimisticSnapshot,
+} from "@/lib/community-db/sync"
+import { reconcileAccountAttention } from "@/hooks/community/use-account-attention"
 
 /**
  * Friend-scoped mutations. All six live on one query key
@@ -52,6 +60,7 @@ type FriendRequestMutationContext = {
   friends?: CapturedRow<PendingRequest>
   generation: number
   inbox?: CapturedRow<InboxFriendRequest>
+  attention?: AttentionItemsOptimisticSnapshot
 }
 
 function captureRow<T extends { id: string }>(
@@ -96,6 +105,15 @@ function useFriendRequestMutation(
         friends: captureRow(friends?.pending ?? [], friendshipId),
         generation,
         inbox: captureRow(inbox?.friendRequests ?? [], friendshipId),
+        attention: (() => {
+          const registry = getCommunityDbRegistry(queryClient)
+          return registry
+            ? removeAttentionItemsOptimistically(
+                registry,
+                (item) => item.kind === "friend_request" && item.sourceId === friendshipId,
+              )
+            : undefined
+        })(),
       }
       queryClient.setQueryData<FriendsResponse | undefined>(friendsKey, (current) =>
         current
@@ -114,11 +132,27 @@ function useFriendRequestMutation(
     },
     onSuccess: async (_data, { friendshipId }, context) => {
       if (!context) return
+      const registry = getCommunityDbRegistry(queryClient)
+      if (registry && context.attention) {
+        commitAttentionItemsOptimisticSnapshot(registry, context.attention)
+        void reconcileAccountAttention(registry).catch(() => undefined)
+      }
       await controller.publishTerminalAndFence(friendshipId, context.generation)
     },
     onError: (_error, { friendshipId }, context) => {
       if (!context) return
-      if (!controller.isCompensatable(friendshipId, context.generation)) return
+      const registry = getCommunityDbRegistry(queryClient)
+      if (!controller.isCompensatable(friendshipId, context.generation)) {
+        if (registry && context.attention) {
+          commitAttentionItemsOptimisticSnapshot(registry, context.attention)
+        }
+        return
+      }
+      if (registry && context.attention) {
+        if (!restoreAttentionItemsOptimisticSnapshot(registry, context.attention)) {
+          void reconcileAccountAttention(registry).catch(() => undefined)
+        }
+      }
       queryClient.setQueryData<FriendsResponse | undefined>(communityKeys.friends(), (current) =>
         current
           ? { ...current, pending: reinsertRow(current.pending, context?.friends) }

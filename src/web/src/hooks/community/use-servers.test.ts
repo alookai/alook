@@ -18,12 +18,16 @@ const apiFetchMock = vi.fn()
 const dbProjection = vi.hoisted(() => ({
   registry: null as object | null,
   rail: undefined as { servers: Array<Record<string, unknown>>; folders: unknown[] } | undefined,
+  attentionScopes: [] as Array<Record<string, unknown>>,
+  attentionItems: [] as Array<Record<string, unknown>>,
 }))
 vi.mock("@/lib/api/client", () => ({
   apiFetch: (...args: unknown[]) => apiFetchMock(...args),
 }))
 vi.mock("@/lib/community-db/projections", () => ({
   useOptionalCommunityDbRegistry: () => dbProjection.registry,
+  useAttentionScopes: () => dbProjection.attentionScopes,
+  useAttentionItems: () => dbProjection.attentionItems,
   useServerRailProjection: () => dbProjection.rail,
   useServerTreeProjection: () => undefined,
 }))
@@ -56,6 +60,8 @@ beforeEach(() => {
   capturedHookQueryError = null
   dbProjection.registry = null
   dbProjection.rail = undefined
+  dbProjection.attentionScopes = []
+  dbProjection.attentionItems = []
   useCommunityWsStore.getState().reset()
 })
 
@@ -282,7 +288,7 @@ describe("useServers / serversQueryFn", () => {
     expect(projection.projectUnread("servers", "attention", false)).toBe(false)
   })
 
-  it("projects a live unread arrival and preserves unchanged server identity", async () => {
+  it("does not let the legacy unread ledger override canonical attention", async () => {
     const changed = {
       id: "s1",
       unread: false,
@@ -311,10 +317,12 @@ describe("useServers / serversQueryFn", () => {
     const result = useServers()
 
     expect(result.servers).not.toBe(raw)
-    expect(result.servers[0]).not.toBe(changed)
-    expect(result.servers[0]?.unread).toBe(true)
-    expect(result.servers[1]).toBe(unchanged)
-    expect(result.servers[2]).toBe(legacy)
+    expect(result.servers[0]).toBe(changed)
+    expect(result.servers[0]?.unread).toBe(false)
+    expect(result.servers[1]).not.toBe(unchanged)
+    expect(result.servers[1]).toMatchObject({ unread: false, mentions: 0 })
+    expect(result.servers[2]).not.toBe(legacy)
+    expect(result.servers[2]).toMatchObject({ unread: false, mentions: 0 })
   })
 
   it("projects live mention-source evidence onto canonical rail rows", async () => {
@@ -323,6 +331,14 @@ describe("useServers / serversQueryFn", () => {
       servers: [{ id: "s1", unread: false, mentions: 1 }],
       folders: [],
     }
+    dbProjection.attentionScopes = [{
+      scopeId: "c1",
+      channelId: "c1",
+      serverId: "s1",
+      ordinaryUnread: true,
+      attentionCount: 1,
+    }]
+    dbProjection.attentionItems = [{ id: "mention:m1", kind: "mention", scopeId: "c1" }]
     capturedHookQueryData = {
       servers: [{
         id: "s1",
@@ -349,25 +365,25 @@ describe("useServers / serversQueryFn", () => {
     expect(first).toEqual([])
   })
 
-  it("retains a rolling-deploy rail unread without a source vector", async () => {
+  it("does not retain a legacy rail unread without canonical attention", async () => {
     capturedHookQueryData = {
       servers: [{ id: "s1", unread: true, mentions: 0 }],
     }
     const { useServers } = await import("./use-servers")
-    expect(useServers().servers[0]?.unread).toBe(true)
+    expect(useServers().servers[0]?.unread).toBe(false)
 
     capturedHookQueryData = {
       servers: [{ id: "s1", unread: false, mentions: 0 }],
     }
-    expect(useServers().servers[0]?.unread).toBe(true)
+    expect(useServers().servers[0]?.unread).toBe(false)
   })
 
-  it("hands a rolling-deploy rail unread to exact sources once they arrive", async () => {
+  it("keeps legacy rail source transitions subordinate to canonical attention", async () => {
     capturedHookQueryData = {
       servers: [{ id: "s1", unread: true, mentions: 0 }],
     }
     const { useServers } = await import("./use-servers")
-    expect(useServers().servers[0]?.unread).toBe(true)
+    expect(useServers().servers[0]?.unread).toBe(false)
 
     capturedHookQueryData = {
       servers: [{
@@ -377,7 +393,7 @@ describe("useServers / serversQueryFn", () => {
         unreadSources: [{ channelId: "c1", lastUnreadSeq: 4 }],
       }],
     }
-    expect(useServers().servers[0]?.unread).toBe(true)
+    expect(useServers().servers[0]?.unread).toBe(false)
 
     const { getActiveAccountUnreadProjection } = await import("./account-unread-projection")
     getActiveAccountUnreadProjection(capturedHookQueryClient).acceptPrimarySnapshot({
@@ -535,7 +551,7 @@ describe("useServer / serverQueryFn", () => {
     expect(qc.getQueryData<{ servers: unknown[] }>(communityKeys.servers())?.servers).toEqual([])
   })
 
-  it("merges stale server-detail positives before rejecting the cache write", async () => {
+  it("does not merge stale positives from the retired server unread endpoint", async () => {
     apiFetchMock.mockImplementation(async (url: string) => {
       if (url.endsWith("/categories")) return { categories: [] }
       if (url.endsWith("/channels")) return { channels: [] }
@@ -559,9 +575,10 @@ describe("useServer / serverQueryFn", () => {
     const projection = getAccountUnreadProjection(qc, "u1")
     const { serverProjectedQueryFn } = await import("./use-servers")
 
-    await expect(serverProjectedQueryFn(qc, "srv_1")()).rejects.toThrow("stale D1 read")
+    await expect(serverProjectedQueryFn(qc, "srv_1")()).resolves.toMatchObject({ id: "srv_1" })
 
-    expect(projection.projectUnread("server-detail:srv_1", "c1", false)).toBe(true)
+    expect(projection.projectUnread("server-detail:srv_1", "c1", false)).toBe(false)
+    expect(apiFetchMock.mock.calls.some(([url]) => String(url).endsWith("/unreads"))).toBe(false)
   })
 
   it("projects child scope metadata and confirms every loaded channel", async () => {
@@ -622,6 +639,7 @@ describe("useServer / serverQueryFn", () => {
       forumUnreadState: {},
     }
     capturedHookQueryData = detail
+    dbProjection.attentionScopes = [{ scopeId: "c1", channelId: "c1", serverId: "s1", ordinaryUnread: true }]
     const { getActiveAccountUnreadProjection } = await import("./account-unread-projection")
     getActiveAccountUnreadProjection(capturedHookQueryClient).recordArrival({
       channelId: "c1",
@@ -640,7 +658,7 @@ describe("useServer / serverQueryFn", () => {
     expect(result.server?.categories[1]?.channels[0]?.unread).toBe(false)
   })
 
-  it("retains rolling-deploy server-detail unread rows without source vectors", async () => {
+  it("does not retain rolling-deploy server-detail unread without canonical attention", async () => {
     const channel = { id: "c1", unread: true }
     const baseUnreadForum = { id: "forum-base", unread: false }
     const childUnreadForum = { id: "forum-child", unread: false }
@@ -658,9 +676,9 @@ describe("useServer / serverQueryFn", () => {
     capturedHookQueryData = detail
     const { useServer } = await import("./use-servers")
     const first = useServer("s1")
-    expect(first.server?.categories[0]?.channels[0]?.unread).toBe(true)
-    expect(first.server?.categories[0]?.channels[1]?.unread).toBe(true)
-    expect(first.server?.categories[0]?.channels[2]?.unread).toBe(true)
+    expect(first.server?.categories[0]?.channels[0]?.unread).toBe(false)
+    expect(first.server?.categories[0]?.channels[1]?.unread).toBe(false)
+    expect(first.server?.categories[0]?.channels[2]?.unread).toBe(false)
 
     capturedHookQueryData = {
       ...detail,
@@ -674,7 +692,7 @@ describe("useServer / serverQueryFn", () => {
       }],
     }
     const second = useServer("s1")
-    expect(second.server?.categories[0]?.channels[0]?.unread).toBe(true)
+    expect(second.server?.categories[0]?.channels[0]?.unread).toBe(false)
   })
 
   it("composes a single server detail from canonical resources", async () => {
@@ -686,7 +704,6 @@ describe("useServer / serverQueryFn", () => {
         { id: "ch_1", name: "general", categoryId: "cat_1" },
         { id: "ch_2", name: "loose", categoryId: null },
       ] }
-      if (url.endsWith("/unreads")) return { channelIds: ["ch_1"] }
       throw new Error(`unexpected ${url}`)
     })
     const { serverQueryFn } = await import("./use-servers")
@@ -694,11 +711,11 @@ describe("useServer / serverQueryFn", () => {
     expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers", expect.any(Object))
     expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers/srv_1/categories")
     expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers/srv_1/channels")
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers/srv_1/unreads")
+    expect(apiFetchMock).not.toHaveBeenCalledWith("/api/community/servers/srv_1/unreads")
     expect(data).toEqual({ ...detail, discriminator: "0001", categories: [
-      { id: "cat_1", name: "Main", private: 0, channels: [{ id: "ch_1", name: "general", categoryId: "cat_1", active: false, unread: true }] },
+      { id: "cat_1", name: "Main", private: 0, channels: [{ id: "ch_1", name: "general", categoryId: "cat_1", active: false, unread: false }] },
       { id: "__uncategorized__", name: "", private: 0, channels: [{ id: "ch_2", name: "loose", categoryId: null, active: false, unread: false }] },
-    ], forumUnreadState: {} })
+    ] })
   })
 
   it("passes the navigation AbortSignal to every server-detail resource", async () => {
@@ -714,14 +731,13 @@ describe("useServer / serverQueryFn", () => {
       if (url === "/api/community/servers") return { servers: [identity] }
       if (url.endsWith("/categories")) return { categories: [] }
       if (url.endsWith("/channels")) return { channels: [] }
-      if (url.endsWith("/unreads")) return { channelIds: [] }
       throw new Error(`unexpected ${url}`)
     })
     const controller = new AbortController()
     const { serverQueryFn } = await import("./use-servers")
     await serverQueryFn(new QueryClient(), "srv_signal", controller.signal)()
 
-    for (const path of ["categories", "channels", "unreads"]) {
+    for (const path of ["categories", "channels"]) {
       expect(apiFetchMock).toHaveBeenCalledWith(
         `/api/community/servers/srv_signal/${path}`,
         { signal: controller.signal },
@@ -755,7 +771,6 @@ describe("useServer / serverQueryFn", () => {
       if (url === "/api/community/servers") return { servers: [identity] }
       if (url.endsWith("/categories")) return { categories: [] }
       if (url.endsWith("/channels")) return { channels: [] }
-      if (url.endsWith("/unreads")) return { channelIds: [] }
       throw new Error(`unexpected ${url}`)
     })
     const { serverQueryFn } = await import("./use-servers")
@@ -798,7 +813,6 @@ describe("useServer / serverQueryFn", () => {
     apiFetchMock.mockImplementation(async (url: string) => {
       if (url.endsWith("/categories")) return { categories: [] }
       if (url.endsWith("/channels")) return { channels: [] }
-      if (url.endsWith("/unreads")) return { channelIds: [] }
       throw new Error(`unexpected ${url}`)
     })
     const { serverQueryFn } = await import("./use-servers")
@@ -808,10 +822,10 @@ describe("useServer / serverQueryFn", () => {
     await expect(serverQueryFn(qc, "srv_1")()).resolves.toMatchObject(identity)
 
     expect(apiFetchMock.mock.calls.filter(([url]) => url === "/api/community/servers")).toHaveLength(0)
-    expect(apiFetchMock).toHaveBeenCalledTimes(3)
+    expect(apiFetchMock).toHaveBeenCalledTimes(2)
   })
 
-  it("cold-boots a forum fallback from a canonical unread child outside the sidebar projection", async () => {
+  it("does not cold-boot forum unread from the retired server unread endpoint", async () => {
     apiFetchMock.mockImplementation(async (url: string) => {
       if (url === "/api/community/servers") return { servers: [{
         id: "srv_1", name: "Alook", discriminator: "0001", icon: null, ownerId: "u_1",
@@ -820,20 +834,15 @@ describe("useServer / serverQueryFn", () => {
       if (url.endsWith("/channels")) return { channels: [{
         id: "forum_1", name: "Forum", type: "forum", categoryId: "cat_1",
       }] }
-      if (url.endsWith("/unreads")) return {
-        channelIds: ["post_hidden"],
-        childChannels: [{ id: "post_hidden", parentChannelId: "forum_1" }],
-      }
       throw new Error(`unexpected ${url}`)
     })
 
     const { serverQueryFn } = await import("./use-servers")
     const data = await serverQueryFn(new QueryClient(), "srv_1")()
 
-    expect(data.categories[0]?.channels[0]?.unread).toBe(true)
-    expect(data.forumUnreadState).toEqual({
-      forum_1: { baseUnread: false, childIds: ["post_hidden"] },
-    })
+    expect(data.categories[0]?.channels[0]?.unread).toBe(false)
+    expect(data.forumUnreadState).toBeUndefined()
+    expect(apiFetchMock.mock.calls.some(([url]) => String(url).endsWith("/unreads"))).toBe(false)
   })
 
   it("nests the server(id) key under servers() so prefix invalidation cascades", async () => {
@@ -842,7 +851,6 @@ describe("useServer / serverQueryFn", () => {
       if (url === "/api/community/servers") return { servers: [{ ...detail, discriminator: "0001" }] }
       if (url.endsWith("/categories")) return { categories: [] }
       if (url.endsWith("/channels")) return { channels: [] }
-      if (url.endsWith("/unreads")) return { channelIds: [] }
       throw new Error(`unexpected ${url}`)
     })
     const { serverQueryFn } = await import("./use-servers")
@@ -861,19 +869,19 @@ describe("useServer / serverQueryFn", () => {
       staleTime: Infinity,
     })
     expect(apiFetchMock.mock.calls.filter(([url]) => url === "/api/community/servers")).toHaveLength(1)
-    expect(apiFetchMock).toHaveBeenCalledTimes(4)
+    expect(apiFetchMock).toHaveBeenCalledTimes(3)
   })
 
-  it("rejects a stale raw unread read instead of caching false read badges", async () => {
+  it("does not issue a raw server unread read", async () => {
     apiFetchMock.mockImplementation(async (url: string) => {
       if (url === "/api/community/servers") return { servers: [{ id: "srv_1", name: "Alook", discriminator: "0001", icon: null, ownerId: "u_1" }] }
       if (url.endsWith("/categories")) return { categories: [] }
       if (url.endsWith("/channels")) return { channels: [{ id: "ch_1", name: "general", categoryId: null }] }
-      if (url.endsWith("/unreads")) return { channelIds: [], stale: true }
       throw new Error(`unexpected ${url}`)
     })
 
     const { serverQueryFn } = await import("./use-servers")
-    await expect(serverQueryFn(new QueryClient(), "srv_1")()).rejects.toThrow("stale D1 read")
+    await expect(serverQueryFn(new QueryClient(), "srv_1")()).resolves.toMatchObject({ id: "srv_1" })
+    expect(apiFetchMock.mock.calls.some(([url]) => String(url).endsWith("/unreads"))).toBe(false)
   })
 })

@@ -7,6 +7,7 @@ import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import {
+  useAttentionScopes,
   useForumSidebarProjection,
   useOptionalCommunityDbRegistry,
 } from "@/lib/community-db/projections"
@@ -937,15 +938,39 @@ export function useForumSidebarThreads(
     ? null
     : clockNowMs + (query.data?.serverClockOffsetMs ?? 0)
   const canonical = useForumSidebarProjection(serverId, retainId, serverNowMs)
+  const attentionScopes = useAttentionScopes()
   const providerless = useMemo(
     () => clockNowMs === null
       ? { threads: [], parentUnread: {} }
       : deriveForumSidebarProjection(query.data, null, undefined, clockNowMs),
     [clockNowMs, query.data],
   )
-  const projection = registry
+  const structuralProjection = registry
     ? canonical ?? { threads: [], parentUnread: {} }
     : providerless
+  const projection = useMemo(() => {
+    if (!registry) return structuralProjection
+    const relevant = attentionScopes.filter((scope) => scope.serverId === serverId)
+    const unreadByScope = new Map(relevant.map((scope) => [
+      scope.scopeId,
+      scope.ordinaryUnread || scope.attentionCount > 0,
+    ]))
+    const parentUnread: Record<string, boolean> = {}
+    for (const scope of relevant) {
+      if (scope.parentChannelId && unreadByScope.get(scope.scopeId)) {
+        parentUnread[scope.parentChannelId] = true
+      } else if (!scope.parentChannelId) {
+        parentUnread[scope.channelId] = unreadByScope.get(scope.scopeId) ?? false
+      }
+    }
+    return {
+      threads: structuralProjection.threads.map((thread) => ({
+        ...thread,
+        unread: unreadByScope.get(thread.id) ?? false,
+      })),
+      parentUnread,
+    }
+  }, [attentionScopes, registry, serverId, structuralProjection])
 
   useEffect(() => {
     if (serverNowMs === null) return

@@ -61,6 +61,7 @@ export * as communityNotificationTarget from "./queries/community/notification-t
 export * as communityServerFolder from "./queries/community/server-folder";
 export * as communityServerRail from "./queries/community/server-rail";
 export * as communityInbox from "./queries/community/inbox";
+export * as communityAttention from "./queries/community/attention";
 export * as communityMachine from "./queries/community/machine";
 export * as communityMachineSession from "./queries/community/machine-session-epoch";
 export * as communityBot from "./queries/community/bot";

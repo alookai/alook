@@ -7,6 +7,8 @@ import type { QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
 import {
   categorySchema,
+  attentionItemSchema,
+  attentionScopeSchema,
   channelMembershipSchema,
   channelSchema,
   folderItemSchema,
@@ -19,6 +21,8 @@ import {
   serverMembershipSchema,
   serverSchema,
   type CategoryRow,
+  type AttentionItemRow,
+  type AttentionScopeRow,
   type ChannelMembershipRow,
   type ChannelRow,
   type FolderItemRow,
@@ -186,6 +190,32 @@ export function createCommunityDbRegistry(
       persistedGcTime: COLLECTION_GC_TIME,
     })
   )))
+  const attentionScopes = dbClient.collection(collectionOptions("community-db-attention-scopes", () => (
+    queryCollectionOptions({
+      id: "community-db-attention-scopes",
+      queryClient,
+      queryKey: collectionQueryKey(scopeId, "attentionScopes"),
+      queryFn: queryFnFor<AttentionScopeRow>("attentionScopes"),
+      schema: attentionScopeSchema,
+      getKey: (row) => row.scopeId,
+      staleTime: Infinity,
+      gcTime: COLLECTION_GC_TIME,
+      persistedGcTime: COLLECTION_GC_TIME,
+    })
+  )))
+  const attentionItems = dbClient.collection(collectionOptions("community-db-attention-items", () => (
+    queryCollectionOptions({
+      id: "community-db-attention-items",
+      queryClient,
+      queryKey: collectionQueryKey(scopeId, "attentionItems"),
+      queryFn: queryFnFor<AttentionItemRow>("attentionItems"),
+      schema: attentionItemSchema,
+      getKey: (row) => row.id,
+      staleTime: Infinity,
+      gcTime: COLLECTION_GC_TIME,
+      persistedGcTime: COLLECTION_GC_TIME,
+    })
+  )))
   const folders = dbClient.collection(collectionOptions("community-db-folders", () => (
     queryCollectionOptions({
       id: "community-db-folders",
@@ -236,6 +266,8 @@ export function createCommunityDbRegistry(
     messages,
     readStates,
     readStateClock,
+    attentionScopes,
+    attentionItems,
     folders,
     folderItems,
     notificationSettings,

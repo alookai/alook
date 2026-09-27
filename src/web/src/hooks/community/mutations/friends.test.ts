@@ -1,9 +1,10 @@
 /**
  * Friend-mutation tests. Same shim pattern as messages.test.ts.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { afterEach, describe, it, expect, vi, beforeEach } from "vitest"
 import { QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
+import type { CommunityDbRegistry } from "@/lib/community-db/collections"
 
 vi.mock("react", () => ({
   useRef: (initial: unknown) => ({ current: initial }),
@@ -26,6 +27,8 @@ type MutConfig<Args, Ctx> = {
 }
 let capturedConfig: MutConfig<unknown, unknown> | null = null
 let capturedQc: QueryClient
+let canonicalRegistry: CommunityDbRegistry | null = null
+let unregisterCanonicalRegistry: (() => void) | null = null
 vi.mock("@tanstack/react-query", async () => {
   const actual = await vi.importActual<typeof import("@tanstack/react-query")>("@tanstack/react-query")
   return {
@@ -64,6 +67,20 @@ beforeEach(() => {
   capturedQc = new QueryClient()
 })
 
+afterEach(async () => {
+  unregisterCanonicalRegistry?.()
+  unregisterCanonicalRegistry = null
+  await canonicalRegistry?.cleanup()
+  canonicalRegistry = null
+})
+
+async function installCanonicalRegistry() {
+  const collections = await import("@/lib/community-db/collections")
+  canonicalRegistry = collections.createCommunityDbRegistry(capturedQc, "u_me")
+  await canonicalRegistry.preload()
+  unregisterCanonicalRegistry = collections.registerCommunityDbRegistry(canonicalRegistry)
+}
+
 describe("useSendFriendRequest — invalidates friends on success", () => {
   it("triggers invalidateQueries(friends)", async () => {
     apiFetchMock.mockResolvedValueOnce(undefined)
@@ -90,6 +107,53 @@ describe("useSendFriendRequest — invalidates friends on success", () => {
 })
 
 describe("useAcceptFriendRequest — rollback", () => {
+  it("reconciles a failed friend action after an intervening canonical event", async () => {
+    const mod = await load()
+    await installCanonicalRegistry()
+    const { ingestAttentionSnapshot, projectAttentionUnreadBump } = await import(
+      "@/lib/community-db/sync"
+    )
+    const canonical = {
+      scopes: [],
+      items: [{
+        id: "friend_request:f_1", kind: "friend_request" as const, sourceId: "f_1",
+        scopeId: null, messageId: null, actorUserId: "u_1",
+        createdAt: "2026-09-27T00:00:00.000Z",
+      }],
+      limit: 100,
+      truncated: false,
+    }
+    ingestAttentionSnapshot(canonicalRegistry!, canonical)
+    capturedQc.setQueryData(communityKeys.friends(), {
+      friends: [], blocked: [],
+      pending: [{ id: "f_1", userId: "u_1", name: "One", avatar: "1", kind: "incoming" }],
+    })
+    apiFetchMock.mockImplementation(async (path: string) => {
+      if (path === "/api/community/users/me/attention") return canonical
+      throw new Error("friend action failed")
+    })
+    mod.useAcceptFriendRequest()
+    const cfg = capturedConfig as MutConfig<{ friendshipId: string }, unknown>
+    const context = await cfg.onMutate?.({ friendshipId: "f_1" })
+    projectAttentionUnreadBump(capturedQc, {
+      type: "community:unread.bump",
+      userId: "u_me",
+      channelId: "other",
+      serverId: "s_1",
+      isMention: false,
+    }, { seq: 2 })
+
+    await cfg.onError?.(new Error("friend action failed"), { friendshipId: "f_1" }, context)
+
+    await vi.waitFor(() => {
+      expect(apiFetchMock).toHaveBeenCalledWith(
+        "/api/community/users/me/attention",
+        expect.objectContaining({ signal: expect.anything() }),
+      )
+      expect(canonicalRegistry!.collections.attentionItems.get("friend_request:f_1")).toBeDefined()
+    })
+  })
+
   it("restores the pending row when the server rejects", async () => {
     capturedQc.setQueryData(communityKeys.friends(), {
       friends: [],

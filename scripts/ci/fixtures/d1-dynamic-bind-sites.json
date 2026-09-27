@@ -700,6 +700,11 @@
     "fixedParams": 10
   },
   {
+    "key": "src/shared/src/db/queries/community/mention.ts:listUnreadMentionScopes:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
     "key": "src/shared/src/db/queries/community/mention.ts:markChannelMentionsReadBuilder:inArray:1",
     "strategy": "subquery"
   },

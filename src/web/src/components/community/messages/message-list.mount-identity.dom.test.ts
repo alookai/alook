@@ -6,10 +6,6 @@ import { render } from "@/test/react-dom-harness"
 vi.mock("@/components/ui/number-ticker", () => ({
   NumberTicker: ({ value }: { value: number }) => React.createElement("span", null, value),
 }))
-vi.mock("./initial-position-aurora.module.css", () => ({
-  default: new Proxy({}, { get: (_target, key) => String(key) }),
-}))
-
 let scrollToDescriptor: PropertyDescriptor | undefined
 
 // Confirms Phase 4's core claim with an automated test rather than relying

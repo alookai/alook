@@ -435,7 +435,7 @@ export function MessageShareDialog({ m, open, onClose }: {
                     : (
                       <div data-share-identity-id={msg.authorId} className="size-10 shrink-0">
                         <Avatar
-                          label={author?.name ?? msg.authorName ?? "Unknown"}
+                          label={author?.name ?? msg.authorName ?? "Deleted user"}
                           src={author?.avatar}
                           seed={msg.authorId}
                           size={40}

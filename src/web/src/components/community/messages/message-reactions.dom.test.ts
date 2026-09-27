@@ -218,13 +218,13 @@ describe("MessageReactions", () => {
     expect(text).toContain("#0001")
   })
 
-  it("keeps an unauthorized actor on the Unknown member fallback", () => {
+  it("keeps an unauthorized actor on the unavailable-member fallback", () => {
     vi.useFakeTimers()
     const unknownReactions = [{ emoji: "👀", count: 1, me: false, userIds: ["user_3"] }]
     const { renderer } = renderReactions(vi.fn(), unknownReactions)
     openDetails(renderer, "👀")
     const text = byTestId(renderer, tid.reactionMember("user_3")).textContent
-    expect(text).toContain("Unknown member")
+    expect(text).toContain("Member unavailable")
     expect(text).not.toContain("#000")
   })
 

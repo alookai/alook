@@ -1,5 +1,5 @@
 import { eq, and, inArray, desc, exists, lte, sql, type SQL } from "drizzle-orm";
-import { communityMention, communityMessage } from "../../community-schema";
+import { communityChannel, communityMention, communityMessage } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
 import { chunk, maxRowsPerInsert, D1_MAX_IN_PARAMS } from "../_chunk";
@@ -140,6 +140,43 @@ export async function listUnreadMentions(
   ).flat();
   merged.sort((a, b) => (a.message.createdAt < b.message.createdAt ? 1 : -1));
   return opts.limit !== undefined ? merged.slice(0, opts.limit) : merged;
+}
+
+export async function listUnreadMentionScopes(
+  db: Database,
+  userId: string,
+  visibleChannelIds: string[],
+) {
+  if (visibleChannelIds.length === 0) return [];
+  return (
+    await Promise.all(
+      chunk(visibleChannelIds, D1_MAX_IN_PARAMS).map((ids) =>
+        db
+          .select({
+            channelId: communityChannel.id,
+            serverId: communityChannel.serverId,
+            parentChannelId: communityChannel.parentChannelId,
+            attentionCount: sql<number>`COUNT(*)`.mapWith(Number),
+            lastAttentionSeq: sql<number>`MAX(${communityMessage.seq})`.mapWith(Number),
+          })
+          .from(communityMention)
+          .innerJoin(
+            communityMessage,
+            eq(communityMention.messageId, communityMessage.id),
+          )
+          .innerJoin(
+            communityChannel,
+            eq(communityMessage.channelId, communityChannel.id),
+          )
+          .where(and(
+            eq(communityMention.userId, userId),
+            eq(communityMention.read, 0),
+            inArray(communityChannel.id, ids),
+          ))
+          .groupBy(communityChannel.id)
+      )
+    )
+  ).flat();
 }
 
 export async function markAllMentionsRead(db: Database, userId: string) {

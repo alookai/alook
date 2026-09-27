@@ -29,6 +29,7 @@ vi.mock("@/contexts/community/current-user", () => ({
 }))
 vi.mock("@/hooks/community/use-community-ws", () => ({ useCommunityWs: vi.fn() }))
 vi.mock("@/hooks/community/use-notification-settings", () => ({ useNotificationSettings }))
+vi.mock("@/hooks/community/use-account-attention", () => ({ useAccountAttention: vi.fn() }))
 vi.mock("@/lib/community/profile-seed", () => ({
   apiFetchProfiles: (...args: unknown[]) => apiFetchProfiles(...args),
 }))

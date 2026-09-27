@@ -68,7 +68,7 @@ describe("mapMessageForApi", () => {
 
   it("emits { deleted: true } when replyToId is set but the target is missing (out-of-scope filtered upstream)", () => {
     const out = mapMessageForApi({ ...baseRow, replyToId: "m-gone" }, emptyApiCtx)
-    expect(out.replyTo).toEqual({ id: "m-gone", authorName: "Unknown", text: "", deleted: true })
+    expect(out.replyTo).toEqual({ id: "m-gone", authorName: "Deleted user", text: "", deleted: true })
   })
 
   it("gives API and WS projections the same ellipsized reply preview", () => {

@@ -102,7 +102,7 @@ export async function resolveBotActor(
   if (!rowLookup.ok) return { kind: "error", response: rowLookup.response }
   const row = rowLookup.value
   if (!row) {
-    return { kind: "error", response: NextResponse.json({ error: "runner key revoked or unknown" }, { status: 401 }) }
+    return { kind: "error", response: NextResponse.json({ error: "runner key revoked or unrecognized" }, { status: 401 }) }
   }
 
   const botLookup = await lookupOr503("getUserInternal", () =>

@@ -59,6 +59,8 @@ vi.mock("@/lib/api/client", () => ({
 }))
 vi.mock("@/lib/community-db/projections", () => ({
   useOptionalCommunityDbRegistry: () => null,
+  useAttentionScopes: () => [],
+  useAttentionItems: () => [],
   useServerRailProjection: () => undefined,
   useServerTreeProjection: () => undefined,
 }))

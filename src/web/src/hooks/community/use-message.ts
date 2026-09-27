@@ -96,7 +96,7 @@ export function findCachedMessage(
       return {
         id: message.id,
         authorId: message.authorId,
-        authorName: message.authorName ?? "Unknown",
+        authorName: message.authorName ?? "Deleted user",
         authorAvatar: message.authorAvatar ?? "",
         authorAvatarVersion: message.authorAvatarVersion ?? 0,
         content: message.content ?? "",

@@ -28,17 +28,17 @@ describe("displayName", () => {
     expect(displayName({ email: "dave@example.com" })).toBe("dave")
   })
 
-  it("returns 'Unknown member' when neither name nor email is present", () => {
-    expect(displayName({})).toBe("Unknown member")
-    expect(displayName(null)).toBe("Unknown member")
-    expect(displayName(undefined)).toBe("Unknown member")
-    expect(displayName({ name: null, email: null })).toBe("Unknown member")
+  it("returns 'Member unavailable' when neither name nor email is present", () => {
+    expect(displayName({})).toBe("Member unavailable")
+    expect(displayName(null)).toBe("Member unavailable")
+    expect(displayName(undefined)).toBe("Member unavailable")
+    expect(displayName({ name: null, email: null })).toBe("Member unavailable")
   })
 
   it("never returns a raw id", () => {
     const id = "user_abc123"
     expect(displayName({ name: "", email: "" })).not.toBe(id)
-    expect(displayName({})).toBe("Unknown member")
+    expect(displayName({})).toBe("Member unavailable")
   })
 })
 
@@ -56,9 +56,9 @@ describe("makeUserNameResolver", () => {
     expect(resolve("u3")).toBe("Carol")
   })
 
-  it("returns 'Unknown member' (not the id) for an unknown user", () => {
+  it("returns 'Member unavailable' (not the id) for an unavailable user", () => {
     const resolve = makeUserNameResolver(list)
-    expect(resolve("missing")).toBe("Unknown member")
+    expect(resolve("missing")).toBe("Member unavailable")
     expect(resolve("missing")).not.toBe("missing")
   })
 })
@@ -67,7 +67,7 @@ describe("reaction tooltip resolution", () => {
   // Reaction tooltips resolve reactor ids through makeUserNameResolver over the
   // combined members + friends set. A reactor that arrived only over the WS
   // event (id, no name) and is absent from the loaded set must fall back to
-  // "Unknown member" — never the raw user id.
+  // "Member unavailable" — never the raw user id.
   const roster = [
     { userId: "member_1", name: "Alice" },
     { userId: "friend_1", name: "", email: "bob@example.com" },
@@ -79,10 +79,10 @@ describe("reaction tooltip resolution", () => {
     expect(resolve("friend_1")).toBe("bob")
   })
 
-  it("resolves a live-WS reactor absent from the loaded set to 'Unknown member', never the id", () => {
+  it("resolves a live-WS reactor absent from the loaded set to 'Member unavailable', never the id", () => {
     const resolve = makeUserNameResolver(roster)
     const liveOnlyReactorId = "user_live_only_99"
-    expect(resolve(liveOnlyReactorId)).toBe("Unknown member")
+    expect(resolve(liveOnlyReactorId)).toBe("Member unavailable")
     expect(resolve(liveOnlyReactorId)).not.toBe(liveOnlyReactorId)
   })
 })

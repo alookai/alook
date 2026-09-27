@@ -226,7 +226,7 @@ export function BotMarkSticker({
                         <div className="w-fit min-w-0 max-w-full">
                           <div className="flex w-fit min-w-0 max-w-full items-center gap-2 text-xs leading-4">
                             <span className="min-w-0 truncate font-semibold">
-                              {mark.m.authorName || "Unknown"}
+                              {mark.m.authorName || "Deleted user"}
                             </span>
                             {mark.m.createdAt && (
                               <time dateTime={mark.m.createdAt} className="shrink-0 whitespace-nowrap font-mono text-[9px] tabular-nums text-[#4b3712]">

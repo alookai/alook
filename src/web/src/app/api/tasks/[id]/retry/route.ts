@@ -38,6 +38,6 @@ export const POST = withAuth(async (req, ctx) => {
     broadcastToUser(ctx.userId, { type: "task.updated", taskId: newTask.id, agentId: newTask.agentId, status: "queued" }).catch(() => {});
     return writeJSON(taskToResponse(newTask));
   } catch (e: unknown) {
-    return writeError(e instanceof Error ? e.message : "Unknown error", 400);
+    return writeError(e instanceof Error ? e.message : "Request failed", 400);
   }
 });

@@ -163,7 +163,7 @@ export function useBotListController(): BotListController {
 
   const machineName = (id: string): string => {
     const machine = machines.find((item) => item.id === id)
-    if (!machine) return "Unknown machine"
+    if (!machine) return "Machine unavailable"
     return resolveMachineName(machine)
   }
 

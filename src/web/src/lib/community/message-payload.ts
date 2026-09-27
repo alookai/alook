@@ -106,7 +106,7 @@ function coreFields(row: MessageRow) {
 function resolveReply(row: MessageRow, replyMap: Map<string, ReplyTargetRow>): ReplyPreview | undefined {
   if (!row.replyToId) return undefined
   const target = replyMap.get(row.replyToId)
-  if (!target) return { id: row.replyToId, authorName: "Unknown", text: "", deleted: true }
+  if (!target) return { id: row.replyToId, authorName: "Deleted user", text: "", deleted: true }
   return {
     id: target.id,
     authorId: target.authorId,

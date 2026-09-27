@@ -40,6 +40,7 @@ export const PERSIST_MAX_AGE_MS = 24 * 60 * 60 * 1000
  */
 export const MAX_PERSISTED_MESSAGE_SCOPES = 20
 export const MAX_PERSISTED_MESSAGES_PER_SCOPE = 50
+const MAX_PERSISTED_ATTENTION_ITEMS = 200
 
 function isCommunityDbCollectionKey(queryKey: readonly unknown[]): boolean {
   return (
@@ -93,8 +94,35 @@ function scrubDehydratedClient(
     serverId?: string | null
     type: "text" | "forum" | "thread" | "dm"
   }>
+  const attentionScopes = (canonical.get("attentionScopes") ?? []) as Array<{
+    scopeId: string
+    channelId: string
+  }>
+  const retainedAttentionItems = ((canonical.get("attentionItems") ?? []) as Array<{
+    id: string
+    kind: "mention" | "reply" | "friend_request" | "pending"
+    messageId?: string | null
+    actorUserId: string
+    createdAt: string
+  }>).slice()
+  const retainedMessageAttention = retainedAttentionItems
+    .filter((item) => item.kind !== "friend_request")
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id))
+    .slice(0, MAX_PERSISTED_ATTENTION_ITEMS)
+  const retainedFriendAttention = retainedAttentionItems
+    .filter((item) => item.kind === "friend_request")
+  retainedAttentionItems.splice(
+    0,
+    retainedAttentionItems.length,
+    ...retainedMessageAttention,
+    ...retainedFriendAttention,
+  )
+  const attentionChannelIds = new Set(attentionScopes.map((row) => row.channelId))
   const retainedChannels = channels.filter((row) => (
-    row.serverId === null || row.serverId === undefined || retainedServerIds.has(row.serverId)
+    attentionChannelIds.has(row.id)
+      || row.serverId === null
+      || row.serverId === undefined
+      || retainedServerIds.has(row.serverId)
   ))
   const retainedChannelIds = new Set(retainedChannels.map((row) => row.id))
   const retainedDmIds = new Set(
@@ -121,11 +149,21 @@ function scrubDehydratedClient(
     || String(b.createdAt ?? "").localeCompare(String(a.createdAt ?? ""))
     || b.id.localeCompare(a.id)
   )
+  const attentionMessageIds = new Set(retainedAttentionItems.flatMap((row) => (
+    row.messageId ? [row.messageId] : []
+  )))
   const retainedMessages = [...messagesByScope.values()]
     .map((rows) => rows.slice().sort(compareMessagesNewest))
     .sort((a, b) => compareMessagesNewest(a[0]!, b[0]!))
     .slice(0, MAX_PERSISTED_MESSAGE_SCOPES)
     .flatMap((rows) => rows.slice(0, MAX_PERSISTED_MESSAGES_PER_SCOPE))
+  const retainedMessageIds = new Set(retainedMessages.map((row) => row.id))
+  for (const message of allMessages) {
+    if (attentionMessageIds.has(message.id) && !retainedMessageIds.has(message.id)) {
+      retainedMessages.push(message)
+      retainedMessageIds.add(message.id)
+    }
+  }
   const retainedMessageChannelIds = new Set(retainedMessages.map((row) => row.channelId))
   const durableChannelIds = new Set([...retainedChannelIds, ...retainedMessageChannelIds])
   const serverMemberships = (canonical.get("serverMemberships") ?? []) as Array<{
@@ -166,6 +204,7 @@ function scrubDehydratedClient(
       if (profile?.id) referencedProfileIds.add(profile.id)
     }
   }
+  for (const item of retainedAttentionItems) referencedProfileIds.add(item.actorUserId)
 
   const windowed: Partial<Record<CommunityCollectionName, unknown[]>> = {
     ...Object.fromEntries(canonical),
@@ -176,6 +215,8 @@ function scrubDehydratedClient(
     serverMemberships: retainedServerMemberships,
     channelMemberships: retainedChannelMemberships,
     messages: retainedMessages,
+    attentionScopes,
+    attentionItems: retainedAttentionItems,
     profiles: ((canonical.get("profiles") ?? []) as Array<{ userId: string }>).filter(
       (row) => referencedProfileIds.has(row.userId),
     ),

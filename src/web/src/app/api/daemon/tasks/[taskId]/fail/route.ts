@@ -36,6 +36,6 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     }
     return writeJSON(taskToResponse(task));
   } catch (e: unknown) {
-    return writeError(e instanceof Error ? e.message : "Unknown error", 400);
+    return writeError(e instanceof Error ? e.message : "Request failed", 400);
   }
 });

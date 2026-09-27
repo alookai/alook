@@ -280,7 +280,7 @@ export async function toAgentMessages(
     if (!scope) throw new Error("Channel identity unavailable");
     const channel = scope.ref;
     const author = userById.get(r.authorId);
-    const sender = author ? `@${formatHandle(author.name, author.discriminator)}` : "Unknown user";
+    const sender = author ? `@${formatHandle(author.name, author.discriminator)}` : "Deleted user";
     // Absent (not empty array) when a message has no attachments — smaller
     // wire payload; documented invariant in the plan.
     const atts = attachmentsByMessageId?.get(r.id);
@@ -897,7 +897,7 @@ export async function getInboxSnapshotForAgent(
       pendingCount: r.pendingCount,
       firstPendingSeq: r.firstPendingSeq,
       latestSeq: r.latestSeq,
-      latestSender: sender ? `@${formatHandle(sender.name, sender.discriminator)}` : "Unknown user",
+      latestSender: sender ? `@${formatHandle(sender.name, sender.discriminator)}` : "Deleted user",
       hasMention: r.mentionCount > 0,
     };
   });

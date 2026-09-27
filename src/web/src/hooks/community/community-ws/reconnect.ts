@@ -204,6 +204,7 @@ function policyExecutors(
     },
     "inbox-dms": async () => {
       const settled = await Promise.allSettled([
+        queryClient.invalidateQueries({ queryKey: communityKeys.accountAttention(), refetchType: "active" }),
         queryClient.invalidateQueries({ queryKey: communityKeys.inbox(), refetchType: "active" }),
         queryClient.invalidateQueries({ queryKey: communityKeys.dms(), refetchType: "active" }),
       ])

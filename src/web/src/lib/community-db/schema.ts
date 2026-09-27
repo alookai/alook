@@ -116,6 +116,27 @@ export const readStateClockSchema = z.object({
   revision: z.number().int().nonnegative(),
 })
 
+export const attentionScopeSchema = z.strictObject({
+  scopeId: z.string().min(1),
+  channelId: z.string().min(1),
+  serverId: optionalNullableString,
+  parentChannelId: optionalNullableString,
+  ordinaryUnread: z.boolean(),
+  lastUnreadSeq: z.number().int().nonnegative(),
+  lastAttentionSeq: z.number().int().nonnegative().nullable().optional(),
+  attentionCount: z.number().int().nonnegative(),
+})
+
+export const attentionItemSchema = z.strictObject({
+  id: z.string().min(1),
+  kind: z.enum(["mention", "reply", "friend_request", "pending"]),
+  sourceId: z.string().min(1),
+  scopeId: optionalNullableString,
+  messageId: optionalNullableString,
+  actorUserId: z.string().min(1),
+  createdAt: z.string(),
+})
+
 export const folderSchema = z.object({
   id: z.string().min(1),
   name: z.string(),
@@ -153,6 +174,8 @@ export const communityCollectionSchemas = {
   messages: messageSchema,
   readStates: readStateSchema,
   readStateClock: readStateClockSchema,
+  attentionScopes: attentionScopeSchema,
+  attentionItems: attentionItemSchema,
   folders: folderSchema,
   folderItems: folderItemSchema,
   notificationSettings: notificationSettingSchema,
@@ -168,6 +191,8 @@ export type ProfileRow = z.infer<typeof profileSchema>
 export type MessageRow = z.infer<typeof messageSchema>
 export type ReadStateRow = z.infer<typeof readStateSchema>
 export type ReadStateClockRow = z.infer<typeof readStateClockSchema>
+export type AttentionScopeRow = z.infer<typeof attentionScopeSchema>
+export type AttentionItemRow = z.infer<typeof attentionItemSchema>
 export type FolderRow = z.infer<typeof folderSchema>
 export type FolderItemRow = z.infer<typeof folderItemSchema>
 export type NotificationSettingRow = z.infer<typeof notificationSettingSchema>

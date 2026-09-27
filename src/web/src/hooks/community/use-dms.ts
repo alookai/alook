@@ -15,6 +15,7 @@ import { communityKeys } from "@/lib/query-keys"
 import type { DM } from "@/lib/community/models/people"
 import { useEffect, useMemo, useSyncExternalStore } from "react"
 import {
+  useAttentionScopes,
   useCanonicalProfilesByUserId,
   useOptionalCommunityDbRegistry,
 } from "@/lib/community-db/projections"
@@ -24,11 +25,6 @@ import {
   type AccountUnreadProjection,
   type AccountUnreadSource,
 } from "./account-unread-projection"
-import { useInboxProjectionTarget } from "./use-inbox-auto-collapse"
-import {
-  reservedUnreadExclusion,
-  selectUnreadPresentation,
-} from "./unread-presentation"
 import { useDmProjection } from "@/lib/community-db/projections"
 import {
   assertCommunityLiveSnapshotTokenCurrent,
@@ -94,6 +90,7 @@ export const dmsProjectedQueryFn = (
 
 export function useDms(): UseQueryResult<DmsResponse> & { dms: DM[] } {
   const registry = useOptionalCommunityDbRegistry()
+  const attentionScopes = useAttentionScopes()
   const dbDms = useDmProjection()
   const queryClient = useQueryClient()
   const unreadProjection = useMemo(
@@ -104,11 +101,6 @@ export function useDms(): UseQueryResult<DmsResponse> & { dms: DM[] } {
     unreadProjection.subscribe,
     unreadProjection.getSnapshot,
     unreadProjection.getSnapshot,
-  )
-  const reservationTarget = useInboxProjectionTarget(queryClient)
-  const unreadExclusion = useMemo(
-    () => reservedUnreadExclusion(reservationTarget, "dms"),
-    [reservationTarget],
   )
   const queryFn = useMemo(
     () => dmsProjectedQueryFn(unreadProjection, queryClient),
@@ -145,19 +137,13 @@ export function useDms(): UseQueryResult<DmsResponse> & { dms: DM[] } {
     const source = registry
       ? dbDms ?? EMPTY_DMS
       : query.data?.conversations ?? EMPTY_DMS
+    if (source.length === 0) return EMPTY_DMS as DM[]
     return source.map((dm) => {
       const liveProfile = profilesByUserId.get(dm.userId)
       const profile = readCommunityProfile(liveProfile, dm.userId)
-      const unread = selectUnreadPresentation({
-        accountUnread: unreadProjection.projectUnread(
-          "dms",
-          dm.id,
-          dm.unread === true,
-          dm.lastUnreadSeq,
-          "dms",
-          unreadExclusion,
-        ),
-      }).effectiveUnread
+      const unread = attentionScopes.some((scope) => (
+        !scope.serverId && scope.channelId === dm.id && scope.ordinaryUnread
+      ))
       return {
         ...dm,
         name: liveProfile?.name ?? dm.name,
@@ -168,7 +154,7 @@ export function useDms(): UseQueryResult<DmsResponse> & { dms: DM[] } {
         unread,
       }
     })
-  }, [dbDms, profilesByUserId, query.data?.conversations, registry, unreadExclusion, unreadProjection, unreadVersion])
+  }, [attentionScopes, dbDms, profilesByUserId, query.data?.conversations, registry, unreadVersion])
   return {
     ...query,
     dms,

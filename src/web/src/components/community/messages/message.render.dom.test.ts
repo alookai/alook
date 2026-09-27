@@ -381,7 +381,7 @@ describe("Message memo comparator", () => {
     act(() => renderer!.unmount())
   })
 
-  it("keeps the strict Unknown fallback for unresolved live authors", () => {
+  it("keeps the precise deleted-user fallback for unresolved live authors", () => {
     let renderer: DomRenderer
     act(() => {
       renderer = render(makeTree({
@@ -393,7 +393,7 @@ describe("Message memo comparator", () => {
       }), { createNodeMock: () => genericMock })
     })
 
-    expect(textContent(renderer!.root)).toContain("Unknown")
+    expect(textContent(renderer!.root)).toContain("Deleted user")
     expect(textContent(renderer!.root)).not.toContain("Static fixture name")
   })
 

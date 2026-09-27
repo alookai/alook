@@ -259,7 +259,9 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
     const timer = globalThis.setTimeout(() => setInterruptPending(false), 10_000)
     return () => globalThis.clearTimeout(timer)
   }, [activityIdle, interruptPending])
-  const name = data.userId ? (globalProfile?.name ?? "Unknown") : (data.name ?? "Unknown")
+  const name = data.userId
+    ? (globalProfile?.name ?? data.name ?? "Deleted user")
+    : (data.name ?? "Deleted user")
   const avatar = data.userId
     ? (globalProfile?.avatar ?? avatarInitial(name))
     : (data.avatar ?? avatarInitial(name))

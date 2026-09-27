@@ -6,6 +6,7 @@ import { act, render as rtlRender } from "@/test/react-dom-harness"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { useMessageListController, type MessageListController } from "./message-list-controller"
 import type { ResolvedMessageListProps } from "./message-list-types"
+import { INITIAL_POSITION_CROSSFADE_MS } from "./initial-position-transition"
 
 const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..")
 const readWebSource = (path: string) => readFileSync(resolve(webRoot, path), "utf8")
@@ -245,7 +246,6 @@ describe("useMessageListController", () => {
         phase: "revealed",
         showSkeleton: false,
         contentVisible: true,
-        auroraVisible: false,
       },
     })
     expect(vi.getTimerCount()).toBe(0)
@@ -264,10 +264,11 @@ describe("useMessageListController", () => {
     }).onInitialPositionSettled
     act(() => settle())
     expect(latest.initialPosition).toMatchObject({
-      phase: "revealed",
+      phase: "revealing",
       contentVisible: true,
-      auroraVisible: false,
     })
+    act(() => vi.advanceTimersByTime(INITIAL_POSITION_CROSSFADE_MS))
+    expect(latest.initialPosition.phase).toBe("revealed")
   })
 
   it("passes every pagination/anchor input through and gives jump mode server-count precedence", () => {
@@ -399,6 +400,8 @@ describe("useMessageListController", () => {
     runNextFrame()
     expect(latest.initialPosition.phase).toBe("positioning")
     runNextFrame()
+    expect(latest.initialPosition.phase).toBe("revealing")
+    act(() => vi.advanceTimersByTime(INITIAL_POSITION_CROSSFADE_MS))
     expect(latest.initialPosition.phase).toBe("revealed")
     act(() => {
       latest.onEnterSelectId("m2")
@@ -603,7 +606,7 @@ describe("useMessageListController", () => {
     })
     const pendingFrames = [...frameCallbacks.keys()]
     expect(pendingFrames).toHaveLength(2)
-    expect(vi.getTimerCount()).toBe(2)
+    expect(vi.getTimerCount()).toBe(1)
 
     act(() => renderer!.unmount())
     for (const frame of pendingFrames) expect(cancelFrame).toHaveBeenCalledWith(frame)
@@ -622,6 +625,8 @@ describe("useMessageListController", () => {
     act(() => (mocks.scrollInputs.at(-1) as {
       onInitialPositionSettled: () => void
     }).onInitialPositionSettled())
+    expect(latest.initialPosition.phase).toBe("revealing")
+    act(() => vi.advanceTimersByTime(INITIAL_POSITION_CROSSFADE_MS))
     expect(latest.initialPosition.phase).toBe("revealed")
     act(() => latest.jumpTo("m1", "auto"))
     for (let index = 0; index < 120; index += 1) runNextFrame()

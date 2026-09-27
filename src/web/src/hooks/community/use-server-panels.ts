@@ -44,7 +44,7 @@ export const invitesQueryFn = (serverId: string) => async (): Promise<InvitesRes
     uses: i.uses,
     maxUses: i.maxUses,
     expiresAt: i.expiresAt,
-    by: i.creatorName ?? "Unknown",
+    by: i.creatorName ?? "Deleted user",
     creatorId: i.creatorId,
   }))
   return { invites }

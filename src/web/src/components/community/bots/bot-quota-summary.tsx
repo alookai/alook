@@ -89,7 +89,7 @@ function productLabel(limit: QuotaLimit): string {
 function modelLabel(limit: QuotaLimit): string | null {
   const model = limit.bucket.model
   if (model.kind === "not_applicable") return null
-  return model.kind === "unknown" ? "Unknown model" : model.id
+  return model.kind === "unknown" ? "Model unavailable" : model.id
 }
 
 function resetLabel(limit: QuotaLimit): string {

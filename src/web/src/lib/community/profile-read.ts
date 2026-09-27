@@ -5,7 +5,7 @@ export function readCommunityProfile(
   profile: CommunityProfile | undefined,
   userId: string,
 ) {
-  const name = profile?.name ?? "Unknown"
+  const name = profile?.name ?? "Deleted user"
   return {
     id: userId,
     name,

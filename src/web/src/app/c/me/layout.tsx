@@ -15,8 +15,7 @@ import { useCommunityStore, useCurrentChannelId } from "@/stores/community"
 import { useDms } from "@/hooks/community/use-dms"
 import { useDmRouteVerification } from "@/hooks/community/use-dm-route-verification"
 import { useFriends, useFriendsPresence } from "@/hooks/community/use-friends"
-import { actionableIncomingRequests } from "@/lib/community/friend-requests"
-import { useFriendRequestActionState } from "@/hooks/community/use-friend-request-action-state"
+import { useInboxUnreads } from "@/hooks/community/use-inbox"
 import { useCurrentUser } from "@/contexts/community/current-user"
 import {
   clearLastMeLocation,
@@ -50,15 +49,8 @@ export default function MeLayout({ children }: { children: ReactNode }) {
   } = useDms()
   const canonicalDmsUnsettled = dmsPending
   const dmRouteVerification = useDmRouteVerification(params.dmId, dms, canonicalDmsUnsettled)
-  const { blocked, pending } = useFriends()
-  const incomingFriendRequests = useMemo(
-    () => actionableIncomingRequests(pending),
-    [pending],
-  )
-  const friendRequestCount = useFriendRequestActionState({
-    rows: incomingFriendRequests,
-    surface: "friends",
-  }).items.length
+  const { blocked } = useFriends()
+  const friendRequestCount = useInboxUnreads().friendRequests.length
   const currentChannelId = useCurrentChannelId()
   const cancelPendingNavigation = useCallback(() => {
     useCommunityStore.getState().uiHandlers.cancelPendingNavigation?.()

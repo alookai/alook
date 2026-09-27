@@ -7,10 +7,6 @@ import * as facade from "./message-list"
 import type { FileAttachment, ImagePreview, Msg } from "@/lib/community/models/message"
 import type { OpenProfile } from "@/components/community/social/profile-types"
 
-vi.mock("./initial-position-aurora.module.css", () => ({
-  default: new Proxy({}, { get: (_target, key) => String(key) }),
-}))
-
 type ExpectedMessageListProps = {
   channel: string
   messages: Msg[]

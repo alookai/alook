@@ -25,7 +25,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   }
 
   if (!KNOWN_RUNTIMES.includes(runtime as typeof KNOWN_RUNTIMES[number])) {
-    console.warn(`[skills] Unknown runtime "${runtime}" for agent ${agentId}, defaulting to "claude"`);
+    console.warn(`[skills] Unsupported runtime "${runtime}" for agent ${agentId}, defaulting to "claude"`);
     runtime = "claude";
   }
 

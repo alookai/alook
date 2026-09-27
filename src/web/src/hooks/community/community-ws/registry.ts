@@ -50,6 +50,7 @@ import {
   handleProfileUpdate,
 } from "@/hooks/community/community-ws/identity-events"
 import { projectCommunityWsEventToDb } from "@/lib/community-db/sync"
+import { scheduleAccountAttentionReconcile } from "@/hooks/community/use-account-attention"
 
 type CommunityEventType = CommunityWsEvent["type"]
 type CommunityEventFor<T extends CommunityEventType> = Extract<CommunityWsEvent, { type: T }>
@@ -180,6 +181,14 @@ export function dispatchCommunityWsEvents(
       const entry = communityWsRegistry[event.type] as RegistryEntry<typeof event.type>
       entry.handler(event, handlerContext)
       projectCommunityWsEventToDb(context.queryClient, event)
+      if ([
+        "community:server.delete",
+        "community:channel.delete",
+        "community:channel.member_remove",
+        "community:member.leave",
+      ].includes(event.type)) {
+        scheduleAccountAttentionReconcile(context.queryClient)
+      }
     }
   })
 }

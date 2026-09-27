@@ -49,7 +49,7 @@ function ReactionMemberRow({
   authorizedProfile: ReactionDetailsProfile | null | undefined
 }) {
   const liveProfile = useCanonicalCommunityProfile(authorizedProfile ? userId : null)
-  const name = authorizedProfile ? (liveProfile?.name ?? authorizedProfile.name) : "Unknown member"
+  const name = authorizedProfile ? (liveProfile?.name ?? authorizedProfile.name) : "Member unavailable"
   return (
     <li data-testid={tid.reactionMember(userId)} className="flex min-h-11 items-center gap-3 rounded-lg px-2 py-2">
       <MemberIdentityRow

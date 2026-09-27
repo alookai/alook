@@ -114,9 +114,9 @@ export const GET = withCommunityActor(async (req, ctx) => {
     const srv = ch ? serverMap.get(ch.serverId) : undefined
     return {
       id: row.mark.id,
-      server: srv ? srv.name : "Unknown",
+      server: srv ? srv.name : "Server unavailable",
       serverId: ch?.serverId,
-      channel: ch ? ch.name : "Unknown",
+      channel: ch ? ch.name : "Conversation unavailable",
       channelId: row.mark.channelId,
       parentChannelId: ch?.parentChannelId ?? null,
       m: {

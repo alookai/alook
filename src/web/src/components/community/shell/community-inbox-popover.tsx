@@ -165,6 +165,17 @@ function UnreadsTab({ friendRequests, servers, dms, loading, onOpenFriendRequest
           </div>
           {friendRequests.map((item) => {
             const request = item.row
+            if (request.pendingIdentity) {
+              return (
+                <div key={request.id} data-testid={tid.inboxFriendRequest(request.id)} className="flex items-center gap-2 rounded-md px-2 py-2">
+                  <Skeleton className="size-7 shrink-0 rounded-full" />
+                  <div className="flex min-w-0 flex-1 flex-col gap-2">
+                    <Skeleton className="h-3.5 w-28 rounded" />
+                    <Skeleton className="h-3 w-40 rounded" />
+                  </div>
+                </div>
+              )
+            }
             const profile = readCommunityProfile(
               profilesByUserId.get(request.userId),
               request.userId,
@@ -306,6 +317,17 @@ function MentionsTab({ mentions, loading, onOpenMention, onDeleteMention, isProj
       {loading && visibleMentions.length === 0 && <InboxRowsSkeleton />}
       {!loading && visibleMentions.length === 0 && <EmptyState icon={Inbox} label="No mentions" />}
       {visibleMentions.map((mn) => {
+        if (mn.pending) {
+          return (
+            <div key={mn.id} className="flex items-start gap-3 rounded-md p-2" aria-busy="true">
+              <Skeleton className="size-9 shrink-0 rounded-full" />
+              <div className="flex min-w-0 flex-1 flex-col gap-2">
+                <Skeleton className="h-3.5 w-2/5 rounded" />
+                <Skeleton className="h-3 w-3/4 rounded" />
+              </div>
+            </div>
+          )
+        }
         const author = readCommunityProfile(
           mn.m.authorId ? profilesByUserId.get(mn.m.authorId) : undefined,
           mn.m.authorId ?? "",

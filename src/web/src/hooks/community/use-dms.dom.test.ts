@@ -302,7 +302,7 @@ describe("useDms / dmsQueryFn", () => {
     await act(async () => renderer.unmount())
   })
 
-  it("projects unread arrivals alongside canonical peer profiles", async () => {
+  it("keeps legacy unread flags subordinate to canonical attention", async () => {
     const conversations = [
       {
         id: "dm_1", userId: "u_1", name: "Alice", discriminator: "0001",
@@ -336,14 +336,14 @@ describe("useDms / dmsQueryFn", () => {
       React.createElement(Harness),
     ))
 
-    expect(latest?.dms[0]?.unread).toBe(true)
-    expect(latest?.dms[1]?.unread).toBe(true)
-    expect(latest?.dms[2]?.unread).toBe(true)
+    expect(latest?.dms[0]?.unread).toBe(false)
+    expect(latest?.dms[1]?.unread).toBe(false)
+    expect(latest?.dms[2]?.unread).toBe(false)
     expect(qc.getQueryData(communityKeys.dms())).toEqual({ conversations })
     await act(async () => renderer.unmount())
   })
 
-  it("projects and rolls back the exact Inbox DM reservation without hiding a sibling", async () => {
+  it("does not let a legacy Inbox reservation mutate canonical DM attention", async () => {
     const conversations = [
       {
         id: "dm_1", userId: "u_1", name: "Alice", discriminator: "0001",
@@ -392,12 +392,12 @@ describe("useDms / dmsQueryFn", () => {
     await act(async () => {
       epoch = collapse!.beginProjection(inboxDmRowTarget(inboxDm), "/c/me/dm_1")
     })
-    expect(latest?.dms.map((dm) => dm.unread)).toEqual([false, true])
+    expect(latest?.dms.map((dm) => dm.unread)).toEqual([false, false])
 
     await act(async () => {
       collapse!.rollbackProjection(epoch)
     })
-    expect(latest?.dms.map((dm) => dm.unread)).toEqual([true, true])
+    expect(latest?.dms.map((dm) => dm.unread)).toEqual([false, false])
     await act(async () => renderer.unmount())
   })
 

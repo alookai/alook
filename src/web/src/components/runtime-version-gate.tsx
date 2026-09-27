@@ -117,7 +117,7 @@ export function RuntimeVersionGate() {
                       {rt.device_info || daemonId.slice(0, 12)}
                     </div>
                     <div className="text-xs text-muted-foreground flex items-center gap-2 mt-1">
-                      <span>v{cliVersion || "unknown"}</span>
+                      <span>{cliVersion ? `v${cliVersion}` : "Version unavailable"}</span>
                       <Badge variant="outline" className="text-[10px] px-2 py-0 text-amber-500 border-amber-500/30">
                         requires v{minVersion}
                       </Badge>

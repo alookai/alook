@@ -219,14 +219,14 @@ function MessageImpl({
   const authorProfile = useCanonicalCommunityProfile(m.authorId)
   const replyAuthorProfile = useCanonicalCommunityProfile(m.replyTo?.authorId)
   const authorName = m.authorId
-    ? (authorProfile?.name ?? "Unknown")
-    : (m.authorName ?? "Unknown")
+    ? (authorProfile?.name ?? "Deleted user")
+    : (m.authorName ?? "Deleted user")
   const authorAvatar = m.authorId
     ? (authorProfile?.avatar ?? avatarInitial(authorName))
     : (m.authorAvatar ?? avatarInitial(authorName))
   const replyAuthorName = m.replyTo?.authorId
-    ? (replyAuthorProfile?.name ?? "Unknown")
-    : (m.replyTo?.authorName ?? "Unknown")
+    ? (replyAuthorProfile?.name ?? "Deleted user")
+    : (m.replyTo?.authorName ?? "Deleted user")
   const visibleContent = displayReplyContent(m.content ?? "", m.replyTo)
   // keep the hover toolbar pinned open while its ⋯ dropdown is open
   const [toolbarOpen, setToolbarOpen] = useState(false)

@@ -76,8 +76,8 @@ export function ThreadOpener({
     onProfileClick: (event) => {
       if (msg) {
         const name = msg.authorId
-          ? (authorProfile?.name ?? "Unknown")
-          : (msg.authorName ?? "Unknown")
+          ? (authorProfile?.name ?? msg.authorName ?? "Deleted user")
+          : (msg.authorName ?? "Deleted user")
         onOpenProfile?.(name, event, undefined, msg.authorId)
       }
     },
@@ -101,8 +101,8 @@ export function ThreadOpener({
   }
 
   const authorName = msg.authorId
-    ? (authorProfile?.name ?? "Unknown")
-    : (msg.authorName ?? "Unknown")
+    ? (authorProfile?.name ?? msg.authorName ?? "Deleted user")
+    : (msg.authorName ?? "Deleted user")
   const avatarLabel = msg.authorId
     ? (authorProfile?.avatar ?? avatarInitial(authorName))
     : (msg.authorAvatar ?? avatarInitial(authorName))

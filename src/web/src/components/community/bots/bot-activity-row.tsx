@@ -194,8 +194,8 @@ function RowBody({ event }: { event: AuditEvent }) {
       senderHandle?: string
       reason?: "unread" | "mention"
     } | null
-    const sender = p?.senderHandle ?? "@unknown"
-    const channel = p?.channel ?? "/unknown"
+    const sender = p?.senderHandle ?? "Sender unavailable"
+    const channel = p?.channel ?? "Conversation unavailable"
     const seqLabel = p?.seq != null ? `#${p.seq}` : ""
     const verb = p?.reason === "mention" ? "Mentioned by" : "Woken by"
     const detail = `${verb} ${sender} in ${channel}${seqLabel ? ` ${seqLabel}` : ""}`

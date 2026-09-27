@@ -244,7 +244,7 @@ describe("GET /api/community/messages/[id]", () => {
     const res = await GET(req(), { params: { id: "m1" } } as any)
     const body = await res.json()
     // Target not found in scope — mapper returns the `deleted` sentinel.
-    expect(body.replyTo).toEqual({ id: "m0", authorName: "Unknown", text: "", deleted: true })
+    expect(body.replyTo).toEqual({ id: "m0", authorName: "Deleted user", text: "", deleted: true })
   })
 
   it("returns 404 when the message doesn't exist", async () => {

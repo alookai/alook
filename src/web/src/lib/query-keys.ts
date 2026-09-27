@@ -105,6 +105,8 @@ export const communityKeys = {
     [...communityKeys.all, "dm", dmId, "read-state-snapshot"] as const,
   accountReadStateSnapshot: () =>
     [...communityKeys.all, "read-state-snapshot"] as const,
+  accountAttention: () =>
+    [...communityKeys.all, "attention"] as const,
 
   // Single hydrated message (opener block, deep-link previews).
   message: (messageId: string) =>

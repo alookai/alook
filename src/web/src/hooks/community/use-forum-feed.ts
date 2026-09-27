@@ -64,7 +64,7 @@ export function forumFeedPageQueryFn(
               participant.userId,
               participant.userImage,
               participant.userAvatarVersion,
-            ) ?? avatarInitial(participant.userName ?? "Unknown"),
+            ) ?? avatarInitial(participant.userName ?? "Deleted user"),
             avatarVersion: participant.userAvatarVersion,
           },
         })),

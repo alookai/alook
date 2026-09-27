@@ -53,7 +53,7 @@ describe("withCommunityDaemonAuth", () => {
     })
     const res = await wrapped(req)
     expect(res.status).toBe(401)
-    expect(await res.json()).toEqual({ error: "credential revoked or unknown" })
+    expect(await res.json()).toEqual({ error: "credential revoked or unrecognized" })
   })
 
   it("passes { userId, machineId, credentialId } to the handler on valid credential", async () => {

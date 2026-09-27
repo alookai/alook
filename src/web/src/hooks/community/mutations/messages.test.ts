@@ -1116,36 +1116,51 @@ describe("useCreateThread — patches parent message + invalidates threads", () 
 // ── useMarkAllInboxRead ───────────────────────────────────────────────────
 
 describe("useMarkAllInboxRead", () => {
-  it("fires exactly three POSTs — mentions + unreads + dms read-all", async () => {
+  it("uses the three existing read-all endpoints", async () => {
     capturedQc.setQueryData(communityKeys.inboxUnreads(), { servers: [] })
     capturedQc.setQueryData(communityKeys.inboxMentions(), { mentions: [] })
-    apiFetchMock.mockResolvedValue(undefined)
+    apiFetchMock.mockResolvedValue({ revision: 2 })
     const mod = await loadMod()
     mod.useMarkAllInboxRead()
     await runMutation<void>(undefined as unknown as void)
     const posts = apiFetchMock.mock.calls.filter(
       (c) => (c[1] as { method?: string })?.method === "POST",
     )
-    expect(posts).toHaveLength(3)
-    const paths = posts.map((c) => c[0] as string).sort()
-    expect(paths).toEqual([
-      "/api/community/users/me/inbox/dms/read-all",
+    expect(posts.map((call) => call[0])).toEqual([
       "/api/community/users/me/inbox/mentions/read-all",
       "/api/community/users/me/inbox/unreads/read-all",
+      "/api/community/users/me/inbox/dms/read-all",
     ])
   })
 
-  it("keeps raw inbox caches authoritative while projection fences hide the captured prefix", async () => {
+  it("clears the canonical attention owner optimistically without rewriting legacy raw caches", async () => {
+    const mod = await loadMod()
+    await installCanonicalRegistry()
+    const { ingestAttentionSnapshot } = await import("@/lib/community-db/sync")
+    ingestAttentionSnapshot(canonicalRegistry!, {
+      scopes: [{
+        scopeId: "ch_1", channelId: "ch_1", serverId: "s_1", parentChannelId: null,
+        ordinaryUnread: true, lastUnreadSeq: 1, lastAttentionSeq: 1, attentionCount: 1,
+      }],
+      items: [{
+        id: "mention:men_1", kind: "mention", sourceId: "men_1", scopeId: "ch_1",
+        messageId: "m_1", actorUserId: "u_2", createdAt: "2026-09-27T00:00:00.000Z",
+      }, {
+        id: "friend_request:f_1", kind: "friend_request", sourceId: "f_1",
+        scopeId: null, messageId: null, actorUserId: "u_3",
+        createdAt: "2026-09-27T00:00:01.000Z",
+      }],
+      limit: 100,
+      truncated: false,
+    })
     capturedQc.setQueryData(communityKeys.inboxUnreads(), {
       servers: [{ serverId: "s_1", serverName: "s", channels: [{ channelId: "ch_1" }] }],
     })
     capturedQc.setQueryData(communityKeys.inboxMentions(), {
       mentions: [{ id: "men_1" }],
     })
-    apiFetchMock.mockResolvedValue(undefined)
-    const mod = await loadMod()
     mod.useMarkAllInboxRead()
-    const cfg = capturedConfig as MutConfig<void, unknown>
+    const cfg = capturedConfig as MutConfig<void, { snapshot?: unknown }>
     await cfg.onMutate?.(undefined as unknown as void)
     expect(capturedQc.getQueryData(communityKeys.inboxUnreads())).toEqual({
       servers: [{ serverId: "s_1", serverName: "s", channels: [{ channelId: "ch_1" }] }],
@@ -1153,65 +1168,160 @@ describe("useMarkAllInboxRead", () => {
     expect(capturedQc.getQueryData(communityKeys.inboxMentions())).toEqual({
       mentions: [{ id: "men_1" }],
     })
-    const { getActiveAccountUnreadProjection } = await import(
-      "@/hooks/community/account-unread-projection"
-    )
-    expect(getActiveAccountUnreadProjection(capturedQc).projectUnread(
-      "inbox-unreads",
-      "ch_1",
-      true,
-      1,
-    )).toBe(false)
+    await vi.waitFor(() => {
+      expect(canonicalRegistry!.collections.attentionScopes.get("ch_1")).toBeUndefined()
+      expect(canonicalRegistry!.collections.attentionItems.get("mention:men_1")).toBeUndefined()
+      expect(canonicalRegistry!.collections.attentionItems.get("friend_request:f_1")).toBeDefined()
+    })
   })
 
-  it("reconciles fulfilled domains through the primary snapshot and server surfaces", async () => {
+  it("reconciles the canonical attention and read-state snapshots after success", async () => {
+    const mod = await loadMod()
+    await installCanonicalRegistry()
     apiFetchMock.mockImplementation(async (path: string) => {
+      if (path.endsWith("/read-all")) {
+        return { revision: 3 }
+      }
+      if (path === "/api/community/users/me/attention") {
+        return { scopes: [], items: [], limit: 100, truncated: false }
+      }
       if (path === "/api/community/users/me/read-state") {
         return { revision: 3, readStates: [] }
       }
-      return { revision: 3 }
+      throw new Error(`unexpected path: ${path}`)
     })
-    const mod = await loadMod()
     mod.useMarkAllInboxRead()
-    const spy = vi.spyOn(capturedQc, "invalidateQueries")
     await runMutation<void>(undefined as unknown as void)
-    await vi.waitFor(() => expect(spy.mock.calls.filter((c) => {
-      const key = c[0]?.queryKey as unknown[] | undefined
-      return Array.isArray(key) && key.length === 2 && key[0] === "community" && key[1] === "servers"
-    }).length).toBeGreaterThanOrEqual(1))
+    await vi.waitFor(() => {
+      expect(apiFetchMock).toHaveBeenCalledWith(
+        "/api/community/users/me/attention",
+        expect.objectContaining({ signal: expect.anything() }),
+      )
+      expect(apiFetchMock).toHaveBeenCalledWith(
+        "/api/community/users/me/read-state",
+        expect.objectContaining({ signal: expect.anything() }),
+      )
+    })
   })
 
-  it("toasts the failure reason when one of the three read-all POSTs fails", async () => {
-    apiFetchMock.mockRejectedValueOnce(new Error("boom"))
+  it("preserves the failed mention domain when channel and DM mark-all succeed", async () => {
+    const mod = await loadMod()
+    await installCanonicalRegistry()
+    const { ingestAttentionSnapshot } = await import("@/lib/community-db/sync")
+    const mentionOnly = {
+      scopes: [{
+        scopeId: "ch_1", channelId: "ch_1", serverId: "s_1", parentChannelId: null,
+        ordinaryUnread: false, lastUnreadSeq: 4, lastAttentionSeq: 4, attentionCount: 1,
+      }],
+      items: [{
+        id: "mention:men_1", kind: "mention" as const, sourceId: "men_1", scopeId: "ch_1",
+        messageId: "m_1", actorUserId: "u_2", createdAt: "2026-09-27T00:00:00.000Z",
+      }],
+      limit: 100,
+      truncated: false,
+    }
+    ingestAttentionSnapshot(canonicalRegistry!, {
+      ...mentionOnly,
+      scopes: [{ ...mentionOnly.scopes[0]!, ordinaryUnread: true }],
+    })
+    apiFetchMock.mockImplementation(async (path: string) => {
+      if (path === "/api/community/users/me/inbox/mentions/read-all") throw new Error("mentions failed")
+      if (path.endsWith("/read-all")) return { revision: 5 }
+      if (path === "/api/community/users/me/attention") return mentionOnly
+      if (path === "/api/community/users/me/read-state") return { revision: 5, readStates: [] }
+      throw new Error(`unexpected path: ${path}`)
+    })
+    mod.useMarkAllInboxRead()
+
+    await runMutation<void>(undefined as unknown as void)
+
+    await vi.waitFor(() => {
+      expect(canonicalRegistry!.collections.attentionScopes.get("ch_1")).toMatchObject({
+        ordinaryUnread: false,
+        attentionCount: 1,
+        lastAttentionSeq: 4,
+      })
+      expect(canonicalRegistry!.collections.attentionItems.get("mention:men_1")).toBeDefined()
+    })
+  })
+
+  it("toasts the failure reason when all three read-all requests fail", async () => {
+    apiFetchMock.mockRejectedValue(new Error("boom"))
     const mod = await loadMod()
     mod.useMarkAllInboxRead()
     await runMutation<void>(undefined as unknown as void).catch(() => { })
     expect(toastMock).toHaveBeenCalledWith("boom")
   })
 
-  it("rolls back every domain fence when all three read-all requests fail", async () => {
-    apiFetchMock.mockRejectedValue(new Error("all domains failed"))
+  it("restores canonical attention when the atomic read-all request fails", async () => {
+    await installCanonicalRegistry()
+    const { ingestAttentionSnapshot } = await import("@/lib/community-db/sync")
+    ingestAttentionSnapshot(canonicalRegistry!, {
+      scopes: [{
+        scopeId: "channel", channelId: "channel", serverId: "s_1", parentChannelId: null,
+        ordinaryUnread: true, lastUnreadSeq: 1, lastAttentionSeq: null, attentionCount: 0,
+      }],
+      items: [],
+      limit: 100,
+      truncated: false,
+    })
+    apiFetchMock.mockRejectedValue(new Error("account read-all failed"))
     const mod = await loadMod()
     mod.useMarkAllInboxRead()
 
     await expect(runMutation<void>(undefined as unknown as void))
-      .rejects.toThrow("all domains failed")
+      .rejects.toThrow("account read-all failed")
 
-    const { getActiveAccountUnreadProjection } = await import(
-      "@/hooks/community/account-unread-projection"
-    )
-    const projection = getActiveAccountUnreadProjection(capturedQc)
-    expect(projection.projectUnread("inbox-unreads", "channel", true, 1)).toBe(true)
-    expect(projection.projectUnread("dms", "dm", true, 1, "dms")).toBe(true)
-    expect(projection.projectUnread("inbox-mentions", "mention", true, 1, "mentions"))
-      .toBe(true)
-    expect(toastMock).toHaveBeenCalledWith("all domains failed")
+    expect(canonicalRegistry!.collections.attentionScopes.get("channel")).toBeDefined()
+    expect(toastMock).toHaveBeenCalledWith("account read-all failed")
   })
 
-  it("ignores an unexpected result whose optimistic domain token is absent", async () => {
+  it("reconciles mark-all after an intervening canonical event declines rollback", async () => {
+    const mod = await loadMod()
+    await installCanonicalRegistry()
+    const { ingestAttentionSnapshot, projectAttentionUnreadBump } = await import(
+      "@/lib/community-db/sync"
+    )
+    const canonical = {
+      scopes: [{
+        scopeId: "channel", channelId: "channel", serverId: "s_1", parentChannelId: null,
+        ordinaryUnread: true, lastUnreadSeq: 1, lastAttentionSeq: null, attentionCount: 0,
+      }],
+      items: [],
+      limit: 100,
+      truncated: false,
+    }
+    ingestAttentionSnapshot(canonicalRegistry!, canonical)
+    apiFetchMock.mockImplementation(async (path: string) => {
+      if (path === "/api/community/users/me/attention") return canonical
+      throw new Error("account read-all failed")
+    })
+    mod.useMarkAllInboxRead()
+    const cfg = capturedConfig as MutConfig<void, unknown>
+    const context = await cfg.onMutate?.(undefined as unknown as void)
+    projectAttentionUnreadBump(capturedQc, {
+      type: "community:unread.bump",
+      userId: "u_me",
+      channelId: "other",
+      serverId: "s_1",
+      isMention: false,
+    }, { seq: 2 })
+
+    cfg.onError?.(new Error("account read-all failed"), undefined as unknown as void, context)
+
+    await vi.waitFor(() => {
+      expect(apiFetchMock).toHaveBeenCalledWith(
+        "/api/community/users/me/attention",
+        expect.objectContaining({ signal: expect.anything() }),
+      )
+      expect(canonicalRegistry!.collections.attentionScopes.get("channel")).toBeDefined()
+    })
+  })
+
+  it("tolerates partial success without an active canonical registry", async () => {
     const mod = await loadMod()
     mod.useMarkAllInboxRead()
-    const cfg = capturedConfig as MutConfig<void, { tokens: Map<string, unknown> }>
+    const cfg = capturedConfig as MutConfig<void, unknown>
     expect(() => cfg.onSuccess?.(
       [{ domain: "channels", result: { status: "fulfilled", value: { revision: 1 } } }],
       undefined as unknown as void,
@@ -1219,13 +1329,13 @@ describe("useMarkAllInboxRead", () => {
     )).not.toThrow()
   })
 
-  it("retries all three idempotent routes after mentions and DMs commit before unreads fails", async () => {
-    let unreadAttempts = 0
-    apiFetchMock.mockImplementation(async (path: string) => {
-      if (path === "/api/community/users/me/inbox/unreads/read-all" && unreadAttempts++ === 0) {
-        throw new Error("channel read-all failed")
+  it("retries the same existing domain mutations after a transient failure", async () => {
+    let attempts = 0
+    apiFetchMock.mockImplementation(async () => {
+      if (attempts++ === 0) {
+        throw new Error("account read-all failed")
       }
-      return undefined
+      return { revision: 2 }
     })
     const mod = await loadMod()
     mod.useMarkAllInboxRead()
@@ -1233,20 +1343,64 @@ describe("useMarkAllInboxRead", () => {
     await runMutation<void>(undefined as unknown as void).catch(() => { })
     await runMutation<void>(undefined as unknown as void)
 
-    for (const path of [
-      "/api/community/users/me/inbox/mentions/read-all",
-      "/api/community/users/me/inbox/unreads/read-all",
-      "/api/community/users/me/inbox/dms/read-all",
-    ]) {
-      expect(apiFetchMock.mock.calls.filter((call) => call[0] === path)).toHaveLength(2)
-    }
-    expect(toastMock).toHaveBeenCalledWith("channel read-all failed")
+    expect(apiFetchMock.mock.calls.filter(
+      (call) => String(call[0]).endsWith("/read-all"),
+    )).toHaveLength(6)
+    expect(toastMock).toHaveBeenCalledWith("account read-all failed")
   })
 })
 
 // ── useDeleteMention — rollback ──────────────────────────────────────────
 
 describe("useDeleteMention — rollback", () => {
+  it("reconciles a failed dismissal after an intervening canonical event", async () => {
+    const mod = await loadMod()
+    await installCanonicalRegistry()
+    const { ingestAttentionSnapshot, projectAttentionUnreadBump } = await import(
+      "@/lib/community-db/sync"
+    )
+    const canonical = {
+      scopes: [{
+        scopeId: "ch_1", channelId: "ch_1", serverId: "s_1", parentChannelId: null,
+        ordinaryUnread: false, lastUnreadSeq: 4, lastAttentionSeq: 4, attentionCount: 1,
+      }],
+      items: [{
+        id: "mention:men_1", kind: "mention" as const, sourceId: "men_1", scopeId: "ch_1",
+        messageId: "m_1", actorUserId: "u_2", createdAt: "2026-09-27T00:00:00.000Z",
+      }],
+      limit: 100,
+      truncated: false,
+    }
+    ingestAttentionSnapshot(canonicalRegistry!, canonical)
+    capturedQc.setQueryData(communityKeys.inboxMentions(), {
+      mentions: [{ id: "men_1", channelId: "ch_1", kind: "mention", m: { id: "m_1", seq: 4 } }],
+    })
+    apiFetchMock.mockImplementation(async (path: string) => {
+      if (path === "/api/community/users/me/attention") return canonical
+      throw new Error("dismiss failed")
+    })
+    mod.useDeleteMention()
+    const cfg = capturedConfig as MutConfig<{ mentionId: string }, unknown>
+    const context = await cfg.onMutate?.({ mentionId: "men_1" })
+    projectAttentionUnreadBump(capturedQc, {
+      type: "community:unread.bump",
+      userId: "u_me",
+      channelId: "other",
+      serverId: "s_1",
+      isMention: false,
+    }, { seq: 5 })
+
+    cfg.onError?.(new Error("dismiss failed"), { mentionId: "men_1" }, context)
+
+    await vi.waitFor(() => {
+      expect(apiFetchMock).toHaveBeenCalledWith(
+        "/api/community/users/me/attention",
+        expect.objectContaining({ signal: expect.anything() }),
+      )
+      expect(canonicalRegistry!.collections.attentionItems.get("mention:men_1")).toBeDefined()
+    })
+  })
+
   it("keeps a same-seq sibling and only decrements badges for direct mentions", async () => {
     const reply = {
       id: "reply-1",

@@ -991,8 +991,8 @@ describe("GET /api/community/channels/[id]/messages", () => {
     const byId = new Map(body.messages.map((m) => [m.id, m]))
 
     expect(byId.get("m-a")?.replyTo).toEqual({ id: "r-in-scope", authorName: "Zed", text: "original" })
-    expect(byId.get("m-b")?.replyTo).toEqual({ id: "r-out-of-scope", authorName: "Unknown", text: "", deleted: true })
-    expect(byId.get("m-c")?.replyTo).toEqual({ id: "r-missing", authorName: "Unknown", text: "", deleted: true })
+    expect(byId.get("m-b")?.replyTo).toEqual({ id: "r-out-of-scope", authorName: "Deleted user", text: "", deleted: true })
+    expect(byId.get("m-c")?.replyTo).toEqual({ id: "r-missing", authorName: "Deleted user", text: "", deleted: true })
     expect(byId.get("m-d")?.replyTo).toEqual({ id: "r-in-scope", authorName: "Zed", text: "original" })
     expect(byId.get("m-e")?.replyTo).toBeUndefined()
 
@@ -1029,10 +1029,10 @@ describe("GET /api/community/channels/[id]/messages", () => {
     expect(mockGetMessagesByIdsInScope).toHaveBeenCalledTimes(1)
   })
 
-  it("returns author.name verbatim — no 'Unknown' sentinel, no email leak", async () => {
+  it("returns author.name verbatim — no generated fallback sentinel or email leak", async () => {
     // Post-migration 0050 the shared query returns user.name as a non-empty
     // string. The route must drop the pre-migration cascade
-    // (`authorName ?? authorEmail ?? "Unknown"`) and pass the name through.
+    // (`authorName ?? authorEmail ?? fallback`) and pass the name through.
     mockListMessages.mockResolvedValue([
       {
         id: "m-1",
@@ -1055,7 +1055,7 @@ describe("GET /api/community/channels/[id]/messages", () => {
       messages: Array<{ authorName: string; authorAvatar: string }>
     }
     expect(body.messages[0]?.authorName).toBe("Alice")
-    expect(body.messages[0]?.authorName).not.toBe("Unknown")
+    expect(body.messages[0]?.authorName).not.toBe("Deleted user")
     expect(body.messages[0]?.authorName).not.toContain("@")
     expect(body.messages[0]?.authorAvatar).toBe("A")
   })

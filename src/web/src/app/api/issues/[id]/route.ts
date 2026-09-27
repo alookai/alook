@@ -128,7 +128,7 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
       await queries.message.createMessage(db, {
         conversationId: conversation.id,
         role: "event",
-        content: `Issue dispatch failed: ${taskErr instanceof Error ? taskErr.message : "unknown error"}`,
+        content: `Issue dispatch failed: ${taskErr instanceof Error ? taskErr.message : "reason unavailable"}`,
         metadata: JSON.stringify({ issueId: existing.id, title: existing.title, event: "dispatch_failed" as const }),
       });
       return writeError(taskErr instanceof Error ? taskErr.message : "failed to dispatch issue", 500);

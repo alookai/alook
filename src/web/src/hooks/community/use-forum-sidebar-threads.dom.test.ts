@@ -7,6 +7,7 @@ import { createCommunityDbRegistry, registerCommunityDbRegistry } from "@/lib/co
 import { CommunityDbProvider, useForumSidebarProjection } from "@/lib/community-db/projections"
 import {
   captureCommunityLiveSnapshotToken,
+  ingestAttentionSnapshot,
   ingestServerDetail,
   ingestServers,
   getCanonicalCommunityChannels,
@@ -308,7 +309,7 @@ describe("forum sidebar canonical projection", () => {
     )
 
     await waitFor(() => expect(rendered.result.current.threads).toEqual([
-      expect.objectContaining({ id: "post-1", title: "Canonical title", unread: true }),
+      expect.objectContaining({ id: "post-1", title: "Canonical title", unread: false }),
     ]))
     expect(rendered.result.current.projectionReady).toBe(true)
     expect(rendered.result.current.fetchStatus).toBe("fetching")
@@ -784,7 +785,7 @@ describe("forum sidebar canonical projection", () => {
 
     await waitFor(() => expect(rendered.result.current).toMatchObject({
       threads: [],
-      parentUnread: { "forum-1": false },
+      parentUnread: {},
     }))
     expect(registry.collections.channels.get("post-1")).toMatchObject({ unread: false })
     expect(registry.collections.channelMemberships.get("post-1:viewer:access"))
@@ -832,6 +833,38 @@ describe("forum sidebar canonical projection", () => {
       threads: [],
       parentUnread: { "forum-1": true },
     }))
+  })
+
+  it("uses exact scope attention beyond the bounded item window for thread dots", async () => {
+    const { queryClient, registry, wrapper } = await setup()
+    publish(queryClient)
+    ingestAttentionSnapshot(registry, {
+      scopes: [{
+        scopeId: "post-1",
+        channelId: "post-1",
+        serverId: "server-1",
+        parentChannelId: "forum-1",
+        ordinaryUnread: false,
+        lastUnreadSeq: 101,
+        lastAttentionSeq: 101,
+        attentionCount: 101,
+      }],
+      items: [],
+      limit: 100,
+      truncated: true,
+    })
+
+    const rendered = renderHook(
+      () => useForumSidebarThreads("server-1", null),
+      { wrapper },
+    )
+
+    await waitFor(() => expect(rendered.result.current).toMatchObject({
+      threads: [expect.objectContaining({ id: "post-1", unread: true })],
+      parentUnread: { "forum-1": true },
+    }))
+    expect(registry.collections.attentionItems.size).toBe(0)
+    rendered.unmount()
   })
 
   it("restores a warm persisted sidebar while HTTP is stalled", async () => {

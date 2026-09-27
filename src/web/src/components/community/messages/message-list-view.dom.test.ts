@@ -31,10 +31,6 @@ vi.mock("./message-share-dialog", () => ({ MessageShareDialog: vi.fn(() => null)
 vi.mock("@/components/ui/number-ticker", () => ({
   NumberTicker: ({ value }: { value: number }) => React.createElement("ticker", { value }),
 }))
-vi.mock("./initial-position-aurora.module.css", () => ({
-  default: new Proxy({}, { get: (_target, key) => String(key) }),
-}))
-
 const mockedRail = vi.mocked(ComposerAccessoryRail)
 const mockedShareDialog = vi.mocked(MessageShareDialog)
 
@@ -46,7 +42,6 @@ function initialPosition(
     showSkeleton: false,
     contentVisible: true,
     contentInteractive: true,
-    auroraVisible: false,
     ...overrides,
   }
 }
@@ -178,10 +173,9 @@ describe("renderMessageListView", () => {
       props({ loading: false }),
       controller({
         initialPosition: initialPosition({
-          phase: "aurora",
+          phase: "positioning",
           contentVisible: false,
           contentInteractive: false,
-          auroraVisible: true,
         }),
       }),
       () => React.createElement("virtual-rows"),
@@ -190,8 +184,8 @@ describe("renderMessageListView", () => {
     expect(content()).toHaveClass("opacity-0")
     expect(content()).not.toHaveClass("transition-opacity", "duration-300")
     expect(renderer.container.querySelector("[data-message-positioning-skeleton]")).toHaveClass("opacity-100")
-    expect(renderer.getByTestId("community-initial-position-aurora"))
-      .toHaveAttribute("data-phase", "aurora")
+    expect(renderer.container.querySelector("[data-message-positioning-skeleton]"))
+      .toBeInTheDocument()
 
     renderer.rerender(renderMessageListView(
       props({ loading: false }),
@@ -200,7 +194,6 @@ describe("renderMessageListView", () => {
           phase: "revealing",
           contentVisible: false,
           contentInteractive: false,
-          auroraVisible: true,
         }),
       }),
       () => React.createElement("virtual-rows"),

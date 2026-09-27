@@ -317,7 +317,7 @@ describe("useBotListController", () => {
       "unknown-a",
       "unknown-b",
     ])
-    expect(latest.machineName("gone")).toBe("Unknown machine")
+    expect(latest.machineName("gone")).toBe("Machine unavailable")
   })
 
   it("projects plan inventory and blocks create at owned capacity with recovery copy", () => {

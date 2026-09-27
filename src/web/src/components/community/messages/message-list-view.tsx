@@ -4,7 +4,6 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { tid } from "@/lib/community/testids"
 import { ChannelIcon } from "../channels/channel-icon"
 import { ComposerAccessoryRail, MessageSelectionFooter } from "./composer-accessory-rail"
-import { InitialPositionAurora } from "./initial-position-aurora"
 import { MessageShareDialog } from "./message-share-dialog"
 import type { MessageListController } from "./message-list-controller"
 import type { ResolvedMessageListProps } from "./message-list-types"
@@ -116,7 +115,6 @@ export function renderMessageListView(
             </div>
           </div>
         )}
-        <InitialPositionAurora phase={controller.initialPosition.phase} />
       </div>
     </div>
   )

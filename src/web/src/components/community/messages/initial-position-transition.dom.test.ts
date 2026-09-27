@@ -3,8 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, render } from "@/test/react-dom-harness"
 import {
   INITIAL_POSITION_CROSSFADE_MS,
-  INITIAL_POSITION_EFFECT_DELAY_MS,
-  INITIAL_POSITION_MINIMUM_EFFECT_MS,
   INITIAL_POSITION_TIMEOUT_MS,
   useInitialPositionTransition,
 } from "./initial-position-transition"
@@ -56,60 +54,34 @@ describe("useInitialPositionTransition", () => {
       phase: "revealed",
       showSkeleton: false,
       contentVisible: true,
-      auroraVisible: false,
     })
     expect(vi.getTimerCount()).toBe(0)
   })
 
-  it("skips aurora when position settles before the 800ms threshold", () => {
-    expect(INITIAL_POSITION_EFFECT_DELAY_MS).toBe(800)
+  it("crossfades as soon as position settles", () => {
     const renderer = render(React.createElement(Probe, pending()))
     expect(latest.phase).toBe("positioning")
 
-    act(() => vi.advanceTimersByTime(80))
-    expect(latest.phase).toBe("positioning")
-    act(() => vi.advanceTimersByTime(719))
+    act(() => vi.advanceTimersByTime(799))
     expect(latest.phase).toBe("positioning")
     renderer.rerender(React.createElement(Probe, { ...pending(), positionSettled: true }))
     expect(latest).toMatchObject({
-      phase: "revealed",
+      phase: "revealing",
       contentVisible: true,
       contentInteractive: true,
-      auroraVisible: false,
     })
 
-    act(() => vi.runAllTimers())
+    act(() => vi.advanceTimersByTime(INITIAL_POSITION_CROSSFADE_MS))
     expect(latest.phase).toBe("revealed")
   })
 
-  it("holds a shown aurora through its entrance and crossfades for 300ms", () => {
-    expect(INITIAL_POSITION_MINIMUM_EFFECT_MS).toBeGreaterThanOrEqual(INITIAL_POSITION_CROSSFADE_MS)
-    const renderer = render(React.createElement(Probe, pending()))
-    act(() => vi.advanceTimersByTime(799))
-    expect(latest.phase).toBe("positioning")
-    act(() => vi.advanceTimersByTime(1))
-    expect(latest).toMatchObject({ phase: "aurora", contentVisible: false, auroraVisible: true })
-
-    renderer.rerender(React.createElement(Probe, { ...pending(), positionSettled: true }))
-    act(() => vi.advanceTimersByTime(INITIAL_POSITION_MINIMUM_EFFECT_MS - 1))
-    expect(latest.phase).toBe("aurora")
-    act(() => vi.advanceTimersByTime(1))
-    expect(latest).toMatchObject({ phase: "revealing", contentVisible: true, auroraVisible: true })
-
-    act(() => vi.advanceTimersByTime(INITIAL_POSITION_CROSSFADE_MS - 1))
-    expect(latest.phase).toBe("revealing")
-    act(() => vi.advanceTimersByTime(1))
-    expect(latest).toMatchObject({ phase: "revealed", auroraVisible: false })
-  })
-
-  it("does not let the visual timeout expose content before position settlement", () => {
+  it("does not let the timeout expose content before position settlement", () => {
     const renderer = render(React.createElement(Probe, pending()))
     act(() => vi.advanceTimersByTime(INITIAL_POSITION_TIMEOUT_MS))
     expect(latest).toMatchObject({
-      phase: "aurora",
+      phase: "positioning",
       contentVisible: false,
       contentInteractive: false,
-      auroraVisible: true,
     })
 
     renderer.rerender(React.createElement(Probe, { ...pending(), positionSettled: true }))
@@ -130,10 +102,9 @@ describe("useInitialPositionTransition", () => {
       INITIAL_POSITION_TIMEOUT_MS + INITIAL_POSITION_CROSSFADE_MS,
     ))
     expect(latest).toMatchObject({
-      phase: "aurora",
+      phase: "positioning",
       contentVisible: false,
       contentInteractive: false,
-      auroraVisible: true,
     })
 
     renderer.rerender(React.createElement(Probe, { ...pending(), positionSettled: true }))
@@ -142,18 +113,17 @@ describe("useInitialPositionTransition", () => {
       phase: "revealing",
       contentVisible: true,
       contentInteractive: true,
-      auroraVisible: true,
     })
 
     act(() => vi.advanceTimersByTime(INITIAL_POSITION_CROSSFADE_MS - 1))
     expect(latest.phase).toBe("revealing")
     act(() => vi.advanceTimersByTime(1))
-    expect(latest).toMatchObject({ phase: "revealed", auroraVisible: false })
+    expect(latest).toMatchObject({ phase: "revealed" })
   })
 
-  it("cleans delayed effect and timeout timers when a keyed mount leaves", () => {
+  it("cleans the timeout timer when a keyed mount leaves", () => {
     const renderer = render(React.createElement(Probe, pending()))
-    expect(vi.getTimerCount()).toBe(2)
+    expect(vi.getTimerCount()).toBe(1)
     renderer.unmount()
     expect(vi.getTimerCount()).toBe(0)
   })

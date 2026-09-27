@@ -17,17 +17,22 @@ import {
 } from "./collections"
 import {
   ingestDms,
+  ingestAttentionSnapshot,
   ingestMessages,
   ingestReadStateSnapshot,
   ingestServerDetail,
   ingestServers,
   installCommunityDbSync,
   captureCommunityLiveSnapshotToken,
+  clearAttentionOptimistically,
+  commitAttentionOptimisticSnapshot,
   patchCanonicalCommunityMessage,
   publishCommunityDmSummary,
   publishCommunityMessages,
   publishCommunityChannelDirectory,
   publishCommunityLiveSnapshot as publishCommunityLiveSnapshotWithProof,
+  publishAccountAttentionSnapshot,
+  projectAttentionUnreadBump,
   projectCommunityWsEventToDb,
   purgeCommunityChannel,
   purgeCommunityServer,
@@ -37,6 +42,7 @@ import { useCommunityStore } from "@/stores/community"
 import { useMessageStreamStore } from "@/stores/community/message-stream"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { emptyMessageOverlay } from "@/lib/community/message-stream"
+import { writeCommunityProfilePatches } from "@/lib/community/profile-seed"
 
 const registries: CommunityDbRegistry[] = []
 const unregisters: Array<() => void> = []
@@ -1069,6 +1075,129 @@ describe("community DB sync", () => {
     })
     expect(db.collections.readStateClock.get("account")?.revision).toBe(5)
     expect(db.collections.readStates.get("c1")).toBeUndefined()
+  })
+
+  it("preserves a WS fact that exists before an older snapshot request begins", async () => {
+    const db = await registry()
+    const scope = {
+      scopeId: "c1",
+      channelId: "c1",
+      serverId: "s1",
+      parentChannelId: null,
+      ordinaryUnread: true,
+      lastUnreadSeq: 4,
+      lastAttentionSeq: 4,
+      attentionCount: 1,
+    }
+    projectAttentionUnreadBump(db.queryClient, {
+      type: "community:unread.bump",
+      userId: db.accountId,
+      channelId: "c1",
+      serverId: "s1",
+      isMention: true,
+    }, { seq: 4 })
+    const token = captureCommunityLiveSnapshotToken(db.queryClient)
+
+    expect(publishAccountAttentionSnapshot(db.queryClient, {
+      snapshot: { scopes: [], items: [], limit: 100, truncated: false },
+      proof: { token, signal: undefined },
+    })).toBe("published")
+    expect(db.collections.attentionScopes.get("c1")).toMatchObject(scope)
+  })
+
+  it("does not roll back an optimistic clear started before or during a snapshot GET", async () => {
+    const db = await registry()
+    const scope = {
+      scopeId: "c1",
+      channelId: "c1",
+      serverId: "s1",
+      parentChannelId: null,
+      ordinaryUnread: true,
+      lastUnreadSeq: 4,
+      lastAttentionSeq: 4,
+      attentionCount: 1,
+    }
+    ingestAttentionSnapshot(db, { scopes: [scope], items: [], limit: 100, truncated: false })
+
+    const before = clearAttentionOptimistically(db)
+    const beforeToken = captureCommunityLiveSnapshotToken(db.queryClient)
+    publishAccountAttentionSnapshot(db.queryClient, {
+      snapshot: { scopes: [scope], items: [], limit: 100, truncated: false },
+      proof: { token: beforeToken, signal: undefined },
+    })
+    expect(db.collections.attentionScopes.get("c1")).toBeUndefined()
+    commitAttentionOptimisticSnapshot(db, before)
+
+    ingestAttentionSnapshot(db, { scopes: [scope], items: [], limit: 100, truncated: false })
+    const duringToken = captureCommunityLiveSnapshotToken(db.queryClient)
+    const during = clearAttentionOptimistically(db)
+    publishAccountAttentionSnapshot(db.queryClient, {
+      snapshot: { scopes: [scope], items: [], limit: 100, truncated: false },
+      proof: { token: duringToken, signal: undefined },
+    })
+    expect(db.collections.attentionScopes.get("c1")).toBeUndefined()
+    commitAttentionOptimisticSnapshot(db, during)
+  })
+
+  it("merges partial attention hydration without erasing richer profile or message fields", async () => {
+    const db = await registry()
+    writeCommunityProfilePatches([{
+      id: "u2",
+      identityAbout: {
+        name: "Alice",
+        discriminator: "0002",
+        aboutMe: "rich bio",
+        ownerUserId: "owner",
+      },
+      avatar: { avatar: "rich.png", avatarVersion: 2 },
+      status: { statusEmoji: "🌿", statusText: "Shipping" },
+    }], db)
+    ingestMessages(db, "c1", [{
+      id: "m1",
+      channelId: "c1",
+      type: "chat",
+      authorId: "u2",
+      authorName: "Alice",
+      content: "rich",
+      attachments: [{ id: "a1", name: "proof.png" }],
+      replyTo: { id: "m0", authorId: "u3", authorName: "Bob", content: "earlier" },
+    }])
+
+    ingestAttentionSnapshot(db, {
+      scopes: [],
+      items: [],
+      limit: 100,
+      truncated: false,
+      included: {
+        profiles: [{
+          userId: "u2",
+          name: "Alice Updated",
+          discriminator: "0002",
+          avatar: "base.png",
+          avatarVersion: 2,
+        }],
+        messages: [{
+          id: "m1",
+          channelId: "c1",
+          type: "chat",
+          authorId: "u2",
+          content: "new preview",
+        }],
+      },
+    })
+
+    expect(db.collections.profiles.get("u2")).toMatchObject({
+      name: "Alice Updated",
+      aboutMe: "rich bio",
+      ownerUserId: "owner",
+      statusEmoji: "🌿",
+      statusText: "Shipping",
+    })
+    expect(db.collections.messages.get("m1")).toMatchObject({
+      content: "new preview",
+      attachments: [{ id: "a1", name: "proof.png" }],
+      replyTo: { id: "m0", authorId: "u3" },
+    })
   })
 
   it("cascades roots removed by authoritative server, tree, and DM replacement", async () => {

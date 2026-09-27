@@ -66,11 +66,11 @@ describe("withCommunityActor", () => {
   it("a crk_ bearer that fails to resolve returns the error response and NEVER falls through to human", async () => {
     mockResolveBotActor.mockResolvedValue({
       kind: "error",
-      response: NextResponse.json({ error: "runner key revoked or unknown" }, { status: 401 }),
+      response: NextResponse.json({ error: "runner key revoked or unrecognized" }, { status: 401 }),
     })
     const res = await wrapped(bearer("Bearer crk_bad"))
     expect(res.status).toBe(401)
-    expect(await res.json()).toEqual({ error: "runner key revoked or unknown" })
+    expect(await res.json()).toEqual({ error: "runner key revoked or unrecognized" })
     // The human path must not have run — handler saw no human actor.
     expect(handler).not.toHaveBeenCalled()
   })

@@ -21,6 +21,8 @@ import type { CommunityDbRegistry } from "./collections"
 import { useCommunityPreviewProfiles } from "@/stores/community/profile-preview"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import type {
+  AttentionItemRow,
+  AttentionScopeRow,
   CategoryRow,
   ChannelMembershipRow,
   ChannelRow,
@@ -377,6 +379,30 @@ export function useCanonicalMessagesById(): ReadonlyMap<string, Msg> | undefined
   ), [registry, result.data])
 }
 
+export function useCanonicalChannelsById(): ReadonlyMap<string, ChannelRow> {
+  const registry = useOptionalCommunityDbRegistry()
+  const result = useLiveQuery({
+    query: (q) => registry
+      ? q.from({ channel: registry.collections.channels })
+      : undefined,
+  })
+  return useMemo(() => new Map(
+    ((result.data ?? []) as ChannelRow[]).map((channel) => [channel.id, channel]),
+  ), [result.data])
+}
+
+export function useCanonicalServersById(): ReadonlyMap<string, ServerRow> {
+  const registry = useOptionalCommunityDbRegistry()
+  const result = useLiveQuery({
+    query: (q) => registry
+      ? q.from({ server: registry.collections.servers })
+      : undefined,
+  })
+  return useMemo(() => new Map(
+    ((result.data ?? []) as ServerRow[]).map((server) => [server.id, server]),
+  ), [result.data])
+}
+
 export function materializeCanonicalMessage(
   transport: Msg,
   canonical: ReadonlyMap<string, Msg> | undefined,
@@ -453,6 +479,26 @@ export function useCanonicalProfilesByUserId(): ReadonlyMap<string, CommunityPro
 export function useCanonicalCommunityProfile(userId: string | null | undefined) {
   const profiles = useCanonicalProfilesByUserId()
   return userId ? profiles.get(userId) : undefined
+}
+
+export function useAttentionScopes(): readonly AttentionScopeRow[] {
+  const registry = useOptionalCommunityDbRegistry()
+  const result = useLiveQuery({
+    query: (q) => registry
+      ? q.from({ scope: registry.collections.attentionScopes })
+      : undefined,
+  })
+  return (result.data ?? []) as AttentionScopeRow[]
+}
+
+export function useAttentionItems(): readonly AttentionItemRow[] {
+  const registry = useOptionalCommunityDbRegistry()
+  const result = useLiveQuery({
+    query: (q) => registry
+      ? q.from({ item: registry.collections.attentionItems })
+      : undefined,
+  })
+  return (result.data ?? []) as AttentionItemRow[]
 }
 
 export function useChannelRefDirectoryProjection(): ChannelRefDirectory | undefined {

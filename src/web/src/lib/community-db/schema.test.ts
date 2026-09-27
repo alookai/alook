@@ -10,7 +10,7 @@ import {
 } from "./schema"
 
 describe("community DB schemas", () => {
-  it("defines the twelve canonical collection families", () => {
+  it("defines the canonical collection families, including independent attention state", () => {
     expect(Object.keys(communityCollectionSchemas)).toEqual([
       "servers",
       "categories",
@@ -21,6 +21,8 @@ describe("community DB schemas", () => {
       "messages",
       "readStates",
       "readStateClock",
+      "attentionScopes",
+      "attentionItems",
       "folders",
       "folderItems",
       "notificationSettings",

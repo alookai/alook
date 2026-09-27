@@ -53,7 +53,7 @@ export function withCommunityDaemonAuth(handler: CommunityDaemonAuthenticatedHan
       { route: "community/daemon-auth:credential" }
     )
     if (!active) {
-      return NextResponse.json({ error: "credential revoked or unknown" }, { status: 401 })
+      return NextResponse.json({ error: "credential revoked or unrecognized" }, { status: 401 })
     }
 
     return handler(req, {
