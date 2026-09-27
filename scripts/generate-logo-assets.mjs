@@ -75,8 +75,11 @@ export const androidAdaptiveForegroundSizes = {
   xxxhdpi: { canvas: 432, artwork: 336 },
 }
 const androidDensities = Object.keys(androidAdaptiveForegroundSizes)
-const androidSplashSizes = { mdpi: 108, hdpi: 162, xhdpi: 216, xxhdpi: 324, xxxhdpi: 432 }
-const appleSplashSizes = { "splash_icon@1x.png": 80, "splash_icon@2x.png": 160, "splash_icon@3x.png": 240 }
+export const mobileSplashVisibleSize = 40
+export const androidSplashSystemIconSize = 288
+export const androidSplashSizes = { mdpi: 108, hdpi: 162, xhdpi: 216, xxhdpi: 324, xxxhdpi: 432 }
+export const androidSplashArtworkSizes = { mdpi: 15, hdpi: 23, xhdpi: 30, xxhdpi: 45, xxxhdpi: 60 }
+export const appleSplashSizes = { "splash_icon@1x.png": 40, "splash_icon@2x.png": 80, "splash_icon@3x.png": 120 }
 
 export function assertSvgContract(svg) {
   if (!svg.includes('viewBox="0 0 1024 1024"')) throw new Error("logo viewBox drifted")
@@ -207,7 +210,7 @@ export async function generateLogoAssets() {
       await renderContained(canonical, canvas, artwork),
     )
     const splashSize = androidSplashSizes[density]
-    const artworkSize = Math.round(splashSize * 0.5185185185)
+    const artworkSize = androidSplashArtworkSizes[density]
     await writeFile(
       resolve(repoRoot, `src/desktop/src-tauri/gen/android/app/src/main/res/drawable-${density}/splash_icon.png`),
       await renderContained(canonical, splashSize, artworkSize),

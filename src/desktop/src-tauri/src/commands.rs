@@ -401,26 +401,67 @@ fn should_close_splash(frontend_ready: bool, min_elapsed: bool, max_wait_elapsed
 
 #[cfg(desktop)]
 pub fn splash_html() -> String {
-    use base64::Engine;
-    let icon_bytes = include_bytes!("../icons/icon.png");
-    let icon_b64 = base64::engine::general_purpose::STANDARD.encode(icon_bytes);
-    format!(
-        concat!(
-            "<html><head><meta charset=\"utf-8\"><style>",
-            "*{{margin:0;padding:0;box-sizing:border-box}}",
-            "html,body{{width:100%;height:100%;overflow:hidden;background:transparent;",
-            "display:flex;align-items:center;justify-content:center;",
-            "-webkit-user-select:none;user-select:none}}",
-            ".logo{{width:96px;height:96px;border-radius:22px;opacity:0;",
-            "animation:fi .4s ease-out .1s forwards;",
-            "box-shadow:0 8px 32px rgba(0,0,0,0.18)}}",
-            "@keyframes fi{{from{{opacity:0;transform:scale(.88)}}to{{opacity:1;transform:scale(1)}}}}",
-            "</style></head><body>",
-            "<img class=\"logo\" src=\"data:image/png;base64,{}\" draggable=\"false\">",
-            "</body></html>",
-        ),
-        icon_b64
-    )
+    let logo = include_str!("../../../../assets/alook.svg");
+    let mut html = String::with_capacity(logo.len() + 4_096);
+    html.push_str(
+        r#"<!doctype html><html><head><meta charset="utf-8"><style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:transparent;display:flex;align-items:center;justify-content:center;-webkit-user-select:none;user-select:none}
+svg{width:96px;height:96px;filter:drop-shadow(0 8px 16px rgba(0,0,0,.18))}
+</style></head><body>"#,
+    );
+    html.push_str(logo);
+    html.push_str(
+        r#"<script>
+const svg=document.querySelector("svg");
+const foreground=svg.querySelector('[data-motion-layer="foreground"]');
+const expressions=[...svg.querySelectorAll('[data-part="expression"]')];
+const revealMatrix=[0.82598,0,0,0.82599,194.784,194.424];
+const offsets=[0,0.55,0.73,0.88,1];
+const progressPoints=[0,1.06,0.975,1.01,1];
+const duration=300;
+const easings=[cubicBezier(0.2,0.8,0.2,1),cubicBezier(0.42,0,0.58,1),cubicBezier(0.42,0,0.58,1),cubicBezier(0,0,0.58,1)];
+svg.setAttribute("role","img");
+svg.setAttribute("aria-label","Alook");
+function cubicBezier(x1,y1,x2,y2){
+  const sample=(t,a1,a2)=>((1-3*a2+3*a1)*t+(3*a2-6*a1))*t*t+3*a1*t;
+  const slope=(t,a1,a2)=>3*(1-3*a2+3*a1)*t*t+2*(3*a2-6*a1)*t+3*a1;
+  return x=>{
+    let t=x;
+    for(let index=0;index<8;index+=1){const currentSlope=slope(t,x1,x2);if(Math.abs(currentSlope)<0.000001)break;t-=(sample(t,x1,x2)-x)/currentSlope}
+    if(t<0||t>1){let low=0;let high=1;t=x;for(let index=0;index<12;index+=1){if(sample(t,x1,x2)<x)low=t;else high=t;t=(low+high)/2}}
+    return sample(t,y1,y2);
+  };
+}
+function format(value){const rounded=Math.abs(value)<0.000005?0:Number(value.toFixed(5));return String(rounded)}
+function apply(progress,state){
+  const a=1+(revealMatrix[0]-1)*progress;
+  const d=1+(revealMatrix[3]-1)*progress;
+  foreground.setAttribute("transform",`matrix(${format(a)} 0 0 ${format(d)} ${format(revealMatrix[4]*progress)} ${format(revealMatrix[5]*progress)})`);
+  const opacity=format(Math.max(0,Math.min(1,progress)));
+  for(const expression of expressions)expression.setAttribute("opacity",opacity);
+  svg.dataset.state=state;
+}
+function progressAt(elapsed){
+  if(elapsed>=duration)return 1;
+  const position=Math.max(0,elapsed)/duration;
+  let segment=offsets.length-2;
+  for(let index=0;index<offsets.length-1;index+=1){if(position<=offsets[index+1]){segment=index;break}}
+  const local=(position-offsets[segment])/(offsets[segment+1]-offsets[segment]);
+  const eased=easings[segment](Math.max(0,Math.min(1,local)));
+  return progressPoints[segment]+(progressPoints[segment+1]-progressPoints[segment])*eased;
+}
+apply(0,"default");
+if(!window.matchMedia("(prefers-reduced-motion: reduce)").matches){
+  requestAnimationFrame(()=>{
+    const startedAt=performance.now();
+    const tick=now=>{const elapsed=now-startedAt;const done=elapsed>=duration;apply(progressAt(elapsed),done?"reveal":"transitioning");if(!done)requestAnimationFrame(tick)};
+    requestAnimationFrame(tick);
+  });
+}
+</script></body></html>"#,
+    );
+    html
 }
 
 #[cfg(desktop)]
@@ -901,6 +942,22 @@ mod tests {
         let app_source = include_str!("lib.rs");
         assert!(app_source.contains("Duration::from_secs(10)"));
         assert!(app_source.contains("mark_splash_max_wait_elapsed"));
+    }
+
+    #[test]
+    fn desktop_splash_uses_the_canonical_structured_logo_motion() {
+        let html = splash_html();
+        let canonical = include_str!("../../../../assets/alook.svg");
+
+        assert!(html.contains(canonical));
+        assert!(html.contains("svg{width:96px;height:96px"));
+        assert!(html.contains("data-motion-layer=\"foreground\""));
+        assert!(html.contains("[0.82598,0,0,0.82599,194.784,194.424]"));
+        assert!(html.contains("[0,1.06,0.975,1.01,1]"));
+        assert!(html.contains("const duration=300"));
+        assert!(html.contains("prefers-reduced-motion: reduce"));
+        assert!(html.contains("apply(0,\"default\")"));
+        assert!(!html.contains("data:image/png"));
     }
 
     #[test]

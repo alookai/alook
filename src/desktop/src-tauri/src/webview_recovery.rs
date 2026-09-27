@@ -10,7 +10,7 @@ const RECOVERY_PATH: &str = "/network-error";
 const PRODUCTION_TARGET: &str = "https://alook.ai/c";
 const SPLASH_BACKGROUND_LIGHT: &str = "#fff";
 const SPLASH_BACKGROUND_DARK: &str = "#100d0a";
-const SPLASH_LOGO_SIZE: u16 = 80;
+const SPLASH_LOGO_SIZE: u16 = 40;
 const SPLASH_ICON_PNG: &[u8] =
     include_bytes!("../gen/apple/Assets.xcassets/SplashIcon.imageset/splash_icon@3x.png");
 static STARTUP: StartupRendezvous = StartupRendezvous::new();
@@ -751,14 +751,14 @@ mod tests {
         assert!(html.contains("--background:#fff"));
         assert!(html.contains("--background:#100d0a"));
         assert!(html.contains("body{display:grid;place-items:center}"));
-        assert!(html.contains("img{display:block;width:80px;height:80px"));
-        assert!(html.contains("width=\"80\" height=\"80\""));
+        assert!(html.contains("img{display:block;width:40px;height:40px"));
+        assert!(html.contains("width=\"40\" height=\"40\""));
         assert!(!html.contains("animation"));
         assert!(!html.contains("transition"));
 
         assert!(storyboard.contains("image=\"SplashIcon\""));
         assert!(storyboard.contains("name=\"SplashBackground\""));
-        assert_eq!(storyboard.matches("constant=\"80\"").count(), 2);
+        assert_eq!(storyboard.matches("constant=\"40\"").count(), 2);
         assert!(storyboard.contains("firstAttribute=\"centerX\""));
         assert!(storyboard.contains("firstAttribute=\"centerY\""));
 
