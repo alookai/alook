@@ -26,6 +26,9 @@ static BOOL alookIsTauriRootController(UIViewController *viewController) {
 }
 
 static UIView *alookStartupHostView(UIViewController *viewController) {
+    if ([gAlookStartupOverlay.superview isKindOfClass:[UIWindow class]]) {
+        return gAlookStartupOverlay.superview;
+    }
     return viewController.view.window ?: viewController.view;
 }
 
@@ -218,13 +221,12 @@ static NSString *const kThemeObserverScript =
         [[NSNotificationCenter defaultCenter]
             addObserverForName:UIWindowDidBecomeVisibleNotification
             object:nil
-            queue:[NSOperationQueue mainQueue]
+            queue:nil
             usingBlock:^(NSNotification *notification) {
                 UIWindow *window = [notification.object isKindOfClass:[UIWindow class]]
                     ? (UIWindow *)notification.object
                     : nil;
-                if (window != nil && window.windowLevel == UIWindowLevelNormal &&
-                    window.rootViewController != nil) {
+                if (window != nil && window.windowLevel == UIWindowLevelNormal) {
                     alookInstallStartupOverlayInWindow(window);
                 }
             }];

@@ -929,6 +929,8 @@ mod tests {
         assert!(apple.contains("NSClassFromString(@\"TaoUIViewController\")"));
         assert!(apple.contains("[host bringSubviewToFront:overlay]"));
         assert!(apple.contains("UIWindowDidBecomeVisibleNotification"));
+        assert!(apple.contains("gAlookStartupOverlay.superview isKindOfClass:[UIWindow class]"));
+        assert!(apple.contains("queue:nil"));
         assert!(apple.contains("alookInstallStartupOverlayInWindow(window)"));
         assert!(apple.contains("@selector(alook_viewDidLoad)"));
         assert!(apple.contains("@selector(alook_viewDidAppear:)"));
