@@ -177,11 +177,11 @@ test.describe.serial("Inbox/read refresh ownership", () => {
     const { context, page } = await asUser("bob")
     const readObserverGate = await installReadObserverGate(page)
     const proxy = await proxyCommunityWebSockets(context)
-    await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelA}`)
     const initialAttention = page.waitForResponse((response) => (
       response.request().method() === "GET"
       && new URL(response.url()).pathname === "/api/community/users/me/attention"
     ))
+    await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelA}`)
     await expect(page.getByRole("heading", { name: channelAName, exact: true })).toBeVisible({
       timeout: 20_000,
     })
@@ -275,11 +275,11 @@ test.describe.serial("Inbox/read refresh ownership", () => {
     const channelId = await seedChannel("alice", serverId, channelName)
     await seedJoinServer("alice", "bob", serverId)
     const { page } = await asUser("bob")
-    await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelId}`)
     const initialAttention = page.waitForResponse((response) => (
       response.request().method() === "GET"
       && new URL(response.url()).pathname === "/api/community/users/me/attention"
     ))
+    await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelId}`)
     await expect(page.getByRole("heading", { name: channelName, exact: true })).toBeVisible({
       timeout: 20_000,
     })
@@ -496,11 +496,11 @@ test.describe.serial("Inbox/read refresh ownership", () => {
     const channelId = await seedChannel("alice", serverId, channelName)
     await seedJoinServer("alice", "bob", serverId)
     const { page } = await asUser("bob")
-    await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelId}`)
     const initialAttention = page.waitForResponse((response) => (
       response.request().method() === "GET"
       && new URL(response.url()).pathname === "/api/community/users/me/attention"
     ))
+    await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelId}`)
     await expect(page.getByRole("heading", { name: channelName, exact: true })).toBeVisible({
       timeout: 20_000,
     })
