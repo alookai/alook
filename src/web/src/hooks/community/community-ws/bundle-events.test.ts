@@ -20,12 +20,17 @@ vi.mock("./reconnect", () => ({ reconcileCommunityWsReconnect }))
 import {
   capturedOnMessage,
   capturedQueryClient,
+  canonicalForumSidebar,
   cleanupCommunityWsHarness,
   forumSidebarFixture,
   getCommunityApiFetchMock,
+  hasCanonicalChannelAccess,
+  hasCanonicalChannelNotify,
   mountHook,
   resetCommunityWsHarness,
+  seedCanonicalForumSidebar,
 } from "./test-harness"
+import { getCanonicalCommunityChannels, getCanonicalCommunityMessages } from "@/lib/community-db/sync"
 import { useCommunityStore } from "@/stores/community"
 import { getMessageOverlay, useMessageStreamStore } from "@/stores/community/message-stream"
 import {
@@ -101,22 +106,7 @@ describe("useCommunityWs — operation bundles", () => {
   it("applies archive and null-tag sidebar semantics inside committed batches", async () => {
     await mountHook()
     const baseKey = communityKeys.forumSidebarThreads("s1")
-    const metaKey = communityKeys.channelMeta("s1", "post_1")
-    const hintKey = communityKeys.forumOpenerHint("s1", "opener-post_1")
-    capturedQueryClient.setQueryData(communityKeys.server("s1"), {
-      id: "s1",
-      categories: [{ id: "cat_1", channels: [{ id: "forum_1", type: "forum" }] }],
-    })
-    capturedQueryClient.setQueryData(baseKey, forumSidebarFixture(["post_1", "post_2"]))
-    capturedQueryClient.setQueryData(metaKey, {
-      id: "post_1",
-      parentChannelId: "forum_1",
-      parentMessageId: "opener-post_1",
-    })
-    capturedQueryClient.setQueryData(hintKey, {
-      id: "opener-post_1",
-      content: "Post one",
-    })
+    seedCanonicalForumSidebar("s1", ["post_1", "post_2"])
 
     capturedOnMessage!(await batchFor("forum-archive", [{
       type: "community:channel.child_update",
@@ -125,18 +115,13 @@ describe("useCommunityWs — operation bundles", () => {
       changes: { tags: ["archived"] },
     }]))
 
-    expect(capturedQueryClient.getQueryData<ReturnType<typeof forumSidebarFixture>>(baseKey)
-      ?.threads.map(({ id }) => id)).toEqual(["post_2"])
-    expect(capturedQueryClient.getQueryData(metaKey)).toMatchObject({ id: "post_1" })
-    expect(capturedQueryClient.getQueryData(hintKey)).toEqual({
-      id: "opener-post_1",
-      content: "Post one",
-    })
-    await vi.waitFor(() => {
-      expect(capturedQueryClient.getQueryState(baseKey)?.isInvalidated).toBe(true)
-    })
-
-    capturedQueryClient.setQueryData(baseKey, forumSidebarFixture(["post_2"]))
+    expect(canonicalForumSidebar("s1").threads.map(({ id }) => id)).toEqual(["post_2"])
+    expect(getCanonicalCommunityChannels(capturedQueryClient)
+      .find(({ id }) => id === "post_1")).toMatchObject({ archived: false })
+    expect(hasCanonicalChannelAccess("post_1", "u_me")).toBe(true)
+    expect(hasCanonicalChannelNotify("post_1", "u_me")).toBe(false)
+    expect(getCanonicalCommunityMessages(capturedQueryClient)
+      .find(({ id }) => id === "opener-post_1")).toMatchObject({ content: "title-post_1" })
     capturedOnMessage!(await batchFor("forum-unarchive", [{
       type: "community:channel.child_update",
       parentChannelId: "forum_1",
@@ -144,13 +129,11 @@ describe("useCommunityWs — operation bundles", () => {
       changes: { tags: null },
     }]))
 
-    expect(capturedQueryClient.getQueryData<ReturnType<typeof forumSidebarFixture>>(baseKey)
-      ?.threads.map(({ id }) => id)).toEqual(["post_2"])
-    expect(capturedQueryClient.getQueryData(metaKey)).toMatchObject({ id: "post_1" })
-    expect(capturedQueryClient.getQueryData(hintKey)).toEqual({
-      id: "opener-post_1",
-      content: "Post one",
-    })
+    expect(canonicalForumSidebar("s1").threads.map(({ id }) => id).sort())
+      .toEqual(["post_1", "post_2"])
+    expect(getCanonicalCommunityChannels(capturedQueryClient)
+      .find(({ id }) => id === "post_1")).toMatchObject({ archived: false })
+    expect(hasCanonicalChannelNotify("post_1", "u_me")).toBe(true)
   })
 
   it("merges multiple requests into one queued successor generation", async () => {

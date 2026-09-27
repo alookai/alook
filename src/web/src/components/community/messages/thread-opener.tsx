@@ -14,7 +14,7 @@ import type { OpenProfile } from "@/components/community/social/profile-types"
 import { AttachmentCard } from "./attachment-card"
 import { displayReplyContent } from "@/lib/community/reply-content"
 import { useMobileAvatarMention } from "./use-mobile-avatar-mention"
-import { useCommunityProfile } from "@/stores/community/ws"
+import { useCanonicalCommunityProfile } from "@/lib/community-db/projections"
 import { useHoverCapable } from "@/hooks/use-hover-capable"
 import { MessageReactions } from "./message-reactions"
 import { RemoteContentImage } from "@/components/remote-image/remote-image"
@@ -35,6 +35,8 @@ import { RemoteContentImage } from "@/components/remote-image/remote-image"
 // reflect here without a page reload once the mutation invalidates this key.
 export function ThreadOpener({
   parentMessageId,
+  parentChannelId,
+  serverId,
   viewerUserId,
   onOpenProfile,
   onPreviewImage,
@@ -46,6 +48,8 @@ export function ThreadOpener({
   onInsertMentionText,
 }: {
   parentMessageId: string
+  parentChannelId: string | null
+  serverId: string
   viewerUserId: string
   onOpenProfile?: OpenProfile
   onPreviewImage?: (image: ImagePreview) => void
@@ -59,8 +63,11 @@ export function ThreadOpener({
   onJump?: () => void
 }) {
   const hoverCapable = useHoverCapable()
-  const { message: msg, isLoading, isError } = useMessage(parentMessageId)
-  const authorProfile = useCommunityProfile(msg?.authorId)
+  const { message: msg, isLoading, isError } = useMessage(parentMessageId, {
+    ...(parentChannelId ? { channelId: parentChannelId } : {}),
+    serverId,
+  })
+  const authorProfile = useCanonicalCommunityProfile(msg?.authorId)
   const mentionText = msg ? resolveAuthorMentionText?.(msg.authorId) ?? null : null
   const avatarMention = useMobileAvatarMention({
     onMention: mentionText && onInsertMentionText
@@ -69,8 +76,8 @@ export function ThreadOpener({
     onProfileClick: (event) => {
       if (msg) {
         const name = msg.authorId
-          ? (authorProfile?.name ?? "Unknown")
-          : (msg.authorName ?? "Unknown")
+          ? (authorProfile?.name ?? msg.authorName ?? "Deleted user")
+          : (msg.authorName ?? "Deleted user")
         onOpenProfile?.(name, event, undefined, msg.authorId)
       }
     },
@@ -94,8 +101,8 @@ export function ThreadOpener({
   }
 
   const authorName = msg.authorId
-    ? (authorProfile?.name ?? "Unknown")
-    : (msg.authorName ?? "Unknown")
+    ? (authorProfile?.name ?? msg.authorName ?? "Deleted user")
+    : (msg.authorName ?? "Deleted user")
   const avatarLabel = msg.authorId
     ? (authorProfile?.avatar ?? avatarInitial(authorName))
     : (msg.authorAvatar ?? avatarInitial(authorName))

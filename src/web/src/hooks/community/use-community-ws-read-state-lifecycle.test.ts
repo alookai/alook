@@ -119,11 +119,7 @@ describe("community read-state lifecycle reconciliation", () => {
   it("schedules the first-auth owner before non-Inbox reconciliation completes", async () => {
     vi.useFakeTimers()
     await mountHook({ viewerUserId: "viewer-1" })
-    const profiles = useCommunityWsStore.getState()
-    profiles.patchProfiles(profiles.beginProfileSnapshot(), [{
-      id: "viewer-1",
-      presence: "offline",
-    }])
+    useCommunityWsStore.getState().setPresence("viewer-1", "offline")
     let releaseSnapshot!: (value: unknown) => void
     getCommunityApiFetchMock().mockReturnValueOnce(new Promise((resolve) => {
       releaseSnapshot = resolve
@@ -132,7 +128,7 @@ describe("community read-state lifecycle reconciliation", () => {
     const authentication = capturedUseUserWsOptions?.onAuthenticated?.()
 
     expect(getCommunityApiFetchMock()).toHaveBeenCalledOnce()
-    expect(useCommunityWsStore.getState().profilesByUserId.get("viewer-1")?.presence)
+    expect(useCommunityWsStore.getState().presenceByUserId.get("viewer-1"))
       .toBe("online")
     await vi.advanceTimersByTimeAsync(500)
     expect(invalidate).toHaveBeenCalledWith({

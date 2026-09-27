@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 import { withCookieHumanAuth } from "@/lib/middleware/auth"
 import { getPrimaryDb } from "@/lib/db"
-import { createAuth } from "@/lib/auth"
+import { getAuth } from "@/lib/auth"
 import {
   restoreVerifiedDeletionCode,
   verifyDeletionCode,
@@ -72,7 +72,7 @@ export const POST = withCookieHumanAuth(async (request, context) => {
   )
   clearAuthCookies(response)
   try {
-    const signOut = await createAuth(context.env).api.signOut({
+    const signOut = await getAuth(context.env).api.signOut({
       headers: request.headers,
       returnHeaders: true,
     }) as { headers: Headers }

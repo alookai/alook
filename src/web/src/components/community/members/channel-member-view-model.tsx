@@ -22,7 +22,7 @@ import {
   useRemoveThreadParticipant,
 } from "@/hooks/community/use-thread-participants"
 import { useKickMember, useSetMemberRole } from "@/hooks/community/mutations"
-import { useCommunityWsStore } from "@/stores/community/ws"
+import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
 
 type MentionCandidateSource = NonNullable<ComposerProps["mentionCandidates"]>
 
@@ -91,7 +91,7 @@ export function useChannelMemberViewModel({
   myRole: Role | undefined
 } {
   const membersHook = useServerMembers(accessAllowed && currentServer ? serverId : null)
-  const profilesByUserId = useCommunityWsStore((state) => state.profilesByUserId)
+  const profilesByUserId = useCanonicalProfilesByUserId()
   const [memberUi, setMemberUi] = useState({ channelId, query: "", dialogOpen: false })
   const memberQuery = memberUi.channelId === channelId ? memberUi.query : ""
   const manageMembersOpen = memberUi.channelId === channelId && memberUi.dialogOpen
@@ -106,10 +106,10 @@ export function useChannelMemberViewModel({
 
   const members = useMemo(
     () => membersHook.members.map((member) => {
-      const profile = readCommunityProfile(
-        profilesByUserId.get(member.userId),
-        member.userId,
-      )
+      const canonical = profilesByUserId.get(member.userId)
+      const profile = canonical
+        ? readCommunityProfile(canonical, member.userId)
+        : { ...member, presence: member.status }
       return {
         ...member,
         name: profile.name,

@@ -22,7 +22,8 @@ const mocks = vi.hoisted(() => {
         ? { id: key.at(-1) }
         : undefined,
     },
-    structuralSnapshot: { current: null as null | Record<string, unknown> },
+    projectedServer: { current: undefined as undefined | Record<string, unknown> },
+    projectedChannel: { current: undefined as undefined | Record<string, unknown> },
     breakpoint: { current: "desktop" },
     onboardingState: { current: null as Record<string, unknown> | null },
     replace: vi.fn(),
@@ -93,14 +94,9 @@ vi.mock("@/stores/community/ws", () => ({
 vi.mock("@/contexts/community/current-user", () => ({
   useCurrentUser: () => ({ id: "viewer" }),
 }))
-vi.mock("@/hooks/community/use-structural-snapshot", () => ({
-  useStructuralSnapshot: () => mocks.structuralSnapshot.current,
-  hasStructuralServerTree: (server: {
-    categories: unknown[]
-    channels: unknown[]
-  } | null | undefined) => Boolean(
-    server && (server.categories.length > 0 || server.channels.length > 0),
-  ),
+vi.mock("@/lib/community-db/projections", () => ({
+  useServerTreeProjection: () => mocks.projectedServer.current,
+  useRouteChannelProjection: () => mocks.projectedChannel.current,
 }))
 vi.mock("./use-shell-rail-controller", () => ({
   useShellRailController: (options: unknown) => {
@@ -144,7 +140,8 @@ describe("ShellFrame orchestration", () => {
     mocks.pendingHref.current = null
     mocks.navigationPending.current = false
     mocks.serverCache.clear()
-    mocks.structuralSnapshot.current = null
+    mocks.projectedServer.current = undefined
+    mocks.projectedChannel.current = undefined
     mocks.breakpoint.current = "desktop"
     mocks.onboardingState.current = null
     mocks.registerUiHandlers.mockClear()
@@ -253,37 +250,13 @@ describe("ShellFrame orchestration", () => {
     }))
   })
 
-  it("does not promote a rail-only structural identity to a warm server target", () => {
+  it("uses the canonical server-tree projection as a warm server target", () => {
     mocks.currentHref.current = "/c/channels/s1/c1"
     mocks.pendingHref.current = "/c/channels/s2"
     mocks.navigationPending.current = true
-    mocks.structuralSnapshot.current = {
-      serverOrder: ["s2"],
-      servers: [{ id: "s2", categories: [], channels: [] }],
-    }
-
-    render(createElement(ShellFrame, {
-      ...baseProps,
-      frameHref: "/c/channels/s1/c1",
-    }))
-
-    expect(checkpoint()).toMatchObject({
-      mode: "cold-scope",
-      sidebar: { kind: "server-skeleton", serverId: "s2" },
-    })
-  })
-
-  it("uses a captured structural tree as a warm server target", () => {
-    mocks.currentHref.current = "/c/channels/s1/c1"
-    mocks.pendingHref.current = "/c/channels/s2"
-    mocks.navigationPending.current = true
-    mocks.structuralSnapshot.current = {
-      serverOrder: ["s2"],
-      servers: [{
-        id: "s2",
-        categories: [],
-        channels: [{ id: "c2", name: "cached", type: "text", categoryId: null }],
-      }],
+    mocks.projectedServer.current = {
+      id: "s2",
+      categories: [{ channels: [{ id: "c2" }] }],
     }
 
     render(createElement(ShellFrame, {
@@ -294,6 +267,27 @@ describe("ShellFrame orchestration", () => {
     expect(checkpoint()).toMatchObject({
       mode: "warm-scope",
       main: { kind: "keep" },
+    })
+  })
+
+  it("carries the canonical target subtype through the navigation checkpoint", () => {
+    mocks.currentHref.current = "/c/channels/s1/c1"
+    mocks.pendingHref.current = "/c/channels/s1/c2"
+    mocks.navigationPending.current = true
+    mocks.projectedChannel.current = { id: "c2", type: "forum" }
+
+    render(createElement(ShellFrame, {
+      ...baseProps,
+      frameHref: "/c/channels/s1/c1",
+    }))
+
+    expect(checkpoint()).toMatchObject({
+      mode: "same-scope-leaf",
+      main: {
+        kind: "target-skeleton",
+        href: "/c/channels/s1/c2",
+        conversationSubtype: "forum",
+      },
     })
   })
 

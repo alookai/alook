@@ -7,7 +7,7 @@ vi.mock("@opennextjs/cloudflare", () => ({
 
 const mockGetSession = vi.fn();
 vi.mock("@/lib/auth", () => ({
-  createAuth: vi.fn(() => ({ api: { getSession: mockGetSession } })),
+  getAuth: vi.fn(() => ({ api: { getSession: mockGetSession } })),
 }));
 
 import { middleware } from "./middleware";

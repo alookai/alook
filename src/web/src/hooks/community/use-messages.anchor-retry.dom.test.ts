@@ -66,7 +66,7 @@ describe("anchor repair retains the message window", () => {
       .mockResolvedValue(page)
     const { rendered } = mount(kind)
     await advance(900)
-    expect(renders.at(-1)?.phase).toBe("aurora")
+    expect(renders.at(-1)?.phase).toBe("positioning")
     await act(async () => { fail(new Error("offline")) })
     await advance()
     expect(rendered.result.current.messages.map((message) => message.id)).toEqual(["cached"])
@@ -138,7 +138,7 @@ describe("anchor repair retains the message window", () => {
       }
     })
     await advance(10_000)
-    expect(apiFetchMock).toHaveBeenCalledTimes(change === "evict" ? 2 : 1)
+    expect(apiFetchMock).toHaveBeenCalledTimes(1)
     if (change === "evict") {
       expect(client.getQueryData(key)).toBeUndefined()
       rendered.unmount()

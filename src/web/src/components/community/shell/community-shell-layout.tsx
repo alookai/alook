@@ -8,8 +8,10 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react"
+import { flushSync } from "react-dom"
 import {
   useDefaultLayout,
+  type GroupImperativeHandle,
   type PanelImperativeHandle,
   type PanelSize,
 } from "react-resizable-panels"
@@ -24,9 +26,13 @@ import type { CommunitySurface } from "@/lib/community/community-route"
 import { cn } from "@/lib/utils"
 import {
   COMMUNITY_RAIL_WIDTH,
+  COMMUNITY_LAYOUT_PREPAINT_ATTRIBUTE,
+  COMMUNITY_LAYOUT_PREPAINT_SIDEBAR_WIDTH,
+  COMMUNITY_LAYOUT_PREPAINT_USER_BAR_WIDTH,
   COMMUNITY_SIDEBAR_DEFAULT_WIDTH,
   COMMUNITY_SIDEBAR_MAX_WIDTH,
   COMMUNITY_SIDEBAR_MIN_WIDTH,
+  COMMUNITY_SEPARATOR_WIDTH,
   COMMUNITY_USER_BAR_HEIGHT_CSS,
   desktopSidebarRestoreTarget,
   desktopUserBarInitialOverlayCssWidth,
@@ -36,6 +42,7 @@ import { Shell } from "./shell"
 import { useHydratedClient } from "./use-hydrated-client"
 
 const SHELL_SURFACE_CLASS = "rounded-tl-xl rounded-tr-none rounded-br-none rounded-bl-none ring-0 border-l border-t border-border/40 shadow-none"
+const DESKTOP_PREPAINT_MEDIA_QUERY = "(min-width: 640px)"
 const communityLayoutStorage: Pick<Storage, "getItem" | "setItem"> = {
   getItem: (key) => typeof localStorage === "undefined" ? null : localStorage.getItem(key),
   setItem: (key, value) => {
@@ -61,7 +68,26 @@ type CommunityShellLayoutProps = {
 
 type PendingDesktopRestore = {
   target: number | string
-  resizeRequested: boolean
+  animationFrame: number | null
+}
+
+const DESKTOP_RESTORE_PIXEL_EPSILON = 1 + (1 / 64)
+const DESKTOP_RESTORE_PERCENTAGE_EPSILON = 0.01
+
+function constrainDesktopGeometry(target: number | string) {
+  const root = document.documentElement
+  if (typeof target === "number") {
+    root.style.setProperty(COMMUNITY_LAYOUT_PREPAINT_SIDEBAR_WIDTH, `${target}px`)
+    root.style.setProperty(
+      COMMUNITY_LAYOUT_PREPAINT_USER_BAR_WIDTH,
+      `${desktopUserBarOverlayWidth(target)}px`,
+    )
+  }
+  root.setAttribute(COMMUNITY_LAYOUT_PREPAINT_ATTRIBUTE, "")
+}
+
+function releaseDesktopGeometryConstraint() {
+  document.documentElement.removeAttribute(COMMUNITY_LAYOUT_PREPAINT_ATTRIBUTE)
 }
 
 /** The single geometry owner for authenticated and session-pending community shells. */
@@ -90,15 +116,24 @@ export function CommunityShellLayout({
     ? defaultLayout?.sidebar
     : undefined
   const sidebarPanelRef = useRef<HTMLDivElement>(null)
+  const panelGroupHandleRef = useRef<GroupImperativeHandle | null>(null)
   const sidebarPanelHandleRef = useRef<PanelImperativeHandle | null>(null)
+  const resizeHandleRef = useRef<HTMLDivElement>(null)
   const userBarOverlayRef = useRef<HTMLDivElement>(null)
   const committedBreakpointRef = useRef<Breakpoint>(breakpoint)
   const renderedBreakpointRef = useRef<Breakpoint>(breakpoint)
   const desktopSidebarWidthRef = useRef<number | undefined>(undefined)
   const pendingDesktopRestoreRef = useRef<PendingDesktopRestore | null>(null)
+  const hydratedLayoutAppliedRef = useRef(false)
 
   useInsertionEffect(() => {
     renderedBreakpointRef.current = breakpoint
+    if (breakpoint === "mobile" && pendingDesktopRestoreRef.current !== null) {
+      const { animationFrame } = pendingDesktopRestoreRef.current
+      if (animationFrame !== null) cancelAnimationFrame(animationFrame)
+      pendingDesktopRestoreRef.current = null
+      releaseDesktopGeometryConstraint()
+    }
     if (
       committedBreakpointRef.current === "mobile"
       && breakpoint === "desktop"
@@ -109,8 +144,9 @@ export function CommunityShellLayout({
           desktopSidebarWidthRef.current,
           persistedSidebarPercentage,
         ),
-        resizeRequested: false,
+        animationFrame: null,
       }
+      constrainDesktopGeometry(pendingDesktopRestoreRef.current.target)
     }
   }, [breakpoint, persistedSidebarPercentage])
 
@@ -132,6 +168,90 @@ export function CommunityShellLayout({
     desktopSidebarWidthRef.current = sidebarWidth
     setDesktopUserBarWidth(sidebarWidth)
   }, [setDesktopUserBarWidth])
+  const persistDoubleClickReset = useCallback(() => {
+    const sidebarPanelHandle = sidebarPanelHandleRef.current
+    if (!sidebarPanelHandle) return
+    sidebarPanelHandle.resize(COMMUNITY_SIDEBAR_DEFAULT_WIDTH)
+    queueMicrotask(() => {
+      const layout = panelGroupHandleRef.current?.getLayout()
+      if (!layout || Object.keys(layout).length === 0) return
+      onLayoutChanged(layout, { isUserInteraction: true })
+    })
+  }, [onLayoutChanged])
+
+  useLayoutEffect(() => {
+    const onDoubleClick = (event: MouseEvent) => {
+      const resizeHandle = resizeHandleRef.current
+      if (!resizeHandle) return
+      const rect = resizeHandle.getBoundingClientRect()
+      const hitPadding = 10
+      if (
+        event.clientX >= rect.left - hitPadding
+        && event.clientX <= rect.right + hitPadding
+        && event.clientY >= rect.top
+        && event.clientY <= rect.bottom
+      ) persistDoubleClickReset()
+    }
+    document.addEventListener("dblclick", onDoubleClick, true)
+    return () => document.removeEventListener("dblclick", onDoubleClick, true)
+  }, [persistDoubleClickReset])
+
+  useLayoutEffect(() => {
+    if (
+      defaultLayout === undefined
+      || hydratedLayoutAppliedRef.current
+    ) return
+
+    const panelGroupHandle = panelGroupHandleRef.current
+    if (!panelGroupHandle) return
+    const prepaintSidebarWidth = document.documentElement.hasAttribute(
+      COMMUNITY_LAYOUT_PREPAINT_ATTRIBUTE,
+    ) && window.matchMedia(DESKTOP_PREPAINT_MEDIA_QUERY).matches
+      ? sidebarPanelRef.current?.getBoundingClientRect().width
+      : undefined
+    const panelGroupWidth = breakpoint === "desktop"
+      ? sidebarPanelRef.current
+        ?.closest<HTMLElement>('[data-slot="resizable-panel-group"]')
+        ?.getBoundingClientRect().width
+      : undefined
+    const restoredSidebarWidth = panelGroupWidth && panelGroupWidth > COMMUNITY_SEPARATOR_WIDTH
+      ? Math.min(
+          COMMUNITY_SIDEBAR_MAX_WIDTH,
+          Math.max(
+            COMMUNITY_SIDEBAR_MIN_WIDTH,
+            defaultLayout.sidebar / 100 * (panelGroupWidth - COMMUNITY_SEPARATOR_WIDTH),
+          ),
+        )
+      : prepaintSidebarWidth
+    hydratedLayoutAppliedRef.current = true
+    panelGroupHandle.setLayout(defaultLayout)
+    if (restoredSidebarWidth && restoredSidebarWidth > 0) {
+      sidebarPanelHandleRef.current?.resize(restoredSidebarWidth)
+      desktopSidebarWidthRef.current = restoredSidebarWidth
+      setDesktopUserBarWidth(restoredSidebarWidth)
+    } else {
+      userBarOverlayRef.current?.style.setProperty(
+        "--community-desktop-user-bar-width",
+        desktopUserBarInitialOverlayCssWidth(defaultLayout.sidebar),
+      )
+    }
+  }, [breakpoint, defaultLayout, setDesktopUserBarWidth])
+
+  useLayoutEffect(() => {
+    if (
+      busy
+      || defaultLayout === undefined
+      || !hydratedLayoutAppliedRef.current
+      || pendingDesktopRestoreRef.current !== null
+      || !window.matchMedia(DESKTOP_PREPAINT_MEDIA_QUERY).matches
+    ) return
+    // The session-pending shell keeps owning the exact prepaint geometry. Once
+    // the loaded shell has applied the saved layout, retain the constraint for
+    // this commit so the panel library cannot expose its default for one frame.
+    requestAnimationFrame(() => {
+      releaseDesktopGeometryConstraint()
+    })
+  }, [breakpoint, busy, defaultLayout])
 
   useLayoutEffect(() => {
     committedBreakpointRef.current = breakpoint
@@ -139,32 +259,108 @@ export function CommunityShellLayout({
     if (
       breakpoint !== "desktop"
       || pendingRestore === null
-      || pendingRestore.resizeRequested
     ) return
 
     const panelHandle = sidebarPanelHandleRef.current
     if (!panelHandle) return
-
-    pendingRestore.resizeRequested = true
-    panelHandle.resize(pendingRestore.target)
-    queueMicrotask(() => {
+    let cancelled = false
+    const restore = () => {
       if (
-        pendingDesktopRestoreRef.current !== pendingRestore
+        cancelled
+        || pendingDesktopRestoreRef.current !== pendingRestore
         || renderedBreakpointRef.current !== "desktop"
       ) return
-      const imperativeWidth = panelHandle.getSize().inPixels
-      const measuredWidth = sidebarPanelRef.current?.getBoundingClientRect().width
-      const appliedWidth = imperativeWidth > 0
-        ? imperativeWidth
-        : measuredWidth && measuredWidth > 0
-          ? measuredWidth
+      const groupWidth = sidebarPanelRef.current
+        ?.closest<HTMLElement>('[data-slot="resizable-panel-group"]')
+        ?.getBoundingClientRect().width
+      const panelTrackWidth = groupWidth && groupWidth > COMMUNITY_SEPARATOR_WIDTH
+        ? groupWidth - COMMUNITY_SEPARATOR_WIDTH
+        : undefined
+      const expectedPercentage = typeof pendingRestore.target === "string"
+        ? Number.parseFloat(pendingRestore.target)
+        : panelTrackWidth
+          ? pendingRestore.target / panelTrackWidth * 100
           : undefined
-      if (appliedWidth === undefined) return
+      // Let the library observe its unconstrained panel geometry while applying
+      // the canonical layout. If it is not ready yet, the constraint is put
+      // back synchronously before the browser can paint.
+      flushSync(() => {
+        releaseDesktopGeometryConstraint()
+        if (expectedPercentage !== undefined) {
+          const groupHandle = panelGroupHandleRef.current
+          const currentKeys = Object.keys(groupHandle?.getLayout() ?? {})
+          const keyOrders = currentKeys.length === 2
+            ? [currentKeys, currentKeys.toReversed()]
+            : [["main", "sidebar"], ["sidebar", "main"]]
+          for (const keys of keyOrders) {
+            const candidate = Object.fromEntries(keys.map((key) => [
+              key,
+              key === "sidebar" ? expectedPercentage : 100 - expectedPercentage,
+            ]))
+            const applied = groupHandle?.setLayout(candidate)
+            if (
+              applied?.sidebar !== undefined
+              && Math.abs(applied.sidebar - expectedPercentage)
+                <= DESKTOP_RESTORE_PERCENTAGE_EPSILON
+            ) break
+          }
+        } else {
+          panelHandle.resize(pendingRestore.target)
+        }
+      })
+      const size = panelHandle.getSize()
+      const expectedWidth = typeof pendingRestore.target === "number"
+        ? pendingRestore.target
+        : panelTrackWidth && expectedPercentage !== undefined
+          ? Math.min(
+              COMMUNITY_SIDEBAR_MAX_WIDTH,
+              Math.max(
+                COMMUNITY_SIDEBAR_MIN_WIDTH,
+                expectedPercentage / 100 * panelTrackWidth,
+              ),
+            )
+          : undefined
+      const appliedPercentage = panelGroupHandleRef.current?.getLayout()?.sidebar
+        ?? size.asPercentage
+      const storeRestored = expectedPercentage === undefined
+        ? expectedWidth !== undefined
+          && Math.abs(size.inPixels - expectedWidth) <= DESKTOP_RESTORE_PIXEL_EPSILON
+        : Math.abs(appliedPercentage - expectedPercentage)
+          <= DESKTOP_RESTORE_PERCENTAGE_EPSILON
+      if (!storeRestored) {
+        constrainDesktopGeometry(pendingRestore.target)
+        pendingRestore.animationFrame = requestAnimationFrame(restore)
+        return
+      }
+
+      const measuredWidth = sidebarPanelRef.current?.getBoundingClientRect().width
+      const appliedWidth = measuredWidth && measuredWidth > 0
+        ? measuredWidth
+        : size.inPixels
+      if (
+        expectedWidth !== undefined
+        && Math.abs(appliedWidth - expectedWidth) > DESKTOP_RESTORE_PIXEL_EPSILON
+      ) {
+        constrainDesktopGeometry(pendingRestore.target)
+        pendingRestore.animationFrame = requestAnimationFrame(restore)
+        return
+      }
       desktopSidebarWidthRef.current = appliedWidth
       setDesktopUserBarWidth(appliedWidth)
       pendingDesktopRestoreRef.current = null
-    })
-  }, [breakpoint, setDesktopUserBarWidth])
+    }
+    queueMicrotask(restore)
+    return () => {
+      cancelled = true
+      if (pendingRestore.animationFrame !== null) {
+        cancelAnimationFrame(pendingRestore.animationFrame)
+      }
+      if (pendingDesktopRestoreRef.current === pendingRestore) {
+        pendingDesktopRestoreRef.current = null
+        releaseDesktopGeometryConstraint()
+      }
+    }
+  }, [breakpoint, defaultLayout, setDesktopUserBarWidth])
 
   const isDesktop = breakpoint === "desktop"
   const isMobileList = breakpoint === "mobile" && surface === "list"
@@ -218,8 +414,8 @@ export function CommunityShellLayout({
           )}
         >
           <ResizablePanelGroup
-            key={hydratedClient ? "persisted-layout" : "ssr-layout"}
             id="community-shell"
+            groupRef={panelGroupHandleRef}
             orientation="horizontal"
             disabled={!isDesktop}
             className={cn(
@@ -256,7 +452,11 @@ export function CommunityShellLayout({
                 {sidebar}
               </div>
             </ResizablePanel>
-            <ResizableHandle className={cn("bg-transparent", !isDesktop && "hidden")} />
+            <ResizableHandle
+              className={cn("bg-transparent", !isDesktop && "hidden")}
+              disableDoubleClick
+              elementRef={resizeHandleRef}
+            />
             <ResizablePanel
               id="main"
               groupResizeBehavior="preserve-relative-size"

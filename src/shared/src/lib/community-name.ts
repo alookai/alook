@@ -5,8 +5,7 @@ import { MAX_PROFILE_NAME_LENGTH } from "../constants/community";
 // trailing `#dddd` as an unambiguous terminator and everything before it as the
 // name (spaces included), the name itself must never contain `#`, `@`, or a
 // line break — any of those would let a name masquerade as (or break) the tag
-// grammar and resolve a mention to the wrong user. See
-// plans/mandatory-mention-discriminator.md.
+// grammar and resolve a mention to the wrong user.
 //
 // The forbidden set: `#`, `@`, and any C0/C1 control char (covers `\n`, `\r`,
 // `\t`, DEL). Everything else — spaces, unicode letters, hyphens, underscores —

@@ -2,9 +2,19 @@ import { QueryClient } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { ApiError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
+import {
+  createCommunityDbRegistry,
+  registerCommunityDbRegistry,
+} from "@/lib/community-db/collections"
+import {
+  ingestAttentionSnapshot,
+  ingestMessages,
+  projectAttentionUnreadBump,
+} from "@/lib/community-db/sync"
 
 const apiFetch = vi.hoisted(() => vi.fn())
 const reconcileAccountReadState = vi.hoisted(() => vi.fn())
+const reconcileAccountAttention = vi.hoisted(() => vi.fn())
 
 vi.mock("@/lib/api/client", () => ({
   apiFetch: (...args: unknown[]) => apiFetch(...args),
@@ -12,6 +22,10 @@ vi.mock("@/lib/api/client", () => ({
 
 vi.mock("./community-ws/read-state-reconciliation", () => ({
   reconcileAccountReadState: (...args: unknown[]) => reconcileAccountReadState(...args),
+}))
+
+vi.mock("./use-account-attention", () => ({
+  reconcileAccountAttention: (...args: unknown[]) => reconcileAccountAttention(...args),
 }))
 
 import {
@@ -29,10 +43,17 @@ import {
 } from "./read-coordinator"
 import {
   activateInboxProjectionTicket,
+  armInboxReadReservationCandidate,
+  cancelInboxProjectionTicket,
+  disposeInboxReadReservation,
   inboxReadCandidateFingerprint,
+  promoteInboxReadReservation,
+  publishInboxProjectionGenerationTerminal,
   registerInboxProjectionTicket,
   registerInboxReadReservationSurface,
+  releaseInboxReadReservationSurface,
   reserveInboxUnreadsResponse,
+  settleInboxReadReservationGeneration,
   type InboxRowTarget,
 } from "./inbox-read-reservation"
 import { getAccountUnreadProjection } from "./account-unread-projection"
@@ -63,6 +84,7 @@ describe("read coordinator", () => {
     vi.useFakeTimers()
     apiFetch.mockReset()
     reconcileAccountReadState.mockReset().mockResolvedValue(undefined)
+    reconcileAccountAttention.mockReset().mockResolvedValue(undefined)
   })
 
   afterEach(() => {
@@ -180,6 +202,591 @@ describe("read coordinator", () => {
     expect(projection.projectUnread("servers", "channel-1", false)).toBe(true)
   })
 
+  it("clears canonical attention while the read PUT is pending and restores it on failure", async () => {
+    const queryClient = new QueryClient()
+    const registry = createCommunityDbRegistry(queryClient, "user-1")
+    await registry.preload()
+    const unregister = registerCommunityDbRegistry(registry)
+    const scope = {
+      scopeId: "channel-1",
+      channelId: "channel-1",
+      serverId: "server-1",
+      parentChannelId: null,
+      ordinaryUnread: true,
+      lastUnreadSeq: 4,
+      lastAttentionSeq: 4,
+      attentionCount: 1,
+    }
+    const item = {
+      id: "mention:mention-1",
+      kind: "mention" as const,
+      sourceId: "mention-1",
+      scopeId: "channel-1",
+      messageId: "message-4",
+      actorUserId: "user-2",
+      createdAt: "2026-09-27T01:00:00.000Z",
+    }
+    ingestAttentionSnapshot(registry, {
+      scopes: [scope],
+      items: [item],
+      limit: 100,
+      truncated: false,
+    })
+    let rejectPut!: (error: unknown) => void
+    apiFetch.mockReturnValueOnce(new Promise((_resolve, reject) => {
+      rejectPut = reject
+    }))
+
+    try {
+      const lease = timelineLease(queryClient)
+      expect(submitTimeline(lease, 4)).toBe(true)
+      expect(registry.collections.attentionScopes.get("channel-1")).toBeUndefined()
+      expect(registry.collections.attentionItems.get(item.id)).toBeUndefined()
+
+      await vi.advanceTimersByTimeAsync(READ_COORDINATOR_DEBOUNCE_MS)
+      expect(apiFetch).toHaveBeenCalledOnce()
+      ingestAttentionSnapshot(registry, {
+        scopes: [scope],
+        items: [item],
+        limit: 100,
+        truncated: false,
+      })
+      expect(registry.collections.attentionScopes.get("channel-1")).toBeUndefined()
+      expect(registry.collections.attentionItems.get(item.id)).toBeUndefined()
+
+      rejectPut(new ApiError("forbidden", 403))
+      await vi.waitFor(() => {
+        expect(registry.collections.attentionScopes.get("channel-1"))
+          .toMatchObject(scope)
+      })
+      expect(registry.collections.attentionItems.get(item.id)).toMatchObject(item)
+    } finally {
+      disposeReadCoordinator(queryClient)
+      unregister()
+      await registry.cleanup()
+    }
+  })
+
+  it("advances a coalesced attention fence and restores every cleared target on failure", async () => {
+    const queryClient = new QueryClient()
+    const registry = createCommunityDbRegistry(queryClient, "user-1")
+    await registry.preload()
+    const unregister = registerCommunityDbRegistry(registry)
+    ingestMessages(registry, "channel-1", [3, 4].map((seq) => ({
+      id: `message-${seq}`,
+      type: "chat" as const,
+      authorId: "user-2",
+      seq,
+    })))
+    const items = [3, 4].map((seq) => ({
+      id: `mention:${seq}`,
+      kind: "mention" as const,
+      sourceId: String(seq),
+      scopeId: "channel-1",
+      messageId: `message-${seq}`,
+      actorUserId: "user-2",
+      createdAt: `2026-09-27T01:0${seq}:00.000Z`,
+    }))
+    const scope = {
+      scopeId: "channel-1",
+      channelId: "channel-1",
+      serverId: "server-1",
+      parentChannelId: null,
+      ordinaryUnread: true,
+      lastUnreadSeq: 4,
+      lastAttentionSeq: 4,
+      attentionCount: 2,
+    }
+    ingestAttentionSnapshot(registry, {
+      scopes: [scope],
+      items,
+      limit: 100,
+      truncated: false,
+    })
+    apiFetch.mockRejectedValueOnce(new ApiError("forbidden", 403))
+
+    try {
+      const lease = timelineLease(queryClient)
+      expect(submitTimeline(lease, 3)).toBe(true)
+      expect(registry.collections.attentionScopes.get("channel-1")?.attentionCount).toBe(1)
+      expect(registry.collections.attentionItems.get("mention:3")).toBeUndefined()
+      expect(registry.collections.attentionItems.get("mention:4")).toBeDefined()
+
+      expect(submitTimeline(lease, 4)).toBe(true)
+      expect(registry.collections.attentionScopes.get("channel-1")).toBeUndefined()
+      expect(registry.collections.attentionItems.get("mention:4")).toBeUndefined()
+
+      await vi.advanceTimersByTimeAsync(READ_COORDINATOR_DEBOUNCE_MS)
+      expect(apiFetch).toHaveBeenCalledOnce()
+      expect(registry.collections.attentionScopes.get("channel-1")).toMatchObject(scope)
+      expect(registry.collections.attentionItems.get("mention:3")).toMatchObject(items[0])
+      expect(registry.collections.attentionItems.get("mention:4")).toMatchObject(items[1])
+    } finally {
+      disposeReadCoordinator(queryClient)
+      unregister()
+      await registry.cleanup()
+    }
+  })
+
+  it("reconciles canonical attention when a retry succeeds after its fence rolled back", async () => {
+    const queryClient = new QueryClient()
+    const registry = createCommunityDbRegistry(queryClient, "user-1")
+    await registry.preload()
+    const unregister = registerCommunityDbRegistry(registry)
+    const scope = {
+      scopeId: "channel-1",
+      channelId: "channel-1",
+      serverId: "server-1",
+      parentChannelId: null,
+      ordinaryUnread: true,
+      lastUnreadSeq: 4,
+      lastAttentionSeq: null,
+      attentionCount: 0,
+    }
+    ingestAttentionSnapshot(registry, {
+      scopes: [scope],
+      items: [],
+      limit: 100,
+      truncated: false,
+    })
+    apiFetch
+      .mockRejectedValueOnce(new ApiError("unavailable", 500))
+      .mockResolvedValueOnce({ changed: true, revision: 9, targetSeq: 4 })
+    reconcileAccountAttention.mockImplementationOnce(async () => {
+      ingestAttentionSnapshot(registry, {
+        scopes: [],
+        items: [],
+        limit: 100,
+        truncated: false,
+      })
+    })
+
+    try {
+      const lease = timelineLease(queryClient)
+      expect(submitTimeline(lease, 4)).toBe(true)
+      await vi.advanceTimersByTimeAsync(READ_COORDINATOR_DEBOUNCE_MS)
+
+      expect(apiFetch).toHaveBeenCalledOnce()
+      expect(reconcileAccountAttention).not.toHaveBeenCalled()
+      expect(registry.collections.attentionScopes.get("channel-1")).toMatchObject(scope)
+
+      await vi.advanceTimersByTimeAsync(251)
+      expect(apiFetch).toHaveBeenCalledTimes(2)
+      expect(reconcileAccountAttention).toHaveBeenCalledWith(registry)
+      expect(registry.collections.attentionScopes.get("channel-1")).toBeUndefined()
+    } finally {
+      disposeReadCoordinator(queryClient)
+      unregister()
+      await registry.cleanup()
+    }
+  })
+
+  it("reconciles instead of restoring stale attention across an intervening WS fact", async () => {
+    const queryClient = new QueryClient()
+    const registry = createCommunityDbRegistry(queryClient, "user-1")
+    await registry.preload()
+    const unregister = registerCommunityDbRegistry(registry)
+    ingestAttentionSnapshot(registry, {
+      scopes: [{
+        scopeId: "channel-1",
+        channelId: "channel-1",
+        serverId: "server-1",
+        parentChannelId: null,
+        ordinaryUnread: true,
+        lastUnreadSeq: 4,
+        lastAttentionSeq: null,
+        attentionCount: 0,
+      }],
+      items: [],
+      limit: 100,
+      truncated: false,
+    })
+    let rejectPut!: (error: unknown) => void
+    apiFetch.mockReturnValueOnce(new Promise((_resolve, reject) => {
+      rejectPut = reject
+    }))
+
+    try {
+      const lease = timelineLease(queryClient)
+      submitTimeline(lease, 4)
+      await vi.advanceTimersByTimeAsync(READ_COORDINATOR_DEBOUNCE_MS)
+      projectAttentionUnreadBump(queryClient, {
+        type: "community:unread.bump",
+        userId: "user-1",
+        channelId: "channel-1",
+        serverId: "server-1",
+        isMention: false,
+      }, { seq: 5 })
+
+      rejectPut(new ApiError("forbidden", 403))
+      await vi.waitFor(() => expect(reconcileAccountAttention).toHaveBeenCalledWith(registry))
+      expect(registry.collections.attentionScopes.get("channel-1")?.lastUnreadSeq).toBe(5)
+    } finally {
+      disposeReadCoordinator(queryClient)
+      unregister()
+      await registry.cleanup()
+    }
+  })
+
+  it("keeps canonical attention cleared when a failed request has a newer generation", async () => {
+    const queryClient = new QueryClient()
+    const registry = createCommunityDbRegistry(queryClient, "user-1")
+    await registry.preload()
+    const unregister = registerCommunityDbRegistry(registry)
+    ingestAttentionSnapshot(registry, {
+      scopes: [{
+        scopeId: "channel-1",
+        channelId: "channel-1",
+        serverId: "server-1",
+        parentChannelId: null,
+        ordinaryUnread: true,
+        lastUnreadSeq: 3,
+        lastAttentionSeq: null,
+        attentionCount: 0,
+      }],
+      items: [],
+      limit: 100,
+      truncated: false,
+    })
+    let rejectFirst!: (error: unknown) => void
+    apiFetch
+      .mockReturnValueOnce(new Promise((_resolve, reject) => {
+        rejectFirst = reject
+      }))
+      .mockReturnValueOnce(new Promise(() => undefined))
+
+    try {
+      const lease = timelineLease(queryClient)
+      submitTimeline(lease, 3)
+      await vi.advanceTimersByTimeAsync(READ_COORDINATOR_DEBOUNCE_MS)
+      submitTimeline(lease, 4)
+
+      rejectFirst(new ApiError("forbidden", 403))
+      await vi.advanceTimersByTimeAsync(0)
+      expect(apiFetch).toHaveBeenCalledOnce()
+      expect(registry.collections.attentionScopes.get("channel-1")).toBeUndefined()
+    } finally {
+      disposeReadCoordinator(queryClient)
+      unregister()
+      await registry.cleanup()
+    }
+  })
+
+  it("reconciles canonical attention after a committed read", async () => {
+    const queryClient = new QueryClient()
+    const registry = createCommunityDbRegistry(queryClient, "user-1")
+    await registry.preload()
+    const unregister = registerCommunityDbRegistry(registry)
+    ingestAttentionSnapshot(registry, {
+      scopes: [{
+        scopeId: "channel-1",
+        channelId: "channel-1",
+        serverId: "server-1",
+        parentChannelId: null,
+        ordinaryUnread: true,
+        lastUnreadSeq: 4,
+        lastAttentionSeq: null,
+        attentionCount: 0,
+      }],
+      items: [],
+      limit: 100,
+      truncated: false,
+    })
+    apiFetch.mockResolvedValue({ changed: true, revision: 9, targetSeq: 4 })
+    reconcileAccountAttention.mockRejectedValueOnce(new Error("attention unavailable"))
+
+    try {
+      const lease = timelineLease(queryClient)
+      submitTimeline(lease, 4)
+      await vi.advanceTimersByTimeAsync(READ_COORDINATOR_DEBOUNCE_MS)
+
+      expect(reconcileAccountAttention).toHaveBeenCalledWith(registry)
+      expect(registry.collections.attentionScopes.get("channel-1")).toBeUndefined()
+    } finally {
+      disposeReadCoordinator(queryClient)
+      unregister()
+      await registry.cleanup()
+    }
+  })
+
+  it("lets an activated Inbox ticket own the pre-observer canonical clear", async () => {
+    const queryClient = new QueryClient()
+    const registry = createCommunityDbRegistry(queryClient, "user-1")
+    await registry.preload()
+    const unregister = registerCommunityDbRegistry(registry)
+    ingestAttentionSnapshot(registry, {
+      scopes: [{
+        scopeId: "channel-1",
+        channelId: "channel-1",
+        serverId: "server-1",
+        parentChannelId: null,
+        ordinaryUnread: true,
+        lastUnreadSeq: 4,
+        lastAttentionSeq: null,
+        attentionCount: 0,
+      }],
+      items: [],
+      limit: 100,
+      truncated: false,
+    })
+    const lastMessageAt = "2026-09-27T01:00:00.000Z"
+    const target: InboxRowTarget = {
+      kind: "channel-direct",
+      identity: JSON.stringify(["channel-direct", "server-1", "channel-1"]),
+      fingerprint: inboxReadCandidateFingerprint({
+        channelId: "channel-1",
+        lastMessageAt,
+        openerUnread: false,
+      }),
+      confirmationChannelId: "channel-1",
+      serverId: "server-1",
+      channelId: "channel-1",
+      reservedThroughSeq: 4,
+    }
+    const receipt = vi.fn()
+    const reservation = registerInboxReadReservationSurface(
+      queryClient,
+      "channel-1",
+      vi.fn(),
+    )
+    armInboxReadReservationCandidate(queryClient, { channelId: "channel-1", lastMessageAt })
+    activateInboxProjectionTicket(registerInboxProjectionTicket(
+      queryClient,
+      1,
+      target,
+      receipt,
+    ))
+    activateInboxProjectionTicket(registerInboxProjectionTicket(
+      queryClient,
+      2,
+      target,
+      vi.fn(),
+    ))
+
+    try {
+      expect(registry.collections.attentionScopes.get("channel-1")).toBeUndefined()
+      const lease = timelineLease(queryClient)
+      const generation = submitReadIntentGeneration(lease, {
+        kind: "timeline",
+        channelId: "channel-1",
+        messageId: "message-4",
+        seq: 4,
+      })!
+      promoteInboxReadReservation(reservation, generation)
+      publishInboxProjectionGenerationTerminal(queryClient, generation, "success")
+
+      expect(receipt).toHaveBeenCalledWith(expect.objectContaining({ terminal: "success" }))
+      expect(registry.collections.attentionScopes.get("channel-1")).toBeUndefined()
+    } finally {
+      disposeReadCoordinator(queryClient)
+      unregister()
+      await registry.cleanup()
+    }
+  })
+
+  it("restores a canceled Inbox ticket and reconciles a conflicted cancellation", async () => {
+    const run = async (conflict: boolean) => {
+      const queryClient = new QueryClient()
+      const registry = createCommunityDbRegistry(queryClient, "user-1")
+      await registry.preload()
+      const unregister = registerCommunityDbRegistry(registry)
+      ingestAttentionSnapshot(registry, {
+        scopes: [{
+          scopeId: "channel-1",
+          channelId: "channel-1",
+          serverId: "server-1",
+          parentChannelId: null,
+          ordinaryUnread: true,
+          lastUnreadSeq: 4,
+          lastAttentionSeq: null,
+          attentionCount: 0,
+        }],
+        items: [],
+        limit: 100,
+        truncated: false,
+      })
+      const target: InboxRowTarget = {
+        kind: "channel-direct",
+        identity: JSON.stringify(["channel-direct", "server-1", "channel-1"]),
+        fingerprint: "focused",
+        confirmationChannelId: "channel-1",
+        serverId: "server-1",
+        channelId: "channel-1",
+        reservedThroughSeq: 4,
+      }
+      const ticket = registerInboxProjectionTicket(queryClient, 1, target, vi.fn())
+      activateInboxProjectionTicket(ticket)
+      if (conflict) {
+        projectAttentionUnreadBump(queryClient, {
+          type: "community:unread.bump",
+          userId: "user-1",
+          channelId: "channel-1",
+          serverId: "server-1",
+          isMention: false,
+        }, { seq: 5 })
+      }
+
+      try {
+        expect(cancelInboxProjectionTicket(ticket)).toBe(true)
+        if (conflict) {
+          expect(registry.collections.attentionScopes.get("channel-1")?.lastUnreadSeq).toBe(5)
+          expect(reconcileAccountAttention).toHaveBeenCalledWith(registry)
+        } else {
+          expect(registry.collections.attentionScopes.get("channel-1")?.lastUnreadSeq).toBe(4)
+        }
+      } finally {
+        disposeInboxReadReservation(queryClient)
+        unregister()
+        await registry.cleanup()
+      }
+    }
+
+    await run(false)
+    reconcileAccountAttention.mockClear()
+    await run(true)
+  })
+
+  it("commits an active Inbox attention fence on reservation disposal", async () => {
+    const queryClient = new QueryClient()
+    const registry = createCommunityDbRegistry(queryClient, "user-1")
+    await registry.preload()
+    const unregister = registerCommunityDbRegistry(registry)
+    ingestAttentionSnapshot(registry, {
+      scopes: [{
+        scopeId: "channel-1",
+        channelId: "channel-1",
+        serverId: "server-1",
+        parentChannelId: null,
+        ordinaryUnread: true,
+        lastUnreadSeq: 4,
+        lastAttentionSeq: null,
+        attentionCount: 0,
+      }],
+      items: [],
+      limit: 100,
+      truncated: false,
+    })
+    activateInboxProjectionTicket(registerInboxProjectionTicket(
+      queryClient,
+      1,
+      {
+        kind: "channel-direct",
+        identity: "dispose",
+        fingerprint: "dispose",
+        confirmationChannelId: "channel-1",
+        serverId: "server-1",
+        channelId: "channel-1",
+        reservedThroughSeq: 4,
+      },
+      vi.fn(),
+    ))
+
+    disposeInboxReadReservation(queryClient)
+    expect(registry.collections.attentionScopes.get("channel-1")).toBeUndefined()
+    unregister()
+    await registry.cleanup()
+  })
+
+  it.each(["commit", "rollback"] as const)(
+    "%s settles a focused WS attention fence at its exact sequence",
+    async (terminal) => {
+      const queryClient = new QueryClient()
+      const registry = createCommunityDbRegistry(queryClient, "user-1")
+      await registry.preload()
+      const unregister = registerCommunityDbRegistry(registry)
+      ingestAttentionSnapshot(registry, {
+        scopes: [{
+          scopeId: "channel-1",
+          channelId: "channel-1",
+          serverId: "server-1",
+          parentChannelId: null,
+          ordinaryUnread: true,
+          lastUnreadSeq: 4,
+          lastAttentionSeq: null,
+          attentionCount: 0,
+        }],
+        items: [],
+        limit: 100,
+        truncated: false,
+      })
+      const lease = registerInboxReadReservationSurface(
+        queryClient,
+        "channel-1",
+        vi.fn(),
+      )
+
+      try {
+        expect(armInboxReadReservationCandidate(queryClient, {
+          channelId: "channel-1",
+          lastMessageAt: "2026-09-27T01:00:00.000Z",
+          seq: 4,
+        })).toBe(true)
+        expect(registry.collections.attentionScopes.get("channel-1")).toBeUndefined()
+
+        if (terminal === "commit") {
+          expect(promoteInboxReadReservation(lease, 41)).toBe(true)
+          await settleInboxReadReservationGeneration(queryClient, 41, true, "channel-1")
+          expect(registry.collections.attentionScopes.get("channel-1")).toBeUndefined()
+        } else {
+          releaseInboxReadReservationSurface(lease)
+          expect(registry.collections.attentionScopes.get("channel-1")?.lastUnreadSeq).toBe(4)
+        }
+      } finally {
+        disposeInboxReadReservation(queryClient)
+        unregister()
+        await registry.cleanup()
+      }
+    },
+  )
+
+  it("does not duplicate a focused WS fence already owned by an Inbox ticket", async () => {
+    const queryClient = new QueryClient()
+    const registry = createCommunityDbRegistry(queryClient, "user-1")
+    await registry.preload()
+    const unregister = registerCommunityDbRegistry(registry)
+    ingestAttentionSnapshot(registry, {
+      scopes: [{
+        scopeId: "channel-1",
+        channelId: "channel-1",
+        serverId: "server-1",
+        parentChannelId: null,
+        ordinaryUnread: true,
+        lastUnreadSeq: 4,
+        lastAttentionSeq: null,
+        attentionCount: 0,
+      }],
+      items: [],
+      limit: 100,
+      truncated: false,
+    })
+    activateInboxProjectionTicket(registerInboxProjectionTicket(
+      queryClient,
+      1,
+      {
+        kind: "channel-direct",
+        identity: "existing-fence",
+        fingerprint: "existing-fence",
+        confirmationChannelId: "channel-1",
+        serverId: "server-1",
+        channelId: "channel-1",
+        reservedThroughSeq: 4,
+      },
+      vi.fn(),
+    ))
+    registerInboxReadReservationSurface(queryClient, "channel-1", vi.fn())
+
+    expect(armInboxReadReservationCandidate(queryClient, {
+      channelId: "channel-1",
+      lastMessageAt: "2026-09-27T01:00:00.000Z",
+      seq: 4,
+    })).toBe(true)
+    expect(registry.collections.attentionScopes.get("channel-1")).toBeUndefined()
+
+    disposeInboxReadReservation(queryClient)
+    unregister()
+    await registry.cleanup()
+  })
+
   it("rolls back the matching optimistic projection while a transient retry waits", async () => {
     const queryClient = new QueryClient()
     const lease = timelineLease(queryClient)
@@ -198,6 +805,46 @@ describe("read coordinator", () => {
     await vi.advanceTimersByTimeAsync(READ_COORDINATOR_DEBOUNCE_MS)
     expect(apiFetch).toHaveBeenCalledOnce()
     expect(projection.projectUnread("servers", "channel-1", false)).toBe(true)
+  })
+
+  it("keeps canonical attention restored while a transient retry waits", async () => {
+    const queryClient = new QueryClient()
+    const registry = createCommunityDbRegistry(queryClient, "user-1")
+    await registry.preload()
+    const unregister = registerCommunityDbRegistry(registry)
+    ingestAttentionSnapshot(registry, {
+      scopes: [{
+        scopeId: "channel-1",
+        channelId: "channel-1",
+        serverId: "server-1",
+        parentChannelId: null,
+        ordinaryUnread: true,
+        lastUnreadSeq: 4,
+        lastAttentionSeq: null,
+        attentionCount: 0,
+      }],
+      items: [],
+      limit: 100,
+      truncated: false,
+    })
+    apiFetch
+      .mockRejectedValueOnce(new ApiError("busy", 503))
+      .mockReturnValueOnce(new Promise(() => undefined))
+
+    try {
+      submitTimeline(timelineLease(queryClient), 4)
+      expect(registry.collections.attentionScopes.get("channel-1")).toBeUndefined()
+      await vi.advanceTimersByTimeAsync(READ_COORDINATOR_DEBOUNCE_MS)
+      expect(registry.collections.attentionScopes.get("channel-1")?.lastUnreadSeq).toBe(4)
+
+      await vi.advanceTimersByTimeAsync(251)
+      expect(apiFetch).toHaveBeenCalledTimes(2)
+      expect(registry.collections.attentionScopes.get("channel-1")?.lastUnreadSeq).toBe(4)
+    } finally {
+      disposeReadCoordinator(queryClient)
+      unregister()
+      await registry.cleanup()
+    }
   })
 
   it("bounds transient retries, retains dirty intent, and resumes it later", async () => {

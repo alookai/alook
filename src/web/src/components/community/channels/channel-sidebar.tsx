@@ -67,7 +67,6 @@ export type ChannelSidebarProps = {
   currentUserId?: string
   onBlockedCreate?: () => void
   mutedChannels?: Record<string, boolean>
-  loading?: boolean
   onCreateChannel?: (categoryId: string, name: string, type: ChannelType) => Promise<string | null> | void
   onCreateCategory?: (name: string, opts?: { private?: boolean }) => Promise<string | null> | void
   onDeleteChannel?: (channelId: string) => void
@@ -88,7 +87,7 @@ export type ChannelSidebarProps = {
 
 export const ChannelSidebar = memo(function ChannelSidebar({
   tree, serverName, official, activeChannel, setActiveChannel, prefetchChannel, noHeader, onOpenSettings,
-  isAdmin = true, currentUserId, onBlockedCreate, mutedChannels, loading,
+  isAdmin = true, currentUserId, onBlockedCreate, mutedChannels,
   onCreateChannel, onCreateCategory, onDeleteChannel, onDeleteCategory,
   onUpdateCategory, onRenameChannel, onReorderCategories, onReorderChannels,
   onMoveChannel, onBlockedMove,
@@ -217,23 +216,6 @@ export const ChannelSidebar = memo(function ChannelSidebar({
 
   // Find the "none" category ID (empty name) — only if one explicitly exists
   const noneCatId = Object.keys(catNames).find((id) => catNames[id] === "") ?? ""
-
-  // Initial load / server switch — render skeleton so the sidebar holds its
-  // width and rhythm instead of collapsing to an empty column. Do NOT gate on
-  // `catOrder.length === 0`: the tree is derived from `categories` inside a
-  // useEffect (use-channel-tree.ts), so on a server switch it still holds the
-  // PREVIOUS server's categories for one commit while `loading` has already
-  // flipped true. Gating on catOrder would flash the old server's channel list
-  // for a frame before collapsing to skeleton.
-  if (loading) {
-    return (
-      <ChannelSidebarSkeleton
-        noHeader={noHeader}
-        showInviteAction={Boolean(serverId && onInvitePopoverOpenChange)}
-      />
-    )
-  }
-
 
   // Who may create a channel where:
   //   - uncategorized (empty categoryId) / public category → admins only

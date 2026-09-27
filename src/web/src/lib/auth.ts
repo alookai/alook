@@ -394,3 +394,89 @@ export function createAuth(env: Env) {
         ],
   })
 }
+
+type AuthInstance = ReturnType<typeof createAuth>
+
+type AuthLifecycleEntry = {
+  configuration: readonly (string | undefined)[]
+  versionId: string
+  auth: AuthInstance
+}
+
+let authLifecycleEntry: AuthLifecycleEntry | undefined
+
+function authConfiguration(env: Env): readonly (string | undefined)[] {
+  return [
+    env.NODE_ENV ?? process.env.NODE_ENV,
+    env.BETTER_AUTH_URL,
+    env.BETTER_AUTH_SECRET,
+    env.GITHUB_CLIENT_ID,
+    env.GITHUB_CLIENT_SECRET,
+    env.GOOGLE_CLIENT_ID,
+    env.GOOGLE_CLIENT_SECRET,
+    env.APPLE_CLIENT_ID,
+    env.APPLE_TEAM_ID,
+    env.APPLE_KEY_ID,
+    env.APPLE_PRIVATE_KEY,
+    env.DEVICE_CLIENT_IDS,
+    env.APP_REVIEW_EMAIL,
+    env.APP_REVIEW_OTP,
+    env.AUTH_OTP_RATE_LIMIT_MAX,
+    env.AUTH_OTP_RATE_LIMIT_WINDOW_SEC,
+  ]
+}
+
+function sameAuthConfiguration(
+  left: readonly (string | undefined)[],
+  right: readonly (string | undefined)[],
+): boolean {
+  return left.length === right.length
+    && left.every((value, index) => value === right[index])
+}
+
+function authVersionId(env: Env): string | undefined {
+  const versionId = env.CF_VERSION_METADATA?.id
+  return typeof versionId === "string" && versionId.length > 0
+    ? versionId
+    : undefined
+}
+
+/**
+ * Worker-version-local Better Auth lifecycle.
+ *
+ * Cloudflare may materialize a fresh `env` wrapper for every request, so
+ * wrapper identity is not a valid cache key. A Worker version captures code,
+ * bindings, and compatibility configuration, so its version-metadata ID is
+ * the binding-generation boundary. Scalar auth/provider configuration is
+ * compared explicitly for local development and tests, where those values can
+ * change without a deployed version transition. A module/HMR reload naturally
+ * starts a fresh lifecycle as well.
+ *
+ * Production fails safe when version metadata is unavailable: construct a
+ * request-local instance instead of retaining binding-derived objects behind
+ * a scalar-only cache key.
+ *
+ * This caches only Better Auth's immutable instance/context. Request headers,
+ * session results, cookies, and responses always flow through each individual
+ * API call and are never retained here.
+ */
+export function getAuth(env: Env): AuthInstance {
+  const versionId = authVersionId(env)
+  const mode = resolveMode({ nodeEnv: env.NODE_ENV ?? process.env.NODE_ENV })
+  if (!versionId && mode === "production") return createAuth(env)
+
+  const lifecycleVersion = versionId ?? "local-module"
+  const configuration = authConfiguration(env)
+  if (
+    !authLifecycleEntry
+    || authLifecycleEntry.versionId !== lifecycleVersion
+    || !sameAuthConfiguration(authLifecycleEntry.configuration, configuration)
+  ) {
+    authLifecycleEntry = {
+      configuration,
+      versionId: lifecycleVersion,
+      auth: createAuth(env),
+    }
+  }
+  return authLifecycleEntry.auth
+}

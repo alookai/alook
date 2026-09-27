@@ -3,8 +3,7 @@ import { NextRequest } from "next/server"
 
 /**
  * Accept/reject gated-refusal + DELETE role behavior for the unified friendship
- * flow. See plans/agent-friendship-approval-gate.md §test cases (Existing
- * human-path routes).
+ * flow through existing human-path routes.
  */
 
 const getFriendship = vi.fn()
@@ -138,7 +137,7 @@ describe("DELETE — one path per role", () => {
   it("requester cancels a gated pending request → soft-cancel + rehydrate owner's card", async () => {
     // Human→bot request gated on the bot's owner: an actionable Approve/Deny
     // card is sitting in the owner's DM. Withdrawing must flip that card, not
-    // orphan it. See plans/friend-cancel-card-cleanup.md.
+    // orphan it.
     getFriendship.mockResolvedValue({
       id: "fr_1", requesterId: "u_alice", addresseeId: "bot_yara", status: "pending", needsOwnerApproval: "owner_carol",
     })

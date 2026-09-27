@@ -17,7 +17,7 @@ import { hasStatus } from "./status-presets"
 import type { Friend, PendingRequest, BlockedUser } from "@/lib/community/models/people"
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import { isSelfBotFriendship, isPresenceOffline, MIN_SEARCH_LENGTH } from "@alook/shared"
-import { useCommunityWsStore } from "@/stores/community/ws"
+import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 import { actionableIncomingRequests, compactRequestCount } from "@/lib/community/friend-requests"
 import { useFriendRequestActionState } from "@/hooks/community/use-friend-request-action-state"
@@ -74,7 +74,7 @@ export function FriendsPage({
 
   const [addValue, setAddValue] = useState("")
   const [searchResults, setSearchResults] = useState<string[]>([])
-  const profilesByUserId = useCommunityWsStore((state) => state.profilesByUserId)
+  const profilesByUserId = useCanonicalProfilesByUserId()
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(null)
 
   // Relationship state by user id, so search results can show Friends/Pending/

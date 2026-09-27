@@ -1,5 +1,5 @@
 -- Thread participant / notification set.
--- See plans/nested-membership-model.md (Phase C).
+-- Participation is independent from parent-channel access.
 --
 -- A thread (community_channel row of type "thread") is the NOTIFICATION
 -- dimension, not access: any member of its parent channel can READ it. This

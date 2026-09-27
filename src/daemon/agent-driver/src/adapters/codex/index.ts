@@ -5,7 +5,7 @@
  * Claude, a `turn/steer` sent while a tool call / compaction / review is in
  * flight can race the app-server's own turn-state handling, so busy delivery
  * is `gated` — held until a safe boundary by the manager-level mechanism in
- * `manager/managerPolicy.ts` (see plans/wire-gated-busy-steering-daemon.md). A
+ * `manager/managerPolicy.ts`. A
  * busy message becomes a `turn/steer` RPC against the active turn, while an
  * idle message becomes a fresh `turn/start` — the encoding itself is
  * unaffected by gating, only WHEN the manager calls it.
@@ -136,8 +136,8 @@ export class CodexDriver implements BackendAdapter {
   async probe(command?: string) {
     // probeCliRuntime spawns `--version` — a missing vendored binary (npm
     // package resolves but the aarch64 blob is absent) fails there even
-    // though resolveCommandOnPath returned a JS wrapper. See
-    // plans/community-machine-presence-fix.md.
+    // though resolveCommandOnPath returned a JS wrapper; probing the resolved
+    // command keeps runtime health tied to what can actually execute.
     const result = await probeCliRuntime("codex", {}, command);
     if (result.status !== "healthy") return result;
     return {

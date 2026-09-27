@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider, type InfiniteData } from "@tanstack/r
 import { renderHook, waitFor } from "@/test/react-dom-harness"
 import { communityKeys } from "@/lib/query-keys"
 import type { Msg } from "@/lib/community/models/message"
+import { useCommunityWsStore } from "@/stores/community/ws"
 
 const apiFetchMock = vi.fn()
 vi.mock("@/lib/api/client", () => ({
@@ -12,6 +13,7 @@ vi.mock("@/lib/api/client", () => ({
 
 beforeEach(() => {
   apiFetchMock.mockReset()
+  useCommunityWsStore.getState().reset()
 })
 
 // Load *after* the mock is set up so the queryFn resolves the mocked import.
@@ -77,6 +79,30 @@ describe("channelMessagesQueryFn — url per mode", () => {
 })
 
 describe("channelMessagesQueryFn — queryClient integration", () => {
+  it.each(["account", "access"] as const)(
+    "rejects a signal-free cold result after the active %s epoch changes",
+    async (epoch) => {
+      const { channelMessagesQueryFn } = await loadHook()
+      const queryClient = new QueryClient()
+      useCommunityWsStore.getState().activateProfileAccount("viewer-a")
+      let resolveTransport!: (value: { messages: Msg[]; hasMore: boolean }) => void
+      apiFetchMock.mockReturnValue(new Promise((resolve) => { resolveTransport = resolve }))
+      const request = channelMessagesQueryFn("ch_1", null, { queryClient })({
+        pageParam: { mode: "newest" },
+        signal: undefined,
+      })
+
+      if (epoch === "account") {
+        useCommunityWsStore.getState().activateProfileAccount("viewer-b")
+      } else {
+        useCommunityWsStore.getState().revokeChannelAccess("server-1", "ch_1")
+      }
+      resolveTransport({ messages: [], hasMore: false })
+
+      await expect(request).rejects.toMatchObject({ name: "AbortError" })
+    },
+  )
+
   it("validates the transport receipt before returning a cache-safe page", async () => {
     const { channelMessagesQueryFn } = await loadHook()
     const onSurfaceReceipt = vi.fn()

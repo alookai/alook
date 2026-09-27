@@ -546,7 +546,7 @@ describe("createMessage — seq assignment", () => {
   });
 });
 
-describe("createMessage — CAS claim (expectedSeq, plans/fix-agent-send-race-condition.md)", () => {
+describe("createMessage — CAS claim with expectedSeq", () => {
   it("expectedSeq matching the current counter succeeds and returns a row with the expected seq", async () => {
     const db = createCreateMessageDbMock({ currentSeq: 19 });
     const msg = await messageQueries.createMessage(db, {
@@ -738,8 +738,7 @@ describe("getLatestMessage", () => {
 
 // ── listMessagesAround / listMessagesSince / getLatestMessageSeq ─────────
 //
-// New envelope-critical queries for the anchor-scroll refactor
-// (plans/community-message-scroll-v2.md §A1). The three feed the message-list
+// New envelope-critical queries for the anchor-scroll refactor. The three feed the message-list
 // route's three URL modes: `?anchor`, `?since`, and the always-present
 // `latestSeq` field.
 

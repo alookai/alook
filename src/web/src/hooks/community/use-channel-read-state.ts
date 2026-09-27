@@ -41,7 +41,10 @@ export type ChannelReadStateSnapshot = {
  * before that eviction timer runs. The next snapshot therefore comes from
  * the current server response rather than the pre-scroll pointer.
  */
-export function useChannelReadStateSnapshot(channelId: string | null | undefined): {
+export function useChannelReadStateSnapshot(
+  channelId: string | null | undefined,
+  canonicalSnapshot?: ChannelReadStateSnapshot,
+): {
   snapshot: ChannelReadStateSnapshot | null
   isFetching: boolean
 } {
@@ -72,16 +75,24 @@ export function useChannelReadStateSnapshot(channelId: string | null | undefined
     retry: 1,
   })
 
-  // Latch the first resolved snapshot so subsequent renders return a stable
-  // reference. Reset on channelId change — a new channel mount is a new
-  // snapshot lifecycle. Must reset synchronously during render so the
-  // returned snapshot never belongs to the previous channel.
+  // Latch the first available snapshot so subsequent renders return a stable
+  // reference. A canonical row restored with the message window is a complete
+  // warm projection and may render immediately while this query revalidates
+  // in the background. Its response updates canonical state for later mounts;
+  // it must never walk this mount's divider.
+  //
+  // Reset on channelId change — a new channel mount is a new snapshot
+  // lifecycle. Must reset synchronously during render so the returned
+  // snapshot never belongs to the previous channel.
   const snapshotRef = useRef<ChannelReadStateSnapshot | null>(null)
   const lastChannelIdRef = useRef<string | null | undefined>(channelId)
   /* eslint-disable react-hooks/refs -- sync channel switch reset; see hook tests */
   if (lastChannelIdRef.current !== channelId) {
     snapshotRef.current = null
     lastChannelIdRef.current = channelId
+  }
+  if (snapshotRef.current === null && canonicalSnapshot) {
+    snapshotRef.current = canonicalSnapshot
   }
   /* eslint-enable react-hooks/refs */
   useEffect(() => {
@@ -93,7 +104,7 @@ export function useChannelReadStateSnapshot(channelId: string | null | undefined
   /* eslint-disable react-hooks/refs -- latched snapshot read; see hook tests */
   return {
     snapshot: snapshotRef.current ?? (!query.isFetching ? (query.data ?? null) : null),
-    isFetching: query.isFetching,
+    isFetching: snapshotRef.current === null && query.isFetching,
   }
   /* eslint-enable react-hooks/refs */
 }

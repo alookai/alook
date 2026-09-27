@@ -6,8 +6,8 @@ const useMessageMock = vi.fn()
 vi.mock("@/hooks/community/use-message", () => ({
   useMessage: (...args: unknown[]) => useMessageMock(...args),
 }))
-vi.mock("@/stores/community/ws", () => ({
-  useCommunityProfile: (userId?: string) => userId
+vi.mock("@/lib/community-db/projections", () => ({
+  useCanonicalCommunityProfile: (userId?: string) => userId
     ? { id: userId, name: "Alice", avatar: "A" }
     : undefined,
 }))
@@ -49,6 +49,8 @@ describe("ThreadOpener image attachment layout", () => {
       renderer = render(
         React.createElement(ThreadOpener, {
           parentMessageId: "opener_1",
+          parentChannelId: "parent_1",
+          serverId: "server_1",
           viewerUserId: "viewer_1",
         })
       )
@@ -79,6 +81,8 @@ describe("ThreadOpener image attachment layout", () => {
       renderer = render(
         React.createElement(ThreadOpener, {
           parentMessageId: "opener_1",
+          parentChannelId: "parent_1",
+          serverId: "server_1",
           viewerUserId: "viewer_1",
           onToggleReaction,
         })
@@ -114,6 +118,8 @@ describe("ThreadOpener image attachment layout", () => {
       renderer = render(
         React.createElement(ThreadOpener, {
           parentMessageId: "opener_1",
+          parentChannelId: "parent_1",
+          serverId: "server_1",
           viewerUserId: "viewer_1",
         })
       )
@@ -152,7 +158,12 @@ describe("ThreadOpener image attachment layout", () => {
     let renderer: ReturnType<typeof render>
     act(() => {
       renderer = render(
-        React.createElement(ThreadOpener, { parentMessageId: "opener_1", onPreviewImage })
+        React.createElement(ThreadOpener, {
+          parentMessageId: "opener_1",
+          parentChannelId: "parent_1",
+          serverId: "server_1",
+          onPreviewImage,
+        })
       )
     })
     const image = renderer!.container.querySelector("img")!
@@ -187,7 +198,12 @@ describe("ThreadOpener image attachment layout", () => {
     let renderer: ReturnType<typeof render>
     act(() => {
       renderer = render(
-        React.createElement(ThreadOpener, { parentMessageId: "opener_1", onPreviewAttachment })
+        React.createElement(ThreadOpener, {
+          parentMessageId: "opener_1",
+          parentChannelId: "parent_1",
+          serverId: "server_1",
+          onPreviewAttachment,
+        })
       )
     })
     const card = renderer!.getByTestId("community-attachment-card-notes.md")
@@ -216,7 +232,11 @@ describe("ThreadOpener image attachment layout", () => {
     let renderer: ReturnType<typeof render>
     act(() => {
       renderer = render(
-        React.createElement(ThreadOpener, { parentMessageId: "opener_1" })
+        React.createElement(ThreadOpener, {
+          parentMessageId: "opener_1",
+          parentChannelId: "parent_1",
+          serverId: "server_1",
+        })
       )
     })
 
@@ -246,6 +266,8 @@ describe("ThreadOpener image attachment layout", () => {
     act(() => {
       renderer = render(React.createElement(ThreadOpener, {
         parentMessageId: "opener_1",
+        parentChannelId: "parent_1",
+        serverId: "server_1",
         viewerUserId: "viewer_1",
         onOpenProfile,
         resolveAuthorMentionText: () => "@Alice#0042",

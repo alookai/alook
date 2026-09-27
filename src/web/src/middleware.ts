@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { createAuth } from "@/lib/auth"
+import { getAuth } from "@/lib/auth"
 import { isSafeRedirectPath } from "@/lib/safe-redirect"
 
 const AUTH_REQUIRED_PREFIXES = ["/invite/", "/w/", "/workspaces", "/dashboard", "/c/"]
@@ -31,7 +31,7 @@ export async function middleware(request: NextRequest) {
 
   if (needsAuth) {
     const { env } = await getCloudflareContext({ async: true })
-    const auth = createAuth(env as Env)
+    const auth = getAuth(env as Env)
     const result = await auth.api.getSession({
       headers: request.headers,
       returnHeaders: true,
@@ -55,7 +55,7 @@ export async function middleware(request: NextRequest) {
 
   if (pathname === "/sign-in" || pathname === "/sign-up") {
     const { env } = await getCloudflareContext({ async: true })
-    const auth = createAuth(env as Env)
+    const auth = getAuth(env as Env)
     const result = await auth.api.getSession({
       headers: request.headers,
       returnHeaders: true,

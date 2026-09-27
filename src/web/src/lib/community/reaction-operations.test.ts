@@ -198,7 +198,7 @@ describe("reaction operations", () => {
     expect(result).toEqual({
       ok: true,
       value: [
-        { emoji: "👍", actors: ["@Zed#0002", "Unknown user"], me: false },
+        { emoji: "👍", actors: ["@Zed#0002", "Deleted user"], me: false },
         { emoji: "🔥", actors: ["@Ana#0001"], me: true },
       ],
     })

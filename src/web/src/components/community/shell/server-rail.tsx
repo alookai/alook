@@ -224,9 +224,10 @@ export const ServerRail = memo(function ServerRail({
   }, [])
 
   useLayoutEffect(() => {
+    if (stateDataIdentity === railDataIdentity) return
     setState((current) => railStateFromData(serverIds, folders, current.expanded))
     setStateDataIdentity(railDataIdentity)
-  }, [folders, railDataIdentity, serverIds])
+  }, [folders, railDataIdentity, serverIds, stateDataIdentity])
 
   useLayoutEffect(() => {
     serverActivationRef.current = { onServer, onServerNavigate }

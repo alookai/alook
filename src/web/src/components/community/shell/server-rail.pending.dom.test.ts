@@ -219,6 +219,18 @@ describe("ServerRail one-in-flight structural guard", () => {
     expect(homeIndicator()).not.toHaveClass("group-hover:h-5", "group-focus-within:h-5")
   })
 
+  it("does not reconcile again for equivalent canonical projection references", () => {
+    const renderer = render(railElement())
+    mocks.railFolderProps.mockClear()
+
+    renderer.rerender(railElement(folders.map((folder) => ({
+      ...folder,
+      servers: folder.servers.map((server) => ({ ...server })),
+    }))))
+
+    expect(mocks.railFolderProps).toHaveBeenCalledTimes(1)
+  })
+
   it.each(["top-level", "folder"] as const)(
     "keeps a retained %s Server activation on the latest settled navigation semantics",
     async (placement) => {

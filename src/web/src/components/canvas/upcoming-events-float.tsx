@@ -63,7 +63,7 @@ export function UpcomingEventsFloat() {
     const agent = agentMap.get(agentId);
     agentSummaries.push({
       agentId,
-      agentName: agent?.name ?? "Unknown",
+      agentName: agent?.name ?? "Agent unavailable",
       avatarUrl: agent?.avatar_url ?? null,
       count: eventCount,
     });

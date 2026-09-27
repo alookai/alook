@@ -19,7 +19,8 @@ import {
 } from "@/hooks/community/use-forum-sidebar-threads"
 import type { CommunityWsProjectionTransaction } from "./projection-transaction"
 import { getActiveAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
-import { updateStructuralSnapshot } from "@/lib/community/structural-snapshot"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import { purgeCommunityChannel } from "@/lib/community-db/sync"
 import { collectChannelScopeIds, evictScopeContent } from "./scope-eviction"
 
 export function projectChannelScopeEviction(
@@ -38,11 +39,8 @@ export function projectChannelScopeEviction(
       evictChannelScopeQueryCaches(queryClient, serverId, id)
       evictScopeContent(queryClient, serverId, id)
     }
-    updateStructuralSnapshot(queryClient, {
-      type: "removeChannel",
-      serverId,
-      channelId,
-    })
+    const registry = getCommunityDbRegistry(queryClient)
+    if (registry) purgeCommunityChannel(registry, channelId)
   })
 }
 
@@ -108,10 +106,6 @@ export function evictForumPostUnitQueryCaches(
     ),
   )
   queryClient.removeQueries({
-    queryKey: communityKeys.forumOpenerHint(unit.serverId, unit.openerMessageId),
-    exact: true,
-  })
-  queryClient.removeQueries({
     queryKey: communityKeys.message(unit.openerMessageId),
     exact: true,
   })
@@ -158,11 +152,8 @@ export function applyForumPostUnitClientEffects(
     type: "messageRemoved",
     messageId: unit.openerMessageId,
   })
-  updateStructuralSnapshot(queryClient, {
-    type: "removeChildHint",
-    serverId: unit.serverId,
-    channelId: unit.childChannelId,
-  })
+  const registry = getCommunityDbRegistry(queryClient)
+  if (registry) purgeCommunityChannel(registry, unit.childChannelId)
   const store = useCommunityStore.getState()
   if (wasCurrent) {
     store.setCurrentChannelMeta(null)

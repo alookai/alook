@@ -156,7 +156,7 @@ export type CreateMessageData = {
 };
 
 /**
- * `createMessage` overloads (plans/fix-agent-send-race-condition.md design §2):
+ * `createMessage` overloads:
  * callers that never pass `expectedSeq` keep today's non-nullable return
  * type — no pointless null-checks forced onto direct callers such as message
  * send, bot provisioning, and friend request, which never opt into the CAS
@@ -717,7 +717,7 @@ export async function listMessages(
  * and "jump to reply" flows. Returns the older half (strictly before the
  * anchor, DESC) and the newer half (INCLUSIVE of the anchor, ASC) separately
  * so the caller can encode `hasMoreOlder` / `hasMoreNewer` without re-deriving
- * boundary math. See plans/community-message-scroll-v2.md §A1.
+ * boundary math.
  *
  * The two halves are fetched in parallel (`Promise.all`) — they share no state
  * beyond the anchor tuple. Each half fetches one extra row past the requested
@@ -816,7 +816,7 @@ export async function listMessagesAround(
 /**
  * Rows strictly newer than `since`, in chronological ASC order. Used by the
  * client's cache-hydration and WS-reconnect catch-up flows to top-off a stale
- * cache without re-fetching everything. See plans/community-message-scroll-v2.md §A1.
+ * cache without re-fetching everything.
  *
  * Returns `limit + 1` rows when more exist; the caller trims to `limit` and
  * sets `hasMoreNewer`.
@@ -881,7 +881,7 @@ export async function listRecentMessagesForDuplicateCheck(db: Database, channelI
  * The largest `seq` value in a channel or DM scope, or `0` for an empty
  * scope. Consumed by the message-list envelope so the client can compute
  * `↓ N` (unread count vs. `latestSeq`) and drive `?since` catch-up without a
- * second round-trip. See plans/community-message-scroll-v2.md §A1.
+ * second round-trip.
  */
 export async function getLatestMessageSeq(
   db: Database,

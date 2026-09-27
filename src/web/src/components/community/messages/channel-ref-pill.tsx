@@ -23,7 +23,7 @@ export type ChannelRefPillView =
     // target (see decision table below).
     threadSuffix?: number
     // Set when the ref pins a specific message inside a thread
-    // (`/s/c/#N#M`, see plans/agent-thread-emoji-react.md). Rendered as
+    // (`/s/c/#N#M`). Rendered as
     // plain trailing text (`#M`, no leading slash) — the clickable target
     // is still the thread channel; `#M` is a visible cursor, not a deep
     // link anchor.

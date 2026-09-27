@@ -82,8 +82,7 @@ export async function deleteCategory(db: Database, categoryId: string) {
 /**
  * Whether a category still contains any channel. Gates the private/public
  * toggle and category delete (both blocked when non-empty to prevent a
- * privacy-class flip / `set null` widening). See
- * plans/channel-category-role-permissions.md.
+ * privacy-class flip / `set null` widening).
  */
 export async function hasChannels(db: Database, categoryId: string): Promise<boolean> {
   const rows = await db

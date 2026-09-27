@@ -176,6 +176,7 @@ describe("GET /api/community/messages/[id]", () => {
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.id).toBe("m1")
+    expect(body.channelId).toBe("c1")
     expect(body.content).toBe("hello")
     expect(body.authorName).toBe("Alice")
     // Attachments came through the mapper (grouped shape) — url is now the
@@ -243,7 +244,7 @@ describe("GET /api/community/messages/[id]", () => {
     const res = await GET(req(), { params: { id: "m1" } } as any)
     const body = await res.json()
     // Target not found in scope — mapper returns the `deleted` sentinel.
-    expect(body.replyTo).toEqual({ id: "m0", authorName: "Unknown", text: "", deleted: true })
+    expect(body.replyTo).toEqual({ id: "m0", authorName: "Deleted user", text: "", deleted: true })
   })
 
   it("returns 404 when the message doesn't exist", async () => {

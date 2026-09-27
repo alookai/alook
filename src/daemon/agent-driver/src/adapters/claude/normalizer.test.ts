@@ -441,7 +441,7 @@ describe("ClaudeEventNormalizer.normalizeLine", () => {
     // managerRuntime buffers the `error`'s message on the way past, then reads
     // it out when the trailing `turn_end` arrives to stamp `endReason:"errored"`.
     // That handoff only works if error precedes turn_end in the SAME batch.
-    // See plans/daemon-runtime-error-rewake.md B1.
+    // The resulting turn_end must therefore carry the preceding runtime error.
     const out = new ClaudeEventNormalizer().normalizeLine(
       J({ type: "result", is_error: true, result: "boom", session_id: "s1" }),
     );

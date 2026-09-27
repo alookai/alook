@@ -32,6 +32,16 @@ import type { OpenProfile } from "@/components/community/social/profile-types"
 import { useHoverCapable } from "@/hooks/use-hover-capable"
 import { channelHref } from "@/lib/community/community-route"
 import { communityKeys } from "@/lib/query-keys"
+import {
+  materializeCanonicalMessage,
+  materializeCanonicalMessages,
+  useCanonicalMessagesById,
+} from "@/lib/community-db/projections"
+import {
+  captureCommunityLiveSnapshotToken,
+  patchCanonicalCommunityMessage,
+  publishCommunityEmbeddedMessages,
+} from "@/lib/community-db/sync"
 
 export type ReplyTarget = { id: string; authorName: string; text: string }
 
@@ -77,6 +87,38 @@ type SheetCache = {
   notFound?: boolean
   anchorId?: string
   messages?: Msg[]
+}
+
+export function messageContextQueryFn(
+  type: ScopeType,
+  channelId: string,
+  targetSeq: number,
+  queryClient: ReturnType<typeof useQueryClient>,
+) {
+  return async ({ signal }: { signal?: AbortSignal } = {}): Promise<SheetCache> => {
+    const publicationToken = captureCommunityLiveSnapshotToken(queryClient)
+    let lookup: { id: string }
+    try {
+      lookup = await apiFetch<{ id: string }>(
+        seqLookupUrl(type, channelId, targetSeq),
+        { signal },
+      )
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) return { notFound: true }
+      throw error
+    }
+    const page = await apiFetchProfiles<MessagesPage>(
+      anchorFetchUrl(type, channelId, lookup.id, CONTEXT_LIMIT),
+      (response) => messageProfilePatches(response.messages),
+      { signal },
+    )
+    const messages = (page.messages ?? []).slice().sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))
+    publishCommunityEmbeddedMessages(queryClient, {
+      entries: messages.map((message) => ({ channelId, message })),
+      proof: { token: publicationToken, signal },
+    })
+    return { notFound: false, anchorId: lookup.id, messages }
+  }
 }
 
 // Apply a reaction toggle to the sheet's own cache — mirrors the reducer
@@ -125,15 +167,11 @@ function toggleSheetReaction(
  * of `<MessageRow>` rows (no MessageList, no virtualization), centers the
  * target row on open.
  *
- * **Self-contained by design** — reactions, pin, copy, thread, and image
- * preview all live INSIDE the sheet and operate on the sheet's own
- * TanStack cache (a separate query key from the main channel). The main
- * channel's cache is deliberately untouched to avoid re-render storms in the
- * underlying `<MessageList>` and to avoid injecting mid-history rows into the
- * main window that the user would then have to scroll past. The trade-off is
- * that a reaction added here won't show in the main list until the WS event
- * patches it (which already happens on the main cache) — a moment's
- * inconsistency, but the sheet is transient, so it's the right cost.
+ * **Self-contained transport, shared entities** — the sheet keeps its own
+ * anchor/window Query payload, but publishes embedded messages into the same
+ * canonical account collection as every other surface. Actions patch those
+ * canonical rows without injecting mid-history items into the main list's
+ * pagination cache.
  *
  * Reply is the ONE action that intentionally crosses back into the main
  * surface: since the sheet has no composer, clicking Reply on a preview row
@@ -187,6 +225,7 @@ export function MessageContextSheet({
   const toggleMark = useToggleMark()
   const toggleReactionApi = useToggleReactionApi()
   const addReactionApi = useAddReactionApi()
+  const canonicalMessages = useCanonicalMessagesById()
 
   const queryKey = useMemo(
     () => communityKeys.messageContext(type, channelId, targetSeq),
@@ -197,31 +236,13 @@ export function MessageContextSheet({
   const query = useQuery({
     queryKey,
     enabled: open && !!channelId && !!targetSeq,
-    queryFn: async ({ signal }): Promise<SheetCache> => {
-      let lookup: { id: string }
-      try {
-        lookup = await apiFetch<{ id: string }>(
-          seqLookupUrl(type, channelId, targetSeq!),
-          { signal },
-        )
-      } catch (e) {
-        if (e instanceof ApiError && e.status === 404) return { notFound: true }
-        throw e
-      }
-      const page = await apiFetchProfiles<MessagesPage>(
-        anchorFetchUrl(type, channelId, lookup.id, CONTEXT_LIMIT),
-        (response) => messageProfilePatches(response.messages),
-        { signal },
-      )
-      const messages = (page.messages ?? []).slice().sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))
-      return { notFound: false, anchorId: lookup.id, messages }
-    },
+    queryFn: messageContextQueryFn(type, channelId, targetSeq!, queryClient),
     staleTime: 30_000,
   })
 
   const renderRows = useMemo<RenderMsg[]>(() => {
     if (!query.data || query.data.notFound || !query.data.messages) return []
-    const src = query.data.messages
+    const src = materializeCanonicalMessages(query.data.messages, canonicalMessages)
     // Same grouping heuristic the main list uses (adjacent same-author within
     // ~5 min → collapse header). Inlined here rather than sharing the util
     // because the excerpt is small enough that the extra dep isn't worth the
@@ -238,14 +259,19 @@ export function MessageContextSheet({
         new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime() < 5 * 60_000
       return { ...m, grouped }
     })
-  }, [query.data])
+  }, [canonicalMessages, query.data])
 
   const anchorId = query.data && !query.data.notFound ? (query.data.anchorId ?? null) : null
 
   // ── Sheet-local actions ──────────────────────────────────────────────────
   const findMessage = useCallback(
-    (id: string): Msg | undefined => query.data?.messages?.find((m) => m.id === id),
-    [query.data],
+    (id: string): Msg | undefined => {
+      const transport = (canonicalMessages === undefined
+        ? queryClient.getQueryData<SheetCache>(queryKey)?.messages
+        : query.data?.messages)?.find((message) => message.id === id)
+      return transport ? materializeCanonicalMessage(transport, canonicalMessages) : undefined
+    },
+    [canonicalMessages, query.data, queryClient, queryKey],
   )
 
   const runReactionIntent = useCallback((
@@ -253,8 +279,7 @@ export function MessageContextSheet({
     messageId: string,
     emoji: string,
   ) => {
-    const msg = queryClient.getQueryData<SheetCache>(queryKey)
-      ?.messages?.find((message) => message.id === messageId)
+    const msg = findMessage(messageId)
     if (!msg) return
     const currentMe = msg.reactions?.find((r) => r.emoji === emoji)?.me ?? false
     intent({
@@ -265,13 +290,28 @@ export function MessageContextSheet({
       currentMe,
       skipDefaultCache: true,
       syncReactionState: (me) => {
-        queryClient.setQueryData<SheetCache>(queryKey, (c) =>
-          toggleSheetReaction(c, messageId, emoji, currentUser.id, me),
-        )
+        if (canonicalMessages === undefined) {
+          queryClient.setQueryData<SheetCache>(queryKey, (cache) =>
+            toggleSheetReaction(cache, messageId, emoji, currentUser.id, me),
+          )
+        } else {
+          patchCanonicalCommunityMessage(queryClient, messageId, (message) => (
+            {
+              ...message,
+              reactions: toggleSheetReaction(
+              { messages: [message] },
+              messageId,
+              emoji,
+              currentUser.id,
+              me,
+              )?.messages?.[0]?.reactions,
+            }
+          ))
+        }
       },
       onError: (error) => toastApiError(error, "Failed to update reaction"),
     })
-  }, [channelId, currentUser.id, queryClient, queryKey, type])
+  }, [canonicalMessages, channelId, currentUser.id, findMessage, queryClient, queryKey, type])
 
   const toggleReaction = useCallback((messageId: string, emoji: string) => {
     runReactionIntent(toggleReactionApi, messageId, emoji)

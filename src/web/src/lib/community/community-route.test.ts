@@ -190,6 +190,24 @@ describe("community route", () => {
     })
   })
 
+  it("preserves a known target conversation subtype in the pending checkpoint", () => {
+    const committedFrame = {
+      ...normalizeCommunityHref("/c/channels/s1/c1"),
+      revision: 4,
+    }
+    expect(resolveCommunityCheckpointPlan({
+      committedFrame,
+      targetHref: "/c/channels/s1/c2",
+      pending: true,
+      targetReady: true,
+      targetConversationSubtype: "forum",
+    }).main).toEqual({
+      kind: "target-skeleton",
+      href: "/c/channels/s1/c2",
+      conversationSubtype: "forum",
+    })
+  })
+
   it("keeps committed A as the source after the router publishes B", () => {
     const committedFrame = {
       ...normalizeCommunityHref("/c/channels/s1/c1"),

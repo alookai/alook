@@ -288,6 +288,30 @@ describe("POST /api/conversations/[id]/messages", () => {
     expect(body.error).toBe("not found");
   });
 
+  it("returns a stable fallback when task enqueue rejects with a non-Error", async () => {
+    const conv = { id: "c1", workspaceId: "w1", agentId: "a1", userId: "u1" };
+    mockGetConversation.mockResolvedValue(conv);
+    mockCreateMessage.mockResolvedValue({ id: "m1", content: "hello" });
+    mockUpdateConversationTitle.mockResolvedValue(undefined);
+    mockEnqueueTask.mockRejectedValueOnce("queue unavailable");
+
+    const res = await POST(
+      new NextRequest("http://localhost/api/conversations/c1/messages", {
+        method: "POST",
+        body: JSON.stringify({ content: "hello" }),
+        headers: { "Content-Type": "application/json" },
+      }),
+      withParams("c1")
+    );
+
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({
+      message: { id: "m1", content: "hello" },
+      task: null,
+      error: "Request failed",
+    });
+  });
+
   it("passes workspaceId to getConversation", async () => {
     const conv = { id: "c1", workspaceId: "w1", agentId: "a1", userId: "u1" };
     mockGetConversation.mockResolvedValue(conv);

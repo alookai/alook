@@ -4,6 +4,10 @@ import { ApiError } from "@/lib/errors"
 import { captureChannelMetadataToken, isChannelMetadataTokenCurrent } from "@/hooks/community/channel-metadata"
 import { communityKeys } from "@/lib/query-keys"
 import { getMessageOverlay, useMessageStreamStore } from "@/stores/community/message-stream"
+import {
+  captureCommunityLiveSnapshotToken,
+  publishCommunityMessages,
+} from "@/lib/community-db/sync"
 import type {
   MessagesPage,
   MessagesPageParam,
@@ -303,6 +307,7 @@ export async function reconcileFocusedMessageQueries(
   })
   const token = captureChannelMetadataToken(scopeId)
   const operations = queries.map(async (query) => {
+    const publicationToken = captureCommunityLiveSnapshotToken(queryClient)
     const isCurrent = () => isChannelMetadataTokenCurrent(token)
       && queryClient.getQueryCache().find({ queryKey: query.queryKey, exact: true }) === query
     // Infinite-query pagination computes its result from the data snapshot at
@@ -338,6 +343,13 @@ export async function reconcileFocusedMessageQueries(
         ? await fetchCatchUp(scopeId, window.cursor, window.tag)
         : null
       if (!isCurrent()) return
+      publishCommunityMessages(queryClient, {
+        channelId: scopeId,
+        messages: catchUp
+          ? [...refreshed.messages, ...catchUp.messages]
+          : refreshed.messages,
+        proof: { token: publicationToken, signal: undefined },
+      })
       queryClient.setQueryData<MessageCache>(query.queryKey, (current) => (
         isMessageCache(current)
           ? mergeReconciledPages(current, refreshed, catchUp)

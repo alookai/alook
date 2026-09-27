@@ -2,14 +2,17 @@
 
 import { useQuery, useMutation, useQueryClient, type UseQueryResult } from "@tanstack/react-query"
 import { apiFetch, readUploadError } from "@/lib/api/client"
-import { apiFetchProfiles } from "@/lib/community/profile-seed"
+import {
+  apiFetchProfiles,
+  writeCommunityProfilePatches,
+} from "@/lib/community/profile-seed"
 import { communityKeys } from "@/lib/query-keys"
-import { useCommunityWsStore } from "@/stores/community/ws"
 import type { BotActivityDay, CommunityProfilePatch } from "@/lib/community/models/people"
 import { avatarInitial } from "@/lib/community/avatar"
 import type { DailyUsageMetric, ReasoningEffort } from "@alook/shared"
 import { useMemo } from "react"
 import { readCommunityProfile } from "@/lib/community/profile-read"
+import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
 
 export type BotUsageDay = {
   day: string
@@ -92,10 +95,12 @@ export function useBots(): UseQueryResult<BotsResponse> & { bots: BotSummary[] }
       (data) => data.bots.map((bot) => ({ ...botProfilePatch(bot), presence: bot.presence })),
     ),
   })
-  const profilesByUserId = useCommunityWsStore((state) => state.profilesByUserId)
+  const profilesByUserId = useCanonicalProfilesByUserId()
   const bots = useMemo(
     () => (query.data?.bots ?? EMPTY_BOTS).map((bot) => {
-      const profile = readCommunityProfile(profilesByUserId.get(bot.id), bot.id)
+      const canonical = profilesByUserId.get(bot.id)
+      if (!canonical) return bot
+      const profile = readCommunityProfile(canonical, bot.id)
       return {
         ...bot,
         name: profile.name,
@@ -145,8 +150,7 @@ export function useCreateBot() {
         body: JSON.stringify(input),
       }),
     onSuccess: (data) => {
-      const profiles = useCommunityWsStore.getState()
-      profiles.patchProfiles(profiles.beginProfileSnapshot(), [botProfilePatch(data.bot)])
+      writeCommunityProfilePatches([botProfilePatch(data.bot)])
       invalidateBotSurfaces(qc, data.bot.id)
     },
   })
@@ -238,8 +242,7 @@ export function useUpdateBot() {
         }),
       }),
     onSuccess: (data) => {
-      const profiles = useCommunityWsStore.getState()
-      profiles.patchProfiles(profiles.beginProfileSnapshot(), [botProfilePatch(data.bot)])
+      writeCommunityProfilePatches([botProfilePatch(data.bot)])
       invalidateBotSurfaces(qc, data.bot.id)
     },
   })
@@ -304,8 +307,7 @@ export function useUploadBotAvatar() {
       return (await res.json()) as UploadBotAvatarResult
     },
     onSuccess: (data, variables) => {
-      const profiles = useCommunityWsStore.getState()
-      profiles.patchProfiles(profiles.beginProfileSnapshot(), [{
+      writeCommunityProfilePatches([{
         id: variables.botId,
         avatar: { avatar: data.url, avatarVersion: data.avatarVersion },
       }])

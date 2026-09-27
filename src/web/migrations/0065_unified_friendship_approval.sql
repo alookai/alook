@@ -1,4 +1,4 @@
--- Unified friendship approval gate. See plans/agent-friendship-approval-gate.md.
+-- Unified friendship approval gate for people and agents.
 --
 -- Folds the `kind='friend'` half of `community_bot_approval_request` into
 -- `community_friendship`. Pending vs accepted becomes a column value, not a

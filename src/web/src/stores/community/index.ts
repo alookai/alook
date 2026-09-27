@@ -120,6 +120,31 @@ type PendingReply = {
   target: { id: string; authorName: string; text: string }
 }
 
+function sameCurrentChannelMeta(
+  left: CurrentChannelMeta | null,
+  right: CurrentChannelMeta | null,
+): boolean {
+  return left === right || (
+    left !== null &&
+    right !== null &&
+    left.name === right.name &&
+    left.parentChannelId === right.parentChannelId &&
+    (left.parentMessageId ?? null) === (right.parentMessageId ?? null) &&
+    (left.creatorId ?? null) === (right.creatorId ?? null)
+  )
+}
+
+function samePendingReply(left: PendingReply | null, right: PendingReply | null): boolean {
+  return left === right || (
+    left !== null &&
+    right !== null &&
+    left.channelId === right.channelId &&
+    left.target.id === right.target.id &&
+    left.target.authorName === right.target.authorName &&
+    left.target.text === right.target.text
+  )
+}
+
 type Timer = ReturnType<typeof setTimeout>
 
 export type CommunityStoreState = {
@@ -208,14 +233,20 @@ const initialState = (): Pick<
 export const useCommunityStore = create<CommunityStoreState>((set, get) => ({
   ...initialState(),
 
-  setCurrentServerId: (id) => set({ currentServerId: id }),
+  setCurrentServerId: (id) => {
+    if (get().currentServerId === id) return
+    set({ currentServerId: id })
+  },
 
   setCurrentChannelId: (id) => {
     if (get().currentChannelId === id) return // no-op on identical value
     set({ currentChannelId: id })
   },
 
-  setCurrentChannelMeta: (meta) => set({ currentChannelMeta: meta }),
+  setCurrentChannelMeta: (meta) => {
+    if (sameCurrentChannelMeta(get().currentChannelMeta, meta)) return
+    set({ currentChannelMeta: meta })
+  },
 
   subscribe: (target) => {
     // Bail if the target is the same as the currently focused subscription.
@@ -266,13 +297,25 @@ export const useCommunityStore = create<CommunityStoreState>((set, get) => ({
     set({ subscription: {}, secondaryChannelOwner: null })
   },
 
-  setPendingMachineTokenId: (tokenId) =>
-    set({ pendingMachineTokenId: tokenId }),
+  setPendingMachineTokenId: (tokenId) => {
+    if (get().pendingMachineTokenId === tokenId) return
+    set({ pendingMachineTokenId: tokenId })
+  },
 
-  setPendingReply: (reply) => set({ pendingReply: reply }),
+  setPendingReply: (reply) => {
+    if (samePendingReply(get().pendingReply, reply)) return
+    set({ pendingReply: reply })
+  },
 
-  registerUiHandlers: (handlers) =>
-    set({ uiHandlers: { ...get().uiHandlers, ...handlers } }),
+  registerUiHandlers: (handlers) => {
+    const current = get().uiHandlers
+    const entries = Object.entries(handlers) as Array<[
+      keyof CommunityUiHandlers,
+      CommunityUiHandlers[keyof CommunityUiHandlers],
+    ]>
+    if (entries.every(([key, handler]) => current[key] === handler)) return
+    set({ uiHandlers: { ...current, ...handlers } })
+  },
 
   reset: () => {
     const { typingTimers, reactionTimers } = get()

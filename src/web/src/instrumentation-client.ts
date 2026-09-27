@@ -1,7 +1,7 @@
 // Next.js client instrumentation entry — runs before the app hydrates, i.e.
 // before react-dom installs its DevTools global hook. This is the ONLY place
 // early enough to register react-scan's instrument() and capture the initial
-// mount (see plans/community-switch-perf-diagnosis.md).
+// mount.
 //
 // Distinct from the server-side `instrumentation.ts` `register()` hook — do not
 // conflate them. This file is diagnosis-only and self-noops unless

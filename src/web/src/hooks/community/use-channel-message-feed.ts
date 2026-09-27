@@ -5,6 +5,8 @@ import { useChannelReadStateSnapshot } from "./use-channel-read-state"
 import { useChannelWatermark } from "./use-channel-watermark"
 import { useMessages } from "./use-messages"
 import { usePins, useThreads } from "./use-channel-panels"
+import { resolveMessageReadProjection } from "@/lib/community/message-read-projection"
+import { useReadStateProjection } from "@/lib/community-db/projections"
 
 export function useChannelMessageFeed({
   channelId,
@@ -19,7 +21,8 @@ export function useChannelMessageFeed({
   isChildChannel: boolean
   anchorMessageId: string | null
 }) {
-  const readState = useChannelReadStateSnapshot(channelId)
+  const canonicalReadSnapshot = useReadStateProjection(channelId)
+  const readState = useChannelReadStateSnapshot(channelId, canonicalReadSnapshot)
   const readSnapshot = readState.snapshot
   const messagesQuery = useMessages(channelId, {
     serverId,
@@ -39,26 +42,12 @@ export function useChannelMessageFeed({
   })
   const { newDividerBefore, anchorFound } = useMemo(() => {
     if (!readSnapshot) return { newDividerBefore: undefined, anchorFound: false }
-    if (!messagesQuery.anchorReconciled) {
-      return { newDividerBefore: undefined, anchorFound: false }
-    }
-    const lastId = readSnapshot.lastReadMessageId
-    if (!lastId) {
-      for (const message of messagesQuery.messages) {
-        if (message.authorId !== viewerUserId) {
-          return { newDividerBefore: message.id, anchorFound: true }
-        }
-      }
-      return { newDividerBefore: undefined, anchorFound: true }
-    }
-    const index = messagesQuery.messages.findIndex((message) => message.id === lastId)
-    if (index === -1) return { newDividerBefore: undefined, anchorFound: false }
-    for (let i = index + 1; i < messagesQuery.messages.length; i++) {
-      if (messagesQuery.messages[i].authorId !== viewerUserId) {
-        return { newDividerBefore: messagesQuery.messages[i].id, anchorFound: true }
-      }
-    }
-    return { newDividerBefore: undefined, anchorFound: true }
+    return resolveMessageReadProjection({
+      messages: messagesQuery.messages,
+      lastReadMessageId: readSnapshot.lastReadMessageId,
+      viewerUserId,
+      anchorReconciled: messagesQuery.anchorReconciled,
+    })
   }, [messagesQuery.anchorReconciled, messagesQuery.messages, readSnapshot, viewerUserId])
   const [scrollRootEl, setScrollRootEl] = useState<HTMLDivElement | null>(null)
   /* istanbul ignore next -- retained Chromium covers the mounted observer integration */

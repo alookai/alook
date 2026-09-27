@@ -1,7 +1,7 @@
 /**
  * Single source of truth for whether local perf instrumentation is armed.
  *
- * Double-gated on purpose (see plans/community-switch-perf-diagnosis.md):
+ * Double-gated on purpose:
  * - `NEXT_PUBLIC_PERF_TRACE === "1"` — opt-in flag, off by default.
  * - `NODE_ENV !== "production"` — a hard backstop so a stray flag in a prod
  *   env can never arm the instrument or pull `react-scan` into a live build.

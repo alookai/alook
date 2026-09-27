@@ -20,7 +20,7 @@ beforeEach(() => {
 })
 
 describe("canonical channel metadata lifecycle", () => {
-  it.each(["account", "parent", "server", "reconnect", "membership"] as const)(
+  it.each(["account", "parent", "server", "membership"] as const)(
     "rejects an old successful HTTP response after %s changes",
     async (change) => {
       const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -38,8 +38,7 @@ describe("canonical channel metadata lifecycle", () => {
         useCommunityWsStore.getState().activateProfileAccount("alice")
       } else if (change === "parent") state.revokeChannelAccess("server", "parent")
       else if (change === "server") state.revokeServerAccess("server")
-      else if (change === "membership") state.beginChannelMembershipChange("server", "child")
-      else { state.markAccessDisconnected(); state.markAccessConnected() }
+      else state.beginChannelMembershipChange("server", "child")
       release(metadata)
       await rejection
       expect(client.getQueryData(key)).toBeUndefined()
@@ -47,6 +46,18 @@ describe("canonical channel metadata lifecycle", () => {
       client.clear()
     },
   )
+
+  it("accepts an authoritative HTTP response across a transport-only reconnect", async () => {
+    let release!: (value: unknown) => void
+    fetchMock.mockImplementationOnce(() => new Promise((resolve) => { release = resolve }))
+    const result = fetchChannelMetadata("server", "child")
+    const state = useCommunityWsStore.getState()
+    state.markAccessConnected()
+    state.markAccessDisconnected()
+    state.markAccessConnected()
+    release(metadata)
+    await expect(result).resolves.toMatchObject({ id: "child", verifiedEpoch: state.accessEpoch })
+  })
 
   it("restores readable child and parent only from a current authoritative response", async () => {
     const state = useCommunityWsStore.getState()

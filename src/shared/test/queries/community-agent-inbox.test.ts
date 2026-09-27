@@ -246,7 +246,7 @@ describe("toAgentMessages", () => {
       [{ id: "srv_1", name: "studio", discriminator: "0042" }],
     ]);
     const [msg] = await agentInbox.toAgentMessages(db, [rawMsg({ authorId: "u_ghost" })], "viewer_1");
-    expect(msg!.sender).toBe("Unknown user");
+    expect(msg!.sender).toBe("Deleted user");
     expect(JSON.stringify(msg)).not.toContain("u_ghost");
   });
 
@@ -274,7 +274,7 @@ describe("toAgentMessages", () => {
     expect(out.map((m) => m.seq)).toEqual(Array.from({ length: 101 }, (_, i) => `#${i + 1}`));
     expect(out[0]).toMatchObject({ sender: "@User0#0000", content: { text: "body_0" } });
     expect(out[100]).toMatchObject({
-      sender: "Unknown user",
+      sender: "Deleted user",
       content: { text: "body_100", attachments: [{ id: "att_1", filename: "proof.txt" }] },
     });
     expect(JSON.stringify(out)).not.toContain("u_100");
@@ -761,7 +761,7 @@ describe("getInboxSnapshotForAgent", () => {
     expect(out.map((r) => r.channelId)).toEqual(channels.map((c) => c.id));
     expect(out[0]).toMatchObject({ latestSender: "@Sender0#0000", pendingCount: 1, latestSeq: 3 });
     expect(out[100]).toMatchObject({
-      latestSender: "Unknown user", pendingCount: 101, firstPendingSeq: 102, latestSeq: 103,
+      latestSender: "Deleted user", pendingCount: 101, firstPendingSeq: 102, latestSeq: 103,
     });
     expect(JSON.stringify(out)).not.toContain("sender_100");
   });
@@ -819,7 +819,7 @@ describe("getInboxSnapshotForAgent", () => {
         pendingCount: 1,
         firstPendingSeq: 9,
         latestSeq: 9,
-        latestSender: "Unknown user",
+        latestSender: "Deleted user",
         hasMention: false,
       },
     ]);

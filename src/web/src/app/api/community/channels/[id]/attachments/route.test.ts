@@ -21,6 +21,9 @@ vi.mock("@/lib/auth", () => ({
   createAuth: vi.fn(() => ({
     api: { getSession: vi.fn(async () => ({ headers: new Headers(), response: null })) },
   })),
+  getAuth: vi.fn(() => ({
+    api: { getSession: vi.fn(async () => ({ headers: new Headers(), response: null })) },
+  })),
 }))
 
 const mockFindActiveAgentRunnerKeyByBearer = vi.fn()
@@ -309,8 +312,8 @@ describe("POST /api/community/channels/[id]/attachments — human arm (re-homes 
     mockRunAttachmentUpload.mockResolvedValueOnce(helperResponse)
 
     // Human session resolves — withAuth adopts { userId }.
-    const { createAuth } = await import("@/lib/auth")
-    ;(createAuth as unknown as ReturnType<typeof vi.fn>).mockReturnValueOnce({
+    const { getAuth } = await import("@/lib/auth")
+    ;(getAuth as unknown as ReturnType<typeof vi.fn>).mockReturnValueOnce({
       api: {
         getSession: vi.fn(async () => ({
           headers: new Headers(),

@@ -107,8 +107,7 @@ export interface RuntimeInfo {
 /**
  * Probe all registered drivers and return which runtimes are available.
  * capabilities to the server. Runtime health after startup is mutated live
- * by `AgentRouter.markRuntimeUnhealthy` / `markRuntimeHealthy` — see
- * plans/community-machine-presence-fix.md.
+ * by `AgentRouter.markRuntimeUnhealthy` / `markRuntimeHealthy`.
  */
 export async function detectRuntimes(): Promise<RuntimeInfo[]> {
   const ids = listRuntimeIds();

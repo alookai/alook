@@ -3,7 +3,7 @@
  * `useMutation` config is captured and driven through React Query's lifecycle
  * order so we can assert the cache patches without a real query client loop.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { afterEach, describe, it, expect, vi, beforeEach } from "vitest"
 import { QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
 
@@ -12,6 +12,7 @@ const { clearLastChannelMock } = vi.hoisted(() => ({
 }))
 vi.mock("@/lib/community/last-channel", () => ({
   clearLastChannel: (...args: unknown[]) => clearLastChannelMock(...args),
+  getLastChannel: () => null,
 }))
 
 vi.mock("react", () => ({
@@ -35,6 +36,7 @@ type MutConfig<Args> = {
 }
 let capturedConfig: MutConfig<unknown> | null = null
 let capturedQc: QueryClient
+let cleanupRegistry: (() => Promise<void>) | null = null
 vi.mock("@tanstack/react-query", async () => {
   const actual = await vi.importActual<typeof import("@tanstack/react-query")>("@tanstack/react-query")
   return {
@@ -73,7 +75,16 @@ async function runMutationExpectError<Args>(args: Args) {
 
 async function load() {
   vi.resetModules()
-  return await import("./forum")
+  const mod = await import("./forum")
+  const collections = await import("@/lib/community-db/collections")
+  const registry = collections.createCommunityDbRegistry(capturedQc, "viewer")
+  await registry.preload()
+  const unregister = collections.registerCommunityDbRegistry(registry)
+  cleanupRegistry = async () => {
+    unregister()
+    await registry.cleanup()
+  }
+  return mod
 }
 
 beforeEach(() => {
@@ -82,6 +93,54 @@ beforeEach(() => {
   capturedQc = new QueryClient()
   clearLastChannelMock.mockClear()
 })
+
+afterEach(async () => {
+  await cleanupRegistry?.()
+  cleanupRegistry = null
+})
+
+async function seedCanonicalSidebar(ids: string[], archivedId?: string) {
+  const sync = await import("@/lib/community-db/sync")
+  sync.publishCommunityForumSidebar(capturedQc, {
+    serverId: "server_1",
+    channels: ids.map((id) => ({
+      id,
+      name: id,
+      parentChannelId: "forum_1",
+      parentMessageId: `opener_${id}`,
+      activityAt: "2026-08-08T00:00:00.000Z",
+      unread: false,
+      type: "thread",
+      archived: false,
+    })),
+    openers: ids.map((id) => ({
+      id: `opener_${id}`,
+      channelId: "forum_1",
+      content: id,
+      type: "chat" as const,
+    })),
+    proof: {
+      token: sync.captureCommunityLiveSnapshotToken(capturedQc),
+      signal: undefined,
+    },
+  })
+  if (archivedId) {
+    sync.removeCanonicalCommunityChannelMembership(capturedQc, archivedId, "notify")
+  }
+}
+
+async function canonicalSidebarIds() {
+  const { getForumSidebarBase } = await import("../use-forum-sidebar-threads")
+  return getForumSidebarBase(capturedQc, "server_1").threads.map(({ id }) => id)
+}
+
+async function canonicalMemberships(channelId: string) {
+  const { getCanonicalCommunityChannelMemberships } = await import("@/lib/community-db/sync")
+  return getCanonicalCommunityChannelMemberships(capturedQc)
+    .filter((membership) => membership.channelId === channelId)
+    .map((membership) => membership.relation)
+    .sort()
+}
 
 describe("useCreateForumThread", () => {
   it("POSTs JSON with name + content only when no attachments/mentionType are provided", async () => {
@@ -367,13 +426,7 @@ describe("useUpdatePostTags", () => {
     const { useUpdatePostTags } = await load()
     useUpdatePostTags()
     const baseKey = communityKeys.forumSidebarThreads("server_1")
-    const retainedKey = communityKeys.forumSidebarRetained("server_1", "p2")
-    const metaKey = communityKeys.channelMeta("server_1", "p2")
-    const hintKey = communityKeys.forumOpenerHint("server_1", "opener_p2")
-    capturedQc.setQueryData(baseKey, sidebar(["p1", "p2", "p3"]))
-    capturedQc.setQueryData(retainedKey, sidebar(["p2"]).threads[0])
-    capturedQc.setQueryData(metaKey, { id: "p2", parentMessageId: "opener_p2" })
-    capturedQc.setQueryData(hintKey, { id: "opener_p2", content: "p2" })
+    await seedCanonicalSidebar(["p1", "p2", "p3"])
     apiFetchMock.mockResolvedValueOnce({ tags: ["bug", "archived"] })
 
     await runMutation({
@@ -385,23 +438,15 @@ describe("useUpdatePostTags", () => {
       tags: ["bug", "archived"],
     })
 
-    expect(capturedQc.getQueryData<ReturnType<typeof sidebar>>(baseKey)?.threads.map(({ id }) => id))
-      .toEqual(["p1", "p3"])
-    expect(capturedQc.getQueryState(retainedKey)).toBeUndefined()
-    expect(capturedQc.getQueryData(metaKey)).toEqual({ id: "p2", parentMessageId: "opener_p2" })
-    expect(capturedQc.getQueryData(hintKey)).toEqual({ id: "opener_p2", content: "p2" })
-    await vi.waitFor(() => {
-      expect(capturedQc.getQueryState(baseKey)?.isInvalidated).toBe(true)
-    })
+    expect((await canonicalSidebarIds()).sort()).toEqual(["p1", "p3"])
+    expect(await canonicalMemberships("p2")).toEqual(["access"])
   })
 
   it("waits for authoritative ranking on unarchive without speculative insertion", async () => {
     const { useUpdatePostTags } = await load()
     useUpdatePostTags()
     const baseKey = communityKeys.forumSidebarThreads("server_1")
-    const retainedKey = communityKeys.forumSidebarRetained("server_1", "p2")
-    capturedQc.setQueryData(baseKey, sidebar(["p1", "p3"]))
-    capturedQc.setQueryData(retainedKey, null)
+    await seedCanonicalSidebar(["p1", "p2", "p3"], "p2")
     apiFetchMock.mockResolvedValueOnce({ tags: ["bug"] })
 
     await runMutation({
@@ -412,12 +457,8 @@ describe("useUpdatePostTags", () => {
       previousTags: ["archived", "bug"],
       tags: ["bug"],
     })
-    expect(capturedQc.getQueryData<ReturnType<typeof sidebar>>(baseKey)?.threads.map(({ id }) => id))
-      .toEqual(["p1", "p3"])
-    await vi.waitFor(() => {
-      expect(capturedQc.getQueryState(retainedKey)).toBeUndefined()
-      expect(capturedQc.getQueryState(baseKey)?.isInvalidated).toBe(true)
-    })
+    expect((await canonicalSidebarIds()).sort()).toEqual(["p1", "p2", "p3"])
+    expect(await canonicalMemberships("p2")).toEqual(["access", "notify"])
   })
 
   it("uses normalized returned tags and leaves the sidebar neutral without a transition", async () => {
@@ -573,11 +614,7 @@ describe("useDeleteForumThread", () => {
     }
     capturedQc.setQueryData(communityKeys.forumFeed("forum_1", null), forumFeed)
     const sidebarKey = communityKeys.forumSidebarThreads("server_1")
-    capturedQc.setQueryData(sidebarKey, {
-      channels: [], included: { parentMessages: [] }, serverNow: "2026-08-08T00:00:00.000Z",
-      serverClockOffsetMs: 0,
-      threads: [{ id: "p2", parentChannelId: "forum_1" }],
-    })
+    await seedCanonicalSidebar(["p2"])
     apiFetchMock.mockResolvedValueOnce(undefined)
 
     await runMutation({
@@ -600,7 +637,7 @@ describe("useDeleteForumThread", () => {
     })
     expect(capturedQc.getQueryState(communityKeys.channelMessages("forum_1"))?.isInvalidated).toBe(true)
     expect(capturedQc.getQueryState(communityKeys.forumFeed("forum_1", null))?.isInvalidated).toBe(true)
-    expect(capturedQc.getQueryData<{ threads: unknown[] }>(sidebarKey)?.threads).toEqual([])
+    expect(await canonicalSidebarIds()).toEqual([])
   })
 
   it("restores exact feed/sidebar/meta snapshots when the DELETE fails", async () => {

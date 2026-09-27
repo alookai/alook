@@ -8,7 +8,6 @@ import type { ChannelRefDirectory } from "@/lib/community/channel-ref"
 import type { ServerDetail } from "@/hooks/community/use-servers"
 import { UNCATEGORIZED_CATEGORY_ID, type ChannelType } from "@alook/shared"
 import { getActiveAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
-import { updateStructuralSnapshot } from "@/lib/community/structural-snapshot"
 import { runCommunityWsProjectionTransaction } from "@/hooks/community/community-ws/projection-transaction"
 import { projectChannelScopeEviction } from "@/hooks/community/community-ws/channel-scope-projection"
 
@@ -135,16 +134,6 @@ export function useCreateChannel() {
           })),
         }
       })
-      updateStructuralSnapshot(queryClient, {
-        type: "upsertChannel",
-        serverId: args.serverId,
-        channel: {
-          id: data.channel.id,
-          name: args.name.trim(),
-          type: args.type,
-          categoryId: isUncategorizedTarget(args.categoryId) ? null : args.categoryId,
-        },
-      })
     },
     onError: (_err, args, ctx) => {
       if (ctx?.snapshot) queryClient.setQueryData(communityKeys.server(args.serverId), ctx.snapshot)
@@ -250,12 +239,6 @@ export function useRenameChannel() {
       queryClient.setQueryData<ChannelRefDirectory>(communityKeys.channelRefDirectory(), (prev) =>
         renameDirectoryChannel(prev, args.serverId, args.channelId, data.name),
       )
-      updateStructuralSnapshot(queryClient, {
-        type: "patchChannel",
-        serverId: args.serverId,
-        channelId: args.channelId,
-        changes: { name: data.name },
-      })
     },
     onError: (_err, args, ctx) => {
       if (ctx?.serverSnapshot) {
@@ -292,12 +275,6 @@ export function useMoveChannel() {
       })
     },
     onSuccess: (_data, args) => {
-      updateStructuralSnapshot(queryClient, {
-        type: "patchChannel",
-        serverId: args.serverId,
-        channelId: args.channelId,
-        changes: { categoryId: args.categoryId },
-      })
       void queryClient.invalidateQueries({ queryKey: communityKeys.server(args.serverId), exact: true })
       invalidateChannelRefDirectory(queryClient)
     },
@@ -394,15 +371,6 @@ export function useCreateCategory() {
           ),
         }
       })
-      updateStructuralSnapshot(queryClient, {
-        type: "upsertCategory",
-        serverId: args.serverId,
-        category: {
-          id: data.category.id,
-          name: args.name.trim(),
-          private: args.private === true,
-        },
-      })
     },
     onError: (_err, args, ctx) => {
       if (ctx?.snapshot) queryClient.setQueryData(communityKeys.server(args.serverId), ctx.snapshot)
@@ -431,14 +399,6 @@ export function useUpdateCategory() {
       })
     },
     onSuccess: (_data, args) => {
-      if (args.name !== undefined) {
-        updateStructuralSnapshot(queryClient, {
-          type: "patchCategory",
-          serverId: args.serverId,
-          categoryId: args.categoryId,
-          changes: { name: args.name },
-        })
-      }
       void queryClient.invalidateQueries({ queryKey: communityKeys.server(args.serverId), exact: true })
       invalidateChannelRefDirectory(queryClient)
     },
@@ -476,13 +436,6 @@ export function useDeleteCategory() {
     onError: (_err, args, ctx) => {
       if (ctx?.snapshot) queryClient.setQueryData(communityKeys.server(args.serverId), ctx.snapshot)
     },
-    onSuccess: (_data, args) => {
-      updateStructuralSnapshot(queryClient, {
-        type: "removeCategory",
-        serverId: args.serverId,
-        categoryId: args.categoryId,
-      })
-    },
     onSettled: (_data, _err, args) => {
       void queryClient.invalidateQueries({ queryKey: communityKeys.server(args.serverId), exact: true })
       invalidateChannelRefDirectory(queryClient)
@@ -502,11 +455,6 @@ export function useReorderCategories() {
       })
     },
     onSuccess: (_data, args) => {
-      updateStructuralSnapshot(queryClient, {
-        type: "reorderCategories",
-        serverId: args.serverId,
-        categoryIds: args.categoryIds,
-      })
       void queryClient.invalidateQueries({ queryKey: communityKeys.server(args.serverId), exact: true })
       invalidateChannelRefDirectory(queryClient)
     },
@@ -525,11 +473,6 @@ export function useReorderChannels() {
       })
     },
     onSuccess: (_data, args) => {
-      updateStructuralSnapshot(queryClient, {
-        type: "reorderChannels",
-        serverId: args.serverId,
-        channelIds: args.channelIds,
-      })
       void queryClient.invalidateQueries({ queryKey: communityKeys.server(args.serverId), exact: true })
       invalidateChannelRefDirectory(queryClient)
     },

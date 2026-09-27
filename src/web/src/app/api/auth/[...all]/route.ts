@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server"
 import { toNextJsHandler } from "better-auth/next-js"
-import { createAuth } from "@/lib/auth"
+import { getAuth } from "@/lib/auth"
 import { withEnv } from "@/lib/middleware/env"
 import { nativeOauthSecurityHeaders } from "@/lib/native-oauth"
 
@@ -21,10 +21,10 @@ function notFound(): Response {
 
 export const GET = withEnv(async (req: NextRequest, ctx) => {
   if (isServerOnlyAuthRequest(req)) return notFound()
-  return toNextJsHandler(createAuth(ctx.env)).GET(req)
+  return toNextJsHandler(getAuth(ctx.env)).GET(req)
 });
 
 export const POST = withEnv(async (req: NextRequest, ctx) => {
   if (isServerOnlyAuthRequest(req)) return notFound()
-  return toNextJsHandler(createAuth(ctx.env)).POST(req)
+  return toNextJsHandler(getAuth(ctx.env)).POST(req)
 });

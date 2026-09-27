@@ -310,6 +310,12 @@ export class AccountUnreadProjection {
 
   getSnapshot = () => this.version
 
+  allowsAccess(source: { channelId?: string; serverId?: string | null }) {
+    if (this.disposed) return false
+    if (source.channelId && this.accessFences.has(`channel:${source.channelId}`)) return false
+    return !source.serverId || !this.accessFences.has(`server:${source.serverId}`)
+  }
+
   setReconcileScheduler(reconcile: (() => void) | null) {
     if (this.disposed) return
     this.reconcile = reconcile

@@ -2,15 +2,12 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react"
 
-export const INITIAL_POSITION_EFFECT_DELAY_MS = 800
-export const INITIAL_POSITION_MINIMUM_EFFECT_MS = 300
 export const INITIAL_POSITION_CROSSFADE_MS = 300
 export const INITIAL_POSITION_TIMEOUT_MS = 2_000
 
 export type InitialPositionPhase =
   | "skeleton"
   | "positioning"
-  | "aurora"
   | "revealing"
   | "revealed"
 
@@ -29,19 +26,22 @@ export function useInitialPositionTransition({
   ))
   const revealedRef = useRef(initiallyRevealed)
   const startedAtRef = useRef<number | null>(null)
-  const auroraStartedAtRef = useRef<number | null>(null)
 
   useLayoutEffect(() => {
     if (revealedRef.current) return
     if (!firstWindowReady) {
       startedAtRef.current = null
-      auroraStartedAtRef.current = null
       setPhase("skeleton")
       return
     }
-    if (authoritativeEmpty || (positionSettled && phase !== "aurora")) {
+    if (authoritativeEmpty) {
       revealedRef.current = true
       setPhase("revealed")
+      return
+    }
+    if (positionSettled) {
+      revealedRef.current = true
+      setPhase("revealing")
       return
     }
     if (startedAtRef.current === null) startedAtRef.current = Date.now()
@@ -65,44 +65,10 @@ export function useInitialPositionTransition({
       INITIAL_POSITION_TIMEOUT_MS - (Date.now() - startedAt),
     )
     const timeoutTimer = window.setTimeout(() => {
-      if (revealedRef.current) return
+      if (revealedRef.current || !positionSettled) return
       revealedRef.current = true
       setPhase("revealing")
     }, timeoutRemaining)
-
-    if (phase === "positioning") {
-      const delayRemaining = Math.max(
-        0,
-        INITIAL_POSITION_EFFECT_DELAY_MS - (Date.now() - startedAt),
-      )
-      const auroraTimer = window.setTimeout(() => {
-        if (revealedRef.current || positionSettled) return
-        auroraStartedAtRef.current = Date.now()
-        setPhase("aurora")
-      }, delayRemaining)
-      return () => {
-        window.clearTimeout(auroraTimer)
-        window.clearTimeout(timeoutTimer)
-      }
-    }
-
-    if (phase === "aurora" && positionSettled) {
-      const auroraStartedAt = auroraStartedAtRef.current ?? Date.now()
-      auroraStartedAtRef.current = auroraStartedAt
-      const minimumRemaining = Math.max(
-        0,
-        INITIAL_POSITION_MINIMUM_EFFECT_MS - (Date.now() - auroraStartedAt),
-      )
-      const minimumTimer = window.setTimeout(() => {
-        if (revealedRef.current) return
-        revealedRef.current = true
-        setPhase("revealing")
-      }, minimumRemaining)
-      return () => {
-        window.clearTimeout(minimumTimer)
-        window.clearTimeout(timeoutTimer)
-      }
-    }
 
     return () => window.clearTimeout(timeoutTimer)
   }, [authoritativeEmpty, firstWindowReady, phase, positionSettled])
@@ -120,8 +86,9 @@ export function useInitialPositionTransition({
   return {
     phase: renderedPhase,
     showSkeleton: renderedPhase === "skeleton",
-    contentVisible: renderedPhase === "revealing" || renderedPhase === "revealed",
-    contentInteractive: renderedPhase === "revealing" || renderedPhase === "revealed",
-    auroraVisible: renderedPhase === "aurora" || renderedPhase === "revealing",
+    contentVisible: (authoritativeEmpty || positionSettled)
+      && (renderedPhase === "revealing" || renderedPhase === "revealed"),
+    contentInteractive: (authoritativeEmpty || positionSettled)
+      && (renderedPhase === "revealing" || renderedPhase === "revealed"),
   }
 }

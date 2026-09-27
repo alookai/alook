@@ -1,6 +1,6 @@
 -- community_machine.status — explicit online/offline column.
 -- Before this migration, status was derived on read from last_seen_at.
--- See plans/community-machine-presence-fix.md.
+-- The explicit status is now authoritative; last_seen_at is only telemetry.
 
 -- 1. Add the column with a safe default. Existing rows land as offline.
 ALTER TABLE community_machine ADD COLUMN status TEXT NOT NULL DEFAULT 'offline';

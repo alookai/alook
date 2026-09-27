@@ -15,8 +15,21 @@ vi.mock("react", async (importOriginal) => {
 })
 
 const apiFetchMock = vi.fn()
+const dbProjection = vi.hoisted(() => ({
+  registry: null as object | null,
+  rail: undefined as { servers: Array<Record<string, unknown>>; folders: unknown[] } | undefined,
+  attentionScopes: [] as Array<Record<string, unknown>>,
+  attentionItems: [] as Array<Record<string, unknown>>,
+}))
 vi.mock("@/lib/api/client", () => ({
   apiFetch: (...args: unknown[]) => apiFetchMock(...args),
+}))
+vi.mock("@/lib/community-db/projections", () => ({
+  useOptionalCommunityDbRegistry: () => dbProjection.registry,
+  useAttentionScopes: () => dbProjection.attentionScopes,
+  useAttentionItems: () => dbProjection.attentionItems,
+  useServerRailProjection: () => dbProjection.rail,
+  useServerTreeProjection: () => undefined,
 }))
 
 type CapturedQueryConfig = {
@@ -45,6 +58,10 @@ beforeEach(() => {
   capturedHookQueryClient = new QueryClient()
   capturedHookQueryData = undefined
   capturedHookQueryError = null
+  dbProjection.registry = null
+  dbProjection.rail = undefined
+  dbProjection.attentionScopes = []
+  dbProjection.attentionItems = []
   useCommunityWsStore.getState().reset()
 })
 
@@ -127,7 +144,7 @@ describe("useServers / serversQueryFn", () => {
     projection.setNotificationPolicy({})
     projection.recordArrival({ channelId: "c1", serverId: "s1", seq: 2 })
 
-    await serversProjectedQueryFn(projection)()
+    await serversProjectedQueryFn(projection, new QueryClient())()
 
     expect(projection.projectUnread("servers", "c1", false)).toBe(false)
   })
@@ -138,7 +155,7 @@ describe("useServers / serversQueryFn", () => {
     const { AccountUnreadProjection } = await import("./account-unread-projection")
     const projection = new AccountUnreadProjection("u1")
 
-    await expect(serversProjectedQueryFn(projection)()).rejects.toThrow("offline")
+    await expect(serversProjectedQueryFn(projection, new QueryClient())()).rejects.toThrow("offline")
 
     expect(projection.inspectForTests().pendingSnapshots).toBe(0)
   })
@@ -151,12 +168,94 @@ describe("useServers / serversQueryFn", () => {
     const { AccountUnreadProjection } = await import("./account-unread-projection")
     const projection = new AccountUnreadProjection("u1")
 
-    const pending = serversProjectedQueryFn(projection)()
+    const pending = serversProjectedQueryFn(projection, new QueryClient())()
     useCommunityWsStore.getState().activateProfileAccount("u2")
     release({ servers: [] })
 
     await expect(pending).rejects.toMatchObject({ name: "AbortError" })
     expect(projection.inspectForTests().pendingSnapshots).toBe(0)
+  })
+
+  it("confirms live list authority only for the current QueryClient and auth generation", async () => {
+    useCommunityWsStore.getState().activateProfileAccount("u1")
+    apiFetchMock.mockResolvedValueOnce({ servers: [] })
+    const { useServers } = await import("./use-servers")
+
+    expect(useServers().isLiveAuthoritative).toBe(false)
+    await capturedQueryConfig?.queryFn?.()
+    expect(useServers().isLiveAuthoritative).toBe(true)
+
+    useCommunityWsStore.getState().activateProfileAccount("u2")
+    expect(useServers().isLiveAuthoritative).toBe(false)
+
+    capturedHookQueryClient = new QueryClient()
+    expect(useServers().isLiveAuthoritative).toBe(false)
+  })
+
+  it("invalidates live list authority when the access epoch changes", async () => {
+    useCommunityWsStore.getState().activateProfileAccount("u1")
+    apiFetchMock.mockResolvedValueOnce({ servers: [] })
+    const { useServers } = await import("./use-servers")
+
+    useServers()
+    await capturedQueryConfig?.queryFn?.()
+    expect(useServers().isLiveAuthoritative).toBe(true)
+
+    useCommunityWsStore.getState().revokeChannelAccess("s1", "c1")
+
+    expect(useServers().isLiveAuthoritative).toBe(false)
+  })
+
+  it("binds live authority to the projected unordered server membership", async () => {
+    useCommunityWsStore.getState().activateProfileAccount("u1")
+    const liveServers = Array.from({ length: 7 }, (_, index) => ({
+      id: `s${index + 1}`,
+      name: `Server ${index + 1}`,
+      discriminator: `000${index + 1}`,
+      icon: null,
+      ownerId: "u1",
+      unread: false,
+      mentions: 0,
+    }))
+    const liveResponse = { servers: liveServers }
+    capturedHookQueryData = { servers: liveServers.slice(0, 6) }
+    apiFetchMock.mockResolvedValueOnce(liveResponse)
+    const { useServers } = await import("./use-servers")
+
+    useServers()
+    const committedLiveResponse = await capturedQueryConfig?.queryFn?.() as typeof liveResponse
+
+    expect(useServers().servers.map((server) => server.id)).toEqual([
+      "s1", "s2", "s3", "s4", "s5", "s6",
+    ])
+    expect(useServers().isLiveAuthoritative).toBe(false)
+
+    capturedHookQueryData = committedLiveResponse
+    expect(useServers().isLiveAuthoritative).toBe(true)
+
+    capturedHookQueryData = { servers: [...committedLiveResponse.servers].reverse() }
+    expect(useServers().isLiveAuthoritative).toBe(true)
+
+    capturedHookQueryData = { servers: [...committedLiveResponse.servers, {
+      id: "s8",
+      name: "Server 8",
+      discriminator: "0008",
+      icon: null,
+      ownerId: "u1",
+      unread: false,
+      mentions: 0,
+    }] }
+    expect(useServers().isLiveAuthoritative).toBe(false)
+  })
+
+  it("does not confirm live list authority after a transport failure", async () => {
+    useCommunityWsStore.getState().activateProfileAccount("u1")
+    apiFetchMock.mockRejectedValueOnce(new Error("offline"))
+    const { useServers } = await import("./use-servers")
+
+    useServers()
+    await expect(capturedQueryConfig?.queryFn?.()).rejects.toThrow("offline")
+    expect(useServers().isLiveAuthoritative).toBe(false)
   })
 
   it("correlates cold rail unread sources with their attention facets", async () => {
@@ -180,7 +279,7 @@ describe("useServers / serversQueryFn", () => {
     const projection = new AccountUnreadProjection("u1")
     projection.setNotificationPolicy({ server: { s1: "mentions" } })
 
-    await serversProjectedQueryFn(projection)()
+    await serversProjectedQueryFn(projection, new QueryClient())()
 
     expect(projection.projectUnread("servers", "attention", false)).toBe(true)
     expect(projection.projectUnread("servers", "ordinary", false)).toBe(false)
@@ -189,7 +288,7 @@ describe("useServers / serversQueryFn", () => {
     expect(projection.projectUnread("servers", "attention", false)).toBe(false)
   })
 
-  it("projects a live unread arrival and preserves unchanged server identity", async () => {
+  it("does not let the legacy unread ledger override canonical attention", async () => {
     const changed = {
       id: "s1",
       unread: false,
@@ -218,10 +317,44 @@ describe("useServers / serversQueryFn", () => {
     const result = useServers()
 
     expect(result.servers).not.toBe(raw)
-    expect(result.servers[0]).not.toBe(changed)
-    expect(result.servers[0]?.unread).toBe(true)
-    expect(result.servers[1]).toBe(unchanged)
-    expect(result.servers[2]).toBe(legacy)
+    expect(result.servers[0]).toBe(changed)
+    expect(result.servers[0]?.unread).toBe(false)
+    expect(result.servers[1]).not.toBe(unchanged)
+    expect(result.servers[1]).toMatchObject({ unread: false, mentions: 0 })
+    expect(result.servers[2]).not.toBe(legacy)
+    expect(result.servers[2]).toMatchObject({ unread: false, mentions: 0 })
+  })
+
+  it("projects live mention-source evidence onto canonical rail rows", async () => {
+    dbProjection.registry = {}
+    dbProjection.rail = {
+      servers: [{ id: "s1", unread: false, mentions: 1 }],
+      folders: [],
+    }
+    dbProjection.attentionScopes = [{
+      scopeId: "c1",
+      channelId: "c1",
+      serverId: "s1",
+      ordinaryUnread: true,
+      attentionCount: 1,
+    }]
+    dbProjection.attentionItems = [{ id: "mention:m1", kind: "mention", scopeId: "c1" }]
+    capturedHookQueryData = {
+      servers: [{
+        id: "s1",
+        unread: true,
+        mentions: 1,
+        unreadSources: [{ channelId: "c1", lastUnreadSeq: 4 }],
+        mentionSources: [{ channelId: "c1", count: 1, lastSeq: 4 }],
+      }],
+    }
+    const { useServers } = await import("./use-servers")
+
+    expect(useServers().servers[0]).toMatchObject({
+      id: "s1",
+      unread: true,
+      mentions: 1,
+    })
   })
 
   it("returns the frozen empty server list before query data arrives", async () => {
@@ -232,25 +365,25 @@ describe("useServers / serversQueryFn", () => {
     expect(first).toEqual([])
   })
 
-  it("retains a rolling-deploy rail unread without a source vector", async () => {
+  it("does not retain a legacy rail unread without canonical attention", async () => {
     capturedHookQueryData = {
       servers: [{ id: "s1", unread: true, mentions: 0 }],
     }
     const { useServers } = await import("./use-servers")
-    expect(useServers().servers[0]?.unread).toBe(true)
+    expect(useServers().servers[0]?.unread).toBe(false)
 
     capturedHookQueryData = {
       servers: [{ id: "s1", unread: false, mentions: 0 }],
     }
-    expect(useServers().servers[0]?.unread).toBe(true)
+    expect(useServers().servers[0]?.unread).toBe(false)
   })
 
-  it("hands a rolling-deploy rail unread to exact sources once they arrive", async () => {
+  it("keeps legacy rail source transitions subordinate to canonical attention", async () => {
     capturedHookQueryData = {
       servers: [{ id: "s1", unread: true, mentions: 0 }],
     }
     const { useServers } = await import("./use-servers")
-    expect(useServers().servers[0]?.unread).toBe(true)
+    expect(useServers().servers[0]?.unread).toBe(false)
 
     capturedHookQueryData = {
       servers: [{
@@ -260,7 +393,7 @@ describe("useServers / serversQueryFn", () => {
         unreadSources: [{ channelId: "c1", lastUnreadSeq: 4 }],
       }],
     }
-    expect(useServers().servers[0]?.unread).toBe(true)
+    expect(useServers().servers[0]?.unread).toBe(false)
 
     const { getActiveAccountUnreadProjection } = await import("./account-unread-projection")
     getActiveAccountUnreadProjection(capturedHookQueryClient).acceptPrimarySnapshot({
@@ -375,7 +508,7 @@ describe("useServer / serverQueryFn", () => {
   it.each([
     ["offline", new Error("offline")],
     ["5xx", new ApiError("unavailable", 503)],
-  ])("keeps the structural hint on a transient %s failure", async (_label, error) => {
+  ])("keeps the cached server list on a transient %s failure", async (_label, error) => {
     apiFetchMock.mockRejectedValue(error)
     const qc = new QueryClient()
     qc.setQueryData(communityKeys.servers(), { servers: [{
@@ -386,28 +519,12 @@ describe("useServer / serverQueryFn", () => {
       icon: null,
       ownerId: "u_1",
     }] })
-    const hint = {
-      schemaVersion: 1 as const,
-      accountId: "u_1",
-      capturedAt: Date.now(),
-      serverOrder: ["srv_1"],
-      folders: [],
-      servers: [{
-        id: "srv_1",
-        name: "Alook",
-        discriminator: "0001",
-        icon: null,
-        categories: [],
-        channels: [],
-        childRouteHints: [],
-      }],
-    }
-    qc.setQueryData(communityKeys.structuralSnapshot(), hint)
     const { serverProjectedQueryFn } = await import("./use-servers")
 
     await expect(serverProjectedQueryFn(qc, "srv_1")()).rejects.toBe(error)
 
-    expect(qc.getQueryData(communityKeys.structuralSnapshot())).toEqual(hint)
+    expect(qc.getQueryData<{ servers: Array<{ id: string }> }>(communityKeys.servers())?.servers)
+      .toEqual([expect.objectContaining({ id: "srv_1" })])
   })
 
   it.each([403, 404])("evicts live and persisted server state on definitive %s", async (status) => {
@@ -426,32 +543,15 @@ describe("useServer / serverQueryFn", () => {
       name: "Alook",
       categories: [],
     })
-    qc.setQueryData(communityKeys.structuralSnapshot(), {
-      schemaVersion: 1,
-      accountId: "u_1",
-      capturedAt: Date.now(),
-      serverOrder: ["srv_1"],
-      folders: [],
-      servers: [{
-        id: "srv_1",
-        name: "Alook",
-        discriminator: "0001",
-        icon: null,
-        categories: [],
-        channels: [],
-        childRouteHints: [],
-      }],
-    })
     const { serverProjectedQueryFn } = await import("./use-servers")
 
     await expect(serverProjectedQueryFn(qc, "srv_1")()).rejects.toMatchObject({ status })
 
     expect(qc.getQueryState(communityKeys.server("srv_1"))).toBeUndefined()
     expect(qc.getQueryData<{ servers: unknown[] }>(communityKeys.servers())?.servers).toEqual([])
-    expect(qc.getQueryData<{ servers: unknown[] }>(communityKeys.structuralSnapshot())?.servers).toEqual([])
   })
 
-  it("merges stale server-detail positives before rejecting the cache write", async () => {
+  it("does not merge stale positives from the retired server unread endpoint", async () => {
     apiFetchMock.mockImplementation(async (url: string) => {
       if (url.endsWith("/categories")) return { categories: [] }
       if (url.endsWith("/channels")) return { channels: [] }
@@ -475,9 +575,10 @@ describe("useServer / serverQueryFn", () => {
     const projection = getAccountUnreadProjection(qc, "u1")
     const { serverProjectedQueryFn } = await import("./use-servers")
 
-    await expect(serverProjectedQueryFn(qc, "srv_1")()).rejects.toThrow("stale D1 read")
+    await expect(serverProjectedQueryFn(qc, "srv_1")()).resolves.toMatchObject({ id: "srv_1" })
 
-    expect(projection.projectUnread("server-detail:srv_1", "c1", false)).toBe(true)
+    expect(projection.projectUnread("server-detail:srv_1", "c1", false)).toBe(false)
+    expect(apiFetchMock.mock.calls.some(([url]) => String(url).endsWith("/unreads"))).toBe(false)
   })
 
   it("projects child scope metadata and confirms every loaded channel", async () => {
@@ -538,6 +639,7 @@ describe("useServer / serverQueryFn", () => {
       forumUnreadState: {},
     }
     capturedHookQueryData = detail
+    dbProjection.attentionScopes = [{ scopeId: "c1", channelId: "c1", serverId: "s1", ordinaryUnread: true }]
     const { getActiveAccountUnreadProjection } = await import("./account-unread-projection")
     getActiveAccountUnreadProjection(capturedHookQueryClient).recordArrival({
       channelId: "c1",
@@ -556,7 +658,7 @@ describe("useServer / serverQueryFn", () => {
     expect(result.server?.categories[1]?.channels[0]?.unread).toBe(false)
   })
 
-  it("retains rolling-deploy server-detail unread rows without source vectors", async () => {
+  it("does not retain rolling-deploy server-detail unread without canonical attention", async () => {
     const channel = { id: "c1", unread: true }
     const baseUnreadForum = { id: "forum-base", unread: false }
     const childUnreadForum = { id: "forum-child", unread: false }
@@ -574,9 +676,9 @@ describe("useServer / serverQueryFn", () => {
     capturedHookQueryData = detail
     const { useServer } = await import("./use-servers")
     const first = useServer("s1")
-    expect(first.server?.categories[0]?.channels[0]?.unread).toBe(true)
-    expect(first.server?.categories[0]?.channels[1]?.unread).toBe(true)
-    expect(first.server?.categories[0]?.channels[2]?.unread).toBe(true)
+    expect(first.server?.categories[0]?.channels[0]?.unread).toBe(false)
+    expect(first.server?.categories[0]?.channels[1]?.unread).toBe(false)
+    expect(first.server?.categories[0]?.channels[2]?.unread).toBe(false)
 
     capturedHookQueryData = {
       ...detail,
@@ -590,7 +692,7 @@ describe("useServer / serverQueryFn", () => {
       }],
     }
     const second = useServer("s1")
-    expect(second.server?.categories[0]?.channels[0]?.unread).toBe(true)
+    expect(second.server?.categories[0]?.channels[0]?.unread).toBe(false)
   })
 
   it("composes a single server detail from canonical resources", async () => {
@@ -602,7 +704,6 @@ describe("useServer / serverQueryFn", () => {
         { id: "ch_1", name: "general", categoryId: "cat_1" },
         { id: "ch_2", name: "loose", categoryId: null },
       ] }
-      if (url.endsWith("/unreads")) return { channelIds: ["ch_1"] }
       throw new Error(`unexpected ${url}`)
     })
     const { serverQueryFn } = await import("./use-servers")
@@ -610,11 +711,11 @@ describe("useServer / serverQueryFn", () => {
     expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers", expect.any(Object))
     expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers/srv_1/categories")
     expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers/srv_1/channels")
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers/srv_1/unreads")
+    expect(apiFetchMock).not.toHaveBeenCalledWith("/api/community/servers/srv_1/unreads")
     expect(data).toEqual({ ...detail, discriminator: "0001", categories: [
-      { id: "cat_1", name: "Main", private: 0, channels: [{ id: "ch_1", name: "general", categoryId: "cat_1", active: false, unread: true }] },
+      { id: "cat_1", name: "Main", private: 0, channels: [{ id: "ch_1", name: "general", categoryId: "cat_1", active: false, unread: false }] },
       { id: "__uncategorized__", name: "", private: 0, channels: [{ id: "ch_2", name: "loose", categoryId: null, active: false, unread: false }] },
-    ], forumUnreadState: {} })
+    ] })
   })
 
   it("passes the navigation AbortSignal to every server-detail resource", async () => {
@@ -630,14 +731,13 @@ describe("useServer / serverQueryFn", () => {
       if (url === "/api/community/servers") return { servers: [identity] }
       if (url.endsWith("/categories")) return { categories: [] }
       if (url.endsWith("/channels")) return { channels: [] }
-      if (url.endsWith("/unreads")) return { channelIds: [] }
       throw new Error(`unexpected ${url}`)
     })
     const controller = new AbortController()
     const { serverQueryFn } = await import("./use-servers")
     await serverQueryFn(new QueryClient(), "srv_signal", controller.signal)()
 
-    for (const path of ["categories", "channels", "unreads"]) {
+    for (const path of ["categories", "channels"]) {
       expect(apiFetchMock).toHaveBeenCalledWith(
         `/api/community/servers/srv_signal/${path}`,
         { signal: controller.signal },
@@ -671,7 +771,6 @@ describe("useServer / serverQueryFn", () => {
       if (url === "/api/community/servers") return { servers: [identity] }
       if (url.endsWith("/categories")) return { categories: [] }
       if (url.endsWith("/channels")) return { channels: [] }
-      if (url.endsWith("/unreads")) return { channelIds: [] }
       throw new Error(`unexpected ${url}`)
     })
     const { serverQueryFn } = await import("./use-servers")
@@ -714,7 +813,6 @@ describe("useServer / serverQueryFn", () => {
     apiFetchMock.mockImplementation(async (url: string) => {
       if (url.endsWith("/categories")) return { categories: [] }
       if (url.endsWith("/channels")) return { channels: [] }
-      if (url.endsWith("/unreads")) return { channelIds: [] }
       throw new Error(`unexpected ${url}`)
     })
     const { serverQueryFn } = await import("./use-servers")
@@ -724,10 +822,10 @@ describe("useServer / serverQueryFn", () => {
     await expect(serverQueryFn(qc, "srv_1")()).resolves.toMatchObject(identity)
 
     expect(apiFetchMock.mock.calls.filter(([url]) => url === "/api/community/servers")).toHaveLength(0)
-    expect(apiFetchMock).toHaveBeenCalledTimes(3)
+    expect(apiFetchMock).toHaveBeenCalledTimes(2)
   })
 
-  it("cold-boots a forum fallback from a canonical unread child outside the sidebar projection", async () => {
+  it("does not cold-boot forum unread from the retired server unread endpoint", async () => {
     apiFetchMock.mockImplementation(async (url: string) => {
       if (url === "/api/community/servers") return { servers: [{
         id: "srv_1", name: "Alook", discriminator: "0001", icon: null, ownerId: "u_1",
@@ -736,20 +834,15 @@ describe("useServer / serverQueryFn", () => {
       if (url.endsWith("/channels")) return { channels: [{
         id: "forum_1", name: "Forum", type: "forum", categoryId: "cat_1",
       }] }
-      if (url.endsWith("/unreads")) return {
-        channelIds: ["post_hidden"],
-        childChannels: [{ id: "post_hidden", parentChannelId: "forum_1" }],
-      }
       throw new Error(`unexpected ${url}`)
     })
 
     const { serverQueryFn } = await import("./use-servers")
     const data = await serverQueryFn(new QueryClient(), "srv_1")()
 
-    expect(data.categories[0]?.channels[0]?.unread).toBe(true)
-    expect(data.forumUnreadState).toEqual({
-      forum_1: { baseUnread: false, childIds: ["post_hidden"] },
-    })
+    expect(data.categories[0]?.channels[0]?.unread).toBe(false)
+    expect(data.forumUnreadState).toBeUndefined()
+    expect(apiFetchMock.mock.calls.some(([url]) => String(url).endsWith("/unreads"))).toBe(false)
   })
 
   it("nests the server(id) key under servers() so prefix invalidation cascades", async () => {
@@ -758,7 +851,6 @@ describe("useServer / serverQueryFn", () => {
       if (url === "/api/community/servers") return { servers: [{ ...detail, discriminator: "0001" }] }
       if (url.endsWith("/categories")) return { categories: [] }
       if (url.endsWith("/channels")) return { channels: [] }
-      if (url.endsWith("/unreads")) return { channelIds: [] }
       throw new Error(`unexpected ${url}`)
     })
     const { serverQueryFn } = await import("./use-servers")
@@ -777,19 +869,19 @@ describe("useServer / serverQueryFn", () => {
       staleTime: Infinity,
     })
     expect(apiFetchMock.mock.calls.filter(([url]) => url === "/api/community/servers")).toHaveLength(1)
-    expect(apiFetchMock).toHaveBeenCalledTimes(4)
+    expect(apiFetchMock).toHaveBeenCalledTimes(3)
   })
 
-  it("rejects a stale raw unread read instead of caching false read badges", async () => {
+  it("does not issue a raw server unread read", async () => {
     apiFetchMock.mockImplementation(async (url: string) => {
       if (url === "/api/community/servers") return { servers: [{ id: "srv_1", name: "Alook", discriminator: "0001", icon: null, ownerId: "u_1" }] }
       if (url.endsWith("/categories")) return { categories: [] }
       if (url.endsWith("/channels")) return { channels: [{ id: "ch_1", name: "general", categoryId: null }] }
-      if (url.endsWith("/unreads")) return { channelIds: [], stale: true }
       throw new Error(`unexpected ${url}`)
     })
 
     const { serverQueryFn } = await import("./use-servers")
-    await expect(serverQueryFn(new QueryClient(), "srv_1")()).rejects.toThrow("stale D1 read")
+    await expect(serverQueryFn(new QueryClient(), "srv_1")()).resolves.toMatchObject({ id: "srv_1" })
+    expect(apiFetchMock.mock.calls.some(([url]) => String(url).endsWith("/unreads"))).toBe(false)
   })
 })

@@ -9,7 +9,7 @@ import { spawnAgentProcess, killProcessTree, isAlive } from "./killTree.js";
 /**
  * These tests spawn real child processes rather than mocking
  * `child_process` — the bug this file guards against (silent no-op kill on
- * a non-detached child, see plans/fix-daemon-agent-process-kill.md) is a
+ * a non-detached child) is a
  * real OS process-group interaction that a mock would trivially hide.
  */
 

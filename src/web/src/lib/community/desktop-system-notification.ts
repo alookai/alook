@@ -8,7 +8,7 @@ import {
 import type { QueryClient } from "@tanstack/react-query"
 import { fetchChannelMetadata, type ChannelMetadata } from "@/hooks/community/channel-metadata"
 import { communityKeys } from "@/lib/query-keys"
-import type { StructuralSnapshotV1 } from "./structural-snapshot"
+import type { ChannelRow, ServerRow } from "@/lib/community-db/schema"
 import {
   parseDesktopSystemNotificationActivation,
   type DesktopSystemNotificationActivation,
@@ -31,24 +31,27 @@ type DesktopSystemNotificationConversation = {
   parentChannelName?: string | null
 }
 
-function snapshotConversation(
+function collectionConversation(
   create: CommunityMessageCreate,
   viewerUserId: string,
-  snapshot: StructuralSnapshotV1 | null,
+  queryClient: QueryClient,
 ): DesktopSystemNotificationConversation | null {
   if (!create.serverId) return null
-  const server = snapshot?.accountId === viewerUserId
-    ? snapshot.servers.find((entry) => entry.id === create.serverId)
-    : undefined
-  const child = server?.childRouteHints.find((entry) => entry.id === create.channelId)
-  const channel = server?.channels.find((entry) => entry.id === create.channelId)
-  const parent = child
-    ? server?.channels.find((entry) => entry.id === child.parentChannelId)
+  const servers = queryClient.getQueryData<ServerRow[]>(
+    communityKeys.communityDbCollection(viewerUserId, "servers"),
+  ) ?? []
+  const channels = queryClient.getQueryData<ChannelRow[]>(
+    communityKeys.communityDbCollection(viewerUserId, "channels"),
+  ) ?? []
+  const server = servers.find((entry) => entry.id === create.serverId)
+  const channel = channels.find((entry) => entry.id === create.channelId)
+  const parent = channel?.parentChannelId
+    ? channels.find((entry) => entry.id === channel.parentChannelId)
     : undefined
   return {
-    conversationKind: child ? "thread" : "channel",
+    conversationKind: channel?.type === "thread" ? "thread" : "channel",
     serverName: server?.name,
-    channelName: child?.name ?? channel?.name,
+    channelName: channel?.name,
     parentChannelName: parent?.name,
   }
 }
@@ -57,8 +60,7 @@ export function buildDesktopSystemNotificationCandidate(
   create: CommunityMessageCreate,
   bump: CommunityUnreadBump,
   viewerUserId: string | null,
-  snapshot: StructuralSnapshotV1 | null = null,
-  resolvedConversation: DesktopSystemNotificationConversation | null = null,
+  conversation: DesktopSystemNotificationConversation | null = null,
 ): DesktopSystemNotificationCandidate | null {
   if (!viewerUserId || bump.userId !== viewerUserId) return null
   if (create.channelId !== bump.channelId || create.serverId !== bump.serverId) return null
@@ -78,7 +80,6 @@ export function buildDesktopSystemNotificationCandidate(
       messageId: create.message.id,
       seq: create.message.seq,
     }
-  const conversation = resolvedConversation ?? snapshotConversation(create, viewerUserId, snapshot)
   const copy = buildCommunityNotificationCopy({
     conversationKind: create.serverId ? conversation?.conversationKind ?? "channel" : "dm",
     authorName: create.message.authorName,
@@ -101,12 +102,13 @@ export async function resolveDesktopSystemNotificationCandidate(
   bump: CommunityUnreadBump,
   viewerUserId: string | null,
   queryClient: QueryClient,
-  snapshot: StructuralSnapshotV1 | null = null,
 ): Promise<DesktopSystemNotificationCandidate | null> {
-  const fallback = buildDesktopSystemNotificationCandidate(create, bump, viewerUserId, snapshot)
+  const cached = viewerUserId
+    ? collectionConversation(create, viewerUserId, queryClient)
+    : null
+  const fallback = buildDesktopSystemNotificationCandidate(create, bump, viewerUserId, cached)
   if (!fallback || !viewerUserId || !create.serverId) return fallback
 
-  const cached = snapshotConversation(create, viewerUserId, snapshot)
   if (
     cached?.channelName
     && (cached.conversationKind !== "thread" || cached.parentChannelName)
@@ -126,7 +128,7 @@ export async function resolveDesktopSystemNotificationCandidate(
       }) as ChannelMetadata
       : null
 
-    return buildDesktopSystemNotificationCandidate(create, bump, viewerUserId, snapshot, {
+    return buildDesktopSystemNotificationCandidate(create, bump, viewerUserId, {
       conversationKind: channel.parentChannelId ? "thread" : "channel",
       serverName: cached?.serverName,
       channelName: channel.name,

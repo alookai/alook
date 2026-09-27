@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { useCommunityWsStore } from "@/stores/community/ws"
 
 const apiFetchMock = vi.fn()
 const fetchAllServerMembersMock = vi.fn()
@@ -13,8 +12,6 @@ vi.mock("./fetch-all-server-members", () => ({
 beforeEach(() => {
   apiFetchMock.mockReset()
   fetchAllServerMembersMock.mockReset()
-  useCommunityWsStore.getState().reset()
-  useCommunityWsStore.getState().activateProfileAccount("viewer")
 })
 
 describe("invitableFriendsQueryFn", () => {
@@ -45,9 +42,5 @@ describe("invitableFriendsQueryFn", () => {
     const result = await invitableFriendsQueryFn("server_1")
 
     expect(result.friends).toEqual([identified, legacy])
-    expect(useCommunityWsStore.getState().profilesByUserId.get("friend_1")).toMatchObject({
-      name: "Alice",
-      avatarVersion: 2,
-    })
   })
 })

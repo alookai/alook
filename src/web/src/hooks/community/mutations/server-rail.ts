@@ -8,7 +8,6 @@ import type { FoldersResponse } from "@/hooks/community/use-folders"
 import type { ServersResponse } from "@/hooks/community/use-servers"
 import type { FolderServer } from "@/lib/community/models/navigation"
 import type { RailState } from "@/lib/community/server-rail-model"
-import { updateStructuralSnapshot } from "@/lib/community/structural-snapshot"
 
 export type ServerRailCommitArgs = {
   before: RailState
@@ -108,25 +107,10 @@ export function useServerRailCommit() {
       queryClient.setQueryData(serversKey, context.servers)
       queryClient.setQueryData(foldersKey, context.folders)
     },
-    onSuccess: (response, args) => {
+    onSuccess: (response) => {
       queryClient.setQueryData<FoldersResponse | undefined>(foldersKey, (folders) =>
         reconcileCreatedFolderIds(folders, response.createdFolderIds),
       )
-      const folderNameById = new Map(
-        (queryClient.getQueryData<FoldersResponse>(foldersKey)?.folders ?? [])
-          .map((folder) => [folder.id, folder.name]),
-      )
-      updateStructuralSnapshot(queryClient, {
-        type: "replaceRail",
-        serverOrder: args.after.serverOrder,
-        folders: args.after.folderOrder.flatMap((clientId) => {
-          const id = response.createdFolderIds[clientId] ?? clientId
-          const serverIds = args.after.folders[clientId] ?? []
-          return serverIds.length > 0
-            ? [{ id, name: folderNameById.get(id) ?? "Group", serverIds }]
-            : []
-        }),
-      })
     },
     onSettled: async () => {
       await Promise.all([

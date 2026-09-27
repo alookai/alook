@@ -196,8 +196,8 @@ export const communityMessage = sqliteTable(
 );
 
 // 6. community_message_seq — atomic per-channel sequence counter.
-// See plans/community-agent-cli-bridge.md design §3. `nextSeq` holds the most
-// recently issued value (not "the next value to hand out" despite the name).
+// `nextSeq` holds the most recently issued value, not "the next value to hand
+// out" despite the name.
 // Because DMs are channels now, the PK is the channel id directly.
 export const communityMessageSeq = sqliteTable("community_message_seq", {
   channelId: text("channel_id")

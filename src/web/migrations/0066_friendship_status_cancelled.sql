@@ -1,5 +1,4 @@
--- Widen community_friendship.status to allow 'cancelled'. See
--- plans/friend-cancel-card-cleanup.md.
+-- Widen community_friendship.status to allow explicit cancellation cleanup.
 --
 -- A requester withdrawing a still-pending request soft-cancels the row
 -- (status='cancelled') instead of hard-deleting it, so a gating owner's

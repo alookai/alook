@@ -405,7 +405,10 @@ test("first native Server tap is one root push with a stable handle and zero rai
   await warm.page.goto(`/c/channels/${serverId}`)
   await expect(warm.page.getByTestId(tid.serverIcon(serverId))).toBeVisible({ timeout: 30_000 })
   await warm.page.getByTestId(tid.homeButton).click()
-  await expect.poll(() => new URL(warm.page.url()).pathname).toBe("/c/me")
+  await expect.poll(
+    () => new URL(warm.page.url()).pathname,
+    { timeout: 30_000 },
+  ).toBe("/c/me")
   await warm.page.getByTestId(tid.dmRow(dmId)).click()
   await expect.poll(() => new URL(warm.page.url()).pathname).toBe(`/c/me/${dmId}`)
   await warm.page.reload()

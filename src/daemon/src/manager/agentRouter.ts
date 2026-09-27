@@ -190,7 +190,7 @@ export class AgentRouter {
    * Mutable per-runtime health map. Seeded from the startup snapshot passed
    * on construction; mutated live by `markRuntimeUnhealthy` / `markRuntimeHealthy`
    * so the router owns the single source of truth for /community's picker
-   * gating. See plans/community-machine-presence-fix.md.
+   * gating.
    *
    * Insertion order preserves the runtime ordering the daemon reported at
    * startup — Map iterates in insertion order — so the ready frame lists
@@ -473,8 +473,7 @@ export class AgentRouter {
           // Capture pre-transition FSM status + tracker state BEFORE
           // register/deliver so we can decide whether the FSM's
           // `onAgentActivity` callback owns the first typing frame or this
-          // router does — see "First-ever wake ordering" in
-          // plans/bot-typing-indicator.md. The FSM path OWNS the first frame
+          // router does. The FSM path OWNS the first frame
           // whenever a transition into a running-family state fires; the
           // router emits only on a true mid-turn wake (`beforeStatus ===
           // "running"` AND `wasActive`) where no FSM edge would leave the
@@ -504,8 +503,7 @@ export class AgentRouter {
             seq: cmd.unreadNotice.latestSeq,
             text,
           });
-          // Honest-ack diagnostic (plans/daemon-fsm-desync.md batch B, narrowed
-          // in batch A): a wake that produced NO executable effect was only
+          // Honest-ack diagnostic: a wake that produced NO executable effect was only
           // coalesced into the inbox. Coalescing is BENIGN and routine for the
           // queue-and-drain states (starting/stopping/reset-window/per-turn) —
           // logging those is just noise on a busy-spawning agent. The
@@ -614,7 +612,7 @@ export class AgentRouter {
         // one failure never aborts the rest of the batch. Sequential await keeps
         // the restart orchestration (stop→forget→respawn) from interleaving
         // across agents. One frame, not fan-out (owner-triggered "reset this
-        // machine"). See plans/daemon-batch-reset.md.
+        // machine").
         for (const r of cmd.resets) {
           await this.runRestartCommand(r.agentId, r.launchId, "agent:reset", () =>
             this.opts.manager.resetSession(r.agentId, {

@@ -1,5 +1,5 @@
 -- Community schema unification (4/5): reseat the seq allocator on channel_id.
--- See plans/community-schema-unification.md.
+-- Channel IDs are the canonical message scope for both servers and DMs.
 --
 -- community_message_seq drops the 'channel:<id>' / 'dm:<id>' scope_key string
 -- PK for a channel_id PK (now one scope). Backfill strips the prefix from the

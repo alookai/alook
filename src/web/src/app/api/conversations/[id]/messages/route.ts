@@ -251,7 +251,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       {
         message: messageToResponse(message),
         task: null,
-        error: err instanceof Error ? err.message : "Unknown error",
+        error: err instanceof Error ? err.message : "Request failed",
       },
       500
     );

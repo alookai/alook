@@ -28,6 +28,7 @@ interface RuntimeEnv {
 
 declare namespace Cloudflare {
   interface Env extends RuntimeEnv {
+    CF_VERSION_METADATA: WorkerVersionMetadata
     DB: D1Database
     EMAIL_BUCKET: R2Bucket
     COMMUNITY_MEDIA: R2Bucket

@@ -14,7 +14,7 @@ const eslintConfig = defineConfig([
   {
     // Drivers must spawn agent CLIs through `spawnAgentProcess` (src/runtime/killTree.ts)
     // so the detached-process-group contract killProcessTree relies on can't be
-    // silently skipped by a new/edited driver — see plans/fix-daemon-agent-process-kill.md.
+    // silently skipped by a new or edited driver.
     files: ["src/drivers/**/*.ts"],
     ignores: ["src/drivers/**/*.test.ts"],
     rules: {

@@ -9,7 +9,6 @@ import { broadcastToUserSafe } from "@/lib/community/fanout"
  * POST /api/community/friends/[id]/owner-decision — body `{ decision }`. The
  * bot owner approves or denies a gated friend row via their DM card.
  * Dispatches to `ownerDecideOnRow`, which encapsulates all four cases.
- * See plans/agent-friendship-approval-gate.md §Owner decision endpoint.
  */
 export const POST = withAuth(async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)

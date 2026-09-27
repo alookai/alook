@@ -1,5 +1,5 @@
 -- Perf: two indexes on the community server-switch path.
--- See plans/community-switch-perf-optimization.md (WS4).
+-- These cover the two lookups on the server-switch critical path.
 --
 -- Both tables are small today, so the immediate win is marginal — this is
 -- correctness insurance as membership/invite counts grow. Idempotent.

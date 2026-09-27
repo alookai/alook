@@ -48,7 +48,7 @@ describe("desktop community shell geometry", () => {
 
   it("keeps persisted percentages constrained to the panel bounds", () => {
     expect(desktopUserBarInitialOverlayCssWidth(24)).toBe(
-      `calc(clamp(${COMMUNITY_SIDEBAR_MIN_WIDTH}px, calc(24% - 0.48px), ${COMMUNITY_SIDEBAR_MAX_WIDTH}px) + 58px)`,
+      `calc(clamp(${COMMUNITY_SIDEBAR_MIN_WIDTH}px, calc(24% - 0.72px), ${COMMUNITY_SIDEBAR_MAX_WIDTH}px) + 58px)`,
     )
     expect(desktopUserBarOverlayCssWidth(24, false)).toBe(
       "calc(calc(24% - 0.24px) + 57px)",

@@ -175,7 +175,11 @@ test("existing channel/server deletes converge UI, WS, pending rows, linked medi
   expect(await status("alice", `/api/community/channels/${deleteLanding?.[2]}`)).toBe(200)
   await expect(alice.page.getByTestId(tid.serverIcon(serverId))).toHaveCount(0)
   await expect(alice.page.getByTestId(tid.channelRow(serverChannelId))).toHaveCount(0)
-  await expect(alice.page.getByTestId(tid.composerInput)).toHaveCount(0)
+  // The cache-first destination may already mount its own composer. Pin the
+  // actual regression: no composer from the deleted channel may survive.
+  await expect(alice.page.locator(
+    `[data-placeholder="Message /delete-server-${stamp}"]`,
+  )).toHaveCount(0)
   await expect(bob.page.getByTestId(tid.serverIcon(serverId))).toHaveCount(0)
   await expect.poll(() => aliceDeletes.frames.filter((frame) => (
     frame.type === "community:server.delete" && frame.serverId === serverId

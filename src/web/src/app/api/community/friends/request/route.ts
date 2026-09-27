@@ -53,8 +53,7 @@ async function handleHumanFriendRequest(
   // the bot would bypass owner-approval and directly auto-friend = capability
   // escalation. So keep the last-line isBot→403 even with the gate above.
   // (Always false in production — a bot session is rejected at 401 before any
-  // handler runs; this is the future-auth-regression backstop.) See
-  // plans/agent-friendship-approval-gate.md §Hardening.
+  // handler runs; this is the future-auth-regression backstop.)
   if (actor.isBot) return writeError("forbidden", 403)
 
   let body: { userId?: string; username?: string }

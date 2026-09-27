@@ -22,11 +22,7 @@ import type { ShellFrameProps } from "./shell-frame-types"
 import type { View } from "./shell-types"
 import type { CommunityNavigationController } from "./use-community-navigation-controller"
 import type { QueryClient } from "@tanstack/react-query"
-import { useStructuralSnapshot } from "@/hooks/community/use-structural-snapshot"
-import {
-  structuralSnapshotFolders,
-  structuralSnapshotServers,
-} from "@/lib/community/structural-snapshot"
+import { useOptionalCommunityDbRegistry } from "@/lib/community-db/projections"
 
 type Options = Pick<
   ShellFrameProps,
@@ -55,17 +51,12 @@ export function useShellRailController({
   onOpenActiveServerInvite,
   accountId,
 }: Options) {
-  const structuralSnapshot = useStructuralSnapshot(accountId ?? null, queryClient)
+  const communityDb = useOptionalCommunityDbRegistry()
   const serversQuery = useServers()
   const foldersQuery = useFolders()
-  const hasLiveServers = serversQuery.data !== undefined || !accountId
-  const servers = hasLiveServers
-    ? serversQuery.servers
-    : structuralSnapshotServers(structuralSnapshot)
-  const folders = foldersQuery.data?.folders
-    ?? (accountId
-      ? structuralSnapshotFolders(structuralSnapshot)
-      : foldersQuery.folders)
+  const servers = serversQuery.servers
+  const folders = foldersQuery.folders
+  const hasLiveServers = servers.length > 0 || serversQuery.data !== undefined || !accountId
   const currentServerId = useCommunityStore((state) => state.currentServerId)
   const { mutateAsync: createServerAsync } = useCreateServer()
   const { mutate: leaveServerMutate } = useLeaveServer()
@@ -81,12 +72,16 @@ export function useShellRailController({
     const liveChannelIds = detail?.categories.flatMap((category) =>
       category.channels.filter((channel) => !channel.pending).map((channel) => channel.id)
     )
+    const canonicalDetailComplete = communityDb?.collections.servers.get(id)?.detailComplete === true
     const channelIds = liveChannelIds
-      ?? structuralSnapshot?.servers.find((server) => server.id === id)
-        ?.channels.map((channel) => channel.id)
+      ?? (communityDb && canonicalDetailComplete
+        ? Array.from(communityDb.collections.channels.values())
+          .filter((channel) => channel.serverId === id && channel.type !== "thread" && !channel.pending)
+          .map((channel) => channel.id)
+        : undefined)
       ?? []
     return pickServerLandingHref(id, channelIds, getLastChannel(id))
-  }, [queryClient, structuralSnapshot])
+  }, [communityDb, queryClient])
   const onServerNavigate = useCallback((id: string) => {
     markSwitch("server", id)
     navigation.push(`/c/channels/${id}`)
@@ -174,7 +169,7 @@ export function useShellRailController({
       servers: railServers,
       folders,
       activeServerId: projectedActiveServerId,
-      serversLoading: serversQuery.isPending && !structuralSnapshot,
+      serversLoading: serversQuery.isPending && servers.length === 0,
       view: projectedView,
       onHome,
       onHomePrefetch,

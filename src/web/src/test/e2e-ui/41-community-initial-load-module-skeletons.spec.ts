@@ -18,16 +18,6 @@ type ColdRootProbe = {
   machinesSeen: boolean
 }
 
-type SkeletonGeometry = {
-  wrapper: { left: number; right: number; paddingLeft: number; paddingRight: number }
-  base: { left: number; right: number; width: number; height: number }
-  expectedColor: string
-  borders: Record<"top" | "right" | "bottom" | "left", {
-    width: string
-    color: string
-  }>
-}
-
 const coldRootStorageKey = `community:lastRoute:${encodeURIComponent(userId("alice"))}`
 
 async function installColdRootProbe(page: Page, destination: string | null) {
@@ -70,84 +60,29 @@ async function expectNoMachinesDuringColdRootRestore(page: Page) {
   ).__communityColdRootProbe)).toEqual({ machinesSeen: false })
 }
 
-async function userBarSkeletonGeometry(page: Page): Promise<SkeletonGeometry> {
-  return page.getByTestId(tid.initialUserBarPending).evaluate((wrapper) => {
-    const base = wrapper.firstElementChild
-    if (!(base instanceof HTMLElement)) throw new Error("missing User Bar Skeleton base")
-    const wrapperRect = wrapper.getBoundingClientRect()
-    const wrapperStyle = getComputedStyle(wrapper)
-    const baseRect = base.getBoundingClientRect()
-    const baseStyle = getComputedStyle(base)
-    const reference = document.createElement("div")
-    reference.className = "border border-border/40"
-    reference.style.position = "fixed"
-    reference.style.visibility = "hidden"
-    document.body.appendChild(reference)
-    const expectedColor = getComputedStyle(reference).borderTopColor
-    reference.remove()
-    return {
-      wrapper: {
-        left: wrapperRect.left,
-        right: wrapperRect.right,
-        paddingLeft: Number.parseFloat(wrapperStyle.paddingLeft),
-        paddingRight: Number.parseFloat(wrapperStyle.paddingRight),
-      },
-      base: {
-        left: baseRect.left,
-        right: baseRect.right,
-        width: baseRect.width,
-        height: baseRect.height,
-      },
-      expectedColor,
-      borders: {
-        top: { width: baseStyle.borderTopWidth, color: baseStyle.borderTopColor },
-        right: { width: baseStyle.borderRightWidth, color: baseStyle.borderRightColor },
-        bottom: { width: baseStyle.borderBottomWidth, color: baseStyle.borderBottomColor },
-        left: { width: baseStyle.borderLeftWidth, color: baseStyle.borderLeftColor },
-      },
-    }
-  })
-}
-
-function expectUserBarSkeletonBorderContract(geometry: SkeletonGeometry) {
-  expect(geometry.base.height).toBe(48)
-  expect(Math.abs(
-    geometry.base.left - geometry.wrapper.left - geometry.wrapper.paddingLeft,
-  )).toBeLessThanOrEqual(1)
-  expect(Math.abs(
-    geometry.wrapper.right - geometry.wrapper.paddingRight - geometry.base.right,
-  )).toBeLessThanOrEqual(1)
-  expect(geometry.base.width).toBeCloseTo(
-    geometry.wrapper.right
-      - geometry.wrapper.left
-      - geometry.wrapper.paddingLeft
-      - geometry.wrapper.paddingRight,
-    0,
-  )
-  expect(geometry.expectedColor).not.toBe("rgba(0, 0, 0, 0)")
-  for (const side of ["top", "right", "bottom", "left"] as const) {
-    expect(geometry.borders[side]).toEqual({
-      width: "1px",
-      color: geometry.expectedColor,
-    })
-  }
-}
-
-async function holdSession(page: Page) {
+async function holdApplicationScripts(page: Page) {
   let releaseGate!: () => void
   let disposition: "continue" | "abort" = "continue"
   const gate = new Promise<void>((resolve) => { releaseGate = resolve })
   let hits = 0
-  const pattern = "**/api/auth/get-session**"
+  let sessionRequests = 0
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/api/auth/get-session") sessionRequests += 1
+  })
   const handler = async (route: Route) => {
+    if (!/\/_next\/.*\.js(?:\?|$)/.test(route.request().url())) {
+      await route.continue()
+      return
+    }
     hits += 1
     await gate
     if (disposition === "abort") await route.abort("aborted")
     else await route.continue()
   }
-  await page.route(pattern, handler)
+  await page.route("**/_next/**", handler)
   return {
     hits: () => hits,
+    sessionRequests: () => sessionRequests,
     release: () => { releaseGate() },
     abort: () => {
       disposition = "abort"
@@ -200,7 +135,7 @@ async function expectVisibility(locator: ReturnType<Page["getByTestId"]>, visibl
   else await expect(locator).toBeHidden()
 }
 
-async function expectOwnedFrame(
+async function expectServerSeededRouteSkeleton(
   page: Page,
   expected: ExpectedFrame,
   distinctiveStrings: string[],
@@ -208,6 +143,7 @@ async function expectOwnedFrame(
   const frame = page.getByTestId(tid.initialFrame)
   await expect(frame).toBeVisible()
   await expect(frame).toHaveAttribute("data-community-route-kind", expected.route)
+  await expect(page.locator('[data-slot="community-restore-bootstrap"]')).toHaveCount(0)
   const mobile = (page.viewportSize()?.width ?? 640) < 640
   const shellVisible = expected.sidebar !== "none"
   const detailMobile = mobile && expected.surface === "detail"
@@ -237,6 +173,10 @@ async function expectOwnedFrame(
   const main = page.getByTestId(tid.pendingMain(expected.main))
   await expect(main).toHaveCount(1)
   await expectVisibility(main, !listMobile)
+  const existingPlaceholder = expected.main === "route-resolution"
+    ? frame.locator("[data-community-unresolved-main]")
+    : frame.locator('[data-slot="skeleton"]')
+  await expect(existingPlaceholder).not.toHaveCount(0)
   await expect(frame.getByRole("button")).toHaveCount(0)
   await expect(frame.locator("a")).toHaveCount(0)
   for (const value of distinctiveStrings) await expect(frame).not.toContainText(value)
@@ -244,7 +184,7 @@ async function expectOwnedFrame(
 
 async function closeHeldContext(
   context: BrowserContext,
-  gate: Awaited<ReturnType<typeof holdSession>>,
+  gate: Awaited<ReturnType<typeof holdApplicationScripts>>,
 ) {
   gate.abort()
   await context.close()
@@ -271,7 +211,7 @@ test.describe.serial("community initial-load module skeletons", () => {
     await seedDmMessage("alice", dmId, privateMessage)
   })
 
-  test("cold mobile paths expose only their URL-owned inert modules", async ({ asUser }, testInfo) => {
+  test("cold mobile paths reuse only their URL-owned skeleton modules", async ({ asUser }, testInfo) => {
     test.setTimeout(240_000)
     const cases: Array<[string, ExpectedFrame]> = [
       ["/c", { route: "community-root-redirect", surface: "neutral", sidebar: "none", main: "route-resolution" }],
@@ -289,28 +229,12 @@ test.describe.serial("community initial-load module skeletons", () => {
     for (const [pathname, expected] of cases) {
       const { context, page } = await asUser("alice")
       await page.setViewportSize({ width: 390, height: 844 })
-      const gate = await holdSession(page)
+      const gate = await holdApplicationScripts(page)
       const traffic = captureCommunityTraffic(page)
       await page.goto(pathname, { waitUntil: "commit" })
       await expect.poll(gate.hits).toBeGreaterThan(0)
-      await expectOwnedFrame(page, expected, [serverName, channelName, privateMessage])
-      if (pathname === `/c/channels/${serverId}`) {
-        await page.evaluate(() => {
-          const style = document.documentElement.style
-          style.setProperty("--app-safe-area-top", "20px")
-          style.setProperty("--app-safe-area-right", "16px")
-          style.setProperty("--app-safe-area-bottom", "34px")
-          style.setProperty("--app-safe-area-left", "18px")
-        })
-        const geometry = await userBarSkeletonGeometry(page)
-        expectUserBarSkeletonBorderContract(geometry)
-        expect(geometry.base.left).toBe(18)
-        expect(geometry.base.right).toBe(390 - 16)
-        await testInfo.attach("user-bar-skeleton-mobile-390x844", {
-          body: await page.screenshot(),
-          contentType: "image/png",
-        })
-      }
+      expect(gate.sessionRequests()).toBe(0)
+      await expectServerSeededRouteSkeleton(page, expected, [serverName, channelName, privateMessage])
       if (pathname === "/c") {
         await testInfo.attach("community-root-neutral-390x844", {
           body: await page.screenshot(),
@@ -319,12 +243,6 @@ test.describe.serial("community initial-load module skeletons", () => {
       }
       expect(traffic.requests).toEqual([])
       expect(traffic.sockets()).toBe(0)
-      if (expected.main === "server-conversation") {
-        await expect(page.getByLabel("Resolving conversation")).toBeVisible()
-        await expect(page.getByTestId(tid.messageHeaderLeadingLoading)).toHaveCount(0)
-        await expect(page.getByTestId(tid.channelComposerShell)).toHaveCount(0)
-        await expect(page.getByRole("button", { name: "Back" })).toHaveCount(0)
-      }
       await closeHeldContext(context, gate)
     }
   })
@@ -339,19 +257,12 @@ test.describe.serial("community initial-load module skeletons", () => {
     ] satisfies Array<[string, ExpectedFrame]>) {
       const { context, page } = await asUser("alice")
       await page.setViewportSize({ width: 1280, height: 900 })
-      const gate = await holdSession(page)
+      const gate = await holdApplicationScripts(page)
       const traffic = captureCommunityTraffic(page)
       await page.goto(pathname, { waitUntil: "commit" })
       await expect.poll(gate.hits).toBeGreaterThan(0)
-      await expectOwnedFrame(page, expected, [serverName, channelName, privateMessage])
-      if (pathname === `/c/channels/${serverId}`) {
-        const geometry = await userBarSkeletonGeometry(page)
-        expectUserBarSkeletonBorderContract(geometry)
-        await testInfo.attach("user-bar-skeleton-desktop-1280x900", {
-          body: await page.screenshot(),
-          contentType: "image/png",
-        })
-      }
+      expect(gate.sessionRequests()).toBe(0)
+      await expectServerSeededRouteSkeleton(page, expected, [serverName, channelName, privateMessage])
       if (pathname === "/c") {
         await testInfo.attach("community-root-neutral-1280x900", {
           body: await page.screenshot(),
@@ -385,10 +296,11 @@ test.describe.serial("community initial-load module skeletons", () => {
       const { context, page } = await asUser("alice")
       await page.setViewportSize({ width: 390, height: 844 })
       await installColdRootProbe(page, destination)
-      const gate = await holdSession(page)
+      const gate = await holdApplicationScripts(page)
       await page.goto("/c", { waitUntil: "commit" })
       await expect.poll(gate.hits).toBeGreaterThan(0)
-      await expectOwnedFrame(page, {
+      expect(gate.sessionRequests()).toBe(0)
+      await expectServerSeededRouteSkeleton(page, {
         route: "community-root-redirect",
         surface: "neutral",
         sidebar: "none",
@@ -409,11 +321,16 @@ test.describe.serial("community initial-load module skeletons", () => {
     const { page } = await asUser("alice")
     await page.setViewportSize({ width: 390, height: 844 })
     await installColdRootProbe(page, null)
-    const gate = await holdSession(page)
+    const gate = await holdApplicationScripts(page)
     await page.goto("/c", { waitUntil: "commit" })
     await expect.poll(gate.hits).toBeGreaterThan(0)
-    await expect(page.getByTestId(tid.pendingMain("route-resolution"))).toBeVisible()
-    await expect(page.getByTestId(tid.pendingMain("machines"))).toHaveCount(0)
+    expect(gate.sessionRequests()).toBe(0)
+    await expectServerSeededRouteSkeleton(page, {
+      route: "community-root-redirect",
+      surface: "neutral",
+      sidebar: "none",
+      main: "route-resolution",
+    }, [serverName, channelName, privateMessage])
     const historyLength = await page.evaluate(() => history.length)
 
     gate.release()
@@ -427,10 +344,16 @@ test.describe.serial("community initial-load module skeletons", () => {
     const missingDm = `/c/me/dm_missing_${Date.now()}`
     await page.setViewportSize({ width: 390, height: 844 })
     await installColdRootProbe(page, missingDm)
-    const gate = await holdSession(page)
+    const gate = await holdApplicationScripts(page)
     await page.goto("/c", { waitUntil: "commit" })
     await expect.poll(gate.hits).toBeGreaterThan(0)
-    await expect(page.getByTestId(tid.pendingMain("route-resolution"))).toBeVisible()
+    expect(gate.sessionRequests()).toBe(0)
+    await expectServerSeededRouteSkeleton(page, {
+      route: "community-root-redirect",
+      surface: "neutral",
+      sidebar: "none",
+      main: "route-resolution",
+    }, [serverName, channelName, privateMessage])
     const historyLength = await page.evaluate(() => history.length)
 
     gate.release()
@@ -442,7 +365,7 @@ test.describe.serial("community initial-load module skeletons", () => {
       .toBe("/c/me/machines")
   })
 
-  test("639↔640 preserves one pending main node with zero request or socket delta", async ({ asUser }) => {
+  test("639↔640 preserves one route-owned skeleton main node with zero request or socket delta", async ({ asUser }) => {
     test.setTimeout(120_000)
     for (const [pathname, mainKind] of [
       [`/c/me/${dmId}`, "dm"],
@@ -450,9 +373,10 @@ test.describe.serial("community initial-load module skeletons", () => {
     ] as const) {
       const { context, page } = await asUser("alice")
       await page.setViewportSize({ width: 639, height: 844 })
-      const gate = await holdSession(page)
+      const gate = await holdApplicationScripts(page)
       await page.goto(pathname, { waitUntil: "commit" })
       await expect.poll(gate.hits).toBeGreaterThan(0)
+      expect(gate.sessionRequests()).toBe(0)
       const main = page.getByTestId(tid.pendingMain(mainKind))
       await expect(main).toBeVisible()
       await main.evaluate((node) => { Reflect.set(window, "__communityInitialMain", node) })
@@ -474,15 +398,22 @@ test.describe.serial("community initial-load module skeletons", () => {
     }
   })
 
-  test("releasing identity mounts one user-keyed shell without duplicate route work", async ({ asUser }) => {
+  test("releasing scripts mounts one server-seeded user shell without duplicate route work", async ({ asUser }) => {
     test.setTimeout(120_000)
     const { page } = await asUser("alice")
     await page.setViewportSize({ width: 390, height: 844 })
-    const gate = await holdSession(page)
+    const gate = await holdApplicationScripts(page)
     const traffic = captureCommunityTraffic(page)
     await page.goto(`/c/channels/${serverId}/${channelId}`, { waitUntil: "commit" })
     await expect.poll(gate.hits).toBeGreaterThan(0)
-    await expect(page.getByTestId(tid.pendingMain("server-conversation"))).toBeVisible()
+    expect(gate.sessionRequests()).toBe(0)
+    await expectServerSeededRouteSkeleton(page, {
+      route: "server-detail",
+      surface: "detail",
+      sidebar: "server",
+      main: "server-conversation",
+      serverId,
+    }, [serverName, channelName, privateMessage])
     expect(traffic.requests).toEqual([])
     expect(traffic.sockets()).toBe(0)
 

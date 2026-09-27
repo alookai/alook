@@ -18,6 +18,7 @@ import { truncateMessagePreview, type MentionType } from "@alook/shared"
 import type { FriendApprovalPayload } from "@alook/shared"
 import { avatarInitial } from "@/lib/community/avatar"
 import { canonicalUserImage } from "@/lib/community/storage"
+import { projectMessageWireType } from "@/lib/community/message-wire-type"
 
 // The subset of fields on rows returned by
 // queries.communityMessage.{listMessages, getMessage, getMessagesByIds} that
@@ -105,7 +106,7 @@ function coreFields(row: MessageRow) {
 function resolveReply(row: MessageRow, replyMap: Map<string, ReplyTargetRow>): ReplyPreview | undefined {
   if (!row.replyToId) return undefined
   const target = replyMap.get(row.replyToId)
-  if (!target) return { id: row.replyToId, authorName: "Unknown", text: "", deleted: true }
+  if (!target) return { id: row.replyToId, authorName: "Deleted user", text: "", deleted: true }
   return {
     id: target.id,
     authorId: target.authorId,
@@ -134,12 +135,9 @@ export type ApiMessageContext = {
 // can distinguish it from a bare `type: "system"` row with no known kind
 // (which stays `systemKind: undefined`, falling back to the generic icon).
 // Ordinary messages map to `type: "chat"` (never `undefined`) now that
-// `Msg.type` is a required, exhaustive discriminator (#12).
-function splitType(type: string | null): { type: "chat" | "system"; systemKind?: "thread" } {
-  if (type === "thread_created") return { type: "system", systemKind: "thread" }
-  if (type === "system") return { type: "system" }
-  return { type: "chat" }
-}
+// `Msg.type` is a required, exhaustive discriminator (#12). The mapper lives
+// in message-wire-type so cross-scope feeds (Mentions/Marked) use the exact
+// same DB-to-wire normalization as channel message responses.
 
 export function mapMessageForApi(row: MessageRow, ctx: ApiMessageContext) {
   const core = coreFields(row)
@@ -149,7 +147,7 @@ export function mapMessageForApi(row: MessageRow, ctx: ApiMessageContext) {
     row.clientNonce && !row.clientNonce.startsWith("srv:") ? row.clientNonce : undefined
   return {
     ...core,
-    ...splitType(row.type),
+    ...projectMessageWireType(row.type),
     ...(clientNonce ? { clientNonce } : {}),
     replyTo: resolveReply(row, ctx.replyMap),
     embeds: row.embeds,
@@ -184,7 +182,7 @@ export function mapMessageForWs(row: MessageRow, ctx: WsMessageContext) {
     ctx.clientNonce && !ctx.clientNonce.startsWith("srv:") ? ctx.clientNonce : undefined
   return {
     ...core,
-    ...splitType(row.type),
+    ...projectMessageWireType(row.type),
     ...(clientNonce ? { clientNonce } : {}),
     replyTo: resolveReply(row, ctx.replyMap),
     // The shared CommunityMessageCreate.embeds is `unknown[]` — narrow here

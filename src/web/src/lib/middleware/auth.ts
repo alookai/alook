@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { queries } from "@alook/shared"
 import { getDb, getPrimaryDb } from "@/lib/db"
-import { createAuth } from "@/lib/auth"
+import { getAuth } from "@/lib/auth"
 import { getKV, cacheKeys, bindCacheKV } from "@/lib/cache"
 
 export interface AuthContext {
@@ -14,8 +14,7 @@ export interface AuthContext {
    * The authenticated user's internal flags. Populated from the request-time
    * session guard. `isBot` is always false in production (a bot session is
    * rejected at 401 before the handler runs), but friend-graph routes assert
-   * `ctx.user?.isBot` locally as belt-and-suspenders — see
-   * plans/agent-friendship-approval-gate.md §Hardening.
+   * `ctx.user?.isBot` locally as belt-and-suspenders.
    */
   user?: { isBot: boolean }
 }
@@ -133,7 +132,7 @@ async function resolveSession(
   req: NextRequest,
   cloudflareEnv: Env,
 ): Promise<SessionResolution> {
-  const auth = createAuth(cloudflareEnv)
+  const auth = getAuth(cloudflareEnv)
   let sessionResult: { headers: Headers; response: Awaited<ReturnType<typeof auth.api.getSession>> } | null = null
   let lastErr: unknown
 

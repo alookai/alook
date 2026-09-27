@@ -266,7 +266,7 @@ describe("createCommunityMessage — replyToId write-path scope validation (dang
   })
 })
 
-describe("createCommunityMessage — CAS race (plans/fix-agent-send-race-condition.md)", () => {
+describe("createCommunityMessage — CAS race", () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })

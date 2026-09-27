@@ -761,7 +761,13 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   const dmReplyTarget = alice.page.getByTestId(tid.message(dmWsReadyId))
   const dmScrollToPresent = alice.page.getByTestId(tid.scrollToPresent)
   await expect(dmReplyTarget.or(dmScrollToPresent).first()).toBeVisible()
-  if (await dmScrollToPresent.isVisible()) await dmScrollToPresent.click()
+  if (!(await dmReplyTarget.isVisible())) {
+    try {
+      await dmScrollToPresent.click({ timeout: 3_000 })
+    } catch (error) {
+      if (!(await dmReplyTarget.isVisible())) throw error
+    }
+  }
   await expect(dmReplyTarget).toBeVisible()
   await dispatchSwipe(alice.page, dmWsReadyId, { x: 72, y: 1 })
   await expect(replyPreview).toHaveText(`Replying to ${bobInfo.name} · dm reply target ${stamp}`)

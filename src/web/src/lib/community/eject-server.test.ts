@@ -9,6 +9,7 @@ import {
   consumeVoluntaryLeave,
   createOwnerServerDeleteRouteToken,
   isDefinitiveChildMetaFailure,
+  isOwnerServerDeleteMeRootLanding,
   isOwnerServerDeleteCompleted,
   isOwnerServerDeleteRouteProtected,
   isOwnerServerDeleteScopeEvictionBlocked,
@@ -62,6 +63,20 @@ describe("owner-delete single-navigation lifecycle", () => {
 
   beforeEach(() => {
     cancelOwnerServerDelete(serverId)
+    observeOwnerServerDeleteRouteCommit("/c/me/friends")
+  })
+
+  it("keeps an explicit root landing terminal until a different route commits", () => {
+    const origin = createOwnerServerDeleteRouteToken()
+    beginOwnerServerDelete(serverId, origin)
+    expect(commitOwnerServerDelete(serverId, origin)).toBe(false)
+    expect(claimOwnerServerDeleteNavigation(serverId, origin, "/c/me")).toBe(true)
+    expect(isOwnerServerDeleteMeRootLanding()).toBe(true)
+
+    expect(observeOwnerServerDeleteRouteCommit("/c/me")).toEqual([serverId])
+    expect(isOwnerServerDeleteMeRootLanding()).toBe(true)
+    observeOwnerServerDeleteRouteCommit("/c/me/friends")
+    expect(isOwnerServerDeleteMeRootLanding()).toBe(false)
   })
 
   it("claims exactly one survivor navigation while the deleted route is committed", () => {

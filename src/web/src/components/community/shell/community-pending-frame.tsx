@@ -38,10 +38,12 @@ export function CommunityPendingFrame({
   href,
   reserveBackSlot = false,
   plan: suppliedPlan,
+  conversationSubtype,
 }: {
   href: string
   reserveBackSlot?: boolean
   plan?: CommunityModulePlan
+  conversationSubtype?: "text" | "forum" | "thread"
 }) {
   const plan = suppliedPlan ?? resolveCommunityModulePlan(href)
   const reserveMeBackSlot = reserveBackSlot || (
@@ -68,7 +70,7 @@ export function CommunityPendingFrame({
       content = <ServerLandingPendingFrame />
       break
     case "server-conversation":
-      content = <ConversationResolutionPendingFrame />
+      content = <ConversationResolutionPendingFrame subtype={conversationSubtype} />
       break
     case "route-resolution":
       content = <RouteResolutionPendingFrame />
@@ -80,6 +82,12 @@ export function CommunityPendingFrame({
     <div
       data-testid={tid.pendingMain(plan.main.kind)}
       data-community-main-kind={plan.main.kind}
+      role={plan.main.kind === "server-conversation" ? "status" : undefined}
+      aria-label={
+        plan.main.kind === "server-conversation" && conversationSubtype
+          ? "Resolving conversation"
+          : undefined
+      }
       className="flex min-h-0 min-w-0 flex-1 flex-col"
     >
       {content}

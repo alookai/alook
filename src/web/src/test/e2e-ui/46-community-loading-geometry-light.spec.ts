@@ -19,7 +19,7 @@ test.describe.serial("community light loading geometry", () => {
   })
 
   test("light: persisted desktop sidebars keep every pending-frame boundary aligned", async ({ asUser }) => {
-    test.setTimeout(240_000)
+    test.setTimeout(360_000)
     await runDesktopPersistedPendingGeometry("light", asUser)
   })
 

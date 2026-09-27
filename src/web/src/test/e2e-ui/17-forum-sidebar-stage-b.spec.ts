@@ -175,7 +175,6 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
         successfulResponses.push(response.url())
       }
     })
-
     const initialCombined = page.waitForResponse((response) =>
       response.ok() && isSidebarRequest(response.url(), serverId),
     )
@@ -402,11 +401,23 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
     expect(await participantUserIds(page, ordinaryThreadId)).not.toContain(userId("bob"))
   })
 
-  test("sidebar top-level and child navigation reuse the warm flat base", async ({ asUser }) => {
+  test("sidebar top-level and child navigation reuse the warm flat base", async ({ asUser }, testInfo) => {
     const { page } = await asUser("alice")
     const requests: string[] = []
+    const successfulResponses: string[] = []
+    const failedThreadMessages: string[] = []
     page.on("request", (request) => {
       if (request.method() === "GET") requests.push(request.url())
+    })
+    page.on("response", (response) => {
+      if (response.request().method() === "GET" && response.ok()) {
+        successfulResponses.push(response.url())
+      }
+    })
+    page.on("requestfailed", (request) => {
+      if (isChannelMessagesRequest(request.url(), threadId)) {
+        failedThreadMessages.push(request.failure()?.errorText ?? "unknown")
+      }
     })
 
     const initialCombined = page.waitForResponse((response) =>
@@ -426,12 +437,62 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
     expect(requests.filter((url) => isSidebarRequest(url, serverId))).toHaveLength(0)
 
     requests.length = 0
+    successfulResponses.length = 0
+    let releaseRetained!: () => void
+    let retainedStarted!: () => void
+    const retainedGate = new Promise<void>((resolve) => { releaseRetained = resolve })
+    const retainedRequestStarted = new Promise<void>((resolve) => { retainedStarted = resolve })
+    await page.route("**/api/community/servers/*/channels?*", async (route) => {
+      const url = route.request().url()
+      if (
+        isSidebarRequest(url, serverId)
+        && new URL(url).searchParams.get("retainId") === threadId
+      ) {
+        retainedStarted()
+        await retainedGate
+      }
+      await route.continue()
+    })
+    const clickStartedAt = Date.now()
     await page.getByTestId(tid.forumSidebarThread(threadId)).click()
     await expect.poll(() => new URL(page.url()).pathname).toBe(
       `/c/channels/${serverId}/${threadId}`,
     )
-    await expect(childPanel(page).getByRole("heading", { name: forumTitle })).toBeVisible({ timeout: 20_000 })
-    expect(requests.filter((url) => isSidebarRequest(url, serverId))).toHaveLength(0)
+    await retainedRequestStarted
+    await expect(childPanel(page).getByRole("heading", { name: forumTitle }))
+      .toBeVisible({ timeout: 1_000 })
+    const warmVisibleMs = Date.now() - clickStartedAt
+    releaseRetained()
+    await expect.poll(() => successfulResponses.filter((url) => (
+      isSidebarRequest(url, serverId)
+      && new URL(url).searchParams.get("retainId") === threadId
+    )).length).toBe(1)
+    const retainedSuccessMs = Date.now() - clickStartedAt
+    await page.waitForTimeout(1_200)
+    expect(requests.filter((url) => (
+      isSidebarRequest(url, serverId)
+      && new URL(url).searchParams.get("retainId") === threadId
+    ))).toHaveLength(1)
+    const threadMessageRequests = requests.filter((url) => (
+      isChannelMessagesRequest(url, threadId)
+    ))
+    const successfulThreadMessages = successfulResponses.filter((url) => (
+      isChannelMessagesRequest(url, threadId)
+    ))
+    expect(successfulThreadMessages).toHaveLength(1)
+    await testInfo.attach("warm-forum-route-performance", {
+      body: JSON.stringify({
+        warmVisibleMs,
+        retainedSuccessMs,
+        retainedRequests: 1,
+        threadMessageAttempts: threadMessageRequests.length,
+        threadMessageUrls: threadMessageRequests,
+        threadMessageFailures: failedThreadMessages,
+        threadMessageSuccesses: successfulThreadMessages.length,
+      }),
+      contentType: "application/json",
+    })
+    await page.unroute("**/api/community/servers/*/channels?*")
 
     await page.goBack()
     await expect.poll(() => new URL(page.url()).pathname).toBe(

@@ -2,6 +2,11 @@ import { QueryClient } from "@tanstack/react-query"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { communityKeys } from "@/lib/query-keys"
 import {
+  createCommunityDbRegistry,
+  registerCommunityDbRegistry,
+} from "@/lib/community-db/collections"
+import { ingestServerDetail } from "@/lib/community-db/sync"
+import {
   beginOwnerServerDelete,
   cancelOwnerServerDelete,
   commitOwnerServerDelete,
@@ -22,6 +27,23 @@ describe("owner-delete scope eviction", () => {
   beforeEach(() => {
     cancelOwnerServerDelete(deletedServerId)
     cancelOwnerServerDelete(otherServerId)
+  })
+
+  it("purges the registered canonical server during immediate scope eviction", async () => {
+    const queryClient = new QueryClient()
+    const registry = createCommunityDbRegistry(queryClient, "viewer")
+    await registry.preload()
+    const unregister = registerCommunityDbRegistry(registry)
+    ingestServerDetail(registry, {
+      id: otherServerId, name: "Other", discriminator: "0001", description: "",
+      icon: null, ownerId: "viewer", categories: [],
+    })
+
+    expect(evictServerChannelScopes(queryClient, otherServerId)).toBe(true)
+    expect(registry.collections.servers.get(otherServerId)).toBeUndefined()
+
+    unregister()
+    await registry.cleanup()
   })
 
   it("merges mutation and WS eviction until one safe route commit flushes once", () => {

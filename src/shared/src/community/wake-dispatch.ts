@@ -232,8 +232,7 @@ export async function buildUnreadWakeCommand(
 
   // Audit trail (best-effort) — commit that this wake fired for a specific
   // trigger message. MUST NOT block or fail the wake: on retry (D1 blip) a
-  // second row is preferable to a silently-lost wake. See "Audit write
-  // failure policy" in plans/agent-unread-visibility-unify.md.
+  // second row is preferable to a silently lost wake.
   try {
     await writeWakeTriggerAudit(db, env, {
       botUserId: input.botUserId,

@@ -1,7 +1,6 @@
 /**
  * FSM-trace sampler — heartbeat throttling so the bounded trace retains a
- * useful HISTORY WINDOW instead of being flushed by routine noise
- * (plans/daemon-trace-completeness-charter.md T4).
+ * useful HISTORY WINDOW instead of being flushed by routine noise.
  *
  * WHY: the default trace is capped at 32 MiB per generation (64 MiB for active
  * + `.1`, rotatingFileSink). At the executable N=8 operational envelope, the

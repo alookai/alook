@@ -96,8 +96,8 @@ vi.mock("@/hooks/community/mutations", () => ({
   useSetMemberRole: () => ({ mutate: mocks.setMemberRole }),
   useKickMember: () => ({ mutateAsync: mocks.kickMember }),
 }))
-vi.mock("@/stores/community/ws", () => ({
-  useCommunityWsStore: (selector: (state: { profilesByUserId: Map<string, unknown> }) => unknown) => {
+vi.mock("@/lib/community-db/projections", () => ({
+  useCanonicalProfilesByUserId: () => {
     const rows = [
       ...mocks.serverMembers,
       ...[...mocks.channelMembers.values()].flat(),
@@ -119,7 +119,7 @@ vi.mock("@/stores/community/ws", () => ({
         statusText: status?.text,
       }]]
     }))
-    return selector({ profilesByUserId })
+    return profilesByUserId
   },
 }))
 vi.mock("@/components/community/members/add-members-dialog", () => ({

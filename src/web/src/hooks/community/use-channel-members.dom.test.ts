@@ -2,7 +2,6 @@ import { createElement, type PropsWithChildren } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { renderHook, waitFor } from "@/test/react-dom-harness"
-import { useCommunityWsStore } from "@/stores/community/ws"
 
 const apiFetchMock = vi.fn()
 
@@ -12,8 +11,6 @@ vi.mock("@/lib/api/client", () => ({
 
 beforeEach(() => {
   apiFetchMock.mockReset()
-  useCommunityWsStore.getState().reset()
-  useCommunityWsStore.getState().activateProfileAccount("viewer")
 })
 
 describe("useChannelMembers", () => {
@@ -50,11 +47,5 @@ describe("useChannelMembers", () => {
       )
     })
     await waitFor(() => expect(rendered.result.current.members).toHaveLength(1))
-    expect(useCommunityWsStore.getState().profilesByUserId.get("member_1")).toMatchObject({
-      name: "Alice",
-      discriminator: "0042",
-      avatar: "A",
-      avatarVersion: 4,
-    })
   })
 })

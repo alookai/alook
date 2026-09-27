@@ -1,4 +1,4 @@
-const UNKNOWN_MEMBER = "Unknown member"
+const UNAVAILABLE_MEMBER = "Member unavailable"
 
 export function emailPrefix(email?: string | null): string {
   return email?.split("@")[0]?.trim() ?? ""
@@ -12,7 +12,7 @@ export function displayName(user?: {
   if (name) return name
   const prefix = emailPrefix(user?.email)
   if (prefix) return prefix
-  return UNKNOWN_MEMBER
+  return UNAVAILABLE_MEMBER
 }
 
 export function makeUserNameResolver(
@@ -25,7 +25,7 @@ export function makeUserNameResolver(
 ): (userId: string) => string {
   return (userId: string) => {
     const row = list.find((r) => (r.userId ?? r.id) === userId)
-    if (!row) return UNKNOWN_MEMBER
+    if (!row) return UNAVAILABLE_MEMBER
     return displayName(row)
   }
 }

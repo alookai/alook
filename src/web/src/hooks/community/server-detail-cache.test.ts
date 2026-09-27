@@ -63,10 +63,8 @@ describe("patchChannelUnread", () => {
     expect(toFalse?.categories[0].channels.find((c) => c.id === "ch_a1")?.unread).toBe(false)
   })
 
-  // Regression: the "optimistic markRead stomp" found in plan review — see
-  // plans/community-unread-indicators.md §2 "Second-order risk". Without the
-  // click-time cache patch (channels/layout.tsx), A would have reverted to
-  // `true` here.
+  // Regression: without the click-time cache patch, a later sibling-channel
+  // update would overwrite the optimistic mark-read and make A unread again.
   it("clicking channel A then a WS patch for sibling channel B does not resurrect A's cleared dot", () => {
     let cache: ServerDetail | undefined = fixture()
     // Seed A as unread (as if a message arrived earlier).

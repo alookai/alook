@@ -1,75 +1,23 @@
-"use client"
-
-import { useEffect } from "react"
-import { usePathname, useRouter } from "next/navigation"
-import { useSession } from "@/lib/auth-client"
-import { CommunityShell } from "./community-shell"
+import type { ReactNode } from "react"
+import { getSession } from "@/lib/session"
 import { avatarInitial } from "@/lib/community/avatar"
-import { SignupTracker } from "@/components/signup-tracker"
-import { CommunitySessionPendingFrame } from "@/components/community/shell/community-session-pending-frame"
-import { resolveCommunityModulePlan } from "@/lib/community/community-route"
-import { AuthenticatedContextMenuBoundary } from "@/components/authenticated-context-menu-boundary"
-import { AuthenticatedNativeOauthCleanup } from "@/components/authenticated-native-oauth-cleanup"
-import {
-  clearCommunityColdEntryAttempts,
-  retireCommunityColdEntryAttempt,
-} from "@/lib/community/last-community-route"
+import { CommunityLayoutClient } from "./community-layout-client"
 
-// The invite landing page is preview-first: a logged-out visitor must be able
-// to see it (and only hit the login wall on Join). It's a standalone
-// full-screen page that doesn't use CommunityShell (which requires a
-// logged-in user), so it's exempt from this layout's session gate AND the
-// shell — its own middleware exemption keeps the server side public. Keep the
-// client bypass exact so malformed invite descendants do not inherit it.
-function isPublicCommunityPath(pathname: string): boolean {
-  return resolveCommunityModulePlan(pathname).route === "public-invite"
-}
-
-export default function CommunityLayout({
-  children,
-}: {
-  children: React.ReactNode
-}) {
-  const router = useRouter()
-  const pathname = usePathname()
-  const isPublic = isPublicCommunityPath(pathname)
-  const { data: session, isPending } = useSession()
-  const sessionUserId = session?.user.id
-
-  useEffect(() => {
-    if (!isPublic && !isPending && !session) {
-      router.replace("/sign-in")
-    }
-  }, [isPublic, isPending, session, router])
-
-  useEffect(() => {
-    if (isPending) return
-    if (!sessionUserId) {
-      clearCommunityColdEntryAttempts()
-      return
-    }
-    retireCommunityColdEntryAttempt(sessionUserId, pathname)
-  }, [isPending, pathname, sessionUserId])
-
-  // Public community pages (invite landing) render standalone — no session
-  // gate, no CommunityShell (a logged-out visitor has no currentUser).
-  if (isPublic) return <><SignupTracker />{children}</>
-
-  if (isPending || !session) return <CommunitySessionPendingFrame pathname={pathname} />
-
-  const currentUser = {
-    id: session.user.id,
-    name: session.user.name,
-    email: session.user.email,
-    avatar: session.user.image || avatarInitial(session.user.name),
-    avatarVersion: 0,
-  }
+export default async function CommunityLayout({ children }: { children: ReactNode }) {
+  const session = await getSession()
+  const currentUser = session
+    ? {
+        id: session.user.id,
+        name: session.user.name,
+        email: session.user.email,
+        avatar: session.user.image || avatarInitial(session.user.name),
+        avatarVersion: 0,
+      }
+    : null
 
   return (
-    <AuthenticatedContextMenuBoundary>
-      <AuthenticatedNativeOauthCleanup />
-      <SignupTracker redirectTo="/c/me/machines" />
-      <CommunityShell currentUser={currentUser}>{children}</CommunityShell>
-    </AuthenticatedContextMenuBoundary>
+    <CommunityLayoutClient currentUser={currentUser}>
+      {children}
+    </CommunityLayoutClient>
   )
 }

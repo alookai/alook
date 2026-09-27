@@ -9,14 +9,12 @@ const mocks = vi.hoisted(() => ({
   replace: vi.fn(),
   retireAttempt: vi.fn(),
   clearAttempts: vi.fn(),
-  session: { data: null as null | { user: { id: string; name: string; email: string; image: string | null } }, isPending: true },
 }))
 
 vi.mock("next/navigation", () => ({
   usePathname: () => mocks.pathname,
   useRouter: () => ({ replace: mocks.replace }),
 }))
-vi.mock("@/lib/auth-client", () => ({ useSession: () => mocks.session }))
 vi.mock("@/lib/community/last-community-route", () => ({
   retireCommunityColdEntryAttempt: mocks.retireAttempt,
   clearCommunityColdEntryAttempts: mocks.clearAttempts,
@@ -39,12 +37,20 @@ vi.mock("@/components/signup-tracker", () => ({
 vi.mock("@/components/authenticated-native-oauth-cleanup", () => ({
   AuthenticatedNativeOauthCleanup: () => createElement("div", { "data-testid": "native-oauth-cleanup" }),
 }))
-import CommunityLayout from "./layout"
+import { CommunityLayoutClient } from "./community-layout-client"
 
-function renderLayout() {
+const user = {
+  id: "u1",
+  name: "Ada",
+  email: "ada@example.com",
+  avatar: "A",
+  avatarVersion: 0,
+}
+
+function renderLayout(currentUser: typeof user | null = null) {
   return render(createElement(
-    CommunityLayout,
-    null,
+    CommunityLayoutClient,
+    { currentUser },
     createElement("div", { "data-testid": "child" }),
   ))
 }
@@ -52,23 +58,12 @@ function renderLayout() {
 describe("CommunityLayout session boundary", () => {
   beforeEach(() => {
     mocks.pathname = "/c/me"
-    mocks.session = { data: null, isPending: true }
     mocks.replace.mockClear()
     mocks.retireAttempt.mockClear()
     mocks.clearAttempts.mockClear()
   })
 
-  it("keeps a stable frame while identity is pending", () => {
-    renderLayout()
-    expect(screen.getByTestId("session-pending")).toHaveAttribute("data-pathname", "/c/me")
-    expect(screen.queryByTestId("community-shell")).not.toBeInTheDocument()
-    expect(screen.queryByTestId("native-oauth-cleanup")).not.toBeInTheDocument()
-    expect(mocks.retireAttempt).not.toHaveBeenCalled()
-    expect(mocks.clearAttempts).not.toHaveBeenCalled()
-  })
-
   it("keeps the frame mounted while a signed-out redirect commits", () => {
-    mocks.session = { data: null, isPending: false }
     renderLayout()
     expect(mocks.replace).toHaveBeenCalledWith("/sign-in")
     expect(mocks.clearAttempts).toHaveBeenCalledTimes(1)
@@ -76,12 +71,8 @@ describe("CommunityLayout session boundary", () => {
     expect(screen.queryByTestId("native-oauth-cleanup")).not.toBeInTheDocument()
   })
 
-  it("constructs the shell only after identity is available", () => {
-    mocks.session = {
-      data: { user: { id: "u1", name: "Ada", email: "ada@example.com", image: null } },
-      isPending: false,
-    }
-    renderLayout()
+  it("constructs the shell from the server-seeded identity on its first render", () => {
+    renderLayout(user)
     expect(JSON.parse(screen.getByTestId("community-shell").dataset.currentUser!)).toMatchObject({
       id: "u1",
       name: "Ada",
@@ -112,16 +103,27 @@ describe("CommunityLayout session boundary", () => {
     expect(screen.queryByTestId("child")).not.toBeInTheDocument()
   })
 
-  it("wires the Me verifier to canonical fetch-in-flight state", () => {
+  it("keeps authenticated session resolution in the server layout", () => {
+    const source = readFileSync(resolve(
+      process.cwd(),
+      process.cwd().endsWith("/src/web") ? "" : "src/web",
+      "src/app/c/layout.tsx",
+    ), "utf8")
+    expect(source).toContain("await getSession()")
+    expect(source).toContain("<CommunityLayoutClient currentUser={currentUser}>")
+    expect(source).not.toContain("useSession")
+  })
+
+  it("keeps background DM refresh out of route loading semantics", () => {
     const source = readFileSync(resolve(
       process.cwd(),
       process.cwd().endsWith("/src/web") ? "" : "src/web",
       "src/app/c/me/layout.tsx",
     ), "utf8")
     expect(source).toMatch(/isPending:\s*dmsPending/)
-    expect(source).toMatch(/isFetching:\s*dmsFetching/)
-    expect(source).toContain("const canonicalDmsUnsettled = dmsPending || dmsFetching")
-    expect(source).toContain("useDmRouteVerification(params.dmId, rawDms, canonicalDmsUnsettled)")
+    expect(source).not.toMatch(/isFetching:\s*dmsFetching/)
+    expect(source).toContain("const canonicalDmsUnsettled = dmsPending")
+    expect(source).toContain("useDmRouteVerification(params.dmId, dms, canonicalDmsUnsettled)")
   })
 
   it("keeps the daemon update controller inside the authenticated Community query cache", () => {

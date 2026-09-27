@@ -8,6 +8,7 @@ import {
   advanceCommunityCommittedFrame,
   normalizeCommunityHref,
   resolveCommunityCheckpointPlan,
+  resolveCommunityModulePlan,
   resolveCommunityRoute,
   type CommunityCommittedFrame,
 } from "@/lib/community/community-route"
@@ -22,10 +23,6 @@ import { useShellInboxController } from "./use-shell-inbox-controller"
 import { useCommunityNavigationController } from "./use-community-navigation-controller"
 import type { ShellFrameProps } from "./shell-frame-types"
 import {
-  hasStructuralServerTree,
-  useStructuralSnapshot,
-} from "@/hooks/community/use-structural-snapshot"
-import {
   initialUserBarExtensionState,
   userBarExtensionReducer,
 } from "./user-bar-extension-state"
@@ -36,6 +33,10 @@ import {
   registerOwnerServerDeleteRoute,
 } from "@/lib/community/eject-server"
 import { useNativeMobileBack } from "@/hooks/community/use-native-mobile-back"
+import {
+  useRouteChannelProjection,
+  useServerTreeProjection,
+} from "@/lib/community-db/projections"
 
 /** Shared community shell orchestration for the server and DM layouts. */
 export function ShellFrame(props: ShellFrameProps) {
@@ -52,7 +53,6 @@ export function ShellFrame(props: ShellFrameProps) {
   } = props
   const queryClient = useQueryClient()
   const currentUser = useCurrentUser()
-  const structuralSnapshot = useStructuralSnapshot(currentUser.id, queryClient)
   const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
   const breakpoint = useBreakpoint()
   const onboardingState = useCommunityOnboarding()
@@ -89,15 +89,26 @@ export function ShellFrame(props: ShellFrameProps) {
     ? normalizeCommunityHref(navigation.pendingHref)
     : null
   const targetServerId = target?.scope.kind === "server" ? target.scope.serverId : null
-  const structuralTarget = targetServerId
-    ? structuralSnapshot?.servers.find((server) => server.id === targetServerId)
+  const targetModulePlan = navigation.pendingHref
+    ? resolveCommunityModulePlan(navigation.pendingHref)
     : null
+  const targetChannelId = targetModulePlan?.main.kind === "server-conversation"
+    ? targetModulePlan.main.leafId
+    : null
+  const targetServer = useServerTreeProjection(targetServerId)
+  const targetRouteChannel = useRouteChannelProjection(targetChannelId)
+  const targetChannel = targetServer?.categories
+    ?.flatMap((category) => category.channels)
+    .find((channel) => channel.id === targetChannelId)
+    ?? targetRouteChannel
+  const targetConversationSubtype = targetChannel?.type === "text"
+    || targetChannel?.type === "forum"
+    || targetChannel?.type === "thread"
+    ? targetChannel.type
+    : undefined
   const targetReady = targetServerId
     ? queryClient.getQueryData(communityKeys.server(targetServerId)) !== undefined
-      // `replaceServers` can seed a rail-only identity with an empty tree.
-      // Only a snapshot containing actual tree structure can replace the
-      // target-scoped cold checkpoint.
-      || hasStructuralServerTree(structuralTarget)
+      || targetServer !== undefined
     : target?.scope.kind === "me"
       ? queryClient.getQueryData(communityKeys.dms()) !== undefined
       : false
@@ -106,6 +117,7 @@ export function ShellFrame(props: ShellFrameProps) {
     targetHref: navigation.pendingHref,
     pending: navigation.navigationPending,
     targetReady,
+    targetConversationSubtype,
   })
   const projectedView = checkpoint.rail.kind === "target"
     ? checkpoint.rail.view

@@ -92,19 +92,6 @@ test("mobile foreground proof is exact, bounded, and recovers through one curren
         if (dispatch) document.dispatchEvent(new Event("visibilitychange"))
       },
     })
-    const originalDateNow = Date.now.bind(Date)
-    Object.defineProperty(window, "__alookQaAdvanceWallClock", {
-      configurable: true,
-      value: (offsetMs: number) => {
-        Date.now = () => originalDateNow() + offsetMs
-      },
-    })
-    Object.defineProperty(window, "__alookQaRestoreWallClock", {
-      configurable: true,
-      value: () => {
-        Date.now = originalDateNow
-      },
-    })
   })
   const setVisibility = async (state: "hidden" | "visible", dispatch = true) => {
     await alice.page.evaluate(({ next, shouldDispatch }) => {
@@ -128,13 +115,23 @@ test("mobile foreground proof is exact, bounded, and recovers through one curren
       window.dispatchEvent(new Event("online"))
     }, persisted)
   }
-  const runSentinelIntervals = async () => alice.page.evaluate((delay) => {
+  const runSentinelIntervals = async (wallClockOffsetMs = 0) => alice.page.evaluate(({ delay, offsetMs }) => {
     const run = (window as Window & {
       __alookQaRunIntervals?: (intervalDelay: number) => number
     }).__alookQaRunIntervals
     if (!run) throw new Error("QA interval runner missing")
-    return run(delay)
-  }, WS_FOREGROUND_SENTINEL_INTERVAL_MS)
+    const originalDateNow = Date.now
+    const before = originalDateNow()
+    try {
+      Date.now = () => originalDateNow() + offsetMs
+      return {
+        count: run(delay),
+        observedClockShift: Date.now() - before,
+      }
+    } finally {
+      Date.now = originalDateNow
+    }
+  }, { delay: WS_FOREGROUND_SENTINEL_INTERVAL_MS, offsetMs: wallClockOffsetMs })
   const wsOverlay = alice.page.getByTestId(tid.wsReconnectOverlay)
 
   const initialPageShowFrameCount = proxy.connectionFrames.length
@@ -233,12 +230,8 @@ test("mobile foreground proof is exact, bounded, and recovers through one curren
   await alice.page.waitForTimeout(WS_CONNECTION_VALIDATION_TIMEOUT_MS - 1_000)
   await expect(wsOverlay).toHaveCount(0)
 
-  await expect(wsOverlay).toHaveAttribute(
-    "data-ws-status",
-    "reconnecting",
-    { timeout: 5_000 },
-  )
   await expect.poll(() => proxy.connectionCount()).toBe(failedConnectionBaseline + 1)
+  await expect(wsOverlay).toHaveCount(0)
   await expect.poll(() => tokenRequests).toBe(failedTokenBaseline + 1)
   await expect.poll(() => proxy.heldConnectionCount()).toBe(1)
   await dispatchDuplicateResumeSignals()
@@ -265,7 +258,7 @@ test("mobile foreground proof is exact, bounded, and recovers through one curren
   const sentinelOrdinaryStart = proxy.connectionFrames.length
   const sentinelConnectionBaseline = proxy.connectionCount()
   const sentinelTokenBaseline = tokenRequests
-  expect(await runSentinelIntervals()).toBeGreaterThanOrEqual(1)
+  expect((await runSentinelIntervals()).count).toBeGreaterThanOrEqual(1)
   await alice.page.waitForTimeout(250)
   expect(proxy.connectionCount()).toBe(sentinelConnectionBaseline)
   expect(tokenRequests).toBe(sentinelTokenBaseline)
@@ -276,36 +269,21 @@ test("mobile foreground proof is exact, bounded, and recovers through one curren
   dropValidationPong = true
   holdReplacementAuth = true
   const sentinelRecoveryStart = proxy.connectionFrames.length
-  const observedClockShift = await alice.page.evaluate((offsetMs) => {
-    const before = Date.now()
-    const advance = (window as Window & {
-      __alookQaAdvanceWallClock?: (offset: number) => void
-    }).__alookQaAdvanceWallClock
-    if (!advance) throw new Error("QA wall-clock advancer missing")
-    advance(offsetMs)
-    return Date.now() - before
-  }, WS_FOREGROUND_SUSPENSION_GAP_MS + 5_000)
+  const sentinelTick = await runSentinelIntervals(WS_FOREGROUND_SUSPENSION_GAP_MS + 5_000)
+  const observedClockShift = sentinelTick.observedClockShift
   expect(observedClockShift).toBeGreaterThanOrEqual(WS_FOREGROUND_SUSPENSION_GAP_MS)
-  expect(await runSentinelIntervals()).toBeGreaterThanOrEqual(1)
+  expect(sentinelTick.count).toBeGreaterThanOrEqual(1)
   await expect.poll(() => proxy.connectionFrames.slice(sentinelRecoveryStart).filter((frame) =>
     frame.direction === "client-to-server" && frame.type === "connection.ping",
   ).length).toBe(1)
-  await alice.page.evaluate(() => {
-    const restore = (window as Window & {
-      __alookQaRestoreWallClock?: () => void
-    }).__alookQaRestoreWallClock
-    if (!restore) throw new Error("QA wall-clock restorer missing")
-    restore()
-  })
   await dispatchDuplicateResumeSignals()
   proxy.sendConnectionFrame({ type: "connection.pong", nonce: "sentinel_stale_nonce" })
 
-  await expect(wsOverlay).toHaveAttribute(
-    "data-ws-status",
-    "reconnecting",
+  await expect.poll(
+    () => proxy.connectionCount(),
     { timeout: WS_CONNECTION_VALIDATION_TIMEOUT_MS + 5_000 },
-  )
-  await expect.poll(() => proxy.connectionCount()).toBe(sentinelConnectionBaseline + 1)
+  ).toBe(sentinelConnectionBaseline + 1)
+  await expect(wsOverlay).toHaveCount(0)
   await expect.poll(() => tokenRequests).toBe(sentinelTokenBaseline + 1)
   await expect.poll(() => proxy.heldConnectionCount()).toBe(1)
   expect(proxy.connectionFrames.slice(sentinelRecoveryStart).filter((frame) =>
@@ -323,11 +301,11 @@ test("mobile foreground proof is exact, bounded, and recovers through one curren
   try {
     await alice.context.setOffline(true)
     await proxy.disconnect()
-    await expect(wsOverlay).toHaveAttribute(
-      "data-ws-status",
-      "reconnecting",
-      { timeout: 10_000 },
-    )
+    await alice.page.waitForTimeout(1_600)
+    await expect(wsOverlay).toHaveCount(0)
+    await expect.poll(() => composerEditable(alice.page).evaluate((element) => (
+      element.closest("[inert]") !== null
+    ))).toBe(false)
     await expect(wsOverlay).toHaveAttribute(
       "data-ws-status",
       "failed",
@@ -337,21 +315,34 @@ test("mobile foreground proof is exact, bounded, and recovers through one curren
     await alice.context.setOffline(false)
   }
 
-  await alice.page.getByTestId(tid.wsRetry).click()
+  const retryConnectionBaseline = proxy.connectionCount()
+  const retrySuccessfulTokenBaseline = successfulTokenResponses
+  const retry = alice.page.getByTestId(tid.wsRetry)
+  await retry.focus()
+  await alice.page.keyboard.press("Enter")
   await expect(wsOverlay).toHaveCount(0, { timeout: 20_000 })
+  // The failed-only overlay disappears as soon as Retry starts connecting.
+  // Wait for that generation to authenticate before measuring a hard reload,
+  // otherwise the retry socket can race the discarded document's replacement
+  // and make the reload look like it opened two connections.
+  await expect.poll(() => proxy.connectionCount()).toBe(retryConnectionBaseline + 1)
+  await expect.poll(() => successfulTokenResponses).toBe(retrySuccessfulTokenBaseline + 1)
 
   const reloadFrameStart = proxy.connectionFrames.length
   const reloadConnectionBaseline = proxy.connectionCount()
   const reloadSuccessfulTokenBaseline = successfulTokenResponses
+  await alice.page.evaluate(() => {
+    document.documentElement.removeAttribute("data-e2e-user-ws-authenticated")
+  })
   await alice.page.reload({ waitUntil: "commit" })
+  await expect(alice.page.locator("html")).toHaveAttribute(
+    "data-e2e-user-ws-authenticated",
+    "true",
+    { timeout: 20_000 },
+  )
   await expect(composerEditable(alice.page)).toBeVisible({ timeout: 20_000 })
   await expect.poll(() => proxy.connectionCount()).toBe(reloadConnectionBaseline + 1)
   await expect.poll(() => successfulTokenResponses).toBe(reloadSuccessfulTokenBaseline + 1)
-  await expect.poll(() => proxy.connectionFrames.slice(reloadFrameStart).filter((frame) =>
-    frame.direction === "server-to-client"
-    && frame.type === "auth.ok"
-    && frame.connectionId === reloadConnectionBaseline + 1,
-  ).length).toBe(1)
   await alice.page.waitForTimeout(500)
   expect(proxy.connectionCount()).toBe(reloadConnectionBaseline + 1)
   expect(successfulTokenResponses).toBe(reloadSuccessfulTokenBaseline + 1)

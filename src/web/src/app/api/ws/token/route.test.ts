@@ -8,7 +8,7 @@ vi.mock("@opennextjs/cloudflare", () => ({
 }))
 
 vi.mock("@/lib/auth", () => ({
-  createAuth: vi.fn(() => ({
+  getAuth: vi.fn(() => ({
     api: { getSession: (...a: unknown[]) => mockGetSession(...a) },
   })),
 }))

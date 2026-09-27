@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { useIsRestoring, type QueryClient } from "@tanstack/react-query"
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools"
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client"
 import { createQueryClient } from "@/lib/query-client"
@@ -13,7 +14,6 @@ import {
 import { disposeAccountReadStateReconciliation } from "@/hooks/community/community-ws/read-state-reconciliation"
 import { disposeReadCoordinator } from "@/hooks/community/read-coordinator"
 import { useCommunityWsStore } from "@/stores/community/ws"
-import { seedPersistedMessageProfiles } from "@/lib/community/profile-seed"
 import {
   disposeAccountUnreadProjection,
   getAccountUnreadProjection,
@@ -22,7 +22,62 @@ import {
   communityKeys,
   isCommunityServerDetailQueryKey,
 } from "@/lib/query-keys"
-import { installStructuralSnapshotProjection } from "@/hooks/community/use-structural-snapshot"
+import {
+  createCommunityDbRegistry,
+  registerCommunityDbRegistry,
+  type CommunityDbRegistry,
+} from "@/lib/community-db/collections"
+import { CommunityDbProvider } from "@/lib/community-db/projections"
+import { installCommunityDbSync } from "@/lib/community-db/sync"
+
+function createRestoreGate() {
+  let release!: () => void
+  const ready = new Promise<void>((resolve) => { release = resolve })
+  return { ready, release }
+}
+
+function CommunityDbRuntime({
+  children,
+  onRestoreComplete,
+  queryClient,
+  registry,
+}: {
+  children: ReactNode
+  onRestoreComplete: () => void
+  queryClient: QueryClient
+  registry: CommunityDbRegistry
+}) {
+  const isRestoring = useIsRestoring()
+  const disposeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useLayoutEffect(() => {
+    if (disposeTimer.current !== null) {
+      clearTimeout(disposeTimer.current)
+      disposeTimer.current = null
+    }
+    const unregisterCommunityDb = registerCommunityDbRegistry(registry)
+    return () => {
+      unregisterCommunityDb()
+      disposeTimer.current = setTimeout(() => {
+        disposeTimer.current = null
+        disposeReadCoordinator(queryClient)
+        disposeAccountReadStateReconciliation(queryClient)
+        disposeAccountUnreadProjection(queryClient)
+      }, 0)
+    }
+  }, [queryClient, registry])
+
+  useLayoutEffect(() => {
+    if (isRestoring) return
+    onRestoreComplete()
+    // A collection preload writes the queryFn result into TanStack Query. It
+    // must not run before persisted hydration, otherwise a fresh empty array
+    // outranks the older canonical rows on disk by dataUpdatedAt.
+    return installCommunityDbSync(queryClient, registry)
+  }, [isRestoring, onRestoreComplete, queryClient, registry])
+
+  return <CommunityDbProvider registry={registry}>{children}</CommunityDbProvider>
+}
 
 /**
  * Owns the TanStack QueryClient for the community subtree.
@@ -45,10 +100,11 @@ export function QueryProvider({
   children: ReactNode
   userId: string | null
 }) {
-  const [restoreProfileSnapshot] = useState(
-    () => useCommunityWsStore.getState().beginProfileSnapshot(),
-  )
   const [queryClient] = useState(() => createQueryClient())
+  const [restoreGate] = useState(createRestoreGate)
+  const [communityDb] = useState(() => createCommunityDbRegistry(queryClient, userId, {
+    waitForRestore: restoreGate.ready,
+  }))
   const unreadProjection = useMemo(
     () => userId ? getAccountUnreadProjection(queryClient, userId) : null,
     [queryClient, userId],
@@ -77,32 +133,48 @@ export function QueryProvider({
   // id, so we don't need to reactively rebuild the persister mid-session.
   const [persister] = useState(() => createIdbPersister(userId))
   const isDev = process.env.NODE_ENV !== "production"
-  const disposeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  useEffect(() => {
-    if (disposeTimer.current !== null) {
-      clearTimeout(disposeTimer.current)
-      disposeTimer.current = null
+  const settleRestoredAccount = () => {
+    communityDb.captureRestoredCollections()
+    const profiles = useCommunityWsStore.getState()
+    if (profiles.profileViewerId !== userId) {
+      profiles.activateProfileAccount(userId)
     }
-    return () => {
-      disposeTimer.current = setTimeout(() => {
-        disposeTimer.current = null
-        disposeReadCoordinator(queryClient)
-        disposeAccountReadStateReconciliation(queryClient)
-        disposeAccountUnreadProjection(queryClient)
-      }, 0)
-    }
-  }, [queryClient])
-
-  useEffect(
-    () => installStructuralSnapshotProjection(queryClient, userId),
-    [queryClient, userId],
-  )
+  }
 
   return (
     <PersistQueryClientProvider
       client={queryClient}
-      onSuccess={() => seedPersistedMessageProfiles(queryClient, restoreProfileSnapshot)}
+      onSuccess={() => {
+        // `onSuccess` runs after hydrate and before `isRestoring` becomes
+        // false. Freeze which canonical collections came from that restore so
+        // later network results can never be misclassified as persisted.
+        settleRestoredAccount()
+        void Promise.all([
+          queryClient.invalidateQueries({
+            queryKey: communityKeys.servers(),
+            exact: true,
+            refetchType: "active",
+          }),
+          queryClient.invalidateQueries({
+            queryKey: communityKeys.folders(),
+            exact: true,
+            refetchType: "active",
+          }),
+          queryClient.invalidateQueries({
+            queryKey: communityKeys.dms(),
+            exact: true,
+            refetchType: "active",
+          }),
+          queryClient.invalidateQueries({
+            predicate: ({ queryKey }) => isCommunityServerDetailQueryKey(queryKey),
+            refetchType: "active",
+          }),
+        ])
+      }}
+      // A failed IndexedDB read still completes the identity handoff. The
+      // account gate remains visible until this atomically clears any previous
+      // viewer state, then the new account mounts against an empty live cache.
+      onError={settleRestoredAccount}
       persistOptions={{
         persister,
         maxAge: PERSIST_MAX_AGE_MS,
@@ -110,9 +182,9 @@ export function QueryProvider({
         dehydrateOptions: {
           shouldDehydrateQuery: (query) => {
             // Two-stage filter:
-            // 1. Key must be in the persisted allowlist (only message queries
-            //    are persisted — presence/servers/etc. refetch on mount).
-            // 2. For message queries, `pages[0]` must be a trusted
+            // 1. Key must be in the persisted allowlist (canonical collection
+            //    rows plus the retained raw read closure).
+            // 2. For raw message queries, `pages[0]` must be a trusted
             //    newest-tail shape. A since-mode or older-only envelope has
             //    no `hasMore` flag on page 0 → the next mount reads
             //    `hasMoreOlder ?? hasMore ?? false` as false and silently
@@ -124,8 +196,14 @@ export function QueryProvider({
         },
       }}
     >
-      {children}
-      {isDev ? <ReactQueryDevtools initialIsOpen={false} /> : null}
+      <CommunityDbRuntime
+        onRestoreComplete={restoreGate.release}
+        queryClient={queryClient}
+        registry={communityDb}
+      >
+        {children}
+        {isDev ? <ReactQueryDevtools initialIsOpen={false} /> : null}
+      </CommunityDbRuntime>
     </PersistQueryClientProvider>
   )
 }

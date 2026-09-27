@@ -14,6 +14,7 @@ describe("listActionableIncomingRequests", () => {
       CREATE TABLE user (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
+        discriminator TEXT NOT NULL DEFAULT '',
         image TEXT,
         avatarVersion INTEGER NOT NULL DEFAULT 0
       );
@@ -66,6 +67,7 @@ describe("listActionableIncomingRequests", () => {
         id: "fr_newer",
         userId: "newer",
         name: "Newer",
+        discriminator: "",
         image: null,
         avatarVersion: 2,
         createdAt: "2026-09-12T02:00:00Z",
@@ -74,6 +76,7 @@ describe("listActionableIncomingRequests", () => {
         id: "fr_z",
         userId: "tie-z",
         name: "Tie Z",
+        discriminator: "",
         image: null,
         avatarVersion: 3,
         createdAt: "2026-09-12T01:00:00Z",
@@ -82,6 +85,7 @@ describe("listActionableIncomingRequests", () => {
         id: "fr_a",
         userId: "tie-a",
         name: "Tie A",
+        discriminator: "",
         image: null,
         avatarVersion: 4,
         createdAt: "2026-09-12T01:00:00Z",

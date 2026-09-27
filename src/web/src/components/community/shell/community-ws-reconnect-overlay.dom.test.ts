@@ -1,6 +1,6 @@
 import React from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { act, fireEvent, render as renderDom, screen, within } from "@/test/react-dom-harness"
+import { act, fireEvent, render as renderDom, screen } from "@/test/react-dom-harness"
 import { tid } from "@/lib/community/testids"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { CommunityWsReconnectBoundary } from "./community-ws-reconnect-overlay"
@@ -31,26 +31,6 @@ describe("CommunityWsReconnectBoundary", () => {
     return { renderer, focus }
   }
 
-  function expectAppEdgeFade(overlay: HTMLElement) {
-    const fade = overlay.querySelector<HTMLElement>('[data-slot="app-edge-fade"]')!
-    expect(fade).toHaveAttribute("aria-hidden", "true")
-    expect(fade).toHaveClass("pointer-events-none", "absolute", "inset-0")
-    expect(fade.querySelectorAll("[data-app-edge]")).toHaveLength(2)
-    expect(fade.querySelector('[data-app-edge="top"]')).toHaveClass(
-      "top-0",
-      "h-(--app-edge-fade-size)",
-      "from-(--app-bg)",
-      "to-transparent",
-    )
-    expect(fade.querySelector('[data-app-edge="bottom"]')).toHaveClass(
-      "bottom-0",
-      "h-(--app-edge-fade-size)",
-      "from-transparent",
-      "to-(--app-bg)",
-    )
-    expect(fade.querySelectorAll("button, a, input, [tabindex]")).toHaveLength(0)
-  }
-
   it("leaves connected content interactive without rendering an overlay", () => {
     const { renderer } = render()
     const content = renderer.container.querySelector(".contents")!
@@ -59,57 +39,32 @@ describe("CommunityWsReconnectBoundary", () => {
     expect(screen.queryByTestId(tid.wsReconnectOverlay)).not.toBeInTheDocument()
   })
 
-  it("blocks the content and announces a reconnecting state", () => {
+  it("keeps cached content interactive while connecting or reconnecting", () => {
     const { renderer, focus } = render()
     act(() => useCommunityWsStore.getState().setConnectionStatus("reconnecting"))
 
     const content = renderer.container.querySelector(".contents")!
-    expect(content).toHaveAttribute("inert")
-    expect(content).toHaveAttribute("aria-hidden", "true")
-    const overlay = screen.getByTestId(tid.wsReconnectOverlay)
-    expect(overlay).toHaveAttribute("data-ws-status", "reconnecting")
-    expect(overlay).toHaveAttribute("aria-modal", "true")
-    expect(overlay).toHaveAttribute("tabindex", "-1")
-    expect(overlay).toHaveClass(
-      "fixed",
-      "inset-0",
-      "community-ws-reconnect-overlay",
-      "z-2147483647",
-      "backdrop-blur-sm",
-    )
-    expect(overlay).toHaveClass("bg-background/60", "supports-backdrop-filter:bg-background/45")
-    expectAppEdgeFade(overlay)
-    expect(screen.getByRole("status")).toHaveAttribute("aria-atomic", "true")
-    expect(screen.getByRole("status")).toHaveAttribute("aria-live", "polite")
-    expect(screen.getByRole("status")).toHaveAttribute("data-slot", "text-loader")
-    expect(screen.getByRole("status")).toHaveAttribute("data-variant", "default")
-    expect(screen.getByRole("heading", { name: "Connecting…" })).toBeInTheDocument()
-    const motion = overlay.querySelector<HTMLElement>("[data-connecting-motion]")!
-    expect(motion).toHaveAttribute("aria-hidden", "true")
-    expect(motion).toHaveClass("h-36", "w-44", "sm:h-40", "sm:w-48", "items-center")
-    expect(motion.querySelectorAll("svg")).toHaveLength(5)
-    expect(motion.querySelector("[role=status]")).toHaveClass("scale-90", "sm:scale-100")
-    expect(motion.querySelector("[role=status]")).toHaveStyle({ width: "192px", height: "192px" })
-    expect(overlay.querySelector(".community-ws-connecting-text")).toHaveClass("font-heading")
-    expect(overlay.querySelectorAll(".community-ws-connecting-letter")).toHaveLength(11)
-    expect(overlay.querySelector(".community-ws-connecting-text")).toHaveTextContent("Connecting…")
-    expect(screen.queryByTestId(tid.wsRetry)).not.toBeInTheDocument()
-    expect(focus).toHaveBeenCalledOnce()
+    expect(content).not.toHaveAttribute("inert")
+    expect(content).not.toHaveAttribute("aria-hidden")
+    expect(screen.queryByTestId(tid.wsReconnectOverlay)).not.toBeInTheDocument()
+    expect(focus).not.toHaveBeenCalled()
   })
 
-  it("shows an accessible mobile-sized Retry action and restores immediately", () => {
+  it("shows a non-modal Retry status without disabling cached content", () => {
     const reconnectNow = vi.fn()
     useCommunityWsStore.getState().bindReconnectNow(reconnectNow)
     const { renderer } = render()
     act(() => useCommunityWsStore.getState().setConnectionStatus("failed"))
 
-    const alert = screen.getByRole("alert")
-    expect(alert).toHaveAttribute("aria-atomic", "true")
-    expect(alert).toHaveAttribute("aria-live", "assertive")
-    expect(within(alert).getByRole("heading", { name: "Connection lost" })).toBeInTheDocument()
-    expectAppEdgeFade(screen.getByTestId(tid.wsReconnectOverlay))
+    const status = screen.getByRole("status")
+    expect(status).toHaveAttribute("aria-atomic", "true")
+    expect(status).toHaveAttribute("aria-live", "polite")
+    expect(status).not.toHaveAttribute("aria-modal")
+    expect(status).toHaveTextContent("Connection lost")
+    expect(status).toHaveTextContent("Cached content is still available.")
+    expect(renderer.container.querySelector(".contents")).not.toHaveAttribute("inert")
     const retry = screen.getByTestId(tid.wsRetry)
-    expect(retry).toHaveClass("h-11", "sm:h-10")
+    expect(retry).toHaveClass("h-11", "sm:h-9")
     fireEvent.click(retry)
     expect(reconnectNow).toHaveBeenCalledOnce()
 

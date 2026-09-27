@@ -1,5 +1,5 @@
 -- Community bots — first-class community identities owned by users, bound to
--- a paired machine + runtime. See plans/community-bots.md.
+-- a paired machine + runtime.
 
 -- 1. Extend user with bot fields.
 --    isBot / ownerUserId are internal columns (never exposed to non-owners).

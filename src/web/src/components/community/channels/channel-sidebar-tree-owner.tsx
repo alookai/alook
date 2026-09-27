@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import type { Category } from "@/lib/community/models/navigation"
 import {
   ChannelSidebar,
@@ -18,7 +19,50 @@ export type ChannelSidebarScopeProps = Omit<ChannelSidebarTreeOwnerProps, "categ
   targetServerId: string
 }
 
-/** Keeps the cold readiness gate outside the state-owning tree component. */
+export type ChannelSidebarRevealBoundaryProps = Omit<
+  ChannelSidebarScopeProps,
+  "categories"
+> & {
+  categories: Category[]
+  primaryReady: boolean
+  forumProjectionMissing: boolean
+  trustedRestoredPrimary: boolean
+}
+
+/**
+ * A trusted restored primary tree reveals even when it arrives asynchronously
+ * and the non-persisted forum projection is still pending. A true-cold tree
+ * reveals once, after its primary data and initial forum projection are both
+ * ready. Later forum refetches never hide or remount the revealed tree.
+ */
+export function ChannelSidebarRevealBoundary({
+  categories,
+  primaryReady,
+  forumProjectionMissing,
+  trustedRestoredPrimary,
+  ...scopeProps
+}: ChannelSidebarRevealBoundaryProps) {
+  const [revealed, setRevealed] = useState(primaryReady && trustedRestoredPrimary)
+
+  useEffect(() => {
+    if (primaryReady && (trustedRestoredPrimary || !forumProjectionMissing)) {
+      setRevealed(true)
+    }
+  }, [forumProjectionMissing, primaryReady, trustedRestoredPrimary])
+
+  return (
+    <ChannelSidebarScope
+      categories={primaryReady && revealed ? categories : null}
+      {...scopeProps}
+    />
+  )
+}
+
+/**
+ * Owns the only server-sidebar loading boundary. Once canonical or structural
+ * categories exist, secondary fetches may reconcile the mounted tree but must
+ * never replace cached rows with a skeleton.
+ */
 export function ChannelSidebarScope({
   categories,
   scopeKey,

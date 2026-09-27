@@ -4,7 +4,6 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { tid } from "@/lib/community/testids"
 import { ChannelIcon } from "../channels/channel-icon"
 import { ComposerAccessoryRail, MessageSelectionFooter } from "./composer-accessory-rail"
-import { InitialPositionAurora } from "./initial-position-aurora"
 import { MessageShareDialog } from "./message-share-dialog"
 import type { MessageListController } from "./message-list-controller"
 import type { ResolvedMessageListProps } from "./message-list-types"
@@ -51,7 +50,7 @@ export function renderMessageListView(
             aria-hidden={!controller.initialPosition.showSkeleton && !controller.initialPosition.contentVisible}
             inert={!controller.initialPosition.showSkeleton && !controller.initialPosition.contentInteractive}
             className={`flex min-h-full flex-col justify-end px-4 pb-4 pt-8 sm:pb-6 ${
-              controller.initialPosition.phase === "revealing"
+              controller.initialPosition.phase === "revealing" && controller.initialPosition.contentVisible
                 ? "opacity-100 transition-opacity duration-300 ease-linear motion-reduce:transition-opacity"
                 : controller.initialPosition.showSkeleton || controller.initialPosition.contentVisible
                   ? "opacity-100"
@@ -116,7 +115,6 @@ export function renderMessageListView(
             </div>
           </div>
         )}
-        <InitialPositionAurora phase={controller.initialPosition.phase} />
       </div>
     </div>
   )

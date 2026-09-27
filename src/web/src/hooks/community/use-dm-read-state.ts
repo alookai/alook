@@ -33,7 +33,10 @@ export type DmReadStateSnapshot = {
  * same `staleTime: Infinity` + `gcTime: 0` combo, same channelId → dmId
  * substitution.
  */
-export function useDmReadStateSnapshot(dmId: string | null | undefined): {
+export function useDmReadStateSnapshot(
+  dmId: string | null | undefined,
+  canonicalSnapshot?: DmReadStateSnapshot,
+): {
   snapshot: DmReadStateSnapshot | null
   isFetching: boolean
 } {
@@ -67,6 +70,9 @@ export function useDmReadStateSnapshot(dmId: string | null | undefined): {
     snapshotRef.current = null
     lastDmIdRef.current = dmId
   }
+  if (snapshotRef.current === null && canonicalSnapshot) {
+    snapshotRef.current = canonicalSnapshot
+  }
   /* eslint-enable react-hooks/refs */
   useEffect(() => {
     if (snapshotRef.current !== null) return
@@ -77,7 +83,7 @@ export function useDmReadStateSnapshot(dmId: string | null | undefined): {
   /* eslint-disable react-hooks/refs -- latched snapshot read; see channel hook tests */
   return {
     snapshot: snapshotRef.current ?? (!query.isFetching ? (query.data ?? null) : null),
-    isFetching: query.isFetching,
+    isFetching: snapshotRef.current === null && query.isFetching,
   }
   /* eslint-enable react-hooks/refs */
 }

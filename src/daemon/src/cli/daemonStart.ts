@@ -68,8 +68,7 @@ function daemonsDir(baseDir: string): string {
  * machineId), so hashing the CLI key drifted the directory on every reconnect —
  * orphan subdirs + a double-start guard that never fired. machineId is stable
  * across reconnects (activate reuses the same machine row) and is what
- * `daemon list` shows / `daemon stop <id>` takes. See
- * plans/daemon-c01-machineid-anchor.md.
+ * `daemon list` shows / `daemon stop <id>` takes.
  */
 export function daemonDirById(baseDir: string, id: string): string {
   return path.join(daemonsDir(baseDir), validateDaemonId(id));
@@ -716,7 +715,7 @@ export interface DaemonStopOpts {
  * Core stop: SIGTERM → wait for the daemon's own ordered shutdown (stopAll
  * agent children, close channel/proxy, remove pidfile) → escalate to SIGKILL
  * only if it overruns the grace window. This kill/teardown semantic is
- * UNCHANGED by stop-by-id (plans/daemon-cli-humanize-charter.md red line 3) —
+ * unchanged by stop-by-id —
  * only HOW the daemon is addressed changed (its list id, not a machine key).
  */
 async function stopExactPid(pid: number): Promise<void> {

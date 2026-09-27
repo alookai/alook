@@ -57,6 +57,13 @@ vi.mock("@/lib/api/client", () => ({
   apiFetch: vi.fn(() => Promise.resolve({})),
   toastApiError: vi.fn(),
 }))
+vi.mock("@/lib/community-db/projections", () => ({
+  useOptionalCommunityDbRegistry: () => null,
+  useAttentionScopes: () => [],
+  useAttentionItems: () => [],
+  useServerRailProjection: () => undefined,
+  useServerTreeProjection: () => undefined,
+}))
 
 function configFor(keyIncludes: string) {
   return queryConfigs.find((c) => JSON.stringify(c.queryKey).includes(keyIncludes))

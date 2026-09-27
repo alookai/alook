@@ -6,7 +6,7 @@ import { daemonList } from "./daemonStart";
 import { renderDaemonList } from "./index";
 
 /*
- * C3 (plans/daemon-cli-humanize-charter.md): `daemon list` returns an addressing
+ * `daemon list` returns an addressing
  * `id` (= pidfile name, what `daemon stop <id>` eats) + agents/lastActive from
  * status.json + pid/alive — and NO machine-key/credential. The renderer prints a
  * human table, not JSON, with the machine key nowhere in sight (red line 2).

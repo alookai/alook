@@ -130,6 +130,31 @@ describe("useChannelReadStateSnapshot — freeze invariant", () => {
     })
   })
 
+  it("freezes a canonical snapshot immediately while the mount request revalidates", async () => {
+    const useHook = await loadHook()
+    queryReturn = { data: undefined, isFetching: true }
+    const canonical = {
+      lastReadMessageId: "m_cached",
+      lastReadAt: "2026-07-01T00:00:00.000Z",
+      lastReadSeq: 10,
+    }
+    const warm = useHook("ch_1", canonical)
+    flushEffects()
+    expect(warm).toEqual({ snapshot: canonical, isFetching: false })
+
+    refCounter = 0
+    pendingEffects = []
+    queryReturn = {
+      data: {
+        lastReadMessageId: "m_fresh",
+        lastReadAt: "2026-07-02T00:00:00.000Z",
+        lastReadSeq: 20,
+      },
+      isFetching: false,
+    }
+    expect(useHook("ch_1").snapshot).toEqual(canonical)
+  })
+
   it("freezes the snapshot — a subsequent 'refetch' with a NEW value must NOT change what the hook returns", async () => {
     const useHook = await loadHook()
 

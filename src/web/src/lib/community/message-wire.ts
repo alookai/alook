@@ -5,6 +5,7 @@ import { isInlineAttachmentContentType } from "@/lib/community/attachment-conten
 import { formatAttachmentSize } from "@/lib/community/attachment-presentation"
 import type { CanonicalMessage } from "@/lib/community/message-stream"
 import { canonicalUserImage } from "@/lib/community/storage"
+import { projectMessageWireType } from "@/lib/community/message-wire-type"
 
 type UiEmbed = NonNullable<Msg["embeds"]>[number]
 
@@ -149,15 +150,10 @@ export function projectPostedMessage(
       return projected ? [projected] : []
     })
     : undefined
-  const type = message.type === "thread_created"
-    ? { type: "system" as const, systemKind: "thread" as const }
-    : message.type === "system"
-      ? { type: "system" as const }
-      : { type: "chat" as const }
   return {
     id: message.id,
     seq: message.seq,
-    ...type,
+    ...projectMessageWireType(message.type),
     authorId: message.authorId,
     authorName: message.authorName,
     authorAvatar: canonicalUserImage(

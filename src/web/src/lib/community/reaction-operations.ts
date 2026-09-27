@@ -111,7 +111,7 @@ export async function listReactionsForActor(
     actor.userId,
     actor.profile
       ? `@${formatHandle(actor.profile.name, actor.profile.discriminator)}`
-      : "Unknown user",
+      : "Deleted user",
   ]))
   const byEmoji = new Map<string, { actorIds: Set<string>; me: boolean }>()
   for (const reaction of reactions) {
@@ -127,7 +127,7 @@ export async function listReactionsForActor(
       .map(([emoji, group]) => ({
         emoji,
         actors: [...group.actorIds]
-          .map((userId) => handles.get(userId) ?? "Unknown user")
+          .map((userId) => handles.get(userId) ?? "Deleted user")
           .sort((a, b) => a === b ? 0 : a < b ? -1 : 1),
         me: group.me,
       })),

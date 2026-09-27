@@ -13,7 +13,7 @@ head_sampling_rate = 0.1
 # head-sampling is a request-level decision that can't be bypassed by log
 # level. Full-rate ingest is affordable here — ws-do's log volume is
 # dominated by daemon frames — and is the only reliable way to measure the
-# audit-loss SLO. See plans/d1-critical-path-resilience-v2.md §Observability.
+# audit-loss SLO.
 [observability.logs]
 invocation_logs = true
 head_sampling_rate = 1.0

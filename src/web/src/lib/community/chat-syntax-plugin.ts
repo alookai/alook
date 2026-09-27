@@ -21,8 +21,7 @@ import type { SpoilerNode } from "./spoiler-syntax"
 // in `spoiler-syntax.ts`.
 
 // Matches a `/server#disc/channel`, `/server#disc/channel/#N` (thread), or
-// `/server#disc/channel/#N#M` (thread reply,
-// see plans/agent-thread-emoji-react.md) ref — the CLI's path grammar
+// `/server#disc/channel/#N#M` thread-reply ref — the CLI's path grammar
 // (`parseRef`/`formatRef` in `community-cli-contract.ts`). Segment charset
 // `[^\s/#.,;:!?)\]]+` = "any char slugify can emit, minus the terminator
 // punctuation": server names travel with their required discriminator and
@@ -106,13 +105,13 @@ const SERVER_REF_RE = new RegExp(`(?<=^|\\s)/${HANDLE_SEG}(?=\\s|$|[${REF_TERM}]
 // disambiguation: the prefix-anchored full-path form can't collide with a bare
 // `#`, so no ordering hazard with mentions/spoilers/other `#` syntax.)
 
-// Two-branch mention grammar (see plans/mandatory-mention-discriminator.md):
+// Two-branch mention grammar:
 //
 //  1. The literal `@everyone` token, with a trailing `(?![\p{L}\p{N}_-])`
 //     boundary guard so `@everyoneee` is NOT matched as `@everyone` — this MUST
 //     agree with `detectMentionType`'s boundary check (mention-extension.ts)
-//     and `community-mentions.ts`'s `ID_CHAR_RE`. (`@here` was removed as a
-//     broadcast trigger — see plans/remove-here-mention.md; a literal `@here`
+//     and `community-mentions.ts`'s `ID_CHAR_RE`. `@here` was removed as a
+//     broadcast trigger; a literal `@here`
 //     now falls through as ordinary text, matching option b: no legacy
 //     rendering for historical `@here`.)
 //

@@ -268,6 +268,8 @@ describe("ThreadChannelSurface ownership", () => {
     expect(opener.type).toBe(ThreadOpener)
     expect(opener.props).toEqual(expect.objectContaining({
       parentMessageId: "opener_1",
+      parentChannelId: "parent_1",
+      serverId: "server_1",
       viewerUserId: "viewer_1",
       onOpenProfile: props.onOpenProfile,
       onToggleReaction: expect.any(Function),

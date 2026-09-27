@@ -106,7 +106,7 @@ describe("bot mutations wire the bot id into invalidateBotSurfaces", () => {
       const output = renderer.container.querySelector("span")
       expect(output).toHaveAttribute("data-count", "1")
       expect(output).toHaveAttribute("data-name", "Seeded Bot")
-      expect(output).toHaveAttribute("data-avatar", "S")
+      expect(output).not.toHaveAttribute("data-avatar")
       expect(output).toHaveAttribute("data-version", "2")
       expect(output).toHaveAttribute("data-plan", "Free")
       expect(output).toHaveAttribute("data-limit", "3")
@@ -131,9 +131,9 @@ describe("bot mutations wire the bot id into invalidateBotSurfaces", () => {
     let mutation!: ReturnType<typeof useSetBotActive>
     function Probe() { useBots(); mutation = useSetBotActive(); return null }
     render(React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(Probe)))
-    await waitFor(() => expect(useCommunityWsStore.getState().profilesByUserId.get("bot_1")?.presence).toBe("offline"))
+    await waitFor(() => expect(useCommunityWsStore.getState().presenceByUserId.get("bot_1")).toBe("offline"))
     await act(async () => { await mutation.mutateAsync({ id: "bot_1", active: true }) })
-    await waitFor(() => expect(useCommunityWsStore.getState().profilesByUserId.get("bot_1")?.presence).toBe("online"))
+    await waitFor(() => expect(useCommunityWsStore.getState().presenceByUserId.get("bot_1")).toBe("online"))
   })
 
   it("does not overwrite a newer presence event with a late bot list", async () => {
@@ -144,17 +144,16 @@ describe("bot mutations wire the bot id into invalidateBotSurfaces", () => {
     function Probe() { useBots(); return null }
     render(React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(Probe)))
     await waitFor(() => expect(apiFetchMock).toHaveBeenCalled())
-    const profiles = useCommunityWsStore.getState()
-    act(() => profiles.patchProfiles(profiles.beginProfileSnapshot(), [{ id: "bot_1", presence: "offline" }]))
+    act(() => useCommunityWsStore.getState().setPresence("bot_1", "offline"))
     await act(async () => resolve({
       plan: { id: "free", displayName: "Free" }, limit: 3, ownedCount: 1, activeCount: 1,
       bots: [{ id: "bot_1", name: "Bot", image: null, avatarVersion: 0, isActive: true, presence: "online" }],
     }))
     await waitFor(() => expect(queryClient.getQueryData(communityKeys.bots())).toBeDefined())
-    expect(useCommunityWsStore.getState().profilesByUserId.get("bot_1")?.presence).toBe("offline")
+    expect(useCommunityWsStore.getState().presenceByUserId.get("bot_1")).toBe("offline")
   })
 
-  it("useCreateBot commits the returned bot profile before invalidating metadata", async () => {
+  it("useCreateBot accepts the returned bot before invalidating metadata", async () => {
     const { useCreateBot } = await import("./use-bots")
     apiFetchMock.mockResolvedValue({
       bot: {
@@ -189,12 +188,6 @@ describe("bot mutations wire the bot id into invalidateBotSurfaces", () => {
     expect(apiFetchMock).toHaveBeenCalledWith("/api/community/bots", expect.objectContaining({
       method: "POST",
     }))
-    expect(useCommunityWsStore.getState().profilesByUserId.get("bot_created")).toMatchObject({
-      name: "Created Bot",
-      kind: "bot",
-      avatar: "C",
-      avatarVersion: 3,
-    })
     act(() => renderer.unmount())
   })
 
@@ -350,7 +343,7 @@ describe("bot mutations wire the bot id into invalidateBotSurfaces", () => {
     // than reading an id off the (empty) response body.
   })
 
-  it("useUploadBotAvatar patches the canonical avatar without rewriting raw caches", async () => {
+  it("useUploadBotAvatar keeps raw query caches immutable", async () => {
     const { useUploadBotAvatar } = await import("./use-bots")
     const { useCommunityWsStore } = await import("@/stores/community/ws")
     useCommunityWsStore.getState().reset()
@@ -381,10 +374,6 @@ describe("bot mutations wire the bot id into invalidateBotSurfaces", () => {
       })
     })
 
-    expect(useCommunityWsStore.getState().profilesByUserId.get("bot_1")).toMatchObject({
-      avatar: "/api/community/bots/bot_1/avatar?v=4",
-      avatarVersion: 4,
-    })
     expect(queryClient.getQueryData(communityKeys.bots())).toMatchObject({
       bots: [{ id: "bot_1", image: "/avatar?v=1", avatarVersion: 1 }],
     })

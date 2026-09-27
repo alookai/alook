@@ -7,7 +7,6 @@ import { NextRequest } from "next/server"
  * `middleware/auth.ts` rejects a bot session at 401 first, so these tests mock
  * `withAuth` to inject a synthesized `ctx.user.isBot = true` and call the
  * handler directly — the only way to actually exercise the local assertion.
- * See plans/agent-friendship-approval-gate.md §Hardening.
  */
 
 const getFriendship = vi.fn()

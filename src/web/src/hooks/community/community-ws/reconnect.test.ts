@@ -8,6 +8,7 @@ import {
   cleanupCommunityWsHarness,
   flushEffects,
   getCommunityApiFetchMock,
+  forumSidebarFixture,
   messageCreate,
   mountHook,
   resetHookMemoization,
@@ -67,11 +68,6 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     await capturedOnReconnect!({ reconnectDurationMs: 1_000 })
 
     expect(apiFetch).toHaveBeenCalledWith("/api/community/users/self/profile")
-    const { useCommunityWsStore } = await import("@/stores/community/ws")
-    expect(useCommunityWsStore.getState().profilesByUserId.get("self")).toMatchObject({
-      avatar: "/api/community/users/self/avatar?v=7",
-      avatarVersion: 7,
-    })
   })
 
   it("invalidates cached identity surfaces after a reconnect gap", async () => {
@@ -87,18 +83,16 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     const { reconcileCommunityWsReconnect } = await import("./reconnect")
     const { useCommunityWsStore } = await import("@/stores/community/ws")
     const profiles = useCommunityWsStore.getState()
-    profiles.patchProfiles(profiles.beginProfileSnapshot(), [
-      { id: "self", presence: "online" },
-      { id: "peer", presence: "online" },
-    ])
+    profiles.setPresence("self", "online")
+    profiles.setPresence("peer", "online")
 
     await reconcileCommunityWsReconnect(capturedQueryClient, 0, {
       viewerUserId: "self",
     })
 
-    expect(useCommunityWsStore.getState().profilesByUserId.get("self")?.presence)
+    expect(useCommunityWsStore.getState().presenceByUserId.get("self"))
       .toBe("online")
-    expect(useCommunityWsStore.getState().profilesByUserId.get("peer")?.presence)
+    expect(useCommunityWsStore.getState().presenceByUserId.get("peer"))
       .toBe("offline")
   })
 
@@ -312,14 +306,6 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     const { useCommunityStore } = await import("@/stores/community")
     useCommunityStore.getState().setCurrentServerId("srv_open")
     capturedQueryClient.setQueryData(communityKeys.server("srv_open"), { id: "srv_open" })
-    capturedQueryClient.setQueryData(communityKeys.structuralSnapshot(), {
-      schemaVersion: 1,
-      accountId: "viewer",
-      capturedAt: Date.now(),
-      serverOrder: ["srv_open"],
-      folders: [],
-      servers: [],
-    })
     const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
 
     // handleReconnect reads currentServerId via getState() at call time.
@@ -350,11 +336,6 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
         (k) => JSON.stringify(k) === JSON.stringify(communityKeys.members("srv_open")),
       ),
     ).toBe(true)
-    expect(
-      invalidatedKeys.some(
-        (k) => JSON.stringify(k) === JSON.stringify(communityKeys.structuralSnapshot()),
-      ),
-    ).toBe(false)
   })
 
   it("keeps inactive retained/meta/hint data painted while marking it stale", async () => {
@@ -499,10 +480,14 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
         communityKeys.members(serverId),
         communityKeys.presence(serverId),
         communityKeys.invites(serverId),
-        communityKeys.forumSidebarThreads(serverId),
       ]) {
         expect(calls).toContainEqual({ queryKey, exact: true, refetchType: "active" })
       }
+      expect(calls).toContainEqual({
+        queryKey: communityKeys.forumSidebarThreads(serverId),
+        exact: true,
+        refetchType: "none",
+      })
       for (const queryKey of [
         communityKeys.forumSidebarRetained(serverId, "child"),
         communityKeys.channelMeta(serverId, "child"),
@@ -561,21 +546,47 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     expect(telemetry.complete).toHaveBeenCalledWith(summary)
   })
 
+  it("waits for forum notify reconciliation and reports its reconnect failure", async () => {
+    const { reconcileCommunityWsReconnect } = await import("./reconnect")
+    capturedQueryClient.setQueryData(communityKeys.server("srv_notify"), { id: "srv_notify" })
+    let rejectSidebar!: (error: Error) => void
+    getCommunityApiFetchMock().mockImplementation(async (url: unknown) => {
+      if (url === "/api/community/users/me/read-state") {
+        return { revision: 0, readStates: [] }
+      }
+      if (String(url).startsWith("/api/community/servers/srv_notify/channels?")) {
+        return await new Promise((_resolve, reject) => { rejectSidebar = reject })
+      }
+      throw new Error(`unexpected API fetch: ${String(url)}`)
+    })
+
+    let settled = false
+    const pending = reconcileCommunityWsReconnect(capturedQueryClient, 25)
+      .finally(() => { settled = true })
+    await vi.waitFor(() => expect(rejectSidebar).toBeTypeOf("function"))
+    expect(settled).toBe(false)
+    rejectSidebar(new Error("private sidebar transport detail"))
+    const summary = await pending
+
+    expect(summary).toMatchObject({ failureCount: 1, reconnectDurationMs: 25 })
+    expect(telemetry.failure).toHaveBeenCalledWith({
+      policy: "all-cached-servers",
+      reason: "async-rejection",
+    })
+    expect(JSON.stringify(telemetry.failure.mock.calls)).not.toContain("private sidebar transport detail")
+  })
+
   it("isolates a policy rejection and reports only the stable policy key", async () => {
     const { reconcileCommunityWsReconnect } = await import("./reconnect")
     const { useCommunityWsStore } = await import("@/stores/community/ws")
-    const originalPatchProfiles = useCommunityWsStore.getState().patchProfiles
-    let patchCallCount = 0
+    const originalSetPresence = useCommunityWsStore.getState().setPresence
+    originalSetPresence("peer", "online")
     useCommunityWsStore.setState({
-      patchProfiles: (...args) => {
-        patchCallCount += 1
-        if (patchCallCount === 1) throw new Error("private sync detail")
-        return originalPatchProfiles(...args)
-      },
+      setPresence: () => { throw new Error("private sync detail") },
     })
 
     const summary = await reconcileCommunityWsReconnect(capturedQueryClient, 10)
-    useCommunityWsStore.setState({ patchProfiles: originalPatchProfiles })
+    useCommunityWsStore.setState({ setPresence: originalSetPresence })
 
     expect(summary).toMatchObject({ policyCount: 15, successCount: 14, failureCount: 1 })
     expect(telemetry.failure).toHaveBeenCalledWith({
@@ -642,22 +653,17 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     }
   })
 
-  it("resets presence and status overlays before authoritative invalidation starts", async () => {
+  it("resets the presence overlay before authoritative invalidation starts", async () => {
     const { reconcileCommunityWsReconnect } = await import("./reconnect")
     const { useCommunityWsStore } = await import("@/stores/community/ws")
     const store = useCommunityWsStore.getState()
-    store.patchProfiles(store.beginProfileSnapshot(), [{
-      id: "peer",
-      presence: "online",
-      status: { statusEmoji: "🌱", statusText: "Growing" },
-    }])
-    const originalPatchProfiles = useCommunityWsStore.getState().patchProfiles
+    store.setPresence("peer", "online")
+    const originalSetPresence = useCommunityWsStore.getState().setPresence
     const order: string[] = []
     useCommunityWsStore.setState({
-      patchProfiles: (_snapshot, patches) => {
-        if (patches.some((patch) => patch.presence !== undefined)) order.push("presence-reset")
-        if (patches.some((patch) => patch.status !== undefined)) order.push("status-reset")
-        return true
+      setPresence: (userId, presence) => {
+        if (userId === "peer" && presence === "offline") order.push("presence-reset")
+        originalSetPresence(userId, presence)
       },
     })
     const originalInvalidate = capturedQueryClient.invalidateQueries.bind(capturedQueryClient)
@@ -672,11 +678,11 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
 
     await reconcileCommunityWsReconnect(capturedQueryClient)
     useCommunityWsStore.setState({
-      patchProfiles: originalPatchProfiles,
+      setPresence: originalSetPresence,
     })
 
-    expect(order.slice(0, 2)).toEqual(["presence-reset", "status-reset"])
-    expect(order.indexOf("authoritative-invalidate")).toBeGreaterThan(1)
+    expect(order[0]).toBe("presence-reset")
+    expect(order.indexOf("authoritative-invalidate")).toBeGreaterThan(0)
   })
 
   it("waits for focused route reconciliation before starting background domains", async () => {
@@ -777,6 +783,14 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
 
   it("refetches only active server A and makes inactive forever-fresh server B fetch on mount", async () => {
     const { reconcileCommunityWsReconnect } = await import("./reconnect")
+    const apiFetch = getCommunityApiFetchMock()
+    apiFetch.mockImplementation(async (url: unknown) => {
+      if (url === "/api/community/users/me/read-state") {
+        return { revision: 0, readStates: [] }
+      }
+      if (String(url).includes("/channels?")) return forumSidebarFixture([])
+      throw new Error(`unexpected API fetch: ${String(url)}`)
+    })
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false, staleTime: Infinity } },
     })
@@ -787,7 +801,6 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
       communityKeys.members(serverId),
       communityKeys.presence(serverId),
       communityKeys.invites(serverId),
-      communityKeys.forumSidebarThreads(serverId),
     ] as const
     const queryFn = (serverId: "srv_a" | "srv_b", queryKey: readonly unknown[]) => async () => {
       const name = JSON.stringify(queryKey)
@@ -798,6 +811,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
       for (const queryKey of keys(serverId)) {
         await queryClient.fetchQuery({ queryKey, queryFn: queryFn(serverId, queryKey) })
       }
+      queryClient.setQueryData(communityKeys.forumSidebarThreads(serverId), { seeded: true })
     }
     queryClient.setQueryData(communityKeys.forumSidebarRetained("srv_b", "private-child"), { stale: true })
     queryClient.setQueryData(communityKeys.channelMeta("srv_b", "private-child"), { stale: true })
@@ -827,6 +841,12 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
       expect(queryClient.getQueryData(queryKey)).toMatchObject({ version: 2 })
       expect(fetches.get(JSON.stringify(queryKey))).toBe(2)
     }
+    for (const serverId of ["srv_a", "srv_b"] as const) {
+      expect(queryClient.getQueryData(communityKeys.forumSidebarThreads(serverId)))
+        .toMatchObject({ threads: [], serverNow: "2026-08-01T00:00:00.000Z" })
+    }
+    expect(apiFetch.mock.calls.filter(([url]) => String(url).includes("/channels?")))
+      .toHaveLength(2)
     for (const queryKey of [
       communityKeys.forumSidebarRetained("srv_b", "private-child"),
       communityKeys.channelMeta("srv_b", "private-child"),

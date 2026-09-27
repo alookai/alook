@@ -49,7 +49,7 @@ function TaskRow({
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 leading-tight">
           <span className="text-sm font-medium truncate">
-            {task.agent?.name ?? "Unknown"}
+            {task.agent?.name ?? "Agent unavailable"}
           </span>
           <span className="text-xs text-muted-foreground shrink-0">
             #{task.channel}

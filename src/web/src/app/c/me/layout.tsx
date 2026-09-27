@@ -15,10 +15,7 @@ import { useCommunityStore, useCurrentChannelId } from "@/stores/community"
 import { useDms } from "@/hooks/community/use-dms"
 import { useDmRouteVerification } from "@/hooks/community/use-dm-route-verification"
 import { useFriends, useFriendsPresence } from "@/hooks/community/use-friends"
-import { actionableIncomingRequests } from "@/lib/community/friend-requests"
-import { useFriendRequestActionState } from "@/hooks/community/use-friend-request-action-state"
-import { useCommunityWsStore } from "@/stores/community/ws"
-import { readCommunityProfile } from "@/lib/community/profile-read"
+import { useInboxUnreads } from "@/hooks/community/use-inbox"
 import { useCurrentUser } from "@/contexts/community/current-user"
 import {
   clearLastMeLocation,
@@ -46,38 +43,14 @@ export default function MeLayout({ children }: { children: ReactNode }) {
     ? "/c/me"
     : `/c/me/${selectedSegments.join("/")}`
   const {
-    dms: rawDms,
+    dms,
     isLoading: dmsLoading,
     isPending: dmsPending,
-    isFetching: dmsFetching,
   } = useDms()
-  const canonicalDmsUnsettled = dmsPending || dmsFetching
-  const dmRouteVerification = useDmRouteVerification(params.dmId, rawDms, canonicalDmsUnsettled)
-  const profilesByUserId = useCommunityWsStore((state) => state.profilesByUserId)
-  const dms = useMemo(
-    () =>
-      rawDms.map((d) => {
-        const profile = readCommunityProfile(profilesByUserId.get(d.userId), d.userId)
-        return {
-          ...d,
-          name: profile.name,
-          discriminator: profile.discriminator,
-          avatar: profile.avatar,
-          avatarVersion: profile.avatarVersion,
-          status: profile.presence,
-        }
-      }),
-    [profilesByUserId, rawDms],
-  )
-  const { blocked, pending } = useFriends()
-  const incomingFriendRequests = useMemo(
-    () => actionableIncomingRequests(pending),
-    [pending],
-  )
-  const friendRequestCount = useFriendRequestActionState({
-    rows: incomingFriendRequests,
-    surface: "friends",
-  }).items.length
+  const canonicalDmsUnsettled = dmsPending
+  const dmRouteVerification = useDmRouteVerification(params.dmId, dms, canonicalDmsUnsettled)
+  const { blocked } = useFriends()
+  const friendRequestCount = useInboxUnreads().friendRequests.length
   const currentChannelId = useCurrentChannelId()
   const cancelPendingNavigation = useCallback(() => {
     useCommunityStore.getState().uiHandlers.cancelPendingNavigation?.()

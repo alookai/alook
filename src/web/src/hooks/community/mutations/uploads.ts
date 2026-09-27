@@ -90,8 +90,7 @@ export function buildAttachmentUploadFormData({
  *
  * The zip MUST happen before dropping failed (`null`) results, or indices
  * between `results` and `attachments` misalign once a failed upload is
- * filtered out — see plans/attachment-image-dimensions.md's "Exact zip
- * transform" note.
+ * filtered out.
  */
 export function zipUploadResultsWithDimensions(
   results: (UploadFileResult | null)[],

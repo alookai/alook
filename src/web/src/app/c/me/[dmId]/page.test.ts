@@ -6,7 +6,8 @@ describe("DM page loading ownership", () => {
     const source = readFileSync(new URL("./page.tsx", import.meta.url), "utf8")
     expect(source).toContain("fullFramePending: !hasDm && dmsLoading")
     expect(source).toContain("notFound: !hasDm && !dmsLoading")
-    expect(source).toContain("messageBodyLoading: hasDm && (")
+    expect(source).toContain("messageBodyLoading: hasDm && messagesLoading")
+    expect(source).not.toContain("currentChannelMatches")
     expect(source).not.toContain("readSnapshotFetching ||\n      messagesLoading")
     expect(source).toContain("waitForAnchor: true")
     expect(source).toContain("if (navigationBlocked)")
@@ -26,6 +27,12 @@ describe("DM page loading ownership", () => {
     expect(source).toContain("loading={loadingOwnership.messageBodyLoading}")
     expect(source).not.toContain("<ComposerSkeleton")
     expect(source).not.toContain("<DmHeaderSkeleton")
+  })
+
+  it("uses the cache-first DM projection as the header and composer identity", () => {
+    const source = readFileSync(new URL("./page.tsx", import.meta.url), "utf8")
+    expect(source).toContain("dms.find((candidate) => candidate.id === dmId) ?? null")
+    expect(source).not.toContain("profilesByUserId.get(raw.userId)")
   })
 
   it("owns lazy channel-directory state and retry inside the keyed DM view", () => {

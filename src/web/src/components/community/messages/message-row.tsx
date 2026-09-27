@@ -14,8 +14,7 @@ import type { OpenProfile } from "@/components/community/social/profile-types"
 // (which are reference-stable — see MessageList's useCallback bundle) plus the
 // message, and binds the per-row (no-arg / emoji-only) handlers ONCE via
 // `useCallback` keyed on the id. So `Message` receives stable callbacks and its
-// custom-comparator memo can actually bail out. See
-// plans/community-switch-perf-optimization.md (WS3).
+// custom-comparator memo can actually bail out.
 export interface MessageRowProps {
   m: RenderMsg
   viewerUserId?: string

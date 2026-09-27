@@ -96,8 +96,8 @@ vi.mock("@/hooks/community/use-machines", () => ({
     return { machines: mocks.machines, isLoading: mocks.machinesLoading }
   },
 }))
-vi.mock("@/stores/community/ws", () => ({
-  useProfilesByUserId: () => {
+vi.mock("@/lib/community-db/projections", () => ({
+  useCanonicalProfilesByUserId: () => {
     mocks.hookOrder.push("profiles")
     return new Map([...mocks.online].map((id) => [id, { id, presence: "online" }]))
   },
@@ -228,7 +228,7 @@ describe("useBotListController", () => {
       "const searchParams = useSearchParams()",
       "const botsQuery = useBots()",
       "const { machines, isLoading: machinesLoading } = useMachines()",
-      "const profilesByUserId = useProfilesByUserId()",
+      "const profilesByUserId = useCanonicalProfilesByUserId()",
       "const [createOpen",
       "const [editingBot",
       "const [editOpen",
@@ -317,7 +317,7 @@ describe("useBotListController", () => {
       "unknown-a",
       "unknown-b",
     ])
-    expect(latest.machineName("gone")).toBe("Unknown machine")
+    expect(latest.machineName("gone")).toBe("Machine unavailable")
   })
 
   it("projects plan inventory and blocks create at owned capacity with recovery copy", () => {

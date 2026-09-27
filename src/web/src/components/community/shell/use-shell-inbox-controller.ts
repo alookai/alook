@@ -1,7 +1,6 @@
 "use client"
 
 import { useCallback, useRef, useState, type ComponentProps } from "react"
-import { inboxUnreadCount } from "@/lib/community/inbox-unread-count"
 import { communityKeys } from "@/lib/query-keys"
 import { channelHref } from "@/lib/community/community-route"
 import type { Marked, Mention, UnreadDm, UnreadServer } from "@/lib/community/models/inbox"
@@ -36,6 +35,7 @@ import {
 import { startConversationNavigationWarmup } from "@/lib/community/conversation-navigation-warmup"
 import type { ConversationNavigationTarget } from "@/lib/community/conversation-navigation-proof"
 import { cancelConversationNavigationProof } from "@/lib/community/conversation-navigation-proof"
+import { publishCommunityDmSummary } from "@/lib/community-db/sync"
 
 type UnreadChannel = UnreadServer["channels"][number]
 type UnreadChild = UnreadChannel["children"][number]
@@ -70,7 +70,10 @@ export function useShellInboxController({
   const unreadFeed = inboxUnreads.servers
   const unreadDms = inboxUnreads.dms
   const mentions = inboxMentions.mentions
-  const loading = inboxUnreads.isLoading || inboxMentions.isLoading
+  const loading = inboxUnreads.isLoading
+    || inboxMentions.isLoading
+    || inboxUnreads.isProjectionPending
+    || inboxMentions.isProjectionPending
   const [markedTabOpened, setMarkedTabOpened] = useState(false)
   const [activeTab, setActiveTab] = useState<InboxTab>("unreads")
   const scrollOffsetsRef = useRef<Record<InboxTab, number>>({
@@ -252,12 +255,14 @@ export function useShellInboxController({
         expectedSurfaceKind: "dm",
       },
       () => {
+        const summary = dmSummaryFromInbox(dm)
         queryClient.setQueryData(
           communityKeys.dms(),
           (previous: DmCache | undefined) => (
-            upsertDmSummary(previous, dmSummaryFromInbox(dm))
+            upsertDmSummary(previous, summary)
           ),
         )
+        publishCommunityDmSummary(queryClient, summary)
       },
       () => {
         void startDmRouteVerification(queryClient, dmId).catch(() => undefined)
@@ -321,18 +326,12 @@ export function useShellInboxController({
 
   return {
     popoverProps,
-    unreadCount: inboxUnreadCount({
-      servers: unreadFeed,
-      dms: unreadDms,
-      mentions: inboxMentions.mentions,
-      friendRequestCount: friendRequestActions.items.length,
-      pendingChannelIds: [...(inboxUnreads.pendingChannelIds ?? []), ...(inboxMentions.pendingChannelIds ?? [])],
-    }),
-    unreadCountPartial: Boolean(inboxUnreads.data?.truncated || inboxMentions.data?.truncated),
+    unreadCount: (inboxUnreads.exactAttentionCount ?? 0) + inboxUnreads.friendRequests.length,
+    unreadCountPartial: false,
     hasUnread:
       inboxUnreads.hasProjectedUnread
       || inboxMentions.hasProjectedMention
-      || friendRequestActions.items.length > 0,
+      || inboxUnreads.friendRequests.length > 0,
     open: inbox.open,
     onOpenChange: inbox.onOpenChange,
   }

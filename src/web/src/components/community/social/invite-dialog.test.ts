@@ -21,8 +21,8 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock("sonner", () => ({ toast: mocks.toastSpy }))
-vi.mock("@/stores/community/ws", () => ({
-  useCommunityWsStore: (selector: (state: { profilesByUserId: Map<string, unknown> }) => unknown) => {
+vi.mock("@/lib/community-db/projections", () => ({
+  useCanonicalProfilesByUserId: () => {
     const profilesByUserId = new Map(mocks.friendsQuery.friends.flatMap((friend) =>
       friend.userId ? [[friend.userId, {
         id: friend.userId,
@@ -35,7 +35,7 @@ vi.mock("@/stores/community/ws", () => ({
           ? "online"
           : "offline",
       }]] : []))
-    return selector({ profilesByUserId })
+    return profilesByUserId
   },
 }))
 vi.mock("@/hooks/community/use-friends", () => ({

@@ -4,7 +4,8 @@ import { useCommunityWsStore } from "@/stores/community/ws"
 import { useCommunityStore } from "@/stores/community"
 import { useMessageStreamStore } from "@/stores/community/message-stream"
 import { clearTypingIndicator } from "./typing"
-import { updateStructuralSnapshot } from "@/lib/community/structural-snapshot"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import { purgeCommunityServer } from "@/lib/community-db/sync"
 import {
   claimOwnerServerDeleteScopeFlush,
   completeOwnerServerDeleteScopeFlush,
@@ -128,7 +129,8 @@ function evictServerChannelScopesNow(queryClient: QueryClient, serverId: string)
     community.setCurrentChannelId(null)
     community.setCurrentServerId(null)
   }
-  updateStructuralSnapshot(queryClient, { type: "removeServer", serverId })
+  const registry = getCommunityDbRegistry(queryClient)
+  if (registry) purgeCommunityServer(registry, serverId)
 }
 
 export function evictServerChannelScopes(queryClient: QueryClient, serverId: string): boolean {

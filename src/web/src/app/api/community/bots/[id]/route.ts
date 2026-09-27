@@ -120,7 +120,7 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   const willPush = before.isActive && (nameChanged || descriptionChanged) && !!before.machineId
   const owner = willPush ? await queries.user.getUserPublic(db, before.ownerUserId) : null
   if (willPush && !owner) {
-    return writeError("bot owner not resolvable — refusing to push a bot update with unknown ownership", 500)
+    return writeError("bot owner not resolvable — refusing to push a bot update with unresolved ownership", 500)
   }
   const publicProfile = nameChanged
     ? await queries.communityUserProfile.getProfile(db, id)

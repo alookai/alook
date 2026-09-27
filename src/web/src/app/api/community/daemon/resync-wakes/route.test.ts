@@ -125,7 +125,7 @@ describe("POST /api/community/daemon/resync-wakes", () => {
 
   it("Mellicent regression: bot on a server whose only unread lives in a non-participated forum_post — feeder returns null → attempted: 0", async () => {
     // Post-fix behaviour: `getLatestUnreadMessageForAgent` applies the
-    // thread-participation post-filter (`plans/agent-unread-visibility-unify.md`),
+    // thread-participation post-filter,
     // so a message in a forum_post the bot isn't a participant of no longer
     // surfaces. The feeder returns null → resync-wakes reports attempted: 0 and
     // never touches the wake dispatcher.

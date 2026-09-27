@@ -9,7 +9,7 @@ vi.mock("@/lib/middleware/env", () => ({
     (route: (request: NextRequest, context: { env: object }) => Promise<Response>) =>
     (request: NextRequest) => route(request, { env: {} }),
 }))
-vi.mock("@/lib/auth", () => ({ createAuth: () => ({}) }))
+vi.mock("@/lib/auth", () => ({ getAuth: () => ({}) }))
 vi.mock("better-auth/next-js", () => ({
   toNextJsHandler: () => ({ GET: betterAuthGet, POST: betterAuthPost }),
 }))
@@ -47,5 +47,17 @@ describe("Better Auth server-only endpoints", () => {
 
     expect(response.status).toBe(204)
     expect(betterAuthPost).toHaveBeenCalledOnce()
+  })
+
+  it("delegates ordinary Better Auth GET routes", async () => {
+    betterAuthGet.mockResolvedValue(new Response(null, { status: 204 }))
+    const request = new NextRequest("https://alook.ai/api/auth/session", {
+      method: "GET",
+    })
+
+    const response = await GET(request)
+
+    expect(response.status).toBe(204)
+    expect(betterAuthGet).toHaveBeenCalledOnce()
   })
 })

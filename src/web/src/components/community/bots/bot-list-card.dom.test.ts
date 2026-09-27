@@ -34,8 +34,8 @@ vi.mock("@/hooks/community/use-bots", () => ({
 vi.mock("@/hooks/community/mutations", () => ({
   useCreateOrGetDm: () => ({ mutateAsync: vi.fn() }),
 }))
-vi.mock("@/stores/community/ws", () => ({
-  useProfilesByUserId: () => new Map(),
+vi.mock("@/lib/community-db/projections", () => ({
+  useCanonicalProfilesByUserId: () => new Map(),
 }))
 
 function passthrough(name: string) {

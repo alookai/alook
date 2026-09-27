@@ -1,5 +1,5 @@
 -- Unify forum/forum_post membership with channel/thread.
--- See plans/unify-forum-forumpost-channel-thread.md.
+-- Forum posts use the same access and notification relations as other channels.
 --
 -- Model change: a `forum` now owns its access roster like a text channel, and a
 -- `forum_post` INHERITS that roster (it is the NOTIFY dimension, like a thread),

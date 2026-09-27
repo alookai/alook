@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useRef } from "react"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { ServerLandingPendingFrame } from "@/components/community/shell/server-landing-pending-frame"
 import { useServer } from "@/hooks/community/use-servers"
@@ -14,6 +14,7 @@ export default function ServerDefaultPage() {
   const serverId = decodeURIComponent(params.serverId)
   const { server: currentServer } = useServer(serverId)
   const breakpoint = useBreakpoint()
+  const replacingHrefRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (breakpoint !== "desktop" || !currentServer) return
@@ -26,7 +27,10 @@ export default function ServerDefaultPage() {
     )
     if (target) {
       const search = searchParams.toString()
-      router.replace(`/c/channels/${serverId}/${target}${search ? `?${search}` : ""}`)
+      const href = `/c/channels/${serverId}/${target}${search ? `?${search}` : ""}`
+      if (replacingHrefRef.current === href) return
+      replacingHrefRef.current = href
+      router.replace(href)
     }
   }, [breakpoint, currentServer, serverId, router, searchParams])
 

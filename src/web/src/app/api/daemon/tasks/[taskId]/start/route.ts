@@ -27,6 +27,6 @@ export const POST = withAuth(async (_req, ctx) => {
     }
     return writeJSON(taskToResponse(task));
   } catch (err: unknown) {
-    return writeError(err instanceof Error ? err.message : "Unknown error", 400);
+    return writeError(err instanceof Error ? err.message : "Request failed", 400);
   }
 });

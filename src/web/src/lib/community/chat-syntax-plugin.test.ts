@@ -127,8 +127,8 @@ describe("chatSyntaxPlugin — mention", () => {
   })
 
   it("does NOT treat @here as a mention — it was removed, renders as plain text", () => {
-    // @here was removed as a broadcast trigger (plans/remove-here-mention.md,
-    // option b). A literal @here is no longer a mention node; it stays text
+    // @here was removed as a broadcast trigger. A literal @here is no longer a
+    // mention node; it stays text
     // (incl. historical messages — no legacy rendering).
     const children = paragraphChildren(parse("@here ping"))
     expect(children.some((c) => c.type === "mention")).toBe(false)

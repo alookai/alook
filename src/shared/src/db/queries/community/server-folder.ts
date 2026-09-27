@@ -157,7 +157,7 @@ export async function listFolders(db: Database, userId: string) {
         position: folder.position ?? 0,
         servers: items.map((item) => ({
           id: item.serverId,
-          name: item.serverName ?? "Unknown",
+          name: item.serverName ?? "Server unavailable",
           icon: item.serverIcon ?? null,
         })),
       };

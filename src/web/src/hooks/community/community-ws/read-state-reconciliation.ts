@@ -6,6 +6,11 @@ import {
 } from "@/lib/query-keys"
 import { projectReadCoordinatorSnapshot } from "@/hooks/community/read-coordinator-snapshot-projection"
 import { acceptAccountUnreadPrimarySnapshot } from "@/hooks/community/account-unread-projection"
+import {
+  captureCommunityLiveSnapshotToken,
+  publishCommunityLiveSnapshot,
+  type CommunityLiveSnapshotToken,
+} from "@/lib/community-db/sync"
 
 type AccountReadState = {
   channelId: string
@@ -90,7 +95,19 @@ function projectReadStateRows(queryClient: QueryClient, snapshot: AccountReadSta
 function applyAccountReadStateSnapshot(
   queryClient: QueryClient,
   snapshot: AccountReadStateSnapshot,
+  proof: {
+    token: CommunityLiveSnapshotToken
+    signal: AbortSignal
+    requestGeneration: number
+    currentRequestGeneration: number
+    targetRevision: number | null
+  },
 ) {
+  const publication = publishCommunityLiveSnapshot(queryClient, {
+    snapshot: { kind: "read-state", data: snapshot },
+    proof: { kind: "read-state", ...proof },
+  })
+  if (publication === "superseded") return "superseded" as const
   const current = queryClient.getQueryData<AccountReadStateSnapshot>(
     communityKeys.accountReadStateSnapshot(),
   )
@@ -374,13 +391,22 @@ async function runSnapshotWorker(
     const requestGeneration = state.snapshotRequestedGeneration
     let snapshot: AccountReadStateSnapshot
     try {
-      snapshot = await startAccountReadStateRequest(state)
+      const response = await startAccountReadStateRequest(queryClient, state)
+      snapshot = response.snapshot
+      assertReconciliationActive(queryClient, state, epoch)
+      const applied = applyAccountReadStateSnapshot(queryClient, snapshot, {
+        token: response.token,
+        signal: response.signal,
+        requestGeneration,
+        currentRequestGeneration: state.snapshotRequestedGeneration,
+        targetRevision: state.highestPendingTargetRevision,
+      })
+      if (applied === "superseded") continue
     } catch (error) {
       scheduleReconciliationRetry(queryClient, state, "snapshot")
       throw error
     }
     assertReconciliationActive(queryClient, state, epoch)
-    applyAccountReadStateSnapshot(queryClient, snapshot)
     state.snapshotCompletedGeneration = Math.max(
       state.snapshotCompletedGeneration,
       requestGeneration,
@@ -489,13 +515,17 @@ function assertReconciliationActive(
   ) throw new Error("account read-state reconciliation disposed")
 }
 
-function startAccountReadStateRequest(state: ReconciliationState) {
+function startAccountReadStateRequest(
+  queryClient: QueryClient,
+  state: ReconciliationState,
+) {
   const controller = new AbortController()
+  const token = captureCommunityLiveSnapshotToken(queryClient)
   state.requestController = controller
   return apiFetch<AccountReadStateSnapshot>(
     "/api/community/users/me/read-state",
     { signal: controller.signal },
-  ).finally(() => {
+  ).then((snapshot) => ({ snapshot, token, signal: controller.signal })).finally(() => {
     if (state.requestController === controller) state.requestController = null
   })
 }

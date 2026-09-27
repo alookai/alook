@@ -6,7 +6,7 @@ import { useMemo } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useFriends } from "@/hooks/community/use-friends"
 import { useUiHandlers } from "@/stores/community"
-import { useCommunityWsStore } from "@/stores/community/ws"
+import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 import {
   useSendFriendRequest,
@@ -28,12 +28,15 @@ export default function MeFriendsPage() {
   const activeTab = searchParams.get("tab") === "new" ? "new" : "all"
   const { friends: rawFriends, pending, blocked, isLoading } = useFriends()
   const uiHandlers = useUiHandlers()
-  const profilesByUserId = useCommunityWsStore((s) => s.profilesByUserId)
+  const profilesByUserId = useCanonicalProfilesByUserId()
   const friends = useMemo(
     () =>
       rawFriends.map((f) => {
         const userId = f.userId ?? f.id
-        const profile = readCommunityProfile(profilesByUserId.get(userId), userId)
+        const canonical = profilesByUserId.get(userId)
+        const profile = canonical
+          ? readCommunityProfile(canonical, userId)
+          : { ...f, presence: f.status }
         return {
           ...f,
           name: profile.name,

@@ -17,7 +17,7 @@ vi.mock("@/lib/middleware/auth", () => ({
     }),
 }))
 vi.mock("@/lib/db", () => ({ getPrimaryDb: (...args: unknown[]) => getPrimaryDb(...args) }))
-vi.mock("@/lib/auth", () => ({ createAuth: () => ({ api: { signOut } }) }))
+vi.mock("@/lib/auth", () => ({ getAuth: () => ({ api: { signOut } }) }))
 vi.mock("@/lib/account-deletion/challenge", () => ({
   verifyDeletionCode: (...args: unknown[]) => verifyDeletionCode(...args),
   restoreVerifiedDeletionCode: (...args: unknown[]) => restoreVerifiedDeletionCode(...args),

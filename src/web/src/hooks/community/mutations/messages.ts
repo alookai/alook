@@ -43,11 +43,24 @@ import { reconcileForumOpenerTitle } from "@/hooks/community/forum-opener-title-
 import { isBlocked, type MentionType } from "@alook/shared"
 import {
   getActiveAccountUnreadProjection,
-  type AccountUnreadDismissToken,
   type AccountUnreadDomain,
+  type AccountUnreadDismissToken,
   type MarkAllToken,
 } from "@/hooks/community/account-unread-projection"
 import { reconcileAccountReadState } from "@/hooks/community/community-ws/read-state-reconciliation"
+import { reconcileAccountAttention } from "@/hooks/community/use-account-attention"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import {
+  clearAttentionOptimistically,
+  commitAttentionOptimisticSnapshot,
+  commitAttentionItemsOptimisticSnapshot,
+  removeAttentionItemsOptimistically,
+  restoreAttentionOptimisticDomains,
+  restoreAttentionOptimisticSnapshot,
+  restoreAttentionItemsOptimisticSnapshot,
+  type AttentionOptimisticSnapshot,
+  type AttentionItemsOptimisticSnapshot,
+} from "@/lib/community-db/sync"
 
 
 /**
@@ -871,7 +884,10 @@ export function useMarkAllInboxRead() {
     domain: AccountUnreadDomain
     result: PromiseSettledResult<ReadAllResponse>
   }
-  type MarkAllContext = { tokens: Map<AccountUnreadDomain, MarkAllToken> }
+  type MarkAllContext = {
+    tokens: Map<AccountUnreadDomain, MarkAllToken>
+    snapshot?: AttentionOptimisticSnapshot
+  }
   return useMutation<DomainResult[], Error, void, MarkAllContext>({
     mutationFn: async () => {
       const requests = [
@@ -891,23 +907,24 @@ export function useMarkAllInboxRead() {
           entry.result.status === "rejected"
         ),
       )
-      if (failures.length === results.length) {
-        throw failures[0]!.result.reason
-      }
+      if (failures.length === results.length) throw failures[0]!.result.reason
       return results
     },
     onMutate: async () => {
+      const registry = getCommunityDbRegistry(queryClient)
       return {
         tokens: new Map<AccountUnreadDomain, MarkAllToken>([
           ["channels", unreadProjection.beginMarkAll("channels")],
           ["dms", unreadProjection.beginMarkAll("dms")],
           ["mentions", unreadProjection.beginMarkAll("mentions")],
         ]),
+        snapshot: registry ? clearAttentionOptimistically(registry) : undefined,
       }
     },
     onSuccess: (results, _variables, context) => {
       let targetRevision = 0
       let firstFailure: unknown
+      const failedDomains = new Set<AccountUnreadDomain>()
       for (const { domain, result } of results) {
         const token = context.tokens.get(domain)
         if (!token) continue
@@ -916,9 +933,19 @@ export function useMarkAllInboxRead() {
           unreadProjection.commitMarkAll(token, result.value?.revision ?? 0)
         } else {
           unreadProjection.rollbackMarkAll(token)
+          failedDomains.add(domain)
           firstFailure ??= result.reason
         }
       }
+      const registry = getCommunityDbRegistry(queryClient)
+      if (registry && context.snapshot) {
+        if (failedDomains.size === 0) {
+          commitAttentionOptimisticSnapshot(registry, context.snapshot)
+        } else {
+          restoreAttentionOptimisticDomains(registry, context.snapshot, failedDomains)
+        }
+      }
+      if (registry) void reconcileAccountAttention(registry).catch(() => undefined)
       if (firstFailure) toastApiError(firstFailure, "Some inbox items could not be marked read")
       void reconcileAccountReadState(queryClient, {
         surfaceMode: "all",
@@ -928,6 +955,12 @@ export function useMarkAllInboxRead() {
     onError: (e, _variables, context) => {
       for (const token of context?.tokens.values() ?? []) {
         unreadProjection.rollbackMarkAll(token)
+      }
+      const registry = getCommunityDbRegistry(queryClient)
+      if (registry && context?.snapshot) {
+        if (!restoreAttentionOptimisticSnapshot(registry, context.snapshot)) {
+          void reconcileAccountAttention(registry).catch(() => undefined)
+        }
       }
       toastApiError(e, "Failed to mark inbox read")
       void queryClient.invalidateQueries({ queryKey: communityKeys.inbox() })
@@ -945,7 +978,11 @@ export function useDeleteMention() {
     { revision: number },
     Error,
     DeleteMentionArgs,
-    { snapshot: MentionsResponse | undefined; token?: AccountUnreadDismissToken }
+    {
+      snapshot: MentionsResponse | undefined
+      token?: AccountUnreadDismissToken
+      attentionSnapshot?: AttentionItemsOptimisticSnapshot
+    }
   >({
     mutationFn: async ({ mentionId }) => {
       return apiFetch<{ revision: number }>(
@@ -968,16 +1005,34 @@ export function useDeleteMention() {
       queryClient.setQueryData(key, (prev: { mentions: { id: string }[] } | undefined) =>
         prev ? { ...prev, mentions: prev.mentions.filter((m) => m.id !== args.mentionId) } : prev,
       )
-      return { snapshot, token }
+      const registry = getCommunityDbRegistry(queryClient)
+      const attentionSnapshot = registry
+        ? removeAttentionItemsOptimistically(
+            registry,
+            (item) => item.sourceId === args.mentionId && item.kind !== "friend_request",
+          )
+        : undefined
+      return { snapshot, token, attentionSnapshot }
     },
     onSuccess: (result, _args, context) => {
       if (context.token) unreadProjection.commitDismissMention(context.token, result?.revision)
+      const registry = getCommunityDbRegistry(queryClient)
+      if (registry && context.attentionSnapshot) {
+        commitAttentionItemsOptimisticSnapshot(registry, context.attentionSnapshot)
+        void reconcileAccountAttention(registry).catch(() => undefined)
+      }
       // Deleting a mention row removes it from the unread-mention aggregate
       // that feeds the server rail badge — refresh so the count drops.
       void queryClient.invalidateQueries({ queryKey: communityKeys.servers() })
     },
     onError: (err, _args, ctx) => {
       if (ctx?.token) unreadProjection.rollbackDismissMention(ctx.token)
+      const registry = getCommunityDbRegistry(queryClient)
+      if (registry && ctx?.attentionSnapshot) {
+        if (!restoreAttentionItemsOptimisticSnapshot(registry, ctx.attentionSnapshot)) {
+          void reconcileAccountAttention(registry).catch(() => undefined)
+        }
+      }
       if (ctx?.snapshot) queryClient.setQueryData(communityKeys.inboxMentions(), ctx.snapshot)
       toastApiError(err, "Failed to remove mention")
     },

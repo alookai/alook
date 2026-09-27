@@ -34,10 +34,14 @@ describe("useFolders / foldersQueryFn", () => {
 
   it("populates queryClient at communityKeys.folders()", async () => {
     apiFetchMock.mockResolvedValueOnce({ folders: [] })
-    const { foldersQueryFn } = await import("./use-folders")
+    const { foldersProjectedQueryFn } = await import("./use-folders")
     const qc = new QueryClient()
     const key = communityKeys.folders()
-    await qc.fetchQuery({ queryKey: key, queryFn: foldersQueryFn })
+    await qc.fetchQuery({ queryKey: key, queryFn: foldersProjectedQueryFn(qc) })
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/community/users/me/server-folders",
+      { signal: expect.any(AbortSignal) },
+    )
     expect(qc.getQueryData(key)).toEqual({ folders: [] })
   })
 

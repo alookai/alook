@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { CommunityMessageCreate, CommunityWsEvent } from "@alook/shared"
 import { QueryClient } from "@tanstack/react-query"
-import type { StructuralSnapshotV1 } from "./structural-snapshot"
+import { communityKeys } from "@/lib/query-keys"
 import {
   buildDesktopSystemNotificationCandidate,
   dismissDesktopSystemNotification,
@@ -48,27 +48,69 @@ const bump: UnreadBump = {
   channelId: "channel_1",
   serverId: "server_1",
 }
-const snapshot: StructuralSnapshotV1 = {
-  schemaVersion: 1,
-  accountId: "viewer_1",
-  capturedAt: 1,
-  serverOrder: ["server_1"],
-  folders: [],
-  servers: [{
+const serverRows = [{
     id: "server_1",
     name: "Studio",
     discriminator: "0042",
+    description: "",
+    ownerId: "owner_1",
     icon: null,
-    categories: [],
-    channels: [{ id: "channel_1", name: "general", type: "text", categoryId: null }],
-    childRouteHints: [{
-      id: "thread_1",
-      name: "Release notes",
-      type: "thread",
-      parentChannelId: "channel_1",
-      parentMessageId: "message_0",
-    }],
-  }],
+    official: false,
+    isOwner: false,
+    unread: false,
+    mentions: 0,
+}]
+const channelRows = [
+  {
+    id: "channel_1",
+    serverId: "server_1",
+    categoryId: null,
+    name: "general",
+    type: "text" as const,
+    parentChannelId: null,
+    parentMessageId: null,
+    creatorId: null,
+    position: 0,
+    archived: false,
+    muted: false,
+    unread: false,
+    tags: [],
+    pending: false,
+    lastMessageAt: null,
+  },
+  {
+    id: "thread_1",
+    serverId: "server_1",
+    categoryId: null,
+    name: "Release notes",
+    type: "thread" as const,
+    parentChannelId: "channel_1",
+    parentMessageId: "message_0",
+    creatorId: "author_1",
+    position: 0,
+    archived: false,
+    muted: false,
+    unread: false,
+    tags: [],
+    pending: false,
+    lastMessageAt: null,
+  },
+]
+
+function seedCanonicalDirectory(
+  queryClient: QueryClient,
+  options: { channels?: boolean } = {},
+) {
+  queryClient.setQueryData(
+    communityKeys.communityDbCollection("viewer_1", "servers"),
+    serverRows,
+  )
+  if (options.channels !== false) {
+    queryClient.setQueryData(
+      communityKeys.communityDbCollection("viewer_1", "channels"),
+      channelRows,
+    )
+  }
 }
 
 afterEach(() => {
@@ -79,7 +121,11 @@ afterEach(() => {
 
 describe("desktop system notification candidates", () => {
   it("derives a hygienic server notification from one paired bundle", () => {
-    expect(buildDesktopSystemNotificationCandidate(create, bump, "viewer_1", snapshot)).toEqual({
+    expect(buildDesktopSystemNotificationCandidate(create, bump, "viewer_1", {
+      conversationKind: "channel",
+      serverName: "Studio",
+      channelName: "general",
+    })).toEqual({
       viewerUserId: "viewer_1",
       title: "Studio · #general",
       body: "Ada: Hello there",
@@ -97,26 +143,44 @@ describe("desktop system notification candidates", () => {
     expect(buildDesktopSystemNotificationCandidate({
       ...create,
       channelId: "thread_1",
-    }, { ...bump, channelId: "thread_1" }, "viewer_1", snapshot)).toMatchObject({
+    }, { ...bump, channelId: "thread_1" }, "viewer_1", {
+      conversationKind: "thread",
+      serverName: "Studio",
+      channelName: "Release notes",
+      parentChannelName: "general",
+    })).toMatchObject({
       title: "Studio · #general · Release notes",
       body: "Ada: Hello there",
     })
   })
 
-  it("does not reuse conversation names from another account's snapshot", () => {
+  it("uses neutral copy when no account-scoped collection row is available", () => {
     expect(buildDesktopSystemNotificationCandidate(
       create,
       bump,
       "viewer_1",
-      { ...snapshot, accountId: "other" },
+      null,
     )).toMatchObject({
       title: "Server · #Channel",
       body: "Ada: Hello there",
     })
   })
 
+  it("does not resolve account-scoped metadata without a viewer", async () => {
+    const queryClient = new QueryClient()
+
+    await expect(resolveDesktopSystemNotificationCandidate(
+      create,
+      bump,
+      null,
+      queryClient,
+    )).resolves.toBeNull()
+    expect(channelMetadataMocks.fetch).not.toHaveBeenCalled()
+  })
+
   it("resolves a cold channel name before formatting the desktop copy", async () => {
     const queryClient = new QueryClient()
+    seedCanonicalDirectory(queryClient, { channels: false })
     channelMetadataMocks.fetch.mockResolvedValue({
       id: "channel_1",
       serverId: "server_1",
@@ -129,21 +193,11 @@ describe("desktop system notification candidates", () => {
       lastMessageAt: null,
       createdAt: "2026-09-12T00:00:00.000Z",
     })
-    const coldSnapshot = {
-      ...snapshot,
-      servers: snapshot.servers.map((server) => ({
-        ...server,
-        channels: [],
-        childRouteHints: [],
-      })),
-    }
-
     await expect(resolveDesktopSystemNotificationCandidate(
       create,
       bump,
       "viewer_1",
       queryClient,
-      coldSnapshot,
     )).resolves.toMatchObject({
       title: "Studio · #general",
       body: "Ada: Hello there",
@@ -180,6 +234,7 @@ describe("desktop system notification candidates", () => {
 
   it("resolves cold thread and parent channel names before formatting the desktop copy", async () => {
     const queryClient = new QueryClient()
+    seedCanonicalDirectory(queryClient, { channels: false })
     channelMetadataMocks.fetch.mockResolvedValueOnce({
       id: "thread_1",
       serverId: "server_1",
@@ -203,21 +258,11 @@ describe("desktop system notification candidates", () => {
       lastMessageAt: null,
       createdAt: "2026-09-12T00:00:00.000Z",
     })
-    const coldSnapshot = {
-      ...snapshot,
-      servers: snapshot.servers.map((server) => ({
-        ...server,
-        channels: [],
-        childRouteHints: [],
-      })),
-    }
-
     await expect(resolveDesktopSystemNotificationCandidate(
       { ...create, channelId: "thread_1" },
       { ...bump, channelId: "thread_1" },
       "viewer_1",
       queryClient,
-      coldSnapshot,
     )).resolves.toMatchObject({
       title: "Studio · #general · Release notes",
       body: "Ada: Hello there",
@@ -228,32 +273,39 @@ describe("desktop system notification candidates", () => {
     ])
   })
 
-  it("uses the complete current-account snapshot without metadata I/O", async () => {
+  it("uses complete current-account collections without metadata I/O", async () => {
+    const queryClient = new QueryClient()
+    seedCanonicalDirectory(queryClient)
     await expect(resolveDesktopSystemNotificationCandidate(
       create,
       bump,
       "viewer_1",
-      new QueryClient(),
-      snapshot,
+      queryClient,
     )).resolves.toMatchObject({
       title: "Studio · #general",
       body: "Ada: Hello there",
     })
     expect(channelMetadataMocks.fetch).not.toHaveBeenCalled()
+
+    await expect(resolveDesktopSystemNotificationCandidate(
+      { ...create, channelId: "thread_1" },
+      { ...bump, channelId: "thread_1" },
+      "viewer_1",
+      queryClient,
+    )).resolves.toMatchObject({
+      title: "Studio · #general · Release notes",
+    })
   })
 
   it("keeps safe fallback copy when cold metadata resolution fails", async () => {
+    const queryClient = new QueryClient()
+    seedCanonicalDirectory(queryClient, { channels: false })
     channelMetadataMocks.fetch.mockRejectedValue(new Error("metadata unavailable"))
     await expect(resolveDesktopSystemNotificationCandidate(
       create,
       bump,
       "viewer_1",
-      new QueryClient(),
-      { ...snapshot, servers: snapshot.servers.map((server) => ({
-        ...server,
-        channels: [],
-        childRouteHints: [],
-      })) },
+      queryClient,
     )).resolves.toMatchObject({
       title: "Studio · #Channel",
       body: "Ada: Hello there",

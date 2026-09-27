@@ -1,5 +1,5 @@
 -- Per-channel/DM message sequencing via an atomic counter table.
--- See plans/community-agent-cli-bridge.md design §3.
+-- The counter stores the most recently issued sequence per channel.
 --
 -- `seq` is per-scope (channel or DM), monotonic, unique, but NOT guaranteed
 -- gap-free (see design §3 for why a rare gap is an accepted trade-off, not a

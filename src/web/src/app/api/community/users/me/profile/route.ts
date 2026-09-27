@@ -9,7 +9,7 @@ import {
   withD1Retry,
 } from "@alook/shared"
 import { getDb } from "@/lib/db"
-import { createAuth } from "@/lib/auth"
+import { getAuth } from "@/lib/auth"
 import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { fanOutProfileUpdate, fanOutStatusUpdate } from "@/lib/community/fanout"
@@ -99,7 +99,7 @@ export const PATCH = withCommunityActor(async (req: NextRequest, ctx) => {
     // refresh right after renaming doesn't read a stale cached session
     // (the bug this fixes: cookieCache — auth.ts's `session.cookieCache`,
     // 5min TTL — previously never got invalidated by a raw DB write).
-    const auth = createAuth(ctx.env)
+    const auth = getAuth(ctx.env)
     const result = (await auth.api.updateUser({
       body: { name: trimmed },
       headers: req.headers,

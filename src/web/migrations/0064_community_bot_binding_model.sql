@@ -1,5 +1,5 @@
 -- Per-bot LLM model selection — one narrow nullable column on the bot binding.
--- See plans/community-bot-model-sync.md (TODO 5).
+-- Null keeps existing bindings on their runtime default model.
 --
 -- `model_name` is the full launchable model id (e.g. "claude-opus-4-6"), or
 -- NULL for the runtime's own default. The ModelConfig `kind`

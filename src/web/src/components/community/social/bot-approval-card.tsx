@@ -5,29 +5,28 @@ import type { FriendApprovalPayload } from "@alook/shared"
 import { useOwnerDecision } from "@/hooks/community/mutations/friends"
 import { Button } from "@/components/ui/button"
 import { ProfileAvatar } from "@/components/avatar"
-import { useCommunityProfile } from "@/stores/community/ws"
+import { useCanonicalCommunityProfile } from "@/lib/community-db/projections"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 
 /**
  * Inline friend-approval card, rendered in a bot owner's DM with their bot when
  * a message carries an `approval` payload. States are driven by the per-viewer
- * projection (`status` × `waitingOn`) — see
- * plans/agent-friendship-approval-gate.md §UI. Only the actionable state
+ * projection (`status` × `waitingOn`). Only the actionable state
  * (`pending, waitingOn='you'`) shows Approve/Deny; everything else is a chip.
  */
 export function BotApprovalCard({ approval }: { approval: FriendApprovalPayload }) {
   const decide = useOwnerDecision()
   const { status, waitingOn, otherProfile, botProfile, waitingOnProfile } = approval
   const other = readCommunityProfile(
-    useCommunityProfile(otherProfile.id),
+    useCanonicalCommunityProfile(otherProfile.id),
     otherProfile.id,
   )
   const bot = readCommunityProfile(
-    useCommunityProfile(botProfile.id),
+    useCanonicalCommunityProfile(botProfile.id),
     botProfile.id,
   )
   const waiting = readCommunityProfile(
-    useCommunityProfile(waitingOnProfile?.id),
+    useCanonicalCommunityProfile(waitingOnProfile?.id),
     waitingOnProfile?.id ?? "",
   )
   const otherHandle = `${other.name}#${other.discriminator}`

@@ -3,6 +3,19 @@ import type { CommunityMessageCreate } from "@alook/shared"
 import { vi } from "vitest"
 import type { UseUserWsOptions, UserWsConnectionPhase } from "@/lib/use-user-ws"
 import { useMessageStreamStore } from "@/stores/community/message-stream"
+import {
+  createCommunityDbRegistry,
+  registerCommunityDbRegistry,
+  type CommunityDbRegistry,
+} from "@/lib/community-db/collections"
+import {
+  captureCommunityLiveSnapshotToken,
+  ingestServerDetail,
+  ingestServers,
+  publishCommunityChannelMetadata,
+  publishCommunityForumSidebar,
+} from "@/lib/community-db/sync"
+import { getForumSidebarBase } from "@/hooks/community/use-forum-sidebar-threads"
 
 const communityApiFetch = vi.hoisted(() => vi.fn(async (...args: unknown[]) => {
   const url = args[0]
@@ -61,6 +74,8 @@ export function flushEffects() {
 }
 
 export let capturedQueryClient: QueryClient
+let canonicalRegistry: CommunityDbRegistry | null = null
+let unregisterCanonicalRegistry: (() => void) | null = null
 vi.mock("@tanstack/react-query", async () => {
   const actual = await vi.importActual<typeof import("@tanstack/react-query")>("@tanstack/react-query")
   return {
@@ -159,6 +174,9 @@ async function resetStore() {
 
 export async function resetCommunityWsHarness() {
   resetHarnessState()
+  canonicalRegistry = createCommunityDbRegistry(capturedQueryClient, "u_me")
+  await canonicalRegistry.preload()
+  unregisterCanonicalRegistry = registerCommunityDbRegistry(canonicalRegistry)
   await resetStore()
 }
 
@@ -169,6 +187,10 @@ export async function cleanupCommunityWsHarness() {
   vi.useRealTimers()
   vi.restoreAllMocks()
   vi.clearAllMocks()
+  unregisterCanonicalRegistry?.()
+  unregisterCanonicalRegistry = null
+  await canonicalRegistry?.cleanup()
+  canonicalRegistry = null
   resetHarnessState()
 }
 
@@ -227,4 +249,112 @@ export function forumSidebarFixture(ids = ["post_1"]) {
       unread: false,
     })),
   }
+}
+
+export function seedCanonicalForumSidebar(serverId: string, ids = ["post_1"]) {
+  if (!canonicalRegistry) throw new Error("canonical test registry is not active")
+  ingestServers(canonicalRegistry, { servers: [{
+    id: serverId,
+    name: "Server",
+    initial: "S",
+    active: false,
+    unread: false,
+    mentions: 0,
+    ownerId: "viewer",
+  }] })
+  ingestServerDetail(canonicalRegistry, {
+    id: serverId,
+    name: "Server",
+    discriminator: "0001",
+    description: "",
+    icon: null,
+    ownerId: "viewer",
+    categories: [{
+      id: `${serverId}-forums`,
+      name: "Forums",
+      channels: [{
+        id: "forum_1",
+        name: "Forum",
+        active: false,
+        unread: false,
+        type: "forum",
+      }],
+    }],
+  })
+  publishCommunityForumSidebar(capturedQueryClient, {
+    serverId,
+    channels: forumSidebarFixture(ids).channels.map((channel) => ({
+      ...channel,
+      serverId,
+      type: "thread",
+      creatorId: "viewer",
+      archived: false,
+      lastMessageAt: channel.activityAt,
+    })),
+    openers: forumSidebarFixture(ids).included.parentMessages.map((message) => ({
+      ...message,
+      channelId: "forum_1",
+      type: "chat" as const,
+    })),
+    proof: {
+      token: captureCommunityLiveSnapshotToken(capturedQueryClient),
+      signal: undefined,
+    },
+  })
+}
+
+export function canonicalForumSidebar(serverId: string) {
+  return getForumSidebarBase(capturedQueryClient, serverId)
+}
+
+export function seedCanonicalThread(
+  serverId: string,
+  parentId: string,
+  parentType: "text" | "forum",
+  childId: string,
+) {
+  if (!canonicalRegistry) throw new Error("canonical test registry is not active")
+  ingestServers(canonicalRegistry, { servers: [{
+    id: serverId, name: "Server", initial: "S", active: false, unread: false,
+    mentions: 0, ownerId: "u_me",
+  }] })
+  ingestServerDetail(canonicalRegistry, {
+    id: serverId, name: "Server", discriminator: "0001", description: "",
+    icon: null, ownerId: "u_me", categories: [{
+      id: `${serverId}-category`, name: "Category", channels: [{
+        id: parentId, name: "Parent", active: false, unread: false, type: parentType,
+      }],
+    }],
+  })
+  publishCommunityChannelMetadata(capturedQueryClient, {
+    metadata: {
+      id: childId,
+      serverId,
+      name: "Child",
+      type: "thread",
+      parentChannelId: parentId,
+      parentMessageId: `${childId}-opener`,
+      creatorId: "u_me",
+      archived: false,
+      lastMessageAt: "2026-08-01T00:00:00.000Z",
+    },
+    proof: {
+      token: captureCommunityLiveSnapshotToken(capturedQueryClient),
+      signal: undefined,
+    },
+  })
+}
+
+export function hasCanonicalChannel(channelId: string) {
+  return canonicalRegistry?.collections.channels.has(channelId) ?? false
+}
+
+export function hasCanonicalChannelAccess(channelId: string, userId: string) {
+  return canonicalRegistry?.collections.channelMemberships.has(`${channelId}:${userId}:access`)
+    ?? false
+}
+
+export function hasCanonicalChannelNotify(channelId: string, userId: string) {
+  return canonicalRegistry?.collections.channelMemberships.has(`${channelId}:${userId}:notify`)
+    ?? false
 }

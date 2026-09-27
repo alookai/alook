@@ -43,6 +43,31 @@ async function serverIds(key: UserKey): Promise<string[]> {
   return body.servers.map((server) => server.id)
 }
 
+async function firstTextChannelId(page: Page, serverId: string): Promise<string> {
+  const response = await page.request.get(
+    `/api/community/servers/${serverId}/channels`,
+  )
+  expect(response.status()).toBe(200)
+  const body = await response.json() as {
+    channels: Array<{ id: string; type: string; parentChannelId?: string | null }>
+  }
+  const channel = body.channels.find((candidate) => (
+    candidate.type === "text" && !candidate.parentChannelId
+  ))
+  expect(channel).toBeTruthy()
+  return channel!.id
+}
+
+async function openChannelRoute(
+  page: Page,
+  serverId: string,
+  channelId: string,
+): Promise<void> {
+  const pathname = `/c/channels/${serverId}/${channelId}`
+  await page.goto(pathname, { waitUntil: "commit" })
+  await expect(page).toHaveURL(pathname)
+}
+
 async function seedServerRoute(
   key: UserKey,
   name: string,
@@ -235,7 +260,11 @@ test("slow target RSC survives delete/list/WS convergence and lands on its remem
   )
   const targetServerId = (await serverIds("carol")).find((id) => id !== deleted.serverId)
   expect(targetServerId).toBeTruthy()
-  await openServer(page, targetServerId!)
+  await openChannelRoute(
+    page,
+    targetServerId!,
+    await firstTextChannelId(page, targetServerId!),
+  )
   const targetPathname = await expectServerLeaf(page, targetServerId!)
   await expect(page.getByTestId(tid.composerInput)).toBeVisible()
   await openServer(page, deleted.serverId)

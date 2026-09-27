@@ -13,8 +13,12 @@ const mocks = vi.hoisted(() => ({
   markSwitch: vi.fn(),
   toast: vi.fn(),
   toastApiError: vi.fn(),
+  lastChannel: { current: null as string | null },
   lastMeLeaf: { current: null as string | null },
-  structuralSnapshot: null as null | Record<string, unknown>,
+  communityDb: { current: null as null | { collections: {
+    servers: { get: (id: string) => { detailComplete?: boolean } | undefined }
+    channels: { values: () => IterableIterator<Record<string, unknown>> }
+  } } },
 }))
 
 vi.mock("sonner", () => ({ toast: mocks.toast }))
@@ -31,8 +35,8 @@ vi.mock("@/hooks/community/use-servers", () => ({
   }),
 }))
 vi.mock("@/hooks/community/use-folders", () => ({ useFolders: () => ({ folders: mocks.folders }) }))
-vi.mock("@/hooks/community/use-structural-snapshot", () => ({
-  useStructuralSnapshot: () => mocks.structuralSnapshot,
+vi.mock("@/lib/community-db/projections", () => ({
+  useOptionalCommunityDbRegistry: () => mocks.communityDb.current,
 }))
 vi.mock("@/hooks/community/mutations", () => ({
   useCreateServer: () => ({ mutateAsync: mocks.createServer }),
@@ -44,7 +48,7 @@ vi.mock("@/stores/community", () => ({
     selector({ currentServerId: "s1" }),
 }))
 vi.mock("@/lib/community/last-channel", () => ({
-  getLastChannel: () => null,
+  getLastChannel: () => mocks.lastChannel.current,
   pickServerLandingHref: (id: string, channelIds: string[]) =>
     channelIds[0] ? `/c/channels/${id}/${channelIds[0]}` : `/c/channels/${id}`,
 }))
@@ -131,8 +135,9 @@ describe("useShellRailController", () => {
       if (typeof mock === "function" && "mockReset" in mock) mock.mockReset()
     }
     mocks.folders.length = 0
+    mocks.lastChannel.current = null
     mocks.lastMeLeaf.current = null
-    mocks.structuralSnapshot = null
+    mocks.communityDb.current = null
   })
 
   it("commits cold server navigation synchronously without waiting for detail", async () => {
@@ -147,35 +152,6 @@ describe("useShellRailController", () => {
     expect(mocks.markSwitch).toHaveBeenNthCalledWith(1, "server", "s1")
     expect(mocks.markSwitch).toHaveBeenNthCalledWith(2, "server", "s2")
 
-  })
-
-  it("renders a structural rail hint while keeping privileged actions disabled", async () => {
-    mocks.structuralSnapshot = {
-      schemaVersion: 1,
-      accountId: "viewer-1",
-      capturedAt: Date.now(),
-      serverOrder: ["s3"],
-      folders: [{ id: "f1", name: "Saved", serverIds: ["s3"] }],
-      servers: [{
-        id: "s3",
-        name: "Hint",
-        discriminator: "0003",
-        icon: null,
-        categories: [],
-        channels: [{ id: "c3", name: "cached", type: "text", categoryId: null }],
-        childRouteHints: [],
-      }],
-    }
-    const hook = await renderController({ accountId: "viewer-1" })
-
-    expect(hook.current.railProps.servers.map((server) => server.id)).toEqual(["s3"])
-    expect(hook.current.railProps.folders.map((folder) => folder.id)).toEqual(["f1"])
-    expect(hook.current.railProps.onLeaveServer).toBeUndefined()
-    expect(hook.current.railProps.onOpenSettings).toBeUndefined()
-    expect(hook.current.railProps.onOpenInvitePopover).toBeUndefined()
-
-    await act(async () => hook.current.navigate("s3"))
-    expect(hook.pushed).toEqual(["/c/channels/s3/c3"])
   })
 
   it("projects the pending target for every rail entry without changing committed actions", async () => {
@@ -270,9 +246,42 @@ describe("useShellRailController", () => {
     hook.cache.set("s1", {
       categories: [{ channels: [{ id: "cached", pending: false }] }],
     })
+    mocks.lastChannel.current = "cached"
 
     await act(async () => hook.current.railProps.onServerNavigate("s1"))
     expect(hook.pushed).toEqual(["/c/channels/s1"])
+  })
+
+  it("uses canonical channels only when the restored server detail is complete", async () => {
+    const servers = new Map([
+      ["s1", { id: "s1", detailComplete: true }],
+      ["s2", { id: "s2", detailComplete: false }],
+    ])
+    const channels = new Map([
+      ["pending", { id: "pending", serverId: "s1", type: "text", pending: true }],
+      ["thread", { id: "thread", serverId: "s1", type: "thread", pending: false }],
+      ["canonical", { id: "canonical", serverId: "s1", type: "text", pending: false }],
+      ["foreign", { id: "foreign", serverId: "s2", type: "text", pending: false }],
+    ])
+    mocks.communityDb.current = { collections: {
+      servers: { get: (id) => servers.get(id) },
+      channels: { values: () => channels.values() },
+    } }
+    const hook = await renderController()
+
+    await act(async () => hook.current.navigate("s1"))
+    await act(async () => hook.current.railProps.onServerPrefetch("s1"))
+    await act(async () => hook.current.navigate("s2"))
+    await act(async () => hook.current.railProps.onServerPrefetch("s2"))
+
+    expect(hook.pushed).toEqual([
+      "/c/channels/s1/canonical",
+      "/c/channels/s2",
+    ])
+    expect(hook.prefetched).toEqual([
+      "/c/channels/s1",
+      "/c/channels/s2",
+    ])
   })
 
   it("keeps rail navigation and prefetch on the semantic server root", async () => {
@@ -280,6 +289,7 @@ describe("useShellRailController", () => {
     hook.cache.set("s1", {
       categories: [{ channels: [{ id: "pending", pending: true }, { id: "cached", pending: false }] }],
     })
+    mocks.lastChannel.current = "cached"
 
     await act(async () => hook.current.railProps.onServerNavigate("s1"))
     await act(async () => hook.current.railProps.onServerPrefetch("s1"))

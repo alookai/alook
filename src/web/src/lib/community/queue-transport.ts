@@ -65,7 +65,7 @@ export function createQueueTransport(queue: Queue<AlookQueueTask>): QueueTranspo
 
 /**
  * Dev-only. Local Cloudflare Queues simulation cannot bridge separate
- * `wrangler dev`/`next dev` processes (plans/minimal-wake-queue-unread-notice.md)
+ * `wrangler dev`/`next dev` processes
  * — every cross-process Queue send from `next dev` lands nowhere. This
  * transport instead calls the real `alook-queue-worker` process directly over
  * HTTP (its `fetch()` dev entrypoint, see `src/queue-worker/src/index.ts`),

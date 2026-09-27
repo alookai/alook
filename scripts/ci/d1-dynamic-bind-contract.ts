@@ -163,5 +163,9 @@ export function scanDynamicBindSites(root: string, sourceOverride?: { file: stri
     visit(parsed)
   }
 
-  return sites.sort((left, right) => left.key.localeCompare(right.key))
+  // Match the manifest contract's code-unit ordering. localeCompare can order
+  // a lowercase continuation before an uppercase one (for example,
+  // listUnreadMentions before listUnreadMentionScopes), which makes two
+  // otherwise identical key sets compare unequal.
+  return sites.sort((left, right) => left.key < right.key ? -1 : left.key > right.key ? 1 : 0)
 }

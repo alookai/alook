@@ -26,6 +26,11 @@ const mocks = vi.hoisted(() => ({
   },
   useMessages: vi.fn(),
   watermark: vi.fn(),
+  canonicalReadSnapshot: undefined as undefined | {
+    lastReadMessageId: string | null
+    lastReadAt: string
+    lastReadSeq: number
+  },
 }))
 
 vi.mock("./use-channel-read-state", () => ({
@@ -44,6 +49,9 @@ vi.mock("./use-channel-panels", () => ({
   useThreads: () => ({ threads: [], isLoading: false }),
   usePins: () => ({ pins: [], isLoading: false }),
 }))
+vi.mock("@/lib/community-db/projections", () => ({
+  useReadStateProjection: () => mocks.canonicalReadSnapshot,
+}))
 
 function Capture() {
   const result = useChannelMessageFeed({
@@ -55,6 +63,7 @@ function Capture() {
   })
   return createElement("output", {
     "data-divider": result.newDividerBefore,
+    "data-anchor-found": result.anchorInCache,
     "data-unread": result.unreadCount,
   })
 }
@@ -66,8 +75,15 @@ describe("useChannelMessageFeed", () => {
       lastReadSeq: 2,
     }
     mocks.readState.isFetching = false
+    mocks.messages.messages = [
+      { id: "self", authorId: "viewer" },
+      { id: "authoritative-anchor", authorId: "viewer" },
+      { id: "peer", authorId: "peer" },
+    ]
+    mocks.messages.anchorReconciled = true
     mocks.useMessages.mockReset()
     mocks.watermark.mockReset()
+    mocks.canonicalReadSnapshot = undefined
   })
 
   it("always revalidates a mount and reconciles the authoritative server anchor", () => {
@@ -80,6 +96,45 @@ describe("useChannelMessageFeed", () => {
     }))
     expect(renderer.container.querySelector("output")).toHaveAttribute("data-divider", "peer")
     expect(renderer.container.querySelector("output")).toHaveAttribute("data-unread", "3")
+    renderer.unmount()
+  })
+
+  it("seeds the frozen mount snapshot from the canonical read projection", () => {
+    mocks.canonicalReadSnapshot = {
+      lastReadMessageId: "authoritative-anchor",
+      lastReadAt: "2026-09-26T00:00:00.000Z",
+      lastReadSeq: 2,
+    }
+    render(createElement(Capture)).unmount()
+    expect(mocks.useMessages).toHaveBeenLastCalledWith("channel", expect.objectContaining({
+      lastReadMessageId: "authoritative-anchor",
+    }))
+  })
+
+  it("projects a warm canonical anchor before the query page marker settles", () => {
+    mocks.messages.anchorReconciled = false
+    const renderer = render(createElement(Capture))
+    const output = renderer.container.querySelector("output")!
+    expect(output).toHaveAttribute("data-divider", "peer")
+    expect(output).toHaveAttribute("data-anchor-found", "true")
+    renderer.unmount()
+  })
+
+  it("keeps an incomplete canonical window unresolved until its anchor arrives", () => {
+    mocks.messages.anchorReconciled = false
+    mocks.messages.messages = [{ id: "peer", authorId: "peer" }]
+    const renderer = render(createElement(Capture))
+    const output = () => renderer.container.querySelector("output")!
+    expect(output()).not.toHaveAttribute("data-divider")
+    expect(output()).toHaveAttribute("data-anchor-found", "false")
+
+    mocks.messages.messages = [
+      { id: "authoritative-anchor", authorId: "viewer" },
+      { id: "peer", authorId: "peer" },
+    ]
+    renderer.rerender(createElement(Capture))
+    expect(output()).toHaveAttribute("data-divider", "peer")
+    expect(output()).toHaveAttribute("data-anchor-found", "true")
     renderer.unmount()
   })
 

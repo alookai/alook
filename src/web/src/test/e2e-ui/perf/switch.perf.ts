@@ -19,7 +19,7 @@
  *   - The capture is flushed to switch-events.json after every switch. The
  *     runner clears old artifacts first and only reports a successful run.
  *
- * See plans/community-switch-perf-diagnosis.md. LOCAL-ONLY — runs via
+ * LOCAL-ONLY — runs via
  * playwright.perf.config.ts, which has NO global-setup, so the stress-seeded
  * DB is preserved and this spec drives as the STABLE seed identity recorded in
  * the manifest.
@@ -37,6 +37,7 @@ import { tid } from "../_fixtures/testids"
 import type {
   CacheState,
   CaptureFile,
+  CapturedWarmReload,
   CapturedSwitch,
   SwitchKind,
 } from "./perf-capture-types"
@@ -266,6 +267,7 @@ test("community switch perceived-latency capture", async ({ browser }) => {
   await page.waitForSelector("[data-msg-id]", { timeout: 20_000 }).catch(() => {})
 
   const captured: CapturedSwitch[] = []
+  const warmReloadCapture: { current?: CapturedWarmReload } = {}
   const startedAt = new Date().toISOString()
 
   async function measureSwitch(
@@ -336,6 +338,7 @@ test("community switch perceived-latency capture", async ({ browser }) => {
       owner: manifest.owner,
       createdAt: startedAt,
       switches: captured,
+      ...(warmReloadCapture.current ? { warmReload: warmReloadCapture.current } : {}),
     }
     mkdirSync(ARTIFACTS_DIR, { recursive: true })
     writeFileSync(CAPTURE_OUT, JSON.stringify(out, null, 2))
@@ -440,8 +443,55 @@ test("community switch perceived-latency capture", async ({ browser }) => {
       }
     })
   ), { key: persistedKey, channelId: persistedChannelId })).toBe(true)
+  await page.addInitScript(() => {
+    window.__PERF_WARM_RELOAD__ = { customBootstrapSeen: false, skeletonSeen: false }
+    const inspect = () => {
+      const capture = window.__PERF_WARM_RELOAD__
+      if (!capture) return
+      if (document.querySelector('[data-slot="community-restore-bootstrap"]')) {
+        capture.customBootstrapSeen = true
+      }
+      if (
+        document.querySelector('[aria-label="Loading community"]')
+        || document.querySelector('[data-slot="skeleton"]')
+      ) capture.skeletonSeen = true
+    }
+    new MutationObserver(inspect).observe(document, { childList: true, subtree: true })
+    inspect()
+  })
   await page.reload({ waitUntil: "commit" })
   await page.waitForSelector("[data-msg-id]", { timeout: 20_000 }).catch(() => {})
+  warmReloadCapture.current = await page.evaluate(() => {
+    const latestMark = (name: string) => {
+      const marks = performance.getEntriesByName(name, "mark")
+      return marks.at(-1)?.startTime ?? null
+    }
+    const restoreStartTs = latestMark("alook:restore:start")
+    const restoreCompleteTs = latestMark("alook:restore:complete")
+    const firstCachedPaintTs = latestMark("alook:restore:first-cached-paint")
+    const stableTs = latestMark("alook:restore:stable")
+    if (
+      restoreStartTs == null
+      || restoreCompleteTs == null
+      || firstCachedPaintTs == null
+      || stableTs == null
+    ) throw new Error("warm reload restore lifecycle marks are incomplete")
+    return {
+      restoreStartTs,
+      restoreCompleteTs,
+      firstCachedPaintTs,
+      stableTs,
+      customBootstrapSeen: window.__PERF_WARM_RELOAD__?.customBootstrapSeen === true,
+      skeletonSeen: window.__PERF_WARM_RELOAD__?.skeletonSeen === true,
+    }
+  })
+  const warmReload = warmReloadCapture.current
+  expect(warmReload.customBootstrapSeen, "warm reload omitted the custom restore bootstrap").toBe(false)
+  expect(warmReload.skeletonSeen, "warm reload reused the route-owned regional skeleton").toBe(true)
+  expect(warmReload.restoreCompleteTs).toBeGreaterThanOrEqual(warmReload.restoreStartTs)
+  expect(warmReload.firstCachedPaintTs).toBeGreaterThanOrEqual(warmReload.restoreCompleteTs)
+  expect(warmReload.stableTs).toBeGreaterThanOrEqual(warmReload.firstCachedPaintTs)
+  flushCapture()
   {
     const ch = channels[1]
     await measureSwitch("channel", ch.id, "disk-warm", async () => {

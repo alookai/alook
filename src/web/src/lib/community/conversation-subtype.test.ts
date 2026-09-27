@@ -6,7 +6,7 @@ describe("resolveConversationSubtype", () => {
     ["pending", true],
     ["terminal-error", true],
     ["ready", false],
-  ] as const)("keeps stale or unproved metadata neutral: %s / access=%s", (routeLifecycle, accessAllowed) => {
+  ] as const)("keeps metadata neutral only when no structural hint exists: %s / access=%s", (routeLifecycle, accessAllowed) => {
     expect(resolveConversationSubtype({
       routeLifecycle,
       accessAllowed,
@@ -29,7 +29,7 @@ describe("resolveConversationSubtype", () => {
   })
 
   it.each(["text", "forum", "thread"] as const)(
-    "uses the persisted %s subtype only for a pending skeleton",
+    "uses the persisted %s subtype for every non-content skeleton state",
     (structuralHint) => {
       expect(resolveConversationSubtype({
         routeLifecycle: "pending",
@@ -39,13 +39,18 @@ describe("resolveConversationSubtype", () => {
         structuralHint,
       })).toBe(structuralHint)
 
-      expect(resolveConversationSubtype({
-        routeLifecycle: "terminal-error",
-        accessAllowed: true,
-        isChild: false,
-        isForum: false,
-        structuralHint,
-      })).toBe("unknown")
+      for (const [routeLifecycle, accessAllowed] of [
+        ["terminal-error", true],
+        ["ready", false],
+      ] as const) {
+        expect(resolveConversationSubtype({
+          routeLifecycle,
+          accessAllowed,
+          isChild: false,
+          isForum: false,
+          structuralHint,
+        })).toBe(structuralHint)
+      }
     },
   )
 })

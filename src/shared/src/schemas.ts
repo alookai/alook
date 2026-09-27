@@ -1065,8 +1065,7 @@ export type AgentTypingStopMessage = z.infer<typeof AgentTypingStopMessageSchema
  * launch that produced it. This is the completion signal the reset/nap
  * audit+awake re-home hangs on: the DO correlates `launchId` back to the
  * pending (launchId → trigger) map it recorded at dispatch, writes the audit +
- * awake stamp exactly once, then drops the map entry. See
- * plans/reset-nap-completion-rehome.md.
+ * awake stamp exactly once, then drops the map entry.
  */
 export const AgentSessionMessageSchema = z.object({
   type: z.literal("agent_session"),
@@ -1154,8 +1153,7 @@ export const CommunityDaemonEnrollAgentResponseSchema = z.object({
 export type CommunityDaemonEnrollAgentResponse = z.infer<typeof CommunityDaemonEnrollAgentResponseSchema>;
 
 // ---------------------------------------------------------------------------
-// Community bots — first-class community identities owned by users. See
-// plans/community-bots.md for the invariants.
+// Community bots are first-class community identities owned by users.
 // ---------------------------------------------------------------------------
 
 import {
@@ -1174,7 +1172,7 @@ const isMentionSafeName = (name: string): boolean => validateCommunityName(name)
 const MENTION_SAFE_NAME_MSG = "name cannot contain #, @, or line breaks";
 
 // Accepts an https URL, the exact bot-avatar route shape
-// (`/api/community/bots/{id}/avatar` — see plans/icon-range-selector.md), or
+// (`/api/community/bots/{id}/avatar`), or
 // the in-house `avatar:` serialized config produced by `serializeAvatarConfig`
 // in the web avatar picker. This gates client-supplied input on the plain
 // create/patch endpoints, so it must NOT accept an arbitrary leading-`/`
@@ -1533,8 +1531,7 @@ export type AuditLogTurnInterruptPayload = z.infer<typeof AuditLogTurnInterruptP
  * audit row is preferable to a silently-lost wake, so audit-before-delivery
  * is the safer trade-off. Callers reading the audit log should treat rows as
  * "we tried this" not "the daemon received this" — the daemon-facing
- * delivery is best-effort. See "Audit write failure policy" in
- * plans/agent-unread-visibility-unify.md. The `messageId` is the trigger;
+ * delivery is best-effort. The `messageId` is the trigger;
  * `channel`/`seq` are denormalized for click-to-jump so the owner UI can
  * render without a second D1 fetch. `senderHandle` is frozen at wake time
  * (renaming after the fact does NOT rewrite past rows).

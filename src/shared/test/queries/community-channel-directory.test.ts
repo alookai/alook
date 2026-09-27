@@ -19,11 +19,13 @@ describe("groupChannelRefDirectoryRows", () => {
           serverId: "server_1",
           channelId: "channel_1",
           channelName: "general",
+          channelType: "text",
         },
         {
           serverId: "server_1",
           channelId: "channel_2",
           channelName: "random",
+          channelType: "forum",
         },
       ]
     );
@@ -35,8 +37,8 @@ describe("groupChannelRefDirectoryRows", () => {
         name: "First",
         discriminator: "0001",
         channels: [
-          { id: "channel_1", name: "general" },
-          { id: "channel_2", name: "random" },
+          { id: "channel_1", name: "general", type: "text" },
+          { id: "channel_2", name: "random", type: "forum" },
         ],
       },
     ]);
@@ -72,6 +74,7 @@ describe("listChannelRefDirectoryForUser", () => {
         server_id TEXT,
         category_id TEXT,
         name TEXT,
+        type TEXT,
         position INTEGER,
         parent_channel_id TEXT,
         creator_id TEXT
@@ -96,17 +99,17 @@ describe("listChannelRefDirectoryForUser", () => {
         ('private', 's1', 1, 1),
         ('private_s2', 's2', 0, 1);
       INSERT INTO community_channel
-        (id, server_id, category_id, name, position, parent_channel_id, creator_id)
+        (id, server_id, category_id, name, type, position, parent_channel_id, creator_id)
       VALUES
-        ('uncategorized', 's1', NULL, 'uncategorized', 0, NULL, 'other'),
-        ('public_channel', 's1', 'public', 'public-channel', 1, NULL, 'other'),
-        ('private_owned', 's1', 'private', 'private-owned', 2, NULL, 'viewer'),
-        ('private_access', 's1', 'private', 'private-access', 3, NULL, 'other'),
-        ('private_hidden', 's1', 'private', 'private-hidden', 4, NULL, 'other'),
-        ('child_thread', 's1', 'public', 'child-thread', 5, 'public_channel', 'viewer'),
-        ('s2_hidden', 's2', 'private_s2', 'hidden', 0, NULL, 'other'),
-        ('nonmember_public', 's3', NULL, 'nonmember-public', 0, NULL, 'other'),
-        ('dm', NULL, NULL, NULL, 0, NULL, 'viewer');
+        ('uncategorized', 's1', NULL, 'uncategorized', 'text', 0, NULL, 'other'),
+        ('public_channel', 's1', 'public', 'public-channel', 'text', 1, NULL, 'other'),
+        ('private_owned', 's1', 'private', 'private-owned', 'forum', 2, NULL, 'viewer'),
+        ('private_access', 's1', 'private', 'private-access', 'text', 3, NULL, 'other'),
+        ('private_hidden', 's1', 'private', 'private-hidden', 'text', 4, NULL, 'other'),
+        ('child_thread', 's1', 'public', 'child-thread', 'thread', 5, 'public_channel', 'viewer'),
+        ('s2_hidden', 's2', 'private_s2', 'hidden', 'text', 0, NULL, 'other'),
+        ('nonmember_public', 's3', NULL, 'nonmember-public', 'text', 0, NULL, 'other'),
+        ('dm', NULL, NULL, NULL, 'dm', 0, NULL, 'viewer');
       INSERT INTO community_channel_member (id, channel_id, user_id, relation) VALUES
         ('cm_access', 'private_access', 'viewer', 'access'),
         ('cm_notify', 'private_hidden', 'viewer', 'notify'),
@@ -125,10 +128,10 @@ describe("listChannelRefDirectoryForUser", () => {
         name: "First",
         discriminator: "0001",
         channels: [
-          { id: "public_channel", name: "public-channel" },
-          { id: "private_owned", name: "private-owned" },
-          { id: "private_access", name: "private-access" },
-          { id: "uncategorized", name: "uncategorized" },
+          { id: "public_channel", name: "public-channel", type: "text" },
+          { id: "private_owned", name: "private-owned", type: "forum" },
+          { id: "private_access", name: "private-access", type: "text" },
+          { id: "uncategorized", name: "uncategorized", type: "text" },
         ],
       },
     ]);

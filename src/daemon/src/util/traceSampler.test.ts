@@ -3,7 +3,7 @@ import { createTraceSampler, DEFAULT_TRACE_SAMPLE_MS } from "./traceSampler.js";
 import * as traceSamplerModule from "./traceSampler.js";
 
 /*
- * T4 (plans/daemon-trace-completeness-charter.md) — heartbeat sampler.
+ * Heartbeat-sampler trace completeness.
  * Two acceptance conditions (Claudette 架构#421):
  *   ① retention: folding the unchanged-tick / progress / runtime_signal noise
  *      bounds each agent's sampleable streams; the B1 fleet-budget test below

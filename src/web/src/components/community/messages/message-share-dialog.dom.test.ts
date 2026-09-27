@@ -27,8 +27,8 @@ const sessionMocks = vi.hoisted(() => ({
   capture: vi.fn(),
 }))
 
-vi.mock("@/stores/community/ws", () => ({
-  useProfilesByUserId: () => profileState.map,
+vi.mock("@/lib/community-db/projections", () => ({
+  useCanonicalProfilesByUserId: () => profileState.map,
 }))
 vi.mock("@/lib/community/share-image-session", () => {
   class ShareImageSessionError extends Error {

@@ -104,8 +104,8 @@ export default {
 
   /**
    * Dev-only HTTP stand-in for the local Cloudflare Queue. Local Queues
-   * simulation cannot bridge separate `wrangler dev`/`next dev` processes
-   * (plans/minimal-wake-queue-unread-notice.md), so `src/web`'s
+   * simulation cannot bridge separate `wrangler dev`/`next dev` processes,
+   * so `src/web`'s
    * `queue-transport.ts` calls this route (via the `QUEUE_WORKER` service
    * binding, `NODE_ENV === "development"` only) instead of
    * `TASK_QUEUE.sendBatch(...)`. Body is a JSON array of accepted legacy or

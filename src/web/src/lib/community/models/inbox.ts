@@ -14,6 +14,8 @@ export type Mention = {
   channel: string
   channelId?: string
   m: Msg
+  /** Canonical owners are still hydrating; render a keyed local skeleton. */
+  pending?: boolean
 }
 
 // A single per-user saved ("marked") message, as returned by
@@ -101,4 +103,5 @@ export type InboxFriendRequest = {
   avatar: string
   avatarVersion: number | null
   createdAt: string
+  pendingIdentity?: boolean
 }

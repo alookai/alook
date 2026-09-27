@@ -38,6 +38,24 @@ type OwnerServerDeleteState = {
 
 type OwnerServerDeleteWindow = Window & {
   __alookOwnerServerDeleteStateV8?: OwnerServerDeleteState
+  __alookOwnerServerDeleteMeRootLandingV1?: boolean
+}
+
+let ownerServerDeleteMeRootLandingFallback = false
+
+function setOwnerServerDeleteMeRootLanding(value: boolean): void {
+  if (typeof window === "undefined") {
+    ownerServerDeleteMeRootLandingFallback = value
+    return
+  }
+  ;(window as OwnerServerDeleteWindow).__alookOwnerServerDeleteMeRootLandingV1 = value
+}
+
+export function isOwnerServerDeleteMeRootLanding(): boolean {
+  if (typeof window === "undefined") return ownerServerDeleteMeRootLandingFallback
+  return Boolean(
+    (window as OwnerServerDeleteWindow).__alookOwnerServerDeleteMeRootLandingV1,
+  )
 }
 
 const ownerServerDeleteFallback: OwnerServerDeleteState = {
@@ -100,6 +118,7 @@ export function beginOwnerServerDelete(
     if (current.scopes === "retained") current.participantTokens.add(originToken)
     return
   }
+  setOwnerServerDeleteMeRootLanding(false)
   state.flushedServerIds.delete(serverId)
   state.transactions.set(serverId, {
     serverId,
@@ -150,6 +169,7 @@ export function claimOwnerServerDeleteNavigation(
   record.request = "navigating"
   record.targetHref = targetHref
   record.navigationIssued = true
+  setOwnerServerDeleteMeRootLanding(targetHref === "/c/me")
   return true
 }
 
@@ -172,6 +192,7 @@ export function isOwnerServerDeleteCompleted(serverId: string): boolean {
 }
 
 export function observeOwnerServerDeleteRouteCommit(committedHref: string): string[] {
+  if (committedHref !== "/c/me") setOwnerServerDeleteMeRootLanding(false)
   const state = ownerServerDeleteState()
   for (const record of state.transactions.values()) {
     record.lastCommittedHref = committedHref

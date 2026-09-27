@@ -9,6 +9,7 @@ import {
   claimOwnerServerDeleteScopeFlush,
   completeOwnerServerDeleteScopeFlush,
   createOwnerServerDeleteRouteToken,
+  isOwnerServerDeleteMeRootLanding,
   isOwnerServerDeleteRouteProtected,
   observeOwnerServerDeleteRouteCommit,
 } from "@/lib/community/eject-server"
@@ -109,8 +110,10 @@ describe("useDeleteServer — unmounted caller", () => {
     expect(onSuccess).toHaveBeenCalledWith({ serverId }, { needsNavigation: true })
     expect(isOwnerServerDeleteRouteProtected(serverId)).toBe(true)
     expect(claimOwnerServerDeleteNavigation(serverId, routeToken, "/c/me")).toBe(true)
+    expect(isOwnerServerDeleteMeRootLanding()).toBe(true)
 
     observeOwnerServerDeleteRouteCommit("/c/me")
+    expect(isOwnerServerDeleteMeRootLanding()).toBe(true)
     expect(claimOwnerServerDeleteScopeFlush(serverId)).toBe(true)
     expect(completeOwnerServerDeleteScopeFlush(serverId)).toBe(true)
     expect(isOwnerServerDeleteRouteProtected(serverId)).toBe(false)

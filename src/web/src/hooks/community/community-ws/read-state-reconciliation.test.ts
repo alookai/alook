@@ -73,6 +73,63 @@ describe("account read-state reconciliation", () => {
     })
   })
 
+  it("discards an in-flight snapshot superseded by a newer target revision", async () => {
+    queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
+      revision: 4,
+      readStates: [],
+    })
+    queryClient.setQueryData(communityKeys.channelReadStateSnapshot("c1"), {
+      lastReadMessageId: "m4",
+      lastReadAt: "2026-08-24T00:00:04.000Z",
+      lastReadSeq: 4,
+    })
+    const releases: Array<(snapshot: AccountReadStateSnapshot) => void> = []
+    apiFetch.mockImplementation(() => new Promise<AccountReadStateSnapshot>((resolve) => {
+      releases.push(resolve)
+    }))
+
+    const first = reconcileAccountReadState(queryClient, {
+      invalidateSurfaces: false,
+      targetRevision: 5,
+    })
+    await vi.waitFor(() => expect(releases).toHaveLength(1))
+    const second = reconcileAccountReadState(queryClient, {
+      invalidateSurfaces: false,
+      targetRevision: 6,
+    })
+    releases[0]!({
+      revision: 5,
+      readStates: [{
+        channelId: "c1",
+        lastReadMessageId: "m5",
+        lastReadAt: "2026-08-24T00:00:05.000Z",
+        lastReadSeq: 5,
+      }],
+    })
+    await vi.waitFor(() => expect(releases).toHaveLength(2))
+
+    expect(queryClient.getQueryData(communityKeys.accountReadStateSnapshot()))
+      .toMatchObject({ revision: 4 })
+    expect(queryClient.getQueryData(communityKeys.channelReadStateSnapshot("c1")))
+      .toMatchObject({ lastReadSeq: 4 })
+
+    releases[1]!({
+      revision: 6,
+      readStates: [{
+        channelId: "c1",
+        lastReadMessageId: "m6",
+        lastReadAt: "2026-08-24T00:00:06.000Z",
+        lastReadSeq: 6,
+      }],
+    })
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      expect.objectContaining({ revision: 6 }),
+      expect.objectContaining({ revision: 6 }),
+    ])
+    expect(queryClient.getQueryData(communityKeys.channelReadStateSnapshot("c1")))
+      .toMatchObject({ lastReadSeq: 6 })
+  })
+
   it("uses all surfaces when options are omitted", async () => {
     apiFetch.mockResolvedValue({ revision: 1, readStates: [] })
     const invalidate = vi.spyOn(queryClient, "invalidateQueries")

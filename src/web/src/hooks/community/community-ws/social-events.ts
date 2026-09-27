@@ -25,17 +25,23 @@ import { removeDmReactionDetails } from "./reaction-details-invalidation"
 import { reconcileNotificationSettings } from "@/hooks/community/use-notification-settings"
 import { getFriendRequestActionController } from "@/hooks/community/use-friend-request-action-state"
 import { communityKeys } from "@/lib/query-keys"
-import type { StructuralSnapshotV1 } from "@/lib/community/structural-snapshot"
 import {
   resolveDesktopSystemNotificationCandidate,
   showDesktopSystemNotification,
 } from "@/lib/community/desktop-system-notification"
+import {
+  projectAttentionFriendEvent,
+  projectAttentionMentionHint,
+  projectAttentionUnreadBump,
+} from "@/lib/community-db/sync"
+import { scheduleAccountAttentionReconcile } from "@/hooks/community/use-account-attention"
 
 export function handleReadStateAdvanced(
   event: CommunityReadStateAdvanced,
   context: SocialEventContext,
 ) {
   applyReadStateEnvelope(event, context)
+  scheduleAccountAttentionReconcile(context.queryClient)
 }
 
 function applyReadStateEnvelope(
@@ -60,6 +66,7 @@ export function handleInboxChanged(
     void reconcileNotificationSettings(context.queryClient).catch(() => undefined)
   }
   applyReadStateEnvelope(event, context)
+  scheduleAccountAttentionReconcile(context.queryClient)
 }
 
 type CommunityUnreadBump = Extract<
@@ -86,6 +93,8 @@ export function handleUnreadBump(
   const viewerId = viewerUserIdRef.current
   if (event.userId === viewerId && viewerId) {
     const evidence = unreadBumpEvidence?.get(event)
+    projectAttentionUnreadBump(queryClient, event, evidence)
+    scheduleAccountAttentionReconcile(queryClient)
     getAccountUnreadProjection(queryClient, viewerId).recordArrival({
       channelId: event.channelId,
       railChannelId: event.railChannelId,
@@ -103,7 +112,6 @@ export function handleUnreadBump(
         event,
         viewerId,
         queryClient,
-        queryClient.getQueryData<StructuralSnapshotV1>(communityKeys.structuralSnapshot()) ?? null,
       ).then((candidate) => {
         if (candidate && viewerUserIdRef.current === viewerId) {
           return showDesktopSystemNotification(candidate)
@@ -124,6 +132,8 @@ export function handleFriendEvent(
   event: FriendEvent,
   { projection, queryClient }: SocialEventContext,
 ) {
+  projectAttentionFriendEvent(queryClient, event)
+  scheduleAccountAttentionReconcile(queryClient)
   if (event.type === "community:friend.request") {
     invalidateFriends(projection)
     invalidateInboxUnreads(projection)
@@ -163,6 +173,8 @@ export function handleMentionCreate(
   if (viewerId && event.userId === viewerId && event.channelId) {
     const candidate = messageEvidenceByChannel?.get(event.channelId)
     const evidence = candidate?.messageId === event.messageId ? candidate : undefined
+    projectAttentionMentionHint(queryClient, event, evidence)
+    scheduleAccountAttentionReconcile(queryClient)
     getAccountUnreadProjection(queryClient, viewerId).recordMentionArrival({
       channelId: event.channelId,
       messageId: event.messageId,

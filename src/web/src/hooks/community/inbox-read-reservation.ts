@@ -3,6 +3,18 @@
 import { communityKeys } from "@/lib/query-keys"
 import type { Mention, UnreadDm, UnreadServer } from "@/lib/community/models/inbox"
 import type { QueryClient } from "@tanstack/react-query"
+import {
+  getCommunityDbRegistry,
+  type CommunityDbRegistry,
+} from "@/lib/community-db/collections"
+import {
+  clearAttentionScopeOptimistically,
+  commitAttentionScopeOptimisticSnapshot,
+  hasAttentionScopeOptimisticFence,
+  restoreAttentionScopeOptimisticSnapshot,
+  type AttentionScopeOptimisticSnapshot,
+} from "@/lib/community-db/sync"
+import { reconcileAccountAttention } from "./use-account-attention"
 
 type InboxChild = {
   channelId: string
@@ -135,6 +147,7 @@ type FocusedCandidate = {
   epoch: number
   candidate: InboxReadCandidate
   generation: number | null
+  attentionOptimistic: CanonicalAttentionOptimistic | null
 }
 
 type ResponsePermit = {
@@ -170,6 +183,12 @@ type ProjectionTicketState = {
   active: boolean
   generation: number | null
   onReceipt: (receipt: InboxProjectionTerminalReceipt) => void
+  attentionOptimistic: CanonicalAttentionOptimistic | null
+}
+
+type CanonicalAttentionOptimistic = {
+  registry: CommunityDbRegistry
+  snapshot: AttentionScopeOptimisticSnapshot
 }
 
 type ProjectionTerminalState = {
@@ -411,7 +430,74 @@ function deliverProjectionTerminal(
   terminal: InboxProjectionTerminalReceipt["terminal"],
 ) {
   if (!ticket.active || !state.projectionTickets.delete(ticket.ticket.token)) return
+  settleProjectionAttention(ticket, terminal === "success" || terminal === "deferred")
   ticket.onReceipt(freezeProjectionReceipt(state, ticket, terminal))
+}
+
+function projectionAttentionTarget(target: InboxRowTarget) {
+  if (target.kind === "mention" || target.reservedThroughSeq === undefined) return null
+  return {
+    scopeId: target.kind === "thread" ? target.childChannelId : target.channelId,
+    targetSeq: target.reservedThroughSeq,
+  }
+}
+
+function beginProjectionAttention(ticket: ProjectionTicketState) {
+  if (ticket.attentionOptimistic) return
+  const target = projectionAttentionTarget(ticket.target)
+  if (!target) return
+  const registry = getCommunityDbRegistry(ticket.ticket.queryClient)
+  if (
+    !registry
+    || hasAttentionScopeOptimisticFence(
+      ticket.ticket.queryClient,
+      target.scopeId,
+      target.targetSeq,
+    )
+  ) return
+  ticket.attentionOptimistic = {
+    registry,
+    snapshot: clearAttentionScopeOptimistically(
+      registry,
+      target.scopeId,
+      target.targetSeq,
+    ),
+  }
+}
+
+function settleProjectionAttention(ticket: ProjectionTicketState, committed: boolean) {
+  const optimistic = ticket.attentionOptimistic
+  if (!optimistic) return
+  ticket.attentionOptimistic = null
+  settleCanonicalAttention(ticket.ticket.queryClient, optimistic, committed)
+}
+
+function settleCanonicalAttention(
+  queryClient: QueryClient,
+  optimistic: CanonicalAttentionOptimistic,
+  committed: boolean,
+) {
+  if (committed) {
+    commitAttentionScopeOptimisticSnapshot(optimistic.registry, optimistic.snapshot)
+    return
+  }
+  if (!restoreAttentionScopeOptimisticSnapshot(optimistic.registry, optimistic.snapshot)) {
+    const registry = getCommunityDbRegistry(queryClient)
+    if (registry === optimistic.registry) {
+      void reconcileAccountAttention(registry).catch(() => undefined)
+    }
+  }
+}
+
+function settleFocusedAttention(
+  queryClient: QueryClient,
+  focused: FocusedCandidate | null,
+  committed: boolean,
+) {
+  const optimistic = focused?.attentionOptimistic
+  if (!optimistic) return
+  focused.attentionOptimistic = null
+  settleCanonicalAttention(queryClient, optimistic, committed)
 }
 
 function bindProjectionTickets(
@@ -657,6 +743,7 @@ export function registerInboxProjectionTicket(
     active: false,
     generation: null,
     onReceipt,
+    attentionOptimistic: null,
   }
   state.projectionTickets.set(ticket.token, ticketState)
   const focused = state.focusedCandidate
@@ -676,6 +763,7 @@ export function activateInboxProjectionTicket(ticket: InboxProjectionTicket) {
   const current = state?.projectionTickets.get(ticket.token)
   if (!state || !current || current.ticket.epoch !== ticket.epoch) return false
   current.active = true
+  beginProjectionAttention(current)
   const terminal = current.generation === null
     ? null
     : state.projectionTerminals.get(current.generation)?.terminal ?? null
@@ -685,7 +773,10 @@ export function activateInboxProjectionTicket(ticket: InboxProjectionTicket) {
 
 export function cancelInboxProjectionTicket(ticket: InboxProjectionTicket) {
   const state = managers.get(ticket.queryClient)
-  return state?.projectionTickets.delete(ticket.token) ?? false
+  const current = state?.projectionTickets.get(ticket.token)
+  if (!state || !current || !state.projectionTickets.delete(ticket.token)) return false
+  settleProjectionAttention(current, false)
+  return true
 }
 
 export function publishInboxProjectionGenerationTerminal(
@@ -713,7 +804,10 @@ export function registerInboxReadReservationSurface(
   }
   state.leases.set(token, { lease, onCandidate })
   state.latestToken = token
-  if (state.focusedCandidate?.epoch !== lease.epoch) state.focusedCandidate = null
+  if (state.focusedCandidate?.epoch !== lease.epoch) {
+    settleFocusedAttention(queryClient, state.focusedCandidate, false)
+    state.focusedCandidate = null
+  }
   reclassifyHeld(state)
   return lease
 }
@@ -725,6 +819,7 @@ export function armInboxReadReservationCandidate(
     lastMessageAt: string
     openerMessageId?: string
     openerSeq?: number
+    seq?: number
   },
 ) {
   const state = managerFor(queryClient)
@@ -748,6 +843,7 @@ export function armInboxReadReservationCandidate(
   ) return false
 
   if (current?.epoch === lease.lease.epoch) {
+    settleFocusedAttention(queryClient, current, false)
     for (const held of [...state.held.values()]) {
       if (candidateIdentityMatches(current.candidate, held.candidate)) cancelHeld(state, held)
     }
@@ -768,6 +864,23 @@ export function armInboxReadReservationCandidate(
     epoch: lease.lease.epoch,
     candidate,
     generation: null,
+    attentionOptimistic: (() => {
+      if (input.seq === undefined) return null
+      const registry = getCommunityDbRegistry(queryClient)
+      if (!registry || hasAttentionScopeOptimisticFence(
+        queryClient,
+        input.channelId,
+        input.seq,
+      )) return null
+      return {
+        registry,
+        snapshot: clearAttentionScopeOptimistically(
+          registry,
+          input.channelId,
+          input.seq,
+        ),
+      }
+    })(),
   }
   bindProjectionTickets(state, candidate, null)
   notifyActive(state, candidate)
@@ -780,7 +893,10 @@ export function releaseInboxReadReservationSurface(lease: InboxReadReservationLe
   state.leases.delete(lease.token)
   if (state.latestToken !== lease.token) return
   state.latestToken = null
-  if (state.focusedCandidate?.epoch === lease.epoch) state.focusedCandidate = null
+  if (state.focusedCandidate?.epoch === lease.epoch) {
+    settleFocusedAttention(lease.queryClient, state.focusedCandidate, false)
+    state.focusedCandidate = null
+  }
   if (state.discardedCandidate?.epoch === lease.epoch) state.discardedCandidate = null
   if (state.permit?.epoch === lease.epoch) state.permit = null
   const epoch = ++state.nextEpoch
@@ -837,6 +953,7 @@ export function takeInboxReadReservationNegative(
     && focused.candidate.channelId === lease.channelId
     && focused.generation === null
   ) {
+    settleFocusedAttention(lease.queryClient, focused, false)
     state.focusedCandidate = null
     if (!released) {
       state.permit = {
@@ -880,6 +997,7 @@ export async function settleInboxReadReservationGeneration(
         fingerprint: null,
       }
       if (state.focusedCandidate?.generation === generation) {
+        settleFocusedAttention(queryClient, state.focusedCandidate, false)
         state.focusedCandidate = null
       }
       notifyActive(state, null)
@@ -894,12 +1012,16 @@ export async function settleInboxReadReservationGeneration(
     }
     await Promise.all(matching.map((held) => releaseHeldNegative(state, held)))
     publishProjectionTerminal(state, generation, "negative")
-    if (state.focusedCandidate?.generation === generation) state.focusedCandidate = null
+    if (state.focusedCandidate?.generation === generation) {
+      settleFocusedAttention(queryClient, state.focusedCandidate, false)
+      state.focusedCandidate = null
+    }
     return
   }
   if (matching.length === 0 && !claimed) {
     const focused = state.focusedCandidate
     if (committed && focused?.generation === generation) {
+      settleFocusedAttention(queryClient, focused, true)
       state.discardedCandidate = {
         epoch: focused.epoch,
         candidate: focused.candidate,
@@ -917,7 +1039,10 @@ export async function settleInboxReadReservationGeneration(
   for (const held of [...state.held.values()]) {
     if (held.generation === generation) cancelHeld(state, held)
   }
-  if (state.focusedCandidate?.generation === generation) state.focusedCandidate = null
+  if (state.focusedCandidate?.generation === generation) {
+    settleFocusedAttention(queryClient, state.focusedCandidate, true)
+    state.focusedCandidate = null
+  }
   notifyActive(state, null)
 }
 
@@ -950,6 +1075,7 @@ export async function reserveInboxUnreadsResponse<T extends InboxResponse>(
       epoch: armed.epoch,
       candidate,
       generation: null,
+      attentionOptimistic: armed.attentionOptimistic,
     }
     state.focusedCandidate = focused
   }
@@ -1123,11 +1249,15 @@ export function disposeInboxReadReservation(queryClient: QueryClient) {
   state.handoff = null
   state.claimedOpeners.clear()
   state.routeLeases.clear()
+  settleFocusedAttention(queryClient, state.focusedCandidate, true)
   state.focusedCandidate = null
   state.discardedCandidate = null
   state.permit = null
   state.leases.clear()
   state.latestToken = null
+  for (const ticket of state.projectionTickets.values()) {
+    settleProjectionAttention(ticket, true)
+  }
   state.projectionTickets.clear()
   state.projectionCandidates.clear()
   state.projectionTerminals.clear()

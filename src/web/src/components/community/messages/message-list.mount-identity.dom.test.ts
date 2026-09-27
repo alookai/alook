@@ -6,10 +6,6 @@ import { render } from "@/test/react-dom-harness"
 vi.mock("@/components/ui/number-ticker", () => ({
   NumberTicker: ({ value }: { value: number }) => React.createElement("span", null, value),
 }))
-vi.mock("./initial-position-aurora.module.css", () => ({
-  default: new Proxy({}, { get: (_target, key) => String(key) }),
-}))
-
 let scrollToDescriptor: PropertyDescriptor | undefined
 
 // Confirms Phase 4's core claim with an automated test rather than relying
@@ -77,6 +73,8 @@ describe("MessageList — loading→loaded mount identity (Phase 4)", () => {
     expect(positionedContent).toHaveAttribute("aria-hidden", "true")
     expect(positionedContent).toHaveAttribute("inert")
     expect(positionedContent).toHaveClass("pointer-events-none", "opacity-0")
+    expect(renderer.container.querySelector("[data-message-positioning-skeleton]"))
+      .toBeInTheDocument()
 
     renderer.rerender(
       React.createElement(MessageList, {

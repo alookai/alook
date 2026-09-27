@@ -290,7 +290,7 @@ export async function listMachineBackendQuotasForUser(
 }
 
 // ---------------------------------------------------------------------------
-// Bot activity telemetry — see plans/community-bot-status-telemetry.md.
+// Bot activity telemetry.
 //
 // Bot activity is stored on `community_user_profile.status_emoji`/`status_text`,
 // the same fields humans set via `StatusEditor`. This is deliberate: consumers
@@ -597,8 +597,7 @@ export async function revokeRunnerKeysForMachine(
  * atomically with the user-flag and member-row updates.
  *
  * Uses a subquery on `user.ownerUserId` rather than a plain `agentId = :id`
- * predicate — the batch must be a no-op against a cross-owner bot id, per
- * §Ownership scoping invariant in plans/community-bots.md.
+ * predicate: the batch must be a no-op against a cross-owner bot id.
  */
 export function revokeRunnerKeysForAgentStatement(
   db: Database,

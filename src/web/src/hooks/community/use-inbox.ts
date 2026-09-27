@@ -1,26 +1,30 @@
 "use client"
 
-import { useEffect, useMemo, useSyncExternalStore } from "react"
-import { useQuery, useQueryClient, keepPreviousData, type UseQueryResult } from "@tanstack/react-query"
+import { useMemo, useSyncExternalStore } from "react"
+import { useQuery, useQueryClient, keepPreviousData, type QueryClient, type UseQueryResult } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { apiFetchProfiles, messageProfilePatches } from "@/lib/community/profile-seed"
 import { communityKeys } from "@/lib/query-keys"
 import type { UnreadServer, UnreadDm, InboxFriendRequest, Mention, Marked } from "@/lib/community/models/inbox"
-import {
-  inboxMentionRowTarget,
-  reserveInboxUnreadsResponse,
-} from "./inbox-read-reservation"
+import { reserveInboxUnreadsResponse } from "./inbox-read-reservation"
 import {
   getActiveAccountUnreadProjection,
   type AccountUnreadProjection,
   type AccountUnreadSource,
 } from "./account-unread-projection"
-import { useInboxProjectionTarget } from "./use-inbox-auto-collapse"
 import {
-  isInboxTargetReserved,
-  reservedUnreadExclusion,
-  selectUnreadPresentation,
-} from "./unread-presentation"
+  materializeCanonicalMessage,
+  useCanonicalChannelsById,
+  useCanonicalMessagesById,
+  useCanonicalProfilesByUserId,
+  useCanonicalServersById,
+  useDmProjection,
+} from "@/lib/community-db/projections"
+import {
+  captureCommunityLiveSnapshotToken,
+  publishCommunityEmbeddedMessages,
+} from "@/lib/community-db/sync"
+import { useAccountAttentionProjection } from "./use-account-attention"
 
 class StaleReadError extends Error {
   constructor() { super("stale D1 read"); this.name = "StaleReadError" }
@@ -31,10 +35,6 @@ function throwIfStale<T extends { stale?: boolean }>(v: T): T {
 }
 
 // Frozen empty fallbacks — see `use-servers.ts` for the rationale.
-const EMPTY_UNREADS: readonly UnreadServer[] = Object.freeze([])
-const EMPTY_DMS: readonly UnreadDm[] = Object.freeze([])
-const EMPTY_FRIEND_REQUESTS: readonly InboxFriendRequest[] = Object.freeze([])
-const EMPTY_MENTIONS: readonly Mention[] = Object.freeze([])
 const EMPTY_MARKED: readonly Marked[] = Object.freeze([])
 
 type ProjectedUnreadChild = UnreadServer["channels"][number]["children"][number] & {
@@ -186,148 +186,126 @@ export const inboxUnreadsProjectedQueryFn = (
   }
 }
 
-export function useInboxUnreads(): UseQueryResult<UnreadsResponse> & {
-  friendRequests: InboxFriendRequest[]
-  servers: UnreadServer[]
-  dms: UnreadDm[]
-  pendingChannelIds: string[]
-  hasProjectedUnread: boolean
-  hasOutstandingFriendRequest: boolean
-} {
-  const queryClient = useQueryClient()
-  const unreadProjection = useMemo(
-    () => getActiveAccountUnreadProjection(queryClient),
-    [queryClient],
-  )
-  const unreadVersion = useSyncExternalStore(
-    unreadProjection.subscribe,
-    unreadProjection.getSnapshot,
-    unreadProjection.getSnapshot,
-  )
-  const reservationTarget = useInboxProjectionTarget(queryClient)
-  const channelExclusion = useMemo(
-    () => reservedUnreadExclusion(reservationTarget, "channels"),
-    [reservationTarget],
-  )
-  const dmExclusion = useMemo(
-    () => reservedUnreadExclusion(reservationTarget, "dms"),
-    [reservationTarget],
-  )
-  const queryFn = useMemo(
-    () => inboxUnreadsProjectedQueryFn(queryClient, unreadProjection),
-    [queryClient, unreadProjection],
-  )
-  const query = useQuery({
-    queryKey: communityKeys.inboxUnreads(),
-    queryFn,
-    placeholderData: keepPreviousData,
-    staleTime: Infinity,
-    refetchOnReconnect: true,
-  })
-  useEffect(() => {
-    if (!query.data) return
-    const sources = inboxUnreadSources(query.data)
-    unreadProjection.mergeSources("inbox-unreads", sources.channels, "channels")
-    unreadProjection.mergeSources("inbox-unreads", sources.dms, "dms")
-    unreadProjection.recordLegacySnapshot(query.data, [
-      ...query.data.servers.flatMap((server) => server.channels.flatMap((channel) => [
-        ...(channel.lastUnreadSeq === undefined && channel.hasDirectUnread !== false
-          ? [{
-              family: "inbox-unreads" as const,
-              channelId: channel.channelId,
-              serverId: server.serverId,
-            }]
-          : []),
-        ...channel.children.flatMap((child) => child.lastUnreadSeq === undefined
-          ? [{
-              family: "inbox-unreads" as const,
-              channelId: child.channelId,
-              serverId: server.serverId,
-              railChannelId: channel.channelId,
-            }]
-          : []),
-      ])),
-      ...query.data.dms.flatMap((dm) => dm.lastUnreadSeq === undefined
-        ? [{ family: "inbox-unreads" as const, channelId: dm.channelId }]
-        : []),
-    ])
-  }, [query.data, unreadProjection])
+export function useInboxUnreads() {
+  const query = useAccountAttentionProjection()
+  const channelsById = useCanonicalChannelsById()
+  const serversById = useCanonicalServersById()
+  const profilesById = useCanonicalProfilesByUserId()
+  const dmProjection = useDmProjection()
   const projected = useMemo(() => {
-    void unreadVersion
-    const rawServers = query.data?.servers ?? (EMPTY_UNREADS as UnreadServer[])
-    let serversChanged = false
-    const servers = rawServers.flatMap((server) => {
-      let channelsChanged = false
-      const channels = server.channels.flatMap((channel) => {
-        const children = channel.children.filter((child) => selectUnreadPresentation({
-          accountUnread: unreadProjection.projectUnread(
-            "inbox-unreads",
-            child.channelId,
-            true,
-            child.lastUnreadSeq,
-            "channels",
-            channelExclusion,
-          ),
-        }).effectiveUnread)
-        const direct = channel.hasDirectUnread !== false && selectUnreadPresentation({
-          accountUnread: unreadProjection.projectUnread(
-            "inbox-unreads",
-            channel.channelId,
-            true,
-            channel.lastUnreadSeq,
-            "channels",
-            channelExclusion,
-          ),
-        }).effectiveUnread
-        if (!direct && children.length === 0) {
-          channelsChanged = true
-          return []
+    const pendingChannelIds: string[] = []
+    const dmById = new Map((dmProjection ?? []).map((dm) => [dm.id, dm]))
+    const dms: UnreadDm[] = []
+    const grouped = new Map<string, Map<string, ProjectedUnreadChannel>>()
+    for (const scope of query.scopes) {
+      if (!scope.ordinaryUnread && scope.attentionCount <= 0) continue
+      const channel = channelsById.get(scope.channelId)
+      if (!channel) {
+        pendingChannelIds.push(scope.channelId)
+        continue
+      }
+      if (!scope.serverId) {
+        const dm = dmById.get(scope.channelId)
+        if (!dm) {
+          pendingChannelIds.push(scope.channelId)
+          continue
         }
-        const childrenChanged = children.length !== channel.children.length
-        const directChanged = direct !== (channel.hasDirectUnread !== false)
-        if (!childrenChanged && !directChanged) return [channel]
-        channelsChanged = true
-        return [{ ...channel, hasDirectUnread: direct, children }]
+        dms.push({
+          channelId: dm.id,
+          otherUserId: dm.userId,
+          otherUserName: dm.name,
+          otherUserDiscriminator: dm.discriminator,
+          otherUserAvatar: dm.avatar,
+          otherUserAvatarVersion: dm.avatarVersion,
+          lastMessageAt: channel.lastMessageAt ?? "",
+          lastUnreadSeq: scope.lastUnreadSeq,
+        })
+        continue
+      }
+      const serverChannels = grouped.get(scope.serverId) ?? new Map<string, ProjectedUnreadChannel>()
+      grouped.set(scope.serverId, serverChannels)
+      if (scope.parentChannelId) {
+        const parent = channelsById.get(scope.parentChannelId)
+        if (!parent) {
+          pendingChannelIds.push(scope.channelId)
+          continue
+        }
+        const parentRow = serverChannels.get(parent.id) ?? {
+          channelId: parent.id,
+          channelName: parent.name,
+          type: parent.type === "forum" ? "forum" : "text",
+          lastMessageAt: parent.lastMessageAt ?? "",
+          mentionCount: 0,
+          hasDirectUnread: false,
+          children: [],
+        }
+        parentRow.children.push({
+          channelId: channel.id,
+          channelName: channel.name,
+          type: "thread",
+          lastMessageAt: channel.lastMessageAt ?? "",
+          lastUnreadSeq: scope.lastUnreadSeq,
+          lastAttentionSeq: scope.lastAttentionSeq,
+          mentionCount: scope.attentionCount,
+          parentChannelId: parent.id,
+          ...(channel.parentMessageId ? { openerMessageId: channel.parentMessageId } : {}),
+        })
+        serverChannels.set(parent.id, parentRow)
+        continue
+      }
+      serverChannels.set(channel.id, {
+        channelId: channel.id,
+        channelName: channel.name,
+        type: channel.type === "forum" ? "forum" : "text",
+        lastMessageAt: channel.lastMessageAt ?? "",
+        lastUnreadSeq: scope.lastUnreadSeq,
+        lastAttentionSeq: scope.lastAttentionSeq,
+        mentionCount: scope.attentionCount,
+        hasDirectUnread: scope.ordinaryUnread,
+        children: serverChannels.get(channel.id)?.children ?? [],
       })
-      if (channels.length === 0) {
-        serversChanged = true
+    }
+
+    const servers: UnreadServer[] = [...grouped].flatMap(([serverId, rows]) => {
+      const server = serversById.get(serverId)
+      if (!server) {
+        pendingChannelIds.push(...[...rows.values()].map((row) => row.channelId))
         return []
       }
-      if (!channelsChanged) return [server]
-      serversChanged = true
-      return [{ ...server, channels }]
+      return [{
+        serverId,
+        serverName: server.name,
+        channels: [...rows.values()].sort((a, b) => b.lastMessageAt.localeCompare(a.lastMessageAt)),
+      }]
     })
-    const rawDms = query.data?.dms ?? (EMPTY_DMS as UnreadDm[])
-    const dms = rawDms.filter((dm) => selectUnreadPresentation({
-      accountUnread: unreadProjection.projectUnread(
-        "inbox-unreads",
-        dm.channelId,
-        true,
-        dm.lastUnreadSeq,
-        "dms",
-        dmExclusion,
-      ),
-    }).effectiveUnread)
-    return {
-      servers: serversChanged ? servers : rawServers,
-      dms: dms.length === rawDms.length ? rawDms : dms,
-    }
-  }, [channelExclusion, dmExclusion, query.data, unreadProjection, unreadVersion])
+    const friendRequests: InboxFriendRequest[] = query.items
+      .filter((item) => item.kind === "friend_request")
+      .map((item) => {
+        const profile = profilesById.get(item.actorUserId)
+        return {
+          id: item.sourceId,
+          userId: item.actorUserId,
+          name: profile?.name ?? "Deleted user",
+          avatar: profile?.avatar ?? "",
+          avatarVersion: profile?.avatarVersion ?? null,
+          createdAt: item.createdAt,
+          pendingIdentity: !profile,
+        }
+      })
+    return { servers, dms, friendRequests, pendingChannelIds }
+  }, [channelsById, dmProjection, profilesById, query.items, query.scopes, serversById])
   return {
     ...query,
-    friendRequests: query.data?.friendRequests ?? (EMPTY_FRIEND_REQUESTS as InboxFriendRequest[]),
-    servers: projected.servers ?? (EMPTY_UNREADS as UnreadServer[]),
-    dms: projected.dms ?? (EMPTY_DMS as UnreadDm[]),
-    pendingChannelIds: [
-      ...unreadProjection.pendingChannelIds("inbox-unreads", "channels", channelExclusion),
-      ...unreadProjection.pendingChannelIds("inbox-unreads", "dms", dmExclusion),
-    ],
-    hasProjectedUnread:
-      projected.servers.length > 0
+    friendRequests: projected.friendRequests,
+    servers: projected.servers,
+    dms: projected.dms,
+    pendingChannelIds: projected.pendingChannelIds,
+    isProjectionPending: projected.pendingChannelIds.length > 0,
+    hasProjectedUnread: projected.servers.length > 0
       || projected.dms.length > 0
-      || unreadProjection.hasPending("inbox-unreads", "channels", channelExclusion)
-      || unreadProjection.hasPending("inbox-unreads", "dms", dmExclusion),
-    hasOutstandingFriendRequest: (query.data?.friendRequests?.length ?? 0) > 0,
+      || projected.pendingChannelIds.length > 0,
+    hasOutstandingFriendRequest: projected.friendRequests.length > 0,
+    exactAttentionCount: query.scopes.reduce((total, scope) => total + scope.attentionCount, 0),
   }
 }
 
@@ -337,10 +315,11 @@ export type MentionsResponse = {
   truncated?: boolean
 }
 
-const inboxMentionsTransportFn = () =>
+const inboxMentionsTransportFn = (signal?: AbortSignal) =>
   apiFetchProfiles<MentionsResponse & { stale?: boolean }>(
     "/api/community/users/me/inbox/mentions",
     (data) => messageProfilePatches(data.mentions.map((mention) => mention.m)),
+    signal ? { signal } : undefined,
   )
 
 export const inboxMentionsQueryFn = async () => (
@@ -365,121 +344,114 @@ function inboxMentionSources(data: MentionsResponse): AccountUnreadSource[] {
 
 export const inboxMentionsProjectedQueryFn = (
   projection: AccountUnreadProjection,
-) => async () => {
+  queryClient?: QueryClient,
+) => async ({ signal }: { signal?: AbortSignal } = {}) => {
   const token = projection.beginSnapshot("inbox-mentions", "mentions")
+  const publicationToken = queryClient
+    ? captureCommunityLiveSnapshotToken(queryClient)
+    : null
   try {
-    const data = await inboxMentionsTransportFn()
+    const data = throwIfStale(await inboxMentionsTransportFn(signal))
+    if (queryClient && publicationToken) {
+      publishCommunityEmbeddedMessages(queryClient, {
+        entries: data.mentions.flatMap((mention) => mention.channelId
+          ? [{ channelId: mention.channelId, message: mention.m }]
+          : []),
+        proof: { token: publicationToken, signal },
+      })
+    }
     projection.absorbSnapshot(token, inboxMentionSources(data), {
       truncated: data.truncated ?? true,
       stale: data.stale,
     })
-    return throwIfStale(data)
+    return data
   } catch (error) {
     projection.cancelSnapshot(token)
     throw error
   }
 }
 
-export function useInboxMentions(): UseQueryResult<MentionsResponse> & {
-  mentions: Mention[]
-  pendingChannelIds: string[]
-  hasProjectedMention: boolean
-} {
-  const queryClient = useQueryClient()
-  const unreadProjection = useMemo(
-    () => getActiveAccountUnreadProjection(queryClient),
-    [queryClient],
-  )
-  const unreadVersion = useSyncExternalStore(
-    unreadProjection.subscribe,
-    unreadProjection.getSnapshot,
-    unreadProjection.getSnapshot,
-  )
-  const reservationTarget = useInboxProjectionTarget(queryClient)
-  const mentionExclusion = useMemo(
-    () => reservedUnreadExclusion(reservationTarget, "channels"),
-    [reservationTarget],
-  )
-  const queryFn = useMemo(
-    () => inboxMentionsProjectedQueryFn(unreadProjection),
-    [unreadProjection],
-  )
-  const query = useQuery({
-    queryKey: communityKeys.inboxMentions(),
-    queryFn,
-    placeholderData: keepPreviousData,
-    staleTime: Infinity,
-    refetchOnReconnect: true,
-  })
-  useEffect(() => {
-    if (!query.data) return
-    unreadProjection.mergeSources(
-      "inbox-mentions",
-      inboxMentionSources(query.data),
-      "mentions",
-    )
-    unreadProjection.recordLegacySnapshot(
-      query.data,
-      query.data.mentions.flatMap((mention) => (
-        mention.channelId && !mention.m.seq
-          ? [{
-              family: "inbox-mentions" as const,
-              channelId: mention.channelId,
-              serverId: mention.serverId,
-              isMention: true,
-            }]
-          : []
-      )),
-    )
-  }, [query.data, unreadProjection])
-  const mentions = useMemo(() => {
-    void unreadVersion
-    const raw = query.data?.mentions ?? (EMPTY_MENTIONS as Mention[])
-    const projected = raw.filter((mention) => (
-      !mention.channelId
-      || selectUnreadPresentation({
-        accountUnread: unreadProjection.projectUnread(
-          "inbox-mentions",
-          mention.channelId,
-          true,
-          mention.m.seq,
-          "mentions",
-          mentionExclusion,
-          true,
-          mention.id,
-        ),
-        reserved: isInboxTargetReserved(
-          reservationTarget,
-          inboxMentionRowTarget(mention),
-        ),
-      }).effectiveUnread
-    ))
-    return projected.length === raw.length ? raw : projected
-  }, [mentionExclusion, query.data, reservationTarget, unreadProjection, unreadVersion])
+export function useInboxMentions() {
+  const canonicalMessages = useCanonicalMessagesById()
+  const channelsById = useCanonicalChannelsById()
+  const serversById = useCanonicalServersById()
+  const query = useAccountAttentionProjection()
+  const projected = useMemo(() => {
+    const pendingChannelIds: string[] = []
+    const scopesById = new Map(query.scopes.map((scope) => [scope.scopeId, scope]))
+    const mentions = query.items.flatMap((item): Mention[] => {
+      if (item.kind === "friend_request" || !item.scopeId || !item.messageId) return []
+      if (item.kind === "pending") {
+        pendingChannelIds.push(item.scopeId)
+        return []
+      }
+      const scope = scopesById.get(item.scopeId)
+      const message = canonicalMessages?.get(item.messageId)
+      const channel = scope ? channelsById.get(scope.channelId) : undefined
+      if (!scope || !message || !channel) {
+        pendingChannelIds.push(scope?.channelId ?? item.scopeId)
+        return [{
+          id: item.sourceId,
+          kind: item.kind,
+          server: "",
+          ...(scope?.serverId ? { serverId: scope.serverId } : {}),
+          channel: "",
+          channelId: scope?.channelId ?? item.scopeId,
+          pending: true,
+          m: {
+            id: item.messageId,
+            type: "chat",
+            authorId: item.actorUserId,
+          },
+        }]
+      }
+      return [{
+        id: item.sourceId,
+        kind: item.kind,
+        server: scope.serverId
+          ? serversById.get(scope.serverId)?.name ?? "Server unavailable"
+          : "Conversation unavailable",
+        ...(scope.serverId ? { serverId: scope.serverId } : {}),
+        channel: channel.name || "Conversation unavailable",
+        channelId: channel.id,
+        m: message,
+      }]
+    })
+    return { mentions, pendingChannelIds }
+  }, [canonicalMessages, channelsById, query.items, query.scopes, serversById])
   return {
     ...query,
-    mentions,
-    pendingChannelIds: unreadProjection.pendingChannelIds("inbox-mentions", "mentions", mentionExclusion),
-    hasProjectedMention:
-      mentions.length > 0
-      || unreadProjection.hasPending(
-        "inbox-mentions",
-        "mentions",
-        mentionExclusion,
-      ),
+    mentions: projected.mentions,
+    pendingChannelIds: projected.pendingChannelIds,
+    isProjectionPending: projected.pendingChannelIds.length > 0,
+    hasProjectedMention: projected.mentions.length > 0 || projected.pendingChannelIds.length > 0,
   }
 }
 
 export type MarkedResponse = { marked: Marked[] }
 
-const inboxMarkedQueryFn = () =>
-  apiFetchProfiles<MarkedResponse & { stale?: boolean }>(
-    "/api/community/users/me/marks",
-    (data) => {
-      throwIfStale(data)
-      return messageProfilePatches(data.marked.map((marked) => marked.m))
-    },
-  )
+const inboxMarkedQueryFn = (queryClient: QueryClient) =>
+  async ({ signal }: { signal?: AbortSignal } = {}) => {
+    const publicationToken = captureCommunityLiveSnapshotToken(queryClient)
+    const data = await apiFetchProfiles<MarkedResponse & { stale?: boolean }>(
+      "/api/community/users/me/marks",
+      (response) => {
+        throwIfStale(response)
+        return messageProfilePatches(response.marked.map((marked) => marked.m))
+      },
+      signal ? { signal } : undefined,
+    )
+    if (publicationToken) {
+      publishCommunityEmbeddedMessages(queryClient, {
+        entries: data.marked.map((marked) => ({
+          channelId: marked.channelId,
+          message: marked.m,
+        })),
+        proof: { token: publicationToken, signal },
+      })
+    }
+    return throwIfStale(data)
+  }
 
 /**
  * The Marked feed is lazy — unlike unreads/mentions (which the shell reads
@@ -491,15 +463,38 @@ const inboxMarkedQueryFn = () =>
 export function useInboxMarked(enabled: boolean): UseQueryResult<MarkedResponse> & {
   marked: Marked[]
 } {
+  const canonicalMessages = useCanonicalMessagesById()
+  const queryClient = useQueryClient()
+  const unreadProjection = useMemo(
+    () => getActiveAccountUnreadProjection(queryClient),
+    [queryClient],
+  )
+  const unreadVersion = useSyncExternalStore(
+    unreadProjection.subscribe,
+    unreadProjection.getSnapshot,
+    unreadProjection.getSnapshot,
+  )
   const query = useQuery({
     queryKey: communityKeys.inboxMarked(),
-    queryFn: inboxMarkedQueryFn,
+    queryFn: inboxMarkedQueryFn(queryClient),
     placeholderData: keepPreviousData,
     enabled,
   })
+  const marked = useMemo(() => {
+    void unreadVersion
+    const source = query.data?.marked ?? (EMPTY_MARKED as Marked[])
+    return source.flatMap((marked) => {
+      if (!unreadProjection.allowsAccess({
+        channelId: marked.channelId,
+        serverId: marked.serverId,
+      })) return []
+      const message = materializeCanonicalMessage(marked.m, canonicalMessages)
+      return message ? [{ ...marked, m: message }] : []
+    })
+  }, [canonicalMessages, query.data?.marked, unreadProjection, unreadVersion])
   return {
     ...query,
-    marked: query.data?.marked ?? (EMPTY_MARKED as Marked[]),
+    marked,
   }
 }
 

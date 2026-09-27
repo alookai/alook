@@ -4,9 +4,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 
 const apiFetch = vi.fn()
+const dbProjection = vi.hoisted(() => ({ current: undefined as unknown }))
 
 vi.mock("@/lib/api/client", () => ({
   apiFetch: (...args: unknown[]) => apiFetch(...args),
+}))
+vi.mock("@/lib/community-db/projections", () => ({
+  useChannelRefDirectoryProjection: () => dbProjection.current,
+  useOptionalCommunityDbRegistry: () => dbProjection.current === undefined ? null : {},
 }))
 
 import { createQueryClient } from "@/lib/query-client"
@@ -63,78 +68,12 @@ describe("channelRefDirectoryQueryFn", () => {
 describe("useChannelRefDirectory", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    dbProjection.current = undefined
     useCommunityWsStore.getState().reset()
   })
 
   afterEach(() => {
     act(() => useCommunityWsStore.getState().reset())
-  })
-
-  it("keeps a rail-only structural snapshot pending until the live directory resolves", () => {
-    useCommunityWsStore.getState().activateProfileAccount("viewer_1")
-    apiFetch.mockReturnValue(new Promise(() => {}))
-    const client = createQueryClient()
-    client.setQueryData(communityKeys.structuralSnapshot(), {
-      schemaVersion: 1,
-      accountId: "viewer_1",
-      capturedAt: Date.now(),
-      serverOrder: ["server_1"],
-      folders: [],
-      servers: [{
-        id: "server_1",
-        name: "Studio",
-        discriminator: "0042",
-        icon: null,
-        categories: [],
-        channels: [],
-        childRouteHints: [],
-      }],
-    })
-
-    const rendered = renderDirectory(client, true)
-
-    expect(rendered.result.current).toMatchObject({
-      directory: [],
-      isResolved: false,
-      isLoading: true,
-      isError: false,
-    })
-  })
-
-  it("uses a captured structural channel directory while the live query is disabled", () => {
-    useCommunityWsStore.getState().activateProfileAccount("viewer_1")
-    const client = createQueryClient()
-    client.setQueryData(communityKeys.structuralSnapshot(), {
-      schemaVersion: 1,
-      accountId: "viewer_1",
-      capturedAt: Date.now(),
-      serverOrder: ["server_1"],
-      folders: [],
-      servers: [{
-        id: "server_1",
-        name: "Studio",
-        discriminator: "0042",
-        icon: null,
-        categories: [],
-        channels: [{ id: "channel_1", name: "general", type: "text", categoryId: null }],
-        childRouteHints: [],
-      }],
-    })
-
-    const rendered = renderDirectory(client, false)
-
-    expect(apiFetch).not.toHaveBeenCalled()
-    expect(rendered.result.current).toMatchObject({
-      directory: [{
-        id: "server_1",
-        name: "Studio",
-        discriminator: "0042",
-        channels: [{ id: "channel_1", name: "general" }],
-      }],
-      isResolved: true,
-      isLoading: false,
-      isError: false,
-    })
   })
 
   it("stays dormant until enabled, then owns pending and resolved items", async () => {
@@ -247,6 +186,102 @@ describe("useChannelRefDirectory", () => {
 
     rendered.rerender({ active: true })
     expect(apiFetch).not.toHaveBeenCalled()
+  })
+
+  it("keeps the account-scoped warm request alive after its popup observer unmounts", async () => {
+    const request = deferred<{ directory: Array<{
+      id: string
+      name: string
+      discriminator: string
+      channels: Array<{ id: string; name: string }>
+    }> }>()
+    apiFetch.mockReturnValue(request.promise)
+    const client = createQueryClient()
+    const first = renderDirectory(client, true)
+
+    expect(apiFetch).toHaveBeenCalledWith("/api/community/users/me/channel-directory")
+    first.unmount()
+
+    const directory = [{
+      id: "server_1",
+      name: "Studio",
+      discriminator: "0042",
+      channels: [{ id: "channel_1", name: "general" }],
+    }]
+    await act(async () => request.resolve({ directory }))
+    await waitFor(() => expect(
+      client.getQueryData(communityKeys.channelRefDirectory()),
+    ).toEqual(directory))
+
+    const second = renderDirectory(client, true)
+    expect(second.result.current).toMatchObject({
+      directory,
+      isResolved: true,
+      isLoading: false,
+      isError: false,
+    })
+    expect(apiFetch).toHaveBeenCalledOnce()
+  })
+
+  it("resolves from canonical channels while the transport query is dormant", () => {
+    const directory = [{
+      id: "server_db",
+      name: "Canonical",
+      discriminator: "0001",
+      channels: [{ id: "channel_db", name: "chat" }],
+    }]
+    dbProjection.current = directory
+
+    const rendered = renderDirectory(createQueryClient(), false)
+
+    expect(rendered.result.current).toMatchObject({
+      directory,
+      isResolved: true,
+      isLoading: false,
+      isError: false,
+    })
+    expect(apiFetch).not.toHaveBeenCalled()
+  })
+
+  it("keeps a canonical server with no channels unresolved while HTTP is stalled", () => {
+    dbProjection.current = [{
+      id: "server_db",
+      name: "Canonical",
+      discriminator: "0001",
+      channels: [],
+    }]
+    apiFetch.mockReturnValue(new Promise(() => {}))
+
+    const rendered = renderDirectory(createQueryClient(), true)
+
+    expect(rendered.result.current).toMatchObject({
+      directory: [],
+      isResolved: false,
+      isLoading: true,
+      isError: false,
+    })
+    expect(apiFetch).toHaveBeenCalledOnce()
+  })
+
+  it("keeps an invalidated empty success pending while its refresh is stalled", () => {
+    dbProjection.current = []
+    apiFetch.mockReturnValue(new Promise(() => {}))
+    const client = createQueryClient()
+    client.setQueryData(communityKeys.channelRefDirectory(), [])
+    void client.invalidateQueries({
+      queryKey: communityKeys.channelRefDirectory(),
+      refetchType: "none",
+    })
+
+    const rendered = renderDirectory(client, true)
+
+    expect(rendered.result.current).toMatchObject({
+      directory: [],
+      isResolved: false,
+      isLoading: true,
+      isError: false,
+    })
+    expect(apiFetch).toHaveBeenCalledOnce()
   })
 
   it("keeps cached rows resolved through a failed background refetch", async () => {

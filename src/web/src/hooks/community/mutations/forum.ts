@@ -192,10 +192,7 @@ function isForumPostUnitQuery(query: Query, unit: ForumPostUnitIdentity) {
   const exactKeys: QueryKey[] = [
     communityKeys.server(unit.serverId),
     communityKeys.forumSidebarThreads(unit.serverId),
-    communityKeys.forumSidebarUnreadFallbacks(unit.serverId),
-    communityKeys.forumSidebarRetained(unit.serverId, unit.childChannelId),
     communityKeys.channelMeta(unit.serverId, unit.childChannelId),
-    communityKeys.forumOpenerHint(unit.serverId, unit.openerMessageId),
     communityKeys.message(unit.openerMessageId),
   ]
   return exactKeys.some((candidate) => hashKey(candidate) === hashKey(key)) || [

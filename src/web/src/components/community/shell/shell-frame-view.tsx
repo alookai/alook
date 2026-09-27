@@ -94,10 +94,11 @@ export function ShellFrameView({
           : checkpoint.sidebar.kind === "me-skeleton"
             ? <DmSidebarSkeleton />
             : breakpoint === "desktop" ? sidebar() : sidebar({ noHeader: false })}
-      main={checkpoint.main.kind === "target-skeleton" || isInitial ? (
+      main={checkpoint.main.kind === "target-skeleton" ? (
         <CommunityPendingFrame
           href={checkpoint.targetHref}
           reserveBackSlot={surface === "detail"}
+          conversationSubtype={checkpoint.main.conversationSubtype}
         />
       ) : children}
       userBar={(

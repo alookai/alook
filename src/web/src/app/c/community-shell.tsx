@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useLayoutEffect, type ReactNode } from "react"
+import { usePathname } from "next/navigation"
 import { apiFetchProfiles } from "@/lib/community/profile-seed"
 import { QueryProvider } from "./QueryProvider"
 import {
@@ -11,11 +12,17 @@ import {
 import { useCommunityWs } from "@/hooks/community/use-community-ws"
 import { useNotificationSettings } from "@/hooks/community/use-notification-settings"
 import { useNativeSystemNotifications } from "@/hooks/community/use-native-system-notifications"
+import {
+  useAccountAttention,
+  useAccountAttentionScopeHydration,
+} from "@/hooks/community/use-account-attention"
 import { PerfTraceBootstrap } from "@/components/perf/perf-trace-bootstrap"
 import { CommunityOnboardingForm } from "@/components/community/onboarding/community-onboarding-form"
 import { CommunityWsReconnectBoundary } from "@/components/community/shell/community-ws-reconnect-overlay"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { OwnerServerDeleteRouteGuard } from "@/components/community/shell/owner-server-delete-route-guard"
+import { CommunityRestoreBoundary } from "@/components/community/shell/community-restore-bootstrap"
+import { CommunitySessionPendingFrame } from "@/components/community/shell/community-session-pending-frame"
 
 /**
  * Client wrapper that provides the QueryClient, CurrentUser, and the
@@ -38,13 +45,15 @@ export function CommunityShell({
   children: ReactNode
 }) {
   return (
-    <ProfileAccountBoundary viewerId={currentUser.id}>
-      <QueryProvider key={currentUser.id} userId={currentUser.id}>
-        <CurrentUserProvider initialUser={currentUser}>
-          <CommunityBootstrap>{children}</CommunityBootstrap>
-        </CurrentUserProvider>
-      </QueryProvider>
-    </ProfileAccountBoundary>
+    <QueryProvider key={currentUser.id} userId={currentUser.id}>
+      <CommunityRestoreBoundary>
+        <ProfileAccountBoundary viewerId={currentUser.id}>
+          <CurrentUserProvider initialUser={currentUser}>
+            <CommunityBootstrap>{children}</CommunityBootstrap>
+          </CurrentUserProvider>
+        </ProfileAccountBoundary>
+      </CommunityRestoreBoundary>
+    </QueryProvider>
   )
 }
 
@@ -56,15 +65,15 @@ function ProfileAccountBoundary({
   viewerId: string
 }) {
   const activeViewerId = useCommunityWsStore((state) => state.profileViewerId)
-
+  const pathname = usePathname()
   useLayoutEffect(() => {
     if (activeViewerId !== viewerId) {
       useCommunityWsStore.getState().activateProfileAccount(viewerId)
     }
   }, [activeViewerId, viewerId])
-
-  if (activeViewerId !== viewerId) return null
-  return children
+  return activeViewerId === viewerId
+    ? children
+    : <CommunitySessionPendingFrame pathname={pathname} />
 }
 
 /**
@@ -79,6 +88,8 @@ function CommunityBootstrap({ children }: { children: ReactNode }) {
   const currentUser = useCurrentUser()
 
   useNotificationSettings()
+  useAccountAttention()
+  useAccountAttentionScopeHydration()
   useNativeSystemNotifications(currentUser.id)
   // Wire the WS handler once for the whole community subtree. `viewerUserId`
   // powers the `me` flag on incoming reactions — passing null would leave that

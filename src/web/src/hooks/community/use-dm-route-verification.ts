@@ -1,17 +1,28 @@
 "use client"
 
 import { useCallback, useEffect } from "react"
-import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query"
+import {
+  useQuery,
+  useQueryClient,
+  QueryObserver,
+  type QueryClient,
+  type QueryFunctionContext,
+} from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import type { DM } from "@/lib/community/models/people"
 import type { DmsResponse } from "./use-dms"
+import {
+  assertCommunityLiveSnapshotTokenCurrent,
+  captureCommunityLiveSnapshotToken,
+  publishCommunityLiveSnapshot,
+} from "@/lib/community-db/sync"
 
 export const DM_ROUTE_VERIFICATION_HEADER = "X-Alook-DM-Route-Verification"
 
-const dmRouteAuthorityQueryFn = () => apiFetch<DmsResponse>(
+const dmRouteAuthorityQueryFn = (signal: AbortSignal | undefined) => apiFetch<DmsResponse>(
   "/api/community/users/me/dms",
-  { headers: { [DM_ROUTE_VERIFICATION_HEADER]: "1" } },
+  { headers: { [DM_ROUTE_VERIFICATION_HEADER]: "1" }, signal },
 )
 
 export type DmRouteVerification = "present" | "missing" | "denied"
@@ -29,26 +40,36 @@ export function classifyDmRouteAuthorityError(error: unknown): "denied" | "error
   return status === 403 || status === 404 ? "denied" : "error"
 }
 
-function verifyDmRoute(
+async function verifyDmRoute(
   queryClient: QueryClient,
   dmId: string,
+  signal: AbortSignal | undefined,
 ): Promise<DmRouteVerification> {
-  return dmRouteAuthorityQueryFn().then(
-    (response) => {
-      queryClient.setQueryData(communityKeys.dms(), response)
-      return response.conversations.some((dm) => dm.id === dmId) ? "present" : "missing"
-    },
-    (error: unknown) => {
-      if (classifyDmRouteAuthorityError(error) === "denied") return "denied"
-      throw error
-    },
-  )
+  const token = captureCommunityLiveSnapshotToken(queryClient)
+  try {
+    const response = await dmRouteAuthorityQueryFn(signal)
+    publishCommunityLiveSnapshot(queryClient, {
+      snapshot: { kind: "dms", data: response },
+      proof: { kind: "structural", token, signal },
+    })
+    assertCommunityLiveSnapshotTokenCurrent(queryClient, token, signal)
+    queryClient.setQueryData(communityKeys.dms(), response)
+    return response.conversations.some((dm) => dm.id === dmId) ? "present" : "missing"
+  } catch (error) {
+    if (classifyDmRouteAuthorityError(error) === "denied") return "denied"
+    throw error
+  }
 }
 
 function verificationOptions(queryClient: QueryClient, dmId: string) {
+  const queryKey = communityKeys.dmRouteVerification(dmId)
   return {
-    queryKey: communityKeys.dmRouteVerification(dmId),
-    queryFn: () => verifyDmRoute(queryClient, dmId),
+    queryKey,
+    queryFn: async ({ signal }: QueryFunctionContext) => {
+      const owner = new QueryObserver(queryClient, { queryKey, enabled: false })
+      const release = owner.subscribe(() => release())
+      return verifyDmRoute(queryClient, dmId, signal)
+    },
     retry: false,
     refetchOnReconnect: false,
     refetchOnWindowFocus: false,

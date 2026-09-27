@@ -69,7 +69,7 @@ describe("GET /api/community/users/me/inbox/mentions", () => {
     mockListUnreadMentions.mockResolvedValue([
       {
         mention: { id: "mn1", kind: "mention" },
-        message: { id: "m1", seq: 4, channelId: "c1", content: "@u1 hi", createdAt: "2026-06-25T10:00:00Z" },
+        message: { id: "m1", type: "system", seq: 4, channelId: "c1", content: "@u1 hi", createdAt: "2026-06-25T10:00:00Z" },
         author: { id: "u-alice", name: "Alice", email: "alice@t.com", image: null },
       },
     ])
@@ -95,8 +95,30 @@ describe("GET /api/community/users/me/inbox/mentions", () => {
       // authorId is the beam-avatar seed the inbox popover renders from
       // (<Avatar seed={mn.m.authorId}>) — omitting it blanked image-less
       // authors' avatars, same bug the pins route had.
-      m: { id: "m1", seq: 4, authorId: "u-alice", authorName: "Alice", content: "@u1 hi" },
+      m: { id: "m1", type: "system", seq: 4, authorId: "u-alice", authorName: "Alice", content: "@u1 hi" },
     })
+  })
+
+  it("normalizes an ordinary stored message to the canonical chat wire type", async () => {
+    mockListUnreadMentions.mockResolvedValue([{
+      mention: { id: "mn-default", kind: "mention" },
+      message: {
+        id: "m-default",
+        type: "default",
+        seq: 1,
+        channelId: "c1",
+        content: "hello",
+        createdAt: "2026-06-25T10:00:00Z",
+      },
+      author: { id: "u-alice", name: "Alice", image: null, avatarVersion: 0 },
+    }])
+    mockGetChannelsByIds.mockResolvedValue([{ id: "c1", name: "general", serverId: "s1" }])
+    mockGetServersByIds.mockResolvedValue([{ id: "s1", name: "Server 1" }])
+
+    const body = await (await GET(new NextRequest(
+      "http://localhost/api/community/users/me/inbox/mentions",
+    ))).json()
+    expect(body.mentions[0].m).toMatchObject({ id: "m-default", type: "chat" })
   })
 
   it("tags reply-kind rows so the UI can label them 'replied to you'", async () => {
