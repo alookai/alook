@@ -33,6 +33,16 @@ beforeEach(() => {
   apiFetchMock.mockReset()
 })
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
+}
+
 async function mountRailOnlyInbox() {
   const message = {
     id: "message-rail-only",
@@ -1236,6 +1246,138 @@ describe("useInboxMentions / inboxMentionsQueryFn", () => {
 })
 
 describe("canonical account attention query ownership", () => {
+  it("hydrates cold server and DM scope owners after attention refs arrive", async () => {
+    useCommunityWsStore.getState().reset()
+    useCommunityWsStore.getState().activateProfileAccount("viewer")
+    const directory = deferred<{ directory: Array<{
+      id: string
+      name: string
+      discriminator: string
+      channels: Array<{ id: string; name: string; type: "text" }>
+    }> }>()
+    const dms = deferred<{ conversations: Array<{
+      id: string
+      userId: string
+      name: string
+      discriminator: string
+      avatar: string
+      avatarVersion: number
+      status: "offline"
+      preview: string
+      unread: boolean
+      lastUnreadSeq: number
+    }> }>()
+    apiFetchMock.mockImplementation((url: string) => {
+      if (url === "/api/community/users/me/attention") {
+        return Promise.resolve({
+          scopes: [{
+            scopeId: "channel-cold",
+            channelId: "channel-cold",
+            serverId: "server-cold",
+            parentChannelId: null,
+            ordinaryUnread: true,
+            lastUnreadSeq: 2,
+            lastAttentionSeq: null,
+            attentionCount: 0,
+          }, {
+            scopeId: "dm-cold",
+            channelId: "dm-cold",
+            serverId: null,
+            parentChannelId: null,
+            ordinaryUnread: true,
+            lastUnreadSeq: 3,
+            lastAttentionSeq: null,
+            attentionCount: 0,
+          }],
+          items: [],
+          limit: 100,
+          truncated: false,
+        })
+      }
+      if (url === "/api/community/users/me/channel-directory") return directory.promise
+      if (url === "/api/community/users/me/dms") return dms.promise
+      throw new Error(`unexpected request: ${url}`)
+    })
+    const { useInboxUnreads } = await import("./use-inbox")
+    const {
+      useAccountAttention,
+      useAccountAttentionScopeHydration,
+    } = await import("./use-account-attention")
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const registry = createCommunityDbRegistry(qc, "viewer")
+    await registry.preload()
+    const unregister = registerCommunityDbRegistry(registry)
+    let latest: ReturnType<typeof useInboxUnreads> | undefined
+    function Harness() {
+      useAccountAttention()
+      useAccountAttentionScopeHydration()
+      latest = useInboxUnreads()
+      return null
+    }
+    let renderer!: ReturnType<typeof rtlRender>
+    await act(async () => {
+      renderer = rtlRender(React.createElement(
+        QueryClientProvider,
+        { client: qc },
+        React.createElement(
+          CommunityDbProvider,
+          { registry },
+          React.createElement(Harness),
+        ),
+      ))
+    })
+
+    await vi.waitFor(() => {
+      expect(latest?.pendingChannelIds).toEqual(expect.arrayContaining([
+        "channel-cold",
+        "dm-cold",
+      ]))
+      expect(apiFetchMock).toHaveBeenCalledWith("/api/community/users/me/channel-directory")
+      expect(apiFetchMock).toHaveBeenCalledWith(
+        "/api/community/users/me/dms",
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      )
+    })
+    expect(latest?.servers).toEqual([])
+    expect(latest?.dms).toEqual([])
+
+    await act(async () => directory.resolve({
+      directory: [{
+        id: "server-cold",
+        name: "Cold server",
+        discriminator: "0042",
+        channels: [{ id: "channel-cold", name: "cold-channel", type: "text" }],
+      }],
+    }))
+    await vi.waitFor(() => expect(latest?.servers[0]?.channels[0]?.channelId)
+      .toBe("channel-cold"))
+    expect(latest?.dms).toEqual([])
+
+    await act(async () => dms.resolve({
+      conversations: [{
+        id: "dm-cold",
+        userId: "peer",
+        name: "Peer",
+        discriminator: "0002",
+        avatar: "",
+        avatarVersion: 1,
+        status: "offline",
+        preview: "",
+        unread: true,
+        lastUnreadSeq: 3,
+      }],
+    }))
+    await vi.waitFor(() => expect(latest?.dms[0]?.channelId).toBe("dm-cold"))
+    expect(latest?.pendingChannelIds).toEqual([])
+    expect(apiFetchMock.mock.calls.filter(
+      ([url]) => url === "/api/community/users/me/attention",
+    )).toHaveLength(1)
+
+    await act(async () => renderer.unmount())
+    unregister()
+    await registry["cleanup"]()
+  })
+
   it("keeps visible Inbox projections transport-free across observer remounts", async () => {
     apiFetchMock.mockImplementation((url: string) => Promise.resolve(
       url.endsWith("/unreads")
