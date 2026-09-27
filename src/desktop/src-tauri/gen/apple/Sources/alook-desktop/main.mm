@@ -17,6 +17,8 @@ static const void *kAlookStartupOverlayKey = &kAlookStartupOverlayKey;
 static const void *kAlookStartupProbeStartedKey = &kAlookStartupProbeStartedKey;
 static const void *kAlookStartupCompletedKey = &kAlookStartupCompletedKey;
 static const NSInteger kAlookStartupLogoTag = 8738;
+static UIView *gAlookStartupOverlay = nil;
+static BOOL gAlookStartupCompleted = NO;
 
 static BOOL alookIsTauriRootController(UIViewController *viewController) {
     Class taoViewController = NSClassFromString(@"TaoUIViewController");
@@ -33,26 +35,8 @@ static BOOL alookEffectiveDarkTheme(UIViewController *viewController) {
     return viewController.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark;
 }
 
-static void alookApplyTheme(UIViewController *viewController, BOOL isDark) {
-    NSNumber *resolvedTheme = objc_getAssociatedObject(viewController, kAlookResolvedDarkThemeKey);
-    BOOL statusBarNeedsUpdate = resolvedTheme == nil || resolvedTheme.boolValue != isDark;
-    objc_setAssociatedObject(
-        viewController,
-        kAlookResolvedDarkThemeKey,
-        @(isDark),
-        OBJC_ASSOCIATION_RETAIN_NONATOMIC
-    );
-    viewController.view.backgroundColor = isDark ? alookDarkColor() : alookLightColor();
-    if (statusBarNeedsUpdate) [viewController setNeedsStatusBarAppearanceUpdate];
-}
-
-static UIView *alookInstallStartupOverlay(UIViewController *viewController) {
-    if ([objc_getAssociatedObject(viewController, kAlookStartupCompletedKey) boolValue]) return nil;
-    UIView *overlay = objc_getAssociatedObject(viewController, kAlookStartupOverlayKey);
-    if (overlay != nil) return overlay;
-
-    UIView *host = alookStartupHostView(viewController);
-    overlay = [[UIView alloc] initWithFrame:host.bounds];
+static UIView *alookCreateStartupOverlay(void) {
+    UIView *overlay = [[UIView alloc] initWithFrame:CGRectZero];
     overlay.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     overlay.userInteractionEnabled = NO;
     overlay.accessibilityElementsHidden = YES;
@@ -60,19 +44,11 @@ static UIView *alookInstallStartupOverlay(UIViewController *viewController) {
     logo.tag = kAlookStartupLogoTag;
     logo.contentMode = UIViewContentModeScaleAspectFit;
     [overlay addSubview:logo];
-    [host addSubview:overlay];
-    objc_setAssociatedObject(
-        viewController,
-        kAlookStartupOverlayKey,
-        overlay,
-        OBJC_ASSOCIATION_RETAIN_NONATOMIC
-    );
     return overlay;
 }
 
-static void alookLayoutStartupOverlay(UIViewController *viewController, UIView *overlay) {
-    BOOL isDark = viewController.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark;
-    UIView *host = alookStartupHostView(viewController);
+static void alookAttachStartupOverlay(UIView *overlay, UIView *host, BOOL isDark) {
+    if (overlay == nil || host == nil) return;
     if (overlay.superview != host) {
         [overlay removeFromSuperview];
         [host addSubview:overlay];
@@ -90,6 +66,52 @@ static void alookLayoutStartupOverlay(UIViewController *viewController, UIView *
     [host bringSubviewToFront:overlay];
 }
 
+static void alookInstallStartupOverlayInWindow(UIWindow *window) {
+    if (gAlookStartupCompleted || window == nil) return;
+    if (gAlookStartupOverlay == nil) gAlookStartupOverlay = alookCreateStartupOverlay();
+    BOOL isDark = window.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark;
+    alookAttachStartupOverlay(gAlookStartupOverlay, window, isDark);
+}
+
+static void alookApplyTheme(UIViewController *viewController, BOOL isDark) {
+    NSNumber *resolvedTheme = objc_getAssociatedObject(viewController, kAlookResolvedDarkThemeKey);
+    BOOL statusBarNeedsUpdate = resolvedTheme == nil || resolvedTheme.boolValue != isDark;
+    objc_setAssociatedObject(
+        viewController,
+        kAlookResolvedDarkThemeKey,
+        @(isDark),
+        OBJC_ASSOCIATION_RETAIN_NONATOMIC
+    );
+    viewController.view.backgroundColor = isDark ? alookDarkColor() : alookLightColor();
+    if (statusBarNeedsUpdate) [viewController setNeedsStatusBarAppearanceUpdate];
+}
+
+static UIView *alookInstallStartupOverlay(UIViewController *viewController) {
+    if (gAlookStartupCompleted ||
+        [objc_getAssociatedObject(viewController, kAlookStartupCompletedKey) boolValue]) return nil;
+    UIView *overlay = objc_getAssociatedObject(viewController, kAlookStartupOverlayKey);
+    if (overlay != nil) return overlay;
+
+    UIView *host = alookStartupHostView(viewController);
+    overlay = gAlookStartupOverlay ?: alookCreateStartupOverlay();
+    gAlookStartupOverlay = overlay;
+    BOOL isDark = viewController.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark;
+    alookAttachStartupOverlay(overlay, host, isDark);
+    objc_setAssociatedObject(
+        viewController,
+        kAlookStartupOverlayKey,
+        overlay,
+        OBJC_ASSOCIATION_RETAIN_NONATOMIC
+    );
+    return overlay;
+}
+
+static void alookLayoutStartupOverlay(UIViewController *viewController, UIView *overlay) {
+    BOOL isDark = viewController.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark;
+    UIView *host = alookStartupHostView(viewController);
+    alookAttachStartupOverlay(overlay, host, isDark);
+}
+
 static void alookPrepareStartupOverlay(UIViewController *viewController) {
     if (!alookIsTauriRootController(viewController)) return;
     UIView *overlay = alookInstallStartupOverlay(viewController);
@@ -100,6 +122,8 @@ static void alookFinishStartupOverlay(UIViewController *viewController) {
     if (viewController == nil) return;
     UIView *overlay = objc_getAssociatedObject(viewController, kAlookStartupOverlayKey);
     [overlay removeFromSuperview];
+    if (overlay == gAlookStartupOverlay) gAlookStartupOverlay = nil;
+    gAlookStartupCompleted = YES;
     objc_setAssociatedObject(viewController, kAlookStartupOverlayKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     objc_setAssociatedObject(
         viewController,
@@ -191,6 +215,20 @@ static NSString *const kThemeObserverScript =
 + (void)load {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
+        [[NSNotificationCenter defaultCenter]
+            addObserverForName:UIWindowDidBecomeVisibleNotification
+            object:nil
+            queue:[NSOperationQueue mainQueue]
+            usingBlock:^(NSNotification *notification) {
+                UIWindow *window = [notification.object isKindOfClass:[UIWindow class]]
+                    ? (UIWindow *)notification.object
+                    : nil;
+                if (window != nil && window.windowLevel == UIWindowLevelNormal &&
+                    window.rootViewController != nil) {
+                    alookInstallStartupOverlayInWindow(window);
+                }
+            }];
+
         Method originalDidLoad = class_getInstanceMethod(self, @selector(viewDidLoad));
         Method swizzledDidLoad = class_getInstanceMethod(self, @selector(alook_viewDidLoad));
         method_exchangeImplementations(originalDidLoad, swizzledDidLoad);
