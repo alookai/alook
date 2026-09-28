@@ -91,6 +91,12 @@ function expectStableScroller(before: ScrollerGeometry, after: ScrollerGeometry)
   }
 }
 
+async function clickAuthoritativeOwnerChannelRow(page: Page, channelId: string): Promise<void> {
+  const row = page.getByTestId(tid.channelRow(channelId))
+  await expect(row).toHaveAttribute("aria-disabled", "false", { timeout: 20_000 })
+  await row.evaluate((element) => (element as HTMLElement).click())
+}
+
 async function dispatchSwipe(
   page: Page,
   messageId: string,
@@ -888,9 +894,7 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   await expect.poll(() => new URL(alice.page.url()).pathname).toBe("/c/me")
   await alice.page.getByTestId(tid.serverIcon(serverId)).click()
   await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/channels/${serverId}`)
-  await alice.page.getByTestId(tid.channelRow(channelId)).evaluate((element) => (
-    (element as HTMLElement).click()
-  ))
+  await clickAuthoritativeOwnerChannelRow(alice.page, channelId)
   await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/channels/${serverId}/${channelId}`)
   await expect(composerEditable(alice.page)).toBeVisible()
   expect(await alice.page.evaluate(() => (
@@ -910,9 +914,7 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   const channelReturnGets = trackSurfaceGets(alice.page, channelId)
   await alice.page.getByRole("banner").getByRole("button", { name: "Back" }).click()
   await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/channels/${serverId}`)
-  await alice.page.getByTestId(tid.channelRow(channelId)).evaluate((element) => (
-    (element as HTMLElement).click()
-  ))
+  await clickAuthoritativeOwnerChannelRow(alice.page, channelId)
   await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/channels/${serverId}/${channelId}`)
   await expect(composerEditable(alice.page)).toContainText(navigationDraft)
   await expect(alice.page.getByTestId(tid.message(channelReadState.lastReadMessageId!))).toBeVisible()
