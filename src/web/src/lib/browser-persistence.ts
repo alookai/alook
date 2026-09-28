@@ -19,6 +19,13 @@ export type BrowserPersistenceRuntime = {
   persistence: PersistedCollectionPersistence | null
   reason: string | null
   close: () => Promise<void>
+  inspectCollection: (collectionId: string) => Promise<{
+    collectionId: string
+    rowKeys: string[]
+    schemaVersion: number
+    tableName: string
+    tombstoneTableName: string
+  } | null>
   sizeBytes: () => Promise<number | null>
 }
 
@@ -102,6 +109,7 @@ function memoryRuntime(reason: string): BrowserPersistenceRuntime {
     persistence: null,
     reason,
     close: async () => {},
+    inspectCollection: async () => null,
     sizeBytes: async () => null,
   }
 }
@@ -145,6 +153,32 @@ async function createRuntime(): Promise<BrowserPersistenceRuntime> {
         coordinator = null
         await database?.close?.()
         database = null
+      },
+      inspectCollection: async (collectionId) => {
+        if (!database) return null
+        const [mapping] = await database.execute<{
+          collection_id: string
+          schema_version: number
+          table_name: string
+          tombstone_table_name: string
+        }>(
+          `SELECT collection_id, table_name, tombstone_table_name, schema_version
+           FROM collection_registry
+           WHERE collection_id = ?
+           LIMIT 1`,
+          [collectionId],
+        )
+        if (!mapping || !/^[a-z0-9_]+$/i.test(mapping.table_name)) return null
+        const rows = await database.execute<{ key: string }>(
+          `SELECT key FROM "${mapping.table_name}" ORDER BY key`,
+        )
+        return {
+          collectionId: mapping.collection_id,
+          rowKeys: rows.map((row) => row.key),
+          schemaVersion: mapping.schema_version,
+          tableName: mapping.table_name,
+          tombstoneTableName: mapping.tombstone_table_name,
+        }
       },
       sizeBytes: () => database ? sqliteSizeBytes(database) : Promise.resolve(null),
     }
@@ -199,4 +233,14 @@ export async function resetBrowserPersistenceForTests(): Promise<void> {
   await runtime?.close()
   delete global.__alookBrowserPersistenceV1
   global.__alookPersistenceClearScopesV1?.clear()
+}
+
+export async function rebuildBrowserPersistenceRuntime(): Promise<void> {
+  const global = persistenceGlobal()
+  const runtime = await global.__alookBrowserPersistenceV1?.catch(() => null)
+  try {
+    await runtime?.close()
+  } finally {
+    delete global.__alookBrowserPersistenceV1
+  }
 }

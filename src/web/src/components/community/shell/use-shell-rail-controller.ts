@@ -56,7 +56,7 @@ export function useShellRailController({
   const foldersQuery = useFolders()
   const servers = serversQuery.servers
   const folders = foldersQuery.folders
-  const hasLiveServers = servers.length > 0 || serversQuery.data !== undefined || !accountId
+  const hasLiveServers = servers.length > 0 || serversQuery.isSuccess || !accountId
   const currentServerId = useCommunityStore((state) => state.currentServerId)
   const { mutateAsync: createServerAsync } = useCreateServer()
   const { mutate: leaveServerMutate } = useLeaveServer()
@@ -169,17 +169,7 @@ export function useShellRailController({
       servers: railServers,
       folders,
       activeServerId: projectedActiveServerId,
-      // A restored server row makes the canonical rail authoritative while a
-      // refresh is held. On a true-cold profile, the HTTP response settles
-      // before its non-optimistic OPFS transaction is visible, so keep the
-      // inert rail through that commit gap as well.
-      serversLoading: (communityDb
-        ? !(communityDb.isCollectionReady?.("servers") ?? true)
-        : false) || (
-        servers.length === 0
-        && !communityDb?.hasRestoredCollection("servers")
-        && !serversQuery.isLiveAuthoritative
-      ),
+      serversLoading: !communityDb && servers.length === 0 && !serversQuery.isSuccess,
       view: projectedView,
       onHome,
       onHomePrefetch,

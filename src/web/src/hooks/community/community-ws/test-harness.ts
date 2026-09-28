@@ -11,16 +11,19 @@ import {
 import {
   captureCommunityLiveSnapshotToken,
   ingestServerDetail,
-  ingestServers,
   publishCommunityChannelMetadata,
   publishCommunityForumSidebar,
 } from "@/lib/community-db/sync"
+import { seedCommunityServers as ingestServers } from "@/lib/community-db/server-test-seed"
 import { getForumSidebarBase } from "@/hooks/community/use-forum-sidebar-threads"
 
 const communityApiFetch = vi.hoisted(() => vi.fn(async (...args: unknown[]) => {
   const url = args[0]
   if (url === "/api/community/users/me/read-state") {
     return { revision: 0, readStates: [] }
+  }
+  if (url === "/api/community/servers") {
+    return { servers: [] }
   }
   throw new Error(`unexpected API fetch: ${url}`)
 }))
@@ -75,6 +78,10 @@ export function flushEffects() {
 
 export let capturedQueryClient: QueryClient
 let canonicalRegistry: CommunityDbRegistry | null = null
+
+export function canonicalServer(serverId: string) {
+  return canonicalRegistry?.collections.servers.get(serverId)
+}
 let unregisterCanonicalRegistry: (() => void) | null = null
 vi.mock("@tanstack/react-query", async () => {
   const actual = await vi.importActual<typeof import("@tanstack/react-query")>("@tanstack/react-query")
@@ -149,6 +156,9 @@ function resetHarnessState() {
     const url = args[0]
     if (url === "/api/community/users/me/read-state") {
       return { revision: 0, readStates: [] }
+    }
+    if (url === "/api/community/servers") {
+      return { servers: [] }
     }
     throw new Error(`unexpected API fetch: ${url}`)
   })

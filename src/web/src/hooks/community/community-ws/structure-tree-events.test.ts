@@ -16,10 +16,12 @@ import type {
 } from "@alook/shared"
 import { getMessageOverlay, useMessageStreamStore } from "@/stores/community/message-stream"
 import { communityKeys } from "@/lib/query-keys"
+import { serversCollectionQueryKey } from "@/lib/community-db/server-collection"
 import { getAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 import {
   capturedOnMessage,
   capturedQueryClient,
+  canonicalServer,
   canonicalForumSidebar,
   cleanupCommunityWsHarness,
   forumSidebarFixture,
@@ -91,8 +93,8 @@ function forumFeedIds(filter: string | null) {
 beforeEach(resetCommunityWsHarness)
 afterEach(cleanupCommunityWsHarness)
 
-describe("useCommunityWs — server.update patches server + list caches", () => {
-  it("applies name and description changes to server(id) and servers()", async () => {
+describe("useCommunityWs — server.update patches detail + official collection", () => {
+  it("applies name and description through the official collection", async () => {
     await mountHook()
     capturedQueryClient.setQueryData(communityKeys.server("srv_1"), {
       id: "srv_1",
@@ -102,18 +104,24 @@ describe("useCommunityWs — server.update patches server + list caches", () => 
       ownerId: "u_1",
       categories: [],
     })
-    capturedQueryClient.setQueryData(communityKeys.servers(), {
+    capturedQueryClient.setQueryData(serversCollectionQueryKey(), {
       servers: [
         {
           id: "srv_1",
+          position: 0,
           name: "old",
+          discriminator: "0001",
           description: "old description",
-          initial: "O",
-          active: false,
+          ownerId: "u_1",
+          icon: null,
+          official: false,
+          isOwner: false,
           unread: false,
           mentions: 0,
+          detailComplete: true,
         },
       ],
+      unreadSources: [],
     })
     const event: CommunityServerUpdate = {
       type: "community:server.update",
@@ -127,13 +135,10 @@ describe("useCommunityWs — server.update patches server + list caches", () => 
       name: "new",
       description: "new description",
     })
-    expect(
-      capturedQueryClient.getQueryData<{
-        servers: { name: string; description: string; initial: string }[]
-      }>(
-        communityKeys.servers(),
-      )?.servers[0],
-    ).toMatchObject({ name: "new", description: "new description", initial: "N" })
+    expect(canonicalServer("srv_1")).toMatchObject({
+      name: "new",
+      description: "new description",
+    })
   })
 })
 describe("useCommunityWs — child channel events", () => {

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { QueryClient } from "@tanstack/react-query"
 import { USE_SERVER_DEFAULT } from "@alook/shared"
 import { communityKeys } from "@/lib/query-keys"
+import { serversCollectionQueryKey } from "@/lib/community-db/server-collection"
 
 const apiFetch = vi.fn()
 vi.mock("@/lib/api/client", () => ({ apiFetch: (...args: unknown[]) => apiFetch(...args) }))
@@ -107,7 +108,7 @@ describe("notification mutation cache refresh", () => {
 
     expect(invalidate).toHaveBeenCalledWith({ queryKey: communityKeys.notificationSettings() })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: communityKeys.inbox() })
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: communityKeys.servers() })
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: serversCollectionQueryKey(), exact: true })
     expect(invalidate).toHaveBeenCalledWith(expect.objectContaining({ predicate: expect.any(Function) }))
   })
 
@@ -118,7 +119,7 @@ describe("notification mutation cache refresh", () => {
     config!.onSuccess?.(undefined, { channelId: "parent_1", level: "Nothing" })
 
     expect(invalidate).toHaveBeenCalledWith({ queryKey: communityKeys.inbox() })
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: communityKeys.servers() })
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: serversCollectionQueryKey(), exact: true })
     const predicateCall = invalidate.mock.calls.find(
       ([filters]) => typeof filters?.predicate === "function",
     )

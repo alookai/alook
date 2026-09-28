@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   getRuntime: vi.fn(() => Promise.resolve({ persistence: { kind: "sqlite" } })),
   installSync: vi.fn(() => () => {}),
   preload: vi.fn(() => Promise.resolve()),
+  rebuildRuntime: vi.fn(() => Promise.resolve()),
   registerClear: vi.fn(() => () => {}),
   registerRegistry: vi.fn(() => () => {}),
   setReconcileScheduler: vi.fn(),
@@ -34,6 +35,7 @@ vi.mock("@tanstack/react-query-devtools", () => ({ ReactQueryDevtools: () => nul
 vi.mock("@/lib/query-client", () => ({ createQueryClient: () => queryClient }))
 vi.mock("@/lib/browser-persistence", () => ({
   getBrowserPersistenceRuntime: mocks.getRuntime,
+  rebuildBrowserPersistenceRuntime: mocks.rebuildRuntime,
   registerPersistenceClearScope: mocks.registerClear,
 }))
 vi.mock("@/lib/community-db/collections", () => ({
@@ -137,9 +139,14 @@ describe("QueryProvider collection startup", () => {
       1,
       queryClient,
       "viewer-b",
-      { persistence: { kind: "sqlite" } },
+      { persistence: { kind: "sqlite" }, serverTransport: true },
     )
-    expect(mocks.createRegistry).toHaveBeenNthCalledWith(2, queryClient, "viewer-b")
+    expect(mocks.createRegistry).toHaveBeenNthCalledWith(
+      2,
+      queryClient,
+      "viewer-b",
+      { serverTransport: true },
+    )
     expect(mocks.capture).not.toHaveBeenCalled()
     expect(persisted.cleanup).not.toHaveBeenCalled()
     await act(async () => resolveMemoryPreload())
@@ -152,4 +159,30 @@ describe("QueryProvider collection startup", () => {
     expect(mocks.capture).not.toHaveBeenCalled()
     renderer.unmount()
   })
+
+  it("rebuilds the persistence runtime and account registry after bfcache restore", async () => {
+    const first = registry()
+    const restored = registry()
+    mocks.createRegistry
+      .mockReturnValueOnce(first)
+      .mockReturnValueOnce(restored)
+    const renderer = render(React.createElement(
+      QueryProvider,
+      { pending: React.createElement("span", null, "pending"), userId: "viewer-b" },
+      React.createElement("span", null, "ready"),
+    ))
+
+    await waitFor(() => expect(mocks.createRegistry).toHaveBeenCalledOnce())
+    const event = new Event("pageshow") as PageTransitionEvent
+    Object.defineProperty(event, "persisted", { value: true })
+    await act(async () => window.dispatchEvent(event))
+
+    await waitFor(() => expect(mocks.rebuildRuntime).toHaveBeenCalledOnce())
+    await waitFor(() => expect(mocks.createRegistry).toHaveBeenCalledTimes(2))
+    expect(mocks.getRuntime).toHaveBeenCalledTimes(2)
+    await waitFor(() => expect(first.cleanup).toHaveBeenCalledOnce())
+    expect(renderer.container).toHaveTextContent("ready")
+    renderer.unmount()
+  })
+
 })

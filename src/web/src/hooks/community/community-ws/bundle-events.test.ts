@@ -8,6 +8,7 @@ import {
   type CommunityWsEvent,
 } from "@alook/shared"
 import { communityKeys } from "@/lib/query-keys"
+import { serversCollectionQueryKey } from "@/lib/community-db/server-collection"
 
 const reconcileCommunityWsReconnect = vi.hoisted(() => vi.fn(async () => ({
   policyCount: 13,
@@ -356,7 +357,7 @@ describe("useCommunityWs — operation bundles", () => {
     vi.useFakeTimers()
     try {
       await mountHook({ viewerUserId: "viewer-1" })
-      capturedQueryClient.setQueryData(communityKeys.servers(), {
+      capturedQueryClient.setQueryData(serversCollectionQueryKey(), {
         servers: [{ id: "server-1", mentions: 5 }],
       })
       vi.spyOn(capturedQueryClient, "invalidateQueries")
@@ -365,7 +366,7 @@ describe("useCommunityWs — operation bundles", () => {
 
       capturedOnMessage!(frame)
       expect(capturedQueryClient.getQueryData<{ servers: Array<{ id: string; mentions: number }> }>(
-        communityKeys.servers(),
+        serversCollectionQueryKey(),
       )?.servers[0]?.mentions).toBe(5)
       const unreadProjection = getActiveAccountUnreadProjection(capturedQueryClient)
       expect(unreadProjection.projectUnread("servers", "ch-1", false)).toBe(true)
@@ -374,7 +375,7 @@ describe("useCommunityWs — operation bundles", () => {
       unreadProjection.recordRead("ch-1", 1)
       expect(unreadProjection.projectUnread("servers", "ch-1", false)).toBe(false)
       expect(attentionReconcileCount()).toBe(0)
-      expect(invalidationCount(communityKeys.servers())).toBe(1)
+      expect(invalidationCount(serversCollectionQueryKey())).toBe(1)
       await vi.advanceTimersByTimeAsync(500)
       expect(attentionReconcileCount()).toBe(1)
 
@@ -438,7 +439,7 @@ describe("useCommunityWs — operation bundles", () => {
 
   it("does not cancel or restart an in-flight raw server resource for a projected bump", async () => {
     await mountHook({ viewerUserId: "viewer-1" })
-    const key = communityKeys.servers()
+    const key = serversCollectionQueryKey()
     capturedQueryClient.setQueryData(key, {
       servers: [{ id: "server-1", unread: false, mentions: 5 }],
     })
@@ -472,7 +473,7 @@ describe("useCommunityWs — operation bundles", () => {
       await mountHook({ viewerUserId: "viewer-1" })
       const { useCommunityWsStore } = await import("@/stores/community/ws")
       useCommunityWsStore.getState().markSeenMessage(message.message.id)
-      capturedQueryClient.setQueryData(communityKeys.servers(), {
+      capturedQueryClient.setQueryData(serversCollectionQueryKey(), {
         servers: [{ id: "server-1", mentions: 9 }],
       })
       vi.spyOn(capturedQueryClient, "invalidateQueries")
@@ -480,10 +481,10 @@ describe("useCommunityWs — operation bundles", () => {
 
       capturedOnMessage!(await batchFor("message-late", mentionEvents))
       expect(capturedQueryClient.getQueryData<{ servers: Array<{ mentions: number }> }>(
-        communityKeys.servers(),
+        serversCollectionQueryKey(),
       )?.servers[0]?.mentions).toBe(9)
       expect(attentionReconcileCount()).toBe(0)
-      expect(invalidationCount(communityKeys.servers())).toBe(1)
+      expect(invalidationCount(serversCollectionQueryKey())).toBe(1)
       await vi.advanceTimersByTimeAsync(500)
       expect(attentionReconcileCount()).toBe(1)
     } finally {
@@ -654,7 +655,7 @@ describe("useCommunityWs — operation bundles", () => {
       communityKeys.forumSidebarThreads("s1"),
       forumSidebarFixture(["ch-1"]),
     )
-    capturedQueryClient.setQueryData(communityKeys.servers(), {
+    capturedQueryClient.setQueryData(serversCollectionQueryKey(), {
       servers: [{ id: "s1", mentions: 5 }],
     })
     capturedQueryClient.setQueryData(communityKeys.channelMessages("forum_1"), {
@@ -741,7 +742,7 @@ describe("useCommunityWs — operation bundles", () => {
       )).toBe(true)
       expect(capturedQueryClient.getQueryData<{
         servers: Array<{ id: string; mentions: number }>
-      }>(communityKeys.servers())?.servers[0]?.mentions).toBe(5)
+      }>(serversCollectionQueryKey())?.servers[0]?.mentions).toBe(5)
       expect(capturedQueryClient.getQueryData<{
         pages: Array<{ messages: Array<{ thread: { messageCount: number } }> }>
       }>(communityKeys.channelMessages("forum_1"))?.pages[0]?.messages[0]?.thread.messageCount)
@@ -759,7 +760,7 @@ describe("useCommunityWs — operation bundles", () => {
     expect(useCommunityWsStore.getState().seenMessageIds.size).toBe(1)
     expect(capturedQueryClient.getQueryData<{
       servers: Array<{ id: string; mentions: number }>
-    }>(communityKeys.servers())?.servers[0]?.mentions).toBe(5)
+    }>(serversCollectionQueryKey())?.servers[0]?.mentions).toBe(5)
     expect(getActiveAccountUnreadProjection(capturedQueryClient).projectUnread(
       "server-detail:s1",
       "ch-1",

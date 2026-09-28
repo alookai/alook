@@ -10,6 +10,7 @@
 import { afterEach, describe, it, expect, vi, beforeEach } from "vitest"
 import { QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
+import { serversCollectionQueryKey } from "@/lib/community-db/server-collection"
 import type { Msg } from "@/lib/community/models/message"
 import type { CommunityDbRegistry } from "@/lib/community-db/collections"
 
@@ -196,7 +197,8 @@ function attentionIncluded(overrides: {
 async function seedCanonicalParent(type: "forum" | "text") {
   if (!canonicalRegistry) throw new Error("canonical test registry is not active")
   const sync = await import("@/lib/community-db/sync")
-  sync.ingestServers(canonicalRegistry, { servers: [{
+  const { seedCommunityServers } = await import("@/lib/community-db/server-test-seed")
+  seedCommunityServers(canonicalRegistry, { servers: [{
     id: "s1", name: "Server", initial: "S", active: false, unread: false,
     mentions: 0, ownerId: "u_me",
   }] })
@@ -1669,7 +1671,7 @@ describe("useDeleteMention — rollback", () => {
     expect(toastMock).toHaveBeenCalledWith("boom")
   })
 
-  it("invalidates communityKeys.servers() on success so the rail badge decrements", async () => {
+  it("invalidates serversCollectionQueryKey() on success so the rail badge decrements", async () => {
     capturedQc.setQueryData(communityKeys.inboxMentions(), {
       mentions: [{ id: "men_1" }],
     })
@@ -1680,7 +1682,7 @@ describe("useDeleteMention — rollback", () => {
     await runMutation({ mentionId: "men_1" })
     const serversInvalidates = spy.mock.calls.filter((c) => {
       const key = c[0]?.queryKey as unknown[] | undefined
-      return Array.isArray(key) && key.length === 2 && key[0] === "community" && key[1] === "servers"
+      return JSON.stringify(key) === JSON.stringify(serversCollectionQueryKey())
     })
     expect(serversInvalidates).toHaveLength(1)
   })

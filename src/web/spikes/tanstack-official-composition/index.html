@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TanStack official composition spike</title>
+    <style>
+      :root { color-scheme: light; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+      body { margin: 0; background: #f5f2eb; color: #201f1c; }
+      main { max-width: 980px; margin: 0 auto; padding: 24px; }
+      h1 { font: 700 28px/1.2 system-ui, sans-serif; }
+      section { margin: 16px 0; padding: 16px; border: 1px solid #cbc5b8; border-radius: 12px; background: #fffdf8; }
+      .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+      button, select { border: 1px solid #8d877a; border-radius: 8px; background: white; padding: 8px 10px; font: inherit; }
+      button:hover { background: #f1ece2; }
+      pre { min-height: 40px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
+      [data-state="error"] { color: #a1261d; }
+      [data-state="ready"] { color: #176b3a; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>TanStack official composition spike</h1>
+      <section class="controls">
+        <label>Account <select data-testid="account"><option value="alpha">alpha</option><option value="beta">beta</option></select></label>
+        <button data-testid="account-switch">Switch account</button>
+        <button data-testid="offline-toggle">Go offline</button>
+        <button data-testid="rebuild-runtime">Rebuild runtime</button>
+        <span data-testid="runtime-state">booting</span>
+      </section>
+      <section>
+        <h2>Servers</h2>
+        <div class="controls">
+          <button data-testid="ws-apply">Apply exact WS batch</button>
+          <button data-testid="duplicate-replay">Replay exact WS batch</button>
+          <button data-testid="freshness-burst">Burst freshness signals</button>
+          <button data-testid="revoke-scope">Revoke scope</button>
+        </div>
+        <pre data-testid="servers-state"></pre>
+      </section>
+      <section>
+        <h2>Messages</h2>
+        <div class="controls">
+          <label>Channel <select data-testid="channel-select"><option value="c-alpha">c-alpha</option><option value="c-beta">c-beta</option></select></label>
+          <button data-testid="load-next-window">Load next window</button>
+        </div>
+        <pre data-testid="messages-window"></pre>
+      </section>
+      <section>
+        <h2>Lifecycle</h2>
+        <div class="controls">
+          <button data-testid="simulate-pagehide">Simulate pagehide</button>
+          <button data-testid="simulate-pageshow-persisted">Simulate persisted pageshow</button>
+        </div>
+        <pre data-testid="capability-state"></pre>
+      </section>
+      <section>
+        <h2>Evidence log</h2>
+        <pre data-testid="event-log"></pre>
+      </section>
+    </main>
+    <script type="module" src="/main.ts"></script>
+  </body>
+</html>

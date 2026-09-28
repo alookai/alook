@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { QueryClient, QueryObserver } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
+import { serversCollectionQueryKey } from "@/lib/community-db/server-collection"
 import {
   createCommunityDbRegistry,
   registerCommunityDbRegistry,
@@ -160,7 +161,7 @@ describe("account read-state reconciliation", () => {
       refetchType: "active",
     }, { throwOnError: true, cancelRefetch: true })
     expect(invalidate).toHaveBeenCalledWith({
-      queryKey: communityKeys.servers(),
+      queryKey: serversCollectionQueryKey(),
       exact: true,
       refetchType: "active",
     }, { throwOnError: true, cancelRefetch: true })

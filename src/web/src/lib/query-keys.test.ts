@@ -58,6 +58,16 @@ describe("communityKeys", () => {
     ])
   })
 
+  it("keeps the server row transport outside the server resource prefix", () => {
+    expect(communityKeys.serverRows()).toEqual([
+      "community",
+      "collections",
+      "server-rows",
+    ])
+    expect(communityKeys.serverRows().slice(0, communityKeys.servers().length))
+      .not.toEqual(communityKeys.servers())
+  })
+
   it("recognizes only real server-detail keys and server-id segments", () => {
     expect(isCommunityServerIdSegment("server-1")).toBe(true)
     expect(isCommunityServerIdSegment("__real_nanoid")).toBe(true)

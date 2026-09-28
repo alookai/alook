@@ -1,10 +1,18 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
+import {
+  createCommunityDbRegistry,
+  registerCommunityDbRegistry,
+  type CommunityDbRegistry,
+} from "@/lib/community-db/collections"
+import { serversCollectionQueryKey } from "@/lib/community-db/server-collection"
 
 const apiFetchMock = vi.fn()
 const useMutationMock = vi.fn()
 let queryClient: QueryClient
+let registry: CommunityDbRegistry
+let unregister: () => void
 
 vi.mock("@/lib/api/client", () => ({
   apiFetch: (...args: unknown[]) => apiFetchMock(...args),
@@ -39,11 +47,28 @@ const args = {
 }
 
 describe("useServerRailCommit", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks()
     queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    registry = createCommunityDbRegistry(queryClient, "viewer")
+    unregister = registerCommunityDbRegistry(registry)
+    await registry.ensureCollectionReady("servers")
+    registry.collections.servers.utils.writeInsert(["a", "b", "c"].map((id, position) => ({
+      id,
+      position,
+      name: id.toUpperCase(),
+      discriminator: "0001",
+      description: "",
+      ownerId: "viewer",
+      icon: null,
+      official: false,
+      isOwner: false,
+      unread: false,
+      mentions: 0,
+      detailComplete: false,
+    })))
     useMutationMock.mockImplementation((options) => options)
-    queryClient.setQueryData(communityKeys.servers(), {
+    queryClient.setQueryData(serversCollectionQueryKey(), {
       servers: ["a", "b", "c"].map((id) => ({
         id,
         name: id.toUpperCase(),
@@ -62,6 +87,12 @@ describe("useServerRailCommit", () => {
     })
   })
 
+  afterEach(() => {
+    unregister()
+    registry.cleanup()
+    queryClient.clear()
+  })
+
   it("uses one PATCH with the full command batch", async () => {
     const options = useServerRailCommit() as any
     apiFetchMock.mockResolvedValue({ createdFolderIds: {} })
@@ -75,22 +106,34 @@ describe("useServerRailCommit", () => {
   it("cancels both caches before one synchronous optimistic projection", async () => {
     const options = useServerRailCommit() as any
     const cancel = vi.spyOn(queryClient, "cancelQueries")
+    const detail = { id: "a", categories: [] }
+    const members = { pages: [{ members: [{ id: "m", userId: "viewer" }] }], pageParams: [null] }
+    const invites = { invites: [{ id: "invite" }] }
+    queryClient.setQueryData(communityKeys.server("a"), detail)
+    queryClient.setQueryData(communityKeys.members("a"), members)
+    queryClient.setQueryData(communityKeys.invites("a"), invites)
     const context = await options.onMutate(args)
     expect(cancel).toHaveBeenCalledTimes(2)
-    expect(queryClient.getQueryData<any>(communityKeys.servers()).servers.map((server: any) => server.id))
-      .toEqual(["b", "a", "c"])
+    expect(Array.from(registry.collections.servers.values())
+      .sort((left, right) => (left.position ?? 0) - (right.position ?? 0))
+      .map((server) => server.id)).toEqual(["b", "a", "c"])
     expect(queryClient.getQueryData<any>(communityKeys.folders()).folders).toMatchObject([
       { id: "one", position: 0, servers: [{ id: "c" }] },
       { id: "temp_1", position: 1, servers: [{ id: "a" }, { id: "b" }] },
     ])
-    expect(context.servers.servers.map((server: any) => server.id)).toEqual(["a", "b", "c"])
+    expect(context.servers.map((server: any) => server.id)).toEqual(["a", "b", "c"])
+    expect(queryClient.getQueryData(communityKeys.server("a"))).toBe(detail)
+    expect(queryClient.getQueryData(communityKeys.members("a"))).toBe(members)
+    expect(queryClient.getQueryData(communityKeys.invites("a"))).toBe(invites)
   })
 
   it("restores both exact snapshots on failure", async () => {
     const options = useServerRailCommit() as any
     const context = await options.onMutate(args)
     options.onError(new Error("failed"), args, context)
-    expect(queryClient.getQueryData(communityKeys.servers())).toEqual(context.servers)
+    expect(Array.from(registry.collections.servers.values())
+      .sort((left, right) => (left.position ?? 0) - (right.position ?? 0))
+      .map((server) => server.id)).toEqual(["a", "b", "c"])
     expect(queryClient.getQueryData(communityKeys.folders())).toEqual(context.folders)
   })
 
@@ -100,8 +143,10 @@ describe("useServerRailCommit", () => {
     options.onSuccess({ createdFolderIds: { temp_1: "folder_real" } }, args)
     expect(queryClient.getQueryData<any>(communityKeys.folders()).folders[1].id).toBe("folder_real")
     const invalidate = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue(undefined as never)
+    const refetchServers = vi.spyOn(registry, "requestServerRefetch").mockResolvedValue(undefined)
     await options.onSettled()
-    expect(invalidate).toHaveBeenCalledTimes(2)
+    expect(refetchServers).toHaveBeenCalledTimes(1)
+    expect(invalidate).toHaveBeenCalledTimes(1)
   })
 
 })

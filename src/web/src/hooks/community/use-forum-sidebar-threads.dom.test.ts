@@ -8,7 +8,6 @@ import {
   captureCommunityLiveSnapshotToken,
   ingestAttentionSnapshot,
   ingestServerDetail,
-  ingestServers,
   getCanonicalCommunityChannels,
   getCanonicalCommunityMessages,
   projectCommunityWsEventToDb,
@@ -16,6 +15,7 @@ import {
   removeCanonicalCommunityChannelMembership,
   setCanonicalCommunityChannelMembership,
 } from "@/lib/community-db/sync"
+import { seedCommunityServers as ingestServers } from "@/lib/community-db/server-test-seed"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { communityKeys } from "@/lib/query-keys"
 import {

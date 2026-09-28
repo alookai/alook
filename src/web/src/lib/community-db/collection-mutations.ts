@@ -34,6 +34,44 @@ export function writeCommunityCollectionRows<T extends object>(
   rows: T[] | (() => T[]),
   getKey: (row: T) => string,
 ) {
+  if (name === "servers") {
+    const collection = registry.collections.servers
+    const publish = () => {
+      registry.assertGenerationActive()
+      if (typeof rows === "function") rows()
+    }
+    const pending = pendingCollectionWrites.get(collection)
+    if (!pending && registry.isCollectionReady(name)) {
+      let write: Promise<void>
+      try {
+        publish()
+        write = Promise.resolve()
+      } catch (error) {
+        write = Promise.reject(error)
+      }
+      const immediate = captureCollectionWrite(registry, write)
+      void immediate.catch(() => {})
+      return immediate
+    }
+
+    const ready = pending ?? registry.ensureCollectionReady(name)
+    const next = captureCollectionWrite(registry, ready.then(publish))
+    pendingCollectionWrites.set(collection, next)
+    next.then(
+      () => {
+        if (pendingCollectionWrites.get(collection) === next) {
+          pendingCollectionWrites.delete(collection)
+        }
+      },
+      () => {
+        if (pendingCollectionWrites.get(collection) === next) {
+          pendingCollectionWrites.delete(collection)
+        }
+      },
+    )
+    void next.catch(() => {})
+    return next
+  }
   const collection = registry.collections[name] as unknown as {
     status: string
     preload: () => Promise<void>

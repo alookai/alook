@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   consumeColdEntryFailure: vi.fn(() => false),
   lastChannel: null as string | null,
   server: undefined as undefined | Record<string, unknown>,
+  serverLiveAuthoritative: true,
   metaQuery: {
     data: undefined as undefined | Record<string, unknown>,
     error: null as unknown,
@@ -35,7 +36,10 @@ vi.mock("@tanstack/react-query", async () => {
   return { ...actual, useQueryClient: () => queryClient }
 })
 vi.mock("./use-servers", () => ({
-  useServer: () => ({ server: mocks.server, isLiveAuthoritative: true }),
+  useServer: () => ({
+    server: mocks.server,
+    isLiveAuthoritative: mocks.serverLiveAuthoritative,
+  }),
 }))
 vi.mock("./use-child-channel-meta", () => ({
   useChildChannelMeta: (
@@ -93,9 +97,13 @@ beforeEach(() => {
   mocks.clearLastChannel.mockClear()
   mocks.consumeColdEntryFailure.mockReset()
   mocks.consumeColdEntryFailure.mockReturnValue(false)
-  mocks.communityDb.current = { hasRestoredCollection: () => false }
+  mocks.communityDb.current = {
+    hasRestoredCollection: () => false,
+    isCollectionReady: () => true,
+  }
   mocks.purgeCommunityChannel.mockClear()
   mocks.lastChannel = null
+  mocks.serverLiveAuthoritative = true
   mocks.server = {
     id: "server-1",
     categories: [{
@@ -161,6 +169,19 @@ describe("useChannelRouteModel subscription ownership", () => {
 
     expect(hasRestoredCollection).toHaveBeenCalledWith("servers")
     expect(hasRestoredCollection).toHaveBeenCalledWith("channels")
+    expect(lifecycle(renderer)).toBe("ready")
+    act(() => renderer.unmount())
+  })
+
+  it("reveals a restored route while the server transport is still preloading", () => {
+    mocks.serverLiveAuthoritative = false
+    mocks.communityDb.current = {
+      hasRestoredCollection: (name: string) => name === "servers" || name === "channels",
+      isCollectionReady: (name: string) => name !== "servers",
+    }
+
+    const renderer = render(React.createElement(Harness, { channelId: "forum-1" }))
+
     expect(lifecycle(renderer)).toBe("ready")
     act(() => renderer.unmount())
   })

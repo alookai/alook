@@ -19,15 +19,14 @@ import {
   useRouteChannelProjection,
   useServerRailProjection,
   useServerTreeProjection,
-  useTrustedRestoredPrimary,
 } from "./projections"
-import { ingestServerDetail, ingestServers } from "./sync"
+import { ingestServerDetail } from "./sync"
+import { seedCommunityServers as ingestServers } from "./server-test-seed"
 import { writeCommunityCollectionRows } from "./collection-mutations"
 
 describe("community DB projections", () => {
   it("keeps every projection unresolved without a registry owner", () => {
     const rendered = renderHook(() => ({
-      restored: useTrustedRestoredPrimary(),
       rail: useServerRailProjection(),
       tree: useServerTreeProjection("s1"),
       dms: useDmProjection(),
@@ -40,7 +39,6 @@ describe("community DB projections", () => {
     }))
 
     expect(rendered.result.current).toEqual({
-      restored: false,
       rail: undefined,
       tree: undefined,
       dms: undefined,
@@ -123,6 +121,118 @@ describe("community DB projections", () => {
     await registry["cleanup"]()
   })
 
+  it("projects a restored uncategorized tree when mounted before registry preload completes", async () => {
+    const queryClient = new QueryClient()
+    const registry = createCommunityDbRegistry(queryClient, "viewer")
+    let releaseServerPreload!: () => void
+    const serverPreload = new Promise<void>((resolve) => { releaseServerPreload = resolve })
+    vi.spyOn(registry.collections.servers, "preload").mockImplementation(() => serverPreload)
+    const wrapper = ({ children }: { children: ReactNode }) => React.createElement(
+      QueryClientProvider,
+      { client: queryClient },
+      React.createElement(CommunityDbProvider, { registry }, children),
+    )
+    const rendered = renderHook(() => useServerTreeProjection("s1"), { wrapper })
+
+    expect(rendered.result.current).toBeUndefined()
+    const preload = registry.preload()
+    act(() => {
+      registry.collections.servers.utils.writeInsert({
+        id: "s1",
+        position: 0,
+        name: "Server",
+        discriminator: "0001",
+        description: "",
+        ownerId: "viewer",
+        icon: null,
+        official: false,
+        isOwner: true,
+        unread: false,
+        mentions: 0,
+        detailComplete: true,
+      })
+      registry.collections.channels.insert({
+        id: "c1",
+        serverId: "s1",
+        categoryId: null,
+        name: "general",
+        type: "text",
+        parentChannelId: null,
+        parentMessageId: null,
+        creatorId: null,
+        position: 0,
+        archived: false,
+        muted: false,
+        unread: false,
+        tags: [],
+        pending: false,
+        lastMessageAt: null,
+      })
+    })
+
+    expect(registry.collections.servers.get("s1")?.detailComplete).toBe(true)
+    expect(registry.collections.categories.size).toBe(0)
+    expect(registry.collections.channels.get("c1")?.categoryId).toBeNull()
+    await waitFor(() => expect(rendered.result.current).toMatchObject({
+      id: "s1",
+      categories: [{
+        id: "__uncategorized__",
+        channels: [expect.objectContaining({ id: "c1", name: "general" })],
+      }],
+    }))
+    expect(registry.getCollectionReadiness("servers")).toBe("preloading")
+    expect(registry.getCollectionReadiness("categories")).toBe("ready")
+    expect(registry.getCollectionReadiness("channels")).toBe("ready")
+
+    await act(async () => {
+      releaseServerPreload()
+      await preload
+    })
+
+    rendered.unmount()
+    await registry["cleanup"]()
+  })
+
+  it("publishes restored messages when the hook mounts before message preload completes", async () => {
+    const queryClient = new QueryClient()
+    const registry = createCommunityDbRegistry(queryClient, "viewer")
+    let releaseMessagePreload!: () => void
+    const messagePreload = new Promise<void>((resolve) => { releaseMessagePreload = resolve })
+    vi.spyOn(registry.collections.messages, "preload").mockImplementation(() => messagePreload)
+    const wrapper = ({ children }: { children: ReactNode }) => React.createElement(
+      QueryClientProvider,
+      { client: queryClient },
+      React.createElement(CommunityDbProvider, { registry }, children),
+    )
+    const rendered = renderHook(() => useMessageProjection("c1"), { wrapper })
+
+    expect(rendered.result.current).toBeUndefined()
+    const preload = registry.preload()
+    act(() => {
+      registry.collections.messages.insert({
+        id: "m1",
+        channelId: "c1",
+        type: "chat",
+        authorId: "peer",
+        content: "restored",
+        seq: 1,
+      })
+    })
+    expect(registry.collections.messages.get("m1")?.content).toBe("restored")
+    expect(rendered.result.current).toBeUndefined()
+
+    await act(async () => {
+      releaseMessagePreload()
+      await preload
+    })
+    await waitFor(() => expect(rendered.result.current).toEqual([
+      expect.objectContaining({ id: "m1", content: "restored", seq: 1 }),
+    ]))
+
+    rendered.unmount()
+    await registry["cleanup"]()
+  })
+
   it("keeps the canonical rail in server-list order instead of collection-key order", async () => {
     const queryClient = new QueryClient()
     const legacyServers = [
@@ -156,10 +266,6 @@ describe("community DB projections", () => {
       },
     ]
     queryClient.setQueryData(
-      communityKeys.communityDbCollection("viewer", "servers"),
-      legacyServers,
-    )
-    queryClient.setQueryData(
       communityKeys.communityDbCollection("viewer", "serverMemberships"),
       legacyServers.map((server) => ({
         id: `${server.id}:viewer`,
@@ -171,7 +277,13 @@ describe("community DB projections", () => {
     )
     const registry = createCommunityDbRegistry(queryClient, "viewer")
     await registry.preload()
-    writeCommunityCollectionRows(registry, "servers", legacyServers, (row) => row.id)
+    ingestServers(registry, {
+      servers: legacyServers.map((server) => ({
+        ...server,
+        initial: server.name[0]!,
+        active: false,
+      })),
+    })
     writeCommunityCollectionRows(
       registry,
       "serverMemberships",
@@ -231,11 +343,6 @@ describe("community DB projections", () => {
       communityKeys.communityDbCollection("viewer", name),
       rows,
     )
-    collection("servers", [{
-      id: "s1", position: 0, name: "Server", discriminator: "0001", description: "desc",
-      ownerId: "owner", icon: null, official: true, isOwner: false, unread: true,
-      mentions: 2, detailComplete: true,
-    }])
     collection("serverMemberships", [{
       id: "s1:viewer", serverId: "s1", userId: "viewer", role: "member", viewer: true,
     }])
@@ -295,6 +402,7 @@ describe("community DB projections", () => {
     const registry = createCommunityDbRegistry(queryClient, "viewer")
     await registry.preload()
     for (const name of Object.keys(registry.collections) as Array<keyof typeof registry.collections>) {
+      if (name === "servers") continue
       const rows = queryClient.getQueryData<Array<Record<string, unknown>>>(
         communityKeys.communityDbCollection("viewer", name),
       ) ?? []
@@ -305,6 +413,12 @@ describe("community DB projections", () => {
         (row) => String(row.id ?? row.userId ?? row.channelId),
       )
     }
+    ingestServers(registry, { servers: [{
+      id: "s1", name: "Server", discriminator: "0001", description: "desc",
+      ownerId: "owner", icon: null, official: true, isOwner: false, unread: true,
+      mentions: 2, initial: "S", active: false,
+    }] })
+    registry.collections.servers.utils.writeUpdate({ id: "s1", detailComplete: true })
     useCommunityWsStore.setState({ presenceByUserId: new Map([["peer", "online"]]) })
     const restoredListener = vi.fn()
     const unsubscribeRestored = registry.subscribeRestoredCollections(restoredListener)
@@ -318,7 +432,6 @@ describe("community DB projections", () => {
       React.createElement(CommunityDbProvider, { registry }, children),
     )
     const rendered = renderHook(() => ({
-      restored: useTrustedRestoredPrimary(),
       rail: useServerRailProjection(),
       tree: useServerTreeProjection("s1"),
       dms: useDmProjection(),
@@ -332,7 +445,6 @@ describe("community DB projections", () => {
       directory: useChannelRefDirectoryProjection(),
     }), { wrapper })
 
-    expect(rendered.result.current.restored).toBe(false)
     expect(rendered.result.current.rail?.servers).toEqual([
       expect.objectContaining({ id: "s1", name: "Server" }),
     ])

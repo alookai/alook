@@ -2,10 +2,15 @@ import {
   DbClient,
   collectionOptions,
   localOnlyCollectionOptions,
+  type Collection,
   type PendingMutation,
 } from "@tanstack/react-db"
 import { persistedCollectionOptions } from "@tanstack/browser-db-sqlite-persistence"
 import type { PersistedCollectionPersistence } from "@tanstack/browser-db-sqlite-persistence"
+import {
+  queryCollectionOptions,
+  type QueryCollectionUtils,
+} from "@tanstack/query-db-collection"
 import { QueryClient } from "@tanstack/react-query"
 import type { z } from "zod"
 import { getBrowserPersistenceRuntime } from "@/lib/browser-persistence"
@@ -25,7 +30,9 @@ import {
   serverMembershipSchema,
   serverSchema,
   type MessageRow,
+  type ServerRow,
 } from "./schema"
+import { createServersQueryFn, serversCollectionQueryKey } from "./server-collection"
 
 const INACTIVE_MESSAGE_SCOPE_LIMIT = 20
 const INACTIVE_MESSAGE_LIMIT = 50
@@ -56,15 +63,49 @@ function canonicalCollectionOptions<
 export function createCommunityDbRegistry(
   queryClient: QueryClient,
   accountId: string | null,
-  options: { persistence?: PersistedCollectionPersistence | null } = {},
+  options: {
+    persistence?: PersistedCollectionPersistence | null
+    serverTransport?: boolean
+  } = {},
 ) {
   const scopeId = accountId ?? "anon"
   const dbClient = new DbClient({ queryClient })
   const persistence = options.persistence ?? null
 
+  let readServerRows = (): Iterable<ServerRow> => []
+  const serverCollectionId = `community-db:${scopeId}:servers`
+  const serverQueryOptions = queryCollectionOptions({
+    id: serverCollectionId,
+    queryClient,
+    queryKey: serversCollectionQueryKey(),
+    queryFn: createServersQueryFn(queryClient, () => readServerRows()),
+    select: (response) => response.servers,
+    schema: serverSchema,
+    getKey: (row) => row.id,
+    enabled: options.serverTransport === true,
+    initialData: options.serverTransport === true
+      ? undefined
+      : { servers: [], unreadSources: [] },
+    staleTime: Infinity,
+    refetchOnReconnect: true,
+  })
+  const serverOptions = persistence
+    ? persistedCollectionOptions({
+        ...serverQueryOptions,
+        persistence,
+        schemaVersion: 1,
+      })
+    : serverQueryOptions
   const servers = dbClient.collection(collectionOptions(`community-db:${scopeId}:servers`, () => (
-    canonicalCollectionOptions(scopeId, "servers", persistence, serverSchema, (row) => row.id)
-  )))
+    { ...serverOptions, schema: serverSchema }
+  )) as never) as unknown as Collection<
+    ServerRow,
+    string,
+    QueryCollectionUtils<ServerRow, string>,
+    typeof serverSchema,
+    z.input<typeof serverSchema>
+  >
+  readServerRows = () => servers.values()
   const categories = dbClient.collection(collectionOptions(`community-db:${scopeId}:categories`, () => (
     canonicalCollectionOptions(scopeId, "categories", persistence, categorySchema, (row) => row.id)
   )))
@@ -138,6 +179,20 @@ export function createCommunityDbRegistry(
   const inactiveMessageScopes = new Map<string, number>()
   let messageScopeClock = 0
   let retentionScheduled = false
+  let serverRefetch: Promise<void> | null = null
+
+  const serverRestoreSubscription = persistence
+    ? servers.subscribeChanges(() => {
+        if (
+          servers.size === 0
+          || queryClient.getQueryState(serversCollectionQueryKey())?.status === "success"
+          || restoredCollectionNames.has("servers")
+        ) return
+        restoredCollectionNames.add("servers")
+        restoredDataExists = true
+        for (const listener of restoredCollectionListeners) listener()
+      }, { includeInitialState: true })
+    : null
 
   const publishReadiness = () => {
     readinessVersion += 1
@@ -194,6 +249,16 @@ export function createCommunityDbRegistry(
         inactiveMessageScopes.set(scopeId, messageScopeClock)
       }
     }
+  }
+
+  const requestServerRefetch = () => {
+    serverRefetch ??= ensureCollectionReady("servers")
+      .then(() => servers.utils.refetch({ throwOnError: true }))
+      .then(() => undefined)
+      .finally(() => {
+        serverRefetch = null
+      })
+    return serverRefetch
   }
 
   const pruneMessageRetention = async () => {
@@ -267,7 +332,15 @@ export function createCommunityDbRegistry(
 
   const clear = async () => {
     await preload()
-    const mutableCollections = Object.values(collections) as unknown as Array<{
+    const serverKeys = [...servers.keys()]
+    if (serverKeys.length > 0) {
+      servers.utils.writeBatch(() => {
+        for (const key of serverKeys) servers.utils.writeDelete(key)
+      })
+    }
+    const mutableCollections = Object.entries(collections)
+      .filter(([name]) => name !== "servers")
+      .map(([, collection]) => collection) as unknown as Array<{
       keys: () => IterableIterator<string>
       delete: (keys: string[]) => unknown
       utils: {
@@ -324,10 +397,15 @@ export function createCommunityDbRegistry(
       return () => restoredCollectionListeners.delete(listener)
     },
     preload,
+    requestServerRefetch,
+    waitForServerRefetch: () => serverRefetch ?? Promise.resolve(),
     activateMessageScope,
     pruneMessageRetention,
     clear,
-    cleanup: () => dbClient.cleanup(),
+    cleanup: async () => {
+      serverRestoreSubscription?.unsubscribe()
+      await dbClient.cleanup()
+    },
   }
 }
 
@@ -382,6 +460,39 @@ export function registerCommunityDbRegistry(registry: CommunityDbRegistry) {
 
 export function getCommunityDbRegistry(queryClient: QueryClient) {
   return registryByQueryClient.get(queryClient) ?? null
+}
+
+export function applyCommunityServerPatch(
+  queryClient: QueryClient,
+  serverId: string,
+  changes: Record<string, unknown>,
+) {
+  const registry = getCommunityDbRegistry(queryClient)
+  if (!registry) return false
+  const supported = Object.entries(changes).every(([field, value]) => {
+    if (field === "name" || field === "description") return typeof value === "string"
+    if (field === "icon") return value === null || typeof value === "string"
+    return false
+  })
+  if (
+    !registry.isCollectionReady("servers")
+    || !registry.collections.servers.has(serverId)
+    || !supported
+  ) {
+    void registry.requestServerRefetch().catch(() => {})
+    return false
+  }
+  registry.collections.servers.utils.writeUpdate({ id: serverId, ...changes })
+  return true
+}
+
+export function deleteCommunityServerRow(
+  registry: CommunityDbRegistry,
+  serverId: string,
+) {
+  if (!registry.collections.servers.has(serverId)) return false
+  registry.collections.servers.utils.writeDelete(serverId)
+  return true
 }
 
 export function getCommunityDbRegistryBinding(queryClient: QueryClient) {

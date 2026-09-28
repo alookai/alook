@@ -6,7 +6,7 @@ import { useShellRailController } from "./use-shell-rail-controller"
 const mocks = vi.hoisted(() => ({
   servers: [{ id: "s1", name: "One" }, { id: "s2", name: "Two" }],
   serversPending: { current: false },
-  serversAuthoritative: { current: false },
+  serversSuccess: { current: false },
   folders: [] as Array<{ id: string; name: string; position: number; servers: Array<{ id: string }> }>,
   createServer: vi.fn(),
   leaveServer: vi.fn(),
@@ -20,7 +20,7 @@ const mocks = vi.hoisted(() => ({
   communityDb: { current: null as null | { collections: {
     servers: { get: (id: string) => { detailComplete?: boolean } | undefined }
     channels: { values: () => IterableIterator<Record<string, unknown>> }
-  }; hasRestoredCollection: (name: string) => boolean } },
+  }; isCollectionReady: (name: string) => boolean; hasRestoredCollection: (name: string) => boolean } },
 }))
 
 vi.mock("sonner", () => ({ toast: mocks.toast }))
@@ -34,7 +34,7 @@ vi.mock("@/hooks/community/use-servers", () => ({
   useServers: () => ({
     servers: mocks.servers,
     isPending: mocks.serversPending.current,
-    isLiveAuthoritative: mocks.serversAuthoritative.current,
+    isSuccess: mocks.serversSuccess.current,
   }),
 }))
 vi.mock("@/hooks/community/use-folders", () => ({ useFolders: () => ({ folders: mocks.folders }) }))
@@ -143,37 +143,28 @@ describe("useShellRailController", () => {
       { id: "s2", name: "Two" },
     )
     mocks.serversPending.current = false
-    mocks.serversAuthoritative.current = false
+    mocks.serversSuccess.current = false
     mocks.lastChannel.current = null
     mocks.lastMeLeaf.current = null
     mocks.communityDb.current = null
   })
 
-  it("distinguishes a restored rail from a true-cold empty registry", async () => {
+  it("renders an empty rail once the registry exists while transport refreshes", async () => {
+    mocks.servers.length = 0
+    mocks.serversPending.current = true
+    mocks.communityDb.current = { collections: {
+      servers: { get: () => undefined },
+      channels: { values: () => new Map().values() },
+    }, isCollectionReady: () => false, hasRestoredCollection: () => false }
+    const hook = await renderController()
+    expect(hook.current.railProps.serversLoading).toBe(false)
+  })
+
+  it("uses query readiness when no collection registry exists", async () => {
     mocks.servers.length = 0
     mocks.serversPending.current = true
     const hook = await renderController()
     expect(hook.current.railProps.serversLoading).toBe(true)
-
-    mocks.communityDb.current = { collections: {
-      servers: { get: () => undefined },
-      channels: { values: () => new Map().values() },
-    }, hasRestoredCollection: () => false }
-    await hook.rerender()
-    expect(hook.current.railProps.serversLoading).toBe(true)
-
-    mocks.serversPending.current = false
-    await hook.rerender()
-    expect(hook.current.railProps.serversLoading).toBe(true)
-
-    mocks.serversAuthoritative.current = true
-    await hook.rerender()
-    expect(hook.current.railProps.serversLoading).toBe(false)
-
-    mocks.serversAuthoritative.current = false
-    mocks.communityDb.current.hasRestoredCollection = (name) => name === "servers"
-    await hook.rerender()
-    expect(hook.current.railProps.serversLoading).toBe(false)
   })
 
   it("commits cold server navigation synchronously without waiting for detail", async () => {
@@ -302,7 +293,7 @@ describe("useShellRailController", () => {
     mocks.communityDb.current = { collections: {
       servers: { get: (id) => servers.get(id) },
       channels: { values: () => channels.values() },
-    }, hasRestoredCollection: () => true }
+    }, isCollectionReady: () => true, hasRestoredCollection: () => true }
     const hook = await renderController()
 
     await act(async () => hook.current.navigate("s1"))

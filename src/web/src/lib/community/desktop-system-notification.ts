@@ -9,6 +9,7 @@ import type { QueryClient } from "@tanstack/react-query"
 import { fetchChannelMetadata, type ChannelMetadata } from "@/hooks/community/channel-metadata"
 import { communityKeys } from "@/lib/query-keys"
 import type { ChannelRow, ServerRow } from "@/lib/community-db/schema"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import {
   parseDesktopSystemNotificationActivation,
   type DesktopSystemNotificationActivation,
@@ -37,9 +38,9 @@ function collectionConversation(
   queryClient: QueryClient,
 ): DesktopSystemNotificationConversation | null {
   if (!create.serverId) return null
-  const servers = queryClient.getQueryData<ServerRow[]>(
-    communityKeys.communityDbCollection(viewerUserId, "servers"),
-  ) ?? []
+  const servers: ServerRow[] = Array.from(
+    getCommunityDbRegistry(queryClient)?.collections.servers.values() ?? [],
+  )
   const channels = queryClient.getQueryData<ChannelRow[]>(
     communityKeys.communityDbCollection(viewerUserId, "channels"),
   ) ?? []

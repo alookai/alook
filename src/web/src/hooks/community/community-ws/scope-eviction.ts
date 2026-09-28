@@ -116,12 +116,6 @@ function evictServerChannelScopesNow(queryClient: QueryClient, serverId: string)
   }
   void queryClient.cancelQueries({ queryKey: communityKeys.server(serverId) })
   queryClient.removeQueries({ queryKey: communityKeys.server(serverId) })
-  queryClient.setQueryData<{ servers: Array<{ id: string }> } | undefined>(
-    communityKeys.servers(),
-    (current) => current
-      ? { ...current, servers: current.servers.filter((server) => server.id !== serverId) }
-      : current,
-  )
   useMessageStreamStore.getState().removeServer(serverId)
   const community = useCommunityStore.getState()
   if (community.currentServerId === serverId) {

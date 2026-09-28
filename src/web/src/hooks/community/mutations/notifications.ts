@@ -7,6 +7,7 @@ import { communityKeys } from "@/lib/query-keys"
 import type { NotificationSettings } from "@/hooks/community/use-notification-settings"
 import { getActiveAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 import type { AccountUnreadPolicyToken } from "@/hooks/community/account-unread-projection"
+import { serversCollectionQueryKey } from "@/lib/community-db/server-collection"
 
 /**
  * Notification-level mutations. UI presents display strings ("All Messages",
@@ -70,7 +71,7 @@ export function useSetServerNotifLevel() {
       if (ctx) projection.commitNotificationPolicyOverlay(ctx.token)
       queryClient.invalidateQueries({ queryKey: communityKeys.notificationSettings() })
       queryClient.invalidateQueries({ queryKey: communityKeys.inbox() })
-      queryClient.invalidateQueries({ queryKey: communityKeys.servers() })
+      queryClient.invalidateQueries({ queryKey: serversCollectionQueryKey(), exact: true })
       queryClient.invalidateQueries({
         predicate: ({ queryKey }) => queryKey.includes("read-state-snapshot"),
       })
@@ -149,7 +150,7 @@ export function useSetChannelNotif() {
       if (ctx) projection.commitNotificationPolicyOverlay(ctx.token)
       queryClient.invalidateQueries({ queryKey: communityKeys.notificationSettings() })
       queryClient.invalidateQueries({ queryKey: communityKeys.inbox() })
-      queryClient.invalidateQueries({ queryKey: communityKeys.servers() })
+      queryClient.invalidateQueries({ queryKey: serversCollectionQueryKey(), exact: true })
       queryClient.invalidateQueries({
         predicate: ({ queryKey }) => queryKey.includes("read-state-snapshot"),
       })

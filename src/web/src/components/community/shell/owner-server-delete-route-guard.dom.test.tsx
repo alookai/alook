@@ -7,23 +7,20 @@ const mocks = vi.hoisted(() => ({
   completed: true,
   runEject: vi.fn(() => true),
   replace: vi.fn(),
-  getQueryData: vi.fn(() => ({ servers: [{ id: "survivor" }] })),
-  getQueryState: vi.fn(() => ({ status: "success", fetchStatus: "idle" })),
-  subscribe: vi.fn(),
+  servers: [{ id: "survivor" }],
+  isSuccess: true,
+  isFetching: false,
 }))
 
 vi.mock("next/navigation", () => ({
   usePathname: () => mocks.pathname,
   useRouter: () => ({ replace: mocks.replace }),
 }))
-vi.mock("@tanstack/react-query", () => ({
-  useQueryClient: () => ({
-    getQueryData: mocks.getQueryData,
-    getQueryState: mocks.getQueryState,
-    getQueryCache: () => ({
-      subscribe: mocks.subscribe,
-      find: () => ({ queryHash: "servers" }),
-    }),
+vi.mock("@/hooks/community/use-servers", () => ({
+  useServers: () => ({
+    servers: mocks.servers,
+    isSuccess: mocks.isSuccess,
+    isFetching: mocks.isFetching,
   }),
 }))
 vi.mock("sonner", () => ({ toast: vi.fn() }))
@@ -44,12 +41,9 @@ describe("OwnerServerDeleteRouteGuard", () => {
     mocks.pathname = "/c/channels/deleted/channel-1"
     mocks.completed = true
     mocks.runEject.mockClear()
-    mocks.getQueryData.mockClear()
-    mocks.getQueryState.mockClear()
-    mocks.subscribe.mockReset()
   })
 
-  it("rechecks a completed delete from cached server-list state without mounting a query observer", () => {
+  it("rechecks a completed delete from the official server projection", () => {
     render(createElement(OwnerServerDeleteRouteGuard))
 
     expect(mocks.runEject).toHaveBeenCalledWith(expect.objectContaining({
@@ -59,15 +53,12 @@ describe("OwnerServerDeleteRouteGuard", () => {
       isFetching: false,
       routeHref: "/c/channels/deleted/channel-1",
     }))
-    expect(mocks.subscribe).not.toHaveBeenCalled()
   })
 
-  it("does not touch the server-list cache for ordinary routes", () => {
+  it("does not eject ordinary routes", () => {
     mocks.completed = false
     render(createElement(OwnerServerDeleteRouteGuard))
 
     expect(mocks.runEject).not.toHaveBeenCalled()
-    expect(mocks.getQueryData).not.toHaveBeenCalled()
-    expect(mocks.subscribe).not.toHaveBeenCalled()
   })
 })

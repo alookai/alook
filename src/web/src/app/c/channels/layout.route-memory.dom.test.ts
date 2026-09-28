@@ -19,6 +19,28 @@ const mocks = vi.hoisted(() => ({
   clearLastChannel: vi.fn(),
   communityServerId: vi.fn(),
   useServer: vi.fn(),
+  serverResult: { current: { server: undefined } as {
+    server?: {
+      id: string
+      name: string
+      icon: string | null
+      official: boolean
+      description: string
+      categories: Array<{
+        id: string
+        name: string
+        channels: Array<{ id: string; name: string; active: boolean; unread: boolean }>
+      }>
+    }
+    data?: unknown
+    isLiveAuthoritative?: boolean
+  } },
+  communityDb: { current: null as null | {
+    hasRestoredCollection: (name: string) => boolean
+    isCollectionReady: (name: string) => boolean
+    collections: { channels: { values: () => IterableIterator<never> } }
+  } },
+  forumProjectionReady: { current: true },
   servers: { current: [] as Array<{ id: string }> },
   serverDetails: new Map<string, {
     categories: Array<{ channels: Array<{ id: string; pending?: boolean }> }>
@@ -26,7 +48,6 @@ const mocks = vi.hoisted(() => ({
   lastChannels: new Map<string, string>(),
   serverListSuccess: { current: true },
   serverListFetching: { current: false },
-  serverListLiveAuthoritative: { current: true },
   serverAccessRevoked: { current: false },
   queryClient: { getQueryData: vi.fn(), fetchQuery: vi.fn() },
 }))
@@ -49,12 +70,13 @@ vi.mock("@/components/ui/dialog", () => ({
   DialogContent: ({ children }: { children: React.ReactNode }) => children,
 }))
 vi.mock("@/components/community/channels/use-channel-tree", () => ({
-  useChannelTree: () => [],
+  useChannelTree: (categories: unknown) => categories,
 }))
 vi.mock("@/components/community/shell/shell-frame", () => ({
-  ShellFrame: ({ children, extraDialogs, ownerDeleteRouteScope }: {
+  ShellFrame: ({ children, extraDialogs, ownerDeleteRouteScope, sidebar }: {
     children: React.ReactNode
     extraDialogs?: React.ReactNode
+    sidebar?: () => React.ReactNode
     ownerDeleteRouteScope?: {
       serverId: string
       token: object
@@ -67,7 +89,7 @@ vi.mock("@/components/community/shell/shell-frame", () => ({
         ownerDeleteRouteScope.token,
       )
     }, [ownerDeleteRouteScope])
-    return createElement("shell-frame", null, children, extraDialogs)
+    return createElement("shell-frame", null, sidebar?.(), children, extraDialogs)
   },
 }))
 vi.mock("@/lib/community/community-route", () => ({
@@ -77,7 +99,22 @@ vi.mock("@/lib/community/community-route", () => ({
   serverModalMarkerCleanupHref: () => null,
 }))
 vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => "desktop" }))
-vi.mock("@/components/community/channels/channel-sidebar", () => ({ ChannelSidebar: () => null }))
+vi.mock("@/components/community/channels/channel-sidebar", () => ({
+  ChannelSidebar: ({ tree }: {
+    tree: Array<{ channels: Array<{ id: string }> }>
+  }) => createElement(
+    "div",
+    { "data-testid": "layout-channel-sidebar" },
+    tree.flatMap((category) => category.channels).map((channel) => createElement(
+      "div",
+      { key: channel.id, "data-testid": `layout-channel-row-${channel.id}` },
+      channel.id,
+    )),
+  ),
+  ChannelSidebarSkeleton: () => createElement("div", {
+    "data-testid": "layout-channel-sidebar-skeleton",
+  }),
+}))
 vi.mock("@/components/community/channels/channel-route", () => ({ ChannelRoute: () => null }))
 vi.mock("@/components/community/shell/community-pending-frame", () => ({
   CommunityPendingFrame: ({ href }: { href: string }) => createElement("div", {
@@ -99,6 +136,10 @@ vi.mock("@alook/shared", () => ({
   notifLevelDisplay: (value: string) => value,
 }))
 vi.mock("@/lib/community/profile-read", () => ({ readCommunityProfile: vi.fn() }))
+vi.mock("@/lib/community-db/projections", () => ({
+  useCanonicalProfilesByUserId: () => new Map(),
+  useOptionalCommunityDbRegistry: () => mocks.communityDb.current,
+}))
 vi.mock("@/stores/community", () => {
   const state = {
     setCurrentServerId: mocks.setCurrentServerId,
@@ -120,13 +161,12 @@ vi.mock("@/hooks/community/use-servers", () => ({
   serverProjectedQueryFn: () => vi.fn(),
   useServer: (serverId: string | null) => {
     mocks.useServer(serverId)
-    return { server: undefined }
+    return mocks.serverResult.current
   },
   useServers: () => ({
     servers: mocks.servers.current,
     isSuccess: mocks.serverListSuccess.current,
     isFetching: mocks.serverListFetching.current,
-    isLiveAuthoritative: mocks.serverListLiveAuthoritative.current,
   }),
 }))
 vi.mock("@/hooks/community/use-server-members", () => ({
@@ -165,7 +205,11 @@ vi.mock("@/lib/community/last-channel", () => ({
 vi.mock("@/hooks/community/use-server-panels", () => ({ usePresence: vi.fn() }))
 vi.mock("@/hooks/community/use-forum-sidebar-threads", () => ({
   resolveForumSidebarRouteCandidate: () => null,
-  useForumSidebarThreads: () => ({ threads: [], parentUnread: {} }),
+  useForumSidebarThreads: () => ({
+    threads: [],
+    parentUnread: {},
+    projectionReady: mocks.forumProjectionReady.current,
+  }),
 }))
 vi.mock("@/stores/community/ws", () => ({
   useCommunityWsStore: (selector: (state: {
@@ -249,12 +293,14 @@ describe("ServerLayout deletion routing", () => {
     ))
     mocks.deleteServerAction.current = null
     mocks.useServer.mockClear()
+    mocks.serverResult.current = { server: undefined }
+    mocks.communityDb.current = null
+    mocks.forumProjectionReady.current = true
     mocks.servers.current = []
     mocks.serverDetails.clear()
     mocks.lastChannels.clear()
     mocks.serverListSuccess.current = true
     mocks.serverListFetching.current = false
-    mocks.serverListLiveAuthoritative.current = true
     mocks.serverAccessRevoked.current = false
     mocks.queryClient.getQueryData.mockImplementation((key: unknown[]) => {
       if (key.length === 2 && key[1] === "servers") {
@@ -282,7 +328,6 @@ describe("ServerLayout deletion routing", () => {
   it("passes the authenticated leaf and target-specific revoke facts to generic eject", () => {
     mocks.serverListSuccess.current = false
     mocks.serverListFetching.current = true
-    mocks.serverListLiveAuthoritative.current = false
     mocks.serverAccessRevoked.current = true
     mocks.runEject.mockImplementation((args: {
       replace: (destination: string) => void
@@ -306,7 +351,7 @@ describe("ServerLayout deletion routing", () => {
   })
 
   it("keeps restored absence non-authoritative until the current client settles a live list", () => {
-    mocks.serverListLiveAuthoritative.current = false
+    mocks.serverListSuccess.current = false
     const rendered = render(createElement(ServerLayout, null, createElement("div")))
 
     expect(mocks.runEject).toHaveBeenLastCalledWith(expect.objectContaining({
@@ -315,7 +360,7 @@ describe("ServerLayout deletion routing", () => {
     }))
     expect(mocks.replace).not.toHaveBeenCalled()
 
-    mocks.serverListLiveAuthoritative.current = true
+    mocks.serverListSuccess.current = true
     rendered.rerender(createElement(ServerLayout, null, createElement("div")))
 
     expect(mocks.runEject).toHaveBeenLastCalledWith(expect.objectContaining({
@@ -324,9 +369,59 @@ describe("ServerLayout deletion routing", () => {
     }))
   })
 
+  it("trusts a restored detail-complete server tree with only an uncategorized channel", () => {
+    mocks.servers.current = [{ id: "missing-server" }]
+    mocks.serverResult.current = {
+      server: {
+        id: "missing-server",
+        name: "Server",
+        icon: null,
+        official: false,
+        description: "",
+        categories: [{
+          id: "__uncategorized__",
+          name: "",
+          channels: [{
+            id: "restored-channel",
+            name: "restored-channel",
+            active: false,
+            unread: false,
+          }],
+        }],
+      },
+      data: undefined,
+      isLiveAuthoritative: false,
+    }
+    mocks.communityDb.current = {
+      hasRestoredCollection: (name) => name === "servers" || name === "channels",
+      isCollectionReady: (name) => name !== "servers",
+      collections: { channels: { values: () => [][Symbol.iterator]() } },
+    }
+    mocks.forumProjectionReady.current = false
+
+    const rendered = render(createElement(ServerLayout, null, createElement("div")))
+
+    expect(rendered.getByTestId("layout-channel-row-restored-channel")).toBeInTheDocument()
+    expect(rendered.queryByTestId("layout-channel-sidebar-skeleton")).not.toBeInTheDocument()
+  })
+
+  it("keeps an incomplete restored server row untrusted and unready", () => {
+    mocks.servers.current = [{ id: "missing-server" }]
+    mocks.communityDb.current = {
+      hasRestoredCollection: (name) => name === "servers" || name === "channels",
+      isCollectionReady: () => true,
+      collections: { channels: { values: () => [][Symbol.iterator]() } },
+    }
+    mocks.forumProjectionReady.current = false
+
+    const rendered = render(createElement(ServerLayout, null, createElement("div")))
+
+    expect(rendered.getByTestId("layout-channel-sidebar-skeleton")).toBeInTheDocument()
+    expect(rendered.queryByTestId("layout-channel-row-restored-channel")).not.toBeInTheDocument()
+  })
+
   it("keeps a failed list non-authoritative even after this client had a live snapshot", () => {
     mocks.serverListSuccess.current = false
-    mocks.serverListLiveAuthoritative.current = true
 
     render(createElement(ServerLayout, null, createElement("div")))
 

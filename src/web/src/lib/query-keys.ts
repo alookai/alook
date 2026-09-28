@@ -19,6 +19,7 @@ export const communityKeys = {
     [...communityKeys.all, "db", accountId] as const,
   communityDbCollection: (accountId: string, collection: string) =>
     [...communityKeys.communityDb(accountId), collection] as const,
+  serverRows: () => [...communityKeys.all, "collections", "server-rows"] as const,
 
   // ── Servers ──────────────────────────────────────────────────────────────
   servers: () => [...communityKeys.all, "servers"] as const,

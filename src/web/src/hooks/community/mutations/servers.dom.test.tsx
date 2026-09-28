@@ -100,7 +100,7 @@ describe("useDeleteServer — unmounted caller", () => {
       expect(mocks.api).toHaveBeenCalledOnce()
       expect(view.client.getQueryData<{ servers: unknown[] }>(
         communityKeys.servers(),
-      )?.servers).toEqual([])
+      )?.servers).toEqual([{ id: serverId }])
       expect(isOwnerServerDeleteRouteProtected(serverId)).toBe(true)
     })
     view.unmount()

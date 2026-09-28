@@ -26,7 +26,7 @@ export type ChannelSidebarRevealBoundaryProps = Omit<
   categories: Category[]
   primaryReady: boolean
   forumProjectionMissing: boolean
-  trustedRestoredPrimary: boolean
+  trustedRestoredServerTree: boolean
 }
 
 /**
@@ -39,16 +39,16 @@ export function ChannelSidebarRevealBoundary({
   categories,
   primaryReady,
   forumProjectionMissing,
-  trustedRestoredPrimary,
+  trustedRestoredServerTree,
   ...scopeProps
 }: ChannelSidebarRevealBoundaryProps) {
-  const [revealed, setRevealed] = useState(primaryReady && trustedRestoredPrimary)
+  const [revealed, setRevealed] = useState(primaryReady && trustedRestoredServerTree)
 
   useEffect(() => {
-    if (primaryReady && (trustedRestoredPrimary || !forumProjectionMissing)) {
+    if (primaryReady && (trustedRestoredServerTree || !forumProjectionMissing)) {
       setRevealed(true)
     }
-  }, [forumProjectionMissing, primaryReady, trustedRestoredPrimary])
+  }, [forumProjectionMissing, primaryReady, trustedRestoredServerTree])
 
   return (
     <ChannelSidebarScope

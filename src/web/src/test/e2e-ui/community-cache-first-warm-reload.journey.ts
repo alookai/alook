@@ -16,6 +16,183 @@ type ReloadCapture = {
   firstSkeleton: string | null
 }
 
+const communityApiPattern = "**/api/community/**"
+
+async function holdCommunityReads(page: Page) {
+  let releaseReads!: () => void
+  const readsGate = new Promise<void>((resolve) => { releaseReads = resolve })
+  let heldReads = 0
+
+  await page.route(communityApiPattern, async (route) => {
+    if (route.request().method() !== "GET") {
+      await route.continue()
+      return
+    }
+    heldReads += 1
+    await readsGate
+    await route.continue()
+  })
+
+  return {
+    heldReadCount: () => heldReads,
+    releaseAndRemove: async () => {
+      releaseReads()
+      await page.unrouteAll({ behavior: "wait" })
+    },
+  }
+}
+
+type CommunityDbProbeSnapshot = {
+  collectionStatus: string
+  collectionSize: number
+  collectionRowIds: string[]
+  readiness: string
+  restored: boolean
+  persistence: null | { rowKeys: string[]; schemaVersion: number }
+  channelCollectionStatus: string
+  channelCollectionSize: number
+  channelCollectionRowIds: string[]
+  channelReadiness: string
+  channelRestored: boolean
+  channelPersistence: null | { rowKeys: string[]; schemaVersion: number }
+  messageCollectionStatus: string
+  messageCollectionSize: number
+  messageCollectionRows: Array<{ id: string; channelId: string }>
+  messageReadiness: string
+  messageRestored: boolean
+  messagePersistence: null | { rowKeys: string[]; schemaVersion: number }
+  readStateCollectionStatus: string
+  readStateCollectionSize: number
+  readStateRows: Array<{
+    channelId: string
+    lastReadMessageId?: string | null
+    lastReadSeq: number
+  }>
+  readStateReadiness: string
+  readStateRestored: boolean
+  navigationProof: null | { target: { channelId: string }; status: string }
+}
+
+async function communityDbProbe(page: Page): Promise<CommunityDbProbeSnapshot | null> {
+  return page.evaluate(async () => {
+    const probe = Reflect.get(window, "__ALOOK_COMMUNITY_DB_PROBE__") as undefined | {
+      snapshot: () => Promise<CommunityDbProbeSnapshot>
+    }
+    return probe ? probe.snapshot() : null
+  })
+}
+
+async function expectDurableServerRow(page: Page, serverId: string) {
+  await expect.poll(async () => {
+    const snapshot = await communityDbProbe(page)
+    return snapshot ? {
+      collectionHasRow: snapshot.collectionRowIds.includes(serverId),
+      durableHasRow: snapshot.persistence?.rowKeys.includes(`s:${serverId}`) ?? false,
+      readiness: snapshot.readiness,
+      status: snapshot.collectionStatus,
+    } : null
+  }, { timeout: 20_000 }).toEqual({
+    collectionHasRow: true,
+    durableHasRow: true,
+    readiness: "ready",
+    status: "ready",
+  })
+}
+
+async function expectHydratedServerRow(page: Page, serverId: string) {
+  await expect.poll(async () => {
+    const snapshot = await communityDbProbe(page)
+    return snapshot ? {
+      collectionHasRow: snapshot.collectionRowIds.includes(serverId),
+      collectionSize: snapshot.collectionSize,
+      durableHasRow: snapshot.persistence?.rowKeys.includes(`s:${serverId}`) ?? false,
+      restored: snapshot.restored,
+    } : null
+  }, { timeout: 10_000 }).toMatchObject({
+    collectionHasRow: true,
+    collectionSize: expect.any(Number),
+    durableHasRow: true,
+    restored: true,
+  })
+}
+
+async function expectDurableChannelRow(page: Page, channelId: string) {
+  await expect.poll(async () => {
+    const snapshot = await communityDbProbe(page)
+    return snapshot ? {
+      collectionHasRow: snapshot.channelCollectionRowIds.includes(channelId),
+      durableHasRow: snapshot.channelPersistence?.rowKeys.includes(`s:${channelId}`) ?? false,
+      readiness: snapshot.channelReadiness,
+      status: snapshot.channelCollectionStatus,
+    } : null
+  }, { timeout: 20_000 }).toEqual({
+    collectionHasRow: true,
+    durableHasRow: true,
+    readiness: "ready",
+    status: "ready",
+  })
+}
+
+async function expectHydratedChannelRow(page: Page, channelId: string) {
+  await expect.poll(async () => {
+    const snapshot = await communityDbProbe(page)
+    return snapshot ? {
+      collectionHasRow: snapshot.channelCollectionRowIds.includes(channelId),
+      collectionSize: snapshot.channelCollectionSize,
+      durableHasRow: snapshot.channelPersistence?.rowKeys.includes(`s:${channelId}`) ?? false,
+      restored: snapshot.channelRestored,
+    } : null
+  }, { timeout: 10_000 }).toMatchObject({
+    collectionHasRow: true,
+    collectionSize: expect.any(Number),
+    durableHasRow: true,
+    restored: true,
+  })
+}
+
+async function expectDurableMessageRow(page: Page, channelId: string, messageId: string) {
+  await expect.poll(async () => {
+    const snapshot = await communityDbProbe(page)
+    return snapshot ? {
+      collectionHasRow: snapshot.messageCollectionRows.some((row) => (
+        row.id === messageId && row.channelId === channelId
+      )),
+      durableHasRow: snapshot.messagePersistence?.rowKeys.includes(`s:${messageId}`) ?? false,
+      readiness: snapshot.messageReadiness,
+      status: snapshot.messageCollectionStatus,
+    } : null
+  }, { timeout: 20_000 }).toEqual({
+    collectionHasRow: true,
+    durableHasRow: true,
+    readiness: "ready",
+    status: "ready",
+  })
+}
+
+async function expectHydratedMessageInputs(page: Page, channelId: string, messageId: string) {
+  await expect.poll(async () => {
+    const snapshot = await communityDbProbe(page)
+    return snapshot ? {
+      collectionHasRow: snapshot.messageCollectionRows.some((row) => (
+        row.id === messageId && row.channelId === channelId
+      )),
+      durableHasRow: snapshot.messagePersistence?.rowKeys.includes(`s:${messageId}`) ?? false,
+      messageReadiness: snapshot.messageReadiness,
+      messageRestored: snapshot.messageRestored,
+      readStateReadiness: snapshot.readStateReadiness,
+      readState: snapshot.readStateRows.find((row) => row.channelId === channelId) ?? null,
+      navigationProof: snapshot.navigationProof,
+    } : null
+  }, { timeout: 10_000 }).toMatchObject({
+    collectionHasRow: true,
+    durableHasRow: true,
+    messageReadiness: "ready",
+    messageRestored: true,
+    readStateReadiness: "ready",
+    navigationProof: null,
+  })
+}
+
 const structuralLoadingSelectors = [
   '[aria-label="Loading community"]',
   "[data-message-list-skeleton]",
@@ -73,18 +250,7 @@ async function expectCacheFirstReload(
     inspect()
   }, structuralLoadingSelectors)
 
-  let releaseReads!: () => void
-  const readsGate = new Promise<void>((resolve) => { releaseReads = resolve })
-  let heldReads = 0
-  await page.route("**/api/community/**", async (route) => {
-    if (route.request().method() !== "GET") {
-      await route.continue()
-      return
-    }
-    heldReads += 1
-    await readsGate
-    await route.continue().catch(() => {})
-  })
+  const heldReads = await holdCommunityReads(page)
   let wsAttempts = 0
   await page.routeWebSocket((url) => url.pathname.endsWith("/user"), (socket) => {
     wsAttempts += 1
@@ -94,7 +260,7 @@ async function expectCacheFirstReload(
   try {
     await page.reload({ waitUntil: "commit" })
     await assertCachedContent()
-    await expect.poll(() => heldReads).toBeGreaterThan(0)
+    await expect.poll(heldReads.heldReadCount).toBeGreaterThan(0)
     await expect.poll(() => wsAttempts).toBeGreaterThan(0)
     const readCapture = () => page.evaluate((): ReloadCapture | null => {
       const state = (window as unknown as {
@@ -118,8 +284,7 @@ async function expectCacheFirstReload(
     await expect(page.locator(structuralLoadingSelectors.join(","))).toHaveCount(0)
     return capture
   } finally {
-    releaseReads()
-    await page.unroute("**/api/community/**")
+    await heldReads.releaseAndRemove()
   }
 }
 
@@ -129,13 +294,19 @@ test("a warm channel reload paints cached shell and messages before network", as
   const serverId = await seedServer("alice", `Warm channel ${suffix}`)
   const channelId = await seedChannel("alice", serverId, `warm-${suffix}`)
   const body = `cached channel ${suffix}`
-  await seedMessage("alice", channelId, body)
+  const messageId = await seedMessage("alice", channelId, body)
   const { page } = await asUser("alice")
   await page.goto(`/c/channels/${serverId}/${channelId}`)
   await expect(page.getByText(body, { exact: false }).first()).toBeVisible({ timeout: 20_000 })
   await expectOpfsPersistence(page)
+  await expectDurableServerRow(page, serverId)
+  await expectDurableChannelRow(page, channelId)
+  await expectDurableMessageRow(page, channelId, messageId)
 
   await expectCacheFirstReload(page, async () => {
+    await expectHydratedServerRow(page, serverId)
+    await expectHydratedChannelRow(page, channelId)
+    await expectHydratedMessageInputs(page, channelId, messageId)
     await expect(page.getByTestId(tid.serverIcon(serverId))).toBeVisible({ timeout: 10_000 })
     await expect(page.getByTestId(tid.channelRow(channelId))).toBeVisible()
     await expect(page.getByText(body, { exact: false }).first()).toBeVisible()
@@ -221,18 +392,7 @@ test("a true-cold channel load keeps the session frame before localized skeleton
     inspect()
   }, structuralLoadingSelectors)
 
-  let releaseReads!: () => void
-  const readsGate = new Promise<void>((resolve) => { releaseReads = resolve })
-  let heldReads = 0
-  await page.route("**/api/community/**", async (route) => {
-    if (route.request().method() !== "GET") {
-      await route.continue()
-      return
-    }
-    heldReads += 1
-    await readsGate
-    await route.continue().catch(() => {})
-  })
+  const heldReads = await holdCommunityReads(page)
 
   try {
     await page.goto(`/c/channels/${serverId}/${channelId}`, { waitUntil: "commit" })
@@ -249,10 +409,9 @@ test("a true-cold channel load keeps the session frame before localized skeleton
       localizedSkeletonSeen: true,
       sessionFrameSeen: true,
     })
-    await expect.poll(() => heldReads).toBeGreaterThan(0)
+    await expect.poll(heldReads.heldReadCount).toBeGreaterThan(0)
   } finally {
-    releaseReads()
-    await page.unroute("**/api/community/**")
+    await heldReads.releaseAndRemove()
   }
   await expect(page.getByText(body, { exact: false }).first()).toBeVisible({ timeout: 20_000 })
 })

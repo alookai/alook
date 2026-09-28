@@ -4,6 +4,7 @@ import {
   communityKeys,
   isCommunityServerDetailQueryKey,
 } from "@/lib/query-keys"
+import { serversCollectionQueryKey } from "@/lib/community-db/server-collection"
 import { projectReadCoordinatorSnapshot } from "@/hooks/community/read-coordinator-snapshot-projection"
 import { acceptAccountUnreadPrimarySnapshot } from "@/hooks/community/account-unread-projection"
 import {
@@ -157,7 +158,7 @@ async function invalidateServerSurfaces(queryClient: QueryClient) {
   const refetchOptions = { throwOnError: true, cancelRefetch: true }
   const settled = await Promise.allSettled([
     queryClient.invalidateQueries(
-      { queryKey: communityKeys.servers(), exact: true, refetchType: "active" },
+      { queryKey: serversCollectionQueryKey(), exact: true, refetchType: "active" },
       refetchOptions,
     ),
     ...[...serverIds].map((serverId) => queryClient.invalidateQueries({

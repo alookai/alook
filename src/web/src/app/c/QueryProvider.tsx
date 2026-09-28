@@ -1,6 +1,7 @@
 "use client"
 
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -35,8 +36,11 @@ import {
 } from "@/lib/community-db/collections"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
 import { installCommunityDbSync } from "@/lib/community-db/sync"
+import { serversCollectionQueryKey } from "@/lib/community-db/server-collection"
+import { getConversationNavigationProof } from "@/lib/community/conversation-navigation-proof"
 import {
   getBrowserPersistenceRuntime,
+  rebuildBrowserPersistenceRuntime,
   registerPersistenceClearScope,
 } from "@/lib/browser-persistence"
 
@@ -118,6 +122,81 @@ function CommunityDbRuntime({
       registry.clear,
     )
     const uninstallSync = installCommunityDbSync(queryClient, registry)
+    const probe = process.env.NODE_ENV !== "production" ? {
+      snapshot: async () => {
+        const runtime = await getBrowserPersistenceRuntime()
+        const serverRows = Array.from(registry.collections.servers.values())
+        const categoryRows = Array.from(registry.collections.categories.values())
+        const channelRows = Array.from(registry.collections.channels.values())
+        const messageRows = Array.from(registry.collections.messages.values())
+        const readStateRows = Array.from(registry.collections.readStates.values())
+        const categoryReadiness = registry.getCollectionReadiness("categories")
+        const channelReadiness = registry.getCollectionReadiness("channels")
+        return {
+          collectionId: registry.collections.servers.id,
+          collectionStatus: registry.collections.servers.status,
+          collectionSize: registry.collections.servers.size,
+          collectionRowIds: Array.from(registry.collections.servers.keys()),
+          serverDetailRows: serverRows.map((server) => ({
+            id: server.id,
+            detailComplete: server.detailComplete,
+          })),
+          readiness: registry.getCollectionReadiness("servers"),
+          restored: registry.hasRestoredCollection("servers"),
+          persistence: await runtime.inspectCollection(registry.collections.servers.id),
+          categoryCollectionStatus: registry.collections.categories.status,
+          categoryCollectionSize: categoryRows.length,
+          categoryCollectionRowIds: categoryRows.map((category) => category.id),
+          categoryReadiness,
+          categoryRestored: registry.hasRestoredCollection("categories"),
+          categoryPersistence: await runtime.inspectCollection(registry.collections.categories.id),
+          channelCollectionStatus: registry.collections.channels.status,
+          channelCollectionSize: channelRows.length,
+          channelCollectionRowIds: channelRows.map((channel) => channel.id),
+          channelReadiness,
+          channelRestored: registry.hasRestoredCollection("channels"),
+          channelPersistence: await runtime.inspectCollection(registry.collections.channels.id),
+          messageCollectionStatus: registry.collections.messages.status,
+          messageCollectionSize: messageRows.length,
+          messageCollectionRows: messageRows.map((message) => ({
+            id: message.id,
+            channelId: message.channelId,
+          })),
+          messageReadiness: registry.getCollectionReadiness("messages"),
+          messageRestored: registry.hasRestoredCollection("messages"),
+          messagePersistence: await runtime.inspectCollection(registry.collections.messages.id),
+          readStateCollectionStatus: registry.collections.readStates.status,
+          readStateCollectionSize: readStateRows.length,
+          readStateRows: readStateRows.map((row) => ({
+            channelId: row.channelId,
+            lastReadMessageId: row.lastReadMessageId,
+            lastReadSeq: row.lastReadSeq,
+          })),
+          readStateReadiness: registry.getCollectionReadiness("readStates"),
+          readStateRestored: registry.hasRestoredCollection("readStates"),
+          navigationProof: getConversationNavigationProof(queryClient),
+          serverTreeProjectionGates: serverRows.map((server) => {
+            const serverCategories = categoryRows.filter((category) => (
+              category.serverId === server.id
+            ))
+            const serverChannels = channelRows.filter((channel) => (
+              channel.serverId === server.id && channel.type !== "thread"
+            ))
+            return {
+              serverId: server.id,
+              detailComplete: server.detailComplete,
+              categoryRowCount: serverCategories.length,
+              channelRowCount: serverChannels.length,
+              dependentCollectionsReady: categoryReadiness === "ready"
+                && channelReadiness === "ready",
+              restoredServerTree: registry.hasRestoredCollection("servers")
+                && registry.hasRestoredCollection("channels"),
+            }
+          }),
+        }
+      },
+    } : null
+    if (probe) Reflect.set(window, "__ALOOK_COMMUNITY_DB_PROBE__", probe)
     if (refetchOnRegister) {
       void queryClient.refetchQueries({
         queryKey: communityKeys.all,
@@ -127,6 +206,9 @@ function CommunityDbRuntime({
     }
     return () => {
       uninstallSync()
+      if (probe && Reflect.get(window, "__ALOOK_COMMUNITY_DB_PROBE__") === probe) {
+        Reflect.deleteProperty(window, "__ALOOK_COMMUNITY_DB_PROBE__")
+      }
       unregisterClear()
       unregisterCommunityDb()
       disposeTimer.current = setTimeout(() => {
@@ -152,13 +234,17 @@ function CommunityDbRuntime({
 }
 
 function QueryProviderScope({
+  enqueueTeardown,
   children,
   pending,
   userId,
+  waitForPriorTeardown,
 }: {
+  enqueueTeardown: (teardown: () => Promise<void>) => void
   children: ReactNode
   pending: ReactNode
   userId: string | null
+  waitForPriorTeardown: () => Promise<void>
 }) {
   const [queryClient] = useState(() => createQueryClient())
   const [communityDb, setCommunityDb] = useState<{
@@ -181,10 +267,13 @@ function QueryProviderScope({
       return lease.stop
     }
     void (async () => {
+      await waitForPriorTeardown()
+      if (cancelled) return
       const runtime = await getBrowserPersistenceRuntime()
       if (cancelled) return
       let registry = createCommunityDbRegistry(queryClient, userId, {
         persistence: runtime.persistence,
+        serverTransport: true,
       })
       ownedRegistries.add(registry)
       const profiles = useCommunityWsStore.getState()
@@ -201,7 +290,7 @@ function QueryProviderScope({
         if (cancelled) return
         console.warn("[Alook persistence] Collection preload failed; using memory only", error)
         const failedRegistry = registry
-        registry = createCommunityDbRegistry(queryClient, userId)
+        registry = createCommunityDbRegistry(queryClient, userId, { serverTransport: true })
         ownedRegistries.add(registry)
         await registry.preload()
         if (cancelled) return
@@ -219,14 +308,23 @@ function QueryProviderScope({
       cancelled = true
       // React tears passive effects down parent-first. Defer collection
       // disposal until descendant live-query subscriptions have released.
-      queueMicrotask(() => {
-        for (const release of ownedLeases) release()
-        ownedLeases.clear()
-        for (const registry of ownedRegistries) registry.cleanup()
-        ownedRegistries.clear()
+      const leases = [...ownedLeases]
+      ownedLeases.clear()
+      const registries = [...ownedRegistries]
+      ownedRegistries.clear()
+      enqueueTeardown(async () => {
+        await Promise.resolve()
+        for (const release of leases) release()
+        const disposableClient = queryClient as QueryClient & {
+          cancelQueries?: () => Promise<void>
+          clear?: () => void
+        }
+        await disposableClient.cancelQueries?.()
+        await Promise.allSettled(registries.map((registry) => registry.cleanup()))
+        disposableClient.clear?.()
       })
     }
-  }, [queryClient, userId])
+  }, [enqueueTeardown, queryClient, userId, waitForPriorTeardown])
 
   useEffect(() => {
     if (!unreadProjection) return
@@ -240,7 +338,7 @@ function QueryProviderScope({
         exact: true,
       })
       void queryClient.invalidateQueries({ queryKey: communityKeys.dms(), exact: true })
-      void queryClient.invalidateQueries({ queryKey: communityKeys.servers(), exact: true })
+      void queryClient.invalidateQueries({ queryKey: serversCollectionQueryKey(), exact: true })
       void queryClient.invalidateQueries({
         predicate: ({ queryKey }) => isCommunityServerDetailQueryKey(queryKey),
       })
@@ -276,8 +374,51 @@ export function QueryProvider({
   pending: ReactNode
   userId: string | null
 }) {
+  const [restoreGeneration, setRestoreGeneration] = useState(0)
+  const [restorePending, setRestorePending] = useState(false)
+  const teardownBarrier = useRef<Promise<void>>(Promise.resolve())
+  const enqueueTeardown = useCallback((teardown: () => Promise<void>) => {
+    const next = teardownBarrier.current.catch(() => {}).then(teardown)
+    teardownBarrier.current = next.catch((error) => {
+      console.warn("[Alook persistence] Community scope teardown failed", error)
+    })
+  }, [])
+  const waitForPriorTeardown = useCallback(
+    () => teardownBarrier.current,
+    [],
+  )
+  useEffect(() => {
+    const restore = (event: PageTransitionEvent) => {
+      if (!event.persisted) return
+      setRestorePending(true)
+    }
+    window.addEventListener("pageshow", restore)
+    return () => window.removeEventListener("pageshow", restore)
+  }, [])
+  useEffect(() => {
+    if (!restorePending) return
+    let active = true
+    queueMicrotask(() => {
+      void waitForPriorTeardown()
+        .then(() => rebuildBrowserPersistenceRuntime())
+        .catch((error) => console.warn("[Alook persistence] Runtime rebuild failed", error))
+        .then(() => {
+          if (!active) return
+          setRestoreGeneration((generation) => generation + 1)
+          setRestorePending(false)
+        })
+    })
+    return () => { active = false }
+  }, [restorePending, waitForPriorTeardown])
+  if (restorePending) return pending
   return (
-    <QueryProviderScope key={userId ?? "anon"} pending={pending} userId={userId}>
+    <QueryProviderScope
+      key={`${userId ?? "anon"}:${restoreGeneration}`}
+      enqueueTeardown={enqueueTeardown}
+      pending={pending}
+      userId={userId}
+      waitForPriorTeardown={waitForPriorTeardown}
+    >
       {children}
     </QueryProviderScope>
   )

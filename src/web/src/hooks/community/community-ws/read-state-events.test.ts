@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
+import { serversCollectionQueryKey } from "@/lib/community-db/server-collection"
 
 const apiFetch = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/api/client", () => ({
@@ -199,7 +200,7 @@ describe("same-account read-state WS events", () => {
     resolveSnapshot({ revision: 3, readStates: [] })
     await vi.waitFor(() => {
       expect(invalidate).toHaveBeenCalledWith(
-        expect.objectContaining({ queryKey: communityKeys.servers() }),
+        expect.objectContaining({ queryKey: serversCollectionQueryKey() }),
         expect.anything(),
       )
     })

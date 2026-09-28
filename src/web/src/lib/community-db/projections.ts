@@ -49,7 +49,6 @@ export function useOptionalCommunityDbRegistry() {
 }
 
 const subscribeToNoRestoredCollections = () => () => {}
-const noRestoredPrimary = () => false
 const noCollectionReadiness = () => 0
 
 type CommunityCollectionName = keyof CommunityDbRegistry["collections"]
@@ -64,18 +63,6 @@ function useCollectionReady(
     noCollectionReadiness,
   )
   return registry ? (registry.isCollectionReady?.(name) ?? true) : false
-}
-
-export function useTrustedRestoredPrimary() {
-  const registry = useOptionalCommunityDbRegistry()
-  return useSyncExternalStore(
-    registry?.subscribeRestoredCollections ?? subscribeToNoRestoredCollections,
-    () => Boolean(
-      registry?.hasRestoredCollection("categories")
-      && registry.hasRestoredCollection("channels"),
-    ),
-    noRestoredPrimary,
-  )
 }
 
 export function CommunityDbProvider({
@@ -103,7 +90,7 @@ function useCollectionRows() {
     registry ? (registry.isCollectionReady?.(name) ?? true) : false
   )
   const servers = useLiveQuery({
-    query: (q) => registry && ready("servers")
+    query: (q) => registry
       ? q.from({ server: registry.collections.servers })
       : undefined,
   }).data as ServerRow[] | undefined
@@ -176,20 +163,13 @@ function useCollectionRows() {
 export function useServerRailProjection() {
   const rows = useCollectionRows()
   return useMemo(() => {
-    if (!rows.registry || !rows.servers || !rows.serverMemberships) return undefined
-    const viewerId = rows.registry.accountId
-    const allowed = new Set(
-      rows.serverMemberships
-        .filter((membership) => membership.viewer && membership.userId === viewerId)
-        .map((membership) => membership.serverId),
-    )
+    if (!rows.registry || !rows.servers) return undefined
     const servers: Server[] = rows.servers
       .map((server, fallbackPosition) => ({ server, fallbackPosition }))
       .sort((left, right) => (
         (left.server.position ?? left.fallbackPosition)
         - (right.server.position ?? right.fallbackPosition)
       ))
-      .filter(({ server }) => allowed.has(server.id))
       .map(({ server }) => ({
         id: server.id,
         name: server.name,

@@ -66,6 +66,9 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
       if (url === "/api/community/users/me/read-state") {
         return { revision: 0, readStates: [] }
       }
+      if (url === "/api/community/servers") {
+        return { servers: [] }
+      }
       if (url === "/api/community/users/self/profile") {
         return {
           id: "self",
@@ -330,12 +333,9 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     const invalidatedKeys = spy.mock.calls.map(
       (c) => c[0]?.queryKey as unknown[] | undefined,
     )
-    // Rail LIST = communityKeys.servers() = ["community","servers"] (length 2).
-    expect(
-      invalidatedKeys.some(
-        (k) => Array.isArray(k) && k.length === 2 && k[0] === "community" && k[1] === "servers",
-      ),
-    ).toBe(true)
+    expect(getCommunityApiFetchMock().mock.calls.filter(
+      ([url]) => url === "/api/community/servers",
+    )).toHaveLength(1)
     // Open server's DETAIL = communityKeys.server(id) = ["community","servers",id].
     expect(
       invalidatedKeys.some(
@@ -520,9 +520,9 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     for (const queryKey of invalidDerivedTuples) {
       expect(capturedQueryClient.getQueryData(queryKey)).toEqual({ sentinel: true })
     }
-    expect(calls.filter(({ queryKey, exact }) => (
-      exact === true && JSON.stringify(queryKey) === JSON.stringify(communityKeys.servers())
-    ))).toHaveLength(1)
+    expect(getCommunityApiFetchMock().mock.calls.filter(
+      ([url]) => url === "/api/community/servers",
+    )).toHaveLength(1)
     unsubscribeDirectory()
   })
 
@@ -623,7 +623,9 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     expect(keys).not.toContain(JSON.stringify(communityKeys.inbox()))
     expect(keys).not.toContain(JSON.stringify(communityKeys.dms()))
     expect(keys).toContain(JSON.stringify(communityKeys.friends()))
-    expect(keys).toContain(JSON.stringify(communityKeys.servers()))
+    expect(getCommunityApiFetchMock().mock.calls.some(
+      ([url]) => url === "/api/community/servers",
+    )).toBe(true)
     expect(summary).toMatchObject({ policyCount: 14, successCount: 14, failureCount: 0 })
   })
 
@@ -686,7 +688,6 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
       const key = JSON.stringify(filters.queryKey)
       if (
         key === JSON.stringify(communityKeys.friends())
-        || key === JSON.stringify(communityKeys.servers())
       ) order.push("authoritative-invalidate")
       return originalInvalidate(filters, options)
     })
@@ -733,6 +734,18 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     const { reconcileCommunityWsReconnect } = await import("./reconnect")
     const gates = new Map<string, { promise: Promise<void>; resolve: () => void }>()
     const started: string[] = []
+    let releaseServers!: () => void
+    const servers = new Promise<void>((resolve) => { releaseServers = resolve })
+    getCommunityApiFetchMock().mockImplementation(async (url: unknown) => {
+      if (url === "/api/community/users/me/read-state") {
+        return { revision: 0, readStates: [] }
+      }
+      if (url === "/api/community/servers") {
+        await servers
+        return { servers: [] }
+      }
+      throw new Error(`unexpected API fetch: ${String(url)}`)
+    })
     vi.spyOn(capturedQueryClient, "invalidateQueries").mockImplementation((filters) => {
       if (filters.predicate) return Promise.resolve()
       const key = JSON.stringify(filters.queryKey)
@@ -749,8 +762,10 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
       JSON.stringify(communityKeys.inbox()),
       JSON.stringify(communityKeys.dms()),
       JSON.stringify(communityKeys.friends()),
-      JSON.stringify(communityKeys.servers()),
     ]))
+    expect(getCommunityApiFetchMock().mock.calls.some(
+      ([url]) => url === "/api/community/servers",
+    )).toBe(true)
     expect(started).not.toContain(JSON.stringify(communityKeys.machines()))
     expect(started).not.toContain(JSON.stringify([...communityKeys.all, "bot"]))
 
@@ -766,6 +781,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     })
 
     for (const gate of gates.values()) gate.resolve()
+    releaseServers()
     await work
   })
 

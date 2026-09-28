@@ -35,7 +35,6 @@ import {
   useServers,
   serverProjectedQueryFn,
   type ServerDetail,
-  type ServersResponse,
 } from "@/hooks/community/use-servers"
 import { useServerMembers } from "@/hooks/community/use-server-members"
 import {
@@ -83,7 +82,6 @@ import {
 import {
   useCanonicalProfilesByUserId,
   useOptionalCommunityDbRegistry,
-  useTrustedRestoredPrimary,
 } from "@/lib/community-db/projections"
 
 export default function ServerLayout({ children }: { children: ReactNode }) {
@@ -110,7 +108,6 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   const router = useRouter()
   const queryClient = useQueryClient()
   const communityDb = useOptionalCommunityDbRegistry()
-  const trustedRestoredPrimary = useTrustedRestoredPrimary()
   const cancelPendingNavigation = useCallback(() => {
     useCommunityStore.getState().uiHandlers.cancelPendingNavigation?.()
   }, [])
@@ -128,9 +125,8 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     && communityDb?.hasRestoredCollection("servers")
     && communityDb.hasRestoredCollection("channels"),
   )
-  const serverTreeCollectionsReady = Boolean(
-    (communityDb?.isCollectionReady?.("servers") ?? true)
-    && (communityDb?.isCollectionReady?.("categories") ?? true)
+  const serverTreeDependentCollectionsReady = Boolean(
+    (communityDb?.isCollectionReady?.("categories") ?? true)
     && (communityDb?.isCollectionReady?.("channels") ?? true),
   )
   const sidebarCategories = useMemo(
@@ -251,9 +247,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
       clearLastChannel(deletedServerId)
       if (!needsNavigation) return
       void (async () => {
-        const servers = queryClient.getQueryData<ServersResponse>(
-          communityKeys.servers(),
-        )?.servers ?? []
+        const servers = serversList.servers
         const survivor = servers.find((server) => server.id !== deletedServerId)
         const destination = survivor
           ? await serverDestination(survivor.id)
@@ -308,7 +302,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
       // verdict. Only a live list confirmed for this QueryClient + auth
       // generation may drive the generic eject path.
       isSuccess: serverAccessRevoked
-        || (serversList.isSuccess && serversList.isLiveAuthoritative),
+        || serversList.isSuccess,
       isFetching: serverAccessRevoked ? false : serversList.isFetching,
       ownerDeleteRouteProtected: isOwnerServerDeleteRouteProtected(serverId),
       consumeVoluntaryLeave,
@@ -321,7 +315,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
         router.replace(destination)
       },
     })
-  }, [cancelPendingNavigation, currentUser.id, pathname, serverAccessRevoked, serverId, serversList.isLiveAuthoritative, serversList.isSuccess, serversList.isFetching, serversList.servers, router, searchParams])
+  }, [cancelPendingNavigation, currentUser.id, pathname, serverAccessRevoked, serverId, serversList.isSuccess, serversList.isFetching, serversList.servers, router, searchParams])
   // Reset the guard when the URL changes to a NEW server id — otherwise
   // navigating server → dangling-server → server would leave the ref
   // latched and skip the eject.
@@ -397,7 +391,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   })), [forumSidebar.parentUnread, sidebarCategories])
   const sidebarDataReady = Boolean(
     currentServer
-    && serverTreeCollectionsReady
+    && serverTreeDependentCollectionsReady
     && (restoredServerTree || serverTreeLiveAuthoritative),
   )
   const channelTreeScopeKey = `server:${serverId}`
@@ -549,7 +543,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
       categories={categories}
       primaryReady={sidebarDataReady}
       forumProjectionMissing={!forumSidebar.projectionReady}
-      trustedRestoredPrimary={trustedRestoredPrimary}
+      trustedRestoredServerTree={restoredServerTree}
       targetServerId={serverId}
       {...channelProps}
       {...opts}
@@ -561,7 +555,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     forumSidebar.projectionReady,
     serverId,
     sidebarDataReady,
-    trustedRestoredPrimary,
+    restoredServerTree,
   ])
 
   const serverSettingsDialog = (

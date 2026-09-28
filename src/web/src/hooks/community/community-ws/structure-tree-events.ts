@@ -15,11 +15,11 @@ import type {
 } from "@alook/shared"
 import { FORUM_ARCHIVE_TAG } from "@alook/shared"
 import { communityKeys } from "@/lib/query-keys"
-import { avatarInitial } from "@/lib/community/avatar"
 import type { CanonicalMessage } from "@/lib/community/message-stream"
 import { useCommunityStore } from "@/stores/community"
 import { getMessageOverlay, useMessageStreamStore } from "@/stores/community/message-stream"
-import type { ServersResponse, ServerDetail } from "@/hooks/community/use-servers"
+import type { ServerDetail } from "@/hooks/community/use-servers"
+import { applyCommunityServerPatch } from "@/lib/community-db/collections"
 import {
   grantForumSidebarChild,
   hasForumSidebarOwnershipEvidence,
@@ -275,6 +275,7 @@ export function handleServerUpdate(
   { queryClient, projection }: StructureTreeEventContext,
 ) {
   invalidateChannelRefDirectory(projection)
+  applyCommunityServerPatch(queryClient, event.serverId, event.changes)
   queryClient.setQueryData<ServerDetail | undefined>(
     communityKeys.server(event.serverId),
     (prev) =>
@@ -290,25 +291,6 @@ export function handleServerUpdate(
             event.changes.icon !== undefined
               ? event.changes.icon
               : prev.icon,
-        }
-        : prev,
-  )
-  queryClient.setQueryData<ServersResponse | undefined>(
-    communityKeys.servers(),
-    (prev) =>
-      prev
-        ? {
-          ...prev,
-          servers: prev.servers.map((s) =>
-            s.id === event.serverId
-              ? {
-                ...s,
-                ...(event.changes.name ? { name: event.changes.name, initial: avatarInitial(event.changes.name) } : {}),
-                ...(event.changes.description !== undefined ? { description: event.changes.description } : {}),
-                ...(event.changes.icon !== undefined ? { icon: event.changes.icon ?? null } : {}),
-              }
-              : s,
-          ),
         }
         : prev,
   )

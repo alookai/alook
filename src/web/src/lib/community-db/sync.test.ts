@@ -2,6 +2,7 @@ import { QueryClient } from "@tanstack/react-query"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { CommunityWsEvent } from "@alook/shared"
 import { communityKeys } from "@/lib/query-keys"
+import { serversCollectionQueryKey } from "./server-collection"
 import { getAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 import { rememberMessageAccessScope } from "./message-access-scope"
 import { getLastChannel, setLastChannel } from "@/lib/community/last-channel"
@@ -11,6 +12,7 @@ import {
 } from "@/lib/community/last-me-location"
 import {
   createCommunityDbRegistry,
+  applyCommunityServerPatch,
   getActiveCommunityDbRegistry,
   registerCommunityDbRegistry,
   type CommunityDbRegistry,
@@ -21,7 +23,6 @@ import {
   ingestMessages,
   ingestReadStateSnapshot,
   ingestServerDetail,
-  ingestServers,
   installCommunityDbSync,
   captureCommunityLiveSnapshotToken,
   clearAttentionOptimistically,
@@ -41,6 +42,7 @@ import {
   restoreAttentionScopeOptimisticSnapshot,
   type CommunityLiveSnapshot,
 } from "./sync"
+import { seedCommunityServers as ingestServers } from "./server-test-seed"
 import { useCommunityStore } from "@/stores/community"
 import { useMessageStreamStore } from "@/stores/community/message-stream"
 import { useCommunityWsStore } from "@/stores/community/ws"
@@ -94,6 +96,15 @@ describe("community DB sync", () => {
     const db = createCommunityDbRegistry(new QueryClient(), "viewer")
     registries.push(db)
 
+    ingestServers(db, { servers: [{
+      id: "s1",
+      name: "Server",
+      initial: "S",
+      active: false,
+      unread: true,
+      mentions: 2,
+      ownerId: "viewer",
+    }] })
     ingestServerDetail(db, {
       id: "s1",
       name: "Server",
@@ -112,16 +123,6 @@ describe("community DB sync", () => {
         }],
       }],
     })
-    ingestServers(db, { servers: [{
-      id: "s1",
-      name: "Server",
-      initial: "S",
-      active: false,
-      unread: true,
-      mentions: 2,
-      ownerId: "viewer",
-    }] })
-
     await db.preload()
     await vi.waitFor(() => expect(db.collections.servers.get("s1")).toMatchObject({
       detailComplete: true,
@@ -437,11 +438,7 @@ describe("community DB sync", () => {
     ingestServerDetail(db, detail)
     const token = captureCommunityLiveSnapshotToken(db.queryClient)
 
-    projectCommunityWsEventToDb(db.queryClient, {
-      type: "community:server.update",
-      serverId: "s1",
-      changes: { name: "Fresh server" },
-    } as CommunityWsEvent)
+    applyCommunityServerPatch(db.queryClient, "s1", { name: "Fresh server" })
     projectCommunityWsEventToDb(db.queryClient, {
       type: "community:channel.update",
       serverId: "s1",
@@ -465,11 +462,7 @@ describe("community DB sync", () => {
     }] })
     const token = captureCommunityLiveSnapshotToken(db.queryClient)
 
-    projectCommunityWsEventToDb(db.queryClient, {
-      type: "community:server.update",
-      serverId: "s1",
-      changes: { name: "Fresh server" },
-    } as CommunityWsEvent)
+    applyCommunityServerPatch(db.queryClient, "s1", { name: "Fresh server" })
     await publishCommunityLiveSnapshotWithProof(db.queryClient, {
       snapshot: {
         kind: "server-detail",
@@ -500,9 +493,9 @@ describe("community DB sync", () => {
     }] })
     const completeSnapshots: Array<{ categoryIds: string[]; channelIds: string[] }> = []
     const unsubscribe = db.queryClient.getQueryCache().subscribe(() => {
-      const server = db.queryClient.getQueryData<Array<{ id: string; detailComplete: boolean }>>(
-        communityKeys.communityDbCollection(db.scopeId, "servers"),
-      )?.find((row) => row.id === "s1")
+      const server = db.queryClient.getQueryData<{
+        servers: Array<{ id: string; detailComplete: boolean }>
+      }>(serversCollectionQueryKey())?.servers.find((row) => row.id === "s1")
       if (!server?.detailComplete) return
       const categoryIds = db.queryClient.getQueryData<Array<{ id: string; serverId: string }>>(
         communityKeys.communityDbCollection(db.scopeId, "categories"),
@@ -554,11 +547,9 @@ describe("community DB sync", () => {
       channelIds: string[]
     }> = []
     const unsubscribe = db.queryClient.getQueryCache().subscribe(() => {
-      const complete = db.queryClient.getQueryData<Array<{
-        id: string
-        detailComplete: boolean
-      }>>(communityKeys.communityDbCollection(db.scopeId, "servers"))
-        ?.find((row) => row.id === "s1")?.detailComplete
+      const complete = db.queryClient.getQueryData<{
+        servers: Array<{ id: string; detailComplete: boolean }>
+      }>(serversCollectionQueryKey())?.servers.find((row) => row.id === "s1")?.detailComplete
       const categoryIds = db.queryClient.getQueryData<Array<{ id: string; serverId: string }>>(
         communityKeys.communityDbCollection(db.scopeId, "categories"),
       )?.filter((row) => row.serverId === "s1").map((row) => row.id) ?? []
@@ -737,12 +728,16 @@ describe("community DB sync", () => {
     uninstall()
   })
 
-  it("does not replay hydrated or setQueryData transport payloads into canonical DB", async () => {
+  it("owns server transport in the official collection without replaying unrelated caches", async () => {
     const db = await registry()
-    db.queryClient.setQueryData(communityKeys.servers(), { servers: [{
-      id: "s1", name: "Server", initial: "S", active: false, unread: false,
-      mentions: 0, ownerId: "viewer",
-    }] })
+    db.queryClient.setQueryData(serversCollectionQueryKey(), {
+      servers: [{
+        id: "s1", position: 0, name: "Server", discriminator: "0001",
+        description: "", ownerId: "viewer", icon: null, official: false,
+        isOwner: true, unread: false, mentions: 0, detailComplete: false,
+      }],
+      unreadSources: [],
+    })
     db.queryClient.setQueryData(communityKeys.dms(), { conversations: [{
       id: "dm1", userId: "peer", name: "Peer", discriminator: "0002",
       avatar: "P", avatarVersion: 1, status: "offline", preview: "hello",
@@ -753,7 +748,10 @@ describe("community DB sync", () => {
     })
     const uninstall = installCommunityDbSync(db.queryClient, db)
     await db.preload()
-    expect(db.collections.servers.get("s1")).toBeUndefined()
+    expect(db.collections.servers.get("s1")?.name).toBe("Server")
+    expect(db.queryClient.getQueryData(
+      communityKeys.communityDbCollection("viewer", "servers"),
+    )).toBeUndefined()
     expect(db.collections.channels.get("dm1")).toBeUndefined()
     db.queryClient.setQueryData(communityKeys.folders(), {
       folders: [{
@@ -873,10 +871,7 @@ describe("community DB sync", () => {
       }],
     })
 
-    await publishCommunityLiveSnapshot(db.queryClient, {
-      kind: "servers",
-      data: { servers: [server("merge-s1"), server("merge-s2")] },
-    })
+    ingestServers(db, { servers: [server("merge-s1"), server("merge-s2")] })
     await publishCommunityLiveSnapshot(db.queryClient, {
       kind: "server-detail",
       data: detail(["merge-c1", "merge-c2"]),
@@ -914,9 +909,6 @@ describe("community DB sync", () => {
       },
     })
 
-    db.queryClient.setQueryData(communityKeys.servers(), {
-      servers: [server("merge-s1")],
-    })
     db.queryClient.setQueryData(communityKeys.server("merge-s1"), detail(["merge-c1"]))
     db.queryClient.setQueryData(communityKeys.dms(), {
       conversations: [dm("merge-dm1", "peer1")],
@@ -938,12 +930,6 @@ describe("community DB sync", () => {
       server: {},
       channel: {},
     })
-    void db.queryClient.invalidateQueries({
-      queryKey: communityKeys.servers(),
-      exact: true,
-      refetchType: "none",
-    })
-
     expect(db.collections.servers.get("merge-s2")).toBeDefined()
     expect(useCommunityWsStore.getState().revokedServerIds.has("merge-s2")).toBe(false)
     expect(db.collections.channels.get("merge-c2")).toBeDefined()
@@ -994,10 +980,7 @@ describe("community DB sync", () => {
       }],
     })
 
-    await publishCommunityLiveSnapshot(db.queryClient, {
-      kind: "servers",
-      data: { servers: [server("live-s1"), server("live-s2")] },
-    })
+    ingestServers(db, { servers: [server("live-s1"), server("live-s2")] })
     await publishCommunityLiveSnapshot(db.queryClient, {
       kind: "server-detail",
       data: detail(["live-c1", "live-c2"]),
@@ -1082,10 +1065,7 @@ describe("community DB sync", () => {
         channel: {},
       },
     })
-    await publishCommunityLiveSnapshot(db.queryClient, {
-      kind: "servers",
-      data: { servers: [server("live-s1")] },
-    })
+    ingestServers(db, { servers: [server("live-s1")] })
 
     expect(db.collections.servers.get("live-s2")).toBeUndefined()
     expect(useCommunityWsStore.getState().revokedServerIds.has("live-s2")).toBe(true)
@@ -2341,7 +2321,10 @@ describe("community DB sync", () => {
       mentions: 0, ownerId: "viewer",
     }] })
     await idle.ensureCollectionReady("servers")
-    expect(idleClient.getQueryData(communityKeys.communityDbCollection("viewer", "servers"))).toBeDefined()
+    expect(idle.collections.servers.get("idle")?.name).toBe("Idle")
+    expect(idleClient.getQueryData(
+      communityKeys.communityDbCollection("viewer", "servers"),
+    )).toBeUndefined()
     await idle["cleanup"]()
 
     const anonymous = createCommunityDbRegistry(new QueryClient(), null)
@@ -2589,7 +2572,7 @@ describe("community DB sync", () => {
     event({ type: "community:message.updated", channelId: "c1", messageId: "m1", approval: { status: "pending" } })
     event({ type: "community:reaction.add", channelId: "c1", messageId: "m1", userId: "viewer", emoji: "👍" })
     event({ type: "community:reaction.remove", channelId: "c1", messageId: "m1", userId: "peer", emoji: "👍" })
-    event({ type: "community:server.update", serverId: "s1", changes: { name: "Renamed" } })
+    applyCommunityServerPatch(db.queryClient, "s1", { name: "Renamed" })
     event({ type: "community:channel.update", serverId: "s1", channelId: "c1", changes: { name: "renamed" } })
     event({ type: "community:channel.reorder", serverId: "s1", channels: [{ id: "c1", position: 9 }] })
     event({ type: "community:category.create", serverId: "s1", category: { id: "cat2", name: "Other", position: 2, private: false } })
@@ -2626,7 +2609,11 @@ describe("community DB sync", () => {
     event({ type: "community:member.leave", serverId: "s1", userId: "peer" })
     event({ type: "community:category.delete", serverId: "s1", categoryId: "cat2" })
 
-    expect(db.collections.servers.get("s1")).toMatchObject({ name: "Renamed", unread: true, mentions: 1 })
+    expect(db.collections.servers.get("s1")).toMatchObject({
+      name: "Renamed",
+      unread: false,
+      mentions: 0,
+    })
     expect(db.collections.channels.get("c1")).toMatchObject({ name: "renamed", position: 9, unread: true })
     expect(db.collections.channels.get("thread1")).toMatchObject({ name: "Thread renamed", tags: ["tag"] })
     expect(db.collections.messages.get("m1")?.reactions).toEqual([

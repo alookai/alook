@@ -11,6 +11,7 @@ import {
 } from "@alook/shared"
 import { getMessageOverlay } from "@/stores/community/message-stream"
 import { communityKeys } from "@/lib/query-keys"
+import { serversCollectionQueryKey } from "@/lib/community-db/server-collection"
 import { getActiveAccountUnreadProjection } from "../account-unread-projection"
 import {
   capturedOnMessage,
@@ -366,7 +367,7 @@ describe("useCommunityWs — friend + mention → invalidate", () => {
     capturedOnMessage!(event)
     expect(spy.mock.calls.filter((call) => {
       const key = call[0]?.queryKey as unknown[] | undefined
-      return key?.length === 2 && key[0] === "community" && key[1] === "servers"
+      return JSON.stringify(key) === JSON.stringify(serversCollectionQueryKey())
     })).toHaveLength(1)
   })
 

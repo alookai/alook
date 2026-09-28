@@ -4,6 +4,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
+import { serversCollectionQueryKey } from "@/lib/community-db/server-collection"
 
 vi.mock("react", () => ({
   useRef: (initial: unknown) => ({ current: initial }),
@@ -86,7 +87,7 @@ describe("useLeaveServer — optimistic + rollback", () => {
   })
 
   it.each(["leave", "delete"] as const)("%s removes the server row and restores on failure", async (operation) => {
-    capturedQc.setQueryData(communityKeys.servers(), {
+    capturedQc.setQueryData(serversCollectionQueryKey(), {
       servers: [
         { id: "srv_1", name: "n", initial: "N", active: false, unread: false, mentions: 0 },
       ],
@@ -99,7 +100,7 @@ describe("useLeaveServer — optimistic + rollback", () => {
       mod.useDeleteServer({ routeToken: lifecycle.createOwnerServerDeleteRouteToken() })
     }
     await runMutation({ serverId: "srv_1" }).catch(() => {})
-    const cache = capturedQc.getQueryData<{ servers: { id: string }[] }>(communityKeys.servers())
+    const cache = capturedQc.getQueryData<{ servers: { id: string }[] }>(serversCollectionQueryKey())
     expect(cache?.servers).toHaveLength(1)
   })
 
@@ -172,7 +173,7 @@ describe("useLeaveServer — optimistic + rollback", () => {
 describe("useDeleteServer — navigation lifecycle", () => {
   it("reports zero navigation and flushes once when a safe route committed before success", async () => {
     const args = { serverId: "srv_delete_after_safe_commit" }
-    capturedQc.setQueryData(communityKeys.servers(), {
+    capturedQc.setQueryData(serversCollectionQueryKey(), {
       servers: [{ id: args.serverId }],
     })
     capturedQc.setQueryData(communityKeys.server(args.serverId), {
@@ -210,7 +211,7 @@ describe("useDeleteServer — navigation lifecycle", () => {
 
   it("requests one navigation while the deleted route remains committed", async () => {
     const args = { serverId: "srv_delete" }
-    capturedQc.setQueryData(communityKeys.servers(), {
+    capturedQc.setQueryData(serversCollectionQueryKey(), {
       servers: [{ id: args.serverId }],
     })
     apiFetchMock.mockResolvedValueOnce(undefined)
@@ -225,8 +226,8 @@ describe("useDeleteServer — navigation lifecycle", () => {
     const context = await cfg.onMutate?.(args)
     expect(lifecycle.isOwnerServerDeleteRouteProtected(args.serverId)).toBe(true)
     expect(capturedQc.getQueryData<{ servers: unknown[] }>(
-      communityKeys.servers(),
-    )?.servers).toEqual([])
+      serversCollectionQueryKey(),
+    )?.servers).toEqual([{ id: args.serverId }])
     await cfg.mutationFn?.(args)
 
     cfg.onSuccess?.(undefined, args, context)
@@ -251,7 +252,7 @@ describe("useDeleteServer — navigation lifecycle", () => {
 
   it("restores the Server row and clears coordination after DELETE failure", async () => {
     const args = { serverId: "srv_delete_failed" }
-    capturedQc.setQueryData(communityKeys.servers(), {
+    capturedQc.setQueryData(serversCollectionQueryKey(), {
       servers: [{ id: args.serverId }],
     })
     const mod = await load()
@@ -268,7 +269,7 @@ describe("useDeleteServer — navigation lifecycle", () => {
     cfg.onError?.(failure, args, context)
 
     expect(capturedQc.getQueryData<{ servers: Array<{ id: string }> }>(
-      communityKeys.servers(),
+      serversCollectionQueryKey(),
     )?.servers).toEqual([{ id: args.serverId }])
     expect(onError).toHaveBeenCalledWith(failure, args)
     expect(lifecycle.isOwnerServerDeleteRouteProtected(args.serverId)).toBe(false)
@@ -288,7 +289,7 @@ describe("useUpdateServer — rollback on both caches", () => {
       ownerId: "u_1",
       categories: [],
     })
-    capturedQc.setQueryData(communityKeys.servers(), {
+    capturedQc.setQueryData(serversCollectionQueryKey(), {
       servers: [
         {
           id: "srv_1",
@@ -308,12 +309,12 @@ describe("useUpdateServer — rollback on both caches", () => {
     const detail = capturedQc.getQueryData<{ name: string }>(communityKeys.server("srv_1"))
     expect(detail?.name).toBe("old")
     const list = capturedQc.getQueryData<{ servers: { name: string; description: string }[] }>(
-      communityKeys.servers(),
+      serversCollectionQueryKey(),
     )
     expect(list?.servers[0]).toMatchObject({ name: "old", description: "d" })
   })
 
-  it("keeps the canonical list metadata aligned with an optimistic detail update", async () => {
+  it("does not rewrite the transport document during an optimistic detail update", async () => {
     const untouchedServer = {
       id: "srv_2",
       name: "untouched",
@@ -330,7 +331,7 @@ describe("useUpdateServer — rollback on both caches", () => {
       ownerId: "u_1",
       categories: [],
     })
-    capturedQc.setQueryData(communityKeys.servers(), {
+    capturedQc.setQueryData(serversCollectionQueryKey(), {
       servers: [
         {
           id: "srv_1",
@@ -359,11 +360,11 @@ describe("useUpdateServer — rollback on both caches", () => {
     })
     const list = capturedQc.getQueryData<{
       servers: Array<{ name: string; description: string; initial: string; mentions: number }>
-    }>(communityKeys.servers())?.servers
+    }>(serversCollectionQueryKey())?.servers
     expect(list?.[0]).toMatchObject({
-      name: "new",
-      description: "new description",
-      initial: "N",
+      name: "old",
+      description: "old description",
+      initial: "O",
     })
     expect(list?.[1]).toBe(untouchedServer)
     expect(list?.[1]).toMatchObject({
@@ -389,17 +390,17 @@ describe("useUpdateServer — rollback on both caches", () => {
   })
 })
 
-describe("useCreateServer — invalidates servers()", () => {
+describe("useCreateServer — invalidates the server row transport", () => {
   it("fires invalidateQueries after success", async () => {
     apiFetchMock.mockResolvedValueOnce({ server: { id: "srv_new" } })
     const mod = await load()
     mod.useCreateServer()
     const spy = vi.spyOn(capturedQc, "invalidateQueries")
     await runMutation({ name: "n" })
-    expect(spy.mock.calls.some((c) => {
-      const k = c[0]?.queryKey as unknown[] | undefined
-      return Array.isArray(k) && k.includes("servers")
-    })).toBe(true)
+    expect(spy).toHaveBeenCalledWith({
+      queryKey: serversCollectionQueryKey(),
+      exact: true,
+    })
   })
 })
 
@@ -413,7 +414,7 @@ describe("useUploadServerIcon — patches caches on success", () => {
       ownerId: "u_1",
       categories: [],
     })
-    capturedQc.setQueryData(communityKeys.servers(), {
+    capturedQc.setQueryData(serversCollectionQueryKey(), {
       servers: [
         { id: "srv_1", name: "n", initial: "N", active: false, unread: false, mentions: 0, icon: null },
       ],

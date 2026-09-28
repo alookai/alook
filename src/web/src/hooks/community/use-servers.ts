@@ -1,25 +1,20 @@
 "use client"
 
 import {
+  notifyManager,
   useQuery,
   useQueryClient,
   type QueryClient,
   type QueryFunctionContext,
   type UseQueryResult,
 } from "@tanstack/react-query"
-import { useEffect, useMemo, useSyncExternalStore } from "react"
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import { avatarInitial } from "@/lib/community/avatar"
-import { compareAsciiSqliteBinary, isServerOwner, UNCATEGORIZED_CATEGORY_ID } from "@alook/shared"
+import { compareAsciiSqliteBinary, UNCATEGORIZED_CATEGORY_ID } from "@alook/shared"
 import type { Server, Category, Channel } from "@/lib/community/models/navigation"
-import {
-  getActiveAccountUnreadProjection,
-  type AccountUnreadProjection,
-  type AccountUnreadScope,
-  type AccountUnreadSource,
-} from "./account-unread-projection"
-import { useCommunityWsStore } from "@/stores/community/ws"
+import { getActiveAccountUnreadProjection, type AccountUnreadScope } from "./account-unread-projection"
 import { ApiError } from "@/lib/errors"
 import { evictServerChannelScopes } from "./community-ws/scope-eviction"
 import {
@@ -28,234 +23,72 @@ import {
   useServerRailProjection,
   useServerTreeProjection,
 } from "@/lib/community-db/projections"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import type { ServerRow } from "@/lib/community-db/schema"
+import type { ServersResponse as ServerCollectionResponse } from "@/lib/community-db/server-collection"
+import { serversCollectionQueryKey } from "@/lib/community-db/server-collection"
 import {
   assertCommunityLiveSnapshotTokenCurrent,
   captureCommunityLiveSnapshotToken,
   publishCommunityLiveSnapshot,
-  type CommunityLiveSnapshotToken,
 } from "@/lib/community-db/sync"
 
-type LiveServerListAuthority = CommunityLiveSnapshotToken & {
-  serverIdsSignature: string
+export type ServersQueryResult = {
+  data: ServerCollectionResponse | undefined
+  error: Error | null
+  isFetching: boolean
+  isPending: boolean
+  isSuccess: boolean
+  refetch: () => Promise<void>
+  servers: Server[]
 }
-
-const liveServerListAuthority = new WeakMap<QueryClient, LiveServerListAuthority>()
-
-function canonicalServerIdsSignature(servers: readonly Pick<Server, "id">[]) {
-  return JSON.stringify([...new Set(servers.map((server) => server.id))].sort())
-}
-
-function currentStructuralQueryGeneration() {
-  const state = useCommunityWsStore.getState()
-  return `${state.profileViewerId ?? ""}:${state.profileAccountEpoch}:${state.accessEpoch}`
-}
-
-/**
- * Fetches the sidebar list of servers the current user is in.
- *
- * The API returns raw rows; we transform to the render-ready `Server` shape
- * (with `initial` + `isOwner`) inside the query function so consumers get
- * cache entries that are directly render-usable. `active` is a UI-only flag
- * consumers apply after the fact based on the current-server pointer — it's
- * always `false` in the cache.
- */
-type RawServerRow = {
-  id: string
-  name: string
-  discriminator: string
-  icon: string | null
-  official?: boolean
-  role?: string
-  mentions?: number
-  unread?: boolean
-  description?: string | null
-  ownerId: string
-  unreadSources?: Array<{ channelId: string; lastUnreadSeq: number }>
-  mentionSources?: Array<{ channelId: string; count: number; lastSeq: number }>
-}
-
-export type ServersResponse = { servers: Server[] }
 
 // Frozen empty fallback — reused across renders while the query is loading so
 // consumers depending on `servers` in a `useEffect` dep array don't re-fire
 // per render (a fresh `[]` would churn the reference).
 const EMPTY_SERVERS: readonly Server[] = Object.freeze([])
 
-export const serversQueryFn = async (
-  context?: QueryFunctionContext,
-): Promise<ServersResponse> => {
-  const data = await apiFetch<{ servers: RawServerRow[] }>("/api/community/servers", {
-    signal: context?.signal,
-  })
-  const servers: Server[] = data.servers.map((s) => ({
-    id: s.id,
-    name: s.name,
-    discriminator: s.discriminator,
-    description: s.description ?? "",
-    ownerId: s.ownerId,
-    initial: avatarInitial(s.name),
+function serverRowToServer(row: ServerRow): Server {
+  return {
+    id: row.id,
+    name: row.name,
+    discriminator: row.discriminator,
+    description: row.description,
+    ownerId: row.ownerId,
+    initial: avatarInitial(row.name),
     active: false,
-    unread: s.unread ?? false,
-    // Defensive fallback: the API always projects `mentions` now, but during
-    // rolling deploys or from cached stale responses the field could still be
-    // absent — treat it as 0 rather than NaN.
-    mentions: s.mentions ?? 0,
-    isOwner: isServerOwner(s.role),
-    icon: s.icon ?? null,
-    official: s.official === true,
-    ...(s.unreadSources ? { unreadSources: s.unreadSources } : {}),
-    ...(s.mentionSources ? { mentionSources: s.mentionSources } : {}),
-  }))
-  return { servers }
-}
-
-function serverListUnreadSources(data: ServersResponse): AccountUnreadSource[] {
-  return data.servers.flatMap((server) => (
-    [
-      ...(server.unreadSources ?? []).map((source) => ({
-        ...source,
-        serverId: server.id,
-      })),
-      ...(server.mentionSources ?? []).flatMap((source) => source.count > 0 ? [{
-        channelId: source.channelId,
-        serverId: server.id,
-        lastUnreadSeq: source.lastSeq,
-        lastMentionSeq: source.lastSeq,
-        isMention: true,
-      }] : []),
-    ]
-  ))
-}
-
-export const serversProjectedQueryFn = (
-  projection: AccountUnreadProjection,
-  queryClient: QueryClient,
-  onLiveSuccess?: (
-    token: CommunityLiveSnapshotToken,
-    data: ServersResponse,
-    signal: AbortSignal | undefined,
-  ) => Promise<void>,
-) => async (context?: QueryFunctionContext) => {
-  const structuralToken = captureCommunityLiveSnapshotToken(queryClient)
-  const token = projection.beginSnapshot("servers", "channels")
-  try {
-    const data = await serversQueryFn(context)
-    assertCommunityLiveSnapshotTokenCurrent(queryClient, structuralToken, context?.signal)
-    projection.absorbSnapshot(token, serverListUnreadSources(data), {
-      confirmedAccessScopes: data.servers.map((server) => ({
-        kind: "server" as const,
-        serverId: server.id,
-      })),
-    })
-    await onLiveSuccess?.(structuralToken, data, context?.signal)
-    return data
-  } catch (error) {
-    projection.cancelSnapshot(token)
-    throw error
+    unread: row.unread,
+    mentions: row.mentions,
+    isOwner: row.isOwner,
+    icon: row.icon,
+    official: row.official,
   }
 }
 
-function serversQueryOptions() {
-  return {
-    queryKey: communityKeys.servers(),
-    queryFn: serversQueryFn,
-    staleTime: Infinity,
-  } as const
-}
-
-export function useServers(): UseQueryResult<ServersResponse> & {
-  servers: Server[]
-  isLiveAuthoritative: boolean
-} {
+export function useServers(): ServersQueryResult {
   const registry = useOptionalCommunityDbRegistry()
   const attentionScopes = useAttentionScopes()
   const dbRail = useServerRailProjection()
   const queryClient = useQueryClient()
-  const structuralGeneration = useSyncExternalStore(
-    useCommunityWsStore.subscribe,
-    currentStructuralQueryGeneration,
-    currentStructuralQueryGeneration,
+  useSyncExternalStore(
+    useCallback(
+      (listener) => queryClient.getQueryCache().subscribe(
+        notifyManager.batchCalls(listener),
+      ),
+      [queryClient],
+    ),
+    useCallback(
+      () => queryClient.getQueryState<ServerCollectionResponse>(serversCollectionQueryKey()),
+      [queryClient],
+    ),
+    () => undefined,
   )
-  const unreadProjection = useMemo(
-    () => getActiveAccountUnreadProjection(queryClient),
-    [queryClient],
-  )
-  const unreadVersion = useSyncExternalStore(
-    unreadProjection.subscribe,
-    unreadProjection.getSnapshot,
-    unreadProjection.getSnapshot,
-  )
-  const queryFn = useMemo(
-    () => serversProjectedQueryFn(unreadProjection, queryClient, async (token, data, signal) => {
-      await publishCommunityLiveSnapshot(queryClient, {
-        snapshot: { kind: "servers", data },
-        proof: { kind: "structural", token, signal },
-      })
-      liveServerListAuthority.set(queryClient, {
-        ...token,
-        serverIdsSignature: canonicalServerIdsSignature(data.servers),
-      })
-    }),
-    [queryClient, unreadProjection],
-  )
-  const query = useQuery({
-    ...serversQueryOptions(),
-    queryFn,
-    // WS-maintained like the other server-scoped queries: server.update
-    // live-patches this list (name/icon) and mention/member events invalidate
-    // it to refresh counts. So a remount doesn't need to refetch — this is a
-    // once-per-session seed. Without this, every channel switch that remounts a
-    // `useServers` consumer re-fired `GET /api/community/servers` (the rail /
-    // mention-badge list), a per-switch server-level request WS1/WS2 otherwise
-    // eliminated. staleTime: Infinity stops that mount refetch; invalidations
-    // still force a refresh regardless of staleTime, so counts stay live.
-    // refetchOnReconnect backstops the socket-gap case (same as WS2).
-    staleTime: Infinity,
-    refetchOnReconnect: true,
-  })
-  useEffect(() => {
-    if (query.data) {
-      unreadProjection.mergeSources(
-        "servers",
-        serverListUnreadSources(query.data),
-        "channels",
-      )
-    }
-    if (!query.data) return
-    for (const server of query.data.servers) {
-      if (server.unreadSources) {
-        unreadProjection.absorbLegacyServerAggregate(server.id, server.unreadSources)
-      }
-    }
-    unreadProjection.recordLegacySnapshot(
-      query.data,
-      query.data.servers.flatMap((server) => (
-        server.unread && server.unreadSources === undefined
-          ? [{
-              family: "servers" as const,
-              channelId: `\u0000legacy-server:${server.id}`,
-              serverId: server.id,
-            }]
-          : []
-      )),
-    )
-  }, [query.data, unreadProjection])
+  const queryState = queryClient.getQueryState<ServerCollectionResponse>(serversCollectionQueryKey())
   const projectedServers = useMemo(() => {
-    void unreadVersion
-    const raw = registry
-      ? dbRail?.servers.filter((server) => unreadProjection.allowsAccess({ serverId: server.id }))
-      : query.data?.servers.filter((server) => unreadProjection.allowsAccess({ serverId: server.id }))
+    const raw = registry ? dbRail?.servers : undefined
     if (!raw) return undefined
-    // Canonical rail rows intentionally contain renderable aggregates only.
-    // Keep using the fresh list response as exact source evidence so the
-    // unread projection can reconcile numeric mention badges by channel.
-    const liveEvidenceByServer = new Map(
-      query.data?.servers.map((server) => [server.id, server]) ?? [],
-    )
     let changed = false
     const projected = raw.map((server) => {
-      const liveEvidence = liveEvidenceByServer.get(server.id)
-      void liveEvidence
       const serverScopes = attentionScopes.filter((scope) => scope.serverId === server.id)
       const unread = serverScopes.some((scope) => scope.ordinaryUnread)
       const mentions = serverScopes.reduce((total, scope) => total + (scope.attentionCount ?? 0), 0)
@@ -264,21 +97,30 @@ export function useServers(): UseQueryResult<ServersResponse> & {
       return { ...server, unread, mentions }
     })
     return changed ? projected : raw
-  }, [attentionScopes, dbRail?.servers, query.data, registry, unreadProjection, unreadVersion])
+  }, [attentionScopes, dbRail?.servers, registry])
+  const projectionMatchesSnapshot = useMemo(() => {
+    if (!projectedServers || !queryState?.data) return false
+    if (projectedServers.length !== queryState.data.servers.length) return false
+    const projectedIds = new Set(projectedServers.map((server) => server.id))
+    return queryState.data.servers.every((server) => projectedIds.has(server.id))
+  }, [projectedServers, queryState?.data])
+  const snapshotApplied = queryState?.status === "success"
+    && (registry?.isCollectionReady?.("servers") ?? false)
+    && projectionMatchesSnapshot
+  const refetch = useCallback(
+    () => registry?.requestServerRefetch() ?? Promise.resolve(),
+    [registry],
+  )
   return {
-    ...query,
+    data: queryState?.data,
+    error: queryState?.error instanceof Error ? queryState.error : null,
+    isFetching: queryState?.fetchStatus === "fetching" || (
+      queryState?.status === "success" && !projectionMatchesSnapshot
+    ),
+    isPending: queryState?.status !== "success" || !projectionMatchesSnapshot,
+    isSuccess: snapshotApplied,
+    refetch,
     servers: projectedServers ?? (EMPTY_SERVERS as Server[]),
-    isLiveAuthoritative: (() => {
-      void structuralGeneration
-      const authority = liveServerListAuthority.get(queryClient)
-      const state = useCommunityWsStore.getState()
-      return authority?.viewerId === state.profileViewerId
-        && authority.accountEpoch === state.profileAccountEpoch
-        && authority.accessEpoch === state.accessEpoch
-        && authority.serverIdsSignature === canonicalServerIdsSignature(
-          projectedServers ?? EMPTY_SERVERS,
-        )
-    })(),
   }
 }
 
@@ -330,22 +172,16 @@ async function resolveServerIdentity(
   serverId: string,
   signal?: AbortSignal,
 ): Promise<Server | undefined> {
-  const cached = queryClient
-    .getQueryData<ServersResponse>(communityKeys.servers())
-    ?.servers.find((server) => server.id === serverId)
-  if (cached) return cached
-
-  const fetched = await serversProjectedQueryFn(
-    getActiveAccountUnreadProjection(queryClient),
-    queryClient,
-    async (_token, data) => {
-      await publishCommunityLiveSnapshot(queryClient, {
-        snapshot: { kind: "servers", data },
-        proof: { kind: "structural", token: _token, signal },
-      })
-    },
-  )({ signal } as QueryFunctionContext)
-  return fetched.servers.find((server) => server.id === serverId)
+  const registry = getCommunityDbRegistry(queryClient)
+  if (!registry) return undefined
+  const cached = registry.collections.servers.get(serverId)
+  if (cached) return serverRowToServer(cached)
+  await registry.ensureCollectionReady("servers")
+  if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
+  await registry.requestServerRefetch()
+  if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
+  const fetched = registry.collections.servers.get(serverId)
+  return fetched ? serverRowToServer(fetched) : undefined
 }
 
 export const serverQueryFn = (

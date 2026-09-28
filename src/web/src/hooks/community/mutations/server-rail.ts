@@ -5,9 +5,11 @@ import type { ServerRailCommand, ServerRailCommitResponse } from "@alook/shared"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import type { FoldersResponse } from "@/hooks/community/use-folders"
-import type { ServersResponse } from "@/hooks/community/use-servers"
 import type { FolderServer } from "@/lib/community/models/navigation"
 import type { RailState } from "@/lib/community/server-rail-model"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import type { ServerRow } from "@/lib/community-db/schema"
+import { serversCollectionQueryKey } from "@/lib/community-db/server-collection"
 
 export type ServerRailCommitArgs = {
   before: RailState
@@ -16,16 +18,16 @@ export type ServerRailCommitArgs = {
 }
 
 type ServerRailCommitContext = {
-  servers: ServersResponse | undefined
+  servers: ServerRow[]
   folders: FoldersResponse | undefined
 }
 
 function applyOptimisticRail(
-  servers: ServersResponse | undefined,
+  servers: readonly ServerRow[],
   folders: FoldersResponse | undefined,
   state: RailState,
-): { servers: ServersResponse | undefined; folders: FoldersResponse | undefined } {
-  const serverById = new Map(servers?.servers.map((server) => [server.id, server]) ?? [])
+): { folders: FoldersResponse | undefined } {
+  const serverById = new Map(servers.map((server) => [server.id, server]))
   const folderServerById = new Map<string, FolderServer>()
   for (const folder of folders?.folders ?? []) {
     for (const server of folder.servers) folderServerById.set(server.id, server)
@@ -35,19 +37,11 @@ function applyOptimisticRail(
     if (existing) return existing
     const server = serverById.get(serverId)
     return server
-      ? { id: server.id, name: server.name, initial: server.initial, icon: server.icon ?? null }
+      ? { id: server.id, name: server.name, initial: server.name.slice(0, 1).toUpperCase(), icon: server.icon ?? null }
       : { id: serverId, name: "", initial: "?", icon: null }
   }
   const folderById = new Map(folders?.folders.map((folder) => [folder.id, folder]) ?? [])
   return {
-    servers: servers
-      ? {
-          ...servers,
-          servers: state.serverOrder
-            .map((serverId) => serverById.get(serverId))
-            .filter((server): server is ServersResponse["servers"][number] => !!server),
-        }
-      : servers,
     folders: {
       folders: state.folderOrder.map((folderId, position) => ({
         id: folderId,
@@ -75,7 +69,7 @@ function reconcileCreatedFolderIds(
 
 export function useServerRailCommit() {
   const queryClient = useQueryClient()
-  const serversKey = communityKeys.servers()
+  const serversKey = serversCollectionQueryKey()
   const foldersKey = communityKeys.folders()
   return useMutation<
     ServerRailCommitResponse,
@@ -94,17 +88,28 @@ export function useServerRailCommit() {
         queryClient.cancelQueries({ queryKey: foldersKey, exact: true }),
       ])
       const context: ServerRailCommitContext = {
-        servers: queryClient.getQueryData<ServersResponse>(serversKey),
+        servers: Array.from(getCommunityDbRegistry(queryClient)?.collections.servers.values() ?? []),
         folders: queryClient.getQueryData<FoldersResponse>(foldersKey),
       }
       const optimistic = applyOptimisticRail(context.servers, context.folders, after)
-      queryClient.setQueryData(serversKey, optimistic.servers)
+      const collection = getCommunityDbRegistry(queryClient)?.collections.servers
+      collection?.utils.writeBatch(() => {
+        after.serverOrder.forEach((id, position) => {
+          if (collection.has(id)) collection.utils.writeUpdate({ id, position })
+        })
+      })
       queryClient.setQueryData(foldersKey, optimistic.folders)
       return context
     },
     onError: (_error, _args, context) => {
       if (!context) return
-      queryClient.setQueryData(serversKey, context.servers)
+      const collection = getCommunityDbRegistry(queryClient)?.collections.servers
+      collection?.utils.writeBatch(() => {
+        for (const row of context.servers) {
+          if (collection.has(row.id)) collection.utils.writeUpdate(row)
+          else collection.utils.writeInsert(row)
+        }
+      })
       queryClient.setQueryData(foldersKey, context.folders)
     },
     onSuccess: (response) => {
@@ -114,7 +119,8 @@ export function useServerRailCommit() {
     },
     onSettled: async () => {
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: serversKey, exact: true }),
+        getCommunityDbRegistry(queryClient)?.requestServerRefetch()
+          ?? queryClient.invalidateQueries({ queryKey: serversKey, exact: true }),
         queryClient.invalidateQueries({ queryKey: foldersKey, exact: true }),
       ])
     },

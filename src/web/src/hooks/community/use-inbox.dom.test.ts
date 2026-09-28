@@ -19,6 +19,7 @@ import { useCommunityWsStore } from "@/stores/community/ws"
 import { CommunityPreviewProfileOwner } from "@/stores/community/profile-preview"
 import { communityKeys } from "@/lib/query-keys"
 import { writeCommunityCollectionRows } from "@/lib/community-db/collection-mutations"
+import { seedCommunityServers } from "@/lib/community-db/server-test-seed"
 import { useAccountAttention } from "./use-account-attention"
 import { useInboxAttention, useInboxMarked, useMessageMarked } from "./use-inbox"
 
@@ -332,6 +333,16 @@ async function createHarness({
   })
   const registry = createCommunityDbRegistry(queryClient, "viewer")
   await registry.preload()
+  seedCommunityServers(registry, { servers: [{
+    id: "server",
+    name: "Server",
+    discriminator: "0001",
+    initial: "S",
+    active: false,
+    unread: false,
+    mentions: 0,
+    ownerId: "viewer",
+  }] })
   const unregister = registerCommunityDbRegistry(registry)
   useCommunityWsStore.getState().reset()
   useCommunityWsStore.getState().activateProfileAccount("viewer")

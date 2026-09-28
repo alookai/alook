@@ -12,6 +12,8 @@ import { communityWsReconnectPolicies } from "@/hooks/community/community-ws/reg
 import { userProfileQueryFn } from "@/hooks/community/use-user-profile"
 import { reconcileFocusedMessageQueries } from "@/hooks/community/community-ws/reconnect-messages"
 import { reconcileAccountReadState } from "@/hooks/community/community-ws/read-state-reconciliation"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import { serversCollectionQueryKey } from "@/lib/community-db/server-collection"
 import {
   trackCommunityWsReconcileComplete,
   trackCommunityWsReconcileFailure,
@@ -216,12 +218,14 @@ function policyExecutors(
     },
     "all-cached-servers": async () => {
       const serverIds = cachedServerIds(queryKeys)
+      const registry = getCommunityDbRegistry(queryClient)
       const settled = await Promise.allSettled([
-        queryClient.invalidateQueries({
-          queryKey: communityKeys.servers(),
-          exact: true,
-          refetchType: "active",
-        }),
+        registry?.requestServerRefetch()
+          ?? queryClient.invalidateQueries({
+            queryKey: serversCollectionQueryKey(),
+            exact: true,
+            refetchType: "active",
+          }),
         ...serverIds.map((serverId) => reconcileCachedServer(queryClient, serverId)),
       ])
       if (settled.some((result) => result.status === "rejected")) throw new Error("cached server reconciliation failed")

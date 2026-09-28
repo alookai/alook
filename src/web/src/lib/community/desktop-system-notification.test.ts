@@ -3,6 +3,11 @@ import type { CommunityMessageCreate, CommunityWsEvent } from "@alook/shared"
 import { QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
 import {
+  createCommunityDbRegistry,
+  registerCommunityDbRegistry,
+} from "@/lib/community-db/collections"
+import { seedCommunityServers } from "@/lib/community-db/server-test-seed"
+import {
   buildDesktopSystemNotificationCandidate,
   dismissDesktopSystemNotification,
   listenDesktopSystemNotificationActivations,
@@ -59,6 +64,8 @@ const serverRows = [{
     isOwner: false,
     unread: false,
     mentions: 0,
+    initial: "S",
+    active: false,
 }]
 const channelRows = [
   {
@@ -97,14 +104,20 @@ const channelRows = [
   },
 ]
 
-function seedCanonicalDirectory(
+const directoryCleanups: Array<() => void> = []
+
+async function seedCanonicalDirectory(
   queryClient: QueryClient,
   options: { channels?: boolean } = {},
 ) {
-  queryClient.setQueryData(
-    communityKeys.communityDbCollection("viewer_1", "servers"),
-    serverRows,
-  )
+  const registry = createCommunityDbRegistry(queryClient, "viewer_1")
+  const unregister = registerCommunityDbRegistry(registry)
+  await registry.preload()
+  seedCommunityServers(registry, { servers: serverRows })
+  directoryCleanups.push(() => {
+    unregister()
+    registry.cleanup()
+  })
   if (options.channels !== false) {
     queryClient.setQueryData(
       communityKeys.communityDbCollection("viewer_1", "channels"),
@@ -114,6 +127,7 @@ function seedCanonicalDirectory(
 }
 
 afterEach(() => {
+  for (const cleanup of directoryCleanups.splice(0).reverse()) cleanup()
   desktopMode.value = true
   vi.unstubAllGlobals()
   vi.clearAllMocks()
@@ -180,7 +194,7 @@ describe("desktop system notification candidates", () => {
 
   it("resolves a cold channel name before formatting the desktop copy", async () => {
     const queryClient = new QueryClient()
-    seedCanonicalDirectory(queryClient, { channels: false })
+    await seedCanonicalDirectory(queryClient, { channels: false })
     channelMetadataMocks.fetch.mockResolvedValue({
       id: "channel_1",
       serverId: "server_1",
@@ -234,7 +248,7 @@ describe("desktop system notification candidates", () => {
 
   it("resolves cold thread and parent channel names before formatting the desktop copy", async () => {
     const queryClient = new QueryClient()
-    seedCanonicalDirectory(queryClient, { channels: false })
+    await seedCanonicalDirectory(queryClient, { channels: false })
     channelMetadataMocks.fetch.mockResolvedValueOnce({
       id: "thread_1",
       serverId: "server_1",
@@ -275,7 +289,7 @@ describe("desktop system notification candidates", () => {
 
   it("uses complete current-account collections without metadata I/O", async () => {
     const queryClient = new QueryClient()
-    seedCanonicalDirectory(queryClient)
+    await seedCanonicalDirectory(queryClient)
     await expect(resolveDesktopSystemNotificationCandidate(
       create,
       bump,
@@ -299,7 +313,7 @@ describe("desktop system notification candidates", () => {
 
   it("keeps safe fallback copy when cold metadata resolution fails", async () => {
     const queryClient = new QueryClient()
-    seedCanonicalDirectory(queryClient, { channels: false })
+    await seedCanonicalDirectory(queryClient, { channels: false })
     channelMetadataMocks.fetch.mockRejectedValue(new Error("metadata unavailable"))
     await expect(resolveDesktopSystemNotificationCandidate(
       create,

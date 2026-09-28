@@ -3,8 +3,10 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { apiFetch, readUploadError } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
-import { avatarInitial } from "@/lib/community/avatar"
-import type { ServersResponse, ServerDetail } from "@/hooks/community/use-servers"
+import type { ServerDetail } from "@/hooks/community/use-servers"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import type { ServerRow } from "@/lib/community-db/schema"
+import { serversCollectionQueryKey } from "@/lib/community-db/server-collection"
 import {
   getActiveAccountUnreadProjection,
   type AccountUnreadScopeToken,
@@ -41,9 +43,8 @@ export function useCreateServer() {
       })
     },
     onSuccess: () => {
-      // The server row includes owner/role metadata we don't get from the
-      // response — refetch to hydrate the rail correctly.
-      void queryClient.invalidateQueries({ queryKey: communityKeys.servers() })
+      void (getCommunityDbRegistry(queryClient)?.requestServerRefetch()
+        ?? queryClient.invalidateQueries({ queryKey: serversCollectionQueryKey(), exact: true }))
     },
   })
 }
@@ -74,7 +75,8 @@ export function useJoinServer() {
       )
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: communityKeys.servers() })
+      void (getCommunityDbRegistry(queryClient)?.requestServerRefetch()
+        ?? queryClient.invalidateQueries({ queryKey: serversCollectionQueryKey(), exact: true }))
     },
   })
 }
@@ -95,19 +97,18 @@ export function useLeaveServer() {
   const queryClient = useQueryClient()
   const unreadProjection = getActiveAccountUnreadProjection(queryClient)
   return useMutation<void, Error, LeaveServerArgs, {
-    snapshot: ServersResponse | undefined
+    snapshot: ServerRow | undefined
     token: AccountUnreadScopeToken
   }>({
     mutationFn: async ({ serverId }) => {
       await apiFetch(`/api/community/servers/${serverId}/leave`, { method: "POST" })
     },
     onMutate: async (args) => {
-      const key = communityKeys.servers()
+      const key = serversCollectionQueryKey()
       await queryClient.cancelQueries({ queryKey: key })
-      const snapshot = queryClient.getQueryData<ServersResponse>(key)
-      queryClient.setQueryData<ServersResponse | undefined>(key, (prev) =>
-        prev ? { ...prev, servers: prev.servers.filter((s) => s.id !== args.serverId) } : prev,
-      )
+      const registry = getCommunityDbRegistry(queryClient)
+      const snapshot = registry?.collections.servers.get(args.serverId)
+      if (snapshot) registry?.collections.servers.utils.writeDelete(args.serverId)
       return {
         snapshot,
         token: unreadProjection.beginScopeRetirement({ kind: "server", serverId: args.serverId }),
@@ -115,7 +116,10 @@ export function useLeaveServer() {
     },
     onError: (_err, _args, ctx) => {
       if (ctx) unreadProjection.rollbackScopeRetirement(ctx.token)
-      if (ctx?.snapshot) queryClient.setQueryData(communityKeys.servers(), ctx.snapshot)
+      const registry = getCommunityDbRegistry(queryClient)
+      if (ctx?.snapshot && registry && !registry.collections.servers.has(ctx.snapshot.id)) {
+        registry.collections.servers.utils.writeInsert(ctx.snapshot)
+      }
     },
     onSuccess: (_data, args, context) => {
       unreadProjection.commitScopeRetirement(context.token)
@@ -132,7 +136,7 @@ export function useDeleteServer(callbacks: DeleteServerCallbacks) {
   const queryClient = useQueryClient()
   const unreadProjection = getActiveAccountUnreadProjection(queryClient)
   return useMutation<void, Error, LeaveServerArgs, {
-    snapshot: ServersResponse | undefined
+    snapshot: ServerRow | undefined
     token: AccountUnreadScopeToken
     routeToken: OwnerServerDeleteRouteToken
     onSuccess: DeleteServerCallbacks["onSuccess"]
@@ -143,12 +147,11 @@ export function useDeleteServer(callbacks: DeleteServerCallbacks) {
     },
     onMutate: async (args) => {
       beginOwnerServerDelete(args.serverId, callbacks.routeToken)
-      const key = communityKeys.servers()
+      const key = serversCollectionQueryKey()
       await queryClient.cancelQueries({ queryKey: key })
-      const snapshot = queryClient.getQueryData<ServersResponse>(key)
-      queryClient.setQueryData<ServersResponse | undefined>(key, (prev) =>
-        prev ? { ...prev, servers: prev.servers.filter((s) => s.id !== args.serverId) } : prev,
-      )
+      const registry = getCommunityDbRegistry(queryClient)
+      const snapshot = registry?.collections.servers.get(args.serverId)
+      if (snapshot) registry?.collections.servers.utils.writeDelete(args.serverId)
       return {
         snapshot,
         token: unreadProjection.beginScopeRetirement({ kind: "server", serverId: args.serverId }),
@@ -159,7 +162,10 @@ export function useDeleteServer(callbacks: DeleteServerCallbacks) {
     },
     onError: (error, args, ctx) => {
       if (ctx) unreadProjection.rollbackScopeRetirement(ctx.token)
-      if (ctx?.snapshot) queryClient.setQueryData(communityKeys.servers(), ctx.snapshot)
+      const registry = getCommunityDbRegistry(queryClient)
+      if (ctx?.snapshot && registry && !registry.collections.servers.has(ctx.snapshot.id)) {
+        registry.collections.servers.utils.writeInsert(ctx.snapshot)
+      }
       cancelOwnerServerDelete(args.serverId, ctx?.routeToken ?? callbacks.routeToken)
       const onError = ctx?.onError ?? callbacks.onError
       onError?.(error, args)
@@ -193,7 +199,7 @@ export function useUpdateServer() {
     void,
     Error,
     UpdateServerArgs,
-    { serverSnap: ServerDetail | undefined; listSnap: ServersResponse | undefined }
+    { serverSnap: ServerDetail | undefined; rowSnap: ServerRow | undefined }
   >({
     mutationFn: async ({ serverId, name, description }) => {
       await apiFetch(`/api/community/servers/${serverId}`, {
@@ -203,38 +209,31 @@ export function useUpdateServer() {
     },
     onMutate: async (args) => {
       const detailKey = communityKeys.server(args.serverId)
-      const listKey = communityKeys.servers()
+      const listKey = serversCollectionQueryKey()
       await Promise.all([
         queryClient.cancelQueries({ queryKey: detailKey }),
         queryClient.cancelQueries({ queryKey: listKey }),
       ])
       const serverSnap = queryClient.getQueryData<ServerDetail>(detailKey)
-      const listSnap = queryClient.getQueryData<ServersResponse>(listKey)
+      const registry = getCommunityDbRegistry(queryClient)
+      const rowSnap = registry?.collections.servers.get(args.serverId)
       queryClient.setQueryData<ServerDetail | undefined>(detailKey, (prev) =>
         prev ? { ...prev, name: args.name, description: args.description } : prev,
       )
-      queryClient.setQueryData<ServersResponse | undefined>(listKey, (prev) =>
-        prev
-          ? {
-            ...prev,
-            servers: prev.servers.map((s) =>
-              s.id === args.serverId
-                ? {
-                  ...s,
-                  name: args.name,
-                  description: args.description,
-                  initial: avatarInitial(args.name),
-                }
-                : s,
-            ),
-          }
-          : prev,
-      )
-      return { serverSnap, listSnap }
+      if (rowSnap) {
+        registry?.collections.servers.utils.writeUpdate({
+          id: args.serverId,
+          name: args.name,
+          description: args.description,
+        })
+      }
+      return { serverSnap, rowSnap }
     },
     onError: (_err, args, ctx) => {
       if (ctx?.serverSnap) queryClient.setQueryData(communityKeys.server(args.serverId), ctx.serverSnap)
-      if (ctx?.listSnap) queryClient.setQueryData(communityKeys.servers(), ctx.listSnap)
+      if (ctx?.rowSnap) {
+        getCommunityDbRegistry(queryClient)?.collections.servers.utils.writeUpdate(ctx.rowSnap)
+      }
     },
     onSettled: () => {
       void queryClient.invalidateQueries({
@@ -270,18 +269,10 @@ export function useUploadServerIcon() {
         communityKeys.server(args.serverId),
         (prev) => (prev ? { ...prev, icon: bustUrl } : prev),
       )
-      queryClient.setQueryData<ServersResponse | undefined>(
-        communityKeys.servers(),
-        (prev) =>
-          prev
-            ? {
-              ...prev,
-              servers: prev.servers.map((s) =>
-                s.id === args.serverId ? { ...s, icon: bustUrl } : s,
-              ),
-            }
-            : prev,
-      )
+      const registry = getCommunityDbRegistry(queryClient)
+      if (registry?.collections.servers.has(args.serverId)) {
+        registry.collections.servers.utils.writeUpdate({ id: args.serverId, icon: bustUrl })
+      }
     },
   })
 }

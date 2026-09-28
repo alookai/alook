@@ -1,5 +1,6 @@
 import { communityKeys } from "@/lib/query-keys"
 import type { CommunityWsProjectionTransaction } from "./projection-transaction"
+import { serversCollectionQueryKey } from "@/lib/community-db/server-collection"
 
 export function invalidateChannelRefDirectory(
   projection: CommunityWsProjectionTransaction,
@@ -24,7 +25,7 @@ export function invalidateServersList(
   projection: CommunityWsProjectionTransaction,
 ) {
   projection.invalidate("servers-list", {
-    queryKey: communityKeys.servers(),
+    queryKey: serversCollectionQueryKey(),
     exact: true,
   })
 }

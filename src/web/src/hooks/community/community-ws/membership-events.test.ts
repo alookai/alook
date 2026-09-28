@@ -4,6 +4,7 @@ import type { CommunityMemberJoin, CommunityMemberLeave, CommunityMemberUpdate }
 import { getMessageOverlay, useMessageStreamStore } from "@/stores/community/message-stream"
 import type { PresenceResponse } from "@/hooks/community/use-server-panels"
 import { communityKeys } from "@/lib/query-keys"
+import { serversCollectionQueryKey } from "@/lib/community-db/server-collection"
 import { getAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 import {
   getCanonicalCommunityChannels,
@@ -278,7 +279,7 @@ describe("useCommunityWs — member events", () => {
 
     capturedOnMessage!(event)
 
-    expect(spy).toHaveBeenCalledWith({ queryKey: communityKeys.servers(), exact: true })
+    expect(spy).toHaveBeenCalledWith({ queryKey: serversCollectionQueryKey(), exact: true })
     expect(spy).toHaveBeenCalledWith({ queryKey: communityKeys.server("srv_new"), exact: true })
 
     spy.mockClear()
@@ -286,7 +287,7 @@ describe("useCommunityWs — member events", () => {
       ...event,
       member: { ...event.member, id: "mem_peer", userId: "u_peer" },
     })
-    expect(spy).not.toHaveBeenCalledWith({ queryKey: communityKeys.servers(), exact: true })
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: serversCollectionQueryKey(), exact: true })
   })
 
   it("forwards WS membership changes onto the server-scoped search overlay bus", async () => {

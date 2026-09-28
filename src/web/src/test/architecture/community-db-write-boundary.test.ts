@@ -16,11 +16,31 @@ function walkSource(directory: string, files: string[] = []): string[] {
 }
 
 describe("community DB canonical write boundary", () => {
-  it("keeps adapter write utilities behind writeCommunityCollectionRows", () => {
+  it("keeps direct adapter writes inside the official server ownership boundary", () => {
     const directWrite = /\.utils\.write(?:Insert|Update|Delete|Upsert)\b/
+    const allowed = new Set([
+      "src/web/src/hooks/community/mutations/server-rail.ts",
+      "src/web/src/hooks/community/mutations/servers.ts",
+      "src/web/src/lib/community-db/collections.ts",
+      "src/web/src/lib/community-db/server-test-seed.ts",
+      "src/web/src/lib/community-db/sync.ts",
+    ])
     expect(walkSource(webSourceRoot)
+      .filter((path) => !/\.test\.[tj]sx?$/.test(path))
       .filter((path) => directWrite.test(readFileSync(path, "utf8")))
-      .map((path) => relative(repositoryRoot, path).replaceAll("\\", "/")))
+      .map((path) => relative(repositoryRoot, path).replaceAll("\\", "/"))
+      .filter((path) => !allowed.has(path)))
       .toEqual([])
+  })
+
+  it("has no server-list publication or DB shadow reader", () => {
+    const production = walkSource(webSourceRoot)
+      .filter((path) => !/\.test\.[tj]sx?$/.test(path))
+      .map((path) => readFileSync(path, "utf8"))
+      .join("\n")
+    expect(production).not.toContain("serversProjectedQueryFn")
+    expect(production).not.toContain("liveServerListAuthority")
+    expect(production).not.toMatch(/communityDbCollection\([^\n]*["']servers["']/)
+    expect(production).not.toContain('kind: "servers"')
   })
 })

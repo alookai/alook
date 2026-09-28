@@ -49,6 +49,7 @@ import {
 import { reconcileAccountReadState } from "@/hooks/community/community-ws/read-state-reconciliation"
 import { reconcileAccountAttention } from "@/hooks/community/use-account-attention"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import { serversCollectionQueryKey } from "@/lib/community-db/server-collection"
 import {
   clearAttentionOptimistically,
   commitAttentionOptimisticSnapshot,
@@ -964,7 +965,7 @@ export function useMarkAllInboxRead() {
       }
       toastApiError(e, "Failed to mark inbox read")
       void queryClient.invalidateQueries({ queryKey: communityKeys.inbox() })
-      void queryClient.invalidateQueries({ queryKey: communityKeys.servers() })
+      void queryClient.invalidateQueries({ queryKey: serversCollectionQueryKey(), exact: true })
     },
   })
 }
@@ -1024,7 +1025,7 @@ export function useDeleteMention() {
       }
       // Deleting a mention row removes it from the unread-mention aggregate
       // that feeds the server rail badge — refresh so the count drops.
-      void queryClient.invalidateQueries({ queryKey: communityKeys.servers() })
+      void queryClient.invalidateQueries({ queryKey: serversCollectionQueryKey(), exact: true })
     },
     onError: (err, _args, ctx) => {
       if (ctx?.token) unreadProjection.rollbackDismissMention(ctx.token)
