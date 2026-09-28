@@ -91,6 +91,12 @@ function expectStableScroller(before: ScrollerGeometry, after: ScrollerGeometry)
   }
 }
 
+async function clickAuthoritativeOwnerChannelRow(page: Page, channelId: string): Promise<void> {
+  const row = page.getByTestId(tid.channelRow(channelId))
+  await expect(row).toHaveAttribute("aria-disabled", "false", { timeout: 20_000 })
+  await row.evaluate((element) => (element as HTMLElement).click())
+}
+
 async function dispatchSwipe(
   page: Page,
   messageId: string,
@@ -512,8 +518,8 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
     composerId: tid.channelComposerShell,
   })
   expect(restingThreadGap).not.toBeNull()
-  expect(restingThreadGap!).toBeGreaterThanOrEqual(15)
-  expect(restingThreadGap!).toBeLessThanOrEqual(18)
+  expect(restingThreadGap!).toBeGreaterThanOrEqual(39)
+  expect(restingThreadGap!).toBeLessThanOrEqual(41)
   const threadWsReadyId = await seedMessage("alice", threadId, `thread ws ready ${stamp}`)
   await expect.poll(() => bobProxy.frames.some((frame) => (
     frameHasMessage(frame, threadId, threadWsReadyId)
@@ -646,12 +652,13 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
     indicatorId: tid.typingIndicator,
     replyMessageTestId: tid.message(typingWsReadyId),
   })
-  expect(geometry.contentPaddingBottom).toBe(16)
+  expect(geometry.contentPaddingBottom).toBe(0)
   expect(geometry.scroller!.bottom).toBeLessThanOrEqual(geometry.composer!.top + 1)
   expect(geometry.rail!.bottom).toBeLessThanOrEqual(geometry.scroller!.bottom + 1)
   expect(geometry.indicator!.height).toBe(32)
   expect(Math.abs(geometry.scroller!.bottom - geometry.indicator!.bottom - 8)).toBeLessThanOrEqual(1)
-  expect(geometry.scroller!.bottom - geometry.finalMessage!.bottom).toBeGreaterThanOrEqual(15)
+  expect(geometry.scroller!.bottom - geometry.finalMessage!.bottom).toBeGreaterThanOrEqual(39)
+  expect(geometry.scroller!.bottom - geometry.finalMessage!.bottom).toBeLessThanOrEqual(41)
   expect(geometry.finalMessage!.bottom).toBeLessThanOrEqual(geometry.scroller!.bottom + 1)
   expect(geometry.horizontalOverflow).toBeLessThanOrEqual(0)
 
@@ -819,7 +826,7 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
     railId: tid.composerAccessoryRail,
     indicatorId: tid.typingIndicator,
   })
-  expect(dmGeometry.contentPaddingBottom).toBe(16)
+  expect(dmGeometry.contentPaddingBottom).toBe(0)
   expect(dmGeometry.scroller!.bottom).toBeLessThanOrEqual(dmGeometry.composer!.top + 1)
   expect(dmGeometry.rail!.bottom).toBeLessThanOrEqual(dmGeometry.scroller!.bottom + 1)
   expect(dmGeometry.indicator!.height).toBe(32)
@@ -887,9 +894,7 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   await expect.poll(() => new URL(alice.page.url()).pathname).toBe("/c/me")
   await alice.page.getByTestId(tid.serverIcon(serverId)).click()
   await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/channels/${serverId}`)
-  await alice.page.getByTestId(tid.channelRow(channelId)).evaluate((element) => (
-    (element as HTMLElement).click()
-  ))
+  await clickAuthoritativeOwnerChannelRow(alice.page, channelId)
   await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/channels/${serverId}/${channelId}`)
   await expect(composerEditable(alice.page)).toBeVisible()
   expect(await alice.page.evaluate(() => (
@@ -909,9 +914,7 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   const channelReturnGets = trackSurfaceGets(alice.page, channelId)
   await alice.page.getByRole("banner").getByRole("button", { name: "Back" }).click()
   await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/channels/${serverId}`)
-  await alice.page.getByTestId(tid.channelRow(channelId)).evaluate((element) => (
-    (element as HTMLElement).click()
-  ))
+  await clickAuthoritativeOwnerChannelRow(alice.page, channelId)
   await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/channels/${serverId}/${channelId}`)
   await expect(composerEditable(alice.page)).toContainText(navigationDraft)
   await expect(alice.page.getByTestId(tid.message(channelReadState.lastReadMessageId!))).toBeVisible()

@@ -7,7 +7,9 @@ import {
   findMountScrollTargetIndex,
   extractScrollAnchorMessages,
   measureMessageRow,
+  MESSAGE_RAIL_TAIL_PADDING_END_PX,
   NEAR_BOTTOM_PX,
+  resolveMessageRailTailPaddingEnd,
   resolveViewportResizeAnchor,
   shouldAdjustMessageScrollPosition,
   type ScrollAnchorState,
@@ -17,6 +19,15 @@ import type { FlatItem } from "@/lib/community/message-list-items"
 import type { VirtualItem } from "@tanstack/react-virtual"
 
 const msgs = (...ids: string[]): ScrollAnchorMessage[] => ids.map((id) => ({ id }))
+
+describe("message rail tail geometry", () => {
+  it("resolves the fixed 40px mobile and 48px desktop virtual tail", () => {
+    expect(MESSAGE_RAIL_TAIL_PADDING_END_PX).toEqual({ mobile: 40, desktop: 48 })
+    expect(resolveMessageRailTailPaddingEnd("mobile")).toBe(40)
+    expect(resolveMessageRailTailPaddingEnd("desktop")).toBe(48)
+    expect(resolveMessageRailTailPaddingEnd("unknown")).toBe(48)
+  })
+})
 
 describe("resolveViewportResizeAnchor", () => {
   it.each([0, 2, 100])("preserves a %ipx tail distance across footer growth", (distance) => {

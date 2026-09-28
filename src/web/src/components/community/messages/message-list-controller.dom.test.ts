@@ -12,6 +12,7 @@ const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..")
 const readWebSource = (path: string) => readFileSync(resolve(webRoot, path), "utf8")
 
 const mocks = vi.hoisted(() => ({
+  breakpoint: "desktop" as "unknown" | "desktop" | "mobile",
   hookOrder: [] as string[],
   scrollInputs: [] as unknown[],
   sentinelInputs: [] as unknown[],
@@ -25,7 +26,12 @@ const mocks = vi.hoisted(() => ({
   captureNewerPageAnchor: vi.fn(),
 }))
 
+vi.mock("@/hooks/use-mobile", () => ({
+  useBreakpoint: () => mocks.breakpoint,
+}))
+
 vi.mock("@/hooks/community/use-scroll-anchor", () => ({
+  resolveMessageRailTailPaddingEnd: (breakpoint: string) => breakpoint === "mobile" ? 40 : 48,
   useScrollAnchor: (input: unknown) => {
     mocks.hookOrder.push("anchor")
     mocks.scrollInputs.push(input)
@@ -124,6 +130,7 @@ describe("useMessageListController", () => {
   }
 
   beforeEach(() => {
+    mocks.breakpoint = "desktop"
     currentHeroNode = heroNode as HTMLDivElement
     currentScrollNode = scrollNode as unknown as HTMLDivElement
     resizeCallback = null
@@ -195,6 +202,7 @@ describe("useMessageListController", () => {
       viewerUserId: undefined,
       heroHeight: 0,
       heroMeasured: false,
+      tailPaddingEnd: 48,
       onInitialPositionSettled: expect.any(Function),
     })
     expect(mocks.sentinelInputs.slice(0, 2)).toEqual([
@@ -232,6 +240,36 @@ describe("useMessageListController", () => {
     })
     expect(latest.isLoading).toBe(true)
     expect(mocks.hookOrder.slice(-3)).toEqual(["anchor", "start", "end"])
+  })
+
+  it("passes the breakpoint-owned fixed tail padding to the virtualizer", () => {
+    mocks.breakpoint = "mobile"
+    act(() => {
+      rtlRender(React.createElement(Probe, { value: props() }))
+    })
+    expect(mocks.scrollInputs.at(-1)).toEqual(expect.objectContaining({
+      tailPaddingEnd: 40,
+    }))
+  })
+
+  it("keeps the virtual tail fixed when typing visibility changes", () => {
+    let renderer: ReturnType<typeof rtlRender>
+    act(() => {
+      renderer = rtlRender(React.createElement(Probe, {
+        value: props({ typingUsers: [] }),
+      }))
+    })
+    const withoutTyping = mocks.scrollInputs.at(-1) as { tailPaddingEnd: number }
+
+    act(() => {
+      renderer!.rerender(React.createElement(Probe, {
+        value: props({ typingUsers: ["Alice"] }),
+      }))
+    })
+    const withTyping = mocks.scrollInputs.at(-1) as { tailPaddingEnd: number }
+
+    expect(withoutTyping.tailPaddingEnd).toBe(48)
+    expect(withTyping.tailPaddingEnd).toBe(withoutTyping.tailPaddingEnd)
   })
 
   it("reveals an authoritative empty window immediately and skips positioning effects", () => {
@@ -304,6 +342,7 @@ describe("useMessageListController", () => {
       viewerUserId: "viewer_1",
       heroHeight: 0,
       heroMeasured: true,
+      tailPaddingEnd: 48,
       onInitialPositionSettled: expect.any(Function),
     })
     expect(mocks.sentinelInputs.slice(-2)).toEqual([
