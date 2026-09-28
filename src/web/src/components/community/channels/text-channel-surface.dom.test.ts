@@ -473,6 +473,43 @@ describe("TextChannelSurface header hierarchy", () => {
     expect(mockedChannelHeader.mock.calls.at(-1)?.[0]).not.toHaveProperty("typingUsers")
   })
 
+  it("holds initial reveal until thread indicators settle", () => {
+    const props = {
+      channelId: "channel_1",
+      serverId: "server_1",
+      serverParam: "server_1",
+      channelName: "general",
+      viewer: { id: "viewer_1", name: "Viewer", avatar: "V" },
+      canManagePins: false,
+      anchorMessageId: null,
+      notificationLevel: "default" as const,
+      onSetNotificationLevel: vi.fn(),
+      composerMembers: [],
+      composerMentionCandidates: undefined,
+      channelRefCandidates: [],
+      memberPanelProps: { members: [] },
+      manageMembersDialog: null,
+      uiHandlers: {},
+      onOpenThread: vi.fn(),
+      onOpenProfile: vi.fn(),
+      resolveUserName: (userId: string) => userId,
+    }
+    mockedUseChannelMessageFeed.mockReturnValue(feed({
+      messages: [{ id: "opener" }],
+      threadsLoading: true,
+    }))
+    const renderer = render(React.createElement(TextChannelSurface, props))
+
+    expect(mockedMessageList.mock.calls.at(-1)?.[0].initialScrollReady).toBe(false)
+
+    mockedUseChannelMessageFeed.mockReturnValue(feed({
+      messages: [{ id: "opener" }],
+      threadsLoading: false,
+    }))
+    renderer.rerender(React.createElement(TextChannelSurface, props))
+    expect(mockedMessageList.mock.calls.at(-1)?.[0].initialScrollReady).toBe(true)
+  })
+
   it("keeps the stable conversation skeleton mounted until canonical messages commit", () => {
     mockedUseChannelMessageFeed.mockReturnValue(feed({ isLoading: true }))
     const renderer = render(React.createElement(TextChannelSurface, {

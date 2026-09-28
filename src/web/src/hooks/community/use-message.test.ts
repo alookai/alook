@@ -6,13 +6,16 @@ const apiFetchMock = vi.fn()
 const {
   liveSnapshotToken,
   captureCommunityLiveSnapshotTokenMock,
-  publishCommunityEmbeddedMessagesMock,
+  publishCommunityEmbeddedMessagesWithReceiptMock,
 } = vi.hoisted(() => {
   const token = { canonicalRevision: 0 }
   return {
     liveSnapshotToken: token,
     captureCommunityLiveSnapshotTokenMock: vi.fn(() => token),
-    publishCommunityEmbeddedMessagesMock: vi.fn(),
+    publishCommunityEmbeddedMessagesWithReceiptMock: vi.fn(() => ({
+      status: "published",
+      committed: Promise.resolve(),
+    })),
   }
 })
 vi.mock("@/lib/api/client", () => ({
@@ -22,15 +25,15 @@ vi.mock("@/lib/community-db/sync", () => ({
   captureCommunityLiveSnapshotToken: (...args: unknown[]) => (
     captureCommunityLiveSnapshotTokenMock(...args)
   ),
-  publishCommunityEmbeddedMessages: (...args: unknown[]) => (
-    publishCommunityEmbeddedMessagesMock(...args)
+  publishCommunityEmbeddedMessagesWithReceipt: (...args: unknown[]) => (
+    publishCommunityEmbeddedMessagesWithReceiptMock(...args)
   ),
 }))
 
 beforeEach(() => {
   apiFetchMock.mockReset()
   captureCommunityLiveSnapshotTokenMock.mockClear()
-  publishCommunityEmbeddedMessagesMock.mockReset()
+  publishCommunityEmbeddedMessagesWithReceiptMock.mockClear()
 })
 
 describe("useMessage / messageQueryFn", () => {
@@ -84,10 +87,62 @@ describe("useMessage / messageQueryFn", () => {
 
     await messageQueryFn("m_1", queryClient)()
 
-    expect(publishCommunityEmbeddedMessagesMock).toHaveBeenCalledWith(queryClient, {
+    expect(publishCommunityEmbeddedMessagesWithReceiptMock).toHaveBeenCalledWith(queryClient, {
       entries: [{ channelId: "archived-post-1", message: payload }],
       proof: { token: liveSnapshotToken, signal: undefined },
     })
+  })
+
+  it("does not settle an exact opener before its canonical commit", async () => {
+    let resolveCommit!: () => void
+    const committed = new Promise<void>((resolve) => { resolveCommit = resolve })
+    publishCommunityEmbeddedMessagesWithReceiptMock.mockReturnValueOnce({
+      status: "published",
+      committed,
+    })
+    apiFetchMock.mockResolvedValueOnce({
+      id: "m_1",
+      channelId: "channel-1",
+      type: "chat",
+      authorId: "u_1",
+      authorName: "Alice",
+      authorAvatar: "",
+      authorAvatarVersion: 0,
+      content: "pending commit",
+      createdAt: "2026-07-03T00:00:00.000Z",
+    })
+    const { messageQueryFn } = await import("./use-message")
+    let settled = false
+    const result = messageQueryFn("m_1", new QueryClient())().then((value) => {
+      settled = true
+      return value
+    })
+
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    resolveCommit()
+    await expect(result).resolves.toMatchObject({ id: "m_1" })
+  })
+
+  it("rejects a successful response whose id does not match the request", async () => {
+    apiFetchMock.mockResolvedValueOnce({
+      id: "wrong",
+      channelId: "channel-1",
+      type: "chat",
+      authorId: "u_1",
+      authorName: "Alice",
+      authorAvatar: "",
+      authorAvatarVersion: 0,
+      content: "wrong row",
+      createdAt: "2026-07-03T00:00:00.000Z",
+    })
+    const { messageQueryFn } = await import("./use-message")
+
+    await expect(messageQueryFn("m_1", new QueryClient())()).rejects.toMatchObject({
+      name: "CommunityMessageProtocolError",
+    })
+    expect(publishCommunityEmbeddedMessagesWithReceiptMock).not.toHaveBeenCalled()
   })
 
   it("derives an opener placeholder from a persisted message window", async () => {

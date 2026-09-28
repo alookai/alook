@@ -3,6 +3,7 @@ import { renderToString } from "react-dom/server"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, render, waitFor } from "@/test/react-dom-harness"
 import { useCommunityWsStore } from "@/stores/community/ws"
+import { communityKeys } from "@/lib/query-keys"
 
 const mocks = vi.hoisted(() => ({
   capture: vi.fn(),
@@ -19,6 +20,7 @@ const mocks = vi.hoisted(() => ({
 
 const queryClient = {
   invalidateQueries: vi.fn(() => Promise.resolve()),
+  refetchQueries: vi.fn(() => Promise.resolve()),
 }
 
 vi.mock("@tanstack/react-query", async (importOriginal) => {
@@ -87,7 +89,7 @@ describe("QueryProvider collection startup", () => {
     expect(mocks.getRuntime).not.toHaveBeenCalled()
   })
 
-  it("keeps the pending frame until the account collection registry is ready", async () => {
+  it("mounts route queries while account collections are still preloading", async () => {
     let resolvePreload!: () => void
     mocks.preload.mockReturnValueOnce(new Promise<void>((resolve) => {
       resolvePreload = resolve
@@ -100,12 +102,12 @@ describe("QueryProvider collection startup", () => {
 
     expect(renderer.container).toHaveTextContent("pending")
     await waitFor(() => expect(mocks.preload).toHaveBeenCalledOnce())
-    expect(renderer.container).toHaveTextContent("pending")
-    expect(mocks.installSync).not.toHaveBeenCalled()
+    expect(renderer.container).toHaveTextContent("ready")
+    expect(mocks.installSync).toHaveBeenCalledOnce()
     expect(mocks.capture).not.toHaveBeenCalled()
     await act(async () => resolvePreload())
-    await waitFor(() => expect(renderer.container).toHaveTextContent("ready"))
-    expect(mocks.capture).toHaveBeenCalledOnce()
+    expect(renderer.container).toHaveTextContent("ready")
+    expect(mocks.capture).not.toHaveBeenCalled()
     expect(useCommunityWsStore.getState().profileViewerId).toBe("viewer-b")
     expect(mocks.installSync).toHaveBeenCalledOnce()
     renderer.unmount()
@@ -130,7 +132,7 @@ describe("QueryProvider collection startup", () => {
     ))
 
     await waitFor(() => expect(mocks.createRegistry).toHaveBeenCalledTimes(2))
-    expect(renderer.container).toHaveTextContent("pending")
+    expect(renderer.container).toHaveTextContent("ready")
     expect(mocks.createRegistry).toHaveBeenNthCalledWith(
       1,
       queryClient,
@@ -139,10 +141,15 @@ describe("QueryProvider collection startup", () => {
     )
     expect(mocks.createRegistry).toHaveBeenNthCalledWith(2, queryClient, "viewer-b")
     expect(mocks.capture).not.toHaveBeenCalled()
-    expect(persisted.cleanup).toHaveBeenCalledOnce()
+    expect(persisted.cleanup).not.toHaveBeenCalled()
     await act(async () => resolveMemoryPreload())
     await waitFor(() => expect(renderer.container).toHaveTextContent("ready"))
-    expect(mocks.capture).toHaveBeenCalledOnce()
+    await waitFor(() => expect(persisted.cleanup).toHaveBeenCalledOnce())
+    expect(queryClient.refetchQueries).toHaveBeenCalledWith(expect.objectContaining({
+      queryKey: communityKeys.all,
+      type: "active",
+    }))
+    expect(mocks.capture).not.toHaveBeenCalled()
     renderer.unmount()
   })
 })

@@ -128,6 +128,11 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     && communityDb?.hasRestoredCollection("servers")
     && communityDb.hasRestoredCollection("channels"),
   )
+  const serverTreeCollectionsReady = Boolean(
+    (communityDb?.isCollectionReady?.("servers") ?? true)
+    && (communityDb?.isCollectionReady?.("categories") ?? true)
+    && (communityDb?.isCollectionReady?.("channels") ?? true),
+  )
   const sidebarCategories = useMemo(
     () => currentServer?.categories ?? [],
     [currentServer],
@@ -391,7 +396,9 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     ),
   })), [forumSidebar.parentUnread, sidebarCategories])
   const sidebarDataReady = Boolean(
-    currentServer && (restoredServerTree || serverTreeLiveAuthoritative),
+    currentServer
+    && serverTreeCollectionsReady
+    && (restoredServerTree || serverTreeLiveAuthoritative),
   )
   const channelTreeScopeKey = `server:${serverId}`
 

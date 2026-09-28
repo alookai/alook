@@ -50,6 +50,21 @@ export function useOptionalCommunityDbRegistry() {
 
 const subscribeToNoRestoredCollections = () => () => {}
 const noRestoredPrimary = () => false
+const noCollectionReadiness = () => 0
+
+type CommunityCollectionName = keyof CommunityDbRegistry["collections"]
+
+function useCollectionReady(
+  registry: CommunityDbRegistry | null,
+  name: CommunityCollectionName,
+) {
+  useSyncExternalStore(
+    registry?.subscribeCollectionReadiness ?? subscribeToNoRestoredCollections,
+    registry?.getCollectionReadinessSnapshot ?? noCollectionReadiness,
+    noCollectionReadiness,
+  )
+  return registry ? (registry.isCollectionReady?.(name) ?? true) : false
+}
 
 export function useTrustedRestoredPrimary() {
   const registry = useOptionalCommunityDbRegistry()
@@ -79,58 +94,66 @@ export function CommunityDbProvider({
 
 function useCollectionRows() {
   const registry = useOptionalCommunityDbRegistry()
+  useSyncExternalStore(
+    registry?.subscribeCollectionReadiness ?? subscribeToNoRestoredCollections,
+    registry?.getCollectionReadinessSnapshot ?? noCollectionReadiness,
+    noCollectionReadiness,
+  )
+  const ready = (name: CommunityCollectionName) => (
+    registry ? (registry.isCollectionReady?.(name) ?? true) : false
+  )
   const servers = useLiveQuery({
-    query: (q) => registry
+    query: (q) => registry && ready("servers")
       ? q.from({ server: registry.collections.servers })
       : undefined,
   }).data as ServerRow[] | undefined
   const categories = useLiveQuery({
-    query: (q) => registry
+    query: (q) => registry && ready("categories")
       ? q.from({ category: registry.collections.categories })
       : undefined,
   }).data as CategoryRow[] | undefined
   const channels = useLiveQuery({
-    query: (q) => registry
+    query: (q) => registry && ready("channels")
       ? q.from({ channel: registry.collections.channels })
       : undefined,
   }).data as ChannelRow[] | undefined
   const serverMemberships = useLiveQuery({
-    query: (q) => registry
+    query: (q) => registry && ready("serverMemberships")
       ? q.from({ membership: registry.collections.serverMemberships })
       : undefined,
   }).data as ServerMembershipRow[] | undefined
   const channelMemberships = useLiveQuery({
-    query: (q) => registry
+    query: (q) => registry && ready("channelMemberships")
       ? q.from({ membership: registry.collections.channelMemberships })
       : undefined,
   }).data as ChannelMembershipRow[] | undefined
   const profiles = useLiveQuery({
-    query: (q) => registry
+    query: (q) => registry && ready("profiles")
       ? q.from({ profile: registry.collections.profiles })
       : undefined,
   }).data as ProfileRow[] | undefined
   const messages = useLiveQuery({
-    query: (q) => registry
+    query: (q) => registry && ready("messages")
       ? q.from({ message: registry.collections.messages })
       : undefined,
   }).data as MessageRow[] | undefined
   const readStates = useLiveQuery({
-    query: (q) => registry
+    query: (q) => registry && ready("readStates")
       ? q.from({ readState: registry.collections.readStates })
       : undefined,
   }).data as ReadStateRow[] | undefined
   const folders = useLiveQuery({
-    query: (q) => registry
+    query: (q) => registry && ready("folders")
       ? q.from({ folder: registry.collections.folders })
       : undefined,
   }).data as FolderRow[] | undefined
   const folderItems = useLiveQuery({
-    query: (q) => registry
+    query: (q) => registry && ready("folderItems")
       ? q.from({ item: registry.collections.folderItems })
       : undefined,
   }).data as FolderItemRow[] | undefined
   const notificationSettings = useLiveQuery({
-    query: (q) => registry
+    query: (q) => registry && ready("notificationSettings")
       ? q.from({ setting: registry.collections.notificationSettings })
       : undefined,
   }).data as NotificationSettingRow[] | undefined
@@ -316,8 +339,9 @@ export function useDmProjection() {
 
 export function useRouteChannelProjection(channelId: string | null) {
   const registry = useOptionalCommunityDbRegistry()
+  const ready = useCollectionReady(registry, "channels")
   const result = useLiveQuery({
-    query: (q) => registry
+    query: (q) => registry && ready
       ? q.from({ channel: registry.collections.channels })
       : undefined,
   })
@@ -329,8 +353,9 @@ export function useRouteChannelProjection(channelId: string | null) {
 
 export function useReadStateProjection(channelId: string | null | undefined) {
   const registry = useOptionalCommunityDbRegistry()
+  const ready = useCollectionReady(registry, "readStates")
   const result = useLiveQuery({
-    query: (q) => registry
+    query: (q) => registry && ready
       ? q.from({ readState: registry.collections.readStates })
       : undefined,
   })
@@ -349,8 +374,9 @@ export function useReadStateProjection(channelId: string | null | undefined) {
 
 export function useMessageProjection(channelId: string | null) {
   const registry = useOptionalCommunityDbRegistry()
+  const ready = useCollectionReady(registry, "messages")
   const result = useLiveQuery({
-    query: (q) => registry
+    query: (q) => registry && ready
       ? q.from({ message: registry.collections.messages })
       : undefined,
   })
@@ -368,23 +394,25 @@ export function useMessageProjection(channelId: string | null) {
 
 export function useCanonicalMessagesById(): ReadonlyMap<string, Msg> | undefined {
   const registry = useOptionalCommunityDbRegistry()
+  const ready = useCollectionReady(registry, "messages")
   const result = useLiveQuery({
-    query: (q) => registry
+    query: (q) => registry && ready
       ? q.from({ message: registry.collections.messages })
       : undefined,
   })
-  return useMemo(() => !registry ? undefined : new Map(
+  return useMemo(() => !registry || !ready ? undefined : new Map(
     ((result.data ?? []) as MessageRow[]).map((message) => {
       const { channelId: _channelId, replyToId: _replyToId, ...model } = message
       return [message.id, model as Msg]
     }),
-  ), [registry, result.data])
+  ), [ready, registry, result.data])
 }
 
 export function useCanonicalChannelsById(): ReadonlyMap<string, ChannelRow> {
   const registry = useOptionalCommunityDbRegistry()
+  const ready = useCollectionReady(registry, "channels")
   const result = useLiveQuery({
-    query: (q) => registry
+    query: (q) => registry && ready
       ? q.from({ channel: registry.collections.channels })
       : undefined,
   })
@@ -395,8 +423,9 @@ export function useCanonicalChannelsById(): ReadonlyMap<string, ChannelRow> {
 
 export function useCanonicalServersById(): ReadonlyMap<string, ServerRow> {
   const registry = useOptionalCommunityDbRegistry()
+  const ready = useCollectionReady(registry, "servers")
   const result = useLiveQuery({
-    query: (q) => registry
+    query: (q) => registry && ready
       ? q.from({ server: registry.collections.servers })
       : undefined,
   })
@@ -449,8 +478,9 @@ export function useNotificationSettingsProjection() {
 
 function useProfileProjectionMap() {
   const registry = useOptionalCommunityDbRegistry()
+  const ready = useCollectionReady(registry, "profiles")
   const result = useLiveQuery({
-    query: (q) => registry
+    query: (q) => registry && ready
       ? q.from({ profile: registry.collections.profiles })
       : undefined,
   })
@@ -485,8 +515,9 @@ export function useCanonicalCommunityProfile(userId: string | null | undefined) 
 
 export function useAttentionScopes(): readonly AttentionScopeRow[] {
   const registry = useOptionalCommunityDbRegistry()
+  const ready = useCollectionReady(registry, "attentionScopes")
   const result = useLiveQuery({
-    query: (q) => registry
+    query: (q) => registry && ready
       ? q.from({ scope: registry.collections.attentionScopes })
       : undefined,
   })
@@ -495,8 +526,9 @@ export function useAttentionScopes(): readonly AttentionScopeRow[] {
 
 export function useAttentionItems(): readonly AttentionItemRow[] {
   const registry = useOptionalCommunityDbRegistry()
+  const ready = useCollectionReady(registry, "attentionItems")
   const result = useLiveQuery({
-    query: (q) => registry
+    query: (q) => registry && ready
       ? q.from({ item: registry.collections.attentionItems })
       : undefined,
   })

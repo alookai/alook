@@ -133,7 +133,13 @@ export function useChannelRouteModel(
     && communityDb?.hasRestoredCollection("servers")
     && communityDb.hasRestoredCollection("channels"),
   )
-  const serverTreeReady = restoredServerTree || serverQuery.isLiveAuthoritative
+  const serverTreeCollectionsReady = Boolean(
+    (communityDb?.isCollectionReady?.("servers") ?? true)
+    && (communityDb?.isCollectionReady?.("categories") ?? true)
+    && (communityDb?.isCollectionReady?.("channels") ?? true),
+  )
+  const serverTreeReady = serverTreeCollectionsReady
+    && (restoredServerTree || serverQuery.isLiveAuthoritative)
   const routeLifecycle = !server?.categories || !serverTreeReady
     ? "pending" as const
     : !isChild

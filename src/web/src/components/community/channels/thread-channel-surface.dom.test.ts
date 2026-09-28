@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
   jumpToSeq: vi.fn(),
   search: vi.fn(),
   setContextTarget: vi.fn(),
+  useMessage: vi.fn(),
 }))
 
 vi.mock("next/navigation", () => ({ useRouter: () => mocks.router }))
@@ -38,6 +39,9 @@ vi.mock("@/hooks/community/thread-opener-read-handoff", () => ({
 }))
 vi.mock("@/hooks/community/use-channel-message-feed", () => ({
   useChannelMessageFeed: vi.fn(),
+}))
+vi.mock("@/hooks/community/use-message", () => ({
+  useMessage: (...args: unknown[]) => mocks.useMessage(...args),
 }))
 vi.mock("@/hooks/community/mutations", () => ({
   useEditMessage: () => ({ mutateAsync: mocks.editMessage }),
@@ -224,6 +228,21 @@ describe("ThreadChannelSurface ownership", () => {
     mockedUseChannelMessageFeed.mockReturnValue(feed())
     mocks.apiFetch.mockResolvedValue({})
     mocks.editMessage.mockResolvedValue({})
+    mocks.useMessage.mockReturnValue({
+      isCanonicalPending: false,
+      isError: false,
+      isLoading: false,
+      message: {
+        id: "opener_1",
+        type: "chat",
+        authorId: "author_1",
+        authorName: "Alice",
+        authorAvatar: "",
+        authorAvatarVersion: 0,
+        content: "Opener",
+        createdAt: "2026-09-28T00:00:00.000Z",
+      },
+    })
   })
 
   it("installs the parent-opener claim hook before initializing the child feed", () => {
@@ -266,10 +285,13 @@ describe("ThreadChannelSurface ownership", () => {
     const messageListProps = mockedMessageList.mock.calls.at(-1)![0]
     const opener = messageListProps.hero as React.ReactElement<React.ComponentProps<typeof ThreadOpener>>
     expect(opener.type).toBe(ThreadOpener)
-    expect(opener.props).toEqual(expect.objectContaining({
-      parentMessageId: "opener_1",
-      parentChannelId: "parent_1",
+    expect(mocks.useMessage).toHaveBeenCalledOnce()
+    expect(mocks.useMessage).toHaveBeenCalledWith("opener_1", {
+      channelId: "parent_1",
       serverId: "server_1",
+    })
+    expect(opener.props).toEqual(expect.objectContaining({
+      settlement: expect.objectContaining({ status: "ready" }),
       viewerUserId: "viewer_1",
       onOpenProfile: props.onOpenProfile,
       onToggleReaction: expect.any(Function),
@@ -316,6 +338,49 @@ describe("ThreadChannelSurface ownership", () => {
     }))
     act(() => composerProps.onCancelReply?.())
     expect(mocks.setReplyTo).toHaveBeenCalledWith(null)
+  })
+
+  it("holds initial scroll and the hero on one opener settlement", () => {
+    mocks.useMessage.mockReturnValue({
+      isCanonicalPending: true,
+      isError: false,
+      isLoading: false,
+      message: null,
+    })
+    const renderer = render(renderSurface())
+
+    expect(mocks.useMessage).toHaveBeenCalledOnce()
+    expect(mockedMessageList.mock.calls.at(-1)?.[0]).toEqual(expect.objectContaining({
+      initialScrollReady: false,
+      hero: expect.objectContaining({
+        props: expect.objectContaining({ settlement: { status: "pending" } }),
+      }),
+    }))
+
+    mocks.useMessage.mockReturnValue({
+      isCanonicalPending: false,
+      isError: false,
+      isLoading: false,
+      message: {
+        id: "opener_1",
+        type: "chat",
+        authorId: "author_1",
+        authorName: "Alice",
+        authorAvatar: "",
+        authorAvatarVersion: 0,
+        content: "Committed opener",
+        createdAt: "2026-09-28T00:00:00.000Z",
+      },
+    })
+    renderer.rerender(renderSurface())
+    expect(mockedMessageList.mock.calls.at(-1)?.[0]).toEqual(expect.objectContaining({
+      initialScrollReady: true,
+      hero: expect.objectContaining({
+        props: expect.objectContaining({
+          settlement: expect.objectContaining({ status: "ready" }),
+        }),
+      }),
+    }))
   })
 
   it("keeps the composer in the shared normal-flow footer", () => {

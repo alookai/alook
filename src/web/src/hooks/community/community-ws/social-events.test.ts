@@ -16,6 +16,7 @@ import {
   capturedOnMessage,
   capturedQueryClient,
   cleanupCommunityWsHarness,
+  getCommunityApiFetchMock,
   messageCreate,
   mountHook,
   resetCommunityWsHarness,
@@ -279,20 +280,21 @@ describe("useCommunityWs — friend + mention → invalidate", () => {
     { type: "community:friend.reject", friendshipId: "f_1" },
     { type: "community:friend.remove", friendshipId: "f_1" },
     { type: "community:friend.block", userId: "u_a" },
-  ])("$type invalidates Friends and exact Inbox unreads once", async (event) => {
+  ])("$type invalidates Friends and reconciles canonical attention once", async (event) => {
     await mountHook()
     const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
     capturedOnMessage!(event)
-    await vi.waitFor(() => expect(spy).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => expect(getCommunityApiFetchMock()).toHaveBeenCalledWith(
+      "/api/community/users/me/attention",
+      expect.objectContaining({ signal: expect.anything() }),
+    ))
     const friendCalls = spy.mock.calls.filter((call) => (
       JSON.stringify(call[0]?.queryKey) === JSON.stringify(communityKeys.friends())
     ))
-    const inboxCalls = spy.mock.calls.filter((call) => (
-      JSON.stringify(call[0]?.queryKey) === JSON.stringify(communityKeys.inboxUnreads())
-    ))
     expect(friendCalls).toHaveLength(1)
-    expect(inboxCalls).toHaveLength(1)
-    expect(inboxCalls[0]?.[0]).toMatchObject({ exact: true })
+    expect(getCommunityApiFetchMock().mock.calls.filter(([path]) => (
+      path === "/api/community/users/me/attention"
+    ))).toHaveLength(1)
   })
 
   it("friend.block evicts cached DM reactor identities", async () => {
@@ -332,11 +334,10 @@ describe("useCommunityWs — friend + mention → invalidate", () => {
     expect(capturedQueryClient.getQueryState(key)).toBeUndefined()
   })
 
-  it("routes mention.create through the debounced Inbox owner", async () => {
+  it("coalesces mention.create through the canonical attention owner", async () => {
     vi.useFakeTimers()
     try {
       await mountHook({ viewerUserId: "u_1" })
-      const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
       const event: CommunityMentionCreate = {
         type: "community:mention.create",
         userId: "u_1",
@@ -344,11 +345,10 @@ describe("useCommunityWs — friend + mention → invalidate", () => {
         authorName: "A",
       }
       capturedOnMessage!(event)
-      expect(spy).not.toHaveBeenCalledWith({ queryKey: communityKeys.inbox() })
       await vi.advanceTimersByTimeAsync(500)
-      expect(spy.mock.calls.some((call) => (
-        (call[0]?.queryKey as unknown[] | undefined)?.includes("inbox")
-      ))).toBe(true)
+      expect(getCommunityApiFetchMock().mock.calls.filter(([path]) => (
+        path === "/api/community/users/me/attention"
+      ))).toHaveLength(1)
     } finally {
       vi.useRealTimers()
     }

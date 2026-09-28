@@ -22,6 +22,22 @@ vi.mock("./message-reactions", () => ({
 
 import { ThreadOpener } from "./thread-opener"
 import { attachmentImageFrameStyle } from "./attachment-layout"
+import type { OpenerPayload } from "@/hooks/community/use-message"
+
+function TestThreadOpener(props: Record<string, unknown>) {
+  const result = useMessageMock() as {
+    isCanonicalPending?: boolean
+    isError: boolean
+    isLoading: boolean
+    message: OpenerPayload | null
+  }
+  const settlement = result.isLoading || result.isCanonicalPending
+    ? { status: "pending" as const }
+    : result.message
+      ? { status: "ready" as const, message: result.message }
+      : { status: "terminal" as const }
+  return React.createElement(ThreadOpener, { ...props, settlement } as never)
+}
 
 describe("ThreadOpener image attachment layout", () => {
   afterEach(() => {
@@ -47,7 +63,7 @@ describe("ThreadOpener image attachment layout", () => {
     let renderer: ReturnType<typeof render>
     act(() => {
       renderer = render(
-        React.createElement(ThreadOpener, {
+        React.createElement(TestThreadOpener, {
           parentMessageId: "opener_1",
           parentChannelId: "parent_1",
           serverId: "server_1",
@@ -79,7 +95,7 @@ describe("ThreadOpener image attachment layout", () => {
     let renderer: ReturnType<typeof render>
     act(() => {
       renderer = render(
-        React.createElement(ThreadOpener, {
+        React.createElement(TestThreadOpener, {
           parentMessageId: "opener_1",
           parentChannelId: "parent_1",
           serverId: "server_1",
@@ -116,7 +132,7 @@ describe("ThreadOpener image attachment layout", () => {
     let renderer: ReturnType<typeof render>
     act(() => {
       renderer = render(
-        React.createElement(ThreadOpener, {
+        React.createElement(TestThreadOpener, {
           parentMessageId: "opener_1",
           parentChannelId: "parent_1",
           serverId: "server_1",
@@ -158,7 +174,7 @@ describe("ThreadOpener image attachment layout", () => {
     let renderer: ReturnType<typeof render>
     act(() => {
       renderer = render(
-        React.createElement(ThreadOpener, {
+        React.createElement(TestThreadOpener, {
           parentMessageId: "opener_1",
           parentChannelId: "parent_1",
           serverId: "server_1",
@@ -198,7 +214,7 @@ describe("ThreadOpener image attachment layout", () => {
     let renderer: ReturnType<typeof render>
     act(() => {
       renderer = render(
-        React.createElement(ThreadOpener, {
+        React.createElement(TestThreadOpener, {
           parentMessageId: "opener_1",
           parentChannelId: "parent_1",
           serverId: "server_1",
@@ -232,7 +248,7 @@ describe("ThreadOpener image attachment layout", () => {
     let renderer: ReturnType<typeof render>
     act(() => {
       renderer = render(
-        React.createElement(ThreadOpener, {
+        React.createElement(TestThreadOpener, {
           parentMessageId: "opener_1",
           parentChannelId: "parent_1",
           serverId: "server_1",
@@ -264,7 +280,7 @@ describe("ThreadOpener image attachment layout", () => {
     const onOpenProfile = vi.fn()
     let renderer: ReturnType<typeof render>
     act(() => {
-      renderer = render(React.createElement(ThreadOpener, {
+      renderer = render(React.createElement(TestThreadOpener, {
         parentMessageId: "opener_1",
         parentChannelId: "parent_1",
         serverId: "server_1",

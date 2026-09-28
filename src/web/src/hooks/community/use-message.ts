@@ -22,7 +22,7 @@ import {
 import { getActiveAccountUnreadProjection } from "./account-unread-projection"
 import {
   captureCommunityLiveSnapshotToken,
-  publishCommunityEmbeddedMessages,
+  publishCommunityEmbeddedMessagesWithReceipt,
 } from "@/lib/community-db/sync"
 
 /**
@@ -70,15 +70,21 @@ export const messageQueryFn = (
     (message) => messageProfilePatches([message]),
     context.signal ? { signal: context.signal } : undefined,
   )
+  if (message.id !== messageId) {
+    const error = new Error(`Expected message ${messageId}, received ${message.id}`)
+    error.name = "CommunityMessageProtocolError"
+    throw error
+  }
   const publishChannelId = message.channelId ?? channelId
   if (queryClient && publishChannelId && token) {
     // The direct-message lookup hydrates the row itself but does not own
     // parent-channel thread metadata. Publish it as a partial entity patch so
     // opening a child split cannot erase the opener's thread indicator.
-    publishCommunityEmbeddedMessages(queryClient, {
+    const receipt = publishCommunityEmbeddedMessagesWithReceipt(queryClient, {
       entries: [{ channelId: publishChannelId, message }],
       proof: { token, signal: context.signal },
     })
+    await receipt.committed
   }
   return message
 }
@@ -117,7 +123,10 @@ export function findCachedMessage(
 export function useMessage(
   messageId: string | null | undefined,
   accessScope?: MessageAccessScope,
-): UseQueryResult<OpenerPayload> & { message: OpenerPayload | null } {
+): UseQueryResult<OpenerPayload> & {
+  isCanonicalPending: boolean
+  message: OpenerPayload | null
+} {
   const registry = useOptionalCommunityDbRegistry()
   const canonicalMessages = useCanonicalMessagesById()
   const queryClient = useQueryClient()
@@ -153,8 +162,15 @@ export function useMessage(
     staleTime: 30_000,
   })
   const canonical = messageId ? canonicalMessages?.get(messageId) : undefined
+  const isCanonicalPending = Boolean(
+    enabled
+    && registry
+    && query.isSuccess
+    && canonical === undefined,
+  )
   return {
     ...query,
+    isCanonicalPending,
     message: accessAllowed
       ? registry
         ? (canonical as OpenerPayload | undefined) ?? null

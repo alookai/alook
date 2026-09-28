@@ -11,13 +11,6 @@ import { EmptyState } from "../empty-state"
 import { formatRelativeTime } from "@/lib/community/format-time"
 import type { InboxFriendRequest, Marked, Mention, UnreadDm, UnreadServer } from "@/lib/community/models/inbox"
 import type { ActionableFriendRequest } from "@/hooks/community/use-friend-request-action-state"
-import {
-  inboxChannelRowTarget,
-  inboxDmRowTarget,
-  inboxMentionRowTarget,
-  inboxThreadRowTarget,
-  type InboxRowTarget,
-} from "@/hooks/community/inbox-read-reservation"
 import { selectUnreadPresentation } from "@/hooks/community/unread-presentation"
 import { tid } from "@/lib/community/testids"
 import type { CommunityProfile } from "@/lib/community/models/people"
@@ -118,11 +111,22 @@ function MentionBadge({ count }: { count: number }) {
   )
 }
 
-function UnreadsTab({ friendRequests, servers, dms, loading, onOpenFriendRequests, onAcceptFriendRequest, onRejectFriendRequest, onRetryFriendRequest, onOpenChannel, onOpenThread, onOpenDm, isProjected, profilesByUserId, getScrollOffset, onScrollOffsetChange }: {
+function AttentionLoadError({ onRetry }: { onRetry?: () => void }) {
+  return (
+    <div role="alert" className="flex flex-col items-center gap-2 py-8 text-sm text-muted-foreground">
+      <span>Couldn&apos;t load Inbox</span>
+      {onRetry && <Button variant="secondary" size="sm" onClick={onRetry}>Retry</Button>}
+    </div>
+  )
+}
+
+function UnreadsTab({ friendRequests, servers, dms, loading, error, onRetry, onOpenFriendRequests, onAcceptFriendRequest, onRejectFriendRequest, onRetryFriendRequest, onOpenChannel, onOpenThread, onOpenDm, profilesByUserId, getScrollOffset, onScrollOffsetChange }: {
   friendRequests: Array<ActionableFriendRequest<InboxFriendRequest>>
   servers: UnreadServer[]
   dms: UnreadDm[]
   loading?: boolean
+  error?: boolean
+  onRetry?: () => void
   onOpenFriendRequests?: () => void
   onAcceptFriendRequest?: (request: ActionableFriendRequest<InboxFriendRequest>) => void
   onRejectFriendRequest?: (request: ActionableFriendRequest<InboxFriendRequest>) => void
@@ -134,22 +138,18 @@ function UnreadsTab({ friendRequests, servers, dms, loading, onOpenFriendRequest
   ) => void
   onOpenThread: (server: UnreadServer, parent: UnreadChannel, child: UnreadChild) => void
   onOpenDm?: (dm: UnreadDm) => void
-  isProjected: (target: InboxRowTarget | null) => boolean
   profilesByUserId: ReadonlyMap<string, CommunityProfile>
   getScrollOffset?: (tab: InboxTab) => number
   onScrollOffsetChange?: (tab: InboxTab, scrollTop: number) => void
 }) {
-  const visibleDms = dms.filter((dm) => !isProjected(inboxDmRowTarget(dm)))
+  const visibleDms = dms
   const visibleServers = servers.map((server) => ({
     server,
     channels: server.channels.map((channel) => {
-      const directTarget = inboxChannelRowTarget(server, channel)
       return {
         channel,
-        directVisible: directTarget !== null && !isProjected(directTarget),
-        children: channel.children.filter((child) => (
-          !isProjected(inboxThreadRowTarget(server, channel, child))
-        )),
+        directVisible: channel.hasDirectUnread !== false,
+        children: channel.children,
       }
     }).filter((group) => group.directVisible || group.children.length > 0),
   })).filter((group) => group.channels.length > 0)
@@ -157,7 +157,8 @@ function UnreadsTab({ friendRequests, servers, dms, loading, onOpenFriendRequest
   return (
     <InboxScrollBody tab="unreads" getScrollOffset={getScrollOffset} onScrollOffsetChange={onScrollOffsetChange}>
       {loading && nothingUnread && <InboxUnreadsSkeleton />}
-      {!loading && nothingUnread && <EmptyState icon={Inbox} label="Caught up" />}
+      {error && nothingUnread && <AttentionLoadError onRetry={onRetry} />}
+      {!loading && !error && nothingUnread && <EmptyState icon={Inbox} label="Caught up" />}
       {friendRequests.length > 0 && (
         <div className="mb-3">
           <div className="px-2 pb-1 text-xs font-semibold text-muted-foreground">
@@ -299,23 +300,23 @@ function UnreadsTab({ friendRequests, servers, dms, loading, onOpenFriendRequest
   )
 }
 
-function MentionsTab({ mentions, loading, onOpenMention, onDeleteMention, isProjected, profilesByUserId, getScrollOffset, onScrollOffsetChange }: {
+function MentionsTab({ mentions, loading, error, onRetry, onOpenMention, onDeleteMention, profilesByUserId, getScrollOffset, onScrollOffsetChange }: {
   mentions: Mention[]
   loading?: boolean
+  error?: boolean
+  onRetry?: () => void
   onOpenMention?: (m: Mention) => void
   onDeleteMention?: (id: string) => void
-  isProjected: (target: InboxRowTarget | null) => boolean
   profilesByUserId: ReadonlyMap<string, CommunityProfile>
   getScrollOffset?: (tab: InboxTab) => number
   onScrollOffsetChange?: (tab: InboxTab, scrollTop: number) => void
 }) {
-  const visibleMentions = mentions.filter((mention) => (
-    !isProjected(inboxMentionRowTarget(mention))
-  ))
+  const visibleMentions = mentions
   return (
     <InboxScrollBody tab="mentions" getScrollOffset={getScrollOffset} onScrollOffsetChange={onScrollOffsetChange}>
       {loading && visibleMentions.length === 0 && <InboxRowsSkeleton />}
-      {!loading && visibleMentions.length === 0 && <EmptyState icon={Inbox} label="No mentions" />}
+      {error && visibleMentions.length === 0 && <AttentionLoadError onRetry={onRetry} />}
+      {!loading && !error && visibleMentions.length === 0 && <EmptyState icon={Inbox} label="No mentions" />}
       {visibleMentions.map((mn) => {
         if (mn.pending) {
           return (
@@ -430,6 +431,8 @@ export function InboxPopover({
   marked,
   markedLoading,
   loading,
+  attentionError,
+  onRetryAttention,
   hasProjectedUnreads,
   hasProjectedMentions,
   hasOutstandingFriendRequest = friendRequests.length > 0,
@@ -447,7 +450,6 @@ export function InboxPopover({
   onUnmark,
   onMarkedTabSelected,
   onMarkAllRead,
-  isProjected = () => false,
   activeTab,
   onActiveTabChange,
   getScrollOffset,
@@ -461,6 +463,8 @@ export function InboxPopover({
   marked: Marked[]
   markedLoading?: boolean
   loading?: boolean
+  attentionError?: boolean
+  onRetryAttention?: () => void
   hasProjectedUnreads: boolean
   hasProjectedMentions: boolean
   hasOutstandingFriendRequest?: boolean
@@ -489,7 +493,6 @@ export function InboxPopover({
   // the (lazy) marked-feed query only once the viewer actually opens the tab.
   onMarkedTabSelected?: () => void
   onMarkAllRead?: () => void
-  isProjected?: (target: InboxRowTarget | null) => boolean
   activeTab?: InboxTab
   onActiveTabChange?: (tab: InboxTab) => void
   getScrollOffset?: (tab: InboxTab) => number
@@ -551,6 +554,8 @@ export function InboxPopover({
           servers={unreads}
           dms={unreadDms}
           loading={loading}
+          error={attentionError}
+          onRetry={onRetryAttention}
           onOpenFriendRequests={onOpenFriendRequests}
           onAcceptFriendRequest={onAcceptFriendRequest}
           onRejectFriendRequest={onRejectFriendRequest}
@@ -558,14 +563,13 @@ export function InboxPopover({
           onOpenChannel={onOpenChannel}
           onOpenThread={onOpenThread ?? onOpenForumThread ?? (() => {})}
           onOpenDm={onOpenDm}
-          isProjected={isProjected}
           profilesByUserId={profilesByUserId}
           getScrollOffset={getScrollOffset}
           onScrollOffsetChange={onScrollOffsetChange}
         />
       </TabsContent>
       <TabsContent value="mentions" className="min-h-0 flex-1">
-        <MentionsTab mentions={mentions} loading={loading} onOpenMention={onOpenMention} onDeleteMention={onDeleteMention} isProjected={isProjected} profilesByUserId={profilesByUserId} getScrollOffset={getScrollOffset} onScrollOffsetChange={onScrollOffsetChange} />
+        <MentionsTab mentions={mentions} loading={loading} error={attentionError} onRetry={onRetryAttention} onOpenMention={onOpenMention} onDeleteMention={onDeleteMention} profilesByUserId={profilesByUserId} getScrollOffset={getScrollOffset} onScrollOffsetChange={onScrollOffsetChange} />
       </TabsContent>
       <TabsContent value="marked" className="min-h-0 flex-1">
         <MarkedTab marked={marked} loading={markedLoading} onOpenMarked={onOpenMarked} onUnmark={onUnmark} profilesByUserId={profilesByUserId} getScrollOffset={getScrollOffset} onScrollOffsetChange={onScrollOffsetChange} />

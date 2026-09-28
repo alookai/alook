@@ -161,8 +161,10 @@ export function TextChannelSurface({
                   scrollToMessageId={controller.scrollTargetId}
                   onScrollRoot={feed.setScrollRootEl}
                   viewerUserId={viewer.id}
-                  initialScrollReady={feed.messages.length > 0 || (
-                    !feed.readSnapshotFetching && feed.anchorInCache
+                  initialScrollReady={!feed.threadsLoading && (
+                    feed.messages.length > 0 || (
+                      !feed.readSnapshotFetching && feed.anchorInCache
+                    )
                   )}
                   onScrollTargetConsumed={controller.consumeScrollTarget}
                   hasMore={feed.hasMoreOlder}

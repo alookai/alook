@@ -72,6 +72,7 @@ describe("useMessage cache-first placeholder", () => {
     })
 
     expect(rendered.result.current.message).toBeNull()
+    expect(rendered.result.current.isCanonicalPending).toBe(false)
     expect(rendered.result.current.fetchStatus).toBe("idle")
     expect(apiFetchMock).not.toHaveBeenCalled()
   })
@@ -141,6 +142,7 @@ describe("useMessage cache-first placeholder", () => {
     })
 
     expect(rendered.result.current.message).toBeNull()
+    expect(rendered.result.current.isCanonicalPending).toBe(true)
   })
 
   it("keeps the access index empty while fenced and restores it after rollback or grant", () => {
@@ -175,6 +177,7 @@ describe("useMessage cache-first placeholder", () => {
       retirement = projection.beginScopeRetirement({ kind: "channel", channelId: "channel-1" })
     })
     expect(rendered.result.current.message).toBeNull()
+    expect(rendered.result.current.isCanonicalPending).toBe(false)
     expect(rendered.result.current.fetchStatus).toBe("idle")
     expect(takeMessageIdsForAccessScope(
       queryClient,

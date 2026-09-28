@@ -8,7 +8,7 @@ const pendingCollectionWrites = new WeakMap<object, Promise<void>>()
 export function writeCommunityCollectionRows<T extends object>(
   registry: CommunityDbRegistry,
   name: CollectionName,
-  rows: T[],
+  rows: T[] | (() => T[]),
   getKey: (row: T) => string,
 ) {
   const collection = registry.collections[name] as unknown as {
@@ -33,7 +33,9 @@ export function writeCommunityCollectionRows<T extends object>(
   const durable = typeof collection.utils.getLeadershipState === "function"
   const operationConfig = { optimistic: !durable }
   const publish = async () => {
-    const nextKeys = new Set(rows.map(getKey))
+    registry.assertGenerationActive()
+    const nextRows = typeof rows === "function" ? rows() : rows
+    const nextKeys = new Set(nextRows.map(getKey))
     const removed = Array.from(collection.keys()).filter((key) => !nextKeys.has(key))
     const transaction = registry.dbClient.createTransaction({
       mutationFn: async ({ transaction: pending }) => {
@@ -42,9 +44,10 @@ export function writeCommunityCollectionRows<T extends object>(
         })
       },
     })
+    registry.assertGenerationActive()
     transaction.mutate(() => {
       if (removed.length > 0) collection.delete(removed, operationConfig)
-      for (const row of rows) {
+      for (const row of nextRows) {
         const key = getKey(row)
         if (!collection.has(key)) {
           collection.insert(row, operationConfig)
@@ -64,9 +67,10 @@ export function writeCommunityCollectionRows<T extends object>(
   }
 
   const pending = pendingCollectionWrites.get(collection)
-  if (!pending && collection.status === "ready" && !durable) {
-    void publish().catch(() => {})
-    return
+  if (!pending && registry.isCollectionReady(name) && !durable) {
+    const immediate = publish()
+    void immediate.catch(() => {})
+    return immediate
   }
 
   // A query or WS write can still arrive while a collection is preloading.
@@ -74,9 +78,7 @@ export function writeCommunityCollectionRows<T extends object>(
   // never land after a newer event write. For OPFS, persistence is part of the
   // queue and rows are non-optimistic: paint therefore means the transaction is
   // committed, so an immediate reload cannot outrun the durable write.
-  const ready = pending ?? (
-    collection.status === "ready" ? Promise.resolve() : collection.preload()
-  )
+  const ready = pending ?? registry.ensureCollectionReady(name)
   const next = ready.then(publish)
   pendingCollectionWrites.set(collection, next)
   next.then(
@@ -91,4 +93,6 @@ export function writeCommunityCollectionRows<T extends object>(
       }
     },
   )
+  void next.catch(() => {})
+  return next
 }

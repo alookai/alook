@@ -19,7 +19,10 @@ import { MessagePaneNavigationProvider } from "@/components/community/messages/m
 import { MessageContextSheet } from "@/components/community/messages/message-context-sheet"
 import { MessageList } from "@/components/community/messages/message-list"
 import { useAuthorMentionInsertion } from "@/components/community/messages/use-author-mention-insertion"
-import { ThreadOpener } from "@/components/community/messages/thread-opener"
+import {
+  ThreadOpener,
+  type ThreadOpenerSettlement,
+} from "@/components/community/messages/thread-opener"
 import { ThreadPanelActions } from "@/components/community/channels/thread-panel-actions"
 import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
 import type { OpenProfile } from "@/components/community/social/profile-types"
@@ -30,6 +33,7 @@ import {
   useClaimThreadOpenerReadHandoff,
   type ThreadOpenerReadHandoff,
 } from "@/hooks/community/thread-opener-read-handoff"
+import { useMessage } from "@/hooks/community/use-message"
 
 const ignoreNestedThread = () => {}
 
@@ -106,6 +110,18 @@ export function ThreadChannelSurface({
   })
   const { mutateAsync: editMessageAsync } = useEditMessage()
   const toggleReactionApi = useToggleReactionApi()
+  const ownsTextThreadOpener = Boolean(parentMessageId && !parentIsForum)
+  const openerQuery = useMessage(ownsTextThreadOpener ? parentMessageId : null, {
+    ...(parentChannelId ? { channelId: parentChannelId } : {}),
+    serverId,
+  })
+  const openerSettlement: ThreadOpenerSettlement = !ownsTextThreadOpener
+    ? { status: "terminal" }
+    : openerQuery.isLoading || openerQuery.isCanonicalPending
+      ? { status: "pending" }
+      : openerQuery.message
+        ? { status: "ready", message: openerQuery.message }
+        : { status: "terminal" }
   const toggleOpenerReaction = useCallback((emoji: string) => {
     if (!parentChannelId || !parentMessageId) return
     toggleReactionApi({
@@ -167,11 +183,9 @@ export function ThreadChannelSurface({
         }
       : undefined
 
-  const opener = parentMessageId && !parentIsForum ? (
+  const opener = ownsTextThreadOpener ? (
     <ThreadOpener
-      parentMessageId={parentMessageId}
-      parentChannelId={parentChannelId}
-      serverId={serverId}
+      settlement={openerSettlement}
       viewerUserId={viewer.id}
       onOpenProfile={onOpenProfile}
       onToggleReaction={parentChannelId ? toggleOpenerReaction : undefined}
@@ -254,9 +268,10 @@ export function ThreadChannelSurface({
                   hero={opener}
                   onScrollRoot={controller.feed.setScrollRootEl}
                   viewerUserId={viewer.id}
-                  initialScrollReady={controller.feed.messages.length > 0 || (
-                    !controller.feed.readSnapshotFetching && controller.feed.anchorInCache
-                  )}
+                  initialScrollReady={(
+                    controller.feed.messages.length > 0
+                    || (!controller.feed.readSnapshotFetching && controller.feed.anchorInCache)
+                  ) && openerSettlement.status !== "pending"}
                   onScrollTargetConsumed={controller.consumeScrollTarget}
                   hasMore={controller.feed.hasMoreOlder}
                   isFetchingOlder={controller.feed.isFetchingOlder}

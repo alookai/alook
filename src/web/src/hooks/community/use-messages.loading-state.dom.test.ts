@@ -175,7 +175,7 @@ describe("useMessages — instant channel switch", () => {
       const queryClient = new QueryClient({
         defaultOptions: { queries: { refetchOnMount: false, retry: false } },
       })
-      const registry = createCommunityDbRegistry(queryClient, "viewer")
+      const registry = createCommunityDbRegistry(queryClient, `viewer-${kind}-canonical-gap`)
       const disposeRegistry = registry.cleanup.bind(registry)
       await registry.preload()
       const scopeId = `${kind}_canonical_gap`
@@ -215,14 +215,18 @@ describe("useMessages — instant channel switch", () => {
       expect(rendered.result.current.isLoading).toBe(true)
       expect(rendered.result.current.messages).toEqual([])
 
-      act(() => ingestMessages(registry, scopeId, [messages[0]!]))
+      await act(async () => {
+        await ingestMessages(registry, scopeId, [messages[0]!])
+      })
       await waitFor(() => {
         expect(registry.collections.messages.get(messages[0]!.id)).toBeDefined()
       })
       expect(rendered.result.current.isLoading).toBe(true)
       expect(rendered.result.current.messages).toEqual([])
 
-      act(() => ingestMessages(registry, scopeId, messages))
+      await act(async () => {
+        await ingestMessages(registry, scopeId, messages)
+      })
       await waitFor(() => {
         expect(rendered.result.current.isLoading).toBe(false)
         expect(rendered.result.current.messages.map((row) => row.id)).toEqual(
@@ -242,7 +246,7 @@ describe("useMessages — instant channel switch", () => {
       const queryClient = new QueryClient({
         defaultOptions: { queries: { refetchOnMount: false, retry: false } },
       })
-      const registry = createCommunityDbRegistry(queryClient, "viewer")
+      const registry = createCommunityDbRegistry(queryClient, `viewer-${kind}-pagination-gap`)
       const disposeRegistry = registry.cleanup.bind(registry)
       await registry.preload()
       const scopeId = `${kind}_canonical_pagination_gap`
@@ -271,7 +275,9 @@ describe("useMessages — instant channel switch", () => {
         }],
         pageParams: [{ mode: "anchor", anchor: initial.id }],
       })
-      act(() => ingestMessages(registry, scopeId, [initial]))
+      await act(async () => {
+        await ingestMessages(registry, scopeId, [initial])
+      })
       await waitFor(() => {
         expect(registry.collections.messages.get(initial.id)).toBeDefined()
       })
@@ -323,7 +329,9 @@ describe("useMessages — instant channel switch", () => {
         expect(rendered.result.current.messages.map((row) => row.id)).toEqual([initial.id])
       })
 
-      act(() => ingestMessages(registry, scopeId, [older]))
+      await act(async () => {
+        await ingestMessages(registry, scopeId, [older])
+      })
       await waitFor(() => {
         expect(rendered.result.current.isFetchingOlder).toBe(false)
         expect(rendered.result.current.messages.map((row) => row.id)).toEqual([
@@ -341,7 +349,7 @@ describe("useMessages — instant channel switch", () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { refetchOnMount: false, retry: false } },
     })
-    const registry = createCommunityDbRegistry(queryClient, "viewer")
+    const registry = createCommunityDbRegistry(queryClient, "viewer-scope-change")
     const disposeRegistry = registry.cleanup.bind(registry)
     await registry.preload()
     const firstScope = "channel_committed"
@@ -366,7 +374,9 @@ describe("useMessages — instant channel switch", () => {
       pages: [{ messages: [secondMessage], hasMore: false, latestSeq: 2 }],
       pageParams: [{ mode: "newest" }],
     })
-    act(() => ingestMessages(registry, firstScope, [firstMessage]))
+    await act(async () => {
+      await ingestMessages(registry, firstScope, [firstMessage])
+    })
     await waitFor(() => {
       expect(registry.collections.messages.get(firstMessage.id)).toBeDefined()
     })
@@ -402,7 +412,7 @@ describe("useMessages — instant channel switch", () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { refetchOnMount: false, retry: false } },
     })
-    const registry = createCommunityDbRegistry(queryClient, "viewer")
+    const registry = createCommunityDbRegistry(queryClient, "viewer-newer-pagination")
     const disposeRegistry = registry.cleanup.bind(registry)
     await registry.preload()
     const scopeId = "channel_newer_pagination_gap"
@@ -429,7 +439,9 @@ describe("useMessages — instant channel switch", () => {
       }],
       pageParams: [{ mode: "anchor", anchor: initial.id }],
     })
-    act(() => ingestMessages(registry, scopeId, [initial]))
+    await act(async () => {
+      await ingestMessages(registry, scopeId, [initial])
+    })
     await waitFor(() => {
       expect(registry.collections.messages.get(initial.id)).toBeDefined()
     })
@@ -478,7 +490,9 @@ describe("useMessages — instant channel switch", () => {
       expect(rendered.result.current.messages.map((row) => row.id)).toEqual([initial.id])
     })
 
-    act(() => ingestMessages(registry, scopeId, [newer]))
+    await act(async () => {
+      await ingestMessages(registry, scopeId, [newer])
+    })
     await waitFor(() => {
       expect(rendered.result.current.isFetchingNewer).toBe(false)
       expect(rendered.result.current.messages.map((row) => row.id)).toEqual([

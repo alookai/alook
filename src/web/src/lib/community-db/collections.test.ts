@@ -1,5 +1,5 @@
 import { QueryClient } from "@tanstack/react-query"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { createCommunityDbRegistry, type CommunityDbRegistry } from "./collections"
 import { writeCommunityCollectionRows } from "./collection-mutations"
 import type { AttentionItemRow, MessageRow } from "./schema"
@@ -9,6 +9,88 @@ let registry: CommunityDbRegistry | null = null
 afterEach(() => {
   registry?.cleanup()
   registry = null
+})
+
+describe("community collection readiness", () => {
+  it("owns one preload promise and publishes ready only after it resolves", async () => {
+    registry = createCommunityDbRegistry(new QueryClient(), "viewer")
+    const collection = registry.collections.messages
+    const originalPreload = collection.preload.bind(collection)
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const preload = vi.spyOn(collection, "preload").mockImplementation(async () => {
+      await gate
+      await originalPreload()
+    })
+    const listener = vi.fn()
+    registry.subscribeCollectionReadiness(listener)
+
+    const first = registry.ensureCollectionReady("messages")
+    const second = registry.ensureCollectionReady("messages")
+    expect(first).toBe(second)
+    expect(registry.getCollectionReadiness("messages")).toBe("preloading")
+    expect(registry.isCollectionReady("messages")).toBe(false)
+    expect(preload).not.toHaveBeenCalled()
+
+    await Promise.resolve()
+    expect(preload).toHaveBeenCalledOnce()
+    release()
+    await first
+    expect(registry.getCollectionReadiness("messages")).toBe("ready")
+    expect(registry.isCollectionReady("messages")).toBe(true)
+    expect(listener).toHaveBeenCalledTimes(2)
+  })
+
+  it("rejects writes to an already-ready collection after another preload fails", async () => {
+    registry = createCommunityDbRegistry(new QueryClient(), "viewer-generation-failure")
+    await registry.ensureCollectionReady("profiles")
+    const failure = new Error("messages preload failed")
+    vi.spyOn(registry.collections.messages, "preload").mockRejectedValueOnce(failure)
+
+    await expect(registry.ensureCollectionReady("messages")).rejects.toBe(failure)
+    const committed = writeCommunityCollectionRows(
+      registry,
+      "profiles",
+      [{ userId: "alice", name: "Alice", discriminator: "0001", avatar: "A", avatarVersion: 0 }],
+      (row) => row.userId,
+    )
+
+    await expect(committed).rejects.toBe(failure)
+    expect(registry.collections.profiles.has("alice")).toBe(false)
+  })
+
+  it("fences a durable write queued before another collection fails", async () => {
+    registry = createCommunityDbRegistry(new QueryClient(), "viewer-durable-generation-failure")
+    await registry.ensureCollectionReady("profiles")
+    const profiles = registry.collections.profiles
+    let releasePersistence!: () => void
+    const persistence = new Promise<void>((resolve) => { releasePersistence = resolve })
+    Object.assign(profiles.utils, { getLeadershipState: vi.fn() })
+    const acceptMutations = vi.spyOn(profiles.utils, "acceptMutations")
+      .mockImplementationOnce(() => persistence)
+    const first = writeCommunityCollectionRows(
+      registry,
+      "profiles",
+      [{ userId: "alice", name: "Alice", discriminator: "0001", avatar: "A", avatarVersion: 0 }],
+      (row) => row.userId,
+    )
+    await vi.waitFor(() => expect(acceptMutations).toHaveBeenCalledOnce())
+    const second = writeCommunityCollectionRows(
+      registry,
+      "profiles",
+      [{ userId: "bob", name: "Bob", discriminator: "0002", avatar: "B", avatarVersion: 0 }],
+      (row) => row.userId,
+    )
+    const failure = new Error("messages preload failed")
+    vi.spyOn(registry.collections.messages, "preload").mockRejectedValueOnce(failure)
+    await expect(registry.ensureCollectionReady("messages")).rejects.toBe(failure)
+
+    releasePersistence()
+    await first
+    await expect(second).rejects.toBe(failure)
+    expect(acceptMutations).toHaveBeenCalledOnce()
+    expect(profiles.has("bob")).toBe(false)
+  })
 })
 
 describe("community message retention", () => {

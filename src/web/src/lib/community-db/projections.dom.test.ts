@@ -310,7 +310,7 @@ describe("community DB projections", () => {
     const unsubscribeRestored = registry.subscribeRestoredCollections(restoredListener)
     registry.captureRestoredCollections()
     registry.captureRestoredCollections()
-    expect(restoredListener).toHaveBeenCalledOnce()
+    expect(restoredListener).not.toHaveBeenCalled()
     unsubscribeRestored()
     const wrapper = ({ children }: { children: ReactNode }) => React.createElement(
       QueryClientProvider,
@@ -332,7 +332,7 @@ describe("community DB projections", () => {
       directory: useChannelRefDirectoryProjection(),
     }), { wrapper })
 
-    await waitFor(() => expect(rendered.result.current.restored).toBe(true))
+    expect(rendered.result.current.restored).toBe(false)
     expect(rendered.result.current.rail?.servers).toEqual([
       expect.objectContaining({ id: "s1", name: "Server" }),
     ])
@@ -382,7 +382,7 @@ describe("community DB projections", () => {
 
     rendered.unmount()
     useCommunityWsStore.getState().reset()
-    expect(registry.hasRestoredCollection("channels")).toBe(true)
+    expect(registry.hasRestoredCollection("channels")).toBe(false)
     await registry["cleanup"]()
   })
 })

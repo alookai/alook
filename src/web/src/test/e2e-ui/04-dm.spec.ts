@@ -17,10 +17,6 @@ test.describe.serial("direct messages", () => {
     const proxy = await gotoAfterNotificationStartup(bob.page, bob.context, trace)
     trace.phase("notification")
 
-    let releaseCanonical!: () => void
-    let canonicalFinished!: () => void
-    const canonicalGate = new Promise<void>((resolve) => { releaseCanonical = resolve })
-    const canonicalSettled = new Promise<void>((resolve) => { canonicalFinished = resolve })
     let dmsGets = 0
     const dmsPattern = "**/api/community/users/me/dms"
     await bob.page.route(dmsPattern, async (route) => {
@@ -29,14 +25,7 @@ test.describe.serial("direct messages", () => {
         return
       }
       dmsGets += 1
-      try {
-        await canonicalGate
-        await route.continue()
-      } catch (error) {
-        if (!(error instanceof Error && error.message.includes("already handled"))) throw error
-      } finally {
-        canonicalFinished()
-      }
+      await route.continue()
     })
 
     const notificationRefresh = notificationResponsesFinished(
@@ -49,9 +38,7 @@ test.describe.serial("direct messages", () => {
     await expect.poll(() => trace.events.some((event) =>
       event.type === "community:unread.bump" && event.channelId === dmId && event.userId === userId("bob"))).toBe(true)
     await notificationRefresh
-    await expect.poll(() => dmsGets).toBe(1)
-    releaseCanonical()
-    await canonicalSettled
+    expect(dmsGets).toBe(0)
     const routeHistory: string[] = []
     const recordRoute = (frame: Frame) => {
       if (frame === bob.page.mainFrame()) routeHistory.push(new URL(frame.url()).pathname)
@@ -64,7 +51,7 @@ test.describe.serial("direct messages", () => {
       await expect(inboxRow).toBeVisible({ timeout: 20_000 })
       trace.phase("click")
       const dmsGetsBeforeClick = dmsGets
-      expect(dmsGetsBeforeClick).toBe(1)
+      expect(dmsGetsBeforeClick).toBe(0)
       await inboxRow.click()
 
       await bob.page.waitForURL(new RegExp(`/c/me/${dmId}$`), {
@@ -84,8 +71,6 @@ test.describe.serial("direct messages", () => {
       trace.phase("click-complete")
       expect(dmsGets - dmsGetsBeforeClick).toBe(0)
     } finally {
-      releaseCanonical()
-      await canonicalSettled
       bob.page.off("framenavigated", recordRoute)
       await bob.page.unroute(dmsPattern)
       await testInfo.attach("community-request-timeline", {
@@ -229,13 +214,14 @@ test.describe.serial("direct messages", () => {
       })
       await expect(verificationAlert).toBeVisible()
       await expect(alice.page).toHaveURL(new RegExp(`/c/me/${missingDmId}$`))
-      await expect.poll(() => canonicalDmsGets).toBeGreaterThanOrEqual(2)
+      await expect.poll(() => canonicalDmsGets).toBe(1)
       await expect(verificationAlert).toBeVisible()
       await expect(alice.page).toHaveURL(new RegExp(`/c/me/${missingDmId}$`))
       expect(authorityDmsGets).toBe(1)
 
       await verificationAlert.getByRole("button", { name: "Retry" }).click()
       await expect.poll(() => authorityDmsGets).toBe(2)
+      expect(canonicalDmsGets).toBe(1)
       await expect.poll(() => new URL(alice.page.url()).pathname).toBe("/c/me/friends")
     } finally {
       wsProxy.releaseHeldConnections()

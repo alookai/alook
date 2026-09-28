@@ -7,7 +7,7 @@ import { attachmentImageFrameStyle } from "./attachment-layout"
 import { formatMessageTime } from "@/lib/community/format-time"
 import { Skeleton } from "@/components/ui/skeleton"
 import { avatarInitial } from "@/lib/community/avatar"
-import { useMessage } from "@/hooks/community/use-message"
+import type { OpenerPayload } from "@/hooks/community/use-message"
 import { tid } from "@/lib/community/testids"
 import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
 import type { OpenProfile } from "@/components/community/social/profile-types"
@@ -33,10 +33,13 @@ import { RemoteContentImage } from "@/components/remote-image/remote-image"
 // Fetching client-side (rather than embedding in the channels/[id] response)
 // keeps the parent live: an edit or reaction on the source message would
 // reflect here without a page reload once the mutation invalidates this key.
+export type ThreadOpenerSettlement =
+  | { status: "pending" }
+  | { status: "ready"; message: OpenerPayload }
+  | { status: "terminal" }
+
 export function ThreadOpener({
-  parentMessageId,
-  parentChannelId,
-  serverId,
+  settlement,
   viewerUserId,
   onOpenProfile,
   onPreviewImage,
@@ -47,9 +50,7 @@ export function ThreadOpener({
   resolveAuthorMentionText,
   onInsertMentionText,
 }: {
-  parentMessageId: string
-  parentChannelId: string | null
-  serverId: string
+  settlement: ThreadOpenerSettlement
   viewerUserId: string
   onOpenProfile?: OpenProfile
   onPreviewImage?: (image: ImagePreview) => void
@@ -63,10 +64,7 @@ export function ThreadOpener({
   onJump?: () => void
 }) {
   const hoverCapable = useHoverCapable()
-  const { message: msg, isLoading, isError } = useMessage(parentMessageId, {
-    ...(parentChannelId ? { channelId: parentChannelId } : {}),
-    serverId,
-  })
+  const msg = settlement.status === "ready" ? settlement.message : null
   const authorProfile = useCanonicalCommunityProfile(msg?.authorId)
   const mentionText = msg ? resolveAuthorMentionText?.(msg.authorId) ?? null : null
   const avatarMention = useMobileAvatarMention({
@@ -83,9 +81,9 @@ export function ThreadOpener({
     },
   })
 
-  if (isLoading) return <ThreadOpenerSkeleton />
+  if (settlement.status === "pending") return <ThreadOpenerSkeleton />
 
-  if (isError || !msg) {
+  if (settlement.status === "terminal" || !msg) {
     // The parent lives in the outer channel; if it was deleted (or the caller
     // lost access) we don't fail the thread view — just render a minimal
     // placeholder so the opener slot doesn't collapse the layout.

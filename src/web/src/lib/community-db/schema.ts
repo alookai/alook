@@ -48,6 +48,8 @@ export const channelSchema = z.object({
   tags: z.array(z.string()),
   pending: z.boolean(),
   lastMessageAt: optionalNullableString,
+  openerSeq: z.number().int().nonnegative().optional(),
+  openerUnread: z.boolean().optional(),
   preview: z.string().optional(),
   lastUnreadSeq: z.number().int().nonnegative().optional(),
 })
@@ -129,12 +131,18 @@ export const attentionScopeSchema = z.strictObject({
 
 export const attentionItemSchema = z.strictObject({
   id: z.string().min(1),
-  kind: z.enum(["mention", "reply", "friend_request", "pending"]),
+  kind: z.enum(["mention", "reply", "friend_request", "forum_post"]),
   sourceId: z.string().min(1),
   scopeId: optionalNullableString,
   messageId: optionalNullableString,
-  actorUserId: z.string().min(1),
+  actorUserId: optionalNullableString,
   createdAt: z.string(),
+  childChannelId: z.string().min(1).optional(),
+  openerSeq: z.number().int().nonnegative().optional(),
+  readTarget: z.strictObject({
+    channelId: z.string().min(1),
+    seq: z.number().int().nonnegative(),
+  }).optional(),
 })
 
 export const folderSchema = z.object({

@@ -173,9 +173,13 @@ export function useShellRailController({
       // refresh is held. On a true-cold profile, the HTTP response settles
       // before its non-optimistic OPFS transaction is visible, so keep the
       // inert rail through that commit gap as well.
-      serversLoading: servers.length === 0
+      serversLoading: (communityDb
+        ? !(communityDb.isCollectionReady?.("servers") ?? true)
+        : false) || (
+        servers.length === 0
         && !communityDb?.hasRestoredCollection("servers")
-        && !serversQuery.isLiveAuthoritative,
+        && !serversQuery.isLiveAuthoritative
+      ),
       view: projectedView,
       onHome,
       onHomePrefetch,

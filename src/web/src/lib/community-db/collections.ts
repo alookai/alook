@@ -122,17 +122,67 @@ export function createCommunityDbRegistry(
     notificationSettings,
   } as const
   type CollectionName = keyof typeof collections
+  type CollectionReadiness = "not-ready" | "preloading" | "ready" | "failed"
+  const collectionNames = Object.keys(collections) as CollectionName[]
+  const collectionReadiness = new Map<CollectionName, CollectionReadiness>(
+    collectionNames.map((name) => [name, "not-ready"]),
+  )
+  const collectionPreloads = new Map<CollectionName, Promise<void>>()
+  const collectionReadinessListeners = new Set<() => void>()
   const restoredCollectionNames = new Set<CollectionName>()
   const restoredCollectionListeners = new Set<() => void>()
-  let restoredSnapshotCaptured = false
   let restoredDataExists = false
+  let readinessVersion = 0
+  let generationFailure: unknown = null
   const activeMessageScopes = new Map<string, number>()
   const inactiveMessageScopes = new Map<string, number>()
   let messageScopeClock = 0
   let retentionScheduled = false
 
+  const publishReadiness = () => {
+    readinessVersion += 1
+    for (const listener of collectionReadinessListeners) listener()
+  }
+
+  const failGeneration = (error: unknown) => {
+    if (generationFailure !== null) return
+    generationFailure = error
+    for (const name of collectionNames) collectionReadiness.set(name, "failed")
+    publishReadiness()
+  }
+
+  const ensureCollectionReady = (name: CollectionName): Promise<void> => {
+    if (generationFailure !== null) return Promise.reject(generationFailure)
+    const existing = collectionPreloads.get(name)
+    if (existing) return existing
+
+    collectionReadiness.set(name, "preloading")
+    publishReadiness()
+    const promise = Promise.resolve()
+      .then(() => collections[name].preload())
+      .then(() => {
+        if (generationFailure !== null) throw generationFailure
+        const restored = collections[name].size > 0
+        if (restored) {
+          restoredCollectionNames.add(name)
+          restoredDataExists = true
+        }
+        collectionReadiness.set(name, "ready")
+        publishReadiness()
+        if (restored) {
+          for (const listener of restoredCollectionListeners) listener()
+        }
+      })
+      .catch((error) => {
+        failGeneration(error)
+        throw error
+      })
+    collectionPreloads.set(name, promise)
+    return promise
+  }
+
   const preload = async () => {
-    await Promise.all(Object.values(collections).map((collection) => collection.preload()))
+    await Promise.all(collectionNames.map(ensureCollectionReady))
     const scopesByNewest = new Map<string, number>()
     for (const message of collections.messages.values()) {
       const order = Date.parse(message.createdAt ?? "") || message.seq || 0
@@ -250,16 +300,22 @@ export function createCommunityDbRegistry(
     queryClient,
     dbClient,
     collections,
+    ensureCollectionReady,
+    isCollectionReady: (name: CollectionName) => collectionReadiness.get(name) === "ready",
+    getCollectionReadiness: (name: CollectionName) => collectionReadiness.get(name)!,
+    getCollectionReadinessSnapshot: () => readinessVersion,
+    subscribeCollectionReadiness: (listener: () => void) => {
+      collectionReadinessListeners.add(listener)
+      return () => collectionReadinessListeners.delete(listener)
+    },
+    isFailed: () => generationFailure !== null,
+    assertGenerationActive: () => {
+      if (generationFailure !== null) throw generationFailure
+    },
     captureRestoredCollections: () => {
-      if (restoredSnapshotCaptured) return
-      restoredSnapshotCaptured = true
-      for (const name of Object.keys(collections) as CollectionName[]) {
-        if (collections[name].size > 0) {
-          restoredCollectionNames.add(name)
-          restoredDataExists = true
-        }
-      }
-      for (const listener of restoredCollectionListeners) listener()
+      // Compatibility for callers that used the former aggregate preload gate.
+      // Restored ownership is now captured inside each collection's readiness
+      // promise before that promise can release queued canonical writes.
     },
     hasRestoredCollection: (name: CollectionName) => restoredCollectionNames.has(name),
     hasRestoredData: () => restoredDataExists,

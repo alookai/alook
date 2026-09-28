@@ -12,10 +12,7 @@ import {
 import { useCommunityWs } from "@/hooks/community/use-community-ws"
 import { useNotificationSettings } from "@/hooks/community/use-notification-settings"
 import { useNativeSystemNotifications } from "@/hooks/community/use-native-system-notifications"
-import {
-  useAccountAttention,
-  useAccountAttentionScopeHydration,
-} from "@/hooks/community/use-account-attention"
+import { useAccountAttention } from "@/hooks/community/use-account-attention"
 import { PerfTraceBootstrap } from "@/components/perf/perf-trace-bootstrap"
 import { CommunityOnboardingForm } from "@/components/community/onboarding/community-onboarding-form"
 import { CommunityWsReconnectBoundary } from "@/components/community/shell/community-ws-reconnect-overlay"
@@ -91,7 +88,6 @@ function CommunityBootstrap({ children }: { children: ReactNode }) {
 
   useNotificationSettings()
   useAccountAttention()
-  useAccountAttentionScopeHydration()
   useNativeSystemNotifications(currentUser.id)
   // Wire the WS handler once for the whole community subtree. `viewerUserId`
   // powers the `me` flag on incoming reactions — passing null would leave that

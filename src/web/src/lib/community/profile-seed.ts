@@ -138,70 +138,72 @@ export function writeCommunityProfilePatches(
   if (!registry || patches.length === 0) return
   if (options?.snapshot && options.snapshot.registry !== registry) return
   const queryKey = communityKeys.communityDbCollection(registry.scopeId, "profiles")
-  const cached = registry.queryClient.getQueryData<ProfileRow[]>(queryKey)
-    ?? Array.from(registry.collections.profiles.values())
-  const profiles = new Map(cached.map((profile) => [profile.userId, profile]))
-  const revisions = revisionState(registry)
   const guardedRevision = options?.snapshot?.revision
-  const writeRevision = guardedRevision === undefined ? revisions.revision + 1 : null
-  let advanced = false
-  for (const patch of patches) {
-    const current = profiles.get(patch.id)
-    const fieldRevisions = revisions.fieldsByUserId.get(patch.id) ?? {
-      identityAbout: 0,
-      avatar: 0,
-      status: 0,
-    }
-    const accepts = (field: keyof ProfileFieldRevisions) => (
-      guardedRevision === undefined || fieldRevisions[field] <= guardedRevision
-    )
-    const identityAbout = patch.identityAbout && accepts("identityAbout")
-      ? patch.identityAbout
-      : undefined
-    const status = patch.status && accepts("status") ? patch.status : undefined
-    const incomingAvatar = patch.avatar && accepts("avatar") && (
-      current === undefined
-      || patch.avatar.avatarVersion > current.avatarVersion
-      || (!options?.event && patch.avatar.avatarVersion === current.avatarVersion)
-    ) ? patch.avatar : undefined
-    const name = identityAbout?.name ?? current?.name ?? ""
-    const next = profileSchema.parse({
-      userId: patch.id,
-      name,
-      discriminator: identityAbout?.discriminator ?? current?.discriminator ?? "",
-      avatar: incomingAvatar?.avatar ?? current?.avatar ?? avatarInitial(name),
-      avatarVersion: incomingAvatar?.avatarVersion ?? current?.avatarVersion ?? 0,
-      aboutMe: identityAbout?.aboutMe ?? current?.aboutMe,
-      bannerColor: identityAbout?.bannerColor === undefined
-        ? current?.bannerColor
-        : identityAbout.bannerColor,
-      kind: identityAbout?.kind ?? current?.kind,
-      ownerUserId: identityAbout?.ownerUserId === undefined
-        ? current?.ownerUserId
-        : identityAbout.ownerUserId,
-      statusEmoji: status?.statusEmoji === undefined
-        ? current?.statusEmoji
-        : status.statusEmoji,
-      statusText: status?.statusText === undefined
-        ? current?.statusText
-        : status.statusText,
-    })
-    profiles.set(patch.id, next)
-    if (writeRevision !== null) {
-      const nextRevisions = { ...fieldRevisions }
-      if (identityAbout) nextRevisions.identityAbout = writeRevision
-      if (incomingAvatar) nextRevisions.avatar = writeRevision
-      if (status) nextRevisions.status = writeRevision
-      if (identityAbout || incomingAvatar || status) {
-        revisions.fieldsByUserId.set(patch.id, nextRevisions)
-        advanced = true
+  return writeCommunityCollectionRows(registry, "profiles", () => {
+    const cached = registry.queryClient.getQueryData<ProfileRow[]>(queryKey)
+      ?? Array.from(registry.collections.profiles.values())
+    const profiles = new Map(cached.map((profile) => [profile.userId, profile]))
+    const revisions = revisionState(registry)
+    const writeRevision = guardedRevision === undefined ? revisions.revision + 1 : null
+    let advanced = false
+    for (const patch of patches) {
+      const current = profiles.get(patch.id)
+      const fieldRevisions = revisions.fieldsByUserId.get(patch.id) ?? {
+        identityAbout: 0,
+        avatar: 0,
+        status: 0,
+      }
+      const accepts = (field: keyof ProfileFieldRevisions) => (
+        guardedRevision === undefined || fieldRevisions[field] <= guardedRevision
+      )
+      const identityAbout = patch.identityAbout && accepts("identityAbout")
+        ? patch.identityAbout
+        : undefined
+      const status = patch.status && accepts("status") ? patch.status : undefined
+      const incomingAvatar = patch.avatar && accepts("avatar") && (
+        current === undefined
+        || patch.avatar.avatarVersion > current.avatarVersion
+        || (!options?.event && patch.avatar.avatarVersion === current.avatarVersion)
+      ) ? patch.avatar : undefined
+      const name = identityAbout?.name ?? current?.name ?? ""
+      const next = profileSchema.parse({
+        userId: patch.id,
+        name,
+        discriminator: identityAbout?.discriminator ?? current?.discriminator ?? "",
+        avatar: incomingAvatar?.avatar ?? current?.avatar ?? avatarInitial(name),
+        avatarVersion: incomingAvatar?.avatarVersion ?? current?.avatarVersion ?? 0,
+        aboutMe: identityAbout?.aboutMe ?? current?.aboutMe,
+        bannerColor: identityAbout?.bannerColor === undefined
+          ? current?.bannerColor
+          : identityAbout.bannerColor,
+        kind: identityAbout?.kind ?? current?.kind,
+        ownerUserId: identityAbout?.ownerUserId === undefined
+          ? current?.ownerUserId
+          : identityAbout.ownerUserId,
+        statusEmoji: status?.statusEmoji === undefined
+          ? current?.statusEmoji
+          : status.statusEmoji,
+        statusText: status?.statusText === undefined
+          ? current?.statusText
+          : status.statusText,
+      })
+      profiles.set(patch.id, next)
+      if (writeRevision !== null) {
+        const nextRevisions = { ...fieldRevisions }
+        if (identityAbout) nextRevisions.identityAbout = writeRevision
+        if (incomingAvatar) nextRevisions.avatar = writeRevision
+        if (status) nextRevisions.status = writeRevision
+        if (identityAbout || incomingAvatar || status) {
+          revisions.fieldsByUserId.set(patch.id, nextRevisions)
+          advanced = true
+        }
       }
     }
-  }
-  if (advanced && writeRevision !== null) revisions.revision = writeRevision
-  const rows = [...profiles.values()]
-  writeCommunityCollectionRows(registry, "profiles", rows, (row) => row.userId)
-  registry.queryClient.setQueryData(queryKey, rows)
+    if (advanced && writeRevision !== null) revisions.revision = writeRevision
+    const rows = [...profiles.values()]
+    registry.queryClient.setQueryData(queryKey, rows)
+    return rows
+  }, (row) => row.userId)
 }
 
 export async function loadAndSeedProfiles<T>(

@@ -75,7 +75,7 @@ export async function gotoAfterNotificationStartup(
   trace.phase("auth-release")
   const authenticatedRefresh = notificationResponsesFinished(
     page,
-    notificationPaths.filter((path) => path.endsWith("/dms")),
+    notificationPaths.filter((path) => path.endsWith("/attention")),
   )
   holdAuthentication = false
   expect(proxy.releaseHeldConnections((frame) => frame.type === "auth.ok")).toBe(1)

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { QueryObserver } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
 import {
   capturedOnMessage,
@@ -116,7 +117,7 @@ describe("community read-state lifecycle reconciliation", () => {
     releaseReadSurface(lease)
   })
 
-  it("schedules the first-auth owner before non-Inbox reconciliation completes", async () => {
+  it("schedules the first-auth attention owner before read-state reconciliation completes", async () => {
     vi.useFakeTimers()
     await mountHook({ viewerUserId: "viewer-1" })
     useCommunityWsStore.getState().setPresence("viewer-1", "offline")
@@ -124,19 +125,14 @@ describe("community read-state lifecycle reconciliation", () => {
     getCommunityApiFetchMock().mockReturnValueOnce(new Promise((resolve) => {
       releaseSnapshot = resolve
     }))
-    const invalidate = vi.spyOn(capturedQueryClient, "invalidateQueries")
     const authentication = capturedUseUserWsOptions?.onAuthenticated?.()
 
     expect(getCommunityApiFetchMock()).toHaveBeenCalledOnce()
     expect(useCommunityWsStore.getState().presenceByUserId.get("viewer-1"))
       .toBe("online")
-    await vi.advanceTimersByTimeAsync(500)
-    expect(invalidate).toHaveBeenCalledWith({
-      queryKey: communityKeys.inbox(),
-    })
-    expect(invalidate).toHaveBeenCalledWith({
-      queryKey: communityKeys.dms(),
-    })
+    await vi.waitFor(() => expect(getCommunityApiFetchMock().mock.calls.filter(([path]) => (
+      path === "/api/community/users/me/attention"
+    ))).toHaveLength(1))
 
     releaseSnapshot({ revision: 0, readStates: [] })
     await authentication
@@ -145,13 +141,58 @@ describe("community read-state lifecycle reconciliation", () => {
     )).toEqual({ revision: 0, readStates: [] })
   })
 
+  it("reconciles focused messages exactly once on first authentication", async () => {
+    useCommunityStore.getState().subscribe({ channelId: "ch-first-auth" })
+    await mountHook({ viewerUserId: "viewer-1" })
+    const key = communityKeys.channelMessages("ch-first-auth")
+    capturedQueryClient.setQueryData(key, {
+      pages: [{
+        messages: [{
+          id: "m-1",
+          type: "chat",
+          seq: 1,
+          createdAt: "2026-09-28T00:00:01.000Z",
+        }],
+        latestSeq: 1,
+        hasMore: false,
+      }],
+      pageParams: [{ mode: "newest" }],
+    })
+    const observer = new QueryObserver(capturedQueryClient, {
+      queryKey: key,
+      queryFn: async () => ({ stale: true }),
+      staleTime: Infinity,
+    })
+    const unsubscribe = observer.subscribe(() => undefined)
+    const apiFetch = getCommunityApiFetchMock()
+    apiFetch.mockImplementation(async (url: unknown) => {
+      if (typeof url === "string" && url.includes("/channels/ch-first-auth/messages")) {
+        return { messages: [], latestSeq: 1, hasMoreNewer: false }
+      }
+      if (url === "/api/community/users/me/read-state") {
+        return { revision: 0, readStates: [] }
+      }
+      if (url === "/api/community/users/me/attention") {
+        return { scopes: [], items: [], limit: 100, truncated: false }
+      }
+      throw new Error(`unexpected API fetch: ${String(url)}`)
+    })
+
+    await capturedUseUserWsOptions?.onAuthenticated?.()
+    await capturedUseUserWsOptions?.onAuthenticated?.()
+
+    expect(apiFetch.mock.calls.filter(([url]) => (
+      typeof url === "string" && url.includes("/channels/ch-first-auth/messages")
+    ))).toHaveLength(1)
+    unsubscribe()
+  })
+
   it.each(["visibilitychange", "pageshow"] as const)(
     "schedules the connected owner and reconciles non-Inbox state on %s",
     async (eventType) => {
       vi.useFakeTimers()
       await mountHook()
       flushEffects()
-      const invalidate = vi.spyOn(capturedQueryClient, "invalidateQueries")
       const listener = eventType === "visibilitychange"
         ? documentListeners.get(eventType)
         : windowListeners.get(eventType)
@@ -160,28 +201,22 @@ describe("community read-state lifecycle reconciliation", () => {
       await vi.waitFor(() => expect(capturedQueryClient.getQueryData(
         communityKeys.accountReadStateSnapshot(),
       )).toEqual({ revision: 0, readStates: [] }))
-      expect(invalidate).not.toHaveBeenCalledWith({
-        queryKey: communityKeys.inbox(),
-      })
-      await vi.advanceTimersByTimeAsync(500)
-      expect(invalidate).toHaveBeenCalledWith({
-        queryKey: communityKeys.inbox(),
-      })
+      await vi.waitFor(() => expect(getCommunityApiFetchMock().mock.calls.filter(([path]) => (
+        path === "/api/community/users/me/attention"
+      ))).toHaveLength(1))
     },
   )
 
-  it("contains a visible lifecycle reconciliation failure while the owner still refreshes", async () => {
+  it("contains a visible lifecycle reconciliation failure while attention still reconciles", async () => {
     vi.useFakeTimers()
     await mountHook()
     flushEffects()
     getCommunityApiFetchMock().mockRejectedValueOnce(new Error("snapshot unavailable"))
-    const invalidate = vi.spyOn(capturedQueryClient, "invalidateQueries")
 
     documentListeners.get("visibilitychange")!()
     await vi.waitFor(() => expect(getCommunityApiFetchMock()).toHaveBeenCalledOnce())
-    await vi.advanceTimersByTimeAsync(500)
-
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: communityKeys.inbox() })
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: communityKeys.dms() })
+    await vi.waitFor(() => expect(getCommunityApiFetchMock().mock.calls.some(([path]) => (
+      path === "/api/community/users/me/attention"
+    ))).toBe(true))
   })
 })

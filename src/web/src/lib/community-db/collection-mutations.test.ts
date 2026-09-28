@@ -18,6 +18,8 @@ function fixture(
   durable = false,
 ) {
   const ready = deferred()
+  let readinessPromise: Promise<void> | null = null
+  let preloadFailure: Error | null = null
   const values = new Map<string, Row>()
   const operationConfigs: Array<{ optimistic?: boolean } | undefined> = []
   const collection = {
@@ -48,6 +50,20 @@ function fixture(
   }
   const registry = {
     collections: { profiles: collection },
+    ensureCollectionReady: () => {
+      if (preloadFailure) return Promise.reject(preloadFailure)
+      readinessPromise ??= collection.status === "ready"
+        ? Promise.resolve()
+        : collection.preload().catch((error: Error) => {
+            preloadFailure = error
+            throw error
+          })
+      return readinessPromise
+    },
+    isCollectionReady: () => collection.status === "ready" && !preloadFailure,
+    assertGenerationActive: () => {
+      if (preloadFailure) throw preloadFailure
+    },
     dbClient: {
       createTransaction: ({ mutationFn }: {
         mutationFn: (args: { transaction: { mutations: [] } }) => Promise<void>
@@ -92,6 +108,29 @@ describe("writeCommunityCollectionRows", () => {
     ready.resolve()
     await vi.waitFor(() => expect(values.get("alice")?.value).toBe(3))
     expect(collection.utils.acceptMutations).toHaveBeenCalledTimes(2)
+  })
+
+  it("derives a queued snapshot from restored rows after preload", async () => {
+    const { ready, registry, values } = fixture()
+
+    const committed = writeCommunityCollectionRows(
+      registry as never,
+      "profiles",
+      () => [
+        ...values.values(),
+        { id: "network", value: 2 },
+      ],
+      (row) => row.id,
+    )
+
+    values.set("restored", { id: "restored", value: 1 })
+    ready.resolve()
+    await committed
+
+    expect([...values.values()]).toEqual([
+      { id: "restored", value: 1 },
+      { id: "network", value: 2 },
+    ])
   })
 
   it("publishes immediately once ready and replaces stale rows and fields", async () => {
@@ -146,7 +185,7 @@ describe("writeCommunityCollectionRows", () => {
     expect(collection.utils.acceptMutations).toHaveBeenCalledTimes(2)
   })
 
-  it("drops a failed preload queue before accepting later writes", async () => {
+  it("fences a failed registry generation from later writes", async () => {
     const { collection, ready, registry, values } = fixture()
     writeCommunityCollectionRows(
       registry as never,
@@ -159,12 +198,13 @@ describe("writeCommunityCollectionRows", () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
     collection.status = "ready"
 
-    writeCommunityCollectionRows(
+    const rejected = writeCommunityCollectionRows(
       registry as never,
       "profiles",
       [{ id: "alice", value: 2 }],
       (row) => row.id,
     )
-    await vi.waitFor(() => expect(values.get("alice")?.value).toBe(2))
+    await expect(rejected).rejects.toThrow("preload failed")
+    expect(values.size).toBe(0)
   })
 })

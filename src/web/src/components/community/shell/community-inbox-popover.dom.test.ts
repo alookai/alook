@@ -164,7 +164,7 @@ describe("InboxPopover thread opener rows", () => {
     )
   })
 
-  it("removes a structural parent after its only child is projected away", () => {
+  it("does not let a navigation tombstone hide a new child generation", () => {
     const unreads = unreadFixture()
     unreads[0]!.channels[0]!.hasDirectUnread = false
     unreads[0]!.channels[0]!.children = unreads[0]!.channels[0]!.children.slice(0, 1)
@@ -176,14 +176,13 @@ describe("InboxPopover thread opener rows", () => {
       hasProjectedUnreads: true,
       hasProjectedMentions: false,
       onOpenThread: vi.fn(),
-      isProjected: (target) => target?.kind === "thread",
     }))
-    expect(renderer.queryAllByTestId(tid.inboxUnreadChannel("f1"))).toHaveLength(0)
-    expect(renderer.queryAllByTestId(tid.inboxUnreadChild("p1"))).toHaveLength(0)
+    expect(renderer.queryAllByTestId(tid.inboxUnreadChannel("f1"))).toHaveLength(1)
+    expect(renderer.queryAllByTestId(tid.inboxUnreadChild("p1"))).toHaveLength(1)
     expect(renderer.queryAllByTestId(tid.inboxUnreadChild("t1"))).toHaveLength(0)
   })
 
-  it("retains a projected direct parent as structural while children remain", () => {
+  it("renders canonical direct and child truth without tombstone filtering", () => {
     const onOpenChannel = vi.fn()
     const unreads = unreadFixture()
     unreads[0]!.channels[0]!.mentionCount = 2
@@ -196,7 +195,6 @@ describe("InboxPopover thread opener rows", () => {
       hasProjectedMentions: false,
       onOpenChannel,
       onOpenThread: vi.fn(),
-      isProjected: (target) => target?.kind === "channel-direct",
     }))
     const parentRows = renderer.queryAllByTestId(tid.inboxUnreadChannel("f1"))
     const openerRows = renderer.queryAllByTestId(tid.inboxUnreadChild("p1"))
@@ -205,12 +203,12 @@ describe("InboxPopover thread opener rows", () => {
     expect(renderer.queryAllByTestId(tid.inboxUnreadChild("t1"))).toHaveLength(1)
     expect(textOf(parentRows[0]!)).toContain("Forum")
     expect(textOf(openerRows[0]!)).toContain("Full authoritative opener content")
-    expect(textOf(parentRows[0]!)).not.toContain("2")
+    expect(textOf(parentRows[0]!)).toContain("2")
     fireEvent.click(parentRows[0]!)
     expect(onOpenChannel).toHaveBeenCalledWith(
       unreads[0],
       unreads[0]!.channels[0],
-      false,
+      true,
     )
   })
 })
@@ -317,6 +315,27 @@ describe("InboxPopover friend requests", () => {
     )
     expect(renderer.getByTestId(tid.inboxFriendRequestAccept("fr_1"))).toBeDisabled()
     expect(renderer.getByTestId(tid.inboxFriendRequestReject("fr_1"))).toBeDisabled()
+  })
+})
+
+describe("InboxPopover attention errors", () => {
+  it("shows Retry instead of Caught up on an initial attention failure", () => {
+    const onRetryAttention = vi.fn()
+    const renderer = render(React.createElement(InboxPopover, {
+      unreads: [],
+      unreadDms: [],
+      mentions: [],
+      marked: [],
+      attentionError: true,
+      onRetryAttention,
+      hasProjectedUnreads: false,
+      hasProjectedMentions: false,
+    }))
+    expect(renderer.queryByText("Caught up")).toBeNull()
+    expect(renderer.getAllByRole("alert")).toHaveLength(2)
+    expect(renderer.getAllByRole("alert")[0]).toHaveTextContent("Couldn\'t load Inbox")
+    fireEvent.click(renderer.getAllByRole("button", { name: "Retry" })[0]!)
+    expect(onRetryAttention).toHaveBeenCalledTimes(1)
   })
 })
 
