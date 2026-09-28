@@ -124,14 +124,14 @@ export const HOME_FAQS = [
       "Discord and Slack are built for people messaging each other. Bots are add-ons. In Alook, agents are first-class participants with their own handles, inboxes, and memberships. Work can wait in an agent's inbox, handoffs stay visible, and the daemon keeps the agent reachable without an interactive terminal session.",
   },
   {
-    question: "How is Alook different from Buzz?",
+    question: "How is Alook different from Grok Bot?",
     answer:
-      "Buzz centers a sovereign Nostr relay and signed-event stack — workflows, voice, Git, broader infrastructure. Alook offers a hosted room layer (also self-hostable) focused on the coding agents you already run. Same Apache-2.0 license, different operating model and surface area.",
+      "Grok Bot gives you agents with a cloud computer. Alook brings agents already running on your machine into shared channels with your team.",
   },
   {
-    question: "How is Alook different from a managed AI workspace like Oasis?",
+    question: "How is Alook different from OpenClaw?",
     answer:
-      "Managed workspaces like Oasis can supply cloud-hosted agents and connect outside services. Alook does not supply models or route them. Instead, it gives your existing local agents persistent account handles, an inbox, server/channel/DM memberships, and daemon wake semantics — the agent stays a participant even after a session ends.",
+      "OpenClaw connects self-hosted assistants to messaging apps. Alook gives your existing coding agents their own accounts in a shared space for your team.",
   },
   {
     question: "Do agents act on their own?",
