@@ -133,6 +133,99 @@ describe("useChannelRefDirectory", () => {
     })
   })
 
+  it("lets an accepted empty directory replace stale canonical channels", async () => {
+    dbProjection.current = [{
+      id: "server_stale",
+      name: "Stale",
+      discriminator: "0042",
+      channels: [{ id: "channel_stale", name: "old" }],
+    }]
+    apiFetch.mockResolvedValue({ directory: [] })
+    const rendered = renderDirectory(createQueryClient(), true)
+
+    await waitFor(() => expect(rendered.result.current.directory).toEqual([]))
+    expect(rendered.result.current).toMatchObject({
+      directory: [],
+      isResolved: true,
+      isLoading: false,
+      isError: false,
+    })
+  })
+
+  it("waits for an accepted server-only directory to reach canonical storage", async () => {
+    const directory = [{
+      id: "server_only",
+      name: "No channels yet",
+      discriminator: "0042",
+      channels: [],
+    }]
+    const request = deferred<{ directory: typeof directory }>()
+    apiFetch.mockReturnValue(request.promise)
+    dbProjection.current = []
+    const rendered = renderDirectory(createQueryClient(), true)
+
+    await act(async () => request.resolve({ directory }))
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledOnce())
+    expect(rendered.result.current).toMatchObject({
+      directory: [],
+      isResolved: false,
+      isLoading: true,
+      isError: false,
+    })
+
+    dbProjection.current = directory
+    rendered.rerender({ active: true })
+    expect(rendered.result.current).toMatchObject({
+      directory,
+      isResolved: true,
+      isLoading: false,
+      isError: false,
+    })
+  })
+
+  it("keeps an accepted non-empty directory pending until its canonical projection is complete", async () => {
+    const directory = [{
+      id: "server_1",
+      name: "Studio",
+      discriminator: "0042",
+      channels: [
+        { id: "channel_1", name: "general" },
+        { id: "channel_2", name: "random" },
+      ],
+    }]
+    const request = deferred<{ directory: typeof directory }>()
+    apiFetch.mockReturnValue(request.promise)
+    dbProjection.current = []
+    const rendered = renderDirectory(createQueryClient(), true)
+
+    await act(async () => request.resolve({ directory }))
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledOnce())
+    expect(rendered.result.current).toMatchObject({
+      directory: [],
+      isResolved: false,
+      isLoading: true,
+      isError: false,
+    })
+
+    dbProjection.current = [{ ...directory[0], channels: [directory[0]!.channels[0]!] }]
+    rendered.rerender({ active: true })
+    expect(rendered.result.current).toMatchObject({
+      directory: [],
+      isResolved: false,
+      isLoading: true,
+      isError: false,
+    })
+
+    dbProjection.current = directory
+    rendered.rerender({ active: true })
+    expect(rendered.result.current).toMatchObject({
+      directory,
+      isResolved: true,
+      isLoading: false,
+      isError: false,
+    })
+  })
+
   it("overrides the app retry default and refetches once only on demand", async () => {
     const directory = [{
       id: "server_1",
@@ -237,6 +330,25 @@ describe("useChannelRefDirectory", () => {
     expect(rendered.result.current).toMatchObject({
       directory,
       isResolved: true,
+      isLoading: false,
+      isError: false,
+    })
+    expect(apiFetch).not.toHaveBeenCalled()
+  })
+
+  it("keeps a canonical server-only directory unresolved while transport is dormant", () => {
+    dbProjection.current = [{
+      id: "server_db",
+      name: "Canonical",
+      discriminator: "0001",
+      channels: [],
+    }]
+
+    const rendered = renderDirectory(createQueryClient(), false)
+
+    expect(rendered.result.current).toMatchObject({
+      directory: [],
+      isResolved: false,
       isLoading: false,
       isError: false,
     })

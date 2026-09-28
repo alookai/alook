@@ -25,6 +25,8 @@ describe("MessageList — older-load sentinel does not cascade", () => {
 
   it("fires onLoadOlder once per intersection, not on every fetch-state re-render", () => {
     let ioCallback: ((entries: Array<{ isIntersecting: boolean }>) => void) | null = null
+    let nextFrameId = 0
+    const frameCallbacks = new Map<number, FrameRequestCallback>()
     const scrollPositions = new WeakMap<HTMLElement, number>()
     scrollTopDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollTop")
     scrollToDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollTo")
@@ -45,6 +47,14 @@ describe("MessageList — older-load sentinel does not cascade", () => {
       observe() {}
       unobserve() {}
       disconnect() {}
+    })
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      const id = ++nextFrameId
+      frameCallbacks.set(id, callback)
+      return id
+    })
+    vi.stubGlobal("cancelAnimationFrame", (id: number) => {
+      frameCallbacks.delete(id)
     })
     vi.stubGlobal("IntersectionObserver", class {
       constructor(callback: (entries: Array<{ isIntersecting: boolean }>) => void) {
@@ -72,10 +82,29 @@ describe("MessageList — older-load sentinel does not cascade", () => {
       onOpenThread: vi.fn(),
     })
     const intersect = () => act(() => ioCallback!([{ isIntersecting: true }]))
+    const runPendingFrames = () => {
+      const pending = Array.from(frameCallbacks.entries())
+      expect(pending.length).toBeGreaterThan(0)
+      act(() => {
+        for (const [id, callback] of pending) {
+          frameCallbacks.delete(id)
+          callback(0)
+        }
+      })
+    }
     let renderer: RenderResult = render(view(false))
     let scroller = renderer.getByTestId(tid.messageScroller)
 
     expect(ioCallback).not.toBeNull()
+    expect(renderer.container.querySelector("[data-message-list-content]"))
+      .toHaveAttribute("data-initial-position-phase", "positioning")
+
+    intersect()
+    expect(onLoadOlder).not.toHaveBeenCalled()
+
+    runPendingFrames()
+    expect(renderer.container.querySelector("[data-message-list-content]"))
+      .toHaveAttribute("data-initial-position-phase", "revealing")
 
     intersect()
     expect(onLoadOlder).toHaveBeenCalledTimes(1)

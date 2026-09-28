@@ -451,6 +451,104 @@ describe("community DB sync", () => {
     expect(db.collections.channels.get("c1")?.name).toBe("general")
   })
 
+  it("publishes cold server detail completeness only after its target tree", async () => {
+    const db = await registry()
+    ingestServers(db, { servers: [{
+      id: "s1", name: "Server", initial: "S", active: false,
+      unread: false, mentions: 0, ownerId: "viewer",
+    }] })
+    const completeSnapshots: Array<{ categoryIds: string[]; channelIds: string[] }> = []
+    const unsubscribe = db.queryClient.getQueryCache().subscribe(() => {
+      const server = db.queryClient.getQueryData<Array<{ id: string; detailComplete: boolean }>>(
+        communityKeys.communityDbCollection(db.scopeId, "servers"),
+      )?.find((row) => row.id === "s1")
+      if (!server?.detailComplete) return
+      const categoryIds = db.queryClient.getQueryData<Array<{ id: string; serverId: string }>>(
+        communityKeys.communityDbCollection(db.scopeId, "categories"),
+      )?.filter((row) => row.serverId === "s1").map((row) => row.id) ?? []
+      const channelIds = db.queryClient.getQueryData<Array<{ id: string; serverId?: string | null }>>(
+        communityKeys.communityDbCollection(db.scopeId, "channels"),
+      )?.filter((row) => row.serverId === "s1").map((row) => row.id) ?? []
+      completeSnapshots.push({ categoryIds, channelIds })
+    })
+
+    try {
+      ingestServerDetail(db, {
+        id: "s1", name: "Server", discriminator: "0001", description: "",
+        icon: null, ownerId: "viewer", categories: [{
+          id: "cat1", name: "General", channels: [{
+            id: "c1", name: "general", active: false, unread: false,
+          }],
+        }],
+      })
+    } finally {
+      unsubscribe()
+    }
+
+    expect(completeSnapshots.length).toBeGreaterThan(0)
+    expect(completeSnapshots[0]).toEqual({
+      categoryIds: ["cat1"],
+      channelIds: ["c1"],
+    })
+  })
+
+  it("keeps a warm server tree complete and usable throughout reconciliation", async () => {
+    const db = await registry()
+    ingestServers(db, { servers: [{
+      id: "s1", name: "Server", initial: "S", active: false,
+      unread: false, mentions: 0, ownerId: "viewer",
+    }] })
+    const detail = {
+      id: "s1", name: "Server", discriminator: "0001", description: "",
+      icon: null, ownerId: "viewer", categories: [{
+        id: "cat1", name: "General", channels: [{
+          id: "c1", name: "general", active: false, unread: false,
+        }],
+      }],
+    }
+    ingestServerDetail(db, detail)
+    const snapshots: Array<{
+      complete: boolean | undefined
+      categoryIds: string[]
+      channelIds: string[]
+    }> = []
+    const unsubscribe = db.queryClient.getQueryCache().subscribe(() => {
+      const complete = db.queryClient.getQueryData<Array<{
+        id: string
+        detailComplete: boolean
+      }>>(communityKeys.communityDbCollection(db.scopeId, "servers"))
+        ?.find((row) => row.id === "s1")?.detailComplete
+      const categoryIds = db.queryClient.getQueryData<Array<{ id: string; serverId: string }>>(
+        communityKeys.communityDbCollection(db.scopeId, "categories"),
+      )?.filter((row) => row.serverId === "s1").map((row) => row.id) ?? []
+      const channelIds = db.queryClient.getQueryData<Array<{ id: string; serverId?: string | null }>>(
+        communityKeys.communityDbCollection(db.scopeId, "channels"),
+      )?.filter((row) => row.serverId === "s1").map((row) => row.id) ?? []
+      snapshots.push({ complete, categoryIds, channelIds })
+    })
+
+    try {
+      ingestServerDetail(db, {
+        ...detail,
+        name: "Server renamed",
+        categories: [{
+          ...detail.categories[0],
+          name: "General renamed",
+          channels: [{ ...detail.categories[0].channels[0], name: "chat" }],
+        }],
+      })
+    } finally {
+      unsubscribe()
+    }
+
+    expect(snapshots.length).toBeGreaterThan(0)
+    expect(snapshots.every((snapshot) => (
+      snapshot.complete === true
+      && snapshot.categoryIds.includes("cat1")
+      && snapshot.channelIds.includes("c1")
+    ))).toBe(true)
+  })
+
   it("merges a WS channel update for an absent row into older HTTP", async () => {
     const db = await registry()
     const token = captureCommunityLiveSnapshotToken(db.queryClient)

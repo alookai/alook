@@ -200,18 +200,18 @@ describe("useMessageListController", () => {
     expect(mocks.sentinelInputs.slice(0, 2)).toEqual([
       {
         scrollRef: mocks.scrollRef,
-        hasMore: undefined,
+        hasMore: false,
         isFetching: undefined,
-        isSettling: false,
+        isSettling: true,
         onBeforeLoad: mocks.captureOlderPageAnchor,
         onLoad: undefined,
         edge: "start",
       },
       {
         scrollRef: mocks.scrollRef,
-        hasMore: undefined,
+        hasMore: false,
         isFetching: undefined,
-        isSettling: false,
+        isSettling: true,
         onBeforeLoad: mocks.captureNewerPageAnchor,
         onLoad: undefined,
         edge: "end",
@@ -271,7 +271,7 @@ describe("useMessageListController", () => {
     expect(latest.initialPosition.phase).toBe("revealed")
   })
 
-  it("passes every pagination/anchor input through and gives jump mode server-count precedence", () => {
+  it("holds pagination through initial positioning, then passes every input through", () => {
     const loadOlder = vi.fn()
     const loadNewer = vi.fn()
     const jumpToPresent = vi.fn()
@@ -309,22 +309,30 @@ describe("useMessageListController", () => {
     expect(mocks.sentinelInputs.slice(-2)).toEqual([
       {
         scrollRef: mocks.scrollRef,
-        hasMore: true,
+        hasMore: false,
         isFetching: true,
-        isSettling: false,
+        isSettling: true,
         onBeforeLoad: mocks.captureOlderPageAnchor,
         onLoad: loadOlder,
         edge: "start",
       },
       {
         scrollRef: mocks.scrollRef,
-        hasMore: true,
+        hasMore: false,
         isFetching: true,
-        isSettling: false,
+        isSettling: true,
         onBeforeLoad: mocks.captureNewerPageAnchor,
         onLoad: loadNewer,
         edge: "end",
       },
+    ])
+    const settle = (mocks.scrollInputs.at(-1) as {
+      onInitialPositionSettled: () => void
+    }).onInitialPositionSettled
+    act(() => settle())
+    expect(mocks.sentinelInputs.slice(-2)).toEqual([
+      expect.objectContaining({ edge: "start", hasMore: true, isSettling: false }),
+      expect.objectContaining({ edge: "end", hasMore: true, isSettling: false }),
     ])
     expect(latest.pillCount).toBe(9)
     expect(latest.pillMode).toBe("jump")

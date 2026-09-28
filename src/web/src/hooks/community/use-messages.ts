@@ -108,6 +108,99 @@ function useCommittedTransportWindow(
   return observed
 }
 
+type CanonicalWindow = {
+  messages: CanonicalMessage[]
+  latestSeq: number
+  hasMoreOlder: boolean
+  hasMoreNewer: boolean
+}
+
+type PaginationDirection = "older" | "newer"
+
+const EMPTY_CANONICAL_WINDOW: CanonicalWindow = {
+  messages: [],
+  latestSeq: 0,
+  hasMoreOlder: false,
+  hasMoreNewer: false,
+}
+
+function useAtomicCanonicalWindow({
+  key,
+  candidate,
+  pending,
+  isFetchingOlder,
+  isFetchingNewer,
+  fetchOlder,
+  fetchNewer,
+}: {
+  key: string
+  candidate: CanonicalWindow
+  pending: boolean
+  isFetchingOlder: boolean
+  isFetchingNewer: boolean
+  fetchOlder: () => void
+  fetchNewer: () => void
+}) {
+  const [committed, setCommitted] = useState<{ key: string; value: CanonicalWindow }>(
+    () => ({ key, value: pending ? EMPTY_CANONICAL_WINDOW : candidate }),
+  )
+  const [requestedDirection, setRequestedDirection] = useState<{
+    key: string
+    value: PaginationDirection
+  } | null>(null)
+  const committedValue = committed.key === key
+    ? committed.value
+    : EMPTY_CANONICAL_WINDOW
+  const value = pending ? committedValue : candidate
+  const activeDirection: PaginationDirection | null = isFetchingOlder
+    ? "older"
+    : isFetchingNewer
+      ? "newer"
+      : null
+  const heldDirection = pending
+    ? activeDirection ?? (requestedDirection?.key === key ? requestedDirection.value : null)
+    : activeDirection
+
+  const atomicFetchOlder = useCallback(() => {
+    setRequestedDirection({ key, value: "older" })
+    fetchOlder()
+  }, [fetchOlder, key])
+  const atomicFetchNewer = useCallback(() => {
+    setRequestedDirection({ key, value: "newer" })
+    fetchNewer()
+  }, [fetchNewer, key])
+
+  // Only committed complete windows may become the fallback for a later
+  // asynchronous collection projection. This keeps a suspended/abandoned
+  // render from publishing its candidate through committed state.
+  useLayoutEffect(() => {
+    if (!pending) {
+      setCommitted((current) => (
+        current.key === key && current.value === candidate
+          ? current
+          : { key, value: candidate }
+      ))
+    }
+    if (activeDirection) {
+      setRequestedDirection((current) => (
+        current?.key === key && current.value === activeDirection
+          ? current
+          : { key, value: activeDirection }
+      ))
+    } else if (!pending) {
+      setRequestedDirection(null)
+    }
+  }, [activeDirection, candidate, key, pending])
+
+  return {
+    ...value,
+    isFetchingOlder: isFetchingOlder || (pending && heldDirection === "older"),
+    isFetchingNewer: isFetchingNewer || (pending && heldDirection === "newer"),
+    fetchOlder: atomicFetchOlder,
+    fetchNewer: atomicFetchNewer,
+  }
+}
+
 type MessagesTransportPage = MessagesPage & {
   surfaceReceipt?: MessageSurfaceReceipt
 }
@@ -1047,17 +1140,33 @@ export function useMessages(
     base.messages,
     canonicalBase,
   )
+  const canonicalWindowKey = useMemo(() => JSON.stringify(queryKey), [queryKey])
+  const canonicalWindowCandidate = useMemo<CanonicalWindow>(() => ({
+    messages: canonicalBase,
+    latestSeq: base.latestSeq,
+    hasMoreOlder: base.hasMoreOlder,
+    hasMoreNewer: base.hasMoreNewer,
+  }), [base.hasMoreNewer, base.hasMoreOlder, base.latestSeq, canonicalBase])
+  const canonicalWindow = useAtomicCanonicalWindow({
+    key: canonicalWindowKey,
+    candidate: canonicalWindowCandidate,
+    pending: canonicalWindowPending,
+    isFetchingOlder: base.isFetchingOlder,
+    isFetchingNewer: base.isFetchingNewer,
+    fetchOlder: base.fetchOlder,
+    fetchNewer: base.fetchNewer,
+  })
   useEffect(() => {
     if (!channelId) return
     useMessageStreamStore.getState().dispatch(scope, {
       type: "baseChanged",
-      messages: canonicalBase,
+      messages: canonicalWindow.messages,
     })
-  }, [canonicalBase, channelId, scope])
+  }, [canonicalWindow.messages, channelId, scope])
   const messages = useMemo(
-    () => materializeMessageStream(canonicalBase, overlay).filter((message) =>
+    () => materializeMessageStream(canonicalWindow.messages, overlay).filter((message) =>
       messageMatchesTag(message, opts.tag)),
-    [canonicalBase, opts.tag, overlay],
+    [canonicalWindow.messages, opts.tag, overlay],
   )
   useEffect(() => {
     if (!channelId || base.data === undefined) return
@@ -1070,11 +1179,15 @@ export function useMessages(
     accessEpoch,
   )
   const gated = navigationGate.required && !navigationGate.allowed
+  const coldCanonicalWindowPending = canonicalWindowPending
+    && canonicalWindow.messages.length === 0
   return {
     ...base,
-    messages: gated ? [] : messages,
-    isLoading: (base.isLoading && canonicalBase.length === 0)
-      || canonicalWindowPending
+    ...canonicalWindow,
+    hasMore: canonicalWindow.hasMoreOlder,
+    messages: gated || coldCanonicalWindowPending ? [] : messages,
+    isLoading: (base.isLoading && canonicalWindow.messages.length === 0)
+      || coldCanonicalWindowPending
       || gated,
     navigationBlocked: gated,
   }
@@ -1146,16 +1259,32 @@ export function useDmMessages(
     base.messages,
     canonicalBase,
   )
+  const canonicalWindowKey = useMemo(() => JSON.stringify(queryKey), [queryKey])
+  const canonicalWindowCandidate = useMemo<CanonicalWindow>(() => ({
+    messages: canonicalBase,
+    latestSeq: base.latestSeq,
+    hasMoreOlder: base.hasMoreOlder,
+    hasMoreNewer: base.hasMoreNewer,
+  }), [base.hasMoreNewer, base.hasMoreOlder, base.latestSeq, canonicalBase])
+  const canonicalWindow = useAtomicCanonicalWindow({
+    key: canonicalWindowKey,
+    candidate: canonicalWindowCandidate,
+    pending: canonicalWindowPending,
+    isFetchingOlder: base.isFetchingOlder,
+    isFetchingNewer: base.isFetchingNewer,
+    fetchOlder: base.fetchOlder,
+    fetchNewer: base.fetchNewer,
+  })
   useEffect(() => {
     if (!dmId) return
     useMessageStreamStore.getState().dispatch(scope, {
       type: "baseChanged",
-      messages: canonicalBase,
+      messages: canonicalWindow.messages,
     })
-  }, [canonicalBase, dmId, scope])
+  }, [canonicalWindow.messages, dmId, scope])
   const messages = useMemo(
-    () => materializeMessageStream(canonicalBase, overlay),
-    [canonicalBase, overlay],
+    () => materializeMessageStream(canonicalWindow.messages, overlay),
+    [canonicalWindow.messages, overlay],
   )
   useEffect(() => {
     if (!dmId || base.data === undefined) return
@@ -1168,11 +1297,15 @@ export function useDmMessages(
     accessEpoch,
   )
   const gated = navigationGate.required && !navigationGate.allowed
+  const coldCanonicalWindowPending = canonicalWindowPending
+    && canonicalWindow.messages.length === 0
   return {
     ...base,
-    messages: gated ? [] : messages,
-    isLoading: (base.isLoading && canonicalBase.length === 0)
-      || canonicalWindowPending
+    ...canonicalWindow,
+    hasMore: canonicalWindow.hasMoreOlder,
+    messages: gated || coldCanonicalWindowPending ? [] : messages,
+    isLoading: (base.isLoading && canonicalWindow.messages.length === 0)
+      || coldCanonicalWindowPending
       || gated,
     navigationBlocked: gated,
   }

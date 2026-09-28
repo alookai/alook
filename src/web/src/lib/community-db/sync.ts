@@ -647,7 +647,7 @@ export function ingestServerDetail(
     isOwner: existing?.isOwner ?? detail.ownerId === registry.accountId,
     unread: existing?.unread ?? false,
     mentions: existing?.mentions ?? 0,
-    detailComplete: true,
+    detailComplete: existing?.detailComplete ?? false,
   }
   const categories: CategoryRow[] = []
   const channels: ChannelRow[] = []
@@ -757,10 +757,6 @@ export function ingestServerDetail(
       for (const channelId of removedTopLevelIds) purgeCommunityChannel(registry, channelId)
     }
     upsertRows(registry, "servers", serverSchema, (row) => row.id, [server])
-    // Completeness is monotonic query state, not mutable server identity. A
-    // newer WS event may protect the row's fields without blocking this proof
-    // that its canonical tree has arrived.
-    promoteServerDetailComplete(registry, detail.id)
     if (mode === "authoritative") {
       replaceRows(
         registry,
@@ -823,6 +819,12 @@ export function ingestServerDetail(
       (row) => ({ ...row, unread: unreadChildren.has(row.id) }),
       (row) => row.serverId === detail.id && row.type === "thread",
     )
+    // Completeness is the publication barrier for this server's canonical
+    // tree. Keep it false for a cold ingest until every dependent collection
+    // is present; an already-complete tree stays visible during reconciliation.
+    // A newer WS event may protect identity fields without blocking this
+    // monotonic proof that the full tree has arrived.
+    promoteServerDetailComplete(registry, detail.id)
   })
 }
 

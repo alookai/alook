@@ -18,6 +18,22 @@ import {
 
 const EMPTY_DIRECTORY = Object.freeze([]) as unknown as ChannelRefDirectory
 
+function canonicalDirectoryContains(
+  canonical: ChannelRefDirectory | undefined,
+  transport: ChannelRefDirectory,
+): boolean {
+  if (!canonical) return false
+  const canonicalByServer = new Map(canonical.map((server) => [server.id, server]))
+  return transport.every((server) => {
+    const canonicalServer = canonicalByServer.get(server.id)
+    if (!canonicalServer) return false
+    const canonicalChannelIds = new Set(
+      canonicalServer.channels.map((channel) => channel.id),
+    )
+    return server.channels.every((channel) => canonicalChannelIds.has(channel.id))
+  })
+}
+
 export const channelRefDirectoryQueryFn = async (): Promise<ChannelRefDirectory> => {
   const data = await apiFetch<{ directory: ChannelRefDirectory }>(
     "/api/community/users/me/channel-directory",
@@ -55,12 +71,24 @@ export function useChannelRefDirectory(enabled = true): {
     refetchOnReconnect: true,
     retry: false,
   })
-  const directory = registry
-    ? dbDirectory ?? EMPTY_DIRECTORY
-    : query.data ?? EMPTY_DIRECTORY
   const hasCanonicalChannels = dbDirectory?.some((server) => server.channels.length > 0) ?? false
+  const transportSettled = query.isSuccess && !query.isFetching
+  const transportResolvedEmpty = transportSettled
+    && query.data?.length === 0
+  const transportHasDirectory = (query.data?.length ?? 0) > 0
+  const canonicalPublicationComplete = Boolean(
+    transportHasDirectory
+    && canonicalDirectoryContains(dbDirectory, query.data ?? EMPTY_DIRECTORY),
+  )
+  const directory = registry
+    ? transportResolvedEmpty
+      ? EMPTY_DIRECTORY
+      : dbDirectory ?? EMPTY_DIRECTORY
+    : query.data ?? EMPTY_DIRECTORY
   const isResolved = registry
-    ? hasCanonicalChannels || (query.isSuccess && !query.isFetching)
+    ? transportResolvedEmpty
+      || canonicalPublicationComplete
+      || (query.data === undefined && hasCanonicalChannels)
     : query.data !== undefined
   return {
     directory: isResolved ? directory : EMPTY_DIRECTORY,

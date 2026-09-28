@@ -141,18 +141,18 @@ export function useMessageListController({
 
   const topSentinelRef = useVirtualCursorSentinel({
     scrollRef,
-    hasMore,
+    hasMore: initialPosition.contentInteractive ? hasMore : false,
     isFetching: isFetchingOlder,
-    isSettling: isOlderPageAnchorSettling,
+    isSettling: isOlderPageAnchorSettling || !initialPosition.contentInteractive,
     onBeforeLoad: captureOlderPageAnchor,
     onLoad: onLoadOlder,
     edge: "start",
   })
   const bottomSentinelRef = useVirtualCursorSentinel({
     scrollRef,
-    hasMore: hasMoreNewer,
+    hasMore: initialPosition.contentInteractive ? hasMoreNewer : false,
     isFetching: isFetchingNewer,
-    isSettling: isNewerPageAnchorSettling,
+    isSettling: isNewerPageAnchorSettling || !initialPosition.contentInteractive,
     onBeforeLoad: captureNewerPageAnchor,
     onLoad: onLoadNewer,
     edge: "end",
