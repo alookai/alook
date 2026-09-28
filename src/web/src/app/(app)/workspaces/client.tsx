@@ -8,7 +8,7 @@ import { GradientBackground } from "@/components/gradient-background"
 import { Logo } from "@/components/logo"
 import { Plus, ArrowRight, LogOut, Loader2 } from "lucide-react"
 import { signOut } from "@/lib/auth-client"
-import { clearAllCache } from "@/lib/chat-cache"
+import { clearAllAgentChatPersistence } from "@/lib/agent-chat-persistence"
 import { toast } from "sonner"
 
 interface WorkspaceItem {
@@ -54,7 +54,7 @@ export function WorkspaceListClient({
         size="sm"
         className="absolute top-4 right-4 text-muted-foreground"
         onClick={async () => {
-          await clearAllCache()
+          await clearAllAgentChatPersistence()
           await signOut()
           router.push("/sign-in")
         }}

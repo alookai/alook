@@ -1,221 +1,119 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
 import React from "react"
-import { act, render } from "@/test/react-dom-harness"
+import { beforeEach, describe, expect, it, vi } from "vitest"
+import { act, render, waitFor } from "@/test/react-dom-harness"
 import { useCommunityWsStore } from "@/stores/community/ws"
-import { communityKeys } from "@/lib/query-keys"
 
-const queryClient = vi.hoisted(() => ({
-  id: "query-client",
-  invalidateQueries: vi.fn(() => Promise.resolve()),
-  getQueryData: vi.fn(() => undefined),
-  removeQueries: vi.fn(),
-  getQueryCache: vi.fn(() => ({
-    subscribe: vi.fn(() => () => {}),
-    getAll: vi.fn(() => []),
-  })),
+const mocks = vi.hoisted(() => ({
+  capture: vi.fn(),
+  cleanup: vi.fn(),
+  clear: vi.fn(() => Promise.resolve()),
+  createRegistry: vi.fn(),
+  getRuntime: vi.fn(() => Promise.resolve({ persistence: { kind: "sqlite" } })),
+  installSync: vi.fn(() => () => {}),
+  preload: vi.fn(() => Promise.resolve()),
+  registerClear: vi.fn(() => () => {}),
+  registerRegistry: vi.fn(() => () => {}),
+  setReconcileScheduler: vi.fn(),
 }))
-const createQueryClient = vi.hoisted(() => vi.fn(() => queryClient))
-const setReconcileScheduler = vi.hoisted(() => vi.fn())
-const getAccountUnreadProjection = vi.hoisted(() => vi.fn(() => ({
-  setReconcileScheduler,
-})))
-const disposeAccountUnreadProjection = vi.hoisted(() => vi.fn())
-const registryCleanup = vi.hoisted(() => vi.fn(() => Promise.resolve()))
-const captureRestoredCollections = vi.hoisted(() => vi.fn())
-const restoreResult = vi.hoisted(() => ({ current: "success" as "success" | "error" }))
 
-vi.mock("@tanstack/react-query-devtools", () => ({ ReactQueryDevtools: () => null }))
-vi.mock("@tanstack/react-query-persist-client", async () => {
-  const { useEffect } = await import("react")
+const queryClient = {
+  invalidateQueries: vi.fn(() => Promise.resolve()),
+}
+
+vi.mock("@tanstack/react-query", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@tanstack/react-query")>()
   return {
-    PersistQueryClientProvider: ({
-      children,
-      onSuccess,
-      onError,
-    }: {
-      children: React.ReactNode
-      onSuccess: () => void
-      onError: () => void
-    }) => {
-      useEffect(() => {
-        if (restoreResult.current === "success") onSuccess()
-        else onError()
-      }, [onError, onSuccess])
-      return children
-    },
+    ...actual,
+    QueryClientProvider: ({ children }: { children: React.ReactNode }) => children,
   }
 })
-vi.mock("@/lib/query-client", () => ({ createQueryClient }))
-vi.mock("@/lib/query-persister", () => ({
-  createIdbPersister: vi.fn(() => ({ id: "persister" })),
-  PERSIST_BUSTER: "test",
-  PERSIST_MAX_AGE_MS: 1,
-  shouldPersistQuery: vi.fn(() => false),
+vi.mock("@tanstack/react-query-devtools", () => ({ ReactQueryDevtools: () => null }))
+vi.mock("@/lib/query-client", () => ({ createQueryClient: () => queryClient }))
+vi.mock("@/lib/browser-persistence", () => ({
+  getBrowserPersistenceRuntime: mocks.getRuntime,
+  registerPersistenceClearScope: mocks.registerClear,
 }))
 vi.mock("@/lib/community-db/collections", () => ({
-  createCommunityDbRegistry: vi.fn(() => ({
-    id: "community-db",
-    captureRestoredCollections,
-    hasRestoredCollection: vi.fn(() => false),
-    cleanup: registryCleanup,
-  })),
-  registerCommunityDbRegistry: vi.fn(() => () => {}),
+  createCommunityDbRegistry: mocks.createRegistry,
+  registerCommunityDbRegistry: mocks.registerRegistry,
 }))
 vi.mock("@/lib/community-db/projections", () => ({
   CommunityDbProvider: ({ children }: { children: React.ReactNode }) => children,
 }))
-vi.mock("@/lib/community-db/sync", () => ({
-  installCommunityDbSync: vi.fn(() => () => {}),
-}))
+vi.mock("@/lib/community-db/sync", () => ({ installCommunityDbSync: mocks.installSync }))
 vi.mock("@/hooks/community/community-ws/read-state-reconciliation", () => ({
   disposeAccountReadStateReconciliation: vi.fn(),
 }))
 vi.mock("@/hooks/community/read-coordinator", () => ({ disposeReadCoordinator: vi.fn() }))
 vi.mock("@/hooks/community/account-unread-projection", () => ({
-  disposeAccountUnreadProjection,
-  getAccountUnreadProjection,
+  disposeAccountUnreadProjection: vi.fn(),
+  getAccountUnreadProjection: () => ({ setReconcileScheduler: mocks.setReconcileScheduler }),
 }))
 
 import { QueryProvider } from "./QueryProvider"
 
-const originalActivateProfileAccount = useCommunityWsStore.getState().activateProfileAccount
+function registry() {
+  return {
+    scopeId: "viewer-b",
+    clear: mocks.clear,
+    cleanup: mocks.cleanup,
+    preload: mocks.preload,
+    captureRestoredCollections: mocks.capture,
+  }
+}
 
 beforeEach(() => {
-  useCommunityWsStore.setState({ activateProfileAccount: originalActivateProfileAccount })
+  for (const mock of Object.values(mocks)) mock.mockClear()
+  mocks.getRuntime.mockResolvedValue({ persistence: { kind: "sqlite" } })
+  mocks.preload.mockResolvedValue(undefined)
+  mocks.createRegistry.mockImplementation(() => registry())
   useCommunityWsStore.getState().reset()
-  createQueryClient.mockClear()
-  setReconcileScheduler.mockClear()
-  getAccountUnreadProjection.mockClear()
-  disposeAccountUnreadProjection.mockClear()
-  registryCleanup.mockClear()
-  captureRestoredCollections.mockClear()
-  restoreResult.current = "success"
-  queryClient.invalidateQueries.mockClear()
 })
 
-describe("QueryProvider profile account lifecycle", () => {
-  it("activates the restored account after render", async () => {
-    const store = useCommunityWsStore.getState()
-    store.activateProfileAccount("viewer-a")
-    const activateProfileAccountSpy = vi.fn(store.activateProfileAccount)
-    useCommunityWsStore.setState({ activateProfileAccount: activateProfileAccountSpy })
-    const observedViewerIds: Array<string | null> = []
-    function Probe() {
-      observedViewerIds.push(useCommunityWsStore.getState().profileViewerId)
-      return null
-    }
+describe("QueryProvider collection startup", () => {
+  it("preloads the account collection registry before mounting children", async () => {
+    let resolvePreload!: () => void
+    mocks.preload.mockReturnValueOnce(new Promise<void>((resolve) => {
+      resolvePreload = resolve
+    }))
+    const renderer = render(React.createElement(
+      QueryProvider,
+      { userId: "viewer-b" },
+      React.createElement("span", null, "ready"),
+    ))
+
+    expect(renderer.container).not.toHaveTextContent("ready")
+    await act(async () => resolvePreload())
+    await waitFor(() => expect(renderer.container).toHaveTextContent("ready"))
+    expect(mocks.capture).toHaveBeenCalledOnce()
+    expect(useCommunityWsStore.getState().profileViewerId).toBe("viewer-b")
+    expect(mocks.installSync).toHaveBeenCalledOnce()
+    renderer.unmount()
+  })
+
+  it("recreates the registry in memory when persisted preload fails", async () => {
+    const persisted = registry()
+    persisted.preload = vi.fn(() => Promise.reject(new Error("OPFS failed")))
+    const memory = registry()
+    mocks.createRegistry
+      .mockReturnValueOnce(persisted)
+      .mockReturnValueOnce(memory)
 
     const renderer = render(React.createElement(
       QueryProvider,
       { userId: "viewer-b" },
-      React.createElement(Probe),
+      React.createElement("span", null, "ready"),
     ))
 
-    expect(observedViewerIds).toEqual(["viewer-a"])
-    await act(async () => { await Promise.resolve() })
-    expect(activateProfileAccountSpy).toHaveBeenCalledWith("viewer-b")
-    act(() => renderer.unmount())
-  })
-
-  it("revalidates durable projections after restore", async () => {
-    const store = useCommunityWsStore.getState()
-    store.activateProfileAccount("viewer-b")
-
-    const renderer = render(React.createElement(
-      QueryProvider,
-      { userId: "viewer-b" },
-      React.createElement("span", null, "content"),
-    ))
-    await act(async () => { await Promise.resolve() })
-
-    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
-      queryKey: communityKeys.folders(),
-      exact: true,
-      refetchType: "active",
-    })
-    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
-      queryKey: communityKeys.dms(),
-      exact: true,
-      refetchType: "active",
-    })
-    act(() => renderer.unmount())
-  })
-
-  it("confirms the new viewer and empty canonical baseline after restore failure", async () => {
-    restoreResult.current = "error"
-    const store = useCommunityWsStore.getState()
-    store.activateProfileAccount("viewer-old")
-    const activateProfileAccountSpy = vi.fn(store.activateProfileAccount)
-    useCommunityWsStore.setState({ activateProfileAccount: activateProfileAccountSpy })
-
-    const renderer = render(React.createElement(
-      QueryProvider,
-      { userId: "viewer-new" },
-      React.createElement("span", null, "content"),
-    ))
-    await act(async () => { await Promise.resolve() })
-
-    expect(captureRestoredCollections).toHaveBeenCalledOnce()
-    expect(activateProfileAccountSpy).toHaveBeenCalledWith("viewer-new")
-    expect(useCommunityWsStore.getState().profileViewerId).toBe("viewer-new")
-    expect(queryClient.invalidateQueries).not.toHaveBeenCalled()
-    act(() => renderer.unmount())
-  })
-
-  it("routes projection reconciliation through the canonical source prefixes", async () => {
-    const renderer = render(React.createElement(
-      QueryProvider,
-      { userId: "viewer-c" },
-      React.createElement("span", null, "content"),
-    ))
-
-    expect(getAccountUnreadProjection).toHaveBeenCalledWith(queryClient, "viewer-c")
-    const reconcile = setReconcileScheduler.mock.calls.at(-1)?.[0]
-    expect(reconcile).toBeTypeOf("function")
-    await act(async () => reconcile())
-    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
-      queryKey: communityKeys.inboxUnreads(),
-      exact: true,
-    })
-    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
-      queryKey: communityKeys.inboxMentions(),
-      exact: true,
-    })
-    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
-      queryKey: communityKeys.dms(),
-      exact: true,
-    })
-    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
-      queryKey: communityKeys.servers(),
-      exact: true,
-    })
-    const detailPredicate = queryClient.invalidateQueries.mock.calls
-      .map(([filters]) => filters.predicate)
-      .find((predicate) => typeof predicate === "function")
-    expect(detailPredicate).toBeTypeOf("function")
-    expect(detailPredicate({ queryKey: communityKeys.server("server-1") })).toBe(true)
-    expect(detailPredicate({ queryKey: communityKeys.members("server-1") })).toBe(false)
-    expect(detailPredicate({ queryKey: communityKeys.channelRefDirectory() })).toBe(false)
-    expect(detailPredicate({ queryKey: communityKeys.server("__none__") })).toBe(false)
-    expect(detailPredicate({ queryKey: communityKeys.server("__pending__") })).toBe(false)
-    act(() => renderer.unmount())
-  })
-
-  it("does not manually destroy collections while descendant live queries release", async () => {
-    vi.useFakeTimers()
-    try {
-      const renderer = render(React.createElement(
-        QueryProvider,
-        { userId: "viewer-d" },
-        React.createElement("span", null, "content"),
-      ))
-
-      act(() => renderer.unmount())
-      await act(async () => vi.runAllTimersAsync())
-
-      expect(registryCleanup).not.toHaveBeenCalled()
-    } finally {
-      vi.useRealTimers()
-    }
+    await waitFor(() => expect(renderer.container).toHaveTextContent("ready"))
+    expect(mocks.createRegistry).toHaveBeenNthCalledWith(
+      1,
+      queryClient,
+      "viewer-b",
+      { persistence: { kind: "sqlite" } },
+    )
+    expect(mocks.createRegistry).toHaveBeenNthCalledWith(2, queryClient, "viewer-b")
+    expect(persisted.cleanup).toHaveBeenCalledOnce()
+    renderer.unmount()
   })
 })

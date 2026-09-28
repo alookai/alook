@@ -22,6 +22,7 @@ import {
   useTrustedRestoredPrimary,
 } from "./projections"
 import { ingestServerDetail, ingestServers } from "./sync"
+import { writeCommunityCollectionRows } from "./collection-mutations"
 
 describe("community DB projections", () => {
   it("keeps every projection unresolved without a registry owner", () => {
@@ -137,6 +138,7 @@ describe("community DB projections", () => {
         unread: false,
         mentions: 0,
         detailComplete: false,
+        position: 0,
       },
       {
         id: "a-second",
@@ -150,6 +152,7 @@ describe("community DB projections", () => {
         unread: false,
         mentions: 0,
         detailComplete: false,
+        position: 1,
       },
     ]
     queryClient.setQueryData(
@@ -167,8 +170,21 @@ describe("community DB projections", () => {
       })),
     )
     const registry = createCommunityDbRegistry(queryClient, "viewer")
-    registry.captureRestoredCollections()
     await registry.preload()
+    writeCommunityCollectionRows(registry, "servers", legacyServers, (row) => row.id)
+    writeCommunityCollectionRows(
+      registry,
+      "serverMemberships",
+      legacyServers.map((server) => ({
+        id: `${server.id}:viewer`,
+        serverId: server.id,
+        userId: "viewer",
+        role: "owner",
+        viewer: true,
+      })),
+      (row) => row.id,
+    )
+    registry.captureRestoredCollections()
     const wrapper = ({ children }: { children: ReactNode }) => React.createElement(
       QueryClientProvider,
       { client: queryClient },
@@ -278,6 +294,17 @@ describe("community DB projections", () => {
     ])
     const registry = createCommunityDbRegistry(queryClient, "viewer")
     await registry.preload()
+    for (const name of Object.keys(registry.collections) as Array<keyof typeof registry.collections>) {
+      const rows = queryClient.getQueryData<Array<Record<string, unknown>>>(
+        communityKeys.communityDbCollection("viewer", name),
+      ) ?? []
+      writeCommunityCollectionRows(
+        registry,
+        name,
+        rows,
+        (row) => String(row.id ?? row.userId ?? row.channelId),
+      )
+    }
     useCommunityWsStore.setState({ presenceByUserId: new Map([["peer", "online"]]) })
     const restoredListener = vi.fn()
     const unsubscribeRestored = registry.subscribeRestoredCollections(restoredListener)

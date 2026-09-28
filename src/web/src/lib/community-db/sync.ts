@@ -68,6 +68,7 @@ import {
   type ServerRow,
 } from "./schema"
 import type { z } from "zod"
+import { writeCommunityCollectionRows } from "./collection-mutations"
 
 type CollectionName = keyof CommunityDbRegistry["collections"]
 type SnapshotIngestMode = "authoritative" | "merge"
@@ -251,30 +252,6 @@ function publishRows<T extends object>(
   )
 }
 
-function writeCollectionRows<T extends object>(
-  registry: CommunityDbRegistry,
-  name: CollectionName,
-  rows: T[],
-  getKey: (row: T) => string,
-) {
-  const collection = registry.collections[name] as unknown as {
-    status: string
-    keys: () => IterableIterator<string>
-    utils: {
-      writeBatch: (callback: () => void) => void
-      writeDelete: (keys: string | string[]) => void
-      writeUpsert: (rows: T | T[]) => void
-    }
-  }
-  if (collection.status !== "ready") return
-  const nextKeys = new Set(rows.map(getKey))
-  const removed = Array.from(collection.keys()).filter((key) => !nextKeys.has(key))
-  collection.utils.writeBatch(() => {
-    if (removed.length > 0) collection.utils.writeDelete(removed)
-    if (rows.length > 0) collection.utils.writeUpsert(rows)
-  })
-}
-
 function replaceRows<T extends object>(
   registry: CommunityDbRegistry,
   name: CollectionName,
@@ -306,7 +283,7 @@ function replaceRows<T extends object>(
     if (merged) nextByKey.set(key, merged)
   }
   const next = [...nextByKey.values()]
-  writeCollectionRows(registry, name, next, getKey)
+  writeCommunityCollectionRows(registry, name, next, getKey)
   publishRows(registry, name, next)
   recordEventWrites(registry, name, [
     ...current.filter(owns).map(getKey),
@@ -342,7 +319,7 @@ function upsertRows<T extends object>(
     if (merged) nextByKey.set(key, merged)
   }
   const next = [...nextByKey.values()]
-  writeCollectionRows(registry, name, next, getKey)
+  writeCommunityCollectionRows(registry, name, next, getKey)
   publishRows(registry, name, next)
   recordEventWrites(registry, name, acceptedKeys)
 }
@@ -359,7 +336,7 @@ function promoteServerDetailComplete(
     return serverSchema.parse({ ...row, detailComplete: true })
   })
   if (!changed) return
-  writeCollectionRows(registry, "servers", next, (row) => row.id)
+  writeCommunityCollectionRows(registry, "servers", next, (row) => row.id)
   publishRows(registry, "servers", next)
 }
 
@@ -384,7 +361,7 @@ function patchRows<T extends object>(
     return schema.parse(patch(row))
   })
   if (changed) {
-    writeCollectionRows(registry, name, next, getKey)
+    writeCommunityCollectionRows(registry, name, next, getKey)
     publishRows(registry, name, next)
   }
   if (eventKeys) {
@@ -415,7 +392,7 @@ function deleteRows<T extends object>(
   const keyByValue = new Map(current.map((row) => [row, (
     registry.collections[name] as unknown as { getKeyFromItem: (value: T) => string }
   ).getKeyFromItem(row)]))
-  writeCollectionRows(registry, name, next, (row) => keyByValue.get(row)!)
+  writeCommunityCollectionRows(registry, name, next, (row) => keyByValue.get(row)!)
   publishRows(registry, name, next)
   if (eventKeys) recordEventDeletes(registry, name, eventKeys)
   else recordEventWrites(registry, name, removedKeys)

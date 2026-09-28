@@ -21,7 +21,6 @@ import { CommunityOnboardingForm } from "@/components/community/onboarding/commu
 import { CommunityWsReconnectBoundary } from "@/components/community/shell/community-ws-reconnect-overlay"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { OwnerServerDeleteRouteGuard } from "@/components/community/shell/owner-server-delete-route-guard"
-import { CommunityRestoreBoundary } from "@/components/community/shell/community-restore-bootstrap"
 import { CommunitySessionPendingFrame } from "@/components/community/shell/community-session-pending-frame"
 
 /**
@@ -46,13 +45,11 @@ export function CommunityShell({
 }) {
   return (
     <QueryProvider key={currentUser.id} userId={currentUser.id}>
-      <CommunityRestoreBoundary>
-        <ProfileAccountBoundary viewerId={currentUser.id}>
-          <CurrentUserProvider initialUser={currentUser}>
-            <CommunityBootstrap>{children}</CommunityBootstrap>
-          </CurrentUserProvider>
-        </ProfileAccountBoundary>
-      </CommunityRestoreBoundary>
+      <ProfileAccountBoundary viewerId={currentUser.id}>
+        <CurrentUserProvider initialUser={currentUser}>
+          <CommunityBootstrap>{children}</CommunityBootstrap>
+        </CurrentUserProvider>
+      </ProfileAccountBoundary>
     </QueryProvider>
   )
 }

@@ -21,7 +21,8 @@ import {
   resolveProfileUserId,
 } from "@/components/community/social/profile-lookup"
 import { signOut } from "@/lib/auth-client"
-import { clearPersistedCache } from "@/lib/query-persister"
+import { clearAllAgentChatPersistence } from "@/lib/agent-chat-persistence"
+import { clearCommunityPersistenceForAccount } from "@/lib/community-db/collections"
 import { disposeAccountReadStateReconciliation } from "@/hooks/community/community-ws/read-state-reconciliation"
 import { disposeReadCoordinator } from "@/hooks/community/read-coordinator"
 import { useCommunityStore } from "@/stores/community"
@@ -307,10 +308,13 @@ export function useShellProfileController({
   }
 
   const onLogout = async () => {
+    await Promise.allSettled([
+      clearAllAgentChatPersistence(),
+      clearCommunityPersistenceForAccount(currentUser.id),
+    ])
     const result = await signOut({
       fetchOptions: {
-        onSuccess: async () => {
-          await clearPersistedCache(currentUser.id).catch(() => {})
+        onSuccess: () => {
           globalThis.location.replace("/sign-in")
         },
       },
@@ -320,7 +324,10 @@ export function useShellProfileController({
 
   const onAccountDeleted = async () => {
     clearVolatileAccountState()
-    await clearPersistedCache(currentUser.id).catch(() => {})
+    await Promise.allSettled([
+      clearAllAgentChatPersistence(),
+      clearCommunityPersistenceForAccount(currentUser.id),
+    ])
     setEditingProfile(false)
     globalThis.location.replace(ACCOUNT_DELETED_SIGN_IN_PATH)
   }

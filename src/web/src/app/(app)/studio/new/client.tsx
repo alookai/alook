@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Loader2, CheckCircle2, LogOut, ArrowLeft, LayoutGrid } from "lucide-react";
 import { toast } from "sonner";
 import { signOut } from "@/lib/auth-client";
-import { clearAllCache } from "@/lib/chat-cache";
+import { clearAllAgentChatPersistence } from "@/lib/agent-chat-persistence";
 import { trackWorkspaceCreated, trackOnboardingCompleted, trackAgentCreated } from "@/lib/analytics";
 
 import { PublicLayout } from "@/components/public-layout";
@@ -305,7 +305,7 @@ export function StudioOnboardingClient({
             variant="ghost"
             size="sm"
             className="text-xs text-muted-foreground"
-            onClick={async () => { await clearAllCache(); signOut({ fetchOptions: { onSuccess: () => router.push("/sign-in") } }); }}
+            onClick={async () => { await clearAllAgentChatPersistence(); signOut({ fetchOptions: { onSuccess: () => router.push("/sign-in") } }); }}
           >
             <LogOut className="size-3 mr-2" />
             Sign out
@@ -375,7 +375,7 @@ export function StudioOnboardingClient({
           variant="ghost"
           size="sm"
           className="text-xs text-muted-foreground"
-          onClick={async () => { await clearAllCache(); signOut({ fetchOptions: { onSuccess: () => router.push("/sign-in") } }); }}
+          onClick={async () => { await clearAllAgentChatPersistence(); signOut({ fetchOptions: { onSuccess: () => router.push("/sign-in") } }); }}
         >
           <LogOut className="size-3 mr-2" />
           Sign out

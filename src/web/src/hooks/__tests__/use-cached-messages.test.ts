@@ -1,12 +1,11 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import "fake-indexeddb/auto";
 import type { Message } from "@alook/shared";
 import {
-  openCacheDB,
-  clearAllCache,
+  openAgentChatPersistence,
   getCachedMessages,
   mergeCachedMessages,
-} from "@/lib/chat-cache";
+  resetAgentChatPersistenceForTests,
+} from "@/lib/agent-chat-persistence";
 
 const WORKSPACE_ID = "ws_test";
 
@@ -24,8 +23,8 @@ function makeMessage(overrides: Partial<Message> = {}): Message {
 }
 
 beforeEach(async () => {
-  await clearAllCache();
-  openCacheDB(WORKSPACE_ID);
+  await resetAgentChatPersistenceForTests();
+  await openAgentChatPersistence(WORKSPACE_ID);
 });
 
 describe("use-cached-messages (functional tests)", () => {

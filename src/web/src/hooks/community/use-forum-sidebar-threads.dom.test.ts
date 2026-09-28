@@ -1,6 +1,5 @@
-import "fake-indexeddb/auto"
 import { createElement, type PropsWithChildren } from "react"
-import { dehydrate, hydrate, QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 import { createCommunityDbRegistry, registerCommunityDbRegistry } from "@/lib/community-db/collections"
@@ -37,11 +36,6 @@ import {
   useForumSidebarThreads,
   type SidebarThreadEnvelope,
 } from "./use-forum-sidebar-threads"
-import {
-  clearPersistedCache,
-  createIdbPersister,
-  PERSIST_BUSTER,
-} from "@/lib/query-persister"
 
 const apiFetchMock = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/api/client", () => ({
@@ -867,42 +861,4 @@ describe("forum sidebar canonical projection", () => {
     rendered.unmount()
   })
 
-  it("restores a warm persisted sidebar while HTTP is stalled", async () => {
-    await clearPersistedCache("viewer")
-    const { queryClient } = await setup()
-    publish(queryClient)
-    const persister = createIdbPersister("viewer")
-    await persister.persistClient({
-      timestamp: Date.now(),
-      buster: PERSIST_BUSTER,
-      clientState: dehydrate(queryClient),
-    })
-    const restored = await persister.restoreClient()
-    expect(restored).toBeDefined()
-    const restoredClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    hydrate(restoredClient, restored!.clientState)
-    const restoredRegistry = createCommunityDbRegistry(restoredClient, "viewer")
-    restoredRegistry.captureRestoredCollections()
-    await restoredRegistry.preload()
-    const unregister = registerCommunityDbRegistry(restoredRegistry)
-    cleanups.push(
-      unregister,
-      restoredRegistry.cleanup.bind(restoredRegistry),
-      () => clearPersistedCache("viewer"),
-    )
-    const wrapper = ({ children }: PropsWithChildren) => createElement(
-      QueryClientProvider,
-      { client: restoredClient },
-      createElement(CommunityDbProvider, { registry: restoredRegistry }, children),
-    )
-    apiFetchMock.mockReturnValue(new Promise(() => {}))
-    const rendered = renderHook(
-      () => useForumSidebarThreads("server-1", null),
-      { wrapper },
-    )
-    await waitFor(() => expect(rendered.result.current.threads[0]?.id).toBe("post-1"))
-    expect(rendered.result.current.fetchStatus).toBe("fetching")
-    rendered.unmount()
-    await invalidateForumSidebarBaseExact(restoredClient, "server-1")
-  })
 })

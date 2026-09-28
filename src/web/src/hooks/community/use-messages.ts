@@ -4,7 +4,6 @@ import {
   useInfiniteQuery,
   focusManager,
   onlineManager,
-  useIsRestoring,
   useQueryClient,
   type UseInfiniteQueryResult,
   type InfiniteData,
@@ -444,7 +443,11 @@ function useMessagesInner(
   opts: MessagesOpts | undefined,
 ): MessagesReturn {
   const queryClient = useQueryClient()
-  const isRestoring = useIsRestoring()
+  const communityDb = useOptionalCommunityDbRegistry()
+  useEffect(() => {
+    if (!scopeId || !communityDb) return
+    return communityDb.activateMessageScope(scopeId)
+  }, [communityDb, scopeId])
 
   // `undefined` = anchor snapshot is still resolving; gate the query on it
   // being a resolved value (string OR null). Owners without a snapshot
@@ -633,7 +636,7 @@ function useMessagesInner(
       }
       activationRevalidationRef.current = state
     }
-    if (isRestoring || forceNewest || state.completed || state.pending) return
+    if (forceNewest || state.completed || state.pending) return
     if (!enabled || query.data === undefined || opts?.revalidateOnMount !== true) return
 
     const receipt = initialWindowReceiptRef.current
@@ -646,13 +649,12 @@ function useMessagesInner(
     }
 
     // Guarantee one actual post-mount fetch for cached conversation observers.
-    // A retained observer can mount after restore and read-state have already
-    // settled, so neither lifecycle is a reliable prerequisite. Retained cache
+    // A retained observer can mount after collection preload and read-state
+    // have already settled, so neither lifecycle is a reliable prerequisite. Retained cache
     // writes are also not proof that the network ran. The query-cache
     // subscription distinguishes manual cache success from a completed
     // request. Refetch through this observer rather than asking the cache for
-    // "active" queries: while PersistQueryClientProvider hands hydration back
-    // to React, the mounted observer can briefly fail that cache-level filter.
+    // "active" queries, which can miss a just-mounted observer.
     // An infinite-query refetch replays its first retained pageParam. Normalize
     // that identity to this mount's resolved anchor/newest target first: after
     // older pagination or hydration the stored first param can be a cursor,
@@ -692,7 +694,6 @@ function useMessagesInner(
     enabled,
     forceNewest,
     initialPageParam,
-    isRestoring,
     opts?.revalidateOnMount,
     query.data,
     queryClient,

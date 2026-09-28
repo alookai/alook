@@ -304,7 +304,7 @@ describe("community DB sync", () => {
 
     expect(db.collections.messages.get("m1")?.content).toBe("new WS value")
 
-    db.collections.messages.utils.writeDelete("m1")
+    db.collections.messages.delete("m1")
     db.queryClient.setQueryData(
       communityKeys.communityDbCollection("viewer", "messages"),
       [],
@@ -342,7 +342,7 @@ describe("community DB sync", () => {
       } as CommunityWsEvent)
     }
 
-    db.collections.messages.utils.writeDelete("m1")
+    db.collections.messages.delete("m1")
     db.queryClient.setQueryData(
       communityKeys.communityDbCollection("viewer", "messages"),
       [],

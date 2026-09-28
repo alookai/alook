@@ -2,7 +2,11 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { Message } from "@alook/shared";
-import { getCachedMessages, mergeCachedMessages, openCacheDB } from "@/lib/chat-cache";
+import {
+  getCachedMessages,
+  mergeCachedMessages,
+  openAgentChatPersistence,
+} from "@/lib/agent-chat-persistence";
 
 interface UseCachedMessagesResult {
   cachedMessages: Message[] | null;
@@ -26,7 +30,7 @@ export function useCachedMessages(
       return;
     }
 
-    openCacheDB(workspaceId);
+    void openAgentChatPersistence(workspaceId);
 
     let cancelled = false;
     getCachedMessages(conversationId, workspaceId).then((messages) => {

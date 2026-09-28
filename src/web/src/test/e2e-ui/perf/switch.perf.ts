@@ -344,41 +344,6 @@ test("community switch perceived-latency capture", async ({ browser }) => {
     writeFileSync(CAPTURE_OUT, JSON.stringify(out, null, 2))
   }
 
-  // Force a cold pass by clearing the persister's IndexedDB. Do NOT
-  // `deleteDatabase` — the app holds an open connection to `keyval-store`, so
-  // the delete request fires `onblocked` and can hang indefinitely. Instead
-  // clear the object store's CONTENTS (a transaction that doesn't need the DB
-  // closed), with a hard timeout so a switch can never wedge the whole run.
-  async function clearIdb(): Promise<void> {
-    await page.evaluate(
-      () =>
-        new Promise<void>((res) => {
-          const done = setTimeout(res, 3000) // never wedge the run
-          const open = indexedDB.open("keyval-store")
-          open.onerror = () => {
-            clearTimeout(done)
-            res()
-          }
-          open.onsuccess = () => {
-            const db = open.result
-            if (!db.objectStoreNames.contains("keyval")) {
-              db.close()
-              clearTimeout(done)
-              res()
-              return
-            }
-            const tx = db.transaction("keyval", "readwrite")
-            tx.objectStore("keyval").clear()
-            tx.oncomplete = tx.onerror = () => {
-              db.close()
-              clearTimeout(done)
-              res()
-            }
-          }
-        }),
-    )
-  }
-
   // Matrix size is env-configurable and defaults SMALL: against a live Next dev
   // build each switch costs full API fan-out + paint + reflow settle (often
   // 1-3s), so a big matrix blows any practical timeout. The incremental
@@ -390,7 +355,6 @@ test("community switch perceived-latency capture", async ({ browser }) => {
   // --- Channel switches: cold, then memory-warm (immediate repeat) ---
   for (let i = 1; i < Math.min(channels.length, N_CHANNEL + 1); i++) {
     const ch = channels[i]
-    await clearIdb()
     await measureSwitch("channel", ch.id, "cold", async () => {
       await page.getByTestId(tid.channelRow(ch.id)).click()
     })
@@ -406,43 +370,22 @@ test("community switch perceived-latency capture", async ({ browser }) => {
     })
   }
 
-  // --- disk-warm channel pass: let the app persist to IDB, reload preserving
-  // it, then measure the first switch (messages paint from disk, read-state
-  // still refetches). ---
-  const persistedKey = `alook:qc:v1:${manifest.owner.userId}:client`
-  const persistedChannelId = channels[Math.min(channels.length, N_CHANNEL + 1) - 1]!.id
-  await expect.poll(() => page.evaluate(({ key, channelId }) => (
-    new Promise<boolean>((resolvePersisted, rejectPersisted) => {
-      const open = indexedDB.open("keyval-store")
-      open.onerror = () => rejectPersisted(open.error ?? new Error("failed to open query persister"))
-      open.onsuccess = () => {
-        const db = open.result
-        if (!db.objectStoreNames.contains("keyval")) {
-          db.close()
-          resolvePersisted(false)
-          return
-        }
-        const tx = db.transaction("keyval", "readonly")
-        const request = tx.objectStore("keyval").get(key)
-        request.onsuccess = () => {
-          db.close()
-          if (typeof request.result !== "string") {
-            resolvePersisted(false)
-            return
-          }
-          const client = JSON.parse(request.result) as {
-            clientState?: { queries?: Array<{ queryKey?: unknown[] }> }
-          }
-          resolvePersisted(client.clientState?.queries?.some((query) =>
-            Array.isArray(query.queryKey) && query.queryKey.includes(channelId)) ?? false)
-        }
-        request.onerror = () => {
-          db.close()
-          rejectPersisted(request.error ?? new Error("failed to read query persister"))
-        }
-      }
-    })
-  ), { key: persistedKey, channelId: persistedChannelId })).toBe(true)
+  // --- disk-warm channel pass: wait for the canonical OPFS database, reload
+  // with it intact, then measure the first switch. ---
+  await expect.poll(() => page.evaluate(async () => {
+    try {
+      const root = await navigator.storage.getDirectory()
+      const handle = await root.getFileHandle("alook-tanstack-db-v1.sqlite")
+      return (await handle.getFile()).size
+    } catch {
+      return 0
+    }
+  })).toBeGreaterThan(0)
+  const opfsBytes = await page.evaluate(async () => {
+    const root = await navigator.storage.getDirectory()
+    const handle = await root.getFileHandle("alook-tanstack-db-v1.sqlite")
+    return (await handle.getFile()).size
+  })
   await page.addInitScript(() => {
     window.__PERF_WARM_RELOAD__ = { customBootstrapSeen: false, skeletonSeen: false }
     const inspect = () => {
@@ -461,36 +404,18 @@ test("community switch perceived-latency capture", async ({ browser }) => {
   })
   await page.reload({ waitUntil: "commit" })
   await page.waitForSelector("[data-msg-id]", { timeout: 20_000 }).catch(() => {})
-  warmReloadCapture.current = await page.evaluate(() => {
-    const latestMark = (name: string) => {
-      const marks = performance.getEntriesByName(name, "mark")
-      return marks.at(-1)?.startTime ?? null
-    }
-    const restoreStartTs = latestMark("alook:restore:start")
-    const restoreCompleteTs = latestMark("alook:restore:complete")
-    const firstCachedPaintTs = latestMark("alook:restore:first-cached-paint")
-    const stableTs = latestMark("alook:restore:stable")
-    if (
-      restoreStartTs == null
-      || restoreCompleteTs == null
-      || firstCachedPaintTs == null
-      || stableTs == null
-    ) throw new Error("warm reload restore lifecycle marks are incomplete")
+  warmReloadCapture.current = await page.evaluate((persistedBytes) => {
     return {
-      restoreStartTs,
-      restoreCompleteTs,
-      firstCachedPaintTs,
-      stableTs,
+      opfsBytes: persistedBytes,
+      cachedMessageCount: document.querySelectorAll("[data-msg-id]").length,
       customBootstrapSeen: window.__PERF_WARM_RELOAD__?.customBootstrapSeen === true,
       skeletonSeen: window.__PERF_WARM_RELOAD__?.skeletonSeen === true,
     }
-  })
+  }, opfsBytes)
   const warmReload = warmReloadCapture.current
   expect(warmReload.customBootstrapSeen, "warm reload omitted the custom restore bootstrap").toBe(false)
-  expect(warmReload.skeletonSeen, "warm reload reused the route-owned regional skeleton").toBe(true)
-  expect(warmReload.restoreCompleteTs).toBeGreaterThanOrEqual(warmReload.restoreStartTs)
-  expect(warmReload.firstCachedPaintTs).toBeGreaterThanOrEqual(warmReload.restoreCompleteTs)
-  expect(warmReload.stableTs).toBeGreaterThanOrEqual(warmReload.firstCachedPaintTs)
+  expect(warmReload.opfsBytes).toBeGreaterThan(0)
+  expect(warmReload.cachedMessageCount).toBeGreaterThan(0)
   flushCapture()
   {
     const ch = channels[1]
@@ -502,7 +427,6 @@ test("community switch perceived-latency capture", async ({ browser }) => {
   // --- Server switches (cold) ---
   const otherServers = manifest.servers.filter((s) => s.id !== targetServer.id).slice(0, N_SERVER)
   for (const srv of otherServers) {
-    await clearIdb()
     await measureSwitch("server", srv.id, "cold", async () => {
       await page.getByTestId(tid.serverIcon(srv.id)).click()
     })

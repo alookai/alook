@@ -57,10 +57,8 @@ export interface CapturedSwitch {
 }
 
 export interface CapturedWarmReload {
-  restoreStartTs: number
-  restoreCompleteTs: number
-  firstCachedPaintTs: number
-  stableTs: number
+  opfsBytes: number
+  cachedMessageCount: number
   customBootstrapSeen: boolean
   skeletonSeen: boolean
 }

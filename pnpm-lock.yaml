@@ -295,6 +295,9 @@ importers:
       '@icons-pack/react-simple-icons':
         specifier: ^13.15.1
         version: 13.15.1(react@19.3.0)
+      '@journeyapps/wa-sqlite':
+        specifier: 1.7.1
+        version: 1.7.1
       '@mdx-js/loader':
         specifier: ^3.1.1
         version: 3.1.1
@@ -337,21 +340,15 @@ importers:
       '@streamdown/mermaid':
         specifier: ^1.0.2
         version: 1.0.2(react@19.3.0)
-      '@tanstack/query-async-storage-persister':
-        specifier: 5.103.2
-        version: 5.103.2
-      '@tanstack/query-db-collection':
-        specifier: 1.2.15
-        version: 1.2.15(@tanstack/query-core@5.103.2)(typescript@6.0.3)
+      '@tanstack/browser-db-sqlite-persistence':
+        specifier: 0.2.23
+        version: 0.2.23(@journeyapps/wa-sqlite@1.7.1)(typescript@6.0.3)
       '@tanstack/react-db':
         specifier: 0.4.1
         version: 0.4.1(react@19.3.0)(typescript@6.0.3)
       '@tanstack/react-query':
         specifier: 5.103.2
         version: 5.103.2(react@19.3.0)
-      '@tanstack/react-query-persist-client':
-        specifier: 5.103.2
-        version: 5.103.2(@tanstack/react-query@5.103.2(react@19.3.0))(react@19.3.0)
       '@tanstack/react-virtual':
         specifier: ^3.14.13
         version: 3.14.13(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -421,12 +418,6 @@ importers:
       html-to-image:
         specifier: ^1.11.13
         version: 1.11.13
-      idb:
-        specifier: ^8.0.3
-        version: 8.0.3
-      idb-keyval:
-        specifier: ^6.3.0
-        version: 6.3.0
       input-otp:
         specifier: ^1.5.0
         version: 1.5.0(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -2222,6 +2213,9 @@ packages:
     resolution: {integrity: sha512-+Sg6GCR/wy1oSmQDFq4LQDAhm3ETKnorxN+y5nbLULOR3P0c14f2Wurzj3/xqPXtasLFfHd5iRFQ7AJt4KH2cw==}
     engines: {node: '>=8'}
 
+  '@journeyapps/wa-sqlite@1.7.1':
+    resolution: {integrity: sha512-yJhd1/+hcEa8lET662FthHxE+VFmYKIUnJkLatXJ0BANAAbR+3fFGGhLpdIAo7mKiWdG6pC53F7CIW3a2jnARQ==}
+
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
 
@@ -3661,8 +3655,19 @@ packages:
   '@tailwindcss/postcss@4.3.3':
     resolution: {integrity: sha512-JTSZZGQi1AyKirbLN3azmjVzef92tcX7h+iSqPdaeStyFpGpDlKvvpxeOE8njhbUanbRwr3z8DyzhICWnMtQeg==}
 
+  '@tanstack/browser-db-sqlite-persistence@0.2.23':
+    resolution: {integrity: sha512-taim5HVqkYQt0KskAJHRYMSwS1wvgtqJymF8adcelVSlwtEotGVSheDR6TbS1XgwAsPzXyFyOAJeL2LelfIqIQ==}
+    peerDependencies:
+      '@journeyapps/wa-sqlite': ^1.4.1
+      typescript: '>=4.7'
+
   '@tanstack/db-ivm@0.1.22':
     resolution: {integrity: sha512-vpNIY6QnvFiVGPwdMVnh1OAZyFLioFkM5gQAqefghvgDhCMmWUPjYka2gw6w+2TBy742zsGPtLnpxBzUKXo9Jw==}
+    peerDependencies:
+      typescript: '>=4.7'
+
+  '@tanstack/db-sqlite-persistence-core@0.2.23':
+    resolution: {integrity: sha512-czdn4wXGZNd+RD4POGMZAB2EozAdFmlxPuF54kIrq+h86HNruqDd5kyxavKzyOspo72uUQpjaMdMH+6ix9iAoQ==}
     peerDependencies:
       typescript: '>=4.7'
 
@@ -3679,23 +3684,11 @@ packages:
     resolution: {integrity: sha512-eQ1MyLKCHyXiH7NbdmB80W77OhiMgGBUb+qDx/8WMGbwg5Lf/NlfD0TfNYAqY77i8V3AxoDoYdICrQE5ADw4Yw==}
     engines: {node: '>=18'}
 
-  '@tanstack/query-async-storage-persister@5.103.2':
-    resolution: {integrity: sha512-vg+/hyVZfwDE1s0eylmYIMXjNDIGMqtt1MBBm+8a5vkXjQrm09t/p+gbJCRsmP3xZcSEclGvki401JiNc2cRVw==}
-
   '@tanstack/query-core@5.103.2':
     resolution: {integrity: sha512-I8DkFXls5jXLqtm8+QpOhEmG07hIblhSZFzafg9wHsMSEvMzULy9hK17wU1T/ahfhMbtITJhbxutwwCoihkR7A==}
 
-  '@tanstack/query-db-collection@1.2.15':
-    resolution: {integrity: sha512-02d2haENejJObceIFuxCBY/YbyH1t5+Bw6VEl1vev8pX6CkXnkF1cAwxKPTQgHyj34dfWJ5RLo9bB3BgwuQz5Q==}
-    peerDependencies:
-      '@tanstack/query-core': ^5.0.0
-      typescript: '>=4.7'
-
   '@tanstack/query-devtools@5.103.2':
     resolution: {integrity: sha512-QW+uVtT7dZcc9KMmKQ846Yw25h7WPhM1cfCYYaSkkmPqkK39g+Cj1tcAt+Ege+6rBVFQvNyYln0FgAAHcYGSdA==}
-
-  '@tanstack/query-persist-client-core@5.103.2':
-    resolution: {integrity: sha512-yd//zcQILITjto5G1Rq0lTCd1AgXgwdmeCgqh3sTIqIdALPj8Ry7ilELfzEltMvHcoB612TLxPnF/6Yy9HoJ8Q==}
 
   '@tanstack/react-db@0.4.1':
     resolution: {integrity: sha512-mA/a3TAufm0/AZUHmfyKKYfJnEH0XEzJ1Cymt5ZOLqR90MzzDK9KyaDh/JScYHYEipoRkKeRcmedAnHksP6yrg==}
@@ -3707,12 +3700,6 @@ packages:
     peerDependencies:
       '@tanstack/react-query': ^5.103.2
       '@types/react': ^18 || ^19
-      react: ^18 || ^19
-
-  '@tanstack/react-query-persist-client@5.103.2':
-    resolution: {integrity: sha512-OZHmFm1Z8+TuqvY/ZucGJ4aGSsfcU2WZKy3WT2XiAitrwypZ37B/LYXyI22QkKt8zvlGFcFbxfJxNzOWf9/K1g==}
-    peerDependencies:
-      '@tanstack/react-query': ^5.103.2
       react: ^18 || ^19
 
   '@tanstack/react-query@5.103.2':
@@ -6537,12 +6524,6 @@ packages:
   iconv-lite@0.7.3:
     resolution: {integrity: sha512-IKXpvIzjnC9XTAUbVBcMfGS0EPaIXtW6v+zr+RRp+hqULEpo0owZax6wyRwPOJbWbzjYspQwusTsfVr0ifh4uQ==}
     engines: {node: '>=0.10.0'}
-
-  idb-keyval@6.3.0:
-    resolution: {integrity: sha512-um+2dgAWmYsu615EXpWVwSmapJhON0G43t3Ka/EVaohzPQXSMqKEqeDK/oIW3Ow+BXaF2PvSc+oBTFp793A5Ow==}
-
-  idb@8.0.3:
-    resolution: {integrity: sha512-LtwtVyVYO5BqRvcsKuB2iUMnHwPVByPCXFXOpuU96IZPPoPN6xjOGxZQ74pgSVVLQWtUOYgyeL4GE98BY5D3wg==}
 
   ieee754@1.2.1:
     resolution: {integrity: sha512-dcyqhDvX1C46lXZcVqCpK+FtMRQVdIMN6/Df5js2zouUsqG7I6sFxitIC+7KYK29KdXOLHdu9zL4sFnoVQnqaA==}
@@ -11424,6 +11405,8 @@ snapshots:
 
   '@istanbuljs/schema@0.1.6': {}
 
+  '@journeyapps/wa-sqlite@1.7.1': {}
+
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:
       '@jridgewell/sourcemap-codec': 1.6.0
@@ -12706,10 +12689,22 @@ snapshots:
       postcss: 8.5.22
       tailwindcss: 4.3.3
 
+  '@tanstack/browser-db-sqlite-persistence@0.2.23(@journeyapps/wa-sqlite@1.7.1)(typescript@6.0.3)':
+    dependencies:
+      '@journeyapps/wa-sqlite': 1.7.1
+      '@tanstack/db-sqlite-persistence-core': 0.2.23(typescript@6.0.3)
+      typescript: 6.0.3
+
   '@tanstack/db-ivm@0.1.22(typescript@6.0.3)':
     dependencies:
       fractional-indexing: 3.4.0
       sorted-btree: 1.8.1
+      typescript: 6.0.3
+
+  '@tanstack/db-sqlite-persistence-core@0.2.23(typescript@6.0.3)':
+    dependencies:
+      '@standard-schema/spec': 1.1.0
+      '@tanstack/db': 0.9.2(typescript@6.0.3)
       typescript: 6.0.3
 
   '@tanstack/db@0.9.2(typescript@6.0.3)':
@@ -12725,19 +12720,7 @@ snapshots:
 
   '@tanstack/pacer-lite@0.2.2': {}
 
-  '@tanstack/query-async-storage-persister@5.103.2':
-    dependencies:
-      '@tanstack/query-core': 5.103.2
-      '@tanstack/query-persist-client-core': 5.103.2
-
   '@tanstack/query-core@5.103.2': {}
-
-  '@tanstack/query-db-collection@1.2.15(@tanstack/query-core@5.103.2)(typescript@6.0.3)':
-    dependencies:
-      '@standard-schema/spec': 1.1.0
-      '@tanstack/db': 0.9.2(typescript@6.0.3)
-      '@tanstack/query-core': 5.103.2
-      typescript: 6.0.3
 
   '@tanstack/query-devtools@5.103.2(csstype@3.2.3)':
     dependencies:
@@ -12755,10 +12738,6 @@ snapshots:
     transitivePeerDependencies:
       - csstype
 
-  '@tanstack/query-persist-client-core@5.103.2':
-    dependencies:
-      '@tanstack/query-core': 5.103.2
-
   '@tanstack/react-db@0.4.1(react@19.3.0)(typescript@6.0.3)':
     dependencies:
       '@tanstack/db': 0.9.2(typescript@6.0.3)
@@ -12775,12 +12754,6 @@ snapshots:
       react: 19.3.0
     transitivePeerDependencies:
       - csstype
-
-  '@tanstack/react-query-persist-client@5.103.2(@tanstack/react-query@5.103.2(react@19.3.0))(react@19.3.0)':
-    dependencies:
-      '@tanstack/query-persist-client-core': 5.103.2
-      '@tanstack/react-query': 5.103.2(react@19.3.0)
-      react: 19.3.0
 
   '@tanstack/react-query@5.103.2(react@19.3.0)':
     dependencies:
@@ -13534,7 +13507,7 @@ snapshots:
       magicast: 0.5.4
       obug: 2.1.4
       tinyrainbow: 3.1.1
-      vitest: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@25.9.4)(@vitest/coverage-istanbul@4.1.11)(@vitest/coverage-v8@4.1.11)(jsdom@29.1.1(@noble/hashes@2.4.0))(msw@2.14.6(@types/node@25.9.4)(typescript@6.0.3))(vite@8.0.8(@types/node@25.9.4)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.16.9)(tsx@4.23.15)(yaml@2.9.1))
+      vitest: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@26.6.1)(@vitest/coverage-istanbul@4.1.11)(@vitest/coverage-v8@4.1.11)(jsdom@29.1.1(@noble/hashes@2.4.0))(msw@2.14.6(@types/node@26.6.1)(typescript@6.0.3))(vite@8.0.8(@types/node@26.6.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.16.9)(tsx@4.23.15)(yaml@2.9.1))
     transitivePeerDependencies:
       - supports-color
 
@@ -13550,7 +13523,7 @@ snapshots:
       obug: 2.1.4
       std-env: 4.2.0
       tinyrainbow: 3.1.1
-      vitest: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@25.9.4)(@vitest/coverage-istanbul@4.1.11)(@vitest/coverage-v8@4.1.11)(jsdom@29.1.1(@noble/hashes@2.4.0))(msw@2.14.6(@types/node@25.9.4)(typescript@6.0.3))(vite@8.0.8(@types/node@25.9.4)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.16.9)(tsx@4.23.15)(yaml@2.9.1))
+      vitest: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@26.6.1)(@vitest/coverage-istanbul@4.1.11)(@vitest/coverage-v8@4.1.11)(jsdom@29.1.1(@noble/hashes@2.4.0))(msw@2.14.6(@types/node@26.6.1)(typescript@6.0.3))(vite@8.0.8(@types/node@26.6.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.16.9)(tsx@4.23.15)(yaml@2.9.1))
 
   '@vitest/expect@4.1.11':
     dependencies:
@@ -15982,10 +15955,6 @@ snapshots:
   iconv-lite@0.7.3:
     dependencies:
       safer-buffer: 2.1.2
-
-  idb-keyval@6.3.0: {}
-
-  idb@8.0.3: {}
 
   ieee754@1.2.1: {}
 

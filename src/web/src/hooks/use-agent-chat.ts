@@ -36,7 +36,7 @@ import {
   setLastOpenConversation,
   getConvExtras,
   setConvExtras,
-} from "@/lib/chat-cache";
+} from "@/lib/agent-chat-persistence";
 import {
   createFastLoadGateState,
   fastLoadKey,

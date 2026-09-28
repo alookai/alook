@@ -181,7 +181,6 @@ export const communityCollectionSchemas = {
   notificationSettings: notificationSettingSchema,
 } as const
 
-export type CommunityCollectionName = keyof typeof communityCollectionSchemas
 export type ServerRow = z.infer<typeof serverSchema>
 export type CategoryRow = z.infer<typeof categorySchema>
 export type ChannelRow = z.infer<typeof channelSchema>

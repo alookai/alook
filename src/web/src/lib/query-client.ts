@@ -1,5 +1,5 @@
 import { QueryClient } from "@tanstack/react-query"
-import { PERSIST_MAX_AGE_MS } from "@/lib/query-persister"
+const QUERY_GC_TIME_MS = 5 * 60 * 1000
 
 /**
  * Factory for a QueryClient with app defaults.
@@ -20,7 +20,7 @@ export function createQueryClient(): QueryClient {
     defaultOptions: {
       queries: {
         staleTime: 5_000,
-        gcTime: PERSIST_MAX_AGE_MS,
+        gcTime: QUERY_GC_TIME_MS,
         refetchOnWindowFocus: false,
         retry: 1,
       },

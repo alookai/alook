@@ -8,7 +8,7 @@ const cache = vi.hoisted(() => ({
   size: vi.fn(),
 }))
 
-vi.mock("@/lib/query-persister", () => ({
+vi.mock("@/lib/browser-persistence", () => ({
   clearAllPersistedCaches: cache.clearAll,
   getPersistedCacheSizeBytes: cache.size,
   formatBytes: (bytes: number) => bytes === 1536 ? "1.5 KB" : `${bytes} B`,

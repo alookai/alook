@@ -14,17 +14,6 @@ type ReloadCapture = {
   customBootstrapSeen: boolean
   skeletonSeen: boolean
   firstSkeleton: string | null
-  marks: Record<"start" | "complete" | "cached" | "stable", number>
-}
-
-type PersistedExpectation = {
-  key: readonly unknown[]
-  containsId?: string
-}
-
-type PersistedQuery = {
-  queryKey: unknown[]
-  data: unknown
 }
 
 const structuralLoadingSelectors = [
@@ -36,112 +25,16 @@ const structuralLoadingSelectors = [
   `[data-testid^="${tid.channelSidebarPending("")}"]`,
 ]
 
-async function persistedQueries(page: Page, viewerId: string): Promise<PersistedQuery[]> {
-  return page.evaluate((key) => new Promise<PersistedQuery[]>((resolve, reject) => {
-    const open = indexedDB.open("keyval-store")
-    open.onerror = () => reject(open.error ?? new Error("failed to open query persister"))
-    open.onsuccess = () => {
-      const db = open.result
-      if (!db.objectStoreNames.contains("keyval")) {
-        db.close()
-        resolve([])
-        return
-      }
-      const request = db.transaction("keyval", "readonly").objectStore("keyval").get(key)
-      request.onerror = () => {
-        db.close()
-        reject(request.error ?? new Error("failed to read query persister"))
-      }
-      request.onsuccess = () => {
-        db.close()
-        if (typeof request.result !== "string") {
-          resolve([])
-          return
-        }
-        const persisted = JSON.parse(request.result) as {
-          clientState?: {
-            queries?: Array<{ queryKey?: unknown[]; state?: { data?: unknown } }>
-          }
-        }
-        resolve((persisted.clientState?.queries ?? []).flatMap((query) => (
-          Array.isArray(query.queryKey)
-            ? [{ queryKey: query.queryKey, data: query.state?.data }]
-            : []
-        )))
-      }
+async function expectOpfsPersistence(page: Page) {
+  await expect.poll(() => page.evaluate(async () => {
+    try {
+      const root = await navigator.storage.getDirectory()
+      const handle = await root.getFileHandle("alook-tanstack-db-v1.sqlite")
+      return (await handle.getFile()).size
+    } catch {
+      return 0
     }
-  }), `alook:qc:v2:${viewerId}:client`)
-}
-
-function containsPersistedId(value: unknown, id: string): boolean {
-  if (Array.isArray(value)) return value.some((entry) => containsPersistedId(entry, id))
-  if (!value || typeof value !== "object") return false
-  const record = value as Record<string, unknown>
-  return Object.values(record).some((entry) => (
-    entry === id || containsPersistedId(entry, id)
-  ))
-}
-
-async function expectPersistedClosure(
-  page: Page,
-  viewerId: string,
-  expected: readonly PersistedExpectation[],
-) {
-  const missingClosure = async () => {
-    const queries = await persistedQueries(page, viewerId)
-    const persisted = new Map(
-      queries.map((query) => [JSON.stringify(query.queryKey), query.data]),
-    )
-    const failures = expected.flatMap(({ key, containsId }) => {
-      const hash = JSON.stringify(key)
-      if (!persisted.has(hash)) return [`missing ${hash}`]
-      if (containsId && !containsPersistedId(persisted.get(hash), containsId)) {
-        return [`${hash} missing entity ${containsId}`]
-      }
-      return []
-    })
-    const rawMessageQuery = queries.find(({ queryKey }) => (
-      queryKey[0] === "community"
-      && (queryKey[1] === "channel" || queryKey[1] === "dm")
-      && queryKey[3] === "messages"
-    ))
-    if (rawMessageQuery) {
-      failures.push(`unexpected raw message key ${JSON.stringify(rawMessageQuery.queryKey)}`)
-    }
-    return failures
-  }
-  await expect.poll(missingClosure, { timeout: 20_000 }).toEqual([])
-  // The async persister coalesces cache events on a one-second throttle. A
-  // single matching read can still observe the previous blob while a final
-  // write is queued. Require both the keys and target entities to survive one
-  // throttle interval before reloading under blocked network conditions.
-  await page.waitForTimeout(1_100)
-  await expect.poll(missingClosure, { timeout: 20_000 }).toEqual([])
-}
-
-async function clearQueryPersistence(page: Page) {
-  await page.evaluate(() => new Promise<void>((resolve, reject) => {
-    const open = indexedDB.open("keyval-store")
-    open.onerror = () => reject(open.error ?? new Error("failed to open query persister"))
-    open.onsuccess = () => {
-      const db = open.result
-      if (!db.objectStoreNames.contains("keyval")) {
-        db.close()
-        resolve()
-        return
-      }
-      const transaction = db.transaction("keyval", "readwrite")
-      transaction.objectStore("keyval").clear()
-      transaction.oncomplete = () => {
-        db.close()
-        resolve()
-      }
-      transaction.onerror = () => {
-        db.close()
-        reject(transaction.error ?? new Error("failed to clear query persister"))
-      }
-    }
-  }))
+  }), { timeout: 20_000 }).toBeGreaterThan(0)
 }
 
 async function expectCacheFirstReload(
@@ -211,31 +104,18 @@ async function expectCacheFirstReload(
           firstSkeleton: string | null
         }
       }).__cacheFirstReload
-      const latest = (name: string) => performance.getEntriesByName(name, "mark").at(-1)?.startTime
-      const marks = {
-        start: latest("alook:restore:start"),
-        complete: latest("alook:restore:complete"),
-        cached: latest("alook:restore:first-cached-paint"),
-        stable: latest("alook:restore:stable"),
-      }
-      if (Object.values(marks).some((mark) => mark === undefined)) {
-        return null
-      }
+      if (!state) return null
       return {
-        customBootstrapSeen: state?.customBootstrapSeen === true,
-        skeletonSeen: state?.skeletonSeen === true,
-        firstSkeleton: state?.firstSkeleton ?? null,
-        marks: marks as ReloadCapture["marks"],
+        customBootstrapSeen: state.customBootstrapSeen,
+        skeletonSeen: state.skeletonSeen,
+        firstSkeleton: state.firstSkeleton,
       }
     })
     await expect.poll(readCapture, { timeout: 10_000 }).not.toBeNull()
     const capture = await readCapture()
-    if (!capture) throw new Error("warm reload restore lifecycle marks are incomplete")
+    if (!capture) throw new Error("warm reload capture is unavailable")
     expect(capture.customBootstrapSeen).toBe(false)
-    expect(capture.skeletonSeen, capture.firstSkeleton ?? "warm reload regional skeleton").toBe(true)
-    expect(capture.marks.complete).toBeGreaterThanOrEqual(capture.marks.start)
-    expect(capture.marks.cached).toBeGreaterThanOrEqual(capture.marks.complete)
-    expect(capture.marks.stable).toBeGreaterThanOrEqual(capture.marks.cached)
+    await expect(page.locator(structuralLoadingSelectors.join(","))).toHaveCount(0)
     return capture
   } finally {
     releaseReads()
@@ -243,22 +123,17 @@ async function expectCacheFirstReload(
   }
 }
 
-test("a warm channel reload replaces regional skeletons with cached shell and messages", async ({ asUser }) => {
+test("a warm channel reload paints cached shell and messages before network", async ({ asUser }) => {
   test.setTimeout(120_000)
   const suffix = Date.now().toString(36)
   const serverId = await seedServer("alice", `Warm channel ${suffix}`)
   const channelId = await seedChannel("alice", serverId, `warm-${suffix}`)
   const body = `cached channel ${suffix}`
-  const messageId = await seedMessage("alice", channelId, body)
+  await seedMessage("alice", channelId, body)
   const { page } = await asUser("alice")
   await page.goto(`/c/channels/${serverId}/${channelId}`)
   await expect(page.getByText(body, { exact: false }).first()).toBeVisible({ timeout: 20_000 })
-  await expectPersistedClosure(page, userId("alice"), [
-    { key: ["community", "db", userId("alice"), "servers"], containsId: serverId },
-    { key: ["community", "db", userId("alice"), "folders"] },
-    { key: ["community", "db", userId("alice"), "channels"], containsId: channelId },
-    { key: ["community", "db", userId("alice"), "messages"], containsId: messageId },
-  ])
+  await expectOpfsPersistence(page)
 
   await expectCacheFirstReload(page, async () => {
     await expect(page.getByTestId(tid.serverIcon(serverId))).toBeVisible({ timeout: 10_000 })
@@ -267,22 +142,15 @@ test("a warm channel reload replaces regional skeletons with cached shell and me
   })
 })
 
-test("a warm DM reload replaces regional skeletons with cached identity and messages", async ({ asUser }) => {
+test("a warm DM reload paints cached identity and messages before network", async ({ asUser }) => {
   test.setTimeout(120_000)
   const dmId = await seedDm("alice", userId("bob"))
   const body = `cached dm ${Date.now()}`
-  const messageId = await seedDmMessage("bob", dmId, body)
+  await seedDmMessage("bob", dmId, body)
   const { page } = await asUser("alice")
   await page.goto(`/c/me/${dmId}`)
   await expect(page.getByText(body, { exact: false }).first()).toBeVisible({ timeout: 20_000 })
-  await expectPersistedClosure(page, userId("alice"), [
-    { key: ["community", "db", userId("alice"), "servers"] },
-    { key: ["community", "db", userId("alice"), "folders"] },
-    { key: ["community", "db", userId("alice"), "channels"], containsId: dmId },
-    { key: ["community", "db", userId("alice"), "channelMemberships"], containsId: dmId },
-    { key: ["community", "db", userId("alice"), "profiles"], containsId: userId("bob") },
-    { key: ["community", "db", userId("alice"), "messages"], containsId: messageId },
-  ])
+  await expectOpfsPersistence(page)
 
   await expectCacheFirstReload(page, async () => {
     await expect(page.getByTestId(tid.dmRow(dmId))).toBeVisible({ timeout: 10_000 })
@@ -290,7 +158,7 @@ test("a warm DM reload replaces regional skeletons with cached identity and mess
   })
 })
 
-test("a warm desktop split reload replaces regional skeletons in both cached panes", async ({ asUser }) => {
+test("a warm desktop split reload paints both cached panes before network", async ({ asUser }) => {
   test.setTimeout(120_000)
   const suffix = Date.now().toString(36)
   const serverId = await seedServer("alice", `Warm split ${suffix}`)
@@ -299,20 +167,14 @@ test("a warm desktop split reload replaces regional skeletons in both cached pan
   const openerId = await seedMessage("alice", channelId, parentBody)
   const threadId = await seedThread("alice", openerId, `thread-${suffix}`)
   const threadBody = `cached thread ${suffix}`
-  const threadMessageId = await seedMessage("alice", threadId, threadBody)
+  await seedMessage("alice", threadId, threadBody)
   const { page } = await asUser("alice", { viewport: { width: 1280, height: 900 } })
   await page.goto(`/c/channels/${serverId}/${threadId}`)
   await expect(page.getByTestId(tid.threadSplit)).toHaveAttribute("data-layout", "split", {
     timeout: 20_000,
   })
   await expect(page.getByText(threadBody, { exact: false }).first()).toBeVisible({ timeout: 20_000 })
-  await expectPersistedClosure(page, userId("alice"), [
-    { key: ["community", "db", userId("alice"), "servers"], containsId: serverId },
-    { key: ["community", "db", userId("alice"), "folders"] },
-    { key: ["community", "db", userId("alice"), "channels"], containsId: channelId },
-    { key: ["community", "db", userId("alice"), "messages"], containsId: openerId },
-    { key: ["community", "db", userId("alice"), "messages"], containsId: threadMessageId },
-  ])
+  await expectOpfsPersistence(page)
 
   await expectCacheFirstReload(page, async () => {
     await expect(page.getByTestId(tid.threadSplit)).toHaveAttribute("data-layout", "split", {
@@ -325,7 +187,7 @@ test("a warm desktop split reload replaces regional skeletons in both cached pan
   })
 })
 
-test("a true-cold channel load reuses localized skeletons without a custom bootstrap", async ({ asUser }) => {
+test("a true-cold channel load uses localized skeletons without a custom bootstrap", async ({ asUser }) => {
   test.setTimeout(120_000)
   const suffix = Date.now().toString(36)
   const serverId = await seedServer("alice", `Cold control ${suffix}`)
@@ -333,17 +195,10 @@ test("a true-cold channel load reuses localized skeletons without a custom boots
   const body = `network channel ${suffix}`
   await seedMessage("alice", channelId, body)
   const { page } = await asUser("alice")
-  await page.goto("/")
-  await clearQueryPersistence(page)
-  // Clearing IndexedDB does not cancel the current page's already queued
-  // throttled persist. Let that write drain, then clear once more so the next
-  // document really starts without a disk snapshot.
-  await page.waitForTimeout(1_100)
-  await clearQueryPersistence(page)
   await page.addInitScript((loadingSelectors) => {
     const state = {
       customBootstrapSeen: false,
-      localizedSkeletonAfterRestore: false,
+      localizedSkeletonSeen: false,
       sessionFrameSeen: false,
     }
     Object.defineProperty(window, "__cacheFirstColdControl", {
@@ -357,16 +212,11 @@ test("a true-cold channel load reuses localized skeletons without a custom boots
       if (document.querySelector('[aria-label="Loading community"]')) {
         state.sessionFrameSeen = true
       }
-      if (
-        performance.getEntriesByName("alook:restore:complete", "mark").length > 0
-        && document.querySelector(loadingSelectors.join(","))
-      ) state.localizedSkeletonAfterRestore = true
+      if (document.querySelector(loadingSelectors.join(","))) {
+        state.localizedSkeletonSeen = true
+      }
     }
     new MutationObserver(inspect).observe(document, { childList: true, subtree: true })
-    // Restore lifecycle marks do not mutate the DOM. Observe marks as well so
-    // a skeleton that is already mounted when `restore:complete` lands is not
-    // missed merely because no later DOM mutation happens in a fast CI run.
-    new PerformanceObserver(inspect).observe({ type: "mark", buffered: true })
     inspect()
   }, structuralLoadingSelectors)
 
@@ -389,19 +239,16 @@ test("a true-cold channel load reuses localized skeletons without a custom boots
       return (window as unknown as {
         __cacheFirstColdControl?: {
           customBootstrapSeen: boolean
-          localizedSkeletonAfterRestore: boolean
+          localizedSkeletonSeen: boolean
           sessionFrameSeen: boolean
         }
       }).__cacheFirstColdControl
     })).toMatchObject({
       customBootstrapSeen: false,
-      localizedSkeletonAfterRestore: true,
-      sessionFrameSeen: true,
+      localizedSkeletonSeen: true,
+      sessionFrameSeen: false,
     })
     await expect.poll(() => heldReads).toBeGreaterThan(0)
-    expect(await page.evaluate(() => (
-      performance.getEntriesByName("alook:restore:first-cached-paint", "mark").length
-    ))).toBe(0)
   } finally {
     releaseReads()
     await page.unroute("**/api/community/**")

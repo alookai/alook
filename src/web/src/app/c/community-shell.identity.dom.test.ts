@@ -46,13 +46,6 @@ vi.mock("@/components/community/onboarding/community-onboarding-form", () => ({
 vi.mock("@/components/community/shell/community-ws-reconnect-overlay", () => ({
   CommunityWsReconnectBoundary: ({ children }: { children: React.ReactNode }) => children,
 }))
-vi.mock("@/components/community/shell/community-restore-bootstrap", () => ({
-  CommunityRestoreBoundary: ({ children }: { children: React.ReactNode }) => React.createElement(
-    "div",
-    { "data-testid": "restore-boundary" },
-    children,
-  ),
-}))
 vi.mock("next/navigation", () => ({
   usePathname: () => "/c/me",
 }))
@@ -79,7 +72,7 @@ beforeEach(() => {
 })
 
 describe("CommunityShell identity boundary", () => {
-  it("keeps restore lifecycle ownership outside the account activation frame", () => {
+  it("keeps the account subtree gated until the viewer identity activates", () => {
     const activateProfileAccount = useCommunityWsStore.getState().activateProfileAccount
     useCommunityWsStore.setState({
       profileViewerId: null,
@@ -91,8 +84,7 @@ describe("CommunityShell identity boundary", () => {
       React.createElement("span", null, "content"),
     ))
 
-    const pending = renderer.getByTestId("session-pending")
-    expect(renderer.getByTestId("restore-boundary").contains(pending)).toBe(true)
+    expect(renderer.getByTestId("session-pending")).toBeVisible()
 
     act(() => renderer.unmount())
     useCommunityWsStore.setState({ activateProfileAccount })

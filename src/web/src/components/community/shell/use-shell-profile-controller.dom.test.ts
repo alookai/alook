@@ -26,6 +26,7 @@ const mocks = vi.hoisted(() => ({
   wsReset: vi.fn(),
   streamReset: vi.fn(),
   clearCache: vi.fn(),
+  clearAgentCache: vi.fn(),
   signOut: vi.fn(),
   toast: vi.fn(),
   toastApiError: vi.fn(),
@@ -101,7 +102,12 @@ vi.mock("@/components/community/social/profile-lookup", () => ({
     identity: { kind: "human" },
   }),
 }))
-vi.mock("@/lib/query-persister", () => ({ clearPersistedCache: mocks.clearCache }))
+vi.mock("@/lib/agent-chat-persistence", () => ({
+  clearAllAgentChatPersistence: mocks.clearAgentCache,
+}))
+vi.mock("@/lib/community-db/collections", () => ({
+  clearCommunityPersistenceForAccount: mocks.clearCache,
+}))
 vi.mock("@/hooks/community/community-ws/read-state-reconciliation", () => ({
   disposeAccountReadStateReconciliation: mocks.disposeReconciliation,
 }))
@@ -182,6 +188,7 @@ describe("useShellProfileController", () => {
     })
     mocks.beginCommunityProfileSeed.mockReturnValue({ registry: "registry", revision: 0 })
     mocks.clearCache.mockResolvedValue(undefined)
+    mocks.clearAgentCache.mockResolvedValue(undefined)
     mocks.signOut.mockResolvedValue(undefined)
   })
 
@@ -492,7 +499,7 @@ describe("useShellProfileController", () => {
     mocks.clearCache.mockImplementation(async () => { order.push("cache"); throw new Error("cache") })
     mocks.signOut.mockImplementation(async ({ fetchOptions }) => { order.push("signOut"); await fetchOptions.onSuccess(); order.push("session-notify") })
     await act(async () => hook.current.userSettingsProps.onLogout())
-    expect(order).toEqual(["signOut", "cache", "replace:/sign-in", "session-notify"])
+    expect(order).toEqual(["cache", "signOut", "replace:/sign-in", "session-notify"])
     expect(hook.router.push).not.toHaveBeenCalled()
     expect(hook.router.replace).not.toHaveBeenCalled()
 
@@ -501,11 +508,11 @@ describe("useShellProfileController", () => {
     mocks.clearCache.mockResolvedValue(undefined)
     mocks.signOut.mockRejectedValue(new Error("auth"))
     await expect(act(async () => hook.current.userSettingsProps.onLogout())).rejects.toThrow("auth")
-    expect(mocks.clearCache).not.toHaveBeenCalled()
+    expect(mocks.clearCache).toHaveBeenCalledWith("self")
     expect(order.some((entry) => entry.startsWith("replace:"))).toBe(false)
   })
 
-  it("does not navigate or delete persisted cache when signOut returns an error", async () => {
+  it("clears persisted cache before signOut even when signOut returns an error", async () => {
     const replace = vi.fn()
     vi.stubGlobal("location", { replace })
     const error = { message: "Sign out failed", status: 503 }
@@ -515,7 +522,7 @@ describe("useShellProfileController", () => {
     expect(mocks.toastApiError).toHaveBeenCalledWith(error, "Failed to log out")
     expect(mocks.communityReset).not.toHaveBeenCalled()
     expect(hook.queryClient.clear).not.toHaveBeenCalled()
-    expect(mocks.clearCache).not.toHaveBeenCalled()
+    expect(mocks.clearCache).toHaveBeenCalledWith("self")
     expect(replace).not.toHaveBeenCalled()
     expect(hook.router.push).not.toHaveBeenCalled()
     expect(hook.router.replace).not.toHaveBeenCalled()

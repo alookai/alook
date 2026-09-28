@@ -12,6 +12,7 @@ import {
   type CommunityDbRegistry,
 } from "@/lib/community-db/collections"
 import { profileSchema, type ProfileRow } from "@/lib/community-db/schema"
+import { writeCommunityCollectionRows } from "@/lib/community-db/collection-mutations"
 import { useCommunityWsStore } from "@/stores/community/ws"
 
 type ProfileFieldRevisions = {
@@ -199,9 +200,7 @@ export function writeCommunityProfilePatches(
   }
   if (advanced && writeRevision !== null) revisions.revision = writeRevision
   const rows = [...profiles.values()]
-  if (registry.collections.profiles.status === "ready") {
-    registry.collections.profiles.utils.writeUpsert(rows)
-  }
+  writeCommunityCollectionRows(registry, "profiles", rows, (row) => row.userId)
   registry.queryClient.setQueryData(queryKey, rows)
 }
 

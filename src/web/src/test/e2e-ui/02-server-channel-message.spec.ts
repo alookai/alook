@@ -120,44 +120,16 @@ test("server → channel → message", async ({ asUser }) => {
   await expect(page.getByTestId(tid.message(firstPayload.message.id))).toHaveCount(1)
   await expect(page.getByTestId(tid.message(imePayload.message.id))).toHaveCount(1)
 
-  // Force this reload through the network-backed query path while preserving
-  // the composer's localStorage draft. The app keeps this database open, so
-  // clear the persister store in-place rather than using deleteDatabase.
-  await page.evaluate(() => new Promise<void>((resolve, reject) => {
-    const open = indexedDB.open("keyval-store")
-    open.onerror = () => reject(open.error ?? new Error("failed to open query persister"))
-    open.onsuccess = () => {
-      const db = open.result
-      if (!db.objectStoreNames.contains("keyval")) {
-        db.close()
-        resolve()
-        return
-      }
-      let tx: IDBTransaction
-      try {
-        tx = db.transaction("keyval", "readwrite")
-        tx.objectStore("keyval").clear()
-      } catch (error) {
-        db.close()
-        reject(error)
-        return
-      }
-      tx.oncomplete = () => {
-        db.close()
-        resolve()
-      }
-      tx.onerror = () => {
-        const error = tx.error ?? new Error("failed to clear query persister")
-        db.close()
-        reject(error)
-      }
-      tx.onabort = () => {
-        const error = tx.error ?? new Error("query persister clear aborted")
-        db.close()
-        reject(error)
-      }
-    }
-  }))
+  // Leave `/c` so its OPFS worker closes, then remove the canonical database.
+  // This preserves the composer's localStorage draft while forcing the next
+  // channel mount through the network-backed path.
+  await page.goto("/", { waitUntil: "commit" })
+  await page.evaluate(async () => {
+    const root = await navigator.storage.getDirectory()
+    await root.removeEntry("alook-tanstack-db-v1.sqlite").catch((error: unknown) => {
+      if (!(error instanceof DOMException && error.name === "NotFoundError")) throw error
+    })
+  })
 
   let releaseMessages!: () => void
   const messagesGate = new Promise<void>((resolve) => { releaseMessages = resolve })
@@ -173,7 +145,7 @@ test("server → channel → message", async ({ asUser }) => {
     return request.method() === "GET"
       && new URL(request.url()).pathname === `/api/community/channels/${channelId}/messages`
   }, { timeout: 45_000 })
-  await page.reload({ waitUntil: "commit" })
+  await page.goto(channelUrl, { waitUntil: "commit" })
   await messagesRequestPromise
   releaseMessages()
   await expect(composerEditable(page)).toContainText(draft)

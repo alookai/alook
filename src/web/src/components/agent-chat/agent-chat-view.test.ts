@@ -466,7 +466,8 @@ describe("buildTimeline — conversation grouping", () => {
 // load/swap flow (paint → check-fresh → swap) cannot be rendered in this
 // node-env Vitest suite (no jsdom/RTL), so the FLOW-level cases from the plan
 // (TC2/TC3/TC7/TC10) are exercised through the pure predicates the flow now
-// delegates to, plus the IndexedDB round-trip in chat-cache.test.ts (TC1).
+// delegates to, plus the persisted-collection contract in
+// agent-chat-persistence.test.ts (TC1).
 // ---------------------------------------------------------------------------
 
 describe("shouldPersistPointerForLoad (TODO-1: slow-path-only write gate)", () => {

@@ -13,7 +13,7 @@ import {
   clearAllPersistedCaches,
   formatBytes,
   getPersistedCacheSizeBytes,
-} from "@/lib/query-persister"
+} from "@/lib/browser-persistence"
 import { tid } from "@/lib/community/testids"
 import { Avatar } from "../avatar"
 import { Field } from "./field"
@@ -88,7 +88,7 @@ export function AdvancedSettings() {
   useEffect(() => {
     let active = true
     void getPersistedCacheSizeBytes().then(
-      (bytes) => { if (active) setCacheSize(bytes) },
+      (bytes) => { if (active) setCacheSize(bytes ?? "unavailable") },
       () => { if (active) setCacheSize("unavailable") },
     )
     return () => { active = false }
@@ -100,7 +100,7 @@ export function AdvancedSettings() {
         open={confirmOpen}
         onOpenChange={(o) => { if (!o) setConfirmOpen(false) }}
         title="Clear local cache?"
-        description="This removes locally persisted messages for every account used on this device. The next channel or DM you open will refetch from the server. Nothing on the server is deleted."
+        description="This removes locally persisted messages for this account and workspaces opened in this session. The next channel or DM you open will refetch from the server. Nothing on the server is deleted."
         confirmLabel="Clear cache"
         loadingLabel="Clearing..."
         loading={clearing}
@@ -142,9 +142,9 @@ export function AdvancedSettings() {
             </span>
           </p>
           <p className="max-w-[65ch] text-sm leading-6 text-muted-foreground">
-            Removes locally persisted messages for every account used on this
-            device. The next channel or DM you open will refetch from the server.
-            Nothing on the server is deleted.
+            Removes locally persisted messages for this account and workspaces
+            opened in this session. The next channel or DM you open will refetch
+            from the server. Nothing on the server is deleted.
           </p>
           <Button
             variant="destructive"

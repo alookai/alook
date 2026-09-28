@@ -24,8 +24,8 @@ vi.mock("@/lib/auth-client", () => ({
   useSession: () => mocks.session,
   signOut: vi.fn(),
 }))
-vi.mock("@/lib/chat-cache", () => ({ clearAllCache: vi.fn() }))
-vi.mock("@/lib/query-persister", () => ({ clearPersistedCache: vi.fn() }))
+vi.mock("@/lib/agent-chat-persistence", () => ({ clearAllAgentChatPersistence: vi.fn() }))
+vi.mock("@/lib/community-db/collections", () => ({ clearCommunityPersistenceForAccount: vi.fn() }))
 vi.mock("@/components/ui/dropdown-menu", () => ({
   DropdownMenu: ({ children }: PropsWithChildren) => createElement("div", null, children),
   DropdownMenuContent: ({ children }: PropsWithChildren) => createElement("div", null, children),
