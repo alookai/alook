@@ -1,7 +1,8 @@
 import React, { useLayoutEffect } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import type { AccountAttentionSnapshot } from "@alook/shared"
-import { act, render, waitFor } from "@/test/react-dom-harness"
+import type { CommunityProfile } from "@/lib/community/models/people"
+import { act, render, renderHook, waitFor } from "@/test/react-dom-harness"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import {
   CommunityDbProvider,
@@ -15,8 +16,10 @@ import {
   ingestAttentionSnapshot,
 } from "@/lib/community-db/sync"
 import { useCommunityWsStore } from "@/stores/community/ws"
+import { CommunityPreviewProfileOwner } from "@/stores/community/profile-preview"
+import { communityKeys } from "@/lib/query-keys"
 import { useAccountAttention } from "./use-account-attention"
-import { useInboxAttention } from "./use-inbox"
+import { useInboxAttention, useInboxMarked, useMessageMarked } from "./use-inbox"
 
 const apiFetchMock = vi.fn()
 vi.mock("@/lib/api/client", () => ({
@@ -175,7 +178,154 @@ function emptyAttentionScopeSnapshot(): AccountAttentionSnapshot {
   }
 }
 
-async function createHarness({ owner = false }: { owner?: boolean } = {}) {
+function dmSnapshot({ mention = false }: { mention?: boolean } = {}): AccountAttentionSnapshot {
+  return {
+    scopes: [{
+      scopeId: "dm",
+      channelId: "dm",
+      serverId: null,
+      parentChannelId: null,
+      ordinaryUnread: !mention,
+      lastUnreadSeq: 9,
+      lastAttentionSeq: mention ? 9 : null,
+      attentionCount: mention ? 1 : 0,
+    }],
+    items: mention ? [{
+      id: "mention:dm-mention",
+      kind: "mention",
+      sourceId: "dm-mention",
+      scopeId: "dm",
+      messageId: "dm-message",
+      actorUserId: "peer",
+      createdAt: "2026-09-28T00:00:09.000Z",
+    }] : [],
+    limit: 100,
+    truncated: false,
+    included: {
+      servers: [],
+      channels: [],
+      dms: [{
+        id: "dm",
+        userId: "peer",
+        name: "Peer",
+        discriminator: "0002",
+        avatar: "P",
+        avatarVersion: 2,
+        lastMessageAt: "2026-09-28T00:00:09.000Z",
+        lastUnreadSeq: 9,
+      }],
+      profiles: [{
+        userId: "peer",
+        name: "Peer",
+        discriminator: "0002",
+        avatar: "P",
+        avatarVersion: 2,
+      }],
+      messages: mention ? [{
+        id: "dm-message",
+        channelId: "dm",
+        type: "chat",
+        authorId: "peer",
+        authorName: "Peer",
+        seq: 9,
+        createdAt: "2026-09-28T00:00:09.000Z",
+        content: "hello",
+      }] : [],
+    },
+  }
+}
+
+function childThreadSnapshot(): AccountAttentionSnapshot {
+  return {
+    scopes: [{
+      scopeId: "child",
+      channelId: "child",
+      serverId: "server",
+      parentChannelId: "parent",
+      ordinaryUnread: true,
+      lastUnreadSeq: 7,
+      lastAttentionSeq: null,
+      attentionCount: 0,
+    }],
+    items: [],
+    limit: 100,
+    truncated: false,
+    included: {
+      servers: [{ id: "server", name: "Server", discriminator: "0001" }],
+      channels: [{
+        id: "parent",
+        serverId: "server",
+        name: "Parent",
+        type: "text",
+        parentChannelId: null,
+        parentMessageId: null,
+        creatorId: null,
+        archived: false,
+        lastMessageAt: "2026-09-28T00:00:06.000Z",
+      }, {
+        id: "child",
+        serverId: "server",
+        name: "Child",
+        type: "thread",
+        parentChannelId: "parent",
+        parentMessageId: "opener",
+        creatorId: null,
+        archived: false,
+        lastMessageAt: "2026-09-28T00:00:07.000Z",
+        openerSeq: 7,
+        openerUnread: false,
+      }],
+      dms: [],
+      profiles: [],
+      messages: [{
+        id: "opener",
+        channelId: "parent",
+        type: "chat",
+        seq: 7,
+        createdAt: "2026-09-28T00:00:07.000Z",
+        content: "Child",
+      }],
+    },
+  }
+}
+
+function friendRequestSnapshot(): AccountAttentionSnapshot {
+  return {
+    scopes: [],
+    items: [{
+      id: "friend_request:request",
+      kind: "friend_request",
+      sourceId: "request",
+      scopeId: null,
+      messageId: null,
+      actorUserId: "requester",
+      createdAt: "2026-09-28T00:00:05.000Z",
+    }],
+    limit: 100,
+    truncated: false,
+    included: {
+      servers: [],
+      channels: [],
+      dms: [],
+      profiles: [{
+        userId: "requester",
+        name: "Requester",
+        discriminator: "0004",
+        avatar: "R",
+        avatarVersion: 4,
+      }],
+      messages: [],
+    },
+  }
+}
+
+async function createHarness({
+  owner = false,
+  previewProfiles,
+}: {
+  owner?: boolean
+  previewProfiles?: ReadonlyMap<string, CommunityProfile>
+} = {}) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
@@ -203,6 +353,7 @@ async function createHarness({ owner = false }: { owner?: boolean } = {}) {
     useAccountAttention()
     return React.createElement(Probe)
   }
+  const probe = React.createElement(owner ? OwnerProbe : Probe)
   const rendered = render(
     React.createElement(
       QueryClientProvider,
@@ -210,7 +361,9 @@ async function createHarness({ owner = false }: { owner?: boolean } = {}) {
       React.createElement(
         CommunityDbProvider,
         { registry },
-        React.createElement(owner ? OwnerProbe : Probe),
+        previewProfiles
+          ? React.createElement(CommunityPreviewProfileOwner, { profiles: previewProfiles }, probe)
+          : probe,
       ),
     ),
   )
@@ -235,6 +388,211 @@ beforeEach(() => {
 })
 
 describe("useInboxAttention", () => {
+  it("rejects stale marked and message-mark responses instead of publishing empty success", async () => {
+    const wrapperFor = (queryClient: QueryClient) => function Wrapper({
+      children,
+    }: React.PropsWithChildren) {
+      return React.createElement(QueryClientProvider, { client: queryClient }, children)
+    }
+
+    apiFetchMock.mockResolvedValueOnce({ marked: [], stale: true })
+    const marked = renderHook(() => useInboxMarked(true), {
+      wrapper: wrapperFor(new QueryClient({ defaultOptions: { queries: { retry: false } } })),
+    })
+    await waitFor(() => expect(marked.result.current.error).toMatchObject({
+      name: "StaleReadError",
+    }))
+    expect(marked.result.current.data).toBeUndefined()
+    marked.unmount()
+
+    apiFetchMock.mockResolvedValueOnce({ marked: false, stale: true })
+    const messageMarked = renderHook(() => useMessageMarked("message", true), {
+      wrapper: wrapperFor(new QueryClient({ defaultOptions: { queries: { retry: false } } })),
+    })
+    await waitFor(() => expect(messageMarked.result.current.error).toMatchObject({
+      name: "StaleReadError",
+    }))
+    expect(messageMarked.result.current.data).toBeUndefined()
+    messageMarked.unmount()
+  })
+
+  it("projects a DM only while its canonical owner is present", async () => {
+    const harness = await createHarness()
+    try {
+      act(() => ingestAttentionSnapshot(harness.registry, dmSnapshot()))
+      await waitFor(() => expect(harness.latest.dms).toEqual([expect.objectContaining({
+        channelId: "dm",
+        otherUserName: "Peer",
+        lastUnreadSeq: 9,
+      })]))
+
+      const profileKey = communityKeys.communityDbCollection("viewer", "profiles")
+      act(() => {
+        harness.registry.collections.profiles.utils.writeDelete("peer")
+        harness.queryClient.setQueryData(profileKey, [])
+      })
+      await waitFor(() => expect(harness.latest.dms).toEqual([]))
+    } finally {
+      harness.dispose()
+    }
+  })
+
+  it("projects child opener fields and skips the child when its parent disappears", async () => {
+    const harness = await createHarness()
+    try {
+      act(() => ingestAttentionSnapshot(harness.registry, childThreadSnapshot()))
+      await waitFor(() => expect(harness.latest.servers[0]?.channels[0]?.children[0])
+        .toMatchObject({
+          channelId: "child",
+          parentChannelId: "parent",
+          openerMessageId: "opener",
+          openerSeq: 7,
+          openerUnread: false,
+        }))
+
+      const channelKey = communityKeys.communityDbCollection("viewer", "channels")
+      const channels = harness.queryClient.getQueryData<Array<{ id: string }>>(channelKey) ?? []
+      act(() => {
+        harness.registry.collections.channels.utils.writeDelete("parent")
+        harness.queryClient.setQueryData(
+          channelKey,
+          channels.filter((channel) => channel.id !== "parent"),
+        )
+      })
+      await waitFor(() => expect(harness.latest.servers[0]?.channels ?? []).toEqual([]))
+    } finally {
+      harness.dispose()
+    }
+  })
+
+  it("uses forum-item fallback rows and sorts parent and child channels deterministically", async () => {
+    const snapshot = forumSnapshot()
+    snapshot.scopes[0] = {
+      ...snapshot.scopes[0]!,
+      ordinaryUnread: false,
+    }
+    snapshot.scopes.push({
+      scopeId: "direct",
+      channelId: "direct",
+      serverId: "server",
+      parentChannelId: null,
+      ordinaryUnread: true,
+      lastUnreadSeq: 40,
+      lastAttentionSeq: null,
+      attentionCount: 0,
+    })
+    snapshot.included.channels.push({
+      id: "direct",
+      serverId: "server",
+      name: "Direct",
+      type: "text",
+      parentChannelId: null,
+      parentMessageId: null,
+      creatorId: null,
+      archived: false,
+      lastMessageAt: "2026-09-28T00:00:40.000Z",
+    })
+    const harness = await createHarness()
+    try {
+      act(() => ingestAttentionSnapshot(harness.registry, snapshot))
+      await waitFor(() => expect(harness.latest.servers[0]?.channels.map((row) => row.channelId))
+        .toEqual(["direct", "forum"]))
+      expect(harness.latest.servers[0]?.channels[1]).toMatchObject({
+        channelId: "forum",
+        hasDirectUnread: false,
+      })
+      expect(harness.latest.servers[0]?.channels[1]?.children.map((row) => row.channelId))
+        .toEqual(["child-20", "child-10"])
+    } finally {
+      harness.dispose()
+    }
+  })
+
+  it("falls back nullable friend identity fields and skips a missing profile", async () => {
+    const nullableProfile = new Map<string, CommunityProfile>([["requester", {
+      id: "requester",
+      name: null,
+      avatar: null,
+      avatarVersion: null,
+    } as unknown as CommunityProfile]])
+    const fallbackHarness = await createHarness({ previewProfiles: nullableProfile })
+    try {
+      act(() => ingestAttentionSnapshot(fallbackHarness.registry, friendRequestSnapshot()))
+      await waitFor(() => expect(fallbackHarness.latest.friendRequests).toEqual([{
+        id: "request",
+        userId: "requester",
+        name: "Deleted user",
+        avatar: "",
+        avatarVersion: null,
+        createdAt: "2026-09-28T00:00:05.000Z",
+      }]))
+    } finally {
+      fallbackHarness.dispose()
+    }
+
+    const missingHarness = await createHarness({ previewProfiles: new Map() })
+    try {
+      act(() => ingestAttentionSnapshot(missingHarness.registry, friendRequestSnapshot()))
+      await waitFor(() => expect(missingHarness.latest.friendRequests).toEqual([]))
+    } finally {
+      missingHarness.dispose()
+    }
+  })
+
+  it("uses the DM owner name for a DM mention", async () => {
+    const harness = await createHarness()
+    try {
+      act(() => ingestAttentionSnapshot(harness.registry, dmSnapshot({ mention: true })))
+      await waitFor(() => expect(harness.latest.mentions).toEqual([expect.objectContaining({
+        id: "dm-mention",
+        server: "Peer",
+        channelId: "dm",
+      })]))
+    } finally {
+      harness.dispose()
+    }
+  })
+
+  it("publishes a canonical marked row when the marked surface is enabled", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const registry = createCommunityDbRegistry(queryClient, "viewer")
+    await registry.preload()
+    const unregister = registerCommunityDbRegistry(registry)
+    apiFetchMock.mockResolvedValueOnce({
+      marked: [{
+        id: "mark",
+        server: "Server",
+        serverId: "server",
+        channel: "General",
+        channelId: "channel",
+        m: {
+          id: "message",
+          type: "chat",
+          seq: 5,
+          createdAt: "2026-09-28T00:00:05.000Z",
+          content: "keep",
+        },
+      }],
+    })
+    const rendered = renderHook(() => useInboxMarked(true), {
+      wrapper: ({ children }: React.PropsWithChildren) => React.createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        React.createElement(CommunityDbProvider, { registry }, children),
+      ),
+    })
+    try {
+      await waitFor(() => expect(rendered.result.current.marked).toEqual([expect.objectContaining({
+        id: "mark",
+        channelId: "channel",
+        m: expect.objectContaining({ id: "message", content: "keep" }),
+      })]))
+    } finally {
+      rendered.unmount()
+      unregister()
+    }
+  })
+
   it("counts an aggregate-only attention conversation when bounded items are absent", async () => {
     const harness = await createHarness()
     try {

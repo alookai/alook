@@ -37,6 +37,7 @@ import {
   projectCommunityWsEventToDb,
   purgeCommunityChannel,
   purgeCommunityServer,
+  removeAttentionItemsOptimistically,
   restoreAttentionScopeOptimisticSnapshot,
   type CommunityLiveSnapshot,
 } from "./sync"
@@ -1139,6 +1140,155 @@ describe("community DB sync", () => {
       proof: { token, signal: undefined },
     })).toBe("published")
     expect(db.collections.attentionScopes.get("c1")).toBeUndefined()
+  })
+
+  it("hydrates new DMs while preserving richer existing channel state", async () => {
+    const db = await registry()
+    ingestDms(db, { conversations: [{
+      id: "existing",
+      userId: "peer-existing",
+      name: "Existing",
+      discriminator: "0002",
+      avatar: "E",
+      avatarVersion: 1,
+      status: "offline",
+      preview: "keep preview",
+      activityAt: "2026-09-27T00:00:01.000Z",
+      unread: false,
+    }] })
+    const existing = db.collections.channels.get("existing")!
+    const patched = { ...existing, position: 7, muted: true }
+    const channelKey = communityKeys.communityDbCollection(db.scopeId, "channels")
+    db.collections.channels.utils.writeUpsert(patched)
+    db.queryClient.setQueryData(channelKey, [patched])
+
+    ingestAttentionSnapshot(db, {
+      scopes: [],
+      items: [],
+      limit: 100,
+      truncated: false,
+      included: {
+        servers: [],
+        channels: [],
+        dms: [{
+          id: "existing",
+          userId: "peer-existing",
+          name: "Existing",
+          discriminator: "0002",
+          avatar: "E",
+          avatarVersion: 2,
+          lastMessageAt: "2026-09-28T00:00:07.000Z",
+          lastUnreadSeq: 7,
+        }, {
+          id: "new",
+          userId: "peer-new",
+          name: "New",
+          discriminator: "0003",
+          avatar: "N",
+          avatarVersion: 1,
+          lastMessageAt: "2026-09-28T00:00:08.000Z",
+          lastUnreadSeq: 8,
+        }],
+        profiles: [{
+          userId: "peer-existing",
+          name: "Existing",
+          discriminator: "0002",
+          avatar: "E",
+          avatarVersion: 2,
+        }, {
+          userId: "peer-new",
+          name: "New",
+          discriminator: "0003",
+          avatar: "N",
+          avatarVersion: 1,
+        }],
+        messages: [],
+      },
+    })
+
+    await vi.waitFor(() => {
+      expect(db.collections.channels.get("existing")).toMatchObject({
+        position: 7,
+        muted: true,
+        preview: "keep preview",
+        lastMessageAt: "2026-09-28T00:00:07.000Z",
+        lastUnreadSeq: 7,
+      })
+      expect(db.collections.channels.get("new")).toMatchObject({
+        position: 1,
+        muted: false,
+        preview: "",
+        lastMessageAt: "2026-09-28T00:00:08.000Z",
+        lastUnreadSeq: 8,
+      })
+    })
+  })
+
+  it("updates every affected scope when attention items are removed", async () => {
+    const db = await registry()
+    const scope = (
+      scopeId: string,
+      ordinaryUnread: boolean,
+      attentionCount: number,
+    ) => ({
+      scopeId,
+      channelId: scopeId,
+      serverId: "s1",
+      parentChannelId: null,
+      ordinaryUnread,
+      lastUnreadSeq: 9,
+      lastAttentionSeq: 9,
+      attentionCount,
+    })
+    const attentionItem = (scopeId: string, sourceId: string, kind: "mention" | "reply") => ({
+      id: `${kind}:${sourceId}`,
+      kind,
+      sourceId,
+      scopeId,
+      messageId: `message:${sourceId}`,
+      actorUserId: "actor",
+      createdAt: "2026-09-28T00:00:09.000Z",
+    })
+    const snapshot = {
+      scopes: [
+        scope("multiple", false, 2),
+        scope("attention-only", false, 1),
+        scope("ordinary", true, 1),
+      ],
+      items: [
+        attentionItem("multiple", "remove", "mention"),
+        attentionItem("multiple", "keep", "reply"),
+        attentionItem("attention-only", "final", "mention"),
+        attentionItem("ordinary", "ordinary-final", "reply"),
+      ],
+      limit: 100,
+      truncated: false,
+    }
+    ingestAttentionSnapshot(db, snapshot)
+
+    removeAttentionItemsOptimistically(
+      db,
+      (entry) => entry.sourceId !== "keep",
+    )
+    const token = captureCommunityLiveSnapshotToken(db.queryClient)
+    expect(publishAccountAttentionSnapshot(db.queryClient, {
+      snapshot,
+      proof: { token, signal: undefined },
+    })).toBe("published")
+
+    await vi.waitFor(() => {
+      expect(db.collections.attentionScopes.get("multiple")).toMatchObject({
+        attentionCount: 1,
+        lastAttentionSeq: 9,
+      })
+      expect(db.collections.attentionItems.get("reply:keep")).toBeDefined()
+      expect(db.collections.attentionScopes.get("attention-only")).toBeUndefined()
+      expect(db.collections.attentionScopes.get("ordinary")).toMatchObject({
+        ordinaryUnread: true,
+        attentionCount: 0,
+        lastAttentionSeq: null,
+      })
+    })
   })
 
   it("does not roll back an optimistic clear started before or during a snapshot GET", async () => {

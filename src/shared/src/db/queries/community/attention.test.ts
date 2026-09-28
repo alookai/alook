@@ -77,4 +77,109 @@ describe("getAccountAttentionSnapshot", () => {
       userId: "user_2",
     })])
   })
+
+  it("skips channel rows that cannot become canonical owners", async () => {
+    mocks.listEligibleUnreadDms.mockResolvedValue([])
+    mocks.listEligibleUnreadChannels.mockResolvedValue([{
+      channelId: "c1",
+      serverId: "s1",
+      parentChannelId: null,
+      type: "text",
+      lastUnreadSeq: 4,
+    }])
+    mocks.getChannelsByIds.mockResolvedValue([{
+      id: "c1",
+      serverId: "s1",
+      name: null,
+      type: "text",
+      parentChannelId: null,
+      parentMessageId: null,
+    }])
+    mocks.getServersByIds.mockResolvedValue([{
+      id: "s1", name: "Server", discriminator: "0001",
+    }])
+
+    const snapshot = await getAccountAttentionSnapshot({} as never, "user_1")
+
+    expect(snapshot.included.channels).toEqual([])
+    expect(snapshot.scopes).toEqual([])
+  })
+
+  it("drops a scope whose canonical channel belongs to another server", async () => {
+    mocks.listEligibleUnreadDms.mockResolvedValue([])
+    mocks.listEligibleUnreadChannels.mockResolvedValue([{
+      channelId: "c1",
+      serverId: "s1",
+      parentChannelId: null,
+      type: "text",
+      lastUnreadSeq: 4,
+    }])
+    mocks.getChannelsByIds.mockResolvedValue([{
+      id: "c1",
+      serverId: "s2",
+      name: "General",
+      type: "text",
+      parentChannelId: null,
+      parentMessageId: null,
+      creatorId: null,
+      archived: false,
+      lastMessageAt: null,
+    }])
+    mocks.getServersByIds.mockResolvedValue([{
+      id: "s2", name: "Other", discriminator: "0002",
+    }])
+
+    const snapshot = await getAccountAttentionSnapshot({} as never, "user_1")
+
+    expect(snapshot.included.channels).toHaveLength(1)
+    expect(snapshot.scopes).toEqual([])
+  })
+
+  it("drops a forum presentation whose child does not own the opener", async () => {
+    mocks.listEligibleUnreadDms.mockResolvedValue([])
+    mocks.listEligibleUnreadChannels.mockResolvedValue([{
+      channelId: "forum",
+      serverId: "s1",
+      parentChannelId: null,
+      type: "forum",
+      lastUnreadSeq: 7,
+    }])
+    mocks.listUnreadForumOpeners.mockResolvedValue([{
+      forumChannelId: "forum",
+      openerMessageId: "opener",
+      childChannelId: "post",
+      title: "Launch",
+      createdAt: "2026-09-27T00:00:00.000Z",
+      openerSeq: 7,
+    }])
+    mocks.getChannelsByIds.mockResolvedValue([{
+      id: "forum",
+      serverId: "s1",
+      name: "Ideas",
+      type: "forum",
+      parentChannelId: null,
+      parentMessageId: null,
+      creatorId: null,
+      archived: false,
+      lastMessageAt: null,
+    }, {
+      id: "post",
+      serverId: "s1",
+      name: "Launch",
+      type: "thread",
+      parentChannelId: "forum",
+      parentMessageId: "different-opener",
+      creatorId: null,
+      archived: false,
+      lastMessageAt: null,
+    }])
+    mocks.getServersByIds.mockResolvedValue([{
+      id: "s1", name: "Server", discriminator: "0001",
+    }])
+
+    const snapshot = await getAccountAttentionSnapshot({} as never, "user_1")
+
+    expect(snapshot.scopes).toHaveLength(1)
+    expect(snapshot.items.filter((item) => item.kind === "forum_post")).toEqual([])
+  })
 })

@@ -9,6 +9,7 @@ import { useShellInboxController } from "./use-shell-inbox-controller"
 const order: string[] = []
 const mocks = vi.hoisted(() => ({
   markedEnabled: [] as boolean[],
+  refetchAttention: vi.fn(),
   markAll: vi.fn(),
   deleteMention: vi.fn(),
   unmark: vi.fn(),
@@ -87,7 +88,7 @@ vi.mock("@/hooks/community/use-inbox", () => ({
     hasMention: true,
     hasOutstandingFriendRequest: true,
     exactAttentionCount: 4,
-    refetch: vi.fn(),
+    refetch: mocks.refetchAttention,
   }),
   useInboxMarked: (enabled: boolean) => {
     mocks.markedEnabled.push(enabled)
@@ -199,6 +200,7 @@ describe("useShellInboxController", () => {
     mocks.markedEnabled.length = 0
     for (const mock of [
       mocks.markAll,
+      mocks.refetchAttention,
       mocks.deleteMention,
       mocks.unmark,
       mocks.accept,
@@ -292,6 +294,14 @@ describe("useShellInboxController", () => {
     expect(mocks.markedEnabled.at(-1)).toBe(false)
     await act(async () => hook.current.popoverProps.onMarkedTabSelected?.())
     expect(mocks.markedEnabled.at(-1)).toBe(true)
+  })
+
+  it("retries the owned attention query from the popover", async () => {
+    const hook = await renderController()
+
+    hook.current.popoverProps.onRetryAttention?.()
+
+    expect(mocks.refetchAttention).toHaveBeenCalledTimes(1)
   })
 
   it("retains controlled tab and per-tab scroll offsets without data work", async () => {

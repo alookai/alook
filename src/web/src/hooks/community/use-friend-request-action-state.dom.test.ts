@@ -32,6 +32,43 @@ function createQueryWrapper() {
 }
 
 describe("useFriendRequestActionState", () => {
+  it("filters non-request and source-less attention items before action projection", () => {
+    const queryClient = new QueryClient()
+    queryClient.setQueryData(communityKeys.accountAttention(), {
+      items: [{
+        kind: "mention",
+        sourceId: "not-a-request",
+        actorUserId: "actor",
+      }, {
+        kind: "friend_request",
+        sourceId: "",
+        actorUserId: "actor",
+      }],
+    })
+    const controller = getFriendRequestActionController(queryClient)
+
+    controller.claimMutation("not-a-request", "accept")
+
+    expect(controller.project("inbox", [])).toEqual([])
+  })
+
+  it("keeps an actor-less attention request keyed by its request id", () => {
+    const queryClient = new QueryClient()
+    queryClient.setQueryData(
+      communityKeys.accountAttention(),
+      attentionFriendRequests([{ id: "actor-less" }]),
+    )
+    const controller = getFriendRequestActionController(queryClient)
+
+    controller.claimMutation("actor-less", "accept")
+
+    expect(controller.project("inbox", [])).toEqual([{
+      row: { id: "actor-less", userId: undefined },
+      action: "accept",
+      status: "pending",
+    }])
+  })
+
   it("keeps an optimistically removed row visible and locks only that id", async () => {
     let resolve!: () => void
     const onAccept = vi.fn(() => new Promise<void>((next) => { resolve = next }))
