@@ -861,6 +861,8 @@ function ingestChannelMetadata(
     creatorId: string | null
     archived: boolean | number
     lastMessageAt: string | null
+    openerSeq?: number
+    openerUnread?: boolean
   },
 ) {
   if (!(["text", "forum", "thread"] as const).includes(metadata.type as "text")) return
@@ -883,6 +885,8 @@ function ingestChannelMetadata(
     tags: existing?.tags ?? [],
     pending: false,
     lastMessageAt: metadata.lastMessageAt,
+    ...(metadata.openerSeq === undefined ? {} : { openerSeq: metadata.openerSeq }),
+    ...(metadata.openerUnread === undefined ? {} : { openerUnread: metadata.openerUnread }),
   }])
 }
 
@@ -1053,16 +1057,105 @@ export function ingestReadStateSnapshot(
 
 function ingestAttentionIncluded(
   registry: CommunityDbRegistry,
-  included: AccountAttentionSnapshot["included"],
+  included: Partial<AccountAttentionSnapshot["included"]> | undefined,
 ) {
-  if (!included) return
-  const profiles = profileSchema.array().safeParse(included.profiles ?? [])
+  const existingServers = new Map(
+    collectionRows(registry, "servers", serverSchema).map((row) => [row.id, row]),
+  )
+  const existingChannels = new Map(
+    collectionRows(registry, "channels", channelSchema).map((row) => [row.id, row]),
+  )
+  const viewerId = registry.accountId
+  const servers: ServerRow[] = (included?.servers ?? []).map((owner, position) => {
+    const existing = existingServers.get(owner.id)
+    return {
+      id: owner.id,
+      position: existing?.position ?? position,
+      name: owner.name,
+      discriminator: owner.discriminator,
+      description: existing?.description ?? "",
+      ownerId: existing?.ownerId ?? "",
+      icon: existing?.icon ?? null,
+      official: existing?.official ?? false,
+      isOwner: existing?.isOwner ?? false,
+      unread: existing?.unread ?? false,
+      mentions: existing?.mentions ?? 0,
+      detailComplete: existing?.detailComplete ?? false,
+    }
+  })
+  upsertRows(registry, "servers", serverSchema, (row) => row.id, servers)
+  for (const channel of included?.channels ?? []) ingestChannelMetadata(registry, channel)
+  const dmChannels: ChannelRow[] = (included?.dms ?? []).map((dm, position) => {
+    const existing = existingChannels.get(dm.id)
+    return {
+      id: dm.id,
+      serverId: null,
+      categoryId: null,
+      name: "",
+      type: "dm",
+      parentChannelId: null,
+      parentMessageId: null,
+      creatorId: null,
+      position: existing?.position ?? position,
+      archived: false,
+      muted: existing?.muted ?? false,
+      unread: true,
+      tags: [],
+      pending: false,
+      lastMessageAt: dm.lastMessageAt,
+      preview: existing?.preview ?? "",
+      lastUnreadSeq: dm.lastUnreadSeq,
+    }
+  })
+  upsertRows(registry, "channels", channelSchema, (row) => row.id, dmChannels)
+  if (viewerId) {
+    upsertRows(
+      registry,
+      "serverMemberships",
+      serverMembershipSchema,
+      (row) => row.id,
+      servers.map((server) => ({
+        id: serverMembershipKey(server.id, viewerId),
+        serverId: server.id,
+        userId: viewerId,
+        role: server.isOwner ? "owner" : "member",
+        viewer: true,
+      })),
+    )
+    upsertRows(
+      registry,
+      "channelMemberships",
+      channelMembershipSchema,
+      (row) => row.id,
+      [
+        ...(included?.channels ?? []).map((channel) => ({
+          id: channelMembershipKey(channel.id, viewerId, "access"),
+          channelId: channel.id,
+          userId: viewerId,
+          relation: "access" as const,
+          source: "inherited" as const,
+        })),
+        ...(included?.dms ?? []).flatMap((dm) => [{
+          id: channelMembershipKey(dm.id, viewerId, "access"),
+          channelId: dm.id,
+          userId: viewerId,
+          relation: "access" as const,
+        }, {
+          id: channelMembershipKey(dm.id, dm.userId, "access"),
+          channelId: dm.id,
+          userId: dm.userId,
+          relation: "access" as const,
+        }]),
+      ],
+    )
+  }
+  const profiles = profileSchema.array().safeParse(included?.profiles ?? [])
   if (profiles.success) {
     writeCommunityProfilePatches(profiles.data.map((profile) => (
       communityUserProfilePatch(profile.userId, profile)
     )), registry)
   }
-  const messages = messageSchema.array().safeParse(included.messages ?? [])
+  const messages = messageSchema.array().safeParse(included?.messages ?? [])
   if (messages.success) {
     const current = new Map(
       collectionRows(registry, "messages", messageSchema).map((row) => [row.id, row]),
@@ -1085,10 +1178,6 @@ type AttentionProtectionState = {
     requiresReconcileOnRestore: boolean
   }>
   optimisticItemDeletes: Map<symbol, Set<string>>
-  heldScopes: Set<string>
-  heldItems: Set<string>
-  heldScopeDeletes: Set<string>
-  heldItemDeletes: Set<string>
 }
 
 const attentionProtectionStates = new WeakMap<QueryClient, AttentionProtectionState>()
@@ -1100,10 +1189,6 @@ function attentionProtectionState(queryClient: QueryClient) {
       optimisticClears: new Set(),
       optimisticScopeDeletes: new Map(),
       optimisticItemDeletes: new Map(),
-      heldScopes: new Set(),
-      heldItems: new Set(),
-      heldScopeDeletes: new Set(),
-      heldItemDeletes: new Set(),
     }
     attentionProtectionStates.set(queryClient, state)
   }
@@ -1124,49 +1209,12 @@ export function ingestAttentionSnapshot(
   snapshot: AccountAttentionSnapshot,
 ) {
   const protection = attentionProtectionState(registry.queryClient)
-  const currentScopes = new Map(
-    collectionRows(registry, "attentionScopes", attentionScopeSchema)
-      .map((row) => [row.scopeId, row]),
-  )
-  const currentItems = new Map(
-    collectionRows(registry, "attentionItems", attentionItemSchema)
-      .map((row) => [row.id, row]),
-  )
   const scopesById = new Map<string, AttentionScopeRow>(
     snapshot.scopes.map((row) => [row.scopeId, { ...row }]),
   )
   const itemsById = new Map<string, AttentionItemRow>(
     snapshot.items.map((row) => [row.id, { ...row }]),
   )
-  const finalizedMessageIds = new Set(snapshot.items.flatMap((item) => (
-    item.messageId ? [item.messageId] : []
-  )))
-
-  // A local WS hint survives one snapshot that does not yet acknowledge it.
-  // The endpoint is primary-authoritative, so one retry is sufficient while
-  // still allowing a later snapshot to remove a genuinely obsolete hint.
-  for (const scopeId of protection.heldScopes) {
-    if (!scopesById.has(scopeId)) {
-      const current = currentScopes.get(scopeId)
-      if (current) scopesById.set(scopeId, current)
-    }
-    protection.heldScopes.delete(scopeId)
-  }
-  for (const itemId of protection.heldItems) {
-    const current = currentItems.get(itemId)
-    const finalized = current?.messageId && finalizedMessageIds.has(current.messageId)
-    if (!finalized && !itemsById.has(itemId) && current) itemsById.set(itemId, current)
-    protection.heldItems.delete(itemId)
-  }
-  for (const scopeId of protection.heldScopeDeletes) {
-    scopesById.delete(scopeId)
-    protection.heldScopeDeletes.delete(scopeId)
-  }
-  for (const itemId of protection.heldItemDeletes) {
-    itemsById.delete(itemId)
-    protection.heldItemDeletes.delete(itemId)
-  }
-
   const optimisticClear = protection.optimisticClears.size > 0
   const optimisticScopeDeletes = [...protection.optimisticScopeDeletes.values()]
   const optimisticItemDeletes = new Set(
@@ -1193,11 +1241,33 @@ export function ingestAttentionSnapshot(
     if (!fenced) continue
     fencedItems.add(item.id)
   }
+  const itemDeleteCountsByScope = new Map<string, number>()
+  for (const item of itemsById.values()) {
+    if (
+      !optimisticItemDeletes.has(item.id)
+      || !item.scopeId
+      || item.kind !== "mention" && item.kind !== "reply"
+    ) continue
+    itemDeleteCountsByScope.set(
+      item.scopeId,
+      (itemDeleteCountsByScope.get(item.scopeId) ?? 0) + 1,
+    )
+  }
   const scopes = optimisticClear ? [] : [...scopesById.values()].flatMap((scope) => {
     const targetSeq = optimisticScopeDeletes.reduce((target, entry) => (
       entry.scopeId === scope.scopeId ? Math.max(target, entry.targetSeq) : target
     ), -1)
-    if (targetSeq < 0) return [scope]
+    if (targetSeq < 0) {
+      const deletedAttentionCount = itemDeleteCountsByScope.get(scope.scopeId) ?? 0
+      if (deletedAttentionCount === 0) return [scope]
+      const attentionCount = Math.max(0, scope.attentionCount - deletedAttentionCount)
+      if (!scope.ordinaryUnread && attentionCount === 0) return []
+      return [{
+        ...scope,
+        attentionCount,
+        lastAttentionSeq: attentionCount === 0 ? null : scope.lastAttentionSeq,
+      }]
+    }
     const clearedAttentionCount = optimisticScopeDeletes.reduce((count, entry) => (
       entry.scopeId === scope.scopeId ? count + entry.clearedAttentionCount : count
     ), 0)
@@ -1246,8 +1316,6 @@ export function clearAttentionOptimistically(
   }
   const protection = attentionProtectionState(registry.queryClient)
   protection.optimisticClears.add(token)
-  protection.heldScopes.clear()
-  protection.heldItems.clear()
   withCanonicalWriteContext(registry.queryClient, { kind: "event" }, () => {
     notifyManager.batch(() => {
       deleteRows(registry, "attentionScopes", attentionScopeSchema, () => true)
@@ -1510,6 +1578,7 @@ export function restoreAttentionScopeOptimisticSnapshot(
 export type AttentionItemsOptimisticSnapshot = {
   token: symbol
   publicationRevision: number
+  scopes: AttentionScopeRow[]
   items: AttentionItemRow[]
 }
 
@@ -1517,16 +1586,56 @@ export function removeAttentionItemsOptimistically(
   registry: CommunityDbRegistry,
   remove: (item: AttentionItemRow) => boolean,
 ): AttentionItemsOptimisticSnapshot {
-  const items = collectionRows(registry, "attentionItems", attentionItemSchema).filter(remove)
+  const allItems = collectionRows(registry, "attentionItems", attentionItemSchema)
+  const items = allItems.filter(remove)
+  const removedMentionCountByScope = new Map<string, number>()
+  for (const item of items) {
+    if (!item.scopeId || item.kind !== "mention" && item.kind !== "reply") continue
+    removedMentionCountByScope.set(
+      item.scopeId,
+      (removedMentionCountByScope.get(item.scopeId) ?? 0) + 1,
+    )
+  }
+  const scopes = collectionRows(registry, "attentionScopes", attentionScopeSchema)
+    .filter((scope) => removedMentionCountByScope.has(scope.scopeId))
   const token = Symbol("attention-item-delete")
   const protection = attentionProtectionState(registry.queryClient)
   protection.optimisticItemDeletes.set(token, new Set(items.map((item) => item.id)))
   withCanonicalWriteContext(registry.queryClient, { kind: "event" }, () => {
-    deleteRows(registry, "attentionItems", attentionItemSchema, remove)
+    notifyManager.batch(() => {
+      for (const scope of scopes) {
+        const attentionCount = Math.max(
+          0,
+          scope.attentionCount - (removedMentionCountByScope.get(scope.scopeId) ?? 0),
+        )
+        if (!scope.ordinaryUnread && attentionCount === 0) {
+          deleteRows(
+            registry,
+            "attentionScopes",
+            attentionScopeSchema,
+            (row) => row.scopeId === scope.scopeId,
+          )
+        } else {
+          upsertRows(
+            registry,
+            "attentionScopes",
+            attentionScopeSchema,
+            (row) => row.scopeId,
+            [{
+              ...scope,
+              attentionCount,
+              lastAttentionSeq: attentionCount === 0 ? null : scope.lastAttentionSeq,
+            }],
+          )
+        }
+      }
+      deleteRows(registry, "attentionItems", attentionItemSchema, remove)
+    })
   })
   return {
     token,
     publicationRevision: canonicalRevisionState(registry.queryClient).revision,
+    scopes,
     items,
   }
 }
@@ -1545,7 +1654,10 @@ export function restoreAttentionItemsOptimisticSnapshot(
   attentionProtectionState(registry.queryClient).optimisticItemDeletes.delete(snapshot.token)
   if (canonicalRevisionState(registry.queryClient).revision !== snapshot.publicationRevision) return false
   withCanonicalWriteContext(registry.queryClient, { kind: "event" }, () => {
-    upsertRows(registry, "attentionItems", attentionItemSchema, (row) => row.id, snapshot.items)
+    notifyManager.batch(() => {
+      upsertRows(registry, "attentionScopes", attentionScopeSchema, (row) => row.scopeId, snapshot.scopes)
+      upsertRows(registry, "attentionItems", attentionItemSchema, (row) => row.id, snapshot.items)
+    })
   })
   return true
 }
@@ -2282,115 +2394,6 @@ function projectProfilePatch(
   patch: Omit<CommunityProfilePatch, "id">,
 ) {
   writeCommunityProfilePatches([{ id: userId, ...patch }], registry, { event: true })
-}
-
-export function projectAttentionUnreadBump(
-  queryClient: QueryClient,
-  event: Extract<CommunityWsEvent, { type: "community:unread.bump" }>,
-  evidence?: { seq: number },
-) {
-  const registry = getCommunityDbRegistry(queryClient)
-  if (!registry || event.userId !== registry.accountId) return
-  const current = collectionRows(registry, "attentionScopes", attentionScopeSchema)
-    .find((row) => row.scopeId === event.channelId)
-  const seq = evidence?.seq ?? current?.lastUnreadSeq ?? 0
-  if (hasAttentionScopeOptimisticFence(queryClient, event.channelId, seq)) return
-  const next: AttentionScopeRow = {
-    scopeId: event.channelId,
-    channelId: event.channelId,
-    serverId: event.serverId ?? current?.serverId ?? null,
-    parentChannelId: current?.parentChannelId ?? null,
-    ordinaryUnread: true,
-    lastUnreadSeq: Math.max(current?.lastUnreadSeq ?? 0, seq),
-    lastAttentionSeq: event.isMention
-      ? Math.max(current?.lastAttentionSeq ?? 0, seq)
-      : current?.lastAttentionSeq ?? null,
-    attentionCount: (current?.attentionCount ?? 0) + (event.isMention ? 1 : 0),
-  }
-  withCanonicalWriteContext(queryClient, { kind: "event" }, () => {
-    upsertRows(registry, "attentionScopes", attentionScopeSchema, (row) => row.scopeId, [next])
-  })
-  attentionProtectionState(queryClient).heldScopes.add(event.channelId)
-}
-
-export function projectAttentionMentionHint(
-  queryClient: QueryClient,
-  event: Extract<CommunityWsEvent, { type: "community:mention.create" }>,
-  evidence?: { createdAt: string },
-) {
-  const registry = getCommunityDbRegistry(queryClient)
-  if (!registry || event.userId !== registry.accountId || !event.channelId) return
-  const message = collectionRows(registry, "messages", messageSchema)
-    .find((row) => row.id === event.messageId)
-  if (!message?.authorId) return
-  if (
-    message.seq !== undefined
-    && hasAttentionScopeOptimisticFence(queryClient, event.channelId, message.seq)
-  ) return
-  const id = `pending:${event.messageId}`
-  const item: AttentionItemRow = {
-    id,
-    kind: "pending",
-    sourceId: event.messageId,
-    scopeId: event.channelId,
-    messageId: event.messageId,
-    actorUserId: message.authorId,
-    createdAt: evidence?.createdAt ?? message.createdAt ?? new Date().toISOString(),
-  }
-  withCanonicalWriteContext(queryClient, { kind: "event" }, () => {
-    upsertRows(registry, "attentionItems", attentionItemSchema, (row) => row.id, [item])
-  })
-  attentionProtectionState(queryClient).heldItems.add(id)
-}
-
-export function projectAttentionFriendEvent(
-  queryClient: QueryClient,
-  event: Extract<CommunityWsEvent, {
-    type:
-      | "community:friend.request"
-      | "community:friend.accept"
-      | "community:friend.reject"
-      | "community:friend.remove"
-      | "community:friend.block"
-  }>,
-) {
-  const registry = getCommunityDbRegistry(queryClient)
-  if (!registry) return
-  const protection = attentionProtectionState(queryClient)
-  if (event.type === "community:friend.request") {
-    if (event.friendship.addresseeId !== registry.accountId) return
-    const item: AttentionItemRow = {
-      id: `friend_request:${event.friendship.id}`,
-      kind: "friend_request",
-      sourceId: event.friendship.id,
-      scopeId: null,
-      messageId: null,
-      actorUserId: event.friendship.requesterId,
-      createdAt: event.friendship.createdAt,
-    }
-    withCanonicalWriteContext(queryClient, { kind: "event" }, () => {
-      upsertRows(registry, "attentionItems", attentionItemSchema, (row) => row.id, [item])
-    })
-    protection.heldItems.add(item.id)
-    return
-  }
-  const removed = collectionRows(registry, "attentionItems", attentionItemSchema)
-    .filter((item) => item.kind === "friend_request" && (
-      event.type === "community:friend.block"
-        ? item.actorUserId === event.userId
-        : item.sourceId === event.friendshipId
-    ))
-    .map((item) => item.id)
-  if (removed.length === 0) return
-  withCanonicalWriteContext(queryClient, { kind: "event" }, () => {
-    deleteRows(
-      registry,
-      "attentionItems",
-      attentionItemSchema,
-      (item) => removed.includes(item.id),
-    )
-  })
-  for (const id of removed) protection.heldItemDeletes.add(id)
 }
 
 /**

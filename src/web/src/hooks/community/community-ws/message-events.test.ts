@@ -41,8 +41,8 @@ vi.mock("@/hooks/community/community-ws/reconnect-messages", () => ({
   scheduleFocusedMessageGapRepair: (...args: unknown[]) => scheduleGapRepairMock(...args),
 }))
 
-beforeEach(() => {
-  resetCommunityWsHarness()
+beforeEach(async () => {
+  await resetCommunityWsHarness()
   scheduleGapRepairMock.mockClear()
 })
 afterEach(cleanupCommunityWsHarness)
@@ -591,36 +591,44 @@ describe("useCommunityWs — message.create", () => {
     }
   })
 
-  it("debounces inbox invalidation — 10 real unread signals produce 1 invalidate call", async () => {
+  it("coalesces 10 real unread signals into one attention reconcile", async () => {
     vi.useFakeTimers()
     try {
       await mountHook({ viewerUserId: "u_me" })
-      const invalidateSpy = vi.spyOn(capturedQueryClient, "invalidateQueries")
+      const fetchAttention = vi.spyOn(capturedQueryClient, "fetchQuery")
       for (let i = 0; i < 10; i++) {
         capturedOnMessage!(messageCreate("ch_x", `m_${i}`))
-        capturedOnMessage!({ type: "community:unread.bump", userId: "u_me", channelId: "ch_x", serverId: "s1" })
+        capturedOnMessage!({
+          type: "community:unread.bump", userId: "u_me", channelId: "ch_x",
+          serverId: "s1", isMention: false,
+        })
       }
-      // Before debounce window, no invalidate.
-      expect(invalidateSpy).not.toHaveBeenCalled()
-      // Advance past the debounce window — exactly one invalidate.
+      expect(fetchAttention).not.toHaveBeenCalled()
       await vi.advanceTimersByTimeAsync(500)
-      const inboxCalls = invalidateSpy.mock.calls.filter((c) => {
-        const key = c[0]?.queryKey
-        return Array.isArray(key) && key.includes("inbox")
-      })
-      expect(inboxCalls).toHaveLength(1)
+      await vi.runAllTicks()
+      for (let index = 0; index < 8; index += 1) await Promise.resolve()
+      expect(fetchAttention.mock.calls.filter(([options]) => (
+        JSON.stringify(options.queryKey) === JSON.stringify(communityKeys.accountAttention())
+      ))).toHaveLength(1)
     } finally {
       vi.useRealTimers()
     }
   })
 
-  it("arms one exact focused candidate before scheduling its inbox refresh", async () => {
+  it("arms one exact focused candidate before reconciling attention", async () => {
     vi.useFakeTimers()
     try {
       await mountHook({ viewerUserId: "u_me" })
       const { useCommunityStore } = await import("@/stores/community")
       useCommunityStore.getState().subscribe({ channelId: "ch_focused" })
       const order: string[] = []
+      const originalFetch = capturedQueryClient.fetchQuery.bind(capturedQueryClient)
+      vi.spyOn(capturedQueryClient, "fetchQuery").mockImplementation((options) => {
+        if (JSON.stringify(options.queryKey) === JSON.stringify(communityKeys.accountAttention())) {
+          order.push("attention-reconcile")
+        }
+        return originalFetch(options)
+      })
       const lease = registerInboxReadReservationSurface(
         capturedQueryClient,
         "ch_focused",
@@ -628,23 +636,21 @@ describe("useCommunityWs — message.create", () => {
           if (candidate) order.push("candidate")
         },
       )
-      const originalInvalidate = capturedQueryClient.invalidateQueries.bind(capturedQueryClient)
-      vi.spyOn(capturedQueryClient, "invalidateQueries")
-        .mockImplementation((filters, options) => {
-          const key = filters.queryKey as unknown[] | undefined
-          if (Array.isArray(key) && key.includes("inbox")) order.push("inbox-refresh")
-          return originalInvalidate(filters, options)
-        })
       const event = messageCreate("ch_focused", "m_focused")
 
       capturedOnMessage!(event)
-      capturedOnMessage!({ type: "community:unread.bump", userId: "u_me", channelId: event.channelId })
+      capturedOnMessage!({
+        type: "community:unread.bump", userId: "u_me", channelId: event.channelId,
+        serverId: "s1", isMention: false,
+      })
       capturedOnMessage!(event)
       expect(order).toEqual(["candidate"])
 
       await vi.advanceTimersByTimeAsync(500)
-      await vi.waitFor(() => expect(order).toContain("inbox-refresh"))
-      expect(order.indexOf("candidate")).toBeLessThan(order.indexOf("inbox-refresh"))
+      await vi.runAllTicks()
+      for (let index = 0; index < 8; index += 1) await Promise.resolve()
+      await vi.waitFor(() => expect(order).toContain("attention-reconcile"))
+      expect(order.indexOf("candidate")).toBeLessThan(order.indexOf("attention-reconcile"))
       releaseInboxReadReservationSurface(lease)
     } finally {
       vi.useRealTimers()
@@ -712,7 +718,7 @@ describe("useCommunityWs — message.create", () => {
     releaseInboxReadReservationSurface(lease)
   })
 
-  it("holds a focused refresh until the visible read reconciles authoritatively", async () => {
+  it("coalesces attention while a focused read intent is pending", async () => {
     vi.useFakeTimers()
     try {
       const order: string[] = []
@@ -740,13 +746,13 @@ describe("useCommunityWs — message.create", () => {
       useCommunityStore.getState().subscribe({ channelId: "ch_focused" })
       resetHookMemoization()
       await mountHook({ viewerUserId: "u_me" })
-      const originalInvalidate = capturedQueryClient.invalidateQueries.bind(capturedQueryClient)
-      const invalidate = vi.spyOn(capturedQueryClient, "invalidateQueries")
-        .mockImplementation((filters, options) => {
-          const key = filters.queryKey as unknown[] | undefined
-          if (Array.isArray(key) && key.includes("inbox")) order.push("inbox-refresh")
-          return originalInvalidate(filters, options)
-        })
+      const originalFetch = capturedQueryClient.fetchQuery.bind(capturedQueryClient)
+      vi.spyOn(capturedQueryClient, "fetchQuery").mockImplementation((options) => {
+        if (JSON.stringify(options.queryKey) === JSON.stringify(communityKeys.accountAttention())) {
+          order.push("attention-reconcile")
+        }
+        return originalFetch(options)
+      })
       const lease = registerReadSurface(
         capturedQueryClient,
         "u_me",
@@ -755,23 +761,21 @@ describe("useCommunityWs — message.create", () => {
       const event = messageCreate("ch_focused", "m_visible")
 
       capturedOnMessage!(event)
-      capturedOnMessage!({ type: "community:unread.bump", userId: "u_me", channelId: event.channelId })
+      capturedOnMessage!({
+        type: "community:unread.bump", userId: "u_me", channelId: event.channelId,
+        serverId: "s1", isMention: false,
+      })
       expect(submitReadIntent(lease, {
         kind: "timeline",
         channelId: "ch_focused",
         messageId: "m_visible",
         seq: 1,
       })).toBe(true)
-      expect(invalidate).not.toHaveBeenCalled()
-
       await vi.advanceTimersByTimeAsync(500)
-      await vi.waitFor(() => expect(order).toContain("inbox-refresh"))
-      expect(order.indexOf("read-put")).toBeLessThan(order.indexOf("inbox-refresh"))
-      expect(order.indexOf("read-snapshot")).toBeLessThan(order.indexOf("inbox-refresh"))
-      expect(invalidate.mock.calls.filter(([filters]) => {
-        const key = filters.queryKey as unknown[] | undefined
-        return Array.isArray(key) && key.includes("inbox")
-      })).toHaveLength(1)
+      await vi.runAllTicks()
+      for (let index = 0; index < 8; index += 1) await Promise.resolve()
+      await vi.waitFor(() => expect(order).toContain("attention-reconcile"))
+      expect(order.filter((entry) => entry === "attention-reconcile")).toHaveLength(1)
       releaseReadSurface(lease)
     } finally {
       vi.useRealTimers()
@@ -1087,7 +1091,7 @@ describe("useCommunityWs — pin.add", () => {
 })
 
 describe("useCommunityWs — DM message.create", () => {
-  it("writes the focused DM overlay, leaves Query base-only, and invalidates dms()", async () => {
+  it("writes the focused DM overlay, leaves Query base-only, and reconciles attention", async () => {
     vi.useFakeTimers()
     try {
       await mountHook({ viewerUserId: "u_me" })
@@ -1100,7 +1104,7 @@ describe("useCommunityWs — DM message.create", () => {
         pages: [{ messages: [], hasMore: false }],
         pageParams: [null],
       })
-      const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
+      const fetchAttention = vi.spyOn(capturedQueryClient, "fetchQuery")
       // A DM is a channel now — its message arrives as `message.create` keyed by
       // the DM's channel id (which the subscription tracks in `dmConversationId`).
       const event: CommunityMessageCreate = {
@@ -1119,7 +1123,10 @@ describe("useCommunityWs — DM message.create", () => {
         },
       }
       capturedOnMessage!(event)
-      capturedOnMessage!({ type: "community:unread.bump", userId: "u_me", channelId: event.channelId })
+      capturedOnMessage!({
+        type: "community:unread.bump", userId: "u_me", channelId: event.channelId,
+        isMention: false,
+      })
       const cache = capturedQueryClient.getQueryData<{ pages: { messages: { id: string; seq?: number }[] }[] }>(
         communityKeys.dmMessages("dm_1"),
       )
@@ -1128,14 +1135,12 @@ describe("useCommunityWs — DM message.create", () => {
       expect(
         [...getMessageOverlay({ kind: "dm", id: "dm_1" }).liveById.values()].map((message) => message.id),
       ).toEqual(["dm_m_1"])
-      // The inbox + `dms()` invalidation is batched behind the inbox debounce.
       await vi.advanceTimersByTimeAsync(600)
-      expect(
-        spy.mock.calls.some((c) => {
-          const key = c[0]?.queryKey as unknown[] | undefined
-          return Array.isArray(key) && key.includes("dms")
-        }),
-      ).toBe(true)
+      await vi.runAllTicks()
+      for (let index = 0; index < 8; index += 1) await Promise.resolve()
+      expect(fetchAttention.mock.calls.filter(([options]) => (
+        JSON.stringify(options.queryKey) === JSON.stringify(communityKeys.accountAttention())
+      ))).toHaveLength(1)
     } finally {
       vi.useRealTimers()
     }

@@ -113,7 +113,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     )
   })
 
-  it("reactivates the Inbox owner after a Strict Effects cleanup/setup replay", async () => {
+  it("reactivates the attention owner after a Strict Effects cleanup/setup replay", async () => {
     vi.useFakeTimers()
     await mountHook({ viewerUserId: "u_me" })
     flushEffects()
@@ -122,13 +122,12 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     resetHookMemoization()
     await mountHook({ viewerUserId: "u_me" })
     flushEffects()
-    const invalidate = vi.spyOn(capturedQueryClient, "invalidateQueries")
-
     capturedOnMessage?.({ type: "community:unread.bump", channelId: "dm_effect_replay", userId: "u_me", isMention: false })
     await vi.advanceTimersByTimeAsync(500)
 
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: communityKeys.inbox() })
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: communityKeys.dms() })
+    expect(getCommunityApiFetchMock().mock.calls.filter(([path]) => (
+      path === "/api/community/users/me/attention"
+    ))).toHaveLength(1)
   })
 
   it("does not re-arm the Inbox owner when reconnect repair settles after unmount", async () => {
@@ -179,7 +178,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     })
   })
 
-  it("reconciles the focused channel's messages + inbox on reconnect, but NOT the read-state snapshot", async () => {
+  it("reconciles focused messages + canonical attention on reconnect, but not the read snapshot", async () => {
     vi.useFakeTimers()
     const { useCommunityStore } = await import("@/stores/community")
     useCommunityStore.getState().subscribe({ channelId: "ch_focus" })
@@ -190,7 +189,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     expect(capturedOnReconnect).not.toBeNull()
     await capturedOnReconnect!({ reconnectDurationMs: 0 })
 
-    let invalidatedKeys = spy.mock.calls.map(
+    const invalidatedKeys = spy.mock.calls.map(
       (c) => c[0]?.queryKey as unknown[] | undefined,
     )
     // Focused channel messages use the bounded catch-up path instead of a
@@ -238,15 +237,9 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
         (k) => Array.isArray(k) && k[0] === "community" && k[1] === "inbox",
       ),
     ).toBe(false)
-    await vi.advanceTimersByTimeAsync(500)
-    invalidatedKeys = spy.mock.calls.map(
-      (c) => c[0]?.queryKey as unknown[] | undefined,
-    )
-    expect(
-      invalidatedKeys.some(
-        (k) => Array.isArray(k) && k[0] === "community" && k[1] === "inbox",
-      ),
-    ).toBe(true)
+    await vi.waitFor(() => expect(getCommunityApiFetchMock().mock.calls.filter(([path]) => (
+      path === "/api/community/users/me/attention"
+    ))).toHaveLength(1))
   })
 
   it("reconciles both visible split panes and drops the hidden parent after owner cleanup", async () => {
@@ -612,7 +605,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     expect(summary).toMatchObject({ policyCount: 14, successCount: 14, failureCount: 0 })
   })
 
-  it("actively refetches cached Friends and Inbox unreads after a socket gap", async () => {
+  it("actively refetches cached Friends and canonical attention after a socket gap", async () => {
     const { reconcileCommunityWsReconnect } = await import("./reconnect")
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false, staleTime: Infinity } },
@@ -621,7 +614,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     const friendsQuery = vi.fn(async () => ({ version }))
     const inboxQuery = vi.fn(async () => ({ version }))
     const friendsKey = communityKeys.friends()
-    const inboxKey = communityKeys.inboxUnreads()
+    const inboxKey = communityKeys.accountAttention()
     await Promise.all([
       queryClient.fetchQuery({ queryKey: friendsKey, queryFn: friendsQuery }),
       queryClient.fetchQuery({ queryKey: inboxKey, queryFn: inboxQuery }),

@@ -172,6 +172,27 @@ async function installCanonicalRegistry() {
   unregisterCanonicalRegistry = collections.registerCommunityDbRegistry(canonicalRegistry)
 }
 
+function attentionIncluded(overrides: {
+  messages?: Array<Record<string, unknown>>
+  profiles?: Array<Record<string, unknown>>
+} = {}) {
+  return {
+    servers: [{ id: "s_1", name: "Server", discriminator: "0001" }],
+    channels: [{
+      id: "channel", serverId: "s_1", name: "Channel", type: "text",
+      parentChannelId: null, parentMessageId: null, creatorId: null,
+      archived: false, lastMessageAt: null,
+    }, {
+      id: "ch_1", serverId: "s_1", name: "Channel", type: "text",
+      parentChannelId: null, parentMessageId: null, creatorId: null,
+      archived: false, lastMessageAt: null,
+    }],
+    dms: [],
+    profiles: overrides.profiles ?? [],
+    messages: overrides.messages ?? [],
+  }
+}
+
 async function seedCanonicalParent(type: "forum" | "text") {
   if (!canonicalRegistry) throw new Error("canonical test registry is not active")
   const sync = await import("@/lib/community-db/sync")
@@ -1279,7 +1300,7 @@ describe("useMarkAllInboxRead", () => {
   it("reconciles mark-all after an intervening canonical event declines rollback", async () => {
     const mod = await loadMod()
     await installCanonicalRegistry()
-    const { ingestAttentionSnapshot, projectAttentionUnreadBump } = await import(
+    const { ingestAttentionSnapshot, ingestMessages, projectCommunityWsEventToDb } = await import(
       "@/lib/community-db/sync"
     )
     const canonical = {
@@ -1290,6 +1311,7 @@ describe("useMarkAllInboxRead", () => {
       items: [],
       limit: 100,
       truncated: false,
+      included: attentionIncluded(),
     }
     ingestAttentionSnapshot(canonicalRegistry!, canonical)
     apiFetchMock.mockImplementation(async (path: string) => {
@@ -1299,13 +1321,13 @@ describe("useMarkAllInboxRead", () => {
     mod.useMarkAllInboxRead()
     const cfg = capturedConfig as MutConfig<void, unknown>
     const context = await cfg.onMutate?.(undefined as unknown as void)
-    projectAttentionUnreadBump(capturedQc, {
-      type: "community:unread.bump",
-      userId: "u_me",
+    ingestMessages(canonicalRegistry!, "other", [{ id: "event", type: "chat", content: "old" }])
+    projectCommunityWsEventToDb(capturedQc, {
+      type: "community:message.edited",
       channelId: "other",
-      serverId: "s_1",
-      isMention: false,
-    }, { seq: 2 })
+      messageId: "event",
+      content: "new",
+    } as never)
 
     cfg.onError?.(new Error("account read-all failed"), undefined as unknown as void, context)
 
@@ -1368,6 +1390,15 @@ describe("useDeleteMention — rollback", () => {
       }],
       limit: 100,
       truncated: false,
+      included: attentionIncluded({
+        profiles: [{
+          userId: "u_2", name: "Two", discriminator: "0002", avatar: "T", avatarVersion: 1,
+        }],
+        messages: [{
+          id: "m_1", channelId: "ch_1", authorId: "u_2", content: "hello",
+          createdAt: "2026-09-27T00:00:00.000Z", seq: 4, type: "chat",
+        }],
+      }),
     }
     ingestAttentionSnapshot(canonicalRegistry!, canonical)
     capturedQc.setQueryData(communityKeys.inboxMentions(), {
@@ -1393,7 +1424,7 @@ describe("useDeleteMention — rollback", () => {
   it("reconciles a failed dismissal after an intervening canonical event", async () => {
     const mod = await loadMod()
     await installCanonicalRegistry()
-    const { ingestAttentionSnapshot, projectAttentionUnreadBump } = await import(
+    const { ingestAttentionSnapshot, ingestMessages, projectCommunityWsEventToDb } = await import(
       "@/lib/community-db/sync"
     )
     const canonical = {
@@ -1407,6 +1438,15 @@ describe("useDeleteMention — rollback", () => {
       }],
       limit: 100,
       truncated: false,
+      included: attentionIncluded({
+        profiles: [{
+          userId: "u_2", name: "Two", discriminator: "0002", avatar: "T", avatarVersion: 1,
+        }],
+        messages: [{
+          id: "m_1", channelId: "ch_1", authorId: "u_2", content: "hello",
+          createdAt: "2026-09-27T00:00:00.000Z", seq: 4, type: "chat",
+        }],
+      }),
     }
     ingestAttentionSnapshot(canonicalRegistry!, canonical)
     capturedQc.setQueryData(communityKeys.inboxMentions(), {
@@ -1419,13 +1459,13 @@ describe("useDeleteMention — rollback", () => {
     mod.useDeleteMention()
     const cfg = capturedConfig as MutConfig<{ mentionId: string }, unknown>
     const context = await cfg.onMutate?.({ mentionId: "men_1" })
-    projectAttentionUnreadBump(capturedQc, {
-      type: "community:unread.bump",
-      userId: "u_me",
+    ingestMessages(canonicalRegistry!, "other", [{ id: "event", type: "chat", content: "old" }])
+    projectCommunityWsEventToDb(capturedQc, {
+      type: "community:message.edited",
       channelId: "other",
-      serverId: "s_1",
-      isMention: false,
-    }, { seq: 5 })
+      messageId: "event",
+      content: "new",
+    } as never)
 
     cfg.onError?.(new Error("dismiss failed"), { mentionId: "men_1" }, context)
 
@@ -1439,6 +1479,8 @@ describe("useDeleteMention — rollback", () => {
   })
 
   it("keeps a same-seq sibling and only decrements badges for direct mentions", async () => {
+    const mod = await loadMod()
+    await installCanonicalRegistry()
     const reply = {
       id: "reply-1",
       kind: "reply",
@@ -1451,10 +1493,29 @@ describe("useDeleteMention — rollback", () => {
       channelId: "ch_1",
       m: { id: "msg_1", seq: 4 },
     }
-    capturedQc.setQueryData(communityKeys.inboxMentions(), {
-      mentions: [reply, mention],
+    const { ingestAttentionSnapshot, ingestMessages } = await import(
+      "@/lib/community-db/sync"
+    )
+    ingestMessages(canonicalRegistry!, "ch_1", [{
+      id: "msg_1", type: "chat", authorId: "u_2", seq: 4,
+    }])
+    ingestAttentionSnapshot(canonicalRegistry!, {
+      scopes: [{
+        scopeId: "ch_1", channelId: "ch_1", serverId: "srv_1", parentChannelId: null,
+        ordinaryUnread: false, lastUnreadSeq: 4, lastAttentionSeq: 4, attentionCount: 2,
+      }],
+      items: [reply, mention].map((row) => ({
+        id: `mention:${row.id}`,
+        kind: row.kind as "mention" | "reply",
+        sourceId: row.id,
+        scopeId: "ch_1",
+        messageId: "msg_1",
+        actorUserId: "u_2",
+        createdAt: "2026-09-27T00:00:00.000Z",
+      })),
+      limit: 100,
+      truncated: false,
     })
-    const mod = await loadMod()
     const { getActiveAccountUnreadProjection } = await import(
       "@/hooks/community/account-unread-projection"
     )
@@ -1475,11 +1536,23 @@ describe("useDeleteMention — rollback", () => {
       { mentionId: string },
       { token?: unknown; snapshot?: unknown }
     >
+    const cachedAttentionItems = () => capturedQc.getQueryData<Array<{ id: string }>>(
+      communityKeys.communityDbCollection("u_me", "attentionItems"),
+    ) ?? []
+    const cachedAttentionCount = () => capturedQc.getQueryData<Array<{
+      scopeId: string
+      attentionCount: number
+    }>>(communityKeys.communityDbCollection("u_me", "attentionScopes"))
+      ?.find((scope) => scope.scopeId === "ch_1")?.attentionCount
 
     const replyContext = await cfg.onMutate?.({ mentionId: reply.id })
-    expect(capturedQc.getQueryData<{ mentions: Array<{ id: string }> }>(
-      communityKeys.inboxMentions(),
-    )?.mentions.map((row) => row.id)).toEqual([mention.id])
+    expect(cachedAttentionItems().map((item) => item.id)).toEqual(["mention:mention-1"])
+    expect(cachedAttentionCount()).toBe(1)
+    await vi.waitFor(() => {
+      expect(canonicalRegistry!.collections.attentionItems.get("mention:reply-1")).toBeUndefined()
+      expect(canonicalRegistry!.collections.attentionItems.get("mention:mention-1")).toBeDefined()
+      expect(canonicalRegistry!.collections.attentionScopes.get("ch_1")?.attentionCount).toBe(1)
+    })
     expect(projection.projectUnread(
       "inbox-mentions", "ch_1", true, 4, "mentions", null, true, mention.id,
     )).toBe(true)
@@ -1488,10 +1561,18 @@ describe("useDeleteMention — rollback", () => {
     }])).toBe(1)
 
     cfg.onError?.(new Error("retry direct"), { mentionId: reply.id }, replyContext)
+    expect(cachedAttentionItems().map((item) => item.id).sort()).toEqual([
+      "mention:mention-1", "mention:reply-1",
+    ])
+    expect(cachedAttentionCount()).toBe(2)
     const mentionContext = await cfg.onMutate?.({ mentionId: mention.id })
-    expect(capturedQc.getQueryData<{ mentions: Array<{ id: string }> }>(
-      communityKeys.inboxMentions(),
-    )?.mentions.map((row) => row.id)).toEqual([reply.id])
+    expect(cachedAttentionItems().map((item) => item.id)).toEqual(["mention:reply-1"])
+    expect(cachedAttentionCount()).toBe(1)
+    await vi.waitFor(() => {
+      expect(canonicalRegistry!.collections.attentionItems.get("mention:mention-1")).toBeUndefined()
+      expect(canonicalRegistry!.collections.attentionItems.get("mention:reply-1")).toBeDefined()
+      expect(canonicalRegistry!.collections.attentionScopes.get("ch_1")?.attentionCount).toBe(1)
+    })
     expect(projection.projectUnread(
       "inbox-mentions", "ch_1", true, 4, "mentions", null, true, reply.id,
     )).toBe(true)
@@ -1499,13 +1580,38 @@ describe("useDeleteMention — rollback", () => {
       channelId: "ch_1", count: 1, lastSeq: 4,
     }])).toBe(0)
     cfg.onError?.(new Error("cleanup"), { mentionId: mention.id }, mentionContext)
+    expect(cachedAttentionItems().map((item) => item.id).sort()).toEqual([
+      "mention:mention-1", "mention:reply-1",
+    ])
+    expect(cachedAttentionCount()).toBe(2)
+    await vi.waitFor(() => {
+      expect(canonicalRegistry!.collections.attentionItems.get("mention:reply-1")).toBeDefined()
+      expect(canonicalRegistry!.collections.attentionItems.get("mention:mention-1")).toBeDefined()
+      expect(canonicalRegistry!.collections.attentionScopes.get("ch_1")?.attentionCount).toBe(2)
+    })
   })
 
   it("hides only the exact attention facet and restores it on failure", async () => {
-    capturedQc.setQueryData(communityKeys.inboxMentions(), {
-      mentions: [{ id: "men_1", channelId: "ch_1", m: { id: "msg_1", seq: 4 } }],
-    })
     const mod = await loadMod()
+    await installCanonicalRegistry()
+    const { ingestAttentionSnapshot, ingestMessages } = await import(
+      "@/lib/community-db/sync"
+    )
+    ingestMessages(canonicalRegistry!, "ch_1", [{
+      id: "msg_1", type: "chat", authorId: "u_2", seq: 4,
+    }])
+    ingestAttentionSnapshot(canonicalRegistry!, {
+      scopes: [{
+        scopeId: "ch_1", channelId: "ch_1", serverId: "srv_1", parentChannelId: null,
+        ordinaryUnread: true, lastUnreadSeq: 4, lastAttentionSeq: 4, attentionCount: 1,
+      }],
+      items: [{
+        id: "mention:men_1", kind: "mention", sourceId: "men_1", scopeId: "ch_1",
+        messageId: "msg_1", actorUserId: "u_2", createdAt: "2026-09-27T00:00:00.000Z",
+      }],
+      limit: 100,
+      truncated: false,
+    })
     const { getActiveAccountUnreadProjection } = await import(
       "@/hooks/community/account-unread-projection"
     )
@@ -1514,6 +1620,7 @@ describe("useDeleteMention — rollback", () => {
       channelId: "ch_1",
       serverId: "srv_1",
       messageId: "msg_1",
+      attentionId: "men_1",
       seq: 4,
       isMention: true,
     })
@@ -1523,10 +1630,17 @@ describe("useDeleteMention — rollback", () => {
       { token?: unknown; snapshot?: unknown }
     >
     const context = await cfg.onMutate?.({ mentionId: "men_1" })
+    expect(canonicalRegistry!.collections.attentionItems.get("mention:men_1")).toBeUndefined()
+    expect(canonicalRegistry!.collections.attentionScopes.get("ch_1")).toMatchObject({
+      ordinaryUnread: true,
+      attentionCount: 0,
+    })
     expect(projection.projectUnread("inbox-unreads", "ch_1", false)).toBe(true)
     expect(projection.projectUnread("inbox-mentions", "ch_1", false)).toBe(false)
 
     cfg.onError?.(new Error("boom"), { mentionId: "men_1" }, context)
+    expect(canonicalRegistry!.collections.attentionItems.get("mention:men_1")).toBeDefined()
+    expect(canonicalRegistry!.collections.attentionScopes.get("ch_1")?.attentionCount).toBe(1)
     expect(projection.projectUnread("inbox-mentions", "ch_1", false)).toBe(true)
   })
 

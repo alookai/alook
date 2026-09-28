@@ -10,7 +10,6 @@ import { communityKeys } from "@/lib/query-keys"
 import {
   useAttentionItems,
   useAttentionScopes,
-  useCanonicalChannelsById,
 } from "@/lib/community-db/projections"
 import {
   captureCommunityLiveSnapshotToken,
@@ -20,8 +19,6 @@ import {
   getCommunityDbRegistry,
   type CommunityDbRegistry,
 } from "@/lib/community-db/collections"
-import { useChannelRefDirectory } from "@/hooks/community/use-channel-ref-directory"
-import { useDms } from "@/hooks/community/use-dms"
 
 class StaleAttentionReadError extends Error {
   constructor() {
@@ -61,25 +58,6 @@ export function useAccountAttention() {
     refetchOnMount: "always",
   })
   return { ...query, scopes, items }
-}
-
-/**
- * Attention owns only stable structural refs. When those refs arrive before a
- * cold route has loaded their canonical owners, enable the existing structural
- * directory/DM queries. Their normal publishers hydrate the shared collections
- * and every Inbox observer then recomposes without a second attention request.
- */
-export function useAccountAttentionScopeHydration() {
-  const scopes = useAttentionScopes()
-  const channelsById = useCanonicalChannelsById()
-  const needsServerChannels = scopes.some((scope) => (
-    Boolean(scope.serverId) && !channelsById.has(scope.channelId)
-  ))
-  const needsDms = scopes.some((scope) => (
-    !scope.serverId && !channelsById.has(scope.channelId)
-  ))
-  useChannelRefDirectory(needsServerChannels)
-  useDms(needsDms)
 }
 
 /**

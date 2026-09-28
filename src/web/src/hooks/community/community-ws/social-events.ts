@@ -13,7 +13,6 @@ import {
 import type { SocialEventContext } from "@/hooks/community/community-ws/handler-context"
 import {
   invalidateFriends,
-  invalidateInboxUnreads,
   invalidateServersList,
 } from "./invalidation-projections"
 import {
@@ -29,11 +28,6 @@ import {
   resolveDesktopSystemNotificationCandidate,
   showDesktopSystemNotification,
 } from "@/lib/community/desktop-system-notification"
-import {
-  projectAttentionFriendEvent,
-  projectAttentionMentionHint,
-  projectAttentionUnreadBump,
-} from "@/lib/community-db/sync"
 import { scheduleAccountAttentionReconcile } from "@/hooks/community/use-account-attention"
 
 export function handleReadStateAdvanced(
@@ -88,12 +82,10 @@ export function handleUnreadBump(
     queryClient,
     viewerUserIdRef,
     unreadBumpEvidence,
-    scheduleInboxInvalidate,
   } = context
   const viewerId = viewerUserIdRef.current
   if (event.userId === viewerId && viewerId) {
     const evidence = unreadBumpEvidence?.get(event)
-    projectAttentionUnreadBump(queryClient, event, evidence)
     scheduleAccountAttentionReconcile(queryClient)
     getAccountUnreadProjection(queryClient, viewerId).recordArrival({
       channelId: event.channelId,
@@ -105,7 +97,6 @@ export function handleUnreadBump(
     })
     // Use the existing coalesced owner. This is also the sole authority
     // refresh for legacy/orphan bumps; the ledger itself performs no I/O.
-    scheduleInboxInvalidate({ inbox: true, dms: !event.serverId })
     if (evidence && isDesktop()) {
       void resolveDesktopSystemNotificationCandidate(
         evidence.messageEvent,
@@ -132,11 +123,9 @@ export function handleFriendEvent(
   event: FriendEvent,
   { projection, queryClient }: SocialEventContext,
 ) {
-  projectAttentionFriendEvent(queryClient, event)
   scheduleAccountAttentionReconcile(queryClient)
   if (event.type === "community:friend.request") {
     invalidateFriends(projection)
-    invalidateInboxUnreads(projection)
   } else {
     projection.project(() => {
       const controller = getFriendRequestActionController(queryClient)
@@ -150,10 +139,6 @@ export function handleFriendEvent(
       queryKey: communityKeys.friends(),
       exact: true,
     })
-    projection.fence("inbox-unreads", {
-      queryKey: communityKeys.inboxUnreads(),
-      exact: true,
-    })
   }
   if (event.type === "community:friend.block") removeDmReactionDetails(queryClient)
 }
@@ -162,7 +147,6 @@ export function handleMentionCreate(
   event: CommunityMentionCreate,
   {
     projection,
-    scheduleInboxInvalidate,
     queryClient,
     viewerUserIdRef,
     messageEvidenceByChannel,
@@ -170,11 +154,10 @@ export function handleMentionCreate(
 ) {
   const viewerId = viewerUserIdRef.current
   if (!viewerId || event.userId !== viewerId) return
-  if (viewerId && event.userId === viewerId && event.channelId) {
+  scheduleAccountAttentionReconcile(queryClient)
+  if (event.channelId) {
     const candidate = messageEvidenceByChannel?.get(event.channelId)
     const evidence = candidate?.messageId === event.messageId ? candidate : undefined
-    projectAttentionMentionHint(queryClient, event, evidence)
-    scheduleAccountAttentionReconcile(queryClient)
     getAccountUnreadProjection(queryClient, viewerId).recordMentionArrival({
       channelId: event.channelId,
       messageId: event.messageId,
@@ -182,7 +165,6 @@ export function handleMentionCreate(
       isMention: true,
     })
   }
-  scheduleInboxInvalidate({ inbox: true, dms: false })
   // The server rail badge counts unread mentions per server; refresh
   // it on every new mention. `exact: true` is essential: the mention
   // count lives in the `servers()` LIST query, but members/presence/

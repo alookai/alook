@@ -51,8 +51,12 @@ type FriendsEnvelope = {
   pending?: readonly FriendRequestRow[]
 }
 
-type InboxEnvelope = {
-  friendRequests?: readonly FriendRequestRow[]
+type AttentionEnvelope = {
+  items?: readonly {
+    kind?: string
+    sourceId?: string
+    actorUserId?: string | null
+  }[]
 }
 
 export type ActionableFriendRequest<T> = {
@@ -64,7 +68,7 @@ export type ActionableFriendRequest<T> = {
 
 const controllers = new WeakMap<QueryClient, FriendRequestActionController>()
 const friendsHash = hashKey(communityKeys.friends())
-const inboxHash = hashKey(communityKeys.inboxUnreads())
+const inboxHash = hashKey(communityKeys.accountAttention())
 
 function captureRow<T extends FriendRequestRow>(
   rows: readonly T[],
@@ -82,7 +86,11 @@ function rowsFromEnvelope(
   if (surface === "friends") {
     return (data as FriendsEnvelope).pending ?? []
   }
-  return (data as InboxEnvelope).friendRequests ?? []
+  return ((data as AttentionEnvelope).items ?? []).flatMap((item) => (
+    item.kind === "friend_request" && item.sourceId
+      ? [{ id: item.sourceId, userId: item.actorUserId ?? undefined }]
+      : []
+  ))
 }
 
 function surfaceForHash(queryHash: string): FriendRequestSurface | undefined {
@@ -118,10 +126,10 @@ class FriendRequestActionController {
 
   private captureCaches(id: string) {
     const friends = this.queryClient.getQueryData<FriendsEnvelope>(communityKeys.friends())
-    const inbox = this.queryClient.getQueryData<InboxEnvelope>(communityKeys.inboxUnreads())
+    const inbox = this.queryClient.getQueryData<AttentionEnvelope>(communityKeys.accountAttention())
     return {
       friends: captureRow(friends?.pending ?? [], id),
-      inbox: captureRow(inbox?.friendRequests ?? [], id),
+      inbox: captureRow(rowsFromEnvelope("inbox", inbox), id),
     }
   }
 
@@ -213,7 +221,7 @@ class FriendRequestActionController {
   async fenceReads() {
     await Promise.all([
       this.queryClient.cancelQueries({ queryKey: communityKeys.friends(), exact: true }),
-      this.queryClient.cancelQueries({ queryKey: communityKeys.inboxUnreads(), exact: true }),
+      this.queryClient.cancelQueries({ queryKey: communityKeys.accountAttention(), exact: true }),
     ])
   }
 
@@ -234,10 +242,10 @@ class FriendRequestActionController {
 
   private captureRowsBySurface() {
     const friends = this.queryClient.getQueryData<FriendsEnvelope>(communityKeys.friends())
-    const inbox = this.queryClient.getQueryData<InboxEnvelope>(communityKeys.inboxUnreads())
+    const inbox = this.queryClient.getQueryData<AttentionEnvelope>(communityKeys.accountAttention())
     return {
       friends: friends?.pending ?? [],
-      inbox: inbox?.friendRequests ?? [],
+      inbox: rowsFromEnvelope("inbox", inbox),
     }
   }
 

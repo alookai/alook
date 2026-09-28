@@ -9,7 +9,7 @@ import {
 import {
   ingestAttentionSnapshot,
   ingestMessages,
-  projectAttentionUnreadBump,
+  projectCommunityWsEventToDb,
 } from "@/lib/community-db/sync"
 
 const apiFetch = vi.hoisted(() => vi.fn())
@@ -381,7 +381,7 @@ describe("read coordinator", () => {
     }
   })
 
-  it("reconciles instead of restoring stale attention across an intervening WS fact", async () => {
+  it("reconciles instead of restoring stale attention across an intervening canonical fact", async () => {
     const queryClient = new QueryClient()
     const registry = createCommunityDbRegistry(queryClient, "user-1")
     await registry.preload()
@@ -410,17 +410,17 @@ describe("read coordinator", () => {
       const lease = timelineLease(queryClient)
       submitTimeline(lease, 4)
       await vi.advanceTimersByTimeAsync(READ_COORDINATOR_DEBOUNCE_MS)
-      projectAttentionUnreadBump(queryClient, {
-        type: "community:unread.bump",
-        userId: "user-1",
-        channelId: "channel-1",
-        serverId: "server-1",
-        isMention: false,
-      }, { seq: 5 })
+      ingestMessages(registry, "other", [{ id: "event", type: "chat", content: "old" }])
+      projectCommunityWsEventToDb(queryClient, {
+        type: "community:message.edited",
+        channelId: "other",
+        messageId: "event",
+        content: "new",
+      })
 
       rejectPut(new ApiError("forbidden", 403))
       await vi.waitFor(() => expect(reconcileAccountAttention).toHaveBeenCalledWith(registry))
-      expect(registry.collections.attentionScopes.get("channel-1")?.lastUnreadSeq).toBe(5)
+      expect(registry.collections.attentionScopes.get("channel-1")).toBeUndefined()
     } finally {
       disposeReadCoordinator(queryClient)
       unregister()
@@ -617,19 +617,19 @@ describe("read coordinator", () => {
       const ticket = registerInboxProjectionTicket(queryClient, 1, target, vi.fn())
       activateInboxProjectionTicket(ticket)
       if (conflict) {
-        projectAttentionUnreadBump(queryClient, {
-          type: "community:unread.bump",
-          userId: "user-1",
-          channelId: "channel-1",
-          serverId: "server-1",
-          isMention: false,
-        }, { seq: 5 })
+        ingestMessages(registry, "other", [{ id: "event", type: "chat", content: "old" }])
+        projectCommunityWsEventToDb(queryClient, {
+          type: "community:message.edited",
+          channelId: "other",
+          messageId: "event",
+          content: "new",
+        })
       }
 
       try {
         expect(cancelInboxProjectionTicket(ticket)).toBe(true)
         if (conflict) {
-          expect(registry.collections.attentionScopes.get("channel-1")?.lastUnreadSeq).toBe(5)
+          expect(registry.collections.attentionScopes.get("channel-1")).toBeUndefined()
           expect(reconcileAccountAttention).toHaveBeenCalledWith(registry)
         } else {
           expect(registry.collections.attentionScopes.get("channel-1")?.lastUnreadSeq).toBe(4)

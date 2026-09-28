@@ -120,6 +120,12 @@ describe("useAcceptFriendRequest — rollback", () => {
       }],
       limit: 100,
       truncated: false,
+      included: {
+        servers: [], channels: [], dms: [], messages: [],
+        profiles: [{
+          userId: "u_1", name: "One", discriminator: "0001", avatar: "O", avatarVersion: 1,
+        }],
+      },
     }
     ingestAttentionSnapshot(canonicalRegistry!, canonical)
     capturedQc.setQueryData(communityKeys.friends(), {
@@ -184,7 +190,7 @@ describe("useAcceptFriendRequest — rollback", () => {
   it("reconciles a failed friend action after an intervening canonical event", async () => {
     const mod = await load()
     await installCanonicalRegistry()
-    const { ingestAttentionSnapshot, projectAttentionUnreadBump } = await import(
+    const { ingestAttentionSnapshot, ingestMessages, projectCommunityWsEventToDb } = await import(
       "@/lib/community-db/sync"
     )
     const canonical = {
@@ -196,6 +202,12 @@ describe("useAcceptFriendRequest — rollback", () => {
       }],
       limit: 100,
       truncated: false,
+      included: {
+        servers: [], channels: [], dms: [], messages: [],
+        profiles: [{
+          userId: "u_1", name: "One", discriminator: "0001", avatar: "O", avatarVersion: 1,
+        }],
+      },
     }
     ingestAttentionSnapshot(canonicalRegistry!, canonical)
     capturedQc.setQueryData(communityKeys.friends(), {
@@ -209,13 +221,13 @@ describe("useAcceptFriendRequest — rollback", () => {
     mod.useAcceptFriendRequest()
     const cfg = capturedConfig as MutConfig<{ friendshipId: string }, unknown>
     const context = await cfg.onMutate?.({ friendshipId: "f_1" })
-    projectAttentionUnreadBump(capturedQc, {
-      type: "community:unread.bump",
-      userId: "u_me",
+    ingestMessages(canonicalRegistry!, "other", [{ id: "event", type: "chat", content: "old" }])
+    projectCommunityWsEventToDb(capturedQc, {
+      type: "community:message.edited",
       channelId: "other",
-      serverId: "s_1",
-      isMention: false,
-    }, { seq: 2 })
+      messageId: "event",
+      content: "new",
+    } as never)
 
     await cfg.onError?.(new Error("friend action failed"), { friendshipId: "f_1" }, context)
 
@@ -242,7 +254,7 @@ describe("useAcceptFriendRequest — rollback", () => {
     expect(cache?.pending).toHaveLength(1)
   })
 
-  it("optimistically removes and compensates the same id in both cache grains", async () => {
+  it("optimistically removes and compensates the same id in the Friends cache", async () => {
     capturedQc.setQueryData(communityKeys.friends(), {
       friends: [],
       blocked: [],
@@ -250,14 +262,6 @@ describe("useAcceptFriendRequest — rollback", () => {
         { id: "f_1", userId: "u_1", name: "One", avatar: "1", avatarVersion: 1, kind: "incoming" },
         { id: "f_2", userId: "u_2", name: "Two", avatar: "2", avatarVersion: 2, kind: "incoming" },
       ],
-    })
-    capturedQc.setQueryData(communityKeys.inboxUnreads(), {
-      friendRequests: [
-        { id: "f_1", userId: "u_1", name: "One", avatar: "1", avatarVersion: 1, createdAt: "2" },
-        { id: "f_2", userId: "u_2", name: "Two", avatar: "2", avatarVersion: 2, createdAt: "1" },
-      ],
-      servers: [],
-      dms: [],
     })
     const mod = await load()
     mod.useAcceptFriendRequest()
@@ -267,17 +271,12 @@ describe("useAcceptFriendRequest — rollback", () => {
 
     expect(cancelSpy.mock.calls.map((call) => call[0])).toEqual([
       { queryKey: communityKeys.friends(), exact: true },
-      { queryKey: communityKeys.inboxUnreads(), exact: true },
     ])
     expect(capturedQc.getQueryData<{ pending: { id: string }[] }>(communityKeys.friends())?.pending)
-      .toEqual([expect.objectContaining({ id: "f_2" })])
-    expect(capturedQc.getQueryData<{ friendRequests: { id: string }[] }>(communityKeys.inboxUnreads())?.friendRequests)
       .toEqual([expect.objectContaining({ id: "f_2" })])
 
     await cfg.onError?.(new Error("boom"), { friendshipId: "f_1" }, context)
     expect(capturedQc.getQueryData<{ pending: { id: string }[] }>(communityKeys.friends())?.pending.map((row) => row.id))
-      .toEqual(["f_1", "f_2"])
-    expect(capturedQc.getQueryData<{ friendRequests: { id: string }[] }>(communityKeys.inboxUnreads())?.friendRequests.map((row) => row.id))
       .toEqual(["f_1", "f_2"])
   })
 
@@ -296,14 +295,6 @@ describe("useAcceptFriendRequest — rollback", () => {
           { id: "a", userId: "ua", name: "A", avatar: "A", avatarVersion: 1, kind: "incoming" },
           { id: "b", userId: "ub", name: "B", avatar: "B", avatarVersion: 1, kind: "incoming" },
         ],
-      })
-      capturedQc.setQueryData(communityKeys.inboxUnreads(), {
-        friendRequests: [
-          { id: "a", userId: "ua", name: "A", avatar: "A", avatarVersion: 1, createdAt: "2" },
-          { id: "b", userId: "ub", name: "B", avatar: "B", avatarVersion: 1, createdAt: "1" },
-        ],
-        servers: [],
-        dms: [],
       })
       const mod = await load()
       mod.useRejectFriendRequest()
@@ -332,8 +323,6 @@ describe("useAcceptFriendRequest — rollback", () => {
 
       expect(capturedQc.getQueryData<{ pending: { id: string }[] }>(communityKeys.friends())?.pending.map((row) => row.id))
         .toEqual([failedId])
-      expect(capturedQc.getQueryData<{ friendRequests: { id: string }[] }>(communityKeys.inboxUnreads())?.friendRequests.map((row) => row.id))
-        .toEqual([failedId])
     },
   )
 
@@ -359,19 +348,7 @@ describe("useAcceptFriendRequest — rollback", () => {
     expect(capturedQc.getQueryData(communityKeys.inboxUnreads())).toBeUndefined()
   })
 
-  it("never reconstructs an absent Friends envelope while compensating Inbox", async () => {
-    capturedQc.setQueryData(communityKeys.inboxUnreads(), {
-      friendRequests: [{
-        id: "a",
-        userId: "ua",
-        name: "A",
-        avatar: "A",
-        avatarVersion: 1,
-        createdAt: "2026-09-12T01:00:00Z",
-      }],
-      servers: [],
-      dms: [],
-    })
+  it("never reconstructs an absent Friends envelope", async () => {
     const mod = await load()
     mod.useAcceptFriendRequest()
     const cfg = capturedConfig as MutConfig<{ friendshipId: string }, unknown>
@@ -379,12 +356,9 @@ describe("useAcceptFriendRequest — rollback", () => {
     await cfg.onError?.(new Error("failed"), { friendshipId: "a" }, context)
 
     expect(capturedQc.getQueryData(communityKeys.friends())).toBeUndefined()
-    expect(capturedQc.getQueryData<{ friendRequests: { id: string }[] }>(
-      communityKeys.inboxUnreads(),
-    )?.friendRequests.map((row) => row.id)).toEqual(["a"])
   })
 
-  it("awaits settled invalidation of Friends and exact Inbox unreads", async () => {
+  it("awaits settled invalidation of Friends", async () => {
     apiFetchMock.mockResolvedValueOnce(undefined)
     const mod = await load()
     mod.useAcceptFriendRequest()
@@ -394,13 +368,12 @@ describe("useAcceptFriendRequest — rollback", () => {
     ))
     let settled = false
     const mutation = runMutation({ friendshipId: "f_1" }).then(() => { settled = true })
-    await vi.waitFor(() => expect(spy).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => expect(spy).toHaveBeenCalledTimes(1))
     expect(settled).toBe(false)
     gates.splice(0).forEach((resolve) => resolve())
     await mutation
     expect(spy.mock.calls.map((call) => call[0])).toEqual([
       { queryKey: communityKeys.friends(), exact: true },
-      { queryKey: communityKeys.inboxUnreads(), exact: true },
     ])
   })
 })

@@ -18,6 +18,7 @@ import {
   dispatchCommunityWsEvents,
 } from "@/hooks/community/community-ws/registry"
 import { reconcileAccountReadState } from "@/hooks/community/community-ws/read-state-reconciliation"
+import { scheduleAccountAttentionReconcile } from "@/hooks/community/use-account-attention"
 import { getAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 import { runCommunityWsProjectionTransaction } from "@/hooks/community/community-ws/projection-transaction"
 import {
@@ -510,9 +511,9 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
         viewerUserId: viewerUserIdRef.current,
       })
     } finally {
-      scheduleInboxInvalidate({ inbox: true, dms: true })
+      scheduleAccountAttentionReconcile(queryClient)
     }
-  }, [queryClient, scheduleInboxInvalidate])
+  }, [queryClient])
   const handleAuthenticated = useCallback(async () => {
     const store = useCommunityWsStore.getState()
     store.markAccessConnected()
@@ -523,10 +524,10 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
     const firstAuthentication = !hasAuthenticatedRef.current
     hasAuthenticatedRef.current = true
     if (firstAuthentication) {
-      scheduleInboxInvalidate({ inbox: true, dms: true })
+      scheduleAccountAttentionReconcile(queryClient)
     }
     await reconcileAccountReadState(queryClient, { surfaceMode: "non-inbox" })
-  }, [queryClient, scheduleInboxInvalidate])
+  }, [queryClient])
   const { send, reconnectNow } = useUserWs(handleMessage, {
     onReconnect: handleReconnect,
     onDisconnect: useCommunityWsStore.getState().markAccessDisconnected,
@@ -543,7 +544,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
     const reconcileVisible = () => {
       if (document.visibilityState !== "visible") return
       if (useCommunityWsStore.getState().accessConnected) {
-        scheduleInboxInvalidate({ inbox: true, dms: true })
+        scheduleAccountAttentionReconcile(queryClient)
       }
       void reconcileAccountReadState(queryClient, {
         surfaceMode: "non-inbox",
@@ -555,7 +556,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
       document.removeEventListener("visibilitychange", reconcileVisible)
       window.removeEventListener("pageshow", reconcileVisible)
     }
-  }, [queryClient, scheduleInboxInvalidate])
+  }, [queryClient])
 
   // Publish the send binding so free helpers (`communityWsSendTyping`) can
   // dispatch without holding a hook reference. Single-instance assumption

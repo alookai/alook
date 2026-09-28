@@ -9,6 +9,7 @@ import { useShellInboxController } from "./use-shell-inbox-controller"
 const order: string[] = []
 const mocks = vi.hoisted(() => ({
   markedEnabled: [] as boolean[],
+  refetchAttention: vi.fn(),
   markAll: vi.fn(),
   deleteMention: vi.fn(),
   unmark: vi.fn(),
@@ -69,7 +70,7 @@ const mention: Mention = {
 }
 
 vi.mock("@/hooks/community/use-inbox", () => ({
-  useInboxUnreads: () => ({
+  useInboxAttention: () => ({
     friendRequests: [{
       id: "fr_1",
       userId: "requester",
@@ -80,17 +81,14 @@ vi.mock("@/hooks/community/use-inbox", () => ({
     }],
     servers: [server],
     dms: [unreadDm],
-    isLoading: false,
-    hasProjectedUnread: false,
-    hasOutstandingFriendRequest: true,
-    exactAttentionCount: 7,
-    pendingChannelIds: [],
-  }),
-  useInboxMentions: () => ({
     mentions: [mention],
     isLoading: false,
-    hasProjectedMention: false,
-    pendingChannelIds: [],
+    isInitialError: false,
+    hasUnread: true,
+    hasMention: true,
+    hasOutstandingFriendRequest: true,
+    exactAttentionCount: 4,
+    refetch: mocks.refetchAttention,
   }),
   useInboxMarked: (enabled: boolean) => {
     mocks.markedEnabled.push(enabled)
@@ -202,6 +200,7 @@ describe("useShellInboxController", () => {
     mocks.markedEnabled.length = 0
     for (const mock of [
       mocks.markAll,
+      mocks.refetchAttention,
       mocks.deleteMention,
       mocks.unmark,
       mocks.accept,
@@ -249,7 +248,7 @@ describe("useShellInboxController", () => {
     const hook = await renderController()
     expect(hook.current.hasUnread).toBe(true)
     expect(hook.current.unreadCount).toBe(4)
-    expect(hook.current.popoverProps.hasProjectedUnreads).toBe(false)
+    expect(hook.current.popoverProps.hasProjectedUnreads).toBe(true)
     expect(hook.current.popoverProps.friendRequests).toHaveLength(1)
 
     hook.current.popoverProps.onOpenFriendRequests?.()
@@ -295,6 +294,14 @@ describe("useShellInboxController", () => {
     expect(mocks.markedEnabled.at(-1)).toBe(false)
     await act(async () => hook.current.popoverProps.onMarkedTabSelected?.())
     expect(mocks.markedEnabled.at(-1)).toBe(true)
+  })
+
+  it("retries the owned attention query from the popover", async () => {
+    const hook = await renderController()
+
+    hook.current.popoverProps.onRetryAttention?.()
+
+    expect(mocks.refetchAttention).toHaveBeenCalledTimes(1)
   })
 
   it("retains controlled tab and per-tab scroll offsets without data work", async () => {

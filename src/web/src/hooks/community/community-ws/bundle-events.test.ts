@@ -102,6 +102,12 @@ function invalidationCount(queryKey: readonly unknown[]): number {
     JSON.stringify(filters.queryKey) === JSON.stringify(queryKey)).length
 }
 
+function attentionReconcileCount(): number {
+  return vi.mocked(capturedQueryClient.fetchQuery).mock.calls.filter(([options]) => (
+    JSON.stringify(options.queryKey) === JSON.stringify(communityKeys.accountAttention())
+  )).length
+}
+
 describe("useCommunityWs — operation bundles", () => {
   it("applies archive and null-tag sidebar semantics inside committed batches", async () => {
     await mountHook()
@@ -278,7 +284,7 @@ describe("useCommunityWs — operation bundles", () => {
     }
   })
 
-  it("skips current raw refresh when a deferred later intent has no owner successor", async () => {
+  it("preserves attention reconciliation across deferred read intents", async () => {
     vi.useFakeTimers()
     try {
       useCommunityStore.getState().subscribe({ channelId: "ch-1" })
@@ -308,6 +314,7 @@ describe("useCommunityWs — operation bundles", () => {
         throw new Error(`unexpected API fetch: ${String(url)}`)
       })
       vi.spyOn(capturedQueryClient, "invalidateQueries")
+      vi.spyOn(capturedQueryClient, "fetchQuery")
       const lease = registerReadSurface(
         capturedQueryClient,
         "viewer-1",
@@ -334,15 +341,11 @@ describe("useCommunityWs — operation bundles", () => {
       releaseFirstRead()
       await vi.advanceTimersByTimeAsync(499)
       expect(readCalls).toBe(1)
-      expect(invalidationCount(communityKeys.inbox())).toBe(0)
-      expect(invalidationCount(communityKeys.dms())).toBe(0)
+      expect(attentionReconcileCount()).toBe(2)
 
       await vi.advanceTimersByTimeAsync(1)
       await vi.waitFor(() => expect(readCalls).toBe(2))
-      await vi.waitFor(() => {
-        expect(invalidationCount(communityKeys.inbox())).toBe(1)
-        expect(invalidationCount(communityKeys.dms())).toBe(1)
-      })
+      expect(attentionReconcileCount()).toBe(3)
       releaseReadSurface(lease)
     } finally {
       vi.useRealTimers()
@@ -357,6 +360,7 @@ describe("useCommunityWs — operation bundles", () => {
         servers: [{ id: "server-1", mentions: 5 }],
       })
       vi.spyOn(capturedQueryClient, "invalidateQueries")
+      vi.spyOn(capturedQueryClient, "fetchQuery")
       const frame = await batchFor("message-1", mentionEvents)
 
       capturedOnMessage!(frame)
@@ -369,17 +373,16 @@ describe("useCommunityWs — operation bundles", () => {
       // read can cover it. An orphan/sticky bump would deliberately survive.
       unreadProjection.recordRead("ch-1", 1)
       expect(unreadProjection.projectUnread("servers", "ch-1", false)).toBe(false)
-      expect(invalidationCount(communityKeys.inbox())).toBe(0)
-      expect(invalidationCount(communityKeys.dms())).toBe(0)
+      expect(attentionReconcileCount()).toBe(0)
       expect(invalidationCount(communityKeys.servers())).toBe(1)
       await vi.advanceTimersByTimeAsync(500)
-      expect(invalidationCount(communityKeys.inbox())).toBe(1)
-      expect(invalidationCount(communityKeys.dms())).toBe(0)
+      expect(attentionReconcileCount()).toBe(1)
 
       const callsAfterFirst = vi.mocked(capturedQueryClient.invalidateQueries).mock.calls.length
       capturedOnMessage!(frame)
       await vi.advanceTimersByTimeAsync(500)
       expect(vi.mocked(capturedQueryClient.invalidateQueries)).toHaveBeenCalledTimes(callsAfterFirst)
+      expect(attentionReconcileCount()).toBe(1)
       const { useCommunityWsStore } = await import("@/stores/community/ws")
       expect(useCommunityWsStore.getState().seenDeliveryOperations.get(frame.operationId))
         .toEqual({ digest: frame.operationDigest, completed: true })
@@ -473,17 +476,16 @@ describe("useCommunityWs — operation bundles", () => {
         servers: [{ id: "server-1", mentions: 9 }],
       })
       vi.spyOn(capturedQueryClient, "invalidateQueries")
+      vi.spyOn(capturedQueryClient, "fetchQuery")
 
       capturedOnMessage!(await batchFor("message-late", mentionEvents))
       expect(capturedQueryClient.getQueryData<{ servers: Array<{ mentions: number }> }>(
         communityKeys.servers(),
       )?.servers[0]?.mentions).toBe(9)
-      expect(invalidationCount(communityKeys.inbox())).toBe(0)
-      expect(invalidationCount(communityKeys.dms())).toBe(0)
+      expect(attentionReconcileCount()).toBe(0)
       expect(invalidationCount(communityKeys.servers())).toBe(1)
       await vi.advanceTimersByTimeAsync(500)
-      expect(invalidationCount(communityKeys.inbox())).toBe(1)
-      expect(invalidationCount(communityKeys.dms())).toBe(0)
+      expect(attentionReconcileCount()).toBe(1)
     } finally {
       vi.useRealTimers()
     }
@@ -874,6 +876,7 @@ describe("useCommunityWs — operation bundles", () => {
     try {
       await mountHook({ viewerUserId: "viewer-1" })
       vi.spyOn(capturedQueryClient, "invalidateQueries")
+      vi.spyOn(capturedQueryClient, "fetchQuery")
       const original = await batchFor("bounded-operation", [{
         ...message,
         message: { ...message.message, id: "bounded-operation" },
@@ -894,13 +897,13 @@ describe("useCommunityWs — operation bundles", () => {
       }
 
       await vi.advanceTimersByTimeAsync(500)
-      expect(invalidationCount(communityKeys.inbox())).toBe(1)
+      expect(attentionReconcileCount()).toBe(1)
       capturedOnMessage!(conflicts[0]!)
       await vi.advanceTimersByTimeAsync(500)
-      expect(invalidationCount(communityKeys.inbox())).toBe(2)
+      expect(attentionReconcileCount()).toBe(1)
       capturedOnMessage!(conflicts.at(-1)!)
       await vi.advanceTimersByTimeAsync(500)
-      expect(invalidationCount(communityKeys.inbox())).toBe(2)
+      expect(attentionReconcileCount()).toBe(1)
       expect(SEEN_DELIVERY_OPERATION_TRIM_TO).toBeLessThan(SEEN_DELIVERY_OPERATION_MAX)
     } finally {
       vi.useRealTimers()
