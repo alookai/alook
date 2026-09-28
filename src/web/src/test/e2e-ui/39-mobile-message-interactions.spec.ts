@@ -512,8 +512,8 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
     composerId: tid.channelComposerShell,
   })
   expect(restingThreadGap).not.toBeNull()
-  expect(restingThreadGap!).toBeGreaterThanOrEqual(15)
-  expect(restingThreadGap!).toBeLessThanOrEqual(18)
+  expect(restingThreadGap!).toBeGreaterThanOrEqual(55)
+  expect(restingThreadGap!).toBeLessThanOrEqual(57)
   const threadWsReadyId = await seedMessage("alice", threadId, `thread ws ready ${stamp}`)
   await expect.poll(() => bobProxy.frames.some((frame) => (
     frameHasMessage(frame, threadId, threadWsReadyId)
@@ -646,12 +646,13 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
     indicatorId: tid.typingIndicator,
     replyMessageTestId: tid.message(typingWsReadyId),
   })
-  expect(geometry.contentPaddingBottom).toBe(16)
+  expect(geometry.contentPaddingBottom).toBe(0)
   expect(geometry.scroller!.bottom).toBeLessThanOrEqual(geometry.composer!.top + 1)
   expect(geometry.rail!.bottom).toBeLessThanOrEqual(geometry.scroller!.bottom + 1)
   expect(geometry.indicator!.height).toBe(32)
   expect(Math.abs(geometry.scroller!.bottom - geometry.indicator!.bottom - 8)).toBeLessThanOrEqual(1)
-  expect(geometry.scroller!.bottom - geometry.finalMessage!.bottom).toBeGreaterThanOrEqual(15)
+  expect(geometry.scroller!.bottom - geometry.finalMessage!.bottom).toBeGreaterThanOrEqual(55)
+  expect(geometry.scroller!.bottom - geometry.finalMessage!.bottom).toBeLessThanOrEqual(57)
   expect(geometry.finalMessage!.bottom).toBeLessThanOrEqual(geometry.scroller!.bottom + 1)
   expect(geometry.horizontalOverflow).toBeLessThanOrEqual(0)
 
@@ -819,7 +820,7 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
     railId: tid.composerAccessoryRail,
     indicatorId: tid.typingIndicator,
   })
-  expect(dmGeometry.contentPaddingBottom).toBe(16)
+  expect(dmGeometry.contentPaddingBottom).toBe(0)
   expect(dmGeometry.scroller!.bottom).toBeLessThanOrEqual(dmGeometry.composer!.top + 1)
   expect(dmGeometry.rail!.bottom).toBeLessThanOrEqual(dmGeometry.scroller!.bottom + 1)
   expect(dmGeometry.indicator!.height).toBe(32)

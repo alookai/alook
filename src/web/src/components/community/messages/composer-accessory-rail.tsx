@@ -34,7 +34,7 @@ export function ComposerAccessoryRail({
     <div
       data-testid={tid.composerAccessoryRail}
       data-layout={layout}
-      className="pointer-events-none absolute inset-x-0 bottom-2 z-20 px-2 sm:bottom-4 sm:px-4"
+      className="pointer-events-none absolute inset-x-0 bottom-2 z-20 pl-(--community-composer-inline-start) pr-(--community-composer-inline-end) sm:bottom-4"
     >
       <div
         className={cn(

@@ -3,6 +3,8 @@ import React from "react"
 import { MessageList } from "./message-list"
 import { render } from "@/test/react-dom-harness"
 
+vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => "desktop" }))
+
 vi.mock("@/components/ui/number-ticker", () => ({
   NumberTicker: ({ value }: { value: number }) => React.createElement("span", null, value),
 }))

@@ -459,7 +459,7 @@ function expectContinuousResizeAnchorPreserved(
 }
 
 function expectInFlowMessageGeometry(geometry: MessageViewportGeometry, label: string): void {
-  expect(geometry.contentPaddingBottom, `${label}: desktop normal tail inset`).toBe(24)
+  expect(geometry.contentPaddingBottom, `${label}: outer tail padding removed`).toBe(0)
   expect(geometry.composerRect, `${label}: scoped composer`).not.toBeNull()
   if (geometry.railRect) {
     expect(geometry.railPosition, `${label}: rail position`).toBe("absolute")
@@ -951,9 +951,9 @@ test.describe.serial("message scroll characterization", () => {
       scrollerId: tid.messageScroller,
       messageId: tid.message(composerDmProfile.ids.at(-1)!),
     })
-    expect(tailGeometry.paddingBottom).toBe(24)
-    expect(tailGeometry.tailGap).toBeGreaterThanOrEqual(23)
-    expect(tailGeometry.tailGap).toBeLessThanOrEqual(25)
+    expect(tailGeometry.paddingBottom).toBe(0)
+    expect(tailGeometry.tailGap).toBeGreaterThanOrEqual(71)
+    expect(tailGeometry.tailGap).toBeLessThanOrEqual(73)
     expect(tailGeometry.scrollerBottom).toBeLessThanOrEqual(tailGeometry.composerTop + 1)
     await startScrollTrace(alice.page, {
       scenario: "dm-composer-clear-viewport",

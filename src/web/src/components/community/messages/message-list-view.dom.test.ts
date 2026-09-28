@@ -241,7 +241,7 @@ describe("renderMessageListView", () => {
     }), undefined)
   })
 
-  it("keeps only the normal tail inset across scroll and selection state", () => {
+  it("leaves tail spacing to the virtualizer across scroll and selection state", () => {
     const renderer = render(renderMessageListView(
       props(),
       controller({ pillCount: 0 }),
@@ -253,15 +253,14 @@ describe("renderMessageListView", () => {
       { pillCount: 2, selectMode: false },
       { pillCount: 0, selectMode: true },
     ]) {
-      expect(content()).toHaveClass("pb-4", "sm:pb-6")
-      expect(content()).not.toHaveClass("pb-14", "sm:pb-18")
+      expect(content()).not.toHaveClass("pb-4", "sm:pb-6", "pb-14", "sm:pb-18")
       renderer.rerender(renderMessageListView(
         props(),
         controller({ pillCount: state.pillCount, selectMode: state.selectMode }),
         () => React.createElement("virtual-rows"),
       ))
     }
-    expect(content()).toHaveClass("pb-4", "sm:pb-6")
+    expect(content()).not.toHaveClass("pb-4", "sm:pb-6")
   })
 
   it("wires selection actions through the footer slot and closes the share dialog", () => {
@@ -340,7 +339,7 @@ describe("renderMessageListView", () => {
     expect(renderer.getByText("Loading newer messages…")).toBeInTheDocument()
 
     const content = renderer.container.querySelector<HTMLElement>("[data-message-list-content]")!
-    expect(content).toHaveClass("pb-4", "sm:pb-6")
+    expect(content).not.toHaveClass("pb-4", "sm:pb-6")
     const elementChildren = Array.from(content.children)
     expect(elementChildren).toHaveLength(3)
     expect(elementChildren[0]).toHaveClass("mb-6")

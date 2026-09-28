@@ -192,7 +192,8 @@ function expectCheckpoint(
 ): void {
   const evidence = `${state}@${width}: ${JSON.stringify(metrics)}`
   const expectedGap = width < 640 ? 8 : 16
-  expect(metrics.contentPaddingBottom, evidence).toBe(width < 640 ? 16 : 24)
+  const expectedTailGap = width < 640 ? 56 : 72
+  expect(metrics.contentPaddingBottom, evidence).toBe(0)
   expect(metrics.scroller.bottom, evidence).toBeLessThanOrEqual(metrics.composer.top + 1)
   if (metrics.typing?.width) {
     expect(metrics.typing.height, `typing ${evidence}`).toBe(32)
@@ -214,8 +215,8 @@ function expectCheckpoint(
     }
   }
   if (metrics.finalMessage && metrics.finalMessage.bottom <= metrics.scroller.bottom + 1) {
-    expect(metrics.scroller.bottom - metrics.finalMessage.bottom, evidence)
-      .toBeGreaterThanOrEqual(metrics.contentPaddingBottom - 1)
+    const tailGap = metrics.scroller.bottom - metrics.finalMessage.bottom
+    expect(tailGap, evidence).toBeGreaterThanOrEqual(expectedTailGap - 1)
   }
 }
 
@@ -340,7 +341,10 @@ async function captureEmptyState(
     await expect(page.getByTestId(tid.composerAccessoryRail)).toHaveCount(0)
     await expect(page.getByTestId(tid.channelComposerShell)).toBeVisible()
     const metrics = await settledRailMetrics(page, finalMessageId)
-    expect(metrics.contentPaddingBottom).toBe(width < 640 ? 16 : 24)
+    const expectedTailGap = width < 640 ? 56 : 72
+    expect(metrics.contentPaddingBottom).toBe(0)
+    expect(metrics.scroller.bottom - metrics.finalMessage!.bottom)
+      .toBeGreaterThanOrEqual(expectedTailGap - 1)
     expect(metrics.scroller.bottom).toBeLessThanOrEqual(metrics.composer.top + 1)
     const documentWidths = await page.evaluate(() => ({
       client: document.documentElement.clientWidth,
