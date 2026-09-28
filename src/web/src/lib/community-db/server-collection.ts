@@ -67,7 +67,6 @@ export function normalizeServersResponse(
 
 export function createServersQueryFn(
   queryClient: QueryClient,
-  existingRows: () => Iterable<ServerRow>,
 ) {
   return async (context?: QueryFunctionContext): Promise<ServersResponse> => {
     const projection = getActiveAccountUnreadProjection(queryClient)
@@ -76,10 +75,7 @@ export function createServersQueryFn(
       const data = await apiFetch<{ servers: RawServerRow[] }>("/api/community/servers", {
         signal: context?.signal,
       })
-      const response = normalizeServersResponse(
-        data.servers,
-        new Map(Array.from(existingRows(), (row) => [row.id, row])),
-      )
+      const response = normalizeServersResponse(data.servers)
       projection.absorbSnapshot(token, response.unreadSources, {
         confirmedAccessScopes: response.servers.map((server) => ({
           kind: "server" as const,
@@ -92,6 +88,26 @@ export function createServersQueryFn(
       throw error
     }
   }
+}
+
+export function selectServersForCollection(
+  response: ServersResponse,
+  existingRows: Iterable<ServerRow>,
+): ServerRow[] {
+  const completedIds = new Set(
+    Array.from(existingRows)
+      .filter((row) => row.detailComplete)
+      .map((row) => row.id),
+  )
+  if (completedIds.size === 0) return response.servers
+
+  let changed = false
+  const selected = response.servers.map((server) => {
+    if (server.detailComplete || !completedIds.has(server.id)) return server
+    changed = true
+    return { ...server, detailComplete: true }
+  })
+  return changed ? selected : response.servers
 }
 
 export const serversCollectionQueryKey = communityKeys.serverRows

@@ -3,7 +3,10 @@ import type { PersistedCollectionPersistence } from "@tanstack/browser-db-sqlite
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { CommunityWsEvent } from "@alook/shared"
 import { communityKeys } from "@/lib/query-keys"
-import { serversCollectionQueryKey } from "./server-collection"
+import {
+  serversCollectionQueryKey,
+  type ServersResponse,
+} from "./server-collection"
 import { getAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 import { rememberMessageAccessScope } from "./message-access-scope"
 import { getLastChannel, setLastChannel } from "@/lib/community/last-channel"
@@ -494,13 +497,19 @@ describe("community DB sync", () => {
 
   it("waits for the persisted server commit before completing tree publication", async () => {
     const delayedCommit = deferred()
+    let detailCommitCalled = false
+    let detailCommitSettled = false
     const applyCommittedTx: PersistedCollectionPersistence["adapter"]["applyCommittedTx"] =
       vi.fn(async (collectionId, transaction) => {
         const completesServer = collectionId.endsWith(":servers")
           && transaction.mutations.some((mutation) => (
             "value" in mutation && mutation.value.detailComplete === true
           ))
-        if (completesServer) await delayedCommit.promise
+        if (completesServer) {
+          detailCommitCalled = true
+          await delayedCommit.promise
+          detailCommitSettled = true
+        }
       })
     const persistence: PersistedCollectionPersistence = {
       adapter: {
@@ -520,6 +529,12 @@ describe("community DB sync", () => {
     await vi.waitFor(() => expect(db.collections.servers.has("s1")).toBe(true))
 
     let completed = false
+    const timeline = [{
+      phase: "baseline",
+      commit: detailCommitCalled ? "called" : "idle",
+      row: db.collections.servers.get("s1")?.detailComplete,
+      publication: completed ? "settled" : "pending",
+    }]
     const publication = publishCommunityLiveSnapshot(db.queryClient, {
       kind: "server-detail",
       data: {
@@ -547,8 +562,47 @@ describe("community DB sync", () => {
       }),
     ))
     expect(completed).toBe(false)
+    timeline.push({
+      phase: "receipt-pending",
+      commit: detailCommitSettled ? "settled" : "called",
+      row: db.collections.servers.get("s1")?.detailComplete,
+      publication: completed ? "settled" : "pending",
+    })
+
+    const currentSnapshot = db.queryClient.getQueryData<ServersResponse>(
+      serversCollectionQueryKey(),
+    )!
+    db.queryClient.setQueryData<ServersResponse>(serversCollectionQueryKey(), {
+      ...currentSnapshot,
+      servers: currentSnapshot.servers.map((server) => ({
+        ...server,
+        detailComplete: false,
+      })),
+    })
+    await vi.waitFor(() => {
+      expect(db.collections.servers.get("s1")?.detailComplete).toBe(true)
+    })
+    timeline.push({
+      phase: "stale-result-applied",
+      commit: detailCommitSettled ? "settled" : "called",
+      row: db.collections.servers.get("s1")?.detailComplete,
+      publication: completed ? "settled" : "pending",
+    })
+
     delayedCommit.resolve()
     await expect(publication).resolves.toEqual({ status: "published", generation: 1 })
+    timeline.push({
+      phase: "receipt-settled",
+      commit: detailCommitSettled ? "settled" : "called",
+      row: db.collections.servers.get("s1")?.detailComplete,
+      publication: completed ? "settled" : "pending",
+    })
+    expect(timeline).toEqual([
+      { phase: "baseline", commit: "idle", row: false, publication: "pending" },
+      { phase: "receipt-pending", commit: "called", row: true, publication: "pending" },
+      { phase: "stale-result-applied", commit: "called", row: true, publication: "pending" },
+      { phase: "receipt-settled", commit: "settled", row: true, publication: "settled" },
+    ])
     expect(db.collections.servers.get("s1")?.detailComplete).toBe(true)
     expect(db.collections.categories.get("cat1")?.serverId).toBe("s1")
     expect(db.collections.channels.get("c1")?.serverId).toBe("s1")

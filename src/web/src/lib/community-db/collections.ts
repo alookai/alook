@@ -32,7 +32,11 @@ import {
   type MessageRow,
   type ServerRow,
 } from "./schema"
-import { createServersQueryFn, serversCollectionQueryKey } from "./server-collection"
+import {
+  createServersQueryFn,
+  selectServersForCollection,
+  serversCollectionQueryKey,
+} from "./server-collection"
 
 const INACTIVE_MESSAGE_SCOPE_LIMIT = 20
 const INACTIVE_MESSAGE_LIMIT = 50
@@ -91,8 +95,8 @@ export function createCommunityDbRegistry(
     id: serverCollectionId,
     queryClient,
     queryKey: serversCollectionQueryKey(),
-    queryFn: createServersQueryFn(queryClient, () => readServerRows()),
-    select: (response) => response.servers,
+    queryFn: createServersQueryFn(queryClient),
+    select: (response) => selectServersForCollection(response, readServerRows()),
     schema: serverSchema,
     getKey: (row) => row.id,
     enabled: options.serverTransport === true,

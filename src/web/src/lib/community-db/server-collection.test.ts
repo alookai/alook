@@ -175,6 +175,40 @@ describe("official server collection", () => {
     queryClient.clear()
   })
 
+  it("keeps wrapped unread sources intact when apply-time selection maps servers", async () => {
+    apiFetch.mockResolvedValue({ servers: [rawServer] })
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const registry = createCommunityDbRegistry(queryClient, "viewer", { serverTransport: true })
+    await registry.ensureCollectionReady("servers")
+    const initial = queryClient.getQueryData<ServersResponse>(serversCollectionQueryKey())!
+    const unreadSources = initial.unreadSources
+
+    registry.collections.servers.utils.writeUpdate({
+      id: "server-1",
+      detailComplete: true,
+    })
+    queryClient.setQueryData<ServersResponse>(serversCollectionQueryKey(), (current) => ({
+      ...current!,
+      servers: current!.servers.map((server) => ({
+        ...server,
+        detailComplete: false,
+      })),
+    }))
+    await vi.waitFor(() => {
+      expect(registry.collections.servers.get("server-1")?.detailComplete).toBe(true)
+    })
+
+    registry.collections.servers.utils.writeUpdate({ id: "server-1", name: "Updated" })
+    const updated = queryClient.getQueryData<ServersResponse>(serversCollectionQueryKey())!
+    expect(updated.servers).toEqual([
+      expect.objectContaining({ id: "server-1", name: "Updated", detailComplete: true }),
+    ])
+    expect(updated.unreadSources).toBe(unreadSources)
+
+    registry.cleanup()
+    queryClient.clear()
+  })
+
   it("clears official server rows without routing through local mutation utilities", async () => {
     apiFetch.mockResolvedValue({ servers: [rawServer] })
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
