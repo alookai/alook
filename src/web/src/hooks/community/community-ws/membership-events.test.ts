@@ -487,7 +487,7 @@ describe("useCommunityWs — channel.member_add/remove → invalidate rosters", 
   it("removes a private channel from the viewer's server tree on access loss", async () => {
     await mountHook({ viewerUserId: "u_me" })
     const serverKey = communityKeys.server("srv_1")
-    seedCanonicalThread("srv_1", "ch_1", "text", "private-child")
+    await seedCanonicalThread("srv_1", "ch_1", "text", "private-child")
     capturedQueryClient.setQueryData(serverKey, {
       id: "srv_1",
       categories: [{ id: "cat_1", channels: [{ id: "ch_1", type: "text" }] }],
@@ -506,7 +506,7 @@ describe("useCommunityWs — channel.member_add/remove → invalidate rosters", 
     await mountHook({ viewerUserId: "u_me" })
     const { useCommunityStore } = await import("@/stores/community")
     const key = communityKeys.forumSidebarThreads("srv_1")
-    seedCanonicalForumSidebar("srv_1", ["post_1", "post_2"])
+    await seedCanonicalForumSidebar("srv_1", ["post_1", "post_2"])
     patchCanonicalCommunityChannel(capturedQueryClient, "post_1", (row) => ({
       ...row,
       unread: true,
@@ -550,7 +550,7 @@ describe("useCommunityWs — channel.member_add/remove → invalidate rosters", 
     const retainedKey = communityKeys.forumSidebarRetained("srv_1", "forum_post")
     const metaKey = communityKeys.channelMeta("srv_1", "text_thread")
     const hintKey = communityKeys.forumOpenerHint("srv_1", "forum_opener")
-    seedCanonicalThread("srv_1", "text_parent", "text", "text_thread")
+    await seedCanonicalThread("srv_1", "text_parent", "text", "text_thread")
     capturedQueryClient.setQueryData(communityKeys.server("srv_1"), {
       id: "srv_1",
       categories: [{

@@ -104,7 +104,7 @@ export function useChildChannelMeta(
     queryFn: async ({ signal }) => {
       const token = captureCommunityLiveSnapshotToken(queryClient)
       const meta = await fetchChannelMetadata(serverId, channelId, signal)
-      publishCommunityChannelMetadata(queryClient, {
+      await publishCommunityChannelMetadata(queryClient, {
         metadata: meta,
         proof: { token, signal },
       })

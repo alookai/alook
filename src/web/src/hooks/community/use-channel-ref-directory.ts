@@ -60,7 +60,7 @@ export function useChannelRefDirectory(enabled = true): {
     queryFn: async () => {
       const token = captureCommunityLiveSnapshotToken(queryClient)
       const directory = await channelRefDirectoryQueryFn()
-      publishCommunityChannelDirectory(queryClient, {
+      await publishCommunityChannelDirectory(queryClient, {
         directory,
         proof: { token, signal: undefined },
       })

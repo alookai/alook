@@ -9,6 +9,28 @@ import { useCommunityWsStore } from "@/stores/community/ws"
 
 const mocks = vi.hoisted(() => ({ apiFetch: vi.fn(), replace: vi.fn(), toast: vi.fn() }))
 vi.mock("@/lib/api/client", () => ({ apiFetch: mocks.apiFetch, toastApiError: mocks.toast }))
+vi.mock("@/lib/community-db/sync", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/community-db/sync")>()
+  return {
+    ...actual,
+    publishCommunityLiveSnapshot: vi.fn(async (queryClient, publication) => {
+      actual.assertCommunityLiveSnapshotTokenCurrent(
+        queryClient,
+        publication.proof.token,
+        publication.proof.signal,
+      )
+      return { status: "published", generation: 1 }
+    }),
+    publishCommunityChannelMetadata: vi.fn(async (queryClient, publication) => {
+      actual.assertCommunityLiveSnapshotTokenCurrent(
+        queryClient,
+        publication.proof.token,
+        publication.proof.signal,
+      )
+      return { status: "published", generation: 1 }
+    }),
+  }
+})
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: mocks.replace }) }))
 vi.mock("./use-servers", () => ({
   useServer: () => ({ server: {

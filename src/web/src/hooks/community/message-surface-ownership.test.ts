@@ -108,7 +108,7 @@ describe("embedded message surface ownership", () => {
     })
 
     expect(getCanonicalCommunityMessages(queryClient)).toEqual([])
-    publishCommunityEmbeddedMessages(queryClient, {
+    await publishCommunityEmbeddedMessages(queryClient, {
       entries: [{ channelId: "c1", message: transport }],
       proof: {
         token: captureCommunityLiveSnapshotToken(queryClient),
@@ -162,13 +162,13 @@ describe("embedded message surface ownership", () => {
       createdAt: "2026-09-26T00:00:00.000Z",
     } as Msg
 
-    expect(publishCommunityEmbeddedMessages(queryClient, {
+    await expect(publishCommunityEmbeddedMessages(queryClient, {
       entries: [{ channelId: "c1", message: transport }],
       proof: {
         token: captureCommunityLiveSnapshotToken(queryClient),
         signal: undefined,
       },
-    })).toBe("published")
+    })).resolves.toEqual({ status: "published", generation: 1 })
     expect(getCanonicalCommunityMessages(queryClient)).toEqual([
       expect.objectContaining({ id: transport.id, type: "chat" }),
     ])
@@ -194,7 +194,7 @@ describe("embedded message surface ownership", () => {
     }
     ingestMessages(registry, "c1", [rich])
 
-    publishCommunityEmbeddedMessages(queryClient, {
+    await publishCommunityEmbeddedMessages(queryClient, {
       entries: [{
         channelId: "c1",
         message: { id: "m1", type: "chat", seq: 1, content: "updated opener" },

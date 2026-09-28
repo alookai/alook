@@ -47,6 +47,10 @@ describe("useNotificationSettings / notificationSettingsQueryFn", () => {
     apiFetchMock.mockResolvedValueOnce([])
     const { notificationSettingsQueryFn } = await import("./use-notification-settings")
     const queryClient = new QueryClient()
+    const registry = createCommunityDbRegistry(queryClient, "viewer_1")
+    const disposeRegistry = registry.cleanup.bind(registry)
+    await registry.preload()
+    const unregister = registerCommunityDbRegistry(registry)
     const key = communityKeys.notificationSettings()
     await queryClient.fetchQuery({ queryKey: key, queryFn: notificationSettingsQueryFn })
     expect(apiFetchMock).toHaveBeenCalledWith(
@@ -54,6 +58,8 @@ describe("useNotificationSettings / notificationSettingsQueryFn", () => {
       { signal: expect.any(AbortSignal) },
     )
     expect(queryClient.getQueryData(key)).toBeDefined()
+    unregister()
+    await disposeRegistry()
   })
 
   it("projects fetched settings into the active account unread owner", async () => {
@@ -66,12 +72,16 @@ describe("useNotificationSettings / notificationSettingsQueryFn", () => {
       getAccountUnreadProjection,
     } = await import("./account-unread-projection")
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const registry = createCommunityDbRegistry(queryClient, "viewer_1")
+    const disposeRegistry = registry.cleanup.bind(registry)
+    await registry.preload()
+    const unregister = registerCommunityDbRegistry(registry)
     const projection = getAccountUnreadProjection(queryClient, "viewer_1")
     projection.recordArrival({ channelId: "channel_1", serverId: "srv_1", seq: 1 })
     const wrapper = ({ children }: PropsWithChildren) => createElement(
       QueryClientProvider,
       { client: queryClient },
-      children,
+      createElement(CommunityDbProvider, { registry }, children),
     )
     const rendered = renderHook(() => useNotificationSettings(), { wrapper })
 
@@ -80,6 +90,8 @@ describe("useNotificationSettings / notificationSettingsQueryFn", () => {
     expect(projection.projectUnread("servers", "channel_1", false)).toBe(false)
 
     rendered.unmount()
+    unregister()
+    await disposeRegistry()
     disposeAccountUnreadProjection(queryClient)
   })
 
@@ -95,7 +107,7 @@ describe("useNotificationSettings / notificationSettingsQueryFn", () => {
     const disposeRegistry = registry.cleanup.bind(registry)
     await registry.preload()
     const unregister = registerCommunityDbRegistry(registry)
-    publishCommunityLiveSnapshot(queryClient, {
+    await publishCommunityLiveSnapshot(queryClient, {
       snapshot: {
         kind: "notification-settings",
         data: {

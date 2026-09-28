@@ -44,9 +44,18 @@ describe("useThreads / threadsQueryFn", () => {
       .mockResolvedValueOnce({ participants: [] })
     const { threadsQueryFn } = await import("./use-channel-panels")
     const qc = new QueryClient()
+    const registry = createCommunityDbRegistry(qc, "viewer")
+    const disposeRegistry = registry.cleanup.bind(registry)
+    await registry.preload()
+    const unregister = registerCommunityDbRegistry(registry)
     const key = communityKeys.threads("ch_1")
-    await qc.fetchQuery({ queryKey: key, queryFn: threadsQueryFn("ch_1", qc) })
-    expect(qc.getQueryData<{ threads: unknown[] }>(key)?.threads).toHaveLength(1)
+    try {
+      await qc.fetchQuery({ queryKey: key, queryFn: threadsQueryFn("ch_1", qc) })
+      expect(qc.getQueryData<{ threads: unknown[] }>(key)?.threads).toHaveLength(1)
+    } finally {
+      unregister()
+      await disposeRegistry()
+    }
   })
 
   it("publishes a batch opener with stable date and thread geometry", async () => {
@@ -140,9 +149,18 @@ describe("usePins / pinsQueryFn", () => {
     apiFetchMock.mockResolvedValueOnce({ pins: [{ id: "m_1", type: "chat", authorId: "u1", authorName: "A", content: "pin", createdAt: "now" }] })
     const { pinsQueryFn } = await import("./use-channel-panels")
     const qc = new QueryClient()
+    const registry = createCommunityDbRegistry(qc, "viewer")
+    const disposeRegistry = registry.cleanup.bind(registry)
+    await registry.preload()
+    const unregister = registerCommunityDbRegistry(registry)
     const key = communityKeys.pins("ch_1")
-    await qc.fetchQuery({ queryKey: key, queryFn: pinsQueryFn("ch_1", qc) })
-    expect(qc.getQueryData<{ pins: unknown[] }>(key)?.pins).toHaveLength(1)
+    try {
+      await qc.fetchQuery({ queryKey: key, queryFn: pinsQueryFn("ch_1", qc) })
+      expect(qc.getQueryData<{ pins: unknown[] }>(key)?.pins).toHaveLength(1)
+    } finally {
+      unregister()
+      await disposeRegistry()
+    }
   })
 })
 

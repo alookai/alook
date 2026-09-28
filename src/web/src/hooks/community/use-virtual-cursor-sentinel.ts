@@ -11,6 +11,7 @@ export function useVirtualCursorSentinel({
   hasMore,
   isFetching,
   isSettling,
+  requireUserIntent,
   onBeforeLoad,
   onLoad,
   edge,
@@ -19,23 +20,40 @@ export function useVirtualCursorSentinel({
   hasMore?: boolean
   isFetching?: boolean
   isSettling?: boolean
+  requireUserIntent?: boolean
   onBeforeLoad?: () => void
   onLoad?: () => void
   edge: "start" | "end"
 }) {
   const sentinelRef = useRef<HTMLDivElement>(null)
-  const stateRef = useRef({ onBeforeLoad, onLoad, hasMore, isFetching, isSettling })
+  const stateRef = useRef({
+    onBeforeLoad,
+    onLoad,
+    hasMore,
+    isFetching,
+    isSettling,
+    requireUserIntent,
+  })
   const intersectingRef = useRef(false)
   const intersectionDemandedRef = useRef(false)
   const loadLockedRef = useRef(false)
   const fetchObservedRef = useRef(false)
+  const userDemandedRef = useRef(false)
 
   useEffect(() => {
-    stateRef.current = { onBeforeLoad, onLoad, hasMore, isFetching, isSettling }
+    stateRef.current = {
+      onBeforeLoad,
+      onLoad,
+      hasMore,
+      isFetching,
+      isSettling,
+      requireUserIntent,
+    }
     if (!hasMore) {
       loadLockedRef.current = false
       fetchObservedRef.current = false
       intersectionDemandedRef.current = false
+      userDemandedRef.current = false
       return
     }
     if (isFetching) fetchObservedRef.current = true
@@ -87,6 +105,7 @@ export function useVirtualCursorSentinel({
       ) return
       loadLockedRef.current = true
       fetchObservedRef.current = false
+      userDemandedRef.current = false
       consumeActiveGestures()
       state.onBeforeLoad?.()
       state.onLoad()
@@ -100,7 +119,9 @@ export function useVirtualCursorSentinel({
         }
         if (!intersectionDemandedRef.current) {
           intersectionDemandedRef.current = true
-          requestPage(false)
+          if (!stateRef.current.requireUserIntent || userDemandedRef.current) {
+            requestPage(false)
+          }
         }
         break
       }
@@ -116,6 +137,7 @@ export function useVirtualCursorSentinel({
         || (edge === "end" && event.deltaY > 0)
       if (towardEdge && !wheelDemanded) {
         wheelDemanded = true
+        userDemandedRef.current = true
         requestPage(true)
       }
     }
@@ -132,6 +154,7 @@ export function useVirtualCursorSentinel({
       const towardEdge = (edge === "start" && towardStart) || (edge === "end" && towardEnd)
       if (!towardEdge || event.repeat || heldKeys.has(event.key)) return
       heldKeys.add(event.key)
+      userDemandedRef.current = true
       requestPage(true)
     }
     const onKeyUp = (event: KeyboardEvent) => { heldKeys.delete(event.key) }
@@ -147,6 +170,7 @@ export function useVirtualCursorSentinel({
       const towardEdge = (edge === "start" && delta > 0) || (edge === "end" && delta < 0)
       if (towardEdge && !touchDemanded) {
         touchDemanded = true
+        userDemandedRef.current = true
         requestPage(true)
       }
     }

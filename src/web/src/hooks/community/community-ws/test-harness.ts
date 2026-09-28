@@ -251,7 +251,7 @@ export function forumSidebarFixture(ids = ["post_1"]) {
   }
 }
 
-export function seedCanonicalForumSidebar(serverId: string, ids = ["post_1"]) {
+export async function seedCanonicalForumSidebar(serverId: string, ids = ["post_1"]) {
   if (!canonicalRegistry) throw new Error("canonical test registry is not active")
   ingestServers(canonicalRegistry, { servers: [{
     id: serverId,
@@ -281,7 +281,7 @@ export function seedCanonicalForumSidebar(serverId: string, ids = ["post_1"]) {
       }],
     }],
   })
-  publishCommunityForumSidebar(capturedQueryClient, {
+  await publishCommunityForumSidebar(capturedQueryClient, {
     serverId,
     channels: forumSidebarFixture(ids).channels.map((channel) => ({
       ...channel,
@@ -307,7 +307,7 @@ export function canonicalForumSidebar(serverId: string) {
   return getForumSidebarBase(capturedQueryClient, serverId)
 }
 
-export function seedCanonicalThread(
+export async function seedCanonicalThread(
   serverId: string,
   parentId: string,
   parentType: "text" | "forum",
@@ -326,7 +326,7 @@ export function seedCanonicalThread(
       }],
     }],
   })
-  publishCommunityChannelMetadata(capturedQueryClient, {
+  await publishCommunityChannelMetadata(capturedQueryClient, {
     metadata: {
       id: childId,
       serverId,

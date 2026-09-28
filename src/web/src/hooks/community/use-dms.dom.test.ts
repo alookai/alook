@@ -75,10 +75,16 @@ describe("useDms / dmsQueryFn", () => {
     projection.setNotificationPolicy({})
     projection.recordArrival({ channelId: "dm_1", seq: 3 })
     const queryClient = new QueryClient()
+    const registry = createCommunityDbRegistry(queryClient, "viewer")
+    const disposeRegistry = registry.cleanup.bind(registry)
+    await registry.preload()
+    const unregister = registerCommunityDbRegistry(registry)
 
     await dmsProjectedQueryFn(projection, queryClient)()
 
     expect(projection.projectUnread("dms", "dm_1", false)).toBe(false)
+    unregister()
+    await disposeRegistry()
   })
 
   it.each(["cancel", "account", "access"] as const)(

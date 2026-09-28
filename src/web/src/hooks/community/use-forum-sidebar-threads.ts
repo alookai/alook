@@ -457,7 +457,7 @@ function recordInflightDelta(serverId: string, update: (delta: InflightDelta) =>
   if (record) update(record.delta)
 }
 
-function publishNormalizedForumSidebar(
+async function publishNormalizedForumSidebar(
   queryClient: QueryClient,
   serverId: string,
   normalized: NormalizedForumSidebarEnvelope,
@@ -476,7 +476,7 @@ function publishNormalizedForumSidebar(
   if (normalized.retainedDisposition === "eligible" && normalized.retained) {
     participatingIds.add(normalized.retained.id)
   }
-  publishCommunityForumSidebar(queryClient, {
+  await publishCommunityForumSidebar(queryClient, {
     serverId,
     channels: Object.values(normalized.channelMetas).flatMap((meta) => {
       const thread = byId.get(meta.id)
@@ -713,7 +713,7 @@ async function fetchForumSidebarBaseExact(
       normalized = await fetchForumSidebar(serverId, null, signal)
       if (signal.aborted) throw new DOMException("Aborted", "AbortError")
       proof = { token, signal }
-      publishNormalizedForumSidebar(
+      await publishNormalizedForumSidebar(
         queryClient,
         serverId,
         normalized,
@@ -765,7 +765,7 @@ export async function reconcileForumSidebarNotifyMemberships(
   )
 }
 
-function reconcileForumSidebarNotifyMembershipsFromBase(
+async function reconcileForumSidebarNotifyMembershipsFromBase(
   queryClient: QueryClient,
   serverId: string,
   base: ForumSidebarQueryData,
@@ -825,7 +825,7 @@ function reconcileForumSidebarNotifyMembershipsFromBase(
       unread: channel.unread,
     }
     if (siblings.length >= 5 && compareThreads(candidate, siblings[4]!) > 0) continue
-    publishCommunityForumSidebar(queryClient, {
+    await publishCommunityForumSidebar(queryClient, {
       serverId,
       channels: [],
       openers: [],
@@ -846,7 +846,7 @@ export async function grantForumSidebarChild(
   const confirmation = unreadProjection.beginAccessConfirmation()
   const token = captureCommunityLiveSnapshotToken(queryClient)
   const normalized = await fetchForumSidebar(serverId, childId)
-  publishNormalizedForumSidebar(queryClient, serverId, normalized, childId, undefined, token)
+  await publishNormalizedForumSidebar(queryClient, serverId, normalized, childId, undefined, token)
   if (
     hasForumSidebarThread(normalized.base, childId)
     || normalized.retainedDisposition === "eligible" && normalized.retained?.id === childId
@@ -924,7 +924,7 @@ export function useForumSidebarThreads(
       const normalized = await fetchForumSidebar(serverId, retainId, signal)
       if (signal.aborted) throw new DOMException("Aborted", "AbortError")
       if (registry) {
-        publishNormalizedForumSidebar(
+        await publishNormalizedForumSidebar(
           queryClient,
           serverId,
           normalized,
@@ -932,7 +932,7 @@ export function useForumSidebarThreads(
           signal,
           token,
         )
-        reconcileForumSidebarNotifyMembershipsFromBase(
+        await reconcileForumSidebarNotifyMembershipsFromBase(
           queryClient,
           serverId,
           normalized.base,

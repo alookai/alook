@@ -343,7 +343,7 @@ export async function reconcileFocusedMessageQueries(
         ? await fetchCatchUp(scopeId, window.cursor, window.tag)
         : null
       if (!isCurrent()) return
-      publishCommunityMessages(queryClient, {
+      await publishCommunityMessages(queryClient, {
         channelId: scopeId,
         messages: catchUp
           ? [...refreshed.messages, ...catchUp.messages]

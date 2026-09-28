@@ -13,6 +13,13 @@ vi.mock("@/lib/community-db/projections", () => ({
   useChannelRefDirectoryProjection: () => dbProjection.current,
   useOptionalCommunityDbRegistry: () => dbProjection.current === undefined ? null : {},
 }))
+vi.mock("@/lib/community-db/sync", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/community-db/sync")>()
+  return {
+    ...actual,
+    publishCommunityChannelDirectory: vi.fn(async () => ({ status: "published", generation: 1 })),
+  }
+})
 
 import { createQueryClient } from "@/lib/query-client"
 import { communityKeys } from "@/lib/query-keys"

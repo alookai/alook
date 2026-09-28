@@ -123,7 +123,7 @@ export const threadsQueryFn = (channelId: string, queryClient?: QueryClient) => 
     const threadByOpenerId = new Map(data.threads.flatMap((thread) => (
       thread.parentMessageId ? [[thread.parentMessageId, thread] as const] : []
     )))
-    publishCommunityEmbeddedMessages(queryClient, {
+    await publishCommunityEmbeddedMessages(queryClient, {
       entries: data.messages.map((message) => ({
         channelId: message.channelId,
         message: batchMessageToCanonical(message, threadByOpenerId.get(message.id)),
@@ -239,7 +239,7 @@ export const pinsQueryFn = (channelId: string, queryClient?: QueryClient) =>
       signal ? { signal } : undefined,
     )
     if (queryClient && publicationToken) {
-      publishCommunityEmbeddedMessages(queryClient, {
+      await publishCommunityEmbeddedMessages(queryClient, {
         entries: data.pins.map((message) => ({ channelId, message })),
         proof: { token: publicationToken, signal },
       })

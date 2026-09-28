@@ -128,7 +128,7 @@ export function handleChannelMemberEvent(
         queryFn: async ({ signal }) => {
           const liveToken = captureCommunityLiveSnapshotToken(queryClient)
           const metadata = await fetchChannelMetadata(event.serverId, event.channelId, signal)
-          publishCommunityChannelMetadata(queryClient, {
+          await publishCommunityChannelMetadata(queryClient, {
             metadata,
             proof: { token: liveToken, signal },
           })

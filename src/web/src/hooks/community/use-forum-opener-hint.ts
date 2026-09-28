@@ -36,7 +36,7 @@ export function useForumOpenerHint(
         `/api/community/messages/${messageId}`,
         { signal },
       )
-      publishCommunityMessages(queryClient, {
+      await publishCommunityMessages(queryClient, {
         channelId: message.channelId,
         messages: [message],
         proof: { token, signal },

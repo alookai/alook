@@ -334,21 +334,74 @@ export function createCommunityDbRegistry(
 export type CommunityDbRegistry = ReturnType<typeof createCommunityDbRegistry>
 
 const registryByQueryClient = new WeakMap<QueryClient, CommunityDbRegistry>()
+export type CommunityDbRegistryBinding = {
+  registry: CommunityDbRegistry
+  generation: number
+}
+
+type CommunityDbRegistryBindingState = {
+  generation: number
+  current: CommunityDbRegistryBinding | null
+  listeners: Set<() => void>
+}
+
+const registryBindingStates = new WeakMap<QueryClient, CommunityDbRegistryBindingState>()
 let activeRegistry: CommunityDbRegistry | null = null
 
+function registryBindingState(queryClient: QueryClient) {
+  let state = registryBindingStates.get(queryClient)
+  if (!state) {
+    state = { generation: 0, current: null, listeners: new Set() }
+    registryBindingStates.set(queryClient, state)
+  }
+  return state
+}
+
+function publishRegistryBinding(state: CommunityDbRegistryBindingState) {
+  for (const listener of state.listeners) listener()
+}
+
 export function registerCommunityDbRegistry(registry: CommunityDbRegistry) {
+  const state = registryBindingState(registry.queryClient)
+  const binding = { registry, generation: state.generation + 1 }
+  state.generation = binding.generation
+  state.current = binding
   registryByQueryClient.set(registry.queryClient, registry)
   activeRegistry = registry
+  publishRegistryBinding(state)
   return () => {
-    if (registryByQueryClient.get(registry.queryClient) === registry) {
+    const current = state.current === binding
+    if (current) {
+      state.current = null
       registryByQueryClient.delete(registry.queryClient)
+      publishRegistryBinding(state)
     }
-    if (activeRegistry === registry) activeRegistry = null
+    if (current && activeRegistry === registry) activeRegistry = null
   }
 }
 
 export function getCommunityDbRegistry(queryClient: QueryClient) {
   return registryByQueryClient.get(queryClient) ?? null
+}
+
+export function getCommunityDbRegistryBinding(queryClient: QueryClient) {
+  return registryBindingState(queryClient).current
+}
+
+export function isCommunityDbRegistryBindingCurrent(
+  queryClient: QueryClient,
+  binding: CommunityDbRegistryBinding,
+) {
+  return registryBindingState(queryClient).current === binding
+}
+
+export function subscribeCommunityDbRegistryBinding(
+  queryClient: QueryClient,
+  listener: () => void,
+) {
+  const state = registryBindingState(queryClient)
+  state.listeners.add(listener)
+  return () => state.listeners.delete(listener)
 }
 
 export function getActiveCommunityDbRegistry() {

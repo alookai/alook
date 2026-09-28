@@ -97,7 +97,7 @@ describe("useCommunityWs — message.create", () => {
 
   it("patches a loaded forum-sidebar child activity without a refetch", async () => {
     await mountHook()
-    seedCanonicalForumSidebar("srv_1")
+    await seedCanonicalForumSidebar("srv_1")
     const key = communityKeys.forumSidebarThreads("srv_1")
     const invalidateSpy = vi.spyOn(capturedQueryClient, "invalidateQueries")
     const event = {
@@ -136,7 +136,7 @@ describe("useCommunityWs — message.create", () => {
 
   it("warms an unknown forum child owner from live message evidence", async () => {
     await mountHook()
-    seedCanonicalForumSidebar("srv_1")
+    await seedCanonicalForumSidebar("srv_1")
     expect(hasCanonicalChannel("post_live")).toBe(false)
     getCommunityApiFetchMock().mockImplementation(async (url: string) => {
       if (url === "/api/community/channels/post_live") {
@@ -195,7 +195,7 @@ describe("useCommunityWs — message.create", () => {
         useCommunityStore.getState().subscribe({ channelId: "post_retained" })
       }
       await mountHook()
-      seedCanonicalForumSidebar("srv_1", ["post_retained"])
+      await seedCanonicalForumSidebar("srv_1", ["post_retained"])
       const key = communityKeys.forumSidebarThreads("srv_1")
 
       capturedOnMessage!({
@@ -1195,7 +1195,7 @@ describe("useCommunityWs — message edit refreshes forum opener summary", () =>
     capturedQueryClient.setQueryData(allKey, forumPage)
     capturedQueryClient.setQueryData(bugKey, forumPage)
     const sidebarKey = communityKeys.forumSidebarThreads("s1")
-    seedCanonicalForumSidebar("s1")
+    await seedCanonicalForumSidebar("s1")
     capturedQueryClient.setQueryData(communityKeys.threads("forum_1"), {
       parentType: "forum",
       serverId: "s1",

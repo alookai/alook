@@ -40,7 +40,7 @@ const accountAttentionQueryFn = (queryClient: QueryClient) =>
   async ({ signal }: { signal?: AbortSignal } = {}) => {
     const token = captureCommunityLiveSnapshotToken(queryClient)
     const snapshot = await fetchAccountAttention(signal)
-    publishAccountAttentionSnapshot(queryClient, {
+    await publishAccountAttentionSnapshot(queryClient, {
       snapshot,
       proof: { token, signal },
     })

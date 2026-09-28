@@ -13,6 +13,16 @@ import { getAccountUnreadProjection } from "@/hooks/community/account-unread-pro
 import { notificationSettingsQueryFn } from "@/hooks/community/use-notification-settings"
 import { disposeAccountReadStateReconciliation } from "./read-state-reconciliation"
 
+vi.mock("@/lib/community-db/sync", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/community-db/sync")>()
+  const published = async () => ({ status: "published" as const, generation: 1 })
+  return {
+    ...actual,
+    publishCommunityLiveSnapshot: vi.fn(published),
+    publishCommunityNotificationSettings: vi.fn(published),
+  }
+})
+
 function context(
   queryClient: QueryClient,
   scheduleInboxInvalidate = vi.fn(),

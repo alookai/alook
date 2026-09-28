@@ -8,6 +8,7 @@ type Props = {
   hasMore: boolean
   isFetching: boolean
   isSettling?: boolean
+  requireUserIntent?: boolean
   onBeforeLoad?: () => void
   onLoad: () => void
 }
@@ -75,6 +76,43 @@ describe.each(["start", "end"] as const)("useVirtualCursorSentinel (%s edge)", (
     renderView({ edge, hasMore: true, isFetching: false, onLoad })
 
     intersect(false)
+    expect(onLoad).not.toHaveBeenCalled()
+    intersect(true)
+    expect(onLoad).toHaveBeenCalledOnce()
+  })
+
+  it("holds metadata-only intersection until fresh input toward the active edge", () => {
+    const onLoad = vi.fn()
+    renderView({
+      edge,
+      hasMore: true,
+      isFetching: false,
+      requireUserIntent: true,
+      onLoad,
+    })
+    const scroll = document.querySelector<HTMLElement>('[data-testid="scroll"]')!
+
+    intersect(true)
+    fireEvent.scroll(scroll)
+    fireEvent.wheel(scroll, { deltaY: edge === "start" ? 20 : -20 })
+    expect(onLoad).not.toHaveBeenCalled()
+
+    fireEvent.wheel(scroll, { deltaY: edge === "start" ? -20 : 20 })
+    expect(onLoad).toHaveBeenCalledOnce()
+  })
+
+  it("retains fresh directional demand until the sentinel intersects", () => {
+    const onLoad = vi.fn()
+    renderView({
+      edge,
+      hasMore: true,
+      isFetching: false,
+      requireUserIntent: true,
+      onLoad,
+    })
+    const scroll = document.querySelector<HTMLElement>('[data-testid="scroll"]')!
+
+    fireEvent.wheel(scroll, { deltaY: edge === "start" ? -20 : 20 })
     expect(onLoad).not.toHaveBeenCalled()
     intersect(true)
     expect(onLoad).toHaveBeenCalledOnce()

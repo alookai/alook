@@ -83,7 +83,7 @@ export const notificationSettingsQueryFn = async (
   }
   const data = { raw: rows, server, channel }
   if (context.client && publicationToken) {
-    publishCommunityLiveSnapshot(context.client, {
+    await publishCommunityLiveSnapshot(context.client, {
       snapshot: { kind: "notification-settings", data },
       proof: { kind: "structural", token: publicationToken, signal: context.signal },
     })

@@ -64,7 +64,7 @@ describe("useForumOpenerHint", () => {
   })
 
   it("refetches a legacy seeded hint that lacks the opener seq", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { queryClient, wrapper } = await canonicalSetup()
     apiFetchMock.mockResolvedValue({
       id: "opener-1",
       content: "Seeded",
@@ -76,7 +76,7 @@ describe("useForumOpenerHint", () => {
       { id: "opener-1", content: "Seeded" },
     )
     renderHook(() => useForumOpenerHint("server-1", "opener-1", true), {
-      wrapper: wrapperFor(queryClient),
+      wrapper,
     })
 
     await waitFor(() => {
@@ -85,19 +85,19 @@ describe("useForumOpenerHint", () => {
         expect.objectContaining({ signal: expect.any(AbortSignal) }),
       )
     })
-    expect(queryClient.getQueryData(
+    await waitFor(() => expect(queryClient.getQueryData(
       communityKeys.message("opener-1"),
     )).toEqual({
       id: "opener-1",
       content: "Seeded",
       seq: 7,
       channelId: "forum-1",
-    })
+    }))
   })
 
   it("exposes a warm canonical opener without waiting for its background transport", async () => {
     const { queryClient, wrapper } = await canonicalSetup()
-    publishCommunityMessages(queryClient, {
+    await publishCommunityMessages(queryClient, {
       channelId: "forum-1",
       messages: [{
         id: "opener-1",

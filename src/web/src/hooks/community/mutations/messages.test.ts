@@ -213,7 +213,7 @@ async function seedCanonicalParent(type: "forum" | "text") {
 async function seedCanonicalSidebar() {
   await seedCanonicalParent("forum")
   const sync = await import("@/lib/community-db/sync")
-  sync.publishCommunityForumSidebar(capturedQc, {
+  await sync.publishCommunityForumSidebar(capturedQc, {
     serverId: "s1",
     channels: [{
       id: "post_1", name: "Post", parentChannelId: "forum_1",

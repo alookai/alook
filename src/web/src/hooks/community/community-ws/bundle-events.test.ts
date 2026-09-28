@@ -112,7 +112,7 @@ describe("useCommunityWs — operation bundles", () => {
   it("applies archive and null-tag sidebar semantics inside committed batches", async () => {
     await mountHook()
     const baseKey = communityKeys.forumSidebarThreads("s1")
-    seedCanonicalForumSidebar("s1", ["post_1", "post_2"])
+    await seedCanonicalForumSidebar("s1", ["post_1", "post_2"])
 
     capturedOnMessage!(await batchFor("forum-archive", [{
       type: "community:channel.child_update",

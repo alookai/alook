@@ -77,7 +77,7 @@ export const dmsProjectedQueryFn = (
     }
     projection.absorbSnapshot(token, dmUnreadSources(data))
     if (queryClient && publicationToken) {
-      publishCommunityLiveSnapshot(queryClient, {
+      await publishCommunityLiveSnapshot(queryClient, {
         snapshot: { kind: "dms", data },
         proof: { kind: "structural", token: publicationToken, signal: context.signal },
       })

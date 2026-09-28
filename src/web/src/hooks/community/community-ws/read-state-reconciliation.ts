@@ -92,7 +92,7 @@ function projectReadStateRows(queryClient: QueryClient, snapshot: AccountReadSta
   }
 }
 
-function applyAccountReadStateSnapshot(
+async function applyAccountReadStateSnapshot(
   queryClient: QueryClient,
   snapshot: AccountReadStateSnapshot,
   proof: {
@@ -103,7 +103,7 @@ function applyAccountReadStateSnapshot(
     targetRevision: number | null
   },
 ) {
-  const publication = publishCommunityLiveSnapshot(queryClient, {
+  const publication = await publishCommunityLiveSnapshot(queryClient, {
     snapshot: { kind: "read-state", data: snapshot },
     proof: { kind: "read-state", ...proof },
   })
@@ -394,7 +394,7 @@ async function runSnapshotWorker(
       const response = await startAccountReadStateRequest(queryClient, state)
       snapshot = response.snapshot
       assertReconciliationActive(queryClient, state, epoch)
-      const applied = applyAccountReadStateSnapshot(queryClient, snapshot, {
+      const applied = await applyAccountReadStateSnapshot(queryClient, snapshot, {
         token: response.token,
         signal: response.signal,
         requestGeneration,

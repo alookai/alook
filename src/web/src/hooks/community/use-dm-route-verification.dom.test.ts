@@ -19,6 +19,20 @@ const apiFetchMock = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/api/client", () => ({
   apiFetch: (...args: unknown[]) => apiFetchMock(...args),
 }))
+vi.mock("@/lib/community-db/sync", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/community-db/sync")>()
+  return {
+    ...actual,
+    publishCommunityLiveSnapshot: vi.fn(async (queryClient, publication) => {
+      actual.assertCommunityLiveSnapshotTokenCurrent(
+        queryClient,
+        publication.proof.token,
+        publication.proof.signal,
+      )
+      return { status: "published", generation: 1 }
+    }),
+  }
+})
 
 function client() {
   return new QueryClient({

@@ -160,6 +160,7 @@ export function useMessageListController({
     hasMore: initialPosition.contentInteractive ? hasMoreNewer : false,
     isFetching: isFetchingNewer,
     isSettling: isNewerPageAnchorSettling || !initialPosition.contentInteractive,
+    requireUserIntent: true,
     onBeforeLoad: captureNewerPageAnchor,
     onLoad: onLoadNewer,
     edge: "end",

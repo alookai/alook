@@ -1,8 +1,13 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { afterEach, describe, it, expect, vi, beforeEach } from "vitest"
 import { QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
 import { ApiError } from "@/lib/errors"
 import { useCommunityWsStore } from "@/stores/community/ws"
+import {
+  createCommunityDbRegistry,
+  registerCommunityDbRegistry,
+  type CommunityDbRegistry,
+} from "@/lib/community-db/collections"
 
 vi.mock("react", async (importOriginal) => {
   const actual = await importOriginal<typeof import("react")>()
@@ -41,6 +46,16 @@ let capturedQueryConfig: CapturedQueryConfig | null = null
 let capturedHookQueryClient: QueryClient
 let capturedHookQueryData: unknown
 let capturedHookQueryError: unknown
+let registeredDb: CommunityDbRegistry
+let unregisterDb: () => void
+const additionalDbs: Array<{ registry: CommunityDbRegistry; unregister: () => void }> = []
+
+async function registerTestDb(queryClient: QueryClient) {
+  const registry = createCommunityDbRegistry(queryClient, "u1")
+  await registry.preload()
+  const unregister = registerCommunityDbRegistry(registry)
+  additionalDbs.push({ registry, unregister })
+}
 vi.mock("@tanstack/react-query", async () => {
   const actual = await vi.importActual<typeof import("@tanstack/react-query")>("@tanstack/react-query")
   return {
@@ -53,7 +68,7 @@ vi.mock("@tanstack/react-query", async () => {
   }
 })
 
-beforeEach(() => {
+beforeEach(async () => {
   apiFetchMock.mockReset()
   capturedQueryConfig = null
   capturedHookQueryClient = new QueryClient()
@@ -65,6 +80,18 @@ beforeEach(() => {
   dbProjection.attentionScopes = []
   dbProjection.attentionItems = []
   useCommunityWsStore.getState().reset()
+  registeredDb = createCommunityDbRegistry(capturedHookQueryClient, "u1")
+  await registeredDb.preload()
+  unregisterDb = registerCommunityDbRegistry(registeredDb)
+})
+
+afterEach(async () => {
+  unregisterDb()
+  await registeredDb.cleanup()
+  await Promise.all(additionalDbs.splice(0).map(async ({ registry, unregister }) => {
+    unregister()
+    await registry.cleanup()
+  }))
 })
 
 describe("useServers / serversQueryFn", () => {
@@ -475,6 +502,7 @@ describe("useServer / serverQueryFn", () => {
     projection.setNotificationPolicy({})
     projection.recordArrival({ channelId: "before", serverId: "srv_1", seq: 1 })
     const { serverProjectedQueryFn } = await import("./use-servers")
+    await registerTestDb(qc)
 
     const request = serverProjectedQueryFn(qc, "srv_1")()
     projection.recordArrival({ channelId: "after", serverId: "srv_1", seq: 2 })
@@ -501,6 +529,7 @@ describe("useServer / serverQueryFn", () => {
     const { getAccountUnreadProjection } = await import("./account-unread-projection")
     const projection = getAccountUnreadProjection(qc, "u1")
     const { serverProjectedQueryFn } = await import("./use-servers")
+    await registerTestDb(qc)
 
     await expect(serverProjectedQueryFn(qc, "srv_1")()).rejects.toThrow("offline")
 
@@ -576,6 +605,7 @@ describe("useServer / serverQueryFn", () => {
     const { getAccountUnreadProjection } = await import("./account-unread-projection")
     const projection = getAccountUnreadProjection(qc, "u1")
     const { serverProjectedQueryFn } = await import("./use-servers")
+    await registerTestDb(qc)
 
     await expect(serverProjectedQueryFn(qc, "srv_1")()).resolves.toMatchObject({ id: "srv_1" })
 
@@ -621,6 +651,7 @@ describe("useServer / serverQueryFn", () => {
     projection.retireAccessScope({ kind: "channel", channelId: "forum_1" })
     projection.grantAccessScope({ kind: "channel", channelId: "forum_1" })
     const { serverProjectedQueryFn } = await import("./use-servers")
+    await registerTestDb(qc)
 
     await serverProjectedQueryFn(qc, "srv_1")()
 
@@ -808,7 +839,7 @@ describe("useServer / serverQueryFn", () => {
       throw new Error(`unexpected ${url}`)
     })
     const { serverQueryFn } = await import("./use-servers")
-    const data = await serverQueryFn(new QueryClient(), "srv_1")()
+    const data = await serverQueryFn(capturedHookQueryClient, "srv_1")()
     expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers", expect.any(Object))
     expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers/srv_1/categories")
     expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers/srv_1/channels")
@@ -836,7 +867,7 @@ describe("useServer / serverQueryFn", () => {
     })
     const controller = new AbortController()
     const { serverQueryFn } = await import("./use-servers")
-    await serverQueryFn(new QueryClient(), "srv_signal", controller.signal)()
+    await serverQueryFn(capturedHookQueryClient, "srv_signal", controller.signal)()
 
     for (const path of ["categories", "channels"]) {
       expect(apiFetchMock).toHaveBeenCalledWith(
@@ -876,6 +907,7 @@ describe("useServer / serverQueryFn", () => {
     })
     const { serverQueryFn } = await import("./use-servers")
     const qc = new QueryClient()
+    await registerTestDb(qc)
     const railReplacement = qc.fetchQuery({
       queryKey: communityKeys.servers(),
       queryFn: () => pendingRail,
@@ -939,7 +971,7 @@ describe("useServer / serverQueryFn", () => {
     })
 
     const { serverQueryFn } = await import("./use-servers")
-    const data = await serverQueryFn(new QueryClient(), "srv_1")()
+    const data = await serverQueryFn(capturedHookQueryClient, "srv_1")()
 
     expect(data.categories[0]?.channels[0]?.unread).toBe(false)
     expect(data.forumUnreadState).toBeUndefined()
@@ -956,6 +988,7 @@ describe("useServer / serverQueryFn", () => {
     })
     const { serverQueryFn } = await import("./use-servers")
     const qc = new QueryClient()
+    await registerTestDb(qc)
     const key = communityKeys.server("srv_1")
     await qc.fetchQuery({ queryKey: key, queryFn: serverQueryFn(qc, "srv_1") })
     expect(qc.getQueryData(key)).toBeDefined()
@@ -982,7 +1015,7 @@ describe("useServer / serverQueryFn", () => {
     })
 
     const { serverQueryFn } = await import("./use-servers")
-    await expect(serverQueryFn(new QueryClient(), "srv_1")()).resolves.toMatchObject({ id: "srv_1" })
+    await expect(serverQueryFn(capturedHookQueryClient, "srv_1")()).resolves.toMatchObject({ id: "srv_1" })
     expect(apiFetchMock.mock.calls.some(([url]) => String(url).endsWith("/unreads"))).toBe(false)
   })
 })

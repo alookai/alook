@@ -80,7 +80,7 @@ export const foldersProjectedQueryFn = (
 ) => async (context: QueryFunctionContext = {} as QueryFunctionContext) => {
   const token = captureCommunityLiveSnapshotToken(queryClient)
   const data = await foldersQueryFn(context)
-  publishCommunityLiveSnapshot(queryClient, {
+  await publishCommunityLiveSnapshot(queryClient, {
     snapshot: { kind: "folders", data },
     proof: { kind: "structural", token, signal: context.signal },
   })

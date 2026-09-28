@@ -101,7 +101,7 @@ afterEach(async () => {
 
 async function seedCanonicalSidebar(ids: string[], archivedId?: string) {
   const sync = await import("@/lib/community-db/sync")
-  sync.publishCommunityForumSidebar(capturedQc, {
+  await sync.publishCommunityForumSidebar(capturedQc, {
     serverId: "server_1",
     channels: ids.map((id) => ({
       id,

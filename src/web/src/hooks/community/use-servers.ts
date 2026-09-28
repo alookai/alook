@@ -134,7 +134,7 @@ export const serversProjectedQueryFn = (
     token: CommunityLiveSnapshotToken,
     data: ServersResponse,
     signal: AbortSignal | undefined,
-  ) => void,
+  ) => Promise<void>,
 ) => async (context?: QueryFunctionContext) => {
   const structuralToken = captureCommunityLiveSnapshotToken(queryClient)
   const token = projection.beginSnapshot("servers", "channels")
@@ -147,7 +147,7 @@ export const serversProjectedQueryFn = (
         serverId: server.id,
       })),
     })
-    onLiveSuccess?.(structuralToken, data, context?.signal)
+    await onLiveSuccess?.(structuralToken, data, context?.signal)
     return data
   } catch (error) {
     projection.cancelSnapshot(token)
@@ -186,8 +186,8 @@ export function useServers(): UseQueryResult<ServersResponse> & {
     unreadProjection.getSnapshot,
   )
   const queryFn = useMemo(
-    () => serversProjectedQueryFn(unreadProjection, queryClient, (token, data, signal) => {
-      publishCommunityLiveSnapshot(queryClient, {
+    () => serversProjectedQueryFn(unreadProjection, queryClient, async (token, data, signal) => {
+      await publishCommunityLiveSnapshot(queryClient, {
         snapshot: { kind: "servers", data },
         proof: { kind: "structural", token, signal },
       })
@@ -338,8 +338,8 @@ async function resolveServerIdentity(
   const fetched = await serversProjectedQueryFn(
     getActiveAccountUnreadProjection(queryClient),
     queryClient,
-    (_token, data) => {
-      publishCommunityLiveSnapshot(queryClient, {
+    async (_token, data) => {
+      await publishCommunityLiveSnapshot(queryClient, {
         snapshot: { kind: "servers", data },
         proof: { kind: "structural", token: _token, signal },
       })
@@ -412,7 +412,7 @@ export const serverProjectedQueryFn = (
       [],
       { confirmedAccessScopes },
     )
-    publishCommunityLiveSnapshot(queryClient, {
+    await publishCommunityLiveSnapshot(queryClient, {
       snapshot: { kind: "server-detail", data },
       proof: { kind: "structural", token: structuralToken, signal },
     })

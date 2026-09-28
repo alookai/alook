@@ -1,6 +1,12 @@
 import { QueryClient } from "@tanstack/react-query"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { createCommunityDbRegistry, type CommunityDbRegistry } from "./collections"
+import {
+  createCommunityDbRegistry,
+  getCommunityDbRegistryBinding,
+  registerCommunityDbRegistry,
+  subscribeCommunityDbRegistryBinding,
+  type CommunityDbRegistry,
+} from "./collections"
 import { writeCommunityCollectionRows } from "./collection-mutations"
 import type { AttentionItemRow, MessageRow } from "./schema"
 
@@ -12,6 +18,29 @@ afterEach(() => {
 })
 
 describe("community collection readiness", () => {
+  it("keeps the newest registry binding when an older registration releases", async () => {
+    const queryClient = new QueryClient()
+    const first = createCommunityDbRegistry(queryClient, "viewer")
+    const second = createCommunityDbRegistry(queryClient, "viewer")
+    const listener = vi.fn()
+    const unsubscribe = subscribeCommunityDbRegistryBinding(queryClient, listener)
+    const unregisterFirst = registerCommunityDbRegistry(first)
+    const firstBinding = getCommunityDbRegistryBinding(queryClient)
+    const unregisterSecond = registerCommunityDbRegistry(second)
+    const secondBinding = getCommunityDbRegistryBinding(queryClient)
+
+    expect(firstBinding).toMatchObject({ registry: first, generation: 1 })
+    expect(secondBinding).toMatchObject({ registry: second, generation: 2 })
+    unregisterFirst()
+    expect(getCommunityDbRegistryBinding(queryClient)).toBe(secondBinding)
+    unregisterSecond()
+    expect(getCommunityDbRegistryBinding(queryClient)).toBeNull()
+    expect(listener).toHaveBeenCalledTimes(3)
+
+    unsubscribe()
+    await Promise.all([first.cleanup(), second.cleanup()])
+  })
+
   it("owns one preload promise and publishes ready only after it resolves", async () => {
     registry = createCommunityDbRegistry(new QueryClient(), "viewer")
     const collection = registry.collections.messages

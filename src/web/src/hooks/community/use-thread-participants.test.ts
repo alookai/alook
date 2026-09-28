@@ -81,7 +81,7 @@ describe("useRemoveThreadParticipant", () => {
     const key = communityKeys.forumSidebarThreads("server_1")
     const metaKey = communityKeys.channelMeta("server_1", "post_1")
     queryClient.setQueryData(key, sidebarData())
-    publishCommunityForumSidebar(queryClient, {
+    await publishCommunityForumSidebar(queryClient, {
       serverId: "server_1",
       channels: [{
         id: "post_1", name: "Post", parentChannelId: "forum_1",

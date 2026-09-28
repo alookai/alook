@@ -29,6 +29,28 @@ vi.mock("@/lib/analytics", async () => {
     trackCommunityWsReconcileFailure: telemetry.failure,
   }
 })
+vi.mock("@/lib/community-db/sync", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/community-db/sync")>()
+  return {
+    ...actual,
+    publishCommunityLiveSnapshot: vi.fn(async (queryClient, publication) => {
+      actual.assertCommunityLiveSnapshotTokenCurrent(
+        queryClient,
+        publication.proof.token,
+        publication.proof.signal,
+      )
+      return { status: "published", generation: 1 }
+    }),
+    publishCommunityForumSidebar: vi.fn(async (queryClient, publication) => {
+      actual.assertCommunityLiveSnapshotTokenCurrent(
+        queryClient,
+        publication.proof.token,
+        publication.proof.signal,
+      )
+      return { status: "published", generation: 1 }
+    }),
+  }
+})
 
 beforeEach(resetCommunityWsHarness)
 afterEach(cleanupCommunityWsHarness)

@@ -48,7 +48,7 @@ async function verifyDmRoute(
   const token = captureCommunityLiveSnapshotToken(queryClient)
   try {
     const response = await dmRouteAuthorityQueryFn(signal)
-    publishCommunityLiveSnapshot(queryClient, {
+    await publishCommunityLiveSnapshot(queryClient, {
       snapshot: { kind: "dms", data: response },
       proof: { kind: "structural", token, signal },
     })

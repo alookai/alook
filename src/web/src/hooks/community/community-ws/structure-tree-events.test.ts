@@ -275,7 +275,7 @@ describe("useCommunityWs — channel.delete evicts channel-scoped caches", () =>
     capturedQueryClient.setQueryData(communityKeys.pins("ch_dead"), { pins: [{ id: "p" }] })
     capturedQueryClient.setQueryData(communityKeys.threads("ch_dead"), { threads: [{ id: "t" }] })
     const sidebarKey = communityKeys.forumSidebarThreads("srv_1")
-    seedCanonicalForumSidebar("srv_1", ["ch_dead"])
+    await seedCanonicalForumSidebar("srv_1", ["ch_dead"])
 
     const event: CommunityChannelDelete = {
       type: "community:channel.delete",
@@ -388,7 +388,7 @@ describe("useCommunityWs — channel.delete evicts channel-scoped caches", () =>
     }
     capturedQueryClient.setQueryData(communityKeys.forumFeed("forum_1", "bug"), forumFeed)
     capturedQueryClient.setQueryData(communityKeys.forumTags("forum_1"), { tags: ["bug"] })
-    seedCanonicalForumSidebar("srv_1", ["post_1", "post_keep"])
+    await seedCanonicalForumSidebar("srv_1", ["post_1", "post_keep"])
     capturedQueryClient.setQueryData(
       communityKeys.forumOpenerHint("srv_1", "opener-post_1"),
       { id: "opener-post_1", content: "Post" },
@@ -654,7 +654,7 @@ describe("useCommunityWs — child_create patches parent thread badge with count
     await mountHook()
     const { useCommunityStore } = await import("@/stores/community")
     const baseKey = communityKeys.forumSidebarThreads("s1")
-    seedCanonicalForumSidebar("s1", ["post_1", "post_2"])
+    await seedCanonicalForumSidebar("s1", ["post_1", "post_2"])
     useCommunityStore.getState().setCurrentChannelId("post_1")
     useCommunityStore.getState().setCurrentChannelMeta({
       name: "Post one",
@@ -687,7 +687,7 @@ describe("useCommunityWs — child_create patches parent thread badge with count
     await mountHook()
     const { useCommunityStore } = await import("@/stores/community")
     const baseKey = communityKeys.forumSidebarThreads("s1")
-    seedCanonicalForumSidebar("s1", ["post_1", "post_2"])
+    await seedCanonicalForumSidebar("s1", ["post_1", "post_2"])
     const before = canonicalForumSidebar("s1").threads
     useCommunityStore.getState().setCurrentChannelId("post_1")
     useCommunityStore.getState().setCurrentChannelMeta({
@@ -741,7 +741,7 @@ describe("useCommunityWs — child_create patches parent thread badge with count
     await mountHook()
     const { useCommunityStore } = await import("@/stores/community")
     const key = communityKeys.forumSidebarThreads("s1")
-    seedCanonicalForumSidebar("s1", ["ch_thread"])
+    await seedCanonicalForumSidebar("s1", ["ch_thread"])
     useCommunityStore.getState().setCurrentChannelId("ch_thread")
     useCommunityStore.getState().setCurrentChannelMeta({
       name: "Private title",
@@ -769,7 +769,7 @@ describe("useCommunityWs — child_create patches parent thread badge with count
 
   it("absorbs a failed unarchive ownership probe", async () => {
     await mountHook()
-    seedCanonicalForumSidebar("s1", [])
+    await seedCanonicalForumSidebar("s1", [])
     getCommunityApiFetchMock().mockRejectedValueOnce(new Error("offline"))
 
     capturedOnMessage!({

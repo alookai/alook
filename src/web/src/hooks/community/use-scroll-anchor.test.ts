@@ -204,6 +204,38 @@ describe("decideScrollAction — mount (rewritten — neither case is free with 
     expect(second.action.type).not.toBe("mount")
   })
 
+  it("re-anchors when committed transport metadata reveals the mounted window is mid-history", () => {
+    const canonicalCommit = decideScrollAction(baseInput({
+      hasMoreNewer: false,
+      newDividerBefore: "m2",
+    }))
+    expect(canonicalCommit.action).toEqual({ type: "mount", newDividerBefore: "m2" })
+
+    const transportSettlement = decideScrollAction(baseInput({
+      state: canonicalCommit.nextState,
+      hasMoreNewer: true,
+      newDividerBefore: "m2",
+      isAtEnd: true,
+    }))
+    expect(transportSettlement.action).toEqual({ type: "mount", newDividerBefore: "m2" })
+    expect(transportSettlement.nextState.lastHasMoreNewer).toBe(true)
+  })
+
+  it("does not re-anchor late mid-history metadata after upward user intent", () => {
+    const canonicalCommit = decideScrollAction(baseInput({
+      hasMoreNewer: false,
+      newDividerBefore: "m2",
+    }))
+    const transportSettlement = decideScrollAction(baseInput({
+      state: canonicalCommit.nextState,
+      hasMoreNewer: true,
+      newDividerBefore: "m2",
+      isAtEnd: true,
+      userScrolledAway: true,
+    }))
+    expect(transportSettlement.action).toEqual({ type: "none" })
+  })
+
   it("does not fire on an empty message list, and does not consume the gate", () => {
     const { action, nextState } = decideScrollAction(baseInput({ messages: [] }))
     expect(action).toEqual({ type: "none" })
@@ -239,6 +271,8 @@ describe("decideScrollAction — mount (rewritten — neither case is free with 
 function mountedState(overrides: Partial<ScrollAnchorState> = {}): ScrollAnchorState {
   return {
     didInitialScroll: true,
+    didDividerConverge: true,
+    lastHasMoreNewer: false,
     lastTailId: "m3",
     ...overrides,
   }

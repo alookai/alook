@@ -58,8 +58,8 @@ function warmLiveForumChildOwner(
   ) return
   const token = captureCommunityLiveSnapshotToken(queryClient)
   void fetchChannelMetadata(event.serverId, event.channelId)
-    .then((metadata) => {
-      publishCommunityChannelMetadata(queryClient, {
+    .then(async (metadata) => {
+      await publishCommunityChannelMetadata(queryClient, {
         metadata,
         proof: { token, signal: undefined },
       })

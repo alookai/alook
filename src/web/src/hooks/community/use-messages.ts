@@ -280,7 +280,7 @@ export const channelMessagesQueryFn =
     )
     const page = await fetchMessagesTransport(url, signal, options)
     if (options?.queryClient && publicationToken) {
-      publishCommunityMessages(options.queryClient, {
+      await publishCommunityMessages(options.queryClient, {
         channelId,
         messages: page.messages,
         proof: { token: publicationToken, signal },
@@ -307,7 +307,7 @@ export const dmMessagesQueryFn =
     )
     const page = await fetchMessagesTransport(url, signal, options)
     if (options?.queryClient && publicationToken) {
-      publishCommunityMessages(options.queryClient, {
+      await publishCommunityMessages(options.queryClient, {
         channelId: dmId,
         messages: page.messages,
         proof: { token: publicationToken, signal },

@@ -70,9 +70,9 @@ export function forumFeedPageQueryFn(
         })),
       ],
       signal ? { signal } : undefined,
-    ).then((page) => {
+    ).then(async (page) => {
       if (queryClient && publicationToken) {
-        publishCommunityEmbeddedMessages(queryClient, {
+        await publishCommunityEmbeddedMessages(queryClient, {
           entries: page.included.parentMessages.map((message) => ({
             channelId: message.channelId,
             message: {

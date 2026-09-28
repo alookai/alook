@@ -191,6 +191,7 @@ export interface ScrollAnchorState {
   // at mount) both complete together. `didDividerConverge` guards phase 2 so
   // it fires at most once and never re-yanks after the user starts scrolling.
   didDividerConverge: boolean
+  lastHasMoreNewer: boolean
   lastTailId: string | null
 }
 
@@ -198,6 +199,7 @@ export function createScrollAnchorState(): ScrollAnchorState {
   return {
     didInitialScroll: false,
     didDividerConverge: false,
+    lastHasMoreNewer: false,
     lastTailId: null,
   }
 }
@@ -261,6 +263,7 @@ export function decideScrollAction(input: DecideScrollActionInput): DecideScroll
   const baseNextState: ScrollAnchorState = {
     didInitialScroll: state.didInitialScroll,
     didDividerConverge: state.didDividerConverge,
+    lastHasMoreNewer: !!hasMoreNewer,
     lastTailId: nextTail,
   }
 
@@ -337,6 +340,24 @@ export function decideScrollAction(input: DecideScrollActionInput): DecideScroll
 
   // Self-send / peer-follow — only relevant when the tail actually moved.
   const tailChanged = state.lastTailId !== null && state.lastTailId !== nextTail
+  const midHistoryBoundaryArrived = state.didInitialScroll
+    && !state.lastHasMoreNewer
+    && !!hasMoreNewer
+    && !tailChanged
+
+  if (
+    midHistoryBoundaryArrived
+    && initialScrollReady
+    && heroMeasured
+    && newDividerBefore
+    && isAtEnd
+    && !userScrolledAway
+  ) {
+    return {
+      action: { type: "mount", newDividerBefore },
+      nextState: { ...baseNextState, didDividerConverge: true },
+    }
+  }
 
   // Phase 2 — converge onto the NEW divider, exactly once, after an early
   // bottom scroll. This is a MOUNT-SETTLING step, so it only applies while the
@@ -960,6 +981,7 @@ export function useScrollAnchor({
     stateRef.current = {
       didInitialScroll: true,
       didDividerConverge: true,
+      lastHasMoreNewer: false,
       lastTailId: tailId,
     }
     wasAtEndRef.current = true

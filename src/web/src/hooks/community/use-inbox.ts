@@ -292,7 +292,7 @@ const inboxMarkedQueryFn = (queryClient: QueryClient) =>
       signal ? { signal } : undefined,
     )
     if (publicationToken) {
-      publishCommunityEmbeddedMessages(queryClient, {
+      await publishCommunityEmbeddedMessages(queryClient, {
         entries: data.marked.map((marked) => ({
           channelId: marked.channelId,
           message: marked.m,

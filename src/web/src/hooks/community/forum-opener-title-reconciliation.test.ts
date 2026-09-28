@@ -38,8 +38,8 @@ afterEach(async () => {
   await registry.cleanup()
 })
 
-function seedCanonicalCaches() {
-  publishCommunityForumSidebar(queryClient, {
+async function seedCanonicalCaches() {
+  await publishCommunityForumSidebar(queryClient, {
     serverId: "server_1",
     channels: [{
       id: "post_1", name: "Post", parentChannelId: "forum_1",
@@ -128,7 +128,7 @@ function seedCanonicalCaches() {
 
 describe("reconcileForumOpenerTitle", () => {
   it("patches every exact forum title read model and repairs only exact network reads", async () => {
-    seedCanonicalCaches()
+    await seedCanonicalCaches()
     const feedKey = communityKeys.forumFeed("forum_1", null)
     const cancel = vi.spyOn(queryClient, "cancelQueries")
     const invalidate = vi.spyOn(queryClient, "invalidateQueries")
@@ -153,7 +153,7 @@ describe("reconcileForumOpenerTitle", () => {
   })
 
   it("is idempotent and leaves title caches unchanged for every mismatched identity", async () => {
-    seedCanonicalCaches()
+    await seedCanonicalCaches()
     const mismatches = [
       { ...identity, serverId: "wrong" },
       { ...identity, forumChannelId: "wrong" },

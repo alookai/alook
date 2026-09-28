@@ -98,6 +98,9 @@ async function holdNextPage(page: Page, channelId: string, param: "cursor" | "si
 }
 
 async function moveToEdge(page: Page, edge: "start" | "end"): Promise<void> {
+  await page.getByTestId(tid.messageScroller).dispatchEvent("wheel", {
+    deltaY: edge === "start" ? -100 : 100,
+  })
   await page.getByTestId(tid.messageScroller).evaluate((element, target) => {
     element.scrollTop = target === "start" ? 0 : element.scrollHeight
     element.dispatchEvent(new Event("scroll"))
@@ -152,15 +155,36 @@ test("older and newer pages preserve a real-message anchor and do not replay", a
   const newerUser = await asUser("alice")
   await newerUser.page.setViewportSize(VIEWPORT)
   const newerRequests: string[] = []
+  const newerRequestIntent: boolean[] = []
+  const newerReadRequests: Array<{ target: string | null; dividerObserved: boolean }> = []
+  let newerDownwardIntent = false
+  let newerDividerObserved = false
   newerUser.page.on("request", (request) => {
     const url = new URL(request.url())
     if (url.pathname.endsWith(`/channels/${channelId}/messages`) && url.searchParams.has("since")) {
       newerRequests.push(url.search)
+      newerRequestIntent.push(newerDownwardIntent)
     }
   })
+  const readPattern = `**/api/community/channels/${channelId}/read`
+  const readHandler = async (route: Route) => {
+    const request = route.request()
+    if (request.method() === "PUT") {
+      const body = request.postDataJSON() as { lastReadMessageId?: string } | null
+      newerReadRequests.push({
+        target: body?.lastReadMessageId ?? null,
+        dividerObserved: newerDividerObserved,
+      })
+    }
+    await route.continue()
+  }
+  await newerUser.page.route(readPattern, readHandler)
   await newerUser.page.goto(`/c/channels/${serverId}/${channelId}`, { waitUntil: "commit" })
   await expect(newerUser.page.getByTestId(tid.newDivider)).toBeVisible({ timeout: 30_000 })
+  newerDividerObserved = true
+  expect(newerRequests).toHaveLength(0)
   const newerPage = await holdNextPage(newerUser.page, channelId, "since")
+  newerDownwardIntent = true
   await moveToEdge(newerUser.page, "end")
   await newerPage.matched
   const newerBefore = await waitForStableGeometry(newerUser.page)
@@ -169,18 +193,28 @@ test("older and newer pages preserve a real-message anchor and do not replay", a
   const newerAfter = await waitForStableGeometry(newerUser.page)
   const newerRetainedOffset = await readMessageOffset(newerUser.page, newerBefore.firstVisibleId!)
   await newerPage.dispose()
+  await newerUser.page.unroute(readPattern, readHandler)
 
   await testInfo.attach("pagination-anchor-trajectory.json", {
     body: JSON.stringify({
       sourceSha: "b1ea24a7f73778717662b5d894f1e14b019c8c08",
       older: { before: olderBefore, after: olderAfter, retainedOffset: olderRetainedOffset, requests: olderRequests },
-      newer: { before: newerBefore, after: newerAfter, retainedOffset: newerRetainedOffset, requests: newerRequests },
+      newer: {
+        before: newerBefore,
+        after: newerAfter,
+        retainedOffset: newerRetainedOffset,
+        requests: newerRequests,
+        requestIntent: newerRequestIntent,
+        readRequests: newerReadRequests,
+      },
     }, null, 2),
     contentType: "application/json",
   })
 
   expect(olderRequests).toHaveLength(1)
   expect(newerRequests).toHaveLength(1)
+  expect(newerRequestIntent).toEqual([true])
+  expect(newerReadRequests.every((request) => request.dividerObserved)).toBe(true)
   expectAnchorPreserved(olderBefore, olderRetainedOffset, "older prepend")
   expectAnchorPreserved(newerBefore, newerRetainedOffset, "newer append")
 })

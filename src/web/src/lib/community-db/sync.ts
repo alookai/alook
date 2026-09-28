@@ -31,7 +31,11 @@ import { takeMessageIdsForAccessScope } from "./message-access-scope"
 import { clearLastChannel, getLastChannel } from "@/lib/community/last-channel"
 import { clearLastMeLocation, getLastMeLeaf } from "@/lib/community/last-me-location"
 import {
+  getCommunityDbRegistryBinding,
   getCommunityDbRegistry,
+  isCommunityDbRegistryBindingCurrent,
+  subscribeCommunityDbRegistryBinding,
+  type CommunityDbRegistryBinding,
   type CommunityDbRegistry,
 } from "./collections"
 import {
@@ -68,7 +72,10 @@ import {
   type ServerRow,
 } from "./schema"
 import type { z } from "zod"
-import { writeCommunityCollectionRows } from "./collection-mutations"
+import {
+  captureCommunityCollectionWrites,
+  writeCommunityCollectionRows,
+} from "./collection-mutations"
 
 type CollectionName = keyof CommunityDbRegistry["collections"]
 type SnapshotIngestMode = "authoritative" | "merge"
@@ -1842,6 +1849,109 @@ export function assertCommunityLiveSnapshotTokenCurrent(
   ) throw new DOMException("Stale community live snapshot", "AbortError")
 }
 
+export type CommunityPublicationReceipt = {
+  status: "published"
+  generation: number
+}
+
+function waitForCommunityDbRegistryBinding(
+  queryClient: QueryClient,
+  afterGeneration: number,
+  proof: CommunityFreshQueryProof,
+  accessEpoch: number,
+): Promise<CommunityDbRegistryBinding> {
+  assertCommunityPublicationReceiptCurrent(queryClient, proof, accessEpoch)
+  const current = getCommunityDbRegistryBinding(queryClient)
+  if (current && current.generation > afterGeneration) return Promise.resolve(current)
+  return new Promise((resolve, reject) => {
+    let unsubscribe = () => {}
+    const cleanup = () => {
+      unsubscribe()
+      proof.signal?.removeEventListener("abort", onAbort)
+    }
+    const onAbort = () => {
+      cleanup()
+      reject(new DOMException("Stale community live snapshot", "AbortError"))
+    }
+    const inspect = () => {
+      try {
+        assertCommunityPublicationReceiptCurrent(queryClient, proof, accessEpoch)
+        const binding = getCommunityDbRegistryBinding(queryClient)
+        if (!binding || binding.generation <= afterGeneration) return
+        cleanup()
+        resolve(binding)
+      } catch (error) {
+        cleanup()
+        reject(error)
+      }
+    }
+    unsubscribe = subscribeCommunityDbRegistryBinding(queryClient, inspect)
+    proof.signal?.addEventListener("abort", onAbort, { once: true })
+    inspect()
+  })
+}
+
+function assertCommunityPublicationReceiptCurrent(
+  queryClient: QueryClient,
+  proof: CommunityFreshQueryProof,
+  accessEpoch: number,
+) {
+  const state = useCommunityWsStore.getState()
+  if (
+    proof.signal?.aborted
+    || state.profileViewerId !== proof.token.viewerId
+    || state.profileAccountEpoch !== proof.token.accountEpoch
+    || state.accessEpoch !== accessEpoch
+    || queryClient !== proof.token.queryClient
+  ) throw new DOMException("Stale community live snapshot", "AbortError")
+}
+
+async function publishFreshCommunityQuery(
+  queryClient: QueryClient,
+  proof: CommunityFreshQueryProof,
+  publish: (registry: CommunityDbRegistry) => void,
+): Promise<CommunityPublicationReceipt> {
+  let afterGeneration = 0
+  let accessEpoch = proof.token.accessEpoch
+  while (true) {
+    const binding = await waitForCommunityDbRegistryBinding(
+      queryClient,
+      afterGeneration,
+      proof,
+      accessEpoch,
+    )
+    try {
+      assertCommunityPublicationReceiptCurrent(queryClient, proof, accessEpoch)
+      binding.registry.assertGenerationActive()
+      const publicationWrites = captureCommunityCollectionWrites(binding.registry, () => {
+        withCanonicalWriteContext(queryClient, {
+          kind: "query",
+          requestRevision: proof.token.canonicalRevision,
+        }, () => publish(binding.registry))
+      })
+      accessEpoch = useCommunityWsStore.getState().accessEpoch
+      await Promise.all(publicationWrites)
+      assertCommunityPublicationReceiptCurrent(queryClient, proof, accessEpoch)
+      binding.registry.assertGenerationActive()
+      if (!isCommunityDbRegistryBindingCurrent(queryClient, binding)) {
+        afterGeneration = binding.generation
+        continue
+      }
+      return { status: "published", generation: binding.generation }
+    } catch (error) {
+      assertCommunityPublicationReceiptCurrent(queryClient, proof, accessEpoch)
+      if (
+        binding.registry.isFailed()
+        || !isCommunityDbRegistryBindingCurrent(queryClient, binding)
+      ) {
+        afterGeneration = binding.generation
+        continue
+      }
+      throw error
+    }
+  }
+}
+
 /**
  * Publishes a newly settled live snapshot into the canonical DB.
  *
@@ -1849,7 +1959,7 @@ export function assertCommunityLiveSnapshotTokenCurrent(
  * rows. Hydrated or manually written transport caches are never DB inputs;
  * only the fresh queryFn that owns this proof may publish its response.
  */
-export function publishCommunityLiveSnapshot(
+export async function publishCommunityLiveSnapshot(
   queryClient: QueryClient,
   publication: CommunityLiveSnapshotPublication,
 ) {
@@ -1865,12 +1975,7 @@ export function publishCommunityLiveSnapshot(
       )
     ) return "superseded" as const
   }
-  const registry = getCommunityDbRegistry(queryClient)
-  if (!registry) return "no-registry" as const
-  return withCanonicalWriteContext(queryClient, {
-    kind: "query",
-    requestRevision: proof.token.canonicalRevision,
-  }, () => {
+  return publishFreshCommunityQuery(queryClient, proof, (registry) => {
     switch (snapshot.kind) {
       case "servers":
         ingestServers(registry, snapshot.data)
@@ -1891,7 +1996,6 @@ export function publishCommunityLiveSnapshot(
         ingestNotificationSettings(registry, snapshot.data)
         break
     }
-    return "published" as const
   })
 }
 
@@ -1902,19 +2006,8 @@ export function publishAccountAttentionSnapshot(
     proof: CommunityFreshQueryProof
   },
 ) {
-  assertCommunityLiveSnapshotTokenCurrent(
-    queryClient,
-    publication.proof.token,
-    publication.proof.signal,
-  )
-  const registry = getCommunityDbRegistry(queryClient)
-  if (!registry) return "no-registry" as const
-  return withCanonicalWriteContext(queryClient, {
-    kind: "query",
-    requestRevision: publication.proof.token.canonicalRevision,
-  }, () => {
+  return publishFreshCommunityQuery(queryClient, publication.proof, (registry) => {
     ingestAttentionSnapshot(registry, publication.snapshot)
-    return "published" as const
   })
 }
 
@@ -1927,19 +2020,8 @@ export function publishCommunityMessages(
     proof: CommunityFreshQueryProof
   },
 ) {
-  assertCommunityLiveSnapshotTokenCurrent(
-    queryClient,
-    publication.proof.token,
-    publication.proof.signal,
-  )
-  const registry = getCommunityDbRegistry(queryClient)
-  if (!registry) return "no-registry" as const
-  return withCanonicalWriteContext(queryClient, {
-    kind: "query",
-    requestRevision: publication.proof.token.canonicalRevision,
-  }, () => {
+  return publishFreshCommunityQuery(queryClient, publication.proof, (registry) => {
     ingestMessages(registry, publication.channelId, publication.messages)
-    return "published" as const
   })
 }
 
@@ -1951,21 +2033,8 @@ function publishCommunityEmbeddedMessagesWithCommit(
     proof: CommunityFreshQueryProof
   },
 ) {
-  assertCommunityLiveSnapshotTokenCurrent(
-    queryClient,
-    publication.proof.token,
-    publication.proof.signal,
-  )
-  const registry = getCommunityDbRegistry(queryClient)
-  if (!registry) {
-    return { status: "no-registry" as const, committed: Promise.resolve() }
-  }
-  const committed = withCanonicalWriteContext(queryClient, {
-    kind: "query",
-    requestRevision: publication.proof.token.canonicalRevision,
-  }, () => {
+  return publishFreshCommunityQuery(queryClient, publication.proof, (registry) => {
     const byChannel = new Map<string, Msg[]>()
-    const commits: Promise<void>[] = []
     for (const { channelId, message } of publication.entries) {
       byChannel.set(channelId, [...(byChannel.get(channelId) ?? []), message])
     }
@@ -1974,26 +2043,26 @@ function publishCommunityEmbeddedMessagesWithCommit(
         // Cross-surface payloads (thread openers, pins, attention previews)
         // are intentionally sparse. They patch the canonical entity but must
         // not erase richer fields already owned by the message endpoint.
-        commits.push(ingestMessages(registry, channelId, messages, "partial"))
+        ingestMessages(registry, channelId, messages, "partial")
       }
     })
-    return Promise.all(commits).then(() => undefined)
   })
-  return { status: "published" as const, committed }
 }
 
 export function publishCommunityEmbeddedMessages(
   queryClient: QueryClient,
   publication: Parameters<typeof publishCommunityEmbeddedMessagesWithCommit>[1],
 ) {
-  return publishCommunityEmbeddedMessagesWithCommit(queryClient, publication).status
+  return publishCommunityEmbeddedMessagesWithCommit(queryClient, publication)
 }
 
 export function publishCommunityEmbeddedMessagesWithReceipt(
   queryClient: QueryClient,
   publication: Parameters<typeof publishCommunityEmbeddedMessagesWithCommit>[1],
 ) {
-  return publishCommunityEmbeddedMessagesWithCommit(queryClient, publication)
+  return {
+    committed: publishCommunityEmbeddedMessagesWithCommit(queryClient, publication),
+  }
 }
 
 export type CommunityChannelMetadata = {
@@ -2016,17 +2085,7 @@ export function publishCommunityChannelMetadata(
     proof: CommunityFreshQueryProof
   },
 ) {
-  assertCommunityLiveSnapshotTokenCurrent(
-    queryClient,
-    publication.proof.token,
-    publication.proof.signal,
-  )
-  const registry = getCommunityDbRegistry(queryClient)
-  if (!registry) return "no-registry" as const
-  return withCanonicalWriteContext(queryClient, {
-    kind: "query",
-    requestRevision: publication.proof.token.canonicalRevision,
-  }, () => {
+  return publishFreshCommunityQuery(queryClient, publication.proof, (registry) => {
     ingestChannelMetadata(registry, publication.metadata)
     const viewerId = registry.accountId
     if (viewerId) {
@@ -2044,7 +2103,6 @@ export function publishCommunityChannelMetadata(
         }],
       )
     }
-    return "published" as const
   })
 }
 
@@ -2056,17 +2114,7 @@ export function publishCommunityChannelDirectory(
     proof: CommunityFreshQueryProof
   },
 ) {
-  assertCommunityLiveSnapshotTokenCurrent(
-    queryClient,
-    publication.proof.token,
-    publication.proof.signal,
-  )
-  const registry = getCommunityDbRegistry(queryClient)
-  if (!registry) return "no-registry" as const
-  return withCanonicalWriteContext(queryClient, {
-    kind: "query",
-    requestRevision: publication.proof.token.canonicalRevision,
-  }, () => {
+  return publishFreshCommunityQuery(queryClient, publication.proof, (registry) => {
     const existingServers = new Map(
     collectionRows(registry, "servers", serverSchema).map((row) => [row.id, row]),
   )
@@ -2146,7 +2194,6 @@ export function publishCommunityChannelDirectory(
       )
     }
   })
-    return "published" as const
   })
 }
 
@@ -2187,17 +2234,7 @@ export function publishCommunityForumSidebar(
     proof: CommunityFreshQueryProof
   },
 ) {
-  assertCommunityLiveSnapshotTokenCurrent(
-    queryClient,
-    publication.proof.token,
-    publication.proof.signal,
-  )
-  const registry = getCommunityDbRegistry(queryClient)
-  if (!registry) return "no-registry" as const
-  return withCanonicalWriteContext(queryClient, {
-    kind: "query",
-    requestRevision: publication.proof.token.canonicalRevision,
-  }, () => {
+  return publishFreshCommunityQuery(queryClient, publication.proof, (registry) => {
     const existingById = new Map(
     collectionRows(registry, "channels", channelSchema).map((row) => [row.id, row]),
   )
@@ -2287,7 +2324,6 @@ export function publishCommunityForumSidebar(
       }
     }
   })
-    return "published" as const
   })
 }
 

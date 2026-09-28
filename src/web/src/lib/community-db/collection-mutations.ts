@@ -4,6 +4,29 @@ import type { CommunityDbRegistry } from "./collections"
 type CollectionName = keyof CommunityDbRegistry["collections"]
 
 const pendingCollectionWrites = new WeakMap<object, Promise<void>>()
+const capturedCollectionWrites = new WeakMap<CommunityDbRegistry, Set<Promise<void>>[]>()
+
+function captureCollectionWrite(registry: CommunityDbRegistry, write: Promise<void>) {
+  for (const capture of capturedCollectionWrites.get(registry) ?? []) capture.add(write)
+  return write
+}
+
+export function captureCommunityCollectionWrites(
+  registry: CommunityDbRegistry,
+  publish: () => void,
+) {
+  const capture = new Set<Promise<void>>()
+  const captures = capturedCollectionWrites.get(registry) ?? []
+  captures.push(capture)
+  capturedCollectionWrites.set(registry, captures)
+  try {
+    publish()
+  } finally {
+    captures.pop()
+    if (captures.length === 0) capturedCollectionWrites.delete(registry)
+  }
+  return [...capture]
+}
 
 export function writeCommunityCollectionRows<T extends object>(
   registry: CommunityDbRegistry,
@@ -68,7 +91,7 @@ export function writeCommunityCollectionRows<T extends object>(
 
   const pending = pendingCollectionWrites.get(collection)
   if (!pending && registry.isCollectionReady(name) && !durable) {
-    const immediate = publish()
+    const immediate = captureCollectionWrite(registry, publish())
     void immediate.catch(() => {})
     return immediate
   }
@@ -79,7 +102,7 @@ export function writeCommunityCollectionRows<T extends object>(
   // queue and rows are non-optimistic: paint therefore means the transaction is
   // committed, so an immediate reload cannot outrun the durable write.
   const ready = pending ?? registry.ensureCollectionReady(name)
-  const next = ready.then(publish)
+  const next = captureCollectionWrite(registry, ready.then(publish))
   pendingCollectionWrites.set(collection, next)
   next.then(
     () => {

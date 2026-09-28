@@ -16,6 +16,13 @@ vi.mock("@/lib/community-db/projections", () => ({
   useRouteChannelProjection: () => projectedChannel.current,
   useOptionalCommunityDbRegistry: () => projectedChannel.current === undefined ? null : {},
 }))
+vi.mock("@/lib/community-db/sync", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/community-db/sync")>()
+  return {
+    ...actual,
+    publishCommunityChannelMetadata: vi.fn(async () => ({ status: "published", generation: 1 })),
+  }
+})
 
 import {
   pickRenderableChildMeta,

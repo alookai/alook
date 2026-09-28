@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import React from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { act, render as renderDom } from "@/test/react-dom-harness"
@@ -7,6 +7,7 @@ import { useDmMessages, useMessages, type MessagesPage } from "./use-messages"
 import { useMessageStreamStore } from "@/stores/community/message-stream"
 import {
   createCommunityDbRegistry,
+  getCommunityDbRegistryBinding,
   registerCommunityDbRegistry,
 } from "@/lib/community-db/collections"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
@@ -128,6 +129,19 @@ function createClient(): QueryClient {
   })
 }
 
+const helperRegistries = new Map<QueryClient, {
+  registry: ReturnType<typeof createCommunityDbRegistry>
+  unregister: () => void
+}>()
+
+function ensureHelperRegistry(queryClient: QueryClient): void {
+  if (getCommunityDbRegistryBinding(queryClient) || helperRegistries.has(queryClient)) return
+  const registry = createCommunityDbRegistry(queryClient, "viewer")
+  const unregister = registerCommunityDbRegistry(registry)
+  helperRegistries.set(queryClient, { registry, unregister })
+  void registry.preload()
+}
+
 function seedAnchor(
   queryClient: QueryClient,
   queryKey: readonly unknown[],
@@ -157,6 +171,7 @@ function render(
   queryClient: QueryClient,
   element: React.ReactElement,
 ): ReturnType<typeof renderDom> {
+  ensureHelperRegistry(queryClient)
   return renderDom(React.createElement(QueryClientProvider, { client: queryClient }, element))
 }
 
@@ -165,6 +180,7 @@ function update(
   queryClient: QueryClient,
   element: React.ReactElement,
 ): void {
+  ensureHelperRegistry(queryClient)
   act(() => {
     renderer.rerender(
       React.createElement(QueryClientProvider, { client: queryClient }, element),
@@ -191,6 +207,15 @@ function deferred<T>() {
 beforeEach(() => {
   apiFetchMock.mockReset()
   useMessageStreamStore.getState().resetAll()
+})
+
+afterEach(async () => {
+  for (const { registry, unregister } of helperRegistries.values()) {
+    const disposeRegistry = registry.cleanup.bind(registry)
+    unregister()
+    await disposeRegistry()
+  }
+  helperRegistries.clear()
 })
 
 describe("useMessages jumpToPresent", () => {

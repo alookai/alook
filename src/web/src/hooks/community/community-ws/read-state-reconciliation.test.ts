@@ -1,6 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { QueryClient, QueryObserver } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
+import {
+  createCommunityDbRegistry,
+  registerCommunityDbRegistry,
+  type CommunityDbRegistry,
+} from "@/lib/community-db/collections"
 
 const apiFetch = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/api/client", () => ({
@@ -16,11 +21,22 @@ import {
 
 describe("account read-state reconciliation", () => {
   let queryClient: QueryClient
+  let registry: CommunityDbRegistry
+  let unregister: () => void
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.useRealTimers()
     queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     apiFetch.mockReset()
+    registry = createCommunityDbRegistry(queryClient, "viewer")
+    await registry.preload()
+    unregister = registerCommunityDbRegistry(registry)
+  })
+
+  afterEach(async () => {
+    disposeAccountReadStateReconciliation(queryClient)
+    unregister()
+    await registry.cleanup()
   })
 
   it("treats every newer bounded hint as an authoritative-snapshot gap", () => {

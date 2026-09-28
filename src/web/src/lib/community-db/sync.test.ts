@@ -146,7 +146,7 @@ describe("community DB sync", () => {
       }],
     })
 
-    expect(publishCommunityChannelDirectory(db.queryClient, {
+    await expect(publishCommunityChannelDirectory(db.queryClient, {
       directory: [{
         id: "s1",
         name: "Server",
@@ -157,7 +157,7 @@ describe("community DB sync", () => {
         token: captureCommunityLiveSnapshotToken(db.queryClient),
         signal: undefined,
       },
-    })).toBe("published")
+    })).resolves.toEqual({ status: "published", generation: 1 })
     expect(db.collections.channels.get("forum1")).toMatchObject({
       name: "Forum renamed",
       type: "forum",
@@ -167,7 +167,7 @@ describe("community DB sync", () => {
   it("ingests an unknown legacy directory channel as text", async () => {
     const db = await registry()
 
-    expect(publishCommunityChannelDirectory(db.queryClient, {
+    await expect(publishCommunityChannelDirectory(db.queryClient, {
       directory: [{
         id: "s1",
         name: "Server",
@@ -178,7 +178,7 @@ describe("community DB sync", () => {
         token: captureCommunityLiveSnapshotToken(db.queryClient),
         signal: undefined,
       },
-    })).toBe("published")
+    })).resolves.toEqual({ status: "published", generation: 1 })
     expect(db.collections.channels.get("c1")).toMatchObject({
       name: "General",
       type: "text",
@@ -232,10 +232,10 @@ describe("community DB sync", () => {
         useCommunityWsStore.setState((state) => ({ accessEpoch: state.accessEpoch + 1 }))
       }
 
-      expect(() => publishCommunityLiveSnapshotWithProof(db.queryClient, {
+      await expect(publishCommunityLiveSnapshotWithProof(db.queryClient, {
         snapshot: { kind: "dms", data: { conversations: [] } },
         proof: { kind: "structural", token, signal: controller.signal },
-      })).toThrowError(expect.objectContaining({ name: "AbortError" }))
+      })).rejects.toMatchObject({ name: "AbortError" })
       expect(db.collections.channels.get("dm-current")).toBeDefined()
     },
   )
@@ -255,7 +255,7 @@ describe("community DB sync", () => {
     }
 
     expect(publishCommunityDmSummary(db.queryClient, dm)).toBe("published")
-    publishCommunityLiveSnapshotWithProof(db.queryClient, {
+    await publishCommunityLiveSnapshotWithProof(db.queryClient, {
       snapshot: { kind: "dms", data: { conversations: [] } },
       proof: { kind: "structural", token, signal: undefined },
     })
@@ -284,7 +284,7 @@ describe("community DB sync", () => {
       messageId: "m1",
       content: "new WS value",
     } as CommunityWsEvent)
-    publishCommunityMessages(db.queryClient, {
+    await publishCommunityMessages(db.queryClient, {
       channelId: "c1",
       messages: [staleMessage],
       proof: { token, signal: undefined },
@@ -310,7 +310,7 @@ describe("community DB sync", () => {
       ...message,
       reactions: [{ emoji: "👍", count: 2, me: true }],
     }))
-    publishCommunityMessages(db.queryClient, {
+    await publishCommunityMessages(db.queryClient, {
       channelId: "c1",
       messages: [staleMessage],
       proof: { token, signal: undefined },
@@ -331,7 +331,7 @@ describe("community DB sync", () => {
       messageId: "m1",
       content: "new WS value",
     } as CommunityWsEvent)
-    publishCommunityMessages(db.queryClient, {
+    await publishCommunityMessages(db.queryClient, {
       channelId: "c1",
       messages: [{
         id: "m1",
@@ -350,7 +350,7 @@ describe("community DB sync", () => {
       communityKeys.communityDbCollection("viewer", "messages"),
       [],
     )
-    publishCommunityMessages(db.queryClient, {
+    await publishCommunityMessages(db.queryClient, {
       channelId: "c1",
       messages: [{
         id: "m1",
@@ -388,7 +388,7 @@ describe("community DB sync", () => {
       communityKeys.communityDbCollection("viewer", "messages"),
       [],
     )
-    publishCommunityMessages(db.queryClient, {
+    await publishCommunityMessages(db.queryClient, {
       channelId: "c1",
       messages: [{
         id: "m1",
@@ -448,7 +448,7 @@ describe("community DB sync", () => {
       channelId: "c1",
       changes: { name: "fresh channel" },
     } as CommunityWsEvent)
-    publishCommunityLiveSnapshotWithProof(db.queryClient, {
+    await publishCommunityLiveSnapshotWithProof(db.queryClient, {
       snapshot: { kind: "server-detail", data: detail },
       proof: { kind: "structural", token, signal: undefined },
     })
@@ -470,7 +470,7 @@ describe("community DB sync", () => {
       serverId: "s1",
       changes: { name: "Fresh server" },
     } as CommunityWsEvent)
-    publishCommunityLiveSnapshotWithProof(db.queryClient, {
+    await publishCommunityLiveSnapshotWithProof(db.queryClient, {
       snapshot: {
         kind: "server-detail",
         data: {
@@ -609,7 +609,7 @@ describe("community DB sync", () => {
       channelId: "c1",
       changes: { name: "fresh channel" },
     } as CommunityWsEvent)
-    publishCommunityLiveSnapshotWithProof(db.queryClient, {
+    await publishCommunityLiveSnapshotWithProof(db.queryClient, {
       snapshot: { kind: "server-detail", data: detail },
       proof: { kind: "structural", token, signal: undefined },
     })
@@ -640,10 +640,10 @@ describe("community DB sync", () => {
       serverId: "s1",
       channelId: "c1",
     } as CommunityWsEvent)
-    expect(() => publishCommunityLiveSnapshotWithProof(db.queryClient, {
+    await expect(publishCommunityLiveSnapshotWithProof(db.queryClient, {
       snapshot: { kind: "server-detail", data: detail },
       proof: { kind: "structural", token, signal: undefined },
-    })).toThrowError(expect.objectContaining({ name: "AbortError" }))
+    })).rejects.toMatchObject({ name: "AbortError" })
     expect(db.collections.channels.get("c1")).toBeUndefined()
   })
 
@@ -665,17 +665,17 @@ describe("community DB sync", () => {
       serverId: "s1",
       channelId: "c1",
     } as CommunityWsEvent)
-    expect(publishCommunityLiveSnapshotWithProof(db.queryClient, {
+    await expect(publishCommunityLiveSnapshotWithProof(db.queryClient, {
       snapshot: { kind: "server-detail", data: detail },
       proof: { kind: "structural", token, signal: undefined },
-    })).toBe("published")
+    })).resolves.toEqual({ status: "published", generation: 1 })
 
     expect(db.collections.channels.get("c1")).toBeUndefined()
   })
 
   it("rejects a superseded read-state freshness proof before replacement", async () => {
     const db = await registry()
-    publishCommunityLiveSnapshot(db.queryClient, {
+    await publishCommunityLiveSnapshot(db.queryClient, {
       kind: "read-state",
       data: {
         revision: 1,
@@ -687,7 +687,7 @@ describe("community DB sync", () => {
     })
     const token = captureCommunityLiveSnapshotToken(db.queryClient)
 
-    expect(publishCommunityLiveSnapshotWithProof(db.queryClient, {
+    await expect(publishCommunityLiveSnapshotWithProof(db.queryClient, {
       snapshot: {
         kind: "read-state",
         data: {
@@ -708,7 +708,7 @@ describe("community DB sync", () => {
         currentRequestGeneration: 2,
         targetRevision: 2,
       },
-    })).toBe("superseded")
+    })).resolves.toBe("superseded")
     expect(db.collections.readStates.get("c2")).toBeDefined()
   })
 
@@ -873,26 +873,26 @@ describe("community DB sync", () => {
       }],
     })
 
-    publishCommunityLiveSnapshot(db.queryClient, {
+    await publishCommunityLiveSnapshot(db.queryClient, {
       kind: "servers",
       data: { servers: [server("merge-s1"), server("merge-s2")] },
     })
-    publishCommunityLiveSnapshot(db.queryClient, {
+    await publishCommunityLiveSnapshot(db.queryClient, {
       kind: "server-detail",
       data: detail(["merge-c1", "merge-c2"]),
     })
-    publishCommunityLiveSnapshot(db.queryClient, {
+    await publishCommunityLiveSnapshot(db.queryClient, {
       kind: "dms",
       data: { conversations: [dm("merge-dm1", "peer1"), dm("merge-dm2", "peer2")] },
     })
-    publishCommunityLiveSnapshot(db.queryClient, {
+    await publishCommunityLiveSnapshot(db.queryClient, {
       kind: "folders",
       data: { folders: [
         { id: "merge-f1", name: "One", position: 0, servers: [] },
         { id: "merge-f2", name: "Two", position: 1, servers: [] },
       ] },
     })
-    publishCommunityLiveSnapshot(db.queryClient, {
+    await publishCommunityLiveSnapshot(db.queryClient, {
       kind: "read-state",
       data: {
         revision: 1,
@@ -902,7 +902,7 @@ describe("community DB sync", () => {
         ],
       },
     })
-    publishCommunityLiveSnapshot(db.queryClient, {
+    await publishCommunityLiveSnapshot(db.queryClient, {
       kind: "notification-settings",
       data: {
         raw: [
@@ -994,19 +994,19 @@ describe("community DB sync", () => {
       }],
     })
 
-    publishCommunityLiveSnapshot(db.queryClient, {
+    await publishCommunityLiveSnapshot(db.queryClient, {
       kind: "servers",
       data: { servers: [server("live-s1"), server("live-s2")] },
     })
-    publishCommunityLiveSnapshot(db.queryClient, {
+    await publishCommunityLiveSnapshot(db.queryClient, {
       kind: "server-detail",
       data: detail(["live-c1", "live-c2"]),
     })
-    publishCommunityLiveSnapshot(db.queryClient, {
+    await publishCommunityLiveSnapshot(db.queryClient, {
       kind: "dms",
       data: { conversations: [dm("live-dm1", "peer1"), dm("live-dm2", "peer2")] },
     })
-    publishCommunityLiveSnapshot(db.queryClient, {
+    await publishCommunityLiveSnapshot(db.queryClient, {
       kind: "folders",
       data: { folders: [
         {
@@ -1023,7 +1023,7 @@ describe("community DB sync", () => {
         },
       ] },
     })
-    publishCommunityLiveSnapshot(db.queryClient, {
+    await publishCommunityLiveSnapshot(db.queryClient, {
       kind: "read-state",
       data: {
         revision: 1,
@@ -1033,7 +1033,7 @@ describe("community DB sync", () => {
         ],
       },
     })
-    publishCommunityLiveSnapshot(db.queryClient, {
+    await publishCommunityLiveSnapshot(db.queryClient, {
       kind: "notification-settings",
       data: {
         raw: [
@@ -1045,15 +1045,15 @@ describe("community DB sync", () => {
       },
     })
 
-    publishCommunityLiveSnapshot(db.queryClient, {
+    await publishCommunityLiveSnapshot(db.queryClient, {
       kind: "server-detail",
       data: detail(["live-c1"]),
     })
-    publishCommunityLiveSnapshot(db.queryClient, {
+    await publishCommunityLiveSnapshot(db.queryClient, {
       kind: "dms",
       data: { conversations: [dm("live-dm1", "peer1")] },
     })
-    publishCommunityLiveSnapshot(db.queryClient, {
+    await publishCommunityLiveSnapshot(db.queryClient, {
       kind: "folders",
       data: { folders: [{
         id: "live-f1",
@@ -1062,7 +1062,7 @@ describe("community DB sync", () => {
         servers: [{ id: "live-s1", name: "Live one", initial: "L", icon: null }],
       }] },
     })
-    publishCommunityLiveSnapshot(db.queryClient, {
+    await publishCommunityLiveSnapshot(db.queryClient, {
       kind: "read-state",
       data: {
         revision: 2,
@@ -1074,7 +1074,7 @@ describe("community DB sync", () => {
         }],
       },
     })
-    publishCommunityLiveSnapshot(db.queryClient, {
+    await publishCommunityLiveSnapshot(db.queryClient, {
       kind: "notification-settings",
       data: {
         raw: [{ serverId: "live-s1", level: "nothing" }],
@@ -1082,7 +1082,7 @@ describe("community DB sync", () => {
         channel: {},
       },
     })
-    publishCommunityLiveSnapshot(db.queryClient, {
+    await publishCommunityLiveSnapshot(db.queryClient, {
       kind: "servers",
       data: { servers: [server("live-s1")] },
     })
@@ -1275,10 +1275,10 @@ describe("community DB sync", () => {
     })
     const token = captureCommunityLiveSnapshotToken(db.queryClient)
 
-    expect(publishAccountAttentionSnapshot(db.queryClient, {
+    await expect(publishAccountAttentionSnapshot(db.queryClient, {
       snapshot: { scopes: [], items: [], limit: 100, truncated: false },
       proof: { token, signal: undefined },
-    })).toBe("published")
+    })).resolves.toEqual({ status: "published", generation: 1 })
     expect(db.collections.attentionScopes.get("c1")).toBeUndefined()
   })
 
@@ -1416,10 +1416,10 @@ describe("community DB sync", () => {
       (entry) => entry.sourceId !== "keep",
     )
     const token = captureCommunityLiveSnapshotToken(db.queryClient)
-    expect(publishAccountAttentionSnapshot(db.queryClient, {
+    await expect(publishAccountAttentionSnapshot(db.queryClient, {
       snapshot,
       proof: { token, signal: undefined },
-    })).toBe("published")
+    })).resolves.toEqual({ status: "published", generation: 1 })
 
     await vi.waitFor(() => {
       expect(db.collections.attentionScopes.get("multiple")).toMatchObject({
@@ -1452,7 +1452,7 @@ describe("community DB sync", () => {
 
     const before = clearAttentionOptimistically(db)
     const beforeToken = captureCommunityLiveSnapshotToken(db.queryClient)
-    publishAccountAttentionSnapshot(db.queryClient, {
+    await publishAccountAttentionSnapshot(db.queryClient, {
       snapshot: { scopes: [scope], items: [], limit: 100, truncated: false },
       proof: { token: beforeToken, signal: undefined },
     })
@@ -1462,7 +1462,7 @@ describe("community DB sync", () => {
     ingestAttentionSnapshot(db, { scopes: [scope], items: [], limit: 100, truncated: false })
     const duringToken = captureCommunityLiveSnapshotToken(db.queryClient)
     const during = clearAttentionOptimistically(db)
-    publishAccountAttentionSnapshot(db.queryClient, {
+    await publishAccountAttentionSnapshot(db.queryClient, {
       snapshot: { scopes: [scope], items: [], limit: 100, truncated: false },
       proof: { token: duringToken, signal: undefined },
     })
@@ -1643,7 +1643,7 @@ describe("community DB sync", () => {
           included: { servers: [], channels: [], dms: [], profiles: [], messages: [] },
         }
         const reconcileToken = captureCommunityLiveSnapshotToken(db.queryClient)
-        publishAccountAttentionSnapshot(db.queryClient, {
+        await publishAccountAttentionSnapshot(db.queryClient, {
           snapshot: newerSnapshot,
           proof: { token: reconcileToken },
         })
@@ -1746,7 +1746,7 @@ describe("community DB sync", () => {
       createdAt: `2026-09-27T01:0${seq}:00.000Z`,
     }))
     const reconcileToken = captureCommunityLiveSnapshotToken(db.queryClient)
-    publishAccountAttentionSnapshot(db.queryClient, { snapshot: {
+    await publishAccountAttentionSnapshot(db.queryClient, { snapshot: {
       scopes: [{
         scopeId: "c1",
         channelId: "c1",
