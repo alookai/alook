@@ -20,6 +20,7 @@ import { useCommunityWsStore } from "@/stores/community/ws"
 import { communityKeys } from "@/lib/query-keys"
 import {
   deriveForumSidebarProjection,
+  forumSidebarProjectionIsAuthoritative,
   getForumSidebarBase,
   grantForumSidebarChild,
   invalidateForumSidebarBaseExact,
@@ -172,6 +173,18 @@ function publish(queryClient: QueryClient, data = envelope()) {
 }
 
 describe("forum sidebar canonical projection", () => {
+  it("withholds cold transport authority until every expected canonical thread is visible", () => {
+    const projected = normalizeForumSidebarEnvelope(envelopeFor(["post-1"]), null, 0)
+      .base.threads
+
+    expect(forumSidebarProjectionIsAuthoritative(["post-1", "post-2"], projected))
+      .toBe(false)
+    expect(forumSidebarProjectionIsAuthoritative(["post-1"], projected))
+      .toBe(true)
+    expect(forumSidebarProjectionIsAuthoritative([], [])).toBe(true)
+    expect(forumSidebarProjectionIsAuthoritative(undefined, projected)).toBe(false)
+  })
+
   it("classifies retained route candidates and bounded active extras", () => {
     expect(resolveForumSidebarRouteCandidate(null, ["forum-1"], true)).toBeNull()
     expect(resolveForumSidebarRouteCandidate("forum-1", ["forum-1"], true)).toBeNull()
@@ -444,9 +457,14 @@ describe("forum sidebar canonical projection", () => {
 
     await waitFor(() => expect(queryClient.getQueryData<{
       threads: unknown[]
+      canonicalThreadIds: string[]
       serverNow: string
     }>(communityKeys.forumSidebarThreads("server-1")))
-      .toMatchObject({ threads: [], serverNow: expect.any(String) }))
+      .toMatchObject({
+        threads: [],
+        canonicalThreadIds: ["post-1"],
+        serverNow: expect.any(String),
+      }))
     rendered.unmount()
   })
 

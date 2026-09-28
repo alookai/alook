@@ -187,7 +187,8 @@ test("a warm desktop split reload paints both cached panes before network", asyn
   })
 })
 
-test("a true-cold channel load uses localized skeletons without a custom bootstrap", async ({ asUser }) => {
+/* istanbul ignore next -- retained true-cold Chromium journey */
+test("a true-cold channel load keeps the session frame before localized skeletons", async ({ asUser }) => {
   test.setTimeout(120_000)
   const suffix = Date.now().toString(36)
   const serverId = await seedServer("alice", `Cold control ${suffix}`)
@@ -246,7 +247,7 @@ test("a true-cold channel load uses localized skeletons without a custom bootstr
     })).toMatchObject({
       customBootstrapSeen: false,
       localizedSkeletonSeen: true,
-      sessionFrameSeen: false,
+      sessionFrameSeen: true,
     })
     await expect.poll(() => heldReads).toBeGreaterThan(0)
   } finally {

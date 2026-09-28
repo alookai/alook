@@ -994,15 +994,31 @@ export function ingestMessages(
   registry: CommunityDbRegistry,
   channelId: string,
   messages: Msg[],
+  mode: "authoritative" | "partial" = "authoritative",
 ) {
+  const current = mode === "partial"
+    ? new Map(
+        collectionRows(registry, "messages", messageSchema)
+          .map((message) => [message.id, message]),
+      )
+    : null
   const rows: MessageRow[] = messages
     .filter((message) => !message.id.startsWith("temp_") && message.failed !== true)
-    .map((message) => ({
-      ...message,
-      type: message.type ?? "chat",
-      channelId,
-      replyToId: message.replyTo?.id,
-    }))
+    .map((message) => {
+      const normalized = {
+        ...message,
+        type: message.type ?? "chat",
+        channelId,
+        replyToId: message.replyTo?.id,
+      }
+      if (!current) return normalized
+      return {
+        ...current.get(message.id),
+        ...Object.fromEntries(
+          Object.entries(normalized).filter(([, value]) => value !== undefined),
+        ),
+      } as MessageRow
+    })
   upsertRows(registry, "messages", messageSchema, (row) => row.id, rows)
   writeCommunityProfilePatches(messageProfilePatches(messages), registry)
 }
@@ -1758,7 +1774,10 @@ export function publishCommunityEmbeddedMessages(
     }
     notifyManager.batch(() => {
       for (const [channelId, messages] of byChannel) {
-        ingestMessages(registry, channelId, messages)
+        // Cross-surface payloads (thread openers, pins, attention previews)
+        // are intentionally sparse. They patch the canonical entity but must
+        // not erase richer fields already owned by the message endpoint.
+        ingestMessages(registry, channelId, messages, "partial")
       }
     })
     return "published" as const
@@ -2730,9 +2749,9 @@ export function installCommunityDbSync(
   queryClient: QueryClient,
   registry: CommunityDbRegistry,
 ) {
-  // Canonical collections hydrate themselves. Raw Query payloads are never
+  // QueryProvider owns collection preload. Raw Query payloads are never
   // replayed into DB: a cache notification does not prove request freshness.
   void queryClient
-  void registry.preload()
+  void registry
   return () => {}
 }

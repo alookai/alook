@@ -24,7 +24,11 @@ vi.mock("@tanstack/browser-db-sqlite-persistence", () => ({
 }))
 
 import {
+  clearAllPersistedCaches,
+  formatBytes,
   getBrowserPersistenceRuntime,
+  getPersistedCacheSizeBytes,
+  registerPersistenceClearScope,
   resetBrowserPersistenceForTests,
 } from "./browser-persistence"
 
@@ -45,7 +49,14 @@ beforeEach(async () => {
   adapter.close.mockClear()
   adapter.create.mockClear()
   adapter.dispose.mockClear()
-  adapter.execute.mockClear()
+  adapter.execute.mockReset()
+  adapter.execute.mockImplementation((sql: string) => Promise.resolve([
+    sql.includes("page_count")
+      ? { page_count: 4 }
+      : sql.includes("page_size")
+        ? { page_size: 1024 }
+        : { freelist_count: 0 },
+  ]))
   adapter.open.mockReset()
   adapter.open.mockResolvedValue({
     close: adapter.close,
@@ -124,6 +135,54 @@ describe("browser persistence runtime", () => {
     expect(localStorage.getItem("alook:persistence:legacy-cleaned:v1")).toBeNull()
   })
 
+  it("marks successful legacy cleanup and tolerates unavailable storage APIs", async () => {
+    const deleteDatabase = vi.fn(() => {
+      const request: { onsuccess?: () => void } = {}
+      queueMicrotask(() => request.onsuccess?.())
+      return request
+    })
+    const databases = vi.fn(() => Promise.resolve([
+      { name: "keyval-store" },
+      { name: "alook-chat-cache-workspace-a" },
+      { name: "unrelated" },
+    ]))
+    vi.stubGlobal("indexedDB", { databases, deleteDatabase })
+
+    await getBrowserPersistenceRuntime()
+    await waitFor(() => expect(deleteDatabase).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(localStorage.getItem(
+      "alook:persistence:legacy-cleaned:v1",
+    )).toBe("1"))
+
+    await resetBrowserPersistenceForTests()
+    const getItem = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("storage blocked")
+    })
+    await getBrowserPersistenceRuntime()
+    await waitFor(() => expect(getItem).toHaveBeenCalled())
+    getItem.mockRestore()
+
+    await resetBrowserPersistenceForTests()
+    localStorage.clear()
+    databases.mockRejectedValueOnce(new Error("enumeration blocked"))
+    await getBrowserPersistenceRuntime()
+    await waitFor(() => expect(databases).toHaveBeenCalled())
+  })
+
+  it("leaves the cleanup marker unset when IndexedDB deletion throws", async () => {
+    const deleteDatabase = vi.fn(() => {
+      throw new Error("delete blocked")
+    })
+    vi.stubGlobal("indexedDB", {
+      databases: vi.fn(() => Promise.resolve([{ name: "keyval-store" }])),
+      deleteDatabase,
+    })
+
+    await getBrowserPersistenceRuntime()
+    await waitFor(() => expect(deleteDatabase).toHaveBeenCalled())
+    expect(localStorage.getItem("alook:persistence:legacy-cleaned:v1")).toBeNull()
+  })
+
   it("opens one coordinated OPFS database and reports its SQLite size", async () => {
     enableCapabilities()
 
@@ -148,5 +207,45 @@ describe("browser persistence runtime", () => {
     expect(runtime.mode).toBe("memory")
     expect(runtime.reason).toContain("worker blocked")
     expect(adapter.create).not.toHaveBeenCalled()
+    expect(await runtime.sizeBytes()).toBeNull()
+    await runtime.close()
+  })
+
+  it("reports unavailable SQLite size data without failing the runtime", async () => {
+    enableCapabilities()
+    adapter.execute.mockRejectedValueOnce(new Error("pragma blocked"))
+    const runtime = await getBrowserPersistenceRuntime()
+    expect(await runtime.sizeBytes()).toBeNull()
+
+    adapter.execute.mockReset()
+    adapter.execute.mockResolvedValue([])
+    expect(await runtime.sizeBytes()).toBeNull()
+    await runtime.close()
+    expect(await runtime.sizeBytes()).toBeNull()
+  })
+
+  it("clears registered scopes by prefix and formats reported sizes", async () => {
+    enableCapabilities()
+    const agentA = vi.fn(() => Promise.resolve())
+    const agentB = vi.fn(() => Promise.resolve())
+    const community = vi.fn(() => Promise.resolve())
+    const unregisterA = registerPersistenceClearScope("agent:a", agentA)
+    registerPersistenceClearScope("agent:b", agentB)
+    registerPersistenceClearScope("community:a", community)
+
+    await clearAllPersistedCaches("agent:")
+    expect(agentA).toHaveBeenCalledOnce()
+    expect(agentB).toHaveBeenCalledOnce()
+    expect(community).not.toHaveBeenCalled()
+    unregisterA()
+    await clearAllPersistedCaches()
+    expect(agentA).toHaveBeenCalledOnce()
+    expect(agentB).toHaveBeenCalledTimes(2)
+    expect(community).toHaveBeenCalledOnce()
+
+    expect(formatBytes(512)).toBe("512 B")
+    expect(formatBytes(1536)).toBe("1.5 KB")
+    expect(formatBytes(2 * 1024 ** 2)).toBe("2.0 MB")
+    expect(await getPersistedCacheSizeBytes()).toBe(4096)
   })
 })

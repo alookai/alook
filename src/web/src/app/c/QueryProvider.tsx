@@ -74,9 +74,11 @@ function CommunityDbRuntime({
 
 function QueryProviderScope({
   children,
+  pending,
   userId,
 }: {
   children: ReactNode
+  pending: ReactNode
   userId: string | null
 }) {
   const [queryClient] = useState(() => createQueryClient())
@@ -88,38 +90,45 @@ function QueryProviderScope({
 
   useEffect(() => {
     let cancelled = false
-    let registry: CommunityDbRegistry | null = null
-    let published = false
+    const ownedRegistries = new Set<CommunityDbRegistry>()
     void (async () => {
       const runtime = await getBrowserPersistenceRuntime()
-      registry = createCommunityDbRegistry(queryClient, userId, {
+      if (cancelled) return
+      let registry = createCommunityDbRegistry(queryClient, userId, {
         persistence: runtime.persistence,
       })
+      ownedRegistries.add(registry)
+      const profiles = useCommunityWsStore.getState()
+      if (profiles.profileViewerId !== userId) profiles.activateProfileAccount(userId)
       try {
         await registry.preload()
       } catch (error) {
-        registry.cleanup()
+        if (cancelled) return
         console.warn("[Alook persistence] Collection preload failed; using memory only", error)
+        const failedRegistry = registry
         registry = createCommunityDbRegistry(queryClient, userId)
+        ownedRegistries.add(registry)
+        setTimeout(() => {
+          if (ownedRegistries.delete(failedRegistry)) failedRegistry.cleanup()
+        }, 0)
         await registry.preload()
+        if (cancelled) return
       }
-      if (cancelled) {
-        registry.cleanup()
-        return
-      }
+      if (cancelled) return
       registry.captureRestoredCollections()
-      const profiles = useCommunityWsStore.getState()
-      if (profiles.profileViewerId !== userId) profiles.activateProfileAccount(userId)
+      // Live queries subscribe reliably once every collection has reached its
+      // ready snapshot. The pending frame keeps SSR/hydration geometry stable
+      // while OPFS streams; publishing earlier can miss those hydration writes
+      // and leave a warm route stuck on localized skeletons.
       setCommunityDb(registry)
-      published = true
     })()
     return () => {
       cancelled = true
-      if (!published) return
       // React tears passive effects down parent-first. Defer collection
       // disposal until descendant live-query subscriptions have released.
       queueMicrotask(() => {
-        registry?.cleanup()
+        for (const registry of ownedRegistries) registry.cleanup()
+        ownedRegistries.clear()
       })
     }
   }, [queryClient, userId])
@@ -152,25 +161,23 @@ function QueryProviderScope({
           {children}
           {isDev ? <ReactQueryDevtools initialIsOpen={false} /> : null}
         </CommunityDbRuntime>
-      ) : null}
+      ) : pending}
     </QueryClientProvider>
   )
 }
 
-/**
- * Owns one Query client and one account-scoped collection registry. The
- * product subtree mounts only after the persisted collections have preloaded,
- * so an older account can never flash while an account switch is restoring.
- */
+/** Owns one Query client and one account-scoped collection registry. */
 export function QueryProvider({
   children,
+  pending,
   userId,
 }: {
   children: ReactNode
+  pending: ReactNode
   userId: string | null
 }) {
   return (
-    <QueryProviderScope key={userId ?? "anon"} userId={userId}>
+    <QueryProviderScope key={userId ?? "anon"} pending={pending} userId={userId}>
       {children}
     </QueryProviderScope>
   )

@@ -43,8 +43,13 @@ export function CommunityShell({
   currentUser: CurrentUser
   children: ReactNode
 }) {
+  const pathname = usePathname()
   return (
-    <QueryProvider key={currentUser.id} userId={currentUser.id}>
+    <QueryProvider
+      key={currentUser.id}
+      pending={<CommunitySessionPendingFrame pathname={pathname} />}
+      userId={currentUser.id}
+    >
       <ProfileAccountBoundary viewerId={currentUser.id}>
         <CurrentUserProvider initialUser={currentUser}>
           <CommunityBootstrap>{children}</CommunityBootstrap>

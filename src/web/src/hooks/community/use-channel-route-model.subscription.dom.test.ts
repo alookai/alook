@@ -19,7 +19,9 @@ const mocks = vi.hoisted(() => ({
     isError: false,
   },
   dbChannel: undefined as undefined | Record<string, unknown>,
-  communityDb: { current: {} as Record<string, unknown> | null },
+  communityDb: {
+    current: { hasRestoredCollection: () => false } as Record<string, unknown> | null,
+  },
   purgeCommunityChannel: vi.fn(),
 }))
 
@@ -33,7 +35,7 @@ vi.mock("@tanstack/react-query", async () => {
   return { ...actual, useQueryClient: () => queryClient }
 })
 vi.mock("./use-servers", () => ({
-  useServer: () => ({ server: mocks.server }),
+  useServer: () => ({ server: mocks.server, isLiveAuthoritative: true }),
 }))
 vi.mock("./use-child-channel-meta", () => ({
   useChildChannelMeta: (
@@ -91,7 +93,7 @@ beforeEach(() => {
   mocks.clearLastChannel.mockClear()
   mocks.consumeColdEntryFailure.mockReset()
   mocks.consumeColdEntryFailure.mockReturnValue(false)
-  mocks.communityDb.current = {}
+  mocks.communityDb.current = { hasRestoredCollection: () => false }
   mocks.purgeCommunityChannel.mockClear()
   mocks.lastChannel = null
   mocks.server = {
@@ -148,6 +150,18 @@ describe("useChannelRouteModel subscription ownership", () => {
     const node = renderer.container.querySelector("span")
     expect(node?.getAttribute("data-lifecycle")).toBe("ready")
     expect(node?.getAttribute("data-skeleton-subtype")).toBe("text")
+    act(() => renderer.unmount())
+  })
+
+  it("checks channels before trusting a partially restored server tree", () => {
+    const hasRestoredCollection = vi.fn((name: string) => name === "servers")
+    mocks.communityDb.current = { hasRestoredCollection }
+
+    const renderer = render(React.createElement(Harness, { channelId: "forum-1" }))
+
+    expect(hasRestoredCollection).toHaveBeenCalledWith("servers")
+    expect(hasRestoredCollection).toHaveBeenCalledWith("channels")
+    expect(lifecycle(renderer)).toBe("ready")
     act(() => renderer.unmount())
   })
 

@@ -12,6 +12,7 @@ import {
 import {
   captureCommunityLiveSnapshotToken,
   getCanonicalCommunityMessages,
+  ingestMessages,
   projectCommunityWsEventToDb,
   publishCommunityEmbeddedMessages,
 } from "@/lib/community-db/sync"
@@ -170,6 +171,44 @@ describe("embedded message surface ownership", () => {
     })).toBe("published")
     expect(getCanonicalCommunityMessages(queryClient)).toEqual([
       expect.objectContaining({ id: transport.id, type: "chat" }),
+    ])
+  })
+
+  it("patches a sparse embedded message without erasing richer canonical fields", async () => {
+    const queryClient = new QueryClient()
+    registry = createCommunityDbRegistry(queryClient, "viewer")
+    await registry.preload()
+    unregister = registerCommunityDbRegistry(registry)
+    const rich: Msg = {
+      id: "m1",
+      type: "chat",
+      seq: 1,
+      createdAt: "2026-09-28T00:00:00.000Z",
+      content: "rich opener",
+      thread: {
+        id: "thread-1",
+        name: "Thread",
+        messageCount: 1,
+        lastReplyAt: "2026-09-28T00:01:00.000Z",
+      },
+    }
+    ingestMessages(registry, "c1", [rich])
+
+    publishCommunityEmbeddedMessages(queryClient, {
+      entries: [{
+        channelId: "c1",
+        message: { id: "m1", type: "chat", seq: 1, content: "updated opener" },
+      }],
+      proof: { token: captureCommunityLiveSnapshotToken(queryClient), signal: undefined },
+    })
+
+    expect(getCanonicalCommunityMessages(queryClient)).toEqual([
+      expect.objectContaining({
+        id: "m1",
+        content: "updated opener",
+        createdAt: rich.createdAt,
+        thread: rich.thread,
+      }),
     ])
   })
 })

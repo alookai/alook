@@ -70,7 +70,8 @@ export function useChannelRouteModel(
   const router = useRouter()
   const queryClient = useQueryClient()
   const communityDb = useOptionalCommunityDbRegistry()
-  const { server } = useServer(serverId)
+  const serverQuery = useServer(serverId)
+  const { server } = serverQuery
   const dbChannel = useRouteChannelProjection(channelId)
   const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
   const topLevelChannel = server?.categories
@@ -127,7 +128,13 @@ export function useChannelRouteModel(
     ),
     [channelId, isChild, metaQuery.isVerified, renderableChannelMeta, server],
   )
-  const routeLifecycle = !server?.categories
+  const restoredServerTree = Boolean(
+    server
+    && communityDb?.hasRestoredCollection("servers")
+    && communityDb.hasRestoredCollection("channels"),
+  )
+  const serverTreeReady = restoredServerTree || serverQuery.isLiveAuthoritative
+  const routeLifecycle = !server?.categories || !serverTreeReady
     ? "pending" as const
     : !isChild
       ? "ready" as const

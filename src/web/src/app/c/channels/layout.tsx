@@ -121,7 +121,13 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   const {
     server: currentServer,
     data: authoritativeServer,
+    isLiveAuthoritative: serverTreeLiveAuthoritative,
   } = useServer(ownerDeleteRouteProtected ? null : serverId)
+  const restoredServerTree = Boolean(
+    currentServer
+    && communityDb?.hasRestoredCollection("servers")
+    && communityDb.hasRestoredCollection("channels"),
+  )
   const sidebarCategories = useMemo(
     () => currentServer?.categories ?? [],
     [currentServer],
@@ -384,7 +390,9 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
         : { ...channel, unread: forumSidebar.parentUnread[channel.id] },
     ),
   })), [forumSidebar.parentUnread, sidebarCategories])
-  const sidebarDataReady = Boolean(currentServer)
+  const sidebarDataReady = Boolean(
+    currentServer && (restoredServerTree || serverTreeLiveAuthoritative),
+  )
   const channelTreeScopeKey = `server:${serverId}`
 
   const setActiveChannel = useCallback((id: string) => {

@@ -18,6 +18,7 @@ const apiFetchMock = vi.fn()
 const dbProjection = vi.hoisted(() => ({
   registry: null as object | null,
   rail: undefined as { servers: Array<Record<string, unknown>>; folders: unknown[] } | undefined,
+  tree: undefined as Record<string, unknown> | undefined,
   attentionScopes: [] as Array<Record<string, unknown>>,
   attentionItems: [] as Array<Record<string, unknown>>,
 }))
@@ -29,7 +30,7 @@ vi.mock("@/lib/community-db/projections", () => ({
   useAttentionScopes: () => dbProjection.attentionScopes,
   useAttentionItems: () => dbProjection.attentionItems,
   useServerRailProjection: () => dbProjection.rail,
-  useServerTreeProjection: () => undefined,
+  useServerTreeProjection: () => dbProjection.tree,
 }))
 
 type CapturedQueryConfig = {
@@ -60,6 +61,7 @@ beforeEach(() => {
   capturedHookQueryError = null
   dbProjection.registry = null
   dbProjection.rail = undefined
+  dbProjection.tree = undefined
   dbProjection.attentionScopes = []
   dbProjection.attentionItems = []
   useCommunityWsStore.getState().reset()
@@ -656,6 +658,32 @@ describe("useServer / serverQueryFn", () => {
     expect(result.server?.categories[1]).not.toBe(unchangedCategory)
     expect(result.server?.categories[1]?.channels[0]).not.toBe(unchangedChannel)
     expect(result.server?.categories[1]?.channels[0]?.unread).toBe(false)
+  })
+
+  it("withholds live server-detail authority until the canonical tree matches", async () => {
+    const detail = {
+      id: "s1",
+      name: "Server",
+      discriminator: "0001",
+      description: "",
+      icon: null,
+      ownerId: "u1",
+      categories: [{ id: "cat1", name: "Main", private: 0, channels: [
+        { id: "c1", name: "one", type: "text", unread: false },
+        { id: "c2", name: "two", type: "forum", unread: false },
+      ] }],
+    }
+    capturedHookQueryData = detail
+    dbProjection.registry = {}
+    dbProjection.tree = {
+      ...detail,
+      categories: [{ ...detail.categories[0], channels: [detail.categories[0].channels[0]] }],
+    }
+    const { useServer } = await import("./use-servers")
+
+    expect(useServer("s1").isLiveAuthoritative).toBe(false)
+    dbProjection.tree = detail
+    expect(useServer("s1").isLiveAuthoritative).toBe(true)
   })
 
   it("does not retain rolling-deploy server-detail unread without canonical attention", async () => {

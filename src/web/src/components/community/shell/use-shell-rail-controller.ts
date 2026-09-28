@@ -169,7 +169,13 @@ export function useShellRailController({
       servers: railServers,
       folders,
       activeServerId: projectedActiveServerId,
-      serversLoading: serversQuery.isPending && servers.length === 0,
+      // A restored server row makes the canonical rail authoritative while a
+      // refresh is held. On a true-cold profile, the HTTP response settles
+      // before its non-optimistic OPFS transaction is visible, so keep the
+      // inert rail through that commit gap as well.
+      serversLoading: servers.length === 0
+        && !communityDb?.hasRestoredCollection("servers")
+        && !serversQuery.isLiveAuthoritative,
       view: projectedView,
       onHome,
       onHomePrefetch,

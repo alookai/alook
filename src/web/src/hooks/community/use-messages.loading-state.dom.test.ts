@@ -1,8 +1,12 @@
+import "fake-indexeddb/auto"
 import { createElement, type PropsWithChildren } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { act, renderHook } from "@/test/react-dom-harness"
+import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 import { communityKeys } from "@/lib/query-keys"
+import { createCommunityDbRegistry } from "@/lib/community-db/collections"
+import { CommunityDbProvider } from "@/lib/community-db/projections"
+import { ingestMessages } from "@/lib/community-db/sync"
 import { useDmMessages, useMessages } from "./use-messages"
 import { getMessageOverlay, useMessageStreamStore } from "@/stores/community/message-stream"
 
@@ -139,6 +143,55 @@ describe("useMessages — instant channel switch", () => {
     expect(useMessageStreamStore.getState().entries.size).toBe(0)
     expect(getMessageOverlay(messageScope).liveById.size).toBe(0)
   })
+
+  it.each(["channel", "dm"] as const)(
+    "keeps the %s window loading between transport receipt and canonical commit",
+    async (kind) => {
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { refetchOnMount: false, retry: false } },
+      })
+      const registry = createCommunityDbRegistry(queryClient, "viewer")
+      const disposeRegistry = registry.cleanup.bind(registry)
+      await registry.preload()
+      const scopeId = `${kind}_canonical_gap`
+      const queryKey = kind === "channel"
+        ? communityKeys.channelMessages(scopeId)
+        : communityKeys.dmMessages(scopeId)
+      const message = {
+        id: `${kind}_message`,
+        type: "chat" as const,
+        seq: 1,
+        createdAt: "2026-08-09T00:00:00.000Z",
+      }
+      queryClient.setQueryData(queryKey, {
+        pages: [{ messages: [message], hasMore: false, latestSeq: 1 }],
+        pageParams: [{ mode: "newest" }],
+      })
+      const wrapper = ({ children }: PropsWithChildren) => createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        createElement(CommunityDbProvider, { registry }, children),
+      )
+      const rendered = renderHook(
+        () => kind === "channel"
+          ? useMessages(scopeId, { serverId: "s1", lastReadMessageId: undefined })
+          : useDmMessages(scopeId, { lastReadMessageId: undefined }),
+        { wrapper },
+      )
+
+      expect(rendered.result.current.isLoading).toBe(true)
+      expect(rendered.result.current.messages).toEqual([])
+
+      act(() => ingestMessages(registry, scopeId, [message]))
+      await waitFor(() => {
+        expect(rendered.result.current.isLoading).toBe(false)
+        expect(rendered.result.current.messages.map((row) => row.id)).toEqual([message.id])
+      })
+
+      rendered.unmount()
+      await disposeRegistry()
+    },
+  )
 })
 
 describe("useDmMessages — base plus overlay", () => {

@@ -63,6 +63,17 @@ export type { MessagesPage, MessagesPageParam } from "@/lib/community/models/mes
 
 export type { MessageSurfaceReceipt } from "@/lib/community/conversation-navigation-proof"
 
+function isCanonicalWindowPending(
+  registryPresent: boolean,
+  transportWindowObserved: boolean,
+  transportMessages: Msg[],
+  canonicalMessages: CanonicalMessage[],
+): boolean {
+  if (!registryPresent || !transportWindowObserved) return false
+  const canonicalIds = new Set(canonicalMessages.map((message) => message.id))
+  return transportMessages.some((message) => !canonicalIds.has(message.id))
+}
+
 type CommittedTransportWindow = {
   key: string
   observed: boolean
@@ -1030,6 +1041,12 @@ export function useMessages(
     },
     [base.messages, canonicalMessagesById, dbMessages, registry, transportWindowObserved],
   )
+  const canonicalWindowPending = isCanonicalWindowPending(
+    Boolean(registry),
+    transportWindowObserved,
+    base.messages,
+    canonicalBase,
+  )
   useEffect(() => {
     if (!channelId) return
     useMessageStreamStore.getState().dispatch(scope, {
@@ -1056,7 +1073,9 @@ export function useMessages(
   return {
     ...base,
     messages: gated ? [] : messages,
-    isLoading: (base.isLoading && canonicalBase.length === 0) || gated,
+    isLoading: (base.isLoading && canonicalBase.length === 0)
+      || canonicalWindowPending
+      || gated,
     navigationBlocked: gated,
   }
 }
@@ -1121,6 +1140,12 @@ export function useDmMessages(
     },
     [base.messages, canonicalMessagesById, dbMessages, registry, transportWindowObserved],
   )
+  const canonicalWindowPending = isCanonicalWindowPending(
+    Boolean(registry),
+    transportWindowObserved,
+    base.messages,
+    canonicalBase,
+  )
   useEffect(() => {
     if (!dmId) return
     useMessageStreamStore.getState().dispatch(scope, {
@@ -1146,7 +1171,9 @@ export function useDmMessages(
   return {
     ...base,
     messages: gated ? [] : messages,
-    isLoading: (base.isLoading && canonicalBase.length === 0) || gated,
+    isLoading: (base.isLoading && canonicalBase.length === 0)
+      || canonicalWindowPending
+      || gated,
     navigationBlocked: gated,
   }
 }

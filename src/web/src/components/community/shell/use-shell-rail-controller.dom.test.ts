@@ -5,6 +5,8 @@ import { useShellRailController } from "./use-shell-rail-controller"
 
 const mocks = vi.hoisted(() => ({
   servers: [{ id: "s1", name: "One" }, { id: "s2", name: "Two" }],
+  serversPending: { current: false },
+  serversAuthoritative: { current: false },
   folders: [] as Array<{ id: string; name: string; position: number; servers: Array<{ id: string }> }>,
   createServer: vi.fn(),
   leaveServer: vi.fn(),
@@ -18,7 +20,7 @@ const mocks = vi.hoisted(() => ({
   communityDb: { current: null as null | { collections: {
     servers: { get: (id: string) => { detailComplete?: boolean } | undefined }
     channels: { values: () => IterableIterator<Record<string, unknown>> }
-  } } },
+  }; hasRestoredCollection: (name: string) => boolean } },
 }))
 
 vi.mock("sonner", () => ({ toast: mocks.toast }))
@@ -31,7 +33,8 @@ vi.mock("@/lib/community/eject-server", () => ({
 vi.mock("@/hooks/community/use-servers", () => ({
   useServers: () => ({
     servers: mocks.servers,
-    isLoading: false,
+    isPending: mocks.serversPending.current,
+    isLiveAuthoritative: mocks.serversAuthoritative.current,
   }),
 }))
 vi.mock("@/hooks/community/use-folders", () => ({ useFolders: () => ({ folders: mocks.folders }) }))
@@ -135,9 +138,42 @@ describe("useShellRailController", () => {
       if (typeof mock === "function" && "mockReset" in mock) mock.mockReset()
     }
     mocks.folders.length = 0
+    mocks.servers.splice(0, mocks.servers.length,
+      { id: "s1", name: "One" },
+      { id: "s2", name: "Two" },
+    )
+    mocks.serversPending.current = false
+    mocks.serversAuthoritative.current = false
     mocks.lastChannel.current = null
     mocks.lastMeLeaf.current = null
     mocks.communityDb.current = null
+  })
+
+  it("distinguishes a restored rail from a true-cold empty registry", async () => {
+    mocks.servers.length = 0
+    mocks.serversPending.current = true
+    const hook = await renderController()
+    expect(hook.current.railProps.serversLoading).toBe(true)
+
+    mocks.communityDb.current = { collections: {
+      servers: { get: () => undefined },
+      channels: { values: () => new Map().values() },
+    }, hasRestoredCollection: () => false }
+    await hook.rerender()
+    expect(hook.current.railProps.serversLoading).toBe(true)
+
+    mocks.serversPending.current = false
+    await hook.rerender()
+    expect(hook.current.railProps.serversLoading).toBe(true)
+
+    mocks.serversAuthoritative.current = true
+    await hook.rerender()
+    expect(hook.current.railProps.serversLoading).toBe(false)
+
+    mocks.serversAuthoritative.current = false
+    mocks.communityDb.current.hasRestoredCollection = (name) => name === "servers"
+    await hook.rerender()
+    expect(hook.current.railProps.serversLoading).toBe(false)
   })
 
   it("commits cold server navigation synchronously without waiting for detail", async () => {
@@ -266,7 +302,7 @@ describe("useShellRailController", () => {
     mocks.communityDb.current = { collections: {
       servers: { get: (id) => servers.get(id) },
       channels: { values: () => channels.values() },
-    } }
+    }, hasRestoredCollection: () => true }
     const hook = await renderController()
 
     await act(async () => hook.current.navigate("s1"))

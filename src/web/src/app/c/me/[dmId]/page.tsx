@@ -477,10 +477,13 @@ function DmView() {
             resolveUserName={resolveUserName}
             onScrollRoot={setScrollRootEl}
             viewerUserId={currentUser.id}
-            // Delay initial scroll until the read-state snapshot resolves AND
-            // the anchor it names is actually present in `messages` — see
-            // `anchorInCache`'s doc comment above.
-            initialScrollReady={!readSnapshotFetching && anchorInCache}
+            // A restored canonical tail is already a renderable first window.
+            // Reveal it at the bottom while the read-state request reconciles;
+            // otherwise an offline warm reload hides durable messages behind
+            // the positioning skeleton indefinitely.
+            initialScrollReady={messages.length > 0 || (
+              !readSnapshotFetching && anchorInCache
+            )}
             hasMore={hasMoreMessages}
             isFetchingOlder={isFetchingOlderMessages}
             onLoadOlder={fetchOlderMessages}

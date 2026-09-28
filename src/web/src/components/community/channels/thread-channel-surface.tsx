@@ -254,7 +254,9 @@ export function ThreadChannelSurface({
                   hero={opener}
                   onScrollRoot={controller.feed.setScrollRootEl}
                   viewerUserId={viewer.id}
-                  initialScrollReady={!controller.feed.readSnapshotFetching && controller.feed.anchorInCache}
+                  initialScrollReady={controller.feed.messages.length > 0 || (
+                    !controller.feed.readSnapshotFetching && controller.feed.anchorInCache
+                  )}
                   onScrollTargetConsumed={controller.consumeScrollTarget}
                   hasMore={controller.feed.hasMoreOlder}
                   isFetchingOlder={controller.feed.isFetchingOlder}

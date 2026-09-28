@@ -200,20 +200,31 @@ export function useMessageChannelController({
     () => ({ kind: "channel" as const, id: channelId, serverId }),
     [channelId, serverId],
   )
+  const activeIntentNoncesRef = useRef(new Map<string, string>())
+  const messageScopeKey = `${serverId}:${channelId}`
 
   const runAcceptedIntent = useCallback(async (nonce: string) => {
-    await runAcceptedMessageIntent({
-      messageScope,
-      nonce,
-      uploadFileAsync,
-      sendMessageAsync,
-      channelId,
-      forumParentChannelId,
-      serverId,
-      viewer: { id: viewer.id, name: viewer.name, avatar: viewer.avatar },
-    })
+    if (activeIntentNoncesRef.current.has(messageScopeKey)) return
+    activeIntentNoncesRef.current.set(messageScopeKey, nonce)
+    try {
+      await runAcceptedMessageIntent({
+        messageScope,
+        nonce,
+        uploadFileAsync,
+        sendMessageAsync,
+        channelId,
+        forumParentChannelId,
+        serverId,
+        viewer: { id: viewer.id, name: viewer.name, avatar: viewer.avatar },
+      })
+    } finally {
+      if (activeIntentNoncesRef.current.get(messageScopeKey) === nonce) {
+        activeIntentNoncesRef.current.delete(messageScopeKey)
+      }
+    }
   }, [
     messageScope,
+    messageScopeKey,
     uploadFileAsync,
     channelId,
     forumParentChannelId,
@@ -259,17 +270,29 @@ export function useMessageChannelController({
     markdown: string,
     attachments?: SendAttachment[],
     mentionType?: MentionType,
-  ): boolean => acceptChannelMessage({
-    markdown,
-    attachments,
-    mentionType,
+  ): boolean => {
+    if (activeIntentNoncesRef.current.has(messageScopeKey)) return false
+    return acceptChannelMessage({
+      markdown,
+      attachments,
+      mentionType,
+      messageScope,
+      viewer: { id: viewer.id, name: viewer.name, avatar: viewer.avatar },
+      replyTo,
+      runAcceptedIntent,
+      channelId,
+      clearReply: () => setReplyTo(null),
+    })
+  }, [
+    channelId,
     messageScope,
-    viewer: { id: viewer.id, name: viewer.name, avatar: viewer.avatar },
+    messageScopeKey,
     replyTo,
     runAcceptedIntent,
-    channelId,
-    clearReply: () => setReplyTo(null),
-  }), [channelId, messageScope, replyTo, runAcceptedIntent, viewer.avatar, viewer.id, viewer.name])
+    viewer.avatar,
+    viewer.id,
+    viewer.name,
+  ])
 
   return useMemo<MessageChannelControllerValue>(() => ({
     feed,

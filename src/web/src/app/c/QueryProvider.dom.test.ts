@@ -1,4 +1,5 @@
 import React from "react"
+import { renderToString } from "react-dom/server"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, render, waitFor } from "@/test/react-dom-harness"
 import { useCommunityWsStore } from "@/stores/community/ws"
@@ -71,18 +72,37 @@ beforeEach(() => {
 })
 
 describe("QueryProvider collection startup", () => {
-  it("preloads the account collection registry before mounting children", async () => {
+  it("keeps the server pending frame in SSR output", () => {
+    const html = renderToString(React.createElement(
+      QueryProvider,
+      {
+        pending: React.createElement("span", null, "pending"),
+        userId: "viewer-b",
+      },
+      React.createElement("span", null, "ready"),
+    ))
+
+    expect(html).toContain("pending")
+    expect(html).not.toContain("ready")
+    expect(mocks.getRuntime).not.toHaveBeenCalled()
+  })
+
+  it("keeps the pending frame until the account collection registry is ready", async () => {
     let resolvePreload!: () => void
     mocks.preload.mockReturnValueOnce(new Promise<void>((resolve) => {
       resolvePreload = resolve
     }))
     const renderer = render(React.createElement(
       QueryProvider,
-      { userId: "viewer-b" },
+      { pending: React.createElement("span", null, "pending"), userId: "viewer-b" },
       React.createElement("span", null, "ready"),
     ))
 
-    expect(renderer.container).not.toHaveTextContent("ready")
+    expect(renderer.container).toHaveTextContent("pending")
+    await waitFor(() => expect(mocks.preload).toHaveBeenCalledOnce())
+    expect(renderer.container).toHaveTextContent("pending")
+    expect(mocks.installSync).not.toHaveBeenCalled()
+    expect(mocks.capture).not.toHaveBeenCalled()
     await act(async () => resolvePreload())
     await waitFor(() => expect(renderer.container).toHaveTextContent("ready"))
     expect(mocks.capture).toHaveBeenCalledOnce()
@@ -95,17 +115,22 @@ describe("QueryProvider collection startup", () => {
     const persisted = registry()
     persisted.preload = vi.fn(() => Promise.reject(new Error("OPFS failed")))
     const memory = registry()
+    let resolveMemoryPreload!: () => void
+    memory.preload = vi.fn(() => new Promise<void>((resolve) => {
+      resolveMemoryPreload = resolve
+    }))
     mocks.createRegistry
       .mockReturnValueOnce(persisted)
       .mockReturnValueOnce(memory)
 
     const renderer = render(React.createElement(
       QueryProvider,
-      { userId: "viewer-b" },
+      { pending: React.createElement("span", null, "pending"), userId: "viewer-b" },
       React.createElement("span", null, "ready"),
     ))
 
-    await waitFor(() => expect(renderer.container).toHaveTextContent("ready"))
+    await waitFor(() => expect(mocks.createRegistry).toHaveBeenCalledTimes(2))
+    expect(renderer.container).toHaveTextContent("pending")
     expect(mocks.createRegistry).toHaveBeenNthCalledWith(
       1,
       queryClient,
@@ -113,7 +138,11 @@ describe("QueryProvider collection startup", () => {
       { persistence: { kind: "sqlite" } },
     )
     expect(mocks.createRegistry).toHaveBeenNthCalledWith(2, queryClient, "viewer-b")
+    expect(mocks.capture).not.toHaveBeenCalled()
     expect(persisted.cleanup).toHaveBeenCalledOnce()
+    await act(async () => resolveMemoryPreload())
+    await waitFor(() => expect(renderer.container).toHaveTextContent("ready"))
+    expect(mocks.capture).toHaveBeenCalledOnce()
     renderer.unmount()
   })
 })

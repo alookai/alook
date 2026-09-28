@@ -308,6 +308,35 @@ describe("useMessageChannelController", () => {
     expect(latest.replyTo).toBeNull()
   })
 
+  it("rejects a second same-channel intent until the accepted transport settles", async () => {
+    let resolveFirst: () => void = () => {}
+    mocks.run.mockImplementationOnce(() => new Promise<void>((resolve) => {
+      resolveFirst = resolve
+    }))
+    mocks.accept.mockImplementationOnce((input: {
+      runAcceptedIntent: (nonce: string) => Promise<void>
+    }) => {
+      void input.runAcceptedIntent("nonce_1")
+      return true
+    })
+    act(() => {
+      rtlRender(React.createElement(Probe, { value: props() }))
+    })
+
+    expect(latest.acceptMessage("first")).toBe(true)
+    expect(latest.acceptMessage("keep this draft")).toBe(false)
+    expect(mocks.accept).toHaveBeenCalledOnce()
+    expect(mocks.run).toHaveBeenCalledOnce()
+
+    await act(async () => {
+      resolveFirst()
+      await Promise.resolve()
+    })
+    mocks.accept.mockReturnValueOnce(true)
+    expect(latest.acceptMessage("now send")).toBe(true)
+    expect(mocks.accept).toHaveBeenCalledTimes(2)
+  })
+
   it("preserves pending/context/seq navigation without claiming global pane handlers", () => {
     mocks.seq = "7"
     const navigate = vi.fn()

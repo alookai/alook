@@ -22,7 +22,7 @@ import {
 import { getActiveAccountUnreadProjection } from "./account-unread-projection"
 import {
   captureCommunityLiveSnapshotToken,
-  publishCommunityMessages,
+  publishCommunityEmbeddedMessages,
 } from "@/lib/community-db/sync"
 
 /**
@@ -72,9 +72,11 @@ export const messageQueryFn = (
   )
   const publishChannelId = message.channelId ?? channelId
   if (queryClient && publishChannelId && token) {
-    publishCommunityMessages(queryClient, {
-      channelId: publishChannelId,
-      messages: [message],
+    // The direct-message lookup hydrates the row itself but does not own
+    // parent-channel thread metadata. Publish it as a partial entity patch so
+    // opening a child split cannot erase the opener's thread indicator.
+    publishCommunityEmbeddedMessages(queryClient, {
+      entries: [{ channelId: publishChannelId, message }],
       proof: { token, signal: context.signal },
     })
   }

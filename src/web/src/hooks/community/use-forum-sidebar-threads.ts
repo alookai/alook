@@ -79,6 +79,8 @@ export type SidebarThreadEnvelope = {
 export type ForumSidebarQueryData = {
   /** Empty with a DB registry; only the explicit providerless test boundary uses rows. */
   threads: ForumSidebarThread[]
+  /** IDs the canonical projection must expose before a cold transport result is revealable. */
+  canonicalThreadIds?: string[]
   verifiedEpoch: number
   serverNow: string
   serverClockOffsetMs: number
@@ -158,6 +160,27 @@ function compareThreads(left: ForumSidebarThread, right: ForumSidebarThread) {
   return compareAsciiSqliteBinary(left.parentChannelId, right.parentChannelId)
     || compareAsciiSqliteBinary(right.activityAt, left.activityAt)
     || compareAsciiSqliteBinary(right.id, left.id)
+}
+
+function canonicalThreadIds(normalized: NormalizedForumSidebarEnvelope): string[] {
+  return [
+    ...normalized.base.threads,
+    ...(normalized.retainedDisposition === "eligible" && normalized.retained
+      ? [normalized.retained]
+      : []),
+  ].map((thread) => thread.id).sort(compareAsciiSqliteBinary)
+}
+
+export function forumSidebarProjectionIsAuthoritative(
+  expectedIds: string[] | undefined,
+  projectedThreads: ForumSidebarThread[],
+): boolean {
+  if (!expectedIds) return false
+  const projectedIds = projectedThreads
+    .map((thread) => thread.id)
+    .sort(compareAsciiSqliteBinary)
+  return expectedIds.length === projectedIds.length
+    && expectedIds.every((id, index) => id === projectedIds[index])
 }
 
 function patchForumSidebarActivity(
@@ -707,6 +730,7 @@ async function fetchForumSidebarBaseExact(
       return {
         ...normalized.base,
         threads: registry ? [] : normalized.base.threads,
+        canonicalThreadIds: registry ? canonicalThreadIds(normalized) : undefined,
         verifiedEpoch: requestEpoch,
       }
     },
@@ -918,6 +942,7 @@ export function useForumSidebarThreads(
       return {
         ...normalized.base,
         threads: registry ? [] : normalized.base.threads,
+        canonicalThreadIds: registry ? canonicalThreadIds(normalized) : undefined,
         verifiedEpoch: requestEpoch,
       }
     },
@@ -945,10 +970,10 @@ export function useForumSidebarThreads(
       : deriveForumSidebarProjection(query.data, null, undefined, clockNowMs),
     [clockNowMs, query.data],
   )
-  const structuralProjection = registry
-    ? canonical ?? { threads: [], parentUnread: {} }
-    : providerless
   const projection = useMemo(() => {
+    const structuralProjection = registry
+      ? canonical ?? { threads: [], parentUnread: {} }
+      : providerless
     if (!registry) return structuralProjection
     const relevant = attentionScopes.filter((scope) => scope.serverId === serverId)
     const unreadByScope = new Map(relevant.map((scope) => [
@@ -970,7 +995,11 @@ export function useForumSidebarThreads(
       })),
       parentUnread,
     }
-  }, [attentionScopes, registry, serverId, structuralProjection])
+  }, [attentionScopes, canonical, providerless, registry, serverId])
+  const liveProjectionAuthoritative = forumSidebarProjectionIsAuthoritative(
+    query.data?.canonicalThreadIds,
+    projection.threads,
+  )
 
   useEffect(() => {
     if (serverNowMs === null) return
@@ -995,8 +1024,8 @@ export function useForumSidebarThreads(
       clockNowMs !== null
       && (registry
         ? query.data !== undefined
-          || restoredForumProjection
-          || (canonical?.threads.length ?? 0) > 0
+          ? liveProjectionAuthoritative
+          : restoredForumProjection || (canonical?.threads.length ?? 0) > 0
         : query.data !== undefined)
     ),
     verifiedEpoch: accessEpoch,

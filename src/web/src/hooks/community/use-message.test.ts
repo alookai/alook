@@ -6,13 +6,13 @@ const apiFetchMock = vi.fn()
 const {
   liveSnapshotToken,
   captureCommunityLiveSnapshotTokenMock,
-  publishCommunityMessagesMock,
+  publishCommunityEmbeddedMessagesMock,
 } = vi.hoisted(() => {
   const token = { canonicalRevision: 0 }
   return {
     liveSnapshotToken: token,
     captureCommunityLiveSnapshotTokenMock: vi.fn(() => token),
-    publishCommunityMessagesMock: vi.fn(),
+    publishCommunityEmbeddedMessagesMock: vi.fn(),
   }
 })
 vi.mock("@/lib/api/client", () => ({
@@ -22,13 +22,15 @@ vi.mock("@/lib/community-db/sync", () => ({
   captureCommunityLiveSnapshotToken: (...args: unknown[]) => (
     captureCommunityLiveSnapshotTokenMock(...args)
   ),
-  publishCommunityMessages: (...args: unknown[]) => publishCommunityMessagesMock(...args),
+  publishCommunityEmbeddedMessages: (...args: unknown[]) => (
+    publishCommunityEmbeddedMessagesMock(...args)
+  ),
 }))
 
 beforeEach(() => {
   apiFetchMock.mockReset()
   captureCommunityLiveSnapshotTokenMock.mockClear()
-  publishCommunityMessagesMock.mockReset()
+  publishCommunityEmbeddedMessagesMock.mockReset()
 })
 
 describe("useMessage / messageQueryFn", () => {
@@ -64,7 +66,7 @@ describe("useMessage / messageQueryFn", () => {
     expect(qc.getQueryData(key)).toBeDefined()
   })
 
-  it("publishes an exact opener through the channel id carried by its response", async () => {
+  it("publishes a sparse exact opener as a partial patch through its response channel", async () => {
     const payload = {
       id: "m_1",
       channelId: "archived-post-1",
@@ -82,9 +84,8 @@ describe("useMessage / messageQueryFn", () => {
 
     await messageQueryFn("m_1", queryClient)()
 
-    expect(publishCommunityMessagesMock).toHaveBeenCalledWith(queryClient, {
-      channelId: "archived-post-1",
-      messages: [payload],
+    expect(publishCommunityEmbeddedMessagesMock).toHaveBeenCalledWith(queryClient, {
+      entries: [{ channelId: "archived-post-1", message: payload }],
       proof: { token: liveSnapshotToken, signal: undefined },
     })
   })

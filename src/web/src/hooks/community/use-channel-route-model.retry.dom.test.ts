@@ -14,7 +14,7 @@ vi.mock("./use-servers", () => ({
   useServer: () => ({ server: {
     id: "server-1",
     categories: [{ channels: [{ id: "parent-1", name: "parent", type: "text" }] }],
-  } }),
+  }, isLiveAuthoritative: true }),
 }))
 vi.mock("./use-community-ws", () => ({ communityWsSubscribe: vi.fn(), communityWsUnsubscribe: vi.fn() }))
 vi.mock("./use-forum-sidebar-threads", () => ({

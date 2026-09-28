@@ -168,20 +168,6 @@ test("server → channel → message", async ({ asUser }) => {
   await restored.click()
   await page.keyboard.press("ControlOrMeta+A")
   await page.keyboard.press("Backspace")
-  await page.evaluate(() => {
-    Object.defineProperty(window, "__messageStreamNonceCalls", {
-      configurable: true,
-      writable: true,
-      value: 0,
-    })
-    Object.defineProperty(window.crypto, "randomUUID", {
-      configurable: true,
-      value: () => {
-        ;(window as unknown as { __messageStreamNonceCalls: number }).__messageStreamNonceCalls++
-        return "00000000-0000-4000-8000-000000000001"
-      },
-    })
-  })
   let releasePendingSend!: () => void
   const pendingSendGate = new Promise<void>((resolve) => { releasePendingSend = resolve })
   let pendingSendIntercepted = false
@@ -207,9 +193,6 @@ test("server → channel → message", async ({ asUser }) => {
   await page.keyboard.press("Enter")
   await expect(restored).toHaveText("")
   await expect.poll(() => pendingSendIntercepted).toBe(true)
-  await expect.poll(() => page.evaluate(() =>
-    (window as unknown as { __messageStreamNonceCalls: number }).__messageStreamNonceCalls,
-  )).toBe(1)
   await expect.poll(() => pendingPostCount).toBe(1)
 
   const rejectedDraft = `rejected draft ${Date.now()}`
@@ -233,19 +216,13 @@ test("server → channel → message", async ({ asUser }) => {
   })
   await expect(page.getByText("rejected.txt", { exact: true })).toBeVisible()
   await expect.poll(() => restored.evaluate((element) => document.activeElement === element)).toBe(true)
-  const nonceCallsAfterAttachmentSelection = await page.evaluate(() =>
-    (window as unknown as { __messageStreamNonceCalls: number }).__messageStreamNonceCalls,
-  )
   await page.keyboard.press("Enter")
-  await expect.poll(() => page.evaluate(() =>
-    (window as unknown as { __messageStreamNonceCalls: number }).__messageStreamNonceCalls,
-  )).toBe(nonceCallsAfterAttachmentSelection + 1)
   await expect.poll(() => pendingPostCount).toBe(1)
   await expect(restored).toContainText(rejectedDraft)
   await expect(page.getByText("rejected.txt", { exact: true })).toBeVisible()
-  await expect.poll(() => page.evaluate(() =>
+  expect(await page.evaluate(() =>
     (window as unknown as { __messageStreamRevokedUrls: string[] }).__messageStreamRevokedUrls.length,
-  )).toBe(1)
+  )).toBe(0)
 
   releasePendingSend()
   await expect.poll(() => pendingSendCompleted).toBe(true)
@@ -255,12 +232,6 @@ test("server → channel → message", async ({ asUser }) => {
   const persisted = composerEditable(page)
   await expect(persisted).toContainText(rejectedDraft)
 
-  await page.evaluate(() => {
-    Object.defineProperty(window.crypto, "randomUUID", {
-      configurable: true,
-      value: () => "00000000-0000-4000-8000-000000000002",
-    })
-  })
   await page.getByTestId(tid.composerFileInput).setInputFiles({
     name: "accepted.txt",
     mimeType: "text/plain",

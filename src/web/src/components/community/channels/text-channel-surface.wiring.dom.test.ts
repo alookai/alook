@@ -43,6 +43,10 @@ vi.mock("@/components/community/shell/community-panel", () => ({
 }))
 vi.mock("@/components/community/messages/composer", () => ({
   Composer: vi.fn(() => null),
+  ComposerSkeleton: () => null,
+}))
+vi.mock("./conversation-message-skeleton", () => ({
+  ConversationMessageSkeleton: () => null,
 }))
 vi.mock("@/components/community/messages/message-context-sheet", () => ({
   MessageContextSheet: () => null,

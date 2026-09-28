@@ -48,6 +48,12 @@ vi.mock("@/components/community/channels/channel-shell", () => ({
 }))
 vi.mock("@/components/community/messages/composer", () => ({
   Composer: vi.fn(() => null),
+  ComposerSkeleton: vi.fn(() => React.createElement("div", { "data-composer-skeleton": "" })),
+}))
+vi.mock("./conversation-message-skeleton", () => ({
+  ConversationMessageSkeleton: vi.fn(() => React.createElement("div", {
+    "data-message-skeleton": "",
+  })),
 }))
 vi.mock("@/components/community/messages/conversation-footer-shell", () => ({
   ConversationFooterSlotProvider: ({ children }: { children: React.ReactNode }) => children,
@@ -465,5 +471,34 @@ describe("TextChannelSurface header hierarchy", () => {
     expect(mockedMessageList.mock.calls.at(-1)?.[0]).not.toHaveProperty("composerOverlap")
     expect(mockedMessageList.mock.calls.at(-1)?.[0].typingUsers).toEqual([])
     expect(mockedChannelHeader.mock.calls.at(-1)?.[0]).not.toHaveProperty("typingUsers")
+  })
+
+  it("keeps the stable conversation skeleton mounted until canonical messages commit", () => {
+    mockedUseChannelMessageFeed.mockReturnValue(feed({ isLoading: true }))
+    const renderer = render(React.createElement(TextChannelSurface, {
+      channelId: "channel_1",
+      serverId: "server_1",
+      serverParam: "server_1",
+      channelName: "general",
+      viewer: { id: "viewer_1", name: "Viewer", avatar: "V" },
+      canManagePins: false,
+      anchorMessageId: null,
+      notificationLevel: "default",
+      onSetNotificationLevel: vi.fn(),
+      composerMembers: [],
+      composerMentionCandidates: undefined,
+      channelRefCandidates: [],
+      memberPanelProps: { members: [] },
+      manageMembersDialog: null,
+      uiHandlers: {},
+      onOpenThread: vi.fn(),
+      onOpenProfile: vi.fn(),
+      resolveUserName: (userId: string) => userId,
+    }))
+
+    expect(renderer.container.querySelector("[data-message-skeleton]")).not.toBeNull()
+    expect(renderer.container.querySelector("[data-composer-skeleton]")).not.toBeNull()
+    expect(mockedMessageList).not.toHaveBeenCalled()
+    expect(mockedConversationFooterShell).not.toHaveBeenCalled()
   })
 })

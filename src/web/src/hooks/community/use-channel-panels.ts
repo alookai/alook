@@ -49,9 +49,11 @@ type BatchMessage = {
   channelId: string
   content: string
   seq: number
+  createdAt: string | null
   authorId: string
   authorName: string
   authorImage: string | null
+  authorAvatarVersion: number
 }
 type FirstMessagePreview = { channelId: string; content: string }
 type ParticipantRow = { channelId: string; userId: string; userName: string | null; userImage: string | null; addedAt: string; participantCount?: number }
@@ -88,15 +90,25 @@ async function loadThreadResources(channelId: string, tag?: string | null, signa
   return { threads, parentType, serverId, openerIds, ...messageBatch, ...tagBatch, ...participantBatch }
 }
 
-function batchMessageToCanonical(message: BatchMessage): Msg {
+function batchMessageToCanonical(message: BatchMessage, thread?: RawThread): Msg {
   return {
     id: message.id,
     type: "chat",
     seq: message.seq,
     content: message.content,
+    ...(message.createdAt ? { createdAt: message.createdAt } : {}),
     authorId: message.authorId,
     authorName: message.authorName,
     ...(message.authorImage ? { authorAvatar: message.authorImage } : {}),
+    authorAvatarVersion: message.authorAvatarVersion,
+    ...(thread ? {
+      thread: {
+        id: thread.id,
+        name: thread.name,
+        messageCount: thread.messageCount ?? 0,
+        lastReplyAt: thread.lastMessageAt ?? thread.createdAt,
+      },
+    } : {}),
   }
 }
 
@@ -108,10 +120,13 @@ export const threadsQueryFn = (channelId: string, queryClient?: QueryClient) => 
     : null
   const data = await loadThreadResources(channelId, null, signal)
   if (queryClient && publicationToken) {
+    const threadByOpenerId = new Map(data.threads.flatMap((thread) => (
+      thread.parentMessageId ? [[thread.parentMessageId, thread] as const] : []
+    )))
     publishCommunityEmbeddedMessages(queryClient, {
       entries: data.messages.map((message) => ({
         channelId: message.channelId,
-        message: batchMessageToCanonical(message),
+        message: batchMessageToCanonical(message, threadByOpenerId.get(message.id)),
       })),
       proof: { token: publicationToken, signal },
     })

@@ -7,7 +7,8 @@ import { ChannelHeader, type ChannelNotifLevel } from "@/components/community/ch
 import { ChannelShell } from "@/components/community/channels/channel-shell"
 import { CommunityPanel } from "@/components/community/shell/community-panel"
 import type { ChannelMemberPanelProps } from "@/components/community/members/channel-member-view-model"
-import { Composer } from "@/components/community/messages/composer"
+import { Composer, ComposerSkeleton } from "@/components/community/messages/composer"
+import { ConversationMessageSkeleton } from "./conversation-message-skeleton"
 import {
   ConversationFooterShell,
   ConversationFooterSlotProvider,
@@ -127,7 +128,16 @@ export function TextChannelSurface({
               mobileBack={onNavigateParent}
             />
           )}
-            body={(
+            body={feed.isLoading ? (
+              <Body
+                data-slot="community-conversation-surface"
+                data-channel-id={channelId}
+                className="flex min-h-0 min-w-0 flex-1 flex-col"
+              >
+                <ConversationMessageSkeleton />
+                <ComposerSkeleton />
+              </Body>
+            ) : (
             <Body
               data-slot="community-conversation-surface"
               data-channel-id={channelId}
@@ -151,7 +161,9 @@ export function TextChannelSurface({
                   scrollToMessageId={controller.scrollTargetId}
                   onScrollRoot={feed.setScrollRootEl}
                   viewerUserId={viewer.id}
-                  initialScrollReady={!feed.readSnapshotFetching && feed.anchorInCache}
+                  initialScrollReady={feed.messages.length > 0 || (
+                    !feed.readSnapshotFetching && feed.anchorInCache
+                  )}
                   onScrollTargetConsumed={controller.consumeScrollTarget}
                   hasMore={feed.hasMoreOlder}
                   isFetchingOlder={feed.isFetchingOlder}

@@ -302,6 +302,14 @@ export type ServerDetail = {
   }>
 }
 
+function serverDetailStructureSignature(detail: ServerDetail | null | undefined) {
+  if (!detail) return null
+  return JSON.stringify(detail.categories.map((category) => [
+    category.id,
+    category.channels.map((channel) => [channel.id, channel.type ?? "text"]),
+  ]))
+}
+
 type ForumUnreadState = Record<string, {
   /** The forum channel's own unread contribution, excluding child posts. */
   baseUnread: boolean
@@ -418,7 +426,10 @@ export const serverProjectedQueryFn = (
  */
 export function useServer(
   serverId: string | null,
-): UseQueryResult<ServerDetail> & { server: ServerDetail | null } {
+): UseQueryResult<ServerDetail> & {
+  server: ServerDetail | null
+  isLiveAuthoritative: boolean
+} {
   const registry = useOptionalCommunityDbRegistry()
   const attentionScopes = useAttentionScopes()
   const dbServer = useServerTreeProjection(serverId)
@@ -508,5 +519,11 @@ export function useServer(
       && (query.error.status === 403 || query.error.status === 404)
       ? null
       : projectedServer,
+    // A fresh transport response settles before its non-optimistic canonical
+    // transaction becomes visible. Structural equality closes that commit gap
+    // for route and sidebar reveal boundaries.
+    isLiveAuthoritative: query.data !== undefined
+      && serverDetailStructureSignature(query.data)
+        === serverDetailStructureSignature(projectedServer),
   }
 }
