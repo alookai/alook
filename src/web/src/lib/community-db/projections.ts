@@ -13,6 +13,7 @@ import { DbProvider, useLiveQuery } from "@tanstack/react-db"
 import { notifLevelDisplay } from "@alook/shared"
 import { avatarInitial } from "@/lib/community/avatar"
 import type { DM } from "@/lib/community/models/people"
+import { sortDmsByActivity } from "@/lib/community/dm-order"
 import type { CommunityProfile } from "@/lib/community/models/people"
 import type { Category, CommunityFolder, Server } from "@/lib/community/models/navigation"
 import type { Msg } from "@/lib/community/models/message"
@@ -282,7 +283,7 @@ export function useDmProjection() {
     const channelMemberships = rows.channelMemberships
     const profileById = new Map(rows.profiles.map((profile) => [profile.userId, profile]))
     const readStateByChannel = new Map((rows.readStates ?? []).map((state) => [state.channelId, state]))
-    return rows.channels
+    return sortDmsByActivity(rows.channels
       .filter((channel) => channel.type === "dm")
       .flatMap((channel): DM[] => {
         const peerMembership = channelMemberships.find((membership) => (
@@ -303,12 +304,13 @@ export function useDmProjection() {
           avatarVersion: profile.avatarVersion,
           status: "offline",
           preview: channel.preview ?? "",
+          ...(channel.lastMessageAt ? { activityAt: channel.lastMessageAt } : {}),
           unread: channel.unread,
           ...(channel.lastUnreadSeq === undefined && !readState
             ? {}
             : { lastUnreadSeq: channel.lastUnreadSeq ?? readState?.lastReadSeq }),
         }]
-      })
+      }))
   }, [rows])
 }
 

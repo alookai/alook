@@ -38,6 +38,7 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
     avatarVersion: r.otherUserAvatarVersion,
     status: "offline" as const,
     preview: "",
+    activityAt: r.lastMessageAt ?? r.createdAt,
     unread: unreadByChannelId.has(r.id),
     ...(unreadByChannelId.has(r.id)
       ? { lastUnreadSeq: unreadByChannelId.get(r.id) }

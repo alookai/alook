@@ -4,6 +4,7 @@ import { alias } from "drizzle-orm/sqlite-core";
 import { communityChannel, communityChannelMember, communityFriendship } from "../../community-schema";
 import { user } from "../../schema";
 import { PARTICIPANT_SOURCE } from "../../../constants/community";
+import { compareAsciiSqliteBinary } from "../../../lib/sqlite-binary";
 import type { Database } from "../../index";
 
 function dmChannelQuery(
@@ -282,7 +283,7 @@ export async function listDMs(db: Database, userId: string) {
   return result.sort((a, b) => {
     const aTime = a.lastMessageAt ?? a.createdAt;
     const bTime = b.lastMessageAt ?? b.createdAt;
-    return bTime.localeCompare(aTime);
+    return bTime.localeCompare(aTime) || compareAsciiSqliteBinary(a.id, b.id);
   });
 }
 

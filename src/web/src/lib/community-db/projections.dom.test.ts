@@ -236,8 +236,8 @@ describe("community DB projections", () => {
       { ...channelBase, id: "forum2", serverId: "s1", categoryId: null, name: "later forum", type: "forum", position: 2 },
       { ...channelBase, id: "forum1", serverId: "s1", categoryId: null, name: "forum", type: "forum", position: 1 },
       { ...channelBase, id: "thread1", serverId: "s1", categoryId: null, name: "thread", type: "thread", parentChannelId: "forum1" },
-      { ...channelBase, id: "dm1", serverId: null, categoryId: null, name: "Peer", type: "dm", preview: "hello", lastUnreadSeq: 8 },
-      { ...channelBase, id: "dm-no-read-state", serverId: null, categoryId: null, name: "Quiet", type: "dm" },
+      { ...channelBase, id: "dm1", serverId: null, categoryId: null, name: "Peer", type: "dm", preview: "hello", lastUnreadSeq: 8, lastMessageAt: "2026-09-25T00:00:00.000Z" },
+      { ...channelBase, id: "dm-no-read-state", serverId: null, categoryId: null, name: "Quiet", type: "dm", lastMessageAt: "2026-09-25T00:00:01.000Z" },
       { ...channelBase, id: "dm-no-member", serverId: null, categoryId: null, name: "Missing", type: "dm" },
       { ...channelBase, id: "dm-no-profile", serverId: null, categoryId: null, name: "Missing profile", type: "dm" },
     ])
@@ -316,10 +316,19 @@ describe("community DB projections", () => {
       expect.objectContaining({ id: "cat1", channels: expect.arrayContaining([expect.objectContaining({ id: "c1" })]) }),
       expect.objectContaining({ id: "__uncategorized__", channels: expect.arrayContaining([expect.objectContaining({ id: "forum1" })]) }),
     ]))
-    expect(rendered.result.current.dms).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "dm1", userId: "peer", lastUnreadSeq: 8 }),
-      expect.objectContaining({ id: "dm-no-read-state", userId: "quiet" }),
-    ]))
+    expect(rendered.result.current.dms).toEqual([
+      expect.objectContaining({
+        id: "dm-no-read-state",
+        userId: "quiet",
+        activityAt: "2026-09-25T00:00:01.000Z",
+      }),
+      expect.objectContaining({
+        id: "dm1",
+        userId: "peer",
+        activityAt: "2026-09-25T00:00:00.000Z",
+        lastUnreadSeq: 8,
+      }),
+    ])
     expect(rendered.result.current.dms?.find((dm) => dm.id === "dm-no-read-state"))
       .not.toHaveProperty("lastUnreadSeq")
     expect(rendered.result.current.route?.id).toBe("c1")

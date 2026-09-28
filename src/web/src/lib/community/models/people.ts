@@ -102,6 +102,8 @@ export type DM = CommunityUserCore & {
   userId: string
   status: Presence
   preview: string
+  /** Server-authoritative `lastMessageAt ?? createdAt`, used only for list order. */
+  activityAt?: string
   unread?: boolean
   lastUnreadSeq?: number
 }

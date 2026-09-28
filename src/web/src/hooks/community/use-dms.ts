@@ -31,6 +31,7 @@ import {
   captureCommunityLiveSnapshotToken,
   publishCommunityLiveSnapshot,
 } from "@/lib/community-db/sync"
+import { sortDmsByActivity } from "@/lib/community/dm-order"
 
 /**
  * Fetches the DM conversation sidebar list.
@@ -139,7 +140,7 @@ export function useDms(enabled = true): UseQueryResult<DmsResponse> & { dms: DM[
       ? dbDms ?? EMPTY_DMS
       : query.data?.conversations ?? EMPTY_DMS
     if (source.length === 0) return EMPTY_DMS as DM[]
-    return source.map((dm) => {
+    return sortDmsByActivity(source.map((dm) => {
       const liveProfile = profilesByUserId.get(dm.userId)
       const profile = readCommunityProfile(liveProfile, dm.userId)
       const unread = attentionScopes.some((scope) => (
@@ -154,7 +155,7 @@ export function useDms(enabled = true): UseQueryResult<DmsResponse> & { dms: DM[
         status: liveProfile ? profile.presence : "offline",
         unread,
       }
-    })
+    }))
   }, [attentionScopes, dbDms, profilesByUserId, query.data?.conversations, registry, unreadVersion])
   return {
     ...query,

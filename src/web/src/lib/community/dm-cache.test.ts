@@ -30,6 +30,7 @@ describe("DM cache projector", () => {
       avatar: "N",
       status: "offline",
       preview: "",
+      activityAt: "2026-08-24T05:00:00.000Z",
       unread: false,
     })
   })
@@ -63,5 +64,16 @@ describe("DM cache projector", () => {
       unread: false,
     })
     expect(result.conversations[1]).toBe(unrelated)
+  })
+
+  it("promotes newer activity while a read-state-only update leaves order stable", () => {
+    const first = { ...cached, id: "dm-a", activityAt: "2026-09-27T02:00:00.000Z" }
+    const second = { ...cached, id: "dm-b", activityAt: "2026-09-27T01:00:00.000Z" }
+    const promoted = { ...second, activityAt: "2026-09-27T03:00:00.000Z" }
+    const afterActivity = upsertDmSummary({ conversations: [first, second] }, promoted)
+    expect(afterActivity.conversations.map((dm) => dm.id)).toEqual(["dm-b", "dm-a"])
+
+    const afterRead = upsertDmSummary(afterActivity, { ...promoted, unread: false })
+    expect(afterRead.conversations.map((dm) => dm.id)).toEqual(["dm-b", "dm-a"])
   })
 })

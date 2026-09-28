@@ -901,7 +901,7 @@ export function ingestDms(
   const channels: ChannelRow[] = []
   const memberships: ChannelMembershipRow[] = []
   const profilePatches: CommunityProfilePatch[] = []
-  for (const dm of response.conversations) {
+  for (const [position, dm] of response.conversations.entries()) {
     channels.push({
       id: dm.id,
       serverId: null,
@@ -911,13 +911,13 @@ export function ingestDms(
       parentChannelId: null,
       parentMessageId: null,
       creatorId: null,
-      position: 0,
+      position,
       archived: false,
       muted: false,
       unread: dm.unread === true,
       tags: [],
       pending: false,
-      lastMessageAt: null,
+      lastMessageAt: dm.activityAt ?? null,
       preview: dm.preview,
       ...(dm.lastUnreadSeq === undefined ? {} : { lastUnreadSeq: dm.lastUnreadSeq }),
     })

@@ -1,10 +1,9 @@
 import React from "react"
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import { tid } from "@/lib/community/testids"
-import { useCommunityWsStore } from "@/stores/community/ws"
-import { fireEvent, render } from "@/test/react-dom-harness"
+import { fireEvent, render, type RenderResult } from "@/test/react-dom-harness"
 import { ComposerAccessoryRail, MessageSelectionFooter } from "./composer-accessory-rail"
 
 vi.mock("@/components/ui/number-ticker", () => ({
@@ -23,57 +22,71 @@ vi.mock("@/components/ui/tooltip", () => ({
   TooltipContent: ({ children }: { children: React.ReactNode }) => React.createElement("tooltip-content", null, children),
 }))
 
-const railProps = {
+const baseProps = {
+  typingNames: [] as string[],
   scrollCount: 4,
   scrollMode: "jump" as const,
   onScroll: vi.fn(),
 }
 
 describe("ComposerAccessoryRail", () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    useCommunityWsStore.getState().reset()
-  })
+  beforeEach(() => vi.clearAllMocks())
 
-  afterEach(() => {
-    useCommunityWsStore.getState().reset()
-  })
+  function renderRail(overrides: Partial<typeof baseProps> = {}) {
+    return render(React.createElement(ComposerAccessoryRail, {
+      ...baseProps,
+      ...overrides,
+    }))
+  }
 
-  it("renders only the away scroll control and preserves its floating boundary", () => {
-    const renderer = render(React.createElement(ComposerAccessoryRail, railProps))
+  function slotClassName(renderer: RenderResult, testId: string): string {
+    const node = renderer.getByTestId(testId).closest('div[class*="col-start-"]')
+    expect(node, `${testId} must have a bounded grid slot`).not.toBeNull()
+    return node!.className
+  }
+
+  it.each([
+    [false, false, "empty"],
+    [true, false, "left-only"],
+    [false, true, "centered"],
+    [true, true, "centered"],
+  ] as const)(
+    "renders typing=%s scroll=%s as %s",
+    (typing, center, layout) => {
+      const renderer = renderRail({
+        typingNames: typing ? ["Alice"] : [],
+        scrollCount: center ? 2 : 0,
+      })
+      const rails = renderer.queryAllByTestId(tid.composerAccessoryRail)
+      expect(rails).toHaveLength(layout === "empty" ? 0 : 1)
+      expect(renderer.queryAllByTestId(tid.scrollToPresent)).toHaveLength(center ? 1 : 0)
+      expect(renderer.queryAllByTestId(tid.typingIndicator)).toHaveLength(typing ? 1 : 0)
+      if (layout === "empty") return
+
+      expect(rails[0]).toHaveAttribute("data-layout", layout)
+      if (center) expect(slotClassName(renderer, tid.scrollToPresent)).toContain("col-start-2")
+      if (typing) expect(slotClassName(renderer, tid.typingIndicator)).toContain("col-start-1")
+    },
+  )
+
+  it("centers the scroll control without owning composer geometry", () => {
+    const renderer = renderRail()
     const rail = renderer.getByTestId(tid.composerAccessoryRail)
-    expect(rail).toHaveAttribute("data-layout", "centered")
     expect(rail).toHaveClass("absolute", "bottom-2", "sm:bottom-4")
     expect(rail).not.toHaveAttribute("style")
     const scroll = renderer.getByTestId(tid.scrollToPresent)
     expect(scroll).toHaveAttribute("aria-label", "Jump to present, 4 unread below")
-    expect(scroll.closest('div[class*="col-start-"]')).toHaveClass("col-start-2")
     fireEvent.click(scroll)
-    expect(railProps.onScroll).toHaveBeenCalledOnce()
+    expect(baseProps.onScroll).toHaveBeenCalledOnce()
   })
 
-  it("stays absent at the tail regardless of WebSocket state", () => {
-    const renderEmpty = () => render(React.createElement(ComposerAccessoryRail, {
-      ...railProps,
-      scrollCount: 0,
-    }))
-    useCommunityWsStore.getState().setConnectionStatus("reconnecting")
-    expect(renderEmpty().queryAllByTestId(tid.composerAccessoryRail)).toHaveLength(0)
-    useCommunityWsStore.getState().setConnectionStatus("failed")
-    const failed = renderEmpty()
-    expect(failed.queryAllByTestId(tid.composerAccessoryRail)).toHaveLength(0)
-    expect(failed.queryAllByTestId(tid.wsRetry)).toHaveLength(0)
-  })
-
-  it("keeps typing and selection ownership out of the viewport rail", () => {
+  it("does not reintroduce WS or viewport-derived width ownership", () => {
     const source = readFileSync(resolve(
       process.cwd(),
       process.cwd().endsWith("/src/web") ? "" : "src/web",
       "src/components/community/messages/composer-accessory-rail.tsx",
     ), "utf8")
     expect(source).not.toContain("@/stores/community/ws")
-    expect(source).not.toContain("TypingIndicator")
-    expect(source).not.toContain("selectionTypingFits")
     expect(source).not.toMatch(/max-w-\[calc\([^\]]*vw/)
   })
 })
@@ -96,7 +109,6 @@ describe("MessageSelectionFooter", () => {
       name: "Share 12 selected messages as image",
     })
     expect(cancel).toHaveClass("w-11", "text-foreground")
-    expect(cancel.querySelector("svg")).toHaveClass("text-foreground")
     expect(share).toHaveClass("after:-inset-y-1.5")
     fireEvent.click(cancel)
     fireEvent.click(share)

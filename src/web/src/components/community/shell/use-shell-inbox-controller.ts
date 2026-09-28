@@ -36,6 +36,7 @@ import { startConversationNavigationWarmup } from "@/lib/community/conversation-
 import type { ConversationNavigationTarget } from "@/lib/community/conversation-navigation-proof"
 import { cancelConversationNavigationProof } from "@/lib/community/conversation-navigation-proof"
 import { publishCommunityDmSummary } from "@/lib/community-db/sync"
+import { inboxUnreadCount } from "@/lib/community/inbox-unread-count"
 
 type UnreadChannel = UnreadServer["channels"][number]
 type UnreadChild = UnreadChannel["children"][number]
@@ -323,15 +324,22 @@ export function useShellInboxController({
     onUnmark: (messageId) => unmarkMessageMutate({ messageId }),
     isProjected: inbox.isProjected,
   }
+  const unreadCount = inboxUnreadCount({
+    servers: unreadFeed,
+    dms: unreadDms,
+    mentions,
+    pendingChannelIds: [
+      ...inboxUnreads.pendingChannelIds,
+      ...inboxMentions.pendingChannelIds,
+    ],
+    friendRequestCount: inboxUnreads.friendRequests.length,
+  })
 
   return {
     popoverProps,
-    unreadCount: (inboxUnreads.exactAttentionCount ?? 0) + inboxUnreads.friendRequests.length,
+    unreadCount,
     unreadCountPartial: false,
-    hasUnread:
-      inboxUnreads.hasProjectedUnread
-      || inboxMentions.hasProjectedMention
-      || inboxUnreads.friendRequests.length > 0,
+    hasUnread: unreadCount > 0,
     open: inbox.open,
     onOpenChange: inbox.onOpenChange,
   }

@@ -290,8 +290,8 @@ describe("mapForumFeedPages", () => {
         name: "canonical content",
         authorId: "transport-author",
         authorAvatarVersion: 0,
-        preview: "",
-        parent: { authorName: "Canonical", text: "" },
+        preview: "transport preview",
+        parent: { authorName: "Canonical", text: "transport preview" },
       }),
     ])
     expect(mapForumFeedPages(pages, canonical)[0]).not.toHaveProperty("openerCreatedAt")

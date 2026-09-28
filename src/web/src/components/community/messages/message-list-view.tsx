@@ -34,6 +34,7 @@ export function renderMessageListView(
       <div data-message-scroller-boundary className="relative isolate min-h-0 flex-1">
         {controller.initialPosition.contentInteractive && !controller.selectMode && (
           <ComposerAccessoryRail
+            typingNames={props.typingUsers ?? []}
             scrollCount={controller.pillCount}
             scrollMode={controller.pillMode}
             onScroll={controller.pillOnClick}

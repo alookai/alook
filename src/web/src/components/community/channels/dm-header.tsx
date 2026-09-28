@@ -6,23 +6,14 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Avatar } from "../avatar"
 import type { DM } from "@/lib/community/models/people"
 import { tid } from "@/lib/community/testids"
-import { TypingIndicator } from "../messages/typing-indicator"
 import { MessageHeader, MessageHeaderMobileBack } from "./message-header"
 
-export function DmHeader({
-  dm,
-  onBack,
-  titleAs: Title = "h1",
-  notifLevel,
-  onSetNotifLevel,
-  typingUsers = [],
-}: {
+export function DmHeader({ dm, onBack, titleAs: Title = "h1", notifLevel, onSetNotifLevel }: {
   dm: DM
   onBack?: () => void
   titleAs?: "h1" | "div"
   notifLevel?: NotifLevel
   onSetNotifLevel?: (level: NotifLevel) => void
-  typingUsers?: string[]
 }) {
   return (
     <MessageHeader
@@ -40,7 +31,6 @@ export function DmHeader({
               </span>
             )}
           </Title>
-          <TypingIndicator names={typingUsers} variant="header" />
         </>
       )}
       actions={notifLevel && <DmNotifDropdown level={notifLevel} onSetLevel={onSetNotifLevel} />}

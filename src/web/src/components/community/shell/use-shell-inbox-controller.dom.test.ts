@@ -84,8 +84,14 @@ vi.mock("@/hooks/community/use-inbox", () => ({
     hasProjectedUnread: false,
     hasOutstandingFriendRequest: true,
     exactAttentionCount: 7,
+    pendingChannelIds: [],
   }),
-  useInboxMentions: () => ({ mentions: [mention], isLoading: false, hasProjectedMention: false }),
+  useInboxMentions: () => ({
+    mentions: [mention],
+    isLoading: false,
+    hasProjectedMention: false,
+    pendingChannelIds: [],
+  }),
   useInboxMarked: (enabled: boolean) => {
     mocks.markedEnabled.push(enabled)
     return { marked: [], isLoading: false }
@@ -242,7 +248,7 @@ describe("useShellInboxController", () => {
   it("includes friend requests in the global dot while keeping navigation and actions read-neutral", async () => {
     const hook = await renderController()
     expect(hook.current.hasUnread).toBe(true)
-    expect(hook.current.unreadCount).toBe(8)
+    expect(hook.current.unreadCount).toBe(4)
     expect(hook.current.popoverProps.hasProjectedUnreads).toBe(false)
     expect(hook.current.popoverProps.friendRequests).toHaveLength(1)
 

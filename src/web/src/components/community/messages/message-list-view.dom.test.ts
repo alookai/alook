@@ -57,6 +57,7 @@ function props(overrides: Partial<ResolvedMessageListProps> = {}): ResolvedMessa
       createdAt: new Date(0).toISOString(),
     }],
     loading: true,
+    typingUsers: ["Alice"],
     onOpenThread: vi.fn(),
     variant: "channel",
     initialScrollReady: true,
@@ -96,12 +97,13 @@ function controller(overrides: Partial<MessageListController> = {}): MessageList
 describe("renderMessageListView", () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it("keeps warm non-empty loading data on the loaded DOM with the away pill", () => {
+  it("keeps warm non-empty loading data on the loaded DOM with typing and the away pill", () => {
     const listProps = props()
     const state = controller()
     const renderRows = vi.fn(() => React.createElement("virtual-rows"))
     const renderer = render(renderMessageListView(listProps, state, renderRows))
     expect(mockedRail).toHaveBeenCalledWith(expect.objectContaining({
+      typingNames: ["Alice"],
       scrollCount: 3,
     }), undefined)
     expect(mockedRail.mock.calls.at(-1)?.[0]).not.toHaveProperty("composerOverlap")
@@ -218,15 +220,25 @@ describe("renderMessageListView", () => {
     expect(renderer.container.querySelector("[data-message-positioning-skeleton]")).toHaveClass("opacity-0")
   })
 
-  it("keeps typing ownership out of the message list", () => {
+  it("routes typing through the rail without adding a dynamic flex sibling", () => {
     const renderer = render(renderMessageListView(
-      props({ loading: false }),
+      props({ loading: false, typingUsers: [] }),
       controller({ isLoading: false, pillCount: 0 }),
       () => React.createElement("virtual-rows"),
     ))
-    expect(mockedRail).toHaveBeenLastCalledWith(expect.objectContaining({ scrollCount: 0 }), undefined)
+    expect(mockedRail).toHaveBeenLastCalledWith(expect.objectContaining({
+      typingNames: [],
+      scrollCount: 0,
+    }), undefined)
     expect(renderer.container.querySelectorAll("[data-message-typing-space]")).toHaveLength(0)
-    expect(JSON.stringify(mockedRail.mock.calls.at(-1)?.[0])).not.toContain("typing")
+    renderer.rerender(renderMessageListView(
+      props({ loading: false, typingUsers: ["Alice"] }),
+      controller({ isLoading: false, pillCount: 0 }),
+      () => React.createElement("virtual-rows"),
+    ))
+    expect(mockedRail).toHaveBeenLastCalledWith(expect.objectContaining({
+      typingNames: ["Alice"],
+    }), undefined)
   })
 
   it("keeps only the normal tail inset across scroll and selection state", () => {
@@ -252,7 +264,7 @@ describe("renderMessageListView", () => {
     expect(content()).toHaveClass("pb-4", "sm:pb-6")
   })
 
-  it("wires selection actions and dialog close without changing overlay order", () => {
+  it("wires selection actions through the footer slot and closes the share dialog", () => {
     const exitSelect = vi.fn()
     const setShareOpen = vi.fn()
     const closeShare = vi.fn()

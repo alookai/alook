@@ -74,9 +74,9 @@ describe("ChannelHeader hierarchy navigation", () => {
     expect(screen.getByRole("button", { name: "Open thread full screen" })).toBeInTheDocument()
   })
 
-  it("owns typing presence without changing the header footprint", () => {
-    const renderer = renderHeader({ typingUsers: ["Alice"] })
-    expect(renderer.getByTestId(tid.typingIndicator)).toHaveTextContent("Alice is typing…")
+  it("keeps transient typing presence out of the header footprint", () => {
+    const renderer = renderHeader()
+    expect(renderer.queryByTestId(tid.typingIndicator)).not.toBeInTheDocument()
     expect(renderer.getByRole("banner")).toHaveClass("h-12", "shrink-0")
   })
 })

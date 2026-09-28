@@ -195,8 +195,9 @@ function expectCheckpoint(
   expect(metrics.contentPaddingBottom, evidence).toBe(width < 640 ? 16 : 24)
   expect(metrics.scroller.bottom, evidence).toBeLessThanOrEqual(metrics.composer.top + 1)
   if (metrics.typing?.width) {
-    expect(metrics.typing.height, `typing ${evidence}`).toBe(28)
-    expect(metrics.typing.bottom, evidence).toBeLessThanOrEqual(metrics.scroller.top + 1)
+    expect(metrics.typing.height, `typing ${evidence}`).toBe(32)
+    expect(Math.abs(metrics.scroller.bottom - metrics.typing.bottom - expectedGap), evidence)
+      .toBeLessThanOrEqual(1)
   }
   if (metrics.center?.width) {
     if (!selection) {
@@ -259,10 +260,10 @@ async function captureState(args: {
         : rect.left > 1 && Math.abs(rect.right - viewportWidth) <= 1
     }, width)).toBe(true)
     const rail = page.getByTestId(tid.composerAccessoryRail)
-    await expect(rail).toHaveCount(center && !selection ? 1 : 0)
-    if (center && !selection) await expect(rail).toHaveAttribute("data-layout", layout!)
-    await expect(page.getByTestId(tid.typingIndicator)).toHaveCount(typing ? 1 : 0)
-    if (typing) await expect(page.getByTestId(tid.typingIndicator)).toBeVisible()
+    await expect(rail).toHaveCount((center || typing) && !selection ? 1 : 0)
+    if ((center || typing) && !selection) await expect(rail).toHaveAttribute("data-layout", layout!)
+    await expect(page.getByTestId(tid.typingIndicator)).toHaveCount(typing && !selection ? 1 : 0)
+    if (typing && !selection) await expect(page.getByTestId(tid.typingIndicator)).toBeVisible()
     await expect(page.getByTestId(tid.messageSelectionToolbar)).toHaveCount(selection ? 1 : 0)
     if (selection) {
       await expect.poll(() => page.getByTestId(tid.messageSelectionToolbar).evaluate(
@@ -479,13 +480,13 @@ test("composer accessory rail reallocates every occupied slot without overflow",
     page: alice.page,
     testInfo,
     state: "l-only",
-    layout: null,
+    layout: "left-only",
     center: false,
     typing: true,
     finalMessageId,
   })
   for (const width of VIEWPORT_WIDTHS) {
-    expect(leftOnly[width].rail).toBeNull()
+    expect(leftOnly[width].rail).not.toBeNull()
     expect(leftOnly[width].typing).not.toBeNull()
   }
 
@@ -513,30 +514,26 @@ test("composer accessory rail reallocates every occupied slot without overflow",
     state: "selection-short",
     layout: "centered",
     center: true,
-    typing: true,
+    typing: false,
     selection: true,
     finalMessageId,
   })
   for (const width of VIEWPORT_WIDTHS) {
     expect(selectionShort[width].center!.center).toBe(selectionNone[width].center!.center)
-    expect(selectionShort[width].typing).not.toBeNull()
+    expect(selectionShort[width].typing).toBeNull()
   }
 
   await bobEditor.click()
   await bob.page.keyboard.press("ControlOrMeta+A")
   await bob.page.keyboard.press("Backspace")
   await bob.page.keyboard.type("multiple selection typing")
-  await expect(alice.page.getByTestId(tid.typingIndicator))
-    .toContainText(LONG_TYPING_NAME, { timeout: 20_000 })
-  await expect(alice.page.getByTestId(tid.typingIndicator)).toContainText("Cy")
-  await expect(alice.page.getByTestId(tid.typingIndicator)).toContainText(" and ")
   const selectionMultiple = await captureState({
     page: alice.page,
     testInfo,
     state: "selection-multiple",
     layout: "centered",
     center: true,
-    typing: true,
+    typing: false,
     selection: true,
     widths: [390, 639, 1280],
     finalMessageId,
@@ -560,22 +557,19 @@ test("composer accessory rail reallocates every occupied slot without overflow",
   await bob.page.keyboard.press("ControlOrMeta+A")
   await bob.page.keyboard.press("Backspace")
   await bob.page.keyboard.type("long selection typing")
-  await expect(alice.page.getByTestId(tid.typingIndicator))
-    .toContainText(LONG_TYPING_NAME, { timeout: 20_000 })
-  await expect(alice.page.getByTestId(tid.typingIndicator)).not.toContainText("Cy")
   const selectionLong = await captureState({
     page: alice.page,
     testInfo,
     state: "selection-long",
     layout: "centered",
     center: true,
-    typing: true,
+    typing: false,
     selection: true,
     widths: [390, 639, 640, 1280],
     finalMessageId,
   })
   for (const width of [390, 639, 640, 1280] as const) {
-    expect(selectionLong[width].typing).not.toBeNull()
+    expect(selectionLong[width].typing).toBeNull()
   }
 
   await sendExactMessage(
