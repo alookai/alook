@@ -56,4 +56,63 @@ describe("GET /api/community/users/me/attention", () => {
     expect(mocks.getPrimaryDb).toHaveBeenCalledWith({ binding: "d1" })
     expect(mocks.snapshot).toHaveBeenCalledWith({ kind: "primary-db" }, "u1", 100)
   })
+
+  it("returns the same canonical avatar contract for included DMs and profiles", async () => {
+    mocks.snapshot.mockResolvedValue({
+      scopes: [{
+        scopeId: "dm1",
+        channelId: "dm1",
+        serverId: null,
+        parentChannelId: null,
+        ordinaryUnread: true,
+        lastUnreadSeq: 3,
+        lastAttentionSeq: null,
+        attentionCount: 0,
+      }],
+      items: [],
+      limit: 100,
+      truncated: false,
+      included: {
+        servers: [],
+        channels: [],
+        dms: [{
+          id: "dm1",
+          userId: "u2",
+          name: "Alice",
+          discriminator: "0002",
+          avatar: "/api/community/users/u2/avatar",
+          avatarVersion: 7,
+          lastMessageAt: "2026-09-28T00:00:00.000Z",
+          lastUnreadSeq: 3,
+        }],
+        profiles: [{
+          userId: "u2",
+          name: "Alice",
+          discriminator: "0002",
+          avatar: "/api/community/users/u2/avatar",
+          avatarVersion: 7,
+        }, {
+          userId: "u3",
+          name: "Bob",
+          discriminator: "0003",
+          avatar: "",
+          avatarVersion: 0,
+        }],
+        messages: [],
+      },
+    })
+
+    const response = await GET(new Request("http://localhost/api/community/users/me/attention") as any)
+    const body = await response.json()
+
+    expect(body.included.dms[0].avatar).toBe("/api/community/users/u2/avatar?v=7")
+    expect(body.included.profiles).toEqual([
+      expect.objectContaining({
+        userId: "u2",
+        avatar: "/api/community/users/u2/avatar?v=7",
+        avatarVersion: 7,
+      }),
+      expect.objectContaining({ userId: "u3", avatar: "B", avatarVersion: 0 }),
+    ])
+  })
 })
