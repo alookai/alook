@@ -28,33 +28,6 @@ export const LANDING_HERO = {
   secondaryCta: "View on GitHub",
 } as const
 
-export const LANDING_TYPEWRITER_CASES = [
-  {
-    meta: "PROJECT / WEBSITE",
-    title: "Direct feedback.",
-    byline: "A teammate + your agent",
-    body: "“Make the headline bigger.”\n\n“Done. Take a look.”",
-  },
-  {
-    meta: "PROJECT / LAUNCH",
-    title: "Pick up the work.",
-    byline: "You + your agent",
-    body: "“Finish yesterday’s draft.”\n\n“Ready for your review.”",
-  },
-  {
-    meta: "ON YOUR PHONE / WEBSITE",
-    title: "Check in anywhere.",
-    byline: "You + your agent",
-    body: "“How’s the page coming along?”\n\n“Here’s the latest preview.”",
-  },
-  {
-    meta: "NEW PROJECT / PLANNING",
-    title: "A familiar teammate.",
-    byline: "Your teammate + Maya",
-    body: "“Maya’s joining this project too.”\n\n“Let’s plan the next launch.”",
-  },
-] as const
-
 export const LANDING_GALLERY: ReadonlyArray<{
   scene: LandingScene
   label: string

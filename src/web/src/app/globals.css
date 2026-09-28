@@ -1183,11 +1183,9 @@ body.driver-active .community-ws-reconnect-overlay * {
   width: 170px;
 }
 
-/* ── Return key — wider, clickable ── */
 .tw-return-key {
   width: 52px !important;
   border-radius: 14px !important;
-  cursor: pointer;
   border: none;
   display: flex;
   align-items: center;
@@ -1214,127 +1212,20 @@ body.driver-active .community-ws-reconnect-overlay * {
   z-index: 1;
 }
 
-.tw-return-key:active {
-  transform: translateY(2px);
-  box-shadow: 0 0 0 oklch(0.55 0.015 65), 0 1px 2px rgba(0, 0, 0, 0.1), inset 0 1px 2px rgba(255, 255, 255, 0.7);
-}
-
-/* ── Easter egg H key ── */
-.tw-h-key {
-  cursor: pointer;
-  border: none;
-  font-family: inherit;
-  padding: 0;
-  animation: none !important;
-  transition: transform 0.1s ease, box-shadow 0.1s ease;
-  background: oklch(0.91 0.015 75) !important;
-}
-
-.tw-h-key:active {
-  transform: translateY(2px);
-  box-shadow: 0 0 0 oklch(0.55 0.015 65), 0 1px 2px rgba(0, 0, 0, 0.1), inset 0 1px 2px rgba(255, 255, 255, 0.7);
-}
-
-.tw-h-label {
-  font-family: var(--font-crt, monospace);
-  font-size: 13px;
-  color: oklch(0.50 0.015 65);
-  line-height: 1;
-  pointer-events: none;
-  position: relative;
-  z-index: 1;
-  opacity: 0.35;
-}
-
-/* ── Birthday popover ── */
-.tw-birthday-popover {
-  background: oklch(0.95 0.01 80) !important;
-  border: 1px solid oklch(0.15 0.01 55 / 15%) !important;
-  border-radius: 8px !important;
-  padding: 16px !important;
-  width: 220px !important;
-  font-family: var(--font-crt, monospace);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
-}
-
-.tw-birthday-title {
-  font-size: 14px;
-  color: oklch(0.25 0.01 55);
-  margin: 0 0 12px;
-  text-align: center;
-}
-
-.tw-birthday-selects {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
-.tw-birthday-selects select {
-  flex: 1;
-  font-family: var(--font-crt, monospace);
-  font-size: 13px;
-  padding: 6px 8px;
-  border: 1px solid oklch(0.15 0.01 55 / 15%);
-  border-radius: 6px;
-  background: oklch(0.97 0.008 80);
-  color: oklch(0.25 0.01 55);
-  outline: none;
-  cursor: pointer;
-  appearance: auto;
-}
-
-.tw-birthday-save {
-  width: 100%;
-  padding: 6px 0;
-  font-family: var(--font-crt, monospace);
-  font-size: 13px;
-  background: oklch(0.25 0.01 55);
-  color: oklch(0.92 0.005 80);
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: opacity 0.15s;
-}
-
-.tw-birthday-save:hover {
-  opacity: 0.85;
-}
-
-.tw-birthday-clear {
-  display: block;
-  width: 100%;
-  margin-top: 8px;
-  padding: 0;
-  font-family: var(--font-crt, monospace);
-  font-size: 11px;
-  color: oklch(0.50 0.01 55);
-  background: none;
-  border: none;
-  cursor: pointer;
-  text-align: center;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-.tw-birthday-clear:hover {
-  color: oklch(0.30 0.01 55);
-}
-
 /* Key press animation */
-.tw-key:not(.tw-return-key):not(.tw-h-key):nth-child(3n+1) {
+.tw-key:not(.tw-return-key):nth-child(3n+1) {
   animation: tw-press 1.6s ease 0.15s infinite;
 }
 
-.tw-key:not(.tw-return-key):not(.tw-h-key):nth-child(7n) {
+.tw-key:not(.tw-return-key):nth-child(7n) {
   animation: tw-press 2.2s ease 0.55s infinite;
 }
 
-.tw-key:not(.tw-return-key):not(.tw-h-key):nth-child(2n+4) {
+.tw-key:not(.tw-return-key):nth-child(2n+4) {
   animation: tw-press 1.9s ease 0.85s infinite;
 }
 
-.tw-key:not(.tw-return-key):not(.tw-h-key):nth-child(4n+2) {
+.tw-key:not(.tw-return-key):nth-child(4n+2) {
   animation: tw-press 1.3s ease 0s infinite;
 }
 

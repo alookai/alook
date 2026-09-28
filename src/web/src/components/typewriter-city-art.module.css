@@ -1,0 +1,27 @@
+@font-face {
+  font-family: "Alook Jgs5";
+  src: url("/fonts/jgs5/jgs5.ttf") format("truetype");
+  font-display: block;
+}
+
+.frame {
+  container-type: inline-size;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  color: var(--tw-body-lo);
+}
+
+.art {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-family: "Alook Jgs5", monospace;
+  font-size: 0.625cqw;
+  line-height: 1;
+  font-weight: 400;
+  font-variant-ligatures: none;
+  letter-spacing: 0;
+  white-space: pre;
+  text-align: left;
+}

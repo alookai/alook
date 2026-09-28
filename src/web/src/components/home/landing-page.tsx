@@ -26,7 +26,6 @@ import {
   LANDING_HERO,
   LANDING_MACHINE_INTRO,
   LANDING_PROVIDERS,
-  LANDING_TYPEWRITER_CASES,
 } from "./landing-content"
 import styles from "./landing-page.module.css"
 import { GithubOutboundLink } from "@/components/github-outbound-link"
@@ -77,19 +76,6 @@ function FooterSocialLinks() {
           <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
         </svg>
       </a>
-    </div>
-  )
-}
-
-function HeroPaper({ story }: { story: (typeof LANDING_TYPEWRITER_CASES)[number] }) {
-  return (
-    <div className={styles.heroPaper}>
-      <div className={`tw-email-line ${styles.paperMeta}`}>{story.meta}</div>
-      <div className={`tw-email-line ${styles.paperTitle}`}>{story.title}</div>
-      <div className={`tw-email-line ${styles.paperByline}`}>{story.byline}</div>
-      <div className={`tw-email-body ${styles.paperBody}`}>
-        {story.body.split("\n\n").map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
-      </div>
     </div>
   )
 }
@@ -323,9 +309,6 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
         }}
         typewriterClassName={styles.landingHeroTypewriter}
         largeCtas
-        papers={LANDING_TYPEWRITER_CASES.map((story) => (
-          <HeroPaper key={story.title} story={story} />
-        ))}
         showClipboard={false}
         showCommunityLinks={false}
         showMobileDesktopHint={false}

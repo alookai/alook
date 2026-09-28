@@ -12,7 +12,6 @@ import {
   LANDING_MACHINE_INTRO,
   LANDING_PROVIDERS,
   LANDING_SECTION_ORDER,
-  LANDING_TYPEWRITER_CASES,
 } from "./landing-content"
 
 function webRoot() {
@@ -91,16 +90,6 @@ describe("landing content contract", () => {
       { id: "opencode", label: "OpenCode" },
       { id: "pi", label: "Pi" },
     ])
-  })
-
-  it("provides four independent typewriter examples", () => {
-    expect(LANDING_TYPEWRITER_CASES).toHaveLength(4)
-    expect(new Set(LANDING_TYPEWRITER_CASES.map((story) => story.title)).size).toBe(4)
-    for (const story of LANDING_TYPEWRITER_CASES) {
-      expect(story.meta).toBeTruthy()
-      expect(story.byline).toBeTruthy()
-      expect(story.body.split("\n\n")).toHaveLength(2)
-    }
   })
 
   it("closes with one living-room invitation instead of setup instructions", () => {
@@ -332,7 +321,6 @@ describe("landing content contract", () => {
     expect(landingPageSource).toContain("collapseLinksOnMobile")
     expect(heroSource).toContain("TypewriterVisual")
     expect(typewriterSource).toContain("var(--tw-blob-theme, oklch(0.88 0.025 82))")
-    expect(heroSource).toContain("papers={papers}")
     expect(heroSource).toContain("backgroundDecoration")
     expect(landingPageSource).toContain("<HeroAvatarSwarm />")
     expect(swarmSource).toContain("HERO_SWARM_AVATARS")
@@ -370,7 +358,6 @@ describe("landing content contract", () => {
     expect(landingStyles).toContain("max-width: var(--landing-content-max)")
     expect(motionStyles).toContain("--motion-frame-radius: var(--gallery-frame-radius, var(--radius-lg))")
     expect(motionStyles).toContain("clip-path: inset(0 round var(--motion-frame-radius))")
-    expect(landingPageSource).toContain("papers={LANDING_TYPEWRITER_CASES.map")
     expect(landingPageSource).toContain("LANDING_HERO.headlineLead")
     expect(landingPageSource).toContain("LANDING_HERO.headlineTail")
     expect(landingPageSource).toContain("subline={LANDING_HERO.subline}")

@@ -277,35 +277,6 @@
   zoom: 0.92;
 }
 
-.heroPaper {
-  color: var(--landing-text);
-}
-
-.paperMeta {
-  color: var(--landing-text-muted);
-}
-
-.paperTitle {
-  margin-top: 12px;
-  font-family: var(--font-crt);
-  font-size: 1.65rem;
-  line-height: 1;
-}
-
-.paperByline {
-  margin-top: 8px;
-  color: var(--landing-text-muted);
-  font-family: var(--font-mono);
-  font-size: 0.64rem;
-}
-
-.paperBody {
-  margin-top: 16px;
-  font-family: var(--font-mono);
-  font-size: 0.76rem;
-  line-height: 1.65;
-}
-
 .productSection,
 .identitySection,
 .timelineSection,

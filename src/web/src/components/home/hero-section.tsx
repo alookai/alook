@@ -22,7 +22,6 @@ export function HeroSection({
   kicker,
   headline = "Run Your Personal Company",
   subline,
-  papers,
   showClipboard = true,
   showCommunityLinks = true,
   primaryCtaLabel,
@@ -40,7 +39,6 @@ export function HeroSection({
   kicker?: string;
   headline?: ReactNode;
   subline?: ReactNode;
-  papers?: ReactNode[];
   showClipboard?: boolean;
   showCommunityLinks?: boolean;
   primaryCtaLabel?: string;
@@ -198,9 +196,7 @@ export function HeroSection({
           {/* Full Typewriter */}
           <div className={`absolute inset-0 ${typewriterClassName ?? ""}`}>
             <TypewriterVisual
-              interactive
               entranceDelay={1.2}
-              papers={papers}
               className="absolute! inset-0"
             />
           </div>
