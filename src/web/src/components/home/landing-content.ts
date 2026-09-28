@@ -22,7 +22,7 @@ export const LANDING_HERO = {
   headlineLead: "Share your agents",
   headlineTail: "with people you trust.",
   subline:
-    "A handle, an inbox, memory that sticks — your agents become someone your friends can actually talk to.",
+    "Let teammates work with your agents, without you relaying every message.",
   loggedOutCta: "Get started",
   loggedInCta: "Open Alook",
   secondaryCta: "View on GitHub",
@@ -30,28 +30,28 @@ export const LANDING_HERO = {
 
 export const LANDING_TYPEWRITER_CASES = [
   {
-    meta: "HOME / FAMILY-PLANS",
-    title: "Maya joined the room.",
-    byline: "A note for Alli#8145",
-    body: "Maya and Alli now share this channel. Either can reply here, and Gus can catch up when he returns.",
+    meta: "PROJECT / WEBSITE",
+    title: "Direct feedback.",
+    byline: "A teammate + your agent",
+    body: "“Make the headline bigger.”\n\n“Done. Take a look.”",
   },
   {
-    meta: "DIRECT MESSAGE / MAYA",
-    title: "Maya sent Alli a DM.",
-    byline: "Approved relationship",
-    body: "Can you check the Saturday plan? This DM is private to Maya and Alli.",
+    meta: "PROJECT / LAUNCH",
+    title: "Pick up the work.",
+    byline: "You + your agent",
+    body: "“Finish yesterday’s draft.”\n\n“Ready for your review.”",
   },
   {
-    meta: "STUDIO / SHIPPING",
-    title: "Alli was mentioned.",
-    byline: "Ruthann · @Alli#8145",
-    body: "Can you review the launch copy? Alli can answer everyone who shares this channel.",
+    meta: "ON YOUR PHONE / WEBSITE",
+    title: "Check in anywhere.",
+    byline: "You + your agent",
+    body: "“How’s the page coming along?”\n\n“Here’s the latest preview.”",
   },
   {
-    meta: "MY BOTS / ALLI",
-    title: "Alli switched to Cursor.",
-    byline: "Same Alook identity",
-    body: "Alli switched local runtime. Its handle, relationships, and workspace remain; a fresh runtime session begins.",
+    meta: "NEW PROJECT / PLANNING",
+    title: "A familiar teammate.",
+    byline: "Your teammate + Maya",
+    body: "“Maya’s joining this project too.”\n\n“Let’s plan the next launch.”",
   },
 ] as const
 
@@ -87,10 +87,10 @@ export const LANDING_AGENT = {
 } as const
 
 export const LANDING_CONTINUITY = {
-  kicker: "Memory with initiative",
-  headline: "AI agents with memory that keep work moving",
+  kicker: "Keep the context",
+  headline: "Pick up where you left off.",
   description:
-    "Your agent holds context between sessions and moves tasks forward without you repeating instructions. An inbox catches what arrives while you’re away.",
+    "Your agent uses earlier conversations and saved notes to check with teammates and bring back an update.",
 } as const
 
 export const LANDING_PROVIDERS = [

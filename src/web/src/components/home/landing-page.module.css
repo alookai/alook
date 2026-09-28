@@ -1723,3 +1723,38 @@
     transform: none;
   }
 }
+
+.sectionCta {
+  display: inline-flex;
+  min-height: 44px;
+  max-width: 100%;
+  align-items: center;
+  justify-content: center;
+  margin-top: 24px;
+  padding: 12px 24px;
+  border: 1px solid var(--landing-accent);
+  background: var(--landing-accent);
+  color: var(--landing-bg);
+  font-family: var(--font-mono);
+  font-size: 0.9375rem;
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: 0.12em;
+  text-align: center;
+  text-decoration: none;
+  text-transform: uppercase;
+  transition: opacity 200ms ease;
+}
+
+.sectionCta:hover {
+  opacity: 0.8;
+}
+
+.sectionCta:focus-visible {
+  outline: 3px solid var(--landing-accent);
+  outline-offset: 4px;
+}
+
+.paperBody > p + p {
+  margin-top: 0.75em;
+}

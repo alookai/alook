@@ -57,3 +57,17 @@ describe("landing identity profile preview", () => {
 
 const LANDING_PROFILE_ABOUT =
   "I keep the same account, identity, and relationships across every room."
+
+describe("landing section calls to action", () => {
+  it.each([false, true])("routes all five section CTAs for signed-in=%s", (isLoggedIn) => {
+    const markup = renderToStaticMarkup(createElement(LandingPage, { isLoggedIn }))
+    const links = [...markup.matchAll(/<a\b[^>]*data-testid="landing-section-cta-([^"]+)"[^>]*>([\s\S]*?)<\/a>/g)]
+    expect(links.map((match) => match[1])).toEqual(["product", "identity", "continuity", "reach", "ownership"])
+    const labels = links.map((match) => match[2])
+    expect(new Set(labels).size).toBe(5)
+    for (const link of links) {
+      expect(link[0]).toContain(`href="${isLoggedIn ? "/c/me" : "/sign-in"}"`)
+      expect(link[2].trim().split(/\s+/).length).toBeLessThanOrEqual(3)
+    }
+  })
+})

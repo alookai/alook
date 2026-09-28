@@ -151,16 +151,16 @@ describe("standalone README capture app contract", () => {
 
   it("reuses canonical message and invite copy", () => {
     const canonicalOverviewMessages = [
-      "hello world",
-      "On it.",
-      "I’ll review the flow.",
-      "Ready to ship.",
+      "The headline is hard to read on my phone. Can you make it larger?",
+      "I’ve made it larger and checked the phone layout. The updated preview is ready for review.",
+      "The headline is clearer. Can you update the button text to match?",
+      "I’ve reviewed the updated page. It’s ready to use.",
     ]
     const canonicalMessages = [
-      "@Shelly#3863 How are Gus’s A/B landing pages converting today?",
-      "B is ahead on sign-ups. I’m checking the mobile drop-off.",
-      "@Tracy#2048 Is the router at home still dropping out?",
-      "Yes — it dropped twice this morning.",
+      "@Shelly#3863 Have you checked the updated page on your phone?",
+      "Yes. The headline is clearer. The button text still needs an update.",
+      "@Tracy#2048 Can we confirm the Saturday plan we discussed?",
+      "Saturday at six works. I’ve added the address to our plan.",
     ]
     const canonicalInviteCopy = [
       "You&apos;re invited to join",

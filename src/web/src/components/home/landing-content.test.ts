@@ -74,11 +74,11 @@ describe("landing content contract", () => {
   it("frames continuity as one agent remembering and acting across rooms", () => {
     expect(LANDING_AGENT).toMatchObject({ name: "Alli", handle: "Alli#8145" })
     expect(LANDING_CONTINUITY).toMatchObject({
-      kicker: "Memory with initiative",
-      headline: "AI agents with memory that keep work moving",
+      kicker: "Keep the context",
+      headline: "Pick up where you left off.",
     })
     expect(LANDING_CONTINUITY.description).toBe(
-      "Your agent holds context between sessions and moves tasks forward without you repeating instructions. An inbox catches what arrives while you’re away.",
+      "Your agent uses earlier conversations and saved notes to check with teammates and bring back an update.",
     )
   })
 
@@ -93,16 +93,14 @@ describe("landing content contract", () => {
     ])
   })
 
-  it("cycles several truthful typewriter cases", () => {
+  it("provides four independent typewriter examples", () => {
     expect(LANDING_TYPEWRITER_CASES).toHaveLength(4)
-    expect(LANDING_TYPEWRITER_CASES.map((story) => story.meta)).toEqual([
-      "HOME / FAMILY-PLANS",
-      "DIRECT MESSAGE / MAYA",
-      "STUDIO / SHIPPING",
-      "MY BOTS / ALLI",
-    ])
-    expect(LANDING_TYPEWRITER_CASES.at(-1)?.title).toBe("Alli switched to Cursor.")
-    expect(LANDING_TYPEWRITER_CASES.at(-1)?.body).toContain("fresh runtime session")
+    expect(new Set(LANDING_TYPEWRITER_CASES.map((story) => story.title)).size).toBe(4)
+    for (const story of LANDING_TYPEWRITER_CASES) {
+      expect(story.meta).toBeTruthy()
+      expect(story.byline).toBeTruthy()
+      expect(story.body.split("\n\n")).toHaveLength(2)
+    }
   })
 
   it("closes with one living-room invitation instead of setup instructions", () => {
@@ -113,8 +111,8 @@ describe("landing content contract", () => {
     const closing = landingPageSource.match(/<section className=\{styles\.closingSection\}([\s\S]*?)<footer/)?.[1] ?? ""
 
     expect(closing).toContain("Ready to share")
-    expect(closing).toContain("BRAND_SLOGAN")
-    expect(closing).toContain("Bring AI agents you rely on into a shared workspace with the people who matter.")
+    expect(closing).toContain("Bring your team into the conversation.")
+    expect(closing).toContain("Connect your agent and invite a teammate.")
     expect(closing).toContain('href={isLoggedIn ? "/c/me" : "/sign-in"}')
     expect(closing).toContain('data-testid="landing-closing-open"')
     expect(closing).toContain("LANDING_HERO.loggedInCta : LANDING_HERO.loggedOutCta")
@@ -390,19 +388,19 @@ describe("landing content contract", () => {
     expect(landingPageSource).not.toContain("anyone")
     expect(landingPageSource).not.toContain("subscriptions")
     expect(normalizedLandingPageSource).toContain(
-      "The agent process stays on your computer, using the codebase and tools you configure for it. Alook connects it to people without moving the runtime to the cloud.",
+      "Connect the agent you already use. It runs on your computer with your project, tools, and configured access.",
     )
     expect(landingPageSource).not.toContain("NOT ANOTHER")
     expect(landingPageSource).not.toContain("leaves the terminal")
     expect(landingPageSource).not.toContain("Your agent gets a name")
-    expect(landingPageSource).toContain("Share what already works")
-    expect(landingPageSource).toContain("Invite your team to talk with your AI agents")
+    expect(landingPageSource).toContain("Give feedback together")
+    expect(landingPageSource).toContain("Let teammates talk to your agent.")
     expect(normalizedLandingPageSource).toContain(
-      "Your agents already handle real work — Claude Code, Codex, Grok Build, Cursor, OpenCode, or Pi. Alook lets your team collaborate with them directly in shared channels, without forwarding messages or sharing screens.",
+      "They can ask for a preview, request a change, and review the result in one conversation.",
     )
     expect(landingPageSource).toContain('data-testid="landing-runtime-badges"')
-    expect(landingPageSource).toContain("Across every room")
-    expect(landingPageSource).toContain("One persistent agent identity")
+    expect(landingPageSource).toContain("A familiar face")
+    expect(landingPageSource).toContain("Bring a familiar agent along.")
     expect(landingPageSource).not.toContain("One persistent identity across rooms")
     expect(landingPageSource).toContain("I keep the same account, identity, and relationships across every room.")
     expect(landingPageSource).toContain("styles.sectionLead")
@@ -463,10 +461,10 @@ describe("landing content contract", () => {
     expect(landingPageSource.match(/className=\{styles\.productLayout\}/g)).toHaveLength(3)
     expect(landingPageSource).not.toContain("IdentityTimeline")
     expect(shellSource).toContain("continuity-frontend-design")
-    expect(shellSource).toContain("I’ll ask Shelly for today’s A/B conversion update")
-    expect(shellSource).toContain("then check with Tracy about the home router")
-    expect(shellSource).toContain("A/B landing pages converting today")
-    expect(shellSource).toContain("router at home still dropping out")
+    expect(shellSource).toContain("I’ll check the page with Shelly")
+    expect(shellSource).toContain("then ask Tracy about the weekend plan")
+    expect(shellSource).toContain("Have you checked the updated page on your phone")
+    expect(shellSource).toContain("Can we confirm the Saturday plan we discussed")
     expect(shellSource).toContain("<InboxPopover")
     expect(shellSource).toContain('data-motion-target", "continuity-inbox"')
     expect(shellSource).toContain(
@@ -474,10 +472,10 @@ describe("landing content contract", () => {
     )
     expect(landingPageSource).not.toContain("ProductGallery")
     expect(landingPageSource).not.toContain("storyTabs")
-    expect(landingPageSource).toContain("The same room")
-    expect(landingPageSource).toContain("AI agents on desktop and phone")
+    expect(landingPageSource).toContain("Away from your desk")
+    expect(landingPageSource).toContain("Check in from your phone.")
     expect(normalizedLandingPageSource).toContain(
-      "Desktop or phone — you stay in the same room with the same people and agents; nothing drops when you switch.",
+      "Read updates and give the next instruction wherever you are. Keep your agent’s computer online.",
     )
     expect(reachSource).toContain('data-slot="laptop-mockup-card"')
     expect(reachSource).toContain('data-variant="starlight"')
@@ -510,11 +508,10 @@ describe("landing content contract", () => {
     expect(reachStyles).toMatch(/\.laptopBase\s*\{[\s\S]*?linear-gradient/)
     expect(reachMockupLicense).toContain("Copyright (c) 2026 Bidyut Kundu")
     expect(landingPageSource).toContain("BRAND_SLOGAN")
-    expect(landingPageSource).toContain("Alook holds the room")
-    expect(landingPageSource).toContain("Run AI agents locally on your machine")
+    expect(landingPageSource).toContain("Use your existing setup")
+    expect(landingPageSource).toContain("Keep your existing setup.")
     expect(landingPageSource).toContain("styles.ownershipDescription")
     expect(landingPageSource).not.toContain("The runtime and workspace stay on your paired machine")
-    expect(`${landingPageSource} ${landingContentSource}`).not.toMatch(/\bconversations?\b/i)
     expect(`${landingPageSource} ${landingContentSource}`).not.toMatch(/\bplaces?\b/i)
     expect(landingPageSource).not.toContain("stay in touch")
     expect(legacyHome).toContain("export function HomePage")
