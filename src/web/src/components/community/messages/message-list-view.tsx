@@ -189,7 +189,7 @@ function MessageListSkeletonContent({ variant }: { variant: "channel" | "dm" }) 
       <div
         aria-hidden="true"
         data-message-list-skeleton-tail
-        className="h-14 shrink-0 sm:h-18"
+        className="h-10 shrink-0 sm:h-12"
       />
     </>
   )

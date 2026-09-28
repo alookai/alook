@@ -93,7 +93,7 @@ async function mountHook({
   presentVersion,
   viewerUserId,
   onInitialPositionSettled,
-  tailPaddingEnd = 72,
+  tailPaddingEnd = 48,
 }: {
   distanceToEnd?: number
   initialClientHeight?: number
@@ -252,8 +252,8 @@ afterEach(() => vi.unstubAllGlobals())
 
 describe("useScrollAnchor delayed row-growth re-pin", () => {
   it("puts the fixed rail clearance inside the virtual total", async () => {
-    await mountHook({ tailPaddingEnd: 56 })
-    expect(virtualizerOptions?.paddingEnd).toBe(56)
+    await mountHook({ tailPaddingEnd: 40 })
+    expect(virtualizerOptions?.paddingEnd).toBe(40)
   })
 
   it("cancels a pending older-page frame from the unmount fallback", async () => {

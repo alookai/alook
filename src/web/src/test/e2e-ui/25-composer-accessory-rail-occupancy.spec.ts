@@ -192,7 +192,7 @@ function expectCheckpoint(
 ): void {
   const evidence = `${state}@${width}: ${JSON.stringify(metrics)}`
   const expectedGap = width < 640 ? 8 : 16
-  const expectedTailGap = width < 640 ? 56 : 72
+  const expectedTailGap = width < 640 ? 40 : 48
   expect(metrics.contentPaddingBottom, evidence).toBe(0)
   expect(metrics.scroller.bottom, evidence).toBeLessThanOrEqual(metrics.composer.top + 1)
   if (metrics.typing?.width) {
@@ -341,7 +341,7 @@ async function captureEmptyState(
     await expect(page.getByTestId(tid.composerAccessoryRail)).toHaveCount(0)
     await expect(page.getByTestId(tid.channelComposerShell)).toBeVisible()
     const metrics = await settledRailMetrics(page, finalMessageId)
-    const expectedTailGap = width < 640 ? 56 : 72
+    const expectedTailGap = width < 640 ? 40 : 48
     expect(metrics.contentPaddingBottom).toBe(0)
     expect(metrics.scroller.bottom - metrics.finalMessage!.bottom)
       .toBeGreaterThanOrEqual(expectedTailGap - 1)

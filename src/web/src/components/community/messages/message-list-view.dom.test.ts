@@ -140,7 +140,7 @@ describe("renderMessageListView", () => {
     expect(content).toHaveClass("opacity-100")
     expect(content).not.toHaveClass("transition-opacity", "duration-300")
     expect(content.querySelector("[data-message-list-skeleton-tail]")).toHaveClass(
-      "h-14", "sm:h-18", "shrink-0",
+      "h-10", "sm:h-12", "shrink-0",
     )
   })
 
@@ -172,7 +172,7 @@ describe("renderMessageListView", () => {
     )
     expect(skeleton.querySelector('[data-slot="skeleton"]')).toBeInTheDocument()
     expect(skeleton.querySelector("[data-message-list-skeleton-tail]")).toHaveClass(
-      "h-14", "sm:h-18", "shrink-0",
+      "h-10", "sm:h-12", "shrink-0",
     )
   })
 
@@ -183,7 +183,7 @@ describe("renderMessageListView", () => {
 
     expect(content).not.toHaveClass("pb-4", "sm:pb-6", "pb-14", "sm:pb-18")
     expect(tail).toHaveAttribute("aria-hidden", "true")
-    expect(tail).toHaveClass("h-14", "sm:h-18", "shrink-0")
+    expect(tail).toHaveClass("h-10", "sm:h-12", "shrink-0")
   })
 
   it("keeps the typed positioning skeleton through a timeout until settlement", () => {

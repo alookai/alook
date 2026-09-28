@@ -31,7 +31,7 @@ vi.mock("@/hooks/use-mobile", () => ({
 }))
 
 vi.mock("@/hooks/community/use-scroll-anchor", () => ({
-  resolveMessageRailTailPaddingEnd: (breakpoint: string) => breakpoint === "mobile" ? 56 : 72,
+  resolveMessageRailTailPaddingEnd: (breakpoint: string) => breakpoint === "mobile" ? 40 : 48,
   useScrollAnchor: (input: unknown) => {
     mocks.hookOrder.push("anchor")
     mocks.scrollInputs.push(input)
@@ -202,7 +202,7 @@ describe("useMessageListController", () => {
       viewerUserId: undefined,
       heroHeight: 0,
       heroMeasured: false,
-      tailPaddingEnd: 72,
+      tailPaddingEnd: 48,
       onInitialPositionSettled: expect.any(Function),
     })
     expect(mocks.sentinelInputs.slice(0, 2)).toEqual([
@@ -248,7 +248,7 @@ describe("useMessageListController", () => {
       rtlRender(React.createElement(Probe, { value: props() }))
     })
     expect(mocks.scrollInputs.at(-1)).toEqual(expect.objectContaining({
-      tailPaddingEnd: 56,
+      tailPaddingEnd: 40,
     }))
   })
 
@@ -268,7 +268,7 @@ describe("useMessageListController", () => {
     })
     const withTyping = mocks.scrollInputs.at(-1) as { tailPaddingEnd: number }
 
-    expect(withoutTyping.tailPaddingEnd).toBe(72)
+    expect(withoutTyping.tailPaddingEnd).toBe(48)
     expect(withTyping.tailPaddingEnd).toBe(withoutTyping.tailPaddingEnd)
   })
 
@@ -342,7 +342,7 @@ describe("useMessageListController", () => {
       viewerUserId: "viewer_1",
       heroHeight: 0,
       heroMeasured: true,
-      tailPaddingEnd: 72,
+      tailPaddingEnd: 48,
       onInitialPositionSettled: expect.any(Function),
     })
     expect(mocks.sentinelInputs.slice(-2)).toEqual([

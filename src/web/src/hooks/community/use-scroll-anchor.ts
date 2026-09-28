@@ -41,9 +41,11 @@ import { estimateRowHeight, computeBelowCount, type FlatItem } from "@/lib/commu
 // `resizeItem` above-viewport compensation (defaults to 1px otherwise).
 export const NEAR_BOTTOM_PX = 100
 
+// Reserve exactly the 32px pill plus its responsive bottom offset. The owner
+// intentionally does not want additional visual clearance below messages.
 export const MESSAGE_RAIL_TAIL_PADDING_END_PX = {
-  mobile: 56,
-  desktop: 72,
+  mobile: 40,
+  desktop: 48,
 } as const
 
 export function resolveMessageRailTailPaddingEnd(

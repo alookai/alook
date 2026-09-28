@@ -518,8 +518,8 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
     composerId: tid.channelComposerShell,
   })
   expect(restingThreadGap).not.toBeNull()
-  expect(restingThreadGap!).toBeGreaterThanOrEqual(55)
-  expect(restingThreadGap!).toBeLessThanOrEqual(57)
+  expect(restingThreadGap!).toBeGreaterThanOrEqual(39)
+  expect(restingThreadGap!).toBeLessThanOrEqual(41)
   const threadWsReadyId = await seedMessage("alice", threadId, `thread ws ready ${stamp}`)
   await expect.poll(() => bobProxy.frames.some((frame) => (
     frameHasMessage(frame, threadId, threadWsReadyId)
@@ -657,8 +657,8 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   expect(geometry.rail!.bottom).toBeLessThanOrEqual(geometry.scroller!.bottom + 1)
   expect(geometry.indicator!.height).toBe(32)
   expect(Math.abs(geometry.scroller!.bottom - geometry.indicator!.bottom - 8)).toBeLessThanOrEqual(1)
-  expect(geometry.scroller!.bottom - geometry.finalMessage!.bottom).toBeGreaterThanOrEqual(55)
-  expect(geometry.scroller!.bottom - geometry.finalMessage!.bottom).toBeLessThanOrEqual(57)
+  expect(geometry.scroller!.bottom - geometry.finalMessage!.bottom).toBeGreaterThanOrEqual(39)
+  expect(geometry.scroller!.bottom - geometry.finalMessage!.bottom).toBeLessThanOrEqual(41)
   expect(geometry.finalMessage!.bottom).toBeLessThanOrEqual(geometry.scroller!.bottom + 1)
   expect(geometry.horizontalOverflow).toBeLessThanOrEqual(0)
 

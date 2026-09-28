@@ -21,11 +21,11 @@ import type { VirtualItem } from "@tanstack/react-virtual"
 const msgs = (...ids: string[]): ScrollAnchorMessage[] => ids.map((id) => ({ id }))
 
 describe("message rail tail geometry", () => {
-  it("resolves the fixed 56px mobile and 72px desktop virtual tail", () => {
-    expect(MESSAGE_RAIL_TAIL_PADDING_END_PX).toEqual({ mobile: 56, desktop: 72 })
-    expect(resolveMessageRailTailPaddingEnd("mobile")).toBe(56)
-    expect(resolveMessageRailTailPaddingEnd("desktop")).toBe(72)
-    expect(resolveMessageRailTailPaddingEnd("unknown")).toBe(72)
+  it("resolves the fixed 40px mobile and 48px desktop virtual tail", () => {
+    expect(MESSAGE_RAIL_TAIL_PADDING_END_PX).toEqual({ mobile: 40, desktop: 48 })
+    expect(resolveMessageRailTailPaddingEnd("mobile")).toBe(40)
+    expect(resolveMessageRailTailPaddingEnd("desktop")).toBe(48)
+    expect(resolveMessageRailTailPaddingEnd("unknown")).toBe(48)
   })
 })
 

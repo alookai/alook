@@ -390,7 +390,7 @@ async function expectSkeletonTailGeometry(
         : null,
     }
   }, tid.messageScroller)
-  const expectedTail = width < 640 ? 56 : 72
+  const expectedTail = width < 640 ? 40 : 48
   expect(geometry.contentPaddingBottom, `${label}: outer padding`).toBe(0)
   expect(geometry.tailHeight, `${label}: placeholder height`).toBe(expectedTail)
   expect(geometry.scrollerBottom, `${label}: scroller boundary`).not.toBeNull()
@@ -1000,8 +1000,8 @@ test.describe.serial("message scroll characterization", () => {
       messageId: tid.message(composerDmProfile.ids.at(-1)!),
     })
     expect(tailGeometry.paddingBottom).toBe(0)
-    expect(tailGeometry.tailGap).toBeGreaterThanOrEqual(71)
-    expect(tailGeometry.tailGap).toBeLessThanOrEqual(73)
+    expect(tailGeometry.tailGap).toBeGreaterThanOrEqual(47)
+    expect(tailGeometry.tailGap).toBeLessThanOrEqual(49)
     expect(tailGeometry.scrollerBottom).toBeLessThanOrEqual(tailGeometry.composerTop + 1)
     await startScrollTrace(alice.page, {
       scenario: "dm-composer-clear-viewport",
