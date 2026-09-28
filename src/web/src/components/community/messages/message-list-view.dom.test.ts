@@ -1,7 +1,7 @@
 import React from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { render } from "@/test/react-dom-harness"
-import { renderMessageListView } from "./message-list-view"
+import { MessageListSkeleton, renderMessageListView } from "./message-list-view"
 import { ComposerAccessoryRail } from "./composer-accessory-rail"
 import { MessageShareDialog } from "./message-share-dialog"
 import type { MessageListController } from "./message-list-controller"
@@ -139,6 +139,9 @@ describe("renderMessageListView", () => {
     const content = renderer.container.querySelector<HTMLElement>("[data-message-list-content]")!
     expect(content).toHaveClass("opacity-100")
     expect(content).not.toHaveClass("transition-opacity", "duration-300")
+    expect(content.querySelector("[data-message-list-skeleton-tail]")).toHaveClass(
+      "h-14", "sm:h-18", "shrink-0",
+    )
   })
 
   it("keeps positioned rows measurable but inert and hidden until reveal starts", () => {
@@ -168,6 +171,19 @@ describe("renderMessageListView", () => {
       "absolute", "inset-0", "z-20", "pointer-events-none", "opacity-100",
     )
     expect(skeleton.querySelector('[data-slot="skeleton"]')).toBeInTheDocument()
+    expect(skeleton.querySelector("[data-message-list-skeleton-tail]")).toHaveClass(
+      "h-14", "sm:h-18", "shrink-0",
+    )
+  })
+
+  it("reserves the responsive rail tail in the standalone skeleton", () => {
+    const renderer = render(React.createElement(MessageListSkeleton))
+    const content = renderer.container.querySelector<HTMLElement>("[data-message-list-content]")!
+    const tail = content.querySelector("[data-message-list-skeleton-tail]")
+
+    expect(content).not.toHaveClass("pb-4", "sm:pb-6", "pb-14", "sm:pb-18")
+    expect(tail).toHaveAttribute("aria-hidden", "true")
+    expect(tail).toHaveClass("h-14", "sm:h-18", "shrink-0")
   })
 
   it("keeps the typed positioning skeleton through a timeout until settlement", () => {
