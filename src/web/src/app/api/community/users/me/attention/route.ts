@@ -25,7 +25,13 @@ export const GET = withAuth(async (request, ctx) => {
       items: [],
       limit,
       truncated: false,
-      included: { profiles: [], messages: [] },
+      included: {
+        servers: [],
+        channels: [],
+        dms: [],
+        profiles: [],
+        messages: [],
+      },
     },
     { route: "community/attention" },
   )

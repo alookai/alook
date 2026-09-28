@@ -34,8 +34,6 @@ import {
   publishCommunityChannelDirectory,
   publishCommunityLiveSnapshot as publishCommunityLiveSnapshotWithProof,
   publishAccountAttentionSnapshot,
-  projectAttentionUnreadBump,
-  projectAttentionMentionHint,
   projectCommunityWsEventToDb,
   purgeCommunityChannel,
   purgeCommunityServer,
@@ -1116,7 +1114,7 @@ describe("community DB sync", () => {
     expect(db.collections.readStates.get("c1")).toBeUndefined()
   })
 
-  it("preserves a WS fact that exists before an older snapshot request begins", async () => {
+  it("lets one authoritative snapshot replace the complete prior attention truth", async () => {
     const db = await registry()
     const scope = {
       scopeId: "c1",
@@ -1128,20 +1126,19 @@ describe("community DB sync", () => {
       lastAttentionSeq: 4,
       attentionCount: 1,
     }
-    projectAttentionUnreadBump(db.queryClient, {
-      type: "community:unread.bump",
-      userId: db.accountId,
-      channelId: "c1",
-      serverId: "s1",
-      isMention: true,
-    }, { seq: 4 })
+    ingestAttentionSnapshot(db, {
+      scopes: [scope],
+      items: [],
+      limit: 100,
+      truncated: false,
+    })
     const token = captureCommunityLiveSnapshotToken(db.queryClient)
 
     expect(publishAccountAttentionSnapshot(db.queryClient, {
       snapshot: { scopes: [], items: [], limit: 100, truncated: false },
       proof: { token, signal: undefined },
     })).toBe("published")
-    expect(db.collections.attentionScopes.get("c1")).toMatchObject(scope)
+    expect(db.collections.attentionScopes.get("c1")).toBeUndefined()
   })
 
   it("does not roll back an optimistic clear started before or during a snapshot GET", async () => {
@@ -1325,45 +1322,40 @@ describe("community DB sync", () => {
         attentionCount: 1,
       })
       expect(db.collections.attentionItems.get(newItem.id)).toMatchObject(newItem)
-      projectAttentionUnreadBump(db.queryClient, {
-        type: "community:unread.bump",
-        userId: "viewer",
-        channelId: "c1",
-        serverId: "s1",
-        isMention: true,
-      }, { seq: 4 })
-      projectAttentionMentionHint(db.queryClient, {
-        type: "community:mention.create",
-        userId: "viewer",
-        channelId: "c1",
-        messageId: "m4",
-        authorName: "Peer",
-      })
-      expect(db.collections.attentionScopes.get("c1")?.attentionCount).toBe(1)
-      expect(db.collections.attentionItems.get("pending:m4")).toBeUndefined()
-
       if (terminal === "success") {
         ingestAttentionSnapshot(db, truncatedSnapshot)
         commitAttentionScopeOptimisticSnapshot(db, optimistic)
         expect(db.collections.attentionScopes.get("c1")?.attentionCount).toBe(1)
       } else {
-        projectAttentionUnreadBump(db.queryClient, {
-          type: "community:unread.bump",
-          userId: "viewer",
-          channelId: "c1",
-          serverId: "s1",
-          isMention: true,
-        }, { seq: 6 })
-        projectAttentionMentionHint(db.queryClient, {
-          type: "community:mention.create",
-          userId: "viewer",
-          channelId: "c1",
-          messageId: "m6",
-          authorName: "Peer",
+        const newerSnapshot = {
+          scopes: [{
+            ...truncatedSnapshot.scopes[0]!,
+            lastUnreadSeq: 6,
+            lastAttentionSeq: 6,
+            attentionCount: 2,
+          }],
+          items: [newItem, {
+            id: "mention:m6",
+            kind: "mention" as const,
+            sourceId: "m6",
+            scopeId: "c1",
+            messageId: "m6",
+            actorUserId: "u2",
+            createdAt: "2026-09-27T01:02:00.000Z",
+          }],
+          limit: 100,
+          truncated: true,
+          included: { servers: [], channels: [], dms: [], profiles: [], messages: [] },
+        }
+        const reconcileToken = captureCommunityLiveSnapshotToken(db.queryClient)
+        publishAccountAttentionSnapshot(db.queryClient, {
+          snapshot: newerSnapshot,
+          proof: { token: reconcileToken },
         })
-        expect(restoreAttentionScopeOptimisticSnapshot(db, optimistic)).toBe(false)
+        expect(restoreAttentionScopeOptimisticSnapshot(db, optimistic)).toBe(true)
+        ingestAttentionSnapshot(db, newerSnapshot)
         expect(db.collections.attentionScopes.get("c1")?.attentionCount).toBe(2)
-        expect(db.collections.attentionItems.get("pending:m6")).toMatchObject({
+        expect(db.collections.attentionItems.get("mention:m6")).toMatchObject({
           messageId: "m6",
         })
       }
@@ -1458,7 +1450,8 @@ describe("community DB sync", () => {
       actorUserId: "u2",
       createdAt: `2026-09-27T01:0${seq}:00.000Z`,
     }))
-    ingestAttentionSnapshot(db, {
+    const reconcileToken = captureCommunityLiveSnapshotToken(db.queryClient)
+    publishAccountAttentionSnapshot(db.queryClient, { snapshot: {
       scopes: [{
         scopeId: "c1",
         channelId: "c1",
@@ -1472,7 +1465,8 @@ describe("community DB sync", () => {
       items,
       limit: 100,
       truncated: false,
-    })
+      included: { servers: [], channels: [], dms: [], profiles: [], messages: [] },
+    }, proof: { token: reconcileToken } })
     const oldest = clearAttentionScopeOptimistically(db, "c1", 4)
     const middle = clearAttentionScopeOptimistically(db, "c1", 5)
     const newest = clearAttentionScopeOptimistically(db, "c1", 6)
@@ -1484,7 +1478,7 @@ describe("community DB sync", () => {
     expect(db.collections.attentionItems.get("mention:6")).toBeDefined()
   })
 
-  it("preserves a higher-seq WS scope and item when the older optimistic read fails", async () => {
+  it("preserves a higher-seq authoritative scope and item when an older optimistic read fails", async () => {
     const db = await registry()
     ingestMessages(db, "c1", [{
       id: "m5",
@@ -1517,28 +1511,39 @@ describe("community DB sync", () => {
       truncated: false,
     })
     const optimistic = clearAttentionScopeOptimistically(db, "c1", 4)
-    projectAttentionUnreadBump(db.queryClient, {
-      type: "community:unread.bump",
-      userId: "viewer",
-      channelId: "c1",
-      serverId: "s1",
-      isMention: true,
-    }, { seq: 5 })
-    projectAttentionMentionHint(db.queryClient, {
-      type: "community:mention.create",
-      userId: "viewer",
-      channelId: "c1",
-      messageId: "m5",
-      authorName: "Peer",
-    })
+    const newerSnapshot = {
+      scopes: [{
+        scopeId: "c1",
+        channelId: "c1",
+        serverId: "s1",
+        parentChannelId: null,
+        ordinaryUnread: true,
+        lastUnreadSeq: 5,
+        lastAttentionSeq: 5,
+        attentionCount: 1,
+      }],
+      items: [{
+        id: "mention:m5",
+        kind: "mention",
+        sourceId: "m5",
+        scopeId: "c1",
+        messageId: "m5",
+        actorUserId: "u2",
+        createdAt: "2026-09-27T01:01:00.000Z",
+      }],
+      limit: 100,
+      truncated: false,
+    }
+    ingestAttentionSnapshot(db, newerSnapshot)
 
-    expect(restoreAttentionScopeOptimisticSnapshot(db, optimistic)).toBe(false)
+    expect(restoreAttentionScopeOptimisticSnapshot(db, optimistic)).toBe(true)
+    ingestAttentionSnapshot(db, newerSnapshot)
     expect(db.collections.attentionScopes.get("c1")).toMatchObject({
       lastUnreadSeq: 5,
       lastAttentionSeq: 5,
       attentionCount: 1,
     })
-    expect(db.collections.attentionItems.get("pending:m5")).toMatchObject({
+    expect(db.collections.attentionItems.get("mention:m5")).toMatchObject({
       messageId: "m5",
     })
     expect(db.collections.attentionItems.get("mention:old")).toBeUndefined()

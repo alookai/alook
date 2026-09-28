@@ -45,7 +45,9 @@ describe("GET /api/community/users/me/attention", () => {
       items: [],
       limit: 100,
       truncated: false,
-      included: { profiles: [], messages: [] },
+      included: {
+        servers: [], channels: [], dms: [], profiles: [], messages: [],
+      },
     })
 
     const response = await GET(new Request("http://localhost/api/community/users/me/attention") as any)

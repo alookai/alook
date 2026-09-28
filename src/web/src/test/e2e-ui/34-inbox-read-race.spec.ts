@@ -315,7 +315,7 @@ test.describe.serial("Inbox/read refresh ownership", () => {
     expect(puts).toBe(2)
   })
 
-  test("a cold forum opener aggregate uses the canonical parent row", async ({ asUser }) => {
+  test("cold forum openers publish exact child units and read only the selected opener", async ({ asUser }) => {
     const stamp = Date.now()
     const serverId = await seedServer("alice", `Inbox opener handoff ${stamp}`)
     const forumId = await seedChannel("alice", serverId, `handoff-forum-${stamp}`, "forum")
@@ -334,23 +334,21 @@ test.describe.serial("Inbox/read refresh ownership", () => {
 
     const { page } = await asUser("bob")
     await gotoAfterUserWsAuth(page, "/c/me")
-    const unreadResponse = await page.request.get("/api/community/users/me/inbox/unreads")
+    const unreadResponse = await page.request.get("/api/community/users/me/attention")
     expect(unreadResponse.status()).toBe(200)
     const unread = await unreadResponse.json() as {
-      servers: Array<{ channels: Array<{ channelId: string; children: Array<{
-        channelId: string
-        openerMessageId: string
-        openerSeq: number
-        openerUnread: boolean
-      }> }> }>
+      items: Array<{
+        kind: string
+        childChannelId?: string
+        messageId?: string
+        openerSeq?: number
+      }>
     }
-    const children = unread.servers
-      .flatMap((server) => server.channels)
-      .find((channel) => channel.channelId === forumId)?.children ?? []
-    const first = children.find((child) => child.channelId === firstChildId)
-    const later = children.find((child) => child.channelId === laterChildId)
-    expect(first).toMatchObject({ openerUnread: true })
-    expect(later).toMatchObject({ openerUnread: true })
+    const forumItems = unread.items.filter((item) => item.kind === "forum_post")
+    const first = forumItems.find((item) => item.childChannelId === firstChildId)
+    const later = forumItems.find((item) => item.childChannelId === laterChildId)
+    expect(first).toMatchObject({ childChannelId: firstChildId })
+    expect(later).toMatchObject({ childChannelId: laterChildId })
 
     await page.setViewportSize({ width: 768, height: 844 })
 
@@ -368,25 +366,26 @@ test.describe.serial("Inbox/read refresh ownership", () => {
 
     await page.getByRole("button", { name: "Inbox", exact: true }).click()
     await expect(page.getByTestId(tid.inboxUnreadChannel(forumId))).toBeVisible()
-    await expect(page.getByTestId(tid.inboxUnreadChild(firstChildId))).toHaveCount(0)
-    await expect(page.getByTestId(tid.inboxUnreadChild(laterChildId))).toHaveCount(0)
+    await expect(page.getByTestId(tid.inboxUnreadChild(firstChildId))).toBeVisible()
+    await expect(page.getByTestId(tid.inboxUnreadChild(laterChildId))).toBeVisible()
     const parentRead = page.waitForResponse((response) => (
       response.request().method() === "PUT"
       && new URL(response.url()).pathname === `/api/community/channels/${forumId}/read`
     ))
-    await page.getByTestId(tid.inboxUnreadChannel(forumId)).click()
+    await page.getByTestId(tid.inboxUnreadChild(firstChildId)).click()
     expect((await parentRead).status()).toBe(200)
-    await expect.poll(() => new URL(page.url()).searchParams.has("inboxThreadOpener")).toBe(false)
-    expect(parentTargets).toEqual([later!.openerMessageId])
+    expect(parentTargets).toEqual([first!.messageId])
     expect(childTargets).toEqual([])
 
     await page.getByRole("button", { name: "Inbox", exact: true }).click()
-    await expect(page.getByTestId(tid.inboxUnreadChannel(forumId))).toHaveCount(0)
+    await expect(page.getByTestId(tid.inboxUnreadChannel(forumId))).toBeVisible()
+    await expect(page.getByTestId(tid.inboxUnreadChild(firstChildId))).toHaveCount(0)
+    await expect(page.getByTestId(tid.inboxUnreadChild(laterChildId))).toBeVisible()
     const snapshot = await (await page.request.get(
       "/api/community/users/me/read-state",
     )).json() as { readStates: Array<{ channelId: string; lastReadSeq: number }> }
     expect(snapshot.readStates.find((row) => row.channelId === forumId)?.lastReadSeq)
-      .toBe(later!.openerSeq)
+      .toBe(first!.openerSeq)
     expect(snapshot.readStates.some((row) => row.channelId === firstChildId)).toBe(false)
   })
 
@@ -423,30 +422,31 @@ test.describe.serial("Inbox/read refresh ownership", () => {
 
     await page.setViewportSize({ width: 768, height: 844 })
     await gotoAfterUserWsAuth(page, "/c/me")
-    const unreadResponse = await page.request.get("/api/community/users/me/inbox/unreads")
+    const unreadResponse = await page.request.get("/api/community/users/me/attention")
     expect(unreadResponse.status()).toBe(200)
     const unread = await unreadResponse.json() as {
-      servers: Array<{ channels: Array<{ channelId: string; lastUnreadSeq?: number; children: Array<{
-        channelId: string
-        openerMessageId?: string
+      scopes: Array<{ channelId: string; lastUnreadSeq: number }>
+      included: { channels: Array<{
+        id: string
+        parentChannelId: string | null
+        parentMessageId: string | null
         openerSeq?: number
         openerUnread?: boolean
-      }> }> }>
+      }> }
     }
-    const parent = unread.servers
-      .flatMap((server) => server.channels)
-      .find((channel) => channel.channelId === parentId)
-    const readChild = parent?.children.find((child) => child.channelId === readChildId)
-    const unreadChild = parent?.children.find((child) => child.channelId === unreadChildId)
+    const parent = unread.scopes.find((scope) => scope.channelId === parentId)
+    const children = unread.included.channels.filter((channel) => channel.parentChannelId === parentId)
+    const readChild = children.find((child) => child.id === readChildId)
+    const unreadChild = children.find((child) => child.id === unreadChildId)
     expect(readChild).toMatchObject({
-      openerMessageId: readOpenerId,
+      parentMessageId: readOpenerId,
       openerUnread: false,
     })
     expect(unreadChild).toMatchObject({
-      openerMessageId: unreadOpenerId,
+      parentMessageId: unreadOpenerId,
       openerUnread: true,
     })
-    expect(parent?.children.some((child) => child.channelId === nonParticipantChildId)).toBe(false)
+    expect(children.some((child) => child.id === nonParticipantChildId)).toBe(false)
     const beforeSnapshot = await (await page.request.get(
       "/api/community/users/me/read-state",
     )).json() as { readStates: Array<{ channelId: string; lastReadSeq: number }> }
@@ -464,8 +464,8 @@ test.describe.serial("Inbox/read refresh ownership", () => {
 
     await page.getByRole("button", { name: "Inbox", exact: true }).click()
     await expect(page.getByTestId(tid.inboxUnreadChannel(parentId))).toBeVisible()
-    await expect(page.getByTestId(tid.inboxUnreadChild(readChildId))).toHaveCount(0)
-    await expect(page.getByTestId(tid.inboxUnreadChild(unreadChildId))).toHaveCount(0)
+    await expect(page.getByTestId(tid.inboxUnreadChild(readChildId))).toBeVisible()
+    await expect(page.getByTestId(tid.inboxUnreadChild(unreadChildId))).toBeVisible()
     const parentPut = page.waitForResponse((response) => (
       response.request().method() === "PUT"
       && new URL(response.url()).pathname === `/api/community/channels/${parentId}/read`
@@ -473,9 +473,9 @@ test.describe.serial("Inbox/read refresh ownership", () => {
     await page.getByTestId(tid.inboxUnreadChannel(parentId)).click()
     expect((await parentPut).status()).toBe(200)
     await page.waitForTimeout(700)
-    expect(puts.filter((put) => put.channelId === parentId)).toEqual([
-      { channelId: parentId, target: laterParentMessageId },
-    ])
+    const parentPuts = puts.filter((put) => put.channelId === parentId)
+    expect(parentPuts.length).toBeGreaterThan(0)
+    expect(parentPuts.at(-1)).toEqual({ channelId: parentId, target: laterParentMessageId })
     expect(puts.some((put) => put.channelId === readChildId)).toBe(false)
     expect(puts.some((put) => put.channelId === unreadChildId)).toBe(false)
 

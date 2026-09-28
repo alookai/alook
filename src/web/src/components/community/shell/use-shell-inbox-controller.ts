@@ -5,7 +5,7 @@ import { communityKeys } from "@/lib/query-keys"
 import { channelHref } from "@/lib/community/community-route"
 import type { Marked, Mention, UnreadDm, UnreadServer } from "@/lib/community/models/inbox"
 import { dmSummaryFromInbox, upsertDmSummary, type DmCache } from "@/lib/community/dm-cache"
-import { useInboxUnreads, useInboxMentions, useInboxMarked } from "@/hooks/community/use-inbox"
+import { useInboxAttention, useInboxMarked } from "@/hooks/community/use-inbox"
 import { startDmRouteVerification } from "@/hooks/community/use-dm-route-verification"
 import { useInboxAutoCollapse } from "@/hooks/community/use-inbox-auto-collapse"
 import {
@@ -36,7 +36,6 @@ import { startConversationNavigationWarmup } from "@/lib/community/conversation-
 import type { ConversationNavigationTarget } from "@/lib/community/conversation-navigation-proof"
 import { cancelConversationNavigationProof } from "@/lib/community/conversation-navigation-proof"
 import { publishCommunityDmSummary } from "@/lib/community-db/sync"
-import { inboxUnreadCount } from "@/lib/community/inbox-unread-count"
 
 type UnreadChannel = UnreadServer["channels"][number]
 type UnreadChild = UnreadChannel["children"][number]
@@ -66,15 +65,11 @@ export function useShellInboxController({
     if (router.pushImmediate) router.pushImmediate(href)
     else router.push(href)
   }, [router])
-  const inboxUnreads = useInboxUnreads()
-  const inboxMentions = useInboxMentions()
-  const unreadFeed = inboxUnreads.servers
-  const unreadDms = inboxUnreads.dms
-  const mentions = inboxMentions.mentions
-  const loading = inboxUnreads.isLoading
-    || inboxMentions.isLoading
-    || inboxUnreads.isProjectionPending
-    || inboxMentions.isProjectionPending
+  const attention = useInboxAttention()
+  const unreadFeed = attention.servers
+  const unreadDms = attention.dms
+  const mentions = attention.mentions
+  const loading = attention.isLoading
   const [markedTabOpened, setMarkedTabOpened] = useState(false)
   const [activeTab, setActiveTab] = useState<InboxTab>("unreads")
   const scrollOffsetsRef = useRef<Record<InboxTab, number>>({
@@ -113,7 +108,7 @@ export function useShellInboxController({
     [rejectFriendRequest],
   )
   const friendRequestActions = useFriendRequestActionState({
-    rows: inboxUnreads.friendRequests,
+    rows: attention.friendRequests,
     onAccept: acceptRequest,
     onReject: rejectRequest,
     surface: "inbox",
@@ -303,8 +298,10 @@ export function useShellInboxController({
     marked: inboxMarked.marked,
     markedLoading: inboxMarked.isLoading,
     loading,
-    hasProjectedUnreads: inboxUnreads.hasProjectedUnread,
-    hasProjectedMentions: inboxMentions.hasProjectedMention,
+    attentionError: attention.isInitialError,
+    onRetryAttention: () => { void attention.refetch() },
+    hasProjectedUnreads: attention.hasUnread,
+    hasProjectedMentions: attention.hasMention,
     onOpenChannel: openServerChannel,
     onOpenThread: openThread,
     onOpenDm: openDm,
@@ -322,18 +319,8 @@ export function useShellInboxController({
     onMarkAllRead: () => { markAllInboxRead.mutate() },
     onDeleteMention: (id) => deleteMention.mutate({ mentionId: id }),
     onUnmark: (messageId) => unmarkMessageMutate({ messageId }),
-    isProjected: inbox.isProjected,
   }
-  const unreadCount = inboxUnreadCount({
-    servers: unreadFeed,
-    dms: unreadDms,
-    mentions,
-    pendingChannelIds: [
-      ...inboxUnreads.pendingChannelIds,
-      ...inboxMentions.pendingChannelIds,
-    ],
-    friendRequestCount: inboxUnreads.friendRequests.length,
-  })
+  const unreadCount = attention.exactAttentionCount
 
   return {
     popoverProps,

@@ -7,14 +7,21 @@ const mocks = vi.hoisted(() => ({
   mentions: vi.fn(),
   mentionScopes: vi.fn(),
   friends: vi.fn(),
+  channelOwners: vi.fn(),
+  serverOwners: vi.fn(),
+  forumOpeners: vi.fn(),
+  threadOpeners: vi.fn(),
 }))
 
 vi.mock("../../src/db/queries/community/channel", () => ({
   listVisibleChannelIdsForUser: (...args: unknown[]) => mocks.visible(...args),
+  getChannelsByIds: (...args: unknown[]) => mocks.channelOwners(...args),
 }))
 vi.mock("../../src/db/queries/community/inbox", () => ({
   listEligibleUnreadChannels: (...args: unknown[]) => mocks.channels(...args),
   listEligibleUnreadDms: (...args: unknown[]) => mocks.dms(...args),
+  listUnreadForumOpeners: (...args: unknown[]) => mocks.forumOpeners(...args),
+  listThreadOpenersByChildIds: (...args: unknown[]) => mocks.threadOpeners(...args),
 }))
 vi.mock("../../src/db/queries/community/mention", () => ({
   listUnreadMentions: (...args: unknown[]) => mocks.mentions(...args),
@@ -22,6 +29,9 @@ vi.mock("../../src/db/queries/community/mention", () => ({
 }))
 vi.mock("../../src/db/queries/community/friendship", () => ({
   listActionableIncomingRequests: (...args: unknown[]) => mocks.friends(...args),
+}))
+vi.mock("../../src/db/queries/community/server", () => ({
+  getServersByIds: (...args: unknown[]) => mocks.serverOwners(...args),
 }))
 
 import { getAccountAttentionSnapshot } from "../../src/db/queries/community/attention"
@@ -40,6 +50,24 @@ describe("account attention snapshot", () => {
       mentionCount: 9,
     }])
     mocks.dms.mockResolvedValue([])
+    mocks.channelOwners.mockResolvedValue([{
+      id: "c1",
+      serverId: "s1",
+      name: "general",
+      type: "text",
+      parentChannelId: null,
+      parentMessageId: null,
+      creatorId: "owner",
+      archived: 0,
+      lastMessageAt: "2026-09-27T00:00:02.000Z",
+    }])
+    mocks.serverOwners.mockResolvedValue([{
+      id: "s1",
+      name: "One",
+      discriminator: "0001",
+    }])
+    mocks.forumOpeners.mockResolvedValue([])
+    mocks.threadOpeners.mockResolvedValue([])
     mocks.mentionScopes.mockResolvedValue([{
       channelId: "c1",
       serverId: "s1",
@@ -101,6 +129,37 @@ describe("account attention snapshot", () => {
       attentionCount: 3,
       lastAttentionSeq: 7,
     }])
+    mocks.channelOwners.mockResolvedValue([{
+      id: "c1",
+      serverId: "s1",
+      name: "Post",
+      type: "thread",
+      parentChannelId: "forum1",
+      parentMessageId: "opener1",
+      creatorId: "owner",
+      archived: 0,
+      lastMessageAt: "2026-09-27T00:00:02.000Z",
+    }, {
+      id: "forum1",
+      serverId: "s1",
+      name: "Ideas",
+      type: "forum",
+      parentChannelId: null,
+      parentMessageId: null,
+      creatorId: "owner",
+      archived: 0,
+      lastMessageAt: "2026-09-27T00:00:00.000Z",
+    }])
+    mocks.threadOpeners.mockResolvedValue([{
+      parentChannelId: "forum1",
+      parentType: "forum",
+      openerMessageId: "opener1",
+      childChannelId: "c1",
+      title: "Post",
+      createdAt: "2026-09-27T00:00:00.000Z",
+      openerSeq: 1,
+      openerUnread: false,
+    }])
     const snapshot = await getAccountAttentionSnapshot({} as never, "viewer", 2)
 
     expect(snapshot.scopes).toEqual([{
@@ -152,6 +211,63 @@ describe("account attention snapshot", () => {
     })])
     expect(snapshot.items.filter((item) => item.kind !== "friend_request")).toEqual([])
     expect(snapshot.truncated).toBe(true)
+    expect(() => AccountAttentionSnapshotSchema.parse(snapshot)).not.toThrow()
+  })
+
+  it("emits one explicit presentation unit for each unread forum opener", async () => {
+    mocks.channels.mockResolvedValue([{
+      channelId: "forum1",
+      channelName: "Ideas",
+      serverId: "s1",
+      serverName: "One",
+      type: "forum",
+      parentChannelId: null,
+      lastMessageAt: "2026-09-27T00:00:02.000Z",
+      lastUnreadSeq: 2,
+      lastAttentionSeq: null,
+      mentionCount: 0,
+    }])
+    mocks.mentionScopes.mockResolvedValue([])
+    mocks.mentions.mockResolvedValue([])
+    mocks.friends.mockResolvedValue([])
+    mocks.forumOpeners.mockResolvedValue([1, 2].map((seq) => ({
+      forumChannelId: "forum1",
+      openerMessageId: `opener${seq}`,
+      childChannelId: `post${seq}`,
+      title: `Post ${seq}`,
+      createdAt: `2026-09-27T00:00:0${seq}.000Z`,
+      openerSeq: seq,
+    })))
+    mocks.channelOwners.mockResolvedValue([{
+      id: "forum1",
+      serverId: "s1",
+      name: "Ideas",
+      type: "forum",
+      parentChannelId: null,
+      parentMessageId: null,
+      creatorId: "owner",
+      archived: 0,
+      lastMessageAt: "2026-09-27T00:00:02.000Z",
+    }, ...[1, 2].map((seq) => ({
+      id: `post${seq}`,
+      serverId: "s1",
+      name: `Post ${seq}`,
+      type: "thread",
+      parentChannelId: "forum1",
+      parentMessageId: `opener${seq}`,
+      creatorId: "owner",
+      archived: 0,
+      lastMessageAt: `2026-09-27T00:00:0${seq}.000Z`,
+    }))])
+
+    const snapshot = await getAccountAttentionSnapshot({} as never, "viewer", 100)
+    const posts = snapshot.items.filter((entry) => entry.kind === "forum_post")
+
+    expect(posts).toEqual([
+      expect.objectContaining({ sourceId: "post2", openerSeq: 2 }),
+      expect.objectContaining({ sourceId: "post1", openerSeq: 1 }),
+    ])
+    expect(snapshot.items.filter((entry) => entry.kind === "mention")).toEqual([])
     expect(() => AccountAttentionSnapshotSchema.parse(snapshot)).not.toThrow()
   })
 })

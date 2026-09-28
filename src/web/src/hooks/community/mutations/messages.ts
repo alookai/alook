@@ -29,7 +29,6 @@ import type { Attachment, MessagesPage, Msg } from "@/lib/community/models/messa
 import type { PinsResponse } from "@/hooks/community/use-channel-panels"
 import type {
   MarkedResponse,
-  MentionsResponse,
   MessageMarkedResponse,
 } from "@/hooks/community/use-inbox"
 import {
@@ -54,6 +53,7 @@ import {
   clearAttentionOptimistically,
   commitAttentionOptimisticSnapshot,
   commitAttentionItemsOptimisticSnapshot,
+  getCanonicalCommunityMessages,
   removeAttentionItemsOptimistically,
   restoreAttentionOptimisticDomains,
   restoreAttentionOptimisticSnapshot,
@@ -979,7 +979,6 @@ export function useDeleteMention() {
     Error,
     DeleteMentionArgs,
     {
-      snapshot: MentionsResponse | undefined
       token?: AccountUnreadDismissToken
       attentionSnapshot?: AttentionItemsOptimisticSnapshot
     }
@@ -991,28 +990,30 @@ export function useDeleteMention() {
       )
     },
     onMutate: async (args) => {
-      const key = communityKeys.inboxMentions()
-      const snapshot = queryClient.getQueryData<MentionsResponse>(key)
-      const row = snapshot?.mentions.find((mention) => mention.id === args.mentionId)
-      const token = row?.channelId
-        ? unreadProjection.beginDismissMention({
-            mentionId: args.mentionId,
-            channelId: row.channelId,
-            seq: row.m.seq,
-            countsServerMention: row.kind !== "reply",
-          })
-        : undefined
-      queryClient.setQueryData(key, (prev: { mentions: { id: string }[] } | undefined) =>
-        prev ? { ...prev, mentions: prev.mentions.filter((m) => m.id !== args.mentionId) } : prev,
-      )
       const registry = getCommunityDbRegistry(queryClient)
       const attentionSnapshot = registry
         ? removeAttentionItemsOptimistically(
             registry,
-            (item) => item.sourceId === args.mentionId && item.kind !== "friend_request",
+            (item) => (
+              item.sourceId === args.mentionId
+              && (item.kind === "mention" || item.kind === "reply")
+            ),
           )
         : undefined
-      return { snapshot, token, attentionSnapshot }
+      const removed = attentionSnapshot?.items[0]
+      const message = removed?.messageId
+        ? getCanonicalCommunityMessages(queryClient)
+          .find((candidate) => candidate.id === removed.messageId)
+        : undefined
+      const token = removed?.scopeId && message?.seq !== undefined
+        ? unreadProjection.beginDismissMention({
+            mentionId: args.mentionId,
+            channelId: removed.scopeId,
+            seq: message.seq,
+            countsServerMention: removed.kind === "mention",
+          })
+        : undefined
+      return { token, attentionSnapshot }
     },
     onSuccess: (result, _args, context) => {
       if (context.token) unreadProjection.commitDismissMention(context.token, result?.revision)
@@ -1033,7 +1034,6 @@ export function useDeleteMention() {
           void reconcileAccountAttention(registry).catch(() => undefined)
         }
       }
-      if (ctx?.snapshot) queryClient.setQueryData(communityKeys.inboxMentions(), ctx.snapshot)
       toastApiError(err, "Failed to remove mention")
     },
   })

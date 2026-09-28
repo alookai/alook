@@ -69,7 +69,7 @@ const mention: Mention = {
 }
 
 vi.mock("@/hooks/community/use-inbox", () => ({
-  useInboxUnreads: () => ({
+  useInboxAttention: () => ({
     friendRequests: [{
       id: "fr_1",
       userId: "requester",
@@ -80,17 +80,14 @@ vi.mock("@/hooks/community/use-inbox", () => ({
     }],
     servers: [server],
     dms: [unreadDm],
-    isLoading: false,
-    hasProjectedUnread: false,
-    hasOutstandingFriendRequest: true,
-    exactAttentionCount: 7,
-    pendingChannelIds: [],
-  }),
-  useInboxMentions: () => ({
     mentions: [mention],
     isLoading: false,
-    hasProjectedMention: false,
-    pendingChannelIds: [],
+    isInitialError: false,
+    hasUnread: true,
+    hasMention: true,
+    hasOutstandingFriendRequest: true,
+    exactAttentionCount: 4,
+    refetch: vi.fn(),
   }),
   useInboxMarked: (enabled: boolean) => {
     mocks.markedEnabled.push(enabled)
@@ -249,7 +246,7 @@ describe("useShellInboxController", () => {
     const hook = await renderController()
     expect(hook.current.hasUnread).toBe(true)
     expect(hook.current.unreadCount).toBe(4)
-    expect(hook.current.popoverProps.hasProjectedUnreads).toBe(false)
+    expect(hook.current.popoverProps.hasProjectedUnreads).toBe(true)
     expect(hook.current.popoverProps.friendRequests).toHaveLength(1)
 
     hook.current.popoverProps.onOpenFriendRequests?.()

@@ -14,6 +14,16 @@ const rows: Row[] = [
   { id: "b", name: "B" },
 ]
 
+function attentionFriendRequests(friendRequests: Array<{ id: string; userId?: string }>) {
+  return {
+    items: friendRequests.map((row) => ({
+      kind: "friend_request",
+      sourceId: row.id,
+      actorUserId: row.userId ?? null,
+    })),
+  }
+}
+
 function createQueryWrapper() {
   const queryClient = new QueryClient()
   return function QueryWrapper({ children }: PropsWithChildren) {
@@ -113,9 +123,10 @@ describe("useFriendRequestActionState", () => {
     const cached = { id: "cached", userId: "u1" }
     const alreadyTerminal = { id: "terminal", userId: "u1" }
     queryClient.setQueryData(communityKeys.friends(), { pending: [snapshot] })
-    queryClient.setQueryData(communityKeys.inboxUnreads(), {
-      friendRequests: [cached, alreadyTerminal],
-    })
+    queryClient.setQueryData(
+      communityKeys.accountAttention(),
+      attentionFriendRequests([cached, alreadyTerminal]),
+    )
     const controller = getFriendRequestActionController(queryClient)
     controller.claimMutation(snapshot.id, "accept")
     controller.publishTerminal(alreadyTerminal.id)
@@ -126,7 +137,10 @@ describe("useFriendRequestActionState", () => {
     expect(controller.project("inbox", [cached, alreadyTerminal])).toEqual([])
 
     const late = { id: "late", userId: "u1" }
-    queryClient.setQueryData(communityKeys.inboxUnreads(), { friendRequests: [late] })
+    queryClient.setQueryData(
+      communityKeys.accountAttention(),
+      attentionFriendRequests([late]),
+    )
     controller.claimMutation(late.id, "reject")
     expect(controller.project("inbox", [])).toEqual([])
     const mutation = vi.fn()
@@ -145,7 +159,7 @@ describe("useFriendRequestActionState", () => {
     const queryClient = new QueryClient()
     const row = { id: "a", userId: "u1" }
     queryClient.setQueryData(communityKeys.friends(), { pending: [row] })
-    queryClient.setQueryData(communityKeys.inboxUnreads(), { friendRequests: [row] })
+    queryClient.setQueryData(communityKeys.accountAttention(), attentionFriendRequests([row]))
     const controller = getFriendRequestActionController(queryClient)
     const generation = controller.claimMutation(row.id, "accept")
     await controller.publishTerminalAndFence(row.id, generation)
@@ -158,8 +172,8 @@ describe("useFriendRequestActionState", () => {
     friendRows = []
     await queryClient.refetchQueries({ queryKey: communityKeys.friends(), exact: true })
     await queryClient.fetchQuery({
-      queryKey: communityKeys.inboxUnreads(),
-      queryFn: async () => ({ friendRequests: [] }),
+      queryKey: communityKeys.accountAttention(),
+      queryFn: async () => attentionFriendRequests([]),
     })
 
     queryClient.setQueryData(communityKeys.friends(), { pending: [row] })
@@ -167,11 +181,11 @@ describe("useFriendRequestActionState", () => {
     expect(controller.project("friends", [row])).toEqual([])
 
     queryClient.setQueryData(communityKeys.friends(), { pending: [] })
-    queryClient.setQueryData(communityKeys.inboxUnreads(), { friendRequests: [row] })
+    queryClient.setQueryData(communityKeys.accountAttention(), attentionFriendRequests([row]))
     controller.settleGeneration(row.id, generation)
     expect(controller.project("friends", [row])).toEqual([])
 
-    queryClient.setQueryData(communityKeys.inboxUnreads(), { friendRequests: [] })
+    queryClient.setQueryData(communityKeys.accountAttention(), attentionFriendRequests([]))
     controller.settleGeneration(row.id, generation)
     expect(controller.project("friends", [row])).toEqual([{ row }])
   })
@@ -183,24 +197,24 @@ describe("useFriendRequestActionState", () => {
     controller.publishTerminalForUser("ghost")
 
     await queryClient.fetchQuery({
-      queryKey: communityKeys.inboxUnreads(),
-      queryFn: async () => ({ friendRequests: [] }),
+      queryKey: communityKeys.accountAttention(),
+      queryFn: async () => attentionFriendRequests([]),
     })
     const row = { id: "late", userId: "ghost" }
-    queryClient.setQueryData(communityKeys.inboxUnreads(), { friendRequests: [row] })
+    queryClient.setQueryData(communityKeys.accountAttention(), attentionFriendRequests([row]))
     await queryClient.fetchQuery({
       queryKey: communityKeys.friends(),
       queryFn: async () => ({ pending: [] }),
     })
     expect(controller.project("friends", [row])).toEqual([])
 
-    queryClient.setQueryData(communityKeys.inboxUnreads(), { friendRequests: [] })
+    queryClient.setQueryData(communityKeys.accountAttention(), attentionFriendRequests([]))
     queryClient.setQueryData(communityKeys.friends(), { pending: [row] })
-    await queryClient.refetchQueries({ queryKey: communityKeys.inboxUnreads(), exact: true })
+    await queryClient.refetchQueries({ queryKey: communityKeys.accountAttention(), exact: true })
     expect(controller.project("friends", [row])).toEqual([])
 
     queryClient.setQueryData(communityKeys.friends(), { pending: [] })
-    await queryClient.refetchQueries({ queryKey: communityKeys.inboxUnreads(), exact: true })
+    await queryClient.refetchQueries({ queryKey: communityKeys.accountAttention(), exact: true })
     expect(controller.project("friends", [row])).toEqual([{ row }])
   })
 })

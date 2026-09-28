@@ -7,6 +7,7 @@ import {
 import { act, render, waitFor } from "@/test/react-dom-harness"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { communityKeys } from "@/lib/query-keys"
+import { apiFetch } from "@/lib/api/client"
 import type { PendingRequest } from "@/lib/community/models/people"
 import type { InboxFriendRequest } from "@/lib/community/models/inbox"
 import { useCommunityWsStore } from "@/stores/community/ws"
@@ -21,10 +22,6 @@ import {
   friendsQueryFn,
   type FriendsResponse,
 } from "./use-friends"
-import {
-  inboxUnreadsQueryFn,
-  type UnreadsResponse,
-} from "./use-inbox"
 import {
   useFriendRequestActionState,
   type ActionableFriendRequest,
@@ -69,13 +66,29 @@ function friendsData(ids: readonly string[]): FriendsResponse {
   }
 }
 
-function inboxData(ids: readonly string[]): UnreadsResponse {
+type AttentionResponse = {
+  items: Array<{
+    id: string
+    kind: "friend_request"
+    sourceId: string
+    actorUserId: string
+  }>
+}
+
+function attentionData(ids: readonly string[]): AttentionResponse {
   return {
-    friendRequests: inboxRows.filter((row) => ids.includes(row.id)),
-    servers: [],
-    dms: [],
+    items: inboxRows.filter((row) => ids.includes(row.id)).map((row) => ({
+      id: `friend_request:${row.id}`,
+      kind: "friend_request",
+      sourceId: row.id,
+      actorUserId: row.userId,
+    })),
   }
 }
+
+const attentionQueryFn = () => apiFetch<AttentionResponse>(
+  "/api/community/users/me/attention",
+)
 
 type Transport = {
   action: (id: string) => Promise<unknown>
@@ -93,8 +106,8 @@ function installTransport(transport: Transport) {
       const ids = await transport.readFriends()
       return { pending: pendingRows.filter((row) => ids.includes(row.id)) }
     }
-    if (path === "/api/community/users/me/inbox/unreads") {
-      return inboxData(await transport.readInbox())
+    if (path === "/api/community/users/me/attention") {
+      return attentionData(await transport.readInbox())
     }
     throw new Error(`unexpected API path ${path}`)
   })
@@ -127,8 +140,8 @@ function TestSurfaces({
     enabled: false,
   })
   const inbox = useQuery({
-    queryKey: communityKeys.inboxUnreads(),
-    queryFn: inboxUnreadsQueryFn,
+    queryKey: communityKeys.accountAttention(),
+    queryFn: attentionQueryFn,
     enabled: false,
   })
   const mutation = useAcceptFriendRequest()
@@ -137,7 +150,7 @@ function TestSurfaces({
     [mutation],
   )
   const inboxActions = useFriendRequestActionState({
-    rows: inbox.data?.friendRequests ?? [],
+    rows: inboxRows.filter((row) => inbox.data?.items.some((item) => item.sourceId === row.id)),
     onAccept,
     surface: "inbox",
   })
@@ -224,7 +237,7 @@ function createClient(ids: readonly string[] = ["a", "b"]) {
     },
   })
   client.setQueryData(communityKeys.friends(), friendsData(ids), { updatedAt: 1 })
-  client.setQueryData(communityKeys.inboxUnreads(), inboxData(ids), { updatedAt: 1 })
+  client.setQueryData(communityKeys.accountAttention(), attentionData(ids), { updatedAt: 1 })
   return client
 }
 
@@ -246,10 +259,10 @@ async function fetchFriends(client: QueryClient) {
   })
 }
 
-async function fetchInbox(client: QueryClient) {
+async function fetchAttention(client: QueryClient) {
   return client.fetchQuery({
-    queryKey: communityKeys.inboxUnreads(),
-    queryFn: inboxUnreadsQueryFn,
+    queryKey: communityKeys.accountAttention(),
+    queryFn: attentionQueryFn,
     staleTime: 0,
   })
 }
@@ -272,7 +285,7 @@ describe("friend-request action authority RED", () => {
     const { controls, rendered } = mount(client)
     let request!: Promise<void>
     act(() => { request = controls.current!.act("inbox", "a") })
-    await act(async () => { await Promise.all([fetchFriends(client), fetchInbox(client)]) })
+    await act(async () => { await Promise.all([fetchFriends(client), fetchAttention(client)]) })
     await act(async () => {
       gate.reject(new Error("ambiguous failure"))
       await request
@@ -302,12 +315,12 @@ describe("friend-request action authority RED", () => {
     expect(rendered.getByTestId("inbox-row-a")).toHaveAttribute("data-status", "error")
 
     await act(async () => {
-      await Promise.allSettled([fetchFriends(client), fetchInbox(client)])
+      await Promise.allSettled([fetchFriends(client), fetchAttention(client)])
     })
     expect(rendered.getByTestId("inbox-row-a")).toHaveAttribute("data-status", "error")
 
     stale = false
-    await act(async () => { await fetchInbox(client) })
+    await act(async () => { await fetchAttention(client) })
     expect(rendered.queryByTestId("inbox-row-a")).toBeNull()
     expect(rendered.queryByTestId("friends-row-a")).toBeNull()
     const projection = rendered.getByTestId("projection")
@@ -328,9 +341,9 @@ describe("friend-request action authority RED", () => {
     const client = createClient(["a"])
     const { controls, rendered } = mount(client, (paint) => paints.push(paint))
     await act(async () => { await controls.current!.act("inbox", "a") })
-    const read = fetchInbox(client)
+    const read = fetchAttention(client)
     await waitFor(() => expect(apiFetchMock.mock.calls.some(
-      ([path]) => path === "/api/community/users/me/inbox/unreads",
+      ([path]) => path === "/api/community/users/me/attention",
     )).toBe(true))
     paints.length = 0
     await act(async () => {
@@ -398,7 +411,7 @@ describe("friend-request action authority RED", () => {
     ))).toBe(true)
 
     await act(async () => {
-      await Promise.allSettled([fetchFriends(client), fetchInbox(client)])
+      await Promise.allSettled([fetchFriends(client), fetchAttention(client)])
     })
     expect(rendered.queryByTestId("inbox-row-a")).toBeNull()
     expect(rendered.queryByTestId("friends-row-a")).toBeNull()
@@ -439,11 +452,11 @@ describe("friend-request action authority RED", () => {
         } satisfies SocialEventContext,
       )
       client.setQueryData(communityKeys.friends(), friendsData(["a"]))
-      client.setQueryData(communityKeys.inboxUnreads(), inboxData(["a"]))
+      client.setQueryData(communityKeys.accountAttention(), attentionData(["a"]))
     })
 
     await act(async () => {
-      await Promise.allSettled([fetchFriends(client), fetchInbox(client)])
+      await Promise.allSettled([fetchFriends(client), fetchAttention(client)])
     })
     expect(rendered.queryByTestId("inbox-row-a")).toBeNull()
     expect(rendered.queryByTestId("friends-row-a")).toBeNull()
@@ -463,19 +476,19 @@ describe("friend-request action authority RED", () => {
           refetchType: "none",
         }),
         client.invalidateQueries({
-          queryKey: communityKeys.inboxUnreads(),
+          queryKey: communityKeys.accountAttention(),
           exact: true,
           refetchType: "none",
         }),
       ])
-      await Promise.all([fetchFriends(client), fetchInbox(client)])
+      await Promise.all([fetchFriends(client), fetchAttention(client)])
     })
     expect(rendered.queryByTestId("inbox-row-a")).toBeNull()
     expect(rendered.queryByTestId("friends-row-a")).toBeNull()
 
     await act(async () => {
       client.setQueryData(communityKeys.friends(), friendsData(["a"]))
-      client.setQueryData(communityKeys.inboxUnreads(), inboxData(["a"]))
+      client.setQueryData(communityKeys.accountAttention(), attentionData(["a"]))
     })
     await waitFor(() => {
       expect(rendered.getByTestId("inbox-row-a")).toBeInTheDocument()
@@ -494,23 +507,23 @@ describe("friend-request action authority RED", () => {
       readInbox: () => postTerminal ? Promise.resolve([]) : oldInbox.promise,
     })
     const client = createClient(["a"])
-    const preTerminalReads = [fetchFriends(client), fetchInbox(client)]
+    const preTerminalReads = [fetchFriends(client), fetchAttention(client)]
     await waitFor(() => expect(apiFetchMock.mock.calls.some(
-      ([path]) => path === "/api/community/users/me/inbox/unreads",
+      ([path]) => path === "/api/community/users/me/attention",
     )).toBe(true))
     await Promise.all([
       client.cancelQueries({ queryKey: communityKeys.friends(), exact: true }),
-      client.cancelQueries({ queryKey: communityKeys.inboxUnreads(), exact: true }),
+      client.cancelQueries({ queryKey: communityKeys.accountAttention(), exact: true }),
     ])
     postTerminal = true
-    await Promise.all([fetchFriends(client), fetchInbox(client)])
+    await Promise.all([fetchFriends(client), fetchAttention(client)])
 
     oldFriends.resolve(["a"])
     oldInbox.resolve(["a"])
     await Promise.allSettled(preTerminalReads)
 
     expect(client.getQueryData<FriendsResponse>(communityKeys.friends())?.pending).toEqual([])
-    expect(client.getQueryData<UnreadsResponse>(communityKeys.inboxUnreads())?.friendRequests).toEqual([])
+    expect(client.getQueryData<AttentionResponse>(communityKeys.accountAttention())?.items).toEqual([])
   })
 })
 
@@ -559,7 +572,7 @@ describe("friend-request shared owner RED", () => {
     await act(async () => { await controls.current!.act("inbox", "a") })
     act(() => {
       client.removeQueries({ queryKey: communityKeys.friends(), exact: true })
-      client.removeQueries({ queryKey: communityKeys.inboxUnreads(), exact: true })
+      client.removeQueries({ queryKey: communityKeys.accountAttention(), exact: true })
     })
 
     let retry!: Promise<void>
@@ -570,7 +583,7 @@ describe("friend-request shared owner RED", () => {
         expect(rendered.getByTestId("friends-row-a")).toHaveAttribute("data-status", "pending")
       })
       expect(client.getQueryData(communityKeys.friends())).toBeUndefined()
-      expect(client.getQueryData(communityKeys.inboxUnreads())).toBeUndefined()
+      expect(client.getQueryData(communityKeys.accountAttention())).toBeUndefined()
     } finally {
       retryGate.resolve(undefined)
       await act(async () => { await retry })
@@ -662,7 +675,7 @@ describe("friend-request shared owner RED", () => {
       })
 
       if (order === "terminal-first") {
-        await act(async () => { await Promise.all([fetchFriends(client), fetchInbox(client)]) })
+        await act(async () => { await Promise.all([fetchFriends(client), fetchAttention(client)]) })
         await act(async () => {
           actions.get(terminalId)!.reject(new Error(`ambiguous ${terminalId}`))
           await (terminalId === "a" ? actionA : actionB)
@@ -676,7 +689,7 @@ describe("friend-request shared owner RED", () => {
           actions.get(failedId)!.reject(new Error(`failed ${failedId}`))
           await (failedId === "a" ? actionA : actionB)
         })
-        await act(async () => { await Promise.all([fetchFriends(client), fetchInbox(client)]) })
+        await act(async () => { await Promise.all([fetchFriends(client), fetchAttention(client)]) })
         await act(async () => {
           actions.get(terminalId)!.reject(new Error(`ambiguous ${terminalId}`))
           await (terminalId === "a" ? actionA : actionB)

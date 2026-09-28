@@ -4,9 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import type { FriendsResponse } from "@/hooks/community/use-friends"
-import type { UnreadsResponse } from "@/hooks/community/use-inbox"
 import type { PendingRequest } from "@/lib/community/models/people"
-import type { InboxFriendRequest } from "@/lib/community/models/inbox"
 import {
   getFriendRequestActionController,
   type FriendRequestAction,
@@ -59,7 +57,6 @@ type CapturedRow<T> = { row: T; index: number }
 type FriendRequestMutationContext = {
   friends?: CapturedRow<PendingRequest>
   generation: number
-  inbox?: CapturedRow<InboxFriendRequest>
   attention?: AttentionItemsOptimisticSnapshot
 }
 
@@ -94,17 +91,11 @@ function useFriendRequestMutation(
     onMutate: async ({ friendshipId }) => {
       const generation = controller.claimMutation(friendshipId, action)
       const friendsKey = communityKeys.friends()
-      const inboxKey = communityKeys.inboxUnreads()
-      await Promise.all([
-        queryClient.cancelQueries({ queryKey: friendsKey, exact: true }),
-        queryClient.cancelQueries({ queryKey: inboxKey, exact: true }),
-      ])
+      await queryClient.cancelQueries({ queryKey: friendsKey, exact: true })
       const friends = queryClient.getQueryData<FriendsResponse>(friendsKey)
-      const inbox = queryClient.getQueryData<UnreadsResponse>(inboxKey)
       const context = {
         friends: captureRow(friends?.pending ?? [], friendshipId),
         generation,
-        inbox: captureRow(inbox?.friendRequests ?? [], friendshipId),
         attention: (() => {
           const registry = getCommunityDbRegistry(queryClient)
           return registry
@@ -118,14 +109,6 @@ function useFriendRequestMutation(
       queryClient.setQueryData<FriendsResponse | undefined>(friendsKey, (current) =>
         current
           ? { ...current, pending: current.pending.filter((row) => row.id !== friendshipId) }
-          : current,
-      )
-      queryClient.setQueryData<UnreadsResponse | undefined>(inboxKey, (current) =>
-        current
-          ? {
-              ...current,
-              friendRequests: (current.friendRequests ?? []).filter((row) => row.id !== friendshipId),
-            }
           : current,
       )
       return context
@@ -158,19 +141,11 @@ function useFriendRequestMutation(
           ? { ...current, pending: reinsertRow(current.pending, context?.friends) }
           : current,
       )
-      queryClient.setQueryData<UnreadsResponse | undefined>(communityKeys.inboxUnreads(), (current) =>
-        current
-          ? { ...current, friendRequests: reinsertRow(current.friendRequests ?? [], context?.inbox) }
-          : current,
-      )
       controller.publishError(friendshipId, context.generation)
     },
     onSettled: async (_data, _error, { friendshipId }, context) => {
       try {
-        await Promise.all([
-          queryClient.invalidateQueries({ queryKey: communityKeys.friends(), exact: true }),
-          queryClient.invalidateQueries({ queryKey: communityKeys.inboxUnreads(), exact: true }),
-        ])
+        await queryClient.invalidateQueries({ queryKey: communityKeys.friends(), exact: true })
       } finally {
         if (context) controller.settleGeneration(friendshipId, context.generation)
       }
