@@ -71,6 +71,19 @@ export function createCommunityDbRegistry(
   const scopeId = accountId ?? "anon"
   const dbClient = new DbClient({ queryClient })
   const persistence = options.persistence ?? null
+  const serverCommitCaptures: Set<Promise<void>>[] = []
+  const captureServerCollectionCommits = (publish: () => void) => {
+    const receipts = new Set<Promise<void>>()
+    serverCommitCaptures.push(receipts)
+    try {
+      publish()
+    } catch (error) {
+      return Promise.reject(error)
+    } finally {
+      serverCommitCaptures.pop()
+    }
+    return Promise.all(receipts).then(() => undefined)
+  }
 
   let readServerRows = (): Iterable<ServerRow> => []
   const serverCollectionId = `community-db:${scopeId}:servers`
@@ -89,13 +102,33 @@ export function createCommunityDbRegistry(
     staleTime: Infinity,
     refetchOnReconnect: true,
   })
+  const serverQuerySync = serverQueryOptions.sync
+  const trackedServerQueryOptions = {
+    ...serverQueryOptions,
+    sync: {
+      ...serverQuerySync,
+      sync: (params: Parameters<typeof serverQuerySync.sync>[0]) => (
+        serverQuerySync.sync({
+          ...params,
+          commit: (signal?: AbortSignal) => {
+            const receipt = params.commit(signal)
+            if (receipt !== true) {
+              const settlement = Promise.resolve(receipt)
+              for (const capture of serverCommitCaptures) capture.add(settlement)
+            }
+            return receipt
+          },
+        })
+      ),
+    },
+  }
   const serverOptions = persistence
     ? persistedCollectionOptions({
-        ...serverQueryOptions,
+        ...trackedServerQueryOptions,
         persistence,
         schemaVersion: 1,
       })
-    : serverQueryOptions
+    : trackedServerQueryOptions
   const servers = dbClient.collection(collectionOptions(`community-db:${scopeId}:servers`, () => (
     { ...serverOptions, schema: serverSchema }
   )) as never) as unknown as Collection<
@@ -396,6 +429,7 @@ export function createCommunityDbRegistry(
       restoredCollectionListeners.add(listener)
       return () => restoredCollectionListeners.delete(listener)
     },
+    captureServerCollectionCommits,
     preload,
     requestServerRefetch,
     waitForServerRefetch: () => serverRefetch ?? Promise.resolve(),

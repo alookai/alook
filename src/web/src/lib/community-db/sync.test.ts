@@ -1,4 +1,5 @@
 import { QueryClient } from "@tanstack/react-query"
+import type { PersistedCollectionPersistence } from "@tanstack/browser-db-sqlite-persistence"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { CommunityWsEvent } from "@alook/shared"
 import { communityKeys } from "@/lib/query-keys"
@@ -52,6 +53,12 @@ import { writeCommunityCollectionRows } from "./collection-mutations"
 
 const registries: CommunityDbRegistry[] = []
 const unregisters: Array<() => void> = []
+
+function deferred() {
+  let resolve!: () => void
+  const promise = new Promise<void>((done) => { resolve = done })
+  return { promise, resolve }
+}
 
 async function registry() {
   const result = createCommunityDbRegistry(new QueryClient(), "viewer")
@@ -483,6 +490,68 @@ describe("community DB sync", () => {
       detailComplete: true,
     })
     expect(db.collections.channels.get("c1")?.name).toBe("general")
+  })
+
+  it("waits for the persisted server commit before completing tree publication", async () => {
+    const delayedCommit = deferred()
+    const applyCommittedTx: PersistedCollectionPersistence["adapter"]["applyCommittedTx"] =
+      vi.fn(async (collectionId, transaction) => {
+        const completesServer = collectionId.endsWith(":servers")
+          && transaction.mutations.some((mutation) => (
+            "value" in mutation && mutation.value.detailComplete === true
+          ))
+        if (completesServer) await delayedCommit.promise
+      })
+    const persistence: PersistedCollectionPersistence = {
+      adapter: {
+        applyCommittedTx,
+        ensureIndex: async () => {},
+        loadSubset: async () => [],
+      },
+    }
+    const db = createCommunityDbRegistry(new QueryClient(), "viewer", { persistence })
+    registries.push(db)
+    await db.preload()
+    unregisters.push(registerCommunityDbRegistry(db))
+    ingestServers(db, { servers: [{
+      id: "s1", name: "Server", initial: "S", active: false,
+      unread: false, mentions: 0, ownerId: "viewer",
+    }] })
+    await vi.waitFor(() => expect(db.collections.servers.has("s1")).toBe(true))
+
+    let completed = false
+    const publication = publishCommunityLiveSnapshot(db.queryClient, {
+      kind: "server-detail",
+      data: {
+        id: "s1", name: "Server", discriminator: "0001", description: "",
+        icon: null, ownerId: "viewer", categories: [{
+          id: "cat1", name: "General", channels: [{
+            id: "c1", name: "general", active: false, unread: false,
+          }],
+        }],
+      },
+    }).then((receipt) => {
+      completed = true
+      return receipt
+    })
+
+    await vi.waitFor(() => expect(applyCommittedTx).toHaveBeenCalledWith(
+      "community-db:viewer:servers",
+      expect.objectContaining({
+        mutations: expect.arrayContaining([
+          expect.objectContaining({
+            type: "update",
+            value: expect.objectContaining({ id: "s1", detailComplete: true }),
+          }),
+        ]),
+      }),
+    ))
+    expect(completed).toBe(false)
+    delayedCommit.resolve()
+    await expect(publication).resolves.toEqual({ status: "published", generation: 1 })
+    expect(db.collections.servers.get("s1")?.detailComplete).toBe(true)
+    expect(db.collections.categories.get("cat1")?.serverId).toBe("s1")
+    expect(db.collections.channels.get("c1")?.serverId).toBe("s1")
   })
 
   it("publishes cold server detail completeness only after its target tree", async () => {

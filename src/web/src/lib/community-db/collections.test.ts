@@ -29,8 +29,10 @@ describe("community collection readiness", () => {
     const unregisterSecond = registerCommunityDbRegistry(second)
     const secondBinding = getCommunityDbRegistryBinding(queryClient)
 
-    expect(firstBinding).toMatchObject({ registry: first, generation: 1 })
-    expect(secondBinding).toMatchObject({ registry: second, generation: 2 })
+    expect(firstBinding?.registry).toBe(first)
+    expect(firstBinding?.generation).toBe(1)
+    expect(secondBinding?.registry).toBe(second)
+    expect(secondBinding?.generation).toBe(2)
     unregisterFirst()
     expect(getCommunityDbRegistryBinding(queryClient)).toBe(secondBinding)
     unregisterSecond()

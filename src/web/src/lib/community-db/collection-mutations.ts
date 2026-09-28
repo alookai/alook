@@ -36,16 +36,15 @@ export function writeCommunityCollectionRows<T extends object>(
 ) {
   if (name === "servers") {
     const collection = registry.collections.servers
-    const publish = () => {
+    const publish = () => registry.captureServerCollectionCommits(() => {
       registry.assertGenerationActive()
       if (typeof rows === "function") rows()
-    }
+    })
     const pending = pendingCollectionWrites.get(collection)
     if (!pending && registry.isCollectionReady(name)) {
       let write: Promise<void>
       try {
-        publish()
-        write = Promise.resolve()
+        write = publish()
       } catch (error) {
         write = Promise.reject(error)
       }
