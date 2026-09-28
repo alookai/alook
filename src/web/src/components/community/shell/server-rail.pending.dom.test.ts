@@ -508,35 +508,52 @@ describe("ServerRail one-in-flight structural guard", () => {
     expect(latestFolderProps("created").open).toBe(false)
   })
 
-  it("keeps a created group expanded when cache reconciliation replaces its id", async () => {
-    const renderer = renderRail()
-    await act(async () => drop({
-      operation: "combine",
-      source: { kind: "server", id: "a" },
-      target: { kind: "server", id: "c" },
-    }))
-    const { args, callbacks } = latestMutation()
-    const clientId = args.commands.find((command) => command.kind === "create-folder")?.clientId
-    expect(clientId).toBeDefined()
+  it.each(["canonical-first", "response-first"] as const)(
+    "keeps a created group expanded through an empty-item canonical frame: %s",
+    async (order) => {
+      const renderer = renderRail()
+      await act(async () => drop({
+        operation: "combine",
+        source: { kind: "server", id: "a" },
+        target: { kind: "server", id: "c" },
+      }))
+      const { args, callbacks } = latestMutation()
+      const clientId = args.commands.find((command) => command.kind === "create-folder")?.clientId
+      expect(clientId).toBeDefined()
 
-    renderer.rerender(railElement([
-      ...folders,
-      {
+      const emptyCanonicalFolder = {
         id: "created",
         name: "Group",
         position: 1,
-        servers: [
-          { id: "a", name: "A", initial: "A" },
-          { id: "c", name: "C", initial: "C" },
-        ],
-      },
-    ]))
-    await act(async () => callbacks.onSuccess({
-      createdFolderIds: clientId ? { [clientId]: "created" } : {},
-    }))
+        servers: [],
+      }
+      const reconcileResponse = () => callbacks.onSuccess({
+        createdFolderIds: clientId ? { [clientId]: "created" } : {},
+      })
+      if (order === "canonical-first") {
+        renderer.rerender(railElement([...folders, emptyCanonicalFolder]))
+        await act(async () => reconcileResponse())
+      } else {
+        await act(async () => reconcileResponse())
+        renderer.rerender(railElement([...folders, emptyCanonicalFolder]))
+      }
 
-    expect(latestFolderProps("created").open).toBe(true)
-  })
+      renderer.rerender(railElement([
+        ...folders,
+        {
+          id: "created",
+          name: "Group",
+          position: 1,
+          servers: [
+            { id: "a", name: "A", initial: "A" },
+            { id: "c", name: "C", initial: "C" },
+          ],
+        },
+      ]))
+
+      expect(latestFolderProps("created").open).toBe(true)
+    },
+  )
 
   it.each(["success", "error"] as const)(
     "returns Ungroup focus after settle to a surviving entity: %s",

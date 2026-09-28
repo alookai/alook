@@ -468,6 +468,56 @@ describe("forum sidebar canonical projection", () => {
     rendered.unmount()
   })
 
+  it("treats an eligible base and retained overlap as one canonical thread", async () => {
+    const { queryClient, wrapper } = await setup()
+    const response = envelopeFor(["post-1"])
+    apiFetchMock.mockResolvedValue({
+      ...response,
+      canonicalChannels: response.channels,
+      retainedChannel: response.channels[0],
+      retainedDisposition: "eligible",
+    })
+    const rendered = renderHook(
+      () => useForumSidebarThreads("server-1", "post-1"),
+      { wrapper },
+    )
+
+    await waitFor(() => expect(rendered.result.current.projectionReady).toBe(true))
+    expect(rendered.result.current.threads.map(({ id }) => id)).toEqual(["post-1"])
+    expect(queryClient.getQueryData<{
+      canonicalThreadIds: string[]
+    }>(communityKeys.forumSidebarThreads("server-1"))?.canonicalThreadIds)
+      .toEqual(["post-1"])
+    rendered.unmount()
+  })
+
+  it.each(["opener-archived", "genuine-negative"] as const)(
+    "excludes a %s retained row from canonical authority",
+    async (retainedDisposition) => {
+      const { queryClient, wrapper } = await setup()
+      const retained = envelopeFor(["post-retained"])
+      apiFetchMock.mockResolvedValue({
+        ...envelopeFor([]),
+        canonicalChannels: [],
+        retainedChannel: retained.channels[0],
+        retainedDisposition,
+        included: retained.included,
+      })
+      const rendered = renderHook(
+        () => useForumSidebarThreads("server-1", "post-retained"),
+        { wrapper },
+      )
+
+      await waitFor(() => expect(rendered.result.current.projectionReady).toBe(true))
+      expect(rendered.result.current.threads).toEqual([])
+      expect(queryClient.getQueryData<{
+        canonicalThreadIds: string[]
+      }>(communityKeys.forumSidebarThreads("server-1"))?.canonicalThreadIds)
+        .toEqual([])
+      rendered.unmount()
+    },
+  )
+
   it("keeps providerless normalization explicit for pure tests", () => {
     const normalized = normalizeForumSidebarEnvelope(envelope(), null, 0)
     expect(deriveForumSidebarProjection(

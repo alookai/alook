@@ -163,12 +163,12 @@ function compareThreads(left: ForumSidebarThread, right: ForumSidebarThread) {
 }
 
 function canonicalThreadIds(normalized: NormalizedForumSidebarEnvelope): string[] {
-  return [
+  return [...new Set([
     ...normalized.base.threads,
     ...(normalized.retainedDisposition === "eligible" && normalized.retained
       ? [normalized.retained]
       : []),
-  ].map((thread) => thread.id).sort(compareAsciiSqliteBinary)
+  ].map((thread) => thread.id))].sort(compareAsciiSqliteBinary)
 }
 
 export function forumSidebarProjectionIsAuthoritative(

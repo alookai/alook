@@ -11,7 +11,7 @@ import { useEffect, useMemo, useSyncExternalStore } from "react"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import { avatarInitial } from "@/lib/community/avatar"
-import { isServerOwner, UNCATEGORIZED_CATEGORY_ID } from "@alook/shared"
+import { compareAsciiSqliteBinary, isServerOwner, UNCATEGORIZED_CATEGORY_ID } from "@alook/shared"
 import type { Server, Category, Channel } from "@/lib/community/models/navigation"
 import {
   getActiveAccountUnreadProjection,
@@ -304,10 +304,17 @@ export type ServerDetail = {
 
 function serverDetailStructureSignature(detail: ServerDetail | null | undefined) {
   if (!detail) return null
-  return JSON.stringify(detail.categories.map((category) => [
-    category.id,
-    category.channels.map((channel) => [channel.id, channel.type ?? "text"]),
-  ]))
+  return JSON.stringify(detail.categories
+    .map((category) => [
+      category.id,
+      category.channels
+        .map((channel) => [channel.id, channel.type ?? "text"])
+        .sort((left, right) => (
+          compareAsciiSqliteBinary(left[0]!, right[0]!)
+          || compareAsciiSqliteBinary(left[1]!, right[1]!)
+        )),
+    ] as const)
+    .sort((left, right) => compareAsciiSqliteBinary(left[0], right[0])))
 }
 
 type ForumUnreadState = Record<string, {

@@ -100,6 +100,7 @@ test.describe.serial("mobile server header direct hierarchy", () => {
     )).toBe(true)
     page.off("response", observeStartupAttention)
     await page.waitForLoadState("networkidle")
+    await expect(page.locator("[data-thread-opener]")).toBeVisible()
 
     await page.evaluate(({ composerTestId }) => {
       const backControl = document.querySelector('button[aria-label="Back"]')

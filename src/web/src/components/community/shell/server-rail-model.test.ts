@@ -20,7 +20,7 @@ function fixture(): RailState {
 }
 
 describe("server rail normalized reducer", () => {
-  it("projects legacy dangling, empty, and duplicate folders with the server snapshot ordering", () => {
+  it("preserves only a present empty folder's expansion intent while normalizing invalid rows", () => {
     const folder = (id: string, position: number, serverIds: string[]) => ({
       id,
       name: id,
@@ -37,8 +37,16 @@ describe("server rail normalized reducer", () => {
       serverOrder: ["a", "b"],
       folderOrder: ["Z-binary-first", "valid"],
       folders: { "Z-binary-first": ["a"], valid: ["b"] },
-      expanded: ["Z-binary-first", "valid"],
+      expanded: ["empty", "Z-binary-first", "valid"],
     })
+    expect(railStateFromData(["a"], [], ["deleted"]).expanded).toEqual([])
+    expect(railStateFromData(["a"], [
+      folder("dangling", 0, ["foreign"]),
+    ], ["dangling"]).expanded).toEqual([])
+    expect(railStateFromData(["a"], [
+      folder("first", 0, ["a"]),
+      folder("duplicate", 1, ["a"]),
+    ], ["duplicate"]).expanded).toEqual([])
   })
 
   it("keeps the full membership order while deriving top-level servers", () => {

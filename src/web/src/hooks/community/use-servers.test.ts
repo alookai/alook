@@ -686,6 +686,79 @@ describe("useServer / serverQueryFn", () => {
     expect(useServer("s1").isLiveAuthoritative).toBe(true)
   })
 
+  it("matches server-detail authority by category membership and channel identity, not row order", async () => {
+    const channel = (id: string, type: "text" | "forum" = "text") => ({
+      id,
+      name: id,
+      type,
+      unread: false,
+    })
+    const detail = {
+      id: "s1",
+      name: "Server",
+      discriminator: "0001",
+      description: "",
+      icon: null,
+      ownerId: "u1",
+      categories: [
+        { id: "cat-a", name: "A", channels: [channel("c1"), channel("c2", "forum")] },
+        { id: "cat-b", name: "B", channels: [channel("c3")] },
+      ],
+    }
+    capturedHookQueryData = detail
+    dbProjection.registry = {}
+    const { useServer } = await import("./use-servers")
+
+    dbProjection.tree = {
+      ...detail,
+      categories: [
+        detail.categories[1],
+        { ...detail.categories[0], channels: detail.categories[0].channels.toReversed() },
+      ],
+    }
+    expect(useServer("s1").isLiveAuthoritative).toBe(true)
+
+    dbProjection.tree = {
+      ...detail,
+      categories: [
+        { ...detail.categories[0], channels: [detail.categories[0].channels[1]] },
+        { ...detail.categories[1], channels: [
+          detail.categories[1].channels[0],
+          detail.categories[0].channels[0],
+        ] },
+      ],
+    }
+    expect(useServer("s1").isLiveAuthoritative).toBe(false)
+
+    dbProjection.tree = {
+      ...detail,
+      categories: [{
+        ...detail.categories[0],
+        channels: [channel("c1"), channel("c2", "text")],
+      }, detail.categories[1]],
+    }
+    expect(useServer("s1").isLiveAuthoritative).toBe(false)
+
+    dbProjection.tree = {
+      ...detail,
+      categories: [{
+        ...detail.categories[0],
+        channels: [detail.categories[0].channels[0]],
+      }, detail.categories[1]],
+    }
+    expect(useServer("s1").isLiveAuthoritative).toBe(false)
+
+    dbProjection.tree = {
+      ...detail,
+      categories: [...detail.categories, {
+        id: "cat-extra",
+        name: "Extra",
+        channels: [channel("c-extra")],
+      }],
+    }
+    expect(useServer("s1").isLiveAuthoritative).toBe(false)
+  })
+
   it("does not retain rolling-deploy server-detail unread without canonical attention", async () => {
     const channel = { id: "c1", unread: true }
     const baseUnreadForum = { id: "forum-base", unread: false }

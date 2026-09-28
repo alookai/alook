@@ -42,6 +42,11 @@ export function railStateFromData(
   expanded: readonly string[],
 ): RailState {
   const membershipIds = new Set(serverIds)
+  // Persisted folder rows and their item rows commit independently. Retain
+  // expansion only across the observable row-present/items-empty gap.
+  const transientlyEmptyFolderIds = new Set(
+    folders.filter((folder) => folder.servers.length === 0).map((folder) => folder.id),
+  )
   const claimedServerIds = new Set<string>()
   const projectedFolders = [...folders]
     .sort((left, right) => left.position - right.position
@@ -63,7 +68,10 @@ export function railStateFromData(
     folders: Object.fromEntries(
       projectedFolders.map((folder) => [folder.id, folder.serverIds]),
     ),
-    expanded: expanded.filter((folderId) => projectedFolders.some((folder) => folder.id === folderId)),
+    expanded: expanded.filter((folderId) => (
+      projectedFolders.some((folder) => folder.id === folderId)
+      || transientlyEmptyFolderIds.has(folderId)
+    )),
   }
 }
 
