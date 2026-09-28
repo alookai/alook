@@ -5,6 +5,7 @@
 }
 
 .frame {
+  position: relative;
   container-type: inline-size;
   width: 100%;
   aspect-ratio: 16 / 9;
@@ -24,4 +25,21 @@
   letter-spacing: 0;
   white-space: pre;
   text-align: left;
+}
+
+.canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.rendered {
+  color: transparent;
+}
+
+.rendered::selection {
+  background: Highlight;
+  color: HighlightText;
 }
