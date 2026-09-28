@@ -37,6 +37,7 @@ export default async function StudioNewPage({
 
   return (
     <StudioOnboardingClient
+      accountId={session.user.id}
       workspaceId={workspaceId}
       workspaceSlug={workspace.slug}
       initialTemplate={initialTemplate}

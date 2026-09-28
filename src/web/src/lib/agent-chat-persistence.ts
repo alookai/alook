@@ -43,6 +43,15 @@ export interface ConvExtrasEntry {
   updatedAt: number
 }
 
+export interface AgentChatPersistenceScope {
+  accountId: string
+  workspaceId: string
+}
+
+interface AgentChatScopeRow extends AgentChatPersistenceScope {
+  key: string
+}
+
 const MAX_CONVERSATIONS = 50
 const MESSAGE_KEY_SEPARATOR = "\u0000"
 
@@ -79,6 +88,10 @@ function lastOpenKey(agentId: string, channel: string | null | undefined) {
   return `${agentId}::${channel ?? ""}`
 }
 
+function scopeKey(scope: AgentChatPersistenceScope) {
+  return JSON.stringify([scope.accountId, scope.workspaceId])
+}
+
 function plainRow<T extends object>(row: T): T {
   const {
     $collectionId: _collectionId,
@@ -96,10 +109,10 @@ function plainRow<T extends object>(row: T): T {
 }
 
 function createRegistry(
-  workspaceId: string,
+  scope: AgentChatPersistenceScope,
   persistence: PersistedCollectionPersistence | null,
 ) {
-  const prefix = `agent-chat:${workspaceId}`
+  const prefix = `agent-chat:${scopeKey(scope)}`
   const messages = createCollection(collectionOptions<Message>(
     `${prefix}:messages`,
     persistence,
@@ -135,7 +148,7 @@ function createRegistry(
     })
   }
   return {
-    workspaceId,
+    scope,
     collections,
     preload,
     clear,
@@ -145,20 +158,89 @@ function createRegistry(
 
 type AgentChatRegistry = ReturnType<typeof createRegistry>
 const registries = new Map<string, Promise<AgentChatRegistry>>()
-let activeWorkspaceId: string | null = null
 
-async function buildRegistry(workspaceId: string): Promise<AgentChatRegistry> {
+function createScopeManifest(persistence: PersistedCollectionPersistence | null) {
+  const scopes = createCollection(collectionOptions<AgentChatScopeRow>(
+    "agent-chat:scope-manifest:v1",
+    persistence,
+    (row) => row.key,
+  ))
+  const preload = () => scopes.preload()
+  const add = async (scope: AgentChatPersistenceScope) => {
+    await preload()
+    const key = scopeKey(scope)
+    if (scopes.has(key)) return
+    await mutateCollections([scopes], () => {
+      scopes.insert({ key, ...scope })
+    })
+  }
+  const remove = async (keys: string[]) => {
+    if (keys.length === 0) return
+    await preload()
+    const existing = keys.filter((key) => scopes.has(key))
+    if (existing.length === 0) return
+    await mutateCollections([scopes], () => scopes.delete(existing))
+  }
+  const clear = async () => {
+    await preload()
+    const keys = [...scopes.keys()]
+    if (keys.length === 0) return
+    await mutateCollections([scopes], () => scopes.delete(keys))
+  }
+  return {
+    persistence,
+    preload,
+    add,
+    remove,
+    clear,
+    forAccount: (accountId: string) => [...scopes.values()]
+      .filter((scope) => scope.accountId === accountId)
+      .map((scope) => plainRow<AgentChatScopeRow>(scope)),
+    cleanup: () => scopes.cleanup(),
+  }
+}
+
+type AgentChatScopeManifest = ReturnType<typeof createScopeManifest>
+let scopeManifestPromise: Promise<AgentChatScopeManifest> | null = null
+
+async function buildScopeManifest(): Promise<AgentChatScopeManifest> {
   const runtime = await getBrowserPersistenceRuntime()
-  let registry = createRegistry(workspaceId, runtime.persistence)
+  let manifest = createScopeManifest(runtime.persistence)
+  try {
+    await manifest.preload()
+  } catch (error) {
+    await manifest.cleanup()
+    console.warn("[Alook persistence] Agent scope manifest failed; using memory only", error)
+    manifest = createScopeManifest(null)
+    await manifest.preload()
+  }
+  const unregisterClear = registerPersistenceClearScope("agent:manifest", manifest.clear)
+  const cleanup = manifest.cleanup
+  manifest.cleanup = async () => {
+    unregisterClear()
+    await cleanup()
+  }
+  return manifest
+}
+
+function getScopeManifest(): Promise<AgentChatScopeManifest> {
+  scopeManifestPromise ??= buildScopeManifest()
+  return scopeManifestPromise
+}
+
+async function buildRegistry(scope: AgentChatPersistenceScope): Promise<AgentChatRegistry> {
+  const manifest = await getScopeManifest()
+  await manifest.add(scope)
+  let registry = createRegistry(scope, manifest.persistence)
   try {
     await registry.preload()
   } catch (error) {
     registry.cleanup()
     console.warn("[Alook persistence] Agent cache preload failed; using memory only", error)
-    registry = createRegistry(workspaceId, null)
+    registry = createRegistry(scope, null)
     await registry.preload()
   }
-  const unregisterClear = registerPersistenceClearScope(`agent:${workspaceId}`, registry.clear)
+  const unregisterClear = registerPersistenceClearScope(`agent:${scopeKey(scope)}`, registry.clear)
   const cleanup = registry.cleanup
   registry.cleanup = () => {
     unregisterClear()
@@ -167,20 +249,19 @@ async function buildRegistry(workspaceId: string): Promise<AgentChatRegistry> {
   return registry
 }
 
-function registryFor(workspaceId?: string): Promise<AgentChatRegistry> | null {
-  const resolvedId = workspaceId ?? activeWorkspaceId
-  if (!resolvedId) return null
-  activeWorkspaceId = resolvedId
-  let registry = registries.get(resolvedId)
+function registryFor(scope?: AgentChatPersistenceScope): Promise<AgentChatRegistry> | null {
+  if (!scope) return null
+  const key = scopeKey(scope)
+  let registry = registries.get(key)
   if (!registry) {
-    registry = buildRegistry(resolvedId)
-    registries.set(resolvedId, registry)
+    registry = buildRegistry(scope)
+    registries.set(key, registry)
   }
   return registry
 }
 
-export function openAgentChatPersistence(workspaceId: string): Promise<void> {
-  return registryFor(workspaceId)!.then(() => undefined)
+export function openAgentChatPersistence(scope: AgentChatPersistenceScope): Promise<void> {
+  return registryFor(scope)!.then(() => undefined)
 }
 
 async function mutateCollections(
@@ -227,9 +308,9 @@ function sortedMessages(registry: AgentChatRegistry, conversationId: string) {
 
 export async function getCachedMessages(
   conversationId: string,
-  workspaceId?: string,
+  scope?: AgentChatPersistenceScope,
 ): Promise<Message[] | null> {
-  const pending = registryFor(workspaceId)
+  const pending = registryFor(scope)
   if (!pending) return null
   try {
     const registry = await pending
@@ -254,9 +335,9 @@ export async function getCachedMessagesBefore(
   beforeCreatedAt: string,
   beforeId: string,
   limit: number,
-  workspaceId?: string,
+  scope?: AgentChatPersistenceScope,
 ): Promise<{ messages: Message[]; hasMore: boolean } | null> {
-  const pending = registryFor(workspaceId)
+  const pending = registryFor(scope)
   if (!pending) return null
   try {
     const registry = await pending
@@ -284,10 +365,10 @@ export async function mergeCachedMessages(
   conversationId: string,
   messages: Message[],
   hasMore: boolean | null,
-  workspaceId?: string,
+  scope?: AgentChatPersistenceScope,
   serverMessageCount?: number,
 ): Promise<void> {
-  const pending = registryFor(workspaceId)
+  const pending = registryFor(scope)
   if (!pending) return
   const valid = messages.filter((message) => !message.id.startsWith("temp-"))
   if (valid.length === 0) return
@@ -324,7 +405,7 @@ export async function mergeCachedMessages(
         upsert(registry.collections.metas, conversationId, meta)
       },
     )
-    void evictLRU(MAX_CONVERSATIONS, workspaceId)
+    void evictLRU(MAX_CONVERSATIONS, scope)
   } catch {
     // Cache writes never block the server-backed chat path.
   }
@@ -333,10 +414,10 @@ export async function mergeCachedMessages(
 export async function appendCachedMessage(
   conversationId: string,
   message: Message,
-  workspaceId?: string,
+  scope?: AgentChatPersistenceScope,
 ): Promise<void> {
   if (message.id.startsWith("temp-")) return
-  const pending = registryFor(workspaceId)
+  const pending = registryFor(scope)
   if (!pending) return
   try {
     const registry = await pending
@@ -360,9 +441,9 @@ export async function appendCachedMessage(
 
 export async function getCacheMeta(
   conversationId: string,
-  workspaceId?: string,
+  scope?: AgentChatPersistenceScope,
 ): Promise<CacheMeta | null> {
-  const pending = registryFor(workspaceId)
+  const pending = registryFor(scope)
   if (!pending) return null
   try {
     const row = (await pending).collections.metas.get(conversationId)
@@ -375,9 +456,9 @@ export async function getCacheMeta(
 export async function getLastOpenConversation(
   agentId: string,
   channel: string | null | undefined,
-  workspaceId?: string,
+  scope?: AgentChatPersistenceScope,
 ): Promise<LastOpenEntry | null> {
-  const pending = registryFor(workspaceId)
+  const pending = registryFor(scope)
   if (!pending) return null
   try {
     const row = (await pending).collections.lastOpen.get(lastOpenKey(agentId, channel))
@@ -391,9 +472,9 @@ export async function setLastOpenConversation(
   agentId: string,
   channel: string | null | undefined,
   entry: Pick<LastOpenEntry, "conversation_id" | "newestMessageId" | "serverMessageCount">,
-  workspaceId?: string,
+  scope?: AgentChatPersistenceScope,
 ): Promise<void> {
-  const pending = registryFor(workspaceId)
+  const pending = registryFor(scope)
   if (!pending) return
   try {
     const registry = await pending
@@ -406,9 +487,9 @@ export async function setLastOpenConversation(
 
 export async function clearLastOpenForConversation(
   conversationId: string,
-  workspaceId?: string,
+  scope?: AgentChatPersistenceScope,
 ): Promise<void> {
-  const pending = registryFor(workspaceId)
+  const pending = registryFor(scope)
   if (!pending) return
   try {
     const registry = await pending
@@ -424,9 +505,9 @@ export async function clearLastOpenForConversation(
 
 export async function getConvExtras(
   conversationId: string,
-  workspaceId?: string,
+  scope?: AgentChatPersistenceScope,
 ): Promise<ConvExtrasEntry | null> {
-  const pending = registryFor(workspaceId)
+  const pending = registryFor(scope)
   if (!pending) return null
   try {
     const row = (await pending).collections.extras.get(conversationId)
@@ -439,9 +520,9 @@ export async function getConvExtras(
 export async function setConvExtras(
   conversationId: string,
   entry: Omit<ConvExtrasEntry, "conversation_id" | "updatedAt">,
-  workspaceId?: string,
+  scope?: AgentChatPersistenceScope,
 ): Promise<void> {
-  const pending = registryFor(workspaceId)
+  const pending = registryFor(scope)
   if (!pending) return
   try {
     const registry = await pending
@@ -457,9 +538,9 @@ export async function setConvExtras(
 
 export async function invalidateCache(
   conversationId: string,
-  workspaceId?: string,
+  scope?: AgentChatPersistenceScope,
 ): Promise<void> {
-  const pending = registryFor(workspaceId)
+  const pending = registryFor(scope)
   if (!pending) return
   try {
     const registry = await pending
@@ -484,30 +565,61 @@ export async function invalidateCache(
 
 export async function evictLRU(
   maxConversations = MAX_CONVERSATIONS,
-  workspaceId?: string,
+  scope?: AgentChatPersistenceScope,
 ): Promise<void> {
-  const pending = registryFor(workspaceId)
+  const pending = registryFor(scope)
   if (!pending) return
   try {
     const registry = await pending
     const metas = [...registry.collections.metas.values()]
       .sort((a, b) => a.lastAccessedAt - b.lastAccessedAt)
     for (const meta of metas.slice(0, Math.max(0, metas.length - maxConversations))) {
-      await invalidateCache(meta.conversation_id, registry.workspaceId)
+      await invalidateCache(meta.conversation_id, registry.scope)
     }
   } catch {}
 }
 
-export async function clearAllAgentChatPersistence(): Promise<void> {
-  await Promise.allSettled([...registries.values()].map(async (pending) => {
-    await (await pending).clear()
-  }))
+export async function clearAgentChatPersistenceForAccount(accountId: string): Promise<void> {
+  const manifest = await getScopeManifest()
+  const scopes = new Map(
+    manifest.forAccount(accountId).map((scope) => [scope.key, scope]),
+  )
+  for (const [key, pending] of registries) {
+    const registry = await pending.catch(() => null)
+    if (registry?.scope.accountId === accountId) {
+      scopes.set(key, { key, ...registry.scope })
+    }
+  }
+
+  const clearedKeys: string[] = []
+  const errors: unknown[] = []
+  for (const [key, scope] of scopes) {
+    try {
+      const registry = await registryFor(scope)
+      await registry?.clear()
+      registry?.cleanup()
+      registries.delete(key)
+      clearedKeys.push(key)
+    } catch (error) {
+      errors.push(error)
+    }
+  }
+  await manifest.remove(clearedKeys)
+  if (errors.length > 0) {
+    throw new AggregateError(errors, "Failed to clear all Agent chat persistence scopes")
+  }
 }
 
 export async function resetAgentChatPersistenceForTests(): Promise<void> {
   const pending = [...registries.values()]
   registries.clear()
-  activeWorkspaceId = null
   const resolved = await Promise.all(pending.map((registry) => registry.catch(() => null)))
   for (const registry of resolved) registry?.cleanup()
+  const manifestPending = scopeManifestPromise
+  scopeManifestPromise = null
+  const manifest = await manifestPending?.catch(() => null)
+  if (manifest) {
+    await manifest.clear()
+    await manifest.cleanup()
+  }
 }

@@ -6,6 +6,7 @@ import {
   getCachedMessages,
   mergeCachedMessages,
   openAgentChatPersistence,
+  type AgentChatPersistenceScope,
 } from "@/lib/agent-chat-persistence";
 
 interface UseCachedMessagesResult {
@@ -16,7 +17,7 @@ interface UseCachedMessagesResult {
 
 export function useCachedMessages(
   conversationId: string | null,
-  workspaceId: string | null
+  scope: AgentChatPersistenceScope | null,
 ): UseCachedMessagesResult {
   const [cachedMessages, setCachedMessages] = useState<Message[] | null>(null);
   const [isFromCache, setIsFromCache] = useState(false);
@@ -24,16 +25,16 @@ export function useCachedMessages(
 
   useEffect(() => {
     conversationIdRef.current = conversationId;
-    if (!conversationId || !workspaceId) {
+    if (!conversationId || !scope) {
       setCachedMessages(null);
       setIsFromCache(false);
       return;
     }
 
-    void openAgentChatPersistence(workspaceId);
+    void openAgentChatPersistence(scope);
 
     let cancelled = false;
-    getCachedMessages(conversationId, workspaceId).then((messages) => {
+    getCachedMessages(conversationId, scope).then((messages) => {
       if (cancelled || conversationIdRef.current !== conversationId) return;
       if (messages && messages.length > 0) {
         setCachedMessages(messages);
@@ -45,14 +46,14 @@ export function useCachedMessages(
     });
 
     return () => { cancelled = true; };
-  }, [conversationId, workspaceId]);
+  }, [conversationId, scope]);
 
   const writeToCache = useCallback(
     async (messages: Message[], hasMore: boolean, serverMessageCount?: number) => {
-      if (!conversationIdRef.current || !workspaceId) return;
-      await mergeCachedMessages(conversationIdRef.current, messages, hasMore, workspaceId, serverMessageCount);
+      if (!conversationIdRef.current || !scope) return;
+      await mergeCachedMessages(conversationIdRef.current, messages, hasMore, scope, serverMessageCount);
     },
-    [workspaceId]
+    [scope]
   );
 
   return { cachedMessages, isFromCache, writeToCache };

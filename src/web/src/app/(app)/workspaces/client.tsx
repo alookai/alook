@@ -8,7 +8,7 @@ import { GradientBackground } from "@/components/gradient-background"
 import { Logo } from "@/components/logo"
 import { Plus, ArrowRight, LogOut, Loader2 } from "lucide-react"
 import { signOut } from "@/lib/auth-client"
-import { clearAllAgentChatPersistence } from "@/lib/agent-chat-persistence"
+import { clearBrowserPersistenceForAccount } from "@/lib/account-persistence"
 import { toast } from "sonner"
 
 interface WorkspaceItem {
@@ -18,8 +18,10 @@ interface WorkspaceItem {
 }
 
 export function WorkspaceListClient({
+  accountId,
   workspaces,
 }: {
+  accountId: string
   workspaces: WorkspaceItem[]
 }) {
   const router = useRouter()
@@ -54,7 +56,7 @@ export function WorkspaceListClient({
         size="sm"
         className="absolute top-4 right-4 text-muted-foreground"
         onClick={async () => {
-          await clearAllAgentChatPersistence()
+          await clearBrowserPersistenceForAccount(accountId)
           await signOut()
           router.push("/sign-in")
         }}

@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, type ReactNode } from "react"
 
 interface WorkspaceContextValue {
+  accountId: string
   workspaceId: string
   slug: string
 }
@@ -16,6 +17,7 @@ export function useWorkspace() {
 }
 
 export function WorkspaceProvider({
+  accountId,
   workspaceId,
   slug,
   children,
@@ -25,7 +27,7 @@ export function WorkspaceProvider({
   }, [slug])
 
   return (
-    <WorkspaceContext.Provider value={{ workspaceId, slug }}>
+    <WorkspaceContext.Provider value={{ accountId, workspaceId, slug }}>
       {children}
     </WorkspaceContext.Provider>
   )

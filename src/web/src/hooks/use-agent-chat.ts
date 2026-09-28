@@ -80,6 +80,7 @@ export interface UseAgentChatProps {
   scrollToTaskId: string | null;
   scrollToMessageId: string | null;
   propTargetConvId?: string | null;
+  accountId: string;
   workspaceId: string;
   agents: Agent[];
   activeChannel: string;
@@ -116,6 +117,7 @@ export function useAgentChat(
     scrollToTaskId,
     scrollToMessageId,
     propTargetConvId,
+    accountId,
     workspaceId,
     agents,
     activeChannel,
@@ -196,7 +198,11 @@ export function useAgentChat(
     () => new Map(),
   );
 
-  const { writeToCache } = useCachedMessages(targetConvId ?? null, workspaceId);
+  const persistenceScope = useMemo(
+    () => ({ accountId, workspaceId }),
+    [accountId, workspaceId],
+  );
+  const { writeToCache } = useCachedMessages(targetConvId ?? null, persistenceScope);
   const writeToCacheRef = useRef(writeToCache);
   useEffect(() => {
     writeToCacheRef.current = writeToCache;
@@ -285,7 +291,7 @@ export function useAgentChat(
   const persistArtifactsToCache = useCallback(
     (conversationId: string, nextArtifacts: Artifact[]) => {
       if (loadConvIdRef.current !== conversationId) return;
-      getConvExtras(conversationId, workspaceId)
+      getConvExtras(conversationId, persistenceScope)
         .then((extras) => {
           if (!extras) return;
           if (loadConvIdRef.current !== conversationId) return;
@@ -299,12 +305,12 @@ export function useAgentChat(
               conversation_created_at: extras.conversation_created_at,
               hasMoreArtifacts: extras.hasMoreArtifacts,
             },
-            workspaceId,
+            persistenceScope,
           );
         })
         .catch(() => { });
     },
-    [workspaceId],
+    [persistenceScope],
   );
 
   const scrollToBottom = useCallback(() => {
@@ -446,9 +452,9 @@ export function useAgentChat(
       painted: boolean;
       cacheMeta: Awaited<ReturnType<typeof getCacheMeta>>;
     }> {
-      const cacheMeta = await getCacheMeta(convId, workspaceId);
+      const cacheMeta = await getCacheMeta(convId, persistenceScope);
       if (cacheMeta?.newestMessageId) {
-        const cached = await getCachedMessages(convId, workspaceId);
+        const cached = await getCachedMessages(convId, persistenceScope);
         if (ignore) return { painted: false, cacheMeta };
         if (cached && cached.length > 0) {
           setMessages(cached);
@@ -476,7 +482,7 @@ export function useAgentChat(
       convId: string,
       paintedMessages: Message[],
     ): Promise<void> {
-      const extras = await getConvExtras(convId, workspaceId);
+      const extras = await getConvExtras(convId, persistenceScope);
       if (ignore || !extras) return;
       setArtifacts(extras.artifacts);
       const createdAt =
@@ -539,7 +545,7 @@ export function useAgentChat(
           const lastOpen = await getLastOpenConversation(
             agentId,
             activeChannel,
-            workspaceId,
+            persistenceScope,
           );
           if (ignore) return;
           if (lastOpen?.conversation_id && lastOpen.serverMessageCount > 0) {
@@ -632,7 +638,7 @@ export function useAgentChat(
                 convId,
                 data.messages,
                 data.has_more_messages,
-                workspaceId,
+                persistenceScope,
                 data.message_count,
               ).catch(() => { });
             }
@@ -664,7 +670,7 @@ export function useAgentChat(
             loadConvIdRef.current === convId &&
             shouldPersistPointerForLoad(targetConvId)
           ) {
-            const confirmedMeta = await getCacheMeta(convId, workspaceId);
+            const confirmedMeta = await getCacheMeta(convId, persistenceScope);
             if (ignore) return;
             setLastOpenConversation(
               agentId,
@@ -677,7 +683,7 @@ export function useAgentChat(
                   null,
                 serverMessageCount: data.message_count,
               },
-              workspaceId,
+              persistenceScope,
             ).catch(() => { });
           }
           setArtifacts(data.artifacts);
@@ -697,7 +703,7 @@ export function useAgentChat(
                 conversation_created_at: data.conversation.created_at,
                 hasMoreArtifacts: data.has_more_artifacts,
               },
-              workspaceId,
+              persistenceScope,
             ).catch(() => { });
           }
           setFlaggedIds(new Set(data.flagged_message_ids));
@@ -763,7 +769,7 @@ export function useAgentChat(
             data.conversation.id,
             data.messages,
             data.has_more_messages,
-            workspaceId,
+            persistenceScope,
           ).catch(() => { });
           // Persist the card metadata from the chatInit fallback too (same
           // shape as the conversationInit write above), guarded on the
@@ -780,7 +786,7 @@ export function useAgentChat(
                 conversation_created_at: data.conversation.created_at,
                 hasMoreArtifacts: data.has_more_artifacts,
               },
-              workspaceId,
+              persistenceScope,
             ).catch(() => { });
           }
           // This branch is reached only when `convId` is null — i.e. the SLOW
@@ -808,7 +814,7 @@ export function useAgentChat(
                 ? 0
                 : data.messages.length,
             },
-            workspaceId,
+            persistenceScope,
           ).catch(() => { });
           if (hasCachedMessages && initialScrollDone.current && wasNearBottom) {
             scrollToBottom();
@@ -1135,7 +1141,7 @@ export function useAgentChat(
                 oldest!.created_at,
                 oldest!.id,
                 MESSAGE_LIMIT,
-                workspaceId,
+                persistenceScope,
               )
               : null;
 
@@ -1256,7 +1262,7 @@ export function useAgentChat(
               conversation.id,
               currentConvMessages,
               phase1HasMore,
-              workspaceId,
+              persistenceScope,
             ).catch(() => { });
           }
         }
@@ -1283,6 +1289,7 @@ export function useAgentChat(
     [
       conversation,
       workspaceId,
+      persistenceScope,
       agentId,
       targetConvId,
       messagesRef,
@@ -1371,7 +1378,7 @@ export function useAgentChat(
                     conversationId,
                     latest,
                     null,
-                    workspaceId,
+                    persistenceScope,
                   ).catch(() => { });
                 })
                 .catch(() => { });
@@ -1401,7 +1408,7 @@ export function useAgentChat(
                 conversationId,
                 latestResult.messages,
                 null,
-                workspaceId,
+                persistenceScope,
               ).catch(() => { });
               if (arts) {
                 setArtifacts(arts);
@@ -1447,7 +1454,7 @@ export function useAgentChat(
                     conversationId,
                     latestMsgs,
                     null,
-                    workspaceId,
+                    persistenceScope,
                   ).catch(() => { });
                   setActiveTask(nextTask);
                   setTaskMessages([]);
@@ -1531,7 +1538,7 @@ export function useAgentChat(
               msg.conversationId,
               latest,
               null,
-              workspaceId,
+              persistenceScope,
             ).catch(() => { });
           })
           .catch(() => { });
@@ -1554,7 +1561,7 @@ export function useAgentChat(
       if (msg.type === "task.created") {
         const task = msg.task as Task;
         const activeChannel = activeChannelRef.current;
-        getLastOpenConversation(agentId, activeChannel, workspaceId)
+        getLastOpenConversation(agentId, activeChannel, persistenceScope)
           .then((current) => {
             const targetConvId = pointerRefreshTargetForTaskCreated({
               task,
@@ -1569,7 +1576,7 @@ export function useAgentChat(
             // the skeleton (the `serverMessageCount > 0` gate) — never wrong
             // content. We never over-count, so the pointer can't claim a
             // conversation is more complete than it is.
-            return getCacheMeta(targetConvId, workspaceId).then((meta) =>
+            return getCacheMeta(targetConvId, persistenceScope).then((meta) =>
               setLastOpenConversation(
                 agentId,
                 activeChannel,
@@ -1578,7 +1585,7 @@ export function useAgentChat(
                   newestMessageId: meta?.newestMessageId ?? null,
                   serverMessageCount: meta?.messageCount ?? 0,
                 },
-                workspaceId,
+                persistenceScope,
               ),
             );
           })
@@ -1592,7 +1599,7 @@ export function useAgentChat(
           appendCachedMessage(
             msg.conversationId,
             msg.message,
-            workspaceId,
+            persistenceScope,
           ).catch(() => { });
         }
         if (msg.conversationId === conversation?.id) {
@@ -1665,7 +1672,7 @@ export function useAgentChat(
   useEffect(() => {
     return subscribeReconnect(() => {
       if (!conversation?.id) return;
-      getCacheMeta(conversation.id, workspaceId).then((meta) => {
+      getCacheMeta(conversation.id, persistenceScope).then((meta) => {
         conversationInit(conversation.id, workspaceId, {
           newestMessageId: meta?.newestMessageId ?? undefined,
           messageCount: meta?.serverMessageCount ?? undefined,
@@ -1685,7 +1692,7 @@ export function useAgentChat(
           .catch(() => { });
       });
     });
-  }, [subscribeReconnect, conversation?.id, workspaceId]);
+  }, [subscribeReconnect, conversation?.id, workspaceId, persistenceScope]);
 
   const handleSend = async () => {
     const rawContent = inputRef.current.trim();
@@ -1787,7 +1794,7 @@ export function useAgentChat(
         );
         return sortMessages([...without, message]);
       });
-      appendCachedMessage(conversation.id, message, workspaceId).catch(
+      appendCachedMessage(conversation.id, message, persistenceScope).catch(
         () => { },
       );
       if (message.attachment_ids && message.attachment_ids.length > 0) {
@@ -1884,7 +1891,7 @@ export function useAgentChat(
             );
             return sortMessages([...without, message]);
           });
-          appendCachedMessage(conversation.id, message, workspaceId).catch(
+          appendCachedMessage(conversation.id, message, persistenceScope).catch(
             () => { },
           );
           if (message.attachment_ids && message.attachment_ids.length > 0) {
@@ -1912,7 +1919,7 @@ export function useAgentChat(
           setSending(false);
         });
     },
-    [failedSends, conversation, sending, workspaceId, startPolling, setArtifacts, persistArtifactsToCache, preloadThenCleanPending],
+    [failedSends, conversation, sending, workspaceId, persistenceScope, startPolling, setArtifacts, persistArtifactsToCache, preloadThenCleanPending],
   );
 
   const handleRetryTask = useCallback(async () => {

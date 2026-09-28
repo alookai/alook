@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { Message } from "@alook/shared"
 import {
   appendCachedMessage,
-  clearAllAgentChatPersistence,
+  clearAgentChatPersistenceForAccount,
   clearLastOpenForConversation,
   evictLRU,
   getCachedMessages,
@@ -16,6 +16,10 @@ import {
   setConvExtras,
   setLastOpenConversation,
 } from "./agent-chat-persistence"
+
+const accountAWorkspaceA = { accountId: "account-a", workspaceId: "workspace-a" }
+const accountAWorkspaceB = { accountId: "account-a", workspaceId: "workspace-b" }
+const accountBWorkspaceA = { accountId: "account-b", workspaceId: "workspace-a" }
 
 function message(id: string, conversationId = "conv-1", minute = 0): Message {
   return {
@@ -31,7 +35,7 @@ function message(id: string, conversationId = "conv-1", minute = 0): Message {
 
 beforeEach(async () => {
   await resetAgentChatPersistenceForTests()
-  await openAgentChatPersistence("workspace-a")
+  await openAgentChatPersistence(accountAWorkspaceA)
 })
 
 afterEach(() => {
@@ -45,16 +49,16 @@ describe("agent chat TanStack collections", () => {
       message("temp-local", "conv-1", 4),
       message("m-1", "conv-1", 1),
       message("m-2", "conv-1", 2),
-    ], false, "workspace-a")
+    ], false, accountAWorkspaceA)
 
-    expect((await getCachedMessages("conv-1", "workspace-a"))?.map((row) => row.id))
+    expect((await getCachedMessages("conv-1", accountAWorkspaceA))?.map((row) => row.id))
       .toEqual(["m-1", "m-2", "m-3"])
     expect(await getCachedMessagesBefore(
       "conv-1",
       message("m-3", "conv-1", 3).created_at,
       "m-3",
       2,
-      "workspace-a",
+      accountAWorkspaceA,
     )).toEqual({
       messages: [message("m-1", "conv-1", 1), message("m-2", "conv-1", 2)],
       hasMore: false,
@@ -62,13 +66,13 @@ describe("agent chat TanStack collections", () => {
   })
 
   it("isolates workspace ids and invalidates messages, pointers, and extras together", async () => {
-    await mergeCachedMessages("conv-1", [message("m-a")], false, "workspace-a")
-    await mergeCachedMessages("conv-1", [message("m-b")], false, "workspace-b")
+    await mergeCachedMessages("conv-1", [message("m-a")], false, accountAWorkspaceA)
+    await mergeCachedMessages("conv-1", [message("m-b")], false, accountAWorkspaceB)
     await setLastOpenConversation("agent-1", null, {
       conversation_id: "conv-1",
       newestMessageId: "m-a",
       serverMessageCount: 1,
-    }, "workspace-a")
+    }, accountAWorkspaceA)
     await setConvExtras("conv-1", {
       artifacts: [],
       conversation_type: "task",
@@ -76,25 +80,27 @@ describe("agent chat TanStack collections", () => {
       conversation_channel: "",
       conversation_created_at: "2026-01-01T00:00:00.000Z",
       hasMoreArtifacts: false,
-    }, "workspace-a")
+    }, accountAWorkspaceA)
 
-    expect((await getCachedMessages("conv-1", "workspace-a"))?.[0]?.id).toBe("m-a")
-    expect((await getCachedMessages("conv-1", "workspace-b"))?.[0]?.id).toBe("m-b")
-    await invalidateCache("conv-1", "workspace-a")
-    expect(await getCachedMessages("conv-1", "workspace-a")).toBeNull()
-    expect(await getLastOpenConversation("agent-1", null, "workspace-a")).toBeNull()
-    expect(await getConvExtras("conv-1", "workspace-a")).toBeNull()
-    expect((await getCachedMessages("conv-1", "workspace-b"))?.[0]?.id).toBe("m-b")
+    expect((await getCachedMessages("conv-1", accountAWorkspaceA))?.[0]?.id).toBe("m-a")
+    expect((await getCachedMessages("conv-1", accountAWorkspaceB))?.[0]?.id).toBe("m-b")
+    await invalidateCache("conv-1", accountAWorkspaceA)
+    expect(await getCachedMessages("conv-1", accountAWorkspaceA)).toBeNull()
+    expect(await getLastOpenConversation("agent-1", null, accountAWorkspaceA)).toBeNull()
+    expect(await getConvExtras("conv-1", accountAWorkspaceA)).toBeNull()
+    expect((await getCachedMessages("conv-1", accountAWorkspaceB))?.[0]?.id).toBe("m-b")
   })
 
-  it("clears every workspace registry opened by the signed-in session", async () => {
-    await mergeCachedMessages("conv-1", [message("m-a")], false, "workspace-a")
-    await mergeCachedMessages("conv-1", [message("m-b")], false, "workspace-b")
+  it("isolates identical workspace ids by account and clears only the requested account", async () => {
+    await mergeCachedMessages("conv-1", [message("m-a")], false, accountAWorkspaceA)
+    await mergeCachedMessages("conv-1", [message("m-b")], false, accountBWorkspaceA)
 
-    await clearAllAgentChatPersistence()
+    expect((await getCachedMessages("conv-1", accountAWorkspaceA))?.[0]?.id).toBe("m-a")
+    expect((await getCachedMessages("conv-1", accountBWorkspaceA))?.[0]?.id).toBe("m-b")
+    await clearAgentChatPersistenceForAccount("account-a")
 
-    expect(await getCachedMessages("conv-1", "workspace-a")).toBeNull()
-    expect(await getCachedMessages("conv-1", "workspace-b")).toBeNull()
+    expect(await getCachedMessages("conv-1", accountAWorkspaceA)).toBeNull()
+    expect((await getCachedMessages("conv-1", accountBWorkspaceA))?.[0]?.id).toBe("m-b")
   })
 
   it("evicts the least-recently-used conversation and its dependent rows", async () => {
@@ -106,25 +112,25 @@ describe("agent chat TanStack collections", () => {
         conversationId,
         [message(`m-${index}`, conversationId, index)],
         false,
-        "workspace-a",
+        accountAWorkspaceA,
       )
       await setLastOpenConversation(`agent-${index}`, null, {
         conversation_id: conversationId,
         newestMessageId: `m-${index}`,
         serverMessageCount: 1,
-      }, "workspace-a")
+      }, accountAWorkspaceA)
     }
 
-    await evictLRU(3, "workspace-a")
-    expect(await getCachedMessages("conv-0", "workspace-a")).toBeNull()
-    expect(await getCachedMessages("conv-1", "workspace-a")).toBeNull()
-    expect(await getCachedMessages("conv-2", "workspace-a")).not.toBeNull()
-    expect(await getLastOpenConversation("agent-0", null, "workspace-a")).toBeNull()
+    await evictLRU(3, accountAWorkspaceA)
+    expect(await getCachedMessages("conv-0", accountAWorkspaceA)).toBeNull()
+    expect(await getCachedMessages("conv-1", accountAWorkspaceA)).toBeNull()
+    expect(await getCachedMessages("conv-2", accountAWorkspaceA)).not.toBeNull()
+    expect(await getLastOpenConversation("agent-0", null, accountAWorkspaceA)).toBeNull()
   })
 
   it("does not append until an authoritative cache meta row exists", async () => {
-    await appendCachedMessage("conv-empty", message("m-1", "conv-empty"), "workspace-a")
-    expect(await getCachedMessages("conv-empty", "workspace-a")).toBeNull()
-    await clearLastOpenForConversation("conv-empty", "workspace-a")
+    await appendCachedMessage("conv-empty", message("m-1", "conv-empty"), accountAWorkspaceA)
+    expect(await getCachedMessages("conv-empty", accountAWorkspaceA)).toBeNull()
+    await clearLastOpenForConversation("conv-empty", accountAWorkspaceA)
   })
 })

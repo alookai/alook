@@ -104,7 +104,7 @@ export function AgentChatView({
 }) {
   const params = useParams();
   const searchParams = useSearchParams();
-  const { workspaceId, slug } = useWorkspace();
+  const { accountId, workspaceId, slug } = useWorkspace();
   const {
     agents,
     runtimes,
@@ -248,6 +248,7 @@ export function AgentChatView({
       scrollToTaskId,
       scrollToMessageId,
       propTargetConvId,
+      accountId,
       workspaceId,
       agents,
       activeChannel,

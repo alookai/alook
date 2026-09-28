@@ -1,10 +1,12 @@
 import { cloneElement, createElement, type PropsWithChildren, type ReactElement } from "react"
-import { describe, expect, it, vi } from "vitest"
-import { render, screen, waitFor } from "@/test/react-dom-harness"
+import { beforeEach, describe, expect, it, vi } from "vitest"
+import { fireEvent, render, screen, waitFor } from "@/test/react-dom-harness"
 import { NavUser } from "./nav-user"
 
 const mocks = vi.hoisted(() => ({
   routerPush: vi.fn(),
+  clearAccount: vi.fn(),
+  signOut: vi.fn(),
   session: {
     data: {
       user: {
@@ -22,10 +24,17 @@ const mocks = vi.hoisted(() => ({
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.routerPush }) }))
 vi.mock("@/lib/auth-client", () => ({
   useSession: () => mocks.session,
-  signOut: vi.fn(),
+  signOut: mocks.signOut,
 }))
-vi.mock("@/lib/agent-chat-persistence", () => ({ clearAllAgentChatPersistence: vi.fn() }))
-vi.mock("@/lib/community-db/collections", () => ({ clearCommunityPersistenceForAccount: vi.fn() }))
+
+beforeEach(() => {
+  mocks.routerPush.mockReset()
+  mocks.clearAccount.mockReset().mockResolvedValue(undefined)
+  mocks.signOut.mockReset().mockResolvedValue(undefined)
+})
+vi.mock("@/lib/account-persistence", () => ({
+  clearBrowserPersistenceForAccount: mocks.clearAccount,
+}))
 vi.mock("@/components/ui/dropdown-menu", () => ({
   DropdownMenu: ({ children }: PropsWithChildren) => createElement("div", null, children),
   DropdownMenuContent: ({ children }: PropsWithChildren) => createElement("div", null, children),
@@ -55,6 +64,19 @@ describe("NavUser avatar", () => {
       "https://cdn.example.com/ada.png",
       "https://cdn.example.com/ada.png",
     ])
+  })
+
+  it("clears both persistence domains for the current account before logout", async () => {
+    const order: string[] = []
+    mocks.clearAccount.mockImplementation(async () => { order.push("clear") })
+    mocks.signOut.mockImplementation(async () => { order.push("signOut") })
+    mocks.routerPush.mockImplementation(() => { order.push("redirect") })
+    render(createElement(NavUser))
+
+    fireEvent.click(await screen.findByRole("button", { name: "Log out" }))
+
+    await waitFor(() => expect(order).toEqual(["clear", "signOut", "redirect"]))
+    expect(mocks.clearAccount).toHaveBeenCalledWith("user_1")
   })
 })
 

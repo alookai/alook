@@ -39,7 +39,7 @@ export default async function WorkspaceLayout({
   }
 
   return (
-    <WorkspaceProvider workspaceId={ws.id} slug={slug}>
+    <WorkspaceProvider accountId={session.user.id} workspaceId={ws.id} slug={slug}>
       <AgentProvider workspaceId={ws.id}>
         <InboxCountProvider>
           <FlagCountProvider>

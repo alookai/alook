@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Loader2, CheckCircle2, LogOut, ArrowLeft, LayoutGrid } from "lucide-react";
 import { toast } from "sonner";
 import { signOut } from "@/lib/auth-client";
-import { clearAllAgentChatPersistence } from "@/lib/agent-chat-persistence";
+import { clearBrowserPersistenceForAccount } from "@/lib/account-persistence";
 import { trackWorkspaceCreated, trackOnboardingCompleted, trackAgentCreated } from "@/lib/analytics";
 
 import { PublicLayout } from "@/components/public-layout";
@@ -26,10 +26,12 @@ import { ConnectMachineSteps } from "@/components/connect-machine-steps";
 import type { TemplatePreset } from "@/lib/templates";
 
 export function StudioOnboardingClient({
+  accountId,
   workspaceId,
   workspaceSlug,
   initialTemplate,
 }: {
+  accountId: string;
   workspaceId: string;
   workspaceSlug: string;
   initialTemplate?: TemplatePreset;
@@ -305,7 +307,7 @@ export function StudioOnboardingClient({
             variant="ghost"
             size="sm"
             className="text-xs text-muted-foreground"
-            onClick={async () => { await clearAllAgentChatPersistence(); signOut({ fetchOptions: { onSuccess: () => router.push("/sign-in") } }); }}
+            onClick={async () => { await clearBrowserPersistenceForAccount(accountId); signOut({ fetchOptions: { onSuccess: () => router.push("/sign-in") } }); }}
           >
             <LogOut className="size-3 mr-2" />
             Sign out
@@ -375,7 +377,7 @@ export function StudioOnboardingClient({
           variant="ghost"
           size="sm"
           className="text-xs text-muted-foreground"
-          onClick={async () => { await clearAllAgentChatPersistence(); signOut({ fetchOptions: { onSuccess: () => router.push("/sign-in") } }); }}
+          onClick={async () => { await clearBrowserPersistenceForAccount(accountId); signOut({ fetchOptions: { onSuccess: () => router.push("/sign-in") } }); }}
         >
           <LogOut className="size-3 mr-2" />
           Sign out

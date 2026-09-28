@@ -26,7 +26,6 @@ const mocks = vi.hoisted(() => ({
   wsReset: vi.fn(),
   streamReset: vi.fn(),
   clearCache: vi.fn(),
-  clearAgentCache: vi.fn(),
   signOut: vi.fn(),
   toast: vi.fn(),
   toastApiError: vi.fn(),
@@ -102,11 +101,8 @@ vi.mock("@/components/community/social/profile-lookup", () => ({
     identity: { kind: "human" },
   }),
 }))
-vi.mock("@/lib/agent-chat-persistence", () => ({
-  clearAllAgentChatPersistence: mocks.clearAgentCache,
-}))
-vi.mock("@/lib/community-db/collections", () => ({
-  clearCommunityPersistenceForAccount: mocks.clearCache,
+vi.mock("@/lib/account-persistence", () => ({
+  clearBrowserPersistenceForAccount: mocks.clearCache,
 }))
 vi.mock("@/hooks/community/community-ws/read-state-reconciliation", () => ({
   disposeAccountReadStateReconciliation: mocks.disposeReconciliation,
@@ -188,7 +184,6 @@ describe("useShellProfileController", () => {
     })
     mocks.beginCommunityProfileSeed.mockReturnValue({ registry: "registry", revision: 0 })
     mocks.clearCache.mockResolvedValue(undefined)
-    mocks.clearAgentCache.mockResolvedValue(undefined)
     mocks.signOut.mockResolvedValue(undefined)
   })
 
@@ -486,7 +481,7 @@ describe("useShellProfileController", () => {
     expect(mocks.toastApiError).toHaveBeenLastCalledWith(saveError, "Failed to save profile")
   })
 
-  it("replaces the document after logout cleanup and preserves rejection behavior", async () => {
+  it("replaces the document after account cleanup and preserves sign-out rejection behavior", async () => {
     const order: string[] = []
     vi.stubGlobal("location", { replace: (href: string) => { order.push(`replace:${href}`) } })
     const hook = await renderController()
@@ -496,7 +491,7 @@ describe("useShellProfileController", () => {
     mocks.streamReset.mockImplementation(() => { order.push("stream") })
     mocks.disposeReconciliation.mockImplementation(() => { order.push("reconcile") })
     hook.queryClient.clear.mockImplementation(() => { order.push("query") })
-    mocks.clearCache.mockImplementation(async () => { order.push("cache"); throw new Error("cache") })
+    mocks.clearCache.mockImplementation(async () => { order.push("cache") })
     mocks.signOut.mockImplementation(async ({ fetchOptions }) => { order.push("signOut"); await fetchOptions.onSuccess(); order.push("session-notify") })
     await act(async () => hook.current.userSettingsProps.onLogout())
     expect(order).toEqual(["cache", "signOut", "replace:/sign-in", "session-notify"])

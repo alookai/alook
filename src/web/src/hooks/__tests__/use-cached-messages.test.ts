@@ -7,7 +7,7 @@ import {
   resetAgentChatPersistenceForTests,
 } from "@/lib/agent-chat-persistence";
 
-const WORKSPACE_ID = "ws_test";
+const SCOPE = { accountId: "account_test", workspaceId: "ws_test" };
 
 function makeMessage(overrides: Partial<Message> = {}): Message {
   return {
@@ -24,7 +24,7 @@ function makeMessage(overrides: Partial<Message> = {}): Message {
 
 beforeEach(async () => {
   await resetAgentChatPersistenceForTests();
-  await openAgentChatPersistence(WORKSPACE_ID);
+  await openAgentChatPersistence(SCOPE);
 });
 
 describe("use-cached-messages (functional tests)", () => {
@@ -33,9 +33,9 @@ describe("use-cached-messages (functional tests)", () => {
       makeMessage({ id: "m1", conversation_id: "conv_1", created_at: "2024-01-01T00:00:00Z" }),
       makeMessage({ id: "m2", conversation_id: "conv_1", created_at: "2024-01-01T00:01:00Z" }),
     ];
-    await mergeCachedMessages("conv_1", msgs, false, WORKSPACE_ID);
+    await mergeCachedMessages("conv_1", msgs, false, SCOPE);
 
-    const cached = await getCachedMessages("conv_1", WORKSPACE_ID);
+    const cached = await getCachedMessages("conv_1", SCOPE);
     expect(cached).not.toBeNull();
     expect(cached).toHaveLength(2);
     expect(cached![0].id).toBe("m1");
@@ -43,7 +43,7 @@ describe("use-cached-messages (functional tests)", () => {
   });
 
   it("returns null when no cache exists", async () => {
-    const cached = await getCachedMessages("conv_nonexistent", WORKSPACE_ID);
+    const cached = await getCachedMessages("conv_nonexistent", SCOPE);
     expect(cached).toBeNull();
   });
 
@@ -51,9 +51,9 @@ describe("use-cached-messages (functional tests)", () => {
     const msgs = [
       makeMessage({ id: "m1", conversation_id: "conv_1", created_at: "2024-01-01T00:00:00Z" }),
     ];
-    await mergeCachedMessages("conv_1", msgs, false, WORKSPACE_ID);
+    await mergeCachedMessages("conv_1", msgs, false, SCOPE);
 
-    const cached = await getCachedMessages("conv_1", WORKSPACE_ID);
+    const cached = await getCachedMessages("conv_1", SCOPE);
     expect(cached).toHaveLength(1);
     expect(cached![0].id).toBe("m1");
   });
@@ -63,17 +63,17 @@ describe("use-cached-messages (functional tests)", () => {
       "conv_1",
       [makeMessage({ id: "m1", conversation_id: "conv_1" })],
       false,
-      WORKSPACE_ID
+      SCOPE
     );
     await mergeCachedMessages(
       "conv_2",
       [makeMessage({ id: "m2", conversation_id: "conv_2" })],
       false,
-      WORKSPACE_ID
+      SCOPE
     );
 
-    const cached1 = await getCachedMessages("conv_1", WORKSPACE_ID);
-    const cached2 = await getCachedMessages("conv_2", WORKSPACE_ID);
+    const cached1 = await getCachedMessages("conv_1", SCOPE);
+    const cached2 = await getCachedMessages("conv_2", SCOPE);
 
     expect(cached1).toHaveLength(1);
     expect(cached1![0].id).toBe("m1");

@@ -3,8 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession, signOut } from "@/lib/auth-client";
-import { clearAllAgentChatPersistence } from "@/lib/agent-chat-persistence";
-import { clearCommunityPersistenceForAccount } from "@/lib/community-db/collections";
+import { clearBrowserPersistenceForAccount } from "@/lib/account-persistence";
 import { useCommunityStore } from "@/stores/community";
 import { useCommunityWsStore } from "@/stores/community/ws";
 import { useMessageStreamStore } from "@/stores/community/message-stream";
@@ -95,8 +94,7 @@ export function NavUser() {
               useCommunityStore.getState().reset();
               useCommunityWsStore.getState().reset();
               useMessageStreamStore.getState().resetAll();
-              await clearAllAgentChatPersistence();
-              await clearCommunityPersistenceForAccount(user.id).catch(() => {});
+              await clearBrowserPersistenceForAccount(user.id);
               await signOut();
               router.push("/sign-in");
             }}
