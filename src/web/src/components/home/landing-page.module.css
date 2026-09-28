@@ -1233,7 +1233,7 @@
 
 .footerPrimary {
   display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  grid-template-columns: minmax(164px, 1fr) minmax(0, auto) minmax(164px, 1fr);
   align-items: center;
   gap: 32px;
 }
@@ -1300,7 +1300,6 @@
 
 @media (min-width: 640px) and (max-width: 1099px) {
   .footerPrimary {
-    grid-template-columns: auto minmax(0, 1fr) auto;
     gap: 24px;
   }
 

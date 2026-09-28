@@ -21,7 +21,13 @@ test("homepage header, body, and footer share responsive content edges", async (
   await page.goto("/")
 
   for (const viewport of [
+    { width: 1920, height: 900, stacked: false },
     { width: 1440, height: 900, stacked: false },
+    { width: 1100, height: 900, stacked: false },
+    { width: 1099, height: 900, stacked: false },
+    { width: 1024, height: 900, stacked: false },
+    { width: 883, height: 900, stacked: false },
+    { width: 640, height: 900, stacked: false },
     { width: 768, height: 900, stacked: false },
     { width: 390, height: 844, stacked: true },
   ]) {
@@ -74,6 +80,8 @@ test("homepage header, body, and footer share responsive content edges", async (
     const footerCenter = (geometry.footer.left + geometry.footer.right) / 2
     const navigationCenter = (geometry.navigation.left + geometry.navigation.right) / 2
     expect(Math.abs(navigationCenter - footerCenter)).toBeLessThanOrEqual(1)
+    const sloganCenter = (geometry.slogan.left + geometry.slogan.right) / 2
+    expect(Math.abs(sloganCenter - footerCenter)).toBeLessThanOrEqual(1)
 
     if (viewport.stacked) {
       expect(geometry.brand.bottom).toBeLessThanOrEqual(geometry.slogan.top)
