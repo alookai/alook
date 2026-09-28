@@ -41,6 +41,21 @@ import { estimateRowHeight, computeBelowCount, type FlatItem } from "@/lib/commu
 // `resizeItem` above-viewport compensation (defaults to 1px otherwise).
 export const NEAR_BOTTOM_PX = 100
 
+// Reserve exactly the 32px pill plus its responsive bottom offset. The owner
+// intentionally does not want additional visual clearance below messages.
+export const MESSAGE_RAIL_TAIL_PADDING_END_PX = {
+  mobile: 40,
+  desktop: 48,
+} as const
+
+export function resolveMessageRailTailPaddingEnd(
+  breakpoint: "unknown" | "desktop" | "mobile",
+): number {
+  return breakpoint === "mobile"
+    ? MESSAGE_RAIL_TAIL_PADDING_END_PX.mobile
+    : MESSAGE_RAIL_TAIL_PADDING_END_PX.desktop
+}
+
 type ViewportResizeAnchor = "tail" | "start"
 
 export interface ResolveViewportResizeAnchorInput {
@@ -468,6 +483,7 @@ export function useScrollAnchor({
   viewerUserId,
   heroHeight,
   heroMeasured,
+  tailPaddingEnd = MESSAGE_RAIL_TAIL_PADDING_END_PX.desktop,
   onInitialPositionSettled,
 }: {
   items: FlatItem[]
@@ -490,6 +506,7 @@ export function useScrollAnchor({
   // `DecideScrollActionInput.heroMeasured`'s doc comment for the bug this
   // prevents (mount firing on a stale, default-0 `scrollMargin`).
   heroMeasured: boolean
+  tailPaddingEnd?: number
   onInitialPositionSettled?: () => void
 }): {
   scrollRef: React.RefObject<HTMLDivElement | null>
@@ -638,6 +655,7 @@ export function useScrollAnchor({
     // literal bottom.
     scrollEndThreshold: NEAR_BOTTOM_PX,
     scrollMargin: heroHeight,
+    paddingEnd: tailPaddingEnd,
     overscan: 8,
   })
   // virtual-core exposes this predicate on the instance (and `resizeItem`

@@ -370,6 +370,36 @@ async function waitForCommittedGeometry(scroller: Locator): Promise<MessageViewp
   return settled!
 }
 
+async function expectSkeletonTailGeometry(
+  page: Page,
+  width: 390 | 1280,
+  label: string,
+): Promise<void> {
+  const geometry = await page.locator("[data-message-list-skeleton-tail]").first().evaluate((tail, scrollerTestId) => {
+    const tailRect = tail.getBoundingClientRect()
+    const scroller = tail.closest<HTMLElement>("[data-message-list-content]")
+      ?.closest<HTMLElement>(`[data-testid="${scrollerTestId}"]`)
+    const scrollerRect = scroller?.getBoundingClientRect()
+    const content = tail.closest<HTMLElement>("[data-message-list-content]")
+    return {
+      tailHeight: tailRect.height,
+      tailBottom: tailRect.bottom,
+      scrollerBottom: scrollerRect?.bottom ?? null,
+      contentPaddingBottom: content
+        ? Number.parseFloat(getComputedStyle(content).paddingBottom)
+        : null,
+    }
+  }, tid.messageScroller)
+  const expectedTail = width < 640 ? 40 : 48
+  expect(geometry.contentPaddingBottom, `${label}: outer padding`).toBe(0)
+  expect(geometry.tailHeight, `${label}: placeholder height`).toBe(expectedTail)
+  expect(geometry.scrollerBottom, `${label}: scroller boundary`).not.toBeNull()
+  expect(
+    Math.abs(geometry.tailBottom - geometry.scrollerBottom!),
+    `${label}: placeholder ends at scroller bottom`,
+  ).toBeLessThanOrEqual(1)
+}
+
 async function waitForStableTail(scroller: Locator, label: string): Promise<void> {
   await expect.poll(async () => {
     const before = await readMessageViewportGeometry(scroller)
@@ -459,7 +489,7 @@ function expectContinuousResizeAnchorPreserved(
 }
 
 function expectInFlowMessageGeometry(geometry: MessageViewportGeometry, label: string): void {
-  expect(geometry.contentPaddingBottom, `${label}: desktop normal tail inset`).toBe(24)
+  expect(geometry.contentPaddingBottom, `${label}: outer tail padding removed`).toBe(0)
   expect(geometry.composerRect, `${label}: scoped composer`).not.toBeNull()
   if (geometry.railRect) {
     expect(geometry.railPosition, `${label}: rail position`).toBe("absolute")
@@ -531,6 +561,7 @@ test.describe.serial("message scroll characterization", () => {
     expect(initialUrl.searchParams.has("anchor")).toBe(false)
     const scroller = alice.page.getByTestId(tid.messageScroller)
     await expect(scroller.locator('[data-slot="skeleton"]').first()).toBeVisible({ timeout: 20_000 })
+    await expectSkeletonTailGeometry(alice.page, 1280, "desktop cold skeleton")
     const selfTest = await scrollTraceSelfTest(alice.page)
     expect(selfTest).toMatchObject({
       getterValue: 7,
@@ -563,6 +594,23 @@ test.describe.serial("message scroll characterization", () => {
     expect(cold.frames.some((frame) => frame.loaders.top.mounted || frame.rows.length === 0)).toBe(true)
     await initialMessages.dispose()
     await image.dispose()
+
+    const mobile = await asUser("alice")
+    await mobile.page.setViewportSize({ width: 390, height: 844 })
+    const mobileInitialMessages = await holdNextRequest(
+      mobile.page,
+      `**/api/community/channels/${coldChannelId}/messages**`,
+      () => true,
+    )
+    await mobile.page.goto(`/c/channels/${serverId}/${coldChannelId}`, { waitUntil: "commit" })
+    await mobileInitialMessages.matched
+    await expect(mobile.page.getByTestId(tid.messageScroller)
+      .locator('[data-slot="skeleton"]').first()).toBeVisible({ timeout: 20_000 })
+    await expectSkeletonTailGeometry(mobile.page, 390, "mobile cold skeleton")
+    mobileInitialMessages.release()
+    await expect(mobile.page.getByTestId(tid.message(coldProfile.ids.at(-1)!)))
+      .toBeVisible({ timeout: 30_000 })
+    await mobileInitialMessages.dispose()
 
     await installScrollTraceInCurrentDocument(alice.page)
     await alice.page.getByTestId(tid.channelRow(loadingChannelId)).click()
@@ -951,9 +999,9 @@ test.describe.serial("message scroll characterization", () => {
       scrollerId: tid.messageScroller,
       messageId: tid.message(composerDmProfile.ids.at(-1)!),
     })
-    expect(tailGeometry.paddingBottom).toBe(24)
-    expect(tailGeometry.tailGap).toBeGreaterThanOrEqual(23)
-    expect(tailGeometry.tailGap).toBeLessThanOrEqual(25)
+    expect(tailGeometry.paddingBottom).toBe(0)
+    expect(tailGeometry.tailGap).toBeGreaterThanOrEqual(47)
+    expect(tailGeometry.tailGap).toBeLessThanOrEqual(49)
     expect(tailGeometry.scrollerBottom).toBeLessThanOrEqual(tailGeometry.composerTop + 1)
     await startScrollTrace(alice.page, {
       scenario: "dm-composer-clear-viewport",

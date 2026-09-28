@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { MessageList } from "./message-list"
 import { act, render } from "@/test/react-dom-harness"
 
+vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => "desktop" }))
+
 const mocks = vi.hoisted(() => {
   const scrollToIndex = vi.fn()
   const scrollToEnd = vi.fn()

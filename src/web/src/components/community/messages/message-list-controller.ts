@@ -3,7 +3,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type { RenderMsg } from "@/lib/community/models/message"
 import { flattenMessageItems } from "@/lib/community/message-list-items"
-import { useScrollAnchor } from "@/hooks/community/use-scroll-anchor"
+import {
+  resolveMessageRailTailPaddingEnd,
+  useScrollAnchor,
+} from "@/hooks/community/use-scroll-anchor"
+import { useBreakpoint } from "@/hooks/use-mobile"
 import { useVirtualCursorSentinel } from "@/hooks/community/use-virtual-cursor-sentinel"
 import { useInitialPositionTransition } from "./initial-position-transition"
 import type { ResolvedMessageListProps } from "./message-list-types"
@@ -28,6 +32,8 @@ export function useMessageListController({
   onScrollRoot,
   onScrollTargetConsumed,
 }: ResolvedMessageListProps) {
+  const breakpoint = useBreakpoint()
+  const tailPaddingEnd = resolveMessageRailTailPaddingEnd(breakpoint)
   const [jumped, setJumped] = useState<string | null>(null)
   const [anchorPositionSettled, setAnchorPositionSettled] = useState(false)
   const [targetPositionSettled, setTargetPositionSettled] = useState(!scrollToMessageId)
@@ -125,6 +131,7 @@ export function useMessageListController({
     viewerUserId,
     heroHeight,
     heroMeasured,
+    tailPaddingEnd,
     onInitialPositionSettled: settleAnchorPosition,
   })
   const initialPosition = useInitialPositionTransition({

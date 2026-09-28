@@ -93,6 +93,7 @@ async function mountHook({
   presentVersion,
   viewerUserId,
   onInitialPositionSettled,
+  tailPaddingEnd = 48,
 }: {
   distanceToEnd?: number
   initialClientHeight?: number
@@ -105,6 +106,7 @@ async function mountHook({
   presentVersion?: number
   viewerUserId?: string
   onInitialPositionSettled?: () => void
+  tailPaddingEnd?: number
 } = {}) {
   const { useScrollAnchor } = await import("./use-scroll-anchor")
   const hookInput = {
@@ -117,6 +119,7 @@ async function mountHook({
     presentVersion,
     viewerUserId,
     onInitialPositionSettled,
+    tailPaddingEnd,
   }
   // The React module is intentionally mocked above; this calls a deterministic
   // hook shim rather than mounting a real component tree.
@@ -248,6 +251,11 @@ beforeEach(resetHarness)
 afterEach(() => vi.unstubAllGlobals())
 
 describe("useScrollAnchor delayed row-growth re-pin", () => {
+  it("puts the fixed rail clearance inside the virtual total", async () => {
+    await mountHook({ tailPaddingEnd: 40 })
+    expect(virtualizerOptions?.paddingEnd).toBe(40)
+  })
+
   it("cancels a pending older-page frame from the unmount fallback", async () => {
     await mountHook()
     const paginationAnchorFrameRef = refs[PAGINATION_ANCHOR_FRAME_REF_INDEX]

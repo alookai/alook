@@ -50,7 +50,7 @@ export function renderMessageListView(
             data-initial-position-phase={controller.initialPosition.phase}
             aria-hidden={!controller.initialPosition.showSkeleton && !controller.initialPosition.contentVisible}
             inert={!controller.initialPosition.showSkeleton && !controller.initialPosition.contentInteractive}
-            className={`flex min-h-full flex-col justify-end px-4 pb-4 pt-8 sm:pb-6 ${
+            className={`flex min-h-full flex-col justify-end px-4 pt-8 ${
               controller.initialPosition.phase === "revealing" && controller.initialPosition.contentVisible
                 ? "opacity-100 transition-opacity duration-300 ease-linear motion-reduce:transition-opacity"
                 : controller.initialPosition.showSkeleton || controller.initialPosition.contentVisible
@@ -111,7 +111,7 @@ export function renderMessageListView(
                 : "opacity-100"
             }`}
           >
-            <div className="flex min-h-full flex-col justify-end px-4 pb-4 pt-8 sm:pb-6">
+            <div className="flex min-h-full flex-col justify-end px-4 pt-8">
               <MessageListSkeletonContent variant={props.variant} />
             </div>
           </div>
@@ -135,7 +135,7 @@ export function MessageListSkeleton({ variant = "channel" }: { variant?: "channe
         >
           <div
             data-message-list-content
-            className="flex min-h-full flex-col justify-end px-4 pb-4 pt-8 sm:pb-6"
+            className="flex min-h-full flex-col justify-end px-4 pt-8"
           >
             <MessageListSkeletonContent variant={variant} />
           </div>
@@ -186,6 +186,11 @@ function MessageListSkeletonContent({ variant }: { variant: "channel" | "dm" }) 
           </div>
         ))}
       </div>
+      <div
+        aria-hidden="true"
+        data-message-list-skeleton-tail
+        className="h-10 shrink-0 sm:h-12"
+      />
     </>
   )
 }

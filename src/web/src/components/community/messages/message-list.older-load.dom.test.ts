@@ -4,6 +4,8 @@ import { tid } from "@/lib/community/testids"
 import { act, fireEvent, render, type RenderResult } from "@/test/react-dom-harness"
 import { MessageList } from "./message-list"
 
+vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => "desktop" }))
+
 vi.mock("@/components/ui/number-ticker", () => ({
   NumberTicker: ({ value }: { value: number }) => React.createElement("span", null, value),
 }))
