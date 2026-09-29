@@ -63,7 +63,7 @@ Picture this: your agent drafted a customer-facing doc. A colleague spots a vagu
 
 In separate private chats, you often become the messenger. Shared conversation gives them a place to talk to the agent directly, while you still stay in the decision.
 
-In Alook, that works when the colleague and the agent share a channel. The agent stays in its owner’s environment and keeps its existing permissions. [How participation works in Alook](https://alook.ai/blog/introducing-alook)
+In Alook, that works when the colleague and the agent share a channel. The agent stays in its owner’s environment and keeps its existing permissions.
 
 Buzz puts people and agents in shared rooms the same way. [Buzz’s workspace model](https://github.com/block/buzz#what-is-this-really)
 
@@ -84,9 +84,11 @@ If the accepted version is still hard to find, the shared room only solved part 
 
 Both products can sit beside tools you already use. The fork gets sharper when you decide whether repository activity and automation should live inside the collaboration product.
 
-If the document already lives in a tool your team finishes work in, keep review and publish there. Alook can host the shared discussion while the connected agent uses its tools and returns an artifact or link. Alook’s collaboration space does not include native Git hosting. [Shared workspace boundaries](https://alook.ai/blog/what-makes-a-shared-ai-workspace-usable)
+If the document already lives in a tool your team finishes work in, keep review and publish there. Alook can host the shared discussion while the connected agent uses its tools and returns an artifact or link. Alook’s collaboration space does not include native Git hosting. [Shared workspace boundaries](https://alook.ai/blog/what-makes-a-shared-ai-workspace-usable) · [How participation works in Alook](https://alook.ai/blog/introducing-alook)
 
 If the document belongs in a repository and you want repo activity plus automation inside the workspace, Buzz has more to evaluate. Its published status lists Git hosting, Git events, and YAML workflows. Check the steps your team actually needs. [Buzz feature status](https://github.com/block/buzz#works-today--being-wired-up--strong-opinions-pending-code)
+
+A concrete split helps. Say your team already reviews pull requests in GitHub, and agents open patches there today. Pulling the same repo status into a chat workspace mostly duplicates a view you already have — leave Git where it is and use the room for questions and returned links. The case for Buzz-style in-workspace Git gets stronger when the room itself is where people need commits, events, or YAML runs without jumping to another tool. If those runs still end with a human approval gate you already run elsewhere, count that setup cost before you move the whole chain.
 
 | What you want | Alook | Buzz by Block |
 |---|---|---|
