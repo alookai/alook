@@ -56,6 +56,9 @@ export function useShellRailController({
   const foldersQuery = useFolders()
   const servers = serversQuery.servers
   const folders = foldersQuery.folders
+  const serverCollectionReadiness = communityDb?.getCollectionReadiness("servers")
+  const serverCollectionPending = serverCollectionReadiness === "not-ready"
+    || serverCollectionReadiness === "preloading"
   const hasLiveServers = servers.length > 0 || serversQuery.isSuccess || !accountId
   const currentServerId = useCommunityStore((state) => state.currentServerId)
   const { mutateAsync: createServerAsync } = useCreateServer()
@@ -169,7 +172,8 @@ export function useShellRailController({
       servers: railServers,
       folders,
       activeServerId: projectedActiveServerId,
-      serversLoading: !communityDb && servers.length === 0 && !serversQuery.isSuccess,
+      serversLoading: servers.length === 0
+        && (communityDb ? serverCollectionPending : !serversQuery.isSuccess),
       view: projectedView,
       onHome,
       onHomePrefetch,

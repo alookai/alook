@@ -20,7 +20,7 @@ const mocks = vi.hoisted(() => ({
   communityDb: { current: null as null | { collections: {
     servers: { get: (id: string) => { detailComplete?: boolean } | undefined }
     channels: { values: () => IterableIterator<Record<string, unknown>> }
-  }; isCollectionReady: (name: string) => boolean; hasRestoredCollection: (name: string) => boolean } },
+  }; getCollectionReadiness: (name: string) => "not-ready" | "preloading" | "ready" | "failed"; isCollectionReady: (name: string) => boolean; hasRestoredCollection: (name: string) => boolean } },
 }))
 
 vi.mock("sonner", () => ({ toast: mocks.toast }))
@@ -149,14 +149,41 @@ describe("useShellRailController", () => {
     mocks.communityDb.current = null
   })
 
-  it("renders an empty rail once the registry exists while transport refreshes", async () => {
+  it("keeps an empty rail loading while the server collection is preloading", async () => {
+    mocks.servers.length = 0
+    mocks.serversPending.current = true
+    let readiness = "preloading" as const | "ready"
+    mocks.communityDb.current = { collections: {
+      servers: { get: () => undefined },
+      channels: { values: () => new Map().values() },
+    }, getCollectionReadiness: () => readiness, isCollectionReady: () => readiness === "ready", hasRestoredCollection: () => false }
+    const hook = await renderController()
+    expect(hook.current.railProps.serversLoading).toBe(true)
+
+    readiness = "ready"
+    await hook.rerender()
+    expect(hook.current.railProps.serversLoading).toBe(false)
+  })
+
+  it("renders a legitimate empty rail once the server collection is ready", async () => {
     mocks.servers.length = 0
     mocks.serversPending.current = true
     mocks.communityDb.current = { collections: {
       servers: { get: () => undefined },
       channels: { values: () => new Map().values() },
-    }, isCollectionReady: () => false, hasRestoredCollection: () => false }
+    }, getCollectionReadiness: () => "ready", isCollectionReady: () => true, hasRestoredCollection: () => true }
     const hook = await renderController()
+    expect(hook.current.railProps.serversLoading).toBe(false)
+  })
+
+  it("keeps nonempty server rows visible while the collection revalidates", async () => {
+    mocks.serversPending.current = true
+    mocks.communityDb.current = { collections: {
+      servers: { get: () => undefined },
+      channels: { values: () => new Map().values() },
+    }, getCollectionReadiness: () => "preloading", isCollectionReady: () => false, hasRestoredCollection: () => false }
+    const hook = await renderController()
+    expect(hook.current.railProps.servers).toHaveLength(2)
     expect(hook.current.railProps.serversLoading).toBe(false)
   })
 
@@ -293,7 +320,7 @@ describe("useShellRailController", () => {
     mocks.communityDb.current = { collections: {
       servers: { get: (id) => servers.get(id) },
       channels: { values: () => channels.values() },
-    }, isCollectionReady: () => true, hasRestoredCollection: () => true }
+    }, getCollectionReadiness: () => "ready", isCollectionReady: () => true, hasRestoredCollection: () => true }
     const hook = await renderController()
 
     await act(async () => hook.current.navigate("s1"))
