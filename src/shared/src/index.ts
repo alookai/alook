@@ -191,6 +191,7 @@ export type { NotifLevel, NotificationLevelValue, ParticipantSource, MentionKind
 export * from "./provider-telemetry";
 export * from "./product-entitlements";
 export * from "./billing";
+export type { CheckoutAttempt } from "./db/billing-schema";
 export type {
   CommunityFunnelAnalyticsEvent,
   CommunityFunnelConversationType,

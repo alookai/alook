@@ -2,6 +2,7 @@ import { queries, type Database } from "@alook/shared"
 import Stripe from "stripe"
 import { assertStripeMode, BillingError, stripeId } from "./client"
 import { reconcileBilling } from "./reconcile"
+import { deliverInvoicePurchase } from "./purchase-analytics"
 
 export async function handleBillingWebhook(db: Database, stripe: Stripe, env: Env, raw: string, signature: string | null) {
   if (!env.STRIPE_WEBHOOK_SECRET) throw new BillingError("BILLING_UNAVAILABLE", 503)
@@ -33,4 +34,11 @@ export async function handleBillingWebhook(db: Database, stripe: Stripe, env: En
     if (!row) throw new BillingError("BILLING_RETRY_REQUIRED", 503)
   }
   await reconcileBilling(db, stripe, env, row.userId)
+  if (event.type === "invoice.paid") {
+    try {
+      await deliverInvoicePurchase(db, stripe, env, event.data.object, row.userId)
+    } catch {
+      console.warn("billing_purchase_analytics_failed", { invoiceId: event.data.object.id })
+    }
+  }
 }

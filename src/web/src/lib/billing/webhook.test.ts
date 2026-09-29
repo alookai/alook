@@ -1,15 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import Stripe from "stripe"
 import type { Database } from "@alook/shared"
-const mocked = vi.hoisted(() => ({ getBillingByCustomer: vi.fn(), getBilling: vi.fn(), getEffectivePlan: vi.fn(), updateBilling: vi.fn(), reconcileBilling: vi.fn() }))
+const mocked = vi.hoisted(() => ({ getBillingByCustomer: vi.fn(), getBilling: vi.fn(), getEffectivePlan: vi.fn(), updateBilling: vi.fn(), reconcileBilling: vi.fn(), deliverInvoicePurchase: vi.fn() }))
 vi.mock("@alook/shared", () => ({ queries: { billing: mocked } }))
 vi.mock("./reconcile", () => ({ reconcileBilling: mocked.reconcileBilling }))
+vi.mock("./purchase-analytics", () => ({ deliverInvoicePurchase: mocked.deliverInvoicePurchase }))
 import { handleBillingWebhook } from "./webhook"
 
 const db = {} as Database
 const stripe = new Stripe("sk_test_fixture")
 const env = { STRIPE_SECRET_KEY: "sk_test_fixture", STRIPE_WEBHOOK_SECRET: "whsec_fixture" } as Env
-const body = (object: Record<string, unknown> = { customer: "cus_owner" }, livemode = false) => JSON.stringify({
+const body = (object: Record<string, unknown> = { id: "in_fixture", customer: "cus_owner" }, livemode = false) => JSON.stringify({
   id: "evt_fixture", object: "event", type: "invoice.paid", livemode, data: { object },
 }, null, 2)
 const signature = (raw: string) => stripe.webhooks.generateTestHeaderString({ payload: raw, secret: env.STRIPE_WEBHOOK_SECRET! })
@@ -24,6 +25,8 @@ describe("Stripe signed ingress", () => {
     const raw = body()
     await handleBillingWebhook(db, stripe, env, raw, signature(raw))
     expect(mocked.reconcileBilling).toHaveBeenCalledWith(db, stripe, env, "owner")
+    expect(mocked.deliverInvoicePurchase).toHaveBeenCalledWith(db, stripe, env, expect.objectContaining({ customer: "cus_owner" }), "owner")
+    expect(mocked.reconcileBilling.mock.invocationCallOrder[0]).toBeLessThan(mocked.deliverInvoicePurchase.mock.invocationCallOrder[0])
   })
   it.each([null, "invalid"])("rejects missing or invalid signatures before database access", async (header) => {
     await expect(handleBillingWebhook(db, stripe, env, body(), header)).rejects.toMatchObject({ code: "BILLING_SIGNATURE_INVALID", status: 400 })
@@ -42,6 +45,14 @@ describe("Stripe signed ingress", () => {
     mocked.reconcileBilling.mockRejectedValue(new Error("D1 unavailable"))
     const raw = body()
     await expect(handleBillingWebhook(db, stripe, env, raw, signature(raw))).rejects.toThrow("D1 unavailable")
+  })
+  it("acknowledges reconciled billing when purchase analytics fails", async () => {
+    mocked.deliverInvoicePurchase.mockRejectedValue(new Error("analytics unavailable"))
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const raw = body()
+    await expect(handleBillingWebhook(db, stripe, env, raw, signature(raw))).resolves.toBeUndefined()
+    expect(warning).toHaveBeenCalledWith("billing_purchase_analytics_failed", { invoiceId: "in_fixture" })
+    warning.mockRestore()
   })
   it("reconciles duplicates again instead of treating event receipt as completed work", async () => {
     const raw = body()

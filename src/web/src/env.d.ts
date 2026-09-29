@@ -3,6 +3,7 @@ interface RuntimeEnv {
   STRIPE_WEBHOOK_SECRET?: string
   STRIPE_PORTAL_CONFIGURATION_ID?: string
   STRIPE_RETURN_ORIGIN?: string
+  GA4_API_SECRET?: string
   ENCRYPTION_KEY: string
   APP_REVIEW_EMAIL?: string
   APP_REVIEW_OTP?: string

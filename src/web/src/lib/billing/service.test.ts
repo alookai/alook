@@ -14,7 +14,7 @@ import { BillingError } from "./client"
 
 type Row = {
   userId: string; customerId: string | null; subscriptionId: string | null; subscription: null; revision: number;
-  checkoutAttempt: null | { id: string; priceId: string; email: string; origin: string; startedAt: number; sessionId: string | null; founderAcknowledged?: boolean };
+  checkoutAttempt: null | { id: string; priceId: string; email: string; origin: string; startedAt: number; sessionId: string | null; founderAcknowledged?: boolean; analytics?: { clientId: string; sessionId: string; consentRevision: number }; analyticsSkipReason?: "stale_consent_proof" };
 }
 let row: Row
 let founder: boolean
@@ -165,6 +165,32 @@ describe("one unresolved Checkout per owner", () => {
     await checkout()
     expect(sessionCreates.mock.calls[0][0]).toMatchObject({ success_url: "http://localhost:3000/c/me/bots?billing=checkout", cancel_url: "http://localhost:3000/c/me/bots?billing=cancel", mode: "subscription", managed_payments: { enabled: false } })
     expect(sessionCreates.mock.calls[0][1].idempotencyKey).toBe(`alook:checkout:${row.checkoutAttempt!.id}`)
+  })
+  it("freezes consented GA identity and copies it only to subscription metadata", async () => {
+    await createCheckout(db, stripe, env, "owner", "qa@example.test", "studio", false, {
+      clientId: "123.456",
+      sessionId: "1700000000",
+      consentRevision: 3,
+    })
+    expect(row.checkoutAttempt?.analytics).toEqual({ clientId: "123.456", sessionId: "1700000000", consentRevision: 3 })
+    expect(sessionCreates.mock.calls[0][0].subscription_data.metadata).toMatchObject({
+      alook_ga_client_id: "123.456",
+      alook_ga_session_id: "1700000000",
+      alook_ga_consent_revision: "3",
+    })
+    expect(sessionCreates.mock.calls[0][0].metadata).not.toHaveProperty("alook_ga_client_id")
+  })
+  it("freezes a stale-proof audit marker without any GA identity", async () => {
+    const createCheckoutWithSkipReason = createCheckout as unknown as (...args: unknown[]) => ReturnType<typeof createCheckout>
+    await createCheckoutWithSkipReason(
+      db, stripe, env, "owner", "qa@example.test", "studio", false, undefined, "stale_consent_proof",
+    )
+    expect(row.checkoutAttempt).toMatchObject({ analyticsSkipReason: "stale_consent_proof" })
+    expect(row.checkoutAttempt?.analytics).toBeUndefined()
+    expect(sessionCreates.mock.calls[0][0].subscription_data.metadata).toMatchObject({
+      alook_ga_consent_status: "stale_consent_proof",
+    })
+    expect(sessionCreates.mock.calls[0][0].subscription_data.metadata).not.toHaveProperty("alook_ga_client_id")
   })
   it("requires Founder acknowledgment before purchase and returns normal offers", async () => {
     founder = true

@@ -1,8 +1,14 @@
-import { queries, type Database, type BillingSummary } from "@alook/shared"
+import { queries, type CheckoutAttempt, type Database, type BillingSummary } from "@alook/shared"
 import type Stripe from "stripe"
 import { assertStripeMode, billingOrigin, BillingError, stripeId } from "./client"
 import { getOffers, requireOffer } from "./catalog"
 import { currentSubscription, reconcileBilling } from "./reconcile"
+import {
+  GA4_CLIENT_ID_METADATA,
+  GA4_CONSENT_REVISION_METADATA,
+  GA4_CONSENT_STATUS_METADATA,
+  GA4_SESSION_ID_METADATA,
+} from "@/lib/analytics-consent-server"
 
 type BillingRow = NonNullable<Awaited<ReturnType<typeof queries.billing.getBilling>>>
 
@@ -40,7 +46,17 @@ async function sessionForAttempt(stripe: Stripe, env: Env, row: BillingRow) {
   return null
 }
 
-export async function createCheckout(db: Database, stripe: Stripe, env: Env, userId: string, email: string, priceId: string, founderAcknowledged = false) {
+export async function createCheckout(
+  db: Database,
+  stripe: Stripe,
+  env: Env,
+  userId: string,
+  email: string,
+  priceId: string,
+  founderAcknowledged = false,
+  analytics?: NonNullable<CheckoutAttempt["analytics"]>,
+  analyticsSkipReason?: CheckoutAttempt["analyticsSkipReason"],
+) {
   const effective = await requireBillingOwner(db, userId, founderAcknowledged)
   await requireOffer(db, stripe, env, priceId)
   for (let retry = 0; retry < 5; retry++) {
@@ -55,6 +71,8 @@ export async function createCheckout(db: Database, stripe: Stripe, env: Env, use
         id: crypto.randomUUID(), priceId, email, origin: billingOrigin(env),
         startedAt: Math.floor(Date.now() / 1000), sessionId: null,
         ...(founderAcknowledged ? { founderAcknowledged: true } : {}),
+        ...(analytics ? { analytics } : {}),
+        ...(analyticsSkipReason ? { analyticsSkipReason } : {}),
       } }, founderAcknowledged)
       if (!reserved) continue
       row = reserved
@@ -102,6 +120,18 @@ export async function createCheckout(db: Database, stripe: Stripe, env: Env, use
         row = saved
       }
       await requireBillingOwner(db, userId, founderAcknowledged)
+      const subscriptionMetadata = {
+        alook_user_id: userId,
+        alook_attempt_id: attempt.id,
+        ...(attempt.analytics ? {
+          [GA4_CLIENT_ID_METADATA]: attempt.analytics.clientId,
+          [GA4_SESSION_ID_METADATA]: attempt.analytics.sessionId,
+          [GA4_CONSENT_REVISION_METADATA]: String(attempt.analytics.consentRevision),
+        } : {}),
+        ...(attempt.analyticsSkipReason ? {
+          [GA4_CONSENT_STATUS_METADATA]: attempt.analyticsSkipReason,
+        } : {}),
+      }
       session = await stripe.checkout.sessions.create({
         mode: "subscription",
         managed_payments: { enabled: false },
@@ -109,7 +139,7 @@ export async function createCheckout(db: Database, stripe: Stripe, env: Env, use
         client_reference_id: userId,
         line_items: [{ price: attempt.priceId, quantity: 1 }],
         metadata: { alook_user_id: userId, alook_attempt_id: attempt.id },
-        subscription_data: { metadata: { alook_user_id: userId, alook_attempt_id: attempt.id } },
+        subscription_data: { metadata: subscriptionMetadata },
         expires_at: attempt.startedAt + 24 * 3600 - 60,
         success_url: `${attempt.origin}/c/me/bots?billing=checkout`,
         cancel_url: `${attempt.origin}/c/me/bots?billing=cancel`,
