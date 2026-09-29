@@ -2,6 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
 import { serversCollectionQueryKey } from "@/lib/community-db/server-collection"
+import { readStateResourceKey } from "@/lib/community-db/read-state-resource"
+import {
+  createNotificationSettingsResourceQueryFn,
+  notificationSettingsResourceKey,
+} from "@/lib/community-db/notification-settings-resource"
 
 const apiFetch = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/api/client", () => ({
@@ -11,7 +16,6 @@ vi.mock("@/lib/api/client", () => ({
 import { dispatchCommunityWsEvent } from "./registry"
 import type { CommunityWsDispatchContext } from "./handler-context"
 import { getAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
-import { notificationSettingsQueryFn } from "@/hooks/community/use-notification-settings"
 import { disposeAccountReadStateReconciliation } from "./read-state-reconciliation"
 
 vi.mock("@/lib/community-db/sync", async (importOriginal) => {
@@ -19,8 +23,7 @@ vi.mock("@/lib/community-db/sync", async (importOriginal) => {
   const published = async () => ({ status: "published" as const, generation: 1 })
   return {
     ...actual,
-    publishCommunityLiveSnapshot: vi.fn(published),
-    publishCommunityNotificationSettings: vi.fn(published),
+    reconcileCommunityLiveSnapshot: vi.fn(published),
   }
 })
 
@@ -54,7 +57,7 @@ describe("same-account read-state WS events", () => {
   })
 
   it("pulls and projects the authoritative replacement for an exact-next hint", async () => {
-    queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
+    queryClient.setQueryData(readStateResourceKey("anon"), {
       revision: 2,
       readStates: [],
     })
@@ -89,7 +92,7 @@ describe("same-account read-state WS events", () => {
   })
 
   it("repairs a revision gap from the authoritative snapshot", async () => {
-    queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
+    queryClient.setQueryData(readStateResourceKey("anon"), {
       revision: 2,
       readStates: [],
     })
@@ -110,13 +113,13 @@ describe("same-account read-state WS events", () => {
     }, context(queryClient))
 
     await vi.waitFor(() => expect(queryClient.getQueryData(
-      communityKeys.accountReadStateSnapshot(),
+      readStateResourceKey("anon"),
     )).toMatchObject({ revision: 5 }))
     expect(apiFetch).toHaveBeenCalledTimes(1)
   })
 
   it("pulls one full read-all replacement and ignores its stale replay", async () => {
-    queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
+    queryClient.setQueryData(readStateResourceKey("anon"), {
       revision: 7,
       readStates: [],
     })
@@ -151,7 +154,7 @@ describe("same-account read-state WS events", () => {
   })
 
   it("absorbs an authoritative repair failure after receiving a newer hint", async () => {
-    queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
+    queryClient.setQueryData(readStateResourceKey("anon"), {
       revision: 2,
       readStates: [],
     })
@@ -165,14 +168,14 @@ describe("same-account read-state WS events", () => {
 
     await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledOnce())
     await vi.waitFor(() => expect(queryClient.getQueryState(
-      communityKeys.accountReadStateSnapshot(),
+      readStateResourceKey("anon"),
     )?.fetchStatus).toBe("idle"))
-    expect(queryClient.getQueryData(communityKeys.accountReadStateSnapshot()))
+    expect(queryClient.getQueryData(readStateResourceKey("anon")))
       .toMatchObject({ revision: 2 })
   })
 
   it("schedules the owner immediately while the snapshot repairs only non-Inbox surfaces", async () => {
-    queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
+    queryClient.setQueryData(readStateResourceKey("anon"), {
       revision: 2,
       readStates: [],
     })
@@ -229,7 +232,7 @@ describe("same-account read-state WS events", () => {
     peer.setNotificationPolicy({ server: { s1: initial } })
     source.recordArrival({ channelId: "c1", serverId: "s1", seq: 1 })
     peer.recordArrival({ channelId: "c1", serverId: "s1", seq: 1 })
-    peerClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
+    peerClient.setQueryData(readStateResourceKey("anon"), {
       revision: 1,
       readStates: [],
     })
@@ -259,7 +262,7 @@ describe("same-account read-state WS events", () => {
     projection.setNotificationPolicy({ server: { s1: "nothing" } })
     projection.recordArrival({ channelId: "c1", serverId: "s1", seq: 1 })
     const stalePolicySnapshot = projection.beginSnapshot("servers", "channels")
-    queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
+    queryClient.setQueryData(readStateResourceKey("anon"), {
       revision: 1,
       readStates: [],
     })
@@ -275,9 +278,10 @@ describe("same-account read-state WS events", () => {
       }
       return Promise.resolve([])
     })
-    const oldRequest = queryClient.fetchQuery({
-      queryKey: communityKeys.notificationSettings(),
-      queryFn: notificationSettingsQueryFn,
+    const policyKey = notificationSettingsResourceKey("anon")
+    const oldRequest = queryClient.query({
+      queryKey: policyKey,
+      queryFn: createNotificationSettingsResourceQueryFn(queryClient, "anon"),
     }).catch(() => undefined)
     await vi.waitFor(() => expect(policyCalls).toBe(1))
 
@@ -291,7 +295,7 @@ describe("same-account read-state WS events", () => {
     resolveOldPolicy([{ serverId: "s1", channelId: null, level: "nothing" }])
     await oldRequest
     await vi.waitFor(() => expect(projection.getPolicyGeneration()).toBeGreaterThan(1))
-    expect(queryClient.getQueryData(communityKeys.notificationSettings())).toMatchObject({
+    expect(queryClient.getQueryData(policyKey)).toMatchObject({
       raw: [],
       server: {},
       channel: {},

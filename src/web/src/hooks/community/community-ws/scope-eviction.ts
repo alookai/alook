@@ -6,6 +6,7 @@ import { useMessageStreamStore } from "@/stores/community/message-stream"
 import { clearTypingIndicator } from "./typing"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { purgeCommunityServer } from "@/lib/community-db/sync"
+import { isServerDetailResourceQueryKey } from "@/lib/community-db/server-detail-resource"
 import {
   claimOwnerServerDeleteScopeFlush,
   completeOwnerServerDeleteScopeFlush,
@@ -40,17 +41,12 @@ export function collectChannelScopeIds(
   for (const { scope } of useMessageStreamStore.getState().entries.values()) {
     if (!channelId && scope.kind === "channel" && scope.serverId === serverId) ids.add(scope.id)
   }
-  const visit = (value: unknown) => {
-    if (Array.isArray(value)) { value.forEach(visit); return }
-    if (!value || typeof value !== "object") return
-    const row = value as Record<string, unknown>
-    if (!channelId || row.parentChannelId === channelId) {
-      if (typeof row.childChannelId === "string") ids.add(row.childChannelId)
-      if (typeof row.id === "string" && (row.type === "thread" || row.type === "text" || row.type === "forum")) ids.add(row.id)
+  const registry = getCommunityDbRegistry(queryClient)
+  for (const channel of registry?.collections.channels.values() ?? []) {
+    if (channel.serverId === serverId && (!channelId || channel.parentChannelId === channelId)) {
+      ids.add(channel.id)
     }
-    for (const child of Object.values(row)) if (child && typeof child === "object") visit(child)
   }
-  for (const [, data] of queryClient.getQueriesData({ queryKey: communityKeys.server(serverId) })) visit(data)
   for (const [key, data] of queryClient.getQueriesData<
     ThreadPageLike | { pages: ThreadPageLike[] }
   >({
@@ -114,8 +110,11 @@ function evictServerChannelScopesNow(queryClient: QueryClient, serverId: string)
   for (const id of collectChannelScopeIds(queryClient, serverId)) {
     evictScopeContent(queryClient, serverId, id)
   }
-  void queryClient.cancelQueries({ queryKey: communityKeys.server(serverId) })
-  queryClient.removeQueries({ queryKey: communityKeys.server(serverId) })
+  const detailFilters = {
+    predicate: ({ queryKey }: Query) => isServerDetailResourceQueryKey(queryKey, serverId),
+  }
+  void queryClient.cancelQueries(detailFilters)
+  queryClient.removeQueries(detailFilters)
   useMessageStreamStore.getState().removeServer(serverId)
   const community = useCommunityStore.getState()
   if (community.currentServerId === serverId) {
@@ -123,8 +122,8 @@ function evictServerChannelScopesNow(queryClient: QueryClient, serverId: string)
     community.setCurrentChannelId(null)
     community.setCurrentServerId(null)
   }
-  const registry = getCommunityDbRegistry(queryClient)
-  if (registry) purgeCommunityServer(registry, serverId)
+  const activeRegistry = getCommunityDbRegistry(queryClient)
+  if (activeRegistry) purgeCommunityServer(activeRegistry, serverId)
 }
 
 export function evictServerChannelScopes(queryClient: QueryClient, serverId: string): boolean {

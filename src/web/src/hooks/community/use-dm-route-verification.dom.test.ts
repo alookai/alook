@@ -4,6 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, render } from "@/test/react-dom-harness"
 import { communityKeys } from "@/lib/query-keys"
 import type { DM } from "@/lib/community/models/people"
+import {
+  dmsResourceKey,
+  type DmsResource,
+} from "@/lib/community-db/dms-resource"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import {
   classifyDmRouteAuthorityError,
@@ -23,7 +27,7 @@ vi.mock("@/lib/community-db/sync", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/community-db/sync")>()
   return {
     ...actual,
-    publishCommunityLiveSnapshot: vi.fn(async (queryClient, publication) => {
+    reconcileCommunityLiveSnapshot: vi.fn(async (queryClient, publication) => {
       actual.assertCommunityLiveSnapshotTokenCurrent(
         queryClient,
         publication.proof.token,
@@ -38,6 +42,10 @@ function client() {
   return new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
   })
+}
+
+function canonicalDms(conversations: DM[]): DmsResource {
+  return { conversations, channels: [], channelMemberships: [], profiles: [] }
 }
 
 function deferred<T>() {
@@ -104,7 +112,7 @@ describe("DM route verification", () => {
 
   it("bypasses a fresh cached miss, updates the canonical list, and dedupes callers", async () => {
     const queryClient = client()
-    queryClient.setQueryData(communityKeys.dms(), { conversations: [] })
+    queryClient.setQueryData(dmsResourceKey("anon"), canonicalDms([]))
     const authoritative = {
       conversations: [{
         id: "dm-new",
@@ -130,12 +138,13 @@ describe("DM route verification", () => {
       headers: { [DM_ROUTE_VERIFICATION_HEADER]: "1" },
       signal: expect.any(AbortSignal),
     })
-    expect(queryClient.getQueryData(communityKeys.dms())).toEqual(authoritative)
+    expect(queryClient.getQueryData<DmsResource>(dmsResourceKey("anon"))?.conversations)
+      .toEqual(authoritative.conversations)
   })
 
   it("confirms a fresh missing target with one authority request", async () => {
     const queryClient = client()
-    queryClient.setQueryData(communityKeys.dms(), { conversations: [] })
+    queryClient.setQueryData(dmsResourceKey("anon"), canonicalDms([]))
     apiFetchMock.mockResolvedValue({ conversations: [] })
 
     await expect(startDmRouteVerification(queryClient, "dm-missing")).resolves.toBe("missing")
@@ -155,7 +164,7 @@ describe("DM route verification", () => {
         status: "offline",
         preview: "",
       }
-      queryClient.setQueryData(communityKeys.dms(), { conversations: [current] })
+      queryClient.setQueryData(dmsResourceKey("anon"), canonicalDms([current]))
       const request = deferred<{ conversations: DM[] }>()
       apiFetchMock.mockReturnValueOnce(request.promise)
 
@@ -177,9 +186,8 @@ describe("DM route verification", () => {
       request.resolve({ conversations: [] })
 
       await rejected
-      expect(queryClient.getQueryData(communityKeys.dms())).toEqual({
-        conversations: [current],
-      })
+      expect(queryClient.getQueryData<DmsResource>(dmsResourceKey("anon"))?.conversations)
+        .toEqual([current])
     },
   )
 
@@ -194,7 +202,7 @@ describe("DM route verification", () => {
       status: "offline",
       preview: "",
     }
-    queryClient.setQueryData(communityKeys.dms(), { conversations: [provisional] })
+    queryClient.setQueryData(dmsResourceKey("anon"), canonicalDms([provisional]))
 
     await expect(startDmRouteVerification(queryClient, provisional.id)).resolves.toBe("present")
     expect(apiFetchMock).not.toHaveBeenCalled()
@@ -211,7 +219,7 @@ describe("DM route verification", () => {
       status: "offline",
       preview: "",
     }
-    queryClient.setQueryData(communityKeys.dms(), { conversations: [projected] })
+    queryClient.setQueryData(dmsResourceKey("anon"), canonicalDms([projected]))
     apiFetchMock.mockResolvedValue({ conversations: [] })
     const statuses: DmRouteVerificationStatus[] = []
     const renderer = await renderHook(queryClient, {
@@ -234,7 +242,7 @@ describe("DM route verification", () => {
     apiFetchMock.mockRejectedValueOnce(Object.assign(new Error("denied"), { status: 403 }))
 
     await expect(startDmRouteVerification(queryClient, "dm-denied")).resolves.toBe("denied")
-    expect(queryClient.getQueryData(communityKeys.dms())).toBeUndefined()
+    expect(queryClient.getQueryData(dmsResourceKey("anon"))).toBeUndefined()
   })
 
   it("does not classify a transient failure as denied", () => {

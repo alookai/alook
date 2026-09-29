@@ -9,6 +9,7 @@ import {
 } from "@alook/shared"
 import { communityKeys } from "@/lib/query-keys"
 import { serversCollectionQueryKey } from "@/lib/community-db/server-collection"
+import { dmsResourceKey } from "@/lib/community-db/dms-resource"
 
 const reconcileCommunityWsReconnect = vi.hoisted(() => vi.fn(async () => ({
   policyCount: 13,
@@ -21,14 +22,17 @@ vi.mock("./reconnect", () => ({ reconcileCommunityWsReconnect }))
 import {
   capturedOnMessage,
   capturedQueryClient,
+  canonicalMessage,
   canonicalForumSidebar,
   cleanupCommunityWsHarness,
   forumSidebarFixture,
+  getCanonicalRegistryForTests,
   getCommunityApiFetchMock,
   hasCanonicalChannelAccess,
   hasCanonicalChannelNotify,
   mountHook,
   resetCommunityWsHarness,
+  seedCanonicalMessages,
   seedCanonicalForumSidebar,
 } from "./test-harness"
 import { getCanonicalCommunityChannels, getCanonicalCommunityMessages } from "@/lib/community-db/sync"
@@ -40,6 +44,7 @@ import {
   useCommunityWsStore,
 } from "@/stores/community/ws"
 import {
+  flushPendingReadIntents,
   registerReadSurface,
   releaseReadSurface,
   submitReadIntent,
@@ -104,10 +109,29 @@ function invalidationCount(queryKey: readonly unknown[]): number {
     JSON.stringify(filters.queryKey) === JSON.stringify(queryKey)).length
 }
 
-function attentionReconcileCount(): number {
-  return vi.mocked(capturedQueryClient.fetchQuery).mock.calls.filter(([options]) => (
-    JSON.stringify(options.queryKey) === JSON.stringify(communityKeys.accountAttention())
+function dmsInvalidationCount(): number {
+  return vi.mocked(capturedQueryClient.invalidateQueries).mock.calls.filter(([filters]) => (
+    filters.predicate?.({ queryKey: dmsResourceKey("u_me") } as never) === true
   )).length
+}
+
+async function flushMicrotasks(rounds = 20) {
+  for (let index = 0; index < rounds; index += 1) {
+    await Promise.resolve()
+    if (vi.isFakeTimers()) vi.advanceTimersByTime(0)
+  }
+}
+
+function ancillaryCommunityResponse(url: unknown) {
+  if (url === "/api/community/servers") return { servers: [] }
+  if (url === "/api/community/users/me/dms") return { conversations: [] }
+  if (url === "/api/community/users/me/attention") {
+    return {
+      scopes: [], items: [], limit: 100, truncated: false,
+      included: { servers: [], channels: [], dms: [], profiles: [], messages: [] },
+    }
+  }
+  return undefined
 }
 
 describe("useCommunityWs — operation bundles", () => {
@@ -169,9 +193,15 @@ describe("useCommunityWs — operation bundles", () => {
             }],
           }
         }
+        const ancillary = ancillaryCommunityResponse(url)
+        if (ancillary !== undefined) return ancillary
         throw new Error(`unexpected API fetch: ${String(url)}`)
       })
       vi.spyOn(capturedQueryClient, "invalidateQueries")
+      const attentionRefetch = vi.spyOn(
+        getCanonicalRegistryForTests().collections.attentionScopes.utils,
+        "refetch",
+      )
       const lease = registerReadSurface(
         capturedQueryClient,
         "viewer-1",
@@ -191,11 +221,12 @@ describe("useCommunityWs — operation bundles", () => {
         messageId: "message-1",
         seq: 1,
       })).toBe(true)
-      await vi.advanceTimersByTimeAsync(500)
-      await vi.waitFor(() => expect(getCommunityApiFetchMock()).toHaveBeenCalledWith(
+      const pendingFlush = flushPendingReadIntents(capturedQueryClient)
+      await flushMicrotasks()
+      expect(getCommunityApiFetchMock()).toHaveBeenCalledWith(
         "/api/community/channels/ch-1/read",
         expect.anything(),
-      ))
+      )
 
       capturedOnMessage!({
         type: "community:mention.create",
@@ -210,10 +241,14 @@ describe("useCommunityWs — operation bundles", () => {
       })
       capturedOnMessage!({ type: "community:unread.bump", userId: "viewer-1", channelId: "dm-1" })
       releaseRead()
+      await pendingFlush
+      expect(attentionRefetch).toHaveBeenCalledTimes(1)
       await vi.advanceTimersByTimeAsync(500)
 
-      expect(invalidationCount(communityKeys.inbox())).toBe(1)
-      expect(invalidationCount(communityKeys.dms())).toBe(1)
+      await vi.waitFor(() => {
+        expect(invalidationCount(communityKeys.inbox())).toBe(1)
+        expect(dmsInvalidationCount()).toBe(1)
+      })
       releaseReadSurface(lease)
     } finally {
       vi.useRealTimers()
@@ -245,6 +280,8 @@ describe("useCommunityWs — operation bundles", () => {
             }],
           }
         }
+        const ancillary = ancillaryCommunityResponse(url)
+        if (ancillary !== undefined) return ancillary
         throw new Error(`unexpected API fetch: ${String(url)}`)
       })
       vi.spyOn(capturedQueryClient, "invalidateQueries")
@@ -262,11 +299,12 @@ describe("useCommunityWs — operation bundles", () => {
         messageId: "message-1",
         seq: 1,
       })).toBe(true)
-      await vi.advanceTimersByTimeAsync(500)
-      await vi.waitFor(() => expect(getCommunityApiFetchMock()).toHaveBeenCalledWith(
+      const pendingFlush = flushPendingReadIntents(capturedQueryClient)
+      await flushMicrotasks()
+      expect(getCommunityApiFetchMock()).toHaveBeenCalledWith(
         "/api/community/channels/ch-1/read",
         expect.anything(),
-      ))
+      )
 
       capturedOnMessage!({
         type: "community:mention.create",
@@ -276,10 +314,13 @@ describe("useCommunityWs — operation bundles", () => {
         authorName: "Alice",
       })
       releaseRead()
+      await pendingFlush
       await vi.advanceTimersByTimeAsync(500)
 
-      expect(invalidationCount(communityKeys.inbox())).toBe(1)
-      expect(invalidationCount(communityKeys.dms())).toBe(1)
+      await vi.waitFor(() => {
+        expect(invalidationCount(communityKeys.inbox())).toBe(1)
+        expect(dmsInvalidationCount()).toBe(1)
+      })
       releaseReadSurface(lease)
     } finally {
       vi.useRealTimers()
@@ -313,10 +354,15 @@ describe("useCommunityWs — operation bundles", () => {
             }],
           }
         }
+        const ancillary = ancillaryCommunityResponse(url)
+        if (ancillary !== undefined) return ancillary
         throw new Error(`unexpected API fetch: ${String(url)}`)
       })
       vi.spyOn(capturedQueryClient, "invalidateQueries")
-      vi.spyOn(capturedQueryClient, "fetchQuery")
+      const attentionRefetch = vi.spyOn(
+        getCanonicalRegistryForTests().collections.attentionScopes.utils,
+        "refetch",
+      )
       const lease = registerReadSurface(
         capturedQueryClient,
         "viewer-1",
@@ -331,7 +377,7 @@ describe("useCommunityWs — operation bundles", () => {
         messageId: "message-1",
         seq: 1,
       })).toBe(true)
-      await vi.advanceTimersByTimeAsync(500)
+      vi.advanceTimersByTime(500)
       await vi.waitFor(() => expect(readCalls).toBe(1))
 
       expect(submitReadIntent(lease, {
@@ -341,13 +387,15 @@ describe("useCommunityWs — operation bundles", () => {
         seq: 2,
       })).toBe(true)
       releaseFirstRead()
-      await vi.advanceTimersByTimeAsync(499)
+      vi.advanceTimersByTime(499)
+      await flushMicrotasks()
       expect(readCalls).toBe(1)
-      expect(attentionReconcileCount()).toBe(2)
+      expect(attentionRefetch).not.toHaveBeenCalled()
 
-      await vi.advanceTimersByTimeAsync(1)
+      vi.advanceTimersByTime(1)
+      await flushMicrotasks()
       await vi.waitFor(() => expect(readCalls).toBe(2))
-      expect(attentionReconcileCount()).toBe(3)
+      await vi.waitFor(() => expect(attentionRefetch).toHaveBeenCalledTimes(1))
       releaseReadSurface(lease)
     } finally {
       vi.useRealTimers()
@@ -362,7 +410,10 @@ describe("useCommunityWs — operation bundles", () => {
         servers: [{ id: "server-1", mentions: 5 }],
       })
       vi.spyOn(capturedQueryClient, "invalidateQueries")
-      vi.spyOn(capturedQueryClient, "fetchQuery")
+      const attentionRefetch = vi.spyOn(
+        getCanonicalRegistryForTests().collections.attentionScopes.utils,
+        "refetch",
+      )
       const frame = await batchFor("message-1", mentionEvents)
 
       capturedOnMessage!(frame)
@@ -375,10 +426,11 @@ describe("useCommunityWs — operation bundles", () => {
       // read can cover it. An orphan/sticky bump would deliberately survive.
       unreadProjection.recordRead("ch-1", 1)
       expect(unreadProjection.projectUnread("servers", "ch-1", false)).toBe(false)
-      expect(attentionReconcileCount()).toBe(0)
+      expect(attentionRefetch).not.toHaveBeenCalled()
       expect(invalidationCount(serversCollectionQueryKey())).toBe(1)
-      await vi.advanceTimersByTimeAsync(500)
-      expect(attentionReconcileCount()).toBe(1)
+      vi.advanceTimersByTime(500)
+      await flushMicrotasks()
+      expect(attentionRefetch).toHaveBeenCalledTimes(1)
 
       const callsAfterFirst = vi.mocked(capturedQueryClient.invalidateQueries).mock.calls.length
       const seenMessagesAfterFirst = useCommunityWsStore.getState().seenMessageIds.size
@@ -388,9 +440,10 @@ describe("useCommunityWs — operation bundles", () => {
         serverId: "server-1",
       })
       capturedOnMessage!(frame)
-      await vi.advanceTimersByTimeAsync(500)
+      vi.advanceTimersByTime(500)
+      await flushMicrotasks()
       expect(vi.mocked(capturedQueryClient.invalidateQueries)).toHaveBeenCalledTimes(callsAfterFirst)
-      expect(attentionReconcileCount()).toBe(1)
+      expect(attentionRefetch).toHaveBeenCalledTimes(1)
       expect(useCommunityWsStore.getState().seenMessageIds.size).toBe(seenMessagesAfterFirst)
       expect(getMessageOverlay({ kind: "channel", id: "ch-1", serverId: "server-1" }))
         .toBe(overlayAfterFirst)
@@ -517,7 +570,9 @@ describe("useCommunityWs — operation bundles", () => {
     capturedOnMessage!(await batchFor("message-fenced-mention", mentionEvents))
 
     expect(queryCalls).toBe(1)
-    expect(cancel).not.toHaveBeenCalled()
+    expect(cancel.mock.calls.filter(([filters]) => (
+      JSON.stringify(filters.queryKey) === JSON.stringify(key)
+    ))).toHaveLength(0)
     expect(getActiveAccountUnreadProjection(capturedQueryClient)
       .projectServerUnread("server-1", [])).toBe(true)
     await capturedQueryClient.cancelQueries({ queryKey: key, exact: true })
@@ -534,16 +589,20 @@ describe("useCommunityWs — operation bundles", () => {
         servers: [{ id: "server-1", mentions: 9 }],
       })
       vi.spyOn(capturedQueryClient, "invalidateQueries")
-      vi.spyOn(capturedQueryClient, "fetchQuery")
+      const attentionRefetch = vi.spyOn(
+        getCanonicalRegistryForTests().collections.attentionScopes.utils,
+        "refetch",
+      )
 
       capturedOnMessage!(await batchFor("message-late", mentionEvents))
       expect(capturedQueryClient.getQueryData<{ servers: Array<{ mentions: number }> }>(
         serversCollectionQueryKey(),
       )?.servers[0]?.mentions).toBe(9)
-      expect(attentionReconcileCount()).toBe(0)
+      expect(attentionRefetch).not.toHaveBeenCalled()
       expect(invalidationCount(serversCollectionQueryKey())).toBe(1)
-      await vi.advanceTimersByTimeAsync(500)
-      expect(attentionReconcileCount()).toBe(1)
+      vi.advanceTimersByTime(500)
+      await flushMicrotasks()
+      expect(attentionRefetch).toHaveBeenCalledTimes(1)
     } finally {
       vi.useRealTimers()
     }
@@ -715,16 +774,16 @@ describe("useCommunityWs — operation bundles", () => {
     capturedQueryClient.setQueryData(serversCollectionQueryKey(), {
       servers: [{ id: "s1", mentions: 5 }],
     })
-    capturedQueryClient.setQueryData(communityKeys.channelMessages("forum_1"), {
-      pages: [{
-        messages: [{
-          id: "opener-1",
-          thread: { id: "ch-1", name: "thread", messageCount: 1 },
-        }],
-        hasMore: false,
-      }],
-      pageParams: [null],
-    })
+    await seedCanonicalMessages("forum_1", [{
+      id: "opener-1",
+      seq: 1,
+      type: "chat",
+      authorId: "author-1",
+      authorName: "Alice",
+      content: "opener",
+      createdAt: "2026-08-20T00:00:00.000Z",
+      thread: { id: "ch-1", name: "thread", messageCount: 1 },
+    }])
     const parentScope = { kind: "channel" as const, id: "forum_1", serverId: "s1" }
     useMessageStreamStore.getState().dispatch(parentScope, {
       type: "wsMessage",
@@ -800,10 +859,7 @@ describe("useCommunityWs — operation bundles", () => {
       expect(capturedQueryClient.getQueryData<{
         servers: Array<{ id: string; mentions: number }>
       }>(serversCollectionQueryKey())?.servers[0]?.mentions).toBe(5)
-      expect(capturedQueryClient.getQueryData<{
-        pages: Array<{ messages: Array<{ thread: { messageCount: number } }> }>
-      }>(communityKeys.channelMessages("forum_1"))?.pages[0]?.messages[0]?.thread.messageCount)
-        .toBe(2)
+      expect(canonicalMessage("opener-1")?.thread?.messageCount).toBe(2)
       expect(getMessageOverlay(parentScope).liveById.get("opener-1")?.thread?.messageCount)
         .toBe(2)
     } finally {
@@ -823,10 +879,7 @@ describe("useCommunityWs — operation bundles", () => {
       "ch-1",
       false,
     )).toBe(true)
-    expect(capturedQueryClient.getQueryData<{
-      pages: Array<{ messages: Array<{ thread: { messageCount: number } }> }>
-    }>(communityKeys.channelMessages("forum_1"))?.pages[0]?.messages[0]?.thread.messageCount)
-      .toBe(2)
+    expect(canonicalMessage("opener-1")?.thread?.messageCount).toBe(2)
     expect(getMessageOverlay(parentScope).liveById.get("opener-1")?.thread?.messageCount)
       .toBe(2)
 
@@ -865,6 +918,8 @@ describe("useCommunityWs — operation bundles", () => {
               }],
             }
           }
+          const ancillary = ancillaryCommunityResponse(url)
+          if (ancillary !== undefined) return ancillary
           throw new Error(`unexpected API fetch: ${String(url)}`)
         })
         const unreadProjection = getActiveAccountUnreadProjection(capturedQueryClient)
@@ -901,7 +956,7 @@ describe("useCommunityWs — operation bundles", () => {
           { excludePolicies: ["inbox-dms"] },
         )
         expect(invalidationCount(communityKeys.inbox())).toBe(0)
-        expect(invalidationCount(communityKeys.dms())).toBe(0)
+        expect(dmsInvalidationCount()).toBe(0)
         expect(submitReadIntent(lease, {
           kind: "timeline",
           channelId: "ch-1",
@@ -913,12 +968,12 @@ describe("useCommunityWs — operation bundles", () => {
         if (retryTiming === "before") capturedOnMessage!(frame)
         await vi.advanceTimersByTimeAsync(500)
         expect(invalidationCount(communityKeys.inbox())).toBe(1)
-        expect(invalidationCount(communityKeys.dms())).toBe(1)
+        expect(dmsInvalidationCount()).toBe(1)
         if (retryTiming === "after") capturedOnMessage!(frame)
         await vi.advanceTimersByTimeAsync(500)
 
         expect(invalidationCount(communityKeys.inbox())).toBe(1)
-        expect(invalidationCount(communityKeys.dms())).toBe(1)
+        expect(dmsInvalidationCount()).toBe(1)
         expect(useCommunityWsStore.getState().seenDeliveryOperations.get(frame.operationId))
           .toEqual({ digest: frame.operationDigest, completed: true })
         releaseReadSurface(lease)
@@ -931,9 +986,13 @@ describe("useCommunityWs — operation bundles", () => {
   it("bounds normal and conflict refresh keys with the delivery-operation limits", async () => {
     vi.useFakeTimers()
     try {
+      vi.spyOn(console, "warn").mockImplementation(() => {})
       await mountHook({ viewerUserId: "viewer-1" })
       vi.spyOn(capturedQueryClient, "invalidateQueries")
-      vi.spyOn(capturedQueryClient, "fetchQuery")
+      const attentionRefetch = vi.spyOn(
+        getCanonicalRegistryForTests().collections.attentionScopes.utils,
+        "refetch",
+      )
       const original = await batchFor("bounded-operation", [{
         ...message,
         message: { ...message.message, id: "bounded-operation" },
@@ -953,14 +1012,17 @@ describe("useCommunityWs — operation bundles", () => {
         capturedOnMessage!(conflict)
       }
 
-      await vi.advanceTimersByTimeAsync(500)
-      expect(attentionReconcileCount()).toBe(1)
+      vi.advanceTimersByTime(500)
+      await flushMicrotasks()
+      expect(attentionRefetch).toHaveBeenCalledTimes(1)
       capturedOnMessage!(conflicts[0]!)
-      await vi.advanceTimersByTimeAsync(500)
-      expect(attentionReconcileCount()).toBe(1)
+      vi.advanceTimersByTime(500)
+      await flushMicrotasks()
+      expect(attentionRefetch).toHaveBeenCalledTimes(1)
       capturedOnMessage!(conflicts.at(-1)!)
-      await vi.advanceTimersByTimeAsync(500)
-      expect(attentionReconcileCount()).toBe(1)
+      vi.advanceTimersByTime(500)
+      await flushMicrotasks()
+      expect(attentionRefetch).toHaveBeenCalledTimes(1)
       expect(SEEN_DELIVERY_OPERATION_TRIM_TO).toBeLessThan(SEEN_DELIVERY_OPERATION_MAX)
     } finally {
       vi.useRealTimers()

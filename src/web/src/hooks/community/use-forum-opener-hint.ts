@@ -10,7 +10,7 @@ import {
 } from "@/lib/community-db/projections"
 import {
   captureCommunityLiveSnapshotToken,
-  publishCommunityMessages,
+  reconcileCanonicalCommunityMessages,
 } from "@/lib/community-db/sync"
 
 export function useForumOpenerHint(
@@ -36,7 +36,7 @@ export function useForumOpenerHint(
         `/api/community/messages/${messageId}`,
         { signal },
       )
-      await publishCommunityMessages(queryClient, {
+      await reconcileCanonicalCommunityMessages(queryClient, {
         channelId: message.channelId,
         messages: [message],
         proof: { token, signal },

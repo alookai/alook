@@ -13,7 +13,7 @@ import {
 } from "@/lib/community-db/projections"
 import {
   captureCommunityLiveSnapshotToken,
-  publishCommunityChannelDirectory,
+  reconcileCanonicalChannelDirectory,
 } from "@/lib/community-db/sync"
 
 const EMPTY_DIRECTORY = Object.freeze([]) as unknown as ChannelRefDirectory
@@ -60,7 +60,7 @@ export function useChannelRefDirectory(enabled = true): {
     queryFn: async () => {
       const token = captureCommunityLiveSnapshotToken(queryClient)
       const directory = await channelRefDirectoryQueryFn()
-      await publishCommunityChannelDirectory(queryClient, {
+      await reconcileCanonicalChannelDirectory(queryClient, {
         directory,
         proof: { token, signal: undefined },
       })

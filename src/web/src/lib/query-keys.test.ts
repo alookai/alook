@@ -37,7 +37,6 @@ describe("communityKeys", () => {
     const server = communityKeys.server("s1")
     expect(server).toEqual(["community", "servers", "s1"])
 
-    expect(communityKeys.members("s1")).toEqual([...server, "members"])
     expect(communityKeys.presence("s1")).toEqual([...server, "presence"])
     expect(communityKeys.invites("s1")).toEqual([...server, "invites"])
     const sidebar = [...server, "forum-sidebar-base"]
@@ -79,7 +78,7 @@ describe("communityKeys", () => {
       communityKeys.server("__none__"),
       communityKeys.server("__pending__"),
       communityKeys.server(""),
-      communityKeys.members("server-1"),
+      communityKeys.presence("server-1"),
       communityKeys.servers(),
     ]) {
       expect(isCommunityServerDetailQueryKey(queryKey)).toBe(false)

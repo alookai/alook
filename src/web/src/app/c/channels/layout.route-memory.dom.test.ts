@@ -137,6 +137,7 @@ vi.mock("@alook/shared", () => ({
 }))
 vi.mock("@/lib/community/profile-read", () => ({ readCommunityProfile: vi.fn() }))
 vi.mock("@/lib/community-db/projections", () => ({
+  readServerTreeProjection: () => undefined,
   useCanonicalProfilesByUserId: () => new Map(),
   useOptionalCommunityDbRegistry: () => mocks.communityDb.current,
 }))
@@ -158,7 +159,6 @@ vi.mock("@/contexts/community/current-user", () => ({
   useCurrentUser: () => ({ id: "viewer-1" }),
 }))
 vi.mock("@/hooks/community/use-servers", () => ({
-  serverProjectedQueryFn: () => vi.fn(),
   useServer: (serverId: string | null) => {
     mocks.useServer(serverId)
     return mocks.serverResult.current
@@ -168,6 +168,14 @@ vi.mock("@/hooks/community/use-servers", () => ({
     isSuccess: mocks.serverListSuccess.current,
     isFetching: mocks.serverListFetching.current,
   }),
+}))
+vi.mock("@/lib/community-db/server-detail-resource", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/community-db/server-detail-resource")>(),
+  serverDetailResourceChannelIds: (detail: {
+    categories: Array<{ channels: Array<{ id: string; pending?: boolean }> }>
+  }) => detail.categories.flatMap((category) => (
+    category.channels.filter((channel) => !channel.pending).map((channel) => channel.id)
+  )),
 }))
 vi.mock("@/hooks/community/use-server-members", () => ({
   useServerMembers: () => ({
@@ -195,6 +203,14 @@ vi.mock("@/lib/community/eject-server", () => ({
 vi.mock("@/lib/community/last-channel", () => ({
   clearLastChannel: (...args: unknown[]) => mocks.clearLastChannel(...args),
   getLastChannel: (serverId: string) => mocks.lastChannels.get(serverId) ?? null,
+  serverLandingChannelIds: (categories: Array<{
+    id?: string
+    name?: string
+    channels: Array<{ id: string; pending?: boolean }>
+  }>) => [
+    ...categories.filter((category) => category.id === "__uncategorized__" || category.name === ""),
+    ...categories.filter((category) => category.id !== "__uncategorized__" && category.name !== ""),
+  ].flatMap((category) => category.channels.filter((channel) => !channel.pending).map((channel) => channel.id)),
   pickServerLandingHref: (serverId: string, channelIds: string[], last: string | null) => {
     const channelId = last ?? channelIds[0]
     return channelId

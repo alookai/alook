@@ -807,6 +807,14 @@ describe("useBotListController", () => {
     expect(mocks.navigatePath).not.toHaveBeenCalledWith("/c/me/dm-late")
   })
 
+  it("routes offline-machine recovery to the reconnect intent", () => {
+    render()
+
+    act(() => latest.bringMachineOnline("mac1"))
+
+    expect(mocks.navigatePath).toHaveBeenCalledWith("/c/me/machines?reconnect=mac1")
+  })
+
   it("makes onBotCreated a no-op for inactive or wrong-stage action-time state", async () => {
     mocks.target = null
     render()

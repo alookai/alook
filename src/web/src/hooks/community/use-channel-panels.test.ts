@@ -46,7 +46,7 @@ describe("useThreads / threadsQueryFn", () => {
     const qc = new QueryClient()
     const registry = createCommunityDbRegistry(qc, "viewer")
     const disposeRegistry = registry.cleanup.bind(registry)
-    await registry.preload()
+    await registry.ensureCollectionReady("messages")
     const unregister = registerCommunityDbRegistry(registry)
     const key = communityKeys.threads("ch_1")
     try {
@@ -66,7 +66,7 @@ describe("useThreads / threadsQueryFn", () => {
     const { threadsQueryFn } = await import("./use-channel-panels")
     const qc = new QueryClient()
     const registry = createCommunityDbRegistry(qc, "viewer")
-    await registry.preload()
+    await registry.ensureCollectionReady("messages")
     const unregister = registerCommunityDbRegistry(registry)
     try {
       await threadsQueryFn("ch_1", qc)()
@@ -151,7 +151,7 @@ describe("usePins / pinsQueryFn", () => {
     const qc = new QueryClient()
     const registry = createCommunityDbRegistry(qc, "viewer")
     const disposeRegistry = registry.cleanup.bind(registry)
-    await registry.preload()
+    await registry.ensureCollectionReady("messages")
     const unregister = registerCommunityDbRegistry(registry)
     const key = communityKeys.pins("ch_1")
     try {

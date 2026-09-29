@@ -3,13 +3,10 @@
 import { useCallback, useMemo } from "react"
 import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"
-import { communityKeys } from "@/lib/query-keys"
 import { markSwitch } from "@/lib/perf/switch-mark"
 import { markVoluntaryLeave, pickPostEjectDestination } from "@/lib/community/eject-server"
 import {
-  serverProjectedQueryFn,
   useServers,
-  type ServerDetail,
 } from "@/hooks/community/use-servers"
 import { useFolders } from "@/hooks/community/use-folders"
 import {
@@ -17,7 +14,11 @@ import {
   useLeaveServer,
   useUploadServerIcon,
 } from "@/hooks/community/mutations"
-import { getLastChannel, pickServerLandingHref } from "@/lib/community/last-channel"
+import {
+  getLastChannel,
+  pickServerLandingHref,
+  serverLandingChannelIds,
+} from "@/lib/community/last-channel"
 import { getLastMeLeaf, ME_ROOT, pickMeLandingLocation } from "@/lib/community/last-me-location"
 import type { Breakpoint } from "@/hooks/use-mobile"
 import { useCommunityStore } from "@/stores/community"
@@ -26,7 +27,16 @@ import type { ShellFrameProps } from "./shell-frame-types"
 import type { View } from "./shell-types"
 import type { CommunityNavigationController } from "./use-community-navigation-controller"
 import type { QueryClient } from "@tanstack/react-query"
-import { useOptionalCommunityDbRegistry } from "@/lib/community-db/projections"
+import {
+  readServerTreeProjection,
+  useOptionalCommunityDbRegistry,
+} from "@/lib/community-db/projections"
+import {
+  createServerDetailResourceQueryFn,
+  serverDetailResourceChannelIds,
+  serverDetailResourceKey,
+  type ServerDetailResource,
+} from "@/lib/community-db/server-detail-resource"
 
 type Options = Pick<
   ShellFrameProps,
@@ -76,36 +86,33 @@ export function useShellRailController({
 
   const serverDestination = useCallback(async (id: string) => {
     const lastChannel = getLastChannel(id)
-    const detail = queryClient.getQueryData<ServerDetail>(communityKeys.server(id))
-    const liveChannelIds = detail?.categories.flatMap((category) =>
-      category.channels.filter((channel) => !channel.pending).map((channel) => channel.id)
-    )
-    const canonicalDetailComplete = communityDb?.collections.servers.get(id)?.detailComplete === true
+    const scopeId = communityDb?.scopeId ?? accountId
+    const resourceKey = scopeId ? serverDetailResourceKey(scopeId, id) : null
+    const detail = resourceKey
+      ? queryClient.getQueryData<ServerDetailResource>(resourceKey)
+      : undefined
+    const liveChannelIds = detail ? serverDetailResourceChannelIds(detail) : undefined
+    const canonicalTree = communityDb
+      ? readServerTreeProjection(communityDb, id)
+      : undefined
     let channelIds = liveChannelIds
-      ?? (communityDb && canonicalDetailComplete
-        ? Array.from(communityDb.collections.channels.values())
-          .filter((channel) => channel.serverId === id && channel.type !== "thread" && !channel.pending)
-          .map((channel) => channel.id)
-      : undefined)
+      ?? (canonicalTree ? serverLandingChannelIds(canonicalTree.categories) : undefined)
       ?? []
     if (!detail && !lastChannel && channelIds.length === 0) {
       try {
-        const fetchedDetail = await queryClient.fetchQuery<ServerDetail>({
-          queryKey: communityKeys.server(id),
-          queryFn: serverProjectedQueryFn(queryClient, id),
+        if (!scopeId || !resourceKey) throw new Error("community DB unavailable")
+        const fetchedDetail = await queryClient.query<ServerDetailResource>({
+          queryKey: resourceKey,
+          queryFn: createServerDetailResourceQueryFn(queryClient, scopeId),
           staleTime: Infinity,
         })
-        channelIds = fetchedDetail.categories.flatMap((category) =>
-          category.channels
-            .filter((channel) => !channel.pending)
-            .map((channel) => channel.id)
-        )
+        channelIds = serverDetailResourceChannelIds(fetchedDetail)
       } catch {
         channelIds = []
       }
     }
     return pickServerLandingHref(id, channelIds, lastChannel)
-  }, [communityDb, queryClient])
+  }, [accountId, communityDb, queryClient])
   const onServerNavigate = useCallback((id: string) => {
     markSwitch("server", id)
     const rootHref = `/c/channels/${id}`

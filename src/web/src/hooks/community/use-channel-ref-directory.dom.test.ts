@@ -17,7 +17,7 @@ vi.mock("@/lib/community-db/sync", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/community-db/sync")>()
   return {
     ...actual,
-    publishCommunityChannelDirectory: vi.fn(async () => ({ status: "published", generation: 1 })),
+    reconcileCanonicalChannelDirectory: vi.fn(async () => ({ status: "published", generation: 1 })),
   }
 })
 

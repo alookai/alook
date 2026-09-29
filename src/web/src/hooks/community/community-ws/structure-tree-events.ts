@@ -18,8 +18,10 @@ import { communityKeys } from "@/lib/query-keys"
 import type { CanonicalMessage } from "@/lib/community/message-stream"
 import { useCommunityStore } from "@/stores/community"
 import { getMessageOverlay, useMessageStreamStore } from "@/stores/community/message-stream"
-import type { ServerDetail } from "@/hooks/community/use-servers"
-import { applyCommunityServerPatch } from "@/lib/community-db/collections"
+import {
+  applyCommunityServerPatch,
+  getCommunityDbRegistry,
+} from "@/lib/community-db/collections"
 import {
   grantForumSidebarChild,
   hasForumSidebarOwnershipEvidence,
@@ -28,11 +30,6 @@ import {
   reconcileForumSidebarArchiveTag,
   removeForumSidebarUnreadChild,
 } from "@/hooks/community/use-forum-sidebar-threads"
-import {
-  findCachedMessage,
-  removeThreadFromCache,
-  type PageCache,
-} from "@/hooks/community/community-ws/cache"
 import type { StructureTreeEventContext } from "@/hooks/community/community-ws/handler-context"
 import {
   projectChannelScopeEviction,
@@ -59,55 +56,29 @@ export function handleChildChannelCreate(
   // thread indicator (`msg.thread`) changes — do a targeted
   // setQueryData patch when we know parentMessageId.
   invalidateThreads(projection, event.parentChannelId)
-  const parentMessagesKey = communityKeys.channelMessages(event.parentChannelId)
-  const parentMessages = queryClient.getQueryData<PageCache>(parentMessagesKey)
-  const openerCached = !!event.parentMessageId && parentMessages?.pages.some((page) =>
-    page.messages.some((message) => message.id === event.parentMessageId),
-  )
+  const registry = getCommunityDbRegistry(queryClient)
+  const opener = event.parentMessageId
+    ? registry?.collections.messages.get(event.parentMessageId)
+    : undefined
+  const openerCached = opener !== undefined
   if (event.parentMessageId) {
-    queryClient.setQueriesData<PageCache>(
-      { queryKey: parentMessagesKey },
-      (cache) => {
-        if (!cache) return cache
-        let touched = false
-        const pages = cache.pages.map((p) => {
-          if (!p.messages.some((m) => m.id === event.parentMessageId)) return p
-          touched = true
-          return {
-            ...p,
-            messages: p.messages.map((m) =>
-              m.id === event.parentMessageId
-                ? {
-                  ...m,
-                  thread: {
-                    id: event.channel.id,
-                    name: event.channel.name,
-                    // #4: a freshly-created child channel has no
-                    // messages yet — `1` was a false claim that
-                    // the create event carried the first message
-                    // (it doesn't; the message arrives separately).
-                    messageCount: 0,
-                  },
-                }
-                : m,
-            ),
-          }
-        })
-        if (!touched) return cache
-        return { ...cache, pages }
-      },
-    )
+    if (registry && opener) {
+      registry.collections.messages.utils.writeUpdate({
+        id: event.parentMessageId,
+        thread: {
+          id: event.channel.id,
+          name: event.channel.name,
+          messageCount: 0,
+        },
+      })
+    }
     const serverId = useCommunityStore.getState().currentServerId
     if (serverId) {
       const scope = { kind: "channel" as const, id: event.parentChannelId, serverId }
       const fallback = [...getMessageOverlay(scope).liveById.values()]
         .find((message) => message.id === event.parentMessageId)
       if (fallback) {
-        const cached = findCachedMessage(
-          queryClient.getQueryData<PageCache>(communityKeys.channelMessages(event.parentChannelId)),
-          event.parentMessageId,
-        )
-        const source = cached?.seq !== undefined ? cached as CanonicalMessage : fallback
+        const source = opener?.seq !== undefined ? opener as CanonicalMessage : fallback
         useMessageStreamStore.getState().dispatch(scope, {
           type: "liveRefreshed",
           message: {
@@ -213,46 +184,33 @@ export function handleChildChannelUpdate(
     }
   }
   if (changes.messageCount !== undefined || changes.name !== undefined) {
-    queryClient.setQueriesData<PageCache>(
-      { queryKey: communityKeys.channelMessages(event.parentChannelId) },
-      (cache) => {
-        if (!cache) return cache
-        let touched = false
-        const pages = cache.pages.map((p) => {
-          if (!p.messages.some((m) => m.thread?.id === event.channelId)) return p
-          touched = true
-          return {
-            ...p,
-            messages: p.messages.map((m) =>
-              m.thread?.id === event.channelId
-                ? {
-                  ...m,
-                  thread: {
-                    ...m.thread,
-                    ...(changes.name !== undefined ? { name: changes.name } : {}),
-                    ...(changes.messageCount !== undefined
-                      ? { messageCount: changes.messageCount }
-                      : {}),
-                  },
-                }
-                : m,
-            ),
-          }
-        })
-        if (!touched) return cache
-        return { ...cache, pages }
-      },
-    )
+    const registry = getCommunityDbRegistry(queryClient)
+    const canonical = [...(registry?.collections.messages.values() ?? [])]
+      .map((message) => message as CanonicalMessage)
+      .filter((message) => message.thread?.id === event.channelId)
+    if (registry && canonical.length > 0) {
+      registry.collections.messages.utils.writeBatch(() => {
+        for (const message of canonical) {
+          registry.collections.messages.utils.writeUpdate({
+            id: message.id,
+            thread: {
+              ...message.thread!,
+              ...(changes.name !== undefined ? { name: changes.name } : {}),
+              ...(changes.messageCount !== undefined
+                ? { messageCount: changes.messageCount }
+                : {}),
+            },
+          })
+        }
+      })
+    }
     const serverId = useCommunityStore.getState().currentServerId
     if (serverId) {
       const scope = { kind: "channel" as const, id: event.parentChannelId, serverId }
       const fallback = [...getMessageOverlay(scope).liveById.values()]
         .find((message) => message.thread?.id === event.channelId)
       if (fallback?.thread) {
-        const cached = findCachedMessage(
-          queryClient.getQueryData<PageCache>(communityKeys.channelMessages(event.parentChannelId)),
-          fallback.id,
-        )
+        const cached = canonical.find((message) => message.id === fallback.id)
         const source = cached?.seq !== undefined ? cached as CanonicalMessage : fallback
         useMessageStreamStore.getState().dispatch(scope, {
           type: "liveRefreshed",
@@ -276,24 +234,6 @@ export function handleServerUpdate(
 ) {
   invalidateChannelRefDirectory(projection)
   applyCommunityServerPatch(queryClient, event.serverId, event.changes)
-  queryClient.setQueryData<ServerDetail | undefined>(
-    communityKeys.server(event.serverId),
-    (prev) =>
-      prev
-        ? {
-          ...prev,
-          name: event.changes.name ?? prev.name,
-          description: event.changes.description ?? prev.description,
-          // #8: icon can be explicitly cleared (null). `??` treats
-          // null the same as undefined, which would keep the old
-          // icon after a removal — check `undefined` explicitly.
-          icon:
-            event.changes.icon !== undefined
-              ? event.changes.icon
-              : prev.icon,
-        }
-        : prev,
-  )
 }
 
 export function handleServerDelete(
@@ -359,10 +299,20 @@ export function handleChannelEvent(
     // PARENT's list so the deleted card disappears from the feed on
     // every client. Absent on older events / top-level channels.
     if (event.parentChannelId && !event.parentMessageId) {
-      queryClient.setQueriesData<PageCache>(
-        { queryKey: communityKeys.channelMessages(event.parentChannelId) },
-        (cache) => removeThreadFromCache(cache, event.channelId),
-      )
+      const registry = getCommunityDbRegistry(queryClient)
+      const parents = [...(registry?.collections.messages.values() ?? [])]
+        .map((message) => message as CanonicalMessage)
+        .filter((message) => message.thread?.id === event.channelId)
+      if (registry && parents.length > 0) {
+        registry.collections.messages.utils.writeBatch(() => {
+          for (const parent of parents) {
+            registry.collections.messages.utils.writeUpdate({
+              id: parent.id,
+              thread: undefined,
+            })
+          }
+        })
+      }
       invalidateChannelMessages(projection, event.parentChannelId)
       invalidateThreads(projection, event.parentChannelId)
     }

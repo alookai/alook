@@ -38,12 +38,9 @@ function collectionConversation(
   queryClient: QueryClient,
 ): DesktopSystemNotificationConversation | null {
   if (!create.serverId) return null
-  const servers: ServerRow[] = Array.from(
-    getCommunityDbRegistry(queryClient)?.collections.servers.values() ?? [],
-  )
-  const channels = queryClient.getQueryData<ChannelRow[]>(
-    communityKeys.communityDbCollection(viewerUserId, "channels"),
-  ) ?? []
+  const registry = getCommunityDbRegistry(queryClient)
+  const servers: ServerRow[] = Array.from(registry?.collections.servers.values() ?? [])
+  const channels: ChannelRow[] = Array.from(registry?.collections.channels.values() ?? [])
   const server = servers.find((entry) => entry.id === create.serverId)
   const channel = channels.find((entry) => entry.id === create.channelId)
   const parent = channel?.parentChannelId

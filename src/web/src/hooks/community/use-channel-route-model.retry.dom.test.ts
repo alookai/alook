@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, render } from "@/test/react-dom-harness"
 import { ApiError } from "@/lib/errors"
-import { communityKeys } from "@/lib/query-keys"
+import { channelMetadataResourceKey } from "@/lib/community-db/channel-metadata-resource"
 import { useCommunityStore } from "@/stores/community"
 import { useCommunityWsStore } from "@/stores/community/ws"
 
@@ -13,7 +13,7 @@ vi.mock("@/lib/community-db/sync", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/community-db/sync")>()
   return {
     ...actual,
-    publishCommunityLiveSnapshot: vi.fn(async (queryClient, publication) => {
+    reconcileCommunityLiveSnapshot: vi.fn(async (queryClient, publication) => {
       actual.assertCommunityLiveSnapshotTokenCurrent(
         queryClient,
         publication.proof.token,
@@ -21,7 +21,7 @@ vi.mock("@/lib/community-db/sync", async (importOriginal) => {
       )
       return { status: "published", generation: 1 }
     }),
-    publishCommunityChannelMetadata: vi.fn(async (queryClient, publication) => {
+    reconcileCanonicalChannelMetadata: vi.fn(async (queryClient, publication) => {
       actual.assertCommunityLiveSnapshotTokenCurrent(
         queryClient,
         publication.proof.token,
@@ -138,7 +138,9 @@ describe("unresolved metadata terminal error and retry", () => {
     await until(() => mocks.apiFetch.mock.calls.length === 3)
     expect(current.retryingMetadata).toBe(true)
     expect(current.metadataError).toBe(true)
-    expect(client.getQueryState(communityKeys.channelMeta("server-1", "post-1"))?.status).toBe("pending")
+    expect(client.getQueryState(
+      channelMetadataResourceKey("anon", "server-1", "post-1"),
+    )?.status).toBe("pending")
     await current.retryMetadata()
     expect(mocks.apiFetch).toHaveBeenCalledTimes(3)
     await act(async () => { retry.reject(new ApiError("unavailable", 500)); await request })
@@ -190,7 +192,9 @@ describe("unresolved metadata terminal error and retry", () => {
       await reconcileCommunityWsReconnect(client, 60_000)
     })
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)) })
-    expect(client.getQueryState(communityKeys.channelMeta("server-1", "post-1"))?.status).toBe("error")
+    expect(client.getQueryState(
+      channelMetadataResourceKey("anon", "server-1", "post-1"),
+    )?.status).toBe("error")
     expect(mocks.apiFetch).toHaveBeenCalledWith("/api/community/channels/post-1", expect.anything())
     expect(current.routeLifecycle).toBe("ready")
     expect(current.currentChannelMeta?.id).toBe("post-1")
@@ -198,7 +202,9 @@ describe("unresolved metadata terminal error and retry", () => {
     mocks.apiFetch.mockResolvedValue(payload())
     await act(async () => { await reconcileCommunityWsReconnect(client, 60_000) })
     expect(current.routeLifecycle).toBe("ready")
-    expect(client.getQueryState(communityKeys.channelMeta("server-1", "post-1"))?.status).toBe("success")
+    expect(client.getQueryState(
+      channelMetadataResourceKey("anon", "server-1", "post-1"),
+    )?.status).toBe("success")
   })
 
   it.each([401, 403, 404])("does not retain a trusted route after authoritative %s", async (status) => {

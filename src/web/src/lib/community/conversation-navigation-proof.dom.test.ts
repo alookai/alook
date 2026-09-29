@@ -3,11 +3,11 @@ import { renderToString } from "react-dom/server"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { act, render } from "@/test/react-dom-harness"
 import { QueryClient } from "@tanstack/react-query"
-import { communityKeys } from "@/lib/query-keys"
 import {
   beginConversationNavigationProof,
   cancelActiveConversationNavigationProof,
   cancelConversationNavigationProof,
+  commitConversationNavigationEntry,
   commitConversationNavigationProof,
   failConversationNavigationProof,
   getCompletedConversationNavigationEntryEpoch,
@@ -140,6 +140,176 @@ describe("conversation navigation proof", () => {
     expect(second.signal.aborted).toBe(false)
   })
 
+  it("reuses completed canonical ownership only for the exact identity, scope, anchor, and access epoch", () => {
+    const queryClient = new QueryClient()
+    const anchoredTarget = { ...target, anchorMessageId: "m-anchor" }
+    expect(commitConversationNavigationEntry(queryClient, anchoredTarget, 4)).toBe(false)
+
+    beginConversationNavigationProof(queryClient, {
+      ...target,
+      href: "/c/channels/s1/c2",
+      channelId: "c2",
+    }, 4)
+    const revisit = beginConversationNavigationProof(queryClient, anchoredTarget, 4)
+    expect(getConversationNavigationProof(queryClient)).toMatchObject({
+      epoch: revisit.epoch,
+      status: "proven",
+      target: { channelId: "c1", anchorMessageId: "m-anchor" },
+    })
+
+    failConversationNavigationProof(queryClient, revisit.epoch, 4, false)
+    expect(getConversationNavigationProof(queryClient)?.status).toBe("proven")
+
+    beginConversationNavigationProof(queryClient, {
+      ...anchoredTarget,
+      anchorMessageId: "other-anchor",
+    }, 4)
+    expect(getConversationNavigationProof(queryClient)?.status).toBe("warming")
+    beginConversationNavigationProof(queryClient, {
+      ...anchoredTarget,
+      href: "/c/me/c1",
+      serverId: undefined,
+      scopeKind: "dm",
+      expectedSurfaceKind: "dm",
+    }, 4)
+    expect(getConversationNavigationProof(queryClient)?.status).toBe("warming")
+    beginConversationNavigationProof(queryClient, {
+      ...anchoredTarget,
+      viewerId: "other-viewer",
+    }, 4)
+    expect(getConversationNavigationProof(queryClient)?.status).toBe("warming")
+    beginConversationNavigationProof(queryClient, anchoredTarget, 5)
+    expect(getConversationNavigationProof(queryClient)?.status).toBe("warming")
+  })
+
+  it("reuses an exact covered anchor from the active completed base entry without making it a wildcard", () => {
+    const queryClient = new QueryClient()
+    const proof = beginConversationNavigationProof(queryClient, target, 4)
+    recordConversationNavigationReceipt(
+      queryClient,
+      { channelId: "c1", surfaceKind: "forum" },
+      4,
+      proof.epoch,
+    )
+    expect(commitConversationNavigationEntry(queryClient, {
+      viewerId: "viewer",
+      channelId: "c1",
+      scopeKind: "channel",
+      anchorMessageId: "covered-anchor",
+    }, 4)).toBe(false)
+
+    expect(getCompletedConversationNavigationEntryEpoch(queryClient, {
+      viewerId: "viewer",
+      channelId: "c1",
+      scopeKind: "channel",
+      anchorMessageId: "covered-anchor",
+    }, 4)).toBe(proof.epoch)
+    expect(getCompletedConversationNavigationEntryEpoch(queryClient, {
+      viewerId: "viewer",
+      channelId: "c1",
+      scopeKind: "channel",
+      anchorMessageId: "missing-anchor",
+    }, 4)).toBeNull()
+  })
+
+  it("keeps an exact covered anchor readable after the active proof is consumed", async () => {
+    const queryClient = new QueryClient()
+    const proof = beginConversationNavigationProof(queryClient, target, 4)
+    recordConversationNavigationReceipt(
+      queryClient,
+      { channelId: "c1", surfaceKind: "forum" },
+      4,
+      proof.epoch,
+    )
+    commitConversationNavigationEntry(queryClient, {
+      viewerId: "viewer",
+      channelId: "c1",
+      scopeKind: "channel",
+      anchorMessageId: "covered-after-consume",
+    }, 4)
+
+    function Gate() {
+      useConversationNavigationGate(queryClient, "viewer", "c1", 4)
+      return null
+    }
+
+    const renderer = render(createElement(Gate))
+    expect(getConversationNavigationProof(queryClient)).toBeNull()
+    expect(getCompletedConversationNavigationEntryEpoch(queryClient, {
+      viewerId: "viewer",
+      channelId: "c1",
+      scopeKind: "channel",
+      anchorMessageId: "covered-after-consume",
+    }, 4)).toBe(proof.epoch)
+    await act(async () => renderer.unmount())
+  })
+
+  it("does not expose a consumed covered anchor after another identity supersedes it", async () => {
+    const queryClient = new QueryClient()
+    const proof = beginConversationNavigationProof(queryClient, target, 4)
+    recordConversationNavigationReceipt(
+      queryClient,
+      { channelId: "c1", surfaceKind: "forum" },
+      4,
+      proof.epoch,
+    )
+    commitConversationNavigationEntry(queryClient, {
+      viewerId: "viewer",
+      channelId: "c1",
+      scopeKind: "channel",
+      anchorMessageId: "covered-before-supersede",
+    }, 4)
+
+    function Gate() {
+      useConversationNavigationGate(queryClient, "viewer", "c1", 4)
+      return null
+    }
+
+    const renderer = render(createElement(Gate))
+    beginConversationNavigationProof(queryClient, {
+      ...target,
+      href: "/c/channels/s1/c2",
+      channelId: "c2",
+    }, 4)
+    expect(getCompletedConversationNavigationEntryEpoch(queryClient, {
+      viewerId: "viewer",
+      channelId: "c1",
+      scopeKind: "channel",
+      anchorMessageId: "covered-before-supersede",
+    }, 4)).toBeNull()
+    await act(async () => renderer.unmount())
+  })
+
+  it("rejects covered anchors across access epochs and after definitive denial", () => {
+    const queryClient = new QueryClient()
+    const proof = beginConversationNavigationProof(queryClient, target, 4)
+    recordConversationNavigationReceipt(
+      queryClient,
+      { channelId: "c1", surfaceKind: "forum" },
+      4,
+      proof.epoch,
+    )
+    commitConversationNavigationEntry(queryClient, {
+      viewerId: "viewer",
+      channelId: "c1",
+      scopeKind: "channel",
+      anchorMessageId: "covered-before-denial",
+    }, 4)
+
+    expect(getCompletedConversationNavigationEntryEpoch(queryClient, {
+      viewerId: "viewer",
+      channelId: "c1",
+      scopeKind: "channel",
+      anchorMessageId: "covered-before-denial",
+    }, 5)).toBeNull()
+    failConversationNavigationProof(queryClient, proof.epoch, 4, true)
+    beginConversationNavigationProof(queryClient, {
+      ...target,
+      anchorMessageId: "covered-before-denial",
+    }, 4)
+    expect(getConversationNavigationProof(queryClient)?.status).toBe("warming")
+  })
+
   it("accepts forum authority, ignores duplicate receipts, and rejects wrong targets", () => {
     const queryClient = new QueryClient()
     const proof = beginConversationNavigationProof(queryClient, target, 2)
@@ -168,7 +338,6 @@ describe("conversation navigation proof", () => {
 
   it("supports DM supersession and exact active-proof cancellation", async () => {
     const queryClient = new QueryClient()
-    const cancel = vi.spyOn(queryClient, "cancelQueries")
     const dmTarget = {
       ...target,
       href: "/c/me/d1",
@@ -181,9 +350,6 @@ describe("conversation navigation proof", () => {
     expect(cancelActiveConversationNavigationProof(new QueryClient())).toBe(false)
     expect(cancelConversationNavigationProof(queryClient, first.epoch + 1)).toBeUndefined()
     expect(cancelActiveConversationNavigationProof(queryClient)).toBe(true)
-    await vi.waitFor(() => expect(cancel).toHaveBeenCalledWith({
-      queryKey: communityKeys.dmMessages("d1"),
-    }))
     expect(first.signal.aborted).toBe(true)
     expect(getConversationNavigationProof(queryClient)).toBeNull()
     expect(recordConversationNavigationReceipt(
@@ -194,9 +360,8 @@ describe("conversation navigation proof", () => {
     )).toBe(false)
   })
 
-  it("cancels the prior DM query when a new proof supersedes it", async () => {
+  it("aborts the prior DM proof when a new proof supersedes it", async () => {
     const queryClient = new QueryClient()
-    const cancel = vi.spyOn(queryClient, "cancelQueries")
     const dmTarget = {
       ...target,
       href: "/c/me/d1",
@@ -205,12 +370,12 @@ describe("conversation navigation proof", () => {
       scopeKind: "dm" as const,
       expectedSurfaceKind: "dm" as const,
     }
-    beginConversationNavigationProof(queryClient, dmTarget, 1)
-    beginConversationNavigationProof(queryClient, target, 1)
+    const first = beginConversationNavigationProof(queryClient, dmTarget, 1)
+    const second = beginConversationNavigationProof(queryClient, target, 1)
 
-    await vi.waitFor(() => expect(cancel).toHaveBeenCalledWith({
-      queryKey: communityKeys.dmMessages("d1"),
-    }))
+    expect(first.signal.aborted).toBe(true)
+    expect(second.signal.aborted).toBe(false)
+    expect(getConversationNavigationProof(queryClient)?.target).toEqual(target)
   })
 
   it("cannot reuse an Inbox proof after ordinary navigation supersedes it", () => {
@@ -261,6 +426,30 @@ describe("conversation navigation proof", () => {
     expect(getConversationNavigationProof(queryClient)?.status).toBe("denied")
     expect(recoverConversationNavigationProof(queryClient, proof.epoch, 7)).toBe(false)
     expect(restart).not.toHaveBeenCalled()
+  })
+
+  it("clears covered anchors for the denied conversation scope", () => {
+    const queryClient = new QueryClient()
+    const proof = beginConversationNavigationProof(queryClient, target, 6)
+    recordConversationNavigationReceipt(
+      queryClient,
+      { channelId: "c1", surfaceKind: "forum" },
+      6,
+      proof.epoch,
+    )
+    commitConversationNavigationEntry(queryClient, {
+      viewerId: "viewer",
+      channelId: "c1",
+      scopeKind: "channel",
+      anchorMessageId: "covered-before-denial",
+    }, 6)
+
+    failConversationNavigationProof(queryClient, proof.epoch, 6, true)
+    beginConversationNavigationProof(queryClient, {
+      ...target,
+      anchorMessageId: "covered-before-denial",
+    }, 6)
+    expect(getConversationNavigationProof(queryClient)?.status).toBe("warming")
   })
 
   it("recovers access drift immediately and transient failure after bounded backoff", async () => {

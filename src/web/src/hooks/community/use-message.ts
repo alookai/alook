@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useSyncExternalStore } from "react"
+import { useMemo, useSyncExternalStore } from "react"
 import {
   useQuery,
   useQueryClient,
@@ -10,19 +10,16 @@ import {
 } from "@tanstack/react-query"
 import { apiFetchProfiles, messageProfilePatches } from "@/lib/community/profile-seed"
 import { communityKeys } from "@/lib/query-keys"
-import type { MessagesPage, Msg } from "@/lib/community/models/message"
+import type { Msg } from "@/lib/community/models/message"
 import {
   useCanonicalMessagesById,
   useOptionalCommunityDbRegistry,
 } from "@/lib/community-db/projections"
-import {
-  rememberMessageAccessScope,
-  type MessageAccessScope,
-} from "@/lib/community-db/message-access-scope"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { getActiveAccountUnreadProjection } from "./account-unread-projection"
 import {
   captureCommunityLiveSnapshotToken,
-  publishCommunityEmbeddedMessagesWithReceipt,
+  reconcileCanonicalEmbeddedMessages,
 } from "@/lib/community-db/sync"
 
 /**
@@ -59,6 +56,11 @@ export type OpenerPayload = {
   reactions?: Msg["reactions"]
 }
 
+export type MessageAccessScope = {
+  channelId?: string
+  serverId?: string | null
+}
+
 export const messageQueryFn = (
   messageId: string,
   queryClient?: QueryClient,
@@ -80,11 +82,10 @@ export const messageQueryFn = (
     // The direct-message lookup hydrates the row itself but does not own
     // parent-channel thread metadata. Publish it as a partial entity patch so
     // opening a child split cannot erase the opener's thread indicator.
-    const receipt = publishCommunityEmbeddedMessagesWithReceipt(queryClient, {
+    await reconcileCanonicalEmbeddedMessages(queryClient, {
       entries: [{ channelId: publishChannelId, message }],
       proof: { token, signal: context.signal },
     })
-    await receipt.committed
   }
   return message
 }
@@ -93,31 +94,9 @@ export function findCachedMessage(
   queryClient: QueryClient,
   messageId: string,
 ): OpenerPayload | undefined {
-  for (const [, data] of queryClient.getQueriesData<{ pages?: MessagesPage[] }>({
-    queryKey: communityKeys.all,
-  })) {
-    if (!Array.isArray(data?.pages)) continue
-    for (const page of data.pages) {
-      if (!Array.isArray(page.messages)) continue
-      const message = page.messages.find((candidate) => candidate.id === messageId)
-      if (!message?.authorId || !message.createdAt) continue
-      return {
-        id: message.id,
-        authorId: message.authorId,
-        authorName: message.authorName ?? "Deleted user",
-        authorAvatar: message.authorAvatar ?? "",
-        authorAvatarVersion: message.authorAvatarVersion ?? 0,
-        content: message.content ?? "",
-        type: message.type,
-        createdAt: message.createdAt,
-        ...(message.replyTo ? { replyTo: message.replyTo } : {}),
-        ...(message.attachments ? { attachments: message.attachments } : {}),
-        ...(message.embeds ? { embeds: message.embeds } : {}),
-        ...(message.reactions ? { reactions: message.reactions } : {}),
-      }
-    }
-  }
-  return undefined
+  const message = getCommunityDbRegistry(queryClient)?.collections.messages.get(messageId)
+  if (!message?.authorId || !message.createdAt) return undefined
+  return message as OpenerPayload
 }
 
 export function useMessage(
@@ -142,13 +121,12 @@ export function useMessage(
   void accessVersion
   const accessAllowed = !accessScope || accessProjection.allowsAccess(accessScope)
   const enabled = !!messageId && accessAllowed
-  useEffect(() => {
-    if (!messageId || !accessScope || !accessAllowed) return
-    rememberMessageAccessScope(queryClient, messageId, accessScope)
-  }, [accessAllowed, accessScope, messageId, queryClient])
+  const canonical = messageId ? canonicalMessages?.get(messageId) : undefined
   const placeholderData = useMemo(
-    () => messageId && accessAllowed ? findCachedMessage(queryClient, messageId) : undefined,
-    [accessAllowed, messageId, queryClient],
+    () => messageId && accessAllowed
+      ? canonical as OpenerPayload | undefined
+      : undefined,
+    [accessAllowed, canonical, messageId],
   )
   const query = useQuery({
     queryKey: enabled ? communityKeys.message(messageId!) : communityKeys.message("__none__"),
@@ -161,7 +139,6 @@ export function useMessage(
     // for the "opener stays live via mutation invalidation" contract.
     staleTime: 30_000,
   })
-  const canonical = messageId ? canonicalMessages?.get(messageId) : undefined
   const isCanonicalPending = Boolean(
     enabled
     && registry

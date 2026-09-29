@@ -12,6 +12,7 @@ import {
   serversCollectionQueryKey,
   type ServersResponse,
 } from "./server-collection"
+import { serverMembersRowsKey } from "./server-members-pagination"
 
 const apiFetch = vi.fn()
 
@@ -149,7 +150,7 @@ describe("official server collection", () => {
     const registry = createCommunityDbRegistry(queryClient, "viewer", { serverTransport: true })
     await registry.ensureCollectionReady("servers")
     const detailKey = communityKeys.server("server-1")
-    const membersKey = communityKeys.members("server-1")
+    const membersKey = serverMembersRowsKey("viewer", "server-1")
     const invitesKey = communityKeys.invites("server-1")
     const detail = { id: "server-1", categories: [] }
     const members = {
@@ -210,7 +211,25 @@ describe("official server collection", () => {
   })
 
   it("clears official server rows without routing through local mutation utilities", async () => {
-    apiFetch.mockResolvedValue({ servers: [rawServer] })
+    apiFetch.mockImplementation(async (url: unknown) => {
+      if (url === "/api/community/servers") return { servers: [rawServer] }
+      if (url === "/api/community/users/me/read-state") {
+        return { revision: 0, readStates: [] }
+      }
+      if (url === "/api/community/users/me/server-folders") return { folders: [] }
+      if (url === "/api/community/users/me/notifications") return []
+      if (url === "/api/community/users/me/dms") return { conversations: [] }
+      if (url === "/api/community/users/me/attention") {
+        return {
+          scopes: [],
+          items: [],
+          limit: 100,
+          truncated: false,
+          included: { servers: [], channels: [], dms: [], profiles: [], messages: [] },
+        }
+      }
+      throw new Error(`unexpected API fetch: ${String(url)}`)
+    })
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const registry = createCommunityDbRegistry(queryClient, "viewer", { serverTransport: true })
     await registry.preload()

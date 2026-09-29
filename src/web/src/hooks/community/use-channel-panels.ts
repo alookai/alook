@@ -11,7 +11,7 @@ import {
 } from "@/lib/community-db/projections"
 import {
   captureCommunityLiveSnapshotToken,
-  publishCommunityEmbeddedMessages,
+  reconcileCanonicalEmbeddedMessages,
 } from "@/lib/community-db/sync"
 
 // Frozen empty fallbacks — see `use-servers.ts` for the rationale.
@@ -123,7 +123,7 @@ export const threadsQueryFn = (channelId: string, queryClient?: QueryClient) => 
     const threadByOpenerId = new Map(data.threads.flatMap((thread) => (
       thread.parentMessageId ? [[thread.parentMessageId, thread] as const] : []
     )))
-    await publishCommunityEmbeddedMessages(queryClient, {
+    await reconcileCanonicalEmbeddedMessages(queryClient, {
       entries: data.messages.map((message) => ({
         channelId: message.channelId,
         message: batchMessageToCanonical(message, threadByOpenerId.get(message.id)),
@@ -239,7 +239,7 @@ export const pinsQueryFn = (channelId: string, queryClient?: QueryClient) =>
       signal ? { signal } : undefined,
     )
     if (queryClient && publicationToken) {
-      await publishCommunityEmbeddedMessages(queryClient, {
+      await reconcileCanonicalEmbeddedMessages(queryClient, {
         entries: data.pins.map((message) => ({ channelId, message })),
         proof: { token: publicationToken, signal },
       })

@@ -17,8 +17,10 @@ const mocks = vi.hoisted(() => ({
   toastApiError: vi.fn(),
   lastChannel: { current: null as string | null },
   lastMeLeaf: { current: null as string | null },
+  projectedCategories: { current: [] as Array<{ channels: Array<{ id: string; pending?: boolean }> }> },
   communityDb: { current: null as null | { collections: {
     servers: { get: (id: string) => { detailComplete?: boolean } | undefined }
+    categories?: { values: () => IterableIterator<Record<string, unknown>> }
     channels: { values: () => IterableIterator<Record<string, unknown>> }
   }; getCollectionReadiness: (name: string) => "not-ready" | "preloading" | "ready" | "failed"; isCollectionReady: (name: string) => boolean; hasRestoredCollection: (name: string) => boolean } },
 }))
@@ -31,18 +33,50 @@ vi.mock("@/lib/community/eject-server", () => ({
   pickPostEjectDestination: () => "/c/me",
 }))
 vi.mock("@/hooks/community/use-servers", () => ({
-  serverProjectedQueryFn: (_queryClient: unknown, id: string) => async () => ({
-    id,
-    categories: [],
-  }),
   useServers: () => ({
     servers: mocks.servers,
     isPending: mocks.serversPending.current,
     isSuccess: mocks.serversSuccess.current,
   }),
 }))
+vi.mock("@/lib/community-db/server-detail-resource", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/community-db/server-detail-resource")>(),
+  createServerDetailResourceQueryFn: () => async ({ queryKey }: { queryKey: unknown[] }) => ({
+    serverId: String(queryKey.at(-1)),
+    categories: mocks.projectedCategories.current.map((category, position) => ({
+      id: `category-${position}`,
+      serverId: String(queryKey.at(-1)),
+      name: `Category ${position}`,
+      position,
+      private: false,
+      pending: false,
+    })),
+    channels: mocks.projectedCategories.current.flatMap((category, categoryIndex) => (
+      category.channels.map((channel, position) => ({
+        id: channel.id,
+        serverId: String(queryKey.at(-1)),
+        categoryId: `category-${categoryIndex}`,
+        name: channel.id,
+        type: "text" as const,
+        position,
+        archived: false,
+        muted: false,
+        unread: false,
+        tags: [],
+        pending: channel.pending === true,
+      }))
+    )),
+  }),
+  serverDetailResourceChannelIds: (resource: {
+    channels?: Array<{ id: string; pending?: boolean; type?: string }>
+    categories?: Array<{ channels: Array<{ id: string; pending?: boolean; type?: string }> }>
+  }) => (resource.channels ?? resource.categories?.flatMap((category) => category.channels) ?? [])
+    .filter((channel) => !channel.pending && channel.type !== "thread")
+    .map((channel) => channel.id),
+}))
 vi.mock("@/hooks/community/use-folders", () => ({ useFolders: () => ({ folders: mocks.folders }) }))
-vi.mock("@/lib/community-db/projections", () => ({
+vi.mock("@/lib/community-db/projections", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/community-db/projections")>(),
   useOptionalCommunityDbRegistry: () => mocks.communityDb.current,
 }))
 vi.mock("@/hooks/community/mutations", () => ({
@@ -54,10 +88,9 @@ vi.mock("@/stores/community", () => ({
   useCommunityStore: (selector: (state: { currentServerId: string }) => unknown) =>
     selector({ currentServerId: "s1" }),
 }))
-vi.mock("@/lib/community/last-channel", () => ({
+vi.mock("@/lib/community/last-channel", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/community/last-channel")>(),
   getLastChannel: () => mocks.lastChannel.current,
-  pickServerLandingHref: (id: string, channelIds: string[]) =>
-    channelIds[0] ? `/c/channels/${id}/${channelIds[0]}` : `/c/channels/${id}`,
 }))
 vi.mock("@/lib/community/last-me-location", () => ({
   ME_ROOT: "/c/me",
@@ -114,12 +147,16 @@ async function renderController(overrides: Record<string, unknown> = {}) {
   const cache = new Map<string, unknown>()
   const queryClient = {
     getQueryData: vi.fn((key: unknown[]) => cache.get(String(key.at(-1)))),
-    fetchQuery: vi.fn((options: { queryFn: () => Promise<unknown> }) => options.queryFn()),
+    query: vi.fn((options: {
+      queryKey: unknown[]
+      queryFn: (context: { queryKey: unknown[] }) => Promise<unknown>
+    }) => options.queryFn({ queryKey: options.queryKey })),
   }
   const options = {
     navigation,
     queryClient,
     breakpoint: "desktop",
+    accountId: "viewer",
     view: "server",
     activeServerId: "s1",
     projectedActiveServerId: "s1",
@@ -167,6 +204,7 @@ describe("useShellRailController", () => {
     mocks.serversSuccess.current = false
     mocks.lastChannel.current = null
     mocks.lastMeLeaf.current = null
+    mocks.projectedCategories.current = []
     mocks.communityDb.current = null
   })
 
@@ -215,6 +253,15 @@ describe("useShellRailController", () => {
     expect(hook.current.railProps.serversLoading).toBe(true)
   })
 
+  it("falls back to the server root when no account-scoped resource key exists", async () => {
+    const hook = await renderController({ accountId: null })
+
+    await act(async () => hook.current.railProps.onServerNavigate("s2"))
+
+    expect(hook.queryClient.query).not.toHaveBeenCalled()
+    expect(hook.pushed).toEqual(["/c/channels/s2"])
+  })
+
   it("commits only the latest rapid cold server navigation", async () => {
     const hook = await renderController()
     await act(async () => {
@@ -223,10 +270,37 @@ describe("useShellRailController", () => {
     })
 
     expect(hook.pushed).toEqual(["/c/channels/s2"])
-    expect(hook.queryClient.fetchQuery).toHaveBeenCalledTimes(2)
+    expect(hook.queryClient.query).toHaveBeenCalledTimes(2)
     expect(mocks.markSwitch).toHaveBeenNthCalledWith(1, "server", "s1")
     expect(mocks.markSwitch).toHaveBeenNthCalledWith(2, "server", "s2")
 
+  })
+
+  it("filters fetched pending channels and falls back to the server root on failure", async () => {
+    mocks.projectedCategories.current = [{
+      channels: [{ id: "pending", pending: true }, { id: "live", pending: false }],
+    }]
+    const hook = await renderController()
+
+    await act(async () => hook.current.railProps.onServerNavigate("s1"))
+    expect(hook.pushed).toEqual(["/c/channels/s1/live"])
+
+    hook.pushed.length = 0
+    hook.queryClient.query.mockRejectedValueOnce(new Error("detail unavailable"))
+    await act(async () => hook.current.railProps.onServerNavigate("s2"))
+    expect(hook.pushed).toEqual(["/c/channels/s2"])
+  })
+
+  it("commits server roots directly on mobile rail and controller navigation", async () => {
+    const hook = await renderController({ breakpoint: "mobile" })
+
+    await act(async () => {
+      hook.current.railProps.onServerNavigate("s1")
+      hook.current.navigate("s2")
+    })
+
+    expect(hook.pushed).toEqual(["/c/channels/s1", "/c/channels/s2"])
+    expect(hook.navigation.resolveAndPush).not.toHaveBeenCalled()
   })
 
   it("projects the pending target for every rail entry without changing committed actions", async () => {
@@ -269,7 +343,7 @@ describe("useShellRailController", () => {
       hook.current.navigate("s1", "c1")
     })
     expect(hook.pushed).toEqual(["/c/channels/s1/c1"])
-    expect(hook.queryClient.fetchQuery).toHaveBeenCalledTimes(1)
+    expect(hook.queryClient.query).toHaveBeenCalledTimes(1)
     expect(mocks.markSwitch).toHaveBeenLastCalledWith("channel", "c1")
   })
 
@@ -313,7 +387,7 @@ describe("useShellRailController", () => {
       hook.current.railProps.onHome()
     })
     expect(hook.pushed).toEqual(["/c/me/friends"])
-    expect(hook.queryClient.fetchQuery).toHaveBeenCalledTimes(1)
+    expect(hook.queryClient.query).toHaveBeenCalledTimes(1)
   })
 
   it("resolves a desktop rail selection to its remembered leaf before commit", async () => {
@@ -344,6 +418,7 @@ describe("useShellRailController", () => {
     ])
     mocks.communityDb.current = { collections: {
       servers: { get: (id) => servers.get(id) },
+      categories: { values: () => new Map().values() },
       channels: { values: () => channels.values() },
     }, getCollectionReadiness: () => "ready", isCollectionReady: () => true, hasRestoredCollection: () => true }
     const hook = await renderController()
@@ -363,6 +438,44 @@ describe("useShellRailController", () => {
     ])
   })
 
+  it("resolves restored server navigation to the first sidebar leaf, not collection insertion order", async () => {
+    const servers = new Map([
+      ["s1", { id: "s1", detailComplete: true }],
+    ])
+    const categories = new Map([
+      ["public", { id: "public", serverId: "s1", name: "Public", position: 0 }],
+    ])
+    const channels = new Map([
+      ["all", {
+        id: "all",
+        serverId: "s1",
+        categoryId: "public",
+        position: 0,
+        type: "text",
+        pending: false,
+      }],
+      ["requested", {
+        id: "requested",
+        serverId: "s1",
+        categoryId: null,
+        position: 0,
+        type: "text",
+        pending: false,
+      }],
+    ])
+    mocks.communityDb.current = { collections: {
+      servers: { get: (id) => servers.get(id) },
+      categories: { values: () => categories.values() },
+      channels: { values: () => channels.values() },
+    }, getCollectionReadiness: () => "ready", isCollectionReady: () => true, hasRestoredCollection: () => true }
+    const hook = await renderController()
+
+    await act(async () => hook.current.railProps.onServerNavigate("s1"))
+
+    expect(hook.pushed).toEqual(["/c/channels/s1/requested"])
+    expect(hook.navigation.resolveAndPush).toHaveBeenCalledTimes(1)
+  })
+
   it("resolves desktop navigation while keeping prefetch on the semantic server root", async () => {
     const hook = await renderController()
     hook.cache.set("s1", {
@@ -375,7 +488,7 @@ describe("useShellRailController", () => {
     await act(async () => hook.current.railProps.onHomePrefetch())
     expect(hook.pushed).toEqual(["/c/channels/s1/cached"])
     expect(hook.prefetched).toEqual(["/c/channels/s1", "/c/me/friends"])
-    expect(hook.queryClient.fetchQuery).not.toHaveBeenCalled()
+    expect(hook.queryClient.query).not.toHaveBeenCalled()
 
     mocks.lastChannel.current = null
     await act(async () => hook.current.railProps.onServerNavigate("s2"))
@@ -384,7 +497,7 @@ describe("useShellRailController", () => {
     expect(hook.prefetched).toContain("/c/channels/s2")
     await act(async () => hook.current.railProps.onServerPrefetch("s3"))
     expect(hook.prefetched).toContain("/c/channels/s3")
-    expect(hook.queryClient.fetchQuery).toHaveBeenCalledTimes(1)
+    expect(hook.queryClient.query).toHaveBeenCalledTimes(1)
   })
 
   it("uses one breakpoint-canonical Home destination for click and prefetch", async () => {

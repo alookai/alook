@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { renderHook, waitFor } from "@/test/react-dom-harness"
 import type { ChildChannelMeta } from "./use-forum-sidebar-threads"
-import { communityKeys } from "@/lib/query-keys"
+import { channelMetadataResourceKey } from "@/lib/community-db/channel-metadata-resource"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { ApiError } from "@/lib/errors"
 
@@ -16,14 +16,6 @@ vi.mock("@/lib/community-db/projections", () => ({
   useRouteChannelProjection: () => projectedChannel.current,
   useOptionalCommunityDbRegistry: () => projectedChannel.current === undefined ? null : {},
 }))
-vi.mock("@/lib/community-db/sync", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/community-db/sync")>()
-  return {
-    ...actual,
-    publishCommunityChannelMetadata: vi.fn(async () => ({ status: "published", generation: 1 })),
-  }
-})
-
 import {
   pickRenderableChildMeta,
   sameChildChannelMeta,
@@ -106,8 +98,10 @@ describe("child channel metadata stale rendering", () => {
       { signal: expect.any(AbortSignal) },
     )
     expect(queryClient.getQueryData(
-      communityKeys.channelMeta("server-1", "post-1"),
-    )).toMatchObject({ id: "post-1", parentChannelId: "forum-1" })
+      channelMetadataResourceKey("anon", "server-1", "post-1"),
+    )).toMatchObject({
+      metadata: { id: "post-1", parentChannelId: "forum-1" },
+    })
   })
 
   it("renders a current-account structural placeholder while exact metadata revalidates", async () => {
@@ -218,7 +212,7 @@ describe("child channel metadata stale rendering", () => {
     const trusted = rendered.result.current.data
 
     await queryClient.refetchQueries({
-      queryKey: communityKeys.channelMeta("server-1", "post-1"),
+      queryKey: channelMetadataResourceKey("anon", "server-1", "post-1"),
       exact: true,
     })
     await waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(2))

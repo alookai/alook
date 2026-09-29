@@ -27,7 +27,6 @@ import { useMessageStreamStore } from "@/stores/community/message-stream"
 import { projectCommunityMessageCreate } from "@/lib/community/message-wire"
 import { clearTypingIndicator } from "@/hooks/community/community-ws/typing"
 import { getAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
-import { takeMessageIdsForAccessScope } from "./message-access-scope"
 import { clearLastChannel, getLastChannel } from "@/lib/community/last-channel"
 import { clearLastMeLocation, getLastMeLeaf } from "@/lib/community/last-me-location"
 import {
@@ -69,14 +68,26 @@ import {
   type NotificationSettingRow,
   type ReadStateClockRow,
   type ReadStateRow,
-  type ServerMembershipRow,
   type ServerRow,
 } from "./schema"
 import type { z } from "zod"
 import {
+  captureCommunityCollectionPublications,
   captureCommunityCollectionWrites,
+  pendingCommunityCollectionWrites,
+  trackCommunityCollectionWrite,
   writeCommunityCollectionRows,
 } from "./collection-mutations"
+import {
+  attentionProtectionState,
+  selectAccountAttentionResource,
+} from "./account-attention-resource"
+import {
+  dmsResourceKey,
+  mergeAccountAttentionIncludedOwners,
+  type DmsResource,
+} from "./dms-resource"
+import { isServerDetailResourceQueryKey } from "./server-detail-resource"
 
 type CollectionName = keyof CommunityDbRegistry["collections"]
 type SnapshotIngestMode = "authoritative" | "merge"
@@ -241,37 +252,26 @@ function collectionRows<T extends object>(
   name: CollectionName,
   schema: z.ZodType<T>,
 ) {
-  if (name === "servers") {
-    return Array.from(registry.collections.servers.values()).flatMap((row) => {
-      const parsed = schema.safeParse(row)
-      return parsed.success ? [parsed.data] : []
-    })
-  }
-  const cached = registry.queryClient.getQueryData<T[]>(
-    communityKeys.communityDbCollection(registry.scopeId, name),
-  )
-  if (cached) return cached.flatMap((row) => {
-    const parsed = schema.safeParse(row)
-    return parsed.success ? [parsed.data] : []
-  })
   const collection = registry.collections[name] as unknown as {
     values: () => IterableIterator<unknown>
   }
   return Array.from(collection.values()).flatMap((row) => {
-    const parsed = schema.safeParse(row)
+    const candidate = row && typeof row === "object"
+      ? Object.fromEntries(
+          Object.entries(row).filter(([field]) => !field.startsWith("$")),
+        )
+      : row
+    const parsed = schema.safeParse(candidate)
     return parsed.success ? [parsed.data] : []
   })
 }
 
 function publishRows<T extends object>(
-  registry: CommunityDbRegistry,
-  name: CollectionName,
+  _registry: CommunityDbRegistry,
+  _name: CollectionName,
   rows: T[],
 ) {
-  registry.queryClient.setQueryData(
-    communityKeys.communityDbCollection(registry.scopeId, name),
-    rows,
-  )
+  return rows
 }
 
 function replaceRows<T extends object>(
@@ -380,17 +380,16 @@ function promoteServerDetailComplete(
   registry: CommunityDbRegistry,
   serverId: string,
 ) {
-  writeCommunityCollectionRows<ServerRow>(registry, "servers", () => {
+  return writeCommunityCollectionRows<ServerRow>(registry, "servers", () => {
     const collection = registry.collections.servers
     const current = collection.get(serverId)
     if (!current) {
       void registry.requestServerRefetch().catch(() => {})
-      return []
+      return [...collection.values()]
     }
-    if (!current.detailComplete) {
-      collection.utils.writeUpdate({ id: serverId, detailComplete: true })
-    }
-    return []
+    return [...collection.values()].map((row) => (
+      row.id === serverId ? { ...row, detailComplete: true } : row
+    ))
   }, (row) => row.id)
 }
 
@@ -554,7 +553,6 @@ function clearChannelTransientState(
   serverId: string | null,
 ) {
   const messageIds = new Set([
-    ...takeMessageIdsForAccessScope(registry.queryClient, channelIds, serverId),
     ...collectionRows(registry, "messages", messageSchema)
       .filter((row) => channelIds.has(row.channelId))
       .map((row) => row.id),
@@ -570,6 +568,7 @@ function clearChannelTransientState(
     })
   }
   if (channelIds.size === 0) return
+  for (const channelId of channelIds) void registry.purgeMessageScope?.(channelId)
   for (const entry of useMessageStreamStore.getState().entries.values()) {
     if (channelIds.has(entry.scope.id)) useMessageStreamStore.getState().removeScope(entry.scope)
   }
@@ -630,6 +629,7 @@ export function ingestServerDetail(
   detail: ServerDetail,
   mode: SnapshotIngestMode = "authoritative",
 ) {
+  const writeContext = canonicalWriteContexts.get(registry.queryClient)
   const categories: CategoryRow[] = []
   const channels: ChannelRow[] = []
   detail.categories.forEach((category, categoryIndex) => {
@@ -804,7 +804,21 @@ export function ingestServerDetail(
     // is present; an already-complete tree stays visible during reconciliation.
     // A newer WS event may protect identity fields without blocking this
     // monotonic proof that the full tree has arrived.
-    promoteServerDetailComplete(registry, detail.id)
+    const treeWrites = pendingCommunityCollectionWrites(registry, [
+      "categories",
+      "channels",
+      "channelMemberships",
+    ])
+    if (treeWrites.length === 0) {
+      promoteServerDetailComplete(registry, detail.id)
+      return
+    }
+    const handoff = Promise.all(treeWrites).then(() => (
+      withCapturedCanonicalWriteContext(registry.queryClient, writeContext, () => (
+        promoteServerDetailComplete(registry, detail.id)
+      ))
+    )).then(() => undefined)
+    trackCommunityCollectionWrite(registry, handoff)
   })
 }
 
@@ -1005,6 +1019,9 @@ export function ingestMessages(
         ),
       } as MessageRow
     })
+  if (canonicalWriteContexts.get(registry.queryClient)?.kind !== "query") {
+    for (const row of rows) registry.markMessageChanged(row.id, row.channelId)
+  }
   const committed = upsertRows(registry, "messages", messageSchema, (row) => row.id, rows)
   writeCommunityProfilePatches(messageProfilePatches(messages), registry)
   return committed
@@ -1031,45 +1048,164 @@ export function ingestReadStateSnapshot(
   })
 }
 
-function ingestAttentionIncluded(
+export function ingestAttentionIncluded(
   registry: CommunityDbRegistry,
   included: Partial<AccountAttentionSnapshot["included"]> | undefined,
 ) {
-  const existingChannels = new Map(
-    collectionRows(registry, "channels", channelSchema).map((row) => [row.id, row]),
-  )
   const viewerId = registry.accountId
-  for (const channel of included?.channels ?? []) ingestChannelMetadata(registry, channel)
-  const dmChannels: ChannelRow[] = (included?.dms ?? []).map((dm, position) => {
-    const existing = existingChannels.get(dm.id)
-    return {
-      id: dm.id,
-      serverId: null,
-      categoryId: null,
-      name: "",
-      type: "dm",
-      parentChannelId: null,
-      parentMessageId: null,
-      creatorId: null,
-      position: existing?.position ?? position,
-      archived: false,
-      muted: existing?.muted ?? false,
-      unread: true,
-      tags: [],
-      pending: false,
-      lastMessageAt: dm.lastMessageAt,
-      preview: existing?.preview ?? "",
-      lastUnreadSeq: dm.lastUnreadSeq,
+  const completeIncluded: AccountAttentionSnapshot["included"] = {
+    servers: included?.servers ?? [],
+    channels: included?.channels ?? [],
+    dms: included?.dms ?? [],
+    profiles: included?.profiles ?? [],
+    messages: included?.messages ?? [],
+  }
+  const accountResourceKey = viewerId ? dmsResourceKey(viewerId) : null
+  const accountResource = accountResourceKey
+    ? registry.queryClient.getQueryData<DmsResource>(accountResourceKey)
+    : undefined
+  if (viewerId && accountResourceKey && accountResource) {
+    const includedChannelIds = new Set([
+      ...completeIncluded.channels.map((row) => row.id),
+      ...completeIncluded.dms.map((row) => row.id),
+    ])
+    const includedProfileIds = new Set(completeIncluded.profiles.map((row) => row.userId))
+    const channelMembershipIds = new Set([
+      ...completeIncluded.channels.map((row) => (
+        channelMembershipKey(row.id, viewerId, "access")
+      )),
+      ...completeIncluded.dms.flatMap((row) => [
+        channelMembershipKey(row.id, viewerId, "access"),
+        channelMembershipKey(row.id, row.userId, "access"),
+      ]),
+    ])
+    const anchoredResource: DmsResource = {
+      ...accountResource,
+      channels: [
+        ...accountResource.channels,
+        ...collectionRows(registry, "channels", channelSchema)
+          .filter((row) => includedChannelIds.has(row.id)),
+      ],
+      channelMemberships: [
+        ...accountResource.channelMemberships,
+        ...collectionRows(registry, "channelMemberships", channelMembershipSchema)
+          .filter((row) => channelMembershipIds.has(row.id)),
+      ],
+      profiles: [
+        ...accountResource.profiles,
+        ...collectionRows(registry, "profiles", profileSchema)
+          .filter((row) => includedProfileIds.has(row.userId)),
+      ],
     }
-  })
-  upsertRows(registry, "channels", channelSchema, (row) => row.id, dmChannels)
+    const nextAccountResource = mergeAccountAttentionIncludedOwners(
+      viewerId,
+      anchoredResource,
+      completeIncluded,
+    )
+    registry.queryClient.setQueryData(accountResourceKey, nextAccountResource)
+    upsertRows(
+      registry,
+      "channels",
+      channelSchema,
+      (row) => row.id,
+      nextAccountResource.channels.filter((row) => includedChannelIds.has(row.id)),
+    )
+    upsertRows(
+      registry,
+      "channelMemberships",
+      channelMembershipSchema,
+      (row) => row.id,
+      nextAccountResource.channelMemberships
+        .filter((row) => channelMembershipIds.has(row.id)),
+    )
+    upsertRows(
+      registry,
+      "profiles",
+      profileSchema,
+      (row) => row.userId,
+      nextAccountResource.profiles.filter((row) => includedProfileIds.has(row.userId)),
+    )
+  } else {
+    const existingChannels = new Map(
+      collectionRows(registry, "channels", channelSchema).map((row) => [row.id, row]),
+    )
+    for (const channel of completeIncluded.channels) ingestChannelMetadata(registry, channel)
+    upsertRows(
+      registry,
+      "channels",
+      channelSchema,
+      (row) => row.id,
+      completeIncluded.dms.map((dm, position) => {
+        const existing = existingChannels.get(dm.id)
+        return {
+          id: dm.id,
+          serverId: null,
+          categoryId: null,
+          name: "",
+          type: "dm" as const,
+          parentChannelId: null,
+          parentMessageId: null,
+          creatorId: null,
+          position: existing?.position ?? position,
+          archived: false,
+          muted: existing?.muted ?? false,
+          unread: true,
+          tags: [],
+          pending: false,
+          lastMessageAt: dm.lastMessageAt,
+          preview: existing?.preview ?? "",
+          lastUnreadSeq: dm.lastUnreadSeq,
+        }
+      }),
+    )
+    if (viewerId) {
+      upsertRows(
+        registry,
+        "channelMemberships",
+        channelMembershipSchema,
+        (row) => row.id,
+        [
+          ...completeIncluded.channels.map((channel) => ({
+            id: channelMembershipKey(channel.id, viewerId, "access"),
+            channelId: channel.id,
+            userId: viewerId,
+            relation: "access" as const,
+            source: "inherited" as const,
+          })),
+          ...completeIncluded.dms.flatMap((dm) => [{
+            id: channelMembershipKey(dm.id, viewerId, "access"),
+            channelId: dm.id,
+            userId: viewerId,
+            relation: "access" as const,
+          }, {
+            id: channelMembershipKey(dm.id, dm.userId, "access"),
+            channelId: dm.id,
+            userId: dm.userId,
+            relation: "access" as const,
+          }]),
+        ],
+      )
+    }
+    const profiles = profileSchema.array().safeParse(completeIncluded.profiles)
+    if (profiles.success) {
+      writeCommunityProfilePatches(profiles.data.map((profile) => (
+        communityUserProfilePatch(profile.userId, profile)
+      )), registry)
+    }
+  }
   if (viewerId) {
+    for (const server of completeIncluded.servers) {
+      registry.markServerMembershipChanged(
+        server.id,
+        serverMembershipKey(server.id, viewerId),
+      )
+    }
     upsertRows(
       registry,
       "serverMemberships",
       serverMembershipSchema,
       (row) => row.id,
-      (included?.servers ?? []).map((server) => ({
+      completeIncluded.servers.map((server) => ({
         id: serverMembershipKey(server.id, viewerId),
         serverId: server.id,
         userId: viewerId,
@@ -1077,40 +1213,8 @@ function ingestAttentionIncluded(
         viewer: true,
       })),
     )
-    upsertRows(
-      registry,
-      "channelMemberships",
-      channelMembershipSchema,
-      (row) => row.id,
-      [
-        ...(included?.channels ?? []).map((channel) => ({
-          id: channelMembershipKey(channel.id, viewerId, "access"),
-          channelId: channel.id,
-          userId: viewerId,
-          relation: "access" as const,
-          source: "inherited" as const,
-        })),
-        ...(included?.dms ?? []).flatMap((dm) => [{
-          id: channelMembershipKey(dm.id, viewerId, "access"),
-          channelId: dm.id,
-          userId: viewerId,
-          relation: "access" as const,
-        }, {
-          id: channelMembershipKey(dm.id, dm.userId, "access"),
-          channelId: dm.id,
-          userId: dm.userId,
-          relation: "access" as const,
-        }]),
-      ],
-    )
   }
-  const profiles = profileSchema.array().safeParse(included?.profiles ?? [])
-  if (profiles.success) {
-    writeCommunityProfilePatches(profiles.data.map((profile) => (
-      communityUserProfilePatch(profile.userId, profile)
-    )), registry)
-  }
-  const messages = messageSchema.array().safeParse(included?.messages ?? [])
+  const messages = messageSchema.array().safeParse(completeIncluded.messages)
   if (messages.success) {
     const current = new Map(
       collectionRows(registry, "messages", messageSchema).map((row) => [row.id, row]),
@@ -1119,35 +1223,9 @@ function ingestAttentionIncluded(
       ...current.get(message.id),
       ...Object.fromEntries(Object.entries(message).filter(([, value]) => value !== undefined)),
     })) as MessageRow[]
+    for (const row of merged) registry.markMessageChanged(row.id, row.channelId)
     upsertRows(registry, "messages", messageSchema, (row) => row.id, merged)
   }
-}
-
-type AttentionProtectionState = {
-  optimisticClears: Set<symbol>
-  optimisticScopeDeletes: Map<symbol, {
-    scopeId: string
-    targetSeq: number
-    clearedAttentionCount: number
-    itemIds: Set<string>
-    requiresReconcileOnRestore: boolean
-  }>
-  optimisticItemDeletes: Map<symbol, Set<string>>
-}
-
-const attentionProtectionStates = new WeakMap<QueryClient, AttentionProtectionState>()
-
-function attentionProtectionState(queryClient: QueryClient) {
-  let state = attentionProtectionStates.get(queryClient)
-  if (!state) {
-    state = {
-      optimisticClears: new Set(),
-      optimisticScopeDeletes: new Map(),
-      optimisticItemDeletes: new Map(),
-    }
-    attentionProtectionStates.set(queryClient, state)
-  }
-  return state
 }
 
 export function hasAttentionScopeOptimisticFence(
@@ -1163,90 +1241,28 @@ export function ingestAttentionSnapshot(
   registry: CommunityDbRegistry,
   snapshot: AccountAttentionSnapshot,
 ) {
-  const protection = attentionProtectionState(registry.queryClient)
-  const scopesById = new Map<string, AttentionScopeRow>(
-    snapshot.scopes.map((row) => [row.scopeId, { ...row }]),
+  const selected = selectAccountAttentionResource(
+    registry.queryClient,
+    snapshot,
+    collectionRows(registry, "messages", messageSchema),
   )
-  const itemsById = new Map<string, AttentionItemRow>(
-    snapshot.items.map((row) => [row.id, { ...row }]),
-  )
-  const optimisticClear = protection.optimisticClears.size > 0
-  const optimisticScopeDeletes = [...protection.optimisticScopeDeletes.values()]
-  const optimisticItemDeletes = new Set(
-    [...protection.optimisticItemDeletes.values()].flatMap((ids) => [...ids]),
-  )
-  const attentionMessages = new Map(
-    collectionRows(registry, "messages", messageSchema).map((message) => [message.id, message]),
-  )
-  for (const message of snapshot.included?.messages ?? []) {
-    const parsed = messageSchema.safeParse(message)
-    if (parsed.success) attentionMessages.set(parsed.data.id, parsed.data)
-  }
-  const fencedItems = new Set<string>()
-  for (const item of itemsById.values()) {
-    const fenced = optimisticScopeDeletes.some((entry) => (
-      item.scopeId === entry.scopeId
-      && (
-        entry.itemIds.has(item.id)
-        || (item.messageId
-          && (attentionMessages.get(item.messageId)?.seq ?? Number.POSITIVE_INFINITY)
-            <= entry.targetSeq)
-      )
-    ))
-    if (!fenced) continue
-    fencedItems.add(item.id)
-  }
-  const itemDeleteCountsByScope = new Map<string, number>()
-  for (const item of itemsById.values()) {
-    if (
-      !optimisticItemDeletes.has(item.id)
-      || !item.scopeId
-      || item.kind !== "mention" && item.kind !== "reply"
-    ) continue
-    itemDeleteCountsByScope.set(
-      item.scopeId,
-      (itemDeleteCountsByScope.get(item.scopeId) ?? 0) + 1,
-    )
-  }
-  const scopes = optimisticClear ? [] : [...scopesById.values()].flatMap((scope) => {
-    const targetSeq = optimisticScopeDeletes.reduce((target, entry) => (
-      entry.scopeId === scope.scopeId ? Math.max(target, entry.targetSeq) : target
-    ), -1)
-    if (targetSeq < 0) {
-      const deletedAttentionCount = itemDeleteCountsByScope.get(scope.scopeId) ?? 0
-      if (deletedAttentionCount === 0) return [scope]
-      const attentionCount = Math.max(0, scope.attentionCount - deletedAttentionCount)
-      if (!scope.ordinaryUnread && attentionCount === 0) return []
-      return [{
-        ...scope,
-        attentionCount,
-        lastAttentionSeq: attentionCount === 0 ? null : scope.lastAttentionSeq,
-      }]
-    }
-    const clearedAttentionCount = optimisticScopeDeletes.reduce((count, entry) => (
-      entry.scopeId === scope.scopeId ? count + entry.clearedAttentionCount : count
-    ), 0)
-    const ordinaryUnread = scope.ordinaryUnread && scope.lastUnreadSeq > targetSeq
-    const lastAttentionSeq = scope.lastAttentionSeq !== null
-      && scope.lastAttentionSeq !== undefined
-      && scope.lastAttentionSeq > targetSeq
-      ? scope.lastAttentionSeq
-      : null
-    const attentionCount = lastAttentionSeq === null
-      ? 0
-      : Math.max(0, scope.attentionCount - clearedAttentionCount)
-    return ordinaryUnread || attentionCount > 0
-      ? [{ ...scope, ordinaryUnread, lastAttentionSeq, attentionCount }]
-      : []
-  })
-  const items = [...itemsById.values()].filter((item) => (
-    (!optimisticClear || item.kind === "friend_request")
-    && !fencedItems.has(item.id)
-    && !optimisticItemDeletes.has(item.id)
-  ))
   notifyManager.batch(() => {
-    replaceRows(registry, "attentionScopes", attentionScopeSchema, (row) => row.scopeId, scopes, () => true)
-    replaceRows(registry, "attentionItems", attentionItemSchema, (row) => row.id, items, () => true)
+    replaceRows(
+      registry,
+      "attentionScopes",
+      attentionScopeSchema,
+      (row) => row.scopeId,
+      selected.scopes,
+      () => true,
+    )
+    replaceRows(
+      registry,
+      "attentionItems",
+      attentionItemSchema,
+      (row) => row.id,
+      selected.items,
+      () => true,
+    )
     ingestAttentionIncluded(registry, snapshot.included)
   })
   return "applied" as const
@@ -1535,6 +1551,7 @@ export type AttentionItemsOptimisticSnapshot = {
   publicationRevision: number
   scopes: AttentionScopeRow[]
   items: AttentionItemRow[]
+  restoreItems: AttentionItemRow[]
 }
 
 export function removeAttentionItemsOptimistically(
@@ -1543,6 +1560,14 @@ export function removeAttentionItemsOptimistically(
 ): AttentionItemsOptimisticSnapshot {
   const allItems = collectionRows(registry, "attentionItems", attentionItemSchema)
   const items = allItems.filter(remove)
+  const removedIds = new Set(items.map((item) => item.id))
+  const affectedScopeIds = new Set(items.flatMap((item) => (
+    item.scopeId ? [item.scopeId] : []
+  )))
+  const restoreItems = allItems.filter((item) => (
+    removedIds.has(item.id)
+    || Boolean(item.scopeId && affectedScopeIds.has(item.scopeId))
+  ))
   const removedMentionCountByScope = new Map<string, number>()
   for (const item of items) {
     if (!item.scopeId || item.kind !== "mention" && item.kind !== "reply") continue
@@ -1592,6 +1617,7 @@ export function removeAttentionItemsOptimistically(
     publicationRevision: canonicalRevisionState(registry.queryClient).revision,
     scopes,
     items,
+    restoreItems,
   }
 }
 
@@ -1611,7 +1637,13 @@ export function restoreAttentionItemsOptimisticSnapshot(
   withCanonicalWriteContext(registry.queryClient, { kind: "event" }, () => {
     notifyManager.batch(() => {
       upsertRows(registry, "attentionScopes", attentionScopeSchema, (row) => row.scopeId, snapshot.scopes)
-      upsertRows(registry, "attentionItems", attentionItemSchema, (row) => row.id, snapshot.items)
+      upsertRows(
+        registry,
+        "attentionItems",
+        attentionItemSchema,
+        (row) => row.id,
+        snapshot.restoreItems,
+      )
     })
   })
   return true
@@ -1782,6 +1814,7 @@ async function publishFreshCommunityQuery(
   queryClient: QueryClient,
   proof: CommunityFreshQueryProof,
   publish: (registry: CommunityDbRegistry) => void,
+  completion: "durable" | "canonical" = "durable",
 ): Promise<CommunityPublicationReceipt> {
   let afterGeneration = 0
   let accessEpoch = proof.token.accessEpoch
@@ -1795,14 +1828,17 @@ async function publishFreshCommunityQuery(
     try {
       assertCommunityPublicationReceiptCurrent(queryClient, proof, accessEpoch)
       binding.registry.assertGenerationActive()
-      const publicationWrites = captureCommunityCollectionWrites(binding.registry, () => {
-        withCanonicalWriteContext(queryClient, {
-          kind: "query",
-          requestRevision: proof.token.canonicalRevision,
-        }, () => publish(binding.registry))
+      let canonicalPublications: Promise<void>[] = []
+      const durableWrites = captureCommunityCollectionWrites(binding.registry, () => {
+        canonicalPublications = captureCommunityCollectionPublications(binding.registry, ["messages"], () => {
+          withCanonicalWriteContext(queryClient, {
+            kind: "query",
+            requestRevision: proof.token.canonicalRevision,
+          }, () => publish(binding.registry))
+        })
       })
       accessEpoch = useCommunityWsStore.getState().accessEpoch
-      await Promise.all(publicationWrites)
+      await Promise.all(completion === "canonical" ? canonicalPublications : durableWrites)
       assertCommunityPublicationReceiptCurrent(queryClient, proof, accessEpoch)
       binding.registry.assertGenerationActive()
       if (!isCommunityDbRegistryBindingCurrent(queryClient, binding)) {
@@ -1831,7 +1867,7 @@ async function publishFreshCommunityQuery(
  * rows. Hydrated or manually written transport caches are never DB inputs;
  * only the fresh queryFn that owns this proof may publish its response.
  */
-export async function publishCommunityLiveSnapshot(
+export async function reconcileCommunityLiveSnapshot(
   queryClient: QueryClient,
   publication: CommunityLiveSnapshotPublication,
 ) {
@@ -1868,20 +1904,8 @@ export async function publishCommunityLiveSnapshot(
   })
 }
 
-export function publishAccountAttentionSnapshot(
-  queryClient: QueryClient,
-  publication: {
-    snapshot: AccountAttentionSnapshot
-    proof: CommunityFreshQueryProof
-  },
-) {
-  return publishFreshCommunityQuery(queryClient, publication.proof, (registry) => {
-    ingestAttentionSnapshot(registry, publication.snapshot)
-  })
-}
-
 /** Merge confirmed rows from one fresh transport response into canonical DB. */
-export function publishCommunityMessages(
+export function reconcileCanonicalCommunityMessages(
   queryClient: QueryClient,
   publication: {
     channelId: string
@@ -1891,11 +1915,11 @@ export function publishCommunityMessages(
 ) {
   return publishFreshCommunityQuery(queryClient, publication.proof, (registry) => {
     ingestMessages(registry, publication.channelId, publication.messages)
-  })
+  }, "canonical")
 }
 
 /** Publish message entities embedded in a cross-scope transport response. */
-function publishCommunityEmbeddedMessagesWithCommit(
+function reconcileCanonicalEmbeddedMessagesWithCommit(
   queryClient: QueryClient,
   publication: {
     entries: Array<{ channelId: string; message: Msg }>
@@ -1918,20 +1942,11 @@ function publishCommunityEmbeddedMessagesWithCommit(
   })
 }
 
-export function publishCommunityEmbeddedMessages(
+export function reconcileCanonicalEmbeddedMessages(
   queryClient: QueryClient,
-  publication: Parameters<typeof publishCommunityEmbeddedMessagesWithCommit>[1],
+  publication: Parameters<typeof reconcileCanonicalEmbeddedMessagesWithCommit>[1],
 ) {
-  return publishCommunityEmbeddedMessagesWithCommit(queryClient, publication)
-}
-
-export function publishCommunityEmbeddedMessagesWithReceipt(
-  queryClient: QueryClient,
-  publication: Parameters<typeof publishCommunityEmbeddedMessagesWithCommit>[1],
-) {
-  return {
-    committed: publishCommunityEmbeddedMessagesWithCommit(queryClient, publication),
-  }
+  return reconcileCanonicalEmbeddedMessagesWithCommit(queryClient, publication)
 }
 
 export type CommunityChannelMetadata = {
@@ -1947,7 +1962,7 @@ export type CommunityChannelMetadata = {
 }
 
 /** Publish one verified channel metadata response and its viewer access fact. */
-export function publishCommunityChannelMetadata(
+export function reconcileCanonicalChannelMetadata(
   queryClient: QueryClient,
   publication: {
     metadata: CommunityChannelMetadata
@@ -1976,7 +1991,7 @@ export function publishCommunityChannelMetadata(
 }
 
 /** Merge the fresh all-server ref directory without degrading known rows. */
-export function publishCommunityChannelDirectory(
+export function reconcileCanonicalChannelDirectory(
   queryClient: QueryClient,
   publication: {
     directory: ChannelRefDirectory
@@ -2075,7 +2090,7 @@ export type CommunityForumSidebarOpener = {
 }
 
 /** Publish the service facts carried by one forum-sidebar response. */
-export function publishCommunityForumSidebar(
+export function reconcileCanonicalForumSidebar(
   queryClient: QueryClient,
   publication: {
     serverId: string
@@ -2205,6 +2220,8 @@ export function patchCanonicalCommunityMessage(
 ) {
   const registry = getCommunityDbRegistry(queryClient)
   if (!registry) return false
+  const channelId = registry.collections.messages.get(messageId)?.channelId
+  if (channelId) registry.markMessageChanged(messageId, channelId)
   return withCanonicalWriteContext(queryClient, { kind: "event" }, () => (
     patchRows(
       registry,
@@ -2317,8 +2334,11 @@ export function purgeCommunityServer(registry: CommunityDbRegistry, serverId: st
   clearLastChannel(serverId)
   useCommunityWsStore.getState().revokeServerAccess(serverId)
   useMessageStreamStore.getState().removeServer(serverId)
-  void registry.queryClient.cancelQueries({ queryKey: communityKeys.server(serverId) })
-  registry.queryClient.removeQueries({ queryKey: communityKeys.server(serverId) })
+  const detailFilters = {
+    predicate: ({ queryKey }: Query) => isServerDetailResourceQueryKey(queryKey, serverId),
+  }
+  void registry.queryClient.cancelQueries(detailFilters)
+  registry.queryClient.removeQueries(detailFilters)
   const community = useCommunityStore.getState()
   if (community.currentServerId === serverId) {
     community.setCurrentChannelMeta(null)
@@ -2410,66 +2430,75 @@ export function projectCommunityWsEventToDb(
         )
       }
       return
-    case "community:message.edited":
+    case "community:message.edited": {
+      const patch = (row: MessageRow) => ({ ...row, content: event.content })
+      registry.markMessageChanged(event.messageId, event.channelId, false, patch)
       patchRows(
         registry,
         "messages",
         messageSchema,
         (row) => row.id,
-        (row) => ({ ...row, content: event.content }),
+        patch,
         (row) => row.id === event.messageId,
         [event.messageId],
       )
       return
-    case "community:message.updated":
+    }
+    case "community:message.updated": {
+      const patch = (row: MessageRow) => ({ ...row, approval: event.approval })
+      registry.markMessageChanged(event.messageId, event.channelId, false, patch)
       patchRows(
         registry,
         "messages",
         messageSchema,
         (row) => row.id,
-        (row) => ({ ...row, approval: event.approval }),
+        patch,
         (row) => row.id === event.messageId,
         [event.messageId],
       )
       return
+    }
     case "community:reaction.add":
-    case "community:reaction.remove":
+    case "community:reaction.remove": {
+      const patch = (row: MessageRow) => {
+        const message = row as MessageRow & Msg
+        const reactions = (message.reactions ?? []).map((reaction) => ({
+          ...reaction,
+          userIds: [...reaction.userIds],
+        }))
+        const reaction = reactions.find((candidate) => candidate.emoji === event.emoji)
+        if (event.type === "community:reaction.add") {
+          if (reaction && !reaction.userIds.includes(event.userId)) reaction.userIds.push(event.userId)
+          else if (!reaction) reactions.push({
+            emoji: event.emoji,
+            count: 1,
+            me: event.userId === registry.accountId,
+            userIds: [event.userId],
+          })
+        } else if (reaction) {
+          reaction.userIds = reaction.userIds.filter((userId) => userId !== event.userId)
+        }
+        const normalized = reactions
+          .filter((candidate) => candidate.userIds.length > 0)
+          .map((candidate) => ({
+            ...candidate,
+            count: candidate.userIds.length,
+            me: Boolean(registry.accountId && candidate.userIds.includes(registry.accountId)),
+          }))
+        return { ...row, reactions: normalized }
+      }
+      registry.markMessageChanged(event.messageId, event.channelId, false, patch)
       patchRows(
         registry,
         "messages",
         messageSchema,
         (row) => row.id,
-        (row) => {
-          const message = row as MessageRow & Msg
-          const reactions = (message.reactions ?? []).map((reaction) => ({
-            ...reaction,
-            userIds: [...reaction.userIds],
-          }))
-          const reaction = reactions.find((candidate) => candidate.emoji === event.emoji)
-          if (event.type === "community:reaction.add") {
-            if (reaction && !reaction.userIds.includes(event.userId)) reaction.userIds.push(event.userId)
-            else if (!reaction) reactions.push({
-              emoji: event.emoji,
-              count: 1,
-              me: event.userId === registry.accountId,
-              userIds: [event.userId],
-            })
-          } else if (reaction) {
-            reaction.userIds = reaction.userIds.filter((userId) => userId !== event.userId)
-          }
-          const normalized = reactions
-            .filter((candidate) => candidate.userIds.length > 0)
-            .map((candidate) => ({
-              ...candidate,
-              count: candidate.userIds.length,
-              me: Boolean(registry.accountId && candidate.userIds.includes(registry.accountId)),
-            }))
-          return { ...row, reactions: normalized }
-        },
+        patch,
         (row) => row.id === event.messageId,
         [event.messageId],
       )
       return
+    }
     case "community:channel.child_create": {
       if (!event.parentMessageId) return
       const parent = collectionRows(registry, "channels", channelSchema)

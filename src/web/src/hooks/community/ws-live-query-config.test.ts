@@ -2,13 +2,10 @@
  * WS2 regression guard — the caching config of the WS-live server-scoped
  * queries.
  *
- * `usePresence`, `useServer` and `useServerMembers` read caches that incoming
- * WebSocket events live-patch, so they carry `staleTime: Infinity` to stop a
- * refetch on every channel switch. That is ONLY safe paired with
- * `refetchOnReconnect: true`: the WS reconnect handler does not re-seed these
- * caches, so an event missed during a socket gap would otherwise leave them
- * permanently stale. These tests pin that pairing so a future edit can't drop
- * the reconnect backstop while keeping the infinite staleTime.
+ * `usePresence` and the server-detail resource are WS-live queries. They carry
+ * `staleTime: Infinity` to stop a refetch on every channel switch, paired with
+ * `refetchOnReconnect: true`. Server-members pagination is collection-owned;
+ * the hook delegates to that projection instead of creating a second query.
  *
  * `useInvites` is NOT WS-live — it gets a short finite staleTime instead,
  * and must NOT be `Infinity`.
@@ -30,6 +27,9 @@ vi.mock("react", () => ({
 
 // ── react-query shim — capture each query's options ─────────────────────────
 let queryConfigs: Array<Record<string, unknown>> = []
+const serverMembersProjection = vi.hoisted(() => vi.fn(() => ({
+  members: [], loading: false, loadingMore: false, hasMore: false, total: 0, failed: false,
+})))
 const queryStub = {
   data: undefined,
   hasNextPage: false,
@@ -63,6 +63,7 @@ vi.mock("@/lib/community-db/projections", () => ({
   useAttentionItems: () => [],
   useServerRailProjection: () => undefined,
   useServerTreeProjection: () => undefined,
+  useServerMembersProjection: serverMembersProjection,
 }))
 
 function configFor(keyIncludes: string) {
@@ -71,6 +72,7 @@ function configFor(keyIncludes: string) {
 
 beforeEach(() => {
   queryConfigs = []
+  serverMembersProjection.mockClear()
 })
 
 describe("WS-live queries — staleTime: Infinity + refetchOnReconnect backstop", () => {
@@ -85,21 +87,16 @@ describe("WS-live queries — staleTime: Infinity + refetchOnReconnect backstop"
   it("useServer pairs Infinity staleTime with refetchOnReconnect", async () => {
     const { useServer } = await import("./use-servers")
     useServer("srv_1")
-    // The plain server-detail key ends at the serverId — no trailing segment
-    // like "presence"/"members" — so match it exactly.
-    const cfg = queryConfigs.find(
-      (c) => JSON.stringify(c.queryKey) === JSON.stringify(["community", "servers", "srv_1"]),
-    )
+    const cfg = configFor("channel-resource")
     expect(cfg?.staleTime).toBe(Infinity)
     expect(cfg?.refetchOnReconnect).toBe(true)
   })
 
-  it("useServerMembers pairs Infinity staleTime with refetchOnReconnect", async () => {
+  it("useServerMembers delegates paging to the canonical projection", async () => {
     const { useServerMembers } = await import("./use-server-members")
     useServerMembers("srv_1")
-    const cfg = configFor("members")
-    expect(cfg?.staleTime).toBe(Infinity)
-    expect(cfg?.refetchOnReconnect).toBe(true)
+    expect(serverMembersProjection).toHaveBeenCalledWith("srv_1", 50)
+    expect(configFor("members")).toBeUndefined()
   })
 
 })

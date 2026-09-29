@@ -6,6 +6,11 @@ import type { PresenceResponse } from "@/hooks/community/use-server-panels"
 import { communityKeys } from "@/lib/query-keys"
 import { serversCollectionQueryKey } from "@/lib/community-db/server-collection"
 import { getAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import {
+  readServerMembersState,
+} from "@/lib/community-db/server-members-resource"
+import { serverMembersPagesKey } from "@/lib/community-db/server-members-pagination"
 import {
   getCanonicalCommunityChannels,
   patchCanonicalCommunityChannel,
@@ -29,6 +34,10 @@ import {
   seedCanonicalThread,
 } from "./test-harness"
 
+const serverDetailKey = (serverId: string) => (
+  ["community", "db", "u_me", "channel-resource", "server", serverId] as const
+)
+
 beforeEach(resetCommunityWsHarness)
 afterEach(cleanupCommunityWsHarness)
 
@@ -44,9 +53,11 @@ describe("useCommunityWs — member events", () => {
       name: "Private title",
       parentChannelId: "private_parent",
     })
-    capturedQueryClient.setQueryData(communityKeys.server("srv_1"), {
-      id: "srv_1",
+    const detailKey = serverDetailKey("srv_1")
+    capturedQueryClient.setQueryData(detailKey, {
+      serverId: "srv_1",
       categories: [],
+      channels: [],
     })
     capturedQueryClient.setQueryData(communityKeys.reactionDetails("message_1"), {
       messageId: "message_1",
@@ -79,7 +90,7 @@ describe("useCommunityWs — member events", () => {
       currentChannelId: null,
       currentChannelMeta: null,
     })
-    expect(capturedQueryClient.getQueryState(communityKeys.server("srv_1"))).toBeUndefined()
+    expect(capturedQueryClient.getQueryState(detailKey)).toBeUndefined()
     expect(capturedQueryClient.getQueryState(communityKeys.reactionDetails("message_1"))).toBeUndefined()
     expect(capturedQueryClient.getQueryState(communityKeys.reactionDetails("message_2"))).toBeDefined()
     expect(unreadProjection.projectUnread("servers", "private_child", false)).toBe(false)
@@ -149,11 +160,11 @@ describe("useCommunityWs — member events", () => {
     unsubscribe()
   })
 
-  it("patches the members cache with a join event", async () => {
+  it("writes a join into the canonical roster and its resource total", async () => {
     await mountHook()
-    capturedQueryClient.setQueryData(communityKeys.members("srv_1"), {
-      pages: [{ members: [], hasMore: false, limit: 50, total: 0 }],
-      pageParams: [null],
+    capturedQueryClient.setQueryData(serverMembersPagesKey("u_me", "srv_1"), {
+      pages: [{ rows: [], nextCursor: null, total: 0 }],
+      pageParams: [undefined],
     })
     const event: CommunityMemberJoin = {
       type: "community:member.join",
@@ -169,17 +180,18 @@ describe("useCommunityWs — member events", () => {
       },
     }
     capturedOnMessage!(event)
-    const cache = capturedQueryClient.getQueryData<{
-      pages: { members: { userId: string }[]; total: number }[]
-    }>(communityKeys.members("srv_1"))
-    expect(cache?.pages[0].members.map((m) => m.userId)).toEqual(["u_1"])
-    expect(cache?.pages[0].total).toBe(1)
-    expect(cache?.pages[0].members[0]).toMatchObject({
+    const registry = getCommunityDbRegistry(capturedQueryClient)!
+    expect(registry.collections.serverMemberships.get("srv_1:u_1")).toMatchObject({
+      id: "srv_1:u_1",
+      memberId: "mem_1",
       userId: "u_1",
+      role: "member",
+    })
+    expect(readServerMembersState(capturedQueryClient, "u_me", "srv_1").total).toBe(1)
+    expect(registry.collections.profiles.get("u_1")).toMatchObject({
       name: "n",
       discriminator: "0000",
       avatarVersion: 0,
-      sub: "",
     })
     const { useCommunityWsStore } = await import("@/stores/community/ws")
     expect(useCommunityWsStore.getState()).not.toHaveProperty("profilesByUserId")
@@ -263,6 +275,12 @@ describe("useCommunityWs — member events", () => {
   it("refreshes rail and server detail only when the joining member is the viewer", async () => {
     await mountHook({ viewerUserId: "u_me" })
     const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
+    const detailKey = serverDetailKey("srv_new")
+    capturedQueryClient.setQueryData(detailKey, {
+      serverId: "srv_new",
+      categories: [],
+      channels: [],
+    })
     const event = {
       type: "community:member.join",
       serverId: "srv_new",
@@ -280,14 +298,22 @@ describe("useCommunityWs — member events", () => {
     capturedOnMessage!(event)
 
     expect(spy).toHaveBeenCalledWith({ queryKey: serversCollectionQueryKey(), exact: true })
-    expect(spy).toHaveBeenCalledWith({ queryKey: communityKeys.server("srv_new"), exact: true })
+    await vi.waitFor(() => {
+      expect(capturedQueryClient.getQueryState(detailKey)?.isInvalidated).toBe(true)
+    })
 
     spy.mockClear()
+    capturedQueryClient.setQueryData(detailKey, {
+      serverId: "srv_new",
+      categories: [],
+      channels: [],
+    })
     capturedOnMessage!({
       ...event,
       member: { ...event.member, id: "mem_peer", userId: "u_peer" },
     })
     expect(spy).not.toHaveBeenCalledWith({ queryKey: serversCollectionQueryKey(), exact: true })
+    expect(capturedQueryClient.getQueryState(detailKey)?.isInvalidated).toBe(false)
   })
 
   it("forwards WS membership changes onto the server-scoped search overlay bus", async () => {
@@ -316,6 +342,34 @@ describe("useCommunityWs — member events", () => {
         event: expect.objectContaining({ memberId: "mem_1" }),
       },
     ])
+  })
+
+  it("resolves membership updates by user id when the member id changed", async () => {
+    await mountHook()
+    capturedOnMessage!({
+      type: "community:member.join",
+      serverId: "srv_1",
+      member: {
+        id: "mem_original",
+        userId: "u_same",
+        name: "Same user",
+        discriminator: "0001",
+        avatarVersion: 0,
+        role: "member",
+        joinedAt: "2026-08-17T00:00:00.000Z",
+      },
+    } satisfies CommunityMemberJoin)
+
+    capturedOnMessage!({
+      type: "community:member.update",
+      serverId: "srv_1",
+      memberId: "mem_replaced",
+      userId: "u_same",
+      changes: { role: "admin" },
+    } satisfies CommunityMemberUpdate)
+
+    expect(getCommunityDbRegistry(capturedQueryClient)?.collections.serverMemberships
+      .get("srv_1:u_same")?.role).toBe("admin")
   })
 
   it("keeps message snapshots raw when member.update carries a rename", async () => {

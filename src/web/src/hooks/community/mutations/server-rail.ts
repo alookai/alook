@@ -1,15 +1,18 @@
 "use client"
 
-import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { notifyManager, useMutation, useQueryClient } from "@tanstack/react-query"
 import type { ServerRailCommand, ServerRailCommitResponse } from "@alook/shared"
 import { apiFetch } from "@/lib/api/client"
-import { communityKeys } from "@/lib/query-keys"
-import type { FoldersResponse } from "@/hooks/community/use-folders"
-import type { FolderServer } from "@/lib/community/models/navigation"
 import type { RailState } from "@/lib/community/server-rail-model"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
-import type { ServerRow } from "@/lib/community-db/schema"
+import {
+  folderItemKey,
+  type FolderItemRow,
+  type FolderRow,
+  type ServerRow,
+} from "@/lib/community-db/schema"
 import { serversCollectionQueryKey } from "@/lib/community-db/server-collection"
+import { foldersResourceKey } from "@/lib/community-db/folders-resource"
 
 export type ServerRailCommitArgs = {
   before: RailState
@@ -19,58 +22,58 @@ export type ServerRailCommitArgs = {
 
 type ServerRailCommitContext = {
   servers: ServerRow[]
-  folders: FoldersResponse | undefined
+  folders: FolderRow[]
+  folderItems: FolderItemRow[]
 }
 
 function applyOptimisticRail(
-  servers: readonly ServerRow[],
-  folders: FoldersResponse | undefined,
+  folders: readonly FolderRow[],
   state: RailState,
-): { folders: FoldersResponse | undefined } {
-  const serverById = new Map(servers.map((server) => [server.id, server]))
-  const folderServerById = new Map<string, FolderServer>()
-  for (const folder of folders?.folders ?? []) {
-    for (const server of folder.servers) folderServerById.set(server.id, server)
-  }
-  const asFolderServer = (serverId: string): FolderServer => {
-    const existing = folderServerById.get(serverId)
-    if (existing) return existing
-    const server = serverById.get(serverId)
-    return server
-      ? { id: server.id, name: server.name, initial: server.name.slice(0, 1).toUpperCase(), icon: server.icon ?? null }
-      : { id: serverId, name: "", initial: "?", icon: null }
-  }
-  const folderById = new Map(folders?.folders.map((folder) => [folder.id, folder]) ?? [])
+): { folders: FolderRow[]; folderItems: FolderItemRow[] } {
+  const folderById = new Map(folders.map((folder) => [folder.id, folder]))
   return {
-    folders: {
-      folders: state.folderOrder.map((folderId, position) => ({
-        id: folderId,
-        name: folderById.get(folderId)?.name ?? "Group",
+    folders: state.folderOrder.map((folderId, position) => ({
+      id: folderId,
+      name: folderById.get(folderId)?.name ?? "Group",
+      position,
+    })),
+    folderItems: state.folderOrder.flatMap((folderId) => (
+      (state.folders[folderId] ?? []).map((serverId, position) => ({
+        id: folderItemKey(folderId, serverId),
+        folderId,
+        serverId,
         position,
-        servers: (state.folders[folderId] ?? []).map(asFolderServer),
-      })),
-    },
+      }))
+    )),
   }
 }
 
-function reconcileCreatedFolderIds(
-  folders: FoldersResponse | undefined,
-  createdFolderIds: Record<string, string>,
-): FoldersResponse | undefined {
-  if (!folders || Object.keys(createdFolderIds).length === 0) return folders
-  return {
-    ...folders,
-    folders: folders.folders.map((folder) => ({
-      ...folder,
-      id: createdFolderIds[folder.id] ?? folder.id,
-    })),
-  }
+function replaceFolderGraph(
+  registry: NonNullable<ReturnType<typeof getCommunityDbRegistry>>,
+  folders: FolderRow[],
+  folderItems: FolderItemRow[],
+) {
+  notifyManager.batch(() => {
+    registry.collections.folders.utils.writeBatch(() => {
+      const nextIds = new Set(folders.map((folder) => folder.id))
+      const removed = [...registry.collections.folders.keys()].filter((id) => !nextIds.has(id))
+      if (removed.length > 0) registry.collections.folders.utils.writeDelete(removed)
+      if (folders.length > 0) registry.collections.folders.utils.writeUpsert(folders)
+    })
+    registry.collections.folderItems.utils.writeBatch(() => {
+      const nextIds = new Set(folderItems.map((item) => item.id))
+      const removed = [...registry.collections.folderItems.keys()].filter((id) => !nextIds.has(id))
+      if (removed.length > 0) registry.collections.folderItems.utils.writeDelete(removed)
+      if (folderItems.length > 0) registry.collections.folderItems.utils.writeUpsert(folderItems)
+    })
+  })
 }
 
 export function useServerRailCommit() {
   const queryClient = useQueryClient()
   const serversKey = serversCollectionQueryKey()
-  const foldersKey = communityKeys.folders()
+  const scopeId = getCommunityDbRegistry(queryClient)?.scopeId ?? "anon"
+  const foldersKey = foldersResourceKey(scopeId)
   return useMutation<
     ServerRailCommitResponse,
     Error,
@@ -83,39 +86,39 @@ export function useServerRailCommit() {
       { method: "PATCH", body: JSON.stringify({ commands }) },
     ),
     onMutate: async ({ after }) => {
+      const registry = getCommunityDbRegistry(queryClient)
       await Promise.all([
         queryClient.cancelQueries({ queryKey: serversKey, exact: true }),
         queryClient.cancelQueries({ queryKey: foldersKey, exact: true }),
+        registry?.ensureCollectionReady("folders"),
+        registry?.ensureCollectionReady("folderItems"),
       ])
       const context: ServerRailCommitContext = {
-        servers: Array.from(getCommunityDbRegistry(queryClient)?.collections.servers.values() ?? []),
-        folders: queryClient.getQueryData<FoldersResponse>(foldersKey),
+        servers: Array.from(registry?.collections.servers.values() ?? []),
+        folders: Array.from(registry?.collections.folders.values() ?? []),
+        folderItems: Array.from(registry?.collections.folderItems.values() ?? []),
       }
-      const optimistic = applyOptimisticRail(context.servers, context.folders, after)
-      const collection = getCommunityDbRegistry(queryClient)?.collections.servers
+      const optimistic = applyOptimisticRail(context.folders, after)
+      const collection = registry?.collections.servers
       collection?.utils.writeBatch(() => {
         after.serverOrder.forEach((id, position) => {
           if (collection.has(id)) collection.utils.writeUpdate({ id, position })
         })
       })
-      queryClient.setQueryData(foldersKey, optimistic.folders)
+      if (registry) replaceFolderGraph(registry, optimistic.folders, optimistic.folderItems)
       return context
     },
     onError: (_error, _args, context) => {
       if (!context) return
-      const collection = getCommunityDbRegistry(queryClient)?.collections.servers
+      const registry = getCommunityDbRegistry(queryClient)
+      const collection = registry?.collections.servers
       collection?.utils.writeBatch(() => {
         for (const row of context.servers) {
           if (collection.has(row.id)) collection.utils.writeUpdate(row)
           else collection.utils.writeInsert(row)
         }
       })
-      queryClient.setQueryData(foldersKey, context.folders)
-    },
-    onSuccess: (response) => {
-      queryClient.setQueryData<FoldersResponse | undefined>(foldersKey, (folders) =>
-        reconcileCreatedFolderIds(folders, response.createdFolderIds),
-      )
+      if (registry) replaceFolderGraph(registry, context.folders, context.folderItems)
     },
     onSettled: async () => {
       await Promise.all([

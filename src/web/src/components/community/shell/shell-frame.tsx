@@ -12,7 +12,6 @@ import {
   resolveCommunityRoute,
   type CommunityCommittedFrame,
 } from "@/lib/community/community-route"
-import { communityKeys } from "@/lib/query-keys"
 import { useCommunityStore } from "@/stores/community"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { useCurrentUser } from "@/contexts/community/current-user"
@@ -37,6 +36,8 @@ import {
   useRouteChannelProjection,
   useServerTreeProjection,
 } from "@/lib/community-db/projections"
+import { serverDetailResourceKey } from "@/lib/community-db/server-detail-resource"
+import { dmsResourceKey } from "@/lib/community-db/dms-resource"
 
 /** Shared community shell orchestration for the server and DM layouts. */
 export function ShellFrame(props: ShellFrameProps) {
@@ -100,7 +101,7 @@ export function ShellFrame(props: ShellFrameProps) {
     ? targetModulePlan.main.leafId
     : null
   const targetServer = useServerTreeProjection(targetServerId)
-  const targetRouteChannel = useRouteChannelProjection(targetChannelId)
+  const targetRouteChannel = useRouteChannelProjection(targetChannelId, targetServerId)
   const targetChannel = targetServer?.categories
     ?.flatMap((category) => category.channels)
     .find((channel) => channel.id === targetChannelId)
@@ -111,10 +112,10 @@ export function ShellFrame(props: ShellFrameProps) {
     ? targetChannel.type
     : undefined
   const targetReady = targetServerId
-    ? queryClient.getQueryData(communityKeys.server(targetServerId)) !== undefined
+    ? queryClient.getQueryData(serverDetailResourceKey(currentUser.id, targetServerId)) !== undefined
       || targetServer !== undefined
     : target?.scope.kind === "me"
-      ? queryClient.getQueryData(communityKeys.dms()) !== undefined
+      ? queryClient.getQueryData(dmsResourceKey(currentUser.id)) !== undefined
       : false
   const checkpoint = resolveCommunityCheckpointPlan({
     committedFrame,

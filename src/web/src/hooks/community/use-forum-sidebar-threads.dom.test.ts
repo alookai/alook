@@ -11,7 +11,7 @@ import {
   getCanonicalCommunityChannels,
   getCanonicalCommunityMessages,
   projectCommunityWsEventToDb,
-  publishCommunityForumSidebar,
+  reconcileCanonicalForumSidebar,
   removeCanonicalCommunityChannelMembership,
   setCanonicalCommunityChannelMembership,
 } from "@/lib/community-db/sync"
@@ -47,6 +47,19 @@ const cleanups: Array<() => void | Promise<void>> = []
 
 beforeEach(() => {
   apiFetchMock.mockReset()
+  apiFetchMock.mockImplementation(async (path: string) => {
+    if (path.endsWith("/read-state")) return { revision: 0, readStates: [] }
+    if (path.endsWith("/attention")) {
+      return {
+        scopes: [], items: [], limit: 100, truncated: false,
+        included: { servers: [], channels: [], dms: [], profiles: [], messages: [] },
+      }
+    }
+    if (path.endsWith("/server-folders")) return { folders: [] }
+    if (path.endsWith("/notifications")) return []
+    if (path.endsWith("/dms")) return { conversations: [] }
+    throw new Error(`unexpected ${path}`)
+  })
   useCommunityWsStore.getState().reset()
 })
 
@@ -155,12 +168,13 @@ async function setup() {
     { client: queryClient },
     createElement(CommunityDbProvider, { registry }, children),
   )
+  apiFetchMock.mockClear()
   return { queryClient, registry, wrapper }
 }
 
 async function publish(queryClient: QueryClient, data = envelope()) {
   const normalized = normalizeForumSidebarEnvelope(data, null)
-  await publishCommunityForumSidebar(queryClient, {
+  await reconcileCanonicalForumSidebar(queryClient, {
     serverId: "server-1",
     channels: data.channels,
     openers: data.included.parentMessages,
@@ -623,12 +637,13 @@ describe("forum sidebar canonical projection", () => {
     apiFetchMock.mockReturnValue(new Promise((resolve) => { resolveRequest = resolve }))
     const rendered = renderHook(() => useForumSidebarThreads("server-1", null), { wrapper })
     await waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
+    const liveActivity = new Date(Date.now() - 60_000).toISOString()
     patchForumSidebarTitleExact(queryClient, "server-1", "post-1", "live title")
     patchForumSidebarActivityExact(
-      queryClient, "server-1", "post-1", "forum-1", "2026-09-26T10:00:00.000Z",
+      queryClient, "server-1", "post-1", "forum-1", liveActivity,
     )
     patchForumSidebarActivityExact(
-      queryClient, "server-1", "missing", "forum-1", "2026-09-26T10:00:00.000Z",
+      queryClient, "server-1", "missing", "forum-1", liveActivity,
     )
     removeForumSidebarThreadExact(queryClient, "server-1", "post-2")
     await act(async () => resolveRequest(envelopeFor(["post-1", "post-2"])))
@@ -636,7 +651,7 @@ describe("forum sidebar canonical projection", () => {
       expect.objectContaining({
         id: "post-1",
         title: "live title",
-        activityAt: "2026-09-26T10:00:00.000Z",
+        activityAt: liveActivity,
       }),
     ]))
     expect(getCanonicalCommunityChannels(queryClient).some(({ id }) => id === "post-2"))
@@ -813,7 +828,7 @@ describe("forum sidebar canonical projection", () => {
   it("treats a negative retained result as notify evidence, not access revocation", async () => {
     const { queryClient, registry } = await setup()
     await publish(queryClient)
-    await publishCommunityForumSidebar(queryClient, {
+    await reconcileCanonicalForumSidebar(queryClient, {
       serverId: "server-1",
       channels: [],
       openers: [],
@@ -848,6 +863,7 @@ describe("forum sidebar canonical projection", () => {
     await waitFor(() => expect(rendered.result.current).toMatchObject({
       threads: [],
       parentUnread: {},
+      isSuccess: true,
     }))
     expect(registry.collections.channels.get("post-1")).toMatchObject({ unread: false })
     expect(registry.collections.channelMemberships.get("post-1:viewer:access"))

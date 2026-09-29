@@ -3,9 +3,7 @@ import {
   type BrowserContext,
   type BrowserContextOptions,
   type Page,
-  type TestInfo,
 } from "@playwright/test"
-import { createHash } from "crypto"
 import { readFileSync } from "fs"
 import { resolve } from "path"
 import {
@@ -25,51 +23,6 @@ type AsUser = (
   options?: Omit<BrowserContextOptions, "storageState">,
 ) => Promise<{ context: BrowserContext; page: Page }>
 
-type CommunityDbProbeTimeline = {
-  dropped: number
-  events: unknown[]
-  registryId: string
-  runId: string
-}
-
-function lifecycleRunId(testInfo: TestInfo): string {
-  const digest = createHash("sha256")
-    .update(`${testInfo.testId}:${testInfo.retry}`)
-    .digest("hex")
-    .slice(0, 20)
-  return `run-${testInfo.workerIndex}-${testInfo.retry}-${digest}`
-}
-
-async function enableCommunityDbLifecycleTrace(
-  target: Pick<BrowserContext, "addInitScript"> | Pick<Page, "addInitScript">,
-  runId: string,
-): Promise<void> {
-  await target.addInitScript((id) => {
-    Reflect.set(globalThis, "__ALOOK_COMMUNITY_DB_TRACE_RUN_ID__", id)
-    Reflect.set(globalThis, "__ALOOK_COMMUNITY_DB_TRACE_SEQUENCE__", 0)
-    Reflect.set(globalThis, "__ALOOK_COMMUNITY_DB_TRACE_REGISTRY_SEQUENCE__", 0)
-    Reflect.deleteProperty(globalThis, "__ALOOK_COMMUNITY_DB_TRACE_STORE__")
-  }, runId)
-}
-
-async function attachCommunityDbLifecycleTrace(
-  page: Page,
-  testInfo: TestInfo,
-  label: string,
-): Promise<void> {
-  if (testInfo.status === testInfo.expectedStatus) return
-  const timeline = await page.evaluate(() => {
-    const probe = Reflect.get(globalThis, "__ALOOK_COMMUNITY_DB_PROBE__") as undefined | {
-      timeline: () => CommunityDbProbeTimeline | null
-    }
-    return probe?.timeline() ?? null
-  }).catch(() => null)
-  await testInfo.attach(`community-db-lifecycle-${label}.json`, {
-    body: JSON.stringify({ timeline }, null, 2),
-    contentType: "application/json",
-  })
-}
-
 function throwOrSkipFailure(
   decision: FailureDecision,
   skip: (condition: boolean, description: string) => void,
@@ -79,14 +32,6 @@ function throwOrSkipFailure(
 }
 
 export const test = base.extend<{ asUser: AsUser; serviceGuard: void }>({
-  page: async ({ page }, provide, testInfo) => {
-    await enableCommunityDbLifecycleTrace(page, lifecycleRunId(testInfo))
-    try {
-      await provide(page)
-    } finally {
-      await attachCommunityDbLifecycleTrace(page, testInfo, "default")
-    }
-  },
   serviceGuard: [async ({}, provide, testInfo) => {
     throwOrSkipFailure(
       claimServiceFailure(SERVICE_STATE_PATH, SERVICE_FAILURE_CLAIM_PATH),
@@ -109,25 +54,18 @@ export const test = base.extend<{ asUser: AsUser; serviceGuard: void }>({
       testInfo.skip.bind(testInfo),
     )
   }, { auto: true }],
-  asUser: async ({ browser }, provide, testInfo) => {
+  asUser: async ({ browser }, provide) => {
     const opened: BrowserContext[] = []
-    const pages: Page[] = []
-    const runId = lifecycleRunId(testInfo)
     const factory: AsUser = async (key, options) => {
       const statePath = resolve(AUTH_DIR, `${key}.json`)
       const context = await browser.newContext({ ...options, storageState: statePath })
       opened.push(context)
-      await enableCommunityDbLifecycleTrace(context, runId)
       const page = await context.newPage()
-      pages.push(page)
       return { context, page }
     }
     try {
       await provide(factory)
     } finally {
-      await Promise.all(pages.map((page, index) => (
-        attachCommunityDbLifecycleTrace(page, testInfo, `as-user-${index + 1}`)
-      )))
       await Promise.all(opened.map((context) => context.close()))
     }
   },

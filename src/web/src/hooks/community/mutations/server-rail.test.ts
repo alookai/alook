@@ -6,7 +6,9 @@ import {
   registerCommunityDbRegistry,
   type CommunityDbRegistry,
 } from "@/lib/community-db/collections"
+import { foldersResourceKey } from "@/lib/community-db/folders-resource"
 import { serversCollectionQueryKey } from "@/lib/community-db/server-collection"
+import { serverMembersRowsKey } from "@/lib/community-db/server-members-pagination"
 
 const apiFetchMock = vi.fn()
 const useMutationMock = vi.fn()
@@ -49,6 +51,19 @@ const args = {
 describe("useServerRailCommit", () => {
   beforeEach(async () => {
     vi.clearAllMocks()
+    apiFetchMock.mockImplementation(async (url: unknown) => {
+      if (url === "/api/community/users/me/server-folders") {
+        return {
+          folders: [{
+            id: "one",
+            name: "One",
+            position: 0,
+            servers: [{ id: "c", name: "C", icon: null }],
+          }],
+        }
+      }
+      throw new Error(`unexpected API fetch: ${String(url)}`)
+    })
     queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     registry = createCommunityDbRegistry(queryClient, "viewer")
     unregister = registerCommunityDbRegistry(registry)
@@ -77,14 +92,6 @@ describe("useServerRailCommit", () => {
         mentions: 0,
       })),
     })
-    queryClient.setQueryData(communityKeys.folders(), {
-      folders: [{
-        id: "one",
-        name: "One",
-        position: 0,
-        servers: [{ id: "c", name: "C", initial: "C", icon: null }],
-      }],
-    })
   })
 
   afterEach(() => {
@@ -110,43 +117,66 @@ describe("useServerRailCommit", () => {
     const members = { pages: [{ members: [{ id: "m", userId: "viewer" }] }], pageParams: [null] }
     const invites = { invites: [{ id: "invite" }] }
     queryClient.setQueryData(communityKeys.server("a"), detail)
-    queryClient.setQueryData(communityKeys.members("a"), members)
+    queryClient.setQueryData(serverMembersRowsKey("viewer", "a"), members)
     queryClient.setQueryData(communityKeys.invites("a"), invites)
     const context = await options.onMutate(args)
     expect(cancel).toHaveBeenCalledTimes(2)
     expect(Array.from(registry.collections.servers.values())
       .sort((left, right) => (left.position ?? 0) - (right.position ?? 0))
       .map((server) => server.id)).toEqual(["b", "a", "c"])
-    expect(queryClient.getQueryData<any>(communityKeys.folders()).folders).toMatchObject([
-      { id: "one", position: 0, servers: [{ id: "c" }] },
-      { id: "temp_1", position: 1, servers: [{ id: "a" }, { id: "b" }] },
+    expect([...registry.collections.folders.values()]).toMatchObject([
+      { id: "one", position: 0 },
+      { id: "temp_1", position: 1 },
+    ])
+    expect([...registry.collections.folderItems.values()]).toMatchObject([
+      { folderId: "one", serverId: "c", position: 0 },
+      { folderId: "temp_1", serverId: "a", position: 0 },
+      { folderId: "temp_1", serverId: "b", position: 1 },
     ])
     expect(context.servers.map((server: any) => server.id)).toEqual(["a", "b", "c"])
     expect(queryClient.getQueryData(communityKeys.server("a"))).toBe(detail)
-    expect(queryClient.getQueryData(communityKeys.members("a"))).toBe(members)
+    expect(queryClient.getQueryData(serverMembersRowsKey("viewer", "a"))).toBe(members)
     expect(queryClient.getQueryData(communityKeys.invites("a"))).toBe(invites)
   })
 
   it("restores both exact snapshots on failure", async () => {
     const options = useServerRailCommit() as any
     const context = await options.onMutate(args)
+    registry.collections.servers.utils.writeDelete("a")
     options.onError(new Error("failed"), args, context)
     expect(Array.from(registry.collections.servers.values())
       .sort((left, right) => (left.position ?? 0) - (right.position ?? 0))
       .map((server) => server.id)).toEqual(["a", "b", "c"])
-    expect(queryClient.getQueryData(communityKeys.folders())).toEqual(context.folders)
+    expect([...registry.collections.folders.values()]).toEqual(context.folders)
+    expect([...registry.collections.folderItems.values()]).toEqual(context.folderItems)
   })
 
-  it("reconciles temporary ids and invalidates both caches on settle", async () => {
+  it("refetches authoritative ids and invalidates the folder resource on settle", async () => {
     const options = useServerRailCommit() as any
     await options.onMutate(args)
-    options.onSuccess({ createdFolderIds: { temp_1: "folder_real" } }, args)
-    expect(queryClient.getQueryData<any>(communityKeys.folders()).folders[1].id).toBe("folder_real")
     const invalidate = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue(undefined as never)
     const refetchServers = vi.spyOn(registry, "requestServerRefetch").mockResolvedValue(undefined)
     await options.onSettled()
     expect(refetchServers).toHaveBeenCalledTimes(1)
     expect(invalidate).toHaveBeenCalledTimes(1)
+  })
+
+  it("invalidates the server query when no canonical registry is bound", async () => {
+    unregister()
+    unregister = () => {}
+    const options = useServerRailCommit() as any
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue(undefined as never)
+
+    await options.onSettled()
+
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: serversCollectionQueryKey(),
+      exact: true,
+    })
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: foldersResourceKey("anon"),
+      exact: true,
+    })
   })
 
 })

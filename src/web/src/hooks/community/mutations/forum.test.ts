@@ -6,6 +6,8 @@
 import { afterEach, describe, it, expect, vi, beforeEach } from "vitest"
 import { QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
+import { messageRowsQueryKey } from "@/lib/community-db/message-pagination"
+import type { CommunityDbRegistry } from "@/lib/community-db/collections"
 
 const { clearLastChannelMock } = vi.hoisted(() => ({
   clearLastChannelMock: vi.fn(),
@@ -23,8 +25,31 @@ vi.mock("react", () => ({
 }))
 
 const apiFetchMock = vi.fn()
+let registryPreloading = false
 vi.mock("@/lib/api/client", () => ({
-  apiFetch: (...args: unknown[]) => apiFetchMock(...args),
+  apiFetch: (...args: unknown[]) => {
+    if (registryPreloading) {
+      const path = String(args[0])
+      if (path === "/api/community/servers") return Promise.resolve({ servers: [] })
+      if (path === "/api/community/users/me/read-state") {
+        return Promise.resolve({ revision: 0, readStates: [] })
+      }
+      if (path === "/api/community/users/me/attention") {
+        return Promise.resolve({
+          scopes: [], items: [], limit: 100, truncated: false,
+          included: { servers: [], channels: [], dms: [], profiles: [], messages: [] },
+        })
+      }
+      if (path === "/api/community/users/me/dms") {
+        return Promise.resolve({ conversations: [] })
+      }
+      if (path === "/api/community/users/me/server-folders") {
+        return Promise.resolve({ folders: [] })
+      }
+      if (path === "/api/community/users/me/notifications") return Promise.resolve([])
+    }
+    return apiFetchMock(...args)
+  },
 }))
 
 type MutConfig<Args> = {
@@ -37,6 +62,7 @@ type MutConfig<Args> = {
 let capturedConfig: MutConfig<unknown> | null = null
 let capturedQc: QueryClient
 let cleanupRegistry: (() => Promise<void>) | null = null
+let canonicalRegistry: CommunityDbRegistry
 vi.mock("@tanstack/react-query", async () => {
   const actual = await vi.importActual<typeof import("@tanstack/react-query")>("@tanstack/react-query")
   return {
@@ -77,14 +103,47 @@ async function load() {
   vi.resetModules()
   const mod = await import("./forum")
   const collections = await import("@/lib/community-db/collections")
-  const registry = collections.createCommunityDbRegistry(capturedQc, "viewer")
-  await registry.preload()
-  const unregister = collections.registerCommunityDbRegistry(registry)
+  registryPreloading = true
+  try {
+    canonicalRegistry = collections.createCommunityDbRegistry(capturedQc, "viewer")
+    await canonicalRegistry.preload()
+  } finally {
+    registryPreloading = false
+  }
+  const unregister = collections.registerCommunityDbRegistry(canonicalRegistry)
   cleanupRegistry = async () => {
     unregister()
-    await registry.cleanup()
+    await canonicalRegistry.cleanup()
   }
   return mod
+}
+
+const tailMessageRowsKey = (channelId: string) => messageRowsQueryKey({
+  accountId: "viewer",
+  kind: "server-channel",
+  serverId: "server_1",
+  channelId,
+}, null, {
+  base: { mode: "tail" },
+  direction: "older",
+  order: ["seq", "asc", "id", "asc"],
+})
+
+async function seedCanonicalMessages(
+  channelId: string,
+  messages: Array<{ id: string; thread?: { id: string; name: string; messageCount: number } }>,
+) {
+  const { ingestMessages } = await import("@/lib/community-db/sync")
+  ingestMessages(canonicalRegistry, channelId, messages.map((message, index) => ({
+    ...message,
+    seq: index + 1,
+    type: "chat" as const,
+    content: message.id,
+  })))
+}
+
+function canonicalMessage(messageId: string) {
+  return canonicalRegistry.collections.messages.get(messageId)
 }
 
 beforeEach(() => {
@@ -101,7 +160,7 @@ afterEach(async () => {
 
 async function seedCanonicalSidebar(ids: string[], archivedId?: string) {
   const sync = await import("@/lib/community-db/sync")
-  await sync.publishCommunityForumSidebar(capturedQc, {
+  await sync.reconcileCanonicalForumSidebar(capturedQc, {
     serverId: "server_1",
     channels: ids.map((id) => ({
       id,
@@ -202,13 +261,18 @@ describe("useCreateForumThread", () => {
   it("invalidates the composed forum list on success", async () => {
     const { useCreateForumThread } = await load()
     useCreateForumThread()
+    const canonicalRowsKey = tailMessageRowsKey("forum_1")
+    capturedQc.setQueryData(canonicalRowsKey, [])
     capturedQc.setQueryData(communityKeys.channelMessages("forum_1"), { pages: [], pageParams: [] })
     capturedQc.setQueryData(communityKeys.forumFeed("forum_1", null), { pages: [], pageParams: [] })
     apiFetchMock.mockResolvedValueOnce({ threadId: "p_new" })
 
     await runMutation({ nonce: "command_1", channelId: "forum_1", name: "n", content: "c" })
 
-    expect(capturedQc.getQueryState(communityKeys.channelMessages("forum_1"))?.isInvalidated).toBe(true)
+    await vi.waitFor(() => {
+      expect(capturedQc.getQueryState(canonicalRowsKey)?.isInvalidated).toBe(true)
+    })
+    expect(capturedQc.getQueryState(communityKeys.channelMessages("forum_1"))?.isInvalidated).toBe(false)
     expect(capturedQc.getQueryState(communityKeys.forumFeed("forum_1", null))?.isInvalidated).toBe(true)
   })
 })
@@ -287,9 +351,11 @@ describe("useUpdatePostTags", () => {
     useUpdatePostTags()
     capturedQc.setQueryData(communityKeys.channelMessages("forum_1"), { pages: [], pageParams: [] })
     const bugKey = [...communityKeys.channelMessages("forum_1"), "tag", "bug"] as const
+    const canonicalRowsKey = tailMessageRowsKey("forum_1")
     const feedAllKey = communityKeys.forumFeed("forum_1", null)
     const feedBugKey = communityKeys.forumFeed("forum_1", "bug")
     capturedQc.setQueryData(bugKey, { pages: [], pageParams: [] })
+    capturedQc.setQueryData(canonicalRowsKey, [])
     capturedQc.setQueryData(feedAllKey, { pages: [], pageParams: [] })
     capturedQc.setQueryData(feedBugKey, { pages: [], pageParams: [] })
     capturedQc.setQueryData(communityKeys.forumTags("forum_1"), { tags: ["bug", "p0"] })
@@ -308,8 +374,11 @@ describe("useUpdatePostTags", () => {
       method: "PUT",
       body: JSON.stringify({ tags: ["bug", "p0"] }),
     })
-    expect(capturedQc.getQueryState(communityKeys.channelMessages("forum_1"))?.isInvalidated).toBe(true)
-    expect(capturedQc.getQueryState(bugKey)?.isInvalidated).toBe(true)
+    await vi.waitFor(() => {
+      expect(capturedQc.getQueryState(canonicalRowsKey)?.isInvalidated).toBe(true)
+    })
+    expect(capturedQc.getQueryState(communityKeys.channelMessages("forum_1"))?.isInvalidated).toBe(false)
+    expect(capturedQc.getQueryState(bugKey)?.isInvalidated).toBe(false)
     expect(capturedQc.getQueryState(feedAllKey)?.isInvalidated).toBe(true)
     expect(capturedQc.getQueryState(feedBugKey)?.isInvalidated).toBe(true)
     expect(capturedQc.getQueryState(communityKeys.forumTags("forum_1"))?.isInvalidated).toBe(true)
@@ -594,6 +663,12 @@ describe("useDeleteForumThread", () => {
       pageParams: [null],
     }
     capturedQc.setQueryData(communityKeys.channelMessages("forum_1"), feed)
+    const canonicalRowsKey = tailMessageRowsKey("forum_1")
+    capturedQc.setQueryData(canonicalRowsKey, [])
+    await seedCanonicalMessages("forum_1", [
+      { id: "m_p2", thread: { id: "p2", name: "Post", messageCount: 1 } },
+      { id: "m_keep", thread: { id: "keep", name: "Keep", messageCount: 1 } },
+    ])
     const forumFeed = {
       pages: [{
         serverId: "server_1",
@@ -613,7 +688,6 @@ describe("useDeleteForumThread", () => {
       pageParams: [null],
     }
     capturedQc.setQueryData(communityKeys.forumFeed("forum_1", null), forumFeed)
-    const sidebarKey = communityKeys.forumSidebarThreads("server_1")
     await seedCanonicalSidebar(["p2"])
     apiFetchMock.mockResolvedValueOnce(undefined)
 
@@ -625,8 +699,9 @@ describe("useDeleteForumThread", () => {
     })
 
     expect(apiFetchMock).toHaveBeenCalledWith("/api/community/messages/m_p2", { method: "DELETE" })
-    expect(capturedQc.getQueryData<typeof feed>(communityKeys.channelMessages("forum_1"))
-      ?.pages[0].messages.map((message) => message.id)).toEqual(["m_keep"])
+    expect(canonicalMessage("m_p2")).toBeUndefined()
+    expect(canonicalMessage("m_keep")?.thread?.id).toBe("keep")
+    expect(capturedQc.getQueryData(communityKeys.channelMessages("forum_1"))).toEqual(feed)
     const projectedFeed = capturedQc.getQueryData<typeof forumFeed>(communityKeys.forumFeed("forum_1", null))
     expect(projectedFeed?.pages[0].threads.map((thread) => thread.id)).toEqual(["keep"])
     expect(projectedFeed?.pages[0].included).toEqual({
@@ -635,7 +710,10 @@ describe("useDeleteForumThread", () => {
       tags: [{ messageId: "m_keep" }],
       participants: [{ channelId: "keep" }],
     })
-    expect(capturedQc.getQueryState(communityKeys.channelMessages("forum_1"))?.isInvalidated).toBe(true)
+    await vi.waitFor(() => {
+      expect(capturedQc.getQueryState(canonicalRowsKey)?.isInvalidated).toBe(true)
+    })
+    expect(capturedQc.getQueryState(communityKeys.channelMessages("forum_1"))?.isInvalidated).toBe(false)
     expect(capturedQc.getQueryState(communityKeys.forumFeed("forum_1", null))?.isInvalidated).toBe(true)
     expect(await canonicalSidebarIds()).toEqual([])
   })

@@ -1,22 +1,23 @@
 "use client"
 
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { useEffect, useState } from "react"
-import { fetchChannelMetadata, type ChannelMetadata } from "@/hooks/community/channel-metadata"
-import { communityKeys } from "@/lib/query-keys"
+import { useEffect, useMemo, useState } from "react"
 import type { ChildChannelMeta } from "@/hooks/community/use-forum-sidebar-threads"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { ApiError } from "@/lib/errors"
 import {
+  channelMetadataResourceKey,
+  createChannelMetadataResourceQueryFn,
+  type ChannelMetadataResource,
+} from "@/lib/community-db/channel-metadata-resource"
+import {
   useOptionalCommunityDbRegistry,
   useRouteChannelProjection,
 } from "@/lib/community-db/projections"
-import {
-  captureCommunityLiveSnapshotToken,
-  publishCommunityChannelMetadata,
-} from "@/lib/community-db/sync"
 
-function projectChildMeta(payload: ChannelMetadata, verifiedEpoch: number): ChildChannelMeta {
+function projectChildMeta(
+  payload: ChannelMetadataResource["metadata"],
+): ChildChannelMeta {
   if (!payload.parentChannelId || !payload.parentMessageId) {
     throw new Error("invalid child channel metadata")
   }
@@ -28,10 +29,25 @@ function projectChildMeta(payload: ChannelMetadata, verifiedEpoch: number): Chil
     parentChannelId: payload.parentChannelId,
     parentMessageId: payload.parentMessageId,
     creatorId: payload.creatorId,
-    archived: payload.archived === true || payload.archived === 1,
-    activityAt: payload.lastMessageAt ?? payload.createdAt,
-    verifiedEpoch,
+    archived: payload.archived,
+    activityAt: payload.activityAt,
+    verifiedEpoch: payload.verifiedEpoch,
   }
+}
+
+function childMetaPlaceholderResource(meta: ChildChannelMeta): ChannelMetadataResource {
+  return {
+    metadata: {
+      ...meta,
+      lastMessageAt: meta.activityAt || null,
+      createdAt: meta.activityAt,
+    },
+    channels: [],
+  }
+}
+
+function selectChildMeta(resource: ChannelMetadataResource) {
+  return projectChildMeta(resource.metadata)
 }
 
 export function sameChildChannelMeta(left: ChildChannelMeta, right: ChildChannelMeta): boolean {
@@ -80,8 +96,13 @@ export function useChildChannelMeta(
 ) {
   const registry = useOptionalCommunityDbRegistry()
   const queryClient = useQueryClient()
-  const dbChannel = useRouteChannelProjection(channelId)
+  const dbChannel = useRouteChannelProjection(channelId, serverId)
   const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
+  const placeholderResource = useMemo(() => (
+    registry || !placeholderData
+      ? undefined
+      : childMetaPlaceholderResource(placeholderData)
+  ), [placeholderData, registry])
   const dbPlaceholder = dbChannel?.type === "thread"
     && dbChannel.serverId === serverId
     && dbChannel.parentChannelId
@@ -99,19 +120,16 @@ export function useChildChannelMeta(
         verifiedEpoch: accessEpoch,
       }
     : undefined
-  const query = useQuery<ChildChannelMeta>({
-    queryKey: communityKeys.channelMeta(serverId, channelId),
-    queryFn: async ({ signal }) => {
-      const token = captureCommunityLiveSnapshotToken(queryClient)
-      const meta = await fetchChannelMetadata(serverId, channelId, signal)
-      await publishCommunityChannelMetadata(queryClient, {
-        metadata: meta,
-        proof: { token, signal },
-      })
-      return projectChildMeta(meta, meta.verifiedEpoch)
-    },
+  const query = useQuery<ChannelMetadataResource, Error, ChildChannelMeta>({
+    queryKey: channelMetadataResourceKey(
+      registry?.scopeId ?? "anon",
+      serverId,
+      channelId,
+    ),
+    queryFn: createChannelMetadataResourceQueryFn(queryClient, registry?.scopeId ?? "anon"),
+    select: selectChildMeta,
     enabled,
-    placeholderData: registry ? undefined : placeholderData,
+    placeholderData: placeholderResource,
     staleTime: Infinity,
     gcTime: 5 * 60 * 1000,
     retry: (failureCount, error) =>

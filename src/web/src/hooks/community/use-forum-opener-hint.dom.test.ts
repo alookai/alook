@@ -11,7 +11,7 @@ import {
 import { CommunityDbProvider } from "@/lib/community-db/projections"
 import {
   captureCommunityLiveSnapshotToken,
-  publishCommunityMessages,
+  reconcileCanonicalCommunityMessages,
 } from "@/lib/community-db/sync"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { useForumOpenerHint } from "./use-forum-opener-hint"
@@ -31,6 +31,19 @@ const cleanups: Array<() => void | Promise<void>> = []
 
 beforeEach(() => {
   apiFetchMock.mockReset()
+  apiFetchMock.mockImplementation(async (path: string) => {
+    if (path.endsWith("/read-state")) return { revision: 0, readStates: [] }
+    if (path.endsWith("/attention")) {
+      return {
+        scopes: [], items: [], limit: 100, truncated: false,
+        included: { servers: [], channels: [], dms: [], profiles: [], messages: [] },
+      }
+    }
+    if (path.endsWith("/server-folders")) return { folders: [] }
+    if (path.endsWith("/notifications")) return []
+    if (path.endsWith("/dms")) return { conversations: [] }
+    throw new Error(`unexpected ${path}`)
+  })
   useCommunityWsStore.getState().reset()
   useCommunityWsStore.getState().activateProfileAccount("viewer")
 })
@@ -97,7 +110,7 @@ describe("useForumOpenerHint", () => {
 
   it("exposes a warm canonical opener without waiting for its background transport", async () => {
     const { queryClient, wrapper } = await canonicalSetup()
-    await publishCommunityMessages(queryClient, {
+    await reconcileCanonicalCommunityMessages(queryClient, {
       channelId: "forum-1",
       messages: [{
         id: "opener-1",

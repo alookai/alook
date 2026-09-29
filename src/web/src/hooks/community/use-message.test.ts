@@ -6,16 +6,13 @@ const apiFetchMock = vi.fn()
 const {
   liveSnapshotToken,
   captureCommunityLiveSnapshotTokenMock,
-  publishCommunityEmbeddedMessagesWithReceiptMock,
+  reconcileCanonicalEmbeddedMessagesMock,
 } = vi.hoisted(() => {
   const token = { canonicalRevision: 0 }
   return {
     liveSnapshotToken: token,
     captureCommunityLiveSnapshotTokenMock: vi.fn(() => token),
-    publishCommunityEmbeddedMessagesWithReceiptMock: vi.fn(() => ({
-      status: "published",
-      committed: Promise.resolve(),
-    })),
+    reconcileCanonicalEmbeddedMessagesMock: vi.fn(() => Promise.resolve({ status: "published" })),
   }
 })
 vi.mock("@/lib/api/client", () => ({
@@ -25,15 +22,15 @@ vi.mock("@/lib/community-db/sync", () => ({
   captureCommunityLiveSnapshotToken: (...args: unknown[]) => (
     captureCommunityLiveSnapshotTokenMock(...args)
   ),
-  publishCommunityEmbeddedMessagesWithReceipt: (...args: unknown[]) => (
-    publishCommunityEmbeddedMessagesWithReceiptMock(...args)
+  reconcileCanonicalEmbeddedMessages: (...args: unknown[]) => (
+    reconcileCanonicalEmbeddedMessagesMock(...args)
   ),
 }))
 
 beforeEach(() => {
   apiFetchMock.mockReset()
   captureCommunityLiveSnapshotTokenMock.mockClear()
-  publishCommunityEmbeddedMessagesWithReceiptMock.mockClear()
+  reconcileCanonicalEmbeddedMessagesMock.mockClear()
 })
 
 describe("useMessage / messageQueryFn", () => {
@@ -87,7 +84,7 @@ describe("useMessage / messageQueryFn", () => {
 
     await messageQueryFn("m_1", queryClient)()
 
-    expect(publishCommunityEmbeddedMessagesWithReceiptMock).toHaveBeenCalledWith(queryClient, {
+    expect(reconcileCanonicalEmbeddedMessagesMock).toHaveBeenCalledWith(queryClient, {
       entries: [{ channelId: "archived-post-1", message: payload }],
       proof: { token: liveSnapshotToken, signal: undefined },
     })
@@ -96,10 +93,7 @@ describe("useMessage / messageQueryFn", () => {
   it("does not settle an exact opener before its canonical commit", async () => {
     let resolveCommit!: () => void
     const committed = new Promise<void>((resolve) => { resolveCommit = resolve })
-    publishCommunityEmbeddedMessagesWithReceiptMock.mockReturnValueOnce({
-      status: "published",
-      committed,
-    })
+    reconcileCanonicalEmbeddedMessagesMock.mockReturnValueOnce(committed)
     apiFetchMock.mockResolvedValueOnce({
       id: "m_1",
       channelId: "channel-1",
@@ -142,34 +136,48 @@ describe("useMessage / messageQueryFn", () => {
     await expect(messageQueryFn("m_1", new QueryClient())()).rejects.toMatchObject({
       name: "CommunityMessageProtocolError",
     })
-    expect(publishCommunityEmbeddedMessagesWithReceiptMock).not.toHaveBeenCalled()
+    expect(reconcileCanonicalEmbeddedMessagesMock).not.toHaveBeenCalled()
   })
 
   it("derives an opener placeholder from a persisted message window", async () => {
     const qc = new QueryClient()
-    qc.setQueryData(communityKeys.members("server-1"), {
-      pages: [{ members: [{ id: "u_1" }] }],
-      pageParams: [null],
+    const cached = {
+      id: "m_1",
+      type: "chat" as const,
+      authorId: "u_1",
+      authorName: "Alice",
+      content: "cached opener",
+      createdAt: "2026-07-03T00:00:00.000Z",
+      replyTo: { id: "m_0", authorName: "Bob", text: "parent" },
+      attachments: [{ kind: "file" as const, name: "notes.txt", url: "/notes.txt", size: "1 KB" }],
+      embeds: [{ title: "Reference" }],
+      reactions: [{ emoji: "👍", count: 1, me: true, userIds: ["u_1"] }],
+    }
+    apiFetchMock.mockResolvedValueOnce({
+      messages: [cached],
+      hasMore: false,
+      latestSeq: 0,
     })
-    qc.setQueryData(communityKeys.channelMessages("channel-1"), {
-      pages: [{
-        messages: [{
-          id: "m_1",
-          type: "chat",
-          authorId: "u_1",
-          authorName: "Alice",
-          content: "cached opener",
-          createdAt: "2026-07-03T00:00:00.000Z",
-          replyTo: { id: "m_0", authorName: "Bob", text: "parent" },
-          attachments: [{ kind: "file", name: "notes.txt", url: "/notes.txt", size: "1 KB" }],
-          embeds: [{ title: "Reference" }],
-          reactions: [{ emoji: "👍", count: 1, me: true, userIds: ["u_1"] }],
-        }],
-        hasMoreOlder: false,
-        hasMoreNewer: false,
-      }],
-      pageParams: [{ mode: "newest" }],
+    const [{ createCommunityDbRegistry, registerCommunityDbRegistry }, { createLiveQueryCollection, eq }] = await Promise.all([
+      import("@/lib/community-db/collections"),
+      import("@tanstack/react-db"),
+    ])
+    const registry = createCommunityDbRegistry(qc, "viewer")
+    await registry.ensureCollectionReady("messages")
+    const unregister = registerCommunityDbRegistry(registry)
+    const demand = {
+      scope: { accountId: "viewer", kind: "server-channel" as const, serverId: "server-1", channelId: "channel-1" },
+      tag: null,
+      sequence: { base: { mode: "tail" as const }, direction: "older" as const, order: ["seq", "asc", "id", "asc"] as const },
+    }
+    registry.setMessageDemand(demand)
+    const lease = registry.acquireMessageWindow(demand, 50)
+    const view = createLiveQueryCollection({
+      query: (q) => q.from({ message: registry.collections.messages })
+        .where(({ message }) => eq(message.channelId, "channel-1"))
+        .orderBy(({ message }) => message.id, "asc"),
     })
+    await view.preload()
     const { findCachedMessage } = await import("./use-message")
 
     expect(findCachedMessage(qc, "m_1")).toMatchObject({
@@ -183,6 +191,11 @@ describe("useMessage / messageQueryFn", () => {
       reactions: [{ emoji: "👍", count: 1, me: true, userIds: ["u_1"] }],
     })
     expect(findCachedMessage(qc, "missing")).toBeUndefined()
+    await view.cleanup()
+    await lease.release()
+    unregister()
+    await registry.cleanup()
+    qc.clear()
   })
 
   // ── Invalidation contract guard ──────────────────────────────────────────

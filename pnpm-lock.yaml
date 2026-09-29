@@ -343,6 +343,9 @@ importers:
       '@tanstack/browser-db-sqlite-persistence':
         specifier: 0.2.23
         version: 0.2.23(@journeyapps/wa-sqlite@1.7.1)(typescript@6.0.3)
+      '@tanstack/query-core':
+        specifier: 5.103.2
+        version: 5.103.2
       '@tanstack/query-db-collection':
         specifier: 1.2.15
         version: 1.2.15(@tanstack/query-core@5.103.2)(typescript@6.0.3)

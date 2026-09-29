@@ -5,7 +5,11 @@ import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { ServerLandingPendingFrame } from "@/components/community/shell/server-landing-pending-frame"
 import { useServer } from "@/hooks/community/use-servers"
 import { useBreakpoint } from "@/hooks/use-mobile"
-import { getLastChannel, pickServerLandingChannel } from "@/lib/community/last-channel"
+import {
+  getLastChannel,
+  pickServerLandingChannel,
+  serverLandingChannelIds,
+} from "@/lib/community/last-channel"
 
 export default function ServerDefaultPage() {
   const params = useParams<{ serverId: string }>()
@@ -18,11 +22,10 @@ export default function ServerDefaultPage() {
 
   useEffect(() => {
     if (breakpoint !== "desktop" || !currentServer) return
-    const allChannels = currentServer.categories.flatMap((cat) => cat.channels)
     // Restore one remembered channel id, or use the first top-level channel
     // when there is no valid memory.
     const target = pickServerLandingChannel(
-      allChannels.map((c) => c.id),
+      serverLandingChannelIds(currentServer.categories),
       getLastChannel(serverId),
     )
     if (target) {

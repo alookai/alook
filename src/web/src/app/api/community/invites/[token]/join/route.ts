@@ -87,8 +87,8 @@ export const POST = withCommunityActor(async (_req, ctx) => {
   // A bot's OWNER isn't necessarily a member of the joined server, so the
   // member-scoped fan-out above never reaches them; send the same event
   // directly so their bot-list / server-rail updates without a refresh.
-  // patchCacheJoin dedupes by userId, so double-delivery (owner also a member)
-  // is a no-op.
+  // The canonical membership key dedupes by serverId/userId, so double-delivery
+  // (owner also a member) is a no-op.
   if (actor.kind === "bot") {
     broadcastToUserSafe(actor.ownerUserId, memberEvent)
   }

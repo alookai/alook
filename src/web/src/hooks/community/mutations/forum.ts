@@ -27,6 +27,19 @@ import {
   rollbackForumFeedTagTransition,
   type ForumFeedTagTransitionToken,
 } from "@/hooks/community/forum-feed-tag-transition"
+import { isMessageResourceQueryKey } from "@/lib/community-db/message-pagination"
+import { isServerDetailResourceQueryKey } from "@/lib/community-db/server-detail-resource"
+
+async function refreshMessageResources(
+  queryClient: ReturnType<typeof useQueryClient>,
+  channelId: string,
+) {
+  const filters = {
+    predicate: ({ queryKey }: Query) => isMessageResourceQueryKey(queryKey, { channelId }),
+  }
+  await queryClient.cancelQueries(filters)
+  await queryClient.invalidateQueries({ ...filters, refetchType: "active" })
+}
 
 export type CreateForumThreadArgs = {
   nonce: string
@@ -66,7 +79,7 @@ export function useCreateForumThread() {
     },
     onSuccess: (data, args) => {
       void data
-      void queryClient.invalidateQueries({ queryKey: communityKeys.channelMessages(args.channelId) })
+      void refreshMessageResources(queryClient, args.channelId)
       void queryClient.invalidateQueries({ queryKey: communityKeys.threads(args.channelId) })
     },
   })
@@ -152,7 +165,7 @@ export function useUpdatePostTags() {
       // Prefix invalidation covers the unfiltered list and every tag variant.
       // This is required when the edited
       // post loses the currently-selected tag and must leave that result set.
-      void queryClient.invalidateQueries({ queryKey: communityKeys.channelMessages(args.forumChannelId) })
+      void refreshMessageResources(queryClient, args.forumChannelId)
       void queryClient.invalidateQueries({ queryKey: communityKeys.threads(args.forumChannelId) })
       void queryClient.invalidateQueries({ queryKey: communityKeys.forumTags(args.forumChannelId) })
     },
@@ -190,15 +203,13 @@ function startsWithQueryKey(queryKey: QueryKey, prefix: QueryKey) {
 function isForumPostUnitQuery(query: Query, unit: ForumPostUnitIdentity) {
   const key = query.queryKey
   const exactKeys: QueryKey[] = [
-    communityKeys.server(unit.serverId),
     communityKeys.forumSidebarThreads(unit.serverId),
     communityKeys.channelMeta(unit.serverId, unit.childChannelId),
     communityKeys.message(unit.openerMessageId),
   ]
-  return exactKeys.some((candidate) => hashKey(candidate) === hashKey(key)) || [
-    communityKeys.channelMessages(unit.forumChannelId),
+  return isServerDetailResourceQueryKey(key, unit.serverId)
+    || exactKeys.some((candidate) => hashKey(candidate) === hashKey(key)) || [
     communityKeys.forumFeeds(unit.forumChannelId),
-    communityKeys.channelMessages(unit.childChannelId),
     communityKeys.pins(unit.childChannelId),
     communityKeys.threads(unit.childChannelId),
   ].some((prefix) => startsWithQueryKey(key, prefix))
@@ -248,10 +259,12 @@ export function useDeleteForumThread() {
       applyForumPostUnitClientEffects(queryClient, toPostUnit(args))
     },
     onSettled: (_data, _error, args) => {
-      void queryClient.invalidateQueries({ queryKey: communityKeys.channelMessages(args.forumChannelId) })
+      void refreshMessageResources(queryClient, args.forumChannelId)
       void queryClient.invalidateQueries({ queryKey: communityKeys.threads(args.forumChannelId) })
       void queryClient.invalidateQueries({ queryKey: communityKeys.forumTags(args.forumChannelId) })
-      void queryClient.invalidateQueries({ queryKey: communityKeys.server(args.serverId), exact: true })
+      void queryClient.invalidateQueries({
+        predicate: ({ queryKey }) => isServerDetailResourceQueryKey(queryKey, args.serverId),
+      })
     },
   })
 }

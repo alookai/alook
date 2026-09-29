@@ -1,13 +1,10 @@
 import type { QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
-import type { ServerDetail } from "@/hooks/community/use-servers"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { useCommunityStore } from "@/stores/community"
 import { useMessageStreamStore } from "@/stores/community/message-stream"
 import { clearLastChannel } from "@/lib/community/last-channel"
 import { channelHref } from "@/lib/community/community-route"
-import type { PageCache } from "./cache"
-import { removeThreadFromCache } from "./cache"
 import type { ForumFeedPage } from "@/hooks/community/use-forum-feed"
 import { removeForumPostFromFeed } from "@/hooks/community/forum-feed-tag-transition"
 import type { InfiniteData } from "@tanstack/react-query"
@@ -61,21 +58,6 @@ function evictChannelScopeQueryCaches(
       exact: true,
     })
   }
-  queryClient.setQueryData<ServerDetail | undefined>(
-    communityKeys.server(serverId),
-    (server) => {
-      if (!server) return server
-      let changed = false
-      const categories = server.categories.map((category) => {
-        const channels = category.channels.filter((channel) => channel.id !== channelId)
-        if (channels.length === category.channels.length) return category
-        changed = true
-        return { ...category, channels }
-      })
-      return changed ? { ...server, categories } : server
-    },
-  )
-  queryClient.removeQueries({ queryKey: communityKeys.channelMessages(channelId) })
   queryClient.removeQueries({ queryKey: communityKeys.pins(channelId) })
   queryClient.removeQueries({ queryKey: communityKeys.threads(channelId) })
 }
@@ -93,10 +75,6 @@ export function evictForumPostUnitQueryCaches(
   unit: ForumPostUnitIdentity,
 ) {
   evictChannelScopeQueryCaches(queryClient, unit.serverId, unit.childChannelId)
-  queryClient.setQueriesData<PageCache>(
-    { queryKey: communityKeys.channelMessages(unit.forumChannelId) },
-    (cache) => removeThreadFromCache(cache, unit.childChannelId, unit.openerMessageId),
-  )
   queryClient.setQueriesData<InfiniteData<ForumFeedPage>>(
     { queryKey: communityKeys.forumFeeds(unit.forumChannelId) },
     (cache) => removeForumPostFromFeed(
@@ -153,7 +131,12 @@ export function applyForumPostUnitClientEffects(
     messageId: unit.openerMessageId,
   })
   const registry = getCommunityDbRegistry(queryClient)
-  if (registry) purgeCommunityChannel(registry, unit.childChannelId)
+  if (registry) {
+    if (registry.collections.messages.has(unit.openerMessageId)) {
+      registry.collections.messages.utils.writeDelete(unit.openerMessageId)
+    }
+    purgeCommunityChannel(registry, unit.childChannelId)
+  }
   const store = useCommunityStore.getState()
   if (wasCurrent) {
     store.setCurrentChannelMeta(null)

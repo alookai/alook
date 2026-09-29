@@ -3,100 +3,151 @@ import { writeCommunityCollectionRows } from "./collection-mutations"
 
 type Row = { id: string; value: number; extra?: string }
 
-function deferred() {
-  let resolve!: () => void
-  let reject!: (error: Error) => void
-  const promise = new Promise<void>((done, fail) => {
-    resolve = done
-    reject = fail
-  })
-  return { promise, reject, resolve }
-}
-
-function fixture(
-  persistenceQueue: Array<ReturnType<typeof deferred>> = [],
-  durable = false,
-) {
-  const ready = deferred()
-  let readinessPromise: Promise<void> | null = null
-  let preloadFailure: Error | null = null
+function queryCollectionFixture() {
   const values = new Map<string, Row>()
-  const operationConfigs: Array<{ optimistic?: boolean } | undefined> = []
+  let ready = false
+  let readyListener: (() => void) | undefined
+  let generationFailure: Error | null = null
   const collection = {
-    status: "loading",
-    preload: vi.fn(() => ready.promise.then(() => { collection.status = "ready" })),
-    has: (key: string) => values.has(key),
     keys: () => values.keys(),
-    insert: (rows: Row | Row[], config?: { optimistic?: boolean }) => {
-      operationConfigs.push(config)
-      for (const row of Array.isArray(rows) ? rows : [rows]) values.set(row.id, { ...row })
-    },
-    update: (
-      key: string,
-      config: { optimistic?: boolean },
-      callback: (draft: Row) => void,
-    ) => {
-      operationConfigs.push(config)
-      callback(values.get(key)!)
-    },
-    delete: (keys: string | string[], config?: { optimistic?: boolean }) => {
-      operationConfigs.push(config)
-      for (const key of Array.isArray(keys) ? keys : [keys]) values.delete(key)
-    },
+    isReady: () => ready,
+    onFirstReady: vi.fn((listener: () => void) => {
+      readyListener = listener
+      return () => {
+        if (readyListener === listener) readyListener = undefined
+      }
+    }),
+    startSyncImmediate: vi.fn(),
     utils: {
-      acceptMutations: vi.fn(() => persistenceQueue.shift()?.promise),
-      ...(durable ? { getLeadershipState: vi.fn() } : {}),
+      writeBatch: vi.fn((publish: () => void) => {
+        if (!ready) {
+          const error = new Error("manual sync is not initialized")
+          error.name = "SyncNotInitializedError"
+          throw error
+        }
+        publish()
+      }),
+      writeDelete: vi.fn((keys: string | string[]) => {
+        for (const key of Array.isArray(keys) ? keys : [keys]) values.delete(key)
+      }),
+      writeUpsert: vi.fn((rows: Row | Row[]) => {
+        for (const row of Array.isArray(rows) ? rows : [rows]) {
+          values.set(row.id, { ...row })
+        }
+      }),
     },
   }
   const registry = {
     collections: { profiles: collection },
-    ensureCollectionReady: () => {
-      if (preloadFailure) return Promise.reject(preloadFailure)
-      readinessPromise ??= collection.status === "ready"
-        ? Promise.resolve()
-        : collection.preload().catch((error: Error) => {
-            preloadFailure = error
-            throw error
-          })
-      return readinessPromise
-    },
-    isCollectionReady: () => collection.status === "ready" && !preloadFailure,
-    assertGenerationActive: () => {
-      if (preloadFailure) throw preloadFailure
-    },
-    dbClient: {
-      createTransaction: ({ mutationFn }: {
-        mutationFn: (args: { transaction: { mutations: [] } }) => Promise<void>
-      }) => {
-        let persisted = Promise.resolve()
-        return {
-          mutate: (publish: () => void) => {
-            publish()
-            persisted = mutationFn({ transaction: { mutations: [] } })
-          },
-          isPersisted: {
-            get promise() {
-              return persisted
-            },
-          },
-        }
-      },
-    },
+    assertGenerationActive: vi.fn(() => {
+      if (generationFailure) throw generationFailure
+    }),
   }
-  return { collection, operationConfigs, ready, registry, values }
+  return {
+    collection,
+    failGeneration: (error: Error) => { generationFailure = error },
+    markReady: () => {
+      ready = true
+      readyListener?.()
+    },
+    registry,
+    values,
+  }
 }
 
 describe("writeCommunityCollectionRows", () => {
-  it("replays writes received during preload in arrival order", async () => {
-    const { collection, ready, registry, values } = fixture()
+  it("rethrows write failures that are not cold manual-sync initialization", async () => {
+    const failure = new Error("write failed")
+    const collection = {
+      keys: () => new Map().keys(),
+      startSyncImmediate: vi.fn(),
+      onFirstReady: vi.fn(),
+      isReady: () => false,
+      utils: {
+        writeBatch: () => { throw failure },
+        writeDelete: vi.fn(),
+        writeUpsert: vi.fn(),
+      },
+    }
+    const registry = {
+      collections: { profiles: collection },
+      assertGenerationActive: vi.fn(),
+    }
 
-    writeCommunityCollectionRows(
+    await expect(writeCommunityCollectionRows(
+      registry as never,
+      "profiles",
+      [{ id: "alice", value: 1 }],
+      (row) => row.id,
+    )).rejects.toBe(failure)
+  })
+
+  it("retries a cold manual-sync write immediately when readiness is already true", async () => {
+    const values = new Map<string, Row>()
+    let attempt = 0
+    const collection = {
+      keys: () => values.keys(),
+      startSyncImmediate: vi.fn(),
+      onFirstReady: vi.fn(),
+      isReady: () => true,
+      utils: {
+        writeBatch: vi.fn((publish: () => void) => {
+          if (attempt++ === 0) {
+            const error = new Error("manual sync is not initialized")
+            error.name = "SyncNotInitializedError"
+            throw error
+          }
+          publish()
+        }),
+        writeDelete: vi.fn(),
+        writeUpsert: vi.fn((rows: Row | Row[]) => {
+          for (const row of Array.isArray(rows) ? rows : [rows]) values.set(row.id, row)
+        }),
+      },
+    }
+    const registry = {
+      collections: { profiles: collection },
+      assertGenerationActive: vi.fn(),
+    }
+
+    await writeCommunityCollectionRows(
+      registry as never,
+      "profiles",
+      [{ id: "alice", value: 1 }],
+      (row) => row.id,
+    )
+
+    expect(values.get("alice")).toEqual({ id: "alice", value: 1 })
+    expect(collection.onFirstReady).not.toHaveBeenCalled()
+    expect(collection.utils.writeBatch).toHaveBeenCalledTimes(2)
+  })
+
+  it("starts an on-demand QueryCollection before its first canonical write", async () => {
+    const { collection, markReady, registry, values } = queryCollectionFixture()
+    const write = writeCommunityCollectionRows(
+      registry as never,
+      "profiles",
+      [{ id: "alice", value: 1 }],
+      (row) => row.id,
+    )
+
+    expect(collection.startSyncImmediate).toHaveBeenCalledOnce()
+    expect(values.size).toBe(0)
+    markReady()
+    await write
+
+    expect(values.get("alice")).toEqual({ id: "alice", value: 1 })
+  })
+
+  it("replays writes received during initialization in arrival order", async () => {
+    const { collection, markReady, registry, values } = queryCollectionFixture()
+    const first = writeCommunityCollectionRows(
       registry as never,
       "profiles",
       [{ id: "alice", value: 2 }],
       (row) => row.id,
     )
-    writeCommunityCollectionRows(
+    const second = writeCommunityCollectionRows(
       registry as never,
       "profiles",
       [{ id: "alice", value: 3 }],
@@ -104,15 +155,16 @@ describe("writeCommunityCollectionRows", () => {
     )
 
     expect(values.size).toBe(0)
-    expect(collection.preload).toHaveBeenCalledOnce()
-    ready.resolve()
-    await vi.waitFor(() => expect(values.get("alice")?.value).toBe(3))
-    expect(collection.utils.acceptMutations).toHaveBeenCalledTimes(2)
+    expect(collection.onFirstReady).toHaveBeenCalledOnce()
+    markReady()
+    await Promise.all([first, second])
+
+    expect(values.get("alice")?.value).toBe(3)
+    expect(collection.utils.writeBatch).toHaveBeenCalledTimes(3)
   })
 
-  it("derives a queued snapshot from restored rows after preload", async () => {
-    const { ready, registry, values } = fixture()
-
+  it("derives a queued snapshot from restored rows after initialization", async () => {
+    const { markReady, registry, values } = queryCollectionFixture()
     const committed = writeCommunityCollectionRows(
       registry as never,
       "profiles",
@@ -124,7 +176,7 @@ describe("writeCommunityCollectionRows", () => {
     )
 
     values.set("restored", { id: "restored", value: 1 })
-    ready.resolve()
+    markReady()
     await committed
 
     expect([...values.values()]).toEqual([
@@ -133,78 +185,57 @@ describe("writeCommunityCollectionRows", () => {
     ])
   })
 
-  it("publishes immediately once ready and replaces stale rows and fields", async () => {
-    const { collection, operationConfigs, ready, registry, values } = fixture()
-    collection.status = "ready"
-    ready.resolve()
+  it("replaces stale rows and fields through one QueryCollection batch", async () => {
+    const { collection, markReady, registry, values } = queryCollectionFixture()
+    markReady()
     values.set("alice", { id: "alice", value: 1, extra: "stale" })
     values.set("bob", { id: "bob", value: 1 })
 
-    writeCommunityCollectionRows(
+    await writeCommunityCollectionRows(
       registry as never,
       "profiles",
       [{ id: "alice", value: 2 }],
       (row) => row.id,
     )
 
-    await vi.waitFor(() => {
-      expect([...values.values()]).toEqual([{ id: "alice", value: 2 }])
-    })
-    expect(operationConfigs).toEqual([
-      { optimistic: true },
-      { optimistic: true },
-    ])
+    expect([...values.values()]).toEqual([{ id: "alice", value: 2 }])
+    expect(collection.utils.writeDelete).toHaveBeenCalledWith(["bob"])
+    expect(collection.utils.writeUpsert).toHaveBeenCalledWith([{ id: "alice", value: 2 }])
   })
 
-  it("keeps later snapshots behind the prior durable commit", async () => {
-    const firstPersistence = deferred()
-    const { collection, operationConfigs, registry, values } = fixture(
-      [firstPersistence],
-      true,
-    )
-    collection.status = "ready"
-
-    writeCommunityCollectionRows(
-      registry as never,
-      "profiles",
-      [{ id: "alice", value: 2 }],
-      (row) => row.id,
-    )
-    writeCommunityCollectionRows(
-      registry as never,
-      "profiles",
-      [{ id: "alice", value: 3 }],
-      (row) => row.id,
-    )
-
-    await vi.waitFor(() => expect(values.get("alice")?.value).toBe(2))
-    expect(collection.utils.acceptMutations).toHaveBeenCalledOnce()
-    expect(operationConfigs).toEqual([{ optimistic: false }])
-    firstPersistence.resolve()
-    await vi.waitFor(() => expect(values.get("alice")?.value).toBe(3))
-    expect(collection.utils.acceptMutations).toHaveBeenCalledTimes(2)
-  })
-
-  it("fences a failed registry generation from later writes", async () => {
-    const { collection, ready, registry, values } = fixture()
-    writeCommunityCollectionRows(
+  it("fences an initializing write when the registry generation fails", async () => {
+    const { failGeneration, markReady, registry, values } = queryCollectionFixture()
+    const first = writeCommunityCollectionRows(
       registry as never,
       "profiles",
       [{ id: "alice", value: 1 }],
       (row) => row.id,
     )
-    ready.reject(new Error("preload failed"))
-    await vi.waitFor(() => expect(collection.preload).toHaveBeenCalledOnce())
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    collection.status = "ready"
+    const failure = new Error("generation failed")
+    failGeneration(failure)
+    markReady()
 
-    const rejected = writeCommunityCollectionRows(
+    await expect(first).rejects.toBe(failure)
+    await expect(writeCommunityCollectionRows(
       registry as never,
       "profiles",
       [{ id: "alice", value: 2 }],
       (row) => row.id,
-    )
-    await expect(rejected).rejects.toThrow("preload failed")
+    )).rejects.toBe(failure)
     expect(values.size).toBe(0)
+  })
+
+  it("rejects a collection that is not backed by a QueryCollection", () => {
+    const registry = {
+      collections: { profiles: { keys: () => new Map().keys(), utils: {} } },
+      assertGenerationActive: vi.fn(),
+    }
+
+    expect(() => writeCommunityCollectionRows(
+      registry as never,
+      "profiles",
+      [{ id: "alice", value: 1 }],
+      (row) => row.id,
+    )).toThrow("Collection profiles is not backed by a QueryCollection")
   })
 })

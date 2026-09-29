@@ -17,7 +17,7 @@ vi.mock("@/lib/community-db/sync", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/community-db/sync")>()
   return {
     ...actual,
-    publishCommunityEmbeddedMessages: vi.fn(async (queryClient, publication) => {
+    reconcileCanonicalEmbeddedMessages: vi.fn(async (queryClient, publication) => {
       actual.assertCommunityLiveSnapshotTokenCurrent(
         queryClient,
         publication.proof.token,

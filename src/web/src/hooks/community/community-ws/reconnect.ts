@@ -14,6 +14,16 @@ import { reconcileFocusedMessageQueries } from "@/hooks/community/community-ws/r
 import { reconcileAccountReadState } from "@/hooks/community/community-ws/read-state-reconciliation"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { serversCollectionQueryKey } from "@/lib/community-db/server-collection"
+import { isDmsResourceQueryKey } from "@/lib/community-db/dms-resource"
+import { serverIdFromServerMembersResourceKey } from "@/lib/community-db/server-members-pagination"
+import {
+  isServerDetailResourceQueryKey,
+  serverIdFromServerDetailResourceKey,
+} from "@/lib/community-db/server-detail-resource"
+import {
+  isChannelMetadataResourceQueryKey,
+  serverIdFromChannelMetadataResourceKey,
+} from "@/lib/community-db/channel-metadata-resource"
 import {
   trackCommunityWsReconcileComplete,
   trackCommunityWsReconcileFailure,
@@ -39,7 +49,6 @@ const BACKGROUND_RECONCILE_CONCURRENCY = 3
 const EXACT_SERVER_QUERY_FAMILIES = new Set([
   "forum-sidebar-base",
   "forum-sidebar-unread-fallbacks",
-  "members",
   "presence",
   "invites",
   "invitable-friends",
@@ -47,7 +56,6 @@ const EXACT_SERVER_QUERY_FAMILIES = new Set([
 
 const DERIVED_SERVER_QUERY_FAMILIES = new Set([
   "forum-sidebar-retained",
-  "channel-meta",
   "forum-opener-hint",
 ])
 
@@ -87,28 +95,39 @@ function cachedServerIds(queryKeys: readonly QueryKey[]) {
   const serverIds = new Set<string>()
   for (const key of queryKeys) {
     if (isRecognizedServerQueryKey(key)) serverIds.add(key[2])
+    const detailServerId = serverIdFromServerDetailResourceKey(key)
+    if (detailServerId) serverIds.add(detailServerId)
+    const metadataServerId = serverIdFromChannelMetadataResourceKey(key)
+    if (metadataServerId) serverIds.add(metadataServerId)
+    const memberServerId = serverIdFromServerMembersResourceKey(key)
+    if (memberServerId) serverIds.add(memberServerId)
   }
   return [...serverIds]
 }
 
 async function reconcileCachedServer(queryClient: QueryClient, serverId: string) {
+  const registry = getCommunityDbRegistry(queryClient)
   const derivedRevalidation = queryClient.invalidateQueries({
     predicate: (query) => isDerivedServerAccessQueryKey(query.queryKey, serverId),
     refetchType: "active",
   })
+  const canonicalResourceRevalidation = Promise.all(
+    queryClient.getQueryCache().findAll({
+      predicate: ({ queryKey }) => (
+        isServerDetailResourceQueryKey(queryKey, serverId)
+        || isChannelMetadataResourceQueryKey(queryKey, serverId)
+      ),
+    }).map((query) => queryClient.invalidateQueries({
+      queryKey: query.queryKey,
+      exact: true,
+      refetchType: "active",
+    })),
+  )
 
   const settled = await Promise.allSettled([
     derivedRevalidation,
-    queryClient.invalidateQueries({
-      queryKey: communityKeys.server(serverId),
-      exact: true,
-      refetchType: "active",
-    }),
-    queryClient.invalidateQueries({
-      queryKey: communityKeys.members(serverId),
-      exact: true,
-      refetchType: "active",
-    }),
+    canonicalResourceRevalidation,
+    registry?.reconcileServerMembers(serverId) ?? Promise.resolve(),
     queryClient.invalidateQueries({
       queryKey: communityKeys.presence(serverId),
       exact: true,
@@ -209,7 +228,10 @@ function policyExecutors(
       const settled = await Promise.allSettled([
         queryClient.invalidateQueries({ queryKey: communityKeys.accountAttention(), refetchType: "active" }),
         queryClient.invalidateQueries({ queryKey: communityKeys.inbox(), refetchType: "active" }),
-        queryClient.invalidateQueries({ queryKey: communityKeys.dms(), refetchType: "active" }),
+        queryClient.invalidateQueries({
+          predicate: ({ queryKey }) => isDmsResourceQueryKey(queryKey),
+          refetchType: "active",
+        }),
       ])
       if (settled.some((result) => result.status === "rejected")) throw new Error("inbox reconciliation failed")
     },

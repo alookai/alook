@@ -40,12 +40,35 @@ vi.mock("react", () => ({
 }))
 
 const apiFetchMock = vi.fn()
+let registryPreloading = false
 
 // Sonner toast — we assert on the string arg for the blocked-DM test.
 const toastMock = vi.fn()
 
 vi.mock("@/lib/api/client", () => ({
-  apiFetch: (...args: unknown[]) => apiFetchMock(...args),
+  apiFetch: (...args: unknown[]) => {
+    if (registryPreloading) {
+      const path = String(args[0])
+      if (path === "/api/community/servers") return Promise.resolve({ servers: [] })
+      if (path === "/api/community/users/me/read-state") {
+        return Promise.resolve({ revision: 0, readStates: [] })
+      }
+      if (path === "/api/community/users/me/attention") {
+        return Promise.resolve({
+          scopes: [], items: [], limit: 100, truncated: false,
+          included: { servers: [], channels: [], dms: [], profiles: [], messages: [] },
+        })
+      }
+      if (path === "/api/community/users/me/dms") {
+        return Promise.resolve({ conversations: [] })
+      }
+      if (path === "/api/community/users/me/server-folders") {
+        return Promise.resolve({ folders: [] })
+      }
+      if (path === "/api/community/users/me/notifications") return Promise.resolve([])
+    }
+    return apiFetchMock(...args)
+  },
   // Mirrors the real `toastApiError` (ApiError/Error message, else fallback)
   // while routing through the same `toastMock` sonner assertions below use.
   toastApiError: (err: unknown, fallback: string) => {
@@ -168,9 +191,34 @@ afterEach(async () => {
 
 async function installCanonicalRegistry() {
   const collections = await import("@/lib/community-db/collections")
-  canonicalRegistry = collections.createCommunityDbRegistry(capturedQc, "u_me")
-  await canonicalRegistry.preload()
+  registryPreloading = true
+  try {
+    canonicalRegistry = collections.createCommunityDbRegistry(capturedQc, "u_me")
+    await canonicalRegistry.preload()
+  } finally {
+    registryPreloading = false
+  }
   unregisterCanonicalRegistry = collections.registerCommunityDbRegistry(canonicalRegistry)
+}
+
+async function seedCanonicalMessage(
+  channelId: string,
+  messageId: string,
+  overrides: Partial<Msg> = {},
+) {
+  if (!canonicalRegistry) throw new Error("canonical test registry is not active")
+  const { ingestMessages } = await import("@/lib/community-db/sync")
+  ingestMessages(canonicalRegistry, channelId, [{
+    id: messageId,
+    seq: 1,
+    type: "chat",
+    content: "message",
+    ...overrides,
+  }])
+}
+
+function canonicalMessage(messageId: string) {
+  return canonicalRegistry?.collections.messages.get(messageId)
 }
 
 function attentionIncluded(overrides: {
@@ -215,7 +263,7 @@ async function seedCanonicalParent(type: "forum" | "text") {
 async function seedCanonicalSidebar() {
   await seedCanonicalParent("forum")
   const sync = await import("@/lib/community-db/sync")
-  await sync.publishCommunityForumSidebar(capturedQc, {
+  await sync.reconcileCanonicalForumSidebar(capturedQc, {
     serverId: "s1",
     channels: [{
       id: "post_1", name: "Post", parentChannelId: "forum_1",
@@ -243,6 +291,8 @@ describe("useEditMessage", () => {
     capturedQc.setQueryData(messageKey, { id: "m1", content: "old" })
     apiFetchMock.mockRejectedValueOnce(new Error("boom"))
     const mod = await loadMod()
+    await installCanonicalRegistry()
+    await seedCanonicalMessage("ch_1", "m1", { content: "old" })
     mod.useEditMessage()
 
     await runMutation({ serverId: "s1", channelId: "ch_1", messageId: "m1", content: "new" }).catch(() => {})
@@ -255,20 +305,24 @@ describe("useEditMessage", () => {
     const cache = capturedQc.getQueryData<{ pages: { messages: { content?: string }[] }[] }>(key)
     expect(cache?.pages[0].messages[0]?.content).toBe("old")
     expect(capturedQc.getQueryData<{ content: string }>(messageKey)?.content).toBe("old")
+    expect(canonicalMessage("m1")?.content).toBe("old")
   }, 60_000)
 
-  it("optimistically patches the single-message cache used by a post header", async () => {
+  it("optimistically patches the canonical opener without rewriting the legacy single cache", async () => {
     const messageKey = communityKeys.message("opener_1")
     capturedQc.setQueryData(messageKey, { id: "opener_1", content: "Old title" })
     apiFetchMock.mockResolvedValueOnce(undefined)
     const mod = await loadMod()
+    await installCanonicalRegistry()
+    await seedCanonicalMessage("forum_1", "opener_1", { content: "Old title" })
     mod.useEditMessage()
 
     await runMutation({
       serverId: "s1", channelId: "forum_1", messageId: "opener_1", content: "New title", forumChannelId: "forum_1",
     })
 
-    expect(capturedQc.getQueryData<{ content: string }>(messageKey)?.content).toBe("New title")
+    expect(canonicalMessage("opener_1")?.content).toBe("New title")
+    expect(capturedQc.getQueryData<{ content: string }>(messageKey)?.content).toBe("Old title")
   })
 
   it("invalidates only the exact Inbox and base threads reads after an opener edit", async () => {
@@ -702,6 +756,10 @@ describe("reaction intents — 300ms debounce coalescing", () => {
         pageParams: [null],
       })
       const mod = await loadMod()
+      await installCanonicalRegistry()
+      await seedCanonicalMessage("ch_1", "m_1", {
+        reactions: [{ emoji: "👍", count: 1, me: true, userIds: ["u_me"] }],
+      })
       mod._resetReactionTimers_forTesting()
       const cacheWrite = vi.spyOn(capturedQc, "setQueryData")
       const schedule = vi.spyOn(globalThis, "setTimeout")
@@ -736,6 +794,8 @@ describe("reaction intents — 300ms debounce coalescing", () => {
       })
       apiFetchMock.mockResolvedValue(undefined)
       const mod = await loadMod()
+      await installCanonicalRegistry()
+      await seedCanonicalMessage("ch_1", "m_1", { reactions: [] })
       mod._resetReactionTimers_forTesting()
       const add = mod.useAddReactionApi()
       const cacheWrite = vi.spyOn(capturedQc, "setQueryData")
@@ -773,6 +833,10 @@ describe("reaction intents — 300ms debounce coalescing", () => {
         pageParams: [null],
       })
       const mod = await loadMod()
+      await installCanonicalRegistry()
+      await seedCanonicalMessage("ch_1", "m_1", {
+        reactions: [{ emoji: "👍", count: 1, me: true, userIds: ["u_me"] }],
+      })
       mod._resetReactionTimers_forTesting()
       const toggle = mod.useToggleReactionApi()
       const add = mod.useAddReactionApi()
@@ -785,6 +849,9 @@ describe("reaction intents — 300ms debounce coalescing", () => {
       )
       const { useCommunityStore } = await import("@/stores/community")
       expect(cache?.pages[0].messages[0].reactions).toEqual([
+        { emoji: "👍", count: 1, me: true, userIds: ["u_me"] },
+      ])
+      expect(canonicalMessage("m_1")?.reactions).toEqual([
         { emoji: "👍", count: 1, me: true, userIds: ["u_me"] },
       ])
       expect(useCommunityStore.getState().reactionTimers.size).toBe(0)
@@ -824,7 +891,7 @@ describe("reaction intents — 300ms debounce coalescing", () => {
     }
   })
 
-  it("optimistically patches and rolls back a thread opener's single-message cache", async () => {
+  it("optimistically patches and rolls back a canonical thread opener", async () => {
     vi.useFakeTimers()
     try {
       capturedQc.setQueryData(communityKeys.message("m_opener"), {
@@ -834,6 +901,10 @@ describe("reaction intents — 300ms debounce coalescing", () => {
       })
       apiFetchMock.mockRejectedValueOnce(new Error("boom"))
       const mod = await loadMod()
+      await installCanonicalRegistry()
+      await seedCanonicalMessage("ch_parent", "m_opener", {
+        reactions: [{ emoji: "🔥", count: 1, me: false, userIds: ["u_other"] }],
+      })
       mod.useToggleReactionApi()({
         serverId: "s1",
         channelId: "ch_parent",
@@ -841,13 +912,14 @@ describe("reaction intents — 300ms debounce coalescing", () => {
         emoji: "🔥",
         userId: "u_me",
       })
-      expect(capturedQc.getQueryData<{ reactions: Msg["reactions"] }>(
-        communityKeys.message("m_opener"),
-      )?.reactions).toEqual([
+      expect(canonicalMessage("m_opener")?.reactions).toEqual([
         { emoji: "🔥", count: 2, me: true, userIds: ["u_other", "u_me"] },
       ])
       await vi.advanceTimersByTimeAsync(300)
       await Promise.resolve()
+      expect(canonicalMessage("m_opener")?.reactions).toEqual([
+        { emoji: "🔥", count: 1, me: false, userIds: ["u_other"] },
+      ])
       expect(capturedQc.getQueryData<{ reactions: Msg["reactions"] }>(
         communityKeys.message("m_opener"),
       )?.reactions).toEqual([
@@ -992,6 +1064,8 @@ describe("reaction intents — 300ms debounce coalescing", () => {
       })
       apiFetchMock.mockResolvedValue(undefined)
       const mod = await loadMod()
+      await installCanonicalRegistry()
+      await seedCanonicalMessage("ch_1", "m_1", { reactions: [] })
       mod._resetReactionTimers_forTesting()
       const toggle = mod.useToggleReactionApi()
       // 5 rapid taps — cache flips each call, but only the final settled
@@ -1022,6 +1096,8 @@ describe("reaction intents — 300ms debounce coalescing", () => {
       })
       apiFetchMock.mockResolvedValue(undefined)
       const mod = await loadMod()
+      await installCanonicalRegistry()
+      await seedCanonicalMessage("ch_1", "m_1", { reactions: [] })
       mod._resetReactionTimers_forTesting()
       const toggle = mod.useToggleReactionApi()
       // Toggle on → toggle off within 300ms. originalMe=false, terminal me=false.
@@ -1043,6 +1119,8 @@ describe("reaction intents — 300ms debounce coalescing", () => {
       })
       apiFetchMock.mockResolvedValue(undefined)
       const mod = await loadMod()
+      await installCanonicalRegistry()
+      await seedCanonicalMessage("ch_1", "m_1", { reactions: [] })
       mod._resetReactionTimers_forTesting()
       const toggle = mod.useToggleReactionApi()
       // originalMe=false. Toggle-toggle-toggle → terminal me=true → PUT.
@@ -1067,6 +1145,8 @@ describe("reaction intents — 300ms debounce coalescing", () => {
       })
       apiFetchMock.mockResolvedValue(undefined)
       const mod = await loadMod()
+      await installCanonicalRegistry()
+      await seedCanonicalMessage("ch_1", "m_1", { reactions: [] })
       const { useCommunityStore } = await import("@/stores/community")
       useCommunityStore.getState().reset()
       const toggle = mod.useToggleReactionApi()
@@ -1127,12 +1207,48 @@ describe("useCreateThread — patches parent message + invalidates threads", () 
     })
     apiFetchMock.mockResolvedValueOnce({ id: "thr_1" })
     const mod = await loadMod()
+    await installCanonicalRegistry()
+    await seedCanonicalMessage("ch_parent", "m_p")
     mod.useCreateThread()
-    await runMutation({ channelId: "ch_parent", messageId: "m_p", name: "Discussion" })
-    const cache = capturedQc.getQueryData<{
-      pages: { messages: { id: string; thread?: { id: string; name: string; messageCount: number } }[] }[]
-    }>(communityKeys.channelMessages("ch_parent"))
-    expect(cache?.pages[0].messages[0].thread).toEqual({ id: "thr_1", name: "Discussion", messageCount: 0 })
+    await runMutation({ serverId: "s1", channelId: "ch_parent", messageId: "m_p", name: "Discussion" })
+    expect(canonicalMessage("m_p")?.thread).toEqual({
+      id: "thr_1",
+      name: "Discussion",
+      messageCount: 0,
+    })
+    expect(capturedQc.getQueryData<{
+      pages: { messages: { thread?: unknown }[] }[]
+    }>(communityKeys.channelMessages("ch_parent"))?.pages[0].messages[0].thread).toBeUndefined()
+  })
+
+  it("patches an overlay-only parent when no canonical row is present", async () => {
+    const mod = await loadMod()
+    const stream = await import("@/stores/community/message-stream")
+    const scope = { kind: "channel" as const, id: "ch_parent", serverId: "s1" }
+    stream.useMessageStreamStore.getState().dispatch(scope, {
+      type: "wsMessage",
+      message: {
+        id: "m_overlay",
+        seq: 8,
+        type: "chat",
+        content: "overlay parent",
+      },
+    })
+    apiFetchMock.mockResolvedValueOnce({ id: "thr_overlay" })
+    mod.useCreateThread()
+
+    await runMutation({
+      serverId: "s1",
+      channelId: "ch_parent",
+      messageId: "m_overlay",
+      name: "Overlay discussion",
+    })
+
+    expect(stream.getMessageOverlay(scope).liveById.get("m_overlay")?.thread).toEqual({
+      id: "thr_overlay",
+      name: "Overlay discussion",
+      messageCount: 0,
+    })
   })
 })
 
@@ -1206,7 +1322,10 @@ describe("useMarkAllInboxRead", () => {
         return { revision: 3 }
       }
       if (path === "/api/community/users/me/attention") {
-        return { scopes: [], items: [], limit: 100, truncated: false }
+        return {
+          scopes: [], items: [], limit: 100, truncated: false,
+          included: { servers: [], channels: [], dms: [], profiles: [], messages: [] },
+        }
       }
       if (path === "/api/community/users/me/read-state") {
         return { revision: 3, readStates: [] }
@@ -1242,6 +1361,16 @@ describe("useMarkAllInboxRead", () => {
       }],
       limit: 100,
       truncated: false,
+      included: attentionIncluded({
+        messages: [{
+          id: "m_1", channelId: "ch_1", type: "chat", seq: 4,
+          authorId: "u_2", authorName: "Two",
+          createdAt: "2026-09-27T00:00:00.000Z", content: "mention",
+        }],
+        profiles: [{
+          userId: "u_2", name: "Two", discriminator: "0002", avatar: "T", avatarVersion: 0,
+        }],
+      }),
     }
     ingestAttentionSnapshot(canonicalRegistry!, {
       ...mentionOnly,
@@ -1538,18 +1667,15 @@ describe("useDeleteMention — rollback", () => {
       { mentionId: string },
       { token?: unknown; snapshot?: unknown }
     >
-    const cachedAttentionItems = () => capturedQc.getQueryData<Array<{ id: string }>>(
-      communityKeys.communityDbCollection("u_me", "attentionItems"),
-    ) ?? []
-    const cachedAttentionCount = () => capturedQc.getQueryData<Array<{
-      scopeId: string
-      attentionCount: number
-    }>>(communityKeys.communityDbCollection("u_me", "attentionScopes"))
-      ?.find((scope) => scope.scopeId === "ch_1")?.attentionCount
+    const canonicalAttentionItems = () => [
+      ...canonicalRegistry!.collections.attentionItems.values(),
+    ]
+    const canonicalAttentionCount = () => canonicalRegistry!.collections.attentionScopes
+      .get("ch_1")?.attentionCount
 
     const replyContext = await cfg.onMutate?.({ mentionId: reply.id })
-    expect(cachedAttentionItems().map((item) => item.id)).toEqual(["mention:mention-1"])
-    expect(cachedAttentionCount()).toBe(1)
+    expect(canonicalAttentionItems().map((item) => item.id)).toEqual(["mention:mention-1"])
+    expect(canonicalAttentionCount()).toBe(1)
     await vi.waitFor(() => {
       expect(canonicalRegistry!.collections.attentionItems.get("mention:reply-1")).toBeUndefined()
       expect(canonicalRegistry!.collections.attentionItems.get("mention:mention-1")).toBeDefined()
@@ -1563,13 +1689,13 @@ describe("useDeleteMention — rollback", () => {
     }])).toBe(1)
 
     cfg.onError?.(new Error("retry direct"), { mentionId: reply.id }, replyContext)
-    expect(cachedAttentionItems().map((item) => item.id).sort()).toEqual([
+    expect(canonicalAttentionItems().map((item) => item.id).sort()).toEqual([
       "mention:mention-1", "mention:reply-1",
     ])
-    expect(cachedAttentionCount()).toBe(2)
+    expect(canonicalAttentionCount()).toBe(2)
     const mentionContext = await cfg.onMutate?.({ mentionId: mention.id })
-    expect(cachedAttentionItems().map((item) => item.id)).toEqual(["mention:reply-1"])
-    expect(cachedAttentionCount()).toBe(1)
+    expect(canonicalAttentionItems().map((item) => item.id)).toEqual(["mention:reply-1"])
+    expect(canonicalAttentionCount()).toBe(1)
     await vi.waitFor(() => {
       expect(canonicalRegistry!.collections.attentionItems.get("mention:mention-1")).toBeUndefined()
       expect(canonicalRegistry!.collections.attentionItems.get("mention:reply-1")).toBeDefined()
@@ -1582,10 +1708,6 @@ describe("useDeleteMention — rollback", () => {
       channelId: "ch_1", count: 1, lastSeq: 4,
     }])).toBe(0)
     cfg.onError?.(new Error("cleanup"), { mentionId: mention.id }, mentionContext)
-    expect(cachedAttentionItems().map((item) => item.id).sort()).toEqual([
-      "mention:mention-1", "mention:reply-1",
-    ])
-    expect(cachedAttentionCount()).toBe(2)
     await vi.waitFor(() => {
       expect(canonicalRegistry!.collections.attentionItems.get("mention:reply-1")).toBeDefined()
       expect(canonicalRegistry!.collections.attentionItems.get("mention:mention-1")).toBeDefined()

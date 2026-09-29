@@ -114,6 +114,62 @@ function memoryRuntime(reason: string): BrowserPersistenceRuntime {
   }
 }
 
+function routePersistenceByAdapter(
+  persistence: PersistedCollectionPersistence,
+): {
+  dispose: () => void
+  persistence: PersistedCollectionPersistence
+} {
+  const coordinatorsByAdapter = new WeakMap<
+    PersistedCollectionPersistence["adapter"],
+    BrowserCollectionCoordinator
+  >()
+  const coordinators = new Set<BrowserCollectionCoordinator>()
+  let disposed = false
+
+  const coordinatorFor = (
+    adapter: PersistedCollectionPersistence["adapter"],
+  ): BrowserCollectionCoordinator => {
+    if (disposed) throw new Error("browser persistence coordinators disposed")
+    const existing = coordinatorsByAdapter.get(adapter)
+    if (existing) return existing
+    const coordinator = new BrowserCollectionCoordinator({
+      adapter,
+      dbName: COORDINATOR_NAME,
+    })
+    coordinatorsByAdapter.set(adapter, coordinator)
+    coordinators.add(coordinator)
+    return coordinator
+  }
+  const bind = (
+    resolved: PersistedCollectionPersistence,
+  ): PersistedCollectionPersistence => ({
+    adapter: resolved.adapter,
+    coordinator: coordinatorFor(resolved.adapter),
+  })
+  const routed: PersistedCollectionPersistence = {
+    ...bind(persistence),
+    resolvePersistenceForCollection: (options) => bind(
+      persistence.resolvePersistenceForCollection?.(options)
+        ?? persistence.resolvePersistenceForMode?.(options.mode)
+        ?? persistence,
+    ),
+    resolvePersistenceForMode: (mode) => bind(
+      persistence.resolvePersistenceForMode?.(mode) ?? persistence,
+    ),
+  }
+
+  return {
+    persistence: routed,
+    dispose: () => {
+      if (disposed) return
+      disposed = true
+      for (const coordinator of coordinators) coordinator.dispose()
+      coordinators.clear()
+    },
+  }
+}
+
 async function sqliteSizeBytes(database: BrowserWASQLiteDatabase): Promise<number | null> {
   try {
     const [pageCount] = await database.execute<{ page_count: number }>("PRAGMA page_count")
@@ -135,22 +191,22 @@ async function createRuntime(): Promise<BrowserPersistenceRuntime> {
   if (failure) return memoryRuntime(failure)
 
   let database: BrowserWASQLiteDatabase | null = null
-  let coordinator: BrowserCollectionCoordinator | null = null
+  let disposeCoordinators: (() => void) | null = null
   try {
     database = await openBrowserWASQLiteOPFSDatabase({ databaseName: DATABASE_NAME })
-    coordinator = new BrowserCollectionCoordinator({ dbName: COORDINATOR_NAME })
-    const persistence = createBrowserWASQLitePersistence({
+    const basePersistence = createBrowserWASQLitePersistence({
       database,
-      coordinator,
       schemaMismatchPolicy: "reset",
     })
+    const routed = routePersistenceByAdapter(basePersistence)
+    disposeCoordinators = routed.dispose
     return {
       mode: "persistent",
-      persistence,
+      persistence: routed.persistence,
       reason: null,
       close: async () => {
-        coordinator?.dispose()
-        coordinator = null
+        disposeCoordinators?.()
+        disposeCoordinators = null
         await database?.close?.()
         database = null
       },
@@ -183,7 +239,8 @@ async function createRuntime(): Promise<BrowserPersistenceRuntime> {
       sizeBytes: () => database ? sqliteSizeBytes(database) : Promise.resolve(null),
     }
   } catch (error) {
-    coordinator?.dispose()
+    disposeCoordinators?.()
+    disposeCoordinators = null
     await Promise.resolve(database?.close?.()).catch(() => {})
     const reason = error instanceof Error ? error.message : "OPFS initialization failed"
     console.warn(`[Alook persistence] Using memory-only collections: ${reason}`)

@@ -6,8 +6,8 @@
  *   `queryClient.setQueryData` / `invalidateQueries` inference.
  * - Every key derived from a parent extends the parent's tuple, so
  *   `invalidateQueries({ queryKey: communityKeys.inbox() })` invalidates both
- *   inbox feeds under it, `invalidateQueries({ queryKey: communityKeys.server(id) })`
- *   invalidates every subkey of that server, and so on.
+ *   inbox feeds under it. Server-scoped view resources share a dedicated
+ *   prefix; canonical server detail uses its account-scoped DB resource key.
  * - Parameterisation matches the underlying route params. Message list keys
  *   include an optional cursor so pagination pages nest under a stable
  *   channel-scoped root (useful for `useInfiniteQuery` and for invalidating
@@ -25,34 +25,36 @@ export const communityKeys = {
   servers: () => [...communityKeys.all, "servers"] as const,
   channelRefDirectory: () =>
     [...communityKeys.servers(), "channel-ref-directory"] as const,
+  serverScope: (serverId: string) =>
+    [...communityKeys.servers(), serverId] as const,
+  // Compatibility for tests and non-detail server-scoped view resources.
+  // Production server-detail ownership lives under serverDetailResourceKey.
   server: (serverId: string) =>
     [...communityKeys.servers(), serverId] as const,
   forumSidebarThreads: (serverId: string) =>
-    [...communityKeys.server(serverId), "forum-sidebar-base"] as const,
+    [...communityKeys.serverScope(serverId), "forum-sidebar-base"] as const,
   forumSidebarRetainedRoot: (serverId: string) =>
-    [...communityKeys.server(serverId), "forum-sidebar-retained"] as const,
+    [...communityKeys.serverScope(serverId), "forum-sidebar-retained"] as const,
   forumSidebarRetained: (serverId: string, childId: string) =>
     [...communityKeys.forumSidebarRetainedRoot(serverId), childId] as const,
   channelMetaRoot: (serverId: string) =>
-    [...communityKeys.server(serverId), "channel-meta"] as const,
+    [...communityKeys.serverScope(serverId), "channel-meta"] as const,
   channelMeta: (serverId: string, channelId: string) =>
     [...communityKeys.channelMetaRoot(serverId), channelId] as const,
   forumOpenerHintRoot: (serverId: string) =>
-    [...communityKeys.server(serverId), "forum-opener-hint"] as const,
+    [...communityKeys.serverScope(serverId), "forum-opener-hint"] as const,
   forumOpenerHint: (serverId: string, messageId: string) =>
     [...communityKeys.forumOpenerHintRoot(serverId), messageId] as const,
   forumSidebarUnreadFallbacks: (serverId: string) =>
-    [...communityKeys.server(serverId), "forum-sidebar-unread-fallbacks"] as const,
+    [...communityKeys.serverScope(serverId), "forum-sidebar-unread-fallbacks"] as const,
 
   // ── Server-scoped resources ─────────────────────────────────────────────
-  members: (serverId: string) =>
-    [...communityKeys.server(serverId), "members"] as const,
   presence: (serverId: string) =>
-    [...communityKeys.server(serverId), "presence"] as const,
+    [...communityKeys.serverScope(serverId), "presence"] as const,
   invites: (serverId: string) =>
-    [...communityKeys.server(serverId), "invites"] as const,
+    [...communityKeys.serverScope(serverId), "invites"] as const,
   invitableFriends: (serverId: string) =>
-    [...communityKeys.server(serverId), "invitable-friends"] as const,
+    [...communityKeys.serverScope(serverId), "invitable-friends"] as const,
   // Server metadata fetched for an inline invite card (token → serverName /
   // icon / memberCount). Not scoped under a server since the token is what we
   // have — the id/serverId only comes back with the response.
@@ -66,12 +68,12 @@ export const communityKeys = {
   channelMessages: (channelId: string) =>
     [...communityKeys.all, "channel", channelId, "messages"] as const,
   channelMessagesPage: (channelId: string, cursor?: string | null) =>
-    [...communityKeys.channelMessages(channelId), cursor ?? null] as const,
+    [...communityKeys.all, "channel", channelId, "messages", cursor ?? null] as const,
 
   dmMessages: (dmId: string) =>
     [...communityKeys.all, "dm", dmId, "messages"] as const,
   dmMessagesPage: (dmId: string, cursor?: string | null) =>
-    [...communityKeys.dmMessages(dmId), cursor ?? null] as const,
+    [...communityKeys.all, "dm", dmId, "messages", cursor ?? null] as const,
 
   // Explicit membership roster of a private-category channel + the addable
   // (not-yet-member) server members for its picker.
@@ -175,7 +177,7 @@ const reservedServerIdSegments = new Set<string>([
   "__pending__",
 ])
 
-export type CommunityServerDetailQueryKey = ReturnType<typeof communityKeys.server>
+export type CommunityServerDetailQueryKey = ReturnType<typeof communityKeys.serverScope>
 
 export function isCommunityServerIdSegment(value: unknown): value is string {
   return typeof value === "string"

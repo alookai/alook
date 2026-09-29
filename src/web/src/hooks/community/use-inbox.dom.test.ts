@@ -17,7 +17,6 @@ import {
 } from "@/lib/community-db/sync"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { CommunityPreviewProfileOwner } from "@/stores/community/profile-preview"
-import { communityKeys } from "@/lib/query-keys"
 import { writeCommunityCollectionRows } from "@/lib/community-db/collection-mutations"
 import { seedCommunityServers } from "@/lib/community-db/server-test-seed"
 import { useAccountAttention } from "./use-account-attention"
@@ -27,6 +26,28 @@ const apiFetchMock = vi.fn()
 vi.mock("@/lib/api/client", () => ({
   apiFetch: (...args: unknown[]) => apiFetchMock(...args),
 }))
+
+function emptyAttentionSnapshot(): AccountAttentionSnapshot {
+  return {
+    scopes: [],
+    items: [],
+    limit: 100,
+    truncated: false,
+    included: { servers: [], channels: [], dms: [], profiles: [], messages: [] },
+  }
+}
+
+function emptyResource(path: unknown) {
+  if (path === "/api/community/users/me/read-state") {
+    return { revision: 0, readStates: [] }
+  }
+  if (path === "/api/community/users/me/server-folders") return { folders: [] }
+  if (path === "/api/community/users/me/notifications") return []
+  if (path === "/api/community/users/me/attention") return emptyAttentionSnapshot()
+  if (path === "/api/community/users/me/dms") return { conversations: [] }
+  if (path === "/api/community/servers") return { servers: [] }
+  throw new Error(`unexpected API fetch: ${String(path)}`)
+}
 
 function forumSnapshot(): AccountAttentionSnapshot {
   const channel = (
@@ -324,15 +345,18 @@ function friendRequestSnapshot(): AccountAttentionSnapshot {
 async function createHarness({
   owner = false,
   previewProfiles,
+  allowPreloadError = false,
 }: {
   owner?: boolean
   previewProfiles?: ReadonlyMap<string, CommunityProfile>
+  allowPreloadError?: boolean
 } = {}) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
   const registry = createCommunityDbRegistry(queryClient, "viewer")
-  await registry.preload()
+  if (allowPreloadError) await registry.preload().catch(() => undefined)
+  else await registry.preload()
   seedCommunityServers(registry, { servers: [{
     id: "server",
     name: "Server",
@@ -397,9 +421,31 @@ async function createHarness({
 
 beforeEach(() => {
   apiFetchMock.mockReset()
+  apiFetchMock.mockImplementation(emptyResource)
 })
 
 describe("useInboxAttention", () => {
+  it("rejects an explicit attention refetch when no registry owns the query", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const rendered = renderHook(() => useAccountAttention(), {
+      wrapper: ({ children }: React.PropsWithChildren) => React.createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        children,
+      ),
+    })
+
+    let outcome: Awaited<ReturnType<typeof rendered.result.current.refetch>> | undefined
+    await act(async () => {
+      outcome = await rendered.result.current.refetch()
+    })
+
+    expect(outcome?.error).toMatchObject({
+      message: "account attention collection is unavailable",
+    })
+    rendered.unmount()
+  })
+
   it("rejects stale marked and message-mark responses instead of publishing empty success", async () => {
     const wrapperFor = (queryClient: QueryClient) => function Wrapper({
       children,
@@ -438,7 +484,6 @@ describe("useInboxAttention", () => {
         lastUnreadSeq: 9,
       })]))
 
-      const profileKey = communityKeys.communityDbCollection("viewer", "profiles")
       act(() => {
         writeCommunityCollectionRows(
           harness.registry,
@@ -446,7 +491,6 @@ describe("useInboxAttention", () => {
           [...harness.registry.collections.profiles.values()].filter((row) => row.userId !== "peer"),
           (row) => row.userId,
         )
-        harness.queryClient.setQueryData(profileKey, [])
       })
       await waitFor(() => expect(harness.latest.dms).toEqual([]))
     } finally {
@@ -467,18 +511,12 @@ describe("useInboxAttention", () => {
           openerUnread: false,
         }))
 
-      const channelKey = communityKeys.communityDbCollection("viewer", "channels")
-      const channels = harness.queryClient.getQueryData<Array<{ id: string }>>(channelKey) ?? []
       act(() => {
         writeCommunityCollectionRows(
           harness.registry,
           "channels",
           [...harness.registry.collections.channels.values()].filter((row) => row.id !== "parent"),
           (row) => row.id,
-        )
-        harness.queryClient.setQueryData(
-          channelKey,
-          channels.filter((channel) => channel.id !== "parent"),
         )
       })
       await waitFor(() => expect(harness.latest.servers[0]?.channels ?? []).toEqual([]))
@@ -709,11 +747,17 @@ describe("useInboxAttention", () => {
   })
 
   it("keeps the last complete state when a refresh fails", async () => {
-    apiFetchMock.mockResolvedValueOnce(forumSnapshot())
+    const attentionFetch = vi.fn()
+      .mockResolvedValueOnce(forumSnapshot())
+      .mockRejectedValueOnce(new Error("offline"))
+    apiFetchMock.mockImplementation((path) => (
+      path === "/api/community/users/me/attention"
+        ? attentionFetch()
+        : emptyResource(path)
+    ))
     const harness = await createHarness({ owner: true })
     try {
       await waitFor(() => expect(harness.latest.exactAttentionCount).toBe(2))
-      apiFetchMock.mockRejectedValueOnce(new Error("offline"))
       await act(async () => { await harness.latest.refetch() })
       expect(harness.latest.exactAttentionCount).toBe(2)
       expect(harness.latest.isInitialError).toBe(false)
@@ -723,8 +767,12 @@ describe("useInboxAttention", () => {
   })
 
   it("exposes an initial error instead of an empty success", async () => {
-    apiFetchMock.mockRejectedValueOnce(new Error("offline"))
-    const harness = await createHarness({ owner: true })
+    apiFetchMock.mockImplementation((path) => (
+      path === "/api/community/users/me/attention"
+        ? Promise.reject(new Error("offline"))
+        : emptyResource(path)
+    ))
+    const harness = await createHarness({ owner: true, allowPreloadError: true })
     try {
       await waitFor(() => expect(harness.latest.isInitialError).toBe(true))
       expect(harness.latest.isLoading).toBe(false)

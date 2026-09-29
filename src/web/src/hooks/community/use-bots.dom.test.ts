@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { act, render, waitFor } from "@/test/react-dom-harness"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
+import { dmsResourceKey } from "@/lib/community-db/dms-resource"
 import { useCommunityWsStore } from "@/stores/community/ws"
 
 const apiFetchMock = vi.fn()
@@ -20,18 +21,20 @@ function seededClient() {
   const qc = new QueryClient()
   qc.setQueryData(communityKeys.bots(), { bots: [] })
   qc.setQueryData(communityKeys.friends(), { friends: [], blocked: [] })
-  qc.setQueryData(communityKeys.dms(), { dms: [] })
+  qc.setQueryData(dmsResourceKey("viewer"), {
+    conversations: [], channels: [], channelMemberships: [], profiles: [],
+  })
   return qc
 }
 
 describe("invalidateBotSurfaces", () => {
-  it("always invalidates bots(), friends(), and dms()", async () => {
+  it("always invalidates bots(), friends(), and the DMs resource", async () => {
     const { invalidateBotSurfaces } = await import("./use-bots")
     const qc = seededClient()
     invalidateBotSurfaces(qc)
     expect(qc.getQueryState(communityKeys.bots())?.isInvalidated).toBe(true)
     expect(qc.getQueryState(communityKeys.friends())?.isInvalidated).toBe(true)
-    expect(qc.getQueryState(communityKeys.dms())?.isInvalidated).toBe(true)
+    expect(qc.getQueryState(dmsResourceKey("viewer"))?.isInvalidated).toBe(true)
   })
 
   it("without a botUserId, leaves any cached profile card alone", async () => {

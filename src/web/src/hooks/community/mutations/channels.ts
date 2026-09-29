@@ -4,12 +4,13 @@ import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { nanoid } from "nanoid"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
-import type { ChannelRefDirectory } from "@/lib/community/channel-ref"
-import type { ServerDetail } from "@/hooks/community/use-servers"
 import { UNCATEGORIZED_CATEGORY_ID, type ChannelType } from "@alook/shared"
 import { getActiveAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 import { runCommunityWsProjectionTransaction } from "@/hooks/community/community-ws/projection-transaction"
 import { projectChannelScopeEviction } from "@/hooks/community/community-ws/channel-scope-projection"
+import { getCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
+import { serverDetailResourceKey } from "@/lib/community-db/server-detail-resource"
+import type { CategoryRow, ChannelRow } from "@/lib/community-db/schema"
 
 // Prefix marks an optimistic row so every consumer can tell it from a real
 // `ch_…` id without a separate flag, and guarantees it never collides with one.
@@ -25,6 +26,76 @@ function invalidateChannelRefDirectory(queryClient: ReturnType<typeof useQueryCl
   void queryClient.invalidateQueries({
     queryKey: communityKeys.channelRefDirectory(),
     exact: true,
+  })
+}
+
+function serverDetailKey(
+  queryClient: ReturnType<typeof useQueryClient>,
+  serverId: string,
+) {
+  const registry = getCommunityDbRegistry(queryClient)
+  return registry ? serverDetailResourceKey(registry.scopeId, serverId) : null
+}
+
+function invalidateServerDetail(
+  queryClient: ReturnType<typeof useQueryClient>,
+  serverId: string,
+) {
+  const key = serverDetailKey(queryClient, serverId)
+  if (key) void queryClient.invalidateQueries({ queryKey: key, exact: true })
+}
+
+type ServerTreeSnapshot = {
+  categories: CategoryRow[]
+  channels: ChannelRow[]
+}
+
+function snapshotServerTree(
+  registry: CommunityDbRegistry | null,
+  serverId: string,
+): ServerTreeSnapshot | undefined {
+  if (!registry) return undefined
+  return {
+    categories: [...registry.collections.categories.values()]
+      .filter((row) => row.serverId === serverId),
+    channels: [...registry.collections.channels.values()]
+      .filter((row) => row.serverId === serverId && row.type !== "thread"),
+  }
+}
+
+function restoreServerTree(
+  registry: CommunityDbRegistry | null,
+  serverId: string,
+  snapshot: ServerTreeSnapshot | undefined,
+) {
+  if (!registry || !snapshot) return
+  registry.collections.categories.utils.writeBatch(() => {
+    const snapshotById = new Map(snapshot.categories.map((row) => [row.id, row]))
+    const currentIds = new Set<string>()
+    for (const row of registry.collections.categories.values()) {
+      if (row.serverId !== serverId) continue
+      currentIds.add(row.id)
+      const restored = snapshotById.get(row.id)
+      if (restored) registry.collections.categories.utils.writeUpdate(restored)
+      else registry.collections.categories.utils.writeDelete(row.id)
+    }
+    for (const row of snapshot.categories) {
+      if (!currentIds.has(row.id)) registry.collections.categories.utils.writeInsert(row)
+    }
+  })
+  registry.collections.channels.utils.writeBatch(() => {
+    const snapshotById = new Map(snapshot.channels.map((row) => [row.id, row]))
+    const currentIds = new Set<string>()
+    for (const row of registry.collections.channels.values()) {
+      if (row.serverId !== serverId || row.type === "thread") continue
+      currentIds.add(row.id)
+      const restored = snapshotById.get(row.id)
+      if (restored) registry.collections.channels.utils.writeUpdate(restored)
+      else registry.collections.channels.utils.writeDelete(row.id)
+    }
+    for (const row of snapshot.channels) {
+      if (!currentIds.has(row.id)) registry.collections.channels.utils.writeInsert(row)
+    }
   })
 }
 
@@ -46,7 +117,7 @@ export type CreateChannelArgs = {
 }
 export type CreateChannelResult = { channel: { id: string } }
 
-type CreateChannelCtx = { snapshot?: ServerDetail; tempId: string }
+type CreateChannelCtx = { snapshot?: ServerTreeSnapshot; tempId: string }
 
 /**
  * Optimistically inserts a pending channel row into the target category so the
@@ -74,72 +145,56 @@ export function useCreateChannel() {
       )
     },
     onMutate: async (args) => {
-      const key = communityKeys.server(args.serverId)
-      await queryClient.cancelQueries({ queryKey: key })
-      const snapshot = queryClient.getQueryData<ServerDetail>(key)
+      const key = serverDetailKey(queryClient, args.serverId)
+      if (key) await queryClient.cancelQueries({ queryKey: key, exact: true })
+      const registry = getCommunityDbRegistry(queryClient)
+      const snapshot = snapshotServerTree(registry, args.serverId)
       const tempId = tempChannelId()
-      const pending = {
+      const uncategorized = isUncategorizedTarget(args.categoryId)
+      const categoryId = uncategorized ? null : args.categoryId
+      const categoryExists = categoryId === null || registry?.collections.categories.has(categoryId)
+      const position = [...(registry?.collections.channels.values() ?? [])]
+        .filter((row) => row.serverId === args.serverId && row.categoryId === categoryId)
+        .length
+      const pending: ChannelRow = {
         id: tempId,
+        serverId: args.serverId,
+        categoryId,
         name: args.name.trim(),
-        active: false,
-        unread: false,
         type: args.type,
+        parentChannelId: null,
+        parentMessageId: null,
         creatorId: null,
+        position,
+        archived: false,
+        muted: false,
+        unread: false,
+        tags: [],
         pending: true,
+        lastMessageAt: null,
       }
-      queryClient.setQueryData<ServerDetail>(key, (prev) => {
-        if (!prev) return prev
-        const uncategorized = isUncategorizedTarget(args.categoryId)
-        // Resolve which cache category to attach to: the named one, or the
-        // synthetic uncategorized bucket (matched by id OR the empty-name
-        // convention the server-detail response uses).
-        const target = prev.categories.find((c) =>
-          uncategorized ? (c.id === UNCATEGORIZED_CATEGORY_ID || c.name === "") : c.id === args.categoryId,
-        )
-        if (target) {
-          return {
-            ...prev,
-            categories: prev.categories.map((c) =>
-              c === target ? { ...c, channels: [...c.channels, pending] } : c,
-            ),
-          }
-        }
-        // First top-level channel: no synthetic bucket exists yet. Synthesize
-        // one so the pending row shows immediately; the settle refetch replaces
-        // it with the server's real uncategorized bucket.
-        if (uncategorized) {
-          return {
-            ...prev,
-            categories: [
-              ...prev.categories,
-              { id: UNCATEGORIZED_CATEGORY_ID, name: "", channels: [pending] } as ServerDetail["categories"][number],
-            ],
-          }
-        }
-        return prev
-      })
+      if (registry && categoryExists) registry.collections.channels.utils.writeUpsert(pending)
       return { snapshot, tempId }
     },
-    onSuccess: (data, args, ctx) => {
-      const key = communityKeys.server(args.serverId)
-      queryClient.setQueryData<ServerDetail>(key, (prev) => {
-        if (!prev) return prev
-        return {
-          ...prev,
-          categories: prev.categories.map((c) => ({
-            ...c,
-            channels: c.channels.map((ch) =>
-              ch.id === ctx.tempId ? { ...ch, id: data.channel.id, pending: false } : ch,
-            ),
-          })),
-        }
-      })
+    onSuccess: (data, _args, ctx) => {
+      const registry = getCommunityDbRegistry(queryClient)
+      const pending = registry?.collections.channels.get(ctx.tempId)
+      if (registry && pending) {
+        registry.collections.channels.utils.writeBatch(() => {
+          registry.collections.channels.utils.writeDelete(ctx.tempId)
+          registry.collections.channels.utils.writeUpsert({
+            ...pending,
+            id: data.channel.id,
+            pending: false,
+          })
+        })
+      }
     },
     onError: (_err, args, ctx) => {
-      if (ctx?.snapshot) queryClient.setQueryData(communityKeys.server(args.serverId), ctx.snapshot)
+      restoreServerTree(getCommunityDbRegistry(queryClient), args.serverId, ctx?.snapshot)
     },
     onSettled: (_data, _err, args) => {
-      void queryClient.invalidateQueries({ queryKey: communityKeys.server(args.serverId), exact: true })
+      invalidateServerDetail(queryClient, args.serverId)
       invalidateChannelRefDirectory(queryClient)
     },
   })
@@ -159,50 +214,7 @@ export type RenameChannelArgs = {
 export type RenameChannelResult = { id: string; name: string }
 
 type RenameChannelCtx = {
-  serverSnapshot?: ServerDetail
-  directorySnapshot?: ChannelRefDirectory
-}
-
-function renameServerDetailChannel(
-  detail: ServerDetail | undefined,
-  channelId: string,
-  name: string,
-): ServerDetail | undefined {
-  if (!detail) return detail
-  let changed = false
-  const categories = detail.categories.map((category) => {
-    let categoryChanged = false
-    const channels = category.channels.map((channel) => {
-      if (channel.id !== channelId || channel.name === name) return channel
-      categoryChanged = true
-      changed = true
-      return { ...channel, name }
-    })
-    return categoryChanged ? { ...category, channels } : category
-  })
-  return changed ? { ...detail, categories } : detail
-}
-
-function renameDirectoryChannel(
-  directory: ChannelRefDirectory | undefined,
-  serverId: string,
-  channelId: string,
-  name: string,
-): ChannelRefDirectory | undefined {
-  if (!directory) return directory
-  let changed = false
-  const next = directory.map((server) => {
-    if (server.id !== serverId) return server
-    let serverChanged = false
-    const channels = server.channels.map((channel) => {
-      if (channel.id !== channelId || channel.name === name) return channel
-      serverChanged = true
-      changed = true
-      return { ...channel, name }
-    })
-    return serverChanged ? { ...server, channels } : server
-  })
-  return changed ? next : directory
+  snapshot?: ChannelRow
 }
 
 export function useRenameChannel() {
@@ -215,44 +227,37 @@ export function useRenameChannel() {
       })
     },
     onMutate: async (args) => {
-      const serverKey = communityKeys.server(args.serverId)
+      const serverKey = serverDetailKey(queryClient, args.serverId)
       const directoryKey = communityKeys.channelRefDirectory()
       await Promise.all([
-        queryClient.cancelQueries({ queryKey: serverKey, exact: true }),
+        ...(serverKey
+          ? [queryClient.cancelQueries({ queryKey: serverKey, exact: true })]
+          : []),
         queryClient.cancelQueries({ queryKey: directoryKey, exact: true }),
       ])
-      const serverSnapshot = queryClient.getQueryData<ServerDetail>(serverKey)
-      const directorySnapshot = queryClient.getQueryData<ChannelRefDirectory>(directoryKey)
+      const registry = getCommunityDbRegistry(queryClient)
+      const snapshot = registry?.collections.channels.get(args.channelId)
       const optimisticName = args.name.trim()
-      queryClient.setQueryData<ServerDetail>(serverKey, (prev) =>
-        renameServerDetailChannel(prev, args.channelId, optimisticName),
-      )
-      queryClient.setQueryData<ChannelRefDirectory>(directoryKey, (prev) =>
-        renameDirectoryChannel(prev, args.serverId, args.channelId, optimisticName),
-      )
-      return { serverSnapshot, directorySnapshot }
+      if (snapshot) registry?.collections.channels.utils.writeUpdate({
+        id: args.channelId,
+        name: optimisticName,
+      })
+      return { snapshot }
     },
     onSuccess: (data, args) => {
-      queryClient.setQueryData<ServerDetail>(communityKeys.server(args.serverId), (prev) =>
-        renameServerDetailChannel(prev, args.channelId, data.name),
-      )
-      queryClient.setQueryData<ChannelRefDirectory>(communityKeys.channelRefDirectory(), (prev) =>
-        renameDirectoryChannel(prev, args.serverId, args.channelId, data.name),
-      )
-    },
-    onError: (_err, args, ctx) => {
-      if (ctx?.serverSnapshot) {
-        queryClient.setQueryData(communityKeys.server(args.serverId), ctx.serverSnapshot)
+      const registry = getCommunityDbRegistry(queryClient)
+      if (registry?.collections.channels.has(args.channelId)) {
+        registry.collections.channels.utils.writeUpdate({ id: args.channelId, name: data.name })
       }
-      if (ctx?.directorySnapshot) {
-        queryClient.setQueryData(communityKeys.channelRefDirectory(), ctx.directorySnapshot)
+    },
+    onError: (_err, _args, ctx) => {
+      const registry = getCommunityDbRegistry(queryClient)
+      if (ctx?.snapshot && registry?.collections.channels.has(ctx.snapshot.id)) {
+        registry.collections.channels.utils.writeUpdate(ctx.snapshot)
       }
     },
     onSettled: (_data, _err, args) => {
-      void queryClient.invalidateQueries({
-        queryKey: communityKeys.server(args.serverId),
-        exact: true,
-      })
+      invalidateServerDetail(queryClient, args.serverId)
       invalidateChannelRefDirectory(queryClient)
     },
   })
@@ -275,7 +280,14 @@ export function useMoveChannel() {
       })
     },
     onSuccess: (_data, args) => {
-      void queryClient.invalidateQueries({ queryKey: communityKeys.server(args.serverId), exact: true })
+      const registry = getCommunityDbRegistry(queryClient)
+      if (registry?.collections.channels.has(args.channelId)) {
+        registry.collections.channels.utils.writeUpdate({
+          id: args.channelId,
+          categoryId: isUncategorizedTarget(args.categoryId) ? null : args.categoryId,
+        })
+      }
+      invalidateServerDetail(queryClient, args.serverId)
       invalidateChannelRefDirectory(queryClient)
     },
   })
@@ -303,7 +315,7 @@ export function useDeleteChannel() {
             args.channelId,
           )
         })
-        void queryClient.invalidateQueries({ queryKey: communityKeys.server(args.serverId), exact: true })
+        invalidateServerDetail(queryClient, args.serverId)
       }
       invalidateChannelRefDirectory(queryClient)
     },
@@ -321,7 +333,7 @@ export type CreateCategoryResult = { category: { id: string } }
 
 const tempCategoryId = () => `tmp_cat_${nanoid()}`
 
-type CreateCategoryCtx = { snapshot?: ServerDetail; tempId: string }
+type CreateCategoryCtx = { snapshot?: ServerTreeSnapshot; tempId: string }
 
 /**
  * Optimistically appends a pending category so the sidebar shows it
@@ -339,44 +351,46 @@ export function useCreateCategory() {
       )
     },
     onMutate: async (args) => {
-      const key = communityKeys.server(args.serverId)
-      await queryClient.cancelQueries({ queryKey: key })
-      const snapshot = queryClient.getQueryData<ServerDetail>(key)
+      const key = serverDetailKey(queryClient, args.serverId)
+      if (key) await queryClient.cancelQueries({ queryKey: key, exact: true })
+      const registry = getCommunityDbRegistry(queryClient)
+      const snapshot = snapshotServerTree(registry, args.serverId)
       const tempId = tempCategoryId()
-      queryClient.setQueryData<ServerDetail>(key, (prev) => {
-        if (!prev) return prev
-        return {
-          ...prev,
-          categories: [
-            ...prev.categories,
-            {
-              id: tempId,
-              name: args.name.trim(),
-              private: args.private ? 1 : 0,
-              channels: [],
-              pending: true,
-            } as ServerDetail["categories"][number],
-          ],
-        }
-      })
+      if (registry) {
+        const position = [...registry.collections.categories.values()]
+          .filter((row) => row.serverId === args.serverId)
+          .length
+        registry.collections.categories.utils.writeUpsert({
+          id: tempId,
+          serverId: args.serverId,
+          name: args.name.trim(),
+          position,
+          private: args.private === true,
+          creatorId: null,
+          pending: true,
+        })
+      }
       return { snapshot, tempId }
     },
-    onSuccess: (data, args, ctx) => {
-      queryClient.setQueryData<ServerDetail>(communityKeys.server(args.serverId), (prev) => {
-        if (!prev) return prev
-        return {
-          ...prev,
-          categories: prev.categories.map((c) =>
-            c.id === ctx.tempId ? { ...c, id: data.category.id, pending: false } : c,
-          ),
-        }
-      })
+    onSuccess: (data, _args, ctx) => {
+      const registry = getCommunityDbRegistry(queryClient)
+      const pending = registry?.collections.categories.get(ctx.tempId)
+      if (registry && pending) {
+        registry.collections.categories.utils.writeBatch(() => {
+          registry.collections.categories.utils.writeDelete(ctx.tempId)
+          registry.collections.categories.utils.writeUpsert({
+            ...pending,
+            id: data.category.id,
+            pending: false,
+          })
+        })
+      }
     },
     onError: (_err, args, ctx) => {
-      if (ctx?.snapshot) queryClient.setQueryData(communityKeys.server(args.serverId), ctx.snapshot)
+      restoreServerTree(getCommunityDbRegistry(queryClient), args.serverId, ctx?.snapshot)
     },
     onSettled: (_data, _err, args) => {
-      void queryClient.invalidateQueries({ queryKey: communityKeys.server(args.serverId), exact: true })
+      invalidateServerDetail(queryClient, args.serverId)
       invalidateChannelRefDirectory(queryClient)
     },
   })
@@ -399,7 +413,14 @@ export function useUpdateCategory() {
       })
     },
     onSuccess: (_data, args) => {
-      void queryClient.invalidateQueries({ queryKey: communityKeys.server(args.serverId), exact: true })
+      const registry = getCommunityDbRegistry(queryClient)
+      if (args.name !== undefined && registry?.collections.categories.has(args.categoryId)) {
+        registry.collections.categories.utils.writeUpdate({
+          id: args.categoryId,
+          name: args.name,
+        })
+      }
+      invalidateServerDetail(queryClient, args.serverId)
       invalidateChannelRefDirectory(queryClient)
     },
   })
@@ -417,27 +438,28 @@ export type DeleteCategoryArgs = { serverId: string; categoryId: string }
  */
 export function useDeleteCategory() {
   const queryClient = useQueryClient()
-  return useMutation<void, Error, DeleteCategoryArgs, { snapshot?: ServerDetail }>({
+  return useMutation<void, Error, DeleteCategoryArgs, { snapshot?: CategoryRow }>({
     mutationFn: async ({ serverId, categoryId }) => {
       await apiFetch(`/api/community/servers/${serverId}/categories/${categoryId}`, {
         method: "DELETE",
       })
     },
     onMutate: async (args) => {
-      const key = communityKeys.server(args.serverId)
-      await queryClient.cancelQueries({ queryKey: key })
-      const snapshot = queryClient.getQueryData<ServerDetail>(key)
-      queryClient.setQueryData<ServerDetail>(key, (prev) => {
-        if (!prev) return prev
-        return { ...prev, categories: prev.categories.filter((c) => c.id !== args.categoryId) }
-      })
+      const key = serverDetailKey(queryClient, args.serverId)
+      if (key) await queryClient.cancelQueries({ queryKey: key, exact: true })
+      const registry = getCommunityDbRegistry(queryClient)
+      const snapshot = registry?.collections.categories.get(args.categoryId)
+      if (snapshot) registry?.collections.categories.utils.writeDelete(args.categoryId)
       return { snapshot }
     },
-    onError: (_err, args, ctx) => {
-      if (ctx?.snapshot) queryClient.setQueryData(communityKeys.server(args.serverId), ctx.snapshot)
+    onError: (_err, _args, ctx) => {
+      const registry = getCommunityDbRegistry(queryClient)
+      if (ctx?.snapshot && registry && !registry.collections.categories.has(ctx.snapshot.id)) {
+        registry.collections.categories.utils.writeInsert(ctx.snapshot)
+      }
     },
     onSettled: (_data, _err, args) => {
-      void queryClient.invalidateQueries({ queryKey: communityKeys.server(args.serverId), exact: true })
+      invalidateServerDetail(queryClient, args.serverId)
       invalidateChannelRefDirectory(queryClient)
     },
   })
@@ -455,7 +477,16 @@ export function useReorderCategories() {
       })
     },
     onSuccess: (_data, args) => {
-      void queryClient.invalidateQueries({ queryKey: communityKeys.server(args.serverId), exact: true })
+      const registry = getCommunityDbRegistry(queryClient)
+      const positions = new Map(args.categoryIds.map((id, position) => [id, position]))
+      registry?.collections.categories.utils.writeBatch(() => {
+        for (const [id, position] of positions) {
+          if (registry.collections.categories.has(id)) {
+            registry.collections.categories.utils.writeUpdate({ id, position })
+          }
+        }
+      })
+      invalidateServerDetail(queryClient, args.serverId)
       invalidateChannelRefDirectory(queryClient)
     },
   })
@@ -473,7 +504,16 @@ export function useReorderChannels() {
       })
     },
     onSuccess: (_data, args) => {
-      void queryClient.invalidateQueries({ queryKey: communityKeys.server(args.serverId), exact: true })
+      const registry = getCommunityDbRegistry(queryClient)
+      const positions = new Map(args.channelIds.map((id, position) => [id, position]))
+      registry?.collections.channels.utils.writeBatch(() => {
+        for (const [id, position] of positions) {
+          if (registry.collections.channels.has(id)) {
+            registry.collections.channels.utils.writeUpdate({ id, position })
+          }
+        }
+      })
+      invalidateServerDetail(queryClient, args.serverId)
       invalidateChannelRefDirectory(queryClient)
     },
   })

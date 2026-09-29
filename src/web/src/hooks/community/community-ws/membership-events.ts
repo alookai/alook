@@ -1,4 +1,3 @@
-import type { InfiniteData } from "@tanstack/react-query"
 import type {
   CommunityMemberJoin,
   CommunityMemberLeave,
@@ -9,11 +8,7 @@ import { communityKeys } from "@/lib/query-keys"
 import { useMessageStreamStore } from "@/stores/community/message-stream"
 import { useCommunityStore } from "@/stores/community"
 import {
-  patchCacheJoin,
-  patchCacheLeave,
-  patchCacheUpdate,
   dispatchMemberOverlayEvent,
-  type MembersEnvelope,
 } from "@/hooks/community/use-server-members"
 import {
   removeForumSidebarProjectionExact,
@@ -45,9 +40,12 @@ import {
 import { getAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 import {
   captureCommunityLiveSnapshotToken,
-  publishCommunityChannelMetadata,
+  reconcileCanonicalChannelMetadata,
   setCanonicalCommunityChannelMembership,
 } from "@/lib/community-db/sync"
+import { isServerDetailResourceQueryKey } from "@/lib/community-db/server-detail-resource"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import { serverMembershipKey } from "@/lib/community-db/schema"
 
 type ChannelMemberEvent = Extract<
   CommunityWsEvent,
@@ -128,7 +126,7 @@ export function handleChannelMemberEvent(
         queryFn: async ({ signal }) => {
           const liveToken = captureCommunityLiveSnapshotToken(queryClient)
           const metadata = await fetchChannelMetadata(event.serverId, event.channelId, signal)
-          await publishCommunityChannelMetadata(queryClient, {
+          await reconcileCanonicalChannelMetadata(queryClient, {
             metadata,
             proof: { token: liveToken, signal },
           })
@@ -166,6 +164,14 @@ export function handleMemberJoin(
   context: MembershipEventContext,
 ) {
   const { queryClient, viewerUserIdRef, projection } = context
+  const registry = getCommunityDbRegistry(queryClient)
+  if (registry) {
+    registry.markServerMembershipChanged(
+      event.serverId,
+      serverMembershipKey(event.serverId, event.member.userId),
+    )
+    registry.adjustServerMembersTotal(event.serverId, 1)
+  }
   writeCommunityProfilePatches([{
     id: event.member.userId,
     identityAbout: {
@@ -177,11 +183,6 @@ export function handleMemberJoin(
       avatarVersion: event.member.avatarVersion,
     },
   }], undefined, { event: true })
-  const key = communityKeys.members(event.serverId)
-  queryClient.setQueryData<InfiniteData<MembersEnvelope> | undefined>(
-    key,
-    (cache) => patchCacheJoin(cache, event),
-  )
   dispatchMemberOverlayEvent({ type: "refresh", serverId: event.serverId })
   // MEMBER_JOIN intentionally carries identity, not presence. Refresh the
   // affected server's authoritative presence seed so a newly rendered member
@@ -209,11 +210,15 @@ export function handleMemberLeave(
   context: MembershipEventContext,
 ) {
   const { queryClient, viewerUserIdRef, projection } = context
-  const key = communityKeys.members(event.serverId)
-  queryClient.setQueryData<InfiniteData<MembersEnvelope> | undefined>(
-    key,
-    (cache) => patchCacheLeave(cache, event),
-  )
+  const registry = getCommunityDbRegistry(queryClient)
+  if (registry) {
+    registry.markServerMembershipChanged(
+      event.serverId,
+      serverMembershipKey(event.serverId, event.userId),
+      true,
+    )
+    registry.adjustServerMembersTotal(event.serverId, -1)
+  }
   dispatchMemberOverlayEvent({
     type: "leave",
     serverId: event.serverId,
@@ -235,7 +240,9 @@ export function handleMemberLeave(
     removeServerReactionDetails(queryClient, event.serverId)
     invalidateChannelRefDirectory(projection)
     useMessageStreamStore.getState().removeServer(event.serverId)
-    queryClient.removeQueries({ queryKey: communityKeys.server(event.serverId) })
+    queryClient.removeQueries({
+      predicate: ({ queryKey }) => isServerDetailResourceQueryKey(queryKey, event.serverId),
+    })
     const store = useCommunityStore.getState()
     if (store.currentServerId === event.serverId) {
       store.setCurrentChannelMeta(null)
@@ -257,11 +264,13 @@ export function handleMemberUpdate(
   context: MembershipEventContext,
 ) {
   const { queryClient } = context
-  const key = communityKeys.members(event.serverId)
-  queryClient.setQueryData<InfiniteData<MembersEnvelope> | undefined>(
-    key,
-    (cache) => patchCacheUpdate(cache, event),
+  const registry = getCommunityDbRegistry(queryClient)
+  const row = registry && [...registry.collections.serverMemberships.values()].find(
+    (membership) => membership.serverId === event.serverId
+      && (membership.memberId === event.memberId
+        || Boolean(event.userId && membership.userId === event.userId)),
   )
+  if (row && registry) registry.markServerMembershipChanged(event.serverId, row.id)
   dispatchMemberOverlayEvent({
     type: "update",
     serverId: event.serverId,

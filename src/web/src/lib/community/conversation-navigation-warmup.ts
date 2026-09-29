@@ -4,12 +4,17 @@ import { type QueryClient } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { ApiError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
-import type { MessagesPageParam } from "@/lib/community/models/message"
-import { channelMessagesQueryFn, dmMessagesQueryFn } from "@/hooks/community/use-messages"
-import { serverProjectedQueryFn, type ServerDetail } from "@/hooks/community/use-servers"
 import { useMessageStreamStore } from "@/stores/community/message-stream"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import { purgeCommunityChannel } from "@/lib/community-db/sync"
+import type { MessageCollectionDemand } from "@/lib/community-db/message-resource"
+import {
+  createServerDetailResourceQueryFn,
+  serverDetailResourceKey,
+} from "@/lib/community-db/server-detail-resource"
 import {
   beginConversationNavigationProof,
+  commitConversationNavigationPublication,
   commitConversationNavigationProof,
   failConversationNavigationProof,
   isCurrentConversationNavigation,
@@ -29,14 +34,15 @@ function isDefinitiveAccessFailure(error: unknown): boolean {
 }
 
 function clearDeniedTarget(queryClient: QueryClient, target: ConversationNavigationTarget) {
-  const messagesKey = target.scopeKind === "dm"
-    ? communityKeys.dmMessages(target.channelId)
-    : communityKeys.channelMessages(target.channelId)
   const readKey = target.scopeKind === "dm"
     ? communityKeys.dmReadStateSnapshot(target.channelId)
     : communityKeys.channelReadStateSnapshot(target.channelId)
-  queryClient.removeQueries({ queryKey: messagesKey })
   queryClient.removeQueries({ queryKey: readKey })
+  const registry = getCommunityDbRegistry(queryClient)
+  if (registry) {
+    void registry.purgeMessageScope?.(target.channelId)
+    purgeCommunityChannel(registry, target.channelId)
+  }
   if (target.serverId) {
     queryClient.removeQueries({ queryKey: communityKeys.channelMeta(target.serverId, target.channelId) })
   } else {
@@ -64,41 +70,62 @@ export function startConversationNavigationWarmup(
   registerConversationNavigationRecovery(queryClient, epoch, (nextAccessEpoch, nextAttempt) => {
     startConversationNavigationWarmup(queryClient, target, nextAccessEpoch, nextAttempt)
   })
-  const pageParam: MessagesPageParam = target.anchorMessageId
-    ? { mode: "anchor", anchor: target.anchorMessageId }
-    : { mode: "newest" }
-  const messagesKey = target.scopeKind === "dm"
-    ? communityKeys.dmMessages(target.channelId)
-    : communityKeys.channelMessages(target.channelId)
-  const canonicalQueryFn = target.scopeKind === "dm"
-    ? dmMessagesQueryFn(target.channelId, {
-        onSurfaceReceipt: (receipt) => {
-          recordConversationNavigationReceipt(queryClient, receipt, accessEpoch, epoch)
-        },
-      })
-    : channelMessagesQueryFn(target.channelId, null, {
-        onSurfaceReceipt: (receipt) => {
-          recordConversationNavigationReceipt(queryClient, receipt, accessEpoch, epoch)
-        },
-      })
-
-  void queryClient.fetchInfiniteQuery({
-    queryKey: messagesKey,
-    // Keep the click-owned transport alive across the old/new route observer
-    // handoff. TanStack aborts a consumed query signal when the last old-route
-    // observer unmounts; the proof signal instead lives until this navigation
-    // is superseded or definitively fails.
-    queryFn: ({ pageParam }) => canonicalQueryFn({ pageParam, signal }),
-    initialPageParam: pageParam,
-    // A persisted/memory-warm page is only a hint. Force this click-owned
-    // query through the canonical door so a fresh receipt is always emitted.
-    staleTime: 0,
+  const registry = getCommunityDbRegistry(queryClient)
+  const base = target.anchorMessageId
+    ? { mode: "anchor" as const, anchor: target.anchorMessageId }
+    : { mode: "tail" as const }
+  const demand = (direction: "older" | "newer"): MessageCollectionDemand => ({
+    scope: {
+      accountId: registry?.scopeId ?? target.viewerId,
+      kind: target.scopeKind === "dm" ? "dm" : "server-channel",
+      serverId: target.serverId ?? null,
+      channelId: target.channelId,
+    },
+    tag: null,
+    sequence: {
+      base,
+      direction,
+      order: ["seq", "asc", "id", "asc"],
+    },
   })
-    .then(() => {
+  const directions = target.anchorMessageId
+    ? ["older", "newer"] as const
+    : ["older"] as const
+  const acquired: Array<Awaited<ReturnType<NonNullable<typeof registry>["preloadMessageWindow"]>>> = []
+  const releaseAcquired = async () => {
+    await Promise.all(acquired.splice(0).map((window) => window.release()))
+  }
+  const messageWarmup = registry
+    ? Promise.all(directions.map(async (direction) => {
+        const window = await registry.preloadMessageWindow(
+          demand(direction),
+          target.anchorMessageId ? 26 : 50,
+          signal,
+        )
+        acquired.push(window)
+        return window
+      }))
+    : Promise.reject(new Error("Community DB registry unavailable for message warmup"))
+
+  void messageWarmup
+    .then((windows) => {
       if (!isCurrentConversationNavigation(queryClient, epoch, accessEpoch)) return
+      const receipt = windows.find((window) => window.publication.surfaceReceipt)
+        ?.publication.surfaceReceipt
+      if (receipt) {
+        recordConversationNavigationReceipt(queryClient, receipt, accessEpoch, epoch)
+      }
+      const older = windows.find((_window, index) => directions[index] === "older")
+      commitConversationNavigationPublication(queryClient, { ...target }, accessEpoch, {
+        requestedAnchorMessageId: target.anchorMessageId ?? null,
+        coveredAnchorMessageIds: !target.anchorMessageId && older && !older.publication.hasMore
+          ? older.publication.rows.map((message) => message.id)
+          : undefined,
+      })
       commitConversationNavigationProof(queryClient, target.channelId, accessEpoch)
     })
-    .catch((error) => {
+    .catch(async (error) => {
+      await releaseAcquired()
       if (signal.aborted) return
       const definitive = isDefinitiveAccessFailure(error)
       if (definitive) clearDeniedTarget(queryClient, target)
@@ -116,12 +143,12 @@ export function startConversationNavigationWarmup(
     .catch(() => undefined)
 
   if (target.serverId) {
-    void serverProjectedQueryFn(queryClient, target.serverId, signal)()
-      .then((detail) => {
-        if (!isCurrentConversationNavigation(queryClient, epoch, accessEpoch)) return
-        queryClient.setQueryData<ServerDetail>(communityKeys.server(target.serverId!), detail)
-      })
-      .catch(() => undefined)
+    const scopeId = registry?.scopeId ?? target.viewerId
+    void queryClient.query({
+      queryKey: serverDetailResourceKey(scopeId, target.serverId),
+      queryFn: createServerDetailResourceQueryFn(queryClient, scopeId),
+      staleTime: Infinity,
+    }).catch(() => undefined)
   }
 
   return epoch

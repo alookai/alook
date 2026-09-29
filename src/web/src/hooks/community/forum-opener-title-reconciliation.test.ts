@@ -10,7 +10,7 @@ import {
 import {
   captureCommunityLiveSnapshotToken,
   getCanonicalCommunityMessages,
-  publishCommunityForumSidebar,
+  reconcileCanonicalForumSidebar,
 } from "@/lib/community-db/sync"
 import { getForumSidebarBase } from "./use-forum-sidebar-threads"
 
@@ -27,6 +27,28 @@ let registry: CommunityDbRegistry
 let unregister: () => void
 
 beforeEach(async () => {
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input)
+    const body = url.endsWith("/read-state")
+      ? { revision: 0, readStates: [] }
+      : url.endsWith("/attention")
+        ? {
+            scopes: [], items: [], limit: 100, truncated: false,
+            included: { servers: [], channels: [], dms: [], profiles: [], messages: [] },
+          }
+        : url.endsWith("/server-folders")
+          ? { folders: [] }
+          : url.endsWith("/notifications")
+            ? []
+            : url.endsWith("/dms")
+              ? { conversations: [] }
+              : null
+    if (body === null) throw new Error(`unexpected API fetch: ${url}`)
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    })
+  }))
   queryClient = new QueryClient()
   registry = createCommunityDbRegistry(queryClient, "viewer")
   await registry.preload()
@@ -36,10 +58,11 @@ beforeEach(async () => {
 afterEach(async () => {
   unregister()
   await registry.cleanup()
+  vi.unstubAllGlobals()
 })
 
 async function seedCanonicalCaches() {
-  await publishCommunityForumSidebar(queryClient, {
+  await reconcileCanonicalForumSidebar(queryClient, {
     serverId: "server_1",
     channels: [{
       id: "post_1", name: "Post", parentChannelId: "forum_1",
@@ -52,15 +75,6 @@ async function seedCanonicalCaches() {
       signal: undefined,
     },
   })
-  queryClient.setQueryData(communityKeys.message("opener_1"), {
-    id: "opener_1", type: "chat", content: "Old title",
-  })
-  const messagePage = {
-    pages: [{ messages: [{ id: "opener_1", type: "chat", content: "Old title" }], hasMore: false }],
-    pageParams: [null],
-  }
-  queryClient.setQueryData(communityKeys.channelMessages("forum_1"), messagePage)
-  queryClient.setQueryData(communityKeys.channelMessages("post_1"), messagePage)
   queryClient.setQueryData(communityKeys.inboxUnreads(), {
     servers: [{
       serverId: "server_1",
@@ -141,9 +155,6 @@ describe("reconcileForumOpenerTitle", () => {
     expect(invalidate).toHaveBeenCalledWith({ queryKey: communityKeys.threads("forum_1"), exact: true })
     expect(queryClient.getQueryState(feedKey)?.isInvalidated).toBe(false)
 
-    expect(queryClient.getQueryData<any>(communityKeys.message("opener_1")).content).toBe("Full new title")
-    expect(queryClient.getQueryData<any>(communityKeys.channelMessages("forum_1")).pages[0].messages[0].content).toBe("Full new title")
-    expect(queryClient.getQueryData<any>(communityKeys.channelMessages("post_1")).pages[0].messages[0].content).toBe("Full new title")
     expect(queryClient.getQueryData<any>(communityKeys.inboxUnreads()).servers[0].channels[0].children[0].channelName).toBe("Full new title")
     expect(queryClient.getQueryData<any>(communityKeys.threads("forum_1")).threads[0].name).toBe("Full new title")
     expect(queryClient.getQueryData<any>(feedKey).pages[0].included.parentMessages[0].content).toBe("Full new title")

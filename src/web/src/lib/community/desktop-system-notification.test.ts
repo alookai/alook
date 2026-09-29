@@ -6,6 +6,7 @@ import {
   createCommunityDbRegistry,
   registerCommunityDbRegistry,
 } from "@/lib/community-db/collections"
+import { writeCommunityCollectionRows } from "@/lib/community-db/collection-mutations"
 import { seedCommunityServers } from "@/lib/community-db/server-test-seed"
 import {
   buildDesktopSystemNotificationCandidate,
@@ -110,6 +111,28 @@ async function seedCanonicalDirectory(
   queryClient: QueryClient,
   options: { channels?: boolean } = {},
 ) {
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input)
+    const body = url.endsWith("/api/community/users/me/read-state")
+      ? { revision: 0, readStates: [] }
+      : url.endsWith("/api/community/users/me/attention")
+        ? {
+            scopes: [], items: [], limit: 100, truncated: false,
+            included: { servers: [], channels: [], dms: [], profiles: [], messages: [] },
+          }
+        : url.endsWith("/api/community/users/me/dms")
+          ? { conversations: [] }
+      : url.endsWith("/api/community/users/me/server-folders")
+        ? { folders: [] }
+        : url.endsWith("/api/community/users/me/notifications")
+          ? []
+          : null
+    if (body === null) throw new Error(`unexpected API fetch: ${url}`)
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    })
+  }))
   const registry = createCommunityDbRegistry(queryClient, "viewer_1")
   const unregister = registerCommunityDbRegistry(registry)
   await registry.preload()
@@ -119,9 +142,11 @@ async function seedCanonicalDirectory(
     registry.cleanup()
   })
   if (options.channels !== false) {
-    queryClient.setQueryData(
-      communityKeys.communityDbCollection("viewer_1", "channels"),
+    await writeCommunityCollectionRows(
+      registry,
+      "channels",
       channelRows,
+      (row) => row.id,
     )
   }
 }

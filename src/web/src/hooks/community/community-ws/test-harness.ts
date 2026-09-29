@@ -11,8 +11,9 @@ import {
 import {
   captureCommunityLiveSnapshotToken,
   ingestServerDetail,
-  publishCommunityChannelMetadata,
-  publishCommunityForumSidebar,
+  ingestMessages,
+  reconcileCanonicalChannelMetadata,
+  reconcileCanonicalForumSidebar,
 } from "@/lib/community-db/sync"
 import { seedCommunityServers as ingestServers } from "@/lib/community-db/server-test-seed"
 import { getForumSidebarBase } from "@/hooks/community/use-forum-sidebar-threads"
@@ -24,6 +25,20 @@ const communityApiFetch = vi.hoisted(() => vi.fn(async (...args: unknown[]) => {
   }
   if (url === "/api/community/servers") {
     return { servers: [] }
+  }
+  if (url === "/api/community/users/me/server-folders") {
+    return { folders: [] }
+  }
+  if (url === "/api/community/users/me/notifications") return []
+  if (url === "/api/community/users/me/dms") return { conversations: [] }
+  if (url === "/api/community/users/me/attention") {
+    return {
+      scopes: [],
+      items: [],
+      limit: 100,
+      truncated: false,
+      included: { servers: [], channels: [], dms: [], profiles: [], messages: [] },
+    }
   }
   throw new Error(`unexpected API fetch: ${url}`)
 }))
@@ -82,6 +97,10 @@ let canonicalRegistry: CommunityDbRegistry | null = null
 export function canonicalServer(serverId: string) {
   return canonicalRegistry?.collections.servers.get(serverId)
 }
+export function getCanonicalRegistryForTests() {
+  if (!canonicalRegistry) throw new Error("canonical registry is not installed")
+  return canonicalRegistry
+}
 let unregisterCanonicalRegistry: (() => void) | null = null
 vi.mock("@tanstack/react-query", async () => {
   const actual = await vi.importActual<typeof import("@tanstack/react-query")>("@tanstack/react-query")
@@ -139,6 +158,14 @@ export function getStableReconnectNow() {
 }
 
 function resetHarnessState() {
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input), "http://localhost")
+    const body = await communityApiFetch(`${url.pathname}${url.search}`, init)
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    })
+  }))
   resetHookInstance()
   pendingEffects = []
   effectCleanups = []
@@ -159,6 +186,20 @@ function resetHarnessState() {
     }
     if (url === "/api/community/servers") {
       return { servers: [] }
+    }
+    if (url === "/api/community/users/me/server-folders") {
+      return { folders: [] }
+    }
+    if (url === "/api/community/users/me/notifications") return []
+    if (url === "/api/community/users/me/dms") return { conversations: [] }
+    if (url === "/api/community/users/me/attention") {
+      return {
+        scopes: [],
+        items: [],
+        limit: 100,
+        truncated: false,
+        included: { servers: [], channels: [], dms: [], profiles: [], messages: [] },
+      }
     }
     throw new Error(`unexpected API fetch: ${url}`)
   })
@@ -186,6 +227,10 @@ export async function resetCommunityWsHarness() {
   resetHarnessState()
   canonicalRegistry = createCommunityDbRegistry(capturedQueryClient, "u_me")
   await canonicalRegistry.preload()
+  for (let index = 0; index < 8; index += 1) await Promise.resolve()
+  // Registry preload owns the eager account resources. Individual WS tests
+  // assert only the requests caused by the event under test, not bootstrap.
+  communityApiFetch.mockClear()
   unregisterCanonicalRegistry = registerCommunityDbRegistry(canonicalRegistry)
   await resetStore()
 }
@@ -201,6 +246,7 @@ export async function cleanupCommunityWsHarness() {
   unregisterCanonicalRegistry = null
   await canonicalRegistry?.cleanup()
   canonicalRegistry = null
+  vi.unstubAllGlobals()
   resetHarnessState()
 }
 
@@ -291,7 +337,7 @@ export async function seedCanonicalForumSidebar(serverId: string, ids = ["post_1
       }],
     }],
   })
-  await publishCommunityForumSidebar(capturedQueryClient, {
+  await reconcileCanonicalForumSidebar(capturedQueryClient, {
     serverId,
     channels: forumSidebarFixture(ids).channels.map((channel) => ({
       ...channel,
@@ -317,6 +363,18 @@ export function canonicalForumSidebar(serverId: string) {
   return getForumSidebarBase(capturedQueryClient, serverId)
 }
 
+export async function seedCanonicalMessages(
+  channelId: string,
+  messages: Parameters<typeof ingestMessages>[2],
+) {
+  if (!canonicalRegistry) throw new Error("canonical test registry is not active")
+  await ingestMessages(canonicalRegistry, channelId, messages)
+}
+
+export function canonicalMessage(messageId: string) {
+  return canonicalRegistry?.collections.messages.get(messageId)
+}
+
 export async function seedCanonicalThread(
   serverId: string,
   parentId: string,
@@ -336,7 +394,7 @@ export async function seedCanonicalThread(
       }],
     }],
   })
-  await publishCommunityChannelMetadata(capturedQueryClient, {
+  await reconcileCanonicalChannelMetadata(capturedQueryClient, {
     metadata: {
       id: childId,
       serverId,

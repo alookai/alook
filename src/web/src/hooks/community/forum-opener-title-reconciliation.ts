@@ -2,7 +2,6 @@
 
 import type { InfiniteData, QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
-import type { MessagesPage, Msg } from "@/lib/community/models/message"
 import type { UnreadServer } from "@/lib/community/models/inbox"
 import type { ThreadsResponse } from "@/hooks/community/use-channel-panels"
 import type { ForumFeedPage } from "@/hooks/community/use-forum-feed"
@@ -10,10 +9,8 @@ import {
   getForumSidebarBase,
   patchForumSidebarTitleExact,
 } from "@/hooks/community/use-forum-sidebar-threads"
-import { patchMessageContentInCache } from "@/hooks/community/community-ws/cache"
 import { useMessageStreamStore } from "@/stores/community/message-stream"
-
-type PageCache = InfiniteData<MessagesPage>
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 
 export type ForumOpenerTitleIdentity = {
   serverId: string
@@ -129,15 +126,14 @@ export async function reconcileForumOpenerTitle(
     knownInboxIdentity.openerMessageId !== identity.openerMessageId
   )) return
 
-  queryClient.setQueryData<Msg | undefined>(
-    communityKeys.message(identity.openerMessageId),
-    (message) => message ? { ...message, content: identity.content } : message,
-  )
-  for (const channelId of [identity.forumChannelId, identity.childChannelId]) {
-    queryClient.setQueriesData<PageCache>(
-      { queryKey: communityKeys.channelMessages(channelId) },
-      (cache) => patchMessageContentInCache(cache, identity.openerMessageId, identity.content),
-    )
+  const registry = getCommunityDbRegistry(queryClient)
+  const canonical = registry?.collections.messages.get(identity.openerMessageId)
+  if (canonical && canonical.channelId !== identity.forumChannelId) return
+  if (registry && canonical) {
+    registry.collections.messages.utils.writeUpdate({
+      id: identity.openerMessageId,
+      content: identity.content,
+    })
   }
   queryClient.setQueriesData<InfiniteData<ForumFeedPage>>(
     { queryKey: [...communityKeys.threads(identity.forumChannelId), "feed"] },

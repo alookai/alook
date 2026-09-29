@@ -3,7 +3,6 @@
 import type { QueryClient } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { ApiError } from "@/lib/errors"
-import { communityKeys } from "@/lib/query-keys"
 import { reconcileAccountReadState } from "./community-ws/read-state-reconciliation"
 import {
   projectReadCoordinatorSnapshot as projectRegisteredReadCoordinatorSnapshot,
@@ -18,6 +17,7 @@ import {
 } from "./inbox-read-reservation"
 import { getAccountUnreadProjection } from "./account-unread-projection"
 import { getCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
+import { readStateResourceKey } from "@/lib/community-db/read-state-resource"
 import {
   clearAttentionScopeOptimistically,
   commitAttentionScopeOptimisticSnapshot,
@@ -25,7 +25,10 @@ import {
   restoreAttentionScopeOptimisticSnapshot,
   type AttentionScopeOptimisticSnapshot,
 } from "@/lib/community-db/sync"
-import { reconcileAccountAttention } from "./use-account-attention"
+import {
+  deferAccountAttentionReconcile,
+  scheduleAccountAttentionReconcile,
+} from "./use-account-attention"
 
 export const READ_COORDINATOR_DEBOUNCE_MS = 500
 
@@ -100,6 +103,7 @@ type ScopeState = {
     registry: CommunityDbRegistry
     snapshot: AttentionScopeOptimisticSnapshot
   } | null
+  attentionReconcileDeferral: (() => void) | null
 }
 
 const coordinators = new WeakMap<QueryClient, ReadCoordinator>()
@@ -161,6 +165,7 @@ class ReadCoordinator {
         retryCount: 0,
         confirmedSeq,
         attentionOptimistic: null,
+        attentionReconcileDeferral: null,
       }
       this.states.set(key, state)
     } else if (surface.kind === "timeline") {
@@ -174,7 +179,7 @@ class ReadCoordinator {
     state.leases.add(token)
     const cached = this.queryClient.getQueryData<{
       readStates: Array<{ channelId: string; lastReadSeq: number }>
-    }>(communityKeys.accountReadStateSnapshot())
+    }>(readStateResourceKey(getCommunityDbRegistry(this.queryClient)?.scopeId ?? "anon"))
     if (cached) this.applySnapshot(cached)
     return { coordinator: this, key, token, epoch: state.epoch, releasePolicy }
   }
@@ -201,6 +206,10 @@ class ReadCoordinator {
         state.attemptEpoch += 1
         state.inFlight.controller.abort()
         state.inFlight = null
+        this.releaseAttentionReconcileDeferral(state)
+        if (state.accepted || state.dirty) {
+          this.beginAttentionReconcileDeferral(state)
+        }
       }
       if (!state.accepted && state.timer !== null) {
         clearTimeout(state.timer)
@@ -222,6 +231,7 @@ class ReadCoordinator {
       }
       if (!state.accepted && !state.dirty && !state.inFlight) {
         this.rollbackAttentionOptimisticRead(state)
+        this.releaseAttentionReconcileDeferral(state)
       }
       return
     }
@@ -263,6 +273,7 @@ class ReadCoordinator {
     }
     state.accepted = laterIntent(state.accepted, queued)
     state.dirty = laterIntent(state.dirty, queued)
+    this.beginAttentionReconcileDeferral(state)
     this.beginAttentionOptimisticRead(state)
     for (const generation of supersededGenerations) {
       getAccountUnreadProjection(this.queryClient, this.ownerUserId)
@@ -285,6 +296,7 @@ class ReadCoordinator {
       if (state.dirty && !this.confirmed(state, state.dirty.intent)) {
         state.accepted = laterIntent(state.accepted, state.dirty)
         state.retryCount = 0
+        this.beginAttentionReconcileDeferral(state)
         this.schedule(state, 0)
       }
     }
@@ -315,6 +327,7 @@ class ReadCoordinator {
       if (state.retryTimer !== null) clearTimeout(state.retryTimer)
       if (state.releaseTimer !== null) clearTimeout(state.releaseTimer)
       state.inFlight?.controller.abort()
+      this.releaseAttentionReconcileDeferral(state)
       this.commitAttentionOptimisticRead(state)
       state.attemptEpoch += 1
       state.accepted = null
@@ -417,6 +430,8 @@ class ReadCoordinator {
       this.cancelConfirmedWork(state)
       return Promise.resolve({ committed: false, reconciled: false })
     }
+    this.beginAttentionReconcileDeferral(state)
+    const attentionReconcileDeferral = state.attentionReconcileDeferral
     this.beginAttentionOptimisticRead(state)
     state.accepted = null
     const controller = new AbortController()
@@ -434,7 +449,13 @@ class ReadCoordinator {
       drainCutoff,
       deferInboxDms: options.deferInboxDms,
     }
-    void this.performSend(state, target, controller, attemptEpoch)
+    void this.performSend(
+      state,
+      target,
+      controller,
+      attemptEpoch,
+      attentionReconcileDeferral,
+    )
       .then(resolveCompletion)
     return completion
   }
@@ -444,6 +465,7 @@ class ReadCoordinator {
     target: QueuedReadIntent,
     controller: AbortController,
     attemptEpoch: number,
+    attentionReconcileDeferral: (() => void) | null,
   ): Promise<ReadAttemptOutcome> {
     const identityEpoch = this.identityEpoch
     let response: ReadMutationResponse
@@ -458,6 +480,7 @@ class ReadCoordinator {
       )
     } catch (error) {
       if (!this.attemptActive(state, attemptEpoch, identityEpoch)) {
+        this.releaseAttentionReconcileDeferral(state, attentionReconcileDeferral)
         return { committed: false, reconciled: false }
       }
       await settleInboxReadReservationGeneration(
@@ -484,11 +507,13 @@ class ReadCoordinator {
           this.schedule(state, 0)
         }, delay)
       }
+      this.releaseAttentionReconcileDeferral(state, attentionReconcileDeferral)
       this.finishAttempt(state, attemptEpoch)
       return { committed: false, reconciled: false }
     }
 
     if (!this.attemptActive(state, attemptEpoch, identityEpoch)) {
+      this.releaseAttentionReconcileDeferral(state, attentionReconcileDeferral)
       return { committed: false, reconciled: false }
     }
     await settleInboxReadReservationGeneration(
@@ -498,6 +523,7 @@ class ReadCoordinator {
       target.intent.channelId,
     )
     if (!this.attemptActive(state, attemptEpoch, identityEpoch)) {
+      this.releaseAttentionReconcileDeferral(state, attentionReconcileDeferral)
       return { committed: false, reconciled: false }
     }
     state.confirmedSeq = Math.max(state.confirmedSeq, response.targetSeq)
@@ -514,17 +540,22 @@ class ReadCoordinator {
       || (activeAttempt?.drainCutoff !== undefined
         && state.accepted !== null
         && state.accepted.generation > activeAttempt.drainCutoff)
+    const deferAttentionToSuccessor = state.accepted !== null || state.dirty !== null
     try {
       const attentionRegistry = getCommunityDbRegistry(this.queryClient)
+      const attentionReconcile = attentionRegistry && !deferAttentionToSuccessor
+        ? scheduleAccountAttentionReconcile(this.queryClient)
+        : Promise.resolve()
+      if (!deferAttentionToSuccessor) {
+        this.releaseAttentionReconcileDeferral(state, attentionReconcileDeferral)
+      }
       await Promise.all([
         reconcileAccountReadState(this.queryClient, {
           surfaceMode: deferInboxDms ? "non-inbox" : "all",
           awaitSurfaceMode: deferInboxDms ? "none" : "inbox-dms",
           targetRevision: response.revision,
         }),
-        attentionRegistry
-          ? reconcileAccountAttention(attentionRegistry).catch(() => undefined)
-          : Promise.resolve(),
+        attentionReconcile,
       ])
       if (deferInboxDms) {
         publishInboxProjectionGenerationTerminal(
@@ -556,7 +587,13 @@ class ReadCoordinator {
       return { committed: true, reconciled: false }
     } finally {
       if (!state.accepted && !state.dirty) {
+        if (deferAttentionToSuccessor && getCommunityDbRegistry(this.queryClient)) {
+          void scheduleAccountAttentionReconcile(this.queryClient)
+        }
+        this.releaseAttentionReconcileDeferral(state, attentionReconcileDeferral)
         this.commitAttentionOptimisticRead(state)
+      } else if (!deferAttentionToSuccessor) {
+        this.releaseAttentionReconcileDeferral(state, attentionReconcileDeferral)
       }
       this.finishAttempt(state, attemptEpoch)
     }
@@ -593,6 +630,10 @@ class ReadCoordinator {
       state.attemptEpoch += 1
       state.inFlight.controller.abort()
       state.inFlight = null
+      this.releaseAttentionReconcileDeferral(state)
+      if (state.accepted || state.dirty) {
+        this.beginAttentionReconcileDeferral(state)
+      }
       if (state.accepted && state.retryTimer === null) {
         this.schedule(state, Math.max(0, state.accepted.dueAt - Date.now()))
       }
@@ -608,8 +649,25 @@ class ReadCoordinator {
     if (!state.accepted && !state.dirty && !state.inFlight) {
       this.commitAttentionOptimisticRead(state)
       const registry = getCommunityDbRegistry(this.queryClient)
-      if (registry) void reconcileAccountAttention(registry).catch(() => undefined)
+      if (registry) void scheduleAccountAttentionReconcile(this.queryClient)
+      this.releaseAttentionReconcileDeferral(state)
     }
+  }
+
+  private beginAttentionReconcileDeferral(state: ScopeState) {
+    if (state.attentionReconcileDeferral) return
+    state.attentionReconcileDeferral = deferAccountAttentionReconcile(this.queryClient)
+  }
+
+  private releaseAttentionReconcileDeferral(
+    state: ScopeState,
+    deferral = state.attentionReconcileDeferral,
+  ) {
+    if (!deferral) return
+    if (state.attentionReconcileDeferral === deferral) {
+      state.attentionReconcileDeferral = null
+    }
+    deferral()
   }
 
   private beginAttentionOptimisticRead(state: ScopeState) {
@@ -651,7 +709,7 @@ class ReadCoordinator {
     if (!restoreAttentionScopeOptimisticSnapshot(optimistic.registry, optimistic.snapshot)) {
       const registry = getCommunityDbRegistry(this.queryClient)
       if (registry === optimistic.registry) {
-        void reconcileAccountAttention(registry).catch(() => undefined)
+        void scheduleAccountAttentionReconcile(this.queryClient)
       }
     }
   }

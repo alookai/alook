@@ -8,7 +8,6 @@ import {
   type ServersResponse,
 } from "./server-collection"
 import { getAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
-import { rememberMessageAccessScope } from "./message-access-scope"
 import { getLastChannel, setLastChannel } from "@/lib/community/last-channel"
 import {
   getLastMeLeaf,
@@ -23,11 +22,13 @@ import {
 } from "./collections"
 import {
   ingestDms,
+  ingestAttentionIncluded,
   ingestAttentionSnapshot,
   ingestMessages,
   ingestReadStateSnapshot,
   ingestServerDetail,
   installCommunityDbSync,
+  assertCommunityLiveSnapshotTokenCurrent,
   captureCommunityLiveSnapshotToken,
   clearAttentionOptimistically,
   clearAttentionScopeOptimistically,
@@ -35,10 +36,9 @@ import {
   commitAttentionScopeOptimisticSnapshot,
   patchCanonicalCommunityMessage,
   publishCommunityDmSummary,
-  publishCommunityMessages,
-  publishCommunityChannelDirectory,
-  publishCommunityLiveSnapshot as publishCommunityLiveSnapshotWithProof,
-  publishAccountAttentionSnapshot,
+  reconcileCanonicalCommunityMessages,
+  reconcileCanonicalChannelDirectory,
+  reconcileCommunityLiveSnapshot as reconcileCommunityLiveSnapshotWithProof,
   projectCommunityWsEventToDb,
   purgeCommunityChannel,
   purgeCommunityServer,
@@ -53,6 +53,33 @@ import { useCommunityWsStore } from "@/stores/community/ws"
 import { emptyMessageOverlay } from "@/lib/community/message-stream"
 import { writeCommunityProfilePatches } from "@/lib/community/profile-seed"
 import { writeCommunityCollectionRows } from "./collection-mutations"
+import { dmsResourceKey } from "./dms-resource"
+
+vi.mock("@/lib/api/client", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/api/client")>("@/lib/api/client")
+  return {
+    ...actual,
+    apiFetch: vi.fn(async (path: string) => {
+      if (path === "/api/community/servers") return { servers: [] }
+      if (path === "/api/community/users/me/read-state") {
+        return { revision: 0, readStates: [] }
+      }
+      if (path === "/api/community/users/me/server-folders") return { folders: [] }
+      if (path === "/api/community/users/me/notifications") return []
+      if (path === "/api/community/users/me/dms") return { conversations: [] }
+      if (path === "/api/community/users/me/attention") {
+        return {
+          scopes: [],
+          items: [],
+          limit: 100,
+          truncated: false,
+          included: { servers: [], channels: [], dms: [], profiles: [], messages: [] },
+        }
+      }
+      throw new Error(`unexpected API fetch: ${path}`)
+    }),
+  }
+})
 
 const registries: CommunityDbRegistry[] = []
 const unregisters: Array<() => void> = []
@@ -71,13 +98,13 @@ async function registry() {
   return result
 }
 
-function publishCommunityLiveSnapshot(
+function reconcileCommunityLiveSnapshot(
   queryClient: QueryClient,
   snapshot: CommunityLiveSnapshot,
 ) {
   const token = captureCommunityLiveSnapshotToken(queryClient)
   if (snapshot.kind === "read-state") {
-    return publishCommunityLiveSnapshotWithProof(queryClient, {
+    return reconcileCommunityLiveSnapshotWithProof(queryClient, {
       snapshot,
       proof: {
         kind: "read-state",
@@ -89,7 +116,7 @@ function publishCommunityLiveSnapshot(
       },
     })
   }
-  return publishCommunityLiveSnapshotWithProof(queryClient, {
+  return reconcileCommunityLiveSnapshotWithProof(queryClient, {
     snapshot,
     proof: { kind: "structural", token, signal: undefined },
   })
@@ -102,6 +129,30 @@ afterEach(async () => {
 })
 
 describe("community DB sync", () => {
+  it("accepts only the query client that owns a captured live snapshot token", () => {
+    const queryClient = new QueryClient()
+    const token = captureCommunityLiveSnapshotToken(queryClient)
+
+    expect(() => assertCommunityLiveSnapshotTokenCurrent(
+      queryClient,
+      token,
+      undefined,
+    )).not.toThrow()
+    expect(() => assertCommunityLiveSnapshotTokenCurrent(
+      new QueryClient(),
+      token,
+      undefined,
+    )).toThrow(expect.objectContaining({ name: "AbortError" }))
+  })
+
+  it("ignores primitive values encountered while reading canonical rows", async () => {
+    const db = await registry()
+    vi.spyOn(db.collections.channels, "values")
+      .mockImplementationOnce(() => [null][Symbol.iterator]() as never)
+
+    expect(() => ingestDms(db, { conversations: [] })).not.toThrow()
+  })
+
   it("keeps server detail complete when the rail snapshot queues during preload", async () => {
     const db = createCommunityDbRegistry(new QueryClient(), "viewer")
     registries.push(db)
@@ -157,7 +208,7 @@ describe("community DB sync", () => {
       }],
     })
 
-    await expect(publishCommunityChannelDirectory(db.queryClient, {
+    await expect(reconcileCanonicalChannelDirectory(db.queryClient, {
       directory: [{
         id: "s1",
         name: "Server",
@@ -178,7 +229,7 @@ describe("community DB sync", () => {
   it("ingests an unknown legacy directory channel as text", async () => {
     const db = await registry()
 
-    await expect(publishCommunityChannelDirectory(db.queryClient, {
+    await expect(reconcileCanonicalChannelDirectory(db.queryClient, {
       directory: [{
         id: "s1",
         name: "Server",
@@ -243,7 +294,7 @@ describe("community DB sync", () => {
         useCommunityWsStore.setState((state) => ({ accessEpoch: state.accessEpoch + 1 }))
       }
 
-      await expect(publishCommunityLiveSnapshotWithProof(db.queryClient, {
+      await expect(reconcileCommunityLiveSnapshotWithProof(db.queryClient, {
         snapshot: { kind: "dms", data: { conversations: [] } },
         proof: { kind: "structural", token, signal: controller.signal },
       })).rejects.toMatchObject({ name: "AbortError" })
@@ -266,7 +317,7 @@ describe("community DB sync", () => {
     }
 
     expect(publishCommunityDmSummary(db.queryClient, dm)).toBe("published")
-    await publishCommunityLiveSnapshotWithProof(db.queryClient, {
+    await reconcileCommunityLiveSnapshotWithProof(db.queryClient, {
       snapshot: { kind: "dms", data: { conversations: [] } },
       proof: { kind: "structural", token, signal: undefined },
     })
@@ -295,7 +346,7 @@ describe("community DB sync", () => {
       messageId: "m1",
       content: "new WS value",
     } as CommunityWsEvent)
-    await publishCommunityMessages(db.queryClient, {
+    await reconcileCanonicalCommunityMessages(db.queryClient, {
       channelId: "c1",
       messages: [staleMessage],
       proof: { token, signal: undefined },
@@ -321,7 +372,7 @@ describe("community DB sync", () => {
       ...message,
       reactions: [{ emoji: "👍", count: 2, me: true }],
     }))
-    await publishCommunityMessages(db.queryClient, {
+    await reconcileCanonicalCommunityMessages(db.queryClient, {
       channelId: "c1",
       messages: [staleMessage],
       proof: { token, signal: undefined },
@@ -330,6 +381,36 @@ describe("community DB sync", () => {
     expect(db.collections.messages.get("m-local")?.reactions).toEqual([
       { emoji: "👍", count: 2, me: true },
     ])
+  })
+
+  it("releases a message response only after its canonical row is visible", async () => {
+    const db = await registry()
+    let settled = false
+
+    const publication = reconcileCanonicalCommunityMessages(db.queryClient, {
+      channelId: "c-hidden",
+      messages: [{
+        id: "m-hidden",
+        type: "chat",
+        seq: 1,
+        content: "visible before durable bookkeeping",
+        createdAt: "2026-09-29T00:00:00.000Z",
+      }],
+      proof: {
+        token: captureCommunityLiveSnapshotToken(db.queryClient),
+        signal: undefined,
+      },
+    }).then((receipt) => {
+      settled = true
+      return receipt
+    })
+
+    await vi.waitFor(() => {
+      expect(db.collections.messages.get("m-hidden")?.channelId).toBe("c-hidden")
+    })
+    await Promise.resolve()
+    expect(settled).toBe(true)
+    await expect(publication).resolves.toEqual({ status: "published", generation: 1 })
   })
 
   it("merges a WS message edit for an absent row into an older HTTP response", async () => {
@@ -342,7 +423,7 @@ describe("community DB sync", () => {
       messageId: "m1",
       content: "new WS value",
     } as CommunityWsEvent)
-    await publishCommunityMessages(db.queryClient, {
+    await reconcileCanonicalCommunityMessages(db.queryClient, {
       channelId: "c1",
       messages: [{
         id: "m1",
@@ -356,12 +437,8 @@ describe("community DB sync", () => {
 
     expect(db.collections.messages.get("m1")?.content).toBe("new WS value")
 
-    db.collections.messages.delete("m1")
-    db.queryClient.setQueryData(
-      communityKeys.communityDbCollection("viewer", "messages"),
-      [],
-    )
-    await publishCommunityMessages(db.queryClient, {
+    db.collections.messages.utils.writeDelete("m1")
+    await reconcileCanonicalCommunityMessages(db.queryClient, {
       channelId: "c1",
       messages: [{
         id: "m1",
@@ -394,12 +471,8 @@ describe("community DB sync", () => {
       } as CommunityWsEvent)
     }
 
-    db.collections.messages.delete("m1")
-    db.queryClient.setQueryData(
-      communityKeys.communityDbCollection("viewer", "messages"),
-      [],
-    )
-    await publishCommunityMessages(db.queryClient, {
+    db.collections.messages.utils.writeDelete("m1")
+    await reconcileCanonicalCommunityMessages(db.queryClient, {
       channelId: "c1",
       messages: [{
         id: "m1",
@@ -455,7 +528,7 @@ describe("community DB sync", () => {
       channelId: "c1",
       changes: { name: "fresh channel" },
     } as CommunityWsEvent)
-    await publishCommunityLiveSnapshotWithProof(db.queryClient, {
+    await reconcileCommunityLiveSnapshotWithProof(db.queryClient, {
       snapshot: { kind: "server-detail", data: detail },
       proof: { kind: "structural", token, signal: undefined },
     })
@@ -473,7 +546,7 @@ describe("community DB sync", () => {
     const token = captureCommunityLiveSnapshotToken(db.queryClient)
 
     applyCommunityServerPatch(db.queryClient, "s1", { name: "Fresh server" })
-    await publishCommunityLiveSnapshotWithProof(db.queryClient, {
+    await reconcileCommunityLiveSnapshotWithProof(db.queryClient, {
       snapshot: {
         kind: "server-detail",
         data: {
@@ -495,20 +568,15 @@ describe("community DB sync", () => {
     expect(db.collections.channels.get("c1")?.name).toBe("general")
   })
 
-  it("waits for the persisted server commit before completing tree publication", async () => {
-    const delayedCommit = deferred()
-    let detailCommitCalled = false
-    let detailCommitSettled = false
+
+  it("publishes a cold server tree atomically without waiting for persistence bookkeeping", async () => {
+    const delayedTreeCommit = deferred()
+    const pendingTreeCollections = new Set<string>()
     const applyCommittedTx: PersistedCollectionPersistence["adapter"]["applyCommittedTx"] =
-      vi.fn(async (collectionId, transaction) => {
-        const completesServer = collectionId.endsWith(":servers")
-          && transaction.mutations.some((mutation) => (
-            "value" in mutation && mutation.value.detailComplete === true
-          ))
-        if (completesServer) {
-          detailCommitCalled = true
-          await delayedCommit.promise
-          detailCommitSettled = true
+      vi.fn(async (collectionId) => {
+        if (collectionId.endsWith(":categories") || collectionId.endsWith(":channels")) {
+          pendingTreeCollections.add(collectionId)
+          await delayedTreeCommit.promise
         }
       })
     const persistence: PersistedCollectionPersistence = {
@@ -528,14 +596,7 @@ describe("community DB sync", () => {
     }] })
     await vi.waitFor(() => expect(db.collections.servers.has("s1")).toBe(true))
 
-    let completed = false
-    const timeline = [{
-      phase: "baseline",
-      commit: detailCommitCalled ? "called" : "idle",
-      row: db.collections.servers.get("s1")?.detailComplete,
-      publication: completed ? "settled" : "pending",
-    }]
-    const publication = publishCommunityLiveSnapshot(db.queryClient, {
+    const publication = reconcileCommunityLiveSnapshot(db.queryClient, {
       kind: "server-detail",
       data: {
         id: "s1", name: "Server", discriminator: "0001", description: "",
@@ -545,64 +606,21 @@ describe("community DB sync", () => {
           }],
         }],
       },
-    }).then((receipt) => {
-      completed = true
-      return receipt
     })
 
-    await vi.waitFor(() => expect(applyCommittedTx).toHaveBeenCalledWith(
-      "community-db:viewer:servers",
-      expect.objectContaining({
-        mutations: expect.arrayContaining([
-          expect.objectContaining({
-            type: "update",
-            value: expect.objectContaining({ id: "s1", detailComplete: true }),
-          }),
-        ]),
-      }),
-    ))
-    expect(completed).toBe(false)
-    timeline.push({
-      phase: "receipt-pending",
-      commit: detailCommitSettled ? "settled" : "called",
-      row: db.collections.servers.get("s1")?.detailComplete,
-      publication: completed ? "settled" : "pending",
-    })
-
-    const currentSnapshot = db.queryClient.getQueryData<ServersResponse>(
-      serversCollectionQueryKey(),
-    )!
-    db.queryClient.setQueryData<ServersResponse>(serversCollectionQueryKey(), {
-      ...currentSnapshot,
-      servers: currentSnapshot.servers.map((server) => ({
-        ...server,
-        detailComplete: false,
-      })),
-    })
-    await vi.waitFor(() => {
+    try {
+      await vi.waitFor(() => {
+        expect([...pendingTreeCollections].some((id) => id.endsWith(":categories"))).toBe(true)
+        expect([...pendingTreeCollections].some((id) => id.endsWith(":channels"))).toBe(true)
+      })
       expect(db.collections.servers.get("s1")?.detailComplete).toBe(true)
-    })
-    timeline.push({
-      phase: "stale-result-applied",
-      commit: detailCommitSettled ? "settled" : "called",
-      row: db.collections.servers.get("s1")?.detailComplete,
-      publication: completed ? "settled" : "pending",
-    })
+      expect(db.collections.categories.get("cat1")?.serverId).toBe("s1")
+      expect(db.collections.channels.get("c1")?.serverId).toBe("s1")
+    } finally {
+      delayedTreeCommit.resolve()
+      await publication
+    }
 
-    delayedCommit.resolve()
-    await expect(publication).resolves.toEqual({ status: "published", generation: 1 })
-    timeline.push({
-      phase: "receipt-settled",
-      commit: detailCommitSettled ? "settled" : "called",
-      row: db.collections.servers.get("s1")?.detailComplete,
-      publication: completed ? "settled" : "pending",
-    })
-    expect(timeline).toEqual([
-      { phase: "baseline", commit: "idle", row: false, publication: "pending" },
-      { phase: "receipt-pending", commit: "called", row: true, publication: "pending" },
-      { phase: "stale-result-applied", commit: "called", row: true, publication: "pending" },
-      { phase: "receipt-settled", commit: "settled", row: true, publication: "settled" },
-    ])
     expect(db.collections.servers.get("s1")?.detailComplete).toBe(true)
     expect(db.collections.categories.get("cat1")?.serverId).toBe("s1")
     expect(db.collections.channels.get("c1")?.serverId).toBe("s1")
@@ -620,12 +638,10 @@ describe("community DB sync", () => {
         servers: Array<{ id: string; detailComplete: boolean }>
       }>(serversCollectionQueryKey())?.servers.find((row) => row.id === "s1")
       if (!server?.detailComplete) return
-      const categoryIds = db.queryClient.getQueryData<Array<{ id: string; serverId: string }>>(
-        communityKeys.communityDbCollection(db.scopeId, "categories"),
-      )?.filter((row) => row.serverId === "s1").map((row) => row.id) ?? []
-      const channelIds = db.queryClient.getQueryData<Array<{ id: string; serverId?: string | null }>>(
-        communityKeys.communityDbCollection(db.scopeId, "channels"),
-      )?.filter((row) => row.serverId === "s1").map((row) => row.id) ?? []
+      const categoryIds = [...db.collections.categories.values()]
+        .filter((row) => row.serverId === "s1").map((row) => row.id)
+      const channelIds = [...db.collections.channels.values()]
+        .filter((row) => row.serverId === "s1").map((row) => row.id)
       completeSnapshots.push({ categoryIds, channelIds })
     })
 
@@ -664,44 +680,21 @@ describe("community DB sync", () => {
       }],
     }
     ingestServerDetail(db, detail)
-    const snapshots: Array<{
-      complete: boolean | undefined
-      categoryIds: string[]
-      channelIds: string[]
-    }> = []
-    const unsubscribe = db.queryClient.getQueryCache().subscribe(() => {
-      const complete = db.queryClient.getQueryData<{
-        servers: Array<{ id: string; detailComplete: boolean }>
-      }>(serversCollectionQueryKey())?.servers.find((row) => row.id === "s1")?.detailComplete
-      const categoryIds = db.queryClient.getQueryData<Array<{ id: string; serverId: string }>>(
-        communityKeys.communityDbCollection(db.scopeId, "categories"),
-      )?.filter((row) => row.serverId === "s1").map((row) => row.id) ?? []
-      const channelIds = db.queryClient.getQueryData<Array<{ id: string; serverId?: string | null }>>(
-        communityKeys.communityDbCollection(db.scopeId, "channels"),
-      )?.filter((row) => row.serverId === "s1").map((row) => row.id) ?? []
-      snapshots.push({ complete, categoryIds, channelIds })
+    expect(db.collections.servers.get("s1")?.detailComplete).toBe(true)
+
+    ingestServerDetail(db, {
+      ...detail,
+      name: "Server renamed",
+      categories: [{
+        ...detail.categories[0],
+        name: "General renamed",
+        channels: [{ ...detail.categories[0].channels[0], name: "chat" }],
+      }],
     })
 
-    try {
-      ingestServerDetail(db, {
-        ...detail,
-        name: "Server renamed",
-        categories: [{
-          ...detail.categories[0],
-          name: "General renamed",
-          channels: [{ ...detail.categories[0].channels[0], name: "chat" }],
-        }],
-      })
-    } finally {
-      unsubscribe()
-    }
-
-    expect(snapshots.length).toBeGreaterThan(0)
-    expect(snapshots.every((snapshot) => (
-      snapshot.complete === true
-      && snapshot.categoryIds.includes("cat1")
-      && snapshot.channelIds.includes("c1")
-    ))).toBe(true)
+    expect(db.collections.servers.get("s1")?.detailComplete).toBe(true)
+    expect(db.collections.categories.get("cat1")?.name).toBe("General renamed")
+    expect(db.collections.channels.get("c1")?.name).toBe("chat")
   })
 
   it("merges a WS channel update for an absent row into older HTTP", async () => {
@@ -723,7 +716,7 @@ describe("community DB sync", () => {
       channelId: "c1",
       changes: { name: "fresh channel" },
     } as CommunityWsEvent)
-    await publishCommunityLiveSnapshotWithProof(db.queryClient, {
+    await reconcileCommunityLiveSnapshotWithProof(db.queryClient, {
       snapshot: { kind: "server-detail", data: detail },
       proof: { kind: "structural", token, signal: undefined },
     })
@@ -754,7 +747,7 @@ describe("community DB sync", () => {
       serverId: "s1",
       channelId: "c1",
     } as CommunityWsEvent)
-    await expect(publishCommunityLiveSnapshotWithProof(db.queryClient, {
+    await expect(reconcileCommunityLiveSnapshotWithProof(db.queryClient, {
       snapshot: { kind: "server-detail", data: detail },
       proof: { kind: "structural", token, signal: undefined },
     })).rejects.toMatchObject({ name: "AbortError" })
@@ -779,7 +772,7 @@ describe("community DB sync", () => {
       serverId: "s1",
       channelId: "c1",
     } as CommunityWsEvent)
-    await expect(publishCommunityLiveSnapshotWithProof(db.queryClient, {
+    await expect(reconcileCommunityLiveSnapshotWithProof(db.queryClient, {
       snapshot: { kind: "server-detail", data: detail },
       proof: { kind: "structural", token, signal: undefined },
     })).resolves.toEqual({ status: "published", generation: 1 })
@@ -789,7 +782,7 @@ describe("community DB sync", () => {
 
   it("rejects a superseded read-state freshness proof before replacement", async () => {
     const db = await registry()
-    await publishCommunityLiveSnapshot(db.queryClient, {
+    await reconcileCommunityLiveSnapshot(db.queryClient, {
       kind: "read-state",
       data: {
         revision: 1,
@@ -801,7 +794,7 @@ describe("community DB sync", () => {
     })
     const token = captureCommunityLiveSnapshotToken(db.queryClient)
 
-    await expect(publishCommunityLiveSnapshotWithProof(db.queryClient, {
+    await expect(reconcileCommunityLiveSnapshotWithProof(db.queryClient, {
       snapshot: {
         kind: "read-state",
         data: {
@@ -948,7 +941,7 @@ describe("community DB sync", () => {
     expect(db.collections.channels.get("ignored")).toBeUndefined()
     expect(db.collections.messages.get("page-message")).toBeUndefined()
     expect(db.collections.messages.get("context-message")).toBeUndefined()
-    expect(db.collections.readStateClock.get("account")).toBeUndefined()
+    expect(db.collections.readStateClock.get("account")?.revision).toBe(0)
     expect([...db.collections.notificationSettings.keys()]).toEqual([])
     uninstall()
   })
@@ -995,22 +988,22 @@ describe("community DB sync", () => {
     })
 
     ingestServers(db, { servers: [server("merge-s1"), server("merge-s2")] })
-    await publishCommunityLiveSnapshot(db.queryClient, {
+    await reconcileCommunityLiveSnapshot(db.queryClient, {
       kind: "server-detail",
       data: detail(["merge-c1", "merge-c2"]),
     })
-    await publishCommunityLiveSnapshot(db.queryClient, {
+    await reconcileCommunityLiveSnapshot(db.queryClient, {
       kind: "dms",
       data: { conversations: [dm("merge-dm1", "peer1"), dm("merge-dm2", "peer2")] },
     })
-    await publishCommunityLiveSnapshot(db.queryClient, {
+    await reconcileCommunityLiveSnapshot(db.queryClient, {
       kind: "folders",
       data: { folders: [
         { id: "merge-f1", name: "One", position: 0, servers: [] },
         { id: "merge-f2", name: "Two", position: 1, servers: [] },
       ] },
     })
-    await publishCommunityLiveSnapshot(db.queryClient, {
+    await reconcileCommunityLiveSnapshot(db.queryClient, {
       kind: "read-state",
       data: {
         revision: 1,
@@ -1020,7 +1013,7 @@ describe("community DB sync", () => {
         ],
       },
     })
-    await publishCommunityLiveSnapshot(db.queryClient, {
+    await reconcileCommunityLiveSnapshot(db.queryClient, {
       kind: "notification-settings",
       data: {
         raw: [
@@ -1104,15 +1097,15 @@ describe("community DB sync", () => {
     })
 
     ingestServers(db, { servers: [server("live-s1"), server("live-s2")] })
-    await publishCommunityLiveSnapshot(db.queryClient, {
+    await reconcileCommunityLiveSnapshot(db.queryClient, {
       kind: "server-detail",
       data: detail(["live-c1", "live-c2"]),
     })
-    await publishCommunityLiveSnapshot(db.queryClient, {
+    await reconcileCommunityLiveSnapshot(db.queryClient, {
       kind: "dms",
       data: { conversations: [dm("live-dm1", "peer1"), dm("live-dm2", "peer2")] },
     })
-    await publishCommunityLiveSnapshot(db.queryClient, {
+    await reconcileCommunityLiveSnapshot(db.queryClient, {
       kind: "folders",
       data: { folders: [
         {
@@ -1129,7 +1122,7 @@ describe("community DB sync", () => {
         },
       ] },
     })
-    await publishCommunityLiveSnapshot(db.queryClient, {
+    await reconcileCommunityLiveSnapshot(db.queryClient, {
       kind: "read-state",
       data: {
         revision: 1,
@@ -1139,7 +1132,7 @@ describe("community DB sync", () => {
         ],
       },
     })
-    await publishCommunityLiveSnapshot(db.queryClient, {
+    await reconcileCommunityLiveSnapshot(db.queryClient, {
       kind: "notification-settings",
       data: {
         raw: [
@@ -1151,15 +1144,15 @@ describe("community DB sync", () => {
       },
     })
 
-    await publishCommunityLiveSnapshot(db.queryClient, {
+    await reconcileCommunityLiveSnapshot(db.queryClient, {
       kind: "server-detail",
       data: detail(["live-c1"]),
     })
-    await publishCommunityLiveSnapshot(db.queryClient, {
+    await reconcileCommunityLiveSnapshot(db.queryClient, {
       kind: "dms",
       data: { conversations: [dm("live-dm1", "peer1")] },
     })
-    await publishCommunityLiveSnapshot(db.queryClient, {
+    await reconcileCommunityLiveSnapshot(db.queryClient, {
       kind: "folders",
       data: { folders: [{
         id: "live-f1",
@@ -1168,7 +1161,7 @@ describe("community DB sync", () => {
         servers: [{ id: "live-s1", name: "Live one", initial: "L", icon: null }],
       }] },
     })
-    await publishCommunityLiveSnapshot(db.queryClient, {
+    await reconcileCommunityLiveSnapshot(db.queryClient, {
       kind: "read-state",
       data: {
         revision: 2,
@@ -1180,7 +1173,7 @@ describe("community DB sync", () => {
         }],
       },
     })
-    await publishCommunityLiveSnapshot(db.queryClient, {
+    await reconcileCommunityLiveSnapshot(db.queryClient, {
       kind: "notification-settings",
       data: {
         raw: [{ serverId: "live-s1", level: "nothing" }],
@@ -1376,12 +1369,12 @@ describe("community DB sync", () => {
       limit: 100,
       truncated: false,
     })
-    const token = captureCommunityLiveSnapshotToken(db.queryClient)
-
-    await expect(publishAccountAttentionSnapshot(db.queryClient, {
-      snapshot: { scopes: [], items: [], limit: 100, truncated: false },
-      proof: { token, signal: undefined },
-    })).resolves.toEqual({ status: "published", generation: 1 })
+    expect(ingestAttentionSnapshot(db, {
+      scopes: [],
+      items: [],
+      limit: 100,
+      truncated: false,
+    })).toBe("applied")
     expect(db.collections.attentionScopes.get("c1")).toBeUndefined()
   })
 
@@ -1472,6 +1465,120 @@ describe("community DB sync", () => {
     })
   })
 
+  it("hydrates included owners directly when the raw account channel resource is absent", async () => {
+    const db = await registry()
+    ingestDms(db, { conversations: [{
+      id: "existing",
+      userId: "peer-existing",
+      name: "Existing",
+      discriminator: "0002",
+      avatar: "E",
+      avatarVersion: 1,
+      status: "offline",
+      preview: "keep preview",
+      activityAt: "2026-09-27T00:00:01.000Z",
+      unread: false,
+    }] })
+    const existing = db.collections.channels.get("existing")!
+    db.collections.channels.utils.writeUpdate({
+      id: "existing",
+      position: 7,
+      muted: true,
+      preview: "keep preview",
+    })
+    db.queryClient.removeQueries({ queryKey: dmsResourceKey("viewer"), exact: true })
+
+    ingestAttentionIncluded(db, {
+      servers: [{ id: "server", name: "Server", discriminator: "0001" }],
+      channels: [{
+        id: "channel",
+        serverId: "server",
+        name: "General",
+        type: "text",
+        parentChannelId: null,
+        parentMessageId: null,
+        creatorId: null,
+        archived: false,
+        lastMessageAt: null,
+      }],
+      dms: [{
+        id: "existing",
+        userId: "peer-existing",
+        name: "Existing",
+        discriminator: "0002",
+        avatar: "E",
+        avatarVersion: 2,
+        lastMessageAt: "2026-09-29T00:00:01.000Z",
+        lastUnreadSeq: 7,
+      }, {
+        id: "new",
+        userId: "peer-new",
+        name: "New",
+        discriminator: "0003",
+        avatar: "N",
+        avatarVersion: 1,
+        lastMessageAt: "2026-09-29T00:00:02.000Z",
+        lastUnreadSeq: 8,
+      }],
+      profiles: [{
+        userId: "peer-new",
+        name: "New",
+        discriminator: "0003",
+        avatar: "N",
+        avatarVersion: 1,
+      }],
+      messages: [{
+        id: "message",
+        channelId: "channel",
+        type: "chat",
+        seq: 1,
+        createdAt: "2026-09-29T00:00:03.000Z",
+        content: "hello",
+      }],
+    })
+
+    expect(db.collections.channels.get("channel")).toMatchObject({ serverId: "server" })
+    expect(db.collections.channels.get("existing")).toMatchObject({
+      position: 7,
+      muted: true,
+      preview: "keep preview",
+      lastUnreadSeq: 7,
+    })
+    expect(db.collections.channels.get("new")).toMatchObject({
+      position: 1,
+      muted: false,
+      preview: "",
+      lastUnreadSeq: 8,
+    })
+    expect(db.collections.channelMemberships.get("channel:viewer:access")).toBeDefined()
+    expect(db.collections.channelMemberships.get("new:peer-new:access")).toBeDefined()
+    expect(db.collections.profiles.get("peer-new")?.name).toBe("New")
+    expect(db.collections.messages.get("message")?.channelId).toBe("channel")
+    expect(existing.id).toBe("existing")
+  })
+
+  it("hydrates included rows without viewer memberships for an anonymous registry", async () => {
+    const db = createCommunityDbRegistry(new QueryClient(), "")
+    registries.push(db)
+    await db.preload()
+
+    ingestAttentionIncluded(db, {
+      dms: [{
+        id: "anonymous-dm",
+        userId: "peer",
+        name: "Peer",
+        discriminator: "0001",
+        avatar: "P",
+        avatarVersion: 1,
+        lastMessageAt: null,
+        lastUnreadSeq: 1,
+      }],
+    })
+
+    expect(db.collections.channels.get("anonymous-dm")?.type).toBe("dm")
+    expect([...db.collections.channelMemberships.values()]).toEqual([])
+  })
+
   it("updates every affected scope when attention items are removed", async () => {
     const db = await registry()
     const scope = (
@@ -1518,11 +1625,7 @@ describe("community DB sync", () => {
       db,
       (entry) => entry.sourceId !== "keep",
     )
-    const token = captureCommunityLiveSnapshotToken(db.queryClient)
-    await expect(publishAccountAttentionSnapshot(db.queryClient, {
-      snapshot,
-      proof: { token, signal: undefined },
-    })).resolves.toEqual({ status: "published", generation: 1 })
+    expect(ingestAttentionSnapshot(db, snapshot)).toBe("applied")
 
     await vi.waitFor(() => {
       expect(db.collections.attentionScopes.get("multiple")).toMatchObject({
@@ -1554,20 +1657,22 @@ describe("community DB sync", () => {
     ingestAttentionSnapshot(db, { scopes: [scope], items: [], limit: 100, truncated: false })
 
     const before = clearAttentionOptimistically(db)
-    const beforeToken = captureCommunityLiveSnapshotToken(db.queryClient)
-    await publishAccountAttentionSnapshot(db.queryClient, {
-      snapshot: { scopes: [scope], items: [], limit: 100, truncated: false },
-      proof: { token: beforeToken, signal: undefined },
+    ingestAttentionSnapshot(db, {
+      scopes: [scope],
+      items: [],
+      limit: 100,
+      truncated: false,
     })
     expect(db.collections.attentionScopes.get("c1")).toBeUndefined()
     commitAttentionOptimisticSnapshot(db, before)
 
     ingestAttentionSnapshot(db, { scopes: [scope], items: [], limit: 100, truncated: false })
-    const duringToken = captureCommunityLiveSnapshotToken(db.queryClient)
     const during = clearAttentionOptimistically(db)
-    await publishAccountAttentionSnapshot(db.queryClient, {
-      snapshot: { scopes: [scope], items: [], limit: 100, truncated: false },
-      proof: { token: duringToken, signal: undefined },
+    ingestAttentionSnapshot(db, {
+      scopes: [scope],
+      items: [],
+      limit: 100,
+      truncated: false,
     })
     expect(db.collections.attentionScopes.get("c1")).toBeUndefined()
     commitAttentionOptimisticSnapshot(db, during)
@@ -1745,11 +1850,7 @@ describe("community DB sync", () => {
           truncated: true,
           included: { servers: [], channels: [], dms: [], profiles: [], messages: [] },
         }
-        const reconcileToken = captureCommunityLiveSnapshotToken(db.queryClient)
-        await publishAccountAttentionSnapshot(db.queryClient, {
-          snapshot: newerSnapshot,
-          proof: { token: reconcileToken },
-        })
+        ingestAttentionSnapshot(db, newerSnapshot)
         expect(restoreAttentionScopeOptimisticSnapshot(db, optimistic)).toBe(true)
         ingestAttentionSnapshot(db, newerSnapshot)
         expect(db.collections.attentionScopes.get("c1")?.attentionCount).toBe(2)
@@ -1848,8 +1949,7 @@ describe("community DB sync", () => {
       actorUserId: "u2",
       createdAt: `2026-09-27T01:0${seq}:00.000Z`,
     }))
-    const reconcileToken = captureCommunityLiveSnapshotToken(db.queryClient)
-    await publishAccountAttentionSnapshot(db.queryClient, { snapshot: {
+    ingestAttentionSnapshot(db, {
       scopes: [{
         scopeId: "c1",
         channelId: "c1",
@@ -1864,7 +1964,7 @@ describe("community DB sync", () => {
       limit: 100,
       truncated: false,
       included: { servers: [], channels: [], dms: [], profiles: [], messages: [] },
-    }, proof: { token: reconcileToken } })
+    })
     const oldest = clearAttentionScopeOptimistically(db, "c1", 4)
     const middle = clearAttentionScopeOptimistically(db, "c1", 5)
     const newest = clearAttentionScopeOptimistically(db, "c1", 6)
@@ -2254,29 +2354,6 @@ describe("community DB sync", () => {
     expect(db.collections.categories.get("cat1")).toBeUndefined()
     expect(db.collections.channels.get("c1")).toBeUndefined()
     expect(db.collections.channels.get("dm1")).toBeDefined()
-  })
-
-  it("purges a scoped raw single-message query before it materializes canonically", async () => {
-    const db = await registry()
-    rememberMessageAccessScope(db.queryClient, "cold-opener", {
-      channelId: "detail-not-loaded",
-      serverId: "s1",
-    })
-    db.queryClient.setQueryData(communityKeys.message("cold-opener"), {
-      id: "cold-opener",
-      type: "chat",
-      authorId: "peer",
-      authorName: "Peer",
-      authorAvatar: "P",
-      authorAvatarVersion: 0,
-      content: "raw only",
-      createdAt: "2026-09-25T00:00:00.000Z",
-    })
-
-    expect(db.collections.messages.get("cold-opener")).toBeUndefined()
-    purgeCommunityServer(db, "s1")
-
-    expect(db.queryClient.getQueryState(communityKeys.message("cold-opener"))).toBeUndefined()
   })
 
   it("purges only the selected child channel without removing its parent or siblings", async () => {

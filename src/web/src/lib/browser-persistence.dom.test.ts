@@ -2,9 +2,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { waitFor } from "@/test/react-dom-harness"
 
 const adapter = vi.hoisted(() => ({
+  applyCommittedTx: vi.fn(() => Promise.resolve()),
   close: vi.fn(() => Promise.resolve()),
-  create: vi.fn(() => ({ kind: "persistence" })),
+  create: vi.fn(() => ({
+    adapter: {
+      applyCommittedTx: adapter.applyCommittedTx,
+      ensureIndex: adapter.ensureIndex,
+      loadSubset: adapter.loadSubset,
+    },
+  })),
   dispose: vi.fn(),
+  ensureIndex: vi.fn(() => Promise.resolve()),
   execute: vi.fn((sql: string) => Promise.resolve([
     sql.includes("page_count")
       ? { page_count: 4 }
@@ -12,22 +20,34 @@ const adapter = vi.hoisted(() => ({
         ? { page_size: 1024 }
         : { freelist_count: 0 },
   ])),
+  loadSubset: vi.fn(() => Promise.resolve([])),
   open: vi.fn(),
 }))
 
-vi.mock("@tanstack/browser-db-sqlite-persistence", () => ({
-  BrowserCollectionCoordinator: class {
-    dispose = adapter.dispose
-  },
-  createBrowserWASQLitePersistence: adapter.create,
-  openBrowserWASQLiteOPFSDatabase: adapter.open,
-}))
+vi.mock("@tanstack/browser-db-sqlite-persistence", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@tanstack/browser-db-sqlite-persistence")>()
+  return {
+    ...actual,
+    BrowserCollectionCoordinator: class {
+      dispose = adapter.dispose
+      ensureLeadership = vi.fn(() => Promise.resolve())
+      getNodeId = vi.fn(() => "browser-persistence-test-node")
+      isLeader = vi.fn(() => true)
+      publish = vi.fn()
+      requestEnsurePersistedIndex = vi.fn(() => Promise.resolve())
+      subscribe = vi.fn(() => () => {})
+    },
+    createBrowserWASQLitePersistence: adapter.create,
+    openBrowserWASQLiteOPFSDatabase: adapter.open,
+  }
+})
 
 import {
   clearAllPersistedCaches,
   formatBytes,
   getBrowserPersistenceRuntime,
   getPersistedCacheSizeBytes,
+  rebuildBrowserPersistenceRuntime,
   registerPersistenceClearScope,
   resetBrowserPersistenceForTests,
 } from "./browser-persistence"
@@ -46,9 +66,11 @@ function enableCapabilities() {
 
 beforeEach(async () => {
   await resetBrowserPersistenceForTests()
+  adapter.applyCommittedTx.mockClear()
   adapter.close.mockClear()
   adapter.create.mockClear()
   adapter.dispose.mockClear()
+  adapter.ensureIndex.mockClear()
   adapter.execute.mockReset()
   adapter.execute.mockImplementation((sql: string) => Promise.resolve([
     sql.includes("page_count")
@@ -57,6 +79,7 @@ beforeEach(async () => {
         ? { page_size: 1024 }
         : { freelist_count: 0 },
   ]))
+  adapter.loadSubset.mockClear()
   adapter.open.mockReset()
   adapter.open.mockResolvedValue({
     close: adapter.close,
@@ -105,6 +128,7 @@ describe("browser persistence runtime", () => {
 
     await waitFor(() => expect(runtime.mode).toBe("memory"))
     expect(runtime.persistence).toBeNull()
+    expect(await runtime.inspectCollection("messages")).toBeNull()
     expect(adapter.open).not.toHaveBeenCalled()
   })
 
@@ -198,6 +222,74 @@ describe("browser persistence runtime", () => {
     expect(adapter.close).toHaveBeenCalledOnce()
   })
 
+  it("inspects persisted collection mappings and fences closed runtimes", async () => {
+    enableCapabilities()
+    const runtime = await getBrowserPersistenceRuntime()
+    adapter.execute
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ collection_id: "bad", schema_version: 1, table_name: "bad-name", tombstone_table_name: "bad_tombstones" }])
+      .mockResolvedValueOnce([{ collection_id: "messages", schema_version: 2, table_name: "messages_v2", tombstone_table_name: "messages_v2_tombstones" }])
+      .mockResolvedValueOnce([{ key: "a" }, { key: "b" }])
+
+    expect(await runtime.inspectCollection("missing")).toBeNull()
+    expect(await runtime.inspectCollection("bad")).toBeNull()
+    expect(await runtime.inspectCollection("messages")).toEqual({
+      collectionId: "messages",
+      rowKeys: ["a", "b"],
+      schemaVersion: 2,
+      tableName: "messages_v2",
+      tombstoneTableName: "messages_v2_tombstones",
+    })
+
+    await runtime.close()
+    expect(await runtime.inspectCollection("messages")).toBeNull()
+  })
+
+  it("rebuilds by closing and discarding the active runtime", async () => {
+    enableCapabilities()
+    const first = await getBrowserPersistenceRuntime()
+
+    await rebuildBrowserPersistenceRuntime()
+    const second = await getBrowserPersistenceRuntime()
+
+    expect(second).not.toBe(first)
+    expect(adapter.dispose).toHaveBeenCalledOnce()
+    expect(adapter.close).toHaveBeenCalledOnce()
+    expect(adapter.open).toHaveBeenCalledTimes(2)
+  })
+
+  it("clears an inactive account through a temporary persisted registry", async () => {
+    enableCapabilities()
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      const body = url.endsWith("/api/community/users/me/read-state")
+        ? { revision: 0, readStates: [] }
+        : url.endsWith("/api/community/users/me/attention")
+          ? {
+              scopes: [], items: [], limit: 100, truncated: false,
+              included: { servers: [], channels: [], dms: [], profiles: [], messages: [] },
+            }
+          : url.endsWith("/api/community/users/me/dms")
+            ? { conversations: [] }
+        : url.endsWith("/api/community/users/me/server-folders")
+          ? { folders: [] }
+          : url.endsWith("/api/community/users/me/notifications")
+            ? []
+            : null
+      if (body === null) throw new Error(`unexpected API fetch: ${url}`)
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    }))
+    await getBrowserPersistenceRuntime()
+    const { clearCommunityPersistenceForAccount } = await import("./community-db/collections")
+
+    await clearCommunityPersistenceForAccount("inactive-account")
+
+    expect(adapter.loadSubset).toHaveBeenCalled()
+  })
+
   it("falls back to memory when the OPFS worker cannot initialize", async () => {
     enableCapabilities()
     adapter.open.mockRejectedValueOnce(new Error("worker blocked"))
@@ -247,5 +339,175 @@ describe("browser persistence runtime", () => {
     expect(formatBytes(1536)).toBe("1.5 KB")
     expect(formatBytes(2 * 1024 ** 2)).toBe("2.0 MB")
     expect(await getPersistedCacheSizeBytes()).toBe(4096)
+  })
+})
+
+type OfficialPersistencePackage = typeof import("@tanstack/browser-db-sqlite-persistence")
+
+type AdapterWithStreamPosition = OfficialPersistencePackage["createBrowserWASQLitePersistence"] extends (
+  ...args: never[]
+) => infer TPersistence
+  ? TPersistence extends { adapter: infer TAdapter }
+    ? TAdapter & {
+      getStreamPosition?: (collectionId: string) => Promise<{
+        latestTerm: number
+        latestSeq: number
+        latestRowVersion: number
+      }>
+    }
+    : never
+  : never
+
+function deferred<T = void>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise
+  })
+  return { promise, resolve }
+}
+
+async function officialRuntime() {
+  vi.resetModules()
+  const actual = await vi.importActual<OfficialPersistencePackage>(
+    "@tanstack/browser-db-sqlite-persistence",
+  )
+  const database = {
+    close: vi.fn(() => Promise.resolve()),
+    execute: vi.fn(() => Promise.resolve([])),
+  }
+  const broadcastChannels: Array<{ close: ReturnType<typeof vi.fn> }> = []
+  class TestBroadcastChannel {
+    close = vi.fn()
+    onmessage: ((event: MessageEvent) => void) | null = null
+    postMessage = vi.fn()
+
+    constructor(_name: string) {
+      broadcastChannels.push(this)
+    }
+  }
+  vi.stubGlobal("Worker", class {})
+  vi.stubGlobal("BroadcastChannel", TestBroadcastChannel)
+  vi.stubGlobal("navigator", {
+    ...originalNavigator,
+    storage: { getDirectory: vi.fn() },
+    locks: {
+      request: vi.fn(async (
+        _name: string,
+        _options: LockOptions,
+        callback: () => Promise<void>,
+      ) => callback()),
+    },
+  })
+  vi.doMock("@tanstack/browser-db-sqlite-persistence", () => ({
+    ...actual,
+    openBrowserWASQLiteOPFSDatabase: vi.fn(() => Promise.resolve(database)),
+  }))
+  const runtimeModule = await import("./browser-persistence")
+  const runtime = await runtimeModule.getBrowserPersistenceRuntime()
+  if (!runtime.persistence) throw new Error("official persistence runtime unavailable")
+  return { actual, broadcastChannels, database, runtime, runtimeModule }
+}
+
+function resolveOfficialAdapters(
+  persistence: NonNullable<Awaited<ReturnType<typeof officialRuntime>>["runtime"]["persistence"]>,
+) {
+  const resolveCollection = persistence.resolvePersistenceForCollection
+  const resolveMode = persistence.resolvePersistenceForMode
+  if (!resolveCollection || !resolveMode) {
+    throw new Error("official persistence resolvers unavailable")
+  }
+  const collectionId = "community-db:test:servers"
+  const servers = resolveCollection({ collectionId, mode: "sync-present", schemaVersion: 1 })
+  const serversAgain = resolveCollection({ collectionId, mode: "sync-present", schemaVersion: 1 })
+  const channels = resolveCollection({
+    collectionId: "community-db:test:channels",
+    mode: "sync-present",
+    schemaVersion: 2,
+  })
+  const mode = resolveMode("sync-present")
+  return { channels, collectionId, mode, servers, serversAgain }
+}
+
+describe("official browser coordinator adapter routing", () => {
+  it("keeps a clean-db servers preload and leader restore on the v1 adapter", async () => {
+    const { actual, broadcastChannels, database, runtime, runtimeModule } = await officialRuntime()
+    const { channels, collectionId, mode, servers, serversAgain } = resolveOfficialAdapters(
+      runtime.persistence!,
+    )
+    const preloadStarted = deferred()
+    const releasePreload = deferred()
+    const preloadFinished = deferred()
+    const v1Restore = vi.fn(async () => {
+      await preloadFinished.promise
+      return { latestTerm: 0, latestSeq: 0, latestRowVersion: 0 }
+    })
+    const v2Restore = vi.fn(async () => (
+      { latestTerm: 0, latestSeq: 0, latestRowVersion: 0 }
+    ))
+    ;(servers.adapter as AdapterWithStreamPosition).loadSubset = vi.fn(async () => {
+      preloadStarted.resolve()
+      await releasePreload.promise
+      preloadFinished.resolve()
+      return []
+    })
+    ;(servers.adapter as AdapterWithStreamPosition).getStreamPosition = v1Restore
+    ;(channels.adapter as AdapterWithStreamPosition).getStreamPosition = v2Restore
+
+    const preload = servers.adapter.loadSubset(collectionId, {})
+    await preloadStarted.promise
+    const unsubscribe = servers.coordinator!.subscribe(collectionId, () => {})
+    try {
+      await waitFor(() => expect(v1Restore.mock.calls.length + v2Restore.mock.calls.length).toBe(1))
+      releasePreload.resolve()
+      await preload
+
+      expect(runtime.persistence!.coordinator).toBe(mode.coordinator)
+      expect(mode.adapter).toBe(runtime.persistence!.adapter)
+      expect(serversAgain.adapter).toBe(servers.adapter)
+      expect(serversAgain.coordinator).toBe(servers.coordinator)
+      expect(servers.coordinator).toBeInstanceOf(actual.BrowserCollectionCoordinator)
+      expect(channels.coordinator).toBeInstanceOf(actual.BrowserCollectionCoordinator)
+      expect(channels.coordinator).not.toBe(servers.coordinator)
+      expect(v1Restore).toHaveBeenCalledWith(collectionId)
+      expect(v2Restore).not.toHaveBeenCalled()
+    } finally {
+      releasePreload.resolve()
+      preloadFinished.resolve()
+      unsubscribe()
+      await runtimeModule.resetBrowserPersistenceForTests()
+    }
+    expect(database.close).toHaveBeenCalledOnce()
+    expect(broadcastChannels.length).toBeGreaterThanOrEqual(3)
+    expect(broadcastChannels.every(({ close }) => close.mock.calls.length === 1)).toBe(true)
+  })
+
+  it("keeps an existing v1 servers registry on v1 after resolving v2", async () => {
+    const { actual, runtime, runtimeModule } = await officialRuntime()
+    const { channels, collectionId, servers } = resolveOfficialAdapters(runtime.persistence!)
+    const registry = new Map([[collectionId, { schemaVersion: 1, tableReady: true }]])
+    const v1Restore = vi.fn(async (id: string) => {
+      expect(registry.get(id)).toEqual({ schemaVersion: 1, tableReady: true })
+      return { latestTerm: 2, latestSeq: 3, latestRowVersion: 4 }
+    })
+    const v2Restore = vi.fn(async (id: string) => {
+      registry.set(id, { schemaVersion: 2, tableReady: false })
+      return { latestTerm: 0, latestSeq: 0, latestRowVersion: 0 }
+    })
+    ;(servers.adapter as AdapterWithStreamPosition).getStreamPosition = v1Restore
+    ;(channels.adapter as AdapterWithStreamPosition).getStreamPosition = v2Restore
+
+    const unsubscribe = servers.coordinator!.subscribe(collectionId, () => {})
+    try {
+      await waitFor(() => expect(v1Restore.mock.calls.length + v2Restore.mock.calls.length).toBe(1))
+
+      expect(servers.coordinator).toBeInstanceOf(actual.BrowserCollectionCoordinator)
+      expect(channels.coordinator).not.toBe(servers.coordinator)
+      expect(v1Restore).toHaveBeenCalledWith(collectionId)
+      expect(v2Restore).not.toHaveBeenCalled()
+      expect(registry.get(collectionId)).toEqual({ schemaVersion: 1, tableReady: true })
+    } finally {
+      unsubscribe()
+      await runtimeModule.resetBrowserPersistenceForTests()
+    }
   })
 })

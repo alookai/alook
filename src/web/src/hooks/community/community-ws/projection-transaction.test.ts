@@ -4,7 +4,8 @@ import {
   getCommunityWsProjectionFlushError,
   runCommunityWsProjectionTransaction,
 } from "./projection-transaction"
-import { invalidateInbox } from "./invalidation-projections"
+import { invalidateDms, invalidateInbox } from "./invalidation-projections"
+import { dmsResourceKey } from "@/lib/community-db/dms-resource"
 
 describe("community WS projection transaction", () => {
   it("has no flush error metadata for primitive or null errors", () => {
@@ -51,6 +52,17 @@ describe("community WS projection transaction", () => {
       conflict,
       second,
     ])
+  })
+
+  it("invalidates every account-scoped DM resource", () => {
+    const queryClient = new QueryClient()
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue()
+
+    runCommunityWsProjectionTransaction(queryClient, invalidateDms)
+
+    const filters = invalidate.mock.calls[0]?.[0]
+    expect(filters?.predicate?.({ queryKey: dmsResourceKey("viewer") } as never)).toBe(true)
+    expect(filters?.predicate?.({ queryKey: ["community", "other"] } as never)).toBe(false)
   })
 
   it("upgrades a normal invalidation to one exact fence in either order", async () => {

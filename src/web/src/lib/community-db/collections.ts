@@ -1,9 +1,11 @@
 import {
+  BasicIndex,
+  BTreeIndex,
   DbClient,
   collectionOptions,
-  localOnlyCollectionOptions,
+  createLiveQueryCollection,
+  eq,
   type Collection,
-  type PendingMutation,
 } from "@tanstack/react-db"
 import { persistedCollectionOptions } from "@tanstack/browser-db-sqlite-persistence"
 import type { PersistedCollectionPersistence } from "@tanstack/browser-db-sqlite-persistence"
@@ -29,7 +31,19 @@ import {
   readStateSchema,
   serverMembershipSchema,
   serverSchema,
+  type CategoryRow,
+  type AttentionItemRow,
+  type AttentionScopeRow,
+  type ChannelMembershipRow,
+  type ChannelRow,
+  type FolderItemRow,
+  type FolderRow,
   type MessageRow,
+  type NotificationSettingRow,
+  type ProfileRow,
+  type ReadStateClockRow,
+  type ReadStateRow,
+  type ServerMembershipRow,
   type ServerRow,
 } from "./schema"
 import {
@@ -37,326 +51,51 @@ import {
   selectServersForCollection,
   serversCollectionQueryKey,
 } from "./server-collection"
+import {
+  createServerDetailResourceQueryFn,
+  selectServerDetailCategories,
+  serverDetailResourceQueryKey,
+} from "./server-detail-resource"
+import {
+  channelResourceQueryKey,
+  createChannelResourceQueryFn,
+  createDmsResourceQueryFn,
+  dmsResourceKey,
+  selectDmsChannelMemberships,
+  selectDmsProfiles,
+} from "./dms-resource"
+import {
+  createFoldersResourceQueryFn,
+  foldersResourceKey,
+  selectFolderItems,
+  selectFolderRows,
+} from "./folders-resource"
+import {
+  createNotificationSettingsResourceQueryFn,
+  notificationSettingsResourceKey,
+  selectNotificationSettingRows,
+} from "./notification-settings-resource"
+import {
+  createReadStateResourceQueryFn,
+  readStateResourceKey,
+  selectReadStateClock,
+  selectReadStateRows,
+} from "./read-state-resource"
+import {
+  createMessageCollectionDescriptor,
+  readMessageWindowPublication,
+  type MessageCollectionDemand,
+} from "./message-resource"
+import { createServerMembersCollectionDescriptor } from "./server-members-resource"
+import {
+  accountAttentionResourceKey,
+  createAccountAttentionResourceQueryFn,
+  selectAttentionItems,
+  selectAttentionScopes,
+} from "./account-attention-resource"
 
 const INACTIVE_MESSAGE_SCOPE_LIMIT = 20
 const INACTIVE_MESSAGE_LIMIT = 50
-const COMMUNITY_DB_TRACE_LIMIT = 512
-
-type ServerRowSummary = {
-  complete: number
-  incomplete: number
-  rows: number
-}
-
-type ServerRowState = {
-  detailComplete: boolean
-  row: string
-}
-
-type ServerRowsSnapshot = {
-  rows: ServerRowState[]
-  summary: ServerRowSummary
-}
-
-type ServerMutationSummary = {
-  deletes: number
-  detailFalse: number
-  detailTrue: number
-  inserts: number
-  updates: number
-}
-
-type ServerLifecycleTransaction = {
-  forwarded: boolean
-  id: string
-  origin: "manual" | "query" | "unknown"
-  queryId: string | null
-  summary: ServerMutationSummary
-}
-
-type CommunityDbLifecycleEvent = {
-  at: number
-  detail: Record<string, boolean | number | string | null | ServerMutationSummary | ServerRowSummary>
-  kind: string
-  registryId: string
-  runId: string
-  seq: number
-  snapshot: {
-    readiness: string
-    synced: ServerRowsSnapshot
-    visible: ServerRowsSnapshot
-  }
-}
-
-type CommunityDbLifecycleTimeline = {
-  dropped: number
-  events: CommunityDbLifecycleEvent[]
-  registryId: string
-  runId: string
-}
-
-type CommunityDbTraceGlobal = typeof globalThis & {
-  __ALOOK_COMMUNITY_DB_TRACE_REGISTRY_SEQUENCE__?: number
-  __ALOOK_COMMUNITY_DB_TRACE_RUN_ID__?: string
-  __ALOOK_COMMUNITY_DB_TRACE_SEQUENCE__?: number
-  __ALOOK_COMMUNITY_DB_TRACE_STORE__?: {
-    dropped: number
-    events: CommunityDbLifecycleEvent[]
-    runId: string
-  }
-}
-
-type CommunityDbLifecycleRecorder = {
-  record: (
-    kind: string,
-    detail?: CommunityDbLifecycleEvent["detail"],
-  ) => void
-  timeline: () => CommunityDbLifecycleTimeline
-}
-
-type CommunityDbLifecycleRecord = CommunityDbLifecycleRecorder["record"]
-
-function recordCommunityDbLifecycle(
-  record: CommunityDbLifecycleRecord,
-  kind: string,
-  detail?: CommunityDbLifecycleEvent["detail"],
-): void {
-  try {
-    record(kind, detail)
-  } catch {
-    return
-  }
-}
-
-function emptyServerRowSummary(): ServerRowSummary {
-  return { complete: 0, incomplete: 0, rows: 0 }
-}
-
-function summarizeServerRows(rows: Iterable<ServerRow>): ServerRowSummary {
-  const summary = emptyServerRowSummary()
-  for (const row of rows) {
-    summary.rows += 1
-    if (row.detailComplete) summary.complete += 1
-    else summary.incomplete += 1
-  }
-  return summary
-}
-
-function snapshotServerRows(
-  rows: Iterable<ServerRow>,
-  rowTokens: Map<string, string>,
-): ServerRowsSnapshot {
-  const states: ServerRowState[] = []
-  const summary = emptyServerRowSummary()
-  for (const row of rows) {
-    let token = rowTokens.get(row.id)
-    if (!token) {
-      token = `row-${rowTokens.size + 1}`
-      rowTokens.set(row.id, token)
-    }
-    summary.rows += 1
-    if (row.detailComplete) summary.complete += 1
-    else summary.incomplete += 1
-    states.push({ detailComplete: row.detailComplete, row: token })
-  }
-  states.sort((left, right) => left.row.localeCompare(right.row))
-  return { rows: states, summary }
-}
-
-function emptyServerMutationSummary(): ServerMutationSummary {
-  return { deletes: 0, detailFalse: 0, detailTrue: 0, inserts: 0, updates: 0 }
-}
-
-function recordServerMutation(
-  summary: ServerMutationSummary,
-  message: { type: string; value?: unknown },
-): void {
-  if (message.type === "delete") summary.deletes += 1
-  else if (message.type === "insert") summary.inserts += 1
-  else summary.updates += 1
-  if (!message.value || typeof message.value !== "object") return
-  const detailComplete = Reflect.get(message.value, "detailComplete")
-  if (detailComplete === true) summary.detailTrue += 1
-  if (detailComplete === false) summary.detailFalse += 1
-}
-
-function traceGlobal(): CommunityDbTraceGlobal {
-  return globalThis as CommunityDbTraceGlobal
-}
-
-function createCommunityDbLifecycleRecorder(
-  readReadiness: () => string,
-  readSyncedRows: () => Iterable<ServerRow>,
-  readVisibleRows: () => Iterable<ServerRow>,
-): CommunityDbLifecycleRecorder | null {
-  const global = traceGlobal()
-  const runId = global.__ALOOK_COMMUNITY_DB_TRACE_RUN_ID__
-  if (typeof runId !== "string" || !/^run-[a-z0-9-]{1,96}$/i.test(runId)) return null
-  const registrySequence = (global.__ALOOK_COMMUNITY_DB_TRACE_REGISTRY_SEQUENCE__ ?? 0) + 1
-  global.__ALOOK_COMMUNITY_DB_TRACE_REGISTRY_SEQUENCE__ = registrySequence
-  const registryId = `registry-${registrySequence}`
-  const store = global.__ALOOK_COMMUNITY_DB_TRACE_STORE__?.runId === runId
-    ? global.__ALOOK_COMMUNITY_DB_TRACE_STORE__
-    : { dropped: 0, events: [], runId }
-  global.__ALOOK_COMMUNITY_DB_TRACE_STORE__ = store
-  const rowTokens = new Map<string, string>()
-  return {
-    record: (kind, detail = {}) => {
-      try {
-        const seq = (global.__ALOOK_COMMUNITY_DB_TRACE_SEQUENCE__ ?? 0) + 1
-        global.__ALOOK_COMMUNITY_DB_TRACE_SEQUENCE__ = seq
-        if (store.events.length === COMMUNITY_DB_TRACE_LIMIT) {
-          store.events.shift()
-          store.dropped += 1
-        }
-        store.events.push({
-          at: typeof performance === "undefined" ? Date.now() : performance.now(),
-          detail,
-          kind,
-          registryId,
-          runId,
-          seq,
-          snapshot: {
-            readiness: readReadiness(),
-            synced: snapshotServerRows(readSyncedRows(), rowTokens),
-            visible: snapshotServerRows(readVisibleRows(), rowTokens),
-          },
-        })
-      } catch {
-        return
-      }
-    },
-    timeline: () => {
-      try {
-        return {
-          dropped: store.dropped,
-          events: store.events.map((event) => ({
-            ...event,
-            detail: { ...event.detail },
-            snapshot: {
-              ...event.snapshot,
-              synced: {
-                rows: event.snapshot.synced.rows.map((row) => ({ ...row })),
-                summary: { ...event.snapshot.synced.summary },
-              },
-              visible: {
-                rows: event.snapshot.visible.rows.map((row) => ({ ...row })),
-                summary: { ...event.snapshot.visible.summary },
-              },
-            },
-          })),
-          registryId,
-          runId,
-        }
-      } catch {
-        return { dropped: store.dropped, events: [], registryId, runId }
-      }
-    },
-  }
-}
-
-export function observeCommunityDbLifecycleReceipt<T extends true | Promise<void>>(
-  receipt: T,
-  settled: () => void,
-  rejected: () => void,
-): T {
-  const notify = (callback: () => void) => {
-    try {
-      callback()
-    } catch {
-      return
-    }
-  }
-  if (receipt !== true) {
-    try {
-      void receipt.then(
-        () => notify(settled),
-        () => notify(rejected),
-      ).catch(() => undefined)
-    } catch {
-      return receipt
-    }
-  } else notify(settled)
-  return receipt
-}
-
-export function observeCommunityDbLifecycleLoadSubset<TOptions>(
-  loadSubset: (options: TOptions) => true | Promise<void>,
-  record: CommunityDbLifecycleRecord,
-  nextLoadId: () => string,
-): (options: TOptions) => true | Promise<void> {
-  return (options) => {
-    let loadId = "load-unscoped"
-    try {
-      loadId = nextLoadId()
-    } catch {
-      loadId = "load-unscoped"
-    }
-    recordCommunityDbLifecycle(record, "loadSubset:start", { loadId })
-    const receipt = loadSubset(options)
-    return observeCommunityDbLifecycleReceipt(
-      receipt,
-      () => recordCommunityDbLifecycle(record, "loadSubset:settle", { loadId, rejected: false }),
-      () => recordCommunityDbLifecycle(record, "loadSubset:settle", { loadId, rejected: true }),
-    )
-  }
-}
-
-export function observeCommunityDbLifecycleCommit(
-  commit: (signal?: AbortSignal) => true | Promise<void>,
-  record: CommunityDbLifecycleRecord,
-  boundary: "forward" | "source",
-  detail: CommunityDbLifecycleEvent["detail"],
-  capture: (receipt: true | Promise<void>) => void = () => {},
-): (signal?: AbortSignal) => true | Promise<void> {
-  return (signal) => {
-    recordCommunityDbLifecycle(record, `${boundary}:commit-call`, detail)
-    const receipt = commit(signal)
-    try {
-      capture(receipt)
-    } catch {
-      return receipt
-    }
-    recordCommunityDbLifecycle(record, `${boundary}:commit-status`, {
-      ...detail,
-      pending: receipt !== true,
-    })
-    return observeCommunityDbLifecycleReceipt(
-      receipt,
-      () => recordCommunityDbLifecycle(record, `${boundary}:commit-settle`, {
-        ...detail,
-        rejected: false,
-      }),
-      () => recordCommunityDbLifecycle(record, `${boundary}:commit-settle`, {
-        ...detail,
-        rejected: true,
-      }),
-    )
-  }
-}
-
-type SchemaRow<TSchema extends z.ZodType> = z.output<TSchema> & object
-
-function canonicalCollectionOptions<
-  TSchema extends z.ZodType,
-  TKey extends string | number,
->(
-  scopeId: string,
-  name: string,
-  persistence: PersistedCollectionPersistence | null,
-  _schema: TSchema,
-  getKey: (row: SchemaRow<TSchema>) => TKey,
-) {
-  const id = `community-db:${scopeId}:${name}`
-  const base = { id, getKey }
-  return persistence
-    ? persistedCollectionOptions<SchemaRow<TSchema>, TKey>({
-        ...base,
-        persistence,
-        schemaVersion: 1,
-      })
-    : localOnlyCollectionOptions<SchemaRow<TSchema>, TKey>(base)
-}
 
 export function createCommunityDbRegistry(
   queryClient: QueryClient,
@@ -369,96 +108,18 @@ export function createCommunityDbRegistry(
   const scopeId = accountId ?? "anon"
   const dbClient = new DbClient({ queryClient })
   const persistence = options.persistence ?? null
-  const serverCommitCaptures: Set<Promise<void>>[] = []
-  const captureServerCollectionCommits = (publish: () => void) => {
-    const receipts = new Set<Promise<void>>()
-    serverCommitCaptures.push(receipts)
-    try {
-      publish()
-    } catch (error) {
-      return Promise.reject(error)
-    } finally {
-      serverCommitCaptures.pop()
-    }
-    return Promise.all(receipts).then(() => undefined)
-  }
-
   let readServerRows = (): Iterable<ServerRow> => []
-  let readServerSyncedRows = (): Iterable<ServerRow> => []
-  let serverReadiness = "not-ready"
-  const lifecycle = createCommunityDbLifecycleRecorder(
-    () => serverReadiness,
-    () => readServerSyncedRows(),
-    () => readServerRows(),
-  )
-  let querySequence = 0
-  let transactionSequence = 0
-  let internalTransactionSequence = 0
-  let queryApplicationSequence = 0
-  let activeSourceTransaction: ServerLifecycleTransaction | null = null
-  const pendingSourceTransactions: ServerLifecycleTransaction[] = []
-  const queryIdsByApplication = new Map<string, string>()
-  let latestResolvedQueryId: string | null = null
-  let latestSelectedQueryId: string | null = null
   const serverCollectionId = `community-db:${scopeId}:servers`
   const baseServerQueryFn = createServersQueryFn(queryClient)
-  const serverQueryFn = lifecycle
-    ? async (context: Parameters<typeof baseServerQueryFn>[0]) => {
-        const queryId = `query-${++querySequence}`
-        lifecycle.record("query:start", { queryId })
-        try {
-          const response = await baseServerQueryFn(context)
-          latestResolvedQueryId = queryId
-          lifecycle.record("query:result", {
-            queryId,
-            result: summarizeServerRows(response.servers),
-          })
-          return response
-        } catch (error) {
-          lifecycle.record("query:error", { aborted: error instanceof DOMException && error.name === "AbortError", queryId })
-          throw error
-        }
-      }
-    : baseServerQueryFn
   const selectServerRows = (response: Awaited<ReturnType<typeof baseServerQueryFn>>) => (
     selectServersForCollection(response, readServerRows())
   )
-  const tracedSelectServerRows = lifecycle
-    ? (response: Awaited<ReturnType<typeof baseServerQueryFn>>) => {
-        const queryState = queryClient.getQueryState(serversCollectionQueryKey())
-        const dataUpdateCount = queryState?.dataUpdateCount ?? null
-        const dataUpdatedAt = queryState?.dataUpdatedAt ?? null
-        const applicationId = dataUpdateCount === null
-          ? `application-untracked-${++queryApplicationSequence}`
-          : `application-${dataUpdateCount}`
-        let queryId = queryIdsByApplication.get(applicationId)
-        if (!queryId) {
-          queryId = latestResolvedQueryId ?? `query-untracked-${++querySequence}`
-          queryIdsByApplication.set(applicationId, queryId)
-        }
-        latestSelectedQueryId = queryId
-        lifecycle.record("select:input", {
-          applicationId,
-          dataUpdateCount,
-          dataUpdatedAt,
-          input: summarizeServerRows(response.servers),
-          queryId,
-        })
-        const selected = selectServerRows(response)
-        lifecycle.record("select:output", {
-          applicationId,
-          output: summarizeServerRows(selected),
-          queryId,
-        })
-        return selected
-      }
-    : selectServerRows
   const serverQueryOptions = queryCollectionOptions({
     id: serverCollectionId,
     queryClient,
     queryKey: serversCollectionQueryKey(),
-    queryFn: serverQueryFn,
-    select: tracedSelectServerRows,
+    queryFn: baseServerQueryFn,
+    select: selectServerRows,
     schema: serverSchema,
     getKey: (row) => row.id,
     enabled: options.serverTransport === true,
@@ -468,193 +129,14 @@ export function createCommunityDbRegistry(
     staleTime: Infinity,
     refetchOnReconnect: true,
   })
-  const serverQuerySync = serverQueryOptions.sync
-  const trackedServerQueryOptions = {
-    ...serverQueryOptions,
-    sync: {
-      ...serverQuerySync,
-      sync: (params: Parameters<typeof serverQuerySync.sync>[0]) => {
-        if (!lifecycle) {
-          return serverQuerySync.sync({
-            ...params,
-            commit: (signal?: AbortSignal) => {
-              const receipt = params.commit(signal)
-              if (receipt !== true) {
-                const settlement = Promise.resolve(receipt)
-                for (const capture of serverCommitCaptures) capture.add(settlement)
-              }
-              return receipt
-            },
-          })
-        }
-        const transactions: ServerLifecycleTransaction[] = []
-        return serverQuerySync.sync({
-          ...params,
-          begin: (beginOptions) => {
-            const queryId = beginOptions?.immediate ? null : latestSelectedQueryId
-            const transaction: ServerLifecycleTransaction = {
-              forwarded: false,
-              id: `tx-${++transactionSequence}`,
-              origin: beginOptions?.immediate ? "manual" : queryId ? "query" : "unknown",
-              queryId,
-              summary: emptyServerMutationSummary(),
-            }
-            transactions.push(transaction)
-            lifecycle.record("source:begin", {
-              immediate: beginOptions?.immediate === true,
-              origin: transaction.origin,
-              queryId,
-              txId: transaction.id,
-            })
-            const priorSourceTransaction = activeSourceTransaction
-            activeSourceTransaction = transaction
-            try {
-              params.begin(beginOptions)
-            } finally {
-              activeSourceTransaction = priorSourceTransaction
-            }
-            if (!transaction.forwarded) pendingSourceTransactions.push(transaction)
-          },
-          write: (message) => {
-            const transaction = transactions.at(-1)
-            if (transaction) recordServerMutation(transaction.summary, message)
-            lifecycle.record("source:write", {
-              mutations: { ...(transaction?.summary ?? emptyServerMutationSummary()) },
-              origin: transaction?.origin ?? "unknown",
-              queryId: transaction?.queryId ?? null,
-              txId: transaction?.id ?? "source-unscoped",
-            })
-            params.write(message)
-          },
-          commit: (signal?: AbortSignal) => {
-            const transaction = transactions.pop() ?? {
-              forwarded: false,
-              id: `tx-${++transactionSequence}`,
-              origin: "unknown" as const,
-              queryId: null,
-              summary: emptyServerMutationSummary(),
-            }
-            const detail = {
-              mutations: { ...transaction.summary },
-              origin: transaction.origin,
-              queryId: transaction.queryId,
-              txId: transaction.id,
-            }
-            return observeCommunityDbLifecycleCommit(
-              (commitSignal) => params.commit(commitSignal),
-              lifecycle.record,
-              "source",
-              detail,
-              (receipt) => {
-                if (receipt === true) return
-                const settlement = Promise.resolve(receipt)
-                for (const capture of serverCommitCaptures) capture.add(settlement)
-              },
-            )(signal)
-          },
-        })
-      },
-    },
-  }
   const baseServerOptions = persistence
     ? persistedCollectionOptions({
-        ...trackedServerQueryOptions,
+        ...serverQueryOptions,
         persistence,
         schemaVersion: 1,
       })
-    : trackedServerQueryOptions
-  const persistedServerSync = baseServerOptions.sync
-  let loadSubsetSequence = 0
-  const serverOptions = lifecycle
-    ? {
-        ...baseServerOptions,
-        sync: {
-          ...persistedServerSync,
-          sync: (params: Parameters<typeof persistedServerSync.sync>[0]) => {
-            const transactions: ServerLifecycleTransaction[] = []
-            const result = persistedServerSync.sync({
-              ...params,
-              begin: (beginOptions) => {
-                const sourceTransaction = activeSourceTransaction
-                  ?? (beginOptions?.immediate === true ? null : pendingSourceTransactions.shift() ?? null)
-                if (sourceTransaction) sourceTransaction.forwarded = true
-                const transaction: ServerLifecycleTransaction = sourceTransaction ? {
-                  forwarded: true,
-                  id: sourceTransaction.id,
-                  origin: sourceTransaction.origin,
-                  queryId: sourceTransaction.queryId,
-                  summary: emptyServerMutationSummary(),
-                } : {
-                  forwarded: true,
-                  id: `internal-${++internalTransactionSequence}`,
-                  origin: "unknown",
-                  queryId: null,
-                  summary: emptyServerMutationSummary(),
-                }
-                transactions.push(transaction)
-                lifecycle.record("forward:begin", {
-                  immediate: beginOptions?.immediate === true,
-                  origin: transaction.origin,
-                  queryId: transaction.queryId,
-                  txId: transaction.id,
-                })
-                params.begin(beginOptions)
-              },
-              write: (message) => {
-                const transaction = transactions.at(-1)
-                if (transaction) recordServerMutation(transaction.summary, message)
-                lifecycle.record("forward:write", {
-                  mutations: { ...(transaction?.summary ?? emptyServerMutationSummary()) },
-                  origin: transaction?.origin ?? "unknown",
-                  queryId: transaction?.queryId ?? null,
-                  txId: transaction?.id ?? "internal-unscoped",
-                })
-                params.write(message)
-              },
-              commit: (signal?: AbortSignal) => {
-                const transaction = transactions.pop() ?? {
-                  forwarded: true,
-                  id: `internal-${++internalTransactionSequence}`,
-                  origin: "unknown" as const,
-                  queryId: null,
-                  summary: emptyServerMutationSummary(),
-                }
-                const detail = {
-                  mutations: { ...transaction.summary },
-                  origin: transaction.origin,
-                  queryId: transaction.queryId,
-                  txId: transaction.id,
-                }
-                return observeCommunityDbLifecycleCommit(
-                  (commitSignal) => params.commit(commitSignal),
-                  lifecycle.record,
-                  "forward",
-                  detail,
-                )(signal)
-              },
-              markReady: () => {
-                lifecycle.record("forward:mark-ready")
-                params.markReady()
-              },
-              truncate: () => {
-                lifecycle.record("forward:truncate")
-                params.truncate()
-              },
-            })
-            if (!result || typeof result === "function" || !result.loadSubset) return result
-            const loadSubset = result.loadSubset
-            return {
-              ...result,
-              loadSubset: observeCommunityDbLifecycleLoadSubset(
-                loadSubset,
-                lifecycle.record,
-                () => `load-${++loadSubsetSequence}`,
-              ),
-            }
-          },
-        },
-      }
-    : baseServerOptions
+    : serverQueryOptions
+  const serverOptions = baseServerOptions
   const servers = dbClient.collection(collectionOptions(`community-db:${scopeId}:servers`, () => (
     { ...serverOptions, schema: serverSchema }
   )) as never) as unknown as Collection<
@@ -665,51 +147,380 @@ export function createCommunityDbRegistry(
     z.input<typeof serverSchema>
   >
   readServerRows = () => servers.values()
-  readServerSyncedRows = () => {
-    const state = servers as unknown as {
-      _state?: { syncedData?: Map<string, ServerRow> }
-    }
-    return state._state?.syncedData?.values() ?? []
-  }
-  const categories = dbClient.collection(collectionOptions(`community-db:${scopeId}:categories`, () => (
-    canonicalCollectionOptions(scopeId, "categories", persistence, categorySchema, (row) => row.id)
-  )))
-  const channels = dbClient.collection(collectionOptions(`community-db:${scopeId}:channels`, () => (
-    canonicalCollectionOptions(scopeId, "channels", persistence, channelSchema, (row) => row.id)
-  )))
-  const serverMemberships = dbClient.collection(collectionOptions(`community-db:${scopeId}:serverMemberships`, () => (
-    canonicalCollectionOptions(scopeId, "serverMemberships", persistence, serverMembershipSchema, (row) => row.id)
-  )))
-  const channelMemberships = dbClient.collection(collectionOptions(`community-db:${scopeId}:channelMemberships`, () => (
-    canonicalCollectionOptions(scopeId, "channelMemberships", persistence, channelMembershipSchema, (row) => row.id)
-  )))
-  const profiles = dbClient.collection(collectionOptions(`community-db:${scopeId}:profiles`, () => (
-    canonicalCollectionOptions(scopeId, "profiles", persistence, profileSchema, (row) => row.userId)
-  )))
-  const messages = dbClient.collection(collectionOptions(`community-db:${scopeId}:messages`, () => (
-    canonicalCollectionOptions(scopeId, "messages", persistence, messageSchema, (row) => row.id)
-  )))
-  const readStates = dbClient.collection(collectionOptions(`community-db:${scopeId}:readStates`, () => (
-    canonicalCollectionOptions(scopeId, "readStates", persistence, readStateSchema, (row) => row.channelId)
-  )))
-  const readStateClock = dbClient.collection(collectionOptions(`community-db:${scopeId}:readStateClock`, () => (
-    canonicalCollectionOptions(scopeId, "readStateClock", persistence, readStateClockSchema, (row) => row.id)
-  )))
-  const attentionScopes = dbClient.collection(collectionOptions(`community-db:${scopeId}:attentionScopes`, () => (
-    canonicalCollectionOptions(scopeId, "attentionScopes", persistence, attentionScopeSchema, (row) => row.scopeId)
-  )))
-  const attentionItems = dbClient.collection(collectionOptions(`community-db:${scopeId}:attentionItems`, () => (
-    canonicalCollectionOptions(scopeId, "attentionItems", persistence, attentionItemSchema, (row) => row.id)
-  )))
-  const folders = dbClient.collection(collectionOptions(`community-db:${scopeId}:folders`, () => (
-    canonicalCollectionOptions(scopeId, "folders", persistence, folderSchema, (row) => row.id)
-  )))
-  const folderItems = dbClient.collection(collectionOptions(`community-db:${scopeId}:folderItems`, () => (
-    canonicalCollectionOptions(scopeId, "folderItems", persistence, folderItemSchema, (row) => row.id)
-  )))
-  const notificationSettings = dbClient.collection(collectionOptions(`community-db:${scopeId}:notificationSettings`, () => (
-    canonicalCollectionOptions(scopeId, "notificationSettings", persistence, notificationSettingSchema, (row) => row.id)
-  )))
+  const serverDetailQueryFn = createServerDetailResourceQueryFn(queryClient, scopeId)
+  const categoryQueryOptions = queryCollectionOptions({
+    id: `community-db:${scopeId}:categories`,
+    queryClient,
+    queryKey: (loadOptions) => serverDetailResourceQueryKey(scopeId, loadOptions),
+    queryFn: serverDetailQueryFn,
+    select: selectServerDetailCategories,
+    schema: categorySchema,
+    getKey: (row) => row.id,
+    syncMode: "on-demand",
+    staleTime: Infinity,
+    refetchOnReconnect: true,
+  })
+  const categoryOptions = persistence
+    ? persistedCollectionOptions({
+        ...categoryQueryOptions,
+        persistence,
+        schemaVersion: 2,
+      })
+    : categoryQueryOptions
+  const categories = dbClient.collection(collectionOptions(
+    `community-db:${scopeId}:categories`,
+    () => ({ ...categoryOptions, schema: categorySchema } as never),
+  )) as unknown as Collection<
+    CategoryRow,
+    string,
+    QueryCollectionUtils<CategoryRow, string>,
+    typeof categorySchema,
+    z.input<typeof categorySchema>
+  >
+  const channelQueryOptions = queryCollectionOptions({
+    id: `community-db:${scopeId}:channels`,
+    queryClient,
+    queryKey: (loadOptions) => channelResourceQueryKey(scopeId, loadOptions),
+    queryFn: createChannelResourceQueryFn(queryClient, scopeId),
+    select: (resource) => resource?.channels ?? [],
+    schema: channelSchema,
+    getKey: (row) => row.id,
+    syncMode: "on-demand",
+    staleTime: Infinity,
+    refetchOnReconnect: true,
+  })
+  const channelOptions = persistence
+    ? persistedCollectionOptions({
+        ...channelQueryOptions,
+        persistence,
+        schemaVersion: 2,
+      })
+    : channelQueryOptions
+  const channels = dbClient.collection(collectionOptions(
+    `community-db:${scopeId}:channels`,
+    () => ({ ...channelOptions, schema: channelSchema } as never),
+  )) as unknown as Collection<
+    ChannelRow,
+    string,
+    QueryCollectionUtils<ChannelRow, string>,
+    typeof channelSchema,
+    z.input<typeof channelSchema>
+  >
+  const serverMembersDescriptor = createServerMembersCollectionDescriptor(queryClient, scopeId)
+  const serverMembershipQueryOptions = queryCollectionOptions({
+    id: `community-db:${scopeId}:serverMemberships`,
+    queryClient,
+    queryKey: serverMembersDescriptor.queryKey,
+    queryFn: serverMembersDescriptor.queryFn,
+    schema: serverMembershipSchema,
+    getKey: (row) => row.id,
+    syncMode: "on-demand",
+    staleTime: Infinity,
+    refetchOnReconnect: false,
+  })
+  const serverMembershipOptions = persistence
+    ? persistedCollectionOptions({
+        ...serverMembershipQueryOptions,
+        persistence,
+        schemaVersion: 2,
+      })
+    : serverMembershipQueryOptions
+  const serverMemberships = dbClient.collection(collectionOptions(
+    `community-db:${scopeId}:serverMemberships`,
+    () => ({ ...serverMembershipOptions, schema: serverMembershipSchema } as never),
+  )) as unknown as Collection<
+    ServerMembershipRow,
+    string,
+    QueryCollectionUtils<ServerMembershipRow, string>,
+    typeof serverMembershipSchema,
+    z.input<typeof serverMembershipSchema>
+  >
+  serverMemberships.createIndex((row) => row.id, { indexType: BTreeIndex })
+  serverMembersDescriptor.bindRows(() => serverMemberships.values())
+  const dmsQueryFn = createDmsResourceQueryFn(queryClient, scopeId)
+  const channelMembershipQueryOptions = queryCollectionOptions({
+    id: `community-db:${scopeId}:channelMemberships`,
+    queryClient,
+    queryKey: dmsResourceKey(scopeId),
+    queryFn: dmsQueryFn,
+    select: selectDmsChannelMemberships,
+    schema: channelMembershipSchema,
+    getKey: (row) => row.id,
+    syncMode: "on-demand",
+    staleTime: Infinity,
+    refetchOnReconnect: true,
+  })
+  const channelMembershipOptions = persistence
+    ? persistedCollectionOptions({
+        ...channelMembershipQueryOptions,
+        persistence,
+        schemaVersion: 2,
+      })
+    : channelMembershipQueryOptions
+  const channelMemberships = dbClient.collection(collectionOptions(
+    `community-db:${scopeId}:channelMemberships`,
+    () => ({ ...channelMembershipOptions, schema: channelMembershipSchema } as never),
+  )) as unknown as Collection<
+    ChannelMembershipRow,
+    string,
+    QueryCollectionUtils<ChannelMembershipRow, string>,
+    typeof channelMembershipSchema,
+    z.input<typeof channelMembershipSchema>
+  >
+  const profileQueryOptions = queryCollectionOptions({
+    id: `community-db:${scopeId}:profiles`,
+    queryClient,
+    queryKey: dmsResourceKey(scopeId),
+    queryFn: dmsQueryFn,
+    select: selectDmsProfiles,
+    schema: profileSchema,
+    getKey: (row) => row.userId,
+    syncMode: "on-demand",
+    staleTime: Infinity,
+    refetchOnReconnect: true,
+  })
+  const profileOptions = persistence
+    ? persistedCollectionOptions({
+        ...profileQueryOptions,
+        persistence,
+        schemaVersion: 2,
+      })
+    : profileQueryOptions
+  const profiles = dbClient.collection(collectionOptions(
+    `community-db:${scopeId}:profiles`,
+    () => ({ ...profileOptions, schema: profileSchema } as never),
+  )) as unknown as Collection<
+    ProfileRow,
+    string,
+    QueryCollectionUtils<ProfileRow, string>,
+    typeof profileSchema,
+    z.input<typeof profileSchema>
+  >
+  const messageDescriptor = createMessageCollectionDescriptor(queryClient, scopeId)
+  const messageQueryOptions = queryCollectionOptions({
+    id: `community-db:${scopeId}:messages`,
+    queryClient,
+    queryKey: messageDescriptor.queryKey,
+    queryFn: messageDescriptor.queryFn,
+    schema: messageSchema,
+    getKey: (row) => row.id,
+    syncMode: "on-demand",
+    staleTime: Infinity,
+    refetchOnReconnect: false,
+  })
+  const messageOptions = persistence
+    ? persistedCollectionOptions({
+        ...messageQueryOptions,
+        persistence,
+        schemaVersion: 2,
+      })
+    : messageQueryOptions
+  const messages = dbClient.collection(collectionOptions(
+    `community-db:${scopeId}:messages`,
+    () => ({ ...messageOptions, schema: messageSchema } as never),
+  )) as unknown as Collection<
+    MessageRow,
+    string,
+    QueryCollectionUtils<MessageRow, string>,
+    typeof messageSchema,
+    z.input<typeof messageSchema>
+  >
+  messageDescriptor.bindRows(() => messages.values())
+  messages.createIndex((row) => row.channelId, { indexType: BasicIndex })
+  messages.createIndex((row) => row.seq!, { indexType: BTreeIndex })
+  const readStateQueryFn = createReadStateResourceQueryFn(queryClient, scopeId)
+  const readStateQueryOptions = queryCollectionOptions({
+    id: `community-db:${scopeId}:readStates`,
+    queryClient,
+    queryKey: readStateResourceKey(scopeId),
+    queryFn: readStateQueryFn,
+    select: selectReadStateRows,
+    schema: readStateSchema,
+    getKey: (row) => row.channelId,
+    syncMode: "eager",
+    staleTime: Infinity,
+    refetchOnReconnect: false,
+  })
+  const readStateOptions = persistence
+    ? persistedCollectionOptions({ ...readStateQueryOptions, persistence, schemaVersion: 2 })
+    : readStateQueryOptions
+  const readStates = dbClient.collection(collectionOptions(
+    `community-db:${scopeId}:readStates`,
+    () => ({ ...readStateOptions, schema: readStateSchema } as never),
+  )) as unknown as Collection<
+    ReadStateRow,
+    string,
+    QueryCollectionUtils<ReadStateRow, string>,
+    typeof readStateSchema,
+    z.input<typeof readStateSchema>
+  >
+  const readStateClockQueryOptions = queryCollectionOptions({
+    id: `community-db:${scopeId}:readStateClock`,
+    queryClient,
+    queryKey: readStateResourceKey(scopeId),
+    queryFn: readStateQueryFn,
+    select: selectReadStateClock,
+    schema: readStateClockSchema,
+    getKey: (row) => row.id,
+    syncMode: "eager",
+    staleTime: Infinity,
+    refetchOnReconnect: false,
+  })
+  const readStateClockOptions = persistence
+    ? persistedCollectionOptions({ ...readStateClockQueryOptions, persistence, schemaVersion: 2 })
+    : readStateClockQueryOptions
+  const readStateClock = dbClient.collection(collectionOptions(
+    `community-db:${scopeId}:readStateClock`,
+    () => ({ ...readStateClockOptions, schema: readStateClockSchema } as never),
+  )) as unknown as Collection<
+    ReadStateClockRow,
+    string,
+    QueryCollectionUtils<ReadStateClockRow, string>,
+    typeof readStateClockSchema,
+    z.input<typeof readStateClockSchema>
+  >
+  const accountAttentionQueryFn = createAccountAttentionResourceQueryFn(
+    queryClient,
+    () => messages.values(),
+  )
+  const attentionScopeQueryOptions = queryCollectionOptions({
+    id: `community-db:${scopeId}:attentionScopes`,
+    queryClient,
+    queryKey: accountAttentionResourceKey(),
+    queryFn: accountAttentionQueryFn,
+    select: selectAttentionScopes,
+    schema: attentionScopeSchema,
+    getKey: (row) => row.scopeId,
+    syncMode: "eager",
+    staleTime: Infinity,
+    refetchOnReconnect: false,
+  })
+  const attentionScopeOptions = persistence
+    ? persistedCollectionOptions({
+        ...attentionScopeQueryOptions,
+        persistence,
+        schemaVersion: 2,
+      })
+    : attentionScopeQueryOptions
+  const attentionScopes = dbClient.collection(collectionOptions(
+    `community-db:${scopeId}:attentionScopes`,
+    () => ({ ...attentionScopeOptions, schema: attentionScopeSchema } as never),
+  )) as unknown as Collection<
+    AttentionScopeRow,
+    string,
+    QueryCollectionUtils<AttentionScopeRow, string>,
+    typeof attentionScopeSchema,
+    z.input<typeof attentionScopeSchema>
+  >
+  const attentionItemQueryOptions = queryCollectionOptions({
+    id: `community-db:${scopeId}:attentionItems`,
+    queryClient,
+    queryKey: accountAttentionResourceKey(),
+    queryFn: accountAttentionQueryFn,
+    select: selectAttentionItems,
+    schema: attentionItemSchema,
+    getKey: (row) => row.id,
+    syncMode: "eager",
+    staleTime: Infinity,
+    refetchOnReconnect: false,
+  })
+  const attentionItemOptions = persistence
+    ? persistedCollectionOptions({
+        ...attentionItemQueryOptions,
+        persistence,
+        schemaVersion: 2,
+      })
+    : attentionItemQueryOptions
+  const attentionItems = dbClient.collection(collectionOptions(
+    `community-db:${scopeId}:attentionItems`,
+    () => ({ ...attentionItemOptions, schema: attentionItemSchema } as never),
+  )) as unknown as Collection<
+    AttentionItemRow,
+    string,
+    QueryCollectionUtils<AttentionItemRow, string>,
+    typeof attentionItemSchema,
+    z.input<typeof attentionItemSchema>
+  >
+  const foldersQueryFn = createFoldersResourceQueryFn(queryClient, scopeId)
+  const folderQueryOptions = queryCollectionOptions({
+    id: `community-db:${scopeId}:folders`,
+    queryClient,
+    queryKey: foldersResourceKey(scopeId),
+    queryFn: foldersQueryFn,
+    select: selectFolderRows,
+    schema: folderSchema,
+    getKey: (row) => row.id,
+    syncMode: "eager",
+    staleTime: Infinity,
+    refetchOnReconnect: true,
+  })
+  const folderOptions = persistence
+    ? persistedCollectionOptions({ ...folderQueryOptions, persistence, schemaVersion: 2 })
+    : folderQueryOptions
+  const folders = dbClient.collection(collectionOptions(
+    `community-db:${scopeId}:folders`,
+    () => ({ ...folderOptions, schema: folderSchema } as never),
+  )) as unknown as Collection<
+    FolderRow,
+    string,
+    QueryCollectionUtils<FolderRow, string>,
+    typeof folderSchema,
+    z.input<typeof folderSchema>
+  >
+  const folderItemQueryOptions = queryCollectionOptions({
+    id: `community-db:${scopeId}:folderItems`,
+    queryClient,
+    queryKey: foldersResourceKey(scopeId),
+    queryFn: foldersQueryFn,
+    select: selectFolderItems,
+    schema: folderItemSchema,
+    getKey: (row) => row.id,
+    syncMode: "eager",
+    staleTime: Infinity,
+    refetchOnReconnect: true,
+  })
+  const folderItemOptions = persistence
+    ? persistedCollectionOptions({ ...folderItemQueryOptions, persistence, schemaVersion: 2 })
+    : folderItemQueryOptions
+  const folderItems = dbClient.collection(collectionOptions(
+    `community-db:${scopeId}:folderItems`,
+    () => ({ ...folderItemOptions, schema: folderItemSchema } as never),
+  )) as unknown as Collection<
+    FolderItemRow,
+    string,
+    QueryCollectionUtils<FolderItemRow, string>,
+    typeof folderItemSchema,
+    z.input<typeof folderItemSchema>
+  >
+  const notificationSettingQueryOptions = queryCollectionOptions({
+    id: `community-db:${scopeId}:notificationSettings`,
+    queryClient,
+    queryKey: notificationSettingsResourceKey(scopeId),
+    queryFn: createNotificationSettingsResourceQueryFn(queryClient, scopeId),
+    select: selectNotificationSettingRows,
+    schema: notificationSettingSchema,
+    getKey: (row) => row.id,
+    syncMode: "eager",
+    staleTime: Infinity,
+    refetchOnReconnect: true,
+  })
+  const notificationSettingOptions = persistence
+    ? persistedCollectionOptions({
+        ...notificationSettingQueryOptions,
+        persistence,
+        schemaVersion: 2,
+      })
+    : notificationSettingQueryOptions
+  const notificationSettings = dbClient.collection(collectionOptions(
+    `community-db:${scopeId}:notificationSettings`,
+    () => ({ ...notificationSettingOptions, schema: notificationSettingSchema } as never),
+  )) as unknown as Collection<
+    NotificationSettingRow,
+    string,
+    QueryCollectionUtils<NotificationSettingRow, string>,
+    typeof notificationSettingSchema,
+    z.input<typeof notificationSettingSchema>
+  >
 
   const collections = {
     servers,
@@ -730,6 +541,14 @@ export function createCommunityDbRegistry(
   type CollectionName = keyof typeof collections
   type CollectionReadiness = "not-ready" | "preloading" | "ready" | "failed"
   const collectionNames = Object.keys(collections) as CollectionName[]
+  const onDemandCollectionNames = new Set<CollectionName>([
+    "categories",
+    "channels",
+    "serverMemberships",
+    "channelMemberships",
+    "profiles",
+    "messages",
+  ])
   const collectionReadiness = new Map<CollectionName, CollectionReadiness>(
     collectionNames.map((name) => [name, "not-ready"]),
   )
@@ -768,8 +587,6 @@ export function createCommunityDbRegistry(
     if (generationFailure !== null) return
     generationFailure = error
     for (const name of collectionNames) collectionReadiness.set(name, "failed")
-    serverReadiness = "failed"
-    lifecycle?.record("readiness:generation-failed", { failed: true })
     publishReadiness()
   }
 
@@ -779,11 +596,9 @@ export function createCommunityDbRegistry(
     if (existing) return existing
 
     collectionReadiness.set(name, "preloading")
-    if (name === "servers") serverReadiness = "preloading"
-    lifecycle?.record("readiness:preloading", { collection: name })
     publishReadiness()
     const promise = Promise.resolve()
-      .then(() => collections[name].preload())
+      .then(() => onDemandCollectionNames.has(name) ? undefined : collections[name].preload())
       .then(() => {
         if (generationFailure !== null) throw generationFailure
         const restored = collections[name].size > 0
@@ -792,8 +607,6 @@ export function createCommunityDbRegistry(
           restoredDataExists = true
         }
         collectionReadiness.set(name, "ready")
-        if (name === "servers") serverReadiness = "ready"
-        lifecycle?.record("readiness:ready", { collection: name, restored })
         publishReadiness()
         if (restored) {
           for (const listener of restoredCollectionListeners) listener()
@@ -807,8 +620,19 @@ export function createCommunityDbRegistry(
     return promise
   }
 
+  const preloadAccountChannelResource = async () => {
+    await queryClient.ensureQueryData({
+      queryKey: dmsResourceKey(scopeId),
+      queryFn: dmsQueryFn,
+      staleTime: Infinity,
+    })
+  }
+
   const preload = async () => {
-    await Promise.all(collectionNames.map(ensureCollectionReady))
+    await Promise.all([
+      ...collectionNames.map(ensureCollectionReady),
+      preloadAccountChannelResource(),
+    ])
     const scopesByNewest = new Map<string, number>()
     for (const message of collections.messages.values()) {
       const order = Date.parse(message.createdAt ?? "") || message.seq || 0
@@ -871,13 +695,7 @@ export function createCommunityDbRegistry(
       (messageId) => !retainedMessageIds.has(messageId),
     )
     if (deleteIds.length === 0) return
-    const transaction = dbClient.createTransaction({
-      mutationFn: async ({ transaction: pending }) => {
-        await collections.messages.utils.acceptMutations(pending)
-      },
-    })
-    transaction.mutate(() => collections.messages.delete(deleteIds))
-    await transaction.isPersisted.promise
+    collections.messages.utils.writeDelete(deleteIds)
   }
 
   const activateMessageScope = (scopeId: string) => {
@@ -901,41 +719,67 @@ export function createCommunityDbRegistry(
     }
   }
 
+  const preloadMessageWindow = async (
+    demand: MessageCollectionDemand,
+    limit: number,
+    signal?: AbortSignal,
+  ) => {
+    messageDescriptor.setDemand(demand)
+    const lease = messageDescriptor.acquireWindow(demand, limit)
+    const view = createLiveQueryCollection({
+      query: (q) => q.from({ message: messages })
+        .where(({ message }) => eq(message.channelId, demand.scope.channelId))
+        .orderBy(
+          ({ message }) => message.seq,
+          demand.sequence.direction === "older" ? "desc" : "asc",
+        )
+        .orderBy(
+          ({ message }) => message.id,
+          demand.sequence.direction === "older" ? "desc" : "asc",
+        )
+        .limit(demand.sequence.base.mode === "anchor" ? 26 : 50),
+    })
+    let released = false
+    const release = async () => {
+      if (released) return
+      released = true
+      signal?.removeEventListener("abort", onAbort)
+      await view.cleanup()
+      await lease.release()
+    }
+    let rejectAbort: ((error: Error) => void) | undefined
+    const abort = new Promise<never>((_resolve, reject) => {
+      rejectAbort = reject
+    })
+    const onAbort = () => {
+      const error = new Error("Message window acquisition aborted")
+      error.name = "AbortError"
+      rejectAbort?.(error)
+      void release()
+    }
+    if (signal?.aborted) onAbort()
+    else signal?.addEventListener("abort", onAbort, { once: true })
+    try {
+      await (signal ? Promise.race([view.preload(), abort]) : view.preload())
+      const publication = readMessageWindowPublication(queryClient, demand)
+      if (!publication) throw new Error("Message window completed without publication")
+      return { publication, release }
+    } catch (error) {
+      await release()
+      throw error
+    }
+  }
+
   const clear = async () => {
     await preload()
-    const serverKeys = [...servers.keys()]
-    if (serverKeys.length > 0) {
-      servers.utils.writeBatch(() => {
-        for (const key of serverKeys) servers.utils.writeDelete(key)
-      })
-    }
-    const mutableCollections = Object.entries(collections)
-      .filter(([name]) => name !== "servers")
-      .map(([, collection]) => collection) as unknown as Array<{
+    const queryCollections = Object.values(collections) as unknown as Array<{
       keys: () => IterableIterator<string>
-      delete: (keys: string[]) => unknown
-      utils: {
-        acceptMutations: (transaction: {
-          mutations: Array<PendingMutation<Record<string, unknown>>>
-        }) => Promise<void> | void
-      }
+      utils: { writeDelete: (keys: string[]) => void }
     }>
-    const transaction = dbClient.createTransaction({
-      mutationFn: async ({ transaction: pending }) => {
-        await Promise.all(mutableCollections.map((collection) => (
-          collection.utils.acceptMutations(pending as unknown as {
-            mutations: Array<PendingMutation<Record<string, unknown>>>
-          })
-        )))
-      },
-    })
-    transaction.mutate(() => {
-      for (const collection of mutableCollections) {
-        const keys = [...collection.keys()]
-        if (keys.length > 0) collection.delete(keys)
-      }
-    })
-    await transaction.isPersisted.promise
+    for (const collection of queryCollections) {
+      const keys = [...collection.keys()]
+      if (keys.length > 0) collection.utils.writeDelete(keys)
+    }
   }
 
   return {
@@ -967,12 +811,22 @@ export function createCommunityDbRegistry(
       restoredCollectionListeners.add(listener)
       return () => restoredCollectionListeners.delete(listener)
     },
-    captureServerCollectionCommits,
-    getLifecycleTimeline: () => lifecycle?.timeline() ?? null,
     preload,
     requestServerRefetch,
+    accountAttentionQueryFn,
     waitForServerRefetch: () => serverRefetch ?? Promise.resolve(),
     activateMessageScope,
+    acquireMessageWindow: messageDescriptor.acquireWindow,
+    acquireServerMembers: serverMembersDescriptor.acquire,
+    adjustServerMembersTotal: serverMembersDescriptor.adjustTotal,
+    preloadMessageWindow,
+    purgeMessageScope: messageDescriptor.purgeScope,
+    reconcileMessageScope: messageDescriptor.reconcileScope,
+    markMessageChanged: messageDescriptor.markChanged,
+    resetMessageDemand: messageDescriptor.resetDemand,
+    reconcileServerMembers: serverMembersDescriptor.reconcile,
+    markServerMembershipChanged: serverMembersDescriptor.markChanged,
+    setMessageDemand: messageDescriptor.setDemand,
     pruneMessageRetention,
     clear,
     cleanup: async () => {

@@ -72,7 +72,7 @@ export function useChannelRouteModel(
   const communityDb = useOptionalCommunityDbRegistry()
   const serverQuery = useServer(serverId)
   const { server } = serverQuery
-  const dbChannel = useRouteChannelProjection(channelId)
+  const dbChannel = useRouteChannelProjection(channelId, serverId)
   const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
   const topLevelChannel = server?.categories
     ?.flatMap((category) => category.channels)

@@ -20,10 +20,12 @@ import {
   useNotificationSettingsProjection,
   useOptionalCommunityDbRegistry,
 } from "@/lib/community-db/projections"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import {
-  captureCommunityLiveSnapshotToken,
-  publishCommunityLiveSnapshot,
-} from "@/lib/community-db/sync"
+  createNotificationSettingsResourceQueryFn,
+  notificationSettingsResourceKey,
+  type NotificationSettingsResource,
+} from "@/lib/community-db/notification-settings-resource"
 
 /**
  * Fetches the user's notification-setting rows and materialises them into
@@ -49,11 +51,6 @@ export type NotificationSettings = {
 const EMPTY_NOTIF_SERVER: Readonly<Record<string, string>> = Object.freeze({})
 const EMPTY_NOTIF_CHANNEL: Readonly<Record<string, string>> = Object.freeze({})
 
-// API-level ("all"|"mentions"|"nothing") → display string, from the shared
-// single-source bijection (`notifLevelDisplay`). Was a hand-rolled map that
-// drifted on casing ("All Messages" vs the shared const's "All messages").
-const displayNotifLevel = notifLevelDisplay
-
 const DEFAULT_SERVER_NOTIFICATION_LEVEL = notifLevelDisplay("all")
 
 export function resolveServerNotificationDisplayLevel(level?: string): string {
@@ -63,32 +60,7 @@ export function resolveServerNotificationDisplayLevel(level?: string): string {
 export const notificationSettingsQueryFn = async (
   context: QueryFunctionContext = {} as QueryFunctionContext,
 ): Promise<NotificationSettings> => {
-  const publicationToken = context.client
-    ? captureCommunityLiveSnapshotToken(context.client)
-    : null
-  const rows = context.signal
-    ? await apiFetch<NotificationSettingRow[]>(
-        "/api/community/users/me/notifications",
-        { signal: context.signal },
-      )
-    : await apiFetch<NotificationSettingRow[]>(
-        "/api/community/users/me/notifications",
-      )
-  const server: Record<string, string> = {}
-  const channel: Record<string, string> = {}
-  for (const s of rows) {
-    const level = displayNotifLevel(s.level)
-    if (s.channelId) channel[s.channelId] = level
-    else if (s.serverId) server[s.serverId] = level
-  }
-  const data = { raw: rows, server, channel }
-  if (context.client && publicationToken) {
-    await publishCommunityLiveSnapshot(context.client, {
-      snapshot: { kind: "notification-settings", data },
-      proof: { kind: "structural", token: publicationToken, signal: context.signal },
-    })
-  }
-  return data
+  return createNotificationSettingsResourceQueryFn(context.client, "anon")(context)
 }
 
 function projectNotificationSettings(
@@ -102,14 +74,15 @@ function projectNotificationSettings(
 }
 
 export async function reconcileNotificationSettings(queryClient: QueryClient) {
-  const queryKey = communityKeys.notificationSettings()
+  const scopeId = getCommunityDbRegistry(queryClient)?.scopeId ?? "anon"
+  const queryKey = notificationSettingsResourceKey(scopeId)
   // A policy WS event is newer than any transport already in flight. Cancel
   // that generation first so TanStack cannot dedupe this repair onto the old
   // request and install its stale response after the event.
   await queryClient.cancelQueries({ queryKey, exact: true })
-  const settings = await queryClient.fetchQuery({
+  const settings = await queryClient.query({
     queryKey,
-    queryFn: notificationSettingsQueryFn,
+    queryFn: createNotificationSettingsResourceQueryFn(queryClient, scopeId),
     staleTime: 0,
   })
   projectNotificationSettings(getActiveAccountUnreadProjection(queryClient), settings)
@@ -123,13 +96,14 @@ export function useNotificationSettings(): UseQueryResult<NotificationSettings> 
   const registry = useOptionalCommunityDbRegistry()
   const dbSettings = useNotificationSettingsProjection()
   const queryClient = useQueryClient()
+  const scopeId = registry?.scopeId ?? "anon"
   const projection = useMemo(
     () => getActiveAccountUnreadProjection(queryClient),
     [queryClient],
   )
   const query = useQuery({
-    queryKey: communityKeys.notificationSettings(),
-    queryFn: notificationSettingsQueryFn,
+    queryKey: notificationSettingsResourceKey(scopeId),
+    queryFn: createNotificationSettingsResourceQueryFn(queryClient, scopeId),
   })
   const projectedSettings = registry ? dbSettings : query.data
   useEffect(() => {
@@ -143,6 +117,9 @@ export function useNotificationSettings(): UseQueryResult<NotificationSettings> 
     channel: registry
       ? dbSettings?.channel ?? (EMPTY_NOTIF_CHANNEL as Record<string, string>)
       : query.data?.channel ?? (EMPTY_NOTIF_CHANNEL as Record<string, string>),
+  } as UseQueryResult<NotificationSettingsResource> & {
+    server: Record<string, string>
+    channel: Record<string, string>
   }
 }
 

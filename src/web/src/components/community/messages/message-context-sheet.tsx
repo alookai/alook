@@ -40,7 +40,7 @@ import {
 import {
   captureCommunityLiveSnapshotToken,
   patchCanonicalCommunityMessage,
-  publishCommunityEmbeddedMessages,
+  reconcileCanonicalEmbeddedMessages,
 } from "@/lib/community-db/sync"
 
 export type ReplyTarget = { id: string; authorName: string; text: string }
@@ -113,7 +113,7 @@ export function messageContextQueryFn(
       { signal },
     )
     const messages = (page.messages ?? []).slice().sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))
-    await publishCommunityEmbeddedMessages(queryClient, {
+    await reconcileCanonicalEmbeddedMessages(queryClient, {
       entries: messages.map((message) => ({ channelId, message })),
       proof: { token: publicationToken, signal },
     })
@@ -121,9 +121,8 @@ export function messageContextQueryFn(
   }
 }
 
-// Apply a reaction toggle to the sheet's own cache — mirrors the reducer
-// `togglePageCacheReaction` in mutations/messages.ts but on this hook's flat
-// `messages[]` shape instead of the main list's PageCache-of-pages shape.
+// Apply a reaction toggle to this auxiliary context response. The canonical
+// message row is updated separately through the collection mutation path.
 function toggleSheetReaction(
   cache: SheetCache | undefined,
   messageId: string,

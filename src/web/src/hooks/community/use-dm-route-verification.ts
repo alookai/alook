@@ -8,22 +8,16 @@ import {
   type QueryClient,
   type QueryFunctionContext,
 } from "@tanstack/react-query"
-import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import type { DM } from "@/lib/community/models/people"
-import type { DmsResponse } from "./use-dms"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import {
-  assertCommunityLiveSnapshotTokenCurrent,
-  captureCommunityLiveSnapshotToken,
-  publishCommunityLiveSnapshot,
-} from "@/lib/community-db/sync"
+  createDmsResourceQueryFn,
+  dmsResourceKey,
+  type DmsResource,
+} from "@/lib/community-db/dms-resource"
 
 export const DM_ROUTE_VERIFICATION_HEADER = "X-Alook-DM-Route-Verification"
-
-const dmRouteAuthorityQueryFn = (signal: AbortSignal | undefined) => apiFetch<DmsResponse>(
-  "/api/community/users/me/dms",
-  { headers: { [DM_ROUTE_VERIFICATION_HEADER]: "1" }, signal },
-)
 
 export type DmRouteVerification = "present" | "missing" | "denied"
 export type DmRouteVerificationStatus = "idle" | "pending" | "present" | "missing" | "error"
@@ -45,19 +39,26 @@ async function verifyDmRoute(
   dmId: string,
   signal: AbortSignal | undefined,
 ): Promise<DmRouteVerification> {
-  const token = captureCommunityLiveSnapshotToken(queryClient)
+  const scopeId = getCommunityDbRegistry(queryClient)?.scopeId ?? "anon"
+  const resourceKey = dmsResourceKey(scopeId)
+  const abortResource = () => {
+    void queryClient.cancelQueries({ queryKey: resourceKey, exact: true })
+  }
+  signal?.addEventListener("abort", abortResource, { once: true })
   try {
-    const response = await dmRouteAuthorityQueryFn(signal)
-    await publishCommunityLiveSnapshot(queryClient, {
-      snapshot: { kind: "dms", data: response },
-      proof: { kind: "structural", token, signal },
+    await queryClient.cancelQueries({ queryKey: resourceKey, exact: true })
+    const response = await queryClient.query({
+      queryKey: resourceKey,
+      queryFn: createDmsResourceQueryFn(queryClient, scopeId, { routeVerification: true }),
+      staleTime: 0,
     })
-    assertCommunityLiveSnapshotTokenCurrent(queryClient, token, signal)
-    queryClient.setQueryData(communityKeys.dms(), response)
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
     return response.conversations.some((dm) => dm.id === dmId) ? "present" : "missing"
   } catch (error) {
     if (classifyDmRouteAuthorityError(error) === "denied") return "denied"
     throw error
+  } finally {
+    signal?.removeEventListener("abort", abortResource)
   }
 }
 
@@ -83,11 +84,12 @@ export function startDmRouteVerification(
   queryClient: QueryClient,
   dmId: string,
 ): Promise<DmRouteVerification> {
-  const canonical = queryClient.getQueryData<DmsResponse>(communityKeys.dms())
+  const scopeId = getCommunityDbRegistry(queryClient)?.scopeId ?? "anon"
+  const canonical = queryClient.getQueryData<DmsResource>(dmsResourceKey(scopeId))
   if (canonical?.conversations.some((dm) => dm.id === dmId)) {
     return Promise.resolve("present")
   }
-  return queryClient.fetchQuery({
+  return queryClient.query({
     ...verificationOptions(queryClient, dmId),
     staleTime: 0,
   })
@@ -99,7 +101,8 @@ export function useDmRouteVerification(
   canonicalUnsettled: boolean,
 ): DmRouteVerificationResult {
   const queryClient = useQueryClient()
-  const canonical = queryClient.getQueryData<DmsResponse>(communityKeys.dms())
+  const scopeId = getCommunityDbRegistry(queryClient)?.scopeId ?? "anon"
+  const canonical = queryClient.getQueryData<DmsResource>(dmsResourceKey(scopeId))
   // Inbox navigation writes the destination into the canonical cache before
   // routing. The layout's observer snapshot can trail that synchronous write
   // by one render, so consult the cache directly before starting authority.

@@ -7,6 +7,7 @@ import {
   writeCommunityProfilePatches,
 } from "@/lib/community/profile-seed"
 import { communityKeys } from "@/lib/query-keys"
+import { isDmsResourceQueryKey } from "@/lib/community-db/dms-resource"
 import type { BotActivityDay, CommunityProfilePatch } from "@/lib/community/models/people"
 import { avatarInitial } from "@/lib/community/avatar"
 import type { DailyUsageMetric, ReasoningEffort } from "@alook/shared"
@@ -134,7 +135,7 @@ export type CreateBotInput = {
 export function invalidateBotSurfaces(qc: ReturnType<typeof useQueryClient>, botUserId?: string) {
   qc.invalidateQueries({ queryKey: communityKeys.bots() })
   qc.invalidateQueries({ queryKey: communityKeys.friends() })
-  qc.invalidateQueries({ queryKey: communityKeys.dms() })
+  qc.invalidateQueries({ predicate: ({ queryKey }) => isDmsResourceQueryKey(queryKey) })
   if (botUserId) {
     qc.invalidateQueries({ queryKey: communityKeys.profile(botUserId) })
   }

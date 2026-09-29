@@ -2,6 +2,7 @@ import { createElement, type PropsWithChildren } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { describe, expect, it, vi } from "vitest"
 import { renderHook } from "@/test/react-dom-harness"
+import { foldersResourceKey } from "@/lib/community-db/folders-resource"
 
 const dbRail = vi.hoisted(() => ({
   current: {
@@ -36,7 +37,7 @@ describe("useFolders canonical projection", () => {
   it("uses transport folders without a canonical registry", () => {
     registryActive.current = false
     const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity } } })
-    client.setQueryData(["community", "folders"], {
+    client.setQueryData(foldersResourceKey("anon"), {
       folders: [{ id: "query-folder", name: "Query", position: 0, servers: [] }],
     })
     const wrapper = ({ children }: PropsWithChildren) => createElement(

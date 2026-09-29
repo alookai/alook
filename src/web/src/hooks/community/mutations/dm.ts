@@ -2,7 +2,7 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
-import { communityKeys } from "@/lib/query-keys"
+import { isDmsResourceQueryKey } from "@/lib/community-db/dms-resource"
 
 export type CreateOrGetDmArgs = { userId: string }
 export type CreateOrGetDmResult = { conversation: { id: string } }
@@ -24,7 +24,9 @@ export function useCreateOrGetDm() {
       })
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: communityKeys.dms() })
+      void queryClient.invalidateQueries({
+        predicate: ({ queryKey }) => isDmsResourceQueryKey(queryKey),
+      })
     },
   })
 }

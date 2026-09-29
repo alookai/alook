@@ -12,7 +12,7 @@ import type { ForumThread } from "@/lib/community/models/message"
 import { useCanonicalMessagesById } from "@/lib/community-db/projections"
 import {
   captureCommunityLiveSnapshotToken,
-  publishCommunityEmbeddedMessages,
+  reconcileCanonicalEmbeddedMessages,
 } from "@/lib/community-db/sync"
 import { useForumTags } from "./use-channel-panels"
 import {
@@ -72,7 +72,7 @@ export function forumFeedPageQueryFn(
       signal ? { signal } : undefined,
     ).then(async (page) => {
       if (queryClient && publicationToken) {
-        await publishCommunityEmbeddedMessages(queryClient, {
+        await reconcileCanonicalEmbeddedMessages(queryClient, {
           entries: page.included.parentMessages.map((message) => ({
             channelId: message.channelId,
             message: {

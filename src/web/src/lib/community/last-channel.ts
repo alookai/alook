@@ -15,6 +15,7 @@ import {
   readNavigationMemory,
   writeNavigationMemory,
 } from "./navigation-memory"
+import { UNCATEGORIZED_CATEGORY_ID } from "@alook/shared"
 
 const PREFIX = "community:lastChannel:"
 
@@ -51,6 +52,29 @@ export function setLastChannel(serverId: string, channelId: string): void {
  */
 export function clearLastChannel(serverId: string): void {
   clearNavigationMemory(lastChannelKey(serverId))
+}
+
+type ServerLandingCategory = {
+  id: string
+  name: string
+  pending?: boolean
+  channels: ReadonlyArray<{ id: string; pending?: boolean }>
+}
+
+export function serverLandingChannelIds(
+  categories: readonly ServerLandingCategory[],
+): string[] {
+  const ungrouped = categories.filter((category) => (
+    category.id === UNCATEGORIZED_CATEGORY_ID || category.name === ""
+  ))
+  const grouped = categories.filter((category) => (
+    category.id !== UNCATEGORIZED_CATEGORY_ID && category.name !== ""
+  ))
+  return [...ungrouped, ...grouped].flatMap((category) => (
+    category.pending
+      ? []
+      : category.channels.filter((channel) => !channel.pending).map((channel) => channel.id)
+  ))
 }
 
 /**

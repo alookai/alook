@@ -12,7 +12,7 @@ import {
 } from "@/lib/community-db/collections"
 import {
   captureCommunityLiveSnapshotToken,
-  publishCommunityForumSidebar,
+  reconcileCanonicalForumSidebar,
 } from "@/lib/community-db/sync"
 import { getForumSidebarBase } from "./use-forum-sidebar-threads"
 
@@ -62,7 +62,19 @@ function sidebarData() {
 
 beforeEach(async () => {
   apiFetchMock.mockReset()
-  apiFetchMock.mockResolvedValue(undefined)
+  apiFetchMock.mockImplementation(async (path: string) => {
+    if (path.endsWith("/read-state")) return { revision: 0, readStates: [] }
+    if (path.endsWith("/attention")) {
+      return {
+        scopes: [], items: [], limit: 100, truncated: false,
+        included: { servers: [], channels: [], dms: [], profiles: [], messages: [] },
+      }
+    }
+    if (path.endsWith("/server-folders")) return { folders: [] }
+    if (path.endsWith("/notifications")) return []
+    if (path.endsWith("/dms")) return { conversations: [] }
+    return undefined
+  })
   queryClient = new QueryClient()
   registry = createCommunityDbRegistry(queryClient, "viewer_1")
   await registry.preload()
@@ -81,7 +93,7 @@ describe("useRemoveThreadParticipant", () => {
     const key = communityKeys.forumSidebarThreads("server_1")
     const metaKey = communityKeys.channelMeta("server_1", "post_1")
     queryClient.setQueryData(key, sidebarData())
-    await publishCommunityForumSidebar(queryClient, {
+    await reconcileCanonicalForumSidebar(queryClient, {
       serverId: "server_1",
       channels: [{
         id: "post_1", name: "Post", parentChannelId: "forum_1",

@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { QueryClient } from "@tanstack/react-query"
-import { communityKeys } from "@/lib/query-keys"
+import {
+  createFoldersResourceQueryFn,
+  foldersResourceKey,
+} from "@/lib/community-db/folders-resource"
 import { useCommunityWsStore } from "@/stores/community/ws"
 
 const apiFetchMock = vi.fn()
@@ -11,7 +14,7 @@ vi.mock("@/lib/community-db/sync", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/community-db/sync")>()
   return {
     ...actual,
-    publishCommunityLiveSnapshot: vi.fn(async (queryClient, publication) => {
+    reconcileCommunityLiveSnapshot: vi.fn(async (queryClient, publication) => {
       actual.assertCommunityLiveSnapshotTokenCurrent(
         queryClient,
         publication.proof.token,
@@ -41,22 +44,27 @@ describe("useFolders / foldersQueryFn", () => {
     })
     const { foldersQueryFn } = await import("./use-folders")
     const data = await foldersQueryFn()
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/users/me/server-folders")
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/community/users/me/server-folders",
+      { signal: undefined },
+    )
     expect(data.folders[0].servers[0].initial).toBe("A")
     expect(data.folders[0].position).toBe(2)
   })
 
-  it("populates queryClient at communityKeys.folders()", async () => {
+  it("populates the account-scoped folders resource", async () => {
     apiFetchMock.mockResolvedValueOnce({ folders: [] })
-    const { foldersProjectedQueryFn } = await import("./use-folders")
     const qc = new QueryClient()
-    const key = communityKeys.folders()
-    await qc.fetchQuery({ queryKey: key, queryFn: foldersProjectedQueryFn(qc) })
+    const key = foldersResourceKey("viewer")
+    await qc.query({
+      queryKey: key,
+      queryFn: createFoldersResourceQueryFn(qc, "viewer"),
+    })
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/community/users/me/server-folders",
       { signal: expect.any(AbortSignal) },
     )
-    expect(qc.getQueryData(key)).toEqual({ folders: [] })
+    expect(qc.getQueryData(key)).toEqual({ folders: [], folderRows: [], folderItems: [] })
   })
 
   it("rejects a folder response captured before the access epoch changes", async () => {

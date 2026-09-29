@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
 import { serversCollectionQueryKey } from "@/lib/community-db/server-collection"
+import { serverDetailResourceKey } from "@/lib/community-db/server-detail-resource"
 
 vi.mock("react", () => ({
   useRef: (initial: unknown) => ({ current: initial }),
@@ -59,6 +60,28 @@ async function load() {
   return await import("./servers")
 }
 
+async function registerServerRow(id = "srv_1") {
+  const collections = await import("@/lib/community-db/collections")
+  const registry = collections.createCommunityDbRegistry(capturedQc, "viewer")
+  const unregister = collections.registerCommunityDbRegistry(registry)
+  await registry.ensureCollectionReady("servers")
+  registry.collections.servers.utils.writeInsert({
+    id,
+    position: 0,
+    name: "old",
+    discriminator: "0001",
+    description: "old description",
+    ownerId: "viewer",
+    icon: null,
+    official: false,
+    isOwner: true,
+    unread: false,
+    mentions: 0,
+    detailComplete: false,
+  })
+  return { registry, unregister }
+}
+
 beforeEach(() => {
   apiFetchMock.mockReset()
   capturedConfig = null
@@ -66,6 +89,29 @@ beforeEach(() => {
 })
 
 describe("useLeaveServer — optimistic + rollback", () => {
+  it.each(["leave", "delete"] as const)(
+    "%s restores the canonical server row after an optimistic failure",
+    async (operation) => {
+      const mod = await load()
+      const canonical = await registerServerRow()
+      if (operation === "leave") mod.useLeaveServer()
+      else {
+        const lifecycle = await import("@/lib/community/eject-server")
+        mod.useDeleteServer({ routeToken: lifecycle.createOwnerServerDeleteRouteToken() })
+      }
+      const cfg = capturedConfig as MutConfig<{ serverId: string }, unknown>
+      const args = { serverId: "srv_1" }
+
+      const context = await cfg.onMutate?.(args)
+      expect(canonical.registry.collections.servers.has("srv_1")).toBe(false)
+      cfg.onError?.(new Error("failed"), args, context)
+      expect(canonical.registry.collections.servers.get("srv_1")?.name).toBe("old")
+
+      canonical.unregister()
+      await canonical.registry.cleanup()
+    },
+  )
+
   it("fences every unread source in the departing scope and rolls back atomically", async () => {
     const mod = await load()
     const { getActiveAccountUnreadProjection } = await import(
@@ -131,9 +177,11 @@ describe("useLeaveServer — optimistic + rollback", () => {
           },
         },
       )
-      capturedQc.setQueryData(communityKeys.server("srv_1"), {
-        id: "srv_1",
+      const detailKey = serverDetailResourceKey("viewer", "srv_1")
+      capturedQc.setQueryData(detailKey, {
+        serverId: "srv_1",
         categories: [],
+        channels: [],
       })
       if (operation === "leave") mod.useLeaveServer()
       else {
@@ -159,7 +207,7 @@ describe("useLeaveServer — optimistic + rollback", () => {
         currentChannelId: null,
         currentChannelMeta: null,
       })
-      expect(capturedQc.getQueryState(communityKeys.server("srv_1"))).toBeUndefined()
+      expect(capturedQc.getQueryState(detailKey)).toBeUndefined()
       expect([...useMessageStreamStore.getState().entries.values()]
         .some((entry) => entry.scope.serverId === "srv_1")).toBe(false)
       if (operation === "delete") {
@@ -176,9 +224,11 @@ describe("useDeleteServer — navigation lifecycle", () => {
     capturedQc.setQueryData(serversCollectionQueryKey(), {
       servers: [{ id: args.serverId }],
     })
-    capturedQc.setQueryData(communityKeys.server(args.serverId), {
-      id: args.serverId,
+    const detailKey = serverDetailResourceKey("viewer", args.serverId)
+    capturedQc.setQueryData(detailKey, {
+      serverId: args.serverId,
       categories: [],
+      channels: [],
     })
     apiFetchMock.mockResolvedValueOnce(undefined)
     const mod = await load()
@@ -196,11 +246,11 @@ describe("useDeleteServer — navigation lifecycle", () => {
     const context = await cfg.onMutate?.(args)
     expect(lifecycle.observeOwnerServerDeleteRouteCommit("/c/me")).toEqual([])
     expect(flushOwnerServerDeleteRouteCommit(capturedQc)).toEqual([])
-    expect(capturedQc.getQueryState(communityKeys.server(args.serverId))).toBeDefined()
+    expect(capturedQc.getQueryState(detailKey)).toBeDefined()
     await cfg.mutationFn?.(args)
     cfg.onSuccess?.(undefined, args, context)
 
-    expect(capturedQc.getQueryState(communityKeys.server(args.serverId))).toBeUndefined()
+    expect(capturedQc.getQueryState(detailKey)).toBeUndefined()
     expect(removeQueries).toHaveBeenCalledTimes(1)
     expect(onSuccess).toHaveBeenCalledWith(args, { needsNavigation: false })
     expect(flushOwnerServerDeleteRouteCommit(capturedQc)).toEqual([])
@@ -280,6 +330,32 @@ describe("useDeleteServer — navigation lifecycle", () => {
 })
 
 describe("useUpdateServer — rollback on both caches", () => {
+  it("updates and restores the canonical server row around a failed request", async () => {
+    const mod = await load()
+    const canonical = await registerServerRow()
+    mod.useUpdateServer()
+    const cfg = capturedConfig as MutConfig<{
+      serverId: string
+      name: string
+      description: string
+    }, unknown>
+    const args = { serverId: "srv_1", name: "new", description: "new description" }
+
+    const context = await cfg.onMutate?.(args)
+    expect(canonical.registry.collections.servers.get("srv_1")).toMatchObject({
+      name: "new",
+      description: "new description",
+    })
+    cfg.onError?.(new Error("failed"), args, context)
+    expect(canonical.registry.collections.servers.get("srv_1")).toMatchObject({
+      name: "old",
+      description: "old description",
+    })
+
+    canonical.unregister()
+    await canonical.registry.cleanup()
+  })
+
   it("restores server-detail + servers-list on failure", async () => {
     capturedQc.setQueryData(communityKeys.server("srv_1"), {
       id: "srv_1",
@@ -355,8 +431,8 @@ describe("useUpdateServer — rollback on both caches", () => {
     })
 
     expect(capturedQc.getQueryData(communityKeys.server("srv_1"))).toMatchObject({
-      name: "new",
-      description: "new description",
+      name: "old",
+      description: "old description",
     })
     const list = capturedQc.getQueryData<{
       servers: Array<{ name: string; description: string; initial: string; mentions: number }>
@@ -404,8 +480,38 @@ describe("useCreateServer — invalidates the server row transport", () => {
   })
 })
 
+describe("useJoinServer — refreshes canonical or transport ownership", () => {
+  it("invalidates the transport when no registry is bound", async () => {
+    apiFetchMock.mockResolvedValueOnce({ serverId: "joined" })
+    const mod = await load()
+    mod.useJoinServer()
+    const invalidate = vi.spyOn(capturedQc, "invalidateQueries")
+
+    await runMutation({ inviteCode: "invite-token" })
+
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: serversCollectionQueryKey(),
+      exact: true,
+    })
+  })
+
+  it("requests a canonical refetch when a registry is bound", async () => {
+    apiFetchMock.mockResolvedValueOnce({ serverId: "joined" })
+    const mod = await load()
+    const canonical = await registerServerRow()
+    const refetch = vi.spyOn(canonical.registry, "requestServerRefetch").mockResolvedValue(undefined)
+    mod.useJoinServer()
+
+    await runMutation({ inviteCode: "https://example.test/c/invite/invite-token" })
+
+    expect(refetch).toHaveBeenCalledOnce()
+    canonical.unregister()
+    await canonical.registry.cleanup()
+  })
+})
+
 describe("useUploadServerIcon — patches caches on success", () => {
-  it("writes cache-busted icon into server detail + list", async () => {
+  it("does not rewrite the retired server-detail transport document", async () => {
     capturedQc.setQueryData(communityKeys.server("srv_1"), {
       id: "srv_1",
       name: "n",
@@ -428,7 +534,27 @@ describe("useUploadServerIcon — patches caches on success", () => {
       const file = new File([""], "icon.png", { type: "image/png" })
       await runMutation({ serverId: "srv_1", file })
       const detail = capturedQc.getQueryData<{ icon: string | null }>(communityKeys.server("srv_1"))
-      expect(detail?.icon).toMatch(/^https:\/\/cdn\/x\?t=/)
+      expect(detail?.icon).toBeNull()
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it("writes the cache-busted icon into the canonical server row", async () => {
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ url: "https://cdn/icon" }), { status: 200 })) as typeof fetch
+    try {
+      const mod = await load()
+      const canonical = await registerServerRow()
+      mod.useUploadServerIcon()
+      const file = new File(["icon"], "icon.png", { type: "image/png" })
+
+      await runMutation({ serverId: "srv_1", file })
+
+      expect(canonical.registry.collections.servers.get("srv_1")?.icon)
+        .toMatch(/^https:\/\/cdn\/icon\?t=/)
+      canonical.unregister()
+      await canonical.registry.cleanup()
     } finally {
       globalThis.fetch = originalFetch
     }

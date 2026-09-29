@@ -1,5 +1,5 @@
 import { QueryClient } from "@tanstack/react-query"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { CommunityWsEvent } from "@alook/shared"
 import {
   createCommunityDbRegistry,
@@ -14,7 +14,7 @@ import {
   getCanonicalCommunityMessages,
   ingestMessages,
   projectCommunityWsEventToDb,
-  publishCommunityEmbeddedMessages,
+  reconcileCanonicalEmbeddedMessages,
 } from "@/lib/community-db/sync"
 import type { Msg } from "@/lib/community/models/message"
 import { mapForumFeedPages, type ForumFeedPage } from "./use-forum-feed"
@@ -23,11 +23,37 @@ import { materializeThreadsResponse, type ThreadsResponse } from "./use-channel-
 let registry: CommunityDbRegistry | undefined
 let unregister: (() => void) | undefined
 
+beforeEach(() => {
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input)
+    const body = url.endsWith("/read-state")
+      ? { revision: 0, readStates: [] }
+      : url.endsWith("/attention")
+        ? {
+            scopes: [], items: [], limit: 100, truncated: false,
+            included: { servers: [], channels: [], dms: [], profiles: [], messages: [] },
+          }
+        : url.endsWith("/server-folders")
+          ? { folders: [] }
+          : url.endsWith("/notifications")
+            ? []
+            : url.endsWith("/dms")
+              ? { conversations: [] }
+              : null
+    if (body === null) throw new Error(`unexpected API fetch: ${url}`)
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    })
+  }))
+})
+
 afterEach(async () => {
   unregister?.()
   unregister = undefined
   if (registry) await registry.cleanup()
   registry = undefined
+  vi.unstubAllGlobals()
 })
 
 describe("embedded message surface ownership", () => {
@@ -108,7 +134,7 @@ describe("embedded message surface ownership", () => {
     })
 
     expect(getCanonicalCommunityMessages(queryClient)).toEqual([])
-    await publishCommunityEmbeddedMessages(queryClient, {
+    await reconcileCanonicalEmbeddedMessages(queryClient, {
       entries: [{ channelId: "c1", message: transport }],
       proof: {
         token: captureCommunityLiveSnapshotToken(queryClient),
@@ -162,7 +188,7 @@ describe("embedded message surface ownership", () => {
       createdAt: "2026-09-26T00:00:00.000Z",
     } as Msg
 
-    await expect(publishCommunityEmbeddedMessages(queryClient, {
+    await expect(reconcileCanonicalEmbeddedMessages(queryClient, {
       entries: [{ channelId: "c1", message: transport }],
       proof: {
         token: captureCommunityLiveSnapshotToken(queryClient),
@@ -194,7 +220,7 @@ describe("embedded message surface ownership", () => {
     }
     ingestMessages(registry, "c1", [rich])
 
-    await publishCommunityEmbeddedMessages(queryClient, {
+    await reconcileCanonicalEmbeddedMessages(queryClient, {
       entries: [{
         channelId: "c1",
         message: { id: "m1", type: "chat", seq: 1, content: "updated opener" },

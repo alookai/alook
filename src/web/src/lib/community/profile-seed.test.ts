@@ -1,7 +1,6 @@
 import { QueryClient } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { Msg } from "@/lib/community/models/message"
-import { communityKeys } from "@/lib/query-keys"
 import {
   apiFetchProfiles,
   beginCommunityProfileSeed,
@@ -33,6 +32,21 @@ function chat(overrides: Partial<Msg> = {}): Msg {
 
 beforeEach(async () => {
   apiFetch.mockReset()
+  apiFetch.mockImplementation(async (path: string) => {
+    if (path === "/api/community/users/me/read-state") {
+      return { revision: 0, readStates: [] }
+    }
+    if (path === "/api/community/users/me/attention") {
+      return {
+        scopes: [], items: [], limit: 100, truncated: false,
+        included: { servers: [], channels: [], dms: [], profiles: [], messages: [] },
+      }
+    }
+    if (path === "/api/community/users/me/dms") return { conversations: [] }
+    if (path === "/api/community/users/me/server-folders") return { folders: [] }
+    if (path === "/api/community/users/me/notifications") return []
+    throw new Error(`unexpected API fetch: ${path}`)
+  })
   registry = createCommunityDbRegistry(new QueryClient(), "viewer")
   await registry.preload()
   unregister = registerCommunityDbRegistry(registry)
@@ -154,13 +168,11 @@ describe("profile seeding boundaries", () => {
     })
   })
 
-  it("falls back to live collection rows when the canonical query cache is absent", () => {
+  it("merges partial patches against live canonical collection rows", () => {
     writeCommunityProfilePatches([{
       id: "u-cache-gap",
       identityAbout: { name: "Before", discriminator: "0009" },
     }], registry)
-    const queryKey = communityKeys.communityDbCollection(registry.scopeId, "profiles")
-    registry.queryClient.removeQueries({ queryKey, exact: true })
 
     writeCommunityProfilePatches([{
       id: "u-cache-gap",

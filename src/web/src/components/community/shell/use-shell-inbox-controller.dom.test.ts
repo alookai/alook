@@ -2,7 +2,6 @@ import { createElement } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { act, render as rtlRender } from "@/test/react-dom-harness"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import type { DmCache } from "@/lib/community/dm-cache"
 import type { Mention, UnreadDm, UnreadServer } from "@/lib/community/models/inbox"
 import { useShellInboxController } from "./use-shell-inbox-controller"
 
@@ -19,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   armOpener: vi.fn(),
   clearOpener: vi.fn(),
   terminateOpener: vi.fn(),
+  publishDm: vi.fn(),
   begin: vi.fn(),
   submitted: vi.fn(),
   rollback: vi.fn(),
@@ -115,6 +115,9 @@ vi.mock("@/hooks/community/mutations", () => ({
 vi.mock("@/hooks/community/use-dm-route-verification", () => ({
   startDmRouteVerification: (...args: unknown[]) => mocks.verifyDm(...args),
 }))
+vi.mock("@/lib/community-db/sync", () => ({
+  publishCommunityDmSummary: (...args: unknown[]) => mocks.publishDm(...args),
+}))
 vi.mock("@/hooks/community/thread-opener-read-handoff", () => ({
   armThreadOpenerReadHandoff: (...args: unknown[]) => mocks.armOpener(...args),
   clearThreadOpenerReadHandoff: (...args: unknown[]) => mocks.clearOpener(...args),
@@ -138,7 +141,7 @@ function Capture({ options, onResult }: {
 }
 
 async function renderController(
-  initialDmCache: DmCache = { conversations: [] },
+  _initialDmCache: unknown = undefined,
   push?: (href: string, options?: unknown) => void,
 ) {
   const pushed: string[] = []
@@ -153,13 +156,6 @@ async function renderController(
     replace: vi.fn(),
     prefetch: vi.fn(),
   }
-  let dmCache = initialDmCache
-  const queryClient = {
-    setQueryData: vi.fn((_key, updater) => {
-      order.push("query")
-      dmCache = updater(dmCache)
-    }),
-  }
   const cancelPendingNavigation = vi.fn(() => { order.push("cancel") })
   let current!: Result
   const actionQueryClient = new QueryClient()
@@ -170,7 +166,7 @@ async function renderController(
       createElement(Capture, {
         options: {
           router,
-          queryClient,
+          queryClient: actionQueryClient,
           cancelPendingNavigation,
           publishedHref: "/c/channels/s1",
           navigationPending: false,
@@ -185,7 +181,6 @@ async function renderController(
     order,
     pushed,
     pushCalls,
-    get dmCache() { return dmCache },
   }
 }
 
@@ -204,6 +199,7 @@ describe("useShellInboxController", () => {
       mocks.armOpener,
       mocks.clearOpener,
       mocks.terminateOpener,
+      mocks.publishDm,
       mocks.begin,
       mocks.submitted,
       mocks.rollback,
@@ -231,6 +227,10 @@ describe("useShellInboxController", () => {
     mocks.verifyDm.mockImplementation(() => {
       order.push("verify")
       return Promise.resolve("present")
+    })
+    mocks.publishDm.mockImplementation(() => {
+      order.push("canonical")
+      return "published"
     })
     mocks.accept.mockResolvedValue(undefined)
     mocks.reject.mockResolvedValue(undefined)
@@ -360,12 +360,14 @@ describe("useShellInboxController", () => {
       "project",
       "cancel",
       "clear",
-      "query",
+      "canonical",
       "push",
       "submitted",
       "verify",
     ])
-    expect(hook.dmCache.conversations[0]?.id).toBe("dm1")
+    expect(mocks.publishDm).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      id: "dm1",
+    }))
   })
 
   it("arms an exact unread opener after stale setup is cleared and before push", async () => {

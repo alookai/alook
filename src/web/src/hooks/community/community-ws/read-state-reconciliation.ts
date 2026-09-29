@@ -1,29 +1,22 @@
 import { notifyManager, type QueryClient, type QueryKey } from "@tanstack/react-query"
-import { apiFetch } from "@/lib/api/client"
-import {
-  communityKeys,
-  isCommunityServerDetailQueryKey,
-} from "@/lib/query-keys"
+import { communityKeys } from "@/lib/query-keys"
 import { serversCollectionQueryKey } from "@/lib/community-db/server-collection"
+import {
+  isServerDetailResourceQueryKey,
+  serverIdFromServerDetailResourceKey,
+} from "@/lib/community-db/server-detail-resource"
+import { isDmsResourceQueryKey } from "@/lib/community-db/dms-resource"
 import { projectReadCoordinatorSnapshot } from "@/hooks/community/read-coordinator-snapshot-projection"
 import { acceptAccountUnreadPrimarySnapshot } from "@/hooks/community/account-unread-projection"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import {
-  captureCommunityLiveSnapshotToken,
-  publishCommunityLiveSnapshot,
-  type CommunityLiveSnapshotToken,
-} from "@/lib/community-db/sync"
+  fetchReadStateResource,
+  readStateResourceKey,
+  type AccountReadStateSnapshot,
+  type ReadStateResource,
+} from "@/lib/community-db/read-state-resource"
 
-type AccountReadState = {
-  channelId: string
-  lastReadMessageId: string | null
-  lastReadAt: string
-  lastReadSeq: number
-}
-
-export type AccountReadStateSnapshot = {
-  revision: number
-  readStates: AccountReadState[]
-}
+export type { AccountReadStateSnapshot } from "@/lib/community-db/read-state-resource"
 
 export type ReadStateEnvelope = {
   revision: number
@@ -39,6 +32,7 @@ type ReconciliationState = {
   serverRequestedGeneration: number
   serverCompletedGeneration: number
   snapshotWorker: Promise<AccountReadStateSnapshot> | null
+  snapshotController: AbortController | null
   inboxDmsWorker: Promise<void> | null
   serverWorker: Promise<void> | null
   snapshotRetryTimer: ReturnType<typeof setTimeout> | null
@@ -47,7 +41,6 @@ type ReconciliationState = {
   inboxDmsRetryDelayMs: number
   serverRetryTimer: ReturnType<typeof setTimeout> | null
   serverRetryDelayMs: number
-  requestController: AbortController | null
   epoch: number
   disposed: boolean
 }
@@ -95,22 +88,21 @@ function projectReadStateRows(queryClient: QueryClient, snapshot: AccountReadSta
 
 async function applyAccountReadStateSnapshot(
   queryClient: QueryClient,
-  snapshot: AccountReadStateSnapshot,
+  snapshot: ReadStateResource,
   proof: {
-    token: CommunityLiveSnapshotToken
-    signal: AbortSignal
     requestGeneration: number
     currentRequestGeneration: number
     targetRevision: number | null
   },
 ) {
-  const publication = await publishCommunityLiveSnapshot(queryClient, {
-    snapshot: { kind: "read-state", data: snapshot },
-    proof: { kind: "read-state", ...proof },
-  })
-  if (publication === "superseded") return "superseded" as const
+  if (
+    proof.requestGeneration !== proof.currentRequestGeneration
+    && proof.targetRevision !== null
+    && snapshot.revision < proof.targetRevision
+  ) return "superseded" as const
+  const scopeId = getCommunityDbRegistry(queryClient)?.scopeId ?? "anon"
   const current = queryClient.getQueryData<AccountReadStateSnapshot>(
-    communityKeys.accountReadStateSnapshot(),
+    readStateResourceKey(scopeId),
   )
   if (current && snapshot.revision < current.revision) return "stale" as const
   if (current?.revision === snapshot.revision) {
@@ -118,13 +110,16 @@ async function applyAccountReadStateSnapshot(
     // Re-project leaf caches in case one mounted after the first application,
     // but do not trigger a second round of derived-surface refetches when
     // concurrent auth/live reconciliations joined the same HTTP request.
-    projectReadStateRows(queryClient, snapshot)
-    projectReadCoordinatorSnapshot(queryClient, snapshot)
-    acceptAccountUnreadPrimarySnapshot(queryClient, snapshot)
+    notifyManager.batch(() => {
+      queryClient.setQueryData(readStateResourceKey(scopeId), snapshot)
+      projectReadStateRows(queryClient, snapshot)
+      projectReadCoordinatorSnapshot(queryClient, snapshot)
+      acceptAccountUnreadPrimarySnapshot(queryClient, snapshot)
+    })
     return "stale" as const
   }
   notifyManager.batch(() => {
-    queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), snapshot)
+    queryClient.setQueryData(readStateResourceKey(scopeId), snapshot)
     projectReadStateRows(queryClient, snapshot)
     projectReadCoordinatorSnapshot(queryClient, snapshot)
     acceptAccountUnreadPrimarySnapshot(queryClient, snapshot)
@@ -140,7 +135,10 @@ async function invalidateInboxDmsSurfaces(queryClient: QueryClient) {
       refetchOptions,
     ),
     queryClient.invalidateQueries(
-      { queryKey: communityKeys.dms(), refetchType: "active" },
+      {
+        predicate: ({ queryKey }) => isDmsResourceQueryKey(queryKey),
+        refetchType: "active",
+      },
       refetchOptions,
     ),
   ])
@@ -153,7 +151,8 @@ async function invalidateServerSurfaces(queryClient: QueryClient) {
   const serverIds = new Set<string>()
   for (const query of queryClient.getQueryCache().getAll()) {
     const key = query.queryKey
-    if (isCommunityServerDetailQueryKey(key)) serverIds.add(key[2])
+    const serverId = serverIdFromServerDetailResourceKey(key)
+    if (serverId) serverIds.add(serverId)
   }
   const refetchOptions = { throwOnError: true, cancelRefetch: true }
   const settled = await Promise.allSettled([
@@ -162,8 +161,7 @@ async function invalidateServerSurfaces(queryClient: QueryClient) {
       refetchOptions,
     ),
     ...[...serverIds].map((serverId) => queryClient.invalidateQueries({
-      queryKey: communityKeys.server(serverId),
-      exact: true,
+      predicate: ({ queryKey }) => isServerDetailResourceQueryKey(queryKey, serverId),
       refetchType: "active",
     }, refetchOptions)),
   ])
@@ -247,8 +245,9 @@ export async function reconcileAccountReadState(
     void serverWorker?.catch(() => undefined)
   }
   await Promise.all(awaited)
+  const scopeId = getCommunityDbRegistry(queryClient)?.scopeId ?? "anon"
   const snapshot = queryClient.getQueryData<AccountReadStateSnapshot>(
-    communityKeys.accountReadStateSnapshot(),
+    readStateResourceKey(scopeId),
   )
   if (!snapshot) throw new Error("account read-state reconciliation produced no snapshot")
   return snapshot
@@ -266,6 +265,7 @@ function getReconciliationState(queryClient: QueryClient) {
     serverRequestedGeneration: 0,
     serverCompletedGeneration: 0,
     snapshotWorker: null,
+    snapshotController: null,
     inboxDmsWorker: null,
     serverWorker: null,
     snapshotRetryTimer: null,
@@ -274,7 +274,6 @@ function getReconciliationState(queryClient: QueryClient) {
     inboxDmsRetryDelayMs: INITIAL_RETRY_DELAY_MS,
     serverRetryTimer: null,
     serverRetryDelayMs: INITIAL_RETRY_DELAY_MS,
-    requestController: null,
     epoch: 0,
     disposed: false,
   }
@@ -283,8 +282,9 @@ function getReconciliationState(queryClient: QueryClient) {
 }
 
 function cachedAccountRevision(queryClient: QueryClient) {
+  const scopeId = getCommunityDbRegistry(queryClient)?.scopeId ?? "anon"
   return queryClient.getQueryData<AccountReadStateSnapshot>(
-    communityKeys.accountReadStateSnapshot(),
+    readStateResourceKey(scopeId),
   )?.revision ?? -1
 }
 
@@ -390,14 +390,11 @@ async function runSnapshotWorker(
   while (hasSnapshotWork(state, cachedAccountRevision(queryClient))) {
     assertReconciliationActive(queryClient, state, epoch)
     const requestGeneration = state.snapshotRequestedGeneration
-    let snapshot: AccountReadStateSnapshot
+    let snapshot: ReadStateResource
     try {
-      const response = await startAccountReadStateRequest(queryClient, state)
-      snapshot = response.snapshot
+      snapshot = await startAccountReadStateRequest(queryClient, state)
       assertReconciliationActive(queryClient, state, epoch)
       const applied = await applyAccountReadStateSnapshot(queryClient, snapshot, {
-        token: response.token,
-        signal: response.signal,
         requestGeneration,
         currentRequestGeneration: state.snapshotRequestedGeneration,
         targetRevision: state.highestPendingTargetRevision,
@@ -424,8 +421,9 @@ async function runSnapshotWorker(
     // arrived while it was in flight, loop immediately and issue a genuinely
     // fresh request. No timer/backoff is needed for a successful stale read.
   }
+  const scopeId = getCommunityDbRegistry(queryClient)?.scopeId ?? "anon"
   const snapshot = queryClient.getQueryData<AccountReadStateSnapshot>(
-    communityKeys.accountReadStateSnapshot(),
+    readStateResourceKey(scopeId),
   )
   if (!snapshot) throw new Error("account read-state reconciliation produced no snapshot")
   return snapshot
@@ -520,14 +518,17 @@ function startAccountReadStateRequest(
   queryClient: QueryClient,
   state: ReconciliationState,
 ) {
-  const controller = new AbortController()
-  const token = captureCommunityLiveSnapshotToken(queryClient)
-  state.requestController = controller
-  return apiFetch<AccountReadStateSnapshot>(
-    "/api/community/users/me/read-state",
-    { signal: controller.signal },
-  ).then((snapshot) => ({ snapshot, token, signal: controller.signal })).finally(() => {
-    if (state.requestController === controller) state.requestController = null
+  const scopeId = getCommunityDbRegistry(queryClient)?.scopeId ?? "anon"
+  const queryKey = readStateResourceKey(scopeId)
+  return queryClient.cancelQueries({ queryKey, exact: true }).then(async () => {
+    if (state.disposed) throw new Error("account read-state reconciliation disposed")
+    const controller = new AbortController()
+    state.snapshotController = controller
+    try {
+      return await fetchReadStateResource(queryClient, scopeId, controller.signal)
+    } finally {
+      if (state.snapshotController === controller) state.snapshotController = null
+    }
   })
 }
 
@@ -541,19 +542,22 @@ export function disposeAccountReadStateReconciliation(queryClient: QueryClient) 
   state.snapshotCompletedGeneration = state.snapshotRequestedGeneration
   state.inboxDmsCompletedGeneration = state.inboxDmsRequestedGeneration
   state.serverCompletedGeneration = state.serverRequestedGeneration
+  state.snapshotController?.abort()
+  state.snapshotController = null
   clearReconciliationRetry(state, "snapshot")
   clearReconciliationRetry(state, "inbox-dms")
   clearReconciliationRetry(state, "non-inbox")
-  state.requestController?.abort()
-  state.requestController = null
+  const scopeId = getCommunityDbRegistry(queryClient)?.scopeId ?? "anon"
+  void queryClient.cancelQueries({ queryKey: readStateResourceKey(scopeId), exact: true })
 }
 
 export function projectReadStateEnvelope(
   queryClient: QueryClient,
   envelope: ReadStateEnvelope,
 ) {
+  const scopeId = getCommunityDbRegistry(queryClient)?.scopeId ?? "anon"
   const snapshot = queryClient.getQueryData<AccountReadStateSnapshot>(
-    communityKeys.accountReadStateSnapshot(),
+    readStateResourceKey(scopeId),
   )
   if (!snapshot) return "gap" as const
   const state = reconciliationStates.get(queryClient)

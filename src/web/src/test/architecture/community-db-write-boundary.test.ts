@@ -16,11 +16,22 @@ function walkSource(directory: string, files: string[] = []): string[] {
 }
 
 describe("community DB canonical write boundary", () => {
-  it("keeps direct adapter writes inside the official server ownership boundary", () => {
+  it("keeps direct adapter writes inside the explicit canonical ownership boundary", () => {
     const directWrite = /\.utils\.write(?:Insert|Update|Delete|Upsert)\b/
     const allowed = new Set([
+      "src/web/src/app/c/QueryProvider.tsx",
+      "src/web/src/hooks/community/community-ws/channel-scope-projection.ts",
+      "src/web/src/hooks/community/community-ws/structure-tree-events.ts",
+      "src/web/src/hooks/community/forum-opener-title-reconciliation.ts",
+      "src/web/src/hooks/community/mutations/channels.ts",
+      "src/web/src/hooks/community/mutations/members.ts",
+      "src/web/src/hooks/community/mutations/messages.ts",
+      "src/web/src/hooks/community/mutations/notifications.ts",
       "src/web/src/hooks/community/mutations/server-rail.ts",
       "src/web/src/hooks/community/mutations/servers.ts",
+      "src/web/src/hooks/community/use-server-members.ts",
+      "src/web/src/hooks/community/use-servers.ts",
+      "src/web/src/lib/community-db/collection-mutations.ts",
       "src/web/src/lib/community-db/collections.ts",
       "src/web/src/lib/community-db/server-test-seed.ts",
       "src/web/src/lib/community-db/sync.ts",

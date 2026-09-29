@@ -1,62 +1,39 @@
 "use client"
 
-import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query"
-import {
-  AccountAttentionSnapshotSchema,
-  type AccountAttentionSnapshot,
-} from "@alook/shared"
-import { apiFetch } from "@/lib/api/client"
-import { communityKeys } from "@/lib/query-keys"
+import { useEffect } from "react"
+import { useQuery, type QueryClient } from "@tanstack/react-query"
+import type { AccountAttentionSnapshot } from "@alook/shared"
 import {
   useAttentionItems,
   useAttentionScopes,
 } from "@/lib/community-db/projections"
 import {
-  captureCommunityLiveSnapshotToken,
-  publishAccountAttentionSnapshot,
+  ingestAttentionIncluded,
 } from "@/lib/community-db/sync"
 import {
   getCommunityDbRegistry,
   type CommunityDbRegistry,
 } from "@/lib/community-db/collections"
+import { accountAttentionResourceKey } from "@/lib/community-db/account-attention-resource"
+import { useOptionalCommunityDbRegistry } from "@/lib/community-db/projections"
 
-class StaleAttentionReadError extends Error {
-  constructor() {
-    super("stale D1 attention read")
-    this.name = "StaleAttentionReadError"
-  }
+const missingAttentionOwner = async (): Promise<AccountAttentionSnapshot> => {
+  throw new Error("account attention collection is unavailable")
 }
-
-async function fetchAccountAttention(signal?: AbortSignal): Promise<AccountAttentionSnapshot> {
-  const response = await apiFetch<AccountAttentionSnapshot & { stale?: boolean }>(
-    "/api/community/users/me/attention",
-    signal ? { signal } : undefined,
-  )
-  if (response.stale) throw new StaleAttentionReadError()
-  return AccountAttentionSnapshotSchema.parse(response)
-}
-
-const accountAttentionQueryFn = (queryClient: QueryClient) =>
-  async ({ signal }: { signal?: AbortSignal } = {}) => {
-    const token = captureCommunityLiveSnapshotToken(queryClient)
-    const snapshot = await fetchAccountAttention(signal)
-    await publishAccountAttentionSnapshot(queryClient, {
-      snapshot,
-      proof: { token, signal },
-    })
-    return snapshot
-  }
 
 export function useAccountAttention() {
-  const queryClient = useQueryClient()
+  const registry = useOptionalCommunityDbRegistry()
   const scopes = useAttentionScopes()
   const items = useAttentionItems()
   const query = useQuery({
-    queryKey: communityKeys.accountAttention(),
-    queryFn: accountAttentionQueryFn(queryClient),
-    staleTime: 0,
-    refetchOnMount: "always",
+    queryKey: accountAttentionResourceKey(),
+    queryFn: registry?.accountAttentionQueryFn ?? missingAttentionOwner,
+    enabled: false,
   })
+  useEffect(() => {
+    if (!registry || !query.data) return
+    ingestAttentionIncluded(registry, query.data.included)
+  }, [query.data, registry])
   return { ...query, scopes, items }
 }
 
@@ -65,12 +42,12 @@ export function useAccountAttention() {
  * every visible attention surface observes that query plus the canonical rows.
  */
 export function useAccountAttentionProjection() {
-  const queryClient = useQueryClient()
+  const registry = useOptionalCommunityDbRegistry()
   const scopes = useAttentionScopes()
   const items = useAttentionItems()
   const query = useQuery({
-    queryKey: communityKeys.accountAttention(),
-    queryFn: accountAttentionQueryFn(queryClient),
+    queryKey: accountAttentionResourceKey(),
+    queryFn: registry?.accountAttentionQueryFn ?? missingAttentionOwner,
     enabled: false,
   })
   return { ...query, scopes, items }
@@ -79,45 +56,109 @@ export function useAccountAttentionProjection() {
 export async function reconcileAccountAttention(
   registry: CommunityDbRegistry,
 ) {
-  const snapshot = await registry.queryClient.fetchQuery({
-    queryKey: communityKeys.accountAttention(),
-    queryFn: accountAttentionQueryFn(registry.queryClient),
-    staleTime: 0,
-  })
+  await registry.collections.attentionScopes.utils.refetch({ throwOnError: true })
+  const snapshot = registry.queryClient.getQueryData<AccountAttentionSnapshot>(
+    accountAttentionResourceKey(),
+  )
+  if (!snapshot) throw new Error("account attention refetch completed without a snapshot")
+  ingestAttentionIncluded(registry, snapshot.included)
   return snapshot
 }
 
-type AttentionReconcileState = { version: number; running: boolean }
+type AttentionReconcileWaiter = {
+  version: number
+  resolve: () => void
+}
+
+type AttentionReconcileState = {
+  version: number
+  completedVersion: number
+  running: boolean
+  deferrals: Set<symbol>
+  waiters: AttentionReconcileWaiter[]
+}
 const attentionReconcileStates = new WeakMap<QueryClient, AttentionReconcileState>()
 
-export function scheduleAccountAttentionReconcile(queryClient: QueryClient) {
-  const state = attentionReconcileStates.get(queryClient) ?? { version: 0, running: false }
-  state.version += 1
-  attentionReconcileStates.set(queryClient, state)
-  if (state.running) return
+function attentionReconcileState(queryClient: QueryClient) {
+  const current = attentionReconcileStates.get(queryClient)
+  if (current) return current
+  const created: AttentionReconcileState = {
+    version: 0,
+    completedVersion: 0,
+    running: false,
+    deferrals: new Set(),
+    waiters: [],
+  }
+  attentionReconcileStates.set(queryClient, created)
+  return created
+}
+
+function settleAttentionReconcileWaiters(state: AttentionReconcileState) {
+  const pending: AttentionReconcileWaiter[] = []
+  for (const waiter of state.waiters) {
+    if (waiter.version <= state.completedVersion) waiter.resolve()
+    else pending.push(waiter)
+  }
+  state.waiters = pending
+}
+
+function startScheduledAccountAttentionReconcile(
+  queryClient: QueryClient,
+  state: AttentionReconcileState,
+) {
+  if (
+    state.running
+    || state.deferrals.size > 0
+    || state.completedVersion >= state.version
+  ) return
   state.running = true
   queueMicrotask(() => {
     void (async () => {
       try {
-        while (true) {
+        while (
+          state.deferrals.size === 0
+          && state.completedVersion < state.version
+        ) {
           const targetVersion = state.version
           // An event must never join a request that began before that event.
           // Abort that read first, then let the fresh query capture its own
           // publication token after the local WS projection is complete.
           await queryClient.cancelQueries({
-            queryKey: communityKeys.accountAttention(),
+            queryKey: accountAttentionResourceKey(),
             exact: true,
           })
           const registry = getCommunityDbRegistry(queryClient)
           if (registry) await reconcileAccountAttention(registry).catch(() => undefined)
-          if (state.version === targetVersion) break
+          state.completedVersion = targetVersion
+          settleAttentionReconcileWaiters(state)
         }
       } finally {
         state.running = false
-        if (state.version > 0 && !getCommunityDbRegistry(queryClient)) {
-          attentionReconcileStates.delete(queryClient)
-        }
+        startScheduledAccountAttentionReconcile(queryClient, state)
       }
     })()
   })
+}
+
+export function scheduleAccountAttentionReconcile(queryClient: QueryClient) {
+  const state = attentionReconcileState(queryClient)
+  const version = ++state.version
+  const completion = new Promise<void>((resolve) => {
+    state.waiters.push({ version, resolve })
+  })
+  startScheduledAccountAttentionReconcile(queryClient, state)
+  return completion
+}
+
+export function deferAccountAttentionReconcile(queryClient: QueryClient) {
+  const state = attentionReconcileState(queryClient)
+  const token = Symbol("account-attention-reconcile")
+  state.deferrals.add(token)
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    state.deferrals.delete(token)
+    startScheduledAccountAttentionReconcile(queryClient, state)
+  }
 }

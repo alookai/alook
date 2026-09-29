@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import React, { type ReactNode } from "react"
-import { describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 import { communityKeys } from "@/lib/query-keys"
 import { useCommunityWsStore } from "@/stores/community/ws"
@@ -24,13 +24,40 @@ import { ingestServerDetail } from "./sync"
 import { seedCommunityServers as ingestServers } from "./server-test-seed"
 import { writeCommunityCollectionRows } from "./collection-mutations"
 
+const apiFetchMock = vi.hoisted(() => vi.fn())
+vi.mock("@/lib/api/client", () => ({
+  apiFetch: (...args: unknown[]) => apiFetchMock(...args),
+}))
+
+beforeEach(() => {
+  apiFetchMock.mockReset()
+  apiFetchMock.mockImplementation(async (path: string) => {
+    if (path === "/api/community/servers") return { servers: [] }
+    if (path === "/api/community/users/me/read-state") {
+      return { revision: 0, readStates: [] }
+    }
+    if (path === "/api/community/users/me/attention") {
+      return {
+        scopes: [], items: [], limit: 100, truncated: false,
+        included: { servers: [], channels: [], dms: [], profiles: [], messages: [] },
+      }
+    }
+    if (path === "/api/community/users/me/server-folders") return { folders: [] }
+    if (path === "/api/community/users/me/notifications") return []
+    if (path === "/api/community/users/me/dms") return { conversations: [] }
+    throw new Error(`unexpected API fetch: ${path}`)
+  })
+  useCommunityWsStore.getState().reset()
+  useCommunityWsStore.getState().activateProfileAccount("viewer")
+})
+
 describe("community DB projections", () => {
   it("keeps every projection unresolved without a registry owner", () => {
     const rendered = renderHook(() => ({
       rail: useServerRailProjection(),
       tree: useServerTreeProjection("s1"),
       dms: useDmProjection(),
-      route: useRouteChannelProjection("c1"),
+      route: useRouteChannelProjection("c1", "s1"),
       messages: useMessageProjection("c1"),
       messagesById: useCanonicalMessagesById(),
       notifications: useNotificationSettingsProjection(),
@@ -67,7 +94,7 @@ describe("community DB projections", () => {
     rendered.unmount()
   })
 
-  it("requires completed detail before projecting a rail server tree", async () => {
+  it("projects the rail skeleton before server detail fills the tree", async () => {
     const queryClient = new QueryClient()
     const registry = createCommunityDbRegistry(queryClient, "viewer")
     await registry.preload()
@@ -89,7 +116,7 @@ describe("community DB projections", () => {
     )
     const rendered = renderHook(() => useServerTreeProjection("s1"), { wrapper })
 
-    expect(rendered.result.current).toBeUndefined()
+    expect(rendered.result.current).toMatchObject({ id: "s1", categories: [] })
     act(() => ingestServerDetail(registry, {
       id: "s1",
       name: "Server",
@@ -151,7 +178,7 @@ describe("community DB projections", () => {
         mentions: 0,
         detailComplete: true,
       })
-      registry.collections.channels.insert({
+      writeCommunityCollectionRows(registry, "channels", [{
         id: "c1",
         serverId: "s1",
         categoryId: null,
@@ -167,7 +194,7 @@ describe("community DB projections", () => {
         tags: [],
         pending: false,
         lastMessageAt: null,
-      })
+      }], (row) => row.id)
     })
 
     expect(registry.collections.servers.get("s1")?.detailComplete).toBe(true)
@@ -209,14 +236,14 @@ describe("community DB projections", () => {
     expect(rendered.result.current).toBeUndefined()
     const preload = registry.preload()
     act(() => {
-      registry.collections.messages.insert({
+      writeCommunityCollectionRows(registry, "messages", [{
         id: "m1",
         channelId: "c1",
         type: "chat",
         authorId: "peer",
         content: "restored",
         seq: 1,
-      })
+      }], (row) => row.id)
     })
     expect(registry.collections.messages.get("m1")?.content).toBe("restored")
     expect(rendered.result.current).toBeUndefined()
@@ -435,12 +462,13 @@ describe("community DB projections", () => {
       rail: useServerRailProjection(),
       tree: useServerTreeProjection("s1"),
       dms: useDmProjection(),
-      route: useRouteChannelProjection("c1"),
+      route: useRouteChannelProjection("c1", "s1"),
       messages: useMessageProjection("c1"),
       messagesById: useCanonicalMessagesById(),
       notifications: useNotificationSettingsProjection(),
       readState: useReadStateProjection("c1"),
       profiles: useCanonicalProfilesByUserId(),
+      routeUnscoped: useRouteChannelProjection("c1"),
       profile: useCanonicalCommunityProfile("peer"),
       directory: useChannelRefDirectoryProjection(),
     }), { wrapper })
@@ -471,6 +499,7 @@ describe("community DB projections", () => {
     expect(rendered.result.current.dms?.find((dm) => dm.id === "dm-no-read-state"))
       .not.toHaveProperty("lastUnreadSeq")
     expect(rendered.result.current.route?.id).toBe("c1")
+    expect(rendered.result.current.routeUnscoped?.id).toBe("c1")
     expect(rendered.result.current.messages?.map((message) => message.id)).toEqual(["m1", "m2"])
     expect(rendered.result.current.messagesById?.get("m2")?.content).toBe("second")
     expect(rendered.result.current.notifications).toMatchObject({

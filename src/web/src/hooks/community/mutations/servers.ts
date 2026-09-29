@@ -3,7 +3,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { apiFetch, readUploadError } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
-import type { ServerDetail } from "@/hooks/community/use-servers"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import type { ServerRow } from "@/lib/community-db/schema"
 import { serversCollectionQueryKey } from "@/lib/community-db/server-collection"
@@ -199,7 +198,7 @@ export function useUpdateServer() {
     void,
     Error,
     UpdateServerArgs,
-    { serverSnap: ServerDetail | undefined; rowSnap: ServerRow | undefined }
+    { rowSnap: ServerRow | undefined }
   >({
     mutationFn: async ({ serverId, name, description }) => {
       await apiFetch(`/api/community/servers/${serverId}`, {
@@ -208,18 +207,10 @@ export function useUpdateServer() {
       })
     },
     onMutate: async (args) => {
-      const detailKey = communityKeys.server(args.serverId)
       const listKey = serversCollectionQueryKey()
-      await Promise.all([
-        queryClient.cancelQueries({ queryKey: detailKey }),
-        queryClient.cancelQueries({ queryKey: listKey }),
-      ])
-      const serverSnap = queryClient.getQueryData<ServerDetail>(detailKey)
+      await queryClient.cancelQueries({ queryKey: listKey })
       const registry = getCommunityDbRegistry(queryClient)
       const rowSnap = registry?.collections.servers.get(args.serverId)
-      queryClient.setQueryData<ServerDetail | undefined>(detailKey, (prev) =>
-        prev ? { ...prev, name: args.name, description: args.description } : prev,
-      )
       if (rowSnap) {
         registry?.collections.servers.utils.writeUpdate({
           id: args.serverId,
@@ -227,10 +218,9 @@ export function useUpdateServer() {
           description: args.description,
         })
       }
-      return { serverSnap, rowSnap }
+      return { rowSnap }
     },
-    onError: (_err, args, ctx) => {
-      if (ctx?.serverSnap) queryClient.setQueryData(communityKeys.server(args.serverId), ctx.serverSnap)
+    onError: (_err, _args, ctx) => {
       if (ctx?.rowSnap) {
         getCommunityDbRegistry(queryClient)?.collections.servers.utils.writeUpdate(ctx.rowSnap)
       }
@@ -265,10 +255,6 @@ export function useUploadServerIcon() {
     },
     onSuccess: (data, args) => {
       const bustUrl = `${data.url}?t=${Date.now()}`
-      queryClient.setQueryData<ServerDetail | undefined>(
-        communityKeys.server(args.serverId),
-        (prev) => (prev ? { ...prev, icon: bustUrl } : prev),
-      )
       const registry = getCommunityDbRegistry(queryClient)
       if (registry?.collections.servers.has(args.serverId)) {
         registry.collections.servers.utils.writeUpdate({ id: args.serverId, icon: bustUrl })

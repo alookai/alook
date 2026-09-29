@@ -76,9 +76,24 @@ afterEach(async () => {
 
 async function installCanonicalRegistry() {
   const collections = await import("@/lib/community-db/collections")
+  apiFetchMock.mockImplementation(async (path: string) => {
+    if (path === "/api/community/servers") return { servers: [] }
+    if (path === "/api/community/users/me/read-state") return { revision: 0, readStates: [] }
+    if (path === "/api/community/users/me/dms") return { conversations: [] }
+    if (path === "/api/community/users/me/server-folders") return { folders: [] }
+    if (path === "/api/community/users/me/notifications") return []
+    if (path === "/api/community/users/me/attention") {
+      return {
+        scopes: [], items: [], limit: 100, truncated: false,
+        included: { servers: [], channels: [], dms: [], profiles: [], messages: [] },
+      }
+    }
+    throw new Error(`unexpected registry preload: ${path}`)
+  })
   canonicalRegistry = collections.createCommunityDbRegistry(capturedQc, "u_me")
   await canonicalRegistry.preload()
   unregisterCanonicalRegistry = collections.registerCommunityDbRegistry(canonicalRegistry)
+  apiFetchMock.mockReset()
 }
 
 describe("useSendFriendRequest — invalidates friends on success", () => {

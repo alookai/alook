@@ -37,13 +37,9 @@ export function seedCommunityServers(
       mentions: server.mentions,
       detailComplete: existing.get(server.id)?.detailComplete ?? false,
     }))
-    collection.utils.writeBatch(() => {
-      for (const row of rows) {
-        if (collection.has(row.id)) collection.utils.writeUpdate(row)
-        else collection.utils.writeInsert(row)
-      }
-    })
-    return rows
+    const next = mode === "merge" ? existing : new Map<string, ServerRow>()
+    for (const row of rows) next.set(row.id, row)
+    return [...next.values()]
   }, (row) => row.id)
   if (!registry.accountId) return
   const viewerId = registry.accountId

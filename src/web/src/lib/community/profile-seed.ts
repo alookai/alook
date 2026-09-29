@@ -6,7 +6,6 @@ import type { Msg } from "@/lib/community/models/message"
 import type { FriendApprovalPayload } from "@alook/shared"
 import { apiFetch } from "@/lib/api/client"
 import { avatarInitial } from "@/lib/community/avatar"
-import { communityKeys } from "@/lib/query-keys"
 import {
   getActiveCommunityDbRegistry,
   type CommunityDbRegistry,
@@ -137,12 +136,15 @@ export function writeCommunityProfilePatches(
 ) {
   if (!registry || patches.length === 0) return
   if (options?.snapshot && options.snapshot.registry !== registry) return
-  const queryKey = communityKeys.communityDbCollection(registry.scopeId, "profiles")
   const guardedRevision = options?.snapshot?.revision
   return writeCommunityCollectionRows(registry, "profiles", () => {
-    const cached = registry.queryClient.getQueryData<ProfileRow[]>(queryKey)
-      ?? Array.from(registry.collections.profiles.values())
-    const profiles = new Map(cached.map((profile) => [profile.userId, profile]))
+    const profiles = new Map<string, ProfileRow>(
+      Array.from(registry.collections.profiles.values())
+        .map((profile) => {
+          const parsed = profileSchema.parse(profile)
+          return [parsed.userId, parsed] as const
+        }),
+    )
     const revisions = revisionState(registry)
     const writeRevision = guardedRevision === undefined ? revisions.revision + 1 : null
     let advanced = false
@@ -200,9 +202,7 @@ export function writeCommunityProfilePatches(
       }
     }
     if (advanced && writeRevision !== null) revisions.revision = writeRevision
-    const rows = [...profiles.values()]
-    registry.queryClient.setQueryData(queryKey, rows)
-    return rows
+    return [...profiles.values()]
   }, (row) => row.userId)
 }
 

@@ -5,6 +5,7 @@ import { tid } from "./_fixtures/testids"
 
 type HeldServer = {
   heldNavigation: () => number
+  heldRequests: () => number
   release: () => Promise<void>
 }
 
@@ -141,6 +142,7 @@ async function holdServerTransition(
   let releaseGate!: () => void
   const gate = new Promise<void>((resolve) => { releaseGate = resolve })
   let heldNavigation = 0
+  let heldRequests = 0
   const patterns: Array<{ pattern: string; navigation: boolean }> = [
     { pattern: `**/c/channels/${serverId}**`, navigation: true },
     { pattern: `**/api/community/servers/${serverId}/categories**`, navigation: false },
@@ -150,6 +152,7 @@ async function holdServerTransition(
   const handlers = new Map<string, (route: Route) => Promise<void>>()
   for (const { pattern, navigation } of patterns) {
     const handler = async (route: Route) => {
+      heldRequests += 1
       if (navigation) heldNavigation += 1
       await gate
       await route.continue()
@@ -159,6 +162,7 @@ async function holdServerTransition(
   }
   return {
     heldNavigation: () => heldNavigation,
+    heldRequests: () => heldRequests,
     release: async () => {
       releaseGate()
       await page.waitForTimeout(100)
@@ -400,13 +404,11 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
       [channelA, channelB],
     )
     const navigationEvents = await historyEvents(page)
-    expect(navigationEvents).toHaveLength(2)
+    expect(navigationEvents).toHaveLength(1)
     expect(navigationEvents[0]).toEqual({
       kind: "pushState",
-      pathname: `/c/channels/${serverC}`,
+      pathname: `/c/channels/${serverC}/${channelC}`,
     })
-    expect(navigationEvents[1]).toMatchObject({ kind: "replaceState" })
-    expect(navigationEvents[1]?.pathname.startsWith(`/c/channels/${serverC}/`)).toBe(true)
   } finally {
     targetRsc.stop()
   }
@@ -448,12 +450,13 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
   await expectDesktopServerDetail(page, serverD)
   await expect(page.getByTestId(tid.serverIcon(serverE))).toBeVisible()
   await clearSidebarFrames(page)
+  await clearHistoryEvents(page)
   await clickServer(page, serverE)
   // Dispatch the superseding click directly against the current stable
   // button so this remains one immediate E→F intent window; awaiting F's
   // focus-driven prefetch would serialize the two intents.
   await page.getByTestId(tid.serverIcon(serverF)).dispatchEvent("click")
-  await expect.poll(coldF.heldNavigation).toBeGreaterThan(0)
+  await expect.poll(coldF.heldRequests).toBeGreaterThan(0)
   await expect(page.getByTestId(tid.channelSidebarPending(serverE))).toHaveCount(0)
   await expect(page.getByTestId(tid.channelSidebarPending(serverF))).toBeVisible()
   await expectActiveServer(page, serverF, serverD)
@@ -471,4 +474,8 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
     channelF,
     [channelA, channelB, channelC, channelD, channelE],
   )
+  expect(await historyEvents(page)).toEqual([{
+    kind: "pushState",
+    pathname: `/c/channels/${serverF}/${channelF}`,
+  }])
 })

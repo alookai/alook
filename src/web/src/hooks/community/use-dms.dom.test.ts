@@ -1,8 +1,7 @@
 import React from "react"
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { act, render } from "@/test/react-dom-harness"
+import { act, render, waitFor } from "@/test/react-dom-harness"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { communityKeys } from "@/lib/query-keys"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import type { DM } from "@/lib/community/models/people"
 import { inboxDmRowTarget } from "./inbox-read-reservation"
@@ -11,7 +10,11 @@ import {
   registerCommunityDbRegistry,
 } from "@/lib/community-db/collections"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
-import { ingestDms } from "@/lib/community-db/sync"
+import {
+  createDmsResourceQueryFn,
+  dmsResourceKey,
+  type DmsResource,
+} from "@/lib/community-db/dms-resource"
 
 const apiFetchMock = vi.fn()
 vi.mock("@/lib/api/client", () => ({
@@ -36,8 +39,39 @@ function dm(id: string): DM {
   }
 }
 
+function dmsResource(conversations: DM[]): DmsResource {
+  return { conversations, channels: [], channelMemberships: [], profiles: [] }
+}
+
+function dmsContext(queryClient: QueryClient, accountId: string, signal = new AbortController().signal) {
+  return {
+    queryKey: dmsResourceKey(accountId),
+    signal,
+    meta: undefined,
+    client: queryClient,
+  } as never
+}
+
+function emptyAttention() {
+  return {
+    scopes: [], items: [], limit: 100, truncated: false,
+    included: { servers: [], channels: [], dms: [], profiles: [], messages: [] },
+  }
+}
+
 beforeEach(() => {
   apiFetchMock.mockReset()
+  apiFetchMock.mockImplementation(async (path: string) => {
+    if (path === "/api/community/servers") return { servers: [] }
+    if (path === "/api/community/users/me/read-state") {
+      return { revision: 0, readStates: [] }
+    }
+    if (path === "/api/community/users/me/attention") return emptyAttention()
+    if (path === "/api/community/users/me/server-folders") return { folders: [] }
+    if (path === "/api/community/users/me/notifications") return []
+    if (path === "/api/community/users/me/dms") return { conversations: [] }
+    throw new Error(`unexpected API fetch: ${path}`)
+  })
   useCommunityWsStore.getState().reset()
   useCommunityWsStore.getState().activateProfileAccount("viewer")
 })
@@ -50,62 +84,53 @@ describe("useDms / dmsQueryFn", () => {
     apiFetchMock.mockResolvedValueOnce({ conversations })
     const { dmsQueryFn } = await import("./use-dms")
     const data = await dmsQueryFn()
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/users/me/dms")
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/users/me/dms", undefined)
     expect(data.conversations).toEqual(conversations)
   })
 
-  it("populates queryClient at communityKeys.dms()", async () => {
+  it("populates the account-scoped DMs resource", async () => {
     apiFetchMock.mockResolvedValueOnce({ conversations: [] })
     const { dmsQueryFn } = await import("./use-dms")
     const qc = new QueryClient()
-    const key = communityKeys.dms()
+    const key = dmsResourceKey("anon")
     await qc.fetchQuery({ queryKey: key, queryFn: dmsQueryFn })
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/community/users/me/dms",
       { signal: expect.any(AbortSignal) },
     )
-    expect(qc.getQueryData(key)).toEqual({ conversations: [] })
+    expect(qc.getQueryData(key)).toEqual(dmsResource([]))
   })
 
   it("uses a complete DM list as authoritative negative evidence", async () => {
     apiFetchMock.mockResolvedValueOnce({ conversations: [] })
-    const { dmsProjectedQueryFn } = await import("./use-dms")
-    const { AccountUnreadProjection } = await import("./account-unread-projection")
-    const projection = new AccountUnreadProjection("u1")
+    const { getActiveAccountUnreadProjection } = await import("./account-unread-projection")
+    const queryClient = new QueryClient()
+    const projection = getActiveAccountUnreadProjection(queryClient)
     projection.setNotificationPolicy({})
     projection.recordArrival({ channelId: "dm_1", seq: 3 })
-    const queryClient = new QueryClient()
-    const registry = createCommunityDbRegistry(queryClient, "viewer")
-    const disposeRegistry = registry.cleanup.bind(registry)
-    await registry.preload()
-    const unregister = registerCommunityDbRegistry(registry)
-
-    await dmsProjectedQueryFn(projection, queryClient)()
+    await createDmsResourceQueryFn(queryClient, "viewer")(
+      dmsContext(queryClient, "viewer"),
+    )
 
     expect(projection.projectUnread("dms", "dm_1", false)).toBe(false)
-    unregister()
-    await disposeRegistry()
   })
 
   it.each(["cancel", "account", "access"] as const)(
     "rejects a %s-superseded DM list before destructive publication",
     async (race) => {
       const queryClient = new QueryClient()
-      const registry = createCommunityDbRegistry(queryClient, "viewer")
-      await registry.preload()
-      const unregister = registerCommunityDbRegistry(registry)
-      const disposeRegistry = registry.cleanup
-      ingestDms(registry, { conversations: [dm("dm-current")] })
+      const key = dmsResourceKey("viewer")
+      const current = dmsResource([dm("dm-current")])
+      queryClient.setQueryData(key, current)
       const request = deferred<{ conversations: DM[] }>()
       apiFetchMock.mockReturnValueOnce(request.promise)
-      const { dmsProjectedQueryFn } = await import("./use-dms")
-      const { AccountUnreadProjection } = await import("./account-unread-projection")
-      const projection = new AccountUnreadProjection("viewer")
+      const { getActiveAccountUnreadProjection } = await import("./account-unread-projection")
+      const projection = getActiveAccountUnreadProjection(queryClient)
       const controller = new AbortController()
 
-      const pending = dmsProjectedQueryFn(projection, queryClient)({
-        signal: controller.signal,
-      } as never)
+      const pending = createDmsResourceQueryFn(queryClient, "viewer")(
+        dmsContext(queryClient, "viewer", controller.signal),
+      )
       expect(apiFetchMock).toHaveBeenCalledWith(
         "/api/community/users/me/dms",
         { signal: controller.signal },
@@ -116,41 +141,34 @@ describe("useDms / dmsQueryFn", () => {
       request.resolve({ conversations: [] })
 
       await expect(pending).rejects.toMatchObject({ name: "AbortError" })
-      expect(registry.collections.channels.get("dm-current")).toBeDefined()
+      expect(queryClient.getQueryData(key)).toBe(current)
       expect(projection.inspectForTests().pendingSnapshots).toBe(0)
-      unregister()
-      await disposeRegistry()
     },
   )
 
   it("lets a current DM-list generation replace canonical rows", async () => {
     const queryClient = new QueryClient()
-    const registry = createCommunityDbRegistry(queryClient, "viewer")
-    await registry.preload()
-    const unregister = registerCommunityDbRegistry(registry)
-    const disposeRegistry = registry.cleanup
-    ingestDms(registry, { conversations: [dm("dm-current")] })
+    const key = dmsResourceKey("viewer")
+    queryClient.setQueryData(key, dmsResource([dm("dm-current")]))
     apiFetchMock.mockResolvedValueOnce({ conversations: [] })
-    const { dmsProjectedQueryFn } = await import("./use-dms")
-    const { AccountUnreadProjection } = await import("./account-unread-projection")
+    await queryClient.fetchQuery({
+      queryKey: key,
+      queryFn: createDmsResourceQueryFn(queryClient, "viewer"),
+      staleTime: 0,
+    })
 
-    await dmsProjectedQueryFn(
-      new AccountUnreadProjection("viewer"),
-      queryClient,
-    )()
-
-    expect(registry.collections.channels.get("dm-current")).toBeUndefined()
-    unregister()
-    await disposeRegistry()
+    expect(queryClient.getQueryData<DmsResource>(key)?.conversations).toEqual([])
   })
 
   it("cancels DM snapshot coverage when the transport fails", async () => {
     apiFetchMock.mockRejectedValueOnce(new Error("offline"))
-    const { dmsProjectedQueryFn } = await import("./use-dms")
-    const { AccountUnreadProjection } = await import("./account-unread-projection")
-    const projection = new AccountUnreadProjection("u1")
+    const queryClient = new QueryClient()
+    const { getActiveAccountUnreadProjection } = await import("./account-unread-projection")
+    const projection = getActiveAccountUnreadProjection(queryClient)
 
-    await expect(dmsProjectedQueryFn(projection)()).rejects.toThrow("offline")
+    await expect(createDmsResourceQueryFn(queryClient, "u1")(
+      dmsContext(queryClient, "u1"),
+    )).rejects.toThrow("offline")
 
     expect(projection.inspectForTests().pendingSnapshots).toBe(0)
   })
@@ -168,7 +186,7 @@ describe("useDms / dmsQueryFn", () => {
     apiFetchMock.mockResolvedValue({ conversations })
     const { useDms } = await import("./use-dms")
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    qc.setQueryData(communityKeys.dms(), { conversations })
+    qc.setQueryData(dmsResourceKey("anon"), dmsResource(conversations))
 
     function Probe() {
       useDms()
@@ -189,7 +207,7 @@ describe("useDms / dmsQueryFn", () => {
     const conversations = [dm("dm-providerless")]
     const { useDms } = await import("./use-dms")
     const qc = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity } } })
-    qc.setQueryData(communityKeys.dms(), { conversations })
+    qc.setQueryData(dmsResourceKey("anon"), dmsResource(conversations))
     let latest: ReturnType<typeof useDms> | undefined
 
     function Probe() {
@@ -212,8 +230,18 @@ describe("useDms / dmsQueryFn", () => {
     const registry = createCommunityDbRegistry(qc, "viewer")
     await registry.preload()
     const unregister = registerCommunityDbRegistry(registry)
-    const disposeRegistry = registry.cleanup
-    ingestDms(registry, { conversations: [dm("dm-canonical")] })
+    const disposeRegistry = registry.cleanup.bind(registry)
+    apiFetchMock.mockImplementation(async (path: string) => {
+      if (path === "/api/community/users/me/dms") {
+        return { conversations: [dm("dm-canonical")] }
+      }
+      throw new Error(`unexpected API fetch after preload: ${path}`)
+    })
+    await qc.fetchQuery({
+      queryKey: dmsResourceKey("viewer"),
+      queryFn: createDmsResourceQueryFn(qc, "viewer"),
+      staleTime: 0,
+    })
     let latest: ReturnType<typeof useDms> | undefined
 
     function Probe() {
@@ -225,7 +253,7 @@ describe("useDms / dmsQueryFn", () => {
       { client: qc },
       React.createElement(CommunityDbProvider, { registry }, React.createElement(Probe)),
     ))
-    expect(latest?.dms.map(({ id }) => id)).toEqual(["dm-canonical"])
+    await waitFor(() => expect(latest?.dms.map(({ id }) => id)).toEqual(["dm-canonical"]))
     await act(async () => renderer.unmount())
     unregister()
     await disposeRegistry()
@@ -234,8 +262,7 @@ describe("useDms / dmsQueryFn", () => {
   it("uses transient presence without rewriting the raw canonical DM identity", async () => {
     const { useDms } = await import("./use-dms")
     const qc = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity } } })
-    const raw = {
-      conversations: [{
+    const conversations = [{
         id: "dm_1",
         userId: "u_1",
         name: "Raw Alice",
@@ -244,9 +271,9 @@ describe("useDms / dmsQueryFn", () => {
         avatarVersion: 1,
         status: "offline",
         preview: "hello",
-      }],
-    }
-    qc.setQueryData(communityKeys.dms(), raw)
+      }]
+    const raw = dmsResource(conversations)
+    qc.setQueryData(dmsResourceKey("anon"), raw)
     useCommunityWsStore.getState().setPresence("u_1", "online")
     let projected!: ReturnType<typeof useDms>
     function Probe() {
@@ -267,15 +294,14 @@ describe("useDms / dmsQueryFn", () => {
       status: "online",
       preview: "hello",
     })
-    expect(qc.getQueryData(communityKeys.dms())).toBe(raw)
+    expect(qc.getQueryData(dmsResourceKey("anon"))).toBe(raw)
     await act(async () => renderer.unmount())
   })
 
   it("renders persisted DM identity without a live profile seed", async () => {
     const { useDms } = await import("./use-dms")
     const qc = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity } } })
-    qc.setQueryData(communityKeys.dms(), {
-      conversations: [{
+    qc.setQueryData(dmsResourceKey("anon"), dmsResource([{
         id: "dm_cached",
         userId: "u_cached",
         name: "Cached Alice",
@@ -284,8 +310,7 @@ describe("useDms / dmsQueryFn", () => {
         avatarVersion: 7,
         status: "online",
         preview: "cached preview",
-      }],
-    })
+      }]))
     let projected!: ReturnType<typeof useDms>
     function Probe() {
       projected = useDms()
@@ -328,7 +353,7 @@ describe("useDms / dmsQueryFn", () => {
     const { useDms } = await import("./use-dms")
     const { getActiveAccountUnreadProjection } = await import("./account-unread-projection")
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    qc.setQueryData(communityKeys.dms(), { conversations })
+    qc.setQueryData(dmsResourceKey("anon"), dmsResource(conversations))
     getActiveAccountUnreadProjection(qc).recordArrival({ channelId: "dm_1", seq: 2 })
     let latest: ReturnType<typeof useDms> | undefined
 
@@ -345,7 +370,8 @@ describe("useDms / dmsQueryFn", () => {
     expect(latest?.dms[0]?.unread).toBe(false)
     expect(latest?.dms[1]?.unread).toBe(false)
     expect(latest?.dms[2]?.unread).toBe(false)
-    expect(qc.getQueryData(communityKeys.dms())).toEqual({ conversations })
+    expect(qc.getQueryData<DmsResource>(dmsResourceKey("anon"))?.conversations)
+      .toEqual(conversations)
     await act(async () => renderer.unmount())
   })
 
@@ -375,7 +401,7 @@ describe("useDms / dmsQueryFn", () => {
     const { useDms } = await import("./use-dms")
     const { useInboxAutoCollapse } = await import("./use-inbox-auto-collapse")
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    qc.setQueryData(communityKeys.dms(), { conversations })
+    qc.setQueryData(dmsResourceKey("anon"), dmsResource(conversations))
     let latest: ReturnType<typeof useDms> | undefined
     let collapse: ReturnType<typeof useInboxAutoCollapse> | undefined
     function Harness() {

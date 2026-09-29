@@ -19,7 +19,7 @@ import {
   getCanonicalCommunityMessages,
   patchCanonicalCommunityChannel,
   patchCanonicalCommunityMessage,
-  publishCommunityForumSidebar,
+  reconcileCanonicalForumSidebar,
   removeCanonicalCommunityChannelMembership,
   removeCanonicalCommunityChannel,
   setCanonicalCommunityChannelMembership,
@@ -476,7 +476,7 @@ async function publishNormalizedForumSidebar(
   if (normalized.retainedDisposition === "eligible" && normalized.retained) {
     participatingIds.add(normalized.retained.id)
   }
-  await publishCommunityForumSidebar(queryClient, {
+  await reconcileCanonicalForumSidebar(queryClient, {
     serverId,
     channels: Object.values(normalized.channelMetas).flatMap((meta) => {
       const thread = byId.get(meta.id)
@@ -825,7 +825,7 @@ async function reconcileForumSidebarNotifyMembershipsFromBase(
       unread: channel.unread,
     }
     if (siblings.length >= 5 && compareThreads(candidate, siblings[4]!) > 0) continue
-    await publishCommunityForumSidebar(queryClient, {
+    await reconcileCanonicalForumSidebar(queryClient, {
       serverId,
       channels: [],
       openers: [],

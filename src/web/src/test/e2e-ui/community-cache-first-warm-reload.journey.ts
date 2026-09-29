@@ -82,6 +82,32 @@ async function communityDbProbe(page: Page): Promise<CommunityDbProbeSnapshot | 
   })
 }
 
+async function writeServerThroughCommunityDbProbe(
+  page: Page,
+  row: {
+    id: string
+    position: number
+    name: string
+    discriminator: string
+    description: string
+    ownerId: string
+    icon: string | null
+    official: boolean
+    isOwner: boolean
+    unread: boolean
+    mentions: number
+    detailComplete: boolean
+  },
+) {
+  await page.evaluate(async (server) => {
+    const probe = Reflect.get(window, "__ALOOK_COMMUNITY_DB_PROBE__") as undefined | {
+      writeServer: (value: typeof server) => Promise<void>
+    }
+    if (!probe) throw new Error("community DB probe is unavailable")
+    await probe.writeServer(server)
+  }, row)
+}
+
 async function expectDurableServerRow(page: Page, serverId: string) {
   await expect.poll(async () => {
     const snapshot = await communityDbProbe(page)
@@ -288,6 +314,89 @@ async function expectCacheFirstReload(
   }
 }
 
+async function seedMessages(
+  channelId: string,
+  count: number,
+  prefix: string,
+) {
+  const bodies: string[] = []
+  for (let index = 0; index < count; index += 1) {
+    const body = `${prefix} ${index + 1}`
+    await seedMessage("alice", channelId, body)
+    bodies.push(body)
+  }
+  return bodies
+}
+
+async function expectLeafReady(
+  page: Page,
+  serverId: string,
+  channelId: string,
+  body?: string,
+) {
+  await expect(page).toHaveURL(new RegExp(`/c/channels/${serverId}/${channelId}$`), {
+    timeout: 20_000,
+  })
+  await expect(page.getByTestId(tid.channelComposerShell)).toBeVisible({ timeout: 20_000 })
+  if (body) await expect(page.getByText(body, { exact: true })).toBeVisible()
+  await expect(page.locator(structuralLoadingSelectors.join(","))).toHaveCount(0)
+}
+
+async function expectInboxIndependentLeaf(
+  page: Page,
+  serverId: string,
+  channelId: string,
+  body?: string,
+) {
+  await page.getByTestId(tid.inboxTrigger).click()
+  await expect(page.getByTestId(tid.userBarExtension)).toBeVisible()
+  await expect(page).toHaveURL(new RegExp(`/c/channels/${serverId}/${channelId}$`))
+  await expect(page.getByTestId(tid.channelComposerShell)).toBeAttached()
+  if (body) await expect(page.getByText(body, { exact: true })).toBeAttached()
+}
+
+test.describe("direct and remembered leaf readiness", () => {
+  for (const count of [0, 1, 30]) {
+    test(`a fresh server root restores its remembered leaf with ${count} messages without Inbox`, async ({
+      asUser,
+    }) => {
+      test.setTimeout(120_000)
+      const suffix = `${count}-${Date.now().toString(36)}`
+      const serverId = await seedServer("alice", `Remembered leaf ${suffix}`)
+      await seedChannel("alice", serverId, `default-${suffix}`)
+      const channelId = await seedChannel("alice", serverId, `remembered-${suffix}`)
+      const bodies = await seedMessages(channelId, count, `remembered body ${suffix}`)
+      const { page } = await asUser("alice")
+      await page.addInitScript(([key, value]) => {
+        localStorage.setItem(key, value)
+      }, [`community:lastChannel:${serverId}`, channelId])
+
+      await page.goto(`/c/channels/${serverId}`, { waitUntil: "commit" })
+      const expectedBody = bodies.at(-1)
+      await expectLeafReady(page, serverId, channelId, expectedBody)
+      await expectInboxIndependentLeaf(page, serverId, channelId, expectedBody)
+    })
+  }
+
+  test("a direct channel click self-activates before Inbox and remains ready after it opens", async ({
+    asUser,
+  }) => {
+    test.setTimeout(120_000)
+    const suffix = Date.now().toString(36)
+    const serverId = await seedServer("alice", `Direct leaf ${suffix}`)
+    const firstChannelId = await seedChannel("alice", serverId, `first-${suffix}`)
+    const channelId = await seedChannel("alice", serverId, `direct-${suffix}`)
+    const [body] = await seedMessages(channelId, 1, `direct body ${suffix}`)
+    const { page } = await asUser("alice")
+
+    await page.goto(`/c/channels/${serverId}/${firstChannelId}`)
+    await expect(page.getByTestId(tid.channelRow(channelId))).toBeVisible({ timeout: 20_000 })
+    await page.getByTestId(tid.channelRow(channelId)).click()
+    await expectLeafReady(page, serverId, channelId, body)
+    await expectInboxIndependentLeaf(page, serverId, channelId, body)
+  })
+})
+
 test("a warm channel reload paints cached shell and messages before network", async ({ asUser }) => {
   test.setTimeout(120_000)
   const suffix = Date.now().toString(36)
@@ -311,6 +420,47 @@ test("a warm channel reload paints cached shell and messages before network", as
     await expect(page.getByTestId(tid.channelRow(channelId))).toBeVisible()
     await expect(page.getByText(body, { exact: false }).first()).toBeVisible()
   })
+})
+
+test("a collection-native write reaches a second tab through the browser coordinator", async ({
+  asUser,
+}) => {
+  test.setTimeout(90_000)
+  const suffix = Date.now().toString(36)
+  const serverId = await seedServer("alice", `Coordinator source ${suffix}`)
+  const channelId = await seedChannel("alice", serverId, `coordinator-${suffix}`)
+  const { context, page } = await asUser("alice")
+  const peer = await context.newPage()
+  const href = `/c/channels/${serverId}/${channelId}`
+
+  try {
+    await Promise.all([page.goto(href), peer.goto(href)])
+    await expect.poll(async () => (await communityDbProbe(page))?.readiness).toBe("ready")
+    await expect.poll(async () => (await communityDbProbe(peer))?.readiness).toBe("ready")
+
+    const directId = `coordinator-direct-${suffix}`
+    await writeServerThroughCommunityDbProbe(page, {
+      id: directId,
+      position: 999_999,
+      name: `Coordinator direct ${suffix}`,
+      discriminator: "0001",
+      description: "collection-native coordinator probe",
+      ownerId: "e2e-coordinator",
+      icon: null,
+      official: false,
+      isOwner: false,
+      unread: false,
+      mentions: 0,
+      detailComplete: false,
+    })
+
+    await expect.poll(async () => {
+      const snapshot = await communityDbProbe(peer)
+      return snapshot?.collectionRowIds.filter((id) => id === directId).length ?? 0
+    }, { timeout: 20_000 }).toBe(1)
+  } finally {
+    await peer.close()
+  }
 })
 
 test("a warm DM reload paints cached identity and messages before network", async ({ asUser }) => {

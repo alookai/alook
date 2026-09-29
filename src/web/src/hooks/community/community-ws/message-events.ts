@@ -38,7 +38,7 @@ import {
 import { fetchChannelMetadata } from "@/hooks/community/channel-metadata"
 import {
   captureCommunityLiveSnapshotToken,
-  publishCommunityChannelMetadata,
+  reconcileCanonicalChannelMetadata,
 } from "@/lib/community-db/sync"
 
 type CommunityMessageEdited = Extract<
@@ -59,7 +59,7 @@ function warmLiveForumChildOwner(
   const token = captureCommunityLiveSnapshotToken(queryClient)
   void fetchChannelMetadata(event.serverId, event.channelId)
     .then(async (metadata) => {
-      await publishCommunityChannelMetadata(queryClient, {
+      await reconcileCanonicalChannelMetadata(queryClient, {
         metadata,
         proof: { token, signal: undefined },
       })

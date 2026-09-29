@@ -1,6 +1,9 @@
 import { communityKeys } from "@/lib/query-keys"
 import type { CommunityWsProjectionTransaction } from "./projection-transaction"
 import { serversCollectionQueryKey } from "@/lib/community-db/server-collection"
+import { isDmsResourceQueryKey } from "@/lib/community-db/dms-resource"
+import { isMessageResourceQueryKey } from "@/lib/community-db/message-pagination"
+import { isServerDetailResourceQueryKey } from "@/lib/community-db/server-detail-resource"
 
 export function invalidateChannelRefDirectory(
   projection: CommunityWsProjectionTransaction,
@@ -16,8 +19,7 @@ export function invalidateServerDetail(
   serverId: string,
 ) {
   projection.invalidate("server-detail", {
-    queryKey: communityKeys.server(serverId),
-    exact: true,
+    predicate: ({ queryKey }) => isServerDetailResourceQueryKey(queryKey, serverId),
   })
 }
 
@@ -65,8 +67,8 @@ export function invalidateChannelMessages(
   projection: CommunityWsProjectionTransaction,
   channelId: string,
 ) {
-  projection.invalidate("channel-messages", {
-    queryKey: communityKeys.channelMessages(channelId),
+  projection.fence("channel-messages", {
+    predicate: ({ queryKey }) => isMessageResourceQueryKey(queryKey, { channelId }),
   })
 }
 
@@ -94,7 +96,7 @@ export function invalidateInbox(
 export function invalidateDms(
   projection: CommunityWsProjectionTransaction,
 ) {
-  projection.invalidate("dms", { queryKey: communityKeys.dms() })
+  projection.invalidate("dms", { predicate: ({ queryKey }) => isDmsResourceQueryKey(queryKey) })
 }
 
 export function invalidatePresence(

@@ -4,6 +4,7 @@ import { ApiError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
 import {
   createCommunityDbRegistry,
+  getCommunityDbRegistry,
   registerCommunityDbRegistry,
 } from "@/lib/community-db/collections"
 import {
@@ -15,6 +16,8 @@ import {
 const apiFetch = vi.hoisted(() => vi.fn())
 const reconcileAccountReadState = vi.hoisted(() => vi.fn())
 const reconcileAccountAttention = vi.hoisted(() => vi.fn())
+const deferAccountAttentionReconcile = vi.hoisted(() => vi.fn())
+const scheduleAccountAttentionReconcile = vi.hoisted(() => vi.fn())
 
 vi.mock("@/lib/api/client", () => ({
   apiFetch: (...args: unknown[]) => apiFetch(...args),
@@ -26,6 +29,12 @@ vi.mock("./community-ws/read-state-reconciliation", () => ({
 
 vi.mock("./use-account-attention", () => ({
   reconcileAccountAttention: (...args: unknown[]) => reconcileAccountAttention(...args),
+  deferAccountAttentionReconcile: (...args: unknown[]) => (
+    deferAccountAttentionReconcile(...args)
+  ),
+  scheduleAccountAttentionReconcile: (...args: unknown[]) => (
+    scheduleAccountAttentionReconcile(...args)
+  ),
 }))
 
 import {
@@ -79,12 +88,45 @@ function submitTimeline(
   })
 }
 
+async function createReadyRegistry(queryClient: QueryClient) {
+  apiFetch.mockImplementation(async (url: unknown) => {
+    if (url === "/api/community/users/me/read-state") {
+      return { revision: 0, readStates: [] }
+    }
+    if (url === "/api/community/users/me/server-folders") return { folders: [] }
+    if (url === "/api/community/users/me/notifications") return []
+    if (url === "/api/community/users/me/dms") return { conversations: [] }
+    if (url === "/api/community/users/me/attention") {
+      return {
+        scopes: [],
+        items: [],
+        limit: 100,
+        truncated: false,
+        included: { servers: [], channels: [], dms: [], profiles: [], messages: [] },
+      }
+    }
+    throw new Error(`unexpected registry preload: ${String(url)}`)
+  })
+  const registry = createCommunityDbRegistry(queryClient, "user-1")
+  await registry.preload()
+  for (let index = 0; index < 8; index += 1) await Promise.resolve()
+  apiFetch.mockReset()
+  return registry
+}
+
 describe("read coordinator", () => {
   beforeEach(() => {
     vi.useFakeTimers()
     apiFetch.mockReset()
     reconcileAccountReadState.mockReset().mockResolvedValue(undefined)
     reconcileAccountAttention.mockReset().mockResolvedValue(undefined)
+    deferAccountAttentionReconcile.mockReset().mockImplementation(() => vi.fn())
+    scheduleAccountAttentionReconcile.mockReset().mockImplementation(
+      async (queryClient: QueryClient) => {
+        const registry = getCommunityDbRegistry(queryClient)
+        if (registry) await reconcileAccountAttention(registry)
+      },
+    )
   })
 
   afterEach(() => {
@@ -204,8 +246,7 @@ describe("read coordinator", () => {
 
   it("clears canonical attention while the read PUT is pending and restores it on failure", async () => {
     const queryClient = new QueryClient()
-    const registry = createCommunityDbRegistry(queryClient, "user-1")
-    await registry.preload()
+    const registry = await createReadyRegistry(queryClient)
     const unregister = registerCommunityDbRegistry(registry)
     const scope = {
       scopeId: "channel-1",
@@ -269,8 +310,7 @@ describe("read coordinator", () => {
 
   it("advances a coalesced attention fence and restores every cleared target on failure", async () => {
     const queryClient = new QueryClient()
-    const registry = createCommunityDbRegistry(queryClient, "user-1")
-    await registry.preload()
+    const registry = await createReadyRegistry(queryClient)
     const unregister = registerCommunityDbRegistry(registry)
     ingestMessages(registry, "channel-1", [3, 4].map((seq) => ({
       id: `message-${seq}`,
@@ -328,10 +368,9 @@ describe("read coordinator", () => {
     }
   })
 
-  it("reconciles canonical attention when a retry succeeds after its fence rolled back", async () => {
+  it("reconciles canonical attention across a transient rollback and retry success", async () => {
     const queryClient = new QueryClient()
-    const registry = createCommunityDbRegistry(queryClient, "user-1")
-    await registry.preload()
+    const registry = await createReadyRegistry(queryClient)
     const unregister = registerCommunityDbRegistry(registry)
     const scope = {
       scopeId: "channel-1",
@@ -352,9 +391,9 @@ describe("read coordinator", () => {
     apiFetch
       .mockRejectedValueOnce(new ApiError("unavailable", 500))
       .mockResolvedValueOnce({ changed: true, revision: 9, targetSeq: 4 })
-    reconcileAccountAttention.mockImplementationOnce(async () => {
+    reconcileAccountAttention.mockImplementation(async () => {
       ingestAttentionSnapshot(registry, {
-        scopes: [],
+        scopes: apiFetch.mock.calls.length > 1 ? [] : [scope],
         items: [],
         limit: 100,
         truncated: false,
@@ -367,12 +406,13 @@ describe("read coordinator", () => {
       await vi.advanceTimersByTimeAsync(READ_COORDINATOR_DEBOUNCE_MS)
 
       expect(apiFetch).toHaveBeenCalledOnce()
-      expect(reconcileAccountAttention).not.toHaveBeenCalled()
+      expect(reconcileAccountAttention).toHaveBeenCalledOnce()
       expect(registry.collections.attentionScopes.get("channel-1")).toMatchObject(scope)
 
       await vi.advanceTimersByTimeAsync(251)
       expect(apiFetch).toHaveBeenCalledTimes(2)
-      expect(reconcileAccountAttention).toHaveBeenCalledWith(registry)
+      expect(reconcileAccountAttention).toHaveBeenCalledTimes(2)
+      expect(reconcileAccountAttention).toHaveBeenLastCalledWith(registry)
       expect(registry.collections.attentionScopes.get("channel-1")).toBeUndefined()
     } finally {
       disposeReadCoordinator(queryClient)
@@ -383,8 +423,7 @@ describe("read coordinator", () => {
 
   it("reconciles instead of restoring stale attention across an intervening canonical fact", async () => {
     const queryClient = new QueryClient()
-    const registry = createCommunityDbRegistry(queryClient, "user-1")
-    await registry.preload()
+    const registry = await createReadyRegistry(queryClient)
     const unregister = registerCommunityDbRegistry(registry)
     ingestAttentionSnapshot(registry, {
       scopes: [{
@@ -417,8 +456,12 @@ describe("read coordinator", () => {
         messageId: "event",
         content: "new",
       })
+      scheduleAccountAttentionReconcile.mockClear()
 
       rejectPut(new ApiError("forbidden", 403))
+      await vi.waitFor(() => {
+        expect(scheduleAccountAttentionReconcile).toHaveBeenCalledWith(queryClient)
+      })
       await vi.waitFor(() => expect(reconcileAccountAttention).toHaveBeenCalledWith(registry))
       expect(registry.collections.attentionScopes.get("channel-1")).toBeUndefined()
     } finally {
@@ -430,8 +473,7 @@ describe("read coordinator", () => {
 
   it("keeps canonical attention cleared when a failed request has a newer generation", async () => {
     const queryClient = new QueryClient()
-    const registry = createCommunityDbRegistry(queryClient, "user-1")
-    await registry.preload()
+    const registry = await createReadyRegistry(queryClient)
     const unregister = registerCommunityDbRegistry(registry)
     ingestAttentionSnapshot(registry, {
       scopes: [{
@@ -474,8 +516,7 @@ describe("read coordinator", () => {
 
   it("reconciles canonical attention after a committed read", async () => {
     const queryClient = new QueryClient()
-    const registry = createCommunityDbRegistry(queryClient, "user-1")
-    await registry.preload()
+    const registry = await createReadyRegistry(queryClient)
     const unregister = registerCommunityDbRegistry(registry)
     ingestAttentionSnapshot(registry, {
       scopes: [{
@@ -511,8 +552,7 @@ describe("read coordinator", () => {
 
   it("lets an activated Inbox ticket own the pre-observer canonical clear", async () => {
     const queryClient = new QueryClient()
-    const registry = createCommunityDbRegistry(queryClient, "user-1")
-    await registry.preload()
+    const registry = await createReadyRegistry(queryClient)
     const unregister = registerCommunityDbRegistry(registry)
     ingestAttentionSnapshot(registry, {
       scopes: [{
@@ -587,8 +627,7 @@ describe("read coordinator", () => {
   it("restores a canceled Inbox ticket and reconciles a conflicted cancellation", async () => {
     const run = async (conflict: boolean) => {
       const queryClient = new QueryClient()
-      const registry = createCommunityDbRegistry(queryClient, "user-1")
-      await registry.preload()
+      const registry = await createReadyRegistry(queryClient)
       const unregister = registerCommunityDbRegistry(registry)
       ingestAttentionSnapshot(registry, {
         scopes: [{
@@ -648,8 +687,7 @@ describe("read coordinator", () => {
 
   it("commits an active Inbox attention fence on reservation disposal", async () => {
     const queryClient = new QueryClient()
-    const registry = createCommunityDbRegistry(queryClient, "user-1")
-    await registry.preload()
+    const registry = await createReadyRegistry(queryClient)
     const unregister = registerCommunityDbRegistry(registry)
     ingestAttentionSnapshot(registry, {
       scopes: [{
@@ -691,8 +729,7 @@ describe("read coordinator", () => {
     "%s settles a focused WS attention fence at its exact sequence",
     async (terminal) => {
       const queryClient = new QueryClient()
-      const registry = createCommunityDbRegistry(queryClient, "user-1")
-      await registry.preload()
+      const registry = await createReadyRegistry(queryClient)
       const unregister = registerCommunityDbRegistry(registry)
       ingestAttentionSnapshot(registry, {
         scopes: [{
@@ -741,8 +778,7 @@ describe("read coordinator", () => {
 
   it("does not duplicate a focused WS fence already owned by an Inbox ticket", async () => {
     const queryClient = new QueryClient()
-    const registry = createCommunityDbRegistry(queryClient, "user-1")
-    await registry.preload()
+    const registry = await createReadyRegistry(queryClient)
     const unregister = registerCommunityDbRegistry(registry)
     ingestAttentionSnapshot(registry, {
       scopes: [{
@@ -809,8 +845,7 @@ describe("read coordinator", () => {
 
   it("keeps canonical attention restored while a transient retry waits", async () => {
     const queryClient = new QueryClient()
-    const registry = createCommunityDbRegistry(queryClient, "user-1")
-    await registry.preload()
+    const registry = await createReadyRegistry(queryClient)
     const unregister = registerCommunityDbRegistry(registry)
     ingestAttentionSnapshot(registry, {
       scopes: [{
@@ -996,6 +1031,106 @@ describe("read coordinator", () => {
 
     expect(signal.aborted).toBe(true)
     expect(reconcileAccountReadState).not.toHaveBeenCalled()
+  })
+
+  it("restarts the attention deferral when canceling one active owner leaves a successor", async () => {
+    const queryClient = new QueryClient()
+    const firstRelease = vi.fn()
+    const successorRelease = vi.fn()
+    deferAccountAttentionReconcile
+      .mockReturnValueOnce(firstRelease)
+      .mockReturnValueOnce(successorRelease)
+    const firstLease = registerReadSurface(
+      queryClient,
+      "user-1",
+      { kind: "timeline", channelId: "channel-1" },
+      0,
+      "cancel-uncommitted",
+    )
+    const successorLease = registerReadSurface(
+      queryClient,
+      "user-1",
+      { kind: "timeline", channelId: "channel-1" },
+      0,
+      "cancel-uncommitted",
+    )
+    apiFetch.mockReturnValue(new Promise(() => undefined))
+    submitTimeline(firstLease, 3)
+    await vi.advanceTimersByTimeAsync(READ_COORDINATOR_DEBOUNCE_MS)
+    const signal = apiFetch.mock.calls[0]?.[1]?.signal as AbortSignal
+    submitTimeline(successorLease, 8)
+
+    releaseReadSurface(firstLease)
+
+    expect(signal.aborted).toBe(true)
+    expect(firstRelease).toHaveBeenCalledOnce()
+    expect(deferAccountAttentionReconcile).toHaveBeenCalledTimes(2)
+    expect(successorRelease).not.toHaveBeenCalled()
+    disposeReadCoordinator(queryClient)
+  })
+
+  it("releases a settled attempt deferral again when a successor arrives during reconciliation", async () => {
+    const queryClient = new QueryClient()
+    const releaseDeferral = vi.fn()
+    deferAccountAttentionReconcile.mockReturnValue(releaseDeferral)
+    let resolveReconciliation!: () => void
+    reconcileAccountReadState.mockReturnValueOnce(new Promise<void>((resolve) => {
+      resolveReconciliation = resolve
+    }))
+    apiFetch.mockResolvedValueOnce({ changed: true, revision: 4, targetSeq: 3 })
+    const lease = timelineLease(queryClient)
+    submitTimeline(lease, 3)
+    await vi.advanceTimersByTimeAsync(READ_COORDINATOR_DEBOUNCE_MS)
+    await vi.waitFor(() => expect(reconcileAccountReadState).toHaveBeenCalledOnce())
+    expect(releaseDeferral).toHaveBeenCalledOnce()
+
+    submitTimeline(lease, 8)
+    resolveReconciliation()
+    await vi.waitFor(() => expect(releaseDeferral).toHaveBeenCalledTimes(2))
+
+    disposeReadCoordinator(queryClient)
+  })
+
+  it("reconciles attention when a queued successor is canceled during predecessor reconciliation", async () => {
+    const queryClient = new QueryClient()
+    const registry = await createReadyRegistry(queryClient)
+    const unregister = registerCommunityDbRegistry(registry)
+    let resolvePut!: (value: unknown) => void
+    let resolveReconciliation!: () => void
+    apiFetch.mockReturnValueOnce(new Promise((resolve) => {
+      resolvePut = resolve
+    }))
+    reconcileAccountReadState.mockReturnValueOnce(new Promise<void>((resolve) => {
+      resolveReconciliation = resolve
+    }))
+
+    try {
+      const firstLease = timelineLease(queryClient)
+      const successorLease = registerReadSurface(
+        queryClient,
+        "user-1",
+        { kind: "timeline", channelId: "channel-1" },
+        0,
+        "cancel-uncommitted",
+      )
+      submitTimeline(firstLease, 3)
+      await vi.advanceTimersByTimeAsync(READ_COORDINATOR_DEBOUNCE_MS)
+      submitTimeline(successorLease, 8)
+      resolvePut({ changed: true, revision: 4, targetSeq: 3 })
+      await vi.waitFor(() => expect(reconcileAccountReadState).toHaveBeenCalledOnce())
+      scheduleAccountAttentionReconcile.mockClear()
+
+      releaseReadSurface(successorLease)
+      resolveReconciliation()
+
+      await vi.waitFor(() => {
+        expect(scheduleAccountAttentionReconcile).toHaveBeenCalledWith(queryClient)
+      })
+    } finally {
+      disposeReadCoordinator(queryClient)
+      unregister()
+      await registry.cleanup()
+    }
   })
 
   it("cancels a navigation-owned retry timer and dirty generation on release", async () => {

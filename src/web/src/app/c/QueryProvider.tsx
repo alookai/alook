@@ -35,8 +35,10 @@ import {
   type CommunityDbRegistry,
 } from "@/lib/community-db/collections"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
+import type { ServerRow } from "@/lib/community-db/schema"
 import { installCommunityDbSync } from "@/lib/community-db/sync"
 import { serversCollectionQueryKey } from "@/lib/community-db/server-collection"
+import { isDmsResourceQueryKey } from "@/lib/community-db/dms-resource"
 import { getConversationNavigationProof } from "@/lib/community/conversation-navigation-proof"
 import {
   getBrowserPersistenceRuntime,
@@ -122,9 +124,11 @@ function CommunityDbRuntime({
       registry.clear,
     )
     const uninstallSync = installCommunityDbSync(queryClient, registry)
-    const lifecycleTimelineEnabled = typeof registry.getLifecycleTimeline === "function"
-      && registry.getLifecycleTimeline() !== null
-    const probe = process.env.NODE_ENV !== "production" || lifecycleTimelineEnabled ? {
+    const probe = process.env.NODE_ENV !== "production" ? {
+      writeServer: async (row: ServerRow) => {
+        await registry.ensureCollectionReady("servers")
+        registry.collections.servers.utils.writeUpsert(row)
+      },
       snapshot: async () => {
         const runtime = await getBrowserPersistenceRuntime()
         const serverRows = Array.from(registry.collections.servers.values())
@@ -197,9 +201,6 @@ function CommunityDbRuntime({
           }),
         }
       },
-      ...(lifecycleTimelineEnabled ? {
-        timeline: () => registry.getLifecycleTimeline(),
-      } : {}),
     } : null
     if (probe) Reflect.set(window, "__ALOOK_COMMUNITY_DB_PROBE__", probe)
     if (refetchOnRegister) {
@@ -342,7 +343,9 @@ function QueryProviderScope({
         queryKey: communityKeys.inboxMentions(),
         exact: true,
       })
-      void queryClient.invalidateQueries({ queryKey: communityKeys.dms(), exact: true })
+      void queryClient.invalidateQueries({
+        predicate: ({ queryKey }) => isDmsResourceQueryKey(queryKey),
+      })
       void queryClient.invalidateQueries({ queryKey: serversCollectionQueryKey(), exact: true })
       void queryClient.invalidateQueries({
         predicate: ({ queryKey }) => isCommunityServerDetailQueryKey(queryKey),

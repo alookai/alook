@@ -2,7 +2,6 @@
 
 import { useEffect, useSyncExternalStore } from "react"
 import type { QueryClient } from "@tanstack/react-query"
-import { communityKeys } from "@/lib/query-keys"
 
 export type MessageSurfaceReceipt = {
   channelId: string
@@ -19,6 +18,11 @@ export type ConversationNavigationTarget = {
   anchorMessageId?: string
 }
 
+export type ConversationNavigationEntry = Pick<
+  ConversationNavigationTarget,
+  "viewerId" | "channelId" | "scopeKind"
+> & { anchorMessageId?: string | null }
+
 type ProofStatus = "warming" | "verified" | "proven" | "forum" | "denied" | "failed"
 
 export type ConversationNavigationProof = {
@@ -34,6 +38,12 @@ type ConversationNavigationRecovery = (
   recoveryAttempt: number,
 ) => void
 
+type CompletedConversationNavigationEntry = {
+  accessEpoch: number
+  completionEpoch: number
+  entry: ConversationNavigationEntry
+}
+
 type ProofStore = {
   nextEpoch: number
   activeEpoch: number
@@ -42,6 +52,7 @@ type ProofStore = {
   proof: ConversationNavigationProof | null
   controller: AbortController | null
   recovery: { epoch: number; restart: ConversationNavigationRecovery } | null
+  completedEntries: Map<string, CompletedConversationNavigationEntry>
   listeners: Set<() => void>
 }
 
@@ -58,11 +69,30 @@ function getStore(queryClient: QueryClient): ProofStore {
       proof: null,
       controller: null,
       recovery: null,
+      completedEntries: new Map(),
       listeners: new Set(),
     }
     stores.set(queryClient, store)
   }
   return store
+}
+
+function conversationNavigationEntryKey(target: ConversationNavigationEntry) {
+  return JSON.stringify([
+    target.viewerId,
+    target.scopeKind,
+    target.channelId,
+    target.anchorMessageId ?? null,
+  ])
+}
+
+function sameConversationNavigationScope(
+  a: ConversationNavigationEntry,
+  b: ConversationNavigationEntry,
+) {
+  return a.viewerId === b.viewerId
+    && a.scopeKind === b.scopeKind
+    && a.channelId === b.channelId
 }
 
 function publish(store: ProofStore, proof: ConversationNavigationProof | null) {
@@ -77,12 +107,6 @@ export function beginConversationNavigationProof(
   recoveryAttempt = 0,
 ): { epoch: number; signal: AbortSignal } {
   const store = getStore(queryClient)
-  if (store.activeTarget) {
-    const previousKey = store.activeTarget.scopeKind === "dm"
-      ? communityKeys.dmMessages(store.activeTarget.channelId)
-      : communityKeys.channelMessages(store.activeTarget.channelId)
-    void queryClient.cancelQueries({ queryKey: previousKey })
-  }
   store.controller?.abort()
   const controller = new AbortController()
   const epoch = ++store.nextEpoch
@@ -91,7 +115,18 @@ export function beginConversationNavigationProof(
   store.activeTarget = target
   store.controller = controller
   store.recovery = null
-  publish(store, { epoch, accessEpoch, recoveryAttempt, target, status: "warming" })
+  for (const [key, completed] of store.completedEntries) {
+    if (completed.accessEpoch !== accessEpoch) store.completedEntries.delete(key)
+  }
+  const completed = store.completedEntries.get(conversationNavigationEntryKey(target))
+    ?.accessEpoch === accessEpoch
+  publish(store, {
+    epoch,
+    accessEpoch,
+    recoveryAttempt,
+    target,
+    status: completed ? "proven" : "warming",
+  })
   return { epoch, signal: controller.signal }
 }
 
@@ -161,10 +196,21 @@ export function recordConversationNavigationReceipt(
   if (proof.status === "proven" || proof.status === "verified" || proof.status === "forum") {
     return true
   }
-  publish(store, {
+  const nextProof = {
     ...proof,
     status: receipt.surfaceKind === "forum" ? "forum" : "verified",
-  })
+  } as ConversationNavigationProof
+  if (nextProof.status === "forum") {
+    store.completedEntries.set(
+      conversationNavigationEntryKey(nextProof.target),
+      {
+        accessEpoch: nextProof.accessEpoch,
+        completionEpoch: nextProof.epoch,
+        entry: nextProof.target,
+      },
+    )
+  }
+  publish(store, nextProof)
   return true
 }
 
@@ -180,8 +226,51 @@ export function commitConversationNavigationProof(
     proof.target.channelId !== channelId ||
     proof.accessEpoch !== accessEpoch
   ) return false
+  return commitConversationNavigationEntry(queryClient, proof.target, accessEpoch)
+}
+
+export function commitConversationNavigationEntry(
+  queryClient: QueryClient,
+  entry: ConversationNavigationEntry,
+  accessEpoch: number,
+) {
+  const store = getStore(queryClient)
+  const key = conversationNavigationEntryKey(entry)
+  store.completedEntries.set(
+    key,
+    { accessEpoch, completionEpoch: store.activeEpoch, entry },
+  )
+  const proof = store.proof
+  if (
+    !proof
+    || proof.accessEpoch !== accessEpoch
+    || conversationNavigationEntryKey(proof.target) !== key
+  ) return false
+  if (proof.status === "proven" || proof.status === "forum") return true
+  if (proof.status !== "verified") return false
   publish(store, { ...proof, status: "proven" })
   return true
+}
+
+export function commitConversationNavigationPublication(
+  queryClient: QueryClient,
+  entry: Omit<ConversationNavigationEntry, "anchorMessageId">,
+  accessEpoch: number,
+  publication: {
+    requestedAnchorMessageId: string | null
+    coveredAnchorMessageIds?: readonly string[]
+  },
+) {
+  commitConversationNavigationEntry(queryClient, {
+    ...entry,
+    anchorMessageId: publication.requestedAnchorMessageId ?? undefined,
+  }, accessEpoch)
+  for (const anchorMessageId of publication.coveredAnchorMessageIds ?? []) {
+    commitConversationNavigationEntry(queryClient, {
+      ...entry,
+      anchorMessageId,
+    }, accessEpoch)
+  }
 }
 
 export function failConversationNavigationProof(
@@ -193,7 +282,13 @@ export function failConversationNavigationProof(
   const store = getStore(queryClient)
   const proof = store.proof
   if (proof?.epoch !== epoch || proof.accessEpoch !== accessEpoch) return
+  if (!definitive && proof.status === "proven") return
   if (definitive) {
+    for (const [key, completed] of store.completedEntries) {
+      if (sameConversationNavigationScope(completed.entry, proof.target)) {
+        store.completedEntries.delete(key)
+      }
+    }
     store.controller?.abort()
     store.activeEpoch = ++store.nextEpoch
     store.recovery = null
@@ -217,12 +312,6 @@ export function cancelConversationNavigationProof(
 ) {
   const store = getStore(queryClient)
   if (store.activeEpoch !== epoch) return
-  if (store.activeTarget) {
-    const queryKey = store.activeTarget.scopeKind === "dm"
-      ? communityKeys.dmMessages(store.activeTarget.channelId)
-      : communityKeys.channelMessages(store.activeTarget.channelId)
-    void queryClient.cancelQueries({ queryKey })
-  }
   store.controller?.abort()
   store.controller = null
   store.recovery = null
@@ -250,14 +339,23 @@ export function getCompletedConversationNavigationEntryEpoch(
     & { anchorMessageId: string | null },
   accessEpoch: number,
 ): number | null {
-  const proof = getStore(queryClient).proof
-  if (proof?.status !== "proven" && proof?.status !== "forum") return null
-  return proof.accessEpoch === accessEpoch
-    && proof.target.viewerId === target.viewerId
-    && proof.target.channelId === target.channelId
-    && proof.target.scopeKind === target.scopeKind
-    && (proof.target.anchorMessageId ?? null) === target.anchorMessageId
-    ? proof.epoch
+  const store = getStore(queryClient)
+  const completed = store.completedEntries.get(
+    conversationNavigationEntryKey(target),
+  )
+  if (completed?.accessEpoch !== accessEpoch) return null
+  const proof = store.proof
+  if (proof) {
+    return (proof.status === "proven" || proof.status === "forum")
+      && proof.accessEpoch === accessEpoch
+      && sameConversationNavigationScope(proof.target, target)
+      ? proof.epoch
+      : null
+  }
+  return store.activeTarget
+    && store.activeAccessEpoch === accessEpoch
+    && sameConversationNavigationScope(store.activeTarget, target)
+    ? completed.completionEpoch
     : null
 }
 

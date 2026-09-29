@@ -7,6 +7,7 @@ import type {
 } from "@alook/shared"
 import { getMessageOverlay, useMessageStreamStore } from "@/stores/community/message-stream"
 import { communityKeys } from "@/lib/query-keys"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { getCanonicalCommunityChannels } from "@/lib/community-db/sync"
 import {
   registerReadSurface,
@@ -23,6 +24,7 @@ import {
 import {
   capturedOnMessage,
   capturedQueryClient,
+  canonicalMessage,
   canonicalForumSidebar,
   cleanupCommunityWsHarness,
   forumSidebarFixture,
@@ -33,6 +35,7 @@ import {
   mountHook,
   resetCommunityWsHarness,
   resetHookMemoization,
+  seedCanonicalMessages,
   seedCanonicalForumSidebar,
 } from "./test-harness"
 
@@ -595,7 +598,10 @@ describe("useCommunityWs — message.create", () => {
     vi.useFakeTimers()
     try {
       await mountHook({ viewerUserId: "u_me" })
-      const fetchAttention = vi.spyOn(capturedQueryClient, "fetchQuery")
+      const refetchAttention = vi.spyOn(
+        getCommunityDbRegistry(capturedQueryClient)!.collections.attentionScopes.utils,
+        "refetch",
+      )
       for (let i = 0; i < 10; i++) {
         capturedOnMessage!(messageCreate("ch_x", `m_${i}`))
         capturedOnMessage!({
@@ -603,13 +609,11 @@ describe("useCommunityWs — message.create", () => {
           serverId: "s1", isMention: false,
         })
       }
-      expect(fetchAttention).not.toHaveBeenCalled()
+      expect(refetchAttention).not.toHaveBeenCalled()
       await vi.advanceTimersByTimeAsync(500)
       await vi.runAllTicks()
       for (let index = 0; index < 8; index += 1) await Promise.resolve()
-      expect(fetchAttention.mock.calls.filter(([options]) => (
-        JSON.stringify(options.queryKey) === JSON.stringify(communityKeys.accountAttention())
-      ))).toHaveLength(1)
+      expect(refetchAttention).toHaveBeenCalledOnce()
     } finally {
       vi.useRealTimers()
     }
@@ -622,12 +626,12 @@ describe("useCommunityWs — message.create", () => {
       const { useCommunityStore } = await import("@/stores/community")
       useCommunityStore.getState().subscribe({ channelId: "ch_focused" })
       const order: string[] = []
-      const originalFetch = capturedQueryClient.fetchQuery.bind(capturedQueryClient)
-      vi.spyOn(capturedQueryClient, "fetchQuery").mockImplementation((options) => {
-        if (JSON.stringify(options.queryKey) === JSON.stringify(communityKeys.accountAttention())) {
-          order.push("attention-reconcile")
-        }
-        return originalFetch(options)
+      const attentionUtils = getCommunityDbRegistry(capturedQueryClient)!
+        .collections.attentionScopes.utils
+      const originalRefetch = attentionUtils.refetch.bind(attentionUtils)
+      vi.spyOn(attentionUtils, "refetch").mockImplementation((options) => {
+        order.push("attention-reconcile")
+        return originalRefetch(options)
       })
       const lease = registerInboxReadReservationSurface(
         capturedQueryClient,
@@ -739,6 +743,12 @@ describe("useCommunityWs — message.create", () => {
             }],
           }
         }
+        if (url === "/api/community/users/me/attention") {
+          return {
+            scopes: [], items: [], limit: 100, truncated: false,
+            included: { servers: [], channels: [], dms: [], profiles: [], messages: [] },
+          }
+        }
         throw new Error(`unexpected API fetch: ${String(url)}`)
       })
       await mountHook({ viewerUserId: "u_me" })
@@ -746,12 +756,14 @@ describe("useCommunityWs — message.create", () => {
       useCommunityStore.getState().subscribe({ channelId: "ch_focused" })
       resetHookMemoization()
       await mountHook({ viewerUserId: "u_me" })
-      const originalFetch = capturedQueryClient.fetchQuery.bind(capturedQueryClient)
-      vi.spyOn(capturedQueryClient, "fetchQuery").mockImplementation((options) => {
-        if (JSON.stringify(options.queryKey) === JSON.stringify(communityKeys.accountAttention())) {
-          order.push("attention-reconcile")
-        }
-        return originalFetch(options)
+      getCommunityApiFetchMock().mockClear()
+      vi.mocked(globalThis.fetch).mockClear()
+      const attentionUtils = getCommunityDbRegistry(capturedQueryClient)!
+        .collections.attentionScopes.utils
+      const originalRefetch = attentionUtils.refetch.bind(attentionUtils)
+      vi.spyOn(attentionUtils, "refetch").mockImplementation((options) => {
+        order.push("attention-reconcile")
+        return originalRefetch(options)
       })
       const lease = registerReadSurface(
         capturedQueryClient,
@@ -775,7 +787,13 @@ describe("useCommunityWs — message.create", () => {
       await vi.runAllTicks()
       for (let index = 0; index < 8; index += 1) await Promise.resolve()
       await vi.waitFor(() => expect(order).toContain("attention-reconcile"))
-      expect(order.filter((entry) => entry === "attention-reconcile")).toHaveLength(1)
+      const mockedTransports = getCommunityApiFetchMock().mock.calls.filter(
+        ([url]) => url === "/api/community/users/me/attention",
+      ).length
+      const realTransports = vi.mocked(globalThis.fetch).mock.calls.filter(
+        ([url]) => String(url).endsWith("/api/community/users/me/attention"),
+      ).length
+      expect(Math.max(mockedTransports, realTransports)).toBe(1)
       releaseReadSurface(lease)
     } finally {
       vi.useRealTimers()
@@ -784,8 +802,14 @@ describe("useCommunityWs — message.create", () => {
 
 })
 describe("useCommunityWs — reactions", () => {
-  it("patches a mounted single-message opener idempotently under actor self-echo", async () => {
+  it("patches the canonical opener idempotently under actor self-echo", async () => {
     await mountHook({ viewerUserId: "u_me" })
+    await seedCanonicalMessages("ch_parent", [{
+      id: "m_opener",
+      type: "chat",
+      content: "root",
+      reactions: [],
+    }])
     capturedQueryClient.setQueryData(communityKeys.message("m_opener"), {
       id: "m_opener",
       content: "root",
@@ -802,15 +826,22 @@ describe("useCommunityWs — reactions", () => {
     capturedOnMessage!(event)
     capturedOnMessage!(event)
 
-    expect(capturedQueryClient.getQueryData<{
-      reactions: { emoji: string; count: number; me: boolean; userIds: string[] }[]
-    }>(communityKeys.message("m_opener"))?.reactions).toEqual([
+    expect(canonicalMessage("m_opener")?.reactions).toEqual([
       { emoji: "👍", count: 1, me: true, userIds: ["u_me"] },
     ])
+    expect(capturedQueryClient.getQueryData<{ reactions: unknown[] }>(
+      communityKeys.message("m_opener"),
+    )?.reactions).toEqual([])
   })
 
-  it("patches the message row's reactions in the channel cache", async () => {
+  it("patches the canonical message row without rewriting the legacy page cache", async () => {
     await mountHook({ viewerUserId: "u_me" })
+    await seedCanonicalMessages("ch_1", [{
+      id: "m_1",
+      type: "chat",
+      content: "x",
+      reactions: [],
+    }])
     capturedQueryClient.setQueryData(communityKeys.channelMessages("ch_1"), {
       pages: [
         {
@@ -833,9 +864,10 @@ describe("useCommunityWs — reactions", () => {
     const cache = capturedQueryClient.getQueryData<{
       pages: { messages: { id: string; reactions: { emoji: string; count: number; me: boolean }[] }[] }[]
     }>(communityKeys.channelMessages("ch_1"))
-    expect(cache?.pages[0].messages[0].reactions).toEqual([
+    expect(canonicalMessage("m_1")?.reactions).toEqual([
       { emoji: "👍", count: 1, me: false, userIds: ["u_other"] },
     ])
+    expect(cache?.pages[0].messages[0].reactions).toEqual([])
   })
 
   it("leaves a focused overlay unchanged when the reaction message is absent", async () => {
@@ -855,8 +887,14 @@ describe("useCommunityWs — reactions", () => {
       .toBe(0)
   })
 
-  it("patches every mounted message-context copy for the reaction channel", async () => {
+  it("patches canonical identity while leaving transport context snapshots unchanged", async () => {
     await mountHook({ viewerUserId: "u_me" })
+    await seedCanonicalMessages("ch_1", [{
+      id: "m_1",
+      type: "chat",
+      content: "x",
+      reactions: [],
+    }])
     const unresolvedContext = { notFound: true }
     capturedQueryClient.setQueryData(communityKeys.messageContext("channel", "ch_1", 7), {
       anchorId: "m_1",
@@ -877,11 +915,12 @@ describe("useCommunityWs — reactions", () => {
       userId: "u_other",
       emoji: "🔥",
     })
-    expect(capturedQueryClient.getQueryData<{
-      messages: { id: string; reactions: { emoji: string; userIds: string[] }[] }[]
-    }>(communityKeys.messageContext("channel", "ch_1", 7))?.messages[0].reactions).toEqual([
+    expect(canonicalMessage("m_1")?.reactions).toEqual([
       { emoji: "🔥", count: 1, me: false, userIds: ["u_other"] },
     ])
+    expect(capturedQueryClient.getQueryData<{
+      messages: { id: string; reactions: { emoji: string; userIds: string[] }[] }[]
+    }>(communityKeys.messageContext("channel", "ch_1", 7))?.messages[0].reactions).toEqual([])
     expect(capturedQueryClient.getQueryData<{
       messages: { reactions: unknown[] }[]
     }>(communityKeys.messageContext("channel", "ch_1", 99))?.messages[0].reactions).toEqual([])
@@ -1002,8 +1041,8 @@ describe("useCommunityWs — message.updated", () => {
     }>(communityKeys.dmMessages("dm_1"))
     expect(cache?.pages[0].messages[0]).toMatchObject({
       authorName: "Raw Author",
-      approval,
     })
+    expect(cache?.pages[0].messages[0].approval).toBeUndefined()
     const { useCommunityWsStore } = await import("@/stores/community/ws")
     expect(useCommunityWsStore.getState()).not.toHaveProperty("profilesByUserId")
   })
@@ -1104,7 +1143,10 @@ describe("useCommunityWs — DM message.create", () => {
         pages: [{ messages: [], hasMore: false }],
         pageParams: [null],
       })
-      const fetchAttention = vi.spyOn(capturedQueryClient, "fetchQuery")
+      const refetchAttention = vi.spyOn(
+        getCommunityDbRegistry(capturedQueryClient)!.collections.attentionScopes.utils,
+        "refetch",
+      )
       // A DM is a channel now — its message arrives as `message.create` keyed by
       // the DM's channel id (which the subscription tracks in `dmConversationId`).
       const event: CommunityMessageCreate = {
@@ -1138,9 +1180,7 @@ describe("useCommunityWs — DM message.create", () => {
       await vi.advanceTimersByTimeAsync(600)
       await vi.runAllTicks()
       for (let index = 0; index < 8; index += 1) await Promise.resolve()
-      expect(fetchAttention.mock.calls.filter(([options]) => (
-        JSON.stringify(options.queryKey) === JSON.stringify(communityKeys.accountAttention())
-      ))).toHaveLength(1)
+      expect(refetchAttention).toHaveBeenCalledOnce()
     } finally {
       vi.useRealTimers()
     }
@@ -1211,9 +1251,10 @@ describe("useCommunityWs — message edit refreshes forum opener summary", () =>
     }))
     expect(capturedQueryClient.getQueryState(allKey)?.isInvalidated).toBe(false)
     expect(capturedQueryClient.getQueryState(bugKey)?.isInvalidated).toBe(false)
-    expect(capturedQueryClient.getQueryData<{ pages: { messages: { content: string }[] }[] }>(allKey)?.pages[0].messages[0].content).toBe("new title")
-    expect(capturedQueryClient.getQueryData<{ pages: { messages: { content: string }[] }[] }>(bugKey)?.pages[0].messages[0].content).toBe("new title")
-    expect(capturedQueryClient.getQueryData<{ content: string }>(communityKeys.message("opener-post_1"))?.content).toBe("new title")
+    expect(capturedQueryClient.getQueryData<{ pages: { messages: { content: string }[] }[] }>(allKey)?.pages[0].messages[0].content).toBe("old title")
+    expect(capturedQueryClient.getQueryData<{ pages: { messages: { content: string }[] }[] }>(bugKey)?.pages[0].messages[0].content).toBe("old title")
+    expect(capturedQueryClient.getQueryData<{ content: string }>(communityKeys.message("opener-post_1"))?.content).toBe("old title")
+    expect(canonicalMessage("opener-post_1")?.content).toBe("new title")
     expect(canonicalForumSidebar("s1").threads[0]?.title).toBe("new title")
 
     invalidateSpy.mockClear()
@@ -1236,6 +1277,7 @@ describe("useCommunityWs — message edit refreshes forum opener summary", () =>
       type: "chat" as const,
       content: "old",
     }
+    await seedCanonicalMessages("ch_1", [message])
     capturedQueryClient.setQueryData(communityKeys.channelMessages("ch_1"), {
       pages: [{ messages: [message], hasMore: false }],
       pageParams: [null],
@@ -1258,7 +1300,8 @@ describe("useCommunityWs — message edit refreshes forum opener summary", () =>
 
     expect(capturedQueryClient.getQueryData<{
       pages: { messages: { content: string }[] }[]
-    }>(communityKeys.channelMessages("ch_1"))?.pages[0].messages[0].content).toBe("new")
+    }>(communityKeys.channelMessages("ch_1"))?.pages[0].messages[0].content).toBe("old")
+    expect(canonicalMessage("m_1")?.content).toBe("new")
     expect(getMessageOverlay(matchingScope).liveById.get("m_1")?.content).toBe("new")
     expect(getMessageOverlay(otherScope).liveById.get("m_1")?.content).toBe("old")
   })

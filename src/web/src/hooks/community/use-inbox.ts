@@ -29,7 +29,7 @@ import {
 } from "@/lib/community-db/projections"
 import {
   captureCommunityLiveSnapshotToken,
-  publishCommunityEmbeddedMessages,
+  reconcileCanonicalEmbeddedMessages,
 } from "@/lib/community-db/sync"
 import { useAccountAttentionProjection } from "./use-account-attention"
 
@@ -292,7 +292,7 @@ const inboxMarkedQueryFn = (queryClient: QueryClient) =>
       signal ? { signal } : undefined,
     )
     if (publicationToken) {
-      await publishCommunityEmbeddedMessages(queryClient, {
+      await reconcileCanonicalEmbeddedMessages(queryClient, {
         entries: data.marked.map((marked) => ({
           channelId: marked.channelId,
           message: marked.m,

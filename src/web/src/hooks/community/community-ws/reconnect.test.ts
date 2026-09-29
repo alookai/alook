@@ -2,6 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { QueryClient, QueryObserver } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
 import {
+  serverMembersRowsKey,
+} from "@/lib/community-db/server-members-pagination"
+import { channelMetadataResourceKey } from "@/lib/community-db/channel-metadata-resource"
+import {
   capturedOnMessage,
   capturedOnReconnect,
   capturedQueryClient,
@@ -33,7 +37,7 @@ vi.mock("@/lib/community-db/sync", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/community-db/sync")>()
   return {
     ...actual,
-    publishCommunityLiveSnapshot: vi.fn(async (queryClient, publication) => {
+    reconcileCommunityLiveSnapshot: vi.fn(async (queryClient, publication) => {
       actual.assertCommunityLiveSnapshotTokenCurrent(
         queryClient,
         publication.proof.token,
@@ -41,7 +45,7 @@ vi.mock("@/lib/community-db/sync", async (importOriginal) => {
       )
       return { status: "published", generation: 1 }
     }),
-    publishCommunityForumSidebar: vi.fn(async (queryClient, publication) => {
+    reconcileCanonicalForumSidebar: vi.fn(async (queryClient, publication) => {
       actual.assertCommunityLiveSnapshotTokenCurrent(
         queryClient,
         publication.proof.token,
@@ -59,6 +63,20 @@ async function flushMicrotasks(iterations = 12) {
   for (let index = 0; index < iterations; index += 1) await Promise.resolve()
 }
 
+function emptyAttentionSnapshot() {
+  return {
+    scopes: [],
+    items: [],
+    limit: 100,
+    truncated: false,
+    included: { servers: [], channels: [], dms: [], profiles: [], messages: [] },
+  }
+}
+
+const serverDetailKey = (accountId: string, serverId: string) => (
+  ["community", "db", accountId, "channel-resource", "server", serverId] as const
+)
+
 describe("useCommunityWs — resyncs machines on WS reconnect", () => {
   it("re-reads the authoritative self identity after a reconnect gap", async () => {
     const apiFetch = getCommunityApiFetchMock()
@@ -69,6 +87,8 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
       if (url === "/api/community/servers") {
         return { servers: [] }
       }
+      if (url === "/api/community/users/me/attention") return emptyAttentionSnapshot()
+      if (url === "/api/community/users/me/dms") return { conversations: [] }
       if (url === "/api/community/users/self/profile") {
         return {
           id: "self",
@@ -147,12 +167,15 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     resetHookMemoization()
     await mountHook({ viewerUserId: "u_me" })
     flushEffects()
+    const callsBeforeEvent = getCommunityApiFetchMock().mock.calls.filter(([path]) => (
+      path === "/api/community/users/me/attention"
+    )).length
     capturedOnMessage?.({ type: "community:unread.bump", channelId: "dm_effect_replay", userId: "u_me", isMention: false })
     await vi.advanceTimersByTimeAsync(500)
 
     expect(getCommunityApiFetchMock().mock.calls.filter(([path]) => (
       path === "/api/community/users/me/attention"
-    ))).toHaveLength(1)
+    ))).toHaveLength(callsBeforeEvent + 1)
   })
 
   it("does not re-arm the Inbox owner when reconnect repair settles after unmount", async () => {
@@ -267,6 +290,20 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     ))).toHaveLength(1))
   })
 
+  it("fails the focused-message owner when an active target refresh rejects", async () => {
+    const { reconcileFocusedCommunityMessages } = await import("./reconnect")
+    const { getCommunityDbRegistry } = await import("@/lib/community-db/collections")
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().subscribe({ channelId: "ch_failed_focus" })
+    const registry = getCommunityDbRegistry(capturedQueryClient)!
+    const reconcile = vi.spyOn(registry, "reconcileMessageScope")
+      .mockRejectedValueOnce(new Error("messages unavailable"))
+
+    await expect(reconcileFocusedCommunityMessages(capturedQueryClient))
+      .rejects.toThrow("focused messages failed")
+    expect(reconcile).toHaveBeenCalledWith("server-channel", "ch_failed_focus")
+  })
+
   it("reconciles both visible split panes and drops the hidden parent after owner cleanup", async () => {
     const { useCommunityStore } = await import("@/stores/community")
     const store = useCommunityStore.getState()
@@ -348,7 +385,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     ).toBe(true)
     expect(
       invalidatedKeys.some(
-        (k) => JSON.stringify(k) === JSON.stringify(communityKeys.members("srv_open")),
+        (k) => JSON.stringify(k) === JSON.stringify(serverMembersRowsKey("u_me", "srv_open")),
       ),
     ).toBe(true)
   })
@@ -366,7 +403,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
       null,
     )
     capturedQueryClient.setQueryData(
-      communityKeys.channelMeta("srv_open", "post-a"),
+      channelMetadataResourceKey("u_me", "srv_open", "post-a"),
       { id: "post-a", verifiedEpoch: 0 },
     )
     capturedQueryClient.setQueryData(
@@ -380,13 +417,13 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
       communityKeys.forumSidebarRetained("srv_open", "post-a"),
     )).toEqual({ id: "post-a" })
     expect(capturedQueryClient.getQueryData(
-      communityKeys.channelMeta("srv_open", "post-a"),
+      channelMetadataResourceKey("u_me", "srv_open", "post-a"),
     )).toEqual({ id: "post-a", verifiedEpoch: 0 })
     expect(capturedQueryClient.getQueryData(
       communityKeys.forumOpenerHint("srv_open", "opener-a"),
     )).toEqual({ id: "opener-a", content: "private title" })
     expect(capturedQueryClient.getQueryState(
-      communityKeys.channelMeta("srv_open", "post-a"),
+      channelMetadataResourceKey("u_me", "srv_open", "post-a"),
     )?.isInvalidated).toBe(true)
   })
 
@@ -461,15 +498,19 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     })
     const unsubscribeDirectory = directoryObserver.subscribe(() => {})
     await vi.waitFor(() => expect(directoryFetches).toBe(1))
-    capturedQueryClient.setQueryData(communityKeys.server("srv_a"), { id: "srv_a" })
-    capturedQueryClient.setQueryData(communityKeys.members("srv_b"), { pages: [] })
+    capturedQueryClient.setQueryData(serverDetailKey("u_me", "srv_a"), {
+      serverId: "srv_a",
+      categories: [],
+      channels: [],
+    })
+    capturedQueryClient.setQueryData(serverMembersRowsKey("u_me", "srv_b"), [])
     capturedQueryClient.setQueryData(communityKeys.server("__none__"), { id: "__none__" })
     capturedQueryClient.setQueryData(communityKeys.server("__pending__"), { id: "__pending__" })
     capturedQueryClient.setQueryData(["community", "servers", "srv_ghost", "unknown-family"], {})
     capturedQueryClient.setQueryData(["community", "servers", "srv_ghost", "members", "unexpected"], {})
     const invalidDerivedTuples = [
       [...communityKeys.forumSidebarRetained("srv_a", "child"), "unexpected"],
-      [...communityKeys.channelMeta("srv_a", "child"), "unexpected"],
+      [...channelMetadataResourceKey("u_me", "srv_a", "child"), "unexpected"],
       [...communityKeys.forumOpenerHint("srv_a", "opener"), "unexpected"],
       [...communityKeys.forumSidebarUnreadFallbacks("srv_a"), "unexpected"],
     ] as const
@@ -478,7 +519,10 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     }
     for (const serverId of ["srv_a", "srv_b"]) {
       capturedQueryClient.setQueryData(communityKeys.forumSidebarRetained(serverId, "child"), {})
-      capturedQueryClient.setQueryData(communityKeys.channelMeta(serverId, "child"), {})
+      capturedQueryClient.setQueryData(
+        channelMetadataResourceKey("u_me", serverId, "child"),
+        {},
+      )
       capturedQueryClient.setQueryData(communityKeys.forumOpenerHint(serverId, "opener"), {})
       capturedQueryClient.setQueryData(communityKeys.forumSidebarUnreadFallbacks(serverId), {})
     }
@@ -491,8 +535,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     const calls = spy.mock.calls.map(([filters]) => filters)
     for (const serverId of ["srv_a", "srv_b"]) {
       for (const queryKey of [
-        communityKeys.server(serverId),
-        communityKeys.members(serverId),
+        serverMembersRowsKey("u_me", serverId),
         communityKeys.presence(serverId),
         communityKeys.invites(serverId),
       ]) {
@@ -505,7 +548,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
       })
       for (const queryKey of [
         communityKeys.forumSidebarRetained(serverId, "child"),
-        communityKeys.channelMeta(serverId, "child"),
+        channelMetadataResourceKey("u_me", serverId, "child"),
         communityKeys.forumOpenerHint(serverId, "opener"),
         communityKeys.forumSidebarUnreadFallbacks(serverId),
       ]) {
@@ -513,6 +556,11 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
         expect(capturedQueryClient.getQueryState(queryKey)?.isInvalidated).toBe(true)
       }
     }
+    expect(calls).toContainEqual({
+      queryKey: serverDetailKey("u_me", "srv_a"),
+      exact: true,
+      refetchType: "active",
+    })
     expect(calls.some(({ queryKey }) => queryKey?.includes("__none__"))).toBe(false)
     expect(calls.some(({ queryKey }) => queryKey?.includes("__pending__"))).toBe(false)
     expect(calls.some(({ queryKey }) => queryKey?.includes("channel-ref-directory"))).toBe(false)
@@ -528,11 +576,15 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
 
   it("isolates one cached-server rejection while completing every other policy", async () => {
     const { reconcileCommunityWsReconnect } = await import("./reconnect")
-    capturedQueryClient.setQueryData(communityKeys.server("srv_a"), { id: "srv_a" })
-    capturedQueryClient.setQueryData(communityKeys.server("srv_b"), { id: "srv_b" })
+    capturedQueryClient.setQueryData(serverDetailKey("u_me", "srv_a"), {
+      serverId: "srv_a", categories: [], channels: [],
+    })
+    capturedQueryClient.setQueryData(serverDetailKey("u_me", "srv_b"), {
+      serverId: "srv_b", categories: [], channels: [],
+    })
     const original = capturedQueryClient.invalidateQueries.bind(capturedQueryClient)
     const spy = vi.spyOn(capturedQueryClient, "invalidateQueries").mockImplementation((filters, options) => {
-      if (JSON.stringify(filters.queryKey) === JSON.stringify(communityKeys.members("srv_a"))) {
+      if (JSON.stringify(filters.queryKey) === JSON.stringify(serverMembersRowsKey("u_me", "srv_a"))) {
         return Promise.reject(new Error("private backend detail"))
       }
       return original(filters, options)
@@ -547,7 +599,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
       reconnectDurationMs: 900,
     })
     expect(spy).toHaveBeenCalledWith({
-      queryKey: communityKeys.server("srv_b"),
+      queryKey: serverDetailKey("u_me", "srv_b"),
       exact: true,
       refetchType: "active",
     })
@@ -569,6 +621,9 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
       if (url === "/api/community/users/me/read-state") {
         return { revision: 0, readStates: [] }
       }
+      if (url === "/api/community/servers") return { servers: [] }
+      if (url === "/api/community/users/me/attention") return emptyAttentionSnapshot()
+      if (url === "/api/community/users/me/dms") return { conversations: [] }
       if (String(url).startsWith("/api/community/servers/srv_notify/channels?")) {
         return await new Promise((_resolve, reject) => { rejectSidebar = reject })
       }
@@ -762,6 +817,8 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
         await servers
         return { servers: [] }
       }
+      if (url === "/api/community/users/me/attention") return emptyAttentionSnapshot()
+      if (url === "/api/community/users/me/dms") return { conversations: [] }
       throw new Error(`unexpected API fetch: ${String(url)}`)
     })
     vi.spyOn(capturedQueryClient, "invalidateQueries").mockImplementation((filters) => {
@@ -777,8 +834,8 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     const work = reconcileCommunityWsReconnect(capturedQueryClient)
     await flushMicrotasks()
     expect(started).toEqual(expect.arrayContaining([
+      JSON.stringify(communityKeys.accountAttention()),
       JSON.stringify(communityKeys.inbox()),
-      JSON.stringify(communityKeys.dms()),
       JSON.stringify(communityKeys.friends()),
     ]))
     expect(getCommunityApiFetchMock().mock.calls.some(
@@ -837,6 +894,8 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
       if (url === "/api/community/users/me/read-state") {
         return { revision: 0, readStates: [] }
       }
+      if (url === "/api/community/users/me/attention") return emptyAttentionSnapshot()
+      if (url === "/api/community/users/me/dms") return { conversations: [] }
       if (String(url).includes("/channels?")) return forumSidebarFixture([])
       throw new Error(`unexpected API fetch: ${String(url)}`)
     })
@@ -846,8 +905,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     const versions = { srv_a: 1, srv_b: 1 }
     const fetches = new Map<string, number>()
     const keys = (serverId: "srv_a" | "srv_b") => [
-      communityKeys.server(serverId),
-      communityKeys.members(serverId),
+      serverDetailKey("u_me", serverId),
       communityKeys.presence(serverId),
       communityKeys.invites(serverId),
     ] as const
@@ -863,7 +921,10 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
       queryClient.setQueryData(communityKeys.forumSidebarThreads(serverId), { seeded: true })
     }
     queryClient.setQueryData(communityKeys.forumSidebarRetained("srv_b", "private-child"), { stale: true })
-    queryClient.setQueryData(communityKeys.channelMeta("srv_b", "private-child"), { stale: true })
+    queryClient.setQueryData(
+      channelMetadataResourceKey("u_me", "srv_b", "private-child"),
+      { stale: true },
+    )
     queryClient.setQueryData(communityKeys.forumOpenerHint("srv_b", "private-opener"), { stale: true })
     queryClient.setQueryData(communityKeys.forumSidebarUnreadFallbacks("srv_b"), { stale: true })
     const unsubscribes = keys("srv_a").map((queryKey) => {
@@ -898,7 +959,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
       .toHaveLength(2)
     for (const queryKey of [
       communityKeys.forumSidebarRetained("srv_b", "private-child"),
-      communityKeys.channelMeta("srv_b", "private-child"),
+      channelMetadataResourceKey("u_me", "srv_b", "private-child"),
       communityKeys.forumOpenerHint("srv_b", "private-opener"),
       communityKeys.forumSidebarUnreadFallbacks("srv_b"),
     ]) {

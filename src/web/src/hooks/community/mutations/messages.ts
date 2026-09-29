@@ -4,7 +4,7 @@ import { useCallback } from "react"
 import {
   useMutation,
   useQueryClient,
-  type InfiniteData,
+  type QueryClient,
 } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { apiFetch, toastApiError } from "@/lib/api/client"
@@ -25,7 +25,7 @@ import {
   type CanonicalMessage,
   type MessageScope,
 } from "@/lib/community/message-stream"
-import type { Attachment, MessagesPage, Msg } from "@/lib/community/models/message"
+import type { Attachment, Msg } from "@/lib/community/models/message"
 import type { PinsResponse } from "@/hooks/community/use-channel-panels"
 import type {
   MarkedResponse,
@@ -50,6 +50,7 @@ import { reconcileAccountReadState } from "@/hooks/community/community-ws/read-s
 import { reconcileAccountAttention } from "@/hooks/community/use-account-attention"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { serversCollectionQueryKey } from "@/lib/community-db/server-collection"
+import type { MessageRow } from "@/lib/community-db/schema"
 import {
   clearAttentionOptimistically,
   commitAttentionOptimisticSnapshot,
@@ -83,22 +84,6 @@ import {
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-type PageCache = InfiniteData<MessagesPage>
-
-function patchContentById(cache: PageCache | undefined, id: string, content: string): PageCache | undefined {
-  if (!cache) return cache
-  let touched = false
-  const pages = cache.pages.map((page) => ({
-    ...page,
-    messages: page.messages.map((message) => {
-      if (message.id !== id) return message
-      touched = true
-      return { ...message, content }
-    }),
-  }))
-  return touched ? { ...cache, pages } : cache
-}
-
 type EditMessageArgs = {
   serverId: string
   channelId: string
@@ -109,12 +94,9 @@ type EditMessageArgs = {
 }
 
 type EditMessageContext = {
-  previous: PageCache | undefined
+  previous: MessageRow | undefined
   previousContent: string | undefined
-  key: readonly unknown[]
   scope: MessageScope
-  previousMessage: { content: string } | undefined
-  messageKey: readonly unknown[]
 }
 
 export function useEditMessage() {
@@ -128,28 +110,22 @@ export function useEditMessage() {
       })
     },
     onMutate: async ({ serverId, channelId, messageId, content }) => {
-      const key = communityKeys.channelMessages(channelId)
       const scope: MessageScope = { kind: "channel", id: channelId, serverId }
-      const messageKey = communityKeys.message(messageId)
-      await Promise.all([
-        queryClient.cancelQueries({ queryKey: key }),
-        queryClient.cancelQueries({ queryKey: messageKey }),
-      ])
-      const previous = queryClient.getQueryData<PageCache>(key)
-      const previousMessage = queryClient.getQueryData<{ content: string }>(messageKey)
-      const previousContent = currentMaterializedMessage(previous, scope, messageId)?.content
-      queryClient.setQueryData<PageCache>(key, (cache) => patchContentById(cache, messageId, content))
-      queryClient.setQueryData<{ content: string }>(messageKey, (message) => message ? { ...message, content } : message)
+      const registry = getCommunityDbRegistry(queryClient)
+      const previous = registry?.collections.messages.get(messageId)
+      const previousContent = currentMaterializedMessage(queryClient, scope, messageId)?.content
+      if (previous) registry?.collections.messages.utils.writeUpdate({ id: messageId, content })
       useMessageStreamStore.getState().dispatch(scope, {
         type: "messageEdited",
         messageId,
         content,
       })
-      return { previous, previousContent, key, scope, previousMessage, messageKey }
+      return { previous, previousContent, scope }
     },
     onError: (_error, _variables, context) => {
       if (!context) return
-      queryClient.setQueryData(context.key, context.previous)
+      const registry = getCommunityDbRegistry(queryClient)
+      if (context.previous) registry?.collections.messages.utils.writeUpsert(context.previous)
       if (context.previousContent !== undefined) {
         useMessageStreamStore.getState().dispatch(context.scope, {
           type: "messageEdited",
@@ -157,7 +133,6 @@ export function useEditMessage() {
           content: context.previousContent,
         })
       }
-      queryClient.setQueryData(context.messageKey, context.previousMessage)
     },
     onSuccess: async (_data, variables) => {
       if (!variables.forumChannelId || !variables.forumThreadId) return
@@ -423,28 +398,6 @@ export type ReactionArgs = {
 
 type ReactionIntent = "toggle" | "add"
 
-// Apply an optimistic reaction state to any page cache that contains the
-// message. This mirrors the reducer in the God-context.
-function togglePageCacheReaction(
-  cache: PageCache | undefined,
-  messageId: string,
-  emoji: string,
-  userId: string,
-  add: boolean,
-): PageCache | undefined {
-  if (!cache) return cache
-  let touched = false
-  const pages = cache.pages.map((p) => {
-    if (!p.messages.some((m) => m.id === messageId)) return p
-    touched = true
-    const nextMessages = p.messages.map((m) =>
-      m.id === messageId ? toggleMessageReaction(m, emoji, userId, add) : m)
-    return { ...p, messages: nextMessages }
-  })
-  if (!touched) return cache
-  return { ...cache, pages }
-}
-
 function toggledReactions(
   reactionsSource: Msg["reactions"],
   emoji: string,
@@ -482,17 +435,6 @@ function toggleMessageReaction(
   return { ...message, reactions: toggledReactions(message.reactions, emoji, userId, add) }
 }
 
-function toggleSingleMessageReaction<T extends { reactions?: Msg["reactions"] }>(
-  message: T | undefined,
-  emoji: string,
-  userId: string,
-  add: boolean,
-): T | undefined {
-  return message
-    ? { ...message, reactions: toggledReactions(message.reactions, emoji, userId, add) }
-    : message
-}
-
 function messageScope(args: ReactionArgs): MessageScope | undefined {
   if (args.channelId && args.serverId) {
     return { kind: "channel", id: args.channelId, serverId: args.serverId }
@@ -501,18 +443,18 @@ function messageScope(args: ReactionArgs): MessageScope | undefined {
 }
 
 function currentMaterializedMessage(
-  cache: PageCache | undefined,
+  queryClient: QueryClient,
   scope: MessageScope,
   messageId: string,
 ): Msg | undefined {
-  const base = cache?.pages.flatMap((page) => page.messages)
-    .filter((message): message is CanonicalMessage => message.seq !== undefined) ?? []
+  const message = getCommunityDbRegistry(queryClient)?.collections.messages.get(messageId)
+  const base = message?.seq === undefined ? [] : [message as CanonicalMessage]
   return materializeMessageStream(base, getMessageOverlay(scope))
     .find((message) => message.id === messageId)
 }
 
 function refreshExistingReactionFallback(
-  cache: PageCache | undefined,
+  queryClient: QueryClient,
   args: ReactionArgs,
   add: boolean,
 ): void {
@@ -521,26 +463,12 @@ function refreshExistingReactionFallback(
   const overlay = getMessageOverlay(scope)
   const existing = [...overlay.liveById.values()].find((message) => message.id === args.messageId)
   if (!existing) return
-  const source = currentMaterializedMessage(cache, scope, args.messageId) ?? existing
+  const source = currentMaterializedMessage(queryClient, scope, args.messageId) ?? existing
   if (source.seq === undefined) return
   useMessageStreamStore.getState().dispatch(scope, {
     type: "liveRefreshed",
     message: toggleMessageReaction(source, args.emoji, args.userId, add) as CanonicalMessage,
   })
-}
-
-function currentMeStatus(
-  cache: PageCache | undefined,
-  messageId: string,
-  emoji: string,
-): boolean {
-  if (!cache) return false
-  for (const p of cache.pages) {
-    const msg = p.messages.find((m) => m.id === messageId)
-    if (!msg) continue
-    return msg.reactions?.find((r) => r.emoji === emoji)?.me ?? false
-  }
-  return false
 }
 
 // #9: 300ms coalescing window. A user tapping the same reaction pill in rapid
@@ -570,37 +498,35 @@ export function _resetReactionTimers_forTesting() {
  * hit an already-torn-down cache.
  */
 function useReactionApi(intent: ReactionIntent): (args: ReactionArgs) => void {
-  const queryClient = useQueryClient()
+    const queryClient = useQueryClient()
   return useCallback((args: ReactionArgs) => {
-    const key = args.channelId
-      ? communityKeys.channelMessages(args.channelId)
-      : args.dmId
-        ? communityKeys.dmMessages(args.dmId)
-        : communityKeys.channelMessages("__none__")
-    const cache = queryClient.getQueryData<PageCache>(key)
-    const messageKey = communityKeys.message(args.messageId)
-    const singleMessage = queryClient.getQueryData<{ reactions?: Msg["reactions"] }>(messageKey)
+    const registry = getCommunityDbRegistry(queryClient)
+    const canonical = registry?.collections.messages.get(args.messageId)
+    const canonicalMessage = canonical as Msg | undefined
     const scope = messageScope(args)
     const source = scope
-      ? currentMaterializedMessage(cache, scope, args.messageId)
+      ? currentMaterializedMessage(queryClient, scope, args.messageId)
       : undefined
     const wasMe = args.currentMe ?? (source
       ? source.reactions?.find((reaction) => reaction.emoji === args.emoji)?.me ?? false
-      : singleMessage
-        ? singleMessage.reactions?.find((reaction) => reaction.emoji === args.emoji)?.me ?? false
-        : currentMeStatus(cache, args.messageId, args.emoji))
+      : canonicalMessage?.reactions?.find((reaction) => reaction.emoji === args.emoji)?.me ?? false)
     if (intent === "add" && wasMe) return
     const nextMe = intent === "add" ? true : !wasMe
     // Optimistic write is always synchronous — the debounce only defers the
     // API call, not the visible UI.
     if (!args.skipDefaultCache) {
-      queryClient.setQueryData<PageCache>(key, (c) =>
-        togglePageCacheReaction(c, args.messageId, args.emoji, args.userId, nextMe),
-      )
-      queryClient.setQueryData(messageKey, (message: typeof singleMessage) =>
-        toggleSingleMessageReaction(message, args.emoji, args.userId, nextMe),
-      )
-      refreshExistingReactionFallback(queryClient.getQueryData<PageCache>(key), args, nextMe)
+      if (registry && canonicalMessage) {
+        registry.collections.messages.utils.writeUpdate({
+          id: args.messageId,
+          reactions: toggledReactions(
+            canonicalMessage.reactions,
+            args.emoji,
+            args.userId,
+            nextMe,
+          ),
+        })
+      }
+      refreshExistingReactionFallback(queryClient, args, nextMe)
     }
     args.syncReactionState?.(nextMe)
 
@@ -628,13 +554,19 @@ function useReactionApi(intent: ReactionIntent): (args: ReactionArgs) => void {
       apiFetch(url, { method }).catch((error) => {
         // Roll back to the original server state on failure.
         if (!args.skipDefaultCache) {
-          queryClient.setQueryData<PageCache>(key, (c) =>
-            togglePageCacheReaction(c, args.messageId, args.emoji, args.userId, originalMe),
-          )
-          queryClient.setQueryData(messageKey, (message: typeof singleMessage) =>
-            toggleSingleMessageReaction(message, args.emoji, args.userId, originalMe),
-          )
-          refreshExistingReactionFallback(queryClient.getQueryData<PageCache>(key), args, originalMe)
+          const current = registry?.collections.messages.get(args.messageId) as Msg | undefined
+          if (registry && current) {
+            registry.collections.messages.utils.writeUpdate({
+              id: args.messageId,
+              reactions: toggledReactions(
+                current.reactions,
+                args.emoji,
+                args.userId,
+                originalMe,
+              ),
+            })
+          }
+          refreshExistingReactionFallback(queryClient, args, originalMe)
         }
         args.syncReactionState?.(originalMe)
         args.onError?.(error)
@@ -830,35 +762,21 @@ export function useCreateThread() {
       )
     },
     onSuccess: (data, args) => {
-      // Live-patch the message row so the "Open thread" affordance appears
-      // immediately, then invalidate the thread list.
-      queryClient.setQueryData<PageCache>(
-        communityKeys.channelMessages(args.channelId),
-        (cache) => {
-          if (!cache) return cache
-          let touched = false
-          const pages = cache.pages.map((p) => {
-            if (!p.messages.some((m) => m.id === args.messageId)) return p
-            touched = true
-            return {
-              ...p,
-              messages: p.messages.map((m) =>
-                m.id === args.messageId
-                  ? { ...m, thread: { id: data.id, name: args.name, messageCount: 0 } }
-                  : m,
-              ),
-            }
-          })
-          if (!touched) return cache
-          return { ...cache, pages }
-        },
-      )
+      // Live-patch the canonical message row so the "Open thread" affordance
+      // appears immediately, then invalidate the thread list.
+      const registry = getCommunityDbRegistry(queryClient)
+      const canonical = registry?.collections.messages.get(args.messageId)
+      if (registry && canonical) {
+        registry.collections.messages.utils.writeUpdate({
+          id: args.messageId,
+          thread: { id: data.id, name: args.name, messageCount: 0 },
+        })
+      }
       const scope: MessageScope = { kind: "channel", id: args.channelId, serverId: args.serverId }
       const fallback = [...getMessageOverlay(scope).liveById.values()]
         .find((message) => message.id === args.messageId)
       if (fallback) {
-        const cached = queryClient.getQueryData<PageCache>(communityKeys.channelMessages(args.channelId))
-        const source = currentMaterializedMessage(cached, scope, args.messageId) ?? fallback
+        const source = currentMaterializedMessage(queryClient, scope, args.messageId) ?? fallback
         if (source.seq !== undefined) {
           useMessageStreamStore.getState().dispatch(scope, {
             type: "liveRefreshed",

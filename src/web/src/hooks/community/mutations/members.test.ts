@@ -1,7 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { QueryClient } from "@tanstack/react-query"
-import { communityKeys } from "@/lib/query-keys"
+import { createLiveQueryCollection, eq } from "@tanstack/react-db"
 import type { MemberOverlayEvent } from "@/hooks/community/use-server-members"
+import type { CommunityDbRegistry } from "@/lib/community-db/collections"
 
 vi.mock("react", () => ({
   useRef: (initial: unknown) => ({ current: initial }),
@@ -21,8 +22,13 @@ type MutConfig<Args, Ctx> = {
   onSuccess?: (data: unknown, args: Args, ctx: Ctx) => unknown
   onError?: (err: unknown, args: Args, ctx: Ctx) => unknown
 }
+
 let capturedConfig: MutConfig<unknown, unknown> | null = null
 let capturedQc: QueryClient
+let registry: CommunityDbRegistry
+let unregister: (() => void) | null = null
+let memberView: ReturnType<typeof createLiveQueryCollection> | null = null
+
 vi.mock("@tanstack/react-query", async () => {
   const actual = await vi.importActual<typeof import("@tanstack/react-query")>("@tanstack/react-query")
   return {
@@ -35,73 +41,82 @@ vi.mock("@tanstack/react-query", async () => {
   }
 })
 
-async function runMutation<Args>(args: Args) {
-  const cfg = capturedConfig as MutConfig<Args, unknown>
-  const ctx = cfg.onMutate ? await cfg.onMutate(args) : undefined
-  try {
-    const data = cfg.mutationFn ? await cfg.mutationFn(args) : undefined
-    cfg.onSuccess?.(data, args, ctx)
-    return { data, ctx }
-  } catch (err) {
-    cfg.onError?.(err, args, ctx)
-    throw err
-  }
-}
-
 async function load() {
-  vi.resetModules()
-  const mod = await import("./members")
-  // `dispatchMemberOverlayEvent` / `subscribeMemberOverlayEvents` share the
-  // module-scoped bus in `use-server-members.ts`. `vi.resetModules()` clears
-  // the module cache, so we must import the sibling module *after* resetting
-  // to reach the same bus instance the mutation module now references.
+  const mutations = await import("./members")
   const shared = await import("@/hooks/community/use-server-members")
-  return { ...mod, shared }
+  return { ...mutations, shared }
 }
 
-beforeEach(() => {
+function seedMembership() {
+  registry.collections.serverMemberships.utils.writeInsert({
+    id: "srv_1:u_1",
+    serverId: "srv_1",
+    userId: "u_1",
+    memberId: "mem_1",
+    role: "member",
+    viewer: false,
+  })
+}
+
+beforeEach(async () => {
   apiFetchMock.mockReset()
+  apiFetchMock.mockResolvedValue({
+    members: [],
+    hasMore: false,
+    limit: 50,
+    total: 0,
+  })
   capturedConfig = null
-  capturedQc = new QueryClient()
+  capturedQc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const collections = await import("@/lib/community-db/collections")
+  registry = collections.createCommunityDbRegistry(capturedQc, "viewer")
+  await registry.ensureCollectionReady("serverMemberships")
+  unregister = collections.registerCommunityDbRegistry(registry)
+  memberView = createLiveQueryCollection({
+    query: (q) => q.from({ membership: registry.collections.serverMemberships })
+      .where(({ membership }) => eq(membership.serverId, "srv_1"))
+      .orderBy(({ membership }) => membership.id, "asc"),
+  })
+  await memberView.preload()
+  seedMembership()
 })
 
-describe("useSetMemberRole — optimistic + rollback", () => {
-  it("updates the member's role in cache; restores on failure", async () => {
-    capturedQc.setQueryData(communityKeys.members("srv_1"), {
-      pages: [
-        {
-          members: [
-            { id: "mem_1", userId: "u_1", role: "member", name: "n", discriminator: "0000", avatar: "N", status: "offline", sub: "" },
-          ],
-          hasMore: false,
-          limit: 50,
-          total: 1,
-        },
-      ],
-      pageParams: [null],
-    })
-    apiFetchMock.mockRejectedValueOnce(new Error("boom"))
+afterEach(async () => {
+  await memberView?.cleanup()
+  memberView = null
+  unregister?.()
+  unregister = null
+  await registry.cleanup()
+  capturedQc.clear()
+})
+
+describe("useSetMemberRole", () => {
+  it("writes the canonical row optimistically and restores it on failure", async () => {
     const mod = await load()
-    const received: MemberOverlayEvent[] = []
-    const unsub = mod.shared.subscribeMemberOverlayEvents((ev) => received.push(ev))
     mod.useSetMemberRole()
-    await runMutation({ serverId: "srv_1", memberId: "mem_1", role: "admin" }).catch(() => {})
-    unsub()
-    const cache = capturedQc.getQueryData<{ pages: { members: { role: string }[] }[] }>(
-      communityKeys.members("srv_1"),
-    )
-    expect(cache?.pages[0].members[0].role).toBe("member")
-    expect(received).toContainEqual({ type: "refresh", serverId: "srv_1" })
+    const cfg = capturedConfig as MutConfig<
+      { serverId: string; memberId: string; role: "admin" },
+      unknown
+    >
+    const args = { serverId: "srv_1", memberId: "mem_1", role: "admin" as const }
+
+    const context = await cfg.onMutate!(args)
+    expect(registry.collections.serverMemberships.get("srv_1:u_1")?.role).toBe("admin")
+    cfg.onError!(new Error("failed"), args, context)
+    expect(registry.collections.serverMemberships.get("srv_1:u_1")?.role).toBe("member")
   })
 
-  it("dispatches a member-overlay 'role' event so search results mirror the change", async () => {
+  it("notifies the active search overlay", async () => {
     const mod = await load()
     const received: MemberOverlayEvent[] = []
-    const unsub = mod.shared.subscribeMemberOverlayEvents((ev) => received.push(ev))
-    apiFetchMock.mockResolvedValueOnce(undefined)
+    const unsubscribe = mod.shared.subscribeMemberOverlayEvents((event) => received.push(event))
     mod.useSetMemberRole()
-    await runMutation({ serverId: "srv_1", memberId: "mem_1", role: "admin" })
-    unsub()
+    const cfg = capturedConfig as MutConfig<
+      { serverId: string; memberId: string; role: "admin" },
+      unknown
+    >
+    await cfg.onMutate!({ serverId: "srv_1", memberId: "mem_1", role: "admin" })
+    unsubscribe()
     expect(received).toContainEqual({
       type: "role",
       serverId: "srv_1",
@@ -111,43 +126,40 @@ describe("useSetMemberRole — optimistic + rollback", () => {
   })
 })
 
-describe("useKickMember — optimistic + rollback", () => {
-  it("removes the member; restores on failure", async () => {
-    capturedQc.setQueryData(communityKeys.members("srv_1"), {
-      pages: [
-        {
-          members: [
-            { id: "mem_1", userId: "u_1", role: "member", name: "n", discriminator: "0000", avatar: "N", status: "offline", sub: "" },
-          ],
-          hasMore: false,
-          limit: 50,
-          total: 1,
-        },
-      ],
-      pageParams: [null],
-    })
-    apiFetchMock.mockRejectedValueOnce(new Error("boom"))
+describe("useKickMember", () => {
+  it("deletes the canonical row optimistically and restores it on failure", async () => {
     const mod = await load()
-    const received: MemberOverlayEvent[] = []
-    const unsub = mod.shared.subscribeMemberOverlayEvents((ev) => received.push(ev))
     mod.useKickMember()
-    await runMutation({ serverId: "srv_1", memberId: "mem_1" }).catch(() => {})
-    unsub()
-    const cache = capturedQc.getQueryData<{ pages: { members: { id: string }[] }[] }>(
-      communityKeys.members("srv_1"),
-    )
-    expect(cache?.pages[0].members).toHaveLength(1)
-    expect(received).toContainEqual({ type: "refresh", serverId: "srv_1" })
+    const cfg = capturedConfig as MutConfig<
+      { serverId: string; memberId: string },
+      unknown
+    >
+    const args = { serverId: "srv_1", memberId: "mem_1" }
+
+    const context = await cfg.onMutate!(args)
+    expect(registry.collections.serverMemberships.has("srv_1:u_1")).toBe(false)
+    cfg.onError!(new Error("failed"), args, context)
+    expect(registry.collections.serverMemberships.get("srv_1:u_1")).toMatchObject({
+      memberId: "mem_1",
+      role: "member",
+    })
   })
 
-  it("dispatches a member-overlay 'kick' event so search results drop the row", async () => {
+  it("notifies the active search overlay", async () => {
     const mod = await load()
     const received: MemberOverlayEvent[] = []
-    const unsub = mod.shared.subscribeMemberOverlayEvents((ev) => received.push(ev))
-    apiFetchMock.mockResolvedValueOnce(undefined)
+    const unsubscribe = mod.shared.subscribeMemberOverlayEvents((event) => received.push(event))
     mod.useKickMember()
-    await runMutation({ serverId: "srv_1", memberId: "mem_1" })
-    unsub()
-    expect(received).toContainEqual({ type: "kick", serverId: "srv_1", memberId: "mem_1" })
+    const cfg = capturedConfig as MutConfig<
+      { serverId: string; memberId: string },
+      unknown
+    >
+    await cfg.onMutate!({ serverId: "srv_1", memberId: "mem_1" })
+    unsubscribe()
+    expect(received).toContainEqual({
+      type: "kick",
+      serverId: "srv_1",
+      memberId: "mem_1",
+    })
   })
 })

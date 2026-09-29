@@ -30,12 +30,7 @@ import {
   useCurrentChannelMeta,
 } from "@/stores/community"
 import { useCurrentUser } from "@/contexts/community/current-user"
-import {
-  useServer,
-  useServers,
-  serverProjectedQueryFn,
-  type ServerDetail,
-} from "@/hooks/community/use-servers"
+import { useServer, useServers } from "@/hooks/community/use-servers"
 import { useServerMembers } from "@/hooks/community/use-server-members"
 import {
   claimOwnerServerDeleteNavigation,
@@ -48,8 +43,8 @@ import {
   clearLastChannel,
   getLastChannel,
   pickServerLandingHref,
+  serverLandingChannelIds,
 } from "@/lib/community/last-channel"
-import { communityKeys } from "@/lib/query-keys"
 import { usePresence } from "@/hooks/community/use-server-panels"
 import {
   resolveForumSidebarRouteCandidate,
@@ -80,9 +75,16 @@ import {
   useRevokeInvite,
 } from "@/hooks/community/mutations"
 import {
+  readServerTreeProjection,
   useCanonicalProfilesByUserId,
   useOptionalCommunityDbRegistry,
 } from "@/lib/community-db/projections"
+import {
+  createServerDetailResourceQueryFn,
+  serverDetailResourceChannelIds,
+  serverDetailResourceKey,
+  type ServerDetailResource,
+} from "@/lib/community-db/server-detail-resource"
 
 export default function ServerLayout({ children }: { children: ReactNode }) {
   const params = useParams<{ serverId: string; channelId?: string }>()
@@ -204,17 +206,22 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   const serversList = useServers()
   const serverDestination = useCallback(async (id: string) => {
     const lastChannel = getLastChannel(id)
-    let detail = queryClient.getQueryData<ServerDetail>(communityKeys.server(id))
-    const canonicalChannelIds = communityDb
-      ? Array.from(communityDb.collections.channels.values())
-        .filter((channel) => channel.serverId === id && channel.type !== "thread" && !channel.pending)
-        .map((channel) => channel.id)
+    const scopeId = communityDb?.scopeId ?? currentUser.id
+    const resourceKey = serverDetailResourceKey(scopeId, id)
+    let detail = resourceKey
+      ? queryClient.getQueryData<ServerDetailResource>(resourceKey)
+      : undefined
+    const canonicalTree = communityDb
+      ? readServerTreeProjection(communityDb, id)
+      : undefined
+    const canonicalChannelIds = canonicalTree
+      ? serverLandingChannelIds(canonicalTree.categories)
       : []
     if (!detail && !lastChannel && canonicalChannelIds.length === 0) {
       try {
-        detail = await queryClient.fetchQuery({
-          queryKey: communityKeys.server(id),
-          queryFn: serverProjectedQueryFn(queryClient, id),
+        detail = await queryClient.query<ServerDetailResource>({
+          queryKey: resourceKey,
+          queryFn: createServerDetailResourceQueryFn(queryClient, scopeId),
           staleTime: Infinity,
         })
       } catch {
@@ -222,13 +229,11 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
         // cannot be resolved. Its ordinary loader owns retry/error handling.
       }
     }
-    const channelIds = detail?.categories.flatMap((category) =>
-      category.channels
-        .filter((channel) => !channel.pending)
-        .map((channel) => channel.id),
-    ) ?? canonicalChannelIds
+    const channelIds = detail
+      ? serverDetailResourceChannelIds(detail)
+      : canonicalChannelIds
     return pickServerLandingHref(id, channelIds, lastChannel)
-  }, [communityDb, queryClient])
+  }, [communityDb, currentUser.id, queryClient])
 
   // Mutations
   const createChannelMut = useCreateChannel()

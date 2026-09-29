@@ -6,6 +6,7 @@ import {
   clearLastChannel,
   pickServerLandingChannel,
   pickServerLandingHref,
+  serverLandingChannelIds,
 } from "./last-channel"
 
 describe("last-channel", () => {
@@ -109,6 +110,30 @@ describe("last-channel", () => {
 })
 
 describe("pickServerLandingChannel", () => {
+  it("uses the sidebar's ungrouped-first leaf order and skips pending rows", () => {
+    expect(serverLandingChannelIds([
+      {
+        id: "public",
+        name: "Public",
+        channels: [{ id: "all" }, { id: "pending-grouped", pending: true }],
+      },
+      {
+        id: "__uncategorized__",
+        name: "",
+        channels: [{ id: "requested" }, { id: "pending-ungrouped", pending: true }],
+      },
+    ])).toEqual(["requested", "all"])
+  })
+
+  it("skips every channel inside a pending category", () => {
+    expect(serverLandingChannelIds([{
+      id: "pending",
+      name: "Pending",
+      pending: true,
+      channels: [{ id: "hidden" }],
+    }])).toEqual([])
+  })
+
   it("restores the remembered last channel (returned directly, not validated against the list)", () => {
     expect(pickServerLandingChannel(["ch_1", "ch_2", "ch_3"], "ch_2")).toBe("ch_2")
   })
