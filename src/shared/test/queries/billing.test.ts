@@ -1,4 +1,4 @@
-import { beforeEach, afterEach, describe, expect, it } from "vitest";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { createMachinePlanTables } from "./machine-plan-fixture";
 import Sqlite from "better-sqlite3";
 import { getTableConfig } from "drizzle-orm/sqlite-core";
@@ -236,6 +236,26 @@ describe("purchase analytics persistence", () => {
       .rejects.toThrow("ANALYTICS_CONSENT_SOURCE_VERSION_INVALID");
     await expect(billing.recordAnalyticsConsent(db, "new-user", "granted", 1.5))
       .rejects.toThrow("ANALYTICS_CONSENT_SOURCE_VERSION_INVALID");
+  });
+
+  it("fails closed when a consent write returns no row and no current record", async () => {
+    const returning = vi.fn().mockResolvedValue([]);
+    const writeDb = {
+      insert: vi.fn(() => ({
+        values: vi.fn(() => ({
+          onConflictDoUpdate: vi.fn(() => ({ returning })),
+        })),
+      })),
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({ limit: vi.fn().mockResolvedValue([]) })),
+        })),
+      })),
+    } as unknown as Database;
+
+    await expect(billing.recordAnalyticsConsent(writeDb, "new-user", "granted", 100))
+      .rejects.toThrow("ANALYTICS_CONSENT_WRITE_LOST");
+    expect(returning).toHaveBeenCalledOnce();
   });
 
   it("rejects an older signed grant after a newer denial", async () => {

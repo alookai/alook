@@ -109,9 +109,11 @@ function positivePaidSubscriptionInvoice(invoice: Stripe.Invoice): boolean {
   return invoice.status === "paid" && invoice.amount_paid > 0 && invoiceSubscriptionId(invoice) !== null
 }
 
-async function hasEarlierPositiveInvoice(stripe: Stripe, invoice: Stripe.Invoice): Promise<boolean> {
-  const customerId = stripeId(invoice.customer)
-  if (!customerId) return true
+async function hasEarlierPositiveInvoice(
+  stripe: Stripe,
+  invoice: Stripe.Invoice,
+  customerId: string,
+): Promise<boolean> {
   for await (const candidate of stripe.invoices.list({ customer: customerId, status: "paid", limit: 100 })) {
     if (candidate.id === invoice.id || candidate.created > invoice.created) continue
     if (positivePaidSubscriptionInvoice(candidate)) return true
@@ -138,10 +140,11 @@ function mappedPlan(lines: Stripe.InvoiceLineItem[], subscriptionId: string, cat
 async function purchaseType(
   stripe: Stripe,
   invoice: Stripe.Invoice,
+  customerId: string,
   target: CatalogEntry,
   previous: CatalogEntry[],
 ): Promise<PurchaseType> {
-  if (!await hasEarlierPositiveInvoice(stripe, invoice)) return "initial_subscription"
+  if (!await hasEarlierPositiveInvoice(stripe, invoice, customerId)) return "initial_subscription"
   if (invoice.billing_reason === "subscription_cycle") return "renewal"
   if (invoice.billing_reason === "subscription_update" && previous.length === 1
     && previous[0]!.planId !== target.planId && previous[0]!.sortOrder < target.sortOrder) return "upgrade"
@@ -221,7 +224,7 @@ export async function deliverInvoicePurchase(
 
   let type: PurchaseType
   try {
-    type = await purchaseType(stripe, invoice, target, previous)
+    type = await purchaseType(stripe, invoice, customerId, target, previous)
   } catch {
     await fail("purchase_classification_failed", { currency, valueMinor, planId: target.planId })
     return

@@ -297,6 +297,36 @@ describe("server GA4 purchase delivery", () => {
     expect(result).toEqual({ ok: false, reason: "validation_response_invalid" })
   })
 
+  it("rejects a debug response without a validation message array", async () => {
+    fetcher.mockReset().mockResolvedValueOnce(new Response("{}", { status: 200 }))
+    await expect(validatePurchasePayloadForAcceptance(env, { client_id: "fixture", events: [] }))
+      .resolves.toEqual({ ok: false, reason: "validation_response_invalid" })
+  })
+
+  it("sanitizes a malformed validation message item", async () => {
+    fetcher.mockReset().mockResolvedValueOnce(new Response(JSON.stringify({ validationMessages: [null] }), { status: 200 }))
+    await expect(validatePurchasePayloadForAcceptance(env, { client_id: "fixture", events: [] })).resolves.toEqual({
+      ok: false,
+      reason: "validation_rejected",
+      validationJson: '{"validationMessages":[{}]}',
+    })
+  })
+
+  it("aborts acceptance validation at the bounded timeout", async () => {
+    vi.useFakeTimers()
+    try {
+      fetcher.mockReset().mockImplementationOnce((_url, init: RequestInit) => new Promise((_resolve, reject) => {
+        init.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")))
+      }))
+      const pending = validatePurchasePayloadForAcceptance(env, { client_id: "fixture", events: [] })
+      await vi.advanceTimersByTimeAsync(2_500)
+      await expect(pending).resolves.toEqual({ ok: false, reason: "validation_transport_failed" })
+      expect(fetcher.mock.calls[0][1].signal).toMatchObject({ aborted: true })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("keeps an ambiguous collection failure auditable and suppresses duplicate attempts", async () => {
     fetcher.mockReset().mockRejectedValueOnce(new Error("timeout"))
     await deliverInvoicePurchase(db, stripe, env, currentInvoice, "owner")

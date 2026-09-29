@@ -65,6 +65,15 @@ describe("reconciliation freshness and post-commit effects", () => {
     expect(mocked.applyBillingPlan).not.toHaveBeenCalled()
   })
 
+  it("verifies an already committed null Free projection without writing again", async () => {
+    mocked.getBilling.mockResolvedValue({ ...row, customerId: null, subscriptionId: null, subscription: null })
+    mocked.getEffectivePlan.mockResolvedValue({ isFounder: false, plan: { id: "free", displayName: "Free" } })
+
+    await expect(reconcileBilling(db, stripe, env, "owner")).resolves.toBe("verified_already_applied")
+    expect(stripe.customers.retrieve).not.toHaveBeenCalled()
+    expect(mocked.applyBillingPlan).not.toHaveBeenCalled()
+  })
+
   it("returns ignored when the billing owner is no longer eligible", async () => {
     mocked.getUserInternal.mockResolvedValue({ isBot: false, deletedAt: "2026-09-29" })
     await expect(reconcileBilling(db, stripe, env, "owner")).resolves.toBe("ignored")
