@@ -40,7 +40,7 @@ function dm(id: string): DM {
 }
 
 function dmsResource(conversations: DM[]): DmsResource {
-  return { conversations, channels: [], channelMemberships: [], profiles: [] }
+  return { conversations, categories: [], channels: [], channelMemberships: [], profiles: [] }
 }
 
 function dmsContext(queryClient: QueryClient, accountId: string, signal = new AbortController().signal) {

@@ -11,11 +11,13 @@ import {
   type AccountUnreadScope,
 } from "@/hooks/community/account-unread-projection"
 import type { CategoryRow, ChannelRow } from "./schema"
+import {
+  emptyChannelResourceEnvelope,
+  type ChannelResourceEnvelope,
+} from "./channel-resource-envelope"
 
-export type ServerDetailResource = {
+export type ServerDetailResource = ChannelResourceEnvelope & {
   serverId: string
-  categories: CategoryRow[]
-  channels: ChannelRow[]
 }
 
 type RawChannel = Channel & { categoryId: string | null }
@@ -112,7 +114,12 @@ function normalizeServerDetailResource(
       lastMessageAt: null,
     }
   })
-  return { serverId, categories, channels }
+  return {
+    ...emptyChannelResourceEnvelope(),
+    serverId,
+    categories,
+    channels,
+  }
 }
 
 export function createServerDetailResourceQueryFn(
@@ -128,7 +135,10 @@ export function createServerDetailResourceQueryFn(
       || queryKey[base.length] !== "server"
       || typeof serverId !== "string"
     ) {
-      return { serverId: "", categories: [], channels: [] }
+      return {
+        ...emptyChannelResourceEnvelope(),
+        serverId: "",
+      }
     }
     const projection = getActiveAccountUnreadProjection(queryClient)
     const family = `server-detail:${serverId}` as const

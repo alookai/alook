@@ -2,6 +2,10 @@ import type { QueryClient, QueryFunctionContext } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import type { ChannelRow } from "./schema"
+import {
+  emptyChannelResourceEnvelope,
+  type ChannelResourceEnvelope,
+} from "./channel-resource-envelope"
 
 export type ChannelMetadata = {
   id: string
@@ -16,13 +20,12 @@ export type ChannelMetadata = {
   createdAt: string
 }
 
-export type ChannelMetadataResource = {
+export type ChannelMetadataResource = ChannelResourceEnvelope & {
   metadata: ChannelMetadata & {
     archived: boolean
     activityAt: string
     verifiedEpoch: number
   }
-  channels: ChannelRow[]
 }
 
 export function channelMetadataResourceKey(
@@ -115,6 +118,7 @@ export function createChannelMetadataResourceQueryFn(
     const existing = currentChannelRow(queryClient, channelId)
     const archived = metadata.archived === true || metadata.archived === 1
     return {
+      ...emptyChannelResourceEnvelope(),
       metadata: {
         ...metadata,
         archived,

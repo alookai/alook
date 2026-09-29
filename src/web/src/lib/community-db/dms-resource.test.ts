@@ -87,6 +87,12 @@ describe("combined channel resource routing", () => {
       dmsResourceKey("viewer"),
     ))).resolves.toMatchObject({ conversations: [{ id: "dm-1" }] })
     await expect(query(context(queryClient, ["community", "unknown"])))
-      .resolves.toEqual({ conversations: [], channels: [], channelMemberships: [], profiles: [] })
+      .resolves.toEqual({
+        conversations: [],
+        categories: [],
+        channels: [],
+        channelMemberships: [],
+        profiles: [],
+      })
   })
 })

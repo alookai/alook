@@ -126,7 +126,14 @@ describe("server detail raw resource", () => {
       detailContext(queryClient, serverDetailResourceBaseKey("viewer")),
     )
 
-    expect(resource).toEqual({ serverId: "", categories: [], channels: [] })
+    expect(resource).toEqual({
+      serverId: "",
+      conversations: [],
+      categories: [],
+      channels: [],
+      channelMemberships: [],
+      profiles: [],
+    })
     expect(apiFetch).not.toHaveBeenCalled()
   })
 

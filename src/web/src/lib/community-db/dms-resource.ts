@@ -14,6 +14,10 @@ import {
   type ProfileRow,
 } from "./schema"
 import {
+  emptyChannelResourceEnvelope,
+  type ChannelResourceEnvelope,
+} from "./channel-resource-envelope"
+import {
   channelMetadataResourceKey,
   createChannelMetadataResourceQueryFn,
   type ChannelMetadataResource,
@@ -24,12 +28,7 @@ import {
   type ServerDetailResource,
 } from "./server-detail-resource"
 
-export type DmsResource = {
-  conversations: DM[]
-  channels: ChannelRow[]
-  channelMemberships: ChannelMembershipRow[]
-  profiles: ProfileRow[]
-}
+export type DmsResource = ChannelResourceEnvelope
 
 type ChannelResource = DmsResource | ServerDetailResource | ChannelMetadataResource
 
@@ -116,6 +115,7 @@ function normalizeDmsResource(
     })
   }
   return {
+    ...emptyChannelResourceEnvelope(),
     conversations: response.conversations,
     channels,
     channelMemberships,
@@ -294,7 +294,7 @@ export function createChannelResourceQueryFn(queryClient: QueryClient, accountId
     ) {
       return dmsQueryFn(context)
     }
-    return Promise.resolve({ conversations: [], channels: [], channelMemberships: [], profiles: [] })
+    return Promise.resolve(emptyChannelResourceEnvelope())
   }
 }
 

@@ -10,6 +10,7 @@ import {
   createChannelMetadataResourceQueryFn,
   type ChannelMetadataResource,
 } from "@/lib/community-db/channel-metadata-resource"
+import { emptyChannelResourceEnvelope } from "@/lib/community-db/channel-resource-envelope"
 import {
   useOptionalCommunityDbRegistry,
   useRouteChannelProjection,
@@ -37,12 +38,12 @@ function projectChildMeta(
 
 function childMetaPlaceholderResource(meta: ChildChannelMeta): ChannelMetadataResource {
   return {
+    ...emptyChannelResourceEnvelope(),
     metadata: {
       ...meta,
       lastMessageAt: meta.activityAt || null,
       createdAt: meta.activityAt,
     },
-    channels: [],
   }
 }
 
