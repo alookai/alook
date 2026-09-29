@@ -65,6 +65,35 @@ const autoTagReleaseWorkflow = normalizeWorkflow(
   readFileSync(resolve(workflowRoot, "auto-tag-release.yml"), "utf8"),
 )
 const desktopReleaseWorkflow = normalizeWorkflow(readFileSync(resolve(workflowRoot, "desktop-release.yml"), "utf8"))
+const desktopReleaseArtifacts = readFileSync(
+  resolve(repositoryRoot, "scripts/ci/desktop-release-artifacts.mjs"),
+  "utf8",
+)
+const desktopMacVerifier = readFileSync(
+  resolve(repositoryRoot, "scripts/ci/verify-desktop-macos.sh"),
+  "utf8",
+)
+const desktopWindowsVerifier = readFileSync(
+  resolve(repositoryRoot, "scripts/ci/verify-desktop-windows.ps1"),
+  "utf8",
+)
+const desktopWindowsSigner = readFileSync(
+  resolve(repositoryRoot, "scripts/ci/sign-desktop-windows.ps1"),
+  "utf8",
+)
+const desktopWindowsSigningSetup = readFileSync(
+  resolve(repositoryRoot, "scripts/ci/prepare-desktop-windows-signing.ps1"),
+  "utf8",
+)
+const desktopWindowsSigningConfig = JSON.parse(
+  readFileSync(
+    resolve(repositoryRoot, "src/desktop/src-tauri/tauri.windows.signing.conf.json"),
+    "utf8",
+  ),
+) as { bundle: { windows: { signCommand: { cmd: string; args: string[] } } } }
+const desktopSigningDependencies = JSON.parse(
+  readFileSync(resolve(repositoryRoot, "scripts/ci/desktop-signing-dependencies.json"), "utf8"),
+) as { schemaVersion: number; packages: Array<{ name: string; version: string; source: string; sha256: string }> }
 const mobileReleaseWorkflowPath = resolve(workflowRoot, "mobile-release.yml")
 const mobileReleaseWorkflow = normalizeWorkflow(readFileSync(mobileReleaseWorkflowPath, "utf8"))
 const desktopConfig = JSON.parse(
@@ -1079,28 +1108,72 @@ describe("Desktop window contract", () => {
 })
 
 describe("Desktop updater release", () => {
-  it("uploads assets without replacing the auto-tag title or changelog", () => {
+  it("keeps every build private until one publisher revalidates all four stages", () => {
     expect(autoTagReleaseWorkflow).toContain('--title "$TAG"')
+    expect(desktopReleaseWorkflow.match(/contents: write/g)).toHaveLength(1)
+    expect(desktopReleaseWorkflow.match(/id-token: write/g)).toHaveLength(1)
+    expect(desktopReleaseWorkflow).toContain("group: desktop-release-${{ github.ref }}")
+    expect(desktopReleaseWorkflow).toContain("cancel-in-progress: false")
+    expect(desktopReleaseWorkflow).toContain("needs: [build-unix, build-windows]")
+    expect(desktopReleaseWorkflow).toContain(
+      "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7",
+    )
+    expect(desktopReleaseWorkflow).toContain(
+      "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8",
+    )
+    expect(desktopReleaseWorkflow).toContain("pattern: desktop-release-*")
+    expect(desktopReleaseWorkflow).toContain("merge-multiple: false")
+    expect(desktopReleaseWorkflow).toContain("desktop-release-artifacts.mjs aggregate")
+    expect(desktopReleaseWorkflow).toContain("desktop-release-artifacts.mjs verify-published")
+    expect(desktopReleaseWorkflow).toContain("desktop-release-artifacts.mjs assert-publishable")
     expect(desktopReleaseWorkflow).toContain("for attempt in {1..30}")
-    expect(desktopReleaseWorkflow).toContain('releases/tags/${TAG}')
-    expect(desktopReleaseWorkflow).toContain('releaseId: ${{ steps.release.outputs.id }}')
+    expect(desktopReleaseWorkflow).toContain('releases/tags/$TAG')
+    expect(desktopReleaseWorkflow).toContain('git fetch --force --no-tags origin "refs/tags/$TAG:refs/tags/$TAG"')
+    expect(desktopReleaseWorkflow).toContain('git rev-parse "$TAG^{commit}"')
+    expect(desktopReleaseWorkflow).toContain('[[ "$tag_commit" == "$GITHUB_SHA" ]]')
+    expect(desktopReleaseWorkflow).not.toContain("--clobber")
+    expect(desktopReleaseArtifacts).toContain("Desktop release namespace is immutable and must start empty")
+    expect(desktopReleaseArtifacts).toContain("unexpected desktop asset candidates")
+    expect(desktopReleaseWorkflow).not.toContain("releaseId:")
+    expect(desktopReleaseWorkflow).not.toContain("uploadUpdaterJson")
     expect(desktopReleaseWorkflow).not.toContain("tagName:")
     expect(desktopReleaseWorkflow).not.toContain("releaseName:")
     expect(desktopReleaseWorkflow).not.toContain("releaseBody:")
     expect(desktopReleaseWorkflow).not.toContain("releaseDraft:")
     expect(desktopReleaseWorkflow).not.toContain("prerelease:")
-    expect(desktopReleaseWorkflow).toContain('EXISTING=$(gh release view "$TAG" --json body')
-    expect(desktopReleaseWorkflow).toContain('gh release edit "$TAG" --notes "${EXISTING}${DOWNLOADS}"')
+    const aggregate = desktopReleaseWorkflow.indexOf("desktop-release-artifacts.mjs aggregate")
+    const releaseLookup = desktopReleaseWorkflow.indexOf("Resolve existing release after every verification gate")
+    const binaryUpload = desktopReleaseWorkflow.indexOf("Upload verified binary and signature assets")
+    const metadataUpload = desktopReleaseWorkflow.indexOf("Upload latest.json last")
+    expect(aggregate).toBeLessThan(releaseLookup)
+    expect(releaseLookup).toBeLessThan(binaryUpload)
+    expect(binaryUpload).toBeLessThan(metadataUpload)
   })
 
-  it("builds signed updater artifacts and publishes updater metadata", () => {
+  it("builds exact self-contained updater assets and one deterministic eleven-key latest.json", () => {
     expect(desktopConfig.bundle?.createUpdaterArtifacts).toBe(true)
     expect(desktopConfig.plugins?.updater?.endpoints).toEqual([
       "https://alook.ai/api/desktop/update/{{target}}/{{arch}}/{{current_version}}?bundle_type={{bundle_type}}",
     ])
-    expect(desktopReleaseWorkflow).toContain("uploadUpdaterJson: true")
-    expect(desktopReleaseWorkflow).not.toContain("includeUpdaterJson")
     expect(desktopReleaseWorkflow).toContain("TAURI_SIGNING_PRIVATE_KEY:")
+    expect(desktopReleaseWorkflow).not.toContain("v1Compatible")
+    expect(desktopReleaseArtifacts).not.toContain(".nsis.zip")
+    expect(desktopReleaseArtifacts).not.toContain(".msi.zip")
+    for (const platform of [
+      "darwin-aarch64",
+      "darwin-aarch64-app",
+      "darwin-x86_64",
+      "darwin-x86_64-app",
+      "linux-x86_64",
+      "linux-x86_64-appimage",
+      "linux-x86_64-deb",
+      "linux-x86_64-rpm",
+      "windows-x86_64",
+      "windows-x86_64-msi",
+      "windows-x86_64-nsis",
+    ]) {
+      expect(desktopReleaseArtifacts).toContain(`"${platform}"`)
+    }
     expect(desktopUpdateRoute).toContain('"darwin-aarch64-app"')
     expect(desktopUpdateRoute).toContain('"linux-x86_64-appimage"')
     expect(desktopUpdateRoute).toContain('"linux-x86_64-deb"')
@@ -1128,18 +1201,133 @@ describe("Desktop updater release", () => {
     expect(desktopReleaseWorkflow).toContain("APPLE_SIGNING_IDENTITY:")
     expect(desktopReleaseWorkflow).toContain("APPLE_API_ISSUER:")
     expect(desktopReleaseWorkflow).toContain("APPLE_API_KEY_PATH:")
-    expect(desktopReleaseWorkflow).toContain("codesign --verify --deep --strict")
-    expect(desktopReleaseWorkflow).toContain("flags=.*runtime")
-    expect(desktopReleaseWorkflow).toContain("xcrun stapler validate")
-    expect(desktopReleaseWorkflow).toContain("spctl --assess --type execute")
-    expect(desktopReleaseWorkflow).toContain("CFBundleShortVersionString")
+    expect(desktopReleaseWorkflow).toContain("Clean temporary macOS signing material")
+    expect(desktopReleaseWorkflow).toContain("if: always() && runner.os == 'macOS'")
+    const persistedMacCleanupPath = desktopReleaseWorkflow.indexOf('echo "ALOOK_MACOS_P12_PATH=$p12_path"')
+    const firstMacSecretWrite = desktopReleaseWorkflow.indexOf("base64 -D > \"$p12_path\"")
+    expect(persistedMacCleanupPath).toBeGreaterThan(-1)
+    expect(persistedMacCleanupPath).toBeLessThan(firstMacSecretWrite)
+    expect(desktopReleaseWorkflow).not.toContain("ALOOK_MACOS_KEYCHAIN_PASSWORD=")
+    expect(desktopMacVerifier).toContain("codesign --verify --deep --strict")
+    expect(desktopMacVerifier).toContain("flags=.*runtime")
+    expect(desktopMacVerifier).toContain("xcrun stapler validate")
+    expect(desktopMacVerifier).toContain("spctl --assess --type execute")
+    expect(desktopMacVerifier).toContain("CFBundleShortVersionString")
+    expect(desktopMacVerifier).toContain("com.apple.security.get-task-allow")
+    expect(desktopMacVerifier).toContain("verify-minisign.mjs")
     expect(desktopReleaseWorkflow).toContain("EXPECTED_VERSION:")
     expect(desktopReleaseWorkflow).toContain("Developer ID signed")
     expect(desktopReleaseWorkflow).not.toContain("ad-hoc signed and are not notarized")
     expect(desktopReleaseWorkflow).not.toContain("Privacy & Security")
-    expect(desktopReleaseWorkflow).toContain("not Authenticode code-signed")
-    expect(desktopReleaseWorkflow).toContain("More info")
-    expect(desktopReleaseWorkflow).toContain("Run anyway")
+    expect(desktopReleaseWorkflow).not.toContain("not Authenticode code-signed")
+    expect(desktopReleaseWorkflow).not.toContain("Run anyway")
+  })
+
+  it("uses OIDC-only Microsoft Artifact Signing inside Tauri's exact sign hook", () => {
+    expect(desktopReleaseWorkflow).toContain(
+      "azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0",
+    )
+    expect(desktopReleaseWorkflow).toContain("tauri.windows.signing.conf.json")
+    expect(desktopReleaseWorkflow).not.toContain("AZURE_CLIENT_SECRET")
+    expect(desktopReleaseWorkflow).not.toContain(".pfx")
+    expect(desktopWindowsSigningConfig.bundle.windows.signCommand).toEqual({
+      cmd: "pwsh",
+      args: [
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-File",
+        "../../../scripts/ci/sign-desktop-windows.ps1",
+        "%1",
+      ],
+    })
+    expect(desktopSigningDependencies.schemaVersion).toBe(1)
+    expect(desktopSigningDependencies.packages).toEqual([
+      {
+        name: "ArtifactSigning",
+        version: "0.1.8",
+        source: "https://www.powershellgallery.com/api/v2/package/ArtifactSigning/0.1.8",
+        sha256: "3221344b8c627915d3870f23e80816f31a5d8c2bae1d7c0cdd6c9652f6c4e089",
+        kind: "module",
+      },
+      {
+        name: "Microsoft.Windows.SDK.BuildTools",
+        version: "10.0.26100.4188",
+        source:
+          "https://api.nuget.org/v3-flatcontainer/microsoft.windows.sdk.buildtools/10.0.26100.4188/microsoft.windows.sdk.buildtools.10.0.26100.4188.nupkg",
+        sha256: "180deb372659029864c10a0c04787833234d64aacd1d2c0661d2c00295d8e022",
+        kind: "dependency",
+      },
+      {
+        name: "Microsoft.ArtifactSigning.Client",
+        version: "1.0.128",
+        source:
+          "https://api.nuget.org/v3-flatcontainer/microsoft.artifactsigning.client/1.0.128/microsoft.artifactsigning.client.1.0.128.nupkg",
+        sha256: "74bd7d27e6ce1051409c38d9b46bc8df0400ecd643d51ffbf2ac00869061e40b",
+        kind: "dependency",
+      },
+      {
+        name: "sign",
+        version: "0.9.1-beta.26227.3",
+        source:
+          "https://api.nuget.org/v3-flatcontainer/sign/0.9.1-beta.26227.3/sign.0.9.1-beta.26227.3.nupkg",
+        sha256: "34fd0d4aeabdbc363a48883881865b4dd65e6c11ba916028082fa23f3e1b1ba1",
+        kind: "dependency",
+      },
+    ])
+    for (const dependency of desktopSigningDependencies.packages) {
+      expect(dependency.source).toMatch(/^https:\/\/(?:www\.powershellgallery\.com|api\.nuget\.org)\//)
+      expect(dependency.sha256).toMatch(/^[0-9a-f]{64}$/)
+    }
+    expect(desktopWindowsSigningSetup).toContain("Get-FileHash -LiteralPath $archive -Algorithm SHA256")
+    expect(desktopWindowsSigningSetup).toContain("destination must be fresh")
+    expect(desktopWindowsSigningSetup).toContain("--connect-timeout 15 --max-time 600")
+    expect(desktopWindowsSigningSetup).toContain("--retry 3 --retry-delay 2 --retry-all-errors")
+    expect(desktopWindowsSigningSetup).not.toContain("Invoke-WebRequest")
+    expect(desktopWindowsSigningSetup).toContain("[IO.Compression.ZipFile]::ExtractToDirectory")
+    for (const requiredPackageFile of [
+      "ArtifactSigning.psd1",
+      "signtool.exe",
+      "Azure.CodeSigning.Dlib.dll",
+      "sign.dll",
+    ]) {
+      expect(desktopWindowsSigningSetup).toContain(requiredPackageFile)
+    }
+    const windowsCleanupRoot = desktopReleaseWorkflow.indexOf('"ALOOK_ARTIFACT_SIGNING_ROOT=$destination"')
+    const windowsPreparation = desktopReleaseWorkflow.indexOf("./scripts/ci/prepare-desktop-windows-signing.ps1")
+    expect(windowsCleanupRoot).toBeGreaterThan(-1)
+    expect(windowsCleanupRoot).toBeLessThan(windowsPreparation)
+    expect(desktopWindowsSigner).toContain("GetRelativePath")
+    expect(desktopWindowsSigner).toContain("^[a-z0-9-]+\\.codesigning\\.azure\\.net$")
+    expect(desktopWindowsSigner).toContain("IsDefaultPort")
+    expect(desktopWindowsSigner).toContain("AbsolutePath -ne '/'")
+    expect(desktopReleaseWorkflow).toContain("^[a-z0-9-]+\\.codesigning\\.azure\\.net$")
+    expect(desktopWindowsSigner).toContain("Wix(?:UI|Util)Extension")
+    expect(desktopWindowsSigner).toContain("(?:NSISdl|StartMenu|System|nsDialogs)")
+    expect(desktopWindowsSigner).toContain("additional\\\\nsis_tauri_utils\\.dll")
+    expect(desktopWindowsSigner).not.toContain("[A-Za-z0-9_.-]+\\.dll")
+    expect(desktopWindowsSigner).toContain('FileDigest = "SHA256"')
+    expect(desktopWindowsSigner).toContain('TimestampRfc3161 = "http://timestamp.acs.microsoft.com"')
+    expect(desktopWindowsSigner).toContain('TimestampDigest = "SHA256"')
+    expect(desktopWindowsSigner).toContain("ExcludeAzureCliCredential = $false")
+    for (const credential of [
+      "Environment",
+      "WorkloadIdentity",
+      "ManagedIdentity",
+      "SharedTokenCache",
+      "VisualStudio",
+      "VisualStudioCode",
+      "AzurePowerShell",
+      "AzureDeveloperCli",
+      "InteractiveBrowser",
+    ]) {
+      expect(desktopWindowsSigner).toContain(`Exclude${credential}Credential = $true`)
+    }
+    expect(desktopWindowsVerifier).toContain("signtool.exe verify /pa /all /v")
+    expect(desktopWindowsVerifier).toContain("Hash of file \\(sha256\\)")
+    expect(desktopWindowsVerifier).toContain("TimeStamperCertificate")
+    expect(desktopWindowsVerifier).toContain('Filter "alook-desktop.exe"')
+    expect(desktopWindowsVerifier).toContain("verify-minisign.mjs")
   })
 })
 
