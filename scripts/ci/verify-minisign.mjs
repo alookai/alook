@@ -4,7 +4,7 @@ import { pathToFileURL } from "node:url"
 
 const ED25519_SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex")
 
-function parseArgs(argv) {
+export function parseArgs(argv) {
   const args = {}
   for (let index = 0; index < argv.length; index += 2) {
     const key = argv[index]
@@ -124,8 +124,8 @@ export function readUpdaterPublicKey(configPath) {
   return key
 }
 
-async function main() {
-  const args = parseArgs(process.argv.slice(2))
+export async function main(argv = process.argv.slice(2), stdout = process.stdout) {
+  const args = parseArgs(argv)
   if (!args.file || !args.signature || !args.config || !args.version || !args["trusted-file"]) {
     throw new Error(
       "Usage: verify-minisign.mjs --file <path> --signature <path> --config <tauri.conf.json> --version <version> --trusted-file <name>",
@@ -138,12 +138,23 @@ async function main() {
     expectedVersion: args.version,
     expectedTrustedFile: args["trusted-file"],
   })
-  process.stdout.write(`Verified Minisign signature for ${args.file}\n`)
+  stdout.write(`Verified Minisign signature for ${args.file}\n`)
 }
 
-if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
-  main().catch((error) => {
-    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
-    process.exitCode = 1
-  })
+export async function runIfMain(
+  metaUrl,
+  argvPath = process.argv[1],
+  argv = process.argv.slice(2),
+  runtime = process,
+) {
+  if (!argvPath || pathToFileURL(argvPath).href !== metaUrl) return false
+  try {
+    await main(argv, runtime.stdout)
+  } catch (error) {
+    runtime.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
+    runtime.exitCode = 1
+  }
+  return true
 }
+
+void runIfMain(import.meta.url)

@@ -101,6 +101,15 @@ function stableJson(value) {
   return `${JSON.stringify(value, null, 2)}\n`
 }
 
+export function resolveSourcePath(sourceRoot, candidate) {
+  const sourcePath = resolve(sourceRoot, candidate)
+  const sourceRelativePath = relative(sourceRoot, sourcePath)
+  if (sourceRelativePath.startsWith(`..${sep}`) || sourceRelativePath === "..") {
+    throw new Error(`Source path escapes the bundle root: ${candidate}`)
+  }
+  return sourcePath
+}
+
 export async function collectTarget({ target, version, sourceRoot, stageDirectory }) {
   const source = resolve(sourceRoot)
   const stage = resolve(stageDirectory)
@@ -111,10 +120,7 @@ export async function collectTarget({ target, version, sourceRoot, stageDirector
   const files = []
   for (const expected of targetSpec(target, version).toSorted((left, right) => left.name.localeCompare(right.name))) {
     if (basename(expected.name) !== expected.name) throw new Error(`Unsafe release asset name: ${expected.name}`)
-    const sourcePath = resolve(source, expected.source)
-    if (relative(source, sourcePath).startsWith(`..${sep}`) || relative(source, sourcePath) === "..") {
-      throw new Error(`Source path escapes the bundle root: ${expected.source}`)
-    }
+    const sourcePath = resolveSourcePath(source, expected.source)
     assertRegularFile(sourcePath, expected.source)
     const destination = join(filesDirectory, expected.name)
     copyFileSync(sourcePath, destination, constants.COPYFILE_EXCL)
@@ -250,9 +256,7 @@ export async function aggregateStages({ stageRoot, outputDirectory, version, rep
   }
 
   const actualKeys = [...platformKeys.keys()].toSorted()
-  if (JSON.stringify(actualKeys) !== JSON.stringify(REQUIRED_PLATFORM_KEYS)) {
-    throw new Error(`Updater platform set is incomplete: ${actualKeys.join(", ")}`)
-  }
+  assertCompletePlatformKeys(actualKeys)
 
   const output = resolve(outputDirectory)
   mkdirSync(output)
@@ -339,7 +343,13 @@ export function verifyPublishedAssets({ releaseManifestPath, releaseJsonPath, in
   }
 }
 
-function parseArgs(argv) {
+export function assertCompletePlatformKeys(actualKeys) {
+  if (JSON.stringify(actualKeys) !== JSON.stringify(REQUIRED_PLATFORM_KEYS)) {
+    throw new Error(`Updater platform set is incomplete: ${actualKeys.join(", ")}`)
+  }
+}
+
+export function parseArgs(argv) {
   const [command, ...rest] = argv
   const args = { command }
   for (let index = 0; index < rest.length; index += 2) {
@@ -351,8 +361,8 @@ function parseArgs(argv) {
   return args
 }
 
-async function main() {
-  const args = parseArgs(process.argv.slice(2))
+export async function main(argv = process.argv.slice(2)) {
+  const args = parseArgs(argv)
   if (args.command === "collect") {
     await collectTarget({ target: args.target, version: args.version, sourceRoot: args.source, stageDirectory: args.stage })
   } else if (args.command === "validate") {
@@ -380,9 +390,20 @@ async function main() {
   }
 }
 
-if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
-  main().catch((error) => {
-    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
-    process.exitCode = 1
-  })
+export async function runIfMain(
+  metaUrl,
+  argvPath = process.argv[1],
+  argv = process.argv.slice(2),
+  runtime = process,
+) {
+  if (!argvPath || pathToFileURL(argvPath).href !== metaUrl) return false
+  try {
+    await main(argv)
+  } catch (error) {
+    runtime.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
+    runtime.exitCode = 1
+  }
+  return true
 }
+
+void runIfMain(import.meta.url)

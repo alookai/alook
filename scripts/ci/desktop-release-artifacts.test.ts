@@ -2,14 +2,20 @@ import { createHash, generateKeyPairSync, randomBytes, sign } from "node:crypto"
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+import { pathToFileURL } from "node:url"
 import { afterEach, describe, expect, it } from "vitest"
 
 import {
   REQUIRED_PLATFORM_KEYS,
   REQUIRED_TARGETS,
   aggregateStages,
+  assertCompletePlatformKeys,
   assertPublishableRelease,
   collectTarget,
+  main as runDesktopReleaseCli,
+  parseArgs as parseDesktopReleaseArgs,
+  resolveSourcePath,
+  runIfMain as runDesktopReleaseIfMain,
   targetSpec,
   validateStage,
   verifyPublishedAssets,
@@ -74,6 +80,18 @@ afterEach(() => {
 })
 
 describe("desktop release artifact staging", () => {
+  it("rejects unsupported target metadata and source path escapes", () => {
+    expect(() => targetSpec("linux-x86_64", "v1.2.3")).toThrow("numeric semver")
+    expect(() => targetSpec("freebsd-x86_64", version)).toThrow("Unsupported desktop release target")
+
+    const root = join(tmpdir(), "alook-release-source")
+    expect(resolveSourcePath(root, "bundle/app")).toBe(join(root, "bundle/app"))
+    expect(() => resolveSourcePath(root, "../escape")).toThrow("escapes the bundle root")
+
+    expect(() => assertCompletePlatformKeys(REQUIRED_PLATFORM_KEYS)).not.toThrow()
+    expect(() => assertCompletePlatformKeys(REQUIRED_PLATFORM_KEYS.slice(1))).toThrow("platform set is incomplete")
+  })
+
   it("collects exact allowlisted bytes and records stable digests", async () => {
     const fixture = await createAllStages()
     for (const target of REQUIRED_TARGETS) {
@@ -118,18 +136,23 @@ describe("desktop release artifact staging", () => {
   })
 
   it.each([
-    ["version drift", (manifest: any) => (manifest.version = "9.9.9")],
-    ["traversal", (manifest: any) => (manifest.files[0].path = "../escape")],
-    ["duplicate asset", (manifest: any) => (manifest.files[1].name = manifest.files[0].name)],
-    ["platform key drift", (manifest: any) => (manifest.files.find((file: any) => file.updaterPlatformKeys.length).updaterPlatformKeys = ["bad-key"])],
-  ])("rejects %s in a stage manifest", async (_label, mutate) => {
+    ["version drift", (manifest: any) => (manifest.version = "9.9.9"), "identity or version drift"],
+    ["traversal", (manifest: any) => (manifest.files[0].path = "../escape"), "unsafe or unexpected asset path"],
+    ["duplicate asset", (manifest: any) => (manifest.files[1].name = manifest.files[0].name), "unsafe or unexpected asset path"],
+    ["platform key drift", (manifest: any) => (manifest.files.find((file: any) => file.updaterPlatformKeys.length).updaterPlatformKeys = ["bad-key"]), "updater keys"],
+    ["incomplete file set", (manifest: any) => manifest.files.pop(), "incomplete or extra file set"],
+    ["role drift", (manifest: any) => (manifest.files[0].roles = ["wrong"]), "roles"],
+    ["signature association drift", (manifest: any) => (manifest.files.find((file: any) => file.signedFile).signedFile = "wrong"), "signature association drift"],
+    ["trusted filename drift", (manifest: any) => (manifest.files.find((file: any) => file.trustedFile).trustedFile = "wrong"), "trusted filename drift"],
+    ["invalid digest metadata", (manifest: any) => (manifest.files[0].size = -1), "invalid digest metadata"],
+  ])("rejects %s in a stage manifest", async (_label, mutate, message) => {
     const fixture = await createAllStages()
     const stage = join(fixture.stages, "desktop-release-windows-x86_64")
     const manifestPath = join(stage, "manifest.json")
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8"))
     mutate(manifest)
     writeFileSync(manifestPath, JSON.stringify(manifest))
-    await expect(validateStage(stage, "windows-x86_64", version)).rejects.toThrow()
+    await expect(validateStage(stage, "windows-x86_64", version)).rejects.toThrow(message)
   })
 
   it("rejects digest drift, extra files, symlinks, and missing targets", async () => {
@@ -143,6 +166,11 @@ describe("desktop release artifact staging", () => {
     const freshStage = join(fresh.stages, "desktop-release-macos-aarch64")
     writeFileSync(join(freshStage, "files", "extra"), "extra")
     await expect(validateStage(freshStage, "macos-aarch64", version)).rejects.toThrow("unexpected entry")
+
+    const invalidShape = await createAllStages()
+    const invalidShapeStage = join(invalidShape.stages, "desktop-release-macos-aarch64")
+    writeFileSync(join(invalidShapeStage, "unexpected"), "unexpected")
+    await expect(validateStage(invalidShapeStage, "macos-aarch64", version)).rejects.toThrow("only files/")
 
     const symlinkFixture = await createAllStages()
     const symlinkStage = join(symlinkFixture.stages, "desktop-release-macos-x86_64")
@@ -204,6 +232,41 @@ describe("desktop release artifact staging", () => {
 
     writeRelease("v1.2.3", [`Alook_${version}_x64-setup.exe`, `Alook_${version}_x64-setup.exe.sig`])
     expect(() => assertPublishableRelease({ releaseJsonPath, expectedTag: "v1.2.3" })).toThrow("must start empty")
+  })
+
+  it("rejects malformed release API and release-manifest state", () => {
+    const directory = mkdtempSync(join(tmpdir(), "alook-release-invalid-state-"))
+    temporaryDirectories.push(directory)
+    const releaseJsonPath = join(directory, "release.json")
+    const manifestPath = join(directory, "release-manifest.json")
+
+    writeFileSync(releaseJsonPath, JSON.stringify({ tag_name: "v1.2.3", draft: false, prerelease: false, assets: [] }))
+    expect(() => assertPublishableRelease({ releaseJsonPath, expectedTag: "1.2.3" })).toThrow("numeric semver")
+
+    writeFileSync(releaseJsonPath, JSON.stringify({ tag_name: "v1.2.3", draft: true, prerelease: false, assets: [] }))
+    expect(() => assertPublishableRelease({ releaseJsonPath, expectedTag: "v1.2.3" })).toThrow("published non-prerelease")
+
+    writeFileSync(releaseJsonPath, JSON.stringify({ tag_name: "v1.2.3", draft: false, prerelease: false }))
+    expect(() => assertPublishableRelease({ releaseJsonPath, expectedTag: "v1.2.3" })).toThrow("no assets array")
+
+    writeFileSync(releaseJsonPath, JSON.stringify({ tag_name: "v1.2.3", draft: false, prerelease: false, assets: [{}] }))
+    expect(() => assertPublishableRelease({ releaseJsonPath, expectedTag: "v1.2.3" })).toThrow("invalid asset metadata")
+
+    writeFileSync(releaseJsonPath, JSON.stringify({
+      tag_name: "v1.2.3",
+      draft: false,
+      prerelease: false,
+      assets: [{ name: "duplicate" }, { name: "duplicate" }],
+    }))
+    expect(() => assertPublishableRelease({ releaseJsonPath, expectedTag: "v1.2.3" })).toThrow("duplicate asset name")
+
+    writeFileSync(manifestPath, JSON.stringify({ schemaVersion: 2, version, assets: [] }))
+    writeFileSync(releaseJsonPath, JSON.stringify({ tag_name: "v1.2.3", draft: false, prerelease: false, assets: [] }))
+    expect(() => verifyPublishedAssets({
+      releaseManifestPath: manifestPath,
+      releaseJsonPath,
+      expectedTag: "v1.2.3",
+    })).toThrow("manifest identity or version drift")
   })
 
   it("compares exact published desktop digests while allowing an Android APK", async () => {
@@ -289,5 +352,45 @@ describe("desktop release artifact staging", () => {
       releaseJsonPath,
       expectedTag: "v1.2.3",
     })).toThrow("unexpected desktop asset candidates")
+  })
+
+  it("covers every CLI dispatch and fail-closed entrypoint handling", async () => {
+    expect(parseDesktopReleaseArgs(["aggregate", "--root", "stages"])).toEqual({ command: "aggregate", root: "stages" })
+    expect(() => parseDesktopReleaseArgs(["aggregate", "root"])).toThrow("Invalid argument")
+
+    const directory = mkdtempSync(join(tmpdir(), "alook-release-cli-"))
+    temporaryDirectories.push(directory)
+    const source = join(directory, "source")
+    mkdirSync(source)
+
+    await expect(runDesktopReleaseCli([
+      "collect", "--target", "macos-aarch64", "--version", "bad", "--source", source, "--stage", join(directory, "stage"),
+    ])).rejects.toThrow("numeric semver")
+    await expect(runDesktopReleaseCli([
+      "validate", "--stage", join(directory, "missing"), "--target", "macos-aarch64", "--version", version,
+    ])).rejects.toThrow()
+    await expect(runDesktopReleaseCli([
+      "aggregate", "--root", directory, "--output", join(directory, "output"), "--version", version,
+      "--repository", "invalid", "--pub-date", "invalid", "--config", join(directory, "config.json"),
+    ])).rejects.toThrow("Invalid GitHub repository")
+    await expect(runDesktopReleaseCli([
+      "verify-published", "--manifest", join(directory, "missing-manifest.json"), "--release", join(directory, "missing-release.json"),
+      "--latest", join(directory, "latest.json"), "--tag", "v1.2.3",
+    ])).rejects.toThrow()
+    await expect(runDesktopReleaseCli([
+      "assert-publishable", "--release", join(directory, "missing-release.json"), "--tag", "invalid",
+    ])).rejects.toThrow("numeric semver")
+    await expect(runDesktopReleaseCli(["unknown"])).rejects.toThrow("Expected collect")
+
+    const entryPath = join(directory, "desktop-release-artifacts.mjs")
+    const stderr: string[] = []
+    const runtime = {
+      stderr: { write: (value: string) => stderr.push(value) },
+      exitCode: 0,
+    }
+    await expect(runDesktopReleaseIfMain(pathToFileURL(entryPath).href, join(directory, "other.mjs"), [], runtime)).resolves.toBe(false)
+    await expect(runDesktopReleaseIfMain(pathToFileURL(entryPath).href, entryPath, ["unknown"], runtime)).resolves.toBe(true)
+    expect(stderr.join("")).toContain("Expected collect")
+    expect(runtime.exitCode).toBe(1)
   })
 })
