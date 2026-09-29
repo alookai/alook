@@ -169,8 +169,13 @@ describe("standalone README capture app contract", () => {
       "Free to join · leave anytime",
     ]
 
+    const demoCopySource = readFileSync(
+      path.join(root, "src/components/home/landing-demo-copy.ts"),
+      "utf8",
+    )
+    expect(motionSource).toContain("content: LANDING_DEMO_REQUESTS.server")
     for (const copy of canonicalOverviewMessages) {
-      expect(motionSource).toContain(copy)
+      expect(motionSource + demoCopySource).toContain(copy)
     }
     for (const copy of canonicalMessages) {
       expect(motionSource).toContain(copy)

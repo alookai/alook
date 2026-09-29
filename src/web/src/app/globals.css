@@ -920,6 +920,10 @@ body.driver-active .community-ws-reconnect-overlay * {
 }
 
 /* ── Paper — slides up inside the track ── */
+.tw-paper.tw-paper-city {
+  padding: 8px 8px 24px;
+}
+
 .tw-paper {
   position: absolute;
   bottom: 0;
@@ -1308,6 +1312,93 @@ body.driver-active .community-ws-reconnect-overlay * {
 @container (max-height: 380px) {
   .hero-scalable {
     zoom: 0.52;
+  }
+}
+
+.hero-section-scrollable {
+  padding-bottom: 64px;
+}
+
+@media (min-width: 1024px) {
+  .hero-section-split {
+    height: auto;
+    min-height: 100svh;
+  }
+
+  .hero-section-split .hero-content {
+    max-width: 1280px;
+    padding: 32px;
+  }
+
+  .hero-section-split .hero-brand {
+    align-self: flex-start;
+    margin-bottom: 32px;
+  }
+
+  .hero-section-split .typewriter-wrapper {
+    height: auto !important;
+    container-type: normal;
+  }
+
+  .hero-section-split .hero-scalable {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: 1fr auto auto 1fr;
+    column-gap: 32px;
+    zoom: 1;
+  }
+
+  .hero-section-split .hero-stage {
+    display: contents;
+  }
+
+  .hero-section-split .hero-intro {
+    position: relative;
+    grid-column: 1;
+    grid-row: 1;
+    align-self: end;
+    align-items: flex-start;
+    gap: 16px;
+    padding-top: 0;
+  }
+
+  .hero-section-split .hero-intro > * {
+    padding-inline: 0;
+    margin-bottom: 0;
+    text-align: left;
+  }
+
+  .hero-section-split .hero-artwork {
+    position: relative;
+    grid-column: 2;
+    grid-row: 1 / 5;
+    height: clamp(320px, 42vw, 560px);
+    align-self: center;
+    min-width: 0;
+  }
+
+  .hero-section-split .typewriter-visual {
+    zoom: clamp(0.5, calc(100vw / 1500px), 0.9);
+    padding-bottom: 32px;
+  }
+
+  .hero-section-split .hero-clipboard,
+  .hero-section-split .hero-providers,
+  .hero-section-split .hero-ctas {
+    grid-column: 1;
+    justify-content: flex-start;
+  }
+
+  .hero-section-split .hero-ctas {
+    grid-row: 4;
+    align-self: start;
+    flex-wrap: wrap;
+    margin-top: 32px;
+  }
+
+  .hero-section-split .hero-ctas > a {
+    padding-inline: 16px;
+    font-size: clamp(12px, 1.2vw, 16px);
   }
 }
 

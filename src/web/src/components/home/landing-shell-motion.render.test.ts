@@ -6,7 +6,7 @@ import {
   LandingShellMotion,
   landingChannelTreeScopeKey,
 } from "./landing-shell-motion"
-import { SCENE_MAX_BEAT, type LandingScene } from "./landing-shell-motion-timeline"
+import { sceneSnapshot, SCENE_MAX_BEAT, type LandingScene } from "./landing-shell-motion-timeline"
 
 vi.mock("./landing-shell-motion.module.css", () => ({
   default: new Proxy({}, { get: (_target, key) => String(key) }),
@@ -103,5 +103,44 @@ describe("landing community preview rendering", () => {
     expect(back).toContain("size-11")
     expect(back).not.toContain("sm:hidden")
     expect(header).not.toContain("sm:ml-1")
+  })
+})
+
+describe("landing human portraits", () => {
+  it.each(["server", "continuity", "spaces"] as const)("uses a photo for the owner in %s", (scene) => {
+    const markup = renderToStaticMarkup(createElement(LandingShellMotion, { scene, beat: SCENE_MAX_BEAT[scene] }))
+    expect(markup).toContain('data-avatar-kind="photo"')
+    expect(markup).toContain('data-avatar-kind="beam"')
+  })
+})
+
+describe("human teammates replying to Alli", () => {
+  it.each([["server", 6, 4], ["continuity", 9, 2], ["continuity", 14, 2]] as const)(
+    "renders human reply portraits in %s at beat %s",
+    (scene, beat, expectedPhotos) => {
+      const markup = renderToStaticMarkup(createElement(LandingShellMotion, { scene, beat }))
+      expect(markup.match(/data-avatar-kind="photo"/g)?.length).toBeGreaterThanOrEqual(expectedPhotos)
+      expect(markup).toContain('data-avatar-kind="beam"')
+    },
+  )
+})
+
+describe("composer-to-message continuity", () => {
+  it.each([["server", 1, 2], ["provider", 6, 7], ["continuity", 1, 2]] as const)(
+    "posts the same text typed in %s",
+    (scene, typingBeat, postedBeat) => {
+      const draft = sceneSnapshot(scene, typingBeat).composerText
+      expect(draft.length).toBeGreaterThan(0)
+      const typing = renderToStaticMarkup(createElement(LandingShellMotion, { scene, beat: typingBeat }))
+      const posted = renderToStaticMarkup(createElement(LandingShellMotion, { scene, beat: postedBeat }))
+      expect(typing).toContain(draft)
+      expect(posted).toContain(draft)
+      expect(sceneSnapshot(scene, postedBeat).composerText).toBe("")
+    },
+  )
+  it("uses the same request on the embedded phone", () => {
+    const draft = sceneSnapshot("server", 1).composerText
+    expect(renderToStaticMarkup(createElement(LandingMobileChatMotion, { beat: 1 }))).toContain(draft)
+    expect(renderToStaticMarkup(createElement(LandingMobileChatMotion, { beat: 2 }))).toContain(draft)
   })
 })

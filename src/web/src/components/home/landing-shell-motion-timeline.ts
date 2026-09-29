@@ -1,3 +1,5 @@
+import { LANDING_DEMO_REQUESTS } from "./landing-demo-copy"
+
 export type LandingScene = "server" | "machine" | "provider" | "spaces" | "identity" | "continuity"
 
 export type LandingRoom = "work" | "life" | "play"
@@ -155,7 +157,7 @@ export function sceneSnapshot(scene: LandingScene, requestedBeat: number): Scene
     return {
       beat,
       visibleMessages: beat < 2 ? 0 : Math.min(4, beat - 1),
-      composerText: beat === 1 ? "hello world" : "",
+      composerText: beat === 1 ? LANDING_DEMO_REQUESTS.server : "",
       machineState: "empty",
       pairSheet: "closed",
       runtime: "claude",
@@ -209,7 +211,7 @@ export function sceneSnapshot(scene: LandingScene, requestedBeat: number): Scene
     return {
       beat,
       visibleMessages: beat >= 8 ? 2 : beat >= 7 ? 1 : 0,
-      composerText: beat === 6 ? "hello Alli" : "",
+      composerText: beat === 6 ? LANDING_DEMO_REQUESTS.provider : "",
       machineState: "online",
       pairSheet: "closed",
       runtime: beat >= 4 ? "codex" : "claude",
@@ -241,7 +243,7 @@ export function sceneSnapshot(scene: LandingScene, requestedBeat: number): Scene
         : studioAct
           ? beat >= 8 ? 2 : 1
           : 2,
-      composerText: beat === 1 ? "Alli, please move today’s priorities forward." : "",
+      composerText: beat === 1 ? LANDING_DEMO_REQUESTS.continuity : "",
       machineState: "online",
       pairSheet: "closed",
       runtime: "claude",

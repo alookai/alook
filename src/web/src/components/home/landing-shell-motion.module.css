@@ -280,18 +280,14 @@
   display: block;
 }
 
-.composerLayer:nth-child(2) {
-  position: absolute;
-  inset: 12px 48px;
-}
-
 .typingText {
   display: inline-block;
   overflow: hidden;
-  max-width: 0;
-  white-space: nowrap;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
   vertical-align: bottom;
-  animation: typing 620ms steps(11, end) forwards;
+  animation: typing 620ms steps(var(--typing-steps, 11), end) both;
 }
 
 .stateStack {
@@ -380,8 +376,11 @@
 }
 
 @keyframes typing {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
   to {
-    max-width: var(--typing-width, 11ch);
+    clip-path: inset(0);
   }
 }
 
@@ -414,7 +413,7 @@
   }
 
   .typingText {
-    max-width: var(--typing-width, 11ch);
+    clip-path: none;
   }
 }
 

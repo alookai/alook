@@ -18,7 +18,7 @@ import {
 
 describe("landing shell motion timeline", () => {
   it("reveals the server conversation in causal order", () => {
-    expect(sceneSnapshot("server", 1)).toMatchObject({ composerText: "hello world", visibleMessages: 0, focus: "composer" })
+    expect(sceneSnapshot("server", 1)).toMatchObject({ composerText: "The headline is hard to read on my phone. Can you make it larger?", visibleMessages: 0, focus: "composer" })
     expect(sceneSnapshot("server", 2)).toMatchObject({ visibleMessages: 1, focus: "message-gus" })
     expect(sceneSnapshot("server", 3)).toMatchObject({ visibleMessages: 2, focus: "message-alli" })
     expect(sceneSnapshot("server", 4)).toMatchObject({ visibleMessages: 3, focus: "message-ruth" })
@@ -32,7 +32,7 @@ describe("landing shell motion timeline", () => {
 
     expect(sharedBeats.map(({ beat, composerText, visibleMessages }) => ({ beat, composerText, visibleMessages }))).toEqual([
       { beat: 0, composerText: "", visibleMessages: 0 },
-      { beat: 1, composerText: "hello world", visibleMessages: 0 },
+      { beat: 1, composerText: "The headline is hard to read on my phone. Can you make it larger?", visibleMessages: 0 },
       { beat: 2, composerText: "", visibleMessages: 1 },
       { beat: 3, composerText: "", visibleMessages: 2 },
       { beat: 4, composerText: "", visibleMessages: 3 },
@@ -112,7 +112,7 @@ describe("landing shell motion timeline", () => {
 
   it("turns one Gus request into two proactive exchanges discovered through unread inbox items", () => {
     expect(sceneSnapshot("continuity", 0)).toMatchObject({ room: "work", visibleMessages: 0, focus: null })
-    expect(sceneSnapshot("continuity", 1)).toMatchObject({ composerText: "Alli, please move today’s priorities forward.", visibleMessages: 0, focus: "continuity-dm-composer" })
+    expect(sceneSnapshot("continuity", 1)).toMatchObject({ composerText: "Alli, follow up on the website review and weekend plan we discussed.", visibleMessages: 0, focus: "continuity-dm-composer" })
     expect(sceneSnapshot("continuity", 2)).toMatchObject({ composerText: "", visibleMessages: 1, focus: "continuity-dm-gus" })
     expect(sceneSnapshot("continuity", 3)).toMatchObject({ visibleMessages: 2, focus: "continuity-dm-alli" })
     expect(sceneSnapshot("continuity", 4)).toMatchObject({ focus: null, camera: { scale: 1 } })

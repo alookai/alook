@@ -3,6 +3,7 @@
 import Image from "next/image"
 import Link from "next/link"
 import { useEffect, useRef, type PointerEvent as ReactPointerEvent } from "react"
+import { LANDING_HUMAN_AVATARS } from "./landing-human-avatars"
 import { GeneratedAvatar } from "@/components/avatar"
 import { ProfileCard } from "@/components/community/social/profile-card"
 import { ProviderLogo } from "@/components/provider-logo"
@@ -293,6 +294,8 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
         containerTestId={tid.landingHeaderContainer}
       />
       <HeroSection
+        desktopSplit
+        nextSectionId="product"
         isLoggedIn={isLoggedIn}
         headline={(
           <>
@@ -319,7 +322,7 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
         backgroundDecoration={<HeroAvatarSwarm />}
       />
 
-      <section id="product" className={styles.productSection} data-testid="landing-product-proof">
+      <section id="product" tabIndex={-1} className={styles.productSection} data-testid="landing-product-proof">
         <div className={styles.productLayout} data-testid={tid.landingMainContainer}>
           <div className={styles.sectionIntro}>
             <div className={styles.sectionLead}>
@@ -414,7 +417,11 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
                 className={`${styles.closingCompanion} ${companion.className}`}
                 aria-hidden="true"
               >
-                <GeneratedAvatar seed={companion.seed} size="100%" className={styles.closingAvatar} />
+                {companion.seed === "Gus" ? (
+                  <Image src={LANDING_HUMAN_AVATARS.gus} alt="" width={58} height={58} className={styles.closingAvatar} />
+                ) : (
+                  <GeneratedAvatar seed={companion.seed} size="100%" className={styles.closingAvatar} />
+                )}
               </span>
             ))}
             <Link

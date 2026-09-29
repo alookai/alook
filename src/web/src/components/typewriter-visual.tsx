@@ -93,7 +93,7 @@ export function TypewriterVisual({
 
             <div className="tw-body-front">
               <div className="tw-paper-track">
-                <div className="tw-paper">
+                <div className={`tw-paper${paper == null ? " tw-paper-city" : ""}`}>
                   {paper ?? <TypewriterCityArt />}
                 </div>
               </div>

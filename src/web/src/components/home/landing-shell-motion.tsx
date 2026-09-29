@@ -65,6 +65,8 @@ import {
   type SceneSnapshot,
 } from "./landing-shell-motion-timeline"
 import styles from "./landing-shell-motion.module.css"
+import { LANDING_DEMO_REQUESTS } from "./landing-demo-copy"
+import { LANDING_HUMAN_AVATARS } from "./landing-human-avatars"
 import { useLandingMotionPlayback } from "./use-landing-motion-playback"
 
 const SERVERS: Server[] = [
@@ -195,8 +197,8 @@ const MESSAGES: RenderMsg[] = [
     type: "chat",
     authorId: "gus",
     authorName: "Gus",
-    authorAvatar: "avatar:beam:gus",
-    content: "The headline is hard to read on my phone. Can you make it larger?",
+    authorAvatar: LANDING_HUMAN_AVATARS.gus,
+    content: LANDING_DEMO_REQUESTS.server,
     createdAt: "2026-08-06T04:20:00.000Z",
     seq: 425,
     grouped: false,
@@ -217,7 +219,7 @@ const MESSAGES: RenderMsg[] = [
     type: "chat",
     authorId: "ruth",
     authorName: "Ruthann",
-    authorAvatar: "avatar:beam:ruth",
+    authorAvatar: LANDING_HUMAN_AVATARS.ruth,
     content: "The headline is clearer. Can you update the button text to match?",
     createdAt: "2026-08-06T04:22:00.000Z",
     seq: 427,
@@ -228,7 +230,7 @@ const MESSAGES: RenderMsg[] = [
     type: "chat",
     authorId: "shelly",
     authorName: "Shelly",
-    authorAvatar: "avatar:beam:shelly",
+    authorAvatar: LANDING_HUMAN_AVATARS.shelly,
     content: "I’ve reviewed the updated page. It’s ready to use.",
     createdAt: "2026-08-06T04:23:00.000Z",
     seq: 428,
@@ -243,7 +245,7 @@ const SPACE_MESSAGES: Record<LandingRoom, RenderMsg[]> = {
       type: "chat",
       authorId: "gus",
       authorName: "Gus",
-      authorAvatar: "avatar:beam:gus",
+      authorAvatar: LANDING_HUMAN_AVATARS.gus,
       content: "The new gallery story is ready.",
       createdAt: "2026-08-06T06:00:00.000Z",
       seq: 501,
@@ -254,7 +256,7 @@ const SPACE_MESSAGES: Record<LandingRoom, RenderMsg[]> = {
       type: "chat",
       authorId: "shelly",
       authorName: "Shelly",
-      authorAvatar: "avatar:beam:shelly",
+      authorAvatar: LANDING_HUMAN_AVATARS.shelly,
       content: "I’ll ship it after review.",
       createdAt: "2026-08-06T06:00:05.000Z",
       seq: 502,
@@ -267,7 +269,7 @@ const SPACE_MESSAGES: Record<LandingRoom, RenderMsg[]> = {
       type: "chat",
       authorId: "gus-life",
       authorName: "Gus",
-      authorAvatar: "avatar:beam:gus",
+      authorAvatar: LANDING_HUMAN_AVATARS.gus,
       content: "Dinner at seven?",
       createdAt: "2026-08-06T06:01:00.000Z",
       seq: 503,
@@ -302,7 +304,7 @@ const SPACE_MESSAGES: Record<LandingRoom, RenderMsg[]> = {
       type: "chat",
       authorId: "noah",
       authorName: "Noah",
-      authorAvatar: "avatar:beam:noah",
+      authorAvatar: LANDING_HUMAN_AVATARS.noah,
       content: "Game night at eight.",
       createdAt: "2026-08-06T06:02:00.000Z",
       seq: 506,
@@ -324,7 +326,7 @@ const SPACE_MESSAGES: Record<LandingRoom, RenderMsg[]> = {
       type: "chat",
       authorId: "gus-play",
       authorName: "Gus",
-      authorAvatar: "avatar:beam:gus",
+      authorAvatar: LANDING_HUMAN_AVATARS.gus,
       content: "Let’s go.",
       createdAt: "2026-08-06T06:02:08.000Z",
       seq: 508,
@@ -353,8 +355,8 @@ const DM_MESSAGES: RenderMsg[] = [
     type: "chat",
     authorId: "gus",
     authorName: "Gus",
-    authorAvatar: "avatar:beam:gus",
-    content: "hello Alli",
+    authorAvatar: LANDING_HUMAN_AVATARS.gus,
+    content: LANDING_DEMO_REQUESTS.provider,
     createdAt: "2026-08-06T04:21:00.000Z",
     seq: 429,
     grouped: false,
@@ -378,8 +380,8 @@ const CONTINUITY_DM_MESSAGES: RenderMsg[] = [
     type: "chat",
     authorId: "gus",
     authorName: "Gus",
-    authorAvatar: "avatar:beam:gus",
-    content: "Alli, follow up on the website review and weekend plan we discussed.",
+    authorAvatar: LANDING_HUMAN_AVATARS.gus,
+    content: LANDING_DEMO_REQUESTS.continuity,
     createdAt: "2026-08-07T08:30:00.000Z",
     seq: 610,
     grouped: false,
@@ -414,7 +416,7 @@ const CONTINUITY_WORK_MESSAGES: RenderMsg[] = [
     type: "chat",
     authorId: "shelly",
     authorName: "Shelly",
-    authorAvatar: "avatar:beam:shelly",
+    authorAvatar: LANDING_HUMAN_AVATARS.shelly,
     content: "Yes. The headline is clearer. The button text still needs an update.",
     createdAt: "2026-08-07T08:31:05.000Z",
     seq: 613,
@@ -439,7 +441,7 @@ const CONTINUITY_LIFE_MESSAGES: RenderMsg[] = [
     type: "chat",
     authorId: "tracy",
     authorName: "Tracy",
-    authorAvatar: "avatar:beam:tracy",
+    authorAvatar: LANDING_HUMAN_AVATARS.tracy,
     content: "Saturday at six works. I’ve added the address to our plan.",
     createdAt: "2026-08-07T08:32:05.000Z",
     seq: 615,
@@ -983,7 +985,7 @@ function PrototypeUserBar({
       )}
       <UserBar
         breakpoint="desktop"
-        user={{ id: "gus", name: "Gus", avatar: "avatar:beam:gus" }}
+        user={{ id: "gus", name: "Gus", avatar: LANDING_HUMAN_AVATARS.gus }}
         onEditProfile={() => {}}
         inbox={scene === "continuity" || scene === "server" || scene === "machine" ? <span /> : undefined}
         hasUnread={hasUnread}
@@ -1445,7 +1447,7 @@ function PrototypeComposer({
         <div
           data-motion-target={target}
           data-motion-anchor-x="0.24"
-          className="relative px-12 py-3 text-base leading-6"
+          className="relative grid px-12 py-3 text-base leading-6"
         >
           <span
             data-visible={!snapshot.composerText}
@@ -1460,12 +1462,13 @@ function PrototypeComposer({
             {snapshot.composerText && (
               <span
                 className={styles.typingText}
-                style={{ "--typing-width": `${Math.max(11, snapshot.composerText.length)}ch` } as CSSProperties}
+                style={{ "--typing-steps": snapshot.composerText.length } as CSSProperties}
               >
                 {snapshot.composerText}
+                <span data-composer-caret className="ml-0.5 inline-block h-5 w-px bg-foreground align-middle" />
               </span>
             )}
-            <span className="ml-0.5 inline-block h-5 w-px bg-foreground align-middle" />
+            {!snapshot.composerText && <span data-composer-caret className="ml-0.5 inline-block h-5 w-px bg-foreground align-middle" />}
           </span>
         </div>
         <button

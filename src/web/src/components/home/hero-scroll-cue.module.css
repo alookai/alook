@@ -1,0 +1,36 @@
+.cue {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  transform: translateX(-50%);
+  color: var(--landing-text-muted);
+}
+
+.cue:hover {
+  color: var(--landing-text);
+}
+
+.cue:focus-visible {
+  outline: 2px solid var(--landing-accent);
+  outline-offset: 4px;
+}
+
+.cue svg {
+  animation: nudge-down 2s ease-in-out infinite;
+}
+
+@keyframes nudge-down {
+  0%, 100% { transform: translateY(-2px); }
+  50% { transform: translateY(3px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cue svg {
+    animation: none;
+  }
+}

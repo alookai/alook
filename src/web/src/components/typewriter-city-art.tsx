@@ -15,20 +15,13 @@ export function TypewriterCityArt() {
     if (!frame || !canvas) return;
     let disposed = false;
     let observer: ResizeObserver | undefined;
+    let animationFrame = 0;
+    const source = document.createElement("canvas");
+    source.width = 3200;
+    source.height = 1800;
 
     const draw = () => {
-      const source = document.createElement("canvas");
-      source.width = 3200;
-      source.height = 1800;
-      const context = source.getContext("2d");
-      if (!context) return;
-      context.font = '20px "Alook Jgs5"';
-      context.fillStyle = getComputedStyle(frame).color;
-      context.textBaseline = "top";
-      TYPEWRITER_CITY_ART.split("\n").forEach((line, index) => {
-        context.fillText(line, 0, index * 20);
-      });
-      const width = Math.max(1, Math.min(3200, Math.round(frame.clientWidth * window.devicePixelRatio)));
+      const width = Math.max(1, Math.min(source.width, Math.round(frame.getBoundingClientRect().width * window.devicePixelRatio)));
       let image = source;
       while (image.width / 2 > width) {
         const smaller = document.createElement("canvas");
@@ -47,16 +40,31 @@ export function TypewriterCityArt() {
       output.drawImage(image, 0, 0, canvas.width, canvas.height);
       setReady(true);
     };
+    const scheduleDraw = () => {
+      cancelAnimationFrame(animationFrame);
+      animationFrame = requestAnimationFrame(draw);
+    };
 
     void document.fonts?.load('20px "Alook Jgs5"').then(() => {
       if (disposed) return;
+      const context = source.getContext("2d");
+      if (!context) return;
+      context.font = '20px "Alook Jgs5"';
+      context.fillStyle = getComputedStyle(frame).color;
+      context.textBaseline = "top";
+      TYPEWRITER_CITY_ART.split("\n").forEach((line, index) => {
+        context.fillText(line, 0, index * 20);
+      });
       draw();
-      observer = new ResizeObserver(draw);
+      observer = new ResizeObserver(scheduleDraw);
       observer.observe(frame);
+      window.addEventListener("resize", scheduleDraw);
     }).catch(() => {});
     return () => {
       disposed = true;
       observer?.disconnect();
+      cancelAnimationFrame(animationFrame);
+      window.removeEventListener("resize", scheduleDraw);
     };
   }, []);
 

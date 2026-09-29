@@ -1,7 +1,6 @@
 "use client";
 
 import { useRef, useState, type CSSProperties, type ReactNode } from "react";
-import Image from "next/image";
 import Link from "next/link";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
@@ -10,6 +9,8 @@ import { SplitText } from "gsap/SplitText";
 import { TypewriterVisual } from "@/components/typewriter-visual";
 import { trackLandingCtaClicked } from "@/lib/analytics";
 import { GithubOutboundLink } from "@/components/github-outbound-link";
+import { HeroScrollCue } from "./hero-scroll-cue";
+import { AnimatedAlookLogo } from "@/components/community/shell/animated-alook-logo";
 
 gsap.registerPlugin(ScrollTrigger, SplitText);
 
@@ -34,6 +35,8 @@ export function HeroSection({
   showMobileDesktopHint = true,
   testId,
   backgroundDecoration,
+  desktopSplit = false,
+  nextSectionId,
 }: {
   isLoggedIn: boolean;
   kicker?: string;
@@ -51,6 +54,8 @@ export function HeroSection({
   showMobileDesktopHint?: boolean;
   testId?: string;
   backgroundDecoration?: ReactNode;
+  desktopSplit?: boolean;
+  nextSectionId?: string;
 }) {
   const sectionRef = useRef<HTMLDivElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -111,7 +116,7 @@ export function HeroSection({
     <section
       ref={sectionRef}
       data-testid={testId}
-      className="hero-section relative flex h-screen items-center justify-center overflow-hidden"
+      className={`hero-section relative flex h-screen items-center justify-center overflow-hidden${desktopSplit ? " hero-section-split" : ""}${nextSectionId ? " hero-section-scrollable" : ""}`}
       style={{ backgroundColor: "var(--landing-bg)" }}
     >
       {/* Paper noise */}
@@ -128,8 +133,8 @@ export function HeroSection({
 
       <div className="hero-content relative z-10 mx-auto flex w-full max-w-4xl flex-col items-center px-4 sm:px-6 py-8 max-h-full">
         {/* Brand */}
-        <div className="hero-brand mb-6 flex shrink-0 items-center gap-2" style={{ opacity: 0 }}>
-          <Image src="/alook.svg" alt="Alook" width={32} height={32} />
+        <Link href="/" aria-label="Alook home" className="hero-brand mb-6 flex min-h-11 shrink-0 items-center gap-2 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-current" style={{ opacity: 0 }}>
+          <AnimatedAlookLogo className="size-8" />
           <span
             className="text-2xl tracking-tight"
             style={{
@@ -140,16 +145,16 @@ export function HeroSection({
           >
             Alook
           </span>
-        </div>
+        </Link>
 
         {/* Scalable content zone — all content scales together on short viewports */}
         <div className="typewriter-wrapper flex w-full shrink min-h-0 flex-col items-center" style={{ height: "clamp(192px, calc(100vh - 200px), 750px)" }}>
         <div className="hero-scalable flex w-full flex-1 min-h-0 flex-col items-center">
 
         {/* Typewriter + Slogan wrapper */}
-        <div className="relative w-full shrink min-h-0 flex-1">
+        <div className="hero-stage relative w-full shrink min-h-0 flex-1">
           {/* Slogan — positioned at top of typewriter area */}
-          <div className="absolute top-0 left-0 right-0 z-10 flex flex-col items-center pt-2">
+          <div className="hero-intro absolute top-0 left-0 right-0 z-10 flex flex-col items-center pt-2">
             {kicker && (
               <p
                 className="mb-2 text-center text-[10px] uppercase tracking-[0.16em] sm:text-xs"
@@ -194,7 +199,7 @@ export function HeroSection({
           </div>
 
           {/* Full Typewriter */}
-          <div className={`absolute inset-0 ${typewriterClassName ?? ""}`}>
+          <div className={`hero-artwork absolute inset-0 ${typewriterClassName ?? ""}`}>
             <TypewriterVisual
               entranceDelay={1.2}
               className="absolute! inset-0"
@@ -327,7 +332,7 @@ export function HeroSection({
         </div>}
 
         {/* CTA */}
-        <div ref={ctaRef} className="mt-8 shrink-0 flex flex-nowrap items-center justify-center gap-3" style={{ opacity: 0 }}>
+        <div ref={ctaRef} className="hero-ctas mt-8 shrink-0 flex flex-nowrap items-center justify-center gap-3" style={{ opacity: 0 }}>
           {/* <a
             href="https://github.com/alookai/alook"
             className="inline-flex items-center gap-2 px-6 py-2 text-sm transition-all duration-200 hover:opacity-80"
@@ -440,6 +445,7 @@ export function HeroSection({
           For the full experience, open on a desktop browser.
         </p>}
       </div>
+      {nextSectionId && <HeroScrollCue targetId={nextSectionId} />}
     </section>
   );
 }
