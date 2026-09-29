@@ -1,5 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server"
-import { withEnv } from "@/lib/middleware/env"
+import { queries } from "@alook/shared"
+import { withOptionalAuth } from "@/lib/middleware/auth"
+import { getPrimaryDb } from "@/lib/db"
 import {
   ANALYTICS_CONSENT_COOKIE,
   ANALYTICS_CONSENT_MAX_AGE_SECONDS,
@@ -34,7 +36,7 @@ function parseDecision(value: unknown): AnalyticsConsentDecision | null {
   return decision === "granted" || decision === "denied" ? decision : null
 }
 
-export const POST = withEnv(async (request, ctx) => {
+export const POST = withOptionalAuth(async (request, ctx) => {
   const origin = sameOriginUrl(request)
   if (!origin) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 })
@@ -45,6 +47,16 @@ export const POST = withEnv(async (request, ctx) => {
   }
   if (!ctx.env.BETTER_AUTH_SECRET) {
     return NextResponse.json({ error: "temporarily unavailable" }, { status: 503 })
+  }
+  const hasSessionCookie = request.cookies.has("better-auth.session_token")
+    || request.cookies.has("__Secure-better-auth.session_token")
+  if (hasSessionCookie && !ctx.userId) {
+    return NextResponse.json({ error: "temporarily unavailable" }, { status: 503 })
+  }
+  const issuedAtMs = Date.now()
+  const sourceVersion = Math.floor(issuedAtMs / 1000)
+  if (ctx.userId) {
+    await queries.billing.recordAnalyticsConsent(getPrimaryDb(ctx.env.DB), ctx.userId, decision, sourceVersion)
   }
 
   const response = NextResponse.json({ decision })
@@ -62,7 +74,7 @@ export const POST = withEnv(async (request, ctx) => {
   )
   response.cookies.set(
     ANALYTICS_CONSENT_PROOF_COOKIE,
-    await createAnalyticsConsentProof(decision, ctx.env.BETTER_AUTH_SECRET),
+    await createAnalyticsConsentProof(decision, ctx.env.BETTER_AUTH_SECRET, issuedAtMs),
     { ...shared, httpOnly: true },
   )
   response.headers.set("Cache-Control", "no-store, max-age=0")

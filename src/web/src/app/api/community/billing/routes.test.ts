@@ -1,10 +1,12 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
+import { createAnalyticsConsentProof } from "@/lib/analytics-consent-server"
 
 const mocks = vi.hoisted(() => ({
   session: vi.fn(), owner: vi.fn(), summary: vi.fn(), checkout: vi.fn(),
   portal: vi.fn(), cancel: vi.fn(), webhook: vi.fn(),
-  db: { primary: true }, env: { DB: {}, STRIPE_SECRET_KEY: "sk_test_route_fixture" },
+  recordConsent: vi.fn(),
+  db: { primary: true }, env: { DB: {}, STRIPE_SECRET_KEY: "sk_test_route_fixture", BETTER_AUTH_SECRET: "consent-secret" },
 }))
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: mocks.env, ctx: { waitUntil: vi.fn() } })),
@@ -16,7 +18,7 @@ vi.mock("@/lib/auth", () => ({
 }))
 vi.mock("@alook/shared", async (original) => ({
   ...await original<typeof import("@alook/shared")>(),
-  queries: { user: { getUserInternal: mocks.owner } },
+  queries: { user: { getUserInternal: mocks.owner }, billing: { recordAnalyticsConsent: mocks.recordConsent } },
 }))
 vi.mock("@/lib/billing/service", () => ({
   getBillingSummary: mocks.summary, createCheckout: mocks.checkout,
@@ -47,6 +49,7 @@ beforeEach(() => {
   mocks.checkout.mockResolvedValue(redirect)
   mocks.portal.mockResolvedValue(redirect)
   mocks.cancel.mockResolvedValue(summary)
+  mocks.recordConsent.mockResolvedValue({ decision: "granted", revision: 4, sourceVersion: 1 })
   vi.spyOn(console, "error").mockImplementation(() => {})
 })
 afterEach(() => vi.restoreAllMocks())
@@ -78,7 +81,59 @@ describe("billing HTTP route boundaries", () => {
     const response = await checkout(request(JSON.stringify({ priceId: "price_studio", founderAcknowledged })))
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual(redirect)
-    expect(mocks.checkout).toHaveBeenCalledWith(mocks.db, expect.any(Object), mocks.env, owner.id, owner.email, "price_studio", founderAcknowledged)
+    expect(mocks.checkout).toHaveBeenCalledWith(mocks.db, expect.any(Object), mocks.env, owner.id, owner.email, "price_studio", founderAcknowledged, undefined, undefined)
+  })
+
+  it("hands a valid signed GA identity to checkout after persisting consent", async () => {
+    const proof = await createAnalyticsConsentProof("granted", mocks.env.BETTER_AUTH_SECRET)
+    const cookie = [
+      `alook_analytics_consent_proof=${encodeURIComponent(proof)}`,
+      "_ga=GA1.1.123.456",
+      "_ga_STBCL8F4ZY=GS1.1.1700000000.1",
+    ].join("; ")
+    const response = await checkout(request(JSON.stringify({ priceId: "price_studio" }), { cookie }))
+    expect(response.status).toBe(200)
+    expect(mocks.recordConsent).toHaveBeenCalledWith(mocks.db, owner.id, "granted", Number(proof.split(".")[2]))
+    expect(mocks.checkout).toHaveBeenCalledWith(
+      mocks.db, expect.any(Object), mocks.env, owner.id, owner.email, "price_studio", undefined,
+      { clientId: "123.456", sessionId: "1700000000", consentRevision: 4 }, undefined,
+    )
+  })
+
+  it("does not revive consent when an older browser replays a signed grant", async () => {
+    const issuedAt = Date.UTC(2026, 8, 29, 9, 0, 0)
+    const sourceVersion = Math.floor(issuedAt / 1000)
+    const proof = await createAnalyticsConsentProof("granted", mocks.env.BETTER_AUTH_SECRET, issuedAt)
+    const cookie = [
+      `alook_analytics_consent_proof=${encodeURIComponent(proof)}`,
+      "_ga=GA1.1.123.456",
+      "_ga_STBCL8F4ZY=GS1.1.1700000000.1",
+    ].join("; ")
+    mocks.recordConsent.mockResolvedValueOnce({ decision: "denied", revision: 2, sourceVersion: sourceVersion + 60 })
+
+    const response = await checkout(request(JSON.stringify({ priceId: "price_studio" }), { cookie }))
+
+    expect(response.status).toBe(200)
+    expect(mocks.recordConsent).toHaveBeenCalledWith(mocks.db, owner.id, "granted", sourceVersion)
+    expect(mocks.checkout).toHaveBeenCalledWith(
+      mocks.db, expect.any(Object), mocks.env, owner.id, owner.email, "price_studio", undefined,
+      undefined, "stale_consent_proof",
+    )
+  })
+
+  it("freezes no GA identity when the stream session cookie is invalid", async () => {
+    const proof = await createAnalyticsConsentProof("granted", mocks.env.BETTER_AUTH_SECRET)
+    const cookie = [
+      `alook_analytics_consent_proof=${encodeURIComponent(proof)}`,
+      "_ga=GA1.1.123.456",
+      "_ga_STBCL8F4ZY=invalid",
+    ].join("; ")
+    const response = await checkout(request(JSON.stringify({ priceId: "price_studio" }), { cookie }))
+    expect(response.status).toBe(200)
+    expect(mocks.recordConsent).toHaveBeenCalledWith(mocks.db, owner.id, "granted", Number(proof.split(".")[2]))
+    expect(mocks.checkout).toHaveBeenCalledWith(
+      mocks.db, expect.any(Object), mocks.env, owner.id, owner.email, "price_studio", undefined, undefined, undefined,
+    )
   })
 
   it.each(["{", "null", "{}", '{"priceId":""}', '{"priceId":"p","founderAcknowledged":"true"}', '{"priceId":"p","ownerId":"other"}'])("rejects malformed Checkout body %s before creating a Session", async (body) => {
