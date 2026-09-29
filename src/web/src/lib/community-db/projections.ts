@@ -35,6 +35,14 @@ import {
   type ServerMembersLease,
   type ServerMembersState,
 } from "./server-members-resource"
+import {
+  serverDetailResourceKey,
+  type ServerDetailResource,
+} from "./server-detail-resource"
+import {
+  channelMetadataResourceKey,
+  type ChannelMetadataResource,
+} from "./channel-metadata-resource"
 import { useCommunityPreviewProfiles } from "@/stores/community/profile-preview"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import type {
@@ -54,6 +62,60 @@ import type {
 } from "./schema"
 
 let communityDbContext: Context<CommunityDbRegistry | null> | null = null
+const SERVER_TREE_PROJECTION_DIAGNOSTIC_LIMIT = 8
+const SERVER_TREE_PROJECTION_DIAGNOSTIC_TOTAL_LIMIT = 120
+const serverTreeProjectionDiagnosticCounts = new Map<string, number>()
+const serverTreeProjectionDiagnosticSignatures = new Set<string>()
+const ROUTE_CHANNEL_PROJECTION_DIAGNOSTIC_LIMIT = 8
+const ROUTE_CHANNEL_PROJECTION_DIAGNOSTIC_ROW_LIMIT = 100
+const ROUTE_CHANNEL_PROJECTION_DIAGNOSTIC_TOTAL_LIMIT = 120
+const routeChannelProjectionDiagnosticCounts = new Map<string, number>()
+const routeChannelProjectionDiagnosticSignatures = new Set<string>()
+
+function emitServerTreeProjectionDiagnostic(
+  serverId: string,
+  payload: Record<string, unknown>,
+) {
+  const signature = JSON.stringify(payload)
+  if (
+    serverTreeProjectionDiagnosticSignatures.has(signature)
+    || serverTreeProjectionDiagnosticSignatures.size >= SERVER_TREE_PROJECTION_DIAGNOSTIC_TOTAL_LIMIT
+    || (serverTreeProjectionDiagnosticCounts.get(serverId) ?? 0)
+      >= SERVER_TREE_PROJECTION_DIAGNOSTIC_LIMIT
+  ) return
+  serverTreeProjectionDiagnosticSignatures.add(signature)
+  serverTreeProjectionDiagnosticCounts.set(
+    serverId,
+    (serverTreeProjectionDiagnosticCounts.get(serverId) ?? 0) + 1,
+  )
+  console.info(JSON.stringify({
+    event: "community_db_server_tree_projection",
+    ...payload,
+  }))
+}
+
+function emitRouteChannelProjectionDiagnostic(
+  channelId: string,
+  payload: Record<string, unknown>,
+) {
+  const signature = JSON.stringify(payload)
+  if (
+    routeChannelProjectionDiagnosticSignatures.has(signature)
+    || routeChannelProjectionDiagnosticSignatures.size
+      >= ROUTE_CHANNEL_PROJECTION_DIAGNOSTIC_TOTAL_LIMIT
+    || (routeChannelProjectionDiagnosticCounts.get(channelId) ?? 0)
+      >= ROUTE_CHANNEL_PROJECTION_DIAGNOSTIC_LIMIT
+  ) return
+  routeChannelProjectionDiagnosticSignatures.add(signature)
+  routeChannelProjectionDiagnosticCounts.set(
+    channelId,
+    (routeChannelProjectionDiagnosticCounts.get(channelId) ?? 0) + 1,
+  )
+  console.info(JSON.stringify({
+    event: "community_db_route_channel_projection",
+    ...payload,
+  }))
+}
 
 function getCommunityDbContext() {
   communityDbContext ??= createContext<CommunityDbRegistry | null>(null)
@@ -253,10 +315,71 @@ export function useServerTreeProjection(serverId: string | null) {
         .where(({ channel }) => eq(channel.serverId, serverId))
       : undefined,
   }).data as ChannelRow[] | undefined
-  return useMemo(
+  const projection = useMemo(
     () => buildServerTreeProjection(serverId, servers, categories, channels, true),
     [categories, channels, serverId, servers],
   )
+  const diagnostic = (() => {
+    if (!registry || !serverId) return null
+    const rawQuery = registry.queryClient.getQueryState<ServerDetailResource>(
+      serverDetailResourceKey(registry.scopeId, serverId),
+    )
+    const raw = rawQuery?.data
+    const sourceServers = Array.from(registry.collections.servers.values())
+      .filter((row) => row.id === serverId)
+    const sourceCategories = Array.from(registry.collections.categories.values())
+      .filter((row) => row.serverId === serverId)
+    const sourceChannels = Array.from(registry.collections.channels.values())
+      .filter((row) => row.serverId === serverId)
+    const targetServer = servers?.find((row) => row.id === serverId)
+    const liveQueriesResolved = servers !== undefined
+      && categories !== undefined
+      && channels !== undefined
+    return {
+      serverId,
+      rawServerDetail: {
+        status: rawQuery?.status ?? "absent",
+        fetchStatus: rawQuery?.fetchStatus ?? "idle",
+        categoryRowIds: raw?.categories.map((row) => row.id).sort() ?? [],
+        channelRowIds: raw?.channels.map((row) => row.id).sort() ?? [],
+      },
+      sourceCollections: {
+        servers: {
+          status: registry.collections.servers.status,
+          readiness: registry.getCollectionReadiness("servers"),
+          rowIds: sourceServers.map((row) => row.id).sort(),
+        },
+        categories: {
+          status: registry.collections.categories.status,
+          readiness: registry.getCollectionReadiness("categories"),
+          rowIds: sourceCategories.map((row) => row.id).sort(),
+        },
+        channels: {
+          status: registry.collections.channels.status,
+          readiness: registry.getCollectionReadiness("channels"),
+          rowIds: sourceChannels.map((row) => row.id).sort(),
+        },
+      },
+      liveQueries: {
+        serverRowIds: servers?.map((row) => row.id).sort() ?? [],
+        categoryRowIds: categories?.map((row) => row.id).sort() ?? [],
+        channelRowIds: channels?.map((row) => row.id).sort() ?? [],
+      },
+      gates: {
+        categoriesReady,
+        channelsReady,
+        dependentCollectionsReady: categoriesReady && channelsReady,
+        liveQueriesResolved,
+        serverRowPresent: targetServer !== undefined,
+        serverDetailComplete: targetServer?.detailComplete ?? false,
+        projectionReady: projection !== undefined,
+      },
+    }
+  })()
+  useEffect(() => {
+    if (diagnostic && serverId) emitServerTreeProjectionDiagnostic(serverId, diagnostic)
+  }, [diagnostic, serverId])
+  return projection
 }
 
 function buildServerTreeProjection(
@@ -396,10 +519,60 @@ export function useRouteChannelProjection(
           : eq(channel.id, channelId ?? ""))
       : undefined,
   })
-  return useMemo(() => {
+  const projection = useMemo(() => {
     if (!channelId || !result.data) return undefined
     return (result.data as ChannelRow[]).find((row) => row.id === channelId)
   }, [channelId, result.data])
+  const diagnostic = (() => {
+    if (!registry || !serverId || !channelId) return null
+    const rawQuery = registry.queryClient.getQueryState<ChannelMetadataResource>(
+      channelMetadataResourceKey(registry.scopeId, serverId, channelId),
+    )
+    const raw = rawQuery?.data
+    const collectionRows = [...registry.collections.channels.values()]
+      .slice()
+      .sort((left, right) => left.id.localeCompare(right.id))
+    const liveRows = result.data as ChannelRow[] | undefined
+    return {
+      serverId,
+      channelId,
+      rawChannelMetadata: {
+        status: rawQuery?.status ?? "absent",
+        fetchStatus: rawQuery?.fetchStatus ?? "idle",
+        metadataChannelId: raw?.metadata.id ?? null,
+        channelRowIds: raw?.channels.map((row) => row.id).sort() ?? [],
+      },
+      canonicalChannelCollection: {
+        status: registry.collections.channels.status,
+        readiness: registry.getCollectionReadiness("channels"),
+        size: registry.collections.channels.size,
+        rowIds: collectionRows
+          .slice(0, ROUTE_CHANNEL_PROJECTION_DIAGNOSTIC_ROW_LIMIT)
+          .map((row) => row.id),
+        rowsTruncated: collectionRows.length > ROUTE_CHANNEL_PROJECTION_DIAGNOSTIC_ROW_LIMIT,
+        targetRowIds: collectionRows
+          .filter((row) => row.id === channelId && row.serverId === serverId)
+          .map((row) => row.id),
+      },
+      liveQuery: {
+        resolved: liveRows !== undefined,
+        rowIds: liveRows?.map((row) => row.id).sort() ?? [],
+      },
+      gates: {
+        collectionReady: ready,
+        rawTargetPresent: raw?.channels.some((row) => row.id === channelId) ?? false,
+        canonicalTargetPresent: registry.collections.channels.has(channelId),
+        liveTargetPresent: liveRows?.some((row) => row.id === channelId) ?? false,
+        projectionReady: projection !== undefined,
+      },
+    }
+  })()
+  useEffect(() => {
+    if (diagnostic && channelId) {
+      emitRouteChannelProjectionDiagnostic(channelId, diagnostic)
+    }
+  }, [channelId, diagnostic])
+  return projection
 }
 
 export function useReadStateProjection(channelId: string | null | undefined) {
