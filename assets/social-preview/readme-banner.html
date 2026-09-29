@@ -107,7 +107,7 @@ body {
   align-items: center;
   justify-content: flex-end;
   overflow: visible;
-  zoom: 0.72;
+  zoom: 0.78;
   height: 460px;
 }
 
@@ -133,7 +133,7 @@ body {
   z-index: 2;
   perspective: 2500px;
   transform-style: preserve-3d;
-  transform: rotateY(-14deg) rotateX(8deg);
+  transform: rotateY(-20deg) rotateX(10deg);
 }
 
 .tw-machine {
@@ -166,6 +166,16 @@ body {
     0 1px 4px rgba(0,0,0,0.05);
   border-radius: 2px 2px 0 0;
   opacity: 1;
+}
+
+.tw-paper.tw-paper-city {
+  padding: 8px 8px 24px;
+}
+
+.tw-city-art {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
 }
 
 .tw-body {
@@ -296,22 +306,6 @@ body {
 .tw-bar-long { width: 210px; }
 .tw-bar-short { width: 170px; }
 
-.tw-email-headers {
-  font-family: 'VT323', monospace;
-  font-size: 15px;
-  color: oklch(0.45 0.01 55);
-  line-height: 1.7;
-  border-bottom: 1px solid oklch(0.15 0.01 55 / 10%);
-  padding-bottom: 10px;
-  margin-bottom: 12px;
-}
-.tw-email-line span { color: oklch(0.15 0.01 55); }
-.tw-email-body {
-  font-family: 'VT323', monospace;
-  color: oklch(0.45 0.01 55);
-  font-size: 17px;
-  line-height: 1.6;
-}
 </style>
 </head>
 <body>
@@ -338,15 +332,8 @@ body {
             <div class="tw-body-bottom"></div>
             <div class="tw-body-front">
               <div class="tw-paper-track">
-                <div class="tw-paper">
-                  <div class="tw-email-headers">
-                    <div class="tw-email-line">HOME / FAMILY-PLANS</div>
-                    <div class="tw-email-line"><span>Maya joined the room.</span></div>
-                    <div class="tw-email-line">A note for Alli#8145</div>
-                  </div>
-                  <div class="tw-email-body">
-                    Maya and Alli now share this channel. Either can reply here, and Gus can catch up when he returns.
-                  </div>
+                <div class="tw-paper tw-paper-city">
+                  <img class="tw-city-art" src="./typewriter-city-art.png" alt="A giant Alook sculpture in an ASCII city" />
                 </div>
               </div>
               <div class="tw-roller-assembly">

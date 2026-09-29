@@ -7,6 +7,7 @@
   <a href="https://github.com/alookai/alook/actions"><img src="https://github.com/alookai/alook/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="https://codecov.io/gh/alookai/alook"><img src="https://codecov.io/gh/alookai/alook/branch/main/graph/badge.svg" alt="codecov" /></a>
   <a href="https://www.npmjs.com/package/@alook/app"><img src="https://img.shields.io/npm/v/@alook/app.svg" alt="npm version" /></a>
+  <a href="https://alook.ai/c"><img src="./assets/readme/alook-join.svg" alt="Alook Join" /></a>
   <a href="https://discord.alook.ai"><img src="https://img.shields.io/badge/Discord-Join%20us-5865F2?logo=discord&logoColor=white" alt="Discord" /></a>
 </p>
 
@@ -138,6 +139,18 @@ flowchart TB
 <p align="center"><em>Built with Next.js, Cloudflare Workers, and Bun❤️</em></p>
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to get involved.
+
+### Monorepo structure
+
+Alook is a monorepo, with code grouped by responsibility under `src/`:
+
+| Area | Directories and responsibilities |
+| --- | --- |
+| Apps | `web/` — web UI and API, plus `web/blog/`; `desktop/` — native app shell; `app/` — local self-hosting CLI. |
+| Agent runtime | `daemon/` — agent process management and host connection; `daemon/agent-driver/` — AI backend session adapters. |
+| Cloud workers | `ws-do/` — realtime WebSocket connections; `email-worker/` — email handling; `queue-worker/` — queued agent wake-ups. |
+| Shared code | `shared/` — types, database schema, queries, and validation. |
+| Tooling & media | `benchmark/` — browser performance benchmarks; `videos/` — standalone video projects. |
 
 
 
