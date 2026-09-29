@@ -92,6 +92,18 @@ export function updateCommunityOnboardingResources(resources: JourneyResources) 
   return publish({ ...currentState, ...resources });
 }
 
+export function recoverCommunityOnboardingHarness() {
+  if (currentState?.status !== "active" || currentState.stage !== "machine") {
+    return currentState;
+  }
+  const {
+    harness: _harness,
+    machineId: _machineId,
+    ...retainedState
+  } = currentState;
+  return publish({ ...retainedState, stage: "harness" });
+}
+
 export function recoverCommunityOnboardingMachine() {
   if (currentState?.status !== "active" || currentState.stage !== "bot") {
     return currentState;

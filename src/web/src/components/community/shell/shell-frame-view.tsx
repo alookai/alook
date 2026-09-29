@@ -19,6 +19,8 @@ import type { useShellDaemonUpdateController } from "./use-shell-daemon-update-c
 import type { UserBarExtensionState } from "./user-bar-extension-state"
 import { userBarUpdateBadgePhase } from "./user-bar-extension-state"
 import type { OpenProfile } from "../social/profile-types"
+import { useRunningOwnedBots } from "@/hooks/community/use-running-owned-bots"
+import { ProfileRunningBotsCard } from "@/components/community/social/profile-running-bots-card"
 
 type Props = Pick<ShellFrameProps, "sidebar" | "children" | "extraDialogs"> & {
   breakpoint: Breakpoint
@@ -53,6 +55,7 @@ export function ShellFrameView({
   dismissUserBarExtension,
 }: Props) {
   const { surface } = checkpoint
+  const { runningBots } = useRunningOwnedBots()
   const inboxElement = (
     <InboxPopover
       {...inbox.popoverProps}
@@ -63,6 +66,7 @@ export function ShellFrameView({
     id: profile.currentUser.id,
     name: profile.currentUser.name,
     avatar: profile.currentUser.avatar,
+    runningBotCount: runningBots.length,
   }
   const isInitial = breakpoint === "unknown"
   const profileInExtension = userBarExtension.active === "profile"
@@ -80,6 +84,12 @@ export function ShellFrameView({
       onOpenOwnerProfile={profile.openOwnerProfile}
       onOpenBotAudit={profile.openBotAudit}
       extension
+    />
+  ) : null
+  const profileCompanionElement = profileInExtension && runningBots.length > 0 ? (
+    <ProfileRunningBotsCard
+      onOpenBotAudit={profile.openBotAudit}
+      useBackdropEffect={breakpoint !== "mobile"}
     />
   ) : null
 
@@ -117,6 +127,7 @@ export function ShellFrameView({
             active: userBarExtension.active,
             inbox: inboxElement,
             profile: profileElement,
+            profileCompanion: profileCompanionElement,
             update: daemonUpdate.update,
             updateBadgePhase: userBarUpdateBadgePhase(userBarExtension),
             eligibleMachines: daemonUpdate.eligibleMachines,

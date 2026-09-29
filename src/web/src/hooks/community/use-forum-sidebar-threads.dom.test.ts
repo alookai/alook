@@ -585,6 +585,7 @@ describe("forum sidebar canonical projection", () => {
 
   it("folds an in-flight activity delta into an eligible retained row", async () => {
     const { queryClient, wrapper } = await setup()
+    const activityAt = new Date(Date.now() - 60_000).toISOString()
     let resolveRequest!: (value: SidebarThreadEnvelope) => void
     apiFetchMock.mockReturnValue(new Promise((resolve) => { resolveRequest = resolve }))
     const rendered = renderHook(
@@ -593,7 +594,7 @@ describe("forum sidebar canonical projection", () => {
     )
     await waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
     patchForumSidebarActivityExact(
-      queryClient, "server-1", "post-1", "forum-1", "2026-09-26T11:00:00.000Z",
+      queryClient, "server-1", "post-1", "forum-1", activityAt,
     )
     removeForumSidebarThreadExact(queryClient, "server-1", "post-1")
     restoreForumSidebarThreadInflight("server-1", "post-1")
@@ -606,7 +607,7 @@ describe("forum sidebar canonical projection", () => {
       included: retained.included,
     }))
     await waitFor(() => expect(rendered.result.current.threads[0]?.activityAt)
-      .toBe("2026-09-26T11:00:00.000Z"))
+      .toBe(activityAt))
     rendered.unmount()
   })
 

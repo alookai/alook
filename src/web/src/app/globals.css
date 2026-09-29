@@ -1539,6 +1539,32 @@ body.driver-active .community-ws-reconnect-overlay * {
   pointer-events: none;
 }
 
+@keyframes user-bar-running-bots-breathe {
+  0%,
+  100% {
+    opacity: 0.24;
+    transform: scale(0.96);
+  }
+
+  50% {
+    opacity: 0.52;
+    transform: scale(1.06);
+  }
+}
+
+.user-bar-running-bots-glow {
+  animation: user-bar-running-bots-breathe 2.8s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+  will-change: opacity, transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .user-bar-running-bots-glow {
+    animation: none;
+    opacity: 0.32;
+    transform: none;
+  }
+}
+
 /* ── Utility: hide scrollbar ── */
 .scrollbar-none {
   -ms-overflow-style: none;

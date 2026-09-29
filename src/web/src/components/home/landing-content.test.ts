@@ -70,6 +70,20 @@ describe("landing content contract", () => {
     expect(heroSource).toContain('<svg className="size-5 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">')
   })
 
+  it("renders hero copy and actions directly without an entrance timeline", () => {
+    const root = webRoot()
+    const heroSource = readFileSync(path.join(root, "src/components/home/hero-section.tsx"), "utf8")
+
+    expect(heroSource).not.toContain("useGSAP")
+    expect(heroSource).not.toContain("gsap.timeline")
+    expect(heroSource).not.toContain("ScrollTrigger")
+    expect(heroSource).not.toContain("SplitText")
+    expect(heroSource).not.toMatch(/className="hero-(?:brand|clipboard|providers|ctas)[^\n]*style=\{\{ opacity: 0 \}\}/)
+    expect(heroSource).not.toMatch(/opacity:\s*0/)
+    expect(heroSource).toContain("<TypewriterVisual")
+    expect(heroSource).toContain("entranceDelay={1.2}")
+  })
+
   it("frames continuity as one agent remembering and acting across rooms", () => {
     expect(LANDING_AGENT).toMatchObject({ name: "Alli", handle: "Alli#8145" })
     expect(LANDING_CONTINUITY).toMatchObject({

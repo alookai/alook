@@ -31,6 +31,7 @@ type UserBarExtension = {
   active: UserBarExtensionKind
   inbox: ReactNode
   profile: ReactNode
+  profileCompanion?: ReactNode
   update: UserBarUpdateState | null
   updateBadgePhase: Exclude<UserBarUpdatePhase, "expanded"> | null
   eligibleMachines: readonly MachineSummary[]
@@ -41,7 +42,7 @@ type UserBarExtension = {
 
 export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnread, unreadCount, unreadCountPartial, inboxOpen, onInboxOpenChange, extension }: {
   breakpoint: Breakpoint
-  user: { id: string; name: string; avatar: string; presence?: Presence }
+  user: { id: string; name: string; avatar: string; presence?: Presence; runningBotCount?: number }
   onOpenProfile?: OpenProfile
   onEditProfile?: () => void
   inbox?: ReactNode
@@ -60,6 +61,10 @@ export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox,
   const baseRef = useRef<HTMLDivElement>(null)
   const [pendingExtensionFocus, setPendingExtensionFocus] = useState<UserBarExtensionKind>("none")
   const mobile = breakpoint === "mobile"
+  const joinedMobileExtension = mobile && (
+    inboxOpen
+    || Boolean(extension && extension.active !== "none" && extension.active !== "profile")
+  )
   const closeInboxForAction = () => {
     if (inboxOpen) onInboxOpenChange?.(false)
   }
@@ -80,6 +85,7 @@ export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox,
       active={extension.active}
       inbox={extension.inbox}
       profile={extension.profile}
+      profileCompanion={mobile ? extension.profileCompanion : undefined}
       update={extension.update}
       eligibleMachines={extension.eligibleMachines}
       onDismiss={dismissExtensionWithFocus}
@@ -105,6 +111,7 @@ export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox,
         : extensionContent && extension && (
           <UserBarPopover
             anchor={baseRef}
+            companion={extension.active === "profile" ? extension.profileCompanion : undefined}
             onDismiss={extension.onDismiss}
             onEscape={dismissExtensionWithFocus}
           >
@@ -116,7 +123,7 @@ export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox,
         data-slot="community-user-bar-base"
         className={cn(
           "flex h-12 items-center gap-3 border border-border/40 bg-muted px-4",
-          mobile && ((extension && extension.active !== "none") || inboxOpen)
+          joinedMobileExtension
             ? "rounded-b-xl"
             : "rounded-xl",
         )}
@@ -165,7 +172,7 @@ export function UserBarSkeleton() {
 
 function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnread, unreadCount, unreadCountPartial, inboxOpen, onInboxOpenChange, closeInboxForAction, profileTriggerRef, profileNameTriggerRef, lastProfileTriggerRef, inboxTriggerRef, updateBadgeRef, onRequestExtensionFocus, extension }: {
   breakpoint: Breakpoint
-  user: { id: string; name: string; avatar: string; presence?: Presence }
+  user: { id: string; name: string; avatar: string; presence?: Presence; runningBotCount?: number }
   onOpenProfile?: OpenProfile
   onEditProfile?: () => void
   inbox?: ReactNode
@@ -185,6 +192,8 @@ function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnrea
 }) {
   const inboxDescriptionId = useId()
   const mobile = breakpoint === "mobile"
+  const runningBotCount = user.runningBotCount ?? 0
+  const hasRunningBots = runningBotCount > 0
   const updateBadgeLabel = extension?.updateBadgePhase === "retry"
     ? "Retry machine update"
     : extension?.updateBadgePhase === "updating"
@@ -204,8 +213,28 @@ function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnrea
         }
         if (!extension) closeInboxForAction()
         onOpenProfile?.(user.name, e, undefined, user.id)
-      }} className="shrink-0 rounded-full focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none" aria-expanded={extension ? extension.active === "profile" : undefined} aria-controls={extension?.active === "profile" ? "community-user-bar-extension" : undefined}>
-        <Avatar label={user.avatar} seed={user.id} size={28} presence={user.presence} ringColor="var(--muted)" />
+      }} className="shrink-0 rounded-full focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-muted focus-visible:outline-none" aria-label={hasRunningBots
+        ? `Open profile. ${runningBotCount} running ${runningBotCount === 1 ? "bot" : "bots"}.`
+        : "Open profile"} aria-expanded={extension ? extension.active === "profile" : undefined} aria-controls={extension?.active === "profile" ? "community-user-bar-extension" : undefined}>
+        <span className="relative grid size-7 place-items-center rounded-full">
+          {hasRunningBots && (
+            <>
+              <span
+                data-testid={tid.userBarRunningBotsGlow}
+                aria-hidden
+                className="user-bar-running-bots-glow pointer-events-none absolute -inset-1 rounded-full opacity-40 blur-[5px] [background:conic-gradient(from_30deg,var(--link),var(--primary),var(--link))]"
+              />
+              <span
+                data-testid={tid.userBarRunningBotsRing}
+                aria-hidden
+                className="pointer-events-none absolute -inset-0.5 rounded-full [background:conic-gradient(from_30deg,var(--link),var(--primary),var(--link))]"
+              />
+            </>
+          )}
+          <span className="relative rounded-full">
+            <Avatar label={user.avatar} seed={user.id} size={28} presence={user.presence} ringColor="var(--muted)" />
+          </span>
+        </span>
       </button>
       <button ref={profileNameTriggerRef} onClick={(e) => {
         lastProfileTriggerRef.current = e.currentTarget

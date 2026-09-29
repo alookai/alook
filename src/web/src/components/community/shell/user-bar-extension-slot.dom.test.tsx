@@ -34,6 +34,36 @@ const machines = [{
 }]
 
 describe("UserBarExtensionSlot", () => {
+  it("uses a real bounded mobile scroll container without shrinking either profile card", () => {
+    const renderer = render(createElement(UserBarExtensionSlot, {
+      active: "profile",
+      profile: createElement("div", { "data-testid": "profile-content" }, "Profile"),
+      profileCompanion: createElement("div", { "data-testid": "profile-companion" }, "Running bots"),
+      update: null,
+      eligibleMachines: [],
+      onDismiss: vi.fn(),
+      onRequestUpdate: vi.fn(),
+      presentation: "slot",
+    }))
+
+    const slot = renderer.getByTestId(tid.userBarExtension)
+    const scroller = renderer.getByTestId("profile-content").parentElement?.parentElement
+    expect(slot.style.maxHeight).toContain("100dvh")
+    expect(slot.className).toContain("bg-transparent")
+    expect(slot.className).toContain("shadow-none")
+    expect(slot.className).not.toContain("border-border/40")
+    expect(slot.className).not.toContain("border-x")
+    expect(slot.className).not.toContain("border-t")
+    expect(scroller?.className).toContain("min-h-0")
+    expect(scroller?.className).toContain("overflow-y-auto")
+    expect(scroller?.style.maxHeight).toContain("100dvh")
+    expect(renderer.getByTestId("profile-content").parentElement?.className).toContain("shrink-0")
+    const companionSurface = renderer.getByTestId("profile-companion").parentElement
+    expect(companionSurface?.className).toContain("shrink-0")
+    expect(companionSurface?.className).toContain("-mx-2")
+    expect(companionSurface?.className).toContain("mb-2")
+  })
+
   it("disables dismissal and focus while retained for the closing animation", async () => {
     const onDismiss = vi.fn()
     const onInitialFocus = vi.fn()
