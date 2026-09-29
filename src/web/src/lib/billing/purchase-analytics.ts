@@ -61,6 +61,34 @@ function validationEvidence(value: unknown): { json: string; hasErrors: boolean 
   return { json: JSON.stringify({ validationMessages: messages }), hasErrors: messages.length > 0 }
 }
 
+export async function validatePurchasePayloadForAcceptance(
+  env: Env,
+  payload: Record<string, unknown>,
+): Promise<{ ok: boolean; reason: string; validationJson?: string }> {
+  if (!env.GA4_API_SECRET) return { ok: false, reason: "ga_configuration_missing" }
+  const query = new URLSearchParams({ measurement_id: GA4_MEASUREMENT_ID, api_secret: env.GA4_API_SECRET })
+  let response: Response
+  try {
+    response = await fetchWithTimeout(`https://www.google-analytics.com/debug/mp/collect?${query}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...payload, validation_behavior: "ENFORCE_RECOMMENDATIONS" }),
+    })
+  } catch {
+    return { ok: false, reason: "validation_transport_failed" }
+  }
+  if (!response.ok) return { ok: false, reason: `validation_http_${response.status}` }
+  let evidence: ReturnType<typeof validationEvidence>
+  try {
+    evidence = validationEvidence(await response.json())
+  } catch {
+    evidence = null
+  }
+  if (!evidence) return { ok: false, reason: "validation_response_invalid" }
+  if (evidence.hasErrors) return { ok: false, reason: "validation_rejected", validationJson: evidence.json }
+  return { ok: true, reason: "accepted", validationJson: evidence.json }
+}
+
 async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), GA_TIMEOUT_MS)
@@ -217,8 +245,12 @@ export async function deliverInvoicePurchase(
     return
   }
   if (consent?.decision !== "granted" || !Number.isSafeInteger(consentRevision)
-    || consentRevision < 1 || consent.revision < consentRevision || !clientId) {
+    || consentRevision < 1 || !clientId) {
     await skip("consent_or_identity_unavailable", fields)
+    return
+  }
+  if (consent.revision !== consentRevision) {
+    await skip("consent_revision_changed", fields)
     return
   }
   const sessionId = type === "initial_subscription"
@@ -255,49 +287,19 @@ export async function deliverInvoicePurchase(
   const query = new URLSearchParams({ measurement_id: GA4_MEASUREMENT_ID, api_secret: env.GA4_API_SECRET })
   const request = { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }
 
-  let validationResponse: Response
-  try {
-    validationResponse = await fetchWithTimeout(`https://www.google-analytics.com/debug/mp/collect?${query}`, {
-      ...request,
-      body: JSON.stringify({ ...payload, validation_behavior: "ENFORCE_RECOMMENDATIONS" }),
-    })
-    if (!validationResponse.ok) {
-      await fail(`validation_http_${validationResponse.status}`, fields)
-      return
-    }
-  } catch {
-    await fail("validation_transport_failed", fields)
-    return
-  }
-  let evidence: { json: string; hasErrors: boolean } | null
-  try {
-    evidence = validationEvidence(await validationResponse.json())
-  } catch {
-    evidence = null
-  }
-  if (!evidence) {
-    await fail("validation_response_invalid", fields)
-    return
-  }
-  if (evidence.hasErrors) {
-    await fail("validation_rejected", { ...fields, validationJson: evidence.json })
-    return
-  }
-
   try {
     const response = await fetchWithTimeout(`https://www.google-analytics.com/mp/collect?${query}`, request)
     if (!response.ok) {
-      await fail(`collection_http_${response.status}`, { ...fields, validationJson: evidence.json })
+      await fail(`collection_http_${response.status}`, fields)
       return
     }
   } catch {
-    await fail("collection_transport_ambiguous", { ...fields, validationJson: evidence.json })
+    await fail("collection_transport_ambiguous", fields)
     return
   }
   await queries.billing.finalizePurchaseDelivery(db, invoice.id, {
     status: "sent",
     reason: "delivered",
     ...fields,
-    validationJson: evidence.json,
   })
 }

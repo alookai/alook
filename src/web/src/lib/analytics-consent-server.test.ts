@@ -95,6 +95,20 @@ describe("GA checkout identity", () => {
     await expect(readCheckoutAnalyticsConsent(cookies, "wrong-secret")).resolves.toEqual({ decision: null, sourceVersion: null, identity: null })
   })
 
+  it("treats a malformed percent-encoded identity cookie as unavailable", async () => {
+    const proof = await createAnalyticsConsentProof("granted", SECRET)
+    const cookies = [
+      `alook_analytics_consent_proof=${encodeURIComponent(proof)}`,
+      "_ga=%",
+      "_ga_STBCL8F4ZY=GS2.1.s1700000000$o1",
+    ].join("; ")
+    await expect(readCheckoutAnalyticsConsent(cookies, SECRET)).resolves.toEqual({
+      decision: "granted",
+      sourceVersion: Number(proof.split(".")[2]),
+      identity: null,
+    })
+  })
+
   it.each(["", "; _ga_STBCL8F4ZY=bad"])("rejects checkout identity without a valid stream session cookie (%s)", async (sessionCookie) => {
     const proof = await createAnalyticsConsentProof("granted", SECRET)
     const cookies = `alook_analytics_consent_proof=${encodeURIComponent(proof)}; _ga=GA1.1.123456789.1700000000${sessionCookie}`

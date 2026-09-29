@@ -40,9 +40,36 @@ describe("reconciliation freshness and post-commit effects", () => {
   it("passes the committed machine epochs into automatic disconnection", async () => {
     mocked.applyBillingPlan.mockResolvedValue({ applied: true, deactivatedBotIds: [], disconnectedMachines: [{ machineId: "m", userId: "owner", doName: "captured-old-epoch" }] })
     const warning = vi.spyOn(console, "warn").mockImplementation(() => {})
-    await reconcileBilling(db, stripe, env, "owner")
+    await expect(reconcileBilling(db, stripe, env, "owner")).resolves.toBe("applied")
     expect(forceCloseCommunityMachinesByDoNames).toHaveBeenCalledExactlyOnceWith(env, ["captured-old-epoch"])
     warning.mockRestore()
+  })
+
+  it("verifies an already committed billing projection without writing again", async () => {
+    const subscription = sub("sub_new", "house")
+    retrieve.mockResolvedValue(subscription)
+    mocked.getBilling.mockResolvedValue({
+      ...row,
+      subscriptionId: subscription.id,
+      subscription: {
+        plan: { id: "house", displayName: "House" },
+        status: "active",
+        currentPeriodEnd: new Date(1791604427 * 1000).toISOString(),
+        cancelAt: null,
+        scheduledChange: null,
+      },
+    })
+    mocked.getEffectivePlan.mockResolvedValue({ isFounder: false, plan: { id: "house", displayName: "House" } })
+
+    await expect(reconcileBilling(db, stripe, env, "owner")).resolves.toBe("verified_already_applied")
+    expect(mocked.applyBillingPlan).not.toHaveBeenCalled()
+  })
+
+  it("returns ignored when the billing owner is no longer eligible", async () => {
+    mocked.getUserInternal.mockResolvedValue({ isBot: false, deletedAt: "2026-09-29" })
+    await expect(reconcileBilling(db, stripe, env, "owner")).resolves.toBe("ignored")
+    expect(stripe.customers.retrieve).not.toHaveBeenCalled()
+    expect(mocked.applyBillingPlan).not.toHaveBeenCalled()
   })
 
   function confirmedFounder() {
@@ -167,7 +194,7 @@ describe("reconciliation freshness and post-commit effects", () => {
   })
   it("does not call Stripe or apply a projection for a Founder", async () => {
     mocked.getEffectivePlan.mockResolvedValue({ isFounder: true })
-    await reconcileBilling(db, stripe, env, "owner")
+    await expect(reconcileBilling(db, stripe, env, "owner")).resolves.toBe("ignored")
     expect(stripe.customers.retrieve).not.toHaveBeenCalled()
     expect(mocked.applyBillingPlan).not.toHaveBeenCalled()
   })
@@ -187,7 +214,7 @@ describe("reconciliation freshness and post-commit effects", () => {
     mocked.applyBillingPlan.mockResolvedValue({ applied: true, deactivatedBotIds: ["bot1"] })
     mocked.getBotOwnedBy.mockResolvedValue({ isActive: false, machineId: "m1" })
     mocked.push.mockRejectedValue(new Error("offline"))
-    await expect(reconcileBilling(db, stripe, env, "owner")).resolves.toBeUndefined()
+    await expect(reconcileBilling(db, stripe, env, "owner")).resolves.toBe("applied")
     expect(mocked.applyBillingPlan).toHaveBeenCalledOnce()
   })
 })

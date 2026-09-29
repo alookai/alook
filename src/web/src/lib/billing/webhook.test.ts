@@ -18,6 +18,7 @@ const signature = (raw: string) => stripe.webhooks.generateTestHeaderString({ pa
 beforeEach(() => {
   vi.resetAllMocks()
   mocked.getBillingByCustomer.mockResolvedValue({ userId: "owner", customerId: "cus_owner", revision: 2 })
+  mocked.reconcileBilling.mockResolvedValue("applied")
 })
 
 describe("Stripe signed ingress", () => {
@@ -53,6 +54,18 @@ describe("Stripe signed ingress", () => {
     await expect(handleBillingWebhook(db, stripe, env, raw, signature(raw))).resolves.toBeUndefined()
     expect(warning).toHaveBeenCalledWith("billing_purchase_analytics_failed", { invoiceId: "in_fixture" })
     warning.mockRestore()
+  })
+  it("does not claim or deliver analytics when reconciliation is ignored", async () => {
+    mocked.reconcileBilling.mockResolvedValue("ignored")
+    const raw = body()
+    await handleBillingWebhook(db, stripe, env, raw, signature(raw))
+    expect(mocked.deliverInvoicePurchase).not.toHaveBeenCalled()
+  })
+  it("delivers analytics after verifying that the projection was already applied", async () => {
+    mocked.reconcileBilling.mockResolvedValue("verified_already_applied")
+    const raw = body()
+    await handleBillingWebhook(db, stripe, env, raw, signature(raw))
+    expect(mocked.deliverInvoicePurchase).toHaveBeenCalledOnce()
   })
   it("reconciles duplicates again instead of treating event receipt as completed work", async () => {
     const raw = body()

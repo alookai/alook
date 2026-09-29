@@ -9,6 +9,7 @@ import { broadcastToUser } from "@/lib/broadcast"
 
 type Catalog = Awaited<ReturnType<typeof getCatalog>>
 type BillingRow = NonNullable<Awaited<ReturnType<typeof queries.billing.getBilling>>>
+export type BillingReconcileResult = "applied" | "verified_already_applied" | "ignored"
 
 const terminal = new Set(["canceled", "unpaid", "incomplete_expired"])
 
@@ -162,17 +163,32 @@ export async function notifyDisconnectedMachines(env: Env, db: Database, machine
   }
 }
 
-export async function reconcileBilling(db: Database, stripe: Stripe, env: Env, userId: string) {
+function sameSubscription(left: BillingSubscription | null, right: BillingSubscription | null) {
+  if (!left || !right) return left === right
+  return left.plan.id === right.plan.id && left.plan.displayName === right.plan.displayName
+    && left.status === right.status && left.currentPeriodEnd === right.currentPeriodEnd
+    && left.cancelAt === right.cancelAt
+    && left.scheduledChange?.plan.id === right.scheduledChange?.plan.id
+    && left.scheduledChange?.plan.displayName === right.scheduledChange?.plan.displayName
+    && left.scheduledChange?.effectiveAt === right.scheduledChange?.effectiveAt
+}
+
+export async function reconcileBilling(
+  db: Database,
+  stripe: Stripe,
+  env: Env,
+  userId: string,
+): Promise<BillingReconcileResult> {
   for (let attempt = 0; attempt < 4; attempt++) {
     const row = await queries.billing.getBilling(db, userId)
     const effective = await queries.billing.getEffectivePlan(db, userId)
-    if (!row || (effective.isFounder && !row.checkoutAttempt?.founderAcknowledged)) return
+    if (!row || (effective.isFounder && !row.checkoutAttempt?.founderAcknowledged)) return "ignored"
     const owner = await queries.user.getUserInternal(db, userId)
-    if (!owner || owner.deletedAt !== null || owner.isBot) return
+    if (!owner || owner.deletedAt !== null || owner.isBot) return "ignored"
     const subscription = await currentSubscription(stripe, env, row)
     if (effective.isFounder && (!subscription || !["active", "past_due"].includes(subscription.status)
       || subscription.pending_update || subscription.metadata.alook_attempt_id !== row.checkoutAttempt!.id
-      || subscription.items.data[0]?.price.id !== row.checkoutAttempt!.priceId)) return
+      || subscription.items.data[0]?.price.id !== row.checkoutAttempt!.priceId)) return "ignored"
     const [catalog, free, paidInvoice] = await Promise.all([
       getCatalog(db), queries.billing.getDefaultPlan(db),
       subscription ? paidInvoiceFor(stripe, subscription) : Promise.resolve(null),
@@ -186,12 +202,17 @@ export async function reconcileBilling(db: Database, stripe: Stripe, env: Env, u
     if (effective.isFounder && (paidInvoice?.status !== "paid"
       || stripeId(paidLineFor(subscription!, paidInvoice, catalog)?.pricing?.price_details?.price) !== row.checkoutAttempt!.priceId
       || projection.plan.id !== catalog.find((entry) => entry.priceId === row.checkoutAttempt!.priceId)?.planId
-      || !await acknowledgedFounderSession(stripe, env, row, subscription!))) return
+      || !await acknowledgedFounderSession(stripe, env, row, subscription!))) return "ignored"
     const patch = {
       subscriptionId: subscription?.id ?? null,
       subscription: projection.subscription,
       ...(subscription && row.checkoutAttempt && subscription.metadata.alook_attempt_id === row.checkoutAttempt.id
         ? { checkoutAttempt: null } : {}),
+    }
+    const checkoutMatches = !("checkoutAttempt" in patch) || row.checkoutAttempt === patch.checkoutAttempt
+    if (effective.plan?.id === projection.plan.id && row.subscriptionId === patch.subscriptionId
+      && sameSubscription(row.subscription, patch.subscription) && checkoutMatches) {
+      return "verified_already_applied"
     }
     const result = effective.isFounder
       ? await queries.billing.applyBillingPlan(db, row, patch, projection.plan.id, row.checkoutAttempt!.id)
@@ -199,7 +220,7 @@ export async function reconcileBilling(db: Database, stripe: Stripe, env: Env, u
     if (result.applied) {
       await notifyDeactivated(env, db, userId, result.deactivatedBotIds)
       await notifyDisconnectedMachines(env, db, result.disconnectedMachines ?? [])
-      return
+      return "applied"
     }
   }
   throw new BillingError("BILLING_RETRY_REQUIRED", 503)
