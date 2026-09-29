@@ -1,6 +1,6 @@
 import { defineConfig } from "@playwright/test"
 
-export default defineConfig({
+export const spikePlaywrightConfig = defineConfig({
   testDir: ".",
   testMatch: "official-composition.spec.ts",
   timeout: 45_000,
@@ -19,3 +19,5 @@ export default defineConfig({
     timeout: 120_000,
   },
 })
+
+export default spikePlaywrightConfig

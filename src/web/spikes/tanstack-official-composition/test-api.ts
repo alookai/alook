@@ -21,11 +21,3 @@ export type SpikeTestApi = {
   rebuild: () => Promise<void>
   waitForIdle: () => Promise<void>
 }
-
-declare global {
-  interface Window {
-    __tanstackOfficialSpike: SpikeTestApi
-  }
-}
-
-export {}
