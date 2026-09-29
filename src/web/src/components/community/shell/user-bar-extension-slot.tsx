@@ -28,6 +28,7 @@ type Props = {
   active: Exclude<UserBarExtensionKind, "none">
   inbox?: ReactNode
   profile?: ReactNode
+  profileCompanion?: ReactNode
   update: UserBarUpdateState | null
   eligibleMachines: readonly MachineSummary[]
   onDismiss: () => void
@@ -44,6 +45,7 @@ export function UserBarExtensionSlot({
   active,
   inbox,
   profile,
+  profileCompanion,
   update,
   eligibleMachines,
   onDismiss,
@@ -56,6 +58,8 @@ export function UserBarExtensionSlot({
   presentation = "slot",
 }: Props) {
   const ref = useRef<HTMLDivElement>(null)
+  const boundedHeight = `min(28rem, max(0px, calc(100dvh - ${COMMUNITY_USER_BAR_HEIGHT_CSS} - var(--app-safe-area-top))))`
+  const unframedMobileProfile = presentation === "slot" && active === "profile"
 
   useEffect(() => {
     if (!interactive) return
@@ -103,21 +107,32 @@ export function UserBarExtensionSlot({
       data-presentation={presentation}
       tabIndex={-1}
       className={cn(
-        "relative min-h-0 origin-bottom overflow-hidden border-border/40 bg-popover text-popover-foreground shadow-(--e2)",
-        presentation === "popup" ? "rounded-xl border" : "rounded-t-xl border-x border-t [clip-path:inset(-2rem_-2rem_0)]",
+        "relative min-h-0 origin-bottom overflow-hidden text-popover-foreground",
+        unframedMobileProfile
+          ? "bg-transparent shadow-none [clip-path:inset(-2rem_-2rem_0)]"
+          : "border-border/40 bg-popover shadow-(--e2)",
+        presentation === "popup"
+          ? "rounded-xl border"
+          : !unframedMobileProfile && "rounded-t-xl border-x border-t [clip-path:inset(-2rem_-2rem_0)]",
         animate && "motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-1 motion-safe:duration-150",
         active === "inbox" && "flex flex-col",
       )}
       style={{
-        maxHeight: `min(28rem, max(0px, calc(100dvh - ${COMMUNITY_USER_BAR_HEIGHT_CSS} - var(--app-safe-area-top))))`,
+        maxHeight: boundedHeight,
         height: active === "inbox"
-          ? `min(28rem, max(0px, calc(100dvh - ${COMMUNITY_USER_BAR_HEIGHT_CSS} - var(--app-safe-area-top))))`
+          ? boundedHeight
           : undefined,
       }}
     >
       {active === "inbox" && inbox}
       {active === "profile" && (
-        <div className="overflow-y-auto thin-scrollbar p-2">{profile}</div>
+        <div
+          className="flex min-h-0 flex-col gap-2 overflow-y-auto p-2 thin-scrollbar"
+          style={{ maxHeight: boundedHeight }}
+        >
+          {profileCompanion && <div className="-mx-2 mb-2 shrink-0">{profileCompanion}</div>}
+          <div className="shrink-0">{profile}</div>
+        </div>
       )}
       {active === "update" && update && (
         <DaemonUpdateExtension

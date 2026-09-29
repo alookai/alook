@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react"
+import { useEffect, useState } from "react"
 import { Bot, MessagesSquare, Shield, UserRound } from "lucide-react"
 import { BOT_ACTIVITY_PRESETS } from "@alook/shared"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
@@ -19,8 +19,19 @@ import { useCanonicalCommunityProfile } from "@/lib/community-db/projections"
 import { avatarInitial } from "@/lib/community/avatar"
 import { tid } from "@/lib/community/testids"
 import { communityWsInterruptAgent } from "@/hooks/community/use-community-ws"
-import { isBotActivityActive, isBotActivityRunning } from "./bot-audit-preview"
+import {
+  isBotActivityActive,
+  isBotActivityRunning,
+} from "@/lib/community/bot-activity-status"
 import { BotMarkSticker } from "./bot-mark-sticker"
+import { ProfileRunningBotsCard } from "./profile-running-bots-card"
+import { useRunningOwnedBots } from "@/hooks/community/use-running-owned-bots"
+import {
+  resolveAuditPreviewPlacement,
+  useProfileSecondaryPosition,
+} from "./profile-secondary-position"
+
+export { resolveAuditPreviewPlacement }
 
 // Live cards resolve status from the global profile map. Seed props are used
 // only by static, id-less showcase cards.
@@ -55,165 +66,7 @@ export function displayOwnerHandle(handle: string): string {
   return handle.replace(/#\d+$/, "")
 }
 
-export type AuditPreviewPlacement = "right" | "left" | "top" | "bottom"
-
-type RectLike = Pick<DOMRect, "top" | "right" | "bottom" | "left" | "width" | "height">
-
-export function resolveAuditPreviewPlacement({
-  card,
-  preview,
-  viewportWidth,
-  viewportHeight,
-  gap = 8,
-}: {
-  card: RectLike
-  preview: Pick<RectLike, "width" | "height">
-  viewportWidth: number
-  viewportHeight: number
-  gap?: number
-}): AuditPreviewPlacement {
-  const room = {
-    right: viewportWidth - card.right,
-    left: card.left,
-    top: card.top,
-    bottom: viewportHeight - card.bottom,
-  }
-  const sideCrossAxisFits = preview.height <= viewportHeight - gap * 2
-  const verticalCrossAxisFits = preview.width <= viewportWidth - gap * 2
-
-  if (sideCrossAxisFits && room.right >= preview.width + gap) return "right"
-  if (sideCrossAxisFits && room.left >= preview.width + gap) return "left"
-  if (verticalCrossAxisFits && room.top >= preview.height + gap) return "top"
-  if (verticalCrossAxisFits && room.bottom >= preview.height + gap) return "bottom"
-
-  return (Object.entries(room) as Array<[AuditPreviewPlacement, number]>)
-    .sort((a, b) => b[1] - a[1])[0]?.[0] ?? "right"
-}
-
-type AuditPreviewPosition = {
-  placement: AuditPreviewPlacement
-  left: number | string
-  top: number
-  height?: number
-}
-
-type MeasuredAuditPreviewPosition = AuditPreviewPosition & {
-  measurementKey: string
-}
-
-function clamp(value: number, min: number, max: number): number {
-  if (min > max) return value
-  return Math.min(Math.max(value, min), max)
-}
-
-function useAuditPreviewPosition(
-  enabled: boolean,
-  previewId: string | undefined,
-  x: number,
-  y: number,
-) {
-  const popoverRef = useRef<HTMLDivElement | null>(null)
-  const cardRef = useRef<HTMLDivElement | null>(null)
-  const previewRef = useRef<HTMLDivElement | null>(null)
-  const [measuredPosition, setMeasuredPosition] = useState<MeasuredAuditPreviewPosition | null>(null)
-  const measurementKey = enabled && previewId ? `${previewId}:${x}:${y}` : null
-
-  useLayoutEffect(() => {
-    if (!measurementKey) {
-      setMeasuredPosition(null)
-      return
-    }
-
-    let frame = 0
-    const update = () => {
-      const cardElement = cardRef.current
-      const previewElement = previewRef.current
-      if (!cardElement || !previewElement) return
-      const transformedCard = cardElement.getBoundingClientRect()
-      const card = {
-        top: transformedCard.top,
-        right: transformedCard.left + cardElement.offsetWidth,
-        bottom: transformedCard.top + cardElement.offsetHeight,
-        left: transformedCard.left,
-        width: cardElement.offsetWidth,
-        height: cardElement.offsetHeight,
-      }
-      const preview = {
-        width: previewElement.offsetWidth,
-        height: previewElement.offsetHeight,
-      }
-      const gap = 8
-      const margin = 8
-      const placement = resolveAuditPreviewPlacement({
-        card,
-        preview,
-        viewportWidth: window.innerWidth,
-        viewportHeight: window.innerHeight,
-        gap,
-      })
-
-      const verticalOffset = clamp(
-        0,
-        margin - card.top,
-        window.innerHeight - margin - preview.height - card.top,
-      )
-      const horizontalOffset = clamp(
-        card.width - preview.width,
-        margin - card.left,
-        window.innerWidth - margin - preview.width - card.left,
-      )
-      const next: MeasuredAuditPreviewPosition = placement === "right"
-        ? { measurementKey, placement, left: card.width + gap, top: verticalOffset, height: card.height }
-        : placement === "left"
-          ? { measurementKey, placement, left: -preview.width - gap, top: verticalOffset, height: card.height }
-          : placement === "top"
-            ? { measurementKey, placement, left: horizontalOffset, top: -preview.height - gap, height: card.height }
-            : { measurementKey, placement, left: horizontalOffset, top: card.height + gap, height: card.height }
-
-      setMeasuredPosition((current) => current?.measurementKey === next.measurementKey
-        && current.placement === next.placement
-        && current.left === next.left
-        && current.top === next.top
-        && current.height === next.height
-        ? current
-        : next)
-    }
-
-    update()
-    frame = requestAnimationFrame(update)
-    window.addEventListener("resize", update)
-    window.addEventListener("scroll", update, true)
-    const popoverElement = popoverRef.current
-    popoverElement?.addEventListener("animationend", update)
-    popoverElement?.addEventListener("animationcancel", update)
-    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update)
-    if (cardRef.current) observer?.observe(cardRef.current)
-    if (previewRef.current) observer?.observe(previewRef.current)
-    return () => {
-      cancelAnimationFrame(frame)
-      window.removeEventListener("resize", update)
-      window.removeEventListener("scroll", update, true)
-      popoverElement?.removeEventListener("animationend", update)
-      popoverElement?.removeEventListener("animationcancel", update)
-      observer?.disconnect()
-    }
-  }, [measurementKey])
-
-  const ready = measurementKey !== null
-    && measuredPosition?.measurementKey === measurementKey
-  return {
-    popoverRef,
-    cardRef,
-    previewRef,
-    position: ready ? measuredPosition : null,
-    ready,
-  }
-}
-
-// Profile card — popover anchored at the click point on desktop, bottom sheet on mobile.
-// Identity, about, status, and presence are read from the global profile map
-// whenever a userId is present. Static cards use their supplied display data.
-export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpdateStatus, onOpenOwnerProfile, onOpenBotAudit, initialStatusEmoji, initialStatusText, activityStatusEmoji, activityStatusText, embedded, extension }: {
+type ProfileCardProps = {
   data: Profile
   x: number
   y: number
@@ -234,6 +87,23 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
   // profile interaction still uses the anchored popover / mobile sheet.
   embedded?: boolean
   extension?: boolean
+}
+
+export function ProfileCard(props: ProfileCardProps) {
+  if (props.isSelf && props.data.userId) return <SelfProfileCard {...props} />
+  return <ProfileCardContent {...props} hasSelfRunningBots={false} />
+}
+
+function SelfProfileCard(props: ProfileCardProps) {
+  const { runningBots } = useRunningOwnedBots()
+  return <ProfileCardContent {...props} hasSelfRunningBots={runningBots.length > 0} />
+}
+
+// Profile card — popover anchored at the click point on desktop, bottom sheet on mobile.
+// Identity, about, status, and presence are read from the global profile map
+// whenever a userId is present. Static cards use their supplied display data.
+function ProfileCardContent({ data, x, y, bp, onClose, onMessage, isSelf, onUpdateStatus, onOpenOwnerProfile, onOpenBotAudit, initialStatusEmoji, initialStatusText, activityStatusEmoji, activityStatusText, embedded, extension, hasSelfRunningBots }: ProfileCardProps & {
+  hasSelfRunningBots: boolean
 }) {
   const [msg, setMsg] = useState("")
   const [open, setOpen] = useState(true)
@@ -271,14 +141,16 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
   const mutual = data.mutual ?? 0
   const botIdentity = data.identity?.kind === "bot" ? data.identity : null
   const showOwnedBotCard = Boolean(botIdentity?.ownedByViewer && data.userId)
+  const showSelfRunningBots = Boolean(isSelf && data.userId && hasSelfRunningBots)
+  const showSecondaryCards = showOwnedBotCard || showSelfRunningBots
   const {
     popoverRef,
     cardRef,
     previewRef,
     position: previewPosition,
     ready: previewReady,
-  } = useAuditPreviewPosition(
-    showOwnedBotCard && !mobile && !embedded && !extension,
+  } = useProfileSecondaryPosition(
+    showSecondaryCards && !mobile && !embedded && !extension,
     data.userId,
     x,
     y,
@@ -460,7 +332,12 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
     </>
   )
 
-  const secondaryCards = showOwnedBotCard && data.userId ? (
+  const secondaryCards = showSelfRunningBots ? (
+    <ProfileRunningBotsCard
+      onOpenBotAudit={onOpenBotAudit}
+      useBackdropEffect={!mobile}
+    />
+  ) : showOwnedBotCard && data.userId ? (
     <BotMarkSticker
       botId={data.userId}
       active={isBotActivityActive(activityStatus.emoji, activityStatus.text)}

@@ -20,6 +20,7 @@ import {
   consumeQueuedCommunityOnboarding,
   queueCommunityOnboarding,
   readCommunityOnboardingState,
+  recoverCommunityOnboardingHarness,
   recoverCommunityOnboardingMachine,
   skipCommunityOnboarding,
   startCommunityOnboarding,
@@ -111,6 +112,25 @@ describe("community onboarding journey", () => {
       machineRecovery: true,
     });
     expect(analytics.stageCompleted).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns to harness selection without completing machine or retaining stale choices", () => {
+    startCommunityOnboarding({ guideAvatarSeed: "guide-face-7" });
+    advanceCommunityOnboarding("harness", "machine", { harness: "codex" });
+    updateCommunityOnboardingResources({ machineId: "stale-machine" });
+
+    recoverCommunityOnboardingHarness();
+
+    expect(readCommunityOnboardingState()).toEqual({
+      status: "active",
+      stage: "harness",
+      guideAvatarSeed: "guide-face-7",
+    });
+    expect(analytics.stageCompleted).toHaveBeenCalledOnce();
+    expect(analytics.stageCompleted).toHaveBeenCalledWith("harness");
+
+    recoverCommunityOnboardingHarness();
+    expect(analytics.stageCompleted).toHaveBeenCalledOnce();
   });
 
   it("clears an explicit skip and allows manual retry", () => {

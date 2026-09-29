@@ -110,6 +110,16 @@ export function OnboardingSelectDialogPreview({
           setMode("identity")
           setValue("")
         }}
+        onChooseAnotherHarness={() => {
+          setHarness("")
+          setValue("")
+          setMode("harness")
+        }}
+        onManageMachines={() => {
+          setHarness("")
+          setValue("")
+          setMode("harness")
+        }}
       />
     )
   }

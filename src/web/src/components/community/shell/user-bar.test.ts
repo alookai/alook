@@ -1,10 +1,46 @@
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
+import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 import { UserBar, UserBarSkeleton } from "./user-bar"
 import { tid } from "@/lib/community/testids"
 
 describe("UserBar", () => {
+  it("adds a geometry-neutral running-bot ring and accessible count only while bots are live", () => {
+    const running = renderToStaticMarkup(createElement(UserBar, {
+      breakpoint: "desktop",
+      user: { id: "u1", name: "User", avatar: "U", runningBotCount: 2 },
+    }))
+    const idle = renderToStaticMarkup(createElement(UserBar, {
+      breakpoint: "desktop",
+      user: { id: "u1", name: "User", avatar: "U", runningBotCount: 0 },
+    }))
+
+    expect(running).toContain(`data-testid="${tid.userBarRunningBotsRing}"`)
+    expect(running).toContain(`data-testid="${tid.userBarRunningBotsGlow}"`)
+    expect(running).toContain('aria-label="Open profile. 2 running bots."')
+    expect(running).toContain("relative grid size-7 place-items-center rounded-full")
+    expect(running).toContain("pointer-events-none absolute -inset-0.5")
+    expect(running).toContain("focus-visible:ring-offset-4")
+    expect(running).toContain("focus-visible:ring-offset-muted")
+    expect(running).toContain("var(--primary)")
+    expect(running).not.toContain("var(--status-online)")
+    expect(idle).toContain('aria-label="Open profile"')
+    expect(idle).not.toContain(tid.userBarRunningBotsRing)
+    expect(idle).not.toContain(tid.userBarRunningBotsGlow)
+  })
+
+  it("keeps the gradient ring static while reduced motion disables only its glow", () => {
+    const css = readFileSync(new URL("../../../app/globals.css", import.meta.url), "utf8")
+    const reducedMotion = css.slice(css.indexOf("@keyframes user-bar-running-bots-breathe"))
+
+    expect(reducedMotion).toContain(".user-bar-running-bots-glow")
+    expect(reducedMotion).toContain("animation: user-bar-running-bots-breathe 2.8s")
+    expect(reducedMotion).toContain("@media (prefers-reduced-motion: reduce)")
+    expect(reducedMotion).toContain("animation: none")
+    expect(reducedMotion).not.toContain("community-user-bar-running-bots-ring")
+  })
+
   it("keeps the name shrinkable and truncated while the action group stays fixed", () => {
     const html = renderToStaticMarkup(createElement(UserBar, {
       breakpoint: "desktop",
@@ -80,6 +116,25 @@ describe("UserBar", () => {
       inboxOpen: false,
     }))
     expect(closedHtml).toContain(
+      'class="flex h-12 items-center gap-3 border border-border/40 bg-muted px-4 rounded-xl"',
+    )
+
+    const profileHtml = renderToStaticMarkup(createElement(UserBar, {
+      breakpoint: "mobile",
+      user: { id: "u1", name: "User", avatar: "U" },
+      extension: {
+        active: "profile",
+        inbox: null,
+        profile: createElement("div", null, "Profile"),
+        update: null,
+        updateBadgePhase: null,
+        eligibleMachines: [],
+        onOpenUpdate: () => {},
+        onRequestUpdate: () => {},
+        onDismiss: () => {},
+      },
+    }))
+    expect(profileHtml).toContain(
       'class="flex h-12 items-center gap-3 border border-border/40 bg-muted px-4 rounded-xl"',
     )
   })

@@ -2,10 +2,6 @@
 
 /* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V4 */
 
-import {
-  BOT_ACTIVITY_PRESETS,
-  RUNNING_PRESETS,
-} from "@alook/shared"
 import { Activity, ChevronRight, Lock } from "lucide-react"
 import { useEffect, useState } from "react"
 import { useBotAuditPreview } from "@/hooks/community/use-bot-audit-preview"
@@ -16,35 +12,10 @@ import {
 } from "@/lib/community/audit-event-summary"
 import { tid } from "@/lib/community/testids"
 
-type StatusPair = { emoji: string; text: string }
 type BotAuditTone = "default" | "note"
 
 const BOT_NOTE_ROW_CLASS = "grid min-h-5 shrink-0 grid-cols-[3.25rem_minmax(0,1fr)] items-center gap-2 px-[2px] text-xs leading-5"
 const BOT_NOTE_TIME_CLASS = "whitespace-nowrap font-mono text-[10px] tabular-nums text-black"
-
-function matchesStatus(
-  emoji: string | null | undefined,
-  text: string | null | undefined,
-  pair: StatusPair,
-): boolean {
-  return emoji === pair.emoji && text === pair.text
-}
-
-export function isBotActivityActive(
-  emoji: string | null | undefined,
-  text: string | null | undefined,
-): boolean {
-  return matchesStatus(emoji, text, BOT_ACTIVITY_PRESETS.starting)
-    || matchesStatus(emoji, text, BOT_ACTIVITY_PRESETS.stopping)
-    || isBotActivityRunning(emoji, text)
-}
-
-export function isBotActivityRunning(
-  emoji: string | null | undefined,
-  text: string | null | undefined,
-): boolean {
-  return RUNNING_PRESETS.some((pair) => matchesStatus(emoji, text, pair))
-}
 
 export function BotAuditPreview({
   botId,
