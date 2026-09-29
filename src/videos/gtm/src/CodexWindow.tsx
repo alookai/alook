@@ -1,0 +1,20 @@
+import {codexScrollAt} from './opening-cursor';
+import React from 'react';
+import {ProviderLogo} from '@/components/provider-logo';
+import {playbackAge} from './message-motion';
+import { relayRequests } from './opening-relay';
+import { ArrowUp, Plus, ChevronDown, Folder, Search, SquarePen, Blocks, GitPullRequest, Clock, Settings, PanelLeft, Terminal, Mic, ShieldAlert, Laptop } from 'lucide-react';
+export function CodexWindow({typed,t,title="Build the launch page",openingRelay=false}:{typed:string;t:number;title?:string;openingRelay?:boolean}) {
+ const relay=openingRelay?relayRequests.find(r=>t>=r.pasteMenu-.15&&t<r.send+.15):undefined;
+ const scroll=codexScrollAt(t);
+ return <div className="codex-reference-ui">
+  <aside className="codex-sidebar"><div className="codex-traffic"><i/><i/><i/><PanelLeft size={13}/></div><nav><span><SquarePen/>New chat</span><span><Search/>Search</span><span><Blocks/>Plugins</span><span><GitPullRequest/>Pull requests</span><span><Clock/>Automations</span></nav><small>Threads <Folder size={12}/></small><div className="codex-thread active">{title}</div><div className="codex-thread">Review mobile layout</div><div className="codex-settings"><Settings size={13}/>Settings</div></aside>
+  <main className="codex-main"><header><b>{openingRelay?'Codex · Local coding agent':title}</b><span>fieldnotes</span><span>···</span><Terminal size={14}/></header><section className="codex-conversation" style={openingRelay?{position:'absolute',top:39,bottom:148,left:0,right:0,overflow:'hidden',padding:0}:undefined}>{openingRelay?<div style={{padding:'12px 22px',translate:`0 ${-scroll}px`}}>
+ <div style={{height:110}}><div className="codex-user-message">Build team invites for the app.</div><p style={{fontSize:16}}>I’m working on team invites.</p></div>
+ {relayRequests.filter(r=>t>=r.send).map(r=>{const copying=t>=r.answerCopy&&t<r.compose;const reply=r.reply.slice(0,Math.floor(r.reply.length*Math.max(0,Math.min(1,(t-r.replyStart)/(r.replyEnd-r.replyStart)))));return <div key={r.send} style={{height:210,position:'relative'}}>
+ <div className="codex-user-message">{r.text}</div>
+ {t>=r.replyStart&&<div className="codex-agent-reply"><div className="codex-agent-identity"><ProviderLogo provider="codex" className="codex-reply-logo"/><b>Codex</b><span>Local coding agent</span></div><p className="codex-stream"><span style={{background:copying?'#b9dcff':undefined}}>{reply}</span>{t<r.replyEnd&&<span className="codex-text-caret"/>}</p>{copying&&<div className="pr-agent-copy chosen" style={{top:150,right:20}}>Copy <span>⌘C</span></div>}{t>=r.replyEnd&&<div className="codex-agent-working">Local changes · Tests passed</div>}</div>}
+ </div>})}
+ </div>:<><div className="codex-user-message">{title==="Write invitation copy"?"Help me write a clear invitation email.":t<5.05?'Build the launch page for our new website.':t<6.95?'Add team invites to the app':t<8.5?'Also add a password reset flow':'Use a migration. Do not touch production'}</div><p>{title==="Write invitation copy"?"I’ll review the invitation flow and the existing copy.":"I’ll check the project structure and the existing page."}</p><div className="codex-tool"><ChevronDown size={12}/>Explored 3 files, 1 search</div><p>{title==="Write invitation copy"?"Preparing the invitation email…":"Working on the launch page…"}</p></>}</section><div className="codex-input">{relay&&t>=relay.pasteMenu&&t<relay.paste&&<div className="relay-context-menu" style={{left:28,bottom:85}}><div className={t>=relay.pasteHover?"chosen":""}>Paste <span>⌘V</span></div></div>}<div className="codex-typed">{typed}<span className="codex-text-caret"/></div><footer><Plus size={17}/><span className="codex-access"><ShieldAlert size={12}/>Full access<ChevronDown size={11}/></span><div/><span>gpt-latest<ChevronDown size={11}/></span><span>high<ChevronDown size={11}/></span><Mic size={14}/><b><ArrowUp size={18}/></b></footer></div><div className="codex-local"><Laptop size={12}/>{openingRelay?'Running on Lin’s MacBook':'Work locally'}<ChevronDown size={10}/></div></main>
+ </div>
+}
