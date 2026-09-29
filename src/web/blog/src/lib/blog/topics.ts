@@ -85,6 +85,10 @@ export const blogTopics = [
         userJob: "Judge whether a shared workspace actually works",
       },
       {
+        slug: "alook-vs-buzz",
+        userJob: "Choose between Alook and Buzz by Block for shared agent work",
+      },
+      {
         slug: "humans-and-ai-agents-in-one-room",
         userJob: "Bring multiple people's agents into one shared room",
       },
