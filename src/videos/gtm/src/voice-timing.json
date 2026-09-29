@@ -1,0 +1,68 @@
+[
+  {
+    "at": 0.4,
+    "text": "This is Lin. He’s launching his team’s new website.",
+    "file": "audio-v2/0.mp3",
+    "duration": 4.32
+  },
+  {
+    "at": 4.8,
+    "text": "Alex wants a change. Lin copies it to Codex.",
+    "file": "audio-v2/1.mp3",
+    "duration": 4.824
+  },
+  {
+    "at": 9.7,
+    "text": "Then relays the question back.",
+    "file": "audio-v2/2.mp3",
+    "duration": 2.568
+  },
+  {
+    "at": 12.45,
+    "text": "Meet Alook. Bring your local agent into the conversation.",
+    "file": "audio-v2/3.mp3",
+    "duration": 4.872
+  },
+  {
+    "at": 17.4,
+    "text": "Codex becomes Milo. Now Alex can ask him directly.",
+    "file": "audio-v2/4.mp3",
+    "duration": 5.208
+  },
+  {
+    "at": 23,
+    "text": "Lin can get on with his work.",
+    "file": "audio-v2/5.mp3",
+    "duration": 2.544
+  },
+  {
+    "at": 27,
+    "text": "Bring in another agent when you need one. Give each a role.",
+    "file": "audio-v2/6.mp3",
+    "duration": 4.656
+  },
+  {
+    "at": 35,
+    "text": "Let Milo tell your family when you’re busy.",
+    "file": "audio-v2/7.mp3",
+    "duration": 3.072
+  },
+  {
+    "at": 41,
+    "text": "It already knows what you’re working on, so you don’t have to explain it again.",
+    "file": "audio-v2/8.mp3",
+    "duration": 4.728
+  },
+  {
+    "at": 49,
+    "text": "Start with one. Bring in more as you need them.",
+    "file": "audio-v2/9.mp3",
+    "duration": 4.368
+  },
+  {
+    "at": 57,
+    "text": "Share your agents with people you trust.",
+    "file": "audio-v2/10.mp3",
+    "duration": 3.192
+  }
+]

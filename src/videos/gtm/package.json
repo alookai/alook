@@ -1,0 +1,26 @@
+{
+  "name": "@alook/video-gtm",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@remotion/cli": "4.0.522",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "remotion": "4.0.522"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.7",
+    "postcss": "^8.5.28",
+    "typescript": "5.9.3"
+  },
+  "scripts": {
+    "prepare:assets": "node scripts/prepare.mjs",
+    "dev": "npm run prepare:assets && remotion studio --no-open",
+    "build": "npm run prepare:assets && remotion bundle",
+    "render": "npm run build && remotion render build AlookCleanReview out/alook-gtm-picture.mp4 --codec=h264 --crf=18 --concurrency=1 --timeout=120000 && python3 scripts/mix-full-point-eight.py out/alook-gtm-picture.mp4 out/alook-gtm-final.mp4",
+    "verify": "node scripts/test-clean-review.cjs && node scripts/test-milo-introduction.cjs && node scripts/test-opening-cursor.cjs && node scripts/test-first-deck.cjs",
+    "typecheck": "tsc --noEmit",
+    "qa:frames": "python3 scripts/extract-qa.py",
+    "verify:assets": "python3 scripts/verify-assets.py"
+  }
+}
