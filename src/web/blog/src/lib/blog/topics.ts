@@ -89,6 +89,10 @@ export const blogTopics = [
         userJob: "Choose between Alook and Buzz by Block for shared agent work",
       },
       {
+        slug: "alook-vs-grok-bot",
+        userJob: "Compare Alook and Grok Bot by setup, always-on work, and Bot sharing.",
+      },
+      {
         slug: "humans-and-ai-agents-in-one-room",
         userJob: "Bring multiple people's agents into one shared room",
       },
