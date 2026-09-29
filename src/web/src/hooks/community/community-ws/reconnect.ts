@@ -331,6 +331,7 @@ export type CommunityWsReconcileSummary = {
 
 type CommunityWsReconnectOptions = {
   excludePolicies?: readonly CommunityWsReconcilePolicy[]
+  policies?: readonly CommunityWsReconcilePolicy[]
   viewerUserId?: string | null
 }
 
@@ -342,7 +343,10 @@ export async function reconcileCommunityWsReconnect(
   const startedAt = Date.now()
   const executors = policyExecutors(queryClient, options.viewerUserId)
   const excludedPolicies = new Set(options.excludePolicies ?? [])
-  const policies = communityWsReconnectPolicies.filter((policy) => !excludedPolicies.has(policy))
+  const requestedPolicies = options.policies ? new Set(options.policies) : null
+  const policies = communityWsReconnectPolicies.filter((policy) => (
+    !excludedPolicies.has(policy) && (requestedPolicies === null || requestedPolicies.has(policy))
+  ))
   const resetPolicies = policies.filter((policy) => RESET_POLICIES.has(policy))
   const focusedMessagePolicies = policies.filter((policy) => policy === "focused-messages")
   const focusedRoutePolicies = policies.filter(

@@ -37,6 +37,7 @@ import { getMessageOverlay, useMessageStreamStore } from "@/stores/community/mes
 import {
   SEEN_DELIVERY_OPERATION_MAX,
   SEEN_DELIVERY_OPERATION_TRIM_TO,
+  useCommunityWsStore,
 } from "@/stores/community/ws"
 import {
   registerReadSurface,
@@ -353,7 +354,7 @@ describe("useCommunityWs — operation bundles", () => {
     }
   })
 
-  it("decodes all children before one dispatch, deduplicates invalidations, and suppresses same-digest replay", async () => {
+  it("skips duplicate projection while reconciling the batch policy union", async () => {
     vi.useFakeTimers()
     try {
       await mountHook({ viewerUserId: "viewer-1" })
@@ -380,16 +381,72 @@ describe("useCommunityWs — operation bundles", () => {
       expect(attentionReconcileCount()).toBe(1)
 
       const callsAfterFirst = vi.mocked(capturedQueryClient.invalidateQueries).mock.calls.length
+      const seenMessagesAfterFirst = useCommunityWsStore.getState().seenMessageIds.size
+      const overlayAfterFirst = getMessageOverlay({
+        kind: "channel",
+        id: "ch-1",
+        serverId: "server-1",
+      })
       capturedOnMessage!(frame)
       await vi.advanceTimersByTimeAsync(500)
       expect(vi.mocked(capturedQueryClient.invalidateQueries)).toHaveBeenCalledTimes(callsAfterFirst)
       expect(attentionReconcileCount()).toBe(1)
-      const { useCommunityWsStore } = await import("@/stores/community/ws")
+      expect(useCommunityWsStore.getState().seenMessageIds.size).toBe(seenMessagesAfterFirst)
+      expect(getMessageOverlay({ kind: "channel", id: "ch-1", serverId: "server-1" }))
+        .toBe(overlayAfterFirst)
+      expect(reconcileCommunityWsReconnect).toHaveBeenCalledWith(
+        capturedQueryClient,
+        0,
+        {
+          policies: ["focused-messages", "inbox-dms", "all-cached-servers"],
+          viewerUserId: "viewer-1",
+        },
+      )
       expect(useCommunityWsStore.getState().seenDeliveryOperations.get(frame.operationId))
         .toEqual({ digest: frame.operationDigest, completed: true })
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it("retries duplicate freshness after a rejected reconciliation without reprojecting", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    await mountHook({ viewerUserId: "viewer-1" })
+    const frame = await batchFor("duplicate-retry", [
+      { ...message, message: { ...message.message, id: "duplicate-retry" } },
+    ])
+
+    capturedOnMessage!(frame)
+    const { useCommunityWsStore } = await import("@/stores/community/ws")
+    const seenMessagesAfterFirst = useCommunityWsStore.getState().seenMessageIds.size
+    const overlayAfterFirst = getMessageOverlay({
+      kind: "channel",
+      id: "ch-1",
+      serverId: "server-1",
+    })
+    reconcileCommunityWsReconnect.mockRejectedValueOnce(new Error("freshness unavailable"))
+
+    capturedOnMessage!(frame)
+    await vi.waitFor(() => {
+      expect(warn).toHaveBeenCalledWith(
+        "[ws] batch reconciliation failed",
+        expect.objectContaining({ reason: "duplicate-replay" }),
+      )
+    })
+    capturedOnMessage!(frame)
+    await vi.waitFor(() => expect(reconcileCommunityWsReconnect).toHaveBeenCalledTimes(2))
+
+    expect(reconcileCommunityWsReconnect).toHaveBeenLastCalledWith(
+      capturedQueryClient,
+      0,
+      {
+        policies: ["focused-messages", "inbox-dms"],
+        viewerUserId: "viewer-1",
+      },
+    )
+    expect(useCommunityWsStore.getState().seenMessageIds.size).toBe(seenMessagesAfterFirst)
+    expect(getMessageOverlay({ kind: "channel", id: "ch-1", serverId: "server-1" }))
+      .toBe(overlayAfterFirst)
   })
 
   it("treats an ambiguous same-channel bundle as sticky instead of temporally pairing", async () => {
@@ -862,7 +919,6 @@ describe("useCommunityWs — operation bundles", () => {
 
         expect(invalidationCount(communityKeys.inbox())).toBe(1)
         expect(invalidationCount(communityKeys.dms())).toBe(1)
-        const { useCommunityWsStore } = await import("@/stores/community/ws")
         expect(useCommunityWsStore.getState().seenDeliveryOperations.get(frame.operationId))
           .toEqual({ digest: frame.operationDigest, completed: true })
         releaseReadSurface(lease)

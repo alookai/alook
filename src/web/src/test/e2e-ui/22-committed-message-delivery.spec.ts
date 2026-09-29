@@ -179,31 +179,26 @@ test.describe.serial("committed message delivery QA", () => {
     expect(gapRequests.length).toBeGreaterThan(0)
   })
 
-  test("Q8: capable duplicate suppression ends safely at full reload", async ({ asUser }) => {
+  test("Q8: completed duplicate replay reconciles latest authoritative state", async ({ asUser }) => {
     const serverId = await seedServer("alice", `Atomic batch ${Date.now()}`)
     const channelId = await seedChannel("alice", serverId, "atomic-batch")
     await seedJoinServer("alice", "bob", serverId)
     const bobInfo = await memberInfo("alice", serverId, userId("bob"))
 
     const bob = await asUser("bob")
-    let armed = false
-    let duplicated = false
+    let dropLatest = false
+    let droppedLatest = false
     const body = `atomic duplicate ${Date.now()}`
-    const serverRequests: string[] = []
-    bob.page.on("request", (request) => {
-      if (new URL(request.url()).pathname === "/api/community/servers") {
-        serverRequests.push(request.url())
-      }
-    })
+    const latestBody = `authoritative latest ${Date.now()}`
     const proxy = await proxyCommunityWebSockets(bob.context, { decide: (frame) => {
       if (
-        armed
-        && !duplicated
+        dropLatest
+        && !droppedLatest
         && frame.type === "community:events.batch"
-        && messageFrame(frame, channelId, body)
+        && messageFrame(frame, channelId, latestBody)
       ) {
-        duplicated = true
-        return "duplicate"
+        droppedLatest = true
+        return "drop"
       }
       return "forward"
     } })
@@ -212,14 +207,13 @@ test.describe.serial("committed message delivery QA", () => {
 
     const alice = await asUser("alice")
     await gotoAfterUserWsAuth(alice.page, `/c/channels/${serverId}/${channelId}`)
-    armed = true
     const editable = composerEditable(alice.page)
     await editable.click()
     await editable.pressSequentially(`@${bobInfo.name.slice(0, 3)}`)
     await alice.page.getByTestId(tid.mentionOption(bobInfo.id)).click()
     await editable.pressSequentially(` ${body}`)
     await alice.page.keyboard.press("Enter")
-    await expect.poll(() => duplicated, { timeout: 20_000 }).toBe(true)
+    await expectMessageVisible(bob.page, body)
 
     const batches = proxy.frames.filter((frame) =>
       frame.type === "community:events.batch" && messageFrame(frame, channelId, body))
@@ -236,15 +230,24 @@ test.describe.serial("committed message delivery QA", () => {
     expect(messageId).toBeTruthy()
     await expect(bob.page.getByTestId(tid.message(messageId!))).toHaveCount(1)
 
-    const requestsBeforeReload = serverRequests.length
-    await gotoAfterUserWsAuth(bob.page, `/c/channels/${serverId}/${channelId}`)
-    await expect(bob.page.getByTestId(tid.message(messageId!))).toHaveCount(1)
-    await expect.poll(() => serverRequests.length, { timeout: 20_000 })
-      .toBeGreaterThan(requestsBeforeReload)
-    const requestsBeforeReplay = serverRequests.length
+    dropLatest = true
+    await editable.click()
+    await editable.pressSequentially(`@${bobInfo.name.slice(0, 3)}`)
+    await alice.page.getByTestId(tid.mentionOption(bobInfo.id)).click()
+    await editable.pressSequentially(` ${latestBody}`)
+    await alice.page.keyboard.press("Enter")
+    await expect.poll(() => droppedLatest, { timeout: 20_000 }).toBe(true)
+    await expect(bob.page.getByText(latestBody, { exact: false })).toHaveCount(0)
+
+    const serverReconciliation = bob.page.waitForResponse((response) => (
+      response.request().method() === "GET"
+      && new URL(response.url()).pathname === "/api/community/servers"
+    ))
     proxy.replay(batch)
-    await expect.poll(() => serverRequests.length, { timeout: 20_000 })
-      .toBeGreaterThan(requestsBeforeReplay)
+    expect((await serverReconciliation).ok()).toBe(true)
+
+    await expectMessageVisible(bob.page, latestBody)
+    await expect(bob.page.getByText(latestBody, { exact: false })).toHaveCount(1)
     await expect(bob.page.getByTestId(tid.message(messageId!))).toHaveCount(1)
   })
 

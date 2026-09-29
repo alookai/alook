@@ -17,6 +17,7 @@ import {
   reconcileFocusedCommunityMessages,
 } from "@/hooks/community/community-ws/reconnect"
 import {
+  communityWsReconnectPoliciesForEvents,
   dispatchCommunityWsEvent,
   dispatchCommunityWsEvents,
 } from "@/hooks/community/community-ws/registry"
@@ -399,6 +400,17 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
           })
         })
       }
+      const reconcileDeliveryReplay = (events: readonly CommunityWsEvent[]) => {
+        void reconcileCommunityWsReconnect(queryClient, 0, {
+          policies: communityWsReconnectPoliciesForEvents(events),
+          viewerUserId: viewerUserIdRef.current,
+        }).catch(() => {
+          console.warn("[ws] batch reconciliation failed", {
+            event: "community_ws_batch_reconciliation_failed",
+            reason: "duplicate-replay",
+          })
+        })
+      }
 
       if (isCommunityBrowserEventBatchCandidate(msg)) {
         const decoded = decodeCommunityBrowserEventBatch(msg)
@@ -425,7 +437,10 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
           viewerUserIdRef.current,
         )
         const operationKey = `delivery:${decoded.batch.operationId}:${decoded.batch.operationDigest}`
-        if (operationStatus === "duplicate") return
+        if (operationStatus === "duplicate") {
+          reconcileDeliveryReplay(decoded.events)
+          return
+        }
         if (operationStatus === "conflict") {
           console.warn("[ws] delivery operation digest conflict", {
             event: "community_ws_delivery_operation_conflict",

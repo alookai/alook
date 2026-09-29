@@ -115,6 +115,21 @@ export function dispatchCommunityWsEvent(
   dispatchCommunityWsEvents([event], context)
 }
 
+export function communityWsReconnectPoliciesForEvents(
+  events: readonly CommunityWsEvent[],
+): CommunityWsReconcilePolicy[] {
+  const policies: CommunityWsReconcilePolicy[] = []
+  const seen = new Set<CommunityWsReconcilePolicy>()
+  for (const event of events) {
+    for (const policy of communityWsRegistry[event.type].reconnectPolicies) {
+      if (seen.has(policy)) continue
+      seen.add(policy)
+      policies.push(policy)
+    }
+  }
+  return policies
+}
+
 export function dispatchCommunityWsEvents(
   events: readonly CommunityWsEvent[],
   context: CommunityWsDispatchContext,

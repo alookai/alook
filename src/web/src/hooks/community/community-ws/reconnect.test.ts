@@ -629,6 +629,24 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     expect(summary).toMatchObject({ policyCount: 14, successCount: 14, failureCount: 0 })
   })
 
+  it("runs only the requested event-policy union for a delivery replay", async () => {
+    const { reconcileCommunityWsReconnect } = await import("./reconnect")
+    const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
+
+    const summary = await reconcileCommunityWsReconnect(capturedQueryClient, 0, {
+      policies: ["friends", "machines", "friends"],
+    })
+
+    const keys = spy.mock.calls.map(([filters]) => JSON.stringify(filters.queryKey))
+    expect(keys).toContain(JSON.stringify(communityKeys.friends()))
+    expect(keys).toContain(JSON.stringify(communityKeys.machines()))
+    expect(keys).not.toContain(JSON.stringify(communityKeys.inbox()))
+    expect(getCommunityApiFetchMock().mock.calls.some(
+      ([url]) => url === "/api/community/servers",
+    )).toBe(false)
+    expect(summary).toMatchObject({ policyCount: 2, successCount: 2, failureCount: 0 })
+  })
+
   it("actively refetches cached Friends and canonical attention after a socket gap", async () => {
     const { reconcileCommunityWsReconnect } = await import("./reconnect")
     const queryClient = new QueryClient({
