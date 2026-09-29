@@ -402,7 +402,8 @@ fn should_close_splash(frontend_ready: bool, min_elapsed: bool, max_wait_elapsed
 #[cfg(desktop)]
 pub fn splash_html() -> String {
     let logo = include_str!("../../../../assets/alook.svg");
-    let mut html = String::with_capacity(logo.len() + 6_144);
+    let motion = include_str!("../../../web/src/components/brand/alook-loading/motion.js");
+    let mut html = String::with_capacity(logo.len() + motion.len() + 5_120);
     html.push_str(
         r#"<!doctype html><html><head><meta charset="utf-8"><style>
 *{margin:0;padding:0;box-sizing:border-box}
@@ -417,9 +418,10 @@ html,body{width:100%;height:100%;overflow:hidden;background:transparent;display:
 </style></head><body><div id="stage" role="status" aria-label="Loading"><div id="canvas"><div id="clip"><div id="orbit"></div></div></div></div><template id="source">"#,
     );
     html.push_str(logo);
+    html.push_str(r##"</template><script type="module">"##);
+    html.push_str(motion);
     html.push_str(
-        r##"</template><script>
-const DURATION=540;
+        r##"
 const bots=[
   {face:"red",x:-100,y:-45,scale:.8,tilt:8},
   {face:"purple",x:-20,y:-55,scale:.78,tilt:-9},
@@ -448,21 +450,6 @@ const faces=bots.map((bot,index)=>{
   (index<4?orbitElement:clip).appendChild(wrapper);
   return {wrapper,art,expressions:[...group.querySelectorAll('[data-part="expression"]')],pupils};
 });
-function smooth(value){const t=Math.max(0,Math.min(1,value));return t*t*t*(t*(t*6-15)+10)}
-function motionAt(frame){
-  const merge=smooth(frame/144);
-  const split=smooth((frame-204)/144);
-  const joined=merge-split;
-  const times=[348,384,414,450,486,510];
-  const values=[0,-1,-1,1,1,0];
-  let look=0;
-  for(let index=0;index<times.length-1;index+=1){
-    if(frame>=times[index]&&frame<times[index+1]){
-      look=values[index]+(values[index+1]-values[index])*smooth((frame-times[index])/(times[index+1]-times[index]));
-    }
-  }
-  return {joined,orbit:((merge+split)*1080)%360,look};
-}
 function apply(frame){
   const {joined,orbit,look}=motionAt(frame);
   clip.style.clipPath=`inset(${-300*(1-joined)}px round ${152.109375*joined}px)`;
@@ -491,7 +478,7 @@ function tick(now){
 function sync(){
   cancelAnimationFrame(request);
   last=undefined;
-  if(media.matches)apply(180);
+  if(media.matches)apply(REDUCED_MOTION_FRAME);
   else if(!document.hidden)request=requestAnimationFrame(tick);
 }
 media.addEventListener("change",sync);
@@ -986,22 +973,25 @@ mod tests {
     fn desktop_splash_matches_the_main_unknown_neutral_motion() {
         let html = splash_html();
         let canonical = include_str!("../../../../assets/alook.svg");
-        let web_motion = include_str!("../../../web/src/components/brand/alook-loading/motion.ts");
+        let web_motion = include_str!("../../../web/src/components/brand/alook-loading/motion.js");
         let web_frame =
             include_str!("../../../web/src/components/brand/alook-loading/LoadingFrame.tsx");
 
         assert!(html.contains(canonical));
         assert!(html.contains("#stage{position:relative;width:192px;height:192px"));
-        assert!(html.contains("const DURATION=540"));
-        assert!(html.contains("const times=[348,384,414,450,486,510]"));
-        assert!(html.contains("const values=[0,-1,-1,1,1,0]"));
-        assert!(html.contains("orbit:((merge+split)*1080)%360"));
+        assert!(html.contains("<script type=\"module\">"));
+        assert_eq!(html.match_indices(web_motion).count(), 1);
+        assert_eq!(html.matches("export const DURATION = 540").count(), 1);
+        assert_eq!(html.matches("export const motionAt").count(), 1);
+        assert!(!html.contains("const DURATION=540"));
+        assert!(!html.contains("function motionAt("));
+        assert!(!html.contains("function smooth("));
         assert!(html.contains("expressionOpacity=index===4?1:1-smooth((joined-.45)/.55)"));
-        assert!(html.contains("apply(180)"));
+        assert!(html.contains("apply(REDUCED_MOTION_FRAME)"));
         assert!(html.contains("prefers-reduced-motion: reduce"));
         assert!(!html.contains("data:image/png"));
-        assert!(web_motion.contains("export const DURATION = 540"));
-        assert!(web_motion.contains("const times = [348, 384, 414, 450, 486, 510]"));
+        assert!(web_motion.contains("export const REDUCED_MOTION_FRAME = 0"));
+        assert!(web_motion.contains("const times = [204, 240, 270, 306, 342, 366]"));
         assert!(web_motion.contains("const values = [0, -1, -1, 1, 1, 0]"));
         assert!(web_frame.contains("width: 660"));
         assert!(web_frame.contains("height: 660"));

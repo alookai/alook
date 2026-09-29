@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { LoadingFrame } from "./LoadingFrame";
-import { DURATION } from "./motion";
+import { DURATION, REDUCED_MOTION_FRAME } from "./motion";
 export type AlookLoadingProps = {
   size?: number;
   paused?: boolean;
@@ -31,7 +31,7 @@ export const AlookLoading = ({
     const sync = () => {
       cancelAnimationFrame(request);
       last = undefined;
-      if (media.matches) setFrame(180);
+      if (media.matches) setFrame(REDUCED_MOTION_FRAME);
       else if (!paused && visible && !document.hidden)
         request = requestAnimationFrame(tick);
     };
