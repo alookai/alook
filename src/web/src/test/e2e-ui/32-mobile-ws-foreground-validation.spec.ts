@@ -1,6 +1,6 @@
 import { test, expect } from "./_fixtures/community-fixture"
 import { composerEditable, gotoAfterUserWsAuth, sendMessage } from "./_fixtures/actions"
-import { proxyCommunityWebSockets } from "./_fixtures/community-ws-proxy"
+import { communityFrameEvents, proxyCommunityWebSockets } from "./_fixtures/community-ws-proxy"
 import { seedChannel, seedJoinServer, seedServer } from "./_fixtures/seed"
 import { tid } from "./_fixtures/testids"
 import {
@@ -45,6 +45,7 @@ test("mobile foreground proof is exact, bounded, and recovers through one curren
   let dropValidationPong = false
   let holdReplacementAuth = false
   const proxy = await proxyCommunityWebSockets(alice.context, {
+    trackConnectionCloses: true,
     decideConnectionFrame: (frame) => {
       if (
         dropValidationPong
@@ -106,7 +107,7 @@ test("mobile foreground proof is exact, bounded, and recovers through one curren
     }, { next: state, shouldDispatch: dispatch })
     await expect.poll(() => alice.page.evaluate(() => document.visibilityState)).toBe(state)
   }
-  const dispatchDuplicateResumeSignals = async (persisted = true) => {
+  const dispatchDuplicateResumeSignals = async (persisted = false) => {
     await alice.page.evaluate((isPersisted) => {
       document.dispatchEvent(new Event("resume"))
       document.dispatchEvent(new Event("visibilitychange"))
@@ -181,6 +182,44 @@ test("mobile foreground proof is exact, bounded, and recovers through one curren
   expect(tokenRequests).toBe(initialTokenRequests)
   await expect(wsOverlay).toHaveCount(0)
   await expect(composerEditable(alice.page)).toBeVisible()
+
+  const bfcacheConnectionBaseline = proxy.connectionCount()
+  const bfcacheTokenBaseline = tokenRequests
+  const bfcacheFrameStart = proxy.connectionFrames.length
+  await alice.page.evaluate(() => {
+    window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }))
+  })
+  await expect.poll(() => proxy.connectionCloseObserved(bfcacheConnectionBaseline)).toBe(true)
+  await expect.poll(() => proxy.connectionCount()).toBe(bfcacheConnectionBaseline + 1)
+  await expect.poll(() => tokenRequests).toBe(bfcacheTokenBaseline + 1)
+  const restoredConnectionId = bfcacheConnectionBaseline + 1
+  await expect.poll(() => proxy.connectionFrames.slice(bfcacheFrameStart).filter((frame) =>
+    frame.connectionId === restoredConnectionId
+    && frame.direction === "client-to-server"
+    && frame.type === "auth",
+  ).length).toBe(1)
+  await expect.poll(() => proxy.connectionFrames.slice(bfcacheFrameStart).filter((frame) =>
+    frame.connectionId === restoredConnectionId
+    && frame.direction === "server-to-client"
+    && frame.type === "auth.ok",
+  ).length).toBe(1)
+  await expect(composerEditable(alice.page)).toBeVisible()
+  const bfcacheDeliveryStart = proxy.frames.length
+  const bfcacheBody = `bfcache restored ${stamp}`
+  await sendMessage(bob.page, bfcacheBody)
+  await expect.poll(() => proxy.frames.slice(bfcacheDeliveryStart).some((frame) =>
+    proxy.connectionIdFor(frame) === restoredConnectionId
+    && communityFrameEvents(frame).some((event) =>
+      event.type === "community:message.create"
+      && event.channelId === channelId
+      && event.message?.content?.includes(bfcacheBody)),
+  )).toBe(true)
+  await expect(alice.page.getByText(bfcacheBody, { exact: true })).toBeVisible()
+  await proxy.waitForCloseForwarding()
+  expect(proxy.closeForwardingFailures()).toEqual([])
+  await alice.page.waitForTimeout(250)
+  expect(proxy.connectionCount()).toBe(bfcacheConnectionBaseline + 1)
+  expect(tokenRequests).toBe(bfcacheTokenBaseline + 1)
 
   await setVisibility("hidden")
   const freezeFrameStart = proxy.connectionFrames.length
@@ -356,6 +395,8 @@ test("mobile foreground proof is exact, bounded, and recovers through one curren
   await sendMessage(bob.page, body)
   await expect(alice.page.getByText(body, { exact: true })).toBeVisible({ timeout: 20_000 })
   await expect(composerEditable(alice.page)).toBeVisible()
+  await proxy.waitForCloseForwarding()
+  expect(proxy.closeForwardingFailures()).toEqual([])
 
   await testInfo.attach("foreground-validation-frames.json", {
     body: Buffer.from(JSON.stringify({
@@ -368,6 +409,7 @@ test("mobile foreground proof is exact, bounded, and recovers through one curren
         "element-focus",
         "hidden-network-silence",
         "healthy-retained-validation",
+        "bfcache-persisted-remount",
         "freeze-resume",
         "focus-only-zombie-open",
         "foreground-event-storm",

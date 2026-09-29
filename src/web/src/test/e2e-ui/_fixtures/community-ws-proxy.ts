@@ -24,6 +24,12 @@ export type CapturedConnectionFrame = {
   at: number
 }
 
+export type CloseForwardingFailure = {
+  connectionId: number
+  direction: "browser-to-upstream" | "upstream-to-browser"
+  category: "sync-throw" | "async-reject"
+}
+
 type ConnectionFrameDecision = (
   frame: CapturedConnectionFrame,
 ) => "drop" | "forward" | "hold"
@@ -44,6 +50,10 @@ export type CommunityWsProxy = {
   frames: CapturedCommunityFrame[]
   connectionFrames: CapturedConnectionFrame[]
   connectionCount: () => number
+  connectionCloseObserved: (connectionId: number) => boolean
+  closeForwardingFailures: () => CloseForwardingFailure[]
+  waitForCloseForwarding: () => Promise<void>
+  connectionIdFor: (frame: CapturedCommunityFrame) => number | undefined
   heldCount: () => number
   heldConnectionCount: () => number
   releaseHeld: (predicate?: (frame: CapturedCommunityFrame) => boolean) => number
@@ -57,6 +67,7 @@ export type CommunityWsProxy = {
 export type CommunityWsProxyOptions = {
   decide?: FrameDecision
   decideConnectionFrame?: ConnectionFrameDecision
+  trackConnectionCloses?: boolean
 }
 
 function parseCommunityFrame(message: string | Buffer): CapturedCommunityFrame | null {
@@ -117,7 +128,11 @@ export async function proxyCommunityWebSockets(
   const held: HeldCommunityFrame[] = []
   const connectionFrames: CapturedConnectionFrame[] = []
   const heldConnectionFrames: HeldConnectionFrame[] = []
+  const observedClosedConnectionIds = new Set<number>()
+  const closeForwardingFailures: CloseForwardingFailure[] = []
+  const pendingCloseForwards = new Set<Promise<void>>()
   const payloads = new WeakMap<CapturedCommunityFrame, string | Buffer>()
+  const frameConnectionIds = new WeakMap<CapturedCommunityFrame, number>()
   let activeClient: WebSocketRoute | undefined
   let activeConnectionId: number | undefined
   let connectionCount = 0
@@ -127,6 +142,33 @@ export async function proxyCommunityWebSockets(
     activeClient = client
     activeConnectionId = connectionId
     const server = client.connectToServer()
+    if (options.trackConnectionCloses) {
+      let closeForwarded = false
+      const forwardClose = (
+        target: WebSocketRoute,
+        direction: CloseForwardingFailure["direction"],
+        code?: number,
+        reason?: string,
+      ) => {
+        observedClosedConnectionIds.add(connectionId)
+        if (closeForwarded) return
+        closeForwarded = true
+        let forwarding: Promise<void>
+        try {
+          forwarding = target.close({ code, reason })
+        } catch {
+          closeForwardingFailures.push({ connectionId, direction, category: "sync-throw" })
+          return
+        }
+        const watched = forwarding.catch(() => {
+          closeForwardingFailures.push({ connectionId, direction, category: "async-reject" })
+        })
+        pendingCloseForwards.add(watched)
+        void watched.finally(() => pendingCloseForwards.delete(watched))
+      }
+      client.onClose((code, reason) => forwardClose(server, "browser-to-upstream", code, reason))
+      server.onClose((code, reason) => forwardClose(client, "upstream-to-browser", code, reason))
+    }
     client.onMessage((message) => {
       const connectionFrame = parseConnectionFrame(message, "client-to-server", connectionId)
       if (connectionFrame) connectionFrames.push(connectionFrame)
@@ -147,6 +189,7 @@ export async function proxyCommunityWebSockets(
       if (frame) {
         frames.push(frame)
         payloads.set(frame, message)
+        frameConnectionIds.set(frame, connectionId)
         const decision = options.decide?.(frame) ?? "forward"
         if (decision === "drop") return
         if (decision === "hold") {
@@ -164,6 +207,10 @@ export async function proxyCommunityWebSockets(
     frames,
     connectionFrames,
     connectionCount: () => connectionCount,
+    connectionCloseObserved: (connectionId) => observedClosedConnectionIds.has(connectionId),
+    closeForwardingFailures: () => [...closeForwardingFailures],
+    waitForCloseForwarding: async () => { await Promise.all([...pendingCloseForwards]) },
+    connectionIdFor: (frame) => frameConnectionIds.get(frame),
     heldCount: () => held.length,
     heldConnectionCount: () => heldConnectionFrames.length,
     releaseHeld: (predicate = () => true) => {
