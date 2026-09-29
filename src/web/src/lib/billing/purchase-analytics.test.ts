@@ -97,6 +97,19 @@ describe("server GA4 purchase delivery", () => {
     }))
   })
 
+  it("sends exactly once when Stripe provides only the legacy invoice subscription", async () => {
+    currentInvoice = invoice({ parent: null, subscription: "sub_owner" })
+
+    await deliverInvoicePurchase(db, stripe, env, currentInvoice, "owner")
+
+    expect(stripe.subscriptions.retrieve).toHaveBeenCalledOnce()
+    expect(stripe.subscriptions.retrieve).toHaveBeenCalledWith("sub_owner")
+    expect(fetcher).toHaveBeenCalledOnce()
+    expect(mocked.finalizePurchaseDelivery).toHaveBeenLastCalledWith(db, "in_current", expect.objectContaining({
+      status: "sent", reason: "delivered", purchaseType: "initial_subscription",
+    }))
+  })
+
   it.each([
     ["missing", undefined],
     ["invalid", "not-a-session"],
@@ -299,6 +312,12 @@ describe("server GA4 purchase delivery", () => {
 
   it("rejects a debug response without a validation message array", async () => {
     fetcher.mockReset().mockResolvedValueOnce(new Response("{}", { status: 200 }))
+    await expect(validatePurchasePayloadForAcceptance(env, { client_id: "fixture", events: [] }))
+      .resolves.toEqual({ ok: false, reason: "validation_response_invalid" })
+  })
+
+  it("rejects a null debug response as malformed evidence", async () => {
+    fetcher.mockReset().mockResolvedValueOnce(new Response("null", { status: 200 }))
     await expect(validatePurchasePayloadForAcceptance(env, { client_id: "fixture", events: [] }))
       .resolves.toEqual({ ok: false, reason: "validation_response_invalid" })
   })

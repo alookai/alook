@@ -49,7 +49,7 @@ function validationEvidence(value: unknown): { json: string; hasErrors: boolean 
     ? (value as { validationMessages?: unknown }).validationMessages
     : null
   if (!Array.isArray(source)) return null
-  const messages = Array.isArray(source) ? source.slice(0, MAX_VALIDATION_MESSAGES).map((item): ValidationMessage => {
+  const messages = source.slice(0, MAX_VALIDATION_MESSAGES).map((item): ValidationMessage => {
     if (!item || typeof item !== "object" || Array.isArray(item)) return {}
     const message = item as Record<string, unknown>
     return {
@@ -57,7 +57,7 @@ function validationEvidence(value: unknown): { json: string; hasErrors: boolean 
       description: boundedText(message.description),
       validationCode: boundedText(message.validationCode),
     }
-  }) : []
+  })
   return { json: JSON.stringify({ validationMessages: messages }), hasErrors: messages.length > 0 }
 }
 
