@@ -122,7 +122,9 @@ function CommunityDbRuntime({
       registry.clear,
     )
     const uninstallSync = installCommunityDbSync(queryClient, registry)
-    const probe = process.env.NODE_ENV !== "production" ? {
+    const lifecycleTimelineEnabled = typeof registry.getLifecycleTimeline === "function"
+      && registry.getLifecycleTimeline() !== null
+    const probe = process.env.NODE_ENV !== "production" || lifecycleTimelineEnabled ? {
       snapshot: async () => {
         const runtime = await getBrowserPersistenceRuntime()
         const serverRows = Array.from(registry.collections.servers.values())
@@ -195,6 +197,9 @@ function CommunityDbRuntime({
           }),
         }
       },
+      ...(lifecycleTimelineEnabled ? {
+        timeline: () => registry.getLifecycleTimeline(),
+      } : {}),
     } : null
     if (probe) Reflect.set(window, "__ALOOK_COMMUNITY_DB_PROBE__", probe)
     if (refetchOnRegister) {
