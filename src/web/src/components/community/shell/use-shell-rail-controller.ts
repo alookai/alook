@@ -6,7 +6,11 @@ import { toastApiError } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import { markSwitch } from "@/lib/perf/switch-mark"
 import { markVoluntaryLeave, pickPostEjectDestination } from "@/lib/community/eject-server"
-import { useServers, type ServerDetail } from "@/hooks/community/use-servers"
+import {
+  serverProjectedQueryFn,
+  useServers,
+  type ServerDetail,
+} from "@/hooks/community/use-servers"
 import { useFolders } from "@/hooks/community/use-folders"
 import {
   useCreateServer,
@@ -70,25 +74,47 @@ export function useShellRailController({
     [projectedActiveServerId, servers],
   )
 
-  const serverDestination = useCallback((id: string) => {
+  const serverDestination = useCallback(async (id: string) => {
+    const lastChannel = getLastChannel(id)
     const detail = queryClient.getQueryData<ServerDetail>(communityKeys.server(id))
     const liveChannelIds = detail?.categories.flatMap((category) =>
       category.channels.filter((channel) => !channel.pending).map((channel) => channel.id)
     )
     const canonicalDetailComplete = communityDb?.collections.servers.get(id)?.detailComplete === true
-    const channelIds = liveChannelIds
+    let channelIds = liveChannelIds
       ?? (communityDb && canonicalDetailComplete
         ? Array.from(communityDb.collections.channels.values())
           .filter((channel) => channel.serverId === id && channel.type !== "thread" && !channel.pending)
           .map((channel) => channel.id)
-        : undefined)
+      : undefined)
       ?? []
-    return pickServerLandingHref(id, channelIds, getLastChannel(id))
+    if (!detail && !lastChannel && channelIds.length === 0) {
+      try {
+        const fetchedDetail = await queryClient.fetchQuery<ServerDetail>({
+          queryKey: communityKeys.server(id),
+          queryFn: serverProjectedQueryFn(queryClient, id),
+          staleTime: Infinity,
+        })
+        channelIds = fetchedDetail.categories.flatMap((category) =>
+          category.channels
+            .filter((channel) => !channel.pending)
+            .map((channel) => channel.id)
+        )
+      } catch {
+        channelIds = []
+      }
+    }
+    return pickServerLandingHref(id, channelIds, lastChannel)
   }, [communityDb, queryClient])
   const onServerNavigate = useCallback((id: string) => {
     markSwitch("server", id)
-    navigation.push(`/c/channels/${id}`)
-  }, [navigation])
+    const rootHref = `/c/channels/${id}`
+    if (breakpoint !== "desktop") {
+      navigation.push(rootHref)
+      return
+    }
+    void navigation.resolveAndPush(rootHref, () => serverDestination(id))
+  }, [breakpoint, navigation, serverDestination])
   const homeDestination = useCallback(
     () => breakpoint === "desktop"
       ? pickMeLandingLocation(getLastMeLeaf())
@@ -164,8 +190,13 @@ export function useShellRailController({
       navigation.push(`/c/channels/${serverId}/${channelId}`)
       return
     }
-    navigation.push(serverDestination(serverId))
-  }, [navigation, serverDestination])
+    const rootHref = `/c/channels/${serverId}`
+    if (breakpoint !== "desktop") {
+      navigation.push(rootHref)
+      return
+    }
+    void navigation.resolveAndPush(rootHref, () => serverDestination(serverId))
+  }, [breakpoint, navigation, serverDestination])
 
   return {
     railProps: {

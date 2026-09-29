@@ -244,6 +244,23 @@ export function getConversationNavigationProof(
   return getStore(queryClient).proof
 }
 
+export function getCompletedConversationNavigationEntryEpoch(
+  queryClient: QueryClient,
+  target: Pick<ConversationNavigationTarget, "viewerId" | "channelId" | "scopeKind">
+    & { anchorMessageId: string | null },
+  accessEpoch: number,
+): number | null {
+  const proof = getStore(queryClient).proof
+  if (proof?.status !== "proven" && proof?.status !== "forum") return null
+  return proof.accessEpoch === accessEpoch
+    && proof.target.viewerId === target.viewerId
+    && proof.target.channelId === target.channelId
+    && proof.target.scopeKind === target.scopeKind
+    && (proof.target.anchorMessageId ?? null) === target.anchorMessageId
+    ? proof.epoch
+    : null
+}
+
 export function useConversationNavigationGate(
   queryClient: QueryClient,
   viewerId: string,

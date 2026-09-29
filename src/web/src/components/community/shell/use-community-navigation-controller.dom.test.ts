@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   replace: vi.fn(),
   prefetch: vi.fn(),
   cancelProof: vi.fn(),
+  warmup: vi.fn(),
   queryClient: {},
   frame: {
     current: null as CommunityCommittedFrame | null,
@@ -22,6 +23,9 @@ vi.mock("@tanstack/react-query", () => ({
 }))
 vi.mock("@/lib/community/conversation-navigation-proof", () => ({
   cancelActiveConversationNavigationProof: (...args: unknown[]) => mocks.cancelProof(...args),
+}))
+vi.mock("@/lib/community/conversation-navigation-warmup", () => ({
+  startConversationNavigationWarmup: (...args: unknown[]) => mocks.warmup(...args),
 }))
 
 vi.mock("next/navigation", () => ({
@@ -36,7 +40,7 @@ vi.mock("next/navigation", () => ({
 type Result = ReturnType<typeof useCommunityNavigationController>
 
 function Capture({ onResult }: { onResult: (result: Result) => void }) {
-  onResult(useCommunityNavigationController(mocks.frame.current!))
+  onResult(useCommunityNavigationController(mocks.frame.current!, "viewer-1", 7))
   return null
 }
 
@@ -66,6 +70,7 @@ describe("useCommunityNavigationController", () => {
     mocks.replace.mockReset()
     mocks.prefetch.mockReset()
     mocks.cancelProof.mockReset()
+    mocks.warmup.mockReset()
     mocks.frame.current = { ...normalizeCommunityHref("/c/me"), revision: 0 }
     const windowTarget = new EventTarget() as EventTarget & { navigation: EventTarget }
     windowTarget.navigation = new EventTarget()
@@ -130,6 +135,20 @@ describe("useCommunityNavigationController", () => {
     expect(mocks.cancelProof).toHaveBeenCalledWith(mocks.queryClient)
   })
 
+  it("uses the same checkpoint and warmup for a DM replace", async () => {
+    const hook = await renderController()
+    await act(async () => hook.current.replace("/c/me/dm1"))
+    expect(hook.current.pendingHref).toBe("/c/me/dm1")
+    expect(mocks.replace).toHaveBeenCalledWith("/c/me/dm1")
+    expect(mocks.warmup).toHaveBeenCalledWith(mocks.queryClient, {
+      href: "/c/me/dm1",
+      viewerId: "viewer-1",
+      channelId: "dm1",
+      scopeKind: "dm",
+      expectedSurfaceKind: "dm",
+    }, 7)
+  })
+
   it("keeps a same-server root intent pending until the exact root frame commits", async () => {
     mocks.pathname.current = "/c/channels/s1/c1"
     mocks.frame.current = { ...normalizeCommunityHref("/c/channels/s1/c1"), revision: 6 }
@@ -181,9 +200,10 @@ describe("useCommunityNavigationController", () => {
     let secondResult!: Promise<boolean>
 
     await act(async () => {
-      firstResult = hook.current.resolveAndPush(() => first)
-      secondResult = hook.current.resolveAndPush(() => second)
+      firstResult = hook.current.resolveAndPush("/c/channels/s1", () => first)
+      secondResult = hook.current.resolveAndPush("/c/channels/s2", () => second)
     })
+    expect(hook.current.pendingHref).toBe("/c/channels/s2")
     await act(async () => {
       resolveFirst("/c/channels/s1/c1")
       resolveSecond("/c/channels/s2/c2")
@@ -192,14 +212,45 @@ describe("useCommunityNavigationController", () => {
     })
     expect(mocks.push).toHaveBeenCalledTimes(1)
     expect(mocks.push).toHaveBeenCalledWith("/c/channels/s2/c2")
+    expect(mocks.warmup).toHaveBeenCalledTimes(1)
+    expect(mocks.warmup).toHaveBeenCalledWith(mocks.queryClient, expect.objectContaining({
+      href: "/c/channels/s2/c2",
+      channelId: "c2",
+    }), 7)
     expect(hook.current.pendingHref).toBe("/c/channels/s2/c2")
     expect(mocks.cancelProof).toHaveBeenCalledTimes(2)
+  })
+
+  it("keeps a newer machines intent ahead of a late bot DM resolver", async () => {
+    const hook = await renderController()
+    let resolveDm!: (href: string) => void
+    const dm = new Promise<string>((resolve) => { resolveDm = resolve })
+    let dmResult!: Promise<boolean>
+
+    await act(async () => {
+      dmResult = hook.current.resolveAndPush("/c/me", () => dm)
+    })
+    expect(hook.current.pendingHref).toBe("/c/me")
+    expect(mocks.push).not.toHaveBeenCalled()
+
+    await act(async () => hook.current.push("/c/me/machines"))
+    expect(hook.current.pendingHref).toBe("/c/me/machines")
+    expect(mocks.push).toHaveBeenCalledTimes(1)
+    expect(mocks.push).toHaveBeenLastCalledWith("/c/me/machines")
+
+    await act(async () => {
+      resolveDm("/c/me/dm-late")
+      await expect(dmResult).resolves.toBe(false)
+    })
+    expect(mocks.push).toHaveBeenCalledTimes(1)
+    expect(mocks.warmup).not.toHaveBeenCalled()
+    expect(hook.current.pendingHref).toBe("/c/me/machines")
   })
 
   it("settles an async resolver that returns the published destination", async () => {
     const hook = await renderController()
     await expect(act(async () => (
-      hook.current.resolveAndPush(async () => "/c/me")
+      hook.current.resolveAndPush("/c/me", async () => "/c/me")
     ))).resolves.toBe(true)
     expect(hook.current.navigationPending).toBe(false)
     expect(hook.current.pendingHref).toBeNull()
@@ -216,7 +267,7 @@ describe("useCommunityNavigationController", () => {
     expect(hook.current.pendingHref).toBeNull()
 
     await expect(act(async () => {
-      await hook.current.resolveAndPush(async () => {
+      await hook.current.resolveAndPush("/c/channels/s1", async () => {
         throw new Error("lookup failed")
       })
     })).rejects.toThrow("lookup failed")
@@ -224,19 +275,43 @@ describe("useCommunityNavigationController", () => {
     expect(hook.current.pendingHref).toBeNull()
   })
 
-  it("does not enter pending state for the committed href", async () => {
+  it("warms but does not commit the published conversation href", async () => {
+    mocks.pathname.current = "/c/channels/s1/c1"
+    mocks.frame.current = { ...normalizeCommunityHref("/c/channels/s1/c1"), revision: 2 }
     const hook = await renderController()
-    await act(async () => hook.current.push("/c/me"))
+    await act(async () => hook.current.push("/c/channels/s1/c1"))
     expect(mocks.push).not.toHaveBeenCalled()
     expect(hook.current.navigationPending).toBe(false)
     expect(hook.current.pendingHref).toBeNull()
     expect(mocks.cancelProof).not.toHaveBeenCalled()
+    expect(mocks.warmup).toHaveBeenCalledWith(mocks.queryClient, {
+      href: "/c/channels/s1/c1",
+      viewerId: "viewer-1",
+      channelId: "c1",
+      serverId: "s1",
+      scopeKind: "channel",
+    }, 7)
   })
 
-  it("preserves the proof begun by an Inbox child handler", async () => {
+  it("owns exactly one anchor warmup, checkpoint, and route commit for explicit entries", async () => {
     const hook = await renderController()
-    await act(async () => hook.current.pushImmediate("/c/channels/s1/c1"))
-    expect(mocks.push).toHaveBeenCalledWith("/c/channels/s1/c1")
+    await act(async () => hook.current.push("/c/channels/s1/parent?msg=opener", {
+      anchorMessageId: "opener",
+      expectedSurfaceKind: "channel",
+    }))
+    expect(hook.current.pendingHref).toBe("/c/channels/s1/parent?msg=opener")
+    expect(mocks.push).toHaveBeenCalledOnce()
+    expect(mocks.push).toHaveBeenCalledWith("/c/channels/s1/parent?msg=opener")
     expect(mocks.cancelProof).not.toHaveBeenCalled()
+    expect(mocks.warmup).toHaveBeenCalledOnce()
+    expect(mocks.warmup).toHaveBeenCalledWith(mocks.queryClient, {
+      href: "/c/channels/s1/parent?msg=opener",
+      viewerId: "viewer-1",
+      channelId: "parent",
+      serverId: "s1",
+      scopeKind: "channel",
+      anchorMessageId: "opener",
+      expectedSurfaceKind: "channel",
+    }, 7)
   })
 })

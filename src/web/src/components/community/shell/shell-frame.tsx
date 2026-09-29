@@ -82,7 +82,11 @@ export function ShellFrame(props: ShellFrameProps) {
   useEffect(() => {
     flushOwnerServerDeleteRouteCommit(queryClient)
   }, [frameHref, queryClient])
-  const navigation = useCommunityNavigationController(committedFrame)
+  const navigation = useCommunityNavigationController(
+    committedFrame,
+    currentUser.id,
+    accessEpoch,
+  )
   const replacePath = navigation.replace
   const route = resolveCommunityRoute(committedFrame.pathname)
   const target = navigation.pendingHref
@@ -152,8 +156,6 @@ export function ShellFrame(props: ShellFrameProps) {
     publishedHref: navigation.publishedHref,
     navigationPending: navigation.navigationPending,
     pendingHref: navigation.pendingHref,
-    viewerId: currentUser.id,
-    accessEpoch,
   })
   const [userBarExtension, dispatchUserBarExtension] = useReducer(
     userBarExtensionReducer,
@@ -251,6 +253,7 @@ export function ShellFrame(props: ShellFrameProps) {
       goBackMobile,
       navigatePath: navigation.push,
       replacePath: navigation.replace,
+      resolveAndNavigatePath: navigation.resolveAndPush,
       navigate: rail.navigate,
       cancelPendingNavigation: navigation.cancelPendingNavigation,
     })
@@ -263,6 +266,7 @@ export function ShellFrame(props: ShellFrameProps) {
     navigation.cancelPendingNavigation,
     navigation.push,
     navigation.replace,
+    navigation.resolveAndPush,
   ])
 
   return (

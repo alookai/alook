@@ -9,6 +9,11 @@ import { communityKeys } from "@/lib/query-keys"
 import { useDmMessages, useMessages, type MessagesPage } from "./use-messages"
 import { useDmReadStateSnapshot } from "./use-dm-read-state"
 import { useMessageStreamStore } from "@/stores/community/message-stream"
+import {
+  beginConversationNavigationProof,
+  commitConversationNavigationProof,
+  recordConversationNavigationReceipt,
+} from "@/lib/community/conversation-navigation-proof"
 
 const apiFetchMock = vi.fn()
 vi.mock("@/lib/api/client", () => ({
@@ -75,6 +80,25 @@ function RevalidatingDmCapture({ lastReadMessageId, onRender }: {
     waitForAnchor: true,
     reconcileLateAnchor: true,
     revalidateOnMount: true,
+  })
+  onRender({
+    anchorReconciled: result.anchorReconciled,
+    hasMoreNewer: result.hasMoreNewer,
+    ids: result.messages.map((message) => message.id),
+    isFetching: result.isFetching,
+  })
+  return null
+}
+
+function ProofOwnedChannelCapture({ onRender }: {
+  onRender: (snapshot: Snapshot) => void
+}) {
+  const result = useMessages("ch_activation", {
+    serverId: "server_1",
+    anchorMessageId: "m_anchor",
+    lastReadMessageId: null,
+    revalidateOnMount: true,
+    viewerUserId: "viewer_1",
   })
   onRender({
     anchorReconciled: result.anchorReconciled,
@@ -326,6 +350,48 @@ beforeEach(() => {
 })
 
 describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
+  it("does not revalidate a completed proof-owned navigation entry", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const proof = beginConversationNavigationProof(queryClient, {
+      href: "/c/channels/server_1/ch_activation?msg=m_anchor",
+      viewerId: "viewer_1",
+      channelId: "ch_activation",
+      serverId: "server_1",
+      scopeKind: "channel",
+      anchorMessageId: "m_anchor",
+      expectedSurfaceKind: "channel",
+    }, 0)
+    recordConversationNavigationReceipt(
+      queryClient,
+      { channelId: "ch_activation", surfaceKind: "channel" },
+      0,
+      proof.epoch,
+    )
+    expect(commitConversationNavigationProof(queryClient, "ch_activation", 0)).toBe(true)
+    queryClient.setQueryData(communityKeys.channelMessages("ch_activation"), {
+      pages: [{
+        messages: [{ id: "m_anchor", seq: 1, createdAt: "2026-08-09T00:00:00.000Z" }],
+        hasMoreOlder: false,
+        hasMoreNewer: false,
+        latestSeq: 1,
+      }],
+      pageParams: [{ mode: "anchor", anchor: "m_anchor" }],
+    })
+    const snapshots: Snapshot[] = []
+    const renderer = renderCapture(
+      queryClient,
+      React.createElement(ProofOwnedChannelCapture, {
+        onRender: (snapshot) => { snapshots.push(snapshot) },
+      }),
+    )
+
+    await act(async () => { await Promise.resolve() })
+    expect(apiFetchMock.mock.calls.filter(([url]) => url.includes("/messages")))
+      .toHaveLength(0)
+    expect(snapshots.at(-1)?.ids).toContain("m_anchor")
+    renderer.unmount()
+  })
+
   it("reuses one cold initial anchor request across a StrictMode-style remount", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const transport = deferred<MessagesPage>()

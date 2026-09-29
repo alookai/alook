@@ -19,8 +19,6 @@ const mocks = vi.hoisted(() => ({
   armOpener: vi.fn(),
   clearOpener: vi.fn(),
   terminateOpener: vi.fn(),
-  cancelProof: vi.fn(),
-  warmup: vi.fn(),
   begin: vi.fn(),
   submitted: vi.fn(),
   rollback: vi.fn(),
@@ -117,12 +115,6 @@ vi.mock("@/hooks/community/mutations", () => ({
 vi.mock("@/hooks/community/use-dm-route-verification", () => ({
   startDmRouteVerification: (...args: unknown[]) => mocks.verifyDm(...args),
 }))
-vi.mock("@/lib/community/conversation-navigation-warmup", () => ({
-  startConversationNavigationWarmup: (...args: unknown[]) => mocks.warmup(...args),
-}))
-vi.mock("@/lib/community/conversation-navigation-proof", () => ({
-  cancelConversationNavigationProof: (...args: unknown[]) => mocks.cancelProof(...args),
-}))
 vi.mock("@/hooks/community/thread-opener-read-handoff", () => ({
   armThreadOpenerReadHandoff: (...args: unknown[]) => mocks.armOpener(...args),
   clearThreadOpenerReadHandoff: (...args: unknown[]) => mocks.clearOpener(...args),
@@ -147,14 +139,16 @@ function Capture({ options, onResult }: {
 
 async function renderController(
   initialDmCache: DmCache = { conversations: [] },
-  push?: (href: string) => void,
+  push?: (href: string, options?: unknown) => void,
 ) {
   const pushed: string[] = []
+  const pushCalls: Array<[string, unknown]> = []
   const router = {
-    push: (href: string) => {
+    push: (href: string, options?: unknown) => {
       order.push("push")
       pushed.push(href)
-      push?.(href)
+      pushCalls.push([href, options])
+      push?.(href, options)
     },
     replace: vi.fn(),
     prefetch: vi.fn(),
@@ -190,6 +184,7 @@ async function renderController(
     get current() { return current },
     order,
     pushed,
+    pushCalls,
     get dmCache() { return dmCache },
   }
 }
@@ -209,8 +204,6 @@ describe("useShellInboxController", () => {
       mocks.armOpener,
       mocks.clearOpener,
       mocks.terminateOpener,
-      mocks.cancelProof,
-      mocks.warmup,
       mocks.begin,
       mocks.submitted,
       mocks.rollback,
@@ -239,7 +232,6 @@ describe("useShellInboxController", () => {
       order.push("verify")
       return Promise.resolve("present")
     })
-    mocks.warmup.mockReturnValue(99)
     mocks.accept.mockResolvedValue(undefined)
     mocks.reject.mockResolvedValue(undefined)
   })
@@ -414,10 +406,10 @@ describe("useShellInboxController", () => {
     } as never))
     expect(order).toEqual(["close", "cancel", "clear", "push"])
     expect(hook.pushed).toEqual(["/c/channels/s1/c1?seq=7"])
-    expect(mocks.warmup).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
-      href: "/c/channels/s1/c1?seq=7",
-      anchorMessageId: "message-7",
-    }), undefined)
+    expect(hook.pushCalls).toContainEqual([
+      "/c/channels/s1/c1?seq=7",
+      { anchorMessageId: "message-7" },
+    ])
     expect(mocks.begin).not.toHaveBeenCalled()
   })
 
@@ -430,9 +422,16 @@ describe("useShellInboxController", () => {
       m: { id: "dm-message", seq: 9 },
     } as never))
     expect(hook.pushed).toEqual(["/c/me/dm1?seq=9"])
+    expect(hook.pushCalls).toContainEqual([
+      "/c/me/dm1?seq=9",
+      {
+        anchorMessageId: "dm-message",
+        expectedSurfaceKind: "dm",
+      },
+    ])
   })
 
-  it("cancels the Marked proof and reopens Inbox when navigation throws", async () => {
+  it("reopens Inbox when Marked navigation throws", async () => {
     const error = new Error("push failed")
     const hook = await renderController(undefined, () => { throw error })
     await expect(act(async () => hook.current.popoverProps.onOpenMarked?.({
@@ -441,7 +440,6 @@ describe("useShellInboxController", () => {
       channelId: "c1",
       m: { id: "message-7", seq: 7 },
     } as never))).rejects.toThrow("push failed")
-    expect(mocks.cancelProof).toHaveBeenCalledWith(expect.anything(), 99)
     expect(mocks.onOpenChange).toHaveBeenCalledWith(true)
   })
 

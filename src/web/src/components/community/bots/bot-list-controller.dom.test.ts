@@ -30,8 +30,11 @@ const mocks = vi.hoisted(() => ({
   online: new Set<string>(),
   onboardingSnapshot: null as Record<string, unknown> | null,
   actionState: null as Record<string, unknown> | null,
+  navigationRevision: 0,
   push: vi.fn(),
   replace: vi.fn(),
+  navigatePath: vi.fn(),
+  resolveAndNavigatePath: vi.fn(),
   createDm: vi.fn(),
   del: vi.fn(),
   resetBot: vi.fn(),
@@ -61,6 +64,15 @@ vi.mock("next/navigation", () => ({
         if (mocks.audit) params.set("audit", mocks.audit)
         return params.toString()
       },
+    }
+  },
+}))
+vi.mock("@/stores/community", () => ({
+  useUiHandlers: () => {
+    mocks.hookOrder.push("uiHandlers")
+    return {
+      navigatePath: mocks.navigatePath,
+      resolveAndNavigatePath: mocks.resolveAndNavigatePath,
     }
   },
 }))
@@ -184,7 +196,21 @@ describe("useBotListController", () => {
     mocks.online = new Set()
     mocks.onboardingSnapshot = null
     mocks.actionState = null
+    mocks.navigationRevision = 0
     mocks.onProbeLayout = null
+    mocks.navigatePath.mockImplementation(() => {
+      mocks.navigationRevision += 1
+    })
+    mocks.resolveAndNavigatePath.mockImplementation(async (
+      _intentHref: string,
+      resolveHref: () => Promise<string>,
+    ) => {
+      const revision = ++mocks.navigationRevision
+      const href = await resolveHref()
+      if (revision !== mocks.navigationRevision) return false
+      mocks.navigatePath(href)
+      return true
+    })
     mocks.createDm.mockResolvedValue({ conversation: { id: "dm1" } })
     mocks.del.mockResolvedValue(undefined)
     mocks.resetBot.mockResolvedValue({ ok: true })
@@ -205,9 +231,10 @@ describe("useBotListController", () => {
 
   it("keeps the exact external hook order and source-owned states", () => {
     render()
-    expect(mocks.hookOrder.slice(0, 10)).toEqual([
+    expect(mocks.hookOrder.slice(0, 11)).toEqual([
       "router",
       "searchParams",
+      "uiHandlers",
       "bots",
       "machines",
       "profiles",
@@ -217,7 +244,7 @@ describe("useBotListController", () => {
       "setActive",
       "dm",
     ])
-    expect(mocks.hookOrder[10]).toBe("onboarding")
+    expect(mocks.hookOrder[11]).toBe("onboarding")
 
     const source = readWebSource("src/components/community/bots/bot-list-controller.ts")
     expect(source.match(/useState(?:<[^\n]+>)?\(/g)).toHaveLength(16)
@@ -226,6 +253,7 @@ describe("useBotListController", () => {
     const orderedHooks = [
       "const router = useRouter()",
       "const searchParams = useSearchParams()",
+      "const uiHandlers = useUiHandlers()",
       "const botsQuery = useBots()",
       "const { machines, isLoading: machinesLoading } = useMachines()",
       "const profilesByUserId = useCanonicalProfilesByUserId()",
@@ -716,15 +744,16 @@ describe("useBotListController", () => {
     act(() => { result = latest.openGuidedCreate() })
     expect(result!).toBeUndefined()
     expect(mocks.createDm).toHaveBeenCalledWith({ userId: "pending" })
+    expect(mocks.resolveAndNavigatePath).toHaveBeenCalledWith("/c/me", expect.any(Function))
     expect(latest.createOpen).toBe(false)
     expect(mocks.advance).not.toHaveBeenCalled()
-    expect(mocks.push).not.toHaveBeenCalled()
+    expect(mocks.navigatePath).not.toHaveBeenCalled()
     await act(async () => {
       resolveDm({ conversation: { id: "dm1" } })
       await Promise.resolve()
     })
     expect(mocks.advance).toHaveBeenCalledWith("bot", "dm", { botId: "pending", dmId: "dm1" })
-    expect(mocks.push).toHaveBeenCalledWith("/c/me/dm1")
+    expect(mocks.navigatePath).toHaveBeenCalledWith("/c/me/dm1")
   })
 
   it("recovers a missing machine without opening DM or create", () => {
@@ -734,7 +763,7 @@ describe("useBotListController", () => {
     render()
     expect(latest.openGuidedCreate()).toBeUndefined()
     expect(mocks.recoverMachine).toHaveBeenCalledOnce()
-    expect(mocks.push).toHaveBeenCalledWith("/c/me/machines")
+    expect(mocks.navigatePath).toHaveBeenCalledWith("/c/me/machines")
     expect(mocks.createDm).not.toHaveBeenCalled()
     expect(latest.createOpen).toBe(false)
   })
@@ -744,14 +773,38 @@ describe("useBotListController", () => {
     render()
     await act(async () => { await latest.chatWithBot(bot("chat", "mac1")) })
     expect(mocks.createDm).toHaveBeenCalledWith({ userId: "chat" })
-    expect(mocks.push).toHaveBeenCalledWith("/c/me/dm1")
+    expect(mocks.resolveAndNavigatePath).toHaveBeenCalledWith("/c/me", expect.any(Function))
+    expect(mocks.navigatePath).toHaveBeenCalledWith("/c/me/dm1")
 
     vi.clearAllMocks()
     const error = new Error("no chat")
     mocks.createDm.mockRejectedValue(error)
     await act(async () => { await latest.chatWithBot(bot("chat", "mac1")) })
     expect(mocks.toastApiError).toHaveBeenCalledWith(error, "Failed to open chat")
-    expect(mocks.push).not.toHaveBeenCalled()
+    expect(mocks.navigatePath).not.toHaveBeenCalled()
+  })
+
+  it("does not let a late bot DM overwrite a newer machines intent", async () => {
+    mocks.target = null
+    let resolveDm!: (value: { conversation: { id: string } }) => void
+    mocks.createDm.mockReturnValue(new Promise((resolve) => { resolveDm = resolve }))
+    render()
+
+    let completion!: Promise<void>
+    act(() => { completion = latest.chatWithBot(bot("chat", "mac1")) })
+    expect(mocks.resolveAndNavigatePath).toHaveBeenCalledWith("/c/me", expect.any(Function))
+    expect(mocks.navigatePath).not.toHaveBeenCalled()
+
+    act(() => latest.openMachines())
+    expect(mocks.navigatePath).toHaveBeenCalledTimes(1)
+    expect(mocks.navigatePath).toHaveBeenLastCalledWith("/c/me/machines")
+
+    await act(async () => {
+      resolveDm({ conversation: { id: "dm-late" } })
+      await completion
+    })
+    expect(mocks.navigatePath).toHaveBeenCalledTimes(1)
+    expect(mocks.navigatePath).not.toHaveBeenCalledWith("/c/me/dm-late")
   })
 
   it("makes onBotCreated a no-op for inactive or wrong-stage action-time state", async () => {
@@ -764,7 +817,7 @@ describe("useBotListController", () => {
       expect(mocks.updateResources).not.toHaveBeenCalled()
       expect(mocks.createDm).not.toHaveBeenCalled()
       expect(mocks.advance).not.toHaveBeenCalled()
-      expect(mocks.push).not.toHaveBeenCalled()
+      expect(mocks.navigatePath).not.toHaveBeenCalled()
     }
   })
 
@@ -781,7 +834,7 @@ describe("useBotListController", () => {
     expect(mocks.updateResources.mock.invocationCallOrder[0])
       .toBeLessThan(mocks.createDm.mock.invocationCallOrder[0]!)
     expect(mocks.advance).not.toHaveBeenCalled()
-    expect(mocks.push).not.toHaveBeenCalled()
+    expect(mocks.navigatePath).not.toHaveBeenCalled()
     await act(async () => {
       resolveDm({ conversation: { id: "dm-new" } })
       await completion
@@ -789,7 +842,8 @@ describe("useBotListController", () => {
     expect(mocks.advance).toHaveBeenCalledWith("bot", "dm", { botId: "new", dmId: "dm-new" })
     expect(mocks.createDm.mock.invocationCallOrder[0])
       .toBeLessThan(mocks.advance.mock.invocationCallOrder[0]!)
-    expect(mocks.advance.mock.invocationCallOrder[0]).toBeLessThan(mocks.push.mock.invocationCallOrder[0])
+    expect(mocks.navigatePath.mock.invocationCallOrder[0])
+      .toBeLessThan(mocks.advance.mock.invocationCallOrder[0]!)
 
     vi.clearAllMocks()
     mocks.createDm.mockRejectedValue(new Error("no dm"))
@@ -800,7 +854,7 @@ describe("useBotListController", () => {
       "Bot created, but the chat couldn't open",
     )
     expect(mocks.advance).not.toHaveBeenCalled()
-    expect(mocks.push).not.toHaveBeenCalled()
+    expect(mocks.navigatePath).not.toHaveBeenCalled()
   })
 
   it("does not dispatch or toast when confirm selections are absent", async () => {

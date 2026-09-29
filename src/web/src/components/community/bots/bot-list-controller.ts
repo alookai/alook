@@ -18,6 +18,7 @@ import {
 } from "@/hooks/community/use-bots"
 import { useCreateOrGetDm } from "@/hooks/community/mutations"
 import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
+import { useUiHandlers } from "@/stores/community"
 import {
   advanceCommunityOnboarding,
   readCommunityOnboardingState,
@@ -30,6 +31,7 @@ import type { BotListController } from "./bot-list-types"
 export function useBotListController(): BotListController {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const uiHandlers = useUiHandlers()
   const botsQuery = useBots()
   const { bots, isLoading } = botsQuery
   const botsResolved = botsQuery.data !== undefined
@@ -92,8 +94,10 @@ export function useBotListController(): BotListController {
 
   const chatWithBot = async (bot: BotSummary) => {
     try {
-      const data = await createOrGetDm.mutateAsync({ userId: bot.id })
-      router.push(`/c/me/${data.conversation.id}`)
+      await uiHandlers.resolveAndNavigatePath?.("/c/me", async () => {
+        const data = await createOrGetDm.mutateAsync({ userId: bot.id })
+        return `/c/me/${data.conversation.id}`
+      })
     } catch (e) {
       toastApiError(e, "Failed to open chat")
     }
@@ -101,12 +105,15 @@ export function useBotListController(): BotListController {
 
   const openGuidedBotDm = async (botId: string) => {
     try {
-      const data = await createOrGetDm.mutateAsync({ userId: botId })
-      advanceCommunityOnboarding("bot", "dm", {
-        botId,
-        dmId: data.conversation.id,
+      let dmId: string | null = null
+      const committed = await uiHandlers.resolveAndNavigatePath?.("/c/me", async () => {
+        const data = await createOrGetDm.mutateAsync({ userId: botId })
+        dmId = data.conversation.id
+        return `/c/me/${dmId}`
       })
-      router.push(`/c/me/${data.conversation.id}`)
+      if (committed && dmId) {
+        advanceCommunityOnboarding("bot", "dm", { botId, dmId })
+      }
     } catch (e) {
       toastApiError(e, "Bot created, but the chat couldn't open")
     }
@@ -124,7 +131,7 @@ export function useBotListController(): BotListController {
     const hasUsableMachine = machines.some((machine) => isPresenceOnline(machine.status))
     if (state?.status === "active" && state.stage === "bot" && !hasUsableMachine) {
       recoverCommunityOnboardingMachine()
-      router.push("/c/me/machines")
+      uiHandlers.navigatePath?.("/c/me/machines")
       return
     }
     if (state?.status === "active" && state.stage === "bot" && state.botId) {
@@ -283,9 +290,9 @@ export function useBotListController(): BotListController {
     setActivityBot(null)
   }
 
-  const openMachines = () => router.push("/c/me/machines")
+  const openMachines = () => uiHandlers.navigatePath?.("/c/me/machines")
   const bringMachineOnline = (machineId: string) => {
-    router.push(`/c/me/machines?reconnect=${machineId}`)
+    uiHandlers.navigatePath?.(`/c/me/machines?reconnect=${machineId}`)
   }
 
   const deleteConfirmedBot = async () => {

@@ -70,7 +70,7 @@ export function startConversationNavigationWarmup(
   const messagesKey = target.scopeKind === "dm"
     ? communityKeys.dmMessages(target.channelId)
     : communityKeys.channelMessages(target.channelId)
-  const queryFn = target.scopeKind === "dm"
+  const canonicalQueryFn = target.scopeKind === "dm"
     ? dmMessagesQueryFn(target.channelId, {
         onSurfaceReceipt: (receipt) => {
           recordConversationNavigationReceipt(queryClient, receipt, accessEpoch, epoch)
@@ -84,7 +84,11 @@ export function startConversationNavigationWarmup(
 
   void queryClient.fetchInfiniteQuery({
     queryKey: messagesKey,
-    queryFn,
+    // Keep the click-owned transport alive across the old/new route observer
+    // handoff. TanStack aborts a consumed query signal when the last old-route
+    // observer unmounts; the proof signal instead lives until this navigation
+    // is superseded or definitively fails.
+    queryFn: ({ pageParam }) => canonicalQueryFn({ pageParam, signal }),
     initialPageParam: pageParam,
     // A persisted/memory-warm page is only a hint. Force this click-owned
     // query through the canonical door so a fresh receipt is always emitted.

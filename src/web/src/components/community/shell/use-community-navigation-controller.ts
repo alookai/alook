@@ -5,33 +5,40 @@ import { flushSync } from "react-dom"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useQueryClient } from "@tanstack/react-query"
 import {
-  commitLatestNavigationIntent,
   createNavigationIntentGate,
+  isLatestNavigationIntent,
   supersedeNavigationIntent,
 } from "@/lib/community/navigation-intent"
 import {
   isPublishedNonStructuralCommit,
   isStructuralFrameCommit,
   normalizeCommunityHref,
+  resolveCommunityModulePlan,
   type CommunityCommittedFrame,
 } from "@/lib/community/community-route"
-import type { ShellRouter } from "./shell-frame-types"
+import type { ShellNavigationOptions, ShellRouter } from "./shell-frame-types"
 import { cancelActiveConversationNavigationProof } from "@/lib/community/conversation-navigation-proof"
+import { startConversationNavigationWarmup } from "@/lib/community/conversation-navigation-warmup"
 
 export type CommunityNavigationController = {
   publishedHref: string
   navigationPending: boolean
   pendingHref: string | null
-  push: (href: string) => void
-  pushImmediate: (href: string) => void
-  replace: (href: string) => void
+  push: (href: string, options?: ShellNavigationOptions) => void
+  replace: (href: string, options?: ShellNavigationOptions) => void
   prefetch: (href: string) => void
-  resolveAndPush: (resolve: () => Promise<string>) => Promise<boolean>
+  resolveAndPush: (
+    intentHref: string,
+    resolve: () => Promise<string>,
+    options?: ShellNavigationOptions,
+  ) => Promise<boolean>
   cancelPendingNavigation: () => void
 }
 
 export function useCommunityNavigationController(
   committedFrame: CommunityCommittedFrame,
+  viewerId: string,
+  accessEpoch: number,
 ): CommunityNavigationController {
   const router = useRouter() as ShellRouter
   const pathname = usePathname()
@@ -40,6 +47,7 @@ export function useCommunityNavigationController(
   const publishedHref = search ? `${pathname}?${search}` : pathname
   const queryClient = useQueryClient()
   const gateRef = useRef(createNavigationIntentGate())
+  const resolvingRevisionRef = useRef<number | null>(null)
   const pendingBaselineRevisionRef = useRef(committedFrame.revision)
   const pendingBaselineLeafRef = useRef(committedFrame.leafKey)
   const [navigationPending, setNavigationPending] = useState(false)
@@ -47,6 +55,7 @@ export function useCommunityNavigationController(
 
   const cancelPendingNavigation = useCallback(() => {
     supersedeNavigationIntent(gateRef.current)
+    resolvingRevisionRef.current = null
     cancelActiveConversationNavigationProof(queryClient)
     setNavigationPending(false)
     setPendingHref(null)
@@ -54,6 +63,7 @@ export function useCommunityNavigationController(
 
   useEffect(() => {
     if (pendingHref === null) return
+    if (resolvingRevisionRef.current !== null) return
     const target = normalizeCommunityHref(pendingHref)
     const settled = target.leafKey === pendingBaselineLeafRef.current
       ? isPublishedNonStructuralCommit(committedFrame, publishedHref, pendingHref)
@@ -77,76 +87,106 @@ export function useCommunityNavigationController(
     }
   }, [cancelPendingNavigation])
 
-  const push = useCallback((href: string) => {
-    if (href === publishedHref) return
-    supersedeNavigationIntent(gateRef.current)
+  const prepareTarget = useCallback((href: string, options?: ShellNavigationOptions) => {
+    const plan = resolveCommunityModulePlan(href)
+    if (plan.main.kind === "server-conversation") {
+      startConversationNavigationWarmup(queryClient, {
+        href,
+        viewerId,
+        channelId: plan.main.leafId,
+        serverId: plan.main.serverId,
+        scopeKind: "channel",
+        ...(options?.anchorMessageId ? { anchorMessageId: options.anchorMessageId } : {}),
+        ...(options?.expectedSurfaceKind
+          ? { expectedSurfaceKind: options.expectedSurfaceKind }
+          : {}),
+      }, accessEpoch)
+      return
+    }
+    if (plan.main.kind === "dm") {
+      startConversationNavigationWarmup(queryClient, {
+        href,
+        viewerId,
+        channelId: plan.main.dmId,
+        scopeKind: "dm",
+        expectedSurfaceKind: "dm",
+        ...(options?.anchorMessageId ? { anchorMessageId: options.anchorMessageId } : {}),
+      }, accessEpoch)
+      return
+    }
     cancelActiveConversationNavigationProof(queryClient)
+  }, [accessEpoch, queryClient, viewerId])
+
+  const publishTargetCheckpoint = useCallback((href: string) => {
     pendingBaselineRevisionRef.current = committedFrame.revision
     pendingBaselineLeafRef.current = committedFrame.leafKey
-    // Publish the target checkpoint before Next starts the RSC transition.
-    // Otherwise React can leave this event-batched behind a suspended push and
-    // the committed conversation remains visible while the target is pending.
     flushSync(() => {
       setNavigationPending(true)
       setPendingHref(href)
     })
-    router.push(href)
-  }, [committedFrame.leafKey, committedFrame.revision, publishedHref, queryClient, router])
+  }, [committedFrame.leafKey, committedFrame.revision])
 
-  const pushImmediate = useCallback((href: string) => {
-    if (href === publishedHref) return
+  const commitResolvedTarget = useCallback((
+    href: string,
+    method: "push" | "replace",
+    options?: ShellNavigationOptions,
+  ) => {
+    prepareTarget(href, options)
+    if (href === publishedHref) {
+      flushSync(() => {
+        setNavigationPending(false)
+        setPendingHref(null)
+      })
+      return
+    }
+    publishTargetCheckpoint(href)
+    router[method](href)
+  }, [prepareTarget, publishTargetCheckpoint, publishedHref, router])
+
+  const push = useCallback((href: string, options?: ShellNavigationOptions) => {
     supersedeNavigationIntent(gateRef.current)
-    pendingBaselineRevisionRef.current = committedFrame.revision
-    pendingBaselineLeafRef.current = committedFrame.leafKey
-    // Inbox promises a target checkpoint on the next paint. Publish it before
-    // Next starts the RSC transition instead of leaving it in the event batch.
-    flushSync(() => {
-      setNavigationPending(true)
-      setPendingHref(href)
-    })
-    router.push(href)
-  }, [committedFrame.leafKey, committedFrame.revision, publishedHref, router])
+    resolvingRevisionRef.current = null
+    commitResolvedTarget(href, "push", options)
+  }, [commitResolvedTarget])
 
-  const replace = useCallback((href: string) => {
-    if (href === publishedHref) return
+  const replace = useCallback((href: string, options?: ShellNavigationOptions) => {
     supersedeNavigationIntent(gateRef.current)
-    cancelActiveConversationNavigationProof(queryClient)
-    pendingBaselineRevisionRef.current = committedFrame.revision
-    pendingBaselineLeafRef.current = committedFrame.leafKey
-    setNavigationPending(true)
-    setPendingHref(href)
-    router.replace(href)
-  }, [committedFrame.leafKey, committedFrame.revision, publishedHref, queryClient, router])
+    resolvingRevisionRef.current = null
+    commitResolvedTarget(href, "replace", options)
+  }, [commitResolvedTarget])
 
-  const resolveAndPush = useCallback(async (resolve: () => Promise<string>) => {
+  const resolveAndPush = useCallback(async (
+    intentHref: string,
+    resolve: () => Promise<string>,
+    options?: ShellNavigationOptions,
+  ) => {
+    const revision = supersedeNavigationIntent(gateRef.current)
+    resolvingRevisionRef.current = revision
     cancelActiveConversationNavigationProof(queryClient)
-    pendingBaselineRevisionRef.current = committedFrame.revision
-    pendingBaselineLeafRef.current = committedFrame.leafKey
-    setNavigationPending(true)
-    setPendingHref(null)
+    publishTargetCheckpoint(intentHref)
     try {
-      return await commitLatestNavigationIntent(gateRef.current, resolve, (href) => {
-        if (href === publishedHref) {
+      const href = await resolve()
+      if (!isLatestNavigationIntent(gateRef.current, revision)) return false
+      resolvingRevisionRef.current = null
+      commitResolvedTarget(href, "push", options)
+      return true
+    } catch (error) {
+      if (isLatestNavigationIntent(gateRef.current, revision)) {
+        resolvingRevisionRef.current = null
+        flushSync(() => {
           setNavigationPending(false)
           setPendingHref(null)
-          return
-        }
-        setPendingHref(href)
-        router.push(href)
-      })
-    } catch (error) {
-      setNavigationPending(false)
-      setPendingHref(null)
+        })
+      }
       throw error
     }
-  }, [committedFrame.leafKey, committedFrame.revision, publishedHref, queryClient, router])
+  }, [commitResolvedTarget, publishTargetCheckpoint, queryClient])
 
   return {
     publishedHref,
     navigationPending,
     pendingHref,
     push,
-    pushImmediate,
     replace,
     prefetch: router.prefetch,
     resolveAndPush,

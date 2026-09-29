@@ -208,6 +208,19 @@ describe("community route", () => {
     })
   })
 
+  it.each([
+    ["/c/me/friends", "/c/me/machines", false],
+    ["/c/channels/s1/c1", "/c/me/bots", true],
+  ])("publishes target main ownership for %s -> %s", (source, target, targetReady) => {
+    const committedFrame = { ...normalizeCommunityHref(source), revision: 4 }
+    expect(resolveCommunityCheckpointPlan({
+      committedFrame,
+      targetHref: target,
+      pending: true,
+      targetReady,
+    }).main).toEqual({ kind: "target-skeleton", href: target })
+  })
+
   it("keeps committed A as the source after the router publishes B", () => {
     const committedFrame = {
       ...normalizeCommunityHref("/c/channels/s1/c1"),

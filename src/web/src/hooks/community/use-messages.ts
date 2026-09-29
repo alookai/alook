@@ -27,6 +27,7 @@ import { useMessageOverlay, useMessageStreamStore } from "@/stores/community/mes
 import { useCommunityWsStore } from "@/stores/community/ws"
 import {
   commitConversationNavigationProof,
+  getCompletedConversationNavigationEntryEpoch,
   recordConversationNavigationReceipt,
   useConversationNavigationGate,
 } from "@/lib/community/conversation-navigation-proof"
@@ -545,6 +546,7 @@ function useMessagesInner(
     signal?: AbortSignal
   }) => Promise<MessagesPage>,
   opts: MessagesOpts | undefined,
+  completedNavigationEntryEpoch: number | null = null,
 ): MessagesReturn {
   const queryClient = useQueryClient()
   const communityDb = useOptionalCommunityDbRegistry()
@@ -740,6 +742,13 @@ function useMessagesInner(
       }
       activationRevalidationRef.current = state
     }
+    if (completedNavigationEntryEpoch !== null) {
+      // The shell warmup already owns this mount's canonical request. Its
+      // success can precede this subscription by one commit, so remember the
+      // ownership synchronously instead of starting a second refetch/retry.
+      state.completed = true
+      return
+    }
     if (forceNewest || state.completed || state.pending) return
     if (!enabled || query.data === undefined || opts?.revalidateOnMount !== true) return
 
@@ -798,6 +807,7 @@ function useMessagesInner(
     enabled,
     forceNewest,
     initialPageParam,
+    completedNavigationEntryEpoch,
     opts?.revalidateOnMount,
     query.data,
     queryClient,
@@ -1102,11 +1112,22 @@ export function useMessages(
     }),
     [accessEpoch, channelId, opts.tag, queryClient],
   )
+  const completedNavigationEntryEpoch = getCompletedConversationNavigationEntryEpoch(
+    queryClient,
+    {
+      viewerId: opts.viewerUserId ?? "__none__",
+      channelId: channelId ?? "__none__",
+      scopeKind: "channel",
+      anchorMessageId: opts.anchorMessageId ?? opts.lastReadMessageId ?? null,
+    },
+    accessEpoch,
+  )
   const base = useMessagesInner(
     channelId,
     queryKey,
     queryFn,
     opts,
+    completedNavigationEntryEpoch,
   )
   const transportWindowObserved = useCommittedTransportWindow(
     queryKey,
@@ -1222,11 +1243,22 @@ export function useDmMessages(
     }),
     [accessEpoch, dmId, queryClient],
   )
+  const completedNavigationEntryEpoch = getCompletedConversationNavigationEntryEpoch(
+    queryClient,
+    {
+      viewerId: opts?.viewerUserId ?? "__none__",
+      channelId: dmId ?? "__none__",
+      scopeKind: "dm",
+      anchorMessageId: opts?.anchorMessageId ?? opts?.lastReadMessageId ?? null,
+    },
+    accessEpoch,
+  )
   const base = useMessagesInner(
     dmId,
     queryKey,
     queryFn,
     opts,
+    completedNavigationEntryEpoch,
   )
   const transportWindowObserved = useCommittedTransportWindow(
     queryKey,

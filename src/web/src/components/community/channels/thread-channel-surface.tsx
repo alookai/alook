@@ -1,7 +1,6 @@
 "use client"
 
 import { useCallback, useEffect, useState, type ComponentProps, type ReactNode } from "react"
-import { useRouter } from "next/navigation"
 import { toastApiError, apiFetch } from "@/lib/api/client"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
@@ -27,6 +26,7 @@ import { ThreadPanelActions } from "@/components/community/channels/thread-panel
 import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import type { RightPanel } from "@/components/community/shell/panel-types"
+import type { CommunityNavigationOptions } from "@/lib/community/community-route"
 import type { ChannelMemberPanelProps } from "@/components/community/members/channel-member-view-model"
 import { tid } from "@/lib/community/testids"
 import {
@@ -89,6 +89,7 @@ export function ThreadChannelSurface({
   manageMembersDialog: ReactNode
   uiHandlers: {
     navigate?: (serverId: string, channelId: string) => void
+    navigatePath?: (href: string, options?: CommunityNavigationOptions) => void
     previewImage?: (image: ImagePreview) => void
     previewAttachment?: (attachment: FileAttachment) => void
   }
@@ -98,7 +99,6 @@ export function ThreadChannelSurface({
   embedded?: boolean
   splitActions?: { onFullscreen: () => void; onClose: () => void }
 }) {
-  const router = useRouter()
   const breakpoint = useBreakpoint()
   const [rightPanel, setRightPanel] = useState<RightPanel>(null)
   const [localName, setLocalName] = useState<string | null>(null)
@@ -194,8 +194,14 @@ export function ThreadChannelSurface({
       onInsertMentionText={mentionInsertion.insertMentionText}
       onPreviewImage={(image) => uiHandlers.previewImage?.(image)}
       onPreviewAttachment={(attachment) => uiHandlers.previewAttachment?.(attachment)}
-      onJump={parentChannelId
-        ? () => router.push(`/c/channels/${serverParam}/${parentChannelId}?msg=${parentMessageId}`)
+      onJump={parentChannelId && parentMessageId
+        ? () => uiHandlers.navigatePath?.(
+            `/c/channels/${serverParam}/${parentChannelId}?msg=${parentMessageId}`,
+            {
+              anchorMessageId: parentMessageId,
+              expectedSurfaceKind: "channel",
+            },
+          )
         : undefined}
     />
   ) : undefined

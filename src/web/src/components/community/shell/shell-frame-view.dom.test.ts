@@ -175,6 +175,7 @@ function sameScopePendingCheckpoint(
     ...committedCheckpoint(committedHref, committedSurface),
     mode: "same-scope-leaf",
     targetHref,
+    main: { kind: "target-skeleton", href: targetHref },
   }
 }
 
@@ -1107,7 +1108,7 @@ describe("ShellFrameView", () => {
     expect(document.documentElement).not.toHaveAttribute(COMMUNITY_LAYOUT_PREPAINT_ATTRIBUTE)
   })
 
-  it("keeps committed content mounted while same-scope navigation is pending", async () => {
+  it("replaces committed content with target ownership while same-scope navigation is pending", async () => {
     const sidebar = vi.fn(() => createElement("sidebar-content"))
     const common = {
       ...extensionProps,
@@ -1126,8 +1127,8 @@ describe("ShellFrameView", () => {
       },
       createElement("main-content"),
     ))
-    expect(renderer.container.querySelectorAll("[data-channel-loading-frame]")).toHaveLength(0)
-    expect(renderer.container.querySelectorAll("main-content")).toHaveLength(1)
+    expect(renderer.container.querySelectorAll("[data-channel-loading-frame]")).toHaveLength(1)
+    expect(renderer.container.querySelectorAll("main-content")).toHaveLength(0)
     expect(renderer.container.querySelectorAll("[data-server-rail]")).toHaveLength(1)
     expect(renderer.container.querySelectorAll("[data-user-bar]")).toHaveLength(1)
 
@@ -1140,11 +1141,32 @@ describe("ShellFrameView", () => {
       },
       createElement("main-content"),
     ))
-    expect(renderer.container.querySelectorAll("[data-channel-loading-frame]")).toHaveLength(0)
+    expect(renderer.container.querySelectorAll("[data-channel-loading-frame]")).toHaveLength(1)
     expect(renderer.container.querySelectorAll("[data-server-rail]")).toHaveLength(1)
     expect(renderer.container.querySelectorAll("sidebar-content")).toHaveLength(1)
     expect(renderer.container.querySelectorAll("[data-user-bar]")).toHaveLength(1)
-    expect(renderer.container.querySelectorAll("main-content")).toHaveLength(1)
+    expect(renderer.container.querySelectorAll("main-content")).toHaveLength(0)
+  })
+
+  it("removes the bots main while an async DM leaf is still resolving", () => {
+    const renderer = render(createElement(
+      ShellFrameView,
+      {
+        ...extensionProps,
+        breakpoint: "desktop",
+        checkpoint: sameScopePendingCheckpoint("/c/me/bots", "detail", "/c/me"),
+        sidebar: vi.fn(() => createElement("sidebar-content")),
+        cancelPendingNavigation: vi.fn(),
+        rail,
+        profile,
+        inbox,
+      },
+      createElement("button", { "data-old-bots-action": "" }, "Chat with bot"),
+    ))
+
+    expect(renderer.container.querySelector("[data-old-bots-action]")).toBeNull()
+    expect(renderer.container.querySelectorAll("[data-channel-loading-frame]")).toHaveLength(1)
+    expect(latestProps(mocks.pendingProps).href).toBe("/c/me")
   })
 
   it("replaces the committed sidebar with one target-scoped cold server checkpoint", async () => {

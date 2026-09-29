@@ -212,7 +212,7 @@ describe("ShellFrame orchestration", () => {
     expect(checkpoint()).toMatchObject({
       surface: "list",
       targetHref: "/c/channels/s1",
-      main: { kind: "keep" },
+      main: { kind: "target-skeleton", href: "/c/channels/s1" },
     })
     expect(mocks.inboxOptions).toHaveBeenLastCalledWith(expect.objectContaining({
       publishedHref: "/c/channels/s1/c1",
@@ -225,6 +225,24 @@ describe("ShellFrame orchestration", () => {
     expect(checkpoint()).toMatchObject({
       surface: "detail",
       targetHref: "/c/me/dm_1?from=inbox",
+    })
+  })
+
+  it("publishes bot DM resolution as a changed-leaf home checkpoint", () => {
+    mocks.currentHref.current = "/c/me/bots"
+    mocks.pendingHref.current = "/c/me"
+    mocks.navigationPending.current = true
+    render(createElement(ShellFrame, {
+      ...baseProps,
+      view: "dm",
+      activeServerId: undefined,
+      frameHref: "/c/me/bots",
+    }))
+
+    expect(checkpoint()).toMatchObject({
+      mode: "same-scope-leaf",
+      targetHref: "/c/me",
+      main: { kind: "target-skeleton", href: "/c/me" },
     })
   })
 
@@ -266,7 +284,7 @@ describe("ShellFrame orchestration", () => {
 
     expect(checkpoint()).toMatchObject({
       mode: "warm-scope",
-      main: { kind: "keep" },
+      main: { kind: "target-skeleton", href: "/c/channels/s2" },
     })
   })
 
@@ -305,7 +323,7 @@ describe("ShellFrame orchestration", () => {
       mode: "warm-scope",
       surface: "list",
       targetHref: "/c/channels/s2",
-      main: { kind: "keep" },
+      main: { kind: "target-skeleton", href: "/c/channels/s2" },
     })
     expect(mocks.railOptions).toHaveBeenLastCalledWith(expect.objectContaining({
       activeServerId: "s1",
@@ -371,7 +389,20 @@ describe("ShellFrame orchestration", () => {
       "previewAttachment",
       "previewImage",
       "replacePath",
+      "resolveAndNavigatePath",
     ])
+    expect(first.resolveAndNavigatePath).toBeDefined()
+    first.navigatePath("/c/channels/s1/parent?msg=opener", {
+      anchorMessageId: "opener",
+      expectedSurfaceKind: "channel",
+    })
+    expect(mocks.push).toHaveBeenLastCalledWith(
+      "/c/channels/s1/parent?msg=opener",
+      {
+        anchorMessageId: "opener",
+        expectedSurfaceKind: "channel",
+      },
+    )
 
     mocks.currentHref.current = "/c/channels/s1/c1?msg=m1"
     renderer.rerender(createElement(ShellFrame, {

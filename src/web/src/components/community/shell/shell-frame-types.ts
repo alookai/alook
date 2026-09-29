@@ -1,5 +1,6 @@
 import type { ReactNode } from "react"
 import type { OwnerServerDeleteRouteToken } from "@/lib/community/eject-server"
+import type { CommunityNavigationOptions } from "@/lib/community/community-route"
 import type { View } from "./shell-types"
 
 export type ShellFrameProps = {
@@ -18,8 +19,9 @@ export type ShellFrameProps = {
 }
 
 export type ShellRouter = {
-  push: (href: string) => void
-  pushImmediate?: (href: string) => void
-  replace: (href: string) => void
+  push: (href: string, options?: ShellNavigationOptions) => void
+  replace: (href: string, options?: ShellNavigationOptions) => void
   prefetch: (href: string) => void
 }
+
+export type ShellNavigationOptions = CommunityNavigationOptions

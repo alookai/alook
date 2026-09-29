@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { useCommunityStore } from "./index"
+import { useCommunityStore, useUiHandlers } from "./index"
 
 beforeEach(() => {
   useCommunityStore.getState().reset()
@@ -203,6 +203,26 @@ describe("useCommunityStore", () => {
     // previewImage stays even though we only passed openProfile.
     expect(useCommunityStore.getState().uiHandlers.previewImage).toBe(previewImage)
     expect(useCommunityStore.getState().uiHandlers.openProfile).toBe(openProfile)
+  })
+
+  it("forwards explicit anchor options through the stable navigation proxy", () => {
+    const navigatePath = vi.fn()
+    useCommunityStore.getState().registerUiHandlers({ navigatePath })
+    const options = {
+      anchorMessageId: "opener-1",
+      expectedSurfaceKind: "channel" as const,
+    }
+
+    useUiHandlers().navigatePath?.(
+      "/c/channels/server-1/parent-1?msg=opener-1",
+      options,
+    )
+
+    expect(navigatePath).toHaveBeenCalledOnce()
+    expect(navigatePath).toHaveBeenCalledWith(
+      "/c/channels/server-1/parent-1?msg=opener-1",
+      options,
+    )
   })
 
   it("reset clears every field including timer maps", () => {

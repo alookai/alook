@@ -204,10 +204,10 @@ export function useInboxAutoCollapse({
       }
       return
     }
-    // router.pushImmediate() can publish the intent one render before the
-    // navigation store exposes pendingHref. Keep the exact tombstone through
-    // that gap; a synchronous throw is handled by the caller. Once this lease
-    // has observed its pending destination, an idle mismatch is a real cancel.
+    // The navigator can publish the intent one render before pendingHref is
+    // observed here. Keep the exact tombstone through that gap; a synchronous
+    // throw is handled by the caller. Once this lease has observed its pending
+    // destination, an idle mismatch is a real cancel.
     if (
       lease.navigationObserved
       || publishedHref !== lease.originHref

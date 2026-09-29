@@ -4,8 +4,16 @@ export function createNavigationIntentGate(): NavigationIntentGate {
   return { revision: 0 }
 }
 
-export function supersedeNavigationIntent(gate: NavigationIntentGate): void {
+export function supersedeNavigationIntent(gate: NavigationIntentGate): number {
   gate.revision += 1
+  return gate.revision
+}
+
+export function isLatestNavigationIntent(
+  gate: NavigationIntentGate,
+  revision: number,
+): boolean {
+  return gate.revision === revision
 }
 
 export async function commitLatestNavigationIntent<T>(

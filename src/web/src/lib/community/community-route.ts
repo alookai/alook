@@ -1,5 +1,10 @@
 export type CommunitySurface = "list" | "detail"
 
+export type CommunityNavigationOptions = {
+  anchorMessageId?: string
+  expectedSurfaceKind?: "channel" | "thread" | "forum" | "dm"
+}
+
 type CommunityModuleRoute =
   | "community-root-redirect"
   | "me-root"
@@ -300,8 +305,6 @@ export function resolveCommunityCheckpointPlan({
   }
 
   const target = normalizeCommunityHref(targetHref)
-  const targetMainKind = resolveCommunityModulePlan(target.href).main.kind
-  const isConversationTarget = targetMainKind === "server-conversation" || targetMainKind === "dm"
   if (target.scope.kind === "unknown" || target.leafKey === committedFrame.leafKey) {
     return committedPlan(committedFrame, target.href)
   }
@@ -313,13 +316,11 @@ export function resolveCommunityCheckpointPlan({
       targetHref: target.href,
       rail: { kind: "keep" },
       sidebar: { kind: "keep" },
-      main: isConversationTarget
-        ? {
-            kind: "target-skeleton",
-            href: target.href,
-            ...(targetConversationSubtype ? { conversationSubtype: targetConversationSubtype } : {}),
-          }
-        : { kind: "keep" },
+      main: {
+        kind: "target-skeleton",
+        href: target.href,
+        ...(targetConversationSubtype ? { conversationSubtype: targetConversationSubtype } : {}),
+      },
     }
   }
 
@@ -328,13 +329,11 @@ export function resolveCommunityCheckpointPlan({
       ...committedPlan(committedFrame, target.href),
       mode: "warm-scope",
       surface: target.surface,
-      main: isConversationTarget
-        ? {
-            kind: "target-skeleton",
-            href: target.href,
-            ...(targetConversationSubtype ? { conversationSubtype: targetConversationSubtype } : {}),
-          }
-        : { kind: "keep" },
+      main: {
+        kind: "target-skeleton",
+        href: target.href,
+        ...(targetConversationSubtype ? { conversationSubtype: targetConversationSubtype } : {}),
+      },
     }
   }
 

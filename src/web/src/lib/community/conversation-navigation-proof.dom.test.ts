@@ -10,6 +10,7 @@ import {
   cancelConversationNavigationProof,
   commitConversationNavigationProof,
   failConversationNavigationProof,
+  getCompletedConversationNavigationEntryEpoch,
   getConversationNavigationProof,
   isCurrentConversationNavigation,
   recordConversationNavigationReceipt,
@@ -82,7 +83,61 @@ describe("conversation navigation proof", () => {
     )).toBe(true)
     expect(getConversationNavigationProof(queryClient)?.status).toBe("verified")
     expect(commitConversationNavigationProof(queryClient, "c1", 7)).toBe(true)
+    expect(getCompletedConversationNavigationEntryEpoch(queryClient, {
+      viewerId: "viewer",
+      channelId: "c1",
+      scopeKind: "channel",
+      anchorMessageId: null,
+    }, 7)).toBe(proof.epoch)
+    expect(getCompletedConversationNavigationEntryEpoch(queryClient, {
+      viewerId: "viewer",
+      channelId: "c1",
+      scopeKind: "channel",
+      anchorMessageId: "wrong-anchor",
+    }, 7)).toBeNull()
+    expect(getCompletedConversationNavigationEntryEpoch(queryClient, {
+      viewerId: "viewer",
+      channelId: "c1",
+      scopeKind: "channel",
+      anchorMessageId: null,
+    }, 8)).toBeNull()
     expect(getConversationNavigationProof(queryClient)?.status).toBe("proven")
+  })
+
+  it("does not expose completed ownership from a superseded intent", () => {
+    const queryClient = new QueryClient()
+    const first = beginConversationNavigationProof(queryClient, {
+      ...target,
+      anchorMessageId: "first-anchor",
+    }, 4)
+    recordConversationNavigationReceipt(
+      queryClient,
+      { channelId: "c1", surfaceKind: "channel" },
+      4,
+      first.epoch,
+    )
+    expect(commitConversationNavigationProof(queryClient, "c1", 4)).toBe(true)
+    const second = beginConversationNavigationProof(queryClient, {
+      ...target,
+      href: "/c/channels/s1/c2?msg=second-anchor",
+      channelId: "c2",
+      anchorMessageId: "second-anchor",
+    }, 4)
+
+    expect(first.signal.aborted).toBe(true)
+    expect(getCompletedConversationNavigationEntryEpoch(queryClient, {
+      viewerId: "viewer",
+      channelId: "c1",
+      scopeKind: "channel",
+      anchorMessageId: "first-anchor",
+    }, 4)).toBeNull()
+    expect(getCompletedConversationNavigationEntryEpoch(queryClient, {
+      viewerId: "viewer",
+      channelId: "c2",
+      scopeKind: "channel",
+      anchorMessageId: "second-anchor",
+    }, 4)).toBeNull()
+    expect(second.signal.aborted).toBe(false)
   })
 
   it("accepts forum authority, ignores duplicate receipts, and rejects wrong targets", () => {

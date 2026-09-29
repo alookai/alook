@@ -210,7 +210,7 @@ function surfaceProps(overrides: Record<string, unknown> = {}) {
       membersHasMore: false,
     },
     manageMembersDialog: React.createElement("span", { "data-manage-dialog": true }),
-    uiHandlers: { previewImage: vi.fn() },
+    uiHandlers: { previewImage: vi.fn(), navigatePath: vi.fn() },
     onOpenChild: vi.fn(),
     onOpenProfile: vi.fn(),
     resolveUserName: (userId: string) => userId,
@@ -308,7 +308,14 @@ describe("ThreadChannelSurface ownership", () => {
       userId: "viewer_1",
     })
     act(() => opener.props.onJump?.())
-    expect(mocks.router.push).toHaveBeenCalledWith("/c/channels/server_1/parent_1?msg=opener_1")
+    expect(props.uiHandlers.navigatePath).toHaveBeenCalledWith(
+      "/c/channels/server_1/parent_1?msg=opener_1",
+      {
+        anchorMessageId: "opener_1",
+        expectedSurfaceKind: "channel",
+      },
+    )
+    expect(mocks.router.push).not.toHaveBeenCalled()
     act(() => opener.props.onPreviewImage?.("https://example.test/image.png"))
     expect(props.uiHandlers.previewImage).toHaveBeenCalledWith("https://example.test/image.png")
     expect(mockedMessageList).toHaveBeenCalledWith(expect.objectContaining({

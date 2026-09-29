@@ -1,6 +1,6 @@
 import type { Page, Route } from "@playwright/test"
 import { test, expect } from "./_fixtures/community-fixture"
-import { seedChannel, seedServer } from "./_fixtures/seed"
+import { seedChannel, seedJoinServer, seedMessage, seedServer } from "./_fixtures/seed"
 import { tid } from "./_fixtures/testids"
 
 async function holdRoute(page: Page, pathname: string) {
@@ -169,11 +169,11 @@ test("community checkpoint shows target pending for detail and keeps list surfac
   await page.getByRole("banner").getByRole("button", { name: "Back" }).click({ noWaitAfter: true })
   await expect.poll(rootGate.held).toBeGreaterThan(0)
   await page.setViewportSize({ width: 1280, height: 900 })
-  await expect(page.getByLabel("Resolving conversation")).toHaveCount(0)
-  await expect(channelHeader(page, channelBName)).toBeVisible()
+  await expect(page.getByTestId(tid.pendingMain("server-landing"))).toBeVisible()
+  await expect(channelHeader(page, channelBName)).toHaveCount(0)
   await page.waitForTimeout(150)
-  await expect(page.getByLabel("Resolving conversation")).toHaveCount(0)
-  await expect(channelHeader(page, channelBName)).toBeVisible()
+  await expect(page.getByTestId(tid.pendingMain("server-landing"))).toBeVisible()
+  await expect(channelHeader(page, channelBName)).toHaveCount(0)
   await rootGate.release()
   await expect(channelHeader(page, channelBName)).toBeVisible({ timeout: 30_000 })
 
@@ -182,15 +182,61 @@ test("community checkpoint shows target pending for detail and keeps list surfac
   const machinesGate = await holdRoute(page, "/c/me/machines")
   await page.getByRole("button", { name: "Machines", exact: true }).click({ noWaitAfter: true })
   await expect.poll(machinesGate.held).toBeGreaterThan(0)
-  await expect(page.getByLabel("Resolving conversation")).toHaveCount(0)
-  await expect(page.getByPlaceholder("Search friends")).toBeVisible()
+  await expect(page.getByTestId(tid.pendingMain("machines"))).toBeVisible()
+  await expect(page.getByPlaceholder("Search friends")).toHaveCount(0)
   await page.waitForTimeout(150)
-  await expect(page.getByPlaceholder("Search friends")).toBeVisible()
+  await expect(page.getByTestId(tid.pendingMain("machines"))).toBeVisible()
+  await expect(page.getByPlaceholder("Search friends")).toHaveCount(0)
   await machinesGate.release()
   await expect(page.getByTestId(tid.machinePairOpen))
     .toBeVisible({ timeout: 30_000 })
 
   expect(mutations).toEqual([])
+})
+
+test("desktop server restore warms newest messages before one direct leaf commit", async ({ asUser }) => {
+  test.setTimeout(150_000)
+  const stamp = Date.now()
+  const serverId = await seedServer("alice", `Restore newest ${stamp}`)
+  const channelName = `restore-${stamp}`
+  const channelId = await seedChannel("alice", serverId, channelName)
+  await seedJoinServer("alice", "bob", serverId)
+  const { page } = await asUser("bob")
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.goto(`/c/channels/${serverId}/${channelId}`)
+  await expect(channelHeader(page, channelName)).toBeVisible({ timeout: 30_000 })
+
+  const freshMessageRequests: string[] = []
+  page.on("response", (response) => {
+    const url = new URL(response.url())
+    if (
+      response.request().method() === "GET"
+      && url.pathname === `/api/community/channels/${channelId}/messages`
+    ) freshMessageRequests.push(url.search)
+  })
+
+  const restore = async (latestBody: string) => {
+    await page.goto("/c/me/friends")
+    await expect(page.getByPlaceholder("Search friends")).toBeVisible({ timeout: 30_000 })
+    freshMessageRequests.length = 0
+    await page.getByTestId(tid.serverIcon(serverId)).click()
+    await expect.poll(() => new URL(page.url()).pathname).toBe(
+      `/c/channels/${serverId}/${channelId}`,
+    )
+    await expect(page.getByText(latestBody, { exact: true })).toHaveCount(1, { timeout: 30_000 })
+    await expect.poll(() => freshMessageRequests.length).toBeGreaterThan(0)
+  }
+
+  const singleBody = `single background ${stamp}`
+  await seedMessage("alice", channelId, singleBody)
+  await restore(singleBody)
+
+  let latestBody = ""
+  for (let index = 0; index < 27; index += 1) {
+    latestBody = `tail ${index} ${stamp}`
+    await seedMessage("alice", channelId, latestBody)
+  }
+  await restore(latestBody)
 })
 
 test("mobile route commits stay stationary while sidebar identity survives same-server history", async ({ asUser }) => {

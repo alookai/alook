@@ -4,6 +4,7 @@ import { create } from "zustand"
 import { useShallow } from "zustand/react/shallow"
 import type React from "react"
 import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
+import type { CommunityNavigationOptions } from "@/lib/community/community-route"
 
 /**
  * Zustand store for community client-only state.
@@ -80,8 +81,13 @@ type CommunityUiHandlers = {
   previewAttachment?: (attachment: FileAttachment) => void
   openProfile?: (name: string, e: React.MouseEvent, discriminator?: string, userId?: string) => void
   goBackMobile?: () => void
-  navigatePath?: (href: string) => void
-  replacePath?: (href: string) => void
+  navigatePath?: (href: string, options?: CommunityNavigationOptions) => void
+  replacePath?: (href: string, options?: CommunityNavigationOptions) => void
+  resolveAndNavigatePath?: (
+    intentHref: string,
+    resolve: () => Promise<string>,
+    options?: CommunityNavigationOptions,
+  ) => Promise<boolean>
   // Jump to message `seq` within the CURRENT DM. Channel surfaces provide the
   // same behavior through a pane-local context so two visible split panes never
   // compete for this global slot. A same-scope message ref pill invokes it when
@@ -349,8 +355,12 @@ const stableUiHandlers: CommunityUiHandlers = {
   openProfile: (name, e, discriminator, userId) =>
     useCommunityStore.getState().uiHandlers.openProfile?.(name, e, discriminator, userId),
   goBackMobile: () => useCommunityStore.getState().uiHandlers.goBackMobile?.(),
-  navigatePath: (href) => useCommunityStore.getState().uiHandlers.navigatePath?.(href),
-  replacePath: (href) => useCommunityStore.getState().uiHandlers.replacePath?.(href),
+  navigatePath: (href, options) => useCommunityStore.getState().uiHandlers.navigatePath?.(href, options),
+  replacePath: (href, options) => useCommunityStore.getState().uiHandlers.replacePath?.(href, options),
+  resolveAndNavigatePath: (intentHref, resolve, options) => (
+    useCommunityStore.getState().uiHandlers.resolveAndNavigatePath?.(intentHref, resolve, options)
+    ?? Promise.resolve(false)
+  ),
   jumpToSeq: (seq) => useCommunityStore.getState().uiHandlers.jumpToSeq?.(seq),
   cancelPendingNavigation: () => useCommunityStore.getState().uiHandlers.cancelPendingNavigation?.(),
   navigate: (serverId, channelId) => useCommunityStore.getState().uiHandlers.navigate?.(serverId, channelId),
