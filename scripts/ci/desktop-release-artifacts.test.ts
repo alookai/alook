@@ -94,7 +94,7 @@ function verifyWindowsStage(fixture: Awaited<ReturnType<typeof createAllStages>>
   ], { encoding: "utf8", timeout: 30_000 })
 }
 
-describe.skipIf(!hasPowerShell)("actual Windows staged installer verifier (requires pwsh)", () => {
+describe.skipIf(!hasPowerShell)("actual Windows staged installer verifier (requires pwsh)", { timeout: 35_000 }, () => {
   it("accepts both installers with valid updater signatures and no Authenticode signatures", async () => {
     const result = verifyWindowsStage(await createAllStages())
     expect(result.error).toBeUndefined()
