@@ -11,6 +11,7 @@ export interface PushNotificationPayload {
     notificationId: string
     messageId: string
     targetId: string
+    viewerUserId: string
   }
 }
 
@@ -66,6 +67,7 @@ export async function buildPushNotificationPayload(
       notificationId,
       messageId: target.messageId,
       targetId: target.channelId,
+      viewerUserId: userId,
     },
   }
 }

@@ -28,6 +28,7 @@ class AlookFirebaseMessagingService : FirebaseMessagingService() {
         launchIntent.putExtra("notificationId", route.notificationId)
         launchIntent.putExtra("messageId", route.messageId)
         launchIntent.putExtra("targetId", route.targetId)
+        route.viewerUserId?.let { launchIntent.putExtra("viewerUserId", it) }
         val requestCode = mobilePushNotificationRequestCode(route.notificationId)
         val pendingIntent = PendingIntent.getActivity(
             this,
@@ -44,7 +45,9 @@ class AlookFirebaseMessagingService : FirebaseMessagingService() {
             .setGroup(route.targetId)
             .build()
         NotificationManagerCompat.from(this).notify(
-            route.notificationId,
+            route.viewerUserId?.let {
+                mobilePushNotificationTag(it, route.targetId, route.notificationId)
+            } ?: route.notificationId,
             requestCode,
             notification,
         )

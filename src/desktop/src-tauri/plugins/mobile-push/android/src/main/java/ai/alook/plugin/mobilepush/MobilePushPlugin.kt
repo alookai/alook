@@ -32,6 +32,12 @@ class DismissNotificationArgs {
 }
 
 @InvokeArg
+class DismissConversationArgs {
+    lateinit var viewerUserId: String
+    lateinit var targetId: String
+}
+
+@InvokeArg
 class MobilePushListenArgs {
     lateinit var channel: Channel
 }
@@ -164,9 +170,68 @@ class MobilePushPlugin(private val activity: Activity) : Plugin(activity) {
             invoke.reject("Notification dismissal is invalid", "invalid_request")
             return
         }
-        val requestCode = mobilePushNotificationRequestCode(args.notificationId)
-        NotificationManagerCompat.from(activity).cancel(args.notificationId, requestCode)
-        invoke.resolve()
+        if (MobilePushRoute.create(args.notificationId, "message", "target") == null) {
+            invoke.reject("Notification dismissal is invalid", "invalid_request")
+            return
+        }
+        val manager = activity.getSystemService(NotificationManager::class.java)
+        if (manager == null) {
+            invoke.reject("Notification manager is unavailable", "notification_unavailable")
+            return
+        }
+        val matches = manager.activeNotifications.filter { notification ->
+            mobilePushNotificationTagMatchesNotification(notification.tag, args.notificationId)
+        }
+        matches.forEach { manager.cancel(it.tag, it.id) }
+        val remains = manager.activeNotifications.any { notification ->
+            mobilePushNotificationTagMatchesNotification(notification.tag, args.notificationId)
+        }
+        if (remains) {
+            invoke.reject("Notification remains delivered", "notification_unavailable")
+        } else {
+            invoke.resolve()
+        }
+    }
+
+    @Command
+    fun dismissConversation(invoke: Invoke) {
+        val args = try {
+            invoke.parseArgs(DismissConversationArgs::class.java)
+        } catch (_: Exception) {
+            invoke.reject("Conversation dismissal is invalid", "invalid_request")
+            return
+        }
+        if (!validMobilePushTargetId(args.viewerUserId)
+            || !validMobilePushTargetId(args.targetId)
+        ) {
+            invoke.reject("Conversation dismissal is invalid", "invalid_request")
+            return
+        }
+        val manager = activity.getSystemService(NotificationManager::class.java)
+        if (manager == null) {
+            invoke.reject("Notification manager is unavailable", "notification_unavailable")
+            return
+        }
+        manager.activeNotifications
+            .filter {
+                mobilePushNotificationTagMatchesConversation(
+                    it.tag,
+                    args.viewerUserId,
+                    args.targetId,
+                )
+            }
+            .forEach { manager.cancel(it.tag, it.id) }
+        if (manager.activeNotifications.any {
+            mobilePushNotificationTagMatchesConversation(
+                it.tag,
+                args.viewerUserId,
+                args.targetId,
+            )
+        }) {
+            invoke.reject("Conversation notifications remain delivered", "notification_unavailable")
+        } else {
+            invoke.resolve()
+        }
     }
 
     @Command
@@ -224,6 +289,7 @@ class MobilePushPlugin(private val activity: Activity) : Plugin(activity) {
                 it.getStringExtra("notificationId"),
                 it.getStringExtra("messageId"),
                 it.getStringExtra("targetId"),
+                it.getStringExtra("viewerUserId"),
             )
         } ?: return
         try {
@@ -231,6 +297,7 @@ class MobilePushPlugin(private val activity: Activity) : Plugin(activity) {
             intent.removeExtra("notificationId")
             intent.removeExtra("messageId")
             intent.removeExtra("targetId")
+            intent.removeExtra("viewerUserId")
             signal()
         } catch (_: Exception) {
             return

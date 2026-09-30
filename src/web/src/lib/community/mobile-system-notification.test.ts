@@ -6,6 +6,7 @@ import {
   createMobileSystemNotificationRegistrationController,
   deleteMobileSystemNotificationRegistration,
   dismissMobileSystemNotification,
+  dismissMobileSystemNotificationConversation,
   listenMobileSystemNotificationSignals,
   parseMobileSystemNotificationActivation,
   parseMobileSystemNotificationPermission,
@@ -176,6 +177,21 @@ describe("mobile notification native adapter", () => {
       { notificationId },
     )
     await expect(dismissMobileSystemNotification("bad")).rejects.toThrow("invalid_notification_id")
+
+    nativeMocks.invoke.mockResolvedValueOnce(undefined)
+    await expect(
+      dismissMobileSystemNotificationConversation("viewer_1", "channel_1"),
+    ).resolves.toBeUndefined()
+    expect(nativeMocks.invoke).toHaveBeenLastCalledWith(
+      "mobile_system_notification_dismiss_conversation",
+      { viewerUserId: "viewer_1", targetId: "channel_1" },
+    )
+    await expect(
+      dismissMobileSystemNotificationConversation("viewer_1", "../channel"),
+    ).rejects.toThrow("invalid_target_id")
+    await expect(
+      dismissMobileSystemNotificationConversation("../viewer", "channel_1"),
+    ).rejects.toThrow("invalid_viewer_user_id")
   })
 
   it("bridges native signals and swallows unlisten failures", async () => {

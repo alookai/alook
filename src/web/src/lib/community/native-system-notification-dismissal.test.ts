@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import {
+  createNativeSystemNotificationConversationDismissalQueue,
   createNativeSystemNotificationDismissalQueue,
   type NativeSystemNotificationDismissalDeps,
 } from "./native-system-notification-dismissal"
@@ -72,5 +73,83 @@ describe("native notification dismissal handoff", () => {
 
     expect(queue.peek("mobile", "/c/me/channel_1")).toBeNull()
     expect(removeItem).toHaveBeenCalledOnce()
+  })
+})
+
+describe("native notification conversation dismissal retry queue", () => {
+  const serverTarget = {
+    kind: "server" as const,
+    serverId: "server_1",
+    channelId: "channel_1",
+  }
+  const otherTarget = {
+    kind: "server" as const,
+    serverId: "server_1",
+    channelId: "channel_2",
+  }
+
+  it("survives recreation and consumes only the exact account and target", () => {
+    const values = new Map<string, string>()
+    const first = createNativeSystemNotificationConversationDismissalQueue(deps(values))
+    expect(first.queue("desktop", "viewer_1", serverTarget)).toBe(true)
+    expect(first.queue("desktop", "viewer_1", otherTarget)).toBe(true)
+
+    const restored = createNativeSystemNotificationConversationDismissalQueue(deps(values))
+    expect(restored.pending("desktop", "viewer_2")).toEqual([])
+    expect(restored.pending("mobile", "viewer_1")).toEqual([])
+    expect(restored.pending("desktop", "viewer_1")).toEqual([serverTarget, otherTarget])
+
+    expect(restored.complete("desktop", "viewer_2", serverTarget)).toBe(false)
+    expect(restored.complete("desktop", "viewer_1", serverTarget)).toBe(true)
+    expect(restored.pending("desktop", "viewer_1")).toEqual([otherTarget])
+  })
+
+  it("deduplicates one scope without consuming it on a native failure", () => {
+    const values = new Map<string, string>()
+    const queue = createNativeSystemNotificationConversationDismissalQueue(deps(values))
+    expect(queue.queue("mobile", "viewer_1", serverTarget)).toBe(true)
+    expect(queue.queue("mobile", "viewer_1", serverTarget)).toBe(true)
+    expect(queue.pending("mobile", "viewer_1")).toEqual([serverTarget])
+  })
+
+  it("round-trips an exact DM target", () => {
+    const values = new Map<string, string>()
+    const queue = createNativeSystemNotificationConversationDismissalQueue(deps(values))
+    const dmTarget = { kind: "dm" as const, channelId: "dm_1" }
+
+    expect(queue.queue("mobile", "viewer_1", dmTarget)).toBe(true)
+    expect(queue.pending("mobile", "viewer_1")).toEqual([dmTarget])
+    expect(queue.complete("mobile", "viewer_1", dmTarget)).toBe(true)
+    expect(values.size).toBe(0)
+  })
+
+  it("contains corrupt-storage cleanup and write failures", () => {
+    const corruptValues = new Map([
+      ["alook:native-system-notification:conversation-dismissals", "corrupt"],
+    ])
+    const removeItem = vi.fn((key: string) => { corruptValues.delete(key) })
+    const corrupt = createNativeSystemNotificationConversationDismissalQueue(deps(
+      corruptValues,
+      { removeItem },
+    ))
+
+    expect(corrupt.pending("desktop", "viewer_1")).toEqual([])
+    expect(removeItem).toHaveBeenCalledOnce()
+    expect(corruptValues.size).toBe(0)
+
+    const removeBlocked = createNativeSystemNotificationConversationDismissalQueue(deps(
+      new Map([["alook:native-system-notification:conversation-dismissals", "corrupt"]]),
+      { removeItem: () => { throw new Error("blocked") } },
+    ))
+    expect(removeBlocked.pending("desktop", "viewer_1")).toEqual([])
+
+    const writeBlocked = createNativeSystemNotificationConversationDismissalQueue(deps(
+      new Map(),
+      { setItem: () => { throw new Error("blocked") } },
+    ))
+    expect(writeBlocked.queue("mobile", "viewer_1", {
+      kind: "dm",
+      channelId: "dm_1",
+    })).toBe(false)
   })
 })

@@ -51,6 +51,7 @@ describe("mobile notification payload", () => {
         notificationId: payload.notificationId,
         messageId: "message-1",
         targetId: "channel-1",
+        viewerUserId: "user-1",
       },
     })
     expect(JSON.stringify(payload)).not.toContain("https://example.test")
@@ -95,6 +96,7 @@ describe("mobile notification payload", () => {
       notificationId: payload.notificationId,
       messageId: "message-1",
       targetId: "channel-1",
+      viewerUserId: "user-1",
     })
   })
 

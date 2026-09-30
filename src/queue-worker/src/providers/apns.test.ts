@@ -13,6 +13,7 @@ const payload = {
     notificationId: "4cb8126e-4842-5c26-8d3f-02031c3d014b",
     messageId: "message-1",
     targetId: "channel-1",
+    viewerUserId: "user-1",
   },
 }
 

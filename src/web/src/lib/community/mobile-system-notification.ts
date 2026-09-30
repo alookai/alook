@@ -200,6 +200,15 @@ export async function dismissMobileSystemNotification(notificationId: string): P
   await tauriInvoke("mobile_system_notification_dismiss", { notificationId })
 }
 
+export async function dismissMobileSystemNotificationConversation(
+  viewerUserId: string,
+  targetId: string,
+): Promise<void> {
+  if (!isSafeId(viewerUserId)) throw new Error("invalid_viewer_user_id")
+  if (!isSafeId(targetId)) throw new Error("invalid_target_id")
+  await tauriInvoke("mobile_system_notification_dismiss_conversation", { viewerUserId, targetId })
+}
+
 export async function postMobileSystemNotificationRegistration(
   snapshot: MobileSystemNotificationRegistration,
   fetchImpl: typeof fetch = fetch,

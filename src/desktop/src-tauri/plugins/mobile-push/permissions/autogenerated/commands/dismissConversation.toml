@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-dismissConversation"
+description = "Enables the dismissConversation command without any pre-configured scope."
+commands.allow = ["dismissConversation"]
+
+[[permission]]
+identifier = "deny-dismissConversation"
+description = "Denies the dismissConversation command without any pre-configured scope."
+commands.deny = ["dismissConversation"]

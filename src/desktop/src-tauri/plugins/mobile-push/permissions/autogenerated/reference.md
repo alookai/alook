@@ -36,6 +36,32 @@ Denies the acknowledgeRegistration command without any pre-configured scope.
 <tr>
 <td>
 
+`mobile-push:allow-dismissConversation`
+
+</td>
+<td>
+
+Enables the dismissConversation command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mobile-push:deny-dismissConversation`
+
+</td>
+<td>
+
+Denies the dismissConversation command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `mobile-push:allow-dismissNotification`
 
 </td>

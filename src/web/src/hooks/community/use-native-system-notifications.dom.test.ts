@@ -4,10 +4,14 @@ import {
   createDesktopSystemNotificationActivationController,
   createDesktopSystemNotificationInboxOpener,
   type DesktopSystemNotificationInboxDeps,
+  useNativeSystemNotificationConversationDismissal,
   useNativeSystemNotifications,
 } from "./use-native-system-notifications"
 import type { DesktopSystemNotificationActivation } from "@/lib/community/system-notification-route"
-import { createNativeSystemNotificationDismissalQueue } from "@/lib/community/native-system-notification-dismissal"
+import {
+  createNativeSystemNotificationConversationDismissalQueue,
+  createNativeSystemNotificationDismissalQueue,
+} from "@/lib/community/native-system-notification-dismissal"
 
 const hookMocks = vi.hoisted(() => ({
   desktop: true,
@@ -16,6 +20,7 @@ const hookMocks = vi.hoisted(() => ({
   take: vi.fn(),
   retryActivation: vi.fn(async () => undefined),
   dismiss: vi.fn(async () => undefined),
+  dismissConversation: vi.fn(async () => undefined),
   revalidate: vi.fn(),
   mobileListen: vi.fn(),
   mobileCheck: vi.fn(),
@@ -26,6 +31,7 @@ const hookMocks = vi.hoisted(() => ({
   mobileDelete: vi.fn(),
   mobileTake: vi.fn(),
   mobileDismiss: vi.fn(async () => undefined),
+  mobileDismissConversation: vi.fn(async () => undefined),
   mobileRevalidate: vi.fn(),
 }))
 vi.mock("@alook/shared", async () => {
@@ -46,6 +52,7 @@ vi.mock("@/lib/community/desktop-system-notification", async () => {
     takeDesktopSystemNotificationActivation: hookMocks.take,
     retryDesktopSystemNotificationActivation: hookMocks.retryActivation,
     dismissDesktopSystemNotification: hookMocks.dismiss,
+    dismissDesktopSystemNotificationConversation: hookMocks.dismissConversation,
   }
 })
 vi.mock("@/lib/community/system-notification-route", async () => {
@@ -69,6 +76,7 @@ vi.mock("@/lib/community/mobile-system-notification", async () => {
     deleteMobileSystemNotificationRegistration: hookMocks.mobileDelete,
     takeMobileSystemNotificationActivation: hookMocks.mobileTake,
     dismissMobileSystemNotification: hookMocks.mobileDismiss,
+    dismissMobileSystemNotificationConversation: hookMocks.mobileDismissConversation,
     revalidateMobileSystemNotificationActivation: hookMocks.mobileRevalidate,
   }
 })
@@ -88,6 +96,7 @@ afterEach(() => {
   hookMocks.desktop = true
   hookMocks.mobile = false
   window.sessionStorage.clear()
+  window.localStorage.clear()
   document.body.replaceChildren()
   vi.useRealTimers()
   vi.unstubAllGlobals()
@@ -365,6 +374,112 @@ describe("desktop notification Inbox fallback", () => {
 })
 
 describe("native system notification hook", () => {
+  it("queues only after the exact conversation is ready and retries after recreation", async () => {
+    const target = { kind: "server" as const, serverId: "server_1", channelId: "channel_1" }
+    const pending = renderHook(() => useNativeSystemNotificationConversationDismissal(
+      "viewer_1",
+      target,
+      false,
+    ))
+    expect(hookMocks.dismissConversation).not.toHaveBeenCalled()
+    pending.unmount()
+
+    hookMocks.dismissConversation.mockRejectedValueOnce(new Error("native unavailable"))
+    const first = renderHook(() => useNativeSystemNotificationConversationDismissal(
+      "viewer_1",
+      target,
+      true,
+    ))
+    await waitFor(() => expect(hookMocks.dismissConversation).toHaveBeenCalledExactlyOnceWith(
+      "viewer_1",
+      target,
+    ))
+    await act(async () => { await Promise.resolve() })
+    expect(window.localStorage.length).toBe(1)
+    first.unmount()
+
+    hookMocks.dismissConversation.mockResolvedValueOnce(undefined)
+    const restored = renderHook(() => useNativeSystemNotificationConversationDismissal(
+      "viewer_1",
+      target,
+      true,
+    ))
+    await waitFor(() => expect(hookMocks.dismissConversation).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(window.localStorage.length).toBe(0))
+    restored.unmount()
+  })
+
+  it("dismisses a ready mobile DM by exact viewer and channel only", async () => {
+    hookMocks.desktop = false
+    hookMocks.mobile = true
+    const target = { kind: "dm" as const, channelId: "dm_1" }
+
+    const rendered = renderHook(() => useNativeSystemNotificationConversationDismissal(
+      "viewer_1",
+      target,
+      true,
+    ))
+
+    await waitFor(() => expect(hookMocks.mobileDismissConversation)
+      .toHaveBeenCalledExactlyOnceWith("viewer_1", "dm_1"))
+    expect(hookMocks.dismissConversation).not.toHaveBeenCalled()
+    await waitFor(() => expect(window.localStorage.length).toBe(0))
+    rendered.unmount()
+  })
+
+  it("persists each remaining desktop conversation until its own dismissal completes", async () => {
+    const firstTarget = {
+      kind: "server" as const,
+      serverId: "server_1",
+      channelId: "channel_1",
+    }
+    const secondTarget = {
+      kind: "server" as const,
+      serverId: "server_1",
+      channelId: "channel_2",
+    }
+    const queue = createNativeSystemNotificationConversationDismissalQueue({
+      getItem: (key) => window.localStorage.getItem(key),
+      setItem: (key, value) => window.localStorage.setItem(key, value),
+      removeItem: (key) => window.localStorage.removeItem(key),
+    })
+    expect(queue.queue("desktop", "viewer_1", firstTarget)).toBe(true)
+    expect(queue.queue("desktop", "viewer_1", secondTarget)).toBe(true)
+
+    let resolveFirst = () => undefined
+    let resolveSecond = () => undefined
+    const firstDismissal = new Promise<void>((resolve) => { resolveFirst = resolve })
+    const secondDismissal = new Promise<void>((resolve) => { resolveSecond = resolve })
+    hookMocks.dismissConversation
+      .mockImplementationOnce(() => firstDismissal)
+      .mockImplementationOnce(() => secondDismissal)
+    hookMocks.listen.mockResolvedValue(vi.fn())
+    hookMocks.take.mockResolvedValue(null)
+
+    const rendered = renderHook(() => useNativeSystemNotifications("viewer_1"))
+    await waitFor(() => expect(hookMocks.dismissConversation).toHaveBeenCalledTimes(2))
+
+    await act(async () => {
+      resolveFirst()
+      await firstDismissal
+    })
+    expect(JSON.parse(window.localStorage.getItem(
+      "alook:native-system-notification:conversation-dismissals",
+    )!)).toEqual([{
+      version: 1,
+      platform: "desktop",
+      viewerUserId: "viewer_1",
+      target: secondTarget,
+    }])
+
+    await act(async () => {
+      resolveSecond()
+      await secondDismissal
+    })
+    await waitFor(() => expect(window.localStorage.length).toBe(0))
+    rendered.unmount()
+  })
+
   it("does nothing in the browser", () => {
     hookMocks.desktop = false
     const rendered = renderHook(() => useNativeSystemNotifications("viewer_1"))

@@ -89,6 +89,7 @@ function dependencies() {
         notificationId: "notification-1",
         messageId: "message-1",
         targetId: "channel-1",
+        viewerUserId: "user-1",
       },
     })),
     createFcmAccessToken: vi.fn(async () => "access-token"),

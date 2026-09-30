@@ -176,3 +176,10 @@ export async function retryDesktopSystemNotificationActivation(notificationId: s
 export async function dismissDesktopSystemNotification(notificationId: string): Promise<void> {
   await tauriInvoke("desktop_system_notification_dismiss", { notificationId })
 }
+
+export async function dismissDesktopSystemNotificationConversation(
+  viewerUserId: string,
+  target: { kind: "server"; serverId: string; channelId: string } | { kind: "dm"; channelId: string },
+): Promise<void> {
+  await tauriInvoke("desktop_system_notification_dismiss_conversation", { viewerUserId, target })
+}

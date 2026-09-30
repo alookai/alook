@@ -48,6 +48,18 @@ fn safe_id(value: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
 }
 
+#[cfg_attr(not(mobile), allow(dead_code))]
+pub fn validate_target_id(target_id: &str) -> Result<(), MobileSystemNotificationError> {
+    if safe_id(target_id) {
+        Ok(())
+    } else {
+        Err(MobileSystemNotificationError::new(
+            "invalid_request",
+            "Notification target id is invalid",
+        ))
+    }
+}
+
 fn uuid(value: &str) -> bool {
     let bytes = value.as_bytes();
     bytes.len() == 36
@@ -258,5 +270,15 @@ mod tests {
     fn accepts_only_uuid_shaped_notification_ids() {
         assert!(validate_notification_id("4f3bb3fd-5d7f-4a26-8e0e-3ddd1154f71e").is_ok());
         assert!(validate_notification_id("bad").is_err());
+    }
+
+    #[test]
+    fn uses_the_same_safe_id_contract_for_viewers_and_targets() {
+        for value in ["viewer_1", "channel-2", &"a".repeat(128)] {
+            assert!(validate_target_id(value).is_ok());
+        }
+        for value in ["", "../viewer", "channel:1", &"a".repeat(129)] {
+            assert!(validate_target_id(value).is_err());
+        }
     }
 }

@@ -38,6 +38,13 @@ pub struct DismissRequest {
     pub notification_id: String,
 }
 
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DismissConversationRequest {
+    pub viewer_user_id: String,
+    pub target_id: String,
+}
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ListenRequest {
