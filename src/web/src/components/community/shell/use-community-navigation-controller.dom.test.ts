@@ -36,8 +36,13 @@ vi.mock("next/navigation", () => ({
 type Result = ReturnType<typeof useCommunityNavigationController>
 
 function Capture({ onResult }: { onResult: (result: Result) => void }) {
-  onResult(useCommunityNavigationController(mocks.frame.current!))
-  return null
+  const result = useCommunityNavigationController(mocks.frame.current!)
+  onResult(result)
+  return createElement("output", {
+    "data-navigation-pending": String(result.navigationPending),
+    "data-pending-leaf": result.pendingHref ? normalizeCommunityHref(result.pendingHref).leafKey : "",
+    "data-committed-leaf": mocks.frame.current!.leafKey,
+  }, result.pendingHref)
 }
 
 async function renderController() {
@@ -49,6 +54,7 @@ async function renderController() {
   })
   return {
     get current() { return current },
+    get container() { return renderer.container },
     rerender: async () => {
       await act(async () => renderer.rerender(createElement(Capture, { onResult })))
     },
@@ -73,6 +79,71 @@ describe("useCommunityNavigationController", () => {
   })
 
   afterEach(() => vi.unstubAllGlobals())
+
+  it("commits the target checkpoint to DOM inside router.push before the frame changes", async () => {
+    const source = "/c/channels/s1/a"
+    const target = "/c/channels/s1/b"
+    mocks.pathname.current = source
+    mocks.frame.current = { ...normalizeCommunityHref(source), revision: 7 }
+    const hook = await renderController()
+    const output = () => hook.container.querySelector("output")!
+    expect(output().getAttribute("data-navigation-pending")).toBe("false")
+    expect(output().getAttribute("data-pending-leaf")).toBe("")
+
+    mocks.push.mockImplementation((href: string) => {
+      expect(href).toBe(target)
+      expect(output().getAttribute("data-navigation-pending")).toBe("true")
+      expect(output().getAttribute("data-pending-leaf")).toBe(normalizeCommunityHref(target).leafKey)
+      expect(output().getAttribute("data-committed-leaf")).toBe(normalizeCommunityHref(source).leafKey)
+      expect(output().textContent).toBe(target)
+      expect(hook.current.pendingHref).toBe(target)
+    })
+    await act(async () => hook.current.push(target))
+    expect(mocks.push).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    { label: "unchanged target revision", href: "/c/channels/s1/b", revision: 7 },
+    { label: "older target revision", href: "/c/channels/s1/b", revision: 6 },
+    { label: "newer wrong leaf", href: "/c/channels/s1/c", revision: 8 },
+  ])("rejects $label and settles only a new matching frame, without transport completion", async ({ href, revision }) => {
+    const source = "/c/channels/s1/a"
+    const target = "/c/channels/s1/b"
+    mocks.pathname.current = source
+    mocks.frame.current = { ...normalizeCommunityHref(source), revision: 7 }
+    let release!: () => void
+    let transportFinished = false
+    const transport = new Promise<void>((resolve) => { release = resolve })
+    mocks.push.mockImplementation(() => { void transport.then(() => { transportFinished = true }) })
+    const hook = await renderController()
+    try {
+      await act(async () => hook.current.push(target))
+      await hook.rerender()
+      expect(hook.current.navigationPending).toBe(true)
+      expect(hook.current.pendingHref).toBe(target)
+      mocks.pathname.current = target
+      await hook.rerender()
+      expect(hook.current.navigationPending).toBe(true)
+      expect(hook.current.pendingHref).toBe(target)
+
+      mocks.frame.current = { ...normalizeCommunityHref(href), revision }
+      await hook.rerender()
+      expect(hook.current.navigationPending).toBe(true)
+      expect(hook.current.pendingHref).toBe(target)
+      expect(hook.container.querySelector("output")!.textContent).toBe(target)
+
+      mocks.frame.current = { ...normalizeCommunityHref(target), revision: 8 }
+      await hook.rerender()
+      expect(hook.current.navigationPending).toBe(false)
+      expect(hook.current.pendingHref).toBeNull()
+      expect(hook.container.querySelector("output")!.getAttribute("data-navigation-pending")).toBe("false")
+      expect(hook.container.querySelector("output")!.textContent).toBe("")
+      expect(transportFinished).toBe(false)
+    } finally {
+      release()
+      await transport
+    }
+  })
 
   it("does not treat published pathname as commit and clears after frame evidence", async () => {
     const hook = await renderController()

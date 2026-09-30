@@ -4,6 +4,7 @@ import { act, render } from "@/test/react-dom-harness"
 import { ShellFrameView } from "./shell-frame-view"
 import { CommunitySessionPendingFrame } from "./community-session-pending-frame"
 import type { CommunityCheckpointPlan, CommunitySurface } from "@/lib/community/community-route"
+import { normalizeCommunityHref, resolveCommunityCheckpointPlan } from "@/lib/community/community-route"
 import {
   COMMUNITY_LAYOUT_PREPAINT_ATTRIBUTE,
   desktopUserBarInitialOverlayCssWidth,
@@ -1184,6 +1185,58 @@ describe("ShellFrameView", () => {
     expect(document.documentElement).toHaveAttribute(COMMUNITY_LAYOUT_PREPAINT_ATTRIBUTE)
     renderer.unmount()
     expect(document.documentElement).not.toHaveAttribute(COMMUNITY_LAYOUT_PREPAINT_ATTRIBUTE)
+  })
+
+  it("excludes stale conversation DOM for the intended target until its frame commits", () => {
+    const source = "/c/channels/s1/a"
+    const target = "/c/channels/s1/b"
+    const frameA = { ...normalizeCommunityHref(source), revision: 7 }
+    const plan = (frame = frameA, pending = true) => resolveCommunityCheckpointPlan({
+      committedFrame: frame,
+      targetHref: target,
+      pending,
+      targetReady: true,
+      targetConversationSubtype: "text",
+    })
+    const common = {
+      ...extensionProps,
+      breakpoint: "desktop" as const,
+      sidebar: () => createElement("sidebar-content"),
+      cancelPendingNavigation: vi.fn(),
+      rail,
+      profile,
+      inbox,
+    }
+    const child = (channel: string) => createElement("div", { "data-channel-id": channel }, channel)
+    const renderer = render(createElement(ShellFrameView, {
+      ...common,
+      checkpoint: plan(frameA, false),
+    }, child("a")))
+    expect(renderer.container.querySelector('[data-channel-id="a"]')).not.toBeNull()
+    expect(renderer.container.querySelector("[data-channel-loading-frame]")).toBeNull()
+
+    renderer.rerender(createElement(ShellFrameView, { ...common, checkpoint: plan() }, child("a")))
+    expect(plan()).toMatchObject({
+      targetHref: target,
+      main: { kind: "target-skeleton", href: target, conversationSubtype: "text" },
+    })
+    expect(renderer.container.querySelector('[data-channel-id="a"]')).toBeNull()
+    expect(renderer.container.querySelector('[data-channel-id="b"]')).toBeNull()
+    expect(renderer.container.querySelectorAll("[data-channel-loading-frame]")).toHaveLength(1)
+    expect(mocks.pendingProps).toHaveBeenLastCalledWith(expect.objectContaining({ href: target }))
+
+    const wrongFrame = { ...normalizeCommunityHref("/c/channels/s1/c"), revision: 8 }
+    renderer.rerender(createElement(ShellFrameView, { ...common, checkpoint: plan(wrongFrame) }, child("c")))
+    expect(renderer.container.querySelector('[data-channel-id="c"]')).toBeNull()
+    expect(renderer.container.querySelectorAll("[data-channel-loading-frame]")).toHaveLength(1)
+    expect(mocks.pendingProps).toHaveBeenLastCalledWith(expect.objectContaining({ href: target }))
+
+    const frameB = { ...normalizeCommunityHref(target), revision: 8 }
+    renderer.rerender(createElement(ShellFrameView, { ...common, checkpoint: plan(frameB) }, child("b")))
+    expect(renderer.container.querySelector("[data-channel-loading-frame]")).toBeNull()
+    expect(renderer.container.querySelector('[data-channel-id="b"]')).not.toBeNull()
+    expect(renderer.container.querySelector('[data-channel-id="a"]')).toBeNull()
+    expect(renderer.container.querySelector('[data-channel-id="c"]')).toBeNull()
   })
 
   it("keeps committed content mounted while same-scope navigation is pending", async () => {
