@@ -5,6 +5,15 @@ import { tid } from "@/lib/community/testids"
 import { ChannelHeaderSkeleton } from "./channel-header"
 
 describe("ChannelHeaderSkeleton", () => {
+  it.each([false, true])("matches the thread Back footprint on desktop in compact mode %s", (compactActions) => {
+    const html = renderToStaticMarkup(createElement(ChannelHeaderSkeleton, { kind: "thread", compactActions }))
+    const leadingClasses = html.match(/data-slot="loading-mobile-leading"[^>]*class="([^"]*)"/)?.[1]
+
+    expect(leadingClasses).toContain("size-11")
+    expect(leadingClasses?.includes("sm:hidden")).toBe(compactActions)
+    expect(html).not.toContain("<button")
+  })
+
   it("renders inert mobile Back geometry without interaction", () => {
     const html = renderToStaticMarkup(createElement(ChannelHeaderSkeleton))
 

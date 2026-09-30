@@ -160,10 +160,11 @@ describe("ProfileRunningBotsCard", () => {
     expect(html).not.toContain("Online ·")
     expect(html).not.toContain('presence="online"')
     expect(html).toContain("px-4 py-2")
-    expect(html).toContain("flex h-6 items-center gap-2")
+    expect(html).toContain("flex h-6 shrink-0 items-center gap-2")
     expect(html).not.toContain("flex h-8 items-center")
     expect(html).toContain("max-h-64")
     expect(html).toContain("overflow-y-auto")
+    expect(html).toContain("overscroll-contain")
     expect(html).toContain("thin-scrollbar")
     expect(html).toContain("block truncate text-sm font-medium")
     expect(html).toContain('<span class="truncate">')
@@ -178,9 +179,12 @@ describe("ProfileRunningBotsCard", () => {
     }]])
     const html = renderToStaticMarkup(createElement(ProfileRunningBotsCard, {
       useBackdropEffect: false,
+      showShadow: false,
     }))
 
     expect(html).toContain("bg-popover/95")
+    expect(html).toContain("shadow-none")
+    expect(html).not.toContain("shadow-2xl")
     expect(html).not.toContain("backdrop-blur-2xl")
     expect(html).not.toContain("backdrop-saturate-150")
   })
