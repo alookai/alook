@@ -84,7 +84,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_TEAM_ID APPLE_API_ISSUER APPLE_API_KEY APPLE_API_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD; do
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_TEAM_ID APPLE_API_ISSUER APPLE_API_KEY APPLE_API_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY; do
             test -n "${!name}" || { echo "::error::Missing required macOS release input: $name"; exit 1; }
           done
           [[ "$APPLE_TEAM_ID" =~ ^[A-Z0-9]{10}$ ]]
@@ -214,7 +214,6 @@ jobs:
     timeout-minutes: 45
     permissions:
       contents: read
-      id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -251,74 +250,21 @@ jobs:
       - name: Preflight Windows release inputs
         shell: pwsh
         env:
-          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
-          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
-          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-          ALOOK_ARTIFACT_SIGNING_ENDPOINT: ${{ vars.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
-          ALOOK_ARTIFACT_SIGNING_ACCOUNT_NAME: ${{ vars.AZURE_ARTIFACT_SIGNING_ACCOUNT_NAME }}
-          ALOOK_ARTIFACT_SIGNING_CERTIFICATE_PROFILE_NAME: ${{ vars.AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE_NAME }}
-          ALOOK_WINDOWS_SIGNING_PUBLISHER: ${{ vars.WINDOWS_SIGNING_PUBLISHER }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          $required = @(
-            "AZURE_CLIENT_ID", "AZURE_TENANT_ID", "AZURE_SUBSCRIPTION_ID",
-            "ALOOK_ARTIFACT_SIGNING_ENDPOINT", "ALOOK_ARTIFACT_SIGNING_ACCOUNT_NAME",
-            "ALOOK_ARTIFACT_SIGNING_CERTIFICATE_PROFILE_NAME", "ALOOK_WINDOWS_SIGNING_PUBLISHER",
-            "TAURI_SIGNING_PRIVATE_KEY", "TAURI_SIGNING_PRIVATE_KEY_PASSWORD"
-          )
-          foreach ($name in $required) {
-            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
-              throw "Missing required Windows release input: $name"
-            }
-          }
-          [Uri]$endpoint = $null
-          if (-not [Uri]::TryCreate($env:ALOOK_ARTIFACT_SIGNING_ENDPOINT, [UriKind]::Absolute, [ref]$endpoint) -or
-              $endpoint.Scheme -ne [Uri]::UriSchemeHttps -or
-              $endpoint.DnsSafeHost -notmatch '^[a-z0-9-]+\.codesigning\.azure\.net$' -or
-              -not $endpoint.IsDefaultPort -or
-              $endpoint.AbsolutePath -ne '/' -or
-              $endpoint.UserInfo -ne '' -or
-              $endpoint.Query -ne '' -or
-              $endpoint.Fragment -ne '') {
-            throw "Artifact Signing endpoint must be an HTTPS regional codesigning.azure.net root URL"
+          if ([string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY)) {
+            throw "Missing required Windows release input: TAURI_SIGNING_PRIVATE_KEY"
           }
 
-      - name: Login to Azure with GitHub OIDC
-        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
-        with:
-          client-id: ${{ vars.AZURE_CLIENT_ID }}
-          tenant-id: ${{ vars.AZURE_TENANT_ID }}
-          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-
-      - name: Prepare digest-verified Artifact Signing module
-        shell: pwsh
-        run: |
-          $destination = Join-Path $env:RUNNER_TEMP "alook-artifact-signing-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
-          "ALOOK_ARTIFACT_SIGNING_ROOT=$destination" | Out-File -LiteralPath $env:GITHUB_ENV -Append -Encoding utf8
-          ./scripts/ci/prepare-desktop-windows-signing.ps1 -DestinationRoot $destination
-
-      - name: Prepare canonical Tauri signing root
-        shell: pwsh
-        run: |
-          $root = [IO.Path]::GetFullPath((Join-Path $env:GITHUB_WORKSPACE "src\desktop\src-tauri\target\x86_64-pc-windows-msvc\release"))
-          $temp = Join-Path $root "tauri-sign-temp"
-          New-Item -Path $temp -ItemType Directory -Force | Out-Null
-          "ALOOK_WINDOWS_SIGNING_ROOT=$root" | Out-File -LiteralPath $env:GITHUB_ENV -Append -Encoding utf8
-          "TEMP=$temp" | Out-File -LiteralPath $env:GITHUB_ENV -Append -Encoding utf8
-          "TMP=$temp" | Out-File -LiteralPath $env:GITHUB_ENV -Append -Encoding utf8
-
-      - name: Build signed Windows app
+      - name: Build Windows app
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          ALOOK_ARTIFACT_SIGNING_ENDPOINT: ${{ vars.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
-          ALOOK_ARTIFACT_SIGNING_ACCOUNT_NAME: ${{ vars.AZURE_ARTIFACT_SIGNING_ACCOUNT_NAME }}
-          ALOOK_ARTIFACT_SIGNING_CERTIFICATE_PROFILE_NAME: ${{ vars.AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE_NAME }}
         with:
           projectPath: src/desktop
-          args: --target x86_64-pc-windows-msvc --config src-tauri/tauri.windows.signing.conf.json
+          args: --target x86_64-pc-windows-msvc
 
       - name: Stage exact Windows release bytes
         shell: pwsh
@@ -333,10 +279,9 @@ jobs:
       - name: Verify staged Windows bytes
         shell: pwsh
         env:
-          EXPECTED_PUBLISHER: ${{ vars.WINDOWS_SIGNING_PUBLISHER }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          ./scripts/ci/verify-desktop-windows.ps1 -StageDirectory $env:DESKTOP_STAGE -ExpectedVersion $env:VERSION -ExpectedPublisher $env:EXPECTED_PUBLISHER -TauriConfigPath "src/desktop/src-tauri/tauri.conf.json"
+          ./scripts/ci/verify-desktop-windows.ps1 -StageDirectory $env:DESKTOP_STAGE -ExpectedVersion $env:VERSION -TauriConfigPath "src/desktop/src-tauri/tauri.conf.json"
 
       - name: Upload private verified Windows stage
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -345,21 +290,6 @@ jobs:
           path: ${{ env.DESKTOP_STAGE }}
           if-no-files-found: error
           retention-days: 7
-
-      - name: Clean temporary Windows signing state
-        if: always()
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "SilentlyContinue"
-          $PSNativeCommandUseErrorActionPreference = $false
-          az logout 2>$null
-          az account clear 2>$null
-          if ($env:ALOOK_ARTIFACT_SIGNING_ROOT) {
-            Remove-Item -LiteralPath $env:ALOOK_ARTIFACT_SIGNING_ROOT -Recurse -Force -ErrorAction SilentlyContinue
-          }
-          if ($env:TEMP -and $env:ALOOK_WINDOWS_SIGNING_ROOT -and $env:TEMP.StartsWith($env:ALOOK_WINDOWS_SIGNING_ROOT)) {
-            Remove-Item -LiteralPath $env:TEMP -Recurse -Force -ErrorAction SilentlyContinue
-          }
 
   publish:
     needs: [build-unix, build-windows]
@@ -493,7 +423,7 @@ jobs:
           ### Windows
           [.exe Installer](${base}/Alook_${VERSION}_x64-setup.exe) | [.msi](${base}/Alook_${VERSION}_x64_en-US.msi)
 
-          Authenticode signed with SHA-256 and an RFC 3161 timestamp. Embedded application executables and exact updater signatures are verified before publication.
+          These Windows builds are not Authenticode code-signed. Windows may show an unknown publisher or a SmartScreen warning. Exact-byte updater signatures are verified before publication.
 
           ### Linux
           [.deb](${base}/Alook_${VERSION}_amd64.deb) | [.rpm](${base}/Alook-${VERSION}-1.x86_64.rpm) | [.AppImage](${base}/Alook_${VERSION}_amd64.AppImage)

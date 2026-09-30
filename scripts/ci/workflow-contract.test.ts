@@ -77,23 +77,6 @@ const desktopWindowsVerifier = readFileSync(
   resolve(repositoryRoot, "scripts/ci/verify-desktop-windows.ps1"),
   "utf8",
 )
-const desktopWindowsSigner = readFileSync(
-  resolve(repositoryRoot, "scripts/ci/sign-desktop-windows.ps1"),
-  "utf8",
-)
-const desktopWindowsSigningSetup = readFileSync(
-  resolve(repositoryRoot, "scripts/ci/prepare-desktop-windows-signing.ps1"),
-  "utf8",
-)
-const desktopWindowsSigningConfig = JSON.parse(
-  readFileSync(
-    resolve(repositoryRoot, "src/desktop/src-tauri/tauri.windows.signing.conf.json"),
-    "utf8",
-  ),
-) as { bundle: { windows: { signCommand: { cmd: string; args: string[] } } } }
-const desktopSigningDependencies = JSON.parse(
-  readFileSync(resolve(repositoryRoot, "scripts/ci/desktop-signing-dependencies.json"), "utf8"),
-) as { schemaVersion: number; packages: Array<{ name: string; version: string; source: string; sha256: string }> }
 const mobileReleaseWorkflowPath = resolve(workflowRoot, "mobile-release.yml")
 const mobileReleaseWorkflow = normalizeWorkflow(readFileSync(mobileReleaseWorkflowPath, "utf8"))
 const desktopConfig = JSON.parse(
@@ -1111,7 +1094,7 @@ describe("Desktop updater release", () => {
   it("keeps every build private until one publisher revalidates all four stages", () => {
     expect(autoTagReleaseWorkflow).toContain('--title "$TAG"')
     expect(desktopReleaseWorkflow.match(/contents: write/g)).toHaveLength(1)
-    expect(desktopReleaseWorkflow.match(/id-token: write/g)).toHaveLength(1)
+    expect(desktopReleaseWorkflow).not.toContain("id-token: write")
     expect(desktopReleaseWorkflow).toContain("group: desktop-release-${{ github.ref }}")
     expect(desktopReleaseWorkflow).toContain("cancel-in-progress: false")
     expect(desktopReleaseWorkflow).toContain("needs: [build-unix, build-windows]")
@@ -1219,115 +1202,31 @@ describe("Desktop updater release", () => {
     expect(desktopReleaseWorkflow).toContain("Developer ID signed")
     expect(desktopReleaseWorkflow).not.toContain("ad-hoc signed and are not notarized")
     expect(desktopReleaseWorkflow).not.toContain("Privacy & Security")
-    expect(desktopReleaseWorkflow).not.toContain("not Authenticode code-signed")
-    expect(desktopReleaseWorkflow).not.toContain("Run anyway")
   })
 
-  it("uses OIDC-only Microsoft Artifact Signing inside Tauri's exact sign hook", () => {
-    expect(desktopReleaseWorkflow).toContain(
-      "azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0",
-    )
-    expect(desktopReleaseWorkflow).toContain("tauri.windows.signing.conf.json")
-    expect(desktopReleaseWorkflow).not.toContain("AZURE_CLIENT_SECRET")
-    expect(desktopReleaseWorkflow).not.toContain(".pfx")
-    expect(desktopWindowsSigningConfig.bundle.windows.signCommand).toEqual({
-      cmd: "pwsh",
-      args: [
-        "-NoLogo",
-        "-NoProfile",
-        "-NonInteractive",
-        "-File",
-        "../../../scripts/ci/sign-desktop-windows.ps1",
-        "%1",
-      ],
-    })
-    expect(desktopSigningDependencies.schemaVersion).toBe(1)
-    expect(desktopSigningDependencies.packages).toEqual([
-      {
-        name: "ArtifactSigning",
-        version: "0.1.8",
-        source: "https://www.powershellgallery.com/api/v2/package/ArtifactSigning/0.1.8",
-        sha256: "3221344b8c627915d3870f23e80816f31a5d8c2bae1d7c0cdd6c9652f6c4e089",
-        kind: "module",
-      },
-      {
-        name: "Microsoft.Windows.SDK.BuildTools",
-        version: "10.0.26100.4188",
-        source:
-          "https://api.nuget.org/v3-flatcontainer/microsoft.windows.sdk.buildtools/10.0.26100.4188/microsoft.windows.sdk.buildtools.10.0.26100.4188.nupkg",
-        sha256: "180deb372659029864c10a0c04787833234d64aacd1d2c0661d2c00295d8e022",
-        kind: "dependency",
-      },
-      {
-        name: "Microsoft.ArtifactSigning.Client",
-        version: "1.0.128",
-        source:
-          "https://api.nuget.org/v3-flatcontainer/microsoft.artifactsigning.client/1.0.128/microsoft.artifactsigning.client.1.0.128.nupkg",
-        sha256: "74bd7d27e6ce1051409c38d9b46bc8df0400ecd643d51ffbf2ac00869061e40b",
-        kind: "dependency",
-      },
-      {
-        name: "sign",
-        version: "0.9.1-beta.26227.3",
-        source:
-          "https://api.nuget.org/v3-flatcontainer/sign/0.9.1-beta.26227.3/sign.0.9.1-beta.26227.3.nupkg",
-        sha256: "34fd0d4aeabdbc363a48883881865b4dd65e6c11ba916028082fa23f3e1b1ba1",
-        kind: "dependency",
-      },
-    ])
-    for (const dependency of desktopSigningDependencies.packages) {
-      expect(dependency.source).toMatch(/^https:\/\/(?:www\.powershellgallery\.com|api\.nuget\.org)\//)
-      expect(dependency.sha256).toMatch(/^[0-9a-f]{64}$/)
-    }
-    expect(desktopWindowsSigningSetup).toContain("Get-FileHash -LiteralPath $archive -Algorithm SHA256")
-    expect(desktopWindowsSigningSetup).toContain("destination must be fresh")
-    expect(desktopWindowsSigningSetup).toContain("--connect-timeout 15 --max-time 600")
-    expect(desktopWindowsSigningSetup).toContain("--retry 3 --retry-delay 2 --retry-all-errors")
-    expect(desktopWindowsSigningSetup).not.toContain("Invoke-WebRequest")
-    expect(desktopWindowsSigningSetup).toContain("[IO.Compression.ZipFile]::ExtractToDirectory")
-    for (const requiredPackageFile of [
-      "ArtifactSigning.psd1",
-      "signtool.exe",
-      "Azure.CodeSigning.Dlib.dll",
-      "sign.dll",
-    ]) {
-      expect(desktopWindowsSigningSetup).toContain(requiredPackageFile)
-    }
-    const windowsCleanupRoot = desktopReleaseWorkflow.indexOf('"ALOOK_ARTIFACT_SIGNING_ROOT=$destination"')
-    const windowsPreparation = desktopReleaseWorkflow.indexOf("./scripts/ci/prepare-desktop-windows-signing.ps1")
-    expect(windowsCleanupRoot).toBeGreaterThan(-1)
-    expect(windowsCleanupRoot).toBeLessThan(windowsPreparation)
-    expect(desktopWindowsSigner).toContain("GetRelativePath")
-    expect(desktopWindowsSigner).toContain("^[a-z0-9-]+\\.codesigning\\.azure\\.net$")
-    expect(desktopWindowsSigner).toContain("IsDefaultPort")
-    expect(desktopWindowsSigner).toContain("AbsolutePath -ne '/'")
-    expect(desktopReleaseWorkflow).toContain("^[a-z0-9-]+\\.codesigning\\.azure\\.net$")
-    expect(desktopWindowsSigner).toContain("Wix(?:UI|Util)Extension")
-    expect(desktopWindowsSigner).toContain("(?:NSISdl|StartMenu|System|nsDialogs)")
-    expect(desktopWindowsSigner).toContain("additional\\\\nsis_tauri_utils\\.dll")
-    expect(desktopWindowsSigner).not.toContain("[A-Za-z0-9_.-]+\\.dll")
-    expect(desktopWindowsSigner).toContain('FileDigest = "SHA256"')
-    expect(desktopWindowsSigner).toContain('TimestampRfc3161 = "http://timestamp.acs.microsoft.com"')
-    expect(desktopWindowsSigner).toContain('TimestampDigest = "SHA256"')
-    expect(desktopWindowsSigner).toContain("ExcludeAzureCliCredential = $false")
-    for (const credential of [
-      "Environment",
-      "WorkloadIdentity",
-      "ManagedIdentity",
-      "SharedTokenCache",
-      "VisualStudio",
-      "VisualStudioCode",
-      "AzurePowerShell",
-      "AzureDeveloperCli",
-      "InteractiveBrowser",
-    ]) {
-      expect(desktopWindowsSigner).toContain(`Exclude${credential}Credential = $true`)
-    }
-    expect(desktopWindowsVerifier).toContain("signtool.exe verify /pa /all /v")
-    expect(desktopWindowsVerifier).toContain("Hash of file \\(sha256\\)")
-    expect(desktopWindowsVerifier).toContain("TimeStamperCertificate")
-    expect(desktopWindowsVerifier).toContain('Filter "alook-desktop.exe"')
+  it("publishes Windows without Azure while retaining exact-byte updater verification", () => {
+    expect(desktopReleaseWorkflow).not.toContain("AZURE_")
+    expect(desktopReleaseWorkflow).not.toContain("ALOOK_ARTIFACT_SIGNING")
+    expect(desktopReleaseWorkflow).not.toContain("azure/login@")
+    expect(desktopReleaseWorkflow).not.toContain("tauri.windows.signing.conf.json")
+    expect(desktopReleaseWorkflow).not.toContain("EXPECTED_PUBLISHER")
+    expect(desktopReleaseWorkflow).toContain("args: --target x86_64-pc-windows-msvc")
+    expect(desktopReleaseWorkflow).toContain("not Authenticode code-signed")
+    expect(desktopReleaseWorkflow).not.toContain("Authenticode signed with SHA-256")
+    expect(desktopWindowsVerifier).toContain("desktop-release-artifacts.mjs")
     expect(desktopWindowsVerifier).toContain("verify-minisign.mjs")
+    expect(desktopWindowsVerifier).toContain('foreach ($installer in @($msi, $nsis))')
+    expect(desktopWindowsVerifier).not.toContain("ExpectedPublisher")
+    expect(desktopWindowsVerifier).not.toContain("Assert-Authenticode")
+    expect(desktopWindowsVerifier).not.toContain("signtool.exe")
+    for (const removed of [
+      "scripts/ci/desktop-signing-dependencies.json",
+      "scripts/ci/prepare-desktop-windows-signing.ps1",
+      "scripts/ci/sign-desktop-windows.ps1",
+      "src/desktop/src-tauri/tauri.windows.signing.conf.json",
+    ]) {
+      expect(existsSync(resolve(repositoryRoot, removed))).toBe(false)
+    }
   })
 })
 
