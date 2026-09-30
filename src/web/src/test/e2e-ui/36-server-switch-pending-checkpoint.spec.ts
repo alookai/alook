@@ -361,6 +361,7 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
   await expectDesktopServerDetail(page, serverC)
   await expect(page.getByTestId(tid.channelSidebarPending(serverC))).toHaveCount(0)
   await expect(page.getByTestId(tid.channelRow(channelC))).toBeVisible({ timeout: 30_000 })
+  const rememberedCPath = new URL(page.url()).pathname
   const coldFrames = await sidebarFrames(page)
   const coldPendingFrames = coldFrames.filter((frame) => frame.pendingServer === serverC)
   expect(coldPendingFrames.length).toBeGreaterThan(0)
@@ -400,13 +401,10 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
       [channelA, channelB],
     )
     const navigationEvents = await historyEvents(page)
-    expect(navigationEvents).toHaveLength(2)
-    expect(navigationEvents[0]).toEqual({
+    expect(navigationEvents).toEqual([{
       kind: "pushState",
-      pathname: `/c/channels/${serverC}`,
-    })
-    expect(navigationEvents[1]).toMatchObject({ kind: "replaceState" })
-    expect(navigationEvents[1]?.pathname.startsWith(`/c/channels/${serverC}/`)).toBe(true)
+      pathname: rememberedCPath,
+    }])
   } finally {
     targetRsc.stop()
   }
