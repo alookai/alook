@@ -479,6 +479,14 @@ describe("AgentProcessManager — idle memory maintenance", () => {
       expect(send.mock.calls[0][0]).toMatchObject({ text: expect.stringContaining(MEMORY_MAINTENANCE_PROMPT) });
       await first.fire("runtime_event", { kind: "turn_end", sessionId: "saved-session" });
     }
+    const deliveredPrompt = hibernated ? factory.mock.calls[1][0].ctx.prompt : send.mock.calls[0][0].text;
+    expect(deliveredPrompt).toContain("internal maintenance; perform it silently");
+    expect(deliveredPrompt).toContain("Do not proactively send the owner, users, or channels progress updates, completion notices, or details about your memory state");
+    expect(deliveredPrompt).toContain("Communicate task-relevant results, questions, and blockers normally");
+    expect(deliveredPrompt).toContain("If nothing needs a user-facing response, send no message");
+    expect(deliveredPrompt).toContain("If new work arrives, handle it first and defer nap");
+    expect(deliveredPrompt).toContain("without --handoff");
+    expect(deliveredPrompt).toContain("$ALOOK_CLI nap");
     expect(forgetSession).not.toHaveBeenCalled();
     expect(mgr.snapshot().agents.a1.sessionId).toBe("saved-session");
   });
