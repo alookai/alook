@@ -25,6 +25,7 @@ const {
   mockNavigationGate,
   mockCurrentChannelId,
   mockCanManageServer,
+  mockDismissConversation,
 } = vi.hoisted(() => ({
   mockRouter: { push: vi.fn(), replace: vi.fn(), back: vi.fn() },
   mockUiHandlers: { replacePath: vi.fn(), goBackMobile: vi.fn() },
@@ -41,6 +42,7 @@ const {
   mockNavigationGate: { allowed: true },
   mockCurrentChannelId: { value: "channel_1" as string | null },
   mockCanManageServer: vi.fn((role?: string | null) => role === "owner" || role === "admin"),
+  mockDismissConversation: vi.fn(),
   mockRouteModel: {
     server: {
       id: "server_1",
@@ -178,6 +180,10 @@ vi.mock("@/contexts/community/current-user", () => ({
 }))
 vi.mock("@/hooks/community/use-channel-route-model", () => ({
   useChannelRouteModel: () => mockRouteModel,
+}))
+vi.mock("@/hooks/community/use-native-system-notifications", () => ({
+  useNativeSystemNotificationConversationDismissal: (...args: unknown[]) =>
+    mockDismissConversation(...args),
 }))
 vi.mock("@/hooks/community/use-thread-split-mode", () => ({
   useThreadSplitMode: () => ({ containerRef: vi.fn(), mode: mockSplitMode.value }),
@@ -346,6 +352,7 @@ describe("ChannelRoute message surface ownership", () => {
     mockCommitLastCommunityRoute.mockClear()
     mockSetLastChannel.mockClear()
     mockClearLastChannel.mockClear()
+    mockDismissConversation.mockClear()
     mockNavigationGate.allowed = true
     mockCurrentChannelId.value = "channel_1"
     mockMemberViewModel.myRole = "member"
@@ -593,6 +600,7 @@ describe("ChannelRoute message surface ownership", () => {
         categories: [{ channels: [{ id: "channel_2", name: "survivor", type: "text" }] }],
       },
     })
+    mockDismissConversation.mockClear()
     act(() => {
       renderer.rerender(React.createElement(ChannelRoute, {
         serverParam: "server_1",
@@ -602,9 +610,19 @@ describe("ChannelRoute message surface ownership", () => {
 
     expect(mockClearLastChannel).toHaveBeenCalledExactlyOnceWith("server_1")
     expect(mockRouter.replace).toHaveBeenCalledWith("/c/channels/server_1/channel_2")
+    expect(mockDismissConversation).toHaveBeenCalledWith(
+      "viewer_1",
+      { kind: "server", serverId: "server_1", channelId: "channel_1" },
+      false,
+    )
+    expect(mockDismissConversation).not.toHaveBeenCalledWith(
+      "viewer_1",
+      { kind: "server", serverId: "server_1", channelId: "channel_1" },
+      true,
+    )
   })
 
-  it("commits only a ready channel route for the active account", () => {
+  it("commits and dismisses only a ready top-level channel for the active account", () => {
     mockedUseChannelMessageFeed.mockReturnValue(feed())
     act(() => {
       render(React.createElement(ChannelRoute, {
@@ -615,6 +633,56 @@ describe("ChannelRoute message surface ownership", () => {
     expect(mockCommitLastCommunityRoute).toHaveBeenCalledWith(
       "viewer_1",
       "/c/channels/server_1/channel_1",
+    )
+    expect(mockDismissConversation).toHaveBeenCalledExactlyOnceWith(
+      "viewer_1",
+      { kind: "server", serverId: "server_1", channelId: "channel_1" },
+      true,
+    )
+  })
+
+  it.each([
+    ["thread", () => configureThreadRoute()],
+    ["forum", () => Object.assign(mockRouteModel, {
+      channel: { id: "channel_1", name: "forum", type: "forum" },
+      isForum: true,
+    })],
+  ] as const)("dismisses a ready %s surface with the exact viewer and target", (_surface, setup) => {
+    setup()
+    mockedUseChannelMessageFeed.mockReturnValue(feed())
+
+    render(React.createElement(ChannelRoute, {
+      serverParam: "server_1",
+      channelId: "channel_1",
+    }))
+
+    expect(mockDismissConversation).toHaveBeenCalledExactlyOnceWith(
+      "viewer_1",
+      { kind: "server", serverId: "server_1", channelId: "channel_1" },
+      true,
+    )
+  })
+
+  it.each([
+    ["denied", () => { mockNavigationGate.allowed = false }],
+    ["pending", () => {
+      mockRouteModel.routeLifecycle = "pending"
+      mockRouteModel.routeHydrated = false
+    }],
+    ["redirect", () => { mockCurrentChannelId.value = "previous_channel" }],
+  ] as const)("does not dismiss while the server surface is %s", (_state, setup) => {
+    setup()
+    mockedUseChannelMessageFeed.mockReturnValue(feed())
+
+    render(React.createElement(ChannelRoute, {
+      serverParam: "server_1",
+      channelId: "channel_1",
+    }))
+
+    expect(mockDismissConversation).toHaveBeenCalledExactlyOnceWith(
+      "viewer_1",
+      { kind: "server", serverId: "server_1", channelId: "channel_1" },
+      false,
     )
   })
 

@@ -60,6 +60,7 @@ import {
   useCanonicalProfilesByUserId,
   useReadStateProjection,
 } from "@/lib/community-db/projections"
+import { useNativeSystemNotificationConversationDismissal } from "@/hooks/community/use-native-system-notifications"
 
 // Thin re-mount wrapper — same reason as the server-side channel view: the
 // dynamic segment reuses the same component instance across DM switches, so
@@ -421,6 +422,10 @@ function DmView() {
     dmsLoading,
     messagesLoading,
   })
+  useNativeSystemNotificationConversationDismissal(currentUser.id, {
+    kind: "dm",
+    channelId: dmId,
+  }, !navigationBlocked && !loadingOwnership.fullFramePending && !loadingOwnership.notFound && !!dm)
 
   if (navigationBlocked) {
     return <DmLoadingFrame reserveBackSlot={bp === "mobile"} />

@@ -4,6 +4,7 @@ import { useEffect } from "react"
 import { isDesktop, isMobile } from "@alook/shared"
 import {
   dismissDesktopSystemNotification,
+  dismissDesktopSystemNotificationConversation,
   listenDesktopSystemNotificationActivations,
   retryDesktopSystemNotificationActivation,
   takeDesktopSystemNotificationActivation,
@@ -21,6 +22,7 @@ import {
   createMobileSystemNotificationRegistrationController,
   deleteMobileSystemNotificationRegistration,
   dismissMobileSystemNotification,
+  dismissMobileSystemNotificationConversation,
   listenMobileSystemNotificationSignals,
   postMobileSystemNotificationRegistration,
   requestMobileSystemNotificationPermission,
@@ -29,9 +31,73 @@ import {
   snapshotMobileSystemNotificationRegistration,
   takeMobileSystemNotificationActivation,
 } from "@/lib/community/mobile-system-notification"
-import { createNativeSystemNotificationDismissalQueue } from "@/lib/community/native-system-notification-dismissal"
+import {
+  createNativeSystemNotificationConversationDismissalQueue,
+  createNativeSystemNotificationDismissalQueue,
+  type NativeSystemNotificationConversation,
+  type NativeSystemNotificationPlatform,
+} from "@/lib/community/native-system-notification-dismissal"
 
 const activeNativeDismissals = new Set<string>()
+const activeConversationDismissals = new Set<string>()
+
+function conversationKey(target: NativeSystemNotificationConversation) {
+  return target.kind === "dm"
+    ? `dm:${target.channelId}`
+    : `server:${target.serverId}:${target.channelId}`
+}
+
+function dismissNativeSystemNotificationConversation(
+  platform: NativeSystemNotificationPlatform,
+  viewerUserId: string,
+  target: NativeSystemNotificationConversation,
+) {
+  if (platform === "desktop") {
+    return dismissDesktopSystemNotificationConversation(viewerUserId, target)
+  }
+  return dismissMobileSystemNotificationConversation(viewerUserId, target.channelId)
+}
+
+function drainNativeSystemNotificationConversationDismissals(
+  platform: NativeSystemNotificationPlatform,
+  viewerUserId: string,
+  queue: ReturnType<typeof createNativeSystemNotificationConversationDismissalQueue>,
+) {
+  for (const target of queue.pending(platform, viewerUserId)) {
+    const key = `${platform}:${viewerUserId}:${conversationKey(target)}`
+    if (activeConversationDismissals.has(key)) continue
+    activeConversationDismissals.add(key)
+    void dismissNativeSystemNotificationConversation(platform, viewerUserId, target)
+      .then(() => { queue.complete(platform, viewerUserId, target) })
+      .catch(() => undefined)
+      .finally(() => { activeConversationDismissals.delete(key) })
+  }
+}
+
+export function useNativeSystemNotificationConversationDismissal(
+  viewerUserId: string,
+  target: NativeSystemNotificationConversation,
+  ready: boolean,
+) {
+  const kind = target.kind
+  const channelId = target.channelId
+  const serverId = target.kind === "server" ? target.serverId : undefined
+  useEffect(() => {
+    if (!ready || (!isDesktop() && !isMobile())) return
+    const platform = isDesktop() ? "desktop" : "mobile"
+    const dismissalTarget: NativeSystemNotificationConversation = kind === "server"
+      ? { kind, serverId: serverId!, channelId }
+      : { kind, channelId }
+    const queue = createNativeSystemNotificationConversationDismissalQueue({
+      getItem: (storageKey) => window.localStorage.getItem(storageKey),
+      setItem: (storageKey, value) => window.localStorage.setItem(storageKey, value),
+      removeItem: (storageKey) => window.localStorage.removeItem(storageKey),
+      now: () => Date.now(),
+    })
+    queue.queue(platform, viewerUserId, dismissalTarget)
+    drainNativeSystemNotificationConversationDismissals(platform, viewerUserId, queue)
+  }, [channelId, kind, ready, serverId, viewerUserId])
+}
 
 function dismissPendingNativeSystemNotification(
   platform: "desktop" | "mobile",
@@ -254,6 +320,12 @@ export function useNativeSystemNotifications(viewerUserId: string) {
       now: () => Date.now(),
     })
     const pathname = new URL(window.location.href).pathname
+    const conversationDismissals = createNativeSystemNotificationConversationDismissalQueue({
+      getItem: (key) => window.localStorage.getItem(key),
+      setItem: (key, value) => window.localStorage.setItem(key, value),
+      removeItem: (key) => window.localStorage.removeItem(key),
+      now: () => Date.now(),
+    })
     const inbox = createDesktopSystemNotificationInboxOpener({
       getItem: (key) => window.sessionStorage.getItem(key),
       setItem: (key, value) => window.sessionStorage.setItem(key, value),
@@ -267,6 +339,11 @@ export function useNativeSystemNotifications(viewerUserId: string) {
     })
 
     if (isDesktop()) {
+      const drainConversations = () => drainNativeSystemNotificationConversationDismissals(
+        "desktop",
+        viewerUserId,
+        conversationDismissals,
+      )
       const dismissPending = () => dismissPendingNativeSystemNotification(
         "desktop",
         pathname,
@@ -274,7 +351,10 @@ export function useNativeSystemNotifications(viewerUserId: string) {
         dismissDesktopSystemNotification,
       )
       dismissPending()
+      drainConversations()
       window.addEventListener("focus", dismissPending)
+      window.addEventListener("focus", drainConversations)
+      window.addEventListener("online", drainConversations)
       const browserDeps: DesktopSystemNotificationActivationDeps = {
         listen: listenDesktopSystemNotificationActivations,
         take: takeDesktopSystemNotificationActivation,
@@ -291,6 +371,8 @@ export function useNativeSystemNotifications(viewerUserId: string) {
       void controller.connect().catch(() => controller.dispose())
       return () => {
         window.removeEventListener("focus", dismissPending)
+        window.removeEventListener("focus", drainConversations)
+        window.removeEventListener("online", drainConversations)
         controller.dispose()
         inbox.dispose()
       }
@@ -334,6 +416,7 @@ export function useNativeSystemNotifications(viewerUserId: string) {
 
     const synchronize = () => {
       dismissPending()
+      drainNativeSystemNotificationConversationDismissals("mobile", viewerUserId, conversationDismissals)
       void registration.sync()
       void activation.drain()
     }
@@ -344,6 +427,7 @@ export function useNativeSystemNotifications(viewerUserId: string) {
     document.addEventListener("visibilitychange", onVisibilityChange)
 
     void inbox.resume()
+    drainNativeSystemNotificationConversationDismissals("mobile", viewerUserId, conversationDismissals)
     void (async () => {
       try {
         const stop = await listenMobileSystemNotificationSignals(synchronize)

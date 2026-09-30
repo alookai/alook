@@ -26,6 +26,7 @@ const commands = [
   "mobile_system_notification_acknowledge_registration",
   "mobile_system_notification_take_activation",
   "mobile_system_notification_dismiss",
+  "mobile_system_notification_dismiss_conversation",
   "mobile_system_notification_listen",
   "mobile_system_notification_unlisten",
 ]
@@ -67,7 +68,7 @@ const iosEntitlements = readTauri(
 const mobileRelease = readRoot(".github/workflows/mobile-release.yml")
 
 describe("mobile system notification contract", () => {
-  it("grants only the guarded eight-command API to trusted mobile WebViews", () => {
+  it("grants only the guarded nine-command API to trusted mobile WebViews", () => {
     const expected = {
       windows: ["main"],
       platforms: ["android", "iOS"],
@@ -113,6 +114,7 @@ describe("mobile system notification contract", () => {
     expect(readPlugin("build.rs")).toContain('"acknowledgeRegistration"')
     expect(readPlugin("build.rs")).toContain('"takeActivation"')
     expect(readPlugin("build.rs")).toContain('"dismissNotification"')
+    expect(readPlugin("build.rs")).toContain('"dismissConversation"')
     const webAdapter = readRoot(
       "src/web/src/lib/community/mobile-system-notification.ts",
     )
@@ -120,6 +122,7 @@ describe("mobile system notification contract", () => {
     expect(webAdapter).toContain('credentials: "same-origin"')
     expect(webAdapter).toContain('"mobile_system_notification_acknowledge_registration"')
     expect(webAdapter).toContain('"mobile_system_notification_dismiss"')
+    expect(webAdapter).toContain('"mobile_system_notification_dismiss_conversation"')
   })
 
   it("locks Android FCM delivery, durable state, and credential-free builds", () => {
@@ -152,8 +155,16 @@ describe("mobile system notification contract", () => {
     expect(androidService).not.toContain("setAutoCancel(true)")
     expect(androidService).toContain("mobilePushNotificationRequestCode(route.notificationId)")
     expect(androidService).toContain("mobilePushNotificationAction(packageName, route.notificationId)")
-    expect(androidPlugin).toContain("mobilePushNotificationRequestCode(args.notificationId)")
-    expect(androidPlugin).toContain("cancel(args.notificationId, requestCode)")
+    expect(androidRoute).toContain('"alook:v2:$viewerUserId:$targetId:$notificationId"')
+    expect(androidRoute).toContain("mobilePushNotificationTagMatchesNotification")
+    expect(androidRoute).toContain("mobilePushNotificationTagMatchesConversation")
+    expect(androidPlugin).toContain("manager.activeNotifications")
+    expect(androidPlugin).toContain(
+      "mobilePushNotificationTagMatchesNotification(notification.tag, args.notificationId)",
+    )
+    expect(androidPlugin).toContain("fun dismissConversation")
+    expect(androidPlugin).toContain("mobilePushNotificationTagMatchesConversation(")
+    expect(androidPlugin).toContain("manager.cancel(it.tag, it.id)")
   })
 
   it("locks iOS APNs callbacks, foreground/tap handling, and production entitlement", () => {
@@ -166,7 +177,11 @@ describe("mobile system notification contract", () => {
     expect(iosPlugin).toContain("MobilePushStore")
     expect(iosPlugin).toContain("removeDeliveredNotifications")
     expect(iosPlugin).toContain("response.notification.request.identifier")
-    expect(iosPlugin).toContain("takeDeliveredNotificationIdentifier")
+    expect(iosPlugin).toContain("deliveredNotificationIdentifier(")
+    expect(iosPlugin).toContain("@objc public func dismissConversation")
+    expect(iosPlugin).toContain("mobilePushDeliveredNotificationIdentifiers(")
+    expect(iosPlugin).toContain("center.removeDeliveredNotifications(withIdentifiers: identifiers)")
+    expect(iosPlugin).toContain("stillDelivered.isEmpty")
     expect(iosProject).toContain("aps-environment: $(APS_ENVIRONMENT)")
     expect(iosProject).toContain("APS_ENVIRONMENT: development")
     expect(iosProject).toContain("APS_ENVIRONMENT: production")

@@ -5,6 +5,7 @@ import { communityKeys } from "@/lib/query-keys"
 import {
   buildDesktopSystemNotificationCandidate,
   dismissDesktopSystemNotification,
+  dismissDesktopSystemNotificationConversation,
   listenDesktopSystemNotificationActivations,
   resolveDesktopSystemNotificationCandidate,
   retryDesktopSystemNotificationActivation,
@@ -434,6 +435,18 @@ describe("desktop system notification activation bridge", () => {
     expect(invoke).toHaveBeenCalledWith(
       "desktop_system_notification_dismiss",
       { notificationId },
+    )
+  })
+
+  it("dismisses only one exact account and conversation scope", async () => {
+    invoke.mockResolvedValueOnce(undefined)
+    const target = { kind: "server" as const, serverId: "server_1", channelId: "channel_1" }
+    await expect(
+      dismissDesktopSystemNotificationConversation("viewer_1", target),
+    ).resolves.toBeUndefined()
+    expect(invoke).toHaveBeenCalledWith(
+      "desktop_system_notification_dismiss_conversation",
+      { viewerUserId: "viewer_1", target },
     )
   })
 

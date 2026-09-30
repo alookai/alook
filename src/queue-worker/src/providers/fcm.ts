@@ -11,6 +11,14 @@ export interface FcmConfig {
   privateKey: string
 }
 
+function mobilePushNotificationTag(
+  viewerUserId: string,
+  targetId: string,
+  notificationId: string,
+): string {
+  return `alook:v2:${viewerUserId}:${targetId}:${notificationId}`
+}
+
 function base64Url(value: string | ArrayBuffer): string {
   const bytes = typeof value === "string"
     ? new TextEncoder().encode(value)
@@ -124,7 +132,11 @@ export async function sendFcmNotification(
             priority: "high",
             collapse_key: input.payload.notificationId,
             notification: {
-              tag: input.payload.notificationId,
+              tag: mobilePushNotificationTag(
+                input.payload.route.viewerUserId,
+                input.payload.route.targetId,
+                input.payload.notificationId,
+              ),
               sound: "default",
             },
           },

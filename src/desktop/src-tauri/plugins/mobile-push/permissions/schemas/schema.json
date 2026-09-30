@@ -307,6 +307,18 @@
           "markdownDescription": "Denies the acknowledgeRegistration command without any pre-configured scope."
         },
         {
+          "description": "Enables the dismissConversation command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-dismissConversation",
+          "markdownDescription": "Enables the dismissConversation command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the dismissConversation command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-dismissConversation",
+          "markdownDescription": "Denies the dismissConversation command without any pre-configured scope."
+        },
+        {
           "description": "Enables the dismissNotification command without any pre-configured scope.",
           "type": "string",
           "const": "allow-dismissNotification",

@@ -41,6 +41,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { useConversationNavigationGate } from "@/lib/community/conversation-navigation-proof"
 import { resolveConversationSubtype } from "@/lib/community/conversation-subtype"
+import { useNativeSystemNotificationConversationDismissal } from "@/hooks/community/use-native-system-notifications"
 
 const THREAD_VIEW_PARAM = "threadView"
 
@@ -220,6 +221,11 @@ export function ChannelRoute({ serverParam, channelId }: {
     routeModel.routeHydrated &&
     (!isForumPostChild || !forumPostOpener.isLoading) &&
     navigationGate.allowed
+  useNativeSystemNotificationConversationDismissal(currentUser.id, {
+    kind: "server",
+    serverId,
+    channelId,
+  }, channelHydrated)
   // Route memory is an access-bearing navigation decision. Structural hints
   // can choose the skeleton, but only live data plus the current access gate
   // may commit the destination for a later cold entry.

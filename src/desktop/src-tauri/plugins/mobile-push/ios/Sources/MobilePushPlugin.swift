@@ -5,19 +5,38 @@ import UIKit
 import UserNotifications
 import WebKit
 
+private let mobilePushSafeId = try! NSRegularExpression(
+  pattern: "^[A-Za-z0-9_-]{1,128}$"
+)
+
+func mobilePushValidTargetId(_ value: String) -> Bool {
+  let range = NSRange(value.startIndex..<value.endIndex, in: value)
+  return mobilePushSafeId.firstMatch(in: value, range: range)?.range == range
+}
+
 struct MobilePushRoute: Codable, Equatable {
   let notificationId: String
   let messageId: String
   let targetId: String
+  let viewerUserId: String?
 
-  private static let safeId = try! NSRegularExpression(
-    pattern: "^[A-Za-z0-9_-]{1,128}$"
-  )
+  init(
+    notificationId: String,
+    messageId: String,
+    targetId: String,
+    viewerUserId: String? = nil
+  ) {
+    self.notificationId = notificationId
+    self.messageId = messageId
+    self.targetId = targetId
+    self.viewerUserId = viewerUserId
+  }
 
   static func create(
     notificationId: String?,
     messageId: String?,
-    targetId: String?
+    targetId: String?,
+    viewerUserId: String? = nil
   ) -> MobilePushRoute? {
     guard let notificationId = notificationId,
           let messageId = messageId,
@@ -25,26 +44,47 @@ struct MobilePushRoute: Codable, Equatable {
           let uuid = UUID(uuidString: notificationId),
           uuid.uuidString.lowercased() == notificationId.lowercased(),
           matchesSafeId(messageId),
-          matchesSafeId(targetId)
+          matchesSafeId(targetId),
+          viewerUserId == nil || matchesSafeId(viewerUserId!)
     else { return nil }
     return MobilePushRoute(
       notificationId: uuid.uuidString.lowercased(),
       messageId: messageId,
-      targetId: targetId
+      targetId: targetId,
+      viewerUserId: viewerUserId
     )
   }
 
   static func from(_ values: [AnyHashable: Any]) -> MobilePushRoute? {
-    create(
+    let viewerUserId = values["viewerUserId"]
+    guard viewerUserId == nil || viewerUserId is String else { return nil }
+    return create(
       notificationId: values["notificationId"] as? String,
       messageId: values["messageId"] as? String,
-      targetId: values["targetId"] as? String
+      targetId: values["targetId"] as? String,
+      viewerUserId: viewerUserId as? String
     )
   }
 
   private static func matchesSafeId(_ value: String) -> Bool {
-    let range = NSRange(value.startIndex..<value.endIndex, in: value)
-    return safeId.firstMatch(in: value, range: range)?.range == range
+    mobilePushValidTargetId(value)
+  }
+}
+
+func mobilePushDeliveredNotificationIdentifiers(
+  viewerUserId: String,
+  targetId: String,
+  delivered: [(String, [AnyHashable: Any])]
+) -> [String] {
+  guard mobilePushValidTargetId(viewerUserId),
+        mobilePushValidTargetId(targetId)
+  else { return [] }
+  return delivered.compactMap { identifier, userInfo in
+    guard let route = MobilePushRoute.from(userInfo),
+          route.viewerUserId == viewerUserId,
+          route.targetId == targetId
+    else { return nil }
+    return identifier
   }
 }
 
@@ -130,6 +170,7 @@ final class MobilePushStore {
     defaults.set(route.notificationId, forKey: Keys.pendingNotificationId)
     defaults.set(route.messageId, forKey: Keys.pendingMessageId)
     defaults.set(route.targetId, forKey: Keys.pendingTargetId)
+    defaults.set(route.viewerUserId, forKey: Keys.pendingViewerUserId)
     defaults.set(route.notificationId, forKey: Keys.dismissNotificationId)
     defaults.set(deliveredNotificationIdentifier, forKey: Keys.deliveredNotificationIdentifier)
   }
@@ -140,24 +181,33 @@ final class MobilePushStore {
     let route = MobilePushRoute.create(
       notificationId: defaults.string(forKey: Keys.pendingNotificationId),
       messageId: defaults.string(forKey: Keys.pendingMessageId),
-      targetId: defaults.string(forKey: Keys.pendingTargetId)
+      targetId: defaults.string(forKey: Keys.pendingTargetId),
+      viewerUserId: defaults.string(forKey: Keys.pendingViewerUserId)
     )
     defaults.removeObject(forKey: Keys.pendingNotificationId)
     defaults.removeObject(forKey: Keys.pendingMessageId)
     defaults.removeObject(forKey: Keys.pendingTargetId)
+    defaults.removeObject(forKey: Keys.pendingViewerUserId)
     return route
   }
 
-  func takeDeliveredNotificationIdentifier(for notificationId: String) -> String? {
+  func deliveredNotificationIdentifier(for notificationId: String) -> String? {
     lock.lock()
     defer { lock.unlock() }
     guard defaults.string(forKey: Keys.dismissNotificationId) == notificationId else {
       return nil
     }
-    let deliveredIdentifier = defaults.string(forKey: Keys.deliveredNotificationIdentifier)
+    return defaults.string(forKey: Keys.deliveredNotificationIdentifier)
+  }
+
+  func completeDeliveredNotificationIdentifier(for notificationId: String) {
+    lock.lock()
+    defer { lock.unlock() }
+    guard defaults.string(forKey: Keys.dismissNotificationId) == notificationId else {
+      return
+    }
     defaults.removeObject(forKey: Keys.dismissNotificationId)
     defaults.removeObject(forKey: Keys.deliveredNotificationIdentifier)
-    return deliveredIdentifier
   }
 
   private func unlockedRegistration() -> MobilePushRegistrationState {
@@ -174,6 +224,7 @@ final class MobilePushStore {
     static let pendingNotificationId = "alook.mobilePush.pendingNotificationId"
     static let pendingMessageId = "alook.mobilePush.pendingMessageId"
     static let pendingTargetId = "alook.mobilePush.pendingTargetId"
+    static let pendingViewerUserId = "alook.mobilePush.pendingViewerUserId"
     static let dismissNotificationId = "alook.mobilePush.dismissNotificationId"
     static let deliveredNotificationIdentifier = "alook.mobilePush.deliveredNotificationIdentifier"
   }
@@ -336,6 +387,11 @@ private struct DismissNotificationArgs: Decodable {
   let notificationId: String
 }
 
+private struct DismissConversationArgs: Decodable {
+  let viewerUserId: String
+  let targetId: String
+}
+
 private struct ListenArgs: Decodable {
   let channel: Channel
 }
@@ -428,15 +484,66 @@ final class MobilePushPlugin: Plugin {
   @objc public func dismissNotification(_ invoke: Invoke) {
     do {
       let args = try invoke.parseArgs(DismissNotificationArgs.self)
-      let identifier = bridge.store.takeDeliveredNotificationIdentifier(
+      let identifier = bridge.store.deliveredNotificationIdentifier(
         for: args.notificationId
       ) ?? args.notificationId
       UNUserNotificationCenter.current().removeDeliveredNotifications(
         withIdentifiers: [identifier]
       )
-      invoke.resolve()
+      UNUserNotificationCenter.current().getDeliveredNotifications { delivered in
+        if delivered.contains(where: { $0.request.identifier == identifier }) {
+          invoke.reject("Notification remains delivered", code: "notification_unavailable")
+        } else {
+          self.bridge.store.completeDeliveredNotificationIdentifier(
+            for: args.notificationId
+          )
+          invoke.resolve()
+        }
+      }
     } catch {
       invoke.reject("Notification dismissal is invalid", code: "invalid_request")
+    }
+  }
+
+  @objc public func dismissConversation(_ invoke: Invoke) {
+    do {
+      let args = try invoke.parseArgs(DismissConversationArgs.self)
+      guard mobilePushValidTargetId(args.viewerUserId),
+            mobilePushValidTargetId(args.targetId)
+      else {
+        invoke.reject("Conversation dismissal is invalid", code: "invalid_request")
+        return
+      }
+      let center = UNUserNotificationCenter.current()
+      center.getDeliveredNotifications { delivered in
+        let identifiers = mobilePushDeliveredNotificationIdentifiers(
+          viewerUserId: args.viewerUserId,
+          targetId: args.targetId,
+          delivered: delivered.map {
+            ($0.request.identifier, $0.request.content.userInfo)
+          }
+        )
+        center.removeDeliveredNotifications(withIdentifiers: identifiers)
+        center.getDeliveredNotifications { remaining in
+          let stillDelivered = mobilePushDeliveredNotificationIdentifiers(
+            viewerUserId: args.viewerUserId,
+            targetId: args.targetId,
+            delivered: remaining.map {
+              ($0.request.identifier, $0.request.content.userInfo)
+            }
+          )
+          if stillDelivered.isEmpty {
+            invoke.resolve()
+          } else {
+            invoke.reject(
+              "Conversation notifications remain delivered",
+              code: "notification_unavailable"
+            )
+          }
+        }
+      }
+    } catch {
+      invoke.reject("Conversation dismissal is invalid", code: "invalid_request")
     }
   }
 

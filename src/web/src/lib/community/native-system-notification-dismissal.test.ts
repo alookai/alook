@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import {
+  createNativeSystemNotificationConversationDismissalQueue,
   createNativeSystemNotificationDismissalQueue,
   type NativeSystemNotificationDismissalDeps,
 } from "./native-system-notification-dismissal"
@@ -72,5 +73,42 @@ describe("native notification dismissal handoff", () => {
 
     expect(queue.peek("mobile", "/c/me/channel_1")).toBeNull()
     expect(removeItem).toHaveBeenCalledOnce()
+  })
+})
+
+describe("native notification conversation dismissal retry queue", () => {
+  const serverTarget = {
+    kind: "server" as const,
+    serverId: "server_1",
+    channelId: "channel_1",
+  }
+  const otherTarget = {
+    kind: "server" as const,
+    serverId: "server_1",
+    channelId: "channel_2",
+  }
+
+  it("survives recreation and consumes only the exact account and target", () => {
+    const values = new Map<string, string>()
+    const first = createNativeSystemNotificationConversationDismissalQueue(deps(values))
+    expect(first.queue("desktop", "viewer_1", serverTarget)).toBe(true)
+    expect(first.queue("desktop", "viewer_1", otherTarget)).toBe(true)
+
+    const restored = createNativeSystemNotificationConversationDismissalQueue(deps(values))
+    expect(restored.pending("desktop", "viewer_2")).toEqual([])
+    expect(restored.pending("mobile", "viewer_1")).toEqual([])
+    expect(restored.pending("desktop", "viewer_1")).toEqual([serverTarget, otherTarget])
+
+    expect(restored.complete("desktop", "viewer_2", serverTarget)).toBe(false)
+    expect(restored.complete("desktop", "viewer_1", serverTarget)).toBe(true)
+    expect(restored.pending("desktop", "viewer_1")).toEqual([otherTarget])
+  })
+
+  it("deduplicates one scope without consuming it on a native failure", () => {
+    const values = new Map<string, string>()
+    const queue = createNativeSystemNotificationConversationDismissalQueue(deps(values))
+    expect(queue.queue("mobile", "viewer_1", serverTarget)).toBe(true)
+    expect(queue.queue("mobile", "viewer_1", serverTarget)).toBe(true)
+    expect(queue.pending("mobile", "viewer_1")).toEqual([serverTarget])
   })
 })

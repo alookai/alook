@@ -37,6 +37,57 @@ pub enum NotificationTarget {
     },
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
+pub enum NotificationConversation {
+    Server {
+        #[serde(rename = "serverId")]
+        server_id: String,
+        #[serde(rename = "channelId")]
+        channel_id: String,
+    },
+    Dm {
+        #[serde(rename = "channelId")]
+        channel_id: String,
+    },
+}
+
+impl NotificationConversation {
+    fn valid(&self) -> bool {
+        match self {
+            Self::Server {
+                server_id,
+                channel_id,
+            } => valid_id(server_id) && valid_id(channel_id),
+            Self::Dm { channel_id } => valid_id(channel_id),
+        }
+    }
+
+    fn matches(&self, target: &NotificationTarget) -> bool {
+        match (self, target) {
+            (
+                Self::Server {
+                    server_id,
+                    channel_id,
+                },
+                NotificationTarget::Server {
+                    server_id: target_server,
+                    channel_id: target_channel,
+                    ..
+                },
+            ) => server_id == target_server && channel_id == target_channel,
+            (
+                Self::Dm { channel_id },
+                NotificationTarget::Dm {
+                    channel_id: target_channel,
+                    ..
+                },
+            ) => channel_id == target_channel,
+            _ => false,
+        }
+    }
+}
+
 impl NotificationTarget {
     fn message_id(&self) -> &str {
         match self {
@@ -96,6 +147,8 @@ struct RecentNotification {
     message_id: String,
     target: NotificationTarget,
     activated: bool,
+    #[serde(default)]
+    dismissed: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -149,6 +202,7 @@ impl NotificationRecord {
             message_id: candidate.target.message_id().to_string(),
             target: candidate.target.clone(),
             activated: false,
+            dismissed: false,
         });
         if self.recent.len() > MAX_RECENT {
             self.recent.drain(0..self.recent.len() - MAX_RECENT);
@@ -183,6 +237,30 @@ impl NotificationRecord {
         };
         item.activated = false;
         true
+    }
+
+    fn notification_ids(
+        &self,
+        viewer_user_id: &str,
+        conversation: &NotificationConversation,
+    ) -> Vec<String> {
+        self.recent
+            .iter()
+            .filter(|item| {
+                !item.dismissed
+                    && item.viewer_user_id == viewer_user_id
+                    && conversation.matches(&item.target)
+            })
+            .map(|item| item.notification_id.clone())
+            .collect()
+    }
+
+    fn complete_dismissals(&mut self, notification_ids: &[String]) {
+        for item in &mut self.recent {
+            if notification_ids.contains(&item.notification_id) {
+                item.dismissed = true;
+            }
+        }
     }
 }
 
@@ -496,47 +574,114 @@ pub fn desktop_system_notification_retry_activation(
 }
 
 #[tauri::command]
-pub fn desktop_system_notification_dismiss(
+pub async fn desktop_system_notification_dismiss(
     window: WebviewWindow,
+    state: tauri::State<'_, DesktopSystemNotificationState>,
     notification_id: String,
 ) -> Result<(), &'static str> {
     guard(&window)?;
     if !valid_notification_id(&notification_id) {
         return Err("notification_invalid");
     }
-    dismiss_notification(&notification_id).map_err(|_| "notification_unavailable")
+    dismiss_notifications_confirmed(&[notification_id.clone()])
+        .await
+        .map_err(|_| "notification_unavailable")?;
+    state.transact(|record| {
+        record.complete_dismissals(&[notification_id]);
+        Ok(())
+    })
+}
+
+#[tauri::command]
+pub async fn desktop_system_notification_dismiss_conversation(
+    window: WebviewWindow,
+    state: tauri::State<'_, DesktopSystemNotificationState>,
+    viewer_user_id: String,
+    target: NotificationConversation,
+) -> Result<(), &'static str> {
+    guard(&window)?;
+    if !valid_id(&viewer_user_id) || !target.valid() {
+        return Err("notification_invalid");
+    }
+    let notification_ids = state
+        .record
+        .lock()
+        .map_err(|_| "store_unavailable")?
+        .notification_ids(&viewer_user_id, &target);
+    if notification_ids.is_empty() {
+        return Ok(());
+    }
+    dismiss_notifications_confirmed(&notification_ids)
+        .await
+        .map_err(|_| "notification_unavailable")?;
+    state.transact(|record| {
+        record.complete_dismissals(&notification_ids);
+        Ok(())
+    })
 }
 
 #[cfg(target_os = "macos")]
-fn dismiss_notification(notification_id: &str) -> Result<(), ()> {
+async fn dismiss_notifications_confirmed(notification_ids: &[String]) -> Result<(), ()> {
+    use block2::RcBlock;
     use objc2_foundation::{NSArray, NSString};
-    use objc2_user_notifications::UNUserNotificationCenter;
+    use objc2_user_notifications::{UNNotification, UNUserNotificationCenter};
+    use std::ptr::NonNull;
 
-    let identifier = NSString::from_str(notification_id);
-    let identifiers = NSArray::from_slice(&[&*identifier]);
-    UNUserNotificationCenter::currentNotificationCenter()
-        .removeDeliveredNotificationsWithIdentifiers(&identifiers);
-    Ok(())
+    let receiver = {
+        let identifiers = notification_ids
+            .iter()
+            .map(|value| NSString::from_str(value))
+            .collect::<Vec<_>>();
+        let identifier_refs = identifiers.iter().map(|value| &**value).collect::<Vec<_>>();
+        let center = UNUserNotificationCenter::currentNotificationCenter();
+        center.removeDeliveredNotificationsWithIdentifiers(&NSArray::from_slice(&identifier_refs));
+        let requested = notification_ids.to_vec();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let completion = RcBlock::new(move |notifications: NonNull<NSArray<UNNotification>>| {
+            let notifications = unsafe { notifications.as_ref() };
+            let remains = notifications.iter().any(|notification| {
+                requested.contains(&notification.request().identifier().to_string())
+            });
+            let _ = sender.send(if remains { Err(()) } else { Ok(()) });
+        });
+        center.getDeliveredNotificationsWithCompletionHandler(&completion);
+        receiver
+    };
+    wait_for_macos_completion(receiver).await
 }
 
 #[cfg(windows)]
-fn dismiss_notification(notification_id: &str) -> Result<(), ()> {
+async fn dismiss_notifications_confirmed(notification_ids: &[String]) -> Result<(), ()> {
     use windows::core::HSTRING;
     use windows::UI::Notifications::ToastNotificationManager;
 
-    ToastNotificationManager::History()
-        .map_err(|_| ())?
-        .RemoveGroupedTagWithId(
-            &HSTRING::from(notification_id),
-            &HSTRING::from(WINDOWS_NOTIFICATION_GROUP),
-            &HSTRING::from(WINDOWS_APP_ID),
-        )
-        .map_err(|_| ())
+    let history = ToastNotificationManager::History().map_err(|_| ())?;
+    for notification_id in notification_ids {
+        history
+            .RemoveGroupedTagWithId(
+                &HSTRING::from(notification_id.as_str()),
+                &HSTRING::from(WINDOWS_NOTIFICATION_GROUP),
+                &HSTRING::from(WINDOWS_APP_ID),
+            )
+            .map_err(|_| ())?;
+    }
+    let delivered = history
+        .GetHistoryWithId(&HSTRING::from(WINDOWS_APP_ID))
+        .map_err(|_| ())?;
+    for index in 0..delivered.Size().map_err(|_| ())? {
+        let toast = delivered.GetAt(index).map_err(|_| ())?;
+        let tag = toast.Tag().map_err(|_| ())?.to_string();
+        let group = toast.Group().map_err(|_| ())?.to_string();
+        if group == WINDOWS_NOTIFICATION_GROUP && notification_ids.contains(&tag) {
+            return Err(());
+        }
+    }
+    Ok(())
 }
 
 #[cfg(target_os = "linux")]
-fn dismiss_notification(_notification_id: &str) -> Result<(), ()> {
-    Ok(())
+async fn dismiss_notifications_confirmed(_notification_ids: &[String]) -> Result<(), ()> {
+    Err(())
 }
 
 #[cfg(target_os = "macos")]
@@ -774,6 +919,25 @@ mod tests {
         }
     }
 
+    fn candidate_in(
+        viewer: &str,
+        server_id: &str,
+        channel_id: &str,
+        message_id: &str,
+    ) -> NotificationCandidate {
+        NotificationCandidate {
+            viewer_user_id: viewer.into(),
+            title: "Ada".into(),
+            body: "Hello".into(),
+            target: NotificationTarget::Server {
+                server_id: server_id.into(),
+                channel_id: channel_id.into(),
+                message_id: message_id.into(),
+                seq: 1,
+            },
+        }
+    }
+
     #[test]
     fn deterministic_ids_are_stable_scoped_and_uuid_shaped() {
         let first = deterministic_notification_id("viewer_1", "message_1");
@@ -824,6 +988,119 @@ mod tests {
         assert!(!restored.recent[0].activated);
         assert_eq!(restored.activate(&id).unwrap().target, target("message_1"));
         assert!(restored.recent[0].activated);
+    }
+
+    #[test]
+    fn conversation_dismissal_is_exact_across_messages_conversations_and_accounts() {
+        let mut record = NotificationRecord::new();
+        let same_first = record
+            .claim(&candidate_in(
+                "viewer_1",
+                "server_1",
+                "channel_1",
+                "message_1",
+            ))
+            .unwrap();
+        let same_second = record
+            .claim(&candidate_in(
+                "viewer_1",
+                "server_1",
+                "channel_1",
+                "message_2",
+            ))
+            .unwrap();
+        let other_channel = record
+            .claim(&candidate_in(
+                "viewer_1",
+                "server_1",
+                "channel_2",
+                "message_3",
+            ))
+            .unwrap();
+        let other_viewer = record
+            .claim(&candidate_in(
+                "viewer_2",
+                "server_1",
+                "channel_1",
+                "message_4",
+            ))
+            .unwrap();
+        let conversation = NotificationConversation::Server {
+            server_id: "server_1".to_string(),
+            channel_id: "channel_1".to_string(),
+        };
+
+        assert_eq!(
+            record.notification_ids("viewer_1", &conversation),
+            vec![same_first.clone(), same_second.clone()],
+        );
+        record.complete_dismissals(&[same_first.clone(), same_second.clone()]);
+        assert_eq!(
+            record.notification_ids("viewer_1", &conversation),
+            Vec::<String>::new()
+        );
+        assert!(record
+            .claim(&candidate_in(
+                "viewer_1",
+                "server_1",
+                "channel_1",
+                "message_1"
+            ))
+            .is_none());
+        assert!(record
+            .recent
+            .iter()
+            .any(|item| item.notification_id == other_channel));
+        assert!(record
+            .recent
+            .iter()
+            .any(|item| item.notification_id == other_viewer));
+
+        let restored = NotificationRecord::restore(serde_json::to_value(record).unwrap()).unwrap();
+        assert_eq!(
+            restored.notification_ids("viewer_1", &conversation),
+            Vec::<String>::new()
+        );
+        assert!(restored
+            .recent
+            .iter()
+            .any(|item| item.notification_id == same_first));
+        assert!(restored
+            .recent
+            .iter()
+            .any(|item| item.notification_id == same_second));
+    }
+
+    #[test]
+    fn old_records_without_a_dismissed_field_restore_as_delivered() {
+        let id = deterministic_notification_id("viewer_1", "message_1");
+        let record = NotificationRecord::restore(serde_json::json!({
+            "version": 1,
+            "recent": [{
+                "notificationId": id,
+                "viewerUserId": "viewer_1",
+                "messageId": "message_1",
+                "target": {
+                    "kind": "server",
+                    "serverId": "server_1",
+                    "channelId": "channel_1",
+                    "messageId": "message_1",
+                    "seq": 1
+                },
+                "activated": false
+            }]
+        }))
+        .unwrap();
+        assert_eq!(
+            record.notification_ids(
+                "viewer_1",
+                &NotificationConversation::Server {
+                    server_id: "server_1".into(),
+                    channel_id: "channel_1".into(),
+                },
+            ),
+            vec![id],
+        );
     }
 
     #[test]

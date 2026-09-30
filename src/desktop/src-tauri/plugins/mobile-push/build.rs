@@ -4,6 +4,7 @@ fn main() {
         "acknowledgeRegistration",
         "takeActivation",
         "dismissNotification",
+        "dismissConversation",
         "listen",
         "unlisten",
     ])
