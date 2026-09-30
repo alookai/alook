@@ -39,7 +39,7 @@ export function ChannelHeaderSkeleton({
           data-testid={tid.messageHeaderLeadingLoading}
           data-slot="loading-mobile-leading"
           aria-hidden
-          className="grid size-11 shrink-0 place-items-center sm:hidden"
+          className={`grid size-11 shrink-0 place-items-center ${kind === "thread" && !compactActions ? "" : "sm:hidden"}`}
         >
           <Skeleton className="size-6 rounded-md" />
         </div>

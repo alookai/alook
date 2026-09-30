@@ -90,6 +90,7 @@ export function ShellFrameView({
     <ProfileRunningBotsCard
       onOpenBotAudit={profile.openBotAudit}
       useBackdropEffect={breakpoint !== "mobile"}
+      showShadow={breakpoint !== "mobile"}
     />
   ) : null
 
