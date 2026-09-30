@@ -1,27 +1,26 @@
-import type { Page, Route } from "@playwright/test"
+import type { Page, Request, Route } from "@playwright/test"
 import { test, expect } from "./_fixtures/community-fixture"
 import { seedChannel, seedServer } from "./_fixtures/seed"
 import { tid } from "./_fixtures/testids"
 import { expectConversationReady, observeConversationTransport } from "./_fixtures/conversation-readiness"
+import { captureReadyConversation, runRenderedNavigation, type RenderedContract } from "./_fixtures/rendered-navigation"
 
 async function holdRoute(page: Page, pathname: string) {
   let releaseGate!: () => void
   const gate = new Promise<void>((resolve) => { releaseGate = resolve })
-  let held = 0
+  const requests: Array<{ pathname: string; query: string; rsc: boolean; prefetch: boolean; heldAt: number }> = []
   const pattern = `**${pathname}**`
   const handler = async (route: Route) => {
-    held += 1
-    await gate
-    await route.continue()
+    const url = new URL(route.request().url()); const headers = route.request().headers()
+    requests.push({ pathname: url.pathname, query: url.search, rsc: headers.rsc === "1", prefetch: !!(headers["next-router-prefetch"] || headers["next-router-segment-prefetch"]), heldAt: Date.now() })
+    await gate; await route.continue()
   }
   await page.route(pattern, handler)
+  let releasedAt: number | null = null
   return {
-    held: () => held,
-    release: async () => {
-      releaseGate()
-      await page.waitForTimeout(100)
-      await page.unroute(pattern, handler)
-    },
+    held: () => requests.length,
+    snapshot: () => ({ pathname, pattern, requests, releasedAt, role: "matched transport diagnostic, not a structural commit barrier" }),
+    release: async () => { if (releasedAt !== null) return; releasedAt = Date.now(); releaseGate(); await page.unroute(pattern, handler) },
   }
 }
 
@@ -29,382 +28,136 @@ function channelHeader(page: Page, name: string) {
   return page.getByRole("banner").getByText(name, { exact: true })
 }
 
-type SurfaceAnimationRecord = {
-  surface: string | null
-}
-
-type SurfaceFrameRecord = {
-  pathname: string
-  surface: string | null
-  transform: string
-  opacity: string
-  rows: string[]
-  pendingMain: string | null
-  treeScope: string | null
-}
-
-async function installSurfaceAnimationProbe(page: Page) {
-  const channelRowPrefix = tid.channelRow("")
-  await page.addInitScript(({ channelRowPrefix }) => {
-    const state = window as typeof window & {
-      __communitySurfaceAnimations?: Array<{
-        surface: string | null
-      }>
-      __communitySurfaceFrames?: SurfaceFrameRecord[]
-      __communitySurfaceFrameStop?: () => void
-    }
-    state.__communitySurfaceAnimations = []
-    state.__communitySurfaceFrames = []
-    const nativeAnimate = Element.prototype.animate
-    Element.prototype.animate = function (keyframes, options) {
-      if (this.hasAttribute("data-community-mobile-surface")) {
-        state.__communitySurfaceAnimations!.push({
-          surface: this.getAttribute("data-community-mobile-surface"),
-        })
-      }
-      return nativeAnimate.call(this, keyframes, options)
-    }
-
-    let raf = 0
-    const sample = () => {
-      for (const surface of document.querySelectorAll<HTMLElement>("[data-community-mobile-surface]")) {
-        const style = getComputedStyle(surface)
-        if (style.display === "none" || surface.getClientRects().length === 0) continue
-        const rows = Array.from(surface.querySelectorAll<HTMLElement>(
-          `[data-testid^="${channelRowPrefix}"]`,
-        )).filter((row) => {
-          const rowStyle = getComputedStyle(row)
-          return rowStyle.display !== "none" && row.getClientRects().length > 0
-        }).map((row) => row.dataset.testid!.replace(channelRowPrefix, ""))
-        state.__communitySurfaceFrames!.push({
-          pathname: location.pathname,
-          surface: surface.getAttribute("data-community-mobile-surface"),
-          transform: style.transform,
-          opacity: style.opacity,
-          rows,
-          pendingMain: surface.querySelector<HTMLElement>("[data-community-main-kind]")
-            ?.dataset.communityMainKind ?? null,
-          treeScope: surface.querySelector<HTMLElement>("[data-community-channel-tree-scope]")
-            ?.dataset.communityChannelTreeScope ?? null,
-        })
-      }
-      raf = requestAnimationFrame(sample)
-    }
-    raf = requestAnimationFrame(sample)
-    state.__communitySurfaceFrameStop = () => cancelAnimationFrame(raf)
-  }, { channelRowPrefix })
-}
-
-async function surfaceAnimations(page: Page): Promise<SurfaceAnimationRecord[]> {
-  return page.evaluate(() => (
-    window as typeof window & { __communitySurfaceAnimations?: SurfaceAnimationRecord[] }
-  ).__communitySurfaceAnimations ?? [])
-}
-
-async function clearSurfaceAnimations(page: Page): Promise<void> {
-  await page.evaluate(() => {
-    const state = window as typeof window & {
-      __communitySurfaceAnimations?: SurfaceAnimationRecord[]
-      __communitySurfaceFrames?: SurfaceFrameRecord[]
-    }
-    state.__communitySurfaceAnimations = []
-    state.__communitySurfaceFrames = []
-  })
-}
-
-async function surfaceFrames(page: Page): Promise<SurfaceFrameRecord[]> {
-  return page.evaluate(() => (
-    window as typeof window & { __communitySurfaceFrames?: SurfaceFrameRecord[] }
-  ).__communitySurfaceFrames ?? [])
-}
-
-function expectStationaryFrames(frames: SurfaceFrameRecord[]) {
-  expect(frames.length).toBeGreaterThan(0)
-  for (const frame of frames) {
-    expect(["none", "matrix(1, 0, 0, 1, 0, 0)"]).toContain(frame.transform)
-    expect(frame.opacity).toBe("1")
-  }
-}
-
 test("community detail reaches target consumer readiness and keeps list surfaces stable", async ({ asUser }, testInfo) => {
   test.setTimeout(120_000)
   const stamp = Date.now()
   const serverId = await seedServer("alice", `Frame Gate ${stamp}`)
-  const channelAName = `frame-a-${stamp}`
-  const channelBName = `frame-b-${stamp}`
+  const channelAName = `frame-a-${stamp}`; const channelBName = `frame-b-${stamp}`
   const channelA = await seedChannel("alice", serverId, channelAName)
   const channelB = await seedChannel("alice", serverId, channelBName)
   const { page } = await asUser("alice")
   const transport = observeConversationTransport(page)
+  const gates: Awaited<ReturnType<typeof holdRoute>>[] = []
+  const hold = async (path: string) => { const gate = await holdRoute(page, path); gates.push(gate); return gate }
+  const mutations: string[] = []
+  const readOnlyPostPaths = new Set(["/api/community/messages/batch", "/api/community/messages/tags/batch", "/api/community/channels/participants/batch"])
+  const onRequest = (request: Request) => {
+    const method = request.method(); const pathname = new URL(request.url()).pathname
+    if (!["GET", "HEAD", "OPTIONS"].includes(method) && !(method === "POST" && readOnlyPostPaths.has(pathname))) mutations.push(`${method} ${pathname}`)
+  }
+  const root = `/c/channels/${serverId}`; const pathA = `${root}/${channelA}`; const pathB = `${root}/${channelB}`
+  const scope = `server:${serverId}`
   try {
-    await page.setViewportSize({ width: 1280, height: 900 })
-    await page.goto(`/c/channels/${serverId}/${channelA}`)
+    await page.setViewportSize({ width: 1280, height: 900 }); await page.goto(pathA)
     await expect(channelHeader(page, channelAName)).toBeVisible({ timeout: 30_000 })
-    await expectConversationReady(page, {
-      pathname: `/c/channels/${serverId}/${channelA}`, serverId, channelId: channelA, kind: "text", empty: true,
-    }, testInfo)
-
-    const readOnlyPostPaths = new Set([
-      "/api/community/messages/batch",
-      "/api/community/messages/tags/batch",
-      "/api/community/channels/participants/batch",
-    ])
-    const mutations: string[] = []
-    page.on("request", (request) => {
-      const method = request.method()
-      const pathname = new URL(request.url()).pathname
-      if (
-        !["GET", "HEAD", "OPTIONS"].includes(method)
-        && !(method === "POST" && readOnlyPostPaths.has(pathname))
-      ) mutations.push(`${method} ${pathname}`)
+    await expectConversationReady(page, { pathname: pathA, serverId, channelId: channelA, kind: "text", empty: true }, testInfo)
+    page.on("request", onRequest)
+    const leafGate = await hold(pathB)
+    await runRenderedNavigation(page, testInfo, "rendered-target-transition", `[data-testid="${tid.channelRow(channelB)}"]`, {
+      paths: [pathA, pathB], finalPath: pathB, channelId: channelB, header: channelBName, scopes: [scope], finalScope: scope, pendingKind: "server-conversation", subtype: "text",
+    }, async () => {
+      try { await page.getByTestId(tid.channelRow(channelB)).click({ noWaitAfter: true }); await expect.poll(leafGate.held).toBeGreaterThan(0) }
+      finally { await leafGate.release() }
+      const target = { pathname: pathB, serverId, channelId: channelB, kind: "text" as const, empty: true }
+      await expectConversationReady(page, target, testInfo)
+      await captureReadyConversation(page, target, testInfo, "qualified-B")
     })
-
-    const targetPath = `/c/channels/${serverId}/${channelB}`
-    type TransitionFrame = {
-      atEpochMs: number; atPageMs: number; pathname: string
-      headers: string[]; conversations: string[]; scopes: string[]; pending: boolean
-    }
-    type TransitionObservation = {
-      timeOrigin: number
-      click: { atEpochMs: number; atPageMs: number; row: string; trusted: boolean } | null
-      stopRequestedAt: number | null; stoppedAt: number | null; frames: TransitionFrame[]
-    }
-    type TransitionWindow = typeof window & {
-      __case38Transition?: { stop: () => Promise<TransitionObservation> }
-    }
-    await page.evaluate(({ rowId, sidebarId, pendingId }) => {
-      const observation: TransitionObservation = {
-        timeOrigin: performance.timeOrigin, click: null,
-        stopRequestedAt: null, stoppedAt: null, frames: [],
-      }
-      const visible = (element: Element) => {
-        const rect = element.getBoundingClientRect()
-        if (rect.width <= 0 || rect.height <= 0 || rect.bottom <= 0 || rect.right <= 0
-          || rect.top >= innerHeight || rect.left >= innerWidth) return false
-        for (let node: Element | null = element; node; node = node.parentElement) {
-          const style = getComputedStyle(node)
-          if (style.display === "none" || ["hidden", "collapse"].includes(style.visibility)
-            || Number(style.opacity || 1) === 0) return false
-        }
-        return true
-      }
-      const sample = () => {
-        const atPageMs = performance.now()
-        const main = document.querySelector('[data-slot="community-main-panel-content"]')
-        const scopes = Array.from(document.querySelectorAll("[data-community-channel-tree-scope]"))
-          .filter((owner) => Array.from(owner.querySelectorAll(`[data-testid="${sidebarId}"]`))
-            .some((sidebar) => sidebar.closest("[data-community-channel-tree-scope]") === owner && visible(sidebar)))
-          .map((owner) => owner.getAttribute("data-community-channel-tree-scope")!)
-        observation.frames.push({
-          atEpochMs: performance.timeOrigin + atPageMs, atPageMs, pathname: location.pathname,
-          headers: Array.from(main?.querySelectorAll('[role="banner"] [data-slot="message-header-identity"] > span[title]') ?? [])
-            .filter(visible).map((title) => title.textContent?.trim() ?? ""),
-          conversations: Array.from(main?.querySelectorAll('[data-slot="community-conversation-surface"]') ?? [])
-            .filter(visible).map((surface) => surface.getAttribute("data-channel-id") ?? "<missing>"),
-          scopes: [...new Set(scopes)],
-          pending: Array.from(main?.querySelectorAll(`[data-testid="${pendingId}"], [aria-label="Resolving conversation"], [data-community-unresolved-main], [data-message-list-skeleton], [data-message-positioning-skeleton]`) ?? [])
-            .some(visible),
-        })
-      }
-      let raf = 0
-      const tick = () => { sample(); raf = requestAnimationFrame(tick) }
-      const onClick = (event: MouseEvent) => {
-        const row = event.target instanceof Element ? event.target.closest(`[data-testid="${rowId}"]`) : null
-        if (!event.isTrusted || !row || observation.click) return
-        const atPageMs = performance.now()
-        observation.click = { atEpochMs: performance.timeOrigin + atPageMs, atPageMs, row: rowId, trusted: event.isTrusted }
-        raf = requestAnimationFrame(tick)
-      }
-      document.addEventListener("click", onClick, true)
-      ;(window as TransitionWindow).__case38Transition = {
-        stop: () => {
-          observation.stopRequestedAt = performance.timeOrigin + performance.now()
-          document.removeEventListener("click", onClick, true)
-          cancelAnimationFrame(raf)
-          return new Promise((resolve) => {
-            if (!observation.click) {
-              delete (window as TransitionWindow).__case38Transition
-              observation.stoppedAt = performance.timeOrigin + performance.now()
-              resolve(observation)
-              return
-            }
-            requestAnimationFrame(() => {
-              sample()
-              observation.stoppedAt = performance.timeOrigin + performance.now()
-              delete (window as TransitionWindow).__case38Transition
-              resolve(observation)
-            })
-          })
-        },
-      }
-    }, { rowId: tid.channelRow(channelB), sidebarId: tid.channelSidebarScroll, pendingId: tid.pendingMain("server-conversation") })
-    let transition: TransitionObservation | null = null
-    try {
-      const leafGate = await holdRoute(page, targetPath)
-      try {
-        await page.getByTestId(tid.channelRow(channelB)).click({ noWaitAfter: true })
-        await expect.poll(leafGate.held).toBeGreaterThan(0)
-        await testInfo.attach("held-target-route", {
-          body: JSON.stringify({ targetPath, channelB, heldCount: leafGate.held(), transport: transport.snapshot() }),
-          contentType: "application/json",
-        })
-      } finally {
-        await leafGate.release()
-      }
-      await expectConversationReady(page, {
-        pathname: targetPath, serverId, channelId: channelB, kind: "text", empty: true,
-      }, testInfo)
-    } finally {
-      transition = await page.evaluate(async () => (window as TransitionWindow).__case38Transition?.stop() ?? null)
-      await testInfo.attach("rendered-target-transition", {
-        body: JSON.stringify({ sourcePath: `/c/channels/${serverId}/${channelA}`, targetPath, transition }),
-        contentType: "application/json",
-      })
-    }
-    expect(transition, "transition observation must survive through B readiness").not.toBeNull()
-    expect(transition!.click).toMatchObject({ row: tid.channelRow(channelB), trusted: true })
-    expect(transition!.frames.length, "post-click rendered observations, not a required pending dwell").toBeGreaterThan(0)
-    for (const frame of transition!.frames) {
-      expect(frame.atEpochMs).toBeGreaterThan(transition!.click!.atEpochMs)
-      expect(frame.pathname).toMatch(new RegExp(`^/c/channels/${serverId}/(?:${channelA}|${channelB})$`))
-      expect(frame.scopes).toEqual([`server:${serverId}`])
-      expect(frame.headers.filter((name) => name !== channelBName), `stale/wrong header at ${frame.atEpochMs}`).toEqual([])
-      expect(frame.conversations.filter((id) => id !== channelB), `stale/wrong conversation at ${frame.atEpochMs}`).toEqual([])
-      expect(frame.pending || frame.headers.includes(channelBName) || frame.conversations.includes(channelB),
-        `missing rendered checkpoint/target at ${frame.atEpochMs}`).toBe(true)
-    }
-    const finalFrame = transition!.frames.at(-1)!
-    expect(finalFrame.pathname).toBe(targetPath)
-    expect(finalFrame.conversations).toContain(channelB)
     await expect(channelHeader(page, channelAName)).toHaveCount(0)
     await expect(page.locator(`[data-slot="community-conversation-surface"][data-channel-id="${channelA}"]`)).toHaveCount(0)
-    await expect(channelHeader(page, channelBName)).toBeVisible({ timeout: 30_000 })
+    await expect(channelHeader(page, channelBName)).toBeVisible()
     transport.assertHealthy()
 
     await page.setViewportSize({ width: 390, height: 844 })
-    const rootGate = await holdRoute(page, `/c/channels/${serverId}`)
-    await page.getByRole("banner").getByRole("button", { name: "Back" }).click({ noWaitAfter: true })
-    await expect.poll(rootGate.held).toBeGreaterThan(0)
-    await page.setViewportSize({ width: 1280, height: 900 })
-    await expect(page.getByLabel("Resolving conversation")).toHaveCount(0)
-    await expect(channelHeader(page, channelBName)).toBeVisible()
-    await page.waitForTimeout(150)
-    await expect(page.getByLabel("Resolving conversation")).toHaveCount(0)
-    await expect(channelHeader(page, channelBName)).toBeVisible()
-    await rootGate.release()
-    await expect(channelHeader(page, channelBName)).toBeVisible({ timeout: 30_000 })
+    const rootGate = await hold(root)
+    await runRenderedNavigation(page, testInfo, "mobile-Back-root", 'button[aria-label="Back"]', {
+      paths: [pathB, root], finalPath: root, scopes: [scope], finalScope: scope, header: channelBName,
+      channelId: channelB, listStates: ["server"], finalListState: "server", stationary: true,
+    }, async () => {
+      try { await page.getByRole("banner").getByRole("button", { name: "Back" }).click({ noWaitAfter: true }); await expect.poll(rootGate.held).toBeGreaterThan(0) }
+      finally { await rootGate.release() }
+      await expect.poll(() => new URL(page.url()).pathname).toBe(root)
+      await expect(page.getByTestId(tid.channelRow(channelB))).toBeVisible()
+    })
+    await runRenderedNavigation(page, testInfo, "desktop-list-restore", null, {
+      paths: [root, pathB], finalPath: pathB, scopes: [scope], finalScope: scope, channelId: channelB, header: channelBName,
+      listStates: ["server"], actionKind: "programmatic",
+    }, async () => {
+      await page.setViewportSize({ width: 1280, height: 900 })
+      await expect(page.getByLabel("Resolving conversation")).toHaveCount(0)
+      await expect(channelHeader(page, channelBName)).toBeVisible()
+      await expectConversationReady(page, { pathname: pathB, serverId, channelId: channelB, kind: "text", empty: true }, testInfo)
+    })
 
     await page.goto("/c/me/friends")
     await expect(page.getByPlaceholder("Search friends")).toBeVisible({ timeout: 30_000 })
-    const machinesGate = await holdRoute(page, "/c/me/machines")
-    await page.getByRole("button", { name: "Machines", exact: true }).click({ noWaitAfter: true })
-    await expect.poll(machinesGate.held).toBeGreaterThan(0)
-    await expect(page.getByLabel("Resolving conversation")).toHaveCount(0)
-    await expect(page.getByPlaceholder("Search friends")).toBeVisible()
-    await page.waitForTimeout(150)
-    await expect(page.getByPlaceholder("Search friends")).toBeVisible()
-    await machinesGate.release()
-    await expect(page.getByTestId(tid.machinePairOpen))
-      .toBeVisible({ timeout: 30_000 })
-
-    expect(mutations).toEqual([])
-    transport.assertHealthy()
-  } finally {
-    await testInfo.attach("conversation-transport", {
-      body: JSON.stringify(transport.snapshot()), contentType: "application/json",
+    const machinesGate = await hold("/c/me/machines")
+    await runRenderedNavigation(page, testInfo, "Friends-to-Machines", '#sidebar button:has(svg.lucide-monitor)', {
+      paths: ["/c/me/friends", "/c/me/machines"], finalPath: "/c/me/machines", scopes: [], listStates: ["friends", "friends-pending", "machines", "machines-pending"], finalListState: "machines",
+    }, async () => {
+      try { await page.getByRole("button", { name: "Machines", exact: true }).click({ noWaitAfter: true }); await expect.poll(machinesGate.held).toBeGreaterThan(0) }
+      finally { await machinesGate.release() }
+      await expect(page.getByLabel("Resolving conversation")).toHaveCount(0)
+      await expect(page.getByTestId(tid.machinePairOpen)).toBeVisible({ timeout: 30_000 })
+      await expect.poll(() => new URL(page.url()).pathname).toBe("/c/me/machines")
+      await expect(page.getByPlaceholder("Search friends")).toHaveCount(0)
     })
-    transport.stop()
+    expect(mutations).toEqual([]); transport.assertHealthy()
+  } finally {
+    for (const gate of gates) await gate.release()
+    page.off("request", onRequest)
+    await testInfo.attach("held-routes", { body: JSON.stringify(gates.map((gate) => gate.snapshot())), contentType: "application/json" })
+    await testInfo.attach("conversation-transport", { body: JSON.stringify(transport.snapshot()), contentType: "application/json" }); transport.stop()
   }
 })
 
-test("mobile route commits stay stationary while sidebar identity survives same-server history", async ({ asUser }) => {
+test("mobile route commits stay stationary while sidebar identity survives same-server history", async ({ asUser }, testInfo) => {
   test.setTimeout(120_000)
-  const stamp = Date.now()
-  const serverId = await seedServer("alice", `Mobile frame ${stamp}`)
-  const fastName = `fast-${stamp}`
-  const pendingName = `pending-${stamp}`
-  const fastChannel = await seedChannel("alice", serverId, fastName)
-  const pendingChannel = await seedChannel("alice", serverId, pendingName)
+  const stamp = Date.now(); const serverId = await seedServer("alice", `Mobile frame ${stamp}`)
+  const fastName = `fast-${stamp}`; const pendingName = `pending-${stamp}`
+  const fastChannel = await seedChannel("alice", serverId, fastName); const pendingChannel = await seedChannel("alice", serverId, pendingName)
   const { page } = await asUser("alice")
-  await page.setViewportSize({ width: 390, height: 844 })
-  await installSurfaceAnimationProbe(page)
-  await page.goto(`/c/channels/${serverId}`)
-
-  const fastRow = page.getByTestId(tid.channelRow(fastChannel))
-  const sidebarScroll = page.getByTestId(tid.channelSidebarScroll)
-  await expect(fastRow).toBeVisible({ timeout: 30_000 })
-  await sidebarScroll.evaluate((element) => {
-    ;(element as typeof element & { __e2eIdentity?: string }).__e2eIdentity = "stable"
-  })
-  await fastRow.evaluate((element) => {
-    ;(element as typeof element & { __e2eDndOwner?: string }).__e2eDndOwner = "stable"
-  })
-  await clearSurfaceAnimations(page)
-
-  await fastRow.click()
-  await expect.poll(() => new URL(page.url()).pathname)
-    .toBe(`/c/channels/${serverId}/${fastChannel}`)
-  await expect(page.getByTestId(tid.composerInput)).toBeVisible()
-  expect(await surfaceAnimations(page)).toEqual([])
-  expectStationaryFrames(await surfaceFrames(page))
-  expect(await sidebarScroll.evaluate((element) => (
-    element as typeof element & { __e2eIdentity?: string }
-  ).__e2eIdentity)).toBe("stable")
-  expect(await fastRow.evaluate((element) => (
-    element as typeof element & { __e2eDndOwner?: string }
-  ).__e2eDndOwner)).toBe("stable")
-
-  await page.getByRole("banner").getByRole("button", { name: "Back" }).click()
-  await expect.poll(() => new URL(page.url()).pathname).toBe(`/c/channels/${serverId}`)
-  await expect(fastRow).toBeVisible()
-  expect(await surfaceAnimations(page)).toEqual([])
-  expectStationaryFrames(await surfaceFrames(page))
-  expect(await sidebarScroll.evaluate((element) => (
-    element as typeof element & { __e2eIdentity?: string }
-  ).__e2eIdentity)).toBe("stable")
-  expect(await fastRow.evaluate((element) => (
-    element as typeof element & { __e2eDndOwner?: string }
-  ).__e2eDndOwner)).toBe("stable")
-
-  await clearSurfaceAnimations(page)
-  const pendingPath = `/c/channels/${serverId}/${pendingChannel}`
-  const pendingGate = await holdRoute(page, pendingPath)
-  await page.getByTestId(tid.channelRow(pendingChannel)).click({ noWaitAfter: true })
-  await expect.poll(pendingGate.held).toBeGreaterThan(0)
-  await expect(page.getByTestId(tid.pendingMain("server-conversation"))).toBeVisible()
-  await pendingGate.release()
-
-  await expect.poll(() => new URL(page.url()).pathname).toBe(pendingPath)
-  await expect(page.getByTestId(tid.composerInput)).toBeVisible({ timeout: 30_000 })
-  expect(await surfaceAnimations(page)).toEqual([])
-  expectStationaryFrames(await surfaceFrames(page))
-  expect(await sidebarScroll.evaluate((element) => (
-    element as typeof element & { __e2eIdentity?: string }
-  ).__e2eIdentity)).toBe("stable")
-  expect(await fastRow.evaluate((element) => (
-    element as typeof element & { __e2eDndOwner?: string }
-  ).__e2eDndOwner)).toBe("stable")
-
-  await page.goBack()
-  await expect.poll(() => new URL(page.url()).pathname).toBe(`/c/channels/${serverId}`)
-  await expect(fastRow).toBeVisible()
-  await page.goForward()
-  await expect.poll(() => new URL(page.url()).pathname).toBe(pendingPath)
-  await expect(page.getByTestId(tid.composerInput)).toBeVisible()
-  expect(await surfaceAnimations(page)).toEqual([])
-  expectStationaryFrames(await surfaceFrames(page))
-
-  await page.goBack()
-  await expect(fastRow).toBeVisible()
-  await page.getByTestId(tid.homeButton).click()
-  await expect.poll(() => new URL(page.url()).pathname).toBe("/c/me")
-  await page.getByTestId(tid.serverIcon(serverId)).click()
-  await expect.poll(() => new URL(page.url()).pathname).toBe(`/c/channels/${serverId}`)
-  await expect(fastRow).toBeVisible()
-  expect(await surfaceAnimations(page)).toEqual([])
-  const finalFrames = await surfaceFrames(page)
-  expectStationaryFrames(finalFrames)
-  const targetFrames = finalFrames.filter((frame) => frame.rows.includes(fastChannel))
-  expect(targetFrames.length).toBeGreaterThan(0)
-  expect(targetFrames.every((frame) => frame.treeScope === `server:${serverId}`)).toBe(true)
+  const transport = observeConversationTransport(page)
+  const root = `/c/channels/${serverId}`; const fastPath = `${root}/${fastChannel}`; const pendingPath = `${root}/${pendingChannel}`; const scope = `server:${serverId}`
+  const fastRow = page.getByTestId(tid.channelRow(fastChannel)); const sidebarScroll = page.getByTestId(tid.channelSidebarScroll)
+  const gates: Awaited<ReturnType<typeof holdRoute>>[] = []
+  const identity = async () => {
+    expect(await page.evaluate(({ scrollId, rowId }) => {
+      const state = window as typeof window & { __retainedSidebar?: { scroll: Element; row: Element } }
+      return state.__retainedSidebar?.scroll === document.querySelector(`[data-testid="${scrollId}"]`)
+        && state.__retainedSidebar.row === document.querySelector(`[data-testid="${rowId}"]`)
+    }, { scrollId: tid.channelSidebarScroll, rowId: tid.channelRow(fastChannel) })).toBe(true)
+    expect(await sidebarScroll.evaluate((node) => (node as HTMLElement & { __e2eIdentity?: string }).__e2eIdentity)).toBe("stable")
+    expect(await fastRow.evaluate((node) => (node as HTMLElement & { __e2eDndOwner?: string }).__e2eDndOwner)).toBe("stable")
+  }
+  const ready = async (channelId: string) => expectConversationReady(page, { pathname: `${root}/${channelId}`, serverId, channelId, kind: "text", empty: true, layout: "mobile-detail" }, testInfo)
+  const list = async (checkIdentity = true) => { await expect.poll(() => new URL(page.url()).pathname).toBe(root); await expect(fastRow).toBeVisible(); await expect(page.locator('[data-community-mobile-surface="list"]')).toBeVisible(); if (checkIdentity) await identity() }
+  const detailContract = (source: string, channelId: string, name: string): RenderedContract => ({ paths: [source, `${root}/${channelId}`], finalPath: `${root}/${channelId}`, scopes: [scope], finalScope: scope, channelId, header: name, pendingKind: "server-conversation", subtype: "text", stationary: true, ...(source === root ? { sourceListPath: root } : {}) })
+  const listContract = (source: string, channelId?: string, name?: string): RenderedContract => ({ paths: [source, root], finalPath: root, scopes: [scope], finalScope: scope, allowedRows: [fastChannel], channelId, header: name, listStates: ["server"], finalListState: "server", stationary: true })
+  try {
+    await page.setViewportSize({ width: 390, height: 844 }); await page.goto(root); await expect(fastRow).toBeVisible({ timeout: 30_000 })
+    await page.evaluate(({ scrollId, rowId }) => {
+      const scroll = document.querySelector(`[data-testid="${scrollId}"]`)!; const row = document.querySelector(`[data-testid="${rowId}"]`)!
+      ;(window as typeof window & { __retainedSidebar?: { scroll: Element; row: Element } }).__retainedSidebar = { scroll, row }
+      ;(scroll as HTMLElement & { __e2eIdentity?: string }).__e2eIdentity = "stable"; (row as HTMLElement & { __e2eDndOwner?: string }).__e2eDndOwner = "stable"
+    }, { scrollId: tid.channelSidebarScroll, rowId: tid.channelRow(fastChannel) })
+    await runRenderedNavigation(page, testInfo, "fast-detail", `[data-testid="${tid.channelRow(fastChannel)}"]`, detailContract(root, fastChannel, fastName), async () => { await fastRow.click(); await ready(fastChannel); await identity() })
+    await runRenderedNavigation(page, testInfo, "semantic-Back", 'button[aria-label="Back"]', listContract(fastPath, fastChannel, fastName), async () => { await page.getByRole("banner").getByRole("button", { name: "Back" }).click(); await list() })
+    const gate = await holdRoute(page, pendingPath); gates.push(gate)
+    await runRenderedNavigation(page, testInfo, "pending-or-immediate-detail", `[data-testid="${tid.channelRow(pendingChannel)}"]`, detailContract(root, pendingChannel, pendingName), async () => {
+      try { await page.getByTestId(tid.channelRow(pendingChannel)).click({ noWaitAfter: true }); await expect.poll(gate.held).toBeGreaterThan(0) } finally { await gate.release() }
+      await ready(pendingChannel); await identity()
+      await captureReadyConversation(page, { pathname: pendingPath, serverId, channelId: pendingChannel, kind: "text", empty: true, layout: "mobile-detail" }, testInfo, "qualified-mobile-detail")
+    })
+    await runRenderedNavigation(page, testInfo, "history-back", null, { ...listContract(pendingPath, pendingChannel, pendingName), actionKind: "programmatic" }, async () => { await page.goBack(); await list() })
+    await runRenderedNavigation(page, testInfo, "history-forward", null, { ...detailContract(root, pendingChannel, pendingName), actionKind: "programmatic" }, async () => { await page.goForward(); await ready(pendingChannel); await identity() })
+    await runRenderedNavigation(page, testInfo, "history-back-before-Home", null, { ...listContract(pendingPath, pendingChannel, pendingName), actionKind: "programmatic" }, async () => { await page.goBack(); await list() })
+    await runRenderedNavigation(page, testInfo, "Home-list", `[data-testid="${tid.homeButton}"]`, { paths: [root, "/c/me"], finalPath: "/c/me", scopes: [scope], listStates: ["server", "friends", "friends-pending", "me-pending"], allowMeRootPending: true, pendingKind: "me", finalListState: "friends", stationary: true }, async () => { await page.getByTestId(tid.homeButton).click(); await expect.poll(() => new URL(page.url()).pathname).toBe("/c/me"); await expect(page.getByPlaceholder("Search friends")).toBeVisible() })
+    await runRenderedNavigation(page, testInfo, "Home-server-restore", `[data-testid="${tid.serverIcon(serverId)}"]`, { paths: ["/c/me", root], finalPath: root, scopes: [scope], finalScope: scope, allowedRows: [fastChannel], listStates: ["friends", "friends-pending", "server"], pendingKind: "server-landing", finalListState: "server", stationary: true }, async () => { await page.getByTestId(tid.serverIcon(serverId)).click(); await list(false) })
+    transport.assertHealthy()
+  } finally {
+    for (const gate of gates) await gate.release()
+    await page.evaluate(() => { delete (window as typeof window & { __retainedSidebar?: unknown }).__retainedSidebar })
+    await testInfo.attach("held-routes", { body: JSON.stringify(gates.map((gate) => gate.snapshot())), contentType: "application/json" })
+    await testInfo.attach("conversation-transport", { body: JSON.stringify(transport.snapshot()), contentType: "application/json" }); transport.stop()
+  }
 })

@@ -6,6 +6,7 @@ export type ConversationTarget = {
   messageTestId?: string
   forumPostTestId?: string
   empty?: boolean
+  layout?: "mobile-detail"
 }
 
 export type ConversationInspectionTarget = ConversationTarget & {
@@ -37,12 +38,35 @@ export function inspectConversationReadiness(target: ConversationInspectionTarge
   if (location.pathname !== target.pathname) blockers.push("wrong-route")
   const identityPath = target.kind === "dm" ? `/c/me/${target.channelId}` : `/c/channels/${target.serverId}/${target.channelId}`
   if (target.pathname !== identityPath) blockers.push("inconsistent-target-identity")
-  if (target.serverId && !Array.from(document.querySelectorAll("[data-community-channel-tree-scope]"))
+  let mobileMain: Element | undefined
+  let retainedSidebar: Element | undefined
+  if (target.layout === "mobile-detail") {
+    const mains = Array.from(document.querySelectorAll('[data-slot="community-main-panel-content"][data-community-mobile-surface="detail"]')).filter(usable)
+    const main = mains.length === 1 ? mains[0] : undefined
+    const shell = main?.closest('[data-slot="community-shell-root"]')
+    const mainPanel = main?.closest('[id="main"]')
+    const sidebar = shell?.querySelector('[id="sidebar"] > [data-slot="community-sidebar-panel-content"]')
+    const sidebarPanel = sidebar?.parentElement
+    const qualified = window.matchMedia("(max-width: 639px)").matches
+      && !!main && !!shell && mainPanel?.getAttribute("data-mobile-active") === "true"
+      && mainPanel.getAttribute("data-mobile-hidden") !== "true"
+      && mainPanel.closest('[data-slot="community-shell-root"]') === shell
+      && sidebar?.hasAttribute("hidden") === true
+      && sidebarPanel?.getAttribute("data-mobile-hidden") === "true"
+      && sidebarPanel.getAttribute("data-mobile-active") !== "true"
+      && sidebar.closest('[data-slot="community-shell-root"]') === shell
+    if (!qualified) blockers.push("wrong-mobile-detail-layout")
+    else { mobileMain = main; retainedSidebar = sidebar! }
+  }
+  const scopeRoot = target.layout === "mobile-detail" ? retainedSidebar : document
+  if (target.serverId && !Array.from(scopeRoot?.querySelectorAll("[data-community-channel-tree-scope]") ?? [])
     .some((owner) => owner.getAttribute("data-community-channel-tree-scope") === `server:${target.serverId}`
       && Array.from(owner.querySelectorAll(`[data-testid="${target.testIds.channelSidebarScroll}"]`))
-        .some((sidebar) => sidebar.closest("[data-community-channel-tree-scope]") === owner && usable(sidebar)))) {
+        .some((sidebar) => sidebar.closest("[data-community-channel-tree-scope]") === owner
+          && (target.layout === "mobile-detail" ? retainedSidebar?.contains(sidebar) === true : usable(sidebar))))) {
     blockers.push("wrong-server-scope")
   }
+  const contentRoot = target.layout === "mobile-detail" ? mobileMain : document
   const masks = document.querySelectorAll([
     `[data-testid^="${target.testIds.pendingMainPrefix}"]`,
     "[data-community-unresolved-main]",
@@ -56,13 +80,13 @@ export function inspectConversationReadiness(target: ConversationInspectionTarge
   if (Array.from(document.querySelectorAll('[data-slot="community-shell-root"]'))
     .some((node) => node.getAttribute("aria-busy") === "true" && inspect(node).visible)) blockers.push("busy-shell")
   if (target.kind === "forum") {
-    const lists = document.querySelectorAll(`[data-testid="${target.testIds.forumPostList}"]`)
+    const lists = contentRoot?.querySelectorAll(`[data-testid="${target.testIds.forumPostList}"]`) ?? []
     if (lists.length !== 1 || !usable(lists[0])) blockers.push("forum-list-unusable")
     const post = Array.from(lists[0]?.querySelectorAll("[data-testid]") ?? [])
       .find((node) => node.getAttribute("data-testid") === target.forumPostTestId) ?? null
     if (!target.forumPostTestId || !usable(post)) blockers.push("expected-forum-post-missing")
   } else {
-    const surfaces = Array.from(document.querySelectorAll('[data-slot="community-conversation-surface"]'))
+    const surfaces = Array.from(contentRoot?.querySelectorAll('[data-slot="community-conversation-surface"]') ?? [])
       .filter((node) => node.getAttribute("data-channel-id") === target.channelId)
     if (surfaces.length !== 1 || !usable(surfaces[0])) blockers.push("wrong-conversation-surface")
     const surface = surfaces[0]
@@ -82,5 +106,5 @@ export function inspectConversationReadiness(target: ConversationInspectionTarge
     const composer = surface?.querySelector(`[data-testid="${target.testIds.composerInput}"] [contenteditable="true"]`) ?? null
     if (!usable(composer) || composer?.hasAttribute("disabled")) blockers.push("composer-unusable")
   }
-  return { ready: blockers.length === 0, blockers, pathname: location.pathname, atPageMs: performance.now(), timeOrigin: performance.timeOrigin }
+  return { ready: blockers.length === 0, blockers, pathname: location.pathname, atPageMs: performance.now(), timeOrigin: performance.timeOrigin, scopeMode: target.layout ?? "visible-sidebar", mobileLayoutQualified: mobileMain !== undefined }
 }

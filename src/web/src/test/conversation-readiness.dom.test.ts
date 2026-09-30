@@ -47,6 +47,79 @@ beforeEach(() => {
 })
 afterEach(() => { for (const restore of geometryRestorers.reverse()) restore(); vi.restoreAllMocks(); vi.unstubAllGlobals(); document.body.innerHTML = "" })
 
+function mountMobile() {
+  const owner = document.querySelector("[data-community-channel-tree-scope]")!
+  const main = document.querySelector("main")!
+  const shell = document.createElement("div")
+  shell.dataset.slot = "community-shell-root"
+  const sidebarPanel = document.createElement("div")
+  sidebarPanel.id = "sidebar"
+  sidebarPanel.dataset.mobileHidden = "true"
+  const sidebarContent = document.createElement("div")
+  sidebarContent.dataset.slot = "community-sidebar-panel-content"
+  sidebarContent.hidden = true
+  sidebarContent.append(owner)
+  sidebarPanel.append(sidebarContent)
+  const mainPanel = document.createElement("div")
+  mainPanel.id = "main"
+  mainPanel.dataset.mobileActive = "true"
+  main.dataset.communityMobileSurface = "detail"
+  mainPanel.append(main)
+  shell.append(sidebarPanel, mainPanel)
+  document.body.append(shell)
+  size(shell); size(mainPanel); size(sidebarPanel, 0, 0); size(sidebarContent, 0, 0)
+  size(owner, 0, 0); size(owner.querySelector(`[data-testid="${tid.channelSidebarScroll}"]`)!, 0, 0)
+  vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true })))
+  return { shell, sidebarPanel, sidebarContent, mainPanel, main, owner }
+}
+
+const mobileTarget: ConversationInspectionTarget = { ...target, layout: "mobile-detail" }
+describe("explicit actual mobile detail readiness", () => {
+  it("accepts retained hidden structural scope only with the matching active actual mobile layout", () => {
+    mountMobile()
+    expect(inspectConversationReadiness(mobileTarget)).toMatchObject({ ready: true, mobileLayoutQualified: true, scopeMode: "mobile-detail" })
+    expect(inspectConversationReadiness(target).blockers).toContain("wrong-server-scope")
+  })
+  it.each(["media", "main-active", "main-detail", "sidebar-hidden", "sidebar-panel", "sidebar-active", "wrong-shell"])("rejects unqualified %s even in a narrow-layout fixture", (fault) => {
+    const dom = mountMobile()
+    if (fault === "media") vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false })))
+    if (fault === "main-active") dom.mainPanel.removeAttribute("data-mobile-active")
+    if (fault === "main-detail") dom.main.dataset.communityMobileSurface = "list"
+    if (fault === "sidebar-hidden") dom.sidebarContent.hidden = false
+    if (fault === "sidebar-panel") dom.sidebarPanel.removeAttribute("data-mobile-hidden")
+    if (fault === "sidebar-active") dom.sidebarPanel.dataset.mobileActive = "true"
+    if (fault === "wrong-shell") document.body.append(dom.sidebarPanel)
+    expect(inspectConversationReadiness(mobileTarget).blockers).toContain("wrong-mobile-detail-layout")
+  })
+  it.each(["owner", "wrong-owner", "scroll", "foreign", "outside"])("rejects missing or foreign structural witness: %s", (fault) => {
+    const dom = mountMobile()
+    const scroll = dom.owner.querySelector(`[data-testid="${tid.channelSidebarScroll}"]`)!
+    if (fault === "owner") dom.owner.remove()
+    if (fault === "wrong-owner") dom.owner.setAttribute("data-community-channel-tree-scope", "server:wrong")
+    if (fault === "scroll") scroll.remove()
+    if (fault === "outside") dom.main.append(scroll)
+    if (fault === "foreign") {
+      const foreign = document.createElement("div")
+      foreign.setAttribute("data-community-channel-tree-scope", "server:foreign")
+      foreign.append(scroll); dom.owner.append(foreign)
+    }
+    expect(inspectConversationReadiness(mobileTarget).blockers).toContain("wrong-server-scope")
+  })
+  it.each(["wrong-channel", "missing-message", "unrevealed", "faded", "inert", "blocked", "mask", "composer", "foreign-content"])("keeps full visible consumer checks: %s", (fault) => {
+    const dom = mountMobile()
+    if (fault === "wrong-channel") dom.main.querySelector("[data-channel-id]")!.setAttribute("data-channel-id", "wrong")
+    if (fault === "missing-message") dom.main.querySelector('[data-testid="community-message-expected"]')!.remove()
+    if (fault === "unrevealed") dom.main.querySelector("[data-message-list-content]")!.setAttribute("data-initial-position-phase", "positioning")
+    if (fault === "faded") dom.main.style.opacity = "0.5"
+    if (fault === "inert") dom.main.setAttribute("inert", "")
+    if (fault === "blocked") dom.main.style.pointerEvents = "none"
+    if (fault === "mask") { const mask = document.createElement("div"); mask.dataset.messagePositioningSkeleton = ""; dom.main.append(mask); size(mask) }
+    if (fault === "composer") dom.main.querySelector("[contenteditable]")!.remove()
+    if (fault === "foreign-content") document.body.append(dom.main.querySelector("[data-channel-id]")!)
+    expect(inspectConversationReadiness(mobileTarget).ready).toBe(false)
+  })
+})
+
 describe("consumer readiness acceptance", () => {
   it("uses an independently sized sidebar under the zero-box contents owner", () => {
     expect(document.querySelector("[data-community-channel-tree-scope]")!.getBoundingClientRect().width).toBe(0)
