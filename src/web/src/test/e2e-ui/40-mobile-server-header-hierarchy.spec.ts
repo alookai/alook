@@ -117,7 +117,7 @@ test.describe.serial("mobile server header direct hierarchy", () => {
     const pathname = new URL(page.url()).pathname
 
     await page.setViewportSize({ width: 640, height: 844 })
-    await expect(page.getByRole("button", { name: "Back" })).toBeHidden()
+    await expect(page.getByRole("button", { name: "Back" })).toBeVisible()
     await expect(page.getByTestId(tid.channelComposerShell)).toBeVisible()
     expect(await page.evaluate(({ composerTestId }) => ({
       banner: Reflect.get(window, "__headerHierarchyBanner") === document.querySelector('button[aria-label="Back"]')?.closest("header[role=banner]"),
