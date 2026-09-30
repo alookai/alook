@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react"
 import { Avatar } from "@/components/community/avatar"
+import { LANDING_HUMAN_AVATARS } from "./landing-human-avatars"
 import styles from "./hero-avatar-swarm.module.css"
 
 type SwarmAvatar = {
@@ -60,7 +61,7 @@ export function HeroAvatarSwarm() {
         >
           <span className={styles.shadow} />
           <span className={styles.face}>
-            <Avatar label={avatar.name} seed={avatar.seed} size={avatar.size} />
+            <Avatar label={avatar.name} seed={avatar.seed} src={LANDING_HUMAN_AVATARS[avatar.seed]} size={avatar.size} />
           </span>
         </span>
       ))}

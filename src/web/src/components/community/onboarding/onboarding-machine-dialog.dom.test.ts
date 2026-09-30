@@ -1,6 +1,6 @@
 import React from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { act, render } from "@/test/react-dom-harness"
+import { act, fireEvent, render } from "@/test/react-dom-harness"
 
 const mocks = vi.hoisted(() => ({
   apiFetch: vi.fn(),
@@ -54,6 +54,8 @@ describe("OnboardingMachineDialog", () => {
       harness: "codex",
       harnessLabel: "Codex",
       onConnected: vi.fn(),
+      onChooseAnotherHarness: vi.fn(),
+      onManageMachines: vi.fn(),
     }))
 
     act(() => mockedSteps.mock.calls.at(-1)![0].onRetry())
@@ -72,6 +74,8 @@ describe("OnboardingMachineDialog", () => {
       harness: "codex",
       harnessLabel: "Codex",
       onConnected: vi.fn(),
+      onChooseAnotherHarness: vi.fn(),
+      onManageMachines: vi.fn(),
       previewCommand: "pair preview-token",
     }))
 
@@ -81,5 +85,34 @@ describe("OnboardingMachineDialog", () => {
       generating: false,
       connectedHostname: null,
     })
+  })
+
+  it("turns a machine limit rejection into explicit recovery actions", async () => {
+    const onChooseAnotherHarness = vi.fn()
+    const onManageMachines = vi.fn()
+    mocks.apiFetch.mockRejectedValue(new Error("MACHINE_LIMIT_REACHED"))
+
+    const view = render(React.createElement(OnboardingMachineDialog, {
+      open: true,
+      harness: "codex",
+      harnessLabel: "Codex",
+      onConnected: vi.fn(),
+      onChooseAnotherHarness,
+      onManageMachines,
+    }))
+
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(view.getByRole("alert", { hidden: true })).toHaveTextContent("Machine limit reached")
+    expect(view.getByRole("alert", { hidden: true })).not.toHaveTextContent("Couldn’t prepare the command")
+    expect(mocks.refetch).toHaveBeenCalledOnce()
+
+    fireEvent.click(view.getByRole("button", { name: "Choose another harness", hidden: true }))
+    fireEvent.click(view.getByRole("button", { name: "Manage machines", hidden: true }))
+    expect(onChooseAnotherHarness).toHaveBeenCalledOnce()
+    expect(onManageMachines).toHaveBeenCalledOnce()
   })
 })

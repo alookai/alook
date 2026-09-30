@@ -65,6 +65,8 @@ import {
   type SceneSnapshot,
 } from "./landing-shell-motion-timeline"
 import styles from "./landing-shell-motion.module.css"
+import { LANDING_DEMO_REQUESTS } from "./landing-demo-copy"
+import { LANDING_HUMAN_AVATARS } from "./landing-human-avatars"
 import { useLandingMotionPlayback } from "./use-landing-motion-playback"
 
 const SERVERS: Server[] = [
@@ -195,8 +197,8 @@ const MESSAGES: RenderMsg[] = [
     type: "chat",
     authorId: "gus",
     authorName: "Gus",
-    authorAvatar: "avatar:beam:gus",
-    content: "hello world",
+    authorAvatar: LANDING_HUMAN_AVATARS.gus,
+    content: LANDING_DEMO_REQUESTS.server,
     createdAt: "2026-08-06T04:20:00.000Z",
     seq: 425,
     grouped: false,
@@ -207,7 +209,7 @@ const MESSAGES: RenderMsg[] = [
     authorId: "alli",
     authorName: "Alli",
     authorAvatar: "avatar:beam:alli",
-    content: "On it.",
+    content: "I’ve made it larger and checked the phone layout. The updated preview is ready for review.",
     createdAt: "2026-08-06T04:21:00.000Z",
     seq: 426,
     grouped: false,
@@ -217,8 +219,8 @@ const MESSAGES: RenderMsg[] = [
     type: "chat",
     authorId: "ruth",
     authorName: "Ruthann",
-    authorAvatar: "avatar:beam:ruth",
-    content: "I’ll review the flow.",
+    authorAvatar: LANDING_HUMAN_AVATARS.ruth,
+    content: "The headline is clearer. Can you update the button text to match?",
     createdAt: "2026-08-06T04:22:00.000Z",
     seq: 427,
     grouped: false,
@@ -228,8 +230,8 @@ const MESSAGES: RenderMsg[] = [
     type: "chat",
     authorId: "shelly",
     authorName: "Shelly",
-    authorAvatar: "avatar:beam:shelly",
-    content: "Ready to ship.",
+    authorAvatar: LANDING_HUMAN_AVATARS.shelly,
+    content: "I’ve reviewed the updated page. It’s ready to use.",
     createdAt: "2026-08-06T04:23:00.000Z",
     seq: 428,
     grouped: false,
@@ -243,7 +245,7 @@ const SPACE_MESSAGES: Record<LandingRoom, RenderMsg[]> = {
       type: "chat",
       authorId: "gus",
       authorName: "Gus",
-      authorAvatar: "avatar:beam:gus",
+      authorAvatar: LANDING_HUMAN_AVATARS.gus,
       content: "The new gallery story is ready.",
       createdAt: "2026-08-06T06:00:00.000Z",
       seq: 501,
@@ -254,7 +256,7 @@ const SPACE_MESSAGES: Record<LandingRoom, RenderMsg[]> = {
       type: "chat",
       authorId: "shelly",
       authorName: "Shelly",
-      authorAvatar: "avatar:beam:shelly",
+      authorAvatar: LANDING_HUMAN_AVATARS.shelly,
       content: "I’ll ship it after review.",
       createdAt: "2026-08-06T06:00:05.000Z",
       seq: 502,
@@ -267,7 +269,7 @@ const SPACE_MESSAGES: Record<LandingRoom, RenderMsg[]> = {
       type: "chat",
       authorId: "gus-life",
       authorName: "Gus",
-      authorAvatar: "avatar:beam:gus",
+      authorAvatar: LANDING_HUMAN_AVATARS.gus,
       content: "Dinner at seven?",
       createdAt: "2026-08-06T06:01:00.000Z",
       seq: 503,
@@ -302,7 +304,7 @@ const SPACE_MESSAGES: Record<LandingRoom, RenderMsg[]> = {
       type: "chat",
       authorId: "noah",
       authorName: "Noah",
-      authorAvatar: "avatar:beam:noah",
+      authorAvatar: LANDING_HUMAN_AVATARS.noah,
       content: "Game night at eight.",
       createdAt: "2026-08-06T06:02:00.000Z",
       seq: 506,
@@ -324,7 +326,7 @@ const SPACE_MESSAGES: Record<LandingRoom, RenderMsg[]> = {
       type: "chat",
       authorId: "gus-play",
       authorName: "Gus",
-      authorAvatar: "avatar:beam:gus",
+      authorAvatar: LANDING_HUMAN_AVATARS.gus,
       content: "Let’s go.",
       createdAt: "2026-08-06T06:02:08.000Z",
       seq: 508,
@@ -353,8 +355,8 @@ const DM_MESSAGES: RenderMsg[] = [
     type: "chat",
     authorId: "gus",
     authorName: "Gus",
-    authorAvatar: "avatar:beam:gus",
-    content: "hello Alli",
+    authorAvatar: LANDING_HUMAN_AVATARS.gus,
+    content: LANDING_DEMO_REQUESTS.provider,
     createdAt: "2026-08-06T04:21:00.000Z",
     seq: 429,
     grouped: false,
@@ -378,8 +380,8 @@ const CONTINUITY_DM_MESSAGES: RenderMsg[] = [
     type: "chat",
     authorId: "gus",
     authorName: "Gus",
-    authorAvatar: "avatar:beam:gus",
-    content: "Alli, please move today’s priorities forward.",
+    authorAvatar: LANDING_HUMAN_AVATARS.gus,
+    content: LANDING_DEMO_REQUESTS.continuity,
     createdAt: "2026-08-07T08:30:00.000Z",
     seq: 610,
     grouped: false,
@@ -390,7 +392,7 @@ const CONTINUITY_DM_MESSAGES: RenderMsg[] = [
     authorId: "alli",
     authorName: "Alli",
     authorAvatar: "avatar:beam:alli",
-    content: "Got it. I’ll ask Shelly for today’s A/B conversion update, then check with Tracy about the home router.",
+    content: "I’ll check the page with Shelly, then ask Tracy about the weekend plan.",
     createdAt: "2026-08-07T08:30:04.000Z",
     seq: 611,
     grouped: false,
@@ -404,7 +406,7 @@ const CONTINUITY_WORK_MESSAGES: RenderMsg[] = [
     authorId: "alli",
     authorName: "Alli",
     authorAvatar: "avatar:beam:alli",
-    content: "@Shelly#3863 How are Gus’s A/B landing pages converting today?",
+    content: "@Shelly#3863 Have you checked the updated page on your phone?",
     createdAt: "2026-08-07T08:31:00.000Z",
     seq: 612,
     grouped: false,
@@ -414,8 +416,8 @@ const CONTINUITY_WORK_MESSAGES: RenderMsg[] = [
     type: "chat",
     authorId: "shelly",
     authorName: "Shelly",
-    authorAvatar: "avatar:beam:shelly",
-    content: "B is ahead on sign-ups. I’m checking the mobile drop-off.",
+    authorAvatar: LANDING_HUMAN_AVATARS.shelly,
+    content: "Yes. The headline is clearer. The button text still needs an update.",
     createdAt: "2026-08-07T08:31:05.000Z",
     seq: 613,
     grouped: false,
@@ -429,7 +431,7 @@ const CONTINUITY_LIFE_MESSAGES: RenderMsg[] = [
     authorId: "alli",
     authorName: "Alli",
     authorAvatar: "avatar:beam:alli",
-    content: "@Tracy#2048 Is the router at home still dropping out?",
+    content: "@Tracy#2048 Can we confirm the Saturday plan we discussed?",
     createdAt: "2026-08-07T08:32:00.000Z",
     seq: 614,
     grouped: false,
@@ -439,8 +441,8 @@ const CONTINUITY_LIFE_MESSAGES: RenderMsg[] = [
     type: "chat",
     authorId: "tracy",
     authorName: "Tracy",
-    authorAvatar: "avatar:beam:tracy",
-    content: "Yes — it dropped twice this morning.",
+    authorAvatar: LANDING_HUMAN_AVATARS.tracy,
+    content: "Saturday at six works. I’ve added the address to our plan.",
     createdAt: "2026-08-07T08:32:05.000Z",
     seq: 615,
     grouped: false,
@@ -983,7 +985,7 @@ function PrototypeUserBar({
       )}
       <UserBar
         breakpoint="desktop"
-        user={{ id: "gus", name: "Gus", avatar: "avatar:beam:gus" }}
+        user={{ id: "gus", name: "Gus", avatar: LANDING_HUMAN_AVATARS.gus }}
         onEditProfile={() => {}}
         inbox={scene === "continuity" || scene === "server" || scene === "machine" ? <span /> : undefined}
         hasUnread={hasUnread}
@@ -1445,7 +1447,7 @@ function PrototypeComposer({
         <div
           data-motion-target={target}
           data-motion-anchor-x="0.24"
-          className="relative px-12 py-3 text-base leading-6"
+          className="relative grid px-12 py-3 text-base leading-6"
         >
           <span
             data-visible={!snapshot.composerText}
@@ -1460,12 +1462,13 @@ function PrototypeComposer({
             {snapshot.composerText && (
               <span
                 className={styles.typingText}
-                style={{ "--typing-width": `${Math.max(11, snapshot.composerText.length)}ch` } as CSSProperties}
+                style={{ "--typing-steps": snapshot.composerText.length } as CSSProperties}
               >
                 {snapshot.composerText}
+                <span data-composer-caret className="ml-0.5 inline-block h-5 w-px bg-foreground align-middle" />
               </span>
             )}
-            <span className="ml-0.5 inline-block h-5 w-px bg-foreground align-middle" />
+            {!snapshot.composerText && <span data-composer-caret className="ml-0.5 inline-block h-5 w-px bg-foreground align-middle" />}
           </span>
         </div>
         <button

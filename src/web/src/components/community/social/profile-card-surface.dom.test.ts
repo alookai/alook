@@ -48,6 +48,21 @@ vi.mock("./bot-mark-sticker", () => ({
   BotMarkSticker: () => React.createElement("bot-mark-sticker"),
 }))
 
+vi.mock("./profile-running-bots-card", () => ({
+  ProfileRunningBotsCard: () => React.createElement(
+    "section",
+    { "data-testid": "community-profile-running-bots-card" },
+  ),
+}))
+
+vi.mock("@/hooks/community/use-running-owned-bots", () => ({
+  useRunningOwnedBots: () => ({
+    runningBots: [{ id: "working-bot" }],
+    initialLoading: false,
+    unavailable: false,
+  }),
+}))
+
 import { ProfileCard } from "./profile-card"
 
 const ownedBotIdentity: Profile["identity"] = {
@@ -132,6 +147,29 @@ describe("ProfileCard surface contracts", () => {
     expect(profile.className).toBe("w-full")
     expect(renderer.container.querySelectorAll("sheet-root")).toHaveLength(0)
     expect(renderer.container.querySelectorAll("popover-root")).toHaveLength(0)
+  })
+
+  it("keeps the User Bar extension profile at its original single-card height", () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const renderer = render(React.createElement(
+      QueryClientProvider,
+      { client: queryClient },
+      React.createElement(ProfileCard, {
+        data: { name: "Ren", userId: "user_1", mutual: 0 },
+        x: 0,
+        y: 0,
+        bp: "desktop",
+        onClose: vi.fn(),
+        isSelf: true,
+        extension: true,
+      }),
+    ))
+
+    const profile = renderer.getByTestId("community-profile-card")
+    expect(profile.className).toBe("w-full")
+    expect(renderer.queryByTestId("community-profile-running-bots-card")).toBeNull()
+    expect(renderer.container.querySelectorAll("sheet-root")).toHaveLength(0)
+    renderer.unmount()
   })
 
   it("uses the shared modal bottom Sheet without a copied or foreground-derived overlay", () => {

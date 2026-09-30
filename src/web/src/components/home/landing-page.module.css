@@ -44,13 +44,23 @@
   transform: translateY(-7%);
 }
 
-@media (min-width: 640px) and (max-height: 1100px) {
+@media (min-width: 1024px) {
+  .landingHeroHeadline {
+    font-size: clamp(36px, 5vw, 72px) !important;
+  }
+
   .landingHeroTypewriter {
     transform: none;
   }
 }
 
-@media (min-width: 640px) and (max-height: 960px) {
+@media (min-width: 640px) and (max-width: 1023px) and (max-height: 1100px) {
+  .landingHeroTypewriter {
+    transform: none;
+  }
+}
+
+@media (min-width: 640px) and (max-width: 1023px) and (max-height: 960px) {
   .landingHeroTypewriter {
     zoom: 0.9;
   }
@@ -275,35 +285,6 @@
   position: absolute;
   inset: 0;
   zoom: 0.92;
-}
-
-.heroPaper {
-  color: var(--landing-text);
-}
-
-.paperMeta {
-  color: var(--landing-text-muted);
-}
-
-.paperTitle {
-  margin-top: 12px;
-  font-family: var(--font-crt);
-  font-size: 1.65rem;
-  line-height: 1;
-}
-
-.paperByline {
-  margin-top: 8px;
-  color: var(--landing-text-muted);
-  font-family: var(--font-mono);
-  font-size: 0.64rem;
-}
-
-.paperBody {
-  margin-top: 16px;
-  font-family: var(--font-mono);
-  font-size: 0.76rem;
-  line-height: 1.65;
 }
 
 .productSection,
@@ -1722,4 +1703,39 @@
   .footerSocials a:hover {
     transform: none;
   }
+}
+
+.sectionCta {
+  display: inline-flex;
+  min-height: 44px;
+  max-width: 100%;
+  align-items: center;
+  justify-content: center;
+  margin-top: 24px;
+  padding: 12px 24px;
+  border: 1px solid var(--landing-accent);
+  background: var(--landing-accent);
+  color: var(--landing-bg);
+  font-family: var(--font-mono);
+  font-size: 0.9375rem;
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: 0.12em;
+  text-align: center;
+  text-decoration: none;
+  text-transform: uppercase;
+  transition: opacity 200ms ease;
+}
+
+.sectionCta:hover {
+  opacity: 0.8;
+}
+
+.sectionCta:focus-visible {
+  outline: 3px solid var(--landing-accent);
+  outline-offset: 4px;
+}
+
+.paperBody > p + p {
+  margin-top: 0.75em;
 }

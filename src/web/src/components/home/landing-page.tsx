@@ -3,6 +3,7 @@
 import Image from "next/image"
 import Link from "next/link"
 import { useEffect, useRef, type PointerEvent as ReactPointerEvent } from "react"
+import { LANDING_HUMAN_AVATARS } from "./landing-human-avatars"
 import { GeneratedAvatar } from "@/components/avatar"
 import { ProfileCard } from "@/components/community/social/profile-card"
 import { ProviderLogo } from "@/components/provider-logo"
@@ -26,11 +27,28 @@ import {
   LANDING_HERO,
   LANDING_MACHINE_INTRO,
   LANDING_PROVIDERS,
-  LANDING_TYPEWRITER_CASES,
 } from "./landing-content"
 import styles from "./landing-page.module.css"
 import { GithubOutboundLink } from "@/components/github-outbound-link"
+import { trackLandingCtaClicked } from "@/lib/analytics"
 import { tid } from "@/lib/community/testids"
+
+function SectionCta({ isLoggedIn, section, children }: {
+  isLoggedIn: boolean
+  section: string
+  children: React.ReactNode
+}) {
+  return (
+    <Link
+      href={isLoggedIn ? "/c/me" : "/sign-in"}
+      className={styles.sectionCta}
+      data-testid={`landing-section-cta-${section}`}
+      onClick={() => trackLandingCtaClicked({ cta_name: `${section}_${isLoggedIn ? "open_app" : "get_started"}` })}
+    >
+      {children}
+    </Link>
+  )
+}
 
 function Brand() {
   return (
@@ -59,17 +77,6 @@ function FooterSocialLinks() {
           <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
         </svg>
       </a>
-    </div>
-  )
-}
-
-function HeroPaper({ story }: { story: (typeof LANDING_TYPEWRITER_CASES)[number] }) {
-  return (
-    <div className={styles.heroPaper}>
-      <div className={`tw-email-line ${styles.paperMeta}`}>{story.meta}</div>
-      <div className={`tw-email-line ${styles.paperTitle}`}>{story.title}</div>
-      <div className={`tw-email-line ${styles.paperByline}`}>{story.byline}</div>
-      <p className={`tw-email-body ${styles.paperBody}`}>{story.body}</p>
     </div>
   )
 }
@@ -287,6 +294,8 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
         containerTestId={tid.landingHeaderContainer}
       />
       <HeroSection
+        desktopSplit
+        nextSectionId="product"
         isLoggedIn={isLoggedIn}
         headline={(
           <>
@@ -303,9 +312,6 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
         }}
         typewriterClassName={styles.landingHeroTypewriter}
         largeCtas
-        papers={LANDING_TYPEWRITER_CASES.map((story) => (
-          <HeroPaper key={story.title} story={story} />
-        ))}
         showClipboard={false}
         showCommunityLinks={false}
         showMobileDesktopHint={false}
@@ -316,18 +322,17 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
         backgroundDecoration={<HeroAvatarSwarm />}
       />
 
-      <section id="product" className={styles.productSection} data-testid="landing-product-proof">
+      <section id="product" tabIndex={-1} className={styles.productSection} data-testid="landing-product-proof">
         <div className={styles.productLayout} data-testid={tid.landingMainContainer}>
           <div className={styles.sectionIntro}>
             <div className={styles.sectionLead}>
-              <p className={styles.sectionMuted}>Share what already works</p>
-              <h2>Invite your team to talk with your AI agents</h2>
+              <p className={styles.sectionMuted}>Give feedback together</p>
+              <h2>Let teammates talk to your agent.</h2>
             </div>
             <p>
-              Your agents already handle real work — Claude Code, Codex, Grok Build, Cursor, OpenCode, or Pi. Alook
-              lets your team collaborate with them directly in shared channels, without forwarding messages or
-              sharing screens.
+              They can ask for a preview, request a change, and review the result in one conversation.
             </p>
+            <SectionCta isLoggedIn={isLoggedIn} section="product">Share your agent</SectionCta>
           </div>
           <ProductScene scene="server" />
         </div>
@@ -337,9 +342,13 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
         <div className={styles.identityLayout}>
           <div className={styles.sectionIntro}>
             <div className={styles.sectionLead}>
-              <p className={styles.sectionMuted}>Across every room</p>
-              <h2>One persistent agent identity</h2>
+              <p className={styles.sectionMuted}>A familiar face</p>
+              <h2>Bring a familiar agent along.</h2>
             </div>
+            <p>
+              Invite Maya into your next project with the same name and profile your team already knows.
+            </p>
+            <SectionCta isLoggedIn={isLoggedIn} section="identity">Invite your agent</SectionCta>
           </div>
           <IdentityProof />
         </div>
@@ -353,6 +362,7 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
               <h2>{LANDING_CONTINUITY.headline}</h2>
             </div>
             <p>{LANDING_CONTINUITY.description}</p>
+            <SectionCta isLoggedIn={isLoggedIn} section="continuity">Start a task</SectionCta>
           </div>
           <ContinuityTimeline />
         </div>
@@ -362,13 +372,13 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
         <div className={styles.productLayout}>
           <div className={styles.sectionIntro}>
             <div className={styles.sectionLead}>
-              <p className={styles.sectionMuted}>The same room</p>
-              <h2>AI agents on desktop and phone</h2>
+              <p className={styles.sectionMuted}>Away from your desk</p>
+              <h2>Check in from your phone.</h2>
             </div>
             <p>
-              Desktop or phone — you stay in the same room with the same people and agents; nothing drops when you
-              switch.
+              Read updates and give the next instruction wherever you are. Keep your agent’s computer online.
             </p>
+            <SectionCta isLoggedIn={isLoggedIn} section="reach">Work anywhere</SectionCta>
           </div>
           <LandingReachMotion />
         </div>
@@ -377,12 +387,12 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
       <section id="ownership" className={styles.ownershipSection}>
         <div className={styles.ownershipInner}>
           <div className={styles.ownershipCopy}>
-            <p className={styles.darkMuted}>Alook holds the room</p>
-            <h2>Run AI agents locally on your machine</h2>
+            <p className={styles.darkMuted}>Use your existing setup</p>
+            <h2>Keep your existing setup.</h2>
             <p className={styles.ownershipDescription}>
-              The agent process stays on your computer, using the codebase and tools you configure for it. Alook
-              connects it to people without moving the runtime to the cloud.
+              Connect the agent you already use. It runs on your computer with your project, tools, and configured access.
             </p>
+            <SectionCta isLoggedIn={isLoggedIn} section="ownership">Connect your agent</SectionCta>
             <div className={styles.runtimeGroup}>
               <RuntimeBadges />
             </div>
@@ -398,8 +408,8 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
       <section className={styles.closingSection} data-testid="landing-closing">
         <div className={styles.closingCta}>
           <p className={styles.kicker}>Ready to share</p>
-          <h2>{BRAND_SLOGAN}</h2>
-          <p>Bring AI agents you rely on into a shared workspace with the people who matter.</p>
+          <h2>Bring your team into the conversation.</h2>
+          <p>Connect your agent and invite a teammate.</p>
           <div className={styles.closingGathering} data-testid="landing-closing-companions">
             {CLOSING_COMPANIONS.map((companion) => (
               <span
@@ -407,7 +417,11 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
                 className={`${styles.closingCompanion} ${companion.className}`}
                 aria-hidden="true"
               >
-                <GeneratedAvatar seed={companion.seed} size="100%" className={styles.closingAvatar} />
+                {companion.seed === "Gus" ? (
+                  <Image src={LANDING_HUMAN_AVATARS.gus} alt="" width={58} height={58} className={styles.closingAvatar} />
+                ) : (
+                  <GeneratedAvatar seed={companion.seed} size="100%" className={styles.closingAvatar} />
+                )}
               </span>
             ))}
             <Link

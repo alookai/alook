@@ -1,8 +1,8 @@
-import { beforeEach, afterEach, describe, expect, it } from "vitest";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { createMachinePlanTables } from "./machine-plan-fixture";
 import Sqlite from "better-sqlite3";
 import { getTableConfig } from "drizzle-orm/sqlite-core";
-import { userBilling, billingPrice } from "../../src/db/billing-schema";
+import { billingAnalyticsConsent, billingPurchaseDelivery, userBilling, billingPrice } from "../../src/db/billing-schema";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { readFileSync } from "node:fs";
 import type { Database } from "../../src/db";
@@ -27,6 +27,7 @@ beforeEach(() => {
   sqlite.exec(readFileSync(new URL("../../../web/migrations/0099_billing_founder.sql", import.meta.url), "utf8"));
   createMachinePlanTables(sqlite);
   sqlite.exec(readFileSync(new URL("../../../web/migrations/0101_machine_plan_limits.sql", import.meta.url), "utf8"));
+  sqlite.exec(readFileSync(new URL("../../../web/migrations/0104_server_ga4_purchase.sql", import.meta.url), "utf8"));
   db = drizzle(sqlite) as unknown as Database;
   db.batch = (async (statements: Statement[]) => sqlite.transaction(() => statements.map((s) =>
     /^select\b|\breturning\b/i.test(s.toSQL().sql.trim()) ? s.all() : s.run(),
@@ -189,15 +190,125 @@ describe("billing catalog persistence", () => {
   it("declares required foreign keys and unique Stripe identities, with a generated update timestamp", async () => {
     const prices = getTableConfig(billingPrice);
     const billingTable = getTableConfig(userBilling);
+    const consentTable = getTableConfig(billingAnalyticsConsent);
+    const deliveryTable = getTableConfig(billingPurchaseDelivery);
     expect(prices.foreignKeys.map((key) => ({ column: key.reference().columns[0].name, target: key.reference().foreignColumns[0].name, onDelete: key.onDelete })))
       .toEqual([{ column: "plan_id", target: "id", onDelete: "restrict" }]);
     expect(billingTable.foreignKeys.map((key) => ({ column: key.reference().columns[0].name, onDelete: key.onDelete })))
       .toEqual([{ column: "user_id", onDelete: "cascade" }]);
     expect(billingTable.indexes.map((index) => ({ name: index.config.name, unique: index.config.unique })))
       .toEqual([{ name: "uq_user_billing_customer", unique: true }, { name: "uq_user_billing_subscription", unique: true }]);
+    expect(consentTable.foreignKeys.map((key) => ({ column: key.reference().columns[0].name, onDelete: key.onDelete })))
+      .toEqual([{ column: "user_id", onDelete: "cascade" }]);
+    expect(deliveryTable.foreignKeys.map((key) => ({ column: key.reference().columns[0].name, onDelete: key.onDelete })))
+      .toEqual([{ column: "user_id", onDelete: "cascade" }]);
+    expect(deliveryTable.indexes.map((index) => index.config.name))
+      .toEqual(["idx_billing_purchase_delivery_user_claimed"]);
     const inserted = await db.insert(userBilling).values({ userId: "new-user" }).returning();
     expect(inserted[0]).toMatchObject({ userId: "new-user", revision: 0, customerId: null, subscriptionId: null });
     expect(Number.isFinite(Date.parse(inserted[0].updatedAt))).toBe(true);
+    const consent = await db.insert(billingAnalyticsConsent)
+      .values({ userId: "new-user", decision: "granted", sourceVersion: 1 }).returning();
+    expect(Number.isFinite(Date.parse(consent[0].updatedAt))).toBe(true);
+    const delivery = await db.insert(billingPurchaseDelivery)
+      .values({ invoiceId: "in_schema", userId: "new-user", status: "claimed", reason: "test" }).returning();
+    expect(Number.isFinite(Date.parse(delivery[0].claimedAt))).toBe(true);
     await expect(db.insert(billingPrice).values({ priceId: "bad", planId: "missing" })).rejects.toThrow();
+  });
+});
+
+describe("purchase analytics persistence", () => {
+  const recordAnalyticsConsentAt = billing.recordAnalyticsConsent as unknown as (
+    database: Database,
+    userId: string,
+    decision: "granted" | "denied",
+    sourceVersion: number,
+  ) => ReturnType<typeof billing.recordAnalyticsConsent>;
+
+  it("keeps a monotonic current consent revision", async () => {
+    await expect(billing.recordAnalyticsConsent(db, "new-user", "granted", 100)).resolves.toMatchObject({ revision: 1, decision: "granted", sourceVersion: 100 });
+    await expect(billing.recordAnalyticsConsent(db, "new-user", "denied", 200)).resolves.toMatchObject({ revision: 2, decision: "denied", sourceVersion: 200 });
+    await expect(billing.getAnalyticsConsent(db, "new-user")).resolves.toMatchObject({ revision: 2, decision: "denied", sourceVersion: 200 });
+  });
+
+  it("rejects a non-positive or fractional consent source version", async () => {
+    await expect(billing.recordAnalyticsConsent(db, "new-user", "granted", 0))
+      .rejects.toThrow("ANALYTICS_CONSENT_SOURCE_VERSION_INVALID");
+    await expect(billing.recordAnalyticsConsent(db, "new-user", "granted", 1.5))
+      .rejects.toThrow("ANALYTICS_CONSENT_SOURCE_VERSION_INVALID");
+  });
+
+  it("fails closed when a consent write returns no row and no current record", async () => {
+    const returning = vi.fn().mockResolvedValue([]);
+    const writeDb = {
+      insert: vi.fn(() => ({
+        values: vi.fn(() => ({
+          onConflictDoUpdate: vi.fn(() => ({ returning })),
+        })),
+      })),
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({ limit: vi.fn().mockResolvedValue([]) })),
+        })),
+      })),
+    } as unknown as Database;
+
+    await expect(billing.recordAnalyticsConsent(writeDb, "new-user", "granted", 100))
+      .rejects.toThrow("ANALYTICS_CONSENT_WRITE_LOST");
+    expect(returning).toHaveBeenCalledOnce();
+  });
+
+  it("rejects an older signed grant after a newer denial", async () => {
+    await recordAnalyticsConsentAt(db, "new-user", "granted", 100);
+    await recordAnalyticsConsentAt(db, "new-user", "denied", 200);
+    await recordAnalyticsConsentAt(db, "new-user", "granted", 100);
+    await expect(billing.getAnalyticsConsent(db, "new-user")).resolves.toMatchObject({
+      decision: "denied",
+      revision: 2,
+      sourceVersion: 200,
+    });
+  });
+
+  it("is idempotent at one source version and resolves equal conflicts to denial", async () => {
+    await recordAnalyticsConsentAt(db, "new-user", "granted", 300);
+    await recordAnalyticsConsentAt(db, "new-user", "granted", 300);
+    await recordAnalyticsConsentAt(db, "new-user", "denied", 300);
+    await recordAnalyticsConsentAt(db, "new-user", "granted", 300);
+    await expect(billing.getAnalyticsConsent(db, "new-user")).resolves.toMatchObject({
+      decision: "denied",
+      revision: 2,
+      sourceVersion: 300,
+    });
+  });
+
+  it("converges to the newer decision regardless of arrival order", async () => {
+    sqlite.exec("INSERT INTO user(id) VALUES('arrival-a'),('arrival-b')");
+    await recordAnalyticsConsentAt(db, "arrival-a", "denied", 500);
+    await recordAnalyticsConsentAt(db, "arrival-a", "granted", 400);
+    await recordAnalyticsConsentAt(db, "arrival-b", "granted", 400);
+    await recordAnalyticsConsentAt(db, "arrival-b", "denied", 500);
+    await expect(billing.getAnalyticsConsent(db, "arrival-a")).resolves.toMatchObject({ decision: "denied", sourceVersion: 500 });
+    await expect(billing.getAnalyticsConsent(db, "arrival-b")).resolves.toMatchObject({ decision: "denied", sourceVersion: 500 });
+  });
+
+  it("claims an invoice once and finalizes only the winning claim", async () => {
+    expect(await billing.claimPurchaseDelivery(db, "in_once", "new-user")).toBe(true);
+    expect(await billing.claimPurchaseDelivery(db, "in_once", "new-user")).toBe(false);
+    expect(await billing.finalizePurchaseDelivery(db, "in_once", {
+      status: "sent", reason: "delivered", purchaseType: "renewal", currency: "USD",
+      valueMinor: 2000, planId: "studio", validationJson: '{"validationMessages":[]}',
+    })).toBe(true);
+    expect(await billing.finalizePurchaseDelivery(db, "in_once", { status: "failed", reason: "late" })).toBe(false);
+    await expect(db.select().from(billingPurchaseDelivery)).resolves.toEqual([expect.objectContaining({
+      invoiceId: "in_once", status: "sent", reason: "delivered", purchaseType: "renewal",
+    })]);
+  });
+
+  it("cascades user-scoped consent and delivery evidence", async () => {
+    await billing.recordAnalyticsConsent(db, "new-user", "granted", 100);
+    await billing.claimPurchaseDelivery(db, "in_delete", "new-user");
+    sqlite.exec("DELETE FROM user WHERE id='new-user'");
+    await expect(db.select().from(billingAnalyticsConsent)).resolves.toEqual([]);
+    await expect(db.select().from(billingPurchaseDelivery)).resolves.toEqual([]);
   });
 });

@@ -1,0 +1,90 @@
+{
+  "public/fonts/inter-variable.ttf": {
+    "bytes": 876576,
+    "sha256": "29160a80ff49ddcab2c97711247e08b1fab27a484a329ce8b813d820dc559031"
+  },
+  "public/sfx/source/02-click.wav": {
+    "bytes": 762,
+    "sha256": "b8dedc431dd46d69cf17fe30d682ac4645487b3b9bf68dbec89af27adb029730"
+  },
+  "public/sfx/source/04-join-drop.wav": {
+    "bytes": 288078,
+    "sha256": "0ae62720beee9ef60d9bb10d32f4a242a2ac2915b6bc0146a8e4eb74f0072d3c"
+  },
+  "public/sfx/source/10-laptop-close.wav": {
+    "bytes": 288078,
+    "sha256": "9fb910db6ada221dcc2d94c5c5916bb616e6239801b4f312e1f8a3e16df7e724"
+  },
+  "public/sfx/source/12-todo-double-tick.wav": {
+    "bytes": 117164,
+    "sha256": "dbfcbb5fd87d3a91dceef74dd859b93350756e99dba592309a0624b28b83d050"
+  },
+  "public/sfx/source/14-soft-air.wav": {
+    "bytes": 192078,
+    "sha256": "95c0c41cc7794758d0367f644356e4f79bb17572e8df8afbd6c63d904e558f9d"
+  },
+  "public/sfx/source/14-vortex-suction.wav": {
+    "bytes": 173804,
+    "sha256": "251f3802e95296b3a8fea5a079b9eb04cafc6ebb7d7f35c9e37ff12062ea188d"
+  },
+  "public/sfx/source/16-paper-unfold-soft.wav": {
+    "bytes": 162514,
+    "sha256": "58b5d6d1ca559175b589693c7796112ea205f74333957bf9d1dcc7efd233309c"
+  },
+  "public/sfx/source/18-keyboard-soft.wav": {
+    "bytes": 364844,
+    "sha256": "682403de0db06e8916b81ebea5f78d1d10149d3f5ef4b9c8a60f21f0aacee660"
+  },
+  "src/assets/people/Alex.png": {
+    "bytes": 2076518,
+    "sha256": "82a52aabe7bbc8c52ff835239bf7206dfc730c324ae81c12aea9ac6157369715"
+  },
+  "src/assets/people/Amara.png": {
+    "bytes": 2336847,
+    "sha256": "6fd75507de8fe221b88affbc67f87c93179eabdbabc5ac1a3637099e3a7952bc"
+  },
+  "src/assets/people/Diego.png": {
+    "bytes": 2437943,
+    "sha256": "e8d7c1a09cb440464bb650f7afbbeb9b6dd85761c42e595b4f30521dfdd050c3"
+  },
+  "src/assets/people/Evan.png": {
+    "bytes": 2183352,
+    "sha256": "5c60aea86d9f2b80a0ae313a657e6b5dcd7a6792fa4285f711de68cf1ec57b61"
+  },
+  "src/assets/people/Home.png": {
+    "bytes": 2764674,
+    "sha256": "6cde0cd1f10d1aba0b405a4ed7dd6c1ed9974b5b1510e7087cfe84d4af44b5f7"
+  },
+  "src/assets/people/Leo.png": {
+    "bytes": 2264069,
+    "sha256": "928c96768616571e9ba9b1a7530fc4c51068a012bebd1fbe60904e657bb244fa"
+  },
+  "src/assets/people/Lin.png": {
+    "bytes": 2258090,
+    "sha256": "25e86471fcb09c79c02b63064a365e2646d4b142cff3d78ee0fb2bdee1395671"
+  },
+  "src/assets/people/Mei.png": {
+    "bytes": 2273416,
+    "sha256": "63a2324c3299e56d100116daeff13c7e569f773582ab7e58457f19a16faf4b79"
+  },
+  "src/assets/people/Nina.png": {
+    "bytes": 2432039,
+    "sha256": "8d3cf4edd2c3c6be49f282d0ec7b1d5a598ce6cd38a1824881b698d783ed14ae"
+  },
+  "src/assets/people/Omar.png": {
+    "bytes": 2062597,
+    "sha256": "ea8430f6a5f8fb7d2843f09fa3327246cdb61772be1cb1f6a8964677c771f025"
+  },
+  "src/assets/people/Priya.png": {
+    "bytes": 2552749,
+    "sha256": "61a30c7383c0c4939422a959dd9f173ef498e4957d41fc2122fbf61c4865a32a"
+  },
+  "src/assets/people/Sam.png": {
+    "bytes": 2303087,
+    "sha256": "d652789ac69288f97080e8585058a12f7a968154736bffa8bf3c4a1737aaf12f"
+  },
+  "public/bgm/jazz-funk/03-dirty-thinkin.mp3": {
+    "bytes": 2854705,
+    "sha256": "e36220dbbaf56e0380bb106e32779b1832fa8f4bd8d40edcaf15b07a17bb9a8f"
+  }
+}

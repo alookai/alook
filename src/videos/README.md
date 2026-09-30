@@ -1,11 +1,10 @@
 # Alook videos
 
-Each directory here is a self-contained video project. Generated video, GIF, frame, dependency, and build artifacts must stay uncommitted.
+Each directory is a separate video project. Generated video, media, frames, dependencies and build artifacts stay uncommitted.
 
-## Project index
-
-| Project | Purpose | Build | Final outputs |
+| Project | Purpose | Build and export | Output |
 | --- | --- | --- | --- |
-| [`logo`](./logo) | Official Alook logo animation | `cd src/videos/logo && npm ci && npm run build` | `npm run render:mp4` → `out/alook-logo-official.mp4`; `npm run render:gif` → `out/alook-logo-official.gif` |
+| [logo](./logo) | Official logo animation | `npm ci && npm run build && npm run render:mp4` | `out/alook-logo-official.mp4` |
+| [gtm](./gtm) | Complete 103.067-second product story with music/SFX | Restore media per [ASSETS.md](./gtm/ASSETS.md), then `npm ci && npm run render` | `out/alook-gtm-final.mp4` |
 
-When adding a project, give it its own package manifest and README, then add one row here with the exact build command and output paths.
+Run commands inside the respective project directory after installing root dependencies. Each project README contains setup and verification details.

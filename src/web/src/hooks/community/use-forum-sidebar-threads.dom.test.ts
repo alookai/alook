@@ -633,17 +633,17 @@ describe("forum sidebar canonical projection", () => {
 
   it("folds in-flight title, activity, and removal deltas into one canonical publish", async () => {
     const { queryClient, wrapper } = await setup()
+    const activityAt = new Date(Date.now() - 60_000).toISOString()
     let resolveRequest!: (value: SidebarThreadEnvelope) => void
     apiFetchMock.mockReturnValue(new Promise((resolve) => { resolveRequest = resolve }))
     const rendered = renderHook(() => useForumSidebarThreads("server-1", null), { wrapper })
     await waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
-    const liveActivity = new Date(Date.now() - 60_000).toISOString()
     patchForumSidebarTitleExact(queryClient, "server-1", "post-1", "live title")
     patchForumSidebarActivityExact(
-      queryClient, "server-1", "post-1", "forum-1", liveActivity,
+      queryClient, "server-1", "post-1", "forum-1", activityAt,
     )
     patchForumSidebarActivityExact(
-      queryClient, "server-1", "missing", "forum-1", liveActivity,
+      queryClient, "server-1", "missing", "forum-1", activityAt,
     )
     removeForumSidebarThreadExact(queryClient, "server-1", "post-2")
     await act(async () => resolveRequest(envelopeFor(["post-1", "post-2"])))
@@ -651,7 +651,7 @@ describe("forum sidebar canonical projection", () => {
       expect.objectContaining({
         id: "post-1",
         title: "live title",
-        activityAt: liveActivity,
+        activityAt,
       }),
     ]))
     expect(getCanonicalCommunityChannels(queryClient).some(({ id }) => id === "post-2"))
@@ -661,6 +661,7 @@ describe("forum sidebar canonical projection", () => {
 
   it("folds an in-flight activity delta into an eligible retained row", async () => {
     const { queryClient, wrapper } = await setup()
+    const activityAt = new Date(Date.now() - 60_000).toISOString()
     let resolveRequest!: (value: SidebarThreadEnvelope) => void
     apiFetchMock.mockReturnValue(new Promise((resolve) => { resolveRequest = resolve }))
     const rendered = renderHook(
@@ -669,7 +670,7 @@ describe("forum sidebar canonical projection", () => {
     )
     await waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
     patchForumSidebarActivityExact(
-      queryClient, "server-1", "post-1", "forum-1", "2026-09-26T11:00:00.000Z",
+      queryClient, "server-1", "post-1", "forum-1", activityAt,
     )
     removeForumSidebarThreadExact(queryClient, "server-1", "post-1")
     restoreForumSidebarThreadInflight("server-1", "post-1")
@@ -682,7 +683,7 @@ describe("forum sidebar canonical projection", () => {
       included: retained.included,
     }))
     await waitFor(() => expect(rendered.result.current.threads[0]?.activityAt)
-      .toBe("2026-09-26T11:00:00.000Z"))
+      .toBe(activityAt))
     rendered.unmount()
   })
 

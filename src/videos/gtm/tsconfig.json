@@ -1,0 +1,45 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noEmit": true,
+    "lib": [
+      "ES2023",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": [
+        "../../web/src/*"
+      ],
+      "@alook/shared": [
+        "../../shared/src/index.ts"
+      ],
+      "react": [
+        "../../web/node_modules/@types/react"
+      ],
+      "react/*": [
+        "../../web/node_modules/@types/react/*"
+      ],
+      "@tanstack/react-query": [
+        "../../web/node_modules/@tanstack/react-query"
+      ],
+      "lucide-react": [
+        "../../web/node_modules/lucide-react"
+      ],
+      "react-dom": [
+        "../../web/node_modules/@types/react-dom"
+      ]
+    }
+  },
+  "include": [
+    "src"
+  ]
+}

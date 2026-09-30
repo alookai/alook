@@ -1,17 +1,12 @@
 "use client";
 
-import { useRef, useState, type CSSProperties, type ReactNode } from "react";
-import Image from "next/image";
+import { useState, type CSSProperties, type ReactNode } from "react";
 import Link from "next/link";
-import gsap from "gsap";
-import { useGSAP } from "@gsap/react";
-import { ScrollTrigger } from "gsap/ScrollTrigger";
-import { SplitText } from "gsap/SplitText";
 import { TypewriterVisual } from "@/components/typewriter-visual";
 import { trackLandingCtaClicked } from "@/lib/analytics";
 import { GithubOutboundLink } from "@/components/github-outbound-link";
-
-gsap.registerPlugin(ScrollTrigger, SplitText);
+import { HeroScrollCue } from "./hero-scroll-cue";
+import { AnimatedAlookLogo } from "@/components/community/shell/animated-alook-logo";
 
 type HeroSecondaryCta =
   | { href: string; label: string; kind?: "link" }
@@ -22,7 +17,6 @@ export function HeroSection({
   kicker,
   headline = "Run Your Personal Company",
   subline,
-  papers,
   showClipboard = true,
   showCommunityLinks = true,
   primaryCtaLabel,
@@ -35,12 +29,13 @@ export function HeroSection({
   showMobileDesktopHint = true,
   testId,
   backgroundDecoration,
+  desktopSplit = false,
+  nextSectionId,
 }: {
   isLoggedIn: boolean;
   kicker?: string;
   headline?: ReactNode;
   subline?: ReactNode;
-  papers?: ReactNode[];
   showClipboard?: boolean;
   showCommunityLinks?: boolean;
   primaryCtaLabel?: string;
@@ -53,67 +48,18 @@ export function HeroSection({
   showMobileDesktopHint?: boolean;
   testId?: string;
   backgroundDecoration?: ReactNode;
+  desktopSplit?: boolean;
+  nextSectionId?: string;
 }) {
-  const sectionRef = useRef<HTMLDivElement>(null);
-  const headingRef = useRef<HTMLHeadingElement>(null);
-  const sublineRef = useRef<HTMLParagraphElement>(null);
-  const ctaRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
   const ctaSizingClassName = largeCtas
     ? "px-3 py-3 text-[clamp(0.6875rem,3vw,1rem)] whitespace-nowrap sm:px-8"
     : "px-6 py-2 text-sm";
 
-  useGSAP(
-    () => {
-      if (!headingRef.current || !ctaRef.current) return;
-
-      const entranceTl = gsap.timeline({ delay: 0.3 });
-
-      entranceTl
-        .fromTo(".hero-brand",
-          { y: -20, opacity: 0 },
-          { y: 0, opacity: 1, duration: 0.5, ease: "power3.out" }
-        )
-        .to(headingRef.current, { opacity: 1, duration: 0.4, ease: "power2.out" }, 0.2);
-
-      if (sublineRef.current) {
-        entranceTl.to(sublineRef.current, { opacity: 1, duration: 0.3, ease: "power2.out" }, "-=0.1");
-      }
-
-      if (showClipboard) {
-        entranceTl.fromTo(
-          ".hero-clipboard",
-          { y: 10, opacity: 0 },
-          { y: 0, opacity: 1, duration: 0.3, ease: "power2.out" },
-          "-=0.1"
-        );
-      }
-
-      if (showCommunityLinks) {
-        entranceTl.fromTo(
-          ".hero-providers",
-          { y: 10, opacity: 0 },
-          { y: 0, opacity: 1, duration: 0.4, ease: "power2.out" },
-          "-=0.2"
-        );
-      }
-
-      entranceTl.fromTo(
-        ctaRef.current,
-        { y: 15, opacity: 0 },
-        { y: 0, opacity: 1, duration: 0.4, ease: "power2.out" },
-        "-=0.2"
-      );
-
-    },
-    { scope: sectionRef }
-  );
-
   return (
     <section
-      ref={sectionRef}
       data-testid={testId}
-      className="hero-section relative flex h-screen items-center justify-center overflow-hidden"
+      className={`hero-section relative flex h-screen items-center justify-center overflow-hidden${desktopSplit ? " hero-section-split" : ""}${nextSectionId ? " hero-section-scrollable" : ""}`}
       style={{ backgroundColor: "var(--landing-bg)" }}
     >
       {/* Paper noise */}
@@ -130,8 +76,8 @@ export function HeroSection({
 
       <div className="hero-content relative z-10 mx-auto flex w-full max-w-4xl flex-col items-center px-4 sm:px-6 py-8 max-h-full">
         {/* Brand */}
-        <div className="hero-brand mb-6 flex shrink-0 items-center gap-2" style={{ opacity: 0 }}>
-          <Image src="/alook.svg" alt="Alook" width={32} height={32} />
+        <Link href="/" aria-label="Alook home" className="hero-brand mb-6 flex min-h-11 shrink-0 items-center gap-2 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-current">
+          <AnimatedAlookLogo className="size-8" />
           <span
             className="text-2xl tracking-tight"
             style={{
@@ -142,16 +88,16 @@ export function HeroSection({
           >
             Alook
           </span>
-        </div>
+        </Link>
 
         {/* Scalable content zone — all content scales together on short viewports */}
         <div className="typewriter-wrapper flex w-full shrink min-h-0 flex-col items-center" style={{ height: "clamp(192px, calc(100vh - 200px), 750px)" }}>
         <div className="hero-scalable flex w-full flex-1 min-h-0 flex-col items-center">
 
         {/* Typewriter + Slogan wrapper */}
-        <div className="relative w-full shrink min-h-0 flex-1">
+        <div className="hero-stage relative w-full shrink min-h-0 flex-1">
           {/* Slogan — positioned at top of typewriter area */}
-          <div className="absolute top-0 left-0 right-0 z-10 flex flex-col items-center pt-2">
+          <div className="hero-intro absolute top-0 left-0 right-0 z-10 flex flex-col items-center pt-2">
             {kicker && (
               <p
                 className="mb-2 text-center text-[10px] uppercase tracking-[0.16em] sm:text-xs"
@@ -161,14 +107,12 @@ export function HeroSection({
               </p>
             )}
             <h1
-              ref={headingRef}
               className={`mb-1 px-2 text-center leading-[1.2] ${headlineClassName ?? ""}`}
               style={{
                 fontFamily: "var(--font-crt)",
                 color: "var(--landing-text)",
                 fontSize: "clamp(26px, 4vw, 44px)",
                 letterSpacing: "-0.01em",
-                opacity: 0,
                 ...headlineStyle,
               }}
             >
@@ -176,13 +120,11 @@ export function HeroSection({
             </h1>
             {subline !== null && (
               <p
-                ref={sublineRef}
                 className="block max-w-lg px-2 text-center text-sm leading-relaxed sm:text-base"
                 style={{
                   fontFamily: "var(--font-crt)",
                   color: "var(--landing-text-muted)",
                   fontSize: "clamp(15px, 3.6vw, 20px)",
-                  opacity: 0,
                 }}
               >
                 {subline === undefined ? (
@@ -196,11 +138,9 @@ export function HeroSection({
           </div>
 
           {/* Full Typewriter */}
-          <div className={`absolute inset-0 ${typewriterClassName ?? ""}`}>
+          <div className={`hero-artwork absolute inset-0 ${typewriterClassName ?? ""}`}>
             <TypewriterVisual
-              interactive
               entranceDelay={1.2}
-              papers={papers}
               className="absolute! inset-0"
             />
           </div>
@@ -209,7 +149,6 @@ export function HeroSection({
         {/* Clipboard copy widget */}
         {showClipboard && <div
           className="hero-clipboard relative mt-8 shrink-0 w-full max-w-lg cursor-pointer"
-          style={{ opacity: 0 }}
           onClick={() => {
             navigator.clipboard.writeText(
               `Read ${window.location.origin}/onboard.md and follow the instructions to install and configure Alook`
@@ -270,28 +209,8 @@ export function HeroSection({
           </div>
         </div>}
 
-        {/* Specs */}
-        {/* <div className="hero-specs mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-2" style={{ opacity: 0 }}>
-          {[
-            "Collaboration",
-            "Always-On",
-            "Self-Learning",
-          ].map((spec) => (
-            <span
-              key={spec}
-              className="text-xs sm:text-sm uppercase tracking-[0.15em] font-bold"
-              style={{
-                fontFamily: "var(--font-mono)",
-                color: "var(--landing-text-muted)",
-              }}
-            >
-              {spec}
-            </span>
-          ))}
-        </div> */}
-
         {/* Community links */}
-        {showCommunityLinks && <div className="hero-providers mt-4 shrink-0 flex items-center justify-center gap-4" style={{ opacity: 0 }}>
+        {showCommunityLinks && <div className="hero-providers mt-4 shrink-0 flex items-center justify-center gap-4">
           <GithubOutboundLink
             surface="landing"
             target="_blank"
@@ -331,7 +250,7 @@ export function HeroSection({
         </div>}
 
         {/* CTA */}
-        <div ref={ctaRef} className="mt-8 shrink-0 flex flex-nowrap items-center justify-center gap-3" style={{ opacity: 0 }}>
+        <div className="hero-ctas mt-8 shrink-0 flex flex-nowrap items-center justify-center gap-3">
           {/* <a
             href="https://github.com/alookai/alook"
             className="inline-flex items-center gap-2 px-6 py-2 text-sm transition-all duration-200 hover:opacity-80"
@@ -444,6 +363,7 @@ export function HeroSection({
           For the full experience, open on a desktop browser.
         </p>}
       </div>
+      {nextSectionId && <HeroScrollCue targetId={nextSectionId} />}
     </section>
   );
 }

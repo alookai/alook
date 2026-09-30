@@ -40,6 +40,8 @@
     "typegrep:ws": "node scripts/lint-ws-events.mjs",
     "typegrep:agent-driver": "node scripts/check-agent-driver-boundaries.mjs",
     "logo:generate": "node scripts/generate-logo-assets.mjs",
+    "readme:badges": "node scripts/generate-readme-badges.mjs",
+    "readme:badges:test": "node --test scripts/generate-readme-badges.test.mjs",
     "readme:capture": "node src/web/readme-capture/capture.mjs",
     "prepare": "simple-git-hooks"
   },
@@ -48,6 +50,7 @@
   },
   "devDependencies": {
     "@vitest/coverage-istanbul": "4.1.11",
+    "badge-maker": "6.0.0",
     "sharp": "^0.35.4",
     "simple-git-hooks": "^2.14.0",
     "turbo": "^2.11.3",
@@ -61,7 +64,8 @@
       "@vitest/snapshot": "4.1.11"
     },
     "patchedDependencies": {
-      "@opennextjs/aws@4.1.4": "patches/@opennextjs__aws@4.1.4.patch"
+      "@opennextjs/aws@4.1.4": "patches/@opennextjs__aws@4.1.4.patch",
+      "@tanstack/query-db-collection@1.2.15": "patches/@tanstack__query-db-collection@1.2.15.patch"
     },
     "onlyBuiltDependencies": [
       "better-sqlite3",

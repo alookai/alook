@@ -1,0 +1,17 @@
+{
+  "bundle": {
+    "windows": {
+      "signCommand": {
+        "cmd": "pwsh",
+        "args": [
+          "-NoLogo",
+          "-NoProfile",
+          "-NonInteractive",
+          "-File",
+          "../../../scripts/ci/sign-desktop-windows.ps1",
+          "%1"
+        ]
+      }
+    }
+  }
+}

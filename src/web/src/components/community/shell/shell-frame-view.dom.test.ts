@@ -36,6 +36,8 @@ const mocks = vi.hoisted(() => ({
   overlayProps: vi.fn(),
   pendingProps: vi.fn(),
   channelSkeletonProps: vi.fn(),
+  userBarProps: vi.fn(),
+  runningBots: [] as Array<{ id: string }>,
 }))
 
 vi.mock("react-resizable-panels", () => ({
@@ -52,6 +54,13 @@ vi.mock("./use-hydrated-client", () => ({
 }))
 vi.mock("@/hooks/use-mobile", () => ({
   useBreakpoint: () => "desktop",
+}))
+vi.mock("@/hooks/community/use-running-owned-bots", () => ({
+  useRunningOwnedBots: () => ({
+    runningBots: mocks.runningBots,
+    initialLoading: false,
+    unavailable: false,
+  }),
 }))
 vi.mock("@/components/ui/resizable", () => ({
   ResizablePanelGroup: ({ children, ...props }: Record<string, unknown>) => {
@@ -113,7 +122,10 @@ vi.mock("./server-rail", () => ({
   ServerRailPending: () => createElement("div", { "data-server-rail-pending": "" }),
 }))
 vi.mock("./user-bar", () => ({
-  UserBar: () => createElement("div", { "data-user-bar": "" }),
+  UserBar: (props: Record<string, unknown>) => {
+    mocks.userBarProps(props)
+    return createElement("div", { "data-user-bar": "" })
+  },
   UserBarSkeleton: () => createElement("div", { "data-user-bar-skeleton": "" }),
 }))
 vi.mock("./community-inbox-popover", () => ({
@@ -227,6 +239,8 @@ describe("ShellFrameView", () => {
     mocks.overlayProps.mockClear()
     mocks.pendingProps.mockClear()
     mocks.channelSkeletonProps.mockClear()
+    mocks.userBarProps.mockClear()
+    mocks.runningBots = []
     mocks.defaultLayout.current = undefined
     mocks.hydratedClient.current = true
     animateDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "animate")
@@ -284,6 +298,71 @@ describe("ShellFrameView", () => {
     expect(renderer.container.querySelector(
       '[data-slot="community-sidebar-panel-content"]',
     )?.className).toContain("max-sm:hidden")
+  })
+
+  it("projects the shared live running-bot count into the User Bar", () => {
+    mocks.runningBots = [{ id: "bot_1" }, { id: "bot_2" }]
+    const renderer = render(createElement(ShellFrameView, {
+      ...extensionProps,
+      breakpoint: "desktop",
+      checkpoint: committedCheckpoint("/c/me", "list"),
+      sidebar: () => createElement("sidebar-content"),
+      cancelPendingNavigation: vi.fn(),
+      rail,
+      profile,
+      inbox,
+    }, createElement("main-content")))
+
+    expect(latestProps(mocks.userBarProps).user).toMatchObject({
+      id: "u1",
+      runningBotCount: 2,
+    })
+    renderer.unmount()
+  })
+
+  it("gives the desktop User Bar popup a separate companion only while a bot is working", () => {
+    mocks.runningBots = [{ id: "bot_1" }]
+    const selfProfile = {
+      ...profile,
+      profile: {
+        data: { name: "User", userId: "u1", mutual: 0 },
+        x: 0,
+        y: 0,
+      },
+    } as never
+    const renderer = render(createElement(ShellFrameView, {
+      ...extensionProps,
+      userBarExtension: { active: "profile", update: null },
+      breakpoint: "desktop",
+      checkpoint: committedCheckpoint("/c/me", "list"),
+      sidebar: () => createElement("sidebar-content"),
+      cancelPendingNavigation: vi.fn(),
+      rail,
+      profile: selfProfile,
+      inbox,
+    }, createElement("main-content")))
+
+    const workingExtension = latestProps(mocks.userBarProps).extension as Record<string, unknown>
+    expect(workingExtension.profile).toBeTruthy()
+    expect(workingExtension.profileCompanion).toBeTruthy()
+
+    mocks.runningBots = []
+    renderer.rerender(createElement(ShellFrameView, {
+      ...extensionProps,
+      userBarExtension: { active: "profile", update: null },
+      breakpoint: "desktop",
+      checkpoint: committedCheckpoint("/c/me", "list"),
+      sidebar: () => createElement("sidebar-content"),
+      cancelPendingNavigation: vi.fn(),
+      rail,
+      profile: selfProfile,
+      inbox,
+    }, createElement("main-content")))
+
+    const idleExtension = latestProps(mocks.userBarProps).extension as Record<string, unknown>
+    expect(idleExtension.profile).toBeTruthy()
+    expect(idleExtension.profileCompanion).toBeNull()
+    renderer.unmount()
   })
 
   it("keeps rail, sidebar, and UserBar in the unknown list shell", async () => {

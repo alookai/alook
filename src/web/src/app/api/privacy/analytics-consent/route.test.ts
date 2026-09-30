@@ -3,13 +3,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { verifyAnalyticsConsentProof } from "@/lib/analytics-consent-server"
 
 const mocks = vi.hoisted(() => ({
-  env: { BETTER_AUTH_SECRET: "route-consent-signing-secret" },
+  env: { BETTER_AUTH_SECRET: "route-consent-signing-secret", DB: {} },
+  userId: undefined as string | undefined,
+  recordAnalyticsConsent: vi.fn(),
 }))
 
-vi.mock("@/lib/middleware/env", () => ({
-  withEnv: (handler: (request: NextRequest, context: { env: typeof mocks.env }) => Promise<Response>) =>
-    (request: NextRequest) => handler(request, { env: mocks.env }),
+vi.mock("@/lib/middleware/auth", () => ({
+  withOptionalAuth: (handler: (request: NextRequest, context: { env: typeof mocks.env; userId?: string }) => Promise<Response>) =>
+    (request: NextRequest) => handler(request, { env: mocks.env, userId: mocks.userId }),
 }))
+vi.mock("@/lib/db", () => ({ getPrimaryDb: () => mocks.env.DB }))
+vi.mock("@alook/shared", () => ({ queries: { billing: { recordAnalyticsConsent: mocks.recordAnalyticsConsent } } }))
 
 import { POST } from "./route"
 
@@ -26,7 +30,10 @@ function request(
 }
 
 beforeEach(() => {
+  vi.resetAllMocks()
   mocks.env.BETTER_AUTH_SECRET = "route-consent-signing-secret"
+  mocks.userId = undefined
+  mocks.recordAnalyticsConsent.mockResolvedValue({ decision: "granted", revision: 1, sourceVersion: 1 })
 })
 
 describe("POST /api/privacy/analytics-consent", () => {
@@ -52,7 +59,7 @@ describe("POST /api/privacy/analytics-consent", () => {
     await expect(verifyAnalyticsConsentProof(
       proof,
       mocks.env.BETTER_AUTH_SECRET,
-    )).resolves.toBe(decision)
+    )).resolves.toEqual({ decision, sourceVersion: expect.any(Number) })
   })
 
   it("allows local HTTP while omitting Secure", async () => {
@@ -63,6 +70,35 @@ describe("POST /api/privacy/analytics-consent", () => {
     ))
     expect(response.status).toBe(200)
     expect(response.headers.getSetCookie().every((cookie) => !cookie.includes("Secure"))).toBe(true)
+  })
+
+  it("persists an authenticated decision before issuing its proof", async () => {
+    mocks.userId = "owner"
+    const response = await POST(request({ decision: "denied" }))
+    expect(response.status).toBe(200)
+    const proof = response.headers.getSetCookie()[1]?.match(/^[^=]+=([^;]+)/u)?.[1]
+    const verified = await verifyAnalyticsConsentProof(proof, mocks.env.BETTER_AUTH_SECRET)
+    expect(mocks.recordAnalyticsConsent).toHaveBeenCalledWith(
+      mocks.env.DB,
+      "owner",
+      "denied",
+      verified?.sourceVersion,
+    )
+  })
+
+  it("does not accept a revocation when an apparent signed-in session cannot be resolved", async () => {
+    const input = new NextRequest("https://alook.ai/api/privacy/analytics-consent", {
+      method: "POST",
+      headers: {
+        Origin: "https://alook.ai",
+        "Content-Type": "application/json",
+        cookie: "better-auth.session_token=unresolved",
+      },
+      body: JSON.stringify({ decision: "denied" }),
+    })
+    const response = await POST(input)
+    expect(response.status).toBe(503)
+    expect(response.headers.getSetCookie()).toEqual([])
   })
 
   it("uses the browser origin behind a local reverse proxy", async () => {

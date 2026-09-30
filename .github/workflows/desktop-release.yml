@@ -6,25 +6,30 @@ on:
     paths:
       - "src/desktop/.deploy-version"
 
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  build:
+  build-unix:
     permissions:
-      contents: write
+      contents: read
     strategy:
       fail-fast: false
       matrix:
         include:
           - platform: macos-latest
             target: aarch64-apple-darwin
+            stage-target: macos-aarch64
           - platform: macos-latest
             target: x86_64-apple-darwin
+            stage-target: macos-x86_64
           - platform: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
-          - platform: windows-latest
-            target: x86_64-pc-windows-msvc
+            stage-target: linux-x86_64
 
     runs-on: ${{ matrix.platform }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -50,7 +55,7 @@ jobs:
           key: ${{ matrix.target }}
 
       - name: Install dependencies (Linux)
-        if: matrix.platform == 'ubuntu-22.04'
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
@@ -64,135 +69,433 @@ jobs:
         shell: bash
         run: echo "version=$(tr -d '\n' < src/desktop/.deploy-version)" >> "$GITHUB_OUTPUT"
 
-      - name: Resolve existing release
-        id: release
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: v${{ steps.version.outputs.version }}
-        run: |
-          for attempt in {1..30}; do
-            if release_id=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" --jq '.id' 2>/dev/null); then
-              echo "id=${release_id}" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-            echo "Waiting for ${TAG} release (${attempt}/30)..."
-            sleep 2
-          done
-          echo "::error::Release ${TAG} was not created within 60 seconds"
-          exit 1
-
-      - name: Prepare App Store Connect API key
+      - name: Prepare fail-closed macOS signing
         if: runner.os == 'macOS'
         shell: bash
         env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
-        run: |
-          test -n "$APPLE_API_KEY"
-          test -n "$APPLE_API_PRIVATE_KEY"
-          key_path="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY}.p8"
-          umask 077
-          printf '%s' "$APPLE_API_PRIVATE_KEY" > "$key_path"
-          echo "APPLE_API_KEY_PATH=$key_path" >> "$GITHUB_ENV"
-
-      - name: Build Tauri app
-        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          APPLE_CERTIFICATE: ${{ runner.os == 'macOS' && secrets.APPLE_CERTIFICATE || '' }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ runner.os == 'macOS' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
-          APPLE_SIGNING_IDENTITY: ${{ runner.os == 'macOS' && secrets.APPLE_SIGNING_IDENTITY || '' }}
-          APPLE_API_ISSUER: ${{ runner.os == 'macOS' && secrets.APPLE_API_ISSUER || '' }}
-          APPLE_API_KEY: ${{ runner.os == 'macOS' && secrets.APPLE_API_KEY || '' }}
+        run: |
+          set -euo pipefail
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_TEAM_ID APPLE_API_ISSUER APPLE_API_KEY APPLE_API_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD; do
+            test -n "${!name}" || { echo "::error::Missing required macOS release input: $name"; exit 1; }
+          done
+          [[ "$APPLE_TEAM_ID" =~ ^[A-Z0-9]{10}$ ]]
+          [[ "$APPLE_SIGNING_IDENTITY" == Developer\ ID\ Application:*"($APPLE_TEAM_ID)" ]]
+
+          umask 077
+          p12_path="$RUNNER_TEMP/alook-release-certificate.p12"
+          api_key_path="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY}.p8"
+          keychain_path="$RUNNER_TEMP/alook-release.keychain-db"
+          keychain_list="$RUNNER_TEMP/alook-keychain-list.txt"
+          keychain_password=$(openssl rand -hex 32)
+          echo "::add-mask::$keychain_password"
+          {
+            echo "APPLE_API_KEY_PATH=$api_key_path"
+            echo "ALOOK_MACOS_P12_PATH=$p12_path"
+            echo "ALOOK_MACOS_KEYCHAIN_PATH=$keychain_path"
+            echo "ALOOK_MACOS_KEYCHAIN_LIST=$keychain_list"
+          } >> "$GITHUB_ENV"
+
+          printf '%s' "$APPLE_CERTIFICATE" | base64 -D > "$p12_path"
+          printf '%s' "$APPLE_API_PRIVATE_KEY" > "$api_key_path"
+          security list-keychains -d user | sed 's/^[[:space:]]*"//; s/"$//' > "$keychain_list"
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security import "$p12_path" -k "$keychain_path" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain_path"
+          existing_keychains=()
+          while IFS= read -r keychain; do [[ -n "$keychain" ]] && existing_keychains+=("$keychain"); done < "$keychain_list"
+          security list-keychains -d user -s "$keychain_path" "${existing_keychains[@]}"
+
+      - name: Build signed and notarized macOS app
+        if: runner.os == 'macOS'
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_PATH: ${{ env.APPLE_API_KEY_PATH }}
-          APPLE_TEAM_ID: ${{ runner.os == 'macOS' && secrets.APPLE_TEAM_ID || '' }}
         with:
           projectPath: src/desktop
-          releaseId: ${{ steps.release.outputs.id }}
-          uploadUpdaterJson: true
           args: --target ${{ matrix.target }}
 
-      - name: Verify signed and notarized macOS artifact
+      - name: Build Linux app
+        if: runner.os == 'Linux'
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: src/desktop
+          args: --target ${{ matrix.target }}
+
+      - name: Stage exact release bytes
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          STAGE_TARGET: ${{ matrix.stage-target }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          stage="$RUNNER_TEMP/desktop-release-${STAGE_TARGET}"
+          node scripts/ci/desktop-release-artifacts.mjs collect \
+            --target "$STAGE_TARGET" \
+            --version "$VERSION" \
+            --source "src/desktop/src-tauri/target/${TARGET}/release" \
+            --stage "$stage"
+          echo "DESKTOP_STAGE=$stage" >> "$GITHUB_ENV"
+
+      - name: Verify staged macOS bytes
         if: runner.os == 'macOS'
         shell: bash
         env:
+          STAGE_DIR: ${{ env.DESKTOP_STAGE }}
           EXPECTED_TARGET: ${{ matrix.target }}
           EXPECTED_VERSION: ${{ steps.version.outputs.version }}
+          EXPECTED_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          EXPECTED_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: bash scripts/ci/verify-desktop-macos.sh
+
+      - name: Verify staged Linux updater signatures
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
-          bundle_root="src/desktop/src-tauri/target/${EXPECTED_TARGET}/release/bundle"
-          dmg_path=$(find "$bundle_root/dmg" -maxdepth 1 -type f -name '*.dmg' -print -quit)
-          test -n "$dmg_path"
+          node scripts/ci/desktop-release-artifacts.mjs validate \
+            --target linux-x86_64 --version "$VERSION" --stage "$DESKTOP_STAGE"
+          for asset in \
+            "Alook_${VERSION}_amd64.deb" \
+            "Alook-${VERSION}-1.x86_64.rpm" \
+            "Alook_${VERSION}_amd64.AppImage"; do
+            node scripts/ci/verify-minisign.mjs \
+              --file "$DESKTOP_STAGE/files/$asset" \
+              --signature "$DESKTOP_STAGE/files/$asset.sig" \
+              --config src/desktop/src-tauri/tauri.conf.json \
+              --version "$VERSION" --trusted-file "$asset"
+          done
 
-          mount_dir=$(mktemp -d "$RUNNER_TEMP/alook-dmg.XXXXXX")
-          cleanup() {
-            hdiutil detach "$mount_dir" -quiet || true
-            rmdir "$mount_dir" || true
+      - name: Upload private verified stage
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: desktop-release-${{ matrix.stage-target }}
+          path: ${{ env.DESKTOP_STAGE }}
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Clean temporary macOS signing material
+        if: always() && runner.os == 'macOS'
+        shell: bash
+        run: |
+          set +e
+          if [[ -f "${ALOOK_MACOS_KEYCHAIN_LIST:-}" ]]; then
+            original_keychains=()
+            while IFS= read -r keychain; do [[ -n "$keychain" ]] && original_keychains+=("$keychain"); done < "$ALOOK_MACOS_KEYCHAIN_LIST"
+            security list-keychains -d user -s "${original_keychains[@]}"
+          fi
+          [[ -n "${ALOOK_MACOS_KEYCHAIN_PATH:-}" ]] && security delete-keychain "$ALOOK_MACOS_KEYCHAIN_PATH"
+          rm -f "${ALOOK_MACOS_P12_PATH:-}" "${APPLE_API_KEY_PATH:-}" "${ALOOK_MACOS_KEYCHAIN_LIST:-}"
+
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          workspaces: src/desktop/src-tauri
+          key: x86_64-pc-windows-msvc
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: src/desktop
+
+      - name: Read version
+        id: version
+        shell: bash
+        run: echo "version=$(tr -d '\n' < src/desktop/.deploy-version)" >> "$GITHUB_OUTPUT"
+
+      - name: Preflight Windows release inputs
+        shell: pwsh
+        env:
+          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          ALOOK_ARTIFACT_SIGNING_ENDPOINT: ${{ vars.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
+          ALOOK_ARTIFACT_SIGNING_ACCOUNT_NAME: ${{ vars.AZURE_ARTIFACT_SIGNING_ACCOUNT_NAME }}
+          ALOOK_ARTIFACT_SIGNING_CERTIFICATE_PROFILE_NAME: ${{ vars.AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE_NAME }}
+          ALOOK_WINDOWS_SIGNING_PUBLISHER: ${{ vars.WINDOWS_SIGNING_PUBLISHER }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          $required = @(
+            "AZURE_CLIENT_ID", "AZURE_TENANT_ID", "AZURE_SUBSCRIPTION_ID",
+            "ALOOK_ARTIFACT_SIGNING_ENDPOINT", "ALOOK_ARTIFACT_SIGNING_ACCOUNT_NAME",
+            "ALOOK_ARTIFACT_SIGNING_CERTIFICATE_PROFILE_NAME", "ALOOK_WINDOWS_SIGNING_PUBLISHER",
+            "TAURI_SIGNING_PRIVATE_KEY", "TAURI_SIGNING_PRIVATE_KEY_PASSWORD"
+          )
+          foreach ($name in $required) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              throw "Missing required Windows release input: $name"
+            }
           }
-          trap cleanup EXIT
-          hdiutil attach "$dmg_path" -nobrowse -readonly -mountpoint "$mount_dir" -quiet
+          [Uri]$endpoint = $null
+          if (-not [Uri]::TryCreate($env:ALOOK_ARTIFACT_SIGNING_ENDPOINT, [UriKind]::Absolute, [ref]$endpoint) -or
+              $endpoint.Scheme -ne [Uri]::UriSchemeHttps -or
+              $endpoint.DnsSafeHost -notmatch '^[a-z0-9-]+\.codesigning\.azure\.net$' -or
+              -not $endpoint.IsDefaultPort -or
+              $endpoint.AbsolutePath -ne '/' -or
+              $endpoint.UserInfo -ne '' -or
+              $endpoint.Query -ne '' -or
+              $endpoint.Fragment -ne '') {
+            throw "Artifact Signing endpoint must be an HTTPS regional codesigning.azure.net root URL"
+          }
 
-          app_path=$(find "$mount_dir" -maxdepth 1 -type d -name '*.app' -print -quit)
-          test -n "$app_path"
-          executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app_path/Contents/Info.plist")
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app_path/Contents/Info.plist")" = "$EXPECTED_VERSION"
+      - name: Login to Azure with GitHub OIDC
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
-          codesign --verify --deep --strict --verbose=2 "$app_path"
-          signature=$(codesign -dvvv "$app_path" 2>&1)
-          grep -q 'Authority=Developer ID Application:' <<<"$signature"
-          grep -q 'flags=.*runtime' <<<"$signature"
-          xcrun stapler validate "$app_path"
-          spctl --assess --type execute --verbose=4 "$app_path"
+      - name: Prepare digest-verified Artifact Signing module
+        shell: pwsh
+        run: |
+          $destination = Join-Path $env:RUNNER_TEMP "alook-artifact-signing-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          "ALOOK_ARTIFACT_SIGNING_ROOT=$destination" | Out-File -LiteralPath $env:GITHUB_ENV -Append -Encoding utf8
+          ./scripts/ci/prepare-desktop-windows-signing.ps1 -DestinationRoot $destination
 
-          archs=$(lipo -archs "$app_path/Contents/MacOS/$executable")
-          case "$EXPECTED_TARGET" in
-            aarch64-apple-darwin) grep -qw arm64 <<<"$archs" ;;
-            x86_64-apple-darwin) grep -qw x86_64 <<<"$archs" ;;
-            *) exit 1 ;;
-          esac
+      - name: Prepare canonical Tauri signing root
+        shell: pwsh
+        run: |
+          $root = [IO.Path]::GetFullPath((Join-Path $env:GITHUB_WORKSPACE "src\desktop\src-tauri\target\x86_64-pc-windows-msvc\release"))
+          $temp = Join-Path $root "tauri-sign-temp"
+          New-Item -Path $temp -ItemType Directory -Force | Out-Null
+          "ALOOK_WINDOWS_SIGNING_ROOT=$root" | Out-File -LiteralPath $env:GITHUB_ENV -Append -Encoding utf8
+          "TEMP=$temp" | Out-File -LiteralPath $env:GITHUB_ENV -Append -Encoding utf8
+          "TMP=$temp" | Out-File -LiteralPath $env:GITHUB_ENV -Append -Encoding utf8
 
-  update-release-notes:
-    needs: build
+      - name: Build signed Windows app
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          ALOOK_ARTIFACT_SIGNING_ENDPOINT: ${{ vars.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
+          ALOOK_ARTIFACT_SIGNING_ACCOUNT_NAME: ${{ vars.AZURE_ARTIFACT_SIGNING_ACCOUNT_NAME }}
+          ALOOK_ARTIFACT_SIGNING_CERTIFICATE_PROFILE_NAME: ${{ vars.AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE_NAME }}
+        with:
+          projectPath: src/desktop
+          args: --target x86_64-pc-windows-msvc --config src-tauri/tauri.windows.signing.conf.json
+
+      - name: Stage exact Windows release bytes
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $stage = Join-Path $env:RUNNER_TEMP "desktop-release-windows-x86_64"
+          node scripts/ci/desktop-release-artifacts.mjs collect --target windows-x86_64 --version $env:VERSION --source "src/desktop/src-tauri/target/x86_64-pc-windows-msvc/release" --stage $stage
+          if ($LASTEXITCODE -ne 0) { throw "Windows release staging failed" }
+          "DESKTOP_STAGE=$stage" | Out-File -LiteralPath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Verify staged Windows bytes
+        shell: pwsh
+        env:
+          EXPECTED_PUBLISHER: ${{ vars.WINDOWS_SIGNING_PUBLISHER }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          ./scripts/ci/verify-desktop-windows.ps1 -StageDirectory $env:DESKTOP_STAGE -ExpectedVersion $env:VERSION -ExpectedPublisher $env:EXPECTED_PUBLISHER -TauriConfigPath "src/desktop/src-tauri/tauri.conf.json"
+
+      - name: Upload private verified Windows stage
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: desktop-release-windows-x86_64
+          path: ${{ env.DESKTOP_STAGE }}
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Clean temporary Windows signing state
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "SilentlyContinue"
+          $PSNativeCommandUseErrorActionPreference = $false
+          az logout 2>$null
+          az account clear 2>$null
+          if ($env:ALOOK_ARTIFACT_SIGNING_ROOT) {
+            Remove-Item -LiteralPath $env:ALOOK_ARTIFACT_SIGNING_ROOT -Recurse -Force -ErrorAction SilentlyContinue
+          }
+          if ($env:TEMP -and $env:ALOOK_WINDOWS_SIGNING_ROOT -and $env:TEMP.StartsWith($env:ALOOK_WINDOWS_SIGNING_ROOT)) {
+            Remove-Item -LiteralPath $env:TEMP -Recurse -Force -ErrorAction SilentlyContinue
+          }
+
+  publish:
+    needs: [build-unix, build-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Read version
-        id: version
-        run: echo "version=$(tr -d '\n' < src/desktop/.deploy-version)" >> "$GITHUB_OUTPUT"
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
 
-      - name: Append download links to release body
+      - name: Download all private verified stages
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: desktop-release-*
+          path: ${{ runner.temp }}/desktop-release-stages
+          merge-multiple: false
+
+      - name: Aggregate exact bytes and deterministic updater metadata
+        id: aggregate
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(tr -d '\n' < src/desktop/.deploy-version)
+          pub_date=$(node -e 'process.stdout.write(new Date(process.argv[1]).toISOString())' "$(git show -s --format=%cI "$GITHUB_SHA")")
+          publish_dir="$RUNNER_TEMP/desktop-release-publish"
+          node scripts/ci/desktop-release-artifacts.mjs aggregate \
+            --root "$RUNNER_TEMP/desktop-release-stages" \
+            --output "$publish_dir" \
+            --version "$version" \
+            --repository "$GITHUB_REPOSITORY" \
+            --pub-date "$pub_date" \
+            --config src/desktop/src-tauri/tauri.conf.json
+          {
+            echo "version=$version"
+            echo "tag=v$version"
+            echo "publish_dir=$publish_dir"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Resolve existing release after every verification gate
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.aggregate.outputs.tag }}
         run: |
-          TAG="v${VERSION}"
-          BASE="https://github.com/${{ github.repository }}/releases/download/${TAG}"
+          set -euo pipefail
+          release_found=false
+          for attempt in {1..30}; do
+            if gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" >/dev/null 2>&1; then
+              release_found=true
+              break
+            fi
+            echo "Waiting for $TAG release ($attempt/30)..."
+            sleep 2
+          done
+          [[ "$release_found" == true ]] || {
+            echo "::error::Release $TAG was not created within 60 seconds"
+            exit 1
+          }
 
-          EXISTING=$(gh release view "$TAG" --json body --jq '.body' 2>/dev/null || echo "")
+          git fetch --force --no-tags origin "refs/tags/$TAG:refs/tags/$TAG"
+          tag_commit=$(git rev-parse "$TAG^{commit}")
+          [[ "$tag_commit" == "$GITHUB_SHA" ]] || {
+            echo "::error::Tag $TAG points to $tag_commit instead of workflow commit $GITHUB_SHA"
+            exit 1
+          }
+          release_json="$RUNNER_TEMP/desktop-release-before-upload.json"
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" > "$release_json"
+          node scripts/ci/desktop-release-artifacts.mjs assert-publishable \
+            --release "$release_json" --tag "$TAG"
 
-          DOWNLOADS="
+      - name: Upload verified binary and signature assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.aggregate.outputs.tag }}
+          PUBLISH_DIR: ${{ steps.aggregate.outputs.publish_dir }}
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" "$PUBLISH_DIR"/assets/*
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" > "$RUNNER_TEMP/desktop-release-after-assets.json"
+          node scripts/ci/desktop-release-artifacts.mjs verify-published \
+            --manifest "$PUBLISH_DIR/release-manifest.json" \
+            --release "$RUNNER_TEMP/desktop-release-after-assets.json" \
+            --tag "$TAG"
 
+      - name: Upload latest.json last
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.aggregate.outputs.tag }}
+          PUBLISH_DIR: ${{ steps.aggregate.outputs.publish_dir }}
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" "$PUBLISH_DIR/latest.json"
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" > "$RUNNER_TEMP/desktop-release-complete.json"
+          node scripts/ci/desktop-release-artifacts.mjs verify-published \
+            --manifest "$PUBLISH_DIR/release-manifest.json" \
+            --release "$RUNNER_TEMP/desktop-release-complete.json" \
+            --latest "$PUBLISH_DIR/latest.json" \
+            --tag "$TAG"
+
+      - name: Append verified download links
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.aggregate.outputs.tag }}
+          VERSION: ${{ steps.aggregate.outputs.version }}
+        run: |
+          set -euo pipefail
+          base="https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG"
+          existing="$RUNNER_TEMP/existing-release-notes.md"
+          notes="$RUNNER_TEMP/verified-release-notes.md"
+          gh release view "$TAG" --json body --jq '.body' > "$existing"
+          awk '/^<!-- alook-desktop-downloads -->$/{exit} {print}' "$existing" > "$notes"
+          cat >> "$notes" <<EOF
+
+          <!-- alook-desktop-downloads -->
           ---
 
           ## Download
 
           ### macOS
-          [Apple Silicon](${BASE}/Alook_${VERSION}_aarch64.dmg) | [Intel](${BASE}/Alook_${VERSION}_x64.dmg)
+          [Apple Silicon](${base}/Alook_${VERSION}_aarch64.dmg) | [Intel](${base}/Alook_${VERSION}_x64.dmg)
 
-          These macOS builds are Developer ID signed, hardened-runtime enabled, notarized by Apple, and validated for their advertised architecture.
+          Developer ID signed, hardened-runtime enabled, notarized, stapled, and Gatekeeper verified.
 
           ### Windows
-          [.exe Installer](${BASE}/Alook_${VERSION}_x64-setup.exe) | [.msi](${BASE}/Alook_${VERSION}_x64_en-US.msi)
+          [.exe Installer](${base}/Alook_${VERSION}_x64-setup.exe) | [.msi](${base}/Alook_${VERSION}_x64_en-US.msi)
 
-          These Windows builds are not Authenticode code-signed. On first launch, Microsoft Defender SmartScreen may block the app; choose **More info** → **Run anyway** to continue.
+          Authenticode signed with SHA-256 and an RFC 3161 timestamp. Embedded application executables and exact updater signatures are verified before publication.
 
           ### Linux
-          [.deb](${BASE}/Alook_${VERSION}_amd64.deb) | [.rpm](${BASE}/Alook-${VERSION}-1.x86_64.rpm) | [.AppImage](${BASE}/Alook_${VERSION}_amd64.AppImage)"
-
-          gh release edit "$TAG" --notes "${EXISTING}${DOWNLOADS}"
+          [.deb](${base}/Alook_${VERSION}_amd64.deb) | [.rpm](${base}/Alook-${VERSION}-1.x86_64.rpm) | [.AppImage](${base}/Alook_${VERSION}_amd64.AppImage)
+          EOF
+          gh release edit "$TAG" --notes-file "$notes"

@@ -1,8 +1,17 @@
 import {
+  ANALYTICS_CONSENT_PROOF_COOKIE,
   ANALYTICS_CONSENT_MAX_AGE_SECONDS,
   ANALYTICS_CONSENT_VERSION,
   type AnalyticsConsentDecision,
 } from "@/lib/analytics-consent"
+
+export const GA4_MEASUREMENT_ID = "G-STBCL8F4ZY"
+export const GA4_CLIENT_ID_METADATA = "alook_ga_client_id"
+export const GA4_SESSION_ID_METADATA = "alook_ga_session_id"
+export const GA4_CONSENT_REVISION_METADATA = "alook_ga_consent_revision"
+export const GA4_CONSENT_STATUS_METADATA = "alook_ga_consent_status"
+
+const GA4_SESSION_COOKIE = `_ga_${GA4_MEASUREMENT_ID.slice(2).replaceAll("-", "_")}`
 
 const encoder = new TextEncoder()
 
@@ -55,7 +64,7 @@ export async function verifyAnalyticsConsentProof(
   proof: string | null | undefined,
   secret: string,
   nowMs = Date.now(),
-): Promise<AnalyticsConsentDecision | null> {
+): Promise<{ decision: AnalyticsConsentDecision; sourceVersion: number } | null> {
   const parts = proof?.split(".") ?? []
   if (parts.length !== 4) return null
   const [version, decision, issuedAtRaw, signatureRaw] = parts
@@ -76,5 +85,57 @@ export async function verifyAnalyticsConsentProof(
     signature,
     encoder.encode(payload),
   )
-  return valid ? decision : null
+  return valid ? { decision, sourceVersion: issuedAtSeconds } : null
+}
+
+function cookieValue(cookieHeader: string, name: string): string | null {
+  for (const part of cookieHeader.split(";")) {
+    const separator = part.indexOf("=")
+    if (separator < 0 || part.slice(0, separator).trim() !== name) continue
+    try {
+      return decodeURIComponent(part.slice(separator + 1).trim())
+    } catch {
+      return null
+    }
+  }
+  return null
+}
+
+export function parseGaClientId(value: string | null | undefined): string | null {
+  const parts = value?.split(".") ?? []
+  if (parts.length < 4 || !/^GA\d+$/u.test(parts[0]!)) return null
+  const clientId = parts.slice(-2).join(".")
+  return /^\d{1,20}\.\d{1,20}$/u.test(clientId) ? clientId : null
+}
+
+export function parseGaSessionId(value: string | null | undefined): string | null {
+  if (!value) return null
+  const gs2 = /^GS2\.\d+\.s(\d{1,20})(?:\$|$)/u.exec(value)?.[1]
+  if (gs2 && Number.isSafeInteger(Number(gs2)) && Number(gs2) > 0) return gs2
+  const gs1 = /^GS1\.\d+\.(\d{1,20})(?:\.|$)/u.exec(value)?.[1]
+  return gs1 && Number.isSafeInteger(Number(gs1)) && Number(gs1) > 0 ? gs1 : null
+}
+
+export async function readCheckoutAnalyticsConsent(cookieHeader: string, secret: string) {
+  const proof = await verifyAnalyticsConsentProof(
+    cookieValue(cookieHeader, ANALYTICS_CONSENT_PROOF_COOKIE),
+    secret,
+  )
+  if (proof?.decision !== "granted") {
+    return {
+      decision: proof?.decision ?? null,
+      sourceVersion: proof?.sourceVersion ?? null,
+      identity: null,
+    }
+  }
+  const clientId = parseGaClientId(cookieValue(cookieHeader, "_ga"))
+  const sessionId = parseGaSessionId(cookieValue(cookieHeader, GA4_SESSION_COOKIE))
+  if (!clientId || !sessionId) return { ...proof, identity: null }
+  return {
+    ...proof,
+    identity: {
+      clientId,
+      sessionId,
+    },
+  }
 }

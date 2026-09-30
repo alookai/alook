@@ -31,6 +31,14 @@ vi.mock("@/hooks/community/use-community-ws", () => ({
   communityWsInterruptAgent: mocks.interruptAgent,
 }))
 
+vi.mock("@/hooks/community/use-running-owned-bots", () => ({
+  useRunningOwnedBots: () => ({
+    runningBots: [{ id: "working-bot" }],
+    initialLoading: false,
+    unavailable: false,
+  }),
+}))
+
 vi.mock("./bot-mark-sticker", () => ({
   BotMarkSticker: ({
     showStop,
@@ -56,6 +64,14 @@ vi.mock("./bot-mark-sticker", () => ({
   ),
 }))
 
+vi.mock("./profile-running-bots-card", () => ({
+  ProfileRunningBotsCard: () => createElement(
+    "section",
+    { "data-testid": "community-profile-running-bots-card" },
+    "Running bots",
+  ),
+}))
+
 afterEach(() => {
   vi.useRealTimers()
   mocks.interruptAgent.mockReset()
@@ -65,6 +81,7 @@ afterEach(() => {
 function renderProfile(
   overrides: Partial<Profile> = {},
   activityStatus?: { emoji: string; text: string },
+  isSelf = false,
 ) {
   mocks.profile = activityStatus
     ? { statusEmoji: activityStatus.emoji, statusText: activityStatus.text }
@@ -89,6 +106,7 @@ function renderProfile(
       y: 0,
       bp: "desktop",
       onClose: () => undefined,
+      isSelf,
       activityStatusEmoji: activityStatus?.emoji,
       activityStatusText: activityStatus?.text,
     }),
@@ -135,6 +153,14 @@ function findInterruptButton(container: HTMLElement) {
 }
 
 describe("ProfileCard contextual metadata", () => {
+  it("mounts the running-bots zone only for the signed-in user's profile", () => {
+    const self = renderProfile({}, undefined, true)
+    const peer = renderProfile()
+
+    expect(self).toContain('data-testid="community-profile-running-bots-card"')
+    expect(peer).not.toContain('data-testid="community-profile-running-bots-card"')
+  })
+
   it("omits the badge when no context label exists", () => {
     const html = renderProfile()
 
@@ -283,11 +309,13 @@ describe("ProfileCard contextual metadata", () => {
   })
 
   it("keeps the desktop main card at the anchor and independently docks the preview", () => {
-    const source = readFileSync(resolve(
+    const root = resolve(
       process.cwd(),
       process.cwd().endsWith("/src/web") ? "" : "src/web",
-      "src/components/community/social/profile-card.tsx",
-    ), "utf8")
+      "src/components/community/social",
+    )
+    const source = readFileSync(resolve(root, "profile-card.tsx"), "utf8")
+    const positionSource = readFileSync(resolve(root, "profile-secondary-position.ts"), "utf8")
     const desktop = source.slice(source.indexOf("// desktop:"))
     const mainCard = desktop.indexOf(`data-testid={tid.profileCard}`)
     const independentPreview = desktop.indexOf(`data-testid={tid.botAuditPreviewDock}`)
@@ -299,10 +327,10 @@ describe("ProfileCard contextual metadata", () => {
     expect(independentPreview).toBeGreaterThan(0)
     expect(independentPreview).toBeLessThan(mainCard)
     expect(desktop).toContain("ref={popoverRef}")
-    expect(source).toContain('addEventListener("animationend", update)')
-    expect(source).toContain("cardElement.offsetWidth")
-    expect(source).toContain("previewElement.offsetWidth")
-    expect(source).toContain("measuredPosition?.measurementKey === measurementKey")
+    expect(positionSource).toContain('addEventListener("animationend", update)')
+    expect(positionSource).toContain("cardElement.offsetWidth")
+    expect(positionSource).toContain("previewElement.offsetWidth")
+    expect(positionSource).toContain("measuredPosition?.measurementKey === measurementKey")
     expect(source).toContain("data-measurement-ready={previewReady ? \"true\" : \"false\"}")
     expect(source).toContain("visibility: previewReady ? \"visible\" : \"hidden\"")
     expect(source).toContain("pointerEvents: previewReady ? undefined : \"none\"")

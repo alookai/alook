@@ -1,7 +1,15 @@
-import { and, eq, exists, isNull, sql } from "drizzle-orm";
+import { and, eq, exists, isNull, lt, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import type { Database } from "../index";
-import { userBilling, billingPrice } from "../billing-schema";
+import {
+  billingAnalyticsConsent,
+  billingPrice,
+  billingPurchaseDelivery,
+  userBilling,
+  type BillingAnalyticsConsentDecision,
+  type BillingPurchaseDeliveryStatus,
+  type BillingPurchaseType,
+} from "../billing-schema";
 import { productPlan, productPlanEntitlement, userProductPlan } from "../product-plan-schema";
 import { user } from "../schema";
 import {
@@ -29,6 +37,88 @@ export async function getBilling(db: Database, userId: string) {
 export async function getBillingByCustomer(db: Database, customerId: string) {
   const rows = await db.select().from(userBilling).where(eq(userBilling.customerId, customerId)).limit(1);
   return rows[0] ?? null;
+}
+
+export async function recordAnalyticsConsent(
+  db: Database,
+  userId: string,
+  decision: BillingAnalyticsConsentDecision,
+  sourceVersion: number,
+) {
+  if (!Number.isSafeInteger(sourceVersion) || sourceVersion <= 0) {
+    throw new Error("ANALYTICS_CONSENT_SOURCE_VERSION_INVALID");
+  }
+  const now = new Date().toISOString();
+  const rows = await db.insert(billingAnalyticsConsent).values({
+    userId,
+    decision,
+    sourceVersion,
+    revision: 1,
+    updatedAt: now,
+  }).onConflictDoUpdate({
+    target: billingAnalyticsConsent.userId,
+    set: {
+      decision,
+      sourceVersion,
+      revision: sql`CASE
+        WHEN ${billingAnalyticsConsent.decision} = ${decision} THEN ${billingAnalyticsConsent.revision}
+        ELSE ${billingAnalyticsConsent.revision} + 1
+      END`,
+      updatedAt: now,
+    },
+    setWhere: decision === "denied"
+      ? or(
+          lt(billingAnalyticsConsent.sourceVersion, sourceVersion),
+          and(
+            eq(billingAnalyticsConsent.sourceVersion, sourceVersion),
+            eq(billingAnalyticsConsent.decision, "granted"),
+          ),
+        )
+      : lt(billingAnalyticsConsent.sourceVersion, sourceVersion),
+  }).returning();
+  if (rows[0]) return rows[0];
+  const current = await getAnalyticsConsent(db, userId);
+  if (!current) throw new Error("ANALYTICS_CONSENT_WRITE_LOST");
+  return current;
+}
+
+export async function getAnalyticsConsent(db: Database, userId: string) {
+  const rows = await db.select().from(billingAnalyticsConsent)
+    .where(eq(billingAnalyticsConsent.userId, userId)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function claimPurchaseDelivery(db: Database, invoiceId: string, userId: string) {
+  const rows = await db.insert(billingPurchaseDelivery).values({
+    invoiceId,
+    userId,
+    status: "claimed",
+    reason: "delivery_in_progress",
+  }).onConflictDoNothing().returning({ invoiceId: billingPurchaseDelivery.invoiceId });
+  return rows.length === 1;
+}
+
+export async function finalizePurchaseDelivery(
+  db: Database,
+  invoiceId: string,
+  result: {
+    status: Exclude<BillingPurchaseDeliveryStatus, "claimed">;
+    reason: string;
+    purchaseType?: BillingPurchaseType;
+    currency?: string;
+    valueMinor?: number;
+    planId?: string;
+    validationJson?: string;
+  },
+) {
+  const rows = await db.update(billingPurchaseDelivery).set({
+    ...result,
+    finalizedAt: new Date().toISOString(),
+  }).where(and(
+    eq(billingPurchaseDelivery.invoiceId, invoiceId),
+    eq(billingPurchaseDelivery.status, "claimed"),
+  )).returning({ invoiceId: billingPurchaseDelivery.invoiceId });
+  return rows.length === 1;
 }
 
 export async function ensureBilling(db: Database, userId: string, founderAcknowledged = false) {

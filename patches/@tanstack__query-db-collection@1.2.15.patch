@@ -1,0 +1,754 @@
+diff --git a/dist/cjs/cursor-pagination.cjs b/dist/cjs/cursor-pagination.cjs
+new file mode 100644
+index 0000000000000000000000000000000000000000..9f93ca85cb83aac0d565cbf8643d5ae9b4216610
+--- /dev/null
++++ b/dist/cjs/cursor-pagination.cjs
+@@ -0,0 +1,172 @@
++var __defProp = Object.defineProperty;
++var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
++var __getOwnPropNames = Object.getOwnPropertyNames;
++var __hasOwnProp = Object.prototype.hasOwnProperty;
++var __export = (target, all) => {
++  for (var name in all)
++    __defProp(target, name, { get: all[name], enumerable: true });
++};
++var __copyProps = (to, from, except, desc) => {
++  if (from && typeof from === "object" || typeof from === "function") {
++    for (let key of __getOwnPropNames(from))
++      if (!__hasOwnProp.call(to, key) && key !== except)
++        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
++  }
++  return to;
++};
++var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
++var cursor_pagination_exports = {};
++__export(cursor_pagination_exports, {
++  createCursorPager: () => createCursorPager
++});
++module.exports = __toCommonJS(cursor_pagination_exports);
++var import_query_core = require("@tanstack/query-core");
++function createCursorPager({
++  queryClient,
++  queryKey,
++  fetchPage,
++  staleTime,
++  gcTime
++}) {
++  let generation = 0;
++  let tail = Promise.resolve();
++  const sequences = /* @__PURE__ */ new WeakMap();
++  const nextCursor = (page) => {
++    if (!Array.isArray(page.rows) || page.nextCursor !== null && typeof page.nextCursor !== `string`)
++      throw new TypeError(
++        `Invalid cursor page: expected rows and a string or null nextCursor`
++      );
++    return page.nextCursor;
++  };
++  const options = {
++    queryKey,
++    // Offsets address the complete sequence, never a selected or evicted prefix.
++    maxPages: 0,
++    select: void 0,
++    enabled: true,
++    ...staleTime === void 0 ? {} : { staleTime },
++    ...gcTime === void 0 ? {} : { gcTime },
++    initialPageParam: void 0,
++    queryFn: async ({
++      pageParam,
++      signal
++    }) => {
++      let params = sequences.get(signal);
++      if (pageParam === void 0 || !params) {
++        params = new Set(
++          pageParam === void 0 ? [] : queryClient.getQueryData(queryKey)?.pageParams
++        );
++        sequences.set(signal, params);
++      }
++      params.add(pageParam);
++      const page = await fetchPage(pageParam, signal);
++      const next = nextCursor(page);
++      if (next !== null && params.has(next)) {
++        throw new Error(`Backend repeated a continuation cursor`);
++      }
++      return page;
++    },
++    getNextPageParam: nextCursor
++  };
++  const abortError = () => new DOMException(`Cursor acquisition was canceled`, `AbortError`);
++  const abortable = (request, signal) => {
++    if (!signal) return request;
++    return new Promise((resolve, reject) => {
++      const abort = () => reject(signal.reason ?? abortError());
++      const cleanup = () => signal.removeEventListener(`abort`, abort);
++      request.then(
++        (value) => {
++          cleanup();
++          resolve(value);
++        },
++        (error) => {
++          cleanup();
++          reject(error);
++        }
++      );
++      if (signal.aborted) abort();
++      else signal.addEventListener(`abort`, abort, { once: true });
++    });
++  };
++  return {
++    read({ offset = 0, limit }, signal) {
++      const requestedGeneration = generation;
++      const checkCurrent = () => {
++        if (signal?.aborted) throw signal.reason ?? abortError();
++        if (requestedGeneration !== generation) {
++          throw new DOMException(`Cursor sequence was reset`, `AbortError`);
++        }
++      };
++      const run = async () => {
++        checkCurrent();
++        const end = limit === void 0 ? Infinity : offset + limit;
++        if (!Number.isSafeInteger(offset) || offset < 0 || limit !== void 0 && (!Number.isSafeInteger(limit) || limit < 0 || !Number.isSafeInteger(end)))
++          throw new RangeError(`Expected a nonnegative finite integer window`);
++        if (limit === 0) return [];
++        try {
++          const defaults = queryClient.defaultQueryOptions(options);
++          defaults.retry ??= false;
++          const observer = new import_query_core.InfiniteQueryObserver(queryClient, { ...options, retry: defaults.retry });
++          const query = observer.getCurrentQuery();
++          const acquire = async (next) => {
++            let request = (next ? observer.fetchNextPage({
++              throwOnError: true,
++              cancelRefetch: false
++            }) : observer.refetch({ throwOnError: true, cancelRefetch: false })).then((result2) => result2.data);
++            let acquisition = query.promise;
++            for (; ; ) {
++              try {
++                const [data2] = await Promise.all([request, acquisition]);
++                return data2;
++              } catch (error) {
++                if (!(0, import_query_core.isCancelledError)(error)) throw error;
++                if (!error.silent || query.promise === acquisition)
++                  throw abortError();
++                acquisition = query.promise;
++                request = acquisition;
++              }
++            }
++          };
++          const current = observer.getCurrentResult();
++          let data = current.data && !current.isStale ? current.data : await acquire(false);
++          checkCurrent();
++          if (!data.pages.length)
++            throw new TypeError(`Invalid cursor page: empty cached sequence`);
++          while (data.pages.reduce((count, page) => count + page.rows.length, 0) < end && data.pages[data.pages.length - 1]?.nextCursor !== null) {
++            data = await acquire(true);
++            checkCurrent();
++          }
++          const rows = [];
++          let start = 0;
++          for (const page of data.pages) {
++            if (start >= end) break;
++            const stop = Math.min(page.rows.length, end - start);
++            for (let index = Math.max(0, offset - start); index < stop; index++)
++              rows.push(page.rows[index]);
++            start += page.rows.length;
++          }
++          return rows;
++        } catch (error) {
++          checkCurrent();
++          throw error;
++        }
++      };
++      const result = tail.then(() => abortable(run(), signal));
++      tail = result.then(
++        () => {
++        },
++        () => {
++        }
++      );
++      return abortable(result, signal);
++    },
++    reset() {
++      generation++;
++      queryClient.removeQueries({ queryKey, exact: true });
++    }
++  };
++}
++// Annotate the CommonJS export names for ESM import in node:
++0 && (module.exports = {
++  createCursorPager
++});
+diff --git a/dist/cjs/cursor-pagination.d.cts b/dist/cjs/cursor-pagination.d.cts
+new file mode 100644
+index 0000000000000000000000000000000000000000..a35d649039c3e4e31af587de518fa861b6adeec7
+--- /dev/null
++++ b/dist/cjs/cursor-pagination.d.cts
+@@ -0,0 +1,20 @@
++import type { QueryClient, QueryKey } from '@tanstack/query-core';
++export interface CursorPage<T> {
++    rows: ReadonlyArray<T>;
++    nextCursor: string | null;
++}
++export interface CursorPagerOptions<T> {
++    queryClient: QueryClient;
++    queryKey: QueryKey;
++    fetchPage: (cursor: string | undefined, signal: AbortSignal) => Promise<CursorPage<T>>;
++    staleTime?: number;
++    gcTime?: number;
++}
++export interface CursorPager<T> {
++    read: (window: {
++        offset?: number;
++        limit?: number;
++    }, signal?: AbortSignal) => Promise<Array<T>>;
++    reset: () => void;
++}
++export declare function createCursorPager<T>({ queryClient, queryKey, fetchPage, staleTime, gcTime, }: CursorPagerOptions<T>): CursorPager<T>;
+diff --git a/dist/cjs/index.cjs b/dist/cjs/index.cjs
+index 1ce06283ed9c047765dbdea39b21fc435208659e..a0e71d11652d6b5d7cc88c907ac09190eff5b91c 100644
+--- a/dist/cjs/index.cjs
++++ b/dist/cjs/index.cjs
+@@ -2,8 +2,10 @@
+ Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
+ const query = require("./query.cjs");
+ const errors = require("./errors.cjs");
++const cursorPagination = require("./cursor-pagination.cjs");
+ const db = require("@tanstack/db");
+ exports.queryCollectionOptions = query.queryCollectionOptions;
++exports.createCursorPager = cursorPagination.createCursorPager;
+ exports.DeleteOperationItemNotFoundError = errors.DeleteOperationItemNotFoundError;
+ exports.DuplicateKeyInBatchError = errors.DuplicateKeyInBatchError;
+ exports.GetKeyRequiredError = errors.GetKeyRequiredError;
+diff --git a/dist/cjs/index.d.cts b/dist/cjs/index.d.cts
+index 461b6fd4c38e8266280c3909ccd4fff0b9039a75..3cae316f624135d9756ba28638c03457f8a32494 100644
+--- a/dist/cjs/index.d.cts
++++ b/dist/cjs/index.d.cts
+@@ -1,4 +1,6 @@
+ export type { QueryCollectionMeta } from './global.cjs';
+ export { queryCollectionOptions, type QueryCollectionConfig, type QueryCollectionUtils, type SyncOperation, } from './query.cjs';
+ export * from './errors.cjs';
++export { createCursorPager } from './cursor-pagination.cjs';
++export type { CursorPage, CursorPager, CursorPagerOptions, } from './cursor-pagination.cjs';
+ export { parseWhereExpression, parseOrderByExpression, extractSimpleComparisons, parseLoadSubsetOptions, extractFieldPath, extractValue, walkExpression, type FieldPath, type SimpleComparison, type ParseWhereOptions, type ParsedOrderBy, } from '@tanstack/db';
+diff --git a/dist/cjs/query.cjs b/dist/cjs/query.cjs
+index e5e4e0dbddb4641a346eca5502e440f9d7ea263d..0845e136fbfe03bf90eb147f0b6d3d53d3cd25e2 100644
+--- a/dist/cjs/query.cjs
++++ b/dist/cjs/query.cjs
+@@ -1138,7 +1138,9 @@ function queryCollectionOptions(config) {
+         return oldData;
+       });
+     } else {
+-      queryClient.setQueryData(key, items);
++      const previous = queryClient.getQueryData(key);
++      if (previous === void 0 || Array.isArray(previous))
++        queryClient.setQueryData(key, items);
+     }
+   };
+   const updateCacheData = (items) => {
+diff --git a/dist/esm/cursor-pagination.d.ts b/dist/esm/cursor-pagination.d.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..a35d649039c3e4e31af587de518fa861b6adeec7
+--- /dev/null
++++ b/dist/esm/cursor-pagination.d.ts
+@@ -0,0 +1,20 @@
++import type { QueryClient, QueryKey } from '@tanstack/query-core';
++export interface CursorPage<T> {
++    rows: ReadonlyArray<T>;
++    nextCursor: string | null;
++}
++export interface CursorPagerOptions<T> {
++    queryClient: QueryClient;
++    queryKey: QueryKey;
++    fetchPage: (cursor: string | undefined, signal: AbortSignal) => Promise<CursorPage<T>>;
++    staleTime?: number;
++    gcTime?: number;
++}
++export interface CursorPager<T> {
++    read: (window: {
++        offset?: number;
++        limit?: number;
++    }, signal?: AbortSignal) => Promise<Array<T>>;
++    reset: () => void;
++}
++export declare function createCursorPager<T>({ queryClient, queryKey, fetchPage, staleTime, gcTime, }: CursorPagerOptions<T>): CursorPager<T>;
+diff --git a/dist/esm/cursor-pagination.js b/dist/esm/cursor-pagination.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..e8d0241da4650d456f1dbe99edb01afc0f7a3b2e
+--- /dev/null
++++ b/dist/esm/cursor-pagination.js
+@@ -0,0 +1,149 @@
++import { InfiniteQueryObserver, isCancelledError } from "@tanstack/query-core";
++function createCursorPager({
++  queryClient,
++  queryKey,
++  fetchPage,
++  staleTime,
++  gcTime
++}) {
++  let generation = 0;
++  let tail = Promise.resolve();
++  const sequences = /* @__PURE__ */ new WeakMap();
++  const nextCursor = (page) => {
++    if (!Array.isArray(page.rows) || page.nextCursor !== null && typeof page.nextCursor !== `string`)
++      throw new TypeError(
++        `Invalid cursor page: expected rows and a string or null nextCursor`
++      );
++    return page.nextCursor;
++  };
++  const options = {
++    queryKey,
++    // Offsets address the complete sequence, never a selected or evicted prefix.
++    maxPages: 0,
++    select: void 0,
++    enabled: true,
++    ...staleTime === void 0 ? {} : { staleTime },
++    ...gcTime === void 0 ? {} : { gcTime },
++    initialPageParam: void 0,
++    queryFn: async ({
++      pageParam,
++      signal
++    }) => {
++      let params = sequences.get(signal);
++      if (pageParam === void 0 || !params) {
++        params = new Set(
++          pageParam === void 0 ? [] : queryClient.getQueryData(queryKey)?.pageParams
++        );
++        sequences.set(signal, params);
++      }
++      params.add(pageParam);
++      const page = await fetchPage(pageParam, signal);
++      const next = nextCursor(page);
++      if (next !== null && params.has(next)) {
++        throw new Error(`Backend repeated a continuation cursor`);
++      }
++      return page;
++    },
++    getNextPageParam: nextCursor
++  };
++  const abortError = () => new DOMException(`Cursor acquisition was canceled`, `AbortError`);
++  const abortable = (request, signal) => {
++    if (!signal) return request;
++    return new Promise((resolve, reject) => {
++      const abort = () => reject(signal.reason ?? abortError());
++      const cleanup = () => signal.removeEventListener(`abort`, abort);
++      request.then(
++        (value) => {
++          cleanup();
++          resolve(value);
++        },
++        (error) => {
++          cleanup();
++          reject(error);
++        }
++      );
++      if (signal.aborted) abort();
++      else signal.addEventListener(`abort`, abort, { once: true });
++    });
++  };
++  return {
++    read({ offset = 0, limit }, signal) {
++      const requestedGeneration = generation;
++      const checkCurrent = () => {
++        if (signal?.aborted) throw signal.reason ?? abortError();
++        if (requestedGeneration !== generation) {
++          throw new DOMException(`Cursor sequence was reset`, `AbortError`);
++        }
++      };
++      const run = async () => {
++        checkCurrent();
++        const end = limit === void 0 ? Infinity : offset + limit;
++        if (!Number.isSafeInteger(offset) || offset < 0 || limit !== void 0 && (!Number.isSafeInteger(limit) || limit < 0 || !Number.isSafeInteger(end)))
++          throw new RangeError(`Expected a nonnegative finite integer window`);
++        if (limit === 0) return [];
++        try {
++          const defaults = queryClient.defaultQueryOptions(options);
++          defaults.retry ??= false;
++          const observer = new InfiniteQueryObserver(queryClient, { ...options, retry: defaults.retry });
++          const query = observer.getCurrentQuery();
++          const acquire = async (next) => {
++            let request = (next ? observer.fetchNextPage({
++              throwOnError: true,
++              cancelRefetch: false
++            }) : observer.refetch({ throwOnError: true, cancelRefetch: false })).then((result2) => result2.data);
++            let acquisition = query.promise;
++            for (; ; ) {
++              try {
++                const [data2] = await Promise.all([request, acquisition]);
++                return data2;
++              } catch (error) {
++                if (!isCancelledError(error)) throw error;
++                if (!error.silent || query.promise === acquisition)
++                  throw abortError();
++                acquisition = query.promise;
++                request = acquisition;
++              }
++            }
++          };
++          const current = observer.getCurrentResult();
++          let data = current.data && !current.isStale ? current.data : await acquire(false);
++          checkCurrent();
++          if (!data.pages.length)
++            throw new TypeError(`Invalid cursor page: empty cached sequence`);
++          while (data.pages.reduce((count, page) => count + page.rows.length, 0) < end && data.pages[data.pages.length - 1]?.nextCursor !== null) {
++            data = await acquire(true);
++            checkCurrent();
++          }
++          const rows = [];
++          let start = 0;
++          for (const page of data.pages) {
++            if (start >= end) break;
++            const stop = Math.min(page.rows.length, end - start);
++            for (let index = Math.max(0, offset - start); index < stop; index++)
++              rows.push(page.rows[index]);
++            start += page.rows.length;
++          }
++          return rows;
++        } catch (error) {
++          checkCurrent();
++          throw error;
++        }
++      };
++      const result = tail.then(() => abortable(run(), signal));
++      tail = result.then(
++        () => {
++        },
++        () => {
++        }
++      );
++      return abortable(result, signal);
++    },
++    reset() {
++      generation++;
++      queryClient.removeQueries({ queryKey, exact: true });
++    }
++  };
++}
++export {
++  createCursorPager
++};
+diff --git a/dist/esm/index.d.ts b/dist/esm/index.d.ts
+index ee2374263738cde1f380f3f357b65c2575674fe2..85dc96f9cf252e66debb129da022d5bfb4a32bb4 100644
+--- a/dist/esm/index.d.ts
++++ b/dist/esm/index.d.ts
+@@ -1,4 +1,6 @@
+ export type { QueryCollectionMeta } from './global.js';
+ export { queryCollectionOptions, type QueryCollectionConfig, type QueryCollectionUtils, type SyncOperation, } from './query.js';
+ export * from './errors.js';
++export { createCursorPager } from './cursor-pagination.js';
++export type { CursorPage, CursorPager, CursorPagerOptions, } from './cursor-pagination.js';
+ export { parseWhereExpression, parseOrderByExpression, extractSimpleComparisons, parseLoadSubsetOptions, extractFieldPath, extractValue, walkExpression, type FieldPath, type SimpleComparison, type ParseWhereOptions, type ParsedOrderBy, } from '@tanstack/db';
+diff --git a/dist/esm/index.js b/dist/esm/index.js
+index 767c6691799a0008266c339e5806e74afd8f0135..668d1600c46ff4c09c13f4c2c4106c3fb25aed50 100644
+--- a/dist/esm/index.js
++++ b/dist/esm/index.js
+@@ -1,5 +1,6 @@
+ import { queryCollectionOptions } from "./query.js";
+ import { DeleteOperationItemNotFoundError, DuplicateKeyInBatchError, GetKeyRequiredError, InitialDataInOnDemandModeError, InvalidItemStructureError, InvalidSyncOperationError, ItemNotFoundError, MissingKeyFieldError, QueryClientRequiredError, QueryCollectionError, QueryFnRequiredError, QueryKeyRequiredError, SyncNotInitializedError, UnknownOperationTypeError, UpdateOperationItemNotFoundError } from "./errors.js";
++import { createCursorPager } from "./cursor-pagination.js";
+ import { extractFieldPath, extractSimpleComparisons, extractValue, parseLoadSubsetOptions, parseOrderByExpression, parseWhereExpression, walkExpression } from "@tanstack/db";
+ export {
+   DeleteOperationItemNotFoundError,
+@@ -17,6 +18,7 @@ export {
+   SyncNotInitializedError,
+   UnknownOperationTypeError,
+   UpdateOperationItemNotFoundError,
++  createCursorPager,
+   extractFieldPath,
+   extractSimpleComparisons,
+   extractValue,
+diff --git a/dist/esm/query.js b/dist/esm/query.js
+index 0c28eb2df8f83b2d84a2fb47bdcff4eeeb733373..261440e13968f0c77d6d3fbc62e394fbfe4fdebf 100644
+--- a/dist/esm/query.js
++++ b/dist/esm/query.js
+@@ -1136,7 +1136,9 @@ function queryCollectionOptions(config) {
+         return oldData;
+       });
+     } else {
+-      queryClient.setQueryData(key, items);
++      const previous = queryClient.getQueryData(key);
++      if (previous === void 0 || Array.isArray(previous))
++        queryClient.setQueryData(key, items);
+     }
+   };
+   const updateCacheData = (items) => {
+diff --git a/src/cursor-pagination.ts b/src/cursor-pagination.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..7f9fbfc78af7d9dabead28a156d2df30194d4242
+--- /dev/null
++++ b/src/cursor-pagination.ts
+@@ -0,0 +1,241 @@
++import { InfiniteQueryObserver, isCancelledError } from '@tanstack/query-core'
++import type { InfiniteData, QueryClient, QueryKey } from '@tanstack/query-core'
++
++/** One backend page. Only null means the ordered result is exhausted. */
++export interface CursorPage<T> {
++  rows: ReadonlyArray<T>
++  nextCursor: string | null
++}
++
++export interface CursorPagerOptions<T> {
++  queryClient: QueryClient
++  /** Dedicated infinite-query key: include the source, filters and order, not the window. */
++  queryKey: QueryKey
++  fetchPage: (
++    cursor: string | undefined,
++    signal: AbortSignal,
++  ) => Promise<CursorPage<T>>
++  /** Query's freshness interval. Defaults to the QueryClient's setting. */
++  staleTime?: number
++  /** Query's inactive cache lifetime. Defaults to the QueryClient's setting. */
++  gcTime?: number
++}
++
++export interface CursorPager<T> {
++  read: (
++    window: { offset?: number; limit?: number },
++    signal?: AbortSignal,
++  ) => Promise<Array<T>>
++  /** Remove this key's cached pages and invalidate this pager's queued reads. */
++  reset: () => void
++}
++
++/**
++ * Fulfill offset/limit windows using opaque backend cursors. Query owns the
++ * pages, freshness, invalidation and garbage collection. Use one dedicated key
++ * per filtered, totally ordered source. Loading more reuses fresh pages; refreshing
++ * stale data rebuilds the loaded sequence from its first page.
++ *
++ * The key must not also be used for ordinary QueryCollection row arrays.
++ * Use sibling row/page prefixes under one resource prefix, not pages beneath
++ * the row prefix (manual writes update that whole prefix). For a forced refresh,
++ * cancel the resource prefix before invalidating it. A positive staleTime avoids
++ * refreshing on every read.
++ *
++ * Reads on one pager serialize; separate pagers share Query's cache and fetches.
++ * Aborting a reader discards its answer, not shared cached
++ * pages. Cancel the query through QueryClient to cancel its transport. Neither
++ * cancellation nor a TTL can repair a backend's inconsistent cursor sequence.
++ */
++export function createCursorPager<T>({
++  queryClient,
++  queryKey,
++  fetchPage,
++  staleTime,
++  gcTime,
++}: CursorPagerOptions<T>): CursorPager<T> {
++  let generation = 0
++  let tail = Promise.resolve()
++  const sequences = new WeakMap<AbortSignal, Set<string | undefined>>()
++  type Pages = InfiniteData<CursorPage<T>, string | undefined>
++  const nextCursor = (page: CursorPage<T>) => {
++    if (
++      !Array.isArray(page.rows) ||
++      (page.nextCursor !== null && typeof page.nextCursor !== `string`)
++    )
++      throw new TypeError(
++        `Invalid cursor page: expected rows and a string or null nextCursor`,
++      )
++    return page.nextCursor
++  }
++  const options = {
++    queryKey,
++    // Offsets address the complete sequence, never a selected or evicted prefix.
++    maxPages: 0,
++    select: undefined,
++    enabled: true,
++    ...(staleTime === undefined ? {} : { staleTime }),
++    ...(gcTime === undefined ? {} : { gcTime }),
++    initialPageParam: undefined as string | undefined,
++    queryFn: async ({
++      pageParam,
++      signal,
++    }: {
++      pageParam: string | undefined
++      signal: AbortSignal
++    }) => {
++      let params = sequences.get(signal)
++      if (pageParam === undefined || !params) {
++        // Refresh starts a new sequence; growth extends the validated cache.
++        // Query gives every page/retry in an acquisition the same signal.
++        params = new Set(
++          pageParam === undefined
++            ? []
++            : queryClient.getQueryData<
++                InfiniteData<CursorPage<T>, string | undefined>
++              >(queryKey)?.pageParams,
++        )
++        sequences.set(signal, params)
++      }
++      params.add(pageParam)
++      const page = await fetchPage(pageParam, signal)
++      // Validate even the final response, before Query publishes success or
++      // resolves shared waiters. getNextPageParam runs too late for that.
++      const next = nextCursor(page)
++      if (next !== null && params.has(next)) {
++        throw new Error(`Backend repeated a continuation cursor`)
++      }
++      return page
++    },
++    getNextPageParam: nextCursor,
++  }
++
++  const abortError = () =>
++    new DOMException(`Cursor acquisition was canceled`, `AbortError`)
++  const abortable = <TResult>(
++    request: Promise<TResult>,
++    signal?: AbortSignal,
++  ) => {
++    if (!signal) return request
++    return new Promise<TResult>((resolve, reject) => {
++      const abort = () => reject(signal.reason ?? abortError())
++      const cleanup = () => signal.removeEventListener(`abort`, abort)
++      request.then(
++        (value) => {
++          cleanup()
++          resolve(value)
++        },
++        (error) => {
++          cleanup()
++          reject(error)
++        },
++      )
++      if (signal.aborted) abort()
++      else signal.addEventListener(`abort`, abort, { once: true })
++    })
++  }
++
++  return {
++    read({ offset = 0, limit }, signal) {
++      const requestedGeneration = generation
++      const checkCurrent = () => {
++        if (signal?.aborted) throw signal.reason ?? abortError()
++        if (requestedGeneration !== generation) {
++          throw new DOMException(`Cursor sequence was reset`, `AbortError`)
++        }
++      }
++      const run = async () => {
++        checkCurrent()
++        const end = limit === undefined ? Infinity : offset + limit
++        if (
++          !Number.isSafeInteger(offset) ||
++          offset < 0 ||
++          (limit !== undefined &&
++            (!Number.isSafeInteger(limit) ||
++              limit < 0 ||
++              !Number.isSafeInteger(end)))
++        )
++          throw new RangeError(`Expected a nonnegative finite integer window`)
++        if (limit === 0) return []
++        try {
++          const defaults = queryClient.defaultQueryOptions(options)
++          // Match imperative fetchQuery defaults in browsers as well as Node.
++          defaults.retry ??= false
++          const observer = new InfiniteQueryObserver<
++            CursorPage<T>,
++            Error,
++            Pages,
++            QueryKey,
++            string | undefined
++          >(queryClient, { ...options, retry: defaults.retry })
++          const query = observer.getCurrentQuery()
++          const acquire = async (next: boolean): Promise<Pages> => {
++            let request = (
++              next
++                ? observer.fetchNextPage({
++                    throwOnError: true,
++                    cancelRefetch: false,
++                  })
++                : observer.refetch({ throwOnError: true, cancelRefetch: false })
++            ).then((result) => result.data!)
++            let acquisition = query.promise!
++            for (;;) {
++              try {
++                const [data] = await Promise.all([request, acquisition])
++                return data
++              } catch (error) {
++                if (!isCancelledError(error)) throw error
++                if (!error.silent || query.promise === acquisition)
++                  throw abortError()
++                // A cancelling refetch supersedes the old transport. Follow
++                // its replacement, but never leak Query's control error into
++                // an enclosing row query as though that query was canceled.
++                acquisition = query.promise!
++                request = acquisition
++              }
++            }
++          }
++          const current = observer.getCurrentResult()
++          let data =
++            current.data && !current.isStale
++              ? current.data
++              : await acquire(false)
++          checkCurrent()
++          if (!data.pages.length)
++            throw new TypeError(`Invalid cursor page: empty cached sequence`)
++          while (
++            data.pages.reduce((count, page) => count + page.rows.length, 0) <
++              end &&
++            data.pages[data.pages.length - 1]?.nextCursor !== null
++          ) {
++            data = await acquire(true)
++            checkCurrent()
++          }
++          const rows: Array<T> = []
++          let start = 0
++          for (const page of data.pages) {
++            if (start >= end) break
++            const stop = Math.min(page.rows.length, end - start)
++            for (let index = Math.max(0, offset - start); index < stop; index++)
++              rows.push(page.rows[index]!)
++            start += page.rows.length
++          }
++          return rows
++        } catch (error) {
++          checkCurrent()
++          throw error
++        }
++      }
++      const result = tail.then(() => abortable(run(), signal))
++      tail = result.then(
++        () => {},
++        () => {},
++      )
++      return abortable(result, signal)
++    },
++    reset() {
++      generation++
++      queryClient.removeQueries({ queryKey, exact: true })
++    },
++  }
++}
+diff --git a/src/index.ts b/src/index.ts
+index 14a5fe7022f1eb7f12f25898b7318138888be313..565d141b346a437714f863ad46e623fd7e241fe7 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -11,6 +11,13 @@ export {
+ 
+ export * from './errors'
+ 
++export { createCursorPager } from './cursor-pagination'
++export type {
++  CursorPage,
++  CursorPager,
++  CursorPagerOptions,
++} from './cursor-pagination'
++
+ // Re-export expression helpers from @tanstack/db
+ export {
+   parseWhereExpression,
+diff --git a/src/query.ts b/src/query.ts
+index cc797f59bba78464423e72dce3e417599b5ec879..a192f0b621c5671b78dd7132f68e30ec1b4ed003 100644
+--- a/src/query.ts
++++ b/src/query.ts
+@@ -2248,8 +2248,11 @@ export function queryCollectionOptions(
+         return oldData
+       })
+     } else {
+-      // No select - cache contains raw array, just set it directly
+-      queryClient.setQueryData(key, items)
++      // Raw row writes must not overwrite a different cache format. Avoid even
++      // a no-op setQueryData: it marks unrelated data fresh and clears invalidation.
++      const previous = queryClient.getQueryData(key)
++      if (previous === undefined || Array.isArray(previous))
++        queryClient.setQueryData(key, items)
+     }
+   }
+ 

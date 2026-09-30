@@ -7,6 +7,8 @@ import {
   advanceCommunityOnboarding,
   completeCommunityOnboarding,
   consumeQueuedCommunityOnboarding,
+  recoverCommunityOnboardingHarness,
+  skipCommunityOnboarding,
   startCommunityOnboarding,
   useCommunityOnboarding,
 } from "@/lib/community-onboarding"
@@ -142,6 +144,13 @@ export function CommunityOnboardingForm() {
         harnessLabel={harnessLabel(state.harness)}
         onConnected={(machineId) => {
           advanceCommunityOnboarding("machine", "identity", { machineId })
+        }}
+        onChooseAnotherHarness={() => {
+          setHarness("")
+          recoverCommunityOnboardingHarness()
+        }}
+        onManageMachines={() => {
+          skipCommunityOnboarding()
         }}
       />
     )

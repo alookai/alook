@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { isPresenceOnline } from "@alook/shared"
+import { CircleAlert } from "lucide-react"
 import { toast } from "sonner"
 
 import {
@@ -27,6 +28,8 @@ export function OnboardingMachineDialog({
   harness,
   harnessLabel,
   onConnected,
+  onChooseAnotherHarness,
+  onManageMachines,
   previewConnectedMachine,
   previewCommand,
 }: {
@@ -34,6 +37,8 @@ export function OnboardingMachineDialog({
   harness: string
   harnessLabel: string
   onConnected: (machineId: string) => void
+  onChooseAnotherHarness: () => void
+  onManageMachines: () => void
   previewConnectedMachine?: { id: string; hostname: string }
   previewCommand?: string
 }) {
@@ -52,6 +57,7 @@ export function OnboardingMachineDialog({
   const [tokenId, setTokenId] = useState<string | null>(null)
   const [generating, setGenerating] = useState(false)
   const [generateError, setGenerateError] = useState<string | null>(null)
+  const [machineLimitReached, setMachineLimitReached] = useState(false)
   const generationInFlight = useRef(false)
 
   const generateCommand = useCallback(async () => {
@@ -59,19 +65,25 @@ export function OnboardingMachineDialog({
     generationInFlight.current = true
     setGenerating(true)
     setGenerateError(null)
+    setMachineLimitReached(false)
     try {
       const result = await apiFetch<{ tokenId: string; expiresAt: string }>(
         "/api/community/machines/pair",
         { method: "POST" },
       )
       setTokenId(result.tokenId)
-    } catch {
+    } catch (error) {
+      if (error instanceof Error && error.message === "MACHINE_LIMIT_REACHED") {
+        setMachineLimitReached(true)
+        void refetch()
+        return
+      }
       setGenerateError("Couldn’t prepare the command. Try again.")
     } finally {
       generationInFlight.current = false
       setGenerating(false)
     }
-  }, [])
+  }, [refetch])
 
   useEffect(() => {
     if (
@@ -82,6 +94,7 @@ export function OnboardingMachineDialog({
       previewCommand ||
       tokenId ||
       generating ||
+      machineLimitReached ||
       generateError
     ) return
     void generateCommand()
@@ -90,6 +103,7 @@ export function OnboardingMachineDialog({
     generateError,
     generating,
     isSuccess,
+    machineLimitReached,
     onlineMachine,
     open,
     previewConnectedMachine,
@@ -152,25 +166,50 @@ export function OnboardingMachineDialog({
         </DialogHeader>
 
         <div className="flex flex-col gap-4 px-4 pb-4 sm:px-6 sm:pb-6">
-          <PairMachineSteps
-            command={displayedCommand}
-            generating={
-              !previewConnectedMachine
-              && !previewCommand
-              && (!isSuccess || generating || (!command && !generateError))
-            }
-            generationError={generateError}
-            onRetry={() => void generateCommand()}
-            onCopy={() => void copyCommand()}
-            connectedHostname={
-              previewConnectedMachine?.hostname
-                ?? (onlineMachine ? onlineMachine.hostname || "Your machine" : null)
-            }
-            headingAs="div"
-            concise
-          />
+          {machineLimitReached && !onlineMachine ? (
+            <section
+              role="alert"
+              className="flex flex-col gap-3 rounded-xl border border-warning/30 bg-warning/5 p-4"
+            >
+              <div className="flex items-start gap-3">
+                <CircleAlert aria-hidden className="mt-0.5 size-5 shrink-0 text-warning" />
+                <div className="flex min-w-0 flex-col gap-1">
+                  <h3 className="text-sm font-medium text-foreground">Machine limit reached</h3>
+                  <p className="text-sm leading-relaxed text-muted-foreground">
+                    Your plan can’t connect another machine. Choose a harness already available on an online machine, or manage your machines and restart setup.
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                <Button type="button" variant="outline" onClick={onChooseAnotherHarness}>
+                  Choose another harness
+                </Button>
+                <Button type="button" onClick={onManageMachines}>
+                  Manage machines
+                </Button>
+              </div>
+            </section>
+          ) : (
+            <PairMachineSteps
+              command={displayedCommand}
+              generating={
+                !previewConnectedMachine
+                && !previewCommand
+                && (!isSuccess || generating || (!command && !generateError))
+              }
+              generationError={generateError}
+              onRetry={() => void generateCommand()}
+              onCopy={() => void copyCommand()}
+              connectedHostname={
+                previewConnectedMachine?.hostname
+                  ?? (onlineMachine ? onlineMachine.hostname || "Your machine" : null)
+              }
+              headingAs="div"
+              concise
+            />
+          )}
 
-          {!previewConnectedMachine && !onlineMachine && connectedMachine ? (
+          {!machineLimitReached && !previewConnectedMachine && !onlineMachine && connectedMachine ? (
             <p role="status" className="text-sm text-muted-foreground">
               {harnessLabel} isn’t available on {connectedMachine.hostname || "this machine"} yet.
             </p>

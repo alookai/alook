@@ -22,11 +22,11 @@ vi.mock("lucide-react", () => ({
   Lock: "lock-icon",
 }))
 
+import { BotAuditPreview } from "./bot-audit-preview"
 import {
-  BotAuditPreview,
   isBotActivityActive,
   isBotActivityRunning,
-} from "./bot-audit-preview"
+} from "@/lib/community/bot-activity-status"
 
 const globalCss = readFileSync(resolve(
   process.cwd(),

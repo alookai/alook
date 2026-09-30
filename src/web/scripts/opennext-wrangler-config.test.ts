@@ -51,6 +51,8 @@ describe("OpenNext and Wrangler refresh", () => {
     const rootManifest = readPackage("package.json")
     expect(rootManifest.pnpm?.patchedDependencies).toEqual({
       "@opennextjs/aws@4.1.4": "patches/@opennextjs__aws@4.1.4.patch",
+      "@tanstack/query-db-collection@1.2.15":
+        "patches/@tanstack__query-db-collection@1.2.15.patch",
     })
     expect(existsSync(new URL("patches/@opennextjs__aws@4.1.4.patch", repositoryRoot))).toBe(true)
     expect(existsSync(new URL("patches/@opennextjs__aws@4.1.0.patch", repositoryRoot))).toBe(false)
