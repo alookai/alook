@@ -63,7 +63,7 @@ function sameConversation(
 }
 
 export function createNativeSystemNotificationConversationDismissalQueue(
-  deps: NativeSystemNotificationDismissalDeps,
+  deps: Pick<NativeSystemNotificationDismissalDeps, "getItem" | "setItem" | "removeItem">,
 ) {
   function remove() {
     try { deps.removeItem(CONVERSATION_KEY) } catch {}

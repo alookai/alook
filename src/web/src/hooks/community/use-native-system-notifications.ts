@@ -92,7 +92,6 @@ export function useNativeSystemNotificationConversationDismissal(
       getItem: (storageKey) => window.localStorage.getItem(storageKey),
       setItem: (storageKey, value) => window.localStorage.setItem(storageKey, value),
       removeItem: (storageKey) => window.localStorage.removeItem(storageKey),
-      now: () => Date.now(),
     })
     queue.queue(platform, viewerUserId, dismissalTarget)
     drainNativeSystemNotificationConversationDismissals(platform, viewerUserId, queue)
@@ -324,7 +323,6 @@ export function useNativeSystemNotifications(viewerUserId: string) {
       getItem: (key) => window.localStorage.getItem(key),
       setItem: (key, value) => window.localStorage.setItem(key, value),
       removeItem: (key) => window.localStorage.removeItem(key),
-      now: () => Date.now(),
     })
     const inbox = createDesktopSystemNotificationInboxOpener({
       getItem: (key) => window.sessionStorage.getItem(key),

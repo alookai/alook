@@ -111,4 +111,45 @@ describe("native notification conversation dismissal retry queue", () => {
     expect(queue.queue("mobile", "viewer_1", serverTarget)).toBe(true)
     expect(queue.pending("mobile", "viewer_1")).toEqual([serverTarget])
   })
+
+  it("round-trips an exact DM target", () => {
+    const values = new Map<string, string>()
+    const queue = createNativeSystemNotificationConversationDismissalQueue(deps(values))
+    const dmTarget = { kind: "dm" as const, channelId: "dm_1" }
+
+    expect(queue.queue("mobile", "viewer_1", dmTarget)).toBe(true)
+    expect(queue.pending("mobile", "viewer_1")).toEqual([dmTarget])
+    expect(queue.complete("mobile", "viewer_1", dmTarget)).toBe(true)
+    expect(values.size).toBe(0)
+  })
+
+  it("contains corrupt-storage cleanup and write failures", () => {
+    const corruptValues = new Map([
+      ["alook:native-system-notification:conversation-dismissals", "corrupt"],
+    ])
+    const removeItem = vi.fn((key: string) => { corruptValues.delete(key) })
+    const corrupt = createNativeSystemNotificationConversationDismissalQueue(deps(
+      corruptValues,
+      { removeItem },
+    ))
+
+    expect(corrupt.pending("desktop", "viewer_1")).toEqual([])
+    expect(removeItem).toHaveBeenCalledOnce()
+    expect(corruptValues.size).toBe(0)
+
+    const removeBlocked = createNativeSystemNotificationConversationDismissalQueue(deps(
+      new Map([["alook:native-system-notification:conversation-dismissals", "corrupt"]]),
+      { removeItem: () => { throw new Error("blocked") } },
+    ))
+    expect(removeBlocked.pending("desktop", "viewer_1")).toEqual([])
+
+    const writeBlocked = createNativeSystemNotificationConversationDismissalQueue(deps(
+      new Map(),
+      { setItem: () => { throw new Error("blocked") } },
+    ))
+    expect(writeBlocked.queue("mobile", "viewer_1", {
+      kind: "dm",
+      channelId: "dm_1",
+    })).toBe(false)
+  })
 })
