@@ -479,7 +479,10 @@ function sync(){
   cancelAnimationFrame(request);
   last=undefined;
   if(media.matches)apply(REDUCED_MOTION_FRAME);
-  else if(!document.hidden)request=requestAnimationFrame(tick);
+  else{
+    apply(0);
+    if(!document.hidden)request=requestAnimationFrame(tick);
+  }
 }
 media.addEventListener("change",sync);
 document.addEventListener("visibilitychange",sync);
@@ -996,6 +999,31 @@ mod tests {
         assert!(web_frame.contains("width: 660"));
         assert!(web_frame.contains("height: 660"));
         assert!(web_frame.contains("rotate: `${orbit}deg`"));
+    }
+
+    #[test]
+    fn desktop_splash_applies_complete_frame_before_the_first_animation_request() {
+        let html = splash_html();
+        let sync_start = html.find("function sync(){").unwrap();
+        let sync_end = html[sync_start..]
+            .find("media.addEventListener")
+            .map(|offset| sync_start + offset)
+            .unwrap();
+        let sync = &html[sync_start..sync_end];
+        let complete_frame = sync.find("apply(0);").unwrap();
+        let first_request = sync.find("request=requestAnimationFrame(tick);").unwrap();
+
+        assert!(complete_frame < first_request);
+        assert!(html.contains(
+            "clip.style.clipPath=`inset(${-300*(1-joined)}px round ${152.109375*joined}px)`"
+        ));
+        assert!(html.contains(
+            "face.wrapper.style.translate=`${bot.x*.96*(1-joined)}px ${bot.y*.96*(1-joined)}px`"
+        ));
+        assert!(html.contains("face.wrapper.style.scale=String(bot.scale+(1-bot.scale)*joined)"));
+        assert!(html.contains("face.art.style.rotate=`${look*bot.tilt}deg`"));
+        assert!(html.contains("const expressionOpacity=index===4?1:1-smooth((joined-.45)/.55)"));
+        assert!(html.contains("expression.style.opacity=String(expressionOpacity)"));
     }
 
     #[test]
