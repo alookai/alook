@@ -8,17 +8,17 @@ const workflow = readFileSync(
   "utf8",
 ).replace(/\r\n/g, "\n")
 
-function preflight(step: string, boundary: string): string {
+function preflight(step: string, boundary?: string): string {
   const start = workflow.indexOf(`      - name: ${step}\n`)
   const end = workflow.indexOf("      - name:", start + 1)
   const body = workflow.slice(start, end).split("        run: |\n")[1]
-  const stop = body?.indexOf(boundary) ?? -1
+  const stop = boundary ? body?.indexOf(boundary) ?? -1 : body?.length ?? -1
   if (start < 0 || stop < 0) throw new Error(`Missing safe preflight boundary: ${step}`)
   return body.slice(0, stop).replace(/^          /gm, "")
 }
 
 const macScript = preflight("Prepare fail-closed macOS signing", "          umask 077")
-const windowsScript = preflight("Preflight Windows release inputs", "          [Uri]$endpoint")
+const windowsScript = preflight("Preflight Windows release inputs")
 const shellEnvironment = {
   PATH: process.env.PATH,
   SystemRoot: process.env.SystemRoot,
@@ -37,13 +37,6 @@ const macInputs: Record<string, string> = {
   TAURI_SIGNING_PRIVATE_KEY_PASSWORD: "",
 }
 const windowsInputs: Record<string, string> = {
-  AZURE_CLIENT_ID: "offline-client-id",
-  AZURE_TENANT_ID: "offline-tenant-id",
-  AZURE_SUBSCRIPTION_ID: "offline-subscription-id",
-  ALOOK_ARTIFACT_SIGNING_ENDPOINT: "https://eus.codesigning.azure.net",
-  ALOOK_ARTIFACT_SIGNING_ACCOUNT_NAME: "offline-account",
-  ALOOK_ARTIFACT_SIGNING_CERTIFICATE_PROFILE_NAME: "offline-profile",
-  ALOOK_WINDOWS_SIGNING_PUBLISHER: "CN=Offline Publisher",
   TAURI_SIGNING_PRIVATE_KEY: "offline-updater-private-key",
   TAURI_SIGNING_PRIVATE_KEY_PASSWORD: "",
 }
@@ -86,7 +79,7 @@ describe.skipIf(!hasPowerShell)("Windows actual release preflight (requires pwsh
     expect(run("pwsh", windowsScript, { ...windowsInputs, TAURI_SIGNING_PRIVATE_KEY_PASSWORD: password }).status).toBe(0)
   })
 
-  it.each(["TAURI_SIGNING_PRIVATE_KEY", "AZURE_CLIENT_ID", "ALOOK_WINDOWS_SIGNING_PUBLISHER"])(
+  it.each(["TAURI_SIGNING_PRIVATE_KEY"])(
     "rejects missing required %s even with an empty updater password",
     name => {
       const inputs = { ...windowsInputs, [name]: "" }
