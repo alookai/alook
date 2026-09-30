@@ -60,15 +60,18 @@ describe("AlookLoading playback lifecycle", () => {
     document.dispatchEvent(new Event("visibilitychange"))
   })
 
-  it("advances the shared artwork and wraps exactly at nine seconds", () => {
+  it("first paints the completed logo, advances, and wraps to that exact frame", () => {
     const view = render(React.createElement(AlookLoading))
     const initial = view.container.innerHTML
     expect(observe).toHaveBeenCalledWith(view.getByRole("status"))
     expect(view.getByRole("status")).toHaveAttribute("aria-label", "Loading")
+    expect(initial).toContain("round 152.109375px")
+    expect(initial.match(/translate: 0px 0px/g)).toHaveLength(5)
     tick(0)
+    expect(view.container.innerHTML).toBe(initial)
     tick(2500)
     expect(view.container.innerHTML).not.toBe(initial)
-    expect(view.container.innerHTML).toContain("round 152.109375px")
+    expect(view.container.innerHTML).not.toContain("round 152.109375px")
     tick(6500)
     expect(view.container.innerHTML).not.toBe(initial)
     tick(7500)
@@ -108,7 +111,7 @@ describe("AlookLoading playback lifecycle", () => {
     intersect(true)
     tick(3000)
     expect(view.container.innerHTML).toBe(before)
-    tick(3200)
+    tick(3700)
     expect(view.container.innerHTML).not.toBe(before)
     visibility(true)
     const hiddenFrame = view.container.innerHTML
@@ -125,6 +128,7 @@ describe("AlookLoading playback lifecycle", () => {
     media.matches = true
     const remove = vi.spyOn(document, "removeEventListener")
     const view = render(React.createElement(AlookLoading))
+    const completed = view.container.innerHTML
     expect(frames.size).toBe(0)
     expect(view.container.innerHTML).toContain("round 152.109375px")
     reduce(false)
@@ -133,7 +137,7 @@ describe("AlookLoading playback lifecycle", () => {
     tick(100)
     reduce(true)
     expect(frames.size).toBe(0)
-    expect(view.container.innerHTML).toContain("round 152.109375px")
+    expect(view.container.innerHTML).toBe(completed)
     reduce(false)
     expect(frames.size).toBe(1)
     view.unmount()
