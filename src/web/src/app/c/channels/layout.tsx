@@ -411,11 +411,6 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     )
   }, [cancelPendingNavigation, serverId])
 
-  const prefetchChannel = useCallback(
-    (id: string, _parentId?: string) => router.prefetch(channelHref(serverId, id)),
-    [router, serverId],
-  )
-
   const onSidebarOpenSettings = useCallback((section?: SettingsSection) => {
     if (section) setSettingsSection(section)
     setServerSettingsOpen(true)
@@ -487,7 +482,6 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     isAdmin,
     currentUserId: currentUser.id,
     setActiveChannel,
-    prefetchChannel,
     forumThreadsByParent,
     activeThreadId: activeForumThreadId,
     onSelectForumThread: setActiveForumThread,
@@ -510,7 +504,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   }), [
     currentServer, sidebarHintOnly,
     currentChannelMeta?.parentChannelId,
-    currentChannelId, isAdmin, currentUser.id, setActiveChannel, prefetchChannel,
+    currentChannelId, isAdmin, currentUser.id, setActiveChannel,
     forumThreadsByParent, activeForumThreadId, setActiveForumThread,
     onSidebarOpenSettings, onBlockedCreate, mutedChannels,
     onCreateChannelInSidebar, onCreateCategoryInSidebar, onRenameChannel,

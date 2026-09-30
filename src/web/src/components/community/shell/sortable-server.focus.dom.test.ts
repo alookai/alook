@@ -78,15 +78,13 @@ describe("SortableServer stable menu trigger", () => {
     const focus = vi.spyOn(HTMLElement.prototype, "focus")
     const dispose = vi.fn()
     const registerItem = vi.fn(() => dispose)
-    const onPrefetch = vi.fn()
-    const result = renderServer(false, 0, false, { registerItem, onPrefetch })
+    const result = renderServer(false, 0, false, { registerItem })
     const originalButton = result.button()
 
     fireEvent.pointerEnter(result.activationRoot())
 
     expect(result.button()).toBe(originalButton)
     expect(registerItem).toHaveBeenCalledTimes(1)
-    expect(onPrefetch).toHaveBeenCalledTimes(1)
     expect(result.container.querySelectorAll("context-menu-trigger")).toHaveLength(1)
     expect(result.container.querySelectorAll("context-menu-content")).toHaveLength(1)
     expect(focus).not.toHaveBeenCalled()

@@ -27,7 +27,6 @@ type SortableServerProps = {
   server: Server;
   active?: boolean;
   onClick: () => void;
-  onPrefetch?: () => void;
   onLeave?: () => void;
   onOpenSettings?: () => void;
   onOpenInvitePopover?: () => void;
@@ -46,7 +45,6 @@ function SortableServerImpl({
   server,
   active,
   onClick,
-  onPrefetch,
   onLeave,
   onOpenSettings,
   onOpenInvitePopover,
@@ -69,9 +67,8 @@ function SortableServerImpl({
     )
   }, [registerItem, server.id])
   const activate = activated ? undefined : () => setActivated(true);
-  const activateAndPrefetch = () => {
+  const activateMenu = () => {
     activate?.();
-    onPrefetch?.();
   };
 
   const icon = (
@@ -79,9 +76,9 @@ function SortableServerImpl({
       ref={rootRef}
       style={{ opacity: isDragActive ? 0.3 : 1 }}
       className="group relative flex w-full justify-center"
-      onPointerEnter={activateAndPrefetch}
+      onPointerEnter={activateMenu}
       onPointerDownCapture={activate}
-      onFocusCapture={activateAndPrefetch}
+      onFocusCapture={activateMenu}
       onKeyDownCapture={activate}
       onContextMenuCapture={activate}
     >
@@ -244,8 +241,7 @@ export function serverPropsEqual(prev: SortableServerProps, next: SortableServer
     !!prev.onLeave === !!next.onLeave &&
     !!prev.onOpenSettings === !!next.onOpenSettings &&
     !!prev.onOpenInvitePopover === !!next.onOpenInvitePopover &&
-    prev.dragDescriptionId === next.dragDescriptionId &&
-    !!prev.onPrefetch === !!next.onPrefetch
+    prev.dragDescriptionId === next.dragDescriptionId
   );
 }
 

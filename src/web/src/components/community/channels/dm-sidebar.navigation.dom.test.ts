@@ -52,10 +52,7 @@ describe("DmSidebar navigation intent", () => {
     expect(dmList).toHaveClass("min-h-0", "flex-1", "overflow-y-auto")
   })
 
-  it("prefetches the fixed destinations on pointer and keyboard intent", () => {
-    const onPrefetchFriends = vi.fn()
-    const onPrefetchMachines = vi.fn()
-    const onPrefetchBots = vi.fn()
+  it("waits for activation before navigating to fixed destinations", () => {
     const onShowFriends = vi.fn()
     const onShowMachines = vi.fn()
     const onShowBots = vi.fn()
@@ -64,11 +61,8 @@ describe("DmSidebar navigation intent", () => {
       activeDm: null,
       onPickDm: vi.fn(),
       onShowFriends,
-      onPrefetchFriends,
       onShowMachines,
-      onPrefetchMachines,
       onShowBots,
-      onPrefetchBots,
     }))
 
     const [friends, machines, bots] = renderer.container.querySelectorAll("button")
@@ -76,17 +70,20 @@ describe("DmSidebar navigation intent", () => {
     fireEvent.focus(machines!)
     fireEvent.pointerEnter(bots!)
 
-    expect(onPrefetchFriends).toHaveBeenCalledTimes(1)
-    expect(onPrefetchMachines).toHaveBeenCalledTimes(1)
-    expect(onPrefetchBots).toHaveBeenCalledTimes(1)
     expect(onShowFriends).not.toHaveBeenCalled()
     expect(onShowMachines).not.toHaveBeenCalled()
     expect(onShowBots).not.toHaveBeenCalled()
 
+    fireEvent.click(friends!)
+    fireEvent.click(machines!)
+    fireEvent.click(bots!)
+    expect(onShowFriends).toHaveBeenCalledTimes(1)
+    expect(onShowMachines).toHaveBeenCalledTimes(1)
+    expect(onShowBots).toHaveBeenCalledTimes(1)
+
   })
 
-  it("prefetches the intended DM without selecting it", () => {
-    const onPrefetchDm = vi.fn()
+  it("selects the intended DM only on activation", () => {
     const onPickDm = vi.fn()
     const renderer = render(createElement(DmSidebar, {
       dms: [{
@@ -99,14 +96,16 @@ describe("DmSidebar navigation intent", () => {
       }],
       activeDm: null,
       onPickDm,
-      onPrefetchDm,
       onShowFriends: vi.fn(),
     }))
 
     fireEvent.focus(renderer.getByTestId(tid.dmRow("dm_1")))
 
-    expect(onPrefetchDm).toHaveBeenCalledWith("dm_1")
     expect(onPickDm).not.toHaveBeenCalled()
+    fireEvent.pointerEnter(renderer.getByTestId(tid.dmRow("dm_1")))
+    expect(onPickDm).not.toHaveBeenCalled()
+    fireEvent.click(renderer.getByTestId(tid.dmRow("dm_1")))
+    expect(onPickDm).toHaveBeenCalledExactlyOnceWith("dm_1")
 
   })
 

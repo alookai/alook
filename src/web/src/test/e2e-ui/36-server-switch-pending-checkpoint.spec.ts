@@ -112,6 +112,15 @@ async function sidebarFrames(page: Page): Promise<SidebarFrame[]> {
   ).__communitySidebarFrames ?? [])
 }
 
+async function paintedSidebarFrames(page: Page, scope: string, targetRow: string) {
+  await page.waitForFunction(({ scope, targetRow }) => (
+    window as typeof window & { __communitySidebarFrames?: SidebarFrame[] }
+  ).__communitySidebarFrames?.some((frame) => (
+    frame.scope === scope && !frame.skeleton && frame.rows.includes(targetRow)
+  )), { scope, targetRow }, { polling: "raf", timeout: 30_000 })
+  return sidebarFrames(page)
+}
+
 function expectAtomicTargetFrames(
   frames: SidebarFrame[],
   scope: string,
@@ -190,6 +199,7 @@ function observeTargetRsc(
     resolveFinished = resolve
     rejectFinished = reject
   })
+  void finished.catch(() => {})
   const settle = (error?: Error) => {
     if (settled) return
     settled = true
@@ -242,9 +252,6 @@ function observeTargetRsc(
 
 async function activateServerIcon(page: Page, serverId: string) {
   const icon = page.getByTestId(tid.serverIcon(serverId))
-  // Focus activates the accessible menu path and starts Server-root prefetch.
-  // The trigger and button are already stable, so the same node receives the
-  // following physical click, including during an immediate A→B supersession.
   await icon.focus()
   await expect(icon.locator("xpath=ancestor::*[@data-slot='context-menu-trigger'][1]"))
     .toBeVisible()
@@ -311,10 +318,6 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
     }
   })
 
-  // Install every cold gate before the first physical rail movement. Moving
-  // the pointer between vertically stacked icons can cross another icon and
-  // legitimately trigger its hover prefetch; those targets must stay cold
-  // until their explicit phase below.
   const coldC = await holdServerTransition(page, serverC)
   const coldD = await holdServerTransition(page, serverD)
   const coldE = await holdServerTransition(page, serverE)
@@ -336,7 +339,7 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
     .toBeVisible({ timeout: 30_000 })
   await expect(page.getByTestId(tid.channelRow(channelB))).toBeVisible({ timeout: 30_000 })
   expectAtomicTargetFrames(
-    await sidebarFrames(page),
+    await paintedSidebarFrames(page, `server:${serverB}`, channelB),
     `server:${serverB}`,
     channelB,
     [channelA],
@@ -362,7 +365,7 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
   await expect(page.getByTestId(tid.channelSidebarPending(serverC))).toHaveCount(0)
   await expect(page.getByTestId(tid.channelRow(channelC))).toBeVisible({ timeout: 30_000 })
   const rememberedCPath = new URL(page.url()).pathname
-  const coldFrames = await sidebarFrames(page)
+  const coldFrames = await paintedSidebarFrames(page, `server:${serverC}`, channelC)
   const coldPendingFrames = coldFrames.filter((frame) => frame.pendingServer === serverC)
   expect(coldPendingFrames.length).toBeGreaterThan(0)
   expect(coldPendingFrames.every((frame) => frame.ownerId === null && frame.rows.length === 0))
@@ -395,7 +398,7 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
     await expectDesktopServerDetail(page, serverC)
     await expect(page.getByTestId(tid.channelRow(channelC))).toBeVisible({ timeout: 30_000 })
     expectAtomicTargetFrames(
-      await sidebarFrames(page),
+      await paintedSidebarFrames(page, `server:${serverC}`, channelC),
       `server:${serverC}`,
       channelC,
       [channelA, channelB],
@@ -434,7 +437,7 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
   await expect.poll(() => new URL(page.url()).pathname.startsWith(`/c/channels/${serverD}`))
     .toBe(true)
   await expect(page.getByTestId(tid.channelRow(channelD))).toBeVisible({ timeout: 30_000 })
-  const mobileColdFrames = await sidebarFrames(page)
+  const mobileColdFrames = await paintedSidebarFrames(page, `server:${serverD}`, channelD)
   expectAtomicTargetFrames(
     mobileColdFrames,
     `server:${serverD}`,
@@ -449,7 +452,7 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
   await clickServer(page, serverE)
   // Dispatch the superseding click directly against the current stable
   // button so this remains one immediate E→F intent window; awaiting F's
-  // focus-driven prefetch would serialize the two intents.
+  // menu focus would serialize the two intents.
   await page.getByTestId(tid.serverIcon(serverF)).dispatchEvent("click")
   await expect.poll(coldF.heldNavigation).toBeGreaterThan(0)
   await expect(page.getByTestId(tid.channelSidebarPending(serverE))).toHaveCount(0)
@@ -461,7 +464,7 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
   await coldF.release()
   await expectDesktopServerDetail(page, serverF)
   await expect(page.getByTestId(tid.channelRow(channelF))).toBeVisible({ timeout: 30_000 })
-  const supersededFrames = await sidebarFrames(page)
+  const supersededFrames = await paintedSidebarFrames(page, `server:${serverF}`, channelF)
   expect(supersededFrames.some((frame) => frame.scope === `server:${serverE}`)).toBe(false)
   expectAtomicTargetFrames(
     supersededFrames,

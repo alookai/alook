@@ -95,13 +95,6 @@ export function useShellRailController({
   const onHome = useCallback(() => {
     navigation.push(homeDestination())
   }, [homeDestination, navigation])
-  const onServerPrefetch = useCallback((id: string) => {
-    navigation.prefetch(breakpoint === "desktop" ? serverDestination(id) : `/c/channels/${id}`)
-  }, [breakpoint, navigation, serverDestination])
-  const onHomePrefetch = useCallback(
-    () => navigation.prefetch(homeDestination()),
-    [homeDestination, navigation],
-  )
   const onCreateServer = useCallback(async (name: string, icon?: File) => {
     try {
       const data = await createServerAsync({ name })
@@ -172,9 +165,7 @@ export function useShellRailController({
       serversLoading: serversQuery.isPending && servers.length === 0,
       view: projectedView,
       onHome,
-      onHomePrefetch,
       onServerNavigate,
-      onServerPrefetch,
       onCreateServer,
       onLeaveServer: hasLiveServers ? onLeaveServer : undefined,
       onOpenSettings: hasLiveServers ? onOpenSettings : undefined,
