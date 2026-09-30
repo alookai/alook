@@ -64,7 +64,7 @@ export function observeConversationTransport(page: Page) {
 export async function expectConversationReady(page: Page, target: ConversationTarget, testInfo: TestInfo, timeoutMs = 30_000) {
   const deadline = Date.now() + timeoutMs
   const inspectionTarget = { ...target, testIds: {
-    composerInput: tid.composerInput, forumPostList: tid.forumPostList,
+    channelSidebarScroll: tid.channelSidebarScroll, composerInput: tid.composerInput, forumPostList: tid.forumPostList,
     pendingMainPrefix: tid.pendingMain(""), messagePrefix: tid.message(""),
   } }
   let emptyProof: { status: number; at: number; channelId: string; count: number; latestSeq: number; hasMore: boolean } | undefined

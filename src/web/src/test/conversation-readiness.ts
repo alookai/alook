@@ -9,7 +9,7 @@ export type ConversationTarget = {
 }
 
 export type ConversationInspectionTarget = ConversationTarget & {
-  testIds: { composerInput: string; forumPostList: string; pendingMainPrefix: string; messagePrefix: string }
+  testIds: { channelSidebarScroll: string; composerInput: string; forumPostList: string; pendingMainPrefix: string; messagePrefix: string }
 }
 
 export function inspectConversationReadiness(target: ConversationInspectionTarget) {
@@ -38,7 +38,9 @@ export function inspectConversationReadiness(target: ConversationInspectionTarge
   const identityPath = target.kind === "dm" ? `/c/me/${target.channelId}` : `/c/channels/${target.serverId}/${target.channelId}`
   if (target.pathname !== identityPath) blockers.push("inconsistent-target-identity")
   if (target.serverId && !Array.from(document.querySelectorAll("[data-community-channel-tree-scope]"))
-    .some((node) => node.getAttribute("data-community-channel-tree-scope") === `server:${target.serverId}` && usable(node))) {
+    .some((owner) => owner.getAttribute("data-community-channel-tree-scope") === `server:${target.serverId}`
+      && Array.from(owner.querySelectorAll(`[data-testid="${target.testIds.channelSidebarScroll}"]`))
+        .some((sidebar) => sidebar.closest("[data-community-channel-tree-scope]") === owner && usable(sidebar)))) {
     blockers.push("wrong-server-scope")
   }
   const masks = document.querySelectorAll([

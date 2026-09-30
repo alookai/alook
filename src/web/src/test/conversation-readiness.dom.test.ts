@@ -6,17 +6,27 @@ import { expectConversationReady, observeConversationTransport } from "./e2e-ui/
 import { mockElementGeometry } from "./react-dom-harness"
 import { tid } from "@/lib/community/testids"
 
-let restoreGeometry: () => void
+let geometryRestorers: Array<() => void>
+
+function size(element: Element, width = 100, height = 40) {
+  geometryRestorers.push(mockElementGeometry(element as HTMLElement, { width, height }))
+}
+
+function sizeContents(container: Element) {
+  for (const element of container.querySelectorAll("*")) size(element)
+}
 
 const target: ConversationInspectionTarget = {
   pathname: "/c/channels/server/channel", serverId: "server", channelId: "channel",
   kind: "text", messageTestId: "community-message-expected",
-  testIds: { composerInput: tid.composerInput, forumPostList: tid.forumPostList, pendingMainPrefix: tid.pendingMain(""), messagePrefix: tid.message("") },
+  testIds: { channelSidebarScroll: tid.channelSidebarScroll, composerInput: tid.composerInput, forumPostList: tid.forumPostList, pendingMainPrefix: tid.pendingMain(""), messagePrefix: tid.message("") },
 }
 
 function mount() {
   document.body.innerHTML = `
-    <div data-community-channel-tree-scope="server:server"></div>
+    <div data-community-channel-tree-scope="server:server" style="display:contents">
+      <aside><div data-testid="${tid.channelSidebarScroll}"></div></aside>
+    </div>
     <main data-slot="community-main-panel-content">
       <div data-slot="community-conversation-surface" data-channel-id="channel">
         <div data-message-list-content data-initial-position-phase="revealed">
@@ -30,12 +40,72 @@ function mount() {
 
 beforeEach(() => {
   vi.stubGlobal("location", { pathname: target.pathname })
-  restoreGeometry = mockElementGeometry(HTMLElement.prototype, { width: 100, height: 40 })
+  geometryRestorers = []
   mount()
+  sizeContents(document.body)
+  size(document.querySelector("[data-community-channel-tree-scope]")!, 0, 0)
 })
-afterEach(() => { restoreGeometry(); vi.restoreAllMocks(); vi.unstubAllGlobals(); document.body.innerHTML = "" })
+afterEach(() => { for (const restore of geometryRestorers.reverse()) restore(); vi.restoreAllMocks(); vi.unstubAllGlobals(); document.body.innerHTML = "" })
 
 describe("consumer readiness acceptance", () => {
+  it("uses an independently sized sidebar under the zero-box contents owner", () => {
+    expect(document.querySelector("[data-community-channel-tree-scope]")!.getBoundingClientRect().width).toBe(0)
+    expect(document.querySelector(`[data-testid="${tid.channelSidebarScroll}"]`)!.getBoundingClientRect().width).toBe(100)
+    expect(inspectConversationReadiness(target).ready).toBe(true)
+  })
+  it("rejects a zero-box or missing sidebar even with unrelated visible sidebar content", () => {
+    const sidebar = document.querySelector(`[data-testid="${tid.channelSidebarScroll}"]`)!
+    size(sidebar, 0, 0)
+    expect(inspectConversationReadiness(target).blockers).toContain("wrong-server-scope")
+    sidebar.remove()
+    document.querySelector("main")!.insertAdjacentHTML("beforeend", `<div data-testid="${tid.channelSidebarScroll}"></div>`)
+    size(document.querySelector(`main [data-testid="${tid.channelSidebarScroll}"]`)!)
+    expect(inspectConversationReadiness(target).blockers).toContain("wrong-server-scope")
+  })
+  it("does not borrow a nested foreign scope's visible sidebar", () => {
+    const owner = document.querySelector("[data-community-channel-tree-scope]")!
+    owner.innerHTML = `<div data-community-channel-tree-scope="server:foreign" style="display:contents"><aside><div data-testid="${tid.channelSidebarScroll}"></div></aside></div>`
+    sizeContents(owner)
+    size(owner.firstElementChild!, 0, 0)
+    expect(inspectConversationReadiness(target).blockers).toContain("wrong-server-scope")
+  })
+  it("requires the actual owner scope even when its registered sidebar is usable", () => {
+    document.querySelector("[data-community-channel-tree-scope]")!.setAttribute("data-community-channel-tree-scope", "server:other")
+    expect(inspectConversationReadiness(target).blockers).toContain("wrong-server-scope")
+  })
+  it.each(["owner", "sidebar"])("rejects hidden, fading, inert and blocked %s state", (part) => {
+    const element = document.querySelector(part === "owner" ? "[data-community-channel-tree-scope]" : `[data-testid="${tid.channelSidebarScroll}"]`)!
+    for (const style of ["display:none", "visibility:hidden", "opacity:0", "opacity:0.5", "pointer-events:none"]) {
+      element.setAttribute("style", `${part === "owner" ? "display:contents;" : ""}${style}`)
+      expect(inspectConversationReadiness(target).blockers).toContain("wrong-server-scope")
+    }
+    element.setAttribute("style", part === "owner" ? "display:contents" : "")
+    for (const attribute of ["inert", "aria-disabled"]) {
+      element.setAttribute(attribute, attribute === "inert" ? "" : "true")
+      expect(inspectConversationReadiness(target).blockers).toContain("wrong-server-scope")
+      element.removeAttribute(attribute)
+    }
+    expect(inspectConversationReadiness(target).ready).toBe(true)
+  })
+  it("rejects visible busy shells and accepts settled or visually hidden counterparts", () => {
+    const shell = document.querySelector("main")!
+    shell.setAttribute("data-slot", "community-shell-root")
+    shell.setAttribute("aria-busy", "true")
+    expect(inspectConversationReadiness(target).blockers).toContain("busy-shell")
+    shell.setAttribute("aria-busy", "false")
+    expect(inspectConversationReadiness(target).ready).toBe(true)
+    const hiddenShell = document.createElement("div")
+    hiddenShell.setAttribute("data-slot", "community-shell-root")
+    hiddenShell.setAttribute("aria-busy", "true")
+    hiddenShell.style.display = "none"
+    document.body.append(hiddenShell)
+    size(hiddenShell)
+    expect(inspectConversationReadiness(target).ready).toBe(true)
+  })
+  it("rejects unspecified content identity despite usable real content", () => {
+    expect(inspectConversationReadiness({ ...target, messageTestId: undefined }).blockers).toContain("content-identity-unspecified")
+    expect(inspectConversationReadiness(target).ready).toBe(true)
+  })
   it("requires exact route, scope, channel and real message identity", () => {
     expect(inspectConversationReadiness(target).ready).toBe(true)
     expect(inspectConversationReadiness({ ...target, pathname: "/c/channels/server/other" }).blockers).toContain("wrong-route")
@@ -61,6 +131,7 @@ describe("consumer readiness acceptance", () => {
     'data-slot="skeleton"',
   ])("rejects visible mask %s; aria-hidden does not make it visually absent", (attribute) => {
     document.querySelector("main")!.insertAdjacentHTML("beforeend", `<div ${attribute} aria-hidden="true"></div>`)
+    size(document.querySelector("main")!.lastElementChild!)
     expect(inspectConversationReadiness(target).blockers).toContain("visible-mask")
     document.querySelector("main")!.lastElementChild!.setAttribute("style", "opacity:0")
     expect(inspectConversationReadiness(target).ready).toBe(true)
@@ -80,10 +151,13 @@ describe("consumer readiness acceptance", () => {
   it("requires the exact seeded forum post, not another same-server empty list", () => {
     const forum = { ...target, kind: "forum" as const, messageTestId: undefined, forumPostTestId: "community-forum-thread-card-post" }
     document.querySelector("main")!.innerHTML = '<div data-testid="community-forum-post-list"><div data-slot="skeleton"></div></div>'
+    sizeContents(document.querySelector("main")!)
     expect(inspectConversationReadiness(forum).ready).toBe(false)
     document.querySelector("main")!.innerHTML = '<div data-testid="community-forum-post-list">No posts with this tag yet. Start one with New Post.</div>'
+    sizeContents(document.querySelector("main")!)
     expect(inspectConversationReadiness(forum).ready).toBe(false)
     document.querySelector("main")!.innerHTML = '<div data-testid="community-forum-post-list"><div data-testid="community-forum-thread-card-post">typed post</div></div>'
+    sizeContents(document.querySelector("main")!)
     expect(inspectConversationReadiness(forum).ready).toBe(true)
     expect(inspectConversationReadiness({ ...forum, channelId: "other" }).ready).toBe(false)
     expect(inspectConversationReadiness({ ...forum, forumPostTestId: "community-forum-thread-card-wrong" }).ready).toBe(false)
@@ -132,6 +206,7 @@ describe("transport outcomes remain separate from consumer readiness", () => {
     vi.spyOn(Date, "now").mockImplementation(() => now)
     const forum = { ...target, kind: "forum" as const, forumPostTestId: "community-forum-thread-card-post" }
     document.querySelector("main")!.innerHTML = '<div data-testid="community-forum-post-list"><div data-testid="community-forum-thread-card-post">typed post</div></div>'
+    sizeContents(document.querySelector("main")!)
     let samples = 0
     const page = { evaluate: vi.fn(async () => {
       const sample = inspectConversationReadiness(forum)
