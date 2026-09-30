@@ -1,7 +1,14 @@
-import type { Page, Request, Response, Route } from "@playwright/test"
+import type { Page, Route } from "@playwright/test"
 import { test, expect } from "./_fixtures/community-fixture"
 import { seedChannel, seedServer } from "./_fixtures/seed"
 import { tid } from "./_fixtures/testids"
+import { expectConversationReady, observeConversationTransport } from "./_fixtures/conversation-readiness"
+import { WEB_URL } from "./_setup/paths"
+
+test.beforeEach(async ({ baseURL }) => {
+  expect(baseURL, "seed helper origin must match the browser before any mutation").toBeTruthy()
+  expect(new URL(WEB_URL).origin).toBe(new URL(baseURL!).origin)
+})
 
 type HeldServer = {
   heldNavigation: () => number
@@ -88,14 +95,14 @@ async function installSidebarFrameProbe(page: Page) {
 
 async function clearSidebarFrames(page: Page) {
   await page.evaluate(() => {
-    ;(window as typeof window & { __communitySidebarFrames?: SidebarFrame[] })
+    ; (window as typeof window & { __communitySidebarFrames?: SidebarFrame[] })
       .__communitySidebarFrames = []
   })
 }
 
 async function clearHistoryEvents(page: Page) {
   await page.evaluate(() => {
-    ;(window as typeof window & { __communityHistoryEvents?: HistoryEvent[] })
+    ; (window as typeof window & { __communityHistoryEvents?: HistoryEvent[] })
       .__communityHistoryEvents = []
   })
 }
@@ -176,80 +183,6 @@ async function holdServerTransition(
   }
 }
 
-function isTargetRsc(request: Request, serverId: string): boolean {
-  return request.resourceType() === "fetch"
-    && request.headers().rsc === "1"
-    && new URL(request.url()).pathname.startsWith(`/c/channels/${serverId}/`)
-}
-
-function observeTargetRsc(
-  page: Page,
-  serverId: string,
-  timeoutMs: number,
-): {
-  finished: Promise<void>
-  requests: () => string[]
-  stop: () => void
-} {
-  const requests: string[] = []
-  let settled = false
-  let resolveFinished!: () => void
-  let rejectFinished!: (error: Error) => void
-  const finished = new Promise<void>((resolve, reject) => {
-    resolveFinished = resolve
-    rejectFinished = reject
-  })
-  void finished.catch(() => {})
-  const settle = (error?: Error) => {
-    if (settled) return
-    settled = true
-    clearTimeout(timeout)
-    if (error) rejectFinished(error)
-    else resolveFinished()
-  }
-  const onRequest = (request: Request) => {
-    if (isTargetRsc(request, serverId)) requests.push(request.url())
-  }
-  const onRequestFailed = (request: Request) => {
-    if (!isTargetRsc(request, serverId)) return
-    settle(new Error(
-      `Target RSC request failed: ${request.failure()?.errorText ?? "unknown failure"}`,
-    ))
-  }
-  const onResponse = (response: Response) => {
-    if (!isTargetRsc(response.request(), serverId)) return
-    if (response.status() !== 200) {
-      settle(new Error(`Target RSC responded ${response.status()}: ${response.url()}`))
-      return
-    }
-    void response.finished().then((failure) => {
-      if (failure) {
-        settle(new Error(`Target RSC did not finish: ${failure.message}`))
-        return
-      }
-      settle()
-    }, (error: unknown) => {
-      settle(new Error(`Target RSC completion rejected: ${String(error)}`))
-    })
-  }
-  const timeout = setTimeout(() => {
-    settle(new Error(`Target RSC did not finish within ${timeoutMs}ms for server ${serverId}`))
-  }, timeoutMs)
-  page.on("request", onRequest)
-  page.on("requestfailed", onRequestFailed)
-  page.on("response", onResponse)
-  return {
-    finished,
-    requests: () => [...requests],
-    stop: () => {
-      clearTimeout(timeout)
-      page.off("request", onRequest)
-      page.off("requestfailed", onRequestFailed)
-      page.off("response", onResponse)
-    },
-  }
-}
-
 async function activateServerIcon(page: Page, serverId: string) {
   const icon = page.getByTestId(tid.serverIcon(serverId))
   await icon.focus()
@@ -273,7 +206,7 @@ async function expectActiveServer(page: Page, activeId: string, inactiveId: stri
   await expect(page.getByTestId(tid.serverIcon(inactiveId))).toHaveClass(/cursor-pointer/)
 }
 
-test("server switching exposes one target-scoped cold checkpoint and skips it when warm", async ({ asUser }) => {
+test("server switching exposes one target-scoped cold checkpoint and skips it when warm", async ({ asUser }, testInfo) => {
   test.setTimeout(180_000)
   const stamp = Date.now()
   const serverA = await seedServer("alice", `Checkpoint A ${stamp}`)
@@ -296,180 +229,210 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
   const channelF = await seedChannel("alice", serverF, `checkpoint-f-${stamp}`)
 
   const { page } = await asUser("alice")
-  await page.setViewportSize({ width: 1280, height: 900 })
-  await installSidebarFrameProbe(page)
-  await page.goto(`/c/channels/${serverA}/${channelA}`)
-  await expect(page.getByRole("heading", { name: channelAName })).toBeVisible({ timeout: 30_000 })
-
-  const readOnlyPostPaths = new Set([
-    "/api/community/messages/batch",
-    "/api/community/messages/tags/batch",
-    "/api/community/channels/participants/batch",
-  ])
-  const mutations: string[] = []
-  page.on("request", (request) => {
-    const method = request.method()
-    const pathname = new URL(request.url()).pathname
-    if (
-      !["GET", "HEAD", "OPTIONS"].includes(method)
-      && !(method === "POST" && readOnlyPostPaths.has(pathname))
-    ) {
-      mutations.push(`${method} ${pathname}`)
-    }
-  })
-
-  const coldC = await holdServerTransition(page, serverC)
-  const coldD = await holdServerTransition(page, serverD)
-  const coldE = await holdServerTransition(page, serverE)
-  const coldF = await holdServerTransition(page, serverF)
-
-  // Visit B once so both its route and live detail query are deterministically
-  // memory-warm, then return to A before sampling the warm switch.
-  await clickServer(page, serverB)
-  await expect(page.getByTestId(tid.channelRow(channelB))).toBeVisible({ timeout: 30_000 })
-  await clickServer(page, serverA)
-  await expect(page.getByRole("heading", { name: channelAName })).toBeVisible({ timeout: 30_000 })
-
-  await clearSidebarFrames(page)
-  await clickServer(page, serverB)
-  await expect(page.getByTestId(tid.channelSidebarPending(serverB))).toHaveCount(0)
-  await expect(page.getByTestId(tid.pendingMain("server-landing"))).toHaveCount(0)
-  await expectDesktopServerDetail(page, serverB)
-  await expect(page.locator("#sidebar").getByRole("button", { name: serverBName, exact: true }))
-    .toBeVisible({ timeout: 30_000 })
-  await expect(page.getByTestId(tid.channelRow(channelB))).toBeVisible({ timeout: 30_000 })
-  expectAtomicTargetFrames(
-    await paintedSidebarFrames(page, `server:${serverB}`, channelB),
-    `server:${serverB}`,
-    channelB,
-    [channelA],
-  )
-
-  await clickServer(page, serverA)
-  await expectDesktopServerDetail(page, serverA)
-  await expect(page.locator("#sidebar").getByRole("button", { name: serverAName, exact: true }))
-    .toBeVisible({ timeout: 30_000 })
-  await expect(page.getByRole("heading", { name: channelAName })).toBeVisible({ timeout: 30_000 })
-  await expectActiveServer(page, serverA, serverB)
-
-  await clearSidebarFrames(page)
-  await clickServer(page, serverC)
-  await expect.poll(coldC.heldNavigation).toBeGreaterThan(0)
-  await expect(page.getByTestId(tid.channelSidebarPending(serverC))).toBeVisible()
-  await expect(page.getByTestId(tid.pendingMain("server-landing"))).toBeVisible()
-  await expect(page.getByRole("button", { name: channelAName, exact: true })).toHaveCount(0)
-  await expectActiveServer(page, serverC, serverA)
-  expect(mutations).toEqual([])
-  await coldC.release()
-  await expectDesktopServerDetail(page, serverC)
-  await expect(page.getByTestId(tid.channelSidebarPending(serverC))).toHaveCount(0)
-  await expect(page.getByTestId(tid.channelRow(channelC))).toBeVisible({ timeout: 30_000 })
-  const rememberedCPath = new URL(page.url()).pathname
-  const coldFrames = await paintedSidebarFrames(page, `server:${serverC}`, channelC)
-  const coldPendingFrames = coldFrames.filter((frame) => frame.pendingServer === serverC)
-  expect(coldPendingFrames.length).toBeGreaterThan(0)
-  expect(coldPendingFrames.every((frame) => frame.ownerId === null && frame.rows.length === 0))
-    .toBe(true)
-  expectAtomicTargetFrames(coldFrames, `server:${serverC}`, channelC, [channelA])
-
-  await clickServer(page, serverA)
-  await expectDesktopServerDetail(page, serverA)
-  await expect(page.locator("#sidebar").getByRole("button", { name: serverAName, exact: true }))
-    .toBeVisible({ timeout: 30_000 })
-  await expect(page.getByRole("heading", { name: channelAName })).toBeVisible({ timeout: 30_000 })
-  await expectActiveServer(page, serverA, serverC)
-
-  // A reload restores the persisted structural snapshot but not the live
-  // server-detail query. Hold C's fresh reads so its first non-skeleton frame
-  // must come from the structural target tree, then reconcile in the same owner.
-  await page.waitForTimeout(1_000)
-  await page.reload()
-  await expect(page.getByRole("heading", { name: channelAName })).toBeVisible({ timeout: 30_000 })
-  const structuralC = await holdServerTransition(page, serverC)
-  const targetRsc = observeTargetRsc(page, serverC, 30_000)
-  await clearSidebarFrames(page)
-  await clearHistoryEvents(page)
-  try {
-    await clickServer(page, serverC)
-    await expect.poll(structuralC.heldNavigation).toBeGreaterThan(0)
-    await structuralC.release()
-    await targetRsc.finished
-    expect(targetRsc.requests()).toHaveLength(1)
-    await expectDesktopServerDetail(page, serverC)
-    await expect(page.getByTestId(tid.channelRow(channelC))).toBeVisible({ timeout: 30_000 })
-    expectAtomicTargetFrames(
-      await paintedSidebarFrames(page, `server:${serverC}`, channelC),
-      `server:${serverC}`,
-      channelC,
-      [channelA, channelB],
-    )
-    const navigationEvents = await historyEvents(page)
-    expect(navigationEvents).toEqual([{
-      kind: "pushState",
-      pathname: rememberedCPath,
-    }])
-  } finally {
-    targetRsc.stop()
+  const transport = observeConversationTransport(page)
+  const ready = async (serverId: string, pathname = new URL(page.url()).pathname) => {
+    expect(pathname).toMatch(new RegExp(`^/c/channels/${serverId}/[^/]+$`))
+    await expectConversationReady(page, { pathname, serverId, channelId: pathname.split("/").at(-1)!, kind: "text", empty: true }, testInfo)
+    transport.assertHealthy()
   }
+  try {
+    await page.setViewportSize({ width: 1280, height: 900 })
+    await installSidebarFrameProbe(page)
+    await page.goto(`/c/channels/${serverA}/${channelA}`)
+    await expect(page.getByRole("heading", { name: channelAName })).toBeVisible({ timeout: 30_000 })
+    await ready(serverA, `/c/channels/${serverA}/${channelA}`)
 
-  await clickServer(page, serverA)
-  await expectDesktopServerDetail(page, serverA)
-  await expect(page.getByRole("heading", { name: channelAName })).toBeVisible({ timeout: 30_000 })
+    const readOnlyPostPaths = new Set([
+      "/api/community/messages/batch",
+      "/api/community/messages/tags/batch",
+      "/api/community/channels/participants/batch",
+    ])
+    const mutations: string[] = []
+    page.on("request", (request) => {
+      const method = request.method()
+      const pathname = new URL(request.url()).pathname
+      if (
+        !["GET", "HEAD", "OPTIONS"].includes(method)
+        && !(method === "POST" && readOnlyPostPaths.has(pathname))
+      ) {
+        mutations.push(`${method} ${pathname}`)
+      }
+    })
 
-  await page.setViewportSize({ width: 390, height: 844 })
-  await page.getByRole("banner").getByRole("button", { name: "Back" }).click()
-  await expect.poll(() => new URL(page.url()).pathname === `/c/channels/${serverA}`)
-    .toBe(true)
-  await expect(page.getByTestId(tid.serverIcon(serverD))).toBeVisible()
+    const coldC = await holdServerTransition(page, serverC)
+    const coldD = await holdServerTransition(page, serverD)
+    const coldE = await holdServerTransition(page, serverE)
+    const coldF = await holdServerTransition(page, serverF)
 
-  await clearSidebarFrames(page)
-  await clickServer(page, serverD)
-  await expect.poll(coldD.heldNavigation).toBeGreaterThan(0)
-  const mobileCheckpoint = page.getByTestId(tid.channelSidebarPending(serverD))
-  await expect(mobileCheckpoint).toBeVisible()
-  await expect(page.getByRole("button", { name: channelAName, exact: true })).toHaveCount(0)
-  const mobileBox = await mobileCheckpoint.boundingBox()
-  expect(mobileBox).not.toBeNull()
-  expect(mobileBox!.width).toBeGreaterThan(300)
-  expect(mobileBox!.x + mobileBox!.width).toBeLessThanOrEqual(390)
-  await expectActiveServer(page, serverD, serverA)
-  await coldD.release()
-  await expect.poll(() => new URL(page.url()).pathname.startsWith(`/c/channels/${serverD}`))
-    .toBe(true)
-  await expect(page.getByTestId(tid.channelRow(channelD))).toBeVisible({ timeout: 30_000 })
-  const mobileColdFrames = await paintedSidebarFrames(page, `server:${serverD}`, channelD)
-  expectAtomicTargetFrames(
-    mobileColdFrames,
-    `server:${serverD}`,
-    channelD,
-    [channelA, channelB, channelC],
-  )
+    // Visit B once so both its route and live detail query are deterministically
+    // memory-warm, then return to A before sampling the warm switch.
+    await clickServer(page, serverB)
+    await expect(page.getByTestId(tid.channelRow(channelB))).toBeVisible({ timeout: 30_000 })
+    await expectDesktopServerDetail(page, serverB)
+    await ready(serverB)
+    const rememberedBPath = new URL(page.url()).pathname
+    await clickServer(page, serverA)
+    await expect(page.getByRole("heading", { name: channelAName })).toBeVisible({ timeout: 30_000 })
+    await ready(serverA, `/c/channels/${serverA}/${channelA}`)
 
-  await page.setViewportSize({ width: 1280, height: 900 })
-  await expectDesktopServerDetail(page, serverD)
-  await expect(page.getByTestId(tid.serverIcon(serverE))).toBeVisible()
-  await clearSidebarFrames(page)
-  await clickServer(page, serverE)
-  // Dispatch the superseding click directly against the current stable
-  // button so this remains one immediate E→F intent window; awaiting F's
-  // menu focus would serialize the two intents.
-  await page.getByTestId(tid.serverIcon(serverF)).dispatchEvent("click")
-  await expect.poll(coldF.heldNavigation).toBeGreaterThan(0)
-  await expect(page.getByTestId(tid.channelSidebarPending(serverE))).toHaveCount(0)
-  await expect(page.getByTestId(tid.channelSidebarPending(serverF))).toBeVisible()
-  await expectActiveServer(page, serverF, serverD)
-  await coldE.release()
-  await expect(page.getByTestId(tid.channelSidebarPending(serverF))).toBeVisible()
-  await expectActiveServer(page, serverF, serverD)
-  await coldF.release()
-  await expectDesktopServerDetail(page, serverF)
-  await expect(page.getByTestId(tid.channelRow(channelF))).toBeVisible({ timeout: 30_000 })
-  const supersededFrames = await paintedSidebarFrames(page, `server:${serverF}`, channelF)
-  expect(supersededFrames.some((frame) => frame.scope === `server:${serverE}`)).toBe(false)
-  expectAtomicTargetFrames(
-    supersededFrames,
-    `server:${serverF}`,
-    channelF,
-    [channelA, channelB, channelC, channelD, channelE],
-  )
+    await clearSidebarFrames(page)
+    await clickServer(page, serverB)
+    await expect(page.getByTestId(tid.channelSidebarPending(serverB))).toHaveCount(0)
+    await expect(page.getByTestId(tid.pendingMain("server-landing"))).toHaveCount(0)
+    await expectDesktopServerDetail(page, serverB)
+    await expect(page.locator("#sidebar").getByRole("button", { name: serverBName, exact: true }))
+      .toBeVisible({ timeout: 30_000 })
+    await expect(page.getByTestId(tid.channelRow(channelB))).toBeVisible({ timeout: 30_000 })
+    await expectDesktopServerDetail(page, serverB)
+    await ready(serverB, rememberedBPath)
+    expectAtomicTargetFrames(
+      await paintedSidebarFrames(page, `server:${serverB}`, channelB),
+      `server:${serverB}`,
+      channelB,
+      [channelA],
+    )
+
+    await clickServer(page, serverA)
+    await expectDesktopServerDetail(page, serverA)
+    await expect(page.locator("#sidebar").getByRole("button", { name: serverAName, exact: true }))
+      .toBeVisible({ timeout: 30_000 })
+    await expect(page.getByRole("heading", { name: channelAName })).toBeVisible({ timeout: 30_000 })
+    await ready(serverA, `/c/channels/${serverA}/${channelA}`)
+    await expectActiveServer(page, serverA, serverB)
+
+    await clearSidebarFrames(page)
+    await clickServer(page, serverC)
+    await expect.poll(coldC.heldNavigation).toBeGreaterThan(0)
+    await expect(page.getByTestId(tid.channelSidebarPending(serverC))).toBeVisible()
+    await expect(page.getByTestId(tid.pendingMain("server-landing"))).toBeVisible()
+    await expect(page.getByRole("button", { name: channelAName, exact: true })).toHaveCount(0)
+    await expectActiveServer(page, serverC, serverA)
+    expect(mutations).toEqual([])
+    await coldC.release()
+    await expectDesktopServerDetail(page, serverC)
+    await expect(page.getByTestId(tid.channelSidebarPending(serverC))).toHaveCount(0)
+    await expect(page.getByTestId(tid.channelRow(channelC))).toBeVisible({ timeout: 30_000 })
+    const rememberedCPath = new URL(page.url()).pathname
+    await ready(serverC, rememberedCPath)
+    const coldFrames = await paintedSidebarFrames(page, `server:${serverC}`, channelC)
+    const coldPendingFrames = coldFrames.filter((frame) => frame.pendingServer === serverC)
+    expect(coldPendingFrames.length).toBeGreaterThan(0)
+    expect(coldPendingFrames.every((frame) => frame.ownerId === null && frame.rows.length === 0))
+      .toBe(true)
+    expectAtomicTargetFrames(coldFrames, `server:${serverC}`, channelC, [channelA])
+
+    await clickServer(page, serverA)
+    await expectDesktopServerDetail(page, serverA)
+    await expect(page.locator("#sidebar").getByRole("button", { name: serverAName, exact: true }))
+      .toBeVisible({ timeout: 30_000 })
+    await expect(page.getByRole("heading", { name: channelAName })).toBeVisible({ timeout: 30_000 })
+    await ready(serverA, `/c/channels/${serverA}/${channelA}`)
+    await expectActiveServer(page, serverA, serverC)
+
+    // A reload restores the persisted structural snapshot but not the live
+    // server-detail query. Hold C's fresh reads so its first non-skeleton frame
+    // must come from the structural target tree, then reconcile in the same owner.
+    await page.waitForTimeout(1_000)
+    await page.reload()
+    await expect(page.getByRole("heading", { name: channelAName })).toBeVisible({ timeout: 30_000 })
+    await ready(serverA, `/c/channels/${serverA}/${channelA}`)
+    const structuralC = await holdServerTransition(page, serverC)
+    const targetRscStart = Date.now()
+    await clearSidebarFrames(page)
+    await clearHistoryEvents(page)
+    try {
+      await clickServer(page, serverC)
+      await expect.poll(structuralC.heldNavigation).toBeGreaterThan(0)
+      await structuralC.release()
+      await ready(serverC, rememberedCPath)
+      const targetRequests = transport.targetRsc(serverC, targetRscStart)
+      expect(targetRequests).toHaveLength(1)
+      expect(targetRequests[0]).toMatchObject({ pathname: rememberedCPath, prefetch: false, status: 200 })
+      await expectDesktopServerDetail(page, serverC)
+      await expect(page.getByTestId(tid.channelRow(channelC))).toBeVisible({ timeout: 30_000 })
+      expectAtomicTargetFrames(
+        await paintedSidebarFrames(page, `server:${serverC}`, channelC),
+        `server:${serverC}`,
+        channelC,
+        [channelA, channelB],
+      )
+      const navigationEvents = await historyEvents(page)
+      expect(navigationEvents).toEqual([{
+        kind: "pushState",
+        pathname: rememberedCPath,
+      }])
+    } finally {
+      await testInfo.attach("remembered-C-transport", { body: JSON.stringify(transport.targetRsc(serverC, targetRscStart)), contentType: "application/json" })
+    }
+
+    await clickServer(page, serverA)
+    await expectDesktopServerDetail(page, serverA)
+    await expect(page.getByRole("heading", { name: channelAName })).toBeVisible({ timeout: 30_000 })
+    await ready(serverA, `/c/channels/${serverA}/${channelA}`)
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.getByRole("banner").getByRole("button", { name: "Back" }).click()
+    await expect.poll(() => new URL(page.url()).pathname === `/c/channels/${serverA}`)
+      .toBe(true)
+    await expect(page.getByTestId(tid.serverIcon(serverD))).toBeVisible()
+
+    await clearSidebarFrames(page)
+    await clickServer(page, serverD)
+    await expect.poll(coldD.heldNavigation).toBeGreaterThan(0)
+    const mobileCheckpoint = page.getByTestId(tid.channelSidebarPending(serverD))
+    await expect(mobileCheckpoint).toBeVisible()
+    await expect(page.getByRole("button", { name: channelAName, exact: true })).toHaveCount(0)
+    const mobileBox = await mobileCheckpoint.boundingBox()
+    expect(mobileBox).not.toBeNull()
+    expect(mobileBox!.width).toBeGreaterThan(300)
+    expect(mobileBox!.x + mobileBox!.width).toBeLessThanOrEqual(390)
+    await expectActiveServer(page, serverD, serverA)
+    await coldD.release()
+    await expect.poll(() => new URL(page.url()).pathname.startsWith(`/c/channels/${serverD}`))
+      .toBe(true)
+    await expect(page.getByTestId(tid.channelRow(channelD))).toBeVisible({ timeout: 30_000 })
+    const mobileColdFrames = await paintedSidebarFrames(page, `server:${serverD}`, channelD)
+    expectAtomicTargetFrames(
+      mobileColdFrames,
+      `server:${serverD}`,
+      channelD,
+      [channelA, channelB, channelC],
+    )
+
+    await page.setViewportSize({ width: 1280, height: 900 })
+    await expectDesktopServerDetail(page, serverD)
+    await ready(serverD)
+    await expect(page.getByTestId(tid.serverIcon(serverE))).toBeVisible()
+    await clearSidebarFrames(page)
+    await clickServer(page, serverE)
+    // Dispatch the superseding click directly against the current stable
+    // button so this remains one immediate E→F intent window; awaiting F's
+    // menu focus would serialize the two intents.
+    await page.getByTestId(tid.serverIcon(serverF)).dispatchEvent("click")
+    await expect.poll(coldF.heldNavigation).toBeGreaterThan(0)
+    await expect(page.getByTestId(tid.channelSidebarPending(serverE))).toHaveCount(0)
+    await expect(page.getByTestId(tid.channelSidebarPending(serverF))).toBeVisible()
+    await expectActiveServer(page, serverF, serverD)
+    await coldE.release()
+    await expect(page.getByTestId(tid.channelSidebarPending(serverF))).toBeVisible()
+    await expectActiveServer(page, serverF, serverD)
+    await coldF.release()
+    await expectDesktopServerDetail(page, serverF)
+    await expect(page.getByTestId(tid.channelRow(channelF))).toBeVisible({ timeout: 30_000 })
+    await ready(serverF)
+    const supersededFrames = await paintedSidebarFrames(page, `server:${serverF}`, channelF)
+    expect(supersededFrames.some((frame) => frame.scope === `server:${serverE}`)).toBe(false)
+    expectAtomicTargetFrames(
+      supersededFrames,
+      `server:${serverF}`,
+      channelF,
+      [channelA, channelB, channelC, channelD, channelE],
+    )
+    expect(mutations).toEqual([])
+    transport.assertHealthy()
+  } finally {
+    await testInfo.attach("conversation-transport", { body: JSON.stringify(transport.snapshot()), contentType: "application/json" })
+    await testInfo.attach("navigation-state", { body: await page.screenshot(), contentType: "image/png" })
+    transport.stop()
+  }
 })
