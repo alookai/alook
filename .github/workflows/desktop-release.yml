@@ -84,7 +84,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_TEAM_ID APPLE_API_ISSUER APPLE_API_KEY APPLE_API_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD; do
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_TEAM_ID APPLE_API_ISSUER APPLE_API_KEY APPLE_API_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY; do
             test -n "${!name}" || { echo "::error::Missing required macOS release input: $name"; exit 1; }
           done
           [[ "$APPLE_TEAM_ID" =~ ^[A-Z0-9]{10}$ ]]
@@ -265,7 +265,7 @@ jobs:
             "AZURE_CLIENT_ID", "AZURE_TENANT_ID", "AZURE_SUBSCRIPTION_ID",
             "ALOOK_ARTIFACT_SIGNING_ENDPOINT", "ALOOK_ARTIFACT_SIGNING_ACCOUNT_NAME",
             "ALOOK_ARTIFACT_SIGNING_CERTIFICATE_PROFILE_NAME", "ALOOK_WINDOWS_SIGNING_PUBLISHER",
-            "TAURI_SIGNING_PRIVATE_KEY", "TAURI_SIGNING_PRIVATE_KEY_PASSWORD"
+            "TAURI_SIGNING_PRIVATE_KEY"
           )
           foreach ($name in $required) {
             if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
