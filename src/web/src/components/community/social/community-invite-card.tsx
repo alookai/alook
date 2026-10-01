@@ -1,6 +1,7 @@
 "use client"
 
 import { useRouter } from "next/navigation"
+import { useUiHandlers } from "@/stores/community"
 import { useQuery } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { apiFetch } from "@/lib/api/client"
@@ -47,6 +48,7 @@ export function CommunityInviteCard({
   perspective: MessagePerspective
 }) {
   const router = useRouter()
+  const uiHandlers = useUiHandlers()
   const { servers } = useServers()
   const joinServer = useJoinServer()
 
@@ -66,6 +68,7 @@ export function CommunityInviteCard({
   )
 
   const onJoin = async () => {
+    uiHandlers.cancelPendingNavigation?.()
     try {
       const result = await joinServer.mutateAsync({ inviteCode: token })
       toast("Joined server")
@@ -141,7 +144,10 @@ export function CommunityInviteCard({
         <Button
           size="sm"
           data-testid={tid.inviteCardAction(token)}
-          onClick={() => router.push(`/c/channels/${alreadyMemberServerId}`)}
+          onClick={() => {
+            uiHandlers.cancelPendingNavigation?.()
+            router.push(`/c/channels/${alreadyMemberServerId}`)
+          }}
         >
           Go to Server
         </Button>

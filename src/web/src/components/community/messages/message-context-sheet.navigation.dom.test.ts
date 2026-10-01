@@ -4,6 +4,7 @@ import { act, render } from "@/test/react-dom-harness"
 
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
+  cancel: vi.fn(),
   close: vi.fn(),
   openThread: undefined as undefined | ((threadId: string) => void),
   pin: undefined as undefined | ((messageId: string) => void),
@@ -92,7 +93,7 @@ vi.mock("../dividers", () => ({ DateDivider: () => null }))
 vi.mock("@/contexts/community/current-user", () => ({
   useCurrentUser: () => ({ id: "viewer_1" }),
 }))
-vi.mock("@/stores/community", () => ({ useUiHandlers: () => ({}) }))
+vi.mock("@/stores/community", () => ({ useUiHandlers: () => ({ cancelPendingNavigation: mocks.cancel }) }))
 vi.mock("@/hooks/use-hover-capable", () => ({ useHoverCapable: () => true }))
 vi.mock("@/hooks/community/mutations", () => ({
   usePinMessage: () => ({ mutate: mocks.pinMutate }),
@@ -134,6 +135,8 @@ describe("MessageContextSheet thread navigation", () => {
     }))
     act(() => mocks.openThread?.("child_1"))
 
+    expect(mocks.cancel).toHaveBeenCalledOnce()
+    expect(mocks.cancel.mock.invocationCallOrder[0]).toBeLessThan(mocks.push.mock.invocationCallOrder[0]!)
     expect(mocks.push).toHaveBeenCalledWith("/c/channels/server_1/child_1")
     expect(mocks.close).toHaveBeenCalledWith(false)
   })

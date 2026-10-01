@@ -17,6 +17,7 @@ import {
   type BotSummary,
 } from "@/hooks/community/use-bots"
 import { useCreateOrGetDm } from "@/hooks/community/mutations"
+import { useUiHandlers } from "@/stores/community"
 import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
 import {
   advanceCommunityOnboarding,
@@ -29,6 +30,7 @@ import type { BotListController } from "./bot-list-types"
 
 export function useBotListController(): BotListController {
   const router = useRouter()
+  const uiHandlers = useUiHandlers()
   const searchParams = useSearchParams()
   const botsQuery = useBots()
   const { bots, isLoading } = botsQuery
@@ -91,6 +93,7 @@ export function useBotListController(): BotListController {
   const isCreateDisabled = isAtCapacity && guidedCreateLabel === "Create a bot"
 
   const chatWithBot = async (bot: BotSummary) => {
+    uiHandlers.cancelPendingNavigation?.()
     try {
       const data = await createOrGetDm.mutateAsync({ userId: bot.id })
       router.push(`/c/me/${data.conversation.id}`)
@@ -100,6 +103,7 @@ export function useBotListController(): BotListController {
   }
 
   const openGuidedBotDm = async (botId: string) => {
+    uiHandlers.cancelPendingNavigation?.()
     try {
       const data = await createOrGetDm.mutateAsync({ userId: botId })
       advanceCommunityOnboarding("bot", "dm", {
@@ -124,6 +128,7 @@ export function useBotListController(): BotListController {
     const hasUsableMachine = machines.some((machine) => isPresenceOnline(machine.status))
     if (state?.status === "active" && state.stage === "bot" && !hasUsableMachine) {
       recoverCommunityOnboardingMachine()
+      uiHandlers.cancelPendingNavigation?.()
       router.push("/c/me/machines")
       return
     }
@@ -256,6 +261,7 @@ export function useBotListController(): BotListController {
   }, [activityBot, activityOpen, bots, botsResolved, router, searchParams, targetAuditBotId])
 
   const openActivity = (bot: BotSummary) => {
+    uiHandlers.cancelPendingNavigation?.()
     suppressedAuditRef.current = null
     const next = new URLSearchParams(searchParams.toString())
     next.set("audit", bot.id)
@@ -283,8 +289,12 @@ export function useBotListController(): BotListController {
     setActivityBot(null)
   }
 
-  const openMachines = () => router.push("/c/me/machines")
+  const openMachines = () => {
+    uiHandlers.cancelPendingNavigation?.()
+    router.push("/c/me/machines")
+  }
   const bringMachineOnline = (machineId: string) => {
+    uiHandlers.cancelPendingNavigation?.()
     router.push(`/c/me/machines?reconnect=${machineId}`)
   }
 

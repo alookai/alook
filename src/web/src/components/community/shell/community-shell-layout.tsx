@@ -58,7 +58,6 @@ type CommunityShellLayoutProps = {
   main: ReactNode
   userBar: ReactNode
   overlays?: ReactNode
-  onNavigationIntent?: () => void
   busy?: boolean
   label?: string
   routeKind?: string
@@ -99,7 +98,6 @@ export function CommunityShellLayout({
   main,
   userBar,
   overlays,
-  onNavigationIntent,
   busy,
   label,
   routeKind,
@@ -382,7 +380,6 @@ export function CommunityShellLayout({
 
   return (
     <Shell
-      onNavigationIntent={onNavigationIntent}
       aria-busy={busy ? "true" : undefined}
       aria-label={label}
       data-community-route-kind={routeKind}

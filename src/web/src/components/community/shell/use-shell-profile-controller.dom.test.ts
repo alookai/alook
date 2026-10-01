@@ -425,6 +425,21 @@ describe("useShellProfileController", () => {
     expect(hook.current.profile).toBeNull()
   })
 
+  it("cancels the old navigation when a valid profile DM action starts", async () => {
+    const pending = deferred<{ conversation: { id: string } }>()
+    mocks.createDm.mockReturnValue(pending.promise)
+    const hook = await renderController()
+    let completion!: Promise<void>
+    act(() => { completion = hook.current.profileMessage("remote", "") })
+    expect(hook.cancelPendingNavigation).toHaveBeenCalledOnce()
+    expect(hook.cancelPendingNavigation.mock.invocationCallOrder[0])
+      .toBeLessThan(mocks.createDm.mock.invocationCallOrder[0]!)
+    expect(hook.router.push).not.toHaveBeenCalled()
+    await act(async () => { pending.resolve({ conversation: { id: "dm1" } }); await completion })
+    expect(hook.router.push).toHaveBeenCalledWith("/c/me/dm1")
+    expect(hook.cancelPendingNavigation).toHaveBeenCalledOnce()
+  })
+
   it("opens empty-text DMs, does not await accepted commits, and blocks rejected sends", async () => {
     mocks.createDm.mockResolvedValue({ conversation: { id: "dm1" } })
     const hook = await renderController()
