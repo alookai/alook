@@ -16,18 +16,34 @@ describe("read-only channel metadata", () => {
   it("shows groups, channel names, creator handles and exact dates without navigation", () => {
     query.channels = [
       { id: "public", name: "general", category: null, creator: null, createdAt: "2026-10-01T00:00:00.000Z" },
-      { id: "private", name: "long-private-name", category: { id: "cat", name: "PRIVATE GROUP" }, creator: { name: "Alice", handle: "alice#0001" }, createdAt: "2026-10-01T01:00:00.000Z" },
+      { id: "private", name: "long-private-name", category: { id: "cat", name: "PRIVATE GROUP", private: true }, creator: { name: "Alice", handle: "alice#0001" }, createdAt: "2026-10-01T01:00:00.000Z" },
     ]
     render(createElement(ServerSettingsChannels, { serverId: "server-1" }))
     const group = screen.getByRole("region", { name: "Group: PRIVATE GROUP" })
     expect(within(group).getByText("long-private-name")).toBeVisible()
-    expect(within(group).getByText("@alice#0001")).toHaveAttribute("title", "Alice")
+    expect(within(group).getByText("@alice#0001")).toHaveAttribute("title", "@alice#0001")
     expect(within(group).getByText(/2026/).closest("time")).toHaveAttribute("datetime", "2026-10-01T01:00:00.000Z")
     expect(screen.getByRole("region", { name: "Group: Uncategorized" })).toBeVisible()
     expect(screen.getByText("Deleted user")).toBeVisible()
     expect(screen.queryByRole("link")).not.toBeInTheDocument()
-    expect(screen.queryByRole("button")).not.toBeInTheDocument()
+    expect(screen.getByLabelText("Private group")).toBeVisible()
+    expect(screen.getByLabelText("Public group")).toBeVisible()
+    expect(screen.getByRole("button", { name: "Group: PRIVATE GROUP" })).toHaveAttribute("aria-expanded", "true")
     expect(screen.getAllByRole("listitem")).toHaveLength(2)
+  })
+
+  it("collapses and expands the shared group without navigating or fetching again", async () => {
+    query.channels = [{ id: "private", name: "private-forum", type: "forum", category: { id: "cat", name: "PRIVATE GROUP", private: true }, creator: null, createdAt: "2026-10-01T00:00:00.000Z" }]
+    const user = setupUser()
+    render(createElement(ServerSettingsChannels, { serverId: "server-1" }))
+    const toggle = screen.getByRole("button", { name: "Group: PRIVATE GROUP" })
+    await user.click(toggle)
+    expect(toggle).toHaveAttribute("aria-expanded", "false")
+    expect(screen.queryByTestId(tid.settingsChannel("private"))).not.toBeInTheDocument()
+    await user.keyboard("{Enter}")
+    expect(toggle).toHaveAttribute("aria-expanded", "true")
+    expect(screen.getByTestId(tid.settingsChannel("private"))).toBeVisible()
+    expect(query.refetch).not.toHaveBeenCalled()
   })
 
   it("distinguishes an unresolved request from an empty list", () => {

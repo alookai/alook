@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { BellOff, Loader2, Pencil, Trash2, Users } from "lucide-react"
-import { EntityIcon } from "../entity-icon"
+import { ChannelRow } from "./channel-row"
 import { useSortable } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu"
@@ -58,36 +58,25 @@ export function SortableChannel({ ch, active, onClick, onEdit, onDelete, onManag
     muted: ch.muted === true,
   })
   const row = (
-    <div
-      ref={setNodeRef}
-      style={style}
-      onClick={onClick}
-      data-testid={tid.channelRow(ch.id)}
-      {...attributes}
-      {...listeners}
+    <ChannelRow
+      name={ch.name} kind={ch.type}
+      ref={setNodeRef} style={style} onClick={onClick} data-testid={tid.channelRow(ch.id)}
+      {...attributes} {...listeners}
       className={[
-        "group relative flex h-8 w-full cursor-pointer touch-manipulation items-center gap-2 rounded-md px-2 text-sm select-none",
+        "h-8 cursor-pointer touch-manipulation select-none",
         canReorder ? "active:cursor-grabbing" : "",
-        active
-          ? "bg-sidebar-accent text-foreground"
-          : ch.muted
-            ? "text-muted-foreground/50 hover:bg-sidebar-accent/60 hover:text-muted-foreground"
-            : unread.emphasize
-              ? "text-foreground hover:bg-sidebar-accent/60"
-              : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
+        active ? "bg-sidebar-accent text-foreground" : ch.muted
+          ? "text-muted-foreground/50 hover:bg-sidebar-accent/60 hover:text-muted-foreground"
+          : unread.emphasize ? "text-foreground hover:bg-sidebar-accent/60" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
       ].join(" ")}
     >
       {showLine && <DropLine side={lineSide} />}
-      <span className="grid size-5 shrink-0 place-items-center opacity-70">
-        <EntityIcon kind={ch.type} className="size-4" />
-      </span>
-      <span className="truncate font-semibold">{ch.name}</span>
       {ch.muted ? (
         <BellOff className="ml-auto size-4 shrink-0 opacity-70" />
       ) : unread.showDot ? (
         <span className="ml-auto size-2 rounded-full bg-primary" />
       ) : null}
-    </div>
+    </ChannelRow>
   )
   if (!hasChannelMenu({ onEdit, onManageMembers, onDelete })) return row
   return (

@@ -8,7 +8,8 @@ import { communityKeys } from "@/lib/query-keys"
 export type AdminChannel = {
   id: string
   name: string
-  category: { id: string; name: string } | null
+  type: "text" | "forum"
+  category: { id: string; name: string; private: boolean } | null
   creator: { name: string; handle: string } | null
   createdAt: string
 }

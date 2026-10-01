@@ -327,7 +327,8 @@ export async function listServerChannelDirectoryForAdmin(db: Database, serverId:
     .select({
       id: communityChannel.id,
       name: communityChannel.name,
-      category: { id: communityCategory.id, name: communityCategory.name },
+      type: communityChannel.type,
+      category: { id: communityCategory.id, name: communityCategory.name, private: communityCategory.private },
       creator: { name: user.name, discriminator: user.discriminator },
       createdAt: communityChannel.createdAt,
     })
@@ -348,8 +349,9 @@ export async function listServerChannelDirectoryForAdmin(db: Database, serverId:
       inArray(communityChannel.type, ["text", "forum"]),
     ))
     .orderBy(asc(communityCategory.position), asc(communityCategory.id), asc(communityChannel.position), asc(communityChannel.id));
-  return rows.map(({ creator, ...row }) => ({
+  return rows.map(({ creator, category, ...row }) => ({
     ...row,
+    category: category ? { ...category, private: !!category.private } : null,
     creator: creator ? { name: creator.name, handle: formatHandle(creator.name, creator.discriminator) } : null,
   }));
 }

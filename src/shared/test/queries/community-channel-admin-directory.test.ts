@@ -51,12 +51,13 @@ describe("listServerChannelDirectoryForAdmin", () => {
       "uncat", "private-forum", "private-text", "public-text", "deleted-creator", "missing-creator",
     ]);
     expect(rows[0]).toEqual({
-      id: "uncat", name: "uncategorized", category: null, creator: null, createdAt: "2026-10-01T00:00:00.000Z",
+      id: "uncat", name: "uncategorized", type: "text", category: null, creator: null, createdAt: "2026-10-01T00:00:00.000Z",
     });
     expect(rows[1]).toEqual({
-      id: "private-forum", name: "hidden-forum", category: { id: "private", name: "PRIVATE" },
+      id: "private-forum", name: "hidden-forum", type: "forum", category: { id: "private", name: "PRIVATE", private: true },
       creator: { name: "Alice", handle: "Alice#0042" }, createdAt: "2026-10-01T02:00:00.000Z",
     });
+    expect(rows[3]!.category?.private).toBe(false);
     expect(rows[4]!.creator).toBeNull();
     expect(rows[5]!.creator).toBeNull();
     expect(JSON.stringify(rows)).not.toMatch(/secret|email|discriminator|creatorId|topic/);

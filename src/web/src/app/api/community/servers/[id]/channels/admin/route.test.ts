@@ -45,7 +45,7 @@ describe("GET server admin channel directory", () => {
   it.each(["admin", "owner"])("permits %s and returns only the directory response, without caching", async (role) => {
     mocks.getMember.mockResolvedValue({ role })
     const channels = [{
-      id: "private", name: "private", category: { id: "group", name: "PRIVATE" },
+      id: "private", name: "private", type: "forum", category: { id: "group", name: "PRIVATE", private: true },
       creator: { name: "Alice", handle: "Alice#0042" }, createdAt: "2026-10-01T00:00:00.000Z",
     }]
     mocks.listDirectory.mockResolvedValue(channels)

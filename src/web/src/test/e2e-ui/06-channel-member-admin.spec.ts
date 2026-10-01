@@ -33,7 +33,8 @@ test.describe.serial("channel & member admin", () => {
 
   test("Channels loads only on selection and lists private metadata without granting content access", async ({ asUser }) => {
     const categoryId = await seedCategory("alice", serverId, `Directory QA ${Date.now()}`, { private: true })
-    const privateId = await seedChannel("bob", serverId, "bob-private", "forum", categoryId)
+    const privateName = "bob-private-channel-with-a-very-long-name-for-mobile-review"
+    const privateId = await seedChannel("bob", serverId, privateName, "forum", categoryId)
     const root = await seedMessage("alice", channelId, "Thread root")
     const childId = await seedThread("alice", root, "Child excluded")
     const { page } = await asUser("alice")
@@ -66,12 +67,36 @@ test.describe.serial("channel & member admin", () => {
     expect(data.channels.map((row) => row.id)).not.toContain(childId)
     const row = page.getByTestId(tid.settingsChannel(privateId))
     await expect(row).toBeVisible()
-    await expect(row).toContainText("bob-private")
+    await expect(row).toContainText(privateName)
     await expect(row).toContainText(`@${data.channels.find((channel) => channel.id === privateId)!.creator!.handle}`)
     await expect(row.locator("time")).toHaveAttribute("datetime", data.channels.find((channel) => channel.id === privateId)!.createdAt)
     await expect(row.getByRole("link")).toHaveCount(0)
     expect(responses).toEqual([200])
     await expect.poll(() => requests.length - abortedRequests).toBe(1)
+    await page.setViewportSize({ width: 390, height: 844 })
+    const label = row.locator(`span[title="${privateName}"]`)
+    await expect.poll(async () => label.evaluate((element) => {
+      const style = getComputedStyle(element)
+      return element.getBoundingClientRect().height > Number.parseFloat(style.lineHeight)
+        && element.scrollWidth <= element.clientWidth + 1
+        && element.scrollHeight <= element.clientHeight + 1
+    })).toBe(true)
+    const metadata = row.locator("time").locator("..")
+    await expect.poll(async () => metadata.evaluate((element) => {
+      const pill = element.querySelector("span[title]")!
+      const time = element.querySelector("time")!
+      const a = pill.getBoundingClientRect(), b = time.getBoundingClientRect()
+      return Math.abs((a.top + a.bottom) / 2 - (b.top + b.bottom) / 2) < 2
+        && element.scrollWidth <= element.clientWidth + 1
+    })).toBe(true)
+    const category = page.getByRole("region", { name: /^Group: Directory QA/ })
+    await expect(category.getByLabel("Private group")).toBeVisible()
+    const toggle = category.getByRole("button", { name: /^Group: Directory QA/ })
+    await toggle.click()
+    await expect(row).toHaveCount(0)
+    await toggle.click()
+    await expect(row).toBeVisible()
+    expect(responses).toEqual([200])
     const messages = await page.request.get(`/api/community/channels/${privateId}/messages`)
     expect(messages.status()).toBe(403)
     await page.getByTestId(tid.settingsClose).click()

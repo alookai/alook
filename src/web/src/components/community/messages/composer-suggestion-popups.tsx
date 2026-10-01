@@ -6,7 +6,7 @@ import {
   useAnchoredPopover,
 } from "@/hooks/use-anchored-popover"
 import { Avatar } from "../avatar"
-import { ChannelPickerLabel } from "../channels/channel-picker-label"
+import { ChannelIcon } from "../channels/channel-icon"
 import { nextListScrollTop } from "@/lib/community/popup-scroll"
 import { tid } from "@/lib/community/testids"
 import {
@@ -222,7 +222,18 @@ function ChannelRefRow({
         onSelect()
       }}
     >
-      <ChannelPickerLabel name={item.name} serverName={showServerPrefix ? item.serverName : undefined} />
+      <span data-suggestion-icon className="inline-flex shrink-0">
+        <ChannelIcon className="size-3.5 text-muted-foreground" />
+      </span>
+      <span
+        data-suggestion-label
+        className="min-w-0 flex-1 truncate font-medium"
+      >
+        {showServerPrefix && (
+          <span className="text-muted-foreground">{item.serverName} / </span>
+        )}
+        {item.name}
+      </span>
     </button>
   )
 }
