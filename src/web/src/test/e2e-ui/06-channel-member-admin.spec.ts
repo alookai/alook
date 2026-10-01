@@ -78,12 +78,13 @@ test.describe.serial("channel & member admin", () => {
     await expect(page.getByTestId(tid.channelRow(privateId))).toHaveCount(0)
   })
 
-  test("ordinary members have no settings entry or admin list access", async ({ asUser }) => {
+  test("ordinary members cannot open admin settings or access the admin list", async ({ asUser }) => {
     const { page } = await asUser("bob")
     await page.goto(`/c/channels/${serverId}/${channelId}`)
     await expect(page.getByTestId(tid.composerInput)).toBeVisible()
     await page.getByTestId(tid.serverIcon(serverId)).click({ button: "right" })
-    await expect(page.getByTestId(tid.serverSettingsOpen)).toHaveCount(0)
+    await page.getByTestId(tid.serverSettingsOpen).click()
+    await expect(page.getByTestId(tid.settingsShell)).toHaveCount(0)
     await expect(page.getByTestId(tid.settingsTab("channels"))).toHaveCount(0)
     const result = await page.request.get(`/api/community/servers/${serverId}/channels/admin`)
     expect(result.status()).toBe(403)
