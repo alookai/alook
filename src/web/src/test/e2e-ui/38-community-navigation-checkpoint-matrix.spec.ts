@@ -156,11 +156,22 @@ test("community checkpoint shows target pending for detail and keeps list surfac
   const leafGate = await holdRoute(page, `/c/channels/${serverId}/${channelB}`)
   await page.getByTestId(tid.channelRow(channelB)).click({ noWaitAfter: true })
   await expect.poll(leafGate.held).toBeGreaterThan(0)
-  await expect(page.getByLabel("Resolving conversation")).toBeVisible()
+  const pendingMain = page.getByLabel("Resolving conversation")
+  const targetReady = page.locator(
+    `[data-slot="community-conversation-surface"][data-channel-id="${channelB}"]`,
+  ).filter({
+    has: page.getByRole("heading", { name: channelBName, exact: true }),
+  }).filter({ has: page.getByTestId(tid.composerInput) })
+  const oldMain = page.locator(
+    `[data-slot="community-conversation-surface"][data-channel-id="${channelA}"]`,
+  )
+  await expect(pendingMain.or(targetReady).first()).toBeVisible()
   await expect(channelHeader(page, channelAName)).toHaveCount(0)
+  await expect(oldMain).toHaveCount(0)
   await page.waitForTimeout(150)
-  await expect(page.getByLabel("Resolving conversation")).toBeVisible()
+  await expect(pendingMain.or(targetReady).first()).toBeVisible()
   await expect(channelHeader(page, channelAName)).toHaveCount(0)
+  await expect(oldMain).toHaveCount(0)
   await leafGate.release()
   await expect(channelHeader(page, channelBName)).toBeVisible({ timeout: 30_000 })
 
@@ -247,7 +258,16 @@ test("mobile route commits stay stationary while sidebar identity survives same-
   const pendingGate = await holdRoute(page, pendingPath)
   await page.getByTestId(tid.channelRow(pendingChannel)).click({ noWaitAfter: true })
   await expect.poll(pendingGate.held).toBeGreaterThan(0)
-  await expect(page.getByTestId(tid.pendingMain("server-conversation"))).toBeVisible()
+  const pendingMain = page.getByTestId(tid.pendingMain("server-conversation"))
+  const targetReady = page.locator(
+    `[data-slot="community-conversation-surface"][data-channel-id="${pendingChannel}"]`,
+  ).filter({
+    has: page.getByRole("heading", { name: pendingName, exact: true }),
+  }).filter({ has: page.getByTestId(tid.composerInput) })
+  await expect(pendingMain.or(targetReady).first()).toBeVisible()
+  await expect(page.locator(
+    `[data-slot="community-conversation-surface"][data-channel-id="${fastChannel}"]`,
+  )).toHaveCount(0)
   await pendingGate.release()
 
   await expect.poll(() => new URL(page.url()).pathname).toBe(pendingPath)
