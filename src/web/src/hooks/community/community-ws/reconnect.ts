@@ -124,6 +124,36 @@ async function reconcileCachedServer(queryClient: QueryClient, serverId: string)
   }
 }
 
+export async function reconcileFocusedCommunityMessages(
+  queryClient: QueryClient,
+  sub = useCommunityStore.getState().subscription,
+) {
+  const operations: Promise<unknown>[] = []
+  if (sub.channelId) {
+    operations.push(reconcileFocusedMessageQueries(
+      queryClient,
+      "channel",
+      sub.channelId,
+    ))
+  }
+  if (sub.secondaryChannelId) {
+    operations.push(reconcileFocusedMessageQueries(
+      queryClient,
+      "channel",
+      sub.secondaryChannelId,
+    ))
+  }
+  if (sub.dmConversationId) {
+    operations.push(reconcileFocusedMessageQueries(
+      queryClient,
+      "dm",
+      sub.dmConversationId,
+    ))
+  }
+  const settled = await Promise.allSettled(operations)
+  if (settled.some((result) => result.status === "rejected")) throw new Error("focused messages failed")
+}
+
 function policyExecutors(
   queryClient: QueryClient,
   viewerUserId?: string | null,
@@ -131,32 +161,7 @@ function policyExecutors(
   const sub = useCommunityStore.getState().subscription
   const queryKeys = queryClient.getQueryCache().getAll().map((query) => query.queryKey)
   return {
-    "focused-messages": async () => {
-      const operations: Promise<unknown>[] = []
-      if (sub.channelId) {
-        operations.push(reconcileFocusedMessageQueries(
-          queryClient,
-          "channel",
-          sub.channelId,
-        ))
-      }
-      if (sub.secondaryChannelId) {
-        operations.push(reconcileFocusedMessageQueries(
-          queryClient,
-          "channel",
-          sub.secondaryChannelId,
-        ))
-      }
-      if (sub.dmConversationId) {
-        operations.push(reconcileFocusedMessageQueries(
-          queryClient,
-          "dm",
-          sub.dmConversationId,
-        ))
-      }
-      const settled = await Promise.allSettled(operations)
-      if (settled.some((result) => result.status === "rejected")) throw new Error("focused messages failed")
-    },
+    "focused-messages": () => reconcileFocusedCommunityMessages(queryClient, sub),
     "focused-opener": async () => {
       const parentMessageId = useCommunityStore.getState().currentChannelMeta?.parentMessageId
       if (!parentMessageId) return

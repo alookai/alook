@@ -1650,6 +1650,81 @@ describe("useUserWs", () => {
     expect(ws.closed).toBe(false)
   })
 
+  it("notifies foreground data work before validation and again for changed targets during a pending probe", async () => {
+    setupTokenFetch()
+    let finish!: () => void
+    const dataWork = new Promise<void>((resolve) => { finish = resolve })
+    const onForeground = vi.fn(() => dataWork)
+    const onReconnect = vi.fn()
+    await mountHook(vi.fn(), { onForeground, onReconnect, requestDaemonStatusOnAuth: false })
+    const ws = MockWebSocket.instances[0]!
+    ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok" })
+
+    dispatchHiddenToVisible()
+    expect(onForeground).toHaveBeenCalledOnce()
+    expect(connectionPings(ws)).toHaveLength(1)
+    expect(onReconnect).not.toHaveBeenCalled()
+    dispatchWindowFocus()
+    mockDocument.dispatch("resume")
+    dispatchPageShow(true)
+    expect(onForeground).toHaveBeenCalledTimes(4)
+    expect(connectionPings(ws)).toHaveLength(1)
+
+    const [{ nonce }] = connectionPings(ws)
+    ws.simulateMessage({ type: "connection.pong", nonce })
+    expect(ws.closed).toBe(false)
+    expect(MockWebSocket.instances).toEqual([ws])
+    expect(onReconnect).not.toHaveBeenCalled()
+    finish()
+    await flushPromises()
+  })
+
+  it("notifies foreground data work while token or authentication is still pending", async () => {
+    const token = deferred<Response>()
+    mockFetch.mockReturnValueOnce(token.promise)
+    const onForeground = vi.fn()
+    await mountHook(vi.fn(), { onForeground, requestDaemonStatusOnAuth: false })
+    dispatchWindowFocus()
+    expect(onForeground).toHaveBeenCalledOnce()
+    expect(MockWebSocket.instances).toHaveLength(0)
+    token.resolve({ ok: true, json: async () => ({ userId: "user-1", token: "test-token" }) } as Response)
+    await flushPromises()
+    const ws = MockWebSocket.instances[0]!
+    dispatchWindowFocus()
+    expect(onForeground).toHaveBeenCalledTimes(2)
+    expect(ws.readyState).toBe(MockWebSocket.CONNECTING)
+    ws.simulateOpen()
+    dispatchWindowFocus()
+    expect(onForeground).toHaveBeenCalledTimes(3)
+    expect(connectionPings(ws)).toHaveLength(0)
+  })
+
+  it("keeps foreground data failures independent of socket validation and blocks hidden/offline work", async () => {
+    setupTokenFetch()
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+    const onForeground = vi.fn(() => { throw new Error("data unavailable") })
+    await mountHook(vi.fn(), { onForeground, requestDaemonStatusOnAuth: false })
+    const ws = MockWebSocket.instances[0]!
+    ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok" })
+    mockDocument.visibilityState = "hidden"
+    mockDocument.dispatch("visibilitychange")
+    dispatchWindowFocus()
+    expect(onForeground).not.toHaveBeenCalled()
+    mockNavigator.onLine = false
+    mockWindow.dispatch("offline")
+    mockDocument.visibilityState = "visible"
+    mockDocument.dispatch("visibilitychange")
+    expect(onForeground).not.toHaveBeenCalled()
+    mockNavigator.onLine = true
+    mockWindow.dispatch("online")
+    expect(onForeground).toHaveBeenCalledOnce()
+    expect(connectionPings(ws)).toHaveLength(1)
+    expect(warn).toHaveBeenCalledWith("[ws] lifecycle callback threw", { callback: "foreground" })
+    warn.mockRestore()
+  })
+
   it("coalesces an offline-online signal pair while foreground validation is pending", async () => {
     setupTokenFetch()
     await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
