@@ -216,7 +216,8 @@ export function ThreadChannelSurface({
               onToggle={togglePanel}
               notifLevel={notificationLevel}
               onSetNotifLevel={onSetNotificationLevel}
-              mobileBack={onNavigateParent}
+              mobileBack={splitActions ? undefined : onNavigateParent}
+              mobileBackDisplay="always"
               tools={{ threads: false }}
               titleRename={parentIsForum}
               onRename={parentChannelId && !splitActions ? rename : undefined}

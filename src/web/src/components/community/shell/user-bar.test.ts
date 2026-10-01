@@ -20,7 +20,7 @@ describe("UserBar", () => {
     expect(running).toContain(`data-testid="${tid.userBarRunningBotsGlow}"`)
     expect(running).toContain('aria-label="Open profile. 2 running bots."')
     expect(running).toContain("relative grid size-7 place-items-center rounded-full")
-    expect(running).toContain("pointer-events-none absolute -inset-0.5")
+    expect(running).toContain("pointer-events-none absolute -inset-px")
     expect(running).toContain("focus-visible:ring-offset-4")
     expect(running).toContain("focus-visible:ring-offset-muted")
     expect(running).toContain("var(--primary)")

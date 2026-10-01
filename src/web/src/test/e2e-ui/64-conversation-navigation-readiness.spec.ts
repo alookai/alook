@@ -4,7 +4,7 @@ import { seedChannel, seedDm, seedDmMessage, seedForumThread, seedMessage, seedS
 import { tid } from "./_fixtures/testids"
 import { WEB_URL } from "./_setup/paths"
 import { expectConversationReady, observeConversationTransport } from "./_fixtures/conversation-readiness"
-import { captureReadyConversation, runRenderedNavigation } from "./_fixtures/rendered-navigation"
+import { createNavigationRouteManager, withOwnedCleanup, captureReadyConversation, runRenderedNavigation } from "./_fixtures/rendered-navigation"
 
 test.beforeEach(async ({ baseURL }) => {
   expect(baseURL, "seed helper origin must match the browser before any mutation").toBeTruthy()
@@ -51,23 +51,21 @@ function captureNavigation(page: Page) {
   } }
 }
 
-async function holdRsc(page: Page, path: string) {
-  let releaseGate!: () => void
-  const gate = new Promise<void>((resolve) => { releaseGate = resolve })
+async function holdRsc(manager: ReturnType<typeof createNavigationRouteManager>, pathname: string) {
+  const purpose = manager.role(pathname)
   const requests: Array<{ pathname: string; query: string; rsc: boolean; prefetch: boolean; at: number }> = []
-  const pattern = `**${path}**`
-  const handler = async (route: import("@playwright/test").Route) => {
-    const url = new URL(route.request().url()); const headers = route.request().headers()
-    if (!url.searchParams.has("_rsc")) return route.continue()
-    requests.push({ pathname: url.pathname, query: url.search, rsc: headers.rsc === "1", prefetch: !!(headers["next-router-prefetch"] || headers["next-router-segment-prefetch"]), at: Date.now() })
-    await gate; await route.continue()
-  }
-  await page.route(pattern, handler)
+  const pattern = `**${pathname}**`
+  await manager.register({ pattern, purpose,
+    select: (route) => new URL(route.request().url()).searchParams.has("_rsc"),
+    selected: (route) => {
+      const url = new URL(route.request().url()); const headers = route.request().headers()
+      requests.push({ pathname: url.pathname, query: url.search, rsc: headers.rsc === "1", prefetch: !!(headers["next-router-prefetch"] || headers["next-router-segment-prefetch"]), at: Date.now() })
+    },
+  })
   let releasedAt: number | null = null
-  return { held: () => requests.length, snapshot: () => ({ pattern, requests, releasedAt, selection: "path pattern and _rsc query; header purpose recorded separately" }), release: async () => {
-    if (releasedAt !== null) return
-    releasedAt = Date.now(); releaseGate(); await page.unroute(pattern, handler)
-  } }
+  let released: Promise<void> | undefined
+  return { held: () => requests.length, snapshot: () => ({ pathname, pattern, requests, releasedAt, purpose, lifecycle: manager.snapshot(), selection: "matched transport diagnostic, not a structural commit barrier" }),
+    release: () => { releasedAt ??= Date.now(); return released ??= manager.release(purpose) } }
 }
 
 for (const subtype of ["text", "forum", "thread"] as const) {
@@ -86,6 +84,7 @@ for (const subtype of ["text", "forum", "thread"] as const) {
       postId = await seedForumThread("alice", targetId, "typed target post", "typed target post content")
     }
     const { page } = await asUser("alice")
+  const manager = createNavigationRouteManager(page, { pageRouteOwners: ["rendered-navigation"], source: "fresh asUser page; canonical fixture and frozen collector route-owner roster independently inspected" })
     const recording = captureNavigation(page)
     const events = recording.events
     const transport = observeConversationTransport(page)
@@ -96,7 +95,7 @@ for (const subtype of ["text", "forum", "thread"] as const) {
       }, testInfo)
       transport.assertHealthy()
     }
-    try {
+    await withOwnedCleanup("typed-restore", async () => {
       await page.goto(`/c/channels/${serverId}/${targetId}`)
       await expect(subtype === "forum" ? page.getByTestId(tid.forumPostList) : page.getByTestId(tid.message(messageId))).toBeVisible({ timeout: 30_000 })
       await ready()
@@ -104,31 +103,34 @@ for (const subtype of ["text", "forum", "thread"] as const) {
       await page.getByTestId(tid.homeButton).click()
       await expect(page.getByRole("textbox", { name: "Search friends" })).toBeVisible()
       const targetPath = `/c/channels/${serverId}/${targetId}`
-      const gate = await holdRsc(page, `/c/channels/${serverId}`)
-      try {
+      const gate = await holdRsc(manager, `/c/channels/${serverId}`)
+      await withOwnedCleanup("typed-gate", async () => {
         await runRenderedNavigation(page, testInfo, "typed-rendered-restore", `[data-testid="${tid.serverIcon(serverId)}"]`, {
           paths: ["/c/me/friends", "/c/me", `/c/channels/${serverId}`, targetPath], finalPath: targetPath,
           scopes: [`server:${serverId}`], finalScope: `server:${serverId}`, headers,
           ...(subtype === "forum" ? { forum: true, forumPostTestId: tid.forumThreadCard(postId) } : { channelId: targetId, ...(subtype === "thread" ? { companionChannelIds: [parentId] } : {}) }), pendingKind: "server-conversation", subtype,
         }, async () => {
-          try { await page.getByTestId(tid.serverIcon(serverId)).click(); await expect.poll(gate.held).toBeGreaterThan(0)
+          await withOwnedCleanup("typed-held-click", async () => { await page.getByTestId(tid.serverIcon(serverId)).click(); await expect.poll(gate.held).toBeGreaterThan(0)
             events.push({ at: Date.now(), kind: "typed-restore-held", url: page.url(), detail: gate.snapshot() })
-          } finally { await gate.release() }
+          }, [{ name: "gate-release", run: gate.release }], testInfo)
           await ready()
           await captureReadyConversation(page, { pathname: targetPath, serverId, channelId: targetId, kind: subtype,
             ...(subtype === "forum" ? { forumPostTestId: tid.forumThreadCard(postId) } : { messageTestId: tid.message(messageId) }) }, testInfo, "qualified-typed-target")
           events.push({ at: Date.now(), kind: "typed-restore-ready", url: page.url(), detail: { subtype, targetId } })
         })
-      } finally {
-        await gate.release()
-        await testInfo.attach("navigation-timeline", { body: JSON.stringify({ clock: "Unix epoch milliseconds", targetId, subtype, events, gate: gate.snapshot(), errors: recording.errors }), contentType: "application/json" })
-      }
+      }, [
+        { name: "gate-release", run: gate.release },
+        { name: "timeline", run: () => testInfo.attach("navigation-timeline", { body: JSON.stringify({ clock: "Unix epoch milliseconds", targetId, subtype, events, gate: gate.snapshot(), errors: recording.errors }), contentType: "application/json" }) },
+      ], testInfo)
       await recording.settle()
       transport.assertHealthy()
-    } finally {
-      await testInfo.attach("conversation-transport", { body: JSON.stringify(transport.snapshot()), contentType: "application/json" })
-      recording.stop(); transport.stop()
-    }
+    }, [
+      { name: "recording-listeners", run: recording.stop },
+      { name: "recording-read-settlement", run: recording.settle },
+      { name: "transport-listeners", run: transport.stop },
+      { name: "route-disposal", run: manager.dispose },
+      { name: "transport-ledger", run: () => testInfo.attach("conversation-transport", { body: JSON.stringify(transport.snapshot()), contentType: "application/json" }) },
+    ], testInfo)
   })
 }
 
@@ -139,6 +141,7 @@ test("Home restores a known DM structure from a ready server conversation", asyn
   const dmId = await seedDm("alice", userId("bob"))
   const dmMessage = await seedDmMessage("bob", dmId, "remembered DM ready")
   const { page } = await asUser("alice")
+  const manager = createNavigationRouteManager(page, { pageRouteOwners: ["rendered-navigation"], source: "fresh asUser page; canonical fixture and frozen collector route-owner roster independently inspected" })
   const recording = captureNavigation(page)
   const events = recording.events
   const transport = observeConversationTransport(page)
@@ -150,7 +153,7 @@ test("Home restores a known DM structure from a ready server conversation", asyn
     }, testInfo)
     transport.assertHealthy()
   }
-  try {
+  await withOwnedCleanup("DM-restore", async () => {
     await page.goto(`${WEB_URL}/c/channels/${serverId}/${channelId}`)
     await expect(page.getByTestId(tid.message(channelMessage))).toBeVisible({ timeout: 30_000 })
     await ready("text")
@@ -161,27 +164,29 @@ test("Home restores a known DM structure from a ready server conversation", asyn
     await page.getByTestId(tid.serverIcon(serverId)).click()
     await expect(page.getByTestId(tid.message(channelMessage))).toBeVisible({ timeout: 30_000 })
     await ready("text")
-    const gate = await holdRsc(page, `/c/me/${dmId}`)
-    try {
+    const gate = await holdRsc(manager, `/c/me/${dmId}`)
+    await withOwnedCleanup("DM-gate", async () => {
       await runRenderedNavigation(page, testInfo, "known-DM-rendered-restore", `[data-testid="${tid.homeButton}"]`, {
         paths: [`/c/channels/${serverId}/${channelId}`, `/c/me/${dmId}`, "/c/me"], finalPath: `/c/me/${dmId}`,
         scopes: [`server:${serverId}`], channelId: dmId, headers: dmHeaders, pendingKind: "dm",
       }, async () => {
-        try { await page.getByTestId(tid.homeButton).click(); await expect.poll(gate.held).toBeGreaterThan(0) }
-        finally { await gate.release() }
+        await withOwnedCleanup("DM-held-click", async () => { await page.getByTestId(tid.homeButton).click(); await expect.poll(gate.held).toBeGreaterThan(0) }, [{ name: "gate-release", run: gate.release }], testInfo)
         await ready("dm")
         await captureReadyConversation(page, { pathname: `/c/me/${dmId}`, channelId: dmId, kind: "dm", messageTestId: tid.message(dmMessage) }, testInfo, "qualified-DM")
         events.push({ at: Date.now(), kind: "known-DM-restore-ready", url: page.url(), detail: { dmId } })
       })
-    } finally {
-      await gate.release()
-      await testInfo.attach("navigation-timeline", { body: JSON.stringify({ events, gate: gate.snapshot(), errors: recording.errors }), contentType: "application/json" })
-    }
+    }, [
+      { name: "gate-release", run: gate.release },
+      { name: "timeline", run: () => testInfo.attach("navigation-timeline", { body: JSON.stringify({ events, gate: gate.snapshot(), errors: recording.errors }), contentType: "application/json" }) },
+    ], testInfo)
     await recording.settle()
     transport.assertHealthy()
-  } finally {
-    await testInfo.attach("conversation-transport", { body: JSON.stringify(transport.snapshot()), contentType: "application/json" })
-    await testInfo.attach("navigation-state", { body: await page.screenshot(), contentType: "image/png" })
-    recording.stop(); transport.stop()
-  }
+  }, [
+      { name: "recording-listeners", run: recording.stop },
+      { name: "recording-read-settlement", run: recording.settle },
+      { name: "transport-listeners", run: transport.stop },
+      { name: "route-disposal", run: manager.dispose },
+      { name: "transport-ledger", run: () => testInfo.attach("conversation-transport", { body: JSON.stringify(transport.snapshot()), contentType: "application/json" }) },
+      { name: "diagnostic-image", run: async () => testInfo.attach("navigation-state", { body: await page.screenshot(), contentType: "image/png" }) },
+  ], testInfo)
 })

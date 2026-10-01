@@ -53,25 +53,49 @@ function mountMobile() {
   const shell = document.createElement("div")
   shell.dataset.slot = "community-shell-root"
   const sidebarPanel = document.createElement("div")
+  sidebarPanel.dataset.slot = "resizable-panel"
   sidebarPanel.id = "sidebar"
   sidebarPanel.dataset.mobileHidden = "true"
   const sidebarContent = document.createElement("div")
   sidebarContent.dataset.slot = "community-sidebar-panel-content"
   sidebarContent.hidden = true
-  sidebarContent.append(owner)
-  sidebarPanel.append(sidebarContent)
+  sidebarContent.appendChild(owner)
+  sidebarPanel.appendChild(sidebarContent)
   const mainPanel = document.createElement("div")
+  mainPanel.dataset.slot = "resizable-panel"
   mainPanel.id = "main"
   mainPanel.dataset.mobileActive = "true"
   main.dataset.communityMobileSurface = "detail"
-  mainPanel.append(main)
-  shell.append(sidebarPanel, mainPanel)
-  document.body.append(shell)
+  mainPanel.appendChild(main)
+  const group = document.createElement("div")
+  group.id = "community-shell"
+  group.dataset.slot = "resizable-panel-group"
+  group.appendChild(sidebarPanel); group.appendChild(mainPanel)
+  shell.appendChild(group)
+  size(group)
+  document.body.appendChild(shell)
   size(shell); size(mainPanel); size(sidebarPanel, 0, 0); size(sidebarContent, 0, 0)
   size(owner, 0, 0); size(owner.querySelector(`[data-testid="${tid.channelSidebarScroll}"]`)!, 0, 0)
   vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true })))
   return { shell, sidebarPanel, sidebarContent, mainPanel, main, owner }
 }
+
+describe("unique mobile ownership qualification", () => {
+  it.each(["duplicate-panel", "duplicate-content", "duplicate-owner", "duplicate-scroll", "nested-panel-scroll", "foreign-group"])("rejects %s", (fault) => {
+    const dom = mountMobile()
+    const scroll = dom.owner.querySelector(`[data-testid="${tid.channelSidebarScroll}"]`)!
+    if (fault === "duplicate-panel") dom.sidebarPanel.parentNode!.insertBefore(dom.sidebarPanel.cloneNode(true), dom.sidebarPanel.nextSibling)
+    if (fault === "duplicate-content") dom.sidebarContent.parentNode!.insertBefore(dom.sidebarContent.cloneNode(true), dom.sidebarContent.nextSibling)
+    if (fault === "duplicate-owner") dom.owner.parentNode!.insertBefore(dom.owner.cloneNode(true), dom.owner.nextSibling)
+    if (fault === "duplicate-scroll") scroll.parentNode!.insertBefore(scroll.cloneNode(true), scroll.nextSibling)
+    if (fault === "nested-panel-scroll") {
+      const panel = document.createElement("div"); panel.dataset.slot = "resizable-panel"; panel.id = "foreign"
+      dom.owner.appendChild(panel); panel.appendChild(scroll)
+    }
+    if (fault === "foreign-group") dom.mainPanel.parentElement!.id = "foreign"
+    expect(inspectConversationReadiness({ ...target, layout: "mobile-detail" }).ready).toBe(false)
+  })
+})
 
 const mobileTarget: ConversationInspectionTarget = { ...target, layout: "mobile-detail" }
 describe("explicit actual mobile detail readiness", () => {
@@ -88,7 +112,7 @@ describe("explicit actual mobile detail readiness", () => {
     if (fault === "sidebar-hidden") dom.sidebarContent.hidden = false
     if (fault === "sidebar-panel") dom.sidebarPanel.removeAttribute("data-mobile-hidden")
     if (fault === "sidebar-active") dom.sidebarPanel.dataset.mobileActive = "true"
-    if (fault === "wrong-shell") document.body.append(dom.sidebarPanel)
+    if (fault === "wrong-shell") document.body.appendChild(dom.sidebarPanel)
     expect(inspectConversationReadiness(mobileTarget).blockers).toContain("wrong-mobile-detail-layout")
   })
   it.each(["owner", "wrong-owner", "scroll", "foreign", "outside"])("rejects missing or foreign structural witness: %s", (fault) => {
@@ -97,11 +121,11 @@ describe("explicit actual mobile detail readiness", () => {
     if (fault === "owner") dom.owner.remove()
     if (fault === "wrong-owner") dom.owner.setAttribute("data-community-channel-tree-scope", "server:wrong")
     if (fault === "scroll") scroll.remove()
-    if (fault === "outside") dom.main.append(scroll)
+    if (fault === "outside") dom.main.appendChild(scroll)
     if (fault === "foreign") {
       const foreign = document.createElement("div")
       foreign.setAttribute("data-community-channel-tree-scope", "server:foreign")
-      foreign.append(scroll); dom.owner.append(foreign)
+      foreign.appendChild(scroll); dom.owner.appendChild(foreign)
     }
     expect(inspectConversationReadiness(mobileTarget).blockers).toContain("wrong-server-scope")
   })
@@ -113,9 +137,9 @@ describe("explicit actual mobile detail readiness", () => {
     if (fault === "faded") dom.main.style.opacity = "0.5"
     if (fault === "inert") dom.main.setAttribute("inert", "")
     if (fault === "blocked") dom.main.style.pointerEvents = "none"
-    if (fault === "mask") { const mask = document.createElement("div"); mask.dataset.messagePositioningSkeleton = ""; dom.main.append(mask); size(mask) }
+    if (fault === "mask") { const mask = document.createElement("div"); mask.dataset.messagePositioningSkeleton = ""; dom.main.appendChild(mask); size(mask) }
     if (fault === "composer") dom.main.querySelector("[contenteditable]")!.remove()
-    if (fault === "foreign-content") document.body.append(dom.main.querySelector("[data-channel-id]")!)
+    if (fault === "foreign-content") document.body.appendChild(dom.main.querySelector("[data-channel-id]")!)
     expect(inspectConversationReadiness(mobileTarget).ready).toBe(false)
   })
 })
@@ -171,7 +195,7 @@ describe("consumer readiness acceptance", () => {
     hiddenShell.setAttribute("data-slot", "community-shell-root")
     hiddenShell.setAttribute("aria-busy", "true")
     hiddenShell.style.display = "none"
-    document.body.append(hiddenShell)
+    document.body.appendChild(hiddenShell)
     size(hiddenShell)
     expect(inspectConversationReadiness(target).ready).toBe(true)
   })
@@ -223,13 +247,13 @@ describe("consumer readiness acceptance", () => {
   })
   it("requires the exact seeded forum post, not another same-server empty list", () => {
     const forum = { ...target, kind: "forum" as const, messageTestId: undefined, forumPostTestId: "community-forum-thread-card-post" }
-    document.querySelector("main")!.innerHTML = '<div data-testid="community-forum-post-list"><div data-slot="skeleton"></div></div>'
+    document.querySelector("main")!.innerHTML = '<div role="main" data-testid="community-forum-post-list"><div data-slot="skeleton"></div></div>'
     sizeContents(document.querySelector("main")!)
     expect(inspectConversationReadiness(forum).ready).toBe(false)
-    document.querySelector("main")!.innerHTML = '<div data-testid="community-forum-post-list">No posts with this tag yet. Start one with New Post.</div>'
+    document.querySelector("main")!.innerHTML = '<div role="main" data-testid="community-forum-post-list">No posts with this tag yet. Start one with New Post.</div>'
     sizeContents(document.querySelector("main")!)
     expect(inspectConversationReadiness(forum).ready).toBe(false)
-    document.querySelector("main")!.innerHTML = '<div data-testid="community-forum-post-list"><div data-testid="community-forum-thread-card-post">typed post</div></div>'
+    document.querySelector("main")!.innerHTML = '<div role="main" data-testid="community-forum-post-list"><div role="button" tabindex="0" data-testid="community-forum-thread-card-post">typed post</div></div>'
     sizeContents(document.querySelector("main")!)
     expect(inspectConversationReadiness(forum).ready).toBe(true)
     expect(inspectConversationReadiness({ ...forum, channelId: "other" }).ready).toBe(false)
@@ -278,7 +302,7 @@ describe("transport outcomes remain separate from consumer readiness", () => {
     let now = 1_000
     vi.spyOn(Date, "now").mockImplementation(() => now)
     const forum = { ...target, kind: "forum" as const, forumPostTestId: "community-forum-thread-card-post" }
-    document.querySelector("main")!.innerHTML = '<div data-testid="community-forum-post-list"><div data-testid="community-forum-thread-card-post">typed post</div></div>'
+    document.querySelector("main")!.innerHTML = '<div role="main" data-testid="community-forum-post-list"><div role="button" tabindex="0" data-testid="community-forum-thread-card-post">typed post</div></div>'
     sizeContents(document.querySelector("main")!)
     let samples = 0
     const page = { evaluate: vi.fn(async () => {

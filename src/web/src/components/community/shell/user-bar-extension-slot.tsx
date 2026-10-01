@@ -127,11 +127,11 @@ export function UserBarExtensionSlot({
       {active === "inbox" && inbox}
       {active === "profile" && (
         <div
-          className="flex min-h-0 flex-col gap-2 overflow-y-auto p-2 thin-scrollbar"
+          className={cn("flex min-h-0 flex-col gap-2", unframedMobileProfile ? "p-0" : "p-2")}
           style={{ maxHeight: boundedHeight }}
         >
-          {profileCompanion && <div className="-mx-2 mb-2 shrink-0">{profileCompanion}</div>}
-          <div className="shrink-0">{profile}</div>
+          {profileCompanion && <div className="flex min-h-0 flex-col">{profileCompanion}</div>}
+          <div className={cn("shrink-0", unframedMobileProfile && "overflow-hidden rounded-xl border border-border bg-popover p-2")}>{profile}</div>
         </div>
       )}
       {active === "update" && update && (

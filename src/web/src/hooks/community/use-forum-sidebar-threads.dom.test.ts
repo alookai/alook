@@ -1,10 +1,10 @@
 import "fake-indexeddb/auto"
-import { createElement, type PropsWithChildren } from "react"
+import { createElement, useLayoutEffect, useRef, type PropsWithChildren } from "react"
 import { dehydrate, hydrate, QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { act, renderHook, waitFor } from "@/test/react-dom-harness"
+import { act, fireEvent, render, renderHook, screen, waitFor } from "@/test/react-dom-harness"
 import { createCommunityDbRegistry, registerCommunityDbRegistry } from "@/lib/community-db/collections"
-import { CommunityDbProvider, useForumSidebarProjection } from "@/lib/community-db/projections"
+import { CommunityDbProvider, useForumSidebarProjection, useServerTreeProjection } from "@/lib/community-db/projections"
 import {
   captureCommunityLiveSnapshotToken,
   ingestAttentionSnapshot,
@@ -18,6 +18,8 @@ import {
   setCanonicalCommunityChannelMembership,
 } from "@/lib/community-db/sync"
 import { useCommunityWsStore } from "@/stores/community/ws"
+import { ChannelSidebarScope } from "@/components/community/channels/channel-sidebar-tree-owner"
+import { tid } from "@/lib/community/testids"
 import { communityKeys } from "@/lib/query-keys"
 import {
   deriveForumSidebarProjection,
@@ -907,4 +909,78 @@ describe("forum sidebar canonical projection", () => {
     rendered.unmount()
     await invalidateForumSidebarBaseExact(restoredClient, "server-1")
   })
+})
+
+
+it("shows the canonical primary tree on Home return while actual forum acquisition waits, then retains it through WS and refetch", async () => {
+  const { queryClient, registry, wrapper: Wrapper } = await setup()
+  const pending: Array<(value: SidebarThreadEnvelope) => void> = []
+  apiFetchMock.mockImplementation(() => new Promise<SidebarThreadEnvelope>((resolve) => pending.push(resolve)))
+  const commits: Array<{ primary: boolean; secondary: boolean; cold: boolean; row: boolean; scope: string | undefined }> = []
+  let latest!: ReturnType<typeof useForumSidebarThreads>
+  function Sidebar() {
+    const tree = useServerTreeProjection("server-1")
+    const forum = useForumSidebarThreads("server-1", null)
+    latest = forum
+    const ref = useRef<HTMLDivElement>(null)
+    useLayoutEffect(() => {
+      commits.push({ primary: tree !== undefined, secondary: forum.projectionReady,
+        cold: !!ref.current?.querySelector(`[data-testid="${tid.channelSidebarPending("server-1")}"]`),
+        row: !!ref.current?.querySelector(`[data-testid="${tid.channelRow("forum-1")}"]`),
+        scope: ref.current?.querySelector<HTMLElement>("[data-community-channel-tree-scope]")?.dataset.communityChannelTreeScope })
+    })
+    return createElement("div", { ref }, createElement(ChannelSidebarScope, {
+      categories: tree?.categories ?? null, scopeKey: "server:server-1", targetServerId: "server-1", serverId: "server-1",
+      serverName: "Server", activeChannel: "forum-1", setActiveChannel: vi.fn(), isAdmin: false, currentUserId: "viewer",
+      forumThreadsByParent: { "forum-1": forum.threads },
+    }))
+  }
+  const view = (show: boolean) => createElement(Wrapper, null, show && createElement(Sidebar))
+  const mounted = render(view(true))
+  try {
+    await waitFor(() => expect(commits.some((commit) => commit.primary && !commit.secondary)).toBe(true))
+    expect(commits.filter((commit) => commit.primary).every((commit) => !commit.cold && commit.row && commit.scope === "server:server-1")).toBe(true)
+    const initialOwner = mounted.container.querySelector("[data-community-channel-tree-scope]")
+    mounted.rerender(view(false))
+    expect(mounted.container.querySelector("[data-community-channel-tree-scope]")).toBeNull()
+    const before = commits.length
+    mounted.rerender(view(true))
+    await waitFor(() => expect(commits.slice(before).some((commit) => commit.primary && !commit.secondary)).toBe(true))
+    expect(commits.slice(before).filter((commit) => commit.primary).every((commit) => !commit.cold && commit.row && commit.scope === "server:server-1")).toBe(true)
+    const owner = mounted.container.querySelector("[data-community-channel-tree-scope]")
+    const scroll = screen.getByTestId(tid.channelSidebarScroll)
+    expect(owner).not.toBe(initialOwner)
+    await waitFor(() => expect(pending.length).toBeGreaterThan(0))
+    await act(async () => pending.at(-1)!(envelope()))
+    await waitFor(() => expect(latest.isSuccess && latest.threads.some((thread) => thread.id === "post-1")).toBe(true))
+    expect(mounted.container.querySelector("[data-community-channel-tree-scope]")).toBe(owner)
+    let refetch!: Promise<void>
+    const requests = pending.length
+    act(() => { refetch = queryClient.invalidateQueries({ queryKey: communityKeys.forumSidebarThreads("server-1"), exact: true }) })
+    await waitFor(() => expect(pending.length).toBeGreaterThan(requests))
+    expect(latest.isFetching).toBe(true)
+    expect(latest.threads.some((thread) => thread.id === "post-1")).toBe(true)
+    act(() => projectCommunityWsEventToDb(queryClient, {
+      type: "community:channel.update", serverId: "server-1", channelId: "forum-1", changes: { name: "Updated forum" },
+    }))
+    await waitFor(() => expect(screen.getByTestId(tid.channelRow("forum-1")).textContent).toContain("Updated forum"))
+    expect(registry.collections.channels.get("forum-1")?.name).toBe("Updated forum")
+    expect(queryClient.getQueryData<Array<{ id: string; name: string }>>(communityKeys.communityDbCollection("viewer", "channels"))?.find((row) => row.id === "forum-1")?.name).toBe("Updated forum")
+    fireEvent.click(screen.getByText("Forums"))
+    expect(screen.queryByTestId(tid.channelRow("forum-1"))).not.toBeInTheDocument()
+    await act(async () => { pending.at(-1)!(envelope()); await refetch })
+    expect(mounted.container.querySelector("[data-community-channel-tree-scope]")).toBe(owner)
+    expect(screen.getByTestId(tid.channelSidebarScroll)).toBe(scroll)
+    expect(screen.queryByTestId(tid.channelSidebarPending("server-1"))).not.toBeInTheDocument()
+    expect(screen.queryByTestId(tid.channelRow("forum-1"))).not.toBeInTheDocument()
+    fireEvent.click(screen.getByText("Forums"))
+    expect(screen.getByTestId(tid.channelRow("forum-1")).textContent).toContain("Updated forum")
+    act(() => projectCommunityWsEventToDb(queryClient, { type: "community:server.delete", serverId: "server-1" }))
+    await waitFor(() => expect(screen.getByTestId(tid.channelSidebarPending("server-1"))).toBeInTheDocument())
+    expect(mounted.container.querySelector("[data-community-channel-tree-scope]")).toBeNull()
+    expect(screen.queryByTestId(tid.channelRow("forum-1"))).not.toBeInTheDocument()
+  } finally {
+    act(() => mounted.unmount())
+    await queryClient.cancelQueries()
+  }
 })

@@ -4,7 +4,6 @@ import { fireEvent, render, screen } from "@/test/react-dom-harness"
 import type { Category } from "@/lib/community/models/navigation"
 import { tid } from "@/lib/community/testids"
 import {
-  ChannelSidebarRevealBoundary,
   ChannelSidebarScope,
 } from "./channel-sidebar-tree-owner"
 
@@ -31,91 +30,12 @@ function scopeProps(categories: Category[] | null) {
 }
 
 describe("ChannelSidebarScope", () => {
-  it("reveals restored rows immediately while forum projection is pending", () => {
-    render(createElement(ChannelSidebarRevealBoundary, {
-      ...scopeProps(targetCategories),
-      categories: targetCategories,
-      primaryReady: true,
-      forumProjectionMissing: true,
-      trustedRestoredPrimary: true,
-    }))
-
-    expect(screen.getByTestId(tid.channelRow("target-one"))).toBeInTheDocument()
+  it("renders a complete empty target tree without an unknown-data skeleton", () => {
+    const rendered = render(createElement(ChannelSidebarScope, scopeProps([])))
     expect(screen.queryByTestId(tid.channelSidebarPending("target"))).not.toBeInTheDocument()
-  })
-
-  it("reveals asynchronously restored primary rows while forum projection stays pending", () => {
-    const base = {
-      ...scopeProps(targetCategories),
-      categories: targetCategories,
-      forumProjectionMissing: true,
-    }
-    const rendered = render(createElement(ChannelSidebarRevealBoundary, {
-      ...base,
-      primaryReady: false,
-      trustedRestoredPrimary: false,
-    }))
-    expect(screen.getByTestId(tid.channelSidebarPending("target"))).toBeInTheDocument()
-
-    rendered.rerender(createElement(ChannelSidebarRevealBoundary, {
-      ...base,
-      primaryReady: true,
-      trustedRestoredPrimary: true,
-    }))
-
-    expect(screen.getByTestId(tid.channelRow("target-one"))).toBeInTheDocument()
-    expect(screen.queryByTestId(tid.channelSidebarPending("target"))).not.toBeInTheDocument()
-  })
-
-  it("keeps true-cold primary rows hidden until forum is ready, then preserves the DOM", () => {
-    const base = {
-      ...scopeProps(targetCategories),
-      categories: targetCategories,
-    }
-    const rendered = render(createElement(ChannelSidebarRevealBoundary, {
-      ...base,
-      primaryReady: false,
-      forumProjectionMissing: true,
-      trustedRestoredPrimary: false,
-    }))
-    expect(screen.getByTestId(tid.channelSidebarPending("target"))).toBeInTheDocument()
-
-    rendered.rerender(createElement(ChannelSidebarRevealBoundary, {
-      ...base,
-      primaryReady: true,
-      forumProjectionMissing: true,
-      trustedRestoredPrimary: false,
-    }))
-    expect(screen.getByTestId(tid.channelSidebarPending("target"))).toBeInTheDocument()
-
-    rendered.rerender(createElement(ChannelSidebarRevealBoundary, {
-      ...base,
-      primaryReady: true,
-      forumProjectionMissing: false,
-      trustedRestoredPrimary: false,
-    }))
-    const owner = rendered.container.querySelector("[data-community-channel-tree-scope]")
-    const scroll = screen.getByTestId(tid.channelSidebarScroll)
-    expect(owner).toBeInTheDocument()
-
-    rendered.rerender(createElement(ChannelSidebarRevealBoundary, {
-      ...base,
-      primaryReady: true,
-      forumProjectionMissing: true,
-      trustedRestoredPrimary: false,
-    }))
-    expect(rendered.container.querySelector("[data-community-channel-tree-scope]")).toBe(owner)
-    expect(screen.getByTestId(tid.channelSidebarScroll)).toBe(scroll)
-    expect(screen.queryByTestId(tid.channelSidebarPending("target"))).not.toBeInTheDocument()
-
-    rendered.rerender(createElement(ChannelSidebarRevealBoundary, {
-      ...base,
-      primaryReady: true,
-      forumProjectionMissing: false,
-      trustedRestoredPrimary: false,
-    }))
-    expect(rendered.container.querySelector("[data-community-channel-tree-scope]")).toBe(owner)
-    expect(screen.getByTestId(tid.channelSidebarScroll)).toBe(scroll)
+    expect(rendered.container.querySelector("[data-community-channel-tree-scope]"))
+      .toHaveAttribute("data-community-channel-tree-scope", "server:target")
+    expect(screen.queryByTestId(tid.channelRow("target-one"))).not.toBeInTheDocument()
   })
 
   it("does not mount the tree owner until target data exists", () => {

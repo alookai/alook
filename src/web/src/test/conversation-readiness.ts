@@ -43,29 +43,47 @@ export function inspectConversationReadiness(target: ConversationInspectionTarge
   if (target.layout === "mobile-detail") {
     const mains = Array.from(document.querySelectorAll('[data-slot="community-main-panel-content"][data-community-mobile-surface="detail"]')).filter(usable)
     const main = mains.length === 1 ? mains[0] : undefined
-    const shell = main?.closest('[data-slot="community-shell-root"]')
-    const mainPanel = main?.closest('[id="main"]')
-    const sidebar = shell?.querySelector('[id="sidebar"] > [data-slot="community-sidebar-panel-content"]')
-    const sidebarPanel = sidebar?.parentElement
+    const panelSelector = '[data-slot="resizable-panel"]'
+    const groupSelector = '[data-slot="resizable-panel-group"]'
+    const shellSelector = '[data-slot="community-shell-root"]'
+    const mainPanel = main?.closest(panelSelector)
+    const group = mainPanel?.closest(groupSelector)
+    const shell = group?.closest(shellSelector)
+    const panels = Array.from(group?.querySelectorAll(panelSelector) ?? [])
+      .filter((panel) => panel.closest(groupSelector) === group && panel.closest(shellSelector) === shell)
+    const sidePanels = panels.filter((panel) => panel.id === "sidebar")
+    const sidePanel = sidePanels.length === 1 ? sidePanels[0] : undefined
+    const contents = Array.from(sidePanel?.querySelectorAll('[data-slot="community-sidebar-panel-content"]') ?? [])
+    const sidebar = contents.length === 1 ? contents[0] : undefined
+    const mainContents = Array.from(group?.querySelectorAll('[data-slot="community-main-panel-content"]') ?? [])
     const qualified = window.matchMedia("(max-width: 639px)").matches
-      && !!main && !!shell && mainPanel?.getAttribute("data-mobile-active") === "true"
+      && !!main && !!shell && group?.id === "community-shell" && mainPanel?.id === "main"
+      && panels.filter((panel) => panel.id === "main").length === 1 && mainContents.length === 1
+      && mainPanel.getAttribute("data-mobile-active") === "true"
       && mainPanel.getAttribute("data-mobile-hidden") !== "true"
-      && mainPanel.closest('[data-slot="community-shell-root"]') === shell
-      && sidebar?.hasAttribute("hidden") === true
-      && sidebarPanel?.getAttribute("data-mobile-hidden") === "true"
-      && sidebarPanel.getAttribute("data-mobile-active") !== "true"
-      && sidebar.closest('[data-slot="community-shell-root"]') === shell
+      && main.closest(groupSelector) === group && main.closest(shellSelector) === shell
+      && sidebar?.hasAttribute("hidden") === true && sidebar.closest(panelSelector) === sidePanel
+      && sidePanel?.getAttribute("data-mobile-hidden") === "true"
+      && sidePanel.getAttribute("data-mobile-active") !== "true"
+      && sidebar.closest(groupSelector) === group && sidebar.closest(shellSelector) === shell
     if (!qualified) blockers.push("wrong-mobile-detail-layout")
     else { mobileMain = main; retainedSidebar = sidebar! }
   }
   const scopeRoot = target.layout === "mobile-detail" ? retainedSidebar : document
-  if (target.serverId && !Array.from(scopeRoot?.querySelectorAll("[data-community-channel-tree-scope]") ?? [])
-    .some((owner) => owner.getAttribute("data-community-channel-tree-scope") === `server:${target.serverId}`
-      && Array.from(owner.querySelectorAll(`[data-testid="${target.testIds.channelSidebarScroll}"]`))
-        .some((sidebar) => sidebar.closest("[data-community-channel-tree-scope]") === owner
-          && (target.layout === "mobile-detail" ? retainedSidebar?.contains(sidebar) === true : usable(sidebar))))) {
-    blockers.push("wrong-server-scope")
+  const owners = Array.from(scopeRoot?.querySelectorAll("[data-community-channel-tree-scope]") ?? [])
+  const matchingOwners = owners.filter((owner) => owner.getAttribute("data-community-channel-tree-scope") === `server:${target.serverId}`)
+  const validOwner = (owner: Element) => {
+    const scrolls = Array.from(owner.querySelectorAll(`[data-testid="${target.testIds.channelSidebarScroll}"]`))
+    return target.layout === "mobile-detail"
+      ? owners.length === 1 && matchingOwners.length === 1 && scrolls.length === 1
+        && scrolls[0].closest("[data-community-channel-tree-scope]") === owner
+        && owner.closest('[data-slot="community-sidebar-panel-content"]') === retainedSidebar
+        && scrolls[0].closest('[data-slot="community-sidebar-panel-content"]') === retainedSidebar
+        && owner.closest('[data-slot="resizable-panel"]') === retainedSidebar?.closest('[data-slot="resizable-panel"]')
+        && scrolls[0].closest('[data-slot="resizable-panel"]') === retainedSidebar?.closest('[data-slot="resizable-panel"]')
+      : scrolls.some((sidebar) => sidebar.closest("[data-community-channel-tree-scope]") === owner && usable(sidebar))
   }
+  if (target.serverId && !matchingOwners.some(validOwner)) blockers.push("wrong-server-scope")
   const contentRoot = target.layout === "mobile-detail" ? mobileMain : document
   const masks = document.querySelectorAll([
     `[data-testid^="${target.testIds.pendingMainPrefix}"]`,
@@ -81,10 +99,10 @@ export function inspectConversationReadiness(target: ConversationInspectionTarge
     .some((node) => node.getAttribute("aria-busy") === "true" && inspect(node).visible)) blockers.push("busy-shell")
   if (target.kind === "forum") {
     const lists = contentRoot?.querySelectorAll(`[data-testid="${target.testIds.forumPostList}"]`) ?? []
-    if (lists.length !== 1 || !usable(lists[0])) blockers.push("forum-list-unusable")
-    const post = Array.from(lists[0]?.querySelectorAll("[data-testid]") ?? [])
-      .find((node) => node.getAttribute("data-testid") === target.forumPostTestId) ?? null
-    if (!target.forumPostTestId || !usable(post)) blockers.push("expected-forum-post-missing")
+    if (lists.length !== 1 || lists[0].getAttribute("role") !== "main" || !usable(lists[0])) blockers.push("forum-list-unusable")
+    const posts = Array.from(lists[0]?.querySelectorAll('div[role="button"][tabindex="0"][data-testid]') ?? [])
+      .filter((node) => node.getAttribute("data-testid") === target.forumPostTestId && node.closest(`[data-testid="${target.testIds.forumPostList}"]`) === lists[0])
+    if (!target.forumPostTestId || posts.length !== 1 || !usable(posts[0])) blockers.push("expected-forum-post-missing")
   } else {
     const surfaces = Array.from(contentRoot?.querySelectorAll('[data-slot="community-conversation-surface"]') ?? [])
       .filter((node) => node.getAttribute("data-channel-id") === target.channelId)

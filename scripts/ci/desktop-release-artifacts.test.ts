@@ -1,7 +1,8 @@
+import { spawnSync } from "node:child_process"
 import { createHash, generateKeyPairSync, randomBytes, sign } from "node:crypto"
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { dirname, join } from "node:path"
+import { dirname, join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { afterEach, describe, expect, it } from "vitest"
 
@@ -77,6 +78,66 @@ async function createAllStages() {
 
 afterEach(() => {
   for (const directory of temporaryDirectories.splice(0)) rmSync(directory, { force: true, recursive: true })
+})
+
+const hasPowerShell = spawnSync("pwsh", ["-NoLogo", "-NoProfile", "-Command", "exit 0"], {
+  timeout: 10_000,
+}).status === 0
+
+function verifyWindowsStage(fixture: Awaited<ReturnType<typeof createAllStages>>) {
+  return spawnSync("pwsh", [
+    "-NoLogo", "-NoProfile", "-NonInteractive", "-File",
+    resolve(import.meta.dirname, "verify-desktop-windows.ps1"),
+    "-StageDirectory", join(fixture.stages, "desktop-release-windows-x86_64"),
+    "-ExpectedVersion", version,
+    "-TauriConfigPath", fixture.configPath,
+  ], { encoding: "utf8", timeout: 30_000 })
+}
+
+describe.skipIf(!hasPowerShell)("actual Windows staged installer verifier (requires pwsh)", { timeout: 35_000 }, () => {
+  it("accepts both installers with valid updater signatures and no Authenticode signatures", async () => {
+    const result = verifyWindowsStage(await createAllStages())
+    expect(result.error).toBeUndefined()
+    expect(result.status, result.stdout + result.stderr).toBe(0)
+    expect(result.stdout).toContain("not Authenticode code-signed")
+  })
+
+  it.each(["x64-setup.exe", "x64_en-US.msi"])("rejects tampered %s even if its manifest digest was updated", async suffix => {
+    const fixture = await createAllStages()
+    const stage = join(fixture.stages, "desktop-release-windows-x86_64")
+    const name = `Alook_${version}_${suffix}`
+    const data = Buffer.from("tampered installer bytes")
+    writeFileSync(join(stage, "files", name), data)
+    const path = join(stage, "manifest.json")
+    const manifest = JSON.parse(readFileSync(path, "utf8"))
+    const file = manifest.files.find((entry: { name: string }) => entry.name === name)
+    file.size = data.length
+    file.sha256 = createHash("sha256").update(data).digest("hex")
+    writeFileSync(path, JSON.stringify(manifest))
+    const result = verifyWindowsStage(fixture)
+    expect(result.error).toBeUndefined()
+    expect(result.status).not.toBe(0)
+    expect(result.stdout + result.stderr).toContain("Invalid Minisign file signature")
+  })
+
+  it("rejects a different updater public key", async () => {
+    const fixture = await createAllStages()
+    const signer = createSigningFixture()
+    writeFileSync(fixture.configPath, JSON.stringify({ plugins: { updater: { pubkey: signer.encodedPublicKey } } }))
+    const result = verifyWindowsStage(fixture)
+    expect(result.error).toBeUndefined()
+    expect(result.status).not.toBe(0)
+    expect(result.stdout + result.stderr).toContain("key id does not match")
+  })
+
+  it("rejects an absent installer signature before publication", async () => {
+    const fixture = await createAllStages()
+    rmSync(join(fixture.stages, "desktop-release-windows-x86_64", "files", `Alook_${version}_x64-setup.exe.sig`))
+    const result = verifyWindowsStage(fixture)
+    expect(result.error).toBeUndefined()
+    expect(result.status).not.toBe(0)
+    expect(result.stdout + result.stderr).toContain("files directory contains an unexpected entry")
+  })
 })
 
 describe("desktop release artifact staging", () => {

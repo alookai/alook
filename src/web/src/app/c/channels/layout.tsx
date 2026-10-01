@@ -15,7 +15,7 @@ import {
   serverRootHref,
 } from "@/lib/community/community-route"
 import { useBreakpoint } from "@/hooks/use-mobile"
-import { ChannelSidebarRevealBoundary } from "@/components/community/channels/channel-sidebar-tree-owner"
+import { ChannelSidebarScope } from "@/components/community/channels/channel-sidebar-tree-owner"
 import { ChannelRoute } from "@/components/community/channels/channel-route"
 import { CommunityPendingFrame } from "@/components/community/shell/community-pending-frame"
 import { ServerSettings } from "@/components/community/settings/server-settings"
@@ -83,7 +83,6 @@ import {
 import {
   useCanonicalProfilesByUserId,
   useOptionalCommunityDbRegistry,
-  useTrustedRestoredPrimary,
 } from "@/lib/community-db/projections"
 
 export default function ServerLayout({ children }: { children: ReactNode }) {
@@ -110,7 +109,6 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   const router = useRouter()
   const queryClient = useQueryClient()
   const communityDb = useOptionalCommunityDbRegistry()
-  const trustedRestoredPrimary = useTrustedRestoredPrimary()
   const cancelPendingNavigation = useCallback(() => {
     useCommunityStore.getState().uiHandlers.cancelPendingNavigation?.()
   }, [])
@@ -522,13 +520,10 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   const closeSettings = () => { setServerSettingsOpen(false); setSettingsSection("overview") }
 
   const sidebar = useCallback((opts: { noHeader?: boolean } = {}) => (
-    <ChannelSidebarRevealBoundary
+    <ChannelSidebarScope
       key={channelTreeScopeKey}
       scopeKey={channelTreeScopeKey}
-      categories={categories}
-      primaryReady={sidebarDataReady}
-      forumProjectionMissing={!forumSidebar.projectionReady}
-      trustedRestoredPrimary={trustedRestoredPrimary}
+      categories={sidebarDataReady ? categories : null}
       targetServerId={serverId}
       {...channelProps}
       {...opts}
@@ -537,10 +532,8 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     categories,
     channelProps,
     channelTreeScopeKey,
-    forumSidebar.projectionReady,
     serverId,
     sidebarDataReady,
-    trustedRestoredPrimary,
   ])
 
   const serverSettingsDialog = (

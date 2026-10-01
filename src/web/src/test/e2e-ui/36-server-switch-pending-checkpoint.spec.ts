@@ -1,9 +1,9 @@
-import type { Page, Request, Response, Route, WebSocket } from "@playwright/test"
+import type { Page, Request, Response, WebSocket } from "@playwright/test"
 import { test, expect, userId } from "./_fixtures/community-fixture"
 import { seedChannel, seedServer } from "./_fixtures/seed"
 import { tid } from "./_fixtures/testids"
 import { expectConversationReady, observeConversationTransport } from "./_fixtures/conversation-readiness"
-import { runRenderedNavigation, type RenderedContract, type RenderedObservation } from "./_fixtures/rendered-navigation"
+import { createNavigationRouteManager, withOwnedCleanup, runRenderedNavigation, type RenderedContract, type RenderedObservation } from "./_fixtures/rendered-navigation"
 import { WEB_URL } from "./_setup/paths"
 
 test.beforeEach(async ({ baseURL }) => {
@@ -24,37 +24,35 @@ async function installHistoryProbe(page: Page) {
   })
 }
 
-async function holdServerTransition(page: Page, serverId: string) {
-  let releaseRoute!: () => void; let releaseReads!: () => void
-  const routeGate = new Promise<void>((resolve) => { releaseRoute = resolve })
-  const readGate = new Promise<void>((resolve) => { releaseReads = resolve })
+async function holdServerTransition(manager: ReturnType<typeof createNavigationRouteManager>, serverId: string) {
   const installedAt = Date.now()
+  const role = manager.role(serverId)
   const requests: Array<{ purpose: string; pathname: string; query: string; rsc: boolean; prefetch: boolean; at: number }> = []
   let navigationReleasedAt: number | null = null; let dataReleasedAt: number | null = null
-  const handlers = new Map<string, (route: Route) => Promise<void>>()
-  for (const purpose of ["navigation", "categories", "channels", "unreads"] as const) {
+  const purposes = ["navigation", "categories", "channels", "unreads"] as const
+  for (const purpose of purposes) {
     const pattern = purpose === "navigation" ? `**/c/channels/${serverId}**` : `**/api/community/servers/${serverId}/${purpose}**`
-    const handler = async (route: Route) => {
-      const url = new URL(route.request().url()); const headers = route.request().headers()
-      if (purpose !== "navigation" && url.pathname !== `/api/community/servers/${serverId}/${purpose}`) return route.continue()
-      requests.push({ purpose, pathname: url.pathname, query: url.search, rsc: headers.rsc === "1", prefetch: !!(headers["next-router-prefetch"] || headers["next-router-segment-prefetch"]), at: Date.now() })
-      await (purpose === "navigation" ? routeGate : readGate); await route.continue()
-    }
-    handlers.set(pattern, handler); await page.route(pattern, handler)
+    await manager.register({ pattern, purpose: `${role}:${purpose}`,
+      select: (route) => purpose === "navigation" || new URL(route.request().url()).pathname === `/api/community/servers/${serverId}/${purpose}`,
+      selected: (route) => {
+        const url = new URL(route.request().url()); const headers = route.request().headers()
+        requests.push({ purpose, pathname: url.pathname, query: url.search, rsc: headers.rsc === "1", prefetch: !!(headers["next-router-prefetch"] || headers["next-router-segment-prefetch"]), at: Date.now() })
+      },
+    })
   }
+  const releaseNavigation = () => { navigationReleasedAt ??= Date.now(); return manager.release(`${role}:navigation`) }
+  let dataRelease: Promise<unknown> | undefined
+  const releaseData = () => { dataReleasedAt ??= Date.now(); return dataRelease ??= Promise.all(purposes.filter((purpose) => purpose !== "navigation").map((purpose) => manager.release(`${role}:${purpose}`))) }
+  let released: Promise<unknown> | undefined
   return {
-    snapshot: () => ({ serverId, installedAt, requests, navigationReleasedAt, dataReleasedAt }),
+    snapshot: () => ({ serverId, role, installedAt, requests, navigationReleasedAt, dataReleasedAt, lifecycle: manager.snapshot() }),
     heldNavigation: () => requests.filter((request) => request.purpose === "navigation").length,
     expectDataHeld: async () => {
       await expect.poll(() => ["categories", "channels"].every((purpose) => requests.some((request) => request.purpose === purpose))).toBe(true)
       expect(dataReleasedAt).toBeNull()
     },
-    releaseNavigation: () => { navigationReleasedAt ??= Date.now(); releaseRoute() },
-    releaseData: () => { dataReleasedAt ??= Date.now(); releaseReads() },
-    release: async () => {
-      navigationReleasedAt ??= Date.now(); dataReleasedAt ??= Date.now(); releaseRoute(); releaseReads()
-      await Promise.all([...handlers].map(([pattern, handler]) => page.unroute(pattern, handler)))
-    },
+    releaseNavigation, releaseData,
+    release: () => released ??= Promise.all([releaseNavigation(), releaseData()]),
   }
 }
 
@@ -149,10 +147,10 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
   const channelC = await seedChannel("alice", serverC, channelCName); const channelD = await seedChannel("alice", serverD, channelDName)
   const channelE = await seedChannel("alice", serverE, `checkpoint-e-${stamp}`); const channelF = await seedChannel("alice", serverF, `checkpoint-f-${stamp}`)
   const { page } = await asUser("alice")
+  const manager = createNavigationRouteManager(page, { pageRouteOwners: ["rendered-navigation"], source: "fresh asUser page; canonical fixture and frozen collector route-owner roster independently inspected" })
   const transport = observeConversationTransport(page); const alternate = observeAlternateStructure(page, [channelC, channelD, channelE, channelF], [serverC, serverD, serverE, serverF])
   const gates: Awaited<ReturnType<typeof holdServerTransition>>[] = []
-  const hold = async (server: string) => { const gate = await holdServerTransition(page, server); gates.push(gate); return gate }
-  const coldC = await hold(serverC); const coldD = await hold(serverD); const coldE = await hold(serverE); const coldF = await hold(serverF)
+  const hold = async (server: string) => { const gate = await holdServerTransition(manager, server); gates.push(gate); return gate }
   const root = (server: string) => `/c/channels/${server}`; const path = (server: string, channel: string) => `${root(server)}/${channel}`; const scope = (server: string) => `server:${server}`
   const ready = async (server: string, channel?: string) => {
     if (!channel) await expect.poll(() => new URL(page.url()).pathname.startsWith(`${root(server)}/`)).toBe(true)
@@ -165,7 +163,8 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
   const mutations: string[] = []; const readOnly = new Set(["/api/community/messages/batch", "/api/community/messages/tags/batch", "/api/community/channels/participants/batch"])
   const onRequest = (request: Request) => { if (!["GET", "HEAD", "OPTIONS"].includes(request.method()) && !(request.method() === "POST" && readOnly.has(new URL(request.url()).pathname))) mutations.push(`${request.method()} ${new URL(request.url()).pathname}`) }
   const coldBaselines: unknown[] = []
-  try {
+  await withOwnedCleanup("server-switch", async () => {
+  const coldC = await hold(serverC); const coldD = await hold(serverD); const coldE = await hold(serverE); const coldF = await hold(serverF)
     await installHistoryProbe(page); await page.setViewportSize({ width: 1280, height: 900 }); await page.goto(path(serverA, channelA))
     await expect(page.getByRole("heading", { name: channelAName })).toBeVisible({ timeout: 30_000 }); await ready(serverA, channelA)
     for (const [server, channel] of [[serverC, channelC], [serverD, channelD], [serverE, channelE], [serverF, channelF]]) {
@@ -188,11 +187,11 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
 
     const coldJourney = async (server: string, channel: string, gate: Awaited<ReturnType<typeof holdServerTransition>>, mobile: boolean) => {
       const contract: RenderedContract = {
-        paths: [mobile ? root(serverA) : path(serverA, channelA), root(server)], finalPath: mobile ? root(server) : path(server, channel), scopes: [scope(server)], finalScope: scope(server), allowedColdServers: [server],
+        paths: [mobile ? root(serverA) : path(serverA, channelA), root(server)], finalPath: mobile ? root(server) : path(server, channel), scopes: [scope(server)], finalScope: scope(server), allowedColdServers: [server], coldRoot: { serverId: server, rootPath: root(server) },
         ...(mobile ? { listStates: ["server"], finalListState: "server" } : { header: "all", listStates: ["server"] }), pendingKind: "server-landing", stationary: mobile, forbiddenRows: [channelA, channelB, ...(server === serverD ? [channelC] : [])],
       }
       const result = await runRenderedNavigation(page, testInfo, `cold-${server}`, `[data-testid="${tid.serverIcon(server)}"]`, contract, async (probe) => {
-        await clickServer(page, server); await expect.poll(gate.heldNavigation).toBeGreaterThan(0); gate.releaseNavigation()
+        await clickServer(page, server); await expect.poll(gate.heldNavigation).toBeGreaterThan(0); await gate.releaseNavigation()
         await gate.expectDataHeld(); await alternate.settle()
         await expect(page.getByTestId(tid.channelSidebarPending(server))).toBeVisible()
         await expect(page.getByRole("button", { name: channelAName, exact: true })).toHaveCount(0)
@@ -202,7 +201,7 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
           expect(box!.width).toBeGreaterThan(300); expect(box!.x + box!.width).toBeLessThanOrEqual(390)
         }
         await expect.poll(async () => (await probe.frames()).some((frame) => frame.cold.some((cold) => cold.serverId === server))).toBe(true)
-        expect(gate.snapshot().dataReleasedAt).toBeNull(); gate.releaseData()
+        expect(gate.snapshot().dataReleasedAt).toBeNull(); await gate.releaseData()
         await expect(page.getByTestId(tid.channelRow(channel))).toBeVisible({ timeout: 30_000 })
         if (mobile) { await expect.poll(() => new URL(page.url()).pathname).toBe(root(server)); await expect(page.locator('[data-community-mobile-surface="list"]')).toBeVisible() }
         else { const selected = await ready(server); contract.channelId = selected; contract.finalPath = path(server, selected); contract.paths.push(contract.finalPath) }
@@ -229,7 +228,7 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
     const restoredC = await runRenderedNavigation(page, testInfo, "restored-C-pre-data-release", `[data-testid="${tid.serverIcon(serverC)}"]`, {
       paths: [path(serverA, channelA), root(serverC), rememberedCPath], finalPath: rememberedCPath, scopes: [scope(serverA), scope(serverC)], finalScope: scope(serverC), channelId: selectedC, header: "all", pendingKind: "server-conversation", subtype: "text", forbiddenRows: [channelA, channelB],
     }, async (probe) => {
-      await clickServer(page, serverC); await expect.poll(structuralC.heldNavigation).toBeGreaterThan(0); structuralC.releaseNavigation()
+      await clickServer(page, serverC); await expect.poll(structuralC.heldNavigation).toBeGreaterThan(0); await structuralC.releaseNavigation()
       await structuralC.expectDataHeld(); await expect(page.getByTestId(tid.channelRow(channelC))).toBeVisible()
       await expect.poll(async () => (await probe.frames()).some((frame) => frame.scopes.some((owner) => owner.scope === scope(serverC) && owner.visible && owner.rows.includes(channelC)))).toBe(true)
       expect(structuralC.snapshot().dataReleasedAt).toBeNull()
@@ -241,7 +240,7 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
         return { at: performance.timeOrigin + performance.now(), scope, rowId, complete: performance.getEntriesByName("alook:restore:complete").map((entry) => entry.startTime), stable: performance.getEntriesByName("alook:restore:stable").map((entry) => entry.startTime) }
       }, { scope: scope(serverC), rowId: tid.channelRow(channelC) })
       await testInfo.attach("warm-C-before-data-release", { body: JSON.stringify({ preRelease, gate: structuralC.snapshot(), alternate: alternate.events }), contentType: "application/json" })
-      structuralC.releaseData(); await ready(serverC, selectedC)
+      await structuralC.releaseData(); await ready(serverC, selectedC)
       expect(await page.evaluate((scope) => (window as typeof window & { __restoredTreeOwner?: Element }).__restoredTreeOwner === document.querySelector(`[data-community-channel-tree-scope="${scope}"]`), scope(serverC))).toBe(true)
     })
     const targetRequests = transport.targetRsc(serverC, targetRscStart); expect(targetRequests).toHaveLength(1)
@@ -256,25 +255,29 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
 
     await expect(page.getByTestId(tid.serverIcon(serverE))).toBeVisible()
     const supersededContract: RenderedContract = {
-      paths: [path(serverD, selectedD), root(serverE), root(serverF)], finalPath: path(serverF, channelF), scopes: [scope(serverF)], finalScope: scope(serverF), allowedColdServers: [serverF], header: "all", listStates: ["server"], pendingKind: "server-landing", actionKind: "synthetic", forbiddenRows: [channelA, channelB, channelC, channelD, channelE],
+      paths: [path(serverD, selectedD), root(serverE), root(serverF)], finalPath: path(serverF, channelF), scopes: [scope(serverF)], finalScope: scope(serverF), allowedColdServers: [serverF], coldRoot: { serverId: serverF, rootPath: root(serverF) }, header: "all", listStates: ["server"], pendingKind: "server-landing", actionKind: "synthetic", forbiddenRows: [channelA, channelB, channelC, channelD, channelE],
     }
     const superseded = await runRenderedNavigation(page, testInfo, "synthetic-E-to-F", `[data-testid="${tid.serverIcon(serverF)}"]`, supersededContract, async () => {
       await clickServer(page, serverE)
       await page.getByTestId(tid.serverIcon(serverF)).dispatchEvent("click")
-      await expect.poll(coldF.heldNavigation).toBeGreaterThan(0); coldF.releaseNavigation(); await coldF.expectDataHeld()
+      await expect.poll(coldF.heldNavigation).toBeGreaterThan(0); await coldF.releaseNavigation(); await coldF.expectDataHeld()
       await expect(page.getByTestId(tid.channelSidebarPending(serverE))).toHaveCount(0); await expectActiveServer(page, serverF, serverD)
-      coldE.releaseNavigation(); coldE.releaseData(); await expectActiveServer(page, serverF, serverD)
-      coldF.releaseData(); const selectedF = await ready(serverF); supersededContract.channelId = selectedF; supersededContract.finalPath = path(serverF, selectedF); supersededContract.paths.push(supersededContract.finalPath)
+      await coldE.releaseNavigation(); await coldE.releaseData(); await expectActiveServer(page, serverF, serverD)
+      await coldF.releaseData(); const selectedF = await ready(serverF); supersededContract.channelId = selectedF; supersededContract.finalPath = path(serverF, selectedF); supersededContract.paths.push(supersededContract.finalPath)
     })
     expect(superseded.frames.some((frame) => frame.scopes.some((owner) => owner.scope === scope(serverE)))).toBe(false)
     expectAtomicTargetFrames(superseded, scope(serverF), channelF, [channelA, channelB, channelC, channelD, channelE])
     expect(mutations).toEqual([]); await alternate.settle(); transport.assertHealthy()
-  } finally {
-    for (const gate of gates) await gate.release()
-    page.off("request", onRequest); alternate.stop()
-    await testInfo.attach("data-gates-and-cold-baselines", { body: JSON.stringify({ gates: gates.map((gate) => gate.snapshot()), coldBaselines, alternate: alternate.events, errors: alternate.errors, qualification: "fresh context/seeded targets; complete server detail requires held categories+channels; alternate metadata/attention/WS retained, not sole-source provenance" }), contentType: "application/json" })
-    await testInfo.attach("conversation-transport", { body: JSON.stringify(transport.snapshot()), contentType: "application/json" }); transport.stop()
-    await page.evaluate(() => { delete (window as typeof window & { __restoredTreeOwner?: Element }).__restoredTreeOwner })
-    await testInfo.attach("navigation-state", { body: await page.screenshot(), contentType: "image/png" })
-  }
+  }, [
+    { name: "gate-releases", run: () => withOwnedCleanup("gate-releases", async () => {}, gates.map((gate) => ({ name: "gate-release", run: gate.release }))) },
+    { name: "request-listener", run: () => page.off("request", onRequest) },
+    { name: "alternate-listeners", run: alternate.stop },
+    { name: "alternate-read-settlement", run: alternate.settle },
+    { name: "transport-listeners", run: transport.stop },
+    { name: "route-disposal", run: manager.dispose },
+    { name: "gate-ledger", run: () => testInfo.attach("data-gates-and-cold-baselines", { body: JSON.stringify({ gates: gates.map((gate) => gate.snapshot()), coldBaselines, alternate: alternate.events, errors: alternate.errors, qualification: "fresh context/seeded targets; held categories+channels; alternate metadata/attention/WS diagnostic" }), contentType: "application/json" }) },
+    { name: "transport-ledger", run: () => testInfo.attach("conversation-transport", { body: JSON.stringify(transport.snapshot()), contentType: "application/json" }) },
+    { name: "retained-node", run: () => page.evaluate(() => { delete (window as typeof window & { __restoredTreeOwner?: Element }).__restoredTreeOwner }) },
+    { name: "diagnostic-image", run: async () => testInfo.attach("navigation-state", { body: await page.screenshot(), contentType: "image/png" }) },
+  ], testInfo)
 })

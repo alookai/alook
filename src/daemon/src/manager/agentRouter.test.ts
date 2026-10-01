@@ -427,6 +427,11 @@ describe("AgentRouter — agent:reset", () => {
     expect(resets[0].rewakePrompt.length).toBeGreaterThan(0);
     expect(resets[0].rewakePrompt).not.toContain("todo.md");
     expect(resets[0].rewakePrompt).toContain("$ALOOK_CLI message mark list");
+    expect(resets[0].rewakePrompt).toContain("internal maintenance; perform it silently");
+    expect(resets[0].rewakePrompt).toContain("Do not proactively send the owner, users, or channels progress updates, completion notices, or details about your memory state");
+    expect(resets[0].rewakePrompt).toContain("Communicate task-relevant results, questions, and blockers normally");
+    expect(resets[0].rewakePrompt).toContain("If nothing needs a user-facing response, send no message");
+    expect(resets[0].rewakePrompt).toContain("resume outstanding work and handle your inbox messages");
     // Ordering: onBeforeAgent completes before resetSession fires.
     expect(order[0]).toBe("before:a1");
     expect(order[1]).toBe("reset:a1");
@@ -498,6 +503,10 @@ describe("AgentRouter — machine:reset_all (batch reset)", () => {
 
     // Every entry reset, once each; onBeforeAgent ran for each (gate inherited).
     expect(resets.map((r) => r.agentId)).toEqual(["a1", "a2", "a3"]);
+    for (const { rewakePrompt } of resets) {
+      expect(rewakePrompt).toContain("internal maintenance; perform it silently");
+      expect(rewakePrompt).toContain("Do not proactively send the owner, users, or channels progress updates, completion notices, or details about your memory state");
+    }
     expect(before).toEqual(["a1", "a2", "a3"]);
     // Each agent's before precedes its reset (same orchestration as single reset).
     expect(order.indexOf("reset:a2")).toBeGreaterThan(order.indexOf("reset:a1"));

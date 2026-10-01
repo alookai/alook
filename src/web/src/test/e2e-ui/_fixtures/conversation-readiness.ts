@@ -1,5 +1,6 @@
 import { expect, type Page, type Request, type Response, type TestInfo } from "@playwright/test"
 import { inspectConversationReadiness, type ConversationTarget } from "../../conversation-readiness"
+import { withOwnedCleanup } from "./rendered-navigation"
 import { tid } from "./testids"
 
 export function observeConversationTransport(page: Page) {
@@ -71,7 +72,8 @@ export async function expectConversationReady(page: Page, target: ConversationTa
   let decisionState: ReturnType<typeof inspectConversationReadiness> | undefined
   let decisionReceivedAt: number | undefined
   let accepted = false
-  try {
+  let lateState: ReturnType<typeof inspectConversationReadiness> | undefined
+  await withOwnedCleanup("consumer-readiness", async () => {
     await expect.poll(async () => (await page.evaluate(inspectConversationReadiness, inspectionTarget)).blockers,
       { timeout: Math.max(1, deadline - Date.now()), message: `Consumer readiness: ${target.pathname}` }).toEqual([])
     if (target.kind !== "forum") {
@@ -97,11 +99,11 @@ export async function expectConversationReady(page: Page, target: ConversationTa
     expect(decisionReceivedAt, "consumer readiness deadline includes final decision sample").toBeLessThanOrEqual(deadline)
     expect(decisionState.blockers).toEqual([])
     accepted = true
-  } finally {
-    const lateState = decisionState === undefined ? await page.evaluate(inspectConversationReadiness, inspectionTarget) : undefined
-    await testInfo.attach("consumer-readiness", {
-      body: JSON.stringify({ target, deadline, emptyProof, accepted, decisionState, decisionReceivedAt, lateState }),
-      contentType: "application/json",
-    })
-  }
+  }, [
+    { name: "late-inspection", run: async () => { if (decisionState === undefined) lateState = await page.evaluate(inspectConversationReadiness, inspectionTarget) } },
+    { name: "readiness-attachment", run: () => testInfo.attach("consumer-readiness", {
+      body: JSON.stringify({ target, deadline, emptyProof, accepted, decisionState, decisionReceivedAt, lateState,
+        lateStateAvailability: decisionState ? "not-needed" : lateState ? "available" : "UNAVAILABLE" }), contentType: "application/json",
+    }) },
+  ], testInfo)
 }

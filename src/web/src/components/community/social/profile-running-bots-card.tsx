@@ -61,9 +61,10 @@ function BotRow({ bot, onOpenBotAudit }: {
   )
 }
 
-export function ProfileRunningBotsCard({ onOpenBotAudit, useBackdropEffect = true }: {
+export function ProfileRunningBotsCard({ onOpenBotAudit, useBackdropEffect = true, showShadow = true }: {
   onOpenBotAudit?: (botId: string) => void
   useBackdropEffect?: boolean
+  showShadow?: boolean
 }) {
   const titleId = useId()
   const { runningBots } = useRunningOwnedBots()
@@ -75,13 +76,14 @@ export function ProfileRunningBotsCard({ onOpenBotAudit, useBackdropEffect = tru
       data-testid={tid.profileRunningBotsCard}
       aria-labelledby={titleId}
       className={[
-        "relative isolate flex h-full min-h-0 w-full flex-col overflow-hidden rounded-2xl border border-foreground/10 px-4 py-2 text-popover-foreground shadow-2xl shadow-black/20 before:pointer-events-none before:absolute before:inset-x-5 before:top-0 before:z-20 before:h-px before:bg-linear-to-r before:from-transparent before:via-white/60 before:to-transparent before:content-[''] after:pointer-events-none after:absolute after:inset-0 after:z-0 after:bg-linear-to-br after:from-white/15 after:via-white/5 after:to-transparent after:content-['']",
+        "relative isolate flex h-full min-h-0 w-full flex-col overflow-hidden rounded-2xl border border-foreground/10 px-4 py-2 text-popover-foreground before:pointer-events-none before:absolute before:inset-x-5 before:top-0 before:z-20 before:h-px before:bg-linear-to-r before:from-transparent before:via-white/60 before:to-transparent before:content-[''] after:pointer-events-none after:absolute after:inset-0 after:z-0 after:bg-linear-to-br after:from-white/15 after:via-white/5 after:to-transparent after:content-['']",
+        showShadow ? "shadow-2xl shadow-black/20" : "shadow-none",
         useBackdropEffect
           ? "bg-popover/70 backdrop-blur-2xl backdrop-saturate-150"
           : "bg-popover/95",
       ].join(" ")}
     >
-      <div className="relative z-10 flex h-6 items-center gap-2">
+      <div className="relative z-10 flex h-6 shrink-0 items-center gap-2">
         <Bot className="size-4 shrink-0 text-foreground" aria-hidden />
         <h2 id={titleId} className="text-sm font-semibold tracking-[-0.015em] text-foreground">
           Running bots
@@ -91,8 +93,8 @@ export function ProfileRunningBotsCard({ onOpenBotAudit, useBackdropEffect = tru
         </span>
       </div>
 
-      <div className="relative z-10 mt-2 min-h-0 flex-1 border-t border-foreground/10 pt-2">
-        <div className="h-full max-h-64 divide-y divide-border/40 overflow-y-auto pr-1 thin-scrollbar">
+      <div className="relative z-10 mt-2 flex min-h-0 flex-1 flex-col border-t border-foreground/10 pt-2">
+        <div className="min-h-0 max-h-64 flex-1 divide-y divide-border/40 overflow-y-auto overscroll-contain pr-1 thin-scrollbar">
           {runningBots.map((bot) => (
             <BotRow key={bot.id} bot={bot} onOpenBotAudit={onOpenBotAudit} />
           ))}

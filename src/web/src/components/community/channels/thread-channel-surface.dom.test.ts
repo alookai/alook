@@ -248,6 +248,31 @@ describe("ThreadChannelSurface ownership", () => {
     vi.clearAllMocks()
   })
 
+  it.each([
+    { parentIsForum: false },
+    { parentIsForum: true },
+  ])("renders one Back control on desktop and returns to the parent for %o", async (overrides) => {
+    const { ChannelHeader: RealChannelHeader } = await vi.importActual<typeof import("./channel-header")>("./channel-header")
+    mockedChannelHeader.mockImplementationOnce(RealChannelHeader)
+    const onNavigateParent = vi.fn()
+    const view = render(renderSurface({ ...overrides, onNavigateParent }))
+
+    const back = view.getByRole("button", { name: "Back" })
+    expect(view.getAllByRole("button", { name: "Back" })).toHaveLength(1)
+    expect(back).toHaveClass("size-11")
+    expect(back).not.toHaveClass("sm:hidden")
+    fireEvent.click(back)
+    expect(onNavigateParent).toHaveBeenCalledOnce()
+  })
+
+  it("omits Back in the split thread header", async () => {
+    const { ChannelHeader: RealChannelHeader } = await vi.importActual<typeof import("./channel-header")>("./channel-header")
+    mockedChannelHeader.mockImplementationOnce(RealChannelHeader)
+    const view = render(renderSurface({ splitActions: { onFullscreen: vi.fn(), onClose: vi.fn() } }))
+
+    expect(view.queryByRole("button", { name: "Back" })).toBeNull()
+  })
+
   it("owns the child feed and preserves opener, message-list, and composer wiring", () => {
     const props = surfaceProps()
 

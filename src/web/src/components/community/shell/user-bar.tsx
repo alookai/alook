@@ -227,7 +227,7 @@ function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnrea
               <span
                 data-testid={tid.userBarRunningBotsRing}
                 aria-hidden
-                className="pointer-events-none absolute -inset-0.5 rounded-full [background:conic-gradient(from_30deg,var(--link),var(--primary),var(--link))]"
+                className="pointer-events-none absolute -inset-px rounded-full [background:conic-gradient(from_30deg,var(--link),var(--primary),var(--link))]"
               />
             </>
           )}
