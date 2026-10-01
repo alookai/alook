@@ -11,7 +11,8 @@ import {
 import type { Database } from "../../index";
 import { nanoid } from "nanoid";
 import { PARTICIPANT_SOURCE, type ParticipantSource } from "../../../constants/community";
-import { canSeePrivateChannel, visibilityIsDmParticipant } from "../../../utils/community-roles";
+import { canSeePrivateChannel, visibilityIsDmParticipant, ROLES } from "../../../utils/community-roles";
+import { formatHandle } from "../../../lib/discriminator";
 import { user } from "../../schema";
 import { chunk, D1_MAX_IN_PARAMS, maxInParams, maxRowsPerInsert } from "../_chunk";
 
@@ -319,6 +320,38 @@ export async function listServerChannels(db: Database, serverId: string) {
     .where(and(eq(communityChannel.serverId, serverId), isNull(communityChannel.parentChannelId)))
     .orderBy(asc(communityChannel.position));
   return rows;
+}
+
+export async function listServerChannelDirectoryForAdmin(db: Database, serverId: string, userId: string) {
+  const rows = await db
+    .select({
+      id: communityChannel.id,
+      name: communityChannel.name,
+      category: { id: communityCategory.id, name: communityCategory.name },
+      creator: { name: user.name, discriminator: user.discriminator },
+      createdAt: communityChannel.createdAt,
+    })
+    .from(communityChannel)
+    .innerJoin(communityServerMember, and(
+      eq(communityServerMember.serverId, communityChannel.serverId),
+      eq(communityServerMember.userId, userId),
+      inArray(communityServerMember.role, [ROLES.OWNER, ROLES.ADMIN]),
+    ))
+    .leftJoin(communityCategory, and(
+      eq(communityCategory.id, communityChannel.categoryId),
+      eq(communityCategory.serverId, serverId),
+    ))
+    .leftJoin(user, and(eq(user.id, communityChannel.creatorId), isNull(user.deletedAt)))
+    .where(and(
+      eq(communityChannel.serverId, serverId),
+      isNull(communityChannel.parentChannelId),
+      inArray(communityChannel.type, ["text", "forum"]),
+    ))
+    .orderBy(asc(communityCategory.position), asc(communityCategory.id), asc(communityChannel.position), asc(communityChannel.id));
+  return rows.map(({ creator, ...row }) => ({
+    ...row,
+    creator: creator ? { name: creator.name, handle: formatHandle(creator.name, creator.discriminator) } : null,
+  }));
 }
 
 /**
