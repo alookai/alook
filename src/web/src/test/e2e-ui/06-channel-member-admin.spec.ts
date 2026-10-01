@@ -39,8 +39,16 @@ test.describe.serial("channel & member admin", () => {
     const { page } = await asUser("alice")
     const adminPath = `/api/community/servers/${serverId}/channels/admin`
     const requests: string[] = []
+    const responses: number[] = []
+    let abortedRequests = 0
     page.on("request", (request) => {
       if (new URL(request.url()).pathname === adminPath) requests.push(request.url())
+    })
+    page.on("response", (response) => {
+      if (new URL(response.url()).pathname === adminPath) responses.push(response.status())
+    })
+    page.on("requestfailed", (request) => {
+      if (new URL(request.url()).pathname === adminPath && request.failure()?.errorText === "net::ERR_ABORTED") abortedRequests += 1
     })
     await page.goto(`/c/channels/${serverId}/${channelId}`)
     await expect(page.getByTestId(tid.composerInput)).toBeVisible()
@@ -62,7 +70,8 @@ test.describe.serial("channel & member admin", () => {
     await expect(row).toContainText(`@${data.channels.find((channel) => channel.id === privateId)!.creator!.handle}`)
     await expect(row.locator("time")).toHaveAttribute("datetime", data.channels.find((channel) => channel.id === privateId)!.createdAt)
     await expect(row.getByRole("link")).toHaveCount(0)
-    expect(requests).toHaveLength(1)
+    expect(responses).toEqual([200])
+    await expect.poll(() => requests.length - abortedRequests).toBe(1)
     const messages = await page.request.get(`/api/community/channels/${privateId}/messages`)
     expect(messages.status()).toBe(403)
     await page.getByTestId(tid.settingsClose).click()
