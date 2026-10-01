@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { useVirtualizer } from "@tanstack/react-virtual"
-import { Settings, Users, Link2, Bell, Trash2, X, Shield, Search, Camera } from "lucide-react"
+import { Settings, Users, Link2, Bell, Trash2, X, Shield, Search, Camera, Hash } from "lucide-react"
 import {
   isServerOwner,
   NOTIF_LEVELS,
@@ -36,6 +36,7 @@ import {
   useSetBotNotificationSetting,
 } from "@/hooks/community/use-notification-settings"
 import { toastApiError } from "@/lib/api/client"
+import { ServerSettingsChannels } from "./server-settings-channels"
 
 const SETTABLE_ROLES: Role[] = ["admin", "member"]
 
@@ -46,6 +47,7 @@ function capitalize(s: string): string {
 // Full-screen server settings view. Data via props.
 export function ServerSettings({
   section, setSection, onClose, serverId, serverName, serverDescription, serverIcon,
+  isAdmin = false,
   members, membersLoading, membersLoadingMore, membersHasMore, membersTotal, onLoadMoreMembers, onSearchMembers,
   onOpenProfile,
   onKickMember, onSetRole, onRevokeInvite, onCopyInvite, onDeleteServer, onUploadIcon, onUpdateServer, notifLevel, onSetNotifLevel,
@@ -57,6 +59,7 @@ export function ServerSettings({
   serverName: string
   serverDescription?: string
   serverIcon?: string | null
+  isAdmin?: boolean
   members: Member[]
   membersLoading?: boolean
   membersLoadingMore?: boolean
@@ -76,6 +79,7 @@ export function ServerSettings({
   onSetNotifLevel?: (l: string) => void
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const visibleSection = section === "channels" && !isAdmin ? "overview" : section
 
   // Invites are low-frequency, admin-only panel data. Fetch them only when
   // their tab is open, never on settings mount or via WS.
@@ -83,6 +87,7 @@ export function ServerSettings({
 
   const nav: SettingsShellTab<SettingsSection>[] = [
     { value: "overview", label: "Overview", icon: Settings },
+    ...(isAdmin ? [{ value: "channels" as const, label: "Channels", icon: Hash }] : []),
     { value: "members", label: "Members", icon: Users },
     { value: "invites", label: "Invites", icon: Link2 },
     { value: "notifications", label: "Notifications", icon: Bell },
@@ -99,14 +104,15 @@ export function ServerSettings({
         onConfirm={() => { setConfirmDelete(false); onDeleteServer?.() }}
       />
       <SettingsShell
-        value={section}
+        value={visibleSection}
         onValueChange={setSection}
         label={serverName}
-        title={<span className="capitalize">{section}</span>}
+        title={<span className="capitalize">{visibleSection}</span>}
         tabs={nav}
         onClose={onClose}
       >
         <SettingsShellPanel value="overview"><SettingsOverview serverId={serverId} serverName={serverName} serverDescription={serverDescription} serverIcon={serverIcon} onUploadIcon={onUploadIcon} onUpdateServer={onUpdateServer} onRequestDelete={() => setConfirmDelete(true)} /></SettingsShellPanel>
+        {isAdmin && section === "channels" && <SettingsShellPanel value="channels"><ServerSettingsChannels key={serverId} serverId={serverId} /></SettingsShellPanel>}
         <SettingsShellPanel value="members"><SettingsMembers members={members} loading={membersLoading} loadingMore={membersLoadingMore} hasMore={membersHasMore} total={membersTotal} onLoadMore={onLoadMoreMembers} onSearch={onSearchMembers} onOpenProfile={onOpenProfile} onKickMember={onKickMember} onSetRole={onSetRole} /></SettingsShellPanel>
         <SettingsShellPanel value="invites"><SettingsInvites invites={invites} loading={invitesLoading} onRevokeInvite={onRevokeInvite} onCopyInvite={onCopyInvite} /></SettingsShellPanel>
         <SettingsShellPanel value="notifications"><SettingsNotifications serverId={serverId} level={notifLevel} onSetLevel={onSetNotifLevel} /></SettingsShellPanel>

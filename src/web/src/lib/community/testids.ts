@@ -56,6 +56,8 @@ export const tid = {
   userBarProfileSecondaryDock: "community-user-bar-profile-secondary-dock",
   serverSettingsOpen: "community-server-settings-open",
   serverSettingsName: "community-server-settings-name",
+  settingsChannels: "community-settings-channels",
+  settingsChannel: (id: string) => `community-settings-channel-${id}`,
   newDivider: "community-new-divider",
   typingIndicator: "community-typing-indicator",
   dmBlockedNotice: "community-dm-blocked-notice",
