@@ -27,9 +27,13 @@ describe("channel sidebar touch drag contracts", () => {
   it("keeps the whole channel row and category header draggable without blocking touch scroll", () => {
     const channel = readSource("./sortable-channel.tsx")
     const category = readSource("./sortable-category.tsx")
+    const categoryPanel = readSource("./channel-category.tsx")
 
     expect(channel).toContain("onClick={onClick}")
-    expect(category).toContain("onClick: onToggle")
+    expect(category).toContain("onToggle={onToggle}")
+    expect(category).toContain("headerProps={headerProps}")
+    expect(categoryPanel).toContain("{...headerProps}")
+    expect(categoryPanel).toContain("onClick={onToggle}")
     expect(category).toContain('data: { kind: "category" }')
     expect(category).toContain("ref: setActivatorNodeRef")
     expect(category).toContain("onTouchStartCapture: listeners?.onTouchStart")
@@ -38,7 +42,8 @@ describe("channel sidebar touch drag contracts", () => {
     for (const source of [channel, category]) {
       expect(source).toContain("...attributes")
       expect(source).toContain("...listeners")
-      expect(source).toContain("touch-manipulation")
+      expect(source === category ? categoryPanel : source).toContain("touch-manipulation")
+      expect(categoryPanel).not.toContain("touch-none")
       expect(source).not.toContain("touch-none")
     }
   })
