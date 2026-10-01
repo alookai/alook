@@ -78,7 +78,7 @@ export function useCommunityNavigationController(
   }, [cancelPendingNavigation])
 
   const push = useCallback((href: string) => {
-    if (href === publishedHref) return
+    if (href === publishedHref && !navigationPending) return
     supersedeNavigationIntent(gateRef.current)
     cancelActiveConversationNavigationProof(queryClient)
     pendingBaselineRevisionRef.current = committedFrame.revision
@@ -91,10 +91,10 @@ export function useCommunityNavigationController(
       setPendingHref(href)
     })
     router.push(href)
-  }, [committedFrame.leafKey, committedFrame.revision, publishedHref, queryClient, router])
+  }, [committedFrame.leafKey, committedFrame.revision, navigationPending, publishedHref, queryClient, router])
 
   const pushImmediate = useCallback((href: string) => {
-    if (href === publishedHref) return
+    if (href === publishedHref && !navigationPending) return
     supersedeNavigationIntent(gateRef.current)
     pendingBaselineRevisionRef.current = committedFrame.revision
     pendingBaselineLeafRef.current = committedFrame.leafKey
@@ -105,10 +105,10 @@ export function useCommunityNavigationController(
       setPendingHref(href)
     })
     router.push(href)
-  }, [committedFrame.leafKey, committedFrame.revision, publishedHref, router])
+  }, [committedFrame.leafKey, committedFrame.revision, navigationPending, publishedHref, router])
 
   const replace = useCallback((href: string) => {
-    if (href === publishedHref) return
+    if (href === publishedHref && !navigationPending) return
     supersedeNavigationIntent(gateRef.current)
     cancelActiveConversationNavigationProof(queryClient)
     pendingBaselineRevisionRef.current = committedFrame.revision
@@ -116,7 +116,7 @@ export function useCommunityNavigationController(
     setNavigationPending(true)
     setPendingHref(href)
     router.replace(href)
-  }, [committedFrame.leafKey, committedFrame.revision, publishedHref, queryClient, router])
+  }, [committedFrame.leafKey, committedFrame.revision, navigationPending, publishedHref, queryClient, router])
 
   const resolveAndPush = useCallback(async (resolve: () => Promise<string>) => {
     cancelActiveConversationNavigationProof(queryClient)

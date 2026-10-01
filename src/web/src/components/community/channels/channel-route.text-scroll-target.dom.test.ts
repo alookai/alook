@@ -28,7 +28,7 @@ const {
   mockDismissConversation,
 } = vi.hoisted(() => ({
   mockRouter: { push: vi.fn(), replace: vi.fn(), back: vi.fn() },
-  mockUiHandlers: { replacePath: vi.fn(), goBackMobile: vi.fn() },
+  mockUiHandlers: { replacePath: vi.fn(), goBackMobile: vi.fn(), cancelPendingNavigation: vi.fn() },
   mockBreakpoint: { value: "desktop" as "desktop" | "mobile" },
   mockHeaderServerNavigate: { current: undefined as undefined | (() => void) },
   mockHeaderParentNavigate: { current: undefined as undefined | (() => void) },
@@ -340,6 +340,7 @@ function configureThreadRoute() {
 
 describe("ChannelRoute message surface ownership", () => {
   beforeEach(() => {
+    mockUiHandlers.cancelPendingNavigation.mockClear()
     vi.useFakeTimers()
     mockedMessageList.mockClear()
     mockOpenerGate.mockClear()
@@ -755,6 +756,9 @@ describe("ChannelRoute message surface ownership", () => {
     }), undefined)
 
     fireEvent.click(screen.getByTestId("community-thread-split-fullscreen"))
+    expect(mockUiHandlers.cancelPendingNavigation).toHaveBeenCalledOnce()
+    expect(mockUiHandlers.cancelPendingNavigation.mock.invocationCallOrder[0])
+      .toBeLessThan(mockRouter.push.mock.invocationCallOrder[0]!)
     expect(mockRouter.push).toHaveBeenCalledWith(
       "/c/channels/server_1/channel_1?keep=1&threadView=full",
       { scroll: false },

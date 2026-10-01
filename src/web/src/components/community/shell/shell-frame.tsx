@@ -271,7 +271,6 @@ export function ShellFrame(props: ShellFrameProps) {
       checkpoint={checkpoint}
       sidebar={sidebar}
       extraDialogs={extraDialogs}
-      cancelPendingNavigation={navigation.cancelPendingNavigation}
       rail={rail}
       profile={profile}
       inbox={inbox}

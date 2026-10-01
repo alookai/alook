@@ -84,6 +84,7 @@ export function ThreadChannelSurface({
   memberPanelProps: ChannelMemberPanelProps
   manageMembersDialog: ReactNode
   uiHandlers: {
+    cancelPendingNavigation?: () => void
     navigate?: (serverId: string, channelId: string) => void
     previewImage?: (image: ImagePreview) => void
     previewAttachment?: (attachment: FileAttachment) => void
@@ -181,7 +182,10 @@ export function ThreadChannelSurface({
       onPreviewImage={(image) => uiHandlers.previewImage?.(image)}
       onPreviewAttachment={(attachment) => uiHandlers.previewAttachment?.(attachment)}
       onJump={parentChannelId
-        ? () => router.push(`/c/channels/${serverParam}/${parentChannelId}?msg=${parentMessageId}`)
+        ? () => {
+            uiHandlers.cancelPendingNavigation?.()
+            router.push(`/c/channels/${serverParam}/${parentChannelId}?msg=${parentMessageId}`)
+          }
         : undefined}
     />
   ) : undefined

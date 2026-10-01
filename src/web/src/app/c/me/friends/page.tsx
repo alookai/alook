@@ -135,6 +135,7 @@ export default function MeFriendsPage() {
         )
       }
       onDm={async (userId) => {
+        uiHandlers.cancelPendingNavigation?.()
         try {
           const data = await createOrGetDm.mutateAsync({ userId })
           if (data.conversation.id) uiHandlers.navigatePath?.(`/c/me/${data.conversation.id}`)

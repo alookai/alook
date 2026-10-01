@@ -233,6 +233,37 @@ describe("useCommunityNavigationController", () => {
     expect(mocks.cancelProof).not.toHaveBeenCalled()
   })
 
+  it.each(["push", "replace"] as const)("lets %s to the published route supersede a pending resolver", async (method) => {
+    const hook = await renderController()
+    let resolve!: (href: string) => void
+    const delayed = new Promise<string>((done) => { resolve = done })
+    let result!: Promise<boolean>
+    await act(async () => {
+      result = hook.current.resolveAndPush(() => delayed)
+    })
+
+    await act(async () => hook.current[method]("/c/me"))
+    await act(async () => {
+      resolve("/c/channels/s1/c1")
+      await expect(result).resolves.toBe(false)
+    })
+    expect(mocks[method]).toHaveBeenCalledExactlyOnceWith("/c/me")
+    expect(hook.current.navigationPending).toBe(false)
+    expect(hook.current.pendingHref).toBeNull()
+  })
+
+  it("replaces a submitted pending target with the published route", async () => {
+    const hook = await renderController()
+    await act(async () => hook.current.push("/c/channels/s1/c1"))
+    await act(async () => hook.current.push("/c/me"))
+    expect(mocks.push.mock.calls.map(([href]) => href)).toEqual([
+      "/c/channels/s1/c1",
+      "/c/me",
+    ])
+    expect(hook.current.navigationPending).toBe(false)
+    expect(mocks.cancelProof).toHaveBeenCalledTimes(2)
+  })
+
   it("preserves the proof begun by an Inbox child handler", async () => {
     const hook = await renderController()
     await act(async () => hook.current.pushImmediate("/c/channels/s1/c1"))

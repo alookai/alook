@@ -25,7 +25,6 @@ import { ProfileRunningBotsCard } from "@/components/community/social/profile-ru
 type Props = Pick<ShellFrameProps, "sidebar" | "children" | "extraDialogs"> & {
   breakpoint: Breakpoint
   checkpoint: CommunityCheckpointPlan
-  cancelPendingNavigation: () => void
   rail: ReturnType<typeof useShellRailController>
   profile: ReturnType<typeof useShellProfileController>
   inbox: ReturnType<typeof useShellInboxController>
@@ -43,7 +42,6 @@ export function ShellFrameView({
   sidebar,
   children,
   extraDialogs,
-  cancelPendingNavigation,
   rail,
   profile,
   inbox,
@@ -98,7 +96,6 @@ export function ShellFrameView({
     <CommunityShellLayout
       breakpoint={breakpoint}
       surface={surface}
-      onNavigationIntent={cancelPendingNavigation}
       rail={<ServerRail {...rail.railProps} bottomInset={60} />}
       sidebar={checkpoint.sidebar.kind === "server-skeleton"
           ? <ChannelSidebarSkeleton targetServerId={checkpoint.sidebar.serverId} />

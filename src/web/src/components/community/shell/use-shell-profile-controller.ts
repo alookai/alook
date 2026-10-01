@@ -240,6 +240,7 @@ export function useShellProfileController({
       toast("Could not find user")
       return
     }
+    cancelPendingNavigation()
     let dmId: string
     try {
       const data = await createOrGetDm.mutateAsync({ userId })
@@ -265,7 +266,6 @@ export function useShellProfileController({
       }
       void receipt.committed
     }
-    cancelPendingNavigation()
     router.push(`/c/me/${dmId}`)
   }
 

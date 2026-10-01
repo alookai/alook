@@ -411,10 +411,13 @@ export function MessageContextSheet({
       type,
       serverId: routeParams?.serverId,
       threadId,
-      push: router.push,
+      push: (href) => {
+        uiHandlers.cancelPendingNavigation?.()
+        router.push(href)
+      },
       close: () => onOpenChange(false),
     })
-  }, [type, router, routeParams, onOpenChange])
+  }, [type, router, routeParams, onOpenChange, uiHandlers])
 
   const onPreviewImage = useCallback((image: ImagePreview) => {
     uiHandlers.previewImage?.(image)

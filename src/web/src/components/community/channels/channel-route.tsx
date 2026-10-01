@@ -206,10 +206,11 @@ export function ChannelRoute({ serverParam, channelId }: {
     )
   }, [serverParam])
   const openThreadFullscreen = useCallback(() => {
+    uiHandlers.cancelPendingNavigation?.()
     const params = new URLSearchParams(searchParams.toString())
     params.set(THREAD_VIEW_PARAM, "full")
     router.push(`${channelHref(serverParam, channelId)}?${params.toString()}`, { scroll: false })
-  }, [channelId, router, searchParams, serverParam])
+  }, [channelId, router, searchParams, serverParam, uiHandlers])
 
   const openProfile = useCallback<OpenProfile>((name, e, discriminator, userId) => {
     uiHandlers.openProfile?.(name, e, discriminator, userId)
