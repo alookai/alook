@@ -615,6 +615,114 @@ describe("focused message reconnect catch-up", () => {
     },
   )
 
+  it.each(["channel", "dm"] as const)("rechecks a stale empty %s window when an in-flight foreground repair receives its first gap", async (kind) => {
+    const client = new QueryClient()
+    const scopeId = "first-gap"
+    const key = kind === "channel" ? communityKeys.channelMessages(scopeId) : communityKeys.dmMessages(scopeId)
+    const { queryFn, unsubscribe } = seedEmptyActiveQuery(client, key)
+    let release!: (page: unknown) => void
+    apiFetchMock.mockReturnValueOnce(new Promise((resolve) => { release = resolve }))
+    const repair = reconcileFocusedMessageQueries(client, kind, scopeId)
+    await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
+    const gap = scheduleFocusedMessageGapRepair(client, { kind, scopeId }, 2)
+    expect(gap).not.toBeNull()
+    apiFetchMock.mockResolvedValueOnce({
+      messages: [1, 2].map((seq) => ({ id: `m_${seq}`, seq, createdAt: `2026-08-15T00:00:0${seq}.000Z` })),
+      latestSeq: 2,
+      hasMore: false,
+    })
+    release({ messages: [], latestSeq: 0, hasMore: false })
+    await Promise.all([repair, gap])
+    expect(apiFetchMock).toHaveBeenCalledTimes(2)
+    expect(apiFetchMock.mock.calls.map(([url]) => url)).toEqual([
+      `/api/community/channels/${scopeId}/messages`,
+      `/api/community/channels/${scopeId}/messages`,
+    ])
+    expect(client.getQueryData<{ pages: Array<{ messages: Array<{ id: string }> }> }>(key)?.pages[0].messages.map((message) => message.id)).toEqual(["m_1", "m_2"])
+    expect(queryFn).not.toHaveBeenCalled()
+    unsubscribe()
+    client.clear()
+  })
+
+  it.each(["channel", "dm"] as const)("bounds stale empty %s reads and allows a later recovery", async (kind) => {
+    const client = new QueryClient()
+    const scopeId = "bounded-empty"
+    const key = kind === "channel" ? communityKeys.channelMessages(scopeId) : communityKeys.dmMessages(scopeId)
+    const { queryFn, unsubscribe } = seedEmptyActiveQuery(client, key)
+    apiFetchMock.mockResolvedValue({ messages: [], latestSeq: 0, hasMore: false })
+    await scheduleFocusedMessageGapRepair(client, { kind, scopeId }, 2)
+    expect(apiFetchMock).toHaveBeenCalledTimes(8)
+    expect(client.getQueryData<{ pages: Array<{ messages: unknown[] }> }>(key)?.pages[0].messages).toEqual([])
+    apiFetchMock.mockResolvedValueOnce({ messages: [{ id: "m_later", seq: 1 }], latestSeq: 1, hasMore: false })
+    await reconcileFocusedMessageQueries(client, kind, scopeId)
+    expect(apiFetchMock).toHaveBeenCalledTimes(9)
+    expect(client.getQueryData<{ pages: Array<{ messages: Array<{ id: string }> }> }>(key)?.pages[0].messages.map((message) => message.id)).toEqual(["m_later"])
+    expect(queryFn).not.toHaveBeenCalled()
+    unsubscribe()
+    client.clear()
+  })
+
+  it.each(["permission", "replacement"] as const)("drops an empty-window retry result after %s changes", async (change) => {
+    const client = new QueryClient()
+    const scopeId = "empty-retry-owner"
+    const key = communityKeys.channelMessages(scopeId)
+    const subscriptions = [seedEmptyActiveQuery(client, key).unsubscribe]
+    let release!: (page: unknown) => void
+    apiFetchMock.mockResolvedValueOnce({ messages: [], latestSeq: 0, hasMore: false })
+    apiFetchMock.mockReturnValueOnce(new Promise((resolve) => { release = resolve }))
+    const gap = scheduleFocusedMessageGapRepair(client, { kind: "channel", scopeId }, 2)
+    await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(2))
+    if (change === "permission") useCommunityWsStore.getState().revokeChannelAccess("server", scopeId)
+    else {
+      client.removeQueries({ queryKey: key, exact: true })
+      subscriptions.push(seedActiveQuery(client, key).unsubscribe)
+    }
+    const current = client.getQueryData(key)
+    release({ messages: [{ id: "m_obsolete", seq: 2 }], latestSeq: 2, hasMore: false })
+    await gap
+    expect(client.getQueryData(key)).toBe(current)
+    expect(publishCommunityMessagesMock).not.toHaveBeenCalled()
+    expect(apiFetchMock).toHaveBeenCalledTimes(2)
+    for (const unsubscribe of subscriptions) unsubscribe()
+    client.clear()
+  })
+
+  it("preserves a same-query cold reset until its canonical read completes instead of rebuilding pages from old HTTP", async () => {
+    const client = new QueryClient()
+    const key = communityKeys.channelMessages("reset-pending")
+    const oldPage = { messages: [{ id: "m_old", seq: 2 }], latestSeq: 2, hasMore: false }
+    client.setQueryData(key, { pages: [oldPage], pageParams: [{ mode: "newest" }] })
+    let releaseCanonical!: (page: typeof oldPage) => void
+    const queryFn = vi.fn(() => new Promise<typeof oldPage>((resolve) => { releaseCanonical = resolve }))
+    const observer = new InfiniteQueryObserver(client, {
+      queryKey: key,
+      queryFn,
+      initialPageParam: { mode: "newest" } as const,
+      getNextPageParam: () => undefined,
+      staleTime: Infinity,
+    })
+    const unsubscribe = observer.subscribe(() => undefined)
+    const query = client.getQueryCache().find({ queryKey: key, exact: true })
+    let releaseOld!: (page: typeof oldPage) => void
+    apiFetchMock.mockReturnValueOnce(new Promise((resolve) => { releaseOld = resolve }))
+    const repair = reconcileFocusedMessageQueries(client, "channel", "reset-pending")
+    await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
+    const reset = client.resetQueries({ queryKey: key, exact: true })
+    await vi.waitFor(() => expect(queryFn).toHaveBeenCalledOnce())
+    expect(client.getQueryCache().find({ queryKey: key, exact: true })).toBe(query)
+    expect(client.getQueryData(key)).toBeUndefined()
+    releaseOld(oldPage)
+    await repair
+    expect(client.getQueryData(key)).toBeUndefined()
+    releaseCanonical({ messages: [{ id: "m_current", seq: 3 }], latestSeq: 3, hasMore: false })
+    await reset
+    expect(client.getQueryData<{ pages: Array<{ messages: Array<{ id: string }> }> }>(key)?.pages[0].messages.map((message) => message.id)).toEqual(["m_current"])
+    expect(queryFn).toHaveBeenCalledOnce()
+    expect(apiFetchMock).toHaveBeenCalledOnce()
+    unsubscribe()
+    client.clear()
+  })
+
   it.each([
     ["channel", communityKeys.channelMessages("ch_cold"), "ch_cold"],
     ["dm", communityKeys.dmMessages("dm_cold"), "dm_cold"],
