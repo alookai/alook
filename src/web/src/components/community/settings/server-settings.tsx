@@ -87,8 +87,8 @@ export function ServerSettings({
 
   const nav: SettingsShellTab<SettingsSection>[] = [
     { value: "overview", label: "Overview", icon: Settings },
-    ...(isAdmin ? [{ value: "channels" as const, label: "Channels", icon: Hash }] : []),
     { value: "members", label: "Members", icon: Users },
+    ...(isAdmin ? [{ value: "channels" as const, label: "Channels", icon: Hash }] : []),
     { value: "invites", label: "Invites", icon: Link2 },
     { value: "notifications", label: "Notifications", icon: Bell },
   ]
