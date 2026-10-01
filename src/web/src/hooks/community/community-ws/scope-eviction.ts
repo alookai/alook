@@ -109,13 +109,16 @@ export function evictScopeContent(
   }
 }
 
-function evictServerChannelScopesNow(queryClient: QueryClient, serverId: string) {
+function evictServerChannelScopesNow(queryClient: QueryClient, serverId: string, preserveServerDetailQuery = false) {
   useCommunityWsStore.getState().revokeServerAccess(serverId)
   for (const id of collectChannelScopeIds(queryClient, serverId)) {
     evictScopeContent(queryClient, serverId, id)
   }
-  void queryClient.cancelQueries({ queryKey: communityKeys.server(serverId) })
-  queryClient.removeQueries({ queryKey: communityKeys.server(serverId) })
+  const serverKey = communityKeys.server(serverId)
+  const scopeFilter = { queryKey: serverKey,
+    predicate: (query: Query) => !preserveServerDetailQuery || query.queryKey.length !== serverKey.length }
+  void queryClient.cancelQueries(scopeFilter)
+  queryClient.removeQueries(scopeFilter)
   queryClient.setQueryData<{ servers: Array<{ id: string }> } | undefined>(
     communityKeys.servers(),
     (current) => current
@@ -130,12 +133,14 @@ function evictServerChannelScopesNow(queryClient: QueryClient, serverId: string)
     community.setCurrentServerId(null)
   }
   const registry = getCommunityDbRegistry(queryClient)
-  if (registry) purgeCommunityServer(registry, serverId)
+  if (registry) purgeCommunityServer(registry, serverId, { preserveServerDetailQuery })
 }
 
-export function evictServerChannelScopes(queryClient: QueryClient, serverId: string): boolean {
+export function evictServerChannelScopes(queryClient: QueryClient, serverId: string,
+  options: { preserveServerDetailQuery?: boolean } = {},
+): boolean {
   if (isOwnerServerDeleteScopeEvictionBlocked(serverId)) return false
-  evictServerChannelScopesNow(queryClient, serverId)
+  evictServerChannelScopesNow(queryClient, serverId, options.preserveServerDetailQuery)
   return true
 }
 

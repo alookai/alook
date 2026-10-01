@@ -9,6 +9,7 @@ const queryClient = vi.hoisted(() => ({
   invalidateQueries: vi.fn(() => Promise.resolve()),
   getQueryData: vi.fn(() => undefined),
   removeQueries: vi.fn(),
+  cancelQueries: vi.fn(() => Promise.resolve()),
   getQueryCache: vi.fn(() => ({
     subscribe: vi.fn(() => () => {}),
     getAll: vi.fn(() => []),
@@ -22,6 +23,9 @@ const getAccountUnreadProjection = vi.hoisted(() => vi.fn(() => ({
 const disposeAccountUnreadProjection = vi.hoisted(() => vi.fn())
 const registryCleanup = vi.hoisted(() => vi.fn(() => Promise.resolve()))
 const captureRestoredCollections = vi.hoisted(() => vi.fn())
+const activeRegistry = vi.hoisted(() => ({ current: null as unknown }))
+const registry = vi.hoisted(() => ({ id: "community-db", captureRestoredCollections,
+  hasRestoredCollection: vi.fn(() => false), setRestoredScopeListener: vi.fn(), cleanup: registryCleanup }))
 const restoreResult = vi.hoisted(() => ({ current: "success" as "success" | "error" }))
 
 vi.mock("@tanstack/react-query-devtools", () => ({ ReactQueryDevtools: () => null }))
@@ -32,34 +36,39 @@ vi.mock("@tanstack/react-query-persist-client", async () => {
       children,
       onSuccess,
       onError,
+      persistOptions,
     }: {
       children: React.ReactNode
       onSuccess: () => void
       onError: () => void
+      persistOptions: { persister: { restoreClient: () => Promise<unknown> } }
     }) => {
       useEffect(() => {
-        if (restoreResult.current === "success") onSuccess()
-        else onError()
-      }, [onError, onSuccess])
+        let mounted = true
+        void persistOptions.persister.restoreClient().then(() => { if (mounted) onSuccess() }, () => { if (mounted) onError() })
+        return () => { mounted = false }
+      }, [onError, onSuccess, persistOptions.persister])
       return children
     },
   }
 })
 vi.mock("@/lib/query-client", () => ({ createQueryClient }))
 vi.mock("@/lib/query-persister", () => ({
-  createIdbPersister: vi.fn(() => ({ id: "persister" })),
+  createIdbPersister: vi.fn(() => ({ id: "persister", restoreClient: async () => {
+    if (restoreResult.current === "error") throw new Error("modeled storage read failure")
+    return undefined
+  } })),
   PERSIST_BUSTER: "test",
   PERSIST_MAX_AGE_MS: 1,
   shouldPersistQuery: vi.fn(() => false),
 }))
 vi.mock("@/lib/community-db/collections", () => ({
-  createCommunityDbRegistry: vi.fn(() => ({
-    id: "community-db",
-    captureRestoredCollections,
-    hasRestoredCollection: vi.fn(() => false),
-    cleanup: registryCleanup,
-  })),
-  registerCommunityDbRegistry: vi.fn(() => () => {}),
+  createCommunityDbRegistry: vi.fn(() => registry),
+  getActiveCommunityDbRegistry: () => activeRegistry.current,
+  registerCommunityDbRegistry: vi.fn((registered: unknown) => {
+    activeRegistry.current = registered
+    return () => { if (activeRegistry.current === registered) activeRegistry.current = null }
+  }),
 }))
 vi.mock("@/lib/community-db/projections", () => ({
   CommunityDbProvider: ({ children }: { children: React.ReactNode }) => children,
@@ -89,6 +98,7 @@ beforeEach(() => {
   disposeAccountUnreadProjection.mockClear()
   registryCleanup.mockClear()
   captureRestoredCollections.mockClear()
+  activeRegistry.current = null
   restoreResult.current = "success"
   queryClient.invalidateQueries.mockClear()
 })

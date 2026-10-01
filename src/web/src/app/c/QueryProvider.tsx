@@ -3,13 +3,15 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useIsRestoring, type QueryClient } from "@tanstack/react-query"
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools"
-import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client"
+import { PersistQueryClientProvider, type PersistedClient } from "@tanstack/react-query-persist-client"
 import { createQueryClient } from "@/lib/query-client"
 import {
   createIdbPersister,
   PERSIST_BUSTER,
   PERSIST_MAX_AGE_MS,
   shouldPersistQuery,
+  filterPersistedScopeAuthority,
+  mergeQuarantinedPersistedClient,
 } from "@/lib/query-persister"
 import { disposeAccountReadStateReconciliation } from "@/hooks/community/community-ws/read-state-reconciliation"
 import { disposeReadCoordinator } from "@/hooks/community/read-coordinator"
@@ -24,16 +26,25 @@ import {
 } from "@/lib/query-keys"
 import {
   createCommunityDbRegistry,
+  getActiveCommunityDbRegistry,
   registerCommunityDbRegistry,
   type CommunityDbRegistry,
+  type RestoredScopeDecision,
 } from "@/lib/community-db/collections"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
-import { installCommunityDbSync } from "@/lib/community-db/sync"
+import { installCommunityDbSync, reconcileCommunityRestore } from "@/lib/community-db/sync"
+import { channelSchema, serverSchema } from "@/lib/community-db/schema"
+import { qualifyRestoredCommunityScopes } from "@/hooks/community/use-servers"
 
 function createRestoreGate() {
   let release!: () => void
   const ready = new Promise<void>((resolve) => { release = resolve })
-  return { ready, release }
+  let accountEpoch: number | null = null
+  return { ready, release,
+    recordIdentity: (epoch: number) => { accountEpoch = epoch },
+    hasIdentity: () => accountEpoch !== null,
+    matchesIdentity: (epoch: number) => accountEpoch === epoch,
+  }
 }
 
 function CommunityDbRuntime({
@@ -131,14 +142,128 @@ export function QueryProvider({
   // Persister is bound to the userId at construction; on account switch the
   // whole community subtree unmounts and the shell re-renders with the new
   // id, so we don't need to reactively rebuild the persister mid-session.
-  const [persister] = useState(() => createIdbPersister(userId))
+  const [persister] = useState(() => {
+    const storage = createIdbPersister(userId)
+    let quarantined: PersistedClient | undefined
+    const beforeRead: RestoredScopeDecision[] = []
+    const unknownChannels = new Set<string>()
+    const unknownServers = new Set<string>()
+    const allowedServers = new Set<string>()
+    const rows = (name: string) => quarantined?.clientState.queries.find((query) => query.queryKey[3] === name)?.state.data
+    const currentChannels = () => {
+      const parsed = channelSchema.array().safeParse(rows("channels"))
+      return parsed.success ? parsed.data : []
+    }
+    const retained = () => {
+      if (!quarantined) return undefined
+      const snapshot = filterPersistedScopeAuthority(quarantined, userId,
+        new Set([...unknownServers, ...currentChannels().filter((channel) => unknownChannels.has(channel.id))
+          .flatMap((channel) => channel.serverId ? [channel.serverId] : [])]), unknownChannels)
+      return { ...snapshot, clientState: { ...snapshot.clientState, queries: snapshot.clientState.queries.map((query) =>
+        ["categories", "serverMemberships", "folderItems"].includes(query.queryKey[3] as string)
+          ? { ...query, state: { ...query.state, data: (query.state.data as Array<{ serverId: string }>)
+            .filter((row) => unknownServers.has(row.serverId)) } } : query) } }
+    }
+    const deny = (ids: Iterable<string>) => {
+      const denied = new Set(ids)
+      let changed = true
+      while (changed) {
+        changed = false
+        for (const channel of currentChannels()) if (channel.parentChannelId && denied.has(channel.parentChannelId)
+          && !denied.has(channel.id)) { denied.add(channel.id); changed = true }
+      }
+      for (const id of denied) unknownChannels.delete(id)
+      communityDb.removePendingRouteTypes(denied)
+    }
+    const release = (ids: Iterable<string>) => {
+      if (!quarantined) return
+      const channels = new Set([...ids].filter((id) => unknownChannels.has(id)))
+      const requiredServers = new Set([...allowedServers, ...currentChannels().filter((row) => channels.has(row.id))
+        .flatMap((row) => row.serverId ? [row.serverId] : [])])
+      const qualified = filterPersistedScopeAuthority(quarantined, userId, requiredServers, channels)
+      reconcileCommunityRestore(queryClient, userId, { ...qualified.clientState,
+        queries: qualified.clientState.queries.map((query) => ["servers", "categories", "serverMemberships"].includes(query.queryKey[3] as string)
+          ? { ...query, state: { ...query.state, data: [] } } : query) })
+      for (const id of channels) unknownChannels.delete(id)
+      communityDb.removePendingRouteTypes(channels)
+    }
+    const settleScope = (decision: RestoredScopeDecision) => {
+      const state = useCommunityWsStore.getState()
+      if (getActiveCommunityDbRegistry() !== communityDb || state.profileViewerId !== userId
+        || restoreGate.hasIdentity() && !restoreGate.matchesIdentity(state.profileAccountEpoch)) return
+      if (!quarantined) { beforeRead.push(decision); return }
+      const cached = currentChannels()
+      if (decision.kind === "server-list") {
+        const present = new Set(decision.ids)
+        for (const id of unknownServers) if (!present.has(id)) {
+          unknownServers.delete(id)
+          allowedServers.delete(id)
+          deny(cached.filter((channel) => channel.serverId === id).map((channel) => channel.id))
+        }
+      } else if (decision.kind === "server") {
+        allowedServers.add(decision.id)
+        unknownServers.delete(decision.id)
+        const visible = new Set(decision.channelIds)
+        deny(cached.filter((channel) => channel.serverId === decision.id && channel.type !== "thread"
+          && !visible.has(channel.id)).map((channel) => channel.id))
+        release(decision.channelIds)
+      } else if (decision.kind === "dms") {
+        const visible = new Set(decision.channelIds)
+        deny(cached.filter((channel) => channel.type === "dm" && !visible.has(channel.id)).map((channel) => channel.id))
+        release(decision.channelIds)
+      } else if (decision.kind === "channel") {
+        release([decision.id])
+      } else if (decision.kind === "denied-server") {
+        unknownServers.delete(decision.id)
+        allowedServers.delete(decision.id)
+        deny(cached.filter((channel) => channel.serverId === decision.id).map((channel) => channel.id))
+      } else deny([decision.id])
+      quarantined = retained()
+    }
+    communityDb.setRestoredScopeListener(settleScope)
+    return {
+      ...storage,
+      persistClient: (client: PersistedClient) => {
+        const state = useCommunityWsStore.getState()
+        if (getActiveCommunityDbRegistry() !== communityDb || state.profileViewerId !== userId
+          || !restoreGate.matchesIdentity(state.profileAccountEpoch)) return Promise.resolve()
+        return storage.persistClient(mergeQuarantinedPersistedClient(client, retained(), userId))
+      },
+
+      restoreClient: async () => {
+        if (getActiveCommunityDbRegistry() !== communityDb) throw new DOMException("Inactive restore owner", "AbortError")
+        const account = useCommunityWsStore.getState()
+        if (account.profileViewerId !== userId) account.activateProfileAccount(userId)
+        const epoch = useCommunityWsStore.getState().profileAccountEpoch
+        restoreGate.recordIdentity(epoch)
+        const restored = await storage.restoreClient()
+        if (getActiveCommunityDbRegistry() !== communityDb || useCommunityWsStore.getState().profileViewerId !== userId
+          || useCommunityWsStore.getState().profileAccountEpoch !== epoch) throw new DOMException("Stale restore owner", "AbortError")
+        if (restored && (!restored.timestamp || !Number.isFinite(restored.timestamp))) {
+          await storage.removeClient()
+          return undefined
+        }
+        if (!restored || restored.buster !== PERSIST_BUSTER
+          || Date.now() - restored.timestamp > PERSIST_MAX_AGE_MS) return restored
+        communityDb.stageRestoredRouteTypes(restored.clientState)
+        quarantined = restored
+        const parsedServers = serverSchema.array().safeParse(rows("servers"))
+        for (const server of parsedServers.success ? parsedServers.data : []) unknownServers.add(server.id)
+        for (const channel of currentChannels()) unknownChannels.add(channel.id)
+        for (const decision of beforeRead.splice(0)) settleScope(decision)
+        void qualifyRestoredCommunityScopes(queryClient, userId, restored.clientState)
+        const qualified = filterPersistedScopeAuthority(restored, userId, new Set(), new Set())
+        return { ...qualified, clientState: reconcileCommunityRestore(queryClient, userId, qualified.clientState) }
+      },
+    }
+  })
   const isDev = process.env.NODE_ENV !== "production"
   const settleRestoredAccount = () => {
+    const state = useCommunityWsStore.getState()
+    if (getActiveCommunityDbRegistry() !== communityDb || state.profileViewerId !== userId
+      || !restoreGate.matchesIdentity(state.profileAccountEpoch)) return false
     communityDb.captureRestoredCollections()
-    const profiles = useCommunityWsStore.getState()
-    if (profiles.profileViewerId !== userId) {
-      profiles.activateProfileAccount(userId)
-    }
+    return true
   }
 
   return (
@@ -148,7 +273,7 @@ export function QueryProvider({
         // `onSuccess` runs after hydrate and before `isRestoring` becomes
         // false. Freeze which canonical collections came from that restore so
         // later network results can never be misclassified as persisted.
-        settleRestoredAccount()
+        if (!settleRestoredAccount()) return
         void Promise.all([
           queryClient.invalidateQueries({
             queryKey: communityKeys.servers(),
@@ -174,7 +299,7 @@ export function QueryProvider({
       // A failed IndexedDB read still completes the identity handoff. The
       // account gate remains visible until this atomically clears any previous
       // viewer state, then the new account mounts against an empty live cache.
-      onError={settleRestoredAccount}
+      onError={() => { if (!settleRestoredAccount()) void queryClient.cancelQueries() }}
       persistOptions={{
         persister,
         maxAge: PERSIST_MAX_AGE_MS,

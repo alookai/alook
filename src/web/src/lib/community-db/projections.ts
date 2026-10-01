@@ -316,15 +316,21 @@ export function useDmProjection() {
 
 export function useRouteChannelProjection(channelId: string | null) {
   const registry = useOptionalCommunityDbRegistry()
+  const viewerId = useCommunityWsStore((state) => state.profileViewerId)
+  const pendingType = useSyncExternalStore(
+    registry?.subscribePendingRouteTypes ?? subscribeToNoRestoredCollections,
+    () => channelId && registry?.accountId === viewerId ? registry.getPendingRouteType(channelId) : undefined,
+    () => undefined,
+  )
   const result = useLiveQuery({
     query: (q) => registry
       ? q.from({ channel: registry.collections.channels })
       : undefined,
   })
   return useMemo(() => {
-    if (!channelId || !result.data) return undefined
-    return (result.data as ChannelRow[]).find((row) => row.id === channelId)
-  }, [channelId, result.data])
+    if (!channelId) return undefined
+    return (result.data as ChannelRow[] | undefined)?.find((row) => row.id === channelId) ?? pendingType
+  }, [channelId, result.data, pendingType])
 }
 
 export function useReadStateProjection(channelId: string | null | undefined) {

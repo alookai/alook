@@ -1,4 +1,4 @@
-import { notifyManager, type QueryClient } from "@tanstack/react-query"
+import { notifyManager, type DehydratedState, type QueryClient } from "@tanstack/react-query"
 import type { Query } from "@tanstack/react-query"
 import {
   UNCATEGORIZED_CATEGORY_ID,
@@ -53,6 +53,7 @@ import {
   serverMembershipKey,
   serverMembershipSchema,
   serverSchema,
+  communityCollectionSchemas,
   type CategoryRow,
   type AttentionItemRow,
   type AttentionScopeRow,
@@ -249,6 +250,92 @@ function publishRows<T extends object>(
     communityKeys.communityDbCollection(registry.scopeId, name),
     rows,
   )
+}
+
+export function reconcileCommunityRestore(
+  queryClient: QueryClient,
+  accountId: string | null,
+  snapshot: DehydratedState,
+): DehydratedState {
+  const registry = getCommunityDbRegistry(queryClient)
+  if (!registry || registry.accountId !== accountId) return { ...snapshot, queries: [] }
+  const revisionState = canonicalRevisionState(queryClient)
+  const remaining: DehydratedState["queries"] = []
+  const restoredRowsByName = new Map<CollectionName, Map<string, object>>()
+  for (const query of snapshot.queries) {
+    const key = query.queryKey
+    if (key[0] !== "community" || key[1] !== "db" || key.length !== 4) {
+      remaining.push(query)
+      continue
+    }
+    if (key[2] !== registry.scopeId) continue
+    const name = key[3] as CollectionName
+    const schema = communityCollectionSchemas[name] as z.ZodType<object> | undefined
+    if (!schema) continue
+    const incoming = schema.array().safeParse(query.state.data)
+    if (!incoming.success) continue
+    const collection = registry.collections[name] as unknown as { getKeyFromItem: (row: object) => string }
+    const getKey = (row: object) => collection.getKeyFromItem(row)
+    const merged = new Map(incoming.data.map((row) => [getKey(row), row]))
+    for (const row of collectionRows(registry, name, schema)) merged.set(getKey(row), row)
+    for (const [entityId, row] of merged) {
+      let value: object | undefined = row
+      for (const operation of revisionState.pendingOperations.get(canonicalEntityKey(name, entityId)) ?? []) {
+        if (operation.kind === "delete") value = undefined
+        else if (value) value = operation.apply(value)
+      }
+      if (value) merged.set(entityId, schema.parse(value))
+      else merged.delete(entityId)
+    }
+    restoredRowsByName.set(name, merged)
+  }
+  const deleted = (name: CollectionName, id: string) => revisionState.pendingOperations
+    .get(canonicalEntityKey(name, id))?.some((operation) => operation.kind === "delete") === true
+  const deniedChannels = new Set<string>()
+  const restoredChannels = restoredRowsByName.get("channels")
+  const restoredScopes = restoredRowsByName.get("attentionScopes")
+  for (const [id, row] of restoredChannels ?? []) {
+    const channel = row as ChannelRow
+    if (deleted("channels", id) || channel.serverId && deleted("servers", channel.serverId)) deniedChannels.add(id)
+  }
+  for (const [key, operations] of revisionState.pendingOperations) {
+    if (key.startsWith("channels:") && operations.some((operation) => operation.kind === "delete")) deniedChannels.add(key.slice("channels:".length))
+  }
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const [id, row] of restoredChannels ?? []) {
+      const channel = row as ChannelRow
+      if (!deniedChannels.has(id) && channel.parentChannelId && deniedChannels.has(channel.parentChannelId)) {
+        deniedChannels.add(id)
+        changed = true
+      }
+    }
+    for (const row of restoredScopes?.values() ?? []) {
+      const scope = row as AttentionScopeRow
+      if (!deniedChannels.has(scope.channelId) && (scope.serverId && deleted("servers", scope.serverId)
+        || scope.parentChannelId && deniedChannels.has(scope.parentChannelId))) {
+        deniedChannels.add(scope.channelId)
+        changed = true
+      }
+    }
+  }
+  for (const [name, merged] of restoredRowsByName) {
+    for (const [id, row] of merged) {
+      const relation = row as { serverId?: string | null; channelId?: string; scopeId?: string }
+      if (relation.serverId && deleted("servers", relation.serverId)
+        || name === "channels" && deniedChannels.has(id)
+        || relation.channelId && deniedChannels.has(relation.channelId)
+        || name === "attentionItems" && relation.scopeId && deniedChannels.has(relation.scopeId)) merged.delete(id)
+    }
+    const schema = communityCollectionSchemas[name] as z.ZodType<object>
+    const collection = registry.collections[name] as unknown as { getKeyFromItem: (row: object) => string }
+    const getKey = (row: object) => collection.getKeyFromItem(row)
+    const rows = [...merged.values()].map((row) => schema.parse(row))
+    writeCollectionRows(registry, name, rows, getKey)
+    publishRows(registry, name, rows)
+  }
+  return { ...snapshot, queries: remaining }
 }
 
 function writeCollectionRows<T extends object>(
@@ -1792,7 +1879,7 @@ export function publishCommunityLiveSnapshot(
   }
   const registry = getCommunityDbRegistry(queryClient)
   if (!registry) return "no-registry" as const
-  return withCanonicalWriteContext(queryClient, {
+  const result = withCanonicalWriteContext(queryClient, {
     kind: "query",
     requestRevision: proof.token.canonicalRevision,
   }, () => {
@@ -1818,6 +1905,11 @@ export function publishCommunityLiveSnapshot(
     }
     return "published" as const
   })
+  if (snapshot.kind === "servers") registry.settleRestoredScope({ kind: "server-list", ids: snapshot.data.servers.map((server) => server.id) })
+  if (snapshot.kind === "server-detail") registry.settleRestoredScope({ kind: "server", id: snapshot.data.id,
+    channelIds: snapshot.data.categories.flatMap((category) => category.channels.map((channel) => channel.id)) })
+  if (snapshot.kind === "dms") registry.settleRestoredScope({ kind: "dms", channelIds: snapshot.data.conversations.map((dm) => dm.id) })
+  return result
 }
 
 export function publishAccountAttentionSnapshot(
@@ -1927,7 +2019,7 @@ export function publishCommunityChannelMetadata(
   )
   const registry = getCommunityDbRegistry(queryClient)
   if (!registry) return "no-registry" as const
-  return withCanonicalWriteContext(queryClient, {
+  const result = withCanonicalWriteContext(queryClient, {
     kind: "query",
     requestRevision: publication.proof.token.canonicalRevision,
   }, () => {
@@ -1950,6 +2042,8 @@ export function publishCommunityChannelMetadata(
     }
     return "published" as const
   })
+  registry.settleRestoredScope({ kind: "channel", id: publication.metadata.id })
+  return result
 }
 
 /** Merge the fresh all-server ref directory without degrading known rows. */
@@ -2312,8 +2406,12 @@ export function getCanonicalCommunityMessages(queryClient: QueryClient) {
   return registry ? collectionRows(registry, "messages", messageSchema) : []
 }
 
-export function purgeCommunityServer(registry: CommunityDbRegistry, serverId: string) {
+export function purgeCommunityServer(registry: CommunityDbRegistry, serverId: string,
+  options: { preserveServerDetailQuery?: boolean } = {},
+) {
   if (isProtectedFromQueryWrite(registry, "servers", serverId)) return
+  registry.settleRestoredScope({ kind: "denied-server", id: serverId })
+  registry.removePendingRouteScope({ kind: "server", id: serverId })
   const removedChannelIds = new Set(
     collectionRows(registry, "channels", channelSchema)
       .filter((row) => row.serverId === serverId)
@@ -2331,8 +2429,11 @@ export function purgeCommunityServer(registry: CommunityDbRegistry, serverId: st
   clearLastChannel(serverId)
   useCommunityWsStore.getState().revokeServerAccess(serverId)
   useMessageStreamStore.getState().removeServer(serverId)
-  void registry.queryClient.cancelQueries({ queryKey: communityKeys.server(serverId) })
-  registry.queryClient.removeQueries({ queryKey: communityKeys.server(serverId) })
+  const serverKey = communityKeys.server(serverId)
+  const scopeFilter = { queryKey: serverKey,
+    predicate: (query: { queryKey: readonly unknown[] }) => !options.preserveServerDetailQuery || query.queryKey.length !== serverKey.length }
+  void registry.queryClient.cancelQueries(scopeFilter)
+  registry.queryClient.removeQueries(scopeFilter)
   const community = useCommunityStore.getState()
   if (community.currentServerId === serverId) {
     community.setCurrentChannelMeta(null)
@@ -2363,6 +2464,8 @@ export function purgeCommunityServer(registry: CommunityDbRegistry, serverId: st
 
 export function purgeCommunityChannel(registry: CommunityDbRegistry, channelId: string) {
   if (isProtectedFromQueryWrite(registry, "channels", channelId)) return
+  registry.settleRestoredScope({ kind: "denied-channel", id: channelId })
+  registry.removePendingRouteScope({ kind: "channel", id: channelId })
   const channels = collectionRows(registry, "channels", channelSchema)
   const root = channels.find((row) => row.id === channelId)
   const removed = new Set([

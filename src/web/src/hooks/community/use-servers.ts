@@ -6,6 +6,7 @@ import {
   type QueryClient,
   type QueryFunctionContext,
   type UseQueryResult,
+  type DehydratedState,
 } from "@tanstack/react-query"
 import { useEffect, useMemo, useSyncExternalStore } from "react"
 import { apiFetch } from "@/lib/api/client"
@@ -32,8 +33,13 @@ import {
   assertCommunityLiveSnapshotTokenCurrent,
   captureCommunityLiveSnapshotToken,
   publishCommunityLiveSnapshot,
+  publishCommunityChannelMetadata,
   type CommunityLiveSnapshotToken,
 } from "@/lib/community-db/sync"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import { channelSchema, serverSchema } from "@/lib/community-db/schema"
+import { fetchChannelMetadata } from "./channel-metadata"
+import { dmsProjectedQueryFn } from "./use-dms"
 
 type LiveServerListAuthority = CommunityLiveSnapshotToken & {
   serverIdsSignature: string
@@ -377,6 +383,7 @@ export const serverProjectedQueryFn = (
   queryClient: QueryClient,
   serverId: string,
   signal?: AbortSignal,
+  options: { preserveFailedQuery?: boolean } = {},
 ) => async () => {
   const structuralToken = captureCommunityLiveSnapshotToken(queryClient)
   const projection = getActiveAccountUnreadProjection(queryClient)
@@ -405,10 +412,75 @@ export const serverProjectedQueryFn = (
   } catch (error) {
     projection.cancelSnapshot(token)
     if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
-      evictServerChannelScopes(queryClient, serverId)
+      assertCommunityLiveSnapshotTokenCurrent(queryClient, structuralToken, signal)
+      evictServerChannelScopes(queryClient, serverId, { preserveServerDetailQuery: options.preserveFailedQuery === true
+        && queryClient.getQueryState(communityKeys.server(serverId))?.fetchStatus === "fetching" })
     }
     throw error
   }
+}
+
+export async function qualifyRestoredCommunityScopes(
+  queryClient: QueryClient,
+  accountId: string | null,
+  snapshot: DehydratedState,
+) {
+  const rows = (name: string) => snapshot.queries.find((query) => query.queryKey.length === 4
+    && query.queryKey[0] === "community" && query.queryKey[1] === "db"
+    && query.queryKey[2] === accountId && query.queryKey[3] === name)?.state.data
+  const parsedServers = serverSchema.array().safeParse(rows("servers"))
+  const parsedChannels = channelSchema.array().safeParse(rows("channels"))
+  const servers = parsedServers.success ? parsedServers.data : []
+  const channels = parsedChannels.success ? parsedChannels.data : []
+  const registry = getCommunityDbRegistry(queryClient)
+  const token = captureCommunityLiveSnapshotToken(queryClient)
+  if (token.viewerId !== accountId) return
+  const projection = getActiveAccountUnreadProjection(queryClient)
+  const serverScopes = async () => {
+    if (!servers.length) return
+    let currentIds: Set<string>
+    try {
+      const current = await queryClient.fetchQuery({ queryKey: communityKeys.servers(), staleTime: 0, retry: false,
+        queryFn: serversProjectedQueryFn(projection, queryClient, (proof, data, signal) => {
+          publishCommunityLiveSnapshot(queryClient, { snapshot: { kind: "servers", data }, proof: { kind: "structural", token: proof, signal } })
+        }),
+      })
+      currentIds = new Set(current.servers.map((server) => server.id))
+    } catch { return }
+    await Promise.all(servers.filter((server) => currentIds.has(server.id)).map(async (server) => {
+      try {
+        const detail = await queryClient.fetchQuery({ queryKey: communityKeys.server(server.id), staleTime: 0, retry: false,
+          queryFn: ({ signal }) => serverProjectedQueryFn(queryClient, server.id, signal, { preserveFailedQuery: true })(),
+        })
+        const visible = new Set(detail.categories.flatMap((category) => category.channels.map((channel) => channel.id)))
+        await Promise.all(channels.filter((channel) => channel.serverId === server.id && channel.type === "thread"
+          && channel.parentChannelId && visible.has(channel.parentChannelId)).map(async (channel) => {
+          const proof = captureCommunityLiveSnapshotToken(queryClient)
+          try {
+            await queryClient.fetchQuery({ queryKey: communityKeys.channelMeta(server.id, channel.id), staleTime: 0, retry: false,
+              queryFn: async ({ signal }) => {
+                const metadata = await fetchChannelMetadata(server.id, channel.id, signal)
+                publishCommunityChannelMetadata(queryClient, { metadata, proof: { token: proof, signal } })
+                return metadata
+              },
+            })
+          } catch (error) {
+            if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
+              try { assertCommunityLiveSnapshotTokenCurrent(queryClient, proof, undefined) } catch { return }
+              registry?.settleRestoredScope({ kind: "denied-channel", id: channel.id })
+              registry?.removePendingRouteScope({ kind: "channel", id: channel.id })
+            }
+          }
+        }))
+      } catch {}
+    }))
+  }
+  const scopes = [serverScopes()]
+  if (channels.some((channel) => channel.type === "dm")) scopes.push(queryClient.fetchQuery({
+    queryKey: communityKeys.dms(), staleTime: 0, retry: false,
+    queryFn: dmsProjectedQueryFn(projection, queryClient),
+  }).then(() => undefined, () => undefined))
+  await Promise.all(scopes)
 }
 
 /**
@@ -431,7 +503,7 @@ export function useServer(
   const queryFn = useMemo(() => {
     if (!serverId) return () => Promise.reject(new Error("disabled"))
     return ({ signal }: QueryFunctionContext = {} as QueryFunctionContext) => (
-      serverProjectedQueryFn(queryClient, serverId, signal)()
+      serverProjectedQueryFn(queryClient, serverId, signal, { preserveFailedQuery: true })()
     )
   }, [queryClient, serverId])
   const query = useQuery({

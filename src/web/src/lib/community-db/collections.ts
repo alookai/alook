@@ -3,7 +3,7 @@ import {
   collectionOptions,
 } from "@tanstack/react-db"
 import { queryCollectionOptions } from "@tanstack/query-db-collection"
-import type { QueryClient } from "@tanstack/react-query"
+import type { DehydratedState, QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
 import {
   categorySchema,
@@ -37,6 +37,17 @@ import {
 } from "./schema"
 
 const COLLECTION_GC_TIME = 24 * 60 * 60 * 1000
+
+export type PendingRouteChannel = Pick<ChannelRow, "id" | "serverId" | "type"> & {
+  authority: "pending"
+} & { [K in Exclude<keyof ChannelRow, "id" | "serverId" | "type">]?: never }
+
+export type RestoredScopeDecision =
+  | { kind: "server-list"; ids: string[] }
+  | { kind: "server"; id: string; channelIds: string[] }
+  | { kind: "dms"; channelIds: string[] }
+  | { kind: "channel"; id: string }
+  | { kind: "denied-server" | "denied-channel"; id: string }
 
 function collectionQueryKey(accountId: string, name: string) {
   return communityKeys.communityDbCollection(accountId, name)
@@ -277,6 +288,12 @@ export function createCommunityDbRegistry(
   const restoredCollectionListeners = new Set<() => void>()
   let restoredSnapshotCaptured = false
   let restoredDataExists = false
+  let restoredScopeListener: ((decision: RestoredScopeDecision) => void) | undefined
+  const pendingRouteTypes = new Map<string, PendingRouteChannel>()
+  const pendingLandingIds = new Map<string, string[]>()
+  const pendingRouteParents = new Map<string, string | null | undefined>()
+  const pendingRouteListeners = new Set<() => void>()
+  const notifyPendingRoutes = () => { for (const listener of pendingRouteListeners) listener() }
 
   return {
     accountId,
@@ -284,6 +301,59 @@ export function createCommunityDbRegistry(
     queryClient,
     dbClient,
     collections,
+    setRestoredScopeListener: (listener: (decision: RestoredScopeDecision) => void) => { restoredScopeListener = listener },
+    settleRestoredScope: (decision: RestoredScopeDecision) => restoredScopeListener?.(decision),
+    stageRestoredRouteTypes: (snapshot: DehydratedState) => {
+      pendingRouteTypes.clear()
+      pendingRouteParents.clear()
+      pendingLandingIds.clear()
+      const categoryQuery = snapshot.queries.find((query) => query.queryKey[2] === scopeId && query.queryKey[3] === "categories")
+      const parsedCategories = categorySchema.array().safeParse(categoryQuery?.state.data)
+      const categoryPositions = new Map((parsedCategories.success ? parsedCategories.data : []).map((row) => [row.id, row.position]))
+      const query = snapshot.queries.find((query) => query.queryKey.length === 4
+        && query.queryKey[0] === "community" && query.queryKey[1] === "db"
+        && query.queryKey[2] === scopeId && query.queryKey[3] === "channels")
+      const parsed = channelSchema.array().safeParse(query?.state.data)
+      for (const row of parsed.success ? parsed.data : []) {
+        if (row.type !== "dm") {
+          pendingRouteTypes.set(row.id, { id: row.id, serverId: row.serverId, type: row.type, authority: "pending" })
+          pendingRouteParents.set(row.id, row.parentChannelId)
+        }
+      }
+      for (const row of (parsed.success ? parsed.data : []).filter((row) => row.serverId && !row.parentChannelId)
+        .sort((a, b) => (categoryPositions.get(a.categoryId ?? "") ?? Infinity) - (categoryPositions.get(b.categoryId ?? "") ?? Infinity)
+          || a.position - b.position)) {
+        const ids = pendingLandingIds.get(row.serverId!) ?? []
+        ids.push(row.id)
+        pendingLandingIds.set(row.serverId!, ids)
+      }
+      notifyPendingRoutes()
+    },
+    getPendingLandingChannel: (serverId: string, remembered: string | null) => {
+      const id = remembered ?? pendingLandingIds.get(serverId)?.find((id) => pendingRouteTypes.has(id))
+      const row = id ? pendingRouteTypes.get(id) : undefined
+      return row?.serverId === serverId ? row : undefined
+    },
+    getPendingRouteType: (id: string) => pendingRouteTypes.get(id),
+    removePendingRouteTypes: (ids: Iterable<string>) => {
+      for (const id of ids) { pendingRouteTypes.delete(id); pendingRouteParents.delete(id) }
+      notifyPendingRoutes()
+    },
+    removePendingRouteScope: (scope: { kind: "server" | "channel"; id: string }) => {
+      const ids = new Set(scope.kind === "channel" ? [scope.id] : [...pendingRouteTypes.values()]
+        .filter((row) => row.serverId === scope.id).map((row) => row.id))
+      let changed = true
+      while (changed) {
+        changed = false
+        for (const [id, parent] of pendingRouteParents) if (parent && ids.has(parent) && !ids.has(id)) { ids.add(id); changed = true }
+      }
+      for (const id of ids) { pendingRouteTypes.delete(id); pendingRouteParents.delete(id) }
+      notifyPendingRoutes()
+    },
+    subscribePendingRouteTypes: (listener: () => void) => {
+      pendingRouteListeners.add(listener)
+      return () => pendingRouteListeners.delete(listener)
+    },
     captureRestoredCollections: () => {
       if (restoredSnapshotCaptured) return
       restoredSnapshotCaptured = true

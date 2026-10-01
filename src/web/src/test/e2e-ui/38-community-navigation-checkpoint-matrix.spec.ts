@@ -150,8 +150,25 @@ test("mobile route commits stay stationary while sidebar identity survives same-
     await runRenderedNavigation(page, testInfo, "history-back", null, { ...listContract(pendingPath, pendingChannel, pendingName), actionKind: "programmatic" }, async () => { await page.goBack(); await list() })
     await runRenderedNavigation(page, testInfo, "history-forward", null, { ...detailContract(root, pendingChannel, pendingName), actionKind: "programmatic" }, async () => { await page.goForward(); await ready(pendingChannel); await identity() })
     await runRenderedNavigation(page, testInfo, "history-back-before-Home", null, { ...listContract(pendingPath, pendingChannel, pendingName), actionKind: "programmatic" }, async () => { await page.goBack(); await list() })
-    await runRenderedNavigation(page, testInfo, "Home-list", `[data-testid="${tid.homeButton}"]`, { paths: [root, "/c/me"], finalPath: "/c/me", scopes: [scope], listStates: ["server", "friends", "friends-pending", "me-pending"], allowMeRootPending: true, pendingKind: "me-root", finalListState: "friends", stationary: true }, async () => { await page.getByTestId(tid.homeButton).click(); await expect.poll(() => new URL(page.url()).pathname).toBe("/c/me"); await expect(page.getByPlaceholder("Search friends")).toBeVisible() })
-    await runRenderedNavigation(page, testInfo, "Home-server-restore", `[data-testid="${tid.serverIcon(serverId)}"]`, { paths: ["/c/me", root], finalPath: root, scopes: [scope], finalScope: scope, allowedRows: [fastChannel], listStates: ["friends", "friends-pending", "server"], pendingKind: "server-landing", finalListState: "server", stationary: true }, async () => { await page.getByTestId(tid.serverIcon(serverId)).click(); await list(false) })
+    const homeList = async () => {
+      await expect.poll(() => new URL(page.url()).pathname).toBe("/c/me")
+      await expect(page.locator('[data-community-mobile-surface="list"] [data-slot="dm-sidebar-shortcuts"]')).toBeVisible()
+      await expect(page.locator('[data-community-mobile-surface="list"] [data-slot="dm-sidebar-list"]')).toBeVisible()
+      await expect.poll(async () => await page.locator(`[data-slot="dm-sidebar-list"] [data-testid^="${tid.dmRow("")}"]`).count() > 0
+        || await page.locator('[data-slot="dm-sidebar-list"]').getByText("Your direct messages will appear here.", { exact: true }).isVisible()).toBe(true)
+      await expect(page.getByPlaceholder("Search friends")).not.toBeVisible()
+    }
+    await runRenderedNavigation(page, testInfo, "Home-list", `[data-testid="${tid.homeButton}"]`, { paths: [root, "/c/me"], finalPath: "/c/me", scopes: [scope], listStates: ["server", "dms", "dms-pending", "me-pending"], allowMeRootPending: true, pendingKind: "me-root", finalListState: "dms", stationary: true }, async () => { await page.getByTestId(tid.homeButton).click(); await homeList() })
+    await runRenderedNavigation(page, testInfo, "Home-Friends-detail", '[data-slot="dm-sidebar-shortcuts"] button[aria-label^="Friends"]', { paths: ["/c/me", "/c/me/friends"], finalPath: "/c/me/friends", scopes: [], listStates: ["dms", "dms-pending", "friends", "friends-pending"], pendingKind: "friends", finalListState: "friends", stationary: true }, async () => {
+      await page.locator('[data-slot="dm-sidebar-shortcuts"] button[aria-label^="Friends"]').click()
+      await expect.poll(() => new URL(page.url()).pathname).toBe("/c/me/friends")
+      await expect(page.getByPlaceholder("Search friends")).toBeVisible()
+    })
+    await runRenderedNavigation(page, testInfo, "Friends-Back-Home-list", 'button[aria-label="Back"]', { paths: ["/c/me/friends", "/c/me"], finalPath: "/c/me", scopes: [], listStates: ["friends", "friends-pending", "dms", "dms-pending"], pendingKind: "friends", finalListState: "dms", stationary: true }, async () => {
+      await page.getByRole("button", { name: "Back", exact: true }).click()
+      await homeList()
+    })
+    await runRenderedNavigation(page, testInfo, "Home-server-restore", `[data-testid="${tid.serverIcon(serverId)}"]`, { paths: ["/c/me", root], finalPath: root, scopes: [scope], finalScope: scope, allowedRows: [fastChannel], listStates: ["dms", "dms-pending", "server"], pendingKind: "server-landing", finalListState: "server", stationary: true }, async () => { await page.getByTestId(tid.serverIcon(serverId)).click(); await list(false) })
     transport.assertHealthy()
   }, [
     { name: "gate-releases", run: () => withOwnedCleanup("gate-releases", async () => {}, gates.map((gate) => ({ name: "gate-release", run: gate.release }))) },

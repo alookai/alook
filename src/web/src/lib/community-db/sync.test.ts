@@ -1,4 +1,6 @@
-import { QueryClient } from "@tanstack/react-query"
+import { mkdirSync, writeFileSync } from "node:fs"
+import { resolve } from "node:path"
+import { dehydrate, hydrate, QueryClient } from "@tanstack/react-query"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { CommunityWsEvent } from "@alook/shared"
 import { communityKeys } from "@/lib/query-keys"
@@ -23,6 +25,7 @@ import {
   ingestServerDetail,
   ingestServers,
   installCommunityDbSync,
+  reconcileCommunityRestore,
   captureCommunityLiveSnapshotToken,
   clearAttentionOptimistically,
   clearAttentionScopeOptimistically,
@@ -88,7 +91,152 @@ afterEach(async () => {
   vi.unstubAllGlobals()
 })
 
+function recordRestoreControl(name: string, db: CommunityDbRegistry, extra: unknown) {
+  const directory = resolve(process.env.ALOOK_CAUSAL_EVIDENCE_DIR ?? "../../plans/pr854-causal-controls/diagnostics")
+  mkdirSync(directory, { recursive: true })
+  writeFileSync(resolve(directory, `pr854_restore-extra-${name}.json`), JSON.stringify({ extra,
+    collections: Object.fromEntries(Object.entries(db.collections).map(([name, collection]) => [name,
+      { ready: collection.status, rows: [...collection.values()], state: db.queryClient.getQueryState(communityKeys.communityDbCollection(db.scopeId, name)) }])) }, null, 2) + "\n")
+}
+
 describe("community DB sync", () => {
+  it.each(["parent-delete", "viewer-leave"] as const)("keeps the restored descendant closure invalid after %s", async (scenario) => {
+    const seed = await registry()
+    ingestServerDetail(seed, { id: "s1", name: "Server", discriminator: "0001", description: "", icon: null,
+      ownerId: "viewer", categories: [{ id: "cat1", name: "Category", channels: [
+        { id: "parent", name: "Parent", type: "forum", active: false, unread: false },
+        { id: "sibling", name: "Sibling", type: "text", active: false, unread: false },
+      ] }] })
+    projectCommunityWsEventToDb(seed.queryClient, { type: "community:channel.child_create", parentChannelId: "parent", parentMessageId: "opener",
+      channel: { id: "child", name: "Child", type: "thread", createdAt: "2026-01-01T00:00:00.000Z" } })
+    ingestMessages(seed, "child", [{ id: "child-message", type: "chat", seq: 1, createdAt: "2026-01-01T00:00:00.000Z", content: "child" }])
+    seed.queryClient.setQueryData(communityKeys.communityDbCollection("viewer", "attentionScopes"), [
+      { scopeId: "attention-only-child", channelId: "attention-only-child", serverId: "s1", parentChannelId: "parent",
+        ordinaryUnread: true, lastUnreadSeq: 1, attentionCount: 1 },
+    ])
+    seed.queryClient.setQueryData(communityKeys.communityDbCollection("viewer", "attentionItems"), [
+      { id: "child-attention", kind: "mention", sourceId: "child-message", scopeId: "child", messageId: "child-message",
+        actorUserId: "viewer", createdAt: "2026-01-01T00:00:00.000Z" },
+      { id: "attention-only-item", kind: "mention", sourceId: "attention-only-source", scopeId: "attention-only-child",
+        actorUserId: "viewer", createdAt: "2026-01-01T00:00:00.000Z" },
+    ])
+    const snapshot = dehydrate(seed.queryClient)
+    const client = new QueryClient()
+    const db = createCommunityDbRegistry(client, "viewer")
+    registries.push(db)
+    unregisters.push(registerCommunityDbRegistry(db))
+    const event: CommunityWsEvent = scenario === "parent-delete"
+      ? { type: "community:channel.delete", serverId: "s1", channelId: "parent" }
+      : { type: "community:member.leave", serverId: "s1", userId: "viewer" }
+    projectCommunityWsEventToDb(client, event)
+    hydrate(client, reconcileCommunityRestore(client, "viewer", snapshot))
+    await db.preload()
+    recordRestoreControl(scenario, db, { snapshot, event })
+    expect(db.collections.channels.get("parent")).toBeUndefined()
+    expect(db.collections.channels.get("child")).toBeUndefined()
+    expect(db.collections.messages.get("child-message")).toBeUndefined()
+    expect(db.collections.attentionItems.get("child-attention")).toBeUndefined()
+    expect(db.collections.attentionItems.get("attention-only-item")).toBeUndefined()
+    expect(db.collections.attentionScopes.get("attention-only-child")).toBeUndefined()
+    if (scenario === "parent-delete") expect(db.collections.channels.get("sibling")?.id).toBe("sibling")
+    client.clear()
+  })
+
+  it.each(["patch-create-delete", "delete-create-patch"] as const)("replays %s in actual entity order", async (order) => {
+    const seed = await registry()
+    ingestServerDetail(seed, { id: "s1", name: "Server", discriminator: "0001", description: "", icon: null,
+      ownerId: "viewer", categories: [{ id: "cat1", name: "Category", channels: [
+        { id: "c1", name: "Old", type: "text", active: false, unread: false },
+        { id: "sibling", name: "Sibling", type: "text", active: false, unread: false },
+      ] }] })
+    const snapshot = dehydrate(seed.queryClient)
+    const client = new QueryClient()
+    const db = createCommunityDbRegistry(client, "viewer")
+    registries.push(db)
+    unregisters.push(registerCommunityDbRegistry(db))
+    const events = {
+      patch: { type: "community:channel.update", serverId: "s1", channelId: "c1", changes: { name: "Final" } },
+      create: { type: "community:channel.create", serverId: "s1", channel: { id: "c1", name: "Created", type: "forum",
+        categoryId: "cat1", position: 0, createdAt: "2026-01-01T00:00:00.000Z" } },
+      delete: { type: "community:channel.delete", serverId: "s1", channelId: "c1" },
+    } as const
+    for (const step of order.split("-") as Array<keyof typeof events>) projectCommunityWsEventToDb(client, events[step])
+    hydrate(client, reconcileCommunityRestore(client, "viewer", snapshot))
+    await db.preload()
+    recordRestoreControl(order, db, { snapshot, events })
+    expect(db.collections.channels.get("sibling")?.id).toBe("sibling")
+    if (order === "patch-create-delete") expect(db.collections.channels.get("c1")).toBeUndefined()
+    else {
+      expect(db.collections.channels.get("c1")?.name).toBe("Final")
+      expect(db.collections.channels.get("c1")?.type).toBe("forum")
+    }
+    client.clear()
+  })
+
+  it.each(["missing-patch", "partial-create", "delete"] as const)(
+    "merges the persisted closure through canonical WS and real hydrate: %s",
+    async (scenario) => {
+      const seed = await registry()
+      ingestServers(seed, { servers: [{ id: "s1", name: "Server", initial: "S", active: false,
+        unread: false, mentions: 0, ownerId: "viewer" }] })
+      ingestServerDetail(seed, { id: "s1", name: "Server", discriminator: "0001", description: "",
+        icon: null, ownerId: "viewer", categories: [{ id: "cat1", name: "old category", channels: [
+          { id: "c1", name: "old channel", active: false, unread: false, type: "text" },
+          { id: "sibling", name: "sibling", active: false, unread: false, type: "forum" },
+        ] }] })
+      const persistedUpdatedAt = Date.now() - 60_000
+      for (const query of seed.queryClient.getQueryCache().getAll()) query.setState({ dataUpdatedAt: persistedUpdatedAt })
+      const snapshot = dehydrate(seed.queryClient)
+      let release!: () => void
+      const client = new QueryClient()
+      const db = createCommunityDbRegistry(client, "viewer", {
+        waitForRestore: new Promise<void>((resolve) => { release = resolve }),
+      })
+      registries.push(db)
+      unregisters.push(registerCommunityDbRegistry(db))
+      const preload = db.preload()
+      const samples: unknown[] = []
+      const sample = (phase: string) => samples.push({ phase, at: Date.now(), collections:
+        (["servers", "categories", "channels"] as const).map((name) => {
+          const state = client.getQueryState(communityKeys.communityDbCollection("viewer", name))
+          return { name, data: state?.data, dataUpdatedAt: state?.dataUpdatedAt,
+            status: db.collections[name].status, rows: Array.from(db.collections[name].values()) }
+        }) })
+      try {
+        sample("before-ws")
+        const events: CommunityWsEvent[] = scenario === "missing-patch" ? [
+          { type: "community:channel.update", serverId: "s1", channelId: "c1", changes: { name: "new channel" } },
+          { type: "community:category.update", serverId: "s1", categoryId: "cat1", changes: { name: "new category" } },
+        ] as CommunityWsEvent[] : scenario === "partial-create" ? [
+          { type: "community:channel.create", serverId: "s1", channel: { id: "new-channel", name: "new channel",
+            type: "text", categoryId: "cat1", position: 2, createdAt: "2026-01-01T00:00:00.000Z" } },
+        ] as CommunityWsEvent[] : [{ type: "community:channel.delete", serverId: "s1", channelId: "c1" }] as CommunityWsEvent[]
+        for (const event of events) projectCommunityWsEventToDb(client, event)
+        sample("canonical-event-before-hydrate")
+        hydrate(client, reconcileCommunityRestore(client, "viewer", snapshot))
+        db.captureRestoredCollections()
+        sample("after-hydrate-before-collection-release")
+        release()
+        await preload
+        sample("after-collection-release")
+        const evidenceDir = resolve(process.env.ALOOK_CAUSAL_EVIDENCE_DIR ?? "../../plans/pr854-causal-controls/diagnostics")
+        mkdirSync(evidenceDir, { recursive: true })
+        writeFileSync(resolve(evidenceDir, `pr854_causal_hydrate-${scenario}.json`), JSON.stringify({ scenario, events, persistedUpdatedAt, samples }, null, 2) + "\n")
+        expect.soft(db.collections.servers.get("s1")?.detailComplete).toBe(true)
+        expect.soft(db.collections.channels.get("sibling")?.name).toBe("sibling")
+        if (scenario === "delete") expect.soft(db.collections.channels.get("c1")).toBeUndefined()
+        else expect.soft(db.collections.channels.get("c1")?.name).toBe(scenario === "missing-patch" ? "new channel" : "old channel")
+        if (scenario === "missing-patch") expect.soft(db.collections.categories.get("cat1")?.name).toBe("new category")
+        if (scenario === "partial-create") expect.soft(db.collections.channels.get("new-channel")?.name).toBe("new channel")
+      } finally {
+        release()
+        await preload
+        await client.cancelQueries()
+        client.clear()
+      }
+    },
+  )
+
   it("does not regress a known channel subtype when directory transport omits it", async () => {
     const db = await registry()
     ingestServers(db, { servers: [{

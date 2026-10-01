@@ -117,12 +117,14 @@ import ServerRouteLoading from "@/app/c/channels/[serverId]/loading"
 import { ConversationResolutionPendingFrame } from "@/components/community/channels/conversation-resolution-pending-frame"
 import { DmLoadingFrame } from "@/components/community/channels/dm-loading-frame"
 import { ForumView } from "@/components/community/channels/forum-view"
+import { DmSidebar } from "@/components/community/channels/dm-sidebar"
 
-async function observeOwner(content: ReturnType<typeof createElement>, options: { pathname?: string; cold?: boolean; tree?: boolean; mutate?: (container: HTMLElement) => void } = {}) {
+async function observeOwner(content: ReturnType<typeof createElement>, options: { pathname?: string; cold?: boolean; tree?: boolean; dm?: "empty" | "rows" | "pending"; mutate?: (container: HTMLElement) => void } = {}) {
   vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} })
   vi.stubGlobal("IntersectionObserver", class { observe() {} unobserve() {} disconnect() {} })
   vi.stubGlobal("matchMedia", () => ({ matches: false, addEventListener() {}, removeEventListener() {} }))
   vi.stubGlobal("location", { pathname: options.pathname ?? "/c/channels/target" })
+  if (options.dm) vi.stubGlobal("innerWidth", 390)
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => window.setTimeout(() => callback(performance.now()), 0))
   vi.stubGlobal("cancelAnimationFrame", (handle: number) => window.clearTimeout(handle))
   const restoreViewportGeometry = mockElementGeometry(HTMLElement.prototype, { width: 300, height: 800, offsetWidth: 300, offsetHeight: 800, clientWidth: 300, clientHeight: 800 })
@@ -133,8 +135,13 @@ async function observeOwner(content: ReturnType<typeof createElement>, options: 
           categories: options.tree ? detail.categories : null, scopeKey: "server:target", targetServerId: "target", serverId: "target", serverName: "Target",
           activeChannel: "leaf", setActiveChannel: vi.fn(), isAdmin: false, currentUserId: "viewer",
         }))),
+      options.dm && createElement("div", { "data-slot": "resizable-panel", id: "sidebar" },
+        createElement("div", { "data-slot": "community-sidebar-panel-content", "data-community-mobile-surface": "list" },
+          createElement(DmSidebar, { dms: options.dm !== "rows" ? [] : [{ id: "dm", userId: "peer", name: "Peer",
+            discriminator: "0002", avatar: "P", avatarVersion: 0, status: "offline", preview: "Preview", unread: false }],
+          loading: options.dm === "pending", activeDm: null, onPickDm: vi.fn(), onShowFriends: vi.fn() }))),
       createElement("div", { "data-slot": "resizable-panel", id: "main" },
-        createElement("div", { "data-slot": "community-main-panel-content" }, content)))))
+        createElement("div", { "data-slot": "community-main-panel-content", hidden: !!options.dm }, content)))))
   options.mutate?.(rendered.container)
   const restores = Array.from(rendered.container.querySelectorAll<HTMLElement>("*")).map((node) => mockElementGeometry(node, { width: 100, height: 40 }))
   const page = { evaluate: async (fn: (arg: unknown) => unknown, arg: unknown) => fn(arg) } as unknown as Page
@@ -148,6 +155,42 @@ async function observeOwner(content: ReturnType<typeof createElement>, options: 
     vi.unstubAllGlobals()
   }
 }
+
+describe("actual mobile DM Home list owner", () => {
+  const contract = { paths: ["/c/me"], finalPath: "/c/me", scopes: [], listStates: ["dms"],
+    finalListState: "dms", stationary: true, actionKind: "programmatic" as const }
+  it.each(["empty", "rows"] as const)("recognizes the real %s DM sidebar with a hidden main", async (dm) => {
+    const observation = await observeOwner(createElement("input", { placeholder: "Search friends" }), { pathname: "/c/me", dm })
+    expect(observation.frames.at(-1)?.lists).toEqual(["dms"])
+    expect(observation.frames.at(-1)?.dmLists).toEqual([{ owned: true, visible: true,
+      rows: dm === "rows" ? [tid.dmRow("dm")] : [], state: dm, width: 100, height: 40 }])
+    expect(renderedViolations(observation, contract)).toEqual([])
+  })
+  it("allows a pending transition but rejects it as the final Home list", async () => {
+    const observation = await observeOwner(createElement("input", { placeholder: "Search friends" }), { pathname: "/c/me", dm: "pending" })
+    expect(observation.frames.at(-1)?.lists).toEqual(["dms-pending"])
+    expect(renderedViolations(observation, { ...contract, listStates: ["dms", "dms-pending"] })).toContain("missing final list surface")
+  })
+  it.each(["hidden", "foreign", "missing-shortcuts", "duplicate", "blank"] as const)(
+    "rejects a %s DM Home witness", async (fault) => {
+      const observation = await observeOwner(createElement("input", { placeholder: "Search friends" }), {
+        pathname: "/c/me", dm: "empty", mutate: (container) => {
+          const list = container.querySelector('[data-slot="dm-sidebar-list"]')!
+          if (fault === "hidden") list.setAttribute("hidden", "")
+          if (fault === "missing-shortcuts") container.querySelector('[data-slot="dm-sidebar-shortcuts"]')!.remove()
+          if (fault === "blank") list.replaceChildren()
+          if (fault === "duplicate") list.parentElement!.appendChild(list.cloneNode(true))
+          if (fault === "foreign") {
+            const panel = document.createElement("div")
+            panel.dataset.slot = "resizable-panel"; panel.id = "foreign"
+            container.appendChild(panel); panel.appendChild(list)
+          }
+        },
+      })
+      expect(renderedViolations(observation, contract).length).toBeGreaterThan(0)
+    },
+  )
+})
 
 describe("actual pending marker roles", () => {
   it.each([

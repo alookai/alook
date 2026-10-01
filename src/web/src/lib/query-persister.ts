@@ -234,6 +234,53 @@ function scrubDehydratedClient(
   }
 }
 
+export function filterPersistedScopeAuthority(
+  client: PersistedClient,
+  userId: string | null,
+  serverIds: ReadonlySet<string>,
+  channelIds: ReadonlySet<string>,
+): PersistedClient {
+  const scoped = scrubDehydratedClient(client, userId)
+  const queries = scoped.clientState.queries.map((query) => {
+    const name = query.queryKey[3] as CommunityCollectionName
+    const data = (query.state.data as Array<Record<string, unknown>>).filter((row) => {
+      if (name === "servers") return serverIds.has(row.id as string)
+      if (["categories", "serverMemberships", "folderItems"].includes(name)) return serverIds.has(row.serverId as string)
+      if (name === "channels") return channelIds.has(row.id as string)
+      if (["messages", "channelMemberships", "readStates", "attentionScopes"].includes(name)) return channelIds.has(row.channelId as string)
+      if (name === "attentionItems") return (!row.scopeId || channelIds.has(row.scopeId as string))
+        && (!row.childChannelId || channelIds.has(row.childChannelId as string))
+        && (!(row.readTarget as { channelId?: string } | undefined)?.channelId
+          || channelIds.has((row.readTarget as { channelId: string }).channelId))
+      if (name === "notificationSettings") return row.channelId ? channelIds.has(row.channelId as string)
+        : !row.serverId || serverIds.has(row.serverId as string)
+      return true
+    })
+    return { ...query, state: { ...query.state, data } }
+  })
+  return scrubDehydratedClient({ ...scoped, clientState: { ...scoped.clientState, queries } }, userId)
+}
+
+export function mergeQuarantinedPersistedClient(
+  current: PersistedClient,
+  quarantined: PersistedClient | undefined,
+  userId: string | null,
+): PersistedClient {
+  if (!quarantined) return current
+  const queries = new Map(scrubDehydratedClient(quarantined, userId).clientState.queries.map((query) => [query.queryHash, query]))
+  for (const query of scrubDehydratedClient(current, userId).clientState.queries) {
+    const previous = queries.get(query.queryHash)
+    if (!previous) { queries.set(query.queryHash, query); continue }
+    const name = query.queryKey[3]
+    const key = (row: Record<string, unknown>) => name === "profiles" ? row.userId
+      : name === "attentionScopes" ? row.scopeId : name === "readStates" ? row.channelId : row.id
+    const rows = new Map((previous.state.data as Array<Record<string, unknown>>).map((row) => [key(row), row]))
+    for (const row of query.state.data as Array<Record<string, unknown>>) rows.set(key(row), row)
+    queries.set(query.queryHash, { ...query, state: { ...query.state, data: [...rows.values()] } })
+  }
+  return scrubDehydratedClient({ ...current, clientState: { ...current.clientState, queries: [...queries.values()] } }, userId)
+}
+
 /** IDB key namespace for a given user. `null` = pre-auth or logged out. */
 function namespaceFor(userId: string | null): string {
   return `${IDB_PREFIX}:${userId ?? "anon"}`

@@ -8,6 +8,7 @@ export type RenderedFrame = {
   scopes: Array<{ scope: string; owner: number; owned?: boolean; visible: boolean; rows: string[] }>
   cold: Array<{ serverId: string; owned?: boolean; width: number; right: number; rows: string[]; owner: number | null }>
   lists: string[]; mobile: Array<{ surface: string; transform: string; opacity: string }>
+  dmLists?: Array<{ owned: boolean; visible: boolean; rows: string[]; state: string; width: number; height: number }>
 }
 export type RenderedObservation = {
   timeOrigin: number; action: { atEpochMs: number; kind: string; trusted: boolean } | null
@@ -31,6 +32,7 @@ export function renderedViolations(observation: RenderedObservation, contract: R
   for (const frame of observation.frames) {
     fail(frame.atEpochMs <= (observation.action?.atEpochMs ?? Infinity), "frame before action")
     fail(frame.mainOwned === false, "missing/duplicate/foreign main owner")
+    fail((frame.dmLists ?? []).some((list) => list.visible && !list.owned), "foreign/incomplete DM list owner")
     fail(!contract.paths.includes(frame.pathname), `wrong path ${frame.pathname}`)
     fail(frame.headers.some((title) => !(contract.headers ?? (contract.header ? [contract.header] : [])).includes(title)), "stale/wrong header")
     fail(frame.conversations.some((id) => id !== contract.channelId && !contract.companionChannelIds?.includes(id)), "stale/wrong conversation")
@@ -95,7 +97,7 @@ export function renderedViolations(observation: RenderedObservation, contract: R
   return failures
 }
 
-export function installRenderedNavigation({ selector, actionKind, sidebarId, rowPrefix, pairId, forumId, forumPostPrefix }: { selector: string | null; actionKind: "trusted" | "synthetic" | "programmatic"; sidebarId: string; rowPrefix: string; pairId: string; forumId: string; forumPostPrefix: string }) {
+export function installRenderedNavigation({ selector, actionKind, sidebarId, rowPrefix, dmRowPrefix, pairId, forumId, forumPostPrefix }: { selector: string | null; actionKind: "trusted" | "synthetic" | "programmatic"; sidebarId: string; rowPrefix: string; dmRowPrefix: string; pairId: string; forumId: string; forumPostPrefix: string }) {
     const state = window as typeof window & { __renderedNavigation?: {
       observation: RenderedObservation; stop: () => Promise<RenderedObservation>
     }; __renderedOwnerIds?: WeakMap<Element, number>; __renderedNextOwnerId?: number }
@@ -162,6 +164,28 @@ export function installRenderedNavigation({ selector, actionKind, sidebarId, row
           && node.closest('[data-slot="community-shell-root"]') === shell, width: rect.width, right: rect.right, rows: rows(panel ?? node), owner: owner ? ownerId(owner) : null }
       })
       const lists: string[] = []
+      const dmLists = location.pathname === "/c/me" && innerWidth < 640
+        ? Array.from(document.querySelectorAll<HTMLElement>('[data-slot="dm-sidebar-list"]')).filter(visible).map((node) => {
+          const sidebar = node.closest('[data-slot="community-sidebar-panel-content"]')
+          const aside = node.closest("aside")
+          const shortcuts = Array.from(aside?.querySelectorAll('[data-slot="dm-sidebar-shortcuts"]') ?? [])
+          const surfaces = mobile.filter((surface) => surface.dataset.communityMobileSurface === "list" && sidebar?.contains(surface))
+          const sameOwner = (element: Element) => element.closest('[data-slot="community-sidebar-panel-content"]') === sidebar
+          const dmRows = Array.from(node.querySelectorAll<HTMLElement>(`[data-testid^="${dmRowPrefix}"]`)).filter(visible)
+          const empty = Array.from(node.querySelectorAll("p")).some((paragraph) => visible(paragraph)
+            && paragraph.textContent?.trim() === "Your direct messages will appear here.")
+          const loading = Array.from(node.querySelectorAll('[data-slot="skeleton"]')).some(visible)
+          const state = dmRows.length > 0 ? "rows" : empty ? "empty" : loading ? "pending" : "unknown"
+          const owned = ownedMain && !!sidebar && node.closest('[data-slot="resizable-panel"]')?.id === "sidebar"
+            && node.closest('[data-slot="resizable-panel-group"]') === group && node.closest('[data-slot="community-shell-root"]') === shell
+            && shortcuts.length === 1 && shortcuts.every((shortcut) => sameOwner(shortcut) && visible(shortcut))
+            && surfaces.length === 1 && (surfaces[0] === sidebar || surfaces[0].contains(node))
+            && state !== "unknown" && dmRows.every((row) => sameOwner(row) && row.closest("aside") === aside)
+          const rect = node.getBoundingClientRect()
+          return { owned, visible: true, rows: dmRows.map((row) => row.dataset.testid!), state,
+            width: rect.width, height: rect.height }
+        }) : []
+      for (const list of dmLists) if (list.owned) lists.push(list.state === "pending" ? "dms-pending" : "dms")
       if (Array.from(document.querySelectorAll('input[placeholder="Search friends"]')).some(visible)) lists.push("friends")
       if (Array.from(document.querySelectorAll(`[data-testid="${pairId}"]`)).some(visible)) lists.push("machines")
       if (Array.from(main?.querySelectorAll('[aria-label="Loading friends"]') ?? []).some(visible)) lists.push("friends-pending")
@@ -203,7 +227,7 @@ export function installRenderedNavigation({ selector, actionKind, sidebarId, row
         conversations: Array.from(main?.querySelectorAll('[data-slot="community-conversation-surface"]') ?? []).filter(visible).map((node) => node.getAttribute("data-channel-id") ?? "<missing>"),
         forum: !!list,
         forumPosts: cards.map((node) => node.dataset.testid!), forumRoles, unresolved,
-        neutral: Array.from(main?.querySelectorAll("[data-community-unresolved-main]") ?? []).some(visible), pending, scopes, cold, lists,
+        neutral: Array.from(main?.querySelectorAll("[data-community-unresolved-main]") ?? []).some(visible), pending, scopes, cold, lists, dmLists,
         mobile: mobile.map((node) => ({ surface: node.dataset.communityMobileSurface!, transform: getComputedStyle(node).transform, opacity: getComputedStyle(node).opacity })) })
     }
     let raf = 0
@@ -238,7 +262,7 @@ export function installRenderedNavigation({ selector, actionKind, sidebarId, row
 }
 
 export async function observeRenderedNavigation(page: Page, selector: string | null, actionKind: "trusted" | "synthetic" | "programmatic" = "trusted") {
-  await page.evaluate(installRenderedNavigation, { selector, actionKind, sidebarId: tid.channelSidebarScroll, rowPrefix: tid.channelRow(""), pairId: tid.machinePairOpen, forumId: tid.forumPostList, forumPostPrefix: tid.forumThreadCard("") })
+  await page.evaluate(installRenderedNavigation, { selector, actionKind, sidebarId: tid.channelSidebarScroll, rowPrefix: tid.channelRow(""), dmRowPrefix: tid.dmRow(""), pairId: tid.machinePairOpen, forumId: tid.forumPostList, forumPostPrefix: tid.forumThreadCard("") })
   let stopped: Promise<RenderedObservation> | undefined
   let cached: RenderedObservation | undefined
   const read = async () => {
