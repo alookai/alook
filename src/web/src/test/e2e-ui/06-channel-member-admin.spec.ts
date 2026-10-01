@@ -32,7 +32,7 @@ test.describe.serial("channel & member admin", () => {
   })
 
   test("Channels loads only on selection and lists private metadata without granting content access", async ({ asUser }) => {
-    const categoryId = await seedCategory("alice", serverId, "Private", { private: true })
+    const categoryId = await seedCategory("alice", serverId, `Directory QA ${Date.now()}`, { private: true })
     const privateId = await seedChannel("bob", serverId, "bob-private", "forum", categoryId)
     const root = await seedMessage("alice", channelId, "Thread root")
     const childId = await seedThread("alice", root, "Child excluded")
