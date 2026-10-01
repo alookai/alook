@@ -127,12 +127,13 @@ export type UseUserWsOptions = {
   onReconnect?: (info: { reconnectDurationMs: number }) => void | Promise<void>
   onDisconnect?: () => void | Promise<void>
   onAuthenticated?: () => void | Promise<void>
+  onForeground?: () => void | Promise<void>
   onConnectionStateChange?: (phase: UserWsConnectionPhase) => void | Promise<void>
   requestDaemonStatusOnAuth?: boolean
 }
 
 function runLifecycleCallback(
-  name: "authenticated" | "connection-state" | "disconnect" | "reconnect",
+  name: "authenticated" | "connection-state" | "disconnect" | "foreground" | "reconnect",
   callback: (() => void | Promise<void>) | undefined,
 ) {
   if (!callback) return
@@ -175,6 +176,7 @@ export function useUserWs(
   const onReconnectRef = useRef(options?.onReconnect)
   const onDisconnectRef = useRef(options?.onDisconnect)
   const onAuthenticatedRef = useRef(options?.onAuthenticated)
+  const onForegroundRef = useRef(options?.onForeground)
   const onConnectionStateChangeRef = useRef(options?.onConnectionStateChange)
   const lastConnectionPhaseRef = useRef<UserWsConnectionPhase | null>(null)
   const requestDaemonStatusOnAuthRef = useRef(options?.requestDaemonStatusOnAuth ?? true)
@@ -218,9 +220,11 @@ export function useUserWs(
   useEffect(() => {
     onDisconnectRef.current = options?.onDisconnect
     onAuthenticatedRef.current = options?.onAuthenticated
+    onForegroundRef.current = options?.onForeground
     onConnectionStateChangeRef.current = options?.onConnectionStateChange
   }, [
     options?.onAuthenticated,
+    options?.onForeground,
     options?.onConnectionStateChange,
     options?.onDisconnect,
   ])
@@ -921,6 +925,8 @@ export function useUserWs(
     const recoveryNeeded = forceValidation || connectionValidationNeededRef.current
     if (!recoveryNeeded) return
 
+    runLifecycleCallback("foreground", onForegroundRef.current)
+    if (isOffline() || isPageHidden()) return
     if (pendingTokenRef.current) return
 
     const ws = wsRef.current

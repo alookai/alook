@@ -12,7 +12,10 @@ import {
   SEEN_DELIVERY_OPERATION_TRIM_TO,
   useCommunityWsStore,
 } from "@/stores/community/ws"
-import { reconcileCommunityWsReconnect } from "@/hooks/community/community-ws/reconnect"
+import {
+  reconcileCommunityWsReconnect,
+  reconcileFocusedCommunityMessages,
+} from "@/hooks/community/community-ws/reconnect"
 import {
   dispatchCommunityWsEvent,
   dispatchCommunityWsEvents,
@@ -528,10 +531,17 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
     }
     await reconcileAccountReadState(queryClient, { surfaceMode: "non-inbox" })
   }, [queryClient])
+  const handleForeground = useCallback(() => {
+    if (inboxRefreshOwner.current?.disposed
+      || viewerUserIdRef.current !== viewerUserId
+      || (viewerUserId !== null && useCommunityWsStore.getState().profileViewerId !== viewerUserId)) return
+    return reconcileFocusedCommunityMessages(queryClient)
+  }, [queryClient, viewerUserId])
   const { send, reconnectNow } = useUserWs(handleMessage, {
     onReconnect: handleReconnect,
     onDisconnect: useCommunityWsStore.getState().markAccessDisconnected,
     onAuthenticated: handleAuthenticated,
+    onForeground: handleForeground,
     onConnectionStateChange: handleConnectionStateChange,
     requestDaemonStatusOnAuth: false,
   })

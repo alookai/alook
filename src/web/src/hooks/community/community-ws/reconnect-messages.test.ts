@@ -124,6 +124,96 @@ describe("focused message reconnect catch-up", () => {
     queryClient.clear()
   })
 
+  it.each(["channel", "dm"] as const)("shares in-flight %s window work across foreground, reconnect and gap repair", async (kind) => {
+    const client = new QueryClient()
+    const key = kind === "channel" ? communityKeys.channelMessages("shared") : communityKeys.dmMessages("shared")
+    const { unsubscribe } = seedActiveQuery(client, key)
+    let release!: (page: unknown) => void
+    apiFetchMock.mockReturnValueOnce(new Promise((resolve) => { release = resolve }))
+    const cancel = vi.spyOn(client, "cancelQueries")
+    const first = reconcileFocusedMessageQueries(client, kind, "shared")
+    await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
+    const reconnect = reconcileFocusedMessageQueries(client, kind, "shared")
+    const gap = scheduleFocusedMessageGapRepair(client, { kind, scopeId: "shared" }, 5)
+    expect(reconnect).toBe(first)
+    expect(cancel).toHaveBeenCalledOnce()
+    expect(apiFetchMock).toHaveBeenCalledOnce()
+    apiFetchMock.mockResolvedValueOnce({ messages: [3, 4, 5].map((seq) => ({ id: `m_${seq}`, seq, createdAt: `2026-08-15T00:00:0${seq}.000Z` })), latestSeq: 5, hasMoreNewer: false })
+    release({ messages: [], latestSeq: 2, hasMore: false })
+    await Promise.all([first, reconnect, gap])
+    expect(apiFetchMock).toHaveBeenCalledTimes(2)
+    expect(client.getQueryData<{ pages: Array<{ messages: Array<{ id: string }> }> }>(key)?.pages.flatMap((page) => page.messages.map((message) => message.id))).toEqual(["m_2", "m_3", "m_4", "m_5", "m_1"])
+    apiFetchMock.mockResolvedValueOnce({ messages: [], latestSeq: 5, hasMore: false })
+    await reconcileFocusedMessageQueries(client, kind, "shared")
+    expect(apiFetchMock).toHaveBeenCalledTimes(3)
+    unsubscribe()
+    client.clear()
+  })
+
+  it("refreshes a completed query variant when another variant still holds the scope owner", async () => {
+    const client = new QueryClient()
+    const key = communityKeys.channelMessages("variants")
+    const taggedKey = [...key, "tag", "selected"]
+    const subscriptions = [seedActiveQuery(client, key), seedActiveQuery(client, taggedKey)]
+    let releaseTagged!: (page: unknown) => void
+    const tagged = new Promise((resolve) => { releaseTagged = resolve })
+    const fresh = { messages: [3, 4, 5].map((seq) => ({ id: `m_${seq}`, seq, createdAt: `2026-08-15T00:00:0${seq}.000Z` })), latestSeq: 5, hasMoreNewer: false }
+    apiFetchMock.mockImplementation((url: string) => {
+      if (url.includes("since=")) return Promise.resolve(fresh)
+      if (url.includes("tag=")) return tagged
+      return Promise.resolve({ messages: [], latestSeq: apiFetchMock.mock.calls.length > 2 ? 5 : 2, hasMore: false })
+    })
+    const first = reconcileFocusedMessageQueries(client, "channel", "variants")
+    await vi.waitFor(() => expect(publishCommunityMessagesMock).toHaveBeenCalledOnce())
+    const gap = scheduleFocusedMessageGapRepair(client, { kind: "channel", scopeId: "variants" }, 5)
+    await vi.waitFor(() => expect(publishCommunityMessagesMock).toHaveBeenCalledTimes(2))
+    releaseTagged({ messages: [], latestSeq: 2, hasMore: false })
+    await Promise.all([first, gap])
+    for (const queryKey of [key, taggedKey]) {
+      expect(client.getQueryData<{ pages: Array<{ messages: Array<{ id: string }> }> }>(queryKey)?.pages.flatMap((page) => page.messages.map((message) => message.id))).toEqual(["m_2", "m_3", "m_4", "m_5", "m_1"])
+    }
+    expect(apiFetchMock.mock.calls.filter(([url]) => String(url).includes("tag=") && !String(url).includes("since="))).toHaveLength(1)
+    for (const subscription of subscriptions) subscription.unsubscribe()
+    client.clear()
+  })
+
+  it.each(["account", "permission", "replacement"] as const)("does not share an old repair after %s changes or let its cleanup remove the new owner", async (change) => {
+    const client = new QueryClient()
+    useCommunityWsStore.getState().activateProfileAccount("a")
+    const key = communityKeys.channelMessages("changed")
+    const subscriptions = [seedActiveQuery(client, key).unsubscribe]
+    let rejectOld!: (reason: unknown) => void
+    let releaseNew!: (page: unknown) => void
+    apiFetchMock.mockReturnValueOnce(new Promise((_, reject) => { rejectOld = reject }))
+    const first = reconcileFocusedMessageQueries(client, "channel", "changed")
+    await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
+    if (change === "account") useCommunityWsStore.getState().activateProfileAccount("b")
+    else if (change === "permission") {
+      useCommunityWsStore.getState().revokeChannelAccess("server", "changed")
+      useCommunityWsStore.getState().rememberChannelAccess("server", "changed")
+    } else {
+      client.removeQueries({ queryKey: key, exact: true })
+      subscriptions.push(seedActiveQuery(client, key).unsubscribe)
+    }
+    apiFetchMock.mockReturnValueOnce(new Promise((resolve) => { releaseNew = resolve }))
+    const second = reconcileFocusedMessageQueries(client, "channel", "changed")
+    expect(second).not.toBe(first)
+    await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(2))
+    rejectOld(new ApiError("old denial", 403))
+    await first
+    expect(client.getQueryData(key)).toBeDefined()
+    expect(reconcileFocusedMessageQueries(client, "channel", "changed")).toBe(second)
+    expect(scheduleFocusedMessageGapRepair(client, { kind: "channel", scopeId: "changed" }, 5)).not.toBeNull()
+    expect(apiFetchMock).toHaveBeenCalledTimes(2)
+    apiFetchMock.mockResolvedValueOnce({ messages: [], latestSeq: 5, hasMoreNewer: false })
+    releaseNew({ messages: [{ id: "current", seq: 2, createdAt: "2026-08-15T00:00:02.000Z" }], latestSeq: 2, hasMore: false })
+    await second
+    expect(publishCommunityMessagesMock).toHaveBeenCalledOnce()
+    expect(client.getQueryData<{ pages: Array<{ messages: Array<{ id: string }> }> }>(key)?.pages[0].messages[0].id).toBe("current")
+    for (const unsubscribe of subscriptions) unsubscribe()
+    client.clear()
+  })
+
   it("does not repair exact-next, duplicate, or out-of-order frames", () => {
     const queryClient = new QueryClient()
     const queryKey = communityKeys.channelMessages("ch_contiguous")
@@ -395,7 +485,12 @@ describe("focused message reconnect catch-up", () => {
         latestSeq: 3,
       })
 
-    await reconcileFocusedMessageQueries(queryClient, "channel", "ch_race")
+    const cancel = vi.spyOn(queryClient, "cancelQueries")
+    const foreground = reconcileFocusedMessageQueries(queryClient, "channel", "ch_race")
+    const reconnect = reconcileFocusedMessageQueries(queryClient, "channel", "ch_race")
+    expect(reconnect).toBe(foreground)
+    await Promise.all([foreground, reconnect])
+    expect(cancel).toHaveBeenCalledOnce()
     resolveStaleOlder({
       messages: [{ id: "stale_m_1" }],
       hasMore: false,
@@ -413,6 +508,77 @@ describe("focused message reconnect catch-up", () => {
       "m_1",
     ])
     unsubscribe()
+  })
+
+  it("consumes a new gap arriving while the one pagination replay is still pending", async () => {
+    const client = new QueryClient()
+    const key = communityKeys.channelMessages("late-replay")
+    let olderCalls = 0
+    const newest = { messages: [{ id: "m_2", seq: 2, createdAt: "2026-08-15T00:00:02.000Z" }], latestSeq: 2, hasMore: true, cursor: "older" }
+    const older = { messages: [{ id: "m_1", seq: 1, createdAt: "2026-08-15T00:00:01.000Z" }], latestSeq: 2, hasMore: false }
+    let releaseStale!: (value: typeof older) => void
+    let releaseReplay!: (value: typeof older) => void
+    const observer = new InfiniteQueryObserver(client, {
+      queryKey: key,
+      queryFn: async ({ pageParam }) => {
+        if (pageParam.mode === "newest") return newest
+        olderCalls += 1
+        return new Promise<typeof newest | typeof older>((resolve) => {
+          if (olderCalls === 1) releaseStale = resolve
+          else releaseReplay = resolve
+        })
+      },
+      initialPageParam: { mode: "newest" },
+      getNextPageParam: (last) => last.hasMore ? { mode: "older" } : undefined,
+    })
+    const unsubscribe = observer.subscribe(() => undefined)
+    await vi.waitFor(() => expect(observer.getCurrentResult().isSuccess).toBe(true))
+    const pagination = observer.fetchNextPage()
+    await vi.waitFor(() => expect(olderCalls).toBe(1))
+    apiFetchMock.mockResolvedValueOnce(newest).mockResolvedValueOnce({ ...newest, latestSeq: 5 }).mockResolvedValueOnce({
+      messages: [3, 4, 5].map((seq) => ({ id: `m_${seq}`, seq, createdAt: `2026-08-15T00:00:0${seq}.000Z` })), latestSeq: 5, hasMoreNewer: false,
+    })
+    const cancel = vi.spyOn(client, "cancelQueries")
+    const foreground = reconcileFocusedMessageQueries(client, "channel", "late-replay")
+    await vi.waitFor(() => expect(olderCalls).toBe(2))
+    const gap = scheduleFocusedMessageGapRepair(client, { kind: "channel", scopeId: "late-replay" }, 5)
+    expect(apiFetchMock).toHaveBeenCalledOnce()
+    releaseReplay(older)
+    releaseStale(older)
+    await Promise.all([foreground, gap, pagination])
+    expect(apiFetchMock).toHaveBeenCalledTimes(3)
+    expect(cancel).toHaveBeenCalledOnce()
+    expect(olderCalls).toBe(2)
+    expect(client.getQueryData<{ pages: Array<{ messages: Array<{ id: string }> }> }>(key)?.pages.flatMap((entry) => entry.messages.map((row) => row.id))).toEqual(["m_2", "m_3", "m_4", "m_5", "m_1"])
+    unsubscribe()
+    client.clear()
+  })
+
+  it("does not replay completed pagination whose fetch metadata remains idle", async () => {
+    const client = new QueryClient()
+    const key = communityKeys.channelMessages("idle-pagination")
+    let olderCalls = 0
+    const newest = { messages: [{ id: "m_2", seq: 2, createdAt: "2026-08-15T00:00:02.000Z" }], latestSeq: 2, hasMore: true, cursor: "older-2" }
+    const observer = new InfiniteQueryObserver(client, {
+      queryKey: key,
+      queryFn: async ({ pageParam }) => {
+        if (pageParam.mode === "newest") return newest
+        olderCalls += 1
+        return { messages: [{ id: "m_1", seq: 1 }], latestSeq: 2, hasMore: true, cursor: "older-1" }
+      },
+      initialPageParam: { mode: "newest", cursor: "" },
+      getNextPageParam: (last) => last.hasMore ? { mode: "older", cursor: last.cursor } : undefined,
+    })
+    const unsubscribe = observer.subscribe(() => undefined)
+    await vi.waitFor(() => expect(observer.getCurrentResult().isSuccess).toBe(true))
+    await observer.fetchNextPage()
+    expect(client.getQueryState(key)?.fetchStatus).toBe("idle")
+    expect(client.getQueryState(key)?.fetchMeta?.fetchMore?.direction).toBe("forward")
+    apiFetchMock.mockResolvedValue(newest)
+    await reconcileFocusedMessageQueries(client, "channel", "idle-pagination")
+    expect(olderCalls).toBe(1)
+    unsubscribe()
+    client.clear()
   })
 
   it.each([
