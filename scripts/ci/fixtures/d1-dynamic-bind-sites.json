@@ -531,6 +531,14 @@
     "fixedParams": 10
   },
   {
+    "key": "src/shared/src/db/queries/community/channel.ts:listServerChannelDirectoryForAdmin:inArray:1",
+    "strategy": "fixed-literal"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/channel.ts:listServerChannelDirectoryForAdmin:inArray:2",
+    "strategy": "fixed-literal"
+  },
+  {
     "key": "src/shared/src/db/queries/community/channel.ts:resolveVisibleChannelIdSet:inArray:1",
     "strategy": "exact-chunk",
     "fixedParams": 0
