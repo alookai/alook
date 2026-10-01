@@ -38,11 +38,10 @@ export function PendingChannelRow({ ch }: { ch: Channel }) {
 // A single drag-sortable channel row. The whole row is the drag surface (no handle);
 // mouse movement or a touch long-press distinguishes navigation from reorder.
 // Right-click opens an edit/mute/delete menu.
-export function SortableChannel({ ch, active, onClick, onPrefetch, onEdit, onDelete, onManageMembers, canReorder = true }: {
+export function SortableChannel({ ch, active, onClick, onEdit, onDelete, onManageMembers, canReorder = true }: {
   ch: Channel
   active: boolean
   onClick: () => void
-  onPrefetch?: () => void
   onEdit?: () => void
   onDelete?: () => void
   onManageMembers?: () => void
@@ -63,8 +62,6 @@ export function SortableChannel({ ch, active, onClick, onPrefetch, onEdit, onDel
       ref={setNodeRef}
       style={style}
       onClick={onClick}
-      onPointerEnter={onPrefetch}
-      onFocus={onPrefetch}
       data-testid={tid.channelRow(ch.id)}
       {...attributes}
       {...listeners}

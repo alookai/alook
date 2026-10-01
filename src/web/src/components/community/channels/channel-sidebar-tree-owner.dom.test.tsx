@@ -1,6 +1,6 @@
 import { createElement } from "react"
 import { describe, expect, it, vi } from "vitest"
-import { fireEvent, render, screen } from "@/test/react-dom-harness"
+import { fireEvent, render, screen, setupUser } from "@/test/react-dom-harness"
 import type { Category } from "@/lib/community/models/navigation"
 import { tid } from "@/lib/community/testids"
 import {
@@ -31,6 +31,40 @@ function scopeProps(categories: Category[] | null) {
 }
 
 describe("ChannelSidebarScope", () => {
+  it.each(["text", "forum"] as const)("activates %s rows and parent-aware child rows without navigating on hover/focus", async (type) => {
+    const setActiveChannel = vi.fn()
+    const onSelectForumThread = vi.fn()
+    render(createElement(ChannelSidebarScope, {
+      ...scopeProps([{ ...targetCategories[0], channels: [{ ...targetCategories[0].channels[0], type }] }]),
+      setActiveChannel,
+      onSelectForumThread,
+      forumThreadsByParent: {
+        "target-one": [{
+          id: "thread-one", parentChannelId: "target-one", parentMessageId: "message-one",
+          title: "Thread one", activityAt: "2026-09-25T00:00:00.000Z",
+          expiresAt: "2026-09-28T00:00:00.000Z", unread: false,
+        }],
+      },
+    }))
+    const row = screen.getByTestId(tid.channelRow("target-one"))
+    const child = screen.getByTestId(tid.forumSidebarThread("thread-one"))
+    for (const element of [row, child]) {
+      fireEvent.pointerEnter(element)
+      fireEvent.focus(element)
+    }
+    expect(setActiveChannel).not.toHaveBeenCalled()
+    expect(onSelectForumThread).not.toHaveBeenCalled()
+    fireEvent.click(row)
+    expect(setActiveChannel).toHaveBeenCalledExactlyOnceWith("target-one")
+    const user = setupUser()
+    await user.click(child)
+    child.focus()
+    await user.keyboard("{Enter}")
+    expect(onSelectForumThread.mock.calls).toEqual([
+      ["target-one", "thread-one"], ["target-one", "thread-one"],
+    ])
+  })
+
   it("reveals restored rows immediately while forum projection is pending", () => {
     render(createElement(ChannelSidebarRevealBoundary, {
       ...scopeProps(targetCategories),

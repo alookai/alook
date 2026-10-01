@@ -25,7 +25,6 @@ export type CommunityNavigationController = {
   push: (href: string) => void
   pushImmediate: (href: string) => void
   replace: (href: string) => void
-  prefetch: (href: string) => void
   resolveAndPush: (resolve: () => Promise<string>) => Promise<boolean>
   cancelPendingNavigation: () => void
 }
@@ -148,7 +147,6 @@ export function useCommunityNavigationController(
     push,
     pushImmediate,
     replace,
-    prefetch: router.prefetch,
     resolveAndPush,
     cancelPendingNavigation,
   }
