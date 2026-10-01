@@ -21,5 +21,4 @@ export type ShellRouter = {
   push: (href: string) => void
   pushImmediate?: (href: string) => void
   replace: (href: string) => void
-  prefetch: (href: string) => void
 }

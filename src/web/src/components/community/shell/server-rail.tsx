@@ -135,10 +135,8 @@ export const ServerRail = memo(function ServerRail({
   view,
   bottomInset,
   onHome,
-  onHomePrefetch,
   onServer,
   onServerNavigate,
-  onServerPrefetch,
   onCreateServer,
   onLeaveServer,
   onOpenSettings,
@@ -151,10 +149,8 @@ export const ServerRail = memo(function ServerRail({
   view: View
   bottomInset?: number
   onHome: () => void
-  onHomePrefetch?: () => void
   onServer?: () => void
   onServerNavigate?: (id: string) => void
-  onServerPrefetch?: (id: string) => void
   onCreateServer?: (name: string, icon?: File) => void
   onLeaveServer?: (id: string) => void
   onOpenSettings?: (serverId: string) => void
@@ -403,8 +399,6 @@ export const ServerRail = memo(function ServerRail({
         <RailIndicator active={view === "dm"} />
         <button
           onClick={onHome}
-          onPointerEnter={onHomePrefetch}
-          onFocus={onHomePrefetch}
           aria-label="Home"
           data-testid={tid.homeButton}
           className="group/alook grid size-10 shrink-0 place-items-center rounded-[20px] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
@@ -429,7 +423,6 @@ export const ServerRail = memo(function ServerRail({
             server={server}
             active={view !== "dm" && activeId === serverId}
             onClick={() => pickServer(serverId)}
-            onPrefetch={() => onServerPrefetch?.(serverId)}
             onLeave={() => onLeaveServer?.(serverId)}
             onOpenSettings={() => onOpenSettings?.(serverId)}
             onOpenInvitePopover={onOpenInvitePopover ? () => onOpenInvitePopover(serverId) : undefined}
@@ -481,7 +474,6 @@ export const ServerRail = memo(function ServerRail({
                     server={server}
                     active={view !== "dm" && activeId === server.id}
                     onClick={() => pickServer(server.id)}
-                    onPrefetch={() => onServerPrefetch?.(server.id)}
                     onOpenSettings={() => onOpenSettings?.(server.id)}
                     onOpenInvitePopover={onOpenInvitePopover ? () => onOpenInvitePopover(server.id) : undefined}
                     inFolder

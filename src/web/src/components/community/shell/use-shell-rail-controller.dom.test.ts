@@ -270,21 +270,16 @@ describe("useShellRailController", () => {
     const hook = await renderController()
 
     await act(async () => hook.current.navigate("s1"))
-    await act(async () => hook.current.railProps.onServerPrefetch("s1"))
     await act(async () => hook.current.navigate("s2"))
-    await act(async () => hook.current.railProps.onServerPrefetch("s2"))
 
     expect(hook.pushed).toEqual([
       "/c/channels/s1/canonical",
       "/c/channels/s2",
     ])
-    expect(hook.prefetched).toEqual([
-      "/c/channels/s1",
-      "/c/channels/s2",
-    ])
+    expect(hook.prefetched).toEqual([])
   })
 
-  it("keeps rail navigation and prefetch on the semantic server root", async () => {
+  it("keeps rail navigation on the semantic server root without prefetch", async () => {
     const hook = await renderController()
     hook.cache.set("s1", {
       categories: [{ channels: [{ id: "pending", pending: true }, { id: "cached", pending: false }] }],
@@ -292,38 +287,33 @@ describe("useShellRailController", () => {
     mocks.lastChannel.current = "cached"
 
     await act(async () => hook.current.railProps.onServerNavigate("s1"))
-    await act(async () => hook.current.railProps.onServerPrefetch("s1"))
-    await act(async () => hook.current.railProps.onHomePrefetch())
     expect(hook.pushed).toEqual(["/c/channels/s1"])
-    expect(hook.prefetched).toEqual(["/c/channels/s1", "/c/me/friends"])
+    expect(hook.prefetched).toEqual([])
     expect(hook.queryClient.fetchQuery).not.toHaveBeenCalled()
 
     await act(async () => hook.current.railProps.onServerNavigate("s2"))
     expect(hook.pushed).toContain("/c/channels/s2")
-    await act(async () => hook.current.railProps.onServerPrefetch("s2"))
-    expect(hook.prefetched).toContain("/c/channels/s2")
-    await act(async () => hook.current.railProps.onServerPrefetch("s3"))
-    expect(hook.prefetched).toContain("/c/channels/s3")
+    expect(hook.prefetched).toEqual([])
+    expect(hook.current.railProps).not.toHaveProperty("onServerPrefetch")
+    expect(hook.current.railProps).not.toHaveProperty("onHomePrefetch")
     expect(hook.queryClient.fetchQuery).not.toHaveBeenCalled()
   })
 
-  it("uses one breakpoint-canonical Home destination for click and prefetch", async () => {
+  it("uses the breakpoint-canonical Home destination only on activation", async () => {
     mocks.lastMeLeaf.current = "dm-last"
     const desktop = await renderController({ breakpoint: "desktop" })
     await act(async () => {
-      desktop.current.railProps.onHomePrefetch()
       desktop.current.railProps.onHome()
     })
-    expect(desktop.prefetched).toEqual(["/c/me/dm-last"])
+    expect(desktop.prefetched).toEqual([])
     expect(desktop.pushed).toEqual(["/c/me/dm-last"])
 
     for (const breakpoint of ["mobile", "unknown"] as const) {
       const safeRoot = await renderController({ breakpoint })
       await act(async () => {
-        safeRoot.current.railProps.onHomePrefetch()
         safeRoot.current.railProps.onHome()
       })
-      expect(safeRoot.prefetched).toEqual(["/c/me"])
+      expect(safeRoot.prefetched).toEqual([])
       expect(safeRoot.pushed).toEqual(["/c/me"])
     }
   })

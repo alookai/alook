@@ -113,11 +113,6 @@ export default function MeLayout({ children }: { children: ReactNode }) {
     useCommunityStore.getState().uiHandlers.navigatePath?.("/c/me/bots")
   }, [])
 
-  const prefetchDm = useCallback((id: string) => router.prefetch(`/c/me/${id}`), [router])
-  const prefetchFriends = useCallback(() => router.prefetch("/c/me/friends"), [router])
-  const prefetchMachines = useCallback(() => router.prefetch("/c/me/machines"), [router])
-  const prefetchBots = useCallback(() => router.prefetch("/c/me/bots"), [router])
-
   const blockedUserIds = useMemo(
     () => new Set(blocked.map((b) => b.userId ?? b.id)),
     [blocked],
@@ -130,19 +125,15 @@ export default function MeLayout({ children }: { children: ReactNode }) {
       blockedUserIds={blockedUserIds}
       loading={dmsLoading}
       onPickDm={enterDm}
-      onPrefetchDm={prefetchDm}
       onShowFriends={onShowFriends}
       friendRequestCount={friendRequestCount}
-      onPrefetchFriends={prefetchFriends}
       onShowMachines={onShowMachines}
-      onPrefetchMachines={prefetchMachines}
       onShowBots={onShowBots}
-      onPrefetchBots={prefetchBots}
       friendsActive={friendsActive}
       machinesActive={machinesActive}
       botsActive={botsActive}
     />
-  ), [dms, currentChannelId, dmsLoading, blockedUserIds, enterDm, prefetchDm, onShowFriends, friendRequestCount, prefetchFriends, onShowMachines, prefetchMachines, onShowBots, prefetchBots, friendsActive, machinesActive, botsActive])
+  ), [dms, currentChannelId, dmsLoading, blockedUserIds, enterDm, onShowFriends, friendRequestCount, onShowMachines, onShowBots, friendsActive, machinesActive, botsActive])
 
   return (
     <ShellFrame

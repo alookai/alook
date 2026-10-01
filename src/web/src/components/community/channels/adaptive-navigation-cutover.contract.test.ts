@@ -18,7 +18,6 @@ describe("adaptive navigation cutover contracts", () => {
     )
     expect(layout).toContain("channelHref(serverId, id)")
     expect(sidebar).toContain("onSelectForumThread?.(parentId, thread.id)")
-    expect(sidebar).toContain("prefetchChannel?.(thread.id, parentId)")
   })
 
   it("keeps the layout as the one channel subtree owner and removes the nested leaf", () => {
