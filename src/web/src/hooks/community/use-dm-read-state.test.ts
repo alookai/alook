@@ -35,7 +35,9 @@ let queryReturn: { data: unknown; isFetching: boolean } = {
 }
 vi.mock("@tanstack/react-query", () => ({
   useQuery: (_config: unknown) => queryReturn,
+  useQueryClient: () => ({}),
 }))
+vi.mock("./channel-metadata", () => ({ captureChannelMetadataToken: vi.fn(), isChannelMetadataTokenCurrent: vi.fn() }))
 
 vi.mock("@/lib/api/client", () => ({
   apiFetch: vi.fn(),
@@ -129,7 +131,7 @@ describe("useDmReadStateSnapshot — freeze invariant", () => {
     }
     const warm = useHook("dm_1", canonical)
     flushEffects()
-    expect(warm).toEqual({ snapshot: canonical, isFetching: false })
+    expect(warm).toMatchObject({ snapshot: canonical, isFetching: false })
 
     refCounter = 0
     pendingEffects = []

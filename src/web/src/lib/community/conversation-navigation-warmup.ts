@@ -40,7 +40,7 @@ function clearDeniedTarget(queryClient: QueryClient, target: ConversationNavigat
   if (target.serverId) {
     queryClient.removeQueries({ queryKey: communityKeys.channelMeta(target.serverId, target.channelId) })
   } else {
-    queryClient.removeQueries({ queryKey: communityKeys.dmRouteVerification(target.channelId) })
+    queryClient.removeQueries({ queryKey: communityKeys.channelMeta(null, target.channelId) })
   }
   useMessageStreamStore.getState().removeScope(
     target.scopeKind === "dm"

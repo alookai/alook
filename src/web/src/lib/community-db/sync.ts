@@ -853,8 +853,8 @@ function ingestChannelMetadata(
   registry: CommunityDbRegistry,
   metadata: {
     id: string
-    serverId: string
-    name: string
+    serverId: string | null
+    name: string | null
     type: string
     parentChannelId: string | null
     parentMessageId: string | null
@@ -865,14 +865,15 @@ function ingestChannelMetadata(
     openerUnread?: boolean
   },
 ) {
-  if (!(["text", "forum", "thread"] as const).includes(metadata.type as "text")) return
+  if (!["dm", "text", "forum", "thread"].includes(metadata.type)) return
   const existing = collectionRows(registry, "channels", channelSchema)
     .find((row) => row.id === metadata.id)
   upsertRows(registry, "channels", channelSchema, (row) => row.id, [{
+    ...existing,
     id: metadata.id,
     serverId: metadata.serverId,
     categoryId: existing?.categoryId ?? null,
-    name: metadata.name,
+    name: metadata.name ?? "",
     type: metadata.type as ChannelRow["type"],
     parentChannelId: metadata.parentChannelId,
     parentMessageId: metadata.parentMessageId,
@@ -1802,12 +1803,15 @@ export function publishCommunityLiveSnapshot(
         break
       case "server-detail":
         ingestServerDetail(registry, snapshot.data)
+        qualifyCanonicalChannelMetadata(registry,
+          snapshot.data.categories.flatMap((category) => category.channels.map((channel) => channel.id)), proof.token)
         break
       case "folders":
         ingestFolders(registry, snapshot.data)
         break
       case "dms":
         ingestDms(registry, snapshot.data)
+        qualifyCanonicalChannelMetadata(registry, snapshot.data.conversations.map((dm) => dm.id), proof.token)
         break
       case "read-state":
         ingestReadStateSnapshot(registry, snapshot.data)
@@ -1902,14 +1906,45 @@ export function publishCommunityEmbeddedMessages(
 
 export type CommunityChannelMetadata = {
   id: string
-  serverId: string
-  name: string
+  serverId: string | null
+  name: string | null
   type: string
   parentChannelId: string | null
   parentMessageId: string | null
   creatorId: string | null
   archived: boolean | number
   lastMessageAt: string | null
+}
+
+function qualifyCanonicalChannelMetadata(registry: CommunityDbRegistry, channelIds: readonly string[], token: CommunityLiveSnapshotToken) {
+  if (!registry.accountId) return
+  for (const channelId of channelIds) {
+    const channel = registry.collections.channels.get(channelId)
+    const membership = registry.collections.channelMemberships.get(channelMembershipKey(channelId, registry.accountId, "access"))
+    if (!channel || channel.pending || channel.archived || !membership) continue
+    registry.queryClient.setQueryData(communityKeys.channelMeta(channel.serverId ?? null, channelId), (previous: CommunityChannelMetadata | undefined) => ({
+      ...previous,
+      id: channel.id,
+      serverId: channel.serverId ?? null,
+      name: channel.name,
+      type: channel.type,
+      parentChannelId: channel.parentChannelId ?? null,
+      parentMessageId: channel.parentMessageId ?? null,
+      creatorId: channel.creatorId ?? null,
+      archived: channel.archived,
+      lastMessageAt: channel.lastMessageAt ?? null,
+      createdAt: channel.lastMessageAt ?? "",
+      activityAt: channel.lastMessageAt ?? "",
+      verifiedEpoch: token.accessEpoch,
+      verification: {
+        viewerId: token.viewerId,
+        accountEpoch: token.accountEpoch,
+        accessEpoch: token.accessEpoch,
+        channelId,
+        generation: useCommunityWsStore.getState().channelAccessScopes.get(channelId)?.generation ?? 0,
+      },
+    }))
+  }
 }
 
 /** Publish one verified channel metadata response and its viewer access fact. */
@@ -2190,6 +2225,7 @@ export function publishCommunityForumSidebar(
         )
       }
     }
+    qualifyCanonicalChannelMetadata(registry, channels.map((channel) => channel.id), publication.proof.token)
   })
     return "published" as const
   })

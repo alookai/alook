@@ -155,7 +155,10 @@ vi.mock("@/lib/community/last-channel", () => ({
   clearLastChannel: (...args: unknown[]) => mockClearLastChannel(...args),
 }))
 vi.mock("@/lib/community/last-community-route", () => ({
-  commitLastCommunityRoute: (...args: unknown[]) => mockCommitLastCommunityRoute(...args),
+  commitCommunityChannelRoute: (accountId: string, serverId: string, channelId: string) => {
+    mockSetLastChannel(serverId, channelId)
+    mockCommitLastCommunityRoute(accountId, `/c/channels/${serverId}/${channelId}`)
+  },
 }))
 vi.mock("@/stores/community", () => {
   const state = {

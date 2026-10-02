@@ -17,8 +17,8 @@ import { ConversationResolutionPendingFrame } from "@/components/community/chann
 import { useChannelMemberViewModel } from "@/components/community/members/channel-member-view-model"
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import { canManageServer, USE_SERVER_DEFAULT } from "@alook/shared"
-import { clearLastChannel, setLastChannel } from "@/lib/community/last-channel"
-import { commitLastCommunityRoute } from "@/lib/community/last-community-route"
+import { clearLastChannel } from "@/lib/community/last-channel"
+import { commitCommunityChannelRoute } from "@/lib/community/last-community-route"
 import { resolveChannelDisplayName } from "@/lib/community/channel-display-name"
 import { toChannelRefCandidate } from "@/lib/community/channel-ref-extension"
 import {
@@ -232,8 +232,7 @@ export function ChannelRoute({ serverParam, channelId }: {
   // may commit the destination for a later cold entry.
   useEffect(() => {
     if (!channelHydrated) return
-    setLastChannel(serverId, channelId)
-    commitLastCommunityRoute(currentUser.id, channelHref(serverId, channelId))
+    commitCommunityChannelRoute(currentUser.id, serverId, channelId)
   }, [channelHydrated, channelId, currentUser.id, serverId])
   const subtype = resolveConversationSubtype({
     routeLifecycle: routeModel.routeLifecycle,

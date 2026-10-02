@@ -9,7 +9,7 @@ const source = (path: string) => readFileSync(resolve(webRoot, path), "utf8")
 describe("Community ordinary-link action surface contract", () => {
   it("routes DM, channel, and thread timeline messages through one Message boundary", () => {
     for (const path of [
-      "src/app/c/me/[dmId]/page.tsx",
+      "src/components/community/channels/dm-view.tsx",
       "src/components/community/channels/text-channel-surface.tsx",
       "src/components/community/channels/thread-channel-surface.tsx",
     ]) {
@@ -30,7 +30,7 @@ describe("Community ordinary-link action surface contract", () => {
 
   it("keeps gesture target parsing and link-menu labels out of route-specific surfaces", () => {
     for (const path of [
-      "src/app/c/me/[dmId]/page.tsx",
+      "src/components/community/channels/dm-view.tsx",
       "src/components/community/channels/text-channel-surface.tsx",
       "src/components/community/channels/thread-channel-surface.tsx",
       "src/components/community/messages/message-context-sheet.tsx",

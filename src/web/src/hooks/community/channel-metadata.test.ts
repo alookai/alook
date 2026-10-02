@@ -20,6 +20,12 @@ beforeEach(() => {
 })
 
 describe("canonical channel metadata lifecycle", () => {
+  it.each(["text", "forum", "thread", "dm"])("validates the exact %s resource with its nullable scope", async (type) => {
+    const serverId = type === "dm" ? null : "server"
+    fetchMock.mockResolvedValue({ ...metadata, serverId, type, name: type === "dm" ? null : metadata.name })
+    await expect(fetchChannelMetadata(serverId, "child")).resolves.toMatchObject({ id: "child", serverId, type, name: type === "dm" ? "" : metadata.name })
+    expect(useCommunityWsStore.getState().channelAccessScopes.has("child")).toBe(type !== "dm")
+  })
   it.each(["account", "parent", "server", "membership"] as const)(
     "rejects an old successful HTTP response after %s changes",
     async (change) => {

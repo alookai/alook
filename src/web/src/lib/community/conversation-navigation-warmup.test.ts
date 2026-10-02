@@ -185,7 +185,7 @@ describe("conversation navigation warmup", () => {
     }
     queryClient.setQueryData(communityKeys.dmMessages("d1"), { stale: true })
     queryClient.setQueryData(communityKeys.dmReadStateSnapshot("d1"), { stale: true })
-    queryClient.setQueryData(communityKeys.dmRouteVerification("d1"), "present")
+    queryClient.setQueryData(communityKeys.channelMeta(null, "d1"), "present")
     startConversationNavigationWarmup(queryClient, dmTarget, 2)
     expect(mocks.requests[0]).toMatchObject({ kind: "dm", pageParam: { mode: "newest" } })
     expect(mocks.servers).toHaveLength(0)
@@ -196,7 +196,7 @@ describe("conversation navigation warmup", () => {
 
     expect(queryClient.getQueryData(communityKeys.dmMessages("d1"))).toBeUndefined()
     expect(queryClient.getQueryData(communityKeys.dmReadStateSnapshot("d1"))).toBeUndefined()
-    expect(queryClient.getQueryData(communityKeys.dmRouteVerification("d1"))).toBeUndefined()
+    expect(queryClient.getQueryData(communityKeys.channelMeta(null, "d1"))).toBeUndefined()
     expect(mocks.removeScope).toHaveBeenCalledWith({ kind: "dm", id: "d1" })
     expect(mocks.reads[0]!.signal?.aborted).toBe(true)
     mocks.reads[0]!.resolve({ lastReadMessageId: "late", lastReadAt: null, lastReadSeq: 8 })

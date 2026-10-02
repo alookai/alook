@@ -53,40 +53,30 @@ export function clearLastChannel(serverId: string): void {
   clearNavigationMemory(lastChannelKey(serverId))
 }
 
-/**
- * Pick which channel the server-landing page should redirect to: the remembered
- * `last` channel when there is one, else the first top-level channel by position.
- * `undefined` when the server has no channels and there's no memory.
- *
- * `last` is trusted and returned directly — it is NOT validated against
- * `channelIds`. `channelIds` (the server's TOP-LEVEL channels) is only the
- * source for the DEFAULT when there's no memory. This is deliberate: a
- * remembered channel may be a FORUM POST or THREAD (a child channel — its id
- * lives under a forum/parent, never in the top-level list), so validating `last`
- * against the top-level list would drop every remembered post/thread and always
- * fall back to default (the bug this fixes). Instead the landing page navigates
- * to `last` and the destination `[channelId]` page validates it: a real
- * child-channel renders its opener view; a deleted / no-longer-accessible /
- * outright-garbage id fails its meta fetch and bounces back to default (see the
- * 404||403 bounce in that page). "Trust the id" ≠ "trust the id is valid" —
- * validity is the destination's job, not this selector's. Extracted pure so the
- * rule is unit-tested without a page-render harness.
- */
-export function pickServerLandingChannel(
-  channelIds: readonly string[],
-  last: string | null,
-): string | undefined {
-  if (last !== null && !last.includes("/")) return last
-  return channelIds[0]
-}
-
 export function pickServerLandingHref(
   serverId: string,
   channelIds: readonly string[],
   last: string | null,
 ): string {
-  const channelId = pickServerLandingChannel(channelIds, last)
-  return channelId
-    ? `/c/channels/${serverId}/${channelId}`
-    : `/c/channels/${serverId}`
+  return resolveCommunityLandingHref({ serverId, channelIds, last })
+}
+
+export function resolveCommunityLandingHref({
+  serverId,
+  channelIds = [],
+  last,
+  breakpoint = "desktop",
+}: {
+  serverId: string | null
+  channelIds?: readonly string[]
+  last: string | null
+  breakpoint?: "unknown" | "desktop" | "mobile"
+}): string {
+  const root = serverId === null ? "/c/me" : `/c/channels/${encodeURIComponent(serverId)}`
+  if (breakpoint !== "desktop") return root
+  const safeLast = last && last !== "." && last !== ".." && !/[\\/?#\s]/.test(last)
+    ? last
+    : null
+  const leaf = safeLast ?? (serverId === null ? "friends" : channelIds[0])
+  return leaf ? `${root}/${encodeURIComponent(leaf)}` : root
 }

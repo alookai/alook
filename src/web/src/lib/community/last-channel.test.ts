@@ -4,12 +4,30 @@ import {
   getLastChannel,
   setLastChannel,
   clearLastChannel,
-  pickServerLandingChannel,
   pickServerLandingHref,
+  resolveCommunityLandingHref,
 } from "./last-channel"
 
 describe("last-channel", () => {
   let storage: Record<string, string>
+
+  it.each([
+    [null, "dm_1", "desktop", "/c/me/dm_1"],
+    [null, "bots", "desktop", "/c/me/bots"],
+    [null, null, "desktop", "/c/me/friends"],
+    [null, "dm_1", "mobile", "/c/me"],
+    [null, "dm_1", "unknown", "/c/me"],
+    ["server", "child", "desktop", "/c/channels/server/child"],
+    ["server", null, "desktop", "/c/channels/server/first"],
+    ["server", "child", "mobile", "/c/channels/server"],
+    ["server", "child", "unknown", "/c/channels/server"],
+    [null, "../dm", "desktop", "/c/me/friends"],
+    ["server", "child?msg=42", "desktop", "/c/channels/server/first"],
+    ["server", "child#marker", "desktop", "/c/channels/server/first"],
+    ["server", "..", "desktop", "/c/channels/server/first"],
+  ] as const)("resolves scope %s and leaf %s for %s", (serverId, last, breakpoint, expected) => {
+    expect(resolveCommunityLandingHref({ serverId, last, breakpoint, channelIds: ["first"] })).toBe(expected)
+  })
 
   beforeEach(() => {
     storage = {}
@@ -105,37 +123,6 @@ describe("last-channel", () => {
     expect(() => clearLastChannel("srv_1")).not.toThrow()
     vi.stubGlobal("window", undefined)
     expect(() => clearLastChannel("srv_1")).not.toThrow()
-  })
-})
-
-describe("pickServerLandingChannel", () => {
-  it("restores the remembered last channel (returned directly, not validated against the list)", () => {
-    expect(pickServerLandingChannel(["ch_1", "ch_2", "ch_3"], "ch_2")).toBe("ch_2")
-  })
-
-  it("restores a remembered id that is NOT in the top-level list — a forum post / thread (the bug this fixes)", () => {
-    // A post/thread is a child channel: its id never appears in the top-level
-    // list, so the old `includes` gate dropped it and always fell to default.
-    // Now it's returned directly; the destination page renders the post opener.
-    expect(pickServerLandingChannel(["ch_1", "ch_2"], "post_abc")).toBe("post_abc")
-  })
-
-  it("falls back to the first top-level channel when there is no memory", () => {
-    expect(pickServerLandingChannel(["ch_1", "ch_2"], null)).toBe("ch_1")
-  })
-
-  it("returns a dirty/garbage remembered id as-is — validity is the destination's job (its meta fetch 404/403 → bounce to default)", () => {
-    // "Trust the id" ≠ "trust the id is valid". A localStorage value hand-edited
-    // or written stale by another tab still navigates; the destination page's
-    // 404||403 bounce degrades it to default (Blondie/Melly's dirty-last check).
-    expect(pickServerLandingChannel(["ch_1", "ch_2"], "garbage_id")).toBe("garbage_id")
-  })
-
-  it("returns undefined only when there's no memory AND no channels; a remembered id wins even over an empty list", () => {
-    expect(pickServerLandingChannel([], null)).toBeUndefined()
-    // With memory, the id is returned even if the top-level list is empty (the
-    // remembered channel may be a child channel under a forum, not top-level).
-    expect(pickServerLandingChannel([], "post_abc")).toBe("post_abc")
   })
 })
 

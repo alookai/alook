@@ -454,15 +454,34 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
       await route.continue()
     })
     const clickStartedAt = Date.now()
-    await page.getByTestId(tid.forumSidebarThread(threadId)).click()
-    await expect.poll(() => new URL(page.url()).pathname).toBe(
-      `/c/channels/${serverId}/${threadId}`,
-    )
-    await retainedRequestStarted
-    await expect(childPanel(page).getByRole("heading", { name: forumTitle }))
-      .toBeVisible({ timeout: 1_000 })
-    const warmVisibleMs = Date.now() - clickStartedAt
-    releaseRetained()
+    let warmVisibleMs: number
+    try {
+      await page.getByTestId(tid.forumSidebarThread(threadId)).click()
+      await expect.poll(() => new URL(page.url()).pathname).toBe(
+        `/c/channels/${serverId}/${threadId}`,
+      )
+      await retainedRequestStarted
+      await expect(childPanel(page).getByRole("banner").getByText(forumTitle, { exact: true }))
+        .toBeVisible({ timeout: 1_000 })
+      await expect(childPanel(page).locator(`[data-channel-id="${threadId}"]`))
+        .toBeVisible({ timeout: 1_000 })
+      await expect(childPanel(page).getByTestId(tid.composerInput))
+        .toBeVisible({ timeout: 1_000 })
+      warmVisibleMs = Date.now() - clickStartedAt
+      expect(requests.filter((url) => isExactChannelRequest(url, threadId))).toHaveLength(0)
+      await expect.poll(() => successfulResponses.filter((url) =>
+        new URL(url).pathname === `/api/community/channels/${threadId}/read-state`
+      ).length).toBe(1)
+      await expect.poll(() => successfulResponses.filter((url) =>
+        isChannelMessagesRequest(url, threadId)
+      ).length).toBe(1)
+      await expect(childPanel(page).getByRole("heading", { name: forumTitle })).toBeVisible()
+      await expect(childPanel(page).getByText("post body", { exact: true })).toBeVisible()
+      expect(successfulResponses.filter((url) => isSidebarRequest(url, serverId)
+        && new URL(url).searchParams.get("retainId") === threadId)).toHaveLength(0)
+    } finally {
+      releaseRetained()
+    }
     await expect.poll(() => successfulResponses.filter((url) => (
       isSidebarRequest(url, serverId)
       && new URL(url).searchParams.get("retainId") === threadId

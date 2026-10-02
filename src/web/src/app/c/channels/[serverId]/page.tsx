@@ -5,7 +5,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { ServerLandingPendingFrame } from "@/components/community/shell/server-landing-pending-frame"
 import { useServer } from "@/hooks/community/use-servers"
 import { useBreakpoint } from "@/hooks/use-mobile"
-import { getLastChannel, pickServerLandingChannel } from "@/lib/community/last-channel"
+import { getLastChannel, resolveCommunityLandingHref } from "@/lib/community/last-channel"
 
 export default function ServerDefaultPage() {
   const params = useParams<{ serverId: string }>()
@@ -21,13 +21,15 @@ export default function ServerDefaultPage() {
     const allChannels = currentServer.categories.flatMap((cat) => cat.channels)
     // Restore one remembered channel id, or use the first top-level channel
     // when there is no valid memory.
-    const target = pickServerLandingChannel(
-      allChannels.map((c) => c.id),
-      getLastChannel(serverId),
-    )
-    if (target) {
+    const target = resolveCommunityLandingHref({
+      serverId,
+      channelIds: allChannels.filter((channel) => !channel.pending).map((channel) => channel.id),
+      last: getLastChannel(serverId),
+      breakpoint,
+    })
+    if (target !== `/c/channels/${encodeURIComponent(serverId)}`) {
       const search = searchParams.toString()
-      const href = `/c/channels/${serverId}/${target}${search ? `?${search}` : ""}`
+      const href = `${target}${search ? `?${search}` : ""}`
       if (replacingHrefRef.current === href) return
       replacingHrefRef.current = href
       router.replace(href)

@@ -32,7 +32,7 @@ describe("Composer public facade", () => {
   })
 
   it("keeps DM, channel, and thread on the structured reply-target contract", () => {
-    const dm = readWeb("src/app/c/me/[dmId]/page.tsx")
+    const dm = readWeb("src/components/community/channels/dm-view.tsx")
     const channel = readWeb("src/components/community/channels/text-channel-surface.tsx")
     const thread = readWeb("src/components/community/channels/thread-channel-surface.tsx")
 
@@ -78,7 +78,7 @@ describe("Composer public facade", () => {
 
   it("keeps every direct importer on the facade and out of internals", () => {
     const importers = [
-      "src/app/c/me/[dmId]/page.tsx",
+      "src/components/community/channels/dm-view.tsx",
       "src/components/community/channels/thread-channel-surface.tsx",
       "src/components/community/channels/channel-route.tsx",
       "src/components/community/channels/text-channel-surface.tsx",

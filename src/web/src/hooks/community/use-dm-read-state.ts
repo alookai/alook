@@ -1,9 +1,10 @@
 "use client"
 
 import { useEffect, useRef } from "react"
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
+import { captureChannelMetadataToken, isChannelMetadataTokenCurrent, type ChannelMetadata } from "./channel-metadata"
 
 /**
  * The DM read-state snapshot returned by
@@ -39,15 +40,37 @@ export function useDmReadStateSnapshot(
 ): {
   snapshot: DmReadStateSnapshot | null
   isFetching: boolean
+  error: Error | null
+  retrying: boolean
+  retry: () => void
 } {
+  const queryClient = useQueryClient()
   const query = useQuery<DmReadStateSnapshot>({
     queryKey: dmId
       ? communityKeys.dmReadStateSnapshot(dmId)
       : ["community", "dm", "__none__", "read-state-snapshot"],
-    queryFn: async () => {
-      return apiFetch<DmReadStateSnapshot>(
-        `/api/community/channels/${dmId}/read-state`,
-      )
+    queryFn: async ({ signal }) => {
+      const token = captureChannelMetadataToken(dmId!)
+      const metadataKey = communityKeys.channelMeta(null, dmId!)
+      const metadataQuery = queryClient.getQueryCache().find({ queryKey: metadataKey, exact: true })
+      const current = () => !signal.aborted && isChannelMetadataTokenCurrent(token)
+      try {
+        const snapshot = await apiFetch<DmReadStateSnapshot>(`/api/community/channels/${dmId}/read-state`, { signal })
+        if (!current()) throw new DOMException("Stale DM history access", "AbortError")
+        if (metadataQuery && queryClient.getQueryCache().find({ queryKey: metadataKey, exact: true }) === metadataQuery) {
+          queryClient.setQueryData<ChannelMetadata>(metadataKey, (metadata) => metadata
+            ? { ...metadata, historyVerification: token } : metadata)
+        }
+        return snapshot
+      } catch (error) {
+        if (!current()) throw new DOMException("Stale DM history access", "AbortError")
+        if (typeof error === "object" && error !== null && "status" in error && (error.status === 403 || error.status === 404)
+          && metadataQuery && queryClient.getQueryCache().find({ queryKey: metadataKey, exact: true }) === metadataQuery) {
+          queryClient.setQueryData<ChannelMetadata>(metadataKey, (metadata) => metadata
+            ? { ...metadata, historyVerification: undefined } : metadata)
+        }
+        throw error
+      }
     },
     enabled: !!dmId,
     staleTime: Infinity,
@@ -60,7 +83,8 @@ export function useDmReadStateSnapshot(
     refetchOnMount: "always",
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
-    retry: 1,
+    retry: (failureCount, error) => error.name !== "AbortError"
+      && !("status" in error && [403, 404].includes(Number(error.status))) && failureCount < 1,
   })
 
   const snapshotRef = useRef<DmReadStateSnapshot | null>(null)
@@ -84,6 +108,9 @@ export function useDmReadStateSnapshot(
   return {
     snapshot: snapshotRef.current ?? (!query.isFetching ? (query.data ?? null) : null),
     isFetching: snapshotRef.current === null && query.isFetching,
+    error: query.error,
+    retrying: query.isFetching,
+    retry: () => { void query.refetch({ cancelRefetch: false }) },
   }
   /* eslint-enable react-hooks/refs */
 }

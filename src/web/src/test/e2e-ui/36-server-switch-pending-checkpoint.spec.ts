@@ -361,6 +361,17 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
   await expectDesktopServerDetail(page, serverC)
   await expect(page.getByTestId(tid.channelSidebarPending(serverC))).toHaveCount(0)
   await expect(page.getByTestId(tid.channelRow(channelC))).toBeVisible({ timeout: 30_000 })
+  const firstCMain = page.locator('[data-slot="community-conversation-surface"]')
+  await expect(firstCMain).toBeVisible({ timeout: 30_000 })
+  await expect(firstCMain.getByTestId(tid.composerInput)).toBeVisible()
+  const rememberedC = await firstCMain.getAttribute("data-channel-id")
+  expect(rememberedC).not.toBeNull()
+  const rememberedCHref = `/c/channels/${serverC}/${encodeURIComponent(rememberedC!)}`
+  await expect.poll(() => new URL(page.url()).pathname).toBe(rememberedCHref)
+  await expect.poll(() => page.evaluate((key) => localStorage.getItem(key),
+    `community:lastChannel:${serverC}`)).toBe(rememberedC)
+  const rememberedCHeading = await firstCMain.getByRole("heading").innerText()
+  await expect(firstCMain.getByRole("heading", { name: rememberedCHeading, exact: true })).toBeVisible()
   const coldFrames = await sidebarFrames(page)
   const coldPendingFrames = coldFrames.filter((frame) => frame.pendingServer === serverC)
   expect(coldPendingFrames.length).toBeGreaterThan(0)
@@ -393,6 +404,13 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
     expect(targetRsc.requests()).toHaveLength(1)
     await expectDesktopServerDetail(page, serverC)
     await expect(page.getByTestId(tid.channelRow(channelC))).toBeVisible({ timeout: 30_000 })
+    await expect.poll(() => new URL(page.url()).pathname).toBe(rememberedCHref)
+    const restoredCMain = page.locator('[data-slot="community-conversation-surface"]')
+    await expect(restoredCMain).toHaveAttribute("data-channel-id", rememberedC!)
+    await expect(restoredCMain.getByRole("heading", { name: rememberedCHeading, exact: true })).toBeVisible()
+    await expect(restoredCMain.getByTestId(tid.composerInput)).toBeVisible()
+    await expect.poll(() => page.evaluate((key) => localStorage.getItem(key),
+      `community:lastChannel:${serverC}`)).toBe(rememberedC)
     expectAtomicTargetFrames(
       await sidebarFrames(page),
       `server:${serverC}`,
@@ -400,13 +418,11 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
       [channelA, channelB],
     )
     const navigationEvents = await historyEvents(page)
-    expect(navigationEvents).toHaveLength(2)
+    expect(navigationEvents).toHaveLength(1)
     expect(navigationEvents[0]).toEqual({
       kind: "pushState",
-      pathname: `/c/channels/${serverC}`,
+      pathname: rememberedCHref,
     })
-    expect(navigationEvents[1]).toMatchObject({ kind: "replaceState" })
-    expect(navigationEvents[1]?.pathname.startsWith(`/c/channels/${serverC}/`)).toBe(true)
   } finally {
     targetRsc.stop()
   }

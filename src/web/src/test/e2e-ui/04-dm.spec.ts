@@ -5,7 +5,6 @@ import { sendMessage } from "./_fixtures/actions"
 import { proxyCommunityWebSockets } from "./_fixtures/community-ws-proxy"
 import { seedDm, seedBlock, seedDmMessage } from "./_fixtures/seed"
 import { captureNotificationRequests, gotoAfterNotificationStartup, notificationPaths, notificationResponsesFinished } from "./_fixtures/community-notification-requests"
-import { DM_ROUTE_VERIFICATION_HEADER } from "@/hooks/community/use-dm-route-verification"
 import { lastMeLocationKey } from "@/lib/community/last-me-location"
 
 // Journey 4 — DMs. human↔human needs only not-blocked (no friendship). Covers
@@ -80,7 +79,7 @@ test.describe.serial("direct messages", () => {
     }
   })
 
-  test("a canonical DM skips authority and keeps known chrome while read-state and messages load", async ({ asUser }) => {
+  test("a canonical DM keeps its title while history permission gates body and composer", async ({ asUser }) => {
     const dmId = await seedDm("alice", userId("bob"))
     const body = `held DM message ${Date.now()}`
     const messageId = await seedDmMessage("bob", dmId, body)
@@ -101,11 +100,14 @@ test.describe.serial("direct messages", () => {
     })
 
     let releaseRead!: () => void
+    let readStarted!: () => void
     let readFinished!: () => void
     const readGate = new Promise<void>((resolve) => { releaseRead = resolve })
+    const readRequest = new Promise<void>((resolve) => { readStarted = resolve })
     const readSettled = new Promise<void>((resolve) => { readFinished = resolve })
     const readPattern = `**/api/community/channels/${dmId}/read-state`
     await alice.page.route(readPattern, async (route) => {
+      readStarted()
       try {
         await readGate
         await route.continue()
@@ -147,7 +149,10 @@ test.describe.serial("direct messages", () => {
       const dmTitle = alice.page.getByTestId(tid.dmHeaderTitle)
       await expect(dmHeader).toHaveCount(1, { timeout: 20_000 })
       await expect(dmTitle).toContainText(userName("bob"))
-      await expect(alice.page.getByTestId(tid.composerInput)).toBeVisible()
+      await readRequest
+      await expect(alice.page.locator('[data-onboarding-target="dm-composer"] [data-slot="skeleton"]').first()).toBeVisible()
+      await expect(alice.page.getByTestId(tid.composerInput)).toHaveCount(0)
+      await expect(alice.page.getByTestId(tid.message(messageId))).toHaveCount(0)
       await expect(alice.page.getByTestId(tid.messageScroller).locator('[data-slot="skeleton"]')).not.toHaveCount(0)
 
       releaseRead()
@@ -163,6 +168,7 @@ test.describe.serial("direct messages", () => {
 
       releaseMessages()
       await messagesSettled
+      await expect(alice.page.getByTestId(tid.composerInput)).toBeVisible()
       await expect(alice.page.getByTestId(tid.message(messageId))).toHaveCount(1)
       await expect(alice.page.getByText(body, { exact: false }).first()).toBeVisible({ timeout: 20_000 })
     } finally {
@@ -183,24 +189,17 @@ test.describe.serial("direct messages", () => {
     await alice.page.addInitScript((storageKey) => localStorage.removeItem(storageKey), lastMeLocationKey())
     const missingDmId = `dm-missing-${Date.now()}`
     let canonicalDmsGets = 0
-    let authorityDmsGets = 0
+    let metadataGets = 0
     const dmsPattern = "**/api/community/users/me/dms"
+    const metadataPattern = `**/api/community/channels/${missingDmId}`
     await alice.page.route(dmsPattern, async (route) => {
-      if (route.request().method() !== "GET") {
-        await route.continue()
-        return
-      }
-      if (route.request().headers()[DM_ROUTE_VERIFICATION_HEADER.toLowerCase()] !== "1") {
-        canonicalDmsGets += 1
-        await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ conversations: [] }) })
-        return
-      }
-      authorityDmsGets += 1
-      if (authorityDmsGets === 1) {
-        await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "temporary" }) })
-        return
-      }
+      canonicalDmsGets += 1
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ conversations: [] }) })
+    })
+    await alice.page.route(metadataPattern, async (route) => {
+      metadataGets += 1
+      await route.fulfill({ status: metadataGets === 1 ? 503 : 404,
+        contentType: "application/json", body: JSON.stringify({ error: metadataGets === 1 ? "temporary" : "missing" }) })
     })
 
     try {
@@ -217,15 +216,16 @@ test.describe.serial("direct messages", () => {
       await expect.poll(() => canonicalDmsGets).toBe(1)
       await expect(verificationAlert).toBeVisible()
       await expect(alice.page).toHaveURL(new RegExp(`/c/me/${missingDmId}$`))
-      expect(authorityDmsGets).toBe(1)
+      expect(metadataGets).toBe(1)
 
       await verificationAlert.getByRole("button", { name: "Retry" }).click()
-      await expect.poll(() => authorityDmsGets).toBe(2)
+      await expect.poll(() => metadataGets).toBe(2)
       expect(canonicalDmsGets).toBe(1)
       await expect.poll(() => new URL(alice.page.url()).pathname).toBe("/c/me/friends")
     } finally {
       wsProxy.releaseHeldConnections()
       await alice.page.unroute(dmsPattern)
+      await alice.page.unroute(metadataPattern)
     }
   })
 

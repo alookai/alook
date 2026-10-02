@@ -4,12 +4,14 @@ import {
   canonicalCommunityLeafPathname,
   clearCommunityColdEntryAttempts,
   commitLastCommunityRoute,
+  commitCommunityChannelRoute,
   consumeCommunityColdEntryFailure,
   getLastCommunityRoute,
   lastCommunityRouteKey,
   retireCommunityColdEntryAttempt,
   resolveCommunityColdEntryDestination,
 } from "./last-community-route"
+import { getLastChannel } from "./last-channel"
 
 describe("last-community-route", () => {
   let storage: Record<string, string>
@@ -33,6 +35,17 @@ describe("last-community-route", () => {
     commitLastCommunityRoute("user-b", "/c/me/machines")
     expect(getLastCommunityRoute("user-a")).toBe("/c/me/bots")
     expect(getLastCommunityRoute("user-b")).toBe("/c/me/machines")
+  })
+
+  it("commits the qualified target to both account and scope navigation memories", () => {
+    expect(commitCommunityChannelRoute("user-a", null, "dm_1")).toBe("/c/me/dm_1")
+    expect(getLastCommunityRoute("user-a")).toBe("/c/me/dm_1")
+    expect(getLastChannel("me")).toBe("dm_1")
+    expect(commitCommunityChannelRoute("user-b", "server_1", "channel_1")).toBe("/c/channels/server_1/channel_1")
+    expect(getLastCommunityRoute("user-a")).toBe("/c/me/dm_1")
+    expect(getLastChannel("server_1")).toBe("channel_1")
+    expect(commitCommunityChannelRoute("", null, "dm_2")).toBeNull()
+    expect(getLastChannel("me")).toBe("dm_1")
   })
 
   it.each([

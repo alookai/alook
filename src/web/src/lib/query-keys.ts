@@ -34,8 +34,9 @@ export const communityKeys = {
     [...communityKeys.forumSidebarRetainedRoot(serverId), childId] as const,
   channelMetaRoot: (serverId: string) =>
     [...communityKeys.server(serverId), "channel-meta"] as const,
-  channelMeta: (serverId: string, channelId: string) =>
-    [...communityKeys.channelMetaRoot(serverId), channelId] as const,
+  channelMeta: (serverId: string | null, channelId: string) => serverId === null
+    ? [...communityKeys.all, "channel", channelId, "metadata"] as const
+    : [...communityKeys.channelMetaRoot(serverId), channelId] as const,
   forumOpenerHintRoot: (serverId: string) =>
     [...communityKeys.server(serverId), "forum-opener-hint"] as const,
   forumOpenerHint: (serverId: string, messageId: string) =>
@@ -140,8 +141,6 @@ export const communityKeys = {
   friends: () => [...communityKeys.all, "friends"] as const,
   friendsPresence: () => [...communityKeys.friends(), "presence"] as const,
   dms: () => [...communityKeys.all, "dms"] as const,
-  dmRouteVerification: (dmId: string) =>
-    [...communityKeys.all, "dm-route-verification", dmId] as const,
   folders: () => [...communityKeys.all, "folders"] as const,
 
   // ── Machines / daemons ──────────────────────────────────────────────────

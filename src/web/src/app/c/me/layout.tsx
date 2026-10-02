@@ -4,37 +4,25 @@ import { useCallback, useEffect, useMemo, type ReactNode } from "react"
 import {
   useParams,
   usePathname,
-  useRouter,
   useSelectedLayoutSegments,
 } from "next/navigation"
 import { ShellFrame } from "@/components/community/shell/shell-frame"
-import { CommunityPendingFrame } from "@/components/community/shell/community-pending-frame"
-import { DmRouteErrorFrame } from "@/components/community/channels/dm-route-error-frame"
+import { DmRoute } from "@/components/community/channels/dm-route"
 import { DmSidebar } from "@/components/community/channels/dm-sidebar"
 import { useCommunityStore, useCurrentChannelId } from "@/stores/community"
 import { useDms } from "@/hooks/community/use-dms"
-import { useDmRouteVerification } from "@/hooks/community/use-dm-route-verification"
 import { useFriends, useFriendsPresence } from "@/hooks/community/use-friends"
 import { useInboxUnreads } from "@/hooks/community/use-inbox"
 import { useCurrentUser } from "@/contexts/community/current-user"
 import {
-  clearLastMeLocation,
-  getLastMeLeaf,
-  ME_ROOT,
-  meLeafFromPathname,
-  resolveMeLocationStatus,
+  isRememberableMeLocation,
   setLastMeLocation,
 } from "@/lib/community/last-me-location"
-import {
-  COMMUNITY_COLD_ENTRY_FALLBACK,
-  commitLastCommunityRoute,
-  consumeCommunityColdEntryFailure,
-} from "@/lib/community/last-community-route"
+import { commitLastCommunityRoute } from "@/lib/community/last-community-route"
 
 // DM-side layout. The DM subtree has no server settings, no channel sidebar,
 // and no `[serverId]` param — everything is scoped to the current user.
 export default function MeLayout({ children }: { children: ReactNode }) {
-  const router = useRouter()
   const pathname = usePathname()
   const currentUser = useCurrentUser()
   const params = useParams<{ dmId?: string }>()
@@ -45,16 +33,10 @@ export default function MeLayout({ children }: { children: ReactNode }) {
   const {
     dms,
     isLoading: dmsLoading,
-    isPending: dmsPending,
   } = useDms()
-  const canonicalDmsUnsettled = dmsPending
-  const dmRouteVerification = useDmRouteVerification(params.dmId, dms, canonicalDmsUnsettled)
   const { blocked } = useFriends()
   const friendRequestCount = useInboxUnreads().friendRequests.length
   const currentChannelId = useCurrentChannelId()
-  const cancelPendingNavigation = useCallback(() => {
-    useCommunityStore.getState().uiHandlers.cancelPendingNavigation?.()
-  }, [])
 
   // Clear the active server when entering the DM home. `currentServerId ===
   // null` is the canonical "no server focused" state — no need for a "@me"
@@ -70,27 +52,13 @@ export default function MeLayout({ children }: { children: ReactNode }) {
   const machinesActive = pathname === "/c/me/machines"
   const botsActive = pathname === "/c/me/bots"
   const friendsActive = pathname === "/c/me/friends"
-
-  const meLocationStatus = resolveMeLocationStatus({
-    pathname,
-    dmId: params.dmId,
-    dmRouteStatus: dmRouteVerification.status,
-  })
+  const staticModuleActive = machinesActive || botsActive || friendsActive
 
   useEffect(() => {
-    if (meLocationStatus === "remember") {
-      setLastMeLocation(pathname)
-      commitLastCommunityRoute(currentUser.id, pathname)
-      return
-    }
-    if (meLocationStatus !== "stale") return
-    if (getLastMeLeaf() === meLeafFromPathname(pathname)) clearLastMeLocation()
-    cancelPendingNavigation()
-    const destination = consumeCommunityColdEntryFailure(currentUser.id, pathname)
-      ? COMMUNITY_COLD_ENTRY_FALLBACK
-      : ME_ROOT
-    router.replace(destination)
-  }, [cancelPendingNavigation, currentUser.id, meLocationStatus, pathname, router])
+    if (params.dmId || !staticModuleActive || !isRememberableMeLocation(pathname)) return
+    setLastMeLocation(pathname)
+    commitLastCommunityRoute(currentUser.id, pathname)
+  }, [currentUser.id, params.dmId, pathname, staticModuleActive])
 
   // Navigation is intentionally read-neutral. The visible-row observer owns
   // both optimistic clearing and the durable cursor write.
@@ -142,13 +110,8 @@ export default function MeLayout({ children }: { children: ReactNode }) {
       frameHref={structuralFrameHref}
       sidebar={sidebar}
     >
-      {params.dmId && dmRouteVerification.status === "error"
-        ? <DmRouteErrorFrame
-            onRetry={dmRouteVerification.retry}
-            retrying={dmRouteVerification.retrying}
-          />
-        : params.dmId && meLocationStatus !== "remember"
-        ? <CommunityPendingFrame href={pathname} />
+      {params.dmId
+        ? <DmRoute key={`${currentUser.id}/${params.dmId}`} dmId={params.dmId} />
         : children}
     </ShellFrame>
   )

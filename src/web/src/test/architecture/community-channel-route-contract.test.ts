@@ -58,7 +58,7 @@ describe("flat Community channel route contract", () => {
       join(SRC_ROOT, "lib/community/last-channel.ts"),
       "utf8",
     )
-    expect(source.match(/includes\("\/"\)/g)).toHaveLength(3)
+    expect(source.match(/includes\("\/"\)/g)).toHaveLength(2)
     expect(source).toContain("clearNavigationMemory(key)")
   })
 })
