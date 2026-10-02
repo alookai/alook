@@ -107,10 +107,8 @@ export function UserBarExtensionSlot({
       data-presentation={presentation}
       tabIndex={-1}
       className={cn(
-        "relative min-h-0 origin-bottom overflow-hidden text-popover-foreground",
-        unframedMobileProfile
-          ? "bg-transparent shadow-none [clip-path:inset(-2rem_-2rem_0)]"
-          : "border-border/40 bg-popover shadow-(--e2)",
+        "relative min-h-0 origin-bottom",
+        !unframedMobileProfile && "overflow-hidden border-border/40 bg-popover text-popover-foreground shadow-(--e2)",
         presentation === "popup"
           ? "rounded-xl border"
           : !unframedMobileProfile && "rounded-t-xl border-x border-t [clip-path:inset(-2rem_-2rem_0)]",
@@ -131,7 +129,7 @@ export function UserBarExtensionSlot({
           style={{ maxHeight: boundedHeight }}
         >
           {profileCompanion && <div className="flex min-h-0 flex-col">{profileCompanion}</div>}
-          <div className={cn("shrink-0", unframedMobileProfile && "overflow-hidden rounded-xl border border-border bg-popover p-2")}>{profile}</div>
+          <div className="shrink-0">{profile}</div>
         </div>
       )}
       {active === "update" && update && (

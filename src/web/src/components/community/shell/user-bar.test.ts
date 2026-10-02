@@ -23,7 +23,11 @@ describe("UserBar", () => {
     expect(running).toContain("pointer-events-none absolute -inset-px")
     expect(running).toContain("focus-visible:ring-offset-4")
     expect(running).toContain("focus-visible:ring-offset-muted")
-    expect(running).toContain("var(--primary)")
+    expect(running).toContain("var(--running-bots-primary)")
+    expect(readFileSync(new URL("../../../app/globals.css", import.meta.url), "utf8"))
+      .toContain("--running-bots-primary: oklch(0.9 0.008 80);")
+    expect(running).not.toContain("color-mix")
+    expect(running).not.toContain("var(--primary)")
     expect(running).not.toContain("var(--status-online)")
     expect(idle).toContain('aria-label="Open profile"')
     expect(idle).not.toContain(tid.userBarRunningBotsRing)
@@ -100,7 +104,7 @@ describe("UserBar", () => {
     expect(html).not.toContain("<a")
   })
 
-  it("joins the mobile Inbox to the user bar without seam radii", () => {
+  it("joins the mobile Inbox and Profile to the user bar without seam radii", () => {
     const openHtml = renderToStaticMarkup(createElement(UserBar, {
       breakpoint: "mobile",
       user: { id: "u1", name: "User", avatar: "U" },
@@ -135,7 +139,7 @@ describe("UserBar", () => {
       },
     }))
     expect(profileHtml).toContain(
-      'class="flex h-12 items-center gap-3 border border-border/40 bg-muted px-4 rounded-xl"',
+      'class="flex h-12 items-center gap-3 border border-border/40 bg-muted px-4 rounded-b-xl"',
     )
   })
 

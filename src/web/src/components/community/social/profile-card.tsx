@@ -350,7 +350,7 @@ function ProfileCardContent({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
   ) : null
 
   if (extension)
-    return <div data-testid={tid.profileCard} className="w-full">{card}</div>
+    return <div data-testid={tid.profileCard} className={mobile ? "w-full overflow-hidden rounded-t-xl border-x border-t border-border/40 bg-popover p-2" : "w-full"}>{card}</div>
 
   if (embedded)
     return (

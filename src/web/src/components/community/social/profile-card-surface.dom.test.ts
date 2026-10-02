@@ -144,7 +144,7 @@ describe("ProfileCard surface contracts", () => {
     ))
 
     const profile = renderer.getByTestId("community-profile-card")
-    expect(profile.className).toBe("w-full")
+    expect(profile.className).toBe("w-full overflow-hidden rounded-t-xl border-x border-t border-border/40 bg-popover p-2")
     expect(renderer.container.querySelectorAll("sheet-root")).toHaveLength(0)
     expect(renderer.container.querySelectorAll("popover-root")).toHaveLength(0)
   })

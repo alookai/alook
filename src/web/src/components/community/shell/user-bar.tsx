@@ -63,7 +63,7 @@ export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox,
   const mobile = breakpoint === "mobile"
   const joinedMobileExtension = mobile && (
     inboxOpen
-    || Boolean(extension && extension.active !== "none" && extension.active !== "profile")
+    || Boolean(extension && extension.active !== "none")
   )
   const closeInboxForAction = () => {
     if (inboxOpen) onInboxOpenChange?.(false)
@@ -222,12 +222,12 @@ function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnrea
               <span
                 data-testid={tid.userBarRunningBotsGlow}
                 aria-hidden
-                className="user-bar-running-bots-glow pointer-events-none absolute -inset-1 rounded-full opacity-40 blur-[5px] [background:conic-gradient(from_30deg,var(--link),var(--primary),var(--link))]"
+                className="user-bar-running-bots-glow pointer-events-none absolute -inset-1 rounded-full opacity-40 blur-[5px] [background:conic-gradient(from_30deg,var(--link),var(--running-bots-primary),var(--link))]"
               />
               <span
                 data-testid={tid.userBarRunningBotsRing}
                 aria-hidden
-                className="pointer-events-none absolute -inset-px rounded-full [background:conic-gradient(from_30deg,var(--link),var(--primary),var(--link))]"
+                className="pointer-events-none absolute -inset-px rounded-full [background:conic-gradient(from_30deg,var(--link),var(--running-bots-primary),var(--link))]"
               />
             </>
           )}

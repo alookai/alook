@@ -472,6 +472,7 @@ body.driver-active .community-ws-reconnect-overlay * {
   --popover-foreground: oklch(0.18 0.03 230);
   --primary: oklch(0.22 0.03 230);
   --primary-foreground: oklch(0.985 0.005 80);
+  --running-bots-primary: oklch(0.9 0.008 80);
   --composer-send-active: #34c759;
   --composer-send-active-foreground: #fff;
   --apple-signin: oklch(0 0 0);

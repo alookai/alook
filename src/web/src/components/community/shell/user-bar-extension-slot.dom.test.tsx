@@ -34,7 +34,7 @@ const machines = [{
 }]
 
 describe("UserBarExtensionSlot", () => {
-  it("keeps the mobile primary card framed and gives only the companion the shrink budget", () => {
+  it("leaves mobile profile styling to the content and gives only the companion the shrink budget", () => {
     const renderer = render(createElement(UserBarExtensionSlot, {
       active: "profile",
       profile: createElement("div", { "data-testid": "profile-content" }, "Profile"),
@@ -49,18 +49,11 @@ describe("UserBarExtensionSlot", () => {
     const slot = renderer.getByTestId(tid.userBarExtension)
     const scroller = renderer.getByTestId("profile-content").parentElement?.parentElement
     expect(slot.style.maxHeight).toContain("100dvh")
-    expect(slot.className).toContain("bg-transparent")
-    expect(slot.className).toContain("shadow-none")
-    expect(slot.className).not.toContain("border-border/40")
-    expect(slot.className).not.toContain("border-x")
-    expect(slot.className).not.toContain("border-t")
+    expect(slot.className).not.toMatch(/bg-|shadow-|border|rounded|overflow-|clip-path|text-popover-foreground/)
     expect(scroller?.className).toContain("min-h-0")
     expect(scroller?.className).not.toContain("overflow-y-auto")
     expect(scroller?.style.maxHeight).toContain("100dvh")
-    expect(renderer.getByTestId("profile-content").parentElement?.className).toContain("shrink-0")
-    expect(renderer.getByTestId("profile-content").parentElement?.className).toContain("bg-popover")
-    expect(renderer.getByTestId("profile-content").parentElement?.className).toContain("rounded-xl")
-    expect(renderer.getByTestId("profile-content").parentElement?.className).not.toContain("shadow-")
+    expect(renderer.getByTestId("profile-content").parentElement?.className).toBe("shrink-0")
     const companionSurface = renderer.getByTestId("profile-companion").parentElement
     expect(companionSurface?.className).toContain("min-h-0")
     expect(companionSurface?.className).toContain("flex-col")
