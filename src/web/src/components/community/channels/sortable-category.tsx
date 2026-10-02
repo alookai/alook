@@ -2,13 +2,12 @@
 
 import { useState } from "react"
 import type React from "react"
-import { Plus, Settings, Trash2 } from "lucide-react"
+import { ChevronDown, Plus, Settings, Lock, Trash2 } from "lucide-react"
 import { useSortable } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { DropLine } from "../drop-line"
-import { ChannelCategory } from "./channel-category"
 
 // True when the category header has at least one right-click action. With none, we skip
 // the ContextMenu wrapper so a non-admin doesn't get an empty popover strip.
@@ -48,28 +47,69 @@ export function SortableCategory({ id: catDndId, name, open, onToggle, onAddChan
     onTouchStartCapture: listeners?.onTouchStart
       ? (event: React.TouchEvent<HTMLDivElement>) => listeners.onTouchStart?.(event)
       : undefined,
-    className: canReorder ? "cursor-grab active:cursor-grabbing" : "cursor-pointer",
+    onClick: onToggle,
+    className: `group flex w-full touch-manipulation items-center gap-1 rounded px-1 py-1 text-xs font-semibold text-muted-foreground/80 select-none hover:text-foreground ${canReorder ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"}`,
   }
+  const headerInner = (
+    <>
+      {/* Always reserve the lock's slot so public + private category names share
+          the same left edge (private shows the Lock, public a same-size spacer). */}
+      {isPrivate ? <Lock className="size-3 shrink-0" /> : <span className="size-3 shrink-0" aria-hidden="true" />}
+      <span className="flex-1 truncate text-left">{name}</span>
+      {onSettings && (
+      <button
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => { e.stopPropagation(); onSettings() }}
+        className="grid size-4 place-items-center rounded opacity-0 hover:bg-accent group-hover:opacity-100"
+        aria-label={`Category settings for ${name}`}
+      >
+        <Settings className="size-3.5" />
+      </button>
+      )}
+      {onAddChannel && (
+      <button
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => { e.stopPropagation(); onAddChannel() }}
+        className="grid size-4 place-items-center rounded opacity-0 hover:bg-accent group-hover:opacity-100"
+        aria-label={`Create channel in ${name}`}
+      >
+        <Plus className="size-3.5" />
+      </button>
+      )}
+      <ChevronDown className={`size-3 shrink-0 transition-transform ${open ? "" : "-rotate-90"}`} />
+    </>
+  )
   return (
     <div ref={setNodeRef} style={style} className={`relative mb-4 ${pending ? "opacity-60" : ""}`}>
       {showLine && <DropLine side={lineSide} />}
-      <ChannelCategory
-        name={name} open={open} onToggle={onToggle} isPrivate={isPrivate}
-        onSettings={onSettings} onAddChannel={onAddChannel} headerProps={headerProps} highlighted={isOver}
-        renderHeader={hasCategoryMenu({ onAddChannel, onSettings, onDelete }) ? (header) => (
-          <ContextMenu>
-            <ContextMenuTrigger render={header} />
-            <ContextMenuContent className="w-48">
-              <div className="truncate px-2 py-2 text-xs font-semibold text-muted-foreground">{name}</div>
-              {onAddChannel && <ContextMenuItem onClick={onAddChannel}><Plus className="size-4" /> Create channel</ContextMenuItem>}
-              {onSettings && <ContextMenuItem onClick={onSettings}><Settings className="size-4" /> Category settings</ContextMenuItem>}
-              {onDelete && <><ContextMenuSeparator /><ContextMenuItem onClick={() => setConfirmingDelete(true)} className="text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive"><Trash2 className="size-4" /> Delete category</ContextMenuItem></>}
-            </ContextMenuContent>
-          </ContextMenu>
-        ) : undefined}
-      >
-        {children}
-      </ChannelCategory>
+      {hasCategoryMenu({ onAddChannel, onSettings, onDelete }) ? (
+      <ContextMenu>
+        <ContextMenuTrigger render={<div {...headerProps} />}>
+          {headerInner}
+        </ContextMenuTrigger>
+        <ContextMenuContent className="w-48">
+          <div className="truncate px-2 py-2 text-xs font-semibold text-muted-foreground">{name}</div>
+          {onAddChannel && <ContextMenuItem onClick={onAddChannel}><Plus className="size-4" /> Create channel</ContextMenuItem>}
+          {onSettings && <ContextMenuItem onClick={onSettings}><Settings className="size-4" /> Category settings</ContextMenuItem>}
+          {onDelete && (
+            <>
+              <ContextMenuSeparator />
+              <ContextMenuItem
+                onClick={() => setConfirmingDelete(true)}
+                className="text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive"
+              ><Trash2 className="size-4" /> Delete category</ContextMenuItem>
+            </>
+          )}
+        </ContextMenuContent>
+      </ContextMenu>
+      ) : (
+        <div {...headerProps}>{headerInner}</div>
+      )}
+      {open && (
+        <div className={`rounded-md transition-colors ${isOver ? "bg-accent/40" : ""}`}>
+          {children}
+        </div>
+      )}
       {onDelete && (
         <ConfirmDialog
           open={confirmingDelete}

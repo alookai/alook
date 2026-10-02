@@ -27,12 +27,12 @@ describe("read-only channel metadata", () => {
     expect(screen.getByText("Deleted user")).toBeVisible()
     expect(screen.queryByRole("link")).not.toBeInTheDocument()
     expect(screen.getByLabelText("Private group")).toBeVisible()
-    expect(screen.getByLabelText("Public group")).toBeVisible()
+    expect(screen.queryByLabelText("Public group")).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Group: PRIVATE GROUP" })).toHaveAttribute("aria-expanded", "true")
     expect(screen.getAllByRole("listitem")).toHaveLength(2)
   })
 
-  it("collapses and expands the shared group without navigating or fetching again", async () => {
+  it("collapses and expands the settings group without navigating or fetching again", async () => {
     query.channels = [{ id: "private", name: "private-forum", type: "forum", category: { id: "cat", name: "PRIVATE GROUP", private: true }, creator: null, createdAt: "2026-10-01T00:00:00.000Z" }]
     const user = setupUser()
     render(createElement(ServerSettingsChannels, { serverId: "server-1" }))
@@ -43,6 +43,9 @@ describe("read-only channel metadata", () => {
     await user.keyboard("{Enter}")
     expect(toggle).toHaveAttribute("aria-expanded", "true")
     expect(screen.getByTestId(tid.settingsChannel("private"))).toBeVisible()
+    await user.keyboard(" ")
+    expect(toggle).toHaveAttribute("aria-expanded", "false")
+    expect(screen.queryByTestId(tid.settingsChannel("private"))).not.toBeInTheDocument()
     expect(query.refetch).not.toHaveBeenCalled()
   })
 
