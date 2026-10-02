@@ -50,6 +50,8 @@ export const communityKeys = {
     [...communityKeys.server(serverId), "presence"] as const,
   invites: (serverId: string) =>
     [...communityKeys.server(serverId), "invites"] as const,
+  adminChannels: (serverId: string) =>
+    [...communityKeys.server(serverId), "admin-channels"] as const,
   invitableFriends: (serverId: string) =>
     [...communityKeys.server(serverId), "invitable-friends"] as const,
   // Server metadata fetched for an inline invite card (token → serverName /
